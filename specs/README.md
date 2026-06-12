@@ -63,7 +63,8 @@ Each spec follows the same skeleton:
 | [0028](0028-security-hardening/spec.md) | Security hardening (XSS, CORS, rate limits, headers, deps) | ✅ Shipped | 2026-06-12 | `972d29a` |
 | [0029](0029-security-followups/spec.md) | Security follow-ups (upload throttle, PDF timeout, rate-limiter eviction, CI audit) | ✅ Shipped | 2026-06-12 | `48e4277` |
 | [0030](0030-mobile-bitrate-weak-network/spec.md) | Mobile-friendly video bitrate + weak-network warning | ✅ Shipped | 2026-06-12 | `d78c37d` |
-| [0031](0031-adaptive-bitrate/spec.md) | Room-size-adaptive video bitrate (budget ÷ peers) | ✅ Shipped | 2026-06-12 | (this PR) |
+| [0031](0031-adaptive-bitrate/spec.md) | Room-size-adaptive video bitrate (budget ÷ peers) | ✅ Shipped | 2026-06-12 | `3a4a78f` |
+| [0032](0032-adaptive-budget/spec.md) | Network-adaptive video budget (AIMD via getStats) | ✅ Shipped | 2026-06-12 | (this PR) |
 
 > Numbers 0011–0015 were claimed by commit messages while the AI bundle shipped
 > without spec docs (and 0011/0012 were each reused twice); the assignments

@@ -21,6 +21,9 @@ export class MeshManager {
   private send: (s: Signal) => void;
   private iceServers: RTCIceServer[];
   private videoBudget: number;
+  /** Live budget (spec 0032): backs off under a struggling uplink, recovers toward
+   *  `videoBudget` when healthy. `targetBitrate()` divides THIS across the peers. */
+  private currentBudget: number;
   private statsTimer: ReturnType<typeof setInterval> | null = null;
 
   onRemoteStream: (peerId: string, stream: MediaStream) => void = () => {};
@@ -39,6 +42,7 @@ export class MeshManager {
     this.send = send;
     this.iceServers = iceServers;
     this.videoBudget = videoBudget;
+    this.currentBudget = videoBudget;
   }
 
   /** Replace the local stream's tracks on all peers (e.g. after a device change). */
@@ -171,7 +175,7 @@ export class MeshManager {
   private targetBitrate(): number {
     return Math.max(
       MIN_VIDEO_BITRATE,
-      Math.floor(this.videoBudget / Math.max(1, this.peers.size)),
+      Math.floor(this.currentBudget / Math.max(1, this.peers.size)),
     );
   }
 
@@ -220,6 +224,15 @@ export class MeshManager {
             /* ignore a transient getStats failure */
           }
         }
+        // Adapt the budget (spec 0032): multiplicative decrease when the uplink
+        // struggles, gentle increase back toward the max when it's healthy. The
+        // per-stream floor + the browser's own congestion control still apply.
+        const before = this.currentBudget;
+        this.currentBudget = weak
+          ? Math.max(MIN_VIDEO_BITRATE, Math.floor(this.currentBudget * 0.75))
+          : Math.min(this.videoBudget, Math.floor(this.currentBudget * 1.2));
+        if (this.currentBudget !== before) void this.applyBitrate();
+
         weakStreak = weak ? weakStreak + 1 : 0;
         if (weakStreak >= 2) {
           weakStreak = 0;
