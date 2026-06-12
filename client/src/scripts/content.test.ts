@@ -87,4 +87,13 @@ describe('renderMarkdown', () => {
     expect(html).toContain('&lt;script&gt;');
     expect(html).not.toContain('<script>');
   });
+
+  it('neutralizes dangerous link schemes but keeps relative + http links (spec 0028)', () => {
+    expect(renderMarkdown('[x](javascript:alert(1))')).toContain('href="#"');
+    expect(renderMarkdown('[x](javascript:alert(1))')).not.toContain('javascript:');
+    expect(renderMarkdown('[x](DATA:text/html,evil)')).toContain('href="#"');
+    // Legitimate links are untouched.
+    expect(renderMarkdown('[t](/terms)')).toContain('href="/terms"');
+    expect(renderMarkdown('[h](https://x.test)')).toContain('href="https://x.test"');
+  });
 });

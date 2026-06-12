@@ -47,6 +47,7 @@ use futures::{SinkExt, StreamExt};
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use tokio::sync::oneshot;
 use tower_http::cors::CorsLayer;
+use tower_http::set_header::SetResponseHeaderLayer;
 use tower_http::trace::TraceLayer;
 use uuid::Uuid;
 
@@ -177,6 +178,34 @@ impl AppState {
 
 /// Build the Axum router (routes + middleware) for the given state.
 pub fn app(state: AppState) -> Router {
+    // CORS (spec 0028): when ALLOWED_ORIGINS is set, restrict to that allowlist;
+    // otherwise stay permissive for local dev. Previously `permissive()` was used
+    // on every route and the parsed `allowed_origins` was dead code, so any site
+    // could call the API from a browser. (Auth is a Bearer header, no cookies, so
+    // this was not credentialed-CSRF — but it left expensive endpoints open.)
+    let cors = if state.config.allowed_origins.is_empty() {
+        CorsLayer::permissive()
+    } else {
+        let origins: Vec<axum::http::HeaderValue> = state
+            .config
+            .allowed_origins
+            .iter()
+            .filter_map(|o| o.parse().ok())
+            .collect();
+        CorsLayer::new()
+            .allow_origin(origins)
+            .allow_methods([
+                axum::http::Method::GET,
+                axum::http::Method::POST,
+                axum::http::Method::PATCH,
+                axum::http::Method::DELETE,
+                axum::http::Method::OPTIONS,
+            ])
+            .allow_headers([
+                axum::http::header::AUTHORIZATION,
+                axum::http::header::CONTENT_TYPE,
+            ])
+    };
     Router::new()
         .route("/ws", get(ws_handler))
         .route("/rooms", get(rooms_handler))
@@ -264,7 +293,13 @@ pub fn app(state: AppState) -> Router {
         .route("/api/admin/report/resolve", post(admin::resolve_report))
         .route("/api/admin/user/delete", post(admin::delete_user))
         .layer(TraceLayer::new_for_http())
-        .layer(CorsLayer::permissive())
+        .layer(cors)
+        // Don't let browsers MIME-sniff responses (matters for the file/transcript
+        // download endpoints) — spec 0028.
+        .layer(SetResponseHeaderLayer::if_not_present(
+            axum::http::header::X_CONTENT_TYPE_OPTIONS,
+            axum::http::HeaderValue::from_static("nosniff"),
+        ))
         .with_state(state)
 }
 
@@ -747,8 +782,12 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
                             );
                         }
                         Ok(ClientMessage::Chat { text }) => {
-                            // Moderate chat too: block + warn the sender on a hit.
-                            if state.moderator.severity(&text) == Severity::Severe {
+                            // Cap chat size before any work — an unbounded message would
+                            // drive the Groq translation fan-out + DB writes (spec 0028).
+                            if text.len() > 8 * 1024 {
+                                // A real client never sends this; drop the oversized frame.
+                            } else if state.moderator.severity(&text) == Severity::Severe {
+                                // Moderate chat too: block + warn the sender on a hit.
                                 let _ = out_tx.send(
                                     ServerMessage::ModerationWarning {
                                         message: "Your message was blocked by moderation."

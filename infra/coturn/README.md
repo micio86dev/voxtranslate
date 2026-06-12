@@ -12,73 +12,49 @@ credentials with coturn's REST-API convention. So the client never holds a long-
 TURN secret. This runbook self-hosts coturn; a managed TURN (Metered / Cloudflare /
 Twilio) is a lower-ops alternative if the networking below bites.
 
-> ⚠️ **Honest caveat.** TURN on a PaaS is finicky: the relay needs the **public IP
-> advertised** (`external-ip`) and a **publicly-reachable UDP port range**. This
-> config is a validated *starting point*, not a turnkey artifact — test it (see
-> "Verify" below) before trusting it in prod. **Railway is a poor fit** (no real
-> UDP); use **Fly.io** (UDP support + dedicated IPv4) or a plain VPS.
+> ⚠️ **Honest caveat.** TURN on a PaaS is finicky. We run coturn on **Railway**
+> (same account, no new vendor) over **TCP/TLS only** — Railway doesn't do UDP
+> well, and TCP/TLS on a single port is the most firewall-friendly path anyway.
+> Trade-off: relayed (fallback) calls take TCP's head-of-line latency on bad
+> networks; the majority of calls are direct UDP P2P and are unaffected. This
+> config is a *starting point* — verify a `relay` candidate appears (see "Verify")
+> before trusting it. **If Railway's relay-port reachability fights you, point
+> `TURN_URLS`/creds at a free managed relay (Metered Open Relay / Cloudflare TURN)
+> instead — zero code change**, the `/api/ice` plumbing is provider-agnostic.
 
-## 1. Deploy coturn on Fly.io
+## 1. Deploy coturn on Railway (TCP/TLS, same account)
 
-```bash
-fly launch --no-deploy --image coturn/coturn:4.6 --name vox-turn
-fly ips allocate-v4               # a DEDICATED IPv4 — note it; it's your external-ip
-fly secrets set TURN_SECRET=$(openssl rand -hex 32) \
-               TURN_REALM=turn.<your-domain> \
-               TURN_EXTERNAL_IP=<the dedicated IPv4 from above>
+Create a **new service** in the same Railway project from the Docker image
+`coturn/coturn:4.6`. Mount this repo's `infra/coturn/turnserver.conf` at
+`/etc/coturn/turnserver.conf` (or paste it as the command/config), and set the
+service variables:
+
+```
+TURN_SECRET      = <openssl rand -hex 32>     # the SAME value you set on the app server
+TURN_REALM       = <your coturn domain/host>
+TURN_EXTERNAL_IP = <the service's public IP>  # see note
 ```
 
-Mount `turnserver.conf` (env placeholders are expanded by coturn ≥4.6) and expose
-the ports in `fly.toml`:
-
-```toml
-app = "vox-turn"
-[build]
-  image = "coturn/coturn:4.6"
-
-# STUN/TURN signaling
-[[services]]
-  protocol = "udp"
-  internal_port = 3478
-  [[services.ports]]
-    port = 3478
-[[services]]
-  protocol = "tcp"
-  internal_port = 3478
-  [[services.ports]]
-    port = 3478
-# turns: over TLS/TCP — the most firewall-friendly path, ONE port (recommended primary)
-[[services]]
-  protocol = "tcp"
-  internal_port = 5349
-  [[services.ports]]
-    port = 5349
-# Relay UDP range — must match min-port/max-port in turnserver.conf. Mapping a
-# wide range on a PaaS is awkward; keep it narrow (here 49160–49200).
-[[services]]
-  protocol = "udp"
-  internal_port = 49160          # repeat per port, or prefer turns:/TCP above
-```
-
-> If exposing the UDP relay range is painful, lean on **`turns:` over TCP/TLS on
-> 5349 (or 443)** — a single port that traverses strict firewalls. Slightly higher
-> latency than UDP relay, but it reliably connects.
-
-```bash
-fly deploy
-```
+- **Expose a TCP port.** In the service's **Settings → Networking**, add a **TCP
+  Proxy** for coturn's listening port `3478`. Railway returns a `host:port` — that's
+  your TURN endpoint. (No UDP proxy: Railway doesn't expose UDP, so we go TCP-only.)
+- **`external-ip`.** coturn must advertise the address clients reach it on. Resolve
+  the Railway TCP-proxy host to its IP for `TURN_EXTERNAL_IP`, or use coturn's
+  `external-ip=<private>/<public>` form if Railway NATs the container.
+- **TLS (`turns:`) is optional** and needs a cert *at coturn*; start with plain
+  `turn:...?transport=tcp` and add TLS only if a strict firewall blocks it.
 
 ## 2. Point the app server at it
 
 On the **voxtranslate-server** (Railway) service, set:
 
 ```
-TURN_URLS = turns:turn.<your-domain>:5349?transport=tcp,turn:turn.<your-domain>:3478?transport=udp
+TURN_URLS   = turn:<railway-coturn-host>:<tcp-port>?transport=tcp
 TURN_SECRET = <the SAME value as coturn's TURN_SECRET>
 TURN_TTL_SECS = 3600        # optional, default 3600
 ```
 
-Redeploy. `GET /api/ice` now returns the TURN server with a fresh
+Redeploy (`railway up`). `GET /api/ice` now returns the TURN server with a fresh
 `username`/`credential` per request; the client fetches it before each call.
 
 ## 3. Verify
