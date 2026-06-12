@@ -746,10 +746,7 @@ fn broadcast_glossary(state: &AppState, room: &str, g: &RoomGlossary) {
 /// `GET /api/rooms/{room}/glossary` — the room's glossary (empty when none).
 /// No auth required: the room code is the access control (anyone who can type
 /// the code is already in the room).
-pub async fn glossary_get(
-    State(state): State<AppState>,
-    Path(room): Path<String>,
-) -> Response {
+pub async fn glossary_get(State(state): State<AppState>, Path(room): Path<String>) -> Response {
     let Some(svc) = state.glossary.as_ref() else {
         return service_unavailable();
     };
