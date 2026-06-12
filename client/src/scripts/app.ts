@@ -680,6 +680,10 @@ async function handleServer(msg: any): Promise<void> {
       }
       updateParticipantsList();
       break;
+    case 'screen_share':
+      setScreenShareIndicator(msg.peer_id, msg.active);
+      layoutVideos(); // re-evaluate mobile pan/zoom gating for the focused tile
+      break;
     case 'language_detected': {
       // A peer's "auto" was resolved by the server probe (confidence present)
       // or manually corrected via set_lang (confidence absent). Refresh their
@@ -910,62 +914,77 @@ function disablePan(cell: HTMLElement): void {
   cell.classList.remove('pan-mode');
   const v = cell.querySelector<HTMLVideoElement>('video');
   if (v) v.style.transform = '';
+  const panned = cell as unknown as { _panAbort?: AbortController };
+  panned._panAbort?.abort(); // tears down the touch + button listeners
+  delete panned._panAbort;
   cell.querySelector('.pan-toggle')?.remove();
   cell.querySelector('.pan-hint')?.remove();
 }
 
+// Pan + pinch-zoom a screen-share tile on mobile (spec 0033): the ⊕ button enters
+// "pan-mode", then one finger drags (translate) and two fingers pinch (scale).
+// Listeners + button are scoped to an AbortController so re-sharing rebuilds cleanly.
 function setupPan(cell: HTMLElement): void {
-  if (cell.dataset.panSetup) return; // listeners already attached
-  cell.dataset.panSetup = '1';
+  const panned = cell as unknown as { _panAbort?: AbortController };
+  if (panned._panAbort) return; // already set up
+  const ac = new AbortController();
+  panned._panAbort = ac;
+  const sig = ac.signal;
 
-  let tx = 0, ty = 0, startX = 0, startY = 0;
+  let tx = 0, ty = 0, scale = 1;
+  let startX = 0, startY = 0; // 1-finger pan anchor
+  let startDist = 0, startScale = 1; // 2-finger pinch anchor
+  const video = () => cell.querySelector<HTMLVideoElement>('video');
+  const apply = () => {
+    const v = video();
+    if (v) v.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
+  };
+  const reset = () => { tx = 0; ty = 0; scale = 1; apply(); };
+  const dist = (touches: TouchList) =>
+    Math.hypot(touches[0].clientX - touches[1].clientX, touches[0].clientY - touches[1].clientY);
 
   cell.addEventListener('touchstart', (e: TouchEvent) => {
-    if (!cell.classList.contains('pan-mode') || e.touches.length !== 1) return;
-    startX = e.touches[0].clientX - tx;
-    startY = e.touches[0].clientY - ty;
-  }, { passive: true });
+    if (!cell.classList.contains('pan-mode')) return;
+    if (e.touches.length === 1) {
+      startX = e.touches[0].clientX - tx;
+      startY = e.touches[0].clientY - ty;
+    } else if (e.touches.length === 2) {
+      startDist = dist(e.touches);
+      startScale = scale;
+    }
+  }, { passive: true, signal: sig });
 
   cell.addEventListener('touchmove', (e: TouchEvent) => {
-    if (!cell.classList.contains('pan-mode') || e.touches.length !== 1) return;
+    if (!cell.classList.contains('pan-mode')) return;
     e.preventDefault();
-    tx = e.touches[0].clientX - startX;
-    ty = e.touches[0].clientY - startY;
-    const v = cell.querySelector<HTMLVideoElement>('video');
-    if (v) v.style.transform = `translate(${tx}px, ${ty}px)`;
-  }, { passive: false });
+    if (e.touches.length === 2 && startDist > 0) {
+      scale = Math.min(4, Math.max(1, startScale * (dist(e.touches) / startDist)));
+    } else if (e.touches.length === 1) {
+      tx = e.touches[0].clientX - startX;
+      ty = e.touches[0].clientY - startY;
+    }
+    apply();
+  }, { passive: false, signal: sig });
 
-  // Pan toggle button
   const btn = document.createElement('button');
   btn.className = 'pan-toggle';
-  btn.title = 'Fit / Pan';
-  btn.textContent = '⤢';
+  btn.title = t('panZoomHint');
+  btn.innerHTML = icon('move', 24);
   cell.appendChild(btn);
 
   btn.addEventListener('click', (e) => {
     e.stopPropagation();
     const active = cell.classList.toggle('pan-mode');
     btn.classList.toggle('active', active);
-    if (active) {
-      // Reset transform and show hint
-      tx = 0; ty = 0;
-      const v = cell.querySelector<HTMLVideoElement>('video');
-      if (v) v.style.transform = '';
-      const existing = cell.querySelector('.pan-hint');
-      if (!existing) {
-        const hint = document.createElement('span');
-        hint.className = 'pan-hint';
-        hint.textContent = 'Trascina per spostare';
-        cell.appendChild(hint);
-        hint.addEventListener('animationend', () => hint.remove());
-      }
-    } else {
-      // Reset position on exit
-      tx = 0; ty = 0;
-      const v = cell.querySelector<HTMLVideoElement>('video');
-      if (v) v.style.transform = '';
+    reset(); // recenter + reset zoom on every toggle
+    if (active && !cell.querySelector('.pan-hint')) {
+      const hint = document.createElement('span');
+      hint.className = 'pan-hint';
+      hint.textContent = t('panZoomHint');
+      cell.appendChild(hint);
+      hint.addEventListener('animationend', () => hint.remove());
     }
-  });
+  }, { signal: sig });
 }
 
 // The grid fills the whole stage. In focus mode (pinned or speaker), the main
@@ -999,7 +1018,10 @@ function layoutVideos(): void {
     videoGrid.style.height = '100%';
 
     focusCell.classList.add('main-cell');
-    if (IS_MOBILE) setupPan(focusCell);
+    // Mobile pan/zoom only on a screen-share tile (spec 0033): a shared screen in
+    // portrait is cropped, so dragging/pinching to read it helps; camera tiles don't.
+    if (IS_MOBILE && focusCell.classList.contains('sharing')) setupPan(focusCell);
+    else disablePan(focusCell);
 
     for (const cell of allCells) {
       if (cell === focusCell) continue;
@@ -1126,6 +1148,25 @@ function setHandIndicator(id: string, raised: boolean): void {
     }
   } else if (indicator) {
     indicator.remove();
+  }
+}
+
+// A peer started/stopped screen-sharing (spec 0033): mark the tile with `.sharing`
+// (gates the mobile pan/zoom) + the 🖥 badge, mirroring the self-share treatment.
+function setScreenShareIndicator(id: string, active: boolean): void {
+  const cell = videoGrid.querySelector(`[data-peer="${cssEsc(id)}"]`);
+  if (!cell) return;
+  cell.classList.toggle('sharing', active);
+  let badge = cell.querySelector('.screen-share-badge') as HTMLElement | null;
+  if (active) {
+    if (!badge) {
+      badge = document.createElement('span');
+      badge.className = 'screen-share-badge';
+      badge.textContent = '🖥';
+      cell.querySelector('.video-overlay')?.appendChild(badge);
+    }
+  } else {
+    badge?.remove();
   }
 }
 
@@ -1636,6 +1677,7 @@ async function startScreenShare(): Promise<void> {
     // Stop sharing when user clicks "Stop sharing" in browser
     s.getVideoTracks()[0]?.addEventListener('ended', stopScreenShare);
     playScreenShareSound(); // audible cue that screen sharing has started
+    ws?.send(JSON.stringify({ type: 'screen_share', active: true })); // tell peers (spec 0033)
     setControlState();
   } catch {
     // User cancelled the picker — roll back the optimistic flag.
@@ -1666,6 +1708,7 @@ function stopScreenShare(): void {
   const cell = videoGrid.querySelector(`[data-peer="${cssEsc(myId)}"]`);
   cell?.classList.remove('sharing');
   cell?.querySelector('.screen-share-badge')?.remove();
+  ws?.send(JSON.stringify({ type: 'screen_share', active: false })); // tell peers (spec 0033)
   setControlState();
   showNotif(t('stopShare'));
 }
