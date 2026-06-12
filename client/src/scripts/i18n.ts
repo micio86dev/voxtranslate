@@ -748,7 +748,10 @@ export const I18N: Record<string, Dict> = {
 };
 
 export function detectLang(): string {
-  const nav = (navigator.language || 'en').slice(0, 2).toLowerCase();
+  // Runs at module load, so guard `navigator` for non-browser environments
+  // (the unit tests run under a node environment without a global navigator).
+  const lang = typeof navigator !== 'undefined' ? navigator.language : '';
+  const nav = (lang || 'en').slice(0, 2).toLowerCase();
   return (SUPPORTED as readonly string[]).includes(nav) ? nav : 'en';
 }
 
