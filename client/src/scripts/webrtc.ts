@@ -16,18 +16,25 @@ export class MeshManager {
   private localStream: MediaStream;
   private send: (s: Signal) => void;
   private iceServers: RTCIceServer[];
+  private maxVideoBitrate: number;
+  private statsTimer: ReturnType<typeof setInterval> | null = null;
 
   onRemoteStream: (peerId: string, stream: MediaStream) => void = () => {};
   onPeerRemoved: (peerId: string) => void = () => {};
+  /** Fired when getStats reports the uplink can't keep up (bandwidth-limited or
+   *  high packet loss) for a sustained window — the UI nudges the camera off. */
+  onNetworkWeak: () => void = () => {};
 
   constructor(
     localStream: MediaStream,
     send: (s: Signal) => void,
     iceServers: RTCIceServer[] = ICE_SERVERS,
+    maxVideoBitrate = 1_000_000,
   ) {
     this.localStream = localStream;
     this.send = send;
     this.iceServers = iceServers;
+    this.maxVideoBitrate = maxVideoBitrate;
   }
 
   /** Replace the local stream's tracks on all peers (e.g. after a device change). */
@@ -83,6 +90,10 @@ export class MeshManager {
     if (this.localStream.getVideoTracks().length === 0) {
       pc.addTransceiver?.('video', { direction: 'sendrecv', streams: [this.localStream] });
     }
+    // Cap outbound video bitrate (spec 0030) so a mesh of up to 4 fits a mobile
+    // uplink; the browser's own congestion control reduces further when needed.
+    void this.capVideoBitrate(pc);
+    this.startStatsMonitor();
 
     pc.ontrack = (e) => {
       // Ignore receiver tracks that arrive without a stream (e.g. an inactive
@@ -147,7 +158,61 @@ export class MeshManager {
     this.localStream.getVideoTracks().forEach((t) => (t.enabled = enabled));
   }
 
+  /** Cap a peer connection's outbound video bitrate (spec 0030). */
+  private async capVideoBitrate(pc: RTCPeerConnection): Promise<void> {
+    try {
+      const sender =
+        pc.getSenders().find((s) => s.track?.kind === 'video') ?? this.videoSender(pc);
+      if (!sender) return;
+      const params = sender.getParameters();
+      if (!params.encodings || params.encodings.length === 0) params.encodings = [{}];
+      params.encodings[0].maxBitrate = this.maxVideoBitrate;
+      await sender.setParameters(params);
+    } catch {
+      /* unsupported / pre-negotiation / fake env — ignore */
+    }
+  }
+
+  /** Poll getStats across peers; fire `onNetworkWeak` once when the uplink is
+   *  bandwidth-limited or lossy for two consecutive checks (spec 0030). */
+  private startStatsMonitor(): void {
+    if (this.statsTimer != null) return;
+    let weakStreak = 0;
+    this.statsTimer = setInterval(() => {
+      void (async () => {
+        let weak = false;
+        for (const pc of this.peers.values()) {
+          try {
+            const stats = await pc.getStats();
+            stats.forEach((r: unknown) => {
+              const s = r as Record<string, unknown>;
+              if (
+                s.type === 'outbound-rtp' &&
+                s.kind === 'video' &&
+                s.qualityLimitationReason === 'bandwidth'
+              )
+                weak = true;
+              if (s.type === 'remote-inbound-rtp' && ((s.fractionLost as number) ?? 0) > 0.08)
+                weak = true;
+            });
+          } catch {
+            /* ignore a transient getStats failure */
+          }
+        }
+        weakStreak = weak ? weakStreak + 1 : 0;
+        if (weakStreak >= 2) {
+          weakStreak = 0;
+          this.onNetworkWeak();
+        }
+      })();
+    }, 5000);
+  }
+
   destroy(): void {
+    if (this.statsTimer != null) {
+      clearInterval(this.statsTimer);
+      this.statsTimer = null;
+    }
     this.peers.forEach((pc) => pc.close());
     this.peers.clear();
   }
