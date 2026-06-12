@@ -214,6 +214,12 @@ $('dice').addEventListener('click', () => (roomInput.value = randomRoom()));
 visGroup.addEventListener('click', (e) => {
   const btn = (e.target as HTMLElement).closest('.seg-btn') as HTMLElement | null;
   if (!btn) return;
+  // Public rooms need an account: a guest tapping "public" gets the benefits modal
+  // (→ sign in), not a silent switch (spec 0022 / 0036).
+  if (btn.dataset.vis === 'public' && billing && !auth.isLoggedIn()) {
+    openSigninGate();
+    return;
+  }
   visibilityPublic = btn.dataset.vis === 'public';
   visGroup.querySelectorAll('.seg-btn').forEach((b) => {
     b.classList.toggle('active', b === btn);
@@ -230,6 +236,8 @@ function homeStatusMsg(msg: string, isError = false): void {
 enterBtn.addEventListener('click', () => {
   const room = roomInput.value.trim().toLowerCase();
   if (!room) return homeStatusMsg(t('enterRoom'), true);
+  // Belt-and-suspenders: a guest can't create a public room (spec 0022 / 0036).
+  if (visibilityPublic && billing && !auth.isLoggedIn()) return openSigninGate();
   goPrejoin(room, visibilityPublic);
 });
 
@@ -1192,7 +1200,7 @@ function showEmojiReaction(peerId: string, emoji: string): void {
     float.appendChild(n);
   }
   stage.appendChild(float);
-  setTimeout(() => float.remove(), 3400);
+  setTimeout(() => float.remove(), 3700);
 }
 
 // ---- Notification banner ---------------------------------------------------
@@ -1374,10 +1382,9 @@ btnMore.addEventListener('click', (e) => {
   e.stopPropagation();
   setMoreOpen(moreMenu.classList.contains('hidden'));
 });
-moreMenu.addEventListener('click', (e) => {
-  // Acting on any control closes the menu (the action itself already ran).
-  if ((e.target as HTMLElement).closest('.control-btn')) setMoreOpen(false);
-});
+// The menu stays open while you act on its controls — toggling tts/hand/share is a
+// "set state and keep going" action (you see the dot flip), so only the ⋯ button,
+// an outside click, or Escape close it (spec 0036).
 document.addEventListener('click', (e) => {
   if (!moreMenu.classList.contains('hidden') && !moreMenu.contains(e.target as Node)) setMoreOpen(false);
 });
@@ -2050,6 +2057,12 @@ async function boot(): Promise<void> {
   // (fails safe — keeps the bundled strings if the API is down).
   if (await loadRemoteI18n(HTTP_BASE)) applyI18n();
   billing = await auth.billingEnabled();
+  // Validate a stored token up front. isLoggedIn() only checks the token EXISTS,
+  // not that it's still valid — so a stale/expired one would render authed-only UI
+  // (the 🔖 bookmark button, public rooms) while the server rejects every authed
+  // action "as a guest". refreshMe() clears it on a 401 (and keeps it on a mere
+  // network error), so after this the client's auth state matches the server's.
+  if (billing && auth.isLoggedIn()) await auth.refreshMe();
   if (billing && !auth.isLoggedIn()) {
     showLogin();
   } else {
@@ -2100,8 +2113,10 @@ function updatePublicGate(): void {
   const guest = billing && !auth.isLoggedIn();
   const pubBtn = visGroup.querySelector('.seg-btn[data-vis="public"]') as HTMLButtonElement | null;
   if (!pubBtn) return;
-  pubBtn.disabled = guest;
-  pubBtn.classList.toggle('disabled', guest);
+  // Keep it clickable (a native `disabled` swallows clicks) but mark it locked, so
+  // a guest tapping it gets the sign-in benefits modal instead of dead silence.
+  pubBtn.disabled = false;
+  pubBtn.classList.toggle('locked', !!guest);
   if (guest && visibilityPublic) {
     // Force private for guests.
     visibilityPublic = false;

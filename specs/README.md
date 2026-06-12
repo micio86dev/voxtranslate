@@ -67,7 +67,8 @@ Each spec follows the same skeleton:
 | [0032](0032-adaptive-budget/spec.md) | Network-adaptive video budget (AIMD via getStats) | ✅ Shipped | 2026-06-12 | `8ef35cd` |
 | [0033](0033-screenshare-pan-zoom/spec.md) | Screen-share signaling + mobile pan/zoom (bigger icon, pinch) | ✅ Shipped | 2026-06-12 | `724d75f` |
 | [0034](0034-ui-cta-zfix/spec.md) | Secondary CTA restyle + ⋯ overflow-menu z-index fix | ✅ Shipped | 2026-06-12 | `b049e50` |
-| [0035](0035-meet-style-reactions/spec.md) | Google-Meet-style emoji reactions (big, centred, named) | ✅ Shipped | 2026-06-12 | (this PR) |
+| [0035](0035-meet-style-reactions/spec.md) | Google-Meet-style emoji reactions (big, centred, named) | ✅ Shipped | 2026-06-12 | `5e60a9c` |
+| [0036](0036-reaction-anim-guest-auth-menu/spec.md) | Reaction animation polish + guest-auth & overflow-menu fixes | ✅ Shipped | 2026-06-13 | (this PR) |
 
 > Numbers 0011–0015 were claimed by commit messages while the AI bundle shipped
 > without spec docs (and 0011/0012 were each reused twice); the assignments
