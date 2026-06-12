@@ -864,6 +864,17 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
                                 .to_json(),
                             );
                         }
+                        Ok(ClientMessage::ScreenShare { active }) => {
+                            state.rooms.broadcast_except(
+                                &room,
+                                &id,
+                                &ServerMessage::ScreenShare {
+                                    peer_id: id.clone(),
+                                    active,
+                                }
+                                .to_json(),
+                            );
+                        }
                         Ok(ClientMessage::SetLang { lang: new_lang }) => {
                             // Manual correction (spec 0012). The audio session is
                             // NOT restarted here: a mid-stream Deepgram reopen
