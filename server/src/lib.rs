@@ -182,6 +182,7 @@ pub fn app(state: AppState) -> Router {
         .route("/rooms", get(rooms_handler))
         .route("/health", get(|| async { "ok" }))
         .route("/api/auth/config", get(auth::auth_config))
+        .route("/api/ice", get(api::ice))
         .route("/api/auth/google", post(auth::auth_google))
         .route("/api/user/me", get(auth::user_me))
         .route("/api/billing/packages", get(api::billing_packages))

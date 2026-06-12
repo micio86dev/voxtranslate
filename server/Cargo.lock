@@ -5016,6 +5016,7 @@ version = "1.1.0"
 dependencies = [
  "async-trait",
  "axum",
+ "base64",
  "chrono",
  "chrono-tz",
  "dashmap",
@@ -5029,6 +5030,7 @@ dependencies = [
  "rust_decimal",
  "serde",
  "serde_json",
+ "sha1",
  "sha2",
  "sqlx",
  "tokio",

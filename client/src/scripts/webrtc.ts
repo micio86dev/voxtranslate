@@ -15,13 +15,19 @@ export class MeshManager {
   private peers = new Map<string, RTCPeerConnection>();
   private localStream: MediaStream;
   private send: (s: Signal) => void;
+  private iceServers: RTCIceServer[];
 
   onRemoteStream: (peerId: string, stream: MediaStream) => void = () => {};
   onPeerRemoved: (peerId: string) => void = () => {};
 
-  constructor(localStream: MediaStream, send: (s: Signal) => void) {
+  constructor(
+    localStream: MediaStream,
+    send: (s: Signal) => void,
+    iceServers: RTCIceServer[] = ICE_SERVERS,
+  ) {
     this.localStream = localStream;
     this.send = send;
+    this.iceServers = iceServers;
   }
 
   /** Replace the local stream's tracks on all peers (e.g. after a device change). */
@@ -62,7 +68,7 @@ export class MeshManager {
 
   async addPeer(peerId: string, isInitiator: boolean): Promise<void> {
     if (this.peers.has(peerId)) return;
-    const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+    const pc = new RTCPeerConnection({ iceServers: this.iceServers });
     this.peers.set(peerId, pc);
 
     for (const track of this.localStream.getTracks()) {

@@ -19,6 +19,10 @@ use rust_decimal::Decimal;
 
 use chrono::{DateTime, Utc};
 
+use base64::Engine as _;
+use hmac::{Hmac, Mac};
+use sha1::Sha1;
+
 use crate::ai::email_draft as ai_email;
 use crate::ai::report as ai_report;
 use crate::ai::sentiment as ai_sentiment;
@@ -37,6 +41,36 @@ pub async fn billing_packages(State(state): State<AppState>) -> Response {
         Some(cfg) => Json(&cfg.pricing.packages).into_response(),
         None => service_unavailable(),
     }
+}
+
+/// `GET /api/ice` — ICE servers for WebRTC peer connections (spec 0026). Always
+/// returns public STUN; when a self-hosted coturn is configured (`TURN_*`) it also
+/// returns time-limited TURN credentials via coturn's REST-API convention:
+/// `username = "<unix-expiry>:vox"`, `credential = base64(HMAC-SHA1(secret, username))`.
+/// The shared secret never leaves the server — only the derived credential does, and
+/// it expires, so a leaked client config can't be abused for long.
+pub async fn ice(State(state): State<AppState>) -> Response {
+    let mut servers = vec![serde_json::json!({
+        "urls": ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"]
+    })];
+    if let Some(turn) = state.config.turn.as_ref() {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let username = format!("{}:vox", now + turn.ttl_secs);
+        let mut mac = Hmac::<Sha1>::new_from_slice(turn.secret.as_bytes())
+            .expect("HMAC accepts a key of any length");
+        mac.update(username.as_bytes());
+        let credential =
+            base64::engine::general_purpose::STANDARD.encode(mac.finalize().into_bytes());
+        servers.push(serde_json::json!({
+            "urls": turn.urls,
+            "username": username,
+            "credential": credential,
+        }));
+    }
+    Json(serde_json::json!({ "iceServers": servers })).into_response()
 }
 
 #[derive(Deserialize)]

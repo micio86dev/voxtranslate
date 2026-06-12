@@ -484,13 +484,28 @@ $('back-btn').addEventListener('click', () => {
 
 $('join-btn').addEventListener('click', () => {
   if (!localStream || !session) return;
-  startCall();
+  void startCall();
 });
 
 // ============================================================================
 // Call
 // ============================================================================
-function startCall(): void {
+
+// ICE servers for WebRTC (spec 0026): fetched per-call from the server, which
+// returns public STUN plus a time-limited TURN relay when coturn is configured.
+// Passed to the mesh; falls back to the mesh's built-in STUN on failure.
+let iceServers: RTCIceServer[] | undefined;
+async function fetchIceServers(): Promise<RTCIceServer[] | undefined> {
+  try {
+    const res = await fetch(`${HTTP_BASE}/api/ice`, { cache: 'no-store' });
+    const data = await res.json();
+    return Array.isArray(data?.iceServers) ? (data.iceServers as RTCIceServer[]) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function startCall(): Promise<void> {
   if (!session || !localStream) return;
   prejoinScreen.classList.add('hidden');
   callScreen.classList.remove('hidden');
@@ -525,6 +540,9 @@ function startCall(): void {
   }
 
   manualClose = false;
+  // Fetch ICE servers (incl. the TURN relay if configured) before opening the
+  // socket, so the mesh has them ready when peers arrive — no race (spec 0026).
+  iceServers = await fetchIceServers();
   openSocket();
 }
 
@@ -535,7 +553,7 @@ function openSocket(): void {
   ws = new WebSocket(auth.buildWsUrl(params));
 
   ws.onopen = () => {
-    mesh = new MeshManager(localStream!, (sig) => ws?.send(JSON.stringify(sig)));
+    mesh = new MeshManager(localStream!, (sig) => ws?.send(JSON.stringify(sig)), iceServers);
     mesh.onRemoteStream = (peerId, stream) => {
       remoteStreams.set(peerId, stream);
       recorder?.addParticipant(participantSource(peerId, stream));
