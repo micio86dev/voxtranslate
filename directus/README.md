@@ -135,6 +135,20 @@ for refunds/manual corrections (it takes a signed amount, no email). Every call
 writes an `admin_audit` row, so the `admin_audit` collection is your full action
 history.
 
+> **Reproducible setup for Gift bonus.** Rather than building the flow by hand,
+> create it through the Directus REST API with `setup-bonus-flow.mjs` (idempotent
+> — a no-op once the flow exists). It clones the trigger config of an existing
+> manual `users` flow so the button lands in the same place as the others. A
+> Directus Flow lives in Directus's own tables (not the app schema), so this is a
+> setup *script*, not an app `.sql` migration. Run:
+>
+> ```bash
+> DIRECTUS_URL=https://<your-directus> \
+>   DIRECTUS_ADMIN_EMAIL=… DIRECTUS_ADMIN_PASSWORD=… \
+>   node directus/setup-bonus-flow.mjs
+> # or, instead of email+password: DIRECTUS_TOKEN=<static admin token>
+> ```
+
 ## Visual walkthrough
 
 Screenshots of the actual screens (in `directus/screenshots/`):
