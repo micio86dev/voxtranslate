@@ -271,7 +271,12 @@ function renderRooms(rooms: Array<{ room: string; count: number; participants: A
       members.appendChild(chip);
     }
     item.append(main, members);
-    item.addEventListener('click', () => goPrejoin(r.room, true));
+    item.addEventListener('click', () => {
+      // Guests can't join public rooms (spec 0022): explain why + the perks of an
+      // account instead of sending them to pre-join.
+      if (billing && !auth.isLoggedIn()) return openSigninGate();
+      goPrejoin(r.room, true);
+    });
     roomsList.appendChild(item);
   }
 }
@@ -287,6 +292,18 @@ function stopLobby(): void {
   }
 }
 $('refresh').addEventListener('click', fetchRooms);
+
+// Guest sign-in gate (spec 0022): a guest clicking an online public room is shown
+// why an account is needed and what they gain, instead of reaching pre-join.
+const signinGateModal = $('signin-gate-modal');
+function openSigninGate(): void {
+  show(signinGateModal, true);
+}
+$('signin-gate-dismiss').addEventListener('click', () => show(signinGateModal, false));
+$('signin-gate-signin').addEventListener('click', () => {
+  show(signinGateModal, false);
+  showLogin();
+});
 
 // ============================================================================
 // Pre-join: camera preview + device selectors
