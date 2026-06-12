@@ -58,7 +58,8 @@ Each spec follows the same skeleton:
 | [0023](0023-call-toolbar-overflow-menu/spec.md) | Declutter the in-call toolbar (overflow "More" menu) | ✅ Shipped | 2026-06-12 | `1df3ce7` |
 | [0024](0024-self-call-cues-hand-border/spec.md) | Self call cues (enter/leave beep) + raised-hand tile border | ✅ Shipped | 2026-06-12 | `1fd0340` |
 | [0025](0025-bookmark-mobile-form/spec.md) | Mobile-friendly bookmark quick-label form | ✅ Shipped | 2026-06-12 | `aa3c5a0` |
-| [0026](0026-turn-relay/spec.md) | TURN relay for cross-NAT WebRTC (server-issued ICE) | 🚧 Plumbing | 2026-06-12 | (this PR) |
+| [0026](0026-turn-relay/spec.md) | TURN relay for cross-NAT WebRTC (server-issued ICE) | 🚧 Plumbing | 2026-06-12 | `d5f502c` |
+| [0027](0027-load-testing-k6/spec.md) | Load testing the server with k6 (signaling + HTTP) | ✅ Shipped | 2026-06-12 | (this PR) |
 
 > Numbers 0011–0015 were claimed by commit messages while the AI bundle shipped
 > without spec docs (and 0011/0012 were each reused twice); the assignments
