@@ -38,18 +38,18 @@ test('call: WebRTC video, translated chat, subtitles, controls, leave', async ({
   const bobChat = await b.page.$$eval('.chat-msg-other .chat-text', (e) => e.map((x) => x.textContent));
   expect(bobChat.some((c) => c && c.trim())).toBeTruthy();
 
-  // Emoji: a quick reaction floats over the sender's cell on every page…
+  // Emoji: a quick reaction floats over the stage on every page (spec 0035)…
   await a.page.click('#emoji-toggle');
   await a.page.click('#emoji-react button'); // first quick reaction (👍)
   await Promise.all([
-    a.page.waitForSelector('.video-cell.self .emoji-float', { timeout: 5000 }),
-    b.page.waitForSelector('.video-cell:not(.self) .emoji-float', { timeout: 5000 }),
+    a.page.waitForSelector('.video-stage .reaction-float', { timeout: 5000 }),
+    b.page.waitForSelector('.video-stage .reaction-float', { timeout: 5000 }),
   ]);
   // …and the panel stays open (issue #15), so a second reaction can be fired
   // straight away without reopening it.
   await expect(a.page.locator('#emoji-panel')).toBeVisible();
   await a.page.click('#emoji-react button:nth-child(2)'); // second reaction (❤️)
-  await b.page.waitForSelector('.video-cell:not(.self) .emoji-float', { timeout: 5000 });
+  await b.page.waitForSelector('.video-stage .reaction-float', { timeout: 5000 });
   // A grid emoji inserts into the chat input (the panel is still open).
   await a.page.click('#emoji-grid button');
   expect(await a.page.inputValue('#chat-input')).toContain('👍');

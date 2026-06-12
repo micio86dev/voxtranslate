@@ -1171,13 +1171,28 @@ function setScreenShareIndicator(id: string, active: boolean): void {
 }
 
 function showEmojiReaction(peerId: string, emoji: string): void {
-  const cell = videoGrid.querySelector(`[data-peer="${cssEsc(peerId)}"]`);
-  if (!cell) return;
-  const floater = document.createElement('span');
-  floater.className = 'emoji-float';
-  floater.textContent = emoji;
-  cell.appendChild(floater);
-  setTimeout(() => floater.remove(), 1500);
+  const stage = document.querySelector('.video-stage');
+  if (!stage) return;
+  // Meet-style: a big emoji rising from the centre of the whole stage + who reacted
+  // (spec 0035). Random horizontal start + drift so a burst scatters rather than
+  // stacking exactly.
+  const name = peerId === myId ? session?.name || t('you') : peerNames.get(peerId)?.name || '';
+  const float = document.createElement('div');
+  float.className = 'reaction-float';
+  float.style.setProperty('--x', `${Math.round((Math.random() - 0.5) * 220)}px`);
+  float.style.setProperty('--drift', `${Math.round((Math.random() - 0.5) * 80)}px`);
+  const e = document.createElement('span');
+  e.className = 'reaction-emoji';
+  e.textContent = emoji;
+  float.appendChild(e);
+  if (name) {
+    const n = document.createElement('span');
+    n.className = 'reaction-name';
+    n.textContent = name;
+    float.appendChild(n);
+  }
+  stage.appendChild(float);
+  setTimeout(() => float.remove(), 3400);
 }
 
 // ---- Notification banner ---------------------------------------------------

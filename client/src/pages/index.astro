@@ -813,15 +813,37 @@ const LANGS = [
       0% { transform: rotate(-8deg); }
       100% { transform: rotate(8deg); }
     }
-    .video-grid :global(.emoji-float) {
-      position: absolute; bottom: 48px; left: 50%; transform: translateX(-50%);
-      font-size: 2.2rem; pointer-events: none;
-      animation: emoji-pop 1.5s ease-out forwards;
+    /* Meet-style reactions (spec 0035): a BIG emoji rising from the bottom-centre of
+       the whole stage with a pop + random drift, plus who reacted — far more visible
+       than the old per-tile float. Created in JS, so :global(); own compositor layer
+       (will-change) so it paints above the composited video tiles. */
+    .video-stage :global(.reaction-float) {
+      position: absolute; left: 50%; bottom: 6%; z-index: 6;
+      display: flex; flex-direction: column; align-items: center; gap: 6px;
+      pointer-events: none; will-change: transform, opacity;
+      transform: translate(-50%, 0); /* base centering (kept under reduced-motion) */
+      animation: reaction-rise 3.2s cubic-bezier(0.22, 1, 0.36, 1) forwards;
     }
-    @keyframes emoji-pop {
-      0% { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
-      70% { opacity: 1; transform: translateX(-50%) translateY(-40px) scale(1.3); }
-      100% { opacity: 0; transform: translateX(-50%) translateY(-70px) scale(0.8); }
+    .video-stage :global(.reaction-emoji) {
+      font-size: 3.4rem; line-height: 1; filter: drop-shadow(0 4px 12px rgba(0,0,0,0.55));
+    }
+    .video-stage :global(.reaction-name) {
+      font-size: 0.72rem; font-weight: 600; color: var(--text); white-space: nowrap;
+      background: rgba(19,20,28,0.82); border: 1px solid var(--border);
+      padding: 2px 9px; border-radius: 999px; backdrop-filter: blur(4px);
+    }
+    @keyframes reaction-rise {
+      0%   { opacity: 0; transform: translate(calc(-50% + var(--x, 0px)), 20px) scale(0.4); }
+      12%  { opacity: 1; transform: translate(calc(-50% + var(--x, 0px)), -8vh) scale(1.18); }
+      26%  {             transform: translate(calc(-50% + var(--x, 0px)), -16vh) scale(1); }
+      100% { opacity: 0; transform: translate(calc(-50% + var(--x, 0px) + var(--drift, 0px)), -62vh) scale(0.92); }
+    }
+    @media (max-width: 600px) {
+      .video-stage :global(.reaction-emoji) { font-size: 2.8rem; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .video-stage :global(.reaction-float) { animation: reaction-fade 2.2s ease-out forwards; }
+      @keyframes reaction-fade { 0% { opacity: 0; } 12%, 65% { opacity: 1; } 100% { opacity: 0; } }
     }
 
     .video-grid :global(.subtitle-area) { position: absolute; bottom: 8px; left: 0; right: 0; padding: 0 10px; display: flex; flex-direction: column; align-items: center; pointer-events: none; }
