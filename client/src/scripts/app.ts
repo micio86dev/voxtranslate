@@ -13,6 +13,7 @@ import { openSessionScreen } from './session-screen';
 import { initBookmarks, setBookmarkSession } from './bookmarks';
 import { initGlossary, onGlossaryActive, refreshGlossaryHome, setGlossaryRoom } from './glossary';
 import { dismissLangToast, initLangDetect, onLanguageDetected } from './lang-detect';
+import { playHandRaiseSound, playJoinSound, playScreenShareSound } from './sfx';
 import { CompositeRecorder } from './recording/composite-recorder';
 import { formatElapsed, isRecordingSupported, recordingFilename } from './recording/utils';
 import type { ParticipantSource } from './recording/types';
@@ -287,15 +288,20 @@ async function goPrejoin(room: string, isPublic: boolean): Promise<void> {
 // Apply the current mic/camera toggle state to the preview stream + UI. Used in
 // the pre-join screen so you enter the room already muted / camera-off.
 function applyPreToggles(): void {
-  const hasVideo = !!localStream && localStream.getVideoTracks().length > 0;
-  if (!hasVideo) camOn = false;
   if (localStream) {
     localStream.getAudioTracks().forEach((tr) => (tr.enabled = micOn));
-    localStream.getVideoTracks().forEach((tr) => (tr.enabled = camOn));
+    // Camera off must fully release the device so the hardware LED turns off —
+    // disabling the track alone keeps the camera active. We stop the track but
+    // leave it in the stream as an (ended) placeholder so a video sender is still
+    // negotiated at join; togglePreCam swaps in a fresh track when re-enabled.
+    if (!camOn) localStream.getVideoTracks().forEach((tr) => tr.stop());
   }
+  const hasLiveVideo =
+    !!localStream && localStream.getVideoTracks().some((tr) => tr.readyState === 'live');
+  if (camOn && !hasLiveVideo) camOn = false;
   // Preview overlay when the camera is off: show the Google photo when logged in,
   // initials otherwise (same as the in-call camera-off cell).
-  previewOff.hidden = camOn && hasVideo;
+  previewOff.hidden = camOn && hasLiveVideo;
   if (!previewOff.hidden) {
     const name = nameInput.value.trim() || t('namePlaceholder');
     const avatar =
@@ -331,12 +337,51 @@ preMic.addEventListener('click', () => {
   applyPreToggles();
 });
 preCam.addEventListener('click', () => {
-  camOn = !camOn;
-  applyPreToggles();
+  void togglePreCam();
 });
 
-async function acquireMedia(): Promise<void> {
+async function togglePreCam(): Promise<void> {
+  camOn = !camOn;
+  // Turning the camera back on re-acquires the released device, swapping the
+  // ended placeholder for a fresh track (the audio track is left untouched).
+  const hasLiveVideo = !!localStream && localStream.getVideoTracks().some((t) => t.readyState === 'live');
+  if (camOn && localStream && !hasLiveVideo) {
+    const track = await acquireVideoTrack();
+    if (track) {
+      localStream.getVideoTracks().forEach((t) => {
+        t.stop();
+        localStream!.removeTrack(t);
+      });
+      localStream.addTrack(track);
+      previewVideo.srcObject = localStream;
+      void previewVideo.play().catch(() => {});
+    }
+  }
+  applyPreToggles();
+}
+
+/** Video constraints honouring the selected camera device. */
+function videoConstraints(): MediaTrackConstraints {
   const camId = camSelect.value;
+  return {
+    width: { ideal: 1280, max: 1280 },
+    height: { ideal: 720, max: 720 },
+    frameRate: { ideal: 24, max: 30 },
+    ...(camId ? { deviceId: { exact: camId } } : {}),
+  };
+}
+
+/** Open the selected camera and return its video track (null on failure). */
+async function acquireVideoTrack(): Promise<MediaStreamTrack | null> {
+  try {
+    const s = await navigator.mediaDevices.getUserMedia({ video: videoConstraints() });
+    return s.getVideoTracks()[0] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function acquireMedia(): Promise<void> {
   const micId = micSelect.value;
   const audio: MediaTrackConstraints = {
     channelCount: 1,
@@ -345,19 +390,14 @@ async function acquireMedia(): Promise<void> {
     autoGainControl: true,
     ...(micId ? { deviceId: { exact: micId } } : {}),
   };
-  const video: MediaTrackConstraints = {
-    width: { ideal: 1280, max: 1280 },
-    height: { ideal: 720, max: 720 },
-    frameRate: { ideal: 24, max: 30 },
-    ...(camId ? { deviceId: { exact: camId } } : {}),
-  };
   if (localStream) localStream.getTracks().forEach((t2) => t2.stop());
   try {
-    localStream = await navigator.mediaDevices.getUserMedia({ audio, video });
+    localStream = await navigator.mediaDevices.getUserMedia({ audio, video: videoConstraints() });
   } catch {
     // Fall back to audio-only (no camera available / denied video).
     localStream = await navigator.mediaDevices.getUserMedia({ audio });
   }
+  // applyPreToggles releases the camera again if it's currently toggled off.
   previewVideo.srcObject = localStream;
   void previewVideo.play().catch(() => {});
   // Re-apply the current mic/camera toggle state to the new tracks.
@@ -508,6 +548,7 @@ async function handleServer(msg: any): Promise<void> {
     case 'peer_joined':
       peerNames.set(msg.peer_id, { name: msg.user_name, lang: msg.lang, avatar: msg.avatar_url });
       addCell(msg.peer_id, msg.user_name, msg.lang, false, msg.avatar_url);
+      playJoinSound(); // audible cue that someone joined the session
       await mesh?.addPeer(msg.peer_id, true); // we initiate toward the newcomer
       // Re-announce our current mute/camera state so the newcomer's UI matches.
       if (!micOn) ws?.send(JSON.stringify({ type: 'mute_audio', muted: true }));
@@ -561,6 +602,7 @@ async function handleServer(msg: any): Promise<void> {
       if (msg.raised && msg.peer_id !== myId) {
         const pname = peerNames.get(msg.peer_id)?.name || 'Someone';
         showNotif(`✋ ${pname} ${t('handRaisedNotif')}`);
+        playHandRaiseSound();
       }
       updateParticipantsList();
       break;
@@ -1180,14 +1222,72 @@ btnMic.addEventListener('click', () => {
 });
 
 btnCam.addEventListener('click', () => {
+  void toggleCamera();
+});
+
+async function toggleCamera(): Promise<void> {
   camOn = !camOn;
-  mesh?.setVideoEnabled(camOn);
+  // Acquire / release the physical camera so the hardware LED matches the UI
+  // (enableCamera may revert camOn to false if the device can't be opened).
+  if (camOn) {
+    await enableCamera();
+  } else {
+    disableCamera();
+  }
   setCameraOff(myId, !camOn);
   // While screen-sharing the recorder's self tile shows the screen regardless.
   if (!isSharingScreen) recorder?.setVideoOff(myId, !camOn);
   ws?.send(JSON.stringify({ type: 'mute_video', muted: !camOn }));
   setControlState();
-});
+}
+
+// Fully release the camera device — track.stop() turns the hardware LED off,
+// unlike track.enabled = false which keeps the device powered. The (now ended)
+// track stays in localStream as a placeholder so the video sender remains
+// negotiated; peers hide the frozen frame via the mute_video signal sent by
+// toggleCamera. While screen-sharing the outgoing track is the screen, so this
+// just powers down the idle camera.
+function disableCamera(): void {
+  if (!localStream) return;
+  localStream.getVideoTracks().forEach((track) => track.stop());
+}
+
+// Re-open the camera and route its fresh track to peers + our tile. Reverts the
+// toggle if the device can't be opened (busy / denied).
+async function enableCamera(): Promise<void> {
+  const track = await acquireVideoTrack();
+  if (!track || !localStream) {
+    track?.stop();
+    camOn = false;
+    if (!track) toast(t('camMicDenied'));
+    return;
+  }
+  // Swap the ended placeholder for the fresh track.
+  for (const old of localStream.getVideoTracks()) {
+    old.stop();
+    localStream.removeTrack(old);
+  }
+  localStream.addTrack(track);
+  // While screen-sharing the new track waits in localStream until sharing stops
+  // (stopScreenShare's setLocalStream restores it); don't disturb the screen feed.
+  if (!isSharingScreen) {
+    mesh?.setLocalStream(localStream); // replaceTrack on the existing video sender
+    refreshSelfVideo();
+    recorder?.updateStream(myId, localStream);
+  }
+}
+
+/** Re-point the self tile <video> at localStream so a swapped video track renders
+ *  (re-assigning the same MediaStream object alone is a no-op). */
+function refreshSelfVideo(): void {
+  const video = videoGrid.querySelector(
+    `[data-peer="${cssEsc(myId)}"] video`,
+  ) as HTMLVideoElement | null;
+  if (!video || !localStream) return;
+  video.srcObject = null;
+  video.srcObject = localStream;
+  void video.play().catch(() => {});
+}
 
 btnTts.addEventListener('click', () => {
   ttsOn = !ttsOn;
@@ -1207,6 +1307,7 @@ btnSubtitle.addEventListener('click', () => {
 btnHand.addEventListener('click', () => {
   handRaised = !handRaised;
   ws?.send(JSON.stringify({ type: 'hand_raise', raised: handRaised }));
+  if (handRaised) playHandRaiseSound(); // confirmation cue for the local user
   // The server relays hand_raised to peers only — update our own tile + list.
   setHandIndicator(myId, handRaised);
   updateParticipantsList();
@@ -1329,6 +1430,7 @@ async function startScreenShare(): Promise<void> {
     }
     // Stop sharing when user clicks "Stop sharing" in browser
     s.getVideoTracks()[0]?.addEventListener('ended', stopScreenShare);
+    playScreenShareSound(); // audible cue that screen sharing has started
     setControlState();
   } catch {
     // User cancelled
