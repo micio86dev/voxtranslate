@@ -103,6 +103,26 @@ describe('sfx', () => {
     expect(created.length).toBe(3);
   });
 
+  it('playCallEnterSound plays two rising triangle tones (self join)', async () => {
+    installAudioContext('running');
+    const sfx = await loadSfx();
+    sfx.playCallEnterSound();
+    expect(created.length).toBe(2);
+    expect(created[0].type).toBe('triangle');
+    // Rising: the second tone is higher than the first.
+    expect(created[1].frequency.value).toBeGreaterThan(created[0].frequency.value);
+  });
+
+  it('playCallLeaveSound plays two falling triangle tones (self leave)', async () => {
+    installAudioContext('running');
+    const sfx = await loadSfx();
+    sfx.playCallLeaveSound();
+    expect(created.length).toBe(2);
+    expect(created[0].type).toBe('triangle');
+    // Falling: the first tone is higher than the second.
+    expect(created[0].frequency.value).toBeGreaterThan(created[1].frequency.value);
+  });
+
   it('setSfxEnabled(false) silences cues, true restores them', async () => {
     installAudioContext('running');
     const sfx = await loadSfx();

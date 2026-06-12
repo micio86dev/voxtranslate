@@ -15,6 +15,8 @@ import { initBookmarks, setBookmarkSession } from './bookmarks';
 import { initGlossary, onGlossaryActive, refreshGlossaryHome, setGlossaryRoom } from './glossary';
 import { dismissLangToast, initLangDetect, onLanguageDetected } from './lang-detect';
 import {
+  playCallEnterSound,
+  playCallLeaveSound,
   playHandRaiseSound,
   playJoinSound,
   playLeaveSound,
@@ -557,6 +559,7 @@ function openSocket(): void {
 async function handleServer(msg: any): Promise<void> {
   switch (msg.type) {
     case 'room_joined':
+      playCallEnterSound(); // Meet-style cue: you joined the call (spec 0024)
       // session_id present = the backend records a transcript of this call.
       activeSessionId = typeof msg.session_id === 'string' ? msg.session_id : null;
       callStartedAt = Date.now();
@@ -1746,6 +1749,9 @@ async function handleFileUpload(file: File): Promise<void> {
 
 $('btn-leave').addEventListener('click', leaveCall);
 function leaveCall(): void {
+  // Meet-style cue: you left the call — only if we actually joined (callStartedAt
+  // stays 0 on a room-full bounce), so it never fires for a non-entry (spec 0024).
+  if (callStartedAt > 0) playCallLeaveSound();
   // Snapshot transcript state before teardown wipes it (spec 0009); the
   // post-call download modal opens once we're back on the home screen.
   const ended =
