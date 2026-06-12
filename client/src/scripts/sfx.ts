@@ -100,3 +100,27 @@ export function playScreenShareSound(): void {
     { freq: 783.99, start: 0.16, dur: 0.16 }, // G5
   ]);
 }
+
+/** You joined a call — a clear two-note rising "beep" (Google Meet style). Self
+ *  cues are distinct from the peer join/leave chimes: a brighter triangle in a
+ *  lower register, slightly louder, since this one is about your own action. */
+export function playCallEnterSound(): void {
+  play(
+    [
+      { freq: 440.0, start: 0, dur: 0.12 }, // A4
+      { freq: 659.25, start: 0.1, dur: 0.18 }, // E5 (rising)
+    ],
+    { type: 'triangle', gain: 0.08 },
+  );
+}
+
+/** You left a call — the inverse falling two-note beep. */
+export function playCallLeaveSound(): void {
+  play(
+    [
+      { freq: 659.25, start: 0, dur: 0.12 }, // E5
+      { freq: 440.0, start: 0.1, dur: 0.18 }, // A4 (falling)
+    ],
+    { type: 'triangle', gain: 0.08 },
+  );
+}

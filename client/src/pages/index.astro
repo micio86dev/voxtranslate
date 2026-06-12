@@ -1107,7 +1107,14 @@ const LANGS = [
     .video-grid[data-mode="focus"] :global(.video-cell.video-thumb .emoji-float) { display: none; }
     .video-grid[data-mode="focus"] :global(.video-cell.main-cell) { outline: none; }
     .video-grid :global(.video-cell.active-speaker) { outline: 2px solid var(--success); outline-offset: -2px; }
-    .video-grid :global(.video-cell.hand-raised) { outline: 2px solid var(--warning); outline-offset: -2px; }
+    /* Raised hand: amber border drawn as an overlay ON TOP of the video. An
+       `outline` gets composited under the hardware video layer (translateZ(0) +
+       WebRTC feed), so it only showed on the PiP clone; an absolute ::after over
+       the position:relative cell always paints above the feed. */
+    .video-grid :global(.video-cell.hand-raised)::after {
+      content: ''; position: absolute; inset: 0; border-radius: 10px;
+      border: 3px solid var(--warning); pointer-events: none; z-index: 4;
+    }
 
     /* ---------- Control bar divider ---------- */
     .control-bar-divider { width: 1px; height: 28px; background: var(--border); align-self: center; }
