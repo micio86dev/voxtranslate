@@ -8,6 +8,7 @@ import { MeshManager } from './webrtc';
 import { AudioCapture } from './audio-capture';
 import { MicMeter } from './mic-meter';
 import { ChatManager, type ChatPayload } from './chat';
+import { checkUploadFile, fileUploadEnabled, uploadChatFile } from './api';
 import * as auth from './auth';
 import { openSessionScreen } from './session-screen';
 import { initBookmarks, setBookmarkSession } from './bookmarks';
@@ -95,6 +96,13 @@ const chatPanel = $('chat-panel');
 const chatMessages = $('chat-messages');
 const chatInput = $<HTMLInputElement>('chat-input');
 const chatBadge = $('chat-badge');
+// Chat file upload (spec 0018).
+const chatAttach = $('chat-attach');
+const chatFileInput = $<HTMLInputElement>('chat-file-input');
+const chatDrop = $('chat-drop');
+const chatUpload = $('chat-upload');
+const chatUploadFill = $('chat-upload-fill');
+const chatUploadLabel = $('chat-upload-label');
 const btnMic = $('btn-mic');
 const btnCam = $('btn-cam');
 const btnBg = $('btn-bg');
@@ -1664,6 +1672,66 @@ chatInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') sendChat();
 });
 
+// ---- Chat file upload (spec 0018) ------------------------------------------
+// The attach button + drag-and-drop appear only when the backend has Supabase
+// Storage configured (probed once at startup; the chat panel is in-call only).
+void fileUploadEnabled().then((on) => {
+  if (on) chatAttach.hidden = false;
+});
+
+chatAttach.addEventListener('click', () => chatFileInput.click());
+chatFileInput.addEventListener('change', () => {
+  const file = chatFileInput.files?.[0];
+  chatFileInput.value = ''; // allow re-picking the same file
+  if (file) void handleFileUpload(file);
+});
+
+// Drag-and-drop onto the chat panel. `dragDepth` tracks enter/leave across child
+// elements so the overlay doesn't flicker as the cursor crosses nested nodes.
+let dragDepth = 0;
+chatPanel.addEventListener('dragenter', (e) => {
+  if (chatAttach.hidden) return;
+  e.preventDefault();
+  dragDepth++;
+  chatDrop.classList.remove('hidden');
+});
+chatPanel.addEventListener('dragover', (e) => {
+  if (!chatAttach.hidden) e.preventDefault();
+});
+chatPanel.addEventListener('dragleave', () => {
+  if (chatAttach.hidden) return;
+  dragDepth = Math.max(0, dragDepth - 1);
+  if (dragDepth === 0) chatDrop.classList.add('hidden');
+});
+chatPanel.addEventListener('drop', (e) => {
+  if (chatAttach.hidden) return;
+  e.preventDefault();
+  dragDepth = 0;
+  chatDrop.classList.add('hidden');
+  const file = e.dataTransfer?.files?.[0];
+  if (file) void handleFileUpload(file);
+});
+
+async function handleFileUpload(file: File): Promise<void> {
+  if (chatAttach.hidden || !session) return;
+  const reject = checkUploadFile(file);
+  if (reject) {
+    showNotif(reject === 'size' ? t('fileTooBig') : t('fileType'));
+    return;
+  }
+  // Show progress; the translated message itself arrives over the WebSocket.
+  chatUpload.classList.remove('hidden');
+  chatUploadFill.style.width = '0%';
+  chatUploadLabel.textContent = t('uploading');
+  chatAttach.setAttribute('disabled', 'true');
+  const res = await uploadChatFile(session.room, myId, file, (frac) => {
+    chatUploadFill.style.width = `${Math.round(frac * 100)}%`;
+  });
+  chatUpload.classList.add('hidden');
+  chatAttach.removeAttribute('disabled');
+  if (!res.ok) showNotif(t('uploadFailed'));
+}
+
 $('btn-leave').addEventListener('click', leaveCall);
 function leaveCall(): void {
   // Snapshot transcript state before teardown wipes it (spec 0009); the
@@ -2357,6 +2425,7 @@ document.addEventListener('fullscreenchange', setControlState);
 $('dice').innerHTML = icon('shuffle', 18);
 $('chat-close').innerHTML = icon('close', 16);
 $('chat-send').innerHTML = icon('send', 20);
+chatAttach.innerHTML = icon('paperclip', 20);
 $('logout-btn').innerHTML = icon('leave', 16);
 $('buy-close').innerHTML = icon('close', 16);
 $('privacy-open').innerHTML = icon('shield', 16);

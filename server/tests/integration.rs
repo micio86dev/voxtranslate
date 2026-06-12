@@ -31,6 +31,7 @@ fn make_state() -> (AppState, bool) {
                 auto_detect_buffer_ms: 3000,
                 billing: None,
                 resend: None,
+                storage: None,
             }),
             false,
         ),
@@ -309,6 +310,7 @@ async fn deepgram_unavailable_sends_error() {
         auto_detect_buffer_ms: 3000,
         billing: None,
         resend: None,
+        storage: None,
     });
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -321,4 +323,237 @@ async fn deepgram_unavailable_sends_error() {
     send_text(&mut s, r#"{"type":"start"}"#).await;
     let err = wait_for(&mut s, "error", 8000).await.expect("error frame");
     assert_eq!(err["message"], "speech service unavailable");
+}
+
+// ---- Chat file upload (spec 0018) ------------------------------------------
+
+/// Build a minimal `multipart/form-data` body with a `peer_id` text field and a
+/// `file` part. Returns `(content_type_header, body_bytes)`.
+fn multipart_body(peer_id: &str, filename: &str, file_bytes: &[u8]) -> (String, Vec<u8>) {
+    let boundary = "voxtestboundary123";
+    let mut body = Vec::new();
+    body.extend_from_slice(
+        format!(
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"peer_id\"\r\n\r\n{peer_id}\r\n"
+        )
+        .as_bytes(),
+    );
+    body.extend_from_slice(
+        format!(
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{filename}\"\r\nContent-Type: text/plain\r\n\r\n"
+        )
+        .as_bytes(),
+    );
+    body.extend_from_slice(file_bytes);
+    body.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
+    (format!("multipart/form-data; boundary={boundary}"), body)
+}
+
+/// Start the app on a random port from a prebuilt state; returns its address.
+async fn spawn_state(state: AppState) -> SocketAddr {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        let _ = axum::serve(listener, app(state)).await;
+    });
+    addr
+}
+
+fn guest_config() -> Config {
+    Config {
+        deepgram_key: "dummy".into(),
+        groq_key: "dummy".into(),
+        port: 0,
+        allowed_origins: vec![],
+        auto_detect_buffer_ms: 3000,
+        billing: None,
+        resend: None,
+        storage: None,
+    }
+}
+
+#[tokio::test]
+async fn upload_returns_503_when_storage_unconfigured() {
+    // No SUPABASE_* -> storage is None -> the endpoint self-disables.
+    let addr = spawn_state(AppState::new(guest_config())).await;
+    let (ctype, body) = multipart_body("p1", "notes.txt", b"hello");
+    let res = reqwest::Client::new()
+        .post(format!("http://{addr}/api/rooms/x/files"))
+        .header(reqwest::header::CONTENT_TYPE, ctype)
+        .body(body)
+        .send()
+        .await
+        .expect("request");
+    assert_eq!(res.status().as_u16(), 503);
+}
+
+/// Spin a stand-in Supabase Storage server: any request → 200. Returns its addr.
+async fn spawn_mock_storage() -> SocketAddr {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        let app = axum::Router::new().fallback(|| async { "ok" });
+        let _ = axum::serve(listener, app).await;
+    });
+    addr
+}
+
+fn storage_cfg(
+    mock_addr: SocketAddr,
+    max_bytes: usize,
+) -> voxtranslate_server::config::StorageConfig {
+    voxtranslate_server::config::StorageConfig {
+        supabase_url: format!("http://{mock_addr}"),
+        service_key: "test-key".into(),
+        bucket: "chat-files".into(),
+        max_bytes,
+    }
+}
+
+#[tokio::test]
+async fn upload_text_file_broadcasts_chat_message() {
+    // Full happy path, hermetic: a stand-in storage server accepts the bytes, and
+    // a SINGLE peer in the room means the translation fan-out has no targets — so
+    // no Groq/Deepgram call happens. The peer should receive a `chat_message`
+    // carrying the file attachment + the extracted text (R1/R3 for text).
+    let mock = spawn_mock_storage().await;
+    let mut cfg = guest_config();
+    cfg.storage = Some(storage_cfg(mock, 25 * 1024 * 1024));
+    let addr = spawn_state(AppState::new(cfg)).await;
+
+    let mut ws = connect(addr, "room=fileroom&lang=it&id=u1&name=Uno").await;
+    assert_eq!(
+        next_json(&mut ws, 1000).await.unwrap()["type"],
+        "room_joined"
+    );
+
+    let (ctype, body) = multipart_body("u1", "notes.txt", b"ciao mondo");
+    let res = reqwest::Client::new()
+        .post(format!("http://{addr}/api/rooms/fileroom/files"))
+        .header(reqwest::header::CONTENT_TYPE, ctype)
+        .body(body)
+        .send()
+        .await
+        .expect("request");
+    assert_eq!(res.status().as_u16(), 200);
+    let json: Value = res.json().await.unwrap();
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["name"], "notes.txt");
+    assert_eq!(json["type"], "text/plain");
+
+    let msg = wait_for(&mut ws, "chat_message", 4000)
+        .await
+        .expect("chat_message broadcast");
+    assert_eq!(msg["sender_id"], "u1");
+    assert_eq!(msg["original"], "ciao mondo");
+    assert_eq!(msg["attachment"]["name"], "notes.txt");
+    assert_eq!(msg["attachment"]["content_type"], "text/plain");
+    assert_eq!(msg["attachment"]["size"], 10);
+    assert!(msg["attachment"]["url"]
+        .as_str()
+        .unwrap()
+        .contains("/storage/v1/object/public/chat-files/"));
+}
+
+#[tokio::test]
+async fn upload_rejects_unsupported_type_and_oversize() {
+    // A member peer (so we pass the 403 gate) uploads a bad type then an oversize
+    // file; both are rejected before any storage call.
+    let mock = spawn_mock_storage().await;
+    let mut cfg = guest_config();
+    cfg.storage = Some(storage_cfg(mock, 4)); // 4-byte cap to trigger 413 cheaply
+    let addr = spawn_state(AppState::new(cfg)).await;
+
+    let mut ws = connect(addr, "room=valroom&lang=it&id=u9&name=Niner").await;
+    assert_eq!(
+        next_json(&mut ws, 1000).await.unwrap()["type"],
+        "room_joined"
+    );
+    let client = reqwest::Client::new();
+
+    // Unsupported extension -> 415.
+    let (ctype, body) = multipart_body("u9", "virus.exe", b"MZ");
+    let res = client
+        .post(format!("http://{addr}/api/rooms/valroom/files"))
+        .header(reqwest::header::CONTENT_TYPE, ctype)
+        .body(body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status().as_u16(), 415);
+
+    // Supported type but over the (tiny) cap -> 413.
+    let (ctype, body) = multipart_body("u9", "notes.txt", b"way too long");
+    let res = client
+        .post(format!("http://{addr}/api/rooms/valroom/files"))
+        .header(reqwest::header::CONTENT_TYPE, ctype)
+        .body(body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status().as_u16(), 413);
+}
+
+#[tokio::test]
+async fn upload_persists_when_db_configured() {
+    // With the DB configured, the upload also inserts a `chat_files` row and a
+    // transcript event (the DB-write branches). Skipped without DATABASE_URL.
+    let Ok(db_url) = std::env::var("DATABASE_URL") else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    let mock = spawn_mock_storage().await;
+    let mut cfg = Config::test_with_billing(&db_url, "test-jwt-secret", 5.0);
+    cfg.storage = Some(storage_cfg(mock, 25 * 1024 * 1024));
+    let state = AppState::init(cfg)
+        .await
+        .expect("init billing+storage state");
+    let addr = spawn_state(state).await;
+
+    // Guests join even under billing (no token → no balance gate), and a call
+    // session row is created on join so the chat_files FK is satisfied.
+    let mut ws = connect(addr, "room=dbfileroom&lang=it&id=g1&name=Guest").await;
+    let joined = next_json(&mut ws, 1500).await.unwrap();
+    assert_eq!(joined["type"], "room_joined");
+
+    let (ctype, body) = multipart_body("g1", "memo.txt", b"persist me");
+    let res = reqwest::Client::new()
+        .post(format!("http://{addr}/api/rooms/dbfileroom/files"))
+        .header(reqwest::header::CONTENT_TYPE, ctype)
+        .body(body)
+        .send()
+        .await
+        .expect("request");
+    assert_eq!(res.status().as_u16(), 200);
+
+    let msg = wait_for(&mut ws, "chat_message", 4000)
+        .await
+        .expect("chat_message");
+    assert_eq!(msg["original"], "persist me");
+    assert_eq!(msg["attachment"]["name"], "memo.txt");
+}
+
+#[tokio::test]
+async fn upload_returns_403_when_peer_not_in_room() {
+    // Storage configured (dummy) so the request passes the 503 gate; the peer is
+    // not a member of the room, so the membership gate rejects it *before* any
+    // network call to Supabase (the dummy URL is never contacted).
+    use voxtranslate_server::config::StorageConfig;
+    let mut cfg = guest_config();
+    cfg.storage = Some(StorageConfig {
+        supabase_url: "http://127.0.0.1:9".into(), // never contacted
+        service_key: "dummy".into(),
+        bucket: "chat-files".into(),
+        max_bytes: 25 * 1024 * 1024,
+    });
+    let addr = spawn_state(AppState::new(cfg)).await;
+    let (ctype, body) = multipart_body("ghost", "notes.txt", b"hello");
+    let res = reqwest::Client::new()
+        .post(format!("http://{addr}/api/rooms/emptyroom/files"))
+        .header(reqwest::header::CONTENT_TYPE, ctype)
+        .body(body)
+        .send()
+        .await
+        .expect("request");
+    assert_eq!(res.status().as_u16(), 403);
 }

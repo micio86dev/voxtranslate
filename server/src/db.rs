@@ -34,6 +34,54 @@ pub struct User {
     pub banned_reason: Option<String>,
 }
 
+/// A row from `chat_files` (spec 0018): metadata for a file attached to chat.
+/// The bytes themselves live in Supabase Storage; `file_url` is the public URL.
+#[derive(Debug, Clone, FromRow)]
+pub struct ChatFile {
+    pub id: Uuid,
+    pub session_id: Uuid,
+    pub room: String,
+    pub sender_peer_id: String,
+    pub sender_name: String,
+    pub file_url: String,
+    pub file_name: String,
+    pub file_type: String,
+    pub size_bytes: i64,
+    pub created_at: DateTime<Utc>,
+}
+
+/// Persist a chat-file upload's metadata, returning the inserted row.
+#[allow(clippy::too_many_arguments)]
+pub async fn insert_chat_file(
+    pool: &Pool,
+    session_id: Uuid,
+    room: &str,
+    sender_peer_id: &str,
+    sender_name: &str,
+    file_url: &str,
+    file_name: &str,
+    file_type: &str,
+    size_bytes: i64,
+) -> Result<ChatFile, sqlx::Error> {
+    sqlx::query_as(
+        "INSERT INTO chat_files
+            (session_id, room, sender_peer_id, sender_name,
+             file_url, file_name, file_type, size_bytes)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         RETURNING *",
+    )
+    .bind(session_id)
+    .bind(room)
+    .bind(sender_peer_id)
+    .bind(sender_name)
+    .bind(file_url)
+    .bind(file_name)
+    .bind(file_type)
+    .bind(size_bytes)
+    .fetch_one(pool)
+    .await
+}
+
 /// Open a connection pool to the given Postgres URL.
 pub async fn connect(url: &str) -> Result<Pool, sqlx::Error> {
     PgPoolOptions::new()
@@ -94,5 +142,63 @@ mod tests {
             .expect("fetch user");
         assert_eq!(fetched.id, inserted.id);
         assert_eq!(fetched.email, email);
+    }
+
+    /// Round-trip a `chat_files` row (spec 0018) against the real schema, proving
+    /// the migration + `insert_chat_file` query agree. Needs a `call_sessions`
+    /// parent row for the FK. Skipped without `DATABASE_URL`.
+    #[tokio::test]
+    async fn insert_and_read_chat_file() {
+        let Ok(url) = std::env::var("DATABASE_URL") else {
+            eprintln!("skipping db test — no DATABASE_URL");
+            return;
+        };
+        let pool = connect(&url).await.expect("connect");
+        migrate(&pool).await.expect("migrate");
+
+        // The chat_files FK references call_sessions(id), so create one first.
+        let session_id = Uuid::new_v4();
+        sqlx::query("INSERT INTO call_sessions (id, room) VALUES ($1, $2)")
+            .bind(session_id)
+            .bind("round-trip-room")
+            .execute(&pool)
+            .await
+            .expect("insert call_session");
+
+        let row = insert_chat_file(
+            &pool,
+            session_id,
+            "round-trip-room",
+            "peer-1",
+            "Tester",
+            "https://ref.supabase.co/storage/v1/object/public/chat-files/s/f.mp3",
+            "memo.mp3",
+            "audio/mpeg",
+            12_345,
+        )
+        .await
+        .expect("insert chat_file");
+
+        assert_eq!(row.session_id, session_id);
+        assert_eq!(row.file_name, "memo.mp3");
+        assert_eq!(row.file_type, "audio/mpeg");
+        assert_eq!(row.size_bytes, 12_345);
+        assert_eq!(row.sender_peer_id, "peer-1");
+
+        // Deleting the parent session cascades the file row away (GDPR lifecycle).
+        sqlx::query("DELETE FROM call_sessions WHERE id = $1")
+            .bind(session_id)
+            .execute(&pool)
+            .await
+            .expect("delete session");
+        let still: Option<ChatFile> = sqlx::query_as("SELECT * FROM chat_files WHERE id = $1")
+            .bind(row.id)
+            .fetch_optional(&pool)
+            .await
+            .expect("query chat_file");
+        assert!(
+            still.is_none(),
+            "FK cascade removes the file with its session"
+        );
     }
 }

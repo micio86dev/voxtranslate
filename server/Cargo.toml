@@ -4,7 +4,7 @@ version = "1.0.0"
 edition = "2021"
 
 [dependencies]
-axum = { version = "0.8", features = ["ws"] }
+axum = { version = "0.8", features = ["ws", "multipart"] }
 tokio = { version = "1", features = ["full"] }
 tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
 serde = { version = "1", features = ["derive"] }
@@ -35,6 +35,9 @@ chrono-tz = "0.10"
 typst = "=0.14.2"
 typst-pdf = "=0.14.2"
 typst-as-lib = "=0.15.5"
+
+# Chat file upload (spec 0018): extract text from uploaded text-layer PDFs.
+pdf-extract = "0.7"
 
 [profile.release]
 opt-level = 3

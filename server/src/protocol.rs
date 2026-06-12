@@ -60,6 +60,17 @@ pub enum ClientMessage {
 
 // --- Server -> Client ------------------------------------------------------
 
+/// A file attached to a chat message (spec 0018). The bytes live in Supabase
+/// Storage; `url` is the public link. `content_type` lets the client choose a
+/// renderer (inline `<audio>` for audio, a download chip otherwise).
+#[derive(Debug, Clone, Serialize)]
+pub struct Attachment {
+    pub url: String,
+    pub name: String,
+    pub content_type: String,
+    pub size: u64,
+}
+
 /// Lightweight peer descriptor sent in `room_joined`.
 #[derive(Debug, Clone, Serialize)]
 pub struct PeerInfo {
@@ -114,6 +125,8 @@ pub enum ServerMessage {
     },
 
     /// A translated chat message (broadcast to everyone, including the sender).
+    /// When it carries a file (spec 0018), `attachment` is present and `original`
+    /// holds the file's extracted/transcribed text (possibly empty).
     ChatMessage {
         sender_id: String,
         sender_name: String,
@@ -123,6 +136,8 @@ pub enum ServerMessage {
         original: String,
         translations: HashMap<String, String>,
         timestamp: u64,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        attachment: Option<Attachment>,
     },
 
     /// A peer toggled audio/video; `kind` is "audio" or "video".
@@ -415,6 +430,41 @@ mod tests {
         }
         .to_json();
         assert!(!manual.contains("confidence"));
+
+        // Chat attachment (spec 0018): present iff a file is attached.
+        let plain = ServerMessage::ChatMessage {
+            sender_id: "a".into(),
+            sender_name: "Alice".into(),
+            sender_lang: "it".into(),
+            sender_avatar: None,
+            original: "ciao".into(),
+            translations: std::collections::HashMap::new(),
+            timestamp: 1,
+            attachment: None,
+        }
+        .to_json();
+        assert!(plain.contains("\"type\":\"chat_message\""));
+        assert!(!plain.contains("attachment"), "omitted when None");
+        let with_file = ServerMessage::ChatMessage {
+            sender_id: "a".into(),
+            sender_name: "Alice".into(),
+            sender_lang: "it".into(),
+            sender_avatar: None,
+            original: String::new(),
+            translations: std::collections::HashMap::new(),
+            timestamp: 1,
+            attachment: Some(crate::protocol::Attachment {
+                url: "https://x/storage/v1/object/public/chat-files/s/f.mp3".into(),
+                name: "memo.mp3".into(),
+                content_type: "audio/mpeg".into(),
+                size: 12345,
+            }),
+        }
+        .to_json();
+        assert!(with_file.contains("\"attachment\""));
+        assert!(
+            with_file.contains("\"name\":\"memo.mp3\"") && with_file.contains("\"size\":12345")
+        );
 
         // Glossary badge (spec 0011): name omitted when None.
         let g = ServerMessage::GlossaryActive {

@@ -23,6 +23,24 @@ pub struct Config {
     pub billing: Option<BillingConfig>,
     /// Present only when all `RESEND_*` vars are set; gates follow-up email.
     pub resend: Option<ResendConfig>,
+    /// Present only when `SUPABASE_URL` + `SUPABASE_SERVICE_KEY` are set; gates
+    /// chat file upload (spec 0018). When absent the attach button is hidden and
+    /// the upload endpoint returns 503.
+    pub storage: Option<StorageConfig>,
+}
+
+/// Supabase Storage credentials for chat file upload (spec 0018). All-or-nothing
+/// like billing — the feature activates only when both URL and key are present.
+#[derive(Debug, Clone)]
+pub struct StorageConfig {
+    /// Project base URL, e.g. `https://<ref>.supabase.co` (no trailing slash).
+    pub supabase_url: String,
+    /// Service-role key — server-only, never sent to the client.
+    pub service_key: String,
+    /// Bucket name; defaults to `chat-files`.
+    pub bucket: String,
+    /// Max upload size in bytes (default 25 MiB).
+    pub max_bytes: usize,
 }
 
 /// Everything needed for accounts, credits, and payments.
@@ -134,6 +152,14 @@ impl Config {
             None
         };
 
+        // Chat file upload (spec 0018) activates only when both Supabase Storage
+        // values are present. The bucket name is optional (defaults below).
+        let storage = if present("SUPABASE_URL") && present("SUPABASE_SERVICE_KEY") {
+            Some(StorageConfig::from_env())
+        } else {
+            None
+        };
+
         Ok(Self {
             deepgram_key,
             groq_key,
@@ -142,6 +168,7 @@ impl Config {
             auto_detect_buffer_ms: parse_or("AUTO_DETECT_BUFFER_MS", 3000u64),
             billing,
             resend,
+            storage,
         })
     }
 
@@ -221,6 +248,29 @@ impl ResendConfig {
             api_key: env::var("RESEND_API_KEY").unwrap_or_default(),
             from_email: env::var("RESEND_FROM_EMAIL").unwrap_or_default(),
             from_name: env::var("RESEND_FROM_NAME").unwrap_or_default(),
+        }
+    }
+}
+
+impl StorageConfig {
+    fn from_env() -> Self {
+        Self {
+            // Tolerate a trailing slash in the configured URL.
+            supabase_url: env::var("SUPABASE_URL")
+                .unwrap_or_default()
+                .trim()
+                .trim_end_matches('/')
+                .to_string(),
+            service_key: env::var("SUPABASE_SERVICE_KEY")
+                .unwrap_or_default()
+                .trim()
+                .to_string(),
+            bucket: env::var("SUPABASE_BUCKET")
+                .ok()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "chat-files".to_string()),
+            max_bytes: parse_or("SUPABASE_MAX_UPLOAD_BYTES", 25 * 1024 * 1024usize),
         }
     }
 }
@@ -321,6 +371,7 @@ impl Config {
                 ai: AiConfig::test_default(),
             }),
             resend: None,
+            storage: None,
         }
     }
 }

@@ -116,6 +116,69 @@ pub async fn detect_language(
     parse_detect_response(&json)
 }
 
+/// Transcribe a prerecorded audio file (spec 0018 chat upload). Uses the same
+/// REST `/v1/listen` endpoint as [`detect_language`] but asks for the full
+/// transcript with smart formatting, and returns both the transcript and the
+/// detected language so the chat fan-out knows the source language.
+///
+/// `content_type` is the uploaded file's MIME type (e.g. `audio/mpeg`,
+/// `audio/wav`); Deepgram sniffs the container so we pass it through verbatim.
+pub async fn transcribe_file(
+    http: &reqwest::Client,
+    config: &Config,
+    bytes: Vec<u8>,
+    content_type: &str,
+) -> Result<(String, Option<String>), String> {
+    let resp = http
+        .post(
+            "https://api.deepgram.com/v1/listen\
+             ?detect_language=true&model=nova-2&smart_format=true&punctuate=true",
+        )
+        .header(
+            reqwest::header::AUTHORIZATION,
+            format!("Token {}", config.deepgram_key),
+        )
+        .header(reqwest::header::CONTENT_TYPE, content_type)
+        // Prerecorded files can be large; allow more time than the live probe.
+        .timeout(Duration::from_secs(120))
+        .body(bytes)
+        .send()
+        .await
+        .map_err(|e| format!("deepgram transcribe request failed: {e}"))?;
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let detail = resp.text().await.unwrap_or_default();
+        return Err(format!("deepgram transcribe returned {status}: {detail}"));
+    }
+    let json: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("deepgram transcribe parse failed: {e}"))?;
+    Ok(parse_prerecorded_response(&json))
+}
+
+/// Extract `(transcript, detected_language)` from a prerecorded `/v1/listen`
+/// response. Pure, for tests. The transcript lives at
+/// `results.channels[0].alternatives[0].transcript`; the language (when
+/// `detect_language` was requested) at `results.channels[0].detected_language`.
+/// A missing transcript yields an empty string (the caller still posts the file
+/// chip, just without translatable text).
+pub fn parse_prerecorded_response(json: &serde_json::Value) -> (String, Option<String>) {
+    let channel = json.pointer("/results/channels/0");
+    let transcript = channel
+        .and_then(|c| c.pointer("/alternatives/0/transcript"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let lang = channel
+        .and_then(|c| c.get("detected_language"))
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
+    (transcript, lang)
+}
+
 /// Extract `(detected_language, confidence)` from a `/v1/listen` REST response.
 /// Pure, for tests; the language lives at `results.channels[0].detected_language`.
 pub fn parse_detect_response(json: &serde_json::Value) -> Result<(String, Option<f64>), String> {
@@ -334,5 +397,45 @@ mod tests {
             "results": { "channels": [{ "detected_language": "" }] }
         });
         assert!(parse_detect_response(&empty).is_err());
+    }
+
+    #[test]
+    fn parse_prerecorded_extracts_transcript_and_lang() {
+        let json = serde_json::json!({
+            "results": { "channels": [{
+                "detected_language": "it",
+                "alternatives": [{ "transcript": "  buongiorno a tutti  ", "confidence": 0.9 }]
+            }]}
+        });
+        let (text, lang) = parse_prerecorded_response(&json);
+        assert_eq!(text, "buongiorno a tutti"); // trimmed
+        assert_eq!(lang.as_deref(), Some("it"));
+    }
+
+    #[test]
+    fn parse_prerecorded_tolerates_missing_fields() {
+        // No transcript -> empty string, language still surfaced when present.
+        let no_text = serde_json::json!({
+            "results": { "channels": [{ "detected_language": "en" }] }
+        });
+        let (text, lang) = parse_prerecorded_response(&no_text);
+        assert_eq!(text, "");
+        assert_eq!(lang.as_deref(), Some("en"));
+
+        // Completely empty response: empty transcript, no language.
+        let (text, lang) = parse_prerecorded_response(&serde_json::json!({}));
+        assert_eq!(text, "");
+        assert!(lang.is_none());
+
+        // Empty detected_language is treated as absent.
+        let empty_lang = serde_json::json!({
+            "results": { "channels": [{
+                "detected_language": "",
+                "alternatives": [{ "transcript": "hi" }]
+            }]}
+        });
+        let (text, lang) = parse_prerecorded_response(&empty_lang);
+        assert_eq!(text, "hi");
+        assert!(lang.is_none());
     }
 }

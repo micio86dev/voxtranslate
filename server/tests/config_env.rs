@@ -54,6 +54,31 @@ fn from_env_detects_guest_and_billing_modes() {
     assert!((b.ai.report_base - 0.10).abs() < 1e-9);
     assert_eq!(b.glossary_max_entries, 50);
 
+    // Chat file upload storage (spec 0018): disabled until BOTH URL + key set.
+    std::env::set_var("DEEPGRAM_API_KEY", "dk"); // restore (overwritten below)
+    assert!(Config::from_env().unwrap().storage.is_none());
+    std::env::set_var("SUPABASE_URL", "https://ref.supabase.co/");
+    assert!(
+        Config::from_env().unwrap().storage.is_none(),
+        "URL alone is not enough"
+    );
+    std::env::set_var("SUPABASE_SERVICE_KEY", "service-key");
+    let c = Config::from_env().unwrap();
+    let s = c.storage.as_ref().expect("storage enabled");
+    // Trailing slash trimmed; bucket defaults to chat-files; 25 MiB default cap.
+    assert_eq!(s.supabase_url, "https://ref.supabase.co");
+    assert_eq!(s.service_key, "service-key");
+    assert_eq!(s.bucket, "chat-files");
+    assert_eq!(s.max_bytes, 25 * 1024 * 1024);
+    std::env::set_var("SUPABASE_BUCKET", "custom-bucket");
+    std::env::set_var("SUPABASE_MAX_UPLOAD_BYTES", "1048576");
+    let s2 = Config::from_env()
+        .unwrap()
+        .storage
+        .expect("storage enabled");
+    assert_eq!(s2.bucket, "custom-bucket");
+    assert_eq!(s2.max_bytes, 1_048_576);
+
     // A missing required key still fails.
     std::env::set_var("DEEPGRAM_API_KEY", "  ");
     assert!(Config::from_env().is_err());
@@ -72,6 +97,10 @@ fn from_env_detects_guest_and_billing_modes() {
         "CREDITS_REPORT_BASE",
         "GLOSSARY_MAX_ENTRIES",
         "AUTO_DETECT_BUFFER_MS",
+        "SUPABASE_URL",
+        "SUPABASE_SERVICE_KEY",
+        "SUPABASE_BUCKET",
+        "SUPABASE_MAX_UPLOAD_BYTES",
     ] {
         std::env::remove_var(k);
     }

@@ -16,6 +16,7 @@ pub mod content;
 pub mod db;
 pub mod deepgram;
 pub mod email;
+pub mod files;
 pub mod glossary;
 pub mod groq;
 pub mod middleware;
@@ -25,6 +26,7 @@ pub mod protocol;
 pub mod rate_limit;
 pub mod rooms;
 pub mod safety;
+pub mod storage;
 pub mod stripe_handler;
 pub mod subtitles;
 pub mod transcripts;
@@ -36,7 +38,7 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
-use axum::extract::{Query, State};
+use axum::extract::{DefaultBodyLimit, Query, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -84,6 +86,9 @@ pub struct AppState {
     pub glossary: Option<GlossaryService>,
     /// Resend email client (spec 0016) — `Some` only when RESEND_* is configured.
     pub resend: Option<email::Resend>,
+    /// Supabase Storage uploader (spec 0018) — `Some` only when SUPABASE_* is
+    /// configured; gates chat file upload.
+    pub storage: Option<storage::SupabaseStorage>,
     /// Verifies Google credentials (swappable for tests).
     pub verifier: Arc<dyn TokenVerifier>,
     /// Shared HTTP client (Google tokeninfo, Stripe).
@@ -113,6 +118,10 @@ impl AppState {
             .resend
             .as_ref()
             .map(|c| email::Resend::new(http.clone(), c));
+        let storage = config
+            .storage
+            .as_ref()
+            .map(|c| storage::SupabaseStorage::new(http.clone(), c));
         Self {
             config: Arc::new(config),
             rooms: Arc::new(RoomManager::new()),
@@ -124,6 +133,7 @@ impl AppState {
             transcripts: None,
             glossary: None,
             resend,
+            storage,
             verifier,
             http,
             rate_limiter: Arc::new(RateLimiter::new()),
@@ -228,6 +238,15 @@ pub fn app(state: AppState) -> Router {
         .route(
             "/api/rooms/{room}/glossary/import",
             post(api::glossary_import),
+        )
+        // Chat file upload (spec 0018). Public feature probe + the upload route.
+        // Multipart can carry a file up to the configured cap, so the upload
+        // route raises Axum's default 2 MB body limit; the handler enforces the
+        // exact `storage.max_bytes`.
+        .route("/api/files/config", get(files::files_config))
+        .route(
+            "/api/rooms/{room}/files",
+            post(files::upload_file).layer(DefaultBodyLimit::max(files::MAX_BODY_BYTES)),
         )
         .route("/api/report", post(api::report))
         .route("/api/user/consent", post(api::submit_consent))
@@ -337,7 +356,7 @@ async fn rooms_handler(State(state): State<AppState>) -> Json<RoomsResponse> {
     })
 }
 
-fn now_unix() -> u64 {
+pub(crate) fn now_unix() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
@@ -932,6 +951,7 @@ fn handle_chat(
                 original: text,
                 translations,
                 timestamp,
+                attachment: None,
             }
             .to_json(),
         );

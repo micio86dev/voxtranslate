@@ -276,6 +276,11 @@ const LANGS = [
           <button id="chat-close" class="btn-ghost icon-btn" data-i18n-title="closeTip"></button>
         </div>
         <div id="chat-messages" class="chat-messages" role="log" data-i18n-label="chatTitle"></div>
+        <!-- Upload progress (spec 0018): shown while a file uploads. -->
+        <div id="chat-upload" class="chat-upload hidden">
+          <span id="chat-upload-label" class="chat-upload-label"></span>
+          <div class="chat-upload-bar"><div id="chat-upload-fill" class="chat-upload-fill"></div></div>
+        </div>
         <div class="chat-input-row">
           <div class="emoji-picker-wrap">
             <button id="emoji-toggle" class="btn-ghost icon-btn emoji-btn" title="Emoji" aria-label="Emoji" aria-haspopup="true" aria-expanded="false" aria-controls="emoji-panel">😀</button>
@@ -286,9 +291,14 @@ const LANGS = [
               <div class="emoji-grid" id="emoji-grid"></div>
             </div>
           </div>
+          <!-- Attach a file (spec 0018): hidden until the backend reports storage on. -->
+          <button id="chat-attach" class="btn-ghost icon-btn attach-btn" hidden data-i18n-title="attachTip" aria-label="Attach"></button>
+          <input id="chat-file-input" type="file" hidden accept=".mp3,.wav,.txt,.pdf,audio/mpeg,audio/wav,text/plain,application/pdf" />
           <input id="chat-input" type="text" maxlength="500" autocomplete="off" data-i18n-ph="chatPlaceholder" />
           <button id="chat-send" class="btn-primary send-btn" data-i18n-title="send"></button>
         </div>
+        <!-- Drag-and-drop overlay (spec 0018), toggled while a file is dragged over. -->
+        <div id="chat-drop" class="chat-drop hidden"><span data-i18n="dropFile"></span></div>
       </section>
     </section>
 
@@ -828,9 +838,27 @@ const LANGS = [
     .chat-messages :global(.chat-msg-mine) { align-self: flex-end; background: rgba(59, 130, 246, 0.2); border: 1px solid var(--accent-dim); }
     .chat-messages :global(.chat-msg-other) { align-self: flex-start; background: var(--surface-2); border: 1px solid var(--border); }
     .chat-messages :global(.chat-sender) { font-weight: 700; color: var(--accent); margin-right: 6px; }
-    .chat-messages :global(.chat-text) { color: var(--text); }
-    .chat-input-row { display: flex; gap: 8px; padding: 12px; border-top: 1px solid var(--border); }
+    .chat-messages :global(.chat-text) { color: var(--text); display: block; }
+    /* File attachment chip + inline audio player (spec 0018). JS-created → :global(). */
+    .chat-messages :global(.chat-attachment) { display: flex; flex-direction: column; gap: 6px; margin: 4px 0; }
+    .chat-messages :global(.chat-audio) { width: 100%; max-width: 260px; height: 36px; }
+    .chat-messages :global(.chat-file-chip) { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--border); color: var(--text); text-decoration: none; }
+    .chat-messages :global(.chat-file-chip:hover) { border-color: var(--accent-dim); }
+    .chat-messages :global(.chat-file-meta) { display: flex; flex-direction: column; min-width: 0; }
+    .chat-messages :global(.chat-file-name) { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px; }
+    .chat-messages :global(.chat-file-size) { font-size: 0.72rem; color: var(--muted); }
+    .chat-input-row { display: flex; gap: 8px; padding: 12px; border-top: 1px solid var(--border); align-items: center; }
     .chat-input-row .btn-primary { width: auto; min-height: 44px; padding: 0 16px; }
+    .attach-btn :global(.ico) { width: 20px; height: 20px; }
+    /* Upload progress bar (spec 0018). */
+    .chat-upload { padding: 8px 14px; display: flex; flex-direction: column; gap: 4px; border-top: 1px solid var(--border); }
+    .chat-upload-label { font-size: 0.78rem; color: var(--muted); }
+    .chat-upload-bar { height: 4px; border-radius: 999px; background: var(--surface-2); overflow: hidden; }
+    .chat-upload-fill { height: 100%; width: 0; background: var(--accent); transition: width 0.15s ease; }
+    /* Drag-and-drop overlay (spec 0018), covers the chat panel while dragging. */
+    .chat-drop { position: absolute; inset: 0; z-index: 3; display: grid; place-items: center;
+      background: color-mix(in srgb, var(--accent) 16%, var(--surface)); border: 2px dashed var(--accent);
+      border-radius: 12px; color: var(--text); font-weight: 600; pointer-events: none; }
 
     /* ---------- Login ---------- */
     #login { align-items: center; justify-content: center; padding: 20px; }

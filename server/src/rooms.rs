@@ -46,6 +46,13 @@ pub struct Joined {
     pub existing: Vec<PeerInfo>,
 }
 
+/// Authoritative identity of a connected peer (spec 0018 upload gate).
+pub struct PeerSnapshot {
+    pub name: String,
+    pub lang: String,
+    pub avatar_url: Option<String>,
+}
+
 /// Manages ephemeral rooms. No persistence — everything lives in memory and is
 /// cleaned up as peers disconnect.
 #[derive(Default)]
@@ -156,6 +163,23 @@ impl RoomManager {
         false
     }
 
+    /// Authoritative identity snapshot of a connected peer (spec 0018): name,
+    /// live language, and avatar. `None` when the peer isn't in the room — this
+    /// is the membership gate for the chat-file upload endpoint (a non-member
+    /// can't post into a room they aren't in).
+    pub fn peer_snapshot(&self, room_id: &str, peer_id: &str) -> Option<PeerSnapshot> {
+        self.rooms
+            .get(room_id)?
+            .peers
+            .iter()
+            .find(|p| p.id == peer_id)
+            .map(|p| PeerSnapshot {
+                name: p.name.clone(),
+                lang: p.lang.clone(),
+                avatar_url: p.avatar_url.clone(),
+            })
+    }
+
     /// A peer's *current* language (live, post-detection) — the `lang` captured
     /// at join time goes stale once auto-detect or `set_lang` updates it.
     pub fn peer_lang(&self, room_id: &str, peer_id: &str) -> Option<String> {
@@ -165,6 +189,13 @@ impl RoomManager {
             .iter()
             .find(|p| p.id == peer_id)
             .map(|p| p.lang.clone())
+    }
+
+    /// The room's current call-session id (the transcript-persistence lifetime
+    /// id). `None` when the room doesn't exist. Used by the chat-file upload to
+    /// tie an upload to the call session (spec 0018).
+    pub fn session_id(&self, room_id: &str) -> Option<Uuid> {
+        self.rooms.get(room_id).map(|r| r.session_id)
     }
 
     /// Snapshot of all public rooms with their online members, for the lobby.
@@ -304,6 +335,23 @@ mod tests {
         assert!(!rm.set_peer_lang("r", "ghost", "fr"), "unknown peer");
         assert!(!rm.set_peer_lang("nope", "b", "fr"), "unknown room");
         assert!(rm.peer_lang("r", "ghost").is_none());
+    }
+
+    #[test]
+    fn peer_snapshot_gates_on_membership() {
+        let rm = RoomManager::new();
+        let (mut a, _ra) = peer("a", "it");
+        a.avatar_url = Some("https://x/avatar.png".into());
+        rm.join("r", a, Visibility::Public).unwrap();
+
+        let snap = rm.peer_snapshot("r", "a").expect("member present");
+        assert_eq!(snap.name, "A");
+        assert_eq!(snap.lang, "it");
+        assert_eq!(snap.avatar_url.as_deref(), Some("https://x/avatar.png"));
+
+        // Non-member and unknown room both yield None (the 403 gate).
+        assert!(rm.peer_snapshot("r", "ghost").is_none());
+        assert!(rm.peer_snapshot("nope", "a").is_none());
     }
 
     #[test]

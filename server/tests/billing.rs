@@ -170,6 +170,7 @@ mod guest_mode {
             auto_detect_buffer_ms: 3000,
             billing: None,
             resend: None,
+            storage: None,
         };
         let state = AppState::new(config);
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

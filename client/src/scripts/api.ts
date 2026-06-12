@@ -219,6 +219,79 @@ export async function deleteGlossary(room: string): Promise<boolean> {
   }
 }
 
+// ---- Chat file upload (spec 0018) ------------------------------------------
+
+/** MVP-supported upload extensions (mirrors the server's `classify_ext`). */
+export const UPLOAD_EXTS = ['mp3', 'wav', 'txt', 'pdf'] as const;
+
+/** The `accept` attribute value for the file picker. */
+export const UPLOAD_ACCEPT = '.mp3,.wav,.txt,.pdf,audio/mpeg,audio/wav,text/plain,application/pdf';
+
+/** Client-side size cap (must stay ≤ the server's `SUPABASE_MAX_UPLOAD_BYTES`). */
+export const UPLOAD_MAX_BYTES = 25 * 1024 * 1024;
+
+/** Why a client-side pre-check rejected a file (before any network call). */
+export type UploadReject = 'type' | 'size';
+
+/** Validate a file against the supported types + size cap. `null` = OK. */
+export function checkUploadFile(file: File): UploadReject | null {
+  const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
+  if (!(UPLOAD_EXTS as readonly string[]).includes(ext)) return 'type';
+  if (file.size > UPLOAD_MAX_BYTES || file.size === 0) return 'size';
+  return null;
+}
+
+/** Outcome of an upload: `ok` true, else the server status / network failure. */
+export interface UploadResult {
+  ok: boolean;
+  /** HTTP status (0 = network error / aborted). */
+  status: number;
+}
+
+/**
+ * Upload a file into the room chat. Uses XHR (not fetch) so we can report
+ * upload progress (0–1). The translated message is delivered separately over
+ * the WebSocket as a normal `chat_message`, so there is nothing to render from
+ * the response beyond success/failure.
+ */
+export function uploadChatFile(
+  room: string,
+  peerId: string,
+  file: File,
+  onProgress?: (fraction: number) => void,
+): Promise<UploadResult> {
+  return new Promise((resolve) => {
+    const form = new FormData();
+    form.append('peer_id', peerId);
+    form.append('file', file, file.name);
+
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `${HTTP_BASE}/api/rooms/${encodeURIComponent(room)}/files`);
+    for (const [k, v] of Object.entries(authHeaders())) xhr.setRequestHeader(k, v);
+    if (onProgress && xhr.upload) {
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) onProgress(e.loaded / e.total);
+      };
+    }
+    xhr.onload = () => resolve({ ok: xhr.status >= 200 && xhr.status < 300, status: xhr.status });
+    xhr.onerror = () => resolve({ ok: false, status: 0 });
+    xhr.onabort = () => resolve({ ok: false, status: 0 });
+    xhr.send(form);
+  });
+}
+
+/** Whether the backend has chat file upload configured (Supabase Storage). */
+export async function fileUploadEnabled(): Promise<boolean> {
+  try {
+    const res = await fetch(`${HTTP_BASE}/api/files/config`, { cache: 'no-store' });
+    if (!res.ok) return false;
+    const cfg = (await res.json()) as { enabled?: boolean };
+    return cfg.enabled === true;
+  } catch {
+    return false;
+  }
+}
+
 // ---- AI pricing (GET /api/billing/ai-pricing) -------------------------------
 
 export interface AiPricing {
