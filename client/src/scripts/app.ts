@@ -14,6 +14,7 @@ import { initBookmarks, setBookmarkSession } from './bookmarks';
 import { initGlossary, onGlossaryActive, refreshGlossaryHome, setGlossaryRoom } from './glossary';
 import { dismissLangToast, initLangDetect, onLanguageDetected } from './lang-detect';
 import { playHandRaiseSound, playJoinSound, playScreenShareSound } from './sfx';
+import { VirtualBackground } from './virtual-background';
 import { CompositeRecorder } from './recording/composite-recorder';
 import { formatElapsed, isRecordingSupported, recordingFilename } from './recording/utils';
 import type { ParticipantSource } from './recording/types';
@@ -96,6 +97,7 @@ const chatInput = $<HTMLInputElement>('chat-input');
 const chatBadge = $('chat-badge');
 const btnMic = $('btn-mic');
 const btnCam = $('btn-cam');
+const btnBg = $('btn-bg');
 const btnTts = $('btn-tts');
 const btnSubtitle = $('btn-subtitle');
 const btnHand = $('btn-hand');
@@ -127,6 +129,14 @@ let lobbyTimer: number | null = null;
 let visibilityPublic = true;
 let micOn = true;
 let camOn = true;
+// Virtual background (issue #6, MVP: blur only). `bgMode` is the desired effect;
+// `vbg` processes the raw camera into the outgoing track when active.
+let bgMode: 'none' | 'blur' = 'none';
+let vbg: VirtualBackground | null = null;
+// Serializes the camera + background toggles: both mutate the outgoing video
+// track and the background swap can await a lazy model load, so overlapping ops
+// would race on `vbg` / `localStream`.
+let videoBusy = false;
 let ttsOn = true; // "translated voice" mode: hear the translation, mute foreign originals
 let subtitlesOn = true; // show subtitle overlays on video cells
 let handRaised = false;
@@ -1184,6 +1194,10 @@ function setControlState(): void {
   btnCam.classList.toggle('active-danger', !camOn);
   btnCam.innerHTML = icon(camOn ? 'video' : 'video-off');
   setToggleState(btnCam, camOn);
+  const bgOn = bgMode === 'blur';
+  btnBg.classList.toggle('active-success', bgOn);
+  btnBg.innerHTML = icon('sparkles');
+  setToggleState(btnBg, bgOn, t(bgOn ? 'bgBlurOn' : 'bgBlurTip'));
   btnTts.classList.toggle('active-success', ttsOn);
   btnTts.innerHTML = icon(ttsOn ? 'volume-on' : 'volume-off');
   setToggleState(btnTts, ttsOn);
@@ -1226,34 +1240,70 @@ btnCam.addEventListener('click', () => {
 });
 
 async function toggleCamera(): Promise<void> {
-  camOn = !camOn;
-  // Acquire / release the physical camera so the hardware LED matches the UI
-  // (enableCamera may revert camOn to false if the device can't be opened).
-  if (camOn) {
-    await enableCamera();
-  } else {
-    disableCamera();
+  if (videoBusy) return;
+  videoBusy = true;
+  try {
+    camOn = !camOn;
+    // Acquire / release the physical camera so the hardware LED matches the UI
+    // (enableCamera may revert camOn to false if the device can't be opened).
+    if (camOn) {
+      await enableCamera();
+    } else {
+      disableCamera();
+    }
+    setCameraOff(myId, !camOn);
+    // While screen-sharing the recorder's self tile shows the screen regardless.
+    if (!isSharingScreen) recorder?.setVideoOff(myId, !camOn);
+    ws?.send(JSON.stringify({ type: 'mute_video', muted: !camOn }));
+  } finally {
+    videoBusy = false;
+    setControlState();
   }
-  setCameraOff(myId, !camOn);
-  // While screen-sharing the recorder's self tile shows the screen regardless.
-  if (!isSharingScreen) recorder?.setVideoOff(myId, !camOn);
-  ws?.send(JSON.stringify({ type: 'mute_video', muted: !camOn }));
-  setControlState();
+}
+
+btnBg.addEventListener('click', () => {
+  void toggleBgBlur();
+});
+
+// Toggle the camera background blur. When the camera is live we reprocess the
+// current raw track into the new outgoing track immediately; otherwise the mode
+// is just recorded and applied next time the camera turns on (enableCamera).
+async function toggleBgBlur(): Promise<void> {
+  if (videoBusy) return;
+  videoBusy = true;
+  bgMode = bgMode === 'blur' ? 'none' : 'blur';
+  setControlState(); // reflect intent right away (segmentation may load lazily)
+  try {
+    if (camOn && localStream && !isSharingScreen) {
+      const raw = currentRawCameraTrack();
+      if (raw) await setOutgoingVideo(raw);
+    }
+  } finally {
+    videoBusy = false;
+    setControlState(); // settle (buildOutgoing may have reverted the mode)
+  }
 }
 
 // Fully release the camera device — track.stop() turns the hardware LED off,
 // unlike track.enabled = false which keeps the device powered. The (now ended)
-// track stays in localStream as a placeholder so the video sender remains
-// negotiated; peers hide the frozen frame via the mute_video signal sent by
-// toggleCamera. While screen-sharing the outgoing track is the screen, so this
-// just powers down the idle camera.
+// outgoing track stays in localStream as a placeholder so the video sender
+// remains negotiated; peers hide the frozen frame via the mute_video signal
+// sent by toggleCamera. While screen-sharing the outgoing track is the screen,
+// so this just powers down the idle camera.
 function disableCamera(): void {
+  // With background blur on, the real camera is the VB's source (not in
+  // localStream); stop it too so the hardware LED actually turns off.
+  if (vbg) {
+    vbg.source?.stop();
+    vbg.stop();
+    vbg = null;
+  }
   if (!localStream) return;
   localStream.getVideoTracks().forEach((track) => track.stop());
 }
 
-// Re-open the camera and route its fresh track to peers + our tile. Reverts the
-// toggle if the device can't be opened (busy / denied).
+// Re-open the camera and route its fresh track (raw or blurred) to peers + our
+// tile. Reverts the toggle if the device can't be opened (busy / denied).
 async function enableCamera(): Promise<void> {
   const track = await acquireVideoTrack();
   if (!track || !localStream) {
@@ -1262,19 +1312,64 @@ async function enableCamera(): Promise<void> {
     if (!track) toast(t('camMicDenied'));
     return;
   }
-  // Swap the ended placeholder for the fresh track.
-  for (const old of localStream.getVideoTracks()) {
-    old.stop();
-    localStream.removeTrack(old);
+  await setOutgoingVideo(track);
+}
+
+/** The live raw camera track, wherever it currently lives: held by the VB when
+ *  blur is active, otherwise the localStream video track. */
+function currentRawCameraTrack(): MediaStreamTrack | null {
+  if (vbg?.source && vbg.source.readyState === 'live') return vbg.source;
+  return localStream?.getVideoTracks().find((tr) => tr.readyState === 'live') ?? null;
+}
+
+// Produce the outgoing video track for `raw` honouring bgMode (raw camera, or a
+// blurred track from the VirtualBackground), swap it into localStream — keeping
+// `raw` alive when the VB reuses it as its source — and push it to peers + tile.
+async function setOutgoingVideo(raw: MediaStreamTrack): Promise<void> {
+  if (!localStream) return;
+  const outgoing = await buildOutgoing(raw);
+  if (!localStream) {
+    // The call ended while a lazy model load was in flight.
+    if (outgoing !== raw) outgoing.stop();
+    return;
   }
-  localStream.addTrack(track);
-  // While screen-sharing the new track waits in localStream until sharing stops
+  for (const v of localStream.getVideoTracks()) {
+    if (v !== raw && v !== outgoing) v.stop(); // drop stale placeholder / old processed track
+    localStream.removeTrack(v);
+  }
+  localStream.addTrack(outgoing);
+  // While screen-sharing the track waits in localStream until sharing stops
   // (stopScreenShare's setLocalStream restores it); don't disturb the screen feed.
   if (!isSharingScreen) {
     mesh?.setLocalStream(localStream); // replaceTrack on the existing video sender
     refreshSelfVideo();
     recorder?.updateStream(myId, localStream);
   }
+}
+
+// Returns the track to send for `raw`: the raw camera (no effect) or a blurred
+// track from the VirtualBackground. Falls back to the raw track and resets the
+// mode if the segmentation model can't load.
+async function buildOutgoing(raw: MediaStreamTrack): Promise<MediaStreamTrack> {
+  if (bgMode === 'none') {
+    if (vbg) { vbg.stop(); vbg = null; }
+    return raw;
+  }
+  const instance = vbg ?? (vbg = new VirtualBackground());
+  const track = await instance.start(raw);
+  // disableCamera / leaveCall may have torn us down during the model load.
+  if (vbg !== instance) {
+    instance.stop();
+    return raw;
+  }
+  if (!instance.active) {
+    instance.stop();
+    vbg = null;
+    bgMode = 'none';
+    toast(t('bgUnavailable'));
+    return raw;
+  }
+  return track;
 }
 
 /** Re-point the self tile <video> at localStream so a swapped video track renders
@@ -1576,6 +1671,10 @@ function leaveCall(): void {
     ws.close(1000, 'leave');
     ws = null;
   }
+  // Tear down the background-blur pipeline; its source camera lives outside
+  // localStream when active, so stop it explicitly.
+  if (vbg) { vbg.source?.stop(); vbg.stop(); vbg = null; }
+  bgMode = 'none';
   if (localStream) {
     localStream.getTracks().forEach((tr) => tr.stop());
     localStream = null;
