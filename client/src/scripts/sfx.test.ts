@@ -69,6 +69,25 @@ describe('sfx', () => {
     }
   });
 
+  it('playLeaveSound plays two falling tones (inverse of join)', async () => {
+    installAudioContext('running');
+    const sfx = await loadSfx();
+    sfx.playLeaveSound();
+    expect(created.length).toBe(2);
+    // Descending: the first tone is higher than the second.
+    expect(created[0].frequency.value).toBeGreaterThan(created[1].frequency.value);
+  });
+
+  it('playRecordingStartSound plays two rising triangle tones', async () => {
+    installAudioContext('running');
+    const sfx = await loadSfx();
+    sfx.playRecordingStartSound();
+    expect(created.length).toBe(2);
+    expect(created[0].type).toBe('triangle');
+    // Rising: the second tone is higher than the first.
+    expect(created[1].frequency.value).toBeGreaterThan(created[0].frequency.value);
+  });
+
   it('playHandRaiseSound plays a single triangle tone', async () => {
     installAudioContext('running');
     const sfx = await loadSfx();

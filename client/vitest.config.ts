@@ -21,6 +21,8 @@ export default defineConfig({
         'src/scripts/report-md.ts',
         // Follow-up email: only the pure recipient helpers — the composer needs a DOM.
         'src/scripts/email-utils.ts',
+        // Reaction throttle: pure sliding-window limiter (issue #15).
+        'src/scripts/reaction-rate-limit.ts',
       ],
       reporter: ['text', 'json-summary'],
       reportsDirectory: './coverage-unit',

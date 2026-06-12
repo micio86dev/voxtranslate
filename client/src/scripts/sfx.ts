@@ -67,6 +67,26 @@ export function playJoinSound(): void {
   ]);
 }
 
+/** A peer left the room: gentle two-note falling chime — the inverse of join. */
+export function playLeaveSound(): void {
+  play([
+    { freq: 880.0, start: 0, dur: 0.14 }, // A5
+    { freq: 587.33, start: 0.1, dur: 0.18 }, // D5
+  ]);
+}
+
+/** Recording started: assertive low→high two-note cue (a distinct timbre, since
+ *  starting a recording is privacy-relevant and worth noticing). */
+export function playRecordingStartSound(): void {
+  play(
+    [
+      { freq: 392.0, start: 0, dur: 0.1 }, // G4
+      { freq: 587.33, start: 0.1, dur: 0.2 }, // D5 (a rising fifth)
+    ],
+    { type: 'triangle', gain: 0.055 },
+  );
+}
+
 /** Someone raised their hand: soft single ping. */
 export function playHandRaiseSound(): void {
   play([{ freq: 784.0, start: 0, dur: 0.22 }], { type: 'triangle', gain: 0.05 }); // G5

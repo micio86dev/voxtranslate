@@ -48,7 +48,11 @@ Each spec follows the same skeleton:
 | [0013](0013-call-bookmarks/spec.md) | In-call bookmarks: labels, side panel, exports | ✅ Shipped | 2026-06-10 | `f6eb14a` |
 | [0014](0014-ai-session-report/spec.md) | AI session report (Groq, credit-billed) | ✅ Shipped | 2026-06-10 | `c2bc646` |
 | [0015](0015-sentiment-analysis/spec.md) | Sentiment analysis (chunked scoring, cached) | ✅ Shipped | 2026-06-10 | `d5ce553` |
-| [0016](0016-follow-up-email/spec.md) | Follow-up email: AI draft + Resend delivery | ✅ Shipped | 2026-06-11 | (this PR) |
+| [0016](0016-follow-up-email/spec.md) | Follow-up email: AI draft + Resend delivery | ✅ Shipped | 2026-06-11 | `2e82394` |
+| [0017](0017-virtual-background/spec.md) | Virtual background (camera blur) | ✅ Shipped | 2026-06-12 | PR #6 |
+| [0018](0018-chat-file-upload/spec.md) | Chat file upload (Supabase Storage, signed URLs) | ✅ Shipped | 2026-06-12 | `d04604a` |
+| [0019](0019-admin-bonus-credits/spec.md) | Admin bonus credits + email notification | ✅ Shipped | 2026-06-12 | `69bbacd` (v1.1.0) |
+| [0020](0020-session-sound-cues-sticky-reactions/spec.md) | Session sound cues (leave / recording) + sticky emoji reactions | ✅ Shipped | 2026-06-12 | (this PR) |
 
 > Numbers 0011–0015 were claimed by commit messages while the AI bundle shipped
 > without spec docs (and 0011/0012 were each reused twice); the assignments

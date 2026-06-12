@@ -14,7 +14,14 @@ import { openSessionScreen } from './session-screen';
 import { initBookmarks, setBookmarkSession } from './bookmarks';
 import { initGlossary, onGlossaryActive, refreshGlossaryHome, setGlossaryRoom } from './glossary';
 import { dismissLangToast, initLangDetect, onLanguageDetected } from './lang-detect';
-import { playHandRaiseSound, playJoinSound, playScreenShareSound } from './sfx';
+import {
+  playHandRaiseSound,
+  playJoinSound,
+  playLeaveSound,
+  playRecordingStartSound,
+  playScreenShareSound,
+} from './sfx';
+import { RateLimiter } from './reaction-rate-limit';
 import { VirtualBackground } from './virtual-background';
 import { CompositeRecorder } from './recording/composite-recorder';
 import { formatElapsed, isRecordingSupported, recordingFilename } from './recording/utils';
@@ -577,6 +584,7 @@ async function handleServer(msg: any): Promise<void> {
       mesh?.removePeer(msg.peer_id);
       removeCell(msg.peer_id);
       peerHandRaised.delete(msg.peer_id);
+      playLeaveSound(); // audible cue that someone left the session
       updateParticipantsList();
       break;
     case 'room_full':
@@ -1622,6 +1630,7 @@ function startRecording(): void {
     onError: () => void stopRecording(true),
   });
   isRecording = true;
+  playRecordingStartSound(); // audible cue that recording has started
   showNotif(t('recording'));
   $('rec-timer').textContent = '00:00';
   show($('rec-badge'), true);
@@ -2458,11 +2467,18 @@ const emojiPanel = $('emoji-panel');
 const emojiReact = $('emoji-react');
 const emojiGrid = $('emoji-grid');
 
+// Cap reaction bursts so a held / runaway click can't flood the room while the
+// panel stays open (issue #15): at most 5 reactions per second, excess dropped.
+const reactionLimiter = new RateLimiter(5, 1000);
+
 for (const em of REACTION_LIST) {
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.textContent = em;
-  btn.addEventListener('click', () => sendEmoji(em));
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation(); // keep the panel open so reactions can be sent in a row
+    sendEmoji(em);
+  });
   emojiReact.appendChild(btn);
 }
 
@@ -2489,8 +2505,9 @@ emojiToggle.addEventListener('click', (e) => {
 document.addEventListener('click', () => setEmojiPanelOpen(false));
 
 function sendEmoji(emoji: string): void {
+  if (!reactionLimiter.tryAcquire()) return; // drop bursts past the cap
   ws?.send(JSON.stringify({ type: 'emoji', emoji }));
-  setEmojiPanelOpen(false);
+  // Panel intentionally stays open so users can fire multiple reactions quickly.
 }
 
 function insertEmoji(emoji: string): void {

@@ -45,8 +45,12 @@ test('call: WebRTC video, translated chat, subtitles, controls, leave', async ({
     a.page.waitForSelector('.video-cell.self .emoji-float', { timeout: 5000 }),
     b.page.waitForSelector('.video-cell:not(.self) .emoji-float', { timeout: 5000 }),
   ]);
-  // …while a grid emoji inserts into the chat input (panel reopens: send closed it).
-  await a.page.click('#emoji-toggle');
+  // …and the panel stays open (issue #15), so a second reaction can be fired
+  // straight away without reopening it.
+  await expect(a.page.locator('#emoji-panel')).toBeVisible();
+  await a.page.click('#emoji-react button:nth-child(2)'); // second reaction (❤️)
+  await b.page.waitForSelector('.video-cell:not(.self) .emoji-float', { timeout: 5000 });
+  // A grid emoji inserts into the chat input (the panel is still open).
   await a.page.click('#emoji-grid button');
   expect(await a.page.inputValue('#chat-input')).toContain('👍');
   await a.page.fill('#chat-input', '');
