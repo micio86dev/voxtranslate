@@ -181,3 +181,26 @@ jobs:
             client/coverage
             client/coverage-unit
           if-no-files-found: ignore
+
+  # Supply-chain advisory scan (spec 0029) — informational. Dependabot is the real
+  # gate, so this never fails the pipeline (continue-on-error); it surfaces RustSec /
+  # npm advisories in the logs as a reminder.
+  security-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+      - name: cargo audit (server)
+        working-directory: server
+        continue-on-error: true
+        run: cargo audit
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: npm audit (client)
+        working-directory: client
+        continue-on-error: true
+        run: npm audit --audit-level=high

@@ -91,6 +91,15 @@ pub async fn upload_file(
         return (StatusCode::FORBIDDEN, "not a member of this room").into_response();
     };
 
+    // Throttle uploads per uploader (spec 0029) — each one drives Deepgram/Groq.
+    if !state.rate_limiter.allow(
+        &format!("upload:{room}:{peer_id}"),
+        10,
+        std::time::Duration::from_secs(60),
+    ) {
+        return (StatusCode::TOO_MANY_REQUESTS, "too many requests").into_response();
+    }
+
     // ---- Validate the file (non-empty, within size, supported type) --------
     if bytes.is_empty() {
         return (StatusCode::BAD_REQUEST, "empty file").into_response();
@@ -291,12 +300,17 @@ async fn extract_text(
             sender_lang.to_string(),
         ),
         FileKind::Pdf => {
-            // pdf_extract is synchronous + CPU-bound — run it off the async pool.
-            let text = tokio::task::spawn_blocking(move || {
+            // pdf_extract is synchronous + CPU-bound — run it off the async pool,
+            // bounded by a timeout so a decompression-bomb PDF can't pin the request
+            // (spec 0029). The blocking task may run on, but the request returns.
+            let handle = tokio::task::spawn_blocking(move || {
                 pdf_extract::extract_text_from_mem(&bytes).unwrap_or_default()
-            })
-            .await
-            .unwrap_or_default();
+            });
+            let text = tokio::time::timeout(std::time::Duration::from_secs(15), handle)
+                .await
+                .ok()
+                .and_then(|r| r.ok())
+                .unwrap_or_default();
             (text, sender_lang.to_string())
         }
     }
