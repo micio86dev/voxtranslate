@@ -416,6 +416,73 @@ mod stripe_api {
     }
 
     #[tokio::test]
+    async fn admin_bonus_grants_credits_and_reports_email(/* issue #11 */) {
+        let Some(srv) = setup().await else {
+            eprintln!("skipping — no DATABASE_URL");
+            return;
+        };
+        let http = reqwest::Client::new();
+        let uid = make_user(&srv.pool, 0).await; // starts at $0.00
+        let url = format!("http://{}/api/admin/bonus", srv.addr);
+
+        // Wrong secret → 403 (and nothing is granted).
+        let forbidden = http
+            .post(&url)
+            .header("x-admin-secret", "nope")
+            .json(&serde_json::json!({ "user_id": uid, "amount": 2.5 }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(forbidden.status(), 403);
+
+        // Non-positive amount → 400.
+        let bad = http
+            .post(&url)
+            .header("x-admin-secret", "test-admin-secret")
+            .json(&serde_json::json!({ "user_id": uid, "amount": 0.0 }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(bad.status(), 400);
+
+        // Valid gift → 200, balance credited; email_sent is false (test state has
+        // no Resend configured), proving the grant doesn't depend on the email.
+        let res = http
+            .post(&url)
+            .header("x-admin-secret", "test-admin-secret")
+            .json(&serde_json::json!({ "user_id": uid, "amount": 2.5, "message": "welcome!" }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), 200);
+        let body: serde_json::Value = res.json().await.unwrap();
+        assert_eq!(body["ok"], true);
+        assert_eq!(body["email_sent"], false);
+        assert!(
+            body["balance"].as_str().unwrap().starts_with("2.5"),
+            "balance was {}",
+            body["balance"]
+        );
+
+        // The DB balance reflects the grant, and a `bonus` ledger row was written.
+        let balance: rust_decimal::Decimal =
+            sqlx::query_scalar("SELECT balance FROM users WHERE id = $1")
+                .bind(uid)
+                .fetch_one(&srv.pool)
+                .await
+                .unwrap();
+        assert_eq!(balance, rust_decimal::Decimal::new(25, 1)); // 2.5
+        let kind: String = sqlx::query_scalar(
+            "SELECT kind FROM credit_transactions WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1",
+        )
+        .bind(uid)
+        .fetch_one(&srv.pool)
+        .await
+        .unwrap();
+        assert_eq!(kind, "bonus");
+    }
+
+    #[tokio::test]
     async fn packages_omit_stripe_price_id() {
         let Some(srv) = setup().await else {
             eprintln!("skipping — no DATABASE_URL");

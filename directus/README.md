@@ -108,7 +108,7 @@ Give your admin/editor role:
 
 ## 7. Flows — the privileged action buttons
 
-Create four **Flows** (Settings → Flows), each a **Manual** trigger on a
+Create the **Flows** below (Settings → Flows), each a **Manual** trigger on a
 collection, with a **Webhook / Request URL** operation. Use
 `{{$env.ADMIN_API_SECRET}}` for the header and `{{$env.VOX_API_URL}}` for the base.
 
@@ -122,11 +122,18 @@ the inputs (days, reason, amount, …). Set `actor` to `{{$accountability.user}}
 | **Ban user** | `users` | `{{$env.VOX_API_URL}}/api/admin/ban` | `{ "user_id": "{{$trigger.keys[0]}}", "days": {{days}}, "reason": "{{reason}}", "actor": "{{$accountability.user}}" }` |
 | **Unban user** | `users` | `{{$env.VOX_API_URL}}/api/admin/unban` | `{ "user_id": "{{$trigger.keys[0]}}", "actor": "{{$accountability.user}}" }` |
 | **Adjust credits** | `users` | `{{$env.VOX_API_URL}}/api/admin/credit` | `{ "user_id": "{{$trigger.keys[0]}}", "amount": {{amount}}, "reason": "{{reason}}", "actor": "{{$accountability.user}}" }` |
+| **Gift bonus** | `users` | `{{$env.VOX_API_URL}}/api/admin/bonus` | `{ "user_id": "{{$trigger.keys[0]}}", "amount": {{amount}}, "message": "{{message}}", "actor": "{{$accountability.user}}" }` |
 | **Resolve report** | `reports` | `{{$env.VOX_API_URL}}/api/admin/report/resolve` | `{ "report_id": "{{$trigger.keys[0]}}", "action": "{{action}}", "note": "{{note}}", "actor": "{{$accountability.user}}" }` |
 | **GDPR delete** | `users` | `{{$env.VOX_API_URL}}/api/admin/user/delete` | `{ "user_id": "{{$trigger.keys[0]}}", "actor": "{{$accountability.user}}" }` |
 
-`action` for Resolve report is `resolved` or `dismissed`. Every call writes an
-`admin_audit` row, so the `admin_audit` collection is your full action history.
+`action` for Resolve report is `resolved` or `dismissed`. **Gift bonus** (issue
+#11) grants a positive USD bonus to the user and emails them a notification
+(best-effort — needs `RESEND_*` configured; the response's `email_sent` flag and
+the `admin_audit` detail record whether it went out). `amount` must be positive;
+`message` is an optional note shown in the email. Use **Adjust credits** instead
+for refunds/manual corrections (it takes a signed amount, no email). Every call
+writes an `admin_audit` row, so the `admin_audit` collection is your full action
+history.
 
 ## Visual walkthrough
 

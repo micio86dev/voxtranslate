@@ -259,6 +259,7 @@ pub fn app(state: AppState) -> Router {
         .route("/api/admin/ban", post(admin::ban))
         .route("/api/admin/unban", post(admin::unban))
         .route("/api/admin/credit", post(admin::credit))
+        .route("/api/admin/bonus", post(admin::bonus))
         .route("/api/admin/report/resolve", post(admin::resolve_report))
         .route("/api/admin/user/delete", post(admin::delete_user))
         .layer(TraceLayer::new_for_http())

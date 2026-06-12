@@ -9,11 +9,13 @@ use axum::http::request::Parts;
 use axum::http::{header::AUTHORIZATION, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
+use rust_decimal::Decimal;
 use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::billing::usd;
 use crate::db::Pool;
+use crate::email::OutboundEmail;
 use crate::AppState;
 
 /// Extractor that authenticates a backoffice request by the shared
@@ -225,6 +227,192 @@ pub async fn credit(
 }
 
 #[derive(Deserialize)]
+pub struct BonusRequest {
+    pub user_id: Uuid,
+    /// USD amount to gift; must be positive.
+    pub amount: f64,
+    /// Optional note from the admin, included in the notification email.
+    #[serde(default)]
+    pub message: Option<String>,
+    #[serde(default)]
+    pub actor: Option<String>,
+}
+
+/// `POST /api/admin/bonus` — gift a bonus credit (positive USD) to a user and
+/// email them a notification (issue #11). The credit grant is the source of
+/// truth; the email is best-effort — a send failure (or Resend not configured)
+/// never blocks the grant, it just reports `email_sent: false`.
+pub async fn bonus(
+    State(state): State<AppState>,
+    _admin: AdminAuth,
+    Json(body): Json<BonusRequest>,
+) -> Response {
+    let (Some(billing), Some(pool)) = (state.billing.as_ref(), state.pool.as_ref()) else {
+        return unavailable();
+    };
+    // A bonus is strictly a gift — refunds/deductions go through `/credit`.
+    if !(body.amount.is_finite() && body.amount > 0.0) {
+        return (StatusCode::BAD_REQUEST, "amount must be a positive number").into_response();
+    }
+    let message = body
+        .message
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+
+    let new_balance = match billing
+        .add_credits(
+            body.user_id,
+            usd(body.amount),
+            "bonus",
+            Some(message.unwrap_or("bonus credit")),
+            None,
+        )
+        .await
+    {
+        Ok(b) => b,
+        Err(e) => {
+            tracing::error!("bonus credit failed: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "bonus failed").into_response();
+        }
+    };
+
+    // Notify the recipient (best-effort).
+    let email_sent = send_bonus_email(
+        &state,
+        pool,
+        body.user_id,
+        body.amount,
+        new_balance,
+        message,
+    )
+    .await;
+
+    audit(
+        pool,
+        actor(&body.actor),
+        "bonus",
+        Some(&body.user_id.to_string()),
+        serde_json::json!({ "amount": body.amount, "message": message, "email_sent": email_sent }),
+    )
+    .await;
+
+    Json(serde_json::json!({
+        "ok": true,
+        "balance": new_balance.to_string(),
+        "email_sent": email_sent,
+    }))
+    .into_response()
+}
+
+/// Look up the recipient's contact, build the notification, and send it via
+/// Resend. Returns whether an email actually went out. Never panics/blocks the
+/// grant: Resend-unconfigured, user-not-found, and send errors all → `false`.
+async fn send_bonus_email(
+    state: &AppState,
+    pool: &Pool,
+    user_id: Uuid,
+    amount: f64,
+    new_balance: Decimal,
+    message: Option<&str>,
+) -> bool {
+    let Some(resend) = state.resend.as_ref() else {
+        return false; // email feature not configured (RESEND_* unset)
+    };
+    let contact: Option<(String, String)> =
+        match sqlx::query_as("SELECT email, name FROM users WHERE id = $1")
+            .bind(user_id)
+            .fetch_optional(pool)
+            .await
+        {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::error!("bonus email: user lookup failed: {e}");
+                return false;
+            }
+        };
+    let Some((email, name)) = contact else {
+        tracing::error!("bonus email: user {user_id} not found");
+        return false;
+    };
+    let outbound = bonus_email(&email, &name, amount, new_balance, message);
+    match resend.send(&outbound).await {
+        Ok(id) => {
+            tracing::info!("bonus email sent to user {user_id}: {id}");
+            true
+        }
+        Err(e) => {
+            tracing::error!("bonus email send failed: {e}");
+            false
+        }
+    }
+}
+
+/// Build the bonus-notification email. Pure (no I/O) so it can be unit-tested.
+fn bonus_email(
+    to: &str,
+    name: &str,
+    amount: f64,
+    new_balance: Decimal,
+    message: Option<&str>,
+) -> OutboundEmail {
+    let amt = format!("${amount:.2}");
+    let bal = format!("${}", new_balance.round_dp(2));
+    let greet_name = name.trim();
+    let greeting = if greet_name.is_empty() {
+        "Hi there".to_string()
+    } else {
+        format!("Hi {greet_name}")
+    };
+    let note_text = message
+        .map(|m| format!("\n\nNote from the team: {m}"))
+        .unwrap_or_default();
+    let note_html = message
+        .map(|m| format!("<p><em>Note from the team: {}</em></p>", html_escape(m)))
+        .unwrap_or_default();
+
+    let subject = format!("🎁 You've received a {amt} bonus on VoxTranslate");
+    let text = format!(
+        "{greeting},\n\n\
+         Great news — you've received a {amt} bonus credit on VoxTranslate.{note_text}\n\n\
+         Your new balance is {bal}.\n\n\
+         Jump back into a call and enjoy real-time translated conversations.\n\n\
+         — The VoxTranslate team"
+    );
+    let html = format!(
+        "<div style=\"font-family:system-ui,sans-serif;line-height:1.5\">\
+         <h2>🎁 You've received a {amt} bonus!</h2>\
+         <p>{greeting},</p>\
+         <p>Great news — you've received a <strong>{amt}</strong> bonus credit on VoxTranslate.</p>{note_html}\
+         <p>Your new balance is <strong>{bal}</strong>.</p>\
+         <p>Jump back into a call and enjoy real-time translated conversations.</p>\
+         <p>— The VoxTranslate team</p>\
+         </div>",
+        amt = html_escape(&amt),
+        greeting = html_escape(&greeting),
+        bal = html_escape(&bal),
+        note_html = note_html,
+    );
+
+    OutboundEmail {
+        to: vec![to.to_string()],
+        cc: vec![],
+        subject,
+        html,
+        text,
+    }
+}
+
+/// Minimal HTML-escape for the small set of values we interpolate into the email
+/// body (the admin note especially, which is free text).
+fn html_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
+#[derive(Deserialize)]
 pub struct ResolveRequest {
     pub report_id: Uuid,
     /// `resolved` or `dismissed`.
@@ -318,7 +506,8 @@ pub async fn delete_user(
 
 #[cfg(test)]
 mod tests {
-    use super::constant_eq;
+    use super::{bonus_email, constant_eq, html_escape};
+    use rust_decimal::Decimal;
 
     #[test]
     fn constant_eq_matches_only_exact() {
@@ -326,5 +515,42 @@ mod tests {
         assert!(!constant_eq(Some("s3cret"), "s3creT"));
         assert!(!constant_eq(Some("short"), "longer-secret"));
         assert!(!constant_eq(None, "s3cret"));
+    }
+
+    #[test]
+    fn bonus_email_renders_amount_name_balance() {
+        // 7.50 balance (scale 2 already); amount formats to 2 dp.
+        let e = bonus_email("u@x.com", "Ada", 2.5, Decimal::new(750, 2), None);
+        assert_eq!(e.to, vec!["u@x.com".to_string()]);
+        assert!(e.subject.contains("$2.50"));
+        assert!(e.text.contains("Hi Ada"));
+        assert!(e.text.contains("$2.50") && e.text.contains("$7.50"));
+        assert!(e.html.contains("$2.50") && e.html.contains("$7.50"));
+        // No admin note → no note line.
+        assert!(!e.text.contains("Note from the team"));
+    }
+
+    #[test]
+    fn bonus_email_includes_and_escapes_message() {
+        let e = bonus_email(
+            "u@x.com",
+            "",
+            10.0,
+            Decimal::new(12, 0),
+            Some("thanks <3 & welcome"),
+        );
+        // Empty name falls back to a generic greeting.
+        assert!(e.text.contains("Hi there"));
+        // Balance with scale 0 still renders.
+        assert!(e.text.contains("$12"));
+        // The note appears; HTML variant is escaped, text variant is raw.
+        assert!(e.text.contains("thanks <3 & welcome"));
+        assert!(e.html.contains("thanks &lt;3 &amp; welcome"));
+        assert!(!e.html.contains("thanks <3 & welcome"));
+    }
+
+    #[test]
+    fn html_escape_covers_specials() {
+        assert_eq!(html_escape("a<b>&\"c"), "a&lt;b&gt;&amp;&quot;c");
     }
 }
