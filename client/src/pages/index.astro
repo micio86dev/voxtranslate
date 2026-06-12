@@ -745,7 +745,13 @@ const LANGS = [
     .video-grid[data-peers="3"] :global(.video-cell:nth-child(3)) { grid-column: 1 / -1; justify-self: center; width: 100%; max-width: 50%; }
     .video-grid :global(.video-cell) { position: relative; background: #0d0f16; border-radius: 10px; overflow: hidden; min-height: 0; min-width: 0; transform: translateZ(0); /* iOS: force GPU layer so overflow:hidden clips filter/animated children */ }
     .video-grid :global(.video-cell video) { width: 100%; height: 100%; object-fit: cover; display: block; }
+    /* Mirror only our own CAMERA self-view (the natural "looking in a mirror" feel
+       every meeting app uses). This is display-only: the outgoing WebRTC track is
+       untouched, so peers always see us correctly oriented. A screen share must
+       NOT be mirrored or its text/UI would read backwards — the .sharing class
+       (toggled by start/stopScreenShare) disables the flip while sharing. */
     .video-grid :global(.video-cell.self video) { transform: scaleX(-1); }
+    .video-grid :global(.video-cell.self.sharing video) { transform: none; }
     .video-grid :global(.video-cell.self) { outline: 2px solid var(--accent); outline-offset: -2px; }
     .video-grid :global(.avatar) { position: absolute; inset: 0; display: grid; place-items: center; }
     .video-grid :global(.avatar-initials) { font-size: 2.4rem; font-weight: 700; color: rgba(255, 255, 255, 0.9); }
@@ -1061,6 +1067,7 @@ const LANGS = [
     .participants-panel {
       width: 260px; background: var(--surface); border-left: 1px solid var(--border);
       display: flex; flex-direction: column; transition: margin-right 0.3s;
+      position: relative; z-index: 1; /* paint above promoted compositor layers in sibling video cells (e.g. the hand-indicator / part-hand animation on Chrome) */
     }
     .participants-panel.closed { margin-right: -261px; }
     .side-panel-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid var(--border); }
@@ -1099,6 +1106,7 @@ const LANGS = [
     .bookmarks-panel {
       width: 300px; background: var(--surface); border-left: 1px solid var(--border);
       display: flex; flex-direction: column; transition: margin-right 0.3s;
+      position: relative; z-index: 1; /* paint above promoted compositor layers in sibling video cells (e.g. the hand-indicator / part-hand animation on Chrome) */
     }
     .bookmarks-panel.closed { margin-right: -301px; }
     .bookmarks-list { flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 2px; min-height: 0; }

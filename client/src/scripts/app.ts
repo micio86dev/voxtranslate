@@ -1533,8 +1533,10 @@ async function startScreenShare(): Promise<void> {
     setCameraOff(myId, false);
     recorder?.updateStream(myId, s);
     recorder?.setVideoOff(myId, false);
-    // Show indicator on self cell
+    // Show indicator on self cell; mark it sharing so the self-view mirror is
+    // dropped (a flipped screen share would render its text backwards).
     const cell = videoGrid.querySelector(`[data-peer="${cssEsc(myId)}"]`);
+    cell?.classList.add('sharing');
     if (cell) {
       let badge = cell.querySelector('.screen-share-badge') as HTMLElement | null;
       if (!badge) {
@@ -1573,8 +1575,9 @@ function stopScreenShare(): void {
   setCameraOff(myId, !camOn);
   recorder?.updateStream(myId, localStream);
   recorder?.setVideoOff(myId, !camOn);
-  // Remove badge
+  // Remove badge + restore the camera self-view mirror.
   const cell = videoGrid.querySelector(`[data-peer="${cssEsc(myId)}"]`);
+  cell?.classList.remove('sharing');
   cell?.querySelector('.screen-share-badge')?.remove();
   setControlState();
   showNotif(t('stopShare'));
