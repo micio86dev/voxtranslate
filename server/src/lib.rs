@@ -411,6 +411,7 @@ async fn authorize(
 
 /// Spawn the usage meter for a just-started speaking session, returning its
 /// cancel handle. Returns `None` when no metering applies (guest with no cap).
+#[allow(clippy::too_many_arguments)] // cohesive per-session metering context
 fn spawn_meter(
     state: &AppState,
     billed_user: Option<Uuid>,

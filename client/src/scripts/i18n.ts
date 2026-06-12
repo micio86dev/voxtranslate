@@ -61,6 +61,7 @@ export const I18N: Record<string, Dict> = {
     handRaisedNotif: 'raised hand',
     pinTip: 'Pin video', unpinTip: 'Unpin video', viewGrid: 'Grid view', viewSpeaker: 'Speaker view',
     screenShareTip: 'Share screen', stopShare: 'Stop sharing', recordingTip: 'Record', recording: 'Recording…',
+    bgBlurTip: 'Blur background', bgBlurOn: 'Remove blur', bgUnavailable: 'Background effects unavailable',
     transcripts: 'Transcripts', postCallTitle: 'Call transcript', downloadPdf: 'Download PDF', downloadJson: 'Download JSON',
     durationLabel: 'Duration', eventsLabel: 'events', eventsStatLabel: 'Events', dateLabel: 'Date', controlsLabel: 'Call controls', transcriptRecording: 'Transcript is being recorded',
     noTranscriptEvents: 'No transcript events in this call', downloadFailed: 'Download failed — try again', processing: 'Processing…',
@@ -152,6 +153,7 @@ export const I18N: Record<string, Dict> = {
     handRaisedNotif: 'ha alzato la mano',
     pinTip: 'Fissa video', unpinTip: 'Rimuovi fissaggio', viewGrid: 'Griglia', viewSpeaker: 'Relatore',
     screenShareTip: 'Condividi schermo', stopShare: 'Ferma condivisione', recordingTip: 'Registra', recording: 'Registrazione…',
+    bgBlurTip: 'Sfoca sfondo', bgBlurOn: 'Rimuovi sfocatura', bgUnavailable: 'Effetti sfondo non disponibili',
     transcripts: 'Trascrizioni', postCallTitle: 'Trascrizione della chiamata', downloadPdf: 'Scarica PDF', downloadJson: 'Scarica JSON',
     durationLabel: 'Durata', eventsLabel: 'eventi', eventsStatLabel: 'Eventi', dateLabel: 'Data', controlsLabel: 'Controlli chiamata', transcriptRecording: 'Trascrizione in corso di registrazione',
     noTranscriptEvents: 'Nessun evento trascritto in questa chiamata', downloadFailed: 'Download non riuscito — riprova', processing: 'Elaborazione…',
@@ -243,6 +245,7 @@ export const I18N: Record<string, Dict> = {
     handRaisedNotif: 'levantó la mano',
     pinTip: 'Fijar video', unpinTip: 'Desfijar video', viewGrid: 'Cuadrícula', viewSpeaker: 'Orador',
     screenShareTip: 'Compartir pantalla', stopShare: 'Dejar de compartir', recordingTip: 'Grabar', recording: 'Grabando…',
+    bgBlurTip: 'Desenfocar fondo', bgBlurOn: 'Quitar desenfoque', bgUnavailable: 'Efectos de fondo no disponibles',
     transcripts: 'Transcripciones', postCallTitle: 'Transcripción de la llamada', downloadPdf: 'Descargar PDF', downloadJson: 'Descargar JSON',
     durationLabel: 'Duración', eventsLabel: 'eventos', eventsStatLabel: 'Eventos', dateLabel: 'Fecha', controlsLabel: 'Controles de llamada', transcriptRecording: 'La transcripción se está grabando',
     noTranscriptEvents: 'Sin eventos de transcripción en esta llamada', downloadFailed: 'Error al descargar — inténtalo de nuevo', processing: 'Procesando…',
@@ -334,6 +337,7 @@ export const I18N: Record<string, Dict> = {
     handRaisedNotif: 'a levé la main',
     pinTip: 'Épingler', unpinTip: 'Détacher', viewGrid: 'Grille', viewSpeaker: 'Intervenant',
     screenShareTip: 'Partager écran', stopShare: 'Arrêter partage', recordingTip: 'Enregistrer', recording: 'Enregistrement…',
+    bgBlurTip: "Flouter l'arrière-plan", bgBlurOn: 'Retirer le flou', bgUnavailable: "Effets d'arrière-plan indisponibles",
     transcripts: 'Transcriptions', postCallTitle: 'Transcription de l’appel', downloadPdf: 'Télécharger le PDF', downloadJson: 'Télécharger le JSON',
     durationLabel: 'Durée', eventsLabel: 'événements', eventsStatLabel: 'Événements', dateLabel: 'Date', controlsLabel: 'Commandes d’appel', transcriptRecording: 'La transcription est en cours d’enregistrement',
     noTranscriptEvents: 'Aucun événement transcrit dans cet appel', downloadFailed: 'Échec du téléchargement — réessayez', processing: 'Traitement…',
@@ -425,6 +429,7 @@ export const I18N: Record<string, Dict> = {
     handRaisedNotif: 'hat die Hand gehoben',
     pinTip: 'Video anheften', unpinTip: 'Loslösen', viewGrid: 'Raster', viewSpeaker: 'Sprecher',
     screenShareTip: 'Bildschirm teilen', stopShare: 'Teilen beenden', recordingTip: 'Aufnehmen', recording: 'Aufnahme…',
+    bgBlurTip: 'Hintergrund weichzeichnen', bgBlurOn: 'Weichzeichner entfernen', bgUnavailable: 'Hintergrundeffekte nicht verfügbar',
     transcripts: 'Transkripte', postCallTitle: 'Anruf-Transkript', downloadPdf: 'PDF herunterladen', downloadJson: 'JSON herunterladen',
     durationLabel: 'Dauer', eventsLabel: 'Ereignisse', eventsStatLabel: 'Ereignisse', dateLabel: 'Datum', controlsLabel: 'Anrufsteuerung', transcriptRecording: 'Transkript wird aufgezeichnet',
     noTranscriptEvents: 'Keine Transkript-Ereignisse in diesem Anruf', downloadFailed: 'Download fehlgeschlagen — bitte erneut versuchen', processing: 'Verarbeitung…',
@@ -516,6 +521,7 @@ export const I18N: Record<string, Dict> = {
     handRaisedNotif: 'levantou a mão',
     pinTip: 'Fixar vídeo', unpinTip: 'Desafixar', viewGrid: 'Grade', viewSpeaker: 'Orador',
     screenShareTip: 'Compartilhar tela', stopShare: 'Parar compartilhamento', recordingTip: 'Gravar', recording: 'Gravando…',
+    bgBlurTip: 'Desfocar fundo', bgBlurOn: 'Remover desfoque', bgUnavailable: 'Efeitos de fundo indisponíveis',
     transcripts: 'Transcrições', postCallTitle: 'Transcrição da chamada', downloadPdf: 'Baixar PDF', downloadJson: 'Baixar JSON',
     durationLabel: 'Duração', eventsLabel: 'eventos', eventsStatLabel: 'Eventos', dateLabel: 'Data', controlsLabel: 'Controles da chamada', transcriptRecording: 'A transcrição está sendo gravada',
     noTranscriptEvents: 'Nenhum evento de transcrição nesta chamada', downloadFailed: 'Falha no download — tente novamente', processing: 'Processando…',
@@ -607,6 +613,7 @@ export const I18N: Record<string, Dict> = {
     handRaisedNotif: 'が手を上げました',
     pinTip: 'ピン固定', unpinTip: 'ピン解除', viewGrid: 'グリッド', viewSpeaker: 'スピーカー',
     screenShareTip: '画面共有', stopShare: '共有停止', recordingTip: '録画', recording: '録画中…',
+    bgBlurTip: '背景をぼかす', bgBlurOn: 'ぼかしを解除', bgUnavailable: '背景効果は利用できません',
     transcripts: '文字起こし', postCallTitle: '通話の文字起こし', downloadPdf: 'PDFをダウンロード', downloadJson: 'JSONをダウンロード',
     durationLabel: '通話時間', eventsLabel: '件', eventsStatLabel: 'イベント', dateLabel: '日付', controlsLabel: '通話コントロール', transcriptRecording: '文字起こしを記録中',
     noTranscriptEvents: 'この通話に文字起こしはありません', downloadFailed: 'ダウンロードに失敗しました — もう一度お試しください', processing: '処理中…',
@@ -698,6 +705,7 @@ export const I18N: Record<string, Dict> = {
     handRaisedNotif: '举了手',
     pinTip: '固定视频', unpinTip: '取消固定', viewGrid: '网格', viewSpeaker: '演讲者',
     screenShareTip: '共享屏幕', stopShare: '停止共享', recordingTip: '录制', recording: '录制中…',
+    bgBlurTip: '背景虚化', bgBlurOn: '取消虚化', bgUnavailable: '背景效果不可用',
     transcripts: '转录', postCallTitle: '通话转录', downloadPdf: '下载 PDF', downloadJson: '下载 JSON',
     durationLabel: '时长', eventsLabel: '条', eventsStatLabel: '事件', dateLabel: '日期', controlsLabel: '通话控制', transcriptRecording: '正在记录转录',
     noTranscriptEvents: '此通话没有转录记录', downloadFailed: '下载失败 — 请重试', processing: '处理中…',
@@ -748,7 +756,10 @@ export const I18N: Record<string, Dict> = {
 };
 
 export function detectLang(): string {
-  const nav = (navigator.language || 'en').slice(0, 2).toLowerCase();
+  // Runs at module load, so guard `navigator` for non-browser environments
+  // (the unit tests run under a node environment without a global navigator).
+  const lang = typeof navigator !== 'undefined' ? navigator.language : '';
+  const nav = (lang || 'en').slice(0, 2).toLowerCase();
   return (SUPPORTED as readonly string[]).includes(nav) ? nav : 'en';
 }
 
