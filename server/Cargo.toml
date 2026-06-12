@@ -21,7 +21,7 @@ url = "2"
 
 # Auth + billing
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres", "uuid", "chrono", "rust_decimal", "macros", "migrate", "json"] }
-jsonwebtoken = "9"
+jsonwebtoken = "10"
 chrono = { version = "0.4", features = ["serde"] }
 rust_decimal = { version = "1", features = ["serde"] }
 hmac = "0.12"
