@@ -70,13 +70,13 @@ test('call: WebRTC video, translated chat, subtitles, controls, leave', async ({
   expect(subs.some((s) => s && s.trim())).toBeTruthy();
   carla.close();
 
-  // Controls: mute mic, camera off, toggle TTS twice (TTS now lives in the ⋯ menu,
-  // which closes after each pick — so reopen it before each toggle).
+  // Controls: mute mic, camera off, toggle TTS twice. TTS lives in the ⋯ menu,
+  // which now STAYS open while you act on its controls (spec 0036) — so open it
+  // once and toggle twice without reopening.
   await a.page.click('#btn-mic');
   await a.page.click('#btn-cam');
   await a.page.click('#btn-more');
   await a.page.click('#btn-tts');
-  await a.page.click('#btn-more');
   await a.page.click('#btn-tts');
   await sleep(700);
   expect(await a.page.evaluate(() => document.getElementById('btn-mic')!.classList.contains('active-danger'))).toBeTruthy();
