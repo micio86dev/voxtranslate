@@ -55,6 +55,7 @@ test('a11y: in-call screen has no WCAG violations', async ({ browser }) => {
   await page.click('#btn-chat');
   await page.waitForSelector('#chat-panel:not(.closed)');
   await audit(page, 'call+chat');
+  await page.click('#btn-more'); // participants now lives in the ⋯ menu
   await page.click('#btn-participants');
   await page.waitForSelector('#participants-panel:not(.closed)');
   await audit(page, 'call+participants');

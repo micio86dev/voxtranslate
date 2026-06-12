@@ -54,7 +54,8 @@ Each spec follows the same skeleton:
 | [0019](0019-admin-bonus-credits/spec.md) | Admin bonus credits + email notification | ✅ Shipped | 2026-06-12 | `69bbacd` (v1.1.0) |
 | [0020](0020-session-sound-cues-sticky-reactions/spec.md) | Session sound cues (leave / recording) + sticky emoji reactions | ✅ Shipped | 2026-06-12 | `c13fd02` |
 | [0021](0021-display-fixes-mirror-stacking/spec.md) | Display fixes: screen-share mirroring + raised-hand sidebar stacking | ✅ Shipped | 2026-06-12 | `c7c7463` |
-| [0022](0022-guest-public-room-gate/spec.md) | Guest sign-in gate for public rooms (benefits modal) | ✅ Shipped | 2026-06-12 | (this PR) |
+| [0022](0022-guest-public-room-gate/spec.md) | Guest sign-in gate for public rooms (benefits modal) | ✅ Shipped | 2026-06-12 | `569aaab` |
+| [0023](0023-call-toolbar-overflow-menu/spec.md) | Declutter the in-call toolbar (overflow "More" menu) | ✅ Shipped | 2026-06-12 | (this PR) |
 
 > Numbers 0011–0015 were claimed by commit messages while the AI bundle shipped
 > without spec docs (and 0011/0012 were each reused twice); the assignments
