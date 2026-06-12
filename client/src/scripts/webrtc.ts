@@ -6,6 +6,10 @@ const ICE_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun1.l.google.com:19302' },
 ];
 
+/** Floor for the per-stream video cap (spec 0031): below this, video is too
+ *  degraded to be worth more dividing — we just send the floor to each peer. */
+const MIN_VIDEO_BITRATE = 200_000;
+
 type Signal =
   | { type: 'offer'; to: string; sdp: string }
   | { type: 'answer'; to: string; sdp: string }
@@ -16,7 +20,7 @@ export class MeshManager {
   private localStream: MediaStream;
   private send: (s: Signal) => void;
   private iceServers: RTCIceServer[];
-  private maxVideoBitrate: number;
+  private videoBudget: number;
   private statsTimer: ReturnType<typeof setInterval> | null = null;
 
   onRemoteStream: (peerId: string, stream: MediaStream) => void = () => {};
@@ -29,12 +33,12 @@ export class MeshManager {
     localStream: MediaStream,
     send: (s: Signal) => void,
     iceServers: RTCIceServer[] = ICE_SERVERS,
-    maxVideoBitrate = 1_000_000,
+    videoBudget = 2_400_000,
   ) {
     this.localStream = localStream;
     this.send = send;
     this.iceServers = iceServers;
-    this.maxVideoBitrate = maxVideoBitrate;
+    this.videoBudget = videoBudget;
   }
 
   /** Replace the local stream's tracks on all peers (e.g. after a device change). */
@@ -90,9 +94,10 @@ export class MeshManager {
     if (this.localStream.getVideoTracks().length === 0) {
       pc.addTransceiver?.('video', { direction: 'sendrecv', streams: [this.localStream] });
     }
-    // Cap outbound video bitrate (spec 0030) so a mesh of up to 4 fits a mobile
-    // uplink; the browser's own congestion control reduces further when needed.
-    void this.capVideoBitrate(pc);
+    // Re-balance outbound video across all peers (spec 0030/0031): the per-stream
+    // cap is the upload budget ÷ peer count, so the total uplink stays ~constant as
+    // the room fills; the browser's congestion control reduces further if needed.
+    void this.applyBitrate();
     this.startStatsMonitor();
 
     pc.ontrack = (e) => {
@@ -146,6 +151,8 @@ export class MeshManager {
     if (pc) {
       pc.close();
       this.peers.delete(peerId);
+      // Fewer peers → more budget per remaining stream (spec 0031).
+      void this.applyBitrate();
     }
     this.onPeerRemoved(peerId);
   }
@@ -158,18 +165,32 @@ export class MeshManager {
     this.localStream.getVideoTracks().forEach((t) => (t.enabled = enabled));
   }
 
-  /** Cap a peer connection's outbound video bitrate (spec 0030). */
-  private async capVideoBitrate(pc: RTCPeerConnection): Promise<void> {
-    try {
-      const sender =
-        pc.getSenders().find((s) => s.track?.kind === 'video') ?? this.videoSender(pc);
-      if (!sender) return;
-      const params = sender.getParameters();
-      if (!params.encodings || params.encodings.length === 0) params.encodings = [{}];
-      params.encodings[0].maxBitrate = this.maxVideoBitrate;
-      await sender.setParameters(params);
-    } catch {
-      /* unsupported / pre-negotiation / fake env — ignore */
+  /** Per-stream target = the total upload budget split across the peers we send
+   *  to, floored so video stays usable. As the room grows each stream gets less,
+   *  so total uplink stays ~constant regardless of N (spec 0031). */
+  private targetBitrate(): number {
+    return Math.max(
+      MIN_VIDEO_BITRATE,
+      Math.floor(this.videoBudget / Math.max(1, this.peers.size)),
+    );
+  }
+
+  /** Re-apply the current per-stream cap to every peer's video sender. Called when
+   *  the peer count changes (join/leave) so the room re-balances (spec 0031). */
+  private async applyBitrate(): Promise<void> {
+    const target = this.targetBitrate();
+    for (const pc of this.peers.values()) {
+      try {
+        const sender =
+          pc.getSenders().find((s) => s.track?.kind === 'video') ?? this.videoSender(pc);
+        if (!sender) continue;
+        const params = sender.getParameters();
+        if (!params.encodings || params.encodings.length === 0) params.encodings = [{}];
+        params.encodings[0].maxBitrate = target;
+        await sender.setParameters(params);
+      } catch {
+        /* unsupported / pre-negotiation / fake env — ignore */
+      }
     }
   }
 

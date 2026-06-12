@@ -560,7 +560,7 @@ function openSocket(): void {
       localStream!,
       (sig) => ws?.send(JSON.stringify(sig)),
       iceServers,
-      IS_MOBILE ? 450_000 : 1_000_000, // lower outbound video cap on mobile (spec 0030)
+      IS_MOBILE ? 1_200_000 : 2_400_000, // total video upload budget, split per-peer (spec 0030/0031)
     );
     mesh.onNetworkWeak = showWeakNetworkWarning;
     mesh.onRemoteStream = (peerId, stream) => {
