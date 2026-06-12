@@ -27,6 +27,39 @@ pub struct Config {
     /// chat file upload (spec 0018). When absent the attach button is hidden and
     /// the upload endpoint returns 503.
     pub storage: Option<StorageConfig>,
+    /// Present only when `TURN_URLS` + `TURN_SECRET` are set; gates the TURN relay
+    /// returned by `/api/ice` (spec 0026). Without it the client uses STUN only and
+    /// cross-NAT (e.g. cross-border) calls may fail to connect.
+    pub turn: Option<TurnConfig>,
+}
+
+/// Self-hosted coturn (TURN) credentials for WebRTC media relay when direct P2P
+/// fails (spec 0026). All-or-nothing like the others: active only when both the
+/// URLs and the shared secret are present.
+#[derive(Debug, Clone)]
+pub struct TurnConfig {
+    /// TURN URLs, e.g. `turns:turn.example.com:5349?transport=tcp`.
+    pub urls: Vec<String>,
+    /// coturn `static-auth-secret` — used to mint time-limited REST credentials.
+    /// Server-only; never sent to the client (only the derived credential is).
+    pub secret: String,
+    /// Minted-credential lifetime in seconds (default 3600).
+    pub ttl_secs: u64,
+}
+
+impl TurnConfig {
+    fn from_env() -> Self {
+        Self {
+            urls: env::var("TURN_URLS")
+                .unwrap_or_default()
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect(),
+            secret: env::var("TURN_SECRET").unwrap_or_default(),
+            ttl_secs: parse_or("TURN_TTL_SECS", 3600u64),
+        }
+    }
 }
 
 /// Supabase Storage credentials for chat file upload (spec 0018). All-or-nothing
@@ -163,6 +196,14 @@ impl Config {
             None
         };
 
+        // TURN relay (spec 0026) activates only when both the URLs and the
+        // coturn shared secret are present.
+        let turn = if present("TURN_URLS") && present("TURN_SECRET") {
+            Some(TurnConfig::from_env())
+        } else {
+            None
+        };
+
         Ok(Self {
             deepgram_key,
             groq_key,
@@ -172,6 +213,7 @@ impl Config {
             billing,
             resend,
             storage,
+            turn,
         })
     }
 
@@ -376,6 +418,7 @@ impl Config {
             }),
             resend: None,
             storage: None,
+            turn: None,
         }
     }
 }
