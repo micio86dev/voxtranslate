@@ -1633,10 +1633,11 @@ pub async fn email_send(
 ) -> Response {
     // Tight per-user cap on outbound email (spec 0028) — protects the Resend
     // domain reputation from a user spamming follow-up sends.
-    if !state
-        .rate_limiter
-        .allow(&format!("email:{}", user.user_id), 5, Duration::from_secs(60))
-    {
+    if !state.rate_limiter.allow(
+        &format!("email:{}", user.user_id),
+        5,
+        Duration::from_secs(60),
+    ) {
         return (StatusCode::TOO_MANY_REQUESTS, "too many requests").into_response();
     }
     let (Some(svc), Some(pool)) = (state.transcripts.as_ref(), state.pool.as_ref()) else {
