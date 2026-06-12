@@ -125,6 +125,7 @@ const btnParticipants = $('btn-participants');
 const btnView = $('btn-view');
 const btnShare = $('btn-share');
 const btnRecord = $('btn-record');
+const btnMore = $('btn-more');
 const notifBanner = $('notif-banner');
 const participantsPanel = $('participants-panel');
 const participantsList = $('participants-list');
@@ -273,7 +274,12 @@ function renderRooms(rooms: Array<{ room: string; count: number; participants: A
       members.appendChild(chip);
     }
     item.append(main, members);
-    item.addEventListener('click', () => goPrejoin(r.room, true));
+    item.addEventListener('click', () => {
+      // Guests can't join public rooms (spec 0022): explain why + the perks of an
+      // account instead of sending them to pre-join.
+      if (billing && !auth.isLoggedIn()) return openSigninGate();
+      goPrejoin(r.room, true);
+    });
     roomsList.appendChild(item);
   }
 }
@@ -289,6 +295,18 @@ function stopLobby(): void {
   }
 }
 $('refresh').addEventListener('click', fetchRooms);
+
+// Guest sign-in gate (spec 0022): a guest clicking an online public room is shown
+// why an account is needed and what they gain, instead of reaching pre-join.
+const signinGateModal = $('signin-gate-modal');
+function openSigninGate(): void {
+  show(signinGateModal, true);
+}
+$('signin-gate-dismiss').addEventListener('click', () => show(signinGateModal, false));
+$('signin-gate-signin').addEventListener('click', () => {
+  show(signinGateModal, false);
+  showLogin();
+});
 
 // ============================================================================
 // Pre-join: camera preview + device selectors
@@ -1243,7 +1261,32 @@ function setControlState(): void {
   if (chatIco) chatIco.innerHTML = icon('chat');
   const leave = document.getElementById('btn-leave');
   if (leave) leave.innerHTML = icon('leave');
+  btnMore.innerHTML = icon('more');
+  // Dot on ⋯ when a collapsed action is active, so its state isn't hidden.
+  btnMore.classList.toggle('has-active', ttsOn || isSharingScreen || isRecording || handRaised);
 }
+
+// Overflow "More" menu (spec 0023): collapse secondary controls behind ⋯.
+const moreMenu = $('more-menu');
+function setMoreOpen(open: boolean): void {
+  moreMenu.classList.toggle('hidden', !open);
+  btnMore.setAttribute('aria-expanded', String(open));
+  if (open) moreMenu.querySelector<HTMLButtonElement>('.control-btn:not(.hidden)')?.focus();
+}
+btnMore.addEventListener('click', (e) => {
+  e.stopPropagation();
+  setMoreOpen(moreMenu.classList.contains('hidden'));
+});
+moreMenu.addEventListener('click', (e) => {
+  // Acting on any control closes the menu (the action itself already ran).
+  if ((e.target as HTMLElement).closest('.control-btn')) setMoreOpen(false);
+});
+document.addEventListener('click', (e) => {
+  if (!moreMenu.classList.contains('hidden') && !moreMenu.contains(e.target as Node)) setMoreOpen(false);
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !moreMenu.classList.contains('hidden')) setMoreOpen(false);
+});
 
 btnMic.addEventListener('click', () => {
   micOn = !micOn;

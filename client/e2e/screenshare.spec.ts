@@ -72,7 +72,8 @@ test('screen share works without a camera (issue #4)', async ({ browser }) => {
     }),
   ).toBeTruthy();
 
-  // Start the screen share (the share button is the active-success one).
+  // Start the screen share (btn-share now lives in the ⋯ menu).
+  await a.page.click('#btn-more');
   await a.page.click('#btn-share');
 
   // The viewer now receives flowing video from the camera-less peer, and the
@@ -103,7 +104,9 @@ test('screen share works without a camera (issue #4)', async ({ browser }) => {
     ),
   ).toBeTruthy();
 
-  // Stop sharing → with no camera, the viewer falls back to the camera-off avatar.
+  // Stop sharing → with no camera, the viewer falls back to the camera-off avatar
+  // (reopen the ⋯ menu first).
+  await a.page.click('#btn-more');
   await a.page.click('#btn-share');
   await b.page.waitForFunction(
     () => {

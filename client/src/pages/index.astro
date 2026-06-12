@@ -227,24 +227,40 @@ const LANGS = [
           <div class="ctl-group">
             <button id="btn-mic" class="control-btn" data-i18n-title="muteTip"></button>
             <button id="btn-cam" class="control-btn" data-i18n-title="camTip"></button>
-            <button id="btn-bg" class="control-btn" data-i18n-title="bgBlurTip"></button>
           </div>
           <div class="ctl-group">
-            <button id="btn-tts" class="control-btn" data-i18n-title="ttsTip"></button>
             <button id="btn-subtitle" class="control-btn" data-i18n-title="subtitleTip"></button>
-            <button id="btn-hand" class="control-btn" data-i18n-title="handTip"></button>
-            <button id="btn-bookmark" class="control-btn" data-i18n-title="bookmarkTip" data-i18n-label="bookmarkTip" hidden></button>
-          </div>
-          <div class="ctl-group">
-            <button id="btn-view" class="control-btn" data-i18n-title="viewGrid"></button>
-            <button id="btn-share" class="control-btn" data-i18n-title="screenShareTip"></button>
-            <button id="btn-record" class="control-btn" data-i18n-title="recordingTip"></button>
-            <button id="btn-pip" class="control-btn" data-i18n-title="pipTip"></button>
-            <button id="btn-fullscreen" class="control-btn" data-i18n-title="fullscreenTip"></button>
-          </div>
-          <div class="ctl-group">
-            <button id="btn-participants" class="control-btn" data-i18n-title="participantsTip" aria-expanded="false" aria-controls="participants-panel"><span class="part-ico"></span><span id="part-badge" class="chat-badge" hidden>0</span></button>
             <button id="btn-chat" class="control-btn" data-i18n-title="chatTip" aria-expanded="false" aria-controls="chat-panel"><span class="chat-ico"></span><span id="chat-badge" class="chat-badge" hidden>0</span></button>
+          </div>
+          <div class="ctl-group more-group">
+            <button id="btn-more" class="control-btn" data-i18n-title="moreTip" data-i18n-label="moreTip" aria-haspopup="true" aria-expanded="false" aria-controls="more-menu"></button>
+            <div id="more-menu" class="more-menu hidden" role="menu" data-i18n-label="moreTip">
+              <div class="mm-group">
+                <span class="mm-head" data-i18n="moreGroupTranslation"></span>
+                <div class="mm-grid">
+                  <span class="mi"><button id="btn-tts" class="control-btn" data-i18n-title="ttsTip"></button><span class="mi-label" data-i18n="ttsTip"></span></span>
+                </div>
+              </div>
+              <div class="mm-group">
+                <span class="mm-head" data-i18n="moreGroupStage"></span>
+                <div class="mm-grid">
+                  <span class="mi"><button id="btn-view" class="control-btn" data-i18n-title="viewGrid"></button><span class="mi-label" data-i18n="viewGrid"></span></span>
+                  <span class="mi"><button id="btn-share" class="control-btn" data-i18n-title="screenShareTip"></button><span class="mi-label" data-i18n="screenShareTip"></span></span>
+                  <span class="mi"><button id="btn-bg" class="control-btn" data-i18n-title="bgBlurTip"></button><span class="mi-label" data-i18n="bgBlurTip"></span></span>
+                  <span class="mi"><button id="btn-pip" class="control-btn" data-i18n-title="pipTip"></button><span class="mi-label" data-i18n="pipTip"></span></span>
+                  <span class="mi"><button id="btn-fullscreen" class="control-btn" data-i18n-title="fullscreenTip"></button><span class="mi-label" data-i18n="fullscreenTip"></span></span>
+                  <span class="mi"><button id="btn-record" class="control-btn" data-i18n-title="recordingTip"></button><span class="mi-label" data-i18n="recordingTip"></span></span>
+                </div>
+              </div>
+              <div class="mm-group">
+                <span class="mm-head" data-i18n="moreGroupRoom"></span>
+                <div class="mm-grid">
+                  <span class="mi"><button id="btn-hand" class="control-btn" data-i18n-title="handTip"></button><span class="mi-label" data-i18n="handTip"></span></span>
+                  <span class="mi"><button id="btn-participants" class="control-btn" data-i18n-title="participantsTip" aria-expanded="false" aria-controls="participants-panel"><span class="part-ico"></span><span id="part-badge" class="chat-badge" hidden>0</span></button><span class="mi-label" data-i18n="participantsTip"></span></span>
+                  <span class="mi"><button id="btn-bookmark" class="control-btn" data-i18n-title="bookmarkTip" data-i18n-label="bookmarkTip" hidden></button><span class="mi-label" data-i18n="bookmarkTip"></span></span>
+                </div>
+              </div>
+            </div>
           </div>
           <div class="ctl-group">
             <button id="btn-leave" class="control-btn leave" data-i18n-title="leaveTip"></button>
@@ -384,6 +400,23 @@ const LANGS = [
         <div class="modal-actions">
           <button id="exhausted-dismiss" class="btn-ghost" data-i18n="dismiss"></button>
           <button id="exhausted-buy" class="btn-primary" data-i18n="buyCredits"></button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===================== SIGN-IN GATE MODAL (spec 0022) ===================== -->
+    <div id="signin-gate-modal" class="modal-overlay hidden">
+      <div class="modal card modal-narrow" role="dialog" aria-modal="true" aria-labelledby="signin-gate-title">
+        <span id="signin-gate-title" class="card-title" data-i18n="guestGateTitle"></span>
+        <p class="modal-text" data-i18n="guestGateText"></p>
+        <ul class="gate-benefits">
+          <li data-i18n="guestGateB1"></li>
+          <li data-i18n="guestGateB2"></li>
+          <li data-i18n="guestGateB3"></li>
+        </ul>
+        <div class="modal-actions">
+          <button id="signin-gate-dismiss" class="btn-ghost" data-i18n="dismiss"></button>
+          <button id="signin-gate-signin" class="btn-primary" data-i18n="signIn"></button>
         </div>
       </div>
     </div>
@@ -816,6 +849,31 @@ const LANGS = [
     .control-btn.active-danger { background: var(--danger); }
     .control-btn.active-success { background: var(--success); }
     .control-btn.leave { background: var(--danger); }
+    /* Overflow "More" menu (spec 0023): collapse secondary controls behind ⋯. */
+    .more-group { position: relative; }
+    .control-btn.has-active::after {
+      content: ''; position: absolute; top: 6px; right: 6px; width: 8px; height: 8px;
+      border-radius: 50%; background: var(--accent); border: 2px solid var(--surface-elevated);
+    }
+    .more-menu {
+      position: absolute; bottom: calc(100% + 10px); right: 0; z-index: 30;
+      width: max-content; max-width: min(320px, 86vw); max-height: 60vh; overflow-y: auto;
+      display: flex; flex-direction: column; gap: 10px; padding: 12px;
+      background: rgba(19,20,28,0.97); backdrop-filter: blur(12px);
+      border: 1px solid var(--border); border-radius: 14px;
+      box-shadow: 0 12px 32px rgba(0,0,0,0.45);
+    }
+    .mm-group { display: flex; flex-direction: column; gap: 6px; }
+    .mm-head {
+      font-size: 0.68rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+      color: var(--muted); padding: 0 2px;
+    }
+    .mm-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px 4px; }
+    .mi { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 64px; }
+    .mi .control-btn { width: 44px; height: 44px; }
+    .mi-label { font-size: 0.66rem; line-height: 1.2; text-align: center; color: var(--muted); }
+    /* Hide a menu item whose button is hidden (mobile share/fullscreen, guest bookmark). */
+    .mi:has(> .control-btn.hidden), .mi:has(> .control-btn[hidden]) { display: none; }
     .chat-badge {
       /* #dc2626 keeps white text ≥4.5:1 (plain --danger #ef4444 is 3.8:1). */
       position: absolute; top: -3px; right: -3px; background: #dc2626; color: #fff;
@@ -901,6 +959,9 @@ const LANGS = [
     .modal-text { color: var(--muted); font-size: 0.9rem; margin: 0; }
     .modal-actions { display: flex; gap: 10px; justify-content: center; }
     .modal-actions .btn-primary { width: auto; padding: 12px 22px; }
+    /* Sign-in gate (spec 0022): benefits read better left-aligned inside the centered modal. */
+    .gate-benefits { text-align: left; margin: 4px 0 2px; padding-left: 18px; color: var(--text); font-size: 0.88rem; display: flex; flex-direction: column; gap: 6px; }
+    .gate-benefits li { line-height: 1.35; }
     .modal-tabs { display: flex; gap: 8px; }
     .packages-list { display: flex; flex-direction: column; gap: 8px; }
     .packages-list :global(.pkg) { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; transition: border-color 0.15s; width: 100%; text-align: left; }
@@ -1215,15 +1276,14 @@ const LANGS = [
 
     @media (max-width: 600px) {
       .control-bar {
-        flex-wrap: nowrap; /* single scrolling row on phones, not stacked rows */
-        gap: 6px 10px; padding: 6px 12px; overflow-x: auto; -webkit-overflow-scrolling: touch;
-        scrollbar-width: none; /* Firefox */
-        justify-content: flex-start; /* prevent left-side clip when content overflows center */
-        width: 100%; box-sizing: border-box;
+        /* Decluttered (spec 0023): the primary row now fits without scrolling, so the
+           bar stays overflow-visible and lets the ⋯ menu pop above it. */
+        flex-wrap: wrap; gap: 6px 10px; padding: 6px 12px;
+        justify-content: center; width: 100%; box-sizing: border-box;
       }
-      .control-bar::-webkit-scrollbar { display: none; }
       .ctl-group { gap: 6px; }
       .control-btn { width: 42px; height: 42px; font-size: 1rem; flex-shrink: 0; }
+      .mi .control-btn { width: 42px; height: 42px; }
     }
 
     @media (max-width: 768px) {
