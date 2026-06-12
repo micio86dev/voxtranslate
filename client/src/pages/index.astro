@@ -388,6 +388,23 @@ const LANGS = [
       </div>
     </div>
 
+    <!-- ===================== SIGN-IN GATE MODAL (spec 0022) ===================== -->
+    <div id="signin-gate-modal" class="modal-overlay hidden">
+      <div class="modal card modal-narrow" role="dialog" aria-modal="true" aria-labelledby="signin-gate-title">
+        <span id="signin-gate-title" class="card-title" data-i18n="guestGateTitle"></span>
+        <p class="modal-text" data-i18n="guestGateText"></p>
+        <ul class="gate-benefits">
+          <li data-i18n="guestGateB1"></li>
+          <li data-i18n="guestGateB2"></li>
+          <li data-i18n="guestGateB3"></li>
+        </ul>
+        <div class="modal-actions">
+          <button id="signin-gate-dismiss" class="btn-ghost" data-i18n="dismiss"></button>
+          <button id="signin-gate-signin" class="btn-primary" data-i18n="signIn"></button>
+        </div>
+      </div>
+    </div>
+
     <!-- ===================== ROOM GLOSSARY MODAL (spec 0011) ===================== -->
     <div id="glossary-modal" class="modal-overlay hidden">
       <div class="modal card glossary-modal" role="dialog" aria-modal="true" aria-labelledby="glossary-title">
@@ -901,6 +918,9 @@ const LANGS = [
     .modal-text { color: var(--muted); font-size: 0.9rem; margin: 0; }
     .modal-actions { display: flex; gap: 10px; justify-content: center; }
     .modal-actions .btn-primary { width: auto; padding: 12px 22px; }
+    /* Sign-in gate (spec 0022): benefits read better left-aligned inside the centered modal. */
+    .gate-benefits { text-align: left; margin: 4px 0 2px; padding-left: 18px; color: var(--text); font-size: 0.88rem; display: flex; flex-direction: column; gap: 6px; }
+    .gate-benefits li { line-height: 1.35; }
     .modal-tabs { display: flex; gap: 8px; }
     .packages-list { display: flex; flex-direction: column; gap: 8px; }
     .packages-list :global(.pkg) { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; transition: border-color 0.15s; width: 100%; text-align: left; }
