@@ -116,14 +116,19 @@ pub async fn upload_file(
 
     // ---- Upload to Supabase Storage (must succeed) -------------------------
     let object = storage::object_path(&session_id.to_string(), &Uuid::new_v4().to_string(), &ext);
-    let file_url = match storage_client
+    if let Err(e) = storage_client
         .upload(&object, bytes.clone(), content_type)
         .await
     {
+        tracing::error!("chat file upload to storage failed: {e}");
+        return (StatusCode::BAD_GATEWAY, "storage upload failed").into_response();
+    }
+    // The bucket is private, so the chat link is a time-limited signed URL.
+    let file_url = match storage_client.create_signed_url(&object).await {
         Ok(url) => url,
         Err(e) => {
-            tracing::error!("chat file upload to storage failed: {e}");
-            return (StatusCode::BAD_GATEWAY, "storage upload failed").into_response();
+            tracing::error!("chat file signed-url failed: {e}");
+            return (StatusCode::BAD_GATEWAY, "storage sign failed").into_response();
         }
     };
 

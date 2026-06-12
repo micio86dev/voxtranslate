@@ -70,14 +70,17 @@ fn from_env_detects_guest_and_billing_modes() {
     assert_eq!(s.service_key, "service-key");
     assert_eq!(s.bucket, "chat-files");
     assert_eq!(s.max_bytes, 25 * 1024 * 1024);
+    assert_eq!(s.signed_ttl_secs, 7 * 24 * 60 * 60); // 7 days default
     std::env::set_var("SUPABASE_BUCKET", "custom-bucket");
     std::env::set_var("SUPABASE_MAX_UPLOAD_BYTES", "1048576");
+    std::env::set_var("SUPABASE_SIGNED_URL_TTL_SECS", "3600");
     let s2 = Config::from_env()
         .unwrap()
         .storage
         .expect("storage enabled");
     assert_eq!(s2.bucket, "custom-bucket");
     assert_eq!(s2.max_bytes, 1_048_576);
+    assert_eq!(s2.signed_ttl_secs, 3600);
 
     // A missing required key still fails.
     std::env::set_var("DEEPGRAM_API_KEY", "  ");
@@ -101,6 +104,7 @@ fn from_env_detects_guest_and_billing_modes() {
         "SUPABASE_SERVICE_KEY",
         "SUPABASE_BUCKET",
         "SUPABASE_MAX_UPLOAD_BYTES",
+        "SUPABASE_SIGNED_URL_TTL_SECS",
     ] {
         std::env::remove_var(k);
     }

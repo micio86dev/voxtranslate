@@ -74,15 +74,38 @@ jobs:
           PUBLIC_WS_HOST: example.invalid
         run: npm run build
 
-  # Detect whether API-key secrets are configured (boolean, never the value).
+  # Detect whether secrets are configured (booleans, never the values).
   check-secrets:
     runs-on: ubuntu-latest
     outputs:
       has_keys: ${{ steps.c.outputs.has_keys }}
+      has_railway: ${{ steps.c.outputs.has_railway }}
     steps:
       - id: c
         run: |
           echo "has_keys=${{ secrets.GROQ_API_KEY != '' && secrets.DEEPGRAM_API_KEY != '' }}" >> "$GITHUB_OUTPUT"
+          echo "has_railway=${{ secrets.RAILWAY_TOKEN != '' }}" >> "$GITHUB_OUTPUT"
+
+  # Deploy the Rust backend to Railway on every push to main, after tests pass.
+  # Railway isn't wired to GitHub auto-deploy, so CI does it (Git Flow: merge to
+  # main → ship). Runs only when a RAILWAY_TOKEN secret is configured; the client
+  # deploys separately via Vercel's own Git integration.
+  deploy-server:
+    needs: [test, check-secrets]
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.check-secrets.outputs.has_railway == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install Railway CLI
+        run: npm i -g @railway/cli
+      - name: Deploy server to Railway
+        working-directory: server
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: railway up --ci --service voxtranslate-server
 
   # Full server coverage + browser e2e — only when secrets are present.
   e2e:

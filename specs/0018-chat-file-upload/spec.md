@@ -85,7 +85,9 @@ Storage product (a `chat-files` bucket) alongside it.
 
 - **Components / files:**
   - `server/src/storage.rs` *(new)* — `SupabaseStorage`: upload bytes to the
-    `chat-files` bucket via the Storage REST API; pure URL builders for tests.
+    (private) `chat-files` bucket via the Storage REST API, then mint a
+    time-limited **signed** download URL (`create_signed_url`); pure URL builders
+    for tests.
   - `server/src/files.rs` *(new)* — multipart upload handler + the
     type-dispatched processing pipeline; reuses `Translator`, `Deepgram`,
     `pdf`-extract, and broadcasts a `ChatMessage`.
@@ -112,7 +114,8 @@ Storage product (a `chat-files` bucket) alongside it.
   1. Client pre-validates type+size, POSTs multipart (`peer_id`, `file`) with an
      XHR progress bar.
   2. Server verifies `peer_id` is a live member of `room`; rejects otherwise.
-  3. Uploads bytes to `chat-files/{session}/{uuid}.{ext}` → public URL.
+  3. Uploads bytes to `chat-files/{session}/{uuid}.{ext}` (private bucket), then
+     mints a signed download URL (TTL `SUPABASE_SIGNED_URL_TTL_SECS`, default 7d).
   4. Inserts `chat_files` (best-effort when DB present).
   5. Extracts text: audio → Deepgram (`detect_language`), txt → UTF-8 (lossy),
      pdf → `pdf_extract` (in `spawn_blocking`). Truncates to a sane cap.
@@ -148,7 +151,8 @@ Storage product (a `chat-files` bucket) alongside it.
 
 ## 6. Testing & Verification
 
-- **Rust unit:** Supabase upload/public URL builders + object-path sanitizer;
+- **Rust unit:** Supabase upload/sign URL builders + signed-URL assembly +
+  object-path sanitizer;
   `parse_prerecorded_response` (transcript + detected lang, empty/garbled);
   file-kind routing + extension/size validation; `ChatMessage` serializes
   `attachment` when present and omits it when `None` (pins R2/R3/R5).
@@ -166,8 +170,9 @@ Storage product (a `chat-files` bucket) alongside it.
 ## 7. Deployment & Operations
 
 - **Supabase provisioning (required before prod use):**
-  1. In the Supabase project, create a **public** Storage bucket named
-     `chat-files`.
+  1. In the Supabase project, create a **private** Storage bucket named
+     `chat-files` (downloads use time-limited signed URLs, so only call
+     participants who receive the broadcast can fetch the file).
   2. Set on the server host (Railway): `SUPABASE_URL` (e.g.
      `https://<ref>.supabase.co`), `SUPABASE_SERVICE_KEY` (service-role key), and
      optionally `SUPABASE_BUCKET` (defaults to `chat-files`).
@@ -186,6 +191,10 @@ Storage product (a `chat-files` bucket) alongside it.
 - Large audio transcribed inline can make one request slow; bounded by the 25 MB
   cap. Async job processing is a documented follow-up.
 - No retention/cleanup yet — bucket grows unbounded (issue defers this).
+- Signed download URLs expire after the TTL (default 7d): a file link in a
+  long-persisted transcript eventually 404s. Acceptable for the in-call use
+  case; a re-sign-on-demand endpoint gated by room membership is the follow-up
+  if permanent access is ever needed.
 
 ## 9. References
 

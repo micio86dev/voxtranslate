@@ -387,12 +387,22 @@ async fn upload_returns_503_when_storage_unconfigured() {
     assert_eq!(res.status().as_u16(), 503);
 }
 
-/// Spin a stand-in Supabase Storage server: any request → 200. Returns its addr.
+/// Spin a stand-in Supabase Storage server. The sign endpoint returns a
+/// realistic `{ signedURL }`; everything else (object upload) → 200.
 async fn spawn_mock_storage() -> SocketAddr {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move {
-        let app = axum::Router::new().fallback(|| async { "ok" });
+        let app = axum::Router::new()
+            .route(
+                "/storage/v1/object/sign/{*rest}",
+                axum::routing::post(|| async {
+                    axum::Json(serde_json::json!({
+                        "signedURL": "/object/sign/chat-files/mock.txt?token=mocktoken"
+                    }))
+                }),
+            )
+            .fallback(|| async { "ok" });
         let _ = axum::serve(listener, app).await;
     });
     addr
@@ -407,6 +417,7 @@ fn storage_cfg(
         service_key: "test-key".into(),
         bucket: "chat-files".into(),
         max_bytes,
+        signed_ttl_secs: 3600,
     }
 }
 
@@ -449,10 +460,13 @@ async fn upload_text_file_broadcasts_chat_message() {
     assert_eq!(msg["attachment"]["name"], "notes.txt");
     assert_eq!(msg["attachment"]["content_type"], "text/plain");
     assert_eq!(msg["attachment"]["size"], 10);
-    assert!(msg["attachment"]["url"]
-        .as_str()
-        .unwrap()
-        .contains("/storage/v1/object/public/chat-files/"));
+    // Private bucket → the link is a time-limited signed URL, not a public one.
+    let url = msg["attachment"]["url"].as_str().unwrap();
+    assert!(
+        url.contains("/storage/v1/object/sign/chat-files/"),
+        "url={url}"
+    );
+    assert!(url.contains("token="), "url={url}");
 }
 
 #[tokio::test]
@@ -545,6 +559,7 @@ async fn upload_returns_403_when_peer_not_in_room() {
         service_key: "dummy".into(),
         bucket: "chat-files".into(),
         max_bytes: 25 * 1024 * 1024,
+        signed_ttl_secs: 3600,
     });
     let addr = spawn_state(AppState::new(cfg)).await;
     let (ctype, body) = multipart_body("ghost", "notes.txt", b"hello");

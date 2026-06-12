@@ -1,10 +1,13 @@
 //! Supabase Storage client for chat file upload (spec 0018).
 //!
-//! We talk to the Storage REST API directly with the service-role key (server
+//! We talk to the Storage REST API directly with the secret/service key (server
 //! only — it never reaches the browser). One object is created per upload at
-//! `{bucket}/{session}/{uuid}.{ext}`; the returned public URL is what the chat
-//! `attachment` carries. Bytes are uploaded *through* the server because it must
-//! read them anyway to transcribe/extract (see spec §4 Key decisions).
+//! `{bucket}/{session}/{uuid}.{ext}`. The bucket is **private**, so after
+//! uploading we mint a time-limited **signed URL** (`create_signed_url`) that the
+//! chat `attachment` carries — only the call participants who receive the
+//! broadcast can download, and the link expires after the configured TTL. Bytes
+//! are uploaded *through* the server because it must read them anyway to
+//! transcribe/extract (see spec §4 Key decisions).
 
 use std::time::Duration;
 
@@ -18,6 +21,8 @@ pub struct SupabaseStorage {
     base_url: String,
     service_key: String,
     bucket: String,
+    /// Signed-URL lifetime in seconds (how long a chat download link is valid).
+    signed_ttl_secs: u64,
 }
 
 impl SupabaseStorage {
@@ -28,17 +33,18 @@ impl SupabaseStorage {
             base_url: cfg.supabase_url.clone(),
             service_key: cfg.service_key.clone(),
             bucket: cfg.bucket.clone(),
+            signed_ttl_secs: cfg.signed_ttl_secs,
         }
     }
 
-    /// Upload `bytes` to `object_path` (relative to the bucket) and return the
-    /// public URL. `object_path` should already be sanitized by [`object_path`].
+    /// Upload `bytes` to `object_path` (relative to the bucket). `object_path`
+    /// should already be sanitized by [`object_path`].
     pub async fn upload(
         &self,
         object_path: &str,
         bytes: Vec<u8>,
         content_type: &str,
-    ) -> Result<String, String> {
+    ) -> Result<(), String> {
         let url = upload_url(&self.base_url, &self.bucket, object_path);
         let resp = self
             .http
@@ -63,7 +69,44 @@ impl SupabaseStorage {
             let detail = resp.text().await.unwrap_or_default();
             return Err(format!("supabase upload returned {status}: {detail}"));
         }
-        Ok(public_url(&self.base_url, &self.bucket, object_path))
+        Ok(())
+    }
+
+    /// Mint a time-limited signed download URL for an already-uploaded object.
+    /// Works against a **private** bucket; the link is valid for
+    /// `signed_ttl_secs`. Returns the absolute, browser-usable URL.
+    pub async fn create_signed_url(&self, object_path: &str) -> Result<String, String> {
+        let url = sign_request_url(&self.base_url, &self.bucket, object_path);
+        let resp = self
+            .http
+            .post(&url)
+            .header(
+                reqwest::header::AUTHORIZATION,
+                format!("Bearer {}", self.service_key),
+            )
+            .header("apikey", &self.service_key)
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .timeout(Duration::from_secs(30))
+            .json(&serde_json::json!({ "expiresIn": self.signed_ttl_secs }))
+            .send()
+            .await
+            .map_err(|e| format!("supabase sign request failed: {e}"))?;
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let detail = resp.text().await.unwrap_or_default();
+            return Err(format!("supabase sign returned {status}: {detail}"));
+        }
+        let body: serde_json::Value = resp
+            .json()
+            .await
+            .map_err(|e| format!("supabase sign parse failed: {e}"))?;
+        let signed = body
+            .get("signedURL")
+            .or_else(|| body.get("signedUrl"))
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .ok_or("supabase sign response had no signedURL")?;
+        Ok(signed_full_url(&self.base_url, signed))
     }
 }
 
@@ -77,14 +120,29 @@ pub fn upload_url(base_url: &str, bucket: &str, object_path: &str) -> String {
     )
 }
 
-/// The public read URL for an object (requires the bucket to be public).
-pub fn public_url(base_url: &str, bucket: &str, object_path: &str) -> String {
+/// The Storage REST endpoint that mints a signed URL for an object.
+pub fn sign_request_url(base_url: &str, bucket: &str, object_path: &str) -> String {
     format!(
-        "{}/storage/v1/object/public/{}/{}",
+        "{}/storage/v1/object/sign/{}/{}",
         base_url.trim_end_matches('/'),
         bucket,
         object_path
     )
+}
+
+/// Turn the relative `signedURL` Supabase returns (e.g.
+/// `/object/sign/chat-files/a/b.txt?token=…`) into an absolute, browser-usable
+/// URL under `{base}/storage/v1`. Tolerant of whether Supabase includes the
+/// `/storage/v1` prefix or a leading slash.
+pub fn signed_full_url(base_url: &str, signed_path: &str) -> String {
+    let base = base_url.trim_end_matches('/');
+    if signed_path.starts_with("/storage/v1") {
+        format!("{base}{signed_path}")
+    } else if let Some(rest) = signed_path.strip_prefix('/') {
+        format!("{base}/storage/v1/{rest}")
+    } else {
+        format!("{base}/storage/v1/{signed_path}")
+    }
 }
 
 /// Build a safe, collision-free object path: `{session}/{uuid}.{ext}`. The file
@@ -127,15 +185,34 @@ mod tests {
     use super::*;
 
     #[test]
-    fn builds_upload_and_public_urls() {
+    fn builds_upload_and_sign_urls() {
         let base = "https://ref.supabase.co";
         assert_eq!(
             upload_url(base, "chat-files", "sess/abc.mp3"),
             "https://ref.supabase.co/storage/v1/object/chat-files/sess/abc.mp3"
         );
         assert_eq!(
-            public_url(base, "chat-files", "sess/abc.mp3"),
-            "https://ref.supabase.co/storage/v1/object/public/chat-files/sess/abc.mp3"
+            sign_request_url(base, "chat-files", "sess/abc.mp3"),
+            "https://ref.supabase.co/storage/v1/object/sign/chat-files/sess/abc.mp3"
+        );
+    }
+
+    #[test]
+    fn signed_full_url_assembles_browser_url() {
+        let base = "https://ref.supabase.co";
+        // The shape Supabase actually returns: relative, no /storage/v1 prefix.
+        assert_eq!(
+            signed_full_url(base, "/object/sign/chat-files/s/f.txt?token=JWT"),
+            "https://ref.supabase.co/storage/v1/object/sign/chat-files/s/f.txt?token=JWT"
+        );
+        // Already-prefixed and no-leading-slash variants are tolerated.
+        assert_eq!(
+            signed_full_url(base, "/storage/v1/object/sign/b/p?token=x"),
+            "https://ref.supabase.co/storage/v1/object/sign/b/p?token=x"
+        );
+        assert_eq!(
+            signed_full_url("https://ref.supabase.co/", "object/sign/b/p?token=x"),
+            "https://ref.supabase.co/storage/v1/object/sign/b/p?token=x"
         );
     }
 
