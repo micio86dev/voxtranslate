@@ -56,7 +56,8 @@ Each spec follows the same skeleton:
 | [0021](0021-display-fixes-mirror-stacking/spec.md) | Display fixes: screen-share mirroring + raised-hand sidebar stacking | ✅ Shipped | 2026-06-12 | `c7c7463` |
 | [0022](0022-guest-public-room-gate/spec.md) | Guest sign-in gate for public rooms (benefits modal) | ✅ Shipped | 2026-06-12 | `569aaab` |
 | [0023](0023-call-toolbar-overflow-menu/spec.md) | Declutter the in-call toolbar (overflow "More" menu) | ✅ Shipped | 2026-06-12 | `1df3ce7` |
-| [0024](0024-self-call-cues-hand-border/spec.md) | Self call cues (enter/leave beep) + raised-hand tile border | ✅ Shipped | 2026-06-12 | (this PR) |
+| [0024](0024-self-call-cues-hand-border/spec.md) | Self call cues (enter/leave beep) + raised-hand tile border | ✅ Shipped | 2026-06-12 | `1fd0340` |
+| [0025](0025-bookmark-mobile-form/spec.md) | Mobile-friendly bookmark quick-label form | ✅ Shipped | 2026-06-12 | (this PR) |
 
 > Numbers 0011–0015 were claimed by commit messages while the AI bundle shipped
 > without spec docs (and 0011/0012 were each reused twice); the assignments
