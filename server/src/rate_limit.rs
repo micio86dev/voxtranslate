@@ -23,6 +23,11 @@ impl RateLimiter {
     /// if the caller should be throttled.
     pub fn allow(&self, key: &str, max: u32, window: Duration) -> bool {
         let now = Instant::now();
+        // Bound memory (spec 0029): one-off keys (per-uuid, per-IP) would otherwise
+        // accumulate forever. When the map grows large, drop fully-elapsed entries.
+        if self.hits.len() > 10_000 {
+            self.hits.retain(|_, v| now.duration_since(v.1) <= window);
+        }
         let mut entry = self.hits.entry(key.to_string()).or_insert((0, now));
         let (count, start) = *entry;
         if now.duration_since(start) > window {
