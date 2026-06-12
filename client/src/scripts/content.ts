@@ -74,10 +74,13 @@ export function renderMarkdown(md: string): string {
   const inline = (s: string) =>
     esc(s)
       .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-      .replace(
-        /\[([^\]]+)\]\(([^)]+)\)/g,
-        (_m, text, url) => `<a href="${encodeURI(url)}" target="_blank" rel="noopener">${text}</a>`,
-      );
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, text, url) => {
+        // Block dangerous schemes only — encodeURI() does NOT strip `javascript:`/
+        // `data:`, so `[x](javascript:…)` would be a click-to-XSS. Relative links
+        // (/terms) and http(s)/mailto stay intact. Defense-in-depth (spec 0028).
+        const safe = /^\s*(javascript|data|vbscript|file):/i.test(url) ? '#' : encodeURI(url);
+        return `<a href="${safe}" target="_blank" rel="noopener">${text}</a>`;
+      });
 
   const lines = md.replace(/\r\n/g, '\n').split('\n');
   const out: string[] = [];

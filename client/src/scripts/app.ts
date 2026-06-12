@@ -1175,7 +1175,11 @@ function updateParticipantsList(): void {
     info.className = 'part-info';
     const nameEl = document.createElement('div');
     nameEl.className = 'part-name';
-    nameEl.innerHTML = `${FLAG[p.lang] || ''} ${p.name}${p.isSelf ? ` · ${t('you')}` : ''}`.trim();
+    // textContent, NOT innerHTML: a peer's display name is attacker-controlled, so
+    // innerHTML here was a relayed XSS (e.g. a name of `<img onerror=…>` ran JS in
+    // every participant's tab and could exfiltrate the localStorage JWT). The value
+    // is plain text (flag emoji + name + suffix), so no HTML is needed. (spec 0028)
+    nameEl.textContent = `${FLAG[p.lang] || ''} ${p.name}${p.isSelf ? ` · ${t('you')}` : ''}`.trim();
     const langEl = document.createElement('div');
     langEl.className = 'part-lang';
     langEl.textContent = p.lang.toUpperCase();

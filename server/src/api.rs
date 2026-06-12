@@ -49,7 +49,21 @@ pub async fn billing_packages(State(state): State<AppState>) -> Response {
 /// `username = "<unix-expiry>:vox"`, `credential = base64(HMAC-SHA1(secret, username))`.
 /// The shared secret never leaves the server — only the derived credential does, and
 /// it expires, so a leaked client config can't be abused for long.
-pub async fn ice(State(state): State<AppState>) -> Response {
+pub async fn ice(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    // Per-IP throttle (spec 0028): /api/ice mints TURN credentials for anonymous
+    // callers, so cap scraping (best-effort — coturn quotas bound the real damage).
+    let ip = headers
+        .get("x-forwarded-for")
+        .or_else(|| headers.get("x-real-ip"))
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.split(',').next().unwrap_or(s).trim().to_string())
+        .unwrap_or_else(|| "ice-global".to_string());
+    if !state
+        .rate_limiter
+        .allow(&format!("ice:{ip}"), 30, Duration::from_secs(60))
+    {
+        return (StatusCode::TOO_MANY_REQUESTS, "too many requests").into_response();
+    }
     let mut servers = vec![serde_json::json!({
         "urls": ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"]
     })];
@@ -959,6 +973,14 @@ pub async fn report_generate(
     Path(session_id): Path<Uuid>,
     Json(body): Json<AiReportRequest>,
 ) -> Response {
+    // Throttle paid AI generation per user (spec 0028): credits gate cost but not
+    // burst concurrency, and a stuck client could hammer Groq.
+    if !state
+        .rate_limiter
+        .allow(&format!("ai:{}", user.user_id), 10, Duration::from_secs(60))
+    {
+        return (StatusCode::TOO_MANY_REQUESTS, "too many requests").into_response();
+    }
     let (Some(svc), Some(billing), Some(pool), Some(cfg)) = (
         state.transcripts.as_ref(),
         state.billing.as_ref(),
@@ -1170,6 +1192,12 @@ pub async fn sentiment_generate(
     user: AuthUser,
     Path(session_id): Path<Uuid>,
 ) -> Response {
+    if !state
+        .rate_limiter
+        .allow(&format!("ai:{}", user.user_id), 10, Duration::from_secs(60))
+    {
+        return (StatusCode::TOO_MANY_REQUESTS, "too many requests").into_response();
+    }
     let (Some(svc), Some(billing), Some(pool), Some(cfg)) = (
         state.transcripts.as_ref(),
         state.billing.as_ref(),
@@ -1372,6 +1400,12 @@ pub async fn email_draft_generate(
     Path(session_id): Path<Uuid>,
     Json(body): Json<EmailDraftRequest>,
 ) -> Response {
+    if !state
+        .rate_limiter
+        .allow(&format!("ai:{}", user.user_id), 10, Duration::from_secs(60))
+    {
+        return (StatusCode::TOO_MANY_REQUESTS, "too many requests").into_response();
+    }
     let (Some(svc), Some(billing), Some(pool), Some(cfg)) = (
         state.transcripts.as_ref(),
         state.billing.as_ref(),
@@ -1597,6 +1631,15 @@ pub async fn email_send(
     Path(session_id): Path<Uuid>,
     Json(body): Json<EmailSendRequest>,
 ) -> Response {
+    // Tight per-user cap on outbound email (spec 0028) — protects the Resend
+    // domain reputation from a user spamming follow-up sends.
+    if !state.rate_limiter.allow(
+        &format!("email:{}", user.user_id),
+        5,
+        Duration::from_secs(60),
+    ) {
+        return (StatusCode::TOO_MANY_REQUESTS, "too many requests").into_response();
+    }
     let (Some(svc), Some(pool)) = (state.transcripts.as_ref(), state.pool.as_ref()) else {
         return service_unavailable();
     };
