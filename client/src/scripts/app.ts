@@ -408,9 +408,12 @@ async function togglePreCam(): Promise<void> {
 /** Video constraints honouring the selected camera device. */
 function videoConstraints(): MediaTrackConstraints {
   const camId = camSelect.value;
+  // Mobile sends to up to 3 peers over a mesh on a metered/variable uplink, so
+  // capture lower (480p) — desktop keeps 720p (spec 0030).
+  const cap = IS_MOBILE ? { w: 640, h: 480 } : { w: 1280, h: 720 };
   return {
-    width: { ideal: 1280, max: 1280 },
-    height: { ideal: 720, max: 720 },
+    width: { ideal: cap.w, max: cap.w },
+    height: { ideal: cap.h, max: cap.h },
     frameRate: { ideal: 24, max: 30 },
     ...(camId ? { deviceId: { exact: camId } } : {}),
   };
@@ -553,7 +556,13 @@ function openSocket(): void {
   ws = new WebSocket(auth.buildWsUrl(params));
 
   ws.onopen = () => {
-    mesh = new MeshManager(localStream!, (sig) => ws?.send(JSON.stringify(sig)), iceServers);
+    mesh = new MeshManager(
+      localStream!,
+      (sig) => ws?.send(JSON.stringify(sig)),
+      iceServers,
+      IS_MOBILE ? 450_000 : 1_000_000, // lower outbound video cap on mobile (spec 0030)
+    );
+    mesh.onNetworkWeak = showWeakNetworkWarning;
     mesh.onRemoteStream = (peerId, stream) => {
       remoteStreams.set(peerId, stream);
       recorder?.addParticipant(participantSource(peerId, stream));
@@ -1132,6 +1141,16 @@ function showEmojiReaction(peerId: string, emoji: string): void {
 
 // ---- Notification banner ---------------------------------------------------
 let notifTimer: number | null = null;
+// Weak-network nudge (spec 0030): getStats flagged a sustained bandwidth-limited /
+// lossy uplink. Suggest the camera off — at most once a minute so it isn't spammy.
+let lastWeakWarn = 0;
+function showWeakNetworkWarning(): void {
+  const now = Date.now();
+  if (now - lastWeakWarn < 60_000) return;
+  lastWeakWarn = now;
+  toast(t('weakNetwork'));
+}
+
 function showNotif(text: string): void {
   notifBanner.textContent = text;
   notifBanner.classList.remove('hidden');

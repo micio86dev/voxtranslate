@@ -61,7 +61,8 @@ Each spec follows the same skeleton:
 | [0026](0026-turn-relay/spec.md) | TURN relay for cross-NAT WebRTC (server-issued ICE) | 🚧 Plumbing | 2026-06-12 | `d5f502c` |
 | [0027](0027-load-testing-k6/spec.md) | Load testing the server with k6 (signaling + HTTP) | ✅ Shipped | 2026-06-12 | `dc52d60` |
 | [0028](0028-security-hardening/spec.md) | Security hardening (XSS, CORS, rate limits, headers, deps) | ✅ Shipped | 2026-06-12 | `972d29a` |
-| [0029](0029-security-followups/spec.md) | Security follow-ups (upload throttle, PDF timeout, rate-limiter eviction, CI audit) | ✅ Shipped | 2026-06-12 | (this PR) |
+| [0029](0029-security-followups/spec.md) | Security follow-ups (upload throttle, PDF timeout, rate-limiter eviction, CI audit) | ✅ Shipped | 2026-06-12 | `48e4277` |
+| [0030](0030-mobile-bitrate-weak-network/spec.md) | Mobile-friendly video bitrate + weak-network warning | ✅ Shipped | 2026-06-12 | (this PR) |
 
 > Numbers 0011–0015 were claimed by commit messages while the AI bundle shipped
 > without spec docs (and 0011/0012 were each reused twice); the assignments
