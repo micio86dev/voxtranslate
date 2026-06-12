@@ -1170,6 +1170,20 @@ const LANGS = [
     .bookmark-pop input { width: 200px; min-height: 40px; }
     .bookmark-pop .bm-save { width: auto; min-height: 40px; padding: 0 14px; }
     .bookmark-pop .btn-ghost { min-height: 40px; white-space: nowrap; }
+    /* Mobile (spec 0025): the desktop row (title + 200px input + Save + Show all)
+       is far wider than a phone, so it was clipped. Wrap into a full-width sheet —
+       title and input each take a full row; Save + Show all split the last row.
+       Touch targets at 44px so it stays quick to use mid-call. */
+    @media (max-width: 600px) {
+      .bookmark-pop {
+        left: 8px; right: 8px; transform: none; max-width: none;
+        flex-wrap: wrap; gap: 8px 10px; padding: 10px 12px;
+      }
+      .bookmark-pop-title { flex: 1 1 100%; white-space: normal; }
+      .bookmark-pop input { flex: 1 1 100%; width: auto; min-height: 44px; }
+      .bookmark-pop .bm-save { flex: 1 1 auto; min-height: 44px; }
+      .bookmark-pop .btn-ghost { flex: 1 1 auto; min-height: 44px; white-space: nowrap; }
+    }
 
     .bookmarks-panel {
       width: 300px; background: var(--surface); border-left: 1px solid var(--border);
