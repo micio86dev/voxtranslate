@@ -1182,10 +1182,14 @@ btnMic.addEventListener('click', () => {
 btnCam.addEventListener('click', () => {
   camOn = !camOn;
   mesh?.setVideoEnabled(camOn);
-  setCameraOff(myId, !camOn);
-  // While screen-sharing the recorder's self tile shows the screen regardless.
-  if (!isSharingScreen) recorder?.setVideoOff(myId, !camOn);
-  ws?.send(JSON.stringify({ type: 'mute_video', muted: !camOn }));
+  // While screen-sharing, peers and our tile keep showing the screen — the
+  // camera toggle only records intent for when sharing stops. No peer update,
+  // no self-tile change here (stopScreenShare applies the final state).
+  if (!isSharingScreen) {
+    setCameraOff(myId, !camOn);
+    recorder?.setVideoOff(myId, !camOn);
+    ws?.send(JSON.stringify({ type: 'mute_video', muted: !camOn }));
+  }
   setControlState();
 });
 
@@ -1306,14 +1310,24 @@ btnShare.addEventListener('click', () => {
 });
 
 async function startScreenShare(): Promise<void> {
-  if (!mesh || !localStream) return;
+  // Independent of the camera: works whether you're camera-on, camera-off, or
+  // joined audio-only. We keep `localStream` as the real mic/camera stream and
+  // only swap the outgoing *video* track for the screen.
+  if (!mesh) return;
   try {
     const s = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
     screenStream = s;
     isSharingScreen = true;
-    // Replace video track on all peers with screen track (audio stays from mic)
-    mesh.setLocalStream(s);
-    // Recorder self tile follows what peers see.
+    // Send the screen on every peer's video sender (replaces the camera feed,
+    // mic audio is untouched). The always-present video transceiver means this
+    // reaches peers even when we joined without a camera.
+    mesh.replaceVideoTrack(s.getVideoTracks()[0] ?? null);
+    // Peers may have us flagged camera-off (their tile would hide the video);
+    // tell them to reveal it so the shared screen actually shows.
+    ws?.send(JSON.stringify({ type: 'mute_video', muted: false }));
+    // Our own tile + recorder show the screen, regardless of camera state.
+    setSelfVideo(s);
+    setCameraOff(myId, false);
     recorder?.updateStream(myId, s);
     recorder?.setVideoOff(myId, false);
     // Show indicator on self cell
@@ -1331,19 +1345,28 @@ async function startScreenShare(): Promise<void> {
     s.getVideoTracks()[0]?.addEventListener('ended', stopScreenShare);
     setControlState();
   } catch {
-    // User cancelled
+    // User cancelled the picker — roll back the optimistic flag.
+    isSharingScreen = false;
+    screenStream = null;
   }
 }
 
 function stopScreenShare(): void {
-  if (!isSharingScreen || !mesh || !localStream) return;
+  if (!isSharingScreen || !mesh) return;
   isSharingScreen = false;
   if (screenStream) {
     screenStream.getTracks().forEach((t) => t.stop());
     screenStream = null;
   }
-  // Restore camera stream
-  mesh.setLocalStream(localStream);
+  // Restore the camera feed for peers (or clear video when the camera is off /
+  // we joined audio-only), honouring the current camera toggle.
+  const camTrack = localStream?.getVideoTracks()[0] ?? null;
+  mesh.replaceVideoTrack(camTrack);
+  mesh.setVideoEnabled(camOn);
+  ws?.send(JSON.stringify({ type: 'mute_video', muted: !camOn }));
+  // Our own tile + recorder back to the camera (or camera-off avatar).
+  setSelfVideo(localStream);
+  setCameraOff(myId, !camOn);
   recorder?.updateStream(myId, localStream);
   recorder?.setVideoOff(myId, !camOn);
   // Remove badge
@@ -1351,6 +1374,16 @@ function stopScreenShare(): void {
   cell?.querySelector('.screen-share-badge')?.remove();
   setControlState();
   showNotif(t('stopShare'));
+}
+
+/** Point the self tile's <video> at a stream (camera or screen). */
+function setSelfVideo(stream: MediaStream | null): void {
+  const cell = videoGrid.querySelector(`[data-peer="${cssEsc(myId)}"]`);
+  const video = cell?.querySelector('video') as HTMLVideoElement | null;
+  if (video && stream) {
+    video.srcObject = stream;
+    void video.play().catch(() => {});
+  }
 }
 
 btnRecord.addEventListener('click', () => {

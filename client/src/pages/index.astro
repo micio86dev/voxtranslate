@@ -105,12 +105,26 @@ const LANGS = [
           <h1 class="card-title" data-i18n="sessionDetails"></h1>
           <span class="room-tag"><span id="session-room" class="mono"></span></span>
         </header>
-        <p class="session-meta">
-          <span id="session-date"></span> · <span data-i18n="durationLabel"></span>:
-          <span id="session-duration"></span> · <span id="session-events"></span>
-          <span data-i18n="eventsLabel"></span>
-        </p>
-        <p id="session-participants" class="session-participants"></p>
+        <!-- At-a-glance summary: each fact gets its own labelled cell so it's
+             obvious what every value means (issue #4). -->
+        <dl class="session-stats">
+          <div class="stat">
+            <dt class="stat-label" data-i18n="dateLabel"></dt>
+            <dd id="session-date" class="stat-value"></dd>
+          </div>
+          <div class="stat">
+            <dt class="stat-label" data-i18n="durationLabel"></dt>
+            <dd id="session-duration" class="stat-value"></dd>
+          </div>
+          <div class="stat">
+            <dt class="stat-label" data-i18n="eventsStatLabel"></dt>
+            <dd id="session-events" class="stat-value"></dd>
+          </div>
+          <div class="stat stat-wide">
+            <dt class="stat-label" data-i18n="participants"></dt>
+            <dd id="session-participants" class="stat-value"></dd>
+          </div>
+        </dl>
 
         <div class="card">
           <span class="card-title" data-i18n="downloads"></span>
@@ -207,21 +221,33 @@ const LANGS = [
             <button id="bookmark-show-all" class="btn-ghost" data-i18n="showAllBookmarks"></button>
           </div>
         </div>
-        <div class="control-bar">
-          <button id="btn-mic" class="control-btn" data-i18n-title="muteTip"></button>
-          <button id="btn-cam" class="control-btn" data-i18n-title="camTip"></button>
-          <button id="btn-tts" class="control-btn" data-i18n-title="ttsTip"></button>
-          <button id="btn-subtitle" class="control-btn" data-i18n-title="subtitleTip"></button>
-          <button id="btn-hand" class="control-btn" data-i18n-title="handTip"></button>
-          <button id="btn-bookmark" class="control-btn" data-i18n-title="bookmarkTip" data-i18n-label="bookmarkTip" hidden></button>
-          <button id="btn-pip" class="control-btn" data-i18n-title="pipTip"></button>
-          <button id="btn-fullscreen" class="control-btn" data-i18n-title="fullscreenTip"></button>
-          <button id="btn-participants" class="control-btn" data-i18n-title="participantsTip" aria-expanded="false" aria-controls="participants-panel"><span class="part-ico"></span><span id="part-badge" class="chat-badge" hidden>0</span></button>
-          <button id="btn-view" class="control-btn" data-i18n-title="viewGrid"></button>
-          <button id="btn-share" class="control-btn" data-i18n-title="screenShareTip"></button>
-          <button id="btn-record" class="control-btn" data-i18n-title="recordingTip"></button>
-          <button id="btn-chat" class="control-btn" data-i18n-title="chatTip" aria-expanded="false" aria-controls="chat-panel"><span class="chat-ico"></span><span id="chat-badge" class="chat-badge" hidden>0</span></button>
-          <button id="btn-leave" class="control-btn leave" data-i18n-title="leaveTip"></button>
+        <!-- Buttons are grouped so the bar wraps in tidy clusters (and keeps
+             related controls together) instead of one long overflowing row. -->
+        <div class="control-bar" role="toolbar" data-i18n-label="controlsLabel">
+          <div class="ctl-group">
+            <button id="btn-mic" class="control-btn" data-i18n-title="muteTip"></button>
+            <button id="btn-cam" class="control-btn" data-i18n-title="camTip"></button>
+          </div>
+          <div class="ctl-group">
+            <button id="btn-tts" class="control-btn" data-i18n-title="ttsTip"></button>
+            <button id="btn-subtitle" class="control-btn" data-i18n-title="subtitleTip"></button>
+            <button id="btn-hand" class="control-btn" data-i18n-title="handTip"></button>
+            <button id="btn-bookmark" class="control-btn" data-i18n-title="bookmarkTip" data-i18n-label="bookmarkTip" hidden></button>
+          </div>
+          <div class="ctl-group">
+            <button id="btn-view" class="control-btn" data-i18n-title="viewGrid"></button>
+            <button id="btn-share" class="control-btn" data-i18n-title="screenShareTip"></button>
+            <button id="btn-record" class="control-btn" data-i18n-title="recordingTip"></button>
+            <button id="btn-pip" class="control-btn" data-i18n-title="pipTip"></button>
+            <button id="btn-fullscreen" class="control-btn" data-i18n-title="fullscreenTip"></button>
+          </div>
+          <div class="ctl-group">
+            <button id="btn-participants" class="control-btn" data-i18n-title="participantsTip" aria-expanded="false" aria-controls="participants-panel"><span class="part-ico"></span><span id="part-badge" class="chat-badge" hidden>0</span></button>
+            <button id="btn-chat" class="control-btn" data-i18n-title="chatTip" aria-expanded="false" aria-controls="chat-panel"><span class="chat-ico"></span><span id="chat-badge" class="chat-badge" hidden>0</span></button>
+          </div>
+          <div class="ctl-group">
+            <button id="btn-leave" class="control-btn leave" data-i18n-title="leaveTip"></button>
+          </div>
         </div>
       </div>
 
@@ -493,8 +519,23 @@ const LANGS = [
     }
     .session-header { display: flex; align-items: center; gap: 12px; }
     .session-header .card-title { font-size: 1rem; flex: 1; }
-    .session-meta { margin: 0; color: var(--muted); font-size: 0.88rem; }
-    .session-participants { margin: 0; color: var(--muted); font-size: 0.82rem; min-height: 1em; }
+    /* Summary stats: a labelled grid so each value's meaning is self-evident. */
+    .session-stats {
+      margin: 0; padding: 14px 16px; display: grid; gap: 12px 18px;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+    }
+    .session-stats .stat { display: flex; flex-direction: column; gap: 3px; min-width: 0; margin: 0; }
+    .session-stats .stat-wide { grid-column: 1 / -1; }
+    .session-stats .stat-label {
+      margin: 0; font-size: 0.7rem; font-weight: 600; letter-spacing: 0.05em;
+      text-transform: uppercase; color: var(--muted);
+    }
+    .session-stats .stat-value {
+      margin: 0; font-size: 0.95rem; color: var(--text);
+      font-variant-numeric: tabular-nums; overflow-wrap: anywhere;
+    }
+    .session-stats .stat-value:empty::before { content: '—'; color: var(--muted); }
     .session-downloads { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; align-items: center; }
     .session-downloads .btn-ghost { min-height: 44px; }
     .session-downloads select {
@@ -738,14 +779,19 @@ const LANGS = [
 
     .control-bar {
       flex: none;
-      display: flex; justify-content: center; gap: 10px; padding: 10px 16px;
+      /* Wrap whole groups onto a new row rather than squishing/overlapping the
+         buttons when the bar is wider than the viewport. Larger gap *between*
+         groups than within a group gives the visual separation + hierarchy. */
+      display: flex; flex-wrap: wrap; justify-content: center; align-items: center;
+      gap: 8px 16px; padding: 10px 16px;
       background: rgba(19,20,28,0.8); backdrop-filter: blur(12px); border: 1px solid var(--border);
       border-radius: 16px; margin: 0 auto; width: fit-content; max-width: 100%;
     }
+    .ctl-group { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
     .control-btn {
       width: 48px; height: 48px; border-radius: 50%; border: none; background: var(--surface-elevated);
       color: var(--text); font-size: 1.2rem; cursor: pointer; position: relative; transition: background 0.15s;
-      display: grid; place-items: center;
+      display: grid; place-items: center; flex-shrink: 0;
     }
     .control-btn:hover { background: var(--border); }
     /* Mic voice halo: --mic-level (0..1) is set per-frame by MicMeter. */
@@ -1125,12 +1171,14 @@ const LANGS = [
 
     @media (max-width: 600px) {
       .control-bar {
-        gap: 6px; padding: 6px 12px; overflow-x: auto; -webkit-overflow-scrolling: touch;
+        flex-wrap: nowrap; /* single scrolling row on phones, not stacked rows */
+        gap: 6px 10px; padding: 6px 12px; overflow-x: auto; -webkit-overflow-scrolling: touch;
         scrollbar-width: none; /* Firefox */
         justify-content: flex-start; /* prevent left-side clip when content overflows center */
         width: 100%; box-sizing: border-box;
       }
       .control-bar::-webkit-scrollbar { display: none; }
+      .ctl-group { gap: 6px; }
       .control-btn { width: 42px; height: 42px; font-size: 1rem; flex-shrink: 0; }
     }
 

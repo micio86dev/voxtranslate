@@ -11,14 +11,26 @@ class FakePC {
   onicecandidate: any = () => {};
   onconnectionstatechange: any = () => {};
   senders: any[] = [];
+  transceivers: any[] = [];
   constructor(public cfg: any) {
     pcs.push(this);
   }
   addTrack(track: any) {
-    this.senders.push({ track, replaceTrack: vi.fn(async () => {}) });
+    const sender: any = { track, replaceTrack: vi.fn(async (t: any) => { sender.track = t; }) };
+    this.senders.push(sender);
+    this.transceivers.push({ sender, receiver: { track: { kind: track.kind } } });
+  }
+  addTransceiver(kind: string) {
+    const sender: any = { track: null, replaceTrack: vi.fn(async (t: any) => { sender.track = t; }) };
+    const tx = { sender, receiver: { track: { kind } } };
+    this.transceivers.push(tx);
+    return tx;
   }
   getSenders() {
     return this.senders;
+  }
+  getTransceivers() {
+    return this.transceivers;
   }
   async createOffer() {
     return { type: 'offer', sdp: 'offer-sdp' };
@@ -42,6 +54,15 @@ function fakeStream() {
     { kind: 'audio', enabled: true },
     { kind: 'video', enabled: true },
   ];
+  return {
+    getTracks: () => tracks,
+    getAudioTracks: () => tracks.filter((t) => t.kind === 'audio'),
+    getVideoTracks: () => tracks.filter((t) => t.kind === 'video'),
+  } as any;
+}
+
+function fakeAudioOnlyStream() {
+  const tracks = [{ kind: 'audio', enabled: true }];
   return {
     getTracks: () => tracks,
     getAudioTracks: () => tracks.filter((t) => t.kind === 'audio'),
@@ -123,5 +144,30 @@ describe('MeshManager', () => {
     m.onPeerRemoved = onRemoved;
     m.removePeer('ghost');
     expect(onRemoved).toHaveBeenCalledWith('ghost');
+  });
+
+  it('negotiates a video m-line on audio-only joins so screen share needs no camera', async () => {
+    const m = new MeshManager(fakeAudioOnlyStream(), vi.fn());
+    await m.addPeer('p1', true);
+    const txs = pcs[0].transceivers;
+    // One audio sender (addTrack) + an added video transceiver (addTransceiver).
+    expect(pcs[0].senders.length).toBe(1);
+    const videoTx = txs.find((t: any) => t.receiver.track.kind === 'video');
+    expect(videoTx).toBeTruthy();
+    // The screen track lands on that video sender even though we have no camera.
+    const screen = { kind: 'video' } as any;
+    m.replaceVideoTrack(screen);
+    expect(videoTx.sender.replaceTrack).toHaveBeenCalledWith(screen);
+  });
+
+  it('replaceVideoTrack swaps the video sender and can clear it', async () => {
+    const m = new MeshManager(fakeStream(), vi.fn());
+    await m.addPeer('p1', false);
+    const videoTx = pcs[0].transceivers.find((t: any) => t.receiver.track.kind === 'video');
+    const screen = { kind: 'video' } as any;
+    m.replaceVideoTrack(screen);
+    expect(videoTx.sender.replaceTrack).toHaveBeenCalledWith(screen);
+    m.replaceVideoTrack(null); // stop sharing with the camera off → clear video
+    expect(videoTx.sender.replaceTrack).toHaveBeenCalledWith(null);
   });
 });

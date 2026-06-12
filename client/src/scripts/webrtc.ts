@@ -36,6 +36,30 @@ export class MeshManager {
     }
   }
 
+  /**
+   * Swap the outgoing video track on every peer (pass null to clear it). Works
+   * even when the camera was never on, because addPeer() always negotiates a
+   * video m-line — so screen sharing no longer depends on the camera being
+   * active. No renegotiation needed (replaceTrack reuses the existing sender).
+   */
+  replaceVideoTrack(track: MediaStreamTrack | null): void {
+    for (const pc of this.peers.values()) {
+      const sender = this.videoSender(pc);
+      if (sender) void sender.replaceTrack(track);
+    }
+  }
+
+  /** The RTCRtpSender for our outgoing video, even if it has no track yet. */
+  private videoSender(pc: RTCPeerConnection): RTCRtpSender | null {
+    const tx = pc.getTransceivers?.().find(
+      (t) => (t.sender.track?.kind ?? t.receiver?.track?.kind) === 'video',
+    );
+    if (tx) return tx.sender;
+    // Fallback for environments without getTransceivers: a sender that
+    // currently carries a video track.
+    return pc.getSenders().find((s) => s.track?.kind === 'video') ?? null;
+  }
+
   async addPeer(peerId: string, isInitiator: boolean): Promise<void> {
     if (this.peers.has(peerId)) return;
     const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
@@ -44,8 +68,21 @@ export class MeshManager {
     for (const track of this.localStream.getTracks()) {
       pc.addTrack(track, this.localStream);
     }
+    // Guarantee an outgoing video m-line even on audio-only joins, so screen
+    // share (or turning the camera on later) only needs replaceTrack — no
+    // renegotiation, and no dependency on the camera being on when you join.
+    // `streams` ties the (initially empty) video sender to the same MediaStream
+    // as the audio, so the remote groups the screen track into one stream once
+    // it starts flowing — otherwise its ontrack sees no stream.
+    if (this.localStream.getVideoTracks().length === 0) {
+      pc.addTransceiver?.('video', { direction: 'sendrecv', streams: [this.localStream] });
+    }
 
-    pc.ontrack = (e) => this.onRemoteStream(peerId, e.streams[0]);
+    pc.ontrack = (e) => {
+      // Ignore receiver tracks that arrive without a stream (e.g. an inactive
+      // video m-line before its msid is known) — they'd clobber the live stream.
+      if (e.streams[0]) this.onRemoteStream(peerId, e.streams[0]);
+    };
     pc.onicecandidate = (e) => {
       if (e.candidate) this.send({ type: 'ice', to: peerId, candidate: e.candidate.toJSON() });
     };
