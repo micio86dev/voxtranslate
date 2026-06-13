@@ -75,7 +75,8 @@ Each spec follows the same skeleton:
 | [0040](0040-tts-no-cut/spec.md) | Translated-voice TTS queues (no cut-off on rapid sentences) | ✅ Shipped | 2026-06-13 | `aa97a58` |
 | [0041](0041-issue50-visibility-blur/spec.md) | Issue #50: room-visibility consistency + mobile blur aspect | ✅ Shipped | 2026-06-13 | `ff5950d` |
 | [0042](0042-tts-voice-selection/spec.md) | TTS voice selection: prefer local + premium (delay-first) | ✅ Shipped | 2026-06-13 | `462cde2` |
-| [0043](0043-low-latency-capture/spec.md) | Lower translation delay: 100 ms audio capture chunks | ✅ Shipped | 2026-06-13 | (this PR) |
+| [0043](0043-low-latency-capture/spec.md) | Lower translation delay: 100 ms audio capture chunks | ✅ Shipped | 2026-06-13 | `115fa45` |
+| [0044](0044-env-video-budget/spec.md) | Video upload budget configurable via Vercel env | ✅ Shipped | 2026-06-13 | (this PR) |
 
 > Numbers 0011–0015 were claimed by commit messages while the AI bundle shipped
 > without spec docs (and 0011/0012 were each reused twice); the assignments
