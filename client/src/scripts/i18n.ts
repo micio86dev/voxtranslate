@@ -42,6 +42,7 @@ export const I18N: Record<string, Dict> = {
     dismiss: 'Dismiss', lowBalanceWarn: 'Low balance', noActivity: 'No activity yet',
     checkoutFailed: 'Checkout unavailable — please try again later',
     trialEnded: 'Free trial ended', signIn: 'Sign in',
+    guestBarTitle: "You're a guest", guestBarSub: 'Sign in to save your credits, history & bookmarks',
     trialEndedText: 'Sign in to keep talking — the call stays connected.',
     // Trust & safety + GDPR
     consentTitle: 'Before you start', consentText: 'VoxTranslate is for adults. Please confirm and accept our terms to continue.',
@@ -141,6 +142,7 @@ export const I18N: Record<string, Dict> = {
     dismiss: 'Chiudi', lowBalanceWarn: 'Saldo basso', noActivity: 'Ancora nessuna attività',
     checkoutFailed: 'Checkout non disponibile — riprova più tardi',
     trialEnded: 'Prova gratuita terminata', signIn: 'Accedi',
+    guestBarTitle: 'Stai usando come ospite', guestBarSub: 'Accedi per salvare crediti, cronologia e segnalibri',
     trialEndedText: 'Accedi per continuare a parlare — la chiamata resta attiva.',
     // Sicurezza + GDPR
     consentTitle: 'Prima di iniziare', consentText: 'VoxTranslate è riservato agli adulti. Conferma e accetta i termini per continuare.',
@@ -240,6 +242,7 @@ export const I18N: Record<string, Dict> = {
     dismiss: 'Cerrar', lowBalanceWarn: 'Saldo bajo', noActivity: 'Aún no hay actividad',
     checkoutFailed: 'Pago no disponible — inténtalo de nuevo más tarde',
     trialEnded: 'Prueba gratuita terminada', signIn: 'Iniciar sesión',
+    guestBarTitle: 'Estás como invitado', guestBarSub: 'Inicia sesión para guardar créditos, historial y marcadores',
     trialEndedText: 'Inicia sesión para seguir hablando — la llamada sigue conectada.',
     // Seguridad + RGPD
     consentTitle: 'Antes de empezar', consentText: 'VoxTranslate es solo para adultos. Confirma y acepta nuestros términos para continuar.',
@@ -339,6 +342,7 @@ export const I18N: Record<string, Dict> = {
     dismiss: 'Fermer', lowBalanceWarn: 'Solde faible', noActivity: 'Aucune activité',
     checkoutFailed: 'Paiement indisponible — réessayez plus tard',
     trialEnded: 'Essai gratuit terminé', signIn: 'Se connecter',
+    guestBarTitle: 'Vous êtes invité', guestBarSub: 'Connectez-vous pour sauvegarder crédits, historique et favoris',
     trialEndedText: 'Connectez-vous pour continuer à parler — l\'appel reste connecté.',
     // Sécurité + RGPD
     consentTitle: 'Avant de commencer', consentText: 'VoxTranslate est réservé aux adultes. Confirmez et acceptez nos conditions pour continuer.',
@@ -438,6 +442,7 @@ export const I18N: Record<string, Dict> = {
     dismiss: 'Schließen', lowBalanceWarn: 'Niedriges Guthaben', noActivity: 'Noch keine Aktivität',
     checkoutFailed: 'Checkout nicht verfügbar — bitte später erneut versuchen',
     trialEnded: 'Kostenlose Testphase beendet', signIn: 'Anmelden',
+    guestBarTitle: 'Du bist als Gast unterwegs', guestBarSub: 'Anmelden, um Guthaben, Verlauf & Lesezeichen zu sichern',
     trialEndedText: 'Melde dich an, um weiterzusprechen — der Anruf bleibt verbunden.',
     // Sicherheit + DSGVO
     consentTitle: 'Bevor du startest', consentText: 'VoxTranslate ist nur für Erwachsene. Bitte bestätige und akzeptiere unsere Bedingungen, um fortzufahren.',
@@ -537,6 +542,7 @@ export const I18N: Record<string, Dict> = {
     dismiss: 'Fechar', lowBalanceWarn: 'Saldo baixo', noActivity: 'Nenhuma atividade ainda',
     checkoutFailed: 'Checkout indisponível — tente novamente mais tarde',
     trialEnded: 'Teste gratuito terminado', signIn: 'Entrar',
+    guestBarTitle: 'Você está como convidado', guestBarSub: 'Entre para salvar créditos, histórico e marcadores',
     trialEndedText: 'Entre para continuar falando — a chamada permanece conectada.',
     // Segurança + LGPD/GDPR
     consentTitle: 'Antes de começar', consentText: 'O VoxTranslate é apenas para adultos. Confirme e aceite nossos termos para continuar.',
@@ -636,6 +642,7 @@ export const I18N: Record<string, Dict> = {
     dismiss: '閉じる', lowBalanceWarn: '残高わずか', noActivity: 'まだ利用履歴はありません',
     checkoutFailed: '決済を開始できません — 後でもう一度お試しください',
     trialEnded: '無料トライアル終了', signIn: 'ログイン',
+    guestBarTitle: 'ゲストとして利用中', guestBarSub: 'ログインしてクレジット・履歴・ブックマークを保存',
     trialEndedText: 'ログインすると続けられます — 通話は接続されたままです。',
     // 安全性 + GDPR
     consentTitle: '始める前に', consentText: 'VoxTranslate は成人向けです。続行するには確認し、利用規約に同意してください。',
@@ -735,6 +742,7 @@ export const I18N: Record<string, Dict> = {
     dismiss: '关闭', lowBalanceWarn: '余额不足', noActivity: '暂无活动',
     checkoutFailed: '无法发起结账 — 请稍后重试',
     trialEnded: '免费试用已结束', signIn: '登录',
+    guestBarTitle: '您正以访客身份使用', guestBarSub: '登录以保存额度、历史记录和书签',
     trialEndedText: '登录即可继续通话 — 通话保持连接。',
     // 安全 + GDPR
     consentTitle: '开始之前', consentText: 'VoxTranslate 仅供成人使用。请确认并接受我们的条款以继续。',
