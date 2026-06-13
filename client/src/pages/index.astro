@@ -230,6 +230,24 @@ const LANGS = [
             <button id="bookmark-label-save" class="btn-primary bm-save" data-i18n="saveBtn"></button>
             <button id="bookmark-show-all" class="btn-ghost" data-i18n="showAllBookmarks"></button>
           </div>
+          <!-- Collaborative whiteboard overlay (spec 0045): covers the stage; strokes
+               relay over the WS and a late-joiner gets a snapshot. -->
+          <div id="whiteboard" class="whiteboard hidden">
+            <canvas id="wb-canvas" class="wb-canvas"></canvas>
+            <div class="wb-toolbar" role="toolbar" data-i18n-label="whiteboardTip">
+              <button id="wb-pen" class="wb-tool active" data-i18n-title="wbPen"></button>
+              <button id="wb-eraser" class="wb-tool" data-i18n-title="wbEraser"></button>
+              <span class="wb-colors">
+                <button class="wb-color active" data-color="#f1f5f9" style="--c:#f1f5f9" aria-label="white"></button>
+                <button class="wb-color" data-color="#3b82f6" style="--c:#3b82f6" aria-label="blue"></button>
+                <button class="wb-color" data-color="#ef4444" style="--c:#ef4444" aria-label="red"></button>
+                <button class="wb-color" data-color="#22c55e" style="--c:#22c55e" aria-label="green"></button>
+                <button class="wb-color" data-color="#f59e0b" style="--c:#f59e0b" aria-label="amber"></button>
+              </span>
+              <button id="wb-clear" class="btn-ghost" data-i18n="wbClear"></button>
+              <button id="wb-close" class="btn-ghost icon-btn" data-i18n-title="closeTip"></button>
+            </div>
+          </div>
         </div>
         <!-- Buttons are grouped so the bar wraps in tidy clusters (and keeps
              related controls together) instead of one long overflowing row. -->
@@ -260,6 +278,7 @@ const LANGS = [
                   <span class="mi"><button id="btn-pip" class="control-btn" data-i18n-title="pipTip"></button><span class="mi-label" data-i18n="pipTip"></span></span>
                   <span class="mi"><button id="btn-fullscreen" class="control-btn" data-i18n-title="fullscreenTip"></button><span class="mi-label" data-i18n="fullscreenTip"></span></span>
                   <span class="mi"><button id="btn-record" class="control-btn" data-i18n-title="recordingTip"></button><span class="mi-label" data-i18n="recordingTip"></span></span>
+                  <span class="mi"><button id="btn-whiteboard" class="control-btn" data-i18n-title="whiteboardTip"></button><span class="mi-label" data-i18n="whiteboardTip"></span></span>
                 </div>
               </div>
               <div class="mm-group">
@@ -1251,6 +1270,33 @@ const LANGS = [
       background: rgba(19,20,28,0.92); backdrop-filter: blur(12px);
       border: 1px solid var(--border); border-radius: 12px; padding: 8px 12px;
     }
+
+    /* ---- Collaborative whiteboard (spec 0045) ---- */
+    .whiteboard {
+      position: absolute; inset: 0; z-index: 7;
+      background: #0f1320; /* the board surface — eraser (destination-out) reveals this */
+      background-image: radial-gradient(rgba(255,255,255,0.06) 1px, transparent 1px);
+      background-size: 24px 24px; /* subtle dot grid, Jamboard-ish */
+    }
+    .wb-canvas { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; cursor: crosshair; display: block; }
+    .wb-toolbar {
+      position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 8;
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: center;
+      max-width: 94%; padding: 6px 8px; border-radius: 12px;
+      background: rgba(19,20,28,0.92); backdrop-filter: blur(10px);
+      border: 1px solid var(--border); box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    }
+    .wb-tool {
+      width: 40px; height: 40px; border-radius: 9px; cursor: pointer;
+      background: var(--surface-2); border: 1px solid var(--border); color: var(--text);
+      display: grid; place-items: center;
+    }
+    .wb-tool.active { border-color: var(--accent); background: var(--accent-dim); }
+    .wb-tool :global(.ico) { width: 20px; height: 20px; }
+    .wb-colors { display: flex; gap: 6px; align-items: center; }
+    .wb-color { width: 24px; height: 24px; border-radius: 50%; background: var(--c); border: 2px solid transparent; cursor: pointer; }
+    .wb-color.active { border-color: #fff; box-shadow: 0 0 0 2px var(--accent); }
+    .wb-toolbar .btn-ghost { min-height: 40px; }
     .bookmark-pop-title { font-size: 0.82rem; color: var(--text); white-space: nowrap; }
     .bookmark-pop-error .bookmark-pop-title { color: var(--danger); }
     .bookmark-pop input { width: 200px; min-height: 40px; }

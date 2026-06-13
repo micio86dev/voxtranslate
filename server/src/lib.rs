@@ -641,6 +641,12 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
         }
         .to_json(),
     );
+    // Whiteboard (spec 0045): replay the current op-log so the joiner sees the
+    // drawing already on the board.
+    let wb_snapshot = state.rooms.whiteboard_snapshot(&room);
+    if !wb_snapshot.is_empty() {
+        let _ = out_tx.send(ServerMessage::WhiteboardSnapshot { ops: wb_snapshot }.to_json());
+    }
     // Room glossary (spec 0011): load it into the cache (the translation hot
     // path reads it synchronously) and tell the joiner when one is active.
     if let Some(g) = state.glossary.as_ref() {
@@ -873,6 +879,19 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
                                 &ServerMessage::ScreenShare {
                                     peer_id: id.clone(),
                                     active,
+                                }
+                                .to_json(),
+                            );
+                        }
+                        Ok(ClientMessage::Whiteboard { op }) => {
+                            // Persist for late-joiners, then relay to the others (spec 0045).
+                            state.rooms.whiteboard_apply(&room, op.clone());
+                            state.rooms.broadcast_except(
+                                &room,
+                                &id,
+                                &ServerMessage::Whiteboard {
+                                    peer_id: id.clone(),
+                                    op,
                                 }
                                 .to_json(),
                             );
