@@ -93,8 +93,6 @@ export class VirtualBackground {
 
     const settings = track.getSettings();
     this.canvas = document.createElement('canvas');
-    this.canvas.width = settings.width ?? 640;
-    this.canvas.height = settings.height ?? 480;
     this.ctx = this.canvas.getContext('2d');
 
     this.video = document.createElement('video');
@@ -102,6 +100,13 @@ export class VirtualBackground {
     this.video.playsInline = true;
     this.video.srcObject = new MediaStream([track]);
     await this.video.play().catch(() => {});
+
+    // Size the canvas from the ACTUAL decoded frame, not track.getSettings(): on
+    // mobile the two disagree (the camera reports landscape while the frame is
+    // portrait), which stretched/distorted the output (#50). draw() keeps it in
+    // sync if the frame size later changes (e.g. device rotation).
+    this.canvas.width = this.video.videoWidth || settings.width || 640;
+    this.canvas.height = this.video.videoHeight || settings.height || 480;
 
     this.output = this.canvas.captureStream(CAPTURE_FPS);
     this.running = true;
@@ -144,8 +149,19 @@ export class VirtualBackground {
 
   /** Composite the sharp subject over a blurred copy of the frame. */
   private draw(r: SegResults): void {
-    const { ctx, canvas } = this;
+    const { ctx, canvas, video } = this;
     if (!ctx || !canvas) return;
+    // Keep the canvas matched to the live frame so the composite never stretches
+    // (mobile rotation/aspect changes the decoded size mid-call) — #50.
+    if (
+      video &&
+      video.videoWidth &&
+      video.videoHeight &&
+      (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight)
+    ) {
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+    }
     const { width, height } = canvas;
     ctx.save();
     ctx.clearRect(0, 0, width, height);

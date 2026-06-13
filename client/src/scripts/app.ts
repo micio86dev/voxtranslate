@@ -614,6 +614,12 @@ async function handleServer(msg: any): Promise<void> {
   switch (msg.type) {
     case 'room_joined':
       playCallEnterSound(); // Meet-style cue: you joined the call (spec 0024)
+      // The room's REAL visibility comes from the server: joining a private code
+      // with the default "public" toggle otherwise left a wrong/mixed badge (#50).
+      if (typeof msg.public === 'boolean' && session) {
+        session.isPublic = msg.public;
+        callVis.textContent = msg.public ? t('public') : t('private');
+      }
       // session_id present = the backend records a transcript of this call.
       activeSessionId = typeof msg.session_id === 'string' ? msg.session_id : null;
       callStartedAt = Date.now();

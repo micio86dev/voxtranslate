@@ -99,6 +99,9 @@ pub enum ServerMessage {
         peers: Vec<PeerInfo>,
         #[serde(skip_serializing_if = "Option::is_none")]
         session_id: Option<String>,
+        /// The room's real visibility, so the client shows the true public/private
+        /// state instead of the joiner's own toggle (#50).
+        public: bool,
     },
     /// A new peer joined (sent to the others).
     PeerJoined {
@@ -340,6 +343,7 @@ mod tests {
             peer_id: "p".into(),
             peers: vec![],
             session_id: None,
+            public: false,
         }
         .to_json();
         assert!(off.contains("\"type\":\"room_joined\""));
@@ -348,6 +352,7 @@ mod tests {
             peer_id: "p".into(),
             peers: vec![],
             session_id: Some("abc-123".into()),
+            public: true,
         }
         .to_json();
         assert!(on.contains("\"session_id\":\"abc-123\""));
