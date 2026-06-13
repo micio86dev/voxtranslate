@@ -1991,10 +1991,27 @@ const ttsQueue: SpeechSynthesisUtterance[] = [];
 let ttsSpeaking = false;
 const TTS_MAX_QUEUE = 8;
 
+// Pick a voice for `lang`, optimised for the owner's hard priority: MINIMAL DELAY.
+// Local/offline voices (localService) start instantly, so they win heavily; among
+// those we prefer premium/enhanced ones (Apple "Enhanced", etc.) to sound less
+// robotic AT NO LATENCY COST. Network voices (e.g. "Google …") sound natural but
+// fetch audio over the wire and add start-up lag, so they're a last resort — only
+// when no local voice matches the language at all (spec 0042).
+function pickVoice(lang: string): SpeechSynthesisVoice | undefined {
+  const want = lang.toLowerCase();
+  const matches = speechSynthesis.getVoices().filter((v) => v.lang.toLowerCase().startsWith(want));
+  if (!matches.length) return undefined;
+  const score = (v: SpeechSynthesisVoice): number =>
+    (v.localService ? 100 : 0) + // local = instant; the dominant factor
+    (/premium|enhanced|neural|natural|siri/i.test(`${v.name} ${v.voiceURI}`) ? 10 : 0) +
+    (v.default ? 1 : 0);
+  return matches.reduce((best, v) => (score(v) > score(best) ? v : best));
+}
+
 function speak(text: string, lang: string): void {
   if (!window.speechSynthesis) return;
   const u = new SpeechSynthesisUtterance(text);
-  const v = speechSynthesis.getVoices().find((vo) => vo.lang.toLowerCase().startsWith(lang.toLowerCase()));
+  const v = pickVoice(lang);
   if (v) u.voice = v;
   u.lang = lang;
   u.rate = 1.1;
