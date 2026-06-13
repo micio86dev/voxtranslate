@@ -15,7 +15,7 @@ dashmap = "6"
 uuid = { version = "1", features = ["v4", "serde"] }
 tower-http = { version = "0.6", features = ["cors", "trace", "set-header"] }
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 dotenvy = "0.15"
 url = "2"
 

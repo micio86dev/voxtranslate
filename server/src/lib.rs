@@ -21,6 +21,7 @@ pub mod glossary;
 pub mod groq;
 pub mod middleware;
 pub mod moderation;
+pub mod observability;
 pub mod pdf;
 pub mod protocol;
 pub mod rate_limit;
@@ -48,7 +49,6 @@ use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use tokio::sync::oneshot;
 use tower_http::cors::CorsLayer;
 use tower_http::set_header::SetResponseHeaderLayer;
-use tower_http::trace::TraceLayer;
 use uuid::Uuid;
 
 use crate::auth::{GoogleVerifier, TokenVerifier};
@@ -292,7 +292,8 @@ pub fn app(state: AppState) -> Router {
         .route("/api/admin/bonus", post(admin::bonus))
         .route("/api/admin/report/resolve", post(admin::resolve_report))
         .route("/api/admin/user/delete", post(admin::delete_user))
-        .layer(TraceLayer::new_for_http())
+        // Canonical log line + request-id span per request (spec 0050).
+        .layer(axum::middleware::from_fn(observability::canonical_log))
         .layer(cors)
         // Don't let browsers MIME-sniff responses (matters for the file/transcript
         // download endpoints) — spec 0028.
@@ -306,12 +307,7 @@ pub fn app(state: AppState) -> Router {
 /// Binary entry point: load config, build state, bind, and serve.
 pub async fn serve() {
     dotenvy::dotenv().ok();
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "voxtranslate_server=info,tower_http=warn".into()),
-        )
-        .init();
+    observability::init_tracing(); // structured logs + canonical lines (spec 0050)
 
     let config = match Config::from_env() {
         Ok(c) => c,
@@ -607,6 +603,7 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
     let session_id = joined.session_id;
     let room_public = joined.public;
     let existing = joined.existing;
+    let session_start = std::time::Instant::now(); // for the WS session canonical line (spec 0050)
     tracing::info!(%room, %name, %lang, peers = existing.len() + 1, "peer joined");
 
     // Transcript persistence: ensure the session row exists (first joiner wins)
@@ -969,7 +966,15 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
         }
     }
 
-    tracing::info!(%room, %name, "peer left");
+    tracing::info!(
+        target: "canonical",
+        kind = "ws",
+        room = %room,
+        peer = %id,
+        name = %name,
+        duration_secs = session_start.elapsed().as_secs(),
+        "ws session ended"
+    );
     drop(audio_tx); // flush any active speaking session
     if let Some(c) = meter_cancel.take() {
         let _ = c.send(());
