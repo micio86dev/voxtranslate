@@ -14,6 +14,7 @@ import { openSessionScreen } from './session-screen';
 import { initBookmarks, setBookmarkSession } from './bookmarks';
 import { initGlossary, onGlossaryActive, refreshGlossaryHome, setGlossaryRoom } from './glossary';
 import { Whiteboard } from './whiteboard';
+import { TicTacToe } from './tictactoe';
 import { dismissLangToast, initLangDetect, onLanguageDetected } from './lang-detect';
 import {
   playCallEnterSound,
@@ -154,6 +155,16 @@ let mesh: MeshManager | null = null;
 const wbOverlay = $('whiteboard');
 const whiteboard = new Whiteboard($<HTMLCanvasElement>('wb-canvas'), (op) =>
   ws?.send(JSON.stringify({ type: 'whiteboard', op })),
+);
+
+// Tic-Tac-Toe mini-game (spec 0046): state relays over the same WS.
+const minigameEl = $('minigame');
+const tictactoe = new TicTacToe(
+  minigameEl,
+  myId,
+  (id) => (id === myId ? session?.name || t('you') : peerNames.get(id)?.name || ''),
+  (state) => ws?.send(JSON.stringify({ type: 'game', state })),
+  t,
 );
 let audioCapture: AudioCapture | null = null;
 let micMeter: MicMeter | null = null; // mic-button voice halo (input working)
@@ -718,6 +729,10 @@ async function handleServer(msg: any): Promise<void> {
       break;
     case 'whiteboard_snapshot': // the board state on join (late-joiner)
       whiteboard.applySnapshot(msg.ops);
+      break;
+    case 'game': // a peer's mini-game state update (spec 0046)
+    case 'game_snapshot': // the current game on join
+      tictactoe.applyRemote(msg.state);
       break;
     case 'language_detected': {
       // A peer's "auto" was resolved by the server probe (confidence present)
@@ -1983,6 +1998,8 @@ function leaveCall(): void {
   setGlossaryRoom(null); // hides the 📖 badge + closes the editor
   toggleWhiteboard(false); // hide the whiteboard overlay + drop its strokes (spec 0045)
   whiteboard.reset();
+  toggleMinigame(false); // hide the mini-game + drop local state (spec 0046)
+  tictactoe.reset();
   dismissLangToast(); // drop a pending "Detected language" toast (spec 0012)
   callScreen.classList.add('hidden');
   homeScreen.classList.remove('hidden');
@@ -2732,6 +2749,15 @@ wbOverlay.querySelectorAll<HTMLButtonElement>('.wb-color').forEach((b) => {
 window.addEventListener('resize', () => {
   if (!wbOverlay.classList.contains('hidden')) whiteboard.resize();
 });
+
+// ---- Mini-game wiring (spec 0046) ----
+$('btn-minigame').innerHTML = icon('game');
+function toggleMinigame(open?: boolean): void {
+  const show = open ?? minigameEl.classList.contains('hidden');
+  minigameEl.classList.toggle('hidden', !show);
+}
+$('btn-minigame').addEventListener('click', () => toggleMinigame());
+$('mg-close').addEventListener('click', () => toggleMinigame(false));
 // "Change" in the detected-language toast (spec 0012): correct the server,
 // then restart capture so the next Deepgram stream opens in the new language.
 initLangDetect({

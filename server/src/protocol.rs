@@ -83,6 +83,12 @@ pub enum ClientMessage {
     Whiteboard {
         op: WhiteboardOp,
     },
+    /// A mini-game state update (spec 0046). The server is game-agnostic: it just
+    /// relays `state` and keeps the latest for late-joiners. `state == null` ends
+    /// the game. Game rules (turns/win) live in the client.
+    Game {
+        state: serde_json::Value,
+    },
 }
 
 // --- Server -> Client ------------------------------------------------------
@@ -205,6 +211,16 @@ pub enum ServerMessage {
     /// the existing drawing (spec 0045).
     WhiteboardSnapshot {
         ops: Vec<WhiteboardOp>,
+    },
+
+    /// A mini-game state update from a peer, relayed to the others (spec 0046).
+    Game {
+        peer_id: String,
+        state: serde_json::Value,
+    },
+    /// The room's current mini-game state, sent to a peer on join (spec 0046).
+    GameSnapshot {
+        state: serde_json::Value,
     },
 
     /// Room-glossary status (spec 0011): sent to a joining peer when the room

@@ -44,6 +44,9 @@ struct Room {
     /// Collaborative-whiteboard op-log (spec 0045): doubles as the snapshot sent
     /// to late-joiners. Cleared by a `Clear` op and reset when the room empties.
     whiteboard: Vec<WhiteboardOp>,
+    /// Latest mini-game state (spec 0046), opaque to the server. `None` = no game;
+    /// sent as a snapshot to late-joiners. Reset when the room empties.
+    game: Option<serde_json::Value>,
 }
 
 /// Result of joining a room: the room's call-session id plus the peers that
@@ -88,6 +91,7 @@ impl RoomManager {
                 session_id: Uuid::new_v4(),
                 peers: Vec::new(),
                 whiteboard: Vec::new(),
+                game: None,
             });
         if room.peers.len() >= MAX_PEERS {
             return Err(());
@@ -161,6 +165,18 @@ impl RoomManager {
             .get(room_id)
             .map(|r| r.whiteboard.clone())
             .unwrap_or_default()
+    }
+
+    /// Store the latest mini-game state (spec 0046); JSON `null` ends the game.
+    pub fn game_set(&self, room_id: &str, state: serde_json::Value) {
+        if let Some(mut room) = self.rooms.get_mut(room_id) {
+            room.game = if state.is_null() { None } else { Some(state) };
+        }
+    }
+
+    /// The room's current mini-game state, for the late-joiner snapshot.
+    pub fn game_snapshot(&self, room_id: &str) -> Option<serde_json::Value> {
+        self.rooms.get(room_id).and_then(|r| r.game.clone())
     }
 
     /// Send to a single peer by id. Used for signaling relay and self-feedback.

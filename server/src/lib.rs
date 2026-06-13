@@ -647,6 +647,10 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
     if !wb_snapshot.is_empty() {
         let _ = out_tx.send(ServerMessage::WhiteboardSnapshot { ops: wb_snapshot }.to_json());
     }
+    // Mini-game (spec 0046): hand the joiner the current game, if any.
+    if let Some(game) = state.rooms.game_snapshot(&room) {
+        let _ = out_tx.send(ServerMessage::GameSnapshot { state: game }.to_json());
+    }
     // Room glossary (spec 0011): load it into the cache (the translation hot
     // path reads it synchronously) and tell the joiner when one is active.
     if let Some(g) = state.glossary.as_ref() {
@@ -892,6 +896,19 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
                                 &ServerMessage::Whiteboard {
                                     peer_id: id.clone(),
                                     op,
+                                }
+                                .to_json(),
+                            );
+                        }
+                        Ok(ClientMessage::Game { state: game_state }) => {
+                            // Game-agnostic relay + snapshot for late-joiners (spec 0046).
+                            state.rooms.game_set(&room, game_state.clone());
+                            state.rooms.broadcast_except(
+                                &room,
+                                &id,
+                                &ServerMessage::Game {
+                                    peer_id: id.clone(),
+                                    state: game_state,
                                 }
                                 .to_json(),
                             );
