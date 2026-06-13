@@ -1,0 +1,32 @@
+# Lightweight uptime alert: pings the prod server + client on a schedule. A failing
+# check fails the job, which GitHub emails to the repo owner (Actions failure
+# notifications must be on). This is a free, in-repo baseline — for richer alerting
+# (SMS / push / Slack, sub-minute checks) add a dedicated monitor (UptimeRobot /
+# Better Stack free tier). The server also auto-restarts on crash via
+# `server/railway.toml` (healthcheckPath + restartPolicyType=on_failure).
+name: Uptime check
+
+on:
+  schedule:
+    - cron: '*/10 * * * *' # every ~10 min (GitHub cron is best-effort; may be delayed)
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Server /health
+        run: |
+          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 --retry 3 --retry-delay 5 \
+            https://voxtranslate-server-production.up.railway.app/health || echo 000)
+          echo "server /health → $code"
+          [ "$code" = "200" ] || { echo "::error title=Server DOWN::/health returned $code"; exit 1; }
+      - name: Client homepage
+        run: |
+          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 --retry 3 --retry-delay 5 \
+            https://voxtranslate.app/ || echo 000)
+          echo "client / → $code"
+          [ "$code" = "200" ] || { echo "::error title=Client DOWN::/ returned $code"; exit 1; }
