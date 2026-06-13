@@ -4,6 +4,12 @@
 // `start`/`stop` also send control frames so the server opens/closes a fresh
 // Deepgram session per capture (clean WebM stream each time → reliable STT).
 
+// MediaRecorder timeslice: how often a WebM chunk is emitted + sent. This is pure
+// buffering latency BEFORE audio reaches Deepgram, so smaller = lower end-to-end
+// delay (same audio → identical STT/translation quality). 100 ms shaves ~150 ms off
+// the old 250 ms with negligible overhead (~10 sends/s) — spec 0043.
+const CHUNK_MS = 100;
+
 export class AudioCapture {
   private recorder: MediaRecorder | null = null;
   private stream: MediaStream;
@@ -41,7 +47,7 @@ export class AudioCapture {
     this.recorder.onstop = () => this.sendControl('stop');
 
     this.sendControl('start'); // open Deepgram before audio flows
-    this.recorder.start(250);
+    this.recorder.start(CHUNK_MS);
     this.active = true;
   }
 

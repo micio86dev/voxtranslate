@@ -14,7 +14,7 @@ Next step: add P2P video calling (WebRTC mesh, max 4) + auto-translated text cha
 - Translation: Groq Llama 3.1 8B Instant
 - TTS: Browser SpeechSynthesis API
 - Video/Audio P2P: WebRTC mesh topology
-- Audio codec: Opus/WebM, 32kbps mono, 250ms chunks
+- Audio codec: Opus/WebM, 32kbps mono, 100ms chunks (low-latency capture, spec 0043)
 
 ## Architecture
 
