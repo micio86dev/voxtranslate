@@ -53,6 +53,7 @@ const callScreen = $('call');
 
 // ---- Auth / billing refs ---------------------------------------------------
 const accountBar = $('account-bar');
+const guestBar = $('guest-bar');
 const accountAvatar = $<HTMLImageElement>('account-avatar');
 const accountName = $('account-name');
 const accountBalance = $('account-balance');
@@ -2111,6 +2112,9 @@ function ensureConsent(): void {
 /// guests and steer them to a private room.
 function updatePublicGate(): void {
   const guest = billing && !auth.isLoggedIn();
+  // The guest gets the sign-in bar (their only route back to login); a signed-in
+  // user gets the account bar instead. `billing` off → neither (no accounts).
+  guestBar.classList.toggle('hidden', !guest);
   const pubBtn = visGroup.querySelector('.seg-btn[data-vis="public"]') as HTMLButtonElement | null;
   if (!pubBtn) return;
   // Keep it clickable (a native `disabled` swallows clicks) but mark it locked, so
@@ -2134,9 +2138,12 @@ function renderAccount(): void {
   const u = auth.getUser();
   if (!billing || !u) {
     accountBar.classList.add('hidden');
+    // Guest (billing on, no user) → offer the sign-in bar; guest-only mode → nothing.
+    guestBar.classList.toggle('hidden', !billing);
     return;
   }
   accountBar.classList.remove('hidden');
+  guestBar.classList.add('hidden');
   accountName.textContent = u.name;
   const av = auth.avatarUrl(u.avatar_url, 72);
   if (av) {
@@ -2201,6 +2208,8 @@ async function onGoogleCredential(resp: { credential?: string }): Promise<void> 
 }
 
 $('guest-btn').addEventListener('click', () => enterHome());
+// Guest's route back to the login screen (spec 0037).
+$('guest-signin-btn').addEventListener('click', () => showLogin());
 $('logout-btn').addEventListener('click', () => {
   auth.clearSession();
   accountBar.classList.add('hidden');
