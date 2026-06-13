@@ -44,6 +44,10 @@ struct Room {
 pub struct Joined {
     pub session_id: Uuid,
     pub existing: Vec<PeerInfo>,
+    /// The room's ACTUAL visibility (set by its creator) — a later joiner's
+    /// `public` query param doesn't change it, so the client must display this,
+    /// not its own toggle (#50: public/private mismatch).
+    pub public: bool,
 }
 
 /// Authoritative identity of a connected peer (spec 0018 upload gate).
@@ -94,6 +98,7 @@ impl RoomManager {
         Ok(Joined {
             session_id: room.session_id,
             existing,
+            public: room.visibility == Visibility::Public,
         })
     }
 

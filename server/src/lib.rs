@@ -605,6 +605,7 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
         }
     };
     let session_id = joined.session_id;
+    let room_public = joined.public;
     let existing = joined.existing;
     tracing::info!(%room, %name, %lang, peers = existing.len() + 1, "peer joined");
 
@@ -636,6 +637,7 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
             peers: existing,
             // Doubles as the client's "transcript recording on" signal.
             session_id: state.transcripts.as_ref().map(|_| session_id.to_string()),
+            public: room_public,
         }
         .to_json(),
     );

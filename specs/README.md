@@ -72,7 +72,8 @@ Each spec follows the same skeleton:
 | [0037](0037-guest-signin-cta/spec.md) | Guest sign-in CTA on the home screen | ✅ Shipped | 2026-06-13 | `3b051b4` |
 | [0038](0038-session-glossary-ux/spec.md) | Session-details & glossary UX polish (CTA tonal, dedupe participants, save feedback) | ✅ Shipped | 2026-06-13 | `043916a` |
 | [0039](0039-bookmark-require-label/spec.md) | Bookmarks always require a label (label-first prompt) | ✅ Shipped | 2026-06-13 | `a275f9c` |
-| [0040](0040-tts-no-cut/spec.md) | Translated-voice TTS queues (no cut-off on rapid sentences) | ✅ Shipped | 2026-06-13 | (this PR) |
+| [0040](0040-tts-no-cut/spec.md) | Translated-voice TTS queues (no cut-off on rapid sentences) | ✅ Shipped | 2026-06-13 | `aa97a58` |
+| [0041](0041-issue50-visibility-blur/spec.md) | Issue #50: room-visibility consistency + mobile blur aspect | ✅ Shipped | 2026-06-13 | (this PR) |
 
 > Numbers 0011–0015 were claimed by commit messages while the AI bundle shipped
 > without spec docs (and 0011/0012 were each reused twice); the assignments
