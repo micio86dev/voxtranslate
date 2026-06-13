@@ -13,6 +13,7 @@ import * as auth from './auth';
 import { openSessionScreen } from './session-screen';
 import { initBookmarks, setBookmarkSession } from './bookmarks';
 import { initGlossary, onGlossaryActive, refreshGlossaryHome, setGlossaryRoom } from './glossary';
+import { Whiteboard } from './whiteboard';
 import { dismissLangToast, initLangDetect, onLanguageDetected } from './lang-detect';
 import {
   playCallEnterSound,
@@ -148,6 +149,12 @@ let session: { room: string; lang: string; name: string; isPublic: boolean } | n
 let localStream: MediaStream | null = null;
 let ws: WebSocket | null = null;
 let mesh: MeshManager | null = null;
+
+// Collaborative whiteboard (spec 0045): strokes relay over the same WS.
+const wbOverlay = $('whiteboard');
+const whiteboard = new Whiteboard($<HTMLCanvasElement>('wb-canvas'), (op) =>
+  ws?.send(JSON.stringify({ type: 'whiteboard', op })),
+);
 let audioCapture: AudioCapture | null = null;
 let micMeter: MicMeter | null = null; // mic-button voice halo (input working)
 let chat: ChatManager | null = null;
@@ -705,6 +712,12 @@ async function handleServer(msg: any): Promise<void> {
     case 'screen_share':
       setScreenShareIndicator(msg.peer_id, msg.active);
       layoutVideos(); // re-evaluate mobile pan/zoom gating for the focused tile
+      break;
+    case 'whiteboard': // a peer's stroke/clear (spec 0045)
+      whiteboard.applyOp(msg.op);
+      break;
+    case 'whiteboard_snapshot': // the board state on join (late-joiner)
+      whiteboard.applySnapshot(msg.ops);
       break;
     case 'language_detected': {
       // A peer's "auto" was resolved by the server probe (confidence present)
@@ -1968,6 +1981,8 @@ function leaveCall(): void {
   participantsPanel.classList.add('closed');
   setBookmarkSession(null); // hides the 🔖 button + closes its panel
   setGlossaryRoom(null); // hides the 📖 badge + closes the editor
+  toggleWhiteboard(false); // hide the whiteboard overlay + drop its strokes (spec 0045)
+  whiteboard.reset();
   dismissLangToast(); // drop a pending "Detected language" toast (spec 0012)
   callScreen.classList.add('hidden');
   homeScreen.classList.remove('hidden');
@@ -2686,6 +2701,37 @@ initBookmarks({ layout: layoutVideos }); // panel toggles re-flow the video grid
 $('btn-glossary-home').innerHTML = icon('book', 18);
 $('glossary-close').innerHTML = icon('close', 16);
 initGlossary({ show }); // app's show() gives the modal its focus trap
+
+// ---- Whiteboard wiring (spec 0045) ----
+$('btn-whiteboard').innerHTML = icon('board');
+$('wb-pen').innerHTML = icon('pencil', 20);
+$('wb-eraser').innerHTML = icon('eraser', 20);
+$('wb-close').innerHTML = icon('close', 16);
+function toggleWhiteboard(open?: boolean): void {
+  const show = open ?? wbOverlay.classList.contains('hidden');
+  wbOverlay.classList.toggle('hidden', !show);
+  if (show) whiteboard.resize(); // size the canvas to the stage now it's visible
+}
+function setWbTool(tool: 'pen' | 'eraser'): void {
+  whiteboard.tool = tool;
+  $('wb-pen').classList.toggle('active', tool === 'pen');
+  $('wb-eraser').classList.toggle('active', tool === 'eraser');
+}
+$('btn-whiteboard').addEventListener('click', () => toggleWhiteboard());
+$('wb-close').addEventListener('click', () => toggleWhiteboard(false));
+$('wb-clear').addEventListener('click', () => whiteboard.clearBoard());
+$('wb-pen').addEventListener('click', () => setWbTool('pen'));
+$('wb-eraser').addEventListener('click', () => setWbTool('eraser'));
+wbOverlay.querySelectorAll<HTMLButtonElement>('.wb-color').forEach((b) => {
+  b.addEventListener('click', () => {
+    whiteboard.color = b.dataset.color || '#f1f5f9';
+    setWbTool('pen'); // picking a colour implies drawing
+    wbOverlay.querySelectorAll('.wb-color').forEach((c) => c.classList.toggle('active', c === b));
+  });
+});
+window.addEventListener('resize', () => {
+  if (!wbOverlay.classList.contains('hidden')) whiteboard.resize();
+});
 // "Change" in the detected-language toast (spec 0012): correct the server,
 // then restart capture so the next Deepgram stream opens in the new language.
 initLangDetect({

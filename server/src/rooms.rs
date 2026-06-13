@@ -6,10 +6,14 @@ use dashmap::DashMap;
 use tokio::sync::mpsc::UnboundedSender;
 use uuid::Uuid;
 
-use crate::protocol::{Member, PeerInfo, PublicRoom};
+use crate::protocol::{Member, PeerInfo, PublicRoom, WhiteboardOp};
 
 /// Maximum peers per room (WebRTC full mesh stays cheap up to this).
 pub const MAX_PEERS: usize = 4;
+
+/// Cap on stored whiteboard ops per room (spec 0045): bounds memory for the
+/// late-joiner snapshot. Past this the oldest Draw ops are dropped.
+const MAX_WHITEBOARD_OPS: usize = 4000;
 
 /// Room visibility. Public rooms are advertised in the lobby (`GET /rooms`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -37,6 +41,9 @@ struct Room {
     /// is generated when the room is (re)created after being empty.
     session_id: Uuid,
     peers: Vec<Peer>,
+    /// Collaborative-whiteboard op-log (spec 0045): doubles as the snapshot sent
+    /// to late-joiners. Cleared by a `Clear` op and reset when the room empties.
+    whiteboard: Vec<WhiteboardOp>,
 }
 
 /// Result of joining a room: the room's call-session id plus the peers that
@@ -80,6 +87,7 @@ impl RoomManager {
                 visibility,
                 session_id: Uuid::new_v4(),
                 peers: Vec::new(),
+                whiteboard: Vec::new(),
             });
         if room.peers.len() >= MAX_PEERS {
             return Err(());
@@ -128,6 +136,31 @@ impl RoomManager {
                 let _ = p.tx.send(message.to_string());
             }
         }
+    }
+
+    /// Apply a whiteboard op to the room's stored op-log (spec 0045): `Clear`
+    /// wipes it, `Draw` appends (dropping the oldest past `MAX_WHITEBOARD_OPS`).
+    pub fn whiteboard_apply(&self, room_id: &str, op: WhiteboardOp) {
+        if let Some(mut room) = self.rooms.get_mut(room_id) {
+            match op {
+                WhiteboardOp::Clear => room.whiteboard.clear(),
+                draw => {
+                    room.whiteboard.push(draw);
+                    let len = room.whiteboard.len();
+                    if len > MAX_WHITEBOARD_OPS {
+                        room.whiteboard.drain(0..len - MAX_WHITEBOARD_OPS);
+                    }
+                }
+            }
+        }
+    }
+
+    /// The room's current whiteboard op-log, for the late-joiner snapshot.
+    pub fn whiteboard_snapshot(&self, room_id: &str) -> Vec<WhiteboardOp> {
+        self.rooms
+            .get(room_id)
+            .map(|r| r.whiteboard.clone())
+            .unwrap_or_default()
     }
 
     /// Send to a single peer by id. Used for signaling relay and self-feedback.

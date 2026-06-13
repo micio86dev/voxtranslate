@@ -8,6 +8,23 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
+/// A collaborative-whiteboard operation (spec 0045). Coordinates are NORMALISED
+/// to 0..1 so each client scales them to its own canvas size (no distortion
+/// across desktop/mobile). `Draw` carries a batch of points for one stroke `id`
+/// (strokes stream as several batches while drawing); `Clear` wipes the board.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "op", rename_all = "snake_case")]
+pub enum WhiteboardOp {
+    Draw {
+        id: String,
+        tool: String, // "pen" | "eraser"
+        color: String,
+        width: f32,
+        points: Vec<[f32; 2]>,
+    },
+    Clear,
+}
+
 // --- Client -> Server ------------------------------------------------------
 
 /// Messages a peer sends as JSON text frames. (Audio is sent as binary frames.)
@@ -60,6 +77,11 @@ pub enum ClientMessage {
     /// with the new language.
     SetLang {
         lang: String,
+    },
+    /// A whiteboard op (spec 0045): relayed to the others and persisted in the
+    /// room so a later joiner gets the current drawing.
+    Whiteboard {
+        op: WhiteboardOp,
     },
 }
 
@@ -172,6 +194,17 @@ pub enum ServerMessage {
     ScreenShare {
         peer_id: String,
         active: bool,
+    },
+
+    /// A whiteboard op from a peer, relayed to the others (spec 0045).
+    Whiteboard {
+        peer_id: String,
+        op: WhiteboardOp,
+    },
+    /// The room's current whiteboard op-log, sent to a peer on join so it sees
+    /// the existing drawing (spec 0045).
+    WhiteboardSnapshot {
+        ops: Vec<WhiteboardOp>,
     },
 
     /// Room-glossary status (spec 0011): sent to a joining peer when the room
