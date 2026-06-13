@@ -119,8 +119,24 @@ them into one explicit "bonus" action.
 - No rate-limit on bonus size/frequency beyond admin trust + the `admin_audit`
   trail; a future cap/approval step could harden against fat-finger gifts.
 
+## Amendment — 2026-06-13 (flow created on prod + webhook fix)
+
+The "Gift bonus" Flow was created on prod via `directus/setup-bonus-flow.mjs` (flow
+`2325def6…`). Its first run exposed two bugs in the generated **request** operation,
+fixed in the script (now repairs the flow in place on re-run):
+
+1. **Body placeholders.** A manual flow run from the admin UI delivers its data as an
+   HTTP request, so fields/keys live under `{{$trigger.body.*}}` — not `{{$trigger.keys[0]}}`
+   / bare `{{amount}}`, which rendered literal `undefined` (server got `user_id:"undefined"`).
+2. **Missing `Content-Type`.** axum's JSON extractor returns **415** unless the request
+   sends `Content-Type: application/json`; the operation only set `X-Admin-Secret`.
+
+Also a runtime prereq on the Directus service: `FLOWS_ENV_ALLOW_LIST` must include
+`ADMIN_API_SECRET,VOX_API_URL` for the `{{$env.*}}` placeholders to resolve.
+
 ## 9. References
 
-- Issue: #11
-- Files: `server/src/admin.rs`, `server/src/lib.rs`, `directus/README.md`
+- Issue: #11, #41 (prod flow creation)
+- Files: `server/src/admin.rs`, `server/src/lib.rs`, `directus/README.md`,
+  `directus/setup-bonus-flow.mjs`
 - External: https://resend.com/docs (transactional email)

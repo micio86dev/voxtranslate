@@ -6,6 +6,10 @@ const ICE_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun1.l.google.com:19302' },
 ];
 
+/** Floor for the per-stream video cap (spec 0031): below this, video is too
+ *  degraded to be worth more dividing — we just send the floor to each peer. */
+const MIN_VIDEO_BITRATE = 200_000;
+
 type Signal =
   | { type: 'offer'; to: string; sdp: string }
   | { type: 'answer'; to: string; sdp: string }
@@ -16,18 +20,29 @@ export class MeshManager {
   private localStream: MediaStream;
   private send: (s: Signal) => void;
   private iceServers: RTCIceServer[];
+  private videoBudget: number;
+  /** Live budget (spec 0032): backs off under a struggling uplink, recovers toward
+   *  `videoBudget` when healthy. `targetBitrate()` divides THIS across the peers. */
+  private currentBudget: number;
+  private statsTimer: ReturnType<typeof setInterval> | null = null;
 
   onRemoteStream: (peerId: string, stream: MediaStream) => void = () => {};
   onPeerRemoved: (peerId: string) => void = () => {};
+  /** Fired when getStats reports the uplink can't keep up (bandwidth-limited or
+   *  high packet loss) for a sustained window — the UI nudges the camera off. */
+  onNetworkWeak: () => void = () => {};
 
   constructor(
     localStream: MediaStream,
     send: (s: Signal) => void,
     iceServers: RTCIceServer[] = ICE_SERVERS,
+    videoBudget = 2_400_000,
   ) {
     this.localStream = localStream;
     this.send = send;
     this.iceServers = iceServers;
+    this.videoBudget = videoBudget;
+    this.currentBudget = videoBudget;
   }
 
   /** Replace the local stream's tracks on all peers (e.g. after a device change). */
@@ -83,6 +98,11 @@ export class MeshManager {
     if (this.localStream.getVideoTracks().length === 0) {
       pc.addTransceiver?.('video', { direction: 'sendrecv', streams: [this.localStream] });
     }
+    // Re-balance outbound video across all peers (spec 0030/0031): the per-stream
+    // cap is the upload budget ÷ peer count, so the total uplink stays ~constant as
+    // the room fills; the browser's congestion control reduces further if needed.
+    void this.applyBitrate();
+    this.startStatsMonitor();
 
     pc.ontrack = (e) => {
       // Ignore receiver tracks that arrive without a stream (e.g. an inactive
@@ -135,6 +155,8 @@ export class MeshManager {
     if (pc) {
       pc.close();
       this.peers.delete(peerId);
+      // Fewer peers → more budget per remaining stream (spec 0031).
+      void this.applyBitrate();
     }
     this.onPeerRemoved(peerId);
   }
@@ -147,7 +169,84 @@ export class MeshManager {
     this.localStream.getVideoTracks().forEach((t) => (t.enabled = enabled));
   }
 
+  /** Per-stream target = the total upload budget split across the peers we send
+   *  to, floored so video stays usable. As the room grows each stream gets less,
+   *  so total uplink stays ~constant regardless of N (spec 0031). */
+  private targetBitrate(): number {
+    return Math.max(
+      MIN_VIDEO_BITRATE,
+      Math.floor(this.currentBudget / Math.max(1, this.peers.size)),
+    );
+  }
+
+  /** Re-apply the current per-stream cap to every peer's video sender. Called when
+   *  the peer count changes (join/leave) so the room re-balances (spec 0031). */
+  private async applyBitrate(): Promise<void> {
+    const target = this.targetBitrate();
+    for (const pc of this.peers.values()) {
+      try {
+        const sender =
+          pc.getSenders().find((s) => s.track?.kind === 'video') ?? this.videoSender(pc);
+        if (!sender) continue;
+        const params = sender.getParameters();
+        if (!params.encodings || params.encodings.length === 0) params.encodings = [{}];
+        params.encodings[0].maxBitrate = target;
+        await sender.setParameters(params);
+      } catch {
+        /* unsupported / pre-negotiation / fake env — ignore */
+      }
+    }
+  }
+
+  /** Poll getStats across peers; fire `onNetworkWeak` once when the uplink is
+   *  bandwidth-limited or lossy for two consecutive checks (spec 0030). */
+  private startStatsMonitor(): void {
+    if (this.statsTimer != null) return;
+    let weakStreak = 0;
+    this.statsTimer = setInterval(() => {
+      void (async () => {
+        let weak = false;
+        for (const pc of this.peers.values()) {
+          try {
+            const stats = await pc.getStats();
+            stats.forEach((r: unknown) => {
+              const s = r as Record<string, unknown>;
+              if (
+                s.type === 'outbound-rtp' &&
+                s.kind === 'video' &&
+                s.qualityLimitationReason === 'bandwidth'
+              )
+                weak = true;
+              if (s.type === 'remote-inbound-rtp' && ((s.fractionLost as number) ?? 0) > 0.08)
+                weak = true;
+            });
+          } catch {
+            /* ignore a transient getStats failure */
+          }
+        }
+        // Adapt the budget (spec 0032): multiplicative decrease when the uplink
+        // struggles, gentle increase back toward the max when it's healthy. The
+        // per-stream floor + the browser's own congestion control still apply.
+        const before = this.currentBudget;
+        this.currentBudget = weak
+          ? Math.max(MIN_VIDEO_BITRATE, Math.floor(this.currentBudget * 0.75))
+          : Math.min(this.videoBudget, Math.floor(this.currentBudget * 1.2));
+        if (this.currentBudget !== before) void this.applyBitrate();
+
+        weakStreak = weak ? weakStreak + 1 : 0;
+        if (weakStreak >= 2) {
+          weakStreak = 0;
+          this.onNetworkWeak();
+        }
+      })();
+    }, 5000);
+  }
+
   destroy(): void {
+    if (this.statsTimer != null) {
+      clearInterval(this.statsTimer);
+      this.statsTimer = null;
+    }
     this.peers.forEach((pc) => pc.close());
     this.peers.clear();
   }

@@ -120,6 +120,26 @@ async function openEditor(room: string): Promise<void> {
 function setStatus(text: string, isError: boolean): void {
   statusEl.textContent = text;
   statusEl.classList.toggle('error', isError);
+  statusEl.classList.remove('ok');
+}
+
+/**
+ * Confirm a successful save: a green pill (with a ✓) + a brief green flash on the
+ * Save button, both clearing after a moment so they read as a confirmation, not a
+ * permanent label. The editor stays open so more terms can be added.
+ */
+let savedTimer: number | undefined;
+function flashSaved(): void {
+  statusEl.textContent = t('glossarySaved');
+  statusEl.classList.remove('error');
+  statusEl.classList.add('ok');
+  saveBtn.classList.add('saved');
+  window.clearTimeout(savedTimer);
+  savedTimer = window.setTimeout(() => {
+    statusEl.classList.remove('ok');
+    statusEl.textContent = '';
+    saveBtn.classList.remove('saved');
+  }, 2400);
 }
 
 // ---- Concept ↔ entry conversion ---------------------------------------------
@@ -345,7 +365,7 @@ async function doSave(silent: boolean): Promise<boolean> {
     return false;
   }
   renderEditor(res.glossary);
-  if (!silent) setStatus(t('glossarySaved'), false);
+  if (!silent) flashSaved();
   return true;
 }
 
@@ -366,7 +386,7 @@ importBtn.addEventListener('click', async () => {
     if (res.glossary) {
       renderEditor(res.glossary);
       csvText.value = '';
-      setStatus(t('glossarySaved'), false);
+      flashSaved();
     } else {
       setStatus(res.error || t('glossaryLoadFailed'), true);
     }

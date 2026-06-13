@@ -95,24 +95,32 @@ async function renderTranscript(ref: SessionRef): Promise<void> {
     return;
   }
   status.textContent = '';
-  // The export is authoritative — refresh duration + participants from it.
+  // The export is authoritative — refresh duration + participants from it. Collapse
+  // duplicates first: rejoining/refreshing mints a new peer_id, so the same person
+  // can appear several times in the roster (and inflate the count the sentiment
+  // estimate is billed on). Dedupe by display name, keeping the first occurrence.
+  const seen = new Set<string>();
+  const participants = doc.session.participants.filter((p) => {
+    const key = (p.name || '').trim().toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
   $('session-duration').textContent = formatDuration(doc.session.duration_seconds * 1000);
-  $('session-participants').textContent = doc.session.participants
-    .map((p) => p.name)
-    .join(', ');
+  $('session-participants').textContent = participants.map((p) => p.name).join(', ');
   // Sentiment cost preview needs the participant count; the chart wants
   // bookmark offsets (seconds from session start).
   const startMs = new Date(doc.session.started_at).getTime();
   updateSentimentContext(
     ref.id,
-    doc.session.participants.length,
+    participants.length,
     doc.session.duration_seconds,
     (doc.bookmarks ?? []).map((bm) => Math.max(0, (new Date(bm.ts).getTime() - startMs) / 1000)),
   );
-  // The email composer's To-chips come from the same roster.
+  // The email composer's To-chips come from the same (deduped) roster.
   updateEmailContext(
     ref.id,
-    doc.session.participants.map((p) => ({ id: p.id, name: p.name })),
+    participants.map((p) => ({ id: p.id, name: p.name })),
   );
   renderBookmarks(doc);
   renderEvents(list, doc);
