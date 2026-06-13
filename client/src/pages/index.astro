@@ -220,9 +220,10 @@ const LANGS = [
         <div class="video-stage">
           <div id="video-grid" class="video-grid" data-peers="1"></div>
           <span id="rec-badge" class="rec-badge hidden">REC <span class="rec-dot"></span> <span id="rec-timer">00:00</span></span>
-          <!-- Bookmark quick-label popover (spec 0013): appears after a pin,
-               auto-dismisses in ~3s; typing keeps it alive. -->
-          <div id="bookmark-pop" class="bookmark-pop hidden" role="group" data-i18n-label="bookmarkAdded">
+          <!-- Bookmark label prompt (spec 0013 → 0039): pressing 🔖 opens this with a
+               REQUIRED label; the pin is saved only when a non-empty label is
+               confirmed (an empty / abandoned prompt saves nothing). -->
+          <div id="bookmark-pop" class="bookmark-pop hidden" role="group" data-i18n-label="bookmarkLabelPrompt">
             <span id="bookmark-pop-title" class="bookmark-pop-title" role="status"></span>
             <input id="bookmark-label-input" type="text" maxlength="200" autocomplete="off"
               data-i18n-ph="bookmarkLabelPh" data-i18n-label="bookmarkLabelPh" />

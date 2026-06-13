@@ -28,7 +28,9 @@ const list = $('bookmarks-list');
 
 let sessionId: string | null = null;
 let pins: Bookmark[] = [];
-/** The pin the popover's label input targets (the most recent one). */
+/** ISO moment captured when 🔖 was pressed; the pending (not-yet-saved) pin. */
+let pendingTs: string | null = null;
+/** Most-recent saved pin (the delete handler clears it when that pin is removed). */
 let lastPin: Bookmark | null = null;
 let dismissTimer: number | null = null;
 let layout: () => void = () => {};
@@ -52,43 +54,57 @@ export function setBookmarkSession(id: string | null): void {
   renderList();
 }
 
-// ---- Pin + label popover -----------------------------------------------------
+// ---- Pin: label-first (spec 0039) --------------------------------------------
+// A saved bookmark must ALWAYS carry a label, so 🔖 no longer pins instantly. It
+// captures the moment (client clock, at press) and opens a required-label prompt;
+// the pin is POSTed — with that label + timestamp — only once a non-empty label is
+// confirmed. Abandoning the prompt (Escape / walk away) saves nothing.
 
-btn.addEventListener('click', async () => {
+btn.addEventListener('click', () => {
   if (!sessionId || btn.disabled) return;
-  btn.disabled = true;
-  const bm = await addBookmark(sessionId);
-  btn.disabled = false;
-  if (bm) {
-    pins.push(bm);
-    lastPin = bm;
-    renderList();
-  }
-  showPop(bm === null);
+  pendingTs = new Date().toISOString();
+  openPrompt();
 });
 
-function showPop(failed: boolean): void {
-  popTitle.textContent = failed ? t('bookmarkFailed') : t('bookmarkAdded');
-  pop.classList.toggle('bookmark-pop-error', failed);
-  popInput.hidden = failed;
-  popSave.hidden = failed;
-  popShowAll.hidden = failed;
+/** Open the required-label prompt for a fresh pin. */
+function openPrompt(): void {
+  popTitle.textContent = t('bookmarkLabelPrompt');
+  pop.classList.remove('bookmark-pop-error');
+  popInput.hidden = false;
+  popSave.hidden = false;
+  popShowAll.hidden = false;
   popInput.value = '';
   pop.classList.remove('hidden');
-  if (!failed) popInput.focus();
+  popInput.focus();
   armDismiss();
+}
+
+/** Transient result after a save attempt; auto-dismisses. */
+function showResult(failed: boolean): void {
+  popTitle.textContent = failed ? t('bookmarkFailed') : t('bookmarkAdded');
+  pop.classList.toggle('bookmark-pop-error', failed);
+  popInput.hidden = true;
+  popSave.hidden = true;
+  popShowAll.hidden = failed;
+  pop.classList.remove('hidden');
+  if (dismissTimer) clearTimeout(dismissTimer);
+  dismissTimer = window.setTimeout(hidePop, failed ? 4000 : 2000);
 }
 
 function hidePop(): void {
   if (dismissTimer) clearTimeout(dismissTimer);
   dismissTimer = null;
+  pendingTs = null; // a closed prompt discards the pending moment — nothing is saved
   pop.classList.add('hidden');
 }
 
-/** (Re)start the 3s auto-dismiss; typing keeps the popover alive. */
+/** Auto-close only an EMPTY prompt (nothing to lose); a half-typed label stays put. */
 function armDismiss(): void {
   if (dismissTimer) clearTimeout(dismissTimer);
-  dismissTimer = window.setTimeout(hidePop, 3000);
+  dismissTimer = null;
+  if (!popInput.hidden && !popInput.value.trim()) {
+    dismissTimer = window.setTimeout(hidePop, 6000);
+  }
 }
 
 popInput.addEventListener('input', armDismiss);
@@ -96,29 +112,40 @@ popInput.addEventListener('focus', armDismiss);
 popInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') {
     e.preventDefault();
-    void saveLabel();
+    void commitPin();
   } else if (e.key === 'Escape') {
     e.stopPropagation();
     hidePop();
     btn.focus();
   }
 });
-popSave.addEventListener('click', () => void saveLabel());
+popSave.addEventListener('click', () => void commitPin());
 popShowAll.addEventListener('click', () => {
   hidePop();
   togglePanel(true);
 });
 
-async function saveLabel(): Promise<void> {
-  const target = lastPin;
+/** Save the pending pin — only ever with a non-empty label. */
+async function commitPin(): Promise<void> {
   const label = popInput.value.trim();
-  hidePop();
-  btn.focus();
-  if (!sessionId || !target || !label) return;
-  if (await updateBookmarkLabel(sessionId, target.id, label)) {
-    target.label = label;
+  if (!label) {
+    // Never save unlabelled: flag the prompt (red) and keep it open.
+    pop.classList.add('bookmark-pop-error');
+    popInput.focus();
+    armDismiss();
+    return;
+  }
+  if (!sessionId || !pendingTs) return;
+  popSave.disabled = true;
+  const bm = await addBookmark(sessionId, { label, ts: pendingTs });
+  popSave.disabled = false;
+  pendingTs = null;
+  if (bm) {
+    pins.push(bm);
+    lastPin = bm;
     renderList();
   }
+  showResult(bm === null);
 }
 
 // ---- Side panel ----------------------------------------------------------------
@@ -210,7 +237,8 @@ function ghostIconBtn(name: string, title: string): HTMLButtonElement {
   return b;
 }
 
-/** Inline label edit: Enter saves (empty clears), Escape cancels. */
+/** Inline label edit: Enter saves, Escape cancels. An emptied label is NOT saved
+ *  (spec 0039: a bookmark always keeps a label) — it just reverts. */
 function startEdit(bm: Bookmark, body: HTMLElement, label: HTMLElement): void {
   const input = document.createElement('input');
   input.type = 'text';
@@ -227,8 +255,8 @@ function startEdit(bm: Bookmark, body: HTMLElement, label: HTMLElement): void {
     if (done) return;
     done = true;
     const text = input.value.trim();
-    if (save && sessionId && (await updateBookmarkLabel(sessionId, bm.id, text))) {
-      bm.label = text || null;
+    if (save && text && sessionId && (await updateBookmarkLabel(sessionId, bm.id, text))) {
+      bm.label = text;
     }
     renderList();
   };
