@@ -87,17 +87,22 @@ export async function fetchBookmarks(sessionId: string): Promise<Bookmark[] | nu
 }
 
 /**
- * Pin a moment. No `ts` is sent — the server stamps "now", avoiding client
- * clock skew; the in-call flow POSTs instantly and PATCHes the label after.
+ * Pin a moment. The in-call flow (spec 0039) requires a label, so it passes the
+ * typed `label` plus the client `ts` captured when 🔖 was pressed — the pin then
+ * reflects the actual moment, not when the label was finished. With `ts` omitted
+ * the server stamps "now".
  */
-export async function addBookmark(sessionId: string): Promise<Bookmark | null> {
+export async function addBookmark(
+  sessionId: string,
+  opts: { label?: string; ts?: string } = {},
+): Promise<Bookmark | null> {
   try {
     const res = await fetch(
       `${HTTP_BASE}/api/sessions/${encodeURIComponent(sessionId)}/bookmarks`,
       {
         method: 'POST',
         headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-        body: '{}',
+        body: JSON.stringify({ label: opts.label, ts: opts.ts }),
       },
     );
     if (!res.ok) return null;
