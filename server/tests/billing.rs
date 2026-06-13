@@ -280,9 +280,14 @@ mod ws_metering {
             name: "Billed".into(),
             avatar_url: Some("https://img/billed=s96".into()),
         };
-        let user = upsert_google_user(&srv.pool, &identity, rust_decimal::Decimal::new(200, 2))
-            .await
-            .unwrap();
+        let user = upsert_google_user(
+            &srv.pool,
+            &identity,
+            rust_decimal::Decimal::new(200, 2),
+            None,
+        )
+        .await
+        .unwrap();
         let jwt = issue_jwt(&srv.secret, &user.id, &user.email, &user.name, 168).unwrap();
         let (frame, _billed) = connect_first(
             addr,
@@ -664,9 +669,14 @@ mod account_api {
             name: "Acct".into(),
             avatar_url: None,
         };
-        let user = upsert_google_user(&srv.pool, &identity, rust_decimal::Decimal::new(200, 2))
-            .await
-            .unwrap();
+        let user = upsert_google_user(
+            &srv.pool,
+            &identity,
+            rust_decimal::Decimal::new(200, 2),
+            None,
+        )
+        .await
+        .unwrap();
         let jwt = issue_jwt(&srv.secret, &user.id, &user.email, &user.name, 168).unwrap();
 
         // Unauthenticated history -> 401.
@@ -751,9 +761,14 @@ mod safety_http {
             name: "Sam".into(),
             avatar_url: None,
         };
-        let user = upsert_google_user(&srv.pool, &identity, rust_decimal::Decimal::new(200, 2))
-            .await
-            .unwrap();
+        let user = upsert_google_user(
+            &srv.pool,
+            &identity,
+            rust_decimal::Decimal::new(200, 2),
+            None,
+        )
+        .await
+        .unwrap();
         let jwt = issue_jwt(&srv.secret, &user.id, &user.email, &user.name, 168).unwrap();
         (user.id, jwt)
     }
@@ -918,9 +933,14 @@ mod safety_ws {
             name: "Bad".into(),
             avatar_url: None,
         };
-        let user = upsert_google_user(&srv.pool, &identity, rust_decimal::Decimal::new(200, 2))
-            .await
-            .unwrap();
+        let user = upsert_google_user(
+            &srv.pool,
+            &identity,
+            rust_decimal::Decimal::new(200, 2),
+            None,
+        )
+        .await
+        .unwrap();
         SafetyService::new(srv.pool.clone())
             .ban_user(user.id, "abuse", None)
             .await
@@ -975,7 +995,7 @@ mod admin_api {
             name: "Adm".into(),
             avatar_url: None,
         };
-        upsert_google_user(pool, &identity, rust_decimal::Decimal::new(200, 2))
+        upsert_google_user(pool, &identity, rust_decimal::Decimal::new(200, 2), None)
             .await
             .unwrap()
             .id

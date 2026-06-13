@@ -149,6 +149,56 @@ history.
 > # or, instead of email+password: DIRECTUS_TOKEN=<static admin token>
 > ```
 
+## 9. KPI dashboards + collections in one shot (`setup-backoffice.mjs`)
+
+Rather than enabling collections and building Insights panels by hand, provision the
+**whole backoffice** through the REST API (spec
+[0051](../specs/0051-directus-backoffice/spec.md)). Idempotent — re-running refreshes
+collection metadata and rebuilds every dashboard's panels:
+
+```bash
+DIRECTUS_URL=https://<your-directus> \
+  DIRECTUS_ADMIN_EMAIL=… DIRECTUS_ADMIN_PASSWORD=… \
+  node directus/setup-backoffice.mjs
+# or, instead of email+password: DIRECTUS_TOKEN=<static admin token>
+```
+
+It does two things:
+
+1. **Data model** — registers all 22 app tables as collections, grouped into five
+   folders (**accounts · sessions · moderation · ai_features · content**) with icons,
+   colours and display templates, so the admin reads like a product, not raw SQL.
+2. **Insights** — four dashboards of KPI panels:
+   - **📊 Overview** — users (total / new 30d / banned), calls (total / live),
+     translations, chat, files; new-users and calls per day.
+   - **💳 Billing & Stripe** — **Revenue** (sum of `purchase`), purchases, revenue
+     30d, avg purchase; **promo credits granted** (`free_credit`+`bonus`, the cost of
+     acquisition), bonus, credits spent (`usage`), outstanding balance, AI charges;
+     revenue/day series; **recent Stripe events** (movements log) + recent
+     transactions. *Note:* "Revenue" = completed Stripe purchases (the webhook only
+     handles `checkout.session.completed`; refunds aren't recorded), and "spese"
+     means promotional credit granted — infra costs (Deepgram/Groq/Railway) are
+     external to the DB.
+   - **🛡️ Moderation** — reports (open / resolved / dismissed), active bans,
+     blocklist, audit count; reports/day; open-reports + recent-actions lists.
+   - **🚀 Acquisition & Features** — attributed vs organic users, a **users-by-source**
+     bar chart, and feature usage (glossaries, bookmarks, AI reports, sentiment,
+     emails).
+
+> Run-and-iterate: like `setup-bonus-flow.mjs`, this can't be CI-tested against a
+> live Directus. Each panel is created independently — a panel that a given Directus
+> version rejects is logged and skipped (the rest still provision). Paste any
+> `!`-prefixed warnings back and we adjust.
+
+### Marketing attribution (`users.source`)
+
+Migration `007` adds `users.source`: the `?source` (or `utm_source` / `ref`) the
+visitor arrived with, captured client-side and stamped on the account at **first
+login only** (first-touch). Tag a campaign by linking with the param, e.g.
+`https://voxtranslate.app/?source=reddit-launch` — every account created in that
+session is attributed to `reddit-launch`, and rolls up in the **Users by source**
+chart. Add `users.source` to the read columns when you scope the admin role (§6).
+
 ## Visual walkthrough
 
 Screenshots of the actual screens (in `directus/screenshots/`):
