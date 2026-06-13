@@ -54,7 +54,7 @@ jobs:
           cargo test --locked
 
       - name: Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 20
           cache: npm
@@ -96,7 +96,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 20
       - name: Install Railway CLI
@@ -156,7 +156,7 @@ jobs:
           for i in $(seq 1 60); do curl -sf http://localhost:3001/health && break; sleep 2; done
 
       - name: Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 20
           cache: npm
@@ -197,7 +197,7 @@ jobs:
         working-directory: server
         continue-on-error: true
         run: cargo audit
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 20
       - name: npm audit (client)
