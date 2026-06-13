@@ -52,6 +52,7 @@ export interface CallSession {
 
 const TOKEN_KEY = 'vox.token';
 const USER_KEY = 'vox.user';
+const SRC_KEY = 'vox.src';
 
 // localStorage may be unavailable (private mode, tests) — fall back to memory.
 const mem = new Map<string, string>();
@@ -117,6 +118,32 @@ export function authHeaders(): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+/**
+ * Capture the marketing acquisition source from the landing URL and remember it
+ * (first-touch wins). Reads `?source`, falling back to `?utm_source` / `?ref`.
+ * Persisted so it survives navigation to the login screen; sent to the server on
+ * the user's first Google login, where it is stamped on the new account. Safe to
+ * call on every page load — it never overwrites an already-captured source, and
+ * no-ops where `location` is unavailable (tests/SSR).
+ */
+export function captureAcquisitionSource(): void {
+  try {
+    if (typeof location === 'undefined') return;
+    if (store().getItem(SRC_KEY)) return; // first touch already recorded
+    const q = new URLSearchParams(location.search);
+    const raw = q.get('source') || q.get('utm_source') || q.get('ref');
+    const src = raw?.trim().slice(0, 64);
+    if (src) store().setItem(SRC_KEY, src);
+  } catch {
+    /* storage or URL parsing blocked — attribution is best-effort */
+  }
+}
+
+/** The captured acquisition source, or null if the visitor arrived organically. */
+export function getAcquisitionSource(): string | null {
+  return store().getItem(SRC_KEY);
+}
+
 /** Build the `/ws` URL, attaching the session token when logged in. */
 export function buildWsUrl(params: URLSearchParams): string {
   if (token) params.set('token', token);
@@ -149,12 +176,15 @@ export function getGoogleClientId(): string {
   return googleClientId;
 }
 
-/** Exchange a Google credential for a session; stores token + user on success. */
+/** Exchange a Google credential for a session; stores token + user on success.
+ * Includes the captured acquisition source so the server can attribute a new
+ * account to the campaign the user arrived from (first login only). */
 export async function loginWithGoogle(credential: string): Promise<User> {
+  const source = getAcquisitionSource() || undefined;
   const res = await fetch(`${HTTP_BASE}/api/auth/google`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ credential }),
+    body: JSON.stringify({ credential, source }),
   });
   if (!res.ok) throw new Error(`login failed (${res.status})`);
   const data = (await res.json()) as { token: string; user: User };

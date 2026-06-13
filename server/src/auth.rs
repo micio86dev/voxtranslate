@@ -158,12 +158,14 @@ pub fn verify_jwt(secret: &str, token: &str) -> Result<Claims, AuthError> {
 }
 
 /// Find-or-create a user from a verified Google identity. On *first* login the
-/// user is granted `free_credits` (recorded as a `free_credit` ledger row);
-/// returning users only get their profile refreshed — balance is untouched.
+/// user is granted `free_credits` (recorded as a `free_credit` ledger row) and
+/// stamped with the acquisition `source` (first-touch attribution); returning
+/// users only get their profile refreshed — balance and source are untouched.
 pub async fn upsert_google_user(
     pool: &Pool,
     identity: &GoogleIdentity,
     free_credits: Decimal,
+    source: Option<&str>,
 ) -> Result<User, sqlx::Error> {
     let mut tx = pool.begin().await?;
 
@@ -187,14 +189,15 @@ pub async fn upsert_google_user(
         }
         None => {
             let user: User = sqlx::query_as(
-                "INSERT INTO users (google_id, email, name, avatar_url, balance)
-                 VALUES ($1, $2, $3, $4, $5) RETURNING *",
+                "INSERT INTO users (google_id, email, name, avatar_url, balance, source)
+                 VALUES ($1, $2, $3, $4, $5, $6) RETURNING *",
             )
             .bind(&identity.google_id)
             .bind(&identity.email)
             .bind(&identity.name)
             .bind(&identity.avatar_url)
             .bind(free_credits)
+            .bind(source)
             .fetch_one(&mut *tx)
             .await?;
             sqlx::query(
@@ -245,6 +248,18 @@ impl From<User> for UserProfile {
 pub struct GoogleAuthRequest {
     /// The GSI `credential` (a Google ID token).
     pub credential: String,
+    /// Acquisition source for marketing attribution (`?source` / `utm_source` the
+    /// visitor arrived with). Recorded only on first login; ignored thereafter.
+    #[serde(default)]
+    pub source: Option<String>,
+}
+
+/// Normalise a client-supplied acquisition source: trim, drop empties, and cap at
+/// 64 chars so a hostile/oversized query param can't bloat the column.
+fn clean_source(raw: Option<&str>) -> Option<String> {
+    raw.map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.chars().take(64).collect())
 }
 
 #[derive(Serialize)]
@@ -286,7 +301,8 @@ pub async fn auth_google(
     let free_credits = Decimal::from_f64_retain(billing.pricing.free_credits)
         .unwrap_or(Decimal::ZERO)
         .round_dp(6);
-    let user = match upsert_google_user(pool, &identity, free_credits).await {
+    let source = clean_source(body.source.as_deref());
+    let user = match upsert_google_user(pool, &identity, free_credits, source.as_deref()).await {
         Ok(u) => u,
         Err(e) => {
             tracing::error!("upsert user failed: {e}");
@@ -381,6 +397,16 @@ mod tests {
     use super::*;
 
     #[test]
+    fn clean_source_trims_filters_and_caps() {
+        assert_eq!(clean_source(None), None);
+        assert_eq!(clean_source(Some("   ")), None);
+        assert_eq!(clean_source(Some("  reddit ")), Some("reddit".to_string()));
+        // Capped at 64 chars.
+        let long = "x".repeat(100);
+        assert_eq!(clean_source(Some(&long)).unwrap().len(), 64);
+    }
+
+    #[test]
     fn jwt_round_trip_and_reject_tampered() {
         let id = Uuid::new_v4();
         let token = issue_jwt("secret", &id, "a@b.com", "Alice", 168).unwrap();
@@ -431,19 +457,27 @@ mod tests {
         };
         let free = Decimal::new(200, 2); // 2.00
 
-        let u1 = upsert_google_user(&pool, &identity, free).await.unwrap();
+        let u1 = upsert_google_user(&pool, &identity, free, Some("reddit-launch"))
+            .await
+            .unwrap();
         assert_eq!(u1.balance, free);
         assert_eq!(u1.name, "First");
+        assert_eq!(u1.source.as_deref(), Some("reddit-launch"));
 
         // Second login: profile refresh, balance unchanged.
         let identity2 = GoogleIdentity {
             name: "Renamed".into(),
             ..identity.clone()
         };
-        let u2 = upsert_google_user(&pool, &identity2, free).await.unwrap();
+        // Second login with a *different* source: profile refreshes, but the
+        // first-touch source (and balance) is preserved.
+        let u2 = upsert_google_user(&pool, &identity2, free, Some("twitter-ad"))
+            .await
+            .unwrap();
         assert_eq!(u2.id, u1.id);
         assert_eq!(u2.name, "Renamed");
         assert_eq!(u2.balance, free);
+        assert_eq!(u2.source.as_deref(), Some("reddit-launch"));
 
         // Exactly one free-credit ledger row.
         let count: i64 = sqlx::query_scalar(

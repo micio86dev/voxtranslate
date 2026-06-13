@@ -2155,6 +2155,9 @@ function show(el: HTMLElement, visible: boolean): void {
 }
 
 async function boot(): Promise<void> {
+  // Record where the visitor came from (?source / utm_source) before anything
+  // can tidy the URL — stamped on the account at first login for campaign KPIs.
+  auth.captureAcquisitionSource();
   // Pull any DB-managed UI strings over the bundled defaults, then re-render
   // (fails safe — keeps the bundled strings if the API is down).
   if (await loadRemoteI18n(HTTP_BASE)) applyI18n();

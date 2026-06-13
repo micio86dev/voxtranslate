@@ -342,3 +342,42 @@ describe('formatters', () => {
     expect(auth.avatarUrl('https://example.com/p.png', 64)).toBe('https://example.com/p.png');
   });
 });
+
+describe('acquisition source', () => {
+  it('captures ?source first-touch and sends it on login', async () => {
+    vi.stubGlobal('location', { protocol: 'http:', host: 'localhost:4321', search: '?source=reddit' });
+    const auth = await fresh();
+    auth.captureAcquisitionSource();
+    expect(auth.getAcquisitionSource()).toBe('reddit');
+
+    // First touch wins: a later visit with a different source doesn't overwrite.
+    vi.stubGlobal('location', { protocol: 'http:', host: 'localhost:4321', search: '?utm_source=twitter' });
+    auth.captureAcquisitionSource();
+    expect(auth.getAcquisitionSource()).toBe('reddit');
+
+    const fetchMock = vi.fn().mockResolvedValue(okJson({ token: 'jwt', user: { id: 'u', email: 'e', name: 'n', balance: 0 } }));
+    vi.stubGlobal('fetch', fetchMock);
+    await auth.loginWithGoogle('cred');
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+    expect(body).toMatchObject({ credential: 'cred', source: 'reddit' });
+  });
+
+  it('falls back to utm_source / ref and omits source when absent', async () => {
+    vi.stubGlobal('location', { protocol: 'http:', host: 'localhost:4321', search: '?utm_source=newsletter' });
+    let auth = await fresh();
+    auth.captureAcquisitionSource();
+    expect(auth.getAcquisitionSource()).toBe('newsletter');
+
+    backing.clear();
+    vi.stubGlobal('location', { protocol: 'http:', host: 'localhost:4321', search: '' });
+    auth = await fresh();
+    auth.captureAcquisitionSource();
+    expect(auth.getAcquisitionSource()).toBeNull();
+
+    const fetchMock = vi.fn().mockResolvedValue(okJson({ token: 'jwt', user: { id: 'u', email: 'e', name: 'n', balance: 0 } }));
+    vi.stubGlobal('fetch', fetchMock);
+    await auth.loginWithGoogle('cred');
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+    expect(body.source).toBeUndefined();
+  });
+});

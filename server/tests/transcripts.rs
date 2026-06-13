@@ -108,9 +108,14 @@ async fn login(srv: &Server, name: &str) -> (Uuid, String) {
         name: name.into(),
         avatar_url: None,
     };
-    let user = upsert_google_user(&srv.pool, &identity, rust_decimal::Decimal::new(200, 2))
-        .await
-        .unwrap();
+    let user = upsert_google_user(
+        &srv.pool,
+        &identity,
+        rust_decimal::Decimal::new(200, 2),
+        None,
+    )
+    .await
+    .unwrap();
     let jwt = issue_jwt(&srv.secret, &user.id, &user.email, &user.name, 168).unwrap();
     (user.id, jwt)
 }
