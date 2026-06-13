@@ -53,6 +53,7 @@ const callScreen = $('call');
 
 // ---- Auth / billing refs ---------------------------------------------------
 const accountBar = $('account-bar');
+const guestBar = $('guest-bar');
 const accountAvatar = $<HTMLImageElement>('account-avatar');
 const accountName = $('account-name');
 const accountBalance = $('account-balance');
@@ -214,6 +215,12 @@ $('dice').addEventListener('click', () => (roomInput.value = randomRoom()));
 visGroup.addEventListener('click', (e) => {
   const btn = (e.target as HTMLElement).closest('.seg-btn') as HTMLElement | null;
   if (!btn) return;
+  // Public rooms need an account: a guest tapping "public" gets the benefits modal
+  // (→ sign in), not a silent switch (spec 0022 / 0036).
+  if (btn.dataset.vis === 'public' && billing && !auth.isLoggedIn()) {
+    openSigninGate();
+    return;
+  }
   visibilityPublic = btn.dataset.vis === 'public';
   visGroup.querySelectorAll('.seg-btn').forEach((b) => {
     b.classList.toggle('active', b === btn);
@@ -230,6 +237,8 @@ function homeStatusMsg(msg: string, isError = false): void {
 enterBtn.addEventListener('click', () => {
   const room = roomInput.value.trim().toLowerCase();
   if (!room) return homeStatusMsg(t('enterRoom'), true);
+  // Belt-and-suspenders: a guest can't create a public room (spec 0022 / 0036).
+  if (visibilityPublic && billing && !auth.isLoggedIn()) return openSigninGate();
   goPrejoin(room, visibilityPublic);
 });
 
@@ -408,9 +417,12 @@ async function togglePreCam(): Promise<void> {
 /** Video constraints honouring the selected camera device. */
 function videoConstraints(): MediaTrackConstraints {
   const camId = camSelect.value;
+  // Mobile sends to up to 3 peers over a mesh on a metered/variable uplink, so
+  // capture lower (480p) — desktop keeps 720p (spec 0030).
+  const cap = IS_MOBILE ? { w: 640, h: 480 } : { w: 1280, h: 720 };
   return {
-    width: { ideal: 1280, max: 1280 },
-    height: { ideal: 720, max: 720 },
+    width: { ideal: cap.w, max: cap.w },
+    height: { ideal: cap.h, max: cap.h },
     frameRate: { ideal: 24, max: 30 },
     ...(camId ? { deviceId: { exact: camId } } : {}),
   };
@@ -553,7 +565,13 @@ function openSocket(): void {
   ws = new WebSocket(auth.buildWsUrl(params));
 
   ws.onopen = () => {
-    mesh = new MeshManager(localStream!, (sig) => ws?.send(JSON.stringify(sig)), iceServers);
+    mesh = new MeshManager(
+      localStream!,
+      (sig) => ws?.send(JSON.stringify(sig)),
+      iceServers,
+      IS_MOBILE ? 1_200_000 : 2_400_000, // total video upload budget, split per-peer (spec 0030/0031)
+    );
+    mesh.onNetworkWeak = showWeakNetworkWarning;
     mesh.onRemoteStream = (peerId, stream) => {
       remoteStreams.set(peerId, stream);
       recorder?.addParticipant(participantSource(peerId, stream));
@@ -670,6 +688,10 @@ async function handleServer(msg: any): Promise<void> {
         playHandRaiseSound();
       }
       updateParticipantsList();
+      break;
+    case 'screen_share':
+      setScreenShareIndicator(msg.peer_id, msg.active);
+      layoutVideos(); // re-evaluate mobile pan/zoom gating for the focused tile
       break;
     case 'language_detected': {
       // A peer's "auto" was resolved by the server probe (confidence present)
@@ -901,62 +923,77 @@ function disablePan(cell: HTMLElement): void {
   cell.classList.remove('pan-mode');
   const v = cell.querySelector<HTMLVideoElement>('video');
   if (v) v.style.transform = '';
+  const panned = cell as unknown as { _panAbort?: AbortController };
+  panned._panAbort?.abort(); // tears down the touch + button listeners
+  delete panned._panAbort;
   cell.querySelector('.pan-toggle')?.remove();
   cell.querySelector('.pan-hint')?.remove();
 }
 
+// Pan + pinch-zoom a screen-share tile on mobile (spec 0033): the ⊕ button enters
+// "pan-mode", then one finger drags (translate) and two fingers pinch (scale).
+// Listeners + button are scoped to an AbortController so re-sharing rebuilds cleanly.
 function setupPan(cell: HTMLElement): void {
-  if (cell.dataset.panSetup) return; // listeners already attached
-  cell.dataset.panSetup = '1';
+  const panned = cell as unknown as { _panAbort?: AbortController };
+  if (panned._panAbort) return; // already set up
+  const ac = new AbortController();
+  panned._panAbort = ac;
+  const sig = ac.signal;
 
-  let tx = 0, ty = 0, startX = 0, startY = 0;
+  let tx = 0, ty = 0, scale = 1;
+  let startX = 0, startY = 0; // 1-finger pan anchor
+  let startDist = 0, startScale = 1; // 2-finger pinch anchor
+  const video = () => cell.querySelector<HTMLVideoElement>('video');
+  const apply = () => {
+    const v = video();
+    if (v) v.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
+  };
+  const reset = () => { tx = 0; ty = 0; scale = 1; apply(); };
+  const dist = (touches: TouchList) =>
+    Math.hypot(touches[0].clientX - touches[1].clientX, touches[0].clientY - touches[1].clientY);
 
   cell.addEventListener('touchstart', (e: TouchEvent) => {
-    if (!cell.classList.contains('pan-mode') || e.touches.length !== 1) return;
-    startX = e.touches[0].clientX - tx;
-    startY = e.touches[0].clientY - ty;
-  }, { passive: true });
+    if (!cell.classList.contains('pan-mode')) return;
+    if (e.touches.length === 1) {
+      startX = e.touches[0].clientX - tx;
+      startY = e.touches[0].clientY - ty;
+    } else if (e.touches.length === 2) {
+      startDist = dist(e.touches);
+      startScale = scale;
+    }
+  }, { passive: true, signal: sig });
 
   cell.addEventListener('touchmove', (e: TouchEvent) => {
-    if (!cell.classList.contains('pan-mode') || e.touches.length !== 1) return;
+    if (!cell.classList.contains('pan-mode')) return;
     e.preventDefault();
-    tx = e.touches[0].clientX - startX;
-    ty = e.touches[0].clientY - startY;
-    const v = cell.querySelector<HTMLVideoElement>('video');
-    if (v) v.style.transform = `translate(${tx}px, ${ty}px)`;
-  }, { passive: false });
+    if (e.touches.length === 2 && startDist > 0) {
+      scale = Math.min(4, Math.max(1, startScale * (dist(e.touches) / startDist)));
+    } else if (e.touches.length === 1) {
+      tx = e.touches[0].clientX - startX;
+      ty = e.touches[0].clientY - startY;
+    }
+    apply();
+  }, { passive: false, signal: sig });
 
-  // Pan toggle button
   const btn = document.createElement('button');
   btn.className = 'pan-toggle';
-  btn.title = 'Fit / Pan';
-  btn.textContent = '⤢';
+  btn.title = t('panZoomHint');
+  btn.innerHTML = icon('move', 24);
   cell.appendChild(btn);
 
   btn.addEventListener('click', (e) => {
     e.stopPropagation();
     const active = cell.classList.toggle('pan-mode');
     btn.classList.toggle('active', active);
-    if (active) {
-      // Reset transform and show hint
-      tx = 0; ty = 0;
-      const v = cell.querySelector<HTMLVideoElement>('video');
-      if (v) v.style.transform = '';
-      const existing = cell.querySelector('.pan-hint');
-      if (!existing) {
-        const hint = document.createElement('span');
-        hint.className = 'pan-hint';
-        hint.textContent = 'Trascina per spostare';
-        cell.appendChild(hint);
-        hint.addEventListener('animationend', () => hint.remove());
-      }
-    } else {
-      // Reset position on exit
-      tx = 0; ty = 0;
-      const v = cell.querySelector<HTMLVideoElement>('video');
-      if (v) v.style.transform = '';
+    reset(); // recenter + reset zoom on every toggle
+    if (active && !cell.querySelector('.pan-hint')) {
+      const hint = document.createElement('span');
+      hint.className = 'pan-hint';
+      hint.textContent = t('panZoomHint');
+      cell.appendChild(hint);
+      hint.addEventListener('animationend', () => hint.remove());
     }
-  });
+  }, { signal: sig });
 }
 
 // The grid fills the whole stage. In focus mode (pinned or speaker), the main
@@ -990,7 +1027,10 @@ function layoutVideos(): void {
     videoGrid.style.height = '100%';
 
     focusCell.classList.add('main-cell');
-    if (IS_MOBILE) setupPan(focusCell);
+    // Mobile pan/zoom only on a screen-share tile (spec 0033): a shared screen in
+    // portrait is cropped, so dragging/pinching to read it helps; camera tiles don't.
+    if (IS_MOBILE && focusCell.classList.contains('sharing')) setupPan(focusCell);
+    else disablePan(focusCell);
 
     for (const cell of allCells) {
       if (cell === focusCell) continue;
@@ -1120,18 +1160,62 @@ function setHandIndicator(id: string, raised: boolean): void {
   }
 }
 
-function showEmojiReaction(peerId: string, emoji: string): void {
-  const cell = videoGrid.querySelector(`[data-peer="${cssEsc(peerId)}"]`);
+// A peer started/stopped screen-sharing (spec 0033): mark the tile with `.sharing`
+// (gates the mobile pan/zoom) + the 🖥 badge, mirroring the self-share treatment.
+function setScreenShareIndicator(id: string, active: boolean): void {
+  const cell = videoGrid.querySelector(`[data-peer="${cssEsc(id)}"]`);
   if (!cell) return;
-  const floater = document.createElement('span');
-  floater.className = 'emoji-float';
-  floater.textContent = emoji;
-  cell.appendChild(floater);
-  setTimeout(() => floater.remove(), 1500);
+  cell.classList.toggle('sharing', active);
+  let badge = cell.querySelector('.screen-share-badge') as HTMLElement | null;
+  if (active) {
+    if (!badge) {
+      badge = document.createElement('span');
+      badge.className = 'screen-share-badge';
+      badge.textContent = '🖥';
+      cell.querySelector('.video-overlay')?.appendChild(badge);
+    }
+  } else {
+    badge?.remove();
+  }
+}
+
+function showEmojiReaction(peerId: string, emoji: string): void {
+  const stage = document.querySelector('.video-stage');
+  if (!stage) return;
+  // Meet-style: a big emoji rising from the centre of the whole stage + who reacted
+  // (spec 0035). Random horizontal start + drift so a burst scatters rather than
+  // stacking exactly.
+  const name = peerId === myId ? session?.name || t('you') : peerNames.get(peerId)?.name || '';
+  const float = document.createElement('div');
+  float.className = 'reaction-float';
+  float.style.setProperty('--x', `${Math.round((Math.random() - 0.5) * 220)}px`);
+  float.style.setProperty('--drift', `${Math.round((Math.random() - 0.5) * 80)}px`);
+  const e = document.createElement('span');
+  e.className = 'reaction-emoji';
+  e.textContent = emoji;
+  float.appendChild(e);
+  if (name) {
+    const n = document.createElement('span');
+    n.className = 'reaction-name';
+    n.textContent = name;
+    float.appendChild(n);
+  }
+  stage.appendChild(float);
+  setTimeout(() => float.remove(), 3700);
 }
 
 // ---- Notification banner ---------------------------------------------------
 let notifTimer: number | null = null;
+// Weak-network nudge (spec 0030): getStats flagged a sustained bandwidth-limited /
+// lossy uplink. Suggest the camera off — at most once a minute so it isn't spammy.
+let lastWeakWarn = 0;
+function showWeakNetworkWarning(): void {
+  const now = Date.now();
+  if (now - lastWeakWarn < 60_000) return;
+  lastWeakWarn = now;
+  toast(t('weakNetwork'));
+}
+
 function showNotif(text: string): void {
   notifBanner.textContent = text;
   notifBanner.classList.remove('hidden');
@@ -1299,10 +1383,9 @@ btnMore.addEventListener('click', (e) => {
   e.stopPropagation();
   setMoreOpen(moreMenu.classList.contains('hidden'));
 });
-moreMenu.addEventListener('click', (e) => {
-  // Acting on any control closes the menu (the action itself already ran).
-  if ((e.target as HTMLElement).closest('.control-btn')) setMoreOpen(false);
-});
+// The menu stays open while you act on its controls — toggling tts/hand/share is a
+// "set state and keep going" action (you see the dot flip), so only the ⋯ button,
+// an outside click, or Escape close it (spec 0036).
 document.addEventListener('click', (e) => {
   if (!moreMenu.classList.contains('hidden') && !moreMenu.contains(e.target as Node)) setMoreOpen(false);
 });
@@ -1617,6 +1700,7 @@ async function startScreenShare(): Promise<void> {
     // Stop sharing when user clicks "Stop sharing" in browser
     s.getVideoTracks()[0]?.addEventListener('ended', stopScreenShare);
     playScreenShareSound(); // audible cue that screen sharing has started
+    ws?.send(JSON.stringify({ type: 'screen_share', active: true })); // tell peers (spec 0033)
     setControlState();
   } catch {
     // User cancelled the picker — roll back the optimistic flag.
@@ -1647,6 +1731,7 @@ function stopScreenShare(): void {
   const cell = videoGrid.querySelector(`[data-peer="${cssEsc(myId)}"]`);
   cell?.classList.remove('sharing');
   cell?.querySelector('.screen-share-badge')?.remove();
+  ws?.send(JSON.stringify({ type: 'screen_share', active: false })); // tell peers (spec 0033)
   setControlState();
   showNotif(t('stopShare'));
 }
@@ -1973,6 +2058,12 @@ async function boot(): Promise<void> {
   // (fails safe — keeps the bundled strings if the API is down).
   if (await loadRemoteI18n(HTTP_BASE)) applyI18n();
   billing = await auth.billingEnabled();
+  // Validate a stored token up front. isLoggedIn() only checks the token EXISTS,
+  // not that it's still valid — so a stale/expired one would render authed-only UI
+  // (the 🔖 bookmark button, public rooms) while the server rejects every authed
+  // action "as a guest". refreshMe() clears it on a 401 (and keeps it on a mere
+  // network error), so after this the client's auth state matches the server's.
+  if (billing && auth.isLoggedIn()) await auth.refreshMe();
   if (billing && !auth.isLoggedIn()) {
     showLogin();
   } else {
@@ -2021,10 +2112,15 @@ function ensureConsent(): void {
 /// guests and steer them to a private room.
 function updatePublicGate(): void {
   const guest = billing && !auth.isLoggedIn();
+  // The guest gets the sign-in bar (their only route back to login); a signed-in
+  // user gets the account bar instead. `billing` off → neither (no accounts).
+  guestBar.classList.toggle('hidden', !guest);
   const pubBtn = visGroup.querySelector('.seg-btn[data-vis="public"]') as HTMLButtonElement | null;
   if (!pubBtn) return;
-  pubBtn.disabled = guest;
-  pubBtn.classList.toggle('disabled', guest);
+  // Keep it clickable (a native `disabled` swallows clicks) but mark it locked, so
+  // a guest tapping it gets the sign-in benefits modal instead of dead silence.
+  pubBtn.disabled = false;
+  pubBtn.classList.toggle('locked', !!guest);
   if (guest && visibilityPublic) {
     // Force private for guests.
     visibilityPublic = false;
@@ -2042,9 +2138,12 @@ function renderAccount(): void {
   const u = auth.getUser();
   if (!billing || !u) {
     accountBar.classList.add('hidden');
+    // Guest (billing on, no user) → offer the sign-in bar; guest-only mode → nothing.
+    guestBar.classList.toggle('hidden', !billing);
     return;
   }
   accountBar.classList.remove('hidden');
+  guestBar.classList.add('hidden');
   accountName.textContent = u.name;
   const av = auth.avatarUrl(u.avatar_url, 72);
   if (av) {
@@ -2109,6 +2208,8 @@ async function onGoogleCredential(resp: { credential?: string }): Promise<void> 
 }
 
 $('guest-btn').addEventListener('click', () => enterHome());
+// Guest's route back to the login screen (spec 0037).
+$('guest-signin-btn').addEventListener('click', () => showLogin());
 $('logout-btn').addEventListener('click', () => {
   auth.clearSession();
   accountBar.classList.add('hidden');

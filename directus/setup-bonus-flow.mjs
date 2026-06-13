@@ -1,5 +1,6 @@
 // Creates the "Gift bonus" manual Flow in Directus via the REST API. Idempotent:
-// re-running is a no-op once the flow exists. This is the reproducible version of
+// re-running repairs the request operation in place if the flow already exists
+// (re-applies the body/header options). This is the reproducible version of
 // the manual step in README §7 — a Directus Flow lives in Directus's own
 // `directus_flows`/`directus_operations` tables, NOT in the app schema, so it is
 // configured through the API rather than an app `.sql` migration.
@@ -18,10 +19,26 @@
 const FLOW_NAME = 'Gift bonus';
 const COLLECTION = 'users';
 const ENDPOINT = '/api/admin/bonus';
-// Mirrors README §7 exactly (same templating the sibling flows use).
+// A manual flow run from the admin UI delivers its data as an HTTP request, so the
+// confirmation fields + selected keys live under `$trigger.body.*` (NOT `$trigger.*`
+// or bare `{{amount}}`, which render literal "undefined"). `$accountability.user` is
+// a top-level context var. Verified against a real flow log on 2026-06-13.
 const BODY =
-  '{ "user_id": "{{$trigger.keys[0]}}", "amount": {{amount}}, ' +
-  '"message": "{{message}}", "actor": "{{$accountability.user}}" }';
+  '{ "user_id": "{{$trigger.body.keys[0]}}", "amount": {{$trigger.body.amount}}, ' +
+  '"message": "{{$trigger.body.message}}", "actor": "{{$accountability.user}}" }';
+
+// Request-operation options, shared by create + repair. The server uses axum's JSON
+// extractor, which 415s unless `Content-Type: application/json` is present — the
+// header below is mandatory, not cosmetic.
+const REQUEST_OPTIONS = {
+  method: 'POST',
+  url: `{{$env.VOX_API_URL}}${ENDPOINT}`,
+  headers: [
+    { header: 'Content-Type', value: 'application/json' },
+    { header: 'X-Admin-Secret', value: '{{$env.ADMIN_API_SECRET}}' },
+  ],
+  body: BODY,
+};
 
 const base = (process.env.DIRECTUS_URL || '').replace(/\/$/, '');
 if (!base) fail('Set DIRECTUS_URL to your Directus base URL.');
@@ -75,8 +92,25 @@ function buildTriggerOptions(template) {
 const tk = await getToken();
 
 const flows = (await api('/flows?limit=-1&fields=id,name,trigger,options', {}, tk)).data;
-if (flows.some((f) => f.name === FLOW_NAME)) {
-  console.log(`✓ Flow "${FLOW_NAME}" already exists — nothing to do.`);
+const existing = flows.find((f) => f.name === FLOW_NAME);
+if (existing) {
+  // Repair-in-place: re-apply the request operation's options so a flow created by an
+  // older version of this script (undefined body refs + missing Content-Type → 415)
+  // is fixed without deleting it by hand (the prod Directus UI is org-blocked).
+  const ops = (
+    await api(
+      `/operations?limit=-1&filter[flow][_eq]=${existing.id}&fields=id,key,type`,
+      {},
+      tk,
+    )
+  ).data;
+  const reqOp = ops.find((o) => o.type === 'request' || o.key === 'bonus_request');
+  if (!reqOp) fail(`Flow "${FLOW_NAME}" exists but has no request operation to repair.`);
+  await api(`/operations/${reqOp.id}`, { method: 'PATCH', body: { options: REQUEST_OPTIONS } }, tk);
+  console.log(
+    `✓ Repaired "${FLOW_NAME}" request operation (flow ${existing.id}, op ${reqOp.id}). ` +
+      'Run a grant again — the credit should apply and the email send.',
+  );
   process.exit(0);
 }
 
@@ -114,12 +148,7 @@ const op = (
       type: 'request',
       position_x: 19,
       position_y: 1,
-      options: {
-        method: 'POST',
-        url: `{{$env.VOX_API_URL}}${ENDPOINT}`,
-        headers: [{ header: 'X-Admin-Secret', value: '{{$env.ADMIN_API_SECRET}}' }],
-        body: BODY,
-      },
+      options: REQUEST_OPTIONS,
     },
   }, tk)
 ).data;

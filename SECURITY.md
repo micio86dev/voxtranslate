@@ -47,13 +47,13 @@ and how to keep the app secure.
 
 | Sev | Issue | Where | Note |
 |-----|-------|-------|------|
-| 🟠 Med | **Glossary endpoints lack room-membership authz** — any logged-in user can read/overwrite/delete a room's glossary by code. | `api.rs glossary_{get,save,delete,import}` | Needs a "is this user in this room" check; data isn't sensitive + rooms are ephemeral, so deferred. |
-| 🟠 Med | **Upload is membership-gated, not JWT-gated**, and unthrottled (Deepgram/Groq spend). 32 MiB is buffered in RAM before the size check. | `files.rs` | Add a per-room/IP rate limit + a `tokio::time::timeout` around PDF extraction. |
+| 🟠 Med | **Glossary endpoints lack room-membership authz** — any logged-in user can read/overwrite/delete a room's glossary by code. | `api.rs glossary_{get,save,delete,import}` | Needs `user_id` on the room `Peer` (threaded from the WS join) to map an HTTP user to room membership; data isn't sensitive + rooms ephemeral, so deferred. |
+| 🟡 Low | **Upload is membership-gated, not JWT-gated** (by design — same trust model as guest chat). | `files.rs` | ✅ Now throttled per-uploader + a 15 s PDF-extraction timeout (spec 0029); the membership-gating is intentional. |
 | 🟡 Low | **CSP is minimal** (`frame-ancestors/object-src/base-uri` only). | `vercel.json` | A full `script-src`/`connect-src` CSP needs testing on a Vercel preview so it doesn't break GSI/WS/Stripe. |
 | 🟡 Low | **Stateless JWT**: 7-day lifetime, no revocation; a ban is enforced at WS join but not on the REST API. | `auth.rs`, `middleware.rs` | Add a `jti` denylist or shorten the lifetime if account-takeover risk rises. |
-| 🟡 Low | **Rate limiter never evicts** (slow memory growth) and trusts the spoofable `X-Forwarded-For`. | `rate_limit.rs`, `auth.rs` | Switch to a TTL cache; use the trusted-proxy hop for the IP. |
+| 🟡 Low | **Rate limiter trusts the spoofable `X-Forwarded-For`** for the IP key. | `auth.rs` | ✅ Eviction added (spec 0029 — prunes elapsed keys past 10 k); using the trusted-proxy hop is host-specific, deferred. |
 | 🟡 Low | **Signed-URL TTL is 7 days** for chat-file links broadcast in plaintext. | `config.rs` | Shorten the default (it's env-tunable) — weigh against transcript links dying. |
-| 🟡 Low | **No `cargo audit`/`npm audit` CI gate** (Dependabot added, but no blocking scan). | `.github/workflows/ci.yml` | Add a non-blocking audit job; the existing 3 npm highs are dev/build-time (esbuild/vite/astro), not in the shipped static output — fixing needs the Astro 6 major upgrade. |
+| 🟡 Low | **A *blocking* dep-audit gate** (vs the informational one). | `.github/workflows/ci.yml` | ✅ Dependabot (0028) + a non-blocking `cargo audit`/`npm audit` job (0029); a blocking gate would fail on the 3 dev-only npm highs (esbuild/vite/astro) until the Astro 6 major upgrade. |
 | 🟡 Low | **Stripe webhook timestamp age not checked** (replay neutralized by idempotency, so impact nil). | `stripe_handler.rs` | Add a freshness window for defense-in-depth. |
 
 ## Security mini-guide (keeping it safe, for a non-expert owner)
