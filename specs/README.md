@@ -80,7 +80,8 @@ Each spec follows the same skeleton:
 | [0045](0045-collaborative-whiteboard/spec.md) | Collaborative whiteboard (MVP) — issue #21 part 1 | ✅ Shipped | 2026-06-13 | `b5dea9c` |
 | [0046](0046-minigame-tictactoe/spec.md) | Mini-game: Tic-Tac-Toe (game-agnostic relay) — issue #21 part 2 | ✅ Shipped | 2026-06-13 | `0c74b68` |
 | [0047](0047-minigame-quiz/spec.md) | Mini-game: trivia quiz (built-in pack, host-authoritative) | ✅ Shipped | 2026-06-13 | `d3a4315` |
-| [0048](0048-quiz-localized/spec.md) | Quiz questions localized per player (pre-translated pack) | ✅ Shipped | 2026-06-13 | (this PR) |
+| [0048](0048-quiz-localized/spec.md) | Quiz questions localized per player (pre-translated pack) | ✅ Shipped | 2026-06-13 | `23f502e` |
+| [0049](0049-quiz-pack-40/spec.md) | Quiz pack expanded to 40 questions (localized) | ✅ Shipped | 2026-06-13 | (this PR) |
 
 > Numbers 0011–0015 were claimed by commit messages while the AI bundle shipped
 > without spec docs (and 0011/0012 were each reused twice); the assignments
