@@ -61,7 +61,17 @@ Each spec follows the same skeleton:
 | [0026](0026-turn-relay/spec.md) | TURN relay for cross-NAT WebRTC (server-issued ICE) | 🚧 Plumbing | 2026-06-12 | `d5f502c` |
 | [0027](0027-load-testing-k6/spec.md) | Load testing the server with k6 (signaling + HTTP) | ✅ Shipped | 2026-06-12 | `dc52d60` |
 | [0028](0028-security-hardening/spec.md) | Security hardening (XSS, CORS, rate limits, headers, deps) | ✅ Shipped | 2026-06-12 | `972d29a` |
-| [0029](0029-security-followups/spec.md) | Security follow-ups (upload throttle, PDF timeout, rate-limiter eviction, CI audit) | ✅ Shipped | 2026-06-12 | (this PR) |
+| [0029](0029-security-followups/spec.md) | Security follow-ups (upload throttle, PDF timeout, rate-limiter eviction, CI audit) | ✅ Shipped | 2026-06-12 | `48e4277` |
+| [0030](0030-mobile-bitrate-weak-network/spec.md) | Mobile-friendly video bitrate + weak-network warning | ✅ Shipped | 2026-06-12 | `d78c37d` |
+| [0031](0031-adaptive-bitrate/spec.md) | Room-size-adaptive video bitrate (budget ÷ peers) | ✅ Shipped | 2026-06-12 | `3a4a78f` |
+| [0032](0032-adaptive-budget/spec.md) | Network-adaptive video budget (AIMD via getStats) | ✅ Shipped | 2026-06-12 | `8ef35cd` |
+| [0033](0033-screenshare-pan-zoom/spec.md) | Screen-share signaling + mobile pan/zoom (bigger icon, pinch) | ✅ Shipped | 2026-06-12 | `724d75f` |
+| [0034](0034-ui-cta-zfix/spec.md) | Secondary CTA restyle + ⋯ overflow-menu z-index fix | ✅ Shipped | 2026-06-12 | `b049e50` |
+| [0035](0035-meet-style-reactions/spec.md) | Google-Meet-style emoji reactions (big, centred, named) | ✅ Shipped | 2026-06-12 | `5e60a9c` |
+| [0036](0036-reaction-anim-guest-auth-menu/spec.md) | Reaction animation polish + guest-auth & overflow-menu fixes | ✅ Shipped | 2026-06-13 | `5295378` |
+| [0037](0037-guest-signin-cta/spec.md) | Guest sign-in CTA on the home screen | ✅ Shipped | 2026-06-13 | `3b051b4` |
+| [0038](0038-session-glossary-ux/spec.md) | Session-details & glossary UX polish (CTA tonal, dedupe participants, save feedback) | ✅ Shipped | 2026-06-13 | `043916a` |
+| [0039](0039-bookmark-require-label/spec.md) | Bookmarks always require a label (label-first prompt) | ✅ Shipped | 2026-06-13 | (this PR) |
 
 > Numbers 0011–0015 were claimed by commit messages while the AI bundle shipped
 > without spec docs (and 0011/0012 were each reused twice); the assignments

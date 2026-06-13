@@ -104,9 +104,9 @@ test('screen share works without a camera (issue #4)', async ({ browser }) => {
     ),
   ).toBeTruthy();
 
-  // Stop sharing → with no camera, the viewer falls back to the camera-off avatar
-  // (reopen the ⋯ menu first).
-  await a.page.click('#btn-more');
+  // Stop sharing → with no camera, the viewer falls back to the camera-off avatar.
+  // The ⋯ menu is still open from the start-share above (it no longer closes on a
+  // pick — spec 0036), so btn-share is clickable straight away.
   await a.page.click('#btn-share');
   await b.page.waitForFunction(
     () => {

@@ -50,6 +50,11 @@ pub enum ClientMessage {
     HandRaise {
         raised: bool,
     },
+    /// Toggle screen-share state, broadcast to peers (spec 0033) so they can mark
+    /// the tile (badge + mobile pan/zoom). The media itself flows over WebRTC.
+    ScreenShare {
+        active: bool,
+    },
     /// Manual language correction (spec 0012): overrides a wrong auto-detect
     /// result. The client restarts capture so the next Deepgram stream opens
     /// with the new language.
@@ -158,6 +163,12 @@ pub enum ServerMessage {
     HandRaised {
         peer_id: String,
         raised: bool,
+    },
+
+    /// A peer started or stopped sharing their screen (spec 0033).
+    ScreenShare {
+        peer_id: String,
+        active: bool,
     },
 
     /// Room-glossary status (spec 0011): sent to a joining peer when the room
