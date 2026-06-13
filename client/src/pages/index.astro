@@ -523,15 +523,19 @@ const LANGS = [
     }
     .btn-primary:hover { filter: brightness(1.08); }
     .btn-primary:active { transform: translateY(1px); }
-    /* Secondary CTA (spec 0034): a quiet *filled* button (elevated surface + real
-       text colour), not a dead grey outline — clear hierarchy under .btn-primary
-       but still reads as tappable. Hover lifts via brightness like the primary. */
+    /* Secondary CTA (spec 0038): an accent-TONAL fill — a wash of --accent over the
+       surface, with an accent-tinted border. The earlier elevated-surface fill
+       (spec 0034) was too close to the card and read as disabled; tinting it ties
+       these to the brand blue and makes them obviously tappable, while the solid
+       --accent-strong .btn-primary keeps the top of the hierarchy. */
     .btn-ghost {
-      background: var(--surface-elevated); border: 1px solid var(--border); color: var(--text);
+      background: color-mix(in srgb, var(--accent) 14%, var(--surface));
+      border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--border));
+      color: var(--text);
       border-radius: 8px; padding: 9px 13px; font-size: 0.85rem; font-weight: 500; cursor: pointer;
-      transition: filter 0.15s, border-color 0.15s, transform 0.05s; white-space: nowrap;
+      transition: background 0.15s, border-color 0.15s, transform 0.05s; white-space: nowrap;
     }
-    .btn-ghost:hover { filter: brightness(1.15); border-color: var(--muted); }
+    .btn-ghost:hover { background: color-mix(in srgb, var(--accent) 24%, var(--surface)); border-color: var(--accent); }
     .btn-ghost:active { transform: translateY(1px); }
     .btn-ghost:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     .status-line { margin: 12px 0 0; min-height: 1.1em; font-size: 0.85rem; color: var(--muted); }
@@ -1349,6 +1353,22 @@ const LANGS = [
     }
     .glossary-csv textarea:focus { border-color: var(--accent); }
     .glossary-modal .danger { color: var(--danger); border-color: var(--danger); }
+    /* Save feedback (spec 0038): the muted status line was too easy to miss, so a
+       successful save shows a green confirmation pill (with a ✓, briefly) and the
+       Save button flashes green — clear "it saved" without closing the editor. */
+    #glossary-status.ok {
+      color: var(--success); font-weight: 600;
+      background: color-mix(in srgb, var(--success) 14%, var(--surface));
+      border: 1px solid color-mix(in srgb, var(--success) 35%, var(--border));
+      border-radius: 8px; padding: 8px 12px; min-height: 0;
+      display: flex; align-items: center; gap: 8px;
+      animation: glossary-saved-in 0.22s ease-out;
+    }
+    #glossary-status.ok::before { content: '✓'; font-weight: 700; }
+    @keyframes glossary-saved-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+    .glossary-modal #glossary-save { transition: filter 0.15s, background 0.2s; }
+    .glossary-modal #glossary-save.saved { background: var(--success); }
+    @media (prefers-reduced-motion: reduce) { #glossary-status.ok { animation: none; } }
 
     /* ---------- Screen share pan mode (mobile focus cell) ---------- */
     .video-grid :global(.video-cell.pan-mode) { touch-action: none; cursor: grab; }
