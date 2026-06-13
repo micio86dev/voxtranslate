@@ -45,6 +45,13 @@ const IS_MOBILE =
   (navigator.maxTouchPoints > 1 &&
     /Mac/.test((navigator as unknown as { platform?: string }).platform ?? ''));
 
+// Total video upload budget (bit/s), split per-peer and network-adapted (specs
+// 0030–0032). Tunable via Vercel BUILD-TIME env (PUBLIC_*), falling back to the
+// previous hardcoded values when unset — so behaviour is identical until the env
+// vars are added on Vercel (spec 0044). Build-time: a change needs a client redeploy.
+const VIDEO_BUDGET_MOBILE = Number(import.meta.env.PUBLIC_VIDEO_BUDGET_MOBILE) || 1_200_000;
+const VIDEO_BUDGET_DESKTOP = Number(import.meta.env.PUBLIC_VIDEO_BUDGET_DESKTOP) || 2_400_000;
+
 // ---- Screens ---------------------------------------------------------------
 const loginScreen = $('login');
 const homeScreen = $('home');
@@ -569,7 +576,7 @@ function openSocket(): void {
       localStream!,
       (sig) => ws?.send(JSON.stringify(sig)),
       iceServers,
-      IS_MOBILE ? 1_200_000 : 2_400_000, // total video upload budget, split per-peer (spec 0030/0031)
+      IS_MOBILE ? VIDEO_BUDGET_MOBILE : VIDEO_BUDGET_DESKTOP, // total upload budget, split per-peer (spec 0030/0031, env-tunable 0044)
     );
     mesh.onNetworkWeak = showWeakNetworkWarning;
     mesh.onRemoteStream = (peerId, stream) => {
