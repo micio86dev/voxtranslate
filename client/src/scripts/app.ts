@@ -1548,7 +1548,7 @@ async function buildOutgoing(raw: MediaStreamTrack): Promise<MediaStreamTrack> {
 
 btnTts.addEventListener('click', () => {
   ttsOn = !ttsOn;
-  if (!ttsOn && window.speechSynthesis) speechSynthesis.cancel();
+  if (!ttsOn) stopTts();
   applyAudioMode(); // mute/unmute foreign originals to match the mode
   setControlState();
 });
@@ -1941,7 +1941,7 @@ function leaveCall(): void {
     localStream.getTracks().forEach((tr) => tr.stop());
     localStream = null;
   }
-  if (window.speechSynthesis) speechSynthesis.cancel();
+  stopTts();
   handRaised = false;
   viewMode = 'grid';
   pinnedPeerId = null;
@@ -1975,15 +1975,48 @@ function cssEsc(s: string): string {
   return (window.CSS && CSS.escape ? CSS.escape(s) : s.replace(/["\\]/g, '\\$&'));
 }
 
+// Translated-voice TTS. Utterances are QUEUED and played one at a time (chained on
+// `onend`) — we never cancel the in-progress one, otherwise a quickly-following
+// sentence would cut off the previous translation mid-word (the reported bug). A
+// generous backlog cap keeps a fast talker from pushing playback minutes behind
+// live: past the cap the OLDEST still-waiting lines are dropped so we stay near
+// real time (a normal conversation, with pauses, never reaches it).
+const ttsQueue: SpeechSynthesisUtterance[] = [];
+let ttsSpeaking = false;
+const TTS_MAX_QUEUE = 8;
+
 function speak(text: string, lang: string): void {
   if (!window.speechSynthesis) return;
-  speechSynthesis.cancel();
   const u = new SpeechSynthesisUtterance(text);
   const v = speechSynthesis.getVoices().find((vo) => vo.lang.toLowerCase().startsWith(lang.toLowerCase()));
   if (v) u.voice = v;
   u.lang = lang;
   u.rate = 1.1;
+  ttsQueue.push(u);
+  if (ttsQueue.length > TTS_MAX_QUEUE) ttsQueue.splice(0, ttsQueue.length - TTS_MAX_QUEUE);
+  pumpTts();
+}
+
+/** Speak the next queued utterance once the current one finishes (or errors). */
+function pumpTts(): void {
+  if (ttsSpeaking || !window.speechSynthesis) return;
+  const u = ttsQueue.shift();
+  if (!u) return;
+  ttsSpeaking = true;
+  const next = () => {
+    ttsSpeaking = false;
+    pumpTts();
+  };
+  u.onend = next;
+  u.onerror = next;
   speechSynthesis.speak(u);
+}
+
+/** Stop playback and drop the queue (TTS toggled off / leaving the call). */
+function stopTts(): void {
+  ttsQueue.length = 0;
+  ttsSpeaking = false;
+  if (window.speechSynthesis) speechSynthesis.cancel();
 }
 if (window.speechSynthesis) speechSynthesis.getVoices();
 
