@@ -248,6 +248,17 @@ const LANGS = [
               <button id="wb-close" class="btn-ghost icon-btn" data-i18n-title="closeTip"></button>
             </div>
           </div>
+          <!-- Tic-Tac-Toe mini-game (spec 0046): a compact card; state relays over
+               the WS and a late-joiner gets a snapshot. -->
+          <div id="minigame" class="minigame hidden">
+            <div class="mg-head">
+              <span class="mg-title">Tic-Tac-Toe</span>
+              <button id="mg-close" class="btn-ghost icon-btn" data-i18n-title="closeTip"></button>
+            </div>
+            <p id="mg-status" class="mg-status" role="status"></p>
+            <div id="mg-board" class="mg-board"></div>
+            <button id="mg-action" class="btn-primary mg-action"></button>
+          </div>
         </div>
         <!-- Buttons are grouped so the bar wraps in tidy clusters (and keeps
              related controls together) instead of one long overflowing row. -->
@@ -287,6 +298,7 @@ const LANGS = [
                   <span class="mi"><button id="btn-hand" class="control-btn" data-i18n-title="handTip"></button><span class="mi-label" data-i18n="handTip"></span></span>
                   <span class="mi"><button id="btn-participants" class="control-btn" data-i18n-title="participantsTip" aria-expanded="false" aria-controls="participants-panel"><span class="part-ico"></span><span id="part-badge" class="chat-badge" hidden>0</span></button><span class="mi-label" data-i18n="participantsTip"></span></span>
                   <span class="mi"><button id="btn-bookmark" class="control-btn" data-i18n-title="bookmarkTip" data-i18n-label="bookmarkTip" hidden></button><span class="mi-label" data-i18n="bookmarkTip"></span></span>
+                  <span class="mi"><button id="btn-minigame" class="control-btn" data-i18n-title="minigameTip"></button><span class="mi-label" data-i18n="minigameTip"></span></span>
                 </div>
               </div>
             </div>
@@ -1297,6 +1309,29 @@ const LANGS = [
     .wb-color { width: 24px; height: 24px; border-radius: 50%; background: var(--c); border: 2px solid transparent; cursor: pointer; }
     .wb-color.active { border-color: #fff; box-shadow: 0 0 0 2px var(--accent); }
     .wb-toolbar .btn-ghost { min-height: 40px; }
+
+    /* ---- Tic-Tac-Toe mini-game (spec 0046) ---- */
+    .minigame {
+      position: absolute; bottom: 16px; left: 16px; z-index: 9; width: 230px; max-width: 70vw;
+      display: flex; flex-direction: column; gap: 10px; padding: 12px;
+      background: rgba(19,20,28,0.96); backdrop-filter: blur(12px);
+      border: 1px solid var(--border); border-radius: 14px; box-shadow: 0 12px 32px rgba(0,0,0,0.45);
+    }
+    .mg-head { display: flex; align-items: center; justify-content: space-between; }
+    .mg-title { font-weight: 700; font-size: 0.95rem; color: var(--text); }
+    .mg-status { margin: 0; font-size: 0.82rem; color: var(--muted); min-height: 1.1em; text-align: center; }
+    .mg-board { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+    .minigame :global(.mg-cell) {
+      aspect-ratio: 1; display: grid; place-items: center; cursor: pointer;
+      background: var(--bg); border: 1px solid var(--border); border-radius: 10px;
+      font-size: 1.7rem; line-height: 1; color: var(--text); transition: border-color 0.12s, background 0.12s;
+    }
+    .minigame :global(.mg-cell.x) { color: var(--accent); }
+    .minigame :global(.mg-cell.o) { color: #f59e0b; }
+    .minigame :global(.mg-cell.win) { background: var(--accent-dim); border-color: var(--accent); }
+    .minigame :global(.mg-cell:not(:disabled):hover) { border-color: var(--accent); }
+    .minigame :global(.mg-cell:disabled) { cursor: default; }
+    .mg-action { min-height: 40px; }
     .bookmark-pop-title { font-size: 0.82rem; color: var(--text); white-space: nowrap; }
     .bookmark-pop-error .bookmark-pop-title { color: var(--danger); }
     .bookmark-pop input { width: 200px; min-height: 40px; }
