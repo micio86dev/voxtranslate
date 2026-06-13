@@ -259,6 +259,18 @@ const LANGS = [
             <div id="mg-board" class="mg-board"></div>
             <button id="mg-action" class="btn-primary mg-action"></button>
           </div>
+          <!-- Trivia quiz mini-game (spec 0047): host-authoritative; state relays
+               over the same game channel as Tic-Tac-Toe. -->
+          <div id="quiz" class="minigame quiz hidden">
+            <div class="mg-head">
+              <span class="mg-title">Quiz</span>
+              <button id="quiz-close" class="btn-ghost icon-btn" data-i18n-title="closeTip"></button>
+            </div>
+            <p id="quiz-question" class="quiz-question"></p>
+            <div id="quiz-options" class="quiz-options"></div>
+            <p id="quiz-status" class="mg-status" role="status"></p>
+            <button id="quiz-action" class="btn-primary mg-action"></button>
+          </div>
         </div>
         <!-- Buttons are grouped so the bar wraps in tidy clusters (and keeps
              related controls together) instead of one long overflowing row. -->
@@ -299,6 +311,7 @@ const LANGS = [
                   <span class="mi"><button id="btn-participants" class="control-btn" data-i18n-title="participantsTip" aria-expanded="false" aria-controls="participants-panel"><span class="part-ico"></span><span id="part-badge" class="chat-badge" hidden>0</span></button><span class="mi-label" data-i18n="participantsTip"></span></span>
                   <span class="mi"><button id="btn-bookmark" class="control-btn" data-i18n-title="bookmarkTip" data-i18n-label="bookmarkTip" hidden></button><span class="mi-label" data-i18n="bookmarkTip"></span></span>
                   <span class="mi"><button id="btn-minigame" class="control-btn" data-i18n-title="minigameTip"></button><span class="mi-label" data-i18n="minigameTip"></span></span>
+                  <span class="mi"><button id="btn-quiz" class="control-btn" data-i18n-title="quizTip"></button><span class="mi-label" data-i18n="quizTip"></span></span>
                 </div>
               </div>
             </div>
@@ -1332,6 +1345,23 @@ const LANGS = [
     .minigame :global(.mg-cell:not(:disabled):hover) { border-color: var(--accent); }
     .minigame :global(.mg-cell:disabled) { cursor: default; }
     .mg-action { min-height: 40px; }
+
+    /* ---- Trivia quiz (spec 0047) — reuses the .minigame card ---- */
+    .quiz { width: 320px; left: 50%; transform: translateX(-50%); }
+    .quiz-question { margin: 0; font-size: 0.92rem; color: var(--text); line-height: 1.35; min-height: 1.2em; }
+    .quiz-options { display: flex; flex-direction: column; gap: 6px; }
+    .quiz :global(.quiz-option) {
+      width: 100%; text-align: left; min-height: 40px; padding: 8px 12px; cursor: pointer;
+      background: var(--bg); border: 1px solid var(--border); border-radius: 9px; color: var(--text);
+      font-size: 0.88rem; transition: border-color 0.12s, background 0.12s;
+    }
+    .quiz :global(.quiz-option:not(:disabled):hover) { border-color: var(--accent); }
+    .quiz :global(.quiz-option.chosen) { border-color: var(--accent); background: var(--accent-dim); }
+    .quiz :global(.quiz-option.correct) { border-color: var(--success); background: color-mix(in srgb, var(--success) 18%, var(--surface)); color: var(--text); }
+    .quiz :global(.quiz-option.wrong) { border-color: var(--danger); background: color-mix(in srgb, var(--danger) 16%, var(--surface)); }
+    .quiz :global(.quiz-option:disabled) { cursor: default; }
+    .quiz :global(.quiz-rank) { display: flex; justify-content: space-between; gap: 10px; font-size: 0.85rem; color: var(--text); padding: 1px 0; }
+    @media (max-width: 600px) { .quiz { width: 86vw; } }
     .bookmark-pop-title { font-size: 0.82rem; color: var(--text); white-space: nowrap; }
     .bookmark-pop-error .bookmark-pop-title { color: var(--danger); }
     .bookmark-pop input { width: 200px; min-height: 40px; }

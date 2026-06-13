@@ -15,6 +15,7 @@ import { initBookmarks, setBookmarkSession } from './bookmarks';
 import { initGlossary, onGlossaryActive, refreshGlossaryHome, setGlossaryRoom } from './glossary';
 import { Whiteboard } from './whiteboard';
 import { TicTacToe } from './tictactoe';
+import { Quiz } from './quiz';
 import { dismissLangToast, initLangDetect, onLanguageDetected } from './lang-detect';
 import {
   playCallEnterSound,
@@ -157,15 +158,14 @@ const whiteboard = new Whiteboard($<HTMLCanvasElement>('wb-canvas'), (op) =>
   ws?.send(JSON.stringify({ type: 'whiteboard', op })),
 );
 
-// Tic-Tac-Toe mini-game (spec 0046): state relays over the same WS.
+// Mini-games (spec 0046/0047): state relays over the same WS `game` channel.
+const gameName = (id: string): string =>
+  id === myId ? session?.name || t('you') : peerNames.get(id)?.name || '';
+const sendGame = (state: unknown): void => ws?.send(JSON.stringify({ type: 'game', state }));
 const minigameEl = $('minigame');
-const tictactoe = new TicTacToe(
-  minigameEl,
-  myId,
-  (id) => (id === myId ? session?.name || t('you') : peerNames.get(id)?.name || ''),
-  (state) => ws?.send(JSON.stringify({ type: 'game', state })),
-  t,
-);
+const tictactoe = new TicTacToe(minigameEl, myId, gameName, sendGame, t);
+const quizEl = $('quiz');
+const quiz = new Quiz(quizEl, myId, gameName, sendGame, t);
 let audioCapture: AudioCapture | null = null;
 let micMeter: MicMeter | null = null; // mic-button voice halo (input working)
 let chat: ChatManager | null = null;
@@ -730,9 +730,12 @@ async function handleServer(msg: any): Promise<void> {
     case 'whiteboard_snapshot': // the board state on join (late-joiner)
       whiteboard.applySnapshot(msg.ops);
       break;
-    case 'game': // a peer's mini-game state update (spec 0046)
+    case 'game': // a mini-game state update (spec 0046/0047)
     case 'game_snapshot': // the current game on join
-      tictactoe.applyRemote(msg.state);
+      // One `game` channel, routed by a discriminator: quiz states carry
+      // `game:'quiz'`; Tic-Tac-Toe states have none (the default).
+      if (msg.state && msg.state.game === 'quiz') quiz.applyRemote(msg.state);
+      else tictactoe.applyRemote(msg.state);
       break;
     case 'language_detected': {
       // A peer's "auto" was resolved by the server probe (confidence present)
@@ -2000,6 +2003,8 @@ function leaveCall(): void {
   whiteboard.reset();
   toggleMinigame(false); // hide the mini-game + drop local state (spec 0046)
   tictactoe.reset();
+  toggleQuiz(false); // hide the quiz + drop local state (spec 0047)
+  quiz.reset();
   dismissLangToast(); // drop a pending "Detected language" toast (spec 0012)
   callScreen.classList.add('hidden');
   homeScreen.classList.remove('hidden');
@@ -2758,6 +2763,15 @@ function toggleMinigame(open?: boolean): void {
 }
 $('btn-minigame').addEventListener('click', () => toggleMinigame());
 $('mg-close').addEventListener('click', () => toggleMinigame(false));
+
+// ---- Quiz wiring (spec 0047) ----
+$('btn-quiz').innerHTML = icon('quiz');
+function toggleQuiz(open?: boolean): void {
+  const show = open ?? quizEl.classList.contains('hidden');
+  quizEl.classList.toggle('hidden', !show);
+}
+$('btn-quiz').addEventListener('click', () => toggleQuiz());
+$('quiz-close').addEventListener('click', () => toggleQuiz(false));
 // "Change" in the detected-language toast (spec 0012): correct the server,
 // then restart capture so the next Deepgram stream opens in the new language.
 initLangDetect({
