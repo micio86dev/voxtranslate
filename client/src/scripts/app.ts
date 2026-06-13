@@ -165,7 +165,8 @@ const sendGame = (state: unknown): void => ws?.send(JSON.stringify({ type: 'game
 const minigameEl = $('minigame');
 const tictactoe = new TicTacToe(minigameEl, myId, gameName, sendGame, t);
 const quizEl = $('quiz');
-const quiz = new Quiz(quizEl, myId, gameName, sendGame, t);
+// Each client renders the quiz in its own language (spec 0048).
+const quiz = new Quiz(quizEl, myId, gameName, () => session?.lang || 'en', sendGame, t);
 let audioCapture: AudioCapture | null = null;
 let micMeter: MicMeter | null = null; // mic-button voice halo (input working)
 let chat: ChatManager | null = null;
