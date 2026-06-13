@@ -78,7 +78,8 @@ Each spec follows the same skeleton:
 | [0043](0043-low-latency-capture/spec.md) | Lower translation delay: 100 ms audio capture chunks | ✅ Shipped | 2026-06-13 | `115fa45` |
 | [0044](0044-env-video-budget/spec.md) | Video upload budget configurable via Vercel env | ✅ Shipped | 2026-06-13 | `d1d9633` |
 | [0045](0045-collaborative-whiteboard/spec.md) | Collaborative whiteboard (MVP) — issue #21 part 1 | ✅ Shipped | 2026-06-13 | `b5dea9c` |
-| [0046](0046-minigame-tictactoe/spec.md) | Mini-game: Tic-Tac-Toe (game-agnostic relay) — issue #21 part 2 | ✅ Shipped | 2026-06-13 | (this PR) |
+| [0046](0046-minigame-tictactoe/spec.md) | Mini-game: Tic-Tac-Toe (game-agnostic relay) — issue #21 part 2 | ✅ Shipped | 2026-06-13 | `0c74b68` |
+| [0047](0047-minigame-quiz/spec.md) | Mini-game: trivia quiz (built-in pack, host-authoritative) | ✅ Shipped | 2026-06-13 | (this PR) |
 
 > Numbers 0011–0015 were claimed by commit messages while the AI bundle shipped
 > without spec docs (and 0011/0012 were each reused twice); the assignments
