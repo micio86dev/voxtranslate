@@ -19,8 +19,14 @@ use tracing::Instrument;
 
 /// Initialise the global tracing subscriber. JSON when `LOG_FORMAT=json`, else the
 /// pretty formatter. Span fields (incl. `request_id`) are flattened into events so
-/// every line carries them.
+/// every line carries them. When `BETTERSTACK_SOURCE_TOKEN` is set, an additional
+/// layer ships the same lines to Better Stack Logs (spec 0063); it's `None` otherwise,
+/// so the default path is unchanged.
 pub fn init_tracing() {
+    use tracing_subscriber::layer::SubscriberExt as _;
+    use tracing_subscriber::util::SubscriberInitExt as _;
+    use tracing_subscriber::Layer as _;
+
     // `canonical=info` enables our canonical log lines (they use target "canonical",
     // which wouldn't match the `voxtranslate_server` target filter otherwise).
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
@@ -28,17 +34,25 @@ pub fn init_tracing() {
     let json = std::env::var("LOG_FORMAT")
         .map(|v| v.eq_ignore_ascii_case("json"))
         .unwrap_or(false);
-    if json {
-        tracing_subscriber::fmt()
+
+    // Stdout formatter: JSON or pretty. Boxed so both branches share one type and can be
+    // layered alongside the optional Better Stack shipping layer.
+    let stdout_layer = if json {
+        tracing_subscriber::fmt::layer()
             .json()
             .flatten_event(true)
             .with_current_span(true)
             .with_span_list(false)
-            .with_env_filter(filter)
-            .init();
+            .boxed()
     } else {
-        tracing_subscriber::fmt().with_env_filter(filter).init();
-    }
+        tracing_subscriber::fmt::layer().boxed()
+    };
+
+    tracing_subscriber::registry()
+        .with(filter)
+        .with(stdout_layer)
+        .with(crate::log_shipping::layer())
+        .init();
 }
 
 /// First hop of `x-forwarded-for` (or `x-real-ip`); `-` when absent. Behind

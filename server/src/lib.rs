@@ -19,6 +19,7 @@ pub mod email;
 pub mod files;
 pub mod glossary;
 pub mod groq;
+pub mod log_shipping;
 pub mod metrics;
 pub mod middleware;
 pub mod moderation;

@@ -53,16 +53,25 @@ them to `true` there. Optionally create a **status page** and an **escalation po
 ## 2. Log shipping (point 3 — follow-up, same platform)
 
 To keep it one tool, ship the server's structured JSON logs to **Better Stack Logs**
-instead of a separate aggregator:
+instead of a separate aggregator.
 
-1. Better Stack → **Logs → Connect source** → type **HTTP / Vector** → copy the source
-   token + ingest URL.
-2. On Railway, add a **log drain** (or a small Vector sidecar) pointing at that URL so
-   the canonical JSON lines (`target=canonical`, `request_id`, `status`, `latency_ms`)
-   land in Better Stack, giving retention + dashboards + windowed alerting on error
-   rate / p95 — the proper version of what the cron approximates.
+> **Railway has no native log drains** — there's no dashboard switch that forwards a
+> service's stdout to an external URL. So the canonical JSON lines must be shipped
+> **app-side**: the Rust server itself POSTs them to the Better Stack source.
 
-This part is dashboard/Railway setup (not an API call), so it isn't scripted here.
+1. Create a Better Stack **Logs source** (type **HTTP**, format **NDJSON**): in the
+   dashboard (Logs → Connect source) or via the Telemetry API
+   (`POST https://telemetry.betterstack.com/api/v1/sources`). Copy the **source token**
+   + **ingest URL**.
+2. In the server, an env-gated `tracing` layer forwards the canonical lines
+   (`target=canonical`, `request_id`, `status`, `latency_ms`) to that URL when
+   `BETTERSTACK_SOURCE_TOKEN` / `BETTERSTACK_INGEST_URL` are set on Railway — giving
+   retention + dashboards + windowed alerting on error rate / p95, the proper version
+   of what the cron approximates. *(Shipping the actual log path is its own spec; see
+   issue #69. Mind the free-tier volume cap before enabling it in prod.)*
+
+A forwarder service (Vector / Locomotive) is the alternative to app-side shipping, but
+on Railway it can't tap another service's stdout, so app-side is the simpler path.
 
 ## Notes
 
