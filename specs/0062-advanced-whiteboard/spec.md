@@ -2,12 +2,12 @@
 
 | | |
 |---|---|
-| **Status** | In progress |
+| **Status** | ✅ Shipped |
 | **Owner** | VoxTranslate |
 | **Created** | 2026-06-14 |
-| **Shipped** | — |
+| **Shipped** | 2026-06-14 |
 | **Version** | — |
-| **Commits** | — |
+| **Commits** | `82a7514` |
 | **Depends on** | [0045](../0045-collaborative-whiteboard/spec.md) |
 
 ## 1. Context & Problem
