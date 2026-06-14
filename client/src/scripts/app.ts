@@ -2803,7 +2803,11 @@ $('wb-close').innerHTML = icon('close', 16);
 function toggleWhiteboard(open?: boolean): void {
   const show = open ?? wbOverlay.classList.contains('hidden');
   wbOverlay.classList.toggle('hidden', !show);
-  if (show) whiteboard.resize(); // size the canvas to the stage now it's visible
+  // Size the canvas on the NEXT frame, not synchronously: right after un-hiding, the
+  // stage isn't always laid out on mobile (dynamic viewport / the ⋯ menu still
+  // collapsing), so clientWidth/Height can read 0 and resize() bails — leaving a blank
+  // 0×0 board until a window resize. One rAF guarantees a settled, non-zero stage. (#71)
+  if (show) requestAnimationFrame(() => whiteboard.resize());
 }
 function setWbTool(tool: 'pen' | 'eraser'): void {
   whiteboard.tool = tool;

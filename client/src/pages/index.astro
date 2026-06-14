@@ -848,7 +848,11 @@ const LANGS = [
        the stage. Videos use object-fit: cover so they fill each cell (proportions
        kept, minimal crop) — no black bars, centered, no scroll. JS picks the
        column/row tracks by peer count + orientation. */
-    .video-stage { position: relative; flex: 1; min-height: 0; min-width: 0; overflow: hidden; }
+    /* isolation: isolate confines every stage overlay — incl. the whiteboard's GPU-
+       composited <canvas> — into ONE stacking context that sits below the sibling
+       .more-menu (z-index 30), so the canvas can't punch through and hide the ⋯ menu
+       (issue #71 / spec 0054). Same hardware-overlay family as the focus-mode video. */
+    .video-stage { position: relative; flex: 1; min-height: 0; min-width: 0; overflow: hidden; isolation: isolate; }
     /* Composite-recording badge (spec 0010): REC ● + elapsed MM:SS over the grid. */
     .rec-badge {
       position: absolute; top: 10px; left: 10px; z-index: 5;
@@ -1020,6 +1024,9 @@ const LANGS = [
       width: 48px; height: 48px; border-radius: 50%; border: none; background: var(--surface-elevated);
       color: var(--text); font-size: 1.2rem; cursor: pointer; position: relative; transition: background 0.15s;
       display: grid; place-items: center; flex-shrink: 0;
+      /* manipulation = pan + pinch-zoom but NO double-tap zoom: rapid icon taps fire the
+         action instead of zooming the page (issue #71). Pinch-zoom (a11y) is preserved. */
+      touch-action: manipulation;
     }
     .control-btn:hover { background: var(--border); }
     /* Mic voice halo: --mic-level (0..1) is set per-frame by MicMeter. */
@@ -1390,12 +1397,12 @@ const LANGS = [
     .wb-tool {
       width: 40px; height: 40px; border-radius: 9px; cursor: pointer;
       background: var(--surface-2); border: 1px solid var(--border); color: var(--text);
-      display: grid; place-items: center;
+      display: grid; place-items: center; touch-action: manipulation;
     }
     .wb-tool.active { border-color: var(--accent); background: var(--accent-dim); }
     .wb-tool :global(.ico) { width: 20px; height: 20px; }
     .wb-colors { display: flex; gap: 6px; align-items: center; }
-    .wb-color { width: 24px; height: 24px; border-radius: 50%; background: var(--c); border: 2px solid transparent; cursor: pointer; }
+    .wb-color { width: 24px; height: 24px; border-radius: 50%; background: var(--c); border: 2px solid transparent; cursor: pointer; touch-action: manipulation; }
     .wb-color.active { border-color: #fff; box-shadow: 0 0 0 2px var(--accent); }
     .wb-toolbar .btn-ghost { min-height: 40px; }
 
