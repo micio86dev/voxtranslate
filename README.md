@@ -101,18 +101,33 @@ persistent WebSocket relay**, so the Rust server runs on Railway.
 1. New Project → Deploy from GitHub → this repo. Service **Root Directory = `server`**
    (uses `server/Dockerfile` + `server/railway.toml`, `/health` healthcheck).
 2. Variables: `DEEPGRAM_API_KEY`, `GROQ_API_KEY` (Railway injects `PORT`).
-3. Deploy, copy the public domain.
+   Optional ops: `LOG_FORMAT=json` (structured logs), and `BETTERSTACK_SOURCE_TOKEN`
+   (+ optional `BETTERSTACK_INGEST_URL`) to ship logs to Better Stack (spec 0063, off
+   unless set).
+3. Deploy, copy the public domain. Railway deploys are **manual**: `railway up` from `server/`.
 
 ### Frontend → Vercel
 1. Import this repo. **Root Directory = `client`** (Astro auto-detected).
 2. Env **`PUBLIC_WS_HOST`** = your Railway domain (host only, no protocol).
 3. Deploy.
 
-Pushes to `main` auto-deploy both.
+Pushes to `main` auto-deploy the **frontend**; the Railway backend is deployed manually.
 
 > **Production WebRTC:** this uses STUN only (~85% of NATs connect). For reliable
 > connectivity across symmetric NATs, add a TURN server to the `ICE_SERVERS` list in
 > `client/src/scripts/webrtc.ts`. Also restrict `CorsLayer::permissive()` to your origin.
+
+## Observability
+
+- **Uptime + alerts:** a GitHub Actions cron (`.github/workflows/uptime.yml`) pings the
+  server `/health` and the client, and scrapes `/metrics` to alert on **5xx error rate**
+  and **p95 latency** (job failure → owner email). Railway auto-restarts on crash.
+- **External monitors:** Better Stack uptime monitors, provisioned reproducibly from
+  [`infra/betterstack/`](infra/betterstack/) (`monitors.json` + `setup-monitors.mjs`).
+- **Metrics:** Prometheus `GET /metrics` (request totals by status class, latency
+  histogram, live room/peer gauges) — spec 0058.
+- **Logs:** canonical JSON logs with request IDs (spec 0050); optional app-side shipping
+  to Better Stack Logs (spec 0063) when `BETTERSTACK_SOURCE_TOKEN` is set.
 
 ## Testing
 
