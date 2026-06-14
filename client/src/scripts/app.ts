@@ -16,7 +16,7 @@ import { initGlossary, onGlossaryActive, refreshGlossaryHome, setGlossaryRoom } 
 import { Whiteboard } from './whiteboard';
 import { TicTacToe } from './tictactoe';
 import { Quiz } from './quiz';
-import { CallTimer, spokenDuration } from './timer';
+import { CallTimer, spokenDuration, formatClock } from './timer';
 import { dismissLangToast, initLangDetect, onLanguageDetected } from './lang-detect';
 import {
   playCallEnterSound,
@@ -235,6 +235,7 @@ const remoteStreams = new Map<string, MediaStream>();
 let activeSessionId: string | null = null;
 let transcriptEvents = 0; // speech finals + chat lines seen this call
 let callStartedAt = 0; // ms epoch of room_joined (0 = never actually joined)
+let sessionTimerId = 0; // 1s interval driving the session-duration chip (spec 0055)
 
 const peerNames = new Map<string, { name: string; lang: string; avatar?: string | null }>();
 const peerCamOff = new Map<string, boolean>(); // camera-off state from peer_muted
@@ -680,6 +681,7 @@ async function handleServer(msg: any): Promise<void> {
       // session_id present = the backend records a transcript of this call.
       activeSessionId = typeof msg.session_id === 'string' ? msg.session_id : null;
       callStartedAt = Date.now();
+      startSessionTimer(); // reveal + tick the session-duration chip (spec 0055)
       show($('transcript-indicator'), !!activeSessionId);
       setBookmarkSession(activeSessionId); // 🔖 button appears (authed users only)
       setGlossaryRoom(session?.room ?? null); // 📖 badge target (spec 0011)
@@ -1315,6 +1317,31 @@ function toggleParticipants(force?: boolean): void {
 
 partClose.addEventListener('click', () => toggleParticipants(false));
 
+// ---- Session header: live duration + participant count (spec 0055) ----------
+// Both chips stay hidden until join. The duration is THIS client's elapsed time
+// since room_joined; the count is set from updateParticipantsList (peerNames).
+const sessionTimerEl = $('session-timer');
+const partCountEl = $('part-count');
+sessionTimerEl.querySelector<HTMLElement>('.sb-ico')!.innerHTML = icon('timer', 13);
+partCountEl.querySelector<HTMLElement>('.pc-ico')!.innerHTML = icon('users', 13);
+
+function renderSessionElapsed(): void {
+  $('session-elapsed').textContent = formatClock((Date.now() - callStartedAt) / 1000);
+}
+function startSessionTimer(): void {
+  renderSessionElapsed(); // paint 00:00 immediately, don't wait a tick
+  show(sessionTimerEl, true);
+  show(partCountEl, true);
+  clearInterval(sessionTimerId);
+  sessionTimerId = window.setInterval(renderSessionElapsed, 1000);
+}
+function stopSessionTimer(): void {
+  clearInterval(sessionTimerId);
+  sessionTimerId = 0;
+  show(sessionTimerEl, false);
+  show(partCountEl, false);
+}
+
 function updateParticipantsList(): void {
   const myLang = session?.lang || 'en';
   const myName = session?.name || t('namePlaceholder');
@@ -1324,6 +1351,8 @@ function updateParticipantsList(): void {
   for (const [id, info] of peerNames) {
     items.push({ id, name: info.name, lang: info.lang, isSelf: false, micMuted: peerMicMuted.get(id) ?? false, handRaised: peerHandRaised.get(id) ?? false });
   }
+
+  $('part-count-n').textContent = String(items.length); // live header count (spec 0055)
 
   participantsList.innerHTML = '';
   for (const p of items) {
@@ -2073,6 +2102,7 @@ function leaveCall(): void {
   quiz.reset();
   toggleTimerPop(false); // close the manual timer popover (spec 0052)
   callTimer.reset(); // stop any running countdown + hide the badge
+  stopSessionTimer(); // stop + hide the session-duration / participant-count chips (spec 0055)
   dismissLangToast(); // drop a pending "Detected language" toast (spec 0012)
   callScreen.classList.add('hidden');
   homeScreen.classList.remove('hidden');
@@ -2934,6 +2964,18 @@ for (const em of REACTION_LIST) {
     sendEmoji(em);
   });
   emojiReact.appendChild(btn);
+}
+
+// Quick reactions in the control bar (spec 0055): a 4-emoji subset, one tap each,
+// no panel to open — reuse the rate-limited sendEmoji so bursts past 5/s drop.
+const quickReactions = $('quick-reactions');
+for (const em of REACTION_LIST.slice(0, 4)) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'react-btn';
+  btn.textContent = em;
+  btn.addEventListener('click', () => sendEmoji(em));
+  quickReactions.appendChild(btn);
 }
 
 for (const em of EMOJI_LIST) {

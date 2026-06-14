@@ -209,8 +209,16 @@ const LANGS = [
         <header class="call-header">
           <button id="call-room" class="room-badge mono" data-i18n-title="copy"></button>
           <span id="call-vis" class="vis-badge"></span>
+          <!-- Session duration (spec 0055): ticks every second from room_joined. -->
+          <span id="session-timer" class="session-badge hidden" role="timer" data-i18n-title="sessionDurationTip">
+            <span class="sb-ico" aria-hidden="true"></span><span id="session-elapsed">00:00</span>
+          </span>
           <span id="transcript-indicator" class="transcript-indicator hidden" role="img" data-i18n-title="transcriptRecording"></span>
           <button id="glossary-badge" class="glossary-badge hidden" data-i18n-title="glossaryActiveTip"></button>
+          <!-- Live participant count (spec 0055): self + peers, top-right. -->
+          <span id="part-count" class="part-count-badge hidden" data-i18n-title="participantsTip">
+            <span class="pc-ico" aria-hidden="true"></span><span id="part-count-n">1</span>
+          </span>
           <span id="call-balance" class="call-balance hidden"></span>
         </header>
         <div id="low-banner" class="low-banner hidden">
@@ -306,6 +314,9 @@ const LANGS = [
             <button id="btn-subtitle" class="control-btn" data-i18n-title="subtitleTip"></button>
             <button id="btn-chat" class="control-btn" data-i18n-title="chatTip" aria-expanded="false" aria-controls="chat-panel"><span class="chat-ico"></span><span id="chat-badge" class="chat-badge" hidden>0</span></button>
           </div>
+          <!-- Quick reactions (spec 0055): one-tap emoji, no menu, rate-limited 5/s.
+               Buttons are injected in app.ts so the set stays in one place. -->
+          <div id="quick-reactions" class="ctl-group quick-reactions" role="group" data-i18n-label="quickReactTip"></div>
           <div class="ctl-group more-group">
             <button id="btn-more" class="control-btn" data-i18n-title="moreTip" data-i18n-label="moreTip" aria-haspopup="true" aria-expanded="false" aria-controls="more-menu"></button>
             <div id="more-menu" class="more-menu hidden" role="menu" data-i18n-label="moreTip">
@@ -622,6 +633,16 @@ const LANGS = [
       font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted);
       border: 1px solid var(--border); border-radius: 999px; padding: 2px 8px;
     }
+    /* Session-duration + participant-count chips (spec 0055): unobtrusive header pills,
+       top-left / top-right, so they never sit over faces like the stage badges do. */
+    .session-badge, .part-count-badge {
+      display: inline-flex; align-items: center; gap: 5px;
+      font-size: 0.72rem; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--muted);
+      border: 1px solid var(--border); border-radius: 999px; padding: 2px 9px;
+    }
+    .part-count-badge { margin-left: auto; } /* anchor to the top-right edge */
+    .session-badge .sb-ico, .part-count-badge .pc-ico { display: inline-flex; color: var(--accent); }
+    .session-badge .sb-ico :global(.ico), .part-count-badge .pc-ico :global(.ico) { width: 13px; height: 13px; }
 
     /* ---------- Home ---------- */
     .home-header { text-align: center; padding: 28px 18px 8px; }
@@ -1034,6 +1055,17 @@ const LANGS = [
     .control-btn.active-danger { background: var(--danger); }
     .control-btn.active-success { background: var(--success); }
     .control-btn.leave { background: var(--danger); }
+    /* Quick-reaction buttons (spec 0055): compact emoji chips, tighter than the round
+       controls. touch-action: manipulation so rapid taps fire instead of zooming (#71). */
+    .quick-reactions { gap: 4px; }
+    .react-btn {
+      width: 40px; height: 40px; border-radius: 50%; border: none; background: var(--surface-elevated);
+      color: var(--text); font-size: 1.15rem; line-height: 1; cursor: pointer; padding: 0;
+      display: grid; place-items: center; flex-shrink: 0; touch-action: manipulation;
+      transition: background 0.15s, transform 0.1s;
+    }
+    .react-btn:hover { background: var(--border); }
+    .react-btn:active { transform: scale(0.86); } /* tactile pop on each tap */
     /* Overflow "More" menu (spec 0023): collapse secondary controls behind ⋯. */
     .more-group { position: relative; }
     .control-btn.has-active::after {
