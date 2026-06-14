@@ -214,6 +214,9 @@ let ttsOn = true; // "translated voice" mode: hear the translation, mute foreign
 let subtitlesOn = true; // show subtitle overlays on video cells
 let handRaised = false;
 let pipWindow: Window | null = null;
+// PiP-window control buttons (spec 0057): live in the floating window, driven by
+// the same toggle fns as the main bar; null whenever PiP is closed.
+let pipCtl: { mic: HTMLButtonElement; cam: HTMLButtonElement; share: HTMLButtonElement; hand: HTMLButtonElement; end: HTMLButtonElement } | null = null;
 let manualClose = false;
 let viewMode: 'grid' | 'speaker' = 'grid';
 let pinnedPeerId: string | null = null;
@@ -1479,6 +1482,7 @@ function setControlState(): void {
   btnMore.innerHTML = icon('more');
   // Dot on ⋯ when a collapsed action is active, so its state isn't hidden.
   btnMore.classList.toggle('has-active', ttsOn || isSharingScreen || isRecording || handRaised);
+  syncPipControls(); // keep the PiP-window bar in lock-step with the main bar (spec 0057)
 }
 
 // Overflow "More" menu (spec 0023): collapse secondary controls behind ⋯.
@@ -1502,14 +1506,16 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && !moreMenu.classList.contains('hidden')) setMoreOpen(false);
 });
 
-btnMic.addEventListener('click', () => {
+// Named so the PiP-window mic button can drive the exact same path (spec 0057).
+function toggleMicrophone(): void {
   micOn = !micOn;
   mesh?.setAudioEnabled(micOn);
   audioCapture?.setMuted(!micOn);
   setAudioMuted(myId, !micOn);
   ws?.send(JSON.stringify({ type: 'mute_audio', muted: !micOn }));
   setControlState();
-});
+}
+btnMic.addEventListener('click', () => toggleMicrophone());
 
 btnCam.addEventListener('click', () => {
   void toggleCamera();
@@ -1683,7 +1689,7 @@ btnSubtitle.addEventListener('click', () => {
   setControlState();
 });
 
-btnHand.addEventListener('click', () => {
+function toggleHand(): void {
   handRaised = !handRaised;
   ws?.send(JSON.stringify({ type: 'hand_raise', raised: handRaised }));
   if (handRaised) playHandRaiseSound(); // confirmation cue for the local user
@@ -1691,7 +1697,8 @@ btnHand.addEventListener('click', () => {
   setHandIndicator(myId, handRaised);
   updateParticipantsList();
   setControlState();
-});
+}
+btnHand.addEventListener('click', () => toggleHand());
 
 btnFullscreen.addEventListener('click', () => {
   if (!document.fullscreenElement) {
@@ -1705,6 +1712,7 @@ btnPip.addEventListener('click', () => {
   if (pipWindow && !pipWindow.closed) {
     pipWindow.close();
     pipWindow = null;
+    pipCtl = null;
     return;
   }
   if (!('documentPictureInPicture' in window)) return;
@@ -1764,9 +1772,72 @@ btnPip.addEventListener('click', () => {
           }
         });
       }
-      w.addEventListener('pagehide', () => { pipWindow = null; });
+      buildPipControls(w); // spec 0057: live controls inside the floating window
+      syncPipControls();
+      w.addEventListener('pagehide', () => { pipWindow = null; pipCtl = null; });
     })
     .catch(() => {});
+});
+
+// Build the in-PiP control bar (spec 0057). Buttons live in the PiP document but
+// their listeners are closures here, so they drive the main call state directly.
+function buildPipControls(w: Window): void {
+  const bar = w.document.createElement('div');
+  bar.className = 'pip-controls';
+  const mk = (title: string, onClick: () => void, danger = false): HTMLButtonElement => {
+    const b = w.document.createElement('button');
+    b.type = 'button';
+    b.className = 'pip-ctl-btn' + (danger ? ' danger' : '');
+    b.title = title;
+    b.setAttribute('aria-label', title);
+    b.addEventListener('click', onClick);
+    bar.appendChild(b);
+    return b;
+  };
+  const mic = mk(t('muteTip'), () => toggleMicrophone());
+  const cam = mk(t('camTip'), () => void toggleCamera());
+  const share = mk(t('screenShareTip'), () => toggleScreenShare());
+  const hand = mk(t('handTip'), () => toggleHand());
+  const end = mk(t('leaveTip'), () => leaveCall(), true); // leaveCall() also closes PiP
+  pipCtl = { mic, cam, share, hand, end };
+  w.document.body.appendChild(bar);
+}
+
+// Mirror live call state onto the PiP buttons. Called from setControlState() so the
+// PiP bar can never drift from the main bar, and once on open.
+function syncPipControls(): void {
+  if (!pipCtl || !pipWindow || pipWindow.closed) return;
+  pipCtl.mic.innerHTML = icon(micOn ? 'mic' : 'mic-off');
+  pipCtl.mic.classList.toggle('active-danger', !micOn);
+  pipCtl.cam.innerHTML = icon(camOn ? 'video' : 'video-off');
+  pipCtl.cam.classList.toggle('active-danger', !camOn);
+  pipCtl.share.innerHTML = icon('monitor');
+  pipCtl.share.classList.toggle('active-success', isSharingScreen);
+  pipCtl.hand.innerHTML = icon(handRaised ? 'hand-raised' : 'hand');
+  pipCtl.hand.classList.toggle('active-success', handRaised);
+  pipCtl.end.innerHTML = icon('leave');
+}
+
+// PiP discoverability (spec 0057): Document PiP can't auto-open (it needs a user
+// gesture), so rather than surprising anyone we hint — ONCE, ever — that the call can
+// be popped out to stay visible, shown when they return from another tab mid-call.
+let pipTabAway = false;
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') {
+    if (callStartedAt > 0) pipTabAway = true;
+    return;
+  }
+  if (
+    pipTabAway &&
+    callStartedAt > 0 &&
+    'documentPictureInPicture' in window &&
+    !(pipWindow && !pipWindow.closed) &&
+    !localStorage.getItem('pipHintSeen')
+  ) {
+    localStorage.setItem('pipHintSeen', '1');
+    showNotif(t('pipHint'));
+  }
+  pipTabAway = false;
 });
 
 btnView.addEventListener('click', () => {
@@ -1777,13 +1848,11 @@ btnView.addEventListener('click', () => {
   updatePinButtons();
 });
 
-btnShare.addEventListener('click', () => {
-  if (isSharingScreen) {
-    stopScreenShare();
-  } else {
-    startScreenShare();
-  }
-});
+function toggleScreenShare(): void {
+  if (isSharingScreen) stopScreenShare();
+  else startScreenShare();
+}
+btnShare.addEventListener('click', () => toggleScreenShare());
 
 async function startScreenShare(): Promise<void> {
   // Independent of the camera: works whether you're camera-on, camera-off, or
@@ -2064,6 +2133,7 @@ function leaveCall(): void {
   if (isRecording) void stopRecording();
   mesh?.destroy();
   if (pipWindow && !pipWindow.closed) { pipWindow.close(); pipWindow = null; }
+  pipCtl = null;
   if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
   if (isSharingScreen) stopScreenShare();
   if (screenPip) { screenPip.stop(); screenPip = null; }
