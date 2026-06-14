@@ -68,16 +68,26 @@ pub async fn ice(State(state): State<AppState>, headers: HeaderMap) -> Response 
         "urls": ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"]
     })];
     if let Some(turn) = state.config.turn.as_ref() {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
-        let username = format!("{}:vox", now + turn.ttl_secs);
-        let mut mac = Hmac::<Sha1>::new_from_slice(turn.secret.as_bytes())
-            .expect("HMAC accepts a key of any length");
-        mac.update(username.as_bytes());
-        let credential =
-            base64::engine::general_purpose::STANDARD.encode(mac.finalize().into_bytes());
+        let (username, credential) = match &turn.cred {
+            // coturn REST: HMAC-sign a short expiry with the shared secret (spec 0026).
+            crate::config::TurnCred::Secret { secret, ttl_secs } => {
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+                let username = format!("{}:vox", now + ttl_secs);
+                let mut mac = Hmac::<Sha1>::new_from_slice(secret.as_bytes())
+                    .expect("HMAC accepts a key of any length");
+                mac.update(username.as_bytes());
+                let credential =
+                    base64::engine::general_purpose::STANDARD.encode(mac.finalize().into_bytes());
+                (username, credential)
+            }
+            // Managed relay: pass the static username/password straight through (spec 0059).
+            crate::config::TurnCred::Static { username, password } => {
+                (username.clone(), password.clone())
+            }
+        };
         servers.push(serde_json::json!({
             "urls": turn.urls,
             "username": username,
