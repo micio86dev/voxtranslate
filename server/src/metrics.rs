@@ -27,10 +27,18 @@ static LAT_BUCKETS: [AtomicU64; 11] = [const { AtomicU64::new(0) }; 11];
 /// already has the final status + wall latency, so there's no extra timing cost.
 pub fn record_request(status: u16, latency_ms: u64) {
     match status / 100 {
-        2 => { REQ_2XX.fetch_add(1, Ordering::Relaxed); }
-        3 => { REQ_3XX.fetch_add(1, Ordering::Relaxed); }
-        4 => { REQ_4XX.fetch_add(1, Ordering::Relaxed); }
-        5 => { REQ_5XX.fetch_add(1, Ordering::Relaxed); }
+        2 => {
+            REQ_2XX.fetch_add(1, Ordering::Relaxed);
+        }
+        3 => {
+            REQ_3XX.fetch_add(1, Ordering::Relaxed);
+        }
+        4 => {
+            REQ_4XX.fetch_add(1, Ordering::Relaxed);
+        }
+        5 => {
+            REQ_5XX.fetch_add(1, Ordering::Relaxed);
+        }
         _ => {} // 1xx / unknown: count toward latency only, not a status class
     }
     LAT_SUM_MS.fetch_add(latency_ms, Ordering::Relaxed);
@@ -73,13 +81,22 @@ pub fn render(active_rooms: u64, active_peers: u64) -> String {
 fn render_from(s: &Snapshot, active_rooms: u64, active_peers: u64) -> String {
     let mut o = String::with_capacity(1024);
 
-    let _ = writeln!(o, "# HELP voxtranslate_http_requests_total Total HTTP requests by status class.");
+    let _ = writeln!(
+        o,
+        "# HELP voxtranslate_http_requests_total Total HTTP requests by status class."
+    );
     let _ = writeln!(o, "# TYPE voxtranslate_http_requests_total counter");
     for (class, n) in s.req {
-        let _ = writeln!(o, "voxtranslate_http_requests_total{{status_class=\"{class}\"}} {n}");
+        let _ = writeln!(
+            o,
+            "voxtranslate_http_requests_total{{status_class=\"{class}\"}} {n}"
+        );
     }
 
-    let _ = writeln!(o, "# HELP voxtranslate_http_request_duration_ms Request latency in milliseconds.");
+    let _ = writeln!(
+        o,
+        "# HELP voxtranslate_http_request_duration_ms Request latency in milliseconds."
+    );
     let _ = writeln!(o, "# TYPE voxtranslate_http_request_duration_ms histogram");
     for (i, le) in BUCKETS_MS.iter().enumerate() {
         let _ = writeln!(
@@ -93,14 +110,28 @@ fn render_from(s: &Snapshot, active_rooms: u64, active_peers: u64) -> String {
         "voxtranslate_http_request_duration_ms_bucket{{le=\"+Inf\"}} {}",
         s.lat_count
     );
-    let _ = writeln!(o, "voxtranslate_http_request_duration_ms_sum {}", s.lat_sum_ms);
-    let _ = writeln!(o, "voxtranslate_http_request_duration_ms_count {}", s.lat_count);
+    let _ = writeln!(
+        o,
+        "voxtranslate_http_request_duration_ms_sum {}",
+        s.lat_sum_ms
+    );
+    let _ = writeln!(
+        o,
+        "voxtranslate_http_request_duration_ms_count {}",
+        s.lat_count
+    );
 
-    let _ = writeln!(o, "# HELP voxtranslate_active_rooms Rooms with at least one peer on this instance.");
+    let _ = writeln!(
+        o,
+        "# HELP voxtranslate_active_rooms Rooms with at least one peer on this instance."
+    );
     let _ = writeln!(o, "# TYPE voxtranslate_active_rooms gauge");
     let _ = writeln!(o, "voxtranslate_active_rooms {active_rooms}");
 
-    let _ = writeln!(o, "# HELP voxtranslate_active_peers Connected peers across all rooms on this instance.");
+    let _ = writeln!(
+        o,
+        "# HELP voxtranslate_active_peers Connected peers across all rooms on this instance."
+    );
     let _ = writeln!(o, "# TYPE voxtranslate_active_peers gauge");
     let _ = writeln!(o, "voxtranslate_active_peers {active_peers}");
 
