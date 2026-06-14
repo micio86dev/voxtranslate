@@ -319,7 +319,10 @@ const LANGS = [
           <div id="quick-reactions" class="ctl-group quick-reactions" role="group" data-i18n-label="quickReactTip"></div>
           <div class="ctl-group more-group">
             <button id="btn-more" class="control-btn" data-i18n-title="moreTip" data-i18n-label="moreTip" aria-haspopup="true" aria-expanded="false" aria-controls="more-menu"></button>
-            <div id="more-menu" class="more-menu hidden" role="menu" data-i18n-label="moreTip">
+            <!-- role="group" (not "menu"): a labeled disclosure of independent toggle/action
+                 buttons, NOT an arrow-key ARIA menu — matches real behaviour + clears axe
+                 aria-required-children (spec 0056). -->
+            <div id="more-menu" class="more-menu hidden" role="group" data-i18n-label="moreTip">
               <div class="mm-group">
                 <span class="mm-head" data-i18n="moreGroupTranslation"></span>
                 <div class="mm-grid">
