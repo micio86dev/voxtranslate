@@ -31,6 +31,7 @@ import {
 } from './sfx';
 import { RateLimiter } from './reaction-rate-limit';
 import { VirtualBackground } from './virtual-background';
+import { ScreenSharePip } from './screenshare-pip';
 import { CompositeRecorder } from './recording/composite-recorder';
 import { formatElapsed, isRecordingSupported, recordingFilename } from './recording/utils';
 import type { ParticipantSource } from './recording/types';
@@ -219,6 +220,9 @@ let pinnedPeerId: string | null = null;
 let lastSpeakerId: string | null = null;
 let isSharingScreen = false;
 let screenStream: MediaStream | null = null;
+// Compositor that draws the camera as a PiP overlay onto the shared screen and
+// captureStream()s a single composited track (spec 0053). Null when not sharing.
+let screenPip: ScreenSharePip | null = null;
 // Composite recording (spec 0010): one WebM with every participant tiled +
 // mixed audio. `remoteStreams` is the live source registry the recorder reads
 // from (streams weren't stored anywhere before).
@@ -1494,10 +1498,16 @@ async function toggleCamera(): Promise<void> {
     } else {
       disableCamera();
     }
-    setCameraOff(myId, !camOn);
-    // While screen-sharing the recorder's self tile shows the screen regardless.
-    if (!isSharingScreen) recorder?.setVideoOff(myId, !camOn);
-    ws?.send(JSON.stringify({ type: 'mute_video', muted: !camOn }));
+    // While screen-sharing the composite (screen + camera PiP) is always the
+    // outgoing track, so toggling the camera must NOT hide our tile or tell peers
+    // to hide video — the PiP just appears/disappears inside the composite (handled
+    // by setOutgoingVideo / disableCamera). Outside a share, reflect camera-off on
+    // our tile, the recorder, and peers as usual (spec 0053).
+    if (!isSharingScreen) {
+      setCameraOff(myId, !camOn);
+      recorder?.setVideoOff(myId, !camOn);
+      ws?.send(JSON.stringify({ type: 'mute_video', muted: !camOn }));
+    }
   } finally {
     videoBusy = false;
     setControlState();
@@ -1549,7 +1559,10 @@ function disableCamera(): void {
       localStream.removeTrack(v);
     }
   }
-  if (!isSharingScreen) mesh?.replaceVideoTrack(null);
+  // During a share the screen keeps flowing on the sender; just drop the camera
+  // PiP from the composite (spec 0053). Otherwise clear the peers' video.
+  if (isSharingScreen) screenPip?.setCamera(null);
+  else mesh?.replaceVideoTrack(null);
 }
 
 // Re-open the camera and route its fresh track (raw or blurred) to peers + our
@@ -1589,11 +1602,15 @@ async function setOutgoingVideo(raw: MediaStreamTrack): Promise<void> {
   }
   localStream.addTrack(outgoing);
   // While screen-sharing the track waits in localStream until sharing stops
-  // (stopScreenShare restores it via replaceVideoTrack); don't disturb the screen.
+  // (stopScreenShare restores it via replaceVideoTrack); don't disturb the screen
+  // sender — instead route the (raw or blurred) track into the camera PiP so the
+  // overlay reflects the camera turning on / blur toggling mid-share (spec 0053).
   if (!isSharingScreen) {
     mesh?.replaceVideoTrack(outgoing); // swap the video sender (transceiver-backed)
     setSelfVideo(localStream);
     recorder?.updateStream(myId, localStream);
+  } else {
+    screenPip?.setCamera(outgoing);
   }
 }
 
@@ -1748,17 +1765,23 @@ async function startScreenShare(): Promise<void> {
     const s = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
     screenStream = s;
     isSharingScreen = true;
-    // Send the screen on every peer's video sender (replaces the camera feed,
-    // mic audio is untouched). The always-present video transceiver means this
-    // reaches peers even when we joined without a camera.
-    mesh.replaceVideoTrack(s.getVideoTracks()[0] ?? null);
+    // Composite the camera as a PiP overlay onto the screen (spec 0053) and send
+    // that single track on every peer's video sender (mic audio untouched). With
+    // the camera off / audio-only it's just the screen — no PiP. The always-present
+    // video transceiver means this reaches peers even when we joined without a
+    // camera, and replaceTrack keeps the mesh free of renegotiation.
+    screenPip = new ScreenSharePip(s);
+    screenPip.setCamera(camOn ? (localStream?.getVideoTracks()[0] ?? null) : null);
+    const composite = screenPip.start();
+    mesh.replaceVideoTrack(composite.getVideoTracks()[0] ?? null);
     // Peers may have us flagged camera-off (their tile would hide the video);
     // tell them to reveal it so the shared screen actually shows.
     ws?.send(JSON.stringify({ type: 'mute_video', muted: false }));
-    // Our own tile + recorder show the screen, regardless of camera state.
-    setSelfVideo(s);
+    // Our own tile + recorder show the composite (screen + our PiP) — exactly what
+    // peers see — regardless of camera state.
+    setSelfVideo(composite);
     setCameraOff(myId, false);
-    recorder?.updateStream(myId, s);
+    recorder?.updateStream(myId, composite);
     recorder?.setVideoOff(myId, false);
     // Show indicator on self cell; mark it sharing so the self-view mirror is
     // dropped (a flipped screen share would render its text backwards).
@@ -1779,8 +1802,12 @@ async function startScreenShare(): Promise<void> {
     ws?.send(JSON.stringify({ type: 'screen_share', active: true })); // tell peers (spec 0033)
     setControlState();
   } catch {
-    // User cancelled the picker — roll back the optimistic flag.
+    // User cancelled the picker (or a rare post-acquire failure) — roll back the
+    // optimistic state and release anything we already grabbed.
     isSharingScreen = false;
+    screenPip?.stop();
+    screenPip = null;
+    screenStream?.getTracks().forEach((t) => t.stop());
     screenStream = null;
   }
 }
@@ -1788,6 +1815,10 @@ async function startScreenShare(): Promise<void> {
 function stopScreenShare(): void {
   if (!isSharingScreen || !mesh) return;
   isSharingScreen = false;
+  // Tear down the compositor (RAF loop + canvas track) before releasing the
+  // screen so no draw loop is left running (spec 0053).
+  screenPip?.stop();
+  screenPip = null;
   if (screenStream) {
     screenStream.getTracks().forEach((t) => t.stop());
     screenStream = null;
@@ -1847,7 +1878,9 @@ function participantSource(peerId: string, stream: MediaStream | null): Particip
 
 /** Current roster for the compositor: self first, then peers in join order. */
 function recorderSources(): ParticipantSource[] {
-  const sources = [participantSource(myId, screenStream ?? localStream)];
+  // During a share the self source is the composite (screen + camera PiP), so a
+  // recording started mid-share captures exactly what peers see (spec 0053).
+  const sources = [participantSource(myId, screenPip?.stream ?? localStream)];
   for (const [peerId] of peerNames) {
     sources.push(participantSource(peerId, remoteStreams.get(peerId) ?? null));
   }
@@ -2004,6 +2037,7 @@ function leaveCall(): void {
   if (pipWindow && !pipWindow.closed) { pipWindow.close(); pipWindow = null; }
   if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
   if (isSharingScreen) stopScreenShare();
+  if (screenPip) { screenPip.stop(); screenPip = null; }
   if (screenStream) { screenStream.getTracks().forEach((t) => t.stop()); screenStream = null; }
   if (ws) {
     ws.close(1000, 'leave');
