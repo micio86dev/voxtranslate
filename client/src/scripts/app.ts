@@ -1325,9 +1325,11 @@ partClose.addEventListener('click', () => toggleParticipants(false));
 // since room_joined; the count is set from updateParticipantsList (peerNames).
 const sessionTimerEl = $('session-timer');
 const partCountEl = $('part-count');
+const partAvatarEl = $('part-avatar'); // your initial + gradient in the on-video badge (spec 0061)
 const headerClock = $('header-clock'); // live wall-clock (spec 0060 / #94)
+const callInfo = $('call-info'); // ⓘ room-info disclosure (spec 0061 / #98)
 sessionTimerEl.querySelector<HTMLElement>('.sb-ico')!.innerHTML = icon('timer', 13);
-partCountEl.querySelector<HTMLElement>('.pc-ico')!.innerHTML = icon('users', 13);
+callInfo.innerHTML = icon('info', 16);
 
 // One 1s tick drives both the wall-clock (HH:MM, locale-aware) and the elapsed
 // session duration (MM:SS) — re-rendering HH:MM each second is cheap and keeps them
@@ -1338,8 +1340,10 @@ function renderHeaderTimes(): void {
 }
 function startSessionTimer(): void {
   renderHeaderTimes(); // paint immediately, don't wait a tick
+  // The on-video clock, ⓘ info button and participant badge appear on join; the
+  // session-duration itself lives permanently inside the (closed) info popover. (spec 0061)
   show(headerClock, true);
-  show(sessionTimerEl, true);
+  show(callInfo, true);
   show(partCountEl, true);
   clearInterval(sessionTimerId);
   sessionTimerId = window.setInterval(renderHeaderTimes, 1000);
@@ -1348,9 +1352,36 @@ function stopSessionTimer(): void {
   clearInterval(sessionTimerId);
   sessionTimerId = 0;
   show(headerClock, false);
-  show(sessionTimerEl, false);
+  show(callInfo, false);
   show(partCountEl, false);
+  toggleInfoPop(false); // collapse the room-info popover on leave
 }
+
+// ---- Room-info popover (spec 0061 / #98) -----------------------------------
+// The ⓘ button in the on-video meta cluster discloses room visibility, session
+// duration and balance — moved off the always-on header into this less-intrusive
+// place. Mirrors the timer popover: an outside click or Escape closes it.
+const callInfoPop = $('call-info-pop');
+function toggleInfoPop(open?: boolean): void {
+  const visible = open ?? callInfoPop.classList.contains('hidden');
+  callInfoPop.classList.toggle('hidden', !visible);
+  callInfo.setAttribute('aria-expanded', String(visible));
+}
+callInfo.addEventListener('click', (e) => {
+  e.stopPropagation(); // don't let the just-opened popover see this as an outside click
+  toggleInfoPop();
+});
+document.addEventListener('click', (e) => {
+  if (
+    !callInfoPop.classList.contains('hidden') &&
+    !callInfoPop.contains(e.target as Node) &&
+    !callInfo.contains(e.target as Node)
+  )
+    toggleInfoPop(false);
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !callInfoPop.classList.contains('hidden')) toggleInfoPop(false);
+});
 
 function updateParticipantsList(): void {
   const myLang = session?.lang || 'en';
@@ -1362,7 +1393,10 @@ function updateParticipantsList(): void {
     items.push({ id, name: info.name, lang: info.lang, isSelf: false, micMuted: peerMicMuted.get(id) ?? false, handRaised: peerHandRaised.get(id) ?? false });
   }
 
-  $('part-count-n').textContent = String(items.length); // live header count (spec 0055)
+  $('part-count-n').textContent = String(items.length); // live count (spec 0055)
+  // Your initial + gradient in the on-video participant badge (spec 0061 / #98).
+  partAvatarEl.textContent = myName.slice(0, 1).toUpperCase();
+  partAvatarEl.style.background = avatarGradient(myName);
 
   participantsList.innerHTML = '';
   for (const p of items) {
@@ -2262,13 +2296,15 @@ function stopTts(): void {
 }
 if (window.speechSynthesis) speechSynthesis.getVoices();
 
-// Copy room code from the call header.
+// Copy room code from the on-video meta cluster. Brief "Copied" feedback swaps the
+// room badge's OWN text (spec 0061: #call-vis moved into the info popover).
 callRoom.addEventListener('click', async () => {
+  const code = callRoom.textContent?.trim() || '';
+  if (!code) return;
   try {
-    await navigator.clipboard.writeText(callRoom.textContent?.trim() || '');
-    const prev = callVis.textContent;
-    callVis.textContent = t('copied');
-    setTimeout(() => (callVis.textContent = prev), 1200);
+    await navigator.clipboard.writeText(code);
+    callRoom.textContent = t('copied');
+    setTimeout(() => (callRoom.textContent = code), 1200);
   } catch {
     /* ignore */
   }
