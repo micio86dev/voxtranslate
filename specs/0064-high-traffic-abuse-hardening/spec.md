@@ -2,12 +2,12 @@
 
 | | |
 |---|---|
-| **Status** | In progress |
+| **Status** | ✅ Shipped |
 | **Owner** | VoxTranslate |
 | **Created** | 2026-06-14 |
-| **Shipped** | — |
+| **Shipped** | 2026-06-14 |
 | **Version** | — |
-| **Commits** | — |
+| **Commits** | `da1c994` |
 | **Depends on** | [0028](../0028-security-hardening/spec.md), [0029](../0029-security-followups/spec.md) |
 
 ## 1. Context & Problem
