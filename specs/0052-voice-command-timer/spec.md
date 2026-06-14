@@ -2,12 +2,12 @@
 
 | | |
 |---|---|
-| **Status** | Draft |
+| **Status** | ✅ Shipped |
 | **Owner** | VoxTranslate |
 | **Created** | 2026-06-14 |
-| **Shipped** | — |
+| **Shipped** | 2026-06-14 |
 | **Version** | — |
-| **Commits** | (this PR) |
+| **Commits** | `6c91ff4` |
 | **Depends on** | [0001](../0001-voice-translation-rooms/spec.md) (streaming STT), [0042](../0042-tts-voice-selection/spec.md) (spoken confirmation), [0023](../0023-call-toolbar-overflow-menu/spec.md) (⋯ menu) |
 
 ## 1. Context & Problem
