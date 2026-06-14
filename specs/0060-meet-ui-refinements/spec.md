@@ -2,12 +2,12 @@
 
 | | |
 |---|---|
-| **Status** | In progress |
+| **Status** | ✅ Shipped |
 | **Owner** | VoxTranslate |
 | **Created** | 2026-06-14 |
-| **Shipped** | — |
+| **Shipped** | 2026-06-14 |
 | **Version** | — |
-| **Commits** | `<pending>` |
+| **Commits** | `54d7dd6` |
 | **Depends on** | [0055](../0055-meet-like-session-ui/spec.md), [0023](../0023-call-toolbar-overflow-menu/spec.md) |
 
 ## 1. Context & Problem
