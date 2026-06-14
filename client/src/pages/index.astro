@@ -1069,6 +1069,27 @@ const LANGS = [
     }
     .react-btn:hover { background: var(--border); }
     .react-btn:active { transform: scale(0.86); } /* tactile pop on each tap */
+    /* PiP-window controls (spec 0057). :global because these buttons are created in the
+       PiP document and carry no Astro scope attribute — scoped rules wouldn't match. The
+       PiP window copies our stylesheets, so these rules travel with it. */
+    :global(.pip-controls) {
+      position: fixed; left: 0; right: 0; bottom: 0; z-index: 2147483647;
+      display: flex; justify-content: center; align-items: center; gap: 10px;
+      padding: 8px 8px 10px; opacity: 0.5; transition: opacity 0.15s;
+      background: linear-gradient(to top, rgba(0,0,0,0.65), transparent);
+    }
+    :global(.pip-controls:hover) { opacity: 1; } /* media-style: brighten on interaction */
+    :global(.pip-ctl-btn) {
+      width: 40px; height: 40px; border-radius: 50%; border: none; padding: 0;
+      background: rgba(40,42,54,0.92); color: #f1f5f9; cursor: pointer;
+      display: grid; place-items: center; touch-action: manipulation;
+      transition: background 0.12s, transform 0.1s;
+    }
+    :global(.pip-ctl-btn:hover) { background: rgba(70,73,90,0.96); }
+    :global(.pip-ctl-btn:active) { transform: scale(0.9); }
+    :global(.pip-ctl-btn.active-danger), :global(.pip-ctl-btn.danger) { background: #ef4444; color: #fff; }
+    :global(.pip-ctl-btn.active-success) { background: #22c55e; color: #fff; }
+    :global(.pip-ctl-btn .ico) { width: 18px; height: 18px; display: block; pointer-events: none; }
     /* Overflow "More" menu (spec 0023): collapse secondary controls behind ⋯. */
     .more-group { position: relative; }
     .control-btn.has-active::after {

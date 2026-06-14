@@ -19,6 +19,7 @@ type Dict = Record<string, string>;
 export const I18N: Record<string, Dict> = {
   en: {
     sessionDurationTip: 'Session duration', quickReactTip: 'Quick reactions',
+    pipHint: '💡 Tip: pop the call out with ⊞ Picture-in-Picture to keep it visible while you work in another tab',
     tagline: 'Real-time translated video calls', roomCode: 'Room code', copy: 'Copy',
     copied: 'Copied', copyFailed: 'Copy failed', nameLabel: 'Your name', namePlaceholder: 'Guest',
     langLabel: 'Your language', connect: 'Enter room', enterRoom: 'Enter a room code',
@@ -124,6 +125,7 @@ export const I18N: Record<string, Dict> = {
   },
   it: {
     sessionDurationTip: 'Durata sessione', quickReactTip: 'Reazioni rapide',
+    pipHint: '💡 Suggerimento: apri la chiamata in Picture-in-Picture con ⊞ per tenerla visibile mentre lavori in un\'altra scheda',
     tagline: 'Videochiamate tradotte in tempo reale', roomCode: 'Codice stanza', copy: 'Copia',
     copied: 'Copiato', copyFailed: 'Copia non riuscita', nameLabel: 'Il tuo nome', namePlaceholder: 'Ospite',
     langLabel: 'La tua lingua', connect: 'Entra', enterRoom: 'Inserisci un codice stanza',
@@ -229,6 +231,7 @@ export const I18N: Record<string, Dict> = {
   },
   es: {
     sessionDurationTip: 'Duración de la sesión', quickReactTip: 'Reacciones rápidas',
+    pipHint: '💡 Consejo: abre la llamada en Picture-in-Picture con ⊞ para mantenerla visible mientras trabajas en otra pestaña',
     tagline: 'Videollamadas traducidas en tiempo real', roomCode: 'Código de sala', copy: 'Copiar',
     copied: 'Copiado', copyFailed: 'Error al copiar', nameLabel: 'Tu nombre', namePlaceholder: 'Invitado',
     langLabel: 'Tu idioma', connect: 'Entrar', enterRoom: 'Introduce un código de sala',
@@ -334,6 +337,7 @@ export const I18N: Record<string, Dict> = {
   },
   fr: {
     sessionDurationTip: 'Durée de la session', quickReactTip: 'Réactions rapides',
+    pipHint: '💡 Astuce : détachez l\'appel en Picture-in-Picture avec ⊞ pour le garder visible dans un autre onglet',
     tagline: 'Appels vidéo traduits en temps réel', roomCode: 'Code de salle', copy: 'Copier',
     copied: 'Copié', copyFailed: 'Échec de la copie', nameLabel: 'Votre nom', namePlaceholder: 'Invité',
     langLabel: 'Votre langue', connect: 'Rejoindre', enterRoom: 'Saisissez un code de salle',
@@ -439,6 +443,7 @@ export const I18N: Record<string, Dict> = {
   },
   de: {
     sessionDurationTip: 'Sitzungsdauer', quickReactTip: 'Schnelle Reaktionen',
+    pipHint: '💡 Tipp: Öffne den Anruf mit ⊞ als Bild-im-Bild, um ihn beim Arbeiten in einem anderen Tab sichtbar zu halten',
     tagline: 'Übersetzte Videoanrufe in Echtzeit', roomCode: 'Raumcode', copy: 'Kopieren',
     copied: 'Kopiert', copyFailed: 'Kopieren fehlgeschlagen', nameLabel: 'Dein Name', namePlaceholder: 'Gast',
     langLabel: 'Deine Sprache', connect: 'Beitreten', enterRoom: 'Gib einen Raumcode ein',
@@ -544,6 +549,7 @@ export const I18N: Record<string, Dict> = {
   },
   pt: {
     sessionDurationTip: 'Duração da sessão', quickReactTip: 'Reações rápidas',
+    pipHint: '💡 Dica: abra a chamada em Picture-in-Picture com ⊞ para mantê-la visível enquanto trabalha noutro separador',
     tagline: 'Videochamadas traduzidas em tempo real', roomCode: 'Código da sala', copy: 'Copiar',
     copied: 'Copiado', copyFailed: 'Falha ao copiar', nameLabel: 'Seu nome', namePlaceholder: 'Convidado',
     langLabel: 'Seu idioma', connect: 'Entrar', enterRoom: 'Insira um código de sala',
@@ -649,6 +655,7 @@ export const I18N: Record<string, Dict> = {
   },
   ja: {
     sessionDurationTip: 'セッション時間', quickReactTip: 'クイックリアクション',
+    pipHint: '💡 ヒント: ⊞ で通話をピクチャーインピクチャー表示にすると、他のタブで作業中も見続けられます',
     tagline: 'リアルタイム翻訳ビデオ通話', roomCode: 'ルームコード', copy: 'コピー',
     copied: 'コピーしました', copyFailed: 'コピーに失敗', nameLabel: 'あなたの名前', namePlaceholder: 'ゲスト',
     langLabel: 'あなたの言語', connect: '参加', enterRoom: 'ルームコードを入力してください',
@@ -754,6 +761,7 @@ export const I18N: Record<string, Dict> = {
   },
   zh: {
     sessionDurationTip: '会话时长', quickReactTip: '快捷表情',
+    pipHint: '💡 提示：用 ⊞ 将通话弹出为画中画，在其他标签页工作时也能保持可见',
     tagline: '实时翻译视频通话', roomCode: '房间代码', copy: '复制',
     copied: '已复制', copyFailed: '复制失败', nameLabel: '你的名字', namePlaceholder: '访客',
     langLabel: '你的语言', connect: '加入', enterRoom: '请输入房间代码',
