@@ -1,11 +1,11 @@
-# Lightweight uptime + error-rate alert: pings the prod server + client and scrapes
-# the server's /metrics (spec 0058) on a schedule. Any failing check fails the job,
-# which GitHub emails to the repo owner (Actions failure notifications must be on) —
-# free, in-repo, no external account. For richer alerting (SMS / push / Slack,
-# sub-minute checks, p95-latency from the metrics histogram) point a real scraper /
-# monitor (UptimeRobot / Better Stack / Grafana) at /health + /metrics (issue #69).
-# The server also auto-restarts on crash via `server/railway.toml`.
-name: Uptime & error-rate check
+# Lightweight uptime + error-rate + latency alert: pings the prod server + client and
+# scrapes the server's /metrics (spec 0058) on a schedule. Any failing check fails the
+# job, which GitHub emails to the repo owner (Actions failure notifications must be on)
+# — free, in-repo, no external account. For richer alerting (SMS / push / Slack,
+# sub-minute checks, status pages, windowed rate()/quantiles from the metrics
+# histogram) point a real scraper / monitor (UptimeRobot / Better Stack / Grafana) at
+# /health + /metrics (issue #69). The server also auto-restarts via `server/railway.toml`.
+name: Uptime, error-rate & latency check
 
 on:
   schedule:
@@ -31,10 +31,12 @@ jobs:
             https://voxtranslate.app/ || echo 000)
           echo "client / → $code"
           [ "$code" = "200" ] || { echo "::error title=Client DOWN::/ returned $code"; exit 1; }
-      - name: Server error rate (from /metrics, spec 0058)
+      - name: Server error rate & p95 latency (from /metrics, spec 0058)
         run: |
-          # Counters are cumulative since the last server restart — a coarse but free
-          # "up but erroring" signal. A real scraper does proper windowed rate()/p95.
+          # One scrape, two "up but degraded" signals /health can't catch. Counters are
+          # cumulative since the last server restart — coarse but free; a real scraper
+          # does proper windowed rate()/quantiles (issue #69). Both signals are derived
+          # from the same snapshot, then the job fails once at the end if either tripped.
           m=$(curl -sS --max-time 15 --retry 2 --retry-delay 5 \
             https://voxtranslate-server-production.up.railway.app/metrics || echo "")
           get() { echo "$m" | grep -F "voxtranslate_http_requests_total{status_class=\"$1\"}" | awk '{print $2}'; }
@@ -43,10 +45,33 @@ jobs:
           total=$((c2 + c3 + c4 + c5))
           echo "requests since restart: 2xx=$c2 3xx=$c3 4xx=$c4 5xx=$c5 total=$total"
           # Guard low-traffic noise: only alert with a meaningful sample.
-          if [ "$total" -lt 50 ]; then echo "low traffic ($total) — skipping error-rate alert"; exit 0; fi
+          if [ "$total" -lt 50 ]; then echo "low traffic ($total) — skipping error-rate/p95 alerts"; exit 0; fi
+          fail=0
+
+          # --- 5xx error rate ---
           bp=$(( c5 * 10000 / total )) # 5xx ratio in basis points (integer math)
           echo "5xx error rate: $((bp / 100)).$(printf '%02d' $((bp % 100)))%"
           if [ "$bp" -gt 1000 ]; then # > 10%
             echo "::error title=High server error rate::5xx=$c5 of $total ($((bp / 100))%) — owner emailed"
-            exit 1
+            fail=1
           fi
+
+          # --- p95 request latency (from the duration histogram) ---
+          # p95 = smallest bucket whose cumulative count reaches 95% of all requests; we
+          # report/alert on that bucket's upper bound, i.e. "p95 <= <le> ms".
+          lat_count=$(echo "$m" | grep -F "voxtranslate_http_request_duration_ms_count" | awk '{print $2}')
+          : "${lat_count:=0}"
+          target=$(( (lat_count * 95 + 99) / 100 )) # ceil(0.95 * count)
+          p95="+Inf"
+          for le in 5 10 25 50 100 250 500 1000 2500 5000 10000; do
+            b=$(echo "$m" | grep -F "voxtranslate_http_request_duration_ms_bucket{le=\"$le\"}" | awk '{print $2}')
+            : "${b:=0}"
+            if [ "$b" -ge "$target" ]; then p95="$le"; break; fi
+          done
+          echo "p95 latency: <= ${p95}ms (rank $target of $lat_count)"
+          if [ "$p95" = "+Inf" ] || [ "$p95" -gt 2500 ]; then # p95 over 2.5s
+            echo "::error title=High p95 latency::p95 <= ${p95}ms exceeds 2500ms — owner emailed"
+            fail=1
+          fi
+
+          [ "$fail" = 0 ] || exit 1
