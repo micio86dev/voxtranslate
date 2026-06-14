@@ -596,3 +596,61 @@ async fn upload_returns_403_when_peer_not_in_room() {
         .expect("request");
     assert_eq!(res.status().as_u16(), 403);
 }
+
+// ---- Abuse hardening (spec 0064) -------------------------------------------
+
+#[tokio::test]
+async fn metrics_token_gates_access() {
+    // With METRICS_TOKEN set, /metrics requires a matching bearer token.
+    let (mut state, _) = make_state();
+    state.metrics_token = Some("s3cret".to_string());
+    let addr = spawn_state(state).await;
+    let http = reqwest::Client::new();
+
+    let unauth = http
+        .get(format!("http://{addr}/metrics"))
+        .send()
+        .await
+        .expect("request");
+    assert_eq!(unauth.status().as_u16(), 401);
+
+    let authed = http
+        .get(format!("http://{addr}/metrics"))
+        .header(reqwest::header::AUTHORIZATION, "Bearer s3cret")
+        .send()
+        .await
+        .expect("request");
+    assert_eq!(authed.status().as_u16(), 200);
+    assert!(authed
+        .text()
+        .await
+        .unwrap()
+        .contains("voxtranslate_http_requests_total"));
+}
+
+#[tokio::test]
+async fn rooms_endpoint_is_rate_limited() {
+    // Per-IP throttle (spec 0064): a 60/min budget, then 429. All test requests share
+    // the same (header-less) client-IP key, so the limiter trips deterministically.
+    let addr = spawn().await.0;
+    let http = reqwest::Client::new();
+    let mut got_429 = false;
+    for _ in 0..70 {
+        let code = http
+            .get(format!("http://{addr}/rooms"))
+            .send()
+            .await
+            .expect("request")
+            .status()
+            .as_u16();
+        if code == 429 {
+            got_429 = true;
+            break;
+        }
+        assert_eq!(code, 200);
+    }
+    assert!(
+        got_429,
+        "expected a 429 once the per-IP /rooms budget was exhausted"
+    );
+}

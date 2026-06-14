@@ -36,12 +36,13 @@ pub mod transcripts;
 pub mod translator;
 pub mod usage;
 
-use std::sync::atomic::AtomicU64;
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{DefaultBodyLimit, Query, State};
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -67,6 +68,39 @@ use crate::safety::SafetyService;
 use crate::transcripts::{EventKind, TranscriptEvent, TranscriptService};
 use crate::translator::Translator;
 use crate::usage::{run_guest_meter, run_usage_meter, MeterConfig};
+
+// ---- Abuse-hardening limits (spec 0064) -----------------------------------
+/// Default global cap on concurrent WS connections per instance; override with
+/// `MAX_WS_CONNECTIONS`. This is the robust, IP-independent flood ceiling.
+const DEFAULT_MAX_WS_CONNECTIONS: usize = 2000;
+/// Max accepted WS frame size (binary audio + text). Real audio chunks are a few
+/// hundred bytes and the largest signalling SDP is a few KB, so 64 KiB is generous.
+const MAX_FRAME_BYTES: usize = 64 * 1024;
+/// Per-IP `/ws` connect attempts per minute (best-effort; the global cap is the real guard).
+const WS_CONNECT_MAX_PER_MIN: u32 = 40;
+/// Per-IP `/rooms` + `/metrics` requests per minute.
+const HTTP_PUBLIC_MAX_PER_MIN: u32 = 60;
+/// Per-connection message budget per [`WS_MSG_WINDOW`] before the socket is closed.
+/// ≈100 msg/s sustained — far above audio (~10/s) + signalling/whiteboard bursts.
+const WS_MSG_MAX: u32 = 500;
+const WS_MSG_WINDOW: Duration = Duration::from_secs(5);
+
+/// RAII guard for the live WS-connection counter: `acquire` increments and returns the
+/// post-increment count; `Drop` decrements, so the count is balanced on every exit path.
+struct ConnGuard(Arc<AtomicUsize>);
+
+impl ConnGuard {
+    fn acquire(counter: &Arc<AtomicUsize>) -> (Self, usize) {
+        let count = counter.fetch_add(1, Ordering::Relaxed) + 1;
+        (Self(counter.clone()), count)
+    }
+}
+
+impl Drop for ConnGuard {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::Relaxed);
+    }
+}
 
 /// Shared application state.
 #[derive(Clone)]
@@ -100,6 +134,12 @@ pub struct AppState {
     pub rate_limiter: Arc<RateLimiter>,
     /// Transcript/chat moderation (blocklist).
     pub moderator: Arc<Moderator>,
+    /// Live WS connections on this instance — the global flood ceiling (spec 0064).
+    pub ws_conns: Arc<AtomicUsize>,
+    /// Max concurrent WS connections (`MAX_WS_CONNECTIONS`, default 2000).
+    pub max_ws_conns: usize,
+    /// Optional bearer token gating `/metrics` (`METRICS_TOKEN`); open when unset.
+    pub metrics_token: Option<String>,
 }
 
 impl AppState {
@@ -141,6 +181,16 @@ impl AppState {
             http,
             rate_limiter: Arc::new(RateLimiter::new()),
             moderator: Arc::new(Moderator::from_env()),
+            ws_conns: Arc::new(AtomicUsize::new(0)),
+            max_ws_conns: std::env::var("MAX_WS_CONNECTIONS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .filter(|&n| n > 0)
+                .unwrap_or(DEFAULT_MAX_WS_CONNECTIONS),
+            metrics_token: std::env::var("METRICS_TOKEN")
+                .ok()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty()),
         }
     }
 
@@ -377,25 +427,63 @@ pub async fn serve() {
 async fn ws_handler(
     ws: WebSocketUpgrade,
     Query(params): Query<WsParams>,
+    headers: HeaderMap,
     State(state): State<AppState>,
 ) -> Response {
     if params.room.trim().is_empty() || params.lang.trim().is_empty() {
-        return (axum::http::StatusCode::BAD_REQUEST, "missing room or lang").into_response();
+        return (StatusCode::BAD_REQUEST, "missing room or lang").into_response();
+    }
+    // Per-IP connect throttle (spec 0064). Best-effort (IP from X-Forwarded-For behind
+    // Railway's proxy); the global cap in handle_peer is the robust flood ceiling.
+    let ip = observability::client_ip(&headers);
+    if !state.rate_limiter.allow(
+        &format!("wsconnect:{ip}"),
+        WS_CONNECT_MAX_PER_MIN,
+        Duration::from_secs(60),
+    ) {
+        return (StatusCode::TOO_MANY_REQUESTS, "too many connections").into_response();
     }
     ws.on_upgrade(move |socket| handle_peer(socket, params, state))
 }
 
-/// Lobby: list public rooms with their currently online participants.
-async fn rooms_handler(State(state): State<AppState>) -> Json<RoomsResponse> {
+/// Lobby: list public rooms with their currently online participants. Per-IP throttled
+/// (spec 0064) — it's unauthenticated and otherwise freely scrapable.
+async fn rooms_handler(headers: HeaderMap, State(state): State<AppState>) -> Response {
+    let ip = observability::client_ip(&headers);
+    if !state.rate_limiter.allow(
+        &format!("rooms:{ip}"),
+        HTTP_PUBLIC_MAX_PER_MIN,
+        Duration::from_secs(60),
+    ) {
+        return (StatusCode::TOO_MANY_REQUESTS, "slow down").into_response();
+    }
     Json(RoomsResponse {
         rooms: state.rooms.public_rooms(),
     })
+    .into_response()
 }
 
 /// `GET /metrics` — Prometheus exposition (spec 0058). Non-sensitive aggregates only
-/// (request counters/latency + live room/peer gauges for THIS instance), so it's
-/// served unauthenticated for a scraper to poll.
-async fn metrics_handler(State(state): State<AppState>) -> impl axum::response::IntoResponse {
+/// (request counters/latency + live room/peer gauges for THIS instance). Per-IP throttled,
+/// and gated by `METRICS_TOKEN` when set so the operational view isn't world-readable (0064).
+async fn metrics_handler(headers: HeaderMap, State(state): State<AppState>) -> Response {
+    if let Some(token) = &state.metrics_token {
+        let presented = headers
+            .get(axum::http::header::AUTHORIZATION)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|h| h.strip_prefix("Bearer "));
+        if presented != Some(token.as_str()) {
+            return StatusCode::UNAUTHORIZED.into_response();
+        }
+    }
+    let ip = observability::client_ip(&headers);
+    if !state.rate_limiter.allow(
+        &format!("metrics:{ip}"),
+        HTTP_PUBLIC_MAX_PER_MIN,
+        Duration::from_secs(60),
+    ) {
+        return StatusCode::TOO_MANY_REQUESTS.into_response();
+    }
     let body = metrics::render(
         state.rooms.active_rooms() as u64,
         state.rooms.active_peers() as u64,
@@ -407,6 +495,7 @@ async fn metrics_handler(State(state): State<AppState>) -> impl axum::response::
         )],
         body,
     )
+        .into_response()
 }
 
 pub(crate) fn now_unix() -> u64 {
@@ -566,6 +655,24 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
     };
 
     let (mut ws_tx, mut ws_rx) = socket.split();
+
+    // Global connection cap (spec 0064): the guard balances the live-connection counter
+    // on every return path below; reject when over the ceiling.
+    let (_conn, conn_count) = ConnGuard::acquire(&state.ws_conns);
+    if conn_count > state.max_ws_conns {
+        let _ = ws_tx
+            .send(Message::Text(
+                ServerMessage::Error {
+                    message: "server at capacity, please retry shortly".to_string(),
+                    code: Some("server_busy".to_string()),
+                }
+                .to_json()
+                .into(),
+            ))
+            .await;
+        let _ = ws_tx.close().await;
+        return;
+    }
 
     // Auth / billing gate: resolve the (optional) billed user before joining.
     let authed = match authorize(&state, token.as_deref()).await {
@@ -732,10 +839,33 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
     // The meter signals here when credits/cap are exhausted -> stop audio.
     let (exhaust_tx, mut exhaust_rx) = mpsc::unbounded_channel::<()>();
 
+    // Per-connection abuse caps (spec 0064): a fixed-window message-rate budget.
+    let mut msg_count: u32 = 0;
+    let mut msg_window = Instant::now();
+
     loop {
         tokio::select! {
             maybe_msg = ws_rx.next() => {
                 let Some(Ok(msg)) = maybe_msg else { break };
+                // Drop oversized frames (binary audio / text) before processing (spec 0064).
+                let frame_len = match &msg {
+                    Message::Binary(d) => d.len(),
+                    Message::Text(t) => t.as_str().len(),
+                    _ => 0,
+                };
+                if frame_len > MAX_FRAME_BYTES {
+                    continue;
+                }
+                // Per-connection message-rate cap → close an abusive socket.
+                if msg_window.elapsed() > WS_MSG_WINDOW {
+                    msg_window = Instant::now();
+                    msg_count = 0;
+                }
+                msg_count += 1;
+                if msg_count > WS_MSG_MAX {
+                    tracing::warn!(%id, "ws message-rate flood — closing connection");
+                    break;
+                }
                 match msg {
                     Message::Binary(data) => {
                         if let Some(tx) = &audio_tx {
