@@ -1,10 +1,11 @@
-# Lightweight uptime alert: pings the prod server + client on a schedule. A failing
-# check fails the job, which GitHub emails to the repo owner (Actions failure
-# notifications must be on). This is a free, in-repo baseline — for richer alerting
-# (SMS / push / Slack, sub-minute checks) add a dedicated monitor (UptimeRobot /
-# Better Stack free tier). The server also auto-restarts on crash via
-# `server/railway.toml` (healthcheckPath + restartPolicyType=on_failure).
-name: Uptime check
+# Lightweight uptime + error-rate alert: pings the prod server + client and scrapes
+# the server's /metrics (spec 0058) on a schedule. Any failing check fails the job,
+# which GitHub emails to the repo owner (Actions failure notifications must be on) —
+# free, in-repo, no external account. For richer alerting (SMS / push / Slack,
+# sub-minute checks, p95-latency from the metrics histogram) point a real scraper /
+# monitor (UptimeRobot / Better Stack / Grafana) at /health + /metrics (issue #69).
+# The server also auto-restarts on crash via `server/railway.toml`.
+name: Uptime & error-rate check
 
 on:
   schedule:
@@ -30,3 +31,22 @@ jobs:
             https://voxtranslate.app/ || echo 000)
           echo "client / → $code"
           [ "$code" = "200" ] || { echo "::error title=Client DOWN::/ returned $code"; exit 1; }
+      - name: Server error rate (from /metrics, spec 0058)
+        run: |
+          # Counters are cumulative since the last server restart — a coarse but free
+          # "up but erroring" signal. A real scraper does proper windowed rate()/p95.
+          m=$(curl -sS --max-time 15 --retry 2 --retry-delay 5 \
+            https://voxtranslate-server-production.up.railway.app/metrics || echo "")
+          get() { echo "$m" | grep -F "voxtranslate_http_requests_total{status_class=\"$1\"}" | awk '{print $2}'; }
+          c2=$(get 2xx); c3=$(get 3xx); c4=$(get 4xx); c5=$(get 5xx)
+          : "${c2:=0}" "${c3:=0}" "${c4:=0}" "${c5:=0}"
+          total=$((c2 + c3 + c4 + c5))
+          echo "requests since restart: 2xx=$c2 3xx=$c3 4xx=$c4 5xx=$c5 total=$total"
+          # Guard low-traffic noise: only alert with a meaningful sample.
+          if [ "$total" -lt 50 ]; then echo "low traffic ($total) — skipping error-rate alert"; exit 0; fi
+          bp=$(( c5 * 10000 / total )) # 5xx ratio in basis points (integer math)
+          echo "5xx error rate: $((bp / 100)).$(printf '%02d' $((bp % 100)))%"
+          if [ "$bp" -gt 1000 ]; then # > 10%
+            echo "::error title=High server error rate::5xx=$c5 of $total ($((bp / 100))%) — owner emailed"
+            exit 1
+          fi
