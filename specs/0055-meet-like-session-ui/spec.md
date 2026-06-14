@@ -2,12 +2,12 @@
 
 | | |
 |---|---|
-| **Status** | In progress |
+| **Status** | ✅ Shipped |
 | **Owner** | VoxTranslate |
 | **Created** | 2026-06-14 |
-| **Shipped** | — |
+| **Shipped** | 2026-06-14 |
 | **Version** | — |
-| **Commits** | `<pending>` |
+| **Commits** | `f3722a2` |
 | **Depends on** | [0002](../0002-video-calls-translated-chat/spec.md), [0023](../0023-call-toolbar-overflow-menu/spec.md), [0052](../0052-voice-command-timer/spec.md) |
 
 ## 1. Context & Problem
