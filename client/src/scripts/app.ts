@@ -1325,22 +1325,29 @@ partClose.addEventListener('click', () => toggleParticipants(false));
 // since room_joined; the count is set from updateParticipantsList (peerNames).
 const sessionTimerEl = $('session-timer');
 const partCountEl = $('part-count');
+const headerClock = $('header-clock'); // live wall-clock (spec 0060 / #94)
 sessionTimerEl.querySelector<HTMLElement>('.sb-ico')!.innerHTML = icon('timer', 13);
 partCountEl.querySelector<HTMLElement>('.pc-ico')!.innerHTML = icon('users', 13);
 
-function renderSessionElapsed(): void {
+// One 1s tick drives both the wall-clock (HH:MM, locale-aware) and the elapsed
+// session duration (MM:SS) — re-rendering HH:MM each second is cheap and keeps them
+// in lock-step without a second interval.
+function renderHeaderTimes(): void {
+  headerClock.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   $('session-elapsed').textContent = formatClock((Date.now() - callStartedAt) / 1000);
 }
 function startSessionTimer(): void {
-  renderSessionElapsed(); // paint 00:00 immediately, don't wait a tick
+  renderHeaderTimes(); // paint immediately, don't wait a tick
+  show(headerClock, true);
   show(sessionTimerEl, true);
   show(partCountEl, true);
   clearInterval(sessionTimerId);
-  sessionTimerId = window.setInterval(renderSessionElapsed, 1000);
+  sessionTimerId = window.setInterval(renderHeaderTimes, 1000);
 }
 function stopSessionTimer(): void {
   clearInterval(sessionTimerId);
   sessionTimerId = 0;
+  show(headerClock, false);
   show(sessionTimerEl, false);
   show(partCountEl, false);
 }

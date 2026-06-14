@@ -15,6 +15,11 @@ test('meet-ui: session timer ticks, live participant count, quick reactions (spe
   const first = await elapsed.textContent();
   await expect.poll(() => elapsed.textContent(), { timeout: 4000 }).not.toBe(first);
 
+  // Spec 0060 (#94): a live wall-clock chip (HH:MM) sits in the header, and the
+  // reaction tray is its own floating bar (.reaction-bar), no longer in the control bar.
+  await expect(a.page.locator('#header-clock')).toHaveText(/^\d{1,2}:\d{2}/);
+  await expect(a.page.locator('#quick-reactions.reaction-bar')).toBeVisible();
+
   // R2 — participant count starts at 1 (self), rises to 2 when a peer joins,
   // and falls back to 1 when it leaves.
   const count = a.page.locator('#part-count-n');

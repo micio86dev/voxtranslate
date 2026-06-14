@@ -209,6 +209,9 @@ const LANGS = [
         <header class="call-header">
           <button id="call-room" class="room-badge mono" data-i18n-title="copy"></button>
           <span id="call-vis" class="vis-badge"></span>
+          <!-- Live wall-clock time (spec 0060 / #94), Meet-style. Plain text span: its
+               content IS its accessible name, no role=status so it doesn't announce ticks. -->
+          <span id="header-clock" class="clock-badge hidden"></span>
           <!-- Session duration (spec 0055): ticks every second from room_joined. -->
           <span id="session-timer" class="session-badge hidden" role="timer" data-i18n-title="sessionDurationTip">
             <span class="sb-ico" aria-hidden="true"></span><span id="session-elapsed">00:00</span>
@@ -303,6 +306,11 @@ const LANGS = [
             <button id="quiz-action" class="btn-primary mg-action"></button>
           </div>
         </div>
+        <!-- Floating reaction tray ABOVE the controls (spec 0060 / #94): a centered,
+             visually-separated pill — always accessible and spammable (rate-limited
+             5/s). Buttons are injected in app.ts; the #quick-reactions id is kept so
+             the wiring is unchanged. -->
+        <div id="quick-reactions" class="reaction-bar" role="group" data-i18n-label="quickReactTip"></div>
         <!-- Buttons are grouped so the bar wraps in tidy clusters (and keeps
              related controls together) instead of one long overflowing row. -->
         <div class="control-bar" role="toolbar" data-i18n-label="controlsLabel">
@@ -314,9 +322,6 @@ const LANGS = [
             <button id="btn-subtitle" class="control-btn" data-i18n-title="subtitleTip"></button>
             <button id="btn-chat" class="control-btn" data-i18n-title="chatTip" aria-expanded="false" aria-controls="chat-panel"><span class="chat-ico"></span><span id="chat-badge" class="chat-badge" hidden>0</span></button>
           </div>
-          <!-- Quick reactions (spec 0055): one-tap emoji, no menu, rate-limited 5/s.
-               Buttons are injected in app.ts so the set stays in one place. -->
-          <div id="quick-reactions" class="ctl-group quick-reactions" role="group" data-i18n-label="quickReactTip"></div>
           <div class="ctl-group more-group">
             <button id="btn-more" class="control-btn" data-i18n-title="moreTip" data-i18n-label="moreTip" aria-haspopup="true" aria-expanded="false" aria-controls="more-menu"></button>
             <!-- role="group" (not "menu"): a labeled disclosure of independent toggle/action
@@ -643,7 +648,18 @@ const LANGS = [
       font-size: 0.72rem; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--muted);
       border: 1px solid var(--border); border-radius: 999px; padding: 2px 9px;
     }
-    .part-count-badge { margin-left: auto; } /* anchor to the top-right edge */
+    /* Live wall-clock (spec 0060 / #94): Meet-style — prominent, plain, top-left. */
+    .clock-badge {
+      font-size: 0.82rem; font-weight: 700; font-variant-numeric: tabular-nums;
+      letter-spacing: 0.02em; color: var(--text);
+    }
+    /* Participant count restyled clearer + more visible (#94): accent-tinted pill,
+       full-contrast bold number, anchored top-right. */
+    .part-count-badge {
+      margin-left: auto;
+      color: var(--text); font-weight: 700;
+      background: var(--accent-dim); border-color: var(--accent);
+    }
     .session-badge .sb-ico, .part-count-badge .pc-ico { display: inline-flex; color: var(--accent); }
     .session-badge .sb-ico :global(.ico), .part-count-badge .pc-ico :global(.ico) { width: 13px; height: 13px; }
 
@@ -1058,17 +1074,25 @@ const LANGS = [
     .control-btn.active-danger { background: var(--danger); }
     .control-btn.active-success { background: var(--success); }
     .control-btn.leave { background: var(--danger); }
-    /* Quick-reaction buttons (spec 0055): compact emoji chips, tighter than the round
-       controls. touch-action: manipulation so rapid taps fire instead of zooming (#71). */
-    .quick-reactions { gap: 4px; }
-    .react-btn {
-      width: 40px; height: 40px; border-radius: 50%; border: none; background: var(--surface-elevated);
-      color: var(--text); font-size: 1.15rem; line-height: 1; cursor: pointer; padding: 0;
-      display: grid; place-items: center; flex-shrink: 0; touch-action: manipulation;
-      transition: background 0.15s, transform 0.1s;
+    /* Floating reaction tray above the controls (spec 0060 / #94): a centered,
+       visually-separated pill so reactions are always accessible without crowding the
+       main controls. The .call-main column gap separates it from the bar + stage. */
+    .reaction-bar {
+      flex: none; align-self: center; display: flex; gap: 2px;
+      padding: 4px 8px; border-radius: 999px;
+      background: rgba(19,20,28,0.72); backdrop-filter: blur(8px); border: 1px solid var(--border);
     }
-    .react-btn:hover { background: var(--border); }
-    .react-btn:active { transform: scale(0.86); } /* tactile pop on each tap */
+    /* Tray emoji: transparent on the pill, highlight on hover, pop on tap. Spamming is
+       fine — each tap just fires sendEmoji (rate-limited 5/s); nothing opens or closes.
+       touch-action: manipulation so rapid taps don't zoom on mobile (#71). */
+    .react-btn {
+      width: 38px; height: 38px; border-radius: 50%; border: none; background: transparent;
+      color: var(--text); font-size: 1.25rem; line-height: 1; cursor: pointer; padding: 0;
+      display: grid; place-items: center; flex-shrink: 0; touch-action: manipulation;
+      transition: background 0.12s, transform 0.08s;
+    }
+    .react-btn:hover { background: rgba(255,255,255,0.1); }
+    .react-btn:active { transform: scale(0.8); } /* tactile pop on each tap */
     /* PiP-window controls (spec 0057). :global because these buttons are created in the
        PiP document and carry no Astro scope attribute — scoped rules wouldn't match. The
        PiP window copies our stylesheets, so these rules travel with it. */
