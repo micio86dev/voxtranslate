@@ -27,38 +27,78 @@ pub struct Config {
     /// chat file upload (spec 0018). When absent the attach button is hidden and
     /// the upload endpoint returns 503.
     pub storage: Option<StorageConfig>,
-    /// Present only when `TURN_URLS` + `TURN_SECRET` are set; gates the TURN relay
-    /// returned by `/api/ice` (spec 0026). Without it the client uses STUN only and
-    /// cross-NAT (e.g. cross-border) calls may fail to connect.
+    /// Present when `TURN_URLS` + a credential (`TURN_SECRET`, or `TURN_USERNAME` +
+    /// `TURN_PASSWORD`) are set; gates the TURN relay returned by `/api/ice`
+    /// (spec 0026 / 0059). Without it the client uses STUN only and cross-NAT
+    /// (e.g. cross-border) calls may fail to connect.
     pub turn: Option<TurnConfig>,
 }
 
-/// Self-hosted coturn (TURN) credentials for WebRTC media relay when direct P2P
-/// fails (spec 0026). All-or-nothing like the others: active only when both the
-/// URLs and the shared secret are present.
+/// How `/api/ice` authenticates a client to the TURN relay (spec 0026 / 0059).
+#[derive(Debug, Clone)]
+pub enum TurnCred {
+    /// coturn REST convention: mint a time-limited credential by HMAC-signing an
+    /// expiry with the `static-auth-secret`. The secret never leaves the server —
+    /// only the short-lived derived credential does (self-hosted coturn).
+    Secret { secret: String, ttl_secs: u64 },
+    /// A managed relay's long-lived username/password, passed straight through —
+    /// the zero-deploy fallback (Metered / Twilio / etc., issue #40). These DO
+    /// reach the client, so use a relay-scoped account.
+    Static { username: String, password: String },
+}
+
+impl TurnCred {
+    /// Choose a credential mode from raw values; the HMAC secret wins when both are
+    /// present. Pure (no env reads) so it's unit-testable. `None` ⇒ TURN stays off.
+    fn pick(secret: &str, username: &str, password: &str, ttl_secs: u64) -> Option<Self> {
+        if !secret.is_empty() {
+            Some(TurnCred::Secret {
+                secret: secret.to_string(),
+                ttl_secs,
+            })
+        } else if !username.is_empty() && !password.is_empty() {
+            Some(TurnCred::Static {
+                username: username.to_string(),
+                password: password.to_string(),
+            })
+        } else {
+            None
+        }
+    }
+}
+
+/// TURN (media relay) config for when direct P2P fails (spec 0026). Active only when
+/// `TURN_URLS` plus a credential are set: either `TURN_SECRET` (self-hosted coturn),
+/// or `TURN_USERNAME` + `TURN_PASSWORD` (a managed relay, spec 0059). Without it the
+/// client uses STUN only and cross-NAT (e.g. cross-border) calls may fail.
 #[derive(Debug, Clone)]
 pub struct TurnConfig {
-    /// TURN URLs, e.g. `turns:turn.example.com:5349?transport=tcp`.
+    /// TURN URLs, e.g. `turn:relay.example.com:3478?transport=tcp`.
     pub urls: Vec<String>,
-    /// coturn `static-auth-secret` — used to mint time-limited REST credentials.
-    /// Server-only; never sent to the client (only the derived credential is).
-    pub secret: String,
-    /// Minted-credential lifetime in seconds (default 3600).
-    pub ttl_secs: u64,
+    /// The credential the client presents to the relay.
+    pub cred: TurnCred,
 }
 
 impl TurnConfig {
-    fn from_env() -> Self {
-        Self {
-            urls: env::var("TURN_URLS")
-                .unwrap_or_default()
-                .split(',')
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .collect(),
-            secret: env::var("TURN_SECRET").unwrap_or_default(),
-            ttl_secs: parse_or("TURN_TTL_SECS", 3600u64),
+    /// Parse from env, or `None` when TURN isn't fully configured (no URLs, or no
+    /// usable credential).
+    fn from_env() -> Option<Self> {
+        let urls: Vec<String> = env::var("TURN_URLS")
+            .unwrap_or_default()
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+        if urls.is_empty() {
+            return None;
         }
+        let cred = TurnCred::pick(
+            &env::var("TURN_SECRET").unwrap_or_default(),
+            &env::var("TURN_USERNAME").unwrap_or_default(),
+            &env::var("TURN_PASSWORD").unwrap_or_default(),
+            parse_or("TURN_TTL_SECS", 3600u64),
+        )?;
+        Some(TurnConfig { urls, cred })
     }
 }
 
@@ -196,13 +236,10 @@ impl Config {
             None
         };
 
-        // TURN relay (spec 0026) activates only when both the URLs and the
-        // coturn shared secret are present.
-        let turn = if present("TURN_URLS") && present("TURN_SECRET") {
-            Some(TurnConfig::from_env())
-        } else {
-            None
-        };
+        // TURN relay (spec 0026 / 0059): `TURN_URLS` plus a credential — either the
+        // coturn `TURN_SECRET`, or a managed relay's `TURN_USERNAME` + `TURN_PASSWORD`.
+        // `from_env` returns None when it's not fully configured.
+        let turn = TurnConfig::from_env();
 
         Ok(Self {
             deepgram_key,
@@ -445,6 +482,29 @@ mod tests {
         let out = serde_json::to_string(&pkgs[0]).unwrap();
         assert!(!out.contains("stripe_price_id") && !out.contains("price_x"));
         assert!(parse_packages("not json").is_empty());
+    }
+
+    #[test]
+    fn turn_cred_pick_prefers_secret_then_static_then_none() {
+        // HMAC secret wins even when static creds are also supplied.
+        match TurnCred::pick("s3cr3t", "user", "pass", 1800) {
+            Some(TurnCred::Secret { secret, ttl_secs }) => {
+                assert_eq!(secret, "s3cr3t");
+                assert_eq!(ttl_secs, 1800);
+            }
+            other => panic!("expected Secret, got {other:?}"),
+        }
+        // No secret → fall back to the managed relay's static username/password.
+        match TurnCred::pick("", "user", "pass", 3600) {
+            Some(TurnCred::Static { username, password }) => {
+                assert_eq!(username, "user");
+                assert_eq!(password, "pass");
+            }
+            other => panic!("expected Static, got {other:?}"),
+        }
+        // Static needs BOTH halves; partial / empty config leaves TURN off.
+        assert!(TurnCred::pick("", "user", "", 3600).is_none());
+        assert!(TurnCred::pick("", "", "", 3600).is_none());
     }
 
     // NOTE: `Config::from_env()` reads process-global env, so its guest-vs-billing
