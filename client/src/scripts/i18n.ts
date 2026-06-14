@@ -18,6 +18,7 @@ type Dict = Record<string, string>;
 
 export const I18N: Record<string, Dict> = {
   en: {
+    sessionDurationTip: 'Session duration', quickReactTip: 'Quick reactions',
     tagline: 'Real-time translated video calls', roomCode: 'Room code', copy: 'Copy',
     copied: 'Copied', copyFailed: 'Copy failed', nameLabel: 'Your name', namePlaceholder: 'Guest',
     langLabel: 'Your language', connect: 'Enter room', enterRoom: 'Enter a room code',
@@ -122,6 +123,7 @@ export const I18N: Record<string, Dict> = {
     aiEmailNoRecipients: 'Add at least one recipient',
   },
   it: {
+    sessionDurationTip: 'Durata sessione', quickReactTip: 'Reazioni rapide',
     tagline: 'Videochiamate tradotte in tempo reale', roomCode: 'Codice stanza', copy: 'Copia',
     copied: 'Copiato', copyFailed: 'Copia non riuscita', nameLabel: 'Il tuo nome', namePlaceholder: 'Ospite',
     langLabel: 'La tua lingua', connect: 'Entra', enterRoom: 'Inserisci un codice stanza',
@@ -226,6 +228,7 @@ export const I18N: Record<string, Dict> = {
     aiEmailNoRecipients: 'Aggiungi almeno un destinatario',
   },
   es: {
+    sessionDurationTip: 'Duración de la sesión', quickReactTip: 'Reacciones rápidas',
     tagline: 'Videollamadas traducidas en tiempo real', roomCode: 'Código de sala', copy: 'Copiar',
     copied: 'Copiado', copyFailed: 'Error al copiar', nameLabel: 'Tu nombre', namePlaceholder: 'Invitado',
     langLabel: 'Tu idioma', connect: 'Entrar', enterRoom: 'Introduce un código de sala',
@@ -330,6 +333,7 @@ export const I18N: Record<string, Dict> = {
     aiEmailNoRecipients: 'Añade al menos un destinatario',
   },
   fr: {
+    sessionDurationTip: 'Durée de la session', quickReactTip: 'Réactions rapides',
     tagline: 'Appels vidéo traduits en temps réel', roomCode: 'Code de salle', copy: 'Copier',
     copied: 'Copié', copyFailed: 'Échec de la copie', nameLabel: 'Votre nom', namePlaceholder: 'Invité',
     langLabel: 'Votre langue', connect: 'Rejoindre', enterRoom: 'Saisissez un code de salle',
@@ -434,6 +438,7 @@ export const I18N: Record<string, Dict> = {
     aiEmailNoRecipients: 'Ajoutez au moins un destinataire',
   },
   de: {
+    sessionDurationTip: 'Sitzungsdauer', quickReactTip: 'Schnelle Reaktionen',
     tagline: 'Übersetzte Videoanrufe in Echtzeit', roomCode: 'Raumcode', copy: 'Kopieren',
     copied: 'Kopiert', copyFailed: 'Kopieren fehlgeschlagen', nameLabel: 'Dein Name', namePlaceholder: 'Gast',
     langLabel: 'Deine Sprache', connect: 'Beitreten', enterRoom: 'Gib einen Raumcode ein',
@@ -538,6 +543,7 @@ export const I18N: Record<string, Dict> = {
     aiEmailNoRecipients: 'Mindestens einen Empfänger hinzufügen',
   },
   pt: {
+    sessionDurationTip: 'Duração da sessão', quickReactTip: 'Reações rápidas',
     tagline: 'Videochamadas traduzidas em tempo real', roomCode: 'Código da sala', copy: 'Copiar',
     copied: 'Copiado', copyFailed: 'Falha ao copiar', nameLabel: 'Seu nome', namePlaceholder: 'Convidado',
     langLabel: 'Seu idioma', connect: 'Entrar', enterRoom: 'Insira um código de sala',
@@ -642,6 +648,7 @@ export const I18N: Record<string, Dict> = {
     aiEmailNoRecipients: 'Adicione pelo menos um destinatário',
   },
   ja: {
+    sessionDurationTip: 'セッション時間', quickReactTip: 'クイックリアクション',
     tagline: 'リアルタイム翻訳ビデオ通話', roomCode: 'ルームコード', copy: 'コピー',
     copied: 'コピーしました', copyFailed: 'コピーに失敗', nameLabel: 'あなたの名前', namePlaceholder: 'ゲスト',
     langLabel: 'あなたの言語', connect: '参加', enterRoom: 'ルームコードを入力してください',
@@ -746,6 +753,7 @@ export const I18N: Record<string, Dict> = {
     aiEmailNoRecipients: '宛先を1人以上追加してください',
   },
   zh: {
+    sessionDurationTip: '会话时长', quickReactTip: '快捷表情',
     tagline: '实时翻译视频通话', roomCode: '房间代码', copy: '复制',
     copied: '已复制', copyFailed: '复制失败', nameLabel: '你的名字', namePlaceholder: '访客',
     langLabel: '你的语言', connect: '加入', enterRoom: '请输入房间代码',
