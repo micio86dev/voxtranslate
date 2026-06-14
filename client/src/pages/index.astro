@@ -220,6 +220,29 @@ const LANGS = [
         <div class="video-stage">
           <div id="video-grid" class="video-grid" data-peers="1"></div>
           <span id="rec-badge" class="rec-badge hidden">REC <span class="rec-dot"></span> <span id="rec-timer">00:00</span></span>
+          <!-- Voice-command countdown timer (spec 0052): set by speaking
+               ("imposta timer di 10 minuti") or via the manual popover. Counts
+               down on the stage; the × cancels it. -->
+          <span id="timer-badge" class="timer-badge hidden" role="timer">
+            <span class="ti-ico" aria-hidden="true"></span>
+            <span id="timer-remaining" class="ti-remaining">00:00</span>
+            <button id="timer-cancel" class="ti-cancel" data-i18n-title="timerCancel" data-i18n-label="timerCancel"></button>
+          </span>
+          <div id="timer-pop" class="timer-pop hidden" role="group" data-i18n-label="timerPopTitle">
+            <span class="timer-pop-title" data-i18n="timerPopTitle"></span>
+            <div class="timer-quick">
+              <button class="timer-chip" data-min="5"><span class="timer-chip-n">5</span> <span data-i18n="minShort"></span></button>
+              <button class="timer-chip" data-min="10"><span class="timer-chip-n">10</span> <span data-i18n="minShort"></span></button>
+              <button class="timer-chip" data-min="15"><span class="timer-chip-n">15</span> <span data-i18n="minShort"></span></button>
+              <button class="timer-chip" data-min="25"><span class="timer-chip-n">25</span> <span data-i18n="minShort"></span></button>
+            </div>
+            <div class="timer-custom">
+              <input id="timer-custom-input" type="number" min="1" max="360" step="1" inputmode="numeric"
+                data-i18n-ph="timerCustomPh" data-i18n-label="timerCustomPh" />
+              <button id="timer-custom-start" class="btn-primary" data-i18n="timerStart"></button>
+            </div>
+            <span class="timer-hint" data-i18n="timerVoiceHint"></span>
+          </div>
           <!-- Bookmark label prompt (spec 0013 → 0039): pressing 🔖 opens this with a
                REQUIRED label; the pin is saved only when a non-empty label is
                confirmed (an empty / abandoned prompt saves nothing). -->
@@ -312,6 +335,7 @@ const LANGS = [
                   <span class="mi"><button id="btn-bookmark" class="control-btn" data-i18n-title="bookmarkTip" data-i18n-label="bookmarkTip" hidden></button><span class="mi-label" data-i18n="bookmarkTip"></span></span>
                   <span class="mi"><button id="btn-minigame" class="control-btn" data-i18n-title="minigameTip"></button><span class="mi-label" data-i18n="minigameTip"></span></span>
                   <span class="mi"><button id="btn-quiz" class="control-btn" data-i18n-title="quizTip"></button><span class="mi-label" data-i18n="quizTip"></span></span>
+                  <span class="mi"><button id="btn-timer" class="control-btn" data-i18n-title="timerTip"></button><span class="mi-label" data-i18n="timerTip"></span></span>
                 </div>
               </div>
             </div>
@@ -837,6 +861,58 @@ const LANGS = [
       width: 8px; height: 8px; border-radius: 50%; background: var(--danger);
       animation: ti-pulse 1.2s ease-in-out infinite;
     }
+    /* ---- Voice-command timer (spec 0052) ---- */
+    .timer-badge {
+      position: absolute; top: 10px; right: 10px; z-index: 6;
+      display: inline-flex; align-items: center; gap: 7px;
+      padding: 4px 5px 4px 11px; border-radius: 999px;
+      background: rgba(0, 0, 0, 0.6); color: #fff;
+      font-size: 0.8rem; font-weight: 700; letter-spacing: 0.02em;
+      border: 1px solid var(--border);
+    }
+    .timer-badge .ti-ico { display: inline-flex; color: var(--accent); }
+    .timer-badge .ti-ico :global(.ico) { width: 15px; height: 15px; }
+    .timer-badge #timer-remaining { font-variant-numeric: tabular-nums; min-width: 42px; text-align: center; }
+    .ti-cancel {
+      display: inline-grid; place-items: center; width: 22px; height: 22px;
+      border-radius: 50%; border: none; cursor: pointer; padding: 0;
+      background: rgba(255, 255, 255, 0.14); color: #fff;
+    }
+    .ti-cancel:hover { background: var(--danger); }
+    .ti-cancel :global(.ico) { width: 13px; height: 13px; }
+    /* Reached zero: pulse the accent ring a few times to draw the eye. */
+    .timer-badge.timer-badge-done {
+      background: var(--accent-dim); border-color: var(--accent);
+      animation: timer-done-flash 0.85s ease-in-out 5;
+    }
+    @keyframes timer-done-flash {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.55); }
+      50% { box-shadow: 0 0 0 5px rgba(59, 130, 246, 0); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .timer-badge.timer-badge-done { animation: none; }
+    }
+    /* Manual set popover — quick picks + custom minutes (mirrors .bookmark-pop). */
+    .timer-pop {
+      position: absolute; bottom: 12px; right: 10px; z-index: 11;
+      display: flex; flex-direction: column; gap: 10px; width: 232px; max-width: 80vw;
+      padding: 12px; border-radius: 14px;
+      background: rgba(19, 20, 28, 0.96); backdrop-filter: blur(12px);
+      border: 1px solid var(--border); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+    }
+    .timer-pop-title { font-size: 0.9rem; font-weight: 700; color: var(--text); }
+    .timer-quick { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+    .timer-chip {
+      min-height: 38px; border-radius: 9px; cursor: pointer;
+      background: var(--surface-2); border: 1px solid var(--border); color: var(--text);
+      font-weight: 600; font-variant-numeric: tabular-nums;
+    }
+    .timer-chip:hover { border-color: var(--accent); background: var(--accent-dim); }
+    .timer-custom { display: flex; gap: 6px; }
+    .timer-custom input { flex: 1; min-width: 0; min-height: 38px; }
+    .timer-custom .btn-primary { width: auto; min-height: 38px; padding: 0 14px; }
+    .timer-hint { font-size: 0.72rem; color: var(--muted); line-height: 1.35; }
+
     .video-grid { display: grid; gap: 6px; width: 100%; height: 100%; }
     /* Video cells (and their children) are created in JS, so they don't get
        Astro's scoping attribute — target them with :global() under .video-grid.

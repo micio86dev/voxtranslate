@@ -16,6 +16,7 @@ import { initGlossary, onGlossaryActive, refreshGlossaryHome, setGlossaryRoom } 
 import { Whiteboard } from './whiteboard';
 import { TicTacToe } from './tictactoe';
 import { Quiz } from './quiz';
+import { CallTimer, spokenDuration } from './timer';
 import { dismissLangToast, initLangDetect, onLanguageDetected } from './lang-detect';
 import {
   playCallEnterSound,
@@ -25,6 +26,8 @@ import {
   playLeaveSound,
   playRecordingStartSound,
   playScreenShareSound,
+  playTimerDoneSound,
+  playTimerSetSound,
 } from './sfx';
 import { RateLimiter } from './reaction-rate-limit';
 import { VirtualBackground } from './virtual-background';
@@ -167,6 +170,30 @@ const tictactoe = new TicTacToe(minigameEl, myId, gameName, sendGame, t);
 const quizEl = $('quiz');
 // Each client renders the quiz in its own language (spec 0048).
 const quiz = new Quiz(quizEl, myId, gameName, () => session?.lang || 'en', sendGame, t);
+
+// Voice-command countdown timer (spec 0052): started from your own Deepgram
+// transcript ("imposta timer di 10 minuti") or the manual popover. Local-only —
+// the badge, sound, and spoken confirmation all happen on the device that set it.
+const callTimer = new CallTimer({
+  badge: $('timer-badge'),
+  remaining: $('timer-remaining'),
+  cancelBtn: $('timer-cancel'),
+  t,
+  onSet: (cmd) => {
+    const human = spokenDuration(cmd.seconds, t);
+    toast(t('timerSet').replace('{d}', human));
+    playTimerSetSound();
+    // Optional spoken confirmation, gated on the "translated voice" output toggle
+    // so it stays opt-in; the visual badge + cue always fire.
+    if (ttsOn) speak(t('timerSetSpeak').replace('{d}', human), getUiLang());
+  },
+  onDone: () => {
+    toast(t('timerDone'));
+    playTimerDoneSound();
+    if (ttsOn) speak(t('timerDoneSpeak'), getUiLang());
+  },
+  onCancel: () => toast(t('timerCancelled')),
+});
 let audioCapture: AudioCapture | null = null;
 let micMeter: MicMeter | null = null; // mic-button voice halo (input working)
 let chat: ChatManager | null = null;
@@ -776,6 +803,10 @@ async function handleServer(msg: any): Promise<void> {
       // valid TTS voice/translation to pick — skip until it resolves.
       if (ttsOn && msg.speaker_id !== myId && msg.lang !== myLang && myLang !== 'auto')
         speak(text, myLang);
+      // Voice-command timer (spec 0052): only OUR OWN final transcript can arm a
+      // timer — a peer's speech never controls your clock. Parsed from the raw
+      // (untranslated) text in the speaker's own language.
+      if (msg.speaker_id === myId) callTimer.handleTranscript(msg.original || '');
       break;
     }
     // ---- Billing (only sent to authenticated speakers) ----
@@ -2006,6 +2037,8 @@ function leaveCall(): void {
   tictactoe.reset();
   toggleQuiz(false); // hide the quiz + drop local state (spec 0047)
   quiz.reset();
+  toggleTimerPop(false); // close the manual timer popover (spec 0052)
+  callTimer.reset(); // stop any running countdown + hide the badge
   dismissLangToast(); // drop a pending "Detected language" toast (spec 0012)
   callScreen.classList.add('hidden');
   homeScreen.classList.remove('hidden');
@@ -2776,6 +2809,61 @@ function toggleQuiz(open?: boolean): void {
 }
 $('btn-quiz').addEventListener('click', () => toggleQuiz());
 $('quiz-close').addEventListener('click', () => toggleQuiz(false));
+
+// ---- Voice-command timer wiring (spec 0052) ----
+const btnTimer = $('btn-timer');
+const timerPop = $('timer-pop');
+btnTimer.innerHTML = icon('timer');
+$('timer-cancel').innerHTML = icon('close', 13);
+($('timer-badge').querySelector('.ti-ico') as HTMLElement).innerHTML = icon('timer', 15);
+
+function toggleTimerPop(open?: boolean): void {
+  const show = open ?? timerPop.classList.contains('hidden');
+  timerPop.classList.toggle('hidden', !show);
+  if (show) $<HTMLInputElement>('timer-custom-input').focus();
+}
+btnTimer.addEventListener('click', (e) => {
+  e.stopPropagation(); // don't let the just-opened popover see this as an outside click
+  if (timerPop.classList.contains('hidden')) setMoreOpen(false); // collapse the ⋯ menu first
+  toggleTimerPop();
+});
+// Close the popover on an outside click or Escape (mirrors the ⋯ menu).
+document.addEventListener('click', (e) => {
+  if (
+    !timerPop.classList.contains('hidden') &&
+    !timerPop.contains(e.target as Node) &&
+    !btnTimer.contains(e.target as Node)
+  )
+    toggleTimerPop(false);
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !timerPop.classList.contains('hidden')) toggleTimerPop(false);
+});
+
+// Quick-pick chips → start that many whole minutes.
+timerPop.querySelectorAll<HTMLButtonElement>('.timer-chip').forEach((chip) => {
+  chip.addEventListener('click', () => {
+    const min = Number(chip.dataset.min || '0');
+    if (min > 0) callTimer.start({ seconds: min * 60, isBreak: false });
+    toggleTimerPop(false);
+  });
+});
+// Custom minutes (1–360) → start on the button or Enter.
+function startCustomTimer(): void {
+  const input = $<HTMLInputElement>('timer-custom-input');
+  const min = Math.floor(Number(input.value));
+  if (!Number.isFinite(min) || min < 1) return;
+  callTimer.start({ seconds: Math.min(min, 360) * 60, isBreak: false });
+  input.value = '';
+  toggleTimerPop(false);
+}
+$('timer-custom-start').addEventListener('click', startCustomTimer);
+$('timer-custom-input').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    startCustomTimer();
+  }
+});
 // "Change" in the detected-language toast (spec 0012): correct the server,
 // then restart capture so the next Deepgram stream opens in the new language.
 initLangDetect({

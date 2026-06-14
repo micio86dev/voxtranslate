@@ -114,6 +114,32 @@ export function playCallEnterSound(): void {
   );
 }
 
+/** A voice/manual timer was set (spec 0052): soft two-note rising confirmation,
+ *  a brighter pair than the join chime so it reads as "acknowledged". */
+export function playTimerSetSound(): void {
+  play(
+    [
+      { freq: 659.25, start: 0, dur: 0.12 }, // E5
+      { freq: 987.77, start: 0.1, dur: 0.18 }, // B5 (rising)
+    ],
+    { type: 'triangle', gain: 0.06 },
+  );
+}
+
+/** A timer reached zero (spec 0052): an alternating two-tone "alarm" — assertive
+ *  enough to notice mid-call, but kept short and gentle. */
+export function playTimerDoneSound(): void {
+  play(
+    [
+      { freq: 880.0, start: 0, dur: 0.16 }, // A5
+      { freq: 1108.73, start: 0.18, dur: 0.16 }, // C#6
+      { freq: 880.0, start: 0.42, dur: 0.16 }, // A5
+      { freq: 1108.73, start: 0.6, dur: 0.22 }, // C#6
+    ],
+    { type: 'triangle', gain: 0.07 },
+  );
+}
+
 /** You left a call — the inverse falling two-note beep. */
 export function playCallLeaveSound(): void {
   play(

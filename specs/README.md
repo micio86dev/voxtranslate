@@ -84,6 +84,7 @@ Each spec follows the same skeleton:
 | [0049](0049-quiz-pack-40/spec.md) | Quiz pack expanded to 40 questions (localized) | ✅ Shipped | 2026-06-13 | `f98b61b` |
 | [0050](0050-observability/spec.md) | Observability: canonical logs, request IDs, structured JSON logging | ✅ Shipped | 2026-06-13 | `8ad971f` |
 | [0051](0051-directus-backoffice/spec.md) | Directus backoffice: KPI dashboards, Stripe movements, acquisition `source` | ✅ Shipped | 2026-06-14 | `627325b` |
+| [0052](0052-voice-command-timer/spec.md) | Voice-command countdown timer (intent-parsed from your own STT) | Draft | — | (this PR) |
 
 > Numbers 0011–0015 were claimed by commit messages while the AI bundle shipped
 > without spec docs (and 0011/0012 were each reused twice); the assignments

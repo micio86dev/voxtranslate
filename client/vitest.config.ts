@@ -23,6 +23,9 @@ export default defineConfig({
         'src/scripts/email-utils.ts',
         // Reaction throttle: pure sliding-window limiter (issue #15).
         'src/scripts/reaction-rate-limit.ts',
+        // Voice-command timer: only the pure intent parser + formatters — the
+        // CallTimer badge/countdown needs a DOM (covered manually) (spec 0052).
+        'src/scripts/timer-intent.ts',
       ],
       reporter: ['text', 'json-summary'],
       reportsDirectory: './coverage-unit',
