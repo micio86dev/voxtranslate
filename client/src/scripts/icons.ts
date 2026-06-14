@@ -86,6 +86,9 @@ const PATHS: Record<string, string> = {
   // Background effects (sparkles) — used by the camera blur toggle.
   sparkles:
     '<path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/><path d="M5 4l.6 1.6L7 6l-1.4.4L5 8l-.6-1.6L3 6l1.4-.4z"/>',
+  // Countdown timer (clock) — voice-command session timer (spec 0052).
+  timer:
+    '<circle cx="12" cy="12" r="9"/><polyline points="12 7.5 12 12 15.5 13.8"/>',
   // Chat file attachment (paperclip) — the upload button (spec 0018).
   paperclip:
     '<path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>',
