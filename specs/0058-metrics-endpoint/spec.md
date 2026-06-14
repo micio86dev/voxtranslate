@@ -2,12 +2,12 @@
 
 | | |
 |---|---|
-| **Status** | In progress |
+| **Status** | ✅ Shipped |
 | **Owner** | VoxTranslate |
 | **Created** | 2026-06-14 |
-| **Shipped** | — |
+| **Shipped** | 2026-06-14 |
 | **Version** | — |
-| **Commits** | `<pending>` |
+| **Commits** | `f3bfe6d`, `ed0a1cf` (rustfmt) |
 | **Depends on** | [0050](../0050-observability/spec.md) |
 
 ## 1. Context & Problem
