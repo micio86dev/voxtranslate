@@ -1,0 +1,32 @@
+{
+  "defaults": {
+    "monitor_type": "expected_status_code",
+    "expected_status_codes": [200],
+    "check_frequency": 180,
+    "request_timeout": 15,
+    "regions": ["us", "eu"],
+    "confirmation_period": 180,
+    "recovery_period": 60,
+    "verify_ssl": true,
+    "email": true,
+    "push": true,
+    "sms": false,
+    "call": false
+  },
+  "monitors": [
+    {
+      "pronounceable_name": "VoxTranslate server /health",
+      "url": "https://voxtranslate-server-production.up.railway.app/health"
+    },
+    {
+      "pronounceable_name": "VoxTranslate client",
+      "url": "https://voxtranslate.app/",
+      "follow_redirects": true
+    },
+    {
+      "pronounceable_name": "VoxTranslate server /metrics (optional liveness)",
+      "url": "https://voxtranslate-server-production.up.railway.app/metrics",
+      "push": false
+    }
+  ]
+}
