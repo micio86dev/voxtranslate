@@ -2,12 +2,12 @@
 
 | | |
 |---|---|
-| **Status** | In progress |
+| **Status** | ✅ Shipped |
 | **Owner** | VoxTranslate |
 | **Created** | 2026-06-14 |
-| **Shipped** | — |
+| **Shipped** | 2026-06-14 |
 | **Version** | — |
-| **Commits** | — |
+| **Commits** | `f3eb22b` |
 | **Depends on** | [0060](../0060-meet-ui-refinements/spec.md), [0055](../0055-meet-like-session-ui/spec.md) |
 
 ## 1. Context & Problem
