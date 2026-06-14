@@ -85,6 +85,7 @@ pub async fn canonical_log(req: Request, next: Next) -> Response {
 
     let status = res.status().as_u16();
     let latency_ms = start.elapsed().as_millis() as u64;
+    crate::metrics::record_request(status, latency_ms); // /metrics counters (spec 0058)
     span.in_scope(|| {
         tracing::info!(target: "canonical", status, latency_ms, "request");
     });

@@ -79,6 +79,17 @@ impl RoomManager {
         Self::default()
     }
 
+    /// Number of live rooms on this instance (a room is dropped when its last peer
+    /// leaves). Backs the `/metrics` gauge (spec 0058).
+    pub fn active_rooms(&self) -> usize {
+        self.rooms.len()
+    }
+
+    /// Total connected peers across all rooms on this instance (spec 0058 gauge).
+    pub fn active_peers(&self) -> usize {
+        self.rooms.iter().map(|r| r.peers.len()).sum()
+    }
+
     /// Add a peer to a room (creating it with `visibility` if new). Returns the
     /// room's session id + the peers already present, or `Err(())` if full.
     #[allow(clippy::result_unit_err)] // `()` = "room full"; a richer error isn't needed
