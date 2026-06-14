@@ -19,6 +19,7 @@ pub mod email;
 pub mod files;
 pub mod glossary;
 pub mod groq;
+pub mod metrics;
 pub mod middleware;
 pub mod moderation;
 pub mod observability;
@@ -210,6 +211,7 @@ pub fn app(state: AppState) -> Router {
         .route("/ws", get(ws_handler))
         .route("/rooms", get(rooms_handler))
         .route("/health", get(|| async { "ok" }))
+        .route("/metrics", get(metrics_handler))
         .route("/api/auth/config", get(auth::auth_config))
         .route("/api/ice", get(api::ice))
         .route("/api/auth/google", post(auth::auth_google))
@@ -387,6 +389,23 @@ async fn rooms_handler(State(state): State<AppState>) -> Json<RoomsResponse> {
     Json(RoomsResponse {
         rooms: state.rooms.public_rooms(),
     })
+}
+
+/// `GET /metrics` — Prometheus exposition (spec 0058). Non-sensitive aggregates only
+/// (request counters/latency + live room/peer gauges for THIS instance), so it's
+/// served unauthenticated for a scraper to poll.
+async fn metrics_handler(State(state): State<AppState>) -> impl axum::response::IntoResponse {
+    let body = metrics::render(
+        state.rooms.active_rooms() as u64,
+        state.rooms.active_peers() as u64,
+    );
+    (
+        [(
+            axum::http::header::CONTENT_TYPE,
+            "text/plain; version=0.0.4; charset=utf-8",
+        )],
+        body,
+    )
 }
 
 pub(crate) fn now_unix() -> u64 {

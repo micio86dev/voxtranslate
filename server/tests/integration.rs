@@ -114,6 +114,27 @@ async fn health_and_rooms_and_bad_params() {
         .unwrap();
     assert_eq!(rooms["rooms"].as_array().unwrap().len(), 0);
 
+    // /metrics (spec 0058): Prometheus exposition with this instance's live gauges.
+    let metrics = http
+        .get(format!("http://{addr}/metrics"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(metrics.status(), 200);
+    let ctype = metrics
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+    assert!(ctype.starts_with("text/plain"), "content-type was {ctype}");
+    let body = metrics.text().await.unwrap();
+    assert!(body.contains("# TYPE voxtranslate_http_request_duration_ms histogram"));
+    assert!(body.contains("voxtranslate_http_requests_total{status_class=\"2xx\"}"));
+    // No room joined in this test → both gauges read zero on this instance.
+    assert!(body.contains("voxtranslate_active_rooms 0"));
+    assert!(body.contains("voxtranslate_active_peers 0"));
+
     // Missing lang -> 400.
     let bad = http
         .get(format!("http://{addr}/ws?room=r"))
