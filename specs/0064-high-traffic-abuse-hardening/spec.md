@@ -96,9 +96,11 @@ the `X-Forwarded-For`-spoofable IP key; glossary-IDOR authz; bounded hot-path ch
 
 ## 7. Deployment & Operations
 
-- Server-only; **Railway deploy is manual** (`railway up`). New optional env:
-  `MAX_WS_CONNECTIONS` (default 2000 — size to the Railway plan) and `METRICS_TOKEN` (set it +
-  point the scraper/Better Stack at `/metrics` with the bearer to lock the endpoint down).
+- Server-only; **Railway deploy is manual** (`railway up`). New optional env (all default to the
+  constants above): `MAX_WS_CONNECTIONS` (size to the Railway plan), `WS_CONNECT_MAX_PER_MIN` and
+  `HTTP_PUBLIC_MAX_PER_MIN` (per-IP budgets — raise behind a trusted proxy or for load testing),
+  and `METRICS_TOKEN` (set it + point the scraper/Better Stack at `/metrics` with the bearer to
+  lock the endpoint down).
 
 ## 8. Risks / Open Items
 

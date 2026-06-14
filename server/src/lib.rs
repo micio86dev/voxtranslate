@@ -76,10 +76,12 @@ const DEFAULT_MAX_WS_CONNECTIONS: usize = 2000;
 /// Max accepted WS frame size (binary audio + text). Real audio chunks are a few
 /// hundred bytes and the largest signalling SDP is a few KB, so 64 KiB is generous.
 const MAX_FRAME_BYTES: usize = 64 * 1024;
-/// Per-IP `/ws` connect attempts per minute (best-effort; the global cap is the real guard).
-const WS_CONNECT_MAX_PER_MIN: u32 = 40;
-/// Per-IP `/rooms` + `/metrics` requests per minute.
-const HTTP_PUBLIC_MAX_PER_MIN: u32 = 60;
+/// Default per-IP `/ws` connect attempts per minute (override `WS_CONNECT_MAX_PER_MIN`;
+/// best-effort, the global cap is the real guard). Tunable so load tests / trusted
+/// proxies can raise it.
+const DEFAULT_WS_CONNECT_MAX_PER_MIN: u32 = 40;
+/// Default per-IP `/rooms` + `/metrics` requests per minute (override `HTTP_PUBLIC_MAX_PER_MIN`).
+const DEFAULT_HTTP_PUBLIC_MAX_PER_MIN: u32 = 60;
 /// Per-connection message budget per [`WS_MSG_WINDOW`] before the socket is closed.
 /// ≈100 msg/s sustained — far above audio (~10/s) + signalling/whiteboard bursts.
 const WS_MSG_MAX: u32 = 500;
@@ -138,8 +140,21 @@ pub struct AppState {
     pub ws_conns: Arc<AtomicUsize>,
     /// Max concurrent WS connections (`MAX_WS_CONNECTIONS`, default 2000).
     pub max_ws_conns: usize,
+    /// Per-IP `/ws` connects per minute (`WS_CONNECT_MAX_PER_MIN`, default 40).
+    pub ws_connect_max: u32,
+    /// Per-IP `/rooms` + `/metrics` requests per minute (`HTTP_PUBLIC_MAX_PER_MIN`, default 60).
+    pub http_public_max: u32,
     /// Optional bearer token gating `/metrics` (`METRICS_TOKEN`); open when unset.
     pub metrics_token: Option<String>,
+}
+
+/// Read a positive `u32` from `var`, falling back to `default`.
+fn env_u32(var: &str, default: u32) -> u32 {
+    std::env::var(var)
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .filter(|&n| n > 0)
+        .unwrap_or(default)
 }
 
 impl AppState {
@@ -187,6 +202,8 @@ impl AppState {
                 .and_then(|v| v.parse().ok())
                 .filter(|&n| n > 0)
                 .unwrap_or(DEFAULT_MAX_WS_CONNECTIONS),
+            ws_connect_max: env_u32("WS_CONNECT_MAX_PER_MIN", DEFAULT_WS_CONNECT_MAX_PER_MIN),
+            http_public_max: env_u32("HTTP_PUBLIC_MAX_PER_MIN", DEFAULT_HTTP_PUBLIC_MAX_PER_MIN),
             metrics_token: std::env::var("METRICS_TOKEN")
                 .ok()
                 .map(|s| s.trim().to_string())
@@ -438,7 +455,7 @@ async fn ws_handler(
     let ip = observability::client_ip(&headers);
     if !state.rate_limiter.allow(
         &format!("wsconnect:{ip}"),
-        WS_CONNECT_MAX_PER_MIN,
+        state.ws_connect_max,
         Duration::from_secs(60),
     ) {
         return (StatusCode::TOO_MANY_REQUESTS, "too many connections").into_response();
@@ -452,7 +469,7 @@ async fn rooms_handler(headers: HeaderMap, State(state): State<AppState>) -> Res
     let ip = observability::client_ip(&headers);
     if !state.rate_limiter.allow(
         &format!("rooms:{ip}"),
-        HTTP_PUBLIC_MAX_PER_MIN,
+        state.http_public_max,
         Duration::from_secs(60),
     ) {
         return (StatusCode::TOO_MANY_REQUESTS, "slow down").into_response();
@@ -479,7 +496,7 @@ async fn metrics_handler(headers: HeaderMap, State(state): State<AppState>) -> R
     let ip = observability::client_ip(&headers);
     if !state.rate_limiter.allow(
         &format!("metrics:{ip}"),
-        HTTP_PUBLIC_MAX_PER_MIN,
+        state.http_public_max,
         Duration::from_secs(60),
     ) {
         return StatusCode::TOO_MANY_REQUESTS.into_response();
