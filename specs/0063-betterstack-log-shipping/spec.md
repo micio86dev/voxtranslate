@@ -2,12 +2,12 @@
 
 | | |
 |---|---|
-| **Status** | In progress |
+| **Status** | ✅ Shipped |
 | **Owner** | VoxTranslate |
 | **Created** | 2026-06-14 |
-| **Shipped** | — |
+| **Shipped** | 2026-06-14 |
 | **Version** | — |
-| **Commits** | — |
+| **Commits** | `2f41f12` |
 | **Depends on** | [0050](../0050-observability/spec.md) |
 
 ## 1. Context & Problem
