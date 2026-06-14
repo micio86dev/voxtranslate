@@ -84,7 +84,18 @@ Each spec follows the same skeleton:
 | [0049](0049-quiz-pack-40/spec.md) | Quiz pack expanded to 40 questions (localized) | ✅ Shipped | 2026-06-13 | `f98b61b` |
 | [0050](0050-observability/spec.md) | Observability: canonical logs, request IDs, structured JSON logging | ✅ Shipped | 2026-06-13 | `8ad971f` |
 | [0051](0051-directus-backoffice/spec.md) | Directus backoffice: KPI dashboards, Stripe movements, acquisition `source` | ✅ Shipped | 2026-06-14 | `627325b` |
-| [0052](0052-voice-command-timer/spec.md) | Voice-command countdown timer (intent-parsed from your own STT) | Draft | — | (this PR) |
+| [0052](0052-voice-command-timer/spec.md) | Voice-command countdown timer (intent-parsed from your own STT) | ✅ Shipped | 2026-06-14 | `6c91ff4` |
+| [0053](0053-screenshare-camera-pip/spec.md) | Keep camera visible (PiP) during screen-share | ✅ Shipped | 2026-06-14 | `867c03b` |
+| [0054](0054-whiteboard-layering-mobile-zoom/spec.md) | Whiteboard layering, mobile visibility & double-tap zoom | ✅ Shipped | 2026-06-14 | `acff8c7` |
+| [0055](0055-meet-like-session-ui/spec.md) | Meet-like session UI: duration, participant count, quick reactions | ✅ Shipped | 2026-06-14 | `f3722a2` |
+| [0056](0056-overflow-menu-aria/spec.md) | Overflow ⋯ menu: fix ARIA aria-required-children violation | ✅ Shipped | 2026-06-14 | `df5a85f` |
+| [0057](0057-pip-controls/spec.md) | Picture-in-Picture: in-window controls + discoverability | ✅ Shipped | 2026-06-14 | `b12ba4e` |
+| [0058](0058-metrics-endpoint/spec.md) | Prometheus `/metrics` endpoint (request/error/p95 + room gauges) | ✅ Shipped | 2026-06-14 | `f3bfe6d` |
+| [0059](0059-turn-static-creds/spec.md) | TURN static-credential support (managed-relay fallback) | ✅ Shipped | 2026-06-14 | `873c6a9` |
+| [0060](0060-meet-ui-refinements/spec.md) | Meet-style refinements: floating reactions, header clock, clearer count | ✅ Shipped | 2026-06-14 | `54d7dd6` |
+| [0061](0061-immersive-call-overlays/spec.md) | Immersive call overlays: reaction chips, on-video clock/room/info + participant badge | ✅ Shipped | 2026-06-14 | `f3eb22b` |
+| [0062](0062-advanced-whiteboard/spec.md) | Advanced whiteboard: multi-page, shapes, highlighter, PNG/PDF export | ✅ Shipped | 2026-06-14 | `82a7514` |
+| [0063](0063-betterstack-log-shipping/spec.md) | App-side Better Stack log shipping (opt-in, NDJSON, issue #69) | ✅ Shipped | 2026-06-14 | `2f41f12` |
 
 > Numbers 0011–0015 were claimed by commit messages while the AI bundle shipped
 > without spec docs (and 0011/0012 were each reused twice); the assignments
