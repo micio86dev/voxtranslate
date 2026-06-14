@@ -51,6 +51,18 @@ test('a11y: in-call screen has no WCAG violations', async ({ browser }) => {
   });
   await audit(page, 'call');
 
+  // Audit the advanced whiteboard overlay (spec 0062) on a clean call screen — tools,
+  // width/colour pickers, export menu and the page strip — then close it.
+  await page.click('#btn-more');
+  await page.click('#btn-whiteboard');
+  await page.waitForSelector('#whiteboard:not(.hidden)');
+  await page.keyboard.press('Escape'); // close the ⋯ menu so only the board is open
+  await page.click('#wb-export'); // open the export menu so it's audited too
+  await page.waitForSelector('#wb-export-menu:not(.hidden)');
+  await audit(page, 'call+whiteboard');
+  await page.click('#wb-close');
+  await expect(page.locator('#whiteboard')).toHaveClass(/\bhidden\b/);
+
   // Also audit the two slide-in panels (chat + participants) while open.
   await page.click('#btn-chat');
   await page.waitForSelector('#chat-panel:not(.closed)');
