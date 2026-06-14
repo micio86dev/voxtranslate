@@ -98,6 +98,25 @@ const PATHS: Record<string, string> = {
   // Generic file (document) — fallback chip glyph for non-audio attachments.
   file:
     '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>',
+  // ---- Advanced whiteboard tools (spec 0062 / #96) ----
+  highlighter:
+    '<path d="M9 11l-4 4v4h4l4-4"/><path d="M12 8l4 4"/><path d="M16 4l4 4-7 7-4-4z"/>',
+  line:
+    '<line x1="5" y1="19" x2="19" y2="5"/>',
+  arrow:
+    '<line x1="5" y1="19" x2="19" y2="5"/><polyline points="9 5 19 5 19 15"/>',
+  square:
+    '<rect x="4" y="4" width="16" height="16" rx="2"/>',
+  circle:
+    '<circle cx="12" cy="12" r="9"/>',
+  plus:
+    '<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>',
+  download:
+    '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>',
+  'chevron-left':
+    '<polyline points="15 18 9 12 15 6"/>',
+  'chevron-right':
+    '<polyline points="9 18 15 12 9 6"/>',
 };
 
 /** Return inline SVG markup for `name`, drawn in `currentColor`. */

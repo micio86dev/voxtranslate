@@ -283,13 +283,28 @@ const LANGS = [
             <button id="bookmark-label-save" class="btn-primary bm-save" data-i18n="saveBtn"></button>
             <button id="bookmark-show-all" class="btn-ghost" data-i18n="showAllBookmarks"></button>
           </div>
-          <!-- Collaborative whiteboard overlay (spec 0045): covers the stage; strokes
-               relay over the WS and a late-joiner gets a snapshot. -->
+          <!-- Collaborative whiteboard overlay (spec 0045 → advanced in 0062 / #96):
+               covers the stage; ops relay over the WS and a late-joiner gets a
+               snapshot. Multi-page, highlighter + shapes, and PNG/PDF export. -->
           <div id="whiteboard" class="whiteboard hidden">
             <canvas id="wb-canvas" class="wb-canvas"></canvas>
             <div class="wb-toolbar" role="toolbar" data-i18n-label="whiteboardTip">
-              <button id="wb-pen" class="wb-tool active" data-i18n-title="wbPen"></button>
-              <button id="wb-eraser" class="wb-tool" data-i18n-title="wbEraser"></button>
+              <span class="wb-tools">
+                <button id="wb-pen" class="wb-tool active" data-tool="pen" data-i18n-title="wbPen"></button>
+                <button id="wb-highlighter" class="wb-tool" data-tool="highlighter" data-i18n-title="wbHighlighter"></button>
+                <button id="wb-eraser" class="wb-tool" data-tool="eraser" data-i18n-title="wbEraser"></button>
+                <button id="wb-line" class="wb-tool" data-tool="line" data-i18n-title="wbLine"></button>
+                <button id="wb-arrow" class="wb-tool" data-tool="arrow" data-i18n-title="wbArrow"></button>
+                <button id="wb-rect" class="wb-tool" data-tool="rect" data-i18n-title="wbRect"></button>
+                <button id="wb-ellipse" class="wb-tool" data-tool="ellipse" data-i18n-title="wbEllipse"></button>
+              </span>
+              <span class="wb-sep" aria-hidden="true"></span>
+              <span class="wb-widths" role="group" data-i18n-label="wbWidth">
+                <button class="wb-width" data-width="s" data-i18n-title="wbWidthS"><span class="wb-dot wb-dot-s"></span></button>
+                <button class="wb-width active" data-width="m" data-i18n-title="wbWidthM"><span class="wb-dot wb-dot-m"></span></button>
+                <button class="wb-width" data-width="l" data-i18n-title="wbWidthL"><span class="wb-dot wb-dot-l"></span></button>
+              </span>
+              <span class="wb-sep" aria-hidden="true"></span>
               <span class="wb-colors">
                 <button class="wb-color active" data-color="#f1f5f9" style="--c:#f1f5f9" aria-label="white"></button>
                 <button class="wb-color" data-color="#3b82f6" style="--c:#3b82f6" aria-label="blue"></button>
@@ -297,8 +312,26 @@ const LANGS = [
                 <button class="wb-color" data-color="#22c55e" style="--c:#22c55e" aria-label="green"></button>
                 <button class="wb-color" data-color="#f59e0b" style="--c:#f59e0b" aria-label="amber"></button>
               </span>
-              <button id="wb-clear" class="btn-ghost" data-i18n="wbClear"></button>
-              <button id="wb-close" class="btn-ghost icon-btn" data-i18n-title="closeTip"></button>
+              <span class="wb-sep" aria-hidden="true"></span>
+              <button id="wb-clear" class="wb-tool" data-i18n-title="wbClear"></button>
+              <span class="wb-export-wrap">
+                <button id="wb-export" class="wb-tool" aria-haspopup="true" aria-expanded="false" aria-controls="wb-export-menu" data-i18n-title="wbExport"></button>
+                <span id="wb-export-menu" class="wb-export-menu hidden" role="group" data-i18n-label="wbExport">
+                  <button id="wb-export-png" class="btn-ghost" data-i18n="wbExportPng"></button>
+                  <button id="wb-export-pdf" class="btn-ghost" data-i18n="wbExportPdf"></button>
+                </span>
+              </span>
+              <button id="wb-close" class="wb-tool icon-btn" data-i18n-title="closeTip"></button>
+            </div>
+            <!-- Page strip (spec 0062): navigate · add · duplicate · delete pages. -->
+            <div class="wb-pagebar" role="group" data-i18n-label="wbPages">
+              <button id="wb-page-prev" class="wb-page-btn" data-i18n-title="wbPrevPage"></button>
+              <span id="wb-page-label" class="wb-page-label" role="status">1 / 1</span>
+              <button id="wb-page-next" class="wb-page-btn" data-i18n-title="wbNextPage"></button>
+              <span class="wb-sep" aria-hidden="true"></span>
+              <button id="wb-page-add" class="wb-page-btn" data-i18n-title="wbAddPage"></button>
+              <button id="wb-page-dup" class="wb-page-btn" data-i18n-title="wbDupPage"></button>
+              <button id="wb-page-del" class="wb-page-btn" data-i18n-title="wbDelPage"></button>
             </div>
           </div>
           <!-- Tic-Tac-Toe mini-game (spec 0046): a compact card; state relays over
@@ -1536,17 +1569,60 @@ const LANGS = [
       background: rgba(19,20,28,0.92); backdrop-filter: blur(10px);
       border: 1px solid var(--border); box-shadow: 0 8px 24px rgba(0,0,0,0.4);
     }
+    .wb-tools, .wb-widths { display: flex; gap: 6px; align-items: center; }
     .wb-tool {
       width: 40px; height: 40px; border-radius: 9px; cursor: pointer;
       background: var(--surface-2); border: 1px solid var(--border); color: var(--text);
-      display: grid; place-items: center; touch-action: manipulation;
+      display: grid; place-items: center; touch-action: manipulation; flex-shrink: 0;
     }
+    .wb-tool:hover { border-color: var(--accent); }
     .wb-tool.active { border-color: var(--accent); background: var(--accent-dim); }
     .wb-tool :global(.ico) { width: 20px; height: 20px; }
+    /* A thin divider between toolbar groups (spec 0062). */
+    .wb-sep { width: 1px; align-self: stretch; background: var(--border); margin: 2px 2px; }
+    /* Stroke-width picker: three dots of increasing size (spec 0062). */
+    .wb-width {
+      width: 34px; height: 40px; border-radius: 9px; cursor: pointer;
+      background: var(--surface-2); border: 1px solid var(--border);
+      display: grid; place-items: center; touch-action: manipulation; flex-shrink: 0;
+    }
+    .wb-width:hover { border-color: var(--accent); }
+    .wb-width.active { border-color: var(--accent); background: var(--accent-dim); }
+    .wb-dot { display: block; border-radius: 50%; background: var(--text); }
+    .wb-dot-s { width: 5px; height: 5px; }
+    .wb-dot-m { width: 9px; height: 9px; }
+    .wb-dot-l { width: 14px; height: 14px; }
     .wb-colors { display: flex; gap: 6px; align-items: center; }
-    .wb-color { width: 24px; height: 24px; border-radius: 50%; background: var(--c); border: 2px solid transparent; cursor: pointer; touch-action: manipulation; }
+    .wb-color { width: 24px; height: 24px; border-radius: 50%; background: var(--c); border: 2px solid transparent; cursor: pointer; touch-action: manipulation; flex-shrink: 0; }
     .wb-color.active { border-color: #fff; box-shadow: 0 0 0 2px var(--accent); }
-    .wb-toolbar .btn-ghost { min-height: 40px; }
+    /* Export menu (PNG / PDF) — a small popover under the export button (spec 0062). */
+    .wb-export-wrap { position: relative; display: inline-flex; }
+    .wb-export-menu {
+      position: absolute; top: calc(100% + 8px); right: 0; z-index: 9;
+      display: flex; flex-direction: column; gap: 4px; min-width: 150px; padding: 6px;
+      background: rgba(19,20,28,0.97); backdrop-filter: blur(10px);
+      border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 10px 28px rgba(0,0,0,0.45);
+    }
+    .wb-export-menu .btn-ghost { min-height: 38px; justify-content: flex-start; text-align: left; }
+    /* Page strip, bottom-centre (spec 0062): navigate / add / duplicate / delete. */
+    .wb-pagebar {
+      position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); z-index: 8;
+      display: flex; align-items: center; gap: 6px; padding: 5px 8px; border-radius: 12px;
+      background: rgba(19,20,28,0.92); backdrop-filter: blur(10px);
+      border: 1px solid var(--border); box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    }
+    .wb-page-btn {
+      width: 36px; height: 36px; border-radius: 9px; cursor: pointer;
+      background: var(--surface-2); border: 1px solid var(--border); color: var(--text);
+      display: grid; place-items: center; touch-action: manipulation; flex-shrink: 0;
+    }
+    .wb-page-btn:hover { border-color: var(--accent); }
+    .wb-page-btn:disabled { opacity: 0.4; cursor: default; }
+    .wb-page-btn :global(.ico) { width: 18px; height: 18px; }
+    .wb-page-label {
+      min-width: 54px; text-align: center; font-size: 0.82rem; font-weight: 600;
+      font-variant-numeric: tabular-nums; color: var(--text);
+    }
 
     /* ---- Tic-Tac-Toe mini-game (spec 0046) ---- */
     .minigame {

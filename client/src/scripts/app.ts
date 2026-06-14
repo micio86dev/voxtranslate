@@ -13,7 +13,7 @@ import * as auth from './auth';
 import { openSessionScreen } from './session-screen';
 import { initBookmarks, setBookmarkSession } from './bookmarks';
 import { initGlossary, onGlossaryActive, refreshGlossaryHome, setGlossaryRoom } from './glossary';
-import { Whiteboard } from './whiteboard';
+import { Whiteboard, type WbTool, type WbWidth } from './whiteboard';
 import { TicTacToe } from './tictactoe';
 import { Quiz } from './quiz';
 import { CallTimer, spokenDuration, formatClock } from './timer';
@@ -156,10 +156,13 @@ let localStream: MediaStream | null = null;
 let ws: WebSocket | null = null;
 let mesh: MeshManager | null = null;
 
-// Collaborative whiteboard (spec 0045): strokes relay over the same WS.
+// Collaborative whiteboard (spec 0045 → advanced in 0062): ops relay over the same
+// WS; onPagesChanged repaints the page strip (multi-page, #96).
 const wbOverlay = $('whiteboard');
-const whiteboard = new Whiteboard($<HTMLCanvasElement>('wb-canvas'), (op) =>
-  ws?.send(JSON.stringify({ type: 'whiteboard', op })),
+const whiteboard = new Whiteboard(
+  $<HTMLCanvasElement>('wb-canvas'),
+  (op) => ws?.send(JSON.stringify({ type: 'whiteboard', op })),
+  (count, index) => renderWbPages(count, index),
 );
 
 // Mini-games (spec 0046/0047): state relays over the same WS `game` channel.
@@ -2938,37 +2941,104 @@ $('btn-glossary-home').innerHTML = icon('book', 18);
 $('glossary-close').innerHTML = icon('close', 16);
 initGlossary({ show }); // app's show() gives the modal its focus trap
 
-// ---- Whiteboard wiring (spec 0045) ----
+// ---- Whiteboard wiring (spec 0045 → advanced in 0062 / #96) ----
 $('btn-whiteboard').innerHTML = icon('board');
-$('wb-pen').innerHTML = icon('pencil', 20);
-$('wb-eraser').innerHTML = icon('eraser', 20);
-$('wb-close').innerHTML = icon('close', 16);
+const WB_TOOL_ICON: Record<WbTool, string> = {
+  pen: 'pencil',
+  highlighter: 'highlighter',
+  eraser: 'eraser',
+  line: 'line',
+  arrow: 'arrow',
+  rect: 'square',
+  ellipse: 'circle',
+};
+const wbToolBtns = wbOverlay.querySelectorAll<HTMLButtonElement>('.wb-tool[data-tool]');
+wbToolBtns.forEach((b) => (b.innerHTML = icon(WB_TOOL_ICON[b.dataset.tool as WbTool], 20)));
+$('wb-clear').innerHTML = icon('trash', 20);
+$('wb-export').innerHTML = icon('download', 20);
+$('wb-close').innerHTML = icon('close', 18);
+$('wb-page-prev').innerHTML = icon('chevron-left', 18);
+$('wb-page-next').innerHTML = icon('chevron-right', 18);
+$('wb-page-add').innerHTML = icon('plus', 18);
+$('wb-page-dup').innerHTML = icon('copy', 18);
+$('wb-page-del').innerHTML = icon('trash', 18);
+
 function toggleWhiteboard(open?: boolean): void {
   const show = open ?? wbOverlay.classList.contains('hidden');
   wbOverlay.classList.toggle('hidden', !show);
+  if (!show) setWbExportOpen(false);
   // Size the canvas on the NEXT frame, not synchronously: right after un-hiding, the
   // stage isn't always laid out on mobile (dynamic viewport / the ⋯ menu still
   // collapsing), so clientWidth/Height can read 0 and resize() bails — leaving a blank
   // 0×0 board until a window resize. One rAF guarantees a settled, non-zero stage. (#71)
-  if (show) requestAnimationFrame(() => whiteboard.resize());
+  if (show) {
+    renderWbPages(whiteboard.pageCount(), whiteboard.pageIndex()); // sync the strip on open
+    requestAnimationFrame(() => whiteboard.resize());
+  }
 }
-function setWbTool(tool: 'pen' | 'eraser'): void {
+function setWbTool(tool: WbTool): void {
   whiteboard.tool = tool;
-  $('wb-pen').classList.toggle('active', tool === 'pen');
-  $('wb-eraser').classList.toggle('active', tool === 'eraser');
+  wbToolBtns.forEach((b) => b.classList.toggle('active', b.dataset.tool === tool));
 }
+function setWbWidth(width: WbWidth): void {
+  whiteboard.widthKey = width;
+  wbOverlay.querySelectorAll<HTMLButtonElement>('.wb-width').forEach((b) => b.classList.toggle('active', b.dataset.width === width));
+}
+// Repaint the page strip + enable/disable nav (called by the board on any page change).
+function renderWbPages(count: number, index: number): void {
+  $('wb-page-label').textContent = `${index + 1} / ${count}`;
+  ($('wb-page-prev') as HTMLButtonElement).disabled = index <= 0;
+  ($('wb-page-next') as HTMLButtonElement).disabled = index >= count - 1;
+  ($('wb-page-del') as HTMLButtonElement).disabled = count <= 1; // never delete the last page
+}
+
 $('btn-whiteboard').addEventListener('click', () => toggleWhiteboard());
 $('wb-close').addEventListener('click', () => toggleWhiteboard(false));
-$('wb-clear').addEventListener('click', () => whiteboard.clearBoard());
-$('wb-pen').addEventListener('click', () => setWbTool('pen'));
-$('wb-eraser').addEventListener('click', () => setWbTool('eraser'));
+$('wb-clear').addEventListener('click', () => whiteboard.clearPage());
+wbToolBtns.forEach((b) => b.addEventListener('click', () => setWbTool(b.dataset.tool as WbTool)));
+wbOverlay.querySelectorAll<HTMLButtonElement>('.wb-width').forEach((b) => {
+  b.addEventListener('click', () => setWbWidth(b.dataset.width as WbWidth));
+});
 wbOverlay.querySelectorAll<HTMLButtonElement>('.wb-color').forEach((b) => {
   b.addEventListener('click', () => {
     whiteboard.color = b.dataset.color || '#f1f5f9';
-    setWbTool('pen'); // picking a colour implies drawing
     wbOverlay.querySelectorAll('.wb-color').forEach((c) => c.classList.toggle('active', c === b));
   });
 });
+
+// Page strip nav (local) + structural ops (relayed).
+$('wb-page-prev').addEventListener('click', () => whiteboard.prevPage());
+$('wb-page-next').addEventListener('click', () => whiteboard.nextPage());
+$('wb-page-add').addEventListener('click', () => whiteboard.addPage());
+$('wb-page-dup').addEventListener('click', () => whiteboard.duplicatePage());
+$('wb-page-del').addEventListener('click', () => whiteboard.deleteCurrentPage());
+
+// Export menu (PNG / PDF) — a small popover; outside-click / Escape close it.
+const wbExportMenu = $('wb-export-menu');
+const wbExportWrap = wbOverlay.querySelector<HTMLElement>('.wb-export-wrap')!;
+function setWbExportOpen(open: boolean): void {
+  wbExportMenu.classList.toggle('hidden', !open);
+  $('wb-export').setAttribute('aria-expanded', String(open));
+}
+$('wb-export').addEventListener('click', (e) => {
+  e.stopPropagation();
+  setWbExportOpen(wbExportMenu.classList.contains('hidden'));
+});
+document.addEventListener('click', (e) => {
+  if (!wbExportMenu.classList.contains('hidden') && !wbExportWrap.contains(e.target as Node)) setWbExportOpen(false);
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !wbExportMenu.classList.contains('hidden')) setWbExportOpen(false);
+});
+$('wb-export-png').addEventListener('click', () => {
+  setWbExportOpen(false);
+  void whiteboard.exportPng();
+});
+$('wb-export-pdf').addEventListener('click', () => {
+  setWbExportOpen(false);
+  whiteboard.exportPdf();
+});
+
 window.addEventListener('resize', () => {
   if (!wbOverlay.classList.contains('hidden')) whiteboard.resize();
 });
