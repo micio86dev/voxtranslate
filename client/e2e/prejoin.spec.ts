@@ -19,7 +19,10 @@ test('pre-join: device selectors + mic/camera toggles', async ({ browser }) => {
   expect(await page.$$eval('#cam-select option', (o) => o.length)).toBeGreaterThan(0);
   expect(await page.$$eval('#mic-select option', (o) => o.length)).toBeGreaterThan(0);
 
-  // Toggle mic + camera off → tracks disabled + overlay shown.
+  // Toggle mic off (disables the track) + camera off → overlay shown. Camera-off
+  // *releases* the device so the hardware LED goes off (#5): the video track is
+  // stopped (readyState 'ended'), not merely disabled — so a stopped track keeps
+  // `.enabled === true`. Assert the camera is no longer live instead.
   await page.click('#pre-mic');
   await page.click('#pre-cam');
   await sleep(300);
@@ -27,14 +30,14 @@ test('pre-join: device selectors + mic/camera toggles', async ({ browser }) => {
     const s = (document.getElementById('preview') as HTMLVideoElement).srcObject as MediaStream;
     return {
       audio: s.getAudioTracks()[0].enabled,
-      video: s.getVideoTracks()[0].enabled,
+      videoLive: s.getVideoTracks().some((tr) => tr.readyState === 'live'),
       off: !(document.getElementById('preview-off') as HTMLElement).hidden,
       micDanger: document.getElementById('pre-mic')!.classList.contains('active-danger'),
       camDanger: document.getElementById('pre-cam')!.classList.contains('active-danger'),
     };
   });
   expect(st.audio).toBe(false);
-  expect(st.video).toBe(false);
+  expect(st.videoLive).toBe(false);
   expect(st.off).toBe(true);
   expect(st.micDanger && st.camDanger).toBeTruthy();
 
