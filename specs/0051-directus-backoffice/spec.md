@@ -7,7 +7,7 @@
 | **Created** | 2026-06-14 |
 | **Shipped** | 2026-06-14 |
 | **Version** | — |
-| **Commits** | _(this PR)_ |
+| **Commits** | `627325b` |
 | **Depends on** | [0007 backoffice](../0007-backoffice-directus/spec.md), [0008 i18n](../0008-managed-content-i18n/spec.md), [0019 admin bonus](../0019-admin-bonus-credits/spec.md) |
 
 ## 1. Context & Problem

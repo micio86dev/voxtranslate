@@ -82,8 +82,8 @@ Each spec follows the same skeleton:
 | [0047](0047-minigame-quiz/spec.md) | Mini-game: trivia quiz (built-in pack, host-authoritative) | ✅ Shipped | 2026-06-13 | `d3a4315` |
 | [0048](0048-quiz-localized/spec.md) | Quiz questions localized per player (pre-translated pack) | ✅ Shipped | 2026-06-13 | `23f502e` |
 | [0049](0049-quiz-pack-40/spec.md) | Quiz pack expanded to 40 questions (localized) | ✅ Shipped | 2026-06-13 | `f98b61b` |
-| [0050](0050-observability/spec.md) | Observability: canonical logs, request IDs, structured JSON logging | ✅ Shipped | 2026-06-13 | (this PR) |
-| [0051](0051-directus-backoffice/spec.md) | Directus backoffice: KPI dashboards, Stripe movements, acquisition `source` | ✅ Shipped | 2026-06-14 | (this PR) |
+| [0050](0050-observability/spec.md) | Observability: canonical logs, request IDs, structured JSON logging | ✅ Shipped | 2026-06-13 | `8ad971f` |
+| [0051](0051-directus-backoffice/spec.md) | Directus backoffice: KPI dashboards, Stripe movements, acquisition `source` | ✅ Shipped | 2026-06-14 | `627325b` |
 
 > Numbers 0011–0015 were claimed by commit messages while the AI bundle shipped
 > without spec docs (and 0011/0012 were each reused twice); the assignments
