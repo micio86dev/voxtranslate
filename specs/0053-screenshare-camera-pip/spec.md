@@ -2,12 +2,12 @@
 
 | | |
 |---|---|
-| **Status** | In progress |
+| **Status** | ✅ Shipped |
 | **Owner** | VoxTranslate |
 | **Created** | 2026-06-14 |
-| **Shipped** | — |
+| **Shipped** | 2026-06-14 |
 | **Version** | — |
-| **Commits** | `<pending>` |
+| **Commits** | `867c03b` |
 | **Depends on** | [0033](../0033-screenshare-pan-zoom/spec.md), [0002](../0002-video-calls-translated-chat/spec.md) |
 
 ## 1. Context & Problem
