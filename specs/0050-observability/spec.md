@@ -7,7 +7,7 @@
 | **Created** | 2026-06-13 |
 | **Shipped** | 2026-06-13 |
 | **Version** | — |
-| **Commits** | _(this PR)_ |
+| **Commits** | `8ad971f` |
 | **Depends on** | [0027](../0027-load-testing-k6/spec.md), [0028](../0028-security-hardening/spec.md) |
 
 ## 1. Context & Problem

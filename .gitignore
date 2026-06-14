@@ -40,3 +40,6 @@
 /.claude/skills/*
 !/.claude/skills/deepgram-api/
 /.agents/
+
+# Claude Code local scheduler lock (runtime artifact)
+.claude/scheduled_tasks.lock
