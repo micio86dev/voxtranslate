@@ -2,12 +2,12 @@
 
 | | |
 |---|---|
-| **Status** | In progress |
+| **Status** | ✅ Shipped |
 | **Owner** | VoxTranslate |
 | **Created** | 2026-06-14 |
-| **Shipped** | — |
+| **Shipped** | 2026-06-14 |
 | **Version** | — |
-| **Commits** | `<pending>` |
+| **Commits** | `acff8c7` |
 | **Depends on** | [0045](../0045-collaborative-whiteboard/spec.md), [0023](../0023-call-toolbar-overflow-menu/spec.md), [0034](../0034-focus-mode-pin/spec.md) |
 
 ## 1. Context & Problem
