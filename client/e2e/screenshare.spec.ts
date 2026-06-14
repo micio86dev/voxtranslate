@@ -126,3 +126,84 @@ test('screen share works without a camera (issue #4)', async ({ browser }) => {
   await closePage(a);
   await closePage(b);
 });
+
+/** Stub getDisplayMedia with a deterministic animated canvas (no OS picker),
+ *  leaving the fake camera (getUserMedia) intact so the sharer has a real camera. */
+async function stubDisplayMedia(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    navigator.mediaDevices.getDisplayMedia = async () => {
+      const canvas = Object.assign(document.createElement('canvas'), { width: 640, height: 360 });
+      const ctx = canvas.getContext('2d')!;
+      let i = 0;
+      setInterval(() => {
+        ctx.fillStyle = `hsl(${(i += 7) % 360} 70% 45%)`;
+        ctx.fillRect(0, 0, 640, 360);
+      }, 80);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return (canvas as any).captureStream(15) as MediaStream;
+    };
+  });
+}
+
+// Issue #59 (spec 0053): a sharer WITH a camera composites it as a PiP overlay on
+// the screen, sent as one track (no renegotiation). The hard regression to guard is
+// toggling the camera mid-share: the composite is always the outgoing track, so the
+// shared screen must NOT blank on peers when the camera turns off.
+test('screen share composites the camera and survives a mid-share camera toggle (issue #59)', async ({
+  browser,
+}) => {
+  const room = 'pip' + Math.floor(Math.random() * 1e6);
+  const a = await openPage(browser); // the presenter — with a (fake) camera
+  const b = await openPage(browser); // a viewer
+  await stubDisplayMedia(a.page);
+
+  await joinCall(a.page, { name: 'Presenter', lang: 'en', room });
+  await joinCall(b.page, { name: 'Viewer', lang: 'en', room });
+  await sleep(5000); // WebRTC connect
+
+  // The viewer sees the presenter's camera flowing before any share.
+  await b.page.waitForFunction(
+    () => {
+      const cell = document.querySelector('.video-cell:not(.self)');
+      const v = cell?.querySelector('video') as HTMLVideoElement | null;
+      return !!(v && v.srcObject && v.videoWidth > 0);
+    },
+    { timeout: 20000 },
+  );
+
+  // Start the share (btn-share lives in the ⋯ menu).
+  await a.page.click('#btn-more');
+  await a.page.click('#btn-share');
+
+  // The presenter's remote tile flips to "sharing" (🖥 badge) and keeps flowing
+  // video — now the screen + camera PiP composite.
+  await b.page.waitForFunction(
+    () => {
+      const cell = document.querySelector('.video-cell:not(.self)');
+      if (!cell) return false;
+      const v = cell.querySelector('video') as HTMLVideoElement | null;
+      const badge = cell.querySelector('.screen-share-badge');
+      return !!(v && v.srcObject && v.videoWidth > 0) && !!badge;
+    },
+    { timeout: 20000 },
+  );
+
+  // Close the ⋯ menu (Escape), then turn the presenter's camera OFF mid-share. The
+  // composite must keep flowing on the viewer — the shared screen must NOT blank and
+  // no camera-off avatar may appear (spec 0053 regression guard). `#btn-cam` lives in
+  // the primary control bar, so Playwright auto-waits for it to be actionable.
+  await a.page.keyboard.press('Escape');
+  await a.page.click('#btn-cam');
+  await sleep(1500);
+  expect(
+    await b.page.evaluate(() => {
+      const cell = document.querySelector('.video-cell:not(.self)');
+      const v = cell?.querySelector('video') as HTMLVideoElement | null;
+      const av = cell?.querySelector('.avatar') as HTMLElement | null;
+      return !!(v && v.srcObject && v.videoWidth > 0) && !!av && av.hidden;
+    }),
+  ).toBeTruthy();
+
+  await closePage(a);
+  await closePage(b);
+});
