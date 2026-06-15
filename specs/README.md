@@ -96,6 +96,8 @@ Each spec follows the same skeleton:
 | [0061](0061-immersive-call-overlays/spec.md) | Immersive call overlays: reaction chips, on-video clock/room/info + participant badge | ✅ Shipped | 2026-06-14 | `f3eb22b` |
 | [0062](0062-advanced-whiteboard/spec.md) | Advanced whiteboard: multi-page, shapes, highlighter, PNG/PDF export | ✅ Shipped | 2026-06-14 | `82a7514` |
 | [0063](0063-betterstack-log-shipping/spec.md) | App-side Better Stack log shipping (opt-in, NDJSON, issue #69) | ✅ Shipped | 2026-06-14 | `2f41f12` |
+| [0064](0064-high-traffic-abuse-hardening/spec.md) | High-traffic abuse hardening: WS/HTTP flood rate-limits + caps (#114) | ✅ Shipped | 2026-06-14 | `da1c994` |
+| [0065](0065-bounded-hot-path-channels/spec.md) | Bounded hot-path channels (out_tx/audio_tx) + backpressure (#123) | ✅ Shipped | 2026-06-15 | `8a90104` |
 
 > Numbers 0011–0015 were claimed by commit messages while the AI bundle shipped
 > without spec docs (and 0011/0012 were each reused twice); the assignments

@@ -2,12 +2,12 @@
 
 | | |
 |---|---|
-| **Status** | In progress |
+| **Status** | ✅ Shipped |
 | **Owner** | VoxTranslate |
 | **Created** | 2026-06-15 |
-| **Shipped** | — |
+| **Shipped** | 2026-06-15 |
 | **Version** | — |
-| **Commits** | `<sha>` |
+| **Commits** | `8a90104` |
 | **Depends on** | [0064](../0064-high-traffic-abuse-hardening/spec.md), [0012](../0012-auto-language-detection/spec.md), [0050](../0050-observability/spec.md) |
 
 ## 1. Context & Problem
