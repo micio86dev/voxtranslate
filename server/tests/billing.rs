@@ -580,7 +580,12 @@ mod stripe_api {
             .unwrap();
         assert_eq!(bad.status(), 400);
 
-        let sig = sign_payload(&srv.webhook_secret, 1_700_000_000, &payload);
+        // Sign with the current time so the freshness window (issue #117) accepts it.
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        let sig = sign_payload(&srv.webhook_secret, now, &payload);
 
         // First delivery credits 5.00.
         let ok1 = http

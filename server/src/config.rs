@@ -115,7 +115,9 @@ pub struct StorageConfig {
     /// Max upload size in bytes (default 25 MiB).
     pub max_bytes: usize,
     /// Signed-URL lifetime in seconds — how long a chat file download link stays
-    /// valid (the bucket is private). Default 7 days.
+    /// valid (the bucket is private). Default 24h (issue #117: was 7 days — the URL is
+    /// broadcast in the chat message, so keep the exposure window short); override with
+    /// `SUPABASE_SIGNED_URL_TTL_SECS`.
     pub signed_ttl_secs: u64,
 }
 
@@ -353,7 +355,7 @@ impl StorageConfig {
                 .filter(|s| !s.is_empty())
                 .unwrap_or_else(|| "chat-files".to_string()),
             max_bytes: parse_or("SUPABASE_MAX_UPLOAD_BYTES", 25 * 1024 * 1024usize),
-            signed_ttl_secs: parse_or("SUPABASE_SIGNED_URL_TTL_SECS", 7 * 24 * 60 * 60u64),
+            signed_ttl_secs: parse_or("SUPABASE_SIGNED_URL_TTL_SECS", 24 * 60 * 60u64),
         }
     }
 }
