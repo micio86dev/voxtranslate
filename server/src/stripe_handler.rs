@@ -55,10 +55,34 @@ pub async fn create_checkout_session(
         .ok_or_else(|| "checkout session had no url".to_string())
 }
 
-/// Verify a Stripe webhook signature. The `Stripe-Signature` header looks like
-/// `t=<ts>,v1=<hex>,v1=<hex>...`; the signed payload is `"{ts}.{body}"` HMAC'd
-/// with the webhook secret. Returns `true` only if a provided `v1` matches.
+/// Stripe's signed-timestamp tolerance: reject events whose `t` is more than this far
+/// from now, neutralising webhook replay beyond the window (issue #117). Matches
+/// Stripe's own default tolerance.
+const STRIPE_TIMESTAMP_TOLERANCE_SECS: i64 = 300;
+
+/// Verify a Stripe webhook signature with the live clock. The `Stripe-Signature` header
+/// looks like `t=<ts>,v1=<hex>,v1=<hex>...`; the signed payload is `"{ts}.{body}"` HMAC'd
+/// with the webhook secret. Returns `true` only if a `v1` matches **and** the timestamp
+/// is within tolerance.
 pub fn verify_stripe_signature(secret: &str, payload: &[u8], sig_header: &str) -> bool {
+    verify_stripe_signature_at(
+        secret,
+        payload,
+        sig_header,
+        crate::now_unix() as i64,
+        STRIPE_TIMESTAMP_TOLERANCE_SECS,
+    )
+}
+
+/// Signature + freshness check with an injected clock + tolerance, so the timestamp
+/// window is unit-testable without a real wall clock.
+pub fn verify_stripe_signature_at(
+    secret: &str,
+    payload: &[u8],
+    sig_header: &str,
+    now: i64,
+    tolerance_secs: i64,
+) -> bool {
     if secret.is_empty() {
         return false;
     }
@@ -75,6 +99,14 @@ pub fn verify_stripe_signature(secret: &str, payload: &[u8], sig_header: &str) -
     let (Some(ts), false) = (timestamp, signatures.is_empty()) else {
         return false;
     };
+
+    // Reject an unparseable, stale, or future-dated timestamp before the HMAC check.
+    let Ok(ts_num) = ts.parse::<i64>() else {
+        return false;
+    };
+    if (now - ts_num).abs() > tolerance_secs {
+        return false;
+    }
 
     let mut mac = match HmacSha256::new_from_slice(secret.as_bytes()) {
         Ok(m) => m,
@@ -117,30 +149,76 @@ pub fn sign_payload(secret: &str, timestamp: i64, payload: &[u8]) -> String {
 mod tests {
     use super::*;
 
+    // Verify against the signed timestamp (so freshness passes) — the signature logic
+    // is what these cases exercise; the freshness window has its own test below.
+    fn verify_fresh(secret: &str, payload: &[u8], header: &str, ts: i64) -> bool {
+        verify_stripe_signature_at(secret, payload, header, ts, STRIPE_TIMESTAMP_TOLERANCE_SECS)
+    }
+
     #[test]
     fn signature_round_trip_and_rejections() {
         let secret = "whsec_test";
         let payload = br#"{"id":"evt_1","type":"checkout.session.completed"}"#;
-        let header = sign_payload(secret, 1_700_000_000, payload);
+        let ts = 1_700_000_000;
+        let header = sign_payload(secret, ts, payload);
 
-        assert!(verify_stripe_signature(secret, payload, &header));
+        assert!(verify_fresh(secret, payload, &header, ts));
         // Tampered payload is rejected.
-        assert!(!verify_stripe_signature(secret, b"{}", &header));
+        assert!(!verify_fresh(secret, b"{}", &header, ts));
         // Wrong secret is rejected.
-        assert!(!verify_stripe_signature("whsec_other", payload, &header));
+        assert!(!verify_fresh("whsec_other", payload, &header, ts));
         // Malformed / empty headers are rejected.
-        assert!(!verify_stripe_signature(secret, payload, "garbage"));
-        assert!(!verify_stripe_signature(secret, payload, "t=1"));
-        assert!(!verify_stripe_signature("", payload, &header));
+        assert!(!verify_fresh(secret, payload, "garbage", ts));
+        assert!(!verify_fresh(secret, payload, "t=1", ts));
+        assert!(!verify_fresh("", payload, &header, ts));
     }
 
     #[test]
     fn signature_accepts_among_multiple_v1() {
         let secret = "whsec_test";
         let payload = b"hello";
-        let valid = sign_payload(secret, 123, payload);
+        let ts = 123;
+        let valid = sign_payload(secret, ts, payload);
         // Splice an extra (bogus) v1 in — a real v1 must still match.
         let with_extra = format!("{valid},v1=deadbeef");
-        assert!(verify_stripe_signature(secret, payload, &with_extra));
+        assert!(verify_fresh(secret, payload, &with_extra, ts));
+    }
+
+    #[test]
+    fn rejects_stale_or_future_timestamp() {
+        let secret = "whsec_test";
+        let payload = b"replay";
+        let ts = 1_700_000_000;
+        let header = sign_payload(secret, ts, payload);
+        // Within tolerance (either side) → accepted.
+        assert!(verify_stripe_signature_at(
+            secret,
+            payload,
+            &header,
+            ts + 299,
+            300
+        ));
+        assert!(verify_stripe_signature_at(
+            secret,
+            payload,
+            &header,
+            ts - 299,
+            300
+        ));
+        // A valid signature replayed outside the window → rejected.
+        assert!(!verify_stripe_signature_at(
+            secret,
+            payload,
+            &header,
+            ts + 600,
+            300
+        ));
+        assert!(!verify_stripe_signature_at(
+            secret,
+            payload,
+            &header,
+            ts - 600,
+            300
+        ));
     }
 }

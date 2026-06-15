@@ -33,12 +33,25 @@ impl FromRequestParts<AppState> for AuthUser {
         let token = bearer_token(parts).ok_or_else(unauthorized)?;
         let claims = verify_jwt(&billing.jwt_secret, &token).map_err(|_| unauthorized())?;
         let user_id = Uuid::parse_str(&claims.sub).map_err(|_| unauthorized())?;
+        // Reject banned users on REST too (issue #117). The WS join already does this,
+        // but a stateless JWT otherwise keeps full REST access until it expires (≤7d).
+        // One primary-key lookup per authed request; fail-open on a DB error so a blip
+        // can't lock everyone out (matches the WS join's `if let Ok(Some(..))`).
+        if let Some(safety) = state.safety.as_ref() {
+            if let Ok(Some(_)) = safety.is_banned(user_id).await {
+                return Err(forbidden());
+            }
+        }
         Ok(AuthUser {
             user_id,
             email: claims.email,
             name: claims.name,
         })
     }
+}
+
+fn forbidden() -> Response {
+    (StatusCode::FORBIDDEN, "account banned").into_response()
 }
 
 /// Extract the raw token from an `Authorization: Bearer <token>` header.
