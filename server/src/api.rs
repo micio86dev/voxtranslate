@@ -52,12 +52,8 @@ pub async fn billing_packages(State(state): State<AppState>) -> Response {
 pub async fn ice(State(state): State<AppState>, headers: HeaderMap) -> Response {
     // Per-IP throttle (spec 0028): /api/ice mints TURN credentials for anonymous
     // callers, so cap scraping (best-effort — coturn quotas bound the real damage).
-    let ip = headers
-        .get("x-forwarded-for")
-        .or_else(|| headers.get("x-real-ip"))
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.split(',').next().unwrap_or(s).trim().to_string())
-        .unwrap_or_else(|| "ice-global".to_string());
+    // Keyed by the trusted-proxy IP (issue #117 — last X-Forwarded-For hop).
+    let ip = crate::observability::client_ip(&headers);
     if !state
         .rate_limiter
         .allow(&format!("ice:{ip}"), 30, Duration::from_secs(60))
