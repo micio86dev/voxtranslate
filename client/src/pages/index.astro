@@ -462,9 +462,11 @@ const LANGS = [
           <!-- Attach a file (spec 0018): hidden until the backend reports storage on. -->
           <button id="chat-attach" class="btn-ghost icon-btn attach-btn" hidden data-i18n-title="attachTip" aria-label="Attach"></button>
           <input id="chat-file-input" type="file" hidden accept=".mp3,.wav,.txt,.pdf,audio/mpeg,audio/wav,text/plain,application/pdf" />
-          <input id="chat-input" type="text" maxlength="500" autocomplete="off" data-i18n-ph="chatPlaceholder" />
+          <textarea id="chat-input" rows="1" maxlength="500" autocomplete="off" data-i18n-ph="chatPlaceholder"></textarea>
           <button id="chat-send" class="btn-primary send-btn" data-i18n-title="send"></button>
         </div>
+        <!-- Character counter (spec 0070): bottom-right, appears as you near the cap. -->
+        <div id="chat-counter" class="chat-counter hidden" aria-live="polite"></div>
         <!-- Drag-and-drop overlay (spec 0018), toggled while a file is dragged over. -->
         <div id="chat-drop" class="chat-drop hidden"><span data-i18n="dropFile"></span></div>
       </section>
@@ -1294,8 +1296,23 @@ const LANGS = [
     .chat-messages :global(.chat-file-meta) { display: flex; flex-direction: column; min-width: 0; }
     .chat-messages :global(.chat-file-name) { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px; }
     .chat-messages :global(.chat-file-size) { font-size: 0.72rem; color: var(--muted); }
-    .chat-input-row { display: flex; gap: 8px; padding: 12px; border-top: 1px solid var(--border); align-items: center; }
+    /* flex-end keeps the emoji/attach/send buttons aligned to the textarea's
+       bottom (last line) as it grows, instead of floating to its centre. */
+    .chat-input-row { display: flex; gap: 8px; padding: 12px; border-top: 1px solid var(--border); align-items: flex-end; }
+    /* Equal-height, equal-width icon buttons so emoji + attach are true peers (spec 0070). */
+    .chat-input-row .icon-btn { flex: none; min-width: 44px; min-height: 44px; padding: 0; }
     .chat-input-row .btn-primary { width: auto; min-height: 44px; padding: 0 16px; }
+    /* Auto-resizing chat textarea (spec 0070): grows with content up to a cap,
+       then scrolls. Enter sends, Shift+Enter inserts a newline (see app.ts). */
+    #chat-input {
+      flex: 1; min-width: 0; width: 100%; box-sizing: border-box; resize: none;
+      background: var(--bg); border: 1px solid var(--border); color: var(--text);
+      border-radius: 10px; padding: 11px 12px; font: inherit; font-size: 16px; line-height: 1.35;
+      min-height: 44px; max-height: 120px; transition: border-color 0.15s;
+    }
+    #chat-input:focus { border-color: var(--accent); }
+    .chat-counter { padding: 0 14px 8px; margin-top: -4px; text-align: right; font-size: 0.72rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .chat-counter.warn { color: var(--warning); font-weight: 600; }
     .attach-btn :global(.ico) { width: 20px; height: 20px; }
     /* Upload progress bar (spec 0018). */
     .chat-upload { padding: 8px 14px; display: flex; flex-direction: column; gap: 4px; border-top: 1px solid var(--border); }
@@ -1469,31 +1486,42 @@ const LANGS = [
     .chat-messages :global(.chat-avatar) { width: 18px; height: 18px; border-radius: 50%; object-fit: cover; vertical-align: middle; margin-right: 5px; }
     /* ---------- Emoji picker ---------- */
     .emoji-picker-wrap { position: relative; }
-    .emoji-btn { font-size: 1.3rem !important; padding: 0 10px !important; line-height: 1; }
+    /* Sizing comes from .chat-input-row .icon-btn (44px square) so it matches the
+       attach button; here we only set the glyph size (spec 0070). */
+    .emoji-btn { font-size: 1.3rem; line-height: 1; }
     .emoji-panel {
-      position: absolute; bottom: 52px; left: 0; width: 220px;
+      position: absolute; bottom: 50px; left: 0; width: min(288px, calc(100vw - 32px));
       background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
-      padding: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.4); z-index: 30;
+      padding: 10px; box-shadow: 0 8px 28px rgba(0,0,0,0.45); z-index: 30;
     }
     .emoji-grid {
-      display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px;
+      display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px;
     }
-    .emoji-grid button,
-    .emoji-react-row button {
-      background: none; border: none; font-size: 1.3rem; padding: 4px;
-      border-radius: 6px; cursor: pointer; transition: background 0.1s;
-      display: grid; place-items: center;
+    /* Larger, touch-friendly targets with a visible hover/active/focus (spec 0070):
+       the old 4px / grey-border state read as non-interactive, especially on mobile.
+       :global() is required — these buttons are created in app.ts and so never carry
+       Astro's scope attribute (the previous non-global rule was dead CSS, which left
+       them showing the UA-default grey button chrome). */
+    .emoji-grid :global(button),
+    .emoji-react-row :global(button) {
+      background: none; border: none; color: inherit; font-size: 1.45rem; min-width: 40px; min-height: 40px; padding: 4px;
+      border-radius: 10px; cursor: pointer; transition: background 0.12s, transform 0.06s;
+      display: grid; place-items: center; touch-action: manipulation; -webkit-appearance: none; appearance: none;
     }
-    .emoji-grid button:hover,
-    .emoji-react-row button:hover { background: var(--border); }
+    .emoji-grid :global(button:hover),
+    .emoji-react-row :global(button:hover) { background: color-mix(in srgb, var(--accent) 22%, var(--surface)); }
+    .emoji-grid :global(button:active),
+    .emoji-react-row :global(button:active) { transform: scale(0.9); }
+    .emoji-grid :global(button:focus-visible),
+    .emoji-react-row :global(button:focus-visible) { outline: 2px solid var(--accent); outline-offset: 1px; }
     /* Quick reactions: float over the video grid (spec 0002); the grid below inserts into chat. */
     .emoji-section-label {
-      display: block; font-size: 0.68rem; font-weight: 600; color: var(--muted);
-      text-transform: uppercase; letter-spacing: 0.05em; margin: 2px 4px 3px;
+      display: block; font-size: 0.7rem; font-weight: 600; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.05em; margin: 2px 2px 5px;
     }
     .emoji-react-row {
-      display: flex; gap: 2px; justify-content: space-between;
-      border-bottom: 1px solid var(--border); padding-bottom: 6px; margin-bottom: 6px;
+      display: flex; gap: 6px; justify-content: space-between;
+      border-bottom: 1px solid var(--border); padding-bottom: 8px; margin-bottom: 8px;
     }
 
     /* ---------- Pinned / Focus layout ---------- */

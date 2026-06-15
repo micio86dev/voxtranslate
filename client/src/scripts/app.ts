@@ -8,6 +8,7 @@ import { MeshManager } from './webrtc';
 import { AudioCapture } from './audio-capture';
 import { MicMeter } from './mic-meter';
 import { ChatManager, type ChatPayload } from './chat';
+import { CHAT_MAX_HEIGHT, counterLabel, counterState, insertAt, resizeBox } from './chat-input';
 import { checkUploadFile, fileUploadEnabled, generateAiQuiz, uploadChatFile } from './api';
 import * as auth from './auth';
 import { openSessionScreen } from './session-screen';
@@ -122,7 +123,8 @@ const stageSelfName = $('stage-self-name');
 const stageSelfLang = $('stage-self-lang');
 const chatPanel = $('chat-panel');
 const chatMessages = $('chat-messages');
-const chatInput = $<HTMLInputElement>('chat-input');
+const chatInput = $<HTMLTextAreaElement>('chat-input');
+const chatCounter = $('chat-counter');
 const chatBadge = $('chat-badge');
 // Chat file upload (spec 0018).
 const chatAttach = $('chat-attach');
@@ -2059,13 +2061,40 @@ function toggleChat(force?: boolean): void {
 
 function sendChat(): void {
   const text = chatInput.value;
+  if (!text.trim()) return; // nothing to send; also avoids clearing on a stray Enter
   chat?.sendMessage(text);
   chatInput.value = '';
+  fitChatInput(); // shrink the textarea back to one row
+  updateChatCounter();
+}
+// Grow the textarea with its content up to the cap, then scroll (spec 0070).
+function fitChatInput(): void {
+  chatInput.style.height = 'auto';
+  const { height, overflowY } = resizeBox(chatInput.scrollHeight, CHAT_MAX_HEIGHT);
+  chatInput.style.height = `${height}px`;
+  chatInput.style.overflowY = overflowY;
+}
+// Show "{used}/{max}" once the message nears the cap; warn at/near the limit.
+function updateChatCounter(): void {
+  const used = chatInput.value.length;
+  const state = counterState(used);
+  chatCounter.textContent = counterLabel(used);
+  chatCounter.classList.toggle('hidden', state === 'hidden');
+  chatCounter.classList.toggle('warn', state === 'warn');
 }
 $('chat-send').addEventListener('click', sendChat);
 chatInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') sendChat();
+  // Enter sends; Shift+Enter inserts a newline (default textarea behaviour).
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendChat();
+  }
 });
+chatInput.addEventListener('input', () => {
+  fitChatInput();
+  updateChatCounter();
+});
+fitChatInput(); // size correctly on first paint
 
 // ---- Chat file upload (spec 0018) ------------------------------------------
 // The attach button + drag-and-drop appear only when the backend has Supabase
@@ -3208,12 +3237,13 @@ function sendEmoji(emoji: string): void {
 function insertEmoji(emoji: string): void {
   const start = chatInput.selectionStart ?? chatInput.value.length;
   const end = chatInput.selectionEnd ?? start;
-  const next = chatInput.value.slice(0, start) + emoji + chatInput.value.slice(end);
-  if (next.length > chatInput.maxLength) return;
-  chatInput.value = next;
-  const pos = start + emoji.length;
+  const res = insertAt(chatInput.value, emoji, start, end, chatInput.maxLength);
+  if (!res) return; // would exceed the cap
+  chatInput.value = res.value;
   chatInput.focus();
-  chatInput.setSelectionRange(pos, pos);
+  chatInput.setSelectionRange(res.caret, res.caret);
+  fitChatInput();
+  updateChatCounter();
 }
 
 initCookieBanner();
