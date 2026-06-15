@@ -2,8 +2,11 @@
 //! rooms are listed in the lobby). Every peer can speak, listen, connect P2P via
 //! WebRTC, and chat. Rooms are capped at `MAX_PEERS`.
 
+use std::sync::Arc;
+
 use dashmap::DashMap;
-use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::mpsc::{self, error::TrySendError, Receiver};
+use tokio::sync::Notify;
 use uuid::Uuid;
 
 use crate::protocol::{Member, PeerInfo, PublicRoom, WhiteboardOp};
@@ -22,6 +25,68 @@ pub enum Visibility {
     Private,
 }
 
+/// Capacity of a peer's bounded outbound channel (issue #123). Outbound frames
+/// (signalling, chat, subtitles, snapshots, peer state) are tiny and a healthy
+/// client's `pump_to_ws` drains them to the socket immediately, so the backlog
+/// sits near zero. The cap exists only to bound memory against a *stalled*
+/// reader: 512 frames is far above any legitimate burst (a 4-way join's
+/// signalling flurry + snapshots) yet caps a dead socket's queue to a few
+/// hundred KiB instead of letting it grow without limit.
+pub const OUT_CHANNEL_CAP: usize = 512;
+
+/// Bounded outbound channel to one peer's WebSocket.
+///
+/// Control/chat/signalling frames must **never** be silently dropped (losing one
+/// would desync that peer's signalling or chat), so on persistent saturation — a
+/// reader that has stopped draining — we do not drop frames: we signal the peer's
+/// handler to tear the connection down cleanly. That bounds memory to
+/// [`OUT_CHANNEL_CAP`] frames per peer while preserving correctness for every
+/// peer that stays connected. (issue #123)
+#[derive(Clone)]
+pub struct PeerTx {
+    tx: mpsc::Sender<String>,
+    /// Notified on overflow so the owning `handle_peer` loop breaks and runs the
+    /// normal teardown (PeerLeft broadcast, session finalize, …).
+    overflow: Arc<Notify>,
+}
+
+impl PeerTx {
+    /// Build a bounded peer channel: the cloneable sender, the receiver drained
+    /// by `pump_to_ws`, and the overflow signal the handler must await.
+    pub fn channel(cap: usize) -> (PeerTx, Receiver<String>, Arc<Notify>) {
+        let (tx, rx) = mpsc::channel(cap);
+        let overflow = Arc::new(Notify::new());
+        (
+            PeerTx {
+                tx,
+                overflow: overflow.clone(),
+            },
+            rx,
+            overflow,
+        )
+    }
+
+    /// Queue a frame for this peer. Returns `false` only when the receiver is
+    /// gone (the peer disconnected) so callers can prune it. On overflow the
+    /// frame is dropped *and* the handler is signalled to close, but the peer is
+    /// kept until that clean teardown runs — so `false` never means "dropped".
+    pub fn send(&self, msg: String) -> bool {
+        match self.tx.try_send(msg) {
+            Ok(()) => true,
+            Err(TrySendError::Full(_)) => {
+                self.overflow.notify_one();
+                true
+            }
+            Err(TrySendError::Closed(_)) => false,
+        }
+    }
+
+    /// Whether the receiver has been dropped (the peer is gone), for `prune`.
+    pub fn is_closed(&self) -> bool {
+        self.tx.is_closed()
+    }
+}
+
 /// A connected peer: identity, the language they speak/receive in, and a channel
 /// to push JSON text frames to their WebSocket.
 #[derive(Clone)]
@@ -31,7 +96,7 @@ pub struct Peer {
     pub lang: String,
     /// Google avatar URL for authenticated users; `None` for guests.
     pub avatar_url: Option<String>,
-    pub tx: UnboundedSender<String>,
+    pub tx: PeerTx,
 }
 
 /// A room and its current peers.
@@ -139,8 +204,7 @@ impl RoomManager {
     /// Send to every peer in the room, pruning dead channels.
     pub fn broadcast(&self, room_id: &str, message: &str) {
         if let Some(mut room) = self.rooms.get_mut(room_id) {
-            room.peers
-                .retain(|p| p.tx.send(message.to_string()).is_ok());
+            room.peers.retain(|p| p.tx.send(message.to_string()));
         }
     }
 
@@ -194,7 +258,7 @@ impl RoomManager {
     pub fn relay_to_peer(&self, room_id: &str, target_id: &str, message: &str) -> bool {
         if let Some(room) = self.rooms.get(room_id) {
             if let Some(p) = room.peers.iter().find(|p| p.id == target_id) {
-                return p.tx.send(message.to_string()).is_ok();
+                return p.tx.send(message.to_string());
             }
         }
         false
@@ -307,10 +371,9 @@ impl RoomManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
 
-    fn peer(id: &str, lang: &str) -> (Peer, UnboundedReceiver<String>) {
-        let (tx, rx) = unbounded_channel();
+    fn peer(id: &str, lang: &str) -> (Peer, Receiver<String>) {
+        let (tx, rx, _overflow) = PeerTx::channel(OUT_CHANNEL_CAP);
         (
             Peer {
                 id: id.into(),
@@ -321,6 +384,29 @@ mod tests {
             },
             rx,
         )
+    }
+
+    #[tokio::test]
+    async fn peertx_overflow_keeps_peer_and_signals_close() {
+        // A stalled reader (the receiver is never drained) fills the bounded
+        // buffer; the overflowing frame is dropped, the peer is *kept* (send →
+        // true, so it is never silently pruned), and the handler is signalled to
+        // close — bounding memory without dropping a control frame on a live peer.
+        let (tx, _rx, overflow) = PeerTx::channel(2);
+        assert!(tx.send("a".into()));
+        assert!(tx.send("b".into()));
+        assert!(tx.send("c".into()), "overflow keeps the peer");
+        tokio::time::timeout(std::time::Duration::from_millis(200), overflow.notified())
+            .await
+            .expect("overflow signalled the handler to close");
+    }
+
+    #[tokio::test]
+    async fn peertx_send_reports_closed_receiver() {
+        let (tx, rx, _overflow) = PeerTx::channel(2);
+        drop(rx);
+        assert!(!tx.send("x".into()), "closed receiver → prune the peer");
+        assert!(tx.is_closed());
     }
 
     #[test]

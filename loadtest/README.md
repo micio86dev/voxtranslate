@@ -48,6 +48,9 @@ k6 run -e BASE_URL=http://localhost:3001 loadtest/http.js
 
 # WS signaling + fan-out (ramps to 300 VUs across 20 rooms)
 k6 run -e WS_URL=ws://localhost:3001 -e ROOMS=20 -e HOLD_SEC=20 loadtest/signaling.js
+
+# Bounded hot-path channels under sustained fan-out (spec 0065, #123)
+k6 run -e WS_URL=ws://localhost:3001 -e ROOMS=20 loadtest/slow-consumer.js
 ```
 
 Tunables (env): `BASE_URL` / `WS_URL`, `ROOMS` (VUs per room ≈ peak VUs / ROOMS),
@@ -62,6 +65,42 @@ the ramp / peak.
 - **Signaling** — thresholds: `ws_connecting p95<500ms`, `ws_session_errors<1`.
   Watch `ws_room_joined`, `ws_app_messages`, `ws_sessions`, and CPU/RAM of the
   server process (the relay fan-out is the hot path).
+
+## 5. Bounded channels (`slow-consumer.js`, spec 0065 / #123)
+
+Each room runs a few **talkers** flooding chat/emoji/whiteboard and several
+**leechers** that only listen. The point is to confirm the per-peer outbound
+channel (`out_tx`, bounded to `OUT_CHANNEL_CAP`) keeps server memory **flat** —
+the bounded channels must not accumulate under pressure. While it runs, sample
+the server's resident memory; it should plateau, not climb:
+
+```bash
+while true; do ps -o rss= -p $(pgrep -f voxtranslate-server) | \
+  awk '{printf "RSS %.1f MB\n", $1/1024}'; sleep 2; done
+```
+
+### Reproducing a true slow consumer
+
+k6's WS client always drains its socket, so it can't reproduce a reader whose
+kernel receive window fills and back-pressures the server's `pump_to_ws`. That
+close-on-stall path (overflow → clean teardown) is unit-tested
+(`rooms::tests::peertx_overflow_keeps_peer_and_signals_close`). To exercise it
+live, use a raw client that **pauses its socket** right after joining while
+talkers flood the room — the server's bounded `out_tx` fills to the cap and the
+connection is closed cleanly (a `warn` log: *"outbound channel saturated … #123"*),
+while RSS stays bounded. With Node's `ws`:
+
+```js
+// node slow-reader.js  (npm i ws). Opens N stalled readers in one room.
+const WebSocket = require('ws');
+for (let i = 0; i < Number(process.argv[2] || 5); i++) {
+  const s = new WebSocket(`ws://localhost:3001/ws?room=load-0&lang=en&id=leech${i}&public=false`);
+  s.on('open', () => s._socket.pause()); // stop reading → fill the server's out_tx
+}
+setInterval(() => {}, 1 << 30); // keep the process (and the stalled sockets) alive
+```
+
+Run a talker flood (`slow-consumer.js` above) into `room=load-0` at the same time.
 
 ## Notes
 
