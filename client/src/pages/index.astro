@@ -227,6 +227,13 @@ const LANGS = [
             <div class="stage-meta">
               <span id="header-clock" class="clock-badge hidden"></span>
               <button id="call-room" class="room-badge mono" data-i18n-title="copy"></button>
+              <!-- Your identity folded into the meta line (issue #98 follow-up): replaces
+                   the self tile's .video-overlay so the top-left reads as one row, not a
+                   stack that covers it. Remote peers keep their per-cell overlays. -->
+              <span id="stage-self" class="stage-self hidden">
+                <span id="stage-self-name" class="stage-self-name"></span>
+                <span id="stage-self-lang" class="stage-self-lang"></span>
+              </span>
               <span id="transcript-indicator" class="transcript-indicator hidden" role="img" data-i18n-title="transcriptRecording"></span>
               <button id="glossary-badge" class="glossary-badge hidden" data-i18n-title="glossaryActiveTip"></button>
             </div>
@@ -918,7 +925,11 @@ const LANGS = [
     /* ---- On-video meta cluster, top-left (spec 0061 / #98) ---- */
     .stage-meta-wrap {
       position: absolute; top: 10px; left: 10px; z-index: 8;
-      display: flex; flex-direction: column; gap: 4px;
+      /* One horizontal line on desktop: clock|ROOM · you · | visibility · timer · balance.
+         flex-wrap keeps it from running under the centre rec-badge / right part-count on
+         narrow widths — the info strip drops to a second line only when it must. */
+      display: flex; flex-direction: row; align-items: center; flex-wrap: wrap; gap: 6px;
+      max-width: calc(100% - 20px);
     }
     /* HH:MM | ROOM over a subtle dark backdrop so it stays legible (WCAG AA) on any
        video — replaces the old .call-header row, Meet-style. z-index 8 keeps it above the
@@ -940,6 +951,15 @@ const LANGS = [
     .stage-info-sep { width: 1px; height: 12px; background: rgba(255,255,255,0.25); }
     .stage-info-strip .call-balance { margin-left: 0; }
     .stage-meta .room-badge { color: #fff; }
+    /* Self identity inline in the meta row (mirrors the old self .video-overlay). The
+       leading "·" separates it from ROOM and only renders while the segment is shown. */
+    .stage-self { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+    .stage-self::before { content: '·'; margin-right: 4px; color: rgba(255, 255, 255, 0.45); }
+    .stage-self-name {
+      color: #fff; font-weight: 600; font-size: 0.8rem;
+      max-width: 16ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .stage-self-lang { font-size: 0.72rem; color: rgba(255, 255, 255, 0.75); white-space: nowrap; }
     /* Live wall-clock (spec 0060 → on-video in 0061). The ::after renders the "|"
        separator only while the clock is shown (it vanishes with the .hidden clock). */
     .clock-badge {
@@ -1067,6 +1087,10 @@ const LANGS = [
       position: absolute; top: 8px; left: 8px; display: flex; align-items: center; gap: 6px;
       background: rgba(0, 0, 0, 0.5); border-radius: 999px; padding: 3px 10px; backdrop-filter: blur(4px);
     }
+    /* The self tile (always the top-left cell) no longer needs its own name badge — it's
+       surfaced in #stage-self up in the meta row, so this removes the overlap the meta
+       cluster used to cause. Self mic state still shows on the control bar. */
+    .video-grid :global(.video-cell.self .video-overlay) { display: none; }
     .video-grid :global(.peer-name) { font-size: 0.8rem; font-weight: 600; color: #fff; }
     .video-grid :global(.peer-lang) { font-size: 0.72rem; color: rgba(255, 255, 255, 0.75); }
     .video-grid :global(.mute-indicator) { color: var(--danger); display: inline-flex; }
@@ -1827,6 +1851,14 @@ const LANGS = [
       .ctl-group { gap: 6px; }
       .control-btn { width: 42px; height: 42px; font-size: 1rem; flex-shrink: 0; }
       .mi .control-btn { width: 42px; height: 42px; }
+      /* Compact top-left meta on phones: clock|ROOM stays, the self name drops (the tile
+         is right there) and the info strip shows values only (no "Visibility"/"Balance"
+         labels) at a smaller size — minimal footprint, doesn't crowd the video. */
+      .stage-meta-wrap { gap: 4px; max-width: calc(100% - 16px); }
+      .stage-meta { padding: 4px 10px; gap: 6px; }
+      .stage-self { display: none; }
+      .stage-info-strip { font-size: 0.66rem; padding: 3px 8px; gap: 6px; }
+      .stage-info-label { display: none; }
     }
 
     @media (max-width: 768px) {
