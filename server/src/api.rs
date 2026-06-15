@@ -801,10 +801,37 @@ fn broadcast_glossary(state: &AppState, room: &str, g: &RoomGlossary) {
     );
 }
 
+/// Per-user request budget for the glossary editor endpoints, to cap room-code
+/// enumeration/scraping (issue #117). The editor is auth-only, so all four endpoints
+/// key the limit on the caller's user id.
+const GLOSSARY_MAX_PER_MIN: u32 = 30;
+
+/// Shared per-user throttle for the glossary editor endpoints. Returns `Some(429)` when
+/// the caller is over budget.
+fn glossary_throttle(state: &AppState, user_id: Uuid) -> Option<Response> {
+    if !state.rate_limiter.allow(
+        &format!("glossary:{user_id}"),
+        GLOSSARY_MAX_PER_MIN,
+        Duration::from_secs(60),
+    ) {
+        return Some((StatusCode::TOO_MANY_REQUESTS, "slow down").into_response());
+    }
+    None
+}
+
 /// `GET /api/rooms/{room}/glossary` — the room's glossary (empty when none).
-/// No auth required: the room code is the access control (anyone who can type
-/// the code is already in the room).
-pub async fn glossary_get(State(state): State<AppState>, Path(room): Path<String>) -> Response {
+/// **Auth required** (issue #117): the editor is auth-only, so reads must be too —
+/// this removes the anonymous read of any room's glossary by code. The room code is
+/// still the in-room capability (you can prepare a glossary from home before joining),
+/// so this doesn't add a membership check; it just closes anonymous access + scraping.
+pub async fn glossary_get(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(room): Path<String>,
+) -> Response {
+    if let Some(resp) = glossary_throttle(&state, user.user_id) {
+        return resp;
+    }
     let Some(svc) = state.glossary.as_ref() else {
         return service_unavailable();
     };
@@ -829,6 +856,9 @@ pub async fn glossary_save(
     Path(room): Path<String>,
     Json(body): Json<GlossaryPayload>,
 ) -> Response {
+    if let Some(resp) = glossary_throttle(&state, user.user_id) {
+        return resp;
+    }
     let Some(svc) = state.glossary.as_ref() else {
         return service_unavailable();
     };
@@ -862,9 +892,12 @@ pub async fn glossary_save(
 /// `DELETE /api/rooms/{room}/glossary` — drop it entirely (idempotent, 204).
 pub async fn glossary_delete(
     State(state): State<AppState>,
-    _user: AuthUser,
+    user: AuthUser,
     Path(room): Path<String>,
 ) -> Response {
+    if let Some(resp) = glossary_throttle(&state, user.user_id) {
+        return resp;
+    }
     let Some(svc) = state.glossary.as_ref() else {
         return service_unavailable();
     };
@@ -892,6 +925,9 @@ pub async fn glossary_import(
     Path(room): Path<String>,
     Json(body): Json<GlossaryImport>,
 ) -> Response {
+    if let Some(resp) = glossary_throttle(&state, user.user_id) {
+        return resp;
+    }
     let Some(svc) = state.glossary.as_ref() else {
         return service_unavailable();
     };
