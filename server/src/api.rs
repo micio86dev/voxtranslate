@@ -24,12 +24,14 @@ use hmac::{Hmac, Mac};
 use sha1::Sha1;
 
 use crate::ai::email_draft as ai_email;
+use crate::ai::quiz as ai_quiz;
 use crate::ai::report as ai_report;
 use crate::ai::sentiment as ai_sentiment;
 use crate::billing::{usd, BillingError};
 use crate::email::OutboundEmail;
 use crate::glossary::{import_csv, normalize_entries, NewEntry, RoomGlossary};
 use crate::middleware::AuthUser;
+use crate::moderation::Severity;
 use crate::protocol::ServerMessage;
 use crate::stripe_handler;
 use crate::transcripts::{BookmarkMutation, SessionAccess, TranscriptService};
@@ -280,6 +282,7 @@ pub async fn ai_pricing(State(state): State<AppState>) -> Response {
             "per_minute": ai.suggestions_per_minute,
             "interval_seconds": ai.suggestions_interval_secs,
         },
+        "quiz": { "base": ai.quiz_base, "per_question": ai.quiz_per_question },
         "email_enabled": state.config.resend.is_some(),
     }))
     .into_response()
@@ -1390,6 +1393,135 @@ pub async fn sentiment_latest(
             (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response()
         }
     }
+}
+
+// ---- AI quiz on demand (spec 0067 / #124) -----------------------------------
+
+#[derive(Deserialize)]
+pub struct QuizGenerateRequest {
+    pub prompt: String,
+    #[serde(default)]
+    pub count: Option<usize>,
+    #[serde(default)]
+    pub lang: Option<String>,
+}
+
+/// Normalize a client-supplied language code for the prompt: lowercase
+/// alphanumerics/`-`, capped to 8 chars, defaulting to English. It is only ever
+/// interpolated into the prompt text, never trusted otherwise.
+fn sanitize_lang(lang: Option<&str>) -> String {
+    let cleaned: String = lang
+        .unwrap_or("en")
+        .trim()
+        .to_ascii_lowercase()
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
+        .take(8)
+        .collect();
+    if cleaned.is_empty() {
+        "en".to_string()
+    } else {
+        cleaned
+    }
+}
+
+/// `POST /api/quiz/generate` — generate a custom multiple-choice quiz from a
+/// prompt via Groq and charge credits. Same safe billing order as the other AI
+/// features (advisory pre-check → generate → atomic deduct): a generation
+/// failure is never charged, and a genuine 402 withholds the result. Stateless —
+/// the pack plays client-side through the existing quiz engine (spec 0047).
+pub async fn quiz_generate(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Json(body): Json<QuizGenerateRequest>,
+) -> Response {
+    if !state
+        .rate_limiter
+        .allow(&format!("ai:{}", user.user_id), 10, Duration::from_secs(60))
+    {
+        return (StatusCode::TOO_MANY_REQUESTS, "too many requests").into_response();
+    }
+    let (Some(billing), Some(cfg)) = (state.billing.as_ref(), state.config.billing.as_ref()) else {
+        return service_unavailable();
+    };
+    let ai = &cfg.ai;
+
+    // Sanitize the prompt: trim, length-cap, moderate (severe → reject).
+    let prompt = body.prompt.trim();
+    if prompt.is_empty() {
+        return (StatusCode::UNPROCESSABLE_ENTITY, "prompt is empty").into_response();
+    }
+    if prompt.chars().count() > ai_quiz::MAX_PROMPT_CHARS {
+        return (StatusCode::UNPROCESSABLE_ENTITY, "prompt too long").into_response();
+    }
+    if state.moderator.severity(prompt) == Severity::Severe {
+        return (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "prompt blocked by moderation",
+        )
+            .into_response();
+    }
+    let count = ai_quiz::clamp_count(body.count);
+    let lang = sanitize_lang(body.lang.as_deref());
+    let cost = ai_quiz::quiz_cost(ai, count);
+
+    // Advisory pre-check before burning a Groq call; the atomic deduct is the gate.
+    match billing.get_balance(user.user_id).await {
+        Ok(b) if b < cost => return insufficient_credits("ai_quiz", cost, b),
+        Ok(_) => {}
+        Err(e) => {
+            tracing::error!("balance check failed: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
+        }
+    }
+
+    let (questions, model) = match ai_quiz::generate(&state.groq, ai, prompt, count, &lang).await {
+        Ok(out) => out,
+        Err(e) => {
+            tracing::error!("quiz generation failed: {e}");
+            return (
+                StatusCode::BAD_GATEWAY,
+                "quiz generation failed — you were not charged",
+            )
+                .into_response();
+        }
+    };
+
+    let balance = match billing
+        .deduct_feature(
+            user.user_id,
+            None,
+            "ai_quiz",
+            cost,
+            &format!("AI quiz — {} questions", questions.len()),
+            serde_json::json!({ "model": model, "count": questions.len() }),
+        )
+        .await
+    {
+        Ok(b) => Some(b),
+        // Balance dropped between the pre-check and here: withhold, don't deliver free.
+        Err(BillingError::InsufficientFunds) => {
+            let available = billing
+                .get_balance(user.user_id)
+                .await
+                .unwrap_or(Decimal::ZERO);
+            return insufficient_credits("ai_quiz", cost, available);
+        }
+        // Our fault, not the user's: deliver free and log.
+        Err(e) => {
+            tracing::error!("ai_quiz deduction failed AFTER generation — delivering free: {e}");
+            None
+        }
+    };
+
+    let mut v = serde_json::json!({
+        "questions": questions,
+        "cost": cost.to_f64().unwrap_or(0.0),
+    });
+    if let Some(b) = balance {
+        v["balance"] = serde_json::json!(b.to_f64().unwrap_or(0.0));
+    }
+    (StatusCode::CREATED, Json(v)).into_response()
 }
 
 // ---- Follow-up email (spec 0016) ---------------------------------------------

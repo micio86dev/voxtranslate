@@ -178,6 +178,8 @@ function shuffle<T>(a: T[]): T[] {
 }
 
 interface Player { name: string; score: number }
+/** One AI-generated question (spec 0067): plain strings in a single language. */
+export interface AiQuestion { q: string; options: string[]; answer: number }
 export interface QuizState {
   game: 'quiz';
   t: 'state';
@@ -186,10 +188,14 @@ export interface QuizState {
   players: Record<string, Player>;
   qIndex: number;
   total: number;
-  packIndex: number; // which PACK question — each client renders it in its own language
+  packIndex: number; // which built-in PACK question — each client renders it in its own language
   answeredIds: string[]; // who answered THIS question (no choices leaked)
   correct?: number; // reveal only
   choices?: Record<string, number>; // reveal only
+  // AI quiz (spec 0067 / #124): when present, questions ride INLINE here and
+  // `qIndex` indexes this array directly (built-in `packIndex` is ignored). The
+  // pack is broadcast in the state, so peers + late-joiners render it.
+  pack?: PackItem[];
 }
 interface AnswerMsg { game: 'quiz'; t: 'answer'; q: number; choice: number; by: string; name: string }
 
@@ -224,6 +230,12 @@ export class Quiz {
 
   private isHost(): boolean {
     return !!this.state && this.state.hostId === this.myId;
+  }
+
+  /** The current question: an inline AI-pack item when present, else the
+   *  built-in PACK entry by index (spec 0067). */
+  private item(s: QuizState): PackItem {
+    return s.pack ? s.pack[s.qIndex] : PACK[s.packIndex];
   }
 
   // ---- actions ----------------------------------------------------------------
@@ -267,6 +279,32 @@ export class Quiz {
     });
   }
 
+  /** Host-start a generated quiz (spec 0067): the pack rides inline in state so
+   *  every peer renders it. Stored under the `en` slot — `pick()`'s fallback
+   *  serves it to every viewer language. */
+  startAiQuiz(questions: AiQuestion[]): void {
+    const pack: PackItem[] = questions.map((x) => ({
+      answer: x.answer,
+      q: { en: x.q },
+      options: { en: x.options },
+    }));
+    this.round = []; // unused for AI packs — qIndex indexes `pack` directly
+    this.pending = {};
+    this.myChoice = null;
+    this.setState({
+      game: 'quiz',
+      t: 'state',
+      phase: 'question',
+      hostId: this.myId,
+      players: { [this.myId]: { name: this.nameOf(this.myId), score: 0 } },
+      qIndex: 0,
+      total: pack.length,
+      packIndex: 0,
+      answeredIds: [],
+      pack,
+    });
+  }
+
   private recordAnswer(a: AnswerMsg): void {
     const s = this.state;
     if (!s || !this.isHost() || s.phase !== 'question' || a.q !== s.qIndex) return;
@@ -279,7 +317,7 @@ export class Quiz {
   private reveal(): void {
     const s = this.state;
     if (!s) return;
-    const correct = PACK[s.packIndex].answer;
+    const correct = this.item(s).answer;
     const players = { ...s.players };
     for (const [id, choice] of Object.entries(this.pending)) {
       if (choice === correct) players[id] = { ...players[id], score: (players[id]?.score ?? 0) + 1 };
@@ -301,7 +339,8 @@ export class Quiz {
       ...s,
       phase: 'question',
       qIndex,
-      packIndex: this.round[qIndex],
+      // AI packs index `pack` by qIndex; built-in rounds map through `round`.
+      packIndex: s.pack ? s.packIndex : this.round[qIndex],
       answeredIds: [],
       correct: undefined,
       choices: undefined,
@@ -370,7 +409,7 @@ export class Quiz {
     }
 
     const lang = this.myLang();
-    const pq = PACK[s.packIndex];
+    const pq = this.item(s);
     const options = pick(pq.options, lang);
     optsWrap.hidden = false;
     qEl.textContent = `${s.qIndex + 1}/${s.total} · ${pick(pq.q, lang)}`;
