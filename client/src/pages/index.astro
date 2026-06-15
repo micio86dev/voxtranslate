@@ -1447,12 +1447,14 @@ const LANGS = [
 
     /* Per-cell report/block buttons (created in JS). */
     .video-grid :global(.cell-actions) { position: absolute; top: 8px; right: 8px; z-index: 2; display: flex; gap: 6px; opacity: 0; transition: opacity 0.15s; }
-    /* Lift the whole hovered/focused cell above the on-video badges (part-count z8,
-       timer-pop z11) so its report/block buttons are never covered — the cell has
-       transform: translateZ(0) (a stacking context), so a z-index on .cell-actions
-       alone can't escape it; the cell itself must rise (spec 0070 R2.2). */
+    /* Lift the whole hovered/focused cell just above the participant badge (z8) so
+       its report/block buttons are never covered — the cell has transform:
+       translateZ(0) (a stacking context), so a z-index on .cell-actions alone can't
+       escape it; the cell itself must rise (spec 0070 R2.2). z9 (NOT higher) keeps it
+       BELOW the interactive on-video popovers — bookmark-pop (z10) and timer-pop
+       (z11) — so hovering the video doesn't cover/eat them (regression fix). */
     .video-grid :global(.video-cell:hover),
-    .video-grid :global(.video-cell:focus-within) { z-index: 13; }
+    .video-grid :global(.video-cell:focus-within) { z-index: 9; }
     .video-grid :global(.video-cell:hover .cell-actions),
     .video-grid :global(.video-cell:focus-within .cell-actions) { opacity: 1; }
     .video-grid :global(.cell-action) { width: 30px; height: 30px; border-radius: 50%; border: none; background: rgba(0,0,0,0.55); color: #fff; display: grid; place-items: center; cursor: pointer; backdrop-filter: blur(4px); }
