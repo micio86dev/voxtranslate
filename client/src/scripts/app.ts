@@ -8,7 +8,7 @@ import { MeshManager } from './webrtc';
 import { AudioCapture } from './audio-capture';
 import { MicMeter } from './mic-meter';
 import { ChatManager, type ChatPayload } from './chat';
-import { checkUploadFile, fileUploadEnabled, uploadChatFile } from './api';
+import { checkUploadFile, fileUploadEnabled, generateAiQuiz, uploadChatFile } from './api';
 import * as auth from './auth';
 import { openSessionScreen } from './session-screen';
 import { initBookmarks, setBookmarkSession } from './bookmarks';
@@ -3032,6 +3032,41 @@ function toggleQuiz(open?: boolean): void {
 }
 $('btn-quiz').addEventListener('click', () => toggleQuiz());
 $('quiz-close').addEventListener('click', () => toggleQuiz(false));
+
+// AI quiz on demand (spec 0067 / #124): prompt → Groq → credits → play via the
+// existing host-authoritative engine. The generated pack rides in the relayed
+// state, so peers and late-joiners get it.
+const quizAiForm = $('quiz-ai') as HTMLFormElement;
+const quizAiInput = $('quiz-ai-prompt') as HTMLInputElement;
+const quizAiBtn = $('quiz-ai-gen') as HTMLButtonElement;
+const quizAiMsg = $('quiz-ai-msg');
+function setQuizAiMsg(text: string, isError: boolean): void {
+  quizAiMsg.textContent = text;
+  quizAiMsg.classList.toggle('error', isError);
+  quizAiMsg.hidden = !text;
+}
+quizAiForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const prompt = quizAiInput.value.trim();
+  if (!prompt) return;
+  quizAiBtn.disabled = true;
+  quizAiInput.disabled = true;
+  setQuizAiMsg(t('quizAiGenerating'), false);
+  const res = await generateAiQuiz(prompt, 5, session?.lang || 'en');
+  quizAiBtn.disabled = false;
+  quizAiInput.disabled = false;
+  if (res.ok && res.quiz) {
+    quiz.startAiQuiz(res.quiz.questions);
+    quizAiInput.value = '';
+    setQuizAiMsg('', false);
+    if (typeof res.quiz.balance === 'number') {
+      auth.setBalance(res.quiz.balance);
+      setBalanceUi(res.quiz.balance);
+    }
+  } else {
+    setQuizAiMsg(res.reason === 'insufficient_credits' ? t('quizAiNoCredits') : t('quizAiError'), true);
+  }
+});
 
 // ---- Voice-command timer wiring (spec 0052) ----
 const btnTimer = $('btn-timer');

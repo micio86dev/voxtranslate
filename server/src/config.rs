@@ -160,6 +160,9 @@ pub struct AiConfig {
     pub email_draft: f64,
     pub suggestions_per_minute: f64,
     pub suggestions_interval_secs: u64,
+    /// On-demand AI quiz (spec 0067): base + per-question credit rate.
+    pub quiz_base: f64,
+    pub quiz_per_question: f64,
 }
 
 /// Resend (transactional email) credentials. All-or-nothing like billing.
@@ -305,6 +308,8 @@ impl AiConfig {
             email_draft: parse_or("CREDITS_EMAIL_DRAFT", 0.02f64),
             suggestions_per_minute: parse_or("CREDITS_SUGGESTIONS_PER_MINUTE", 0.005f64),
             suggestions_interval_secs: parse_or("SUGGESTIONS_INTERVAL_SECONDS", 15u64),
+            quiz_base: parse_or("CREDITS_QUIZ_BASE", 0.03f64),
+            quiz_per_question: parse_or("CREDITS_QUIZ_PER_QUESTION", 0.01f64),
         }
     }
 
@@ -322,6 +327,8 @@ impl AiConfig {
             email_draft: 0.02,
             suggestions_per_minute: 0.005,
             suggestions_interval_secs: 15,
+            quiz_base: 0.03,
+            quiz_per_question: 0.01,
         }
     }
 }

@@ -323,6 +323,47 @@ export async function fetchAiPricing(): Promise<AiPricing | null> {
   }
 }
 
+// ---- AI quiz on demand (POST /api/quiz/generate, spec 0067 / #124) -----------
+
+export interface GeneratedQuiz {
+  questions: { q: string; options: string[]; answer: number }[];
+  cost: number;
+  balance?: number;
+}
+
+/** Result of an AI-quiz generation: `quiz` on success, else a `reason` (a typed
+ *  402 so the UI can prompt a top-up, or a generic failure). Never throws. */
+export interface QuizResult {
+  ok: boolean;
+  quiz?: GeneratedQuiz;
+  reason?: 'insufficient_credits' | 'failed';
+  required?: number;
+  available?: number;
+}
+
+/** Generate a custom quiz from a prompt. `count` is clamped server-side. */
+export async function generateAiQuiz(
+  prompt: string,
+  count: number,
+  lang: string,
+): Promise<QuizResult> {
+  try {
+    const res = await fetch(`${HTTP_BASE}/api/quiz/generate`, {
+      method: 'POST',
+      headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt, count, lang }),
+    });
+    if (res.status === 402) {
+      const b = (await res.json().catch(() => ({}))) as { required?: number; available?: number };
+      return { ok: false, reason: 'insufficient_credits', required: b.required, available: b.available };
+    }
+    if (!res.ok) return { ok: false, reason: 'failed' };
+    return { ok: true, quiz: (await res.json()) as GeneratedQuiz };
+  } catch {
+    return { ok: false, reason: 'failed' };
+  }
+}
+
 // ---- AI report (REST under /api/sessions/{id}/report) -----------------------
 
 export interface AiReport {
