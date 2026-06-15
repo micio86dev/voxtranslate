@@ -72,14 +72,25 @@ export function nextSeats(
   starterId: string,
 ): { xId: string; oId?: string } {
   if (parts.length <= 1) return { xId: parts[0] ?? starterId };
+  // Rotation only if the previous game finished AND the seat we'd keep is still in
+  // the call. A player who left and rejoined gets a NEW peer id, so a stale winner/
+  // loser id from `prev` must never be seated — otherwise the board gets a "ghost"
+  // seat nobody controls and the two present players can't actually play (the
+  // reported leave/rejoin bug). When the kept seat is gone, fall through to a fresh
+  // seating from the CURRENT participants.
   if (prev && (prev.status === 'won' || prev.status === 'draw')) {
-    const keep = prev.status === 'won' ? (prev.winner === 1 ? prev.xId : prev.oId!) : prev.xId;
-    const loser = keep === prev.xId ? prev.oId : prev.xId;
-    const from = loser != null && parts.indexOf(loser) >= 0 ? parts.indexOf(loser) : 0;
-    return { xId: keep, oId: nextOther(parts, from, keep) };
+    const keep = prev.status === 'won' ? (prev.winner === 1 ? prev.xId : prev.oId) : prev.xId;
+    if (keep && parts.includes(keep)) {
+      const loser = keep === prev.xId ? prev.oId : prev.xId;
+      // If the loser also left, rotate from the kept seat's position instead.
+      const from = loser != null && parts.indexOf(loser) >= 0 ? parts.indexOf(loser) : parts.indexOf(keep);
+      return { xId: keep, oId: nextOther(parts, from, keep) };
+    }
+    // kept seat gone → fresh seating below
   }
-  const from = parts.indexOf(starterId) >= 0 ? parts.indexOf(starterId) : 0;
-  return { xId: starterId, oId: nextOther(parts, from, starterId) };
+  const starter = parts.includes(starterId) ? starterId : parts[0];
+  const from = parts.indexOf(starter);
+  return { xId: starter, oId: nextOther(parts, from, starter) };
 }
 
 export class TicTacToe {
