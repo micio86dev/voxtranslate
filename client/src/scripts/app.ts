@@ -183,8 +183,13 @@ const tictactoe = new TicTacToe(minigameEl, myId, gameName, sendGame, t, () => [
   ...peerNames.keys(),
 ]);
 const quizEl = $('quiz');
-// Each client renders the quiz in its own language (spec 0048).
-const quiz = new Quiz(quizEl, myId, gameName, () => session?.lang || 'en', sendGame, t);
+// Each client renders the quiz in its own language (spec 0048). The modal callback
+// opens the quiz for EVERY participant when one starts, and closes it on cancel,
+// with a toast (spec 0070 R4.1/R4.3).
+const quiz = new Quiz(quizEl, myId, gameName, () => session?.lang || 'en', sendGame, t, (open) => {
+  toggleQuiz(open);
+  if (!open) toast(t('quizCancelled'));
+});
 
 // Voice-command countdown timer (spec 0052): started from your own Deepgram
 // transcript ("imposta timer di 10 minuti") or the manual popover. Local-only —
@@ -3131,6 +3136,11 @@ quizAiForm.addEventListener('submit', async (e) => {
   e.preventDefault();
   const prompt = quizAiInput.value.trim();
   if (!prompt) return;
+  // Block a second quiz while one is live — BEFORE spending credits on Groq (R4.2).
+  if (quiz.isActive()) {
+    setQuizAiMsg(t('quizBusy'), true);
+    return;
+  }
   quizAiBtn.disabled = true;
   quizAiInput.disabled = true;
   setQuizAiMsg(t('quizAiGenerating'), false);
