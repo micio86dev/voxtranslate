@@ -220,7 +220,6 @@ const LANGS = [
             <div class="stage-meta">
               <span id="header-clock" class="clock-badge hidden"></span>
               <button id="call-room" class="room-badge mono" data-i18n-title="copy"></button>
-              <button id="call-info" class="info-btn" aria-haspopup="dialog" aria-expanded="false" aria-controls="call-info-pop" data-i18n-title="callInfoTip"></button>
               <span id="transcript-indicator" class="transcript-indicator hidden" role="img" data-i18n-title="transcriptRecording"></span>
               <button id="glossary-badge" class="glossary-badge hidden" data-i18n-title="glossaryActiveTip"></button>
             </div>
@@ -233,12 +232,6 @@ const LANGS = [
               </span>
               <span class="stage-info-sep"></span>
               <span class="stage-info-item"><span class="stage-info-label" data-i18n="currentBalance"></span> <span id="call-balance" class="call-balance"></span></span>
-            </div>
-            <!-- Hidden popover kept for JS compat (toggleInfoPop) -->
-            <div id="call-info-pop" class="call-info-pop hidden" role="group" data-i18n-label="callInfoTip">
-              <div class="cip-row"><span class="cip-label" data-i18n="visibility"></span><span id="call-vis-dup" class="vis-badge"></span></div>
-              <div class="cip-row"><span class="cip-label" data-i18n="sessionDurationTip"></span><span class="session-badge" role="timer"><span class="sb-ico" aria-hidden="true"></span><span id="session-elapsed-dup">00:00</span></span></div>
-              <div class="cip-row"><span class="cip-label" data-i18n="currentBalance"></span><span id="call-balance-dup" class="call-balance"></span></div>
             </div>
           </div>
           <!-- Live participant badge, top-right (spec 0055 → on-video in 0061 / #98): your
@@ -935,26 +928,6 @@ const LANGS = [
       letter-spacing: 0.02em; color: #fff;
     }
     .clock-badge::after { content: '|'; margin: 0 1px 0 9px; color: rgba(255, 255, 255, 0.45); font-weight: 400; }
-    /* ⓘ room-info disclosure button. */
-    .info-btn {
-      display: inline-grid; place-items: center; width: 22px; height: 22px; padding: 0;
-      border: none; border-radius: 50%; background: transparent; color: rgba(255, 255, 255, 0.85);
-      cursor: pointer; transition: background 0.12s, color 0.12s;
-    }
-    .info-btn:hover { background: rgba(255, 255, 255, 0.16); color: #fff; }
-    .info-btn :global(.ico) { width: 16px; height: 16px; }
-    /* Room-info popover under the meta cluster (spec 0061): visibility + duration +
-       balance moved off the header into this less-intrusive disclosure (#98). */
-    .call-info-pop {
-      position: absolute; top: calc(100% + 6px); left: 0; z-index: 2;
-      display: flex; flex-direction: column; gap: 9px; min-width: 210px; max-width: 80vw;
-      padding: 12px 14px; border-radius: 12px;
-      background: rgba(19, 20, 28, 0.97); backdrop-filter: blur(12px);
-      border: 1px solid var(--border); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
-    }
-    .cip-row { display: flex; align-items: center; justify-content: space-between; gap: 18px; font-size: 0.82rem; }
-    .cip-label { color: var(--muted); }
-    .call-info-pop .call-balance { margin: 0; }
     /* Participant badge, top-right on the stage (spec 0061 / #98): your avatar initial +
        live count over a dark backdrop. */
     .part-count-badge {
