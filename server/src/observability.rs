@@ -55,14 +55,23 @@ pub fn init_tracing() {
         .init();
 }
 
-/// First hop of `x-forwarded-for` (or `x-real-ip`); `-` when absent. Behind
-/// Railway's proxy the real client ip is in these headers.
+/// The client IP for logging + best-effort per-IP rate limiting. Uses the **last** hop
+/// of `x-forwarded-for` — the entry appended by the trusted proxy (Railway's edge), which
+/// a client can't forge — rather than the left-most, fully client-controlled hop (issue
+/// #117). Falls back to `x-real-ip`, then `-`.
 pub fn client_ip(h: &HeaderMap) -> String {
     h.get("x-forwarded-for")
-        .or_else(|| h.get("x-real-ip"))
         .and_then(|v| v.to_str().ok())
-        .map(|s| s.split(',').next().unwrap_or(s).trim().to_string())
+        .and_then(|s| s.rsplit(',').next())
+        .map(str::trim)
         .filter(|s| !s.is_empty())
+        .or_else(|| {
+            h.get("x-real-ip")
+                .and_then(|v| v.to_str().ok())
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+        })
+        .map(str::to_string)
         .unwrap_or_else(|| "-".to_string())
 }
 
@@ -109,4 +118,41 @@ pub async fn canonical_log(req: Request, next: Next) -> Response {
             .insert(HeaderName::from_static("x-request-id"), hv);
     }
     res
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn hdrs(pairs: &[(&str, &str)]) -> HeaderMap {
+        let mut h = HeaderMap::new();
+        for (k, v) in pairs {
+            h.insert(
+                HeaderName::from_bytes(k.as_bytes()).unwrap(),
+                HeaderValue::from_str(v).unwrap(),
+            );
+        }
+        h
+    }
+
+    #[test]
+    fn client_ip_uses_last_forwarded_hop() {
+        // The left-most hop is client-controlled; we trust the proxy-appended last hop.
+        assert_eq!(
+            client_ip(&hdrs(&[("x-forwarded-for", "1.1.1.1, 2.2.2.2, 3.3.3.3")])),
+            "3.3.3.3"
+        );
+        // A spoofed left value can't change the result.
+        assert_eq!(
+            client_ip(&hdrs(&[("x-forwarded-for", "9.9.9.9, 5.5.5.5")])),
+            "5.5.5.5"
+        );
+        // Single value, x-real-ip fallback, and the absent case.
+        assert_eq!(
+            client_ip(&hdrs(&[("x-forwarded-for", "7.7.7.7")])),
+            "7.7.7.7"
+        );
+        assert_eq!(client_ip(&hdrs(&[("x-real-ip", "8.8.8.8")])), "8.8.8.8");
+        assert_eq!(client_ip(&hdrs(&[])), "-");
+    }
 }

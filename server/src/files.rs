@@ -12,7 +12,7 @@
 //! guests too. No JWT is required.
 
 use axum::extract::{Multipart, Path, State};
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use uuid::Uuid;
@@ -52,6 +52,7 @@ pub async fn files_config(State(state): State<AppState>) -> Response {
 pub async fn upload_file(
     State(state): State<AppState>,
     Path(room): Path<String>,
+    headers: HeaderMap,
     multipart: Multipart,
 ) -> Response {
     // The feature is gated on Supabase Storage being configured.
@@ -62,6 +63,18 @@ pub async fn upload_file(
         )
             .into_response();
     };
+
+    // Per-IP throttle BEFORE reading/buffering the multipart body (issue #117): caps how
+    // often one source can trigger a multi-MB in-memory upload buffer, independent of the
+    // per-room:peer limit below (which only applies once the body is already parsed).
+    let ip = crate::observability::client_ip(&headers);
+    if !state.rate_limiter.allow(
+        &format!("upload-ip:{ip}"),
+        20,
+        std::time::Duration::from_secs(60),
+    ) {
+        return (StatusCode::TOO_MANY_REQUESTS, "too many requests").into_response();
+    }
     let max_bytes = state
         .config
         .storage

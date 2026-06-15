@@ -279,13 +279,9 @@ pub async fn auth_google(
         return service_unavailable();
     };
 
-    // Throttle login attempts per client (20 / minute), keyed by forwarded IP.
-    let client_key = headers
-        .get("x-forwarded-for")
-        .or_else(|| headers.get("x-real-ip"))
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.split(',').next().unwrap_or(s).trim().to_string())
-        .unwrap_or_else(|| "auth-global".to_string());
+    // Throttle login attempts per client (20 / minute), keyed by the trusted-proxy IP
+    // (issue #117 — last X-Forwarded-For hop, not the spoofable left-most one).
+    let client_key = crate::observability::client_ip(&headers);
     if !state
         .rate_limiter
         .allow(&format!("auth:{client_key}"), 20, Duration::from_secs(60))
