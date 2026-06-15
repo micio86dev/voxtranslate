@@ -738,6 +738,16 @@ const LANGS = [
     .rooms-list :global(.room-item-count) { font-size: 0.82rem; color: var(--muted); flex: none; display: inline-flex; align-items: center; gap: 5px; }
     .rooms-list :global(.room-item-members) { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
     .rooms-list :global(.chip) { font-size: 0.78rem; color: var(--text); background: var(--surface-2); border: 1px solid var(--border); border-radius: 999px; padding: 3px 9px; }
+    /* Overlapping avatar stack of who's in the room (social style, spec 0072). The
+       --bg ring matches the card so the circles read as separated when they overlap. */
+    .rooms-list :global(.room-item-avatars) { display: flex; align-items: center; margin-top: 8px; }
+    .rooms-list :global(.ri-av) {
+      width: 28px; height: 28px; border-radius: 50%; border: 2px solid var(--bg); margin-left: -9px;
+      overflow: hidden; display: grid; place-items: center; font-size: 0.64rem; font-weight: 700;
+      color: #fff; flex: none;
+    }
+    .rooms-list :global(.ri-av:first-child) { margin-left: 0; }
+    .rooms-list :global(.ri-av img) { width: 100%; height: 100%; object-fit: cover; display: block; }
     .rooms-list :global(.lobby-empty) { color: var(--muted); text-align: center; font-size: 0.88rem; padding: 14px 0; }
 
     /* ---------- Session detail ---------- */

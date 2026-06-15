@@ -343,6 +343,7 @@ impl RoomManager {
                     .map(|p| Member {
                         name: p.name.clone(),
                         lang: p.lang.clone(),
+                        avatar: p.avatar_url.clone(),
                     })
                     .collect(),
             })
