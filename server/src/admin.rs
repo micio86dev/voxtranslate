@@ -405,7 +405,7 @@ fn bonus_email(
 
 /// Minimal HTML-escape for the small set of values we interpolate into the email
 /// body (the admin note especially, which is free text).
-fn html_escape(s: &str) -> String {
+pub(crate) fn html_escape(s: &str) -> String {
     s.replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")

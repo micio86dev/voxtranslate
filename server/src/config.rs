@@ -32,6 +32,9 @@ pub struct Config {
     /// (spec 0026 / 0059). Without it the client uses STUN only and cross-NAT
     /// (e.g. cross-border) calls may fail to connect.
     pub turn: Option<TurnConfig>,
+    /// Recipient for user bug reports (spec 0071). Defaults to the owner's address;
+    /// override via `BUG_REPORT_TO`. Email is only sent when `resend` is also set.
+    pub bug_report_to: String,
 }
 
 /// How `/api/ice` authenticates a client to the TURN relay (spec 0026 / 0059).
@@ -260,6 +263,10 @@ impl Config {
             resend,
             storage,
             turn,
+            bug_report_to: env::var("BUG_REPORT_TO")
+                .ok()
+                .filter(|s| !s.trim().is_empty())
+                .unwrap_or_else(|| "micio86dev@gmail.com".into()),
         })
     }
 
@@ -473,6 +480,7 @@ impl Config {
             resend: None,
             storage: None,
             turn: None,
+            bug_report_to: "test@example.com".into(),
         }
     }
 }
