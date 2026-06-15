@@ -176,7 +176,12 @@ const gameName = (id: string): string =>
   id === myId ? session?.name || t('you') : peerNames.get(id)?.name || '';
 const sendGame = (state: unknown): void => ws?.send(JSON.stringify({ type: 'game', state }));
 const minigameEl = $('minigame');
-const tictactoe = new TicTacToe(minigameEl, myId, gameName, sendGame, t);
+// peers() feeds seat assignment + spectator rotation (spec 0070 S3): self first,
+// then peers in their join order.
+const tictactoe = new TicTacToe(minigameEl, myId, gameName, sendGame, t, () => [
+  myId,
+  ...peerNames.keys(),
+]);
 const quizEl = $('quiz');
 // Each client renders the quiz in its own language (spec 0048).
 const quiz = new Quiz(quizEl, myId, gameName, () => session?.lang || 'en', sendGame, t);
@@ -783,9 +788,11 @@ async function handleServer(msg: any): Promise<void> {
     case 'game': // a mini-game state update (spec 0046/0047)
     case 'game_snapshot': // the current game on join
       // One `game` channel, routed by a discriminator: quiz states carry
-      // `game:'quiz'`; Tic-Tac-Toe states have none (the default).
+      // `game:'quiz'`; Tic-Tac-Toe states have none (the default). applyRemote
+      // returns true when a game just appeared, so we open the panel for peers /
+      // spectators / late-joiners (spec 0070 S3 R3.3).
       if (msg.state && msg.state.game === 'quiz') quiz.applyRemote(msg.state);
-      else tictactoe.applyRemote(msg.state);
+      else if (tictactoe.applyRemote(msg.state)) toggleMinigame(true);
       break;
     case 'language_detected': {
       // A peer's "auto" was resolved by the server probe (confidence present)
