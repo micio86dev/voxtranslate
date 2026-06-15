@@ -1919,8 +1919,10 @@ const LANGS = [
       .mi .control-btn { width: 42px; height: 42px; }
       /* Compact top-left meta on phones: clock|ROOM stays, the self name drops (the tile
          is right there) and the info strip shows values only (no "Visibility"/"Balance"
-         labels) at a smaller size — minimal footprint, doesn't crowd the video. */
-      .stage-meta-wrap { gap: 4px; max-width: calc(100% - 16px); }
+         labels) at a smaller size — minimal footprint, doesn't crowd the video.
+         max-width reserves the top-right corner for the participant badge so the meta
+         can't slide under it on narrow screens (spec 0070 follow-up). */
+      .stage-meta-wrap { gap: 4px; max-width: calc(100% - 76px); }
       .stage-meta { padding: 4px 10px; gap: 6px; }
       .stage-self { display: none; }
       .stage-info-strip { font-size: 0.66rem; padding: 3px 8px; gap: 6px; }
@@ -1929,6 +1931,12 @@ const LANGS = [
 
     @media (max-width: 768px) {
       #call { flex-direction: column; }
+      /* Keep the top band clear of the on-video header (room/elapsed/balance, top-left
+         + participant badge, top-right): move each tile's name overlay to the bottom so
+         the header never covers it on phones (spec 0070 follow-up). Subtitles sit just
+         above the name strip. */
+      .video-grid :global(.video-overlay) { top: auto; bottom: 8px; }
+      .video-grid :global(.subtitle-area) { bottom: 44px; }
       .bookmarks-panel {
         position: fixed; bottom: 0; left: 0; right: 0; width: 100%; max-height: 50vh;
         border-left: none; border-top: 1px solid var(--border); border-radius: 16px 16px 0 0;
