@@ -322,6 +322,8 @@ pub struct WsParams {
 pub struct Member {
     pub name: String,
     pub lang: String,
+    /// Google avatar URL for authenticated users; `None` for guests (spec 0072).
+    pub avatar: Option<String>,
 }
 
 /// A public room with its currently online members.

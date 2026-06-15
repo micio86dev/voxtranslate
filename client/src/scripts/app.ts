@@ -332,7 +332,13 @@ async function fetchRooms(): Promise<void> {
   }
 }
 
-function renderRooms(rooms: Array<{ room: string; count: number; participants: Array<{ name: string; lang: string }> }>): void {
+function renderRooms(
+  rooms: Array<{
+    room: string;
+    count: number;
+    participants: Array<{ name: string; lang: string; avatar?: string | null }>;
+  }>,
+): void {
   roomsList.innerHTML = '';
   if (!rooms.length) {
     const empty = document.createElement('div');
@@ -354,6 +360,16 @@ function renderRooms(rooms: Array<{ room: string; count: number; participants: A
     count.className = 'room-item-count';
     count.innerHTML = `${icon('users', 13)} ${r.count}/4`;
     main.append(code, count);
+    // Overlapping avatar stack — a social-style "who's here" glance (spec 0072).
+    const avatars = document.createElement('div');
+    avatars.className = 'room-item-avatars';
+    for (const m of r.participants) {
+      const av = document.createElement('span');
+      av.className = 'ri-av';
+      av.title = m.name;
+      fillAvatar(av, m.name, m.avatar, 56, 1);
+      avatars.appendChild(av);
+    }
     const members = document.createElement('div');
     members.className = 'room-item-members';
     for (const m of r.participants) {
@@ -362,7 +378,7 @@ function renderRooms(rooms: Array<{ room: string; count: number; participants: A
       chip.textContent = `${FLAG[m.lang] || ''} ${m.name}`.trim();
       members.appendChild(chip);
     }
-    item.append(main, members);
+    item.append(main, avatars, members);
     item.addEventListener('click', () => {
       // Guests can't join public rooms (spec 0022): explain why + the perks of an
       // account instead of sending them to pre-join.
