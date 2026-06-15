@@ -5,7 +5,7 @@
 // (transcript APIs are auth-gated server-side).
 
 import * as auth from './auth';
-import { fetchTranscript, type TranscriptDoc } from './api';
+import { fetchAiPricing, fetchTranscript, type TranscriptDoc } from './api';
 import { getUiLang, t } from './i18n';
 import { initEmailSlot, updateEmailContext } from './email';
 import { initReportSlot } from './report';
@@ -66,6 +66,32 @@ function renderHeader(ref: SessionRef): void {
     btn.disabled = ref.event_count === 0;
     btn.title = ref.event_count === 0 ? t('noTranscriptEvents') : '';
   }
+  // AI text correction checkbox + cost estimate
+  initAiCorrect(ref);
+}
+
+const FALLBACK_CORRECT_COST = { base: 0.05, per_event: 0.001 };
+
+function initAiCorrect(ref: SessionRef): void {
+  const chk = $<HTMLInputElement>('ai-correct-chk');
+  const costEl = $('ai-correct-cost');
+  if (ref.event_count === 0) {
+    chk.disabled = true;
+    costEl.textContent = '';
+    return;
+  }
+  chk.disabled = false;
+  const paintCost = (pricing: { base: number; per_event: number } | null): void => {
+    const p = pricing ?? FALLBACK_CORRECT_COST;
+    const estimated = p.base + p.per_event * Math.max(1, ref.event_count);
+    costEl.textContent = `~${auth.formatCredits(estimated)}`;
+  };
+  void fetchAiPricing().then((p) => {
+    if (current?.id !== ref.id) return;
+    paintCost(p?.transcript_correction ?? null);
+  });
+  // If pricing fetch is slow, show fallback immediately
+  paintCost(null);
 }
 
 function formatDuration(ms: number): string {
