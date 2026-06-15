@@ -2,12 +2,12 @@
 
 | | |
 |---|---|
-| **Status** | Draft |
+| **Status** | ✅ Shipped |
 | **Owner** | Alessandro Micelli |
 | **Created** | 2026-06-15 |
-| **Shipped** | — |
+| **Shipped** | 2026-06-15 |
 | **Version** | — |
-| **Commits** | — |
+| **Commits** | S1 `36d9b17` (#143), S2 `1bcb702` (#144), S3 `c6d85df` (#145), S4 `bd10c02` (#149), S5 `b58d8de` (#150); follow-up fixes `2988bc8` (#146 popover z-index), `9dc9126` (#147 hand icon), `5c3bae6` (#148 TTT rejoin) |
 | **Depends on** | [0018](../0018-chat-file-upload/spec.md), [0034](../0034-ui-cta-zfix/spec.md), [0038](../0038-session-glossary-ux/spec.md), [0046](../0046-minigame-tictactoe/spec.md), [0047](../0047-minigame-quiz/spec.md), [0057](../0057-pip-controls/spec.md), [0061](../0061-immersive-call-overlays/spec.md), [0067](../0067-ai-quiz-on-demand/spec.md) |
 
 ## 1. Context & Problem
@@ -359,3 +359,16 @@ flow): squash-merge, then a separate docs PR pins the short-SHA and flips status
 - Files: `client/src/pages/index.astro`, `client/src/scripts/{app,chat,quiz,tictactoe}.ts`,
   `client/src/layouts/Base.astro`, `server/src/{lib,rooms,protocol}.rs`.
 - Prior PR built on: #139 (`26192ff`).
+
+## 10. Amendments
+
+- **2026-06-15 — post-merge fixes (from in-app QA).** Three follow-ups landed after the
+  slices: (a) **#146** — S2 lifted a hovered video cell to `z-index:13`, which covered the
+  bookmark (z10) and voice-timer (z11) popovers on desktop hover; lowered to `z-index:9`
+  (still above the participant badge z8, below the popovers). (b) **#147** — replaced the
+  raise-hand glyph (read as a keypad) with a recognizable open palm. (c) **#148** — `nextSeats`
+  could seat a departed player's stale id after a leave/rejoin ("ghost seat"); rotation now
+  validates seats against the live participant list and falls back to a fresh seating.
+- **Still open (tracked separately):** mobile top-meta overlap (needs a repro screenshot);
+  public-rooms avatar stack (server `avatar_url` + client); user bug-reporting → spec
+  [0071](../0071-user-bug-report/spec.md).
