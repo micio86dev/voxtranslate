@@ -38,10 +38,13 @@ const PATHS: Record<string, string> = {
     '<path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/>',
   block:
     '<circle cx="12" cy="12" r="10"/><line x1="4.9" y1="4.9" x2="19.1" y2="19.1"/>',
+  // A recognizable open palm (Lucide "hand") — the old glyph read as a keypad, not
+  // a hand (spec 0070 follow-up).
   hand:
-    '<path d="M18 8.5V4a2 2 0 0 0-4 0v4.5"/><path d="M14 8.5V2a2 2 0 0 0-4 0v6.5"/><path d="M10 8.5V4a2 2 0 0 0-4 0v8.5"/><path d="M22 12.5V10a2 2 0 0 0-4 0v2.5"/><rect x="6" y="12" width="16" height="10" rx="2"/>',
+    '<path d="M18 11V6a2 2 0 0 0-2-2 2 2 0 0 0-2 2"/><path d="M14 10V4a2 2 0 0 0-2-2 2 2 0 0 0-2 2v2"/><path d="M10 10.5V6a2 2 0 0 0-2-2 2 2 0 0 0-2 2v8"/><path d="M18 8a2 2 0 0 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/>',
+  // Same palm, "raised/active": two short motion strokes to the upper-left.
   'hand-raised':
-    '<path d="M18 8.5V4a2 2 0 0 0-4 0v4.5"/><path d="M14 8.5V2a2 2 0 0 0-4 0v6.5"/><path d="M10 8.5V4a2 2 0 0 0-4 0v8.5"/><path d="M22 12.5V10a2 2 0 0 0-4 0v2.5"/><rect x="6" y="12" width="16" height="10" rx="2"/><circle cx="18" cy="7" r="3" fill="currentColor" stroke="none"/>',
+    '<path d="M18 11V6a2 2 0 0 0-2-2 2 2 0 0 0-2 2"/><path d="M14 10V4a2 2 0 0 0-2-2 2 2 0 0 0-2 2v2"/><path d="M10 10.5V6a2 2 0 0 0-2-2 2 2 0 0 0-2 2v8"/><path d="M18 8a2 2 0 0 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/><path d="M5 3.5 6.2 5"/><path d="M9.5 2.5 9.9 4.3"/>',
   fullscreen:
     '<path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>',
   'fullscreen-off':
