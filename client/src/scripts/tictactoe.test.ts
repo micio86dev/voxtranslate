@@ -70,6 +70,18 @@ describe('nextSeats', () => {
     expect(nextSeats(['a', 'b', 'c'], draw('a', 'b'), 'a')).toEqual({ xId: 'a', oId: 'c' });
   });
 
+  it('re-seats current players after one leaves and rejoins (no ghost seat)', () => {
+    // Winner A still here, loser B left and rejoined as "bb" → A keeps X, bb takes O
+    // (the stale 'b' id is never seated).
+    expect(nextSeats(['a', 'bb'], won('a', 'b', 1), 'a')).toEqual({ xId: 'a', oId: 'bb' });
+    // The winner itself left and rejoined → its old id is gone, so fall back to a
+    // fresh seating from whoever is present now.
+    expect(nextSeats(['bb', 'c'], won('a', 'b', 1), 'bb')).toEqual({ xId: 'bb', oId: 'c' });
+    // A stuck (still 'playing') game whose O dropped → New Game seats current players.
+    const stuck: GameState = { board: Array(9).fill(0), turn: 2, status: 'playing', xId: 'a', xName: 'a', oId: 'gone', oName: 'gone', seq: 5 };
+    expect(nextSeats(['a', 'bb'], stuck, 'a')).toEqual({ xId: 'a', oId: 'bb' });
+  });
+
   it('four players: winner stays, the participant after the loser rotates in', () => {
     // X=a beat O=b → a stays, the participant after loser b (index 1) is c → c in, b & d wait.
     expect(nextSeats(['a', 'b', 'c', 'd'], won('a', 'b', 1), 'a')).toEqual({ xId: 'a', oId: 'c' });
