@@ -89,8 +89,8 @@ async fn glossary_rest_crud_validation_and_import() {
     let base = format!("http://{}/api/rooms/{room}/glossary", srv.addr);
     let http = reqwest::Client::new();
 
-    // No token -> 401 on the mutating verbs. GET is intentionally public (the
-    // room code is the access control), so it is not gated here.
+    // No token -> 401 on every verb, including GET: the editor is auth-only, so reads
+    // are gated too (issue #117 — no anonymous read of any room's glossary by code).
     for resp in [
         http.post(&base)
             .json(&serde_json::json!({ "entries": [] }))
@@ -98,12 +98,10 @@ async fn glossary_rest_crud_validation_and_import() {
             .await
             .unwrap(),
         http.delete(&base).send().await.unwrap(),
+        http.get(&base).send().await.unwrap(),
     ] {
         assert_eq!(resp.status(), 401);
     }
-    // GET without a token is allowed (public read).
-    let resp = http.get(&base).send().await.unwrap();
-    assert_eq!(resp.status(), 200);
 
     // Fresh room -> empty glossary, advertised cap.
     let resp = http.get(&base).bearer_auth(&jwt).send().await.unwrap();
