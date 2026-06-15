@@ -929,7 +929,9 @@ const LANGS = [
       position: absolute; top: 10px; left: 10px; z-index: 8;
       /* One horizontal line on desktop: clock|ROOM · you · | visibility · timer · balance.
          flex-wrap keeps it from running under the centre rec-badge / right part-count on
-         narrow widths — the info strip drops to a second line only when it must. */
+         narrow widths — the info strip drops to a second line only when it must.
+         While recording, .video-stage.recording caps this to the left half so it can't
+         slide under the centred REC badge (spec 0070 R2.1). */
       display: flex; flex-direction: row; align-items: center; flex-wrap: wrap; gap: 6px;
       max-width: calc(100% - 20px);
     }
@@ -972,16 +974,22 @@ const LANGS = [
     /* Participant badge, top-right on the stage (spec 0061 / #98): your avatar initial +
        live count over a dark backdrop. */
     .part-count-badge {
-      position: absolute; top: 10px; right: 10px; z-index: 8;
+      /* pointer-events: none — the badge is purely informational (avatar + count), so it
+         must never intercept the per-cell report/block buttons beneath it; events pass
+         through to the cell, whose :hover then lifts it (z 13) above this badge (spec 0070 R2.2). */
+      position: absolute; top: 10px; right: 10px; z-index: 8; max-width: calc(50% - 12px); pointer-events: none;
       display: inline-flex; align-items: center; gap: 7px;
       padding: 3px 11px 3px 3px; border-radius: 999px;
       background: rgba(0, 0, 0, 0.5); backdrop-filter: blur(6px);
       color: #fff; font-weight: 700; font-variant-numeric: tabular-nums; font-size: 0.82rem;
     }
     .pc-avatar {
-      width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center;
+      width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; overflow: hidden;
       font-size: 0.7rem; font-weight: 700; color: #fff; line-height: 1; flex-shrink: 0;
     }
+    /* Avatar image fills the circle (spec 0070 R2.3). :global — the <img> is created
+       in app.ts so it carries no Astro scope attribute. */
+    .pc-avatar :global(img) { width: 100%; height: 100%; object-fit: cover; display: block; }
     /* Transcript-recording indicator (spec 0009): a subtle pulsing dot in the
        call header, tooltip-only. Distinct from the video REC badge (spec 0010). */
     .transcript-indicator { display: inline-flex; align-items: center; cursor: help; }
@@ -1003,9 +1011,12 @@ const LANGS = [
     /* Composite-recording badge (spec 0010): REC ● + elapsed MM:SS over the grid.
        Top-CENTER (spec 0061) so it clears the persistent top-left meta cluster. */
     .rec-badge {
-      position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 5;
-      display: inline-flex; align-items: center; gap: 6px;
-      padding: 4px 10px; border-radius: 999px; background: rgba(0, 0, 0, 0.55);
+      /* z-index 9: above the left meta + right participant badges (z 8) so the
+         recording state is never hidden behind them; the reserved centre lane
+         (meta/part caps) keeps them from touching it in the first place (spec 0070 R2.1). */
+      position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 9;
+      display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
+      padding: 4px 10px; border-radius: 999px; background: rgba(0, 0, 0, 0.72);
       color: #fff; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.04em;
     }
     .rec-badge #rec-timer { font-variant-numeric: tabular-nums; font-weight: 600; }
@@ -1013,6 +1024,12 @@ const LANGS = [
       width: 8px; height: 8px; border-radius: 50%; background: var(--danger);
       animation: ti-pulse 1.2s ease-in-out infinite;
     }
+    /* While the centred REC badge is on screen, hold the left meta + right participant
+       badges to their own half so neither can slide under it (spec 0070 R2.1). Scoped to
+       .recording so the meta keeps its full width — incl. #139's compact mobile row —
+       whenever recording is off. */
+    .video-stage.recording .stage-meta-wrap { max-width: calc(50% - 80px); }
+    .video-stage.recording .part-count-badge { max-width: calc(50% - 80px); }
     /* ---- Voice-command timer (spec 0052) ---- */
     /* Stacked BELOW the participant badge (spec 0061) so the two top-right overlays
        never collide. */
@@ -1429,7 +1446,13 @@ const LANGS = [
     .cookie-btn { width: auto; min-height: 38px; padding: 0 18px; }
 
     /* Per-cell report/block buttons (created in JS). */
-    .video-grid :global(.cell-actions) { position: absolute; top: 8px; right: 8px; display: flex; gap: 6px; opacity: 0; transition: opacity 0.15s; }
+    .video-grid :global(.cell-actions) { position: absolute; top: 8px; right: 8px; z-index: 2; display: flex; gap: 6px; opacity: 0; transition: opacity 0.15s; }
+    /* Lift the whole hovered/focused cell above the on-video badges (part-count z8,
+       timer-pop z11) so its report/block buttons are never covered — the cell has
+       transform: translateZ(0) (a stacking context), so a z-index on .cell-actions
+       alone can't escape it; the cell itself must rise (spec 0070 R2.2). */
+    .video-grid :global(.video-cell:hover),
+    .video-grid :global(.video-cell:focus-within) { z-index: 13; }
     .video-grid :global(.video-cell:hover .cell-actions),
     .video-grid :global(.video-cell:focus-within .cell-actions) { opacity: 1; }
     .video-grid :global(.cell-action) { width: 30px; height: 30px; border-radius: 50%; border: none; background: rgba(0,0,0,0.55); color: #fff; display: grid; place-items: center; cursor: pointer; backdrop-filter: blur(4px); }
@@ -1581,9 +1604,10 @@ const LANGS = [
     }
     .participants-list :global(.part-item.self) { outline: 1px solid var(--accent-dim); }
     .participants-list :global(.part-avatar) {
-      width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center;
+      width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; overflow: hidden;
       font-size: 0.75rem; font-weight: 700; color: rgba(255,255,255,0.95); flex: none;
     }
+    .participants-list :global(.part-avatar img) { width: 100%; height: 100%; object-fit: cover; display: block; }
     .participants-list :global(.part-info) { flex: 1; min-width: 0; }
     .participants-list :global(.part-name) { font-size: 0.85rem; font-weight: 500; display: flex; align-items: center; gap: 4px; }
     .participants-list :global(.part-lang) { font-size: 0.72rem; color: var(--muted); }
