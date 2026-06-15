@@ -1370,17 +1370,18 @@ function stopSessionTimer(): void {
 function updateParticipantsList(): void {
   const myLang = session?.lang || 'en';
   const myName = session?.name || t('namePlaceholder');
-  const items: Array<{ id: string; name: string; lang: string; isSelf: boolean; micMuted: boolean; handRaised: boolean }> = [];
+  const myAvatar = auth.getUser()?.avatar_url ?? null;
+  const items: Array<{ id: string; name: string; lang: string; isSelf: boolean; micMuted: boolean; handRaised: boolean; avatar: string | null }> = [];
 
-  items.push({ id: myId, name: myName, lang: myLang, isSelf: true, micMuted: !micOn, handRaised });
+  items.push({ id: myId, name: myName, lang: myLang, isSelf: true, micMuted: !micOn, handRaised, avatar: myAvatar });
   for (const [id, info] of peerNames) {
-    items.push({ id, name: info.name, lang: info.lang, isSelf: false, micMuted: peerMicMuted.get(id) ?? false, handRaised: peerHandRaised.get(id) ?? false });
+    items.push({ id, name: info.name, lang: info.lang, isSelf: false, micMuted: peerMicMuted.get(id) ?? false, handRaised: peerHandRaised.get(id) ?? false, avatar: info.avatar ?? null });
   }
 
   $('part-count-n').textContent = String(items.length); // live count (spec 0055)
-  // Your initial + gradient in the on-video participant badge (spec 0061 / #98).
-  partAvatarEl.textContent = myName.slice(0, 1).toUpperCase();
-  partAvatarEl.style.background = avatarGradient(myName);
+  // Your avatar (image when available, else initial + gradient) in the on-video
+  // participant badge (spec 0061 / #98 → avatars in spec 0070 R2.3).
+  fillAvatar(partAvatarEl, myName, myAvatar, 48, 1);
 
   participantsList.innerHTML = '';
   for (const p of items) {
@@ -1389,8 +1390,7 @@ function updateParticipantsList(): void {
 
     const avatar = document.createElement('span');
     avatar.className = 'part-avatar';
-    avatar.style.background = avatarGradient(p.name);
-    avatar.textContent = p.name.slice(0, 2).toUpperCase();
+    fillAvatar(avatar, p.name, p.avatar, 64, 2);
 
     const info = document.createElement('div');
     info.className = 'part-info';
@@ -2022,6 +2022,9 @@ function startRecording(): void {
   showNotif(t('recording'));
   $('rec-timer').textContent = '00:00';
   show($('rec-badge'), true);
+  // Reserve the centre lane for the REC badge so the meta/participant badges can't
+  // slide under it (spec 0070 R2.1).
+  document.querySelector('.video-stage')?.classList.add('recording');
   recTimerId = window.setInterval(() => {
     if (recorder) $('rec-timer').textContent = formatElapsed(Date.now() - recorder.startedAt);
   }, 1000);
@@ -2035,6 +2038,7 @@ async function stopRecording(partial = false): Promise<void> {
   isRecording = false;
   clearInterval(recTimerId);
   show($('rec-badge'), false);
+  document.querySelector('.video-stage')?.classList.remove('recording');
   setControlState();
   showNotif(t('processing'));
   const blob = await rec.stop();
@@ -2239,6 +2243,39 @@ function avatarGradient(name: string): string {
   for (const ch of name) hash = ch.charCodeAt(0) + ((hash << 5) - hash);
   const hue = Math.abs(hash) % 360;
   return `linear-gradient(135deg, hsl(${hue},60%,25%), hsl(${(hue + 40) % 360},60%,15%))`;
+}
+
+/**
+ * Fill a circular avatar element with the user's picture, falling back to a
+ * gradient + initials when no URL exists or the image fails to load (spec 0070
+ * R2.3). Mirrors the in-cell avatar so the participant badge + roster show real
+ * faces instead of a single letter.
+ */
+function fillAvatar(
+  el: HTMLElement,
+  name: string,
+  avatarSrc: string | null | undefined,
+  sizePx: number,
+  initialsLen = 2,
+): void {
+  const initials = name.slice(0, initialsLen).toUpperCase();
+  el.textContent = '';
+  el.style.background = avatarGradient(name);
+  const av = auth.avatarUrl(avatarSrc, sizePx);
+  if (!av) {
+    el.textContent = initials;
+    return;
+  }
+  const img = document.createElement('img');
+  img.referrerPolicy = 'no-referrer';
+  img.alt = '';
+  img.src = av;
+  // Keep the gradient + initials if a (Google) avatar 404s or is blocked.
+  img.addEventListener('error', () => {
+    img.remove();
+    el.textContent = initials;
+  });
+  el.appendChild(img);
 }
 
 function cssEsc(s: string): string {
