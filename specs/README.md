@@ -99,6 +99,7 @@ Each spec follows the same skeleton:
 | [0064](0064-high-traffic-abuse-hardening/spec.md) | High-traffic abuse hardening: WS/HTTP flood rate-limits + caps (#114) | ✅ Shipped | 2026-06-14 | `da1c994` |
 | [0065](0065-bounded-hot-path-channels/spec.md) | Bounded hot-path channels (out_tx/audio_tx) + backpressure (#123) | ✅ Shipped | 2026-06-15 | `8a90104` |
 | [0066](0066-trusted-client-ip-header/spec.md) | Opt-in trusted client-IP header (Cloudflare-ready, #111) | ✅ Shipped | 2026-06-15 | `c233bd4` |
+| [0067](0067-ai-quiz-on-demand/spec.md) | On-demand AI quiz from a prompt (Groq, credits, #124) | ✅ Shipped | 2026-06-15 | `85959de` |
 
 > Numbers 0011–0015 were claimed by commit messages while the AI bundle shipped
 > without spec docs (and 0011/0012 were each reused twice); the assignments

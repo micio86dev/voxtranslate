@@ -2,12 +2,12 @@
 
 | | |
 |---|---|
-| **Status** | In progress |
+| **Status** | ✅ Shipped |
 | **Owner** | VoxTranslate |
 | **Created** | 2026-06-15 |
-| **Shipped** | — |
+| **Shipped** | 2026-06-15 |
 | **Version** | — |
-| **Commits** | `<sha>` |
+| **Commits** | `85959de` |
 | **Depends on** | [0047](../0047-minigame-quiz/spec.md), [0046](../0046-minigame-tictactoe/spec.md) |
 
 ## 1. Context & Problem
