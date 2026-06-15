@@ -369,18 +369,15 @@ const LANGS = [
             <button id="btn-subtitle" class="control-btn" data-i18n-title="subtitleTip"></button>
             <button id="btn-chat" class="control-btn" data-i18n-title="chatTip" aria-expanded="false" aria-controls="chat-panel"><span class="chat-ico"></span><span id="chat-badge" class="chat-badge" hidden>0</span></button>
           </div>
+          <div class="ctl-group">
+            <button id="btn-tts" class="control-btn" data-i18n-title="ttsTip"></button>
+          </div>
           <div class="ctl-group more-group">
             <button id="btn-more" class="control-btn" data-i18n-title="moreTip" data-i18n-label="moreTip" aria-haspopup="true" aria-expanded="false" aria-controls="more-menu"></button>
             <!-- role="group" (not "menu"): a labeled disclosure of independent toggle/action
                  buttons, NOT an arrow-key ARIA menu — matches real behaviour + clears axe
                  aria-required-children (spec 0056). -->
             <div id="more-menu" class="more-menu hidden" role="group" data-i18n-label="moreTip">
-              <div class="mm-group">
-                <span class="mm-head" data-i18n="moreGroupTranslation"></span>
-                <div class="mm-grid">
-                  <span class="mi"><button id="btn-tts" class="control-btn" data-i18n-title="ttsTip"></button><span class="mi-label" data-i18n="ttsTip"></span></span>
-                </div>
-              </div>
               <div class="mm-group">
                 <span class="mm-head" data-i18n="moreGroupStage"></span>
                 <div class="mm-grid">

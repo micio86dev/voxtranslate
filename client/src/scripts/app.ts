@@ -1525,7 +1525,7 @@ function setControlState(): void {
   if (leave) leave.innerHTML = icon('leave');
   btnMore.innerHTML = icon('more');
   // Dot on ⋯ when a collapsed action is active, so its state isn't hidden.
-  btnMore.classList.toggle('has-active', ttsOn || isSharingScreen || isRecording || handRaised);
+  btnMore.classList.toggle('has-active', isSharingScreen || isRecording || handRaised);
   syncPipControls(); // keep the PiP-window bar in lock-step with the main bar (spec 0057)
 }
 
