@@ -365,6 +365,8 @@ const LANGS = [
           <div id="quiz-options" class="quiz-options"></div>
           <p id="quiz-status" class="mg-status" role="status"></p>
           <button id="quiz-action" class="btn-primary mg-action"></button>
+          <!-- Host-only cancel for an in-progress quiz (spec 0070 R4.3). -->
+          <button id="quiz-cancel" class="btn-ghost quiz-cancel-btn" data-i18n="quizCancel" hidden></button>
         </div>
         <!-- Floating reaction tray ABOVE the controls (spec 0060 / #94): a centered,
              visually-separated pill — always accessible and spammable (rate-limited
@@ -1751,6 +1753,11 @@ const LANGS = [
     .quiz :global(.quiz-option.wrong) { border-color: var(--danger); background: color-mix(in srgb, var(--danger) 16%, var(--surface)); }
     .quiz :global(.quiz-option:disabled) { cursor: default; }
     .quiz :global(.quiz-rank) { display: flex; justify-content: space-between; gap: 10px; font-size: 0.85rem; color: var(--text); padding: 1px 0; }
+    /* Leaderboard right side: per-participant completion + score (spec 0070 R4.4). */
+    .quiz :global(.quiz-rank-meta) { display: inline-flex; align-items: baseline; gap: 8px; }
+    .quiz :global(.quiz-answered) { font-size: 0.72rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+    /* Host cancel: a quiet destructive secondary, full-width under the action. */
+    .quiz-cancel-btn { width: 100%; min-height: 40px; color: var(--danger); }
     @media (max-width: 600px) { .quiz { width: 86vw; } }
     .bookmark-pop-title { font-size: 0.82rem; color: var(--text); white-space: nowrap; }
     .bookmark-pop-error .bookmark-pop-title { color: var(--danger); }

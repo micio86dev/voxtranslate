@@ -177,13 +177,16 @@ function shuffle<T>(a: T[]): T[] {
   return r;
 }
 
-interface Player { name: string; score: number }
+interface Player { name: string; score: number; answered: number }
 /** One AI-generated question (spec 0067): plain strings in a single language. */
 export interface AiQuestion { q: string; options: string[]; answer: number }
 export interface QuizState {
   game: 'quiz';
   t: 'state';
-  phase: 'question' | 'reveal' | 'done';
+  // 'cancelled' is a terminal broadcast (spec 0070 R4.3) — we can't end via a null
+  // state because the shared `game` channel routes by `game:'quiz'` and would
+  // misroute null to Tic-Tac-Toe.
+  phase: 'question' | 'reveal' | 'done' | 'cancelled';
   hostId: string;
   players: Record<string, Player>;
   qIndex: number;
@@ -199,6 +202,12 @@ export interface QuizState {
 }
 interface AnswerMsg { game: 'quiz'; t: 'answer'; q: number; choice: number; by: string; name: string }
 
+/** A quiz blocks new starts while it's live — anything but an absent, finished or
+ *  cancelled quiz (spec 0070 R4.2). */
+export function isQuizActive(state: QuizState | null): boolean {
+  return !!state && state.phase !== 'done' && state.phase !== 'cancelled';
+}
+
 export class Quiz {
   private state: QuizState | null = null;
   private myChoice: number | null = null;
@@ -213,6 +222,9 @@ export class Quiz {
     private myLang: () => string,
     private send: (state: unknown) => void,
     private t: (k: string) => string,
+    /** Open/close the quiz modal — so a quiz that starts (or is cancelled) shows
+     *  for every participant, not just the creator (spec 0070 R4.1/R4.3). */
+    private onModal: (open: boolean) => void = () => {},
   ) {
     const opts = root.querySelector('#quiz-options') as HTMLElement;
     for (let i = 0; i < 4; i++) {
@@ -225,11 +237,19 @@ export class Quiz {
     (root.querySelector('#quiz-action') as HTMLButtonElement).addEventListener('click', () =>
       this.onAction(),
     );
+    (root.querySelector('#quiz-cancel') as HTMLButtonElement | null)?.addEventListener('click', () =>
+      this.cancel(),
+    );
     this.render();
   }
 
   private isHost(): boolean {
     return !!this.state && this.state.hostId === this.myId;
+  }
+
+  /** Whether a quiz is currently live (used to block a second concurrent quiz). */
+  isActive(): boolean {
+    return isQuizActive(this.state);
   }
 
   /** The current question: an inline AI-pack item when present, else the
@@ -263,6 +283,7 @@ export class Quiz {
   }
 
   private startNew(): void {
+    if (isQuizActive(this.state)) return; // one active quiz at a time (R4.2)
     this.round = shuffle(PACK.map((_, i) => i)).slice(0, Math.min(ROUND_QS, PACK.length));
     this.pending = {};
     this.myChoice = null;
@@ -271,18 +292,20 @@ export class Quiz {
       t: 'state',
       phase: 'question',
       hostId: this.myId,
-      players: { [this.myId]: { name: this.nameOf(this.myId), score: 0 } },
+      players: { [this.myId]: { name: this.nameOf(this.myId), score: 0, answered: 0 } },
       qIndex: 0,
       total: this.round.length,
       packIndex: this.round[0],
       answeredIds: [],
     });
+    this.onModal(true); // open for the host too (peers open via applyRemote) — R4.1
   }
 
   /** Host-start a generated quiz (spec 0067): the pack rides inline in state so
    *  every peer renders it. Stored under the `en` slot — `pick()`'s fallback
    *  serves it to every viewer language. */
-  startAiQuiz(questions: AiQuestion[]): void {
+  startAiQuiz(questions: AiQuestion[]): boolean {
+    if (isQuizActive(this.state)) return false; // one active quiz at a time (R4.2)
     const pack: PackItem[] = questions.map((x) => ({
       answer: x.answer,
       q: { en: x.q },
@@ -296,13 +319,15 @@ export class Quiz {
       t: 'state',
       phase: 'question',
       hostId: this.myId,
-      players: { [this.myId]: { name: this.nameOf(this.myId), score: 0 } },
+      players: { [this.myId]: { name: this.nameOf(this.myId), score: 0, answered: 0 } },
       qIndex: 0,
       total: pack.length,
       packIndex: 0,
       answeredIds: [],
       pack,
     });
+    this.onModal(true); // R4.1
+    return true;
   }
 
   private recordAnswer(a: AnswerMsg): void {
@@ -310,8 +335,10 @@ export class Quiz {
     if (!s || !this.isHost() || s.phase !== 'question' || a.q !== s.qIndex) return;
     if (this.pending[a.by] !== undefined) return; // first answer wins
     this.pending[a.by] = a.choice;
-    if (!s.players[a.by]) s.players[a.by] = { name: a.name, score: 0 };
-    this.setState({ ...s, answeredIds: Object.keys(this.pending) });
+    // Track per-participant completion: bump this player's answered count (R4.4).
+    const prev = s.players[a.by] ?? { name: a.name, score: 0, answered: 0 };
+    const players = { ...s.players, [a.by]: { ...prev, answered: prev.answered + 1 } };
+    this.setState({ ...s, players, answeredIds: Object.keys(this.pending) });
   }
 
   private reveal(): void {
@@ -347,6 +374,18 @@ export class Quiz {
     });
   }
 
+  /** Host-cancel the active quiz (R4.3). Broadcasts a terminal `cancelled` state
+   *  — NOT null, because the shared `game` channel routes by `game:'quiz'` and a
+   *  null would be misrouted to Tic-Tac-Toe — then resets locally and closes the
+   *  modal. Every client mirrors this via applyRemote. */
+  private cancel(): void {
+    const s = this.state;
+    if (!s || !this.isHost() || !isQuizActive(s)) return;
+    this.send({ ...s, phase: 'cancelled', answeredIds: [], correct: undefined, choices: undefined });
+    this.reset();
+    this.onModal(false);
+  }
+
   private setState(s: QuizState | null): void {
     this.state = s;
     this.render();
@@ -366,11 +405,22 @@ export class Quiz {
       if (this.isHost()) this.recordAnswer(msg as AnswerMsg);
       return; // non-host ignores others' answers (secret until reveal)
     }
-    if (this.state && (this.state.qIndex !== m.qIndex || this.state.phase !== m.phase)) {
+    // A cancel broadcast ends the quiz for everyone: reset + close the modal (R4.3).
+    if (m.phase === 'cancelled') {
+      const wasActive = isQuizActive(this.state);
+      this.reset();
+      if (wasActive) this.onModal(false);
+      return;
+    }
+    const prev = this.state;
+    if (prev && (prev.qIndex !== m.qIndex || prev.phase !== m.phase)) {
       if (m.phase === 'question') this.myChoice = null;
     }
     this.state = msg as QuizState;
     this.render();
+    // Open the modal for everyone when a quiz appears or restarts (R4.1): from no /
+    // finished / cancelled quiz into an active one (covers late-joiner snapshots).
+    if (isQuizActive(this.state) && !isQuizActive(prev)) this.onModal(true);
   }
 
   reset(): void {
@@ -388,7 +438,11 @@ export class Quiz {
     const statusEl = this.root.querySelector('#quiz-status') as HTMLElement;
     const qEl = this.root.querySelector('#quiz-question') as HTMLElement;
     const action = this.root.querySelector('#quiz-action') as HTMLButtonElement;
+    const cancelBtn = this.root.querySelector('#quiz-cancel') as HTMLButtonElement | null;
     const optsWrap = this.root.querySelector('#quiz-options') as HTMLElement;
+
+    // Cancel is host-only and only while a quiz is live (R4.3).
+    if (cancelBtn) cancelBtn.hidden = !(this.isHost() && isQuizActive(s));
 
     if (!s) {
       statusEl.textContent = '';
@@ -445,9 +499,13 @@ export class Quiz {
   }
 
   private leaderboard(s: QuizState): string {
+    // Per-participant completion (R4.4): show answered/total alongside the score.
     return Object.values(s.players)
       .sort((a, b) => b.score - a.score)
-      .map((p, i) => `<div class="quiz-rank"><span>${i + 1}. ${escapeText(p.name)}</span><strong>${p.score}</strong></div>`)
+      .map(
+        (p, i) =>
+          `<div class="quiz-rank"><span>${i + 1}. ${escapeText(p.name)}</span><span class="quiz-rank-meta"><span class="quiz-answered">${p.answered}/${s.total}</span><strong>${p.score}</strong></span></div>`,
+      )
       .join('');
   }
 }
