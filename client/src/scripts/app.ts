@@ -13,6 +13,7 @@ import { checkUploadFile, fileUploadEnabled, generateAiQuiz, uploadChatFile } fr
 import * as auth from './auth';
 import { openSessionScreen } from './session-screen';
 import { initBookmarks, setBookmarkSession } from './bookmarks';
+import { initBugReport } from './bug-report';
 import { initGlossary, onGlossaryActive, refreshGlossaryHome, setGlossaryRoom } from './glossary';
 import { Whiteboard, type WbTool, type WbWidth } from './whiteboard';
 import { TicTacToe } from './tictactoe';
@@ -3317,5 +3318,6 @@ function insertEmoji(emoji: string): void {
 }
 
 initCookieBanner();
+initBugReport(); // always-available "report a problem" button (spec 0071)
 // boot() runs the lobby (startLobby) and resumes any session.
 void boot();

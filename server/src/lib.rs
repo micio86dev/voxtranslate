@@ -291,6 +291,7 @@ pub fn app(state: AppState) -> Router {
         .route("/metrics", get(metrics_handler))
         .route("/api/auth/config", get(auth::auth_config))
         .route("/api/ice", get(api::ice))
+        .route("/api/bug-report", post(api::bug_report))
         .route("/api/auth/google", post(auth::auth_google))
         .route("/api/user/me", get(auth::user_me))
         .route("/api/billing/packages", get(api::billing_packages))

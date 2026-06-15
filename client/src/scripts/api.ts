@@ -696,3 +696,19 @@ export async function parseInsufficient(res: Response): Promise<InsufficientCred
     return null;
   }
 }
+
+// ---- User bug report (spec 0071) -------------------------------------------
+/** Submit a user bug report. Works for guests + signed-in users (the auth header,
+ *  when present, attributes it). Returns true on success. */
+export async function postBugReport(message: string, pageUrl: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${HTTP_BASE}/api/bug-report`, {
+      method: 'POST',
+      headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message, page_url: pageUrl }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}

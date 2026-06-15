@@ -100,6 +100,29 @@ pub async fn migrate(pool: &Pool) -> Result<(), sqlx::Error> {
     Ok(())
 }
 
+/// Insert a user bug report (spec 0071); returns the new row id. `user_id`/`email`
+/// are set only for signed-in reporters; `page_url`/`user_agent` are triage context.
+pub async fn insert_bug_report(
+    pool: &Pool,
+    message: &str,
+    user_id: Option<Uuid>,
+    email: Option<&str>,
+    page_url: Option<&str>,
+    user_agent: Option<&str>,
+) -> Result<Uuid, sqlx::Error> {
+    sqlx::query_scalar(
+        "INSERT INTO bug_reports (message, user_id, email, page_url, user_agent)
+         VALUES ($1, $2, $3, $4, $5) RETURNING id",
+    )
+    .bind(message)
+    .bind(user_id)
+    .bind(email)
+    .bind(page_url)
+    .bind(user_agent)
+    .fetch_one(pool)
+    .await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -145,6 +168,39 @@ mod tests {
             .expect("fetch user");
         assert_eq!(fetched.id, inserted.id);
         assert_eq!(fetched.email, email);
+    }
+
+    /// Round-trip a `bug_reports` row (spec 0071): a guest report inserts with a NULL
+    /// user and defaults to status `received`. Skipped without `DATABASE_URL`.
+    #[tokio::test]
+    async fn insert_bug_report_guest_defaults_received() {
+        let Ok(url) = std::env::var("DATABASE_URL") else {
+            eprintln!("skipping db test — no DATABASE_URL");
+            return;
+        };
+        let pool = connect(&url).await.expect("connect");
+        migrate(&pool).await.expect("migrate");
+
+        let id = insert_bug_report(
+            &pool,
+            "the call dropped when I shared my screen",
+            None,
+            None,
+            Some("/call/ABCD"),
+            Some("Mozilla/5.0"),
+        )
+        .await
+        .expect("insert bug report");
+
+        let (status, user_id, msg): (String, Option<Uuid>, String) =
+            sqlx::query_as("SELECT status, user_id, message FROM bug_reports WHERE id = $1")
+                .bind(id)
+                .fetch_one(&pool)
+                .await
+                .expect("fetch bug report");
+        assert_eq!(status, "received");
+        assert!(user_id.is_none());
+        assert!(msg.contains("screen"));
     }
 
     /// Round-trip a `chat_files` row (spec 0018) against the real schema, proving

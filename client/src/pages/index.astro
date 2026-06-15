@@ -539,6 +539,25 @@ const LANGS = [
       </div>
     </div>
 
+    <!-- ===================== BUG REPORT (spec 0071) ===================== -->
+    <!-- Always-available "report a problem" button for every user (guest or signed-in).
+         z-index sits below the in-call UI (#call), so it's hidden during a call. -->
+    <button id="bug-report-btn" class="bug-fab" data-i18n-title="reportProblem" aria-label="Report a problem" aria-haspopup="dialog">
+      <span class="bug-fab-ico" aria-hidden="true"></span>
+      <span class="bug-fab-label" data-i18n="reportProblem"></span>
+    </button>
+    <div id="bug-report-modal" class="modal-overlay hidden">
+      <div class="modal card modal-narrow" role="dialog" aria-modal="true" aria-labelledby="bug-report-title">
+        <div class="modal-head">
+          <span id="bug-report-title" class="card-title" data-i18n="reportProblem"></span>
+          <button id="bug-report-close" class="btn-ghost icon-btn" data-i18n-title="closeTip"></button>
+        </div>
+        <textarea id="bug-report-text" class="bug-report-text" rows="4" maxlength="2000" data-i18n-ph="bugReportPlaceholder"></textarea>
+        <p id="bug-report-status" class="status-line" role="status"></p>
+        <button id="bug-report-send" class="btn-primary" data-i18n="bugReportSend"></button>
+      </div>
+    </div>
+
     <!-- ===================== COOKIE / PROCESSING BANNER ===================== -->
     <div id="cookie-banner" class="cookie-banner hidden">
       <span id="cookie-text" class="cookie-text" data-i18n="cookieText"></span>
@@ -1409,6 +1428,28 @@ const LANGS = [
 
     /* ---------- Modals ---------- */
     .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: grid; place-items: center; padding: 16px; z-index: 50; }
+    /* Always-available bug-report button (spec 0071). z-index 5 keeps it below the
+       in-call UI (#call is z-index 10), so it auto-hides during a call. */
+    .bug-fab {
+      position: fixed; left: 16px; bottom: 16px; z-index: 5;
+      display: inline-flex; align-items: center; gap: 7px; padding: 9px 14px; border-radius: 999px; cursor: pointer;
+      background: color-mix(in srgb, var(--accent) 22%, var(--surface));
+      border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--border));
+      color: var(--text); font-size: 0.82rem; font-weight: 600;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.3); transition: background 0.15s, transform 0.06s;
+    }
+    .bug-fab:hover { background: color-mix(in srgb, var(--accent) 34%, var(--surface)); }
+    .bug-fab:active { transform: translateY(1px); }
+    .bug-fab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .bug-fab .bug-fab-ico { display: inline-flex; }
+    .bug-fab .bug-fab-ico :global(.ico) { width: 16px; height: 16px; }
+    .bug-report-text {
+      width: 100%; box-sizing: border-box; resize: vertical; min-height: 96px; max-height: 240px;
+      background: var(--bg); border: 1px solid var(--border); color: var(--text);
+      border-radius: 10px; padding: 11px 12px; font: inherit; font-size: 0.95rem; line-height: 1.4;
+    }
+    .bug-report-text:focus { border-color: var(--accent); }
+    @media (max-width: 600px) { .bug-fab { padding: 11px; } .bug-fab .bug-fab-label { display: none; } }
     .modal { width: 100%; max-width: 440px; max-height: 88vh; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
     .modal-narrow { max-width: 360px; text-align: center; }
     .modal-head { display: flex; align-items: center; justify-content: space-between; }

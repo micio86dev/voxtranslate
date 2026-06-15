@@ -97,6 +97,119 @@ pub async fn ice(State(state): State<AppState>, headers: HeaderMap) -> Response 
     Json(serde_json::json!({ "iceServers": servers })).into_response()
 }
 
+/// Max characters in a user bug report (spec 0071).
+const BUG_REPORT_MAX_LEN: usize = 2000;
+
+#[derive(serde::Deserialize)]
+pub struct BugReportRequest {
+    pub message: String,
+    #[serde(default)]
+    pub page_url: Option<String>,
+}
+
+/// `POST /api/bug-report` — a user (guest or signed-in) reports a problem (spec 0071).
+/// Stores the report (status `received`) and best-effort emails the admins
+/// (`BUG_REPORT_TO`). No auth required so guests can report; a token, if present,
+/// attributes it. Rate-limited per IP; the message is length-capped.
+pub async fn bug_report(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<BugReportRequest>,
+) -> Response {
+    // Per-IP throttle (spec 0028/0064): cap report spam — keyed by the trusted hop.
+    let ip = crate::observability::client_ip(&headers);
+    if !state
+        .rate_limiter
+        .allow(&format!("bug:{ip}"), 5, Duration::from_secs(60))
+    {
+        return (StatusCode::TOO_MANY_REQUESTS, "too many requests").into_response();
+    }
+
+    let message = body.message.trim();
+    if message.is_empty() {
+        return (StatusCode::BAD_REQUEST, "message required").into_response();
+    }
+    if message.chars().count() > BUG_REPORT_MAX_LEN {
+        return (StatusCode::BAD_REQUEST, "message too long").into_response();
+    }
+
+    // Persistence backs the backoffice triage flow, so a database is required.
+    let Some(pool) = state.pool.as_ref() else {
+        return (StatusCode::SERVICE_UNAVAILABLE, "reporting unavailable").into_response();
+    };
+
+    // Optional attribution: resolve a signed-in user from the bearer token if present
+    // (guests report anonymously). No banned-check here — reporting a bug is harmless.
+    let claims = state.config.billing.as_ref().and_then(|b| {
+        headers
+            .get(header::AUTHORIZATION)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.strip_prefix("Bearer "))
+            .and_then(|tok| crate::auth::verify_jwt(&b.jwt_secret, tok).ok())
+    });
+    let user_id = claims
+        .as_ref()
+        .and_then(|c| uuid::Uuid::parse_str(&c.sub).ok());
+    let email = user_id.and(claims.as_ref().map(|c| c.email.clone()));
+    let page_url = body
+        .page_url
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    let user_agent = headers
+        .get(header::USER_AGENT)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.chars().take(500).collect::<String>());
+
+    let id = match crate::db::insert_bug_report(
+        pool,
+        message,
+        user_id,
+        email.as_deref(),
+        page_url,
+        user_agent.as_deref(),
+    )
+    .await
+    {
+        Ok(id) => id,
+        Err(e) => {
+            tracing::error!("bug_report insert failed: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "could not save report").into_response();
+        }
+    };
+
+    // Best-effort admin email — the report is already stored, so a send failure must
+    // never fail the request. Only when Resend is configured.
+    if let Some(resend) = state.resend.as_ref() {
+        let who = match (user_id, email) {
+            (Some(uid), Some(em)) => format!("{em} ({uid})"),
+            _ => "guest".to_string(),
+        };
+        let page = page_url.unwrap_or("—");
+        let text = format!("New bug report ({id})\n\nFrom: {who}\nPage: {page}\n\n{message}");
+        let html = format!(
+            "<p><strong>New bug report</strong> (<code>{id}</code>)</p>\
+             <p>From: {}<br>Page: {}</p>\
+             <pre style=\"white-space:pre-wrap;font-family:inherit\">{}</pre>",
+            crate::admin::html_escape(&who),
+            crate::admin::html_escape(page),
+            crate::admin::html_escape(message),
+        );
+        let email_msg = OutboundEmail {
+            to: vec![state.config.bug_report_to.clone()],
+            cc: vec![],
+            subject: "VoxTranslate — new bug report".to_string(),
+            html,
+            text,
+        };
+        if let Err(e) = resend.send(&email_msg).await {
+            tracing::error!("bug_report email failed: {e}");
+        }
+    }
+
+    Json(serde_json::json!({ "ok": true })).into_response()
+}
+
 #[derive(Deserialize)]
 pub struct CheckoutRequest {
     pub package_id: String,

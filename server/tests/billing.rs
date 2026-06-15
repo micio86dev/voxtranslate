@@ -172,6 +172,7 @@ mod guest_mode {
             resend: None,
             storage: None,
             turn: None,
+            bug_report_to: "test@example.com".into(),
         };
         let state = AppState::new(config);
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

@@ -84,6 +84,12 @@ In **Settings → Data Model**, Directus lists the existing database tables. Add
   `legal_translations`, `blocklist_terms`
 - **Moderation/ops (read):** `reports`, `users`, `credit_transactions`,
   `usage_sessions`, `admin_audit`
+- **Bug reports (spec 0071):** `bug_reports` — user-submitted problem reports.
+  Set the `status` field to a **Dropdown** interface with the values
+  `received` (default) · `cancelled` · `resolved`, and grant the admin role
+  **update + delete** on this collection (read the `message`/`email`/`page_url`/
+  `user_agent` columns for triage). New rows arrive as `received` and are also
+  emailed to `BUG_REPORT_TO`.
 
 ## 5. Wire the Translations interfaces (the multilingual part)
 
