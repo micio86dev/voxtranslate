@@ -460,7 +460,7 @@ const LANGS = [
             </div>
           </div>
           <!-- Attach a file (spec 0018): hidden until the backend reports storage on. -->
-          <button id="chat-attach" class="btn-ghost icon-btn attach-btn" hidden data-i18n-title="attachTip" aria-label="Attach"></button>
+          <button id="chat-attach" class="btn-ghost icon-btn attach-btn" data-i18n-title="attachTip" aria-label="Attach"></button>
           <input id="chat-file-input" type="file" hidden accept=".mp3,.wav,.txt,.pdf,audio/mpeg,audio/wav,text/plain,application/pdf" />
           <input id="chat-input" type="text" maxlength="500" autocomplete="off" data-i18n-ph="chatPlaceholder" />
           <button id="chat-send" class="btn-primary send-btn" data-i18n-title="send"></button>
@@ -1469,7 +1469,7 @@ const LANGS = [
     .chat-messages :global(.chat-avatar) { width: 18px; height: 18px; border-radius: 50%; object-fit: cover; vertical-align: middle; margin-right: 5px; }
     /* ---------- Emoji picker ---------- */
     .emoji-picker-wrap { position: relative; }
-    .emoji-btn { font-size: 1.3rem !important; padding: 0 10px !important; line-height: 1; }
+    .emoji-btn { font-size: 1.3rem !important; line-height: 1; }
     .emoji-panel {
       position: absolute; bottom: 52px; left: 0; width: 220px;
       background: var(--surface); border: 1px solid var(--border); border-radius: 12px;

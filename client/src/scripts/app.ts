@@ -1279,14 +1279,14 @@ function setScreenShareIndicator(id: string, active: boolean): void {
 function showEmojiReaction(peerId: string, emoji: string): void {
   const stage = document.querySelector('.video-stage');
   if (!stage) return;
-  // Meet-style: a big emoji rising from the centre of the whole stage + who reacted
-  // (spec 0035). Random horizontal start + drift so a burst scatters rather than
-  // stacking exactly.
   const name = peerId === myId ? session?.name || t('you') : peerNames.get(peerId)?.name || '';
   const float = document.createElement('div');
   float.className = 'reaction-float';
-  float.style.setProperty('--x', `${Math.round((Math.random() - 0.5) * 220)}px`);
-  float.style.setProperty('--drift', `${Math.round((Math.random() - 0.5) * 80)}px`);
+  // Random horizontal offset and drift so multiple reactions spread apart naturally
+  const x = (Math.random() - 0.5) * 80;
+  const drift = (Math.random() - 0.5) * 140;
+  float.style.setProperty('--x', `${x}px`);
+  float.style.setProperty('--drift', `${drift}px`);
   const e = document.createElement('span');
   e.className = 'reaction-emoji';
   e.textContent = emoji;
@@ -1298,7 +1298,7 @@ function showEmojiReaction(peerId: string, emoji: string): void {
     float.appendChild(n);
   }
   stage.appendChild(float);
-  setTimeout(() => float.remove(), 3700);
+  setTimeout(() => float.remove(), 3600);
 }
 
 // ---- Notification banner ---------------------------------------------------
@@ -1415,6 +1415,8 @@ function updateParticipantsList(): void {
     if (p.micMuted) {
       status.innerHTML += icon('mic-off', 16);
       status.querySelector('.ico')?.classList.add('part-status-danger');
+    } else {
+      status.innerHTML += icon('mic', 16);
     }
 
     el.append(avatar, info, status);
@@ -1537,6 +1539,7 @@ function toggleMicrophone(): void {
   setAudioMuted(myId, !micOn);
   ws?.send(JSON.stringify({ type: 'mute_audio', muted: !micOn }));
   setControlState();
+  updateParticipantsList();
 }
 btnMic.addEventListener('click', () => toggleMicrophone());
 
