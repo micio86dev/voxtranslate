@@ -116,6 +116,10 @@ const prejoinStatus = $('prejoin-status');
 const videoGrid = $('video-grid');
 const callRoom = $('call-room');
 const callVis = $('call-vis');
+// Self identity folded into the meta row (replaces the self tile's .video-overlay).
+const stageSelf = $('stage-self');
+const stageSelfName = $('stage-self-name');
+const stageSelfLang = $('stage-self-lang');
 const chatPanel = $('chat-panel');
 const chatMessages = $('chat-messages');
 const chatInput = $<HTMLInputElement>('chat-input');
@@ -587,6 +591,10 @@ async function startCall(): Promise<void> {
   callScreen.classList.remove('hidden');
   callRoom.textContent = session.room;
   callVis.textContent = session.isPublic ? t('public') : t('private');
+  // Your name + lang live in the meta row instead of on the self tile (see #stage-self).
+  stageSelfName.textContent = session.name || t('you');
+  stageSelfLang.textContent = `${FLAG[session.lang] || ''} ${session.lang.toUpperCase()}`.trim();
+  show(stageSelf, true);
   videoGrid.innerHTML = '';
   videoGrid.dataset.mode = 'grid';
   peerNames.clear();
@@ -787,6 +795,7 @@ async function handleServer(msg: any): Promise<void> {
       if (badge) badge.textContent = `${FLAG[msg.lang] || ''} ${msg.lang.toUpperCase()}`.trim();
       if (msg.peer_id === myId && session) {
         session.lang = msg.lang;
+        stageSelfLang.textContent = `${FLAG[msg.lang] || ''} ${msg.lang.toUpperCase()}`.trim();
         chat?.setMyLang(msg.lang);
         // Manual-correction echo (no confidence) must not re-open the toast,
         // or accepting a correction would loop forever.
