@@ -7,6 +7,7 @@
 //! Set `LOG_FORMAT=json` (e.g. on Railway) for machine-parseable JSON logs that a
 //! log tool can index/query; unset → human-readable for local dev.
 
+use std::sync::LazyLock;
 use std::time::Instant;
 
 use axum::{
@@ -55,11 +56,40 @@ pub fn init_tracing() {
         .init();
 }
 
-/// The client IP for logging + best-effort per-IP rate limiting. Uses the **last** hop
-/// of `x-forwarded-for` — the entry appended by the trusted proxy (Railway's edge), which
-/// a client can't forge — rather than the left-most, fully client-controlled hop (issue
-/// #117). Falls back to `x-real-ip`, then `-`.
+/// A trusted client-IP header to prefer over `x-forwarded-for`, read once from
+/// `CLIENT_IP_HEADER` (lower-cased). Set it to `cf-connecting-ip` **only** when the
+/// origin is behind Cloudflare (spec 0066, #111): Cloudflare overwrites that header
+/// with the real client IP, so a client can't forge it — but only while actually
+/// proxied. Unset (default) ⇒ the unforgeable last-`x-forwarded-for`-hop source.
+static TRUSTED_IP_HEADER: LazyLock<Option<String>> = LazyLock::new(|| {
+    std::env::var("CLIENT_IP_HEADER")
+        .ok()
+        .map(|s| s.trim().to_ascii_lowercase())
+        .filter(|s| !s.is_empty())
+});
+
+/// The client IP for logging + best-effort per-IP rate limiting. See
+/// [`resolve_client_ip`] for the resolution order.
 pub fn client_ip(h: &HeaderMap) -> String {
+    resolve_client_ip(TRUSTED_IP_HEADER.as_deref(), h)
+}
+
+/// Resolve the client IP. When `trusted` is set (e.g. `cf-connecting-ip` behind
+/// Cloudflare), that edge-set, unforgeable header wins. Otherwise use the **last**
+/// hop of `x-forwarded-for` — the entry appended by the trusted proxy (Railway's
+/// edge), which a client can't forge, rather than the left-most, fully
+/// client-controlled hop (issue #117). Falls back to `x-real-ip`, then `-`.
+fn resolve_client_ip(trusted: Option<&str>, h: &HeaderMap) -> String {
+    if let Some(name) = trusted {
+        if let Some(ip) = h
+            .get(name)
+            .and_then(|v| v.to_str().ok())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            return ip.to_string();
+        }
+    }
     h.get("x-forwarded-for")
         .and_then(|v| v.to_str().ok())
         .and_then(|s| s.rsplit(',').next())
@@ -154,5 +184,34 @@ mod tests {
         );
         assert_eq!(client_ip(&hdrs(&[("x-real-ip", "8.8.8.8")])), "8.8.8.8");
         assert_eq!(client_ip(&hdrs(&[])), "-");
+    }
+
+    #[test]
+    fn trusted_header_wins_and_default_is_unchanged() {
+        // No trusted header (default): identical to the last-XFF-hop behaviour.
+        assert_eq!(
+            resolve_client_ip(None, &hdrs(&[("x-forwarded-for", "1.1.1.1, 2.2.2.2")])),
+            "2.2.2.2"
+        );
+        // Behind Cloudflare (CLIENT_IP_HEADER=cf-connecting-ip): the edge-set header
+        // wins over a (now Cloudflare-appended) x-forwarded-for last hop.
+        assert_eq!(
+            resolve_client_ip(
+                Some("cf-connecting-ip"),
+                &hdrs(&[
+                    ("cf-connecting-ip", "4.4.4.4"),
+                    ("x-forwarded-for", "1.1.1.1, 9.9.9.9"), // 9.9.9.9 = Cloudflare's IP
+                ]),
+            ),
+            "4.4.4.4"
+        );
+        // Trusted header configured but absent on the request → fall back cleanly.
+        assert_eq!(
+            resolve_client_ip(
+                Some("cf-connecting-ip"),
+                &hdrs(&[("x-forwarded-for", "1.1.1.1, 2.2.2.2")]),
+            ),
+            "2.2.2.2"
+        );
     }
 }
