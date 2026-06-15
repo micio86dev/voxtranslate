@@ -255,6 +255,7 @@ export async function downloadTranscript(
   format: 'json' | 'pdf' | 'srt' | 'vtt',
   lang = 'en',
   subtitleMode: SubtitleMode = 'translated',
+  corrected = false,
 ): Promise<boolean> {
   let url = `${HTTP_BASE}/api/sessions/${encodeURIComponent(sessionId)}/transcript.${format}`;
   if (format === 'pdf') {
@@ -268,6 +269,8 @@ export async function downloadTranscript(
   } else if (format === 'srt' || format === 'vtt') {
     url += `?lang=${encodeURIComponent(subtitleMode)}&target=${encodeURIComponent(lang)}`;
   }
+  // Render from the cached AI correction (spec 0068). JSON has no other query.
+  if (corrected) url += `${url.includes('?') ? '&' : '?'}corrected=1`;
   const res = await fetch(url, { headers: authHeaders() });
   if (!res.ok) return false;
   const blob = await res.blob();

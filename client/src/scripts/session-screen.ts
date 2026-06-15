@@ -5,7 +5,14 @@
 // (transcript APIs are auth-gated server-side).
 
 import * as auth from './auth';
-import { fetchAiPricing, fetchTranscript, type TranscriptDoc } from './api';
+import {
+  ensureCorrection,
+  fetchAiPricing,
+  fetchCorrectionStatus,
+  fetchTranscript,
+  type CorrectionMode,
+  type TranscriptDoc,
+} from './api';
 import { getUiLang, t } from './i18n';
 import { initEmailSlot, updateEmailContext } from './email';
 import { initReportSlot } from './report';
@@ -70,28 +77,53 @@ function renderHeader(ref: SessionRef): void {
   initAiCorrect(ref);
 }
 
+// Client fallback until the server pricing arrives (mirrors the 0068 defaults).
 const FALLBACK_CORRECT_COST = { base: 0.05, per_event: 0.001 };
+let correctPricing = FALLBACK_CORRECT_COST;
+
+/** Correction mode + cache lang for the *currently selected* sub-mode — the
+ *  visible control next to the checkbox. PDF/JSON downloads override this at
+ *  click time (see `correctionTargetFor`); the server cost is authoritative. */
+function correctTargetFromDropdown(): { mode: CorrectionMode; lang: string } {
+  const mode = $<HTMLSelectElement>('session-sub-mode').value as CorrectionMode;
+  return { mode, lang: mode === 'original' ? '' : getUiLang() };
+}
+
+/** Repaint the cost label: an estimate by size × mode, or "free" when this
+ *  exact (mode, lang) is already cached. */
+function refreshCorrectCost(): void {
+  const ref = current;
+  if (!ref || ref.event_count === 0) return;
+  const costEl = $('ai-correct-cost');
+  const { mode, lang } = correctTargetFromDropdown();
+  const passes = mode === 'both' ? 2 : 1;
+  const estimated =
+    correctPricing.base + correctPricing.per_event * Math.max(1, ref.event_count) * passes;
+  costEl.textContent = `~${auth.formatCredits(estimated)}`;
+  // Already paid for this shape → say so (don't double-charge expectations).
+  void fetchCorrectionStatus(ref.id, mode, lang).then((s) => {
+    const now = correctTargetFromDropdown();
+    if (current?.id !== ref.id || now.mode !== mode || now.lang !== lang) return;
+    if (s?.cached) costEl.textContent = t('aiCorrectFree');
+  });
+}
 
 function initAiCorrect(ref: SessionRef): void {
   const chk = $<HTMLInputElement>('ai-correct-chk');
   const costEl = $('ai-correct-cost');
   if (ref.event_count === 0) {
     chk.disabled = true;
+    chk.checked = false;
     costEl.textContent = '';
     return;
   }
   chk.disabled = false;
-  const paintCost = (pricing: { base: number; per_event: number } | null): void => {
-    const p = pricing ?? FALLBACK_CORRECT_COST;
-    const estimated = p.base + p.per_event * Math.max(1, ref.event_count);
-    costEl.textContent = `~${auth.formatCredits(estimated)}`;
-  };
   void fetchAiPricing().then((p) => {
     if (current?.id !== ref.id) return;
-    paintCost(p?.transcript_correction ?? null);
+    if (p?.transcript_correction) correctPricing = p.transcript_correction;
+    refreshCorrectCost();
   });
-  // If pricing fetch is slow, show fallback immediately
-  paintCost(null);
+  refreshCorrectCost(); // immediate, with the fallback price
 }
 
 function formatDuration(ms: number): string {
@@ -227,24 +259,60 @@ function renderEvents(list: HTMLElement, doc: TranscriptDoc): void {
 
 $('session-back').addEventListener('click', closeSessionScreen);
 
+/** Show a transient status line that auto-clears (only if unchanged). */
+function flashStatus(msg: string): void {
+  const status = $('session-transcript-status');
+  status.textContent = msg;
+  setTimeout(() => {
+    if (status.textContent === msg) status.textContent = '';
+  }, 4000);
+}
+
+/** What the corrected export polishes, per format (spec 0068): JSON → source
+ *  text only; PDF → both (original + shown translation); SRT/VTT → the dropdown. */
+function correctionTargetFor(format: 'pdf' | 'json' | 'srt' | 'vtt'): {
+  mode: CorrectionMode;
+  lang: string;
+} {
+  if (format === 'json') return { mode: 'original', lang: '' };
+  if (format === 'pdf') return { mode: 'both', lang: getUiLang() };
+  return correctTargetFromDropdown(); // srt/vtt follow the sub-mode dropdown
+}
+
 for (const format of ['pdf', 'json', 'srt', 'vtt'] as const) {
   const btn = $<HTMLButtonElement>(`session-dl-${format}`);
   btn.addEventListener('click', async () => {
     if (!current || btn.disabled) return;
+    const sessionId = current.id;
     const prev = btn.textContent;
     btn.disabled = true;
-    btn.textContent = t('processing');
     // SRT/VTT also carry the lang-mode dropdown (original/translated/both).
     const mode = $<HTMLSelectElement>('session-sub-mode').value as auth.SubtitleMode;
-    const ok = await auth.downloadTranscript(current.id, format, getUiLang(), mode);
+    const correct = $<HTMLInputElement>('ai-correct-chk').checked;
+
+    // Paid step first: ensure the corrected text is cached (free on a repeat).
+    if (correct) {
+      const target = correctionTargetFor(format);
+      btn.textContent = t('aiCorrecting');
+      const res = await ensureCorrection(sessionId, target.mode, target.lang);
+      if (current?.id !== sessionId) return; // navigated away while correcting
+      if (!res.ok) {
+        btn.textContent = prev;
+        btn.disabled = (current?.event_count ?? 0) === 0;
+        flashStatus(res.insufficient ? t('aiCorrectNoCredits') : t('aiCorrectFailed'));
+        return;
+      }
+      if (typeof res.balance === 'number') auth.setBalance(res.balance);
+      refreshCorrectCost(); // now reads as free for this shape
+    }
+
+    btn.textContent = t('processing');
+    const ok = await auth.downloadTranscript(sessionId, format, getUiLang(), mode, correct);
     btn.textContent = prev;
     btn.disabled = (current?.event_count ?? 0) === 0;
-    if (!ok) {
-      const status = $('session-transcript-status');
-      status.textContent = t('downloadFailed');
-      setTimeout(() => {
-        if (status.textContent === t('downloadFailed')) status.textContent = '';
-      }, 3500);
-    }
+    if (!ok) flashStatus(t('downloadFailed'));
   });
 }
+
+// Re-price the estimate (and re-check "free") when the lang-mode changes.
+$('session-sub-mode').addEventListener('change', refreshCorrectCost);

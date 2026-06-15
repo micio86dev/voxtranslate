@@ -324,6 +324,72 @@ export async function fetchAiPricing(): Promise<AiPricing | null> {
   }
 }
 
+// ---- AI transcript correction (REST under /api/sessions/{id}/correction, 0068) ----
+
+/** Which text the corrected export polishes — mirrors the server cache key. */
+export type CorrectionMode = 'original' | 'translated' | 'both';
+
+/** Outcome of ensuring a correction exists. `ok` means the corrected download
+ *  can proceed (cache hit or a fresh, paid generation). Never throws. */
+export interface CorrectionResult {
+  ok: boolean;
+  /** True when a cached correction was reused (no charge). */
+  cached: boolean;
+  /** True when this request actually charged credits. */
+  charged?: boolean;
+  cost?: number;
+  /** New balance after a charge; absent on cache hits / free delivery. */
+  balance?: number;
+  /** Set when credits ran short (the standard 402 body). */
+  insufficient?: { required?: number; available?: number };
+}
+
+const correctionUrl = (sessionId: string, mode: CorrectionMode, lang: string): string => {
+  const qs = new URLSearchParams({ mode });
+  if (mode !== 'original') qs.set('lang', lang);
+  return `${HTTP_BASE}/api/sessions/${encodeURIComponent(sessionId)}/correction?${qs.toString()}`;
+};
+
+/** Whether a correction is already cached for this `(mode, lang)` — lets the UI
+ *  label a repeat export as free. Null on 403 / network error. */
+export async function fetchCorrectionStatus(
+  sessionId: string,
+  mode: CorrectionMode,
+  lang: string,
+): Promise<{ cached: boolean; cost?: number } | null> {
+  try {
+    const res = await fetch(correctionUrl(sessionId, mode, lang), { headers: authHeaders() });
+    if (!res.ok) return null;
+    return (await res.json()) as { cached: boolean; cost?: number };
+  } catch {
+    return null;
+  }
+}
+
+/** Ensure a cached correction exists for this export shape, charging once. The
+ *  corrected text itself is delivered by the corrected download, not here. */
+export async function ensureCorrection(
+  sessionId: string,
+  mode: CorrectionMode,
+  lang: string,
+): Promise<CorrectionResult> {
+  try {
+    const res = await fetch(correctionUrl(sessionId, mode, lang), {
+      method: 'POST',
+      headers: authHeaders(),
+    });
+    if (res.status === 402) {
+      const b = (await res.json().catch(() => ({}))) as { required?: number; available?: number };
+      return { ok: false, cached: false, insufficient: { required: b.required, available: b.available } };
+    }
+    if (!res.ok) return { ok: false, cached: false };
+    const body = (await res.json()) as Omit<CorrectionResult, 'ok'>;
+    return { ok: true, ...body };
+  } catch {
+    return { ok: false, cached: false };
+  }
+}
+
 // ---- AI quiz on demand (POST /api/quiz/generate, spec 0067 / #124) -----------
 
 export interface GeneratedQuiz {

@@ -163,6 +163,10 @@ pub struct AiConfig {
     /// On-demand AI quiz (spec 0067): base + per-question credit rate.
     pub quiz_base: f64,
     pub quiz_per_question: f64,
+    /// Transcript correction on export (spec 0068): base + per-event credit
+    /// rate (per_event is per corrected text field; `both` mode doubles it).
+    pub correction_base: f64,
+    pub correction_per_event: f64,
 }
 
 /// Resend (transactional email) credentials. All-or-nothing like billing.
@@ -310,6 +314,8 @@ impl AiConfig {
             suggestions_interval_secs: parse_or("SUGGESTIONS_INTERVAL_SECONDS", 15u64),
             quiz_base: parse_or("CREDITS_QUIZ_BASE", 0.03f64),
             quiz_per_question: parse_or("CREDITS_QUIZ_PER_QUESTION", 0.01f64),
+            correction_base: parse_or("CREDITS_CORRECTION_BASE", 0.05f64),
+            correction_per_event: parse_or("CREDITS_CORRECTION_PER_EVENT", 0.001f64),
         }
     }
 
@@ -329,6 +335,8 @@ impl AiConfig {
             suggestions_interval_secs: 15,
             quiz_base: 0.03,
             quiz_per_question: 0.01,
+            correction_base: 0.05,
+            correction_per_event: 0.001,
         }
     }
 }
