@@ -16,6 +16,8 @@ use std::time::Duration;
 use rust_decimal::prelude::ToPrimitive;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::oneshot;
+
+use crate::rooms::PeerTx;
 use uuid::Uuid;
 
 use crate::billing::{usd, BillingError, BillingService};
@@ -42,7 +44,7 @@ pub async fn run_usage_meter(
     user_id: Uuid,
     session_id: Uuid,
     cfg: MeterConfig,
-    out_tx: UnboundedSender<String>,
+    out_tx: PeerTx,
     exhaust_tx: UnboundedSender<()>,
     mut cancel: oneshot::Receiver<()>,
 ) {
@@ -99,7 +101,7 @@ pub async fn run_guest_meter(
     spent: Arc<AtomicU64>,
     cap_secs: u64,
     interval_secs: u64,
-    out_tx: UnboundedSender<String>,
+    out_tx: PeerTx,
     exhaust_tx: UnboundedSender<()>,
     mut cancel: oneshot::Receiver<()>,
 ) {
@@ -129,7 +131,7 @@ mod tests {
     #[tokio::test]
     async fn guest_meter_stops_at_cap() {
         let spent = Arc::new(AtomicU64::new(0));
-        let (out_tx, mut out_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (out_tx, mut out_rx, _out_overflow) = PeerTx::channel(crate::rooms::OUT_CHANNEL_CAP);
         let (exhaust_tx, mut exhaust_rx) = tokio::sync::mpsc::unbounded_channel();
         let (_cancel_tx, cancel_rx) = oneshot::channel();
 
@@ -174,7 +176,7 @@ mod tests {
         .unwrap();
         let sid = svc.create_session(uid, "room-m").await.unwrap();
 
-        let (out_tx, mut out_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (out_tx, mut out_rx, _out_overflow) = PeerTx::channel(crate::rooms::OUT_CHANNEL_CAP);
         let (exhaust_tx, mut exhaust_rx) = tokio::sync::mpsc::unbounded_channel();
         let (_cancel_tx, cancel_rx) = oneshot::channel();
         let cfg = MeterConfig {
@@ -225,7 +227,7 @@ mod tests {
     #[tokio::test]
     async fn guest_meter_cancels_cleanly() {
         let spent = Arc::new(AtomicU64::new(0));
-        let (out_tx, _out_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (out_tx, _out_rx, _out_overflow) = PeerTx::channel(crate::rooms::OUT_CHANNEL_CAP);
         let (exhaust_tx, mut exhaust_rx) = tokio::sync::mpsc::unbounded_channel();
         let (cancel_tx, cancel_rx) = oneshot::channel();
 

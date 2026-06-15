@@ -48,7 +48,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use futures::stream::SplitSink;
 use futures::{SinkExt, StreamExt};
-use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
+use tokio::sync::mpsc::{self, Receiver, UnboundedSender};
 use tokio::sync::oneshot;
 use tower_http::cors::CorsLayer;
 use tower_http::set_header::SetResponseHeaderLayer;
@@ -63,7 +63,7 @@ use crate::groq::Groq;
 use crate::moderation::{Moderator, Severity};
 use crate::protocol::{ClientMessage, RoomsResponse, ServerMessage, WsParams};
 use crate::rate_limit::RateLimiter;
-use crate::rooms::{Peer, RoomManager, Visibility};
+use crate::rooms::{Peer, PeerTx, RoomManager, Visibility, OUT_CHANNEL_CAP};
 use crate::safety::SafetyService;
 use crate::transcripts::{EventKind, TranscriptEvent, TranscriptService};
 use crate::translator::Translator;
@@ -86,6 +86,15 @@ const DEFAULT_HTTP_PUBLIC_MAX_PER_MIN: u32 = 60;
 /// ≈100 msg/s sustained — far above audio (~10/s) + signalling/whiteboard bursts.
 const WS_MSG_MAX: u32 = 500;
 const WS_MSG_WINDOW: Duration = Duration::from_secs(5);
+
+/// Capacity of a speaker's bounded audio→Deepgram channel (issue #123). 100 ms
+/// chunks of 32 kbps Opus are a few hundred bytes, so 256 chunks (~25 s) is far
+/// above any real backlog — the longest the forwarder pauses is the auto-detect
+/// REST probe (<2 s) — while bounding a stalled Deepgram session to ~100 KiB.
+/// Dropping mid-stream chunks would corrupt the WebM container, so on overflow
+/// the session is ended cleanly (STT resumes on the next `Start`) rather than
+/// silently dropped.
+const AUDIO_CHANNEL_CAP: usize = 256;
 
 /// RAII guard for the live WS-connection counter: `acquire` increments and returns the
 /// post-increment count; `Drop` decrements, so the count is balanced on every exit path.
@@ -596,7 +605,7 @@ fn spawn_meter(
     usage_session_id: Option<Uuid>,
     guest_cap_secs: Option<u64>,
     guest_spent: &Option<Arc<AtomicU64>>,
-    out_tx: &UnboundedSender<String>,
+    out_tx: &PeerTx,
     exhaust_tx: &UnboundedSender<()>,
     room: &str,
     speaker_id: &str,
@@ -723,8 +732,10 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
         return;
     }
 
-    // Outgoing channel: server -> this peer's WS (text frames).
-    let (out_tx, out_rx) = mpsc::unbounded_channel::<String>();
+    // Outgoing channel: server -> this peer's WS (text frames). Bounded (#123):
+    // control/chat/signalling are never dropped — a stalled reader trips
+    // `out_overflow` and the receive loop below closes the connection cleanly.
+    let (out_tx, out_rx, out_overflow) = PeerTx::channel(OUT_CHANNEL_CAP);
     let peer = Peer {
         id: id.clone(),
         name: name.clone(),
@@ -850,7 +861,7 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
     let guest_spent = guest_cap_secs.map(|_| Arc::new(AtomicU64::new(0)));
 
     // Active speaking session (Some only while unmuted/talking).
-    let mut audio_tx: Option<UnboundedSender<Vec<u8>>> = None;
+    let mut audio_tx: Option<mpsc::Sender<Vec<u8>>> = None;
     // Cancels the running usage/guest meter (on Stop / disconnect).
     let mut meter_cancel: Option<oneshot::Sender<()>> = None;
     // The meter signals here when credits/cap are exhausted -> stop audio.
@@ -885,8 +896,18 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
                 }
                 match msg {
                     Message::Binary(data) => {
-                        if let Some(tx) = &audio_tx {
-                            let _ = tx.send(data.to_vec());
+                        // Bounded audio channel (#123): if Deepgram can't keep up
+                        // (Full) or the forwarder is gone (Closed), end the session
+                        // cleanly rather than drop a mid-stream chunk — dropping one
+                        // would corrupt the WebM container. STT resumes on the next
+                        // `Start`. The borrow ends before we clear `audio_tx`.
+                        let end_session = match audio_tx.as_ref() {
+                            Some(tx) => tx.try_send(data.to_vec()).is_err(),
+                            None => false,
+                        };
+                        if end_session {
+                            tracing::warn!(%id, "audio channel saturated/closed — ending STT session (#123)");
+                            audio_tx = None; // drop sender → forward_audio flushes + closes
                         }
                     }
                     Message::Text(t) => match serde_json::from_str::<ClientMessage>(t.as_str()) {
@@ -1130,6 +1151,14 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
                 audio_tx = None;
                 meter_cancel = None;
             }
+            _ = out_overflow.notified() => {
+                // Outbound channel saturated (#123): this reader has stopped
+                // draining, so its frames have backed up to OUT_CHANNEL_CAP. We
+                // never drop control frames — instead we close the connection and
+                // let the normal teardown below run (PeerLeft, session finalize).
+                tracing::warn!(%id, "outbound channel saturated (slow consumer) — closing connection (#123)");
+                break;
+            }
         }
     }
 
@@ -1225,10 +1254,10 @@ fn handle_chat(
 async fn start_speaking_session(
     state: &AppState,
     ctx: deepgram::SpeakerCtx,
-) -> Option<UnboundedSender<Vec<u8>>> {
+) -> Option<mpsc::Sender<Vec<u8>>> {
     match deepgram::open_deepgram_ws(&ctx.speaker_lang, &state.config).await {
         Ok((dg_sink, dg_source)) => {
-            let (audio_tx, audio_rx) = mpsc::unbounded_channel::<Vec<u8>>();
+            let (audio_tx, audio_rx) = mpsc::channel::<Vec<u8>>(AUDIO_CHANNEL_CAP);
             tokio::spawn(deepgram::forward_audio(audio_rx, dg_sink));
             tokio::spawn(deepgram::process_transcripts(
                 dg_source,
@@ -1271,8 +1300,8 @@ fn start_detecting_session(
     state: &AppState,
     ctx: deepgram::SpeakerCtx,
     participant_row: Option<Uuid>,
-) -> UnboundedSender<Vec<u8>> {
-    let (audio_tx, mut audio_rx) = mpsc::unbounded_channel::<Vec<u8>>();
+) -> mpsc::Sender<Vec<u8>> {
+    let (audio_tx, mut audio_rx) = mpsc::channel::<Vec<u8>>(AUDIO_CHANNEL_CAP);
     let state = state.clone();
     tokio::spawn(async move {
         // Phase 1 — buffer chunks until the deadline, the size cap, or an early
@@ -1361,7 +1390,7 @@ fn start_detecting_session(
         };
         match deepgram::open_deepgram_ws(&final_lang, &state.config).await {
             Ok((dg_sink, dg_source)) => {
-                let (dg_tx, dg_rx) = mpsc::unbounded_channel::<Vec<u8>>();
+                let (dg_tx, dg_rx) = mpsc::channel::<Vec<u8>>(AUDIO_CHANNEL_CAP);
                 tokio::spawn(deepgram::forward_audio(dg_rx, dg_sink));
                 tokio::spawn(deepgram::process_transcripts(
                     dg_source,
@@ -1371,13 +1400,18 @@ fn start_detecting_session(
                     ctx,
                     state.transcripts.clone(),
                 ));
+                // Bounded send (#123): this is a dedicated task (not the receive
+                // loop), so awaiting here backpressures cleanly — if Deepgram
+                // stalls, `audio_rx` fills to the cap and the receive loop ends
+                // the session. No chunk is dropped, so the WebM stream stays
+                // intact. `send` errors only when the forwarder is gone.
                 for chunk in buf {
-                    if dg_tx.send(chunk).is_err() {
+                    if dg_tx.send(chunk).await.is_err() {
                         return;
                     }
                 }
                 while let Some(chunk) = audio_rx.recv().await {
-                    if dg_tx.send(chunk).is_err() {
+                    if dg_tx.send(chunk).await.is_err() {
                         break;
                     }
                 }
@@ -1401,7 +1435,7 @@ fn start_detecting_session(
 
 /// Forward queued JSON strings to a WebSocket as text frames until the channel
 /// closes or the socket errors.
-async fn pump_to_ws(mut rx: UnboundedReceiver<String>, mut ws_tx: SplitSink<WebSocket, Message>) {
+async fn pump_to_ws(mut rx: Receiver<String>, mut ws_tx: SplitSink<WebSocket, Message>) {
     while let Some(msg) = rx.recv().await {
         if ws_tx.send(Message::Text(msg.into())).await.is_err() {
             break;

@@ -12,7 +12,7 @@ use chrono::Utc;
 use futures::stream::{SplitSink, SplitStream};
 use futures::{SinkExt, StreamExt};
 use tokio::net::TcpStream;
-use tokio::sync::mpsc::UnboundedReceiver;
+use tokio::sync::mpsc::Receiver;
 use tokio::time::MissedTickBehavior;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::header::{HeaderValue, AUTHORIZATION};
@@ -200,7 +200,7 @@ pub fn parse_detect_response(json: &serde_json::Value) -> Result<(String, Option
 /// Runs until the audio channel is dropped (speaker disconnected) or the sink
 /// errors. Sends `{"type":"KeepAlive"}` every 8s of inactivity and a final
 /// `{"type":"CloseStream"}` to flush pending transcripts before closing.
-pub async fn forward_audio(mut audio_rx: UnboundedReceiver<Vec<u8>>, mut sink: DgSink) {
+pub async fn forward_audio(mut audio_rx: Receiver<Vec<u8>>, mut sink: DgSink) {
     let mut keepalive = tokio::time::interval(Duration::from_secs(8));
     keepalive.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
