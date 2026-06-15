@@ -673,14 +673,19 @@ const LANGS = [
        (spec 0034) was too close to the card and read as disabled; tinting it ties
        these to the brand blue and makes them obviously tappable, while the solid
        --accent-strong .btn-primary keeps the top of the hierarchy. */
+    /* Secondary CTA (spec 0034/0038 → strengthened in 0070 S5). The previous 14%
+       accent wash read as flat grey on the dark surface (looked disabled), so the
+       fill + border now carry a clearly on-brand accent tint — distinct from the
+       muted-grey :disabled state below and from the solid primary above. Applies
+       app-wide: home, session-details, in-call bookmark list, etc. */
     .btn-ghost {
-      background: color-mix(in srgb, var(--accent) 14%, var(--surface));
-      border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--border));
+      background: color-mix(in srgb, var(--accent) 22%, var(--surface));
+      border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--border));
       color: var(--text);
       border-radius: 8px; padding: 9px 13px; font-size: 0.85rem; font-weight: 500; cursor: pointer;
       transition: background 0.15s, border-color 0.15s, transform 0.05s; white-space: nowrap;
     }
-    .btn-ghost:hover { background: color-mix(in srgb, var(--accent) 24%, var(--surface)); border-color: var(--accent); }
+    .btn-ghost:hover { background: color-mix(in srgb, var(--accent) 34%, var(--surface)); border-color: var(--accent); }
     .btn-ghost:active { transform: translateY(1px); }
     .btn-ghost:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     .btn-ghost:disabled { opacity: 0.4; cursor: not-allowed; background: var(--surface); border-color: var(--border); color: var(--muted); }
