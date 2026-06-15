@@ -23,6 +23,8 @@ use base64::Engine as _;
 use hmac::{Hmac, Mac};
 use sha1::Sha1;
 
+use crate::ai::correction as ai_correction;
+use crate::ai::correction::CorrectionMode;
 use crate::ai::email_draft as ai_email;
 use crate::ai::quiz as ai_quiz;
 use crate::ai::report as ai_report;
@@ -283,6 +285,10 @@ pub async fn ai_pricing(State(state): State<AppState>) -> Response {
             "interval_seconds": ai.suggestions_interval_secs,
         },
         "quiz": { "base": ai.quiz_base, "per_question": ai.quiz_per_question },
+        "transcript_correction": {
+            "base": ai.correction_base,
+            "per_event": ai.correction_per_event,
+        },
         "email_enabled": state.config.resend.is_some(),
     }))
     .into_response()
@@ -304,12 +310,56 @@ pub async fn sessions_list(State(state): State<AppState>, user: AuthUser) -> Res
     }
 }
 
+/// `?corrected=1` flag on the download endpoints (spec 0068): render from the
+/// cached AI-corrected text instead of the raw transcript.
+fn wants_corrected(v: &Option<String>) -> bool {
+    matches!(v.as_deref(), Some("1" | "true" | "yes"))
+}
+
+/// Overlay the cached AI correction for `(session, mode, lang)` onto `export`
+/// before it is rendered. `lang` is normalized by the caller ("" for
+/// `Original`). Returns `Err(response)` when billing is off (503) or no
+/// correction has been generated yet (409 — the client POSTs first).
+async fn overlay_correction(
+    state: &AppState,
+    session_id: Uuid,
+    export: &mut crate::transcripts::TranscriptExport,
+    mode: CorrectionMode,
+    lang: &str,
+) -> Result<(), Response> {
+    let Some(pool) = state.pool.as_ref() else {
+        return Err(service_unavailable());
+    };
+    match ai_correction::get_correction(pool, session_id, mode, lang).await {
+        Ok(Some(row)) => {
+            ai_correction::apply_correction(export, &ai_correction::row_lines(&row), lang);
+            Ok(())
+        }
+        Ok(None) => Err((
+            StatusCode::CONFLICT,
+            "no correction generated for this export — request correction first",
+        )
+            .into_response()),
+        Err(e) => {
+            tracing::error!("correction load failed: {e}");
+            Err((StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response())
+        }
+    }
+}
+
+#[derive(Deserialize, Default)]
+pub struct TranscriptJsonQuery {
+    /// `1`/`true` → render the cached AI-corrected text (spec 0068).
+    pub corrected: Option<String>,
+}
+
 /// `GET /api/sessions/{id}/transcript.json` — download the transcript as
 /// pretty-printed JSON. Participants only (404 unknown / 403 stranger).
 pub async fn transcript_json(
     State(state): State<AppState>,
     user: AuthUser,
     Path(session_id): Path<Uuid>,
+    Query(q): Query<TranscriptJsonQuery>,
 ) -> Response {
     let Some(svc) = state.transcripts.as_ref() else {
         return service_unavailable();
@@ -331,7 +381,7 @@ pub async fn transcript_json(
         }
     }
 
-    let export = match svc.export(session_id).await {
+    let mut export = match svc.export(session_id).await {
         Ok(Some(doc)) => doc,
         // Purged between the access check and here (guest-only finalize race).
         Ok(None) => return (StatusCode::NOT_FOUND, "no such session").into_response(),
@@ -340,6 +390,22 @@ pub async fn transcript_json(
             return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
         }
     };
+
+    // JSON carries every language, so a corrected JSON export polishes the
+    // authoritative source text only (mode=original, lang-agnostic).
+    if wants_corrected(&q.corrected) {
+        if let Err(resp) = overlay_correction(
+            &state,
+            session_id,
+            &mut export,
+            CorrectionMode::Original,
+            "",
+        )
+        .await
+        {
+            return resp;
+        }
+    }
 
     let body = match serde_json::to_string_pretty(&export) {
         Ok(b) => b,
@@ -369,6 +435,8 @@ pub struct TranscriptPdfQuery {
     /// Translation language to show per event; default = the requester's own
     /// participant language for that session, fallback `en`.
     pub lang: Option<String>,
+    /// `1`/`true` → render the cached AI-corrected text (spec 0068).
+    pub corrected: Option<String>,
 }
 
 /// `GET /api/sessions/{id}/transcript.pdf?tz=Europe/Rome&lang=it` — download
@@ -409,7 +477,7 @@ pub async fn transcript_pdf(
         }
     }
 
-    let export = match svc.export(session_id).await {
+    let mut export = match svc.export(session_id).await {
         Ok(Some(doc)) => doc,
         // Purged between the access check and here (guest-only finalize race).
         Ok(None) => return (StatusCode::NOT_FOUND, "no such session").into_response(),
@@ -432,6 +500,16 @@ pub async fn transcript_pdf(
             .flatten()
             .unwrap_or_else(|| "en".to_string()),
     };
+
+    // PDF shows original + the chosen translation, so a corrected PDF polishes
+    // both (mode=both, lang = the shown translation).
+    if wants_corrected(&q.corrected) {
+        if let Err(resp) =
+            overlay_correction(&state, session_id, &mut export, CorrectionMode::Both, &lang).await
+        {
+            return resp;
+        }
+    }
 
     let doc_json = match serde_json::to_string(&crate::pdf::build_pdf_doc(&export, tz, &lang)) {
         Ok(j) => j,
@@ -476,6 +554,8 @@ pub struct SubtitleQuery {
     /// Translation language for `translated`/`both`; default = the requester's
     /// own participant language for that session, fallback `en`.
     pub target: Option<String>,
+    /// `1`/`true` → render the cached AI-corrected text (spec 0068).
+    pub corrected: Option<String>,
 }
 
 /// `GET /api/sessions/{id}/transcript.srt?lang=both&target=it` — SubRip
@@ -546,7 +626,7 @@ async fn subtitles_response(
         }
     }
 
-    let export = match svc.export(session_id).await {
+    let mut export = match svc.export(session_id).await {
         Ok(Some(doc)) => doc,
         // Purged between the access check and here (guest-only finalize race).
         Ok(None) => return (StatusCode::NOT_FOUND, "no such session").into_response(),
@@ -565,6 +645,19 @@ async fn subtitles_response(
             .flatten()
             .unwrap_or_else(|| "en".to_string()),
     };
+
+    // Correct the same fields the subtitle mode shows. Original mode is
+    // lang-agnostic (cache key lang=""); translated/both key on the target.
+    if wants_corrected(&q.corrected) {
+        let (cmode, clang) = match mode {
+            crate::subtitles::LangMode::Original => (CorrectionMode::Original, ""),
+            crate::subtitles::LangMode::Translated => (CorrectionMode::Translated, target.as_str()),
+            crate::subtitles::LangMode::Both => (CorrectionMode::Both, target.as_str()),
+        };
+        if let Err(resp) = overlay_correction(&state, session_id, &mut export, cmode, clang).await {
+            return resp;
+        }
+    }
 
     let cues =
         crate::subtitles::compute_cues(&export.events, export.session.started_at, mode, &target);
@@ -1390,6 +1483,272 @@ pub async fn sentiment_latest(
         Ok(None) => (StatusCode::NOT_FOUND, "no sentiment analysis yet").into_response(),
         Err(e) => {
             tracing::error!("sentiment load failed: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response()
+        }
+    }
+}
+
+#[derive(Deserialize, Default)]
+pub struct CorrectionQuery {
+    /// `original` (default) | `translated` | `both` — which text the export shows.
+    pub mode: Option<String>,
+    /// Target language for `translated`/`both`; ignored for `original`.
+    pub lang: Option<String>,
+}
+
+/// Resolve `(mode, normalized lang)` from the query. `Original` forces lang to
+/// "" (its cache key); `translated`/`both` resolve an explicit param, else the
+/// requester's participant language, else `en`.
+async fn resolve_correction_params(
+    svc: &TranscriptService,
+    session_id: Uuid,
+    user_id: Uuid,
+    q: &CorrectionQuery,
+) -> Result<(CorrectionMode, String), Response> {
+    let mode = match q.mode.as_deref() {
+        None => CorrectionMode::Original,
+        Some(m) => CorrectionMode::parse(m).ok_or_else(|| {
+            (
+                StatusCode::BAD_REQUEST,
+                "mode must be original, translated or both",
+            )
+                .into_response()
+        })?,
+    };
+    let lang = if mode == CorrectionMode::Original {
+        String::new()
+    } else {
+        match q.lang.as_deref().map(str::trim) {
+            Some(l) if !l.is_empty() => {
+                if l.len() > 8 || !l.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+                    return Err((StatusCode::BAD_REQUEST, "invalid lang").into_response());
+                }
+                l.to_string()
+            }
+            _ => svc
+                .participant_lang(session_id, user_id)
+                .await
+                .ok()
+                .flatten()
+                .unwrap_or_else(|| "en".to_string()),
+        }
+    };
+    Ok((mode, lang))
+}
+
+/// `POST /api/sessions/{id}/correction?mode=&lang=` — ensure a cached AI
+/// correction exists for this export shape, charging once (spec 0068).
+///
+/// Same user-favorable failure policy as the report/sentiment endpoints:
+/// Groq fails → 502 uncharged; balance below cost → 402; a post-generation
+/// deduct failure for any other reason delivers the correction free and logs.
+/// The corrected text itself is served by the corrected download, not here.
+pub async fn correction_generate(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(session_id): Path<Uuid>,
+    Query(q): Query<CorrectionQuery>,
+) -> Response {
+    if !state
+        .rate_limiter
+        .allow(&format!("ai:{}", user.user_id), 10, Duration::from_secs(60))
+    {
+        return (StatusCode::TOO_MANY_REQUESTS, "too many requests").into_response();
+    }
+    let (Some(svc), Some(billing), Some(pool), Some(cfg)) = (
+        state.transcripts.as_ref(),
+        state.billing.as_ref(),
+        state.pool.as_ref(),
+        state.config.billing.as_ref(),
+    ) else {
+        return service_unavailable();
+    };
+    let ai = &cfg.ai;
+
+    let (mode, lang) = match resolve_correction_params(svc, session_id, user.user_id, &q).await {
+        Ok(v) => v,
+        Err(resp) => return resp,
+    };
+
+    // Barrier so a correction requested right after leaving sees every event.
+    svc.flush().await;
+    if let Err(resp) = session_gate(svc, session_id, user.user_id).await {
+        return resp;
+    }
+
+    // Cache hit: already corrected this exact shape — return it, charge nothing.
+    match ai_correction::get_correction(pool, session_id, mode, &lang).await {
+        Ok(Some(row)) => return Json(correction_meta(&row, true, false, None)).into_response(),
+        Ok(None) => {}
+        Err(e) => {
+            tracing::error!("correction load failed: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
+        }
+    }
+
+    let export = match svc.export(session_id).await {
+        Ok(Some(doc)) => doc,
+        Ok(None) => return (StatusCode::NOT_FOUND, "no such session").into_response(),
+        Err(e) => {
+            tracing::error!("transcript export failed: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
+        }
+    };
+    if export.events.is_empty() {
+        return (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "session has no transcript to correct",
+        )
+            .into_response();
+    }
+
+    let cost = ai_correction::correction_cost(ai, mode, export.events.len() as i64);
+
+    // Advisory pre-check: fail fast before burning the Groq calls.
+    match billing.get_balance(user.user_id).await {
+        Ok(b) if b < cost => return insufficient_credits("ai_correction", cost, b),
+        Ok(_) => {}
+        Err(e) => {
+            tracing::error!("balance check failed: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
+        }
+    }
+
+    let (lines, model) =
+        match ai_correction::generate_correction(&state.groq, ai, &export, mode, &lang).await {
+            Ok(out) => out,
+            Err(e) => {
+                tracing::error!("correction generation failed: {e}");
+                return (
+                    StatusCode::BAD_GATEWAY,
+                    "transcript correction failed — you were not charged",
+                )
+                    .into_response();
+            }
+        };
+
+    let balance = match billing
+        .deduct_feature(
+            user.user_id,
+            Some(session_id),
+            "ai_correction",
+            cost,
+            &format!(
+                "AI transcript correction — room {}",
+                export.session.room_name
+            ),
+            serde_json::json!({ "mode": mode.as_str(), "lang": lang, "model": model }),
+        )
+        .await
+    {
+        Ok(b) => Some(b),
+        Err(BillingError::InsufficientFunds) => {
+            let available = billing
+                .get_balance(user.user_id)
+                .await
+                .unwrap_or(Decimal::ZERO);
+            return insufficient_credits("ai_correction", cost, available);
+        }
+        Err(e) => {
+            tracing::error!(
+                "ai_correction deduction failed AFTER generation — delivering free: {e}"
+            );
+            None
+        }
+    };
+
+    // Persist for the corrected download + future free re-exports. Losing the
+    // UNIQUE race means a concurrent request already cached it: we charged, so
+    // report success rather than a confusing error.
+    let charged = balance.is_some();
+    match ai_correction::save_correction(
+        pool,
+        session_id,
+        user.user_id,
+        mode,
+        &lang,
+        &lines,
+        &model,
+        cost,
+    )
+    .await
+    {
+        Ok(Some(row)) => (
+            StatusCode::CREATED,
+            Json(correction_meta(&row, false, charged, balance)),
+        )
+            .into_response(),
+        other => {
+            if let Err(e) = other {
+                tracing::error!("correction insert failed after charge: {e}");
+            }
+            let mut v = serde_json::json!({
+                "cached": false,
+                "charged": charged,
+                "cost": cost.to_f64().unwrap_or(0.0),
+                "mode": mode.as_str(),
+                "lang": lang,
+                "model": model,
+                "event_count": lines.len(),
+            });
+            if let Some(b) = balance {
+                v["balance"] = serde_json::json!(b.to_f64().unwrap_or(0.0));
+            }
+            (StatusCode::CREATED, Json(v)).into_response()
+        }
+    }
+}
+
+/// Correction metadata for the client (never the corrected text — that comes
+/// from the corrected download).
+fn correction_meta(
+    row: &ai_correction::CorrectionRow,
+    cached: bool,
+    charged: bool,
+    balance: Option<Decimal>,
+) -> serde_json::Value {
+    let mut v = serde_json::json!({
+        "cached": cached,
+        "charged": charged,
+        "cost": row.cost.to_f64().unwrap_or(0.0),
+        "mode": row.mode,
+        "lang": row.lang,
+        "model": row.model,
+    });
+    if let Some(b) = balance {
+        v["balance"] = serde_json::json!(b.to_f64().unwrap_or(0.0));
+    }
+    v
+}
+
+/// `GET /api/sessions/{id}/correction?mode=&lang=` — whether a correction is
+/// already cached for this export shape (so the client can label it free).
+pub async fn correction_status(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(session_id): Path<Uuid>,
+    Query(q): Query<CorrectionQuery>,
+) -> Response {
+    let (Some(svc), Some(pool)) = (state.transcripts.as_ref(), state.pool.as_ref()) else {
+        return service_unavailable();
+    };
+    let (mode, lang) = match resolve_correction_params(svc, session_id, user.user_id, &q).await {
+        Ok(v) => v,
+        Err(resp) => return resp,
+    };
+    if let Err(resp) = session_gate(svc, session_id, user.user_id).await {
+        return resp;
+    }
+    match ai_correction::get_correction(pool, session_id, mode, &lang).await {
+        Ok(Some(row)) => Json(correction_meta(&row, true, false, None)).into_response(),
+        Ok(None) => Json(serde_json::json!({
+            "cached": false,
+            "mode": mode.as_str(),
+            "lang": lang,
+        }))
+        .into_response(),
+        Err(e) => {
+            tracing::error!("correction load failed: {e}");
             (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response()
         }
     }

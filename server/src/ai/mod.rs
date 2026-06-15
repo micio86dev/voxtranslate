@@ -2,6 +2,7 @@
 //! draft) and live suggestions: transcript→text rendering, chunking, and a
 //! map-reduce condenser for transcripts too long for one model call.
 
+pub mod correction;
 pub mod email_draft;
 pub mod quiz;
 pub mod report;

@@ -324,6 +324,10 @@ pub fn app(state: AppState) -> Router {
             "/api/sessions/{id}/sentiment",
             get(api::sentiment_latest).post(api::sentiment_generate),
         )
+        .route(
+            "/api/sessions/{id}/correction",
+            get(api::correction_status).post(api::correction_generate),
+        )
         .route("/api/quiz/generate", post(api::quiz_generate))
         .route(
             "/api/sessions/{id}/email-draft",
