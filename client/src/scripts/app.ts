@@ -1446,6 +1446,10 @@ function updateParticipantsList(): void {
     if (p.micMuted) {
       status.innerHTML += icon('mic-off', 16);
       status.querySelector('.ico')?.classList.add('part-status-danger');
+    } else {
+      // Show a plain mic icon for unmuted peers so everyone's mic state is visible at
+      // a glance, not just the muted ones (incorporated from contributor PR #141).
+      status.innerHTML += icon('mic', 16);
     }
 
     el.append(avatar, info, status);
@@ -1568,6 +1572,7 @@ function toggleMicrophone(): void {
   setAudioMuted(myId, !micOn);
   ws?.send(JSON.stringify({ type: 'mute_audio', muted: !micOn }));
   setControlState();
+  updateParticipantsList(); // reflect your own mic state in the roster at once (#141)
 }
 btnMic.addEventListener('click', () => toggleMicrophone());
 
