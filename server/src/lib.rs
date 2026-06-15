@@ -172,7 +172,13 @@ impl AppState {
     /// configured.
     pub fn new(config: Config) -> Self {
         let groq = Groq::new(config.groq_key.clone());
-        let translator = Translator::new(groq.clone());
+        // Admission cap on concurrent in-flight Groq translation calls across the
+        // whole process (spec 0069) — bounds fan-out under a traffic spike.
+        let translate_max = env_u32(
+            "GROQ_TRANSLATE_MAX_CONCURRENCY",
+            translator::DEFAULT_MAX_INFLIGHT as u32,
+        ) as usize;
+        let translator = Translator::with_max_inflight(groq.clone(), translate_max);
         let http = reqwest::Client::new();
         let client_id = config
             .billing
