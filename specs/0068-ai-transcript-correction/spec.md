@@ -2,12 +2,12 @@
 
 | | |
 |---|---|
-| **Status** | In progress |
+| **Status** | ✅ Shipped |
 | **Owner** | micio86dev |
 | **Created** | 2026-06-15 |
-| **Shipped** | — |
+| **Shipped** | 2026-06-15 |
 | **Version** | — |
-| **Commits** | `<sha>` |
+| **Commits** | `f3cb0fc` |
 | **Depends on** | [0005](../0005-accounts-credits-billing/spec.md), [0009](../0009-session-transcripts/spec.md), [0014](../0014-ai-session-report/spec.md), [0015](../0015-sentiment-analysis/spec.md) |
 
 ## 1. Context & Problem
