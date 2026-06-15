@@ -214,34 +214,31 @@ const LANGS = [
         </div>
         <div class="video-stage">
           <div id="video-grid" class="video-grid" data-peers="1"></div>
-          <!-- On-video meta cluster, top-left (spec 0061 / #98): HH:MM | ROOM ⓘ over a
+          <!-- On-video meta cluster, top-left (spec 0061 / #98): HH:MM | ROOM over a
                subtle dark backdrop — replaces the separate header row, Meet-style. -->
-          <div class="stage-meta">
-            <!-- Live wall-clock (spec 0060). Plain text span: its content IS its accessible
-                 name; a CSS ::after renders the "|" only while the clock is shown. -->
-            <span id="header-clock" class="clock-badge hidden"></span>
-            <button id="call-room" class="room-badge mono" data-i18n-title="copy"></button>
-            <!-- Room-info disclosure (spec 0061): visibility + duration + balance moved off
-                 the header into this less-intrusive popover (#98). -->
-            <button id="call-info" class="info-btn hidden" aria-haspopup="dialog" aria-expanded="false" aria-controls="call-info-pop" data-i18n-title="callInfoTip"></button>
-            <span id="transcript-indicator" class="transcript-indicator hidden" role="img" data-i18n-title="transcriptRecording"></span>
-            <button id="glossary-badge" class="glossary-badge hidden" data-i18n-title="glossaryActiveTip"></button>
+          <div class="stage-meta-wrap">
+            <div class="stage-meta">
+              <span id="header-clock" class="clock-badge hidden"></span>
+              <button id="call-room" class="room-badge mono" data-i18n-title="copy"></button>
+              <button id="call-info" class="info-btn" aria-haspopup="dialog" aria-expanded="false" aria-controls="call-info-pop" data-i18n-title="callInfoTip"></button>
+              <span id="transcript-indicator" class="transcript-indicator hidden" role="img" data-i18n-title="transcriptRecording"></span>
+              <button id="glossary-badge" class="glossary-badge hidden" data-i18n-title="glossaryActiveTip"></button>
+            </div>
+            <!-- Visible info strip below meta — duration, visibility, balance always shown. -->
+            <div class="stage-info-strip">
+              <span class="stage-info-item"><span class="stage-info-label" data-i18n="visibility"></span> <span id="call-vis" class="vis-badge"></span></span>
+              <span class="stage-info-sep"></span>
+              <span class="stage-info-item">
+                <span id="session-timer" class="session-badge" role="timer"><span class="sb-ico" aria-hidden="true"></span><span id="session-elapsed">00:00</span></span>
+              </span>
+              <span class="stage-info-sep"></span>
+              <span class="stage-info-item"><span class="stage-info-label" data-i18n="currentBalance"></span> <span id="call-balance" class="call-balance"></span></span>
+            </div>
+            <!-- Hidden popover kept for JS compat (toggleInfoPop) -->
             <div id="call-info-pop" class="call-info-pop hidden" role="group" data-i18n-label="callInfoTip">
-              <div class="cip-row">
-                <span class="cip-label" data-i18n="visibility"></span>
-                <span id="call-vis" class="vis-badge"></span>
-              </div>
-              <div class="cip-row">
-                <span class="cip-label" data-i18n="sessionDurationTip"></span>
-                <!-- Session duration (spec 0055): ticks every second from room_joined. -->
-                <span id="session-timer" class="session-badge" role="timer">
-                  <span class="sb-ico" aria-hidden="true"></span><span id="session-elapsed">00:00</span>
-                </span>
-              </div>
-              <div class="cip-row">
-                <span class="cip-label" data-i18n="currentBalance"></span>
-                <span id="call-balance" class="call-balance"></span>
-              </div>
+              <div class="cip-row"><span class="cip-label" data-i18n="visibility"></span><span id="call-vis-dup" class="vis-badge"></span></div>
+              <div class="cip-row"><span class="cip-label" data-i18n="sessionDurationTip"></span><span class="session-badge" role="timer"><span class="sb-ico" aria-hidden="true"></span><span id="session-elapsed-dup">00:00</span></span></div>
+              <div class="cip-row"><span class="cip-label" data-i18n="currentBalance"></span><span id="call-balance-dup" class="call-balance"></span></div>
             </div>
           </div>
           <!-- Live participant badge, top-right (spec 0055 → on-video in 0061 / #98): your
@@ -334,29 +331,27 @@ const LANGS = [
               <button id="wb-page-del" class="wb-page-btn" data-i18n-title="wbDelPage"></button>
             </div>
           </div>
-          <!-- Tic-Tac-Toe mini-game (spec 0046): a compact card; state relays over
-               the WS and a late-joiner gets a snapshot. -->
-          <div id="minigame" class="minigame hidden">
-            <div class="mg-head">
-              <span class="mg-title">Tic-Tac-Toe</span>
-              <button id="mg-close" class="btn-ghost icon-btn" data-i18n-title="closeTip"></button>
-            </div>
-            <p id="mg-status" class="mg-status" role="status"></p>
-            <div id="mg-board" class="mg-board"></div>
-            <button id="mg-action" class="btn-primary mg-action"></button>
+        </div>
+        <!-- Tic-Tac-Toe & quiz moved OUTSIDE .video-stage (isolation: isolate)
+             so their z-index competes in the root stacking context (above ⋯ menu). -->
+        <div id="minigame" class="minigame hidden">
+          <div class="mg-head">
+            <span class="mg-title">Tic-Tac-Toe</span>
+            <button id="mg-close" class="btn-ghost icon-btn" data-i18n-title="closeTip"></button>
           </div>
-          <!-- Trivia quiz mini-game (spec 0047): host-authoritative; state relays
-               over the same game channel as Tic-Tac-Toe. -->
-          <div id="quiz" class="minigame quiz hidden">
-            <div class="mg-head">
-              <span class="mg-title">Quiz</span>
-              <button id="quiz-close" class="btn-ghost icon-btn" data-i18n-title="closeTip"></button>
-            </div>
-            <p id="quiz-question" class="quiz-question"></p>
-            <div id="quiz-options" class="quiz-options"></div>
-            <p id="quiz-status" class="mg-status" role="status"></p>
-            <button id="quiz-action" class="btn-primary mg-action"></button>
+          <p id="mg-status" class="mg-status" role="status"></p>
+          <div id="mg-board" class="mg-board"></div>
+          <button id="mg-action" class="btn-primary mg-action"></button>
+        </div>
+        <div id="quiz" class="minigame quiz hidden">
+          <div class="mg-head">
+            <span class="mg-title">Quiz</span>
+            <button id="quiz-close" class="btn-ghost icon-btn" data-i18n-title="closeTip"></button>
           </div>
+          <p id="quiz-question" class="quiz-question"></p>
+          <div id="quiz-options" class="quiz-options"></div>
+          <p id="quiz-status" class="mg-status" role="status"></p>
+          <button id="quiz-action" class="btn-primary mg-action"></button>
         </div>
         <!-- Floating reaction tray ABOVE the controls (spec 0060 / #94): a centered,
              visually-separated pill — always accessible and spammable (rate-limited
@@ -914,16 +909,29 @@ const LANGS = [
       text-transform: uppercase; background: transparent; border: none; color: var(--text); padding: 0; cursor: pointer;
     }
     /* ---- On-video meta cluster, top-left (spec 0061 / #98) ---- */
-    /* HH:MM | ROOM ⓘ over a subtle dark backdrop so it stays legible (WCAG AA) on any
+    .stage-meta-wrap {
+      position: absolute; top: 10px; left: 10px; z-index: 8;
+      display: flex; flex-direction: column; gap: 4px;
+    }
+    /* HH:MM | ROOM over a subtle dark backdrop so it stays legible (WCAG AA) on any
        video — replaces the old .call-header row, Meet-style. z-index 8 keeps it above the
        transient rec/timer badges; the stage's isolation (spec 0054) still pins it below
        the control-bar ⋯ menu. */
     .stage-meta {
-      position: absolute; top: 10px; left: 10px; z-index: 8;
       display: flex; align-items: center; gap: 8px; max-width: calc(100% - 20px);
       padding: 5px 12px; border-radius: 999px;
       background: rgba(0, 0, 0, 0.5); backdrop-filter: blur(6px);
     }
+    .stage-info-strip {
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+      padding: 4px 10px; border-radius: 999px; width: fit-content;
+      background: rgba(0, 0, 0, 0.45); backdrop-filter: blur(6px);
+      font-size: 0.72rem; color: rgba(255,255,255,0.85);
+    }
+    .stage-info-item { display: inline-flex; align-items: center; gap: 4px; }
+    .stage-info-label { color: rgba(255,255,255,0.55); }
+    .stage-info-sep { width: 1px; height: 12px; background: rgba(255,255,255,0.25); }
+    .stage-info-strip .call-balance { margin-left: 0; }
     .stage-meta .room-badge { color: #fff; }
     /* Live wall-clock (spec 0060 → on-video in 0061). The ::after renders the "|"
        separator only while the clock is shown (it vanishes with the .hidden clock). */
@@ -1171,23 +1179,23 @@ const LANGS = [
        a centered, transparent group so the CHIPS themselves are the visual — no wrapping
        pill. The .call-main column gap separates it from the bar + stage. */
     .reaction-bar {
-      flex: none; align-self: center; display: flex; gap: 8px;
-      padding: 0; background: none; border: none;
+      flex: none; align-self: center; display: flex; gap: 6px;
+      padding: 8px 14px; background: rgba(19,20,28,0.85); backdrop-filter: blur(10px);
+      border: 1px solid var(--border); border-radius: 999px;
     }
     /* Reaction chips (spec 0061 / #98): each emoji is a filled, rounded button matching
        the control bar — subtle hover, tactile tap-pop, consistent sizing. Spamming is fine
        — each tap fires sendEmoji (rate-limited 5/s); nothing opens or closes.
        touch-action: manipulation so rapid taps don't zoom on mobile (#71). */
-    .react-btn {
-      width: 44px; height: 44px; border-radius: 50%; border: none;
-      background: var(--surface-elevated); color: var(--text);
-      font-size: 1.25rem; line-height: 1; cursor: pointer; padding: 0;
+    :global(.react-btn) {
+      width: 42px; height: 42px; border-radius: 50%; border: none;
+      background: rgba(255,255,255,0.08); color: #fff;
+      font-size: 1.3rem; line-height: 1; cursor: pointer; padding: 0;
       display: grid; place-items: center; flex-shrink: 0; touch-action: manipulation;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.25);
-      transition: background 0.15s, transform 0.08s;
+      transition: background 0.15s, transform 0.08s, box-shadow 0.15s;
     }
-    .react-btn:hover { background: var(--border); }
-    .react-btn:active { transform: scale(0.85); } /* tactile pop on each tap */
+    :global(.react-btn:hover) { background: rgba(255,255,255,0.18); box-shadow: 0 0 0 2px rgba(255,255,255,0.15); }
+    :global(.react-btn:active) { transform: scale(0.82); background: rgba(255,255,255,0.25); }
     /* PiP-window controls (spec 0057). :global because these buttons are created in the
        PiP document and carry no Astro scope attribute — scoped rules wouldn't match. The
        PiP window copies our stylesheets, so these rules travel with it. */
@@ -1626,7 +1634,7 @@ const LANGS = [
 
     /* ---- Tic-Tac-Toe mini-game (spec 0046) ---- */
     .minigame {
-      position: absolute; bottom: 16px; left: 16px; z-index: 9; width: 230px; max-width: 70vw;
+      position: absolute; bottom: 80px; left: 16px; z-index: 35; width: 230px; max-width: 70vw;
       display: flex; flex-direction: column; gap: 10px; padding: 12px;
       background: rgba(19,20,28,0.96); backdrop-filter: blur(12px);
       border: 1px solid var(--border); border-radius: 14px; box-shadow: 0 12px 32px rgba(0,0,0,0.45);

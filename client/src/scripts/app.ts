@@ -2957,6 +2957,8 @@ wbToolBtns.forEach((b) => (b.innerHTML = icon(WB_TOOL_ICON[b.dataset.tool as WbT
 $('wb-clear').innerHTML = icon('trash', 20);
 $('wb-export').innerHTML = icon('download', 20);
 $('wb-close').innerHTML = icon('close', 18);
+$('mg-close').innerHTML = icon('close', 18);
+$('quiz-close').innerHTML = icon('close', 18);
 $('wb-page-prev').innerHTML = icon('chevron-left', 18);
 $('wb-page-next').innerHTML = icon('chevron-right', 18);
 $('wb-page-add').innerHTML = icon('plus', 18);
