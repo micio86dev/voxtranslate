@@ -155,6 +155,11 @@ pub struct AppState {
     pub http_public_max: u32,
     /// Optional bearer token gating `/metrics` (`METRICS_TOKEN`); open when unset.
     pub metrics_token: Option<String>,
+    /// Optional shared secret that Cloudflare injects as `x-origin-verify` (#111).
+    /// When set, [`origin_lock`] rejects any request (except `/health`) that lacks
+    /// it — blocking direct-to-origin access that bypasses the Cloudflare WAF.
+    /// `None` (default) ⇒ the guard is dormant.
+    pub cf_origin_secret: Option<String>,
 }
 
 /// Read a positive `u32` from `var`, falling back to `default`.
@@ -220,6 +225,10 @@ impl AppState {
             ws_connect_max: env_u32("WS_CONNECT_MAX_PER_MIN", DEFAULT_WS_CONNECT_MAX_PER_MIN),
             http_public_max: env_u32("HTTP_PUBLIC_MAX_PER_MIN", DEFAULT_HTTP_PUBLIC_MAX_PER_MIN),
             metrics_token: std::env::var("METRICS_TOKEN")
+                .ok()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty()),
+            cf_origin_secret: std::env::var("CF_ORIGIN_SECRET")
                 .ok()
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty()),
@@ -392,7 +401,39 @@ pub fn app(state: AppState) -> Router {
             axum::http::header::X_CONTENT_TYPE_OPTIONS,
             axum::http::HeaderValue::from_static("nosniff"),
         ))
+        // Origin lock (#111): outermost, so direct-to-origin requests that bypass the
+        // Cloudflare WAF are rejected before any work. Dormant unless CF_ORIGIN_SECRET
+        // is set; always exempts /health (Railway's healthcheck hits the origin directly).
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            origin_lock,
+        ))
         .with_state(state)
+}
+
+/// Reject requests that didn't come through Cloudflare (#111). When
+/// `CF_ORIGIN_SECRET` is configured, every request except `/health` must carry the
+/// matching `x-origin-verify` header (injected by a Cloudflare Transform Rule);
+/// otherwise it's a `403`. `/health` is always allowed because Railway's platform
+/// healthcheck hits the origin directly, bypassing Cloudflare — blocking it would
+/// fail every deploy. No-op (pass-through) when the secret is unset.
+async fn origin_lock(
+    State(state): State<AppState>,
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    if let Some(secret) = state.cf_origin_secret.as_deref() {
+        if req.uri().path() != "/health" && !origin_header_ok(req.headers(), secret) {
+            return StatusCode::FORBIDDEN.into_response();
+        }
+    }
+    next.run(req).await
+}
+
+/// Whether the request carries the expected Cloudflare-injected origin secret.
+/// Pure (no state) so it's unit-testable.
+fn origin_header_ok(headers: &HeaderMap, secret: &str) -> bool {
+    headers.get("x-origin-verify").and_then(|v| v.to_str().ok()) == Some(secret)
 }
 
 /// Binary entry point: load config, build state, bind, and serve.
@@ -1478,4 +1519,34 @@ async fn shutdown_signal() {
         _ = terminate => {},
     }
     tracing::info!("shutdown signal received");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::origin_header_ok;
+    use axum::http::HeaderMap;
+
+    fn with_header(name: &str, value: &str) -> HeaderMap {
+        let mut h = HeaderMap::new();
+        h.insert(
+            axum::http::HeaderName::from_bytes(name.as_bytes()).unwrap(),
+            value.parse().unwrap(),
+        );
+        h
+    }
+
+    #[test]
+    fn origin_lock_matches_only_the_exact_secret() {
+        let secret = "s3cr3t-from-cloudflare";
+        assert!(origin_header_ok(
+            &with_header("x-origin-verify", secret),
+            secret
+        ));
+        // Wrong value, or the header missing entirely, is rejected.
+        assert!(!origin_header_ok(
+            &with_header("x-origin-verify", "nope"),
+            secret
+        ));
+        assert!(!origin_header_ok(&HeaderMap::new(), secret));
+    }
 }
