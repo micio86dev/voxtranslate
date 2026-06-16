@@ -376,7 +376,7 @@ impl StorageConfig {
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty())
                 .unwrap_or_else(|| "chat-files".to_string()),
-            max_bytes: parse_or("SUPABASE_MAX_UPLOAD_BYTES", 25 * 1024 * 1024usize),
+            max_bytes: parse_or("SUPABASE_MAX_UPLOAD_BYTES", 5 * 1024 * 1024usize),
             signed_ttl_secs: parse_or("SUPABASE_SIGNED_URL_TTL_SECS", 24 * 60 * 60u64),
         }
     }
