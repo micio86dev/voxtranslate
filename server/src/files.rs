@@ -13,9 +13,10 @@
 //! guests too. No JWT is required.
 
 use axum::extract::{Multipart, Path, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
+use rust_decimal::Decimal;
 use uuid::Uuid;
 
 use crate::protocol::{Attachment, ServerMessage};
@@ -183,19 +184,76 @@ pub async fn upload_file(
     let (text, source_lang) = extract_text(kind, bytes, &snapshot.lang).await;
     let text = truncate_chars(text.trim(), MAX_TEXT_CHARS);
 
-    // ---- Translate (reusing the chat fan-out) + persist transcript ---------
-    // Only files we actually extracted text from hit the paid Groq fan-out; a
-    // stored-only attachment (empty body) costs nothing.
-    let translations: std::collections::HashMap<String, String> = if text.is_empty() {
-        std::collections::HashMap::new()
+    // ---- Translate (paid Groq fan-out) — pay-to-translate policy --------------
+    // Groq is only called when there's extracted text AND the upload is paid for:
+    //   * unmonetized server (no billing) → free;
+    //   * monetized → a signed-in user with credits is charged (cost + margin) and
+    //     translated; a guest or out-of-credits user gets the file as a plain
+    //     attachment, no Groq call → no cost. `blocked` carries the reason.
+    let targets = if text.is_empty() {
+        Vec::new()
     } else {
-        let targets = state.rooms.get_room_languages(&room, &peer_id);
+        state.rooms.get_room_languages(&room, &peer_id)
+    };
+    let mut blocked: Option<&'static str> = None;
+    let do_translate = if text.is_empty() || targets.is_empty() {
+        false
+    } else if let (Some(bcfg), Some(billing)) =
+        (state.config.billing.as_ref(), state.billing.as_ref())
+    {
+        // Resolve the signed-in uploader from an optional bearer token.
+        let user_id = headers
+            .get(header::AUTHORIZATION)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.strip_prefix("Bearer "))
+            .and_then(|tok| crate::auth::verify_jwt(&bcfg.jwt_secret, tok).ok())
+            .and_then(|c| Uuid::parse_str(&c.sub).ok());
+        match user_id {
+            None => {
+                blocked = Some("signin");
+                false
+            }
+            Some(uid) => {
+                let cost = upload_translate_cost(&bcfg.ai, targets.len());
+                let charge_session = (!session_id.is_nil()).then_some(session_id);
+                match billing
+                    .deduct_feature(
+                        uid,
+                        charge_session,
+                        "upload_translate",
+                        cost,
+                        &format!("Document translation: {file_name} ({} langs)", targets.len()),
+                        serde_json::json!({ "file": file_name, "ext": ext, "langs": targets.len() }),
+                    )
+                    .await
+                {
+                    Ok(_) => true,
+                    Err(crate::billing::BillingError::InsufficientFunds) => {
+                        blocked = Some("credits");
+                        false
+                    }
+                    Err(e) => {
+                        tracing::error!("upload translate charge failed: {e}");
+                        false
+                    }
+                }
+            }
+        }
+    } else {
+        // No billing configured (self-hosted / dev) → translate for free.
+        true
+    };
+
+    let translations: std::collections::HashMap<String, String> = if do_translate {
         let glossary = state.glossary.as_ref().and_then(|g| g.cached(&room));
         state
             .translator
             .translate_fanout(&text, &source_lang, &targets, glossary.as_deref())
             .await
+    } else {
+        std::collections::HashMap::new()
     };
+    let translated = do_translate;
 
     if !text.is_empty() {
         if let Some(svc) = state.transcripts.as_ref() {
@@ -240,6 +298,11 @@ pub async fn upload_file(
         "name": file_name,
         "type": content_type,
         "size": size,
+        // Whether the document text was translated; if not, why (so the uploader's
+        // client can nudge: "signin" → sign in, "credits" → top up). `null` when
+        // there was nothing to translate (stored-only format / no other languages).
+        "translated": translated,
+        "translate_blocked": blocked,
     }))
     .into_response()
 }
@@ -436,6 +499,15 @@ fn content_type_for(ext: &str) -> &'static str {
     }
 }
 
+/// Credits charged to translate an uploaded document into `n_langs` target
+/// languages: `base + per_lang × n` (rounded to 6 dp, matching the ledger).
+/// Pure so the pricing is unit-tested without a DB/billing service.
+pub fn upload_translate_cost(ai: &crate::config::AiConfig, n_langs: usize) -> Decimal {
+    Decimal::try_from(ai.upload_translate_base + ai.upload_translate_per_lang * n_langs as f64)
+        .unwrap_or(Decimal::ZERO)
+        .round_dp(6)
+}
+
 /// Truncate to at most `max` characters on a char boundary (UTF-8 safe).
 fn truncate_chars(s: &str, max: usize) -> String {
     if s.chars().count() <= max {
@@ -488,6 +560,24 @@ mod tests {
         assert_eq!(classify_ext("exe"), None);
         assert_eq!(classify_ext("png"), None);
         assert_eq!(classify_ext(""), None);
+    }
+
+    #[test]
+    fn upload_translate_cost_is_base_plus_per_lang() {
+        let ai = crate::config::AiConfig::test_default(); // base 0.01, per_lang 0.005
+        assert_eq!(
+            upload_translate_cost(&ai, 0),
+            Decimal::try_from(0.01).unwrap()
+        );
+        assert_eq!(
+            upload_translate_cost(&ai, 1),
+            Decimal::try_from(0.015).unwrap()
+        );
+        // A document fanned out to 3 languages.
+        assert_eq!(
+            upload_translate_cost(&ai, 3),
+            Decimal::try_from(0.025).unwrap()
+        );
     }
 
     #[test]

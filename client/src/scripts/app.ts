@@ -2199,7 +2199,16 @@ async function handleFileUpload(file: File): Promise<void> {
   });
   chatUpload.classList.add('hidden');
   chatAttach.removeAttribute('disabled');
-  if (!res.ok) showNotif(t('uploadFailed'));
+  if (!res.ok) {
+    showNotif(t('uploadFailed'));
+  } else if (res.translateBlocked) {
+    // File shared, but the document text wasn't translated (pay-to-translate).
+    showNotif(
+      res.translateBlocked === 'signin'
+        ? t('uploadNotTranslatedSignin')
+        : t('uploadNotTranslatedCredits'),
+    );
+  }
 }
 
 $('btn-leave').addEventListener('click', leaveCall);

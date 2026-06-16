@@ -170,6 +170,11 @@ pub struct AiConfig {
     /// rate (per_event is per corrected text field; `both` mode doubles it).
     pub correction_base: f64,
     pub correction_per_event: f64,
+    /// Chat document-upload translation: base + per-target-language credit rate.
+    /// Groq 8B cost is tiny, so even a small charge keeps a margin (tune via env
+    /// if the real margin drifts).
+    pub upload_translate_base: f64,
+    pub upload_translate_per_lang: f64,
 }
 
 /// Resend (transactional email) credentials. All-or-nothing like billing.
@@ -323,6 +328,8 @@ impl AiConfig {
             quiz_per_question: parse_or("CREDITS_QUIZ_PER_QUESTION", 0.01f64),
             correction_base: parse_or("CREDITS_CORRECTION_BASE", 0.05f64),
             correction_per_event: parse_or("CREDITS_CORRECTION_PER_EVENT", 0.001f64),
+            upload_translate_base: parse_or("CREDITS_UPLOAD_TRANSLATE_BASE", 0.01f64),
+            upload_translate_per_lang: parse_or("CREDITS_UPLOAD_TRANSLATE_PER_LANG", 0.005f64),
         }
     }
 
@@ -344,6 +351,8 @@ impl AiConfig {
             quiz_per_question: 0.01,
             correction_base: 0.05,
             correction_per_event: 0.001,
+            upload_translate_base: 0.01,
+            upload_translate_per_lang: 0.005,
         }
     }
 }

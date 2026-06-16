@@ -254,6 +254,9 @@ export interface UploadResult {
   ok: boolean;
   /** HTTP status (0 = network error / aborted). */
   status: number;
+  /** Why the document text wasn't translated (pay-to-translate), if applicable:
+   *  'signin' → not signed in, 'credits' → out of credits. Undefined otherwise. */
+  translateBlocked?: 'signin' | 'credits';
 }
 
 /**
@@ -281,7 +284,17 @@ export function uploadChatFile(
         if (e.lengthComputable) onProgress(e.loaded / e.total);
       };
     }
-    xhr.onload = () => resolve({ ok: xhr.status >= 200 && xhr.status < 300, status: xhr.status });
+    xhr.onload = () => {
+      const ok = xhr.status >= 200 && xhr.status < 300;
+      let translateBlocked: 'signin' | 'credits' | undefined;
+      try {
+        const b = JSON.parse(xhr.responseText)?.translate_blocked;
+        if (b === 'signin' || b === 'credits') translateBlocked = b;
+      } catch {
+        /* non-JSON body — ignore */
+      }
+      resolve({ ok, status: xhr.status, translateBlocked });
+    };
     xhr.onerror = () => resolve({ ok: false, status: 0 });
     xhr.onabort = () => resolve({ ok: false, status: 0 });
     xhr.send(form);
