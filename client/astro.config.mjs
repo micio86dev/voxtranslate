@@ -6,6 +6,9 @@ import { defineConfig } from 'astro/config';
 const coverage = process.env.COVERAGE === '1';
 
 export default defineConfig({
+  // Canonical origin for SEO: powers Astro.site so the layout emits absolute
+  // canonical / Open Graph / sitemap URLs. Production domain (see CORS allowlist).
+  site: 'https://voxtranslate.app',
   server: {
     port: 4321,
     host: true,

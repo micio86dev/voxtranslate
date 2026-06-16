@@ -6,13 +6,19 @@ import Base from './Base.astro';
 
 interface Props {
   title: string;
+  description?: string;
   updated?: string;
   version?: string;
 }
-const { title, updated = '10 June 2026', version = '2026-06-10' } = Astro.props;
+const {
+  title,
+  description = `${title} for VoxTranslate — real-time video meetings with live AI translation.`,
+  updated = '10 June 2026',
+  version = '2026-06-10',
+} = Astro.props;
 ---
 
-<Base title={`${title} · VoxTranslate`}>
+<Base title={`${title} · VoxTranslate`} description={description}>
   <main class="legal">
     <a class="legal-back" href="/">← VoxTranslate</a>
 

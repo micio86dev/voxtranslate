@@ -1,5 +1,18 @@
 ---
-const { title = 'VoxTranslate' } = Astro.props;
+const {
+  title = 'VoxTranslate — Real-Time Video Meetings with Live Translation',
+  // Site-wide fallback; every page should pass its own ~150-char description.
+  description = 'Real-time video meetings with live AI voice translation and auto-translated chat. Speak your language, be understood in theirs — free, in your browser.',
+  // Social-card image (Open Graph / Twitter). Override per page when relevant.
+  image = '/icon.png',
+  // Set true on pages that must not be indexed (e.g. 404).
+  noindex = false,
+} = Astro.props;
+
+// Absolute URLs for canonical + social cards. Astro.site is the production
+// origin (astro.config); Astro.url.pathname is this page's path at build time.
+const canonicalURL = new URL(Astro.url.pathname, Astro.site);
+const imageURL = new URL(image, Astro.site);
 ---
 
 <!doctype html>
@@ -10,6 +23,26 @@ const { title = 'VoxTranslate' } = Astro.props;
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="color-scheme" content="dark" />
     <title>{title}</title>
+
+    <!-- SEO -->
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonicalURL} />
+    <meta name="robots" content={noindex ? 'noindex, nofollow' : 'index, follow'} />
+
+    <!-- Open Graph (Facebook, LinkedIn, iMessage, Slack, …) -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="VoxTranslate" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonicalURL} />
+    <meta property="og:image" content={imageURL} />
+    <meta property="og:locale" content="en_US" />
+
+    <!-- Twitter / X card -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={imageURL} />
 
     <!-- PWA -->
     <link rel="manifest" href="/manifest.webmanifest" />
