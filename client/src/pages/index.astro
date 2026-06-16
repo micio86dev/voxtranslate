@@ -384,6 +384,8 @@ const jsonLd = {
             <button id="quiz-ai-gen" type="submit" class="quiz-ai-btn" data-i18n="quizAiGenerate"></button>
           </form>
           <p id="quiz-ai-msg" class="quiz-ai-msg" role="status" hidden></p>
+          <!-- Shown only when generation 402s: a way to act on "out of credits" (spec 0083). -->
+          <button id="quiz-ai-buy" class="btn-ghost quiz-ai-buy" data-i18n="buyCredits" hidden></button>
           <p id="quiz-question" class="quiz-question"></p>
           <div id="quiz-options" class="quiz-options"></div>
           <p id="quiz-status" class="mg-status" role="status"></p>
@@ -1854,6 +1856,7 @@ const jsonLd = {
     .quiz-ai-btn:disabled { opacity: 0.6; cursor: default; }
     .quiz-ai-msg { margin: 0; font-size: 0.78rem; color: var(--muted); }
     .quiz-ai-msg.error { color: var(--danger); }
+    .quiz-ai-buy { align-self: flex-start; margin-top: 2px; }
     .quiz-question { margin: 0; font-size: 0.92rem; color: var(--text); line-height: 1.35; min-height: 1.2em; }
     .quiz-options { display: flex; flex-direction: column; gap: 6px; }
     .quiz :global(.quiz-option) {

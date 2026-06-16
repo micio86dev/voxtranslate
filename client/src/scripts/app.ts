@@ -2726,7 +2726,9 @@ function setupGoogleSignIn(): void {
       if (!g?.accounts?.id) return;
       g.accounts.id.initialize({ client_id: clientId, callback: onGoogleCredential });
       container.innerHTML = '';
-      g.accounts.id.renderButton(container, { theme: 'filled_blue', size: 'large', shape: 'pill', text: 'continue_with' });
+      // Explicit width pins the GSI iframe to the button so no white gutter frames
+      // it on the dark login card (spec 0083); 300 fits the 380px login card.
+      g.accounts.id.renderButton(container, { theme: 'filled_blue', size: 'large', shape: 'pill', text: 'continue_with', width: 300 });
     })
     .catch(() => {});
 }
@@ -3303,6 +3305,8 @@ const quizAiForm = $('quiz-ai') as HTMLFormElement;
 const quizAiInput = $('quiz-ai-prompt') as HTMLInputElement;
 const quizAiBtn = $('quiz-ai-gen') as HTMLButtonElement;
 const quizAiMsg = $('quiz-ai-msg');
+const quizAiBuy = $('quiz-ai-buy');
+quizAiBuy.addEventListener('click', openBuyModal); // out-of-credits → purchase modal (spec 0083)
 function setQuizAiMsg(text: string, isError: boolean): void {
   quizAiMsg.textContent = text;
   quizAiMsg.classList.toggle('error', isError);
@@ -3312,11 +3316,19 @@ quizAiForm.addEventListener('submit', async (e) => {
   e.preventDefault();
   const prompt = quizAiInput.value.trim();
   if (!prompt) return;
+  // Generating a quiz needs an account + credits (the server requires auth and
+  // charges per quiz). Gate guests with the sign-in CTA instead of a dead-end
+  // error; the buy CTA below covers the out-of-credits case (spec 0083).
+  if (billing && !auth.isLoggedIn()) {
+    openSigninGate();
+    return;
+  }
   // Block a second quiz while one is live — BEFORE spending credits on Groq (R4.2).
   if (quiz.isActive()) {
     setQuizAiMsg(t('quizBusy'), true);
     return;
   }
+  show(quizAiBuy, false); // clear the buy CTA from any previous attempt
   quizAiBtn.disabled = true;
   quizAiInput.disabled = true;
   setQuizAiMsg(t('quizAiGenerating'), false);
@@ -3331,8 +3343,11 @@ quizAiForm.addEventListener('submit', async (e) => {
       auth.setBalance(res.quiz.balance);
       setBalanceUi(res.quiz.balance);
     }
+  } else if (res.reason === 'insufficient_credits') {
+    setQuizAiMsg(t('quizAiNoCredits'), true);
+    show(quizAiBuy, true); // tell them HOW to get credits
   } else {
-    setQuizAiMsg(res.reason === 'insufficient_credits' ? t('quizAiNoCredits') : t('quizAiError'), true);
+    setQuizAiMsg(t('quizAiError'), true);
   }
 });
 
