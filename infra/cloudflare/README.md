@@ -35,10 +35,23 @@ Cloudflare → **DNS** → **Add record**:
 | Proxy status | **Proxied** (orange cloud) ✅ |
 
 This routes `api.voxtranslate.app` through Cloudflare to the Railway origin.
-Cloudflare proxies **WebSockets** automatically (no toggle needed on paid? — WS is
-on by default).
+Cloudflare proxies **WebSockets** automatically (WS is on by default).
 
-**SSL/TLS** → set encryption mode to **Full (strict)** (Railway serves a valid cert).
+**Then register the custom domain on Railway** (required — otherwise Railway sees
+the unknown `Host: api.voxtranslate.app` and returns `404 Application not found`,
+because it routes by Host). Either:
+
+```
+railway domain api.voxtranslate.app --service voxtranslate-server
+```
+
+or Railway → `voxtranslate-server` → **Settings → Networking → Custom Domain** → add
+`api.voxtranslate.app`. The DNS CNAME already points at the service's railway domain,
+so Railway routes the Host to this service; the Cloudflare proxy can stay on.
+
+**SSL/TLS** → set encryption mode to **Full (strict)**. Cloudflare connects to the
+CNAME target (`…up.railway.app`), for which Railway serves a valid cert, so strict
+validation passes.
 
 ## 2. WAF — managed rules, rate limiting, DDoS
 

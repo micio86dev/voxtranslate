@@ -2,12 +2,12 @@
 
 | | |
 |---|---|
-| **Status** | In progress |
+| **Status** | Code shipped (dormant) — WAF activation owner-side (runbook) |
 | **Owner** | VoxTranslate |
 | **Created** | 2026-06-16 |
-| **Shipped** | — |
+| **Shipped** | 2026-06-16 (code) |
 | **Version** | — |
-| **Commits** | pending |
+| **Commits** | `5f92571` (#181) |
 | **Depends on** | [0064](../0064-high-traffic-abuse-hardening/spec.md), [0066](../0066-trusted-client-ip-header/spec.md), [0075](../0075-csp-enforce/spec.md) |
 
 ## 1. Context & Problem
