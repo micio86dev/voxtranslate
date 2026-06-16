@@ -113,6 +113,7 @@ Each spec follows the same skeleton:
 | [0083](0083-quiz-gating-gsi-polish/spec.md) | AI-quiz gating CTAs (guest → sign-in, no credits → buy) + Google sign-in button frame polish | ✅ Shipped | 2026-06-16 | `1525a6d` |
 | [0084](0084-chat-composer-two-row/spec.md) | Two-row chat composer: full-width textarea + slim action bar (room to write on desktop and mobile) | ✅ Shipped | 2026-06-16 | `042382f` |
 | [0085](0085-screen-share-audio/spec.md) | Share tab/window audio with the screen: getDisplayMedia audio + mic-mix to peers (Chrome/Edge desktop) | ✅ Shipped | 2026-06-16 | `1139404` |
+| [0086](0086-legal-pages-final/spec.md) | Production legal pages: drop draft banner, controller identity (Spain/AEPD), full sub-processor list, governing law (NOT legal advice) | In progress | 2026-06-16 | _pending_ |
 
 > Numbers 0011–0015 were claimed by commit messages while the AI bundle shipped
 > without spec docs (and 0011/0012 were each reused twice); the assignments
