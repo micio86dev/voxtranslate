@@ -25,6 +25,10 @@ jobs:
   backup:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # The BACKUP_* secrets live on the "Production" environment (prod DB + bucket
+    # creds), so the job must opt into it to read them. The env has no protection
+    # rules, so scheduled/dispatch runs aren't gated.
+    environment: Production
     steps:
       - name: Check configuration
         id: guard
