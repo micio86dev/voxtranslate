@@ -2,12 +2,12 @@
 
 | | |
 |---|---|
-| **Status** | Draft |
+| **Status** | ✅ Shipped |
 | **Owner** | Alessandro Micelli |
 | **Created** | 2026-06-15 |
-| **Shipped** | — |
+| **Shipped** | 2026-06-15 |
 | **Version** | — |
-| **Commits** | — |
+| **Commits** | `52ba019` |
 | **Depends on** | [0005](../0005-accounts-credits-billing/spec.md), [0007](../0007-backoffice-directus/spec.md), [0016](../0016-follow-up-email/spec.md), [0019](../0019-admin-bonus-credits/spec.md), [0028](../0028-security-hardening/spec.md), [0064](../0064-high-traffic-abuse-hardening/spec.md) |
 
 ## 1. Context & Problem

@@ -2,12 +2,12 @@
 
 | | |
 |---|---|
-| **Status** | Draft |
+| **Status** | ✅ Shipped |
 | **Owner** | Alessandro Micelli |
 | **Created** | 2026-06-15 |
-| **Shipped** | — |
+| **Shipped** | 2026-06-15 |
 | **Version** | — |
-| **Commits** | — |
+| **Commits** | `75c50b8` |
 | **Depends on** | [0022](../0022-guest-public-room-gate/spec.md), [0070](../0070-call-chat-game-ux-fixes/spec.md) (avatar render helper) |
 
 ## 1. Context & Problem
