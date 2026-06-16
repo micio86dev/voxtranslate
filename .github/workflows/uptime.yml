@@ -37,7 +37,13 @@ jobs:
           # cumulative since the last server restart — coarse but free; a real scraper
           # does proper windowed rate()/quantiles (issue #69). Both signals are derived
           # from the same snapshot, then the job fails once at the end if either tripped.
+          # Behind the origin lock (#111 / spec 0078): hit the origin DIRECTLY (bypassing
+          # Cloudflare's bot mitigation, which would challenge this datacenter cron) with
+          # the shared secret header so the lock lets the scrape through. Add
+          # CF_ORIGIN_SECRET as a repo Actions secret; until then /metrics 403s and the
+          # guard below treats it as low-traffic — no false alert, just no error-rate data.
           m=$(curl -sS --max-time 15 --retry 2 --retry-delay 5 \
+            -H "x-origin-verify: ${{ secrets.CF_ORIGIN_SECRET }}" \
             https://voxtranslate-server-production.up.railway.app/metrics || echo "")
           get() { echo "$m" | grep -F "voxtranslate_http_requests_total{status_class=\"$1\"}" | awk '{print $2}'; }
           c2=$(get 2xx); c3=$(get 3xx); c4=$(get 4xx); c5=$(get 5xx)

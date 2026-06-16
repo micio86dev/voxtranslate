@@ -26,7 +26,8 @@
     {
       "pronounceable_name": "VoxTranslate server /metrics (optional liveness)",
       "url": "https://voxtranslate-server-production.up.railway.app/metrics",
-      "push": false
+      "push": false,
+      "request_headers": [{ "name": "x-origin-verify", "value": "$CF_ORIGIN_SECRET" }]
     }
   ]
 }
