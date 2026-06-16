@@ -2,11 +2,12 @@
 
 | | |
 |---|---|
-| **Status** | In progress |
+| **Status** | ✅ Shipped |
 | **Owner** | Micio Dev |
 | **Created** | 2026-06-16 |
-| **Shipped** | — |
+| **Shipped** | 2026-06-16 |
 | **Version** | — |
+| **Commits** | `0bac670` |
 | **Depends on** | [0083](../0083-quiz-gating-gsi-polish/spec.md) (GSI button) |
 
 ## 1. Context & Problem
