@@ -63,7 +63,7 @@ use crate::groq::Groq;
 use crate::moderation::{Moderator, Severity};
 use crate::protocol::{ClientMessage, RoomsResponse, ServerMessage, WsParams};
 use crate::rate_limit::RateLimiter;
-use crate::rooms::{Peer, PeerTx, RoomManager, Visibility, OUT_CHANNEL_CAP};
+use crate::rooms::{LeaveOutcome, Peer, PeerTx, RoomManager, Visibility, OUT_CHANNEL_CAP};
 use crate::safety::SafetyService;
 use crate::transcripts::{EventKind, TranscriptEvent, TranscriptService};
 use crate::translator::Translator;
@@ -789,8 +789,13 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
     // control/chat/signalling are never dropped — a stalled reader trips
     // `out_overflow` and the receive loop below closes the connection cleanly.
     let (out_tx, out_rx, out_overflow) = PeerTx::channel(OUT_CHANNEL_CAP);
+    // Per-connection id (distinct from the reused peer `id`): teardown removes by
+    // `(id, conn)` so a same-id reconnect can't be dropped by its predecessor's
+    // late teardown (the reconnect black-screen bug).
+    let conn = Uuid::new_v4();
     let peer = Peer {
         id: id.clone(),
+        conn,
         name: name.clone(),
         lang: lang.clone(),
         avatar_url: avatar_url.clone(),
@@ -1236,17 +1241,27 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
             tracing::error!("transcript participant_left failed: {e}");
         }
     }
-    // The last leaver's removal ends the call session: flush + finalize it.
-    if let Some(ended) = state.rooms.remove(&room, &id) {
-        if let Some(svc) = state.transcripts.as_ref() {
-            if let Err(e) = svc.finalize_session(ended).await {
-                tracing::error!("finalize transcript session {ended} failed: {e}");
+    // Remove THIS connection. If it was already superseded by a same-id reconnect,
+    // the peer is still in the room under a newer socket — stay silent so we don't
+    // tear the live peer out from under itself or fire a spurious PeerLeft.
+    match state.rooms.remove(&room, &id, conn) {
+        LeaveOutcome::Left(ended) => {
+            // The last leaver's removal ends the call session: flush + finalize it.
+            if let Some(sid) = ended {
+                if let Some(svc) = state.transcripts.as_ref() {
+                    if let Err(e) = svc.finalize_session(sid).await {
+                        tracing::error!("finalize transcript session {sid} failed: {e}");
+                    }
+                }
             }
+            state
+                .rooms
+                .broadcast(&room, &ServerMessage::PeerLeft { peer_id: id }.to_json());
+        }
+        LeaveOutcome::Superseded => {
+            tracing::debug!(%room, %id, "stale connection superseded by reconnect; no PeerLeft");
         }
     }
-    state
-        .rooms
-        .broadcast(&room, &ServerMessage::PeerLeft { peer_id: id }.to_json());
     send_task.abort();
 }
 

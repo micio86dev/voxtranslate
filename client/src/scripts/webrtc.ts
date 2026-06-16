@@ -1,5 +1,12 @@
-// WebRTC full-mesh manager: one RTCPeerConnection per remote peer. Existing
-// peers initiate offers toward a newcomer (avoids offer glare).
+// WebRTC full-mesh manager: one RTCPeerConnection per remote peer.
+//
+// Negotiation uses the WebRTC "perfect negotiation" pattern (MDN): each pair has
+// a deterministic *polite* / *impolite* role derived from the two peer ids, so
+// simultaneous offers (glare) and stray answers can never wedge the connection.
+// This matters most on reconnects, where both peers can renegotiate at once — the
+// old code threw `setRemoteDescription ... wrong state: stable` and the video
+// stayed black. We also ICE-restart a dropped peer instead of tearing it down, so
+// a transient network blip recovers on its own once both sides are back online.
 
 const ICE_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun.l.google.com:19302' },
@@ -10,17 +17,40 @@ const ICE_SERVERS: RTCIceServer[] = [
  *  degraded to be worth more dividing — we just send the floor to each peer. */
 const MIN_VIDEO_BITRATE = 200_000;
 
+/** Grace period before we ICE-restart a peer that went `disconnected`. ICE often
+ *  self-heals (a brief blip / NAT rebind) within a couple of seconds, so we only
+ *  force a restart if it's still down after this. `failed` restarts immediately. */
+const DISCONNECT_GRACE_MS = 2_000;
+
 type Signal =
   | { type: 'offer'; to: string; sdp: string }
   | { type: 'answer'; to: string; sdp: string }
   | { type: 'ice'; to: string; candidate: RTCIceCandidateInit };
 
+/** Per-peer connection + the small amount of perfect-negotiation bookkeeping. */
+interface PeerState {
+  id: string;
+  pc: RTCPeerConnection;
+  /** The polite peer yields on glare (rolls back its offer); the impolite one
+   *  ignores the colliding offer. Derived from the id pair so the two sides
+   *  always pick opposite roles. */
+  polite: boolean;
+  /** True while we're creating/applying a local offer — half of glare detection. */
+  makingOffer: boolean;
+  /** Set when we (impolite) drop a colliding offer, so its trailing ICE
+   *  candidates failing to apply is expected, not an error. */
+  ignoreOffer: boolean;
+}
+
 export class MeshManager {
-  private peers = new Map<string, RTCPeerConnection>();
+  private peers = new Map<string, PeerState>();
   private localStream: MediaStream;
   private send: (s: Signal) => void;
   private iceServers: RTCIceServer[];
   private videoBudget: number;
+  /** This client's own peer id — compared against each remote id to pick the
+   *  polite/impolite role for perfect negotiation. */
+  private localId: string;
   /** Live budget (spec 0032): backs off under a struggling uplink, recovers toward
    *  `videoBudget` when healthy. `targetBitrate()` divides THIS across the peers. */
   private currentBudget: number;
@@ -37,18 +67,20 @@ export class MeshManager {
     send: (s: Signal) => void,
     iceServers: RTCIceServer[] = ICE_SERVERS,
     videoBudget = 2_400_000,
+    localId = '',
   ) {
     this.localStream = localStream;
     this.send = send;
     this.iceServers = iceServers;
     this.videoBudget = videoBudget;
     this.currentBudget = videoBudget;
+    this.localId = localId;
   }
 
   /** Replace the local stream's tracks on all peers (e.g. after a device change). */
   setLocalStream(stream: MediaStream): void {
     this.localStream = stream;
-    for (const pc of this.peers.values()) {
+    for (const { pc } of this.peers.values()) {
       const senders = pc.getSenders();
       for (const track of stream.getTracks()) {
         const sender = senders.find((s) => s.track && s.track.kind === track.kind);
@@ -64,7 +96,7 @@ export class MeshManager {
    * active. No renegotiation needed (replaceTrack reuses the existing sender).
    */
   replaceVideoTrack(track: MediaStreamTrack | null): void {
-    for (const pc of this.peers.values()) {
+    for (const { pc } of this.peers.values()) {
       const sender = this.videoSender(pc);
       if (sender) void sender.replaceTrack(track);
     }
@@ -81,10 +113,45 @@ export class MeshManager {
     return pc.getSenders().find((s) => s.track?.kind === 'video') ?? null;
   }
 
-  async addPeer(peerId: string, isInitiator: boolean): Promise<void> {
-    if (this.peers.has(peerId)) return;
+  /**
+   * Add a peer to the mesh. The second arg is legacy (the old explicit-initiator
+   * flag) and is ignored: who sends the first offer is now decided by the polite/
+   * impolite role, so a server message-ordering race can't leave both sides
+   * waiting (deadlock → black screen) or both offering (glare → wrong-state error).
+   */
+  async addPeer(peerId: string, _isInitiator?: boolean): Promise<void> {
+    const existing = this.peers.get(peerId);
+    if (existing) {
+      // Re-add of a peer we still hold = their socket reconnected with a fresh
+      // PeerConnection on their side, so ours is now dead. Replace it (keeping
+      // their tile) instead of ignoring the event — ignoring left their video
+      // permanently black when only one side dropped (this is the bug).
+      existing.pc.close();
+      this.peers.delete(peerId);
+    }
+    const peer = this.createPeer(peerId);
+    // The impolite peer kicks off negotiation; the polite peer waits for the
+    // offer. Exactly one side offers in the common case (no glare), yet either
+    // side can recover from a race because handleOffer/handleAnswer are
+    // collision-safe.
+    if (!peer.polite) await this.negotiate(peer);
+  }
+
+  /** Build the RTCPeerConnection + state and wire its event handlers, WITHOUT
+   *  sending an offer. Used by addPeer and by handleOffer when an offer arrives
+   *  for a peer we haven't set up yet. */
+  private createPeer(peerId: string): PeerState {
     const pc = new RTCPeerConnection({ iceServers: this.iceServers });
-    this.peers.set(peerId, pc);
+    const peer: PeerState = {
+      id: peerId,
+      pc,
+      // Deterministic, opposite on the two ends: the lexicographically-greater
+      // id is polite. (Ids are random UUIDs, so they're never equal.)
+      polite: this.localId > peerId,
+      makingOffer: false,
+      ignoreOffer: false,
+    };
+    this.peers.set(peerId, peer);
 
     for (const track of this.localStream.getTracks()) {
       pc.addTrack(track, this.localStream);
@@ -112,48 +179,93 @@ export class MeshManager {
     pc.onicecandidate = (e) => {
       if (e.candidate) this.send({ type: 'ice', to: peerId, candidate: e.candidate.toJSON() });
     };
-    pc.onconnectionstatechange = () => {
-      if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
-        this.removePeer(peerId);
+    // Recover instead of tearing down: a network blip drives ICE to
+    // `disconnected`/`failed`, but the peer is still in the room, so we
+    // renegotiate with an ICE restart rather than dropping the cell (which left
+    // the video permanently black). Removal happens only on an explicit
+    // `peer_left` from the server (→ removePeer).
+    pc.oniceconnectionstatechange = () => {
+      const st = pc.iceConnectionState;
+      if (st === 'failed') {
+        void this.negotiate(peer, true);
+      } else if (st === 'disconnected') {
+        setTimeout(() => {
+          const now = pc.iceConnectionState;
+          if (now === 'disconnected' || now === 'failed') void this.negotiate(peer, true);
+        }, DISCONNECT_GRACE_MS);
       }
     };
 
-    if (isInitiator) {
-      const offer = await pc.createOffer();
+    return peer;
+  }
+
+  /** Create + send an offer for `peer`, guarded so it's glare-safe. `iceRestart`
+   *  re-gathers ICE candidates to recover a dropped connection. */
+  private async negotiate(peer: PeerState, iceRestart = false): Promise<void> {
+    const { pc, id } = peer;
+    try {
+      peer.makingOffer = true;
+      const offer = await pc.createOffer(iceRestart ? { iceRestart: true } : undefined);
+      // A remote offer may have raced in while we were creating ours; let the
+      // collision handling in handleOffer settle it rather than forcing a bad
+      // local description.
+      if (pc.signalingState !== 'stable') return;
       await pc.setLocalDescription(offer);
-      this.send({ type: 'offer', to: peerId, sdp: offer.sdp! });
+      this.send({ type: 'offer', to: id, sdp: pc.localDescription?.sdp ?? offer.sdp! });
+    } catch {
+      /* offer failed (pre-negotiation / fake env / transient) — ignore */
+    } finally {
+      peer.makingOffer = false;
     }
   }
 
   async handleOffer(fromId: string, sdp: string): Promise<void> {
-    if (!this.peers.has(fromId)) await this.addPeer(fromId, false);
-    const pc = this.peers.get(fromId);
-    if (!pc) return;
+    const peer = this.peers.get(fromId) ?? this.createPeer(fromId);
+    const pc = peer.pc;
+    // Glare: an offer arrived while we have one in flight (or aren't stable).
+    const collision = peer.makingOffer || pc.signalingState !== 'stable';
+    peer.ignoreOffer = !peer.polite && collision;
+    if (peer.ignoreOffer) return; // impolite peer keeps its own offer
+    if (collision) {
+      // Polite peer yields: drop our pending offer, then take theirs.
+      await pc.setLocalDescription({ type: 'rollback' } as RTCLocalSessionDescriptionInit).catch(
+        () => {},
+      );
+    }
     await pc.setRemoteDescription({ type: 'offer', sdp });
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
-    this.send({ type: 'answer', to: fromId, sdp: answer.sdp! });
+    this.send({ type: 'answer', to: fromId, sdp: pc.localDescription?.sdp ?? answer.sdp! });
   }
 
   async handleAnswer(fromId: string, sdp: string): Promise<void> {
-    const pc = this.peers.get(fromId);
-    if (pc) await pc.setRemoteDescription({ type: 'answer', sdp });
+    const peer = this.peers.get(fromId);
+    if (!peer) return;
+    // Only apply an answer to an offer we're actually waiting on. A stray /
+    // duplicate / post-rollback answer would otherwise throw
+    // `setRemoteDescription ... wrong state: stable` and wedge the connection.
+    if (peer.pc.signalingState !== 'have-local-offer') return;
+    await peer.pc.setRemoteDescription({ type: 'answer', sdp });
   }
 
   async handleIce(fromId: string, candidate: RTCIceCandidateInit): Promise<void> {
-    const pc = this.peers.get(fromId);
-    if (!pc) return;
+    const peer = this.peers.get(fromId);
+    if (!peer) return;
     try {
-      await pc.addIceCandidate(candidate);
-    } catch {
-      /* ignore late/duplicate candidates */
+      await peer.pc.addIceCandidate(candidate);
+    } catch (err) {
+      // Candidates trailing an offer we deliberately ignored (glare) can't apply
+      // — that's expected. Anything else is a genuinely late/duplicate candidate.
+      if (!peer.ignoreOffer) {
+        /* ignore late/duplicate candidates */
+      }
     }
   }
 
   removePeer(peerId: string): void {
-    const pc = this.peers.get(peerId);
-    if (pc) {
-      pc.close();
+    const peer = this.peers.get(peerId);
+    if (peer) {
+      peer.pc.close();
       this.peers.delete(peerId);
       // Fewer peers → more budget per remaining stream (spec 0031).
       void this.applyBitrate();
@@ -183,7 +295,7 @@ export class MeshManager {
    *  the peer count changes (join/leave) so the room re-balances (spec 0031). */
   private async applyBitrate(): Promise<void> {
     const target = this.targetBitrate();
-    for (const pc of this.peers.values()) {
+    for (const { pc } of this.peers.values()) {
       try {
         const sender =
           pc.getSenders().find((s) => s.track?.kind === 'video') ?? this.videoSender(pc);
@@ -206,7 +318,7 @@ export class MeshManager {
     this.statsTimer = setInterval(() => {
       void (async () => {
         let weak = false;
-        for (const pc of this.peers.values()) {
+        for (const { pc } of this.peers.values()) {
           try {
             const stats = await pc.getStats();
             stats.forEach((r: unknown) => {
@@ -247,7 +359,7 @@ export class MeshManager {
       clearInterval(this.statsTimer);
       this.statsTimer = null;
     }
-    this.peers.forEach((pc) => pc.close());
+    this.peers.forEach(({ pc }) => pc.close());
     this.peers.clear();
   }
 }

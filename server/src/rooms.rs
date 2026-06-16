@@ -85,6 +85,13 @@ impl PeerTx {
     pub fn is_closed(&self) -> bool {
         self.tx.is_closed()
     }
+
+    /// Signal the owning `handle_peer` loop to tear down now. Used to evict a
+    /// stale connection when the same peer id reconnects, so the dead socket
+    /// doesn't linger until its TCP timeout (there is no WS heartbeat).
+    pub fn signal_close(&self) {
+        self.overflow.notify_one();
+    }
 }
 
 /// A connected peer: identity, the language they speak/receive in, and a channel
@@ -92,6 +99,10 @@ impl PeerTx {
 #[derive(Clone)]
 pub struct Peer {
     pub id: String,
+    /// Unique per *connection*, distinct from the user-facing `id` (which a
+    /// reconnect reuses). Removal matches on `(id, conn)` so a stale connection's
+    /// teardown can't drop the live one that superseded it (the reconnect bug).
+    pub conn: Uuid,
     pub name: String,
     pub lang: String,
     /// Google avatar URL for authenticated users; `None` for guests.
@@ -123,6 +134,17 @@ pub struct Joined {
     /// `public` query param doesn't change it, so the client must display this,
     /// not its own toggle (#50: public/private mismatch).
     pub public: bool,
+}
+
+/// Outcome of removing a connection from a room on teardown.
+pub enum LeaveOutcome {
+    /// This connection was the live entry and is now gone. `Some(session)` when
+    /// its departure emptied the room (the call session is over → finalize it).
+    Left(Option<Uuid>),
+    /// This connection had already been superseded by a same-id reconnect, so the
+    /// peer is still present under a newer connection. The caller must NOT
+    /// broadcast `PeerLeft` — nobody actually left.
+    Superseded,
 }
 
 /// Authoritative identity of a connected peer (spec 0018 upload gate).
@@ -169,6 +191,22 @@ impl RoomManager {
                 whiteboard: Vec::new(),
                 game: None,
             });
+        // A reconnect reuses its peer id (the client keeps the same id across
+        // socket drops). Evict any stale entry for that id BEFORE the capacity
+        // check and push, so: relays reach the live socket (not a dead one),
+        // the reconnect isn't rejected as "room full" by its own ghost, and the
+        // stale handler is told to tear down promptly. It's a replace, not a
+        // departure, so no `PeerLeft` is broadcast.
+        let stale: Vec<PeerTx> = room
+            .peers
+            .iter()
+            .filter(|p| p.id == peer.id)
+            .map(|p| p.tx.clone())
+            .collect();
+        room.peers.retain(|p| p.id != peer.id);
+        for tx in &stale {
+            tx.signal_close();
+        }
         if room.peers.len() >= MAX_PEERS {
             return Err(());
         }
@@ -190,15 +228,30 @@ impl RoomManager {
         })
     }
 
-    /// Remove a peer by id, dropping the room once empty. Returns the dropped
-    /// room's session id iff this removal emptied it (the session is over).
-    pub fn remove(&self, room_id: &str, id: &str) -> Option<Uuid> {
-        if let Some(mut room) = self.rooms.get_mut(room_id) {
-            room.peers.retain(|p| p.id != id);
+    /// Remove a connection by `(id, conn)`, dropping the room once empty. Matching
+    /// on `conn` (not just `id`) means a stale connection's teardown leaves the
+    /// live reconnect untouched — it reports [`LeaveOutcome::Superseded`] so the
+    /// caller stays quiet. A real departure returns [`LeaveOutcome::Left`] with
+    /// the session id iff this was the last peer (the call is over).
+    pub fn remove(&self, room_id: &str, id: &str, conn: Uuid) -> LeaveOutcome {
+        let removed = match self.rooms.get_mut(room_id) {
+            Some(mut room) => {
+                let before = room.peers.len();
+                room.peers.retain(|p| !(p.id == id && p.conn == conn));
+                room.peers.len() != before
+            }
+            None => false,
+        };
+        if !removed {
+            // Our entry was already gone — superseded by a reconnect (or the room
+            // was torn down). Nobody left; don't disturb the others.
+            return LeaveOutcome::Superseded;
         }
-        self.rooms
+        let ended = self
+            .rooms
             .remove_if(room_id, |_, room| room.peers.is_empty())
-            .map(|(_, room)| room.session_id)
+            .map(|(_, room)| room.session_id);
+        LeaveOutcome::Left(ended)
     }
 
     /// Send to every peer in the room, pruning dead channels.
@@ -374,10 +427,16 @@ mod tests {
     use super::*;
 
     fn peer(id: &str, lang: &str) -> (Peer, Receiver<String>) {
+        peer_conn(id, lang, Uuid::new_v4())
+    }
+
+    /// Like `peer` but with an explicit connection id, for reconnect tests.
+    fn peer_conn(id: &str, lang: &str, conn: Uuid) -> (Peer, Receiver<String>) {
         let (tx, rx, _overflow) = PeerTx::channel(OUT_CHANNEL_CAP);
         (
             Peer {
                 id: id.into(),
+                conn,
                 name: id.to_uppercase(),
                 lang: lang.into(),
                 avatar_url: None,
@@ -525,9 +584,13 @@ mod tests {
     #[test]
     fn remove_and_prune_drop_empty_rooms() {
         let rm = RoomManager::new();
-        let (a, _ra) = peer("a", "it");
+        let ca = Uuid::new_v4();
+        let (a, _ra) = peer_conn("a", "it", ca);
         rm.join("r", a, Visibility::Public).unwrap();
-        rm.remove("r", "a");
+        assert!(matches!(
+            rm.remove("r", "a", ca),
+            LeaveOutcome::Left(Some(_))
+        ));
         assert!(rm.public_rooms().is_empty());
 
         let (b, rb) = peer("b", "en");
@@ -540,18 +603,74 @@ mod tests {
     #[test]
     fn session_id_stable_within_room_and_fresh_after_empty() {
         let rm = RoomManager::new();
-        let (a, _ra) = peer("a", "it");
+        let (ca, cb) = (Uuid::new_v4(), Uuid::new_v4());
+        let (a, _ra) = peer_conn("a", "it", ca);
         let s1 = rm.join("r", a, Visibility::Public).unwrap().session_id;
-        let (b, _rb) = peer("b", "en");
+        let (b, _rb) = peer_conn("b", "en", cb);
         let s2 = rm.join("r", b, Visibility::Public).unwrap().session_id;
         assert_eq!(s1, s2, "same room lifetime -> same session id");
 
-        assert!(rm.remove("r", "a").is_none(), "room not yet empty");
-        assert_eq!(rm.remove("r", "b"), Some(s1), "last leave ends the session");
+        assert!(
+            matches!(rm.remove("r", "a", ca), LeaveOutcome::Left(None)),
+            "room not yet empty"
+        );
+        assert!(
+            matches!(rm.remove("r", "b", cb), LeaveOutcome::Left(Some(sid)) if sid == s1),
+            "last leave ends the session"
+        );
 
         let (c, _rc) = peer("c", "es");
         let s3 = rm.join("r", c, Visibility::Public).unwrap().session_id;
         assert_ne!(s3, s1, "re-created room gets a fresh session id");
+    }
+
+    #[test]
+    fn reconnect_supersedes_stale_entry_without_dropping_the_live_one() {
+        // Same peer id reconnects (new conn) while the old entry lingers (no WS
+        // heartbeat → the dead socket isn't detected yet). Fill the room to
+        // capacity so we also prove the reconnect isn't rejected by its own ghost.
+        let rm = RoomManager::new();
+        for id in ["b", "c", "d"] {
+            let (p, r) = peer(id, "en");
+            std::mem::forget(r); // keep the sender alive
+            rm.join("r", p, Visibility::Public).unwrap();
+        }
+        let old_conn = Uuid::new_v4();
+        let (a_old, mut a_old_rx) = peer_conn("a", "it", old_conn);
+        rm.join("r", a_old, Visibility::Public).unwrap(); // room now full (4)
+
+        let new_conn = Uuid::new_v4();
+        let (a_new, mut a_new_rx) = peer_conn("a", "it", new_conn);
+        // The reconnect evicts its own ghost first, so it's NOT rejected as full,
+        // and `existing` lists the real peers (not the ghost).
+        let joined = rm.join("r", a_new, Visibility::Public).unwrap();
+        assert_eq!(joined.existing.len(), 3);
+        assert!(joined.existing.iter().all(|p| p.id != "a"));
+
+        // Eviction signals the old handler via its overflow Notify (not the data
+        // channel), so nothing is queued to the stale receiver.
+        assert!(a_old_rx.try_recv().is_err());
+
+        // A relay to "a" now reaches the LIVE socket, not the dead one.
+        assert!(rm.relay_to_peer("r", "a", "hi-live"));
+        assert_eq!(a_new_rx.try_recv().unwrap(), "hi-live");
+        assert!(a_old_rx.try_recv().is_err(), "dead socket gets nothing");
+
+        // The stale handler's teardown (remove by the OLD conn) must NOT drop the
+        // live peer and must NOT signal a departure.
+        assert!(matches!(
+            rm.remove("r", "a", old_conn),
+            LeaveOutcome::Superseded
+        ));
+        assert!(rm.relay_to_peer("r", "a", "still-here"));
+        assert_eq!(a_new_rx.try_recv().unwrap(), "still-here");
+
+        // The live connection's own teardown removes it for real.
+        assert!(matches!(
+            rm.remove("r", "a", new_conn),
+            LeaveOutcome::Left(None)
+        ));
+        assert!(!rm.relay_to_peer("r", "a", "gone"));
     }
 
     #[test]
