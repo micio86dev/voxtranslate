@@ -2771,11 +2771,14 @@ function setupGoogleSignIn(): void {
       if (!g?.accounts?.id) return;
       g.accounts.id.initialize({ client_id: clientId, callback: onGoogleCredential });
       container.innerHTML = '';
-      // Dark-surface button so Google's personalized "Continua come …" state
-      // renders on a dark field that blends into the login card, instead of the
-      // white box filled_blue draws there (spec 0083 fix). No explicit width —
-      // filled_blue + width:300 made that white box span the whole card.
-      g.accounts.id.renderButton(container, { theme: 'filled_black', size: 'large', shape: 'pill', text: 'continue_with' });
+      // Brand-blue button (owner preference). NOTE: in Google's *personalized*
+      // state ("Continua come <email>" + a separate account-chooser) GSI draws a
+      // white card around the pill — that white is rendered inside Google's
+      // cross-origin iframe and is NOT controllable via theme/width/CSS. theme
+      // only tints the pill; filled_black left the white and turned the pill dark,
+      // so we keep filled_blue. Removing the white needs a custom button + a
+      // different sign-in trigger (see spec 0083 notes).
+      g.accounts.id.renderButton(container, { theme: 'filled_blue', size: 'large', shape: 'pill', text: 'continue_with' });
     })
     .catch(() => {});
 }
