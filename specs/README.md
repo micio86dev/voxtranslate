@@ -109,6 +109,7 @@ Each spec follows the same skeleton:
 | [0074](0074-chat-document-attachments/spec.md) | Chat attachments: documents-only + 5 MB + docx extraction + pay-to-translate billing | ✅ Shipped | 2026-06-16 | `aa4fe27`, `1d5afe7` |
 | [0080](0080-webrtc-reconnect-recovery/spec.md) | WebRTC reconnect recovery: perfect negotiation + ICE restart + same-id supersede (no permanent black screen) | In progress | 2026-06-16 | _pending_ |
 | [0081](0081-pwa-launcher-title/spec.md) | PWA launcher title legibility: white splash background for a dark, high-contrast app title | In progress | 2026-06-16 | _pending_ |
+| [0082](0082-in-call-invite-branded-email/spec.md) | In-call invite link (one-tap copy + email to people you know) + branded, Outlook-safe transactional email shell | In progress | 2026-06-16 | _pending_ |
 
 > Numbers 0011–0015 were claimed by commit messages while the AI bundle shipped
 > without spec docs (and 0011/0012 were each reused twice); the assignments

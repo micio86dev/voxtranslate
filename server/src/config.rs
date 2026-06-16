@@ -35,6 +35,11 @@ pub struct Config {
     /// Recipient for user bug reports (spec 0071). Defaults to the owner's address;
     /// override via `BUG_REPORT_TO`. Email is only sent when `resend` is also set.
     pub bug_report_to: String,
+    /// Canonical public origin of the web app (spec 0082). Used to build call
+    /// invite links and the logo URL inside transactional emails — emails must
+    /// point at our own domain, never a client-supplied host. Override via
+    /// `APP_BASE_URL`; trailing slash is trimmed.
+    pub app_base_url: String,
 }
 
 /// How `/api/ice` authenticates a client to the TURN relay (spec 0026 / 0059).
@@ -304,6 +309,11 @@ impl Config {
                 .ok()
                 .filter(|s| !s.trim().is_empty())
                 .unwrap_or_else(|| "micio86dev@gmail.com".into()),
+            app_base_url: env::var("APP_BASE_URL")
+                .ok()
+                .map(|s| s.trim().trim_end_matches('/').to_string())
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "https://voxtranslate.app".into()),
         })
     }
 
@@ -522,6 +532,7 @@ impl Config {
             storage: None,
             turn: None,
             bug_report_to: "test@example.com".into(),
+            app_base_url: "https://voxtranslate.app".into(),
         }
     }
 }

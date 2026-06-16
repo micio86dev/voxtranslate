@@ -21,6 +21,8 @@ export default defineConfig({
         'src/scripts/report-md.ts',
         // Follow-up email: only the pure recipient helpers — the composer needs a DOM.
         'src/scripts/email-utils.ts',
+        // In-call invite: pure link/email parsing helpers — the panel needs a DOM (spec 0080).
+        'src/scripts/invite.ts',
         // Reaction throttle: pure sliding-window limiter (issue #15).
         'src/scripts/reaction-rate-limit.ts',
         // Voice-command timer: only the pure intent parser + formatters — the

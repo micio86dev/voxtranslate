@@ -123,6 +123,15 @@ const PATHS: Record<string, string> = {
     '<polyline points="15 18 9 12 15 6"/>',
   'chevron-right':
     '<polyline points="9 18 15 12 9 6"/>',
+  // Invite a participant (spec 0082) — person + plus.
+  'user-plus':
+    '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/>',
+  // Shareable link (spec 0082).
+  link:
+    '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
+  // Email envelope (spec 0082).
+  mail:
+    '<rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-9.5 6.5a1.7 1.7 0 0 1-1 .3 1.7 1.7 0 0 1-1-.3L2 7"/>',
 };
 
 /** Return inline SVG markup for `name`, drawn in `currentColor`. */

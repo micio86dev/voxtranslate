@@ -16,9 +16,11 @@ pub mod content;
 pub mod db;
 pub mod deepgram;
 pub mod email;
+pub mod email_template;
 pub mod files;
 pub mod glossary;
 pub mod groq;
+pub mod invite;
 pub mod log_shipping;
 pub mod metrics;
 pub mod middleware;
@@ -351,6 +353,7 @@ pub fn app(state: AppState) -> Router {
         )
         .route("/api/sessions/{id}/email-send", post(api::email_send))
         .route("/api/sessions/{id}/email", get(api::email_latest))
+        .route("/api/rooms/{room}/invite", post(api::invite_send))
         .route(
             "/api/sessions/{id}/bookmarks",
             get(api::bookmarks_list).post(api::bookmark_add),

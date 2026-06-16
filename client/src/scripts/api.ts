@@ -728,3 +728,39 @@ export async function postBugReport(message: string, pageUrl: string): Promise<b
     return false;
   }
 }
+
+// ---- In-call invite emails (spec 0082) -------------------------------------
+
+export interface InviteResult {
+  /** Number of invites Resend accepted. */
+  sent: number;
+  /** Number that failed to send (partial success is possible). */
+  failed: number;
+  /** A user-facing error message when the whole request was rejected. */
+  error?: string;
+}
+
+/** Email a join link to people the sender knows. Auth-only (the server 401s
+ *  guests); the server builds the link from its own origin, so we never send a
+ *  URL. Returns counts, or `{ error }` with the server's message on failure. */
+export async function sendInvites(
+  room: string,
+  emails: string[],
+  lang: string,
+): Promise<InviteResult> {
+  try {
+    const res = await fetch(`${HTTP_BASE}/api/rooms/${encodeURIComponent(room)}/invite`, {
+      method: 'POST',
+      headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ emails, lang }),
+    });
+    if (!res.ok) {
+      const msg = (await res.text().catch(() => '')) || `error ${res.status}`;
+      return { sent: 0, failed: emails.length, error: msg };
+    }
+    const body = (await res.json()) as { sent?: number; failed?: number };
+    return { sent: body.sent ?? 0, failed: body.failed ?? 0 };
+  } catch {
+    return { sent: 0, failed: emails.length, error: 'network' };
+  }
+}

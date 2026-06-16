@@ -34,6 +34,7 @@ fn make_state() -> (AppState, bool) {
                 storage: None,
                 turn: None,
                 bug_report_to: "test@example.com".into(),
+                app_base_url: "https://voxtranslate.app".into(),
             }),
             false,
         ),
@@ -336,6 +337,7 @@ async fn deepgram_unavailable_sends_error() {
         storage: None,
         turn: None,
         bug_report_to: "test@example.com".into(),
+        app_base_url: "https://voxtranslate.app".into(),
     });
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -396,6 +398,7 @@ fn guest_config() -> Config {
         storage: None,
         turn: None,
         bug_report_to: "test@example.com".into(),
+        app_base_url: "https://voxtranslate.app".into(),
     }
 }
 

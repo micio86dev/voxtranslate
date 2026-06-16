@@ -246,14 +246,30 @@ pub async fn bug_report(
             _ => "guest".to_string(),
         };
         let page = page_url.unwrap_or("—");
-        let text = format!("New bug report ({id})\n\nFrom: {who}\nPage: {page}\n\n{message}");
-        let html = format!(
-            "<p><strong>New bug report</strong> (<code>{id}</code>)</p>\
-             <p>From: {}<br>Page: {}</p>\
-             <pre style=\"white-space:pre-wrap;font-family:inherit\">{}</pre>",
+        let body_text = format!("New bug report ({id})\n\nFrom: {who}\nPage: {page}\n\n{message}");
+        let inner_html = format!(
+            "<p style=\"margin:0 0 8px;color:#64748b;\">Report <code>{id}</code></p>\
+             <p style=\"margin:0 0 12px;\">From: {}<br>Page: {}</p>\
+             <pre style=\"white-space:pre-wrap;font-family:inherit;background:#f4f6fb;\
+             padding:14px 16px;border-radius:8px;margin:0;\">{}</pre>",
             crate::admin::html_escape(&who),
             crate::admin::html_escape(page),
             crate::admin::html_escape(message),
+        );
+        let tagline = crate::email_template::tagline("en");
+        let html = crate::email_template::render_html(&crate::email_template::EmailLayout {
+            app_base_url: &state.config.app_base_url,
+            preheader: "New bug report",
+            heading: Some("New bug report"),
+            body_html: &inner_html,
+            button: None,
+            tagline,
+        });
+        let text = crate::email_template::render_text(
+            &body_text,
+            None,
+            &state.config.app_base_url,
+            tagline,
         );
         let email_msg = OutboundEmail {
             to: vec![state.config.bug_report_to.clone()],
@@ -2458,12 +2474,27 @@ pub async fn email_send(
             .into_response();
     }
 
+    // Wrap the editable inner HTML/text in the shared branded shell (spec 0082)
+    // only at send time — the stored draft keeps the clean inner body so re-edits
+    // and previews never double-wrap.
+    let lang = row.lang.as_deref().unwrap_or("en");
+    let tagline = crate::email_template::tagline(lang);
+    let html = crate::email_template::render_html(&crate::email_template::EmailLayout {
+        app_base_url: &state.config.app_base_url,
+        preheader: &subject,
+        heading: None,
+        body_html: &body_html,
+        button: None,
+        tagline,
+    });
+    let text =
+        crate::email_template::render_text(&body_text, None, &state.config.app_base_url, tagline);
     let email = OutboundEmail {
         to,
         cc,
         subject,
-        html: body_html,
-        text: body_text,
+        html,
+        text,
     };
     match resend.send(&email).await {
         Ok(resend_id) => {
@@ -2515,6 +2546,94 @@ pub async fn email_latest(
             (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response()
         }
     }
+}
+
+#[derive(Deserialize)]
+pub struct InviteRequest {
+    /// Recipient addresses the sender typed — people they already know. We never
+    /// surface a directory, so addresses can only come from here.
+    pub emails: Vec<String>,
+    /// The sender's UI language, used to localise the email copy. Optional.
+    #[serde(default)]
+    pub lang: Option<String>,
+}
+
+/// `POST /api/rooms/{room}/invite` — email a one-tap join link to people the
+/// sender knows. Auth-gated and rate-limited (anti-spam). One email per
+/// recipient, so no recipient sees the others; the reply is a bare count and
+/// never reveals whether an address maps to a registered account.
+pub async fn invite_send(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(room): Path<String>,
+    Json(body): Json<InviteRequest>,
+) -> Response {
+    // Bound how fast one account can fan out invites — protects the Resend
+    // sending domain's reputation from being used as a spam relay.
+    if !state.rate_limiter.allow(
+        &format!("invite:{}", user.user_id),
+        6,
+        Duration::from_secs(60),
+    ) {
+        return (StatusCode::TOO_MANY_REQUESTS, "too many requests").into_response();
+    }
+    let Some(resend) = state.resend.as_ref() else {
+        return (StatusCode::SERVICE_UNAVAILABLE, "email not configured").into_response();
+    };
+
+    let Some(room) = crate::invite::sanitize_room(&room) else {
+        return (StatusCode::BAD_REQUEST, "invalid room code").into_response();
+    };
+    let recipients = match crate::invite::prepare_recipients(&body.emails) {
+        Ok(r) => r,
+        Err(e) => return (StatusCode::BAD_REQUEST, e).into_response(),
+    };
+
+    // The link always points at OUR canonical origin + the sanitised room — a
+    // client never supplies the URL we put our brand behind.
+    let join_url = format!("{}/?room={room}", state.config.app_base_url);
+    let lang = body.lang.as_deref().unwrap_or("en");
+    let inviter: String = user.name.chars().take(60).collect();
+
+    let invite = crate::invite::build_invite_email(lang, &inviter, &join_url);
+    let html = crate::email_template::render_html(&crate::email_template::EmailLayout {
+        app_base_url: &state.config.app_base_url,
+        preheader: &invite.preheader,
+        heading: Some(&invite.heading),
+        body_html: &invite.body_html,
+        button: None, // the button is embedded in body_html, ahead of the link
+        tagline: &invite.tagline,
+    });
+    let text = crate::email_template::render_text(
+        &invite.body_text,
+        None,
+        &state.config.app_base_url,
+        &invite.tagline,
+    );
+
+    let mut sent = 0usize;
+    let mut failed = 0usize;
+    for addr in &recipients {
+        let msg = OutboundEmail {
+            to: vec![addr.clone()],
+            cc: vec![],
+            subject: invite.subject.clone(),
+            html: html.clone(),
+            text: text.clone(),
+        };
+        match resend.send(&msg).await {
+            Ok(_) => sent += 1,
+            Err(e) => {
+                failed += 1;
+                tracing::warn!("invite email to a recipient failed: {e}");
+            }
+        }
+    }
+
+    if sent == 0 {
+        return (StatusCode::BAD_GATEWAY, "invite send failed").into_response();
+    }
+    Json(serde_json::json!({ "sent": sent, "failed": failed })).into_response()
 }
 
 /// `voxtranslate-{room_slug}-{id8}.{ext}` — the room slug is filtered to
