@@ -102,6 +102,19 @@ export class MeshManager {
     }
   }
 
+  /**
+   * Swap the outgoing audio track on every peer. Used to send a mic+screen-audio
+   * mix while sharing a tab/window with audio, then revert to the plain mic track
+   * on stop (spec 0085). replaceTrack reuses the existing audio sender — no
+   * renegotiation.
+   */
+  replaceAudioTrack(track: MediaStreamTrack | null): void {
+    for (const { pc } of this.peers.values()) {
+      const sender = pc.getSenders().find((s) => s.track?.kind === 'audio') ?? null;
+      if (sender) void sender.replaceTrack(track);
+    }
+  }
+
   /** The RTCRtpSender for our outgoing video, even if it has no track yet. */
   private videoSender(pc: RTCPeerConnection): RTCRtpSender | null {
     const tx = pc.getTransceivers?.().find(

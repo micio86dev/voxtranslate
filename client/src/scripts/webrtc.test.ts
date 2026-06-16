@@ -311,4 +311,16 @@ describe('MeshManager', () => {
     m.replaceVideoTrack(null); // stop sharing with the camera off → clear video
     expect(videoTx.sender.replaceTrack).toHaveBeenCalledWith(null);
   });
+
+  it('replaceAudioTrack swaps the audio sender and can revert it', async () => {
+    const m = new MeshManager(fakeStream(), vi.fn());
+    await m.addPeer('p1');
+    const audioSender = pcs[0].senders.find((s: any) => s.track?.kind === 'audio');
+    expect(audioSender).toBeTruthy();
+    const mix = { kind: 'audio' } as any; // mic+screen-audio mix while sharing (spec 0085)
+    m.replaceAudioTrack(mix);
+    expect(audioSender.replaceTrack).toHaveBeenCalledWith(mix);
+    m.replaceAudioTrack(null); // stop sharing → revert to the plain mic track
+    expect(audioSender.replaceTrack).toHaveBeenCalledWith(null);
+  });
 });
