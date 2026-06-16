@@ -2761,26 +2761,70 @@ function setBalanceUi(balance: number): void {
 
 // --- Google Identity Services ---
 let gsiLoaded = false;
+let gsiFallbackTimer: number | undefined;
+
+// Our own Google-branded button opens Google's NATIVE account chooser (FedCM), so
+// there is no white personalized card (spec 0087). If the chooser can't show
+// (no FedCM / rate-limited), we fall back to Google's official rendered button so
+// sign-in always works.
 function setupGoogleSignIn(): void {
   const clientId = auth.getGoogleClientId();
-  const container = document.getElementById('gsi-button');
-  if (!clientId || !container) return;
+  const customBtn = document.getElementById('gsi-signin');
+  if (!clientId || !customBtn) return;
   loadGsi()
     .then(() => {
       const g = (window as unknown as { google?: any }).google;
       if (!g?.accounts?.id) return;
-      g.accounts.id.initialize({ client_id: clientId, callback: onGoogleCredential });
-      container.innerHTML = '';
-      // Brand-blue button (owner preference). NOTE: in Google's *personalized*
-      // state ("Continua come <email>" + a separate account-chooser) GSI draws a
-      // white card around the pill — that white is rendered inside Google's
-      // cross-origin iframe and is NOT controllable via theme/width/CSS. theme
-      // only tints the pill; filled_black left the white and turned the pill dark,
-      // so we keep filled_blue. Removing the white needs a custom button + a
-      // different sign-in trigger (see spec 0083 notes).
-      g.accounts.id.renderButton(container, { theme: 'filled_blue', size: 'large', shape: 'pill', text: 'continue_with' });
+      // use_fedcm_for_prompt → the browser's native chooser, not a white GSI card.
+      g.accounts.id.initialize({
+        client_id: clientId,
+        callback: onGoogleCredential,
+        use_fedcm_for_prompt: true,
+      });
+      show(customBtn, true);
+      customBtn.onclick = () => triggerGoogleSignIn(g);
     })
     .catch(() => {});
+}
+
+function triggerGoogleSignIn(g: any): void {
+  let fellBack = false;
+  const fallback = () => {
+    if (fellBack) return;
+    fellBack = true;
+    showGoogleOfficialButton(g);
+  };
+  try {
+    g.accounts.id.prompt(
+      (notification: { isNotDisplayed?: () => boolean; isSkippedMoment?: () => boolean }) => {
+        try {
+          if (notification.isNotDisplayed?.() || notification.isSkippedMoment?.()) fallback();
+        } catch {
+          /* FedCM: moment methods are unavailable — the timer below is the net */
+        }
+      },
+    );
+  } catch {
+    fallback();
+    return;
+  }
+  // Safety net: if no credential lands shortly, the chooser likely never opened.
+  window.clearTimeout(gsiFallbackTimer);
+  gsiFallbackTimer = window.setTimeout(fallback, 7000);
+}
+
+// Reveal Google's official rendered button as a working fallback (it carries the
+// white personalized card, but it always signs in).
+function showGoogleOfficialButton(g: any): void {
+  const official = document.getElementById('gsi-official');
+  const customBtn = document.getElementById('gsi-signin');
+  if (!official || official.childElementCount > 0) return;
+  if (customBtn) show(customBtn, false);
+  try {
+    g.accounts.id.renderButton(official, { theme: 'filled_blue', size: 'large', shape: 'pill', text: 'continue_with' });
+  } catch {
+    if (customBtn) show(customBtn, true); // render failed → restore our button
+  }
 }
 
 function loadGsi(): Promise<void> {
@@ -2800,6 +2844,7 @@ function loadGsi(): Promise<void> {
 }
 
 async function onGoogleCredential(resp: { credential?: string }): Promise<void> {
+  window.clearTimeout(gsiFallbackTimer); // sign-in fired — cancel the fallback net
   if (!resp.credential) return;
   try {
     await auth.loginWithGoogle(resp.credential);
