@@ -138,10 +138,10 @@ const LANGS = [
         <div class="card">
           <span class="card-title" data-i18n="downloads"></span>
           <div id="session-downloads" class="session-downloads">
-            <button id="session-dl-pdf" class="btn-ghost" data-i18n="downloadPdf"></button>
-            <button id="session-dl-json" class="btn-ghost" data-i18n="downloadJson"></button>
-            <button id="session-dl-srt" class="btn-ghost" data-i18n="downloadSrt"></button>
-            <button id="session-dl-vtt" class="btn-ghost" data-i18n="downloadVtt"></button>
+            <button id="session-dl-pdf" class="btn-primary" data-i18n="downloadPdf"></button>
+            <button id="session-dl-json" class="btn-primary" data-i18n="downloadJson"></button>
+            <button id="session-dl-srt" class="btn-primary" data-i18n="downloadSrt"></button>
+            <button id="session-dl-vtt" class="btn-primary" data-i18n="downloadVtt"></button>
             <select id="session-sub-mode" data-i18n-label="subtitleMode" data-i18n-title="subtitleMode">
               <option value="translated" data-i18n="subTranslated"></option>
               <option value="original" data-i18n="subOriginal"></option>
@@ -689,6 +689,11 @@ const LANGS = [
     }
     .btn-primary:hover { filter: brightness(1.08); }
     .btn-primary:active { transform: translateY(1px); }
+    .btn-primary:disabled {
+      background: var(--surface); color: var(--muted); border: 1px solid var(--border);
+      cursor: not-allowed; filter: none; transform: none;
+    }
+    .btn-primary:disabled:hover { filter: none; }
     /* Secondary CTA (spec 0038): an accent-TONAL fill — a wash of --accent over the
        surface, with an accent-tinted border. The earlier elevated-surface fill
        (spec 0034) was too close to the card and read as disabled; tinting it ties
@@ -794,7 +799,7 @@ const LANGS = [
     }
     .session-stats .stat-value:empty::before { content: '—'; color: var(--muted); }
     .session-downloads { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; align-items: center; }
-    .session-downloads .btn-ghost { min-height: 44px; }
+    .session-downloads .btn-primary { width: auto; min-height: 44px; padding: 0 16px; font-size: 0.9rem; border-radius: 8px; }
     .session-downloads select {
       min-height: 44px; padding: 0 10px; border-radius: 8px;
       background: var(--surface); color: var(--text); border: 1px solid var(--border);
@@ -1852,7 +1857,24 @@ const LANGS = [
     .bookmarks-list :global(.bm-by) { font-size: 0.78rem; font-weight: 700; color: var(--accent); }
     .bookmarks-list :global(.bm-label) { font-size: 0.85rem; color: var(--text); overflow-wrap: anywhere; }
     .bookmarks-list :global(.bm-label-empty) { color: var(--muted); font-style: italic; }
-    .bookmarks-list :global(.bm-action) { flex: none; }
+    /* Edit/delete are created in JS, so the scoped .btn-ghost/.icon-btn rules
+       never reach them (no Astro scope attr) — they fell back to the bare UA
+       button (small + grey). Re-apply the app's icon-button look here via
+       :global() so they match the panel's close button and the rest of the app. */
+    .bookmarks-list :global(.bm-action) {
+      flex: none; display: grid; place-items: center;
+      min-width: 38px; min-height: 38px; padding: 0;
+      background: color-mix(in srgb, var(--accent) 22%, var(--surface));
+      border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--border));
+      color: var(--text); border-radius: 8px; cursor: pointer;
+      transition: background 0.15s, border-color 0.15s, transform 0.05s;
+    }
+    .bookmarks-list :global(.bm-action:hover) {
+      background: color-mix(in srgb, var(--accent) 34%, var(--surface)); border-color: var(--accent);
+    }
+    .bookmarks-list :global(.bm-action:active) { transform: translateY(1px); }
+    .bookmarks-list :global(.bm-action:disabled) { opacity: 0.4; cursor: not-allowed; }
+    .bookmarks-list :global(.bm-action svg) { width: 18px; height: 18px; }
     .bookmarks-list :global(.bm-edit-input) { min-height: 36px; font-size: 0.85rem; }
     .bookmarks-list :global(.bm-empty) { color: var(--muted); font-size: 0.85rem; text-align: center; margin: 16px 8px; }
 
