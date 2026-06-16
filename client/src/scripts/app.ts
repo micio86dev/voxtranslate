@@ -261,6 +261,11 @@ let screenStream: MediaStream | null = null;
 // Compositor that draws the camera as a PiP overlay onto the shared screen and
 // captureStream()s a single composited track (spec 0053). Null when not sharing.
 let screenPip: ScreenSharePip | null = null;
+// While sharing a tab/window WITH audio, we mix the screen audio into the mic
+// and send the mix to peers; these hold the WebAudio graph + mixed track so stop
+// can revert the audio sender and release them (spec 0085).
+let shareAudioCtx: AudioContext | null = null;
+let shareMixTrack: MediaStreamTrack | null = null;
 // Composite recording (spec 0010): one WebM with every participant tiled +
 // mixed audio. `remoteStreams` is the live source registry the recorder reads
 // from (streams weren't stored anywhere before).
@@ -2043,9 +2048,30 @@ async function startScreenShare(): Promise<void> {
   // only swap the outgoing *video* track for the screen.
   if (!mesh) return;
   try {
-    const s = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+    // audio: true makes the browser offer the "share tab/system audio" checkbox
+    // (spec 0085). Chrome/Edge desktop only; Firefox/Safari/mobile just ignore it.
+    const s = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
     screenStream = s;
     isSharingScreen = true;
+    // If the user ticked "share audio", mix it with the mic and send the mix to
+    // peers. No screen-audio track (box unticked / unsupported) → the mic path is
+    // left untouched, so the common no-audio share carries zero voice-path risk.
+    const shareAudio = s.getAudioTracks();
+    if (shareAudio.length && localStream?.getAudioTracks().length) {
+      try {
+        shareAudioCtx = new AudioContext();
+        void shareAudioCtx.resume();
+        const dest = shareAudioCtx.createMediaStreamDestination();
+        shareAudioCtx.createMediaStreamSource(new MediaStream(localStream.getAudioTracks())).connect(dest);
+        shareAudioCtx.createMediaStreamSource(new MediaStream(shareAudio)).connect(dest);
+        shareMixTrack = dest.stream.getAudioTracks()[0] ?? null;
+        if (shareMixTrack) mesh.replaceAudioTrack(shareMixTrack);
+      } catch {
+        // WebAudio unavailable → mic-only audio; the screen video still shares.
+        shareAudioCtx = null;
+        shareMixTrack = null;
+      }
+    }
     // Composite the camera as a PiP overlay onto the screen (spec 0053) and send
     // that single track on every peer's video sender (mic audio untouched). With
     // the camera off / audio-only it's just the screen — no PiP. The always-present
@@ -2090,6 +2116,15 @@ async function startScreenShare(): Promise<void> {
     screenPip = null;
     screenStream?.getTracks().forEach((t) => t.stop());
     screenStream = null;
+    if (shareMixTrack) {
+      mesh?.replaceAudioTrack(localStream?.getAudioTracks()[0] ?? null);
+      shareMixTrack.stop();
+      shareMixTrack = null;
+    }
+    if (shareAudioCtx) {
+      void shareAudioCtx.close();
+      shareAudioCtx = null;
+    }
   }
 }
 
@@ -2103,6 +2138,16 @@ function stopScreenShare(): void {
   if (screenStream) {
     screenStream.getTracks().forEach((t) => t.stop());
     screenStream = null;
+  }
+  // Revert the audio sender to the plain mic track and release the mix (spec 0085).
+  if (shareMixTrack) {
+    mesh.replaceAudioTrack(localStream?.getAudioTracks()[0] ?? null);
+    shareMixTrack.stop();
+    shareMixTrack = null;
+  }
+  if (shareAudioCtx) {
+    void shareAudioCtx.close();
+    shareAudioCtx = null;
   }
   // Restore the camera feed for peers (or clear video when the camera is off /
   // we joined audio-only), honouring the current camera toggle.
