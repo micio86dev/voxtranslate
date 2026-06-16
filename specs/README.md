@@ -102,6 +102,7 @@ Each spec follows the same skeleton:
 | [0067](0067-ai-quiz-on-demand/spec.md) | On-demand AI quiz from a prompt (Groq, credits, #124) | ✅ Shipped | 2026-06-15 | `85959de` |
 | [0068](0068-ai-transcript-correction/spec.md) | AI transcript correction on export (Groq, credits, cached) | ✅ Shipped | 2026-06-15 | `f3cb0fc` |
 | [0070](0070-call-chat-game-ux-fixes/spec.md) | UX fixes batch: chat/emoji, call-header overlaps + avatars, mini-game lifecycle, secondary CTAs | ✅ Shipped | 2026-06-15 | `36d9b17`, `1bcb702`, `c6d85df`, `bd10c02`, `b58d8de` (+ `2988bc8`, `9dc9126`, `5c3bae6`) |
+| [0073](0073-connection-status-banner/spec.md) | YouTube-style connection-status banner (offline / reconnecting / back online) | ✅ Shipped | 2026-06-16 | `1cb624d` |
 
 > Numbers 0011–0015 were claimed by commit messages while the AI bundle shipped
 > without spec docs (and 0011/0012 were each reused twice); the assignments
