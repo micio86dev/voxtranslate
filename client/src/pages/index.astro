@@ -682,41 +682,10 @@ const LANGS = [
     input:focus, select:focus { border-color: var(--accent); }
     .room-row { display: flex; gap: 8px; }
     .room-row input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: 0.08em; text-transform: uppercase; }
-    .icon-btn { flex: none; font-size: 1.1rem; padding: 0 14px; }
-    .btn-primary {
-      width: 100%; min-height: 48px; background: var(--accent-strong); color: #fff; border: none;
-      border-radius: 10px; padding: 13px; font-size: 1rem; font-weight: 600; transition: filter 0.15s;
-    }
-    .btn-primary:hover { filter: brightness(1.08); }
-    .btn-primary:active { transform: translateY(1px); }
-    .btn-primary:disabled {
-      background: var(--surface); color: var(--muted); border: 1px solid var(--border);
-      cursor: not-allowed; filter: none; transform: none;
-    }
-    .btn-primary:disabled:hover { filter: none; }
-    /* Secondary CTA (spec 0038): an accent-TONAL fill — a wash of --accent over the
-       surface, with an accent-tinted border. The earlier elevated-surface fill
-       (spec 0034) was too close to the card and read as disabled; tinting it ties
-       these to the brand blue and makes them obviously tappable, while the solid
-       --accent-strong .btn-primary keeps the top of the hierarchy. */
-    /* Secondary CTA (spec 0034/0038 → strengthened in 0070 S5). The previous 14%
-       accent wash read as flat grey on the dark surface (looked disabled), so the
-       fill + border now carry a clearly on-brand accent tint — distinct from the
-       muted-grey :disabled state below and from the solid primary above. Applies
-       app-wide: home, session-details, in-call bookmark list, etc. */
-    .btn-ghost {
-      background: color-mix(in srgb, var(--accent) 22%, var(--surface));
-      border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--border));
-      color: var(--text);
-      border-radius: 8px; padding: 9px 13px; font-size: 0.85rem; font-weight: 500; cursor: pointer;
-      transition: background 0.15s, border-color 0.15s, transform 0.05s; white-space: nowrap;
-    }
-    .btn-ghost:hover { background: color-mix(in srgb, var(--accent) 34%, var(--surface)); border-color: var(--accent); }
-    .btn-ghost:active { transform: translateY(1px); }
-    .btn-ghost:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-    .btn-ghost:disabled { opacity: 0.4; cursor: not-allowed; background: var(--surface); border-color: var(--border); color: var(--muted); }
-    .btn-ghost:disabled:hover { background: var(--surface); border-color: var(--border); }
-    .status-line { margin: 12px 0 0; min-height: 1.1em; font-size: 0.85rem; color: var(--muted); }
+    /* .btn-primary / .btn-ghost / .icon-btn primitives now live globally in
+       Base.astro so they also reach JS-created buttons. Only context-specific
+       layout overrides remain in this file. */
+    .status-line { margin: 12px 0 0; min-height: 1.1em; font-size: var(--font-sm); color: var(--muted); }
     .status-line.error { color: var(--danger); }
     .seg { display: flex; gap: 8px; }
     .seg-btn {
@@ -799,7 +768,7 @@ const LANGS = [
     }
     .session-stats .stat-value:empty::before { content: '—'; color: var(--muted); }
     .session-downloads { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; align-items: center; }
-    .session-downloads .btn-primary { width: auto; min-height: 44px; padding: 0 16px; font-size: 0.9rem; border-radius: 8px; }
+    .session-downloads .btn-primary { width: auto; min-height: var(--tap-target); padding: 0 16px; font-size: var(--font-sm); border-radius: var(--btn-radius-sm); }
     .session-downloads select {
       min-height: 44px; padding: 0 10px; border-radius: 8px;
       background: var(--surface); color: var(--text); border: 1px solid var(--border);
@@ -843,36 +812,14 @@ const LANGS = [
       background: var(--surface); color: var(--text); border: 1px solid var(--border);
       font: inherit; font-size: 0.88rem;
     }
-    #session-ai :global(.ai-generate) { align-self: flex-start; min-height: 44px; }
+    /* The AI-tools generate/send buttons (.btn-primary) and copy/regenerate
+       (.btn-ghost) get their skin from the global primitives in Base.astro;
+       these rules only set the AI-tools layout (compact, left-aligned). */
+    #session-ai :global(.ai-generate) {
+      align-self: flex-start; width: auto; min-height: var(--tap-target);
+      padding: 12px 18px; font-size: var(--font-md);
+    }
     #session-ai :global(.ai-generate:disabled) { opacity: 0.55; cursor: not-allowed; }
-    /* The AI-tools forms (report / sentiment / email) are injected by JS into
-       #session-ai's slots, so the scoped .btn-primary/.btn-ghost skins never
-       reach them (no Astro scope attr) — generate/send/copy/regenerate fell back
-       to the bare UA grey button. Re-apply the skins via :global(); the layout
-       rules above (.ai-generate sizing, .ai-report-actions) still stack on top. */
-    #session-ai :global(.btn-primary) {
-      background: var(--accent-strong); color: #fff; border: none; border-radius: 10px;
-      padding: 12px 18px; font-size: 0.95rem; font-weight: 600; cursor: pointer; transition: filter 0.15s;
-    }
-    #session-ai :global(.btn-primary:hover) { filter: brightness(1.08); }
-    #session-ai :global(.btn-primary:active) { transform: translateY(1px); }
-    #session-ai :global(.btn-primary:disabled) {
-      background: var(--surface); color: var(--muted); border: 1px solid var(--border);
-      cursor: not-allowed; filter: none; transform: none;
-    }
-    #session-ai :global(.btn-ghost) {
-      background: color-mix(in srgb, var(--accent) 22%, var(--surface));
-      border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--border));
-      color: var(--text); border-radius: 8px; padding: 9px 13px; font-size: 0.85rem;
-      font-weight: 500; cursor: pointer; transition: background 0.15s, border-color 0.15s, transform 0.05s;
-    }
-    #session-ai :global(.btn-ghost:hover) {
-      background: color-mix(in srgb, var(--accent) 34%, var(--surface)); border-color: var(--accent);
-    }
-    #session-ai :global(.btn-ghost:active) { transform: translateY(1px); }
-    #session-ai :global(.btn-ghost:disabled) {
-      opacity: 0.4; cursor: not-allowed; background: var(--surface); border-color: var(--border); color: var(--muted);
-    }
     #session-ai :global(.ai-report-view) { display: flex; flex-direction: column; gap: 10px; }
     #session-ai :global(.ai-report-md) {
       font-size: 0.9rem; line-height: 1.55; color: var(--text);
@@ -1354,9 +1301,8 @@ const LANGS = [
 
     /* ---------- Icons (inline SVG, injected in JS → :global) ---------- */
     :global(.ico) { display: block; pointer-events: none; }
-    .icon-btn { display: grid; place-items: center; }
-    .icon-btn :global(.ico) { width: 18px; height: 18px; }
-    .send-btn { width: auto; min-height: 44px; padding: 0 16px; display: grid; place-items: center; }
+    /* .icon-btn primitive (grid centring + 18px glyph) is global in Base.astro. */
+    .send-btn { width: auto; min-height: var(--tap-target); padding: 0 16px; display: grid; place-items: center; }
 
     /* ---------- Chat ---------- */
     .chat-panel {
@@ -1885,25 +1831,10 @@ const LANGS = [
     .bookmarks-list :global(.bm-by) { font-size: 0.78rem; font-weight: 700; color: var(--accent); }
     .bookmarks-list :global(.bm-label) { font-size: 0.85rem; color: var(--text); overflow-wrap: anywhere; }
     .bookmarks-list :global(.bm-label-empty) { color: var(--muted); font-style: italic; }
-    /* Edit/delete are created in JS, so the scoped .btn-ghost/.icon-btn rules
-       never reach them (no Astro scope attr) — they fell back to the bare UA
-       button (small + grey). Re-apply the app's icon-button look here via
-       :global() so they match the panel's close button and the rest of the app. */
-    .bookmarks-list :global(.bm-action) {
-      flex: none; display: grid; place-items: center;
-      min-width: 38px; min-height: 38px; padding: 0;
-      background: color-mix(in srgb, var(--accent) 22%, var(--surface));
-      border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--border));
-      color: var(--text); border-radius: 8px; cursor: pointer;
-      transition: background 0.15s, border-color 0.15s, transform 0.05s;
-    }
-    .bookmarks-list :global(.bm-action:hover) {
-      background: color-mix(in srgb, var(--accent) 34%, var(--surface)); border-color: var(--accent);
-    }
-    .bookmarks-list :global(.bm-action:active) { transform: translateY(1px); }
-    .bookmarks-list :global(.bm-action:disabled) { opacity: 0.4; cursor: not-allowed; }
-    .bookmarks-list :global(.bm-action svg) { width: 18px; height: 18px; }
-    .bookmarks-list :global(.bm-edit-input) { min-height: 36px; font-size: 0.85rem; }
+    /* Edit/delete (.btn-ghost.icon-btn) get their skin + 18px glyph from the
+       global primitives in Base.astro; keep them compact (square) in this dense list. */
+    .bookmarks-list :global(.bm-action) { min-width: 38px; min-height: 38px; padding: 0; }
+    .bookmarks-list :global(.bm-edit-input) { min-height: 36px; font-size: var(--font-sm); }
     .bookmarks-list :global(.bm-empty) { color: var(--muted); font-size: 0.85rem; text-align: center; margin: 16px 8px; }
 
     .session-bookmarks { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }

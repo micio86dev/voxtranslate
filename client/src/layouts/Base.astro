@@ -55,6 +55,29 @@ const { title = 'VoxTranslate' } = Astro.props;
         --radius-sm: 8px;
         --radius-md: 12px;
         --radius-lg: 16px;
+
+        /* Typography scale (rem, relative to the 16px root). */
+        --font-xs: 0.78rem;
+        --font-sm: 0.85rem;
+        --font-md: 0.95rem;
+        --font-base: 1rem;
+        --font-weight-medium: 500;
+        --font-weight-semibold: 600;
+        --font-weight-bold: 700;
+
+        /* Interactive controls. */
+        --tap-target: 44px; /* min hit area for taps (WCAG 2.5.5) */
+        --btn-radius: 10px;
+        --btn-radius-sm: 8px;
+        --transition-fast: 0.15s;
+
+        /* Ghost/secondary button: an accent-tonal wash over the surface with an
+           accent-tinted border (spec 0034/0038 → strengthened in 0070 S5). The
+           old flat fill read as disabled; the accent tint keeps it on-brand and
+           obviously tappable, distinct from the muted :disabled state. */
+        --btn-ghost-bg: color-mix(in srgb, var(--accent) 22%, var(--surface));
+        --btn-ghost-bg-hover: color-mix(in srgb, var(--accent) 34%, var(--surface));
+        --btn-ghost-border: color-mix(in srgb, var(--accent) 55%, var(--border));
       }
 
       * {
@@ -90,6 +113,86 @@ const { title = 'VoxTranslate' } = Astro.props;
       input,
       select {
         font-family: inherit;
+      }
+
+      /* ---- Button & control primitives ----
+         Global (not page-scoped) so they style BOTH template-authored buttons
+         and the ones built in JS (bookmark edit/delete, AI-tools report/sentiment/
+         email forms). Page-level layout tweaks live in index.astro as scoped
+         overrides, which always win on specificity. */
+      .icon-btn {
+        flex: none;
+        font-size: 1.1rem;
+        padding: 0 14px;
+      }
+      .btn-primary {
+        width: 100%;
+        min-height: 48px;
+        background: var(--accent-strong);
+        color: #fff;
+        border: none;
+        border-radius: var(--btn-radius);
+        padding: 13px;
+        font-size: var(--font-base);
+        font-weight: var(--font-weight-semibold);
+        transition: filter var(--transition-fast);
+      }
+      .btn-primary:hover {
+        filter: brightness(1.08);
+      }
+      .btn-primary:active {
+        transform: translateY(1px);
+      }
+      .btn-primary:disabled {
+        background: var(--surface);
+        color: var(--muted);
+        border: 1px solid var(--border);
+        cursor: not-allowed;
+        filter: none;
+        transform: none;
+      }
+      .btn-primary:disabled:hover {
+        filter: none;
+      }
+      .btn-ghost {
+        background: var(--btn-ghost-bg);
+        border: 1px solid var(--btn-ghost-border);
+        color: var(--text);
+        border-radius: var(--btn-radius-sm);
+        padding: 9px 13px;
+        font-size: var(--font-sm);
+        font-weight: var(--font-weight-medium);
+        cursor: pointer;
+        transition: background var(--transition-fast), border-color var(--transition-fast), transform 0.05s;
+        white-space: nowrap;
+      }
+      .btn-ghost:hover {
+        background: var(--btn-ghost-bg-hover);
+        border-color: var(--accent);
+      }
+      .btn-ghost:active {
+        transform: translateY(1px);
+      }
+      .btn-ghost:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+        background: var(--surface);
+        border-color: var(--border);
+        color: var(--muted);
+      }
+      .btn-ghost:disabled:hover {
+        background: var(--surface);
+        border-color: var(--border);
+      }
+      /* Icon-only buttons centre their glyph; declared after .btn-ghost so the
+         ghost padding/font-size win for the common `btn-ghost icon-btn` pairing. */
+      .icon-btn {
+        display: grid;
+        place-items: center;
+      }
+      .icon-btn .ico {
+        width: 18px;
+        height: 18px;
       }
 
       ::selection {
