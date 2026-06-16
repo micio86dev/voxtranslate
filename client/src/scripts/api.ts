@@ -226,14 +226,17 @@ export async function deleteGlossary(room: string): Promise<boolean> {
 
 // ---- Chat file upload (spec 0018) ------------------------------------------
 
-/** MVP-supported upload extensions (mirrors the server's `classify_ext`). */
-export const UPLOAD_EXTS = ['mp3', 'wav', 'txt', 'pdf'] as const;
+/** Supported upload extensions — documents only (mirrors the server's `classify_ext`).
+ *  txt/md/csv/pdf/docx are text-extracted + translated; the rest are stored-only. */
+export const UPLOAD_EXTS = [
+  'txt', 'md', 'csv', 'log', 'pdf', 'docx', 'doc', 'odt', 'rtf', 'xlsx', 'pptx',
+] as const;
 
-/** The `accept` attribute value for the file picker. */
-export const UPLOAD_ACCEPT = '.mp3,.wav,.txt,.pdf,audio/mpeg,audio/wav,text/plain,application/pdf';
+/** The `accept` attribute value for the file picker (documents only). */
+export const UPLOAD_ACCEPT = UPLOAD_EXTS.map((e) => `.${e}`).join(',');
 
-/** Client-side size cap (must stay ≤ the server's `SUPABASE_MAX_UPLOAD_BYTES`). */
-export const UPLOAD_MAX_BYTES = 25 * 1024 * 1024;
+/** Client-side size cap, 5 MB (must stay ≤ the server's `SUPABASE_MAX_UPLOAD_BYTES`). */
+export const UPLOAD_MAX_BYTES = 5 * 1024 * 1024;
 
 /** Why a client-side pre-check rejected a file (before any network call). */
 export type UploadReject = 'type' | 'size';

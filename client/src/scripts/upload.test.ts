@@ -35,17 +35,19 @@ describe('checkUploadFile (spec 0018 R5 client pre-check)', () => {
       expect(checkUploadFile(file(`memo.${ext}`, 1024))).toBeNull();
     }
     // Case-insensitive on the extension.
-    expect(checkUploadFile(file('MEMO.MP3', 2048))).toBeNull();
+    expect(checkUploadFile(file('MEMO.PDF', 2048))).toBeNull();
   });
 
-  it('rejects unsupported types', () => {
+  it('rejects unsupported types (incl. audio/images)', () => {
+    expect(checkUploadFile(file('clip.mp3', 1024))).toBe('type');
+    expect(checkUploadFile(file('clip.wav', 1024))).toBe('type');
     expect(checkUploadFile(file('virus.exe', 1024))).toBe('type');
     expect(checkUploadFile(file('photo.png', 1024))).toBe('type');
     expect(checkUploadFile(file('noextension', 1024))).toBe('type');
   });
 
   it('rejects oversized and empty files', () => {
-    expect(checkUploadFile(file('big.wav', UPLOAD_MAX_BYTES + 1))).toBe('size');
+    expect(checkUploadFile(file('big.pdf', UPLOAD_MAX_BYTES + 1))).toBe('size');
     expect(checkUploadFile(file('empty.txt', 0))).toBe('size');
     // Exactly at the cap is allowed.
     expect(checkUploadFile(file('edge.pdf', UPLOAD_MAX_BYTES))).toBeNull();
