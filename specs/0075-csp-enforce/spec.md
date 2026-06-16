@@ -2,12 +2,12 @@
 
 | | |
 |---|---|
-| **Status** | In progress |
+| **Status** | ✅ Shipped |
 | **Owner** | VoxTranslate |
 | **Created** | 2026-06-16 |
-| **Shipped** | — |
+| **Shipped** | 2026-06-16 |
 | **Version** | — |
-| **Commits** | pending |
+| **Commits** | `d437f49` (#175) |
 | **Depends on** | [0028](../0028-security-hardening/spec.md), [0029](../0029-security-followups/spec.md), [0017](../0017-virtual-background/spec.md) |
 
 ## 1. Context & Problem
