@@ -89,6 +89,10 @@ jobs:
           AWS_DEFAULT_REGION: ${{ secrets.BACKUP_S3_REGION }}
           S3_ENDPOINT: ${{ secrets.BACKUP_S3_ENDPOINT }}
           S3_BUCKET: ${{ secrets.BACKUP_S3_BUCKET }}
+          # AWS CLI v2 now adds CRC integrity headers that Cloudflare R2 rejects
+          # (and some other S3-compatible stores). Only send them when required.
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
         run: |
           set -euo pipefail
           : "${AWS_DEFAULT_REGION:=auto}" # Cloudflare R2 uses "auto"

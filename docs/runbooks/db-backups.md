@@ -61,9 +61,11 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO vox_backup;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON SEQUENCES TO vox_backup;
 ```
 
-Build its connection string from Supabase → **Database → Connection string → URI**, and
-use the **direct / session** connection (port `5432`), **not** the transaction pooler
-(`6543`) — `pg_dump` needs a real session.
+Build its connection string from Supabase → **Connect** (or Database → Connection
+string). GitHub-hosted runners are **IPv4-only** while Supabase's *direct* connection
+is IPv6-only, so use the **Session pooler** string (host `…pooler.supabase.com`, port
+`5432`) — it's IPv4 **and** gives `pg_dump` the real session it needs. Do **not** use
+the *Transaction pooler* (port `6543`): it can't run `pg_dump`.
 
 ### 2.3 Repo secrets
 
