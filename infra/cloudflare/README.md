@@ -53,21 +53,28 @@ so Railway routes the Host to this service; the Cloudflare proxy can stay on.
 CNAME target (`…up.railway.app`), for which Railway serves a valid cert, so strict
 validation passes.
 
-## 2. WAF — managed rules, rate limiting, DDoS
+## 2. WAF — DDoS, bot mitigation, rate limiting
 
-Cloudflare → **Security / WAF**:
+The core of #111 (DDoS + origin behind the WAF) works on the **Free plan** — the
+paid Managed Ruleset is optional defence-in-depth. Cloudflare → **Security**:
 
-1. **Managed rules**: enable the **Cloudflare Managed Ruleset** (and OWASP core if
-   on a plan that includes it). Start in *Log* for a day if you want to watch for
-   false positives, then switch to *Block*.
-2. **Rate limiting rules** (the real anti-flood layer, complements the in-app
-   per-IP limits from spec 0064):
-   - `/ws` connect: e.g. **60 requests / 1 min / IP** → *Block* (managed-challenge
-     for browsers). Path: `(http.request.uri.path eq "/ws")`.
-   - `/rooms` + `/metrics`: e.g. **120 / 1 min / IP** → *Block*.
-   - `/api/*`: a looser ceiling, e.g. **300 / 1 min / IP**.
-3. **DDoS**: L3/4 + HTTP DDoS protection is **automatic** on all plans — no config.
-   Optionally raise sensitivity to *High* under attack.
+**Free plan (recommended baseline):**
+1. **DDoS**: L3/4 + HTTP DDoS protection is **automatic on all plans** — no config.
+   This is the primary anti-DDoS. (Optionally raise sensitivity to *High* under attack.)
+2. **Bot Fight Mode**: Security → **Bots** → enable. Free basic bot mitigation.
+3. **Rate limiting rule** (Free includes one — the dashboard shows the exact
+   allowance): rate-limit `/ws` connects, e.g. **60 requests / 1 min / IP** →
+   *Block* (or Managed Challenge). Expression `(http.request.uri.path eq "/ws")`.
+   This complements the in-app per-IP limits already shipped (spec 0064: `/ws`,
+   `/rooms`, `/metrics`, connection cap, message budget) — so even one edge rule
+   plus the app-layer limits gives layered coverage.
+4. **Custom rules** (Free: up to 5): optional — block/challenge obvious abuse
+   patterns (e.g. non-browser user-agents hitting `/rooms`).
+
+**Pro plan ($25/mo) — optional, later:**
+- **Managed rules**: enable the **Cloudflare Managed Ruleset** + OWASP core
+  (*Log* for a day, then *Block*). Add this only if traffic/threats grow; the
+  Free baseline above already covers the issue's goal.
 
 ## 3. Origin lock — only Cloudflare may reach the origin
 
