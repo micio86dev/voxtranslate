@@ -35,9 +35,19 @@ it lands in git. Rotate it if it's ever exposed.
 # Preview what would change (no writes):
 BETTERSTACK_API_TOKEN=<token> node infra/betterstack/setup-monitors.mjs --dry-run
 
-# Apply:
-BETTERSTACK_API_TOKEN=<token> node infra/betterstack/setup-monitors.mjs
+# Apply (the /metrics monitor needs the origin-lock secret — see below):
+CF_ORIGIN_SECRET=<secret> BETTERSTACK_API_TOKEN=<token> node infra/betterstack/setup-monitors.mjs
 ```
+
+**Origin lock (#111 / spec 0078):** the origin now rejects any request except
+`/health` that lacks the `x-origin-verify` header that Cloudflare injects. So the
+`/metrics` monitor hits the origin **directly** (bypassing Cloudflare's bot mitigation)
+**with that header** — `monitors.json` carries `"value": "$CF_ORIGIN_SECRET"`, which the
+script resolves from the env var at run time (it's never committed). Set `CF_ORIGIN_SECRET`
+to the same value as the Railway env var / Cloudflare Transform Rule. `/health` is exempt
+from the lock, so its monitor needs no header. The GitHub cron
+(`.github/workflows/uptime.yml`) does the same via the `CF_ORIGIN_SECRET` repo Actions
+secret.
 
 Idempotent: monitors are matched by URL, existing ones are PATCHed in place, missing
 ones are created. **To change a monitor**, edit `monitors.json` and re-run — the script

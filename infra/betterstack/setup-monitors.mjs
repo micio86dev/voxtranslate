@@ -72,7 +72,30 @@ async function listMonitors() {
 
 function buildSpecs(config) {
   const defaults = config.defaults || {};
-  return (config.monitors || []).map((m) => ({ ...defaults, ...m }));
+  return (config.monitors || []).map((m) => resolveSecrets({ ...defaults, ...m }));
+}
+
+// `request_headers` values may reference a secret as `$VAR` / `${VAR}` so the secret
+// is never committed (e.g. the origin-lock header `x-origin-verify: $CF_ORIGIN_SECRET`,
+// #111 / spec 0078). Resolve from the environment; fail loudly when a referenced var is
+// unset — otherwise we'd send an empty header and the monitor would silently 403 behind
+// the origin lock.
+function resolveSecrets(spec) {
+  if (!Array.isArray(spec.request_headers)) return spec;
+  const request_headers = spec.request_headers.map((h) => {
+    const ref = /^\$\{?(\w+)\}?$/.exec(String(h.value ?? ''));
+    if (!ref) return h;
+    const val = process.env[ref[1]];
+    if (!val) {
+      fail(
+        `monitor "${spec.pronounceable_name}" needs request header ${h.name} = $${ref[1]}, ` +
+          `but $${ref[1]} is unset.\n  Run with: ${ref[1]}=<value> BETTERSTACK_API_TOKEN=<token> ` +
+          `node infra/betterstack/setup-monitors.mjs`,
+      );
+    }
+    return { ...h, value: val };
+  });
+  return { ...spec, request_headers };
 }
 
 // Only flag a PATCH when a managed field actually differs, so re-runs are quiet.
