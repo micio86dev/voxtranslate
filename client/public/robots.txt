@@ -1,0 +1,5 @@
+# VoxTranslate — allow all crawlers, point them at the sitemap.
+User-agent: *
+Allow: /
+
+Sitemap: https://voxtranslate.app/sitemap.xml

@@ -11,9 +11,32 @@ const LANGS = [
   { code: 'ja', name: '日本語' },
   { code: 'zh', name: '中文' },
 ];
+
+// Structured data for rich results (Google understands WebApplication schema).
+const jsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'WebApplication',
+  name: 'VoxTranslate',
+  url: 'https://voxtranslate.app',
+  applicationCategory: 'CommunicationApplication',
+  operatingSystem: 'Any (web browser)',
+  description:
+    'Real-time video meetings with live AI voice translation and auto-translated chat, so everyone can speak their own language and be understood.',
+  offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
+  featureList: [
+    'Real-time AI voice translation',
+    'Auto-translated text chat',
+    'Peer-to-peer video meetings',
+    'Live speech-to-text captions',
+  ],
+};
 ---
 
-<Base title="VoxTranslate">
+<Base
+  title="VoxTranslate — Real-Time Video Meetings with Live Translation"
+  description="Host video meetings with real-time AI voice translation and auto-translated chat. Speak your own language and be understood in everyone else's — free to start, right in your browser."
+>
+  <script type="application/ld+json" is:inline set:html={JSON.stringify(jsonLd)} />
   <main class="app">
     <!-- ===================== LOGIN (billing mode only) ===================== -->
     <section id="login" class="screen hidden">
