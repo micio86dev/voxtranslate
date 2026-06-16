@@ -431,6 +431,7 @@ const jsonLd = {
                 <div class="mm-grid">
                   <span class="mi"><button id="btn-hand" class="control-btn" data-i18n-title="handTip"></button><span class="mi-label" data-i18n="handTip"></span></span>
                   <span class="mi"><button id="btn-participants" class="control-btn" data-i18n-title="participantsTip" aria-expanded="false" aria-controls="participants-panel"><span class="part-ico"></span><span id="part-badge" class="chat-badge" hidden>0</span></button><span class="mi-label" data-i18n="participantsTip"></span></span>
+                  <span class="mi" id="mi-invite" hidden><button id="btn-invite" class="control-btn" data-i18n-title="inviteTip" aria-expanded="false" aria-controls="invite-panel"></button><span class="mi-label" data-i18n="inviteTip"></span></span>
                   <span class="mi"><button id="btn-bookmark" class="control-btn" data-i18n-title="bookmarkTip" data-i18n-label="bookmarkTip" hidden></button><span class="mi-label" data-i18n="bookmarkTip"></span></span>
                   <span class="mi"><button id="btn-minigame" class="control-btn" data-i18n-title="minigameTip"></button><span class="mi-label" data-i18n="minigameTip"></span></span>
                   <span class="mi"><button id="btn-quiz" class="control-btn" data-i18n-title="quizTip"></button><span class="mi-label" data-i18n="quizTip"></span></span>
@@ -453,6 +454,33 @@ const jsonLd = {
           <button id="part-close" class="btn-ghost icon-btn" data-i18n-title="closeTip"></button>
         </div>
         <div id="participants-list" class="participants-list"></div>
+      </section>
+
+      <!-- Invite panel (spec 0082): copy a join link or email it to people you
+           know. Email send is signed-in only; copy works for everyone. -->
+      <section id="invite-panel" class="invite-panel closed" data-panel="invite" data-i18n-label="inviteTitle">
+        <div class="side-panel-header">
+          <span class="card-title" data-i18n="inviteTitle"></span>
+          <button id="invite-close" class="btn-ghost icon-btn" data-i18n-title="closeTip"></button>
+        </div>
+        <div class="invite-body">
+          <p class="invite-sub" data-i18n="inviteSubtitle"></p>
+          <label class="invite-label" for="invite-link" data-i18n="inviteLinkLabel"></label>
+          <div class="invite-row">
+            <input id="invite-link" class="invite-input" type="text" readonly />
+            <button id="invite-copy" class="btn-primary invite-go" data-i18n="copy"></button>
+          </div>
+          <div id="invite-email-block" class="invite-email-block">
+            <label class="invite-label" for="invite-email" data-i18n="inviteEmailLabel"></label>
+            <div class="invite-row">
+              <input id="invite-email" class="invite-input" type="email" autocomplete="off" spellcheck="false" data-i18n-ph="inviteEmailPh" />
+              <button id="invite-send" class="btn-primary invite-go" data-i18n="inviteSendBtn"></button>
+            </div>
+            <p class="invite-help" data-i18n="inviteEmailHelp"></p>
+          </div>
+          <p id="invite-guest-hint" class="invite-guest-hint" data-i18n="inviteGuestHint" hidden></p>
+          <p id="invite-status" class="invite-status" role="status" aria-live="polite"></p>
+        </div>
       </section>
 
       <section id="bookmarks-panel" class="bookmarks-panel closed" data-i18n-label="bookmarksTitle">
@@ -1658,6 +1686,34 @@ const jsonLd = {
       position: relative; z-index: 1; /* paint above promoted compositor layers in sibling video cells (e.g. the hand-indicator / part-hand animation on Chrome) */
     }
     .participants-panel.closed { margin-right: -261px; }
+    /* Invite panel (spec 0082) — same slide-in shell as the other side panels. */
+    .invite-panel {
+      width: 320px; background: var(--surface); border-left: 1px solid var(--border);
+      display: flex; flex-direction: column; transition: margin-right 0.3s;
+      position: relative; z-index: 1;
+    }
+    .invite-panel.closed { margin-right: -321px; }
+    .invite-body { padding: 16px; display: flex; flex-direction: column; gap: 8px; overflow-y: auto; }
+    .invite-sub { margin: 0 0 6px; color: var(--text-dim); font-size: 13px; line-height: 1.5; }
+    .invite-label { font-size: 12px; font-weight: 600; color: var(--text-dim); margin-top: 6px; }
+    .invite-row { display: flex; gap: 8px; align-items: stretch; }
+    .invite-input {
+      flex: 1; min-width: 0; padding: 10px 12px; border-radius: 10px;
+      border: 1px solid var(--border); background: var(--bg); color: var(--text);
+      font-size: 14px;
+    }
+    .invite-input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+    .invite-go { white-space: nowrap; flex: 0 0 auto; padding-inline: 16px; }
+    .invite-email-block { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+    .invite-help { margin: 2px 0 0; font-size: 12px; color: var(--text-dim); line-height: 1.4; }
+    .invite-status { margin: 6px 0 0; font-size: 13px; min-height: 1.2em; line-height: 1.4; }
+    .invite-status.ok { color: #34d399; }
+    .invite-status.err { color: #f87171; }
+    .invite-guest-hint {
+      margin: 6px 0 0; font-size: 13px; line-height: 1.5; color: var(--text-dim);
+      background: var(--surface-2); border: 1px solid var(--border);
+      border-radius: 10px; padding: 10px 12px;
+    }
     .side-panel-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid var(--border); }
     .participants-list { flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 2px; min-height: 0; }
     .participants-list :global(.part-item) {
@@ -2013,6 +2069,13 @@ const jsonLd = {
       }
       .participants-panel.closed { margin-right: 0; }
       .participants-panel.open { transform: translateY(0); }
+      .invite-panel {
+        position: fixed; bottom: 0; left: 0; right: 0; width: 100%; max-height: 70vh;
+        border-left: none; border-top: 1px solid var(--border); border-radius: 16px 16px 0 0;
+        transform: translateY(100%); transition: transform 0.3s; z-index: 20; margin: 0;
+      }
+      .invite-panel.closed { margin-right: 0; }
+      .invite-panel.open { transform: translateY(0); }
       .video-grid[data-peers="3"] :global(.video-cell:nth-child(3)) { max-width: 100%; }
     }
   </style>

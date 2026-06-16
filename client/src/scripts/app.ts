@@ -9,7 +9,8 @@ import { AudioCapture } from './audio-capture';
 import { MicMeter } from './mic-meter';
 import { ChatManager, type ChatPayload } from './chat';
 import { CHAT_MAX_HEIGHT, counterLabel, counterState, insertAt, resizeBox } from './chat-input';
-import { checkUploadFile, fileUploadEnabled, generateAiQuiz, uploadChatFile } from './api';
+import { checkUploadFile, fileUploadEnabled, generateAiQuiz, sendInvites, uploadChatFile } from './api';
+import { buildInviteLink, MAX_INVITE_EMAILS, parseRoomParam, validateInviteEmails } from './invite';
 import * as auth from './auth';
 import { openSessionScreen } from './session-screen';
 import { initBookmarks, setBookmarkSession } from './bookmarks';
@@ -153,6 +154,19 @@ const notifBanner = $('notif-banner');
 const participantsPanel = $('participants-panel');
 const participantsList = $('participants-list');
 const partClose = $('part-close');
+// ---- Invite panel refs (spec 0082) -----------------------------------------
+const miInvite = $('mi-invite'); // the overflow-menu item (hidden when room is full)
+const btnInvite = $('btn-invite');
+const invitePanel = $('invite-panel');
+const inviteClose = $('invite-close');
+const inviteLinkInput = $<HTMLInputElement>('invite-link');
+const inviteCopyBtn = $('invite-copy');
+const inviteEmailBlock = $('invite-email-block');
+const inviteEmailInput = $<HTMLInputElement>('invite-email');
+const inviteSendBtn = $<HTMLButtonElement>('invite-send');
+const inviteGuestHint = $('invite-guest-hint');
+const inviteStatus = $('invite-status');
+const MAX_ROOM = 4; // mirrors server rooms::MAX_PEERS
 
 // ---- State -----------------------------------------------------------------
 const myId =
@@ -293,7 +307,9 @@ function randomRoom(): string {
   for (let i = 0; i < 6; i++) s += chars[Math.floor(Math.random() * chars.length)];
   return s;
 }
-roomInput.value = randomRoom();
+// A shared invite link (spec 0082) lands as `?room=CODE`: prefill it so the
+// invitee just picks a name and joins; otherwise start from a fresh random room.
+roomInput.value = parseRoomParam(location.search) ?? randomRoom();
 $('dice').addEventListener('click', () => (roomInput.value = randomRoom()));
 
 visGroup.addEventListener('click', (e) => {
@@ -1381,6 +1397,93 @@ function toggleParticipants(force?: boolean): void {
 
 partClose.addEventListener('click', () => toggleParticipants(false));
 
+// ---- Invite panel (spec 0082) ---------------------------------------------
+function setInviteStatus(msg: string, kind: '' | 'ok' | 'err'): void {
+  inviteStatus.textContent = msg;
+  inviteStatus.classList.toggle('ok', kind === 'ok');
+  inviteStatus.classList.toggle('err', kind === 'err');
+}
+
+function toggleInvite(force?: boolean): void {
+  const open = force ?? invitePanel.classList.contains('closed');
+  invitePanel.classList.toggle('open', open);
+  invitePanel.classList.toggle('closed', !open);
+  btnInvite.setAttribute('aria-expanded', String(open));
+  if (open) {
+    inviteLinkInput.value = session ? buildInviteLink(location.origin, session.room) : '';
+    // Email send is for signed-in users (the server 401s guests); guests still
+    // get the copy-link row. We never list registered users — you invite people
+    // whose address you already know.
+    const signedIn = auth.isLoggedIn();
+    show(inviteEmailBlock, signedIn);
+    show(inviteGuestHint, !signedIn);
+    setInviteStatus('', '');
+  }
+  setTimeout(layoutVideos, 320);
+}
+
+// Offer the invite affordance only while a seat is free (spec 0082). Hide and
+// collapse it the moment the room fills.
+function updateInviteAvailability(count: number): void {
+  const canInvite = !!session && count < MAX_ROOM;
+  show(miInvite, canInvite);
+  if (!canInvite && !invitePanel.classList.contains('closed')) toggleInvite(false);
+}
+
+btnInvite.addEventListener('click', () => {
+  setMoreOpen(false);
+  toggleInvite();
+});
+inviteClose.addEventListener('click', () => toggleInvite(false));
+
+inviteCopyBtn.addEventListener('click', async () => {
+  const link = inviteLinkInput.value;
+  if (!link) return;
+  try {
+    await navigator.clipboard.writeText(link);
+  } catch {
+    inviteLinkInput.select(); // fallback: select it for a manual copy
+  }
+  setInviteStatus(t('inviteCopied'), 'ok');
+});
+
+async function sendInvitesFromForm(): Promise<void> {
+  if (!session) return;
+  const { emails, invalid } = validateInviteEmails(inviteEmailInput.value);
+  if (invalid.length) {
+    setInviteStatus(t('inviteBadEmail').replace('{x}', invalid[0]), 'err');
+    return;
+  }
+  if (!emails.length) {
+    setInviteStatus(t('inviteNoEmails'), 'err');
+    return;
+  }
+  if (emails.length > MAX_INVITE_EMAILS) {
+    setInviteStatus(t('inviteTooMany').replace('{n}', String(MAX_INVITE_EMAILS)), 'err');
+    return;
+  }
+  inviteSendBtn.disabled = true;
+  setInviteStatus(t('inviteSending'), '');
+  const res = await sendInvites(session.room, emails, getUiLang());
+  inviteSendBtn.disabled = false;
+  if (res.error) {
+    setInviteStatus(t('inviteSendFailed'), 'err');
+    return;
+  }
+  inviteEmailInput.value = '';
+  let msg = t('inviteSent').replace('{n}', String(res.sent));
+  if (res.failed) msg += ` · ${t('inviteSomeFailed').replace('{n}', String(res.failed))}`;
+  setInviteStatus(msg, 'ok');
+}
+
+inviteSendBtn.addEventListener('click', () => void sendInvitesFromForm());
+inviteEmailInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    void sendInvitesFromForm();
+  }
+});
+
 // ---- Session header: live duration + participant count (spec 0055) ----------
 // Both chips stay hidden until join. The duration is THIS client's elapsed time
 // since room_joined; the count is set from updateParticipantsList (peerNames).
@@ -1426,6 +1529,7 @@ function updateParticipantsList(): void {
   }
 
   $('part-count-n').textContent = String(items.length); // live count (spec 0055)
+  updateInviteAvailability(items.length); // show "Invite" only while a seat is free (spec 0082)
   // Your avatar (image when available, else initial + gradient) in the on-video
   // participant badge (spec 0061 / #98 → avatars in spec 0070 R2.3).
   fillAvatar(partAvatarEl, myName, myAvatar, 48, 1);
@@ -1551,6 +1655,7 @@ function setControlState(): void {
   setToggleState(btnRecord, isRecording, isRecording ? t('recording') : t('recordingTip'));
   const partIco = btnParticipants.querySelector('.part-ico');
   if (partIco) partIco.innerHTML = icon('users');
+  btnInvite.innerHTML = icon('user-plus');
   const chatIco = btnChat.querySelector('.chat-ico');
   if (chatIco) chatIco.innerHTML = icon('chat');
   const leave = document.getElementById('btn-leave');
