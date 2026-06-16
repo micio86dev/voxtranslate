@@ -2,12 +2,12 @@
 
 | | |
 |---|---|
-| **Status** | In progress |
+| **Status** | ✅ Shipped |
 | **Owner** | VoxTranslate |
 | **Created** | 2026-06-16 |
-| **Shipped** | — |
+| **Shipped** | 2026-06-16 |
 | **Version** | — |
-| **Commits** | pending |
+| **Commits** | `afade1c` (#179) |
 | **Depends on** | [0026](../0026-turn-relay/spec.md), [0059](../0059-turn-static-creds/spec.md) |
 
 ## 1. Context & Problem
