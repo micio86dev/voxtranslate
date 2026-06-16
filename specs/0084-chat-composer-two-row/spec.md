@@ -2,11 +2,12 @@
 
 | | |
 |---|---|
-| **Status** | In progress |
+| **Status** | ✅ Shipped |
 | **Owner** | Micio Dev |
 | **Created** | 2026-06-16 |
-| **Shipped** | — |
+| **Shipped** | 2026-06-16 |
 | **Version** | — |
+| **Commits** | `042382f` |
 | **Depends on** | [0070](../0070-call-chat-game-ux-fixes/spec.md) (chat composer + counter) |
 
 ## 1. Context & Problem
