@@ -1,0 +1,82 @@
+# Off-site mirror of the Supabase Storage bucket (chat-file uploads, spec 0018) to the
+# same Cloudflare R2 bucket as the DB dumps, under a separate `storage/` prefix. The DB
+# backup covers rows; this covers the file blobs they reference. Uses rclone S3→S3 with
+# an additive `copy` (chat uploads are immutable UUIDs, so it never deletes — a file
+# pulled from Supabase stays in the backup). Skips cleanly until the secrets are set.
+# Wiring + restore: docs/runbooks/db-backups.md (Storage section).
+name: Storage backup (Supabase → R2)
+
+on:
+  schedule:
+    - cron: '0 3 * * *' # daily ~03:00 UTC (best-effort)
+  workflow_dispatch: {}
+
+concurrency:
+  group: storage-backup
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Reuses the R2 creds + adds the Supabase-Storage S3 keys, all on the
+    # Production environment (same place as the DB-backup secrets).
+    environment: Production
+    steps:
+      - name: Check configuration
+        id: guard
+        env:
+          SUPA_KEY: ${{ secrets.BACKUP_SUPABASE_S3_ACCESS_KEY_ID }}
+          SUPA_ENDPOINT: ${{ secrets.BACKUP_SUPABASE_S3_ENDPOINT }}
+          R2_BUCKET: ${{ secrets.BACKUP_S3_BUCKET }}
+        run: |
+          if [ -z "$SUPA_KEY" ] || [ -z "$SUPA_ENDPOINT" ] || [ -z "$R2_BUCKET" ]; then
+            echo "::notice title=Storage backup not configured::Set BACKUP_SUPABASE_S3_* (+ the existing R2 secrets) to enable — see docs/runbooks/db-backups.md, Storage section. Skipping."
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install rclone
+        if: steps.guard.outputs.configured == 'true'
+        run: |
+          set -euo pipefail
+          curl -fsSL https://rclone.org/install.sh | sudo bash
+          rclone version | head -1
+
+      - name: Sync Supabase Storage → R2
+        if: steps.guard.outputs.configured == 'true'
+        env:
+          # Source — Supabase Storage (S3-compatible endpoint)
+          RCLONE_CONFIG_SUPA_TYPE: s3
+          RCLONE_CONFIG_SUPA_PROVIDER: Other
+          RCLONE_CONFIG_SUPA_ACCESS_KEY_ID: ${{ secrets.BACKUP_SUPABASE_S3_ACCESS_KEY_ID }}
+          RCLONE_CONFIG_SUPA_SECRET_ACCESS_KEY: ${{ secrets.BACKUP_SUPABASE_S3_SECRET_ACCESS_KEY }}
+          RCLONE_CONFIG_SUPA_ENDPOINT: ${{ secrets.BACKUP_SUPABASE_S3_ENDPOINT }}
+          RCLONE_CONFIG_SUPA_REGION: ${{ secrets.BACKUP_SUPABASE_S3_REGION }}
+          # Dest — Cloudflare R2 (reuse the DB-backup bucket, separate prefix)
+          RCLONE_CONFIG_R2_TYPE: s3
+          RCLONE_CONFIG_R2_PROVIDER: Cloudflare
+          RCLONE_CONFIG_R2_ACCESS_KEY_ID: ${{ secrets.BACKUP_S3_ACCESS_KEY_ID }}
+          RCLONE_CONFIG_R2_SECRET_ACCESS_KEY: ${{ secrets.BACKUP_S3_SECRET_ACCESS_KEY }}
+          RCLONE_CONFIG_R2_ENDPOINT: ${{ secrets.BACKUP_S3_ENDPOINT }}
+          RCLONE_CONFIG_R2_REGION: auto
+          R2_BUCKET: ${{ secrets.BACKUP_S3_BUCKET }}
+          SUPA_BUCKET: ${{ secrets.BACKUP_SUPABASE_BUCKET }}
+        run: |
+          set -euo pipefail
+          : "${SUPA_BUCKET:=chat-files}" # server default (SUPABASE_BUCKET)
+          # rclone registers env-var remotes (RCLONE_CONFIG_<NAME>_*) under a
+          # LOWERCASE name, and the reference is case-sensitive → use supa:/r2:.
+          dest="r2:${R2_BUCKET}/storage/${SUPA_BUCKET}"
+          echo "syncing supa:${SUPA_BUCKET} → ${dest}"
+          # copy = additive + incremental; --size-only because uploads are write-once
+          # immutable UUIDs (no overwrite), avoiding needless re-transfers on modtime drift.
+          rclone copy "supa:${SUPA_BUCKET}" "$dest" \
+            --size-only --fast-list --transfers 8 --checkers 16 \
+            --s3-no-check-bucket --stats-one-line
+          echo "--- backup contents now ---"
+          rclone size "$dest"
