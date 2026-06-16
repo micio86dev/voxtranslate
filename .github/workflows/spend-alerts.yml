@@ -1,0 +1,56 @@
+name: Spend alerts
+
+# Daily low-water alert on external prepaid balances that have no native
+# spend-alert (spec 0079, follow-up to #109). Fails the job — which emails the
+# repo's watchers, same mechanism as the uptime cron — when a balance is low.
+# Deepgram has no dashboard usage-alert; its prepaid balance is the cap, so this
+# warns before it runs out and STT silently stops.
+
+on:
+  schedule:
+    - cron: '0 9 * * *' # daily 09:00 UTC
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  deepgram-balance:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deepgram balance low-water alert
+        env:
+          DEEPGRAM_API_KEY: ${{ secrets.DEEPGRAM_API_KEY }}
+          # Override via repo variable DEEPGRAM_BALANCE_ALERT_USD; defaults to $20.
+          THRESHOLD_USD: ${{ vars.DEEPGRAM_BALANCE_ALERT_USD || '20' }}
+        run: |
+          set -uo pipefail
+          if [ -z "${DEEPGRAM_API_KEY}" ]; then
+            echo "DEEPGRAM_API_KEY secret not set — skipping (add it to enable this alert)."
+            exit 0
+          fi
+          auth="Authorization: Token ${DEEPGRAM_API_KEY}"
+
+          # 1. Resolve the project id (first project the key can see).
+          projects=$(curl -sS --max-time 20 -H "$auth" https://api.deepgram.com/v1/projects || echo "")
+          pid=$(echo "$projects" | jq -r '.projects[0].project_id // empty' 2>/dev/null)
+          if [ -z "$pid" ]; then
+            echo "::warning title=Deepgram balance::could not read projects (API key scope? needs billing read) — skipping. Body: $(echo "$projects" | head -c 200)"
+            exit 0
+          fi
+
+          # 2. Sum the USD balances for that project.
+          body=$(curl -sS --max-time 20 -H "$auth" "https://api.deepgram.com/v1/projects/$pid/balances" || echo "")
+          usd=$(echo "$body" | jq -r '[.balances[]? | select((.units // "" | ascii_downcase) == "usd") | .amount] | add // empty' 2>/dev/null)
+          if [ -z "$usd" ]; then
+            echo "::warning title=Deepgram balance::no USD balance found (key scope, or non-USD credits) — skipping. Body: $(echo "$body" | head -c 200)"
+            exit 0
+          fi
+
+          echo "Deepgram balance: \$$usd  (alert threshold \$$THRESHOLD_USD)"
+          # 3. Alert (fail the job → email) when below threshold. awk does the float compare.
+          if awk "BEGIN { exit !($usd < $THRESHOLD_USD) }"; then
+            echo "::error title=Deepgram balance low::only \$$usd left (< \$$THRESHOLD_USD) — top up, or STT stops when it hits 0."
+            exit 1
+          fi
+          echo "Balance OK — above threshold."
