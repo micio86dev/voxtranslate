@@ -596,6 +596,7 @@ $('back-btn').addEventListener('click', () => {
 
 $('join-btn').addEventListener('click', () => {
   if (!localStream || !session) return;
+  unlockTts(); // iOS: prime speechSynthesis inside the tap so translations play
   void startCall();
 });
 
@@ -1743,7 +1744,8 @@ async function buildOutgoing(raw: MediaStreamTrack): Promise<MediaStreamTrack> {
 
 btnTts.addEventListener('click', () => {
   ttsOn = !ttsOn;
-  if (!ttsOn) stopTts();
+  if (ttsOn) unlockTts(); // iOS: re-prime within this tap when turning voice on
+  else stopTts();
   applyAudioMode(); // mute/unmute foreign originals to match the mode
   setControlState();
 });
@@ -2388,10 +2390,30 @@ function pumpTts(): void {
   speechSynthesis.speak(u);
 }
 
+// iOS/WebKit gate speechSynthesis behind a real user gesture: unless the FIRST
+// speak() runs inside a tap handler, every later (programmatic) translated-voice
+// utterance is silently dropped — the reported "no translated audio on iPhone"
+// (Chrome on iOS is WebKit too, so it repros there). Prime the engine from the
+// join tap / TTS-toggle with one inaudible utterance so the real translations
+// play. No-op where it isn't needed; re-armed on leaveCall via stopTts().
+let ttsUnlocked = false;
+function unlockTts(): void {
+  if (ttsUnlocked || !window.speechSynthesis) return;
+  try {
+    const u = new SpeechSynthesisUtterance(' ');
+    u.volume = 0;
+    speechSynthesis.speak(u);
+    ttsUnlocked = true;
+  } catch {
+    /* best-effort: a later real speak() will still attempt to unlock */
+  }
+}
+
 /** Stop playback and drop the queue (TTS toggled off / leaving the call). */
 function stopTts(): void {
   ttsQueue.length = 0;
   ttsSpeaking = false;
+  ttsUnlocked = false; // re-prime on the next join / TTS-toggle gesture (iOS)
   if (window.speechSynthesis) speechSynthesis.cancel();
 }
 if (window.speechSynthesis) speechSynthesis.getVoices();
