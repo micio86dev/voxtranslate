@@ -2,12 +2,12 @@
 
 | | |
 |---|---|
-| **Status** | In progress |
+| **Status** | ✅ Shipped |
 | **Owner** | VoxTranslate |
 | **Created** | 2026-06-15 |
-| **Shipped** | — |
+| **Shipped** | 2026-06-15 |
 | **Version** | — |
-| **Commits** | `<sha>` |
+| **Commits** | `155f536` |
 | **Depends on** | [0064](../0064-high-traffic-abuse-hardening/spec.md), [0065](../0065-bounded-hot-path-channels/spec.md) |
 
 ## 1. Context & Problem
