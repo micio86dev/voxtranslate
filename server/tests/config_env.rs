@@ -65,11 +65,11 @@ fn from_env_detects_guest_and_billing_modes() {
     std::env::set_var("SUPABASE_SERVICE_KEY", "service-key");
     let c = Config::from_env().unwrap();
     let s = c.storage.as_ref().expect("storage enabled");
-    // Trailing slash trimmed; bucket defaults to chat-files; 25 MiB default cap.
+    // Trailing slash trimmed; bucket defaults to chat-files; 5 MiB default cap.
     assert_eq!(s.supabase_url, "https://ref.supabase.co");
     assert_eq!(s.service_key, "service-key");
     assert_eq!(s.bucket, "chat-files");
-    assert_eq!(s.max_bytes, 25 * 1024 * 1024);
+    assert_eq!(s.max_bytes, 5 * 1024 * 1024);
     assert_eq!(s.signed_ttl_secs, 24 * 60 * 60); // 24h default (issue #117)
     std::env::set_var("SUPABASE_BUCKET", "custom-bucket");
     std::env::set_var("SUPABASE_MAX_UPLOAD_BYTES", "1048576");
