@@ -1,0 +1,99 @@
+# Off-site, encrypted logical backup of the Supabase Postgres DB — defense in depth
+# ALONGSIDE Supabase's own daily backups / PITR (which live inside Supabase and would
+# be lost with the account/project). This pg_dumps the public schema (all app + Directus
+# data), integrity-checks it, encrypts it (AES-256), and uploads it to an S3-compatible
+# bucket you own (Cloudflare R2 / Backblaze B2 / AWS S3). Retention is handled by a
+# bucket lifecycle rule (see docs/runbooks/db-backups.md), not by deleting here.
+#
+# The job SKIPS cleanly until the BACKUP_* secrets are set, so the schedule never spams
+# failures before it's configured. Wiring + restore steps: docs/runbooks/db-backups.md.
+name: DB backup (off-site, encrypted)
+
+on:
+  schedule:
+    - cron: '0 */6 * * *' # every 6h (GitHub cron is best-effort; may be delayed)
+  workflow_dispatch: {} # manual run (e.g. a pre-migration safety dump)
+
+concurrency:
+  group: db-backup
+  cancel-in-progress: false # never interrupt an in-flight backup
+
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check configuration
+        id: guard
+        env:
+          DATABASE_URL: ${{ secrets.BACKUP_DATABASE_URL }}
+          S3_BUCKET: ${{ secrets.BACKUP_S3_BUCKET }}
+          PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          if [ -z "$DATABASE_URL" ] || [ -z "$S3_BUCKET" ] || [ -z "$PASSPHRASE" ]; then
+            echo "::notice title=DB backup not configured::Set BACKUP_DATABASE_URL, BACKUP_PASSPHRASE and BACKUP_S3_* secrets to enable (see docs/runbooks/db-backups.md). Skipping."
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install postgresql-client 17
+        if: steps.guard.outputs.configured == 'true'
+        run: |
+          set -euo pipefail
+          # A client >= the Supabase server version (15/16/17) is required to dump.
+          curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+            | sudo gpg --dearmor -o /usr/share/keyrings/pgdg.gpg
+          echo "deb [signed-by=/usr/share/keyrings/pgdg.gpg] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-17
+          pg_dump --version
+
+      - name: Dump, verify & encrypt
+        if: steps.guard.outputs.configured == 'true'
+        env:
+          DATABASE_URL: ${{ secrets.BACKUP_DATABASE_URL }}
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          ts=$(date -u +%Y%m%dT%H%M%SZ)
+          object="voxtranslate-${ts}.dump.gpg"
+          echo "OBJECT=$object" >> "$GITHUB_ENV"
+
+          # Custom format: compressed + selective restore. public = all app + Directus
+          # data (this app uses its own auth, not Supabase Auth, so nothing lives in the
+          # auth/storage schemas). --no-owner/--no-privileges → restores into any Postgres.
+          pg_dump "$DATABASE_URL" \
+            --schema=public --format=custom --no-owner --no-privileges \
+            --file=db.dump
+
+          # Integrity gate: a corrupt/truncated archive fails to list — never ship one.
+          pg_restore --list db.dump > /dev/null
+          echo "dump OK ($(du -h db.dump | cut -f1))"
+
+          # Encrypt at rest (AES-256). The passphrase is needed only to RESTORE.
+          gpg --batch --yes --symmetric --cipher-algo AES256 \
+            --passphrase "$BACKUP_PASSPHRASE" --output db.dump.gpg db.dump
+          rm -f db.dump
+          echo "encrypted → $object ($(du -h db.dump.gpg | cut -f1))"
+
+      - name: Upload to object storage (S3-compatible)
+        if: steps.guard.outputs.configured == 'true'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.BACKUP_S3_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.BACKUP_S3_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ${{ secrets.BACKUP_S3_REGION }}
+          S3_ENDPOINT: ${{ secrets.BACKUP_S3_ENDPOINT }}
+          S3_BUCKET: ${{ secrets.BACKUP_S3_BUCKET }}
+        run: |
+          set -euo pipefail
+          : "${AWS_DEFAULT_REGION:=auto}" # Cloudflare R2 uses "auto"
+          endpoint=()
+          [ -n "${S3_ENDPOINT:-}" ] && endpoint=(--endpoint-url "$S3_ENDPOINT")
+          aws s3 cp db.dump.gpg "s3://${S3_BUCKET}/db-backups/${OBJECT}" \
+            "${endpoint[@]}" --only-show-errors
+          echo "::notice title=DB backup uploaded::s3://${S3_BUCKET}/db-backups/${OBJECT}"
