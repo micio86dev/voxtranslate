@@ -2771,9 +2771,11 @@ function setupGoogleSignIn(): void {
       if (!g?.accounts?.id) return;
       g.accounts.id.initialize({ client_id: clientId, callback: onGoogleCredential });
       container.innerHTML = '';
-      // Explicit width pins the GSI iframe to the button so no white gutter frames
-      // it on the dark login card (spec 0083); 300 fits the 380px login card.
-      g.accounts.id.renderButton(container, { theme: 'filled_blue', size: 'large', shape: 'pill', text: 'continue_with', width: 300 });
+      // Dark-surface button so Google's personalized "Continua come …" state
+      // renders on a dark field that blends into the login card, instead of the
+      // white box filled_blue draws there (spec 0083 fix). No explicit width —
+      // filled_blue + width:300 made that white box span the whole card.
+      g.accounts.id.renderButton(container, { theme: 'filled_black', size: 'large', shape: 'pill', text: 'continue_with' });
     })
     .catch(() => {});
 }
