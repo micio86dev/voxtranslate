@@ -195,6 +195,72 @@ const { title = 'VoxTranslate' } = Astro.props;
         height: 18px;
       }
 
+      /* ---- Connection-status banner (net-status.ts, created on <body>) ----
+         A small pill at the bottom: red offline, amber when the realtime
+         transport is reconnecting, green flash on recovery. Backgrounds are the
+         semantic colours darkened so white text clears AA (≥4.5:1). */
+      .net-status {
+        position: fixed;
+        left: 50%;
+        bottom: 24px;
+        transform: translate(-50%, 18px);
+        z-index: 90;
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        max-width: min(92vw, 360px);
+        padding: 9px 16px;
+        border-radius: 999px;
+        font-size: var(--font-sm);
+        font-weight: var(--font-weight-medium);
+        color: #fff;
+        white-space: nowrap;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+        transition: opacity 0.3s, transform 0.3s, background-color 0.35s, border-color 0.35s;
+      }
+      .net-status.show {
+        opacity: 1;
+        visibility: visible;
+        transform: translate(-50%, 0);
+      }
+      .net-status-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #fff;
+        flex: none;
+      }
+      .net-status.net-offline {
+        background: color-mix(in srgb, var(--danger) 80%, #000);
+        border: 1px solid var(--danger);
+      }
+      .net-status.net-degraded {
+        background: color-mix(in srgb, var(--warning) 64%, #000);
+        border: 1px solid var(--warning);
+      }
+      .net-status.net-online {
+        background: color-mix(in srgb, var(--success) 60%, #000);
+        border: 1px solid var(--success);
+      }
+      /* Gentle pulse while a problem is live; the dot is steady once restored.
+         (The global prefers-reduced-motion rule below stills it.) */
+      .net-status.net-offline .net-status-dot,
+      .net-status.net-degraded .net-status-dot {
+        animation: net-status-pulse 1.4s ease-in-out infinite;
+      }
+      @keyframes net-status-pulse {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.35;
+        }
+      }
+
       ::selection {
         background: var(--accent);
         color: #fff;

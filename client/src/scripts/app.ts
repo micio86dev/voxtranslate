@@ -20,6 +20,7 @@ import { TicTacToe } from './tictactoe';
 import { Quiz } from './quiz';
 import { CallTimer, spokenDuration, formatClock } from './timer';
 import { dismissLangToast, initLangDetect, onLanguageDetected } from './lang-detect';
+import { initNetStatus, setNetworkDegraded } from './net-status';
 import {
   playCallEnterSound,
   playCallLeaveSound,
@@ -271,6 +272,8 @@ const subtitleTimers = new Map<string, number>();
 // ============================================================================
 langSel.value = detectLang();
 applyI18n();
+// Global connection-status banner (offline / reconnecting / back online).
+initNetStatus();
 langSel.addEventListener('change', () => {
   setUiLang(langSel.value);
   applyI18n();
@@ -666,6 +669,7 @@ function openSocket(): void {
   ws = new WebSocket(auth.buildWsUrl(params));
 
   ws.onopen = () => {
+    setNetworkDegraded(false); // transport (re)connected — clears the amber pill / flashes green
     mesh = new MeshManager(
       localStream!,
       (sig) => ws?.send(JSON.stringify(sig)),
@@ -707,7 +711,11 @@ function openSocket(): void {
   };
 
   ws.onclose = (e) => {
-    if (!manualClose && e.code !== 1000) setTimeout(() => !manualClose && openSocket(), 2000);
+    // Unexpected drop while we still want the call → amber "reconnecting" pill.
+    if (!manualClose && e.code !== 1000) {
+      setNetworkDegraded(true);
+      setTimeout(() => !manualClose && openSocket(), 2000);
+    }
   };
 }
 
@@ -2215,6 +2223,7 @@ function leaveCall(): void {
   callStartedAt = 0;
   show($('transcript-indicator'), false);
   manualClose = true;
+  setNetworkDegraded(false); // leaving on purpose — don't show "reconnecting"
   audioCapture?.stop();
   micMeter?.stop();
   micMeter = null;
