@@ -2,11 +2,12 @@
 
 | | |
 |---|---|
-| **Status** | In progress |
+| **Status** | ✅ Shipped |
 | **Owner** | Micio Dev |
 | **Created** | 2026-06-16 |
-| **Shipped** | — |
+| **Shipped** | 2026-06-16 |
 | **Version** | — |
+| **Commits** | `f9b32dc` |
 | **Depends on** | [0035](../0035-legal-pages/spec.md) (legal pages scaffold) |
 
 > **Not legal advice.** These pages are good-faith, production-presentable policy
