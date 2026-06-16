@@ -68,7 +68,7 @@ pub async fn ice(State(state): State<AppState>, headers: HeaderMap) -> Response 
         "urls": ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"]
     })];
     if let Some(turn) = state.config.turn.as_ref() {
-        let (username, credential) = match &turn.cred {
+        let entry = match &turn.cred {
             // coturn REST: HMAC-sign a short expiry with the shared secret (spec 0026).
             crate::config::TurnCred::Secret { secret, ttl_secs } => {
                 let now = std::time::SystemTime::now()
@@ -81,20 +81,80 @@ pub async fn ice(State(state): State<AppState>, headers: HeaderMap) -> Response 
                 mac.update(username.as_bytes());
                 let credential =
                     base64::engine::general_purpose::STANDARD.encode(mac.finalize().into_bytes());
-                (username, credential)
+                Some(serde_json::json!({
+                    "urls": turn.urls,
+                    "username": username,
+                    "credential": credential,
+                }))
             }
             // Managed relay: pass the static username/password straight through (spec 0059).
-            crate::config::TurnCred::Static { username, password } => {
-                (username.clone(), password.clone())
-            }
+            crate::config::TurnCred::Static { username, password } => Some(serde_json::json!({
+                "urls": turn.urls,
+                "username": username,
+                "credential": password,
+            })),
+            // Cloudflare Realtime TURN: mint a short-lived credential per request via
+            // Cloudflare's API (spec 0077). Best-effort — on any failure we fall back
+            // to STUN-only so a call still connects when direct P2P works.
+            crate::config::TurnCred::Cloudflare {
+                key_id,
+                api_token,
+                ttl_secs,
+            } => cloudflare_ice_servers(&state.http, key_id, api_token, *ttl_secs).await,
         };
-        servers.push(serde_json::json!({
-            "urls": turn.urls,
-            "username": username,
-            "credential": credential,
-        }));
+        if let Some(entry) = entry {
+            servers.push(entry);
+        }
     }
     Json(serde_json::json!({ "iceServers": servers })).into_response()
+}
+
+/// Cloudflare Realtime TURN credential-generation endpoint for a TURN key id (spec 0077).
+fn cf_turn_credentials_url(key_id: &str) -> String {
+    format!("https://rtc.live.cloudflare.com/v1/turn/keys/{key_id}/credentials/generate")
+}
+
+/// Pull the `iceServers` object out of Cloudflare's credential-generation response.
+/// Returns `None` on an unexpected shape so `/api/ice` degrades to STUN-only.
+fn parse_cf_ice_servers(body: &serde_json::Value) -> Option<serde_json::Value> {
+    let ice = body.get("iceServers")?;
+    // Only useful with both a server list and a credential to present.
+    if ice.get("urls").is_some() && ice.get("credential").is_some() {
+        Some(ice.clone())
+    } else {
+        None
+    }
+}
+
+/// Ask Cloudflare to mint short-lived TURN credentials (anycast URLs + a time-limited
+/// username/credential). Best-effort: any network / non-2xx / parse error logs and
+/// yields `None`, so the caller returns STUN-only rather than failing the call. The
+/// `api_token` stays server-side — only the minted username/credential reach the client.
+async fn cloudflare_ice_servers(
+    http: &reqwest::Client,
+    key_id: &str,
+    api_token: &str,
+    ttl_secs: u64,
+) -> Option<serde_json::Value> {
+    let resp = http
+        .post(cf_turn_credentials_url(key_id))
+        .bearer_auth(api_token)
+        .json(&serde_json::json!({ "ttl": ttl_secs }))
+        .timeout(Duration::from_secs(5))
+        .send()
+        .await
+        .map_err(|e| tracing::warn!("cloudflare TURN request failed: {e}"))
+        .ok()?;
+    if !resp.status().is_success() {
+        tracing::warn!("cloudflare TURN returned HTTP {}", resp.status());
+        return None;
+    }
+    let body: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| tracing::warn!("cloudflare TURN bad JSON: {e}"))
+        .ok()?;
+    parse_cf_ice_servers(&body)
 }
 
 /// Max characters in a user bug report (spec 0071).
@@ -2477,6 +2537,33 @@ pub const CURRENT_TOS_VERSION: &str = "2026-06-10";
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cf_turn_url_targets_the_key() {
+        assert_eq!(
+            cf_turn_credentials_url("abc123"),
+            "https://rtc.live.cloudflare.com/v1/turn/keys/abc123/credentials/generate"
+        );
+    }
+
+    #[test]
+    fn parse_cf_ice_extracts_iceservers_else_none() {
+        let ok = serde_json::json!({
+            "iceServers": {
+                "urls": ["turn:turn.cloudflare.com:3478?transport=udp"],
+                "username": "u",
+                "credential": "c"
+            }
+        });
+        let got = parse_cf_ice_servers(&ok).expect("well-formed response yields iceServers");
+        assert_eq!(got["username"], "u");
+        assert_eq!(got["credential"], "c");
+        // Missing credential / wrong shape ⇒ None (caller falls back to STUN-only).
+        assert!(
+            parse_cf_ice_servers(&serde_json::json!({ "iceServers": { "urls": [] } })).is_none()
+        );
+        assert!(parse_cf_ice_servers(&serde_json::json!({ "error": "bad token" })).is_none());
+    }
 
     #[test]
     fn transcript_filename_sanitizes_room_names() {
