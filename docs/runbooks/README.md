@@ -11,6 +11,7 @@ are the dashboard/provisioning steps plus the exact env vars to set.
 | [Managed geo-distributed TURN](./112-managed-turn.md) | [#112](https://github.com/micio86dev/voxtranslate/issues/112) | Recover the ~15% cross-border calls that drop without a relay |
 | [Pin the Railway region](./113-railway-region.md) | [#113](https://github.com/micio86dev/voxtranslate/issues/113) | Lower subtitle latency (server near users + Deepgram/Groq) |
 | [Log shipping + spend alerts](./109-logshipping-spend-alerts.md) | [#109](https://github.com/micio86dev/voxtranslate/issues/109) | Turn on Better Stack log shipping + external cost alarms |
+| [Database backups (PITR + off-site dumps)](./db-backups.md) | — | Beyond Supabase's daily backup: PITR + independent encrypted `pg_dump` (`.github/workflows/db-backup.yml`) |
 
 > **Deploy reminder.** The server runs on **Railway and deploys manually**
 > (`railway up` from `server/`). Setting a Railway service variable triggers a
