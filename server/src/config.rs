@@ -48,13 +48,38 @@ pub enum TurnCred {
     /// the zero-deploy fallback (Metered / Twilio / etc., issue #40). These DO
     /// reach the client, so use a relay-scoped account.
     Static { username: String, password: String },
+    /// Cloudflare Realtime TURN (spec 0077 / issue #112): `/api/ice` mints a
+    /// short-lived credential per request by calling Cloudflare's API with a TURN
+    /// key (`key_id` + `api_token`). Cloudflare returns geo-distributed (anycast)
+    /// URLs plus a time-limited username/credential, so the relay sits near each
+    /// user. The `api_token` is server-only and never reaches the client.
+    Cloudflare {
+        key_id: String,
+        api_token: String,
+        ttl_secs: u64,
+    },
 }
 
 impl TurnCred {
-    /// Choose a credential mode from raw values; the HMAC secret wins when both are
-    /// present. Pure (no env reads) so it's unit-testable. `None` ⇒ TURN stays off.
-    fn pick(secret: &str, username: &str, password: &str, ttl_secs: u64) -> Option<Self> {
-        if !secret.is_empty() {
+    /// Choose a credential mode from raw values. Precedence: **Cloudflare** (key +
+    /// token both set) wins, then the HMAC **secret**, then the **static**
+    /// username/password. Pure (no env reads) so it's unit-testable. `None` ⇒ TURN
+    /// stays off.
+    fn pick(
+        cf_key_id: &str,
+        cf_api_token: &str,
+        secret: &str,
+        username: &str,
+        password: &str,
+        ttl_secs: u64,
+    ) -> Option<Self> {
+        if !cf_key_id.is_empty() && !cf_api_token.is_empty() {
+            Some(TurnCred::Cloudflare {
+                key_id: cf_key_id.to_string(),
+                api_token: cf_api_token.to_string(),
+                ttl_secs,
+            })
+        } else if !secret.is_empty() {
             Some(TurnCred::Secret {
                 secret: secret.to_string(),
                 ttl_secs,
@@ -70,13 +95,16 @@ impl TurnCred {
     }
 }
 
-/// TURN (media relay) config for when direct P2P fails (spec 0026). Active only when
-/// `TURN_URLS` plus a credential are set: either `TURN_SECRET` (self-hosted coturn),
-/// or `TURN_USERNAME` + `TURN_PASSWORD` (a managed relay, spec 0059). Without it the
-/// client uses STUN only and cross-NAT (e.g. cross-border) calls may fail.
+/// TURN (media relay) config for when direct P2P fails (spec 0026). Active when a
+/// credential mode is configured: `TURN_CLOUDFLARE_KEY_ID` + `TURN_CLOUDFLARE_API_TOKEN`
+/// (Cloudflare Realtime TURN, spec 0077), `TURN_URLS` + `TURN_SECRET` (self-hosted
+/// coturn), or `TURN_URLS` + `TURN_USERNAME` + `TURN_PASSWORD` (a managed relay,
+/// spec 0059). Without it the client uses STUN only and cross-NAT (e.g. cross-border)
+/// calls may fail.
 #[derive(Debug, Clone)]
 pub struct TurnConfig {
-    /// TURN URLs, e.g. `turn:relay.example.com:3478?transport=tcp`.
+    /// TURN URLs, e.g. `turn:relay.example.com:3478?transport=tcp`. Empty in the
+    /// Cloudflare mode — there the minted response carries Cloudflare's anycast URLs.
     pub urls: Vec<String>,
     /// The credential the client presents to the relay.
     pub cred: TurnCred,
@@ -92,15 +120,19 @@ impl TurnConfig {
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
             .collect();
-        if urls.is_empty() {
-            return None;
-        }
         let cred = TurnCred::pick(
+            &env::var("TURN_CLOUDFLARE_KEY_ID").unwrap_or_default(),
+            &env::var("TURN_CLOUDFLARE_API_TOKEN").unwrap_or_default(),
             &env::var("TURN_SECRET").unwrap_or_default(),
             &env::var("TURN_USERNAME").unwrap_or_default(),
             &env::var("TURN_PASSWORD").unwrap_or_default(),
             parse_or("TURN_TTL_SECS", 3600u64),
         )?;
+        // Cloudflare returns its own (anycast) URLs in the minted response; the
+        // coturn/managed modes need TURN_URLS to point at the relay.
+        if !matches!(cred, TurnCred::Cloudflare { .. }) && urls.is_empty() {
+            return None;
+        }
         Some(TurnConfig { urls, cred })
     }
 }
@@ -519,17 +551,31 @@ mod tests {
     }
 
     #[test]
-    fn turn_cred_pick_prefers_secret_then_static_then_none() {
-        // HMAC secret wins even when static creds are also supplied.
-        match TurnCred::pick("s3cr3t", "user", "pass", 1800) {
+    fn turn_cred_pick_prefers_cloudflare_then_secret_then_static_then_none() {
+        // Cloudflare (key + token both present) wins over every other mode.
+        match TurnCred::pick("cfkey", "cftoken", "s3cr3t", "user", "pass", 1800) {
+            Some(TurnCred::Cloudflare {
+                key_id,
+                api_token,
+                ttl_secs,
+            }) => {
+                assert_eq!(key_id, "cfkey");
+                assert_eq!(api_token, "cftoken");
+                assert_eq!(ttl_secs, 1800);
+            }
+            other => panic!("expected Cloudflare, got {other:?}"),
+        }
+        // Cloudflare needs BOTH halves; with only the key id it falls through to the
+        // HMAC secret.
+        match TurnCred::pick("cfkey", "", "s3cr3t", "user", "pass", 1800) {
             Some(TurnCred::Secret { secret, ttl_secs }) => {
                 assert_eq!(secret, "s3cr3t");
                 assert_eq!(ttl_secs, 1800);
             }
             other => panic!("expected Secret, got {other:?}"),
         }
-        // No secret → fall back to the managed relay's static username/password.
-        match TurnCred::pick("", "user", "pass", 3600) {
+        // No Cloudflare / secret → fall back to the managed relay's static creds.
+        match TurnCred::pick("", "", "", "user", "pass", 3600) {
             Some(TurnCred::Static { username, password }) => {
                 assert_eq!(username, "user");
                 assert_eq!(password, "pass");
@@ -537,8 +583,8 @@ mod tests {
             other => panic!("expected Static, got {other:?}"),
         }
         // Static needs BOTH halves; partial / empty config leaves TURN off.
-        assert!(TurnCred::pick("", "user", "", 3600).is_none());
-        assert!(TurnCred::pick("", "", "", 3600).is_none());
+        assert!(TurnCred::pick("", "", "", "user", "", 3600).is_none());
+        assert!(TurnCred::pick("", "", "", "", "", 3600).is_none());
     }
 
     // NOTE: `Config::from_env()` reads process-global env, so its guest-vs-billing
