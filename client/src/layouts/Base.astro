@@ -13,6 +13,17 @@ const {
 // origin (astro.config); Astro.url.pathname is this page's path at build time.
 const canonicalURL = new URL(Astro.url.pathname, Astro.site);
 const imageURL = new URL(image, Astro.site);
+
+// Warm the cross-origin API connection during HTML parse. The whole boot chain
+// (files/config → content/i18n → auth/config) waits on a fresh DNS+TCP+TLS
+// handshake to this origin; preconnecting it overlaps that cost with the CSS/JS
+// download instead of paying it serially after boot() fires. Built from
+// PUBLIC_WS_HOST (same source as HTTP_BASE in app.ts) — unset in local dev
+// (same-origin), so we skip the hint there. crossorigin: the API fetches are
+// anonymous CORS (Authorization header, no cookies), so the warmed connection
+// matches their mode and is actually reused.
+const wsHost = import.meta.env.PUBLIC_WS_HOST;
+const apiOrigin = wsHost ? `https://${wsHost}` : null;
 ---
 
 <!doctype html>
@@ -22,6 +33,15 @@ const imageURL = new URL(image, Astro.site);
     <!-- No maximum-scale: users must be able to zoom (WCAG 1.4.4). -->
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="color-scheme" content="dark" />
+
+    <!-- Resource hints (kept early so connections warm during parse). -->
+    {apiOrigin && <link rel="preconnect" href={apiOrigin} crossorigin />}
+    <!-- Google Sign-In is lazy-loaded on the login screen (the fresh-visitor
+         landing in billing mode); a DNS hint trims its connection setup without
+         the waste of a full preconnect on the signed-in (home) path. -->
+    <link rel="dns-prefetch" href="https://accounts.google.com" />
+    <link rel="dns-prefetch" href="https://fonts.gstatic.com" />
+
     <title>{title}</title>
 
     <!-- SEO -->
