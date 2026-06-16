@@ -101,6 +101,37 @@ confirm a `voxtranslate-<ts>.dump.gpg` object appears under `db-backups/`.
 The workflow only *writes*; deleting via a script is risky, so retention is a **bucket
 lifecycle rule** (set once): expire objects under `db-backups/` after e.g. **30 days**.
 R2/B2/S3 all support this in their console. With a 6 h cadence that's ~120 live copies.
+(Scope the rule to the `db-backups/` **prefix** so it never touches `storage/` below.)
+
+### 2.5 Supabase Storage file blobs (chat uploads)
+
+The DB backup covers *rows*; the chat-upload **file blobs** (spec 0018) live in the
+Supabase Storage bucket **`chat-files`**, keyed `‹session›/‹uuid›.‹ext›`. A second
+workflow — `.github/workflows/storage-backup.yml` (daily) — mirrors them to the **same
+R2 bucket** under the `storage/chat-files/` prefix via `rclone` S3→S3. Uploads are
+immutable UUIDs, so it's an additive `rclone copy` (incremental; never deletes).
+
+Add these to the **`Production`** environment (the existing R2 secrets are reused as the
+destination):
+
+| Secret | Value |
+|---|---|
+| `BACKUP_SUPABASE_S3_ENDPOINT` | `https://<project-ref>.supabase.co/storage/v1/s3` |
+| `BACKUP_SUPABASE_S3_REGION` | the project's region, e.g. `eu-central-1` (shown next to the keys) |
+| `BACKUP_SUPABASE_S3_ACCESS_KEY_ID` / `BACKUP_SUPABASE_S3_SECRET_ACCESS_KEY` | Supabase → **Storage → S3 Configuration → Access keys → New access key** |
+| `BACKUP_SUPABASE_BUCKET` | optional; defaults to `chat-files` |
+
+> rclone env-var remotes register under a **lowercase** name and the reference is
+> case-sensitive — the workflow uses `supa:` / `r2:` (not `SUPA:`/`R2:`).
+
+**Restore** a blob (or the whole set) is the reverse copy — into a new bucket or back
+into Supabase:
+
+```sh
+rclone copy r2:<R2_BUCKET>/storage/chat-files ./chat-files-restore   # to local
+# …or straight back into a (new) Supabase bucket, with the supa: remote configured:
+rclone copy r2:<R2_BUCKET>/storage/chat-files supa:chat-files
+```
 
 ## 3. Restore from an off-site dump (disaster recovery / drill)
 
