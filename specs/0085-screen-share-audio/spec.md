@@ -2,11 +2,12 @@
 
 | | |
 |---|---|
-| **Status** | In progress |
+| **Status** | ✅ Shipped |
 | **Owner** | Micio Dev |
 | **Created** | 2026-06-16 |
-| **Shipped** | — |
+| **Shipped** | 2026-06-16 |
 | **Version** | — |
+| **Commits** | `1139404` |
 | **Depends on** | [0033](../0033-screen-share/spec.md), [0053](../0053-screen-share-pip/spec.md) (screen share + PiP) |
 
 ## 1. Context & Problem
