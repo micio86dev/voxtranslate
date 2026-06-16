@@ -107,6 +107,7 @@ Each spec follows the same skeleton:
 | [0072](0072-public-rooms-avatars/spec.md) | Public-rooms lobby: overlapping participant avatars | ✅ Shipped | 2026-06-15 | `75c50b8` |
 | [0073](0073-connection-status-banner/spec.md) | YouTube-style connection-status banner (offline / reconnecting / back online) | ✅ Shipped | 2026-06-16 | `1cb624d` |
 | [0074](0074-chat-document-attachments/spec.md) | Chat attachments: documents-only + 5 MB + docx extraction + pay-to-translate billing | ✅ Shipped | 2026-06-16 | `aa4fe27`, `1d5afe7` |
+| [0081](0081-pwa-launcher-title/spec.md) | PWA launcher title legibility: white splash background for a dark, high-contrast app title | In progress | 2026-06-16 | _pending_ |
 
 > Numbers 0011–0015 were claimed by commit messages while the AI bundle shipped
 > without spec docs (and 0011/0012 were each reused twice); the assignments
