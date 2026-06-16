@@ -845,6 +845,34 @@ const LANGS = [
     }
     #session-ai :global(.ai-generate) { align-self: flex-start; min-height: 44px; }
     #session-ai :global(.ai-generate:disabled) { opacity: 0.55; cursor: not-allowed; }
+    /* The AI-tools forms (report / sentiment / email) are injected by JS into
+       #session-ai's slots, so the scoped .btn-primary/.btn-ghost skins never
+       reach them (no Astro scope attr) — generate/send/copy/regenerate fell back
+       to the bare UA grey button. Re-apply the skins via :global(); the layout
+       rules above (.ai-generate sizing, .ai-report-actions) still stack on top. */
+    #session-ai :global(.btn-primary) {
+      background: var(--accent-strong); color: #fff; border: none; border-radius: 10px;
+      padding: 12px 18px; font-size: 0.95rem; font-weight: 600; cursor: pointer; transition: filter 0.15s;
+    }
+    #session-ai :global(.btn-primary:hover) { filter: brightness(1.08); }
+    #session-ai :global(.btn-primary:active) { transform: translateY(1px); }
+    #session-ai :global(.btn-primary:disabled) {
+      background: var(--surface); color: var(--muted); border: 1px solid var(--border);
+      cursor: not-allowed; filter: none; transform: none;
+    }
+    #session-ai :global(.btn-ghost) {
+      background: color-mix(in srgb, var(--accent) 22%, var(--surface));
+      border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--border));
+      color: var(--text); border-radius: 8px; padding: 9px 13px; font-size: 0.85rem;
+      font-weight: 500; cursor: pointer; transition: background 0.15s, border-color 0.15s, transform 0.05s;
+    }
+    #session-ai :global(.btn-ghost:hover) {
+      background: color-mix(in srgb, var(--accent) 34%, var(--surface)); border-color: var(--accent);
+    }
+    #session-ai :global(.btn-ghost:active) { transform: translateY(1px); }
+    #session-ai :global(.btn-ghost:disabled) {
+      opacity: 0.4; cursor: not-allowed; background: var(--surface); border-color: var(--border); color: var(--muted);
+    }
     #session-ai :global(.ai-report-view) { display: flex; flex-direction: column; gap: 10px; }
     #session-ai :global(.ai-report-md) {
       font-size: 0.9rem; line-height: 1.55; color: var(--text);
