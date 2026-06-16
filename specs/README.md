@@ -111,6 +111,7 @@ Each spec follows the same skeleton:
 | [0081](0081-pwa-launcher-title/spec.md) | PWA launcher title legibility: white splash background for a dark, high-contrast app title | ✅ Shipped | 2026-06-16 | `bfb4db2` |
 | [0082](0082-in-call-invite-branded-email/spec.md) | In-call invite link (one-tap copy + email to people you know) + branded, Outlook-safe transactional email shell | ✅ Shipped | 2026-06-16 | `3027b5a` |
 | [0083](0083-quiz-gating-gsi-polish/spec.md) | AI-quiz gating CTAs (guest → sign-in, no credits → buy) + Google sign-in button frame polish | ✅ Shipped | 2026-06-16 | `1525a6d` |
+| [0084](0084-chat-composer-two-row/spec.md) | Two-row chat composer: full-width textarea + slim action bar (room to write on desktop and mobile) | In progress | 2026-06-16 | _pending_ |
 
 > Numbers 0011–0015 were claimed by commit messages while the AI bundle shipped
 > without spec docs (and 0011/0012 were each reused twice); the assignments

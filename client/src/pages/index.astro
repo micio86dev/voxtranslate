@@ -504,21 +504,26 @@ const jsonLd = {
           <span id="chat-upload-label" class="chat-upload-label"></span>
           <div class="chat-upload-bar"><div id="chat-upload-fill" class="chat-upload-fill"></div></div>
         </div>
+        <!-- Two-row composer (spec 0084): the textarea spans the full panel width
+             so there's room to write, with a slim action bar beneath it. Same
+             structure on the desktop side panel and the mobile bottom sheet. -->
         <div class="chat-input-row">
-          <div class="emoji-picker-wrap">
-            <button id="emoji-toggle" class="btn-ghost icon-btn emoji-btn" title="Emoji" aria-label="Emoji" aria-haspopup="true" aria-expanded="false" aria-controls="emoji-panel">😀</button>
-            <div id="emoji-panel" class="emoji-panel hidden">
-              <span class="emoji-section-label" data-i18n="emojiReact"></span>
-              <div class="emoji-react-row" id="emoji-react"></div>
-              <span class="emoji-section-label" data-i18n="emojiInsert"></span>
-              <div class="emoji-grid" id="emoji-grid"></div>
-            </div>
-          </div>
-          <!-- Attach a file (spec 0018): hidden until the backend reports storage on. -->
-          <button id="chat-attach" class="btn-ghost icon-btn attach-btn" hidden data-i18n-title="attachTip" aria-label="Attach"></button>
-          <input id="chat-file-input" type="file" hidden accept=".txt,.md,.csv,.log,.pdf,.docx,.doc,.odt,.rtf,.xlsx,.pptx" />
           <textarea id="chat-input" rows="1" maxlength="500" autocomplete="off" data-i18n-ph="chatPlaceholder"></textarea>
-          <button id="chat-send" class="btn-primary send-btn" data-i18n-title="send"></button>
+          <div class="chat-input-actions">
+            <div class="emoji-picker-wrap">
+              <button id="emoji-toggle" class="btn-ghost icon-btn emoji-btn" title="Emoji" aria-label="Emoji" aria-haspopup="true" aria-expanded="false" aria-controls="emoji-panel">😀</button>
+              <div id="emoji-panel" class="emoji-panel hidden">
+                <span class="emoji-section-label" data-i18n="emojiReact"></span>
+                <div class="emoji-react-row" id="emoji-react"></div>
+                <span class="emoji-section-label" data-i18n="emojiInsert"></span>
+                <div class="emoji-grid" id="emoji-grid"></div>
+              </div>
+            </div>
+            <!-- Attach a file (spec 0018): hidden until the backend reports storage on. -->
+            <button id="chat-attach" class="btn-ghost icon-btn attach-btn" hidden data-i18n-title="attachTip" aria-label="Attach"></button>
+            <input id="chat-file-input" type="file" hidden accept=".txt,.md,.csv,.log,.pdf,.docx,.doc,.odt,.rtf,.xlsx,.pptx" />
+            <button id="chat-send" class="btn-primary send-btn" data-i18n-title="send"></button>
+          </div>
         </div>
         <!-- Character counter (spec 0070): bottom-right, appears as you near the cap. -->
         <div id="chat-counter" class="chat-counter hidden" aria-live="polite"></div>
@@ -1381,16 +1386,19 @@ const jsonLd = {
     .chat-messages :global(.chat-file-meta) { display: flex; flex-direction: column; min-width: 0; }
     .chat-messages :global(.chat-file-name) { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px; }
     .chat-messages :global(.chat-file-size) { font-size: 0.72rem; color: var(--muted); }
-    /* flex-end keeps the emoji/attach/send buttons aligned to the textarea's
-       bottom (last line) as it grows, instead of floating to its centre. */
-    .chat-input-row { display: flex; gap: 8px; padding: 12px; border-top: 1px solid var(--border); align-items: flex-end; }
+    /* Two-row composer (spec 0084): textarea on top spans the full panel width
+       (room to write); the action bar sits beneath it. */
+    .chat-input-row { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-top: 1px solid var(--border); }
+    .chat-input-actions { display: flex; align-items: center; gap: 8px; }
+    /* Emoji + attach group on the left; send pushed to the far right. */
+    .chat-input-actions .send-btn { margin-left: auto; }
     /* Equal-height, equal-width icon buttons so emoji + attach are true peers (spec 0070). */
     .chat-input-row .icon-btn { flex: none; min-width: 44px; min-height: 44px; padding: 0; }
     .chat-input-row .btn-primary { width: auto; min-height: 44px; padding: 0 16px; }
     /* Auto-resizing chat textarea (spec 0070): grows with content up to a cap,
        then scrolls. Enter sends, Shift+Enter inserts a newline (see app.ts). */
     #chat-input {
-      flex: 1; min-width: 0; width: 100%; box-sizing: border-box; resize: none;
+      width: 100%; min-width: 0; box-sizing: border-box; resize: none;
       background: var(--bg); border: 1px solid var(--border); color: var(--text);
       border-radius: 10px; padding: 11px 12px; font: inherit; font-size: 16px; line-height: 1.35;
       min-height: 44px; max-height: 120px; transition: border-color 0.15s;
