@@ -241,6 +241,17 @@ function barchart(dash, { x = 1, y, w = 24, h = 14, name, note, color, collectio
     },
   });
 }
+// Interactive dashboard filter: a text input whose value is exposed as a dashboard
+// variable named `field`. Other panels reference it in their filters as `{{field}}`
+// (e.g. a list with `{ message: { _icontains: '{{bug_q}}' } }`), so typing here
+// live-filters those panels. Empty default → `_icontains: ''` matches everything.
+function globalVar(dash, { x = 1, y, w = 24, h = 4, name, field, defaultValue = '', placeholder = '' }) {
+  panels.push({
+    dashboard: dash, name, note: null, icon: 'search', color: null,
+    show_header: true, type: 'global-variable', position_x: x, position_y: y, width: w, height: h,
+    options: { field, type: 'string', defaultValue, interface: 'input', options: { placeholder, iconLeft: 'search' } },
+  });
+}
 
 const NOW30 = '$NOW(-30 days)';
 const PURCHASE = { kind: { _eq: 'purchase' } };
@@ -294,6 +305,17 @@ function buildModeration(d) {
   const listY = tsY + 10;
   list(d, { x: 1, y: listY, w: 12, name: 'Open reports', collection: 'reports', filter: { status: { _eq: 'open' } }, note: 'Oldest first → resolve via Flow' });
   list(d, { x: 13, y: listY, w: 12, name: 'Recent admin actions', collection: 'admin_audit' });
+
+  // --- Bug reports (spec 0071): status counts + a searchable list ---
+  const bugY = listY + 12;
+  metric(d, 0, bugY, { name: 'Bug reports — new', icon: 'bug_report', color: '#FFA439', collection: 'bug_reports', filter: { status: { _eq: 'received' } } });
+  metric(d, 1, bugY, { name: 'Bug — resolved', icon: 'task_alt', color: '#2ECDA7', collection: 'bug_reports', filter: { status: { _eq: 'resolved' } } });
+  metric(d, 2, bugY, { name: 'Bug — cancelled', icon: 'do_not_disturb_on', color: '#E35169', collection: 'bug_reports', filter: { status: { _eq: 'cancelled' } } });
+  metric(d, 3, bugY, { name: 'Bug reports — total', icon: 'bug_report', collection: 'bug_reports' });
+  // Search box → drives the list below via the `bug_q` dashboard variable.
+  const searchY = bugY + 6;
+  globalVar(d, { x: 1, y: searchY, w: 24, h: 4, name: '🔎 Search bug reports', field: 'bug_q', placeholder: 'Type to filter by message…' });
+  list(d, { x: 1, y: searchY + 4, w: 24, h: 12, name: 'Bug reports', collection: 'bug_reports', sortField: 'created_at', sortDirection: 'desc', limit: 12, filter: { message: { _icontains: '{{bug_q}}' } }, note: 'Newest first; filtered by the search box above' });
 }
 
 function buildAcquisition(d) {
