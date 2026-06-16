@@ -2,12 +2,12 @@
 
 | | |
 |---|---|
-| **Status** | In progress |
+| **Status** | ✅ Shipped |
 | **Owner** | Micio Dev |
 | **Created** | 2026-06-16 |
-| **Shipped** | — |
+| **Shipped** | 2026-06-16 |
 | **Version** | — |
-| **Commits** | — |
+| **Commits** | `3027b5a` |
 | **Depends on** | [0016](../0016-follow-up-email/spec.md) (Resend client), [0022](../0022-guest-public-room-gate/spec.md) (guest join), [0055](../0055-meet-like-session-ui/spec.md) (call toolbar) |
 
 ## 1. Context & Problem

@@ -2,12 +2,12 @@
 
 | | |
 |---|---|
-| **Status** | In progress |
+| **Status** | ✅ Shipped |
 | **Owner** | Micio Dev |
 | **Created** | 2026-06-16 |
-| **Shipped** | — |
+| **Shipped** | 2026-06-16 |
 | **Version** | 1.1.x |
-| **Commits** | _pending_ |
+| **Commits** | `0e36c82` |
 | **Depends on** | [0026](../0026-turn-relay/spec.md), [0002](../0002-video-calls-translated-chat/spec.md) |
 
 ## 1. Context & Problem

@@ -2,12 +2,12 @@
 
 | | |
 |---|---|
-| **Status** | In progress |
+| **Status** | ✅ Shipped |
 | **Owner** | Micio Dev |
 | **Created** | 2026-06-16 |
-| **Shipped** | — |
+| **Shipped** | 2026-06-16 |
 | **Version** | — |
-| **Commits** | — |
+| **Commits** | `bfb4db2` |
 | **Depends on** | — |
 
 ## 1. Context & Problem
