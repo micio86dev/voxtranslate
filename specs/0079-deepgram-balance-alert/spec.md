@@ -2,12 +2,12 @@
 
 | | |
 |---|---|
-| **Status** | In progress |
+| **Status** | ✅ Shipped (dormant until `DEEPGRAM_API_KEY` secret added) |
 | **Owner** | VoxTranslate |
 | **Created** | 2026-06-16 |
-| **Shipped** | — |
+| **Shipped** | 2026-06-16 |
 | **Version** | — |
-| **Commits** | pending |
+| **Commits** | `1c8d323` (#185) |
 | **Depends on** | [0058](../0058-metrics-endpoint/spec.md) |
 
 ## 1. Context & Problem
