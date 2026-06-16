@@ -46,6 +46,14 @@ Any of S3 / **Cloudflare R2** / **Backblaze B2**. **R2 is recommended**: S3-comp
 **no egress fees**, and you can pin an **EU jurisdiction** (keeps the GDPR surface tidy).
 Create a private bucket (e.g. `voxtranslate-db-backups`) and a scoped access key.
 
+> ⚠️ **R2 jurisdiction must be consistent or you get `AccessDenied` on upload.** If the
+> bucket is created with **EU** jurisdiction, then **all three** must be EU: the bucket,
+> the **endpoint** (`https://<acct>.eu.r2.cloudflarestorage.com` — note the `.eu.`), and
+> the **API token** (created with the EU jurisdiction). A `Default` token / non-`.eu.`
+> endpoint against an EU bucket fails. Simplest if you don't need EU: use **Default**
+> everywhere (dumps are already AES-256-encrypted client-side, so the bucket only ever
+> holds ciphertext).
+
 ### 2.2 (Recommended) a least-privilege backup role
 
 Instead of the superuser string, give the workflow a **read-only** role. In the Supabase
