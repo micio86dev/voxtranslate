@@ -80,8 +80,9 @@ const COLLECTIONS = [
   ['chat_files', { group: 'sessions', icon: 'attach_file', display: '{{file_name}} ({{file_type}})', note: 'Files shared in the room chat.', sort: 5 }],
   // moderation
   ['reports', { group: 'moderation', icon: 'flag', color: '#E35169', display: '{{reason}} · {{status}}', note: 'Abuse reports. Resolve via the Flow button.', sort: 1 }],
-  ['blocklist_terms', { group: 'moderation', icon: 'block', display: '{{term}}', note: 'Moderation blocklist (loaded by the server at startup).', sort: 2 }],
-  ['admin_audit', { group: 'moderation', icon: 'history', display: '{{action}} · {{actor}}', note: 'Every privileged backoffice action.', sort: 3 }],
+  ['bug_reports', { group: 'moderation', icon: 'bug_report', color: '#E35169', display: '{{message}} · {{status}}', note: 'User-submitted bug/error reports (spec 0071). Triage via status: received → cancelled | resolved, then delete.', sort: 2 }],
+  ['blocklist_terms', { group: 'moderation', icon: 'block', display: '{{term}}', note: 'Moderation blocklist (loaded by the server at startup).', sort: 3 }],
+  ['admin_audit', { group: 'moderation', icon: 'history', display: '{{action}} · {{actor}}', note: 'Every privileged backoffice action.', sort: 4 }],
   // ai_features
   ['session_reports', { group: 'ai_features', icon: 'description', display: '{{format}} · {{lang}}', note: 'AI-generated meeting reports.', sort: 1 }],
   ['session_sentiments', { group: 'ai_features', icon: 'mood', display: '{{model}}', note: 'Per-session sentiment analysis (cached).', sort: 2 }],
@@ -137,6 +138,31 @@ async function ensureCollection(name, cfg) {
       console.warn(`  ! ${name}: ${trunc(ePatch)} | ${trunc(ePost)}`);
       return 'failed';
     }
+  }
+}
+
+// bug_reports.status drives triage — present it as a coloured dropdown (the same
+// values the DB CHECK enforces) instead of a free-text input, and render it as a
+// label badge in lists. Idempotent: PATCHes the auto-discovered field's metadata.
+const BUG_STATUS_CHOICES = [
+  { text: 'Received', value: 'received', color: '#FFA439' },
+  { text: 'Resolved', value: 'resolved', color: '#2ECDA7' },
+  { text: 'Cancelled', value: 'cancelled', color: '#E35169' },
+];
+async function ensureBugReportStatusField() {
+  const meta = {
+    interface: 'select-dropdown',
+    options: { choices: BUG_STATUS_CHOICES },
+    display: 'labels',
+    display_options: { choices: BUG_STATUS_CHOICES, showAsDot: false },
+    width: 'half',
+  };
+  try {
+    await api('/fields/bug_reports/status', { method: 'PATCH', body: { meta } });
+    return 'configured';
+  } catch (e) {
+    console.warn(`  ! bug_reports.status dropdown: ${trunc(e)}`);
+    return 'failed';
   }
 }
 
@@ -295,6 +321,9 @@ async function main() {
 
   console.log('▸ Data model: collections');
   for (const [name, cfg] of COLLECTIONS) console.log(`  • ${name}: ${await ensureCollection(name, cfg)}`);
+
+  console.log('▸ Field interfaces');
+  console.log(`  • bug_reports.status (dropdown): ${await ensureBugReportStatusField()}`);
 
   console.log('▸ Insights dashboards');
   const dOverview = await ensureDashboard('📊 Overview', 'insights', 'Top-line KPIs across users, calls and translations.');

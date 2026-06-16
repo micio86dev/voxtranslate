@@ -85,11 +85,13 @@ In **Settings → Data Model**, Directus lists the existing database tables. Add
 - **Moderation/ops (read):** `reports`, `users`, `credit_transactions`,
   `usage_sessions`, `admin_audit`
 - **Bug reports (spec 0071):** `bug_reports` — user-submitted problem reports.
-  Set the `status` field to a **Dropdown** interface with the values
-  `received` (default) · `cancelled` · `resolved`, and grant the admin role
-  **update + delete** on this collection (read the `message`/`email`/`page_url`/
-  `user_agent` columns for triage). New rows arrive as `received` and are also
-  emailed to `BUG_REPORT_TO`.
+  **`setup-backoffice.mjs` registers this collection (under the *moderation*
+  folder) and configures the `status` dropdown automatically** — just re-run it
+  (§6) and the collection appears under **Content → moderation**. New rows arrive
+  as `received` (other values `cancelled` · `resolved`) and are also emailed to
+  `BUG_REPORT_TO`; read the `message`/`email`/`page_url`/`user_agent` columns for
+  triage. A full admin already has update + delete; grant them explicitly only if
+  you triage from a non-admin role.
 
 ## 5. Wire the Translations interfaces (the multilingual part)
 
