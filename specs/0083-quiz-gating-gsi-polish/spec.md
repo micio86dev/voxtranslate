@@ -2,11 +2,12 @@
 
 | | |
 |---|---|
-| **Status** | In progress |
+| **Status** | ✅ Shipped |
 | **Owner** | Micio Dev |
 | **Created** | 2026-06-16 |
-| **Shipped** | — |
+| **Shipped** | 2026-06-16 |
 | **Version** | — |
+| **Commits** | `1525a6d` |
 | **Depends on** | [0022](../0022-guest-public-room-gate/spec.md) (sign-in gate), [0067](../0067-ai-quiz/spec.md) (AI quiz) |
 
 ## 1. Context & Problem
