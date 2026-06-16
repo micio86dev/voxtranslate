@@ -675,11 +675,16 @@ function openSocket(): void {
 
   ws.onopen = () => {
     setNetworkDegraded(false); // transport (re)connected — clears the amber pill / flashes green
+    // On a reconnect this runs again: tear down the previous mesh first so its
+    // stale RTCPeerConnections + stats timer don't leak, then rebuild from the
+    // fresh room_joined/peer_joined the server sends on (re)join.
+    mesh?.destroy();
     mesh = new MeshManager(
       localStream!,
       (sig) => ws?.send(JSON.stringify(sig)),
       iceServers,
       IS_MOBILE ? VIDEO_BUDGET_MOBILE : VIDEO_BUDGET_DESKTOP, // total upload budget, split per-peer (spec 0030/0031, env-tunable 0044)
+      myId, // own id → picks the polite/impolite negotiation role per peer
     );
     mesh.onNetworkWeak = showWeakNetworkWarning;
     mesh.onRemoteStream = (peerId, stream) => {
