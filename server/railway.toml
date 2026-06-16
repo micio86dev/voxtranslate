@@ -12,3 +12,14 @@ healthcheckPath = "/health"
 healthcheckTimeout = 100
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 10
+
+# Pin the deployment region (issue #113, spec 0076). The service already runs in
+# EU West; this makes it explicit and version-controlled so it can't drift on a
+# future migration/recreate. Subtitle latency is dominated by the user→server RTT
+# (audio is NOT P2P: speaker → server → Deepgram → Groq → server → peer), so the
+# server region sets that latency for most users. With a global/mixed user base
+# (no single optimum), EU West is the pragmatic barycentre. A single region + one
+# replica matches the current single-instance topology — rooms are in-memory and
+# scale only vertically; true multi-region would need shared room state (deferred).
+[deploy.multiRegionConfig.europe-west4-drams3a]
+numReplicas = 1
