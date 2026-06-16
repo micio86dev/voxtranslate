@@ -67,9 +67,11 @@ is IPv6-only, so use the **Session pooler** string (host `…pooler.supabase.com
 `5432`) — it's IPv4 **and** gives `pg_dump` the real session it needs. Do **not** use
 the *Transaction pooler* (port `6543`): it can't run `pg_dump`.
 
-### 2.3 Repo secrets
+### 2.3 Secrets
 
-Settings → **Secrets and variables → Actions → New repository secret**:
+The workflow's job runs in the **`Production`** environment, so add these as
+**environment secrets** there: Settings → **Environments → Production → Add secret**
+(repository-level Actions secrets also work if you drop the `environment:` line):
 
 | Secret | Value |
 |---|---|
