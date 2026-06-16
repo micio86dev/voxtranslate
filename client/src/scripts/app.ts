@@ -343,15 +343,19 @@ function renderRooms(
     participants: Array<{ name: string; lang: string; avatar?: string | null }>;
   }>,
 ): void {
+  // Hide full rooms: a 4/4 mesh is at capacity (server rooms::MAX_PEERS), so
+  // tapping one would just bounce with room_full — never list a room the user
+  // can't actually join.
+  const joinable = rooms.filter((r) => r.count < 4);
   roomsList.innerHTML = '';
-  if (!rooms.length) {
+  if (!joinable.length) {
     const empty = document.createElement('div');
     empty.className = 'lobby-empty';
     empty.textContent = t('noPublicRooms');
     roomsList.appendChild(empty);
     return;
   }
-  for (const r of rooms) {
+  for (const r of joinable) {
     const item = document.createElement('button');
     item.className = 'room-item';
     item.type = 'button';
