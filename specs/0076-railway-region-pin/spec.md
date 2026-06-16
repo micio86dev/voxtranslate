@@ -2,12 +2,12 @@
 
 | | |
 |---|---|
-| **Status** | In progress |
+| **Status** | ✅ Shipped |
 | **Owner** | VoxTranslate |
 | **Created** | 2026-06-16 |
-| **Shipped** | — |
+| **Shipped** | 2026-06-16 |
 | **Version** | — |
-| **Commits** | pending |
+| **Commits** | `b06bd68` (#177) |
 | **Depends on** | [0058](../0058-metrics-endpoint/spec.md) |
 
 ## 1. Context & Problem
