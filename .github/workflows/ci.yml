@@ -80,11 +80,30 @@ jobs:
     outputs:
       has_keys: ${{ steps.c.outputs.has_keys }}
       has_railway: ${{ steps.c.outputs.has_railway }}
+      server_changed: ${{ steps.paths.outputs.server_changed }}
     steps:
       - id: c
         run: |
           echo "has_keys=${{ secrets.GROQ_API_KEY != '' && secrets.DEEPGRAM_API_KEY != '' }}" >> "$GITHUB_OUTPUT"
           echo "has_railway=${{ secrets.RAILWAY_TOKEN != '' }}" >> "$GITHUB_OUTPUT"
+      # Did this push touch the server? Gates the Railway redeploy below so a
+      # docs/client-only merge doesn't rebuild an unchanged server image. Defaults
+      # to "true" on any non-push / shallow-history edge case → never miss a deploy.
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 2
+      - id: paths
+        run: |
+          changed=true
+          if [ "${{ github.event_name }}" = "push" ]; then
+            if git diff --name-only HEAD~1 HEAD 2>/dev/null | grep -q '^server/'; then
+              changed=true
+            else
+              changed=false
+            fi
+          fi
+          echo "server_changed=$changed" >> "$GITHUB_OUTPUT"
+          echo "server changed → $changed"
 
   # Deploy the Rust backend to Railway on every push to main, after tests pass.
   # Railway isn't wired to GitHub auto-deploy, so CI does it (Git Flow: merge to
@@ -92,7 +111,7 @@ jobs:
   # deploys separately via Vercel's own Git integration.
   deploy-server:
     needs: [test, check-secrets]
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.check-secrets.outputs.has_railway == 'true' }}
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.check-secrets.outputs.has_railway == 'true' && needs.check-secrets.outputs.server_changed == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
