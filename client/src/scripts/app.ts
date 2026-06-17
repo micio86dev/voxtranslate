@@ -3306,6 +3306,7 @@ $('privacy-open').innerHTML = icon('shield', 16);
 $('report-close').innerHTML = icon('close', 16);
 $('privacy-close').innerHTML = icon('close', 16);
 $('part-close').innerHTML = icon('close', 16);
+$('invite-close').innerHTML = icon('close', 16); // was missing → empty pill (spec 0090)
 $('postcall-close').innerHTML = icon('close', 16);
 $('btn-bookmark').innerHTML = icon('bookmark');
 $('bookmarks-close').innerHTML = icon('close', 16);
