@@ -409,6 +409,56 @@ export async function ensureCorrection(
   }
 }
 
+// ---- Quiz history (spec 0098 / #221) ----------------------------------------
+
+/** One persisted quiz with per-participant scores, for the session-detail page. */
+export interface SessionQuiz {
+  id: string;
+  title: string | null;
+  questions: Array<{ prompt: string; options: string[]; correct_index: number }>;
+  created_at: string;
+  results: Array<{ peer_id: string; display_name: string; score: number; total: number }>;
+}
+
+/** Persist a finished quiz + scores (host only). Best-effort: failures (incl. a
+ *  guest host with no auth) are swallowed — quiz history never disrupts the call. */
+export async function saveQuizHistory(
+  sessionId: string,
+  summary: {
+    title: string | null;
+    questions: Array<{ prompt: string; options: string[]; correct_index: number }>;
+    results: Array<{ peer_id: string; display_name: string; score: number; total: number }>;
+  },
+): Promise<boolean> {
+  try {
+    const res = await fetch(
+      `${HTTP_BASE}/api/sessions/${encodeURIComponent(sessionId)}/quizzes`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify(summary),
+      },
+    );
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/** The quizzes + scores stored for a session (empty on any error). */
+export async function fetchSessionQuizzes(sessionId: string): Promise<SessionQuiz[]> {
+  try {
+    const res = await fetch(
+      `${HTTP_BASE}/api/sessions/${encodeURIComponent(sessionId)}/quizzes`,
+      { headers: authHeaders() },
+    );
+    if (!res.ok) return [];
+    return (await res.json()) as SessionQuiz[];
+  } catch {
+    return [];
+  }
+}
+
 // ---- AI quiz on demand (POST /api/quiz/generate, spec 0067 / #124) -----------
 
 export interface GeneratedQuiz {

@@ -28,6 +28,8 @@ export const I18N: Record<string, Dict> = {
     enginePremiumBusy: 'Premium is at capacity right now — using Standard translation (billed at the lower rate).',
     downloadRateLimited: 'Too many requests — please wait a moment and try again.',
     sessionOutputs: 'Session outputs',
+    quizzesLabel: 'Quizzes',
+    quizAverage: 'Average',
     viewFullTranscript: 'View full transcript',
     hideTranscript: 'Hide transcript',
     engineDescStandard: 'Real-time translation with live subtitles and a translated voice.',
@@ -165,6 +167,8 @@ export const I18N: Record<string, Dict> = {
     enginePremiumBusy: 'Premium al momento è al massimo della capacità — uso la traduzione Standard (addebitata alla tariffa più bassa).',
     downloadRateLimited: 'Troppe richieste — attendi un momento e riprova.',
     sessionOutputs: 'Risultati della sessione',
+    quizzesLabel: 'Quiz',
+    quizAverage: 'Media',
     viewFullTranscript: 'Mostra trascrizione completa',
     hideTranscript: 'Nascondi trascrizione',
     engineDescStandard: 'Traduzione in tempo reale con sottotitoli e voce tradotta.',
@@ -295,6 +299,8 @@ export const I18N: Record<string, Dict> = {
   es: {
     downloadRateLimited: 'Demasiadas solicitudes: espera un momento e inténtalo de nuevo.',
     sessionOutputs: 'Resultados de la sesión',
+    quizzesLabel: 'Cuestionarios',
+    quizAverage: 'Promedio',
     viewFullTranscript: 'Ver transcripción completa',
     hideTranscript: 'Ocultar transcripción',
     engineDescStandard: 'Traducción en tiempo real con subtítulos y voz traducida.',
@@ -431,6 +437,8 @@ export const I18N: Record<string, Dict> = {
   fr: {
     downloadRateLimited: 'Trop de requêtes — patiente un instant puis réessaie.',
     sessionOutputs: 'Résultats de la session',
+    quizzesLabel: 'Quiz',
+    quizAverage: 'Moyenne',
     viewFullTranscript: 'Voir la transcription complète',
     hideTranscript: 'Masquer la transcription',
     engineDescStandard: 'Traduction en temps réel avec sous-titres et voix traduite.',
@@ -567,6 +575,8 @@ export const I18N: Record<string, Dict> = {
   de: {
     downloadRateLimited: 'Zu viele Anfragen – bitte einen Moment warten und erneut versuchen.',
     sessionOutputs: 'Sitzungsergebnisse',
+    quizzesLabel: 'Quizze',
+    quizAverage: 'Durchschnitt',
     viewFullTranscript: 'Vollständiges Transkript anzeigen',
     hideTranscript: 'Transkript ausblenden',
     engineDescStandard: 'Echtzeit-Übersetzung mit Untertiteln und übersetzter Stimme.',
@@ -703,6 +713,8 @@ export const I18N: Record<string, Dict> = {
   pt: {
     downloadRateLimited: 'Muitas solicitações — aguarde um momento e tente novamente.',
     sessionOutputs: 'Resultados da sessão',
+    quizzesLabel: 'Quizzes',
+    quizAverage: 'Média',
     viewFullTranscript: 'Ver transcrição completa',
     hideTranscript: 'Ocultar transcrição',
     engineDescStandard: 'Tradução em tempo real com legendas e voz traduzida.',
@@ -839,6 +851,8 @@ export const I18N: Record<string, Dict> = {
   ja: {
     downloadRateLimited: 'リクエストが多すぎます。少し待ってからもう一度お試しください。',
     sessionOutputs: 'セッションの出力',
+    quizzesLabel: 'クイズ',
+    quizAverage: '平均',
     viewFullTranscript: '全文を表示',
     hideTranscript: '文字起こしを隠す',
     engineDescStandard: 'リアルタイム翻訳。字幕と翻訳音声付き。',
@@ -975,6 +989,8 @@ export const I18N: Record<string, Dict> = {
   zh: {
     downloadRateLimited: '请求过于频繁——请稍候再试。',
     sessionOutputs: '会话输出',
+    quizzesLabel: '测验',
+    quizAverage: '平均',
     viewFullTranscript: '查看完整记录',
     hideTranscript: '隐藏记录',
     engineDescStandard: '实时翻译，带字幕和翻译语音。',

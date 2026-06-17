@@ -223,6 +223,14 @@ export function quizCreationFormState(state: QuizState | null): QuizCreationForm
   return { formHidden: active, controlsDisabled: active, busyShown: active };
 }
 
+/** A finished quiz, ready to persist for the session-detail history (#221). Built
+ *  by the host when the quiz completes; the app POSTs it to the server. */
+export interface QuizSummary {
+  title: string | null;
+  questions: Array<{ prompt: string; options: string[]; correct_index: number }>;
+  results: Array<{ peer_id: string; display_name: string; score: number; total: number }>;
+}
+
 export class Quiz {
   private state: QuizState | null = null;
   private myChoice: number | null = null;
@@ -249,6 +257,9 @@ export class Quiz {
     /** Open/close the quiz modal — so a quiz that starts (or is cancelled) shows
      *  for every participant, not just the creator (spec 0070 R4.1/R4.3). */
     private onModal: (open: boolean) => void = () => {},
+    /** Fired (host only) when a quiz completes, with the final questions + scores
+     *  to persist for the session history (#221). */
+    private onComplete: (summary: QuizSummary) => void = () => {},
   ) {
     const opts = root.querySelector('#quiz-options') as HTMLElement;
     for (let i = 0; i < 4; i++) {
@@ -302,6 +313,25 @@ export class Quiz {
    *  built-in PACK entry by index (spec 0067). */
   private item(s: QuizState): PackItem {
     return s.pack ? s.pack[s.qIndex] : PACK[s.packIndex];
+  }
+
+  /** Build the persistable summary of a finished quiz: every question in the
+   *  host's language + each player's final score (#221). */
+  private buildSummary(s: QuizState): QuizSummary {
+    const lang = this.myLang();
+    const items: PackItem[] = s.pack ?? this.round.map((i) => PACK[i]);
+    const questions = items.map((it) => ({
+      prompt: pick(it.q, lang),
+      options: pick(it.options, lang),
+      correct_index: it.answer,
+    }));
+    const results = Object.entries(s.players).map(([peerId, p]) => ({
+      peer_id: peerId,
+      display_name: p.name,
+      score: p.score,
+      total: s.total,
+    }));
+    return { title: null, questions, results };
   }
 
   // ---- actions ----------------------------------------------------------------
@@ -406,6 +436,8 @@ export class Quiz {
     this.pending = {};
     if (qIndex >= s.total) {
       this.setState({ ...s, phase: 'done', answeredIds: [], correct: undefined, choices: undefined });
+      // Host-only (next() is host-driven): persist the finished quiz + scores (#221).
+      this.onComplete(this.buildSummary(s));
       return;
     }
     this.setState({

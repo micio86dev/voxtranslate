@@ -9,8 +9,10 @@ import {
   ensureCorrection,
   fetchAiPricing,
   fetchCorrectionStatus,
+  fetchSessionQuizzes,
   fetchTranscript,
   type CorrectionMode,
+  type SessionQuiz,
   type TranscriptDoc,
 } from './api';
 import { getUiLang, t } from './i18n';
@@ -141,6 +143,7 @@ async function renderTranscript(ref: SessionRef): Promise<void> {
   const status = $('session-transcript-status');
   list.innerHTML = '';
   syncTranscriptPreview(0); // reset the toggle/collapse state for the new session (#224)
+  void renderQuizzes(ref.id); // quiz history loads independently of the transcript (#221)
   $('session-bookmarks').hidden = true;
   if (ref.event_count === 0) {
     status.textContent = t('noTranscriptEvents');
@@ -183,6 +186,61 @@ async function renderTranscript(ref: SessionRef): Promise<void> {
   );
   renderBookmarks(doc);
   renderEvents(list, doc);
+}
+
+/** Quiz history (#221): render the quizzes run in the call + per-participant
+ *  scores. Hidden when the session has none. */
+async function renderQuizzes(sessionId: string): Promise<void> {
+  const box = $('session-quizzes');
+  const list = $('session-quizzes-list');
+  box.hidden = true;
+  list.innerHTML = '';
+  const quizzes = await fetchSessionQuizzes(sessionId);
+  if (current?.id !== sessionId || quizzes.length === 0) return; // navigated away / none
+  for (const q of quizzes) list.appendChild(renderQuizCard(q));
+  box.hidden = false;
+}
+
+function renderQuizCard(q: SessionQuiz): HTMLElement {
+  const card = document.createElement('div');
+  card.className = 'quiz-card';
+
+  const head = document.createElement('div');
+  head.className = 'quiz-card-head';
+  const title = document.createElement('span');
+  title.className = 'quiz-card-title';
+  title.textContent = q.title || t('quizzesLabel');
+  const meta = document.createElement('span');
+  meta.className = 'quiz-card-meta';
+  meta.textContent = `${q.questions.length} · ${new Date(q.created_at).toLocaleDateString()}`;
+  head.append(title, meta);
+  card.appendChild(head);
+
+  // Server returns results best-score-first.
+  const scores = document.createElement('div');
+  scores.className = 'quiz-scores';
+  for (const r of q.results) {
+    const row = document.createElement('div');
+    row.className = 'quiz-score-row';
+    const name = document.createElement('span');
+    name.textContent = r.display_name; // textContent: participant name is attacker-controlled
+    const val = document.createElement('span');
+    val.className = 'quiz-score-val mono';
+    val.textContent = `${r.score}/${r.total}`;
+    row.append(name, val);
+    scores.appendChild(row);
+  }
+  card.appendChild(scores);
+
+  if (q.results.length > 0) {
+    const summary = document.createElement('div');
+    summary.className = 'quiz-card-summary';
+    const best = q.results[0];
+    const avg = q.results.reduce((a, r) => a + r.score, 0) / q.results.length;
+    summary.textContent = `🏆 ${best.display_name} · ${t('quizAverage')}: ${avg.toFixed(1)}`;
+    card.appendChild(summary);
+  }
+  return card;
 }
 
 /** Pinned moments (spec 0013) above the transcript; hidden when none exist. */

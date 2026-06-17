@@ -30,6 +30,7 @@ pub mod moderation;
 pub mod observability;
 pub mod pdf;
 pub mod protocol;
+pub mod quiz_history;
 pub mod rate_limit;
 pub mod rooms;
 pub mod safety;
@@ -355,6 +356,10 @@ pub fn app(state: AppState) -> Router {
         .route(
             "/api/sessions/{id}/report",
             get(api::report_latest).post(api::report_generate),
+        )
+        .route(
+            "/api/sessions/{id}/quizzes",
+            get(api::quizzes_list).post(api::quiz_save),
         )
         .route(
             "/api/sessions/{id}/sentiment",

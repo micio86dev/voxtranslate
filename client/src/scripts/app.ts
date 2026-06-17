@@ -21,7 +21,7 @@ import { pcmPlayback } from './pcm-playback';
 import { MicMeter } from './mic-meter';
 import { ChatManager, type ChatPayload } from './chat';
 import { CHAT_MAX_HEIGHT, counterLabel, counterState, insertAt, resizeBox } from './chat-input';
-import { checkUploadFile, fileUploadEnabled, generateAiQuiz, sendInvites, uploadChatFile } from './api';
+import { checkUploadFile, fileUploadEnabled, generateAiQuiz, saveQuizHistory, sendInvites, uploadChatFile } from './api';
 import { buildInviteLink, MAX_INVITE_EMAILS, parseRoomParam, validateInviteEmails } from './invite';
 import * as auth from './auth';
 import { openSessionScreen } from './session-screen';
@@ -225,10 +225,23 @@ const quizEl = $('quiz');
 // Each client renders the quiz in its own language (spec 0048). The modal callback
 // opens the quiz for EVERY participant when one starts, and closes it on cancel,
 // with a toast (spec 0070 R4.1/R4.3).
-const quiz = new Quiz(quizEl, myId, gameName, () => session?.lang || 'en', sendGame, t, (open) => {
-  toggleQuiz(open);
-  if (!open) toast(t('quizCancelled'));
-});
+const quiz = new Quiz(
+  quizEl,
+  myId,
+  gameName,
+  () => session?.lang || 'en',
+  sendGame,
+  t,
+  (open) => {
+    toggleQuiz(open);
+    if (!open) toast(t('quizCancelled'));
+  },
+  // Host-only: persist the finished quiz + scores for the session history (#221).
+  // Best-effort; needs a recorded session (activeSessionId) + an authed host.
+  (summary) => {
+    if (activeSessionId) void saveQuizHistory(activeSessionId, summary);
+  },
+);
 
 // Voice-command countdown timer (spec 0052): started from your own Deepgram
 // transcript ("imposta timer di 10 minuti") or the manual popover. Local-only —

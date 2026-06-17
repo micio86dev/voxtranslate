@@ -221,6 +221,13 @@ const jsonLd = {
           <div id="ai-sentiment-slot"></div>
           <div id="ai-email-slot"></div>
         </div>
+
+        <!-- Quiz history (#221): quizzes run in the call + per-participant scores.
+             Hidden until quizzes are loaded for the session. -->
+        <div id="session-quizzes" class="card" hidden>
+          <span class="card-title" data-i18n="quizzesLabel"></span>
+          <div id="session-quizzes-list" class="session-quizzes-list"></div>
+        </div>
       </div>
     </section>
 
@@ -912,6 +919,17 @@ const jsonLd = {
     /* Collapsed = compact preview: show only the first 6 rows; the toggle reveals the rest. */
     .session-transcript.collapsed :global(.tr-event:nth-child(n + 7)) { display: none; }
     .session-transcript-toggle { width: auto; min-height: var(--tap-target); padding: 0 14px; margin-top: 8px; font-size: var(--font-sm); }
+    /* Quiz history cards (#221). */
+    .session-quizzes-list { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
+    .session-quizzes-list :global(.quiz-card) { border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; background: var(--surface); }
+    .session-quizzes-list :global(.quiz-card-head) { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin-bottom: 8px; }
+    .session-quizzes-list :global(.quiz-card-title) { font-weight: 700; font-size: 0.9rem; color: var(--text); }
+    .session-quizzes-list :global(.quiz-card-meta) { font-size: 0.76rem; color: var(--muted); white-space: nowrap; }
+    .session-quizzes-list :global(.quiz-scores) { display: flex; flex-direction: column; gap: 4px; }
+    .session-quizzes-list :global(.quiz-score-row) { display: flex; justify-content: space-between; gap: 10px; font-size: 0.85rem; }
+    .session-quizzes-list :global(.quiz-score-row:first-child .quiz-score-val) { color: var(--success); font-weight: 700; }
+    .session-quizzes-list :global(.quiz-score-val) { font-variant-numeric: tabular-nums; color: var(--muted); }
+    .session-quizzes-list :global(.quiz-card-summary) { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); font-size: 0.82rem; color: var(--text); }
 
     /* ---------- AI tools (report — spec 0014; DOM created in JS) ---------- */
     #session-ai :global(.ai-section) { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }

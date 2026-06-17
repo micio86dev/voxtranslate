@@ -1510,6 +1510,53 @@ pub async fn report_latest(
     }
 }
 
+// ---- Quiz history (spec 0098 / #221) ----------------------------------------
+
+/// `GET /api/sessions/{id}/quizzes` — the quizzes run in the call + per-participant
+/// scores. Any participant of the session may read.
+pub async fn quizzes_list(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(session_id): Path<Uuid>,
+) -> Response {
+    let (Some(svc), Some(pool)) = (state.transcripts.as_ref(), state.pool.as_ref()) else {
+        return service_unavailable();
+    };
+    if let Err(resp) = session_gate(svc, session_id, user.user_id).await {
+        return resp;
+    }
+    match crate::quiz_history::session_quizzes(pool, session_id).await {
+        Ok(rows) => Json(rows).into_response(),
+        Err(e) => {
+            tracing::error!("list quizzes failed: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response()
+        }
+    }
+}
+
+/// `POST /api/sessions/{id}/quizzes` — persist a finished quiz + its results. Sent
+/// once, by the host, when a quiz completes. The poster must be a participant.
+pub async fn quiz_save(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(session_id): Path<Uuid>,
+    Json(input): Json<crate::quiz_history::QuizInput>,
+) -> Response {
+    let (Some(svc), Some(pool)) = (state.transcripts.as_ref(), state.pool.as_ref()) else {
+        return service_unavailable();
+    };
+    if let Err(resp) = session_gate(svc, session_id, user.user_id).await {
+        return resp;
+    }
+    match crate::quiz_history::save_quiz(pool, session_id, Some(user.user_id), &input).await {
+        Ok(id) => (StatusCode::CREATED, Json(serde_json::json!({ "id": id }))).into_response(),
+        Err(e) => {
+            tracing::error!("save quiz failed: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response()
+        }
+    }
+}
+
 // ---- Sentiment analysis (spec 0015) -----------------------------------------
 
 fn sentiment_json(row: &ai_sentiment::SentimentRow, cached: bool) -> serde_json::Value {
