@@ -105,6 +105,7 @@ export function formatRate(ratePerMinute: number): string {
  *  an unknown/future tier so the caller falls back to the server description. */
 export function engineDescKey(tier: string): string | null {
   if (tier === 'standard') return 'engineDescStandard';
+  if (tier === 'pro') return 'engineDescPro';
   if (tier === 'premium') return 'engineDescPremium';
   return null;
 }

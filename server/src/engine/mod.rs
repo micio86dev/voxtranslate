@@ -6,9 +6,11 @@
 //! engine-agnostic: adding an engine = new module + `register`, nothing else
 //! (Open/Closed — no `if engine == X` in the call sites).
 
+pub mod gemini;
 pub mod metadata;
 pub mod openai;
 pub mod premium;
+pub mod pro;
 pub mod standard;
 
 use std::sync::Arc;
@@ -24,12 +26,15 @@ use crate::transcripts::TranscriptService;
 
 pub use metadata::{EngineCapabilities, EngineInfo, EngineMetadata};
 pub use premium::PremiumEngine;
+pub use pro::ProEngine;
 pub use standard::StandardEngine;
 
 /// Stable engine ids. Persisted in `usage_sessions.engine_id` and sent in the
 /// join payload, so they must never change once shipped.
 pub const STANDARD_ID: &str = "standard";
 pub const PREMIUM_ID: &str = "premium";
+/// Gemini 3.5 Live Translate, the "Pro" tier (spec 0100).
+pub const GEMINI_ID: &str = "gemini_live_translate";
 
 /// Live per-speaker dependencies the handler hands an engine when speech starts.
 ///
