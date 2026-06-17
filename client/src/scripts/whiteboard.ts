@@ -151,6 +151,8 @@ export class Whiteboard {
   private shapeStart: [number, number] | null = null; // shape rubber-band anchor
   private previewRaf = 0;
 
+  private resizeRaf = 0;
+
   constructor(
     private canvas: HTMLCanvasElement,
     private send: (op: WbOp) => void,
@@ -162,6 +164,19 @@ export class Whiteboard {
     canvas.addEventListener('pointerup', this.onUp);
     canvas.addEventListener('pointercancel', this.onUp);
     canvas.addEventListener('pointerleave', this.onUp);
+    // Re-fit on ANY change of the canvas's displayed size — not just window resizes.
+    // Opening the chat / participants / invite panels (or any layout shift) changes
+    // the canvas's CSS size WITHOUT firing a window 'resize', so the backing store
+    // (width/height attrs) stays the old size and the browser STRETCHES the bitmap,
+    // while `content`/`norm()` keep a stale mapping (pointer desync). Observing the
+    // element itself fixes both, with one rAF to coalesce bursts (#225 follow-up).
+    if (typeof ResizeObserver !== 'undefined') {
+      const ro = new ResizeObserver(() => {
+        cancelAnimationFrame(this.resizeRaf);
+        this.resizeRaf = requestAnimationFrame(() => this.resize());
+      });
+      ro.observe(canvas);
+    }
   }
 
   /** Match the backing store to the displayed size (DPR-aware), recompute the logical
