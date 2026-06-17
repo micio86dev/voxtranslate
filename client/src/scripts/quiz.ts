@@ -208,12 +208,36 @@ export function isQuizActive(state: QuizState | null): boolean {
   return !!state && state.phase !== 'done' && state.phase !== 'cancelled';
 }
 
+/** How the AI-quiz creation form should present given the current quiz (#220).
+ *  While a quiz is live the form is hidden + its controls disabled so a second
+ *  quiz can't be started, and a "quiz in progress" notice takes its place. With
+ *  no live quiz (absent / done / cancelled) the form is restored and the notice
+ *  hidden. Pure so it can be unit-tested without a DOM. */
+export interface QuizCreationFormState {
+  formHidden: boolean;
+  controlsDisabled: boolean;
+  busyShown: boolean;
+}
+export function quizCreationFormState(state: QuizState | null): QuizCreationFormState {
+  const active = isQuizActive(state);
+  return { formHidden: active, controlsDisabled: active, busyShown: active };
+}
+
 export class Quiz {
   private state: QuizState | null = null;
   private myChoice: number | null = null;
   private round: number[] = []; // host-only: chosen PACK indices
   private pending: Record<string, number> = {}; // host-only: answers for the current question
   private optionEls: HTMLButtonElement[] = [];
+  // AI-quiz creation form (#124) + its in-progress notice (#220). While a quiz is
+  // live we hide/disable the creation form so a second quiz can't be started, and
+  // surface a clear "in progress" banner in its place.
+  private aiForm: HTMLElement | null = null;
+  private aiInput: HTMLInputElement | null = null;
+  private aiGenBtn: HTMLButtonElement | null = null;
+  private aiMsg: HTMLElement | null = null;
+  private aiBuy: HTMLElement | null = null;
+  private busyEl: HTMLElement | null = null;
 
   constructor(
     private root: HTMLElement,
@@ -240,6 +264,28 @@ export class Quiz {
     (root.querySelector('#quiz-cancel') as HTMLButtonElement | null)?.addEventListener('click', () =>
       this.cancel(),
     );
+
+    // Creation-form gating (#220). Cache the AI-quiz form + its sibling status/CTA
+    // nodes, and inject a "quiz in progress" notice right after the form so the two
+    // never show at once. Styled inline with the global design tokens (no CSS edit).
+    this.aiForm = root.querySelector('#quiz-ai');
+    this.aiInput = root.querySelector('#quiz-ai-prompt');
+    this.aiGenBtn = root.querySelector('#quiz-ai-gen');
+    this.aiMsg = root.querySelector('#quiz-ai-msg');
+    this.aiBuy = root.querySelector('#quiz-ai-buy');
+    if (this.aiForm) {
+      const busy = document.createElement('p');
+      busy.id = 'quiz-busy';
+      busy.className = 'quiz-busy';
+      busy.setAttribute('role', 'status');
+      busy.hidden = true;
+      busy.style.cssText =
+        'margin:0;display:flex;align-items:center;gap:6px;font-size:0.82rem;color:var(--muted);' +
+        'padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);';
+      this.aiForm.after(busy);
+      this.busyEl = busy;
+    }
+
     this.render();
   }
 
@@ -433,7 +479,31 @@ export class Quiz {
 
   // ---- rendering --------------------------------------------------------------
 
+  /** Gate the AI-quiz creation form while a quiz is live (#220): a new quiz can't
+   *  be started until the current one is done or cancelled, so we hide + disable
+   *  the prompt form and show a clear "quiz in progress" notice in its place. When
+   *  no quiz is active (absent / done / cancelled) the form is restored. */
+  private syncCreationForm(): void {
+    const { formHidden, controlsDisabled, busyShown } = quizCreationFormState(this.state);
+    if (this.aiForm) this.aiForm.hidden = formHidden;
+    // Disable the controls too, so the form is fully inert even if something
+    // re-shows it (and so assistive tech reports it as unavailable).
+    if (this.aiInput) this.aiInput.disabled = controlsDisabled;
+    if (this.aiGenBtn) this.aiGenBtn.disabled = controlsDisabled;
+    // While active, suppress the creation flow's stale status / buy CTA; when
+    // inactive, app.ts owns these again (it only writes them on a fresh submit).
+    if (busyShown) {
+      if (this.aiMsg) this.aiMsg.hidden = true;
+      if (this.aiBuy) this.aiBuy.classList.add('hidden');
+    }
+    if (this.busyEl) {
+      this.busyEl.hidden = !busyShown;
+      if (busyShown) this.busyEl.textContent = this.t('quizBusy');
+    }
+  }
+
   private render(): void {
+    this.syncCreationForm();
     const s = this.state;
     const statusEl = this.root.querySelector('#quiz-status') as HTMLElement;
     const qEl = this.root.querySelector('#quiz-question') as HTMLElement;
