@@ -5,6 +5,7 @@ import { applyI18n, detectLang, ENDONYM, FLAG, getUiLang, setUiLang, SUPPORTED, 
 import {
   type EngineInfo,
   commonLangs,
+  engineDescKey,
   formatRate,
   loadEnginePref,
   resolveEnginePref,
@@ -13,13 +14,14 @@ import {
 import { loadRemoteI18n } from './content';
 import { icon } from './icons';
 import { MeshManager } from './webrtc';
+import { resolvePeerId } from './peer-id';
 import { AudioCapture } from './audio-capture';
 import { PcmCapture } from './pcm-capture';
 import { pcmPlayback } from './pcm-playback';
 import { MicMeter } from './mic-meter';
 import { ChatManager, type ChatPayload } from './chat';
 import { CHAT_MAX_HEIGHT, counterLabel, counterState, insertAt, resizeBox } from './chat-input';
-import { checkUploadFile, fileUploadEnabled, generateAiQuiz, sendInvites, uploadChatFile } from './api';
+import { checkUploadFile, fileUploadEnabled, generateAiQuiz, saveQuizHistory, sendInvites, uploadChatFile } from './api';
 import { buildInviteLink, MAX_INVITE_EMAILS, parseRoomParam, validateInviteEmails } from './invite';
 import * as auth from './auth';
 import { openSessionScreen } from './session-screen';
@@ -189,9 +191,9 @@ const inviteStatus = $('invite-status');
 const MAX_ROOM = 4; // mirrors server rooms::MAX_PEERS
 
 // ---- State -----------------------------------------------------------------
-const myId =
-  (crypto && crypto.randomUUID && crypto.randomUUID()) ||
-  `id-${Math.random().toString(36).slice(2)}-${Date.now()}`;
+// Stable across reloads within this tab so a rejoin is recognised as a
+// reconnect (server evicts the ghost) — no phantom tile / inflated count (#219).
+const myId = resolvePeerId();
 
 let session: { room: string; lang: string; name: string; isPublic: boolean; engine: string } | null =
   null;
@@ -223,10 +225,23 @@ const quizEl = $('quiz');
 // Each client renders the quiz in its own language (spec 0048). The modal callback
 // opens the quiz for EVERY participant when one starts, and closes it on cancel,
 // with a toast (spec 0070 R4.1/R4.3).
-const quiz = new Quiz(quizEl, myId, gameName, () => session?.lang || 'en', sendGame, t, (open) => {
-  toggleQuiz(open);
-  if (!open) toast(t('quizCancelled'));
-});
+const quiz = new Quiz(
+  quizEl,
+  myId,
+  gameName,
+  () => session?.lang || 'en',
+  sendGame,
+  t,
+  (open) => {
+    toggleQuiz(open);
+    if (!open) toast(t('quizCancelled'));
+  },
+  // Host-only: persist the finished quiz + scores for the session history (#221).
+  // Best-effort; needs a recorded session (activeSessionId) + an authed host.
+  (summary) => {
+    if (activeSessionId) void saveQuizHistory(activeSessionId, summary);
+  },
+);
 
 // Voice-command countdown timer (spec 0052): started from your own Deepgram
 // transcript ("imposta timer di 10 minuti") or the manual popover. Local-only —
@@ -381,7 +396,10 @@ function renderEngineSelector(): void {
     head.append(name, rate);
     const desc = document.createElement('span');
     desc.className = 'engine-opt-desc';
-    desc.textContent = e.description;
+    // Localized, jargon-free copy keyed by tier; fall back to the server string for
+    // an unknown/future engine (#236).
+    const descKey = engineDescKey(e.tier);
+    desc.textContent = descKey ? t(descKey) : e.description;
     btn.append(head, desc);
     // Transparency (spec 0093): when the rate is per translation stream, say so —
     // a group call with more languages costs more.
@@ -916,22 +934,27 @@ async function handleServer(msg: any): Promise<void> {
       }
       updateParticipantsList();
       break;
-    case 'peer_joined':
+    case 'peer_joined': {
+      // A rejoin within the grace window (#233) is a recovered blip, not a new
+      // peer — cancel the pending removal so the tile never flickers out, and skip
+      // the join chime.
+      const reconnected = cancelPendingRemoval(msg.peer_id);
       peerNames.set(msg.peer_id, { name: msg.user_name, lang: msg.lang, avatar: msg.avatar_url });
       addCell(msg.peer_id, msg.user_name, msg.lang, false, msg.avatar_url);
-      playJoinSound(); // audible cue that someone joined the session
+      if (!reconnected) playJoinSound(); // audible cue only for a genuinely new peer
       await mesh?.addPeer(msg.peer_id, true); // we initiate toward the newcomer
       // Re-announce our current mute/camera state so the newcomer's UI matches.
       if (!micOn) ws?.send(JSON.stringify({ type: 'mute_audio', muted: true }));
       if (!camOn) ws?.send(JSON.stringify({ type: 'mute_video', muted: true }));
       updateParticipantsList();
       break;
+    }
     case 'peer_left':
-      mesh?.removePeer(msg.peer_id);
-      removeCell(msg.peer_id);
-      peerHandRaised.delete(msg.peer_id);
-      playLeaveSound(); // audible cue that someone left the session
-      updateParticipantsList();
+      // Tolerance window (#233): a peer_left may be a transient WS drop, not a real
+      // departure. Keep the tile (its last received frame held) in a "reconnecting"
+      // state for a grace period; a same-id rejoin (#219) cancels the removal — no
+      // flicker. Only if they don't return do we actually drop them.
+      schedulePeerRemoval(msg.peer_id);
       break;
     case 'room_full':
       leaveCall();
@@ -980,6 +1003,7 @@ async function handleServer(msg: any): Promise<void> {
       break;
     case 'screen_share':
       setScreenShareIndicator(msg.peer_id, msg.active);
+      applyAudioMode(); // re-evaluate muting: a sharer's audio is never muted, so shared audio is heard (#229)
       spotlightShare(msg.peer_id, msg.active); // zoom the sharer's tile into focus (spec 0089)
       break;
     case 'whiteboard': // a peer's stroke/clear (spec 0045)
@@ -1244,6 +1268,45 @@ function addCell(id: string, name: string, lang: string, isSelf: boolean, avatar
   updateGridCount();
 }
 
+// ---- Transient-drop tolerance (#233) ----------------------------------------
+// A `peer_left` may be a short network blip (WS dropped + about to reconnect)
+// rather than a real departure. Defer the teardown by a grace window, holding the
+// tile (and its last received frame) in a "reconnecting" state; a same-id rejoin
+// (#219) within the window cancels it, so brief drops no longer flicker users out
+// and back in. Only a peer that stays gone past the window is actually removed.
+const PEER_LEAVE_GRACE_MS = 4000;
+const pendingRemovals = new Map<string, number>();
+
+function schedulePeerRemoval(id: string): void {
+  if (pendingRemovals.has(id)) return; // already counting down
+  videoGrid.querySelector(`[data-peer="${cssEsc(id)}"]`)?.classList.add('reconnecting');
+  const timer = window.setTimeout(() => {
+    pendingRemovals.delete(id);
+    mesh?.removePeer(id);
+    removeCell(id);
+    peerHandRaised.delete(id);
+    playLeaveSound(); // audible cue only once we're sure they've actually left
+    updateParticipantsList();
+  }, PEER_LEAVE_GRACE_MS);
+  pendingRemovals.set(id, timer);
+}
+
+/** Cancel a pending removal (the peer came back). Returns true if one was pending. */
+function cancelPendingRemoval(id: string): boolean {
+  const timer = pendingRemovals.get(id);
+  if (timer === undefined) return false;
+  clearTimeout(timer);
+  pendingRemovals.delete(id);
+  videoGrid.querySelector(`[data-peer="${cssEsc(id)}"]`)?.classList.remove('reconnecting');
+  return true;
+}
+
+/** Drop all pending-removal timers (e.g. on leaving the call) so none fire late. */
+function clearPendingRemovals(): void {
+  for (const timer of pendingRemovals.values()) clearTimeout(timer);
+  pendingRemovals.clear();
+}
+
 function removeCell(id: string): void {
   const cell = videoGrid.querySelector(`[data-peer="${cssEsc(id)}"]`);
   if (cell) cell.remove();
@@ -1496,7 +1559,11 @@ function applyAudioMode(): void {
       video.muted = true; // locally blocked → always silent
     } else {
       const peerLang = peerNames.get(id)?.lang;
-      video.muted = !!(ttsOn && peerLang && myLang && peerLang !== myLang);
+      // A screen-sharing peer's audio track may carry shared tab/system audio
+      // (music, a video) that everyone should hear — never mute it for the
+      // translated-voice setting, or the shared audio is lost (#229).
+      const sharing = cell.classList.contains('sharing');
+      video.muted = !sharing && !!(ttsOn && peerLang && myLang && peerLang !== myLang);
     }
     // PiP clones are display-only and always muted (audio stays on these live
     // elements), so there's nothing to keep in sync here.
@@ -1878,7 +1945,9 @@ function setControlState(): void {
 
 // Overflow "More" menu (spec 0023): collapse secondary controls behind ⋯.
 const moreMenu = $('more-menu');
+let moreCloseTimer = 0;
 function setMoreOpen(open: boolean): void {
+  clearTimeout(moreCloseTimer); // cancel any pending auto-close so it can't shut a reopened menu
   moreMenu.classList.toggle('hidden', !open);
   btnMore.setAttribute('aria-expanded', String(open));
   if (open) moreMenu.querySelector<HTMLButtonElement>('.control-btn:not(.hidden)')?.focus();
@@ -1887,9 +1956,18 @@ btnMore.addEventListener('click', (e) => {
   e.stopPropagation();
   setMoreOpen(moreMenu.classList.contains('hidden'));
 });
-// The menu stays open while you act on its controls — toggling tts/hand/share is a
-// "set state and keep going" action (you see the dot flip), so only the ⋯ button,
-// an outside click, or Escape close it (spec 0036).
+// Unified close behavior (#226): clicking ANY action in the ⋯ menu keeps it open
+// for ~1s — long enough to SEE the result (a toggle's dot flipping, a panel
+// opening) — then auto-closes. Consistent across toggles (tts/hand/share) and
+// one-shot actions (timer/invite/label); rapid repeat clicks reset the timer.
+// (Supersedes spec 0036's "stay open until dismissed" so the behavior is
+// predictable across every action.)
+moreMenu.addEventListener('click', (e) => {
+  const btn = (e.target as HTMLElement).closest('.control-btn');
+  if (!btn || !moreMenu.contains(btn)) return;
+  clearTimeout(moreCloseTimer);
+  moreCloseTimer = window.setTimeout(() => setMoreOpen(false), 1000);
+});
 document.addEventListener('click', (e) => {
   if (!moreMenu.classList.contains('hidden') && !moreMenu.contains(e.target as Node)) setMoreOpen(false);
 });
@@ -2263,21 +2341,27 @@ async function startScreenShare(): Promise<void> {
     const s = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
     screenStream = s;
     isSharingScreen = true;
-    // If the user ticked "share audio", mix it with the mic and send the mix to
-    // peers. No screen-audio track (box unticked / unsupported) → the mic path is
-    // left untouched, so the common no-audio share carries zero voice-path risk.
+    // If the user ticked "share audio", route it to peers. With a mic present we
+    // MIX mic + share (peers hear you AND the shared audio); with no mic we send
+    // the shared audio alone — previously this was gated on having a mic, so a
+    // muted/no-mic sharer transmitted nothing (#229). Either way it leaves on the
+    // (now always-present) audio sender via replaceTrack — no renegotiation. No
+    // screen-audio track (box unticked / unsupported) → the mic path is untouched.
     const shareAudio = s.getAudioTracks();
-    if (shareAudio.length && localStream?.getAudioTracks().length) {
+    if (shareAudio.length) {
       try {
         shareAudioCtx = new AudioContext();
-        void shareAudioCtx.resume();
+        await shareAudioCtx.resume(); // a suspended context yields a SILENT mix → no audio reaches peers
         const dest = shareAudioCtx.createMediaStreamDestination();
-        shareAudioCtx.createMediaStreamSource(new MediaStream(localStream.getAudioTracks())).connect(dest);
         shareAudioCtx.createMediaStreamSource(new MediaStream(shareAudio)).connect(dest);
+        const mic = localStream?.getAudioTracks() ?? [];
+        if (mic.length) {
+          shareAudioCtx.createMediaStreamSource(new MediaStream(mic)).connect(dest);
+        }
         shareMixTrack = dest.stream.getAudioTracks()[0] ?? null;
         if (shareMixTrack) mesh.replaceAudioTrack(shareMixTrack);
       } catch {
-        // WebAudio unavailable → mic-only audio; the screen video still shares.
+        // WebAudio unavailable → mic-only audio (if any); the screen video still shares.
         shareAudioCtx = null;
         shareMixTrack = null;
       }
@@ -2301,7 +2385,7 @@ async function startScreenShare(): Promise<void> {
     // peers see — regardless of camera state.
     setSelfVideo(composite);
     setCameraOff(myId, false);
-    recorder?.updateStream(myId, composite);
+    recorder?.updateStream(myId, selfRecordingStream()); // composite video + mic/screen audio mix (#230)
     recorder?.setVideoOff(myId, false);
     // Show indicator on self cell; mark it sharing so the self-view mirror is
     // dropped (a flipped screen share would render its text backwards).
@@ -2418,14 +2502,44 @@ function participantSource(peerId: string, stream: MediaStream | null): Particip
   };
 }
 
+/** The self stream the composite recorder should capture: the current self VIDEO
+ *  (screen-share composite while sharing, else the camera/blur track from
+ *  localStream) PLUS the self AUDIO going to peers — the mic+screen-audio mix
+ *  while sharing with audio, otherwise the mic. The ScreenSharePip canvas track is
+ *  video-only, so without folding the audio back in, the recorder lost ALL self
+ *  audio (mic AND the shared screen audio) during a share (#230). */
+function selfRecordingStream(): MediaStream {
+  const video =
+    isSharingScreen && screenPip?.stream
+      ? screenPip.stream.getVideoTracks()
+      : (localStream?.getVideoTracks() ?? []);
+  const audio =
+    isSharingScreen && shareMixTrack ? shareMixTrack : (localStream?.getAudioTracks()[0] ?? null);
+  return new MediaStream([...video, ...(audio ? [audio] : [])]);
+}
+
+// Whiteboard-as-recording-tile (#230): when the board is open we feed its live
+// canvas into the composite recorder like an extra participant, so collaborative
+// drawing shows up in the saved file.
+const WB_RECORDING_ID = '__whiteboard__';
+function isWhiteboardOpen(): boolean {
+  return !wbOverlay.classList.contains('hidden');
+}
+function whiteboardRecordingSource(): ParticipantSource {
+  return { peerId: WB_RECORDING_ID, name: t('whiteboardTip'), stream: whiteboard.captureStream(), videoOff: false };
+}
+
 /** Current roster for the compositor: self first, then peers in join order. */
 function recorderSources(): ParticipantSource[] {
-  // During a share the self source is the composite (screen + camera PiP), so a
-  // recording started mid-share captures exactly what peers see (spec 0053).
-  const sources = [participantSource(myId, screenPip?.stream ?? localStream)];
+  // During a share the self source is the composite (screen + camera PiP) plus the
+  // mic+screen audio mix, so a recording started mid-share captures exactly what
+  // peers see AND hear (spec 0053 / #230).
+  const sources = [participantSource(myId, selfRecordingStream())];
   for (const [peerId] of peerNames) {
     sources.push(participantSource(peerId, remoteStreams.get(peerId) ?? null));
   }
+  // Capture the whiteboard too when it's open at record start (#230).
+  if (isWhiteboardOpen()) sources.push(whiteboardRecordingSource());
   return sources;
 }
 
@@ -2607,6 +2721,7 @@ function leaveCall(): void {
   activeSessionId = null;
   transcriptEvents = 0;
   callStartedAt = 0;
+  clearPendingRemovals(); // drop any in-flight reconnect grace timers (#233)
   show($('transcript-indicator'), false);
   manualClose = true;
   setNetworkDegraded(false); // leaving on purpose — don't show "reconnecting"
@@ -3228,9 +3343,9 @@ async function renderTranscriptRows(): Promise<void> {
       }
       btn.addEventListener('click', async () => {
         btn.disabled = true;
-        const ok = await auth.downloadTranscript(s.id, format, getUiLang());
+        const r = await auth.downloadTranscript(s.id, format, getUiLang());
         btn.disabled = false;
-        if (!ok) toast(t('downloadFailed'));
+        if (!r.ok) toast(t(r.status === 429 ? 'downloadRateLimited' : 'downloadFailed'));
       });
       actions.appendChild(btn);
     }
@@ -3291,10 +3406,10 @@ async function downloadFromPostCall(format: 'json' | 'pdf', btn: HTMLButtonEleme
   const prev = btn.textContent;
   btn.disabled = true;
   btn.textContent = t('processing');
-  const ok = await auth.downloadTranscript(postCallSessionId, format, getUiLang());
+  const r = await auth.downloadTranscript(postCallSessionId, format, getUiLang());
   btn.textContent = prev;
   btn.disabled = postCallEvents === 0;
-  if (!ok) toast(t('downloadFailed'));
+  if (!r.ok) toast(t(r.status === 429 ? 'downloadRateLimited' : 'downloadFailed'));
 }
 
 $('postcall-close').addEventListener('click', () => show(postcallModal, false));
@@ -3525,6 +3640,10 @@ function toggleWhiteboard(open?: boolean): void {
   if (show) {
     renderWbPages(whiteboard.pageCount(), whiteboard.pageIndex()); // sync the strip on open
     requestAnimationFrame(() => whiteboard.resize());
+    // Add the board to an in-progress recording so its strokes are captured (#230).
+    if (isRecording) recorder?.addParticipant(whiteboardRecordingSource());
+  } else {
+    recorder?.removeParticipant(WB_RECORDING_ID); // board closed → drop its tile from the recording
   }
 }
 function setWbTool(tool: WbTool): void {

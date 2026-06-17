@@ -1499,3 +1499,125 @@ async fn set_lang_resolves_auto_and_updates_participant_row() {
     .unwrap();
     assert_eq!(lang, "es");
 }
+
+#[tokio::test]
+async fn quiz_history_persists_and_lists_with_gates() {
+    let Some(srv) = setup().await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    let (tess, tess_jwt) = login(&srv, "Tess").await;
+    let (_bob, bob_jwt) = login(&srv, "Bob").await; // Bob is NOT a participant
+    let room = format!("quiz-{}", Uuid::new_v4().simple());
+    let session_id = Uuid::new_v4();
+
+    let svc = TranscriptService::new(srv.pool.clone());
+    svc.session_started(session_id, &room).await.unwrap();
+    svc.participant_joined(session_id, "tess-peer", Some(tess), "Tess", "it")
+        .await
+        .unwrap();
+
+    let http = reqwest::Client::new();
+    let base = format!("http://{}", srv.addr);
+    let url = format!("{base}/api/sessions/{session_id}/quizzes");
+
+    // Empty before any quiz.
+    let empty: serde_json::Value = http
+        .get(&url)
+        .bearer_auth(&tess_jwt)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(empty.as_array().unwrap().len(), 0);
+
+    // Host persists a finished quiz (one authed participant + one guest score).
+    let payload = serde_json::json!({
+        "title": "General knowledge",
+        "questions": [{"prompt": "2+2?", "options": ["3", "4", "5"], "correct_index": 1}],
+        "results": [
+            {"peer_id": "tess-peer", "display_name": "Tess", "score": 1, "total": 1},
+            {"peer_id": "guest-1", "display_name": "Gigi", "score": 0, "total": 1}
+        ]
+    });
+    let saved = http
+        .post(&url)
+        .bearer_auth(&tess_jwt)
+        .json(&payload)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(saved.status(), 201);
+
+    // Lists with results, best score first.
+    let list: serde_json::Value = http
+        .get(&url)
+        .bearer_auth(&tess_jwt)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let arr = list.as_array().unwrap();
+    assert_eq!(arr.len(), 1);
+    assert_eq!(arr[0]["title"], "General knowledge");
+    let results = arr[0]["results"].as_array().unwrap();
+    assert_eq!(results.len(), 2);
+    assert_eq!(results[0]["display_name"], "Tess"); // higher score first
+    assert_eq!(results[0]["score"], 1);
+
+    // A non-participant is forbidden.
+    let forbidden = http.get(&url).bearer_auth(&bob_jwt).send().await.unwrap();
+    assert_eq!(forbidden.status(), 403);
+
+    sqlx::query("DELETE FROM call_sessions WHERE id = $1")
+        .bind(session_id)
+        .execute(&srv.pool)
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn analytics_rollup_aggregates_session_events() {
+    let Some(srv) = setup().await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    let (uid, _jwt) = login(&srv, "Ann").await;
+    let session_id = Uuid::new_v4();
+    let svc = TranscriptService::new(srv.pool.clone());
+    svc.session_started(session_id, "rollup-room")
+        .await
+        .unwrap();
+
+    // A premium session_ended event of 180s should roll up to 3 minutes.
+    let mut ev = voxtranslate_server::analytics::UsageEvent::new("premium", "session_ended")
+        .session(session_id)
+        .user(Some(uid));
+    ev.duration_seconds = 180;
+    voxtranslate_server::analytics::insert_event(&srv.pool, &ev)
+        .await
+        .unwrap();
+    voxtranslate_server::analytics::roll_up(&srv.pool)
+        .await
+        .unwrap();
+
+    let (total, prem): (i32, i32) = sqlx::query_as(
+        "SELECT total_minutes, premium_minutes FROM user_usage_stats WHERE user_id = $1",
+    )
+    .bind(uid)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
+    assert_eq!(total, 3);
+    assert_eq!(prem, 3);
+
+    sqlx::query("DELETE FROM call_sessions WHERE id = $1")
+        .bind(session_id)
+        .execute(&srv.pool)
+        .await
+        .unwrap();
+}

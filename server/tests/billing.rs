@@ -967,6 +967,64 @@ mod safety_ws {
         let priv_guest = first_frame(addr, "room=privr&lang=en&id=g2&public=false").await;
         assert_eq!(priv_guest["type"], "room_joined");
     }
+
+    #[tokio::test]
+    async fn guest_cannot_spoof_into_public_room() {
+        // Regression (#232): a guest must not bypass the public-room gate by
+        // sending `public=false` on a room created PUBLIC by an authenticated
+        // user. The gate keyed off the client `public` param, which the guest can
+        // spoof; the server now re-checks the room's CANONICAL visibility after
+        // join and rejects the guest with `login_required`.
+        let Some(srv) = setup().await else {
+            eprintln!("skipping — no DATABASE_URL");
+            return;
+        };
+        let addr = srv.addr;
+
+        // An authenticated, funded user creates a PUBLIC room and stays connected,
+        // keeping the socket open so the room (and its canonical visibility)
+        // persists for the guest's join attempt.
+        let identity = GoogleIdentity {
+            google_id: format!("g-{}", Uuid::new_v4()),
+            email: format!("{}@x.com", Uuid::new_v4()),
+            name: "Host".into(),
+            avatar_url: None,
+        };
+        let user = upsert_google_user(
+            &srv.pool,
+            &identity,
+            rust_decimal::Decimal::new(500, 2),
+            None,
+        )
+        .await
+        .unwrap();
+        let jwt = issue_jwt(&srv.secret, &user.id, &user.email, &user.name, 168).unwrap();
+        let (mut host_ws, _) = tokio_tungstenite::connect_async(format!(
+            "ws://{addr}/ws?room=spoofr&lang=en&id=host&public=true&token={jwt}"
+        ))
+        .await
+        .expect("host ws connect");
+        // Drain until the host is joined, so the room exists when the guest connects.
+        loop {
+            match tokio::time::timeout(Duration::from_secs(2), host_ws.next()).await {
+                Ok(Some(Ok(tokio_tungstenite::tungstenite::Message::Text(t)))) => {
+                    let v: serde_json::Value = serde_json::from_str(t.as_str()).unwrap();
+                    if v["type"] == "room_joined" {
+                        break;
+                    }
+                }
+                Ok(Some(Ok(_))) => continue,
+                _ => panic!("host never joined"),
+            }
+        }
+
+        // The guest spoofs `public=false` to slip into the PUBLIC room by code.
+        let spoof = first_frame(addr, "room=spoofr&lang=en&id=spoof&public=false").await;
+        assert_eq!(spoof["type"], "error");
+        assert_eq!(spoof["code"], "login_required");
+
+        drop(host_ws);
+    }
 }
 
 mod admin_api {

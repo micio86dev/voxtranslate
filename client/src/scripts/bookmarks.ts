@@ -124,6 +124,14 @@ popShowAll.addEventListener('click', () => {
   hidePop();
   togglePanel(true);
 });
+// Explicit X close (#226): discards the pending pin (same as Escape / walk-away),
+// matching the close affordance every other modal has.
+const popClose = $<HTMLButtonElement>('bookmark-pop-close');
+popClose.innerHTML = icon('close', 16);
+popClose.addEventListener('click', () => {
+  hidePop();
+  btn.focus();
+});
 
 /** Save the pending pin — only ever with a non-empty label. */
 async function commitPin(): Promise<void> {

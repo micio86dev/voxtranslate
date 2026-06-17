@@ -182,8 +182,10 @@ const jsonLd = {
           </div>
         </dl>
 
+        <!-- Unified "session outputs" card (#224): downloads + an integrated,
+             collapsed transcript preview that expands via the toggle. -->
         <div class="card">
-          <span class="card-title" data-i18n="downloads"></span>
+          <span class="card-title" data-i18n="sessionOutputs"></span>
           <div id="session-downloads" class="session-downloads">
             <button id="session-dl-pdf" class="btn-primary" data-i18n="downloadPdf"></button>
             <button id="session-dl-json" class="btn-primary" data-i18n="downloadJson"></button>
@@ -202,6 +204,14 @@ const jsonLd = {
             </label>
             <span id="ai-correct-cost" class="ai-correct-cost"></span>
           </div>
+          <div class="session-transcript-block">
+            <span class="session-subhead" data-i18n="transcriptLabel"></span>
+            <div id="session-bookmarks" class="session-bookmarks" hidden></div>
+            <p id="session-transcript-status" class="status-line" role="status"></p>
+            <div id="session-transcript" class="session-transcript collapsed"></div>
+            <button id="session-transcript-toggle" class="btn-ghost session-transcript-toggle hidden"
+                    data-i18n="viewFullTranscript" aria-expanded="false"></button>
+          </div>
         </div>
 
         <!-- AI tools (report / sentiment / email) — slots filled by later phases. -->
@@ -212,11 +222,11 @@ const jsonLd = {
           <div id="ai-email-slot"></div>
         </div>
 
-        <div class="card">
-          <span class="card-title" data-i18n="transcriptLabel"></span>
-          <div id="session-bookmarks" class="session-bookmarks" hidden></div>
-          <p id="session-transcript-status" class="status-line" role="status"></p>
-          <div id="session-transcript" class="session-transcript"></div>
+        <!-- Quiz history (#221): quizzes run in the call + per-participant scores.
+             Hidden until quizzes are loaded for the session. -->
+        <div id="session-quizzes" class="card" hidden>
+          <span class="card-title" data-i18n="quizzesLabel"></span>
+          <div id="session-quizzes-list" class="session-quizzes-list"></div>
         </div>
       </div>
     </section>
@@ -333,6 +343,9 @@ const jsonLd = {
               data-i18n-ph="bookmarkLabelPh" data-i18n-label="bookmarkLabelPh" />
             <button id="bookmark-label-save" class="btn-primary bm-save" data-i18n="saveBtn"></button>
             <button id="bookmark-show-all" class="btn-ghost" data-i18n="showAllBookmarks"></button>
+            <!-- Explicit close (#226): the prompt had only Escape / auto-dismiss; an X
+                 matches every other modal's close affordance. -->
+            <button id="bookmark-pop-close" class="btn-ghost icon-btn bm-close" data-i18n-title="closeTip" aria-label="Close"></button>
           </div>
           <!-- Collaborative whiteboard overlay (spec 0045 → advanced in 0062 / #96):
                covers the stage; ops relay over the WS and a late-joiner gets a
@@ -900,6 +913,23 @@ const jsonLd = {
     .session-transcript :global(.tr-text) { color: var(--text); overflow-wrap: anywhere; }
     .session-transcript :global(.tr-orig) { color: var(--muted); font-size: 0.78rem; overflow-wrap: anywhere; }
     .session-transcript :global(.tr-chat .tr-text) { font-style: italic; }
+    /* Integrated transcript preview (#224): a sub-section of the outputs card. */
+    .session-transcript-block { margin-top: 18px; border-top: 1px solid var(--border); padding-top: 14px; }
+    .session-subhead { display: block; font-weight: 700; font-size: 0.85rem; color: var(--text); margin-bottom: 8px; }
+    /* Collapsed = compact preview: show only the first 6 rows; the toggle reveals the rest. */
+    .session-transcript.collapsed :global(.tr-event:nth-child(n + 7)) { display: none; }
+    .session-transcript-toggle { width: auto; min-height: var(--tap-target); padding: 0 14px; margin-top: 8px; font-size: var(--font-sm); }
+    /* Quiz history cards (#221). */
+    .session-quizzes-list { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
+    .session-quizzes-list :global(.quiz-card) { border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; background: var(--surface); }
+    .session-quizzes-list :global(.quiz-card-head) { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin-bottom: 8px; }
+    .session-quizzes-list :global(.quiz-card-title) { font-weight: 700; font-size: 0.9rem; color: var(--text); }
+    .session-quizzes-list :global(.quiz-card-meta) { font-size: 0.76rem; color: var(--muted); white-space: nowrap; }
+    .session-quizzes-list :global(.quiz-scores) { display: flex; flex-direction: column; gap: 4px; }
+    .session-quizzes-list :global(.quiz-score-row) { display: flex; justify-content: space-between; gap: 10px; font-size: 0.85rem; }
+    .session-quizzes-list :global(.quiz-score-row:first-child .quiz-score-val) { color: var(--success); font-weight: 700; }
+    .session-quizzes-list :global(.quiz-score-val) { font-variant-numeric: tabular-nums; color: var(--muted); }
+    .session-quizzes-list :global(.quiz-card-summary) { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); font-size: 0.82rem; color: var(--text); }
 
     /* ---------- AI tools (report — spec 0014; DOM created in JS) ---------- */
     #session-ai :global(.ai-section) { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
@@ -1228,12 +1258,17 @@ const jsonLd = {
     .video-grid :global(.video-overlay) {
       position: absolute; top: 8px; left: 8px; display: flex; align-items: center; gap: 6px;
       background: rgba(0, 0, 0, 0.5); border-radius: 999px; padding: 3px 10px; backdrop-filter: blur(4px);
+      /* Cap the width so a long name can never grow rightward into the top-right
+         ban/report actions — critical on the small focus-mode mini tile (#227). */
+      max-width: calc(100% - 80px); min-width: 0;
     }
     /* The self tile (always the top-left cell) no longer needs its own name badge — it's
        surfaced in #stage-self up in the meta row, so this removes the overlap the meta
        cluster used to cause. Self mic state still shows on the control bar. */
     .video-grid :global(.video-cell.self .video-overlay) { display: none; }
-    .video-grid :global(.peer-name) { font-size: 0.8rem; font-weight: 600; color: #fff; }
+    /* Single-line + ellipsis so the name never wraps to two lines and inflates the
+       overlay height on the compact mini tile (#227). */
+    .video-grid :global(.peer-name) { font-size: 0.8rem; font-weight: 600; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
     .video-grid :global(.peer-lang) { font-size: 0.72rem; color: rgba(255, 255, 255, 0.75); }
     .video-grid :global(.mute-indicator) { color: var(--danger); display: inline-flex; }
     .video-grid :global(.pin-btn) { margin-left: auto; cursor: pointer; color: var(--muted); display: inline-flex; transition: color 0.15s; background: none; border: none; padding: 0; }
@@ -1618,9 +1653,27 @@ const jsonLd = {
     .video-grid :global(.video-cell:focus-within) { z-index: 9; }
     .video-grid :global(.video-cell:hover .cell-actions),
     .video-grid :global(.video-cell:focus-within .cell-actions) { opacity: 1; }
+    /* Touch devices have no :hover, so the report/block buttons can neither be
+       revealed nor lift their cell above the participant badge (z8) — leaving
+       them hidden UNDER the top-right counter and untappable (#228). On a coarse
+       pointer, show them and raise every cell above the badge so they're always
+       reachable and clear of the counter. The badge stays pointer-events:none so
+       even an exact overlap passes the tap through to the button beneath. */
+    @media (hover: none) {
+      .video-grid :global(.video-cell) { z-index: 9; }
+      .video-grid :global(.cell-actions) { opacity: 1; }
+    }
     .video-grid :global(.cell-action) { width: 30px; height: 30px; border-radius: 50%; border: none; background: rgba(0,0,0,0.55); color: #fff; display: grid; place-items: center; cursor: pointer; backdrop-filter: blur(4px); }
     .video-grid :global(.cell-action:hover) { background: var(--danger); }
     .video-grid :global(.cell-action .ico) { width: 15px; height: 15px; }
+    /* Transient-drop grace (#233): a peer awaiting a possible reconnect keeps its
+       tile (last received frame held) but dims + pulses to signal the unstable
+       link, instead of vanishing and re-appearing. Stilled by prefers-reduced-motion. */
+    .video-grid :global(.video-cell.reconnecting) { animation: reconnect-pulse 1.4s ease-in-out infinite; }
+    @keyframes reconnect-pulse { 0%, 100% { opacity: 0.5; } 50% { opacity: 0.85; } }
+    @media (prefers-reduced-motion: reduce) {
+      .video-grid :global(.video-cell.reconnecting) { animation: none; opacity: 0.6; }
+    }
     /* Locally-blocked peer: dim the cell and keep its block button highlighted. */
     .video-grid :global(.video-cell.blocked) { filter: grayscale(1) brightness(0.5); }
     .video-grid :global(.video-cell.blocked .cell-actions) { opacity: 1; }
@@ -1723,6 +1776,11 @@ const jsonLd = {
     }
     .video-grid[data-mode="focus"] :global(.video-cell.video-thumb:hover) { transform: scale(1.08); }
     .video-grid[data-mode="focus"] :global(.video-cell.video-thumb .video-overlay) { font-size: 0.65rem; padding: 2px 6px; }
+    /* Slightly larger mini tile on desktop for better usability (#227); the
+       phone-sized 160×90 stays the default for narrow viewports. */
+    @media (min-width: 1024px) {
+      .video-grid[data-mode="focus"] :global(.video-cell.video-thumb) { width: 200px; height: 112px; }
+    }
     /* Zoom-in pop when a screen share takes the focus view (spec 0089). The grid
        revert on stop returns the tile to its small cell — that's the zoom-out.
        Stilled by the global prefers-reduced-motion rule. */

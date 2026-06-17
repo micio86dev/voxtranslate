@@ -9,8 +9,10 @@ import {
   ensureCorrection,
   fetchAiPricing,
   fetchCorrectionStatus,
+  fetchSessionQuizzes,
   fetchTranscript,
   type CorrectionMode,
+  type SessionQuiz,
   type TranscriptDoc,
 } from './api';
 import { getUiLang, t } from './i18n';
@@ -140,6 +142,8 @@ async function renderTranscript(ref: SessionRef): Promise<void> {
   const list = $('session-transcript');
   const status = $('session-transcript-status');
   list.innerHTML = '';
+  syncTranscriptPreview(0); // reset the toggle/collapse state for the new session (#224)
+  void renderQuizzes(ref.id); // quiz history loads independently of the transcript (#221)
   $('session-bookmarks').hidden = true;
   if (ref.event_count === 0) {
     status.textContent = t('noTranscriptEvents');
@@ -182,6 +186,61 @@ async function renderTranscript(ref: SessionRef): Promise<void> {
   );
   renderBookmarks(doc);
   renderEvents(list, doc);
+}
+
+/** Quiz history (#221): render the quizzes run in the call + per-participant
+ *  scores. Hidden when the session has none. */
+async function renderQuizzes(sessionId: string): Promise<void> {
+  const box = $('session-quizzes');
+  const list = $('session-quizzes-list');
+  box.hidden = true;
+  list.innerHTML = '';
+  const quizzes = await fetchSessionQuizzes(sessionId);
+  if (current?.id !== sessionId || quizzes.length === 0) return; // navigated away / none
+  for (const q of quizzes) list.appendChild(renderQuizCard(q));
+  box.hidden = false;
+}
+
+function renderQuizCard(q: SessionQuiz): HTMLElement {
+  const card = document.createElement('div');
+  card.className = 'quiz-card';
+
+  const head = document.createElement('div');
+  head.className = 'quiz-card-head';
+  const title = document.createElement('span');
+  title.className = 'quiz-card-title';
+  title.textContent = q.title || t('quizzesLabel');
+  const meta = document.createElement('span');
+  meta.className = 'quiz-card-meta';
+  meta.textContent = `${q.questions.length} · ${new Date(q.created_at).toLocaleDateString()}`;
+  head.append(title, meta);
+  card.appendChild(head);
+
+  // Server returns results best-score-first.
+  const scores = document.createElement('div');
+  scores.className = 'quiz-scores';
+  for (const r of q.results) {
+    const row = document.createElement('div');
+    row.className = 'quiz-score-row';
+    const name = document.createElement('span');
+    name.textContent = r.display_name; // textContent: participant name is attacker-controlled
+    const val = document.createElement('span');
+    val.className = 'quiz-score-val mono';
+    val.textContent = `${r.score}/${r.total}`;
+    row.append(name, val);
+    scores.appendChild(row);
+  }
+  card.appendChild(scores);
+
+  if (q.results.length > 0) {
+    const summary = document.createElement('div');
+    summary.className = 'quiz-card-summary';
+    const best = q.results[0];
+    const avg = q.results.reduce((a, r) => a + r.score, 0) / q.results.length;
+    summary.textContent = `🏆 ${best.display_name} · ${t('quizAverage')}: ${avg.toFixed(1)}`;
+    card.appendChild(summary);
+  }
+  return card;
 }
 
 /** Pinned moments (spec 0013) above the transcript; hidden when none exist. */
@@ -253,11 +312,37 @@ function renderEvents(list: HTMLElement, doc: TranscriptDoc): void {
     row.append(time, body);
     list.appendChild(row);
   }
+  syncTranscriptPreview(doc.events.length);
+}
+
+// Transcript preview (#224): collapse to the first few rows by default, with a
+// toggle to expand/collapse. Keeps the unified outputs card compact.
+const PREVIEW_ROWS = 6;
+
+/** Show the toggle only when there's more than the preview shows, and reset to the
+ *  collapsed state on each (re)load. */
+function syncTranscriptPreview(count: number): void {
+  const list = $('session-transcript');
+  const toggle = $('session-transcript-toggle');
+  const collapsible = count > PREVIEW_ROWS;
+  list.classList.toggle('collapsed', collapsible);
+  toggle.classList.toggle('hidden', !collapsible);
+  toggle.textContent = t('viewFullTranscript');
+  toggle.setAttribute('aria-expanded', 'false');
 }
 
 // ---- One-time wiring (DOM is ready when modules execute) --------------------
 
 $('session-back').addEventListener('click', closeSessionScreen);
+
+// Expand/collapse the transcript preview (#224).
+$('session-transcript-toggle').addEventListener('click', () => {
+  const list = $('session-transcript');
+  const toggle = $('session-transcript-toggle');
+  const collapsed = list.classList.toggle('collapsed');
+  toggle.textContent = collapsed ? t('viewFullTranscript') : t('hideTranscript');
+  toggle.setAttribute('aria-expanded', String(!collapsed));
+});
 
 /** Show a transient status line that auto-clears (only if unchanged). */
 function flashStatus(msg: string): void {
@@ -279,38 +364,62 @@ function correctionTargetFor(format: 'pdf' | 'json' | 'srt' | 'vtt'): {
   return correctTargetFromDropdown(); // srt/vtt follow the sub-mode dropdown
 }
 
-for (const format of ['pdf', 'json', 'srt', 'vtt'] as const) {
+// Serialize downloads (#222): only one runs at a time, so rapid clicks across the
+// four format buttons can't fan out into a burst the server rate-limits (429), and
+// a stuck-disabled "frozen" button can't happen (the finally always restores).
+const DL_FORMATS = ['pdf', 'json', 'srt', 'vtt'] as const;
+let downloading = false;
+
+/** Disable every download button while one is in flight; when freeing them, a
+ *  session with no events stays disabled. */
+function setDownloadsBusy(busy: boolean): void {
+  const noEvents = (current?.event_count ?? 0) === 0;
+  for (const f of DL_FORMATS) $<HTMLButtonElement>(`session-dl-${f}`).disabled = busy || noEvents;
+}
+
+for (const format of DL_FORMATS) {
   const btn = $<HTMLButtonElement>(`session-dl-${format}`);
   btn.addEventListener('click', async () => {
-    if (!current || btn.disabled) return;
+    if (!current || btn.disabled || downloading) return;
     const sessionId = current.id;
     const prev = btn.textContent;
-    btn.disabled = true;
-    // SRT/VTT also carry the lang-mode dropdown (original/translated/both).
-    const mode = $<HTMLSelectElement>('session-sub-mode').value as auth.SubtitleMode;
-    const correct = $<HTMLInputElement>('ai-correct-chk').checked;
+    downloading = true;
+    setDownloadsBusy(true);
+    try {
+      // SRT/VTT also carry the lang-mode dropdown (original/translated/both).
+      const mode = $<HTMLSelectElement>('session-sub-mode').value as auth.SubtitleMode;
+      const correct = $<HTMLInputElement>('ai-correct-chk').checked;
 
-    // Paid step first: ensure the corrected text is cached (free on a repeat).
-    if (correct) {
-      const target = correctionTargetFor(format);
-      btn.textContent = t('aiCorrecting');
-      const res = await ensureCorrection(sessionId, target.mode, target.lang);
-      if (current?.id !== sessionId) return; // navigated away while correcting
-      if (!res.ok) {
-        btn.textContent = prev;
-        btn.disabled = (current?.event_count ?? 0) === 0;
-        flashStatus(res.insufficient ? t('aiCorrectNoCredits') : t('aiCorrectFailed'));
-        return;
+      // Paid step first: ensure the corrected text is cached. It's free on a
+      // repeat (server-authoritative), so re-downloading never re-charges or
+      // re-runs the AI correction (#222).
+      if (correct) {
+        const target = correctionTargetFor(format);
+        btn.textContent = t('aiCorrecting');
+        const res = await ensureCorrection(sessionId, target.mode, target.lang);
+        if (current?.id !== sessionId) return; // navigated away while correcting
+        if (!res.ok) {
+          flashStatus(
+            res.rateLimited
+              ? t('downloadRateLimited')
+              : res.insufficient
+                ? t('aiCorrectNoCredits')
+                : t('aiCorrectFailed'),
+          );
+          return;
+        }
+        if (typeof res.balance === 'number') auth.setBalance(res.balance);
+        refreshCorrectCost(); // now reads as free for this shape
       }
-      if (typeof res.balance === 'number') auth.setBalance(res.balance);
-      refreshCorrectCost(); // now reads as free for this shape
-    }
 
-    btn.textContent = t('processing');
-    const ok = await auth.downloadTranscript(sessionId, format, getUiLang(), mode, correct);
-    btn.textContent = prev;
-    btn.disabled = (current?.event_count ?? 0) === 0;
-    if (!ok) flashStatus(t('downloadFailed'));
+      btn.textContent = t('processing');
+      const r = await auth.downloadTranscript(sessionId, format, getUiLang(), mode, correct);
+      if (!r.ok) flashStatus(r.status === 429 ? t('downloadRateLimited') : t('downloadFailed'));
+    } finally {
+      btn.textContent = prev;
+      downloading = false;
+      setDownloadsBusy(false); // re-enable (a no-event session stays disabled)
+    }
   });
 }
 

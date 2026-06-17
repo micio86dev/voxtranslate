@@ -8,6 +8,7 @@
 
 pub mod admin;
 pub mod ai;
+pub mod analytics;
 pub mod api;
 pub mod auth;
 pub mod billing;
@@ -29,6 +30,7 @@ pub mod moderation;
 pub mod observability;
 pub mod pdf;
 pub mod protocol;
+pub mod quiz_history;
 pub mod rate_limit;
 pub mod rooms;
 pub mod safety;
@@ -356,6 +358,10 @@ pub fn app(state: AppState) -> Router {
             get(api::report_latest).post(api::report_generate),
         )
         .route(
+            "/api/sessions/{id}/quizzes",
+            get(api::quizzes_list).post(api::quiz_save),
+        )
+        .route(
             "/api/sessions/{id}/sentiment",
             get(api::sentiment_latest).post(api::sentiment_generate),
         )
@@ -504,6 +510,12 @@ pub async fn serve() {
             }
         }
     });
+
+    // Analytics roll-up (#241): periodically fold raw events into the aggregate
+    // tables Directus dashboards read. Skipped in guest-only mode (no DB).
+    if let Some(pool) = state.pool.clone() {
+        tokio::spawn(crate::analytics::run_rollup(pool, Duration::from_secs(300)));
+    }
 
     let addr = format!("0.0.0.0:{port}");
     let listener = match tokio::net::TcpListener::bind(&addr).await {
@@ -846,6 +858,33 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
     let session_id = joined.session_id;
     let room_public = joined.public;
     let existing = joined.existing;
+
+    // Security (#232): the pre-join gate above keys off the client-supplied
+    // `public` query param, which a guest can spoof — sending `public=false` to
+    // slip into a PUBLIC room by its code. The room's CANONICAL visibility is set
+    // by its creator and a later joiner's param can't change it (rooms.rs), so it
+    // is only known here, after `join()`. Re-check against `room_public`: when
+    // accounts are live, guests may use private rooms only. Back out of the room
+    // we just joined and close. This runs before any RoomJoined/PeerJoined is
+    // emitted and before the usage/transcript session is created, so the only
+    // cleanup needed is removing the freshly-added peer.
+    if room_public && billed_user.is_none() && state.pool.is_some() {
+        state.rooms.remove(&room, &id, conn);
+        tracing::info!(%room, %name, "guest rejected from public room (canonical visibility)");
+        let _ = ws_tx
+            .send(Message::Text(
+                ServerMessage::Error {
+                    message: "sign in to use public rooms".to_string(),
+                    code: Some("login_required".to_string()),
+                }
+                .to_json()
+                .into(),
+            ))
+            .await;
+        let _ = ws_tx.close().await;
+        return;
+    }
+
     let session_start = std::time::Instant::now(); // for the WS session canonical line (spec 0050)
     tracing::info!(%room, %name, %lang, peers = existing.len() + 1, "peer joined");
 
@@ -937,6 +976,24 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
         },
         _ => None,
     };
+
+    // Analytics (spec 0097 / #241): append a non-blocking session-start event. The
+    // event store reuses call_sessions(id); `plan` is the engine tier. Fire-and-
+    // forget — it never blocks or fails the call. (Further event types —
+    // translation_used / subtitles_on / voice_generated / screen_shared /
+    // recording_started — wire in at their respective points; see the spec.)
+    if let Some(pool) = state.pool.as_ref() {
+        crate::analytics::record_event(
+            pool,
+            crate::analytics::UsageEvent::new(
+                crate::analytics::plan_for_tier(&active_engine.metadata().tier),
+                "session_started",
+            )
+            .session(session_id)
+            .user(billed_user)
+            .feature("translation"),
+        );
+    }
 
     // Guest speaking-time cap (cumulative across bursts), if configured.
     let guest_cap_secs = if billed_user.is_none() {
@@ -1198,6 +1255,23 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
                                 }
                                 .to_json(),
                             );
+                            // Analytics (#241): one screen_shared event per share start.
+                            if active {
+                                if let Some(pool) = state.pool.as_ref() {
+                                    crate::analytics::record_event(
+                                        pool,
+                                        crate::analytics::UsageEvent::new(
+                                            crate::analytics::plan_for_tier(
+                                                &active_engine.metadata().tier,
+                                            ),
+                                            "screen_shared",
+                                        )
+                                        .session(session_id)
+                                        .user(billed_user)
+                                        .feature("screen_share"),
+                                    );
+                                }
+                            }
                         }
                         Ok(ClientMessage::Whiteboard { op }) => {
                             // Persist for late-joiners, then relay to the others (spec 0045).
@@ -1321,6 +1395,20 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
         duration_secs = session_start.elapsed().as_secs(),
         "ws session ended"
     );
+    // Analytics (#241): one session_ended event carrying the connection's duration —
+    // the core "minutes per plan" KPI. Non-blocking.
+    if let Some(pool) = state.pool.as_ref() {
+        let secs = session_start.elapsed().as_secs().min(i32::MAX as u64) as i32;
+        let mut ev = crate::analytics::UsageEvent::new(
+            crate::analytics::plan_for_tier(&active_engine.metadata().tier),
+            "session_ended",
+        )
+        .session(session_id)
+        .user(billed_user)
+        .feature("session");
+        ev.duration_seconds = secs;
+        crate::analytics::record_event(pool, ev);
+    }
     drop(audio_tx); // flush any active speaking session
     if let Some(c) = meter_cancel.take() {
         let _ = c.send(());
