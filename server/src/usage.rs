@@ -40,11 +40,10 @@ pub enum MeterScope {
     /// Listener-pays (spec 0099): bill the listener for the active cross-language
     /// sources they are receiving right now, at the listener's own engine rate.
     /// One stream per currently-speaking peer whose language differs from the
-    /// listener's — symmetric to the speaker's `scale_by_target_count`.
-    Listener {
-        listener_id: String,
-        listener_lang: String,
-    },
+    /// listener's — symmetric to the speaker's `scale_by_target_count`. The
+    /// listener's language is read LIVE each tick (auto-detect / set_lang can move
+    /// it), so only the stable id is stored.
+    Listener { listener_id: String },
 }
 
 /// Per-session metering parameters.
@@ -120,15 +119,18 @@ pub async fn run_usage_meter(
                             }
                         }
                         // Listener-pays (spec 0099): bill for the cross-language
-                        // sources this listener is receiving right now. None active
-                        // → nothing to translate for them → skip the tick.
-                        MeterScope::Listener {
-                            listener_id,
-                            listener_lang,
-                        } => match rooms.active_source_count(&cfg.room, listener_id, listener_lang) {
-                            0 => continue,
-                            n => n,
-                        },
+                        // sources this listener is receiving right now, using their
+                        // LIVE language. None active (or the listener left) → nothing
+                        // to translate for them → skip the tick.
+                        MeterScope::Listener { listener_id } => {
+                            let Some(lang) = rooms.peer_lang(&cfg.room, listener_id) else {
+                                continue;
+                            };
+                            match rooms.active_source_count(&cfg.room, listener_id, &lang) {
+                                0 => continue,
+                                n => n,
+                            }
+                        }
                     },
                     None => 1,
                 };
@@ -397,7 +399,6 @@ mod tests {
             room: "r".into(),
             scope: MeterScope::Listener {
                 listener_id: "me".into(),
-                listener_lang: "en".into(),
             },
         };
         let h = tokio::spawn(run_usage_meter(

@@ -515,6 +515,20 @@ impl RoomManager {
         langs
     }
 
+    /// Change a peer's receive-engine in place (spec 0099). Used when a listener
+    /// exhausts their balance: drop them to the default engine so they keep
+    /// receiving (free) translation without being billed for Premium. Returns
+    /// `false` when the room/peer is gone.
+    pub fn set_peer_engine(&self, room_id: &str, peer_id: &str, engine: &str) -> bool {
+        if let Some(mut room) = self.rooms.get_mut(room_id) {
+            if let Some(p) = room.peers.iter_mut().find(|p| p.id == peer_id) {
+                p.engine = engine.to_string();
+                return true;
+            }
+        }
+        false
+    }
+
     /// Update a peer's language in place (auto-detect result or a manual
     /// `set_lang` correction). Returns `false` when the room/peer is gone.
     pub fn set_peer_lang(&self, room_id: &str, peer_id: &str, lang: &str) -> bool {
@@ -542,6 +556,16 @@ impl RoomManager {
                 lang: p.lang.clone(),
                 avatar_url: p.avatar_url.clone(),
             })
+    }
+
+    /// A peer's current receive-engine (spec 0099). `None` when the peer is gone.
+    pub fn peer_engine(&self, room_id: &str, peer_id: &str) -> Option<String> {
+        self.rooms
+            .get(room_id)?
+            .peers
+            .iter()
+            .find(|p| p.id == peer_id)
+            .map(|p| p.engine.clone())
     }
 
     /// A peer's *current* language (live, post-detection) — the `lang` captured
