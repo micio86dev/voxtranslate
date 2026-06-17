@@ -260,6 +260,11 @@ let manualClose = false;
 let viewMode: 'grid' | 'speaker' = 'grid';
 let pinnedPeerId: string | null = null;
 let lastSpeakerId: string | null = null;
+// Auto-spotlight while someone shares their screen (spec 0089): the sharer's tile
+// zooms to the focus view for everyone; on stop we restore whatever was focused
+// before. `sharingSpotlightId` is the peer currently auto-spotlighted.
+let sharingSpotlightId: string | null = null;
+let pinBeforeShare: string | null = null;
 let isSharingScreen = false;
 let screenStream: MediaStream | null = null;
 // Compositor that draws the camera as a PiP overlay onto the shared screen and
@@ -842,7 +847,7 @@ async function handleServer(msg: any): Promise<void> {
       break;
     case 'screen_share':
       setScreenShareIndicator(msg.peer_id, msg.active);
-      layoutVideos(); // re-evaluate mobile pan/zoom gating for the focused tile
+      spotlightShare(msg.peer_id, msg.active); // zoom the sharer's tile into focus (spec 0089)
       break;
     case 'whiteboard': // a peer's stroke/clear (spec 0045)
       whiteboard.applyOp(msg.op);
@@ -1252,6 +1257,34 @@ function togglePin(id: string): void {
   setControlState();
   layoutVideos();
   updatePinButtons();
+}
+
+// Auto-spotlight the screen sharer for everyone (spec 0089): on start their tile
+// takes the focus view and zooms in; on stop we restore the prior focus (zoom-out
+// back to the grid / previous pin).
+function spotlightShare(peerId: string, active: boolean): void {
+  if (active) {
+    if (sharingSpotlightId === peerId) return;
+    // Remember the pre-share focus once, so we can restore it on stop.
+    if (!sharingSpotlightId) pinBeforeShare = pinnedPeerId;
+    sharingSpotlightId = peerId;
+    pinnedPeerId = peerId;
+    updatePinButtons();
+    layoutVideos();
+    // One-shot zoom-in on the now-focused share tile (replays each share).
+    const cell = videoGrid.querySelector<HTMLElement>(`[data-peer="${cssEsc(peerId)}"]`);
+    if (cell) {
+      cell.classList.add('share-zoom');
+      setTimeout(() => cell.classList.remove('share-zoom'), 450);
+    }
+  } else {
+    if (sharingSpotlightId !== peerId) return; // a different/older share is in focus
+    sharingSpotlightId = null;
+    pinnedPeerId = pinBeforeShare;
+    pinBeforeShare = null;
+    updatePinButtons();
+    layoutVideos(); // tile returns to the grid (zoom-out)
+  }
 }
 
 function updatePinButtons(): void {
@@ -2114,6 +2147,7 @@ async function startScreenShare(): Promise<void> {
     s.getVideoTracks()[0]?.addEventListener('ended', stopScreenShare);
     playScreenShareSound(); // audible cue that screen sharing has started
     ws?.send(JSON.stringify({ type: 'screen_share', active: true })); // tell peers (spec 0033)
+    spotlightShare(myId, true); // zoom my own share into focus too (spec 0089)
     setControlState();
   } catch {
     // User cancelled the picker (or a rare post-acquire failure) — roll back the
@@ -2173,6 +2207,7 @@ function stopScreenShare(): void {
   cell?.classList.remove('sharing');
   cell?.querySelector('.screen-share-badge')?.remove();
   ws?.send(JSON.stringify({ type: 'screen_share', active: false })); // tell peers (spec 0033)
+  spotlightShare(myId, false); // restore the prior focus (zoom-out) (spec 0089)
   setControlState();
   showNotif(t('stopShare'));
 }

@@ -2,11 +2,12 @@
 
 | | |
 |---|---|
-| **Status** | In progress |
+| **Status** | ✅ Shipped |
 | **Owner** | Micio Dev |
 | **Created** | 2026-06-17 |
-| **Shipped** | — |
+| **Shipped** | 2026-06-17 |
 | **Version** | — |
+| **Commits** | `ae83820` |
 | **Depends on** | [0033](../0033-screen-share/spec.md), [0053](../0053-screen-share-pip/spec.md), [0031](../0031-adaptive-bitrate/spec.md) (per-peer budget) |
 
 ## 1. Context & Problem
