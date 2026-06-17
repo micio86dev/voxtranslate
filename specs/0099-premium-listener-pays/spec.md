@@ -110,27 +110,30 @@ OFF-by-default config flag (`LISTENER_PAYS`); live path stays speaker-pays until
 - Core-loop scaffolding (`7e43e43`): `Config.listener_pays` (env `LISTENER_PAYS`, OFF by
   default, `env_flag` helper, all test fixtures updated); `rooms.target_langs_for_engine`
   (engine-filtered targets — the listener-pays analog of `get_room_languages`). +1 test.
+- Engine threading (`cfcfcef`): `SessionDeps{listener_pays,pcm_input}`; `deepgram::AudioFormat`
+  {WebmOpus, Pcm16} → `open_deepgram_ws`/`detect_language` take a format (Pcm16 = Deepgram
+  `linear16`); Standard `process_transcripts` and Premium `SessionReader` self-filter targets
+  (`target_langs_for_engine`) + delivery (`broadcast_to_engine_or_peer` / `broadcast_to_lang_engine`)
+  when `listener_pays`. `rooms.broadcast_to_engine_or_peer` (+test).
+- Core WS loop (`3ec3da2`): `Start` runs Premium (premium-listener langs) + Standard (always)
+  on one captured stream fanned to `audio_feeds`; surgical `pcm_input = any premium listener`;
+  capacity fallback → Standard serves everyone; `set_speaking` on Start/Stop. Billed listeners
+  metered the WHOLE connection at their receive-rate (`spawn_listener_meter` at JOIN,
+  `MeterScope::Listener` reads live lang); guests keep the per-Start cap. Exhaust → drop the
+  listener to free Standard (`set_peer_engine`) + targeted `EngineDowngraded`; billing stops.
 
-**REMAINING (next sessions, in order) — note: the steps below modify the SHARED engine
-internals the live speaker-pays path also uses, so every change must be gated behind the
-flag and is verifiable only with live Deepgram/OpenAI:**
-2. **Standard engine `linear16` mode**: per-session format flag in `engine/standard.rs` +
-   `deepgram.rs` streaming params (`encoding=linear16&sample_rate&channels` vs `container=webm`),
-   plus the `lang=auto` REST probe content-type. Cleanest threading: add `listener_pays: bool`
-   and `input_pcm: bool` to `SessionDeps`; engines self-filter via `self.metadata().id`
-   (`target_langs_for_engine` + `broadcast_to_lang_engine`) only when `listener_pays`.
-3. **Core WS loop** (`lib.rs`, behind flag): on `Start`, resolve `translation_routes`; run
-   each demanded engine on the speaker's audio (one captured stream fanned to all sessions),
-   premium opening sessions only for langs with ≥1 premium listener; capacity fallback per
-   premium target → that lang's premium listeners drop to the Standard stream; deliver via
-   `broadcast_to_lang_engine`. Set `speaking` true/false on Start/Stop.
-4. **Listener meter wiring**: spawn the `MeterScope::Listener` meter at JOIN (not on Start)
-   for billed users; guests pinned to Standard + the existing time cap.
-5. **Format-switch signalling**: server tracks "room has ≥1 premium listener"; tells speakers
-   to capture PCM16 vs Opus (reuse the engine-downgrade swap path); recompute on join/leave/
-   engine change.
-6. **Client**: react to the format signal; engine picker = "quality you RECEIVE".
+**✅ SERVER SIDE COMPLETE (steps 1–4), all gated behind `LISTENER_PAYS` (OFF in prod).
+184 lib tests green, clippy --all-targets clean.**
+
+**REMAINING:**
+5. **Format-switch signalling**: server tells the SPEAKER to capture PCM16 vs Opus based on
+   "room has ≥1 Premium listener" (the server already assumes `pcm_input = want_premium`, so
+   the client MUST match or Deepgram gets garbage). Recompute + notify on join/leave/engine
+   change; reuse the engine-downgrade capture-swap path.
+6. **Client**: react to the format signal; pick the engine for "quality you RECEIVE"; render
+   both engines' subtitles/audio correctly per listener.
 7. **i18n + pricing copy** (8 langs): `engineDesc*` reworded; pricing "per source you listen to".
 8. **Tests + dry-run**: 1:1 it↔es each listener-engine combo (right engine output + listener
-   billed, not speaker); capacity-fallback; coverage ≥85%; **owner billing dry-run before
-   flipping `LISTENER_PAYS` on in prod.**
+   billed, not speaker); capacity-fallback; coverage ≥85%; resolve the two documented
+   dry-run items (capacity-fallback premium billing; Standard-listener hard cap); **owner
+   billing dry-run before flipping `LISTENER_PAYS` on in prod.**
