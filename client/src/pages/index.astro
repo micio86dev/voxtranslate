@@ -1743,9 +1743,12 @@ const jsonLd = {
     }
     .invite-panel.closed { margin-right: -321px; }
     .invite-body { padding: 16px; display: flex; flex-direction: column; gap: 8px; overflow-y: auto; }
-    .invite-sub { margin: 0 0 6px; color: var(--text-dim); font-size: 13px; line-height: 1.5; }
-    .invite-label { font-size: 12px; font-weight: 600; color: var(--text-dim); margin-top: 6px; }
-    .invite-row { display: flex; gap: 8px; align-items: stretch; }
+    .invite-sub { margin: 0 0 6px; color: var(--muted); font-size: 13px; line-height: 1.5; }
+    .invite-label { font-size: 12px; font-weight: 600; color: var(--muted); margin-top: 6px; }
+    /* Stack the action button UNDER the input (spec 0090): the button is a
+       full-width .btn-primary, so a side-by-side row overflowed on mobile. A
+       column keeps both full-width and never scrolls horizontally. */
+    .invite-row { display: flex; flex-direction: column; gap: 8px; }
     .invite-input {
       flex: 1; min-width: 0; padding: 10px 12px; border-radius: 10px;
       border: 1px solid var(--border); background: var(--bg); color: var(--text);
@@ -1754,12 +1757,12 @@ const jsonLd = {
     .invite-input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
     .invite-go { white-space: nowrap; flex: 0 0 auto; padding-inline: 16px; }
     .invite-email-block { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
-    .invite-help { margin: 2px 0 0; font-size: 12px; color: var(--text-dim); line-height: 1.4; }
+    .invite-help { margin: 2px 0 0; font-size: 12px; color: var(--muted); line-height: 1.4; }
     .invite-status { margin: 6px 0 0; font-size: 13px; min-height: 1.2em; line-height: 1.4; }
     .invite-status.ok { color: #34d399; }
     .invite-status.err { color: #f87171; }
     .invite-guest-hint {
-      margin: 6px 0 0; font-size: 13px; line-height: 1.5; color: var(--text-dim);
+      margin: 6px 0 0; font-size: 13px; line-height: 1.5; color: var(--muted);
       background: var(--surface-2); border: 1px solid var(--border);
       border-radius: 10px; padding: 10px 12px;
     }
