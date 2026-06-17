@@ -710,7 +710,15 @@ async fn ai_report_validation_billing_and_persistence() {
         .send()
         .await
         .unwrap();
-    assert_eq!(none_yet.status(), 404, "no report generated yet");
+    assert_eq!(none_yet.status(), 200);
+    assert!(
+        none_yet
+            .json::<serde_json::Value>()
+            .await
+            .unwrap()
+            .is_null(),
+        "no report yet → 200 null (not 404), to avoid post-call console spam"
+    );
 
     // Validation 400s: bad format, oversized guidelines, garbage lang.
     for bad in [
@@ -938,7 +946,15 @@ async fn sentiment_cache_billing_and_gates() {
         .unwrap();
     assert_eq!(unknown.status(), 404);
     let none_yet = http.get(&url).bearer_auth(&tess_jwt).send().await.unwrap();
-    assert_eq!(none_yet.status(), 404, "no analysis yet");
+    assert_eq!(none_yet.status(), 200);
+    assert!(
+        none_yet
+            .json::<serde_json::Value>()
+            .await
+            .unwrap()
+            .is_null(),
+        "no analysis yet → 200 null"
+    );
 
     // 402 pre-check: cost = base 0.05 + 2 × 0.01 + minutes × 0.002 > 0.001.
     sqlx::query("UPDATE users SET balance = $2 WHERE id = $1")
@@ -1138,7 +1154,15 @@ async fn email_draft_send_gates_and_billing() {
         .send()
         .await
         .unwrap();
-    assert_eq!(none_yet.status(), 404, "no draft yet");
+    assert_eq!(none_yet.status(), 200);
+    assert!(
+        none_yet
+            .json::<serde_json::Value>()
+            .await
+            .unwrap()
+            .is_null(),
+        "no draft yet → 200 null"
+    );
 
     // Draft validation 400s: empty recipients, invalid address, unknown peer,
     // guest peer (no account email), oversized guidelines, bad tone.
@@ -1301,7 +1325,11 @@ async fn email_draft_send_gates_and_billing() {
         .send()
         .await
         .unwrap();
-    assert_eq!(bobs.status(), 404, "drafts are owner-scoped");
+    assert_eq!(bobs.status(), 200);
+    assert!(
+        bobs.json::<serde_json::Value>().await.unwrap().is_null(),
+        "drafts are owner-scoped — Bob sees null (not Tess's draft), now 200 not 404"
+    );
 
     // Send gates: unknown draft 404, stranger 403 (session gate), participant
     // non-owner 403 (ownership).
