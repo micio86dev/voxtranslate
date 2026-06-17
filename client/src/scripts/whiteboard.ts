@@ -180,6 +180,13 @@ export class Whiteboard {
     this.redraw();
   }
 
+  /** A live MediaStream of the board's canvas, so the composite recorder can tile
+   *  the whiteboard alongside the participants (#230). The caller owns the stream
+   *  and stops it when done. */
+  captureStream(fps = 10): MediaStream {
+    return this.canvas.captureStream(fps);
+  }
+
   // ---- op application (local + remote) ---------------------------------------
 
   /** Apply a remote (or local) op to the board. */

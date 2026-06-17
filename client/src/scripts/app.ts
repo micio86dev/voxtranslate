@@ -2372,7 +2372,7 @@ async function startScreenShare(): Promise<void> {
     // peers see — regardless of camera state.
     setSelfVideo(composite);
     setCameraOff(myId, false);
-    recorder?.updateStream(myId, composite);
+    recorder?.updateStream(myId, selfRecordingStream()); // composite video + mic/screen audio mix (#230)
     recorder?.setVideoOff(myId, false);
     // Show indicator on self cell; mark it sharing so the self-view mirror is
     // dropped (a flipped screen share would render its text backwards).
@@ -2489,14 +2489,44 @@ function participantSource(peerId: string, stream: MediaStream | null): Particip
   };
 }
 
+/** The self stream the composite recorder should capture: the current self VIDEO
+ *  (screen-share composite while sharing, else the camera/blur track from
+ *  localStream) PLUS the self AUDIO going to peers — the mic+screen-audio mix
+ *  while sharing with audio, otherwise the mic. The ScreenSharePip canvas track is
+ *  video-only, so without folding the audio back in, the recorder lost ALL self
+ *  audio (mic AND the shared screen audio) during a share (#230). */
+function selfRecordingStream(): MediaStream {
+  const video =
+    isSharingScreen && screenPip?.stream
+      ? screenPip.stream.getVideoTracks()
+      : (localStream?.getVideoTracks() ?? []);
+  const audio =
+    isSharingScreen && shareMixTrack ? shareMixTrack : (localStream?.getAudioTracks()[0] ?? null);
+  return new MediaStream([...video, ...(audio ? [audio] : [])]);
+}
+
+// Whiteboard-as-recording-tile (#230): when the board is open we feed its live
+// canvas into the composite recorder like an extra participant, so collaborative
+// drawing shows up in the saved file.
+const WB_RECORDING_ID = '__whiteboard__';
+function isWhiteboardOpen(): boolean {
+  return !wbOverlay.classList.contains('hidden');
+}
+function whiteboardRecordingSource(): ParticipantSource {
+  return { peerId: WB_RECORDING_ID, name: t('whiteboardTip'), stream: whiteboard.captureStream(), videoOff: false };
+}
+
 /** Current roster for the compositor: self first, then peers in join order. */
 function recorderSources(): ParticipantSource[] {
-  // During a share the self source is the composite (screen + camera PiP), so a
-  // recording started mid-share captures exactly what peers see (spec 0053).
-  const sources = [participantSource(myId, screenPip?.stream ?? localStream)];
+  // During a share the self source is the composite (screen + camera PiP) plus the
+  // mic+screen audio mix, so a recording started mid-share captures exactly what
+  // peers see AND hear (spec 0053 / #230).
+  const sources = [participantSource(myId, selfRecordingStream())];
   for (const [peerId] of peerNames) {
     sources.push(participantSource(peerId, remoteStreams.get(peerId) ?? null));
   }
+  // Capture the whiteboard too when it's open at record start (#230).
+  if (isWhiteboardOpen()) sources.push(whiteboardRecordingSource());
   return sources;
 }
 
@@ -3597,6 +3627,10 @@ function toggleWhiteboard(open?: boolean): void {
   if (show) {
     renderWbPages(whiteboard.pageCount(), whiteboard.pageIndex()); // sync the strip on open
     requestAnimationFrame(() => whiteboard.resize());
+    // Add the board to an in-progress recording so its strokes are captured (#230).
+    if (isRecording) recorder?.addParticipant(whiteboardRecordingSource());
+  } else {
+    recorder?.removeParticipant(WB_RECORDING_ID); // board closed → drop its tile from the recording
   }
 }
 function setWbTool(tool: WbTool): void {
