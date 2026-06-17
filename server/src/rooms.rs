@@ -342,6 +342,30 @@ impl RoomManager {
         }
     }
 
+    /// Send to every peer who chose `engine`, plus `peer_id` whatever their engine
+    /// (spec 0099). The Standard pipeline broadcasts one `SubtitleFinal` carrying
+    /// the whole translations map; in listener-pays mode it must reach the Standard
+    /// listeners AND the speaker (so they see their own caption even if they
+    /// themselves receive Premium), without leaking to Premium listeners (who get
+    /// the OpenAI subtitle instead). No duplicate send — the filter is a single OR.
+    pub fn broadcast_to_engine_or_peer(
+        &self,
+        room_id: &str,
+        engine: &str,
+        peer_id: &str,
+        message: &str,
+    ) {
+        if let Some(room) = self.rooms.get(room_id) {
+            for p in room
+                .peers
+                .iter()
+                .filter(|p| p.engine == engine || p.id == peer_id)
+            {
+                let _ = p.tx.send(message.to_string());
+            }
+        }
+    }
+
     /// Resolve the distinct `(lang, engine)` translation routes for a speaker's
     /// audio from the room's CURRENT listeners (spec 0099 §4.1). Excludes the
     /// speaker themselves, their own language, and `"auto"` peers. See
@@ -989,6 +1013,26 @@ mod tests {
         assert!(
             r_std.try_recv().is_err(),
             "standard listener must not get premium output"
+        );
+    }
+
+    #[test]
+    fn broadcast_to_engine_or_peer_reaches_engine_listeners_and_speaker() {
+        let rm = RoomManager::new();
+        // Speaker `a` is a Premium listener; the Standard final must still reach it.
+        let (a, mut ra) = peer_full("a", "it", "premium", Uuid::new_v4());
+        let (std_l, mut rstd) = peer_full("s", "es", "standard", Uuid::new_v4());
+        let (prem_l, mut rprem) = peer_full("p", "fr", "premium", Uuid::new_v4());
+        rm.join("r", a, Visibility::Public).unwrap();
+        rm.join("r", std_l, Visibility::Public).unwrap();
+        rm.join("r", prem_l, Visibility::Public).unwrap();
+
+        rm.broadcast_to_engine_or_peer("r", "standard", "a", "STD_FINAL");
+        assert_eq!(ra.try_recv().unwrap(), "STD_FINAL"); // speaker (own caption)
+        assert_eq!(rstd.try_recv().unwrap(), "STD_FINAL"); // standard listener
+        assert!(
+            rprem.try_recv().is_err(),
+            "premium-only listener must not get the standard final"
         );
     }
 

@@ -44,6 +44,17 @@ pub struct SessionDeps {
     pub transcripts: Option<TranscriptService>,
     /// This speaker's transcript participant row, for auto-detect lang updates.
     pub participant_row: Option<Uuid>,
+    /// Listener-pays routing (spec 0099). When `true`, an engine translates only
+    /// into the languages of the listeners who chose IT (`target_langs_for_engine`)
+    /// and delivers only to those listeners — instead of all room languages /
+    /// everyone. `false` = the legacy speaker-pays behaviour (default; flag off).
+    pub listener_pays: bool,
+    /// The speaker is sending PCM16 audio, not WebM/Opus (spec 0099 surgical audio).
+    /// `true` only in listener-pays rooms that contain ≥1 Premium listener, where
+    /// the one captured stream must feed both OpenAI (PCM) and Deepgram — so the
+    /// Standard engine opens Deepgram in `linear16` mode. `false` = WebM/Opus
+    /// (spec 0043, the universal default).
+    pub pcm_input: bool,
 }
 
 /// Outcome of opening a speaking session.

@@ -108,7 +108,15 @@ impl TranslationEngine for PremiumEngine {
         // Target languages = distinct OTHER languages in the room, excluding the
         // speaker's own (translating to the source language is a no-op). Computed
         // at Start; mid-call membership changes reconcile on the next Start (MVP).
-        let mut targets = deps.rooms.get_room_languages(&ctx.room, &ctx.speaker_id);
+        // Listener-pays (spec 0099): only the languages of the PREMIUM listeners —
+        // a paid OpenAI session is opened for a language only when a Premium
+        // listener wants it (Standard listeners are served by Deepgram+Groq).
+        let mut targets = if deps.listener_pays {
+            deps.rooms
+                .target_langs_for_engine(&ctx.room, &ctx.speaker_id, PREMIUM_ID)
+        } else {
+            deps.rooms.get_room_languages(&ctx.room, &ctx.speaker_id)
+        };
         targets.retain(|l| l != &ctx.speaker_lang);
         tracing::info!(
             speaker = %ctx.speaker_id,
@@ -180,6 +188,7 @@ async fn run_session(
             source_lang: ctx.speaker_lang.clone(),
             session_id: ctx.session_id,
             speaker_user_id: ctx.speaker_user_id,
+            listener_pays: deps.listener_pays,
         };
         tokio::spawn(session_task(config.clone(), reader, feed_rx, permit));
     }
@@ -340,14 +349,29 @@ struct SessionReader {
     source_lang: String,
     session_id: Uuid,
     speaker_user_id: Option<Uuid>,
+    /// Listener-pays (spec 0099): deliver this language's premium output only to
+    /// the listeners who chose Premium, not every listener of the language (a
+    /// Standard listener of the same language is served by Deepgram+Groq).
+    listener_pays: bool,
 }
 
 impl SessionReader {
+    /// Deliver one premium output frame to this language's listeners. In
+    /// listener-pays mode that's the `(lang, premium)` subset; otherwise every
+    /// listener of the language (legacy speaker-pays).
+    fn deliver(&self, message: &str) {
+        if self.listener_pays {
+            self.rooms
+                .broadcast_to_lang_engine(&self.room, &self.lang, PREMIUM_ID, message);
+        } else {
+            self.rooms
+                .broadcast_to_lang(&self.room, &self.lang, message);
+        }
+    }
+
     /// Live translated caption to the listeners of this session's language.
     fn emit_interim_to_lang(&self, translated: &str) {
-        self.rooms.broadcast_to_lang(
-            &self.room,
-            &self.lang,
+        self.deliver(
             &ServerMessage::SubtitleInterim {
                 speaker_id: self.speaker_id.clone(),
                 speaker_name: self.speaker_name.clone(),
@@ -363,9 +387,7 @@ impl SessionReader {
     /// frame the client plays via its AudioWorklet.
     fn emit_audio(&self, seq: u64, pcm16: &[u8]) {
         let b64 = base64::engine::general_purpose::STANDARD.encode(pcm16);
-        self.rooms.broadcast_to_lang(
-            &self.room,
-            &self.lang,
+        self.deliver(
             &ServerMessage::TranslatedAudio {
                 speaker_id: self.speaker_id.clone(),
                 lang: self.lang.clone(),
@@ -414,9 +436,7 @@ impl SessionReader {
                 ts: Utc::now(),
             });
         }
-        self.rooms.broadcast_to_lang(
-            &self.room,
-            &self.lang,
+        self.deliver(
             &ServerMessage::SubtitleFinal {
                 speaker_id: self.speaker_id.clone(),
                 speaker_name: self.speaker_name.clone(),
@@ -467,6 +487,8 @@ mod tests {
             moderator: Arc::new(Moderator::from_env()),
             transcripts: None,
             participant_row: None,
+            listener_pays: false,
+            pcm_input: false,
         }
     }
 

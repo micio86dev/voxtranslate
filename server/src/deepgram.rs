@@ -21,6 +21,7 @@ use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
 use uuid::Uuid;
 
 use crate::config::Config;
+use crate::engine::STANDARD_ID;
 use crate::glossary::GlossaryService;
 use crate::moderation::{Moderator, Severity};
 use crate::protocol::{DeepgramResponse, ServerMessage};
@@ -49,22 +50,57 @@ type DgStream = WebSocketStream<MaybeTlsStream<TcpStream>>;
 type DgSink = SplitSink<DgStream, Message>;
 type DgSource = SplitStream<DgStream>;
 
+/// The audio container/encoding the speaker is streaming, which decides the
+/// Deepgram input params (spec 0099 surgical audio).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AudioFormat {
+    /// Browser MediaRecorder WebM/Opus (spec 0043) — the universal default.
+    WebmOpus,
+    /// Raw little-endian PCM16 mono @ 24 kHz — the format OpenAI needs, reused for
+    /// Deepgram in listener-pays rooms that also have a Premium listener so one
+    /// captured stream feeds both engines.
+    Pcm16,
+}
+
+impl AudioFormat {
+    /// `true` for the PCM path. Built from the per-session `pcm_input` flag.
+    pub fn from_pcm(pcm: bool) -> Self {
+        if pcm {
+            AudioFormat::Pcm16
+        } else {
+            AudioFormat::WebmOpus
+        }
+    }
+
+    /// Deepgram `/listen` input query params for this format.
+    fn dg_params(self) -> &'static str {
+        match self {
+            // `container=webm` lets Deepgram auto-detect the Opus encoding, sample
+            // rate, and channels from the WebM header — passing explicit encoding
+            // params here breaks container demuxing.
+            AudioFormat::WebmOpus => "container=webm",
+            // Raw PCM has no container, so the encoding/rate/channels MUST be given
+            // explicitly. 24 kHz mono matches the client's PcmCapture (the rate
+            // OpenAI Realtime uses).
+            AudioFormat::Pcm16 => "encoding=linear16&sample_rate=24000&channels=1",
+        }
+    }
+}
+
 /// Open a persistent Deepgram streaming connection for `source_lang` and split
-/// it into a sink (send audio) and a stream (receive transcripts).
+/// it into a sink (send audio) and a stream (receive transcripts). `format`
+/// selects WebM/Opus (default) or raw PCM16 input (spec 0099).
 pub async fn open_deepgram_ws(
     source_lang: &str,
     config: &Config,
+    format: AudioFormat,
 ) -> Result<(DgSink, DgSource), String> {
-    // `container=webm` lets Deepgram auto-detect the Opus encoding, sample rate,
-    // and channels from the WebM header — which is what the browser's
-    // MediaRecorder actually produces (Opus is internally 48kHz, not 16k). Passing
-    // explicit `encoding`/`sample_rate`/`channels` here breaks container demuxing
-    // (Deepgram then decodes only ~0.1s of audio), so we deliberately omit them.
     let url = format!(
         "wss://api.deepgram.com/v1/listen\
-         ?container=webm&model=nova-2&language={source_lang}\
+         ?{}&model=nova-2&language={source_lang}\
          &punctuate=true&interim_results=true&utterance_end_ms=1000\
-         &vad_events=true&smart_format=true"
+         &vad_events=true&smart_format=true",
+        format.dg_params()
     );
 
     let mut request = url
@@ -90,17 +126,32 @@ pub async fn open_deepgram_ws(
 pub async fn detect_language(
     http: &reqwest::Client,
     config: &Config,
-    webm: Vec<u8>,
+    clip: Vec<u8>,
+    format: AudioFormat,
 ) -> Result<(String, Option<f64>), String> {
+    // Raw PCM has no container, so the REST probe needs the encoding params and a
+    // generic content type; WebM is sniffed from its header.
+    let (url, content_type) = match format {
+        AudioFormat::WebmOpus => (
+            "https://api.deepgram.com/v1/listen?detect_language=true&model=nova-2".to_string(),
+            "audio/webm",
+        ),
+        AudioFormat::Pcm16 => (
+            "https://api.deepgram.com/v1/listen\
+             ?detect_language=true&model=nova-2&encoding=linear16&sample_rate=24000&channels=1"
+                .to_string(),
+            "audio/raw",
+        ),
+    };
     let resp = http
-        .post("https://api.deepgram.com/v1/listen?detect_language=true&model=nova-2")
+        .post(url)
         .header(
             reqwest::header::AUTHORIZATION,
             format!("Token {}", config.deepgram_key),
         )
-        .header(reqwest::header::CONTENT_TYPE, "audio/webm")
+        .header(reqwest::header::CONTENT_TYPE, content_type)
         .timeout(Duration::from_secs(10))
-        .body(webm)
+        .body(clip)
         .send()
         .await
         .map_err(|e| format!("deepgram detect request failed: {e}"))?;
@@ -244,6 +295,7 @@ pub async fn process_transcripts(
     moderator: Arc<Moderator>,
     ctx: SpeakerCtx,
     transcripts: Option<TranscriptService>,
+    listener_pays: bool,
 ) {
     let SpeakerCtx {
         room,
@@ -279,16 +331,20 @@ pub async fn process_transcripts(
 
         if !parsed.is_final {
             // Live partial subtitle, shown (untranslated) on the speaker's cell.
-            rooms.broadcast(
-                &room,
-                &ServerMessage::SubtitleInterim {
-                    speaker_id: speaker_id.clone(),
-                    speaker_name: speaker_name.clone(),
-                    text: transcript.to_string(),
-                    lang: speaker_lang.clone(),
-                }
-                .to_json(),
-            );
+            let interim = ServerMessage::SubtitleInterim {
+                speaker_id: speaker_id.clone(),
+                speaker_name: speaker_name.clone(),
+                text: transcript.to_string(),
+                lang: speaker_lang.clone(),
+            }
+            .to_json();
+            if listener_pays {
+                // Standard listeners + the speaker; Premium listeners get the
+                // OpenAI partial instead (spec 0099).
+                rooms.broadcast_to_engine_or_peer(&room, STANDARD_ID, &speaker_id, &interim);
+            } else {
+                rooms.broadcast(&room, &interim);
+            }
             continue;
         }
 
@@ -323,7 +379,15 @@ pub async fn process_transcripts(
         let speaker_lang = speaker_lang.clone();
         let ts = Utc::now();
         tokio::spawn(async move {
-            let target_langs = rooms.get_room_languages(&room, &speaker_id);
+            // Listener-pays (spec 0099): translate only into the languages of the
+            // STANDARD listeners (Premium listeners are served by OpenAI) and
+            // deliver to them + the speaker. Legacy speaker-pays: every room
+            // language, broadcast to all.
+            let target_langs = if listener_pays {
+                rooms.target_langs_for_engine(&room, &speaker_id, STANDARD_ID)
+            } else {
+                rooms.get_room_languages(&room, &speaker_id)
+            };
             // Snapshot of the room glossary (cache populated at room join).
             let glo = glossary.as_ref().and_then(|g| g.cached(&room));
             let translations = translator
@@ -342,17 +406,19 @@ pub async fn process_transcripts(
                     ts,
                 });
             }
-            rooms.broadcast(
-                &room,
-                &ServerMessage::SubtitleFinal {
-                    speaker_id,
-                    speaker_name,
-                    original: transcript,
-                    lang: speaker_lang,
-                    translations,
-                }
-                .to_json(),
-            );
+            let final_msg = ServerMessage::SubtitleFinal {
+                speaker_id: speaker_id.clone(),
+                speaker_name,
+                original: transcript,
+                lang: speaker_lang,
+                translations,
+            }
+            .to_json();
+            if listener_pays {
+                rooms.broadcast_to_engine_or_peer(&room, STANDARD_ID, &speaker_id, &final_msg);
+            } else {
+                rooms.broadcast(&room, &final_msg);
+            }
         });
     }
 }

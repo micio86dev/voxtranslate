@@ -1098,6 +1098,12 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
                                     moderator: state.moderator.clone(),
                                     transcripts: state.transcripts.clone(),
                                     participant_row,
+                                    // Live path is speaker-pays: the listener-pays
+                                    // core-loop rewiring (spec 0099 §8 step 3) sets
+                                    // these per route; until then they stay off so
+                                    // behaviour is unchanged even if the flag is on.
+                                    listener_pays: false,
+                                    pcm_input: false,
                                 };
                                 // Engine routing (spec 0093): the engine owns the
                                 // STT/translation pipeline incl. the `auto` detect

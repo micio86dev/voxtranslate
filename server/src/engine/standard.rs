@@ -12,7 +12,7 @@ use tokio::sync::mpsc;
 use uuid::Uuid;
 
 use crate::config::Config;
-use crate::deepgram::{self, SpeakerCtx};
+use crate::deepgram::{self, AudioFormat, SpeakerCtx};
 use crate::moderation::Moderator;
 use crate::protocol::ServerMessage;
 use crate::rooms::RoomManager;
@@ -95,8 +95,10 @@ impl StandardEngine {
         rooms: Arc<RoomManager>,
         moderator: Arc<Moderator>,
         transcripts: Option<TranscriptService>,
+        format: AudioFormat,
+        listener_pays: bool,
     ) -> Option<mpsc::Sender<Vec<u8>>> {
-        match deepgram::open_deepgram_ws(&ctx.speaker_lang, &self.config).await {
+        match deepgram::open_deepgram_ws(&ctx.speaker_lang, &self.config, format).await {
             Ok((dg_sink, dg_source)) => {
                 let (audio_tx, audio_rx) = mpsc::channel::<Vec<u8>>(AUDIO_CHANNEL_CAP);
                 tokio::spawn(deepgram::forward_audio(audio_rx, dg_sink));
@@ -107,6 +109,7 @@ impl StandardEngine {
                     moderator,
                     ctx,
                     transcripts,
+                    listener_pays,
                 ));
                 Some(audio_tx)
             }
@@ -131,6 +134,7 @@ impl StandardEngine {
     /// real streaming connection and replay the buffer. The buffer is a valid clip
     /// AND a valid stream prefix because MediaRecorder's chunk #1 carries the WebM
     /// header. (Formerly `lib::start_detecting_session`.)
+    #[allow(clippy::too_many_arguments)] // cohesive per-session detect+stream context
     fn start_detecting(
         &self,
         ctx: SpeakerCtx,
@@ -138,6 +142,8 @@ impl StandardEngine {
         moderator: Arc<Moderator>,
         transcripts: Option<TranscriptService>,
         participant_row: Option<Uuid>,
+        format: AudioFormat,
+        listener_pays: bool,
     ) -> mpsc::Sender<Vec<u8>> {
         let (audio_tx, mut audio_rx) = mpsc::channel::<Vec<u8>>(AUDIO_CHANNEL_CAP);
         let config = self.config.clone();
@@ -177,22 +183,23 @@ impl StandardEngine {
             // Phase 2 — REST probe on the buffered clip (non-consuming: the chunks
             // are replayed into the streaming connection in phase 4).
             let clip = buf.concat();
-            let (lang, confidence) = match deepgram::detect_language(&http, &config, clip).await {
-                Ok(r) => r,
-                Err(e) => {
-                    tracing::warn!("language detect failed: {e}");
-                    rooms.relay_to_peer(
-                        &ctx.room,
-                        &ctx.speaker_id,
-                        &ServerMessage::Error {
-                            message: "language detection failed — using English".to_string(),
-                            code: Some("detect_failed".to_string()),
-                        }
-                        .to_json(),
-                    );
-                    ("en".to_string(), None)
-                }
-            };
+            let (lang, confidence) =
+                match deepgram::detect_language(&http, &config, clip, format).await {
+                    Ok(r) => r,
+                    Err(e) => {
+                        tracing::warn!("language detect failed: {e}");
+                        rooms.relay_to_peer(
+                            &ctx.room,
+                            &ctx.speaker_id,
+                            &ServerMessage::Error {
+                                message: "language detection failed — using English".to_string(),
+                                code: Some("detect_failed".to_string()),
+                            }
+                            .to_json(),
+                        );
+                        ("en".to_string(), None)
+                    }
+                };
 
             // Phase 3 — apply, unless a manual `set_lang` already resolved it while
             // we were probing (the user's explicit correction always wins).
@@ -227,7 +234,7 @@ impl StandardEngine {
                 speaker_lang: final_lang.clone(),
                 ..ctx
             };
-            match deepgram::open_deepgram_ws(&final_lang, &config).await {
+            match deepgram::open_deepgram_ws(&final_lang, &config, format).await {
                 Ok((dg_sink, dg_source)) => {
                     let (dg_tx, dg_rx) = mpsc::channel::<Vec<u8>>(AUDIO_CHANNEL_CAP);
                     tokio::spawn(deepgram::forward_audio(dg_rx, dg_sink));
@@ -238,6 +245,7 @@ impl StandardEngine {
                         moderator,
                         ctx,
                         transcripts.clone(),
+                        listener_pays,
                     ));
                     // Bounded send (#123): a dedicated task, so awaiting here
                     // backpressures cleanly — if Deepgram stalls, `audio_rx` fills
@@ -285,7 +293,10 @@ impl TranslationEngine for StandardEngine {
             moderator,
             transcripts,
             participant_row,
+            listener_pays,
+            pcm_input,
         } = deps;
+        let format = AudioFormat::from_pcm(pcm_input);
         // Standard never reports AtCapacity (no bounded upstream pool): it either
         // opens (Started) or fails to reach Deepgram (Failed).
         if ctx.speaker_lang == "auto" {
@@ -296,9 +307,14 @@ impl TranslationEngine for StandardEngine {
                 moderator,
                 transcripts,
                 participant_row,
+                format,
+                listener_pays,
             ))
         } else {
-            match self.start_known(ctx, rooms, moderator, transcripts).await {
+            match self
+                .start_known(ctx, rooms, moderator, transcripts, format, listener_pays)
+                .await
+            {
                 Some(tx) => SessionOutcome::Started(tx),
                 None => SessionOutcome::Failed,
             }
