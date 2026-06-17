@@ -174,7 +174,8 @@ mod tests {
         .fetch_one(&pool)
         .await
         .unwrap();
-        let sid = svc.create_session(uid, "room-m").await.unwrap();
+        // Tag this session with the Premium engine (spec 0093) — asserted below.
+        let sid = svc.create_session(uid, "room-m", "premium").await.unwrap();
 
         let (out_tx, mut out_rx, _out_overflow) = PeerTx::channel(crate::rooms::OUT_CHANNEL_CAP);
         let (exhaust_tx, mut exhaust_rx) = tokio::sync::mpsc::unbounded_channel();
@@ -209,9 +210,10 @@ mod tests {
         );
         assert!(exhaust_rx.try_recv().is_ok(), "exhaust signalled");
 
-        // Two successful 1s deductions were recorded against the session.
-        let (secs, cost, balance): (i32, Decimal, Decimal) = sqlx::query_as(
-            "SELECT s.speaking_seconds, s.cost, u.balance
+        // Two successful 1s deductions were recorded against the session, and the
+        // engine tag (spec 0093) persisted.
+        let (secs, cost, balance, engine_id): (i32, Decimal, Decimal, String) = sqlx::query_as(
+            "SELECT s.speaking_seconds, s.cost, u.balance, s.engine_id
              FROM usage_sessions s JOIN users u ON u.id = s.user_id
              WHERE s.id = $1",
         )
@@ -222,6 +224,7 @@ mod tests {
         assert_eq!(secs, 2);
         assert_eq!(cost, Decimal::new(25, 2)); // 0.25
         assert_eq!(balance, Decimal::new(5, 2)); // 0.05, never negative
+        assert_eq!(engine_id, "premium"); // tagged at create_session
     }
 
     #[tokio::test]

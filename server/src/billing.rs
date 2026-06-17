@@ -247,12 +247,20 @@ impl BillingService {
     }
 
     /// Open a usage session for a call the user just joined.
-    pub async fn create_session(&self, user_id: Uuid, room: &str) -> Result<Uuid, sqlx::Error> {
+    /// Open a usage session for a call, tagged with the translation `engine_id`
+    /// the speaker chose (spec 0093), so cost is attributable per engine.
+    pub async fn create_session(
+        &self,
+        user_id: Uuid,
+        room: &str,
+        engine_id: &str,
+    ) -> Result<Uuid, sqlx::Error> {
         sqlx::query_scalar(
-            "INSERT INTO usage_sessions (user_id, room) VALUES ($1, $2) RETURNING id",
+            "INSERT INTO usage_sessions (user_id, room, engine_id) VALUES ($1, $2, $3) RETURNING id",
         )
         .bind(user_id)
         .bind(room)
+        .bind(engine_id)
         .fetch_one(&self.pool)
         .await
     }
@@ -592,7 +600,7 @@ mod tests {
             return;
         };
         let uid = make_user(&svc, Decimal::new(100, 2)).await; // 1.00
-        let sid = svc.create_session(uid, "room-x").await.unwrap();
+        let sid = svc.create_session(uid, "room-x", "standard").await.unwrap();
 
         svc.deduct_usage(uid, Some(sid), 5, Decimal::new(5, 2))
             .await

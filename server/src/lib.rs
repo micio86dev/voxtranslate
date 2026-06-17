@@ -683,6 +683,7 @@ fn spawn_meter(
     room: &str,
     speaker_id: &str,
     speaker_lang: &str,
+    rate_per_second: f64,
 ) -> Option<oneshot::Sender<()>> {
     let billing_cfg = state.config.billing.as_ref()?;
     let interval = billing_cfg.pricing.usage_update_interval;
@@ -694,7 +695,8 @@ fn spawn_meter(
         let (cancel_tx, cancel_rx) = oneshot::channel();
         let cfg = MeterConfig {
             interval_secs: interval,
-            rate_per_second: billing_cfg.pricing.user_rate_per_second,
+            // Per-engine rate (spec 0093): Premium bills higher than Standard.
+            rate_per_second,
             low_balance_threshold: billing_cfg.pricing.low_balance_threshold,
             rooms: Some(state.rooms.clone()),
             room: room.to_string(),
@@ -753,6 +755,10 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
     } else {
         Visibility::Private
     };
+    // Resolve the speaker's chosen translation engine once for the connection
+    // (spec 0093): drives the usage-session tag, the per-engine billing rate, and
+    // the speaking pipeline. Unknown/absent id → the default engine.
+    let active_engine = state.engines.resolve(engine_id.as_deref());
 
     let (mut ws_tx, mut ws_rx) = socket.split();
 
@@ -916,7 +922,10 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
 
     // One usage session per call for billed users (cost accrues while speaking).
     let usage_session_id = match (billed_user, state.billing.as_ref()) {
-        (Some(uid), Some(svc)) => match svc.create_session(uid, &room).await {
+        (Some(uid), Some(svc)) => match svc
+            .create_session(uid, &room, active_engine.metadata().id.as_str())
+            .await
+        {
             Ok(sid) => Some(sid),
             Err(e) => {
                 tracing::error!("create usage session failed: {e}");
@@ -1018,11 +1027,7 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
                                     transcripts: state.transcripts.clone(),
                                     participant_row,
                                 };
-                                audio_tx = state
-                                    .engines
-                                    .resolve(engine_id.as_deref())
-                                    .start_session(ctx, deps)
-                                    .await;
+                                audio_tx = active_engine.start_session(ctx, deps).await;
                                 if audio_tx.is_some() {
                                     meter_cancel = spawn_meter(
                                         &state,
@@ -1035,6 +1040,7 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
                                         &room,
                                         &id,
                                         &live_lang,
+                                        active_engine.metadata().user_rate_per_second(),
                                     );
                                 }
                             }
