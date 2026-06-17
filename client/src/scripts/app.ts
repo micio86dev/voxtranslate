@@ -1615,6 +1615,9 @@ function setScreenShareIndicator(id: string, active: boolean): void {
     }
   } else {
     badge?.remove();
+    // Share stopped → remove the mobile pan/zoom ⊕ button + reset any transform, so
+    // it can't linger and let you drag the peer's now-camera video (spec 0033 fix).
+    disablePan(cell as HTMLElement);
   }
 }
 
@@ -2463,6 +2466,7 @@ function stopScreenShare(): void {
   const cell = videoGrid.querySelector(`[data-peer="${cssEsc(myId)}"]`);
   cell?.classList.remove('sharing');
   cell?.querySelector('.screen-share-badge')?.remove();
+  if (cell) disablePan(cell as HTMLElement); // drop the mobile pan/zoom ⊕ on the self tile too
   ws?.send(JSON.stringify({ type: 'screen_share', active: false })); // tell peers (spec 0033)
   spotlightShare(myId, false); // restore the prior focus (zoom-out) (spec 0089)
   setControlState();
