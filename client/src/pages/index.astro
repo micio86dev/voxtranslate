@@ -1692,6 +1692,13 @@ const jsonLd = {
     }
     .video-grid[data-mode="focus"] :global(.video-cell.video-thumb:hover) { transform: scale(1.08); }
     .video-grid[data-mode="focus"] :global(.video-cell.video-thumb .video-overlay) { font-size: 0.65rem; padding: 2px 6px; }
+    /* Zoom-in pop when a screen share takes the focus view (spec 0089). The grid
+       revert on stop returns the tile to its small cell — that's the zoom-out.
+       Stilled by the global prefers-reduced-motion rule. */
+    @keyframes share-zoom-in { from { transform: scale(0.86); opacity: 0.55; } to { transform: scale(1); opacity: 1; } }
+    .video-grid[data-mode="focus"] :global(.video-cell.main-cell.share-zoom) {
+      animation: share-zoom-in 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+    }
     .video-grid[data-mode="focus"] :global(.video-cell.video-thumb .subtitle-area) { display: none; }
     .video-grid[data-mode="focus"] :global(.video-cell.video-thumb .hand-indicator) { font-size: 1rem; }
     .video-grid[data-mode="focus"] :global(.video-cell.video-thumb .emoji-float) { display: none; }
