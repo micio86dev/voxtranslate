@@ -684,6 +684,7 @@ fn spawn_meter(
     speaker_id: &str,
     speaker_lang: &str,
     rate_per_second: f64,
+    scale_by_target_count: bool,
 ) -> Option<oneshot::Sender<()>> {
     let billing_cfg = state.config.billing.as_ref()?;
     let interval = billing_cfg.pricing.usage_update_interval;
@@ -702,6 +703,7 @@ fn spawn_meter(
             room: room.to_string(),
             speaker_id: speaker_id.to_string(),
             speaker_lang: speaker_lang.to_string(),
+            scale_by_target_count,
         };
         tokio::spawn(run_usage_meter(
             svc.clone(),
@@ -1042,6 +1044,7 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
                                         &id,
                                         &live_lang,
                                         active_engine.metadata().user_rate_per_second(),
+                                        active_engine.metadata().capabilities.cost_scales_per_language,
                                     );
                                 }
                             }

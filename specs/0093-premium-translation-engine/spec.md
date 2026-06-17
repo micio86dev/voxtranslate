@@ -118,6 +118,18 @@ billing, or UI (`if engine == X` is forbidden — polymorphism via the trait).
   by an `OPENAI_REALTIME_MAX_SESSIONS` admission semaphore (cf. spec 0069). 4-person
   worst case ≈ 12 concurrent sessions.
 
+- **Per-stream billing + transparency (amendment 2026-06-17).** Because Premium opens
+  one paid OpenAI session per distinct target language, the meter bills **per
+  translation stream**: the per-minute rate is multiplied by the number of distinct
+  other-languages in the room (the `EngineCapabilities.cost_scales_per_language` flag
+  drives this; Standard stays flat — Groq fan-out is covered by the flat rate). So a
+  group call genuinely costs the speaker more, tracking real OpenAI cost. The pre-join
+  selector states this up front ("rate is per translation language — a group call
+  costs more") so pricing is transparent. The displayed `rate_per_minute` is the
+  per-stream rate. Calibration: at OpenAI $0.034/min, Stripe ~2.9%+$0.30, and the
+  most-bonused package, `OPENAI_COST_PER_MINUTE=0.04` × 50% markup nets ≥25% per
+  stream.
+
 - **Key decisions**
   - Engine choice is the **speaker's** and bills the speaker (consistent with the
     current per-speaking-second meter). → Mixed rooms work independently.

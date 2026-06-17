@@ -86,6 +86,7 @@ impl PremiumEngine {
             output_languages: langs,
             capabilities: EngineCapabilities {
                 translated_audio: true,
+                cost_scales_per_language: true,
                 max_room_size: 4,
             },
         };

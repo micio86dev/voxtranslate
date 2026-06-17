@@ -383,6 +383,14 @@ function renderEngineSelector(): void {
     desc.className = 'engine-opt-desc';
     desc.textContent = e.description;
     btn.append(head, desc);
+    // Transparency (spec 0093): when the rate is per translation stream, say so —
+    // a group call with more languages costs more.
+    if (e.capabilities.cost_scales_per_language) {
+      const note = document.createElement('span');
+      note.className = 'engine-opt-note';
+      note.textContent = t('engineCostPerLanguage');
+      btn.append(note);
+    }
     btn.addEventListener('click', () => selectEngine(e.id));
     engineOptions.appendChild(btn);
   }

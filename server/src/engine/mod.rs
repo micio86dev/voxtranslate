@@ -157,6 +157,7 @@ mod tests {
             output_languages: vec![],
             capabilities: EngineCapabilities {
                 translated_audio: false,
+                cost_scales_per_language: false,
                 max_room_size: 4,
             },
         }

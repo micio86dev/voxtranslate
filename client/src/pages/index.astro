@@ -797,6 +797,12 @@ const jsonLd = {
       font-size: 0.8rem; color: var(--accent); font-variant-numeric: tabular-nums; flex: none;
     }
     .engine-options :global(.engine-opt-desc) { font-size: 0.8rem; color: var(--muted); line-height: 1.3; }
+    /* Transparency note: rate is per translation language (spec 0093). */
+    .engine-options :global(.engine-opt-note) {
+      font-size: 0.74rem; line-height: 1.3; color: var(--accent);
+      display: flex; gap: 5px; align-items: baseline;
+    }
+    .engine-options :global(.engine-opt-note)::before { content: 'ⓘ'; opacity: 0.85; }
     .vis-badge {
       font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted);
       border: 1px solid var(--border); border-radius: 999px; padding: 2px 8px;

@@ -15,6 +15,12 @@ pub struct EngineCapabilities {
     /// The engine streams translated **audio** back (premium speech-to-speech).
     /// `false` means subtitles only and the client synthesizes voice via TTS.
     pub translated_audio: bool,
+    /// Cost scales with the number of distinct target languages in the room
+    /// (spec 0093): Premium opens one paid OpenAI session per language, so the
+    /// speaker is billed per translation stream. Standard fans out cheaply and
+    /// bills a flat rate. Drives the meter multiplier AND the pre-join price note,
+    /// so the user is told up front that a group call costs more.
+    pub cost_scales_per_language: bool,
     /// Largest room size the engine supports end-to-end (the mesh cap is 4).
     pub max_room_size: u8,
 }
@@ -101,6 +107,7 @@ mod tests {
             output_languages: vec!["en".into(), "it".into()],
             capabilities: EngineCapabilities {
                 translated_audio: false,
+                cost_scales_per_language: false,
                 max_room_size: 4,
             },
         }

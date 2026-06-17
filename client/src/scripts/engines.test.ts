@@ -21,7 +21,11 @@ function engine(id: string, langs: string[], rate = 0.01): EngineInfo {
     rate_per_minute: rate,
     input_languages: langs,
     output_languages: langs,
-    capabilities: { translated_audio: id === 'premium', max_room_size: 4 },
+    capabilities: {
+      translated_audio: id === 'premium',
+      cost_scales_per_language: id === 'premium',
+      max_room_size: 4,
+    },
   };
 }
 

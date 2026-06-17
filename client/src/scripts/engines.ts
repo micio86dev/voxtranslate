@@ -5,6 +5,9 @@
 
 export interface EngineCapabilities {
   translated_audio: boolean;
+  /** Cost scales with the number of distinct target languages in the room — the
+   *  rate shown is per translation stream, and a group call costs more (spec 0093). */
+  cost_scales_per_language: boolean;
   max_room_size: number;
 }
 

@@ -35,6 +35,31 @@ pub struct MeterConfig {
     pub room: String,
     pub speaker_id: String,
     pub speaker_lang: String,
+    /// Bill per distinct target language instead of a flat rate (spec 0093). The
+    /// Premium engine opens one paid OpenAI session per language, so a group call
+    /// genuinely costs the speaker more — the charge scales with the room.
+    pub scale_by_target_count: bool,
+}
+
+/// How many translation streams to bill for this tick, or `None` to skip the tick
+/// entirely (everyone shares the speaker's language → nothing is translated).
+/// `scale_per_language` engines (Premium) bill one stream per distinct target
+/// language; others bill a single flat stream regardless of fan-out. Pure — for
+/// tests. `targets` is the distinct languages present (excluding the speaker by id;
+/// `"auto"` is already filtered out by the room).
+pub fn billable_streams(
+    targets: &[String],
+    speaker_lang: &str,
+    scale_per_language: bool,
+) -> Option<usize> {
+    let distinct = targets
+        .iter()
+        .filter(|t| t.as_str() != speaker_lang)
+        .count();
+    if distinct == 0 {
+        return None;
+    }
+    Some(if scale_per_language { distinct } else { 1 })
 }
 
 /// Charge a billed user for one speaking session. Runs until `cancel` resolves
@@ -49,7 +74,6 @@ pub async fn run_usage_meter(
     mut cancel: oneshot::Receiver<()>,
 ) {
     let interval = cfg.interval_secs.max(1);
-    let amount = usd(cfg.rate_per_second * interval as f64);
     let mut ticker = tokio::time::interval(Duration::from_secs(interval));
     ticker.tick().await; // consume the immediate first tick (charge in arrears)
     let mut warned_low = false;
@@ -58,15 +82,21 @@ pub async fn run_usage_meter(
         tokio::select! {
             _ = &mut cancel => break,
             _ = ticker.tick() => {
-                // Skip this tick when everyone in the room speaks the same
-                // language — translations are not running, so credits shouldn't
-                // be consumed.
-                if let Some(ref rooms) = cfg.rooms {
-                    let targets = rooms.get_room_languages(&cfg.room, &cfg.speaker_id);
-                    if !targets.iter().any(|t| t != &cfg.speaker_lang) {
-                        continue;
+                // Decide how many translation streams to bill. When everyone shares
+                // the speaker's language nothing is translated → skip the tick.
+                // Premium scales the charge by the number of distinct target
+                // languages (one paid OpenAI session each); others bill flat.
+                let streams = match cfg.rooms.as_ref() {
+                    Some(rooms) => {
+                        let targets = rooms.get_room_languages(&cfg.room, &cfg.speaker_id);
+                        match billable_streams(&targets, &cfg.speaker_lang, cfg.scale_by_target_count) {
+                            Some(n) => n,
+                            None => continue,
+                        }
                     }
-                }
+                    None => 1,
+                };
+                let amount = usd(cfg.rate_per_second * interval as f64 * streams as f64);
                 match billing
                     .deduct_usage(user_id, Some(session_id), interval as i32, amount)
                     .await
@@ -128,6 +158,24 @@ pub async fn run_guest_meter(
 mod tests {
     use super::*;
 
+    #[test]
+    fn billable_streams_flat_vs_per_language() {
+        let two = vec!["en".to_string(), "fr".to_string()];
+        // All same language as the speaker → nothing to translate → skip.
+        assert_eq!(billable_streams(&["it".to_string()], "it", true), None);
+        assert_eq!(billable_streams(&[], "it", true), None);
+        // Flat engines (Standard) bill one stream regardless of how many targets.
+        assert_eq!(billable_streams(&two, "it", false), Some(1));
+        // Per-language engines (Premium) bill one stream per distinct target — a
+        // group call with two other languages costs 2× a 1:1 call.
+        assert_eq!(billable_streams(&two, "it", true), Some(2));
+        // The speaker's own language among the targets isn't a billable stream.
+        assert_eq!(
+            billable_streams(&["it".to_string(), "en".to_string()], "it", true),
+            Some(1)
+        );
+    }
+
     #[tokio::test]
     async fn guest_meter_stops_at_cap() {
         let spent = Arc::new(AtomicU64::new(0));
@@ -188,6 +236,7 @@ mod tests {
             room: String::new(),
             speaker_id: String::new(),
             speaker_lang: String::new(),
+            scale_by_target_count: false,
         };
 
         tokio::time::timeout(
