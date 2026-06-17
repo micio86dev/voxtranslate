@@ -73,7 +73,7 @@ use crate::rooms::{LeaveOutcome, Peer, PeerTx, RoomManager, Visibility, OUT_CHAN
 use crate::safety::SafetyService;
 use crate::transcripts::{EventKind, TranscriptEvent, TranscriptService};
 use crate::translator::Translator;
-use crate::usage::{run_guest_meter, run_usage_meter, MeterConfig};
+use crate::usage::{run_guest_meter, run_usage_meter, MeterConfig, MeterScope};
 
 // ---- Abuse-hardening limits (spec 0064) -----------------------------------
 /// Default global cap on concurrent WS connections per instance; override with
@@ -713,9 +713,13 @@ fn spawn_meter(
             low_balance_threshold: billing_cfg.pricing.low_balance_threshold,
             rooms: Some(state.rooms.clone()),
             room: room.to_string(),
-            speaker_id: speaker_id.to_string(),
-            speaker_lang: speaker_lang.to_string(),
-            scale_by_target_count,
+            // Speaker-pays (spec 0093) — the current live model. The listener-pays
+            // cutover (spec 0099) swaps this for MeterScope::Listener.
+            scope: MeterScope::Speaker {
+                speaker_id: speaker_id.to_string(),
+                speaker_lang: speaker_lang.to_string(),
+                scale_by_target_count,
+            },
         };
         tokio::spawn(run_usage_meter(
             svc.clone(),

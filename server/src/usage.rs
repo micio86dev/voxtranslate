@@ -23,22 +23,42 @@ use uuid::Uuid;
 use crate::billing::{usd, BillingError, BillingService};
 use crate::protocol::ServerMessage;
 
+/// Who this meter charges and how its per-tick stream count is derived.
+#[derive(Clone)]
+pub enum MeterScope {
+    /// Speaker-pays (spec 0093): bill the speaker while they speak, scaling by the
+    /// distinct target languages for per-language engines. Kept for the gated
+    /// cutover to listener-pays (spec 0099 §5).
+    Speaker {
+        speaker_id: String,
+        speaker_lang: String,
+        /// Bill per distinct target language instead of a flat rate. The Premium
+        /// engine opens one paid OpenAI session per language, so a group call
+        /// genuinely costs the speaker more — the charge scales with the room.
+        scale_by_target_count: bool,
+    },
+    /// Listener-pays (spec 0099): bill the listener for the active cross-language
+    /// sources they are receiving right now, at the listener's own engine rate.
+    /// One stream per currently-speaking peer whose language differs from the
+    /// listener's — symmetric to the speaker's `scale_by_target_count`.
+    Listener {
+        listener_id: String,
+        listener_lang: String,
+    },
+}
+
 /// Per-session metering parameters.
 #[derive(Clone)]
 pub struct MeterConfig {
     pub interval_secs: u64,
     pub rate_per_second: f64,
     pub low_balance_threshold: f64,
-    /// When `Some`, the meter skips billing ticks where no other participant
-    /// speaks a different language (all-same-language room = no translations).
+    /// When `Some`, the meter derives its per-tick billable stream count from the
+    /// live room and skips ticks with nothing to translate.
     pub rooms: Option<std::sync::Arc<crate::rooms::RoomManager>>,
     pub room: String,
-    pub speaker_id: String,
-    pub speaker_lang: String,
-    /// Bill per distinct target language instead of a flat rate (spec 0093). The
-    /// Premium engine opens one paid OpenAI session per language, so a group call
-    /// genuinely costs the speaker more — the charge scales with the room.
-    pub scale_by_target_count: bool,
+    /// Who is billed and how the stream count is computed.
+    pub scope: MeterScope,
 }
 
 /// How many translation streams to bill for this tick, or `None` to skip the tick
@@ -87,13 +107,29 @@ pub async fn run_usage_meter(
                 // Premium scales the charge by the number of distinct target
                 // languages (one paid OpenAI session each); others bill flat.
                 let streams = match cfg.rooms.as_ref() {
-                    Some(rooms) => {
-                        let targets = rooms.get_room_languages(&cfg.room, &cfg.speaker_id);
-                        match billable_streams(&targets, &cfg.speaker_lang, cfg.scale_by_target_count) {
-                            Some(n) => n,
-                            None => continue,
+                    Some(rooms) => match &cfg.scope {
+                        MeterScope::Speaker {
+                            speaker_id,
+                            speaker_lang,
+                            scale_by_target_count,
+                        } => {
+                            let targets = rooms.get_room_languages(&cfg.room, speaker_id);
+                            match billable_streams(&targets, speaker_lang, *scale_by_target_count) {
+                                Some(n) => n,
+                                None => continue,
+                            }
                         }
-                    }
+                        // Listener-pays (spec 0099): bill for the cross-language
+                        // sources this listener is receiving right now. None active
+                        // → nothing to translate for them → skip the tick.
+                        MeterScope::Listener {
+                            listener_id,
+                            listener_lang,
+                        } => match rooms.active_source_count(&cfg.room, listener_id, listener_lang) {
+                            0 => continue,
+                            n => n,
+                        },
+                    },
                     None => 1,
                 };
                 let amount = usd(cfg.rate_per_second * interval as f64 * streams as f64);
@@ -234,9 +270,11 @@ mod tests {
             low_balance_threshold: 1.0,
             rooms: None,
             room: String::new(),
-            speaker_id: String::new(),
-            speaker_lang: String::new(),
-            scale_by_target_count: false,
+            scope: MeterScope::Speaker {
+                speaker_id: String::new(),
+                speaker_lang: String::new(),
+                scale_by_target_count: false,
+            },
         };
 
         tokio::time::timeout(
@@ -274,6 +312,120 @@ mod tests {
         assert_eq!(cost, Decimal::new(25, 2)); // 0.25
         assert_eq!(balance, Decimal::new(5, 2)); // 0.05, never negative
         assert_eq!(engine_id, "premium"); // tagged at create_session
+    }
+
+    /// Listener-pays scope (spec 0099): the meter bills nothing while no source is
+    /// speaking, then scales by the active cross-language sources. DB-gated (a real
+    /// deduction), so skipped without `DATABASE_URL`. Drives the scale purely from
+    /// the room's speaking-state.
+    #[tokio::test]
+    async fn listener_scope_bills_per_active_source() {
+        use crate::rooms::{RoomManager, Visibility};
+        use rust_decimal::Decimal;
+        let Ok(url) = std::env::var("DATABASE_URL") else {
+            eprintln!("skipping — no DATABASE_URL");
+            return;
+        };
+        let pool = crate::db::connect(&url).await.unwrap();
+        crate::db::migrate(&pool).await.unwrap();
+        let svc = BillingService::new(pool.clone(), Decimal::ZERO);
+
+        // A Premium listener `me` (en) with two cross-language speakers (it, fr).
+        let rooms = Arc::new(RoomManager::new());
+        let speaking_it = Arc::new(std::sync::atomic::AtomicBool::new(true)); // it speaking
+        let speaking_fr = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let peer = |id: &str, lang: &str, sp: Arc<std::sync::atomic::AtomicBool>| {
+            let (tx, rx, _o) = PeerTx::channel(crate::rooms::OUT_CHANNEL_CAP);
+            std::mem::forget(rx);
+            crate::rooms::Peer {
+                id: id.into(),
+                conn: Uuid::new_v4(),
+                name: id.into(),
+                lang: lang.into(),
+                engine: "premium".into(),
+                avatar_url: None,
+                tx,
+                speaking: sp,
+            }
+        };
+        rooms
+            .join(
+                "r",
+                peer(
+                    "me",
+                    "en",
+                    Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                ),
+                Visibility::Private,
+            )
+            .unwrap();
+        rooms
+            .join(
+                "r",
+                peer("itspk", "it", speaking_it.clone()),
+                Visibility::Private,
+            )
+            .unwrap();
+        rooms
+            .join(
+                "r",
+                peer("frspk", "fr", speaking_fr.clone()),
+                Visibility::Private,
+            )
+            .unwrap();
+
+        let uid: Uuid = sqlx::query_scalar(
+            "INSERT INTO users (google_id, email, name, balance)
+             VALUES ($1, $2, 'L', $3) RETURNING id",
+        )
+        .bind(format!("g-{}", Uuid::new_v4()))
+        .bind(format!("{}@x.com", Uuid::new_v4()))
+        .bind(Decimal::new(100, 2)) // 1.00
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let sid = svc.create_session(uid, "r", "premium").await.unwrap();
+
+        let (out_tx, _out_rx, _o) = PeerTx::channel(crate::rooms::OUT_CHANNEL_CAP);
+        let (exhaust_tx, _exhaust_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (cancel_tx, cancel_rx) = oneshot::channel();
+        let cfg = MeterConfig {
+            interval_secs: 1,
+            rate_per_second: 0.10,
+            low_balance_threshold: 0.0,
+            rooms: Some(rooms.clone()),
+            room: "r".into(),
+            scope: MeterScope::Listener {
+                listener_id: "me".into(),
+                listener_lang: "en".into(),
+            },
+        };
+        let h = tokio::spawn(run_usage_meter(
+            svc, uid, sid, cfg, out_tx, exhaust_tx, cancel_rx,
+        ));
+
+        // One it source speaking for ~1 tick → ~0.10. Let the second speaker join in.
+        tokio::time::sleep(Duration::from_millis(1100)).await;
+        speaking_fr.store(true, std::sync::atomic::Ordering::Relaxed); // now 2 sources
+        tokio::time::sleep(Duration::from_millis(1100)).await;
+        let _ = cancel_tx.send(());
+        let _ = tokio::time::timeout(Duration::from_secs(2), h).await;
+
+        // ≥1 tick at 1 source (0.10) + ≥1 tick at 2 sources (0.20) was billed: the
+        // balance dropped by at least 0.30 from 1.00. Exact timing is loose, so we
+        // assert the per-source scaling held (cost > a single-source-only run).
+        let (cost, balance): (Decimal, Decimal) = sqlx::query_as(
+            "SELECT s.cost, u.balance FROM usage_sessions s JOIN users u ON u.id = s.user_id WHERE s.id=$1",
+        )
+        .bind(sid)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(
+            cost >= Decimal::new(30, 2),
+            "billed per active source, got {cost}"
+        );
+        assert!(balance <= Decimal::new(70, 2));
     }
 
     #[tokio::test]
