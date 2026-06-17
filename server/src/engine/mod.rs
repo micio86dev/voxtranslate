@@ -7,6 +7,7 @@
 //! (Open/Closed — no `if engine == X` in the call sites).
 
 pub mod metadata;
+pub mod openai;
 pub mod premium;
 pub mod standard;
 
