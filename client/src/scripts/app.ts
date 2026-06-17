@@ -267,9 +267,28 @@ const callTimer = new CallTimer({
   onCancel: () => toast(t('timerCancelled')),
 });
 let audioCapture: AudioCapture | PcmCapture | null = null;
+// Listener-pays (spec 0099): once the server sends a `capture_format` message our
+// capture is server-driven (PCM iff a Premium listener is present), not chosen from
+// our own engine. `null` until the first message → speaker-pays (self-engine) mode.
+let serverCaptureFormat: 'pcm' | 'webm' | null = null;
 // Speakers whose translated audio arrives from the server (Premium engine, spec
 // 0093). We never also browser-TTS them — they'd be heard twice, out of sync.
 const premiumSpeakers = new Set<string>();
+
+// Listener-pays (spec 0099): switch our outgoing-audio capture to the format the
+// server asks for (PCM16 when a Premium listener is present, else WebM/Opus), so the
+// one captured stream can feed both OpenAI and Deepgram. Reuses the same swap as the
+// engine-downgrade path; no-ops when the format is already correct.
+function applyCaptureFormat(pcm: boolean) {
+  const want: 'pcm' | 'webm' = pcm ? 'pcm' : 'webm';
+  if (serverCaptureFormat === want) return;
+  serverCaptureFormat = want;
+  if (!ws || !localStream) return;
+  const wasActive = micOn && !!audioCapture;
+  audioCapture?.stop();
+  audioCapture = pcm ? new PcmCapture(localStream, ws) : new AudioCapture(localStream, ws);
+  if (wasActive) audioCapture.start();
+}
 let micMeter: MicMeter | null = null; // mic-button voice halo (input working)
 let chat: ChatManager | null = null;
 let lobbyTimer: number | null = null;
@@ -1058,19 +1077,33 @@ async function handleServer(msg: any): Promise<void> {
       if (ttsOn && msg.speaker_id !== myId) pcmPlayback.enqueue(msg.speaker_id, msg.seq, msg.pcm16_b64);
       break;
     }
+    case 'capture_format': {
+      // Listener-pays (spec 0099): the server dictates our capture format from the
+      // room's Premium composition. From now on capture is server-driven.
+      applyCaptureFormat(!!msg.pcm);
+      break;
+    }
     case 'engine_downgraded': {
       // A speaker's engine was switched mid-call (spec 0093), e.g. Premium → Standard
       // when credits ran low.
       if (msg.peer_id === myId) {
-        // It's us: swap our capture (PCM→WebM) and continue under the new engine.
-        if (session) session.engine = msg.to;
-        const wasActive = micOn;
-        audioCapture?.stop();
-        if (ws && localStream) {
-          audioCapture = new AudioCapture(localStream, ws);
-          if (wasActive) audioCapture.start();
+        if (serverCaptureFormat !== null) {
+          // Listener-pays (spec 0099): it's MY receive engine that changed (e.g. I
+          // ran out of credit → now I receive Standard). Capture is server-driven, so
+          // we do NOT swap it here; just record the new engine and notify.
+          if (session) session.engine = msg.to;
+          showNotif(t(msg.reason === 'insufficient_balance' ? 'enginePremiumPaused' : 'enginePremiumBusy'));
+        } else {
+          // Speaker-pays: swap our capture (PCM→WebM) and continue under the new engine.
+          if (session) session.engine = msg.to;
+          const wasActive = micOn;
+          audioCapture?.stop();
+          if (ws && localStream) {
+            audioCapture = new AudioCapture(localStream, ws);
+            if (wasActive) audioCapture.start();
+          }
+          showNotif(t(msg.reason === 'premium_at_capacity' ? 'enginePremiumBusy' : 'enginePremiumPaused'));
         }
-        showNotif(t(msg.reason === 'premium_at_capacity' ? 'enginePremiumBusy' : 'enginePremiumPaused'));
       } else {
         // A peer downgraded: stop expecting their premium audio so TTS resumes.
         premiumSpeakers.delete(msg.peer_id);
