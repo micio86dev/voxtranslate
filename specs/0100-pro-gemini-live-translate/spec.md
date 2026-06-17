@@ -2,12 +2,12 @@
 
 | | |
 |---|---|
-| **Status** | Draft |
+| **Status** | ✅ Shipped |
 | **Owner** | Micio Dev |
 | **Created** | 2026-06-17 |
-| **Shipped** | — |
+| **Shipped** | 2026-06-17 |
 | **Version** | — |
-| **Commits** | — |
+| **Commits** | `ec4fb2a` |
 | **Depends on** | [0093](../0093-premium-translation-engine/spec.md), [0094](../0094-premium-capacity-fallback/spec.md) |
 
 ## 1. Context & Problem
