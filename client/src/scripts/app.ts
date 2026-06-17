@@ -13,6 +13,7 @@ import {
 import { loadRemoteI18n } from './content';
 import { icon } from './icons';
 import { MeshManager } from './webrtc';
+import { resolvePeerId } from './peer-id';
 import { AudioCapture } from './audio-capture';
 import { PcmCapture } from './pcm-capture';
 import { pcmPlayback } from './pcm-playback';
@@ -189,9 +190,9 @@ const inviteStatus = $('invite-status');
 const MAX_ROOM = 4; // mirrors server rooms::MAX_PEERS
 
 // ---- State -----------------------------------------------------------------
-const myId =
-  (crypto && crypto.randomUUID && crypto.randomUUID()) ||
-  `id-${Math.random().toString(36).slice(2)}-${Date.now()}`;
+// Stable across reloads within this tab so a rejoin is recognised as a
+// reconnect (server evicts the ghost) — no phantom tile / inflated count (#219).
+const myId = resolvePeerId();
 
 let session: { room: string; lang: string; name: string; isPublic: boolean; engine: string } | null =
   null;
