@@ -1,5 +1,3 @@
-> ⚠️ **Unverbindlicher Entwurf — keine Rechtsberatung.** Lassen Sie ihn von einer qualifizierten Anwältin oder einem qualifizierten Anwalt prüfen, bevor Sie sich darauf verlassen.
-
 Diese Richtlinie zur akzeptablen Nutzung („AUP“) legt die Regeln für die Nutzung von VoxTranslate fest. Sie ist Teil unserer Nutzungsbedingungen. Mit der Nutzung des Dienstes erklären Sie sich einverstanden, diese AUP einzuhalten. Bei Verstößen können wir Konten sperren oder kündigen, Inhalte entfernen oder den Zugang einschränken.
 
 ## 1. Respektieren Sie die anderen Teilnehmer
@@ -16,6 +14,7 @@ Sie dürfen den Dienst nicht nutzen, um:
 - Nutzen Sie den Dienst nicht für rechtswidrige Zwecke oder zur Erleichterung illegaler Aktivitäten.
 - Begehen Sie keinen Betrug, keine Scams, kein Phishing und geben Sie sich nicht als andere Personen oder Organisationen aus.
 - Teilen Sie keine Inhalte, die geistiges Eigentum oder die Privatsphäre anderer verletzen.
+- Missbrauchen Sie keine KI- oder automatisierten Funktionen — zum Beispiel, indem Sie Übersetzung, Transkription oder andere automatisierte Werkzeuge verwenden, um illegale, schädliche, irreführende oder missbräuchliche Inhalte zu erzeugen, zu tarnen oder zu verbreiten, oder um diese Regeln oder die Sicherheitsmaßnahmen des Dienstes zu umgehen.
 - Absolut keine Inhalte, die Minderjährige sexuell ausbeuten oder gefährden. Solche Inhalte melden wir den zuständigen Behörden.
 
 ## 3. Kein Spam und kein Missbrauch der Plattform

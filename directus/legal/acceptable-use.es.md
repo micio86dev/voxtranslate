@@ -1,12 +1,10 @@
-> ⚠️ **Borrador no vinculante — no es asesoramiento legal.** Revísalo con un abogado cualificado antes de confiar en él.
-
-Esta Política de uso aceptable ("AUP") establece las reglas para usar VoxTranslate. Forma parte de nuestros Términos del servicio. Al usar el Servicio aceptas seguir esta AUP. En caso de incumplimiento podemos suspender o cancelar cuentas, eliminar contenido o restringir el acceso.
+Esta Política de uso aceptable ("AUP") establece las reglas para usar VoxTranslate. Forma parte de nuestros Términos del servicio. Al usar el Servicio aceptas seguir esta AUP. Podemos suspender o cancelar cuentas, eliminar contenido o restringir el acceso en caso de incumplimiento.
 
 ## 1. Respeta a los demás participantes
 
 No puedes usar el Servicio para:
 
-- acosar, hostigar, amenazar o intimidar a nadie;
+- acosar, hostigar, amenazar, perseguir o intimidar a nadie;
 - publicar o transmitir contenido de odio, o atacar a personas por su raza, etnia, origen nacional, religión, sexo, género, orientación sexual, discapacidad o cualquier otra característica protegida;
 - compartir contenido sexual explícito o de explotación sexual, o solicitarlo;
 - exponer a otros a violencia gráfica o a contenido destinado a impactar o repugnar.
@@ -16,6 +14,7 @@ No puedes usar el Servicio para:
 - No uses el Servicio con fines ilícitos ni para facilitar actividades ilegales.
 - No cometas fraude, estafas, phishing ni suplantes a personas u organizaciones.
 - No compartas contenido que infrinja la propiedad intelectual o la privacidad de otros.
+- No hagas un uso indebido de la IA ni de las funciones automatizadas — por ejemplo, usar la traducción, la transcripción u otras herramientas automatizadas para generar, encubrir o difundir contenido ilegal, dañino, engañoso o abusivo, o para eludir estas reglas o las medidas de seguridad del Servicio.
 - Absolutamente ningún contenido que explote sexualmente o ponga en peligro a menores. Denunciamos dicho contenido a las autoridades competentes.
 
 ## 3. Nada de spam ni abuso de la plataforma
@@ -27,7 +26,7 @@ No puedes usar el Servicio para:
 
 ## 4. Grabación y consentimiento
 
-Respeta la privacidad de los demás. No grabes, captures ni redistribuyas llamadas, audio, vídeo, transcripciones o traducciones sin el consentimiento de las personas implicadas y según exijan las leyes aplicables.
+Respeta la privacidad de los demás. No grabes, captures ni redistribuyas llamadas, audio, vídeo, transcripciones o traducciones sin el consentimiento de las personas implicadas y según exijan las leyes que te apliquen.
 
 ## 5. Denuncias y aplicación
 
