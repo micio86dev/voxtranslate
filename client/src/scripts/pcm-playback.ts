@@ -7,43 +7,9 @@ import { base64ToFloat32, shouldPlay } from './pcm';
 
 const SAMPLE_RATE = 24000;
 
-// Playback worklet: a FIFO of Float32 chunks drained sample-by-sample into the
-// output, silence when empty. `'flush'` clears it (leave / downgrade).
-const PLAYBACK_WORKLET = `
-class PcmPlaybackProcessor extends AudioWorkletProcessor {
-  constructor() {
-    super();
-    this._queue = [];
-    this._cur = null;
-    this._pos = 0;
-    this.port.onmessage = (e) => {
-      if (e.data === 'flush') { this._queue = []; this._cur = null; this._pos = 0; }
-      else this._queue.push(e.data);
-    };
-  }
-  process(_inputs, outputs) {
-    const out = outputs[0] && outputs[0][0];
-    if (!out) return true;
-    for (let i = 0; i < out.length; i++) {
-      if (!this._cur || this._pos >= this._cur.length) {
-        this._cur = this._queue.shift() || null;
-        this._pos = 0;
-      }
-      out[i] = this._cur ? this._cur[this._pos++] : 0;
-    }
-    return true;
-  }
-}
-registerProcessor('pcm-playback-processor', PcmPlaybackProcessor);
-`;
-
-let workletUrl: string | null = null;
-function playbackWorkletUrl(): string {
-  if (!workletUrl) {
-    workletUrl = URL.createObjectURL(new Blob([PLAYBACK_WORKLET], { type: 'application/javascript' }));
-  }
-  return workletUrl;
-}
+// Served as a static same-origin file (NOT a blob: URL): the CSP allows
+// `worker-src 'self'` but not `blob:` (spec 0093 prod fix).
+const PLAYBACK_WORKLET_URL = '/pcm-playback-worklet.js';
 
 type AudioCtor = typeof AudioContext;
 
@@ -61,7 +27,7 @@ export class PcmPlayback {
         window.AudioContext ??
         (window as unknown as { webkitAudioContext: AudioCtor }).webkitAudioContext;
       this.ctx = new Ctor({ sampleRate: SAMPLE_RATE });
-      await this.ctx.audioWorklet.addModule(playbackWorkletUrl());
+      await this.ctx.audioWorklet.addModule(PLAYBACK_WORKLET_URL);
       this.node = new AudioWorkletNode(this.ctx, 'pcm-playback-processor', {
         numberOfInputs: 0,
         numberOfOutputs: 1,

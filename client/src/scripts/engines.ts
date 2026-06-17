@@ -83,6 +83,17 @@ export function engineLangs(engineId: string, engines: EngineInfo[], known: stri
   return known.filter((l) => out.has(l));
 }
 
+/** Languages to offer in the picker regardless of which engine is selected: the
+ *  INTERSECTION of every engine's output languages, intersected with the
+ *  displayable set (`known`). A room can MIX engines, and any speaker (on any
+ *  engine) must be able to translate INTO a listener's language — so a language is
+ *  only safe to offer if every engine can produce it (spec 0094). Falls back to
+ *  `known` when there are no engines. */
+export function commonLangs(engines: EngineInfo[], known: string[]): string[] {
+  if (engines.length === 0) return known.slice();
+  return known.filter((l) => engines.every((e) => e.output_languages.includes(l)));
+}
+
 /** Format a per-minute rate for display, e.g. `$0.45/min`. */
 export function formatRate(ratePerMinute: number): string {
   return `$${ratePerMinute.toFixed(2)}/min`;

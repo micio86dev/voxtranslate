@@ -89,6 +89,26 @@ the cap is reached routinely, so silent queueing is unacceptable.
 - Brief (~1 round-trip) window where the first Standard session receives PCM before
   the client swaps to WebM capture on `engine_downgraded`; subtitles resume within ~1s.
 
+## 10. Follow-up fixes shipped in the same PR
+
+- **AudioWorklet CSP fix (prod-blocking bug).** Premium's PCM capture + playback
+  worklets were loaded from a `blob:` URL via `URL.createObjectURL`. Prod CSP is
+  `worker-src 'self'` (no `blob:`), so `audioWorklet.addModule(blob:…)` was blocked
+  → capture failed silently → the client never sent audio or `start` → the server
+  never opened an OpenAI session (zero "openai" logs, confirmed via Better Stack).
+  Fix: serve the processors as **static same-origin files**
+  (`client/public/pcm-{capture,playback}-worklet.js`, loaded as
+  `/pcm-…-worklet.js`), which `worker-src 'self'` allows — no CSP loosening.
+- **Common-language picker.** Because a room can mix engines, the language dropdown
+  now offers the **intersection** of every engine's `output_languages` (∩ the
+  displayable set) regardless of the selected engine — so any speaker on any engine
+  can always translate into any listener's language. `engines.commonLangs(...)`,
+  unit-tested; replaces the per-selected-engine list (which would break mixed rooms
+  once engines declare different language sets).
+- **Observability.** `info` logs on `premium: start_session` (with targets) and
+  `openai: session connected` make the live OpenAI path diagnosable (success was
+  previously silent).
+
 ## 9. References
 
 - Commits: `<sha>` · Files: `server/src/engine/`, `server/src/lib.rs`, `client/src/scripts/`

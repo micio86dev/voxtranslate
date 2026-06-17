@@ -110,6 +110,12 @@ impl TranslationEngine for PremiumEngine {
         // at Start; mid-call membership changes reconcile on the next Start (MVP).
         let mut targets = deps.rooms.get_room_languages(&ctx.room, &ctx.speaker_id);
         targets.retain(|l| l != &ctx.speaker_lang);
+        tracing::info!(
+            speaker = %ctx.speaker_id,
+            source = %ctx.speaker_lang,
+            ?targets,
+            "premium: start_session"
+        );
 
         let (audio_tx, audio_rx) = mpsc::channel::<Vec<u8>>(AUDIO_CHANNEL_CAP);
 
