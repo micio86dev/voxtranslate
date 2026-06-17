@@ -279,38 +279,62 @@ function correctionTargetFor(format: 'pdf' | 'json' | 'srt' | 'vtt'): {
   return correctTargetFromDropdown(); // srt/vtt follow the sub-mode dropdown
 }
 
-for (const format of ['pdf', 'json', 'srt', 'vtt'] as const) {
+// Serialize downloads (#222): only one runs at a time, so rapid clicks across the
+// four format buttons can't fan out into a burst the server rate-limits (429), and
+// a stuck-disabled "frozen" button can't happen (the finally always restores).
+const DL_FORMATS = ['pdf', 'json', 'srt', 'vtt'] as const;
+let downloading = false;
+
+/** Disable every download button while one is in flight; when freeing them, a
+ *  session with no events stays disabled. */
+function setDownloadsBusy(busy: boolean): void {
+  const noEvents = (current?.event_count ?? 0) === 0;
+  for (const f of DL_FORMATS) $<HTMLButtonElement>(`session-dl-${f}`).disabled = busy || noEvents;
+}
+
+for (const format of DL_FORMATS) {
   const btn = $<HTMLButtonElement>(`session-dl-${format}`);
   btn.addEventListener('click', async () => {
-    if (!current || btn.disabled) return;
+    if (!current || btn.disabled || downloading) return;
     const sessionId = current.id;
     const prev = btn.textContent;
-    btn.disabled = true;
-    // SRT/VTT also carry the lang-mode dropdown (original/translated/both).
-    const mode = $<HTMLSelectElement>('session-sub-mode').value as auth.SubtitleMode;
-    const correct = $<HTMLInputElement>('ai-correct-chk').checked;
+    downloading = true;
+    setDownloadsBusy(true);
+    try {
+      // SRT/VTT also carry the lang-mode dropdown (original/translated/both).
+      const mode = $<HTMLSelectElement>('session-sub-mode').value as auth.SubtitleMode;
+      const correct = $<HTMLInputElement>('ai-correct-chk').checked;
 
-    // Paid step first: ensure the corrected text is cached (free on a repeat).
-    if (correct) {
-      const target = correctionTargetFor(format);
-      btn.textContent = t('aiCorrecting');
-      const res = await ensureCorrection(sessionId, target.mode, target.lang);
-      if (current?.id !== sessionId) return; // navigated away while correcting
-      if (!res.ok) {
-        btn.textContent = prev;
-        btn.disabled = (current?.event_count ?? 0) === 0;
-        flashStatus(res.insufficient ? t('aiCorrectNoCredits') : t('aiCorrectFailed'));
-        return;
+      // Paid step first: ensure the corrected text is cached. It's free on a
+      // repeat (server-authoritative), so re-downloading never re-charges or
+      // re-runs the AI correction (#222).
+      if (correct) {
+        const target = correctionTargetFor(format);
+        btn.textContent = t('aiCorrecting');
+        const res = await ensureCorrection(sessionId, target.mode, target.lang);
+        if (current?.id !== sessionId) return; // navigated away while correcting
+        if (!res.ok) {
+          flashStatus(
+            res.rateLimited
+              ? t('downloadRateLimited')
+              : res.insufficient
+                ? t('aiCorrectNoCredits')
+                : t('aiCorrectFailed'),
+          );
+          return;
+        }
+        if (typeof res.balance === 'number') auth.setBalance(res.balance);
+        refreshCorrectCost(); // now reads as free for this shape
       }
-      if (typeof res.balance === 'number') auth.setBalance(res.balance);
-      refreshCorrectCost(); // now reads as free for this shape
-    }
 
-    btn.textContent = t('processing');
-    const ok = await auth.downloadTranscript(sessionId, format, getUiLang(), mode, correct);
-    btn.textContent = prev;
-    btn.disabled = (current?.event_count ?? 0) === 0;
-    if (!ok) flashStatus(t('downloadFailed'));
+      btn.textContent = t('processing');
+      const r = await auth.downloadTranscript(sessionId, format, getUiLang(), mode, correct);
+      if (!r.ok) flashStatus(r.status === 429 ? t('downloadRateLimited') : t('downloadFailed'));
+    } finally {
+      btn.textContent = prev;
+      downloading = false;
+      setDownloadsBusy(false); // re-enable (a no-event session stays disabled)
+    }
   });
 }
 

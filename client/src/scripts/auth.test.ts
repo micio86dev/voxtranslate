@@ -282,7 +282,7 @@ describe('transcripts', () => {
       .mockResolvedValue(blobResponse('attachment; filename="voxtranslate-room-abc12345.pdf"'));
     vi.stubGlobal('fetch', fetchMock);
 
-    expect(await auth.downloadTranscript('s1', 'pdf', 'it')).toBe(true);
+    expect((await auth.downloadTranscript('s1', 'pdf', 'it')).ok).toBe(true);
     const url = fetchMock.mock.calls[0][0] as string;
     expect(url).toContain('/api/sessions/s1/transcript.pdf');
     expect(url).toContain('tz=Europe%2FRome');
@@ -297,7 +297,7 @@ describe('transcripts', () => {
     const fetchMock = vi.fn().mockResolvedValue(blobResponse(null));
     vi.stubGlobal('fetch', fetchMock);
 
-    expect(await auth.downloadTranscript('s2', 'json')).toBe(true);
+    expect((await auth.downloadTranscript('s2', 'json')).ok).toBe(true);
     const url = fetchMock.mock.calls[0][0] as string;
     expect(url).toContain('/api/sessions/s2/transcript.json');
     expect(url).not.toContain('?');
@@ -310,10 +310,10 @@ describe('transcripts', () => {
     const fetchMock = vi.fn().mockResolvedValue(blobResponse(null));
     vi.stubGlobal('fetch', fetchMock);
 
-    expect(await auth.downloadTranscript('s4', 'srt', 'it', 'both')).toBe(true);
+    expect((await auth.downloadTranscript('s4', 'srt', 'it', 'both')).ok).toBe(true);
     expect(fetchMock.mock.calls[0][0]).toContain('/api/sessions/s4/transcript.srt?lang=both&target=it');
     // Default subtitle mode is "translated".
-    expect(await auth.downloadTranscript('s5', 'vtt', 'fr')).toBe(true);
+    expect((await auth.downloadTranscript('s5', 'vtt', 'fr')).ok).toBe(true);
     expect(fetchMock.mock.calls[1][0]).toContain('/api/sessions/s5/transcript.vtt?lang=translated&target=fr');
   });
 
@@ -321,7 +321,9 @@ describe('transcripts', () => {
     const auth = await fresh();
     const anchor = stubDownloadDom();
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(okJson('forbidden', 403)));
-    expect(await auth.downloadTranscript('s3', 'json')).toBe(false);
+    const r = await auth.downloadTranscript('s3', 'json');
+    expect(r.ok).toBe(false);
+    expect(r.status).toBe(403); // surfaced so callers can special-case 429 (#222)
     expect(anchor.click).not.toHaveBeenCalled();
   });
 });

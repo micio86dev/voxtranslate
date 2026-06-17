@@ -26,6 +26,7 @@ export const I18N: Record<string, Dict> = {
     langLabel: 'Your language', engineLabel: 'Translation engine', connect: 'Enter room', enterRoom: 'Enter a room code',
     enginePremiumPaused: 'Premium credits ran low — switched to Standard translation.',
     enginePremiumBusy: 'Premium is at capacity right now — using Standard translation (billed at the lower rate).',
+    downloadRateLimited: 'Too many requests — please wait a moment and try again.',
     engineDescStandard: 'Real-time translation with live subtitles and a translated voice.',
     engineDescPremium: 'More natural, more accurate voice translation, with synchronized subtitles.',
     engineCostPerLanguage: 'Rate is per translation language — a group call with more languages costs more.',
@@ -159,6 +160,7 @@ export const I18N: Record<string, Dict> = {
     copied: 'Copiato', copyFailed: 'Copia non riuscita', nameLabel: 'Il tuo nome', namePlaceholder: 'Ospite',
     langLabel: 'La tua lingua', engineLabel: 'Motore di traduzione', connect: 'Entra', enterRoom: 'Inserisci un codice stanza',
     enginePremiumBusy: 'Premium al momento è al massimo della capacità — uso la traduzione Standard (addebitata alla tariffa più bassa).',
+    downloadRateLimited: 'Troppe richieste — attendi un momento e riprova.',
     engineDescStandard: 'Traduzione in tempo reale con sottotitoli e voce tradotta.',
     engineDescPremium: 'Traduzione vocale più naturale e accurata, con sottotitoli sincronizzati.',
     engineCostPerLanguage: 'Tariffa per lingua di traduzione — una chiamata di gruppo con più lingue costa di più.',
@@ -285,6 +287,7 @@ export const I18N: Record<string, Dict> = {
     aiEmailNoRecipients: 'Aggiungi almeno un destinatario',
   },
   es: {
+    downloadRateLimited: 'Demasiadas solicitudes: espera un momento e inténtalo de nuevo.',
     engineDescStandard: 'Traducción en tiempo real con subtítulos y voz traducida.',
     engineDescPremium: 'Traducción de voz más natural y precisa, con subtítulos sincronizados.',
     engineCostPerLanguage: 'La tarifa es por idioma de traducción: una llamada en grupo con más idiomas cuesta más.',
@@ -417,6 +420,7 @@ export const I18N: Record<string, Dict> = {
     aiEmailNoRecipients: 'Añade al menos un destinatario',
   },
   fr: {
+    downloadRateLimited: 'Trop de requêtes — patiente un instant puis réessaie.',
     engineDescStandard: 'Traduction en temps réel avec sous-titres et voix traduite.',
     engineDescPremium: 'Traduction vocale plus naturelle et précise, avec sous-titres synchronisés.',
     engineCostPerLanguage: 'Le tarif est par langue de traduction : un appel de groupe avec plus de langues coûte plus cher.',
@@ -549,6 +553,7 @@ export const I18N: Record<string, Dict> = {
     aiEmailNoRecipients: 'Ajoutez au moins un destinataire',
   },
   de: {
+    downloadRateLimited: 'Zu viele Anfragen – bitte einen Moment warten und erneut versuchen.',
     engineDescStandard: 'Echtzeit-Übersetzung mit Untertiteln und übersetzter Stimme.',
     engineDescPremium: 'Natürlichere, genauere Sprachübersetzung mit synchronen Untertiteln.',
     engineCostPerLanguage: 'Der Preis gilt pro Übersetzungssprache – ein Gruppenanruf mit mehr Sprachen kostet mehr.',
@@ -681,6 +686,7 @@ export const I18N: Record<string, Dict> = {
     aiEmailNoRecipients: 'Mindestens einen Empfänger hinzufügen',
   },
   pt: {
+    downloadRateLimited: 'Muitas solicitações — aguarde um momento e tente novamente.',
     engineDescStandard: 'Tradução em tempo real com legendas e voz traduzida.',
     engineDescPremium: 'Tradução de voz mais natural e precisa, com legendas sincronizadas.',
     engineCostPerLanguage: 'A tarifa é por idioma de tradução — uma chamada em grupo com mais idiomas custa mais.',
@@ -813,6 +819,7 @@ export const I18N: Record<string, Dict> = {
     aiEmailNoRecipients: 'Adicione pelo menos um destinatário',
   },
   ja: {
+    downloadRateLimited: 'リクエストが多すぎます。少し待ってからもう一度お試しください。',
     engineDescStandard: 'リアルタイム翻訳。字幕と翻訳音声付き。',
     engineDescPremium: 'より自然で正確な音声翻訳。同期した字幕付き。',
     engineCostPerLanguage: '料金は翻訳言語ごとです。言語が多いグループ通話ほど高くなります。',
@@ -945,6 +952,7 @@ export const I18N: Record<string, Dict> = {
     aiEmailNoRecipients: '宛先を1人以上追加してください',
   },
   zh: {
+    downloadRateLimited: '请求过于频繁——请稍候再试。',
     engineDescStandard: '实时翻译，带字幕和翻译语音。',
     engineDescPremium: '更自然、更准确的语音翻译，配同步字幕。',
     engineCostPerLanguage: '费用按翻译语言计算——多语言的群组通话费用更高。',

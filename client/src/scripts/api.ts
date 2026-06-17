@@ -358,6 +358,8 @@ export interface CorrectionResult {
   balance?: number;
   /** Set when credits ran short (the standard 402 body). */
   insufficient?: { required?: number; available?: number };
+  /** Set when the server rate-limited the request (429) so the UI can say so (#222). */
+  rateLimited?: boolean;
 }
 
 const correctionUrl = (sessionId: string, mode: CorrectionMode, lang: string): string => {
@@ -398,6 +400,7 @@ export async function ensureCorrection(
       const b = (await res.json().catch(() => ({}))) as { required?: number; available?: number };
       return { ok: false, cached: false, insufficient: { required: b.required, available: b.available } };
     }
+    if (res.status === 429) return { ok: false, cached: false, rateLimited: true };
     if (!res.ok) return { ok: false, cached: false };
     const body = (await res.json()) as Omit<CorrectionResult, 'ok'>;
     return { ok: true, ...body };

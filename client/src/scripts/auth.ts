@@ -247,8 +247,9 @@ export type SubtitleMode = 'original' | 'translated' | 'both';
 /**
  * Download a session transcript as JSON, PDF or SRT/VTT subtitles
  * (authenticated). The PDF is localized to the browser timezone and `lang`;
- * subtitles use `lang` as the translation target. Returns false on failure
- * (403/404/429/5xx) so callers can toast.
+ * subtitles use `lang` as the translation target. Returns `{ ok, status }` so
+ * callers can distinguish a rate-limit (429) from other failures (#222); `status`
+ * is 0 on a network error.
  */
 export async function downloadTranscript(
   sessionId: string,
@@ -256,7 +257,7 @@ export async function downloadTranscript(
   lang = 'en',
   subtitleMode: SubtitleMode = 'translated',
   corrected = false,
-): Promise<boolean> {
+): Promise<{ ok: boolean; status: number }> {
   let url = `${HTTP_BASE}/api/sessions/${encodeURIComponent(sessionId)}/transcript.${format}`;
   if (format === 'pdf') {
     let tz = 'UTC';
@@ -271,14 +272,18 @@ export async function downloadTranscript(
   }
   // Render from the cached AI correction (spec 0068). JSON has no other query.
   if (corrected) url += `${url.includes('?') ? '&' : '?'}corrected=1`;
-  const res = await fetch(url, { headers: authHeaders() });
-  if (!res.ok) return false;
-  const blob = await res.blob();
-  // Prefer the server-chosen filename from Content-Disposition.
-  const cd = res.headers.get('content-disposition') || '';
-  const name = /filename="([^"]+)"/.exec(cd)?.[1] || `voxtranslate-transcript.${format}`;
-  downloadBlob(blob, name);
-  return true;
+  try {
+    const res = await fetch(url, { headers: authHeaders() });
+    if (!res.ok) return { ok: false, status: res.status };
+    const blob = await res.blob();
+    // Prefer the server-chosen filename from Content-Disposition.
+    const cd = res.headers.get('content-disposition') || '';
+    const name = /filename="([^"]+)"/.exec(cd)?.[1] || `voxtranslate-transcript.${format}`;
+    downloadBlob(blob, name);
+    return { ok: true, status: res.status };
+  } catch {
+    return { ok: false, status: 0 }; // network error — caller toasts a generic failure
+  }
 }
 
 /** Start a Stripe Checkout Session; returns the hosted URL to redirect to. */

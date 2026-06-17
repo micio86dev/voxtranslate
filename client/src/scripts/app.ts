@@ -3300,9 +3300,9 @@ async function renderTranscriptRows(): Promise<void> {
       }
       btn.addEventListener('click', async () => {
         btn.disabled = true;
-        const ok = await auth.downloadTranscript(s.id, format, getUiLang());
+        const r = await auth.downloadTranscript(s.id, format, getUiLang());
         btn.disabled = false;
-        if (!ok) toast(t('downloadFailed'));
+        if (!r.ok) toast(t(r.status === 429 ? 'downloadRateLimited' : 'downloadFailed'));
       });
       actions.appendChild(btn);
     }
@@ -3363,10 +3363,10 @@ async function downloadFromPostCall(format: 'json' | 'pdf', btn: HTMLButtonEleme
   const prev = btn.textContent;
   btn.disabled = true;
   btn.textContent = t('processing');
-  const ok = await auth.downloadTranscript(postCallSessionId, format, getUiLang());
+  const r = await auth.downloadTranscript(postCallSessionId, format, getUiLang());
   btn.textContent = prev;
   btn.disabled = postCallEvents === 0;
-  if (!ok) toast(t('downloadFailed'));
+  if (!r.ok) toast(t(r.status === 429 ? 'downloadRateLimited' : 'downloadFailed'));
 }
 
 $('postcall-close').addEventListener('click', () => show(postcallModal, false));
