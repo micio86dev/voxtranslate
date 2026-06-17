@@ -2,12 +2,12 @@
 
 | | |
 |---|---|
-| **Status** | Draft |
+| **Status** | ✅ Shipped |
 | **Owner** | Micio Dev |
 | **Created** | 2026-06-17 |
-| **Shipped** | — |
+| **Shipped** | 2026-06-17 |
 | **Version** | — |
-| **Commits** | `<sha>` |
+| **Commits** | `bc59546` |
 | **Depends on** | [0091](../0091-pwa-launcher-dark-splash/spec.md) |
 
 ## 1. Context & Problem
