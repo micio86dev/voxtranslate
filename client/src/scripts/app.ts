@@ -1879,7 +1879,9 @@ function setControlState(): void {
 
 // Overflow "More" menu (spec 0023): collapse secondary controls behind ⋯.
 const moreMenu = $('more-menu');
+let moreCloseTimer = 0;
 function setMoreOpen(open: boolean): void {
+  clearTimeout(moreCloseTimer); // cancel any pending auto-close so it can't shut a reopened menu
   moreMenu.classList.toggle('hidden', !open);
   btnMore.setAttribute('aria-expanded', String(open));
   if (open) moreMenu.querySelector<HTMLButtonElement>('.control-btn:not(.hidden)')?.focus();
@@ -1888,9 +1890,18 @@ btnMore.addEventListener('click', (e) => {
   e.stopPropagation();
   setMoreOpen(moreMenu.classList.contains('hidden'));
 });
-// The menu stays open while you act on its controls — toggling tts/hand/share is a
-// "set state and keep going" action (you see the dot flip), so only the ⋯ button,
-// an outside click, or Escape close it (spec 0036).
+// Unified close behavior (#226): clicking ANY action in the ⋯ menu keeps it open
+// for ~1s — long enough to SEE the result (a toggle's dot flipping, a panel
+// opening) — then auto-closes. Consistent across toggles (tts/hand/share) and
+// one-shot actions (timer/invite/label); rapid repeat clicks reset the timer.
+// (Supersedes spec 0036's "stay open until dismissed" so the behavior is
+// predictable across every action.)
+moreMenu.addEventListener('click', (e) => {
+  const btn = (e.target as HTMLElement).closest('.control-btn');
+  if (!btn || !moreMenu.contains(btn)) return;
+  clearTimeout(moreCloseTimer);
+  moreCloseTimer = window.setTimeout(() => setMoreOpen(false), 1000);
+});
 document.addEventListener('click', (e) => {
   if (!moreMenu.classList.contains('hidden') && !moreMenu.contains(e.target as Node)) setMoreOpen(false);
 });

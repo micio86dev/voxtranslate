@@ -333,6 +333,9 @@ const jsonLd = {
               data-i18n-ph="bookmarkLabelPh" data-i18n-label="bookmarkLabelPh" />
             <button id="bookmark-label-save" class="btn-primary bm-save" data-i18n="saveBtn"></button>
             <button id="bookmark-show-all" class="btn-ghost" data-i18n="showAllBookmarks"></button>
+            <!-- Explicit close (#226): the prompt had only Escape / auto-dismiss; an X
+                 matches every other modal's close affordance. -->
+            <button id="bookmark-pop-close" class="btn-ghost icon-btn bm-close" data-i18n-title="closeTip" aria-label="Close"></button>
           </div>
           <!-- Collaborative whiteboard overlay (spec 0045 → advanced in 0062 / #96):
                covers the stage; ops relay over the WS and a late-joiner gets a
@@ -1228,12 +1231,17 @@ const jsonLd = {
     .video-grid :global(.video-overlay) {
       position: absolute; top: 8px; left: 8px; display: flex; align-items: center; gap: 6px;
       background: rgba(0, 0, 0, 0.5); border-radius: 999px; padding: 3px 10px; backdrop-filter: blur(4px);
+      /* Cap the width so a long name can never grow rightward into the top-right
+         ban/report actions — critical on the small focus-mode mini tile (#227). */
+      max-width: calc(100% - 80px); min-width: 0;
     }
     /* The self tile (always the top-left cell) no longer needs its own name badge — it's
        surfaced in #stage-self up in the meta row, so this removes the overlap the meta
        cluster used to cause. Self mic state still shows on the control bar. */
     .video-grid :global(.video-cell.self .video-overlay) { display: none; }
-    .video-grid :global(.peer-name) { font-size: 0.8rem; font-weight: 600; color: #fff; }
+    /* Single-line + ellipsis so the name never wraps to two lines and inflates the
+       overlay height on the compact mini tile (#227). */
+    .video-grid :global(.peer-name) { font-size: 0.8rem; font-weight: 600; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
     .video-grid :global(.peer-lang) { font-size: 0.72rem; color: rgba(255, 255, 255, 0.75); }
     .video-grid :global(.mute-indicator) { color: var(--danger); display: inline-flex; }
     .video-grid :global(.pin-btn) { margin-left: auto; cursor: pointer; color: var(--muted); display: inline-flex; transition: color 0.15s; background: none; border: none; padding: 0; }
@@ -1733,6 +1741,11 @@ const jsonLd = {
     }
     .video-grid[data-mode="focus"] :global(.video-cell.video-thumb:hover) { transform: scale(1.08); }
     .video-grid[data-mode="focus"] :global(.video-cell.video-thumb .video-overlay) { font-size: 0.65rem; padding: 2px 6px; }
+    /* Slightly larger mini tile on desktop for better usability (#227); the
+       phone-sized 160×90 stays the default for narrow viewports. */
+    @media (min-width: 1024px) {
+      .video-grid[data-mode="focus"] :global(.video-cell.video-thumb) { width: 200px; height: 112px; }
+    }
     /* Zoom-in pop when a screen share takes the focus view (spec 0089). The grid
        revert on stop returns the tile to its small cell — that's the zoom-out.
        Stilled by the global prefers-reduced-motion rule. */
