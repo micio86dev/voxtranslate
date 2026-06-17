@@ -3,8 +3,8 @@
 // cache-first for immutable hashed assets, and cross-origin requests (the
 // Railway API/WebSocket) are left untouched.
 
-const CACHE = 'voxtranslate-v1';
-const SHELL = ['/', '/manifest.webmanifest', '/icon.png'];
+const CACHE = 'voxtranslate-v2';
+const SHELL = ['/', '/manifest.webmanifest', '/icon.png', '/icon-maskable.png'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
