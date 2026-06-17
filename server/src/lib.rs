@@ -61,7 +61,7 @@ use crate::auth::{GoogleVerifier, TokenVerifier};
 use crate::billing::{usd, BillingService};
 use crate::config::Config;
 use crate::db::Pool;
-use crate::engine::{EngineRegistry, StandardEngine};
+use crate::engine::{EngineRegistry, PremiumEngine, StandardEngine};
 use crate::glossary::GlossaryService;
 use crate::groq::Groq;
 use crate::moderation::{Moderator, Severity};
@@ -211,6 +211,11 @@ impl AppState {
             http.clone(),
             translator.clone(),
         )));
+        // Premium (OpenAI) is registered only when its key is configured, so the
+        // selector and `/api/engines` show it iff the feature is provisioned.
+        if let Some(oa) = config.openai.as_ref() {
+            registry.register(Arc::new(PremiumEngine::new(oa)));
+        }
         let engines = Arc::new(registry);
         Self {
             config,
@@ -322,6 +327,7 @@ pub fn app(state: AppState) -> Router {
         .route("/api/bug-report", post(api::bug_report))
         .route("/api/auth/google", post(auth::auth_google))
         .route("/api/user/me", get(auth::user_me))
+        .route("/api/engines", get(api::engines))
         .route("/api/billing/packages", get(api::billing_packages))
         .route("/api/billing/checkout", post(api::billing_checkout))
         .route("/api/billing/webhook", post(api::billing_webhook))
@@ -734,6 +740,7 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
         id,
         public,
         token,
+        engine: engine_id,
     } = params;
     let id = id
         .filter(|s| !s.trim().is_empty())
@@ -1000,18 +1007,22 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
                                     speaker_user_id: billed_user,
                                     glossary: state.glossary.clone(),
                                 };
-                                // Engine routing (spec 0093): the engine owns the
-                                // STT/translation pipeline (incl. the `auto`
-                                // detect flow). S0 always uses the default engine
-                                // (Standard); the join-payload engine id is
-                                // resolved here in a later slice.
+                                // Engine routing (spec 0093): resolve the speaker's
+                                // chosen engine (from the join payload), falling back
+                                // to the default for an absent/unknown id. The engine
+                                // owns the STT/translation pipeline, including the
+                                // `auto` detect flow — no engine-specific branching.
                                 let deps = engine::SessionDeps {
                                     rooms: state.rooms.clone(),
                                     moderator: state.moderator.clone(),
                                     transcripts: state.transcripts.clone(),
                                     participant_row,
                                 };
-                                audio_tx = state.engines.default().start_session(ctx, deps).await;
+                                audio_tx = state
+                                    .engines
+                                    .resolve(engine_id.as_deref())
+                                    .start_session(ctx, deps)
+                                    .await;
                                 if audio_tx.is_some() {
                                     meter_cancel = spawn_meter(
                                         &state,

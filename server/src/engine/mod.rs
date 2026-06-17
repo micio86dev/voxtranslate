@@ -7,6 +7,7 @@
 //! (Open/Closed — no `if engine == X` in the call sites).
 
 pub mod metadata;
+pub mod premium;
 pub mod standard;
 
 use std::sync::Arc;
@@ -21,6 +22,7 @@ use crate::rooms::RoomManager;
 use crate::transcripts::TranscriptService;
 
 pub use metadata::{EngineCapabilities, EngineInfo, EngineMetadata};
+pub use premium::PremiumEngine;
 pub use standard::StandardEngine;
 
 /// Stable engine ids. Persisted in `usage_sessions.engine_id` and sent in the

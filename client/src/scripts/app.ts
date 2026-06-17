@@ -1,7 +1,15 @@
 // VoxTranslate V2 client orchestrator: home/lobby → pre-join (camera + devices)
 // → WebRTC video call with translated subtitles + chat.
 
-import { applyI18n, detectLang, FLAG, getUiLang, setUiLang, t } from './i18n';
+import { applyI18n, detectLang, ENDONYM, FLAG, getUiLang, setUiLang, SUPPORTED, t } from './i18n';
+import {
+  type EngineInfo,
+  engineLangs,
+  formatRate,
+  loadEnginePref,
+  resolveEnginePref,
+  saveEnginePref,
+} from './engines';
 import { loadRemoteI18n } from './content';
 import { icon } from './icons';
 import { MeshManager } from './webrtc';
@@ -94,6 +102,10 @@ const privacyModal = $('privacy-modal');
 const cookieBanner = $('cookie-banner');
 
 let billing = false; // accounts/credits enabled on this backend
+// Translation engines available on this backend (spec 0093). The selector renders
+// from this list; `selectedEngine` is the user's persisted choice (default 'standard').
+let availableEngines: EngineInfo[] = [];
+let selectedEngine = 'standard';
 let exhaustedIsGuest = false; // last balance_exhausted was a guest trial vs a billed user
 const blockedPeers = new Set<string>(); // peers blocked locally (muted + hidden)
 let reportTargetId = ''; // peer currently being reported
@@ -102,6 +114,8 @@ let reportTargetId = ''; // peer currently being reported
 const roomInput = $<HTMLInputElement>('room');
 const nameInput = $<HTMLInputElement>('name');
 const langSel = $<HTMLSelectElement>('lang');
+const engineField = $('engine-field');
+const engineOptions = $('engine-options');
 const enterBtn = $<HTMLButtonElement>('enter');
 const homeStatus = $('home-status');
 const visGroup = $('vis-group');
@@ -177,7 +191,8 @@ const myId =
   (crypto && crypto.randomUUID && crypto.randomUUID()) ||
   `id-${Math.random().toString(36).slice(2)}-${Date.now()}`;
 
-let session: { room: string; lang: string; name: string; isPublic: boolean } | null = null;
+let session: { room: string; lang: string; name: string; isPublic: boolean; engine: string } | null =
+  null;
 let localStream: MediaStream | null = null;
 let ws: WebSocket | null = null;
 let mesh: MeshManager | null = null;
@@ -300,6 +315,9 @@ const subtitleTimers = new Map<string, number>();
 // ============================================================================
 langSel.value = detectLang();
 applyI18n();
+// Discover translation engines + restore the saved choice (spec 0093). Async;
+// the selector reveals itself once the list arrives. Default engine until then.
+void initEngines();
 // Global connection-status banner (offline / reconnecting / back online).
 initNetStatus();
 langSel.addEventListener('change', () => {
@@ -310,6 +328,101 @@ langSel.addEventListener('change', () => {
 
 function updateVisHint(): void {
   visHint.textContent = visibilityPublic ? '' : t('privateHint');
+}
+
+// ============================================================================
+// Translation-engine selection (spec 0093)
+// ============================================================================
+// Fetch the engines this backend offers, restore the persisted choice, render the
+// selector (only when there's a real choice), and drive the language dropdown from
+// the chosen engine. The selector stays hidden in single-engine deployments.
+async function initEngines(): Promise<void> {
+  try {
+    const res = await fetch(`${HTTP_BASE}/api/engines`);
+    if (!res.ok) return; // keep the default engine; selector stays hidden
+    availableEngines = (await res.json()) as EngineInfo[];
+  } catch {
+    return; // offline / unreachable → default engine, selector hidden
+  }
+  selectedEngine = resolveEnginePref(loadEnginePref(), availableEngines);
+  renderEngineSelector();
+  rebuildLangOptions();
+}
+
+function renderEngineSelector(): void {
+  // A one-engine deployment (the common case until Premium is provisioned) has no
+  // choice to make — keep the selector out of the way.
+  if (availableEngines.length < 2) {
+    engineField.hidden = true;
+    return;
+  }
+  engineOptions.replaceChildren();
+  for (const e of availableEngines) {
+    const active = e.id === selectedEngine;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'engine-opt' + (active ? ' active' : '');
+    btn.setAttribute('role', 'radio');
+    btn.setAttribute('aria-checked', String(active));
+    btn.dataset.engine = e.id;
+    const head = document.createElement('span');
+    head.className = 'engine-opt-head';
+    const name = document.createElement('span');
+    name.className = 'engine-opt-name';
+    name.textContent = e.display_name;
+    const rate = document.createElement('span');
+    rate.className = 'engine-opt-rate';
+    rate.textContent = formatRate(e.rate_per_minute);
+    head.append(name, rate);
+    const desc = document.createElement('span');
+    desc.className = 'engine-opt-desc';
+    desc.textContent = e.description;
+    btn.append(head, desc);
+    btn.addEventListener('click', () => selectEngine(e.id));
+    engineOptions.appendChild(btn);
+  }
+  engineField.hidden = false;
+}
+
+function selectEngine(id: string): void {
+  if (id === selectedEngine) return;
+  selectedEngine = id;
+  saveEnginePref(id);
+  renderEngineSelector();
+  rebuildLangOptions();
+}
+
+// Rebuild the language dropdown from the chosen engine's supported languages
+// (intersected with the languages we can label). Preserves the current selection
+// when still valid; keeps "auto" first. A no-op visually while both engines share
+// the same language set, but keeps the UI data-driven for future divergence.
+function rebuildLangOptions(): void {
+  const allowed = engineLangs(selectedEngine, availableEngines, [...SUPPORTED]);
+  const prev = langSel.value;
+  const codes = ['auto', ...allowed];
+  langSel.replaceChildren();
+  for (const code of codes) {
+    const o = document.createElement('option');
+    o.value = code;
+    if (code === 'auto') {
+      o.setAttribute('data-i18n', 'langAuto');
+      o.textContent = t('langAuto');
+    } else {
+      o.textContent = ENDONYM[code] ?? code;
+    }
+    langSel.appendChild(o);
+  }
+  const next = codes.includes(prev) ? prev : (allowed[0] ?? 'auto');
+  if (next !== prev) {
+    // The chosen engine dropped the current UI language — follow the new value
+    // (this select doubles as the UI language; see the change handler above).
+    langSel.value = next;
+    setUiLang(next);
+    applyI18n();
+    updateVisHint();
+  } else {
+    langSel.value = next;
+  }
 }
 
 // ============================================================================
@@ -455,7 +568,7 @@ $('signin-gate-signin').addEventListener('click', () => {
 // Pre-join: camera preview + device selectors
 // ============================================================================
 async function goPrejoin(room: string, isPublic: boolean): Promise<void> {
-  session = { room, lang: langSel.value, name: nameInput.value.trim(), isPublic };
+  session = { room, lang: langSel.value, name: nameInput.value.trim(), isPublic, engine: selectedEngine };
   stopLobby();
   homeScreen.classList.add('hidden');
   prejoinScreen.classList.remove('hidden');
@@ -701,6 +814,7 @@ function openSocket(): void {
   if (!session) return;
   const params = new URLSearchParams({ room: session.room, lang: session.lang, id: myId, public: String(session.isPublic) });
   if (session.name) params.set('name', session.name);
+  if (session.engine) params.set('engine', session.engine);
   ws = new WebSocket(auth.buildWsUrl(params));
 
   ws.onopen = () => {

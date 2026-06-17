@@ -174,6 +174,7 @@ mod guest_mode {
             turn: None,
             bug_report_to: "test@example.com".into(),
             app_base_url: "https://voxtranslate.app".into(),
+            openai: None,
         };
         let state = AppState::new(config);
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

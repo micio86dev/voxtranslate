@@ -313,6 +313,10 @@ pub struct WsParams {
     /// peer is a billed user; invalid → the connection is rejected.
     #[serde(default)]
     pub token: Option<String>,
+    /// Translation engine id chosen on the pre-join screen (spec 0093). Absent →
+    /// the default engine; an unknown/removed id also falls back to the default.
+    #[serde(default)]
+    pub engine: Option<String>,
 }
 
 // --- Lobby (GET /rooms) ----------------------------------------------------
