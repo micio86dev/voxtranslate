@@ -90,3 +90,40 @@ The `engineDesc*` i18n strings (spec 0236) need rewording in all 8 languages.
 This is a substantial re-architecture of the real-time + billing path. It will be built
 incrementally with tests and deployed only once the routing + billing are proven —
 **not** a hot-patch.
+
+## 8. Implementation progress (2026-06-17)
+
+Decisions locked with the owner: model = listener-pays (approved); **audio = surgical**
+— all-Standard rooms keep Opus/WebM (spec 0043 intact); the speaker switches to PCM16 and
+Standard uses Deepgram `linear16` **only when ≥1 Premium listener is present**, confining
+the ~12× STT-bandwidth cost to rooms where someone already pays Premium. Rollout behind an
+OFF-by-default config flag (`LISTENER_PAYS`); live path stays speaker-pays until the dry-run.
+
+**DONE + committed + tested (branch `feat/premium-listener-pays`):**
+- Foundation (`c4cc707`): `Peer.engine` (the quality a peer RECEIVES; guests pinned to
+  default), `Peer.speaking`; pure `routes_for_speaker` + live `translation_routes`
+  ((tgt_lang, engine) routes — same lang/mixed engines ⇒ both); `broadcast_to_lang_engine`
+  (delivery filtered by lang+engine); `set_speaking`/`active_source_count` (listener-meter
+  primitive). 7 unit tests.
+- Billing flip primitive (`8601cae`): `MeterScope::{Speaker,Listener}`; Listener scope bills
+  the listener at their engine rate × `active_source_count`. Live path still Speaker scope.
+
+**REMAINING (next sessions, in order):**
+1. **Config flag** `LISTENER_PAYS` (Config + env), default false.
+2. **Standard engine `linear16` mode**: per-session format flag in `engine/standard.rs` +
+   `deepgram.rs` streaming params (`encoding=linear16&sample_rate&channels` vs `container=webm`).
+3. **Core WS loop** (`lib.rs`, behind flag): on `Start`, resolve `translation_routes`; run
+   each demanded engine on the speaker's audio (one captured stream fanned to all sessions),
+   premium opening sessions only for langs with ≥1 premium listener; capacity fallback per
+   premium target → that lang's premium listeners drop to the Standard stream; deliver via
+   `broadcast_to_lang_engine`. Set `speaking` true/false on Start/Stop.
+4. **Listener meter wiring**: spawn the `MeterScope::Listener` meter at JOIN (not on Start)
+   for billed users; guests pinned to Standard + the existing time cap.
+5. **Format-switch signalling**: server tracks "room has ≥1 premium listener"; tells speakers
+   to capture PCM16 vs Opus (reuse the engine-downgrade swap path); recompute on join/leave/
+   engine change.
+6. **Client**: react to the format signal; engine picker = "quality you RECEIVE".
+7. **i18n + pricing copy** (8 langs): `engineDesc*` reworded; pricing "per source you listen to".
+8. **Tests + dry-run**: 1:1 it↔es each listener-engine combo (right engine output + listener
+   billed, not speaker); capacity-fallback; coverage ≥85%; **owner billing dry-run before
+   flipping `LISTENER_PAYS` on in prod.**
