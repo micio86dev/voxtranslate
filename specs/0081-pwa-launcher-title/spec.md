@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | ✅ Shipped |
+| **Status** | Superseded by [0091](../0091-pwa-launcher-dark-splash/spec.md) |
 | **Owner** | Micio Dev |
 | **Created** | 2026-06-16 |
 | **Shipped** | 2026-06-16 |
