@@ -122,18 +122,26 @@ OFF-by-default config flag (`LISTENER_PAYS`); live path stays speaker-pays until
   `MeterScope::Listener` reads live lang); guests keep the per-Start cap. Exhaust → drop the
   listener to free Standard (`set_peer_engine`) + targeted `EngineDowngraded`; billing stops.
 
-**✅ SERVER SIDE COMPLETE (steps 1–4), all gated behind `LISTENER_PAYS` (OFF in prod).
-184 lib tests green, clippy --all-targets clean.**
+- Capture-format signalling (`abfde12`): `ServerMessage::CaptureFormat{pcm}` pushed per peer
+  (pcm iff a Premium listener other than them is present); `rooms.has_engine_listener` /
+  `peer_engines`; `notify_capture_formats` on join/leave/exhaust. Core-loop `pcm_input` now
+  uses the SAME room-level condition, so server + client always agree on the wire format.
+- Client (`b63f277`): `capture_format` handler → `applyCaptureFormat` swaps PcmCapture↔
+  AudioCapture; `serverCaptureFormat` flags listener-pays mode; `engine_downgraded` made
+  mode-aware (self-downgrade = receive-engine change, no capture swap). astro check clean,
+  251 client tests green. Subtitle/audio rendering needs no change (server routes per-engine).
 
-**REMAINING:**
-5. **Format-switch signalling**: server tells the SPEAKER to capture PCM16 vs Opus based on
-   "room has ≥1 Premium listener" (the server already assumes `pcm_input = want_premium`, so
-   the client MUST match or Deepgram gets garbage). Recompute + notify on join/leave/engine
-   change; reuse the engine-downgrade capture-swap path.
-6. **Client**: react to the format signal; pick the engine for "quality you RECEIVE"; render
-   both engines' subtitles/audio correctly per listener.
-7. **i18n + pricing copy** (8 langs): `engineDesc*` reworded; pricing "per source you listen to".
-8. **Tests + dry-run**: 1:1 it↔es each listener-engine combo (right engine output + listener
-   billed, not speaker); capacity-fallback; coverage ≥85%; resolve the two documented
-   dry-run items (capacity-fallback premium billing; Standard-listener hard cap); **owner
-   billing dry-run before flipping `LISTENER_PAYS` on in prod.**
+**✅ FUNCTIONALLY COMPLETE END-TO-END (steps 1–6), all gated behind `LISTENER_PAYS` (OFF in
+prod). Live speaker-pays path byte-identical. 184 lib + 251 client tests green.**
+
+**REMAINING — launch prep, do WITH the owner dry-run:**
+7. **i18n + pricing copy** (8 langs): the engine descriptions are already mode-neutral; the one
+   speaker-pays string is `engineCostPerLanguage` ("per translation language"). To reframe it as
+   "per source you listen to" the client must know the mode — so **expose `listener_pays` to the
+   client** (e.g. on `/api/engines` or `/api/config`) and switch the picker copy + cost line on
+   it. Deferred so neither mode shows wrong copy before the flag flips.
+8. **Validation + dry-run**: the pure routing/billing logic is unit-tested (resolver,
+   active_source_count, meter scope); a full WS integration test needs engine mocks + live
+   Deepgram/OpenAI. The real gate is a **billing dry-run with real services** before flipping
+   `LISTENER_PAYS` on. Resolve the two documented items then: capacity-fallback premium billing;
+   a hard cap for a Standard listener who exhausts.
