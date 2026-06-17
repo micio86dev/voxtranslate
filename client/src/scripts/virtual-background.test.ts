@@ -55,6 +55,39 @@ describe('virtual-background', () => {
     await expect(p).resolves.toBe(true);
   });
 
+  it('scheduleNext drives the pump via a timer when hidden, rAF when visible', async () => {
+    const rafCalls: any[] = [];
+    const timeoutDelays: number[] = [];
+    (globalThis as any).requestAnimationFrame = (fn: any) => {
+      rafCalls.push(fn);
+      return 1;
+    };
+    const realSetTimeout = globalThis.setTimeout;
+    (globalThis as any).setTimeout = ((fn: any, ms: number) => {
+      timeoutDelays.push(ms);
+      return 0 as any;
+    }) as any;
+
+    const { VirtualBackground } = await load();
+    const vbg: any = new VirtualBackground();
+    vbg.running = true;
+
+    // Background tab: rAF is paused, so the composited track is driven by a timer
+    // (this is what keeps the outgoing video from freezing with PiP closed).
+    (globalThis as any).document = { hidden: true };
+    vbg.scheduleNext();
+    expect(timeoutDelays.length).toBe(1);
+    expect(rafCalls.length).toBe(0);
+
+    // Foreground tab: smooth rAF.
+    (globalThis as any).document = { hidden: false };
+    vbg.scheduleNext();
+    expect(rafCalls.length).toBe(1);
+    expect(timeoutDelays.length).toBe(1); // unchanged
+
+    (globalThis as any).setTimeout = realSetTimeout;
+  });
+
   it('VirtualBackground.start returns the raw track and stays inactive without a model', async () => {
     const { VirtualBackground } = await load();
     const vbg = new VirtualBackground();
