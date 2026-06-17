@@ -107,11 +107,18 @@ OFF-by-default config flag (`LISTENER_PAYS`); live path stays speaker-pays until
   primitive). 7 unit tests.
 - Billing flip primitive (`8601cae`): `MeterScope::{Speaker,Listener}`; Listener scope bills
   the listener at their engine rate × `active_source_count`. Live path still Speaker scope.
+- Core-loop scaffolding (`7e43e43`): `Config.listener_pays` (env `LISTENER_PAYS`, OFF by
+  default, `env_flag` helper, all test fixtures updated); `rooms.target_langs_for_engine`
+  (engine-filtered targets — the listener-pays analog of `get_room_languages`). +1 test.
 
-**REMAINING (next sessions, in order):**
-1. **Config flag** `LISTENER_PAYS` (Config + env), default false.
+**REMAINING (next sessions, in order) — note: the steps below modify the SHARED engine
+internals the live speaker-pays path also uses, so every change must be gated behind the
+flag and is verifiable only with live Deepgram/OpenAI:**
 2. **Standard engine `linear16` mode**: per-session format flag in `engine/standard.rs` +
-   `deepgram.rs` streaming params (`encoding=linear16&sample_rate&channels` vs `container=webm`).
+   `deepgram.rs` streaming params (`encoding=linear16&sample_rate&channels` vs `container=webm`),
+   plus the `lang=auto` REST probe content-type. Cleanest threading: add `listener_pays: bool`
+   and `input_pcm: bool` to `SessionDeps`; engines self-filter via `self.metadata().id`
+   (`target_langs_for_engine` + `broadcast_to_lang_engine`) only when `listener_pays`.
 3. **Core WS loop** (`lib.rs`, behind flag): on `Start`, resolve `translation_routes`; run
    each demanded engine on the speaker's audio (one captured stream fanned to all sessions),
    premium opening sessions only for langs with ≥1 premium listener; capacity fallback per
