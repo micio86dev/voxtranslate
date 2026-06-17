@@ -294,6 +294,16 @@ export class MeshManager {
     this.localStream.getVideoTracks().forEach((t) => (t.enabled = enabled));
   }
 
+  /** Replace the upload budget at runtime and re-apply the per-stream cap now.
+   *  Used to raise the cap while screen sharing — shared text/UI stays sharp
+   *  instead of grainy — and to restore the camera budget on stop (spec 0088).
+   *  Network adaptation (spec 0032) continues from the new value. */
+  setVideoBudget(budget: number): void {
+    this.videoBudget = budget;
+    this.currentBudget = budget;
+    void this.applyBitrate();
+  }
+
   /** Per-stream target = the total upload budget split across the peers we send
    *  to, floored so video stays usable. As the room grows each stream gets less,
    *  so total uplink stays ~constant regardless of N (spec 0031). */
