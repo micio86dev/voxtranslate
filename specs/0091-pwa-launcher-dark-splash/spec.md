@@ -2,12 +2,12 @@
 
 | | |
 |---|---|
-| **Status** | Draft |
+| **Status** | ✅ Shipped |
 | **Owner** | Micio Dev |
 | **Created** | 2026-06-17 |
-| **Shipped** | — |
+| **Shipped** | 2026-06-17 |
 | **Version** | — |
-| **Commits** | `<sha>` |
+| **Commits** | `65e66ac` |
 | **Depends on** | [0081](../0081-pwa-launcher-title/spec.md) (revises) |
 
 ## 1. Context & Problem
