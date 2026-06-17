@@ -5,6 +5,7 @@ import { applyI18n, detectLang, ENDONYM, FLAG, getUiLang, setUiLang, SUPPORTED, 
 import {
   type EngineInfo,
   commonLangs,
+  engineDescKey,
   formatRate,
   loadEnginePref,
   resolveEnginePref,
@@ -382,7 +383,10 @@ function renderEngineSelector(): void {
     head.append(name, rate);
     const desc = document.createElement('span');
     desc.className = 'engine-opt-desc';
-    desc.textContent = e.description;
+    // Localized, jargon-free copy keyed by tier; fall back to the server string for
+    // an unknown/future engine (#236).
+    const descKey = engineDescKey(e.tier);
+    desc.textContent = descKey ? t(descKey) : e.description;
     btn.append(head, desc);
     // Transparency (spec 0093): when the rate is per translation stream, say so —
     // a group call with more languages costs more.

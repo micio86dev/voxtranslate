@@ -6,6 +6,7 @@ import {
   type EngineInfo,
   commonLangs,
   defaultEngineId,
+  engineDescKey,
   engineLangs,
   formatRate,
   loadEnginePref,
@@ -127,5 +128,11 @@ describe('preference persistence', () => {
     };
     expect(loadEnginePref()).toBeNull();
     expect(() => saveEnginePref('x')).not.toThrow();
+  });
+
+  it('maps tiers to localized description keys, null for unknown (#236)', () => {
+    expect(engineDescKey('standard')).toBe('engineDescStandard');
+    expect(engineDescKey('premium')).toBe('engineDescPremium');
+    expect(engineDescKey('enterprise')).toBeNull(); // unknown → caller falls back to server desc
   });
 });

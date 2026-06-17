@@ -98,3 +98,13 @@ export function commonLangs(engines: EngineInfo[], known: string[]): string[] {
 export function formatRate(ratePerMinute: number): string {
   return `$${ratePerMinute.toFixed(2)}/min`;
 }
+
+/** i18n key for an engine's user-facing description, by tier (#236). The server's
+ *  `description` exposes provider/model jargon (Deepgram, Groq, GPT-Realtime),
+ *  so the UI shows a localized, benefit-focused string instead. Returns null for
+ *  an unknown/future tier so the caller falls back to the server description. */
+export function engineDescKey(tier: string): string | null {
+  if (tier === 'standard') return 'engineDescStandard';
+  if (tier === 'premium') return 'engineDescPremium';
+  return null;
+}
