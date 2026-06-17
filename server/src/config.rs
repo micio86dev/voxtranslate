@@ -45,6 +45,11 @@ pub struct Config {
     /// pre-join selector) iff this is `Some`, so the feature ships dark until the
     /// key is configured.
     pub openai: Option<OpenAiConfig>,
+    /// Google Gemini 3.5 Live Translate "Pro" engine (spec 0100). Present only when
+    /// `GOOGLE_AI_API_KEY` is set — the Pro engine is registered (and shown in the
+    /// selector, between Standard and Premium) iff this is `Some`, so it ships dark
+    /// until the key is configured.
+    pub google: Option<GeminiConfig>,
 }
 
 /// OpenAI Realtime Translation credentials + pricing (spec 0093). All-or-nothing
@@ -64,6 +69,57 @@ pub struct OpenAiConfig {
     /// Hard cap on concurrent OpenAI realtime sessions across the process
     /// (`OPENAI_REALTIME_MAX_SESSIONS`) — backpressure for group rooms (spec 0093).
     pub max_sessions: usize,
+}
+
+/// Gemini Live Translate credentials + pricing (spec 0100). All-or-nothing like
+/// the OpenAI engine: activates only when `GOOGLE_AI_API_KEY` is present.
+#[derive(Debug, Clone)]
+pub struct GeminiConfig {
+    /// Server-only Google API key (passed in the Live API URL query string, NOT a
+    /// header); never sent to clients and never logged.
+    pub api_key: String,
+    /// Live Translate model id (`GEMINI_LIVE_TRANSLATE_MODEL`). Read from env because
+    /// the preview id changes at GA.
+    pub model: String,
+    /// Raw server cost per minute, USD (`GEMINI_COST_PER_MINUTE`). Used for the
+    /// engine's user rate (`cost × (1 + markup)`); the raw value is never serialized.
+    pub cost_per_minute: f64,
+    /// Markup as a FRACTION (0.5 = 50%). From `GEMINI_COST_MARKUP_PERCENT`, falling
+    /// back to `ENGINE_DEFAULT_MARKUP_PERCENT`, divided by 100.
+    pub markup: f64,
+    /// Hard cap on concurrent Gemini Live sessions across the process
+    /// (`GEMINI_LIVE_MAX_SESSIONS`). The preview tier limits concurrent sessions, so
+    /// keep this conservative — we hold one session per target language.
+    pub max_sessions: usize,
+}
+
+impl GeminiConfig {
+    fn from_env() -> Self {
+        // Markup is configured in PERCENT (e.g. 50); store it as a fraction. Prefer
+        // the engine-specific override, then the global engine default, then 50%.
+        let percent = env::var("GEMINI_COST_MARKUP_PERCENT")
+            .ok()
+            .and_then(|v| v.trim().parse::<f64>().ok())
+            .or_else(|| {
+                env::var("ENGINE_DEFAULT_MARKUP_PERCENT")
+                    .ok()
+                    .and_then(|v| v.trim().parse::<f64>().ok())
+            })
+            .unwrap_or(50.0);
+        Self {
+            api_key: env::var("GOOGLE_AI_API_KEY").unwrap_or_default(),
+            model: env::var("GEMINI_LIVE_TRANSLATE_MODEL")
+                .ok()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "gemini-3.5-live-translate-preview".into()),
+            // Planning figure from spec 0100; operators MUST confirm the real preview
+            // rate before launch (it sits below Premium, above Standard).
+            cost_per_minute: parse_or("GEMINI_COST_PER_MINUTE", 0.023f64),
+            markup: percent / 100.0,
+            max_sessions: parse_or("GEMINI_LIVE_MAX_SESSIONS", 16usize),
+        }
+    }
 }
 
 impl OpenAiConfig {
@@ -355,6 +411,14 @@ impl Config {
             None
         };
 
+        // Pro translation engine — Gemini Live Translate (spec 0100): present-gated
+        // on the Google API key, same as Premium on the OpenAI key.
+        let google = if present("GOOGLE_AI_API_KEY") {
+            Some(GeminiConfig::from_env())
+        } else {
+            None
+        };
+
         Ok(Self {
             deepgram_key,
             groq_key,
@@ -375,6 +439,7 @@ impl Config {
                 .filter(|s| !s.is_empty())
                 .unwrap_or_else(|| "https://voxtranslate.app".into()),
             openai,
+            google,
         })
     }
 
@@ -595,6 +660,7 @@ impl Config {
             bug_report_to: "test@example.com".into(),
             app_base_url: "https://voxtranslate.app".into(),
             openai: None,
+            google: None,
         }
     }
 }

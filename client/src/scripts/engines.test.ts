@@ -132,6 +132,7 @@ describe('preference persistence', () => {
 
   it('maps tiers to localized description keys, null for unknown (#236)', () => {
     expect(engineDescKey('standard')).toBe('engineDescStandard');
+    expect(engineDescKey('pro')).toBe('engineDescPro'); // Gemini Live Translate (spec 0100)
     expect(engineDescKey('premium')).toBe('engineDescPremium');
     expect(engineDescKey('enterprise')).toBeNull(); // unknown → caller falls back to server desc
   });
