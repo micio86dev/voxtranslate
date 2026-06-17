@@ -490,9 +490,12 @@ function randomRoom(): string {
   for (let i = 0; i < 6; i++) s += chars[Math.floor(Math.random() * chars.length)];
   return s;
 }
-// A shared invite link (spec 0082) lands as `?room=CODE`: prefill it so the
-// invitee just picks a name and joins; otherwise start from a fresh random room.
-roomInput.value = parseRoomParam(location.search) ?? randomRoom();
+// A shared invite link (spec 0082) lands as `?room=CODE`: prefill it AND drop the
+// invitee straight into the pre-join preview once home is ready (consumed once in
+// enterHome), so they just confirm name + camera and join — no extra home-screen tap.
+// Otherwise start from a fresh random room.
+let pendingInviteRoom = parseRoomParam(location.search);
+roomInput.value = pendingInviteRoom ?? randomRoom();
 $('dice').addEventListener('click', () => (roomInput.value = randomRoom()));
 
 visGroup.addEventListener('click', (e) => {
@@ -3120,6 +3123,16 @@ function enterHome(): void {
   updatePublicGate();
   refreshGlossaryHome(); // 📖 home button is auth-only
   startLobby();
+  // Invite deep-link (spec 0082): the FIRST time we reach home carrying an invite
+  // code, go straight to the pre-join preview. Consumed once, so leaving a call back
+  // to home — or a guest who had to sign in first — doesn't loop back into pre-join.
+  // Private by default: a guest can join a private invited room, and the server's
+  // canonical visibility (RoomJoined.public) corrects the label on join.
+  if (pendingInviteRoom) {
+    const room = pendingInviteRoom;
+    pendingInviteRoom = null;
+    void goPrejoin(room, false);
+  }
 }
 
 /// Logged-in users must accept age + ToS before using the app.

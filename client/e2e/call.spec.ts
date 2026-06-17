@@ -95,11 +95,13 @@ test('call: WebRTC video, translated chat, subtitles, controls, leave', async ({
     }),
   ).toBeTruthy();
 
-  // Leave → back home; Bob sees the cell removed.
+  // Leave → back home; Bob sees the cell removed. Poll rather than a fixed sleep:
+  // PeerLeft propagation timing varies (headless/CI), so wait for the count to settle.
   await a.page.click('#btn-leave');
   await a.page.waitForSelector('#home:not(.hidden)');
-  await sleep(900);
-  expect(await b.page.$$eval('.video-cell', (e) => e.length)).toBe(1);
+  await expect
+    .poll(() => b.page.$$eval('.video-cell', (e) => e.length), { timeout: 5000 })
+    .toBe(1);
   // ...and guests never get the post-call transcript modal.
   expect(
     await a.page.evaluate(() =>

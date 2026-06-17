@@ -64,6 +64,8 @@ export class VirtualBackground {
   private ctx: CanvasRenderingContext2D | null = null;
   private output: MediaStream | null = null;
   private raf = 0;
+  /** Background-tab fallback timer (see `scheduleNext`). */
+  private timer: ReturnType<typeof setTimeout> | 0 = 0;
   private running = false;
 
   /** True once segmentation is actually processing frames (false when we fell
@@ -120,6 +122,8 @@ export class VirtualBackground {
     this.running = false;
     if (this.raf) cancelAnimationFrame(this.raf);
     this.raf = 0;
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = 0;
     try {
       this.seg?.close();
     } catch {
@@ -144,8 +148,26 @@ export class VirtualBackground {
         /* drop this frame, keep going */
       }
     }
-    if (this.running) this.raf = requestAnimationFrame(() => void this.pump());
+    if (this.running) this.scheduleNext();
   };
+
+  /**
+   * Schedule the next composite frame. When the tab is VISIBLE we use
+   * requestAnimationFrame (smooth, vsync-aligned). When it's HIDDEN the browser
+   * pauses rAF, which would freeze the composited (blurred) track we send to
+   * peers — so we fall back to a timer. Background timers are clamped to ~1s, so
+   * this is low-FPS but keeps fresh frames flowing whether or not Picture-in-
+   * Picture is open (issue: outgoing video froze on tab-switch with PiP closed).
+   * The raw camera track doesn't need this; only the canvas pipeline does.
+   */
+  private scheduleNext(): void {
+    if (!this.running) return;
+    if (typeof document !== 'undefined' && document.hidden) {
+      this.timer = setTimeout(() => void this.pump(), Math.round(1000 / CAPTURE_FPS));
+    } else {
+      this.raf = requestAnimationFrame(() => void this.pump());
+    }
+  }
 
   /** Composite the sharp subject over a blurred copy of the frame. */
   private draw(r: SegResults): void {
