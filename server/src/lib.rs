@@ -846,6 +846,33 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
     let session_id = joined.session_id;
     let room_public = joined.public;
     let existing = joined.existing;
+
+    // Security (#232): the pre-join gate above keys off the client-supplied
+    // `public` query param, which a guest can spoof — sending `public=false` to
+    // slip into a PUBLIC room by its code. The room's CANONICAL visibility is set
+    // by its creator and a later joiner's param can't change it (rooms.rs), so it
+    // is only known here, after `join()`. Re-check against `room_public`: when
+    // accounts are live, guests may use private rooms only. Back out of the room
+    // we just joined and close. This runs before any RoomJoined/PeerJoined is
+    // emitted and before the usage/transcript session is created, so the only
+    // cleanup needed is removing the freshly-added peer.
+    if room_public && billed_user.is_none() && state.pool.is_some() {
+        state.rooms.remove(&room, &id, conn);
+        tracing::info!(%room, %name, "guest rejected from public room (canonical visibility)");
+        let _ = ws_tx
+            .send(Message::Text(
+                ServerMessage::Error {
+                    message: "sign in to use public rooms".to_string(),
+                    code: Some("login_required".to_string()),
+                }
+                .to_json()
+                .into(),
+            ))
+            .await;
+        let _ = ws_tx.close().await;
+        return;
+    }
+
     let session_start = std::time::Instant::now(); // for the WS session canonical line (spec 0050)
     tracing::info!(%room, %name, %lang, peers = existing.len() + 1, "peer joined");
 
