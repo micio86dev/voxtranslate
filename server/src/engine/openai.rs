@@ -127,6 +127,7 @@ pub async fn open_session(
     sink.send(Message::text(session_update_json(output_lang)))
         .await
         .map_err(|e| format!("openai session.update failed: {e}"))?;
+    tracing::info!(%output_lang, model = %config.model, "openai: session connected");
     Ok((sink, source))
 }
 

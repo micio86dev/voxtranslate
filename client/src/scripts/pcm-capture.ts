@@ -8,49 +8,10 @@
 
 const TARGET_SAMPLE_RATE = 24000;
 
-// AudioWorklet processor source (runs in the audio render thread; no imports
-// allowed there, so the Float32→Int16 conversion is inlined). Batches to ~100 ms.
-const CAPTURE_WORKLET = `
-class PcmCaptureProcessor extends AudioWorkletProcessor {
-  constructor() {
-    super();
-    this._buf = [];
-    this._count = 0;
-    this._target = Math.round(sampleRate * 0.1); // ~100ms
-  }
-  process(inputs) {
-    const ch = inputs[0] && inputs[0][0];
-    if (ch && ch.length) {
-      const out = new Int16Array(ch.length);
-      for (let i = 0; i < ch.length; i++) {
-        let s = ch[i];
-        if (s > 1) s = 1; else if (s < -1) s = -1;
-        out[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
-      }
-      this._buf.push(out);
-      this._count += out.length;
-      if (this._count >= this._target) {
-        const merged = new Int16Array(this._count);
-        let o = 0;
-        for (const b of this._buf) { merged.set(b, o); o += b.length; }
-        this.port.postMessage(merged.buffer, [merged.buffer]);
-        this._buf = [];
-        this._count = 0;
-      }
-    }
-    return true;
-  }
-}
-registerProcessor('pcm-capture-processor', PcmCaptureProcessor);
-`;
-
-let workletUrl: string | null = null;
-function captureWorkletUrl(): string {
-  if (!workletUrl) {
-    workletUrl = URL.createObjectURL(new Blob([CAPTURE_WORKLET], { type: 'application/javascript' }));
-  }
-  return workletUrl;
-}
+// The processor is served as a static same-origin file (NOT a blob: URL): the
+// app's CSP allows `worker-src 'self'` but not `blob:`, so a blob worklet is
+// blocked and capture would silently fail (spec 0093 prod fix).
+const CAPTURE_WORKLET_URL = '/pcm-capture-worklet.js';
 
 export class PcmCapture {
   private stream: MediaStream;
@@ -85,7 +46,7 @@ export class PcmCapture {
     try {
       const Ctx = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       this.ctx = new Ctx({ sampleRate: TARGET_SAMPLE_RATE });
-      await this.ctx.audioWorklet.addModule(captureWorkletUrl());
+      await this.ctx.audioWorklet.addModule(CAPTURE_WORKLET_URL);
       // The track may have been replaced while we awaited; re-read it.
       const live = this.stream.getAudioTracks()[0];
       if (!live) {

@@ -4,6 +4,7 @@ import {
   DEFAULT_ENGINE_ID,
   ENGINE_PREF_KEY,
   type EngineInfo,
+  commonLangs,
   defaultEngineId,
   engineLangs,
   formatRate,
@@ -72,6 +73,20 @@ describe('engineLangs', () => {
   });
   it('returns the known set unchanged for an unknown engine', () => {
     expect(engineLangs('nope', [STANDARD], ['it', 'en'])).toEqual(['it', 'en']);
+  });
+});
+
+describe('commonLangs', () => {
+  it('returns only languages every engine can output (mixed-engine safe)', () => {
+    // STANDARD outputs it/en/es, PREMIUM outputs en/fr → common = en.
+    expect(commonLangs([STANDARD, PREMIUM], ['it', 'en', 'es', 'fr'])).toEqual(['en']);
+  });
+  it('intersects with the displayable set', () => {
+    const wide = engine('x', ['en', 'de', 'ja']);
+    expect(commonLangs([wide], ['en', 'de'])).toEqual(['en', 'de']);
+  });
+  it('falls back to known when there are no engines', () => {
+    expect(commonLangs([], ['it', 'en'])).toEqual(['it', 'en']);
   });
 });
 

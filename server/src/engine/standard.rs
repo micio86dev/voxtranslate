@@ -20,7 +20,7 @@ use crate::transcripts::TranscriptService;
 use crate::translator::Translator;
 
 use super::metadata::{EngineCapabilities, EngineMetadata};
-use super::{SessionDeps, TranslationEngine, STANDARD_ID};
+use super::{SessionDeps, SessionOutcome, TranslationEngine, STANDARD_ID};
 
 /// Capacity of a speaker's bounded audio→Deepgram channel (issue #123 / spec
 /// 0065). 100 ms chunks of 32 kbps Opus are a few hundred bytes, so 256 chunks
@@ -279,22 +279,29 @@ impl TranslationEngine for StandardEngine {
         &self.meta
     }
 
-    async fn start_session(
-        &self,
-        ctx: SpeakerCtx,
-        deps: SessionDeps,
-    ) -> Option<mpsc::Sender<Vec<u8>>> {
+    async fn start_session(&self, ctx: SpeakerCtx, deps: SessionDeps) -> SessionOutcome {
         let SessionDeps {
             rooms,
             moderator,
             transcripts,
             participant_row,
         } = deps;
+        // Standard never reports AtCapacity (no bounded upstream pool): it either
+        // opens (Started) or fails to reach Deepgram (Failed).
         if ctx.speaker_lang == "auto" {
             // Detection pending: buffer → REST probe → stream (spec 0012).
-            Some(self.start_detecting(ctx, rooms, moderator, transcripts, participant_row))
+            SessionOutcome::Started(self.start_detecting(
+                ctx,
+                rooms,
+                moderator,
+                transcripts,
+                participant_row,
+            ))
         } else {
-            self.start_known(ctx, rooms, moderator, transcripts).await
+            match self.start_known(ctx, rooms, moderator, transcripts).await {
+                Some(tx) => SessionOutcome::Started(tx),
+                None => SessionOutcome::Failed,
+            }
         }
     }
 }

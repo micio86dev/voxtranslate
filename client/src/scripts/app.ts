@@ -4,7 +4,7 @@
 import { applyI18n, detectLang, ENDONYM, FLAG, getUiLang, setUiLang, SUPPORTED, t } from './i18n';
 import {
   type EngineInfo,
-  engineLangs,
+  commonLangs,
   formatRate,
   loadEnginePref,
   resolveEnginePref,
@@ -405,12 +405,13 @@ function selectEngine(id: string): void {
   rebuildLangOptions();
 }
 
-// Rebuild the language dropdown from the chosen engine's supported languages
-// (intersected with the languages we can label). Preserves the current selection
-// when still valid; keeps "auto" first. A no-op visually while both engines share
-// the same language set, but keeps the UI data-driven for future divergence.
+// Rebuild the language dropdown from the COMMON languages across all engines
+// (spec 0094): a room can mix engines, so a language is only safe to offer if
+// every engine can produce it — otherwise a peer on another engine couldn't
+// translate to it. So the list is stable regardless of the selected engine.
+// Preserves the current selection when still valid; keeps "auto" first.
 function rebuildLangOptions(): void {
-  const allowed = engineLangs(selectedEngine, availableEngines, [...SUPPORTED]);
+  const allowed = commonLangs(availableEngines, [...SUPPORTED]);
   const prev = langSel.value;
   const codes = ['auto', ...allowed];
   langSel.replaceChildren();
@@ -1040,7 +1041,7 @@ async function handleServer(msg: any): Promise<void> {
           audioCapture = new AudioCapture(localStream, ws);
           if (wasActive) audioCapture.start();
         }
-        showNotif(t('enginePremiumPaused'));
+        showNotif(t(msg.reason === 'premium_at_capacity' ? 'enginePremiumBusy' : 'enginePremiumPaused'));
       } else {
         // A peer downgraded: stop expecting their premium audio so TTS resumes.
         premiumSpeakers.delete(msg.peer_id);

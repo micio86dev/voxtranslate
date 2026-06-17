@@ -28,7 +28,7 @@ use crate::transcripts::{EventKind, TranscriptEvent, TranscriptService};
 
 use super::metadata::{EngineCapabilities, EngineMetadata};
 use super::openai::{self, OaSink, OaSource, OpenAiEvent};
-use super::{SessionDeps, TranslationEngine, PREMIUM_ID};
+use super::{SessionDeps, SessionOutcome, TranslationEngine, PREMIUM_ID};
 
 /// Capacity of the speaker's bounded audio channel (mirrors the Standard path).
 const AUDIO_CHANNEL_CAP: usize = 256;
@@ -104,42 +104,69 @@ impl TranslationEngine for PremiumEngine {
         &self.meta
     }
 
-    async fn start_session(
-        &self,
-        ctx: SpeakerCtx,
-        deps: SessionDeps,
-    ) -> Option<mpsc::Sender<Vec<u8>>> {
+    async fn start_session(&self, ctx: SpeakerCtx, deps: SessionDeps) -> SessionOutcome {
         // Target languages = distinct OTHER languages in the room, excluding the
         // speaker's own (translating to the source language is a no-op). Computed
         // at Start; mid-call membership changes reconcile on the next Start (MVP).
         let mut targets = deps.rooms.get_room_languages(&ctx.room, &ctx.speaker_id);
         targets.retain(|l| l != &ctx.speaker_lang);
+        tracing::info!(
+            speaker = %ctx.speaker_id,
+            source = %ctx.speaker_lang,
+            ?targets,
+            "premium: start_session"
+        );
 
         let (audio_tx, audio_rx) = mpsc::channel::<Vec<u8>>(AUDIO_CHANNEL_CAP);
-        let config = self.config.clone();
-        let sem = self.sessions.clone();
-        tokio::spawn(run_session(config, sem, ctx, deps, targets, audio_rx));
-        Some(audio_tx)
+
+        if targets.is_empty() {
+            // Nobody to translate for (alone / all same language): drain the audio so
+            // the bounded channel doesn't back-pressure the speaker. No upstream
+            // session, no cost — but the call flows normally.
+            let mut audio_rx = audio_rx;
+            tokio::spawn(async move { while audio_rx.recv().await.is_some() {} });
+            return SessionOutcome::Started(audio_tx);
+        }
+
+        // Reserve one upstream-session permit per target language — all-or-nothing
+        // and WITHOUT blocking (spec 0094). If we can't get them all right now the
+        // engine is at capacity, so the caller falls back to Standard rather than
+        // queueing the speaker silently. Dropping `permits` on the early return
+        // releases any we already took.
+        let mut permits = Vec::with_capacity(targets.len());
+        for _ in &targets {
+            match self.sessions.clone().try_acquire_owned() {
+                Ok(p) => permits.push(p),
+                Err(_) => return SessionOutcome::AtCapacity,
+            }
+        }
+
+        tokio::spawn(run_session(
+            self.config.clone(),
+            ctx,
+            deps,
+            targets,
+            permits,
+            audio_rx,
+        ));
+        SessionOutcome::Started(audio_tx)
     }
 }
 
 /// Coordinator for one speaker: spawn a self-contained, reconnecting task per
-/// target language, then fan the speaker's captured audio to all of them.
+/// target language (each holding a pre-acquired permit), then fan the speaker's
+/// captured audio to all of them. `targets` is non-empty and `permits` has one
+/// entry per target (guaranteed by `start_session`).
 async fn run_session(
     config: OpenAiConfig,
-    sem: Arc<Semaphore>,
     ctx: SpeakerCtx,
     deps: SessionDeps,
     targets: Vec<String>,
+    permits: Vec<OwnedSemaphorePermit>,
     mut audio_rx: mpsc::Receiver<Vec<u8>>,
 ) {
     let mut feeds: Vec<mpsc::Sender<Vec<u8>>> = Vec::new();
-    for (i, lang) in targets.iter().enumerate() {
-        // Hold a permit for the whole session lifetime (released when the task
-        // ends). Cap reached → skip the remaining languages.
-        let Ok(permit) = sem.clone().acquire_owned().await else {
-            break;
-        };
+    for ((i, lang), permit) in targets.iter().enumerate().zip(permits) {
         let (feed_tx, feed_rx) = mpsc::channel::<Vec<u8>>(PER_SESSION_AUDIO_CAP);
         feeds.push(feed_tx);
         let reader = SessionReader {
@@ -155,13 +182,6 @@ async fn run_session(
             speaker_user_id: ctx.speaker_user_id,
         };
         tokio::spawn(session_task(config.clone(), reader, feed_rx, permit));
-    }
-
-    if feeds.is_empty() {
-        // Nothing to translate for (alone / all same language): drain audio so the
-        // bounded channel doesn't back-pressure the speaker.
-        while audio_rx.recv().await.is_some() {}
-        return;
     }
 
     // Fan each captured PCM16 chunk to every session. `try_send` so one stalled or
@@ -406,5 +426,88 @@ impl SessionReader {
             }
             .to_json(),
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::moderation::Moderator;
+    use crate::rooms::{Peer, PeerTx, RoomManager, Visibility};
+
+    fn cfg(max_sessions: usize) -> OpenAiConfig {
+        OpenAiConfig {
+            api_key: "k".into(),
+            model: "gpt-realtime-translate".into(),
+            cost_per_minute: 0.04,
+            markup: 0.5,
+            max_sessions,
+        }
+    }
+
+    fn join_peer(rm: &RoomManager, room: &str, id: &str, lang: &str) {
+        let (tx, rx, _ovf) = PeerTx::channel(8);
+        std::mem::forget(rx); // keep the sender alive so the peer isn't pruned
+        let peer = Peer {
+            id: id.into(),
+            conn: Uuid::new_v4(),
+            name: id.into(),
+            lang: lang.into(),
+            avatar_url: None,
+            tx,
+        };
+        rm.join(room, peer, Visibility::Private).unwrap();
+    }
+
+    fn deps(rm: RoomManager) -> SessionDeps {
+        SessionDeps {
+            rooms: Arc::new(rm),
+            moderator: Arc::new(Moderator::from_env()),
+            transcripts: None,
+            participant_row: None,
+        }
+    }
+
+    fn speaker_ctx(room: &str, id: &str, lang: &str) -> SpeakerCtx {
+        SpeakerCtx {
+            room: room.into(),
+            speaker_id: id.into(),
+            speaker_name: id.into(),
+            speaker_lang: lang.into(),
+            session_id: Uuid::new_v4(),
+            speaker_user_id: None,
+            glossary: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn at_capacity_returns_atcapacity() {
+        // One permit, already taken → no free upstream session for the one target
+        // language, so the caller is told to fall back to Standard (spec 0094).
+        let engine = PremiumEngine::new(&cfg(1));
+        let _held = engine.sessions.clone().acquire_owned().await.unwrap();
+
+        let rm = RoomManager::new();
+        join_peer(&rm, "r", "spk", "it");
+        join_peer(&rm, "r", "lis", "en"); // one distinct target language
+
+        let out = engine
+            .start_session(speaker_ctx("r", "spk", "it"), deps(rm))
+            .await;
+        assert!(matches!(out, SessionOutcome::AtCapacity));
+    }
+
+    #[tokio::test]
+    async fn no_targets_returns_started() {
+        // Speaker alone → nothing to translate → Started (no permit, no upstream
+        // session, no cost), so the call flows normally.
+        let engine = PremiumEngine::new(&cfg(4));
+        let rm = RoomManager::new();
+        join_peer(&rm, "r", "spk", "it");
+
+        let out = engine
+            .start_session(speaker_ctx("r", "spk", "it"), deps(rm))
+            .await;
+        assert!(matches!(out, SessionOutcome::Started(_)));
     }
 }

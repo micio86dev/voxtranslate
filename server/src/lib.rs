@@ -1010,7 +1010,9 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
                                     .rooms
                                     .peer_lang(&room, &id)
                                     .unwrap_or_else(|| lang.clone());
-                                let ctx = deepgram::SpeakerCtx {
+                                // Built fresh per engine attempt (the engine consumes
+                                // them), so a capacity fallback can retry cleanly.
+                                let build_ctx = || deepgram::SpeakerCtx {
                                     room: room.clone(),
                                     speaker_id: id.clone(),
                                     speaker_name: name.clone(),
@@ -1019,18 +1021,45 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
                                     speaker_user_id: billed_user,
                                     glossary: state.glossary.clone(),
                                 };
-                                // Engine routing (spec 0093): resolve the speaker's
-                                // chosen engine (from the join payload), falling back
-                                // to the default for an absent/unknown id. The engine
-                                // owns the STT/translation pipeline, including the
-                                // `auto` detect flow — no engine-specific branching.
-                                let deps = engine::SessionDeps {
+                                let build_deps = || engine::SessionDeps {
                                     rooms: state.rooms.clone(),
                                     moderator: state.moderator.clone(),
                                     transcripts: state.transcripts.clone(),
                                     participant_row,
                                 };
-                                audio_tx = active_engine.start_session(ctx, deps).await;
+                                // Engine routing (spec 0093): the engine owns the
+                                // STT/translation pipeline incl. the `auto` detect
+                                // flow — no engine-specific branching.
+                                let mut outcome =
+                                    active_engine.start_session(build_ctx(), build_deps()).await;
+                                // Capacity fallback (spec 0094): Premium has no free
+                                // upstream session right now → switch this speaker to
+                                // the default engine so translation never stops, and
+                                // tell the room (the speaker swaps capture, listeners
+                                // resume TTS). Billed at the cheaper Standard rate.
+                                if matches!(outcome, engine::SessionOutcome::AtCapacity) {
+                                    let from = active_engine.metadata().id.clone();
+                                    active_engine = state.engines.default();
+                                    let to = active_engine.metadata().id.clone();
+                                    state.rooms.broadcast(
+                                        &room,
+                                        &ServerMessage::EngineDowngraded {
+                                            peer_id: id.clone(),
+                                            from,
+                                            to,
+                                            reason: "premium_at_capacity".to_string(),
+                                        }
+                                        .to_json(),
+                                    );
+                                    outcome = active_engine
+                                        .start_session(build_ctx(), build_deps())
+                                        .await;
+                                }
+                                audio_tx = match outcome {
+                                    engine::SessionOutcome::Started(tx) => Some(tx),
+                                    engine::SessionOutcome::AtCapacity
+                                    | engine::SessionOutcome::Failed => None,
+                                };
                                 if audio_tx.is_some() {
                                     meter_cancel = spawn_meter(
                                         &state,

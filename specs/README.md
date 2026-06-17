@@ -121,6 +121,7 @@ Each spec follows the same skeleton:
 | [0091](0091-pwa-launcher-dark-splash/spec.md) | PWA launcher dark splash + maskable icon | ✅ Shipped | 2026-06-17 | `65e66ac` |
 | [0092](0092-ios-pwa-splash/spec.md) | iOS PWA splash screens | ✅ Shipped | 2026-06-17 | `bc59546` |
 | [0093](0093-premium-translation-engine/spec.md) | Premium translation engine (OpenAI GPT-Realtime-Translate) + N-engine registry | ✅ Shipped | 2026-06-17 | `167820a` |
+| [0094](0094-premium-capacity-fallback/spec.md) | Premium capacity fallback to Standard (no silent queue at the session cap) | ✅ Shipped | 2026-06-17 | `<sha>` |
 
 > Numbers 0011–0015 were claimed by commit messages while the AI bundle shipped
 > without spec docs (and 0011/0012 were each reused twice); the assignments
