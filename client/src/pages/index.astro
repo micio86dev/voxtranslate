@@ -1639,6 +1639,14 @@ const jsonLd = {
     .video-grid :global(.cell-action) { width: 30px; height: 30px; border-radius: 50%; border: none; background: rgba(0,0,0,0.55); color: #fff; display: grid; place-items: center; cursor: pointer; backdrop-filter: blur(4px); }
     .video-grid :global(.cell-action:hover) { background: var(--danger); }
     .video-grid :global(.cell-action .ico) { width: 15px; height: 15px; }
+    /* Transient-drop grace (#233): a peer awaiting a possible reconnect keeps its
+       tile (last received frame held) but dims + pulses to signal the unstable
+       link, instead of vanishing and re-appearing. Stilled by prefers-reduced-motion. */
+    .video-grid :global(.video-cell.reconnecting) { animation: reconnect-pulse 1.4s ease-in-out infinite; }
+    @keyframes reconnect-pulse { 0%, 100% { opacity: 0.5; } 50% { opacity: 0.85; } }
+    @media (prefers-reduced-motion: reduce) {
+      .video-grid :global(.video-cell.reconnecting) { animation: none; opacity: 0.6; }
+    }
     /* Locally-blocked peer: dim the cell and keep its block button highlighted. */
     .video-grid :global(.video-cell.blocked) { filter: grayscale(1) brightness(0.5); }
     .video-grid :global(.video-cell.blocked .cell-actions) { opacity: 1; }

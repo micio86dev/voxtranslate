@@ -917,22 +917,27 @@ async function handleServer(msg: any): Promise<void> {
       }
       updateParticipantsList();
       break;
-    case 'peer_joined':
+    case 'peer_joined': {
+      // A rejoin within the grace window (#233) is a recovered blip, not a new
+      // peer — cancel the pending removal so the tile never flickers out, and skip
+      // the join chime.
+      const reconnected = cancelPendingRemoval(msg.peer_id);
       peerNames.set(msg.peer_id, { name: msg.user_name, lang: msg.lang, avatar: msg.avatar_url });
       addCell(msg.peer_id, msg.user_name, msg.lang, false, msg.avatar_url);
-      playJoinSound(); // audible cue that someone joined the session
+      if (!reconnected) playJoinSound(); // audible cue only for a genuinely new peer
       await mesh?.addPeer(msg.peer_id, true); // we initiate toward the newcomer
       // Re-announce our current mute/camera state so the newcomer's UI matches.
       if (!micOn) ws?.send(JSON.stringify({ type: 'mute_audio', muted: true }));
       if (!camOn) ws?.send(JSON.stringify({ type: 'mute_video', muted: true }));
       updateParticipantsList();
       break;
+    }
     case 'peer_left':
-      mesh?.removePeer(msg.peer_id);
-      removeCell(msg.peer_id);
-      peerHandRaised.delete(msg.peer_id);
-      playLeaveSound(); // audible cue that someone left the session
-      updateParticipantsList();
+      // Tolerance window (#233): a peer_left may be a transient WS drop, not a real
+      // departure. Keep the tile (its last received frame held) in a "reconnecting"
+      // state for a grace period; a same-id rejoin (#219) cancels the removal — no
+      // flicker. Only if they don't return do we actually drop them.
+      schedulePeerRemoval(msg.peer_id);
       break;
     case 'room_full':
       leaveCall();
@@ -1244,6 +1249,45 @@ function addCell(id: string, name: string, lang: string, isSelf: boolean, avatar
   videoGrid.appendChild(cell);
   if (blockedPeers.has(id)) applyBlocked(id);
   updateGridCount();
+}
+
+// ---- Transient-drop tolerance (#233) ----------------------------------------
+// A `peer_left` may be a short network blip (WS dropped + about to reconnect)
+// rather than a real departure. Defer the teardown by a grace window, holding the
+// tile (and its last received frame) in a "reconnecting" state; a same-id rejoin
+// (#219) within the window cancels it, so brief drops no longer flicker users out
+// and back in. Only a peer that stays gone past the window is actually removed.
+const PEER_LEAVE_GRACE_MS = 4000;
+const pendingRemovals = new Map<string, number>();
+
+function schedulePeerRemoval(id: string): void {
+  if (pendingRemovals.has(id)) return; // already counting down
+  videoGrid.querySelector(`[data-peer="${cssEsc(id)}"]`)?.classList.add('reconnecting');
+  const timer = window.setTimeout(() => {
+    pendingRemovals.delete(id);
+    mesh?.removePeer(id);
+    removeCell(id);
+    peerHandRaised.delete(id);
+    playLeaveSound(); // audible cue only once we're sure they've actually left
+    updateParticipantsList();
+  }, PEER_LEAVE_GRACE_MS);
+  pendingRemovals.set(id, timer);
+}
+
+/** Cancel a pending removal (the peer came back). Returns true if one was pending. */
+function cancelPendingRemoval(id: string): boolean {
+  const timer = pendingRemovals.get(id);
+  if (timer === undefined) return false;
+  clearTimeout(timer);
+  pendingRemovals.delete(id);
+  videoGrid.querySelector(`[data-peer="${cssEsc(id)}"]`)?.classList.remove('reconnecting');
+  return true;
+}
+
+/** Drop all pending-removal timers (e.g. on leaving the call) so none fire late. */
+function clearPendingRemovals(): void {
+  for (const timer of pendingRemovals.values()) clearTimeout(timer);
+  pendingRemovals.clear();
 }
 
 function removeCell(id: string): void {
@@ -2630,6 +2674,7 @@ function leaveCall(): void {
   activeSessionId = null;
   transcriptEvents = 0;
   callStartedAt = 0;
+  clearPendingRemovals(); // drop any in-flight reconnect grace timers (#233)
   show($('transcript-indicator'), false);
   manualClose = true;
   setNetworkDegraded(false); // leaving on purpose — don't show "reconnecting"
