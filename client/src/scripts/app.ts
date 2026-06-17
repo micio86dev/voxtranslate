@@ -62,6 +62,10 @@ const IS_MOBILE =
 // vars are added on Vercel (spec 0044). Build-time: a change needs a client redeploy.
 const VIDEO_BUDGET_MOBILE = Number(import.meta.env.PUBLIC_VIDEO_BUDGET_MOBILE) || 1_200_000;
 const VIDEO_BUDGET_DESKTOP = Number(import.meta.env.PUBLIC_VIDEO_BUDGET_DESKTOP) || 2_400_000;
+// Screen sharing pushes text/UI (not a face), which needs a higher cap than the
+// camera or the shared content looks grainy. Separate + env-tunable; desktop-only
+// (screen share is hidden on mobile). Default 4 Mbit/s (spec 0088).
+const VIDEO_BUDGET_SCREEN = Number(import.meta.env.PUBLIC_VIDEO_BUDGET_SCREEN) || 4_000_000;
 
 // ---- Screens ---------------------------------------------------------------
 const loginScreen = $('login');
@@ -2080,7 +2084,10 @@ async function startScreenShare(): Promise<void> {
     screenPip = new ScreenSharePip(s);
     screenPip.setCamera(camOn ? (localStream?.getVideoTracks()[0] ?? null) : null);
     const composite = screenPip.start();
-    mesh.replaceVideoTrack(composite.getVideoTracks()[0] ?? null);
+    const shareTrack = composite.getVideoTracks()[0] ?? null;
+    if (shareTrack) shareTrack.contentHint = 'detail'; // favour sharpness over framerate for text/UI (spec 0088)
+    mesh.replaceVideoTrack(shareTrack);
+    mesh.setVideoBudget(VIDEO_BUDGET_SCREEN); // higher cap so the shared screen isn't grainy (spec 0088)
     // Peers may have us flagged camera-off (their tile would hide the video);
     // tell them to reveal it so the shared screen actually shows.
     ws?.send(JSON.stringify({ type: 'mute_video', muted: false }));
@@ -2153,6 +2160,7 @@ function stopScreenShare(): void {
   // we joined audio-only), honouring the current camera toggle.
   const camTrack = localStream?.getVideoTracks()[0] ?? null;
   mesh.replaceVideoTrack(camTrack);
+  mesh.setVideoBudget(IS_MOBILE ? VIDEO_BUDGET_MOBILE : VIDEO_BUDGET_DESKTOP); // back to the camera budget (spec 0088)
   mesh.setVideoEnabled(camOn);
   ws?.send(JSON.stringify({ type: 'mute_video', muted: !camOn }));
   // Our own tile + recorder back to the camera (or camera-off avatar).
