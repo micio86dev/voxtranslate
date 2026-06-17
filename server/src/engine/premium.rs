@@ -453,8 +453,10 @@ mod tests {
             conn: Uuid::new_v4(),
             name: id.into(),
             lang: lang.into(),
+            engine: "premium".into(),
             avatar_url: None,
             tx,
+            speaking: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         };
         rm.join(room, peer, Visibility::Private).unwrap();
     }

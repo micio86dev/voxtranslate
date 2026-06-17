@@ -41,7 +41,7 @@ pub mod transcripts;
 pub mod translator;
 pub mod usage;
 
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -835,13 +835,24 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
     // `(id, conn)` so a same-id reconnect can't be dropped by its predecessor's
     // late teardown (the reconnect black-screen bug).
     let conn = Uuid::new_v4();
+    // Receive-engine (spec 0099, listener-pays): the quality this peer wants to
+    // RECEIVE — what others' speech is translated into for them, and what they're
+    // billed at. Guests can't be billed, so they are pinned to the default engine
+    // regardless of the requested id.
+    let receive_engine = if billed_user.is_some() {
+        active_engine.metadata().id.clone()
+    } else {
+        state.engines.default().metadata().id.clone()
+    };
     let peer = Peer {
         id: id.clone(),
         conn,
         name: name.clone(),
         lang: lang.clone(),
+        engine: receive_engine,
         avatar_url: avatar_url.clone(),
         tx: out_tx.clone(),
+        speaking: Arc::new(AtomicBool::new(false)),
     };
 
     let joined = match state.rooms.join(&room, peer, visibility) {
