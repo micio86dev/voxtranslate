@@ -40,8 +40,33 @@ const HL_SCALE = 4; // highlighter is broad
 const HL_ALPHA = 0.4; // highlighter is semi-transparent
 const FLUSH_MS = 55; // batch cadence while free-hand drawing (low-latency, low-chatter)
 const FREEHAND = new Set<WbTool>(['pen', 'highlighter', 'eraser']);
-const EXPORT_W = 1600;
-const EXPORT_H = 900;
+
+// Issue #225 — the board has ONE stable logical coordinate system, independent of CSS
+// size + devicePixelRatio. Ops are stored as normalised (0..1) points against this
+// FIXED 16:9 logical canvas. Both the live board and export render the op-log into a
+// LOGICAL_W×LOGICAL_H space, so x and y always share the same scale (no stretching),
+// and export matches the on-screen content 1:1. On screen the logical box is fitted
+// (letterboxed) inside whatever CSS box the <canvas> happens to occupy, so resizing the
+// window only changes the letterbox margins — never the drawing's proportions.
+const LOGICAL_W = 1600;
+const LOGICAL_H = 900;
+const LOGICAL_ASPECT = LOGICAL_W / LOGICAL_H;
+const EXPORT_W = LOGICAL_W; // export buffer IS the logical canvas → UI-exact, no distortion
+const EXPORT_H = LOGICAL_H;
+
+/** The largest LOGICAL_ASPECT rectangle that fits inside a cw×ch CSS box, centred
+ *  (letterbox/pillarbox). This is the on-screen home of the logical canvas, so a
+ *  square in logical space stays square at any window size. Pure → trivially testable. */
+export function contentRect(cw: number, ch: number): { x: number; y: number; w: number; h: number } {
+  if (cw <= 0 || ch <= 0) return { x: 0, y: 0, w: 0, h: 0 };
+  let w = cw;
+  let h = cw / LOGICAL_ASPECT;
+  if (h > ch) {
+    h = ch;
+    w = ch * LOGICAL_ASPECT;
+  }
+  return { x: (cw - w) / 2, y: (ch - h) / 2, w, h };
+}
 
 /** The page a draw op belongs to. Legacy ops (id without ":") live on the default page. */
 export function pageOf(id: string): string {
@@ -114,6 +139,9 @@ export class Whiteboard {
   private ops: WbOp[] = []; // local mirror of EVERY page → lets us redraw + export
   private pages: string[] = [DEFAULT_PAGE]; // ordered by first appearance in the op-log
   private current = DEFAULT_PAGE;
+  // The on-screen logical box (letterboxed inside the CSS canvas). Recomputed FROM the
+  // current CSS size on every resize() — never scaled in place, so no cumulative drift.
+  private content: { x: number; y: number; w: number; h: number } = { x: 0, y: 0, w: 0, h: 0 };
   private drawing = false;
   private strokeId = '';
   private strokeSeq = 0;
@@ -136,8 +164,10 @@ export class Whiteboard {
     canvas.addEventListener('pointerleave', this.onUp);
   }
 
-  /** Match the backing store to the displayed size (DPR-aware) + redraw. Call
-   *  whenever the overlay opens or the window resizes. */
+  /** Match the backing store to the displayed size (DPR-aware), recompute the logical
+   *  content box FROM SCRATCH, then redraw the op-log. Idempotent and drift-free: every
+   *  call derives everything from the current CSS size — nothing is scaled in place, so
+   *  repeated resizes never accumulate error. Call when the overlay opens or on resize. */
   resize(): void {
     const dpr = window.devicePixelRatio || 1;
     const w = this.canvas.clientWidth;
@@ -146,6 +176,7 @@ export class Whiteboard {
     this.canvas.width = Math.round(w * dpr);
     this.canvas.height = Math.round(h * dpr);
     this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // draw in CSS pixels
+    this.content = contentRect(w, h); // fixed-aspect logical box, recomputed from CSS size
     this.redraw();
   }
 
@@ -318,7 +349,10 @@ export class Whiteboard {
 
   // ---- export ----------------------------------------------------------------
 
-  /** Render one page to an offscreen canvas on the board surface colour. */
+  /** Render one page to an offscreen canvas at the LOGICAL size on the board surface
+   *  colour. The export buffer IS the logical canvas (same fixed 16:9 aspect the on-screen
+   *  content box uses), so normalised ops map isotropically and the output matches the UI
+   *  1:1 with no distortion — regardless of the current window size (issue #225). */
   private renderPage(pid: string): HTMLCanvasElement {
     const c = document.createElement('canvas');
     c.width = EXPORT_W;
@@ -357,15 +391,28 @@ export class Whiteboard {
     for (const op of this.ops) if (op.op === 'draw' && pageOf(op.id) === this.current) this.render(op);
   }
 
+  /** Draw an op into the logical content box. The ctx is translated to the box origin and
+   *  the op's normalised coords are scaled by the box's w/h (which always share the fixed
+   *  16:9 aspect) → x and y use the same effective scale, so nothing stretches on resize. */
   private render(op: WbOp): void {
-    drawOp(this.ctx, op, this.canvas.clientWidth, this.canvas.clientHeight);
+    const r = this.content;
+    if (!r.w || !r.h) return;
+    this.ctx.save();
+    this.ctx.translate(r.x, r.y);
+    drawOp(this.ctx, op, r.w, r.h);
+    this.ctx.restore();
   }
 
   // ---- local input -----------------------------------------------------------
 
+  /** Pointer → logical (0..1) coords. Inverts the same letterbox mapping render() uses
+   *  (subtract the content origin, divide by the content size), so input lands exactly
+   *  where it's drawn at any window size/aspect. Clamped to the box for off-edge drags. */
   private norm(e: PointerEvent): [number, number] {
-    const r = this.canvas.getBoundingClientRect();
-    return [(e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height];
+    const b = this.canvas.getBoundingClientRect();
+    const r = this.content.w && this.content.h ? this.content : contentRect(b.width, b.height);
+    const clamp = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);
+    return [clamp((e.clientX - b.left - r.x) / r.w), clamp((e.clientY - b.top - r.y) / r.h)];
   }
 
   private opWidth(): number {
@@ -402,12 +449,9 @@ export class Whiteboard {
       this.previewRaf = requestAnimationFrame(() => {
         this.previewRaf = 0;
         this.redraw();
-        drawOp(
-          this.ctx,
-          { op: 'draw', id: `${this.current}:preview`, tool: this.tool, color: this.color, width: this.opWidth(), points: [this.shapeStart!, cur] },
-          this.canvas.clientWidth,
-          this.canvas.clientHeight,
-        );
+        // Preview through the same letterbox path as committed ops, so the rubber-band
+        // matches the final stroke exactly (and never stretches).
+        this.render({ op: 'draw', id: `${this.current}:preview`, tool: this.tool, color: this.color, width: this.opWidth(), points: [this.shapeStart!, cur] });
       });
     }
   };
