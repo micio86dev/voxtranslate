@@ -750,6 +750,25 @@ fn spawn_meter(
     None
 }
 
+/// Push each peer in the room its capture format (spec 0099 listener-pays): PCM16
+/// iff a Premium listener OTHER than them is present (so the one captured stream can
+/// feed OpenAI + Deepgram), else WebM/Opus. Called on join, leave, and engine
+/// changes so the speaker's capture always matches what the server feeds the
+/// engines. No-op unless the listener-pays model is active.
+fn notify_capture_formats(state: &AppState, room: &str) {
+    if !state.config.listener_pays {
+        return;
+    }
+    for (pid, _engine) in state.rooms.peer_engines(room) {
+        let pcm = state
+            .rooms
+            .has_engine_listener(room, &pid, crate::engine::PREMIUM_ID);
+        state
+            .rooms
+            .relay_to_peer(room, &pid, &ServerMessage::CaptureFormat { pcm }.to_json());
+    }
+}
+
 /// Spawn the per-connection LISTENER meter (spec 0099 listener-pays): charges this
 /// listener at `rate_per_second` for the cross-language sources they are receiving,
 /// for the whole connection — speaker activity drives the per-tick scale via
@@ -1020,6 +1039,9 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
         }
         .to_json(),
     );
+    // Listener-pays (spec 0099): the new peer may have changed the room's Premium
+    // composition — re-push every peer its capture format (no-op when the flag is off).
+    notify_capture_formats(&state, &room);
 
     let send_task = tokio::spawn(pump_to_ws(out_rx, ws_tx));
 
@@ -1176,10 +1198,16 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
                                         .iter()
                                         .any(|r| r.engine == crate::engine::PREMIUM_ID)
                                         && state.engines.get(crate::engine::PREMIUM_ID).is_some();
-                                    // Surgical audio: the client sends PCM16 iff a
-                                    // Premium listener is present, so Deepgram reads
-                                    // linear16 then (else WebM/Opus, spec 0043).
-                                    let pcm = want_premium;
+                                    // Surgical audio: the client captures PCM16 iff a
+                                    // Premium listener is present (room-level, the SAME
+                                    // condition pushed via CaptureFormat), so Deepgram
+                                    // must read linear16 then (else WebM/Opus, 0043).
+                                    // This is broader than `want_premium` (which also
+                                    // needs a cross-language premium target) but stays
+                                    // consistent with what the client is sending.
+                                    let pcm = state
+                                        .rooms
+                                        .has_engine_listener(&room, &id, crate::engine::PREMIUM_ID);
                                     let build_ctx = || deepgram::SpeakerCtx {
                                         room: room.clone(),
                                         speaker_id: id.clone(),
@@ -1601,6 +1629,9 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
                             }
                             .to_json(),
                         );
+                        // This listener was the room's last Premium consumer ⇒
+                        // speakers can drop back to Opus — re-push capture formats.
+                        notify_capture_formats(&state, &room);
                     }
                 } else {
                     // Speaker-pays (spec 0093): stop the current speaking session and
@@ -1689,6 +1720,9 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
             state
                 .rooms
                 .broadcast(&room, &ServerMessage::PeerLeft { peer_id: id }.to_json());
+            // Listener-pays (spec 0099): a departing Premium listener can flip the
+            // room back to Opus capture — re-push formats to the survivors.
+            notify_capture_formats(&state, &room);
         }
         LeaveOutcome::Superseded => {
             tracing::debug!(%room, %id, "stale connection superseded by reconnect; no PeerLeft");

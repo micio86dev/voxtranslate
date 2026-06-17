@@ -388,6 +388,34 @@ impl RoomManager {
         routes_for_speaker(listeners, speaker_lang)
     }
 
+    /// Whether any peer other than `exclude_id` currently receives via `engine`
+    /// (spec 0099). Drives the speaker's capture format (PCM16 iff a Premium
+    /// listener is present) and the per-speaker decision to run the Premium engine.
+    pub fn has_engine_listener(&self, room_id: &str, exclude_id: &str, engine: &str) -> bool {
+        self.rooms
+            .get(room_id)
+            .map(|room| {
+                room.peers
+                    .iter()
+                    .any(|p| p.id != exclude_id && p.engine == engine)
+            })
+            .unwrap_or(false)
+    }
+
+    /// `(peer_id, receive_engine)` for every peer in the room — so the server can
+    /// push each peer its capture format when the room's engine mix changes (0099).
+    pub fn peer_engines(&self, room_id: &str) -> Vec<(String, String)> {
+        self.rooms
+            .get(room_id)
+            .map(|room| {
+                room.peers
+                    .iter()
+                    .map(|p| (p.id.clone(), p.engine.clone()))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
     /// Mark a peer's speaking session open/closed (spec 0099). Listener meters read
     /// this via [`active_source_count`](Self::active_source_count). Cheap and
     /// lock-free: the flag is an `Arc<AtomicBool>` shared with the peer's handler.
