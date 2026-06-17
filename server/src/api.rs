@@ -1502,7 +1502,9 @@ pub async fn report_latest(
     }
     match ai_report::latest_report(pool, session_id).await {
         Ok(Some(row)) => Json(report_json(&row)).into_response(),
-        Ok(None) => (StatusCode::NOT_FOUND, "no report yet").into_response(),
+        // 200 + null (not 404): "no report yet" is a normal state the session-detail
+        // page polls on every open, and a 404 just spams the browser console (#post-call).
+        Ok(None) => Json(serde_json::Value::Null).into_response(),
         Err(e) => {
             tracing::error!("report load failed: {e}");
             (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response()
@@ -1725,7 +1727,8 @@ pub async fn sentiment_latest(
     }
     match ai_sentiment::get_sentiment(pool, session_id).await {
         Ok(Some(row)) => Json(sentiment_json(&row, true)).into_response(),
-        Ok(None) => (StatusCode::NOT_FOUND, "no sentiment analysis yet").into_response(),
+        // 200 + null (not 404): polled on every session-detail open; avoids console spam.
+        Ok(None) => Json(serde_json::Value::Null).into_response(),
         Err(e) => {
             tracing::error!("sentiment load failed: {e}");
             (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response()
@@ -2596,7 +2599,8 @@ pub async fn email_latest(
     }
     match ai_email::latest_email(pool, session_id, user.user_id).await {
         Ok(Some(row)) => Json(email_json(&row, None)).into_response(),
-        Ok(None) => (StatusCode::NOT_FOUND, "no email draft yet").into_response(),
+        // 200 + null (not 404): polled on every session-detail open; avoids console spam.
+        Ok(None) => Json(serde_json::Value::Null).into_response(),
         Err(e) => {
             tracing::error!("email load failed: {e}");
             (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response()
