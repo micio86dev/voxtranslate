@@ -1,21 +1,20 @@
-> ⚠️ **Rascunho não vinculativo — não constitui aconselhamento jurídico.** Reveja com um advogado qualificado antes de confiar neste documento.
+Esta Política de Uso Aceitável ("AUP") estabelece as regras para usar a VoxTranslate. Faz parte dos nossos Termos de Serviço. Ao usar o Serviço, você concorda em seguir esta AUP. Em caso de violação, podemos suspender ou encerrar contas, remover conteúdo ou restringir o acesso.
 
-Esta Política de Uso Aceitável ("AUP") estabelece as regras para usar o VoxTranslate. Faz parte dos nossos Termos de Serviço. Ao usar o Serviço, você concorda em seguir esta AUP. Em caso de violação, podemos suspender ou encerrar contas, remover conteúdo ou restringir o acesso.
-
-## 1. Respeite os outros participantes
+## 1. Seja respeitoso para com os outros participantes
 
 Você não pode usar o Serviço para:
 
-- assediar, intimidar, ameaçar ou perseguir qualquer pessoa;
+- assediar, intimidar, ameaçar, perseguir ou intimidar qualquer pessoa;
 - publicar ou transmitir conteúdo de ódio, ou atacar pessoas com base em raça, etnia, origem nacional, religião, sexo, género, orientação sexual, deficiência ou qualquer outra característica protegida;
 - partilhar conteúdo sexualmente explícito ou de exploração sexual, ou solicitar esse tipo de conteúdo;
 - expor outras pessoas a violência gráfica ou a conteúdo destinado a chocar ou repugnar.
 
 ## 2. Nenhuma atividade ilegal ou prejudicial
 
-- Não use o Serviço para fins ilícitos nem para facilitar atividades ilegais.
-- Não pratique fraude, burlas, phishing nem se faça passar por pessoas ou organizações.
-- Não partilhe conteúdo que viole a propriedade intelectual ou a privacidade de terceiros.
+- Não use o Serviço para qualquer fim ilícito nem para facilitar atividades ilegais.
+- Não pratique fraude, burlas, phishing nem se faça passar por qualquer pessoa ou organização.
+- Não partilhe conteúdo que viole a propriedade intelectual ou os direitos de privacidade de terceiros.
+- Não utilize indevidamente a IA ou as funcionalidades automatizadas — por exemplo, usar a tradução, a transcrição ou outras ferramentas automatizadas para gerar, disfarçar ou difundir conteúdo ilegal, prejudicial, enganoso ou abusivo, ou para contornar estas regras ou as medidas de segurança do Serviço.
 - Absolutamente nenhum conteúdo que explore sexualmente ou coloque em perigo menores. Denunciamos esse conteúdo às autoridades competentes.
 
 ## 3. Nada de spam ou abuso da plataforma
@@ -27,7 +26,7 @@ Você não pode usar o Serviço para:
 
 ## 4. Gravação e consentimento
 
-Respeite a privacidade dos outros. Não grave, capture nem redistribua chamadas, áudio, vídeo, transcrições ou traduções sem o consentimento das pessoas envolvidas e conforme exigido pelas leis que se aplicam a você.
+Respeite a privacidade dos outros. Não grave, capture ecrã nem redistribua chamadas, áudio, vídeo, transcrições ou traduções sem o consentimento das pessoas envolvidas e conforme exigido pelas leis que se aplicam a você.
 
 ## 5. Denúncias e aplicação
 

@@ -1,13 +1,46 @@
 # Legal review — Privacy / Terms / Acceptable Use (issue #235)
 
-**Status: NOT production-ready. Blocked on (a) owner entity details and (b) a
-qualified lawyer's sign-off.** This is a compliance *gap analysis*, not legal
-advice. The "⚠️ Draft template — not legal advice" disclaimer at the top of each
-document **must stay** until a lawyer reviews and the items below are resolved.
+**Status: structural gaps CLOSED and published (v2026-06-17). Lawyer sign-off
+still recommended, not yet done.** This remains a compliance *gap analysis*, not
+legal advice.
+
+**Owner decision (2026-06-17):** proceed and publish at own risk now — no budget
+for counsel yet; a qualified Spain/EU lawyer review will be commissioned "once the
+first revenue comes in". On that explicit instruction the "⚠️ Draft template"
+disclaimer was **removed** from all 24 documents and the controller identity was
+supplied (see §A). Everything an author can responsibly do without a lawyer is
+done; the residual risk is the absence of formal legal sign-off, which only a
+lawyer can clear.
 
 Source of truth: `directus/legal/{privacy,terms,acceptable-use}.<lang>.md`
-(8 languages each), served via `/api/content/legal/...`. Jurisdiction target:
-**Spain / EU** (controller resident in Spain, serving users internationally).
+(8 languages each), regenerated into `directus/seed-content.sql` via
+`gen-content-seed.mjs` and served via `/api/content/legal/...`. Jurisdiction:
+**Spain / EU** — controller **Alessandro Micelli**, Puerto del Rosario, Spain.
+
+## Resolution log (what was applied in all 8 languages)
+
+- **Removed** the draft-template disclaimer from every document.
+- **Controller identity** (Privacy §1): Alessandro Micelli, Puerto del Rosario,
+  Spain; privacy contact privacy@voxtranslate.app.
+- **Corrected factual accuracy** (the previous text mis-described processing):
+  transcripts of calls with a signed-in participant **are stored** (history /
+  PDF-JSON export / AI-correction; deleted on account deletion) — Privacy §2/§5;
+  product **analytics** disclosed (§2/§3); **chat file attachments** disclosed.
+- **Completed the processor list** (Privacy §4): added **OpenAI** (Premium
+  real-time translation), **Cloudflare** (edge + TURN relay), **Resend** (email),
+  **Better Stack** (operational logs) alongside the existing providers.
+- **Cookies / local-storage section** added (Privacy §6): only the session token,
+  cookie-consent flag, and minor UI flags — no advertising / cross-site tracking.
+- **Supervisory authority** named: **AEPD** as lead, plus the user's own-country
+  authority (Privacy §7).
+- **Terms**: new **IP & Your-Content** licence section (§5), **Governing law &
+  dispute resolution** = Spain + EU-consumer carve-out + ODR link (§10), and an
+  AI-output "as is / not for high-stakes" limitation (§9).
+- **AUP**: explicit **AI-misuse** prohibition added (§2).
+
+The original gap analysis is preserved below for the lawyer's eventual review.
+
+---
 
 ## A. Information the owner MUST provide (hard blockers)
 

@@ -1,30 +1,32 @@
-> ⚠️ **Unverbindlicher Entwurf — keine Rechtsberatung.** Lassen Sie ihn von einer qualifizierten Anwältin oder einem qualifizierten Anwalt prüfen, bevor Sie sich darauf verlassen.
-
-Diese Datenschutzerklärung erläutert, welche personenbezogenen Daten VoxTranslate („wir“) verarbeitet, wenn Sie unseren Dienst für Videoanrufe mit Echtzeit-Übersetzung nutzen, warum wir sie verarbeiten und welche Rechte Sie haben. Sie ist mit Blick auf die EU-Datenschutz-Grundverordnung (DSGVO) und ähnliche Gesetze verfasst.
+Diese Datenschutzerklärung erläutert, welche personenbezogenen Daten VoxTranslate verarbeitet, wenn Sie unseren Dienst für Videoanrufe mit Echtzeit-Übersetzung nutzen, warum wir sie verarbeiten und welche Rechte Sie haben. Sie ist mit Blick auf die EU-Datenschutz-Grundverordnung (DSGVO) und ähnliche Gesetze verfasst.
 
 ## 1. Wer ist der Verantwortliche
 
-VoxTranslate ist der Verantwortliche für die über den Dienst verarbeiteten personenbezogenen Daten. Für alle Datenschutzanfragen wenden Sie sich an privacy@voxtranslate.app. *(Ersetzen Sie dies durch den Namen und die Anschrift Ihrer eingetragenen juristischen Person sowie — falls zutreffend — Ihren EU/UK-Vertreter und Datenschutzbeauftragten.)*
+Der Dienst wird betrieben von **Alessandro Micelli**, Puerto del Rosario, Spain („VoxTranslate“, „wir“, „uns“), dem Verantwortlichen für die über den Dienst verarbeiteten personenbezogenen Daten. Für alle Datenschutzanfragen wenden Sie sich an privacy@voxtranslate.app.
 
 ## 2. Welche Daten wir verarbeiten
 
 - **Kontodaten** — wenn Sie sich mit Google anmelden, erhalten wir Ihren Namen, Ihre E-Mail-Adresse und die URL Ihres Profilbilds.
-- **Audio (flüchtig)** — während Sie sprechen, wird Ihr Mikrofon-Audio an unseren Speech-to-Text-Anbieter gestreamt, um ein Live-Transkript zu erzeugen. Rohes Audio speichern wir nicht.
-- **Transkripte und Übersetzungen (flüchtig)** — erzeugt, um anderen Teilnehmern Untertitel und übersetzten Text anzuzeigen. Sie werden in Echtzeit weitergeleitet und nach dem Anruf nicht aufbewahrt, außer wenn sie in einer Missbrauchsmeldung enthalten sind.
-- **Chat-Nachrichten** — während eines Anrufs zwischen den Teilnehmern weitergeleitet und übersetzt.
-- **Nutzungs- und Abrechnungsdaten** — Guthabenstand, Transaktionen und Sprechzeit pro Sitzung zur Messung und Abrechnung des Dienstes.
+- **Audio (flüchtig)** — während Sie sprechen, wird Ihr Mikrofon-Audio an unseren Speech-to-Text-Anbieter und, im Premium-Tarif, an unseren Echtzeit-Übersetzungsanbieter gestreamt, um Live-Untertitel und -Übersetzungen zu erzeugen. Rohes Audio speichern wir nicht.
+- **Transkripte und Übersetzungen** — der Text von Sprache und Chat zusammen mit seinen Übersetzungen. Wenn ein angemeldeter Nutzer an einem Anruf teilnimmt, werden diese **gespeichert**, damit die Teilnehmer das Transkript anschließend durchsehen, exportieren (PDF/JSON) und per KI korrigieren können. Anrufe, an denen kein angemeldeter Nutzer teilgenommen hat, werden nicht gespeichert. Gespeicherte Transkripte werden gelöscht, wenn Sie Ihr Konto löschen — Ihre Äußerungen werden damit entfernt.
+- **Chat-Nachrichten und Dateien** — der Chat wird zwischen den Teilnehmern weitergeleitet und übersetzt. Von Ihnen angehängte Dateien werden privat gespeichert und über kurzlebige Links mit den Teilnehmern des Anrufs geteilt.
+- **Nutzungs-, Analyse- und Abrechnungsdaten** — Guthabenstand, Transaktionen, Sprechzeit pro Sitzung und Produktnutzungsereignisse (welche Funktionen und welche Tarifstufe Sie nutzen und wie lange), die zur Messung, Abrechnung, Absicherung und Verbesserung des Dienstes verwendet werden. Analysedaten werden für die Berichterstattung aggregiert.
 - **Sicherheitsdaten** — Missbrauchsmeldungen, die Sie einreichen oder die über Sie eingereicht werden (ggf. mit einem kurzen Transkriptauszug), sowie Moderations-/Sperrdatensätze.
-- **Technische Daten** — grundlegende Verbindungsmetadaten, die für den Betrieb des Echtzeitdienstes und seine Sicherheit erforderlich sind.
+- **Technische Daten** — Verbindungsmetadaten, die erforderlich sind, um den Echtzeitdienst zu betreiben, Medien zu routen, Betriebsprotokolle zu übermitteln und den Dienst sicher zu halten.
 
-Video und Audio zwischen den Teilnehmern werden Peer-to-Peer (WebRTC) übertragen und weder über unsere Server geleitet noch von ihnen aufgezeichnet. Unser Server übernimmt das Signaling, den Live-Speech-to-Text-Stream, die Übersetzung und die Chat-Weiterleitung.
+Video und Audio zwischen den Teilnehmern werden Peer-to-Peer (WebRTC) übertragen und weder über unsere Server geleitet noch von ihnen aufgezeichnet. Wenn keine direkte Verbindung hergestellt werden kann, werden Medien in verschlüsselter Form über einen TURN-Server weitergeleitet, die das Relay nicht lesen kann. Unser Server übernimmt die Anmeldung, das Signaling, den Live-Speech-to-Text-Stream, die Übersetzung, die Chat-Weiterleitung und — wo aktiviert — die Speicherung von Transkripten.
 
 ## 3. Warum wir sie verarbeiten und unsere Rechtsgrundlagen
 
 - Bereitstellung von Anruf, Transkription und Übersetzung — Vertragserfüllung.
 - Verarbeitung des für Live-Untertitel/Übersetzung erforderlichen Audios — Vertrag; und Ihre bei der Registrierung erteilte Einwilligung.
+- Speicherung von Transkripten zur späteren Durchsicht und zum Export durch Sie — Vertrag; berechtigte Interessen an der Bereitstellung des Anrufverlaufs.
 - Messung, Abrechnung und Betrugsprävention — Vertrag; berechtigte Interessen.
+- Produktanalyse zum Verständnis und zur Verbesserung des Dienstes — berechtigte Interessen.
 - Sicherheit, Moderation und Bearbeitung von Missbrauchsmeldungen — berechtigte Interessen an einem sicheren Dienst; rechtliche Verpflichtung.
 - Aufbewahrung gesetzlich vorgeschriebener Transaktionsaufzeichnungen — rechtliche Verpflichtung.
+
+Transkription und Übersetzung erfolgen automatisiert (KI-basiert) und können fehlerhaft sein; KI-Ausgaben werden ausschließlich zur Bereitstellung des Dienstes erzeugt und nicht zum Training von Drittanbietermodellen verwendet.
 
 ## 4. Dienstleister (Auftragsverarbeiter / Unterauftragsverarbeiter)
 
@@ -32,33 +34,48 @@ Wir geben personenbezogene Daten ausschließlich zum Betrieb des Dienstes an die
 
 - **Google** — Anmeldung (OAuth): Name, E-Mail, Profilbild.
 - **Deepgram** — Speech-to-Text: gestreamtes Audio (flüchtig).
-- **Groq** — maschinelle Übersetzung: Transkripttext (flüchtig).
+- **Groq** — maschinelle Übersetzung (Standard-Tarif): Transkripttext (flüchtig).
+- **OpenAI** — Echtzeit-Übersetzung (Premium-Tarif): gestreamtes Audio und Transkripttext (flüchtig).
 - **Stripe** — Zahlungsabwicklung: Rechnungs- und Zahlungsdaten.
-- **Supabase** — Datenbank / Speicherung von Konto- und Abrechnungsdaten: Konto-, Nutzungs-, Abrechnungs- und Sicherheitsdaten.
+- **Supabase** — Datenbank und Dateispeicherung: Konto-, Nutzungs-, Abrechnungs- und Sicherheitsdaten, gespeicherte Transkripte und Chat-Dateianhänge.
+- **Cloudflare** — Edge-Auslieferung und TURN-Medien-Relay: Verbindungsmetadaten; weitergeleitete Medien bleiben verschlüsselt und sind für das Relay nicht lesbar.
+- **Resend** — transaktionale E-Mails (zum Beispiel Einladungen und Kontomitteilungen): E-Mail-Adresse des Empfängers.
+- **Better Stack** — Betriebsprotokollierung und Verfügbarkeitsüberwachung: technische Daten/Verbindungsmetadaten.
 - **Vercel** — Frontend-Hosting: technische/Verbindungsdaten.
 - **Railway** — Backend-Hosting: technische/Verbindungsdaten.
 
-*(Überprüfen Sie vor der Veröffentlichung die aktuelle Rolle, Region und Garantien jedes Anbieters und halten Sie diese Liste aktuell.)*
-
 ## 5. Wie lange wir Daten aufbewahren
 
-- **Audio, Transkripte und Übersetzungen:** in Echtzeit verarbeitet und nach dem Anruf nicht gespeichert.
+- **Audio:** in Echtzeit verarbeitet und nicht gespeichert.
+- **Transkripte und Übersetzungen:** bei Anrufen mit einem angemeldeten Teilnehmer aufbewahrt, bis Sie den Anruf oder Ihr Konto löschen; Anrufe nur mit Gästen werden nicht gespeichert.
 - **Kontodaten:** aufbewahrt, solange Ihr Konto besteht; gelöscht, wenn Sie Ihr Konto löschen.
+- **Chat-Dateianhänge:** aufbewahrt, solange der zugehörige Anruf bzw. das Konto besteht, und über kurzlebige private Links bereitgestellt.
 - **Abrechnungs-/Transaktionsaufzeichnungen:** aufbewahrt, soweit die geltenden Steuer- und Buchführungsgesetze dies verlangen.
-- **Missbrauchsmeldungen und Sperrdatensätze:** aufbewahrt, solange dies erforderlich ist, um den Dienst sicher zu halten und rechtliche Verpflichtungen zu erfüllen.
+- **Sicherheits-/Missbrauchsmeldungen und Sperrdatensätze:** aufbewahrt, solange dies erforderlich ist, um den Dienst sicher zu halten und rechtliche Verpflichtungen zu erfüllen.
+- **Betriebsprotokolle:** für einen begrenzten Zeitraum zur Sicherheit und Zuverlässigkeit aufbewahrt.
 
-## 6. Ihre Rechte
+## 6. Cookies und lokaler Speicher
 
-Vorbehaltlich des geltenden Rechts haben Sie das Recht, auf Ihre Daten zuzugreifen, sie zu berichtigen und zu löschen; sie in einem übertragbaren Format zu erhalten; bestimmte Verarbeitungen einzuschränken oder ihnen zu widersprechen; Ihre Einwilligung jederzeit zu widerrufen; und eine Beschwerde bei Ihrer Datenschutzaufsichtsbehörde einzureichen. Zugriff/Übertragbarkeit können Sie über **Meine Daten herunterladen** und die Löschung über **Mein Konto löschen** im Bereich „Datenschutz & Daten“ in der App ausüben, oder schreiben Sie an privacy@voxtranslate.app.
+Wir verwenden ausschließlich unbedingt erforderlichen Browser-Speicher — **keine** Cookies von Drittanbietern für Werbung oder seitenübergreifendes Tracking und keine Werbe- oder Analyse-Cookies:
 
-## 7. Sicherheit
+- ein **Sitzungs-Token**, das in Ihrem Browser gespeichert wird, damit Sie angemeldet bleiben;
+- eine **Cookie-Einwilligungseinstellung**, die Ihre Wahl im Cookie-Banner speichert;
+- geringfügige **Oberflächen-Flags** (zum Beispiel das Speichern, dass Sie einen Funktionshinweis bereits gesehen haben).
+
+Da diese unbedingt erforderlich sind, um einen von Ihnen angeforderten Dienst bereitzustellen, bedürfen sie nach den ePrivacy-Vorschriften keiner Einwilligung.
+
+## 7. Ihre Rechte
+
+Vorbehaltlich des geltenden Rechts haben Sie das Recht, auf Ihre Daten zuzugreifen, sie zu berichtigen und zu löschen; sie in einem übertragbaren Format zu erhalten; bestimmte Verarbeitungen einzuschränken oder ihnen zu widersprechen; Ihre Einwilligung jederzeit zu widerrufen; und eine Beschwerde bei einer Aufsichtsbehörde einzureichen. Zugriff und Übertragbarkeit können Sie über **Meine Daten herunterladen** und die Löschung über **Mein Konto löschen** im Bereich „Datenschutz & Daten“ in der App ausüben, oder schreiben Sie an privacy@voxtranslate.app. Wenn Sie sich in Spanien befinden, ist die federführende Aufsichtsbehörde die **Agencia Española de Protección de Datos (AEPD, www.aepd.es)**; Sie können sich auch an die Datenschutzbehörde in Ihrem eigenen Wohnsitzland wenden.
+
+## 8. Sicherheit
 
 Wir setzen branchenübliche Maßnahmen zum Schutz personenbezogener Daten ein, einschließlich Verschlüsselung bei der Übertragung und Peer-to-Peer-Medien, die nicht über unsere Server laufen. Keine Übertragungs- oder Speichermethode ist jedoch vollkommen sicher, und wir können keine absolute Sicherheit garantieren.
 
-## 8. Kinder
+## 9. Kinder
 
 Der Dienst ist für Erwachsene (18+) bestimmt. Wir verarbeiten wissentlich keine Daten von Kindern. Wenn Sie glauben, dass ein Kind uns Daten übermittelt hat, kontaktieren Sie uns, und wir werden sie löschen.
 
-## 9. Änderungen
+## 10. Änderungen
 
 Wir können diese Erklärung aktualisieren; wir werden Version und Datum anpassen und bei wesentlichen Änderungen zusätzliche Schritte unternehmen, soweit gesetzlich erforderlich.
