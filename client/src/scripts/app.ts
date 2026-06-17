@@ -291,6 +291,11 @@ let pipWindow: Window | null = null;
 // PiP-window control buttons (spec 0057): live in the floating window, driven by
 // the same toggle fns as the main bar; null whenever PiP is closed.
 let pipCtl: { mic: HTMLButtonElement; cam: HTMLButtonElement; share: HTMLButtonElement; hand: HTMLButtonElement; end: HTMLButtonElement } | null = null;
+// Keeps the PiP window's grid in sync with the live call (spec 0057 / PiP fixes):
+// the PiP is a static clone, so without this a peer leaving leaves a black tile and
+// the layout drifts. The observer watches the live grid; rAF coalesces bursts.
+let pipObserver: MutationObserver | null = null;
+let pipSyncRaf = 0;
 let manualClose = false;
 let viewMode: 'grid' | 'speaker' = 'grid';
 let pinnedPeerId: string | null = null;
@@ -1541,6 +1546,7 @@ function attachStream(id: string, stream: MediaStream): void {
   const hasVideo = stream.getVideoTracks().length > 0;
   if (id !== myId) setCameraOff(id, peerCamOff.get(id) ?? !hasVideo);
   applyAudioMode();
+  schedulePipSync(); // a stream just attached — push it into the PiP clone too (spec 0057)
 }
 
 // "Translated voice" mode: when on, mute the original WebRTC audio of peers who
@@ -2189,6 +2195,8 @@ btnFullscreen.addEventListener('click', () => {
 
 btnPip.addEventListener('click', () => {
   if (pipWindow && !pipWindow.closed) {
+    pipObserver?.disconnect();
+    pipObserver = null;
     pipWindow.close();
     pipWindow = null;
     pipCtl = null;
@@ -2220,43 +2228,91 @@ btnPip.addEventListener('click', () => {
         }
       });
       w.document.body.style.cssText = 'margin:0;background:#000;overflow:hidden';
-      const stage = document.querySelector('.video-stage') as HTMLElement;
-      if (stage) {
-        const clone = stage.cloneNode(true) as HTMLElement;
-        clone.style.cssText = 'width:100%;height:100dvh';
-        // Mirror the live grid layout so columns/rows match the main window.
-        const cloneGrid = clone.querySelector<HTMLElement>('.video-grid');
-        if (cloneGrid) {
-          cloneGrid.style.gridTemplateColumns = videoGrid.style.gridTemplateColumns;
-          cloneGrid.style.gridTemplateRows = videoGrid.style.gridTemplateRows;
-        }
-        w.document.body.appendChild(clone);
-        // Re-attach srcObjects and start playback (cloneNode doesn't copy MediaStreams).
-        // The clones are DISPLAY-ONLY: force-mute every one of them and let audio keep
-        // playing from the live elements in the main window (still in the DOM with the
-        // same MediaStream). This is what makes remote tiles render: Chrome's autoplay
-        // policy blocks an UNMUTED play() once the transient activation from
-        // requestWindow() is consumed, so an unmuted remote clone never starts and shows
-        // a silent black frame — while your own (already-muted) clone plays. Muting every
-        // clone lets them all autoplay and also avoids double audio from the same track
-        // playing in two windows at once.
-        clone.querySelectorAll('video').forEach((v) => {
-          const peer = (v.closest('[data-peer]') as HTMLElement)?.dataset.peer;
-          if (!peer) return;
-          const orig = videoGrid.querySelector<HTMLVideoElement>(`[data-peer="${cssEsc(peer)}"] video`);
-          if (orig?.srcObject) {
-            v.muted = true;
-            v.srcObject = orig.srcObject;
-            void v.play().catch(() => {});
-          }
-        });
-      }
+      // Build a BARE stage with just the video grid — NOT a clone of the whole
+      // stage. This drops the session-meta overlays (call timer, room code,
+      // public/private, balance, participant count) that don't belong in the mini
+      // view. Tiles + their live streams are populated by syncPip().
+      const pipStage = w.document.createElement('div');
+      pipStage.className = 'video-stage';
+      pipStage.style.cssText = 'position:relative;width:100%;height:100dvh';
+      const pipGrid = w.document.createElement('div');
+      pipGrid.className = 'video-grid';
+      pipStage.appendChild(pipGrid);
+      w.document.body.appendChild(pipStage);
+      syncPip();
+      // Keep the PiP grid in lock-step with the live call: a peer leaving removes its
+      // tile (no black box), joins add one, and relayouts mirror — instead of a stale
+      // one-time clone. Display-only tiles stay muted (audio plays from the main
+      // window). Observer disconnected on close.
+      pipObserver = new MutationObserver(schedulePipSync);
+      pipObserver.observe(videoGrid, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['class', 'style', 'data-peer', 'data-peers', 'data-mode'],
+      });
       buildPipControls(w); // spec 0057: live controls inside the floating window
       syncPipControls();
-      w.addEventListener('pagehide', () => { pipWindow = null; pipCtl = null; });
+      w.addEventListener('pagehide', () => {
+        pipObserver?.disconnect();
+        pipObserver = null;
+        pipWindow = null;
+        pipCtl = null;
+      });
     })
     .catch(() => {});
 });
+
+// Mirror the live call grid into the PiP window (spec 0057 + PiP fixes): same tiles
+// and grid template, live srcObjects, state classes — and crucially REMOVE tiles for
+// peers who left (no more black box) and ADD tiles for joiners. Clones are
+// display-only (muted; audio plays from the main window). Per-tile controls
+// (ban/report, pan/zoom) are stripped from the mini view.
+function syncPip(): void {
+  if (!pipWindow || pipWindow.closed) return;
+  const pipGrid = pipWindow.document.querySelector<HTMLElement>('.video-grid');
+  if (!pipGrid) return;
+  pipGrid.style.gridTemplateColumns = videoGrid.style.gridTemplateColumns;
+  pipGrid.style.gridTemplateRows = videoGrid.style.gridTemplateRows;
+  pipGrid.dataset.peers = videoGrid.dataset.peers ?? '';
+  if (videoGrid.dataset.mode) pipGrid.dataset.mode = videoGrid.dataset.mode;
+  else delete pipGrid.dataset.mode;
+
+  const live = new Set(
+    [...videoGrid.querySelectorAll<HTMLElement>('.video-cell[data-peer]')].map((c) => c.dataset.peer),
+  );
+  pipGrid.querySelectorAll<HTMLElement>('.video-cell[data-peer]').forEach((c) => {
+    if (!live.has(c.dataset.peer)) c.remove(); // peer left → drop the tile (no black box)
+  });
+
+  videoGrid.querySelectorAll<HTMLElement>('.video-cell[data-peer]').forEach((liveCell) => {
+    const peer = liveCell.dataset.peer ?? '';
+    let cell = pipGrid.querySelector<HTMLElement>(`.video-cell[data-peer="${cssEsc(peer)}"]`);
+    if (!cell) {
+      cell = liveCell.cloneNode(true) as HTMLElement;
+      cell.querySelectorAll('.cell-actions, .pan-toggle, .pan-hint').forEach((e) => e.remove());
+      pipGrid.appendChild(cell);
+    } else {
+      cell.className = liveCell.className; // mirror state: camera-off / sharing / speaking / reconnecting
+    }
+    const orig = liveCell.querySelector<HTMLVideoElement>('video');
+    const cv = cell.querySelector<HTMLVideoElement>('video');
+    if (cv) {
+      cv.muted = true;
+      if (orig?.srcObject && cv.srcObject !== orig.srcObject) {
+        cv.srcObject = orig.srcObject;
+        void cv.play().catch(() => {});
+      }
+    }
+  });
+}
+
+/** Coalesce PiP re-syncs to one per frame. */
+function schedulePipSync(): void {
+  if (!pipWindow || pipWindow.closed) return;
+  cancelAnimationFrame(pipSyncRaf);
+  pipSyncRaf = requestAnimationFrame(syncPip);
+}
 
 // Build the in-PiP control bar (spec 0057). Buttons live in the PiP document but
 // their listeners are closures here, so they drive the main call state directly.
