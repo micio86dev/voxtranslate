@@ -182,8 +182,10 @@ const jsonLd = {
           </div>
         </dl>
 
+        <!-- Unified "session outputs" card (#224): downloads + an integrated,
+             collapsed transcript preview that expands via the toggle. -->
         <div class="card">
-          <span class="card-title" data-i18n="downloads"></span>
+          <span class="card-title" data-i18n="sessionOutputs"></span>
           <div id="session-downloads" class="session-downloads">
             <button id="session-dl-pdf" class="btn-primary" data-i18n="downloadPdf"></button>
             <button id="session-dl-json" class="btn-primary" data-i18n="downloadJson"></button>
@@ -202,6 +204,14 @@ const jsonLd = {
             </label>
             <span id="ai-correct-cost" class="ai-correct-cost"></span>
           </div>
+          <div class="session-transcript-block">
+            <span class="session-subhead" data-i18n="transcriptLabel"></span>
+            <div id="session-bookmarks" class="session-bookmarks" hidden></div>
+            <p id="session-transcript-status" class="status-line" role="status"></p>
+            <div id="session-transcript" class="session-transcript collapsed"></div>
+            <button id="session-transcript-toggle" class="btn-ghost session-transcript-toggle hidden"
+                    data-i18n="viewFullTranscript" aria-expanded="false"></button>
+          </div>
         </div>
 
         <!-- AI tools (report / sentiment / email) — slots filled by later phases. -->
@@ -210,13 +220,6 @@ const jsonLd = {
           <div id="ai-report-slot"></div>
           <div id="ai-sentiment-slot"></div>
           <div id="ai-email-slot"></div>
-        </div>
-
-        <div class="card">
-          <span class="card-title" data-i18n="transcriptLabel"></span>
-          <div id="session-bookmarks" class="session-bookmarks" hidden></div>
-          <p id="session-transcript-status" class="status-line" role="status"></p>
-          <div id="session-transcript" class="session-transcript"></div>
         </div>
       </div>
     </section>
@@ -903,6 +906,12 @@ const jsonLd = {
     .session-transcript :global(.tr-text) { color: var(--text); overflow-wrap: anywhere; }
     .session-transcript :global(.tr-orig) { color: var(--muted); font-size: 0.78rem; overflow-wrap: anywhere; }
     .session-transcript :global(.tr-chat .tr-text) { font-style: italic; }
+    /* Integrated transcript preview (#224): a sub-section of the outputs card. */
+    .session-transcript-block { margin-top: 18px; border-top: 1px solid var(--border); padding-top: 14px; }
+    .session-subhead { display: block; font-weight: 700; font-size: 0.85rem; color: var(--text); margin-bottom: 8px; }
+    /* Collapsed = compact preview: show only the first 6 rows; the toggle reveals the rest. */
+    .session-transcript.collapsed :global(.tr-event:nth-child(n + 7)) { display: none; }
+    .session-transcript-toggle { width: auto; min-height: var(--tap-target); padding: 0 14px; margin-top: 8px; font-size: var(--font-sm); }
 
     /* ---------- AI tools (report — spec 0014; DOM created in JS) ---------- */
     #session-ai :global(.ai-section) { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }

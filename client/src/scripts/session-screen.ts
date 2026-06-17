@@ -140,6 +140,7 @@ async function renderTranscript(ref: SessionRef): Promise<void> {
   const list = $('session-transcript');
   const status = $('session-transcript-status');
   list.innerHTML = '';
+  syncTranscriptPreview(0); // reset the toggle/collapse state for the new session (#224)
   $('session-bookmarks').hidden = true;
   if (ref.event_count === 0) {
     status.textContent = t('noTranscriptEvents');
@@ -253,11 +254,37 @@ function renderEvents(list: HTMLElement, doc: TranscriptDoc): void {
     row.append(time, body);
     list.appendChild(row);
   }
+  syncTranscriptPreview(doc.events.length);
+}
+
+// Transcript preview (#224): collapse to the first few rows by default, with a
+// toggle to expand/collapse. Keeps the unified outputs card compact.
+const PREVIEW_ROWS = 6;
+
+/** Show the toggle only when there's more than the preview shows, and reset to the
+ *  collapsed state on each (re)load. */
+function syncTranscriptPreview(count: number): void {
+  const list = $('session-transcript');
+  const toggle = $('session-transcript-toggle');
+  const collapsible = count > PREVIEW_ROWS;
+  list.classList.toggle('collapsed', collapsible);
+  toggle.classList.toggle('hidden', !collapsible);
+  toggle.textContent = t('viewFullTranscript');
+  toggle.setAttribute('aria-expanded', 'false');
 }
 
 // ---- One-time wiring (DOM is ready when modules execute) --------------------
 
 $('session-back').addEventListener('click', closeSessionScreen);
+
+// Expand/collapse the transcript preview (#224).
+$('session-transcript-toggle').addEventListener('click', () => {
+  const list = $('session-transcript');
+  const toggle = $('session-transcript-toggle');
+  const collapsed = list.classList.toggle('collapsed');
+  toggle.textContent = collapsed ? t('viewFullTranscript') : t('hideTranscript');
+  toggle.setAttribute('aria-expanded', String(!collapsed));
+});
 
 /** Show a transient status line that auto-clears (only if unchanged). */
 function flashStatus(msg: string): void {
