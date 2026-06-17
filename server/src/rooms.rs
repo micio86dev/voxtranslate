@@ -464,6 +464,33 @@ impl RoomManager {
         langs
     }
 
+    /// Distinct languages of the room's listeners who chose `engine`, excluding
+    /// `exclude_id` and `"auto"` peers (spec 0099). The listener-pays analog of
+    /// [`get_room_languages`](Self::get_room_languages): an engine translates the
+    /// speaker's audio only into the languages that ITS listeners receive in, so a
+    /// Premium session is opened for a language only when a Premium listener wants
+    /// it (and likewise for Standard).
+    pub fn target_langs_for_engine(
+        &self,
+        room_id: &str,
+        exclude_id: &str,
+        engine: &str,
+    ) -> Vec<String> {
+        let mut langs: Vec<String> = Vec::new();
+        if let Some(room) = self.rooms.get(room_id) {
+            for p in room.peers.iter() {
+                if p.id != exclude_id
+                    && p.engine == engine
+                    && p.lang != "auto"
+                    && !langs.contains(&p.lang)
+                {
+                    langs.push(p.lang.clone());
+                }
+            }
+        }
+        langs
+    }
+
     /// Update a peer's language in place (auto-detect result or a manual
     /// `set_lang` correction). Returns `false` when the room/peer is gone.
     pub fn set_peer_lang(&self, room_id: &str, peer_id: &str, lang: &str) -> bool {
@@ -924,6 +951,25 @@ mod tests {
             (x.lang.clone(), x.engine.clone()).cmp(&(y.lang.clone(), y.engine.clone()))
         });
         assert_eq!(got, vec![route("es", "premium"), route("es", "standard")]);
+    }
+
+    #[test]
+    fn target_langs_for_engine_filters_by_engine() {
+        let rm = RoomManager::new();
+        let (a, _ra) = peer_full("a", "it", "standard", Uuid::new_v4()); // speaker
+        let (b, _rb) = peer_full("b", "es", "premium", Uuid::new_v4());
+        let (c, _rc) = peer_full("c", "fr", "standard", Uuid::new_v4());
+        let (d, _rd) = peer_full("d", "es", "standard", Uuid::new_v4());
+        for (p, r) in [(a, _ra), (b, _rb), (c, _rc), (d, _rd)] {
+            rm.join("r", p, Visibility::Public).unwrap();
+            std::mem::forget(r);
+        }
+        // Premium listeners of `a`: only `b` (es).
+        assert_eq!(rm.target_langs_for_engine("r", "a", "premium"), vec!["es"]);
+        // Standard listeners of `a`: `c` (fr) and `d` (es) — distinct langs.
+        let mut std_t = rm.target_langs_for_engine("r", "a", "standard");
+        std_t.sort();
+        assert_eq!(std_t, vec!["es", "fr"]);
     }
 
     #[test]

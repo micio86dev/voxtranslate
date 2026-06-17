@@ -45,6 +45,12 @@ pub struct Config {
     /// pre-join selector) iff this is `Some`, so the feature ships dark until the
     /// key is configured.
     pub openai: Option<OpenAiConfig>,
+    /// Listener-pays rollout flag (spec 0099). OFF by default: the live model is
+    /// speaker-pays (spec 0093). When `LISTENER_PAYS` is truthy, each participant
+    /// receives — and is billed for — the engine quality THEY chose, and the core
+    /// WS loop runs every engine the room's listeners demand. Gated so the
+    /// re-architecture ships dark until the billing dry-run signs it off.
+    pub listener_pays: bool,
 }
 
 /// OpenAI Realtime Translation credentials + pricing (spec 0093). All-or-nothing
@@ -375,6 +381,7 @@ impl Config {
                 .filter(|s| !s.is_empty())
                 .unwrap_or_else(|| "https://voxtranslate.app".into()),
             openai,
+            listener_pays: env_flag("LISTENER_PAYS"),
         })
     }
 
@@ -535,6 +542,19 @@ fn present(name: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// A boolean feature flag from the environment. Truthy = `1`/`true`/`yes`/`on`
+/// (case-insensitive); anything else, or unset, is `false`.
+fn env_flag(name: &str) -> bool {
+    env::var(name)
+        .map(|v| {
+            matches!(
+                v.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(false)
+}
+
 fn parse_or<T: std::str::FromStr>(name: &str, default: T) -> T {
     env::var(name)
         .ok()
@@ -595,6 +615,7 @@ impl Config {
             bug_report_to: "test@example.com".into(),
             app_base_url: "https://voxtranslate.app".into(),
             openai: None,
+            listener_pays: false,
         }
     }
 }
