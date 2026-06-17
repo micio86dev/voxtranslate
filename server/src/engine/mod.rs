@@ -46,6 +46,20 @@ pub struct SessionDeps {
     pub participant_row: Option<Uuid>,
 }
 
+/// Outcome of opening a speaking session.
+pub enum SessionOutcome {
+    /// Session opened — feed captured audio into this sender (Standard expects
+    /// WebM/Opus, premium engines PCM16). The engine owns the receiver and all
+    /// processing; dropping the sender flushes and closes it.
+    Started(mpsc::Sender<Vec<u8>>),
+    /// The engine is at capacity right now (spec 0094) — the caller must fall back
+    /// to the default engine so translation never stops. Only premium engines,
+    /// which hold a bounded pool of upstream sessions, return this.
+    AtCapacity,
+    /// The session could not be opened (e.g. the upstream service is unavailable).
+    Failed,
+}
+
 /// A translation engine: turns one speaker's captured audio into room subtitles
 /// (and, for premium engines, translated audio).
 #[async_trait]
@@ -53,15 +67,9 @@ pub trait TranslationEngine: Send + Sync {
     /// Static description (id, languages, cost, capabilities).
     fn metadata(&self) -> &EngineMetadata;
 
-    /// Open a speaking session for `ctx`. Returns the audio sender the handler
-    /// feeds captured chunks into — Standard expects WebM/Opus, premium engines
-    /// PCM16 — or `None` if the session could not be opened. The engine owns the
-    /// receiver and all processing; dropping the sender flushes and closes it.
-    async fn start_session(
-        &self,
-        ctx: SpeakerCtx,
-        deps: SessionDeps,
-    ) -> Option<mpsc::Sender<Vec<u8>>>;
+    /// Open a speaking session for `ctx`. See [`SessionOutcome`] — `AtCapacity`
+    /// tells the caller to retry on the default engine (never block the speaker).
+    async fn start_session(&self, ctx: SpeakerCtx, deps: SessionDeps) -> SessionOutcome;
 }
 
 /// Ordered set of available engines, keyed by id, with a guaranteed default.
@@ -136,12 +144,8 @@ mod tests {
         fn metadata(&self) -> &EngineMetadata {
             &self.0
         }
-        async fn start_session(
-            &self,
-            _ctx: SpeakerCtx,
-            _deps: SessionDeps,
-        ) -> Option<mpsc::Sender<Vec<u8>>> {
-            None
+        async fn start_session(&self, _ctx: SpeakerCtx, _deps: SessionDeps) -> SessionOutcome {
+            SessionOutcome::Failed
         }
     }
 

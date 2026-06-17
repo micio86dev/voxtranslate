@@ -1040,7 +1040,7 @@ async function handleServer(msg: any): Promise<void> {
           audioCapture = new AudioCapture(localStream, ws);
           if (wasActive) audioCapture.start();
         }
-        showNotif(t('enginePremiumPaused'));
+        showNotif(t(msg.reason === 'premium_at_capacity' ? 'enginePremiumBusy' : 'enginePremiumPaused'));
       } else {
         // A peer downgraded: stop expecting their premium audio so TTS resumes.
         premiumSpeakers.delete(msg.peer_id);
