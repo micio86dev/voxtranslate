@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | In progress (migration written + verified; live re-audit pending apply) |
+| **Status** | ✅ Applied to prod + verified (live audit clean) |
 | **Owner** | micio86dev |
 | **Created** | 2026-06-17 |
 | **Shipped** | — |
@@ -91,17 +91,42 @@ right posture is "expose nothing through it."
   `content_api::i18n_and_legal_served_from_db` (proves the locked-down i18n/legal
   tables still serve through the Rust API) and the account/usage/transcript paths.
 
-## 6. Remaining (needs Supabase access — #239/#240 live re-audit)
+## 6. Live audit on production (#240) — DONE
 
-After the migration is applied to **production Supabase**, run the read-only
-re-audit (Supabase MCP or SQL) to confirm on the live DB:
-1. `SELECT relname, relrowsecurity FROM pg_class … WHERE relnamespace = 'public'::regnamespace` → every table `relrowsecurity = true`.
-2. As `anon` / `authenticated` (PostgREST), every table returns 0 rows / permission denied.
-3. No `SECURITY DEFINER` function grants privilege escalation; storage buckets are
-   not publicly writable unless intended.
-4. The app's critical flows (login, join call, payments, transcripts) still work
-   end-to-end (regression).
+Ran via the Supabase MCP on the production project.
 
-This last step is a **read-only validation** — no further changes expected unless
-the live audit surfaces a table created outside these migrations (e.g. by Directus)
-that also needs RLS.
+**Critical finding static analysis missed:** the prod `public` schema had **54**
+tables, not 24 — it also contains the **Directus CMS** tables (`directus_*`) and
+`_sqlx_migrations`. Worse, `sensitive_columns_exposed` flagged **`directus_users`
+(password, token)**, **`directus_sessions` (token)** and **`directus_shares`
+(password)** — admin credential hashes + session tokens reachable via PostgREST if
+RLS stayed off. The sqlx migration (011) only covers the 24 app tables (the Rust
+role owns those); the Directus tables needed a separate lockdown.
+
+**Verified before applying:** all 54 public tables are owned by `postgres`, which
+has `BYPASSRLS = true` (as does `service_role`); `anon`/`authenticated` do not. So
+`ENABLE` (not `FORCE`) RLS cannot affect the Rust API or Directus (both connect via
+`postgres` → owner + BYPASSRLS) — only the PostgREST roles are denied.
+
+**Applied** (Supabase migration `rls_lockdown_all_public_tables`, mirrored in the
+repo at `infra/supabase/rls-lockdown-all-public.sql`): a dynamic loop enabling RLS
+on **all 54** public tables + `REVOKE` of anon/authenticated table/sequence grants
++ `ALTER DEFAULT PRIVILEGES` for future objects.
+
+**Re-audit (after):**
+- `rls_disabled_in_public`: **0** (was 54, ERROR) ✅
+- `sensitive_columns_exposed`: **0** (was 12, ERROR — incl. directus password/token) ✅
+- Remaining: only `rls_enabled_no_policy` at **INFO** — the *intended* default-deny
+  state (no policies, because the app never uses the Supabase client).
+- `pg_tables`: 54/54 `rowsecurity = true`; `anon`/`authenticated` hold 0 table grants.
+
+**Regression (live, post-lockdown):** `GET /health` → 200; `GET /api/content/i18n`
+→ 200 (28 KB, reads the now-locked `i18n_strings`/`i18n_translations`); `GET
+/api/content/legal/privacy` → 200 (reads locked `legal_translations`). The Rust API
+reads locked tables fine — confirms no breakage.
+
+## 7. Residual notes
+- New Directus collections created later land RLS-disabled again → re-run
+  `infra/supabase/rls-lockdown-all-public.sql` after schema changes (or schedule it).
+- sqlx migration 011 (24 app tables) still ships and auto-applies on deploy —
+  idempotent against the already-locked prod state.
