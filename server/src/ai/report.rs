@@ -41,21 +41,30 @@ pub fn report_prompt(
              and what happens next.\n",
         ),
         _ => {
+            // The section names below are the canonical English labels the model
+            // must map to. It MUST translate each heading into the report
+            // language — otherwise it keeps the English labels verbatim while
+            // writing the body in the target language, producing a mixed-language
+            // report (#223). The localization instruction is restated after the
+            // section list and reinforced by the whole-report language line below.
             system.push_str(
-                "Write a structured Markdown report with exactly these sections (## headings): \
-                 Executive Summary, Key Points, Decisions, Action Items",
+                "Write a structured Markdown report with exactly these sections, in this order, \
+                 as `##` headings — but TRANSLATE every heading into the report language (never \
+                 keep the English label): Executive Summary, Key Points, Decisions, Action Items",
             );
             if has_bookmarks {
                 system.push_str(", Bookmarked Highlights (cover each BOOKMARKS entry)");
             }
             system.push_str(
-                ", Open Questions. Use bullet lists inside sections; write \"None.\" for \
-                 empty sections.\n",
+                ", Open Questions. Use bullet lists inside sections; for an empty section write \
+                 the report language's equivalent of \"None.\" (not the English word).\n",
             );
         }
     }
     system.push_str(&format!(
-        "Write the entire report in {}. Output ONLY the Markdown report — no preamble.\n",
+        "Write the ENTIRE report — every section heading, label, and body line — in {0}. \
+         Do not leave any heading or word in English unless {0} is English. \
+         Output ONLY the Markdown report — no preamble.\n",
         crate::groq::lang_name(lang),
     ));
     if let Some(g) = guidelines {
@@ -196,6 +205,10 @@ mod tests {
         assert!(p.contains("Bookmarked Highlights"));
         assert!(p.contains("Italian"));
         assert!(!p.contains("guidelines"));
+        // #223: headings must be localized, not kept in English. The prompt must
+        // explicitly instruct translating every heading into the report language.
+        assert!(p.contains("TRANSLATE every heading"));
+        assert!(p.contains("every section heading, label, and body line"));
 
         // No bookmarks → the section isn't requested (the model would invent it).
         let none = report_prompt("structured", "en", None, false);
