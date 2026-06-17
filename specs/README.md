@@ -120,7 +120,7 @@ Each spec follows the same skeleton:
 | [0090](0090-invite-panel-fix/spec.md) | Fix the in-call invite panel on mobile: buttons under inputs (no x-scroll), close X icon, correct text colours | ✅ Shipped | 2026-06-17 | `385576b` |
 | [0091](0091-pwa-launcher-dark-splash/spec.md) | PWA launcher dark splash + maskable icon | ✅ Shipped | 2026-06-17 | `65e66ac` |
 | [0092](0092-ios-pwa-splash/spec.md) | iOS PWA splash screens | ✅ Shipped | 2026-06-17 | `bc59546` |
-| [0093](0093-premium-translation-engine/spec.md) | Premium translation engine (OpenAI GPT-Realtime-Translate) + N-engine registry | 🚧 In progress | — | — |
+| [0093](0093-premium-translation-engine/spec.md) | Premium translation engine (OpenAI GPT-Realtime-Translate) + N-engine registry | ✅ Shipped | 2026-06-17 | `167820a` |
 
 > Numbers 0011–0015 were claimed by commit messages while the AI bundle shipped
 > without spec docs (and 0011/0012 were each reused twice); the assignments

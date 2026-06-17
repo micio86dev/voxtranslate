@@ -2,12 +2,12 @@
 
 | | |
 |---|---|
-| **Status** | 🚧 In progress |
+| **Status** | ✅ Shipped |
 | **Owner** | Micio Dev |
 | **Created** | 2026-06-17 |
-| **Shipped** | — |
+| **Shipped** | 2026-06-17 |
 | **Version** | — |
-| **Commits** | `<sha>`, … |
+| **Commits** | `167820a` |
 | **Depends on** | [0001](../0001-voice-translation-rooms/spec.md), [0005](../0005-accounts-credits-billing/spec.md), [0012](../0012-auto-language-detection/spec.md), [0043](../0043-low-latency-capture/spec.md), [0069](../0069-bounded-translate-fanout/spec.md) |
 
 ## 1. Context & Problem
