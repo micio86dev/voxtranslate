@@ -8,6 +8,7 @@
 
 pub mod admin;
 pub mod ai;
+pub mod analytics;
 pub mod api;
 pub mod auth;
 pub mod billing;
@@ -964,6 +965,24 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
         },
         _ => None,
     };
+
+    // Analytics (spec 0097 / #241): append a non-blocking session-start event. The
+    // event store reuses call_sessions(id); `plan` is the engine tier. Fire-and-
+    // forget — it never blocks or fails the call. (Further event types —
+    // translation_used / subtitles_on / voice_generated / screen_shared /
+    // recording_started — wire in at their respective points; see the spec.)
+    if let Some(pool) = state.pool.as_ref() {
+        crate::analytics::record_event(
+            pool,
+            crate::analytics::UsageEvent::new(
+                crate::analytics::plan_for_tier(&active_engine.metadata().tier),
+                "session_started",
+            )
+            .session(session_id)
+            .user(billed_user)
+            .feature("translation"),
+        );
+    }
 
     // Guest speaking-time cap (cumulative across bursts), if configured.
     let guest_cap_secs = if billed_user.is_none() {
