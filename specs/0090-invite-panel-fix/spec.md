@@ -2,11 +2,12 @@
 
 | | |
 |---|---|
-| **Status** | In progress |
+| **Status** | ✅ Shipped |
 | **Owner** | Micio Dev |
 | **Created** | 2026-06-17 |
-| **Shipped** | — |
+| **Shipped** | 2026-06-17 |
 | **Version** | — |
+| **Commits** | `385576b` |
 | **Depends on** | [0082](../0082-in-call-invite-branded-email/spec.md) (invite panel) |
 
 ## 1. Context & Problem

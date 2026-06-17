@@ -117,7 +117,7 @@ Each spec follows the same skeleton:
 | [0087](0087-custom-google-button/spec.md) | Custom Google sign-in button (official look, no white personalized card) → native FedCM chooser + official-button fallback | ✅ Shipped | 2026-06-16 | `0bac670` |
 | [0088](0088-screenshare-bitrate/spec.md) | Separate, higher, env-tunable bitrate while screen sharing (+ contentHint detail) so shared text/UI isn't grainy | ✅ Shipped | 2026-06-17 | `ae83820` |
 | [0089](0089-screenshare-spotlight/spec.md) | Auto-spotlight the screen share for everyone (zoom-in to focus view, zoom-out on stop) | ✅ Shipped | 2026-06-17 | `62e6bad` |
-| [0090](0090-invite-panel-fix/spec.md) | Fix the in-call invite panel on mobile: buttons under inputs (no x-scroll), close X icon, correct text colours | In progress | 2026-06-17 | _pending_ |
+| [0090](0090-invite-panel-fix/spec.md) | Fix the in-call invite panel on mobile: buttons under inputs (no x-scroll), close X icon, correct text colours | ✅ Shipped | 2026-06-17 | `385576b` |
 
 > Numbers 0011–0015 were claimed by commit messages while the AI bundle shipped
 > without spec docs (and 0011/0012 were each reused twice); the assignments
