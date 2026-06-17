@@ -1,30 +1,32 @@
-> ⚠️ **Bozza non vincolante — non è una consulenza legale.** Da rivedere con un legale qualificato prima di farne affidamento.
+La presente Informativa sulla privacy spiega quali dati personali tratta VoxTranslate quando utilizzi il nostro servizio di videochiamate tradotte in tempo reale, perché li trattiamo e quali diritti hai. È redatta per conformarsi al Regolamento generale sulla protezione dei dati (GDPR) dell'UE e a leggi analoghe.
 
-La presente Informativa sulla privacy spiega quali dati personali tratta VoxTranslate ("noi") quando utilizzi il nostro servizio di videochiamate tradotte in tempo reale, perché li trattiamo e quali diritti hai. È redatta tenendo conto del Regolamento generale sulla protezione dei dati (GDPR) dell'UE e di leggi analoghe.
+## 1. Chi è il titolare del trattamento
 
-## 1. Titolare del trattamento
-
-VoxTranslate è il titolare del trattamento dei dati personali trattati tramite il Servizio. Per qualsiasi richiesta sulla privacy, scrivi a privacy@voxtranslate.app. *(Sostituisci con la denominazione e l'indirizzo della tua entità legale registrata e — se applicabile — il rappresentante UE/UK e il responsabile della protezione dei dati.)*
+Il Servizio è gestito da **Alessandro Micelli**, Puerto del Rosario, Spain ("VoxTranslate", "noi"), titolare del trattamento dei dati personali trattati tramite il Servizio. Per qualsiasi richiesta sulla privacy, scrivi a privacy@voxtranslate.app.
 
 ## 2. Quali dati trattiamo
 
 - **Dati dell'account** — accedendo con Google riceviamo nome, indirizzo email e URL dell'immagine del profilo.
-- **Audio (transitorio)** — mentre parli, l'audio del microfono è inviato in streaming al nostro fornitore di speech-to-text per generare una trascrizione dal vivo. Non conserviamo l'audio grezzo.
-- **Trascrizioni e traduzioni (transitorie)** — generate per mostrare sottotitoli e testo tradotto agli altri partecipanti. Sono trasmesse in tempo reale e non conservate dopo la chiamata, salvo quando incluse in una segnalazione di abuso.
-- **Messaggi di chat** — trasmessi e tradotti tra i partecipanti durante una chiamata.
-- **Dati di utilizzo e fatturazione** — saldo crediti, transazioni e tempo di conversazione per sessione usati per il conteggio e la fatturazione.
+- **Audio (transitorio)** — mentre parli, l'audio del microfono è inviato in streaming al nostro fornitore di speech-to-text e, nel piano Premium, al nostro fornitore di traduzione in tempo reale, per generare sottotitoli e traduzioni dal vivo. Non conserviamo l'audio grezzo.
+- **Trascrizioni e traduzioni** — il testo del parlato e della chat insieme alle relative traduzioni. Quando un utente registrato partecipa a una chiamata, questi vengono **conservati** affinché i partecipanti possano successivamente rivedere, esportare (PDF/JSON) e correggere con l'IA la trascrizione. Le chiamate a cui non ha partecipato alcun utente registrato non vengono conservate. Le trascrizioni conservate vengono eliminate quando elimini il tuo account: i tuoi interventi vengono rimossi insieme ad esso.
+- **Messaggi di chat e file** — la chat è trasmessa e tradotta tra i partecipanti. I file che alleghi sono archiviati in modo privato e condivisi con i partecipanti alla chiamata tramite link di breve durata.
+- **Dati di utilizzo, analitici e di fatturazione** — saldo crediti, transazioni, tempo di conversazione per sessione ed eventi di utilizzo del prodotto (quali funzioni e quale livello di piano utilizzi, e per quanto tempo) usati per conteggiare, fatturare, proteggere e migliorare il Servizio. I dati analitici sono aggregati a fini di reportistica.
 - **Dati di sicurezza** — segnalazioni di abuso inviate da te o riguardanti te (che possono includere un breve estratto della trascrizione) e i record di moderazione/ban.
-- **Dati tecnici** — metadati di connessione di base necessari per far funzionare il servizio in tempo reale e mantenerlo sicuro.
+- **Dati tecnici** — metadati di connessione necessari per far funzionare il servizio in tempo reale, instradare i media, inviare i log operativi e mantenere il Servizio sicuro.
 
-Il video e l'audio tra i partecipanti viaggiano peer-to-peer (WebRTC) e non transitano né vengono registrati dai nostri server. Il nostro server gestisce il signaling, lo stream di speech-to-text dal vivo, la traduzione e il relay della chat.
+Il video e l'audio tra i partecipanti viaggiano peer-to-peer (WebRTC) e non transitano né vengono registrati dai nostri server. Quando non è possibile stabilire una connessione diretta, i media vengono inoltrati tramite un server TURN in forma cifrata che il relay non è in grado di leggere. Il nostro server gestisce l'accesso, il signaling, lo stream di speech-to-text dal vivo, la traduzione, il relay della chat e — dove abilitata — la conservazione delle trascrizioni.
 
 ## 3. Perché li trattiamo e basi giuridiche
 
 - Fornire la chiamata, la trascrizione e la traduzione — esecuzione di un contratto.
 - Trattare l'audio necessario a sottotitoli/traduzione dal vivo — contratto; e il tuo consenso prestato alla registrazione.
+- Conservare le trascrizioni per la tua successiva revisione ed esportazione — contratto; legittimo interesse a fornire lo storico delle chiamate.
 - Conteggio, fatturazione e prevenzione frodi — contratto; legittimo interesse.
+- Analisi di prodotto per comprendere e migliorare il Servizio — legittimo interesse.
 - Sicurezza, moderazione e gestione delle segnalazioni di abuso — legittimo interesse a un servizio sicuro; obbligo di legge.
 - Conservazione dei registri delle transazioni richiesti per legge — obbligo di legge.
+
+La trascrizione e la traduzione sono automatizzate (basate sull'IA) e possono essere imprecise; gli output dell'IA sono generati esclusivamente per fornire il Servizio e non sono usati per addestrare modelli di terze parti.
 
 ## 4. Fornitori di servizi (responsabili / sub-responsabili)
 
@@ -32,33 +34,48 @@ Condividiamo i dati personali con i fornitori indicati di seguito esclusivamente
 
 - **Google** — accesso (OAuth): nome, email, immagine del profilo.
 - **Deepgram** — speech-to-text: audio in streaming (transitorio).
-- **Groq** — traduzione automatica: testo della trascrizione (transitorio).
+- **Groq** — traduzione automatica (piano Standard): testo della trascrizione (transitorio).
+- **OpenAI** — traduzione in tempo reale (piano Premium): audio in streaming e testo della trascrizione (transitori).
 - **Stripe** — elaborazione dei pagamenti: dati di fatturazione e di pagamento.
-- **Supabase** — database / archiviazione account e fatturazione: dati di account, utilizzo, fatturazione, sicurezza.
+- **Supabase** — database e archiviazione file: dati di account, utilizzo, fatturazione e sicurezza, trascrizioni conservate e file allegati alla chat.
+- **Cloudflare** — distribuzione edge e relay media TURN: metadati di connessione; i media inoltrati restano cifrati e non sono leggibili dal relay.
+- **Resend** — email transazionali (ad esempio inviti e avvisi sull'account): indirizzo email del destinatario.
+- **Better Stack** — logging operativo e monitoraggio dell'uptime: metadati tecnici/di connessione.
 - **Vercel** — hosting del frontend: dati tecnici/di connessione.
 - **Railway** — hosting del backend: dati tecnici/di connessione.
 
-*(Verifica ruolo, area geografica e garanzie attuali di ciascun fornitore prima della pubblicazione e mantieni aggiornato questo elenco.)*
-
 ## 5. Per quanto tempo conserviamo i dati
 
-- **Audio, trascrizioni e traduzioni:** trattati in tempo reale e non conservati dopo la chiamata.
+- **Audio:** trattato in tempo reale e non conservato.
+- **Trascrizioni e traduzioni:** per le chiamate con un partecipante registrato, conservate finché non elimini la chiamata o il tuo account; le chiamate con soli ospiti non vengono conservate.
 - **Dati dell'account:** conservati finché l'account esiste; eliminati quando elimini l'account.
+- **File allegati alla chat:** conservati finché esiste la chiamata/l'account correlato e serviti tramite link privati di breve durata.
 - **Registri di fatturazione/transazioni:** conservati come richiesto dalle leggi fiscali e contabili applicabili.
 - **Segnalazioni di abuso e record di ban:** conservati per il tempo necessario a mantenere il Servizio sicuro e ad adempiere agli obblighi di legge.
+- **Log operativi:** conservati per un periodo limitato a fini di sicurezza e affidabilità.
 
-## 6. I tuoi diritti
+## 6. Cookie e archiviazione locale
 
-Nei limiti della legge applicabile, hai diritto di accedere, rettificare ed eliminare i tuoi dati; di riceverli in formato portabile; di limitare o opporti a determinati trattamenti; di revocare il consenso in qualsiasi momento; e di proporre reclamo all'autorità di controllo competente. Puoi esercitare accesso/portabilità con **Scarica i miei dati** e la cancellazione con **Elimina il mio account** nel pannello Privacy e dati dell'app, oppure scrivere a privacy@voxtranslate.app.
+Utilizziamo solo l'archiviazione del browser strettamente necessaria — **nessun** cookie pubblicitario di terze parti o di tracciamento cross-site, e nessun cookie pubblicitario o analitico:
 
-## 7. Sicurezza
+- un **token di sessione** conservato nel tuo browser per mantenerti connesso;
+- una **preferenza di consenso ai cookie** che ricorda la tua scelta sul banner dei cookie;
+- piccoli **flag di interfaccia** (ad esempio, ricordare che hai già visto un suggerimento su una funzione).
+
+Poiché sono strettamente necessari a fornire un servizio da te richiesto, non richiedono il consenso ai sensi delle norme ePrivacy.
+
+## 7. I tuoi diritti
+
+Nei limiti della legge applicabile, hai diritto di accedere, rettificare ed eliminare i tuoi dati; di riceverli in formato portabile; di limitare o opporti a determinati trattamenti; di revocare il consenso in qualsiasi momento; e di proporre reclamo a un'autorità di controllo. Puoi esercitare l'accesso e la portabilità con **Scarica i miei dati** e la cancellazione con **Elimina il mio account** nel pannello Privacy e dati dell'app, oppure scrivere a privacy@voxtranslate.app. Se ti trovi in Spagna, l'autorità di controllo capofila è la **Agencia Española de Protección de Datos (AEPD, www.aepd.es)**; puoi anche contattare l'autorità per la protezione dei dati del tuo paese di residenza.
+
+## 8. Sicurezza
 
 Adottiamo misure standard del settore per proteggere i dati personali, inclusa la cifratura in transito e media peer-to-peer che non transitano dai nostri server. Nessun metodo di trasmissione o archiviazione è però del tutto sicuro e non possiamo garantire una sicurezza assoluta.
 
-## 8. Minori
+## 9. Minori
 
 Il Servizio è destinato agli adulti (18+). Non trattiamo consapevolmente dati di minori. Se ritieni che un minore ci abbia fornito dati, contattaci e li elimineremo.
 
-## 9. Modifiche
+## 10. Modifiche
 
 Possiamo aggiornare questa Informativa; ne rivedremo la versione e la data e, per modifiche sostanziali, adotteremo ulteriori misure ove richiesto dalla legge.

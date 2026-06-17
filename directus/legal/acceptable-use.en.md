@@ -1,5 +1,3 @@
-> ⚠️ **Draft template — not legal advice.** Review with a qualified lawyer before relying on it.
-
 This Acceptable Use Policy ("AUP") sets out the rules for using VoxTranslate. It is part of our Terms of Service. By using the Service you agree to follow this AUP. We may suspend or terminate accounts, remove content, or restrict access for violations.
 
 ## 1. Be respectful to other participants
@@ -16,6 +14,7 @@ You may not use the Service to:
 - Do not use the Service for any unlawful purpose or to facilitate illegal activity.
 - Do not engage in fraud, scams, phishing, or impersonation of any person or organization.
 - Do not share content that infringes others' intellectual property or privacy rights.
+- Do not misuse AI or automated features — for example, using translation, transcription, or other automated tools to generate, disguise, or spread illegal, harmful, deceptive, or abusive content, or to circumvent these rules or the Service's safety measures.
 - Absolutely no content that sexually exploits or endangers minors. We report such content to the relevant authorities.
 
 ## 3. No spam or abuse of the platform
