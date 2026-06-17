@@ -1579,3 +1579,45 @@ async fn quiz_history_persists_and_lists_with_gates() {
         .await
         .unwrap();
 }
+
+#[tokio::test]
+async fn analytics_rollup_aggregates_session_events() {
+    let Some(srv) = setup().await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    let (uid, _jwt) = login(&srv, "Ann").await;
+    let session_id = Uuid::new_v4();
+    let svc = TranscriptService::new(srv.pool.clone());
+    svc.session_started(session_id, "rollup-room")
+        .await
+        .unwrap();
+
+    // A premium session_ended event of 180s should roll up to 3 minutes.
+    let mut ev = voxtranslate_server::analytics::UsageEvent::new("premium", "session_ended")
+        .session(session_id)
+        .user(Some(uid));
+    ev.duration_seconds = 180;
+    voxtranslate_server::analytics::insert_event(&srv.pool, &ev)
+        .await
+        .unwrap();
+    voxtranslate_server::analytics::roll_up(&srv.pool)
+        .await
+        .unwrap();
+
+    let (total, prem): (i32, i32) = sqlx::query_as(
+        "SELECT total_minutes, premium_minutes FROM user_usage_stats WHERE user_id = $1",
+    )
+    .bind(uid)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
+    assert_eq!(total, 3);
+    assert_eq!(prem, 3);
+
+    sqlx::query("DELETE FROM call_sessions WHERE id = $1")
+        .bind(session_id)
+        .execute(&srv.pool)
+        .await
+        .unwrap();
+}

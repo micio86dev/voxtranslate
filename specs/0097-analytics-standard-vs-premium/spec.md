@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Foundation landed (schema + ingestion seam); roll-up + dashboards pending |
+| **Status** | Pipeline complete (events + roll-up + dashboards script); deploy + run script to go live |
 | **Owner** | micio86dev |
 | **Created** | 2026-06-17 |
 | **Shipped** | — |
@@ -54,20 +54,32 @@ is the awaitable core.
 - **One proof ingestion point** — a `session_started` event emitted (non-blocking)
   when a billed session is created in `handle_peer`.
 
-## 5. Remaining work (needs the running system / Directus)
+## 5. What landed (full pipeline)
 
-- **Emit the full event set** at their points: `translation_used` (per finalized
-  translation, with language_from/to + cost_cents), `subtitles_on`,
-  `voice_generated`, `screen_shared`, `recording_started`. Each is one
-  `record_event(...)` call — the seam is proven.
-- **Roll-up job** — a periodic task (or Postgres scheduled function) that folds
-  raw events into `plan_usage_daily` / `user_usage_stats`. Cron or a Tokio interval
-  on the server; idempotent upsert keyed on `(day, plan)` / `user_id`.
-- **Directus dashboards** — 5 dashboards over the aggregate tables (plan
-  distribution, revenue, usage trends, feature breakdown, user intelligence). Needs
-  the Directus instance; no raw-event scans.
-- **KPIs** — minutes/sessions/revenue per plan, ARPU, retention (D1/D7/D30), feature
-  breakdown — all computable from the two aggregate tables.
+- **Event emission (server-observable, non-invasive):** `session_started` (on
+  join), `session_ended` (on teardown, carrying the connection duration — the core
+  "minutes per plan" KPI), `screen_shared` (on the share signal). All carry the
+  plan (engine tier) and are fire-and-forget.
+- **Roll-up loop:** `analytics::run_rollup` is spawned once at startup (every 5 min)
+  and folds raw events into `plan_usage_daily` + `user_usage_stats` via idempotent
+  upserts (full recompute). Integration test (`analytics_rollup_aggregates_session_events`)
+  verifies a premium 180 s event → 3 premium minutes in `user_usage_stats`.
+- **Directus dashboards:** `directus/setup-analytics-dashboards.mjs` registers the
+  aggregate collections + builds the 5 dashboards (Plan Distribution, Revenue,
+  Usage Trends, Feature Breakdown, User Intelligence). Same pattern + auth as
+  `setup-backoffice.mjs`; idempotent.
+
+## 6. To go live + remaining nice-to-haves
+
+1. **Deploy** the branch → sqlx applies migration 012 (creates the RLS-enabled
+   tables); event emission + roll-up start automatically.
+2. **Run** `node directus/setup-analytics-dashboards.mjs` with the Directus admin
+   env (the script needs the tables to exist first).
+3. *Nice-to-have follow-ups:* `translation_used` per-utterance (needs threading the
+   engine tier into the speech path / `SpeakerCtx`); client-reported feature events
+   (`subtitles_on`, `voice_generated`, `recording_started`) via a small analytics
+   ping; per-event `cost_cents` to light up the revenue-per-plan panels (Stripe
+   revenue is already authoritative on the Revenue dashboard).
 
 ## 6. GDPR / safety
 

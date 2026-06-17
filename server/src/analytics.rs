@@ -104,6 +104,71 @@ pub fn record_event(pool: &Pool, ev: UsageEvent) {
     });
 }
 
+/// Recompute `plan_usage_daily` from the raw events (idempotent upsert per day+plan).
+const PLAN_DAILY_SQL: &str = "
+    INSERT INTO plan_usage_daily
+        (day, plan, total_sessions, total_users, total_minutes, total_cost_cents, avg_session_duration)
+    SELECT
+        date_trunc('day', created_at)::date AS day,
+        plan,
+        count(DISTINCT session_id) AS total_sessions,
+        count(DISTINCT user_id)    AS total_users,
+        (sum(duration_seconds) / 60)::int AS total_minutes,
+        sum(cost_cents)::int       AS total_cost_cents,
+        CASE WHEN count(DISTINCT session_id) > 0
+             THEN (sum(duration_seconds) / count(DISTINCT session_id))::int ELSE 0 END
+    FROM session_usage_events
+    GROUP BY 1, 2
+    ON CONFLICT (day, plan) DO UPDATE SET
+        total_sessions       = EXCLUDED.total_sessions,
+        total_users          = EXCLUDED.total_users,
+        total_minutes        = EXCLUDED.total_minutes,
+        total_cost_cents     = EXCLUDED.total_cost_cents,
+        avg_session_duration = EXCLUDED.avg_session_duration";
+
+/// Recompute `user_usage_stats` from the raw events (idempotent upsert per user).
+const USER_STATS_SQL: &str = "
+    INSERT INTO user_usage_stats
+        (user_id, total_sessions, total_minutes, standard_minutes, premium_minutes, last_active_at, updated_at)
+    SELECT
+        user_id,
+        count(DISTINCT session_id),
+        (sum(duration_seconds) / 60)::int,
+        (coalesce(sum(duration_seconds) FILTER (WHERE plan = 'standard'), 0) / 60)::int,
+        (coalesce(sum(duration_seconds) FILTER (WHERE plan = 'premium'), 0) / 60)::int,
+        max(created_at),
+        now()
+    FROM session_usage_events
+    WHERE user_id IS NOT NULL
+    GROUP BY user_id
+    ON CONFLICT (user_id) DO UPDATE SET
+        total_sessions   = EXCLUDED.total_sessions,
+        total_minutes    = EXCLUDED.total_minutes,
+        standard_minutes = EXCLUDED.standard_minutes,
+        premium_minutes  = EXCLUDED.premium_minutes,
+        last_active_at   = EXCLUDED.last_active_at,
+        updated_at       = now()";
+
+/// Fold raw events into the read-optimized aggregates (full recompute; idempotent).
+/// Directus dashboards read ONLY these tables — never the raw event store.
+pub async fn roll_up(pool: &Pool) -> Result<(), sqlx::Error> {
+    sqlx::query(PLAN_DAILY_SQL).execute(pool).await?;
+    sqlx::query(USER_STATS_SQL).execute(pool).await?;
+    Ok(())
+}
+
+/// Periodic roll-up loop, spawned once at startup. Logs + drops errors so a failed
+/// roll-up never takes down the task.
+pub async fn run_rollup(pool: Pool, interval: std::time::Duration) {
+    let mut tick = tokio::time::interval(interval);
+    loop {
+        tick.tick().await;
+        if let Err(e) = roll_up(&pool).await {
+            tracing::warn!("analytics roll-up failed (non-fatal): {e}");
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

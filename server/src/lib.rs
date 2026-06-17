@@ -511,6 +511,12 @@ pub async fn serve() {
         }
     });
 
+    // Analytics roll-up (#241): periodically fold raw events into the aggregate
+    // tables Directus dashboards read. Skipped in guest-only mode (no DB).
+    if let Some(pool) = state.pool.clone() {
+        tokio::spawn(crate::analytics::run_rollup(pool, Duration::from_secs(300)));
+    }
+
     let addr = format!("0.0.0.0:{port}");
     let listener = match tokio::net::TcpListener::bind(&addr).await {
         Ok(l) => l,
@@ -1249,6 +1255,23 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
                                 }
                                 .to_json(),
                             );
+                            // Analytics (#241): one screen_shared event per share start.
+                            if active {
+                                if let Some(pool) = state.pool.as_ref() {
+                                    crate::analytics::record_event(
+                                        pool,
+                                        crate::analytics::UsageEvent::new(
+                                            crate::analytics::plan_for_tier(
+                                                &active_engine.metadata().tier,
+                                            ),
+                                            "screen_shared",
+                                        )
+                                        .session(session_id)
+                                        .user(billed_user)
+                                        .feature("screen_share"),
+                                    );
+                                }
+                            }
                         }
                         Ok(ClientMessage::Whiteboard { op }) => {
                             // Persist for late-joiners, then relay to the others (spec 0045).
@@ -1372,6 +1395,20 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
         duration_secs = session_start.elapsed().as_secs(),
         "ws session ended"
     );
+    // Analytics (#241): one session_ended event carrying the connection's duration —
+    // the core "minutes per plan" KPI. Non-blocking.
+    if let Some(pool) = state.pool.as_ref() {
+        let secs = session_start.elapsed().as_secs().min(i32::MAX as u64) as i32;
+        let mut ev = crate::analytics::UsageEvent::new(
+            crate::analytics::plan_for_tier(&active_engine.metadata().tier),
+            "session_ended",
+        )
+        .session(session_id)
+        .user(billed_user)
+        .feature("session");
+        ev.duration_seconds = secs;
+        crate::analytics::record_event(pool, ev);
+    }
     drop(audio_tx); // flush any active speaking session
     if let Some(c) = meter_cancel.take() {
         let _ = c.send(());
