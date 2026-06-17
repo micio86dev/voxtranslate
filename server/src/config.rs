@@ -40,6 +40,59 @@ pub struct Config {
     /// point at our own domain, never a client-supplied host. Override via
     /// `APP_BASE_URL`; trailing slash is trimmed.
     pub app_base_url: String,
+    /// OpenAI GPT-Realtime-Translate premium engine (spec 0093). Present only when
+    /// `OPENAI_API_KEY` is set — the Premium engine is registered (and shown in the
+    /// pre-join selector) iff this is `Some`, so the feature ships dark until the
+    /// key is configured.
+    pub openai: Option<OpenAiConfig>,
+}
+
+/// OpenAI Realtime Translation credentials + pricing (spec 0093). All-or-nothing
+/// like billing/Resend: activates only when `OPENAI_API_KEY` is present.
+#[derive(Debug, Clone)]
+pub struct OpenAiConfig {
+    /// Server-only API key (Bearer auth to the realtime WS); never sent to clients.
+    pub api_key: String,
+    /// Realtime translation model (`OPENAI_REALTIME_MODEL`).
+    pub model: String,
+    /// Raw server cost per minute, USD (`OPENAI_COST_PER_MINUTE`). Used for the
+    /// engine's user rate (`cost × (1 + markup)`); the raw value is never serialized.
+    pub cost_per_minute: f64,
+    /// Markup as a FRACTION (0.5 = 50%). From `OPENAI_COST_MARKUP_PERCENT`, falling
+    /// back to `ENGINE_DEFAULT_MARKUP_PERCENT`, divided by 100.
+    pub markup: f64,
+    /// Hard cap on concurrent OpenAI realtime sessions across the process
+    /// (`OPENAI_REALTIME_MAX_SESSIONS`) — backpressure for group rooms (spec 0093).
+    pub max_sessions: usize,
+}
+
+impl OpenAiConfig {
+    fn from_env() -> Self {
+        // Markup is configured in PERCENT (e.g. 50); store it as a fraction. Prefer
+        // the engine-specific override, then the global engine default, then 50%.
+        let percent = env::var("OPENAI_COST_MARKUP_PERCENT")
+            .ok()
+            .and_then(|v| v.trim().parse::<f64>().ok())
+            .or_else(|| {
+                env::var("ENGINE_DEFAULT_MARKUP_PERCENT")
+                    .ok()
+                    .and_then(|v| v.trim().parse::<f64>().ok())
+            })
+            .unwrap_or(50.0);
+        Self {
+            api_key: env::var("OPENAI_API_KEY").unwrap_or_default(),
+            model: env::var("OPENAI_REALTIME_MODEL")
+                .ok()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "gpt-realtime-translate".into()),
+            // Realtime speech-to-speech is materially pricier than Deepgram+Groq;
+            // this is a conservative placeholder — operators MUST set the real rate.
+            cost_per_minute: parse_or("OPENAI_COST_PER_MINUTE", 0.30f64),
+            markup: percent / 100.0,
+            max_sessions: parse_or("OPENAI_REALTIME_MAX_SESSIONS", 16usize),
+        }
+    }
 }
 
 /// How `/api/ice` authenticates a client to the TURN relay (spec 0026 / 0059).
@@ -295,6 +348,13 @@ impl Config {
         // `from_env` returns None when it's not fully configured.
         let turn = TurnConfig::from_env();
 
+        // Premium translation engine (spec 0093): present-gated on the API key.
+        let openai = if present("OPENAI_API_KEY") {
+            Some(OpenAiConfig::from_env())
+        } else {
+            None
+        };
+
         Ok(Self {
             deepgram_key,
             groq_key,
@@ -314,6 +374,7 @@ impl Config {
                 .map(|s| s.trim().trim_end_matches('/').to_string())
                 .filter(|s| !s.is_empty())
                 .unwrap_or_else(|| "https://voxtranslate.app".into()),
+            openai,
         })
     }
 
@@ -533,6 +594,7 @@ impl Config {
             turn: None,
             bug_report_to: "test@example.com".into(),
             app_base_url: "https://voxtranslate.app".into(),
+            openai: None,
         }
     }
 }

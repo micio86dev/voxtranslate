@@ -17,6 +17,7 @@ pub mod db;
 pub mod deepgram;
 pub mod email;
 pub mod email_template;
+pub mod engine;
 pub mod files;
 pub mod glossary;
 pub mod groq;
@@ -60,6 +61,7 @@ use crate::auth::{GoogleVerifier, TokenVerifier};
 use crate::billing::{usd, BillingService};
 use crate::config::Config;
 use crate::db::Pool;
+use crate::engine::{EngineRegistry, PremiumEngine, StandardEngine};
 use crate::glossary::GlossaryService;
 use crate::groq::Groq;
 use crate::moderation::{Moderator, Severity};
@@ -89,15 +91,6 @@ const DEFAULT_HTTP_PUBLIC_MAX_PER_MIN: u32 = 60;
 const WS_MSG_MAX: u32 = 500;
 const WS_MSG_WINDOW: Duration = Duration::from_secs(5);
 
-/// Capacity of a speaker's bounded audio→Deepgram channel (issue #123). 100 ms
-/// chunks of 32 kbps Opus are a few hundred bytes, so 256 chunks (~25 s) is far
-/// above any real backlog — the longest the forwarder pauses is the auto-detect
-/// REST probe (<2 s) — while bounding a stalled Deepgram session to ~100 KiB.
-/// Dropping mid-stream chunks would corrupt the WebM container, so on overflow
-/// the session is ended cleanly (STT resumes on the next `Start`) rather than
-/// silently dropped.
-const AUDIO_CHANNEL_CAP: usize = 256;
-
 /// RAII guard for the live WS-connection counter: `acquire` increments and returns the
 /// post-increment count; `Drop` decrements, so the count is balanced on every exit path.
 struct ConnGuard(Arc<AtomicUsize>);
@@ -121,6 +114,10 @@ pub struct AppState {
     pub config: Arc<Config>,
     pub rooms: Arc<RoomManager>,
     pub translator: Translator,
+    /// Translation-engine registry (spec 0093): Standard is always registered;
+    /// Premium (OpenAI) is added when its key is configured. Routing resolves the
+    /// per-speaker engine from this, never via `if engine == X`.
+    pub engines: Arc<EngineRegistry>,
     /// Direct Groq chat client for the AI features (report, sentiment, email
     /// draft, suggestions). Shares the pooled HTTP client with `translator`.
     pub groq: Groq,
@@ -178,6 +175,7 @@ impl AppState {
     /// stays `None`; use [`AppState::init`] to connect + migrate when billing is
     /// configured.
     pub fn new(config: Config) -> Self {
+        let config = Arc::new(config);
         let groq = Groq::new(config.groq_key.clone());
         // Admission cap on concurrent in-flight Groq translation calls across the
         // whole process (spec 0069) — bounds fan-out under a traffic spike.
@@ -202,10 +200,28 @@ impl AppState {
             .storage
             .as_ref()
             .map(|c| storage::SupabaseStorage::new(http.clone(), c));
+        // Engine registry (spec 0093): Standard wraps the Deepgram+Groq pipeline
+        // and is always available; Premium (OpenAI) is registered separately when
+        // its key is configured. Per-session services (rooms, moderator,
+        // transcripts) are passed at speak time, not captured here, so the
+        // registry can be built before `init` connects the database.
+        let mut registry = EngineRegistry::new(crate::engine::STANDARD_ID);
+        registry.register(Arc::new(StandardEngine::new(
+            config.clone(),
+            http.clone(),
+            translator.clone(),
+        )));
+        // Premium (OpenAI) is registered only when its key is configured, so the
+        // selector and `/api/engines` show it iff the feature is provisioned.
+        if let Some(oa) = config.openai.as_ref() {
+            registry.register(Arc::new(PremiumEngine::new(oa)));
+        }
+        let engines = Arc::new(registry);
         Self {
-            config: Arc::new(config),
+            config,
             rooms: Arc::new(RoomManager::new()),
             translator,
+            engines,
             groq,
             pool: None,
             billing: None,
@@ -311,6 +327,7 @@ pub fn app(state: AppState) -> Router {
         .route("/api/bug-report", post(api::bug_report))
         .route("/api/auth/google", post(auth::auth_google))
         .route("/api/user/me", get(auth::user_me))
+        .route("/api/engines", get(api::engines))
         .route("/api/billing/packages", get(api::billing_packages))
         .route("/api/billing/checkout", post(api::billing_checkout))
         .route("/api/billing/webhook", post(api::billing_webhook))
@@ -666,6 +683,8 @@ fn spawn_meter(
     room: &str,
     speaker_id: &str,
     speaker_lang: &str,
+    rate_per_second: f64,
+    scale_by_target_count: bool,
 ) -> Option<oneshot::Sender<()>> {
     let billing_cfg = state.config.billing.as_ref()?;
     let interval = billing_cfg.pricing.usage_update_interval;
@@ -677,12 +696,14 @@ fn spawn_meter(
         let (cancel_tx, cancel_rx) = oneshot::channel();
         let cfg = MeterConfig {
             interval_secs: interval,
-            rate_per_second: billing_cfg.pricing.user_rate_per_second,
+            // Per-engine rate (spec 0093): Premium bills higher than Standard.
+            rate_per_second,
             low_balance_threshold: billing_cfg.pricing.low_balance_threshold,
             rooms: Some(state.rooms.clone()),
             room: room.to_string(),
             speaker_id: speaker_id.to_string(),
             speaker_lang: speaker_lang.to_string(),
+            scale_by_target_count,
         };
         tokio::spawn(run_usage_meter(
             svc.clone(),
@@ -723,6 +744,7 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
         id,
         public,
         token,
+        engine: engine_id,
     } = params;
     let id = id
         .filter(|s| !s.trim().is_empty())
@@ -735,6 +757,11 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
     } else {
         Visibility::Private
     };
+    // Resolve the speaker's chosen translation engine once for the connection
+    // (spec 0093): drives the usage-session tag, the per-engine billing rate, and
+    // the speaking pipeline. Unknown/absent id → the default engine. Mutable so a
+    // mid-call credit squeeze can gracefully downgrade Premium → default.
+    let mut active_engine = state.engines.resolve(engine_id.as_deref());
 
     let (mut ws_tx, mut ws_rx) = socket.split();
 
@@ -898,7 +925,10 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
 
     // One usage session per call for billed users (cost accrues while speaking).
     let usage_session_id = match (billed_user, state.billing.as_ref()) {
-        (Some(uid), Some(svc)) => match svc.create_session(uid, &room).await {
+        (Some(uid), Some(svc)) => match svc
+            .create_session(uid, &room, active_engine.metadata().id.as_str())
+            .await
+        {
             Ok(sid) => Some(sid),
             Err(e) => {
                 tracing::error!("create usage session failed: {e}");
@@ -989,13 +1019,18 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
                                     speaker_user_id: billed_user,
                                     glossary: state.glossary.clone(),
                                 };
-                                audio_tx = if live_lang == "auto" {
-                                    // Detection pending: buffer → REST probe →
-                                    // stream (spec 0012).
-                                    Some(start_detecting_session(&state, ctx, participant_row))
-                                } else {
-                                    start_speaking_session(&state, ctx).await
+                                // Engine routing (spec 0093): resolve the speaker's
+                                // chosen engine (from the join payload), falling back
+                                // to the default for an absent/unknown id. The engine
+                                // owns the STT/translation pipeline, including the
+                                // `auto` detect flow — no engine-specific branching.
+                                let deps = engine::SessionDeps {
+                                    rooms: state.rooms.clone(),
+                                    moderator: state.moderator.clone(),
+                                    transcripts: state.transcripts.clone(),
+                                    participant_row,
                                 };
+                                audio_tx = active_engine.start_session(ctx, deps).await;
                                 if audio_tx.is_some() {
                                     meter_cancel = spawn_meter(
                                         &state,
@@ -1008,6 +1043,8 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
                                         &room,
                                         &id,
                                         &live_lang,
+                                        active_engine.metadata().user_rate_per_second(),
+                                        active_engine.metadata().capabilities.cost_scales_per_language,
                                     );
                                 }
                             }
@@ -1208,9 +1245,32 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
                 }
             }
             _ = exhaust_rx.recv() => {
-                // Credits/cap exhausted: stop audio -> STT, keep the call alive.
+                // Credits/cap exhausted: stop the current speaking session.
                 audio_tx = None;
                 meter_cancel = None;
+                // Graceful downgrade (spec 0093): a Premium speaker who runs low on
+                // credits falls back to the cheaper default engine rather than going
+                // silent. Tell the room — the speaker swaps capture + sees a notice;
+                // listeners stop expecting premium audio (TTS resumes). The client
+                // re-Starts under the new engine, opening a Standard session + meter
+                // (which still stops if even that can't be afforded).
+                let default_id = state.engines.default().metadata().id.clone();
+                if active_engine.metadata().id.as_str() == crate::engine::PREMIUM_ID
+                    && default_id != active_engine.metadata().id
+                {
+                    let from = active_engine.metadata().id.clone();
+                    active_engine = state.engines.default();
+                    state.rooms.broadcast(
+                        &room,
+                        &ServerMessage::EngineDowngraded {
+                            peer_id: id.clone(),
+                            from,
+                            to: default_id,
+                            reason: "low_balance".to_string(),
+                        }
+                        .to_json(),
+                    );
+                }
             }
             _ = out_overflow.notified() => {
                 // Outbound channel saturated (#123): this reader has stopped
@@ -1318,190 +1378,6 @@ fn handle_chat(
             .to_json(),
         );
     });
-}
-
-/// Open a fresh Deepgram connection for one speaking session and spawn the audio
-/// forwarder + subtitle router. Returns the audio sender, or `None` on failure.
-async fn start_speaking_session(
-    state: &AppState,
-    ctx: deepgram::SpeakerCtx,
-) -> Option<mpsc::Sender<Vec<u8>>> {
-    match deepgram::open_deepgram_ws(&ctx.speaker_lang, &state.config).await {
-        Ok((dg_sink, dg_source)) => {
-            let (audio_tx, audio_rx) = mpsc::channel::<Vec<u8>>(AUDIO_CHANNEL_CAP);
-            tokio::spawn(deepgram::forward_audio(audio_rx, dg_sink));
-            tokio::spawn(deepgram::process_transcripts(
-                dg_source,
-                state.rooms.clone(),
-                state.translator.clone(),
-                state.moderator.clone(),
-                ctx,
-                state.transcripts.clone(),
-            ));
-            Some(audio_tx)
-        }
-        Err(e) => {
-            tracing::error!("deepgram open failed: {e}");
-            state.rooms.relay_to_peer(
-                &ctx.room,
-                &ctx.speaker_id,
-                &ServerMessage::Error {
-                    message: "speech service unavailable".to_string(),
-                    code: None,
-                }
-                .to_json(),
-            );
-            None
-        }
-    }
-}
-
-/// Max bytes buffered while detecting (~3s of 32kbps Opus is ~12 KiB; the cap
-/// guards memory against pathological encoders).
-const MAX_DETECT_BUFFER: usize = 256 * 1024;
-
-/// Auto-detect variant of [`start_speaking_session`] (spec 0012): buffer the
-/// first `AUTO_DETECT_BUFFER_MS` of audio, probe the language via Deepgram's
-/// REST endpoint (`detect_language` has no streaming equivalent), then open the
-/// real streaming connection with the detected language and replay the buffer.
-/// The buffer is a valid clip AND a valid stream prefix because MediaRecorder's
-/// chunk #1 carries the WebM header. Probe failure falls back to English and
-/// surfaces a `detect_failed` error to the speaker.
-fn start_detecting_session(
-    state: &AppState,
-    ctx: deepgram::SpeakerCtx,
-    participant_row: Option<Uuid>,
-) -> mpsc::Sender<Vec<u8>> {
-    let (audio_tx, mut audio_rx) = mpsc::channel::<Vec<u8>>(AUDIO_CHANNEL_CAP);
-    let state = state.clone();
-    tokio::spawn(async move {
-        // Phase 1 — buffer chunks until the deadline, the size cap, or an early
-        // stop (the speaker muted / disconnected → channel closed).
-        let deadline =
-            tokio::time::sleep(Duration::from_millis(state.config.auto_detect_buffer_ms));
-        tokio::pin!(deadline);
-        let mut buf: Vec<Vec<u8>> = Vec::new();
-        let mut buffered = 0usize;
-        let mut channel_open = true;
-        loop {
-            tokio::select! {
-                chunk = audio_rx.recv() => match chunk {
-                    Some(c) => {
-                        buffered += c.len();
-                        buf.push(c);
-                        if buffered >= MAX_DETECT_BUFFER {
-                            break;
-                        }
-                    }
-                    None => {
-                        channel_open = false;
-                        break;
-                    }
-                },
-                _ = &mut deadline => break,
-            }
-        }
-        if buf.is_empty() {
-            return; // stopped before any audio arrived — nothing to detect
-        }
-
-        // Phase 2 — REST probe on the buffered clip (non-consuming: the chunks
-        // are replayed into the streaming connection in phase 4).
-        let clip = buf.concat();
-        let (lang, confidence) =
-            match deepgram::detect_language(&state.http, &state.config, clip).await {
-                Ok(r) => r,
-                Err(e) => {
-                    tracing::warn!("language detect failed: {e}");
-                    state.rooms.relay_to_peer(
-                        &ctx.room,
-                        &ctx.speaker_id,
-                        &ServerMessage::Error {
-                            message: "language detection failed — using English".to_string(),
-                            code: Some("detect_failed".to_string()),
-                        }
-                        .to_json(),
-                    );
-                    ("en".to_string(), None)
-                }
-            };
-
-        // Phase 3 — apply, unless a manual `set_lang` already resolved it while
-        // we were probing (the user's explicit correction always wins).
-        let live = state.rooms.peer_lang(&ctx.room, &ctx.speaker_id);
-        let final_lang = if live.as_deref() == Some("auto") {
-            state.rooms.set_peer_lang(&ctx.room, &ctx.speaker_id, &lang);
-            if let (Some(pid), Some(svc)) = (participant_row, state.transcripts.as_ref()) {
-                if let Err(e) = svc.update_participant_lang(pid, &lang).await {
-                    tracing::error!("participant lang update failed: {e}");
-                }
-            }
-            state.rooms.broadcast(
-                &ctx.room,
-                &ServerMessage::LanguageDetected {
-                    peer_id: ctx.speaker_id.clone(),
-                    lang: lang.clone(),
-                    confidence,
-                }
-                .to_json(),
-            );
-            lang
-        } else {
-            live.unwrap_or(lang)
-        };
-        if !channel_open {
-            return; // already stopped — the lang is recorded for the next start
-        }
-
-        // Phase 4 — open the real streaming session and replay the buffer in
-        // order, then bridge live chunks until the speaker stops.
-        let ctx = deepgram::SpeakerCtx {
-            speaker_lang: final_lang.clone(),
-            ..ctx
-        };
-        match deepgram::open_deepgram_ws(&final_lang, &state.config).await {
-            Ok((dg_sink, dg_source)) => {
-                let (dg_tx, dg_rx) = mpsc::channel::<Vec<u8>>(AUDIO_CHANNEL_CAP);
-                tokio::spawn(deepgram::forward_audio(dg_rx, dg_sink));
-                tokio::spawn(deepgram::process_transcripts(
-                    dg_source,
-                    state.rooms.clone(),
-                    state.translator.clone(),
-                    state.moderator.clone(),
-                    ctx,
-                    state.transcripts.clone(),
-                ));
-                // Bounded send (#123): this is a dedicated task (not the receive
-                // loop), so awaiting here backpressures cleanly — if Deepgram
-                // stalls, `audio_rx` fills to the cap and the receive loop ends
-                // the session. No chunk is dropped, so the WebM stream stays
-                // intact. `send` errors only when the forwarder is gone.
-                for chunk in buf {
-                    if dg_tx.send(chunk).await.is_err() {
-                        return;
-                    }
-                }
-                while let Some(chunk) = audio_rx.recv().await {
-                    if dg_tx.send(chunk).await.is_err() {
-                        break;
-                    }
-                }
-            }
-            Err(e) => {
-                tracing::error!("deepgram open after detect failed: {e}");
-                state.rooms.relay_to_peer(
-                    &ctx.room,
-                    &ctx.speaker_id,
-                    &ServerMessage::Error {
-                        message: "speech service unavailable".to_string(),
-                        code: None,
-                    }
-                    .to_json(),
-                );
-            }
-        }
-    });
-    audio_tx
 }
 
 /// Forward queued JSON strings to a WebSocket as text frames until the channel

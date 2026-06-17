@@ -13,6 +13,12 @@ export default defineConfig({
         'src/scripts/audio-capture.ts',
         'src/scripts/auth.ts',
         'src/scripts/content.ts',
+        // Translation-engine selection: pure preference/lang helpers — the
+        // fetch + selector rendering needs a DOM (spec 0093).
+        'src/scripts/engines.ts',
+        // Premium PCM helpers: pure Float32↔PCM16 + base64 decode — the
+        // AudioWorklet capture/playback needs real audio APIs (spec 0093).
+        'src/scripts/pcm.ts',
         // Composite recording: only the pure-math modules — the compositor /
         // mixer / recorder need real canvas + audio APIs (covered manually).
         'src/scripts/recording/layout.ts',

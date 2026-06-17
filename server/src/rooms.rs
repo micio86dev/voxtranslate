@@ -270,6 +270,18 @@ impl RoomManager {
         }
     }
 
+    /// Send to every peer in the room whose language is `lang`. The Premium engine
+    /// translates to one output language per OpenAI session (spec 0093), so its
+    /// captions and translated audio target a single language at a time — unlike
+    /// the Standard fan-out, which broadcasts one message carrying every language.
+    pub fn broadcast_to_lang(&self, room_id: &str, lang: &str, message: &str) {
+        if let Some(room) = self.rooms.get(room_id) {
+            for p in room.peers.iter().filter(|p| p.lang == lang) {
+                let _ = p.tx.send(message.to_string());
+            }
+        }
+    }
+
     /// Apply a whiteboard op to the room's stored op-log (spec 0045): `Clear`
     /// wipes it, `Draw` appends (dropping the oldest past `MAX_WHITEBOARD_OPS`).
     pub fn whiteboard_apply(&self, room_id: &str, op: WhiteboardOp) {
@@ -511,6 +523,28 @@ mod tests {
 
         rm.broadcast_except("r", "a", "z");
         assert_eq!(rb.try_recv().unwrap(), "z");
+        assert!(ra.try_recv().is_err());
+    }
+
+    #[test]
+    fn broadcast_to_lang_targets_one_language() {
+        // Premium captions/audio target a single output language (spec 0093).
+        let rm = RoomManager::new();
+        let (a, mut ra) = peer("a", "it");
+        let (b, mut rb) = peer("b", "en");
+        let (c, mut rc) = peer("c", "en");
+        rm.join("r", a, Visibility::Public).unwrap();
+        rm.join("r", b, Visibility::Public).unwrap();
+        rm.join("r", c, Visibility::Public).unwrap();
+
+        rm.broadcast_to_lang("r", "en", "hi-en");
+        assert_eq!(rb.try_recv().unwrap(), "hi-en");
+        assert_eq!(rc.try_recv().unwrap(), "hi-en");
+        assert!(ra.try_recv().is_err(), "italian peer gets nothing");
+
+        // No peers in a language → no-op (and unknown room is a no-op).
+        rm.broadcast_to_lang("r", "fr", "x");
+        rm.broadcast_to_lang("nope", "en", "x");
         assert!(ra.try_recv().is_err());
     }
 

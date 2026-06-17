@@ -113,6 +113,12 @@ const jsonLd = {
               </select>
             </label>
           </div>
+          <!-- Translation-engine selector (spec 0093): rendered by app.ts from
+               /api/engines; stays hidden when only one engine is available. -->
+          <div class="field" id="engine-field" hidden>
+            <span class="field-label" data-i18n="engineLabel"></span>
+            <div id="engine-options" class="engine-options" role="radiogroup" data-i18n-label="engineLabel"></div>
+          </div>
         </div>
 
         <div class="card">
@@ -772,6 +778,31 @@ const jsonLd = {
     /* Guest-gated public option: still clickable (it pops the sign-in modal), just
        flagged with a small lock so the gate is legible (spec 0036). */
     .seg-btn.locked::after { content: '🔒'; font-size: 0.72rem; margin-left: 6px; opacity: 0.7; }
+    /* Translation-engine selector (spec 0093): full-width radio cards built by
+       app.ts, so children are targeted with :global(). Never greyed/dim — every
+       option is an enabled choice (no-grey-disabled-looking-buttons rule). */
+    .engine-options { display: flex; flex-direction: column; gap: 8px; }
+    .engine-options :global(.engine-opt) {
+      width: 100%; text-align: left; cursor: pointer; transition: all 0.15s;
+      background: var(--bg); border: 1px solid var(--border); border-radius: 10px;
+      padding: 12px 14px; display: flex; flex-direction: column; gap: 4px;
+    }
+    .engine-options :global(.engine-opt:hover) { border-color: var(--accent); }
+    .engine-options :global(.engine-opt.active) { border-color: var(--accent); background: var(--accent-dim); }
+    .engine-options :global(.engine-opt-head) {
+      display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+    }
+    .engine-options :global(.engine-opt-name) { font-weight: 600; color: var(--text); font-size: 0.95rem; }
+    .engine-options :global(.engine-opt-rate) {
+      font-size: 0.8rem; color: var(--accent); font-variant-numeric: tabular-nums; flex: none;
+    }
+    .engine-options :global(.engine-opt-desc) { font-size: 0.8rem; color: var(--muted); line-height: 1.3; }
+    /* Transparency note: rate is per translation language (spec 0093). */
+    .engine-options :global(.engine-opt-note) {
+      font-size: 0.74rem; line-height: 1.3; color: var(--accent);
+      display: flex; gap: 5px; align-items: baseline;
+    }
+    .engine-options :global(.engine-opt-note)::before { content: 'ⓘ'; opacity: 0.85; }
     .vis-badge {
       font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted);
       border: 1px solid var(--border); border-radius: 999px; padding: 2px 8px;

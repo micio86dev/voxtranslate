@@ -1,11 +1,21 @@
 // VoxTranslate V2 client orchestrator: home/lobby → pre-join (camera + devices)
 // → WebRTC video call with translated subtitles + chat.
 
-import { applyI18n, detectLang, FLAG, getUiLang, setUiLang, t } from './i18n';
+import { applyI18n, detectLang, ENDONYM, FLAG, getUiLang, setUiLang, SUPPORTED, t } from './i18n';
+import {
+  type EngineInfo,
+  engineLangs,
+  formatRate,
+  loadEnginePref,
+  resolveEnginePref,
+  saveEnginePref,
+} from './engines';
 import { loadRemoteI18n } from './content';
 import { icon } from './icons';
 import { MeshManager } from './webrtc';
 import { AudioCapture } from './audio-capture';
+import { PcmCapture } from './pcm-capture';
+import { pcmPlayback } from './pcm-playback';
 import { MicMeter } from './mic-meter';
 import { ChatManager, type ChatPayload } from './chat';
 import { CHAT_MAX_HEIGHT, counterLabel, counterState, insertAt, resizeBox } from './chat-input';
@@ -94,6 +104,10 @@ const privacyModal = $('privacy-modal');
 const cookieBanner = $('cookie-banner');
 
 let billing = false; // accounts/credits enabled on this backend
+// Translation engines available on this backend (spec 0093). The selector renders
+// from this list; `selectedEngine` is the user's persisted choice (default 'standard').
+let availableEngines: EngineInfo[] = [];
+let selectedEngine = 'standard';
 let exhaustedIsGuest = false; // last balance_exhausted was a guest trial vs a billed user
 const blockedPeers = new Set<string>(); // peers blocked locally (muted + hidden)
 let reportTargetId = ''; // peer currently being reported
@@ -102,6 +116,8 @@ let reportTargetId = ''; // peer currently being reported
 const roomInput = $<HTMLInputElement>('room');
 const nameInput = $<HTMLInputElement>('name');
 const langSel = $<HTMLSelectElement>('lang');
+const engineField = $('engine-field');
+const engineOptions = $('engine-options');
 const enterBtn = $<HTMLButtonElement>('enter');
 const homeStatus = $('home-status');
 const visGroup = $('vis-group');
@@ -177,7 +193,8 @@ const myId =
   (crypto && crypto.randomUUID && crypto.randomUUID()) ||
   `id-${Math.random().toString(36).slice(2)}-${Date.now()}`;
 
-let session: { room: string; lang: string; name: string; isPublic: boolean } | null = null;
+let session: { room: string; lang: string; name: string; isPublic: boolean; engine: string } | null =
+  null;
 let localStream: MediaStream | null = null;
 let ws: WebSocket | null = null;
 let mesh: MeshManager | null = null;
@@ -234,7 +251,10 @@ const callTimer = new CallTimer({
   },
   onCancel: () => toast(t('timerCancelled')),
 });
-let audioCapture: AudioCapture | null = null;
+let audioCapture: AudioCapture | PcmCapture | null = null;
+// Speakers whose translated audio arrives from the server (Premium engine, spec
+// 0093). We never also browser-TTS them — they'd be heard twice, out of sync.
+const premiumSpeakers = new Set<string>();
 let micMeter: MicMeter | null = null; // mic-button voice halo (input working)
 let chat: ChatManager | null = null;
 let lobbyTimer: number | null = null;
@@ -300,6 +320,9 @@ const subtitleTimers = new Map<string, number>();
 // ============================================================================
 langSel.value = detectLang();
 applyI18n();
+// Discover translation engines + restore the saved choice (spec 0093). Async;
+// the selector reveals itself once the list arrives. Default engine until then.
+void initEngines();
 // Global connection-status banner (offline / reconnecting / back online).
 initNetStatus();
 langSel.addEventListener('change', () => {
@@ -310,6 +333,109 @@ langSel.addEventListener('change', () => {
 
 function updateVisHint(): void {
   visHint.textContent = visibilityPublic ? '' : t('privateHint');
+}
+
+// ============================================================================
+// Translation-engine selection (spec 0093)
+// ============================================================================
+// Fetch the engines this backend offers, restore the persisted choice, render the
+// selector (only when there's a real choice), and drive the language dropdown from
+// the chosen engine. The selector stays hidden in single-engine deployments.
+async function initEngines(): Promise<void> {
+  try {
+    const res = await fetch(`${HTTP_BASE}/api/engines`);
+    if (!res.ok) return; // keep the default engine; selector stays hidden
+    availableEngines = (await res.json()) as EngineInfo[];
+  } catch {
+    return; // offline / unreachable → default engine, selector hidden
+  }
+  selectedEngine = resolveEnginePref(loadEnginePref(), availableEngines);
+  renderEngineSelector();
+  rebuildLangOptions();
+}
+
+function renderEngineSelector(): void {
+  // A one-engine deployment (the common case until Premium is provisioned) has no
+  // choice to make — keep the selector out of the way.
+  if (availableEngines.length < 2) {
+    engineField.hidden = true;
+    return;
+  }
+  engineOptions.replaceChildren();
+  for (const e of availableEngines) {
+    const active = e.id === selectedEngine;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'engine-opt' + (active ? ' active' : '');
+    btn.setAttribute('role', 'radio');
+    btn.setAttribute('aria-checked', String(active));
+    btn.dataset.engine = e.id;
+    const head = document.createElement('span');
+    head.className = 'engine-opt-head';
+    const name = document.createElement('span');
+    name.className = 'engine-opt-name';
+    name.textContent = e.display_name;
+    const rate = document.createElement('span');
+    rate.className = 'engine-opt-rate';
+    rate.textContent = formatRate(e.rate_per_minute);
+    head.append(name, rate);
+    const desc = document.createElement('span');
+    desc.className = 'engine-opt-desc';
+    desc.textContent = e.description;
+    btn.append(head, desc);
+    // Transparency (spec 0093): when the rate is per translation stream, say so —
+    // a group call with more languages costs more.
+    if (e.capabilities.cost_scales_per_language) {
+      const note = document.createElement('span');
+      note.className = 'engine-opt-note';
+      note.textContent = t('engineCostPerLanguage');
+      btn.append(note);
+    }
+    btn.addEventListener('click', () => selectEngine(e.id));
+    engineOptions.appendChild(btn);
+  }
+  engineField.hidden = false;
+}
+
+function selectEngine(id: string): void {
+  if (id === selectedEngine) return;
+  selectedEngine = id;
+  saveEnginePref(id);
+  renderEngineSelector();
+  rebuildLangOptions();
+}
+
+// Rebuild the language dropdown from the chosen engine's supported languages
+// (intersected with the languages we can label). Preserves the current selection
+// when still valid; keeps "auto" first. A no-op visually while both engines share
+// the same language set, but keeps the UI data-driven for future divergence.
+function rebuildLangOptions(): void {
+  const allowed = engineLangs(selectedEngine, availableEngines, [...SUPPORTED]);
+  const prev = langSel.value;
+  const codes = ['auto', ...allowed];
+  langSel.replaceChildren();
+  for (const code of codes) {
+    const o = document.createElement('option');
+    o.value = code;
+    if (code === 'auto') {
+      o.setAttribute('data-i18n', 'langAuto');
+      o.textContent = t('langAuto');
+    } else {
+      o.textContent = ENDONYM[code] ?? code;
+    }
+    langSel.appendChild(o);
+  }
+  const next = codes.includes(prev) ? prev : (allowed[0] ?? 'auto');
+  if (next !== prev) {
+    // The chosen engine dropped the current UI language — follow the new value
+    // (this select doubles as the UI language; see the change handler above).
+    langSel.value = next;
+    setUiLang(next);
+    applyI18n();
+    updateVisHint();
+  } else {
+    langSel.value = next;
+  }
 }
 
 // ============================================================================
@@ -455,7 +581,7 @@ $('signin-gate-signin').addEventListener('click', () => {
 // Pre-join: camera preview + device selectors
 // ============================================================================
 async function goPrejoin(room: string, isPublic: boolean): Promise<void> {
-  session = { room, lang: langSel.value, name: nameInput.value.trim(), isPublic };
+  session = { room, lang: langSel.value, name: nameInput.value.trim(), isPublic, engine: selectedEngine };
   stopLobby();
   homeScreen.classList.add('hidden');
   prejoinScreen.classList.remove('hidden');
@@ -631,6 +757,7 @@ $('back-btn').addEventListener('click', () => {
 $('join-btn').addEventListener('click', () => {
   if (!localStream || !session) return;
   unlockTts(); // iOS: prime speechSynthesis inside the tap so translations play
+  pcmPlayback.unlock(); // same for the Premium translated-audio context (spec 0093)
   void startCall();
 });
 
@@ -701,6 +828,7 @@ function openSocket(): void {
   if (!session) return;
   const params = new URLSearchParams({ room: session.room, lang: session.lang, id: myId, public: String(session.isPublic) });
   if (session.name) params.set('name', session.name);
+  if (session.engine) params.set('engine', session.engine);
   ws = new WebSocket(auth.buildWsUrl(params));
 
   ws.onopen = () => {
@@ -726,7 +854,11 @@ function openSocket(): void {
     mesh.setAudioEnabled(micOn);
     mesh.setVideoEnabled(camOn);
 
-    audioCapture = new AudioCapture(localStream!, ws!);
+    // Premium speakers capture PCM16/24k (for OpenAI) instead of WebM/Opus.
+    audioCapture =
+      session?.engine === 'premium'
+        ? new PcmCapture(localStream!, ws!)
+        : new AudioCapture(localStream!, ws!);
     if (micOn) audioCapture.start();
 
     // Tell peers if we joined already muted / camera-off so their UI matches.
@@ -887,6 +1019,34 @@ async function handleServer(msg: any): Promise<void> {
     case 'subtitle_interim':
       if (subtitlesOn) showSubtitle(msg.speaker_id, msg.text, true);
       break;
+    case 'translated_audio': {
+      // Premium engine (spec 0093): real translated speech from the server. The
+      // server already targets only our language, so just play it (gated on the
+      // "translated voice" toggle, like TTS). Marks the speaker so we don't also
+      // synthesize them. Their original WebRTC voice is ducked by applyAudioMode().
+      premiumSpeakers.add(msg.speaker_id);
+      if (ttsOn && msg.speaker_id !== myId) pcmPlayback.enqueue(msg.speaker_id, msg.seq, msg.pcm16_b64);
+      break;
+    }
+    case 'engine_downgraded': {
+      // A speaker's engine was switched mid-call (spec 0093), e.g. Premium → Standard
+      // when credits ran low.
+      if (msg.peer_id === myId) {
+        // It's us: swap our capture (PCM→WebM) and continue under the new engine.
+        if (session) session.engine = msg.to;
+        const wasActive = micOn;
+        audioCapture?.stop();
+        if (ws && localStream) {
+          audioCapture = new AudioCapture(localStream, ws);
+          if (wasActive) audioCapture.start();
+        }
+        showNotif(t('enginePremiumPaused'));
+      } else {
+        // A peer downgraded: stop expecting their premium audio so TTS resumes.
+        premiumSpeakers.delete(msg.peer_id);
+      }
+      break;
+    }
     case 'subtitle_final': {
       transcriptEvents++;
       const myLang = session?.lang || 'en';
@@ -900,8 +1060,15 @@ async function handleServer(msg: any): Promise<void> {
       // Speak only foreign-language speakers (same-language → you hear their
       // real voice). Their original WebRTC audio is muted by applyAudioMode().
       // While our own lang is still "auto" (detection pending) there is no
-      // valid TTS voice/translation to pick — skip until it resolves.
-      if (ttsOn && msg.speaker_id !== myId && msg.lang !== myLang && myLang !== 'auto')
+      // valid TTS voice/translation to pick — skip until it resolves. Premium
+      // speakers stream real translated audio (translated_audio) — never TTS them.
+      if (
+        ttsOn &&
+        msg.speaker_id !== myId &&
+        msg.lang !== myLang &&
+        myLang !== 'auto' &&
+        !premiumSpeakers.has(msg.speaker_id)
+      )
         speak(text, myLang);
       // Voice-command timer (spec 0052): only OUR OWN final transcript can arm a
       // timer — a peer's speech never controls your clock. Parsed from the raw
@@ -1900,8 +2067,13 @@ async function buildOutgoing(raw: MediaStreamTrack): Promise<MediaStreamTrack> {
 
 btnTts.addEventListener('click', () => {
   ttsOn = !ttsOn;
-  if (ttsOn) unlockTts(); // iOS: re-prime within this tap when turning voice on
-  else stopTts();
+  if (ttsOn) {
+    unlockTts(); // iOS: re-prime within this tap when turning voice on
+    pcmPlayback.unlock();
+  } else {
+    stopTts();
+    pcmPlayback.reset(); // stop any queued translated audio when muting voice
+  }
   applyAudioMode(); // mute/unmute foreign originals to match the mode
   setControlState();
 });
@@ -2463,6 +2635,8 @@ function leaveCall(): void {
     localStream = null;
   }
   stopTts();
+  pcmPlayback.stop(); // tear down the Premium translated-audio graph (spec 0093)
+  premiumSpeakers.clear();
   handRaised = false;
   viewMode = 'grid';
   pinnedPeerId = null;

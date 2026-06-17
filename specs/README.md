@@ -118,6 +118,9 @@ Each spec follows the same skeleton:
 | [0088](0088-screenshare-bitrate/spec.md) | Separate, higher, env-tunable bitrate while screen sharing (+ contentHint detail) so shared text/UI isn't grainy | ✅ Shipped | 2026-06-17 | `ae83820` |
 | [0089](0089-screenshare-spotlight/spec.md) | Auto-spotlight the screen share for everyone (zoom-in to focus view, zoom-out on stop) | ✅ Shipped | 2026-06-17 | `62e6bad` |
 | [0090](0090-invite-panel-fix/spec.md) | Fix the in-call invite panel on mobile: buttons under inputs (no x-scroll), close X icon, correct text colours | ✅ Shipped | 2026-06-17 | `385576b` |
+| [0091](0091-pwa-launcher-dark-splash/spec.md) | PWA launcher dark splash + maskable icon | ✅ Shipped | 2026-06-17 | `65e66ac` |
+| [0092](0092-ios-pwa-splash/spec.md) | iOS PWA splash screens | ✅ Shipped | 2026-06-17 | `bc59546` |
+| [0093](0093-premium-translation-engine/spec.md) | Premium translation engine (OpenAI GPT-Realtime-Translate) + N-engine registry | 🚧 In progress | — | — |
 
 > Numbers 0011–0015 were claimed by commit messages while the AI bundle shipped
 > without spec docs (and 0011/0012 were each reused twice); the assignments

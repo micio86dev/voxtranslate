@@ -35,6 +35,7 @@ fn make_state() -> (AppState, bool) {
                 turn: None,
                 bug_report_to: "test@example.com".into(),
                 app_base_url: "https://voxtranslate.app".into(),
+                openai: None,
             }),
             false,
         ),
@@ -144,6 +145,41 @@ async fn health_and_rooms_and_bad_params() {
         .await
         .unwrap();
     assert_eq!(bad.status(), 400);
+}
+
+#[tokio::test]
+async fn engines_endpoint_lists_standard_without_leaking_cost() {
+    // The engine registry is surfaced for the pre-join selector (spec 0093). The
+    // default `standard` engine is always present; raw cost/markup never leave the
+    // server — only the computed `rate_per_minute`.
+    let (addr, _) = spawn().await;
+    let body = reqwest::Client::new()
+        .get(format!("http://{addr}/api/engines"))
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    let list: Value = serde_json::from_str(&body).unwrap();
+    let arr = list.as_array().expect("engines is a JSON array");
+    let standard = arr
+        .iter()
+        .find(|e| e["id"] == "standard")
+        .expect("standard engine is always available");
+    assert_eq!(standard["tier"], "standard");
+    assert!(standard["rate_per_minute"].is_number());
+    assert!(standard["output_languages"]
+        .as_array()
+        .unwrap()
+        .contains(&Value::from("en")));
+    assert_eq!(
+        standard["capabilities"]["translated_audio"],
+        Value::from(false)
+    );
+    // The billing-internal raw cost and markup must never be serialized.
+    assert!(!body.contains("cost_per_minute"), "raw cost leaked: {body}");
+    assert!(!body.contains("markup"), "markup leaked: {body}");
 }
 
 #[tokio::test]
@@ -338,6 +374,7 @@ async fn deepgram_unavailable_sends_error() {
         turn: None,
         bug_report_to: "test@example.com".into(),
         app_base_url: "https://voxtranslate.app".into(),
+        openai: None,
     });
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -399,6 +436,7 @@ fn guest_config() -> Config {
         turn: None,
         bug_report_to: "test@example.com".into(),
         app_base_url: "https://voxtranslate.app".into(),
+        openai: None,
     }
 }
 

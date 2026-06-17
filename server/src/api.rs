@@ -47,6 +47,15 @@ pub async fn billing_packages(State(state): State<AppState>) -> Response {
     }
 }
 
+/// `GET /api/engines` — the translation engines available in this deployment
+/// (spec 0093). The pre-join selector renders from this list, so it's always
+/// present (at least the default `standard` engine). Each entry carries the
+/// user-facing `rate_per_minute` (cost × markup); the raw cost/markup never leave
+/// the server.
+pub async fn engines(State(state): State<AppState>) -> Response {
+    Json(state.engines.infos()).into_response()
+}
+
 /// `GET /api/ice` — ICE servers for WebRTC peer connections (spec 0026). Always
 /// returns public STUN; when a self-hosted coturn is configured (`TURN_*`) it also
 /// returns time-limited TURN credentials via coturn's REST-API convention:
