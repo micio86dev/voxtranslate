@@ -2,11 +2,12 @@
 
 | | |
 |---|---|
-| **Status** | In progress |
+| **Status** | ✅ Shipped |
 | **Owner** | Micio Dev |
 | **Created** | 2026-06-17 |
-| **Shipped** | — |
+| **Shipped** | 2026-06-17 |
 | **Version** | — |
+| **Commits** | `62e6bad` |
 | **Depends on** | [0033](../0033-screen-share/spec.md) (screen share + relay), [0055](../0055-meet-like-session-ui/spec.md) (focus/pin view) |
 
 ## 1. Context & Problem
