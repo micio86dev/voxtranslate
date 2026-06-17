@@ -168,7 +168,7 @@ try {
     console.log('✗ Backend returned 403 "invalid admin secret" — Directus is sending an empty/wrong secret.');
     console.log('  → On the DIRECTUS service (Railway), set and then RESTART:');
     console.log('      ADMIN_API_SECRET      = <exact same value as the backend service>');
-    console.log('      VOX_API_URL           = https://voxtranslate-server-production.up.railway.app');
+    console.log('      VOX_API_URL           = https://api.voxtranslate.app');
     console.log('      FLOWS_ENV_ALLOW_LIST  = ADMIN_API_SECRET,VOX_API_URL');
   } else if (status === 503) {
     console.log('✗ Backend returned 503 — the backend service has no ADMIN_API_SECRET set. Fix it on the backend, not Directus.');
