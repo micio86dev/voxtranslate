@@ -12,6 +12,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use base64::Engine as _;
 use chrono::Utc;
 use futures::{SinkExt as _, StreamExt as _};
 use tokio::sync::{mpsc, OwnedSemaphorePermit, Semaphore};
@@ -184,6 +185,7 @@ impl SessionReader {
         let mut original = String::new(); // speaker's words (input transcript)
         let mut translated = String::new(); // this session's output language
         let mut dirty = false;
+        let mut audio_seq: u64 = 0; // orders translated-audio chunks for the client
         let idle = sleep(Duration::from_millis(SEGMENT_IDLE_MS));
         tokio::pin!(idle);
 
@@ -213,8 +215,9 @@ impl SessionReader {
                             self.emit_interim_to_lang(&translated);
                             idle.as_mut().reset(Instant::now() + Duration::from_millis(SEGMENT_IDLE_MS));
                         }
-                        OpenAiEvent::OutputAudioDelta(_pcm) => {
-                            // S3: forward translated audio to listeners in `self.lang`.
+                        OpenAiEvent::OutputAudioDelta(pcm) => {
+                            self.emit_audio(audio_seq, &pcm);
+                            audio_seq += 1;
                         }
                         OpenAiEvent::Closed => break,
                         OpenAiEvent::Error(e) => {
@@ -251,6 +254,24 @@ impl SessionReader {
                 speaker_name: self.speaker_name.clone(),
                 text: translated.to_string(),
                 lang: self.source_lang.clone(),
+            }
+            .to_json(),
+        );
+    }
+
+    /// Forward one translated-audio chunk to the listeners of this language. The
+    /// PCM was base64-decoded on parse (validating it); re-encode for the JSON
+    /// frame the client plays via its AudioWorklet.
+    fn emit_audio(&self, seq: u64, pcm16: &[u8]) {
+        let b64 = base64::engine::general_purpose::STANDARD.encode(pcm16);
+        self.rooms.broadcast_to_lang(
+            &self.room,
+            &self.lang,
+            &ServerMessage::TranslatedAudio {
+                speaker_id: self.speaker_id.clone(),
+                lang: self.lang.clone(),
+                seq,
+                pcm16_b64: b64,
             }
             .to_json(),
         );

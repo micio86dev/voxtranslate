@@ -14,6 +14,8 @@ import { loadRemoteI18n } from './content';
 import { icon } from './icons';
 import { MeshManager } from './webrtc';
 import { AudioCapture } from './audio-capture';
+import { PcmCapture } from './pcm-capture';
+import { pcmPlayback } from './pcm-playback';
 import { MicMeter } from './mic-meter';
 import { ChatManager, type ChatPayload } from './chat';
 import { CHAT_MAX_HEIGHT, counterLabel, counterState, insertAt, resizeBox } from './chat-input';
@@ -249,7 +251,10 @@ const callTimer = new CallTimer({
   },
   onCancel: () => toast(t('timerCancelled')),
 });
-let audioCapture: AudioCapture | null = null;
+let audioCapture: AudioCapture | PcmCapture | null = null;
+// Speakers whose translated audio arrives from the server (Premium engine, spec
+// 0093). We never also browser-TTS them — they'd be heard twice, out of sync.
+const premiumSpeakers = new Set<string>();
 let micMeter: MicMeter | null = null; // mic-button voice halo (input working)
 let chat: ChatManager | null = null;
 let lobbyTimer: number | null = null;
@@ -744,6 +749,7 @@ $('back-btn').addEventListener('click', () => {
 $('join-btn').addEventListener('click', () => {
   if (!localStream || !session) return;
   unlockTts(); // iOS: prime speechSynthesis inside the tap so translations play
+  pcmPlayback.unlock(); // same for the Premium translated-audio context (spec 0093)
   void startCall();
 });
 
@@ -840,7 +846,11 @@ function openSocket(): void {
     mesh.setAudioEnabled(micOn);
     mesh.setVideoEnabled(camOn);
 
-    audioCapture = new AudioCapture(localStream!, ws!);
+    // Premium speakers capture PCM16/24k (for OpenAI) instead of WebM/Opus.
+    audioCapture =
+      session?.engine === 'premium'
+        ? new PcmCapture(localStream!, ws!)
+        : new AudioCapture(localStream!, ws!);
     if (micOn) audioCapture.start();
 
     // Tell peers if we joined already muted / camera-off so their UI matches.
@@ -1001,6 +1011,15 @@ async function handleServer(msg: any): Promise<void> {
     case 'subtitle_interim':
       if (subtitlesOn) showSubtitle(msg.speaker_id, msg.text, true);
       break;
+    case 'translated_audio': {
+      // Premium engine (spec 0093): real translated speech from the server. The
+      // server already targets only our language, so just play it (gated on the
+      // "translated voice" toggle, like TTS). Marks the speaker so we don't also
+      // synthesize them. Their original WebRTC voice is ducked by applyAudioMode().
+      premiumSpeakers.add(msg.speaker_id);
+      if (ttsOn && msg.speaker_id !== myId) pcmPlayback.enqueue(msg.speaker_id, msg.seq, msg.pcm16_b64);
+      break;
+    }
     case 'subtitle_final': {
       transcriptEvents++;
       const myLang = session?.lang || 'en';
@@ -1014,8 +1033,15 @@ async function handleServer(msg: any): Promise<void> {
       // Speak only foreign-language speakers (same-language → you hear their
       // real voice). Their original WebRTC audio is muted by applyAudioMode().
       // While our own lang is still "auto" (detection pending) there is no
-      // valid TTS voice/translation to pick — skip until it resolves.
-      if (ttsOn && msg.speaker_id !== myId && msg.lang !== myLang && myLang !== 'auto')
+      // valid TTS voice/translation to pick — skip until it resolves. Premium
+      // speakers stream real translated audio (translated_audio) — never TTS them.
+      if (
+        ttsOn &&
+        msg.speaker_id !== myId &&
+        msg.lang !== myLang &&
+        myLang !== 'auto' &&
+        !premiumSpeakers.has(msg.speaker_id)
+      )
         speak(text, myLang);
       // Voice-command timer (spec 0052): only OUR OWN final transcript can arm a
       // timer — a peer's speech never controls your clock. Parsed from the raw
@@ -2014,8 +2040,13 @@ async function buildOutgoing(raw: MediaStreamTrack): Promise<MediaStreamTrack> {
 
 btnTts.addEventListener('click', () => {
   ttsOn = !ttsOn;
-  if (ttsOn) unlockTts(); // iOS: re-prime within this tap when turning voice on
-  else stopTts();
+  if (ttsOn) {
+    unlockTts(); // iOS: re-prime within this tap when turning voice on
+    pcmPlayback.unlock();
+  } else {
+    stopTts();
+    pcmPlayback.reset(); // stop any queued translated audio when muting voice
+  }
   applyAudioMode(); // mute/unmute foreign originals to match the mode
   setControlState();
 });
@@ -2577,6 +2608,8 @@ function leaveCall(): void {
     localStream = null;
   }
   stopTts();
+  pcmPlayback.stop(); // tear down the Premium translated-audio graph (spec 0093)
+  premiumSpeakers.clear();
   handRaised = false;
   viewMode = 'grid';
   pinnedPeerId = null;

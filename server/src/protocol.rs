@@ -260,6 +260,17 @@ pub enum ServerMessage {
         translations: HashMap<String, String>,
     },
 
+    /// A chunk of **premium translated audio** (spec 0093) for the listeners of
+    /// `lang`: PCM16 mono @ 24 kHz, base64-encoded. The client plays it via an
+    /// AudioWorklet — NOT browser TTS. `seq` orders chunks within the speaker's
+    /// stream (the client drops out-of-order/duplicate frames).
+    TranslatedAudio {
+        speaker_id: String,
+        lang: String,
+        seq: u64,
+        pcm16_b64: String,
+    },
+
     /// Live credit balance after a usage deduction (sent only to the speaker).
     BalanceUpdate {
         balance: f64,
@@ -536,6 +547,18 @@ mod tests {
         assert!(
             with_file.contains("\"name\":\"memo.mp3\"") && with_file.contains("\"size\":12345")
         );
+
+        // Premium translated audio (spec 0093): tagged + carries base64 PCM.
+        let ta = ServerMessage::TranslatedAudio {
+            speaker_id: "s".into(),
+            lang: "en".into(),
+            seq: 7,
+            pcm16_b64: "AAAB".into(),
+        }
+        .to_json();
+        assert!(ta.contains("\"type\":\"translated_audio\""));
+        assert!(ta.contains("\"lang\":\"en\"") && ta.contains("\"seq\":7"));
+        assert!(ta.contains("\"pcm16_b64\":\"AAAB\""));
 
         // Glossary badge (spec 0011): name omitted when None.
         let g = ServerMessage::GlossaryActive {
