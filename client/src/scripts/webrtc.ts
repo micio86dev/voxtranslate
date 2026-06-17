@@ -178,6 +178,13 @@ export class MeshManager {
     if (this.localStream.getVideoTracks().length === 0) {
       pc.addTransceiver?.('video', { direction: 'sendrecv', streams: [this.localStream] });
     }
+    // Same guarantee for AUDIO: a peer who joined without a mic (denied or
+    // audio-only-off) otherwise has no audio sender, so a later tab/screen audio
+    // share couldn't reach anyone (replaceTrack has nothing to swap). Ensure an
+    // audio m-line exists up front so share audio flows with no renegotiation (#229).
+    if (this.localStream.getAudioTracks().length === 0) {
+      pc.addTransceiver?.('audio', { direction: 'sendrecv', streams: [this.localStream] });
+    }
     // Re-balance outbound video across all peers (spec 0030/0031): the per-stream
     // cap is the upload budget ÷ peer count, so the total uplink stays ~constant as
     // the room fills; the browser's congestion control reduces further if needed.

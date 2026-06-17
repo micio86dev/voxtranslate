@@ -981,6 +981,7 @@ async function handleServer(msg: any): Promise<void> {
       break;
     case 'screen_share':
       setScreenShareIndicator(msg.peer_id, msg.active);
+      applyAudioMode(); // re-evaluate muting: a sharer's audio is never muted, so shared audio is heard (#229)
       spotlightShare(msg.peer_id, msg.active); // zoom the sharer's tile into focus (spec 0089)
       break;
     case 'whiteboard': // a peer's stroke/clear (spec 0045)
@@ -1497,7 +1498,11 @@ function applyAudioMode(): void {
       video.muted = true; // locally blocked → always silent
     } else {
       const peerLang = peerNames.get(id)?.lang;
-      video.muted = !!(ttsOn && peerLang && myLang && peerLang !== myLang);
+      // A screen-sharing peer's audio track may carry shared tab/system audio
+      // (music, a video) that everyone should hear — never mute it for the
+      // translated-voice setting, or the shared audio is lost (#229).
+      const sharing = cell.classList.contains('sharing');
+      video.muted = !sharing && !!(ttsOn && peerLang && myLang && peerLang !== myLang);
     }
     // PiP clones are display-only and always muted (audio stays on these live
     // elements), so there's nothing to keep in sync here.
@@ -2275,21 +2280,27 @@ async function startScreenShare(): Promise<void> {
     const s = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
     screenStream = s;
     isSharingScreen = true;
-    // If the user ticked "share audio", mix it with the mic and send the mix to
-    // peers. No screen-audio track (box unticked / unsupported) → the mic path is
-    // left untouched, so the common no-audio share carries zero voice-path risk.
+    // If the user ticked "share audio", route it to peers. With a mic present we
+    // MIX mic + share (peers hear you AND the shared audio); with no mic we send
+    // the shared audio alone — previously this was gated on having a mic, so a
+    // muted/no-mic sharer transmitted nothing (#229). Either way it leaves on the
+    // (now always-present) audio sender via replaceTrack — no renegotiation. No
+    // screen-audio track (box unticked / unsupported) → the mic path is untouched.
     const shareAudio = s.getAudioTracks();
-    if (shareAudio.length && localStream?.getAudioTracks().length) {
+    if (shareAudio.length) {
       try {
         shareAudioCtx = new AudioContext();
-        void shareAudioCtx.resume();
+        await shareAudioCtx.resume(); // a suspended context yields a SILENT mix → no audio reaches peers
         const dest = shareAudioCtx.createMediaStreamDestination();
-        shareAudioCtx.createMediaStreamSource(new MediaStream(localStream.getAudioTracks())).connect(dest);
         shareAudioCtx.createMediaStreamSource(new MediaStream(shareAudio)).connect(dest);
+        const mic = localStream?.getAudioTracks() ?? [];
+        if (mic.length) {
+          shareAudioCtx.createMediaStreamSource(new MediaStream(mic)).connect(dest);
+        }
         shareMixTrack = dest.stream.getAudioTracks()[0] ?? null;
         if (shareMixTrack) mesh.replaceAudioTrack(shareMixTrack);
       } catch {
-        // WebAudio unavailable → mic-only audio; the screen video still shares.
+        // WebAudio unavailable → mic-only audio (if any); the screen video still shares.
         shareAudioCtx = null;
         shareMixTrack = null;
       }
