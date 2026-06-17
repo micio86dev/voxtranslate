@@ -2,8 +2,9 @@
 """Generate Apple PWA startup images (apple-touch-startup-image).
 
 Renders a rounded white app-icon tile (from client/public/icon.png) centred on
-the app's dark shell colour (#0a0b10) — matching the Android splash — at every
-modern iPhone/iPad resolution, in portrait and landscape.
+the brand blue (#0871ab) — matching the manifest background_color + theme-color,
+so the launch shows blue (no blue→black flash) — at every modern iPhone/iPad
+resolution, in portrait and landscape.
 
 Pure-Python PNG for the antialiased rounded master, then `sips` (native, fast)
 to resize + centre-pad per device. No third-party deps. macOS only (sips).
@@ -20,8 +21,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ICON = os.path.join(ROOT, "client", "public", "icon.png")
 OUTDIR = os.path.join(ROOT, "client", "public", "splash")
 MASTER = os.path.join(OUTDIR, "_master.png")  # temp, removed at the end
-BG = (10, 11, 16)  # #0a0b10 — the app shell --bg
-BG_HEX = "0A0B10"
+BG = (8, 113, 171)  # #0871ab — brand blue (matches theme-color → no blue→black flash)
+BG_HEX = "0871AB"
 
 # (device-width pt, device-height pt, device-pixel-ratio) in portrait.
 # Covers the current iPhone/iPad line-up plus recent models.
