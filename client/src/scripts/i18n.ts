@@ -24,6 +24,7 @@ export const I18N: Record<string, Dict> = {
     tagline: 'Real-time translated video calls', roomCode: 'Room code', copy: 'Copy',
     copied: 'Copied', copyFailed: 'Copy failed', nameLabel: 'Your name', namePlaceholder: 'Guest',
     langLabel: 'Your language', engineLabel: 'Translation engine', connect: 'Enter room', enterRoom: 'Enter a room code',
+    enginePremiumPaused: 'Premium credits ran low — switched to Standard translation.',
     camMicDenied: 'Camera/microphone access denied', connecting: 'Connecting…', roomFull: 'This room is full (max 4)',
     createOrJoin: 'Create or join a room', visibility: 'Visibility', public: 'Public', private: 'Private',
     publicRooms: 'Public rooms online', noPublicRooms: 'No public rooms yet — create one!',

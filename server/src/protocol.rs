@@ -283,6 +283,18 @@ pub enum ServerMessage {
     /// WebRTC call itself stays up; the user can buy credits and resume.
     BalanceExhausted,
 
+    /// A speaker's translation engine was switched mid-call (spec 0093) — e.g.
+    /// Premium downgraded to the cheaper default when its credits ran low.
+    /// Broadcast to the room: the speaker (`peer_id == me`) switches their capture
+    /// and shows a notice; listeners stop expecting that speaker's premium audio,
+    /// so browser TTS resumes for them. `reason` lets the client tailor the notice.
+    EngineDowngraded {
+        peer_id: String,
+        from: String,
+        to: String,
+        reason: String,
+    },
+
     /// A message (spoken or chat) was blocked by moderation; warn the sender.
     ModerationWarning {
         message: String,
@@ -480,6 +492,17 @@ mod tests {
         assert!(ServerMessage::BalanceExhausted
             .to_json()
             .contains("\"type\":\"balance_exhausted\""));
+        // Engine downgrade (spec 0093): carries who + from/to + reason.
+        let dg = ServerMessage::EngineDowngraded {
+            peer_id: "p".into(),
+            from: "premium".into(),
+            to: "standard".into(),
+            reason: "low_balance".into(),
+        }
+        .to_json();
+        assert!(dg.contains("\"type\":\"engine_downgraded\""));
+        assert!(dg.contains("\"from\":\"premium\"") && dg.contains("\"to\":\"standard\""));
+        assert!(dg.contains("\"reason\":\"low_balance\""));
 
         // Emoji reactions + hand-raise (PR #1).
         let e = ServerMessage::EmojiReaction {

@@ -1020,6 +1020,25 @@ async function handleServer(msg: any): Promise<void> {
       if (ttsOn && msg.speaker_id !== myId) pcmPlayback.enqueue(msg.speaker_id, msg.seq, msg.pcm16_b64);
       break;
     }
+    case 'engine_downgraded': {
+      // A speaker's engine was switched mid-call (spec 0093), e.g. Premium → Standard
+      // when credits ran low.
+      if (msg.peer_id === myId) {
+        // It's us: swap our capture (PCM→WebM) and continue under the new engine.
+        if (session) session.engine = msg.to;
+        const wasActive = micOn;
+        audioCapture?.stop();
+        if (ws && localStream) {
+          audioCapture = new AudioCapture(localStream, ws);
+          if (wasActive) audioCapture.start();
+        }
+        showNotif(t('enginePremiumPaused'));
+      } else {
+        // A peer downgraded: stop expecting their premium audio so TTS resumes.
+        premiumSpeakers.delete(msg.peer_id);
+      }
+      break;
+    }
     case 'subtitle_final': {
       transcriptEvents++;
       const myLang = session?.lang || 'en';

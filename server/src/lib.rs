@@ -757,8 +757,9 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
     };
     // Resolve the speaker's chosen translation engine once for the connection
     // (spec 0093): drives the usage-session tag, the per-engine billing rate, and
-    // the speaking pipeline. Unknown/absent id → the default engine.
-    let active_engine = state.engines.resolve(engine_id.as_deref());
+    // the speaking pipeline. Unknown/absent id → the default engine. Mutable so a
+    // mid-call credit squeeze can gracefully downgrade Premium → default.
+    let mut active_engine = state.engines.resolve(engine_id.as_deref());
 
     let (mut ws_tx, mut ws_rx) = socket.split();
 
@@ -1241,9 +1242,32 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
                 }
             }
             _ = exhaust_rx.recv() => {
-                // Credits/cap exhausted: stop audio -> STT, keep the call alive.
+                // Credits/cap exhausted: stop the current speaking session.
                 audio_tx = None;
                 meter_cancel = None;
+                // Graceful downgrade (spec 0093): a Premium speaker who runs low on
+                // credits falls back to the cheaper default engine rather than going
+                // silent. Tell the room — the speaker swaps capture + sees a notice;
+                // listeners stop expecting premium audio (TTS resumes). The client
+                // re-Starts under the new engine, opening a Standard session + meter
+                // (which still stops if even that can't be afforded).
+                let default_id = state.engines.default().metadata().id.clone();
+                if active_engine.metadata().id.as_str() == crate::engine::PREMIUM_ID
+                    && default_id != active_engine.metadata().id
+                {
+                    let from = active_engine.metadata().id.clone();
+                    active_engine = state.engines.default();
+                    state.rooms.broadcast(
+                        &room,
+                        &ServerMessage::EngineDowngraded {
+                            peer_id: id.clone(),
+                            from,
+                            to: default_id,
+                            reason: "low_balance".to_string(),
+                        }
+                        .to_json(),
+                    );
+                }
             }
             _ = out_overflow.notified() => {
                 // Outbound channel saturated (#123): this reader has stopped
