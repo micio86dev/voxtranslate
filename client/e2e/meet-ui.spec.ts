@@ -17,11 +17,12 @@ test('meet-ui: reaction chips, on-video clock/room/info + participant badge (spe
   await reactions.first().click();
   await expect(reactions).toHaveCount(4);
 
-  // R2 — on-video meta cluster, top-left: live wall-clock (HH:MM), the room code, and
-  // the ⓘ info button are all visible over the video (no separate header row).
+  // R2 — on-video meta cluster, top-left: live wall-clock (HH:MM) and the room code
+  // are visible over the video (no separate header row). The ⓘ info popover was
+  // dropped in #131; the visibility/balance strip lives in `.stage-info-strip`.
   await expect(a.page.locator('.stage-meta #header-clock')).toHaveText(/^\d{1,2}:\d{2}/);
   await expect(a.page.locator('.stage-meta #call-room')).toHaveText(new RegExp(room, 'i'));
-  await expect(a.page.locator('.stage-meta #call-info')).toBeVisible();
+  await expect(a.page.locator('.stage-info-strip #call-vis')).toBeVisible();
 
   // R3 — participant badge, top-right: avatar initial (Alice → "A") + a live count that
   // starts at 1 (self), rises to 2 when a peer joins, and falls back to 1 on leave.
@@ -35,21 +36,15 @@ test('meet-ui: reaction chips, on-video clock/room/info + participant badge (spe
   bob.close();
   await expect(count).toHaveText('1');
 
-  // R4 — room-info popover: the ⓘ button discloses the session duration (which ticks),
-  // closed by default so it never crowds the video. Balance lives here too (#98).
-  await expect(a.page.locator('#call-info-pop')).toBeHidden();
-  await a.page.click('#call-info');
-  await expect(a.page.locator('#call-info-pop')).toBeVisible();
-  const elapsed = a.page.locator('#call-info-pop #session-elapsed');
-  await expect(a.page.locator('#call-info-pop #session-timer')).toBeVisible();
+  // R4 — the always-visible on-video info strip shows a session duration that ticks,
+  // plus the balance slot. The old ⓘ popover (#call-info / #call-info-pop) was dropped
+  // in #131; duration + balance now live directly in `.stage-info-strip`.
+  const elapsed = a.page.locator('.stage-info-strip #session-elapsed');
+  await expect(a.page.locator('.stage-info-strip #session-timer')).toBeVisible();
   await expect(elapsed).toHaveText(/^\d{2}:\d{2}$/);
   const first = await elapsed.textContent();
   await expect.poll(() => elapsed.textContent(), { timeout: 4000 }).not.toBe(first);
-  await expect(a.page.locator('#call-info-pop #call-balance')).toBeAttached();
-
-  // Escape closes the popover (mirrors the other in-call popovers).
-  await a.page.keyboard.press('Escape');
-  await expect(a.page.locator('#call-info-pop')).toBeHidden();
+  await expect(a.page.locator('.stage-info-strip #call-balance')).toBeAttached();
 
   await closePage(a);
 });
