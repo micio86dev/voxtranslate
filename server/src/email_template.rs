@@ -166,8 +166,11 @@ a{{color:{BRAND};}}\
 <tr><td style=\"background:{BRAND};padding:22px 32px;\">\
 <table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\"><tr>\
 <td style=\"vertical-align:middle;padding-right:12px;\">\
+<table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\"><tr>\
+<td bgcolor=\"#ffffff\" style=\"background:#ffffff;border-radius:10px;padding:5px;line-height:0;\">\
 <img src=\"{logo}\" width=\"40\" height=\"40\" alt=\"VoxTranslate\" \
- style=\"display:block;border-radius:9px;\"/></td>\
+ style=\"display:block;border-radius:7px;\"/></td>\
+</tr></table></td>\
 <td style=\"vertical-align:middle;font-family:{FONT};font-size:21px;font-weight:700;\
  color:#ffffff;letter-spacing:0.2px;\">VoxTranslate</td>\
 </tr></table></td></tr>\
