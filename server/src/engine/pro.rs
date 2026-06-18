@@ -278,20 +278,28 @@ async fn run_connection(
                 }
             },
             msg = source.next() => {
+                // Gemini Live sends EVERY server frame as BINARY (UTF-8 JSON) — including
+                // setupComplete, transcripts, and the translated audio. Handling only
+                // Text would silently drop all output (no voice, no subtitles), so decode
+                // Binary too.
                 let text = match msg {
-                    Some(Ok(Message::Text(t))) => t,
+                    Some(Ok(Message::Text(t))) => t.to_string(),
+                    Some(Ok(Message::Binary(b))) => match std::str::from_utf8(&b) {
+                        Ok(s) => s.to_string(),
+                        Err(_) => continue,
+                    },
                     Some(Ok(Message::Close(_))) | None => {
                         if dirty { reader.flush_final(&original, &translated); }
                         return ConnOutcome::Dropped;
                     }
-                    Some(Ok(_)) => continue, // ping/pong/binary
+                    Some(Ok(_)) => continue, // ping/pong
                     Some(Err(e)) => {
                         tracing::warn!("gemini stream error: {e}");
                         if dirty { reader.flush_final(&original, &translated); }
                         return ConnOutcome::Dropped;
                     }
                 };
-                for event in gemini::parse_server_message(text.as_str()) {
+                for event in gemini::parse_server_message(&text) {
                     match event {
                         GeminiEvent::SetupComplete => {
                             tracing::debug!(lang = %reader.lang, "gemini: setup complete");
