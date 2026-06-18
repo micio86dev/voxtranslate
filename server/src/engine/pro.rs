@@ -80,8 +80,8 @@ impl ProEngine {
         let langs: Vec<String> = PRO_LANGS.iter().map(|s| s.to_string()).collect();
         let meta = EngineMetadata {
             id: GEMINI_ID.to_string(),
-            display_name: "Pro".to_string(),
-            tier: "pro".to_string(),
+            display_name: "Premium".to_string(),
+            tier: "premium".to_string(),
             description: "Natural speech-to-speech translation by Google Gemini 3.5 \
                           Live — auto-detects 70+ spoken languages and returns a \
                           translated voice with matching subtitles."
@@ -513,12 +513,12 @@ mod tests {
     }
 
     #[test]
-    fn metadata_positions_pro_between_standard_and_premium() {
+    fn metadata_labels_gemini_as_premium() {
         let engine = ProEngine::new(&cfg(4));
         let m = engine.metadata();
-        assert_eq!(m.id, GEMINI_ID);
-        assert_eq!(m.display_name, "Pro");
-        assert_eq!(m.tier, "pro");
+        assert_eq!(m.id, GEMINI_ID); // stable id unchanged
+        assert_eq!(m.display_name, "Premium");
+        assert_eq!(m.tier, "premium");
         // Speech-to-speech, per-language billing — like Premium.
         assert!(m.capabilities.translated_audio);
         assert!(m.capabilities.cost_scales_per_language);

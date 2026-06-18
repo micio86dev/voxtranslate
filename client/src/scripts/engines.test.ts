@@ -8,7 +8,6 @@ import {
   defaultEngineId,
   engineDescKey,
   engineLangs,
-  engineTierUi,
   formatRate,
   loadEnginePref,
   resolveEnginePref,
@@ -133,24 +132,8 @@ describe('preference persistence', () => {
 
   it('maps tiers to localized description keys, null for unknown (#236)', () => {
     expect(engineDescKey('standard')).toBe('engineDescStandard');
-    expect(engineDescKey('pro')).toBe('engineDescPro'); // fallback only; UI labels come from engineTierUi
-    expect(engineDescKey('premium')).toBe('engineDescPremium');
+    expect(engineDescKey('pro')).toBe('engineDescPro'); // OpenAI = the "Pro" tier
+    expect(engineDescKey('premium')).toBe('engineDescPremium'); // Gemini = the "Premium" tier
     expect(engineDescKey('enterprise')).toBeNull(); // unknown → caller falls back to server desc
-  });
-});
-
-describe('engineTierUi (UI label swap)', () => {
-  it('shows OpenAI as Pro, Gemini as Premium, Premium above Pro', () => {
-    const openai = engineTierUi(engine('premium', ['en']));
-    const gemini = engineTierUi(engine('gemini_live_translate', ['en']));
-    const std = engineTierUi(engine('standard', ['en']));
-    expect(openai.label).toBe('Pro');
-    expect(gemini.label).toBe('Premium');
-    expect(std.label).toBe('Standard');
-    // Premium (Gemini) sorts visually above Pro (OpenAI).
-    expect(gemini.order).toBeLessThan(openai.order);
-  });
-  it('falls back to the server display_name for an unknown engine', () => {
-    expect(engineTierUi(engine('enterprise', ['en'])).label).toBe('enterprise');
   });
 });
