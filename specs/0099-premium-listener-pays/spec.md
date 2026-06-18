@@ -181,3 +181,21 @@ join-time `receive_engine` + listener meter). Generalization rules:
   receive-engine rate); guests keep the per-Start speaking cap.
 - Then step 7 (client i18n/pricing copy) + step 8 (dry-run). Known-deferred edge cases (§8):
   capacity-fallback premium billing; Standard-listener exhaust cap.
+
+**✅ DONE (2026-06-18, committed + pushed): the lib.rs N-engine core loop is re-applied.**
+`notify_capture_formats`/`spawn_listener_meter` + the Start/binary/Stop/exhaust/PeerLeft
+listener-pays branches, generalized to N engines (capability-driven, not hardcoded ids).
+Flag OFF = prod byte-identical; fmt+clippy clean; 200 lib + all integration + 256 client
+tests pass. **Verified end-to-end locally** (`LISTENER_PAYS=1`, guest-premium bypass): a
+speaker on Standard whose LISTENER chose Gemini → the listener received **Gemini**-quality
+translation (subtitles + voice) and the speaker was told to capture PCM. The listener's
+choice drove the quality — listener-pays confirmed.
+
+**Refinement (MVP carry-over from the original branch, validate/decide at the dry-run):** the
+**engine SET** for a speaker is chosen at their `Start` (which engines run = the listeners
+present then). LANGUAGES reconcile live (the per-engine reconcile from #262), but a listener
+who joins / changes their receive-engine *mid-speech* isn't picked up until the speaker
+re-Starts (mute→unmute). Fine for the dry-run (engines chosen pre-join). A full engine-set
+reconcile (timer in the WS loop, start/stop engines + restart Standard when the premium set
+flips its `listener_pays` flag) is the follow-up — share the structure with the language
+reconcile.
