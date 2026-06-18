@@ -94,9 +94,10 @@ export function commonLangs(engines: EngineInfo[], known: string[]): string[] {
   return known.filter((l) => engines.every((e) => e.output_languages.includes(l)));
 }
 
-/** Format a per-minute rate for display, e.g. `$0.45/min`. */
+/** Format a per-minute rate for display, e.g. `$0.066/min`. Three decimals because
+ *  the cheaper tiers land in the sub-cent-resolution range (e.g. $0.010 vs $0.066). */
 export function formatRate(ratePerMinute: number): string {
-  return `$${ratePerMinute.toFixed(2)}/min`;
+  return `$${ratePerMinute.toFixed(3)}/min`;
 }
 
 /** i18n key for an engine's user-facing description, by tier (#236). The server's

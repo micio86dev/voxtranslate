@@ -93,8 +93,8 @@ describe('commonLangs', () => {
 
 describe('formatRate', () => {
   it('formats a per-minute USD rate', () => {
-    expect(formatRate(0.01)).toBe('$0.01/min');
-    expect(formatRate(0.45)).toBe('$0.45/min');
+    expect(formatRate(0.01)).toBe('$0.010/min');
+    expect(formatRate(0.45)).toBe('$0.450/min');
   });
 });
 
