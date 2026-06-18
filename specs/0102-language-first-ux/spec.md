@@ -41,7 +41,7 @@ changes**.
 - A **language-first picker**: pick target language (full union, region-grouped, searchable,
   flag + native + English name, browser auto-detect) → see only the tiers that output it,
   cheapest pre-selected, with rate + estimated minutes and a low-credit top-up nudge.
-- **Maximum language coverage**: a single shared `shared/languages.json` source of truth
+- **Maximum language coverage**: a single `server/src/engine/languages.json` source of truth
   (per-language metadata + per-tier output lists), consumed by **both** the Rust backend and
   the TS frontend.
 - **Full UI i18n** in every union language, high quality, with **RTL** (`ar he fa ur …`).
@@ -74,7 +74,8 @@ changes**.
 
 ## 4. Design & Architecture
 
-- **Shared source of truth — `shared/languages.json`** (NEW):
+- **Shared source of truth — `server/src/engine/languages.json`** (NEW; lives under `server/`
+  so it's inside the server's Railway/Docker build context, which only uploads `server/`):
   - `languages[]`: `{ code, native, english, region, rtl, flag }` — the union universe.
   - `regions[]`: `europe, asia, mena, subsaharan, americas` (picker grouping order).
   - `tiers{}`: per-tier output-language code lists. `premium` = the full union (universal
@@ -105,7 +106,7 @@ changes**.
 | Slice | What | Key files |
 |-------|------|-----------|
 | S0 | Spec | this file |
-| S1 | Shared map + `langmap` (Rust+TS) + replace `*_LANGS` + `lang_name` | `shared/languages.json`, `engine/langmap.rs`, `engine/{standard,pro,premium,soniox}.rs`, `groq.rs`, `engine/mod.rs`, `client/src/scripts/langmap.ts` |
+| S1 | Shared map + `langmap` (Rust+TS) + replace `*_LANGS` + `lang_name` | `server/src/engine/languages.json`, `engine/langmap.rs`, `engine/{standard,pro,premium,soniox}.rs`, `groq.rs`, `engine/mod.rs`, `client/src/scripts/langmap.ts` |
 | S2 | `LANGUAGE_FIRST_UX` flag + `/api/engines` `{engines,flags}` | `config.rs`, `api.rs`, fixtures (`config.rs`, `tests/integration.rs`, `tests/billing.rs`), `engines.ts`, `app.ts` |
 | S3 | `allLanguages`/`getAvailableTiers`/`cheapestTier` | `engines.ts` |
 | S4 | Language-first picker + tier cards | `app.ts`, `index.astro` |
