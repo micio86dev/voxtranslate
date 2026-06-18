@@ -993,6 +993,12 @@ async function handleServer(msg: any): Promise<void> {
       // peer — cancel the pending removal so the tile never flickers out, and skip
       // the join chime.
       const reconnected = cancelPendingRemoval(msg.peer_id);
+      // Clear any stale "premium speaker" flag: engine is picked on the pre-join
+      // screen, so switching tier = leave+rejoin under the SAME (per-tab) peer id. If
+      // they were Premium/Pro before and rejoin on Standard, a leftover flag would keep
+      // suppressing their TTS forever (only subtitles). They're re-flagged on their next
+      // `translated_audio` frame if still on a speech-to-speech engine.
+      premiumSpeakers.delete(msg.peer_id);
       peerNames.set(msg.peer_id, { name: msg.user_name, lang: msg.lang, avatar: msg.avatar_url });
       addCell(msg.peer_id, msg.user_name, msg.lang, false, msg.avatar_url);
       if (!reconnected) playJoinSound(); // audible cue only for a genuinely new peer

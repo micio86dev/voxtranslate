@@ -48,9 +48,13 @@ export function base64ToFloat32(b64: string): Float32Array {
 }
 
 /** Whether a chunk with sequence `seq` should play given the last played `last`.
- *  Drops duplicates and out-of-order frames; `last < 0` accepts the first. WS
- *  preserves order within a connection, but a reconnect/downgrade can replay a
- *  seq, so this keeps playback monotonic. */
+ *  Plays forward progress (and the first frame, `last < 0`). The server's `audio_seq`
+ *  is PER-CONNECTION, so every upstream reconnect (Gemini `goAway`, a dropped socket,
+ *  a reconcile re-open) restarts it at 0 — over an in-order WS a `seq === 0` arriving
+ *  after a higher `last` can ONLY be such a restart, so accept it as a fresh stream
+ *  instead of muting the speaker for the rest of the call (the bug: subtitles kept
+ *  working but translated voice died after the first reconnect). Genuine duplicates /
+ *  out-of-order frames (`seq <= last`, `seq !== 0`) are still dropped. */
 export function shouldPlay(seq: number, last: number): boolean {
-  return seq > last;
+  return seq > last || seq === 0;
 }

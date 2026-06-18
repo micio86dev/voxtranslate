@@ -47,4 +47,12 @@ describe('shouldPlay', () => {
     expect(shouldPlay(4, 4)).toBe(false); // duplicate
     expect(shouldPlay(3, 4)).toBe(false); // out of order
   });
+
+  it('accepts a reset-to-0 (upstream reconnect restarts audio_seq at 0)', () => {
+    // After a Gemini/OpenAI reconnect the server's per-connection seq restarts at 0;
+    // the client must keep playing instead of dropping every frame below the old
+    // high-water mark (which silenced the translated voice after the first reconnect).
+    expect(shouldPlay(0, 50)).toBe(true);
+    expect(shouldPlay(1, 0)).toBe(true); // the new stream then climbs normally
+  });
 });
