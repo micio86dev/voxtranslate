@@ -123,7 +123,15 @@ impl TranslationEngine for PremiumEngine {
         // the speaker's own (Gemini auto-detects the source; translating into it is a
         // no-op). `run_session` then reconciles these live against room membership, so a
         // peer who joins (or whose `auto` resolves) after Start is picked up too.
-        let mut targets = deps.rooms.get_room_languages(&ctx.room, &ctx.speaker_id);
+        // Listener-pays (spec 0099): a paid Gemini session is opened for a language
+        // only when a listener of that language chose THIS engine; otherwise every
+        // distinct other language (legacy speaker-pays).
+        let mut targets = if deps.listener_pays {
+            deps.rooms
+                .target_langs_for_engine(&ctx.room, &ctx.speaker_id, GEMINI_ID)
+        } else {
+            deps.rooms.get_room_languages(&ctx.room, &ctx.speaker_id)
+        };
         targets.retain(|l| l != &ctx.speaker_lang);
         tracing::info!(
             speaker = %ctx.speaker_id,
@@ -217,7 +225,12 @@ async fn run_session(
                 None => return,
             },
             _ = reconcile.tick() => {
-                let mut want = deps.rooms.get_room_languages(&ctx.room, &ctx.speaker_id);
+                let mut want = if deps.listener_pays {
+                    deps.rooms
+                        .target_langs_for_engine(&ctx.room, &ctx.speaker_id, GEMINI_ID)
+                } else {
+                    deps.rooms.get_room_languages(&ctx.room, &ctx.speaker_id)
+                };
                 want.retain(|l| l != &ctx.speaker_lang);
                 let active_keys: HashSet<String> = active.keys().cloned().collect();
                 let (to_drop, to_add) = reconcile_langs(&active_keys, &want);
@@ -270,6 +283,7 @@ fn spawn_lang_session(
         source_lang: ctx.speaker_lang.clone(),
         session_id: ctx.session_id,
         speaker_user_id: ctx.speaker_user_id,
+        listener_pays: deps.listener_pays,
     };
     tokio::spawn(session_task(config.clone(), reader, feed_rx, permit));
     if is_primary {
@@ -447,14 +461,27 @@ struct SessionReader {
     source_lang: String,
     session_id: Uuid,
     speaker_user_id: Option<Uuid>,
+    /// Listener-pays (spec 0099): deliver this Gemini output only to the listeners who
+    /// chose Gemini ("Premium"), not every listener of the language.
+    listener_pays: bool,
 }
 
 impl SessionReader {
+    /// Deliver one output frame to this language's listeners. In listener-pays mode
+    /// that's the `(lang, Gemini)` subset; otherwise every listener of the language.
+    fn deliver(&self, message: &str) {
+        if self.listener_pays {
+            self.rooms
+                .broadcast_to_lang_engine(&self.room, &self.lang, GEMINI_ID, message);
+        } else {
+            self.rooms
+                .broadcast_to_lang(&self.room, &self.lang, message);
+        }
+    }
+
     /// Live translated caption to the listeners of this session's language.
     fn emit_interim_to_lang(&self, translated: &str) {
-        self.rooms.broadcast_to_lang(
-            &self.room,
-            &self.lang,
+        self.deliver(
             &ServerMessage::SubtitleInterim {
                 speaker_id: self.speaker_id.clone(),
                 speaker_name: self.speaker_name.clone(),
@@ -470,9 +497,7 @@ impl SessionReader {
     /// the JSON frame the client plays via its AudioWorklet.
     fn emit_audio(&self, seq: u64, pcm16: &[u8]) {
         let b64 = base64::engine::general_purpose::STANDARD.encode(pcm16);
-        self.rooms.broadcast_to_lang(
-            &self.room,
-            &self.lang,
+        self.deliver(
             &ServerMessage::TranslatedAudio {
                 speaker_id: self.speaker_id.clone(),
                 lang: self.lang.clone(),
@@ -520,9 +545,7 @@ impl SessionReader {
                 ts: Utc::now(),
             });
         }
-        self.rooms.broadcast_to_lang(
-            &self.room,
-            &self.lang,
+        self.deliver(
             &ServerMessage::SubtitleFinal {
                 speaker_id: self.speaker_id.clone(),
                 speaker_name: self.speaker_name.clone(),
