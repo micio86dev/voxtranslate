@@ -1,4 +1,5 @@
 {
+  "id": "/",
   "name": "VoxTranslate",
   "short_name": "VoxTranslate",
   "description": "Real-time translated video calls",
