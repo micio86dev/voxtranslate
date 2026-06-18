@@ -180,6 +180,7 @@ mod guest_mode {
             soniox: None,
             standard_enabled: true,
             listener_pays: false,
+            language_first_ux: false,
         };
         let state = AppState::new(config);
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

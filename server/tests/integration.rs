@@ -41,6 +41,7 @@ fn make_state() -> (AppState, bool) {
                 soniox: None,
                 standard_enabled: true,
                 listener_pays: false,
+                language_first_ux: false,
             }),
             false,
         ),
@@ -166,8 +167,16 @@ async fn engines_endpoint_lists_standard_without_leaking_cost() {
         .text()
         .await
         .unwrap();
-    let list: Value = serde_json::from_str(&body).unwrap();
-    let arr = list.as_array().expect("engines is a JSON array");
+    let payload: Value = serde_json::from_str(&body).unwrap();
+    // Shape: { engines: [...], flags: { language_first_ux } } (spec 0102). The flag is
+    // exposed here (guest-safe) to gate the language-first picker.
+    let arr = payload["engines"]
+        .as_array()
+        .expect("engines is a JSON array under `engines`");
+    assert!(
+        payload["flags"]["language_first_ux"].is_boolean(),
+        "language_first_ux flag must be exposed"
+    );
     let standard = arr
         .iter()
         .find(|e| e["id"] == "standard")
@@ -385,6 +394,7 @@ async fn deepgram_unavailable_sends_error() {
         soniox: None,
         standard_enabled: true,
         listener_pays: false,
+        language_first_ux: false,
     });
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -452,6 +462,7 @@ fn guest_config() -> Config {
         soniox: None,
         standard_enabled: true,
         listener_pays: false,
+        language_first_ux: false,
     }
 }
 

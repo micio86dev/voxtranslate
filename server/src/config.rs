@@ -70,6 +70,12 @@ pub struct Config {
     /// WS loop runs every engine the room's listeners demand. Gated so the
     /// re-architecture ships dark until the billing dry-run signs it off.
     pub listener_pays: bool,
+    /// Language-first picker rollout flag (spec 0102). OFF by default: the live picker is
+    /// the legacy side-by-side language + engine selector. When `LANGUAGE_FIRST_UX` is
+    /// truthy, the client flips to "pick target language → see only the tiers that output
+    /// it" over the full language union. Exposed to the client via `GET /api/engines`
+    /// (guest-safe). Rollback = unset it.
+    pub language_first_ux: bool,
 }
 
 /// OpenAI Realtime Translation credentials + pricing (spec 0093). All-or-nothing
@@ -630,6 +636,7 @@ impl Config {
             soniox,
             standard_enabled,
             listener_pays: env_flag("LISTENER_PAYS"),
+            language_first_ux: env_flag("LANGUAGE_FIRST_UX"),
         })
     }
 
@@ -874,6 +881,7 @@ impl Config {
             soniox: None,
             standard_enabled: true,
             listener_pays: false,
+            language_first_ux: false,
         }
     }
 }

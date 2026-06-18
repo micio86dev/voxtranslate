@@ -3,6 +3,8 @@
 // and derive the language set the chosen engine supports. The fetch + rendering
 // wiring lives in app.ts; everything here is unit-testable.
 
+import { LANGUAGES, REGIONS, type LangMeta } from './langmap';
+
 export interface EngineCapabilities {
   translated_audio: boolean;
   /** Cost scales with the number of distinct target languages in the room — the
@@ -123,6 +125,65 @@ export function engineNeedsPcm(engineId: string | undefined, engines: EngineInfo
  *  capability, never a hardcoded id. Unknown/absent engine → false. */
 export function engineIsClientDirect(engineId: string | undefined, engines: EngineInfo[]): boolean {
   return engines.find((e) => e.id === engineId)?.capabilities.client_direct ?? false;
+}
+
+// ---- Language-first picker (spec 0102) -------------------------------------
+// The picker flips the flow: pick a TARGET language from the union, then choose among
+// the tiers that can output it. Languages and per-tier output lists come from the shared
+// map (`langmap.ts` / `shared/languages.json`) — the same source the backend embeds.
+
+/** The OUTPUT-language codes the picker may offer in THIS deployment: the union of the
+ *  enabled engines' `output_languages`. A Standard-only backend offers only Standard's
+ *  languages, never the whole map — we must never offer a language nothing can translate. */
+export function offeredLanguageCodes(engines: EngineInfo[]): Set<string> {
+  const codes = new Set<string>();
+  for (const e of engines) for (const l of e.output_languages) codes.add(l);
+  return codes;
+}
+
+/** A region heading plus its offered languages, for the grouped picker. */
+export interface RegionGroup {
+  region: string;
+  languages: LangMeta[];
+}
+
+/** Offered languages grouped by region, in the map's region order; metadata in map order.
+ *  Empty groups (no offered language in that region) are dropped so the picker has no
+ *  empty headings. Only languages at least one enabled engine can output are included. */
+export function languagesByRegion(engines: EngineInfo[]): RegionGroup[] {
+  const offered = offeredLanguageCodes(engines);
+  return REGIONS.map((region) => ({
+    region,
+    languages: LANGUAGES.filter((l) => l.region === region && offered.has(l.code)),
+  })).filter((g) => g.languages.length > 0);
+}
+
+/** Case-insensitive search over the offered languages by native name, English name, or
+ *  code — for the picker's search box. Returns flat results in map order. */
+export function searchLanguages(query: string, engines: EngineInfo[]): LangMeta[] {
+  const offered = offeredLanguageCodes(engines);
+  const q = query.trim().toLowerCase();
+  const pool = LANGUAGES.filter((l) => offered.has(l.code));
+  if (!q) return pool;
+  return pool.filter(
+    (l) =>
+      l.code.toLowerCase().includes(q) ||
+      l.english.toLowerCase().includes(q) ||
+      l.native.toLowerCase().includes(q),
+  );
+}
+
+/** The enabled tiers that can output `langCode`, CHEAPEST FIRST (spec 0102). The picker
+ *  shows exactly these as cards and pre-selects the first. Does not mutate `engines`. */
+export function getAvailableTiers(langCode: string, engines: EngineInfo[]): EngineInfo[] {
+  return engines
+    .filter((e) => e.output_languages.includes(langCode))
+    .sort((a, b) => a.rate_per_minute - b.rate_per_minute);
+}
+
+/** The cheapest tier that can output `langCode` (pre-selection), or `null` if none can. */
+export function cheapestTier(langCode: string, engines: EngineInfo[]): EngineInfo | null {
+  return getAvailableTiers(langCode, engines)[0] ?? null;
 }
 
 /** i18n key for an engine's user-facing description, by tier (#236). The server's

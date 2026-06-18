@@ -4,15 +4,22 @@
 import { applyI18n, detectLang, ENDONYM, FLAG, getUiLang, setUiLang, SUPPORTED, t } from './i18n';
 import {
   type EngineInfo,
+  DEFAULT_ENGINE_ID,
+  cheapestTier,
   commonLangs,
   engineDescKey,
   engineIsClientDirect,
   engineNeedsPcm,
   formatRate,
+  getAvailableTiers,
+  languagesByRegion,
   loadEnginePref,
+  offeredLanguageCodes,
   resolveEnginePref,
   saveEnginePref,
+  searchLanguages,
 } from './engines';
+import { type LangMeta, langMeta } from './langmap';
 import { SonioxManager } from './soniox';
 import { loadRemoteI18n } from './content';
 import { icon } from './icons';
@@ -113,6 +120,12 @@ let billing = false; // accounts/credits enabled on this backend
 // from this list; `selectedEngine` is the user's persisted choice (default 'standard').
 let availableEngines: EngineInfo[] = [];
 let selectedEngine = 'standard';
+// Language-first picker (spec 0102): enabled by the LANGUAGE_FIRST_UX backend flag (read
+// from /api/engines). `selectedLang` is the chosen TARGET language; the hidden #lang
+// <select> stays the canonical value holder so the join payload / UI language are unchanged.
+let languageFirstUx = false;
+let selectedLang = 'en';
+let langPickerWired = false;
 let exhaustedIsGuest = false; // last balance_exhausted was a guest trial vs a billed user
 const blockedPeers = new Set<string>(); // peers blocked locally (muted + hidden)
 let reportTargetId = ''; // peer currently being reported
@@ -143,6 +156,20 @@ function writeCache(key: string, value: string): void {
   }
 }
 const engineOptions = $('engine-options');
+// Language-first picker refs (spec 0102) — present in index.astro, hidden until enabled.
+const langField = $('lang-field');
+const langfirstField = $('langfirst-field');
+const langTrigger = $<HTMLButtonElement>('lang-trigger');
+const langTriggerFlag = $('lang-trigger-flag');
+const langTriggerText = $('lang-trigger-text');
+const langPanel = $('lang-panel');
+const langSearch = $<HTMLInputElement>('lang-search');
+const langPanelList = $('lang-panel-list');
+const langPanelEmpty = $('lang-panel-empty');
+const tierField = $('tier-field');
+const tierOptions = $('tier-options');
+const tierNote = $('tier-note');
+const RECENT_LANGS_KEY = 'voxtranslate_recent_langs';
 const enterBtn = $<HTMLButtonElement>('enter');
 const homeStatus = $('home-status');
 const visGroup = $('vis-group');
@@ -457,16 +484,46 @@ async function initEngines(): Promise<void> {
   try {
     const res = await fetch(`${HTTP_BASE}/api/engines`);
     if (!res.ok) return; // keep the default engine; selector stays hidden
-    availableEngines = (await res.json()) as EngineInfo[];
+    const data: unknown = await res.json();
+    // Tolerate BOTH the legacy bare array and the {engines, flags} shape (spec 0102), so a
+    // client and server can deploy in any order without the picker breaking.
+    if (Array.isArray(data)) {
+      availableEngines = data as EngineInfo[];
+    } else if (data && typeof data === 'object') {
+      const obj = data as { engines?: EngineInfo[]; flags?: { language_first_ux?: boolean } };
+      availableEngines = obj.engines ?? [];
+      languageFirstUx = !!obj.flags?.language_first_ux;
+    }
   } catch {
     return; // offline / unreachable → default engine, selector hidden
   }
   selectedEngine = resolveEnginePref(loadEnginePref(), availableEngines);
-  renderEngineSelector();
-  rebuildLangOptions();
+  if (languageFirstUx) {
+    // Language-first flow (spec 0102): pick a target language, then the tiers that output it.
+    renderLanguageFirstPicker();
+  } else {
+    renderEngineSelector();
+    rebuildLangOptions();
+  }
 }
 
 function renderEngineSelector(): void {
+  // Language-first mode (spec 0102) owns the picker UI. `renderAccount()` calls this on
+  // every auth change, so route those calls to the language-first picker instead — keep
+  // the legacy language <select> + engine field hidden and re-render the tier cards for the
+  // current language with the (possibly auth-changed) engine pool, WITHOUT resetting the
+  // user's chosen language.
+  if (languageFirstUx) {
+    if (langPickerWired) {
+      langField.hidden = true;
+      engineField.hidden = true;
+      langfirstField.hidden = false;
+      renderTierCards();
+    } else {
+      renderLanguageFirstPicker();
+    }
+    return;
+  }
   // Guests always use Standard — Premium/Pro need credits. Hide the selector and pin
   // the choice so the join always sends 'standard'; only signed-in users get to pick.
   if (!auth.isLoggedIn()) {
@@ -568,6 +625,307 @@ function rebuildLangOptions(): void {
   } else {
     langSel.value = next;
   }
+}
+
+// ============================================================================
+// Language-first picker (spec 0102)
+// ============================================================================
+// Flip the flow: pick a TARGET language from the full union (region-grouped, searchable),
+// then choose among the tiers that can output it (cheapest pre-selected). Gated by the
+// LANGUAGE_FIRST_UX flag. The hidden #lang <select> stays the canonical value holder, so
+// the join payload, UI language and reconnect path are unchanged — this just drives it.
+
+/** The engines a user may choose among: guests are pinned to Standard (premium tiers need
+ *  credits), exactly as the legacy selector does (`renderEngineSelector`). */
+function enginePool(): EngineInfo[] {
+  if (!auth.isLoggedIn()) {
+    const std = availableEngines.filter((e) => e.id === DEFAULT_ENGINE_ID);
+    return std.length ? std : availableEngines;
+  }
+  return availableEngines;
+}
+
+/** Recently-used target languages. Best-effort localStorage, SEEDED from the browser's
+ *  preferred languages so a fresh device still surfaces sensible choices (no reliance on
+ *  storage alone). Deduped, browser langs after explicit picks. */
+function readRecentLangs(): string[] {
+  const raw = readCache(RECENT_LANGS_KEY);
+  const fromCache = raw ? raw.split(',').filter(Boolean) : [];
+  const fromNav = (navigator.languages ?? []).map((l) => l.slice(0, 2).toLowerCase());
+  return [...new Set([...fromCache, ...fromNav])];
+}
+
+function pushRecentLang(code: string): void {
+  const next = [code, ...readRecentLangs().filter((c) => c !== code)].slice(0, 5);
+  writeCache(RECENT_LANGS_KEY, next.join(','));
+}
+
+/** Swap the legacy language <select> + engine selector for the language-first picker. */
+function renderLanguageFirstPicker(): void {
+  langField.hidden = true;
+  engineField.hidden = true;
+  langfirstField.hidden = false;
+
+  const offered = offeredLanguageCodes(enginePool());
+  const cached = readCache(LANG_CACHE_KEY);
+  let code = cached && offered.has(cached) ? cached : detectLang();
+  if (!offered.has(code)) {
+    code = readRecentLangs().find((c) => offered.has(c)) ?? [...offered][0] ?? 'en';
+  }
+  wireLangPicker();
+  selectLang(code, false); // restore without re-stamping "recent"
+}
+
+function wireLangPicker(): void {
+  if (langPickerWired) return;
+  langPickerWired = true;
+  langTrigger.addEventListener('click', toggleLangPanel);
+  langSearch.addEventListener('input', () => renderLangPanelList(langSearch.value));
+  langSearch.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      closeLangPanel();
+      langTrigger.focus();
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      langPanelList.querySelector<HTMLButtonElement>('.lang-opt')?.click();
+    }
+  });
+  // Close when clicking outside the picker.
+  document.addEventListener('click', (e) => {
+    if (langPanel.hidden) return;
+    if (!langfirstField.contains(e.target as Node)) closeLangPanel();
+  });
+}
+
+function toggleLangPanel(): void {
+  if (langPanel.hidden) openLangPanel();
+  else closeLangPanel();
+}
+
+function openLangPanel(): void {
+  langPanel.hidden = false;
+  langTrigger.setAttribute('aria-expanded', 'true');
+  langSearch.value = '';
+  renderLangPanelList('');
+  langSearch.focus();
+}
+
+function closeLangPanel(): void {
+  langPanel.hidden = true;
+  langTrigger.setAttribute('aria-expanded', 'false');
+}
+
+/** Build one selectable language row. */
+function makeLangOption(m: LangMeta): HTMLButtonElement {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'lang-opt' + (m.code === selectedLang ? ' selected' : '');
+  btn.setAttribute('role', 'option');
+  btn.setAttribute('aria-selected', String(m.code === selectedLang));
+  btn.dir = m.rtl ? 'rtl' : 'ltr';
+  const flag = document.createElement('span');
+  flag.className = 'lang-opt-flag';
+  flag.textContent = m.flag;
+  const native = document.createElement('span');
+  native.className = 'lang-opt-native';
+  native.textContent = m.native;
+  const en = document.createElement('span');
+  en.className = 'lang-opt-en';
+  en.textContent = m.english;
+  btn.append(flag, native, en);
+  btn.addEventListener('click', () => selectLang(m.code));
+  return btn;
+}
+
+/** Render the panel: a flat match list when searching, else recently-used (pinned) + the
+ *  region-grouped collapsible sections (the section holding the current language is open). */
+function renderLangPanelList(query: string): void {
+  const pool = enginePool();
+  langPanelList.replaceChildren();
+  const q = query.trim();
+
+  if (q) {
+    const matches = searchLanguages(q, pool);
+    langPanelEmpty.hidden = matches.length > 0;
+    for (const m of matches) langPanelList.appendChild(makeLangOption(m));
+    return;
+  }
+  langPanelEmpty.hidden = true;
+
+  // Recently-used, pinned at the top (only languages this deployment offers).
+  const offered = offeredLanguageCodes(pool);
+  const recents = readRecentLangs()
+    .filter((c) => offered.has(c))
+    .map((c) => langMeta(c))
+    .filter((m): m is LangMeta => !!m)
+    .slice(0, 5);
+  if (recents.length) {
+    const label = document.createElement('div');
+    label.className = 'lang-recent-label';
+    label.textContent = t('langRecent');
+    langPanelList.appendChild(label);
+    for (const m of recents) langPanelList.appendChild(makeLangOption(m));
+  }
+
+  // Region-grouped collapsible sections.
+  for (const group of languagesByRegion(pool)) {
+    const details = document.createElement('details');
+    details.className = 'lang-region';
+    if (group.languages.some((l) => l.code === selectedLang)) details.open = true;
+    const summary = document.createElement('summary');
+    summary.textContent = t(`region_${group.region}`);
+    details.appendChild(summary);
+    for (const m of group.languages) details.appendChild(makeLangOption(m));
+    langPanelList.appendChild(details);
+  }
+}
+
+/** Keep the hidden legacy <select> able to hold `code` (the join + UI-language source). */
+function ensureLangOption(code: string): void {
+  if (![...langSel.options].some((o) => o.value === code)) {
+    const o = document.createElement('option');
+    o.value = code;
+    o.textContent = langMeta(code)?.native ?? code;
+    langSel.appendChild(o);
+  }
+}
+
+/** Commit a target-language choice: drives the canonical <select>, the UI language (with
+ *  RTL), the trigger label, the tier cards, and persistence. */
+function selectLang(code: string, persist = true): void {
+  selectedLang = code;
+  ensureLangOption(code);
+  langSel.value = code;
+  setUiLang(code); // a no-op for a language without a UI translation; falls back to English
+  if (persist) {
+    writeCache(LANG_CACHE_KEY, code);
+    pushRecentLang(code);
+  }
+  applyI18n(); // re-renders data-i18n strings + flips document dir for RTL (i18n.ts)
+  updateLangTrigger();
+  renderTierCards();
+  updateVisHint();
+  closeLangPanel();
+}
+
+function updateLangTrigger(): void {
+  const m = langMeta(selectedLang);
+  langTriggerFlag.textContent = m?.flag ?? '🌐';
+  langTriggerText.textContent = m ? `${m.native} (${m.english})` : selectedLang;
+  langTrigger.dir = m?.rtl ? 'rtl' : 'ltr';
+}
+
+/** Render the tier cards for the chosen language (cheapest pre-selected), reusing the
+ *  legacy `.engine-opt*` styling, plus a balance/estimate + low-credit upsell note. */
+function renderTierCards(): void {
+  const pool = enginePool();
+  const tiers = getAvailableTiers(selectedLang, pool);
+  tierOptions.replaceChildren();
+  if (tiers.length === 0) {
+    tierField.hidden = true;
+    return;
+  }
+  // Pre-select the cheapest tier whenever the current choice can't output this language.
+  if (!tiers.some((e) => e.id === selectedEngine)) {
+    selectedEngine = cheapestTier(selectedLang, pool)?.id ?? tiers[0].id;
+    saveEnginePref(selectedEngine);
+  }
+  for (const e of tiers) {
+    const active = e.id === selectedEngine;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'engine-opt' + (active ? ' active' : '');
+    btn.setAttribute('role', 'radio');
+    btn.setAttribute('aria-checked', String(active));
+    btn.dataset.engine = e.id;
+    const head = document.createElement('span');
+    head.className = 'engine-opt-head';
+    const name = document.createElement('span');
+    name.className = 'engine-opt-name';
+    name.textContent = e.display_name;
+    head.append(name);
+    if (e.capabilities.client_direct) {
+      const badge = document.createElement('span');
+      badge.className = 'engine-opt-badge';
+      badge.textContent = t('engineBadgeEnhanced');
+      head.append(badge);
+    }
+    const rate = document.createElement('span');
+    rate.className = 'engine-opt-rate';
+    rate.textContent = formatRate(e.rate_per_minute);
+    head.append(rate);
+    const desc = document.createElement('span');
+    desc.className = 'engine-opt-desc';
+    const descKey = engineDescKey(e.tier);
+    desc.textContent = descKey ? t(descKey) : e.description;
+    btn.append(head, desc);
+    // Estimated minutes at this tier from the user's balance (1 credit = $1; spec 0102).
+    const bal = auth.getUser()?.balance;
+    if (billing && typeof bal === 'number' && e.rate_per_minute > 0) {
+      const est = document.createElement('span');
+      est.className = 'engine-opt-est';
+      est.textContent = t('tierEstMinutes').replace(
+        '{min}',
+        String(Math.floor(bal / e.rate_per_minute)),
+      );
+      btn.append(est);
+    }
+    btn.addEventListener('click', () => selectTier(e.id));
+    tierOptions.appendChild(btn);
+  }
+  tierField.hidden = false;
+  renderTierNote(tiers);
+}
+
+function selectTier(id: string): void {
+  if (id === selectedEngine) return;
+  selectedEngine = id;
+  saveEnginePref(id);
+  renderTierCards();
+}
+
+/** The note below the tier cards: a single-tier explanation, the credit balance, and a
+ *  low-balance "top up" nudge — never blocking, just informative (spec 0102). */
+function renderTierNote(tiers: EngineInfo[]): void {
+  tierNote.replaceChildren();
+  const parts: Node[] = [];
+  const langName = langMeta(selectedLang)?.native ?? selectedLang;
+
+  if (tiers.length === 1) {
+    const only = document.createElement('span');
+    only.textContent = t('tierOnlyOption')
+      .replace('{tier}', tiers[0].display_name)
+      .replace('{lang}', langName);
+    parts.push(only);
+  }
+
+  const bal = auth.getUser()?.balance;
+  if (billing && typeof bal === 'number') {
+    const balLine = document.createElement('span');
+    balLine.textContent = t('tierBalance').replace('{balance}', auth.formatCredits(bal));
+    if (parts.length) parts.push(document.createElement('br'));
+    parts.push(balLine);
+    // Low-balance upsell: fewer than ~5 minutes left on the selected tier.
+    const sel = tiers.find((e) => e.id === selectedEngine);
+    if (sel && sel.rate_per_minute > 0 && bal < sel.rate_per_minute * 5) {
+      const link = document.createElement('a');
+      link.href = '#';
+      link.textContent = t('tierTopUp');
+      link.addEventListener('click', (e) => {
+        e.preventDefault();
+        openBuyModal();
+      });
+      parts.push(document.createTextNode(' · '));
+      parts.push(link);
+    }
+  }
+
+  if (parts.length === 0) {
+    tierNote.hidden = true;
+    return;
+  }
+  tierNote.append(...parts);
+  tierNote.hidden = false;
 }
 
 // ============================================================================

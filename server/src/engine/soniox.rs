@@ -21,12 +21,6 @@ use crate::deepgram::SpeakerCtx;
 use super::metadata::{EngineCapabilities, EngineMetadata};
 use super::{SessionDeps, SessionOutcome, TranslationEngine, SONIOX_ID};
 
-/// Output languages surfaced in the UI. Soniox supports 60+ languages / 3600+ pairs; we
-/// surface the app's shipped set (identical to the other engines) so the picker's
-/// cross-engine common-language intersection (spec 0094) is unchanged — adding Enhanced
-/// must never shrink the languages a room can use.
-const SONIOX_LANGS: &[&str] = &["it", "en", "es", "fr", "de", "pt", "ja", "zh"];
-
 /// Soniox "Enhanced" — a metadata-only, client-direct engine (spec 0101).
 pub struct SonioxEngine {
     meta: EngineMetadata,
@@ -34,7 +28,9 @@ pub struct SonioxEngine {
 
 impl SonioxEngine {
     pub fn new(config: &SonioxConfig) -> Self {
-        let langs: Vec<String> = SONIOX_LANGS.iter().map(|s| s.to_string()).collect();
+        // Soniox's 60+ output languages, from the shared map (spec 0102). The translation
+        // runs client-direct (browser ↔ Soniox), so this is purely the picker metadata.
+        let langs: Vec<String> = super::langmap::tier_output_langs("enhanced");
         let meta = EngineMetadata {
             id: SONIOX_ID.to_string(),
             display_name: "Enhanced".to_string(),
