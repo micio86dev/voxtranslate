@@ -76,6 +76,7 @@ impl StandardEngine {
             capabilities: EngineCapabilities {
                 translated_audio: false,
                 cost_scales_per_language: false,
+                client_direct: false,
                 max_room_size: 4,
             },
         };

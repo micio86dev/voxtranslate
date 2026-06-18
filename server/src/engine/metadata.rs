@@ -21,6 +21,14 @@ pub struct EngineCapabilities {
     /// bills a flat rate. Drives the meter multiplier AND the pre-join price note,
     /// so the user is told up front that a group call costs more.
     pub cost_scales_per_language: bool,
+    /// The browser connects DIRECTLY to the provider (spec 0101, Soniox "Enhanced"):
+    /// the server mints a scoped temp key and never proxies the audio. Such an engine
+    /// is NOT run on the server speaking path — its listeners translate locally — so
+    /// the call sites that fan a speaker's audio to server engines, and the Standard
+    /// "serve everyone" delivery, must skip these peers (they'd otherwise be
+    /// double-translated). Billing is unaffected: the listener meter bills them per
+    /// active source at this engine's rate, just like any other engine.
+    pub client_direct: bool,
     /// Largest room size the engine supports end-to-end (the mesh cap is 4).
     pub max_room_size: u8,
 }
@@ -108,6 +116,7 @@ mod tests {
             capabilities: EngineCapabilities {
                 translated_audio: false,
                 cost_scales_per_language: false,
+                client_direct: false,
                 max_room_size: 4,
             },
         }

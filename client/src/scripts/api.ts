@@ -5,6 +5,43 @@
 
 import { authHeaders, HTTP_BASE } from './auth';
 
+// ---- Soniox "Enhanced" client-direct session (POST /api/soniox/session) ----
+// Spec 0101: mint a scoped, single-use Soniox temp key so the browser can connect
+// DIRECTLY to Soniox. The raw key never reaches the client — only this short-lived
+// temp key + the public endpoint. Auth-gated server-side (guests get 401).
+
+export interface SonioxKey {
+  api_key: string;
+  expires_at: string;
+  endpoint: string;
+}
+
+export interface SonioxSessionResponse {
+  stt: SonioxKey;
+  /** Present only when `spoken: true` was requested; null otherwise. */
+  tts: SonioxKey | null;
+  region: string;
+  stt_model: string;
+}
+
+/** Mint a fresh Soniox session (one per pipeline / reconnect — keys are single-use).
+ *  Returns null on any failure so the caller can degrade gracefully. */
+export async function fetchSonioxSession(
+  spoken = false,
+): Promise<SonioxSessionResponse | null> {
+  try {
+    const res = await fetch(`${HTTP_BASE}/api/soniox/session`, {
+      method: 'POST',
+      headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ spoken }),
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as SonioxSessionResponse;
+  } catch {
+    return null;
+  }
+}
+
 // ---- Transcript document (GET /api/sessions/{id}/transcript.json) ----------
 
 export interface TranscriptParticipant {

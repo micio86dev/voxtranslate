@@ -45,15 +45,25 @@ pub struct Config {
     /// point at our own domain, never a client-supplied host. Override via
     /// `APP_BASE_URL`; trailing slash is trimmed.
     pub app_base_url: String,
-    /// OpenAI GPT-Realtime-Translate premium engine (spec 0093). Present only when
-    /// `OPENAI_API_KEY` is set — the Premium engine is registered (and shown in the
-    /// pre-join selector) iff this is `Some`, so the feature ships dark until the
-    /// key is configured.
+    /// OpenAI GPT-Realtime-Translate "Pro" engine (spec 0093). Present only when the
+    /// `OPENAI_PRO` rollout flag is truthy AND `OPENAI_API_KEY` is set — registered (and
+    /// shown in the selector) iff this is `Some`, so the tier ships dark behind the flag.
     pub openai: Option<OpenAiConfig>,
     /// Google Gemini 3.5 Live Translate "Premium" engine (spec 0100). Present only when
-    /// `GOOGLE_AI_API_KEY` is set — registered (and shown in the selector) iff this is
-    /// `Some`, so it ships dark until the key is configured.
+    /// the `GEMINI_PREMIUM` rollout flag is truthy AND `GOOGLE_AI_API_KEY` is set —
+    /// registered iff this is `Some`, so it ships dark behind the flag.
     pub google: Option<GeminiConfig>,
+    /// Soniox "Enhanced" engine (spec 0101) — the client-direct tier between Standard
+    /// and Pro. Present only when the rollout flag `SONIOX_ENHANCED` is truthy AND
+    /// `SONIOX_API_KEY` is set; the engine is registered (and shown in the selector) iff
+    /// this is `Some`, so the tier ships dark behind the flag (rollback = unset it).
+    pub soniox: Option<SonioxConfig>,
+    /// Whether the Standard (Deepgram + Groq) base tier is enabled (spec 0101 rollout
+    /// flag `DEEPGRAM_STANDARD`, default ON). Standard is the registry's default and
+    /// capacity-fallback engine, so it is force-registered even when this is `false`
+    /// (with a warning) — the flag exists for symmetry with the optional tiers, not as a
+    /// true kill switch.
+    pub standard_enabled: bool,
     /// Listener-pays rollout flag (spec 0099). OFF by default: the live model is
     /// speaker-pays (spec 0093). When `LISTENER_PAYS` is truthy, each participant
     /// receives — and is billed for — the engine quality THEY chose, and the core
@@ -158,6 +168,151 @@ impl OpenAiConfig {
             markup: percent / 100.0,
             max_sessions: parse_or("OPENAI_REALTIME_MAX_SESSIONS", 16usize),
         }
+    }
+}
+
+/// Soniox server→Soniox auth endpoint: mints scoped, single-use, expiring temporary
+/// keys the browser then uses to connect DIRECTLY to Soniox (spec 0101). The raw
+/// `SONIOX_API_KEY` never leaves the server — only the minted temp keys reach a client.
+pub const SONIOX_TEMP_KEY_URL: &str = "https://api.soniox.com/v1/auth/temporary-api-key";
+
+/// Default Soniox real-time endpoints (US region). Override per deployment via
+/// `SONIOX_STT_ENDPOINT` / `SONIOX_TTS_ENDPOINT`.
+const SONIOX_DEFAULT_STT_ENDPOINT: &str = "wss://stt-rt.soniox.com/transcribe-websocket";
+const SONIOX_DEFAULT_TTS_ENDPOINT: &str = "wss://tts-rt.soniox.com/tts-websocket";
+
+/// A Soniox data-residency region (spec 0101, data-residency guide). Only `Us` is live
+/// today; `Eu`/`Jp` are scaffolded and fall back to `Us` until their regional projects
+/// (and `SONIOX_API_KEY_EU` / `SONIOX_API_KEY_JP`) exist.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SonioxRegion {
+    Us,
+    Eu,
+    Jp,
+}
+
+/// Per-region Soniox credentials + endpoints. The `api_key` is server-only and is never
+/// serialized — the browser only receives the short-lived temp key minted from it.
+#[derive(Debug, Clone)]
+pub struct SonioxRegionConfig {
+    pub api_key: String,
+    pub stt_endpoint: String,
+    pub tts_endpoint: String,
+}
+
+/// Soniox "Enhanced" credentials + pricing + region map (spec 0101). All-or-nothing like
+/// the other engine configs, but additionally gated behind the `SONIOX_ENHANCED` flag.
+/// Cost/markup follow the OpenAI/Gemini pattern exactly; nothing here touches billing
+/// logic — the values flow into `EngineMetadata` and the existing meter does the rest.
+#[derive(Debug, Clone)]
+pub struct SonioxConfig {
+    /// Real-time STT+translation model id (`SONIOX_STT_MODEL`, e.g. `stt-rt-v5`).
+    pub stt_model: String,
+    /// Raw server cost per minute, USD (`SONIOX_COST_PER_MINUTE`). Never serialized.
+    pub cost_per_minute: f64,
+    /// Markup as a FRACTION (0.85 = 85%). From `SONIOX_COST_MARKUP_PERCENT`, falling
+    /// back to `ENGINE_DEFAULT_MARKUP_PERCENT`, divided by 100. Never serialized.
+    pub markup: f64,
+    /// Always populated (the live region).
+    pub us: SonioxRegionConfig,
+    /// Scaffolded; empty `api_key` until the EU project exists → falls back to US.
+    pub eu: SonioxRegionConfig,
+    /// Scaffolded; empty `api_key` until the JP project exists → falls back to US.
+    pub jp: SonioxRegionConfig,
+}
+
+impl SonioxConfig {
+    fn from_env() -> Self {
+        // Markup is configured in PERCENT (e.g. 85); store it as a fraction. Prefer the
+        // engine-specific override, then the global engine default, then 50%.
+        let percent = env::var("SONIOX_COST_MARKUP_PERCENT")
+            .ok()
+            .and_then(|v| v.trim().parse::<f64>().ok())
+            .or_else(|| {
+                env::var("ENGINE_DEFAULT_MARKUP_PERCENT")
+                    .ok()
+                    .and_then(|v| v.trim().parse::<f64>().ok())
+            })
+            .unwrap_or(50.0);
+        let stt_endpoint = env::var("SONIOX_STT_ENDPOINT")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| SONIOX_DEFAULT_STT_ENDPOINT.into());
+        let tts_endpoint = env::var("SONIOX_TTS_ENDPOINT")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| SONIOX_DEFAULT_TTS_ENDPOINT.into());
+        // EU/JP reuse the US endpoints for now (regional endpoints land with the
+        // regional projects, spec 0101 TODO). They fall back to US whenever keyless.
+        let region = |key: &str| SonioxRegionConfig {
+            api_key: env::var(key).unwrap_or_default().trim().to_string(),
+            stt_endpoint: stt_endpoint.clone(),
+            tts_endpoint: tts_endpoint.clone(),
+        };
+        Self {
+            stt_model: env::var("SONIOX_STT_MODEL")
+                .ok()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "stt-rt-v5".into()),
+            cost_per_minute: parse_or("SONIOX_COST_PER_MINUTE", 0.015f64),
+            markup: percent / 100.0,
+            us: region("SONIOX_API_KEY"),
+            eu: region("SONIOX_API_KEY_EU"),
+            jp: region("SONIOX_API_KEY_JP"),
+        }
+    }
+
+    /// Resolve a region's credentials/endpoints, falling back to US when that region has
+    /// no key configured yet (EU/JP are scaffolded; only US is live today).
+    pub fn region(&self, region: SonioxRegion) -> &SonioxRegionConfig {
+        let cfg = match region {
+            SonioxRegion::Us => &self.us,
+            SonioxRegion::Eu => &self.eu,
+            SonioxRegion::Jp => &self.jp,
+        };
+        if cfg.api_key.trim().is_empty() {
+            &self.us
+        } else {
+            cfg
+        }
+    }
+}
+
+/// Map a Cloudflare `CF-IPCountry` ISO code to a Soniox region (spec 0101). EU/Africa/
+/// Middle East → EU, Asia/Oceania → JP, Americas/unknown → US. Region resolution then
+/// falls back to US for any region without a configured key, so this is safe to enable
+/// before the EU/JP projects exist. Pure → unit-tested.
+pub fn soniox_region_for_country(cc: Option<&str>) -> SonioxRegion {
+    // ISO-3166 alpha-2, uppercased. `XX`/`T1` (Tor) and unknowns default to US.
+    let cc = match cc {
+        Some(c) => c.trim().to_ascii_uppercase(),
+        None => return SonioxRegion::Us,
+    };
+    // Europe + Africa + Middle East → EU project.
+    const EU: &[&str] = &[
+        "GB", "IE", "FR", "DE", "ES", "PT", "IT", "NL", "BE", "LU", "CH", "AT", "DK", "SE", "NO",
+        "FI", "IS", "PL", "CZ", "SK", "HU", "RO", "BG", "GR", "HR", "SI", "RS", "BA", "ME", "MK",
+        "AL", "EE", "LV", "LT", "UA", "BY", "MD", "RU", "TR", "CY", "MT", // Middle East
+        "IL", "PS", "JO", "LB", "SY", "IQ", "SA", "AE", "QA", "BH", "KW", "OM", "YE", "IR",
+        // Africa
+        "MA", "DZ", "TN", "LY", "EG", "SD", "NG", "GH", "CI", "SN", "ET", "KE", "TZ", "UG", "ZA",
+        "ZW", "ZM", "AO", "MZ", "CM", "CD", "CG",
+    ];
+    // Asia + Oceania → JP project.
+    const JP: &[&str] = &[
+        "JP", "KR", "CN", "HK", "MO", "TW", "MN", "IN", "PK", "BD", "LK", "NP", "TH", "VN", "LA",
+        "KH", "MM", "MY", "SG", "ID", "PH", "BN", "TL", "AU", "NZ", "FJ", "PG", "KZ", "UZ", "TM",
+        "KG", "TJ", "AF",
+    ];
+    if EU.contains(&cc.as_str()) {
+        SonioxRegion::Eu
+    } else if JP.contains(&cc.as_str()) {
+        SonioxRegion::Jp
+    } else {
+        SonioxRegion::Us
     }
 }
 
@@ -418,20 +573,37 @@ impl Config {
         // `from_env` returns None when it's not fully configured.
         let turn = TurnConfig::from_env();
 
-        // Premium translation engine (spec 0093): present-gated on the API key.
-        let openai = if present("OPENAI_API_KEY") {
+        // Per-tier rollout flags (spec 0101): each tier is gated on BOTH its provider
+        // key AND a `<PROVIDER>_<TIER>` enable flag, so operators can switch a tier on or
+        // off from the environment without changing keys. The three optional tiers default
+        // OFF (flag required); Standard is the base tier and defaults ON (see below).
+
+        // Pro engine — OpenAI GPT-Realtime-Translate (spec 0093): `OPENAI_PRO` + key.
+        let openai = if env_flag("OPENAI_PRO") && present("OPENAI_API_KEY") {
             Some(OpenAiConfig::from_env())
         } else {
             None
         };
 
-        // Pro translation engine — Gemini Live Translate (spec 0100): present-gated
-        // on the Google API key, same as Premium on the OpenAI key.
-        let google = if present("GOOGLE_AI_API_KEY") {
+        // Premium engine — Gemini Live Translate (spec 0100): `GEMINI_PREMIUM` + key.
+        let google = if env_flag("GEMINI_PREMIUM") && present("GOOGLE_AI_API_KEY") {
             Some(GeminiConfig::from_env())
         } else {
             None
         };
+
+        // Enhanced engine — Soniox (spec 0101): `SONIOX_ENHANCED` + key.
+        let soniox = if env_flag("SONIOX_ENHANCED") && present("SONIOX_API_KEY") {
+            Some(SonioxConfig::from_env())
+        } else {
+            None
+        };
+
+        // Standard engine — Deepgram + Groq (the base tier). Same flag pattern for
+        // symmetry, but defaults ON when unset: Standard is the registry's default /
+        // capacity-fallback engine, so the server force-registers it even when this is
+        // off (with a warning) — you can't actually leave the app without a default.
+        let standard_enabled = env_flag_or("DEEPGRAM_STANDARD", true);
 
         Ok(Self {
             deepgram_key,
@@ -455,6 +627,8 @@ impl Config {
                 .unwrap_or_else(|| "https://voxtranslate.app".into()),
             openai,
             google,
+            soniox,
+            standard_enabled,
             listener_pays: env_flag("LISTENER_PAYS"),
         })
     }
@@ -619,14 +793,20 @@ fn present(name: &str) -> bool {
 /// A boolean feature flag from the environment. Truthy = `1`/`true`/`yes`/`on`
 /// (case-insensitive); anything else, or unset, is `false`.
 fn env_flag(name: &str) -> bool {
-    env::var(name)
-        .map(|v| {
-            matches!(
-                v.trim().to_ascii_lowercase().as_str(),
-                "1" | "true" | "yes" | "on"
-            )
-        })
-        .unwrap_or(false)
+    env_flag_or(name, false)
+}
+
+/// Like [`env_flag`] but with an explicit default when the variable is **unset**. A
+/// variable that IS set but non-truthy (e.g. `0`/`off`) is still `false`. Used for the
+/// Standard tier, which defaults ON.
+fn env_flag_or(name: &str, default: bool) -> bool {
+    match env::var(name) {
+        Ok(v) => matches!(
+            v.trim().to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        ),
+        Err(_) => default,
+    }
 }
 
 fn parse_or<T: std::str::FromStr>(name: &str, default: T) -> T {
@@ -691,6 +871,8 @@ impl Config {
             app_base_url: "https://voxtranslate.app".into(),
             openai: None,
             google: None,
+            soniox: None,
+            standard_enabled: true,
             listener_pays: false,
         }
     }
@@ -755,6 +937,52 @@ mod tests {
         // Static needs BOTH halves; partial / empty config leaves TURN off.
         assert!(TurnCred::pick("", "", "", "user", "", 3600).is_none());
         assert!(TurnCred::pick("", "", "", "", "", 3600).is_none());
+    }
+
+    #[test]
+    fn env_flag_or_uses_default_when_unset() {
+        // Reads a guaranteed-unset var (no env mutation → no race): the default wins.
+        assert!(env_flag_or("VOX_UNSET_FLAG_FOR_TEST_ZZZ", true));
+        assert!(!env_flag_or("VOX_UNSET_FLAG_FOR_TEST_ZZZ", false));
+    }
+
+    #[test]
+    fn soniox_region_routing_and_fallback() {
+        // Europe / Middle East / Africa → EU; Asia / Oceania → JP; Americas → US.
+        assert_eq!(soniox_region_for_country(Some("DE")), SonioxRegion::Eu);
+        assert_eq!(soniox_region_for_country(Some("ae")), SonioxRegion::Eu); // case-insensitive
+        assert_eq!(soniox_region_for_country(Some("JP")), SonioxRegion::Jp);
+        assert_eq!(soniox_region_for_country(Some("AU")), SonioxRegion::Jp);
+        assert_eq!(soniox_region_for_country(Some("US")), SonioxRegion::Us);
+        assert_eq!(soniox_region_for_country(Some("BR")), SonioxRegion::Us);
+        // Unknown / Tor / missing default to US.
+        assert_eq!(soniox_region_for_country(Some("XX")), SonioxRegion::Us);
+        assert_eq!(soniox_region_for_country(None), SonioxRegion::Us);
+
+        // A region with no key configured falls back to the US credentials.
+        let cfg = SonioxConfig {
+            stt_model: "stt-rt-v5".into(),
+            cost_per_minute: 0.015,
+            markup: 0.85,
+            us: SonioxRegionConfig {
+                api_key: "us-key".into(),
+                stt_endpoint: "wss://stt".into(),
+                tts_endpoint: "wss://tts".into(),
+            },
+            eu: SonioxRegionConfig {
+                api_key: String::new(), // not provisioned yet
+                stt_endpoint: "wss://stt".into(),
+                tts_endpoint: "wss://tts".into(),
+            },
+            jp: SonioxRegionConfig {
+                api_key: "jp-key".into(),
+                stt_endpoint: "wss://stt".into(),
+                tts_endpoint: "wss://tts".into(),
+            },
+        };
+        assert_eq!(cfg.region(SonioxRegion::Eu).api_key, "us-key"); // keyless EU → US
+        assert_eq!(cfg.region(SonioxRegion::Jp).api_key, "jp-key"); // keyed JP → JP
+        assert_eq!(cfg.region(SonioxRegion::Us).api_key, "us-key");
     }
 
     // NOTE: `Config::from_env()` reads process-global env, so its guest-vs-billing

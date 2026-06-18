@@ -56,6 +56,188 @@ pub async fn engines(State(state): State<AppState>) -> Response {
     Json(state.engines.infos()).into_response()
 }
 
+// ---- Soniox "Enhanced" client-direct session (spec 0101) -------------------
+
+#[derive(Deserialize, Default)]
+pub struct SonioxSessionRequest {
+    /// Also mint a TTS key for the optional "Spoken translation" leg. Default `false`
+    /// → subtitles only, which stays within Soniox's small TTS concurrency cap.
+    #[serde(default)]
+    pub spoken: bool,
+}
+
+/// Build the Soniox temporary-key request body (spec 0101). `usage_type` is
+/// `"transcribe_websocket"` (STT + translation) or `"tts_rt"` (spoken translation) —
+/// note the STT value is Soniox's documented enum, not the `stt_rt` shorthand. Keys are
+/// single-use (one WebSocket each) and short-lived; the browser mints a fresh one per
+/// connection. Pure → unit-tested.
+fn soniox_key_request(usage_type: &str, client_ref: &str) -> serde_json::Value {
+    serde_json::json!({
+        "usage_type": usage_type,
+        "expires_in_seconds": 3600,           // max allowed (range 1–3600)
+        "single_use": true,
+        "max_session_duration_seconds": 7200, // ≤ 18000 allowed
+        "client_reference_id": client_ref,    // our user id, for Soniox-side tracing
+    })
+}
+
+/// Parse `{ api_key, expires_at }` from Soniox's 201 response. The `api_key` here is the
+/// scoped, single-use TEMP key meant for the browser — never the raw `SONIOX_API_KEY`.
+fn parse_soniox_key(body: &serde_json::Value) -> Result<(String, String), String> {
+    let api_key = body
+        .get("api_key")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .ok_or("soniox response missing api_key")?
+        .to_string();
+    let expires_at = body
+        .get("expires_at")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string();
+    Ok((api_key, expires_at))
+}
+
+/// Mint one Soniox temporary key (server→Soniox, Bearer = the region's raw key). Mirrors
+/// the Cloudflare-TURN minting pattern: the raw key stays server-side, only the minted
+/// temp key reaches the client.
+async fn mint_soniox_key(
+    http: &reqwest::Client,
+    raw_key: &str,
+    usage_type: &str,
+    client_ref: &str,
+) -> Result<(String, String), String> {
+    let resp = http
+        .post(crate::config::SONIOX_TEMP_KEY_URL)
+        .bearer_auth(raw_key)
+        .json(&soniox_key_request(usage_type, client_ref))
+        .timeout(Duration::from_secs(5))
+        .send()
+        .await
+        .map_err(|e| format!("soniox temp-key request failed: {e}"))?;
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let detail = resp.text().await.unwrap_or_default();
+        return Err(format!("soniox returned {status}: {detail}"));
+    }
+    let body: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("soniox temp-key bad JSON: {e}"))?;
+    parse_soniox_key(&body)
+}
+
+fn soniox_region_label(region: crate::config::SonioxRegion) -> &'static str {
+    match region {
+        crate::config::SonioxRegion::Us => "US",
+        crate::config::SonioxRegion::Eu => "EU",
+        crate::config::SonioxRegion::Jp => "JP",
+    }
+}
+
+/// `POST /api/soniox/session` — mint scoped, single-use Soniox temp keys so the browser
+/// can connect DIRECTLY to Soniox for the "Enhanced" tier (spec 0101). Auth-gated (so
+/// guests, who are pinned to Standard, get 401), credit-gated, rate-limited, and routed
+/// to a regional Soniox project via Cloudflare's `CF-IPCountry`. The raw `SONIOX_API_KEY`
+/// never leaves the server — only the minted temp keys + public endpoints reach the
+/// client. Returns `503` when the tier is not enabled (`SONIOX_ENHANCED` off).
+pub async fn soniox_session(
+    State(state): State<AppState>,
+    user: AuthUser,
+    headers: HeaderMap,
+    Json(body): Json<SonioxSessionRequest>,
+) -> Response {
+    let (Some(soniox), Some(billing), Some(cfg)) = (
+        state.config.soniox.as_ref(),
+        state.billing.as_ref(),
+        state.config.billing.as_ref(),
+    ) else {
+        return service_unavailable();
+    };
+
+    // Throttle (spec 0028): every Soniox WS (re)connect needs a fresh single-use key and
+    // mesh churn is bursty, but cap scraping of our key-minting endpoint.
+    if !state.rate_limiter.allow(
+        &format!("soniox:{}", user.user_id),
+        60,
+        Duration::from_secs(60),
+    ) {
+        return (StatusCode::TOO_MANY_REQUESTS, "too many requests").into_response();
+    }
+
+    // Credit gate: same threshold as joining a call — don't mint a key the listener
+    // can't afford to use. Advisory; the listener-pays meter is the real gate.
+    match billing.can_join(user.user_id).await {
+        Ok(true) => {}
+        Ok(false) => {
+            let available = billing
+                .get_balance(user.user_id)
+                .await
+                .unwrap_or(Decimal::ZERO);
+            return insufficient_credits(
+                "soniox_enhanced",
+                usd(cfg.pricing.min_balance_to_join),
+                available,
+            );
+        }
+        Err(e) => {
+            tracing::error!("soniox can_join check failed: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "billing error").into_response();
+        }
+    }
+
+    // Region routing (spec 0101): Cloudflare's edge sets `CF-IPCountry`. Only US is live;
+    // EU/JP fall back to US until their regional projects + keys exist.
+    let region = crate::config::soniox_region_for_country(
+        headers.get("cf-ipcountry").and_then(|v| v.to_str().ok()),
+    );
+    let region_cfg = soniox.region(region);
+    let client_ref = user.user_id.to_string();
+
+    let stt = match mint_soniox_key(
+        &state.http,
+        &region_cfg.api_key,
+        "transcribe_websocket",
+        &client_ref,
+    )
+    .await
+    {
+        Ok((api_key, expires_at)) => serde_json::json!({
+            "api_key": api_key,
+            "expires_at": expires_at,
+            "endpoint": region_cfg.stt_endpoint,
+        }),
+        Err(e) => {
+            tracing::error!("soniox STT temp-key mint failed: {e}");
+            return (StatusCode::BAD_GATEWAY, "soniox unavailable").into_response();
+        }
+    };
+
+    let tts = if body.spoken {
+        match mint_soniox_key(&state.http, &region_cfg.api_key, "tts_rt", &client_ref).await {
+            Ok((api_key, expires_at)) => serde_json::json!({
+                "api_key": api_key,
+                "expires_at": expires_at,
+                "endpoint": region_cfg.tts_endpoint,
+            }),
+            Err(e) => {
+                tracing::error!("soniox TTS temp-key mint failed: {e}");
+                return (StatusCode::BAD_GATEWAY, "soniox unavailable").into_response();
+            }
+        }
+    } else {
+        serde_json::Value::Null
+    };
+
+    Json(serde_json::json!({
+        "stt": stt,
+        "tts": tts,
+        "region": soniox_region_label(region),
+        "stt_model": soniox.stt_model,
+    }))
+    .into_response()
+}
+
 /// `GET /api/ice` — ICE servers for WebRTC peer connections (spec 0026). Always
 /// returns public STUN; when a self-hosted coturn is configured (`TURN_*`) it also
 /// returns time-limited TURN credentials via coturn's REST-API convention:
@@ -2723,6 +2905,41 @@ mod tests {
             cf_turn_credentials_url("abc123"),
             "https://rtc.live.cloudflare.com/v1/turn/keys/abc123/credentials/generate"
         );
+    }
+
+    #[test]
+    fn soniox_key_request_uses_documented_usage_types_and_single_use() {
+        // STT uses Soniox's documented enum value, NOT the `stt_rt` shorthand.
+        let stt = soniox_key_request("transcribe_websocket", "user-1");
+        assert_eq!(stt["usage_type"], "transcribe_websocket");
+        assert_eq!(stt["single_use"], true);
+        assert_eq!(stt["expires_in_seconds"], 3600);
+        assert_eq!(stt["max_session_duration_seconds"], 7200);
+        assert_eq!(stt["client_reference_id"], "user-1");
+        let tts = soniox_key_request("tts_rt", "user-1");
+        assert_eq!(tts["usage_type"], "tts_rt");
+    }
+
+    #[test]
+    fn parse_soniox_key_reads_temp_key_or_errors() {
+        let ok = serde_json::json!({
+            "api_key": "temp:WYJ67RBEFUWQXXPKYPD2UGXKWB",
+            "expires_at": "2025-02-22T22:47:37.150Z"
+        });
+        let (key, exp) = parse_soniox_key(&ok).unwrap();
+        assert_eq!(key, "temp:WYJ67RBEFUWQXXPKYPD2UGXKWB");
+        assert_eq!(exp, "2025-02-22T22:47:37.150Z");
+        // Missing / empty key is an error (never hand the client a blank credential).
+        assert!(parse_soniox_key(&serde_json::json!({ "expires_at": "x" })).is_err());
+        assert!(parse_soniox_key(&serde_json::json!({ "api_key": "" })).is_err());
+    }
+
+    #[test]
+    fn soniox_region_labels() {
+        use crate::config::SonioxRegion;
+        assert_eq!(soniox_region_label(SonioxRegion::Us), "US");
+        assert_eq!(soniox_region_label(SonioxRegion::Eu), "EU");
+        assert_eq!(soniox_region_label(SonioxRegion::Jp), "JP");
     }
 
     #[test]

@@ -343,7 +343,10 @@ pub async fn process_transcripts(
                 // OpenAI partial instead (spec 0099).
                 rooms.broadcast_to_engine_or_peer(&room, STANDARD_ID, &speaker_id, &interim);
             } else {
-                rooms.broadcast(&room, &interim);
+                // Serve everyone (incl. premium listeners who fell back to capacity)
+                // EXCEPT client-direct listeners, who render their own subtitles
+                // (spec 0101). A no-op when no client-direct engine is configured.
+                rooms.broadcast_excluding_client_direct(&room, &speaker_id, &interim);
             }
             continue;
         }
@@ -417,7 +420,8 @@ pub async fn process_transcripts(
             if listener_pays {
                 rooms.broadcast_to_engine_or_peer(&room, STANDARD_ID, &speaker_id, &final_msg);
             } else {
-                rooms.broadcast(&room, &final_msg);
+                // See the interim path: everyone except client-direct listeners (0101).
+                rooms.broadcast_excluding_client_direct(&room, &speaker_id, &final_msg);
             }
         });
     }

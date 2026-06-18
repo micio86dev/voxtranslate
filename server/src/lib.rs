@@ -208,14 +208,25 @@ impl AppState {
         // transcripts) are passed at speak time, not captured here, so the
         // registry can be built before `init` connects the database.
         let mut registry = EngineRegistry::new(crate::engine::STANDARD_ID);
-        registry.register(Arc::new(StandardEngine::new(
-            config.clone(),
-            http.clone(),
-            translator.clone(),
-        )));
-        // Registration order = display order: Standard, then Pro, then Premium. The OpenAI
-        // engine is the "Pro" tier (its stable id is still `premium`); register it BEFORE
-        // Gemini so Pro shows above Premium. Ships dark until its key is provisioned.
+        // Standard (Deepgram + Groq) is the base tier and the registry's default. Gated by
+        // `DEEPGRAM_STANDARD` (default ON) for symmetry with the optional tiers; a
+        // fail-safe below force-registers it if the flag left it off, so the app always
+        // has a default/capacity-fallback engine (spec 0101).
+        if config.standard_enabled {
+            registry.register(Arc::new(StandardEngine::new(
+                config.clone(),
+                http.clone(),
+                translator.clone(),
+            )));
+        }
+        // Registration order = display order: Standard, Enhanced, Pro, Premium. Enhanced
+        // (Soniox, spec 0101) is the client-direct tier between Standard and Pro; it ships
+        // dark behind the SONIOX_ENHANCED flag (gated in `config.soniox`).
+        if let Some(sx) = config.soniox.as_ref() {
+            registry.register(Arc::new(crate::engine::SonioxEngine::new(sx)));
+        }
+        // The OpenAI engine is the "Pro" tier (its stable id is still `premium`); register
+        // it BEFORE Gemini so Pro shows above Premium. Ships dark until its key is set.
         if let Some(oa) = config.openai.as_ref() {
             registry.register(Arc::new(ProEngine::new(oa)));
         }
@@ -224,10 +235,35 @@ impl AppState {
         if let Some(g) = config.google.as_ref() {
             registry.register(Arc::new(PremiumEngine::new(g)));
         }
+        // Fail-safe (spec 0101): the registry's default engine (Standard) must exist, or
+        // `resolve()`/`default()` panic and the whole call path breaks. If `DEEPGRAM_STANDARD`
+        // was set to 0, force-register Standard now (it lands last in display order, but the
+        // app stays up). Standard is a base tier, not a real kill switch.
+        if registry.get(crate::engine::STANDARD_ID).is_none() {
+            tracing::warn!(
+                "DEEPGRAM_STANDARD is off but Standard is the mandatory default engine — force-registering it"
+            );
+            registry.register(Arc::new(StandardEngine::new(
+                config.clone(),
+                http.clone(),
+                translator.clone(),
+            )));
+        }
         let engines = Arc::new(registry);
+        // Client-direct engines (spec 0101): tell the room manager which engine ids
+        // translate in the browser so its "serve everyone" subtitle fan-out skips those
+        // listeners (they render their own). Computed from the live registry, so it's
+        // non-empty only when such an engine (Soniox "Enhanced") is registered.
+        let client_direct_engines: std::collections::HashSet<String> = engines
+            .list()
+            .filter(|e| e.metadata().capabilities.client_direct)
+            .map(|e| e.metadata().id.clone())
+            .collect();
+        let rooms = Arc::new(RoomManager::new());
+        rooms.init_client_direct_engines(client_direct_engines);
         Self {
             config,
-            rooms: Arc::new(RoomManager::new()),
+            rooms,
             translator,
             engines,
             groq,
@@ -336,6 +372,7 @@ pub fn app(state: AppState) -> Router {
         .route("/api/auth/google", post(auth::auth_google))
         .route("/api/user/me", get(auth::user_me))
         .route("/api/engines", get(api::engines))
+        .route("/api/soniox/session", post(api::soniox_session))
         .route("/api/billing/packages", get(api::billing_packages))
         .route("/api/billing/checkout", post(api::billing_checkout))
         .route("/api/billing/webhook", post(api::billing_webhook))
@@ -891,6 +928,16 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
     // crafted `?engine=premium` can't open a paid upstream session for an unbilled peer
     // (the client already hides the selector for guests; this is the enforcement).
     if billed_user.is_none() {
+        active_engine = state.engines.default();
+    }
+
+    // Enhanced (Soniox, spec 0101) is a client-direct, listener-side RECEIVE tier: the
+    // browser translates the audio it hears locally. It only makes sense under
+    // listener-pays (each listener picks the quality THEY receive). In the legacy
+    // speaker-pays mode there is no listener-side engine, and the server has no session
+    // to run for it, so a client-direct pick would translate nothing — fall back to the
+    // default so the speaker is still transcribed for the room.
+    if !state.config.listener_pays && active_engine.metadata().capabilities.client_direct {
         active_engine = state.engines.default();
     }
 

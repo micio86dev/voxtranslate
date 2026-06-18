@@ -2,8 +2,9 @@
 //! rooms are listed in the lobby). Every peer can speak, listen, connect P2P via
 //! WebRTC, and chat. Rooms are capped at `MAX_PEERS`.
 
+use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use dashmap::DashMap;
 use tokio::sync::mpsc::{self, error::TrySendError, Receiver};
@@ -203,11 +204,31 @@ pub struct PeerSnapshot {
 #[derive(Default)]
 pub struct RoomManager {
     rooms: DashMap<String, Room>,
+    /// Engine ids whose translation happens client-direct (spec 0101, Soniox
+    /// "Enhanced"): their listeners translate in the browser, so the server's
+    /// "serve everyone" subtitle fan-out skips them — otherwise they'd be
+    /// double-translated. Set once at startup from the engine registry; empty
+    /// (the default) means no engine is client-direct, so nothing is excluded.
+    client_direct_engines: OnceLock<HashSet<String>>,
 }
 
 impl RoomManager {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Record the client-direct engine ids once at startup (from the engine registry,
+    /// spec 0101). Idempotent — a second call is ignored.
+    pub fn init_client_direct_engines(&self, ids: HashSet<String>) {
+        let _ = self.client_direct_engines.set(ids);
+    }
+
+    /// Whether `engine` translates client-direct (its listeners self-serve in-browser).
+    fn is_client_direct(&self, engine: &str) -> bool {
+        self.client_direct_engines
+            .get()
+            .map(|s| s.contains(engine))
+            .unwrap_or(false)
     }
 
     /// Number of live rooms on this instance (a room is dropped when its last peer
@@ -336,6 +357,26 @@ impl RoomManager {
                 .peers
                 .iter()
                 .filter(|p| p.lang == lang && p.engine == engine)
+            {
+                let _ = p.tx.send(message.to_string());
+            }
+        }
+    }
+
+    /// Broadcast to every peer EXCEPT client-direct-engine listeners (spec 0101), plus
+    /// `keep_peer` whatever their engine. The Standard "serve everyone" delivery uses
+    /// this in listener-pays mode: a client-direct (Soniox "Enhanced") listener renders
+    /// its OWN in-browser subtitles, so the server must not also push it Standard's —
+    /// while every other listener (Standard, plus any Premium listener who fell back to
+    /// capacity) is still served, and the speaker still sees their own caption via
+    /// `keep_peer`. With no client-direct engine configured this is identical to
+    /// [`broadcast`](Self::broadcast).
+    pub fn broadcast_excluding_client_direct(&self, room_id: &str, keep_peer: &str, message: &str) {
+        if let Some(room) = self.rooms.get(room_id) {
+            for p in room
+                .peers
+                .iter()
+                .filter(|p| p.id == keep_peer || !self.is_client_direct(&p.engine))
             {
                 let _ = p.tx.send(message.to_string());
             }
@@ -753,6 +794,60 @@ mod tests {
         rm.broadcast_except("r", "a", "z");
         assert_eq!(rb.try_recv().unwrap(), "z");
         assert!(ra.try_recv().is_err());
+    }
+
+    #[test]
+    fn broadcast_excluding_client_direct_skips_soniox_keeps_others_and_speaker() {
+        // Spec 0101: the Standard "serve everyone" path must reach Standard listeners and
+        // a fallen-back Premium listener, but NOT a Soniox ("enhanced") listener — who
+        // renders its own in-browser subtitles — while the speaker still sees their own
+        // caption even when the SPEAKER is on the client-direct engine.
+        let rm = RoomManager::new();
+        rm.init_client_direct_engines(HashSet::from(["soniox".to_string()]));
+
+        // Speaker `spk` is itself on Soniox; std + premium are cross-language listeners;
+        // `sx` is another Soniox listener that must be excluded.
+        let (spk, mut r_spk) = peer_full("spk", "it", "soniox", Uuid::new_v4());
+        let (std, mut r_std) = peer_full("std", "en", "standard", Uuid::new_v4());
+        let (prem, mut r_prem) = peer_full("prem", "fr", "premium", Uuid::new_v4());
+        let (sx, mut r_sx) = peer_full("sx", "de", "soniox", Uuid::new_v4());
+        rm.join("r", spk, Visibility::Private).unwrap();
+        rm.join("r", std, Visibility::Private).unwrap();
+        rm.join("r", prem, Visibility::Private).unwrap();
+        rm.join("r", sx, Visibility::Private).unwrap();
+
+        rm.broadcast_excluding_client_direct("r", "spk", "caption");
+
+        assert_eq!(
+            r_std.try_recv().unwrap(),
+            "caption",
+            "Standard listener served"
+        );
+        assert_eq!(
+            r_prem.try_recv().unwrap(),
+            "caption",
+            "fallen-back Premium listener served"
+        );
+        assert_eq!(
+            r_spk.try_recv().unwrap(),
+            "caption",
+            "speaker keeps own caption even on a client-direct engine"
+        );
+        assert!(
+            r_sx.try_recv().is_err(),
+            "client-direct (Soniox) listener is NOT double-served"
+        );
+
+        // With no client-direct engine configured it behaves like a plain broadcast.
+        let rm2 = RoomManager::new();
+        let (a, mut ra) = peer_full("a", "it", "soniox", Uuid::new_v4());
+        rm2.join("r", a, Visibility::Private).unwrap();
+        rm2.broadcast_excluding_client_direct("r", "nobody", "x");
+        assert_eq!(
+            ra.try_recv().unwrap(),
+            "x",
+            "no exclusion set → serve everyone"
+        );
     }
 
     #[test]

@@ -6,12 +6,14 @@ import {
   type EngineInfo,
   commonLangs,
   engineDescKey,
+  engineIsClientDirect,
   engineNeedsPcm,
   formatRate,
   loadEnginePref,
   resolveEnginePref,
   saveEnginePref,
 } from './engines';
+import { SonioxManager } from './soniox';
 import { loadRemoteI18n } from './content';
 import { icon } from './icons';
 import { MeshManager } from './webrtc';
@@ -22,7 +24,7 @@ import { pcmPlayback } from './pcm-playback';
 import { MicMeter } from './mic-meter';
 import { ChatManager, type ChatPayload } from './chat';
 import { CHAT_MAX_HEIGHT, counterLabel, counterState, insertAt, resizeBox } from './chat-input';
-import { checkUploadFile, fileUploadEnabled, generateAiQuiz, saveQuizHistory, sendInvites, uploadChatFile } from './api';
+import { checkUploadFile, fetchSonioxSession, fileUploadEnabled, generateAiQuiz, saveQuizHistory, sendInvites, uploadChatFile } from './api';
 import { buildInviteLink, MAX_INVITE_EMAILS, parseRoomParam, validateInviteEmails } from './invite';
 import * as auth from './auth';
 import { openSessionScreen } from './session-screen';
@@ -288,6 +290,44 @@ const callTimer = new CallTimer({
   onCancel: () => toast(t('timerCancelled')),
 });
 let audioCapture: AudioCapture | PcmCapture | null = null;
+// Enhanced (Soniox, spec 0101): client-direct receive pipeline. Lazily created; only
+// activated for a signed-in, listener-pays listener whose engine is client-direct — for
+// every other engine/mode it stays null/inert.
+let sonioxManager: SonioxManager | null = null;
+function ensureSonioxManager(): SonioxManager {
+  if (!sonioxManager) {
+    sonioxManager = new SonioxManager({
+      // v1 spoken translation reuses the on-device voice (onUtterance → speak), so we
+      // request STT only (no Soniox TTS key) — lowest latency, within the TTS cap.
+      fetchSession: async () => {
+        const s = await fetchSonioxSession(false);
+        return s
+          ? { sttApiKey: s.stt.api_key, sttEndpoint: s.stt.endpoint, model: s.stt_model }
+          : null;
+      },
+      onSubtitle: (speakerId, text, interim) => {
+        if (subtitlesOn) showSubtitle(speakerId, text, interim);
+      },
+      onUtterance: (speakerId, text) => {
+        // Spoken translation: same on-device voice path as every other engine, gated by
+        // the "translated voice" toggle (prefer local voices, minimal delay).
+        if (ttsOn && speakerId !== myId) speak(text, session?.lang || 'en');
+      },
+    });
+  }
+  return sonioxManager;
+}
+/** Start/stop the Enhanced receive pipeline for the current call (spec 0101). Inert
+ *  unless a signed-in, listener-pays listener is on a client-direct engine. */
+function syncSonioxForCall(): void {
+  const enabled =
+    auth.isLoggedIn() &&
+    auth.isListenerPays() &&
+    engineIsClientDirect(session?.engine, availableEngines) &&
+    SonioxManager.supported;
+  if (enabled) ensureSonioxManager().activate(session?.lang || 'en');
+  else sonioxManager?.deactivate();
+}
 // Listener-pays (spec 0099): once the server sends a `capture_format` message our
 // capture is server-driven (PCM iff a Premium listener is present), not chosen from
 // our own engine. `null` until the first message → speaker-pays (self-engine) mode.
@@ -454,10 +494,19 @@ function renderEngineSelector(): void {
     const name = document.createElement('span');
     name.className = 'engine-opt-name';
     name.textContent = e.display_name;
+    head.append(name);
+    // "Fastest" chip on the client-direct (Enhanced) tier — browser ↔ provider with
+    // no server relay hop, so it's the lowest-latency option (spec 0101).
+    if (e.capabilities.client_direct) {
+      const badge = document.createElement('span');
+      badge.className = 'engine-opt-badge';
+      badge.textContent = t('engineBadgeEnhanced');
+      head.append(badge);
+    }
     const rate = document.createElement('span');
     rate.className = 'engine-opt-rate';
     rate.textContent = formatRate(e.rate_per_minute);
-    head.append(name, rate);
+    head.append(rate);
     const desc = document.createElement('span');
     desc.className = 'engine-opt-desc';
     // Localized, jargon-free copy keyed by tier; fall back to the server string for
@@ -938,10 +987,15 @@ function openSocket(): void {
       remoteStreams.set(peerId, stream);
       recorder?.addParticipant(participantSource(peerId, stream));
       attachStream(peerId, stream);
+      // Enhanced (spec 0101): feed this peer's audio to its in-browser Soniox pipeline.
+      sonioxManager?.setPeerStream(peerId, stream);
     };
     mesh.onPeerRemoved = (peerId) => removeCell(peerId);
     mesh.setAudioEnabled(micOn);
     mesh.setVideoEnabled(camOn);
+    // Enhanced (spec 0101): turn the client-direct receive pipeline on for this call
+    // (no-op for every other engine / speaker-pays / guest).
+    syncSonioxForCall();
 
     // We recreate `audioCapture` fresh on every (re)connect, so CLEAR the listener-pays
     // server-driven format (spec 0099) first: otherwise a stale `serverCaptureFormat`
@@ -1012,6 +1066,7 @@ async function handleServer(msg: any): Promise<void> {
       for (const p of msg.peers) {
         peerNames.set(p.id, { name: p.user_name, lang: p.lang, avatar: p.avatar_url });
         addCell(p.id, p.user_name, p.lang, false, p.avatar_url);
+        sonioxManager?.setPeerLang(p.id, p.lang); // spec 0101: source lang for Enhanced
         await mesh?.addPeer(p.id, false); // they'll initiate the offer
       }
       updateParticipantsList();
@@ -1029,6 +1084,7 @@ async function handleServer(msg: any): Promise<void> {
       premiumSpeakers.delete(msg.peer_id);
       peerNames.set(msg.peer_id, { name: msg.user_name, lang: msg.lang, avatar: msg.avatar_url });
       addCell(msg.peer_id, msg.user_name, msg.lang, false, msg.avatar_url);
+      sonioxManager?.setPeerLang(msg.peer_id, msg.lang); // spec 0101: source lang for Enhanced
       if (!reconnected) playJoinSound(); // audible cue only for a genuinely new peer
       await mesh?.addPeer(msg.peer_id, true); // we initiate toward the newcomer
       // Re-announce our current mute/camera state so the newcomer's UI matches.
@@ -1117,6 +1173,10 @@ async function handleServer(msg: any): Promise<void> {
       if (info) info.lang = msg.lang;
       const badge = videoGrid.querySelector(`[data-peer="${cssEsc(msg.peer_id)}"] .peer-lang`);
       if (badge) badge.textContent = `${FLAG[msg.lang] || ''} ${msg.lang.toUpperCase()}`.trim();
+      // Enhanced (spec 0101): a peer's resolved source language, or — for us — our own
+      // translation target moving, both restart the affected Soniox pipeline(s).
+      if (msg.peer_id === myId) sonioxManager?.setMyLang(msg.lang);
+      else sonioxManager?.setPeerLang(msg.peer_id, msg.lang);
       if (msg.peer_id === myId && session) {
         session.lang = msg.lang;
         stageSelfLang.textContent = `${FLAG[msg.lang] || ''} ${msg.lang.toUpperCase()}`.trim();
@@ -1419,6 +1479,7 @@ function removeCell(id: string): void {
   peerCamOff.delete(id);
   remoteStreams.delete(id);
   recorder?.removeParticipant(id);
+  sonioxManager?.removePeer(id); // spec 0101: tear down this peer's Enhanced pipeline
   if (pinnedPeerId === id) pinnedPeerId = null;
   if (lastSpeakerId === id) lastSpeakerId = null;
   updateGridCount();
@@ -2897,6 +2958,7 @@ function leaveCall(): void {
   activeSessionId = null;
   transcriptEvents = 0;
   callStartedAt = 0;
+  sonioxManager?.deactivate(); // spec 0101: stop all Enhanced pipelines on leave
   clearPendingRemovals(); // drop any in-flight reconnect grace timers (#233)
   show($('transcript-indicator'), false);
   manualClose = true;
