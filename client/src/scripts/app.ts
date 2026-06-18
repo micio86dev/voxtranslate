@@ -375,6 +375,13 @@ async function initEngines(): Promise<void> {
 }
 
 function renderEngineSelector(): void {
+  // Guests always use Standard — Premium/Pro need credits. Hide the selector and pin
+  // the choice so the join always sends 'standard'; only signed-in users get to pick.
+  if (!auth.isLoggedIn()) {
+    selectedEngine = 'standard';
+    engineField.hidden = true;
+    return;
+  }
   // A one-engine deployment (the common case until Premium is provisioned) has no
   // choice to make — keep the selector out of the way.
   if (availableEngines.length < 2) {
@@ -3148,6 +3155,7 @@ function updatePublicGate(): void {
 }
 
 function renderAccount(): void {
+  renderEngineSelector(); // keep the engine selector in sync with auth (guests: hidden + Standard)
   const u = auth.getUser();
   if (!billing || !u) {
     accountBar.classList.add('hidden');
