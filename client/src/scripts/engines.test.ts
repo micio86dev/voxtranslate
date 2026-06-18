@@ -7,6 +7,7 @@ import {
   commonLangs,
   defaultEngineId,
   engineDescKey,
+  engineIsClientDirect,
   engineLangs,
   engineNeedsPcm,
   formatRate,
@@ -27,6 +28,7 @@ function engine(id: string, langs: string[], rate = 0.01): EngineInfo {
     capabilities: {
       translated_audio: id === 'premium',
       cost_scales_per_language: id === 'premium',
+      client_direct: id === 'soniox',
       max_room_size: 4,
     },
   };
@@ -97,7 +99,12 @@ describe('engineNeedsPcm', () => {
   // is NOT `premium` — the exact case the old `id === 'premium'` check missed.
   const GEMINI: EngineInfo = {
     ...engine('gemini_live_translate', ['en', 'it']),
-    capabilities: { translated_audio: true, cost_scales_per_language: true, max_room_size: 4 },
+    capabilities: {
+      translated_audio: true,
+      cost_scales_per_language: true,
+      client_direct: false,
+      max_room_size: 4,
+    },
   };
   const list = [STANDARD, PREMIUM, GEMINI];
 
@@ -113,6 +120,38 @@ describe('engineNeedsPcm', () => {
     expect(engineNeedsPcm('nope', list)).toBe(false);
     expect(engineNeedsPcm(undefined, list)).toBe(false);
     expect(engineNeedsPcm('premium', [])).toBe(false);
+  });
+});
+
+describe('engineIsClientDirect', () => {
+  // Soniox "Enhanced" (spec 0101): browser ↔ provider directly; the listener
+  // translates in-browser. Keyed on the capability, not the id.
+  const SONIOX: EngineInfo = {
+    ...engine('soniox', ['en', 'it']),
+    tier: 'enhanced',
+    capabilities: {
+      translated_audio: false,
+      cost_scales_per_language: true,
+      client_direct: true,
+      max_room_size: 4,
+    },
+  };
+  const list = [STANDARD, SONIOX, PREMIUM];
+
+  it('is true only for a client-direct engine', () => {
+    expect(engineIsClientDirect('soniox', list)).toBe(true);
+    expect(engineIsClientDirect('standard', list)).toBe(false);
+    expect(engineIsClientDirect('premium', list)).toBe(false);
+  });
+  it('is false for an unknown or absent engine', () => {
+    expect(engineIsClientDirect('nope', list)).toBe(false);
+    expect(engineIsClientDirect(undefined, list)).toBe(false);
+    expect(engineIsClientDirect('soniox', [])).toBe(false);
+  });
+  it('does not force PCM capture (Enhanced is receive-side, not translated_audio)', () => {
+    // A Soniox listener must NOT flip the speaker to PCM16 — that is for server
+    // speech-to-speech engines only.
+    expect(engineNeedsPcm('soniox', list)).toBe(false);
   });
 });
 
@@ -157,6 +196,7 @@ describe('preference persistence', () => {
 
   it('maps tiers to localized description keys, null for unknown (#236)', () => {
     expect(engineDescKey('standard')).toBe('engineDescStandard');
+    expect(engineDescKey('enhanced')).toBe('engineDescEnhanced'); // Soniox = the "Enhanced" tier
     expect(engineDescKey('pro')).toBe('engineDescPro'); // OpenAI = the "Pro" tier
     expect(engineDescKey('premium')).toBe('engineDescPremium'); // Gemini = the "Premium" tier
     expect(engineDescKey('enterprise')).toBeNull(); // unknown → caller falls back to server desc

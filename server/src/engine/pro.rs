@@ -96,6 +96,7 @@ impl ProEngine {
             capabilities: EngineCapabilities {
                 translated_audio: true,
                 cost_scales_per_language: true,
+                client_direct: false,
                 max_room_size: 4,
             },
         };

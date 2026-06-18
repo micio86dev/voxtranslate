@@ -177,6 +177,8 @@ mod guest_mode {
             app_base_url: "https://voxtranslate.app".into(),
             openai: None,
             google: None,
+            soniox: None,
+            standard_enabled: true,
             listener_pays: false,
         };
         let state = AppState::new(config);
@@ -425,6 +427,40 @@ mod stripe_api {
         .fetch_one(pool)
         .await
         .unwrap()
+    }
+
+    /// Soniox "Enhanced" key-minting endpoint (spec 0101): guests are rejected (401),
+    /// and an authed user gets 503 while the tier is disabled (`soniox: None` here — the
+    /// happy path needs a live Soniox key and isn't exercised in CI).
+    #[tokio::test]
+    async fn soniox_session_auth_and_tier_gates() {
+        let Some(srv) = setup().await else {
+            eprintln!("skipping — no DATABASE_URL");
+            return;
+        };
+        let http = reqwest::Client::new();
+        let url = format!("http://{}/api/soniox/session", srv.addr);
+
+        // No token → 401: guests are pinned to Standard and can't mint Enhanced keys.
+        let guest = http
+            .post(&url)
+            .json(&serde_json::json!({}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(guest.status(), 401);
+
+        // Authed, but Enhanced is not enabled in this config (soniox: None) → 503.
+        let uid = make_user(&srv.pool, 500).await;
+        let jwt = issue_jwt(&srv.secret, &uid, "u@x.com", "U", 168).unwrap();
+        let unavailable = http
+            .post(&url)
+            .bearer_auth(&jwt)
+            .json(&serde_json::json!({ "spoken": false }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(unavailable.status(), 503);
     }
 
     #[tokio::test]

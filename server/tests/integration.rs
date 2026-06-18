@@ -38,6 +38,8 @@ fn make_state() -> (AppState, bool) {
                 app_base_url: "https://voxtranslate.app".into(),
                 openai: None,
                 google: None,
+                soniox: None,
+                standard_enabled: true,
                 listener_pays: false,
             }),
             false,
@@ -380,6 +382,8 @@ async fn deepgram_unavailable_sends_error() {
         app_base_url: "https://voxtranslate.app".into(),
         openai: None,
         google: None,
+        soniox: None,
+        standard_enabled: true,
         listener_pays: false,
     });
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -445,6 +449,8 @@ fn guest_config() -> Config {
         app_base_url: "https://voxtranslate.app".into(),
         openai: None,
         google: None,
+        soniox: None,
+        standard_enabled: true,
         listener_pays: false,
     }
 }

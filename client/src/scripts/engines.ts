@@ -8,6 +8,11 @@ export interface EngineCapabilities {
   /** Cost scales with the number of distinct target languages in the room — the
    *  rate shown is per translation stream, and a group call costs more (spec 0093). */
   cost_scales_per_language: boolean;
+  /** The browser connects DIRECTLY to the provider (spec 0101, Soniox "Enhanced"):
+   *  this listener translates the audio it receives in-browser via a server-minted
+   *  temp key, instead of the server running the engine. Drives the client-direct
+   *  receive pipeline; the server never proxies this engine's audio. */
+  client_direct: boolean;
   max_room_size: number;
 }
 
@@ -111,12 +116,22 @@ export function engineNeedsPcm(engineId: string | undefined, engines: EngineInfo
   return engines.find((e) => e.id === engineId)?.capabilities.translated_audio ?? false;
 }
 
+/** Whether a listener on `engineId` translates client-direct (spec 0101, Soniox
+ *  "Enhanced"): the browser connects straight to the provider with a server-minted
+ *  temp key and renders its own subtitles/voice, so the server neither runs the engine
+ *  nor pushes this listener server-side translation. Keyed on the `client_direct`
+ *  capability, never a hardcoded id. Unknown/absent engine → false. */
+export function engineIsClientDirect(engineId: string | undefined, engines: EngineInfo[]): boolean {
+  return engines.find((e) => e.id === engineId)?.capabilities.client_direct ?? false;
+}
+
 /** i18n key for an engine's user-facing description, by tier (#236). The server's
  *  `description` exposes provider/model jargon (Deepgram, Groq, GPT-Realtime),
  *  so the UI shows a localized, benefit-focused string instead. Returns null for
  *  an unknown/future tier so the caller falls back to the server description. */
 export function engineDescKey(tier: string): string | null {
   if (tier === 'standard') return 'engineDescStandard';
+  if (tier === 'enhanced') return 'engineDescEnhanced';
   if (tier === 'pro') return 'engineDescPro';
   if (tier === 'premium') return 'engineDescPremium';
   return null;

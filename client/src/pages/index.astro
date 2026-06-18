@@ -816,6 +816,13 @@ const jsonLd = {
       display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
     }
     .engine-options :global(.engine-opt-name) { font-weight: 600; color: var(--text); font-size: 0.95rem; }
+    /* "Fastest" chip on the client-direct (Enhanced) tier — spec 0101. Sits right of the
+       name; margin-right:auto pushes the rate to the far edge. */
+    .engine-options :global(.engine-opt-badge) {
+      align-self: center; margin-right: auto;
+      font-size: 0.62rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
+      color: #fff; background: var(--accent); border-radius: 999px; padding: 1px 7px;
+    }
     .engine-options :global(.engine-opt-rate) {
       font-size: 0.8rem; color: var(--accent); font-variant-numeric: tabular-nums; flex: none;
     }

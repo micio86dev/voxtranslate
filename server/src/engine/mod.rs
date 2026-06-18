@@ -11,6 +11,7 @@ pub mod metadata;
 pub mod openai;
 pub mod premium;
 pub mod pro;
+pub mod soniox;
 pub mod standard;
 
 use std::collections::HashSet;
@@ -28,6 +29,7 @@ use crate::transcripts::TranscriptService;
 pub use metadata::{EngineCapabilities, EngineInfo, EngineMetadata};
 pub use premium::PremiumEngine;
 pub use pro::ProEngine;
+pub use soniox::SonioxEngine;
 pub use standard::StandardEngine;
 
 /// Stable engine ids. Persisted in `usage_sessions.engine_id` and sent in the join
@@ -41,6 +43,11 @@ pub const STANDARD_ID: &str = "standard";
 pub const OPENAI_ID: &str = "premium";
 /// Gemini 3.5 Live Translate — the "Premium" tier (`engine::premium`, spec 0100).
 pub const GEMINI_ID: &str = "gemini_live_translate";
+/// Soniox real-time STT+translation — the "Enhanced" tier (`engine::soniox`, spec 0101).
+/// The only **client-direct** engine: the browser connects straight to Soniox with a
+/// server-minted temp key, so this id only tags `usage_sessions` / the listener-meter
+/// rate and never opens a server session.
+pub const SONIOX_ID: &str = "soniox";
 
 /// Live per-speaker dependencies the handler hands an engine when speech starts.
 ///
@@ -211,6 +218,7 @@ mod tests {
             capabilities: EngineCapabilities {
                 translated_audio: false,
                 cost_scales_per_language: false,
+                client_direct: false,
                 max_room_size: 4,
             },
         }
