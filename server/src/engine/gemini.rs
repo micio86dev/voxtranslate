@@ -64,11 +64,13 @@ pub fn session_url(config: &GeminiConfig) -> String {
     )
 }
 
-/// The `setup` frame opening a translation session for `target_lang`. Per the Live
-/// Translate guide, `responseModalities`, the transcription enablers, and
-/// `translationConfig` all nest inside `generationConfig`. `echoTargetLanguage`
-/// makes the model parrot input that's already in the target language (so a speaker
-/// briefly using the listener's language isn't mistranslated).
+/// The `setup` frame opening a translation session for `target_lang`. `generationConfig`
+/// carries `responseModalities` + `translationConfig`, but the transcription enablers
+/// (`inputAudioTranscription` / `outputAudioTranscription`) are **setup-level** fields —
+/// the Live API rejects them inside `generationConfig` (1007 close: "Unknown name
+/// 'inputAudioTranscription' at 'setup.generation_config'"). `echoTargetLanguage` makes
+/// the model parrot input that's already in the target language (so a speaker briefly
+/// using the listener's language isn't mistranslated).
 pub fn setup_json(model: &str, target_lang: &str) -> String {
     // The wire wants a fully-qualified `models/<id>`; tolerate either form in config.
     let model_path = if model.starts_with("models/") {
@@ -81,13 +83,13 @@ pub fn setup_json(model: &str, target_lang: &str) -> String {
             "model": model_path,
             "generationConfig": {
                 "responseModalities": ["AUDIO"],
-                "inputAudioTranscription": {},
-                "outputAudioTranscription": {},
                 "translationConfig": {
                     "targetLanguageCode": target_lang,
                     "echoTargetLanguage": true,
                 }
-            }
+            },
+            "inputAudioTranscription": {},
+            "outputAudioTranscription": {}
         }
     })
     .to_string()
@@ -264,20 +266,21 @@ mod tests {
     }
 
     #[test]
-    fn setup_frame_nests_under_generation_config() {
+    fn setup_frame_places_fields_where_the_api_wants_them() {
         let v: Value =
             serde_json::from_str(&setup_json("gemini-3.5-live-translate-preview", "pl")).unwrap();
-        assert_eq!(
-            v["setup"]["model"],
-            "models/gemini-3.5-live-translate-preview"
-        );
-        let gc = &v["setup"]["generationConfig"];
+        let setup = &v["setup"];
+        assert_eq!(setup["model"], "models/gemini-3.5-live-translate-preview");
+        let gc = &setup["generationConfig"];
         assert_eq!(gc["responseModalities"][0], "AUDIO");
-        // The transcription enablers and translationConfig all live in generationConfig.
-        assert!(gc.get("inputAudioTranscription").is_some());
-        assert!(gc.get("outputAudioTranscription").is_some());
+        // translationConfig lives in generationConfig …
         assert_eq!(gc["translationConfig"]["targetLanguageCode"], "pl");
         assert_eq!(gc["translationConfig"]["echoTargetLanguage"], true);
+        // … but the transcription enablers are SETUP-level (the API 1007-rejects them
+        // inside generationConfig).
+        assert!(setup.get("inputAudioTranscription").is_some());
+        assert!(setup.get("outputAudioTranscription").is_some());
+        assert!(gc.get("inputAudioTranscription").is_none());
     }
 
     #[test]
