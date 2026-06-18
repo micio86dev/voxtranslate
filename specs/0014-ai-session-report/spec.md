@@ -221,8 +221,8 @@ features reuse.
 
 ## 7. Deployment & Operations
 
-- **Env (server):** `GROQ_REPORT_MODEL` (default `llama-3.3-70b-versatile`),
-  `GROQ_FALLBACK_MODEL` (default `llama-3.1-8b-instant`),
+- **Env (server):** `GROQ_REPORT_MODEL` (default `openai/gpt-oss-120b`),
+  `GROQ_FALLBACK_MODEL` (default `openai/gpt-oss-20b`),
   `CREDITS_REPORT_BASE` (default `0.05`), `CREDITS_REPORT_PER_MINUTE` (default
   `0.002`). Rides the existing `GROQ_API_KEY`; requires the billing stack
   (spec 0005) and transcripts (spec 0009) — without them the endpoints 503.

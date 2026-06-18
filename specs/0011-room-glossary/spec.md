@@ -14,7 +14,7 @@
 
 ## 1. Context & Problem
 
-Llama 3.1 8B translates fluently but paraphrases freely: "fattura" becomes
+The Groq translation model renders fluently but paraphrases freely: "fattura" becomes
 "bill" in one sentence and "invoice" in the next, product names get
 "helpfully" translated, and legal/sales jargon drifts per utterance. For a
 recurring meeting that is worse than a one-off mistake — the same term must

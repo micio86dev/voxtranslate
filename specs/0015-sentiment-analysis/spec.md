@@ -211,8 +211,8 @@ shared free with every participant afterwards.
 - **Env (server):** `CREDITS_SENTIMENT_BASE` (default `0.05`),
   `CREDITS_SENTIMENT_PER_PARTICIPANT` (`0.01`),
   `CREDITS_SENTIMENT_PER_MINUTE` (`0.002`); models via `GROQ_REPORT_MODEL`
-  (default `llama-3.3-70b-versatile`) and `GROQ_FALLBACK_MODEL`
-  (`llama-3.1-8b-instant`) — all shared with spec 0014. No new secrets.
+  (default `openai/gpt-oss-120b`) and `GROQ_FALLBACK_MODEL`
+  (`openai/gpt-oss-20b`) — all shared with spec 0014. No new secrets.
 - **Migration:** `005_features.sql` (`session_sentiments`) runs at startup;
   shipped with the AI-bundle foundations.
 - **Availability:** requires transcripts + billing + DB configured; otherwise

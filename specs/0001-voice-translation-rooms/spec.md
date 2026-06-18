@@ -62,7 +62,7 @@ protocol, and the STT→translate fan-out pipeline.
 - `rooms.rs` — in-memory room registry; peer join/leave; broadcast channels.
 - `deepgram.rs` — per-peer Deepgram streaming client (open/feed/finalize/close).
 - `translator.rs` + `groq.rs` — translation fan-out to unique target languages via
-  Groq Llama 3.1 8B Instant.
+  Groq `openai/gpt-oss-20b`.
 - `protocol.rs` — the wire contract (see below).
 - `config.rs` — env + API keys (`DEEPGRAM_API_KEY`, `GROQ_API_KEY`).
 
@@ -126,4 +126,4 @@ speaker's; translate the finalized text into each **concurrently**; assemble a
 
 - Commit: `7cea003` "VoxTranslate: real-time multilingual voice translation rooms"
 - Files: `server/src/{lib,rooms,deepgram,translator,groq,protocol,config}.rs`, `scripts/pipeline-test.mjs`
-- External: Deepgram Nova-2 streaming, Groq Llama 3.1 8B Instant, Web SpeechSynthesis API
+- External: Deepgram Nova-2 streaming, Groq `openai/gpt-oss-20b`, Web SpeechSynthesis API
