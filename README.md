@@ -41,7 +41,7 @@ Supported languages: Italian, English, Spanish, French, German, Portuguese, Japa
 | Backend      | Rust — Axum 0.8 + Tokio (WS relay + signaling)             |
 | Video/Audio  | WebRTC mesh (P2P), STUN-only                                |
 | STT          | Deepgram Nova-2 streaming WebSocket                         |
-| Translation  | Groq `llama-3.1-8b-instant` (parallel fan-out)             |
+| Translation  | Groq `openai/gpt-oss-20b` (parallel fan-out)               |
 | Frontend     | Astro 5 + vanilla TypeScript modules (`src/scripts/`)      |
 | TTS          | Browser `SpeechSynthesis` API                              |
 
@@ -67,7 +67,7 @@ Existing peers initiate the WebRTC offer toward a newcomer (avoids offer glare).
 ## Prerequisites
 
 - Rust (stable) + Cargo · Node 18+ + npm
-- API keys: **`DEEPGRAM_API_KEY`** (Nova-2 STT) and **`GROQ_API_KEY`** (Llama translation)
+- API keys: **`DEEPGRAM_API_KEY`** (Nova-2 STT) and **`GROQ_API_KEY`** (GPT-OSS translation)
 
 ## Run locally
 

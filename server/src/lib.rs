@@ -217,12 +217,12 @@ impl AppState {
         // engine is the "Pro" tier (its stable id is still `premium`); register it BEFORE
         // Gemini so Pro shows above Premium. Ships dark until its key is provisioned.
         if let Some(oa) = config.openai.as_ref() {
-            registry.register(Arc::new(PremiumEngine::new(oa)));
+            registry.register(Arc::new(ProEngine::new(oa)));
         }
         // Gemini Live Translate is the "Premium" tier (spec 0100), shown last. Like the
         // others it ships dark until its key is provisioned.
         if let Some(g) = config.google.as_ref() {
-            registry.register(Arc::new(ProEngine::new(g)));
+            registry.register(Arc::new(PremiumEngine::new(g)));
         }
         let engines = Arc::new(registry);
         Self {
@@ -1365,16 +1365,16 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
                 // Credits/cap exhausted: stop the current speaking session.
                 audio_tx = None;
                 meter_cancel = None;
-                // Graceful downgrade (spec 0093): a Premium speaker who runs low on
-                // credits falls back to the cheaper default engine rather than going
-                // silent. Tell the room — the speaker swaps capture + sees a notice;
-                // listeners stop expecting premium audio (TTS resumes). The client
-                // re-Starts under the new engine, opening a Standard session + meter
-                // (which still stops if even that can't be afforded).
+                // Graceful downgrade (spec 0093): a paid-tier speaker (Pro/OpenAI or
+                // Premium/Gemini) who runs low on credits falls back to the cheaper
+                // default engine rather than going silent. Tell the room — the speaker
+                // swaps capture + sees a notice; listeners stop expecting translated
+                // audio (TTS resumes). The client re-Starts under the new engine,
+                // opening a Standard session + meter (which still stops if even that
+                // can't be afforded). Gated on "is a non-default engine" so it covers
+                // EVERY paid engine, not just one id.
                 let default_id = state.engines.default().metadata().id.clone();
-                if active_engine.metadata().id.as_str() == crate::engine::PREMIUM_ID
-                    && default_id != active_engine.metadata().id
-                {
+                if default_id != active_engine.metadata().id {
                     let from = active_engine.metadata().id.clone();
                     active_engine = state.engines.default();
                     state.rooms.broadcast(
