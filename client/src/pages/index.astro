@@ -320,6 +320,7 @@ const jsonLd = {
             <button id="timer-cancel" class="ti-cancel" data-i18n-title="timerCancel" data-i18n-label="timerCancel"></button>
           </span>
           <div id="timer-pop" class="timer-pop hidden" role="group" data-i18n-label="timerPopTitle">
+            <button id="timer-pop-close" class="btn-ghost icon-btn ti-close" data-i18n-title="closeTip" aria-label="Close"></button>
             <span class="timer-pop-title" data-i18n="timerPopTitle"></span>
             <div class="timer-quick">
               <button class="timer-chip" data-min="5"><span class="timer-chip-n">5</span> <span data-i18n="minShort"></span></button>
@@ -1231,7 +1232,8 @@ const jsonLd = {
       background: rgba(19, 20, 28, 0.96); backdrop-filter: blur(12px);
       border: 1px solid var(--border); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
     }
-    .timer-pop-title { font-size: 0.9rem; font-weight: 700; color: var(--text); }
+    .timer-pop-title { font-size: 0.9rem; font-weight: 700; color: var(--text); padding-right: 26px; }
+    .ti-close { position: absolute; top: 6px; right: 6px; width: 30px; min-width: 30px; height: 30px; min-height: 30px; padding: 0; }
     .timer-quick { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
     .timer-chip {
       min-height: 38px; border-radius: 9px; cursor: pointer;

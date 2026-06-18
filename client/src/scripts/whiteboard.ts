@@ -397,9 +397,15 @@ export class Whiteboard {
     c.width = EXPORT_W;
     c.height = EXPORT_H;
     const cx = c.getContext('2d')!;
+    // Draw the ops FIRST onto the (transparent) buffer, THEN lay the board colour
+    // BEHIND everything with `destination-over`. Filling the background first would
+    // let the eraser (`destination-out`) punch through it, leaving a transparent
+    // hole that exports as a white smudge (PNG) or a black smudge (PDF JPEG, which
+    // has no alpha channel) — issue #258.
+    for (const op of this.ops) if (op.op === 'draw' && pageOf(op.id) === pid) drawOp(cx, op, EXPORT_W, EXPORT_H);
+    cx.globalCompositeOperation = 'destination-over';
     cx.fillStyle = BOARD_BG;
     cx.fillRect(0, 0, EXPORT_W, EXPORT_H);
-    for (const op of this.ops) if (op.op === 'draw' && pageOf(op.id) === pid) drawOp(cx, op, EXPORT_W, EXPORT_H);
     return c;
   }
 
