@@ -1,10 +1,12 @@
 // Shared language↔tier map (spec 0102). Thin typed wrapper over the single source of
-// truth `shared/languages.json` — the SAME file the Rust backend embeds
-// (`server/src/engine/langmap.rs`). Importing it here (Vite/rollup inlines the JSON at
-// build time) keeps the picker's language list, region grouping, RTL flags and per-tier
-// filtering in lockstep with what the engines actually advertise via `/api/engines`.
+// truth `server/src/engine/languages.json` — the SAME file the Rust backend embeds
+// (`server/src/engine/langmap.rs`, via `include_str!`). It lives under `server/` (not a
+// repo-root `shared/`) because the server's Railway build only uploads `server/`; the
+// client/Vercel build has the whole repo on disk, so this relative import resolves and
+// Vite/rollup inlines the JSON at build time. Keeps the picker's language list, region
+// grouping, RTL flags and per-tier filtering in lockstep with `/api/engines`.
 
-import langMapJson from '../../../shared/languages.json';
+import langMapJson from '../../../server/src/engine/languages.json';
 
 export interface LangMeta {
   /** BCP-47-ish short code (e.g. `en`, `zh`, `pt`, `fil`). */

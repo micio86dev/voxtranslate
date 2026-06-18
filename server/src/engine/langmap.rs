@@ -36,11 +36,13 @@ struct LanguageMap {
     tiers: HashMap<String, Vec<String>>,
 }
 
-/// The embedded map, parsed once. A malformed `shared/languages.json` is a build-breaking
+/// The embedded map, parsed once. A malformed `languages.json` is a build-breaking
 /// programming error (the file ships with the binary), so `expect` is appropriate here.
+/// The JSON lives next to this file (NOT at the repo root) so it's inside the server's
+/// Docker build context (`COPY src ./src`); the Railway build only uploads `server/`.
 static MAP: LazyLock<LanguageMap> = LazyLock::new(|| {
-    const RAW: &str = include_str!("../../../shared/languages.json");
-    serde_json::from_str(RAW).expect("shared/languages.json must be valid")
+    const RAW: &str = include_str!("languages.json");
+    serde_json::from_str(RAW).expect("languages.json must be valid")
 });
 
 /// The OUTPUT-language codes for a tier (`"standard" | "enhanced" | "pro" | "premium"`),
