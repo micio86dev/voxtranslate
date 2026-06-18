@@ -35,8 +35,9 @@ fn from_env_detects_guest_and_billing_modes() {
 
     // AI feature config defaults (no env set).
     assert_eq!(b.glossary_max_entries, 200);
-    assert_eq!(b.ai.report_model, "llama-3.3-70b-versatile");
-    assert_eq!(b.ai.fallback_model, "llama-3.1-8b-instant");
+    assert_eq!(b.ai.report_model, "openai/gpt-oss-120b");
+    assert_eq!(b.ai.fallback_model, "openai/gpt-oss-20b");
+    assert_eq!(c.translation_model, "openai/gpt-oss-20b");
     assert!((b.ai.report_base - 0.05).abs() < 1e-9);
     assert_eq!(b.ai.suggestions_interval_secs, 15);
     // Resend disabled until all three vars are present.
