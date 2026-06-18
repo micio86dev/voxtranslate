@@ -142,6 +142,9 @@ export class Whiteboard {
   // The on-screen logical box (letterboxed inside the CSS canvas). Recomputed FROM the
   // current CSS size on every resize() — never scaled in place, so no cumulative drift.
   private content: { x: number; y: number; w: number; h: number } = { x: 0, y: 0, w: 0, h: 0 };
+  // Optional sibling overlay marking the drawable letterbox (the dot-grid sheet + border).
+  // Kept in sync with `content` so users can see exactly where they can draw (#96 follow-up).
+  private frame: HTMLElement | null = null;
   private drawing = false;
   private strokeId = '';
   private strokeSeq = 0;
@@ -159,6 +162,7 @@ export class Whiteboard {
     private onPagesChanged?: (count: number, index: number) => void,
   ) {
     this.ctx = canvas.getContext('2d')!;
+    this.frame = canvas.parentElement?.querySelector('.wb-frame') ?? null;
     canvas.addEventListener('pointerdown', this.onDown);
     canvas.addEventListener('pointermove', this.onMove);
     canvas.addEventListener('pointerup', this.onUp);
@@ -192,7 +196,20 @@ export class Whiteboard {
     this.canvas.height = Math.round(h * dpr);
     this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // draw in CSS pixels
     this.content = contentRect(w, h); // fixed-aspect logical box, recomputed from CSS size
+    this.positionFrame();
     this.redraw();
+  }
+
+  /** Lay the drawable-area overlay exactly over the letterboxed `content` rect (CSS px),
+   *  so its border + grid mark precisely where drawing lands. No-op without the element. */
+  private positionFrame(): void {
+    const f = this.frame;
+    if (!f) return;
+    const r = this.content;
+    f.style.left = `${r.x}px`;
+    f.style.top = `${r.y}px`;
+    f.style.width = `${r.w}px`;
+    f.style.height = `${r.h}px`;
   }
 
   /** A live MediaStream of the board's canvas, so the composite recorder can tile

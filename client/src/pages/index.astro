@@ -351,6 +351,13 @@ const jsonLd = {
                covers the stage; ops relay over the WS and a late-joiner gets a
                snapshot. Multi-page, highlighter + shapes, and PNG/PDF export. -->
           <div id="whiteboard" class="whiteboard hidden">
+            <!-- Drawable-area affordance (#96 follow-up): the board's logical canvas is a
+                 fixed 16:9 sheet letterboxed inside the overlay, so the margins aren't
+                 drawable. This frame is sized by whiteboard.ts to that exact sheet — it
+                 carries the dot grid + a soft border so you can SEE where you can draw.
+                 pointer-events:none + behind the canvas, so it never affects drawing,
+                 recording, or export. -->
+            <div class="wb-frame" aria-hidden="true"></div>
             <canvas id="wb-canvas" class="wb-canvas"></canvas>
             <div class="wb-toolbar" role="toolbar" data-i18n-label="whiteboardTip">
               <span class="wb-tools">
@@ -1288,7 +1295,12 @@ const jsonLd = {
        than the old per-tile float. Created in JS, so :global(); own compositor layer
        (will-change) so it paints above the composited video tiles. */
     .video-stage :global(.reaction-float) {
-      position: absolute; left: 50%; bottom: 7%; z-index: 6;
+      /* Above the video tiles, not behind them. On touch devices every .video-cell
+         is raised to z-index 9 (#228), and when you're alone a single cell fills the
+         whole stage — at the old z-index 6 the rising reaction was painted *behind*
+         that cell, so taps looked like they did nothing on mobile. z-index 10 keeps
+         the reaction over cells (9) + badges (8) while staying under menus (30). */
+      position: absolute; left: 50%; bottom: 7%; z-index: 10;
       display: flex; flex-direction: column; align-items: center; gap: 8px;
       pointer-events: none; will-change: transform, opacity;
       transform: translate(-50%, 0); /* base centering (kept under reduced-motion) */
@@ -1887,9 +1899,19 @@ const jsonLd = {
     /* ---- Collaborative whiteboard (spec 0045) ---- */
     .whiteboard {
       position: absolute; inset: 0; z-index: 9;
-      background: #0f1320; /* the board surface — eraser (destination-out) reveals this */
+      background: #090b12; /* the non-drawable surround — darker so the drawable sheet stands out */
+    }
+    /* The actual drawable sheet (fixed 16:9, letterboxed). Sized in JS to whiteboard.ts's
+       `content` rect so the border lands exactly on the drawable bounds. Sits BEHIND the
+       canvas (transparent except strokes), so the eraser (destination-out) reveals this
+       surface + grid, and strokes paint on top. pointer-events:none — purely a visual cue. */
+    .wb-frame {
+      position: absolute; pointer-events: none; border-radius: 10px;
+      background-color: #0f1320; /* the board surface — eraser (destination-out) reveals this */
       background-image: radial-gradient(rgba(255,255,255,0.06) 1px, transparent 1px);
       background-size: 24px 24px; /* subtle dot grid, Jamboard-ish */
+      border: 1px solid rgba(255,255,255,0.16);
+      box-shadow: 0 0 0 1px rgba(0,0,0,0.35), 0 12px 36px rgba(0,0,0,0.45);
     }
     .wb-canvas { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; cursor: crosshair; display: block; }
     .wb-toolbar {
