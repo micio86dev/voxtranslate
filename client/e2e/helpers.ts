@@ -59,6 +59,33 @@ export async function joinCall(
 
 export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+export type Rect = { x: number; y: number; width: number; height: number } | null;
+
+/** True when two bounding boxes share any area. A `null` box (element not rendered)
+ *  never overlaps — callers assert visibility separately. */
+export function rectsOverlap(a: Rect, b: Rect): boolean {
+  if (!a || !b) return false;
+  return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
+}
+
+/** Collect REAL frontend console errors for the life of the page: uncaught exceptions
+ *  (`pageerror`) and explicit `console.error` calls. A clean console is part of "the
+ *  flow works" (standing E2E rule) — assert the returned array is empty at the end.
+ *
+ *  Excludes the browser's generic "Failed to load resource: … <status>" mirror of a
+ *  failed network request: it carries NO url, and in the guest-only e2e backend some
+ *  endpoints are intentionally unavailable (e.g. `GET /api/auth/config` → 503 with no
+ *  auth configured; 200 in prod). That's backend availability, not a JS bug — failing
+ *  on it would be flaky noise. Genuine JS breakage still surfaces via the other two. */
+export function trackConsoleErrors(page: Page): string[] {
+  const errors: string[] = [];
+  page.on('console', (m) => {
+    if (m.type() === 'error' && !m.text().startsWith('Failed to load resource')) errors.push(m.text());
+  });
+  page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
+  return errors;
+}
+
 /** A node-side peer used to seed the lobby / fill rooms / stream audio. */
 export class NodePeer {
   id: string;
