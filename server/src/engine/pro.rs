@@ -66,10 +66,6 @@ enum ConnOutcome {
     Dropped,
 }
 
-/// Output languages exposed in the UI. OpenAI supports 13 output / 70+ input
-/// languages; we surface the app's shipped set for now (all within OpenAI's set).
-const PRO_LANGS: &[&str] = &["it", "en", "es", "fr", "de", "pt", "ja", "zh"];
-
 /// OpenAI GPT-Realtime-Translate, behind the engine trait.
 pub struct ProEngine {
     meta: EngineMetadata,
@@ -80,7 +76,8 @@ pub struct ProEngine {
 
 impl ProEngine {
     pub fn new(config: &OpenAiConfig) -> Self {
-        let langs: Vec<String> = PRO_LANGS.iter().map(|s| s.to_string()).collect();
+        // OpenAI's 13 realtime-translate output languages, from the shared map (spec 0102).
+        let langs: Vec<String> = super::langmap::tier_output_langs("pro");
         let meta = EngineMetadata {
             id: OPENAI_ID.to_string(),
             display_name: "Pro".to_string(),

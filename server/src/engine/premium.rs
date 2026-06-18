@@ -69,11 +69,6 @@ enum ConnOutcome {
     Dropped,
 }
 
-/// Output languages exposed in the UI. Gemini auto-detects 70+ input languages and
-/// can translate into a large set; we surface the app's shipped UI languages for now
-/// (every engine must produce these for mixed-room safety — spec 0094 `commonLangs`).
-const PREMIUM_LANGS: &[&str] = &["it", "en", "es", "fr", "de", "pt", "ja", "zh"];
-
 /// Google Gemini 3.5 Live Translate, behind the engine trait.
 pub struct PremiumEngine {
     meta: EngineMetadata,
@@ -85,7 +80,9 @@ pub struct PremiumEngine {
 
 impl PremiumEngine {
     pub fn new(config: &GeminiConfig) -> Self {
-        let langs: Vec<String> = PREMIUM_LANGS.iter().map(|s| s.to_string()).collect();
+        // The full union from the shared map (spec 0102): Premium is the universal-fallback
+        // tier — any language we offer must be producible here.
+        let langs: Vec<String> = super::langmap::tier_output_langs("premium");
         let meta = EngineMetadata {
             id: GEMINI_ID.to_string(),
             display_name: "Premium".to_string(),

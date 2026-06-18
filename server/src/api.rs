@@ -48,12 +48,17 @@ pub async fn billing_packages(State(state): State<AppState>) -> Response {
 }
 
 /// `GET /api/engines` — the translation engines available in this deployment
-/// (spec 0093). The pre-join selector renders from this list, so it's always
-/// present (at least the default `standard` engine). Each entry carries the
-/// user-facing `rate_per_minute` (cost × markup); the raw cost/markup never leave
-/// the server.
+/// (spec 0093), plus the UX rollout `flags` (spec 0102). The pre-join selector renders
+/// from `engines` (always present — at least the default `standard` engine); each entry
+/// carries the user-facing `rate_per_minute` (cost × markup), never the raw cost/markup.
+/// `flags` is guest-safe here (unlike `/api/auth/config`, which 503s without billing) so
+/// the language-first picker can be enabled for everyone.
 pub async fn engines(State(state): State<AppState>) -> Response {
-    Json(state.engines.infos()).into_response()
+    Json(serde_json::json!({
+        "engines": state.engines.infos(),
+        "flags": { "language_first_ux": state.config.language_first_ux },
+    }))
+    .into_response()
 }
 
 // ---- Soniox "Enhanced" client-direct session (spec 0101) -------------------

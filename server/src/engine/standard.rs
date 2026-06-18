@@ -38,9 +38,6 @@ const MAX_DETECT_BUFFER: usize = 256 * 1024;
 const DEFAULT_COST_PER_MINUTE: f64 = 0.008;
 const DEFAULT_MARKUP: f64 = 0.25;
 
-/// The languages VoxTranslate ships in the UI (see `client/src/scripts/i18n.ts`).
-const STANDARD_LANGS: &[&str] = &["it", "en", "es", "fr", "de", "pt", "ja", "zh"];
-
 /// Deepgram STT + Groq translation, behind the engine trait. `config`, `http`,
 /// and `translator` are stable for the process lifetime, so they're held here;
 /// the room/moderator/transcript services are passed per session ([`SessionDeps`])
@@ -61,7 +58,9 @@ impl StandardEngine {
             .as_ref()
             .map(|b| (b.pricing.cost_per_minute, b.pricing.markup_percentage))
             .unwrap_or((DEFAULT_COST_PER_MINUTE, DEFAULT_MARKUP));
-        let langs: Vec<String> = STANDARD_LANGS.iter().map(|s| s.to_string()).collect();
+        // Output (and input) languages from the shared map (spec 0102) — the conservative
+        // set where Groq translation quality holds; keeps the proven legacy 8.
+        let langs: Vec<String> = super::langmap::tier_output_langs("standard");
         let meta = EngineMetadata {
             id: STANDARD_ID.to_string(),
             display_name: "Standard".to_string(),

@@ -105,7 +105,7 @@ const jsonLd = {
               <span class="field-label" data-i18n="nameLabel"></span>
               <input id="name" type="text" maxlength="24" autocomplete="off" data-i18n-ph="namePlaceholder" />
             </label>
-            <label class="field grow">
+            <label class="field grow" id="lang-field">
               <span class="field-label" data-i18n="langLabel"></span>
               <select id="lang">
                 <option value="auto" data-i18n="langAuto"></option>
@@ -118,6 +118,32 @@ const jsonLd = {
           <div class="field" id="engine-field" hidden>
             <span class="field-label" data-i18n="engineLabel"></span>
             <div id="engine-options" class="engine-options" role="radiogroup" data-i18n-label="engineLabel"></div>
+          </div>
+          <!-- Language-first picker (spec 0102): rendered by app.ts when LANGUAGE_FIRST_UX
+               is on. Replaces the legacy language <select> + engine selector above — pick a
+               target language from the union, then choose among the tiers that output it.
+               The hidden #lang <select> stays the canonical value holder (join payload + UI
+               language), so the picker just drives it. -->
+          <div class="field" id="langfirst-field" hidden>
+            <span class="field-label" data-i18n="langLabel"></span>
+            <button id="lang-trigger" type="button" class="lang-trigger" aria-haspopup="listbox" aria-expanded="false" data-i18n-label="langLabel">
+              <span class="lang-trigger-flag" id="lang-trigger-flag" aria-hidden="true"></span>
+              <span class="lang-trigger-text" id="lang-trigger-text"></span>
+              <span class="lang-trigger-chevron" aria-hidden="true">▾</span>
+            </button>
+            <div id="lang-panel" class="lang-panel" role="listbox" hidden>
+              <div class="lang-panel-search">
+                <input id="lang-search" type="text" autocomplete="off" spellcheck="false" data-i18n-ph="langSearchPlaceholder" data-i18n-label="langSearchPlaceholder" />
+              </div>
+              <div id="lang-panel-list" class="lang-panel-list"></div>
+              <p id="lang-panel-empty" class="lang-panel-empty" data-i18n="langSearchEmpty" hidden></p>
+            </div>
+            <!-- Tier cards for the chosen language (cheapest pre-selected). -->
+            <div class="field" id="tier-field" hidden>
+              <span class="field-label" data-i18n="engineLabel"></span>
+              <div id="tier-options" class="engine-options" role="radiogroup" data-i18n-label="engineLabel"></div>
+              <p id="tier-note" class="tier-note" hidden></p>
+            </div>
           </div>
         </div>
 
@@ -800,13 +826,13 @@ const jsonLd = {
     .seg-btn.active { border-color: var(--accent); color: var(--text); background: var(--accent-dim); }
     /* Guest-gated public option: still clickable (it pops the sign-in modal), just
        flagged with a small lock so the gate is legible (spec 0036). */
-    .seg-btn.locked::after { content: '🔒'; font-size: 0.72rem; margin-left: 6px; opacity: 0.7; }
+    .seg-btn.locked::after { content: '🔒'; font-size: 0.72rem; margin-inline-start: 6px; opacity: 0.7; }
     /* Translation-engine selector (spec 0093): full-width radio cards built by
        app.ts, so children are targeted with :global(). Never greyed/dim — every
        option is an enabled choice (no-grey-disabled-looking-buttons rule). */
     .engine-options { display: flex; flex-direction: column; gap: 8px; }
     .engine-options :global(.engine-opt) {
-      width: 100%; text-align: left; cursor: pointer; transition: all 0.15s;
+      width: 100%; text-align: start; cursor: pointer; transition: all 0.15s;
       background: var(--bg); border: 1px solid var(--border); border-radius: 10px;
       padding: 12px 14px; display: flex; flex-direction: column; gap: 4px;
     }
@@ -816,10 +842,10 @@ const jsonLd = {
       display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
     }
     .engine-options :global(.engine-opt-name) { font-weight: 600; color: var(--text); font-size: 0.95rem; }
-    /* "Fastest" chip on the client-direct (Enhanced) tier — spec 0101. Sits right of the
-       name; margin-right:auto pushes the rate to the far edge. */
+    /* "Fastest" chip on the client-direct (Enhanced) tier — spec 0101. Sits after the
+       name; margin-inline-end:auto pushes the rate to the far edge. */
     .engine-options :global(.engine-opt-badge) {
-      align-self: center; margin-right: auto;
+      align-self: center; margin-inline-end: auto;
       font-size: 0.62rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
       color: #fff; background: var(--accent); border-radius: 999px; padding: 1px 7px;
     }
@@ -833,6 +859,49 @@ const jsonLd = {
       display: flex; gap: 5px; align-items: baseline;
     }
     .engine-options :global(.engine-opt-note)::before { content: 'ⓘ'; opacity: 0.85; }
+    /* est-minutes line under a tier card's rate (spec 0102). */
+    .engine-options :global(.engine-opt-est) {
+      font-size: 0.74rem; color: var(--muted); font-variant-numeric: tabular-nums;
+    }
+    /* Language-first picker (spec 0102): a combobox trigger + an INLINE dropdown panel
+       (pushes content, never absolutely positioned — no overlap regressions), region-grouped
+       and searchable, then the tier cards. Built by app.ts; children via :global(). Logical
+       properties (text-align: start, margin-inline) so RTL UI languages mirror correctly. */
+    .lang-trigger {
+      width: 100%; min-height: 44px; display: flex; align-items: center; gap: 10px;
+      background: var(--bg); border: 1px solid var(--border); border-radius: 10px;
+      padding: 10px 14px; cursor: pointer; color: var(--text); text-align: start; transition: border-color 0.15s;
+    }
+    .lang-trigger:hover, .lang-trigger[aria-expanded="true"] { border-color: var(--accent); }
+    .lang-trigger-flag { font-size: 1.2rem; line-height: 1; flex: none; }
+    .lang-trigger-text { flex: 1; font-size: 0.95rem; }
+    .lang-trigger-chevron { color: var(--muted); flex: none; transition: transform 0.15s; }
+    .lang-trigger[aria-expanded="true"] .lang-trigger-chevron { transform: rotate(180deg); }
+    .lang-panel {
+      margin-top: 8px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); overflow: hidden;
+    }
+    .lang-panel-search { padding: 8px; border-bottom: 1px solid var(--border); }
+    .lang-panel-search input { width: 100%; }
+    .lang-panel-list { max-height: 320px; overflow-y: auto; padding: 4px; }
+    .lang-panel-empty { padding: 14px; margin: 0; color: var(--muted); font-size: var(--font-sm); text-align: center; }
+    .lang-panel :global(.lang-region) { border: none; }
+    .lang-panel :global(.lang-region > summary), .lang-panel :global(.lang-recent-label) {
+      cursor: pointer; list-style: none; padding: 8px 10px 2px;
+      font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted);
+    }
+    .lang-panel :global(.lang-region > summary::-webkit-details-marker) { display: none; }
+    .lang-panel :global(.lang-recent-label) { cursor: default; }
+    .lang-panel :global(.lang-opt) {
+      width: 100%; display: flex; align-items: center; gap: 10px; text-align: start;
+      background: transparent; border: none; border-radius: 8px; padding: 8px 10px; cursor: pointer;
+      color: var(--text); font-size: 0.9rem;
+    }
+    .lang-panel :global(.lang-opt:hover), .lang-panel :global(.lang-opt.selected) { background: var(--accent-dim); }
+    .lang-panel :global(.lang-opt-flag) { font-size: 1.15rem; line-height: 1; flex: none; }
+    .lang-panel :global(.lang-opt-native) { font-weight: 600; }
+    .lang-panel :global(.lang-opt-en) { color: var(--muted); font-size: 0.8rem; }
+    .tier-note { margin: 8px 0 0; font-size: 0.74rem; line-height: 1.4; color: var(--muted); }
+    .tier-note :global(a) { color: var(--accent); }
     .vis-badge {
       font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted);
       border: 1px solid var(--border); border-radius: 999px; padding: 2px 8px;
@@ -858,7 +927,7 @@ const jsonLd = {
     .rooms-list { display: flex; flex-direction: column; gap: 10px; }
     /* Lobby items are created in JS — style via :global() under .rooms-list. */
     .rooms-list :global(.room-item) {
-      width: 100%; text-align: left; background: var(--bg); border: 1px solid var(--border);
+      width: 100%; text-align: start; background: var(--bg); border: 1px solid var(--border);
       border-radius: 10px; padding: 12px 14px; transition: all 0.15s;
     }
     .rooms-list :global(.room-item:hover) { border-color: var(--accent); }
@@ -872,11 +941,11 @@ const jsonLd = {
        --bg ring matches the card so the circles read as separated when they overlap. */
     .rooms-list :global(.room-item-avatars) { display: flex; align-items: center; margin-top: 8px; }
     .rooms-list :global(.ri-av) {
-      width: 28px; height: 28px; border-radius: 50%; border: 2px solid var(--bg); margin-left: -9px;
+      width: 28px; height: 28px; border-radius: 50%; border: 2px solid var(--bg); margin-inline-start: -9px;
       overflow: hidden; display: grid; place-items: center; font-size: 0.64rem; font-weight: 700;
       color: #fff; flex: none;
     }
-    .rooms-list :global(.ri-av:first-child) { margin-left: 0; }
+    .rooms-list :global(.ri-av:first-child) { margin-inline-start: 0; }
     .rooms-list :global(.ri-av img) { width: 100%; height: 100%; object-fit: cover; display: block; }
     .rooms-list :global(.lobby-empty) { color: var(--muted); text-align: center; font-size: 0.88rem; padding: 14px 0; }
 
@@ -985,7 +1054,7 @@ const jsonLd = {
     #session-ai :global(.ai-report-md h3:first-child) { margin-top: 0; }
     #session-ai :global(.ai-report-md h4) { margin: 10px 0 4px; font-size: 0.88rem; }
     #session-ai :global(.ai-report-md p) { margin: 6px 0; }
-    #session-ai :global(.ai-report-md ul), #session-ai :global(.ai-report-md ol) { margin: 6px 0; padding-left: 22px; }
+    #session-ai :global(.ai-report-md ul), #session-ai :global(.ai-report-md ol) { margin: 6px 0; padding-inline-start: 22px; }
     #session-ai :global(.ai-report-md li) { margin: 3px 0; }
     #session-ai :global(.ai-report-md code) {
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.84em;
@@ -993,7 +1062,7 @@ const jsonLd = {
     }
     #session-ai :global(.ai-report-actions) { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
     #session-ai :global(.ai-report-actions .btn-ghost) { min-height: 44px; }
-    #session-ai :global(.ai-report-meta) { font-size: 0.76rem; color: var(--muted); margin-left: auto; }
+    #session-ai :global(.ai-report-meta) { font-size: 0.76rem; color: var(--muted); margin-inline-start: auto; }
 
     /* ---------- Sentiment (spec 0015; DOM created in JS) ---------- */
     #session-ai :global(.ai-sentiment-view) { display: flex; flex-direction: column; gap: 12px; }
@@ -1021,7 +1090,7 @@ const jsonLd = {
       display: flex; align-items: center; gap: 10px; min-height: 44px;
       padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px;
       background: var(--surface); color: var(--text); cursor: pointer;
-      text-align: left; font: inherit; font-size: 0.85rem;
+      text-align: start; font: inherit; font-size: 0.85rem;
     }
     #session-ai :global(.ai-moment:hover) { border-color: var(--accent); }
     #session-ai :global(.ai-moment-time) { flex: none; color: var(--muted); font-size: 0.78rem; }
@@ -1096,7 +1165,7 @@ const jsonLd = {
     }
     /* ---- On-video meta cluster, top-left (spec 0061 / #98) ---- */
     .stage-meta-wrap {
-      position: absolute; top: 10px; left: 10px; z-index: 8;
+      position: absolute; top: 10px; inset-inline-start: 10px; z-index: 8;
       /* One horizontal line on desktop: clock|ROOM · you · | visibility · timer · balance.
          flex-wrap keeps it from running under the centre rec-badge / right part-count on
          narrow widths — the info strip drops to a second line only when it must.
@@ -1123,12 +1192,12 @@ const jsonLd = {
     .stage-info-item { display: inline-flex; align-items: center; gap: 4px; }
     .stage-info-label { color: rgba(255,255,255,0.55); }
     .stage-info-sep { width: 1px; height: 12px; background: rgba(255,255,255,0.25); }
-    .stage-info-strip .call-balance { margin-left: 0; }
+    .stage-info-strip .call-balance { margin-inline-start: 0; }
     .stage-meta .room-badge { color: #fff; }
     /* Self identity inline in the meta row (mirrors the old self .video-overlay). The
        leading "·" separates it from ROOM and only renders while the segment is shown. */
     .stage-self { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
-    .stage-self::before { content: '·'; margin-right: 4px; color: rgba(255, 255, 255, 0.45); }
+    .stage-self::before { content: '·'; margin-inline-end: 4px; color: rgba(255, 255, 255, 0.45); }
     .stage-self-name {
       color: #fff; font-weight: 600; font-size: 0.8rem;
       max-width: 16ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -1140,16 +1209,16 @@ const jsonLd = {
       font-size: 0.85rem; font-weight: 700; font-variant-numeric: tabular-nums;
       letter-spacing: 0.02em; color: #fff;
     }
-    .clock-badge::after { content: '|'; margin: 0 1px 0 9px; color: rgba(255, 255, 255, 0.45); font-weight: 400; }
+    .clock-badge::after { content: '|'; margin-block: 0; margin-inline-start: 9px; margin-inline-end: 1px; color: rgba(255, 255, 255, 0.45); font-weight: 400; }
     /* Participant badge, top-right on the stage (spec 0061 / #98): your avatar initial +
        live count over a dark backdrop. */
     .part-count-badge {
       /* pointer-events: none — the badge is purely informational (avatar + count), so it
          must never intercept the per-cell report/block buttons beneath it; events pass
          through to the cell, whose :hover then lifts it (z 13) above this badge (spec 0070 R2.2). */
-      position: absolute; top: 10px; right: 10px; z-index: 8; max-width: calc(50% - 12px); pointer-events: none;
+      position: absolute; top: 10px; inset-inline-end: 10px; z-index: 8; max-width: calc(50% - 12px); pointer-events: none;
       display: inline-flex; align-items: center; gap: 7px;
-      padding: 3px 11px 3px 3px; border-radius: 999px;
+      padding-block: 3px; padding-inline-start: 3px; padding-inline-end: 11px; border-radius: 999px;
       background: rgba(0, 0, 0, 0.5); backdrop-filter: blur(6px);
       color: #fff; font-weight: 700; font-variant-numeric: tabular-nums; font-size: 0.82rem;
     }
@@ -1204,9 +1273,9 @@ const jsonLd = {
     /* Stacked BELOW the participant badge (spec 0061) so the two top-right overlays
        never collide. */
     .timer-badge {
-      position: absolute; top: 54px; right: 10px; z-index: 6;
+      position: absolute; top: 54px; inset-inline-end: 10px; z-index: 6;
       display: inline-flex; align-items: center; gap: 7px;
-      padding: 4px 5px 4px 11px; border-radius: 999px;
+      padding-block: 4px; padding-inline-start: 11px; padding-inline-end: 5px; border-radius: 999px;
       background: rgba(0, 0, 0, 0.6); color: #fff;
       font-size: 0.8rem; font-weight: 700; letter-spacing: 0.02em;
       border: 1px solid var(--border);
@@ -1235,14 +1304,14 @@ const jsonLd = {
     }
     /* Manual set popover — quick picks + custom minutes (mirrors .bookmark-pop). */
     .timer-pop {
-      position: absolute; bottom: 12px; right: 10px; z-index: 11;
+      position: absolute; bottom: 12px; inset-inline-end: 10px; z-index: 11;
       display: flex; flex-direction: column; gap: 10px; width: 232px; max-width: 80vw;
       padding: 12px; border-radius: 14px;
       background: rgba(19, 20, 28, 0.96); backdrop-filter: blur(12px);
       border: 1px solid var(--border); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
     }
-    .timer-pop-title { font-size: 0.9rem; font-weight: 700; color: var(--text); padding-right: 26px; }
-    .ti-close { position: absolute; top: 6px; right: 6px; width: 30px; min-width: 30px; height: 30px; min-height: 30px; padding: 0; }
+    .timer-pop-title { font-size: 0.9rem; font-weight: 700; color: var(--text); padding-inline-end: 26px; }
+    .ti-close { position: absolute; top: 6px; inset-inline-end: 6px; width: 30px; min-width: 30px; height: 30px; min-height: 30px; padding: 0; }
     .timer-quick { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
     .timer-chip {
       min-height: 38px; border-radius: 9px; cursor: pointer;
@@ -1274,7 +1343,7 @@ const jsonLd = {
     .video-grid :global(.avatar) { position: absolute; inset: 0; display: grid; place-items: center; }
     .video-grid :global(.avatar-initials) { font-size: 2.4rem; font-weight: 700; color: rgba(255, 255, 255, 0.9); }
     .video-grid :global(.video-overlay) {
-      position: absolute; top: 8px; left: 8px; display: flex; align-items: center; gap: 6px;
+      position: absolute; top: 8px; inset-inline-start: 8px; display: flex; align-items: center; gap: 6px;
       background: rgba(0, 0, 0, 0.5); border-radius: 999px; padding: 3px 10px; backdrop-filter: blur(4px);
       /* Cap the width so a long name can never grow rightward into the top-right
          ban/report actions — critical on the small focus-mode mini tile (#227). */
@@ -1289,11 +1358,11 @@ const jsonLd = {
     .video-grid :global(.peer-name) { font-size: 0.8rem; font-weight: 600; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
     .video-grid :global(.peer-lang) { font-size: 0.72rem; color: rgba(255, 255, 255, 0.75); }
     .video-grid :global(.mute-indicator) { color: var(--danger); display: inline-flex; }
-    .video-grid :global(.pin-btn) { margin-left: auto; cursor: pointer; color: var(--muted); display: inline-flex; transition: color 0.15s; background: none; border: none; padding: 0; }
+    .video-grid :global(.pin-btn) { margin-inline-start: auto; cursor: pointer; color: var(--muted); display: inline-flex; transition: color 0.15s; background: none; border: none; padding: 0; }
     .video-grid :global(.pin-btn:hover) { color: var(--accent); }
-    .video-grid :global(.screen-share-badge) { margin-left: 4px; font-size: 0.9rem; }
+    .video-grid :global(.screen-share-badge) { margin-inline-start: 4px; font-size: 0.9rem; }
     .video-grid :global(.hand-indicator) {
-      position: absolute; top: 8px; right: 8px; font-size: 1.4rem;
+      position: absolute; top: 8px; inset-inline-end: 8px; font-size: 1.4rem;
       animation: hand-wave 1s ease-in-out infinite alternate;
       filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));
     }
@@ -1431,11 +1500,11 @@ const jsonLd = {
     /* Overflow "More" menu (spec 0023): collapse secondary controls behind ⋯. */
     .more-group { position: relative; }
     .control-btn.has-active::after {
-      content: ''; position: absolute; top: 6px; right: 6px; width: 8px; height: 8px;
+      content: ''; position: absolute; top: 6px; inset-inline-end: 6px; width: 8px; height: 8px;
       border-radius: 50%; background: var(--accent); border: 2px solid var(--surface-elevated);
     }
     .more-menu {
-      position: absolute; bottom: calc(100% + 10px); right: 0; z-index: 30;
+      position: absolute; bottom: calc(100% + 10px); inset-inline-end: 0; z-index: 30;
       /* Own compositor layer so it paints ABOVE a focused screen-share video — in
          focus mode the main cell is a translateZ(0) GPU layer that otherwise punches
          through the menu (same hardware-overlay issue as the hand border). (spec 0034) */
@@ -1459,7 +1528,7 @@ const jsonLd = {
     .mi:has(> .control-btn.hidden), .mi:has(> .control-btn[hidden]) { display: none; }
     .chat-badge {
       /* #dc2626 keeps white text ≥4.5:1 (plain --danger #ef4444 is 3.8:1). */
-      position: absolute; top: -3px; right: -3px; background: #dc2626; color: #fff;
+      position: absolute; top: -3px; inset-inline-end: -3px; background: #dc2626; color: #fff;
       font-size: 0.62rem; min-width: 18px; height: 18px; border-radius: 999px; padding: 0 4px;
       display: flex; align-items: center; justify-content: center;
     }
@@ -1471,11 +1540,11 @@ const jsonLd = {
 
     /* ---------- Chat ---------- */
     .chat-panel {
-      width: 320px; background: var(--surface); border-left: 1px solid var(--border);
-      display: flex; flex-direction: column; transition: margin-right 0.3s;
+      width: 320px; background: var(--surface); border-inline-start: 1px solid var(--border);
+      display: flex; flex-direction: column; transition: margin-inline-end 0.3s;
       position: relative; z-index: 1; /* paint above any promoted compositor layers in sibling panels (e.g. .part-hand animation on Chrome) */
     }
-    .chat-panel.closed { margin-right: -321px; }
+    .chat-panel.closed { margin-inline-end: -321px; }
     .chat-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid var(--border); }
     .chat-messages { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 14px; display: flex; flex-direction: column; gap: 8px; }
     /* Chat messages are created in JS, so they don't receive Astro's scoping
@@ -1483,7 +1552,7 @@ const jsonLd = {
     .chat-messages :global(.chat-msg) { padding: 8px 12px; border-radius: 12px; max-width: 85%; font-size: 0.9rem; line-height: 1.45; word-wrap: break-word; overflow-wrap: anywhere; }
     .chat-messages :global(.chat-msg-mine) { align-self: flex-end; background: rgba(59, 130, 246, 0.2); border: 1px solid var(--accent-dim); }
     .chat-messages :global(.chat-msg-other) { align-self: flex-start; background: var(--surface-2); border: 1px solid var(--border); }
-    .chat-messages :global(.chat-sender) { font-weight: 700; color: var(--accent); margin-right: 6px; }
+    .chat-messages :global(.chat-sender) { font-weight: 700; color: var(--accent); margin-inline-end: 6px; }
     .chat-messages :global(.chat-text) { color: var(--text); display: block; }
     /* File attachment chip + inline audio player (spec 0018). JS-created → :global(). */
     .chat-messages :global(.chat-attachment) { display: flex; flex-direction: column; gap: 6px; margin: 4px 0; }
@@ -1498,7 +1567,7 @@ const jsonLd = {
     .chat-input-row { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-top: 1px solid var(--border); }
     .chat-input-actions { display: flex; align-items: center; gap: 8px; }
     /* Emoji + attach group on the left; send pushed to the far right. */
-    .chat-input-actions .send-btn { margin-left: auto; }
+    .chat-input-actions .send-btn { margin-inline-start: auto; }
     /* Equal-height, equal-width icon buttons so emoji + attach are true peers (spec 0070). */
     .chat-input-row .icon-btn { flex: none; min-width: 44px; min-height: 44px; padding: 0; }
     .chat-input-row .btn-primary { width: auto; min-height: 44px; padding: 0 16px; }
@@ -1511,7 +1580,7 @@ const jsonLd = {
       min-height: 44px; max-height: 120px; transition: border-color 0.15s;
     }
     #chat-input:focus { border-color: var(--accent); }
-    .chat-counter { padding: 0 14px 8px; margin-top: -4px; text-align: right; font-size: 0.72rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .chat-counter { padding: 0 14px 8px; margin-top: -4px; text-align: end; font-size: 0.72rem; color: var(--muted); font-variant-numeric: tabular-nums; }
     .chat-counter.warn { color: var(--warning); font-weight: 600; }
     .attach-btn :global(.ico) { width: 20px; height: 20px; }
     /* Upload progress bar (spec 0018). */
@@ -1541,7 +1610,7 @@ const jsonLd = {
     .gsi-btn:hover { background: #3b78e7; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4); }
     .gsi-btn:active { background: #3367d6; }
     .gsi-btn-g { display: grid; place-items: center; width: 42px; align-self: stretch; background: #fff; flex: none; }
-    .gsi-btn-label { padding: 0 18px 0 14px; white-space: nowrap; }
+    .gsi-btn-label { padding-block: 0; padding-inline-start: 14px; padding-inline-end: 18px; white-space: nowrap; }
     .gsi-official { display: flex; justify-content: center; }
     .gsi-official:empty { display: none; }
     .login-or { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 0.78rem; width: 100%; }
@@ -1551,7 +1620,7 @@ const jsonLd = {
     /* ---------- Account bar ---------- */
     .account-bar { display: flex; align-items: center; gap: 10px; max-width: 480px; margin: 14px auto 0; padding: 8px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; }
     .account-avatar { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; background: var(--surface-2); flex: none; }
-    .account-info { display: flex; flex-direction: column; min-width: 0; flex: 1; text-align: left; }
+    .account-info { display: flex; flex-direction: column; min-width: 0; flex: 1; text-align: start; }
     .account-name { font-weight: 600; font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .account-balance { font-size: 0.82rem; color: var(--success); font-variant-numeric: tabular-nums; }
     .account-balance.low { color: var(--danger); }
@@ -1563,7 +1632,7 @@ const jsonLd = {
        a warning. Same footprint as the account bar for visual parity. */
     .guest-bar {
       display: flex; align-items: center; gap: 12px; max-width: 480px; margin: 14px auto 0;
-      padding: 10px 12px 10px 14px; border-radius: 12px; text-align: left;
+      padding-block: 10px; padding-inline-start: 14px; padding-inline-end: 12px; border-radius: 12px; text-align: start;
       background: linear-gradient(180deg, var(--accent-dim), var(--surface));
       border: 1px solid var(--accent-dim);
     }
@@ -1582,7 +1651,7 @@ const jsonLd = {
     @media (prefers-reduced-motion: reduce) { .guest-signin { transition: none; } }
 
     /* ---------- Call balance pill + low banner ---------- */
-    .call-balance { margin-left: auto; font-size: 0.8rem; font-variant-numeric: tabular-nums; color: var(--success); border: 1px solid var(--border); border-radius: 999px; padding: 2px 10px; }
+    .call-balance { margin-inline-start: auto; font-size: 0.8rem; font-variant-numeric: tabular-nums; color: var(--success); border: 1px solid var(--border); border-radius: 999px; padding: 2px 10px; }
     .call-balance.low { color: var(--danger); border-color: var(--danger); }
     .low-banner { flex: none; display: flex; align-items: center; justify-content: center; gap: 12px; padding: 8px 14px; background: rgba(239,68,68,0.12); border: 1px solid var(--danger); border-radius: 10px; color: var(--text); font-size: 0.86rem; }
     .low-banner .btn-ghost { border-color: var(--danger); color: var(--text); }
@@ -1592,7 +1661,7 @@ const jsonLd = {
     /* Always-available bug-report button (spec 0071). z-index 5 keeps it below the
        in-call UI (#call is z-index 10), so it auto-hides during a call. */
     .bug-fab {
-      position: fixed; left: 16px; bottom: 16px; z-index: 5;
+      position: fixed; inset-inline-start: 16px; bottom: 16px; z-index: 5;
       display: inline-flex; align-items: center; gap: 7px; padding: 9px 14px; border-radius: 999px; cursor: pointer;
       background: color-mix(in srgb, var(--accent) 22%, var(--surface));
       border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--border));
@@ -1620,11 +1689,11 @@ const jsonLd = {
     .modal-actions { display: flex; gap: 10px; justify-content: center; }
     .modal-actions .btn-primary { width: auto; padding: 12px 22px; }
     /* Sign-in gate (spec 0022): benefits read better left-aligned inside the centered modal. */
-    .gate-benefits { text-align: left; margin: 4px 0 2px; padding-left: 18px; color: var(--text); font-size: 0.88rem; display: flex; flex-direction: column; gap: 6px; }
+    .gate-benefits { text-align: start; margin: 4px 0 2px; padding-inline-start: 18px; color: var(--text); font-size: 0.88rem; display: flex; flex-direction: column; gap: 6px; }
     .gate-benefits li { line-height: 1.35; }
     .modal-tabs { display: flex; gap: 8px; }
     .packages-list { display: flex; flex-direction: column; gap: 8px; }
-    .packages-list :global(.pkg) { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; transition: border-color 0.15s; width: 100%; text-align: left; }
+    .packages-list :global(.pkg) { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; transition: border-color 0.15s; width: 100%; text-align: start; }
     .packages-list :global(.pkg:hover) { border-color: var(--accent); }
     .packages-list :global(.pkg-name) { font-weight: 600; }
     .packages-list :global(.pkg-credits) { font-size: 0.8rem; color: var(--success); }
@@ -1647,10 +1716,10 @@ const jsonLd = {
     .ledger-list :global(.ledger-dl:disabled) { opacity: 0.45; cursor: not-allowed; }
 
     /* ---------- Consent / report / privacy / cookie ---------- */
-    .consent-check { display: flex; align-items: flex-start; gap: 9px; text-align: left; font-size: 0.88rem; color: var(--text); cursor: pointer; }
+    .consent-check { display: flex; align-items: flex-start; gap: 9px; text-align: start; font-size: 0.88rem; color: var(--text); cursor: pointer; }
     .consent-check input { width: auto; margin-top: 2px; flex: none; }
     .report-reasons { display: flex; flex-direction: column; gap: 8px; }
-    .report-reasons :global(.report-reason) { width: 100%; text-align: left; background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 10px; padding: 12px 14px; transition: border-color 0.15s; }
+    .report-reasons :global(.report-reason) { width: 100%; text-align: start; background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 10px; padding: 12px 14px; transition: border-color 0.15s; }
     .report-reasons :global(.report-reason:hover) { border-color: var(--danger); }
     .privacy-btn { width: 100%; min-height: 44px; text-align: center; }
     .privacy-btn.danger { color: var(--danger); border-color: var(--danger); }
@@ -1665,7 +1734,7 @@ const jsonLd = {
     .cookie-btn { width: auto; min-height: 38px; padding: 0 18px; }
 
     /* Per-cell report/block buttons (created in JS). */
-    .video-grid :global(.cell-actions) { position: absolute; top: 8px; right: 8px; z-index: 2; display: flex; gap: 6px; opacity: 0; transition: opacity 0.15s; }
+    .video-grid :global(.cell-actions) { position: absolute; top: 8px; inset-inline-end: 8px; z-index: 2; display: flex; gap: 6px; opacity: 0; transition: opacity 0.15s; }
     /* Lift the whole hovered/focused cell just above the participant badge (z8) so
        its report/block buttons are never covered — the cell has transform:
        translateZ(0) (a stacking context), so a z-index on .cell-actions alone can't
@@ -1690,7 +1759,7 @@ const jsonLd = {
       /* Focus/speaker view: the main cell fills the stage and the thumbnails run up its
          bottom-RIGHT edge as a column, so move the main cell's buttons to the bottom-LEFT
          (just above its name overlay) to stay clear of them. */
-      .video-grid[data-mode="focus"] :global(.video-cell.main-cell .cell-actions) { right: auto; left: 8px; bottom: 44px; }
+      .video-grid[data-mode="focus"] :global(.video-cell.main-cell .cell-actions) { inset-inline-end: auto; inset-inline-start: 8px; bottom: 44px; }
     }
     .video-grid :global(.cell-action) { width: 30px; height: 30px; border-radius: 50%; border: none; background: rgba(0,0,0,0.55); color: #fff; display: grid; place-items: center; cursor: pointer; backdrop-filter: blur(4px); }
     .video-grid :global(.cell-action:hover) { background: var(--danger); }
@@ -1751,14 +1820,14 @@ const jsonLd = {
       width: clamp(56px, 30%, 140px); aspect-ratio: 1; border-radius: 50%;
       object-fit: cover; box-shadow: 0 2px 12px rgba(0, 0, 0, 0.4);
     }
-    .chat-messages :global(.chat-avatar) { width: 18px; height: 18px; border-radius: 50%; object-fit: cover; vertical-align: middle; margin-right: 5px; }
+    .chat-messages :global(.chat-avatar) { width: 18px; height: 18px; border-radius: 50%; object-fit: cover; vertical-align: middle; margin-inline-end: 5px; }
     /* ---------- Emoji picker ---------- */
     .emoji-picker-wrap { position: relative; }
     /* Sizing comes from .chat-input-row .icon-btn (44px square) so it matches the
        attach button; here we only set the glyph size (spec 0070). */
     .emoji-btn { font-size: 1.3rem; line-height: 1; }
     .emoji-panel {
-      position: absolute; bottom: 50px; left: 0; width: min(288px, calc(100vw - 32px));
+      position: absolute; bottom: 50px; inset-inline-start: 0; width: min(288px, calc(100vw - 32px));
       background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
       padding: 10px; box-shadow: 0 8px 28px rgba(0,0,0,0.45); z-index: 30;
     }
@@ -1800,7 +1869,7 @@ const jsonLd = {
     .video-grid[data-mode="focus"] :global(.video-cell.video-thumb) {
       --thumb-h: 90px;
       display: block; position: absolute; z-index: 2;
-      width: 160px; height: var(--thumb-h); right: 12px;
+      width: 160px; height: var(--thumb-h); inset-inline-end: 12px;
       /* Stacked into a vertical column up the right edge — the index (`--thumb-i`) is
          set per thumb in layoutVideos so multiple thumbnails never pile on one spot. */
       bottom: calc(12px + var(--thumb-i, 0) * (var(--thumb-h) + 8px));
@@ -1854,18 +1923,18 @@ const jsonLd = {
 
     /* ---------- Participants panel ---------- */
     .participants-panel {
-      width: 260px; background: var(--surface); border-left: 1px solid var(--border);
-      display: flex; flex-direction: column; transition: margin-right 0.3s;
+      width: 260px; background: var(--surface); border-inline-start: 1px solid var(--border);
+      display: flex; flex-direction: column; transition: margin-inline-end 0.3s;
       position: relative; z-index: 1; /* paint above promoted compositor layers in sibling video cells (e.g. the hand-indicator / part-hand animation on Chrome) */
     }
-    .participants-panel.closed { margin-right: -261px; }
+    .participants-panel.closed { margin-inline-end: -261px; }
     /* Invite panel (spec 0082) — same slide-in shell as the other side panels. */
     .invite-panel {
-      width: 320px; background: var(--surface); border-left: 1px solid var(--border);
-      display: flex; flex-direction: column; transition: margin-right 0.3s;
+      width: 320px; background: var(--surface); border-inline-start: 1px solid var(--border);
+      display: flex; flex-direction: column; transition: margin-inline-end 0.3s;
       position: relative; z-index: 1;
     }
-    .invite-panel.closed { margin-right: -321px; }
+    .invite-panel.closed { margin-inline-end: -321px; }
     .invite-body { padding: 16px; display: flex; flex-direction: column; gap: 8px; overflow-y: auto; }
     .invite-sub { margin: 0 0 6px; color: var(--muted); font-size: 13px; line-height: 1.5; }
     .invite-label { font-size: 12px; font-weight: 600; color: var(--muted); margin-top: 6px; }
@@ -1973,12 +2042,12 @@ const jsonLd = {
     /* Export menu (PNG / PDF) — a small popover under the export button (spec 0062). */
     .wb-export-wrap { position: relative; display: inline-flex; }
     .wb-export-menu {
-      position: absolute; top: calc(100% + 8px); right: 0; z-index: 9;
+      position: absolute; top: calc(100% + 8px); inset-inline-end: 0; z-index: 9;
       display: flex; flex-direction: column; gap: 4px; min-width: 150px; padding: 6px;
       background: rgba(19,20,28,0.97); backdrop-filter: blur(10px);
       border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 10px 28px rgba(0,0,0,0.45);
     }
-    .wb-export-menu .btn-ghost { min-height: 38px; justify-content: flex-start; text-align: left; }
+    .wb-export-menu .btn-ghost { min-height: 38px; justify-content: flex-start; text-align: start; }
     /* Page strip, bottom-centre (spec 0062): navigate / add / duplicate / delete. */
     .wb-pagebar {
       position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); z-index: 8;
@@ -2001,7 +2070,7 @@ const jsonLd = {
 
     /* ---- Tic-Tac-Toe mini-game (spec 0046) ---- */
     .minigame {
-      position: absolute; bottom: 80px; left: 16px; z-index: 35; width: 230px; max-width: 70vw;
+      position: absolute; bottom: 80px; inset-inline-start: 16px; z-index: 35; width: 230px; max-width: 70vw;
       display: flex; flex-direction: column; gap: 10px; padding: 12px;
       background: rgba(19,20,28,0.96); backdrop-filter: blur(12px);
       border: 1px solid var(--border); border-radius: 14px; box-shadow: 0 12px 32px rgba(0,0,0,0.45);
@@ -2044,7 +2113,7 @@ const jsonLd = {
     .quiz-question { margin: 0; font-size: 0.92rem; color: var(--text); line-height: 1.35; min-height: 1.2em; }
     .quiz-options { display: flex; flex-direction: column; gap: 6px; }
     .quiz :global(.quiz-option) {
-      width: 100%; text-align: left; min-height: 40px; padding: 8px 12px; cursor: pointer;
+      width: 100%; text-align: start; min-height: 40px; padding: 8px 12px; cursor: pointer;
       background: var(--bg); border: 1px solid var(--border); border-radius: 9px; color: var(--text);
       font-size: 0.88rem; transition: border-color 0.12s, background 0.12s;
     }
@@ -2081,11 +2150,11 @@ const jsonLd = {
     }
 
     .bookmarks-panel {
-      width: 300px; background: var(--surface); border-left: 1px solid var(--border);
-      display: flex; flex-direction: column; transition: margin-right 0.3s;
+      width: 300px; background: var(--surface); border-inline-start: 1px solid var(--border);
+      display: flex; flex-direction: column; transition: margin-inline-end 0.3s;
       position: relative; z-index: 1; /* paint above promoted compositor layers in sibling video cells (e.g. the hand-indicator / part-hand animation on Chrome) */
     }
-    .bookmarks-panel.closed { margin-right: -301px; }
+    .bookmarks-panel.closed { margin-inline-end: -301px; }
     .bookmarks-list { flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 2px; min-height: 0; }
     /* Rows are created in JS → :global() (Astro scoping). */
     .bookmarks-list :global(.bm-item) {
@@ -2107,7 +2176,7 @@ const jsonLd = {
     .session-bookmarks :global(.bm-head) { font-weight: 700; font-size: 0.85rem; color: var(--text); }
     .session-bookmarks :global(.bm-item) {
       display: flex; align-items: baseline; gap: 10px; padding: 6px 10px;
-      border-left: 3px solid #b8860b; background: var(--surface); border-radius: 6px;
+      border-inline-start: 3px solid #b8860b; background: var(--surface); border-radius: 6px;
     }
     .session-bookmarks :global(.bm-time) { flex: none; color: var(--muted); font-size: 0.76rem; }
     .session-bookmarks :global(.bm-by) { flex: none; font-size: 0.8rem; font-weight: 700; color: var(--accent); }
@@ -2188,7 +2257,7 @@ const jsonLd = {
     /* Screen-share pan/zoom toggle (spec 0033): a clearly-tappable 48px button with
        a proper move icon (the old ⤢ glyph read too small). */
     .video-grid :global(.pan-toggle) {
-      position: absolute; bottom: 12px; left: 12px; z-index: 3;
+      position: absolute; bottom: 12px; inset-inline-start: 12px; z-index: 3;
       width: 48px; height: 48px; border-radius: 50%;
       background: rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.3);
       color: #fff; display: grid; place-items: center;
@@ -2239,31 +2308,31 @@ const jsonLd = {
       .video-grid :global(.subtitle-area) { bottom: 44px; }
       .bookmarks-panel {
         position: fixed; bottom: 0; left: 0; right: 0; width: 100%; max-height: 50vh;
-        border-left: none; border-top: 1px solid var(--border); border-radius: 16px 16px 0 0;
+        border-inline-start: none; border-top: 1px solid var(--border); border-radius: 16px 16px 0 0;
         transform: translateY(100%); transition: transform 0.3s; z-index: 20; margin: 0;
       }
-      .bookmarks-panel.closed { margin-right: 0; }
+      .bookmarks-panel.closed { margin-inline-end: 0; }
       .bookmarks-panel.open { transform: translateY(0); }
       .chat-panel {
         position: fixed; bottom: 0; left: 0; right: 0; width: 100%; max-height: 62vh;
-        border-left: none; border-top: 1px solid var(--border); border-radius: 16px 16px 0 0;
+        border-inline-start: none; border-top: 1px solid var(--border); border-radius: 16px 16px 0 0;
         transform: translateY(100%); transition: transform 0.3s; z-index: 20; margin: 0;
       }
-      .chat-panel.closed { margin-right: 0; }
+      .chat-panel.closed { margin-inline-end: 0; }
       .chat-panel.open { transform: translateY(0); }
       .participants-panel {
         position: fixed; bottom: 0; left: 0; right: 0; width: 100%; max-height: 50vh;
-        border-left: none; border-top: 1px solid var(--border); border-radius: 16px 16px 0 0;
+        border-inline-start: none; border-top: 1px solid var(--border); border-radius: 16px 16px 0 0;
         transform: translateY(100%); transition: transform 0.3s; z-index: 20; margin: 0;
       }
-      .participants-panel.closed { margin-right: 0; }
+      .participants-panel.closed { margin-inline-end: 0; }
       .participants-panel.open { transform: translateY(0); }
       .invite-panel {
         position: fixed; bottom: 0; left: 0; right: 0; width: 100%; max-height: 70vh;
-        border-left: none; border-top: 1px solid var(--border); border-radius: 16px 16px 0 0;
+        border-inline-start: none; border-top: 1px solid var(--border); border-radius: 16px 16px 0 0;
         transform: translateY(100%); transition: transform 0.3s; z-index: 20; margin: 0;
       }
-      .invite-panel.closed { margin-right: 0; }
+      .invite-panel.closed { margin-inline-end: 0; }
       .invite-panel.open { transform: translateY(0); }
       .video-grid[data-peers="3"] :global(.video-cell:nth-child(3)) { max-width: 100%; }
     }

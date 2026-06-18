@@ -4,6 +4,7 @@ import {
   DEFAULT_ENGINE_ID,
   ENGINE_PREF_KEY,
   type EngineInfo,
+  cheapestTier,
   commonLangs,
   defaultEngineId,
   engineDescKey,
@@ -11,9 +12,13 @@ import {
   engineLangs,
   engineNeedsPcm,
   formatRate,
+  getAvailableTiers,
+  languagesByRegion,
   loadEnginePref,
+  offeredLanguageCodes,
   resolveEnginePref,
   saveEnginePref,
+  searchLanguages,
 } from './engines';
 
 function engine(id: string, langs: string[], rate = 0.01): EngineInfo {
@@ -152,6 +157,73 @@ describe('engineIsClientDirect', () => {
     // A Soniox listener must NOT flip the speaker to PCM16 — that is for server
     // speech-to-speech engines only.
     expect(engineNeedsPcm('soniox', list)).toBe(false);
+  });
+});
+
+// ---- Language-first picker (spec 0102) ------------------------------------
+describe('getAvailableTiers', () => {
+  // STANDARD: it/en/es @0.01; PREMIUM: en/fr @0.45.
+  it('returns only tiers that output the language, cheapest first', () => {
+    expect(getAvailableTiers('en', [PREMIUM, STANDARD]).map((e) => e.id)).toEqual([
+      'standard',
+      'premium',
+    ]);
+    expect(getAvailableTiers('fr', [STANDARD, PREMIUM]).map((e) => e.id)).toEqual(['premium']);
+    expect(getAvailableTiers('es', [STANDARD, PREMIUM]).map((e) => e.id)).toEqual(['standard']);
+  });
+  it('returns [] when no tier can output the language', () => {
+    expect(getAvailableTiers('de', [STANDARD, PREMIUM])).toEqual([]);
+  });
+  it('does not mutate the input array', () => {
+    const list = [PREMIUM, STANDARD];
+    getAvailableTiers('en', list);
+    expect(list.map((e) => e.id)).toEqual(['premium', 'standard']);
+  });
+});
+
+describe('cheapestTier', () => {
+  it('is the lowest-rate tier that supports the language', () => {
+    expect(cheapestTier('en', [PREMIUM, STANDARD])?.id).toBe('standard');
+    expect(cheapestTier('fr', [STANDARD, PREMIUM])?.id).toBe('premium');
+  });
+  it('is null when nothing supports the language', () => {
+    expect(cheapestTier('de', [STANDARD, PREMIUM])).toBeNull();
+  });
+});
+
+describe('offeredLanguageCodes', () => {
+  it('is the union of the enabled engines output languages', () => {
+    expect([...offeredLanguageCodes([STANDARD, PREMIUM])].sort()).toEqual(['en', 'es', 'fr', 'it']);
+  });
+  it('is empty with no engines', () => {
+    expect(offeredLanguageCodes([]).size).toBe(0);
+  });
+});
+
+describe('languagesByRegion', () => {
+  it('groups offered languages by region and drops empty regions', () => {
+    // STANDARD/PREMIUM offer it/en/es/fr — all European in the shared map.
+    const groups = languagesByRegion([STANDARD, PREMIUM]);
+    expect(groups.length).toBe(1);
+    expect(groups[0].region).toBe('europe');
+    expect(groups[0].languages.map((l) => l.code).sort()).toEqual(['en', 'es', 'fr', 'it']);
+  });
+  it('never offers a language no enabled engine can output', () => {
+    const codes = new Set(languagesByRegion([STANDARD]).flatMap((g) => g.languages.map((l) => l.code)));
+    expect(codes.has('fr')).toBe(false); // STANDARD has no fr
+    expect(codes.has('it')).toBe(true);
+  });
+});
+
+describe('searchLanguages', () => {
+  const wide = engine('premium', ['es', 'fr', 'de', 'ja']);
+  it('matches by english name, native name, or code (offered only)', () => {
+    expect(searchLanguages('span', [wide]).map((l) => l.code)).toEqual(['es']);
+    expect(searchLanguages('日本', [wide]).map((l) => l.code)).toEqual(['ja']);
+    expect(searchLanguages('de', [wide]).some((l) => l.code === 'de')).toBe(true);
+  });
+  it('returns all offered languages for an empty query', () => {
+    expect(searchLanguages('  ', [wide]).map((l) => l.code).sort()).toEqual(['de', 'es', 'fr', 'ja']);
   });
 });
 
