@@ -5,7 +5,7 @@ import { applyI18n, detectLang, ENDONYM, FLAG, getUiLang, setUiLang, SUPPORTED, 
 import {
   type EngineInfo,
   commonLangs,
-  engineDescKey,
+  engineTierUi,
   formatRate,
   loadEnginePref,
   resolveEnginePref,
@@ -119,6 +119,26 @@ const roomInput = $<HTMLInputElement>('room');
 const nameInput = $<HTMLInputElement>('name');
 const langSel = $<HTMLSelectElement>('lang');
 const engineField = $('engine-field');
+
+// Remember the last NAME + LANGUAGE used to join (guests included) so a returning
+// visitor doesn't re-enter them. Best-effort localStorage (private mode → no-op), in
+// the existing `voxtranslate_*` key namespace.
+const NAME_CACHE_KEY = 'voxtranslate_name';
+const LANG_CACHE_KEY = 'voxtranslate_lang';
+function readCache(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+function writeCache(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    /* private mode / storage blocked */
+  }
+}
 const engineOptions = $('engine-options');
 const enterBtn = $<HTMLButtonElement>('enter');
 const homeStatus = $('home-status');
@@ -338,7 +358,18 @@ const subtitleTimers = new Map<string, number>();
 // ============================================================================
 // i18n
 // ============================================================================
-langSel.value = detectLang();
+// Restore the last-used name + language (cached locally, guests included). The
+// language drives both the call and the UI, so sync `setUiLang` when restoring it;
+// fall back to browser detection when nothing is cached.
+const cachedLang = readCache(LANG_CACHE_KEY);
+if (cachedLang) {
+  langSel.value = cachedLang;
+  setUiLang(cachedLang);
+} else {
+  langSel.value = detectLang();
+}
+const cachedName = readCache(NAME_CACHE_KEY);
+if (cachedName && !nameInput.value) nameInput.value = cachedName;
 applyI18n();
 // Discover translation engines + restore the saved choice (spec 0093). Async;
 // the selector reveals itself once the list arrives. Default engine until then.
@@ -347,6 +378,7 @@ void initEngines();
 initNetStatus();
 langSel.addEventListener('change', () => {
   setUiLang(langSel.value);
+  writeCache(LANG_CACHE_KEY, langSel.value);
   applyI18n();
   updateVisHint();
 });
@@ -389,7 +421,11 @@ function renderEngineSelector(): void {
     return;
   }
   engineOptions.replaceChildren();
-  for (const e of availableEngines) {
+  // UI tier labels (OpenAI→Pro, Gemini→Premium), Premium sorted above Pro — decoupled
+  // from the backend's tier/order (see engineTierUi). Selection/billing stay id-based.
+  const ordered = [...availableEngines].sort((a, b) => engineTierUi(a).order - engineTierUi(b).order);
+  for (const e of ordered) {
+    const ui = engineTierUi(e);
     const active = e.id === selectedEngine;
     const btn = document.createElement('button');
     btn.type = 'button';
@@ -401,17 +437,16 @@ function renderEngineSelector(): void {
     head.className = 'engine-opt-head';
     const name = document.createElement('span');
     name.className = 'engine-opt-name';
-    name.textContent = e.display_name;
+    name.textContent = ui.label;
     const rate = document.createElement('span');
     rate.className = 'engine-opt-rate';
     rate.textContent = formatRate(e.rate_per_minute);
     head.append(name, rate);
     const desc = document.createElement('span');
     desc.className = 'engine-opt-desc';
-    // Localized, jargon-free copy keyed by tier; fall back to the server string for
-    // an unknown/future engine (#236).
-    const descKey = engineDescKey(e.tier);
-    desc.textContent = descKey ? t(descKey) : e.description;
+    // Localized, jargon-free copy; fall back to the server string for an unknown
+    // engine (#236).
+    desc.textContent = ui.descKey ? t(ui.descKey) : e.description;
     btn.append(head, desc);
     // Transparency (spec 0093): when the rate is per translation stream, say so —
     // a group call with more languages costs more.
@@ -616,6 +651,9 @@ $('signin-gate-signin').addEventListener('click', () => {
 // ============================================================================
 async function goPrejoin(room: string, isPublic: boolean): Promise<void> {
   session = { room, lang: langSel.value, name: nameInput.value.trim(), isPublic, engine: selectedEngine };
+  // Remember what was actually used to join, so it's pre-filled next time (guests too).
+  writeCache(NAME_CACHE_KEY, session.name);
+  writeCache(LANG_CACHE_KEY, session.lang);
   stopLobby();
   homeScreen.classList.add('hidden');
   prejoinScreen.classList.remove('hidden');
