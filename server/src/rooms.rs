@@ -2,6 +2,7 @@
 //! rooms are listed in the lobby). Every peer can speak, listen, connect P2P via
 //! WebRTC, and chat. Rooms are capped at `MAX_PEERS`.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use dashmap::DashMap;
@@ -105,9 +106,52 @@ pub struct Peer {
     pub conn: Uuid,
     pub name: String,
     pub lang: String,
+    /// The engine whose quality this peer wants to **receive** (spec 0099,
+    /// listener-pays). When someone else speaks, this peer's translation is
+    /// produced by — and billed at the rate of — this engine. Guests are pinned
+    /// to the default engine (they can't be billed for Premium).
+    pub engine: String,
     /// Google avatar URL for authenticated users; `None` for guests.
     pub avatar_url: Option<String>,
     pub tx: PeerTx,
+    /// `true` while this peer has an open speaking session (between `Start` and
+    /// `Stop`/disconnect). Listener metering (spec 0099) reads this to bill each
+    /// listener for the active cross-language sources they are receiving.
+    pub speaking: Arc<AtomicBool>,
+}
+
+/// One translation a speaker's audio must produce: a target language and the
+/// engine that must produce it, because ≥1 current listener of that language
+/// chose that engine (spec 0099). De-duplicated per `(lang, engine)` — a lang
+/// with both a Standard and a Premium listener yields two routes ("ognuno il suo
+/// engine"); the same lang+engine for several listeners is one route.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct TranslationRoute {
+    pub lang: String,
+    pub engine: String,
+}
+
+/// Pure routing resolver (spec 0099 §4.1): given the OTHER participants'
+/// `(lang, engine)` receive-preferences and the speaker's language, return the
+/// distinct `(lang, engine)` routes the speaker's audio must be translated into.
+/// A listener whose language equals the speaker's, or who is still on `"auto"`,
+/// is not a translation target. Order is stable (first-seen) for deterministic
+/// tests and logs.
+pub fn routes_for_speaker(
+    listeners: impl IntoIterator<Item = (String, String)>,
+    speaker_lang: &str,
+) -> Vec<TranslationRoute> {
+    let mut routes: Vec<TranslationRoute> = Vec::new();
+    for (lang, engine) in listeners {
+        if lang == "auto" || lang == speaker_lang {
+            continue;
+        }
+        let route = TranslationRoute { lang, engine };
+        if !routes.contains(&route) {
+            routes.push(route);
+        }
+    }
+    routes
 }
 
 /// A room and its current peers.
@@ -282,6 +326,133 @@ impl RoomManager {
         }
     }
 
+    /// Send only to peers who both receive in `lang` **and** chose `engine`
+    /// (spec 0099, listener-pays). The engine dimension keeps a Premium listener's
+    /// OpenAI output from reaching a Standard listener of the same language, and
+    /// vice-versa — each hears the engine they pay for.
+    pub fn broadcast_to_lang_engine(&self, room_id: &str, lang: &str, engine: &str, message: &str) {
+        if let Some(room) = self.rooms.get(room_id) {
+            for p in room
+                .peers
+                .iter()
+                .filter(|p| p.lang == lang && p.engine == engine)
+            {
+                let _ = p.tx.send(message.to_string());
+            }
+        }
+    }
+
+    /// Send to every peer who chose `engine`, plus `peer_id` whatever their engine
+    /// (spec 0099). The Standard pipeline broadcasts one `SubtitleFinal` carrying
+    /// the whole translations map; in listener-pays mode it must reach the Standard
+    /// listeners AND the speaker (so they see their own caption even if they
+    /// themselves receive Premium), without leaking to Premium listeners (who get
+    /// the OpenAI subtitle instead). No duplicate send — the filter is a single OR.
+    pub fn broadcast_to_engine_or_peer(
+        &self,
+        room_id: &str,
+        engine: &str,
+        peer_id: &str,
+        message: &str,
+    ) {
+        if let Some(room) = self.rooms.get(room_id) {
+            for p in room
+                .peers
+                .iter()
+                .filter(|p| p.engine == engine || p.id == peer_id)
+            {
+                let _ = p.tx.send(message.to_string());
+            }
+        }
+    }
+
+    /// Resolve the distinct `(lang, engine)` translation routes for a speaker's
+    /// audio from the room's CURRENT listeners (spec 0099 §4.1). Excludes the
+    /// speaker themselves, their own language, and `"auto"` peers. See
+    /// [`routes_for_speaker`] for the pure logic.
+    pub fn translation_routes(
+        &self,
+        room_id: &str,
+        speaker_id: &str,
+        speaker_lang: &str,
+    ) -> Vec<TranslationRoute> {
+        let Some(room) = self.rooms.get(room_id) else {
+            return Vec::new();
+        };
+        let listeners = room
+            .peers
+            .iter()
+            .filter(|p| p.id != speaker_id)
+            .map(|p| (p.lang.clone(), p.engine.clone()))
+            .collect::<Vec<_>>();
+        routes_for_speaker(listeners, speaker_lang)
+    }
+
+    /// Whether any peer other than `exclude_id` currently receives via `engine`
+    /// (spec 0099). Drives the speaker's capture format (PCM16 iff a Premium
+    /// listener is present) and the per-speaker decision to run the Premium engine.
+    pub fn has_engine_listener(&self, room_id: &str, exclude_id: &str, engine: &str) -> bool {
+        self.rooms
+            .get(room_id)
+            .map(|room| {
+                room.peers
+                    .iter()
+                    .any(|p| p.id != exclude_id && p.engine == engine)
+            })
+            .unwrap_or(false)
+    }
+
+    /// `(peer_id, receive_engine)` for every peer in the room — so the server can
+    /// push each peer its capture format when the room's engine mix changes (0099).
+    pub fn peer_engines(&self, room_id: &str) -> Vec<(String, String)> {
+        self.rooms
+            .get(room_id)
+            .map(|room| {
+                room.peers
+                    .iter()
+                    .map(|p| (p.id.clone(), p.engine.clone()))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// Mark a peer's speaking session open/closed (spec 0099). Listener meters read
+    /// this via [`active_source_count`](Self::active_source_count). Cheap and
+    /// lock-free: the flag is an `Arc<AtomicBool>` shared with the peer's handler.
+    pub fn set_speaking(&self, room_id: &str, peer_id: &str, speaking: bool) {
+        if let Some(room) = self.rooms.get(room_id) {
+            if let Some(p) = room.peers.iter().find(|p| p.id == peer_id) {
+                p.speaking.store(speaking, Ordering::Relaxed);
+            }
+        }
+    }
+
+    /// How many distinct cross-language sources a `listener` is currently
+    /// receiving (spec 0099 listener-metering): peers other than the listener who
+    /// are speaking right now and whose language differs from the listener's. This
+    /// is the listener's billable stream count — symmetric to the speaker-pays
+    /// `scale_by_target_count`. `"auto"` speakers (language not yet known) don't
+    /// count: no translation is produced for them.
+    pub fn active_source_count(
+        &self,
+        room_id: &str,
+        listener_id: &str,
+        listener_lang: &str,
+    ) -> usize {
+        let Some(room) = self.rooms.get(room_id) else {
+            return 0;
+        };
+        room.peers
+            .iter()
+            .filter(|p| {
+                p.id != listener_id
+                    && p.lang != "auto"
+                    && p.lang != listener_lang
+                    && p.speaking.load(Ordering::Relaxed)
+            })
+            .count()
+    }
+
     /// Apply a whiteboard op to the room's stored op-log (spec 0045): `Clear`
     /// wipes it, `Draw` appends (dropping the oldest past `MAX_WHITEBOARD_OPS`).
     pub fn whiteboard_apply(&self, room_id: &str, op: WhiteboardOp) {
@@ -345,6 +516,47 @@ impl RoomManager {
         langs
     }
 
+    /// Distinct languages of the room's listeners who chose `engine`, excluding
+    /// `exclude_id` and `"auto"` peers (spec 0099). The listener-pays analog of
+    /// [`get_room_languages`](Self::get_room_languages): an engine translates the
+    /// speaker's audio only into the languages that ITS listeners receive in, so a
+    /// Premium session is opened for a language only when a Premium listener wants
+    /// it (and likewise for Standard).
+    pub fn target_langs_for_engine(
+        &self,
+        room_id: &str,
+        exclude_id: &str,
+        engine: &str,
+    ) -> Vec<String> {
+        let mut langs: Vec<String> = Vec::new();
+        if let Some(room) = self.rooms.get(room_id) {
+            for p in room.peers.iter() {
+                if p.id != exclude_id
+                    && p.engine == engine
+                    && p.lang != "auto"
+                    && !langs.contains(&p.lang)
+                {
+                    langs.push(p.lang.clone());
+                }
+            }
+        }
+        langs
+    }
+
+    /// Change a peer's receive-engine in place (spec 0099). Used when a listener
+    /// exhausts their balance: drop them to the default engine so they keep
+    /// receiving (free) translation without being billed for Premium. Returns
+    /// `false` when the room/peer is gone.
+    pub fn set_peer_engine(&self, room_id: &str, peer_id: &str, engine: &str) -> bool {
+        if let Some(mut room) = self.rooms.get_mut(room_id) {
+            if let Some(p) = room.peers.iter_mut().find(|p| p.id == peer_id) {
+                p.engine = engine.to_string();
+                return true;
+            }
+        }
+        false
+    }
+
     /// Update a peer's language in place (auto-detect result or a manual
     /// `set_lang` correction). Returns `false` when the room/peer is gone.
     pub fn set_peer_lang(&self, room_id: &str, peer_id: &str, lang: &str) -> bool {
@@ -372,6 +584,16 @@ impl RoomManager {
                 lang: p.lang.clone(),
                 avatar_url: p.avatar_url.clone(),
             })
+    }
+
+    /// A peer's current receive-engine (spec 0099). `None` when the peer is gone.
+    pub fn peer_engine(&self, room_id: &str, peer_id: &str) -> Option<String> {
+        self.rooms
+            .get(room_id)?
+            .peers
+            .iter()
+            .find(|p| p.id == peer_id)
+            .map(|p| p.engine.clone())
     }
 
     /// A peer's *current* language (live, post-detection) — the `lang` captured
@@ -444,6 +666,11 @@ mod tests {
 
     /// Like `peer` but with an explicit connection id, for reconnect tests.
     fn peer_conn(id: &str, lang: &str, conn: Uuid) -> (Peer, Receiver<String>) {
+        peer_full(id, lang, "standard", conn)
+    }
+
+    /// Peer with an explicit receive-engine (spec 0099 routing/billing tests).
+    fn peer_full(id: &str, lang: &str, engine: &str, conn: Uuid) -> (Peer, Receiver<String>) {
         let (tx, rx, _overflow) = PeerTx::channel(OUT_CHANNEL_CAP);
         (
             Peer {
@@ -451,8 +678,10 @@ mod tests {
                 conn,
                 name: id.to_uppercase(),
                 lang: lang.into(),
+                engine: engine.into(),
                 avatar_url: None,
                 tx,
+                speaking: Arc::new(AtomicBool::new(false)),
             },
             rx,
         )
@@ -720,5 +949,171 @@ mod tests {
         let dropped = rm.prune();
         assert_eq!(dropped, vec![sid]);
         assert!(rm.prune().is_empty(), "nothing left to prune");
+    }
+
+    // ---- spec 0099: listener-pays routing / delivery / metering ----
+
+    fn route(lang: &str, engine: &str) -> TranslationRoute {
+        TranslationRoute {
+            lang: lang.into(),
+            engine: engine.into(),
+        }
+    }
+
+    #[test]
+    fn routes_skip_speaker_lang_and_auto() {
+        // Speaker is `it`. A listener also in `it` is not a target; an `auto`
+        // listener (lang unknown) is not a target either.
+        let got = routes_for_speaker(
+            [
+                ("it".into(), "premium".into()),   // same as speaker → skip
+                ("auto".into(), "premium".into()), // detection pending → skip
+                ("es".into(), "standard".into()),
+            ],
+            "it",
+        );
+        assert_eq!(got, vec![route("es", "standard")]);
+    }
+
+    #[test]
+    fn routes_same_lang_mixed_engines_run_both() {
+        // Two `es` listeners, one Standard one Premium → two routes ("ognuno il suo
+        // engine"). A third Premium `es` listener de-dups into the same route.
+        let got = routes_for_speaker(
+            [
+                ("es".into(), "standard".into()),
+                ("es".into(), "premium".into()),
+                ("es".into(), "premium".into()), // dup of the premium route
+            ],
+            "it",
+        );
+        assert_eq!(got, vec![route("es", "standard"), route("es", "premium")]);
+    }
+
+    #[test]
+    fn routes_distinct_langs_each_keep_their_engine() {
+        let got = routes_for_speaker(
+            [
+                ("es".into(), "premium".into()),
+                ("fr".into(), "standard".into()),
+            ],
+            "it",
+        );
+        assert_eq!(got, vec![route("es", "premium"), route("fr", "standard")]);
+    }
+
+    #[test]
+    fn routes_empty_when_alone_or_all_same_lang() {
+        assert!(routes_for_speaker([], "it").is_empty());
+        assert!(routes_for_speaker([("it".into(), "premium".into())], "it").is_empty());
+    }
+
+    #[test]
+    fn translation_routes_reads_live_room() {
+        let rm = RoomManager::new();
+        let (a, _ra) = peer_full("a", "it", "premium", Uuid::new_v4());
+        let (b, _rb) = peer_full("b", "es", "premium", Uuid::new_v4());
+        let (c, _rc) = peer_full("c", "es", "standard", Uuid::new_v4());
+        rm.join("r", a, Visibility::Public).unwrap();
+        rm.join("r", b, Visibility::Public).unwrap();
+        rm.join("r", c, Visibility::Public).unwrap();
+        std::mem::forget(_ra);
+        std::mem::forget(_rb);
+        std::mem::forget(_rc);
+
+        // Speaker `a` (it) → es listeners split by engine: two routes.
+        let mut got = rm.translation_routes("r", "a", "it");
+        got.sort_by(|x, y| {
+            (x.lang.clone(), x.engine.clone()).cmp(&(y.lang.clone(), y.engine.clone()))
+        });
+        assert_eq!(got, vec![route("es", "premium"), route("es", "standard")]);
+    }
+
+    #[test]
+    fn target_langs_for_engine_filters_by_engine() {
+        let rm = RoomManager::new();
+        let (a, _ra) = peer_full("a", "it", "standard", Uuid::new_v4()); // speaker
+        let (b, _rb) = peer_full("b", "es", "premium", Uuid::new_v4());
+        let (c, _rc) = peer_full("c", "fr", "standard", Uuid::new_v4());
+        let (d, _rd) = peer_full("d", "es", "standard", Uuid::new_v4());
+        for (p, r) in [(a, _ra), (b, _rb), (c, _rc), (d, _rd)] {
+            rm.join("r", p, Visibility::Public).unwrap();
+            std::mem::forget(r);
+        }
+        // Premium listeners of `a`: only `b` (es).
+        assert_eq!(rm.target_langs_for_engine("r", "a", "premium"), vec!["es"]);
+        // Standard listeners of `a`: `c` (fr) and `d` (es) — distinct langs.
+        let mut std_t = rm.target_langs_for_engine("r", "a", "standard");
+        std_t.sort();
+        assert_eq!(std_t, vec!["es", "fr"]);
+    }
+
+    #[test]
+    fn broadcast_to_lang_engine_isolates_by_engine() {
+        let rm = RoomManager::new();
+        let (a, _ra) = peer_full("a", "it", "standard", Uuid::new_v4());
+        let (prem, mut r_prem) = peer_full("p", "es", "premium", Uuid::new_v4());
+        let (std_l, mut r_std) = peer_full("s", "es", "standard", Uuid::new_v4());
+        rm.join("r", a, Visibility::Public).unwrap();
+        rm.join("r", prem, Visibility::Public).unwrap();
+        rm.join("r", std_l, Visibility::Public).unwrap();
+        std::mem::forget(_ra);
+
+        rm.broadcast_to_lang_engine("r", "es", "premium", "OPENAI");
+        // Only the premium es listener receives it.
+        assert_eq!(r_prem.try_recv().unwrap(), "OPENAI");
+        assert!(
+            r_std.try_recv().is_err(),
+            "standard listener must not get premium output"
+        );
+    }
+
+    #[test]
+    fn broadcast_to_engine_or_peer_reaches_engine_listeners_and_speaker() {
+        let rm = RoomManager::new();
+        // Speaker `a` is a Premium listener; the Standard final must still reach it.
+        let (a, mut ra) = peer_full("a", "it", "premium", Uuid::new_v4());
+        let (std_l, mut rstd) = peer_full("s", "es", "standard", Uuid::new_v4());
+        let (prem_l, mut rprem) = peer_full("p", "fr", "premium", Uuid::new_v4());
+        rm.join("r", a, Visibility::Public).unwrap();
+        rm.join("r", std_l, Visibility::Public).unwrap();
+        rm.join("r", prem_l, Visibility::Public).unwrap();
+
+        rm.broadcast_to_engine_or_peer("r", "standard", "a", "STD_FINAL");
+        assert_eq!(ra.try_recv().unwrap(), "STD_FINAL"); // speaker (own caption)
+        assert_eq!(rstd.try_recv().unwrap(), "STD_FINAL"); // standard listener
+        assert!(
+            rprem.try_recv().is_err(),
+            "premium-only listener must not get the standard final"
+        );
+    }
+
+    #[test]
+    fn active_source_count_tracks_speaking_cross_lang() {
+        let rm = RoomManager::new();
+        let (a, _ra) = peer_full("a", "it", "standard", Uuid::new_v4());
+        let (b, _rb) = peer_full("b", "es", "premium", Uuid::new_v4());
+        let (c, _rc) = peer_full("c", "it", "premium", Uuid::new_v4()); // same lang as a
+        rm.join("r", a, Visibility::Public).unwrap();
+        rm.join("r", b, Visibility::Public).unwrap();
+        rm.join("r", c, Visibility::Public).unwrap();
+        std::mem::forget(_ra);
+        std::mem::forget(_rb);
+        std::mem::forget(_rc);
+
+        // Listener `b` (es): nobody speaking yet → 0 sources.
+        assert_eq!(rm.active_source_count("r", "b", "es"), 0);
+        // `a` (it) starts speaking → b receives 1 cross-lang source.
+        rm.set_speaking("r", "a", true);
+        assert_eq!(rm.active_source_count("r", "b", "es"), 1);
+        // `c` (it) also speaks → b now receives 2 (two distinct it speakers).
+        rm.set_speaking("r", "c", true);
+        assert_eq!(rm.active_source_count("r", "b", "es"), 2);
+        // For listener `c` (it), the speaking `a` is SAME language → not billable;
+        // only `b` would count, and b isn't speaking → 0.
+        assert_eq!(rm.active_source_count("r", "c", "it"), 0);
+        // `a` stops → b back to 1.
+        rm.set_speaking("r", "a", false);
+        assert_eq!(rm.active_source_count("r", "b", "es"), 1);
     }
 }

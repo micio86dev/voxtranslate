@@ -295,6 +295,16 @@ pub enum ServerMessage {
         reason: String,
     },
 
+    /// Listener-pays (spec 0099): tells THIS peer which audio format to capture in
+    /// when they speak. `pcm = true` → PCM16/24k (a Premium listener is present, so
+    /// the one captured stream must feed OpenAI + Deepgram); `false` → WebM/Opus
+    /// (spec 0043, the default). Pushed on join and whenever the room's Premium
+    /// composition changes. Only sent when the listener-pays model is active, so its
+    /// presence also signals the client to follow server-driven capture.
+    CaptureFormat {
+        pcm: bool,
+    },
+
     /// A message (spoken or chat) was blocked by moderation; warn the sender.
     ModerationWarning {
         message: String,
