@@ -13,6 +13,7 @@ pub mod premium;
 pub mod pro;
 pub mod standard;
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -29,11 +30,16 @@ pub use premium::PremiumEngine;
 pub use pro::ProEngine;
 pub use standard::StandardEngine;
 
-/// Stable engine ids. Persisted in `usage_sessions.engine_id` and sent in the
-/// join payload, so they must never change once shipped.
+/// Stable engine ids. Persisted in `usage_sessions.engine_id` and sent in the join
+/// payload, so they must never change once shipped — which is why the string VALUES no
+/// longer match the tier labels (they predate the Pro/Premium swap, #259). Named by
+/// PROVIDER here to stay unambiguous: `OPENAI_ID == "premium"` is the **Pro** tier;
+/// `GEMINI_ID` is the **Premium** tier.
 pub const STANDARD_ID: &str = "standard";
-pub const PREMIUM_ID: &str = "premium";
-/// Gemini 3.5 Live Translate, the "Pro" tier (spec 0100).
+/// OpenAI GPT-Realtime-Translate — the "Pro" tier (`engine::pro`). Its persisted id is
+/// the literal `"premium"` (historical; kept frozen so billing/analytics stay valid).
+pub const OPENAI_ID: &str = "premium";
+/// Gemini 3.5 Live Translate — the "Premium" tier (`engine::premium`, spec 0100).
 pub const GEMINI_ID: &str = "gemini_live_translate";
 
 /// Live per-speaker dependencies the handler hands an engine when speech starts.
@@ -63,6 +69,33 @@ pub enum SessionOutcome {
     AtCapacity,
     /// The session could not be opened (e.g. the upstream service is unavailable).
     Failed,
+}
+
+/// Pure reconcile decision shared by the live speech-to-speech engines: given the
+/// languages a speaker currently has a session for (`active`) and the languages the
+/// room now wants (`want`, already speaker- and `auto`-filtered), return which to
+/// `drop` (no longer present) and which to `add` (newly present, in `want` order).
+///
+/// Targets are otherwise fixed at the first `Start`, so without this a peer who joins
+/// — or whose `auto` language resolves — *after* a speaker began talking would never be
+/// translated for. Kept pure (no permits, no spawning) so it's unit-tested directly;
+/// the caller owns the permit budget, the spawn, and primary re-election.
+pub(crate) fn reconcile_langs(
+    active: &HashSet<String>,
+    want: &[String],
+) -> (Vec<String>, Vec<String>) {
+    let want_set: HashSet<&str> = want.iter().map(String::as_str).collect();
+    let drop: Vec<String> = active
+        .iter()
+        .filter(|l| !want_set.contains(l.as_str()))
+        .cloned()
+        .collect();
+    let add: Vec<String> = want
+        .iter()
+        .filter(|l| !active.contains(*l))
+        .cloned()
+        .collect();
+    (drop, add)
 }
 
 /// A translation engine: turns one speaker's captured audio into room subtitles
@@ -172,20 +205,48 @@ mod tests {
         }
     }
 
+    fn set(items: &[&str]) -> HashSet<String> {
+        items.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn reconcile_adds_new_and_drops_gone_langs() {
+        // Speaker started alone (no active sessions); two listeners now present → both
+        // are added, in `want` order. This is the core late-joiner fix.
+        let (drop, add) = reconcile_langs(&set(&[]), &["es".into(), "fr".into()]);
+        assert!(drop.is_empty());
+        assert_eq!(add, vec!["es".to_string(), "fr".to_string()]);
+
+        // A listener left (de gone) and one joined (ja) while es stays: drop de, add ja,
+        // leave es untouched (gap-free for its listeners).
+        let (drop, add) = reconcile_langs(&set(&["es", "de"]), &["es".into(), "ja".into()]);
+        assert_eq!(drop, vec!["de".to_string()]);
+        assert_eq!(add, vec!["ja".to_string()]);
+
+        // Steady state: nothing to do.
+        let (drop, add) = reconcile_langs(&set(&["es", "fr"]), &["fr".into(), "es".into()]);
+        assert!(drop.is_empty() && add.is_empty());
+
+        // Everyone left → drop all, add none (the session then drains audio, no cost).
+        let (drop, add) = reconcile_langs(&set(&["es"]), &[]);
+        assert_eq!(drop, vec!["es".to_string()]);
+        assert!(add.is_empty());
+    }
+
     #[test]
     fn get_default_resolve_and_fallback() {
         let mut r = EngineRegistry::new(STANDARD_ID);
         r.register(Arc::new(Mock(meta(STANDARD_ID))));
-        r.register(Arc::new(Mock(meta(PREMIUM_ID))));
+        r.register(Arc::new(Mock(meta(OPENAI_ID))));
 
         assert!(r.get(STANDARD_ID).is_some());
-        assert!(r.get(PREMIUM_ID).is_some());
+        assert!(r.get(OPENAI_ID).is_some());
         assert!(r.get("nope").is_none());
 
         // The default is always the configured id.
         assert_eq!(r.default().metadata().id, STANDARD_ID);
         // A known id resolves to itself.
-        assert_eq!(r.resolve(Some(PREMIUM_ID)).metadata().id, PREMIUM_ID);
+        assert_eq!(r.resolve(Some(OPENAI_ID)).metadata().id, OPENAI_ID);
         // An unknown / removed id and an absent id both fall back to the default.
         assert_eq!(r.resolve(Some("removed")).metadata().id, STANDARD_ID);
         assert_eq!(r.resolve(None).metadata().id, STANDARD_ID);
