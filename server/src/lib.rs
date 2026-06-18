@@ -213,17 +213,16 @@ impl AppState {
             http.clone(),
             translator.clone(),
         )));
-        // Gemini Live Translate is the "Premium" tier (spec 0100). Registration order is
-        // display order, so register it BEFORE the OpenAI engine ("Pro") so Premium shows
-        // above Pro. Like the others it ships dark until its key is provisioned.
-        if let Some(g) = config.google.as_ref() {
-            registry.register(Arc::new(ProEngine::new(g)));
-        }
-        // The OpenAI engine is the "Pro" tier (its stable id is still `premium`). Registered
-        // only when its key is configured, so the selector / `/api/engines` show it iff the
-        // feature is provisioned.
+        // Registration order = display order: Standard, then Pro, then Premium. The OpenAI
+        // engine is the "Pro" tier (its stable id is still `premium`); register it BEFORE
+        // Gemini so Pro shows above Premium. Ships dark until its key is provisioned.
         if let Some(oa) = config.openai.as_ref() {
             registry.register(Arc::new(PremiumEngine::new(oa)));
+        }
+        // Gemini Live Translate is the "Premium" tier (spec 0100), shown last. Like the
+        // others it ships dark until its key is provisioned.
+        if let Some(g) = config.google.as_ref() {
+            registry.register(Arc::new(ProEngine::new(g)));
         }
         let engines = Arc::new(registry);
         Self {
