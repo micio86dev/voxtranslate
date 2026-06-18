@@ -178,7 +178,7 @@ impl AppState {
     /// configured.
     pub fn new(config: Config) -> Self {
         let config = Arc::new(config);
-        let groq = Groq::new(config.groq_key.clone());
+        let groq = Groq::new(config.groq_key.clone(), config.translation_model.clone());
         // Admission cap on concurrent in-flight Groq translation calls across the
         // whole process (spec 0069) — bounds fan-out under a traffic spike.
         let translate_max = env_u32(
@@ -812,6 +812,14 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
     };
     let billed_user = authed.as_ref().map(|a| a.user_id);
     let avatar_url = authed.and_then(|a| a.avatar_url);
+
+    // Guests always use the default (Standard) engine: Premium/Pro are paid per target
+    // language and a guest has no billing account to charge. Pin it server-side so a
+    // crafted `?engine=premium` can't open a paid upstream session for an unbilled peer
+    // (the client already hides the selector for guests; this is the enforcement).
+    if billed_user.is_none() {
+        active_engine = state.engines.default();
+    }
 
     // Accountability: when accounts are live (the DB is connected, so users can
     // actually sign in), public rooms require a signed-in user. Guests can still

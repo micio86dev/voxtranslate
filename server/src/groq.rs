@@ -6,8 +6,6 @@ use serde::Deserialize;
 use std::time::Duration;
 
 const GROQ_URL: &str = "https://api.groq.com/openai/v1/chat/completions";
-/// Spec model id. Centralized here so a Groq rename is a one-line change.
-const MODEL: &str = "llama-3.1-8b-instant";
 
 /// One chat-completion call. Build with [`ChatRequest::new`] then override
 /// fields as needed; the defaults match the real-time translation profile.
@@ -69,16 +67,24 @@ impl ChatRequest {
 pub struct Groq {
     http: reqwest::Client,
     api_key: String,
+    /// Real-time translation model id, env-driven via `GROQ_TRANSLATION_MODEL`
+    /// (resolved in `AiConfig`). A Groq decommission becomes a config change, not
+    /// a deploy. Latency-critical — keep it a fast/cheap model.
+    translation_model: String,
 }
 
 impl Groq {
-    pub fn new(api_key: String) -> Self {
+    pub fn new(api_key: String, translation_model: String) -> Self {
         let http = reqwest::Client::builder()
             .pool_idle_timeout(Duration::from_secs(90))
             .timeout(Duration::from_secs(15))
             .build()
             .expect("failed to build reqwest client");
-        Self { http, api_key }
+        Self {
+            http,
+            api_key,
+            translation_model,
+        }
     }
 
     /// Translate `text` from `source` to `target` (language codes like "it", "en").
@@ -93,7 +99,12 @@ impl Groq {
         terms: &[(String, String)],
     ) -> Result<String, String> {
         let system = translation_prompt(source, target, terms);
-        self.chat(ChatRequest::new(MODEL, system, text)).await
+        self.chat(ChatRequest::new(
+            self.translation_model.as_str(),
+            system,
+            text,
+        ))
+        .await
     }
 
     /// Run one chat completion; returns the assistant message content.
@@ -283,7 +294,7 @@ mod error_tests {
     async fn translate_errors_on_bad_key() {
         // A bad key makes Groq return a non-success status -> Err (covers the
         // error-handling branch).
-        let g = Groq::new("bad-key-xyz".into());
+        let g = Groq::new("bad-key-xyz".into(), "openai/gpt-oss-20b".into());
         assert!(g.translate("ciao", "it", "en", &[]).await.is_err());
     }
 }
