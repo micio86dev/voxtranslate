@@ -465,12 +465,12 @@ function renderEngineSelector(): void {
     const descKey = engineDescKey(e.tier);
     desc.textContent = descKey ? t(descKey) : e.description;
     btn.append(head, desc);
-    // Transparency (spec 0093): when the rate is per translation stream, say so —
-    // a group call with more languages costs more.
+    // Transparency: explain how the rate scales. Listener-pays (spec 0099) bills the
+    // listener per source they hear; speaker-pays (spec 0093) bills per target language.
     if (e.capabilities.cost_scales_per_language) {
       const note = document.createElement('span');
       note.className = 'engine-opt-note';
-      note.textContent = t('engineCostPerLanguage');
+      note.textContent = t(auth.isListenerPays() ? 'engineCostPerSource' : 'engineCostPerLanguage');
       btn.append(note);
     }
     btn.addEventListener('click', () => selectEngine(e.id));
