@@ -145,3 +145,39 @@ prod). Live speaker-pays path byte-identical. 184 lib + 251 client tests green.*
    Deepgram/OpenAI. The real gate is a **billing dry-run with real services** before flipping
    `LISTENER_PAYS` on. Resolve the two documented items then: capacity-fallback premium billing;
    a hard cap for a Standard listener who exhausts.
+
+## 9. Re-base onto main + Gemini (2026-06-18) — IN PROGRESS
+
+The branch was 13 commits behind main and predated **Gemini** (spec 0100). Re-based on
+`feat/premium-listener-pays`:
+
+**DONE + committed + pushed (flag OFF = prod byte-identical, 200 lib tests green):**
+- `27c9189` Merge main: reconcile (#262), premium.rs↔pro.rs rename (**premium=Gemini,
+  pro=OpenAI**; ids frozen: `OPENAI_ID="premium"`, `GEMINI_ID="gemini_live_translate"`),
+  Gemini as the Premium tier, the translated-voice reconnect fixes (#264), gpt-oss docs.
+  Kept the branch's engine-agnostic primitives (rooms routing, `MeterScope::Listener`,
+  `LISTENER_PAYS` flag, `CaptureFormat`, deepgram `linear16`). lib.rs/engines resolved to
+  main's structure; listener-pays re-applied on top.
+- `9b78fe4` Listener-pays routing re-applied to ALL 3 engines (was 2, pre-Gemini):
+  pro.rs (OpenAI/`OPENAI_ID`) + premium.rs (Gemini/`GEMINI_ID`) compute targets via
+  `target_langs_for_engine(room, speaker, ENGINE_ID)` and deliver via
+  `SessionReader::deliver` → `broadcast_to_lang_engine(.., ENGINE_ID, ..)` when
+  `deps.listener_pays`. Integrated with the live reconcile (start_session AND reconcile tick).
+
+**REMAINING — the lib.rs N-engine core loop (the billing-critical heart; do focused + tested):**
+The branch's `lib.rs` core loop was DISCARDED in the merge (took main's reconcile lib.rs)
+and must be re-applied **generalized from 2 engines to N**. Blueprint = pre-merge tip
+`e5f11d5:server/src/lib.rs` (`notify_capture_formats`, `spawn_listener_meter`, the
+`if state.config.listener_pays` Start block, the `audio_feeds` fan-out, `set_speaking`,
+join-time `receive_engine` + listener meter). Generalization rules:
+- "PCM-input engines" = registry engines with `capabilities.translated_audio` (OpenAI +
+  Gemini), NOT hardcoded `PREMIUM_ID`. `pcm = any(has_engine_listener(room, peer, eid))`
+  over those ids — same set in `notify_capture_formats` so client+server agree.
+- Start (listener-pays): run **each** translated_audio engine a cross-language listener chose
+  (`translation_routes`), push its feed; then Standard ALWAYS with
+  `listener_pays = any_premium_started` (true → serve only Standard listeners; false → serve
+  everyone = capacity fallback). Fan captured audio to all `audio_feeds`; `set_speaking(true)`.
+- Bill the LISTENER from join (`spawn_listener_meter`, `MeterScope::Listener` at the peer's
+  receive-engine rate); guests keep the per-Start speaking cap.
+- Then step 7 (client i18n/pricing copy) + step 8 (dry-run). Known-deferred edge cases (§8):
+  capacity-fallback premium billing; Standard-listener exhaust cap.
