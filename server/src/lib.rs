@@ -178,7 +178,7 @@ impl AppState {
     /// configured.
     pub fn new(config: Config) -> Self {
         let config = Arc::new(config);
-        let groq = Groq::new(config.groq_key.clone());
+        let groq = Groq::new(config.groq_key.clone(), config.translation_model.clone());
         // Admission cap on concurrent in-flight Groq translation calls across the
         // whole process (spec 0069) — bounds fan-out under a traffic spike.
         let translate_max = env_u32(

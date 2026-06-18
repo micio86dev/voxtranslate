@@ -13,6 +13,11 @@ use serde::{Deserialize, Serialize};
 pub struct Config {
     pub deepgram_key: String,
     pub groq_key: String,
+    /// Real-time translation model (Groq), env-driven via `GROQ_TRANSLATION_MODEL`.
+    /// Core pipeline setting that must work in guest mode too, so it lives here
+    /// rather than under the optional billing `AiConfig`. Latency-critical — keep
+    /// it a fast/cheap model.
+    pub translation_model: String,
     pub port: u16,
     /// Allowed CORS origins; empty means permissive (dev).
     pub allowed_origins: Vec<String>,
@@ -363,6 +368,10 @@ impl Config {
     pub fn from_env() -> Result<Self, String> {
         let deepgram_key = require("DEEPGRAM_API_KEY")?;
         let groq_key = require("GROQ_API_KEY")?;
+        let translation_model = env::var("GROQ_TRANSLATION_MODEL")
+            .ok()
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or_else(|| "openai/gpt-oss-20b".into());
         let port = parse_or("PORT", 3001u16);
         let allowed_origins = env::var("ALLOWED_ORIGINS")
             .ok()
@@ -422,6 +431,7 @@ impl Config {
         Ok(Self {
             deepgram_key,
             groq_key,
+            translation_model,
             port,
             allowed_origins,
             auto_detect_buffer_ms: parse_or("AUTO_DETECT_BUFFER_MS", 3000u64),
@@ -479,11 +489,11 @@ impl AiConfig {
             report_model: env::var("GROQ_REPORT_MODEL")
                 .ok()
                 .filter(|s| !s.trim().is_empty())
-                .unwrap_or_else(|| "llama-3.3-70b-versatile".into()),
+                .unwrap_or_else(|| "openai/gpt-oss-120b".into()),
             fallback_model: env::var("GROQ_FALLBACK_MODEL")
                 .ok()
                 .filter(|s| !s.trim().is_empty())
-                .unwrap_or_else(|| "llama-3.1-8b-instant".into()),
+                .unwrap_or_else(|| "openai/gpt-oss-20b".into()),
             report_base: parse_or("CREDITS_REPORT_BASE", 0.05f64),
             report_per_minute: parse_or("CREDITS_REPORT_PER_MINUTE", 0.002f64),
             sentiment_base: parse_or("CREDITS_SENTIMENT_BASE", 0.05f64),
@@ -505,8 +515,8 @@ impl AiConfig {
     #[doc(hidden)]
     pub fn test_default() -> Self {
         Self {
-            report_model: "llama-3.3-70b-versatile".into(),
-            fallback_model: "llama-3.1-8b-instant".into(),
+            report_model: "openai/gpt-oss-120b".into(),
+            fallback_model: "openai/gpt-oss-20b".into(),
             report_base: 0.05,
             report_per_minute: 0.002,
             sentiment_base: 0.05,
@@ -626,6 +636,7 @@ impl Config {
         Self {
             deepgram_key: "dummy".into(),
             groq_key: "dummy".into(),
+            translation_model: "openai/gpt-oss-20b".into(),
             port: 0,
             allowed_origins: vec![],
             auto_detect_buffer_ms: 3000,

@@ -26,6 +26,7 @@ fn make_state() -> (AppState, bool) {
             AppState::new(Config {
                 deepgram_key: "dummy".into(),
                 groq_key: "dummy".into(),
+                translation_model: "openai/gpt-oss-20b".into(),
                 port: 0,
                 allowed_origins: vec![],
                 auto_detect_buffer_ms: 3000,
@@ -366,6 +367,7 @@ async fn deepgram_unavailable_sends_error() {
     let state = AppState::new(Config {
         deepgram_key: "bad-deepgram-key".into(),
         groq_key: groq,
+        translation_model: "openai/gpt-oss-20b".into(),
         port: 0,
         allowed_origins: vec![],
         auto_detect_buffer_ms: 3000,
@@ -429,6 +431,7 @@ fn guest_config() -> Config {
     Config {
         deepgram_key: "dummy".into(),
         groq_key: "dummy".into(),
+        translation_model: "openai/gpt-oss-20b".into(),
         port: 0,
         allowed_origins: vec![],
         auto_detect_buffer_ms: 3000,

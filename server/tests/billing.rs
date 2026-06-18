@@ -165,6 +165,7 @@ mod guest_mode {
         let config = Config {
             deepgram_key: "d".into(),
             groq_key: "g".into(),
+            translation_model: "openai/gpt-oss-20b".into(),
             port: 0,
             allowed_origins: vec![],
             auto_detect_buffer_ms: 3000,
