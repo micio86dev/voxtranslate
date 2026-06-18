@@ -94,9 +94,21 @@ export function commonLangs(engines: EngineInfo[], known: string[]): string[] {
   return known.filter((l) => engines.every((e) => e.output_languages.includes(l)));
 }
 
-/** Format a per-minute rate for display, e.g. `$0.45/min`. */
+/** Format a per-minute rate for display, e.g. `$0.066/min`. Three decimals because
+ *  the cheaper tiers land in the sub-cent-resolution range (e.g. $0.010 vs $0.066). */
 export function formatRate(ratePerMinute: number): string {
-  return `$${ratePerMinute.toFixed(2)}/min`;
+  return `$${ratePerMinute.toFixed(3)}/min`;
+}
+
+/** Whether a speaker on `engineId` must capture raw PCM16 @ 24 kHz (the server-side
+ *  speech-to-speech engines — OpenAI, Gemini) rather than WebM/Opus (Standard, which
+ *  streams to Deepgram). Keyed on the `translated_audio` capability, NOT a hardcoded
+ *  id: the Gemini engine's id is `gemini_live_translate`, so an `id === 'premium'`
+ *  check silently sent it WebM/Opus, which its PCM-expecting session decoded as noise
+ *  → no transcript, no translated voice. Unknown/absent engine → false (safe WebM
+ *  default, used by Standard). */
+export function engineNeedsPcm(engineId: string | undefined, engines: EngineInfo[]): boolean {
+  return engines.find((e) => e.id === engineId)?.capabilities.translated_audio ?? false;
 }
 
 /** i18n key for an engine's user-facing description, by tier (#236). The server's
@@ -105,6 +117,7 @@ export function formatRate(ratePerMinute: number): string {
  *  an unknown/future tier so the caller falls back to the server description. */
 export function engineDescKey(tier: string): string | null {
   if (tier === 'standard') return 'engineDescStandard';
+  if (tier === 'pro') return 'engineDescPro';
   if (tier === 'premium') return 'engineDescPremium';
   return null;
 }

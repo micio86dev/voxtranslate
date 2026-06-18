@@ -6,6 +6,7 @@ import {
   type EngineInfo,
   commonLangs,
   engineDescKey,
+  engineNeedsPcm,
   formatRate,
   loadEnginePref,
   resolveEnginePref,
@@ -119,6 +120,26 @@ const roomInput = $<HTMLInputElement>('room');
 const nameInput = $<HTMLInputElement>('name');
 const langSel = $<HTMLSelectElement>('lang');
 const engineField = $('engine-field');
+
+// Remember the last NAME + LANGUAGE used to join (guests included) so a returning
+// visitor doesn't re-enter them. Best-effort localStorage (private mode → no-op), in
+// the existing `voxtranslate_*` key namespace.
+const NAME_CACHE_KEY = 'voxtranslate_name';
+const LANG_CACHE_KEY = 'voxtranslate_lang';
+function readCache(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+function writeCache(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    /* private mode / storage blocked */
+  }
+}
 const engineOptions = $('engine-options');
 const enterBtn = $<HTMLButtonElement>('enter');
 const homeStatus = $('home-status');
@@ -357,7 +378,18 @@ const subtitleTimers = new Map<string, number>();
 // ============================================================================
 // i18n
 // ============================================================================
-langSel.value = detectLang();
+// Restore the last-used name + language (cached locally, guests included). The
+// language drives both the call and the UI, so sync `setUiLang` when restoring it;
+// fall back to browser detection when nothing is cached.
+const cachedLang = readCache(LANG_CACHE_KEY);
+if (cachedLang) {
+  langSel.value = cachedLang;
+  setUiLang(cachedLang);
+} else {
+  langSel.value = detectLang();
+}
+const cachedName = readCache(NAME_CACHE_KEY);
+if (cachedName && !nameInput.value) nameInput.value = cachedName;
 applyI18n();
 // Discover translation engines + restore the saved choice (spec 0093). Async;
 // the selector reveals itself once the list arrives. Default engine until then.
@@ -366,6 +398,7 @@ void initEngines();
 initNetStatus();
 langSel.addEventListener('change', () => {
   setUiLang(langSel.value);
+  writeCache(LANG_CACHE_KEY, langSel.value);
   applyI18n();
   updateVisHint();
 });
@@ -394,6 +427,13 @@ async function initEngines(): Promise<void> {
 }
 
 function renderEngineSelector(): void {
+  // Guests always use Standard — Premium/Pro need credits. Hide the selector and pin
+  // the choice so the join always sends 'standard'; only signed-in users get to pick.
+  if (!auth.isLoggedIn()) {
+    selectedEngine = 'standard';
+    engineField.hidden = true;
+    return;
+  }
   // A one-engine deployment (the common case until Premium is provisioned) has no
   // choice to make — keep the selector out of the way.
   if (availableEngines.length < 2) {
@@ -628,6 +668,9 @@ $('signin-gate-signin').addEventListener('click', () => {
 // ============================================================================
 async function goPrejoin(room: string, isPublic: boolean): Promise<void> {
   session = { room, lang: langSel.value, name: nameInput.value.trim(), isPublic, engine: selectedEngine };
+  // Remember what was actually used to join, so it's pre-filled next time (guests too).
+  writeCache(NAME_CACHE_KEY, session.name);
+  writeCache(LANG_CACHE_KEY, session.lang);
   stopLobby();
   homeScreen.classList.add('hidden');
   prejoinScreen.classList.remove('hidden');
@@ -900,11 +943,14 @@ function openSocket(): void {
     mesh.setAudioEnabled(micOn);
     mesh.setVideoEnabled(camOn);
 
-    // Premium speakers capture PCM16/24k (for OpenAI) instead of WebM/Opus.
-    audioCapture =
-      session?.engine === 'premium'
-        ? new PcmCapture(localStream!, ws!)
-        : new AudioCapture(localStream!, ws!);
+    // Speech-to-speech engines (OpenAI, Gemini) capture raw PCM16/24k; Standard
+    // streams WebM/Opus for Deepgram. Decide by the engine's `translated_audio`
+    // capability — keying on `id === 'premium'` missed the Gemini engine (id
+    // `gemini_live_translate`), which then sent WebM that its PCM session read as
+    // noise: no transcript, no translated voice.
+    audioCapture = engineNeedsPcm(session?.engine, availableEngines)
+      ? new PcmCapture(localStream!, ws!)
+      : new AudioCapture(localStream!, ws!);
     if (micOn) audioCapture.start();
 
     // Tell peers if we joined already muted / camera-off so their UI matches.
@@ -966,6 +1012,12 @@ async function handleServer(msg: any): Promise<void> {
       // peer — cancel the pending removal so the tile never flickers out, and skip
       // the join chime.
       const reconnected = cancelPendingRemoval(msg.peer_id);
+      // Clear any stale "premium speaker" flag: engine is picked on the pre-join
+      // screen, so switching tier = leave+rejoin under the SAME (per-tab) peer id. If
+      // they were Premium/Pro before and rejoin on Standard, a leftover flag would keep
+      // suppressing their TTS forever (only subtitles). They're re-flagged on their next
+      // `translated_audio` frame if still on a speech-to-speech engine.
+      premiumSpeakers.delete(msg.peer_id);
       peerNames.set(msg.peer_id, { name: msg.user_name, lang: msg.lang, avatar: msg.avatar_url });
       addCell(msg.peer_id, msg.user_name, msg.lang, false, msg.avatar_url);
       if (!reconnected) playJoinSound(); // audible cue only for a genuinely new peer
@@ -1092,17 +1144,20 @@ async function handleServer(msg: any): Promise<void> {
       if (msg.peer_id === myId) {
         if (serverCaptureFormat !== null) {
           // Listener-pays (spec 0099): it's MY receive engine that changed (e.g. I
-          // ran out of credit → now I receive Standard). Capture is server-driven, so
-          // we do NOT swap it here; just record the new engine and notify.
+          // ran out of credit → now I receive Standard). Capture is server-driven
+          // (capture_format), so we do NOT swap it here; just record + notify.
           if (session) session.engine = msg.to;
           showNotif(t(msg.reason === 'insufficient_balance' ? 'enginePremiumPaused' : 'enginePremiumBusy'));
         } else {
-          // Speaker-pays: swap our capture (PCM→WebM) and continue under the new engine.
+          // Speaker-pays: match our capture to the new engine's format (Standard → WebM
+          // today, but stay capability-correct via engineNeedsPcm for any engine).
           if (session) session.engine = msg.to;
           const wasActive = micOn;
           audioCapture?.stop();
           if (ws && localStream) {
-            audioCapture = new AudioCapture(localStream, ws);
+            audioCapture = engineNeedsPcm(msg.to, availableEngines)
+              ? new PcmCapture(localStream, ws)
+              : new AudioCapture(localStream, ws);
             if (wasActive) audioCapture.start();
           }
           showNotif(t(msg.reason === 'premium_at_capacity' ? 'enginePremiumBusy' : 'enginePremiumPaused'));
@@ -1462,6 +1517,7 @@ function layoutVideos(): void {
   // Remove all special classes first; reset pan state on cells leaving focus
   allCells.forEach((c) => {
     c.classList.remove('main-cell', 'video-thumb', 'active-speaker');
+    c.style.removeProperty('--thumb-i'); // drop any prior focus-column position
     if (c.classList.contains('pan-mode')) disablePan(c);
   });
 
@@ -1480,9 +1536,12 @@ function layoutVideos(): void {
     if (IS_MOBILE && focusCell.classList.contains('sharing')) setupPan(focusCell);
     else disablePan(focusCell);
 
+    let thumbIndex = 0;
     for (const cell of allCells) {
       if (cell === focusCell) continue;
       cell.classList.add('video-thumb');
+      // Stack thumbnails up the right edge (index 0 = bottom) so they never pile up.
+      cell.style.setProperty('--thumb-i', String(thumbIndex++));
       // Click thumbnail to pin
       const id = cell.dataset.peer || '';
       cell.addEventListener('click', () => { if (id) togglePin(id); }, { once: true });
@@ -2002,8 +2061,8 @@ btnMore.addEventListener('click', (e) => {
   setMoreOpen(moreMenu.classList.contains('hidden'));
 });
 // Unified close behavior (#226): clicking ANY action in the ⋯ menu keeps it open
-// for ~1s — long enough to SEE the result (a toggle's dot flipping, a panel
-// opening) — then auto-closes. Consistent across toggles (tts/hand/share) and
+// briefly (~0.25s) — long enough to glimpse the result (a toggle's dot flipping, a
+// panel opening) — then auto-closes. Consistent across toggles (tts/hand/share) and
 // one-shot actions (timer/invite/label); rapid repeat clicks reset the timer.
 // (Supersedes spec 0036's "stay open until dismissed" so the behavior is
 // predictable across every action.)
@@ -2011,7 +2070,7 @@ moreMenu.addEventListener('click', (e) => {
   const btn = (e.target as HTMLElement).closest('.control-btn');
   if (!btn || !moreMenu.contains(btn)) return;
   clearTimeout(moreCloseTimer);
-  moreCloseTimer = window.setTimeout(() => setMoreOpen(false), 1000);
+  moreCloseTimer = window.setTimeout(() => setMoreOpen(false), 250);
 });
 document.addEventListener('click', (e) => {
   if (!moreMenu.classList.contains('hidden') && !moreMenu.contains(e.target as Node)) setMoreOpen(false);
@@ -2274,6 +2333,18 @@ btnPip.addEventListener('click', () => {
       const pipGrid = w.document.createElement('div');
       pipGrid.className = 'video-grid';
       pipStage.appendChild(pipGrid);
+      // Carry Astro's component scope attribute(s) onto the fresh PiP stage + grid. The
+      // .video-cell background and the video sizing (object-fit / width / height / display)
+      // are scoped UNDER .video-stage / .video-grid (index.astro: "target them with
+      // :global() under .video-grid"), so without the cid the cloned tiles get no sizing
+      // and the feeds never fill — a grey stage with no video. (#246 regressed this by
+      // building a bare grid instead of cloning the scoped stage.)
+      const carryScope = (from: Element | null, to: HTMLElement): void => {
+        for (const a of from?.getAttributeNames() ?? [])
+          if (a.startsWith('data-astro-cid')) to.setAttribute(a, from?.getAttribute(a) ?? '');
+      };
+      carryScope(document.querySelector('.video-stage'), pipStage);
+      carryScope(videoGrid, pipGrid);
       w.document.body.appendChild(pipStage);
       syncPip();
       // Keep the PiP grid in lock-step with the live call: a peer leaving removes its
@@ -3169,6 +3240,7 @@ function updatePublicGate(): void {
 }
 
 function renderAccount(): void {
+  renderEngineSelector(); // keep the engine selector in sync with auth (guests: hidden + Standard)
   const u = auth.getUser();
   if (!billing || !u) {
     accountBar.classList.add('hidden');
@@ -3907,6 +3979,9 @@ btnTimer.addEventListener('click', (e) => {
   if (timerPop.classList.contains('hidden')) setMoreOpen(false); // collapse the ⋯ menu first
   toggleTimerPop();
 });
+// Explicit close X (top-right), matching every other modal's close affordance.
+$('timer-pop-close').innerHTML = icon('close', 14);
+$('timer-pop-close').addEventListener('click', () => toggleTimerPop(false));
 // Close the popover on an outside click or Escape (mirrors the ⋯ menu).
 document.addEventListener('click', (e) => {
   if (

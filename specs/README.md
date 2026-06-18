@@ -148,7 +148,7 @@ Browser (Astro 5 + vanilla TS)                Rust server (Axum 0.8 + Tokio)
 - **Frontend:** Astro 5 static + vanilla TypeScript (`client/`), deployed on **Vercel** (autodeploy on push to `main`).
 - **Backend:** Rust / Axum 0.8 / Tokio (`server/`), deployed on **Railway** (`railway up`).
 - **Data:** Postgres on **Supabase** (migrations `001`–`003` run at startup).
-- **STT:** Deepgram Nova-2 streaming WS · **Translation:** Groq Llama 3.1 8B Instant · **TTS:** browser SpeechSynthesis.
+- **STT:** Deepgram Nova-2 streaming WS · **Translation:** Groq `openai/gpt-oss-20b` · **TTS:** browser SpeechSynthesis.
 - **Backoffice:** Directus 11 on Railway, reading the same Postgres; privileged writes go through the server's secret-guarded `/api/admin/*`.
 
 ## Conventions

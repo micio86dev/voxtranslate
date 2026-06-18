@@ -13,7 +13,7 @@
 ## 1. Context & Problem
 
 Transcripts are produced two utterances at a time: Deepgram STT hears each chunk in
-isolation, and the live translator (Llama 3.1 8B Instant) renders each line with no
+isolation, and the live translator (Groq `openai/gpt-oss-20b`) renders each line with no
 view of the surrounding conversation. The result is correct-enough for live captions
 but rough on export — misheard homophones, missing punctuation/casing, names spelled
 inconsistently, and translations that ignore terms established earlier in the call.
@@ -31,7 +31,7 @@ The UI scaffold (checkbox + cost-estimate label, `.btn-ghost:disabled` styling, 
 
 **Goals**
 - Opt-in checkbox in the downloads area applies AI correction to the exported text.
-- Correction uses a good Groq model (`GROQ_REPORT_MODEL`, default `llama-3.3-70b-versatile`)
+- Correction uses a good Groq model (`GROQ_REPORT_MODEL`, default `openai/gpt-oss-120b`)
   with full-dialogue context, degrading to the fallback model on model retirement.
 - Cost is shown before paying, scales with transcript **size** (per event) and the
   selected export **mode**, and is charged atomically with the report/sentiment policy

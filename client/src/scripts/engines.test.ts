@@ -8,6 +8,7 @@ import {
   defaultEngineId,
   engineDescKey,
   engineLangs,
+  engineNeedsPcm,
   formatRate,
   loadEnginePref,
   resolveEnginePref,
@@ -91,10 +92,34 @@ describe('commonLangs', () => {
   });
 });
 
+describe('engineNeedsPcm', () => {
+  // The Gemini engine: speech-to-speech (translated_audio) like OpenAI, but its id
+  // is NOT `premium` — the exact case the old `id === 'premium'` check missed.
+  const GEMINI: EngineInfo = {
+    ...engine('gemini_live_translate', ['en', 'it']),
+    capabilities: { translated_audio: true, cost_scales_per_language: true, max_room_size: 4 },
+  };
+  const list = [STANDARD, PREMIUM, GEMINI];
+
+  it('is true for every translated-audio engine — OpenAI AND Gemini', () => {
+    expect(engineNeedsPcm('premium', list)).toBe(true);
+    // Regression (#258/#260): Gemini needs PCM16 too, despite its non-`premium` id.
+    expect(engineNeedsPcm('gemini_live_translate', list)).toBe(true);
+  });
+  it('is false for Standard (captures WebM/Opus for Deepgram)', () => {
+    expect(engineNeedsPcm('standard', list)).toBe(false);
+  });
+  it('is false for an unknown or absent engine (safe WebM default)', () => {
+    expect(engineNeedsPcm('nope', list)).toBe(false);
+    expect(engineNeedsPcm(undefined, list)).toBe(false);
+    expect(engineNeedsPcm('premium', [])).toBe(false);
+  });
+});
+
 describe('formatRate', () => {
   it('formats a per-minute USD rate', () => {
-    expect(formatRate(0.01)).toBe('$0.01/min');
-    expect(formatRate(0.45)).toBe('$0.45/min');
+    expect(formatRate(0.01)).toBe('$0.010/min');
+    expect(formatRate(0.45)).toBe('$0.450/min');
   });
 });
 
@@ -132,7 +157,8 @@ describe('preference persistence', () => {
 
   it('maps tiers to localized description keys, null for unknown (#236)', () => {
     expect(engineDescKey('standard')).toBe('engineDescStandard');
-    expect(engineDescKey('premium')).toBe('engineDescPremium');
+    expect(engineDescKey('pro')).toBe('engineDescPro'); // OpenAI = the "Pro" tier
+    expect(engineDescKey('premium')).toBe('engineDescPremium'); // Gemini = the "Premium" tier
     expect(engineDescKey('enterprise')).toBeNull(); // unknown → caller falls back to server desc
   });
 });

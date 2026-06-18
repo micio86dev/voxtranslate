@@ -11,7 +11,7 @@ Next step: add P2P video calling (WebRTC mesh, max 4) + auto-translated text cha
 - Backend: Rust (Axum 0.8 + Tokio)
 - Frontend: Astro 5 (vanilla TypeScript)
 - STT: Deepgram Nova-2 streaming WebSocket
-- Translation: Groq Llama 3.1 8B Instant
+- Translation: Groq `openai/gpt-oss-20b` (env-configurable via `GROQ_TRANSLATION_MODEL`)
 - TTS: Browser SpeechSynthesis API
 - Video/Audio P2P: WebRTC mesh topology
 - Audio codec: Opus/WebM, 32kbps mono, 100ms chunks (low-latency capture, spec 0043)
@@ -35,4 +35,4 @@ Next step: add P2P video calling (WebRTC mesh, max 4) + auto-translated text cha
 ## API Keys
 
 - DEEPGRAM_API_KEY — Nova-2 streaming STT
-- GROQ_API_KEY — Llama 3.1 8B Instant translation
+- GROQ_API_KEY — Groq translation (default `openai/gpt-oss-20b`)

@@ -63,7 +63,7 @@ use crate::auth::{GoogleVerifier, TokenVerifier};
 use crate::billing::{usd, BillingService};
 use crate::config::Config;
 use crate::db::Pool;
-use crate::engine::{EngineRegistry, PremiumEngine, StandardEngine};
+use crate::engine::{EngineRegistry, PremiumEngine, ProEngine, StandardEngine};
 use crate::glossary::GlossaryService;
 use crate::groq::Groq;
 use crate::moderation::{Moderator, Severity};
@@ -178,7 +178,7 @@ impl AppState {
     /// configured.
     pub fn new(config: Config) -> Self {
         let config = Arc::new(config);
-        let groq = Groq::new(config.groq_key.clone());
+        let groq = Groq::new(config.groq_key.clone(), config.translation_model.clone());
         // Admission cap on concurrent in-flight Groq translation calls across the
         // whole process (spec 0069) — bounds fan-out under a traffic spike.
         let translate_max = env_u32(
@@ -213,10 +213,16 @@ impl AppState {
             http.clone(),
             translator.clone(),
         )));
-        // Premium (OpenAI) is registered only when its key is configured, so the
-        // selector and `/api/engines` show it iff the feature is provisioned.
+        // Registration order = display order: Standard, then Pro, then Premium. The OpenAI
+        // engine is the "Pro" tier (its stable id is still `premium`); register it BEFORE
+        // Gemini so Pro shows above Premium. Ships dark until its key is provisioned.
         if let Some(oa) = config.openai.as_ref() {
-            registry.register(Arc::new(PremiumEngine::new(oa)));
+            registry.register(Arc::new(ProEngine::new(oa)));
+        }
+        // Gemini Live Translate is the "Premium" tier (spec 0100), shown last. Like the
+        // others it ships dark until its key is provisioned.
+        if let Some(g) = config.google.as_ref() {
+            registry.register(Arc::new(PremiumEngine::new(g)));
         }
         let engines = Arc::new(registry);
         Self {
@@ -713,8 +719,8 @@ fn spawn_meter(
             low_balance_threshold: billing_cfg.pricing.low_balance_threshold,
             rooms: Some(state.rooms.clone()),
             room: room.to_string(),
-            // Speaker-pays (spec 0093) — the current live model. The listener-pays
-            // cutover (spec 0099) swaps this for MeterScope::Listener.
+            // Speaker-pays (spec 0093): the live model bills the speaker; the
+            // listener-pays cutover (spec 0099) swaps this for MeterScope::Listener.
             scope: MeterScope::Speaker {
                 speaker_id: speaker_id.to_string(),
                 speaker_lang: speaker_lang.to_string(),
@@ -748,71 +754,6 @@ fn spawn_meter(
     }
 
     None
-}
-
-/// Push each peer in the room its capture format (spec 0099 listener-pays): PCM16
-/// iff a Premium listener OTHER than them is present (so the one captured stream can
-/// feed OpenAI + Deepgram), else WebM/Opus. Called on join, leave, and engine
-/// changes so the speaker's capture always matches what the server feeds the
-/// engines. No-op unless the listener-pays model is active.
-fn notify_capture_formats(state: &AppState, room: &str) {
-    if !state.config.listener_pays {
-        return;
-    }
-    for (pid, _engine) in state.rooms.peer_engines(room) {
-        let pcm = state
-            .rooms
-            .has_engine_listener(room, &pid, crate::engine::PREMIUM_ID);
-        state
-            .rooms
-            .relay_to_peer(room, &pid, &ServerMessage::CaptureFormat { pcm }.to_json());
-    }
-}
-
-/// Spawn the per-connection LISTENER meter (spec 0099 listener-pays): charges this
-/// listener at `rate_per_second` for the cross-language sources they are receiving,
-/// for the whole connection — speaker activity drives the per-tick scale via
-/// `active_source_count`. Returns the cancel handle (dropped/sent on disconnect or
-/// balance exhaustion). `None` for guests (they're pinned to Standard and not
-/// billed; their time cap is handled by the speaking-side guest meter) or when
-/// billing is off.
-#[allow(clippy::too_many_arguments)] // cohesive per-connection metering context
-fn spawn_listener_meter(
-    state: &AppState,
-    billed_user: Option<Uuid>,
-    usage_session_id: Option<Uuid>,
-    out_tx: &PeerTx,
-    exhaust_tx: &UnboundedSender<()>,
-    room: &str,
-    listener_id: &str,
-    rate_per_second: f64,
-) -> Option<oneshot::Sender<()>> {
-    let billing_cfg = state.config.billing.as_ref()?;
-    let (uid, sid, svc) = match (billed_user, usage_session_id, state.billing.as_ref()) {
-        (Some(uid), Some(sid), Some(svc)) => (uid, sid, svc),
-        _ => return None,
-    };
-    let (cancel_tx, cancel_rx) = oneshot::channel();
-    let cfg = MeterConfig {
-        interval_secs: billing_cfg.pricing.usage_update_interval,
-        rate_per_second,
-        low_balance_threshold: billing_cfg.pricing.low_balance_threshold,
-        rooms: Some(state.rooms.clone()),
-        room: room.to_string(),
-        scope: MeterScope::Listener {
-            listener_id: listener_id.to_string(),
-        },
-    };
-    tokio::spawn(run_usage_meter(
-        svc.clone(),
-        uid,
-        sid,
-        cfg,
-        out_tx.clone(),
-        exhaust_tx.clone(),
-        cancel_rx,
-    ));
-    Some(cancel_tx)
 }
 
 /// A peer's WebSocket: receives audio (binary) + control/signaling/chat (text),
@@ -876,6 +817,14 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
     let billed_user = authed.as_ref().map(|a| a.user_id);
     let avatar_url = authed.and_then(|a| a.avatar_url);
 
+    // Guests always use the default (Standard) engine: Premium/Pro are paid per target
+    // language and a guest has no billing account to charge. Pin it server-side so a
+    // crafted `?engine=premium` can't open a paid upstream session for an unbilled peer
+    // (the client already hides the selector for guests; this is the enforcement).
+    if billed_user.is_none() {
+        active_engine = state.engines.default();
+    }
+
     // Accountability: when accounts are live (the DB is connected, so users can
     // actually sign in), public rooms require a signed-in user. Guests can still
     // use private rooms via an invite link. We key off the live pool rather than
@@ -904,21 +853,15 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
     // `(id, conn)` so a same-id reconnect can't be dropped by its predecessor's
     // late teardown (the reconnect black-screen bug).
     let conn = Uuid::new_v4();
-    // Receive-engine (spec 0099, listener-pays): the quality this peer wants to
-    // RECEIVE — what others' speech is translated into for them, and what they're
-    // billed at. Guests can't be billed, so they are pinned to the default engine
-    // regardless of the requested id.
-    let receive_engine = if billed_user.is_some() {
-        active_engine.metadata().id.clone()
-    } else {
-        state.engines.default().metadata().id.clone()
-    };
     let peer = Peer {
         id: id.clone(),
         conn,
         name: name.clone(),
         lang: lang.clone(),
-        engine: receive_engine.clone(),
+        // The engine whose quality this peer RECEIVES (spec 0099). In speaker-pays it's
+        // unused for routing; in listener-pays it drives which engine translates others'
+        // speech for this peer. Guests are already pinned to the default above.
+        engine: active_engine.metadata().id.clone(),
         avatar_url: avatar_url.clone(),
         tx: out_tx.clone(),
         speaking: Arc::new(AtomicBool::new(false)),
@@ -1039,9 +982,6 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
         }
         .to_json(),
     );
-    // Listener-pays (spec 0099): the new peer may have changed the room's Premium
-    // composition — re-push every peer its capture format (no-op when the flag is off).
-    notify_capture_formats(&state, &room);
 
     let send_task = tokio::spawn(pump_to_ws(out_rx, ws_tx));
 
@@ -1091,39 +1031,12 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
     };
     let guest_spent = guest_cap_secs.map(|_| Arc::new(AtomicU64::new(0)));
 
-    // Active speaking session (Some only while unmuted/talking) — speaker-pays path.
+    // Active speaking session (Some only while unmuted/talking).
     let mut audio_tx: Option<mpsc::Sender<Vec<u8>>> = None;
-    // Listener-pays (spec 0099): the speaker's audio fans to one feed per engine the
-    // room's listeners demand (Standard always; Premium when wanted). Non-empty only
-    // while speaking. Kept separate from `audio_tx` so the speaker-pays path is
-    // byte-identical when the flag is off.
-    let mut audio_feeds: Vec<mpsc::Sender<Vec<u8>>> = Vec::new();
     // Cancels the running usage/guest meter (on Stop / disconnect).
     let mut meter_cancel: Option<oneshot::Sender<()>> = None;
     // The meter signals here when credits/cap are exhausted -> stop audio.
     let (exhaust_tx, mut exhaust_rx) = mpsc::unbounded_channel::<()>();
-
-    // Listener-pays (spec 0099): a billed user is metered for the WHOLE connection
-    // (they pay for what they RECEIVE), so the meter starts at join — speaker
-    // activity drives the per-tick scale. Guests are pinned to Standard and use the
-    // speaking-side cap instead. Speaker-pays keeps its per-`Start` meter below.
-    if state.config.listener_pays && billed_user.is_some() {
-        let rate = state
-            .engines
-            .resolve(Some(&receive_engine))
-            .metadata()
-            .user_rate_per_second();
-        meter_cancel = spawn_listener_meter(
-            &state,
-            billed_user,
-            usage_session_id,
-            &out_tx,
-            &exhaust_tx,
-            &room,
-            &id,
-            rate,
-        );
-    }
 
     // Per-connection abuse caps (spec 0064): a fixed-window message-rate budget.
     let mut msg_count: u32 = 0;
@@ -1154,152 +1067,23 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
                 }
                 match msg {
                     Message::Binary(data) => {
-                        if state.config.listener_pays {
-                            // Listener-pays: fan the captured chunk to every engine
-                            // feed. A feed that errs (saturated/closed) is dropped;
-                            // the others keep going. When all are gone the speaking
-                            // session has ended — stop marking the speaker active.
-                            if !audio_feeds.is_empty() {
-                                let chunk = data.to_vec();
-                                audio_feeds.retain(|tx| tx.try_send(chunk.clone()).is_ok());
-                                if audio_feeds.is_empty() {
-                                    state.rooms.set_speaking(&room, &id, false);
-                                }
-                            }
-                        } else {
-                            // Bounded audio channel (#123): if Deepgram can't keep up
-                            // (Full) or the forwarder is gone (Closed), end the session
-                            // cleanly rather than drop a mid-stream chunk — dropping one
-                            // would corrupt the WebM container. STT resumes on the next
-                            // `Start`. The borrow ends before we clear `audio_tx`.
-                            let end_session = match audio_tx.as_ref() {
-                                Some(tx) => tx.try_send(data.to_vec()).is_err(),
-                                None => false,
-                            };
-                            if end_session {
-                                tracing::warn!(%id, "audio channel saturated/closed — ending STT session (#123)");
-                                audio_tx = None; // drop sender → forward_audio flushes + closes
-                            }
+                        // Bounded audio channel (#123): if Deepgram can't keep up
+                        // (Full) or the forwarder is gone (Closed), end the session
+                        // cleanly rather than drop a mid-stream chunk — dropping one
+                        // would corrupt the WebM container. STT resumes on the next
+                        // `Start`. The borrow ends before we clear `audio_tx`.
+                        let end_session = match audio_tx.as_ref() {
+                            Some(tx) => tx.try_send(data.to_vec()).is_err(),
+                            None => false,
+                        };
+                        if end_session {
+                            tracing::warn!(%id, "audio channel saturated/closed — ending STT session (#123)");
+                            audio_tx = None; // drop sender → forward_audio flushes + closes
                         }
                     }
                     Message::Text(t) => match serde_json::from_str::<ClientMessage>(t.as_str()) {
                         Ok(ClientMessage::Start) => {
-                            if state.config.listener_pays {
-                                // Listener-pays (spec 0099): run every engine the
-                                // room's listeners demand on this one captured stream.
-                                if audio_feeds.is_empty() {
-                                    let live_lang = state
-                                        .rooms
-                                        .peer_lang(&room, &id)
-                                        .unwrap_or_else(|| lang.clone());
-                                    let routes =
-                                        state.rooms.translation_routes(&room, &id, &live_lang);
-                                    let want_premium = routes
-                                        .iter()
-                                        .any(|r| r.engine == crate::engine::PREMIUM_ID)
-                                        && state.engines.get(crate::engine::PREMIUM_ID).is_some();
-                                    // Surgical audio: the client captures PCM16 iff a
-                                    // Premium listener is present (room-level, the SAME
-                                    // condition pushed via CaptureFormat), so Deepgram
-                                    // must read linear16 then (else WebM/Opus, 0043).
-                                    // This is broader than `want_premium` (which also
-                                    // needs a cross-language premium target) but stays
-                                    // consistent with what the client is sending.
-                                    let pcm = state
-                                        .rooms
-                                        .has_engine_listener(&room, &id, crate::engine::PREMIUM_ID);
-                                    let build_ctx = || deepgram::SpeakerCtx {
-                                        room: room.clone(),
-                                        speaker_id: id.clone(),
-                                        speaker_name: name.clone(),
-                                        speaker_lang: live_lang.clone(),
-                                        session_id,
-                                        speaker_user_id: billed_user,
-                                        glossary: state.glossary.clone(),
-                                    };
-                                    let build_deps = |lp: bool| engine::SessionDeps {
-                                        rooms: state.rooms.clone(),
-                                        moderator: state.moderator.clone(),
-                                        transcripts: state.transcripts.clone(),
-                                        participant_row,
-                                        listener_pays: lp,
-                                        pcm_input: pcm,
-                                    };
-                                    let mut feeds: Vec<mpsc::Sender<Vec<u8>>> = Vec::new();
-                                    let mut premium_ok = false;
-                                    // Premium first, so we know whether it's carrying
-                                    // its listeners before sizing Standard's scope.
-                                    if want_premium {
-                                        if let Some(prem) =
-                                            state.engines.get(crate::engine::PREMIUM_ID)
-                                        {
-                                            match prem.start_session(build_ctx(), build_deps(true)).await {
-                                                engine::SessionOutcome::Started(tx) => {
-                                                    feeds.push(tx);
-                                                    premium_ok = true;
-                                                }
-                                                engine::SessionOutcome::AtCapacity
-                                                | engine::SessionOutcome::Failed => {
-                                                    // Capacity fallback (spec 0094):
-                                                    // Premium listeners drop to the
-                                                    // Standard stream — Standard then
-                                                    // serves everyone (below).
-                                                    state.rooms.broadcast(
-                                                        &room,
-                                                        &ServerMessage::EngineDowngraded {
-                                                            peer_id: id.clone(),
-                                                            from: crate::engine::PREMIUM_ID
-                                                                .to_string(),
-                                                            to: crate::engine::STANDARD_ID
-                                                                .to_string(),
-                                                            reason: "premium_at_capacity"
-                                                                .to_string(),
-                                                        }
-                                                        .to_json(),
-                                                    );
-                                                }
-                                            }
-                                        }
-                                    }
-                                    // Standard ALWAYS runs (the speaker's own caption +
-                                    // Standard listeners). listener_pays=true → it
-                                    // serves only its own listeners; false (Premium
-                                    // fell back or none wanted) → it serves EVERYONE.
-                                    let std_engine = state
-                                        .engines
-                                        .get(crate::engine::STANDARD_ID)
-                                        .unwrap_or_else(|| state.engines.default());
-                                    if let engine::SessionOutcome::Started(tx) = std_engine
-                                        .start_session(build_ctx(), build_deps(premium_ok))
-                                        .await
-                                    {
-                                        feeds.push(tx);
-                                    }
-                                    audio_feeds = feeds;
-                                    if !audio_feeds.is_empty() {
-                                        state.rooms.set_speaking(&room, &id, true);
-                                        // Guests aren't billed for receiving; cap their
-                                        // speaking time (billed listeners are metered
-                                        // from join).
-                                        if billed_user.is_none() && meter_cancel.is_none() {
-                                            meter_cancel = spawn_meter(
-                                                &state,
-                                                billed_user,
-                                                usage_session_id,
-                                                guest_cap_secs,
-                                                &guest_spent,
-                                                &out_tx,
-                                                &exhaust_tx,
-                                                &room,
-                                                &id,
-                                                &live_lang,
-                                                0.0,
-                                                false,
-                                            );
-                                        }
-                                    }
-                                }
-                            } else if audio_tx.is_none() {
+                            if audio_tx.is_none() {
                                 // Live language: auto-detect / set_lang may have
                                 // updated it since join, so never trust `lang`.
                                 let live_lang = state
@@ -1322,10 +1106,8 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
                                     moderator: state.moderator.clone(),
                                     transcripts: state.transcripts.clone(),
                                     participant_row,
-                                    // Live path is speaker-pays: the listener-pays
-                                    // core-loop rewiring (spec 0099 §8 step 3) sets
-                                    // these per route; until then they stay off so
-                                    // behaviour is unchanged even if the flag is on.
+                                    // Speaker-pays path: engines use their legacy
+                                    // per-lang fan-out + WebM/Opus capture.
                                     listener_pays: false,
                                     pcm_input: false,
                                 };
@@ -1381,22 +1163,9 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
                             }
                         }
                         Ok(ClientMessage::Stop) => {
-                            if state.config.listener_pays {
-                                audio_feeds.clear(); // drop all engine feeds → flush + close
-                                state.rooms.set_speaking(&room, &id, false);
-                                // Billed listeners keep their connection-long meter
-                                // (they pay for receiving, not speaking); only the
-                                // guest speaking-time meter is per-Start.
-                                if billed_user.is_none() {
-                                    if let Some(c) = meter_cancel.take() {
-                                        let _ = c.send(());
-                                    }
-                                }
-                            } else {
-                                audio_tx = None; // flush + close Deepgram
-                                if let Some(c) = meter_cancel.take() {
-                                    let _ = c.send(());
-                                }
+                            audio_tx = None; // flush + close Deepgram
+                            if let Some(c) = meter_cancel.take() {
+                                let _ = c.send(());
                             }
                         }
                         Ok(ClientMessage::Offer { to, sdp }) => {
@@ -1606,56 +1375,31 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
                 }
             }
             _ = exhaust_rx.recv() => {
-                meter_cancel = None; // stop billing in both models
-                if state.config.listener_pays {
-                    // Listener-pays (spec 0099): THIS listener ran out of credit for
-                    // what they RECEIVE. Drop them to free Standard so translation
-                    // continues (their next-served utterance uses Deepgram+Groq), and
-                    // notify just them. We do NOT stop their speaking — others pay to
-                    // hear them. A Standard listener exhausting has no cheaper tier;
-                    // they keep Standard (refinement: a hard cap — dry-run item).
-                    if state.rooms.peer_engine(&room, &id).as_deref()
-                        == Some(crate::engine::PREMIUM_ID)
-                    {
-                        state
-                            .rooms
-                            .set_peer_engine(&room, &id, crate::engine::STANDARD_ID);
-                        let _ = out_tx.send(
-                            ServerMessage::EngineDowngraded {
-                                peer_id: id.clone(),
-                                from: crate::engine::PREMIUM_ID.to_string(),
-                                to: crate::engine::STANDARD_ID.to_string(),
-                                reason: "insufficient_balance".to_string(),
-                            }
-                            .to_json(),
-                        );
-                        // This listener was the room's last Premium consumer ⇒
-                        // speakers can drop back to Opus — re-push capture formats.
-                        notify_capture_formats(&state, &room);
-                    }
-                } else {
-                    // Speaker-pays (spec 0093): stop the current speaking session and
-                    // gracefully downgrade a Premium speaker to the cheaper default
-                    // engine rather than going silent. The client re-Starts under the
-                    // new engine, opening a Standard session + meter.
-                    audio_tx = None;
-                    let default_id = state.engines.default().metadata().id.clone();
-                    if active_engine.metadata().id.as_str() == crate::engine::PREMIUM_ID
-                        && default_id != active_engine.metadata().id
-                    {
-                        let from = active_engine.metadata().id.clone();
-                        active_engine = state.engines.default();
-                        state.rooms.broadcast(
-                            &room,
-                            &ServerMessage::EngineDowngraded {
-                                peer_id: id.clone(),
-                                from,
-                                to: default_id,
-                                reason: "low_balance".to_string(),
-                            }
-                            .to_json(),
-                        );
-                    }
+                // Credits/cap exhausted: stop the current speaking session.
+                audio_tx = None;
+                meter_cancel = None;
+                // Graceful downgrade (spec 0093): a paid-tier speaker (Pro/OpenAI or
+                // Premium/Gemini) who runs low on credits falls back to the cheaper
+                // default engine rather than going silent. Tell the room — the speaker
+                // swaps capture + sees a notice; listeners stop expecting translated
+                // audio (TTS resumes). The client re-Starts under the new engine,
+                // opening a Standard session + meter (which still stops if even that
+                // can't be afforded). Gated on "is a non-default engine" so it covers
+                // EVERY paid engine, not just one id.
+                let default_id = state.engines.default().metadata().id.clone();
+                if default_id != active_engine.metadata().id {
+                    let from = active_engine.metadata().id.clone();
+                    active_engine = state.engines.default();
+                    state.rooms.broadcast(
+                        &room,
+                        &ServerMessage::EngineDowngraded {
+                            peer_id: id.clone(),
+                            from,
+                            to: default_id,
+                            reason: "low_balance".to_string(),
+                        }
+                        .to_json(),
+                    );
                 }
             }
             _ = out_overflow.notified() => {
@@ -1720,9 +1464,6 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
             state
                 .rooms
                 .broadcast(&room, &ServerMessage::PeerLeft { peer_id: id }.to_json());
-            // Listener-pays (spec 0099): a departing Premium listener can flip the
-            // room back to Opus capture — re-push formats to the survivors.
-            notify_capture_formats(&state, &room);
         }
         LeaveOutcome::Superseded => {
             tracing::debug!(%room, %id, "stale connection superseded by reconnect; no PeerLeft");

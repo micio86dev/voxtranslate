@@ -13,6 +13,11 @@ use serde::{Deserialize, Serialize};
 pub struct Config {
     pub deepgram_key: String,
     pub groq_key: String,
+    /// Real-time translation model (Groq), env-driven via `GROQ_TRANSLATION_MODEL`.
+    /// Core pipeline setting that must work in guest mode too, so it lives here
+    /// rather than under the optional billing `AiConfig`. Latency-critical — keep
+    /// it a fast/cheap model.
+    pub translation_model: String,
     pub port: u16,
     /// Allowed CORS origins; empty means permissive (dev).
     pub allowed_origins: Vec<String>,
@@ -45,6 +50,10 @@ pub struct Config {
     /// pre-join selector) iff this is `Some`, so the feature ships dark until the
     /// key is configured.
     pub openai: Option<OpenAiConfig>,
+    /// Google Gemini 3.5 Live Translate "Premium" engine (spec 0100). Present only when
+    /// `GOOGLE_AI_API_KEY` is set — registered (and shown in the selector) iff this is
+    /// `Some`, so it ships dark until the key is configured.
+    pub google: Option<GeminiConfig>,
     /// Listener-pays rollout flag (spec 0099). OFF by default: the live model is
     /// speaker-pays (spec 0093). When `LISTENER_PAYS` is truthy, each participant
     /// receives — and is billed for — the engine quality THEY chose, and the core
@@ -70,6 +79,57 @@ pub struct OpenAiConfig {
     /// Hard cap on concurrent OpenAI realtime sessions across the process
     /// (`OPENAI_REALTIME_MAX_SESSIONS`) — backpressure for group rooms (spec 0093).
     pub max_sessions: usize,
+}
+
+/// Gemini Live Translate credentials + pricing (spec 0100). All-or-nothing like
+/// the OpenAI engine: activates only when `GOOGLE_AI_API_KEY` is present.
+#[derive(Debug, Clone)]
+pub struct GeminiConfig {
+    /// Server-only Google API key (passed in the Live API URL query string, NOT a
+    /// header); never sent to clients and never logged.
+    pub api_key: String,
+    /// Live Translate model id (`GEMINI_LIVE_TRANSLATE_MODEL`). Read from env because
+    /// the preview id changes at GA.
+    pub model: String,
+    /// Raw server cost per minute, USD (`GEMINI_COST_PER_MINUTE`). Used for the
+    /// engine's user rate (`cost × (1 + markup)`); the raw value is never serialized.
+    pub cost_per_minute: f64,
+    /// Markup as a FRACTION (0.5 = 50%). From `GEMINI_COST_MARKUP_PERCENT`, falling
+    /// back to `ENGINE_DEFAULT_MARKUP_PERCENT`, divided by 100.
+    pub markup: f64,
+    /// Hard cap on concurrent Gemini Live sessions across the process
+    /// (`GEMINI_LIVE_MAX_SESSIONS`). The preview tier limits concurrent sessions, so
+    /// keep this conservative — we hold one session per target language.
+    pub max_sessions: usize,
+}
+
+impl GeminiConfig {
+    fn from_env() -> Self {
+        // Markup is configured in PERCENT (e.g. 50); store it as a fraction. Prefer
+        // the engine-specific override, then the global engine default, then 50%.
+        let percent = env::var("GEMINI_COST_MARKUP_PERCENT")
+            .ok()
+            .and_then(|v| v.trim().parse::<f64>().ok())
+            .or_else(|| {
+                env::var("ENGINE_DEFAULT_MARKUP_PERCENT")
+                    .ok()
+                    .and_then(|v| v.trim().parse::<f64>().ok())
+            })
+            .unwrap_or(50.0);
+        Self {
+            api_key: env::var("GOOGLE_AI_API_KEY").unwrap_or_default(),
+            model: env::var("GEMINI_LIVE_TRANSLATE_MODEL")
+                .ok()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "gemini-3.5-live-translate-preview".into()),
+            // Planning figure from spec 0100; operators MUST confirm the real preview
+            // rate before launch (it sits below Premium, above Standard).
+            cost_per_minute: parse_or("GEMINI_COST_PER_MINUTE", 0.023f64),
+            markup: percent / 100.0,
+            max_sessions: parse_or("GEMINI_LIVE_MAX_SESSIONS", 16usize),
+        }
+    }
 }
 
 impl OpenAiConfig {
@@ -313,6 +373,10 @@ impl Config {
     pub fn from_env() -> Result<Self, String> {
         let deepgram_key = require("DEEPGRAM_API_KEY")?;
         let groq_key = require("GROQ_API_KEY")?;
+        let translation_model = env::var("GROQ_TRANSLATION_MODEL")
+            .ok()
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or_else(|| "openai/gpt-oss-20b".into());
         let port = parse_or("PORT", 3001u16);
         let allowed_origins = env::var("ALLOWED_ORIGINS")
             .ok()
@@ -361,9 +425,18 @@ impl Config {
             None
         };
 
+        // Pro translation engine — Gemini Live Translate (spec 0100): present-gated
+        // on the Google API key, same as Premium on the OpenAI key.
+        let google = if present("GOOGLE_AI_API_KEY") {
+            Some(GeminiConfig::from_env())
+        } else {
+            None
+        };
+
         Ok(Self {
             deepgram_key,
             groq_key,
+            translation_model,
             port,
             allowed_origins,
             auto_detect_buffer_ms: parse_or("AUTO_DETECT_BUFFER_MS", 3000u64),
@@ -381,6 +454,7 @@ impl Config {
                 .filter(|s| !s.is_empty())
                 .unwrap_or_else(|| "https://voxtranslate.app".into()),
             openai,
+            google,
             listener_pays: env_flag("LISTENER_PAYS"),
         })
     }
@@ -421,11 +495,11 @@ impl AiConfig {
             report_model: env::var("GROQ_REPORT_MODEL")
                 .ok()
                 .filter(|s| !s.trim().is_empty())
-                .unwrap_or_else(|| "llama-3.3-70b-versatile".into()),
+                .unwrap_or_else(|| "openai/gpt-oss-120b".into()),
             fallback_model: env::var("GROQ_FALLBACK_MODEL")
                 .ok()
                 .filter(|s| !s.trim().is_empty())
-                .unwrap_or_else(|| "llama-3.1-8b-instant".into()),
+                .unwrap_or_else(|| "openai/gpt-oss-20b".into()),
             report_base: parse_or("CREDITS_REPORT_BASE", 0.05f64),
             report_per_minute: parse_or("CREDITS_REPORT_PER_MINUTE", 0.002f64),
             sentiment_base: parse_or("CREDITS_SENTIMENT_BASE", 0.05f64),
@@ -447,8 +521,8 @@ impl AiConfig {
     #[doc(hidden)]
     pub fn test_default() -> Self {
         Self {
-            report_model: "llama-3.3-70b-versatile".into(),
-            fallback_model: "llama-3.1-8b-instant".into(),
+            report_model: "openai/gpt-oss-120b".into(),
+            fallback_model: "openai/gpt-oss-20b".into(),
             report_base: 0.05,
             report_per_minute: 0.002,
             sentiment_base: 0.05,
@@ -581,6 +655,7 @@ impl Config {
         Self {
             deepgram_key: "dummy".into(),
             groq_key: "dummy".into(),
+            translation_model: "openai/gpt-oss-20b".into(),
             port: 0,
             allowed_origins: vec![],
             auto_detect_buffer_ms: 3000,
@@ -615,6 +690,7 @@ impl Config {
             bug_report_to: "test@example.com".into(),
             app_base_url: "https://voxtranslate.app".into(),
             openai: None,
+            google: None,
             listener_pays: false,
         }
     }

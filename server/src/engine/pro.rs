@@ -1,17 +1,13 @@
-//! The **Premium** engine: Google Gemini 3.5 Live Translate (spec 0100).
+//! The **Pro** engine: OpenAI GPT-Realtime-Translate (spec 0093).
 //!
-//! End-to-end speech-to-speech (the top, "Premium" tier). For one speaker we open
-//! **one Gemini Live session per distinct target language** in the room (deduped,
-//! capped by a process-wide semaphore), resample the speaker's 24 kHz PCM16 down to
-//! the 16 kHz Gemini wants, fan it to every session, and map each session's
-//! transcript/audio back to room subtitles + translated audio.
-//!
-//! This shares the OpenAI **Pro** coordinator's shape ([`super::pro`]: capacity
-//! reservation, per-language reconnect loop, live target reconcile, the
-//! engine-agnostic `SessionReader` routing) driving a different upstream — by design
-//! (spec 0093) adding an engine reuses this machinery. The Gemini-specific protocol
-//! lives in [`super::gemini`]. Captions segment on Gemini's explicit `turnComplete`,
-//! with an idle debounce as a fallback.
+//! End-to-end speech-to-speech (the "Pro" tier). For one speaker we open **one OpenAI
+//! realtime session per distinct target language** in the room (deduped, capped by a
+//! process-wide semaphore), stream the speaker's PCM16 audio to all of them, and
+//! map each session's transcript deltas to room subtitles. Because OpenAI emits
+//! append-only deltas with no segment boundary, captions are segmented by an idle
+//! debounce. Translated **audio** deltas are forwarded to listeners. Its stable
+//! persisted id is the literal `"premium"` ([`super::OPENAI_ID`]) — a historical
+//! value from before the Pro/Premium label swap, kept so billing data stays valid.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -26,17 +22,17 @@ use tokio::time::{interval, sleep, Instant, MissedTickBehavior};
 use tokio_tungstenite::tungstenite::Message;
 use uuid::Uuid;
 
-use crate::config::GeminiConfig;
+use crate::config::OpenAiConfig;
 use crate::deepgram::SpeakerCtx;
 use crate::protocol::ServerMessage;
 use crate::rooms::RoomManager;
 use crate::transcripts::{EventKind, TranscriptEvent, TranscriptService};
 
-use super::gemini::{self, GemSink, GemSource, GeminiEvent};
 use super::metadata::{EngineCapabilities, EngineMetadata};
-use super::{reconcile_langs, SessionDeps, SessionOutcome, TranslationEngine, GEMINI_ID};
+use super::openai::{self, OaSink, OaSource, OpenAiEvent};
+use super::{reconcile_langs, SessionDeps, SessionOutcome, TranslationEngine, OPENAI_ID};
 
-/// Capacity of the speaker's bounded audio channel (mirrors the other engines).
+/// Capacity of the speaker's bounded audio channel (mirrors the Standard path).
 const AUDIO_CHANNEL_CAP: usize = 256;
 
 /// Per-session audio buffer. Each language session drains its own copy; if one
@@ -45,7 +41,8 @@ const AUDIO_CHANNEL_CAP: usize = 256;
 const PER_SESSION_AUDIO_CAP: usize = 128;
 
 /// Idle gap (ms) after which the accumulated transcript is flushed as a final
-/// caption — a fallback for when `turnComplete` is sparse (cf. premium's debounce).
+/// caption — OpenAI sends no segment/`done` boundary, so a pause delimits a
+/// sentence (cf. Deepgram's `utterance_end_ms`).
 const SEGMENT_IDLE_MS: u64 = 900;
 
 /// Reconnect backoff bounds (ms) and the cap on *consecutive* failed re-opens
@@ -54,45 +51,43 @@ const RECONNECT_BASE_MS: u64 = 500;
 const RECONNECT_MAX_MS: u64 = 8000;
 const MAX_OPEN_FAILURES: u32 = 6;
 
-/// How often a live session re-checks the room's target languages. Targets are
-/// fixed at the first `Start`, so a peer who joins (or whose `auto` language
-/// resolves) *after* the speaker began talking would never be translated for — a
-/// new language is added/removed within this interval instead. Cheap (a room-map
-/// read per active speaker); 1 s keeps a new joiner's wait short.
+/// How often a live session re-checks the room's target languages. Targets are fixed
+/// at the first `Start`, so a peer who joins (or whose `auto` language resolves)
+/// *after* the speaker began talking would never be translated for — a new language is
+/// added/removed within this interval instead. Cheap (a room-map read per active
+/// speaker); 1 s keeps a new joiner's wait short.
 const RECONCILE_MS: u64 = 1000;
 
-/// Why a single Gemini connection ended.
+/// Why a single OpenAI connection ended.
 enum ConnOutcome {
     /// The speaker stopped (audio channel closed) — the session is done.
     AudioClosed,
-    /// The connection dropped (or the server sent `goAway`) — reconnect with backoff.
+    /// The connection dropped unexpectedly — reconnect with backoff.
     Dropped,
 }
 
-/// Output languages exposed in the UI. Gemini auto-detects 70+ input languages and
-/// can translate into a large set; we surface the app's shipped UI languages for now
-/// (every engine must produce these for mixed-room safety — spec 0094 `commonLangs`).
-const PREMIUM_LANGS: &[&str] = &["it", "en", "es", "fr", "de", "pt", "ja", "zh"];
+/// Output languages exposed in the UI. OpenAI supports 13 output / 70+ input
+/// languages; we surface the app's shipped set for now (all within OpenAI's set).
+const PRO_LANGS: &[&str] = &["it", "en", "es", "fr", "de", "pt", "ja", "zh"];
 
-/// Google Gemini 3.5 Live Translate, behind the engine trait.
-pub struct PremiumEngine {
+/// OpenAI GPT-Realtime-Translate, behind the engine trait.
+pub struct ProEngine {
     meta: EngineMetadata,
-    config: GeminiConfig,
-    /// Process-wide cap on concurrent Gemini sessions (group-room backpressure;
-    /// the preview tier limits concurrent sessions, so keep this conservative).
+    config: OpenAiConfig,
+    /// Process-wide cap on concurrent OpenAI sessions (group-room backpressure).
     sessions: Arc<Semaphore>,
 }
 
-impl PremiumEngine {
-    pub fn new(config: &GeminiConfig) -> Self {
-        let langs: Vec<String> = PREMIUM_LANGS.iter().map(|s| s.to_string()).collect();
+impl ProEngine {
+    pub fn new(config: &OpenAiConfig) -> Self {
+        let langs: Vec<String> = PRO_LANGS.iter().map(|s| s.to_string()).collect();
         let meta = EngineMetadata {
-            id: GEMINI_ID.to_string(),
-            display_name: "Premium".to_string(),
-            tier: "premium".to_string(),
-            description: "Natural speech-to-speech translation by Google Gemini 3.5 \
-                          Live — auto-detects 70+ spoken languages and returns a \
-                          translated voice with matching subtitles."
+            id: OPENAI_ID.to_string(),
+            display_name: "Pro".to_string(),
+            tier: "pro".to_string(),
+            description: "Natural speech-to-speech translation by OpenAI \
+                          GPT-Realtime-Translate — translated voice and matching \
+                          subtitles generated together."
                 .to_string(),
             cost_per_minute: config.cost_per_minute,
             markup: config.markup,
@@ -113,33 +108,34 @@ impl PremiumEngine {
 }
 
 #[async_trait]
-impl TranslationEngine for PremiumEngine {
+impl TranslationEngine for ProEngine {
     fn metadata(&self) -> &EngineMetadata {
         &self.meta
     }
 
     async fn start_session(&self, ctx: SpeakerCtx, deps: SessionDeps) -> SessionOutcome {
         // INITIAL target languages = distinct OTHER languages in the room, excluding
-        // the speaker's own (Gemini auto-detects the source; translating into it is a
-        // no-op). `run_session` then reconciles these live against room membership, so a
-        // peer who joins (or whose `auto` resolves) after Start is picked up too.
+        // the speaker's own (translating to the source language is a no-op).
+        // `run_session` then reconciles these live against room membership, so a peer
+        // who joins (or whose `auto` resolves) after Start is picked up too.
         let mut targets = deps.rooms.get_room_languages(&ctx.room, &ctx.speaker_id);
         targets.retain(|l| l != &ctx.speaker_lang);
         tracing::info!(
             speaker = %ctx.speaker_id,
             source = %ctx.speaker_lang,
             ?targets,
-            "premium: start_session"
+            "pro: start_session"
         );
 
         let (audio_tx, audio_rx) = mpsc::channel::<Vec<u8>>(AUDIO_CHANNEL_CAP);
 
         // Reserve one upstream-session permit per INITIAL target language —
-        // all-or-nothing and WITHOUT blocking (spec 0094). If we can't get them all the
-        // engine is at capacity, so the caller falls back to Standard rather than
-        // queueing the speaker silently. Dropping `initial` on the early return releases
-        // any taken. Empty targets (alone / all same language) reserve nothing — zero
-        // cost — but we still spawn the session so it picks up later joiners by reconcile.
+        // all-or-nothing and WITHOUT blocking (spec 0094). If we can't get them all
+        // right now the engine is at capacity, so the caller falls back to Standard
+        // rather than queueing the speaker silently. Dropping `initial` on the early
+        // return releases any we already took. Empty targets (alone / all same
+        // language) reserve nothing — zero cost — but we still spawn the session so it
+        // picks up later joiners by reconcile.
         let mut initial = Vec::with_capacity(targets.len());
         for lang in targets {
             match self.sessions.clone().try_acquire_owned() {
@@ -160,22 +156,22 @@ impl TranslationEngine for PremiumEngine {
     }
 }
 
-/// Coordinator for one speaker: keep one reconnecting task per *currently-present*
-/// target language, resample the captured 24 kHz audio to 16 kHz once, and fan it to
-/// all of them — while **reconciling** the language set against live room membership
-/// so a late joiner (or a now-resolved `auto` language) starts being translated for
-/// without restarting the existing sessions. `initial` carries the targets known at
-/// `Start` (each with a pre-acquired permit); it may be empty.
+/// Coordinator for one speaker: keep one self-contained, reconnecting task per
+/// *currently-present* target language and fan the speaker's captured PCM16 to all of
+/// them — while **reconciling** the language set against live room membership so a late
+/// joiner (or a now-resolved `auto` language) starts being translated for without
+/// restarting the existing sessions. `initial` carries the targets known at `Start`
+/// (each with a pre-acquired permit); it may be empty.
 async fn run_session(
-    config: GeminiConfig,
+    config: OpenAiConfig,
     ctx: SpeakerCtx,
     deps: SessionDeps,
     sessions: Arc<Semaphore>,
     initial: Vec<(String, OwnedSemaphorePermit)>,
     mut audio_rx: mpsc::Receiver<Vec<u8>>,
 ) {
-    // lang → its audio feed. A language session self-exits (flush, close the Gemini
-    // stream, release its permit) when its feed sender is dropped, so removing a
+    // lang → its audio feed. A language session self-exits (flush, close the OpenAI
+    // session, release its permit) when its feed sender is dropped, so removing a
     // language is just a map removal. `primary` names the one session that echoes the
     // speaker's own words back to them, so the echo isn't duplicated across languages.
     let mut active: HashMap<String, mpsc::Sender<Vec<u8>>> = HashMap::new();
@@ -198,22 +194,16 @@ async fn run_session(
     loop {
         tokio::select! {
             chunk = audio_rx.recv() => match chunk {
+                // Fan each captured PCM16 chunk to every session. `try_send` so one
+                // stalled / reconnecting session never blocks the others (its buffer
+                // just drops).
                 Some(chunk) => {
-                    // Resample to 16 kHz ONCE (every session needs the same rate), then
-                    // fan out. `try_send` so one stalled/reconnecting session never blocks
-                    // the others (its buffer just drops). 100 ms @ 24 kHz → exactly 1600
-                    // samples @ 16 kHz, so chunk boundaries stay sample-aligned.
-                    let chunk16 = gemini::resample_pcm16_mono(
-                        &chunk,
-                        gemini::CAPTURE_HZ,
-                        gemini::GEMINI_INPUT_HZ,
-                    );
                     for feed in active.values() {
-                        let _ = feed.try_send(chunk16.clone());
+                        let _ = feed.try_send(chunk.clone());
                     }
                 }
                 // Speaker stopped: dropping `active` closes every feed → each task
-                // flushes, ends its Gemini stream, releases its permit, and exits.
+                // flushes, closes its OpenAI session, releases its permit, and exits.
                 None => return,
             },
             _ = reconcile.tick() => {
@@ -249,7 +239,7 @@ async fn run_session(
 /// feed in `active`, and make it `primary` (the session that echoes the speaker's own
 /// words) when no active session currently is.
 fn spawn_lang_session(
-    config: &GeminiConfig,
+    config: &OpenAiConfig,
     deps: &SessionDeps,
     ctx: &SpeakerCtx,
     lang: String,
@@ -278,32 +268,32 @@ fn spawn_lang_session(
     active.insert(lang, feed_tx);
 }
 
-/// One target language: keep a Gemini session alive across transient drops,
+/// One target language: keep an OpenAI session alive across transient drops,
 /// reconnecting with capped exponential backoff. Exits when the speaker stops or
 /// after too many consecutive failed re-opens.
 async fn session_task(
-    config: GeminiConfig,
+    config: OpenAiConfig,
     reader: SessionReader,
     mut feed_rx: mpsc::Receiver<Vec<u8>>,
     _permit: OwnedSemaphorePermit,
 ) {
     let mut failures: u32 = 0;
     loop {
-        match gemini::open_session(&config, &reader.lang).await {
+        match openai::open_session(&config, &reader.lang).await {
             Ok((sink, source)) => {
                 failures = 0; // a successful connect resets the failure budget
                 match run_connection(sink, source, &mut feed_rx, &reader).await {
                     ConnOutcome::AudioClosed => return,
                     ConnOutcome::Dropped => {
-                        tracing::warn!(lang = %reader.lang, "gemini session dropped — reconnecting");
+                        tracing::warn!(lang = %reader.lang, "openai session dropped — reconnecting");
                     }
                 }
             }
             Err(e) => {
                 failures += 1;
-                tracing::warn!(lang = %reader.lang, failures, "gemini open failed: {e}");
+                tracing::warn!(lang = %reader.lang, failures, "openai open failed: {e}");
                 if failures >= MAX_OPEN_FAILURES {
-                    tracing::error!(lang = %reader.lang, "gemini session giving up");
+                    tracing::error!(lang = %reader.lang, "openai session giving up");
                     return;
                 }
             }
@@ -319,12 +309,12 @@ async fn session_task(
     }
 }
 
-/// Drive one live Gemini connection: forward (already-16 kHz) audio, map transcript/
-/// audio events to subtitles, and segment captions on `turnComplete` (idle debounce
-/// as a fallback). Returns how it ended so the caller can reconnect or finish.
+/// Drive one live OpenAI connection: forward audio, map transcript/audio deltas to
+/// subtitles, and segment captions by idle debounce. Returns how it ended so the
+/// caller can reconnect or finish.
 async fn run_connection(
-    mut sink: GemSink,
-    mut source: GemSource,
+    mut sink: OaSink,
+    mut source: OaSource,
     feed_rx: &mut mpsc::Receiver<Vec<u8>>,
     reader: &SessionReader,
 ) -> ConnOutcome {
@@ -339,86 +329,63 @@ async fn run_connection(
         tokio::select! {
             chunk = feed_rx.recv() => match chunk {
                 Some(c) => {
-                    let _ = sink.send(Message::text(gemini::audio_input_json(&c))).await;
+                    let _ = sink.send(Message::text(openai::audio_append_json(&c))).await;
                 }
                 None => {
-                    // Speaker stopped: flush, signal end-of-audio, close, finish.
+                    // Speaker stopped: flush, ask the server to close, finish.
                     if dirty {
                         reader.flush_final(&original, &translated);
                     }
-                    let _ = sink.send(Message::text(gemini::audio_stream_end_json())).await;
+                    let _ = sink.send(Message::text(openai::session_close_json())).await;
                     let _ = sink.close().await;
                     return ConnOutcome::AudioClosed;
                 }
             },
             msg = source.next() => {
-                // Gemini Live sends EVERY server frame as BINARY (UTF-8 JSON) — including
-                // setupComplete, transcripts, and the translated audio. Handling only
-                // Text would silently drop all output (no voice, no subtitles), so decode
-                // Binary too.
                 let text = match msg {
-                    Some(Ok(Message::Text(t))) => t.to_string(),
-                    Some(Ok(Message::Binary(b))) => match std::str::from_utf8(&b) {
-                        Ok(s) => s.to_string(),
-                        Err(_) => continue,
-                    },
+                    Some(Ok(Message::Text(t))) => t,
                     Some(Ok(Message::Close(_))) | None => {
                         if dirty { reader.flush_final(&original, &translated); }
                         return ConnOutcome::Dropped;
                     }
-                    Some(Ok(_)) => continue, // ping/pong
+                    Some(Ok(_)) => continue, // ping/pong/binary
                     Some(Err(e)) => {
-                        tracing::warn!("gemini stream error: {e}");
+                        tracing::warn!("openai stream error: {e}");
                         if dirty { reader.flush_final(&original, &translated); }
                         return ConnOutcome::Dropped;
                     }
                 };
-                for event in gemini::parse_server_message(&text) {
-                    match event {
-                        GeminiEvent::SetupComplete => {
-                            tracing::debug!(lang = %reader.lang, "gemini: setup complete");
+                match openai::parse_openai_event(text.as_str()) {
+                    OpenAiEvent::InputTranscriptDelta(d) => {
+                        original.push_str(&d);
+                        dirty = true;
+                        if reader.is_primary {
+                            reader.emit_interim_to_speaker(&original);
                         }
-                        GeminiEvent::InputTranscript(d) => {
-                            original.push_str(&d);
-                            dirty = true;
-                            if reader.is_primary {
-                                reader.emit_interim_to_speaker(&original);
-                            }
-                            idle.as_mut().reset(Instant::now() + Duration::from_millis(SEGMENT_IDLE_MS));
-                        }
-                        GeminiEvent::OutputTranscript(d) => {
-                            translated.push_str(&d);
-                            dirty = true;
-                            reader.emit_interim_to_lang(&translated);
-                            idle.as_mut().reset(Instant::now() + Duration::from_millis(SEGMENT_IDLE_MS));
-                        }
-                        GeminiEvent::OutputAudio(pcm) => {
-                            reader.emit_audio(audio_seq, &pcm);
-                            audio_seq += 1;
-                        }
-                        // An explicit turn boundary: finalize the segment now.
-                        GeminiEvent::TurnComplete => {
-                            if dirty {
-                                reader.flush_final(&original, &translated);
-                                original.clear();
-                                translated.clear();
-                                dirty = false;
-                            }
-                            idle.as_mut().reset(Instant::now() + Duration::from_secs(3600));
-                        }
-                        // The server is about to disconnect — flush and reconnect
-                        // proactively rather than losing the tail to a hard cut.
-                        GeminiEvent::GoAway => {
-                            if dirty { reader.flush_final(&original, &translated); }
-                            let _ = sink.close().await;
-                            return ConnOutcome::Dropped;
-                        }
-                        // Errors are logged; if they're fatal the socket closes next
-                        // and we reconnect via the Close/None arm above.
-                        GeminiEvent::Error(e) => {
-                            tracing::warn!(lang = %reader.lang, "gemini session error: {e}");
-                        }
+                        idle.as_mut().reset(Instant::now() + Duration::from_millis(SEGMENT_IDLE_MS));
                     }
+                    OpenAiEvent::OutputTranscriptDelta(d) => {
+                        translated.push_str(&d);
+                        dirty = true;
+                        reader.emit_interim_to_lang(&translated);
+                        idle.as_mut().reset(Instant::now() + Duration::from_millis(SEGMENT_IDLE_MS));
+                    }
+                    OpenAiEvent::OutputAudioDelta(pcm) => {
+                        reader.emit_audio(audio_seq, &pcm);
+                        audio_seq += 1;
+                    }
+                    // A `closed` we didn't initiate (our own close path returns
+                    // above without reading it) is an unexpected drop → reconnect.
+                    OpenAiEvent::Closed => {
+                        if dirty { reader.flush_final(&original, &translated); }
+                        return ConnOutcome::Dropped;
+                    }
+                    // Errors are documented as recoverable (the session stays open),
+                    // so log and keep going rather than tearing down.
+                    OpenAiEvent::Error(e) => {
+                        tracing::warn!(lang = %reader.lang, "openai session error: {e}");
+                    }
+                    OpenAiEvent::Other => {}
                 }
             }
             _ = &mut idle => {
@@ -435,7 +402,6 @@ async fn run_connection(
 }
 
 /// Emit context for one language session — turns transcript/audio into subtitles.
-/// Routing is engine-agnostic (same broadcast surface the Premium engine uses).
 struct SessionReader {
     lang: String,
     is_primary: bool,
@@ -465,9 +431,9 @@ impl SessionReader {
         );
     }
 
-    /// Forward one translated-audio chunk (PCM16 @ 24 kHz) to the listeners of this
-    /// language. The PCM was base64-decoded on parse (validating it); re-encode for
-    /// the JSON frame the client plays via its AudioWorklet.
+    /// Forward one translated-audio chunk to the listeners of this language. The
+    /// PCM was base64-decoded on parse (validating it); re-encode for the JSON
+    /// frame the client plays via its AudioWorklet.
     fn emit_audio(&self, seq: u64, pcm16: &[u8]) {
         let b64 = base64::engine::general_purpose::STANDARD.encode(pcm16);
         self.rooms.broadcast_to_lang(
@@ -498,9 +464,10 @@ impl SessionReader {
         );
     }
 
-    /// Finalize a segment: record it (once) and broadcast a `subtitle_final` to the
-    /// listeners of this language. Each language's listeners get their own targeted
-    /// message — so a listener never sees text that differs from the audio they hear.
+    /// Finalize a segment: record it (once) and broadcast a `subtitle_final` to
+    /// the listeners of this language. The translations map carries this one
+    /// language; each language's listeners get their own targeted message — so a
+    /// listener never sees text that differs from the audio they hear.
     fn flush_final(&self, original: &str, translated: &str) {
         if translated.trim().is_empty() && original.trim().is_empty() {
             return;
@@ -541,11 +508,11 @@ mod tests {
     use crate::moderation::Moderator;
     use crate::rooms::{Peer, PeerTx, RoomManager, Visibility};
 
-    fn cfg(max_sessions: usize) -> GeminiConfig {
-        GeminiConfig {
+    fn cfg(max_sessions: usize) -> OpenAiConfig {
+        OpenAiConfig {
             api_key: "k".into(),
-            model: "gemini-3.5-live-translate-preview".into(),
-            cost_per_minute: 0.023,
+            model: "gpt-realtime-translate".into(),
+            cost_per_minute: 0.04,
             markup: 0.5,
             max_sessions,
         }
@@ -590,25 +557,11 @@ mod tests {
         }
     }
 
-    #[test]
-    fn metadata_labels_gemini_as_premium() {
-        let engine = PremiumEngine::new(&cfg(4));
-        let m = engine.metadata();
-        assert_eq!(m.id, GEMINI_ID); // stable id unchanged
-        assert_eq!(m.display_name, "Premium");
-        assert_eq!(m.tier, "premium");
-        // Speech-to-speech, per-language billing — like Premium.
-        assert!(m.capabilities.translated_audio);
-        assert!(m.capabilities.cost_scales_per_language);
-        // User rate = cost × (1 + markup) = 0.023 × 1.5.
-        assert!((m.user_rate_per_minute() - 0.0345).abs() < 1e-9);
-    }
-
     #[tokio::test]
     async fn at_capacity_returns_atcapacity() {
         // One permit, already taken → no free upstream session for the one target
         // language, so the caller is told to fall back to Standard (spec 0094).
-        let engine = PremiumEngine::new(&cfg(1));
+        let engine = ProEngine::new(&cfg(1));
         let _held = engine.sessions.clone().acquire_owned().await.unwrap();
 
         let rm = RoomManager::new();
@@ -625,7 +578,7 @@ mod tests {
     async fn no_targets_returns_started() {
         // Speaker alone → nothing to translate → Started (no permit, no upstream
         // session, no cost), so the call flows normally.
-        let engine = PremiumEngine::new(&cfg(4));
+        let engine = ProEngine::new(&cfg(4));
         let rm = RoomManager::new();
         join_peer(&rm, "r", "spk", "it");
 

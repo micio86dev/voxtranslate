@@ -26,6 +26,7 @@ fn make_state() -> (AppState, bool) {
             AppState::new(Config {
                 deepgram_key: "dummy".into(),
                 groq_key: "dummy".into(),
+                translation_model: "openai/gpt-oss-20b".into(),
                 port: 0,
                 allowed_origins: vec![],
                 auto_detect_buffer_ms: 3000,
@@ -36,6 +37,7 @@ fn make_state() -> (AppState, bool) {
                 bug_report_to: "test@example.com".into(),
                 app_base_url: "https://voxtranslate.app".into(),
                 openai: None,
+                google: None,
                 listener_pays: false,
             }),
             false,
@@ -366,6 +368,7 @@ async fn deepgram_unavailable_sends_error() {
     let state = AppState::new(Config {
         deepgram_key: "bad-deepgram-key".into(),
         groq_key: groq,
+        translation_model: "openai/gpt-oss-20b".into(),
         port: 0,
         allowed_origins: vec![],
         auto_detect_buffer_ms: 3000,
@@ -376,6 +379,7 @@ async fn deepgram_unavailable_sends_error() {
         bug_report_to: "test@example.com".into(),
         app_base_url: "https://voxtranslate.app".into(),
         openai: None,
+        google: None,
         listener_pays: false,
     });
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -429,6 +433,7 @@ fn guest_config() -> Config {
     Config {
         deepgram_key: "dummy".into(),
         groq_key: "dummy".into(),
+        translation_model: "openai/gpt-oss-20b".into(),
         port: 0,
         allowed_origins: vec![],
         auto_detect_buffer_ms: 3000,
@@ -439,6 +444,7 @@ fn guest_config() -> Config {
         bug_report_to: "test@example.com".into(),
         app_base_url: "https://voxtranslate.app".into(),
         openai: None,
+        google: None,
         listener_pays: false,
     }
 }

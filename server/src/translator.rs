@@ -114,7 +114,7 @@ mod tests {
 
     #[tokio::test]
     async fn fanout_includes_source_and_skips_same_lang() {
-        let tr = Translator::new(Groq::new("dummy-key".into()));
+        let tr = Translator::new(Groq::new("dummy-key".into(), "openai/gpt-oss-20b".into()));
         // No targets -> just the source text, no network call.
         let m = tr.translate_fanout("ciao", "it", &[], None).await;
         assert_eq!(m.get("it").map(String::as_str), Some("ciao"));
@@ -128,26 +128,31 @@ mod tests {
 
     #[tokio::test]
     async fn new_uses_default_concurrency_cap() {
-        let tr = Translator::new(Groq::new("dummy-key".into()));
+        let tr = Translator::new(Groq::new("dummy-key".into(), "openai/gpt-oss-20b".into()));
         assert_eq!(tr.max_inflight(), DEFAULT_MAX_INFLIGHT);
         assert_eq!(tr.sem.available_permits(), DEFAULT_MAX_INFLIGHT);
     }
 
     #[tokio::test]
     async fn with_max_inflight_caps_and_floors_to_one() {
-        let tr = Translator::with_max_inflight(Groq::new("k".into()), 4);
+        let tr =
+            Translator::with_max_inflight(Groq::new("k".into(), "openai/gpt-oss-20b".into()), 4);
         assert_eq!(tr.max_inflight(), 4);
         assert_eq!(tr.sem.available_permits(), 4);
 
         // A misconfigured 0 is floored to 1 so the pipeline still makes progress.
-        let floored = Translator::with_max_inflight(Groq::new("k".into()), 0);
+        let floored =
+            Translator::with_max_inflight(Groq::new("k".into(), "openai/gpt-oss-20b".into()), 0);
         assert_eq!(floored.max_inflight(), 1);
         assert_eq!(floored.sem.available_permits(), 1);
     }
 
     #[tokio::test]
     async fn fanout_parks_on_admission_semaphore_when_full() {
-        let tr = Translator::with_max_inflight(Groq::new("dummy-key".into()), 1);
+        let tr = Translator::with_max_inflight(
+            Groq::new("dummy-key".into(), "openai/gpt-oss-20b".into()),
+            1,
+        );
         // Drain the only permit so any fan-out must wait for admission.
         let _held = tr.sem.clone().acquire_owned().await.unwrap();
         assert_eq!(tr.sem.available_permits(), 0);
