@@ -110,32 +110,3 @@ export function engineDescKey(tier: string): string | null {
   if (tier === 'premium') return 'engineDescPremium';
   return null;
 }
-
-/** How an engine is PRESENTED in the selector — label, description key, and sort
- *  order — keyed by the (stable) backend engine **id**, so the UI labels can differ
- *  from the backend's `tier`/`display_name` without any backend change. Product
- *  decision: the OpenAI engine (`premium`) shows as **Pro**, the Gemini engine
- *  (`gemini_live_translate`) shows as **Premium**, and Premium sorts ABOVE Pro
- *  (`order` ascending = higher in the list). Unknown engines fall back to the
- *  server's own `display_name` / tier description. */
-export interface EngineTierUi {
-  label: string;
-  descKey: string | null;
-  order: number;
-}
-
-const TIER_UI: Record<string, EngineTierUi> = {
-  standard: { label: 'Standard', descKey: 'engineDescStandard', order: 0 },
-  gemini_live_translate: { label: 'Premium', descKey: 'engineDescPremium', order: 1 },
-  premium: { label: 'Pro', descKey: 'engineDescPro', order: 2 },
-};
-
-export function engineTierUi(engine: EngineInfo): EngineTierUi {
-  return (
-    TIER_UI[engine.id] ?? {
-      label: engine.display_name,
-      descKey: engineDescKey(engine.tier),
-      order: 99,
-    }
-  );
-}

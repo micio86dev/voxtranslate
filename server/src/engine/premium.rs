@@ -74,8 +74,8 @@ impl PremiumEngine {
         let langs: Vec<String> = PREMIUM_LANGS.iter().map(|s| s.to_string()).collect();
         let meta = EngineMetadata {
             id: PREMIUM_ID.to_string(),
-            display_name: "Premium".to_string(),
-            tier: "premium".to_string(),
+            display_name: "Pro".to_string(),
+            tier: "pro".to_string(),
             description: "Natural speech-to-speech translation by OpenAI \
                           GPT-Realtime-Translate — translated voice and matching \
                           subtitles generated together."

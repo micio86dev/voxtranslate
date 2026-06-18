@@ -5,7 +5,7 @@ import { applyI18n, detectLang, ENDONYM, FLAG, getUiLang, setUiLang, SUPPORTED, 
 import {
   type EngineInfo,
   commonLangs,
-  engineTierUi,
+  engineDescKey,
   formatRate,
   loadEnginePref,
   resolveEnginePref,
@@ -421,11 +421,7 @@ function renderEngineSelector(): void {
     return;
   }
   engineOptions.replaceChildren();
-  // UI tier labels (OpenAI→Pro, Gemini→Premium), Premium sorted above Pro — decoupled
-  // from the backend's tier/order (see engineTierUi). Selection/billing stay id-based.
-  const ordered = [...availableEngines].sort((a, b) => engineTierUi(a).order - engineTierUi(b).order);
-  for (const e of ordered) {
-    const ui = engineTierUi(e);
+  for (const e of availableEngines) {
     const active = e.id === selectedEngine;
     const btn = document.createElement('button');
     btn.type = 'button';
@@ -437,16 +433,17 @@ function renderEngineSelector(): void {
     head.className = 'engine-opt-head';
     const name = document.createElement('span');
     name.className = 'engine-opt-name';
-    name.textContent = ui.label;
+    name.textContent = e.display_name;
     const rate = document.createElement('span');
     rate.className = 'engine-opt-rate';
     rate.textContent = formatRate(e.rate_per_minute);
     head.append(name, rate);
     const desc = document.createElement('span');
     desc.className = 'engine-opt-desc';
-    // Localized, jargon-free copy; fall back to the server string for an unknown
-    // engine (#236).
-    desc.textContent = ui.descKey ? t(ui.descKey) : e.description;
+    // Localized, jargon-free copy keyed by tier; fall back to the server string for
+    // an unknown/future engine (#236).
+    const descKey = engineDescKey(e.tier);
+    desc.textContent = descKey ? t(descKey) : e.description;
     btn.append(head, desc);
     // Transparency (spec 0093): when the rate is per translation stream, say so —
     // a group call with more languages costs more.

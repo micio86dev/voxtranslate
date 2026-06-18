@@ -11,14 +11,14 @@ use uuid::Uuid;
 
 use crate::db::Pool;
 
-/// The `plan` analytics dimension from an engine tier. Anything that isn't
-/// `"premium"` is treated as `"standard"` (the default engine), matching the
-/// `plan IN ('standard','premium')` CHECK on `session_usage_events`.
+/// The `plan` analytics dimension from an engine tier. Both PAID tiers (`"pro"` and
+/// `"premium"`) map to `"premium"`; everything else (the default Standard engine) maps to
+/// `"standard"` — matching the `plan IN ('standard','premium')` CHECK on
+/// `session_usage_events`.
 pub fn plan_for_tier(tier: &str) -> &'static str {
-    if tier == "premium" {
-        "premium"
-    } else {
-        "standard"
+    match tier {
+        "premium" | "pro" => "premium",
+        _ => "standard",
     }
 }
 
@@ -174,8 +174,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn plan_for_tier_maps_premium_else_standard() {
+    fn plan_for_tier_maps_paid_tiers_to_premium_else_standard() {
         assert_eq!(plan_for_tier("premium"), "premium");
+        assert_eq!(plan_for_tier("pro"), "premium"); // Pro (OpenAI) is a paid tier too
         assert_eq!(plan_for_tier("standard"), "standard");
         assert_eq!(plan_for_tier("unknown-future-tier"), "standard");
         assert_eq!(plan_for_tier(""), "standard");
