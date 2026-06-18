@@ -73,6 +73,9 @@ let token: string | null = store().getItem(TOKEN_KEY);
 let user: User | null = parseUser(store().getItem(USER_KEY));
 let billing: boolean | null = null;
 let googleClientId = '';
+// Listener-pays mode (spec 0099): set from `/api/auth/config`. Drives the picker
+// cost copy ("quality you RECEIVE" vs "per translation language").
+let listenerPays = false;
 
 function parseUser(raw: string | null): User | null {
   if (!raw) return null;
@@ -159,8 +162,9 @@ export async function billingEnabled(): Promise<boolean> {
   try {
     const res = await fetch(`${HTTP_BASE}/api/auth/config`, { cache: 'no-store' });
     if (res.ok) {
-      const cfg = (await res.json()) as { google_client_id?: string };
+      const cfg = (await res.json()) as { google_client_id?: string; listener_pays?: boolean };
       googleClientId = cfg.google_client_id || '';
+      listenerPays = !!cfg.listener_pays;
       billing = true;
     } else {
       billing = false;
@@ -174,6 +178,12 @@ export async function billingEnabled(): Promise<boolean> {
 /** The Google OAuth client id (available after `billingEnabled()` resolves). */
 export function getGoogleClientId(): string {
   return googleClientId;
+}
+
+/** Whether the backend runs in listener-pays mode (spec 0099) — set once
+ *  `billingEnabled()` has resolved. Drives the engine-cost copy. */
+export function isListenerPays(): boolean {
+  return listenerPays;
 }
 
 /** Exchange a Google credential for a session; stores token + user on success.

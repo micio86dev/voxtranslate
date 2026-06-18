@@ -332,9 +332,13 @@ pub async fn auth_google(
 /// the client also uses this as its "is billing enabled?" probe.
 pub async fn auth_config(State(state): State<AppState>) -> Response {
     match state.config.billing.as_ref() {
-        Some(b) => {
-            Json(serde_json::json!({ "google_client_id": b.google_client_id })).into_response()
-        }
+        Some(b) => Json(serde_json::json!({
+            "google_client_id": b.google_client_id,
+            // Listener-pays mode (spec 0099): the client reframes the engine-cost copy
+            // to "the quality you RECEIVE" instead of "per translation language".
+            "listener_pays": state.config.listener_pays,
+        }))
+        .into_response(),
         None => service_unavailable(),
     }
 }
