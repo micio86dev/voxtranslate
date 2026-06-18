@@ -1969,8 +1969,8 @@ btnMore.addEventListener('click', (e) => {
   setMoreOpen(moreMenu.classList.contains('hidden'));
 });
 // Unified close behavior (#226): clicking ANY action in the ⋯ menu keeps it open
-// for ~1s — long enough to SEE the result (a toggle's dot flipping, a panel
-// opening) — then auto-closes. Consistent across toggles (tts/hand/share) and
+// briefly (~0.25s) — long enough to glimpse the result (a toggle's dot flipping, a
+// panel opening) — then auto-closes. Consistent across toggles (tts/hand/share) and
 // one-shot actions (timer/invite/label); rapid repeat clicks reset the timer.
 // (Supersedes spec 0036's "stay open until dismissed" so the behavior is
 // predictable across every action.)
@@ -1978,7 +1978,7 @@ moreMenu.addEventListener('click', (e) => {
   const btn = (e.target as HTMLElement).closest('.control-btn');
   if (!btn || !moreMenu.contains(btn)) return;
   clearTimeout(moreCloseTimer);
-  moreCloseTimer = window.setTimeout(() => setMoreOpen(false), 1000);
+  moreCloseTimer = window.setTimeout(() => setMoreOpen(false), 250);
 });
 document.addEventListener('click', (e) => {
   if (!moreMenu.classList.contains('hidden') && !moreMenu.contains(e.target as Node)) setMoreOpen(false);
@@ -2241,6 +2241,18 @@ btnPip.addEventListener('click', () => {
       const pipGrid = w.document.createElement('div');
       pipGrid.className = 'video-grid';
       pipStage.appendChild(pipGrid);
+      // Carry Astro's component scope attribute(s) onto the fresh PiP stage + grid. The
+      // .video-cell background and the video sizing (object-fit / width / height / display)
+      // are scoped UNDER .video-stage / .video-grid (index.astro: "target them with
+      // :global() under .video-grid"), so without the cid the cloned tiles get no sizing
+      // and the feeds never fill — a grey stage with no video. (#246 regressed this by
+      // building a bare grid instead of cloning the scoped stage.)
+      const carryScope = (from: Element | null, to: HTMLElement): void => {
+        for (const a of from?.getAttributeNames() ?? [])
+          if (a.startsWith('data-astro-cid')) to.setAttribute(a, from?.getAttribute(a) ?? '');
+      };
+      carryScope(document.querySelector('.video-stage'), pipStage);
+      carryScope(videoGrid, pipGrid);
       w.document.body.appendChild(pipStage);
       syncPip();
       // Keep the PiP grid in lock-step with the live call: a peer leaving removes its
@@ -3874,6 +3886,9 @@ btnTimer.addEventListener('click', (e) => {
   if (timerPop.classList.contains('hidden')) setMoreOpen(false); // collapse the ⋯ menu first
   toggleTimerPop();
 });
+// Explicit close X (top-right), matching every other modal's close affordance.
+$('timer-pop-close').innerHTML = icon('close', 14);
+$('timer-pop-close').addEventListener('click', () => toggleTimerPop(false));
 // Close the popover on an outside click or Escape (mirrors the ⋯ menu).
 document.addEventListener('click', (e) => {
   if (
