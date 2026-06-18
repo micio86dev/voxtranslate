@@ -1669,15 +1669,21 @@ const jsonLd = {
     .video-grid :global(.video-cell:focus-within) { z-index: 9; }
     .video-grid :global(.video-cell:hover .cell-actions),
     .video-grid :global(.video-cell:focus-within .cell-actions) { opacity: 1; }
-    /* Touch devices have no :hover, so the report/block buttons can neither be
-       revealed nor lift their cell above the participant badge (z8) — leaving
-       them hidden UNDER the top-right counter and untappable (#228). On a coarse
-       pointer, show them and raise every cell above the badge so they're always
-       reachable and clear of the counter. The badge stays pointer-events:none so
-       even an exact overlap passes the tap through to the button beneath. */
+    /* Touch devices have no :hover, so the report/block buttons can't be revealed on
+       demand — show them permanently. But put them at the cell's BOTTOM-right, NOT the
+       top: the top strip is reserved for the global on-video overlays (room/identity
+       meta top-left, participant counter top-right). The old fix lifted every cell to
+       z9 so its top-right buttons cleared the counter — but that also painted the cells
+       OVER those z8 overlays, so on mobile the whole meta cluster + counter vanished
+       behind the video. Bottom-right keeps the buttons clear of the counter WITHOUT
+       lifting the cell, so the global overlays stay visible (the reason this is mobile-
+       only: desktop never lifts the cell except transiently on :hover). */
     @media (hover: none) {
-      .video-grid :global(.video-cell) { z-index: 9; }
-      .video-grid :global(.cell-actions) { opacity: 1; }
+      .video-grid :global(.cell-actions) { opacity: 1; top: auto; bottom: 8px; }
+      /* Focus/speaker view: the main cell fills the stage and the thumbnails run up its
+         bottom-RIGHT edge as a column, so move the main cell's buttons to the bottom-LEFT
+         (just above its name overlay) to stay clear of them. */
+      .video-grid[data-mode="focus"] :global(.video-cell.main-cell .cell-actions) { right: auto; left: 8px; bottom: 44px; }
     }
     .video-grid :global(.cell-action) { width: 30px; height: 30px; border-radius: 50%; border: none; background: rgba(0,0,0,0.55); color: #fff; display: grid; place-items: center; cursor: pointer; backdrop-filter: blur(4px); }
     .video-grid :global(.cell-action:hover) { background: var(--danger); }
@@ -1785,8 +1791,12 @@ const jsonLd = {
       display: block; position: absolute; inset: 0; z-index: 1;
     }
     .video-grid[data-mode="focus"] :global(.video-cell.video-thumb) {
+      --thumb-h: 90px;
       display: block; position: absolute; z-index: 2;
-      width: 160px; height: 90px; bottom: 12px; right: 12px;
+      width: 160px; height: var(--thumb-h); right: 12px;
+      /* Stacked into a vertical column up the right edge — the index (`--thumb-i`) is
+         set per thumb in layoutVideos so multiple thumbnails never pile on one spot. */
+      bottom: calc(12px + var(--thumb-i, 0) * (var(--thumb-h) + 8px));
       border-radius: 8px; border: 2px solid var(--surface);
       cursor: pointer; transition: transform 0.15s;
     }
@@ -1795,7 +1805,7 @@ const jsonLd = {
     /* Slightly larger mini tile on desktop for better usability (#227); the
        phone-sized 160×90 stays the default for narrow viewports. */
     @media (min-width: 1024px) {
-      .video-grid[data-mode="focus"] :global(.video-cell.video-thumb) { width: 200px; height: 112px; }
+      .video-grid[data-mode="focus"] :global(.video-cell.video-thumb) { width: 200px; --thumb-h: 112px; }
     }
     /* Zoom-in pop when a screen share takes the focus view (spec 0089). The grid
        revert on stop returns the tile to its small cell — that's the zoom-out.
@@ -1805,6 +1815,8 @@ const jsonLd = {
       animation: share-zoom-in 0.4s cubic-bezier(0.22, 1, 0.36, 1);
     }
     .video-grid[data-mode="focus"] :global(.video-cell.video-thumb .subtitle-area) { display: none; }
+    /* Shrink the camera-off initial to fit the mini tile (the 2.4rem grid size overflows it). */
+    .video-grid[data-mode="focus"] :global(.video-cell.video-thumb .avatar-initials) { font-size: 1.4rem; }
     .video-grid[data-mode="focus"] :global(.video-cell.video-thumb .hand-indicator) { font-size: 1rem; }
     .video-grid[data-mode="focus"] :global(.video-cell.video-thumb .emoji-float) { display: none; }
     .video-grid[data-mode="focus"] :global(.video-cell.main-cell) { outline: none; }
@@ -2203,7 +2215,9 @@ const jsonLd = {
          can't slide under it on narrow screens (spec 0070 follow-up). */
       .stage-meta-wrap { gap: 4px; max-width: calc(100% - 76px); }
       .stage-meta { padding: 4px 10px; gap: 6px; }
-      .stage-self { display: none; }
+      /* Keep your identity (name · lang) visible on phones too (user request); just a
+         tighter name cap so the meta pill can't grow into the top-right counter. */
+      .stage-self-name { max-width: 9ch; }
       .stage-info-strip { font-size: 0.66rem; padding: 3px 8px; gap: 6px; }
       .stage-info-label { display: none; }
     }

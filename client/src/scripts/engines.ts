@@ -100,6 +100,17 @@ export function formatRate(ratePerMinute: number): string {
   return `$${ratePerMinute.toFixed(3)}/min`;
 }
 
+/** Whether a speaker on `engineId` must capture raw PCM16 @ 24 kHz (the server-side
+ *  speech-to-speech engines — OpenAI, Gemini) rather than WebM/Opus (Standard, which
+ *  streams to Deepgram). Keyed on the `translated_audio` capability, NOT a hardcoded
+ *  id: the Gemini engine's id is `gemini_live_translate`, so an `id === 'premium'`
+ *  check silently sent it WebM/Opus, which its PCM-expecting session decoded as noise
+ *  → no transcript, no translated voice. Unknown/absent engine → false (safe WebM
+ *  default, used by Standard). */
+export function engineNeedsPcm(engineId: string | undefined, engines: EngineInfo[]): boolean {
+  return engines.find((e) => e.id === engineId)?.capabilities.translated_audio ?? false;
+}
+
 /** i18n key for an engine's user-facing description, by tier (#236). The server's
  *  `description` exposes provider/model jargon (Deepgram, Groq, GPT-Realtime),
  *  so the UI shows a localized, benefit-focused string instead. Returns null for

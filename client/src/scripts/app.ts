@@ -6,6 +6,7 @@ import {
   type EngineInfo,
   commonLangs,
   engineDescKey,
+  engineNeedsPcm,
   formatRate,
   loadEnginePref,
   resolveEnginePref,
@@ -923,11 +924,14 @@ function openSocket(): void {
     mesh.setAudioEnabled(micOn);
     mesh.setVideoEnabled(camOn);
 
-    // Premium speakers capture PCM16/24k (for OpenAI) instead of WebM/Opus.
-    audioCapture =
-      session?.engine === 'premium'
-        ? new PcmCapture(localStream!, ws!)
-        : new AudioCapture(localStream!, ws!);
+    // Speech-to-speech engines (OpenAI, Gemini) capture raw PCM16/24k; Standard
+    // streams WebM/Opus for Deepgram. Decide by the engine's `translated_audio`
+    // capability — keying on `id === 'premium'` missed the Gemini engine (id
+    // `gemini_live_translate`), which then sent WebM that its PCM session read as
+    // noise: no transcript, no translated voice.
+    audioCapture = engineNeedsPcm(session?.engine, availableEngines)
+      ? new PcmCapture(localStream!, ws!)
+      : new AudioCapture(localStream!, ws!);
     if (micOn) audioCapture.start();
 
     // Tell peers if we joined already muted / camera-off so their UI matches.
@@ -1112,7 +1116,11 @@ async function handleServer(msg: any): Promise<void> {
         const wasActive = micOn;
         audioCapture?.stop();
         if (ws && localStream) {
-          audioCapture = new AudioCapture(localStream, ws);
+          // Match capture to the new engine's format (downgrade is to Standard →
+          // WebM today, but stay capability-correct if that ever changes).
+          audioCapture = engineNeedsPcm(msg.to, availableEngines)
+            ? new PcmCapture(localStream, ws)
+            : new AudioCapture(localStream, ws);
           if (wasActive) audioCapture.start();
         }
         showNotif(t(msg.reason === 'premium_at_capacity' ? 'enginePremiumBusy' : 'enginePremiumPaused'));
@@ -1471,6 +1479,7 @@ function layoutVideos(): void {
   // Remove all special classes first; reset pan state on cells leaving focus
   allCells.forEach((c) => {
     c.classList.remove('main-cell', 'video-thumb', 'active-speaker');
+    c.style.removeProperty('--thumb-i'); // drop any prior focus-column position
     if (c.classList.contains('pan-mode')) disablePan(c);
   });
 
@@ -1489,9 +1498,12 @@ function layoutVideos(): void {
     if (IS_MOBILE && focusCell.classList.contains('sharing')) setupPan(focusCell);
     else disablePan(focusCell);
 
+    let thumbIndex = 0;
     for (const cell of allCells) {
       if (cell === focusCell) continue;
       cell.classList.add('video-thumb');
+      // Stack thumbnails up the right edge (index 0 = bottom) so they never pile up.
+      cell.style.setProperty('--thumb-i', String(thumbIndex++));
       // Click thumbnail to pin
       const id = cell.dataset.peer || '';
       cell.addEventListener('click', () => { if (id) togglePin(id); }, { once: true });
