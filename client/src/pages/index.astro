@@ -847,7 +847,9 @@ const jsonLd = {
     .engine-options :global(.engine-opt-badge) {
       align-self: center; margin-inline-end: auto;
       font-size: 0.62rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
-      color: #fff; background: var(--accent); border-radius: 999px; padding: 1px 7px;
+      /* --accent-strong (not --accent): white badge text needs 4.5:1; #3b82f6 is
+         only 3.67:1, #2563eb is 5.17:1. (--accent stays for borders/outlines @3:1.) */
+      color: #fff; background: var(--accent-strong); border-radius: 999px; padding: 1px 7px;
     }
     .engine-options :global(.engine-opt-rate) {
       font-size: 0.8rem; color: var(--accent); font-variant-numeric: tabular-nums; flex: none;
