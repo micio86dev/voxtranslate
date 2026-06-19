@@ -2,12 +2,12 @@
 
 | | |
 |---|---|
-| **Status** | Draft |
+| **Status** | Phase 1 ✅ Shipped · Phase 2 Deferred |
 | **Owner** | Alessandro Micelli |
 | **Created** | 2026-06-19 |
-| **Shipped** | — |
+| **Shipped** | 2026-06-19 (Phase 1) |
 | **Version** | — |
-| **Commits** | — |
+| **Commits** | `5cc15b6` (#287, Phase 1) |
 | **Depends on** | [0093](../0093-premium-translation-engine/spec.md) (PCM capture), [0099](../0099-premium-listener-pays/spec.md) (capture_format), [0101](../0101-soniox-enhanced-tier/spec.md) (Enhanced) |
 
 ## 0. Guiding constraints (this spec is scoped by them)
@@ -88,7 +88,7 @@ Two issues derived from the code:
 
 ## 4. Design & Architecture
 
-### Phase 1 — browser-aware Soniox capture mimeType ("A") — SHIP NOW
+### Phase 1 — browser-aware Soniox capture mimeType ("A") — ✅ SHIPPED (`5cc15b6`, #287)
 
 - `client/src/scripts/soniox.ts` `sttMimeType()`: replace the WebM-or-WebM choice
   with an ordered candidate list (mirroring `recording/utils.ts pickMimeType`):
