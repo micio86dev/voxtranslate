@@ -7,7 +7,7 @@
 | **Created** | 2026-06-19 |
 | **Shipped** | 2026-06-19 |
 | **Version** | 1.1.x |
-| **Commits** | _(pin on merge)_ |
+| **Commits** | `d25ced0` (#289) |
 | **Depends on** | [0102](../0102-language-first-ux/spec.md) |
 
 ## 1. Context & Problem

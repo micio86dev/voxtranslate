@@ -7,7 +7,7 @@
 | **Created** | 2026-06-19 |
 | **Shipped** | 2026-06-19 |
 | **Version** | 1.1.x |
-| **Commits** | _(pin on merge)_ |
+| **Commits** | `c2ff348` (#290) |
 | **Depends on** | [0104](../0104-mobile-performance-lazy-i18n/spec.md) |
 
 ## 1. Context & Problem
