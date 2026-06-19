@@ -16,6 +16,7 @@
   "enterRoom": "Nhập mã phòng",
   "enginePremiumPaused": "Tín dụng Premium sắp hết — đã chuyển sang bản dịch Standard.",
   "enginePremiumBusy": "Premium đang quá tải — đang dùng bản dịch Standard (tính theo mức giá thấp hơn).",
+  "engineEnhancedUnavailable": "Enhanced đang quá tải — đang dùng bản dịch Standard (tính theo mức giá thấp hơn).",
   "downloadRateLimited": "Quá nhiều yêu cầu — vui lòng đợi một lát rồi thử lại.",
   "sessionOutputs": "Kết quả phiên",
   "quizzesLabel": "Câu đố",

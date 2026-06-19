@@ -16,6 +16,7 @@
   "enterRoom": "Skriv inn ein romkode",
   "enginePremiumPaused": "Premium-kredittar heldt på å bli brukte opp — bytte til Standard-omsetjing.",
   "enginePremiumBusy": "Premium er fullt akkurat no — bruker Standard-omsetjing (blir fakturert til lågare pris).",
+  "engineEnhancedUnavailable": "Enhanced er fullt akkurat no — bruker Standard-omsetjing (blir fakturert til lågare pris).",
   "downloadRateLimited": "For mange førespurnader — vent eit augneblink og prøv igjen.",
   "sessionOutputs": "Øktresultat",
   "quizzesLabel": "Quizar",

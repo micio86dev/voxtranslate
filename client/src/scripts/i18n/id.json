@@ -16,6 +16,7 @@
   "enterRoom": "Masukkan kode ruang",
   "enginePremiumPaused": "Kredit Premium menipis — beralih ke terjemahan Standard.",
   "enginePremiumBusy": "Premium sedang penuh — menggunakan terjemahan Standard (ditagih dengan tarif lebih rendah).",
+  "engineEnhancedUnavailable": "Enhanced sedang penuh — menggunakan terjemahan Standard (ditagih dengan tarif lebih rendah).",
   "downloadRateLimited": "Terlalu banyak permintaan — mohon tunggu sebentar lalu coba lagi.",
   "sessionOutputs": "Hasil sesi",
   "quizzesLabel": "Kuis",

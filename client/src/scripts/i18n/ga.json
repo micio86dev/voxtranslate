@@ -16,6 +16,7 @@
   "enterRoom": "Cuir cód seomra isteach",
   "enginePremiumPaused": "Tá creidmheasanna Premium íseal — aistríodh go haistriúchán Standard.",
   "enginePremiumBusy": "Tá Premium lán faoi láthair — ag baint úsáide as aistriúchán Standard (billeáilte ar an ráta níos ísle).",
+  "engineEnhancedUnavailable": "Tá Enhanced lán faoi láthair — ag baint úsáide as aistriúchán Standard (billeáilte ar an ráta níos ísle).",
   "downloadRateLimited": "An iomarca iarratas — fan nóiméad agus bain triail eile as.",
   "sessionOutputs": "Aschuir an tseisiúin",
   "quizzesLabel": "Tráthanna na gCeist",

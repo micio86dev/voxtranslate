@@ -16,6 +16,7 @@
   "enterRoom": "Wpisz kod pokoju",
   "enginePremiumPaused": "Środki Premium na wyczerpaniu — przełączono na tłumaczenie Standard.",
   "enginePremiumBusy": "Premium jest teraz w pełni obciążone — używamy tłumaczenia Standard (rozliczanego po niższej stawce).",
+  "engineEnhancedUnavailable": "Enhanced jest teraz w pełni obciążone — używamy tłumaczenia Standard (rozliczanego po niższej stawce).",
   "downloadRateLimited": "Zbyt wiele żądań — odczekaj chwilę i spróbuj ponownie.",
   "sessionOutputs": "Wyniki sesji",
   "quizzesLabel": "Quizy",

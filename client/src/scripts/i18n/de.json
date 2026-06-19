@@ -16,6 +16,7 @@
   "enterRoom": "Gib einen Raumcode ein",
   "enginePremiumPaused": "Premium-Guthaben war fast aufgebraucht — auf Standard-Übersetzung umgestellt.",
   "enginePremiumBusy": "Premium ist gerade ausgelastet — Standard-Übersetzung wird verwendet (zum niedrigeren Tarif berechnet).",
+  "engineEnhancedUnavailable": "Enhanced ist gerade ausgelastet — Standard-Übersetzung wird verwendet (zum niedrigeren Tarif berechnet).",
   "downloadRateLimited": "Zu viele Anfragen – bitte einen Moment warten und erneut versuchen.",
   "sessionOutputs": "Sitzungsergebnisse",
   "quizzesLabel": "Quizze",

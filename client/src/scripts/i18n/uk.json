@@ -16,6 +16,7 @@
   "enterRoom": "Введіть код кімнати",
   "enginePremiumPaused": "Кредитів Premium майже не лишилося — перемкнено на переклад Standard.",
   "enginePremiumBusy": "Premium зараз перевантажено — використовуємо переклад Standard (за нижчим тарифом).",
+  "engineEnhancedUnavailable": "Enhanced зараз перевантажено — використовуємо переклад Standard (за нижчим тарифом).",
   "downloadRateLimited": "Забагато запитів — зачекайте хвилинку й спробуйте ще раз.",
   "sessionOutputs": "Результати сеансу",
   "quizzesLabel": "Вікторини",

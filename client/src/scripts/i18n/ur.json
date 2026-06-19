@@ -16,6 +16,7 @@
   "enterRoom": "روم کوڈ درج کریں",
   "enginePremiumPaused": "Premium کریڈٹ کم رہ گئے — Standard ترجمے پر منتقل کر دیا گیا۔",
   "enginePremiumBusy": "Premium اس وقت مکمل گنجائش پر ہے — Standard ترجمہ استعمال کیا جا رہا ہے (کم نرخ پر بل کیا جائے گا)۔",
+  "engineEnhancedUnavailable": "Enhanced اس وقت مکمل گنجائش پر ہے — Standard ترجمہ استعمال کیا جا رہا ہے (کم نرخ پر بل کیا جائے گا)۔",
   "downloadRateLimited": "بہت زیادہ درخواستیں — براہِ کرم لمحہ بھر انتظار کریں اور دوبارہ کوشش کریں۔",
   "sessionOutputs": "سیشن کے نتائج",
   "quizzesLabel": "کوئزز",

@@ -16,6 +16,7 @@
   "enterRoom": "Insira um código de sala",
   "enginePremiumPaused": "Os créditos Premium acabaram — mudámos para a tradução Standard.",
   "enginePremiumBusy": "O Premium está sem capacidade no momento — a usar tradução Standard (cobrada à tarifa mais baixa).",
+  "engineEnhancedUnavailable": "O Enhanced está sem capacidade no momento — a usar tradução Standard (cobrada à tarifa mais baixa).",
   "downloadRateLimited": "Muitas solicitações — aguarde um momento e tente novamente.",
   "sessionOutputs": "Resultados da sessão",
   "quizzesLabel": "Quizzes",

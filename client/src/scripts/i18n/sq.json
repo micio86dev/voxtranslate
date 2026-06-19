@@ -16,6 +16,7 @@
   "enterRoom": "Shkruani një kod dhome",
   "enginePremiumPaused": "Kreditet Premium mbaruan — kaluam te përkthimi Standard.",
   "enginePremiumBusy": "Premium është në kapacitet maksimal për momentin — po përdorim përkthimin Standard (faturuar me tarifën më të ulët).",
+  "engineEnhancedUnavailable": "Enhanced është në kapacitet maksimal për momentin — po përdorim përkthimin Standard (faturuar me tarifën më të ulët).",
   "downloadRateLimited": "Shumë kërkesa — ju lutemi prisni një çast dhe provoni sërish.",
   "sessionOutputs": "Rezultatet e sesionit",
   "quizzesLabel": "Kuizet",

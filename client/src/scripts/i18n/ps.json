@@ -16,6 +16,7 @@
   "enterRoom": "د خونې کوډ ولیکئ",
   "enginePremiumPaused": "د Premium کرېډېټ نږدې پای ته رسېدلی و — Standard ژباړې ته واوښت.",
   "enginePremiumBusy": "Premium اوس مهال ډک دی — د Standard ژباړه کارول کېږي (په ټیټه بیه محاسبه کېږي).",
+  "engineEnhancedUnavailable": "Enhanced اوس مهال ډک دی — د Standard ژباړه کارول کېږي (په ټیټه بیه محاسبه کېږي).",
   "downloadRateLimited": "ډېرې غوښتنې — مهرباني وکړئ یوه شېبه وګورئ او بیا هڅه وکړئ.",
   "sessionOutputs": "د ناستې محصولات",
   "quizzesLabel": "ازموینې",

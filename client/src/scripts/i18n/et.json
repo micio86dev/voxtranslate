@@ -16,6 +16,7 @@
   "enterRoom": "Sisesta ruumi kood",
   "enginePremiumPaused": "Premium-krediit hakkas lõppema — lülitusime Standard-tõlkele.",
   "enginePremiumBusy": "Premium on hetkel ülekoormatud — kasutame Standard-tõlget (arvestatakse madalama hinnaga).",
+  "engineEnhancedUnavailable": "Enhanced on hetkel ülekoormatud — kasutame Standard-tõlget (arvestatakse madalama hinnaga).",
   "downloadRateLimited": "Liiga palju päringuid — palun oota hetk ja proovi uuesti.",
   "sessionOutputs": "Seansi väljundid",
   "quizzesLabel": "Viktoriinid",

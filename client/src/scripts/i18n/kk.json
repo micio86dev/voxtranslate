@@ -16,6 +16,7 @@
   "enterRoom": "Бөлме кодын енгізіңіз",
   "enginePremiumPaused": "Premium несиеңіз азайды — Standard аудармасына ауыстырылды.",
   "enginePremiumBusy": "Premium қазір толы — Standard аудармасы қолданылуда (төмен баға бойынша).",
+  "engineEnhancedUnavailable": "Enhanced қазір толы — Standard аудармасы қолданылуда (төмен баға бойынша).",
   "downloadRateLimited": "Тым көп сұраныс — біраз күтіп, қайталап көріңіз.",
   "sessionOutputs": "Сеанс нәтижелері",
   "quizzesLabel": "Сынақтар",

@@ -16,6 +16,7 @@
   "enterRoom": "کۆدی ژوور بنووسە",
   "enginePremiumPaused": "باڵانسی Premium نزیک بوو لە تەواوبوون — گۆڕدرا بۆ وەرگێڕانی Standard.",
   "enginePremiumBusy": "Premium ئێستا پڕە — وەرگێڕانی Standard بەکاردێت (بە نرخی نزمتر حیساب دەکرێت).",
+  "engineEnhancedUnavailable": "Enhanced ئێستا پڕە — وەرگێڕانی Standard بەکاردێت (بە نرخی نزمتر حیساب دەکرێت).",
   "downloadRateLimited": "داواکارییەکان زۆرن — تکایە چەند چرکەیەک چاوەڕێ بکە و دووبارە هەوڵ بدەرەوە.",
   "sessionOutputs": "دەرئەنجامەکانی دانیشتن",
   "quizzesLabel": "تاقیکردنەوەکان",

@@ -16,6 +16,7 @@
   "enterRoom": "Adjon meg egy szobakódot",
   "enginePremiumPaused": "A Premium kredit kifogyóban — átváltottunk Standard fordításra.",
   "enginePremiumBusy": "A Premium jelenleg telített — Standard fordítást használunk (alacsonyabb díjszabással).",
+  "engineEnhancedUnavailable": "A Enhanced jelenleg telített — Standard fordítást használunk (alacsonyabb díjszabással).",
   "downloadRateLimited": "Túl sok kérés — kérjük, várjon egy pillanatot, és próbálja újra.",
   "sessionOutputs": "Munkamenet eredményei",
   "quizzesLabel": "Kvízek",

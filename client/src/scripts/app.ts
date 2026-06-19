@@ -1660,7 +1660,17 @@ async function handleServer(msg: any): Promise<void> {
           // ran out of credit → now I receive Standard). Capture is server-driven
           // (capture_format), so we do NOT swap it here; just record + notify.
           if (session) session.engine = msg.to;
-          showNotif(t(msg.reason === 'insufficient_balance' ? 'enginePremiumPaused' : 'enginePremiumBusy'));
+          // Enhanced (spec 0101): if we were the client-direct (Soniox) tier and got
+          // downgraded, tear down the in-browser pipelines — the server now delivers
+          // Standard subtitles for us. No-op when we weren't on Enhanced.
+          sonioxManager?.deactivate();
+          const notifKey =
+            msg.reason === 'enhanced_unavailable'
+              ? 'engineEnhancedUnavailable'
+              : msg.reason === 'insufficient_balance'
+                ? 'enginePremiumPaused'
+                : 'enginePremiumBusy';
+          showNotif(t(notifKey));
         } else {
           // Speaker-pays: match our capture to the new engine's format (Standard → WebM
           // today, but stay capability-correct via engineNeedsPcm for any engine).

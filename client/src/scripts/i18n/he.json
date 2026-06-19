@@ -16,6 +16,7 @@
   "enterRoom": "הזינו קוד חדר",
   "enginePremiumPaused": "יתרת Premium אזלה כמעט — עברנו לתרגום Standard.",
   "enginePremiumBusy": "Premium בתפוסה מלאה כעת — נעשה שימוש בתרגום Standard (בחיוב בתעריף הנמוך יותר).",
+  "engineEnhancedUnavailable": "Enhanced בתפוסה מלאה כעת — נעשה שימוש בתרגום Standard (בחיוב בתעריף הנמוך יותר).",
   "downloadRateLimited": "יותר מדי בקשות — המתינו רגע ונסו שוב.",
   "sessionOutputs": "תוצרי השיחה",
   "quizzesLabel": "חידונים",

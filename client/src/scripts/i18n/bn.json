@@ -16,6 +16,7 @@
   "enterRoom": "একটি রুম কোড লিখুন",
   "enginePremiumPaused": "Premium ক্রেডিট কমে গেছে — Standard অনুবাদে পরিবর্তন করা হয়েছে।",
   "enginePremiumBusy": "Premium এখন সম্পূর্ণ ব্যস্ত — Standard অনুবাদ ব্যবহার করা হচ্ছে (কম হারে বিল করা হয়েছে)।",
+  "engineEnhancedUnavailable": "Enhanced এখন সম্পূর্ণ ব্যস্ত — Standard অনুবাদ ব্যবহার করা হচ্ছে (কম হারে বিল করা হয়েছে)।",
   "downloadRateLimited": "অনেক বেশি অনুরোধ — অনুগ্রহ করে একটু অপেক্ষা করে আবার চেষ্টা করুন।",
   "sessionOutputs": "সেশনের আউটপুট",
   "quizzesLabel": "কুইজ",

@@ -16,6 +16,7 @@
   "enterRoom": "Εισαγάγετε κωδικό δωματίου",
   "enginePremiumPaused": "Οι μονάδες Premium εξαντλήθηκαν — μεταβήκαμε στη μετάφραση Standard.",
   "enginePremiumBusy": "Η Premium είναι πλήρης αυτή τη στιγμή — χρησιμοποιείται η μετάφραση Standard (με χρέωση στη χαμηλότερη τιμή).",
+  "engineEnhancedUnavailable": "Η Enhanced είναι πλήρης αυτή τη στιγμή — χρησιμοποιείται η μετάφραση Standard (με χρέωση στη χαμηλότερη τιμή).",
   "downloadRateLimited": "Πάρα πολλά αιτήματα — περιμένετε λίγο και δοκιμάστε ξανά.",
   "sessionOutputs": "Αποτελέσματα συνεδρίας",
   "quizzesLabel": "Κουίζ",

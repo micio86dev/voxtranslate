@@ -16,6 +16,7 @@
   "enterRoom": "Voer een kamercode in",
   "enginePremiumPaused": "Premium-tegoed bijna op — overgeschakeld naar Standard-vertaling.",
   "enginePremiumBusy": "Premium zit nu vol — Standard-vertaling wordt gebruikt (tegen het lagere tarief).",
+  "engineEnhancedUnavailable": "Enhanced zit nu vol — Standard-vertaling wordt gebruikt (tegen het lagere tarief).",
   "downloadRateLimited": "Te veel verzoeken — wacht even en probeer het opnieuw.",
   "sessionOutputs": "Sessieresultaten",
   "quizzesLabel": "Quizzen",

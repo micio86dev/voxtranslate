@@ -16,6 +16,7 @@
   "enterRoom": "Vnesite kodo sobe",
   "enginePremiumPaused": "Premium dobroimetja je zmanjkalo — preklopljeno na prevajanje Standard.",
   "enginePremiumBusy": "Premium je trenutno zaseden — uporabljamo prevajanje Standard (zaračunano po nižji ceni).",
+  "engineEnhancedUnavailable": "Enhanced je trenutno zaseden — uporabljamo prevajanje Standard (zaračunano po nižji ceni).",
   "downloadRateLimited": "Preveč zahtev — počakajte trenutek in poskusite znova.",
   "sessionOutputs": "Rezultati seje",
   "quizzesLabel": "Kvizi",

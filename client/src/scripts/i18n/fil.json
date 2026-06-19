@@ -16,6 +16,7 @@
   "enterRoom": "Maglagay ng room code",
   "enginePremiumPaused": "Naubusan ng Premium credits — lumipat sa Standard translation.",
   "enginePremiumBusy": "Puno ang Premium ngayon — gumagamit ng Standard translation (sinisingil sa mas mababang rate).",
+  "engineEnhancedUnavailable": "Puno ang Enhanced ngayon — gumagamit ng Standard translation (sinisingil sa mas mababang rate).",
   "downloadRateLimited": "Sobrang dami ng request — sandali lang at subukan ulit.",
   "sessionOutputs": "Mga output ng session",
   "quizzesLabel": "Mga Quiz",

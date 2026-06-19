@@ -16,6 +16,7 @@
   "enterRoom": "Внесете код на собата",
   "enginePremiumPaused": "Кредитите за Premium се потрошија — префрлено на Standard превод.",
   "enginePremiumBusy": "Premium е моментално преоптоварен — се користи Standard превод (наплатен по пониска цена).",
+  "engineEnhancedUnavailable": "Enhanced е моментално преоптоварен — се користи Standard превод (наплатен по пониска цена).",
   "downloadRateLimited": "Премногу барања — почекајте малку и обидете се повторно.",
   "sessionOutputs": "Резултати од сесијата",
   "quizzesLabel": "Квизови",

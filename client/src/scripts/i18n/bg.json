@@ -16,6 +16,7 @@
   "enterRoom": "Въведете код на стая",
   "enginePremiumPaused": "Кредитите за Premium свършиха — превключено към превод Standard.",
   "enginePremiumBusy": "Premium е претоварен в момента — използва се превод Standard (таксуван по по-ниската ставка).",
+  "engineEnhancedUnavailable": "Enhanced е претоварен в момента — използва се превод Standard (таксуван по по-ниската ставка).",
   "downloadRateLimited": "Твърде много заявки — изчакайте малко и опитайте отново.",
   "sessionOutputs": "Резултати от сесията",
   "quizzesLabel": "Тестове",

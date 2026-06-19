@@ -89,6 +89,14 @@ pub enum ClientMessage {
     Game {
         state: serde_json::Value,
     },
+    /// The client-direct "Enhanced" (Soniox) pipeline gave up translating a remote
+    /// speaker in-browser (spec 0101): a permanent error, or a transient one that
+    /// survived all retries — e.g. Soniox's concurrent-session cap. Ask the server to
+    /// fall this listener back to server-side Standard translation (and re-bill at the
+    /// Standard rate). `speaker_id` is for logging only; the downgrade is whole-listener.
+    EnhancedFallback {
+        speaker_id: String,
+    },
 }
 
 // --- Server -> Client ------------------------------------------------------
@@ -659,6 +667,13 @@ mod tests {
         assert!(matches!(
             serde_json::from_str::<ClientMessage>(r#"{"type":"set_lang","lang":"it"}"#).unwrap(),
             ClientMessage::SetLang { lang } if lang == "it"
+        ));
+        assert!(matches!(
+            serde_json::from_str::<ClientMessage>(
+                r#"{"type":"enhanced_fallback","speaker_id":"p1"}"#
+            )
+            .unwrap(),
+            ClientMessage::EnhancedFallback { speaker_id } if speaker_id == "p1"
         ));
         assert!(serde_json::from_str::<ClientMessage>(r#"{"type":"bogus"}"#).is_err());
     }

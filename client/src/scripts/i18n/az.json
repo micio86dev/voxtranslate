@@ -16,6 +16,7 @@
   "enterRoom": "Otaq kodu daxil edin",
   "enginePremiumPaused": "Premium kreditiniz azaldı — Standard tərcüməyə keçildi.",
   "enginePremiumBusy": "Premium hazırda dolduğundan Standard tərcümə istifadə olunur (daha aşağı tariflə).",
+  "engineEnhancedUnavailable": "Enhanced hazırda dolduğundan Standard tərcümə istifadə olunur (daha aşağı tariflə).",
   "downloadRateLimited": "Çox sayda sorğu — zəhmət olmasa bir az gözləyib yenidən cəhd edin.",
   "sessionOutputs": "Sessiya nəticələri",
   "quizzesLabel": "Testlər",

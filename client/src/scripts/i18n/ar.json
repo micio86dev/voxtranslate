@@ -16,6 +16,7 @@
   "enterRoom": "أدخل رمز الغرفة",
   "enginePremiumPaused": "نفدت رصيد Premium تقريبًا — تم التحويل إلى ترجمة Standard.",
   "enginePremiumBusy": "Premium مكتمل الطاقة حاليًا — يتم استخدام ترجمة Standard (بالسعر الأقل).",
+  "engineEnhancedUnavailable": "Enhanced مكتمل الطاقة حاليًا — يتم استخدام ترجمة Standard (بالسعر الأقل).",
   "downloadRateLimited": "طلبات كثيرة جدًا — يُرجى الانتظار لحظة ثم المحاولة مرة أخرى.",
   "sessionOutputs": "مخرجات الجلسة",
   "quizzesLabel": "الاختبارات",

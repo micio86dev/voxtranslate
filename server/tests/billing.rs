@@ -361,6 +361,105 @@ mod ws_metering {
         assert_eq!(frame["type"], "error");
         assert_eq!(frame["code"], "insufficient_balance");
     }
+
+    /// Like [`setup`], but with listener-pays on and the Enhanced (Soniox) engine
+    /// registered — the only configuration in which a client-direct receive tier exists.
+    async fn setup_enhanced() -> Option<Server> {
+        let secret = "ws-enh-secret".to_string();
+        let url = std::env::var("DATABASE_URL").ok()?;
+        let pool = db::connect(&url).await.ok()?;
+        db::migrate(&pool).await.ok()?;
+        let mut config = Config::test_with_billing(&url, &secret, 5.0);
+        config.listener_pays = true;
+        let region = || voxtranslate_server::config::SonioxRegionConfig {
+            api_key: "k".into(),
+            stt_endpoint: "wss://stt".into(),
+            tts_endpoint: "wss://tts".into(),
+        };
+        config.soniox = Some(voxtranslate_server::config::SonioxConfig {
+            stt_model: "stt-rt-v5".into(),
+            cost_per_minute: 0.015,
+            markup: 0.85,
+            us: region(),
+            eu: region(),
+            jp: region(),
+        });
+        let min_join = usd(config.billing.as_ref().unwrap().pricing.min_balance_to_join);
+        let mut state = AppState::new(config);
+        state.billing = Some(BillingService::new(pool.clone(), min_join));
+        state.safety = Some(SafetyService::new(pool.clone()));
+        state.pool = Some(pool.clone());
+        state.verifier = Arc::new(FakeVerifier);
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let _ = axum::serve(listener, app(state)).await;
+        });
+        Some(Server { addr, pool, secret })
+    }
+
+    /// When an Enhanced (client-direct) listener's in-browser pipeline gives up, the
+    /// `enhanced_fallback` signal must downgrade THAT listener to Standard (spec 0101):
+    /// the server flips their receive engine and confirms with `engine_downgraded`
+    /// (`reason: "enhanced_unavailable"`), after which the existing Standard fan-out
+    /// reaches them and the meter (respawned here) bills at the Standard rate.
+    #[tokio::test]
+    async fn enhanced_fallback_downgrades_listener_to_standard() {
+        use futures::SinkExt;
+        let Some(srv) = setup_enhanced().await else {
+            eprintln!("skipping — no DATABASE_URL");
+            return;
+        };
+
+        // A billed listener joins on the Enhanced (Soniox) receive engine.
+        let identity = GoogleIdentity {
+            google_id: format!("g-{}", Uuid::new_v4()),
+            email: format!("{}@x.com", Uuid::new_v4()),
+            name: "Enh".into(),
+            avatar_url: None,
+        };
+        let user = upsert_google_user(
+            &srv.pool,
+            &identity,
+            rust_decimal::Decimal::new(500, 2),
+            None,
+        )
+        .await
+        .unwrap();
+        let jwt = issue_jwt(&srv.secret, &user.id, &user.email, &user.name, 168).unwrap();
+        let pid = format!("u-{}", user.id);
+        let (frame, mut ws) = connect_first(
+            srv.addr,
+            &format!("room=efb&lang=en&id={pid}&engine=soniox&token={jwt}"),
+        )
+        .await;
+        assert_eq!(frame["type"], "room_joined");
+
+        // The in-browser Soniox pipeline gave up → ask the server to fall us back.
+        ws.send(tokio_tungstenite::tungstenite::Message::Text(
+            r#"{"type":"enhanced_fallback","speaker_id":"someone"}"#.into(),
+        ))
+        .await
+        .unwrap();
+
+        // We get a self-targeted downgrade: soniox → standard, reason enhanced_unavailable.
+        let dg = loop {
+            match tokio::time::timeout(Duration::from_secs(2), ws.next()).await {
+                Ok(Some(Ok(tokio_tungstenite::tungstenite::Message::Text(t)))) => {
+                    let v: serde_json::Value = serde_json::from_str(t.as_str()).unwrap();
+                    if v["type"] == "engine_downgraded" {
+                        break v;
+                    }
+                }
+                Ok(Some(Ok(_))) => continue,
+                _ => panic!("no engine_downgraded"),
+            }
+        };
+        assert_eq!(dg["peer_id"], pid);
+        assert_eq!(dg["from"], "soniox");
+        assert_eq!(dg["to"], "standard");
+        assert_eq!(dg["reason"], "enhanced_unavailable");
+    }
 }
 
 mod stripe_api {

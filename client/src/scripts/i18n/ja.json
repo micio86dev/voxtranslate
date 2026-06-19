@@ -16,6 +16,7 @@
   "enterRoom": "ルームコードを入力してください",
   "enginePremiumPaused": "Premium のクレジットが不足したため、Standard 翻訳に切り替えました。",
   "enginePremiumBusy": "現在 Premium は満員のため、Standard 翻訳を使用しています（低価格で課金されます）。",
+  "engineEnhancedUnavailable": "現在 Enhanced は満員のため、Standard 翻訳を使用しています（低価格で課金されます）。",
   "downloadRateLimited": "リクエストが多すぎます。少し待ってからもう一度お試しください。",
   "sessionOutputs": "セッションの出力",
   "quizzesLabel": "クイズ",

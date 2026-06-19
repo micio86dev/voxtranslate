@@ -16,6 +16,7 @@
   "enterRoom": "Faka ikhodi yekamelo",
   "enginePremiumPaused": "Amakhredithi e-Premium aphelelwe — kushintshelwe ekuhumusheni kwe-Standard.",
   "enginePremiumBusy": "I-Premium igcwele njengamanje — sisebenzisa ukuhumusha kwe-Standard (kukhokhiswa ngenani eliphansi).",
+  "engineEnhancedUnavailable": "I-Enhanced igcwele njengamanje — sisebenzisa ukuhumusha kwe-Standard (kukhokhiswa ngenani eliphansi).",
   "downloadRateLimited": "Izicelo eziningi kakhulu — sicela ulinde umzuzwana bese uzama futhi.",
   "sessionOutputs": "Imiphumela yeseshini",
   "quizzesLabel": "Izivivinyo",

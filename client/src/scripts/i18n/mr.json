@@ -16,6 +16,7 @@
   "enterRoom": "रूम कोड टाका",
   "enginePremiumPaused": "Premium क्रेडिट कमी झाले — Standard भाषांतरावर स्विच केले.",
   "enginePremiumBusy": "Premium सध्या पूर्ण क्षमतेवर आहे — Standard भाषांतर वापरले जात आहे (कमी दराने बिल केले).",
+  "engineEnhancedUnavailable": "Enhanced सध्या पूर्ण क्षमतेवर आहे — Standard भाषांतर वापरले जात आहे (कमी दराने बिल केले).",
   "downloadRateLimited": "खूप जास्त विनंत्या — कृपया थोडा वेळ थांबून पुन्हा प्रयत्न करा.",
   "sessionOutputs": "सत्र आउटपुट",
   "quizzesLabel": "क्विझ",

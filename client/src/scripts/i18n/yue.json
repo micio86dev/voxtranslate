@@ -16,6 +16,7 @@
   "enterRoom": "輸入房間代碼",
   "enginePremiumPaused": "Premium 積分唔夠用 —— 已轉用 Standard 翻譯。",
   "enginePremiumBusy": "Premium 而家滿咗 —— 改用 Standard 翻譯（按較低收費計）。",
+  "engineEnhancedUnavailable": "Enhanced 而家滿咗 —— 改用 Standard 翻譯（按較低收費計）。",
   "downloadRateLimited": "請求太多 —— 請稍等一陣再試。",
   "sessionOutputs": "通話成果",
   "quizzesLabel": "問答",

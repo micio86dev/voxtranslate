@@ -16,6 +16,7 @@
   "enterRoom": "กรอกรหัสห้อง",
   "enginePremiumPaused": "เครดิต Premium เหลือน้อย — สลับไปใช้การแปลแบบ Standard แล้ว",
   "enginePremiumBusy": "ขณะนี้ Premium เต็มความจุ — ใช้การแปลแบบ Standard อยู่ (คิดค่าบริการในอัตราที่ต่ำกว่า)",
+  "engineEnhancedUnavailable": "ขณะนี้ Enhanced เต็มความจุ — ใช้การแปลแบบ Standard อยู่ (คิดค่าบริการในอัตราที่ต่ำกว่า)",
   "downloadRateLimited": "มีคำขอมากเกินไป — โปรดรอสักครู่แล้วลองอีกครั้ง",
   "sessionOutputs": "ผลลัพธ์ของการประชุม",
   "quizzesLabel": "แบบทดสอบ",

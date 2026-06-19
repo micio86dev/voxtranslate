@@ -16,6 +16,7 @@
   "enterRoom": "Weka msimbo wa chumba",
   "enginePremiumPaused": "Salio la Premium limepungua — imebadilishwa kuwa tafsiri ya Standard.",
   "enginePremiumBusy": "Premium imejaa kwa sasa — inatumia tafsiri ya Standard (inatozwa kwa kiwango cha chini).",
+  "engineEnhancedUnavailable": "Enhanced imejaa kwa sasa — inatumia tafsiri ya Standard (inatozwa kwa kiwango cha chini).",
   "downloadRateLimited": "Maombi mengi mno — tafadhali subiri kidogo kisha ujaribu tena.",
   "sessionOutputs": "Matokeo ya kipindi",
   "quizzesLabel": "Maswali",

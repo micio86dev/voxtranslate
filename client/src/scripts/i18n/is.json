@@ -16,6 +16,7 @@
   "enterRoom": "Sláðu inn herbergiskóða",
   "enginePremiumPaused": "Premium-inneign var að klárast — skipt yfir í Standard-þýðingu.",
   "enginePremiumBusy": "Premium er á fullum afköstum núna — notum Standard-þýðingu (rukkað á lægra verði).",
+  "engineEnhancedUnavailable": "Enhanced er á fullum afköstum núna — notum Standard-þýðingu (rukkað á lægra verði).",
   "downloadRateLimited": "Of margar beiðnir — bíddu augnablik og reyndu aftur.",
   "sessionOutputs": "Útkomur lotu",
   "quizzesLabel": "Spurningakeppnir",

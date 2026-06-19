@@ -16,6 +16,7 @@
   "enterRoom": "방 코드를 입력하세요",
   "enginePremiumPaused": "Premium 크레딧이 부족하여 Standard 번역으로 전환했습니다.",
   "enginePremiumBusy": "현재 Premium 용량이 가득 차 Standard 번역을 사용합니다(더 낮은 요금으로 청구됩니다).",
+  "engineEnhancedUnavailable": "현재 Enhanced 용량이 가득 차 Standard 번역을 사용합니다(더 낮은 요금으로 청구됩니다).",
   "downloadRateLimited": "요청이 너무 많습니다 — 잠시 후 다시 시도해 주세요.",
   "sessionOutputs": "세션 결과물",
   "quizzesLabel": "퀴즈",

@@ -16,6 +16,7 @@
   "enterRoom": "Rhowch god ystafell",
   "enginePremiumPaused": "Roedd y credydau Premium yn brin — wedi newid i gyfieithu Standard.",
   "enginePremiumBusy": "Mae Premium yn llawn ar hyn o bryd — yn defnyddio cyfieithu Standard (a godir ar y gyfradd is).",
+  "engineEnhancedUnavailable": "Mae Enhanced yn llawn ar hyn o bryd — yn defnyddio cyfieithu Standard (a godir ar y gyfradd is).",
   "downloadRateLimited": "Gormod o geisiadau — arhoswch eiliad a rhowch gynnig arall arni.",
   "sessionOutputs": "Allbynnau'r sesiwn",
   "quizzesLabel": "Cwisiau",
