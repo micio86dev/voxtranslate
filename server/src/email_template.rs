@@ -13,6 +13,12 @@
 //! - **Wordmark as live text** next to the logo image, so the brand still
 //!   reads when a client blocks images by default (Outlook does).
 //! - A hidden **preheader** controls the inbox preview snippet.
+//! - **Logo is a bare opaque image**, not an image inside a white CSS chip.
+//!   Gmail's mobile app dark mode rewrites light CSS backgrounds (`#ffffff`)
+//!   to black but never recolours image pixels, so a white `<td>` behind the
+//!   logo turned black on Android/iOS Gmail (the `color-scheme:light` meta is
+//!   ignored there). `icon.png` is already opaque with its own light backdrop,
+//!   so it renders identically in light and dark — don't reintroduce a CSS chip.
 
 /// Primary call-to-action button, rendered bulletproof (VML for Outlook).
 pub struct EmailButton<'a> {
@@ -165,12 +171,9 @@ a{{color:{BRAND};}}\
  overflow:hidden;box-shadow:0 1px 4px rgba(15,23,42,0.08);\">\
 <tr><td style=\"background:{BRAND};padding:22px 32px;\">\
 <table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\"><tr>\
-<td style=\"vertical-align:middle;padding-right:12px;\">\
-<table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\"><tr>\
-<td bgcolor=\"#ffffff\" style=\"background:#ffffff;border-radius:10px;padding:5px;line-height:0;\">\
-<img src=\"{logo}\" width=\"40\" height=\"40\" alt=\"VoxTranslate\" \
- style=\"display:block;border-radius:7px;\"/></td>\
-</tr></table></td>\
+<td style=\"vertical-align:middle;padding-right:12px;line-height:0;\">\
+<img src=\"{logo}\" width=\"44\" height=\"44\" alt=\"VoxTranslate\" \
+ style=\"display:block;border-radius:10px;\"/></td>\
 <td style=\"vertical-align:middle;font-family:{FONT};font-size:21px;font-weight:700;\
  color:#ffffff;letter-spacing:0.2px;\">VoxTranslate</td>\
 </tr></table></td></tr>\
