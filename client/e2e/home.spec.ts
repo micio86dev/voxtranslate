@@ -6,12 +6,15 @@ test('home: i18n switching, lobby tap-to-join, PWA tags', async ({ browser }) =>
   const { page } = t;
   await page.goto('/', { waitUntil: 'networkidle' });
 
-  // i18n follows the language selector.
+  // i18n follows the language selector. Non-English locale dictionaries now lazy-load
+  // (spec 0104), so the label updates once its chunk resolves — use retrying assertions
+  // rather than one-shot reads.
   await page.selectOption('#lang', 'de');
-  expect((await page.textContent('#enter'))?.trim()).toBe('Beitreten');
+  await expect(page.locator('#enter')).toHaveText('Beitreten');
   await page.selectOption('#lang', 'ja');
-  expect((await page.textContent('#enter'))?.trim()).toBe('参加');
+  await expect(page.locator('#enter')).toHaveText('参加');
   await page.selectOption('#lang', 'en');
+  await expect(page.locator('#enter')).toHaveText('Enter room');
 
   // Dice regenerates the room code.
   const before = await page.inputValue('#room');

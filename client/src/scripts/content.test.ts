@@ -16,7 +16,7 @@ vi.hoisted(() => {
 });
 
 import { loadRemoteI18n, fetchLegal, renderMarkdown } from './content';
-import { I18N } from './i18n';
+import { I18N, loadLocale } from './i18n';
 
 function okJson(body: unknown, status = 200) {
   return { ok: status >= 200 && status < 300, status, json: async () => body } as Response;
@@ -34,6 +34,7 @@ describe('loadRemoteI18n', () => {
   });
 
   it('returns false and keeps defaults on a non-ok response', async () => {
+    await loadLocale('it'); // lazy locales aren't in memory until loaded (spec 0104)
     const before = I18N.it.connect;
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(okJson('no', 503)));
     expect(await loadRemoteI18n('http://x')).toBe(false);

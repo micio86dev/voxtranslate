@@ -10,19 +10,41 @@ import { LANGUAGES, isRtlLang } from './langmap';
 
 type Dict = Record<string, string>;
 
-// Every locale dictionary, inlined at build time (Vite/rollup). Keyed by the language code
-// in the filename (`./i18n/ar.json` → `ar`).
-const localeModules = import.meta.glob<Dict>('./i18n/*.json', { eager: true, import: 'default' });
-export const I18N: Record<string, Dict> = {};
-for (const [path, dict] of Object.entries(localeModules)) {
-  I18N[path.replace(/.*\/([^/]+)\.json$/, '$1')] = dict;
-}
+// `en` is the fallback for every missing key, so it must always be present AND synchronous:
+// ship it eagerly (~16 KB) in the entry chunk. Every OTHER locale is lazy — its dictionary is
+// a separate chunk fetched on demand the first time that UI language is selected. This stops
+// the first load from pulling all 84 locales (~577 KB gzip) just to paint one language (the
+// LCP killer, spec 0104).
+import enDict from './i18n/en.json';
+const localeLoaders = import.meta.glob<Dict>('./i18n/*.json', { import: 'default' });
+const codeOf = (p: string): string => p.replace(/.*\/([^/]+)\.json$/, '$1');
 
-// UI languages we actually ship translations for (have a dict). Drives browser detection
-// and the language the UI chrome renders in — DISTINCT from the TARGET languages the picker
-// offers (those come from the engines/map and may exceed our UI set; any missing UI string
-// falls back to English). `en` is guaranteed present.
-export const SUPPORTED: string[] = Object.keys(I18N);
+// Dictionaries currently in memory (`en` always; others added by `loadLocale`). `t()` reads
+// this synchronously and falls back to `en` for any locale not yet loaded.
+export const I18N: Record<string, Dict> = { en: enDict as Dict };
+
+// UI languages we actually ship translations for — derived from the glob keys (known at build
+// time, so NO dictionary loading is needed and detection stays synchronous). DISTINCT from the
+// TARGET languages the picker offers (those come from the engines/map and may exceed our UI
+// set; any missing UI string falls back to English). `en` is guaranteed present.
+export const SUPPORTED: string[] = Object.keys(localeLoaders).map(codeOf);
+
+/**
+ * Lazy-load one locale's UI dictionary into `I18N` (its chunk is fetched on first use).
+ * No-op when the dictionary is already present (incl. `en`) or the code is unknown. Fails
+ * safe: on a chunk-load error the `en` fallback simply remains. Callers re-run `applyI18n()`
+ * once this resolves to repaint the DOM in the loaded language.
+ */
+export async function loadLocale(lang: string): Promise<void> {
+  if (I18N[lang]) return;
+  const loader = localeLoaders[`./i18n/${lang}.json`];
+  if (!loader) return;
+  try {
+    I18N[lang] = await loader();
+  } catch {
+    /* keep the en fallback if the locale chunk fails to load */
+  }
+}
 
 // Endonym + flag for EVERY union language (from the shared map), so a language label renders
 // even for a target we don't yet have a UI translation for. `auto` = detection pending
