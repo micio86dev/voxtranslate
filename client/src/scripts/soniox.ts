@@ -59,17 +59,20 @@ function langHints(source: string, mine: string): string[] {
 }
 
 /** MediaRecorder mimeType to hand the Soniox SDK for capturing a peer's audio.
- *  The SDK records via MediaRecorder; left to the browser default it lets Chrome
- *  pick the container, and on Android that default is one Soniox's `audioFormat:
- *  'auto'` sniffer can't decode — so Enhanced received NOTHING on Android while
- *  desktop (which defaults to webm/opus) worked. Pin the exact same codec the
- *  outgoing STT capture already proves works on the device (see audio-capture.ts),
- *  with the same `isTypeSupported` fallback. `undefined` when MediaRecorder is
- *  absent (e.g. the node test env) → the SDK keeps its default. */
+ *  The SDK records via MediaRecorder and left to the browser default produces a
+ *  container Soniox's `audioFormat:'auto'` can't always decode (Enhanced was silent
+ *  on Android). Pick the best container the device supports, in order:
+ *    1. `audio/webm;codecs=opus` — Chrome/Android/Firefox (unchanged from #281),
+ *    2. `audio/mp4` — Safari/WebKit, which CANNOT record WebM at all; a pinned WebM
+ *       mimeType made the SDK throw → Enhanced silent on Safari (spec 0103 Phase 1),
+ *    3. `audio/webm` — any browser that supports plain WebM but not the opus form,
+ *  else `undefined` → omit the option and let the SDK default (also the node test
+ *  env, where MediaRecorder is absent). Mirrors recording/utils.ts `pickMimeType`. */
 export function sttMimeType(): string | undefined {
   if (typeof MediaRecorder === 'undefined') return undefined;
-  const opus = 'audio/webm;codecs=opus';
-  return MediaRecorder.isTypeSupported(opus) ? opus : 'audio/webm';
+  return ['audio/webm;codecs=opus', 'audio/mp4', 'audio/webm'].find((t) =>
+    MediaRecorder.isTypeSupported(t),
+  );
 }
 
 interface Pipeline {
