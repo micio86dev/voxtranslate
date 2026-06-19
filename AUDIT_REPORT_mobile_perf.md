@@ -150,3 +150,43 @@ What changed (in impact order):
   modules (WebRTC, chat, Soniox, glossary) that the landing page never exercises (causes #4/#5).
   Code-splitting those behind the call flow would push LCP under 2.5 s and the score toward 95+,
   but it is a larger, higher-risk refactor of the core call path — left as a follow-up.
+
+## Post-Split Results
+
+The follow-up above, implemented as **spec 0105** (branch `perf/0105-code-split-call-modules`):
+`app.ts` statically imported every in-call module (WebRTC, chat, Soniox, audio/PCM capture,
+whiteboard, mini-games, recording, screen-share, blur, session screen), so they all sat in the
+landing entry chunk even though the landing/lobby page never makes a call. They're now
+dynamically `import()`-ed — the core + collaborative bundle at **pre-join entry** (overlapping
+camera setup, so no perceived join latency) and the local-only features on their activation
+button. "Before" = the Post-Fix (spec 0104) baseline above.
+
+| Metric | Post-fix (0104) | Post-split (0105) | Δ |
+|---|---|---|---|
+| Performance | 93 | **~95** (92–97 across runs) | +2 |
+| LCP | 2.8 s | ~2.7 s (2.4–3.0) | −0.1 s |
+| TBT | 100 ms | **~60 ms** | −40 ms |
+| TTI / Interactive | 2.8 s | ~2.6 s | −0.2 s |
+| CLS | 0.005 | 0.005 | — |
+| **Entry chunk (gz)** | **64.8 KB** | **34.8 KB** | **−46 %** |
+| Entry chunk (raw) | 205 KB | 112 KB | −45 % |
+| Lighthouse "unused JS" | 47 KB | **26 KB** | −45 % |
+| Total page weight | 383 KiB | 353 KiB | −30 KiB |
+
+The headline win is **structural**: the entry chunk gz nearly halved and 13 in-call modules
+(`webrtc` 1.7 KB, `chat` 1 KB, `soniox` 3.3 KB, `quiz` 9.7 KB, `whiteboard` 3.8 KB,
+`composite-recorder` 2.3 KB, `session-screen` 8 KB, …) are now on-demand chunks — first-load JS
+≈ entry 34.8 KB + `content` 15 KB ≈ **50 KB gz** (was ~80 KB). The Lighthouse **score** moved
+less than the byte reduction suggests because after spec 0104 LCP is already gated by the
+HTML/CSS network render (text is server-rendered), not JS — so the JS cut shows up mainly in
+**TBT/TTI** (real interactivity) and bandwidth. Run-to-run variance on local Slow-4G is high
+(92–97); the target (95+, LCP < 2.5 s) is met on the faster runs (e.g. 97 / 2.4 s), and
+production (Cloudflare brotli + HTTP/2 + CDN) ships the smaller payload faster and more
+consistently than this local origin test.
+
+### Remaining (deferred)
+
+- ~26 KB "unused JS" left in the entry is landing/lobby/pre-join/auth code; further splitting has
+  diminishing returns and higher risk.
+- `api.ts` (29 KB) stays static — its functions are spread across features; a clean split is a
+  separate effort.
