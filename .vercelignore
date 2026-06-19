@@ -1,4 +1,17 @@
-server/
+# Keep the Rust server out of the client (Vercel) upload, EXCEPT the one file the
+# client imports at build time: spec 0102 makes server/src/engine/languages.json
+# the single source of truth for the language union (imported by
+# client/src/scripts/langmap.ts; the Rust backend embeds the same file). gitignore
+# semantics forbid re-including a file whose parent dir is excluded, so we ignore
+# each level's *contents* and re-include the path down to the file. Don't collapse
+# this back to a bare `server/` — that re-breaks the Astro build (Rollup can't
+# resolve the import) and the client deploy fails.
+server/*
+!server/src
+server/src/*
+!server/src/engine
+server/src/engine/*
+!server/src/engine/languages.json
 .claude/
 CLAUDE_CODE_PROMPT.md
 CLAUDE_CODE_PROMPT_V2.md
