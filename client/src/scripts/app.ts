@@ -372,6 +372,15 @@ function ensureSonioxManager(): SonioxManager {
         // the "translated voice" toggle (prefer local voices, minimal delay).
         if (ttsOn && speakerId !== myId) speak(text, session?.lang || 'en');
       },
+      onError: (speakerId, status, message) => {
+        // A pipeline gave up (permanent error, or transient survived all retries). Ask the
+        // server to fall this listener back to Standard translation for the rest of the call
+        // (spec 0101): it switches our receive engine, re-bills at the Standard rate, and
+        // replies with `engine_downgraded` — which is where we deactivate Soniox + notify the
+        // user. We send no toast here so there's exactly one, server-confirmed message.
+        console.warn(`[soniox] giving up on ${speakerId} (${status}: ${message})`);
+        ws?.send(JSON.stringify({ type: 'enhanced_fallback', speaker_id: speakerId }));
+      },
     });
   }
   return sonioxManager;

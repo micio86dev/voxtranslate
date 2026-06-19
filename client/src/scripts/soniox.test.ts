@@ -25,7 +25,13 @@ vi.mock('@soniox/speech-to-text-web', () => {
   return { SonioxClient: MockSonioxClient };
 });
 
-import { extractTranslation, IDLE_FLUSH_MS, SonioxManager, sttMimeType } from './soniox';
+import {
+  extractTranslation,
+  IDLE_FLUSH_MS,
+  RETRY_BACKOFF_MS,
+  SonioxManager,
+  sttMimeType,
+} from './soniox';
 import type { Token } from '@soniox/speech-to-text-web';
 
 function tok(text: string, is_final: boolean, status?: Token['translation_status']): Token {
@@ -98,9 +104,23 @@ describe('SonioxManager', () => {
   function mgr() {
     const onSubtitle = vi.fn();
     const onUtterance = vi.fn();
+    const onError = vi.fn();
     const fetchSession = vi.fn().mockResolvedValue(session);
-    const m = new SonioxManager({ fetchSession, onSubtitle, onUtterance });
-    return { m, onSubtitle, onUtterance, fetchSession };
+    const m = new SonioxManager({ fetchSession, onSubtitle, onUtterance, onError });
+    return { m, onSubtitle, onUtterance, onError, fetchSession };
+  }
+
+  /** Drive a constructed client's Soniox `onError` callback (status, message[, code]). */
+  function fail(entry: (typeof constructed)[number], status: string, message = 'err'): void {
+    (entry.opts.onError as (s: string, m: string, c?: number) => void)(status, message);
+  }
+
+  /** Start a single cross-language pipeline for `p1` and settle the async start. */
+  async function startP1(m: SonioxManager): Promise<void> {
+    m.activate('en');
+    m.setPeerLang('p1', 'it');
+    m.setPeerStream('p1', new FakeStream([{}]) as unknown as MediaStream);
+    await vi.runOnlyPendingTimersAsync();
   }
 
   it('starts a pipeline only for a cross-language speaker', async () => {
@@ -193,5 +213,71 @@ describe('SonioxManager', () => {
     await vi.runAllTimersAsync();
     expect(fetchSession).not.toHaveBeenCalled();
     expect(constructed).toHaveLength(0);
+  });
+
+  it('gives up immediately on a permanent error (no retry) and notifies onError', async () => {
+    const { m, onError } = mgr();
+    await startP1(m);
+    expect(constructed).toHaveLength(1);
+
+    fail(constructed[0], 'get_user_media_failed', 'no mic'); // permanent — retrying can't help
+    expect(constructed[0].cancel).toHaveBeenCalledTimes(1); // dead pipeline torn down
+    expect(onError).toHaveBeenCalledWith('p1', 'get_user_media_failed', 'no mic', undefined);
+
+    // No retry, ever — even past the longest backoff window.
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(constructed).toHaveLength(1);
+  });
+
+  it('retries a transient error with backoff, then recovers (no give-up)', async () => {
+    const { m, onError } = mgr();
+    await startP1(m);
+    expect(constructed).toHaveLength(1);
+
+    fail(constructed[0], 'queue_limit_exceeded', 'busy'); // the concurrency-cap case
+    expect(constructed[0].cancel).toHaveBeenCalledTimes(1);
+    expect(constructed).toHaveLength(1); // nothing yet — waiting out the 1s backoff
+    await vi.advanceTimersByTimeAsync(RETRY_BACKOFF_MS[0]);
+    expect(constructed).toHaveLength(2); // reconnected
+
+    // The retry is healthy → never reports a give-up.
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it('gives up after exhausting retries and stops relaunching the peer', async () => {
+    const { m, onError } = mgr();
+    await startP1(m);
+
+    // Fail the initial attempt and each scheduled retry.
+    for (let i = 0; i < RETRY_BACKOFF_MS.length; i++) {
+      fail(constructed[constructed.length - 1], 'websocket_error', 'reset');
+      await vi.advanceTimersByTimeAsync(RETRY_BACKOFF_MS[i]);
+    }
+    expect(constructed).toHaveLength(1 + RETRY_BACKOFF_MS.length); // initial + 3 retries
+    expect(onError).not.toHaveBeenCalled(); // still one attempt (the last retry) in flight
+
+    // The final attempt fails too → give up.
+    fail(constructed[constructed.length - 1], 'websocket_error', 'reset');
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onError).toHaveBeenCalledWith('p1', 'websocket_error', 'reset', undefined);
+
+    // reconcile() must not relaunch a given-up peer.
+    m.setPeerStream('p1', new FakeStream([{}]) as unknown as MediaStream);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(constructed).toHaveLength(1 + RETRY_BACKOFF_MS.length);
+  });
+
+  it('a source-language change clears the given-up state and retries afresh', async () => {
+    const { m, onError } = mgr();
+    await startP1(m);
+
+    fail(constructed[0], 'media_recorder_error', 'codec'); // permanent → give up
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(constructed).toHaveLength(1);
+
+    m.setPeerLang('p1', 'fr'); // new source language → eligible again
+    await vi.runOnlyPendingTimersAsync();
+    expect(constructed).toHaveLength(2);
+    expect(constructed[1].startOpts?.languageHints).toEqual(['fr', 'en']);
   });
 });
