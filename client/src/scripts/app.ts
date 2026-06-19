@@ -20,27 +20,30 @@ import {
   searchLanguages,
 } from './engines';
 import { type LangMeta, langMeta } from './langmap';
-import { SonioxManager } from './soniox';
+// In-call modules are lazy-loaded at pre-join (spec 0105) — keep only their TYPES here so the
+// landing entry chunk doesn't statically pull them in; the runtime values come from the
+// `CallModules` namespaces returned by `loadCallModules()`.
+import type { SonioxManager } from './soniox';
+import { type CallModules, loadCallModules } from './call-modules';
 import { loadRemoteI18n } from './content';
 import { icon } from './icons';
-import { MeshManager } from './webrtc';
+import type { MeshManager } from './webrtc';
 import { resolvePeerId } from './peer-id';
-import { AudioCapture } from './audio-capture';
-import { PcmCapture } from './pcm-capture';
+import type { AudioCapture } from './audio-capture';
+import type { PcmCapture } from './pcm-capture';
 import { pcmPlayback } from './pcm-playback';
-import { MicMeter } from './mic-meter';
-import { ChatManager, type ChatPayload } from './chat';
+import type { MicMeter } from './mic-meter';
+import type { ChatManager, ChatPayload } from './chat';
 import { CHAT_MAX_HEIGHT, counterLabel, counterState, insertAt, resizeBox } from './chat-input';
 import { checkUploadFile, fetchSonioxSession, fileUploadEnabled, generateAiQuiz, saveQuizHistory, sendInvites, uploadChatFile } from './api';
 import { buildInviteLink, MAX_INVITE_EMAILS, parseRoomParam, validateInviteEmails } from './invite';
 import * as auth from './auth';
-import { openSessionScreen } from './session-screen';
 import { initBookmarks, setBookmarkSession } from './bookmarks';
 import { initBugReport } from './bug-report';
 import { initGlossary, onGlossaryActive, refreshGlossaryHome, setGlossaryRoom } from './glossary';
-import { Whiteboard, type WbTool, type WbWidth } from './whiteboard';
-import { TicTacToe } from './tictactoe';
-import { Quiz } from './quiz';
+import type { Whiteboard, WbTool, WbWidth } from './whiteboard';
+import type { TicTacToe } from './tictactoe';
+import type { Quiz } from './quiz';
 import { CallTimer, spokenDuration, formatClock } from './timer';
 import { dismissLangToast, initLangDetect, onLanguageDetected } from './lang-detect';
 import { initNetStatus, setNetworkDegraded } from './net-status';
@@ -56,9 +59,11 @@ import {
   playTimerSetSound,
 } from './sfx';
 import { RateLimiter } from './reaction-rate-limit';
-import { VirtualBackground } from './virtual-background';
-import { ScreenSharePip } from './screenshare-pip';
-import { CompositeRecorder } from './recording/composite-recorder';
+// Local-only call features — split into their own chunks, dynamically imported on the button
+// that activates each (spec 0105); only their types are needed here.
+import type { VirtualBackground } from './virtual-background';
+import type { ScreenSharePip } from './screenshare-pip';
+import type { CompositeRecorder } from './recording/composite-recorder';
 import { formatElapsed, isRecordingSupported, recordingFilename } from './recording/utils';
 import type { ParticipantSource } from './recording/types';
 
@@ -251,47 +256,74 @@ let localStream: MediaStream | null = null;
 let ws: WebSocket | null = null;
 let mesh: MeshManager | null = null;
 
-// Collaborative whiteboard (spec 0045 → advanced in 0062): ops relay over the same
-// WS; onPagesChanged repaints the page strip (multi-page, #96).
+// Collaborative whiteboard (spec 0045 → advanced in 0062) + mini-games (0046–0048): ops/state
+// relay over the same WS. These are COLLABORATIVE — a remote peer can start them — so they are
+// constructed once when the lazy call modules load at pre-join (spec 0105), NOT on a local
+// button click; otherwise a remote op arriving before the local user opened the feature would
+// have nothing to render. Definite-assignment holders: every use is in-call, after construction.
 const wbOverlay = $('whiteboard');
-const whiteboard = new Whiteboard(
-  $<HTMLCanvasElement>('wb-canvas'),
-  (op) => ws?.send(JSON.stringify({ type: 'whiteboard', op })),
-  (count, index) => renderWbPages(count, index),
-);
+let whiteboard!: Whiteboard;
 
 // Mini-games (spec 0046/0047): state relays over the same WS `game` channel.
 const gameName = (id: string): string =>
   id === myId ? session?.name || t('you') : peerNames.get(id)?.name || '';
 const sendGame = (state: unknown): void => ws?.send(JSON.stringify({ type: 'game', state }));
 const minigameEl = $('minigame');
-// peers() feeds seat assignment + spectator rotation (spec 0070 S3): self first,
-// then peers in their join order.
-const tictactoe = new TicTacToe(minigameEl, myId, gameName, sendGame, t, () => [
-  myId,
-  ...peerNames.keys(),
-]);
+let tictactoe!: TicTacToe;
 const quizEl = $('quiz');
-// Each client renders the quiz in its own language (spec 0048). The modal callback
-// opens the quiz for EVERY participant when one starts, and closes it on cancel,
-// with a toast (spec 0070 R4.1/R4.3).
-const quiz = new Quiz(
-  quizEl,
-  myId,
-  gameName,
-  () => session?.lang || 'en',
-  sendGame,
-  t,
-  (open) => {
-    toggleQuiz(open);
-    if (!open) toast(t('quizCancelled'));
-  },
-  // Host-only: persist the finished quiz + scores for the session history (#221).
-  // Best-effort; needs a recorded session (activeSessionId) + an authed host.
-  (summary) => {
-    if (activeSessionId) void saveQuizHistory(activeSessionId, summary);
-  },
-);
+let quiz!: Quiz;
+
+// Construct the collaborative features from the lazily-loaded call modules. Called once via
+// `ensureCallModules()` (guarded by `callFeaturesInited`) the first time we enter pre-join.
+function initCallFeatures(m: CallModules): void {
+  whiteboard = new m.whiteboard.Whiteboard(
+    $<HTMLCanvasElement>('wb-canvas'),
+    (op) => ws?.send(JSON.stringify({ type: 'whiteboard', op })),
+    (count, index) => renderWbPages(count, index),
+  );
+  // peers() feeds seat assignment + spectator rotation (spec 0070 S3): self first,
+  // then peers in their join order.
+  tictactoe = new m.tictactoe.TicTacToe(minigameEl, myId, gameName, sendGame, t, () => [
+    myId,
+    ...peerNames.keys(),
+  ]);
+  // Each client renders the quiz in its own language (spec 0048). The modal callback
+  // opens the quiz for EVERY participant when one starts, and closes it on cancel,
+  // with a toast (spec 0070 R4.1/R4.3).
+  quiz = new m.quiz.Quiz(
+    quizEl,
+    myId,
+    gameName,
+    () => session?.lang || 'en',
+    sendGame,
+    t,
+    (open) => {
+      toggleQuiz(open);
+      if (!open) toast(t('quizCancelled'));
+    },
+    // Host-only: persist the finished quiz + scores for the session history (#221).
+    // Best-effort; needs a recorded session (activeSessionId) + an authed host.
+    (summary) => {
+      if (activeSessionId) void saveQuizHistory(activeSessionId, summary);
+    },
+  );
+}
+
+// The lazily-loaded in-call module namespaces (spec 0105). Non-null for the whole call: warmed
+// at pre-join and awaited at join, so every in-call construction site reads it via `callMods!`.
+let callMods: CallModules | null = null;
+let callFeaturesInited = false;
+/** Ensure the in-call modules are loaded and the collaborative features constructed. Warm this
+ *  at pre-join (download overlaps camera setup); await it at join. Cached — one fetch per page. */
+async function ensureCallModules(): Promise<CallModules> {
+  const m = await loadCallModules();
+  callMods = m;
+  if (!callFeaturesInited) {
+    initCallFeatures(m);
+    callFeaturesInited = true;
+  }
+  return m;
+}
 
 // Voice-command countdown timer (spec 0052): started from your own Deepgram
 // transcript ("imposta timer di 10 minuti") or the manual popover. Local-only —
@@ -323,7 +355,7 @@ let audioCapture: AudioCapture | PcmCapture | null = null;
 let sonioxManager: SonioxManager | null = null;
 function ensureSonioxManager(): SonioxManager {
   if (!sonioxManager) {
-    sonioxManager = new SonioxManager({
+    sonioxManager = new callMods!.soniox.SonioxManager({
       // v1 spoken translation reuses the on-device voice (onUtterance → speak), so we
       // request STT only (no Soniox TTS key) — lowest latency, within the TTS cap.
       fetchSession: async () => {
@@ -351,7 +383,7 @@ function syncSonioxForCall(): void {
     auth.isLoggedIn() &&
     auth.isListenerPays() &&
     engineIsClientDirect(session?.engine, availableEngines) &&
-    SonioxManager.supported;
+    callMods!.soniox.SonioxManager.supported;
   if (enabled) ensureSonioxManager().activate(session?.lang || 'en');
   else sonioxManager?.deactivate();
 }
@@ -374,7 +406,9 @@ function applyCaptureFormat(pcm: boolean) {
   if (!ws || !localStream) return;
   const wasActive = micOn && !!audioCapture;
   audioCapture?.stop();
-  audioCapture = pcm ? new PcmCapture(localStream, ws) : new AudioCapture(localStream, ws);
+  audioCapture = pcm
+    ? new callMods!.pcmCapture.PcmCapture(localStream, ws)
+    : new callMods!.audioCapture.AudioCapture(localStream, ws);
   if (wasActive) audioCapture.start();
 }
 let micMeter: MicMeter | null = null; // mic-button voice halo (input working)
@@ -1099,6 +1133,10 @@ async function goPrejoin(room: string, isPublic: boolean): Promise<void> {
   // Remember what was actually used to join, so it's pre-filled next time (guests too).
   writeCache(NAME_CACHE_KEY, session.name);
   writeCache(LANG_CACHE_KEY, session.lang);
+  // Warm the lazy in-call modules (spec 0105) now, so the chunk downloads while the camera and
+  // devices initialise — by the time the user clicks join, `startCall` awaits an already-settled
+  // promise. Errors are swallowed here; startCall re-awaits and surfaces a real failure.
+  void ensureCallModules().catch(() => {});
   stopLobby();
   homeScreen.classList.add('hidden');
   prejoinScreen.classList.remove('hidden');
@@ -1298,6 +1336,16 @@ async function fetchIceServers(): Promise<RTCIceServer[] | undefined> {
 
 async function startCall(): Promise<void> {
   if (!session || !localStream) return;
+  // The in-call modules (warmed at pre-join, usually already settled) must be present before we
+  // show the call UI. On failure — e.g. the chunk couldn't be fetched offline — stay on pre-join
+  // and surface an error instead of entering a broken call (spec 0105).
+  try {
+    await ensureCallModules();
+  } catch {
+    prejoinStatus.textContent = t('loadFailed');
+    prejoinStatus.classList.add('error');
+    return;
+  }
   prejoinScreen.classList.add('hidden');
   callScreen.classList.remove('hidden');
   callRoom.textContent = session.room;
@@ -1329,7 +1377,7 @@ async function startCall(): Promise<void> {
   // sound (muted track → silence → halo off). Join click = user gesture, so
   // the AudioContext is allowed to start.
   if (localStream.getAudioTracks().length > 0) {
-    micMeter = new MicMeter(localStream, (level) =>
+    micMeter = new callMods!.micMeter.MicMeter(localStream, (level) =>
       btnMic.style.setProperty('--mic-level', level.toFixed(3)),
     );
   }
@@ -1354,7 +1402,7 @@ function openSocket(): void {
     // stale RTCPeerConnections + stats timer don't leak, then rebuild from the
     // fresh room_joined/peer_joined the server sends on (re)join.
     mesh?.destroy();
-    mesh = new MeshManager(
+    mesh = new callMods!.webrtc.MeshManager(
       localStream!,
       (sig) => ws?.send(JSON.stringify(sig)),
       iceServers,
@@ -1398,14 +1446,16 @@ function openSocket(): void {
     // still defeats the stale-format bug (#267): ws.onopen recomputes the guess on
     // every (re)connect, so no value survives across a leave→change-plan→rejoin.
     serverCaptureFormat = guessPcm ? 'pcm' : 'webm';
-    audioCapture = guessPcm ? new PcmCapture(localStream!, ws!) : new AudioCapture(localStream!, ws!);
+    audioCapture = guessPcm
+      ? new callMods!.pcmCapture.PcmCapture(localStream!, ws!)
+      : new callMods!.audioCapture.AudioCapture(localStream!, ws!);
     if (micOn) audioCapture.start();
 
     // Tell peers if we joined already muted / camera-off so their UI matches.
     if (!micOn) ws?.send(JSON.stringify({ type: 'mute_audio', muted: true }));
     if (!camOn) ws?.send(JSON.stringify({ type: 'mute_video', muted: true }));
 
-    chat = new ChatManager({ myLang: session!.lang, myId, container: chatMessages, ws: ws! });
+    chat = new callMods!.chat.ChatManager({ myLang: session!.lang, myId, container: chatMessages, ws: ws! });
     chat.onUnread = (n) => {
       chatBadge.textContent = String(n);
       chatBadge.hidden = n === 0;
@@ -1610,8 +1660,8 @@ async function handleServer(msg: any): Promise<void> {
           audioCapture?.stop();
           if (ws && localStream) {
             audioCapture = engineNeedsPcm(msg.to, availableEngines)
-              ? new PcmCapture(localStream, ws)
-              : new AudioCapture(localStream, ws);
+              ? new callMods!.pcmCapture.PcmCapture(localStream, ws)
+              : new callMods!.audioCapture.AudioCapture(localStream, ws);
             if (wasActive) audioCapture.start();
           }
           showNotif(t(msg.reason === 'premium_at_capacity' ? 'enginePremiumBusy' : 'enginePremiumPaused'));
@@ -2686,6 +2736,8 @@ async function buildOutgoing(raw: MediaStreamTrack): Promise<MediaStreamTrack> {
     if (vbg) { vbg.stop(); vbg = null; }
     return raw;
   }
+  // Lazy chunk (spec 0105): the segmentation model + its module load only when blur is used.
+  const { VirtualBackground } = await import('./virtual-background');
   const instance = vbg ?? (vbg = new VirtualBackground());
   const track = await instance.start(raw);
   // disableCamera / leaveCall may have torn us down during the model load.
@@ -2992,6 +3044,7 @@ async function startScreenShare(): Promise<void> {
     // the camera off / audio-only it's just the screen — no PiP. The always-present
     // video transceiver means this reaches peers even when we joined without a
     // camera, and replaceTrack keeps the mesh free of renegotiation.
+    const { ScreenSharePip } = await import('./screenshare-pip'); // lazy chunk (spec 0105)
     screenPip = new ScreenSharePip(s);
     screenPip.setCamera(camOn ? (localStream?.getVideoTracks()[0] ?? null) : null);
     const composite = screenPip.start();
@@ -3107,7 +3160,7 @@ btnRecord.addEventListener('click', () => {
   if (isRecording) {
     void stopRecording();
   } else {
-    startRecording();
+    void startRecording();
   }
 });
 
@@ -3165,7 +3218,17 @@ function recorderSources(): ParticipantSource[] {
   return sources;
 }
 
-function startRecording(): void {
+async function startRecording(): Promise<void> {
+  if (recorder || !localStream) return;
+  // Lazy chunk (spec 0105): the canvas compositor + audio mixer + encoder load only on record.
+  let CompositeRecorder: typeof import('./recording/composite-recorder').CompositeRecorder;
+  try {
+    ({ CompositeRecorder } = await import('./recording/composite-recorder'));
+  } catch {
+    showNotif(t('loadFailed'));
+    return;
+  }
+  // The chunk load is async — bail if a concurrent click or call-end intervened.
   if (recorder || !localStream) return;
   recorder = new CompositeRecorder({
     sources: recorderSources(),
@@ -3957,13 +4020,16 @@ async function renderTranscriptRows(): Promise<void> {
     open.textContent = t('openBtn');
     open.addEventListener('click', () => {
       show(buyModal, false);
-      openSessionScreen({
-        id: s.id,
-        room: s.room,
-        started_at: s.started_at,
-        ended_at: s.ended_at,
-        event_count: s.event_count,
-      });
+      // Lazy chunk (spec 0105): the session detail screen loads on open.
+      void import('./session-screen').then(({ openSessionScreen }) =>
+        openSessionScreen({
+          id: s.id,
+          room: s.room,
+          started_at: s.started_at,
+          ended_at: s.ended_at,
+          event_count: s.event_count,
+        }),
+      );
     });
     actions.appendChild(open);
     for (const format of ['pdf', 'json'] as const) {
@@ -4003,13 +4069,16 @@ function openPostCallModal(ended: {
   // the modal below stays as the minimal fallback path.
   if (auth.isLoggedIn()) {
     const now = Date.now();
-    openSessionScreen({
-      id: ended.id,
-      room: ended.room,
-      started_at: new Date(now - ended.durationMs).toISOString(),
-      ended_at: new Date(now).toISOString(),
-      event_count: ended.events,
-    });
+    // Lazy chunk (spec 0105): the session detail screen loads on open.
+    void import('./session-screen').then(({ openSessionScreen }) =>
+      openSessionScreen({
+        id: ended.id,
+        room: ended.room,
+        started_at: new Date(now - ended.durationMs).toISOString(),
+        ended_at: new Date(now).toISOString(),
+        event_count: ended.events,
+      }),
+    );
     return;
   }
   postCallSessionId = ended.id;
