@@ -62,16 +62,23 @@ describe('sttMimeType', () => {
   afterEach(() => {
     delete (globalThis as { MediaRecorder?: unknown }).MediaRecorder;
   });
+  const stub = (isTypeSupported: (t: string) => boolean) => {
+    (globalThis as { MediaRecorder?: unknown }).MediaRecorder = { isTypeSupported };
+  };
   it('returns undefined when MediaRecorder is unavailable (e.g. node env)', () => {
     expect(sttMimeType()).toBeUndefined();
   });
-  it('prefers webm/opus when supported', () => {
-    (globalThis as { MediaRecorder?: unknown }).MediaRecorder = { isTypeSupported: () => true };
+  it('prefers webm/opus when supported (Chrome/Android/Firefox — unchanged)', () => {
+    stub(() => true);
     expect(sttMimeType()).toBe('audio/webm;codecs=opus');
   });
-  it('falls back to audio/webm when opus is unsupported', () => {
-    (globalThis as { MediaRecorder?: unknown }).MediaRecorder = { isTypeSupported: () => false };
-    expect(sttMimeType()).toBe('audio/webm');
+  it('uses mp4 on Safari/WebKit (no WebM in MediaRecorder, only mp4)', () => {
+    stub((t) => t === 'audio/mp4');
+    expect(sttMimeType()).toBe('audio/mp4');
+  });
+  it('returns undefined when no candidate is supported (SDK keeps its default)', () => {
+    stub(() => false);
+    expect(sttMimeType()).toBeUndefined();
   });
 });
 
