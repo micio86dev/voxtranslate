@@ -44,7 +44,6 @@ export class AudioCapture {
     this.recorder.ondataavailable = (e) => {
       if (e.data.size > 0 && this.ws.readyState === WebSocket.OPEN) this.ws.send(e.data);
     };
-    this.recorder.onstop = () => this.sendControl('stop');
 
     this.sendControl('start'); // open Deepgram before audio flows
     this.recorder.start(CHUNK_MS);
@@ -52,34 +51,37 @@ export class AudioCapture {
   }
 
   stop(): void {
+    const wasActive = this.active;
     this.active = false;
-    if (this.recorder && this.recorder.state !== 'inactive') {
-      this.recorder.stop(); // triggers onstop → sends 'stop'
+    const rec = this.recorder;
+    this.recorder = null;
+    if (rec) {
+      // Detach the data handler so the recorder's trailing chunk (flushed
+      // asynchronously by `stop()`) can't reach the socket after our 'stop' frame
+      // and pollute or reopen the next session's stream.
+      rec.ondataavailable = null;
+      if (rec.state !== 'inactive') rec.stop();
     }
+    // Emit 'stop' SYNCHRONOUSLY (parity with PcmCapture). MediaRecorder's own
+    // `onstop` is async, so the previous design let a following `start()`'s 'start'
+    // frame overtake this 'stop' on the wire — e.g. in `applyCaptureFormat`'s
+    // capture swap the server then opened the new Deepgram session and immediately
+    // closed it, so a Standard/Enhanced speaker transmitted NOTHING until a manual
+    // mic toggle. Deterministic ordering ('stop' before any later 'start') fixes it.
+    if (wasActive) this.sendControl('stop');
   }
 
   /**
    * Stop the current capture and immediately begin a fresh one (spec 0012:
-   * after a language change the server opens a new Deepgram stream, which
-   * needs a header-bearing first WebM chunk — only a new MediaRecorder
-   * produces that).
+   * after a language change the server opens a new Deepgram stream, which needs a
+   * header-bearing first WebM chunk — only a new MediaRecorder produces that).
    *
-   * MediaRecorder's `onstop` fires asynchronously, so a naive `stop(); start()`
-   * would put the 'start' control frame on the wire BEFORE the old session's
-   * 'stop', killing the new session. Chain the restart inside `onstop` instead.
+   * Now that `stop()` emits its 'stop' frame synchronously, a plain stop→start is
+   * already correctly ordered on the wire, so there's no need to chain via `onstop`.
    */
   restart(): void {
-    const old = this.recorder;
-    this.active = false;
-    if (old && old.state !== 'inactive') {
-      old.onstop = () => {
-        this.sendControl('stop');
-        this.start();
-      };
-      old.stop();
-    } else {
-      this.start();
-    }
+    this.stop();
+    this.start();
   }
 
   /** Mute = stop sending audio to STT; unmute = resume. */

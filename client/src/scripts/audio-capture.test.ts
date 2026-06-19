@@ -84,6 +84,37 @@ describe('AudioCapture', () => {
     ac2.setStream(fakeStream());
   });
 
+  it('emits stop synchronously and drops the trailing chunk (race-free swap)', () => {
+    const ws = fakeWs();
+    const ac = new AudioCapture(fakeStream(), ws);
+    ac.start();
+    const rec = lastRecorder;
+    ac.stop();
+    // 'start' then 'stop', both before stop() returned (no async onstop) — so a
+    // capture swap's following start() can never overtake this 'stop' on the wire.
+    const frames = ws.send.mock.calls
+      .map((c: any[]) => c[0])
+      .filter((x: any) => typeof x === 'string');
+    expect(frames).toEqual([JSON.stringify({ type: 'start' }), JSON.stringify({ type: 'stop' })]);
+    // A late chunk from the stopped recorder must not reach the socket.
+    const before = ws.send.mock.calls.length;
+    rec.ondataavailable?.({ data: { size: 99 } });
+    expect(ws.send.mock.calls.length).toBe(before);
+  });
+
+  it('restart() puts stop before start on the wire', () => {
+    const ws = fakeWs();
+    const ac = new AudioCapture(fakeStream(), ws);
+    ac.start();
+    ws.send.mockClear();
+    ac.restart();
+    const frames = ws.send.mock.calls
+      .map((c: any[]) => c[0])
+      .filter((x: any) => typeof x === 'string');
+    expect(frames).toEqual([JSON.stringify({ type: 'stop' }), JSON.stringify({ type: 'start' })]);
+    expect(lastRecorder.state).toBe('recording');
+  });
+
   it('does not send control when the socket is closed', () => {
     const ws = fakeWs(false);
     const ac = new AudioCapture(fakeStream(), ws);

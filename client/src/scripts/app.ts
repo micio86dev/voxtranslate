@@ -1362,16 +1362,22 @@ function openSocket(): void {
     // the speaker sends WebM while the server reads linear16, so listeners get no
     // translation until a reload. The server re-sends `capture_format` on (re)join, which
     // now applies cleanly against the null flag.
-    serverCaptureFormat = null;
     // Speech-to-speech engines (OpenAI, Gemini) capture raw PCM16/24k; Standard
     // streams WebM/Opus for Deepgram. Decide by the engine's `translated_audio`
     // capability — keying on `id === 'premium'` missed the Gemini engine (id
     // `gemini_live_translate`), which then sent WebM that its PCM session read as
     // noise: no transcript, no translated voice. (In listener-pays mode this is just
     // the initial guess; `capture_format` then dictates the real format.)
-    audioCapture = engineNeedsPcm(session?.engine, availableEngines)
-      ? new PcmCapture(localStream!, ws!)
-      : new AudioCapture(localStream!, ws!);
+    const guessPcm = engineNeedsPcm(session?.engine, availableEngines);
+    // Seed the listener-pays format with THIS guess (not null), so the server's
+    // first `capture_format` only swaps captures when it genuinely differs (e.g. a
+    // Premium listener forces PCM on a Standard speaker). Resetting to null made
+    // every join swap once, and that swap raced the control frames — killing a
+    // Standard/Enhanced speaker's Deepgram session until a manual mic toggle. This
+    // still defeats the stale-format bug (#267): ws.onopen recomputes the guess on
+    // every (re)connect, so no value survives across a leave→change-plan→rejoin.
+    serverCaptureFormat = guessPcm ? 'pcm' : 'webm';
+    audioCapture = guessPcm ? new PcmCapture(localStream!, ws!) : new AudioCapture(localStream!, ws!);
     if (micOn) audioCapture.start();
 
     // Tell peers if we joined already muted / camera-off so their UI matches.
