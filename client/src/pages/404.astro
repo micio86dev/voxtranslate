@@ -99,7 +99,9 @@ import Base from '../layouts/Base.astro';
       display: inline-block;
       padding: 12px 24px;
       border-radius: 999px;
-      background: var(--accent);
+      /* Not var(--accent) (#3b82f6): white label on it is only 3.67:1 and fails
+         WCAG AA. Darker blue-600 clears 4.5:1 (5.17:1) without restyling the page. */
+      background: #2563eb;
       color: #fff;
       font-weight: 600;
       text-decoration: none;
@@ -108,7 +110,7 @@ import Base from '../layouts/Base.astro';
     }
     .nf-btn:hover {
       transform: translateY(-2px);
-      background: #2f74e0;
+      background: #1d4ed8;
       box-shadow: 0 12px 30px rgba(59, 130, 246, 0.42);
     }
     .nf-btn:active { transform: translateY(0); }
