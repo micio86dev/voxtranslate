@@ -54,6 +54,8 @@ const appleSplash: [number, number, number][] = [
 
     <!-- Resource hints (kept early so connections warm during parse). -->
     {apiOrigin && <link rel="preconnect" href={apiOrigin} crossorigin />}
+    {/* dns-prefetch fallback for browsers that skip a crossorigin preconnect (spec 0104). */}
+    {apiOrigin && <link rel="dns-prefetch" href={apiOrigin} />}
     <!-- Google Sign-In is lazy-loaded on the login screen (the fresh-visitor
          landing in billing mode); a DNS hint trims its connection setup without
          the waste of a full preconnect on the signed-in (home) path. -->
@@ -85,8 +87,11 @@ const appleSplash: [number, number, number][] = [
     <!-- PWA -->
     <link rel="manifest" href="/manifest.webmanifest" />
     <meta name="theme-color" content="#0871ab" />
-    <link rel="icon" type="image/png" href="/icon.png" />
-    <link rel="apple-touch-icon" href="/icon.png" />
+    <!-- Tiny dedicated favicon (~2 KB) — the browser pulls rel=icon on every load, so it must
+         NOT be the 238 KB social image. The large icon.png stays for og:image/twitter:image
+         (off the critical path). apple-touch-icon is iOS home-screen only. (spec 0104) -->
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     {/* Per-device iOS splash screens (see appleSplash above). */}
     {
       appleSplash.map(([dw, dh, dpr]) => {

@@ -1,5 +1,10 @@
 ---
 import Base from '../layouts/Base.astro';
+import en from '../scripts/i18n/en.json';
+// Server-render the English default for every data-i18n* slot so the page paints real text at
+// FCP (no empty placeholders → better LCP/CLS, spec 0104). applyI18n() still localizes on the
+// client when the active locale differs. Single source of truth: en.json (no drift).
+const T = (k: string): string => (en as Record<string, string>)[k] ?? '';
 
 const LANGS = [
   { code: 'it', name: 'Italiano' },
@@ -42,8 +47,8 @@ const jsonLd = {
     <section id="login" class="screen hidden">
       <div class="login-card card">
         <h1 class="brand">Vox<span>Translate</span></h1>
-        <p class="tagline" data-i18n="tagline"></p>
-        <p class="login-sub" data-i18n="loginSub"></p>
+        <p class="tagline" data-i18n="tagline">{T('tagline')}</p>
+        <p class="login-sub" data-i18n="loginSub">{T('loginSub')}</p>
         <!-- Custom Google-branded button (spec 0087): looks like the official
              "Sign in with Google" button but opens Google's NATIVE account chooser
              (FedCM) on click, so there's no white personalized card. If the native
@@ -59,16 +64,16 @@ const jsonLd = {
                 <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
               </svg>
             </span>
-            <span class="gsi-btn-label" data-i18n="continueGoogle"></span>
+            <span class="gsi-btn-label" data-i18n="continueGoogle">{T('continueGoogle')}</span>
           </button>
           <div id="gsi-official" class="gsi-official"></div>
         </div>
-        <div class="login-or"><span data-i18n="orText"></span></div>
-        <button id="guest-btn" class="btn-ghost guest-btn" data-i18n="continueGuest"></button>
+        <div class="login-or"><span data-i18n="orText">{T('orText')}</span></div>
+        <button id="guest-btn" class="btn-ghost guest-btn" data-i18n="continueGuest">{T('continueGuest')}</button>
         <p class="legal-footer">
-          <a href="/terms" target="_blank" data-i18n="terms"></a>
-          <a href="/privacy" target="_blank" data-i18n="privacy"></a>
-          <a href="/acceptable-use" target="_blank" data-i18n="acceptableUse"></a>
+          <a href="/terms" target="_blank" data-i18n="terms">{T('terms')}</a>
+          <a href="/privacy" target="_blank" data-i18n="privacy">{T('privacy')}</a>
+          <a href="/acceptable-use" target="_blank" data-i18n="acceptableUse">{T('acceptableUse')}</a>
         </p>
       </div>
     </section>
@@ -77,38 +82,38 @@ const jsonLd = {
     <section id="home" class="screen">
       <header class="home-header">
         <h1 class="brand">Vox<span>Translate</span></h1>
-        <p class="tagline" data-i18n="tagline"></p>
+        <p class="tagline" data-i18n="tagline">{T('tagline')}</p>
         <div id="account-bar" class="account-bar hidden">
           <img id="account-avatar" class="account-avatar" alt="" referrerpolicy="no-referrer" />
           <div class="account-info">
             <span id="account-name" class="account-name"></span>
             <span id="account-balance" class="account-balance"></span>
           </div>
-          <button id="buy-btn" class="btn-ghost" data-i18n="buyCredits"></button>
-          <button id="privacy-open" class="btn-ghost icon-btn" data-i18n-title="privacyData" aria-label="Privacy"></button>
-          <button id="logout-btn" class="btn-ghost icon-btn" data-i18n-title="logout" aria-label="Logout"></button>
+          <button id="buy-btn" class="btn-ghost" data-i18n="buyCredits">{T('buyCredits')}</button>
+          <button id="privacy-open" class="btn-ghost icon-btn" data-i18n-title="privacyData" title={T('privacyData')} aria-label="Privacy"></button>
+          <button id="logout-btn" class="btn-ghost icon-btn" data-i18n-title="logout" title={T('logout')} aria-label="Logout"></button>
         </div>
         <!-- Guests have no account bar, so this is their only way back to the login
              screen (spec 0037). Sits where the account bar would be for parity. -->
         <div id="guest-bar" class="guest-bar hidden">
           <div class="guest-bar-copy">
-            <span class="guest-bar-title" data-i18n="guestBarTitle"></span>
-            <span class="guest-bar-sub" data-i18n="guestBarSub"></span>
+            <span class="guest-bar-title" data-i18n="guestBarTitle">{T('guestBarTitle')}</span>
+            <span class="guest-bar-sub" data-i18n="guestBarSub">{T('guestBarSub')}</span>
           </div>
-          <button id="guest-signin-btn" class="guest-signin" data-i18n="signIn"></button>
+          <button id="guest-signin-btn" class="guest-signin" data-i18n="signIn">{T('signIn')}</button>
         </div>
       </header>
       <div class="home-body">
         <div class="card">
           <div class="field-row">
             <label class="field grow">
-              <span class="field-label" data-i18n="nameLabel"></span>
-              <input id="name" type="text" maxlength="24" autocomplete="off" data-i18n-ph="namePlaceholder" />
+              <span class="field-label" data-i18n="nameLabel">{T('nameLabel')}</span>
+              <input id="name" type="text" maxlength="24" autocomplete="off" data-i18n-ph="namePlaceholder" placeholder={T('namePlaceholder')} />
             </label>
             <label class="field grow" id="lang-field">
-              <span class="field-label" data-i18n="langLabel"></span>
+              <span class="field-label" data-i18n="langLabel">{T('langLabel')}</span>
               <select id="lang">
-                <option value="auto" data-i18n="langAuto"></option>
+                <option value="auto" data-i18n="langAuto">{T('langAuto')}</option>
                 {LANGS.map((l) => <option value={l.code}>{l.name}</option>)}
               </select>
             </label>
@@ -116,8 +121,8 @@ const jsonLd = {
           <!-- Translation-engine selector (spec 0093): rendered by app.ts from
                /api/engines; stays hidden when only one engine is available. -->
           <div class="field" id="engine-field" hidden>
-            <span class="field-label" data-i18n="engineLabel"></span>
-            <div id="engine-options" class="engine-options" role="radiogroup" data-i18n-label="engineLabel"></div>
+            <span class="field-label" data-i18n="engineLabel">{T('engineLabel')}</span>
+            <div id="engine-options" class="engine-options" role="radiogroup" data-i18n-label="engineLabel" aria-label={T('engineLabel')}></div>
           </div>
           <!-- Language-first picker (spec 0102): rendered by app.ts when LANGUAGE_FIRST_UX
                is on. Replaces the legacy language <select> + engine selector above — pick a
@@ -125,54 +130,54 @@ const jsonLd = {
                The hidden #lang <select> stays the canonical value holder (join payload + UI
                language), so the picker just drives it. -->
           <div class="field" id="langfirst-field" hidden>
-            <span class="field-label" data-i18n="langLabel"></span>
-            <button id="lang-trigger" type="button" class="lang-trigger" aria-haspopup="listbox" aria-expanded="false" data-i18n-label="langLabel">
+            <span class="field-label" data-i18n="langLabel">{T('langLabel')}</span>
+            <button id="lang-trigger" type="button" class="lang-trigger" aria-haspopup="listbox" aria-expanded="false" data-i18n-label="langLabel" aria-label={T('langLabel')}>
               <span class="lang-trigger-flag" id="lang-trigger-flag" aria-hidden="true"></span>
               <span class="lang-trigger-text" id="lang-trigger-text"></span>
               <span class="lang-trigger-chevron" aria-hidden="true">▾</span>
             </button>
             <div id="lang-panel" class="lang-panel" role="listbox" hidden>
               <div class="lang-panel-search">
-                <input id="lang-search" type="text" autocomplete="off" spellcheck="false" data-i18n-ph="langSearchPlaceholder" data-i18n-label="langSearchPlaceholder" />
+                <input id="lang-search" type="text" autocomplete="off" spellcheck="false" data-i18n-ph="langSearchPlaceholder" placeholder={T('langSearchPlaceholder')} data-i18n-label="langSearchPlaceholder" aria-label={T('langSearchPlaceholder')} />
               </div>
               <div id="lang-panel-list" class="lang-panel-list"></div>
-              <p id="lang-panel-empty" class="lang-panel-empty" data-i18n="langSearchEmpty" hidden></p>
+              <p id="lang-panel-empty" class="lang-panel-empty" data-i18n="langSearchEmpty" hidden>{T('langSearchEmpty')}</p>
             </div>
             <!-- Tier cards for the chosen language (cheapest pre-selected). -->
             <div class="field" id="tier-field" hidden>
-              <span class="field-label" data-i18n="engineLabel"></span>
-              <div id="tier-options" class="engine-options" role="radiogroup" data-i18n-label="engineLabel"></div>
+              <span class="field-label" data-i18n="engineLabel">{T('engineLabel')}</span>
+              <div id="tier-options" class="engine-options" role="radiogroup" data-i18n-label="engineLabel" aria-label={T('engineLabel')}></div>
               <p id="tier-note" class="tier-note" hidden></p>
             </div>
           </div>
         </div>
 
         <div class="card">
-          <span class="card-title" data-i18n="createOrJoin"></span>
+          <span class="card-title" data-i18n="createOrJoin">{T('createOrJoin')}</span>
           <label class="field">
-            <span class="field-label" data-i18n="roomCode"></span>
+            <span class="field-label" data-i18n="roomCode">{T('roomCode')}</span>
             <div class="room-row">
               <input id="room" type="text" autocomplete="off" spellcheck="false" />
-              <button id="dice" class="btn-ghost icon-btn" data-i18n-title="diceTip"></button>
-              <button id="btn-glossary-home" class="btn-ghost icon-btn" data-i18n-title="glossaryTip" data-i18n-label="glossaryTip" hidden></button>
+              <button id="dice" class="btn-ghost icon-btn" data-i18n-title="diceTip" title={T('diceTip')} aria-label={T('diceTip')}></button>
+              <button id="btn-glossary-home" class="btn-ghost icon-btn" data-i18n-title="glossaryTip" title={T('glossaryTip')} data-i18n-label="glossaryTip" aria-label={T('glossaryTip')} hidden></button>
             </div>
           </label>
           <div class="field">
-            <span class="field-label" data-i18n="visibility"></span>
-            <div class="seg" id="vis-group" role="group" data-i18n-label="visibility">
-              <button type="button" class="seg-btn active" data-vis="public" aria-pressed="true" data-i18n="public"></button>
-              <button type="button" class="seg-btn" data-vis="private" aria-pressed="false" data-i18n="private"></button>
+            <span class="field-label" data-i18n="visibility">{T('visibility')}</span>
+            <div class="seg" id="vis-group" role="group" data-i18n-label="visibility" aria-label={T('visibility')}>
+              <button type="button" class="seg-btn active" data-vis="public" aria-pressed="true" data-i18n="public">{T('public')}</button>
+              <button type="button" class="seg-btn" data-vis="private" aria-pressed="false" data-i18n="private">{T('private')}</button>
             </div>
             <span class="hint" id="vis-hint"></span>
           </div>
-          <button id="enter" class="btn-primary" data-i18n="connect"></button>
+          <button id="enter" class="btn-primary" data-i18n="connect">{T('connect')}</button>
           <p id="home-status" class="status-line" role="status"></p>
         </div>
 
         <div class="card">
           <div class="card-title-row">
-            <span class="card-title" data-i18n="publicRooms"></span>
-            <button id="refresh" class="btn-ghost" data-i18n="refresh"></button>
+            <span class="card-title" data-i18n="publicRooms">{T('publicRooms')}</span>
+            <button id="refresh" class="btn-ghost" data-i18n="refresh">{T('refresh')}</button>
           </div>
           <div id="rooms-list" class="rooms-list"></div>
         </div>
@@ -183,27 +188,27 @@ const jsonLd = {
     <section id="session" class="screen hidden">
       <div class="session-body">
         <header class="session-header">
-          <button id="session-back" class="btn-ghost" data-i18n="back"></button>
-          <h1 class="card-title" data-i18n="sessionDetails"></h1>
+          <button id="session-back" class="btn-ghost" data-i18n="back">{T('back')}</button>
+          <h1 class="card-title" data-i18n="sessionDetails">{T('sessionDetails')}</h1>
           <span class="room-tag"><span id="session-room" class="mono"></span></span>
         </header>
         <!-- At-a-glance summary: each fact gets its own labelled cell so it's
              obvious what every value means (issue #4). -->
         <dl class="session-stats">
           <div class="stat">
-            <dt class="stat-label" data-i18n="dateLabel"></dt>
+            <dt class="stat-label" data-i18n="dateLabel">{T('dateLabel')}</dt>
             <dd id="session-date" class="stat-value"></dd>
           </div>
           <div class="stat">
-            <dt class="stat-label" data-i18n="durationLabel"></dt>
+            <dt class="stat-label" data-i18n="durationLabel">{T('durationLabel')}</dt>
             <dd id="session-duration" class="stat-value"></dd>
           </div>
           <div class="stat">
-            <dt class="stat-label" data-i18n="eventsStatLabel"></dt>
+            <dt class="stat-label" data-i18n="eventsStatLabel">{T('eventsStatLabel')}</dt>
             <dd id="session-events" class="stat-value"></dd>
           </div>
           <div class="stat stat-wide">
-            <dt class="stat-label" data-i18n="participants"></dt>
+            <dt class="stat-label" data-i18n="participants">{T('participants')}</dt>
             <dd id="session-participants" class="stat-value"></dd>
           </div>
         </dl>
@@ -211,38 +216,38 @@ const jsonLd = {
         <!-- Unified "session outputs" card (#224): downloads + an integrated,
              collapsed transcript preview that expands via the toggle. -->
         <div class="card">
-          <span class="card-title" data-i18n="sessionOutputs"></span>
+          <span class="card-title" data-i18n="sessionOutputs">{T('sessionOutputs')}</span>
           <div id="session-downloads" class="session-downloads">
-            <button id="session-dl-pdf" class="btn-primary" data-i18n="downloadPdf"></button>
-            <button id="session-dl-json" class="btn-primary" data-i18n="downloadJson"></button>
-            <button id="session-dl-srt" class="btn-primary" data-i18n="downloadSrt"></button>
-            <button id="session-dl-vtt" class="btn-primary" data-i18n="downloadVtt"></button>
-            <select id="session-sub-mode" data-i18n-label="subtitleMode" data-i18n-title="subtitleMode">
-              <option value="translated" data-i18n="subTranslated"></option>
-              <option value="original" data-i18n="subOriginal"></option>
-              <option value="both" data-i18n="subBoth"></option>
+            <button id="session-dl-pdf" class="btn-primary" data-i18n="downloadPdf">{T('downloadPdf')}</button>
+            <button id="session-dl-json" class="btn-primary" data-i18n="downloadJson">{T('downloadJson')}</button>
+            <button id="session-dl-srt" class="btn-primary" data-i18n="downloadSrt">{T('downloadSrt')}</button>
+            <button id="session-dl-vtt" class="btn-primary" data-i18n="downloadVtt">{T('downloadVtt')}</button>
+            <select id="session-sub-mode" data-i18n-label="subtitleMode" aria-label={T('subtitleMode')} data-i18n-title="subtitleMode" title={T('subtitleMode')}>
+              <option value="translated" data-i18n="subTranslated">{T('subTranslated')}</option>
+              <option value="original" data-i18n="subOriginal">{T('subOriginal')}</option>
+              <option value="both" data-i18n="subBoth">{T('subBoth')}</option>
             </select>
           </div>
           <div class="ai-correct-wrap">
             <label class="ai-correct-label">
               <input type="checkbox" id="ai-correct-chk">
-              <span data-i18n="aiCorrectLabel"></span>
+              <span data-i18n="aiCorrectLabel">{T('aiCorrectLabel')}</span>
             </label>
             <span id="ai-correct-cost" class="ai-correct-cost"></span>
           </div>
           <div class="session-transcript-block">
-            <span class="session-subhead" data-i18n="transcriptLabel"></span>
+            <span class="session-subhead" data-i18n="transcriptLabel">{T('transcriptLabel')}</span>
             <div id="session-bookmarks" class="session-bookmarks" hidden></div>
             <p id="session-transcript-status" class="status-line" role="status"></p>
             <div id="session-transcript" class="session-transcript collapsed"></div>
             <button id="session-transcript-toggle" class="btn-ghost session-transcript-toggle hidden"
-                    data-i18n="viewFullTranscript" aria-expanded="false"></button>
+                    data-i18n="viewFullTranscript" aria-expanded="false">{T('viewFullTranscript')}</button>
           </div>
         </div>
 
         <!-- AI tools (report / sentiment / email) — slots filled by later phases. -->
         <div id="session-ai" class="card hidden">
-          <span class="card-title" data-i18n="aiTools"></span>
+          <span class="card-title" data-i18n="aiTools">{T('aiTools')}</span>
           <div id="ai-report-slot"></div>
           <div id="ai-sentiment-slot"></div>
           <div id="ai-email-slot"></div>
@@ -251,7 +256,7 @@ const jsonLd = {
         <!-- Quiz history (#221): quizzes run in the call + per-participant scores.
              Hidden until quizzes are loaded for the session. -->
         <div id="session-quizzes" class="card" hidden>
-          <span class="card-title" data-i18n="quizzesLabel"></span>
+          <span class="card-title" data-i18n="quizzesLabel">{T('quizzesLabel')}</span>
           <div id="session-quizzes-list" class="session-quizzes-list"></div>
         </div>
       </div>
@@ -261,7 +266,7 @@ const jsonLd = {
     <section id="prejoin" class="screen hidden">
       <div class="prejoin-card card">
         <div class="prejoin-head">
-          <h1 class="card-title" data-i18n="prejoinTitle"></h1>
+          <h1 class="card-title" data-i18n="prejoinTitle">{T('prejoinTitle')}</h1>
           <span class="room-tag"><span id="prejoin-room" class="mono"></span> · <span id="prejoin-vis" class="vis-badge"></span></span>
         </div>
         <div class="preview-wrap">
@@ -270,24 +275,24 @@ const jsonLd = {
             <span class="preview-avatar" id="preview-avatar"></span>
           </div>
           <div class="preview-controls">
-            <button id="pre-mic" class="control-btn" data-i18n-title="muteTip"></button>
-            <button id="pre-cam" class="control-btn" data-i18n-title="camTip"></button>
+            <button id="pre-mic" class="control-btn" data-i18n-title="muteTip" title={T('muteTip')} aria-label={T('muteTip')}></button>
+            <button id="pre-cam" class="control-btn" data-i18n-title="camTip" title={T('camTip')} aria-label={T('camTip')}></button>
           </div>
         </div>
         <div class="field-row">
           <label class="field grow">
-            <span class="field-label" data-i18n="camera"></span>
+            <span class="field-label" data-i18n="camera">{T('camera')}</span>
             <select id="cam-select"></select>
           </label>
           <label class="field grow">
-            <span class="field-label" data-i18n="microphone"></span>
+            <span class="field-label" data-i18n="microphone">{T('microphone')}</span>
             <select id="mic-select"></select>
           </label>
         </div>
         <p id="prejoin-status" class="status-line" role="status"></p>
         <div class="prejoin-actions">
-          <button id="back-btn" class="btn-ghost" data-i18n="back"></button>
-          <button id="join-btn" class="btn-primary" data-i18n="join"></button>
+          <button id="back-btn" class="btn-ghost" data-i18n="back">{T('back')}</button>
+          <button id="join-btn" class="btn-primary" data-i18n="join">{T('join')}</button>
         </div>
       </div>
     </section>
@@ -300,7 +305,7 @@ const jsonLd = {
              video stage (top-left meta + top-right participant badge), Meet-style. -->
         <div id="low-banner" class="low-banner hidden">
           <span id="low-banner-text" role="status"></span>
-          <button id="low-banner-buy" class="btn-ghost" data-i18n="buyCredits"></button>
+          <button id="low-banner-buy" class="btn-ghost" data-i18n="buyCredits">{T('buyCredits')}</button>
         </div>
         <div class="video-stage">
           <div id="video-grid" class="video-grid" data-peers="1"></div>
@@ -309,7 +314,7 @@ const jsonLd = {
           <div class="stage-meta-wrap">
             <div class="stage-meta">
               <span id="header-clock" class="clock-badge hidden"></span>
-              <button id="call-room" class="room-badge mono" data-i18n-title="copy"></button>
+              <button id="call-room" class="room-badge mono" data-i18n-title="copy" title={T('copy')} aria-label={T('copy')}></button>
               <!-- Your identity folded into the meta line (issue #98 follow-up): replaces
                    the self tile's .video-overlay so the top-left reads as one row, not a
                    stack that covers it. Remote peers keep their per-cell overlays. -->
@@ -317,23 +322,23 @@ const jsonLd = {
                 <span id="stage-self-name" class="stage-self-name"></span>
                 <span id="stage-self-lang" class="stage-self-lang"></span>
               </span>
-              <span id="transcript-indicator" class="transcript-indicator hidden" role="img" data-i18n-title="transcriptRecording"></span>
-              <button id="glossary-badge" class="glossary-badge hidden" data-i18n-title="glossaryActiveTip"></button>
+              <span id="transcript-indicator" class="transcript-indicator hidden" role="img" data-i18n-title="transcriptRecording" title={T('transcriptRecording')} aria-label={T('transcriptRecording')}></span>
+              <button id="glossary-badge" class="glossary-badge hidden" data-i18n-title="glossaryActiveTip" title={T('glossaryActiveTip')} aria-label={T('glossaryActiveTip')}></button>
             </div>
             <!-- Visible info strip below meta — duration, visibility, balance always shown. -->
             <div class="stage-info-strip">
-              <span class="stage-info-item"><span class="stage-info-label" data-i18n="visibility"></span> <span id="call-vis" class="vis-badge"></span></span>
+              <span class="stage-info-item"><span class="stage-info-label" data-i18n="visibility">{T('visibility')}</span> <span id="call-vis" class="vis-badge"></span></span>
               <span class="stage-info-sep"></span>
               <span class="stage-info-item">
                 <span id="session-timer" class="session-badge" role="timer"><span class="sb-ico" aria-hidden="true"></span><span id="session-elapsed">00:00</span></span>
               </span>
               <span class="stage-info-sep"></span>
-              <span class="stage-info-item"><span class="stage-info-label" data-i18n="currentBalance"></span> <span id="call-balance" class="call-balance"></span></span>
+              <span class="stage-info-item"><span class="stage-info-label" data-i18n="currentBalance">{T('currentBalance')}</span> <span id="call-balance" class="call-balance"></span></span>
             </div>
           </div>
           <!-- Live participant badge, top-right (spec 0055 → on-video in 0061 / #98): your
                avatar initial + count (self + peers). -->
-          <span id="part-count" class="part-count-badge hidden" data-i18n-title="participantsTip">
+          <span id="part-count" class="part-count-badge hidden" data-i18n-title="participantsTip" title={T('participantsTip')} aria-label={T('participantsTip')}>
             <span id="part-avatar" class="pc-avatar" aria-hidden="true"></span><span id="part-count-n">1</span>
           </span>
           <span id="rec-badge" class="rec-badge hidden">REC <span class="rec-dot"></span> <span id="rec-timer">00:00</span></span>
@@ -343,36 +348,36 @@ const jsonLd = {
           <span id="timer-badge" class="timer-badge hidden" role="timer">
             <span class="ti-ico" aria-hidden="true"></span>
             <span id="timer-remaining" class="ti-remaining">00:00</span>
-            <button id="timer-cancel" class="ti-cancel" data-i18n-title="timerCancel" data-i18n-label="timerCancel"></button>
+            <button id="timer-cancel" class="ti-cancel" data-i18n-title="timerCancel" title={T('timerCancel')} data-i18n-label="timerCancel" aria-label={T('timerCancel')}></button>
           </span>
-          <div id="timer-pop" class="timer-pop hidden" role="group" data-i18n-label="timerPopTitle">
-            <button id="timer-pop-close" class="btn-ghost icon-btn ti-close" data-i18n-title="closeTip" aria-label="Close"></button>
-            <span class="timer-pop-title" data-i18n="timerPopTitle"></span>
+          <div id="timer-pop" class="timer-pop hidden" role="group" data-i18n-label="timerPopTitle" aria-label={T('timerPopTitle')}>
+            <button id="timer-pop-close" class="btn-ghost icon-btn ti-close" data-i18n-title="closeTip" title={T('closeTip')} aria-label="Close"></button>
+            <span class="timer-pop-title" data-i18n="timerPopTitle">{T('timerPopTitle')}</span>
             <div class="timer-quick">
-              <button class="timer-chip" data-min="5"><span class="timer-chip-n">5</span> <span data-i18n="minShort"></span></button>
-              <button class="timer-chip" data-min="10"><span class="timer-chip-n">10</span> <span data-i18n="minShort"></span></button>
-              <button class="timer-chip" data-min="15"><span class="timer-chip-n">15</span> <span data-i18n="minShort"></span></button>
-              <button class="timer-chip" data-min="25"><span class="timer-chip-n">25</span> <span data-i18n="minShort"></span></button>
+              <button class="timer-chip" data-min="5"><span class="timer-chip-n">5</span> <span data-i18n="minShort">{T('minShort')}</span></button>
+              <button class="timer-chip" data-min="10"><span class="timer-chip-n">10</span> <span data-i18n="minShort">{T('minShort')}</span></button>
+              <button class="timer-chip" data-min="15"><span class="timer-chip-n">15</span> <span data-i18n="minShort">{T('minShort')}</span></button>
+              <button class="timer-chip" data-min="25"><span class="timer-chip-n">25</span> <span data-i18n="minShort">{T('minShort')}</span></button>
             </div>
             <div class="timer-custom">
               <input id="timer-custom-input" type="number" min="1" max="360" step="1" inputmode="numeric"
-                data-i18n-ph="timerCustomPh" data-i18n-label="timerCustomPh" />
-              <button id="timer-custom-start" class="btn-primary" data-i18n="timerStart"></button>
+                data-i18n-ph="timerCustomPh" placeholder={T('timerCustomPh')} data-i18n-label="timerCustomPh" aria-label={T('timerCustomPh')} />
+              <button id="timer-custom-start" class="btn-primary" data-i18n="timerStart">{T('timerStart')}</button>
             </div>
-            <span class="timer-hint" data-i18n="timerVoiceHint"></span>
+            <span class="timer-hint" data-i18n="timerVoiceHint">{T('timerVoiceHint')}</span>
           </div>
           <!-- Bookmark label prompt (spec 0013 → 0039): pressing 🔖 opens this with a
                REQUIRED label; the pin is saved only when a non-empty label is
                confirmed (an empty / abandoned prompt saves nothing). -->
-          <div id="bookmark-pop" class="bookmark-pop hidden" role="group" data-i18n-label="bookmarkLabelPrompt">
+          <div id="bookmark-pop" class="bookmark-pop hidden" role="group" data-i18n-label="bookmarkLabelPrompt" aria-label={T('bookmarkLabelPrompt')}>
             <span id="bookmark-pop-title" class="bookmark-pop-title" role="status"></span>
             <input id="bookmark-label-input" type="text" maxlength="200" autocomplete="off"
-              data-i18n-ph="bookmarkLabelPh" data-i18n-label="bookmarkLabelPh" />
-            <button id="bookmark-label-save" class="btn-primary bm-save" data-i18n="saveBtn"></button>
-            <button id="bookmark-show-all" class="btn-ghost" data-i18n="showAllBookmarks"></button>
+              data-i18n-ph="bookmarkLabelPh" placeholder={T('bookmarkLabelPh')} data-i18n-label="bookmarkLabelPh" aria-label={T('bookmarkLabelPh')} />
+            <button id="bookmark-label-save" class="btn-primary bm-save" data-i18n="saveBtn">{T('saveBtn')}</button>
+            <button id="bookmark-show-all" class="btn-ghost" data-i18n="showAllBookmarks">{T('showAllBookmarks')}</button>
             <!-- Explicit close (#226): the prompt had only Escape / auto-dismiss; an X
                  matches every other modal's close affordance. -->
-            <button id="bookmark-pop-close" class="btn-ghost icon-btn bm-close" data-i18n-title="closeTip" aria-label="Close"></button>
+            <button id="bookmark-pop-close" class="btn-ghost icon-btn bm-close" data-i18n-title="closeTip" title={T('closeTip')} aria-label="Close"></button>
           </div>
           <!-- Collaborative whiteboard overlay (spec 0045 → advanced in 0062 / #96):
                covers the stage; ops relay over the WS and a late-joiner gets a
@@ -386,21 +391,21 @@ const jsonLd = {
                  recording, or export. -->
             <div class="wb-frame" aria-hidden="true"></div>
             <canvas id="wb-canvas" class="wb-canvas"></canvas>
-            <div class="wb-toolbar" role="toolbar" data-i18n-label="whiteboardTip">
+            <div class="wb-toolbar" role="toolbar" data-i18n-label="whiteboardTip" aria-label={T('whiteboardTip')}>
               <span class="wb-tools">
-                <button id="wb-pen" class="wb-tool active" data-tool="pen" data-i18n-title="wbPen"></button>
-                <button id="wb-highlighter" class="wb-tool" data-tool="highlighter" data-i18n-title="wbHighlighter"></button>
-                <button id="wb-eraser" class="wb-tool" data-tool="eraser" data-i18n-title="wbEraser"></button>
-                <button id="wb-line" class="wb-tool" data-tool="line" data-i18n-title="wbLine"></button>
-                <button id="wb-arrow" class="wb-tool" data-tool="arrow" data-i18n-title="wbArrow"></button>
-                <button id="wb-rect" class="wb-tool" data-tool="rect" data-i18n-title="wbRect"></button>
-                <button id="wb-ellipse" class="wb-tool" data-tool="ellipse" data-i18n-title="wbEllipse"></button>
+                <button id="wb-pen" class="wb-tool active" data-tool="pen" data-i18n-title="wbPen" title={T('wbPen')} aria-label={T('wbPen')}></button>
+                <button id="wb-highlighter" class="wb-tool" data-tool="highlighter" data-i18n-title="wbHighlighter" title={T('wbHighlighter')} aria-label={T('wbHighlighter')}></button>
+                <button id="wb-eraser" class="wb-tool" data-tool="eraser" data-i18n-title="wbEraser" title={T('wbEraser')} aria-label={T('wbEraser')}></button>
+                <button id="wb-line" class="wb-tool" data-tool="line" data-i18n-title="wbLine" title={T('wbLine')} aria-label={T('wbLine')}></button>
+                <button id="wb-arrow" class="wb-tool" data-tool="arrow" data-i18n-title="wbArrow" title={T('wbArrow')} aria-label={T('wbArrow')}></button>
+                <button id="wb-rect" class="wb-tool" data-tool="rect" data-i18n-title="wbRect" title={T('wbRect')} aria-label={T('wbRect')}></button>
+                <button id="wb-ellipse" class="wb-tool" data-tool="ellipse" data-i18n-title="wbEllipse" title={T('wbEllipse')} aria-label={T('wbEllipse')}></button>
               </span>
               <span class="wb-sep" aria-hidden="true"></span>
-              <span class="wb-widths" role="group" data-i18n-label="wbWidth">
-                <button class="wb-width" data-width="s" data-i18n-title="wbWidthS"><span class="wb-dot wb-dot-s"></span></button>
-                <button class="wb-width active" data-width="m" data-i18n-title="wbWidthM"><span class="wb-dot wb-dot-m"></span></button>
-                <button class="wb-width" data-width="l" data-i18n-title="wbWidthL"><span class="wb-dot wb-dot-l"></span></button>
+              <span class="wb-widths" role="group" data-i18n-label="wbWidth" aria-label={T('wbWidth')}>
+                <button class="wb-width" data-width="s" data-i18n-title="wbWidthS" title={T('wbWidthS')} aria-label={T('wbWidthS')}><span class="wb-dot wb-dot-s"></span></button>
+                <button class="wb-width active" data-width="m" data-i18n-title="wbWidthM" title={T('wbWidthM')} aria-label={T('wbWidthM')}><span class="wb-dot wb-dot-m"></span></button>
+                <button class="wb-width" data-width="l" data-i18n-title="wbWidthL" title={T('wbWidthL')} aria-label={T('wbWidthL')}><span class="wb-dot wb-dot-l"></span></button>
               </span>
               <span class="wb-sep" aria-hidden="true"></span>
               <span class="wb-colors">
@@ -411,25 +416,25 @@ const jsonLd = {
                 <button class="wb-color" data-color="#f59e0b" style="--c:#f59e0b" aria-label="amber"></button>
               </span>
               <span class="wb-sep" aria-hidden="true"></span>
-              <button id="wb-clear" class="wb-tool" data-i18n-title="wbClear"></button>
+              <button id="wb-clear" class="wb-tool" data-i18n-title="wbClear" title={T('wbClear')} aria-label={T('wbClear')}></button>
               <span class="wb-export-wrap">
-                <button id="wb-export" class="wb-tool" aria-haspopup="true" aria-expanded="false" aria-controls="wb-export-menu" data-i18n-title="wbExport"></button>
-                <span id="wb-export-menu" class="wb-export-menu hidden" role="group" data-i18n-label="wbExport">
-                  <button id="wb-export-png" class="btn-ghost" data-i18n="wbExportPng"></button>
-                  <button id="wb-export-pdf" class="btn-ghost" data-i18n="wbExportPdf"></button>
+                <button id="wb-export" class="wb-tool" aria-haspopup="true" aria-expanded="false" aria-controls="wb-export-menu" data-i18n-title="wbExport" title={T('wbExport')} aria-label={T('wbExport')}></button>
+                <span id="wb-export-menu" class="wb-export-menu hidden" role="group" data-i18n-label="wbExport" aria-label={T('wbExport')}>
+                  <button id="wb-export-png" class="btn-ghost" data-i18n="wbExportPng">{T('wbExportPng')}</button>
+                  <button id="wb-export-pdf" class="btn-ghost" data-i18n="wbExportPdf">{T('wbExportPdf')}</button>
                 </span>
               </span>
-              <button id="wb-close" class="wb-tool" data-i18n-title="closeTip"></button>
+              <button id="wb-close" class="wb-tool" data-i18n-title="closeTip" title={T('closeTip')} aria-label={T('closeTip')}></button>
             </div>
             <!-- Page strip (spec 0062): navigate · add · duplicate · delete pages. -->
-            <div class="wb-pagebar" role="group" data-i18n-label="wbPages">
-              <button id="wb-page-prev" class="wb-page-btn" data-i18n-title="wbPrevPage"></button>
+            <div class="wb-pagebar" role="group" data-i18n-label="wbPages" aria-label={T('wbPages')}>
+              <button id="wb-page-prev" class="wb-page-btn" data-i18n-title="wbPrevPage" title={T('wbPrevPage')} aria-label={T('wbPrevPage')}></button>
               <span id="wb-page-label" class="wb-page-label" role="status">1 / 1</span>
-              <button id="wb-page-next" class="wb-page-btn" data-i18n-title="wbNextPage"></button>
+              <button id="wb-page-next" class="wb-page-btn" data-i18n-title="wbNextPage" title={T('wbNextPage')} aria-label={T('wbNextPage')}></button>
               <span class="wb-sep" aria-hidden="true"></span>
-              <button id="wb-page-add" class="wb-page-btn" data-i18n-title="wbAddPage"></button>
-              <button id="wb-page-dup" class="wb-page-btn" data-i18n-title="wbDupPage"></button>
-              <button id="wb-page-del" class="wb-page-btn" data-i18n-title="wbDelPage"></button>
+              <button id="wb-page-add" class="wb-page-btn" data-i18n-title="wbAddPage" title={T('wbAddPage')} aria-label={T('wbAddPage')}></button>
+              <button id="wb-page-dup" class="wb-page-btn" data-i18n-title="wbDupPage" title={T('wbDupPage')} aria-label={T('wbDupPage')}></button>
+              <button id="wb-page-del" class="wb-page-btn" data-i18n-title="wbDelPage" title={T('wbDelPage')} aria-label={T('wbDelPage')}></button>
             </div>
           </div>
         </div>
@@ -438,7 +443,7 @@ const jsonLd = {
         <div id="minigame" class="minigame hidden">
           <div class="mg-head">
             <span class="mg-title">Tic-Tac-Toe</span>
-            <button id="mg-close" class="btn-ghost icon-btn" data-i18n-title="closeTip"></button>
+            <button id="mg-close" class="btn-ghost icon-btn" data-i18n-title="closeTip" title={T('closeTip')} aria-label={T('closeTip')}></button>
           </div>
           <p id="mg-status" class="mg-status" role="status"></p>
           <div id="mg-board" class="mg-board"></div>
@@ -447,129 +452,129 @@ const jsonLd = {
         <div id="quiz" class="minigame quiz hidden">
           <div class="mg-head">
             <span class="mg-title">Quiz</span>
-            <button id="quiz-close" class="btn-ghost icon-btn" data-i18n-title="closeTip"></button>
+            <button id="quiz-close" class="btn-ghost icon-btn" data-i18n-title="closeTip" title={T('closeTip')} aria-label={T('closeTip')}></button>
           </div>
           <!-- AI quiz on demand (spec 0067 / #124): prompt → Groq → credits. -->
           <form id="quiz-ai" class="quiz-ai">
-            <input id="quiz-ai-prompt" class="quiz-ai-input" type="text" maxlength="400" autocomplete="off" data-i18n-ph="quizAiPrompt" />
-            <button id="quiz-ai-gen" type="submit" class="quiz-ai-btn" data-i18n="quizAiGenerate"></button>
+            <input id="quiz-ai-prompt" class="quiz-ai-input" type="text" maxlength="400" autocomplete="off" data-i18n-ph="quizAiPrompt" placeholder={T('quizAiPrompt')} />
+            <button id="quiz-ai-gen" type="submit" class="quiz-ai-btn" data-i18n="quizAiGenerate">{T('quizAiGenerate')}</button>
           </form>
           <p id="quiz-ai-msg" class="quiz-ai-msg" role="status" hidden></p>
           <!-- Shown only when generation 402s: a way to act on "out of credits" (spec 0083). -->
-          <button id="quiz-ai-buy" class="btn-ghost quiz-ai-buy hidden" data-i18n="buyCredits"></button>
+          <button id="quiz-ai-buy" class="btn-ghost quiz-ai-buy hidden" data-i18n="buyCredits">{T('buyCredits')}</button>
           <p id="quiz-question" class="quiz-question"></p>
           <div id="quiz-options" class="quiz-options"></div>
           <p id="quiz-status" class="mg-status" role="status"></p>
           <button id="quiz-action" class="btn-primary mg-action"></button>
           <!-- Host-only cancel for an in-progress quiz (spec 0070 R4.3). -->
-          <button id="quiz-cancel" class="btn-ghost quiz-cancel-btn" data-i18n="quizCancel" hidden></button>
+          <button id="quiz-cancel" class="btn-ghost quiz-cancel-btn" data-i18n="quizCancel" hidden>{T('quizCancel')}</button>
         </div>
         <!-- Floating reaction tray ABOVE the controls (spec 0060 / #94): a centered,
              visually-separated pill — always accessible and spammable (rate-limited
              5/s). Buttons are injected in app.ts; the #quick-reactions id is kept so
              the wiring is unchanged. -->
-        <div id="quick-reactions" class="reaction-bar" role="group" data-i18n-label="quickReactTip"></div>
+        <div id="quick-reactions" class="reaction-bar" role="group" data-i18n-label="quickReactTip" aria-label={T('quickReactTip')}></div>
         <!-- Buttons are grouped so the bar wraps in tidy clusters (and keeps
              related controls together) instead of one long overflowing row. -->
-        <div class="control-bar" role="toolbar" data-i18n-label="controlsLabel">
+        <div class="control-bar" role="toolbar" data-i18n-label="controlsLabel" aria-label={T('controlsLabel')}>
           <div class="ctl-group">
-            <button id="btn-mic" class="control-btn" data-i18n-title="muteTip"></button>
-            <button id="btn-cam" class="control-btn" data-i18n-title="camTip"></button>
+            <button id="btn-mic" class="control-btn" data-i18n-title="muteTip" title={T('muteTip')} aria-label={T('muteTip')}></button>
+            <button id="btn-cam" class="control-btn" data-i18n-title="camTip" title={T('camTip')} aria-label={T('camTip')}></button>
           </div>
           <div class="ctl-group">
-            <button id="btn-subtitle" class="control-btn" data-i18n-title="subtitleTip"></button>
-            <button id="btn-tts" class="control-btn" data-i18n-title="ttsTip"></button>
-            <button id="btn-chat" class="control-btn" data-i18n-title="chatTip" aria-expanded="false" aria-controls="chat-panel"><span class="chat-ico"></span><span id="chat-badge" class="chat-badge" hidden>0</span></button>
+            <button id="btn-subtitle" class="control-btn" data-i18n-title="subtitleTip" title={T('subtitleTip')} aria-label={T('subtitleTip')}></button>
+            <button id="btn-tts" class="control-btn" data-i18n-title="ttsTip" title={T('ttsTip')} aria-label={T('ttsTip')}></button>
+            <button id="btn-chat" class="control-btn" data-i18n-title="chatTip" title={T('chatTip')} aria-label={T('chatTip')} aria-expanded="false" aria-controls="chat-panel"><span class="chat-ico"></span><span id="chat-badge" class="chat-badge" hidden>0</span></button>
           </div>
           <div class="ctl-group more-group">
-            <button id="btn-more" class="control-btn" data-i18n-title="moreTip" data-i18n-label="moreTip" aria-haspopup="true" aria-expanded="false" aria-controls="more-menu"></button>
+            <button id="btn-more" class="control-btn" data-i18n-title="moreTip" title={T('moreTip')} data-i18n-label="moreTip" aria-label={T('moreTip')} aria-haspopup="true" aria-expanded="false" aria-controls="more-menu"></button>
             <!-- role="group" (not "menu"): a labeled disclosure of independent toggle/action
                  buttons, NOT an arrow-key ARIA menu — matches real behaviour + clears axe
                  aria-required-children (spec 0056). -->
-            <div id="more-menu" class="more-menu hidden" role="group" data-i18n-label="moreTip">
+            <div id="more-menu" class="more-menu hidden" role="group" data-i18n-label="moreTip" aria-label={T('moreTip')}>
               <div class="mm-group">
-                <span class="mm-head" data-i18n="moreGroupStage"></span>
+                <span class="mm-head" data-i18n="moreGroupStage">{T('moreGroupStage')}</span>
                 <div class="mm-grid">
-                  <span class="mi"><button id="btn-view" class="control-btn" data-i18n-title="viewGrid"></button><span class="mi-label" data-i18n="viewGrid"></span></span>
-                  <span class="mi"><button id="btn-share" class="control-btn" data-i18n-title="screenShareTip"></button><span class="mi-label" data-i18n="screenShareTip"></span></span>
-                  <span class="mi"><button id="btn-bg" class="control-btn" data-i18n-title="bgBlurTip"></button><span class="mi-label" data-i18n="bgBlurTip"></span></span>
-                  <span class="mi"><button id="btn-pip" class="control-btn" data-i18n-title="pipTip"></button><span class="mi-label" data-i18n="pipTip"></span></span>
-                  <span class="mi"><button id="btn-fullscreen" class="control-btn" data-i18n-title="fullscreenTip"></button><span class="mi-label" data-i18n="fullscreenTip"></span></span>
-                  <span class="mi"><button id="btn-record" class="control-btn" data-i18n-title="recordingTip"></button><span class="mi-label" data-i18n="recordingTip"></span></span>
-                  <span class="mi"><button id="btn-whiteboard" class="control-btn" data-i18n-title="whiteboardTip"></button><span class="mi-label" data-i18n="whiteboardTip"></span></span>
+                  <span class="mi"><button id="btn-view" class="control-btn" data-i18n-title="viewGrid" title={T('viewGrid')} aria-label={T('viewGrid')}></button><span class="mi-label" data-i18n="viewGrid">{T('viewGrid')}</span></span>
+                  <span class="mi"><button id="btn-share" class="control-btn" data-i18n-title="screenShareTip" title={T('screenShareTip')} aria-label={T('screenShareTip')}></button><span class="mi-label" data-i18n="screenShareTip">{T('screenShareTip')}</span></span>
+                  <span class="mi"><button id="btn-bg" class="control-btn" data-i18n-title="bgBlurTip" title={T('bgBlurTip')} aria-label={T('bgBlurTip')}></button><span class="mi-label" data-i18n="bgBlurTip">{T('bgBlurTip')}</span></span>
+                  <span class="mi"><button id="btn-pip" class="control-btn" data-i18n-title="pipTip" title={T('pipTip')} aria-label={T('pipTip')}></button><span class="mi-label" data-i18n="pipTip">{T('pipTip')}</span></span>
+                  <span class="mi"><button id="btn-fullscreen" class="control-btn" data-i18n-title="fullscreenTip" title={T('fullscreenTip')} aria-label={T('fullscreenTip')}></button><span class="mi-label" data-i18n="fullscreenTip">{T('fullscreenTip')}</span></span>
+                  <span class="mi"><button id="btn-record" class="control-btn" data-i18n-title="recordingTip" title={T('recordingTip')} aria-label={T('recordingTip')}></button><span class="mi-label" data-i18n="recordingTip">{T('recordingTip')}</span></span>
+                  <span class="mi"><button id="btn-whiteboard" class="control-btn" data-i18n-title="whiteboardTip" title={T('whiteboardTip')} aria-label={T('whiteboardTip')}></button><span class="mi-label" data-i18n="whiteboardTip">{T('whiteboardTip')}</span></span>
                 </div>
               </div>
               <div class="mm-group">
-                <span class="mm-head" data-i18n="moreGroupRoom"></span>
+                <span class="mm-head" data-i18n="moreGroupRoom">{T('moreGroupRoom')}</span>
                 <div class="mm-grid">
-                  <span class="mi"><button id="btn-hand" class="control-btn" data-i18n-title="handTip"></button><span class="mi-label" data-i18n="handTip"></span></span>
-                  <span class="mi"><button id="btn-participants" class="control-btn" data-i18n-title="participantsTip" aria-expanded="false" aria-controls="participants-panel"><span class="part-ico"></span><span id="part-badge" class="chat-badge" hidden>0</span></button><span class="mi-label" data-i18n="participantsTip"></span></span>
-                  <span class="mi hidden" id="mi-invite"><button id="btn-invite" class="control-btn" data-i18n-title="inviteTip" aria-expanded="false" aria-controls="invite-panel"></button><span class="mi-label" data-i18n="inviteTip"></span></span>
-                  <span class="mi"><button id="btn-bookmark" class="control-btn" data-i18n-title="bookmarkTip" data-i18n-label="bookmarkTip" hidden></button><span class="mi-label" data-i18n="bookmarkTip"></span></span>
-                  <span class="mi"><button id="btn-minigame" class="control-btn" data-i18n-title="minigameTip"></button><span class="mi-label" data-i18n="minigameTip"></span></span>
-                  <span class="mi"><button id="btn-quiz" class="control-btn" data-i18n-title="quizTip"></button><span class="mi-label" data-i18n="quizTip"></span></span>
-                  <span class="mi"><button id="btn-timer" class="control-btn" data-i18n-title="timerTip"></button><span class="mi-label" data-i18n="timerTip"></span></span>
+                  <span class="mi"><button id="btn-hand" class="control-btn" data-i18n-title="handTip" title={T('handTip')} aria-label={T('handTip')}></button><span class="mi-label" data-i18n="handTip">{T('handTip')}</span></span>
+                  <span class="mi"><button id="btn-participants" class="control-btn" data-i18n-title="participantsTip" title={T('participantsTip')} aria-label={T('participantsTip')} aria-expanded="false" aria-controls="participants-panel"><span class="part-ico"></span><span id="part-badge" class="chat-badge" hidden>0</span></button><span class="mi-label" data-i18n="participantsTip">{T('participantsTip')}</span></span>
+                  <span class="mi hidden" id="mi-invite"><button id="btn-invite" class="control-btn" data-i18n-title="inviteTip" title={T('inviteTip')} aria-label={T('inviteTip')} aria-expanded="false" aria-controls="invite-panel"></button><span class="mi-label" data-i18n="inviteTip">{T('inviteTip')}</span></span>
+                  <span class="mi"><button id="btn-bookmark" class="control-btn" data-i18n-title="bookmarkTip" title={T('bookmarkTip')} data-i18n-label="bookmarkTip" aria-label={T('bookmarkTip')} hidden></button><span class="mi-label" data-i18n="bookmarkTip">{T('bookmarkTip')}</span></span>
+                  <span class="mi"><button id="btn-minigame" class="control-btn" data-i18n-title="minigameTip" title={T('minigameTip')} aria-label={T('minigameTip')}></button><span class="mi-label" data-i18n="minigameTip">{T('minigameTip')}</span></span>
+                  <span class="mi"><button id="btn-quiz" class="control-btn" data-i18n-title="quizTip" title={T('quizTip')} aria-label={T('quizTip')}></button><span class="mi-label" data-i18n="quizTip">{T('quizTip')}</span></span>
+                  <span class="mi"><button id="btn-timer" class="control-btn" data-i18n-title="timerTip" title={T('timerTip')} aria-label={T('timerTip')}></button><span class="mi-label" data-i18n="timerTip">{T('timerTip')}</span></span>
                 </div>
               </div>
             </div>
           </div>
           <div class="ctl-group">
-            <button id="btn-leave" class="control-btn leave" data-i18n-title="leaveTip"></button>
+            <button id="btn-leave" class="control-btn leave" data-i18n-title="leaveTip" title={T('leaveTip')} aria-label={T('leaveTip')}></button>
           </div>
         </div>
       </div>
 
       <!-- Named <section> = region landmark: nestable in <main>, unlike <aside>
            (axe: landmark-complementary-is-top-level). -->
-      <section id="participants-panel" class="participants-panel closed" data-panel="participants" data-i18n-label="participants">
+      <section id="participants-panel" class="participants-panel closed" data-panel="participants" data-i18n-label="participants" aria-label={T('participants')}>
         <div class="side-panel-header">
-          <span class="card-title" data-i18n="participants"></span>
-          <button id="part-close" class="btn-ghost icon-btn" data-i18n-title="closeTip"></button>
+          <span class="card-title" data-i18n="participants">{T('participants')}</span>
+          <button id="part-close" class="btn-ghost icon-btn" data-i18n-title="closeTip" title={T('closeTip')} aria-label={T('closeTip')}></button>
         </div>
         <div id="participants-list" class="participants-list"></div>
       </section>
 
       <!-- Invite panel (spec 0082): copy a join link or email it to people you
            know. Email send is signed-in only; copy works for everyone. -->
-      <section id="invite-panel" class="invite-panel closed" data-panel="invite" data-i18n-label="inviteTitle">
+      <section id="invite-panel" class="invite-panel closed" data-panel="invite" data-i18n-label="inviteTitle" aria-label={T('inviteTitle')}>
         <div class="side-panel-header">
-          <span class="card-title" data-i18n="inviteTitle"></span>
-          <button id="invite-close" class="btn-ghost icon-btn" data-i18n-title="closeTip"></button>
+          <span class="card-title" data-i18n="inviteTitle">{T('inviteTitle')}</span>
+          <button id="invite-close" class="btn-ghost icon-btn" data-i18n-title="closeTip" title={T('closeTip')} aria-label={T('closeTip')}></button>
         </div>
         <div class="invite-body">
-          <p class="invite-sub" data-i18n="inviteSubtitle"></p>
-          <label class="invite-label" for="invite-link" data-i18n="inviteLinkLabel"></label>
+          <p class="invite-sub" data-i18n="inviteSubtitle">{T('inviteSubtitle')}</p>
+          <label class="invite-label" for="invite-link" data-i18n="inviteLinkLabel">{T('inviteLinkLabel')}</label>
           <div class="invite-row">
             <input id="invite-link" class="invite-input" type="text" readonly />
-            <button id="invite-copy" class="btn-primary invite-go" data-i18n="copy"></button>
+            <button id="invite-copy" class="btn-primary invite-go" data-i18n="copy">{T('copy')}</button>
           </div>
           <div id="invite-email-block" class="invite-email-block">
-            <label class="invite-label" for="invite-email" data-i18n="inviteEmailLabel"></label>
+            <label class="invite-label" for="invite-email" data-i18n="inviteEmailLabel">{T('inviteEmailLabel')}</label>
             <div class="invite-row">
-              <input id="invite-email" class="invite-input" type="email" autocomplete="off" spellcheck="false" data-i18n-ph="inviteEmailPh" />
-              <button id="invite-send" class="btn-primary invite-go" data-i18n="inviteSendBtn"></button>
+              <input id="invite-email" class="invite-input" type="email" autocomplete="off" spellcheck="false" data-i18n-ph="inviteEmailPh" placeholder={T('inviteEmailPh')} />
+              <button id="invite-send" class="btn-primary invite-go" data-i18n="inviteSendBtn">{T('inviteSendBtn')}</button>
             </div>
-            <p class="invite-help" data-i18n="inviteEmailHelp"></p>
+            <p class="invite-help" data-i18n="inviteEmailHelp">{T('inviteEmailHelp')}</p>
           </div>
-          <p id="invite-guest-hint" class="invite-guest-hint hidden" data-i18n="inviteGuestHint"></p>
+          <p id="invite-guest-hint" class="invite-guest-hint hidden" data-i18n="inviteGuestHint">{T('inviteGuestHint')}</p>
           <p id="invite-status" class="invite-status" role="status" aria-live="polite"></p>
         </div>
       </section>
 
-      <section id="bookmarks-panel" class="bookmarks-panel closed" data-i18n-label="bookmarksTitle">
+      <section id="bookmarks-panel" class="bookmarks-panel closed" data-i18n-label="bookmarksTitle" aria-label={T('bookmarksTitle')}>
         <div class="side-panel-header">
-          <span class="card-title" data-i18n="bookmarksTitle"></span>
-          <button id="bookmarks-close" class="btn-ghost icon-btn" data-i18n-title="closeTip"></button>
+          <span class="card-title" data-i18n="bookmarksTitle">{T('bookmarksTitle')}</span>
+          <button id="bookmarks-close" class="btn-ghost icon-btn" data-i18n-title="closeTip" title={T('closeTip')} aria-label={T('closeTip')}></button>
         </div>
         <div id="bookmarks-list" class="bookmarks-list"></div>
       </section>
 
-      <section id="chat-panel" class="chat-panel closed" data-i18n-label="chatTitle">
+      <section id="chat-panel" class="chat-panel closed" data-i18n-label="chatTitle" aria-label={T('chatTitle')}>
         <div class="chat-header">
-          <span class="card-title" data-i18n="chatTitle"></span>
-          <button id="chat-close" class="btn-ghost icon-btn" data-i18n-title="closeTip"></button>
+          <span class="card-title" data-i18n="chatTitle">{T('chatTitle')}</span>
+          <button id="chat-close" class="btn-ghost icon-btn" data-i18n-title="closeTip" title={T('closeTip')} aria-label={T('closeTip')}></button>
         </div>
-        <div id="chat-messages" class="chat-messages" role="log" data-i18n-label="chatTitle"></div>
+        <div id="chat-messages" class="chat-messages" role="log" data-i18n-label="chatTitle" aria-label={T('chatTitle')}></div>
         <!-- Upload progress (spec 0018): shown while a file uploads. -->
         <div id="chat-upload" class="chat-upload hidden">
           <span id="chat-upload-label" class="chat-upload-label"></span>
@@ -579,27 +584,27 @@ const jsonLd = {
              so there's room to write, with a slim action bar beneath it. Same
              structure on the desktop side panel and the mobile bottom sheet. -->
         <div class="chat-input-row">
-          <textarea id="chat-input" rows="1" maxlength="500" autocomplete="off" data-i18n-ph="chatPlaceholder"></textarea>
+          <textarea id="chat-input" rows="1" maxlength="500" autocomplete="off" data-i18n-ph="chatPlaceholder" placeholder={T('chatPlaceholder')}></textarea>
           <div class="chat-input-actions">
             <div class="emoji-picker-wrap">
               <button id="emoji-toggle" class="btn-ghost icon-btn emoji-btn" title="Emoji" aria-label="Emoji" aria-haspopup="true" aria-expanded="false" aria-controls="emoji-panel">😀</button>
               <div id="emoji-panel" class="emoji-panel hidden">
-                <span class="emoji-section-label" data-i18n="emojiReact"></span>
+                <span class="emoji-section-label" data-i18n="emojiReact">{T('emojiReact')}</span>
                 <div class="emoji-react-row" id="emoji-react"></div>
-                <span class="emoji-section-label" data-i18n="emojiInsert"></span>
+                <span class="emoji-section-label" data-i18n="emojiInsert">{T('emojiInsert')}</span>
                 <div class="emoji-grid" id="emoji-grid"></div>
               </div>
             </div>
             <!-- Attach a file (spec 0018): hidden until the backend reports storage on. -->
-            <button id="chat-attach" class="btn-ghost icon-btn attach-btn" hidden data-i18n-title="attachTip" aria-label="Attach"></button>
+            <button id="chat-attach" class="btn-ghost icon-btn attach-btn" hidden data-i18n-title="attachTip" title={T('attachTip')} aria-label="Attach"></button>
             <input id="chat-file-input" type="file" hidden accept=".txt,.md,.csv,.log,.pdf,.docx,.doc,.odt,.rtf,.xlsx,.pptx" />
-            <button id="chat-send" class="btn-primary send-btn" data-i18n-title="send"></button>
+            <button id="chat-send" class="btn-primary send-btn" data-i18n-title="send" title={T('send')} aria-label={T('send')}></button>
           </div>
         </div>
         <!-- Character counter (spec 0070): bottom-right, appears as you near the cap. -->
         <div id="chat-counter" class="chat-counter hidden" aria-live="polite"></div>
         <!-- Drag-and-drop overlay (spec 0018), toggled while a file is dragged over. -->
-        <div id="chat-drop" class="chat-drop hidden"><span data-i18n="dropFile"></span></div>
+        <div id="chat-drop" class="chat-drop hidden"><span data-i18n="dropFile">{T('dropFile')}</span></div>
       </section>
     </section>
 
@@ -607,16 +612,16 @@ const jsonLd = {
     <div id="buy-modal" class="modal-overlay hidden">
       <div class="modal card" role="dialog" aria-modal="true" aria-labelledby="buy-title">
         <div class="modal-head">
-          <span id="buy-title" class="card-title" data-i18n="buyCredits"></span>
-          <button id="buy-close" class="btn-ghost icon-btn" data-i18n-title="closeTip"></button>
+          <span id="buy-title" class="card-title" data-i18n="buyCredits">{T('buyCredits')}</span>
+          <button id="buy-close" class="btn-ghost icon-btn" data-i18n-title="closeTip" title={T('closeTip')} aria-label={T('closeTip')}></button>
         </div>
-        <p class="modal-balance"><span data-i18n="currentBalance"></span>: <strong id="modal-balance"></strong></p>
+        <p class="modal-balance"><span data-i18n="currentBalance">{T('currentBalance')}</span>: <strong id="modal-balance"></strong></p>
         <p id="buy-status" class="status-line" role="status"></p>
         <div id="packages-list" class="packages-list"></div>
         <div class="modal-tabs">
-          <button id="tab-history" class="seg-btn active" aria-pressed="true" data-i18n="history"></button>
-          <button id="tab-usage" class="seg-btn" aria-pressed="false" data-i18n="usageHistory"></button>
-          <button id="tab-transcripts" class="seg-btn" aria-pressed="false" data-i18n="transcripts"></button>
+          <button id="tab-history" class="seg-btn active" aria-pressed="true" data-i18n="history">{T('history')}</button>
+          <button id="tab-usage" class="seg-btn" aria-pressed="false" data-i18n="usageHistory">{T('usageHistory')}</button>
+          <button id="tab-transcripts" class="seg-btn" aria-pressed="false" data-i18n="transcripts">{T('transcripts')}</button>
         </div>
         <div id="ledger-list" class="ledger-list"></div>
       </div>
@@ -625,14 +630,14 @@ const jsonLd = {
     <!-- ===================== AGE + CONSENT GATE ===================== -->
     <div id="consent-modal" class="modal-overlay hidden">
       <div class="modal card modal-narrow" role="dialog" aria-modal="true" aria-labelledby="consent-title">
-        <span id="consent-title" class="card-title" data-i18n="consentTitle"></span>
-        <p class="modal-text" data-i18n="consentText"></p>
-        <label class="consent-check"><input type="checkbox" id="consent-age" /> <span data-i18n="consentAge"></span></label>
-        <label class="consent-check"><input type="checkbox" id="consent-tos" /> <span id="consent-tos-label" data-i18n="consentTos"></span></label>
+        <span id="consent-title" class="card-title" data-i18n="consentTitle">{T('consentTitle')}</span>
+        <p class="modal-text" data-i18n="consentText">{T('consentText')}</p>
+        <label class="consent-check"><input type="checkbox" id="consent-age" /> <span data-i18n="consentAge">{T('consentAge')}</span></label>
+        <label class="consent-check"><input type="checkbox" id="consent-tos" /> <span id="consent-tos-label" data-i18n="consentTos">{T('consentTos')}</span></label>
         <p id="consent-status" class="status-line" role="status"></p>
         <div class="modal-actions">
-          <button id="consent-decline" class="btn-ghost" data-i18n="decline"></button>
-          <button id="consent-accept" class="btn-primary" data-i18n="agreeContinue"></button>
+          <button id="consent-decline" class="btn-ghost" data-i18n="decline">{T('decline')}</button>
+          <button id="consent-accept" class="btn-primary" data-i18n="agreeContinue">{T('agreeContinue')}</button>
         </div>
       </div>
     </div>
@@ -641,10 +646,10 @@ const jsonLd = {
     <div id="report-modal" class="modal-overlay hidden">
       <div class="modal card modal-narrow" role="dialog" aria-modal="true" aria-labelledby="report-title">
         <div class="modal-head">
-          <span id="report-title" class="card-title" data-i18n="reportTitle"></span>
-          <button id="report-close" class="btn-ghost icon-btn" data-i18n-title="closeTip"></button>
+          <span id="report-title" class="card-title" data-i18n="reportTitle">{T('reportTitle')}</span>
+          <button id="report-close" class="btn-ghost icon-btn" data-i18n-title="closeTip" title={T('closeTip')} aria-label={T('closeTip')}></button>
         </div>
-        <p class="modal-text"><span data-i18n="reportFor"></span> <strong id="report-target"></strong></p>
+        <p class="modal-text"><span data-i18n="reportFor">{T('reportFor')}</span> <strong id="report-target"></strong></p>
         <div id="report-reasons" class="report-reasons"></div>
         <p id="report-status" class="status-line" role="status"></p>
       </div>
@@ -654,16 +659,16 @@ const jsonLd = {
     <div id="privacy-modal" class="modal-overlay hidden">
       <div class="modal card modal-narrow" role="dialog" aria-modal="true" aria-labelledby="privacy-title">
         <div class="modal-head">
-          <span id="privacy-title" class="card-title" data-i18n="privacyData"></span>
-          <button id="privacy-close" class="btn-ghost icon-btn" data-i18n-title="closeTip"></button>
+          <span id="privacy-title" class="card-title" data-i18n="privacyData">{T('privacyData')}</span>
+          <button id="privacy-close" class="btn-ghost icon-btn" data-i18n-title="closeTip" title={T('closeTip')} aria-label={T('closeTip')}></button>
         </div>
-        <button id="export-data" class="btn-ghost privacy-btn" data-i18n="exportData"></button>
-        <button id="delete-account" class="btn-ghost privacy-btn danger" data-i18n="deleteAccount"></button>
+        <button id="export-data" class="btn-ghost privacy-btn" data-i18n="exportData">{T('exportData')}</button>
+        <button id="delete-account" class="btn-ghost privacy-btn danger" data-i18n="deleteAccount">{T('deleteAccount')}</button>
         <p id="privacy-status" class="status-line" role="status"></p>
         <div class="legal-links">
-          <a href="/terms" target="_blank" data-i18n="terms"></a> ·
-          <a href="/privacy" target="_blank" data-i18n="privacy"></a> ·
-          <a href="/acceptable-use" target="_blank" data-i18n="acceptableUse"></a>
+          <a href="/terms" target="_blank" data-i18n="terms">{T('terms')}</a> ·
+          <a href="/privacy" target="_blank" data-i18n="privacy">{T('privacy')}</a> ·
+          <a href="/acceptable-use" target="_blank" data-i18n="acceptableUse">{T('acceptableUse')}</a>
         </div>
       </div>
     </div>
@@ -671,39 +676,39 @@ const jsonLd = {
     <!-- ===================== BUG REPORT (spec 0071) ===================== -->
     <!-- Always-available "report a problem" button for every user (guest or signed-in).
          z-index sits below the in-call UI (#call), so it's hidden during a call. -->
-    <button id="bug-report-btn" class="bug-fab" data-i18n-title="reportProblem" aria-label="Report a problem" aria-haspopup="dialog">
+    <button id="bug-report-btn" class="bug-fab" data-i18n-title="reportProblem" title={T('reportProblem')} aria-label="Report a problem" aria-haspopup="dialog">
       <span class="bug-fab-ico" aria-hidden="true"></span>
-      <span class="bug-fab-label" data-i18n="reportProblem"></span>
+      <span class="bug-fab-label" data-i18n="reportProblem">{T('reportProblem')}</span>
     </button>
     <div id="bug-report-modal" class="modal-overlay hidden">
       <div class="modal card modal-narrow" role="dialog" aria-modal="true" aria-labelledby="bug-report-title">
         <div class="modal-head">
-          <span id="bug-report-title" class="card-title" data-i18n="reportProblem"></span>
-          <button id="bug-report-close" class="btn-ghost icon-btn" data-i18n-title="closeTip"></button>
+          <span id="bug-report-title" class="card-title" data-i18n="reportProblem">{T('reportProblem')}</span>
+          <button id="bug-report-close" class="btn-ghost icon-btn" data-i18n-title="closeTip" title={T('closeTip')} aria-label={T('closeTip')}></button>
         </div>
-        <textarea id="bug-report-text" class="bug-report-text" rows="4" maxlength="2000" data-i18n-ph="bugReportPlaceholder"></textarea>
+        <textarea id="bug-report-text" class="bug-report-text" rows="4" maxlength="2000" data-i18n-ph="bugReportPlaceholder" placeholder={T('bugReportPlaceholder')}></textarea>
         <p id="bug-report-status" class="status-line" role="status"></p>
-        <button id="bug-report-send" class="btn-primary" data-i18n="bugReportSend"></button>
+        <button id="bug-report-send" class="btn-primary" data-i18n="bugReportSend">{T('bugReportSend')}</button>
       </div>
     </div>
 
     <!-- ===================== COOKIE / PROCESSING BANNER ===================== -->
     <div id="cookie-banner" class="cookie-banner hidden">
-      <span id="cookie-text" class="cookie-text" data-i18n="cookieText"></span>
+      <span id="cookie-text" class="cookie-text" data-i18n="cookieText">{T('cookieText')}</span>
       <div class="cookie-actions">
-        <a href="/privacy" target="_blank" class="cookie-link" data-i18n="privacy"></a>
-        <button id="cookie-accept" class="btn-primary cookie-btn" data-i18n="gotIt"></button>
+        <a href="/privacy" target="_blank" class="cookie-link" data-i18n="privacy">{T('privacy')}</a>
+        <button id="cookie-accept" class="btn-primary cookie-btn" data-i18n="gotIt">{T('gotIt')}</button>
       </div>
     </div>
 
     <!-- ===================== BALANCE EXHAUSTED MODAL ===================== -->
     <div id="exhausted-modal" class="modal-overlay hidden">
       <div class="modal card modal-narrow" role="dialog" aria-modal="true" aria-labelledby="exhausted-title">
-        <span id="exhausted-title" class="card-title" data-i18n="outOfCredits"></span>
-        <p id="exhausted-text" class="modal-text" data-i18n="outOfCreditsText"></p>
+        <span id="exhausted-title" class="card-title" data-i18n="outOfCredits">{T('outOfCredits')}</span>
+        <p id="exhausted-text" class="modal-text" data-i18n="outOfCreditsText">{T('outOfCreditsText')}</p>
         <div class="modal-actions">
-          <button id="exhausted-dismiss" class="btn-ghost" data-i18n="dismiss"></button>
-          <button id="exhausted-buy" class="btn-primary" data-i18n="buyCredits"></button>
+          <button id="exhausted-dismiss" class="btn-ghost" data-i18n="dismiss">{T('dismiss')}</button>
+          <button id="exhausted-buy" class="btn-primary" data-i18n="buyCredits">{T('buyCredits')}</button>
         </div>
       </div>
     </div>
@@ -711,16 +716,16 @@ const jsonLd = {
     <!-- ===================== SIGN-IN GATE MODAL (spec 0022) ===================== -->
     <div id="signin-gate-modal" class="modal-overlay hidden">
       <div class="modal card modal-narrow" role="dialog" aria-modal="true" aria-labelledby="signin-gate-title">
-        <span id="signin-gate-title" class="card-title" data-i18n="guestGateTitle"></span>
-        <p class="modal-text" data-i18n="guestGateText"></p>
+        <span id="signin-gate-title" class="card-title" data-i18n="guestGateTitle">{T('guestGateTitle')}</span>
+        <p class="modal-text" data-i18n="guestGateText">{T('guestGateText')}</p>
         <ul class="gate-benefits">
-          <li data-i18n="guestGateB1"></li>
-          <li data-i18n="guestGateB2"></li>
-          <li data-i18n="guestGateB3"></li>
+          <li data-i18n="guestGateB1">{T('guestGateB1')}</li>
+          <li data-i18n="guestGateB2">{T('guestGateB2')}</li>
+          <li data-i18n="guestGateB3">{T('guestGateB3')}</li>
         </ul>
         <div class="modal-actions">
-          <button id="signin-gate-dismiss" class="btn-ghost" data-i18n="dismiss"></button>
-          <button id="signin-gate-signin" class="btn-primary" data-i18n="signIn"></button>
+          <button id="signin-gate-dismiss" class="btn-ghost" data-i18n="dismiss">{T('dismiss')}</button>
+          <button id="signin-gate-signin" class="btn-primary" data-i18n="signIn">{T('signIn')}</button>
         </div>
       </div>
     </div>
@@ -729,31 +734,31 @@ const jsonLd = {
     <div id="glossary-modal" class="modal-overlay hidden">
       <div class="modal card glossary-modal" role="dialog" aria-modal="true" aria-labelledby="glossary-title">
         <div class="modal-head">
-          <span id="glossary-title" class="card-title" data-i18n="glossaryTitle"></span>
-          <button id="glossary-close" class="btn-ghost icon-btn" data-i18n-title="closeTip"></button>
+          <span id="glossary-title" class="card-title" data-i18n="glossaryTitle">{T('glossaryTitle')}</span>
+          <button id="glossary-close" class="btn-ghost icon-btn" data-i18n-title="closeTip" title={T('closeTip')} aria-label={T('closeTip')}></button>
         </div>
-        <p class="modal-text" data-i18n="glossaryHint"></p>
+        <p class="modal-text" data-i18n="glossaryHint">{T('glossaryHint')}</p>
         <label class="field">
-          <span class="field-label" data-i18n="glossaryNameLabel"></span>
-          <input id="glossary-name" type="text" maxlength="100" autocomplete="off" data-i18n-ph="glossaryNamePh" />
+          <span class="field-label" data-i18n="glossaryNameLabel">{T('glossaryNameLabel')}</span>
+          <input id="glossary-name" type="text" maxlength="100" autocomplete="off" data-i18n-ph="glossaryNamePh" placeholder={T('glossaryNamePh')} />
         </label>
         <div id="glossary-lang-bar" class="glossary-lang-bar"></div>
         <div id="glossary-table-head" class="glossary-table-head" aria-hidden="true"></div>
         <div id="glossary-rows" class="glossary-rows"></div>
         <div class="glossary-toolbar">
-          <button id="glossary-add-row" class="btn-ghost" data-i18n="glossaryAddRow"></button>
+          <button id="glossary-add-row" class="btn-ghost" data-i18n="glossaryAddRow">{T('glossaryAddRow')}</button>
           <span id="glossary-count" class="glossary-count mono"></span>
         </div>
         <details class="glossary-csv">
-          <summary data-i18n="glossaryCsvTitle"></summary>
-          <p class="glossary-csv-hint" data-i18n="glossaryCsvHint"></p>
-          <textarea id="glossary-csv-text" rows="4" spellcheck="false" data-i18n-ph="glossaryCsvPh" data-i18n-label="glossaryCsvTitle"></textarea>
-          <button id="glossary-import" class="btn-ghost" data-i18n="glossaryImport"></button>
+          <summary data-i18n="glossaryCsvTitle">{T('glossaryCsvTitle')}</summary>
+          <p class="glossary-csv-hint" data-i18n="glossaryCsvHint">{T('glossaryCsvHint')}</p>
+          <textarea id="glossary-csv-text" rows="4" spellcheck="false" data-i18n-ph="glossaryCsvPh" placeholder={T('glossaryCsvPh')} data-i18n-label="glossaryCsvTitle" aria-label={T('glossaryCsvTitle')}></textarea>
+          <button id="glossary-import" class="btn-ghost" data-i18n="glossaryImport">{T('glossaryImport')}</button>
         </details>
         <p id="glossary-status" class="status-line" role="status"></p>
         <div class="modal-actions">
-          <button id="glossary-delete" class="btn-ghost danger" data-i18n="glossaryDeleteAll"></button>
-          <button id="glossary-save" class="btn-primary" data-i18n="saveBtn"></button>
+          <button id="glossary-delete" class="btn-ghost danger" data-i18n="glossaryDeleteAll">{T('glossaryDeleteAll')}</button>
+          <button id="glossary-save" class="btn-primary" data-i18n="saveBtn">{T('saveBtn')}</button>
         </div>
       </div>
     </div>
@@ -762,17 +767,17 @@ const jsonLd = {
     <div id="postcall-modal" class="modal-overlay hidden">
       <div class="modal card modal-narrow" role="dialog" aria-modal="true" aria-labelledby="postcall-title">
         <div class="modal-head">
-          <span id="postcall-title" class="card-title" data-i18n="postCallTitle"></span>
-          <button id="postcall-close" class="btn-ghost icon-btn" data-i18n-title="closeTip"></button>
+          <span id="postcall-title" class="card-title" data-i18n="postCallTitle">{T('postCallTitle')}</span>
+          <button id="postcall-close" class="btn-ghost icon-btn" data-i18n-title="closeTip" title={T('closeTip')} aria-label={T('closeTip')}></button>
         </div>
         <p class="modal-text postcall-summary">
           <strong id="postcall-room" class="mono"></strong><br />
-          <span data-i18n="durationLabel"></span>: <span id="postcall-duration"></span> ·
-          <span id="postcall-events"></span> <span data-i18n="eventsLabel"></span>
+          <span data-i18n="durationLabel">{T('durationLabel')}</span>: <span id="postcall-duration"></span> ·
+          <span id="postcall-events"></span> <span data-i18n="eventsLabel">{T('eventsLabel')}</span>
         </p>
         <div class="modal-actions">
-          <button id="postcall-json" class="btn-ghost" data-i18n="downloadJson"></button>
-          <button id="postcall-pdf" class="btn-primary" data-i18n="downloadPdf"></button>
+          <button id="postcall-json" class="btn-ghost" data-i18n="downloadJson">{T('downloadJson')}</button>
+          <button id="postcall-pdf" class="btn-primary" data-i18n="downloadPdf">{T('downloadPdf')}</button>
         </div>
       </div>
     </div>

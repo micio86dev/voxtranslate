@@ -1,7 +1,7 @@
 // VoxTranslate V2 client orchestrator: home/lobby → pre-join (camera + devices)
 // → WebRTC video call with translated subtitles + chat.
 
-import { applyI18n, detectLang, ENDONYM, FLAG, getUiLang, setUiLang, SUPPORTED, t } from './i18n';
+import { applyI18n, detectLang, ENDONYM, FLAG, getUiLang, loadLocale, setUiLang, SUPPORTED, t } from './i18n';
 import {
   type EngineInfo,
   DEFAULT_ENGINE_ID,
@@ -457,7 +457,19 @@ if (cachedLang) {
 }
 const cachedName = readCache(NAME_CACHE_KEY);
 if (cachedName && !nameInput.value) nameInput.value = cachedName;
+
+/** Lazy-load the locale chunk for `lang` (only `en` ships eagerly), then run `after`. The
+ *  active UI language's dictionary streams in on demand (spec 0104); until it lands `t()`
+ *  falls back to English, which is also what the page server-renders, so there is no flash.
+ *  Resolves on a microtask when the locale is already in memory. */
+const withLocale = (lang: string, after: () => void): void => {
+  void loadLocale(lang).then(after);
+};
+
+// Paint immediately with what we have (English, server-rendered into the HTML), then repaint
+// once the active locale's chunk arrives. English needs no fetch, so skip the round-trip.
 applyI18n();
+if (getUiLang() !== 'en') withLocale(getUiLang(), applyI18n);
 // Discover translation engines + restore the saved choice (spec 0093). Async;
 // the selector reveals itself once the list arrives. Default engine until then.
 void initEngines();
@@ -466,8 +478,10 @@ initNetStatus();
 langSel.addEventListener('change', () => {
   setUiLang(langSel.value);
   writeCache(LANG_CACHE_KEY, langSel.value);
-  applyI18n();
-  updateVisHint();
+  withLocale(langSel.value, () => {
+    applyI18n();
+    updateVisHint();
+  });
 });
 
 function updateVisHint(): void {
@@ -620,8 +634,10 @@ function rebuildLangOptions(): void {
     // (this select doubles as the UI language; see the change handler above).
     langSel.value = next;
     setUiLang(next);
-    applyI18n();
-    updateVisHint();
+    withLocale(next, () => {
+      applyI18n();
+      updateVisHint();
+    });
   } else {
     langSel.value = next;
   }
@@ -801,10 +817,15 @@ function selectLang(code: string, persist = true): void {
     writeCache(LANG_CACHE_KEY, code);
     pushRecentLang(code);
   }
-  applyI18n(); // re-renders data-i18n strings + flips document dir for RTL (i18n.ts)
-  updateLangTrigger();
-  renderTierCards();
-  updateVisHint();
+  // The chosen UI locale streams in on demand (spec 0104); re-render data-i18n strings,
+  // tier-card copy and the visibility hint (all `t()`-driven) once it lands. `applyI18n`
+  // also flips document dir for RTL (i18n.ts).
+  withLocale(code, () => {
+    applyI18n();
+    renderTierCards();
+    updateVisHint();
+  });
+  updateLangTrigger(); // langmap-driven (flag/endonym) — no UI dictionary needed
   closeLangPanel();
 }
 
