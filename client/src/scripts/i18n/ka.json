@@ -16,6 +16,7 @@
   "enterRoom": "შეიყვანეთ ოთახის კოდი",
   "enginePremiumPaused": "Premium კრედიტი ამოიწურა — გადართულია Standard თარგმანზე.",
   "enginePremiumBusy": "Premium ამჟამად დატვირთულია — გამოიყენება Standard თარგმანი (დაბალი ტარიფით).",
+  "engineEnhancedUnavailable": "Enhanced ამჟამად დატვირთულია — გამოიყენება Standard თარგმანი (დაბალი ტარიფით).",
   "downloadRateLimited": "ძალიან ბევრი მოთხოვნა — გთხოვთ, ცოტა ხანი დაიცადოთ და თავიდან სცადოთ.",
   "sessionOutputs": "სესიის შედეგები",
   "quizzesLabel": "ქვიზები",

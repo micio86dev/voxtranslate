@@ -16,6 +16,7 @@
   "enterRoom": "Xona kodini kiriting",
   "enginePremiumPaused": "Premium kreditingiz kamaydi — Standard tarjimaga o'tildi.",
   "enginePremiumBusy": "Premium hozir to'liq band — Standard tarjima ishlatilmoqda (pastroq tarif bo'yicha).",
+  "engineEnhancedUnavailable": "Enhanced hozir to'liq band — Standard tarjima ishlatilmoqda (pastroq tarif bo'yicha).",
   "downloadRateLimited": "So'rovlar juda ko'p — biroz kuting va qayta urinib ko'ring.",
   "sessionOutputs": "Sessiya natijalari",
   "quizzesLabel": "Testlar",

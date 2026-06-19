@@ -16,6 +16,7 @@
   "enterRoom": "Zadejte kód místnosti",
   "enginePremiumPaused": "Došly kredity na Premium — přepnuto na překlad Standard.",
   "enginePremiumBusy": "Premium je momentálně vytížené — používáme překlad Standard (účtováno za nižší sazbu).",
+  "engineEnhancedUnavailable": "Enhanced je momentálně vytížené — používáme překlad Standard (účtováno za nižší sazbu).",
   "downloadRateLimited": "Příliš mnoho požadavků — chvíli počkejte a zkuste to znovu.",
   "sessionOutputs": "Výstupy relace",
   "quizzesLabel": "Kvízy",

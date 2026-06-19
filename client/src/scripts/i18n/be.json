@@ -16,6 +16,7 @@
   "enterRoom": "Увядзіце код пакоя",
   "enginePremiumPaused": "Крэдытаў Premium засталося мала — пераключана на пераклад Standard.",
   "enginePremiumBusy": "Premium зараз перагружаны — выкарыстоўваецца пераклад Standard (па ніжэйшым тарыфе).",
+  "engineEnhancedUnavailable": "Enhanced зараз перагружаны — выкарыстоўваецца пераклад Standard (па ніжэйшым тарыфе).",
   "downloadRateLimited": "Занадта шмат запытаў — пачакайце крыху і паспрабуйце зноў.",
   "sessionOutputs": "Вынікі сеанса",
   "quizzesLabel": "Віктарыны",

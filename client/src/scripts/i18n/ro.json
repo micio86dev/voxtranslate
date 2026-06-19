@@ -16,6 +16,7 @@
   "enterRoom": "Introduceți un cod de cameră",
   "enginePremiumPaused": "Creditele Premium au scăzut — am trecut la traducerea Standard.",
   "enginePremiumBusy": "Premium este la capacitate maximă acum — folosim traducerea Standard (facturată la tariful mai mic).",
+  "engineEnhancedUnavailable": "Enhanced este la capacitate maximă acum — folosim traducerea Standard (facturată la tariful mai mic).",
   "downloadRateLimited": "Prea multe solicitări — așteptați un moment și încercați din nou.",
   "sessionOutputs": "Rezultatele sesiunii",
   "quizzesLabel": "Chestionare",

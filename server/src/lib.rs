@@ -1657,6 +1657,57 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
                                 );
                             }
                         }
+                        Ok(ClientMessage::EnhancedFallback { speaker_id }) => {
+                            // The browser-direct Enhanced (Soniox) pipeline gave up
+                            // translating in-browser (spec 0101) — e.g. Soniox's concurrent-
+                            // session cap. Fall this listener back to server-side Standard for
+                            // the rest of the call, mirroring the low-balance downgrade above.
+                            // Idempotent: act only while still on a client-direct engine.
+                            let cur = state.rooms.peer_engine(&room, &id);
+                            let on_client_direct = cur
+                                .as_deref()
+                                .and_then(|eid| state.engines.get(eid))
+                                .map(|e| e.metadata().capabilities.client_direct)
+                                .unwrap_or(false);
+                            if on_client_direct {
+                                let from =
+                                    cur.unwrap_or_else(|| crate::engine::SONIOX_ID.to_string());
+                                let default = state.engines.default();
+                                let to = default.metadata().id.clone();
+                                state.rooms.set_peer_engine(&room, &id, &to);
+                                tracing::info!(
+                                    %id, %speaker_id, %from, %to,
+                                    "enhanced fallback → standard"
+                                );
+                                // Re-bill at the Standard rate from here on: reassigning drops
+                                // the Enhanced-rate meter handle (cancelling it) and starts a
+                                // Standard-rate meter for the same usage session.
+                                if state.config.listener_pays && billed_user.is_some() {
+                                    meter_cancel = spawn_listener_meter(
+                                        &state,
+                                        billed_user,
+                                        usage_session_id,
+                                        &out_tx,
+                                        &exhaust_tx,
+                                        &room,
+                                        &id,
+                                        default.metadata().user_rate_per_second(),
+                                    );
+                                }
+                                let _ = out_tx.send(
+                                    ServerMessage::EngineDowngraded {
+                                        peer_id: id.clone(),
+                                        from,
+                                        to,
+                                        reason: "enhanced_unavailable".to_string(),
+                                    }
+                                    .to_json(),
+                                );
+                                // This listener consumed no server audio (client-direct); the
+                                // room's PCM-capture decision may shift — re-push capture formats.
+                                notify_capture_formats(&state, &room);
+                            }
+                        }
                         Err(_) => {} // unknown / malformed control frame
                     },
                     Message::Close(_) => break,

@@ -16,6 +16,7 @@
   "enterRoom": "Voer 'n kamerkode in",
   "enginePremiumPaused": "Premium-krediete is laag — oorgeskakel na Standard-vertaling.",
   "enginePremiumBusy": "Premium is tans vol — Standard-vertaling word gebruik (gefaktureer teen die laer tarief).",
+  "engineEnhancedUnavailable": "Enhanced is tans vol — Standard-vertaling word gebruik (gefaktureer teen die laer tarief).",
   "downloadRateLimited": "Te veel versoeke — wag 'n oomblik en probeer weer.",
   "sessionOutputs": "Sessie-uitsette",
   "quizzesLabel": "Vasvrae",

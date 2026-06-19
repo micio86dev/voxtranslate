@@ -16,6 +16,7 @@
   "enterRoom": "Indtast en rumkode",
   "enginePremiumPaused": "Premium-kreditter ved at slippe op — skiftet til Standard-oversættelse.",
   "enginePremiumBusy": "Premium er fuldt belagt lige nu — bruger Standard-oversættelse (afregnes til lavere pris).",
+  "engineEnhancedUnavailable": "Enhanced er fuldt belagt lige nu — bruger Standard-oversættelse (afregnes til lavere pris).",
   "downloadRateLimited": "For mange anmodninger — vent et øjeblik, og prøv igen.",
   "sessionOutputs": "Sessionsresultater",
   "quizzesLabel": "Quizzer",

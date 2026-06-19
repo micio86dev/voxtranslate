@@ -16,6 +16,7 @@
   "enterRoom": "Masukkan kod bilik",
   "enginePremiumPaused": "Kredit Premium hampir habis — bertukar ke terjemahan Standard.",
   "enginePremiumBusy": "Premium penuh kapasiti buat masa ini — menggunakan terjemahan Standard (dicaj pada kadar lebih rendah).",
+  "engineEnhancedUnavailable": "Enhanced penuh kapasiti buat masa ini — menggunakan terjemahan Standard (dicaj pada kadar lebih rendah).",
   "downloadRateLimited": "Terlalu banyak permintaan — sila tunggu sebentar dan cuba lagi.",
   "sessionOutputs": "Hasil sesi",
   "quizzesLabel": "Kuiz",

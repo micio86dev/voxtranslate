@@ -16,6 +16,7 @@
   "enterRoom": "Sartu gelaren kode bat",
   "enginePremiumPaused": "Premium kredituak agortzear daude — Standard itzulpenera aldatu da.",
   "enginePremiumBusy": "Premium une honetan beteta dago — Standard itzulpena erabiltzen (tarifa baxuagoan fakturatuta).",
+  "engineEnhancedUnavailable": "Enhanced une honetan beteta dago — Standard itzulpena erabiltzen (tarifa baxuagoan fakturatuta).",
   "downloadRateLimited": "Eskaera gehiegi — itxaron une bat eta saiatu berriro.",
   "sessionOutputs": "Saioaren emaitzak",
   "quizzesLabel": "Galdetegiak",

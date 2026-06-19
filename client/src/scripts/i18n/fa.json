@@ -16,6 +16,7 @@
   "enterRoom": "کد اتاق را وارد کنید",
   "enginePremiumPaused": "اعتبار Premium رو به اتمام بود — به ترجمه Standard تغییر یافت.",
   "enginePremiumBusy": "Premium اکنون پر ظرفیت است — از ترجمه Standard استفاده می‌شود (با نرخ پایین‌تر محاسبه می‌شود).",
+  "engineEnhancedUnavailable": "Enhanced اکنون پر ظرفیت است — از ترجمه Standard استفاده می‌شود (با نرخ پایین‌تر محاسبه می‌شود).",
   "downloadRateLimited": "درخواست‌ها بیش از حد است — لطفاً کمی صبر کنید و دوباره تلاش کنید.",
   "sessionOutputs": "خروجی‌های جلسه",
   "quizzesLabel": "آزمون‌ها",

@@ -16,6 +16,7 @@
   "enterRoom": "Inserisci un codice stanza",
   "enginePremiumPaused": "Crediti Premium in esaurimento — passato alla traduzione Standard.",
   "enginePremiumBusy": "Premium al momento è al massimo della capacità — uso la traduzione Standard (addebitata alla tariffa più bassa).",
+  "engineEnhancedUnavailable": "Enhanced al momento è al massimo della capacità — uso la traduzione Standard (addebitata alla tariffa più bassa).",
   "downloadRateLimited": "Troppe richieste — attendi un momento e riprova.",
   "sessionOutputs": "Risultati della sessione",
   "quizzesLabel": "Quiz",

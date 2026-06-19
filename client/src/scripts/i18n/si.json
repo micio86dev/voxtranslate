@@ -16,6 +16,7 @@
   "enterRoom": "කාමර කේතයක් ඇතුළු කරන්න",
   "enginePremiumPaused": "Premium ණය අඩු වුණා — Standard පරිවර්තනයට මාරු විය.",
   "enginePremiumBusy": "Premium දැන් සම්පූර්ණයෙන්ම පිරී ඇත — Standard පරිවර්තනය භාවිතා කරයි (අඩු මිලකට අය කෙරේ).",
+  "engineEnhancedUnavailable": "Enhanced දැන් සම්පූර්ණයෙන්ම පිරී ඇත — Standard පරිවර්තනය භාවිතා කරයි (අඩු මිලකට අය කෙරේ).",
   "downloadRateLimited": "ඉල්ලීම් වැඩියි — මොහොතක් රැඳී නැවත උත්සාහ කරන්න.",
   "sessionOutputs": "සැසි ප්‍රතිඵල",
   "quizzesLabel": "ප්‍රශ්නාවලි",

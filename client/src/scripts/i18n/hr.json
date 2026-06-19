@@ -16,6 +16,7 @@
   "enterRoom": "Unesite kod sobe",
   "enginePremiumPaused": "Premium krediti su pri kraju — prebačeno na Standard prijevod.",
   "enginePremiumBusy": "Premium je trenutačno popunjen — koristi se Standard prijevod (naplaćuje se po nižoj cijeni).",
+  "engineEnhancedUnavailable": "Enhanced je trenutačno popunjen — koristi se Standard prijevod (naplaćuje se po nižoj cijeni).",
   "downloadRateLimited": "Previše zahtjeva — pričekajte trenutak i pokušajte ponovno.",
   "sessionOutputs": "Rezultati sesije",
   "quizzesLabel": "Kvizovi",

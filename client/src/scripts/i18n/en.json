@@ -16,6 +16,7 @@
   "enterRoom": "Enter a room code",
   "enginePremiumPaused": "Premium credits ran low — switched to Standard translation.",
   "enginePremiumBusy": "Premium is at capacity right now — using Standard translation (billed at the lower rate).",
+  "engineEnhancedUnavailable": "Enhanced is at capacity right now — using Standard translation (billed at the lower rate).",
   "downloadRateLimited": "Too many requests — please wait a moment and try again.",
   "sessionOutputs": "Session outputs",
   "quizzesLabel": "Quizzes",

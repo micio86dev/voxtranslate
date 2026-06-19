@@ -16,6 +16,7 @@
   "enterRoom": "请输入房间代码",
   "enginePremiumPaused": "Premium 积分不足 — 已切换到 Standard 翻译。",
   "enginePremiumBusy": "Premium 当前已满负荷 — 正在使用 Standard 翻译（按更低费率计费）。",
+  "engineEnhancedUnavailable": "Enhanced 当前已满负荷 — 正在使用 Standard 翻译（按更低费率计费）。",
   "downloadRateLimited": "请求过于频繁——请稍候再试。",
   "sessionOutputs": "会话输出",
   "quizzesLabel": "测验",

@@ -16,6 +16,7 @@
   "enterRoom": "ປ້ອນລະຫັດຫ້ອງ",
   "enginePremiumPaused": "ເຄຣດິດ Premium ໃກ້ໝົດ — ປ່ຽນໄປໃຊ້ການແປ Standard ແລ້ວ.",
   "enginePremiumBusy": "Premium ເຕັມຄວາມຈຸໃນຕອນນີ້ — ກຳລັງໃຊ້ການແປ Standard (ຄິດໄລ່ໃນອັດຕາທີ່ຕ່ຳກວ່າ).",
+  "engineEnhancedUnavailable": "Enhanced ເຕັມຄວາມຈຸໃນຕອນນີ້ — ກຳລັງໃຊ້ການແປ Standard (ຄິດໄລ່ໃນອັດຕາທີ່ຕ່ຳກວ່າ).",
   "downloadRateLimited": "ຄຳຮ້ອງຫຼາຍເກີນໄປ — ກະລຸນາລໍຖ້າຄາວໜຶ່ງແລ້ວລອງໃໝ່.",
   "sessionOutputs": "ຜົນລັບການໂທ",
   "quizzesLabel": "ແບບທົດສອບ",

@@ -16,6 +16,7 @@
   "enterRoom": "የክፍል ኮድ ያስገቡ",
   "enginePremiumPaused": "የ Premium ክሬዲቶች አነሱ — ወደ Standard ትርጉም ተቀይሯል።",
   "enginePremiumBusy": "Premium አሁን ሙሉ ነው — Standard ትርጉም በመጠቀም ላይ (በዝቅተኛ ዋጋ ይከፈላል)።",
+  "engineEnhancedUnavailable": "Enhanced አሁን ሙሉ ነው — Standard ትርጉም በመጠቀም ላይ (በዝቅተኛ ዋጋ ይከፈላል)።",
   "downloadRateLimited": "በጣም ብዙ ጥያቄዎች — እባክዎ ትንሽ ይጠብቁና እንደገና ይሞክሩ።",
   "sessionOutputs": "የክፍለ ጊዜ ውጤቶች",
   "quizzesLabel": "ጥያቄዎች",

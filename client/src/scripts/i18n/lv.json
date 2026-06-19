@@ -16,6 +16,7 @@
   "enterRoom": "Ievadiet istabas kodu",
   "enginePremiumPaused": "Premium kredīti gandrīz beidzās — pārslēdzāmies uz Standard tulkošanu.",
   "enginePremiumBusy": "Premium pašlaik ir pārslogots — izmantojam Standard tulkošanu (tiek rēķināta zemākā likme).",
+  "engineEnhancedUnavailable": "Enhanced pašlaik ir pārslogots — izmantojam Standard tulkošanu (tiek rēķināta zemākā likme).",
   "downloadRateLimited": "Pārāk daudz pieprasījumu — lūdzu, uzgaidiet mirkli un mēģiniet vēlreiz.",
   "sessionOutputs": "Sesijas rezultāti",
   "quizzesLabel": "Viktorīnas",

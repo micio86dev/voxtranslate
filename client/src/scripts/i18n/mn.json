@@ -16,6 +16,7 @@
   "enterRoom": "Өрөөний кодоо оруулна уу",
   "enginePremiumPaused": "Premium кредит дуусч байгаа тул Standard орчуулга руу шилжлээ.",
   "enginePremiumBusy": "Premium одоогоор багтаамж дүүрсэн тул Standard орчуулга ашиглаж байна (бага тарифаар).",
+  "engineEnhancedUnavailable": "Enhanced одоогоор багтаамж дүүрсэн тул Standard орчуулга ашиглаж байна (бага тарифаар).",
   "downloadRateLimited": "Хүсэлт хэт олон байна — түр хүлээгээд дахин оролдоно уу.",
   "sessionOutputs": "Хуралдааны үр дүн",
   "quizzesLabel": "Тестүүд",

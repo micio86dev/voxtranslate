@@ -16,6 +16,7 @@
   "enterRoom": "Մուտքագրեք սենյակի կոդը",
   "enginePremiumPaused": "Premium կրեդիտները սպառվում են — անցում կատարվեց Standard թարգմանության։",
   "enginePremiumBusy": "Premium-ը ներկայումս ծանրաբեռնված է — օգտագործվում է Standard թարգմանություն (ավելի ցածր սակագնով)։",
+  "engineEnhancedUnavailable": "Enhanced-ը ներկայումս ծանրաբեռնված է — օգտագործվում է Standard թարգմանություն (ավելի ցածր սակագնով)։",
   "downloadRateLimited": "Չափազանց շատ հարցումներ — խնդրում ենք մի փոքր սպասել և նորից փորձել։",
   "sessionOutputs": "Նստաշրջանի արդյունքներ",
   "quizzesLabel": "Վիկտորինաներ",

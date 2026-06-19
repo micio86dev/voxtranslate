@@ -16,6 +16,7 @@
   "enterRoom": "Bir oda kodu girin",
   "enginePremiumPaused": "Premium krediniz azaldı — Standard çeviriye geçildi.",
   "enginePremiumBusy": "Premium şu anda kapasitede — Standard çeviri kullanılıyor (daha düşük ücretle).",
+  "engineEnhancedUnavailable": "Enhanced şu anda kapasitede — Standard çeviri kullanılıyor (daha düşük ücretle).",
   "downloadRateLimited": "Çok fazla istek — lütfen biraz bekleyip tekrar deneyin.",
   "sessionOutputs": "Oturum çıktıları",
   "quizzesLabel": "Testler",

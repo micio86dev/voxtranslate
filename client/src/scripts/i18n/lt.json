@@ -16,6 +16,7 @@
   "enterRoom": "Įveskite kambario kodą",
   "enginePremiumPaused": "Premium kreditai senka — perjungta į Standard vertimą.",
   "enginePremiumBusy": "Premium šiuo metu perpildytas — naudojamas Standard vertimas (taikomas mažesnis tarifas).",
+  "engineEnhancedUnavailable": "Enhanced šiuo metu perpildytas — naudojamas Standard vertimas (taikomas mažesnis tarifas).",
   "downloadRateLimited": "Per daug užklausų — palaukite akimirką ir bandykite dar kartą.",
   "sessionOutputs": "Sesijos rezultatai",
   "quizzesLabel": "Viktorinos",

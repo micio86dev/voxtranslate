@@ -16,6 +16,7 @@
   "enterRoom": "Введите код комнаты",
   "enginePremiumPaused": "Премиум-кредиты на исходе — переключились на перевод Standard.",
   "enginePremiumBusy": "Premium сейчас перегружен — используем перевод Standard (по более низкой ставке).",
+  "engineEnhancedUnavailable": "Enhanced сейчас перегружен — используем перевод Standard (по более низкой ставке).",
   "downloadRateLimited": "Слишком много запросов — подождите немного и повторите попытку.",
   "sessionOutputs": "Результаты сессии",
   "quizzesLabel": "Викторины",

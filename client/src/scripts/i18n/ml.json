@@ -16,6 +16,7 @@
   "enterRoom": "ഒരു റൂം കോഡ് നൽകുക",
   "enginePremiumPaused": "Premium ക്രെഡിറ്റുകൾ കുറഞ്ഞു — Standard പരിഭാഷയിലേക്ക് മാറി.",
   "enginePremiumBusy": "Premium ഇപ്പോൾ പൂർണ്ണശേഷിയിലാണ് — Standard പരിഭാഷ ഉപയോഗിക്കുന്നു (കുറഞ്ഞ നിരക്കിൽ ഈടാക്കും).",
+  "engineEnhancedUnavailable": "Enhanced ഇപ്പോൾ പൂർണ്ണശേഷിയിലാണ് — Standard പരിഭാഷ ഉപയോഗിക്കുന്നു (കുറഞ്ഞ നിരക്കിൽ ഈടാക്കും).",
   "downloadRateLimited": "വളരെയധികം അഭ്യർത്ഥനകൾ — ഒരു നിമിഷം കാത്തിരുന്ന് വീണ്ടും ശ്രമിക്കുക.",
   "sessionOutputs": "സെഷൻ ഔട്ട്പുട്ടുകൾ",
   "quizzesLabel": "ക്വിസുകൾ",

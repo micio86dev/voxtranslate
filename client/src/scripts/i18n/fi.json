@@ -16,6 +16,7 @@
   "enterRoom": "Anna huonekoodi",
   "enginePremiumPaused": "Premium-krediitit alkoivat loppua — vaihdettiin Standard-käännökseen.",
   "enginePremiumBusy": "Premium on nyt täynnä — käytetään Standard-käännöstä (veloitetaan halvemmalla hinnalla).",
+  "engineEnhancedUnavailable": "Enhanced on nyt täynnä — käytetään Standard-käännöstä (veloitetaan halvemmalla hinnalla).",
   "downloadRateLimited": "Liikaa pyyntöjä — odota hetki ja yritä uudelleen.",
   "sessionOutputs": "Istunnon tulokset",
   "quizzesLabel": "Tietovisat",

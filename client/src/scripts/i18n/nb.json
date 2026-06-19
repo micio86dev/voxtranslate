@@ -16,6 +16,7 @@
   "enterRoom": "Skriv inn en romkode",
   "enginePremiumPaused": "Premium-kreditter var i ferd med å bli brukt opp — byttet til Standard-oversettelse.",
   "enginePremiumBusy": "Premium er fullt akkurat nå — bruker Standard-oversettelse (faktureres til lavere pris).",
+  "engineEnhancedUnavailable": "Enhanced er fullt akkurat nå — bruker Standard-oversettelse (faktureres til lavere pris).",
   "downloadRateLimited": "For mange forespørsler — vent et øyeblikk og prøv igjen.",
   "sessionOutputs": "Øktresultater",
   "quizzesLabel": "Quizer",
