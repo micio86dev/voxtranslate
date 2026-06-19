@@ -1599,16 +1599,18 @@ const jsonLd = {
     .login-card .brand { font-size: 2rem; }
     .login-sub { color: var(--muted); font-size: 0.9rem; margin: 4px 0 8px; }
     .gsi-button { min-height: 44px; display: flex; flex-direction: column; align-items: center; gap: 8px; }
-    /* Custom Google button (spec 0087): matches the official filled-blue
-       "Sign in with Google" — a white G tile on the left, blue pill, white label. */
+    /* Custom Google button (spec 0087): official filled-blue "Sign in with Google"
+       style — a white G tile on the left, blue pill, white label. Uses Google blue
+       700 (#1967d2) rather than the brand #4285f4 so white label text clears WCAG AA
+       (5.4:1 vs the 3.56:1 of #4285f4, which fails for normal-size text). */
     .gsi-btn {
       display: inline-flex; align-items: center; height: 44px; padding: 0; border: none;
-      border-radius: 999px; background: #4285f4; color: #fff; cursor: pointer; overflow: hidden;
+      border-radius: 999px; background: #1967d2; color: #fff; cursor: pointer; overflow: hidden;
       font-family: 'Roboto', system-ui, -apple-system, sans-serif; font-size: 0.95rem; font-weight: 500;
       transition: background 0.15s, box-shadow 0.15s;
     }
-    .gsi-btn:hover { background: #3b78e7; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4); }
-    .gsi-btn:active { background: #3367d6; }
+    .gsi-btn:hover { background: #1b5fbf; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4); }
+    .gsi-btn:active { background: #18539c; }
     .gsi-btn-g { display: grid; place-items: center; width: 42px; align-self: stretch; background: #fff; flex: none; }
     .gsi-btn-label { padding-block: 0; padding-inline-start: 14px; padding-inline-end: 18px; white-space: nowrap; }
     .gsi-official { display: flex; justify-content: center; }
