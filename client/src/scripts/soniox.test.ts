@@ -25,7 +25,7 @@ vi.mock('@soniox/speech-to-text-web', () => {
   return { SonioxClient: MockSonioxClient };
 });
 
-import { extractTranslation, IDLE_FLUSH_MS, SonioxManager } from './soniox';
+import { extractTranslation, IDLE_FLUSH_MS, SonioxManager, sttMimeType } from './soniox';
 import type { Token } from '@soniox/speech-to-text-web';
 
 function tok(text: string, is_final: boolean, status?: Token['translation_status']): Token {
@@ -55,6 +55,23 @@ describe('extractTranslation', () => {
       finalDelta: '',
       nonFinal: '',
     });
+  });
+});
+
+describe('sttMimeType', () => {
+  afterEach(() => {
+    delete (globalThis as { MediaRecorder?: unknown }).MediaRecorder;
+  });
+  it('returns undefined when MediaRecorder is unavailable (e.g. node env)', () => {
+    expect(sttMimeType()).toBeUndefined();
+  });
+  it('prefers webm/opus when supported', () => {
+    (globalThis as { MediaRecorder?: unknown }).MediaRecorder = { isTypeSupported: () => true };
+    expect(sttMimeType()).toBe('audio/webm;codecs=opus');
+  });
+  it('falls back to audio/webm when opus is unsupported', () => {
+    (globalThis as { MediaRecorder?: unknown }).MediaRecorder = { isTypeSupported: () => false };
+    expect(sttMimeType()).toBe('audio/webm');
   });
 });
 
@@ -94,6 +111,22 @@ describe('SonioxManager', () => {
     expect(c.opts.webSocketUri).toBe('wss://stt');
     expect(c.startOpts?.translation).toEqual({ type: 'one_way', target_language: 'en' });
     expect(c.startOpts?.languageHints).toEqual(['it', 'en']);
+  });
+
+  it('pins the recorder mimeType so Android captures a decodable container', async () => {
+    (globalThis as { MediaRecorder?: unknown }).MediaRecorder = { isTypeSupported: () => true };
+    try {
+      const { m } = mgr();
+      m.activate('en');
+      m.setPeerLang('p1', 'it');
+      m.setPeerStream('p1', new FakeStream([{}]) as unknown as MediaStream);
+      await vi.runAllTimersAsync();
+      expect(constructed[0].startOpts?.mediaRecorderOptions).toEqual({
+        mimeType: 'audio/webm;codecs=opus',
+      });
+    } finally {
+      delete (globalThis as { MediaRecorder?: unknown }).MediaRecorder;
+    }
   });
 
   it('renders interim subtitles, then a final + utterance after the idle flush', async () => {

@@ -58,6 +58,20 @@ function langHints(source: string, mine: string): string[] {
   return [...new Set([source, mine].filter(Boolean))];
 }
 
+/** MediaRecorder mimeType to hand the Soniox SDK for capturing a peer's audio.
+ *  The SDK records via MediaRecorder; left to the browser default it lets Chrome
+ *  pick the container, and on Android that default is one Soniox's `audioFormat:
+ *  'auto'` sniffer can't decode — so Enhanced received NOTHING on Android while
+ *  desktop (which defaults to webm/opus) worked. Pin the exact same codec the
+ *  outgoing STT capture already proves works on the device (see audio-capture.ts),
+ *  with the same `isTypeSupported` fallback. `undefined` when MediaRecorder is
+ *  absent (e.g. the node test env) → the SDK keeps its default. */
+export function sttMimeType(): string | undefined {
+  if (typeof MediaRecorder === 'undefined') return undefined;
+  const opus = 'audio/webm;codecs=opus';
+  return MediaRecorder.isTypeSupported(opus) ? opus : 'audio/webm';
+}
+
 interface Pipeline {
   client: SonioxClient;
   sourceLang: string;
@@ -181,10 +195,15 @@ export class SonioxManager {
     const pipe: Pipeline = { client, sourceLang, finalText: '', idleTimer: null, stopped: false };
     this.pipelines.set(peerId, pipe);
 
+    const mimeType = sttMimeType();
     try {
       void client.start({
         model: session.model,
         audioFormat: 'auto',
+        // Pin the recorder codec so Android Chrome captures a container Soniox can
+        // decode (spec 0101 fix): without this the SDK's default made Enhanced
+        // silent on Android. No-op where MediaRecorder is unavailable.
+        ...(mimeType ? { mediaRecorderOptions: { mimeType } } : {}),
         languageHints: langHints(sourceLang, this.myLang),
         enableEndpointDetection: true,
         translation: { type: 'one_way', target_language: this.myLang },
