@@ -31,12 +31,31 @@ export interface SonioxManagerOptions {
   onSubtitle: (speakerId: string, text: string, interim: boolean) => void;
   /** A finalized translated utterance for `speakerId` — for optional on-device TTS. */
   onUtterance: (speakerId: string, text: string) => void;
+  /** A pipeline gave up on `speakerId` (a permanent error, or a transient one that
+   *  survived all retries). The app uses this to fall the listener back to server-side
+   *  Standard translation. `errorCode` is set only for Soniox `api_error`. */
+  onError?: (speakerId: string, status: string, message: string, errorCode?: number) => void;
 }
 
 /** Idle gap after which the accumulated translation is flushed as a final line + spoken.
  *  Soniox endpoint detection finalizes tokens quickly; this is the segment delimiter (a
  *  pause), mirroring the server's speech-to-speech engines. */
 export const IDLE_FLUSH_MS = 900;
+
+/** Soniox `ErrorStatus` values worth retrying: a transient capacity/network hiccup, not a
+ *  client misconfiguration. `queue_limit_exceeded` is the concurrent-session cap (the case
+ *  this whole path exists for); `websocket_error`/`api_error` are connection/server blips;
+ *  `api_key_fetch_failed` is retried because each attempt mints a fresh single-use key.
+ *  `get_user_media_failed` / `media_recorder_error` are NOT here — retrying can't fix them. */
+export const RETRYABLE_ERRORS: ReadonlySet<string> = new Set([
+  'queue_limit_exceeded',
+  'websocket_error',
+  'api_error',
+  'api_key_fetch_failed',
+]);
+
+/** Exponential backoff between retry attempts (ms). Length = max retries before giving up. */
+export const RETRY_BACKOFF_MS = [1000, 2000, 4000] as const;
 
 /** Pull the TRANSLATED text out of one Soniox result: newly-final translation tokens
  *  (appended once, in order) and the current non-final translation tail (re-sent each
@@ -83,6 +102,8 @@ interface Pipeline {
   idleTimer: ReturnType<typeof setTimeout> | null;
   /** Set once we've torn it down, so a late async start bails. */
   stopped: boolean;
+  /** Which retry this is (0 = first try). Drives the backoff and the give-up cutoff. */
+  attempt: number;
 }
 
 /** Manages one Soniox STT+translation pipeline per remote speaker for THIS listener. */
@@ -90,6 +111,12 @@ export class SonioxManager {
   private pipelines = new Map<string, Pipeline>();
   private streams = new Map<string, MediaStream>();
   private langs = new Map<string, string>();
+  /** Pending backoff timers, keyed by peer — a retry scheduled but not yet fired. */
+  private retryTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  /** Peers whose pipeline gave up (retries exhausted / permanent error). `reconcile`
+   *  skips these so we don't thrash; cleared when something warrants a fresh attempt
+   *  (the source or target language changes, the peer leaves, or we deactivate). */
+  private gaveUp = new Set<string>();
   private myLang = '';
   private active = false;
 
@@ -111,6 +138,9 @@ export class SonioxManager {
   deactivate(): void {
     this.active = false;
     for (const peerId of [...this.pipelines.keys()]) this.stopPipeline(peerId);
+    for (const t of this.retryTimers.values()) clearTimeout(t);
+    this.retryTimers.clear();
+    this.gaveUp.clear();
     this.streams.clear();
     this.langs.clear();
   }
@@ -120,6 +150,9 @@ export class SonioxManager {
   setMyLang(lang: string): void {
     if (lang === this.myLang) return;
     this.myLang = lang;
+    // The translation target moved for every peer — a fresh start is warranted, so any
+    // previously-given-up peer becomes eligible again.
+    this.gaveUp.clear();
     for (const peerId of this.peerIds()) this.reconcile(peerId, /* targetChanged */ true);
   }
 
@@ -133,12 +166,16 @@ export class SonioxManager {
   setPeerLang(peerId: string, lang: string): void {
     if (this.langs.get(peerId) === lang) return;
     this.langs.set(peerId, lang);
+    // New source language → worth another attempt even if a prior one gave up.
+    this.gaveUp.delete(peerId);
     this.reconcile(peerId);
   }
 
   /** A peer left — drop its pipeline and state. */
   removePeer(peerId: string): void {
     this.stopPipeline(peerId);
+    this.clearRetry(peerId);
+    this.gaveUp.delete(peerId);
     this.streams.delete(peerId);
     this.langs.delete(peerId);
   }
@@ -149,6 +186,8 @@ export class SonioxManager {
 
   /** Start/stop/restart `peerId`'s pipeline to match the desired state. */
   private reconcile(peerId: string, targetChanged = false): void {
+    // A given-up peer stays off until something clears it (lang change / leave / deactivate).
+    if (this.gaveUp.has(peerId)) return;
     const lang = this.langs.get(peerId);
     const stream = this.streams.get(peerId);
     const want =
@@ -156,12 +195,14 @@ export class SonioxManager {
     const existing = this.pipelines.get(peerId);
 
     if (!want) {
+      this.clearRetry(peerId); // a pending retry is moot if we no longer want this pipeline
       if (existing) this.stopPipeline(peerId);
       return;
     }
     // want === true → lang and stream are defined.
     const sourceChanged = existing && existing.sourceLang !== lang;
     if (existing && !sourceChanged && !targetChanged) return; // already running, unchanged
+    this.clearRetry(peerId); // a fresh decision supersedes any scheduled retry
     if (existing) this.stopPipeline(peerId);
     void this.startPipeline(peerId, stream as MediaStream, lang as string);
   }
@@ -170,6 +211,7 @@ export class SonioxManager {
     peerId: string,
     stream: MediaStream,
     sourceLang: string,
+    attempt = 0,
   ): Promise<void> {
     const audioTracks = stream.getAudioTracks();
     if (audioTracks.length === 0) return; // no audio yet — retried when the stream updates
@@ -185,17 +227,24 @@ export class SonioxManager {
       client = new SonioxClient({
         apiKey: session.sttApiKey,
         webSocketUri: session.sttEndpoint || undefined,
-        onError: (status, message) => {
-          // Soft-fail: a refused/limited stream just means no subtitles for this speaker.
-          console.warn(`[soniox] ${peerId} ${status}: ${message}`);
-        },
+        // Retry transient failures with backoff; on a permanent error (or once retries are
+        // exhausted) give up and tell the app so it can fall back to Standard.
+        onError: (status, message, errorCode) =>
+          this.handleError(peerId, status, message, errorCode),
       });
     } catch (e) {
       console.warn('[soniox] client construction failed', e);
       return;
     }
 
-    const pipe: Pipeline = { client, sourceLang, finalText: '', idleTimer: null, stopped: false };
+    const pipe: Pipeline = {
+      client,
+      sourceLang,
+      finalText: '',
+      idleTimer: null,
+      stopped: false,
+      attempt,
+    };
     this.pipelines.set(peerId, pipe);
 
     const mimeType = sttMimeType();
@@ -253,5 +302,51 @@ export class SonioxManager {
     } catch {
       /* already closed */
     }
+  }
+
+  /** Cancel any pending backoff retry for a peer. */
+  private clearRetry(peerId: string): void {
+    const t = this.retryTimers.get(peerId);
+    if (t) {
+      clearTimeout(t);
+      this.retryTimers.delete(peerId);
+    }
+  }
+
+  /** A Soniox stream errored. Tear it down, then either schedule a backoff retry (transient,
+   *  attempts left) or give up — mark the peer and notify the app so it can fall back to
+   *  server-side Standard translation. */
+  private handleError(
+    peerId: string,
+    status: string,
+    message: string,
+    errorCode?: number,
+  ): void {
+    const pipe = this.pipelines.get(peerId);
+    if (!pipe || pipe.stopped) return; // stale error from an already torn-down client
+    const attempt = pipe.attempt;
+    console.warn(`[soniox] ${peerId} ${status}: ${message}`);
+    this.stopPipeline(peerId);
+
+    if (RETRYABLE_ERRORS.has(status) && attempt < RETRY_BACKOFF_MS.length) {
+      const timer = setTimeout(() => {
+        this.retryTimers.delete(peerId);
+        // Re-validate at fire time: the peer may have left, changed language, given up via
+        // another path, or already been restarted by a reconcile.
+        const lang = this.langs.get(peerId);
+        const stream = this.streams.get(peerId);
+        const want =
+          this.active && !!lang && !!stream && lang !== 'auto' && lang !== this.myLang;
+        if (!want || this.gaveUp.has(peerId) || this.pipelines.has(peerId)) return;
+        void this.startPipeline(peerId, stream as MediaStream, lang as string, attempt + 1);
+      }, RETRY_BACKOFF_MS[attempt]);
+      this.retryTimers.set(peerId, timer);
+      return;
+    }
+
+    // Permanent error, or transient retries exhausted: stop trying for this peer and let the
+    // app degrade gracefully (fall the listener back to Standard).
+    this.gaveUp.add(peerId);
+    this.opts.onError?.(peerId, status, message, errorCode);
   }
 }
