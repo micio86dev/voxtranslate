@@ -174,7 +174,7 @@ client/   Astro 5 SPA
   src/pages/index.astro          screens + styles
   src/scripts/{app,webrtc,audio-capture,chat,i18n}.ts
   src/layouts/Base.astro
-scripts/  pipeline-test.mjs · docker-compose.yml · LICENSE (MIT)
+scripts/  pipeline-test.mjs · docker-compose.yml · LICENSE (PolyForm Shield 1.0.0)
 ```
 
 ## Notes
@@ -187,4 +187,7 @@ scripts/  pipeline-test.mjs · docker-compose.yml · LICENSE (MIT)
 
 ## License
 
-[MIT](./LICENSE) © 2026 Alessandro Micelli
+Source-available under the [PolyForm Shield License 1.0.0](./LICENSE) © 2026 Alessandro
+Micelli. You may read, modify and use the code for any purpose **except** providing a
+product or service that competes with VoxTranslate. This is not an OSI "open source"
+license.
