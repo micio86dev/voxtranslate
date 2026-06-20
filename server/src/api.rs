@@ -2296,7 +2296,23 @@ pub async fn quiz_generate(
     }
     let count = ai_quiz::clamp_count(body.count);
     let lang = sanitize_lang(body.lang.as_deref());
-    let cost = ai_quiz::quiz_cost(ai, count);
+    // Languages to localize into: the room's distinct languages, deduped, base
+    // excluded, capped. The quiz is produced in 1 (base) + targets languages, and
+    // the cost scales with that so a multilingual room is charged for the extra
+    // translation work (single-language rooms are unchanged).
+    let mut targets: Vec<String> = body
+        .langs
+        .clone()
+        .unwrap_or_default()
+        .iter()
+        .map(|l| sanitize_lang(Some(l)))
+        .filter(|l| l != &lang)
+        .collect();
+    targets.sort();
+    targets.dedup();
+    targets.truncate(8); // bound the translation fan-out per quiz
+    let num_langs = 1 + targets.len();
+    let cost = ai_quiz::quiz_cost(ai, count, num_langs);
 
     // Advisory pre-check before burning a Groq call; the atomic deduct is the gate.
     match billing.get_balance(user.user_id).await {
@@ -2347,18 +2363,7 @@ pub async fn quiz_generate(
         }
     };
 
-    // Localize for every language present in the room (deduped, base excluded, capped).
-    let mut targets: Vec<String> = body
-        .langs
-        .clone()
-        .unwrap_or_default()
-        .iter()
-        .map(|l| sanitize_lang(Some(l)))
-        .filter(|l| l != &lang)
-        .collect();
-    targets.sort();
-    targets.dedup();
-    targets.truncate(8); // bound the translation fan-out per quiz
+    // `targets` was computed up-front (it drives the cost); reuse it here.
     let localized = localize_quiz(&state.translator, &questions, &lang, &targets).await;
 
     let mut v = serde_json::json!({

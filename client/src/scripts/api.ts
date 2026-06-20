@@ -357,6 +357,8 @@ export interface AiPricing {
   sentiment: { base: number; per_participant: number; per_minute: number };
   email: { draft: number };
   suggestions: { per_minute: number; interval_seconds: number };
+  /** Quiz generation: base + per_question (charged per language the quiz covers). */
+  quiz?: { base: number; per_question: number };
   transcript_correction?: { base: number; per_event: number };
   /** False when the backend has no Resend credentials (email feature 503s). */
   email_enabled: boolean;

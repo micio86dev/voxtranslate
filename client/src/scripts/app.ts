@@ -35,7 +35,7 @@ import { pcmPlayback } from './pcm-playback';
 import type { MicMeter } from './mic-meter';
 import type { ChatManager, ChatPayload } from './chat';
 import { CHAT_MAX_HEIGHT, counterLabel, counterState, insertAt, resizeBox } from './chat-input';
-import { checkUploadFile, fetchSonioxSession, fileUploadEnabled, generateAiQuiz, saveQuizHistory, sendInvites, uploadChatFile } from './api';
+import { checkUploadFile, fetchAiPricing, fetchSonioxSession, fileUploadEnabled, generateAiQuiz, saveQuizHistory, sendInvites, uploadChatFile } from './api';
 import { buildInviteLink, MAX_INVITE_EMAILS, parseRoomParam, validateInviteEmails } from './invite';
 import * as auth from './auth';
 import { initBookmarks, setBookmarkSession } from './bookmarks';
@@ -2478,6 +2478,9 @@ function updateParticipantsList(): void {
   }
 
   $('part-count-n').textContent = String(items.length); // live count (spec 0055)
+  // Keep the quiz cost estimate current while its panel is open (room languages
+  // may have just changed with this join/leave/lang update).
+  if (!quizEl.classList.contains('hidden')) void refreshQuizCost();
   updateInviteAvailability(items.length); // show "Invite" only while a seat is free (spec 0082)
   // Your avatar (image when available, else initial + gradient) in the on-video
   // participant badge (spec 0061 / #98 → avatars in spec 0070 R2.3).
@@ -4537,6 +4540,7 @@ $('btn-quiz').innerHTML = icon('quiz');
 function toggleQuiz(open?: boolean): void {
   const show = open ?? quizEl.classList.contains('hidden');
   quizEl.classList.toggle('hidden', !show);
+  if (show) void refreshQuizCost(); // estimate reflects the room's languages right now
 }
 $('btn-quiz').addEventListener('click', () => toggleQuiz());
 $('quiz-close').addEventListener('click', () => toggleQuiz(false));
@@ -4550,6 +4554,34 @@ const quizAiBtn = $('quiz-ai-gen') as HTMLButtonElement;
 const quizAiMsg = $('quiz-ai-msg');
 const quizAiBuy = $('quiz-ai-buy');
 quizAiBuy.addEventListener('click', openBuyModal); // out-of-credits → purchase modal (spec 0083)
+const quizAiCost = $('quiz-ai-cost');
+const QUIZ_Q_COUNT = 5; // questions per generated quiz (matches the server clamp default)
+
+/** Distinct languages currently in the room (mine + each peer's), minus auto. The
+ *  quiz is localized into these, and the cost scales with how many there are. */
+function roomLangCodes(): string[] {
+  return Array.from(
+    new Set([session?.lang || 'en', ...Array.from(peerNames.values()).map((p) => p.lang)]),
+  ).filter((l) => l && l !== 'auto');
+}
+
+/** Show the estimated quiz cost, scaled by the room's distinct languages (the quiz
+ *  is localized for everyone). Language-neutral (≈ price · 🌐 N) so no new strings. */
+async function refreshQuizCost(): Promise<void> {
+  if (!quizAiCost || !billing) {
+    if (quizAiCost) quizAiCost.hidden = true;
+    return;
+  }
+  const q = (await fetchAiPricing())?.quiz;
+  if (!q) {
+    quizAiCost.hidden = true;
+    return;
+  }
+  const n = Math.max(1, roomLangCodes().length);
+  quizAiCost.textContent = `≈ ${auth.formatCredits(q.base + q.per_question * QUIZ_Q_COUNT * n)} · 🌐 ${n}`;
+  quizAiCost.hidden = false;
+}
+
 function setQuizAiMsg(text: string, isError: boolean): void {
   quizAiMsg.textContent = text;
   quizAiMsg.classList.toggle('error', isError);
@@ -4575,12 +4607,9 @@ quizAiForm.addEventListener('submit', async (e) => {
   quizAiBtn.disabled = true;
   quizAiInput.disabled = true;
   setQuizAiMsg(t('quizAiGenerating'), false);
-  // Localize the quiz for everyone: the distinct languages currently in the room
-  // (mine + each peer's), minus auto-detect. The server translates into these.
-  const roomLangs = Array.from(
-    new Set([session?.lang || 'en', ...Array.from(peerNames.values()).map((p) => p.lang)]),
-  ).filter((l) => l && l !== 'auto');
-  const res = await generateAiQuiz(prompt, 5, session?.lang || 'en', roomLangs);
+  // Localize the quiz for everyone: the room's distinct languages. The server
+  // translates into these and charges per language (matching the shown estimate).
+  const res = await generateAiQuiz(prompt, QUIZ_Q_COUNT, session?.lang || 'en', roomLangCodes());
   quizAiBtn.disabled = false;
   quizAiInput.disabled = false;
   if (res.ok && res.quiz) {

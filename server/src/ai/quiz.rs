@@ -29,9 +29,15 @@ pub fn clamp_count(requested: Option<usize>) -> usize {
         .clamp(MIN_QUESTIONS, MAX_QUESTIONS)
 }
 
-/// Credits to generate `count` questions: a base plus a per-question rate.
-pub fn quiz_cost(ai: &AiConfig, count: usize) -> Decimal {
-    (usd(ai.quiz_base) + usd(ai.quiz_per_question) * Decimal::from(count as u64)).round_dp(6)
+/// Credits to generate `count` questions in `num_langs` languages: a base plus a
+/// per-question rate charged for EACH language the quiz is produced in (the quiz is
+/// localized for everyone in the room, so more distinct languages = more work). A
+/// single-language room (`num_langs == 1`) costs exactly base + per_question×count,
+/// unchanged from before.
+pub fn quiz_cost(ai: &AiConfig, count: usize, num_langs: usize) -> Decimal {
+    let langs = num_langs.max(1) as u64;
+    (usd(ai.quiz_base) + usd(ai.quiz_per_question) * Decimal::from(count as u64) * Decimal::from(langs))
+        .round_dp(6)
 }
 
 /// One validated multiple-choice question. `answer` indexes `options`.
@@ -188,15 +194,23 @@ mod tests {
     }
 
     #[test]
-    fn cost_is_base_plus_per_question() {
+    fn cost_is_base_plus_per_question_per_language() {
         let ai = AiConfig::test_default();
-        // base + per_question * count, rounded to 6 dp.
+        // Single language: base + per_question * count (unchanged from before).
         assert_eq!(
-            quiz_cost(&ai, 5),
+            quiz_cost(&ai, 5, 1),
             (usd(ai.quiz_base) + usd(ai.quiz_per_question) * Decimal::from(5u64)).round_dp(6)
         );
         // monotonic in count.
-        assert!(quiz_cost(&ai, 10) > quiz_cost(&ai, 3));
+        assert!(quiz_cost(&ai, 10, 1) > quiz_cost(&ai, 3, 1));
+        // Each extra language adds another per_question*count block.
+        assert_eq!(
+            quiz_cost(&ai, 5, 3),
+            (usd(ai.quiz_base) + usd(ai.quiz_per_question) * Decimal::from(15u64)).round_dp(6)
+        );
+        assert!(quiz_cost(&ai, 5, 3) > quiz_cost(&ai, 5, 1));
+        // 0 languages is floored to 1 (never cheaper than the base single-lang cost).
+        assert_eq!(quiz_cost(&ai, 5, 0), quiz_cost(&ai, 5, 1));
     }
 
     #[test]

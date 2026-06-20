@@ -464,6 +464,9 @@ const jsonLd = {
             <input id="quiz-ai-prompt" class="quiz-ai-input" type="text" maxlength="400" autocomplete="off" data-i18n-ph="quizAiPrompt" placeholder={T('quizAiPrompt')} />
             <button id="quiz-ai-gen" type="submit" class="quiz-ai-btn" data-i18n="quizAiGenerate">{T('quizAiGenerate')}</button>
           </form>
+          <!-- Estimated cost: scales with the room's distinct languages (the quiz is
+               localized for everyone). Language-neutral so it needs no translation. -->
+          <p id="quiz-ai-cost" class="quiz-ai-cost" hidden></p>
           <p id="quiz-ai-msg" class="quiz-ai-msg" role="status" hidden></p>
           <!-- Shown only when generation 402s: a way to act on "out of credits" (spec 0083). -->
           <button id="quiz-ai-buy" class="btn-ghost quiz-ai-buy hidden" data-i18n="buyCredits">{T('buyCredits')}</button>
@@ -2166,6 +2169,7 @@ const jsonLd = {
     }
     .quiz-ai-btn:disabled { opacity: 0.6; cursor: default; }
     .quiz-ai-msg { margin: 0; font-size: 0.78rem; color: var(--muted); }
+    .quiz-ai-cost { margin: 0; font-size: 0.74rem; color: var(--muted); font-variant-numeric: tabular-nums; }
     .quiz-ai-msg.error { color: var(--danger); }
     .quiz-ai-buy { align-self: flex-start; margin-top: 2px; }
     .quiz-question { margin: 0; font-size: 0.92rem; color: var(--text); line-height: 1.35; min-height: 1.2em; }
