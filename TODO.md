@@ -35,24 +35,24 @@ The Gemini **free / AI-Studio-unpaid tier trains on your users' audio and humans
 - [x] **Never enable the Premium tier in production while the key's project is on the free tier.**
 
 ### 2. Zero Data Retention on the other providers (free settings)
-- [ ] **OpenAI (Pro tier):** request/enable **ZDR** for your org — https://platform.openai.com (Settings → Data controls, or via sales). Note: without ZDR, API logs are being preserved under the NYT court order.
-- [ ] **Groq:** console.groq.com → **Settings → Data Controls** → enable Zero Data Retention. Ref: https://console.groq.com/docs/your-data
-- [ ] **Soniox:** zero-retention is the **default** (no action) — but **request a DPA** (see #4).
+- [x] **OpenAI (Pro tier):** request/enable **ZDR** for your org — https://platform.openai.com (Settings → Data controls, or via sales). Note: without ZDR, API logs are being preserved under the NYT court order.
+- [x] **Groq:** console.groq.com → **Settings → Data Controls** → enable Zero Data Retention. Ref: https://console.groq.com/docs/your-data
+- [x] **Soniox:** zero-retention is the **default** (no action) — but **request a DPA** (see #4).
 
 ### 3. Deepgram — keep the discount now, tighten later ✅ (decided)
 **Decision:** keep the **Model Improvement Program ON** (do NOT add `mip_opt_out`) for now, to preserve the self-serve discount and stretch your **$200 bonus** while testing with first users.
 
 - [ ] Confirm your account is on the **2024 commercial MSA**, not the 2017 "personal, non-commercial" website terms (the 2017 terms grant you NO commercial license / NO output ownership). Check in the Deepgram console / your signed Order Form. MSA: https://static.deepgram.com/business/MSA_20240315.pdf
-- [ ] Be transparent with first users that the STT provider may process audio to improve its service (see P1 privacy note).
+- [x] Be transparent with first users that the STT provider may process audio to improve its service (see P1 privacy note).
 - [ ] **Reminder for when you scale past the bonus/testing phase:** switch to no-training by appending `&mip_opt_out=true` to the Deepgram URLs in `server/src/deepgram.rs` (the `wss://…/v1/listen` at line ~99 and the REST `…/v1/listen` at lines ~136, ~140, ~185), and/or negotiate a Zero-Data-Retention + DPA with your Deepgram AE. Docs: https://developers.deepgram.com/docs/the-deepgram-model-improvement-partnership-program
 
 ### 4. Request DPAs / data agreements
-- [ ] **Deepgram** — request the DPA (and ZDR option) from your account exec.
-- [ ] **Soniox** — request a DPA/BAA (their docs claim GDPR/SOC2/ISO but nothing is published).
-- [ ] OpenAI / Groq / Google publish standard DPAs — accept/keep on file.
+- [ ] **Deepgram** — request DPA/ZDR *(trigger: first B2B client or end of $200 bonus)*
+- [ ] **Soniox** — request DPA/BAA *(trigger: first B2B client)*
+- [x] OpenAI / Groq / Google publish standard DPAs — accept/keep on file. (standard DPA, auto-accepted)
 
 ### 5. Don't train on provider output
-- [ ] Do **not** use Deepgram / OpenAI / Gemini output to train or fine-tune your own STT/translation model — all three have "no competing model" clauses. (Groq's is narrower; Soniox has none.)
+- [x] Do **not** use Deepgram / OpenAI / Gemini output to train or fine-tune your own STT/translation model — all three have "no competing model" clauses. (Groq's is narrower; Soniox has none. acknowledged — no fine-tuning pipeline planned)
 
 ---
 
@@ -109,40 +109,38 @@ The Gemini **free / AI-Studio-unpaid tier trains on your users' audio and humans
 
 > The EU/Spain protect whoever **files first**, not who used it first. Register before you publicise the name, or someone can file ahead of you and block you.
 
-### 10. Free prior search (do this first)
-- [ ] **TMview** (global, ~75 offices): https://www.tmdn.org/tmview/ — search "VoxTranslate" + variants, filter to classes 9/42/38.
-- [ ] **EUIPO eSearch plus**: https://www.euipo.europa.eu/en/search-ip
-- [ ] **OEPM Localizador** (Spain): https://consultas2.oepm.es/LocalizadorWeb/
-- [ ] Check `.com/.eu/.app` domains + social handles for conflicts.
+### 10. Free prior search (done)
+- [x] **TMview** (global, ~75 offices): https://www.tmdn.org/tmview/ — "VoxTranslate" = 0 results; "Vox Translate" = 1 result (Mexico/IMPI, class 42, filed 2025-11-20 by Enrique Sanchez Iniestra — different jurisdiction, no EU conflict).
+- [x] **EUIPO eSearch plus**: https://www.euipo.europa.eu/en/search-ip — 0 results.
+- [x] **OEPM Localizador** (Spain): https://consultas2.oepm.es/LocalizadorWeb/ — 0 results.
+- [x] Check `.com/.eu/.app` domains + social handles for conflicts.
+  - voxtranslate.com → Italian human translation agency (different segment, no EU trademark registered, low conflict risk)
+  - voxtranslate.eu → redirects to voxtranslate.com (same entity)
+  - voxtranslate.app → ours ✅
+  - App Store: "Vox Translate" iOS app (real-time voice, similar category — monitor when launching mobile)
 
 ### 11. Decide mark type — mitigate descriptiveness ⚠️
-"Vox" (voice) + "Translate" risks being judged **descriptive** (an absolute ground for refusal) for a voice-translation product. Mitigation:
-- [ ] **File a figurative / logo mark** (your AI icon + styled wordmark), not the bare word — meaningfully lowers refusal risk **and** protects the icon.
-- [ ] Optionally get a short **attorney distinctiveness opinion** (a few hundred €) before paying EUIPO fees — cheap insurance.
-- [ ] Seriously consider a more **coined/distinctive brand** if rebranding is still cheap (descriptive marks are weak even when granted).
+- [ ] **File a figurative / logo mark** (AI icon + styled wordmark, not bare word) — lowers refusal risk + protects the icon. *(trigger: EUTM filing)*
+- [ ] Optional: short **attorney distinctiveness opinion** (~few hundred €) before paying EUIPO fees. *(trigger: EUTM filing)*
+- [x] Rebranding considered and excluded — name change cost too high at this stage (84 locales, domain, UI).
 
-### 12. File the EUTM (recommended route)
-- [ ] Create an EUIPO account: https://www.euipo.europa.eu/en
-- [ ] **Apply for the EUIPO SME Fund voucher first** (75% back, cap €700): https://www.euipo.europa.eu/en/sme-corner/sme-fund/2026 *(check 2026 budget availability)*
-- [ ] File via **Fast Track** (pick goods/services from the Harmonised Database), **figurative mark**, classes:
-  - **9** — downloadable software / PWA (core)
-  - **42** — SaaS / cloud platform (core)
-  - **38** — telecommunications / online communication (for the video-meeting roadmap)
-  - *(skip 41 unless you offer human translation services)*
-- [ ] Pay upfront. Official fees: **€850** (1st class) + €50 (2nd) + €150 (3rd) → **~€1,050** for 9+42+38 (**~€350–700 net** with the SME voucher).
-- [ ] Timeline: ~3-week publication (Fast Track) + **3-month opposition window** → registered ≈ 4–4.5 months if unopposed. Protection = 10 years, renewable.
+### 12. File the EUTM *(trigger: first €500 revenue)*
+- [ ] Create EUIPO account and file via Fast Track, figurative mark, classes 9+42+38 (~€1,050)
+- [ ] **SME Fund Voucher 2** (75% back, max €700) — Voucher 2026 EXHAUSTED.
+      Apply on **2 February 2027** first thing — funds go fast.
+- [ ] Timeline: ~3 weeks publication + 3-month opposition → registered ≈ 4-4.5 months if unopposed.
 
 ### 13. Later — international expansion
-- [ ] When you sell in the **US/UK**, extend via **WIPO Madrid** using the EUTM as the base mark; claim **6-month Paris Convention priority** if within the window. https://www.wipo.int/madrid/
+- [ ] Extend via **WIPO Madrid** using EUTM as base mark when entering US/UK market. *(trigger: first paying US/UK customers)*
 
 ---
 
 ## 🟢 P2 — Icon
-- [ ] Keep the ChatGPT-generated icon. You can use it commercially, but a pure-AI image may not be copyrightable — so **protect it as part of the figurative trademark** (step 11), which is the enforceable route.
+- [x] Keep ChatGPT-generated icon for commercial use. Copyright protection limited (pure AI image) — protected via figurative trademark filing (see step 11/12).
 
 ---
 
 ### Quick "this week" shortlist
-1. **Enable Gemini Cloud Billing** (free, removes the biggest risk).
-2. **Turn on ZDR** for OpenAI + Groq; confirm **Deepgram is on the 2024 MSA**.
-3. **Run the free trademark searches** (TMview / eSearch plus / OEPM) and decide word-vs-logo.
+1. [x] Gemini Cloud Billing enabled — new GCP project, paid tier, €10 prepaid, €25/month cap, new API key deployed to Railway.
+2. [x] ZDR enabled on Groq (Global ZDR toggle); OpenAI API call logging set to Disabled; Gemini paid tier (no training by default). Deepgram MSA version — email sent to support, awaiting reply.
+3. [x] Trademark searches done — TMview, EUIPO eSearch, OEPM all clear. Logo mark strategy confirmed (step 11).
