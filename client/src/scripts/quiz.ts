@@ -166,7 +166,9 @@ const PACK: PackItem[] = [
 const ROUND_QS = 8; // questions per game (pool of 40)
 
 function pick<T>(d: Record<string, T>, lang: string): T {
-  return d[lang] ?? d.en;
+  // Viewer's language → English fallback → any available (covers AI quizzes whose
+  // base language isn't English and late-joiners on a language not in the set).
+  return d[lang] ?? d.en ?? Object.values(d)[0];
 }
 function shuffle<T>(a: T[]): T[] {
   const r = a.slice();
@@ -178,8 +180,14 @@ function shuffle<T>(a: T[]): T[] {
 }
 
 interface Player { name: string; score: number; answered: number }
-/** One AI-generated question (spec 0067): plain strings in a single language. */
-export interface AiQuestion { q: string; options: string[]; answer: number }
+/** One AI-generated question (spec 0067): stem + options keyed by language, so
+ *  each client renders it in its own language (the server localizes the quiz into
+ *  the room's languages, like the built-in pack). */
+export interface AiQuestion {
+  q: Record<string, string>;
+  options: Record<string, string[]>;
+  answer: number;
+}
 export interface QuizState {
   game: 'quiz';
   t: 'state';
@@ -386,14 +394,14 @@ export class Quiz {
   }
 
   /** Host-start a generated quiz (spec 0067): the pack rides inline in state so
-   *  every peer renders it. Stored under the `en` slot — `pick()`'s fallback
-   *  serves it to every viewer language. */
+   *  every peer renders it. Questions are already keyed by language (localized
+   *  server-side), so each client renders its own via `pick()`. */
   startAiQuiz(questions: AiQuestion[]): boolean {
     if (isQuizActive(this.state)) return false; // one active quiz at a time (R4.2)
     const pack: PackItem[] = questions.map((x) => ({
       answer: x.answer,
-      q: { en: x.q },
-      options: { en: x.options },
+      q: x.q,
+      options: x.options,
     }));
     this.round = []; // unused for AI packs — qIndex indexes `pack` directly
     this.pending = {};

@@ -2198,6 +2198,45 @@ pub struct QuizGenerateRequest {
     pub count: Option<usize>,
     #[serde(default)]
     pub lang: Option<String>,
+    /// Distinct languages currently in the room, so the quiz can be localized for
+    /// every player (each question/option is returned keyed by language). Empty /
+    /// absent → single-language quiz in `lang` (the previous behaviour).
+    #[serde(default)]
+    pub langs: Option<Vec<String>>,
+}
+
+/// Localize generated questions into the room's languages: each question's stem
+/// and options are translated from `base` into every `target`, returned keyed by
+/// language so each client renders its own. All fan-outs run concurrently (the
+/// translator's own admission cap bounds the load). With no targets this just
+/// wraps the base-language text — cheap and behaviour-preserving.
+async fn localize_quiz(
+    translator: &crate::translator::Translator,
+    questions: &[ai_quiz::QuizQuestion],
+    base: &str,
+    targets: &[String],
+) -> Vec<serde_json::Value> {
+    use futures::future::join_all;
+    let per_q = questions.iter().map(|q| async move {
+        let stem_fut = translator.translate_fanout(&q.q, base, targets, None);
+        let opt_futs = q
+            .options
+            .iter()
+            .map(|o| translator.translate_fanout(o, base, targets, None));
+        let (q_map, opt_maps) = tokio::join!(stem_fut, join_all(opt_futs));
+        // Re-key options per language: for each language, its 4 options in order.
+        let mut options: std::collections::HashMap<String, Vec<String>> =
+            std::collections::HashMap::new();
+        for lang in std::iter::once(base.to_string()).chain(targets.iter().cloned()) {
+            let opts: Vec<String> = opt_maps
+                .iter()
+                .map(|m| m.get(&lang).cloned().unwrap_or_default())
+                .collect();
+            options.insert(lang, opts);
+        }
+        serde_json::json!({ "answer": q.answer, "q": q_map, "options": options })
+    });
+    join_all(per_q).await
 }
 
 /// Normalize a client-supplied language code for the prompt: lowercase
@@ -2308,8 +2347,22 @@ pub async fn quiz_generate(
         }
     };
 
+    // Localize for every language present in the room (deduped, base excluded, capped).
+    let mut targets: Vec<String> = body
+        .langs
+        .clone()
+        .unwrap_or_default()
+        .iter()
+        .map(|l| sanitize_lang(Some(l)))
+        .filter(|l| l != &lang)
+        .collect();
+    targets.sort();
+    targets.dedup();
+    targets.truncate(8); // bound the translation fan-out per quiz
+    let localized = localize_quiz(&state.translator, &questions, &lang, &targets).await;
+
     let mut v = serde_json::json!({
-        "questions": questions,
+        "questions": localized,
         "cost": cost.to_f64().unwrap_or(0.0),
     });
     if let Some(b) = balance {

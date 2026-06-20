@@ -4575,7 +4575,12 @@ quizAiForm.addEventListener('submit', async (e) => {
   quizAiBtn.disabled = true;
   quizAiInput.disabled = true;
   setQuizAiMsg(t('quizAiGenerating'), false);
-  const res = await generateAiQuiz(prompt, 5, session?.lang || 'en');
+  // Localize the quiz for everyone: the distinct languages currently in the room
+  // (mine + each peer's), minus auto-detect. The server translates into these.
+  const roomLangs = Array.from(
+    new Set([session?.lang || 'en', ...Array.from(peerNames.values()).map((p) => p.lang)]),
+  ).filter((l) => l && l !== 'auto');
+  const res = await generateAiQuiz(prompt, 5, session?.lang || 'en', roomLangs);
   quizAiBtn.disabled = false;
   quizAiInput.disabled = false;
   if (res.ok && res.quiz) {
