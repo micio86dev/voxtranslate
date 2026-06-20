@@ -2184,6 +2184,18 @@ const jsonLd = {
     /* Leaderboard right side: per-participant completion + score (spec 0070 R4.4). */
     .quiz :global(.quiz-rank-meta) { display: inline-flex; align-items: baseline; gap: 8px; }
     .quiz :global(.quiz-answered) { font-size: 0.72rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+    /* End-of-quiz recap: per-question card with the correct answer + each player's
+       choice (✓/✗). Same tokens/shape as the rest of the quiz UI. */
+    .quiz :global(.quiz-recap) { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 10px; text-align: left; }
+    .quiz :global(.quiz-recap-q) { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 10px; }
+    .quiz :global(.quiz-recap-qhead) { font-size: 0.82rem; font-weight: 600; color: var(--text); line-height: 1.35; }
+    .quiz :global(.quiz-recap-correct) { font-size: 0.76rem; color: var(--success); margin: 2px 0 6px; }
+    .quiz :global(.quiz-recap-correct)::before { content: '✓ '; }
+    .quiz :global(.quiz-recap-row) { display: flex; justify-content: space-between; gap: 10px; font-size: 0.8rem; padding: 1px 0; color: var(--muted); }
+    .quiz :global(.quiz-recap-name) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+    .quiz :global(.quiz-recap-ans) { white-space: nowrap; }
+    .quiz :global(.quiz-recap-ok .quiz-recap-mark) { color: var(--success); font-weight: 700; }
+    .quiz :global(.quiz-recap-ko .quiz-recap-mark) { color: var(--danger); font-weight: 700; }
     /* Host cancel: a quiet destructive secondary, full-width under the action. */
     .quiz-cancel-btn { width: 100%; min-height: 40px; color: var(--danger); }
     @media (max-width: 600px) { .quiz { width: 86vw; } }

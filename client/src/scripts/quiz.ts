@@ -199,6 +199,10 @@ export interface QuizState {
   // `qIndex` indexes this array directly (built-in `packIndex` is ignored). The
   // pack is broadcast in the state, so peers + late-joiners render it.
   pack?: PackItem[];
+  // End-of-quiz recap (one entry per question, in order): the correct option and
+  // every player's choice. Broadcast only in the final `done` state so all clients
+  // can render the same breakdown.
+  history?: Array<{ packIndex: number; correct: number; choices: Record<string, number> }>;
 }
 interface AnswerMsg { game: 'quiz'; t: 'answer'; q: number; choice: number; by: string; name: string }
 
@@ -236,6 +240,7 @@ export class Quiz {
   private myChoice: number | null = null;
   private round: number[] = []; // host-only: chosen PACK indices
   private pending: Record<string, number> = {}; // host-only: answers for the current question
+  private log: Array<{ packIndex: number; correct: number; choices: Record<string, number> }> = []; // host-only: per-question outcomes, for the end recap
   private optionEls: HTMLButtonElement[] = [];
   // AI-quiz creation form (#124) + its in-progress notice (#220). While a quiz is
   // live we hide/disable the creation form so a second quiz can't be started, and
@@ -364,6 +369,7 @@ export class Quiz {
     if (isQuizActive(this.state)) return; // one active quiz at a time (R4.2)
     this.round = shuffle(PACK.map((_, i) => i)).slice(0, Math.min(ROUND_QS, PACK.length));
     this.pending = {};
+    this.log = [];
     this.myChoice = null;
     this.setState({
       game: 'quiz',
@@ -391,6 +397,7 @@ export class Quiz {
     }));
     this.round = []; // unused for AI packs — qIndex indexes `pack` directly
     this.pending = {};
+    this.log = [];
     this.myChoice = null;
     this.setState({
       game: 'quiz',
@@ -431,6 +438,11 @@ export class Quiz {
     for (const [id, choice] of Object.entries(this.pending)) {
       if (choice === correct) players[id] = { ...players[id], score: (players[id]?.score ?? 0) + 1 };
     }
+    // Record this question's outcome for the end-of-quiz recap — one entry per
+    // question, in order. Guarded so a repeated reveal can't double-log.
+    if (this.log.length === s.qIndex) {
+      this.log.push({ packIndex: s.packIndex, correct, choices: { ...this.pending } });
+    }
     this.setState({ ...s, phase: 'reveal', correct, choices: { ...this.pending }, players });
   }
 
@@ -441,7 +453,14 @@ export class Quiz {
     this.myChoice = null;
     this.pending = {};
     if (qIndex >= s.total) {
-      this.setState({ ...s, phase: 'done', answeredIds: [], correct: undefined, choices: undefined });
+      this.setState({
+        ...s,
+        phase: 'done',
+        answeredIds: [],
+        correct: undefined,
+        choices: undefined,
+        history: this.log, // broadcast the full recap to everyone
+      });
       // Host-only (next() is host-driven): persist the finished quiz + scores (#221).
       this.onComplete(this.buildSummary(s));
       return;
@@ -511,6 +530,7 @@ export class Quiz {
     this.state = null;
     this.myChoice = null;
     this.pending = {};
+    this.log = [];
     this.round = [];
     this.render();
   }
@@ -564,7 +584,7 @@ export class Quiz {
     if (s.phase === 'done') {
       optsWrap.hidden = true;
       qEl.textContent = '🏆';
-      statusEl.innerHTML = this.leaderboard(s);
+      statusEl.innerHTML = this.leaderboard(s) + this.recap(s);
       action.textContent = this.t('quizNew');
       action.hidden = false;
       return;
@@ -616,6 +636,36 @@ export class Quiz {
           `<div class="quiz-rank"><span>${i + 1}. ${escapeText(p.name)}</span><span class="quiz-rank-meta"><span class="quiz-answered">${p.answered}/${s.total}</span><strong>${p.score}</strong></span></div>`,
       )
       .join('');
+  }
+
+  /** Per-question breakdown for the end screen: each question with its correct
+   *  option and what every player answered (✓/✗/—), each rendered in the viewer's
+   *  own language. Reads the broadcast `history`, so every client shows the same. */
+  private recap(s: QuizState): string {
+    const hist = s.history ?? [];
+    if (!hist.length) return '';
+    const lang = this.myLang();
+    const ids = Object.keys(s.players);
+    const blocks = hist
+      .map((h, i) => {
+        const item = s.pack ? s.pack[i] : PACK[h.packIndex];
+        if (!item) return '';
+        const opts = pick(item.options, lang);
+        const rows = ids
+          .map((id) => {
+            const choice = h.choices[id];
+            const answered = choice !== undefined;
+            const ok = answered && choice === h.correct;
+            const ans = answered ? (opts[choice] ?? '?') : '—';
+            const cls = !answered ? 'na' : ok ? 'ok' : 'ko';
+            const mark = !answered ? '·' : ok ? '✓' : '✗';
+            return `<div class="quiz-recap-row quiz-recap-${cls}"><span class="quiz-recap-name">${escapeText(s.players[id]?.name ?? '')}</span><span class="quiz-recap-ans">${escapeText(ans)} <span class="quiz-recap-mark">${mark}</span></span></div>`;
+          })
+          .join('');
+        return `<div class="quiz-recap-q"><div class="quiz-recap-qhead">${i + 1}. ${escapeText(pick(item.q, lang))}</div><div class="quiz-recap-correct">${escapeText(opts[h.correct] ?? '')}</div>${rows}</div>`;
+      })
+      .join('');
+    return `<div class="quiz-recap">${blocks}</div>`;
   }
 }
 
