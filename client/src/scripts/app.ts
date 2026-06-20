@@ -68,6 +68,23 @@ import type { CompositeRecorder } from './recording/composite-recorder';
 import { formatElapsed, isRecordingSupported, recordingFilename } from './recording/utils';
 import type { ParticipantSource } from './recording/types';
 
+// A lazily-imported chunk (e.g. the post-call session screen or the in-call
+// modules) can 404 when a new frontend deploy rewrote the hashed filenames while
+// this tab was still open. Vite fires `vite:preloadError` for that failed dynamic
+// import — recover by reloading once into the fresh build instead of leaving a
+// broken feature. A sessionStorage guard prevents a reload loop if it's a genuine
+// outage rather than a stale chunk.
+window.addEventListener('vite:preloadError', () => {
+  const KEY = 'vox-stale-chunk-reloaded';
+  try {
+    if (sessionStorage.getItem(KEY)) return;
+    sessionStorage.setItem(KEY, '1');
+  } catch {
+    /* storage blocked → still reload once below */
+  }
+  location.reload();
+});
+
 // ---- Config ----------------------------------------------------------------
 const WS_HOST = import.meta.env.PUBLIC_WS_HOST || location.host;
 const WS_PROTO = location.protocol === 'https:' ? 'wss:' : 'ws:';
