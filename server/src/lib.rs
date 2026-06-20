@@ -92,6 +92,13 @@ const DEFAULT_HTTP_PUBLIC_MAX_PER_MIN: u32 = 60;
 /// ≈100 msg/s sustained — far above audio (~10/s) + signalling/whiteboard bursts.
 const WS_MSG_MAX: u32 = 500;
 const WS_MSG_WINDOW: Duration = Duration::from_secs(5);
+/// WebSocket keepalive (ghost-peer eviction). The server Pings each connection on
+/// this cadence; browsers auto-reply with a Pong, which the reader counts as
+/// activity. A connection that sends NO frame at all for [`WS_IDLE_TIMEOUT`] is a
+/// frozen / half-open client — it's closed so its peer can't linger in the room as
+/// a stale "ghost" tile (the disconnect cleanup then removes it for everyone).
+const WS_PING_INTERVAL: Duration = Duration::from_secs(15);
+const WS_IDLE_TIMEOUT: Duration = Duration::from_secs(45);
 
 /// RAII guard for the live WS-connection counter: `acquire` increments and returns the
 /// post-increment count; `Drop` decrements, so the count is balanced on every exit path.
@@ -1206,10 +1213,18 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
     let mut msg_count: u32 = 0;
     let mut msg_window = Instant::now();
 
+    // Keepalive: any inbound frame (incl. the browser's automatic Pong reply to our
+    // pings) refreshes this. If nothing arrives for WS_IDLE_TIMEOUT the client is
+    // frozen / half-open — break out so the disconnect cleanup evicts the ghost peer.
+    let mut last_activity = Instant::now();
+    let mut idle_check = tokio::time::interval(WS_PING_INTERVAL);
+    idle_check.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
     loop {
         tokio::select! {
             maybe_msg = ws_rx.next() => {
                 let Some(Ok(msg)) = maybe_msg else { break };
+                last_activity = Instant::now();
                 // Drop oversized frames (binary audio / text) before processing (spec 0064).
                 let frame_len = match &msg {
                     Message::Binary(d) => d.len(),
@@ -1801,6 +1816,15 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
                 tracing::warn!(%id, "outbound channel saturated (slow consumer) — closing connection (#123)");
                 break;
             }
+            _ = idle_check.tick() => {
+                // No frame (not even an automatic Pong) for the whole timeout ⇒ the
+                // client is frozen / its socket is half-open. Close it so the teardown
+                // below removes the peer for everyone (no lingering ghost tile / room).
+                if last_activity.elapsed() > WS_IDLE_TIMEOUT {
+                    tracing::info!(%id, "ws idle timeout — closing frozen/half-open connection");
+                    break;
+                }
+            }
         }
     }
 
@@ -1921,9 +1945,30 @@ fn handle_chat(
 /// Forward queued JSON strings to a WebSocket as text frames until the channel
 /// closes or the socket errors.
 async fn pump_to_ws(mut rx: Receiver<String>, mut ws_tx: SplitSink<WebSocket, Message>) {
-    while let Some(msg) = rx.recv().await {
-        if ws_tx.send(Message::Text(msg.into())).await.is_err() {
-            break;
+    // Keepalive: Ping on a fixed cadence between queued messages. Healthy browsers
+    // auto-reply with a Pong (seen by the reader as activity); a frozen client
+    // stops responding and the reader's idle timeout closes it. The first interval
+    // tick fires immediately, so consume it to avoid an extra ping at t=0.
+    let mut ping = tokio::time::interval(WS_PING_INTERVAL);
+    ping.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    ping.tick().await;
+    loop {
+        tokio::select! {
+            msg = rx.recv() => {
+                match msg {
+                    Some(m) => {
+                        if ws_tx.send(Message::Text(m.into())).await.is_err() {
+                            break;
+                        }
+                    }
+                    None => break, // out channel closed → connection going away
+                }
+            }
+            _ = ping.tick() => {
+                if ws_tx.send(Message::Ping(Vec::<u8>::new().into())).await.is_err() {
+                    break;
+                }
+            }
         }
     }
 }
