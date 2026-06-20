@@ -253,6 +253,7 @@
   "downloadFailed": "Atsisiųsti nepavyko — bandykite dar kartą",
   "processing": "Apdorojama…",
   "recordingPartial": "Įrašyti nepavyko — išsaugotas dalinis failas",
+  "recordingNotice": "Įrašomas visas skambutis. Užfiksuojami visi, o išdėstymas atnaujinamas žmonėms prisijungiant ar išeinant — kiekvienas, kurio kamera išjungta, rodomas kaip plytelė su iniciaalais.",
   "closeTip": "Uždaryti",
   "diceTip": "Atsitiktinis kodas",
   "inviteTip": "Pakviesti žmonių",

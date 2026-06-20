@@ -253,6 +253,7 @@
   "downloadFailed": "Stahování se nezdařilo — zkuste to znovu",
   "processing": "Zpracování…",
   "recordingPartial": "Nahrávání se nezdařilo — uložen částečný soubor",
+  "recordingNotice": "Nahrává se celý hovor. Zaznamenáni jsou všichni a rozložení se aktualizuje, jak se lidé připojují nebo odpojují — každý s vypnutou kamerou se zobrazí jako dlaždice s iniciálami.",
   "closeTip": "Zavřít",
   "diceTip": "Náhodný kód",
   "inviteTip": "Pozvat lidi",

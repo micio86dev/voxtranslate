@@ -253,6 +253,7 @@
   "downloadFailed": "Nedlasting mislyktes — prøv igjen",
   "processing": "Behandler…",
   "recordingPartial": "Innspillingen mislyktes — delvis fil lagret",
+  "recordingNotice": "Hele samtalen tas opp. Alle fanges opp, og oppsettet oppdateres etter hvert som folk blir med eller forlater — alle med kameraet av vises som en flis med initialene sine.",
   "closeTip": "Lukk",
   "diceTip": "Tilfeldig kode",
   "inviteTip": "Inviter folk",

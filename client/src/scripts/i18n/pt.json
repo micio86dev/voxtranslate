@@ -253,6 +253,7 @@
   "downloadFailed": "Falha no download — tente novamente",
   "processing": "Processando…",
   "recordingPartial": "Falha na gravação — arquivo parcial salvo",
+  "recordingNotice": "A chamada inteira está sendo gravada. Todos são capturados e o layout se atualiza à medida que as pessoas entram ou saem — quem estiver com a câmera desligada aparece como um bloco com suas iniciais.",
   "closeTip": "Fechar",
   "diceTip": "Código aleatório",
   "inviteTip": "Convidar pessoas",

@@ -253,6 +253,7 @@
   "downloadFailed": "Échec du téléchargement — réessayez",
   "processing": "Traitement…",
   "recordingPartial": "Échec de l’enregistrement — fichier partiel sauvegardé",
+  "recordingNotice": "L'intégralité de l'appel est enregistrée. Tout le monde est capturé et la disposition se met à jour à mesure que des personnes rejoignent ou quittent — toute personne dont la caméra est éteinte apparaît sous forme de vignette avec ses initiales.",
   "closeTip": "Fermer",
   "diceTip": "Code aléatoire",
   "inviteTip": "Inviter des personnes",

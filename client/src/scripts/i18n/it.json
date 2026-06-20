@@ -253,6 +253,7 @@
   "downloadFailed": "Download non riuscito — riprova",
   "processing": "Elaborazione…",
   "recordingPartial": "Registrazione interrotta — file parziale salvato",
+  "recordingNotice": "Viene registrata l'intera chiamata. Tutti vengono ripresi e la disposizione si aggiorna man mano che le persone entrano o escono — chi ha la videocamera spenta appare come un riquadro con le sue iniziali.",
   "closeTip": "Chiudi",
   "diceTip": "Codice casuale",
   "inviteTip": "Invita persone",

@@ -253,6 +253,7 @@
   "downloadFailed": "Lejupielāde neizdevās — mēģiniet vēlreiz",
   "processing": "Apstrādā…",
   "recordingPartial": "Ierakstīšana neizdevās — saglabāts daļējs fails",
+  "recordingNotice": "Tiek ierakstīta visa saruna. Tiek tverti visi, un izkārtojums atjauninās, cilvēkiem pievienojoties vai aizejot — ikviens ar izslēgtu kameru tiek rādīts kā elements ar saviem iniciāļiem.",
   "closeTip": "Aizvērt",
   "diceTip": "Nejaušs kods",
   "inviteTip": "Uzaicināt cilvēkus",

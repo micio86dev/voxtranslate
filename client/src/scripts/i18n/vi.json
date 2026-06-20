@@ -253,6 +253,7 @@
   "downloadFailed": "Tải xuống thất bại — thử lại",
   "processing": "Đang xử lý…",
   "recordingPartial": "Ghi hình thất bại — đã lưu tệp một phần",
+  "recordingNotice": "Toàn bộ cuộc gọi đang được ghi lại. Mọi người đều được ghi hình và bố cục cập nhật khi có người tham gia hoặc rời đi — bất kỳ ai tắt camera sẽ hiển thị dưới dạng một ô với các chữ cái đầu trong tên của họ.",
   "closeTip": "Đóng",
   "diceTip": "Mã ngẫu nhiên",
   "inviteTip": "Mời mọi người",

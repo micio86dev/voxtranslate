@@ -253,6 +253,7 @@
   "downloadFailed": "다운로드 실패 — 다시 시도해 주세요",
   "processing": "처리 중…",
   "recordingPartial": "녹화 실패 — 일부 파일이 저장되었습니다",
+  "recordingNotice": "통화 전체가 녹화됩니다. 모든 사람이 기록되며 사람들이 들어오거나 나갈 때마다 레이아웃이 업데이트됩니다 — 카메라를 끈 사람은 이니셜이 표시된 타일로 나타납니다.",
   "closeTip": "닫기",
   "diceTip": "무작위 코드",
   "inviteTip": "사람 초대",

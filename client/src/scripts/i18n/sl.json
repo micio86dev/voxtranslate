@@ -253,6 +253,7 @@
   "downloadFailed": "Prenos ni uspel — poskusite znova",
   "processing": "Obdelava …",
   "recordingPartial": "Snemanje ni uspelo — delna datoteka shranjena",
+  "recordingNotice": "Snema se celoten klic. Zajeti so vsi, postavitev pa se posodablja, ko se ljudje pridružijo ali odidejo — kdor ima izklopljeno kamero, je prikazan kot ploščica z začetnicami.",
   "closeTip": "Zapri",
   "diceTip": "Naključna koda",
   "inviteTip": "Povabi ljudi",

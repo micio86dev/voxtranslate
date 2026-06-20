@@ -253,6 +253,7 @@
   "downloadFailed": "Theip ar an íoslódáil — bain triail eile as",
   "processing": "Á phróiseáil…",
   "recordingPartial": "Theip ar an taifeadadh — sábháladh comhad páirteach",
+  "recordingNotice": "Tá an glao iomlán á thaifeadadh. Gabhtar gach duine agus nuashonraítear an leagan amach de réir mar a thagann nó a imíonn daoine — taispeántar aon duine a bhfuil a cheamara múchta mar thíl lena cheannlitreacha.",
   "closeTip": "Dún",
   "diceTip": "Cód randamach",
   "inviteTip": "Tabhair cuireadh do dhaoine",

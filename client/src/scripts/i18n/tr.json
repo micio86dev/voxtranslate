@@ -253,6 +253,7 @@
   "downloadFailed": "İndirme başarısız — tekrar deneyin",
   "processing": "İşleniyor…",
   "recordingPartial": "Kayıt başarısız — kısmi dosya kaydedildi",
+  "recordingNotice": "Görüşmenin tamamı kaydediliyor. Herkes kaydedilir ve insanlar katıldıkça veya ayrıldıkça düzen güncellenir — kamerası kapalı olan herkes, baş harfleriyle bir kutu olarak görünür.",
   "closeTip": "Kapat",
   "diceTip": "Rastgele kod",
   "inviteTip": "Kişileri davet et",

@@ -253,6 +253,7 @@
   "downloadFailed": "Erro na descarga — téntao de novo",
   "processing": "Procesando…",
   "recordingPartial": "Erro na gravación — gardouse un ficheiro parcial",
+  "recordingNotice": "Estase gravando toda a chamada. Captúrase a todos e a disposición actualízase a medida que a xente se une ou marcha — quen teña a cámara apagada aparece como un mosaico coas súas iniciais.",
   "closeTip": "Pechar",
   "diceTip": "Código aleatorio",
   "inviteTip": "Convidar xente",

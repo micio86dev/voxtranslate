@@ -253,6 +253,7 @@
   "downloadFailed": "下載失敗 —— 請再試一次",
   "processing": "處理緊…",
   "recordingPartial": "錄製失敗 —— 已儲存部分檔案",
+  "recordingNotice": "正在錄製成個通話。每個人都會被錄到，當有人加入或離開時版面會更新 —— 任何熄咗鏡頭嘅人都會顯示為一個有佢名字首字母嘅方格。",
   "closeTip": "關閉",
   "diceTip": "隨機代碼",
   "inviteTip": "邀請其他人",

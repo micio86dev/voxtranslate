@@ -253,6 +253,7 @@
   "downloadFailed": "A letöltés nem sikerült — próbálja újra",
   "processing": "Feldolgozás…",
   "recordingPartial": "A felvétel nem sikerült — részleges fájl elmentve",
+  "recordingNotice": "A teljes hívás rögzítésre kerül. Mindenki rögzül, és az elrendezés frissül, ahogy emberek csatlakoznak vagy kilépnek — akinek ki van kapcsolva a kamerája, a kezdőbetűivel ellátott csempeként jelenik meg.",
   "closeTip": "Bezárás",
   "diceTip": "Véletlenszerű kód",
   "inviteTip": "Emberek meghívása",

@@ -253,6 +253,7 @@
   "downloadFailed": "下载失败 — 请重试",
   "processing": "处理中…",
   "recordingPartial": "录制失败 — 已保存部分文件",
+  "recordingNotice": "正在录制整个通话。每个人都会被录入，当有人加入或离开时布局会随之更新 — 关闭摄像头的人会显示为带有姓名首字母的方块。",
   "closeTip": "关闭",
   "diceTip": "随机代码",
   "inviteTip": "邀请他人",

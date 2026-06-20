@@ -253,6 +253,7 @@
   "downloadFailed": "Download mislykkedes — prøv igen",
   "processing": "Behandler…",
   "recordingPartial": "Optagelsen mislykkedes — delvis fil gemt",
+  "recordingNotice": "Hele opkaldet optages. Alle medtages, og layoutet opdateres, efterhånden som folk deltager eller forlader — alle med kameraet slukket vises som en flise med deres initialer.",
   "closeTip": "Luk",
   "diceTip": "Tilfældig kode",
   "inviteTip": "Inviter personer",

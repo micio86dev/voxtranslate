@@ -253,6 +253,7 @@
   "downloadFailed": "Preuzimanje nije uspjelo — pokušajte ponovno",
   "processing": "Obrada…",
   "recordingPartial": "Snimanje nije uspjelo — spremljena je djelomična datoteka",
+  "recordingNotice": "Snima se cijeli poziv. Svi se snimaju, a raspored se ažurira kako se ljudi pridružuju ili odlaze — svatko s isključenom kamerom prikazuje se kao pločica s inicijalima.",
   "closeTip": "Zatvori",
   "diceTip": "Nasumični kod",
   "inviteTip": "Pozovi ljude",

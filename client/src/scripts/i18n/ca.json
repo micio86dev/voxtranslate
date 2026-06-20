@@ -253,6 +253,7 @@
   "downloadFailed": "No s'ha pogut descarregar — torna-ho a provar",
   "processing": "S'està processant…",
   "recordingPartial": "Ha fallat la gravació — s'ha desat un fitxer parcial",
+  "recordingNotice": "S'està gravant tota la trucada. Es captura tothom i la disposició s'actualitza a mesura que la gent s'incorpora o marxa — qui tingui la càmera apagada apareix com una casella amb les seves inicials.",
   "closeTip": "Tanca",
   "diceTip": "Codi aleatori",
   "inviteTip": "Convida persones",

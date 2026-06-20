@@ -253,6 +253,7 @@
   "downloadFailed": "Gagal mengunduh — coba lagi",
   "processing": "Memproses…",
   "recordingPartial": "Perekaman gagal — file sebagian tersimpan",
+  "recordingNotice": "Seluruh panggilan sedang direkam. Semua orang terekam dan tata letak diperbarui saat orang bergabung atau keluar — siapa pun yang kameranya mati akan muncul sebagai kotak berisi inisial namanya.",
   "closeTip": "Tutup",
   "diceTip": "Kode acak",
   "inviteTip": "Undang orang",

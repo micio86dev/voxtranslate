@@ -253,6 +253,7 @@
   "downloadFailed": "Yükləmə uğursuz oldu — yenidən cəhd edin",
   "processing": "Emal olunur…",
   "recordingPartial": "Yazma uğursuz oldu — qismən fayl saxlanıldı",
+  "recordingNotice": "Bütün zəng qeydə alınır. Hər kəs çəkilir və insanlar qoşulduqca və ya ayrıldıqca düzülüş yenilənir — kamerası söndürülü olan hər kəs adının baş hərfləri ilə bir kart kimi görünür.",
   "closeTip": "Bağla",
   "diceTip": "Təsadüfi kod",
   "inviteTip": "İnsanları dəvət et",

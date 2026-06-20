@@ -253,6 +253,7 @@
   "downloadFailed": "Sťahovanie zlyhalo — skúste to znova",
   "processing": "Spracúva sa…",
   "recordingPartial": "Nahrávanie zlyhalo — uložený čiastočný súbor",
+  "recordingNotice": "Nahráva sa celý hovor. Zaznamenaní sú všetci a rozloženie sa aktualizuje, ako sa ľudia pripájajú alebo odpájajú — každý s vypnutou kamerou sa zobrazí ako dlaždica s iniciálami.",
   "closeTip": "Zavrieť",
   "diceTip": "Náhodný kód",
   "inviteTip": "Pozvať ľudí",

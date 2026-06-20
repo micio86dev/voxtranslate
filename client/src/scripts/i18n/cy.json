@@ -253,6 +253,7 @@
   "downloadFailed": "Methwyd â'r lawrlwythiad — rhowch gynnig arall arni",
   "processing": "Yn prosesu…",
   "recordingPartial": "Methwyd â recordio — ffeil rannol wedi'i chadw",
+  "recordingNotice": "Mae'r alwad gyfan yn cael ei recordio. Caiff pawb eu cynnwys ac mae'r cynllun yn diweddaru wrth i bobl ymuno neu adael — bydd unrhyw un â'i gamera wedi'i ddiffodd yn ymddangos fel teil gyda'i lythrennau cyntaf.",
   "closeTip": "Cau",
   "diceTip": "Cod ar hap",
   "inviteTip": "Gwahodd pobl",

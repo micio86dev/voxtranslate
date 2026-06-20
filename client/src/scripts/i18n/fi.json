@@ -253,6 +253,7 @@
   "downloadFailed": "Lataus epäonnistui — yritä uudelleen",
   "processing": "Käsitellään…",
   "recordingPartial": "Tallennus epäonnistui — osittainen tiedosto tallennettu",
+  "recordingNotice": "Koko puhelu tallennetaan. Kaikki tallentuvat ja asettelu päivittyy, kun ihmisiä liittyy tai poistuu — kuka tahansa, jonka kamera on pois päältä, näkyy ruutuna nimikirjaimillaan.",
   "closeTip": "Sulje",
   "diceTip": "Satunnainen koodi",
   "inviteTip": "Kutsu osallistujia",

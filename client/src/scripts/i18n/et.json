@@ -253,6 +253,7 @@
   "downloadFailed": "Allalaadimine ebaõnnestus — proovi uuesti",
   "processing": "Töötlemine…",
   "recordingPartial": "Salvestamine ebaõnnestus — osaline fail salvestati",
+  "recordingNotice": "Salvestatakse kogu kõne. Jäädvustatakse kõik ja paigutus uueneb, kui inimesi lisandub või lahkub — igaüks, kelle kaamera on välja lülitatud, kuvatakse paanina oma initsiaalidega.",
   "closeTip": "Sulge",
   "diceTip": "Juhuslik kood",
   "inviteTip": "Kutsu inimesi",

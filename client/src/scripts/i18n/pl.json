@@ -253,6 +253,7 @@
   "downloadFailed": "Pobieranie nie powiodło się — spróbuj ponownie",
   "processing": "Przetwarzanie…",
   "recordingPartial": "Nagrywanie nie powiodło się — zapisano częściowy plik",
+  "recordingNotice": "Nagrywana jest cała rozmowa. Rejestrowani są wszyscy, a układ aktualizuje się, gdy ktoś dołącza lub wychodzi — każdy z wyłączoną kamerą wyświetla się jako kafelek z inicjałami.",
   "closeTip": "Zamknij",
   "diceTip": "Losowy kod",
   "inviteTip": "Zaproś osoby",

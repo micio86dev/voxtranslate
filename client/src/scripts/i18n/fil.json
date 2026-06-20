@@ -253,6 +253,7 @@
   "downloadFailed": "Hindi na-download — subukan muli",
   "processing": "Pinoproseso…",
   "recordingPartial": "Nabigo ang pag-record — na-save ang bahagyang file",
+  "recordingNotice": "Nirerekord ang buong tawag. Nakukuha ang lahat at nag-a-update ang layout habang may sumasali o umaalis — ang sinumang nakapatay ang kamera ay lalabas bilang isang tile na may kanyang mga inisyal.",
   "closeTip": "Isara",
   "diceTip": "Random na code",
   "inviteTip": "Mag-imbita ng tao",

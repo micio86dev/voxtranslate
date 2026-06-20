@@ -253,6 +253,7 @@
   "downloadFailed": "Download fehlgeschlagen — bitte erneut versuchen",
   "processing": "Verarbeitung…",
   "recordingPartial": "Aufnahme fehlgeschlagen — Teildatei gespeichert",
+  "recordingNotice": "Der gesamte Anruf wird aufgezeichnet. Alle werden erfasst und das Layout aktualisiert sich, wenn Personen beitreten oder gehen — wer die Kamera aus hat, erscheint als Kachel mit seinen Initialen.",
   "closeTip": "Schließen",
   "diceTip": "Zufälliger Code",
   "inviteTip": "Personen einladen",

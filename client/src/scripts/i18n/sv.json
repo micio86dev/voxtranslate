@@ -253,6 +253,7 @@
   "downloadFailed": "Nedladdningen misslyckades — försök igen",
   "processing": "Bearbetar…",
   "recordingPartial": "Inspelningen misslyckades — delvis fil sparad",
+  "recordingNotice": "Hela samtalet spelas in. Alla fångas och layouten uppdateras när personer ansluter eller lämnar — alla med kameran avstängd visas som en ruta med sina initialer.",
   "closeTip": "Stäng",
   "diceTip": "Slumpmässig kod",
   "inviteTip": "Bjud in personer",

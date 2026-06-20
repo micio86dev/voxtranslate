@@ -253,6 +253,7 @@
   "downloadFailed": "Error al descargar — inténtalo de nuevo",
   "processing": "Procesando…",
   "recordingPartial": "La grabación falló — archivo parcial guardado",
+  "recordingNotice": "Se está grabando toda la llamada. Se captura a todos y el diseño se actualiza a medida que las personas se unen o se van — quien tenga la cámara apagada aparece como un mosaico con sus iniciales.",
   "closeTip": "Cerrar",
   "diceTip": "Código aleatorio",
   "inviteTip": "Invitar personas",

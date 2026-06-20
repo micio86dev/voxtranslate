@@ -253,6 +253,7 @@
   "downloadFailed": "Yuklash amalga oshmadi — qayta urinib ko'ring",
   "processing": "Qayta ishlanmoqda…",
   "recordingPartial": "Yozib olish amalga oshmadi — qisman fayl saqlandi",
+  "recordingNotice": "Butun qo'ng'iroq yozib olinmoqda. Hamma suratga olinadi va odamlar qo'shilgani yoki chiqib ketgani sari joylashuv yangilanadi — kamerasi o'chiq har bir kishi ismining bosh harflari bilan katakcha sifatida ko'rinadi.",
   "closeTip": "Yopish",
   "diceTip": "Tasodifiy kod",
   "inviteTip": "Odamlarni taklif qilish",
