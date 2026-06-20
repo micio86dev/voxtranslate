@@ -1,0 +1,4 @@
+[submodule "website"]
+	path = website
+	url = git@github.com:micio86dev/voxtranslate-website.git
+	branch = main
