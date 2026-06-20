@@ -81,7 +81,10 @@ const jsonLd = {
     <!-- ===================== HOME / LOBBY ===================== -->
     <section id="home" class="screen">
       <header class="home-header">
-        <h1 class="brand">Vox<span>Translate</span></h1>
+        <div class="brand-row">
+          <img class="brand-logo" src="/icon.png" alt="" width="44" height="44" decoding="async" />
+          <h1 class="brand">Vox<span>Translate</span></h1>
+        </div>
         <p class="tagline" data-i18n="tagline">{T('tagline')}</p>
         <div id="account-bar" class="account-bar hidden">
           <img id="account-avatar" class="account-avatar" alt="" referrerpolicy="no-referrer" />
@@ -950,6 +953,16 @@ const jsonLd = {
 
     /* ---------- Home ---------- */
     .home-header { text-align: center; padding: 28px 18px 8px; }
+    /* Logo + wordmark on one centered row. The logo scales with the viewport and
+       keeps its squircle ratio; a hairline + soft shadow give it definition on the
+       dark surface today and on a future light surface too. */
+    .brand-row { display: inline-flex; align-items: center; gap: 10px; }
+    .brand-logo {
+      width: clamp(36px, 9vw, 44px); height: clamp(36px, 9vw, 44px);
+      flex: 0 0 auto; border-radius: 24%;
+      border: 1px solid rgba(0, 0, 0, 0.06);
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+    }
     .brand { margin: 0; font-size: 1.9rem; font-weight: 700; letter-spacing: -0.02em; }
     .brand span { color: var(--accent); }
     .tagline { margin: 4px 0 0; color: var(--muted); font-size: 0.92rem; }
