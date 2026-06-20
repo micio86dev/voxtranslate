@@ -700,6 +700,27 @@ async fn authorize(
                 code: Some("banned".to_string()),
             });
         }
+
+        // Age + ToS consent gate: the client shows a blocking consent modal, but enforce
+        // 18+ server-side too so the WS can't be joined by bypassing the UI. Guests (no
+        // token) returned above are exempt. Fails closed (like `can_join`) on DB error.
+        match safety.has_consented(uid).await {
+            Ok(true) => {}
+            Ok(false) => {
+                return Err(ServerMessage::Error {
+                    message: "Please confirm you are 18+ and accept the Terms to continue"
+                        .to_string(),
+                    code: Some("consent_required".to_string()),
+                });
+            }
+            Err(e) => {
+                tracing::error!("consent check failed: {e}");
+                return Err(ServerMessage::Error {
+                    message: "service unavailable".to_string(),
+                    code: Some("consent_unavailable".to_string()),
+                });
+            }
+        }
     }
 
     match svc.can_join(uid).await {

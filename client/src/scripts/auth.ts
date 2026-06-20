@@ -327,6 +327,19 @@ export async function submitConsent(ageConfirmed: boolean): Promise<boolean> {
   return res.ok;
 }
 
+const GUEST_CONSENT_KEY = 'vox_guest_consent';
+
+/** Whether a guest (no account) has self-attested 18+ + ToS acceptance. Client-side
+ *  only — guests have no server record to gate against. */
+export function guestConsentGiven(): boolean {
+  return store().getItem(GUEST_CONSENT_KEY) === '1';
+}
+
+/** Record a guest's 18+ + ToS acceptance locally. */
+export function setGuestConsent(): void {
+  store().setItem(GUEST_CONSENT_KEY, '1');
+}
+
 /** File an abuse report against a peer. */
 export async function reportUser(payload: {
   room: string;

@@ -1344,6 +1344,12 @@ async function fetchIceServers(): Promise<RTCIceServer[] | undefined> {
 }
 
 async function startCall(): Promise<void> {
+  // Guests have no server-side consent record; enforce the 18+/ToS self-attestation
+  // here too so a guest can't reach a call without it (accounts are gated server-side).
+  if (billing && !auth.isLoggedIn() && !auth.guestConsentGiven()) {
+    show(consentModal, true);
+    return;
+  }
   if (!session || !localStream) return;
   // The in-call modules (warmed at pre-join, usually already settled) must be present before we
   // show the call UI. On failure — e.g. the chunk couldn't be fetched offline — stay on pre-join
@@ -1771,6 +1777,11 @@ async function handleServer(msg: any): Promise<void> {
       } else if (msg.code === 'banned') {
         leaveCall();
         homeStatusMsg(msg.message || t('bannedMsg'), true);
+      } else if (msg.code === 'consent_required') {
+        // Server backstop for the 18+/ToS gate — bounce out and re-show the
+        // (blocking) consent modal so the user can't proceed without confirming.
+        leaveCall();
+        ensureConsent();
       } else if (msg.code === 'detect_failed') {
         // Auto-detect probe failed; the server fell back to English (spec 0012).
         toast(t('langDetectFailed'));
@@ -3728,6 +3739,9 @@ function enterHome(): void {
       ensureConsent();
     });
     ensureConsent();
+  } else if (billing) {
+    // Guests have no account; gate them with the same blocking 18+/ToS modal.
+    ensureConsent();
   }
   updatePublicGate();
   refreshGlossaryHome(); // 📖 home button is auth-only
@@ -3744,9 +3758,13 @@ function enterHome(): void {
   }
 }
 
-/// Logged-in users must accept age + ToS before using the app.
+/// Everyone must accept age (18+) + ToS before using the app: logged-in users are
+/// recorded server-side; guests self-attest client-side (no account to gate against).
 function ensureConsent(): void {
-  if (billing && auth.isLoggedIn() && !auth.consentGiven()) {
+  if (!billing) return;
+  if (auth.isLoggedIn()) {
+    if (!auth.consentGiven()) show(consentModal, true);
+  } else if (!auth.guestConsentGiven()) {
     show(consentModal, true);
   }
 }
@@ -4192,6 +4210,12 @@ $('consent-tos').addEventListener('change', syncConsentAccept);
 $('consent-accept').addEventListener('click', async () => {
   const status = $('consent-status');
   status.textContent = '';
+  if (!auth.isLoggedIn()) {
+    // Guest: record the 18+/ToS attestation locally (no server account to update).
+    auth.setGuestConsent();
+    show(consentModal, false);
+    return;
+  }
   if (await auth.submitConsent(true)) {
     show(consentModal, false);
     renderAccount();

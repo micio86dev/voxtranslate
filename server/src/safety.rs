@@ -103,6 +103,18 @@ impl SafetyService {
         })
     }
 
+    /// `true` once the user confirmed they're 18+ and accepted the ToS/Privacy
+    /// (mirrors `consent_given` in [`crate::auth`]). Intentionally does NOT require the
+    /// *current* ToS version, so users who consented under an earlier version still pass.
+    pub async fn has_consented(&self, user_id: Uuid) -> Result<bool, sqlx::Error> {
+        let row: Option<(bool, Option<DateTime<Utc>>)> =
+            sqlx::query_as("SELECT age_confirmed, consent_tos_at FROM users WHERE id = $1")
+                .bind(user_id)
+                .fetch_optional(&self.pool)
+                .await?;
+        Ok(matches!(row, Some((true, Some(_)))))
+    }
+
     /// Ban a user. `days = None` is effectively permanent.
     pub async fn ban_user(
         &self,
