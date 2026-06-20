@@ -80,11 +80,17 @@ pub fn parse_openai_event(text: &str) -> OpenAiEvent {
     }
 }
 
-/// The `session.update` frame that sets the output language for a session.
-pub fn session_update_json(output_lang: &str) -> String {
+/// The `session.update` frame that sets the output language for a session, and an
+/// optional fixed voice (`OPENAI_VOICE`) so every session shares one timbre. With
+/// no voice configured the field is omitted — the model keeps its default.
+pub fn session_update_json(output_lang: &str, voice: Option<&str>) -> String {
+    let mut output = serde_json::json!({ "language": output_lang });
+    if let Some(v) = voice {
+        output["voice"] = serde_json::Value::String(v.to_string());
+    }
     serde_json::json!({
         "type": "session.update",
-        "session": { "audio": { "output": { "language": output_lang } } }
+        "session": { "audio": { "output": output } }
     })
     .to_string()
 }
@@ -124,9 +130,12 @@ pub async fn open_session(
     use futures::SinkExt as _;
     use futures::StreamExt as _;
     let (mut sink, source) = ws.split();
-    sink.send(Message::text(session_update_json(output_lang)))
-        .await
-        .map_err(|e| format!("openai session.update failed: {e}"))?;
+    sink.send(Message::text(session_update_json(
+        output_lang,
+        config.voice.as_deref(),
+    )))
+    .await
+    .map_err(|e| format!("openai session.update failed: {e}"))?;
     tracing::info!(%output_lang, model = %config.model, "openai: session connected");
     Ok((sink, source))
 }
@@ -187,9 +196,14 @@ mod tests {
 
     #[test]
     fn builds_control_frames() {
-        let upd: Value = serde_json::from_str(&session_update_json("es")).unwrap();
+        let upd: Value = serde_json::from_str(&session_update_json("es", None)).unwrap();
         assert_eq!(upd["type"], "session.update");
         assert_eq!(upd["session"]["audio"]["output"]["language"], "es");
+        // No voice configured → field omitted (default behaviour unchanged).
+        assert!(upd["session"]["audio"]["output"].get("voice").is_none());
+        // With a voice configured → pinned on the session.
+        let pinned: Value = serde_json::from_str(&session_update_json("es", Some("marin"))).unwrap();
+        assert_eq!(pinned["session"]["audio"]["output"]["voice"], "marin");
 
         let app: Value = serde_json::from_str(&audio_append_json(&[0u8, 255, 128])).unwrap();
         assert_eq!(app["type"], "session.input_audio_buffer.append");

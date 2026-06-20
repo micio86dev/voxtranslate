@@ -569,6 +569,7 @@ mod tests {
             cost_per_minute: 0.023,
             markup: 0.5,
             max_sessions,
+            voice: None,
         }
     }
 

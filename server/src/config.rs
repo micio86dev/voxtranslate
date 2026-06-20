@@ -95,6 +95,10 @@ pub struct OpenAiConfig {
     /// Hard cap on concurrent OpenAI realtime sessions across the process
     /// (`OPENAI_REALTIME_MAX_SESSIONS`) — backpressure for group rooms (spec 0093).
     pub max_sessions: usize,
+    /// Optional fixed realtime voice (`OPENAI_VOICE`, e.g. `marin`, `cedar`, `alloy`).
+    /// `None` (default) leaves the model's default. Set it to pin one consistent
+    /// timbre for all translated audio. Opt-in so the default behaviour is unchanged.
+    pub voice: Option<String>,
 }
 
 /// Gemini Live Translate credentials + pricing (spec 0100). All-or-nothing like
@@ -117,6 +121,11 @@ pub struct GeminiConfig {
     /// (`GEMINI_LIVE_MAX_SESSIONS`). The preview tier limits concurrent sessions, so
     /// keep this conservative — we hold one session per target language.
     pub max_sessions: usize,
+    /// Optional fixed prebuilt voice (`GEMINI_VOICE`, e.g. `Aoede`, `Kore`, `Puck`).
+    /// `None` (default) lets the model choose — on the Live-Translate model that
+    /// follows each speaker's own voice, so the timbre varies. Set it to pin one
+    /// consistent voice for all translated audio. Opt-in so the default is unchanged.
+    pub voice: Option<String>,
 }
 
 impl GeminiConfig {
@@ -144,6 +153,10 @@ impl GeminiConfig {
             cost_per_minute: parse_or("GEMINI_COST_PER_MINUTE", 0.023f64),
             markup: percent / 100.0,
             max_sessions: parse_or("GEMINI_LIVE_MAX_SESSIONS", 16usize),
+            voice: env::var("GEMINI_VOICE")
+                .ok()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty()),
         }
     }
 }
@@ -173,6 +186,10 @@ impl OpenAiConfig {
             cost_per_minute: parse_or("OPENAI_COST_PER_MINUTE", 0.30f64),
             markup: percent / 100.0,
             max_sessions: parse_or("OPENAI_REALTIME_MAX_SESSIONS", 16usize),
+            voice: env::var("OPENAI_VOICE")
+                .ok()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty()),
         }
     }
 }

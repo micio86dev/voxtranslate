@@ -71,23 +71,31 @@ pub fn session_url(config: &GeminiConfig) -> String {
 /// 'inputAudioTranscription' at 'setup.generation_config'"). `echoTargetLanguage` makes
 /// the model parrot input that's already in the target language (so a speaker briefly
 /// using the listener's language isn't mistranslated).
-pub fn setup_json(model: &str, target_lang: &str) -> String {
+pub fn setup_json(model: &str, target_lang: &str, voice: Option<&str>) -> String {
     // The wire wants a fully-qualified `models/<id>`; tolerate either form in config.
     let model_path = if model.starts_with("models/") {
         model.to_string()
     } else {
         format!("models/{model}")
     };
+    let mut generation_config = serde_json::json!({
+        "responseModalities": ["AUDIO"],
+        "translationConfig": {
+            "targetLanguageCode": target_lang,
+            "echoTargetLanguage": true,
+        }
+    });
+    // Pin a fixed timbre only when configured (`GEMINI_VOICE`). Left out by default,
+    // so the model keeps its current behaviour (follows the speaker's own voice).
+    if let Some(v) = voice {
+        generation_config["speechConfig"] = serde_json::json!({
+            "voiceConfig": { "prebuiltVoiceConfig": { "voiceName": v } }
+        });
+    }
     serde_json::json!({
         "setup": {
             "model": model_path,
-            "generationConfig": {
-                "responseModalities": ["AUDIO"],
-                "translationConfig": {
-                    "targetLanguageCode": target_lang,
-                    "echoTargetLanguage": true,
-                }
-            },
+            "generationConfig": generation_config,
             "inputAudioTranscription": {},
             "outputAudioTranscription": {}
         }
@@ -243,9 +251,13 @@ pub async fn open_session(
     use futures::SinkExt as _;
     use futures::StreamExt as _;
     let (mut sink, source) = ws.split();
-    sink.send(Message::text(setup_json(&config.model, target_lang)))
-        .await
-        .map_err(|e| format!("gemini setup failed: {e}"))?;
+    sink.send(Message::text(setup_json(
+        &config.model,
+        target_lang,
+        config.voice.as_deref(),
+    )))
+    .await
+    .map_err(|e| format!("gemini setup failed: {e}"))?;
     // NB: never log the URL/key — only the model + target language.
     tracing::info!(%target_lang, model = %config.model, "gemini: session connecting");
     Ok((sink, source))
@@ -262,17 +274,21 @@ mod tests {
             cost_per_minute: 0.023,
             markup: 0.5,
             max_sessions: 16,
+            voice: None,
         }
     }
 
     #[test]
     fn setup_frame_places_fields_where_the_api_wants_them() {
         let v: Value =
-            serde_json::from_str(&setup_json("gemini-3.5-live-translate-preview", "pl")).unwrap();
+            serde_json::from_str(&setup_json("gemini-3.5-live-translate-preview", "pl", None))
+                .unwrap();
         let setup = &v["setup"];
         assert_eq!(setup["model"], "models/gemini-3.5-live-translate-preview");
         let gc = &setup["generationConfig"];
         assert_eq!(gc["responseModalities"][0], "AUDIO");
+        // No voice configured → no speechConfig (default behaviour unchanged).
+        assert!(gc.get("speechConfig").is_none());
         // translationConfig lives in generationConfig …
         assert_eq!(gc["translationConfig"]["targetLanguageCode"], "pl");
         assert_eq!(gc["translationConfig"]["echoTargetLanguage"], true);
@@ -285,9 +301,17 @@ mod tests {
 
     #[test]
     fn setup_frame_tolerates_prequalified_model() {
-        let v: Value = serde_json::from_str(&setup_json("models/foo", "es")).unwrap();
+        let v: Value = serde_json::from_str(&setup_json("models/foo", "es", None)).unwrap();
         // Already `models/…` → not double-prefixed.
         assert_eq!(v["setup"]["model"], "models/foo");
+    }
+
+    #[test]
+    fn setup_frame_pins_voice_when_configured() {
+        let v: Value =
+            serde_json::from_str(&setup_json("models/foo", "es", Some("Aoede"))).unwrap();
+        let vc = &v["setup"]["generationConfig"]["speechConfig"]["voiceConfig"];
+        assert_eq!(vc["prebuiltVoiceConfig"]["voiceName"], "Aoede");
     }
 
     #[test]
