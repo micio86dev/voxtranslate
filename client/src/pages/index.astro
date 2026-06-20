@@ -182,6 +182,7 @@ const jsonLd = {
           <div id="rooms-list" class="rooms-list"></div>
         </div>
       </div>
+      <button id="onb-home-help" class="help-fab" type="button" data-i18n-title="onbHelpLabel" title={T('onbHelpLabel')} aria-label={T('onbHelpLabel')}>?</button>
     </section>
 
     <!-- ===================== SESSION DETAIL (auth only) ===================== -->
@@ -607,6 +608,7 @@ const jsonLd = {
         <!-- Drag-and-drop overlay (spec 0018), toggled while a file is dragged over. -->
         <div id="chat-drop" class="chat-drop hidden"><span data-i18n="dropFile">{T('dropFile')}</span></div>
       </section>
+      <button id="onb-call-help" class="help-fab help-fab-call" type="button" data-i18n-title="onbHelpLabel" title={T('onbHelpLabel')} aria-label={T('onbHelpLabel')}>?</button>
     </section>
 
     <!-- ===================== BUY CREDITS MODAL ===================== -->
@@ -670,6 +672,27 @@ const jsonLd = {
           <a href="/terms" target="_blank" data-i18n="terms">{T('terms')}</a> ·
           <a href="/privacy" target="_blank" data-i18n="privacy">{T('privacy')}</a> ·
           <a href="/acceptable-use" target="_blank" data-i18n="acceptableUse">{T('acceptableUse')}</a>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===================== ONBOARDING WIZARD (home, spec onboarding) ===================== -->
+    <!-- Custom multi-step modal (no external lib). Title/body/dots/Next-label are filled by
+         home-wizard.ts at render time; Skip/Back stay i18n-bound. Reuses app.ts show() for the
+         focus trap + ESC + focus-restore that every .modal-overlay gets. -->
+    <div id="onb-home-modal" class="modal-overlay onb-overlay hidden">
+      <div id="onb-home-card" class="onb-card" role="dialog" aria-modal="true" aria-labelledby="onb-home-title" aria-describedby="onb-home-body">
+        <button id="onb-home-skip" class="onb-skip" type="button" data-i18n="onbSkip">{T('onbSkip')}</button>
+        <div id="onb-home-content" class="onb-content">
+          <div id="onb-home-illus" class="onb-illus" aria-hidden="true"></div>
+          <h2 id="onb-home-title" class="onb-title"></h2>
+          <p id="onb-home-body" class="onb-body"></p>
+        </div>
+        <div id="onb-home-dots" class="onb-dots" aria-hidden="true"></div>
+        <p id="onb-home-count" class="onb-count" aria-live="polite"></p>
+        <div class="onb-actions">
+          <button id="onb-home-back" class="btn-ghost onb-back" type="button" data-i18n="onbBack">{T('onbBack')}</button>
+          <button id="onb-home-next" class="btn-primary onb-next" type="button">{T('onbNext')}</button>
         </div>
       </div>
     </div>
@@ -2348,6 +2371,101 @@ const jsonLd = {
       .invite-panel.closed { margin-inline-end: 0; }
       .invite-panel.open { transform: translateY(0); }
       .video-grid[data-peers="3"] :global(.video-cell:nth-child(3)) { max-width: 100%; }
+    }
+  </style>
+
+  <!-- Onboarding styles are global: driver.js popovers and the wizard's JS-built dots live
+       outside this component's scope, so scoped selectors wouldn't reach them. All selectors are
+       prefixed (.help-fab / .onb-* / .driver-*) to stay collision-free. -->
+  <style is:global>
+    /* Shared "?" launcher — round, accent-tinted; bottom-RIGHT (the bug FAB owns bottom-left). */
+    .help-fab {
+      position: fixed; inset-inline-end: 16px; bottom: 16px; z-index: 6;
+      width: 40px; height: 40px; border-radius: 999px; cursor: pointer;
+      display: inline-flex; align-items: center; justify-content: center;
+      font-size: 1.05rem; font-weight: 700; line-height: 1; color: var(--text);
+      background: color-mix(in srgb, var(--accent) 22%, var(--surface));
+      border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--border));
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+      transition: background 0.15s, transform 0.06s;
+    }
+    .help-fab:hover { background: color-mix(in srgb, var(--accent) 34%, var(--surface)); }
+    .help-fab:active { transform: translateY(1px); }
+    .help-fab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    /* In-call: lift clear of the bottom control bar so it never overlaps. */
+    .help-fab-call { bottom: 84px; z-index: 22; }
+    @media (max-width: 768px) { .help-fab-call { bottom: 96px; inset-inline-end: 12px; } }
+
+    /* ---- Home wizard ---- */
+    .onb-overlay { z-index: 90; }
+    .onb-card {
+      position: relative; width: 100%; max-width: 420px; max-height: 88vh; overflow-y: auto;
+      text-align: center; display: flex; flex-direction: column; gap: 16px; padding: 28px 24px 20px;
+      background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+    }
+    .onb-skip {
+      position: absolute; top: 10px; inset-inline-end: 12px;
+      background: none; border: 0; cursor: pointer; padding: 6px 8px;
+      color: var(--muted); font-size: var(--font-sm); font-weight: 600; border-radius: var(--btn-radius-sm);
+    }
+    .onb-skip:hover { color: var(--text); }
+    .onb-skip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .onb-content { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+    .onb-illus {
+      width: 68px; height: 68px; border-radius: 18px; margin-top: 6px; display: grid; place-items: center;
+      background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+    }
+    .onb-illus svg { width: 34px; height: 34px; stroke: var(--accent); fill: none; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+    .onb-title { margin: 0; font-size: 1.18rem; font-weight: 700; color: var(--text); letter-spacing: -0.01em; }
+    .onb-body { margin: 0; font-size: var(--font-md); line-height: 1.5; color: var(--muted); max-width: 34ch; }
+    .onb-content.onb-in { animation: onb-step-in 0.32s ease both; }
+    @keyframes onb-step-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+    .onb-dots { display: flex; gap: 7px; justify-content: center; }
+    .onb-dot { width: 7px; height: 7px; border-radius: 999px; background: var(--border); transition: width 0.2s, background 0.2s; }
+    .onb-dot.active { width: 20px; background: var(--accent); }
+    /* SR-only step counter (announced; visually hidden). */
+    .onb-count { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+    .onb-actions { display: flex; gap: 10px; }
+    .onb-actions .onb-back { flex: 0 0 auto; }
+    .onb-actions .onb-next { flex: 1; }
+    .onb-back[hidden] { display: none; }
+
+    /* ---- driver.js call-tour theme (popovers render on <body>) ---- */
+    .onb-driver.driver-popover {
+      background: var(--surface); color: var(--text); border: 1px solid var(--border);
+      border-radius: var(--radius); box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5); max-width: 320px;
+    }
+    .onb-driver .driver-popover-title { color: var(--text); font-size: 1.02rem; font-weight: 700; }
+    .onb-driver .driver-popover-description { color: var(--muted); font-size: var(--font-sm); line-height: 1.5; }
+    .onb-driver .driver-popover-progress-text { color: var(--muted); font-size: var(--font-xs); }
+    .onb-driver .driver-popover-close-btn { color: var(--muted); }
+    .onb-driver .driver-popover-close-btn:hover { color: var(--text); }
+    .onb-driver .driver-popover-prev-btn,
+    .onb-driver .driver-popover-next-btn {
+      background: var(--btn-ghost-bg); color: var(--text); text-shadow: none;
+      border: 1px solid var(--btn-ghost-border); border-radius: var(--btn-radius-sm);
+      font-weight: 600; font-size: var(--font-sm); padding: 6px 12px;
+    }
+    .onb-driver .driver-popover-next-btn { background: var(--accent-strong); border-color: var(--accent-strong); color: #fff; }
+    .onb-driver .driver-popover-prev-btn:hover { background: var(--btn-ghost-bg-hover); }
+    .onb-driver .driver-popover-next-btn:hover { filter: brightness(1.08); }
+    .onb-driver .driver-popover-btn-disabled { opacity: 0.45; }
+    /* Tint the popover arrow to match the surface, per side. */
+    .onb-driver.driver-popover .driver-popover-arrow-side-top { border-top-color: var(--surface); }
+    .onb-driver.driver-popover .driver-popover-arrow-side-bottom { border-bottom-color: var(--surface); }
+    .onb-driver.driver-popover .driver-popover-arrow-side-left { border-left-color: var(--surface); }
+    .onb-driver.driver-popover .driver-popover-arrow-side-right { border-right-color: var(--surface); }
+    /* Accent spotlight ring on the highlighted control. */
+    .driver-active-element { outline: 2px solid var(--accent) !important; outline-offset: 3px; border-radius: var(--btn-radius); }
+
+    /* Force the ⋯ overflow menu visible during the share/invite steps. id+class beats the app's
+       own `.hidden` toggle (both !important), so driver can measure/highlight the buttons. */
+    body.onb-more-forced #more-menu { display: flex !important; }
+
+    @media (prefers-reduced-motion: reduce) {
+      .onb-content.onb-in { animation: none; }
+      .onb-dot { transition: none; }
     }
   </style>
 

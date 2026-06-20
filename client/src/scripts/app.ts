@@ -40,6 +40,7 @@ import { buildInviteLink, MAX_INVITE_EMAILS, parseRoomParam, validateInviteEmail
 import * as auth from './auth';
 import { initBookmarks, setBookmarkSession } from './bookmarks';
 import { initBugReport } from './bug-report';
+import * as onboarding from './onboarding';
 import { initGlossary, onGlossaryActive, refreshGlossaryHome, setGlossaryRoom } from './glossary';
 import type { Whiteboard, WbTool, WbWidth } from './whiteboard';
 import type { TicTacToe } from './tictactoe';
@@ -1369,6 +1370,8 @@ async function startCall(): Promise<void> {
   stageSelfName.textContent = session.name || t('you');
   stageSelfLang.textContent = `${FLAG[session.lang] || ''} ${session.lang.toUpperCase()}`.trim();
   show(stageSelf, true);
+  // First-entry call tour (deferred to the next frames so the control bar has laid out).
+  onboarding.maybeAutoStartCall();
   videoGrid.innerHTML = '';
   videoGrid.dataset.mode = 'grid';
   peerNames.clear();
@@ -3755,6 +3758,10 @@ function enterHome(): void {
     const room = pendingInviteRoom;
     pendingInviteRoom = null;
     void goPrejoin(room, false);
+  } else {
+    // First-visit home wizard — skipped while the blocking 18+/ToS consent gate is up (the
+    // consent-accept handler re-runs this once it closes) or when home isn't the visible screen.
+    onboarding.maybeAutoStartHome(() => openOverlay === null && !homeScreen.classList.contains('hidden'));
   }
 }
 
@@ -4214,11 +4221,13 @@ $('consent-accept').addEventListener('click', async () => {
     // Guest: record the 18+/ToS attestation locally (no server account to update).
     auth.setGuestConsent();
     show(consentModal, false);
+    onboarding.maybeAutoStartHome(() => openOverlay === null && !homeScreen.classList.contains('hidden'));
     return;
   }
   if (await auth.submitConsent(true)) {
     show(consentModal, false);
     renderAccount();
+    onboarding.maybeAutoStartHome(() => openOverlay === null && !homeScreen.classList.contains('hidden'));
   } else {
     status.textContent = t('consentFailed');
     status.classList.add('error');
@@ -4675,5 +4684,12 @@ function insertEmoji(emoji: string): void {
 
 initCookieBanner();
 initBugReport(); // always-available "report a problem" button (spec 0071)
+// Onboarding "?" launchers + home wizard wiring (spec onboarding). forceMore drives the ⋯ menu
+// for the tour's share/invite steps without stealing focus, so it doesn't fight driver.js.
+onboarding.initOnboarding({
+  show,
+  isLoggedIn: auth.isLoggedIn,
+  forceMore: (open) => document.body.classList.toggle('onb-more-forced', open),
+});
 // boot() runs the lobby (startLobby) and resumes any session.
 void boot();

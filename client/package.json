@@ -14,7 +14,8 @@
   },
   "dependencies": {
     "@soniox/speech-to-text-web": "^1.4.0",
-    "astro": "^5.0.0"
+    "astro": "^5.0.0",
+    "driver.js": "^1.4.0"
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.9",
