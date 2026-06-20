@@ -3071,12 +3071,16 @@ async function startScreenShare(): Promise<void> {
     const s = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
     screenStream = s;
     isSharingScreen = true;
-    // If the user ticked "share audio", route it to peers. With a mic present we
-    // MIX mic + share (peers hear you AND the shared audio); with no mic we send
-    // the shared audio alone — previously this was gated on having a mic, so a
-    // muted/no-mic sharer transmitted nothing (#229). Either way it leaves on the
-    // (now always-present) audio sender via replaceTrack — no renegotiation. No
-    // screen-audio track (box unticked / unsupported) → the mic path is untouched.
+    // If the user ticked "share audio", route ONLY the SCREEN audio to peers — not
+    // the mic. The sharer's voice reaches listeners as translated speech (TTS) +
+    // subtitles, so it is no longer doubled with the untranslated original (which a
+    // sharing peer is never ducked for, see applyAudioMode/#229). The mic is still
+    // mixed with the screen audio into `shareMixTrack`, but that mix is used ONLY
+    // for the LOCAL recording (selfRecordingStream) — it is never sent to peers, so
+    // the recording still captures both voice and shared audio. The mic continues to
+    // feed STT unchanged. It leaves on the always-present audio sender via
+    // replaceTrack — no renegotiation. No screen-audio track (box unticked /
+    // unsupported) → the mic path is untouched.
     const shareAudio = s.getAudioTracks();
     if (shareAudio.length) {
       try {
@@ -3088,8 +3092,10 @@ async function startScreenShare(): Promise<void> {
         if (mic.length) {
           shareAudioCtx.createMediaStreamSource(new MediaStream(mic)).connect(dest);
         }
+        // mic+screen mix — for the local recording only.
         shareMixTrack = dest.stream.getAudioTracks()[0] ?? null;
-        if (shareMixTrack) mesh.replaceAudioTrack(shareMixTrack);
+        // Peers get the screen audio alone (mic excluded → no doubled voice).
+        mesh.replaceAudioTrack(shareAudio[0]);
       } catch {
         // WebAudio unavailable → mic-only audio (if any); the screen video still shares.
         shareAudioCtx = null;
