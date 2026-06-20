@@ -1147,6 +1147,9 @@ async function goPrejoin(room: string, isPublic: boolean): Promise<void> {
   // devices initialise — by the time the user clicks join, `startCall` awaits an already-settled
   // promise. Errors are swallowed here; startCall re-awaits and surfaces a real failure.
   void ensureCallModules().catch(() => {});
+  // Warm the active locale's lazy i18n chunk alongside the call modules, so it is
+  // already in memory by the time `startCall` awaits it (no in-call English flash).
+  void loadLocale(getUiLang());
   stopLobby();
   homeScreen.classList.add('hidden');
   prejoinScreen.classList.remove('hidden');
@@ -1362,6 +1365,11 @@ async function startCall(): Promise<void> {
     prejoinStatus.classList.add('error');
     return;
   }
+  // i18n is lazy-loaded per locale (spec 0104). Make sure the active UI language's
+  // dictionary has landed BEFORE we render any in-call UI, otherwise the
+  // dynamically-created labels (cells, badges, tooltips) fall back to English
+  // because `t()` reads synchronously and there is no re-translate pass for them.
+  await loadLocale(getUiLang());
   prejoinScreen.classList.add('hidden');
   callScreen.classList.remove('hidden');
   callRoom.textContent = session.room;
@@ -1839,6 +1847,11 @@ function addCell(id: string, name: string, lang: string, isSelf: boolean, avatar
 
   const overlay = document.createElement('div');
   overlay.className = 'video-overlay';
+  // Compact identity badge (top-left): the user's avatar + their language flag.
+  // Top-right is reserved for the raised-hand indicator, so identity sits left.
+  const avBadge = document.createElement('span');
+  avBadge.className = 'peer-avatar';
+  fillAvatar(avBadge, name, avatarSrc, 40, 1);
   const nameEl = document.createElement('span');
   nameEl.className = 'peer-name';
   nameEl.textContent = isSelf ? t('you') : name;
@@ -1849,7 +1862,7 @@ function addCell(id: string, name: string, lang: string, isSelf: boolean, avatar
   mute.className = 'mute-indicator';
   mute.hidden = true;
   mute.innerHTML = icon('mic-off', 14);
-  overlay.append(nameEl, langEl, mute);
+  overlay.append(avBadge, nameEl, langEl, mute);
   if (!isSelf) {
     // A real <button> so pinning works from the keyboard too.
     const pinBtn = document.createElement('button');
@@ -2862,6 +2875,17 @@ btnPip.addEventListener('click', () => {
           } catch { /* cross-origin sheet — skip */ }
         }
       });
+      // When the PiP window is small the copied stylesheet drops the name overlay to
+      // the bottom, where the long name gets clipped and sits under the control bar.
+      // Keep the identity badge top-left (avatar + flag) and hide only the name at
+      // small sizes; enlarging the window past 768px restores the full name, as before.
+      const pipFix = w.document.createElement('style');
+      pipFix.textContent =
+        '@media (max-width:768px){' +
+        '.video-grid .video-overlay{top:8px!important;bottom:auto!important;}' +
+        '.video-grid .peer-name{display:none!important;}' +
+        '}';
+      w.document.head.appendChild(pipFix);
       w.document.body.style.cssText = 'margin:0;background:#000;overflow:hidden';
       // Build a BARE stage with just the video grid — NOT a clone of the whole
       // stage. This drops the session-meta overlays (call timer, room code,
