@@ -338,7 +338,9 @@ export class Quiz {
 
   private choose(i: number): void {
     const s = this.state;
-    if (!s || s.phase !== 'question' || this.myChoice !== null) return;
+    // You can change your answer until the host reveals — but re-picking the same
+    // option is a no-op (avoids a redundant relay message).
+    if (!s || s.phase !== 'question' || this.myChoice === i) return;
     this.myChoice = i;
     this.render();
     const a: AnswerMsg = { game: 'quiz', t: 'answer', q: s.qIndex, choice: i, by: this.myId, name: this.nameOf(this.myId) };
@@ -409,9 +411,13 @@ export class Quiz {
   private recordAnswer(a: AnswerMsg): void {
     const s = this.state;
     if (!s || !this.isHost() || s.phase !== 'question' || a.q !== s.qIndex) return;
-    if (this.pending[a.by] !== undefined) return; // first answer wins
+    // Latest answer wins: players may change their choice until the reveal. If they
+    // already answered this question, just update the stored choice in place — don't
+    // re-count them or re-broadcast the roster (the answered tally stays correct).
+    const isUpdate = this.pending[a.by] !== undefined;
     this.pending[a.by] = a.choice;
-    // Track per-participant completion: bump this player's answered count (R4.4).
+    if (isUpdate) return;
+    // First answer for this question: bump this player's answered count (R4.4).
     const prev = s.players[a.by] ?? { name: a.name, score: 0, answered: 0 };
     const players = { ...s.players, [a.by]: { ...prev, answered: prev.answered + 1 } };
     this.setState({ ...s, players, answeredIds: Object.keys(this.pending) });
@@ -576,7 +582,8 @@ export class Quiz {
       b.classList.toggle('correct', revealing && s.correct === i);
       b.classList.toggle('chosen', this.myChoice === i);
       b.classList.toggle('wrong', revealing && this.myChoice === i && s.correct !== i);
-      b.disabled = revealing || this.myChoice !== null;
+      // Stay clickable after answering so you can change your choice; lock on reveal.
+      b.disabled = revealing;
     });
 
     if (revealing) {
