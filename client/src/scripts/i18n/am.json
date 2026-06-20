@@ -276,6 +276,7 @@
   "downloads": "ውርዶች",
   "aiTools": "የ AI መሣሪያዎች",
   "transcriptLabel": "ግልባጭ",
+  "aiGeneratedNotice": "ትርጉሞች፣ የትርጉም ጽሑፎች እና ማንኛውም የተተረጎመ ድምፅ በአርቴፊሻል ኢንተለጀንስ የተፈጠሩ ናቸው፤ ስህተቶችም ሊኖሩዋቸው ይችላሉ።",
   "openBtn": "ክፈት",
   "loadFailed": "መጫን አልተቻለም — እባክዎ እንደገና ይሞክሩ",
   "downloadSrt": "SRT አውርድ",

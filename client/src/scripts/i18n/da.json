@@ -276,6 +276,7 @@
   "downloads": "Downloads",
   "aiTools": "AI-værktøjer",
   "transcriptLabel": "Udskrift",
+  "aiGeneratedNotice": "Oversættelser, undertekster og enhver oversat stemme er AI-genereret og kan indeholde fejl.",
   "openBtn": "Åbn",
   "loadFailed": "Kunne ikke indlæse — prøv igen",
   "downloadSrt": "Download SRT",

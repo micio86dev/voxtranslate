@@ -276,6 +276,7 @@
   "downloads": "ダウンロード",
   "aiTools": "AIツール",
   "transcriptLabel": "文字起こし",
+  "aiGeneratedNotice": "翻訳、字幕、翻訳された音声はAIによって生成されており、誤りが含まれる場合があります。",
   "openBtn": "開く",
   "loadFailed": "読み込みに失敗しました — もう一度お試しください",
   "downloadSrt": "SRTをダウンロード",

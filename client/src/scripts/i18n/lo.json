@@ -276,6 +276,7 @@
   "downloads": "ການດາວໂຫຼດ",
   "aiTools": "ເຄື່ອງມື AI",
   "transcriptLabel": "ບົດສະຫຼຸບ",
+  "aiGeneratedNotice": "ການແປ, ຄຳບັນຍາຍ ແລະ ສຽງທີ່ແປແລ້ວໃດໆ ແມ່ນສ້າງໂດຍ AI ແລະ ອາດມີຂໍ້ຜິດພາດ.",
   "openBtn": "ເປີດ",
   "loadFailed": "ບໍ່ສາມາດໂຫຼດ — ກະລຸນາລອງໃໝ່",
   "downloadSrt": "ດາວໂຫຼດ SRT",

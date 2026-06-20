@@ -276,6 +276,7 @@
   "downloads": "Downloads",
   "aiTools": "AI-tools",
   "transcriptLabel": "Transcript",
+  "aiGeneratedNotice": "Vertalingen, ondertitels en elke vertaalde stem worden door AI gegenereerd en kunnen fouten bevatten.",
   "openBtn": "Openen",
   "loadFailed": "Laden mislukt — probeer het opnieuw",
   "downloadSrt": "SRT downloaden",

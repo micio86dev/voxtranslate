@@ -276,6 +276,7 @@
   "downloads": "Atsisiuntimai",
   "aiTools": "AI įrankiai",
   "transcriptLabel": "Transkripcija",
+  "aiGeneratedNotice": "Vertimai, subtitrai ir bet koks išverstas balsas yra sukurti dirbtinio intelekto ir gali turėti klaidų.",
   "openBtn": "Atidaryti",
   "loadFailed": "Nepavyko įkelti — bandykite dar kartą",
   "downloadSrt": "Atsisiųsti SRT",

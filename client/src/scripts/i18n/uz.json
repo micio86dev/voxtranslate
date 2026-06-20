@@ -276,6 +276,7 @@
   "downloads": "Yuklab olishlar",
   "aiTools": "AI vositalari",
   "transcriptLabel": "Transkript",
+  "aiGeneratedNotice": "Tarjimalar, taglavhalar va har qanday tarjima qilingan ovoz sun'iy intellekt tomonidan yaratiladi va xatolar bo'lishi mumkin.",
   "openBtn": "Ochish",
   "loadFailed": "Yuklanmadi — qayta urinib ko'ring",
   "downloadSrt": "SRT yuklash",

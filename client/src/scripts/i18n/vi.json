@@ -276,6 +276,7 @@
   "downloads": "Tải xuống",
   "aiTools": "Công cụ AI",
   "transcriptLabel": "Bản ghi",
+  "aiGeneratedNotice": "Bản dịch, phụ đề và mọi giọng nói được dịch đều do AI tạo ra và có thể chứa lỗi.",
   "openBtn": "Mở",
   "loadFailed": "Không thể tải — vui lòng thử lại",
   "downloadSrt": "Tải SRT",

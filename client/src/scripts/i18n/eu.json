@@ -276,6 +276,7 @@
   "downloads": "Deskargak",
   "aiTools": "IA tresnak",
   "transcriptLabel": "Transkripzioa",
+  "aiGeneratedNotice": "Itzulpenak, azpitituluak eta itzulitako edozein ahots adimen artifizialak sortzen ditu, eta akatsak izan ditzakete.",
   "openBtn": "Ireki",
   "loadFailed": "Ezin izan da kargatu — saiatu berriro",
   "downloadSrt": "Deskargatu SRT",

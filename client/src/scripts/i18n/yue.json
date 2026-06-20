@@ -276,6 +276,7 @@
   "downloads": "下載",
   "aiTools": "AI 工具",
   "transcriptLabel": "逐字稿",
+  "aiGeneratedNotice": "翻譯、字幕同任何翻譯語音都係由人工智能生成，可能會有錯誤。",
   "openBtn": "開啟",
   "loadFailed": "無法載入 —— 請再試一次",
   "downloadSrt": "下載 SRT",

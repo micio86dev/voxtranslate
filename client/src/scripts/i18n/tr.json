@@ -276,6 +276,7 @@
   "downloads": "İndirilenler",
   "aiTools": "Yapay zeka araçları",
   "transcriptLabel": "Döküm",
+  "aiGeneratedNotice": "Çeviriler, altyazılar ve çevrilen herhangi bir ses yapay zekâ tarafından oluşturulur ve hatalar içerebilir.",
   "openBtn": "Aç",
   "loadFailed": "Yüklenemedi — lütfen tekrar deneyin",
   "downloadSrt": "SRT indir",

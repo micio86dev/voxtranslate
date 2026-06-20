@@ -276,6 +276,7 @@
   "downloads": "Prenosi",
   "aiTools": "Orodja z umetno inteligenco",
   "transcriptLabel": "Prepis",
+  "aiGeneratedNotice": "Prevodi, podnapisi in vsak prevedeni glas so ustvarjeni z umetno inteligenco in lahko vsebujejo napake.",
   "openBtn": "Odpri",
   "loadFailed": "Nalaganje ni uspelo — poskusite znova",
   "downloadSrt": "Prenesi SRT",

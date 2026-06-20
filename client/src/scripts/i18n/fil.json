@@ -276,6 +276,7 @@
   "downloads": "Mga download",
   "aiTools": "Mga AI tool",
   "transcriptLabel": "Transcript",
+  "aiGeneratedNotice": "Ang mga pagsasalin, caption at anumang isinaling boses ay ginawa ng AI at maaaring may mga mali.",
   "openBtn": "Buksan",
   "loadFailed": "Hindi na-load — pakisubukan muli",
   "downloadSrt": "I-download ang SRT",

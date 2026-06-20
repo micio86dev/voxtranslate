@@ -276,6 +276,7 @@
   "downloads": "Pliki do pobrania",
   "aiTools": "Narzędzia AI",
   "transcriptLabel": "Transkrypcja",
+  "aiGeneratedNotice": "Tłumaczenia, napisy i każdy przetłumaczony głos są generowane przez SI i mogą zawierać błędy.",
   "openBtn": "Otwórz",
   "loadFailed": "Nie udało się wczytać — spróbuj ponownie",
   "downloadSrt": "Pobierz SRT",

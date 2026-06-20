@@ -276,6 +276,7 @@
   "downloads": "Íoslódálacha",
   "aiTools": "Uirlisí AI",
   "transcriptLabel": "Tras-scríbhinn",
+  "aiGeneratedNotice": "Tá aistriúcháin, fotheidil agus aon ghuth aistrithe cruthaithe ag intleacht shaorga agus d'fhéadfadh earráidí a bheith iontu.",
   "openBtn": "Oscail",
   "loadFailed": "Níorbh fhéidir é a luchtú — bain triail eile as",
   "downloadSrt": "Íoslódáil SRT",

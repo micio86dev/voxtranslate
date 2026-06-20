@@ -276,6 +276,7 @@
   "downloads": "下载",
   "aiTools": "AI 工具",
   "transcriptLabel": "转录",
+  "aiGeneratedNotice": "翻译、字幕和任何翻译后的语音均由 AI 生成，可能包含错误。",
   "openBtn": "打开",
   "loadFailed": "加载失败 — 请重试",
   "downloadSrt": "下载 SRT",

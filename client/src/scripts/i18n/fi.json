@@ -276,6 +276,7 @@
   "downloads": "Lataukset",
   "aiTools": "Tekoälytyökalut",
   "transcriptLabel": "Litterointi",
+  "aiGeneratedNotice": "Käännökset, tekstitykset ja käännetty puhe ovat tekoälyn tuottamia ja voivat sisältää virheitä.",
   "openBtn": "Avaa",
   "loadFailed": "Lataaminen epäonnistui — yritä uudelleen",
   "downloadSrt": "Lataa SRT",

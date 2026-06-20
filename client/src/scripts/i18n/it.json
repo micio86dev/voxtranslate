@@ -276,6 +276,7 @@
   "downloads": "Download",
   "aiTools": "Strumenti AI",
   "transcriptLabel": "Trascrizione",
+  "aiGeneratedNotice": "Le traduzioni, i sottotitoli e qualsiasi voce tradotta sono generati dall'IA e possono contenere errori.",
   "openBtn": "Apri",
   "loadFailed": "Caricamento non riuscito — riprova",
   "downloadSrt": "Scarica SRT",

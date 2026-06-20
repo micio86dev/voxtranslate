@@ -276,6 +276,7 @@
   "downloads": "Lejupielādes",
   "aiTools": "AI rīki",
   "transcriptLabel": "Transkripts",
+  "aiGeneratedNotice": "Tulkojumus, subtitrus un jebkuru tulkoto balsi ģenerē mākslīgais intelekts, un tajos var būt kļūdas.",
   "openBtn": "Atvērt",
   "loadFailed": "Neizdevās ielādēt — lūdzu, mēģiniet vēlreiz",
   "downloadSrt": "Lejupielādēt SRT",

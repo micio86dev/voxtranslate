@@ -276,6 +276,7 @@
   "downloads": "Shkarkimet",
   "aiTools": "Mjetet AI",
   "transcriptLabel": "Transkripti",
+  "aiGeneratedNotice": "Përkthimet, titrat dhe çdo zë i përkthyer gjenerohen nga IA dhe mund të përmbajnë gabime.",
   "openBtn": "Hap",
   "loadFailed": "Nuk u ngarkua — ju lutemi provoni sërish",
   "downloadSrt": "Shkarko SRT",

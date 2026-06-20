@@ -276,6 +276,7 @@
   "downloads": "Lawrlwythiadau",
   "aiTools": "Offer AI",
   "transcriptLabel": "Trawsgrifiad",
+  "aiGeneratedNotice": "Mae cyfieithiadau, capsiynau ac unrhyw lais wedi'i gyfieithu yn cael eu cynhyrchu gan AI a gallant gynnwys gwallau.",
   "openBtn": "Agor",
   "loadFailed": "Methwyd â llwytho — rhowch gynnig arall arni",
   "downloadSrt": "Lawrlwytho SRT",

@@ -276,6 +276,7 @@
   "downloads": "Downloads",
   "aiTools": "KI-Tools",
   "transcriptLabel": "Transkript",
+  "aiGeneratedNotice": "Übersetzungen, Untertitel und jede übersetzte Stimme werden von KI generiert und können Fehler enthalten.",
   "openBtn": "Öffnen",
   "loadFailed": "Laden fehlgeschlagen — bitte erneut versuchen",
   "downloadSrt": "SRT herunterladen",

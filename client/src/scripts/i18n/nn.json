@@ -276,6 +276,7 @@
   "downloads": "Nedlastingar",
   "aiTools": "AI-verktøy",
   "transcriptLabel": "Utskrift",
+  "aiGeneratedNotice": "Omsetjingar, teksting og kvar omsett røyst er KI-generert og kan innehalde feil.",
   "openBtn": "Opne",
   "loadFailed": "Kunne ikkje laste inn — prøv igjen",
   "downloadSrt": "Last ned SRT",

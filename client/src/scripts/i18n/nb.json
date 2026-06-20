@@ -276,6 +276,7 @@
   "downloads": "Nedlastinger",
   "aiTools": "AI-verktøy",
   "transcriptLabel": "Utskrift",
+  "aiGeneratedNotice": "Oversettelser, teksting og enhver oversatt stemme er KI-generert og kan inneholde feil.",
   "openBtn": "Åpne",
   "loadFailed": "Kunne ikke laste inn — prøv igjen",
   "downloadSrt": "Last ned SRT",

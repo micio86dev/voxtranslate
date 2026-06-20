@@ -276,6 +276,7 @@
   "downloads": "Niðurhal",
   "aiTools": "AI-verkfæri",
   "transcriptLabel": "Uppskrift",
+  "aiGeneratedNotice": "Þýðingar, skjátextar og hvers kyns þýdd rödd eru búin til af gervigreind og geta innihaldið villur.",
   "openBtn": "Opna",
   "loadFailed": "Ekki tókst að hlaða — reyndu aftur",
   "downloadSrt": "Sækja SRT",

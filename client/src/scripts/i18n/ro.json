@@ -276,6 +276,7 @@
   "downloads": "Descărcări",
   "aiTools": "Instrumente AI",
   "transcriptLabel": "Transcriere",
+  "aiGeneratedNotice": "Traducerile, subtitrările și orice voce tradusă sunt generate de IA și pot conține erori.",
   "openBtn": "Deschide",
   "loadFailed": "Nu am putut încărca — încercați din nou",
   "downloadSrt": "Descarcă SRT",

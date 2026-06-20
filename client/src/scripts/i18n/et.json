@@ -276,6 +276,7 @@
   "downloads": "Allalaadimised",
   "aiTools": "AI-tööriistad",
   "transcriptLabel": "Transkriptsioon",
+  "aiGeneratedNotice": "Tõlked, subtiitrid ja igasugune tõlgitud hääl on tehisintellekti loodud ning võivad sisaldada vigu.",
   "openBtn": "Ava",
   "loadFailed": "Laadimine ebaõnnestus — palun proovi uuesti",
   "downloadSrt": "Laadi alla SRT",

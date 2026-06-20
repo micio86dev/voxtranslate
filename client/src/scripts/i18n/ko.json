@@ -276,6 +276,7 @@
   "downloads": "다운로드",
   "aiTools": "AI 도구",
   "transcriptLabel": "기록",
+  "aiGeneratedNotice": "번역, 자막 및 번역된 음성은 AI로 생성되며 오류가 포함될 수 있습니다.",
   "openBtn": "열기",
   "loadFailed": "불러올 수 없습니다 — 다시 시도해 주세요",
   "downloadSrt": "SRT 다운로드",

@@ -276,6 +276,7 @@
   "downloads": "Descàrregues",
   "aiTools": "Eines d'IA",
   "transcriptLabel": "Transcripció",
+  "aiGeneratedNotice": "Les traduccions, els subtítols i qualsevol veu traduïda es generen amb IA i poden contenir errors.",
   "openBtn": "Obre",
   "loadFailed": "No s'ha pogut carregar — torna-ho a provar",
   "downloadSrt": "Descarrega l'SRT",

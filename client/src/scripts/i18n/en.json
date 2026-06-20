@@ -276,6 +276,7 @@
   "downloads": "Downloads",
   "aiTools": "AI tools",
   "transcriptLabel": "Transcript",
+  "aiGeneratedNotice": "Translations, captions and any translated voice are AI-generated and may contain errors.",
   "openBtn": "Open",
   "loadFailed": "Could not load — please try again",
   "downloadSrt": "Download SRT",

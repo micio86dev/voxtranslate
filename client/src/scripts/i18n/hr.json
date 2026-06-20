@@ -276,6 +276,7 @@
   "downloads": "Preuzimanja",
   "aiTools": "AI alati",
   "transcriptLabel": "Transkript",
+  "aiGeneratedNotice": "Prijevodi, titlovi i svaki prevedeni glas generirani su umjetnom inteligencijom i mogu sadržavati pogreške.",
   "openBtn": "Otvori",
   "loadFailed": "Učitavanje nije uspjelo — pokušajte ponovno",
   "downloadSrt": "Preuzmi SRT",

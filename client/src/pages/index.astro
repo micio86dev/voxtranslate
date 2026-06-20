@@ -237,6 +237,7 @@ const jsonLd = {
           </div>
           <div class="session-transcript-block">
             <span class="session-subhead" data-i18n="transcriptLabel">{T('transcriptLabel')}</span>
+            <p class="ai-notice" data-i18n="aiGeneratedNotice">{T('aiGeneratedNotice')}</p>
             <div id="session-bookmarks" class="session-bookmarks" hidden></div>
             <p id="session-transcript-status" class="status-line" role="status"></p>
             <div id="session-transcript" class="session-transcript collapsed"></div>
@@ -992,6 +993,7 @@ const jsonLd = {
     .ai-correct-label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.85rem; color: var(--text); }
     .ai-correct-label input { width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; }
     .ai-correct-cost { font-size: 0.82rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .ai-notice { font-size: 0.72rem; color: var(--muted); margin: 2px 0 4px; }
     .session-transcript {
       display: flex; flex-direction: column; gap: 4px; margin-top: 10px;
       max-height: 48vh; overflow-y: auto; -webkit-overflow-scrolling: touch;

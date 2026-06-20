@@ -276,6 +276,7 @@
   "downloads": "Unduhan",
   "aiTools": "Alat AI",
   "transcriptLabel": "Transkrip",
+  "aiGeneratedNotice": "Terjemahan, teks, dan suara terjemahan apa pun dibuat oleh AI dan mungkin mengandung kesalahan.",
   "openBtn": "Buka",
   "loadFailed": "Tidak dapat memuat — coba lagi",
   "downloadSrt": "Unduh SRT",

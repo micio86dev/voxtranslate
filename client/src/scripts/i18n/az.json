@@ -276,6 +276,7 @@
   "downloads": "Yükləmələr",
   "aiTools": "Süni intellekt alətləri",
   "transcriptLabel": "Transkript",
+  "aiGeneratedNotice": "Tərcümələr, altyazılar və hər hansı tərcümə edilmiş səs süni intellekt tərəfindən yaradılır və səhvlər ola bilər.",
   "openBtn": "Aç",
   "loadFailed": "Yüklənmədi — zəhmət olmasa yenidən cəhd edin",
   "downloadSrt": "SRT yüklə",

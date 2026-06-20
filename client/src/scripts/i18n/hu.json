@@ -276,6 +276,7 @@
   "downloads": "Letöltések",
   "aiTools": "AI-eszközök",
   "transcriptLabel": "Átirat",
+  "aiGeneratedNotice": "A fordításokat, feliratokat és bármilyen lefordított hangot mesterséges intelligencia hozza létre, és hibákat tartalmazhatnak.",
   "openBtn": "Megnyitás",
   "loadFailed": "Nem sikerült betölteni — próbálja újra",
   "downloadSrt": "SRT letöltése",

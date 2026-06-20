@@ -276,6 +276,7 @@
   "downloads": "Aflaaie",
   "aiTools": "AI-gereedskap",
   "transcriptLabel": "Transkripsie",
+  "aiGeneratedNotice": "Vertalings, onderskrifte en enige vertaalde stem word deur KI gegenereer en kan foute bevat.",
   "openBtn": "Maak oop",
   "loadFailed": "Kon nie laai nie — probeer asseblief weer",
   "downloadSrt": "Laai SRT af",

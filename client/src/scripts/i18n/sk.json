@@ -276,6 +276,7 @@
   "downloads": "Stiahnuté súbory",
   "aiTools": "AI nástroje",
   "transcriptLabel": "Prepis",
+  "aiGeneratedNotice": "Preklady, titulky a akýkoľvek preložený hlas sú generované umelou inteligenciou a môžu obsahovať chyby.",
   "openBtn": "Otvoriť",
   "loadFailed": "Nepodarilo sa načítať — skúste to znova",
   "downloadSrt": "Stiahnuť SRT",
