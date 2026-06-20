@@ -87,6 +87,15 @@ export class ChatManager {
       msg.appendChild(text);
     }
 
+    // Also show the message in the sender's own language (small, below) when it was
+    // actually translated — so you can read the original too, like the subtitles do.
+    if (data.original && data.original !== translated) {
+      const orig = document.createElement('span');
+      orig.className = 'chat-original';
+      orig.textContent = data.original;
+      msg.appendChild(orig);
+    }
+
     this.container.appendChild(msg);
     this.container.scrollTop = this.container.scrollHeight;
 

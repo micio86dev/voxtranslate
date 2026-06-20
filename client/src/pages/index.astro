@@ -1608,6 +1608,8 @@ const jsonLd = {
     .chat-messages :global(.chat-msg-other) { align-self: flex-start; background: var(--surface-2); border: 1px solid var(--border); }
     .chat-messages :global(.chat-sender) { font-weight: 700; color: var(--accent); margin-inline-end: 6px; }
     .chat-messages :global(.chat-text) { color: var(--text); display: block; }
+    /* Original-language line under a translated message (mirrors .subtitle-original). */
+    .chat-messages :global(.chat-original) { display: block; font-size: 0.78rem; opacity: 0.6; margin-top: 2px; }
     /* File attachment chip + inline audio player (spec 0018). JS-created → :global(). */
     .chat-messages :global(.chat-attachment) { display: flex; flex-direction: column; gap: 6px; margin: 4px 0; }
     .chat-messages :global(.chat-audio) { width: 100%; max-width: 260px; height: 36px; }
