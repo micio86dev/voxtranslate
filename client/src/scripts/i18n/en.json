@@ -253,6 +253,7 @@
   "downloadFailed": "Download failed — try again",
   "processing": "Processing…",
   "recordingPartial": "Recording failed — partial file saved",
+  "recordingNotice": "Recording the whole call. Everyone is captured and the layout updates as people join or leave — anyone with their camera off shows as a tile with their initials.",
   "closeTip": "Close",
   "diceTip": "Random code",
   "inviteTip": "Invite people",

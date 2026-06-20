@@ -81,6 +81,27 @@ export class CompositeRecorder {
   }
 
   /**
+   * Reconcile the whole roster against the live call (self-healing). Called on a
+   * short interval while recording so a participant who joins or leaves is always
+   * captured even if an incremental add/remove event was missed or arrived before
+   * the recorder existed — the reported "records only me" bug (spec 0010). Diffs
+   * against the current set so unchanged audio sources are NOT re-wired (no glitch).
+   */
+  syncRoster(list: ParticipantSource[]): void {
+    const next = new Map(list.map((s) => [s.peerId, s]));
+    const prev = new Map(this.sources.map((s) => [s.peerId, s]));
+    for (const id of prev.keys()) if (!next.has(id)) this.mixer.remove(id);
+    for (const [id, s] of next) {
+      const before = prev.get(id);
+      if (!before || before.stream !== s.stream) this.mixer.add(id, s.stream);
+    }
+    this.sources = [...list];
+    // The compositor re-tiles from this set and only (re)plays a tile whose
+    // srcObject actually changed, so this is cheap to call every second.
+    this.compositor.setSources(this.sources);
+  }
+
+  /**
    * Stop and assemble the WebM. Idempotent — repeat calls return the same
    * promise, so hang-up racing the button is safe.
    */

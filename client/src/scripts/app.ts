@@ -3295,13 +3295,21 @@ async function startRecording(): Promise<void> {
   isRecording = true;
   playRecordingStartSound(); // audible cue that recording has started
   showNotif(t('recording'));
+  // Prominent one-time notice so the user knows exactly what the file will contain
+  // (whole call, live-updating layout, camera-off = initials tile).
+  toast(t('recordingNotice'));
   $('rec-timer').textContent = '00:00';
   show($('rec-badge'), true);
   // Reserve the centre lane for the REC badge so the meta/participant badges can't
   // slide under it (spec 0070 R2.1).
   document.querySelector('.video-stage')?.classList.add('recording');
   recTimerId = window.setInterval(() => {
-    if (recorder) $('rec-timer').textContent = formatElapsed(Date.now() - recorder.startedAt);
+    if (!recorder) return;
+    $('rec-timer').textContent = formatElapsed(Date.now() - recorder.startedAt);
+    // Self-heal the recording roster from the live call so anyone who joins or
+    // leaves is captured even if their add/remove event was missed (#"records
+    // only me"): keep the composite tiles + audio mix matching who's actually here.
+    recorder.syncRoster(recorderSources());
   }, 1000);
   setControlState();
 }
