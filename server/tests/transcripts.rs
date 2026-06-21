@@ -64,6 +64,29 @@ async fn setup_opts(with_resend: bool) -> Option<Server> {
     Some(Server { addr, pool, secret })
 }
 
+/// Poll a background AI job until it leaves `pending`, returning the final job
+/// JSON. The heavy AI POSTs (report / correction / email draft) now return a job
+/// handle and the result/failure surfaces here, not on the POST.
+async fn poll_ai_job(
+    http: &reqwest::Client,
+    base: &str,
+    session_id: Uuid,
+    job_id: &str,
+    jwt: &str,
+) -> serde_json::Value {
+    let url = format!("{base}/api/sessions/{session_id}/ai-job/{job_id}");
+    for _ in 0..100 {
+        let r = http.get(&url).bearer_auth(jwt).send().await.unwrap();
+        assert_eq!(r.status(), 200, "ai-job poll must be readable");
+        let job: serde_json::Value = r.json().await.unwrap();
+        if job["status"] != "pending" {
+            return job;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    panic!("ai job {job_id} never left pending");
+}
+
 type Ws =
     tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
 
@@ -788,15 +811,16 @@ async fn ai_report_validation_billing_and_persistence() {
     };
     assert_eq!(balance_of(uid).await, usd(0.001), "402 never charges");
 
-    // Groq-failure path: with funds restored, the POST reaches generation,
-    // which fails (dummy key) -> 502 and the balance must be untouched.
+    // Groq-failure path: with funds restored, the POST now CLAIMS a background
+    // job (202) and generation fails inside the task (dummy key). The failure
+    // surfaces on the polled job, not the POST, and the balance stays untouched.
     sqlx::query("UPDATE users SET balance = $2 WHERE id = $1")
         .bind(uid)
         .bind(usd(2.0))
         .execute(&srv.pool)
         .await
         .unwrap();
-    let failed = http
+    let accepted = http
         .post(&report_url)
         .bearer_auth(&jwt)
         .json(&serde_json::json!({
@@ -807,8 +831,14 @@ async fn ai_report_validation_billing_and_persistence() {
         .send()
         .await
         .unwrap();
-    assert_eq!(failed.status(), 502);
-    assert!(failed.text().await.unwrap().contains("not charged"));
+    assert_eq!(accepted.status(), 202);
+    let job_id = accepted.json::<serde_json::Value>().await.unwrap()["job_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let job = poll_ai_job(&http, &base, session_id, &job_id, &jwt).await;
+    assert_eq!(job["status"], "failed", "Groq failure → failed job: {job}");
+    assert_eq!(job["error"], "groq");
     assert_eq!(
         balance_of(uid).await,
         usd(2.0),
@@ -1235,23 +1265,30 @@ async fn email_draft_send_gates_and_billing() {
         "{body}"
     );
 
-    // Groq-failure path: funds restored, generation dies (dummy Groq key)
-    // -> 502, balance untouched, no ledger row.
+    // Groq-failure path: funds restored, the POST claims a background job (202)
+    // and generation dies inside the task (dummy Groq key). The failure surfaces
+    // on the polled job; balance untouched, no ledger row.
     sqlx::query("UPDATE users SET balance = $2 WHERE id = $1")
         .bind(tess)
         .bind(usd(2.0))
         .execute(&srv.pool)
         .await
         .unwrap();
-    let failed = http
+    let accepted = http
         .post(&draft_url)
         .bearer_auth(&tess_jwt)
         .json(&valid_body)
         .send()
         .await
         .unwrap();
-    assert_eq!(failed.status(), 502);
-    assert!(failed.text().await.unwrap().contains("not charged"));
+    assert_eq!(accepted.status(), 202);
+    let job_id = accepted.json::<serde_json::Value>().await.unwrap()["job_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let job = poll_ai_job(&http, &base, session_id, &job_id, &tess_jwt).await;
+    assert_eq!(job["status"], "failed", "Groq failure → failed job: {job}");
+    assert_eq!(job["error"], "groq");
     let balance: rust_decimal::Decimal =
         sqlx::query_scalar("SELECT balance FROM users WHERE id = $1")
             .bind(tess)

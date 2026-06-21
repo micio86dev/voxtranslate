@@ -4,6 +4,7 @@
 
 pub mod correction;
 pub mod email_draft;
+pub mod jobs;
 pub mod quiz;
 pub mod report;
 pub mod sentiment;

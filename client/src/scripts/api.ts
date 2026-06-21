@@ -440,7 +440,21 @@ export async function ensureCorrection(
       return { ok: false, cached: false, insufficient: { required: b.required, available: b.available } };
     }
     if (res.status === 429) return { ok: false, cached: false, rateLimited: true };
+    // 202 → generation runs in the background; poll the job for the outcome.
+    if (res.status === 202) {
+      const { job_id: jobId } = (await res.json()) as { job_id: string };
+      const job = await pollAiJob(sessionId, jobId);
+      if (job.status === 'done') {
+        return { ok: true, ...(job.result as Omit<CorrectionResult, 'ok'>) };
+      }
+      if (job.error === 'insufficient_credits') {
+        const b = (job.result ?? {}) as { required?: number; available?: number };
+        return { ok: false, cached: false, insufficient: { required: b.required, available: b.available } };
+      }
+      return { ok: false, cached: false };
+    }
     if (!res.ok) return { ok: false, cached: false };
+    // Cache hit (200) or backward-compatible synchronous result.
     const body = (await res.json()) as Omit<CorrectionResult, 'ok'>;
     return { ok: true, ...body };
   } catch {
@@ -599,7 +613,21 @@ export async function generateReport(
     if (res.status === 402) {
       return { report: null, insufficient: await parseInsufficient(res), error: '' };
     }
+    // 202 → generation runs in the background; poll the job for the result.
+    if (res.status === 202) {
+      const { job_id: jobId } = (await res.json()) as { job_id: string };
+      const job = await pollAiJob(sessionId, jobId);
+      if (job.status === 'done') {
+        return { report: job.result as AiReport, insufficient: null, error: '' };
+      }
+      if (job.error === 'insufficient_credits') {
+        return { report: null, insufficient: asInsufficient(job.result), error: '' };
+      }
+      // Generic failure / timeout → '' lets the UI show its localized message.
+      return { report: null, insufficient: null, error: '' };
+    }
     if (!res.ok) return { report: null, insufficient: null, error: await res.text() };
+    // Backward-compatible synchronous result (older server).
     return { report: (await res.json()) as AiReport, insufficient: null, error: '' };
   } catch {
     return { report: null, insufficient: null, error: '' };
@@ -747,7 +775,21 @@ export async function generateEmailDraft(
     if (res.status === 402) {
       return { email: null, insufficient: await parseInsufficient(res), error: '' };
     }
+    // 202 → generation runs in the background; poll the job for the draft.
+    if (res.status === 202) {
+      const { job_id: jobId } = (await res.json()) as { job_id: string };
+      const job = await pollAiJob(sessionId, jobId);
+      if (job.status === 'done') {
+        return { email: job.result as AiEmail, insufficient: null, error: '' };
+      }
+      if (job.error === 'insufficient_credits') {
+        return { email: null, insufficient: asInsufficient(job.result), error: '' };
+      }
+      // Generic failure / timeout → '' lets the UI show its localized message.
+      return { email: null, insufficient: null, error: '' };
+    }
     if (!res.ok) return { email: null, insufficient: null, error: await res.text() };
+    // Backward-compatible synchronous result (older server).
     return { email: (await res.json()) as AiEmail, insufficient: null, error: '' };
   } catch {
     return { email: null, insufficient: null, error: '' };
@@ -806,6 +848,58 @@ export async function parseInsufficient(res: Response): Promise<InsufficientCred
   } catch {
     return null;
   }
+}
+
+/** Narrow an arbitrary value to the standard insufficient-credits body. Used to
+ *  read the 402 payload an async AI job carries when its charge fails. */
+function asInsufficient(v: unknown): InsufficientCredits | null {
+  const b = v as Partial<InsufficientCredits> | null;
+  return b != null && b.error === 'insufficient_credits' ? (b as InsufficientCredits) : null;
+}
+
+// ---- Async AI jobs (report / correction / email draft) ----------------------
+// These features fan out into many model calls; on a multi-hour transcript the
+// work runs longer than the upstream proxy's request ceiling, so the POST
+// returns `202 { job_id }` and generation runs server-side. The client polls
+// the job below until it is `done` (result attached) or `failed`. Each poll is a
+// quick request, so no single connection is held open long enough to time out.
+
+/** Job status as `GET /api/sessions/{id}/ai-job/{job_id}` serves it. */
+interface AiJobState {
+  status: 'pending' | 'done' | 'failed' | string;
+  error?: string | null;
+  /** The body the synchronous endpoint used to return (present on `done`; the
+   *  standard 402 body on an `insufficient_credits` failure). */
+  result?: unknown;
+}
+
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Poll a background AI job until it is `done` or `failed`. Resolves to the
+ * terminal job, or `{ status: 'failed', error: 'timeout' }` once a generous
+ * deadline passes. Transient poll errors (a not-yet-visible row → 404, a 5xx
+ * hiccup, a network blip) are ignored — only a terminal status or the deadline
+ * stops the loop.
+ */
+async function pollAiJob(sessionId: string, jobId: string): Promise<AiJobState> {
+  const url = `${HTTP_BASE}/api/sessions/${encodeURIComponent(sessionId)}/ai-job/${encodeURIComponent(jobId)}`;
+  const deadline = Date.now() + 10 * 60 * 1000; // 10 min — covers multi-hour calls
+  let delay = 1500;
+  while (Date.now() < deadline) {
+    await sleep(delay);
+    try {
+      const res = await fetch(url, { headers: authHeaders(), cache: 'no-store' });
+      if (res.ok) {
+        const job = (await res.json()) as AiJobState;
+        if (job.status === 'done' || job.status === 'failed') return job;
+      }
+    } catch {
+      // network blip — keep polling until the deadline
+    }
+    delay = Math.min(delay + 500, 4000); // gentle backoff, cap 4s
+  }
+  return { status: 'failed', error: 'timeout' };
 }
 
 // ---- User bug report (spec 0071) -------------------------------------------

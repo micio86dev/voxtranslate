@@ -26,6 +26,7 @@ use sha1::Sha1;
 use crate::ai::correction as ai_correction;
 use crate::ai::correction::CorrectionMode;
 use crate::ai::email_draft as ai_email;
+use crate::ai::jobs as ai_jobs;
 use crate::ai::quiz as ai_quiz;
 use crate::ai::report as ai_report;
 use crate::ai::sentiment as ai_sentiment;
@@ -36,7 +37,7 @@ use crate::middleware::AuthUser;
 use crate::moderation::Severity;
 use crate::protocol::ServerMessage;
 use crate::stripe_handler;
-use crate::transcripts::{BookmarkMutation, SessionAccess, TranscriptService};
+use crate::transcripts::{BookmarkMutation, SessionAccess, TranscriptExport, TranscriptService};
 use crate::AppState;
 
 /// `GET /api/billing/packages` — the credit catalog (without `stripe_price_id`).
@@ -633,20 +634,70 @@ fn service_unavailable() -> Response {
         .into_response()
 }
 
+/// The standard `insufficient_credits` body. Shared by the synchronous 402
+/// pre-check responder and the async job path (where a balance that dropped
+/// between pre-check and `deduct_feature` fails the job with this as its
+/// payload, so the poller can show the same "need X, have Y" prompt).
+fn insufficient_body(feature: &str, required: Decimal, available: Decimal) -> serde_json::Value {
+    serde_json::json!({
+        "error": "insufficient_credits",
+        "required": required.to_f64().unwrap_or(0.0),
+        "available": available.to_f64().unwrap_or(0.0),
+        "feature": feature,
+    })
+}
+
 /// Shared 402 responder for credit-charged AI features. The pre-check is
 /// advisory (the atomic `deduct_feature` is the real gate) but lets the client
 /// show "need X, have Y" before any AI work runs.
 pub fn insufficient_credits(feature: &str, required: Decimal, available: Decimal) -> Response {
     (
         StatusCode::PAYMENT_REQUIRED,
-        Json(serde_json::json!({
-            "error": "insufficient_credits",
-            "required": required.to_f64().unwrap_or(0.0),
-            "available": available.to_f64().unwrap_or(0.0),
-            "feature": feature,
-        })),
+        Json(insufficient_body(feature, required, available)),
     )
         .into_response()
+}
+
+/// `202 Accepted` for a claimed async AI job: the client polls
+/// `GET /api/sessions/{id}/ai-job/{job_id}` until the job is done or failed.
+fn ai_job_accepted(job_id: Uuid) -> Response {
+    (
+        StatusCode::ACCEPTED,
+        Json(serde_json::json!({ "job_id": job_id, "status": "pending" })),
+    )
+        .into_response()
+}
+
+/// `GET /api/sessions/{id}/ai-job/{job_id}` — poll a background AI job (report,
+/// correction, email draft). Any participant of the session may read it; the
+/// lookup is session-scoped so a job id can't be probed across sessions.
+/// Returns `{ status, error, result }`: `result` carries the body the
+/// synchronous endpoint used to return (present on `done`; on an
+/// `insufficient_credits` failure it carries the 402 body).
+pub async fn ai_job_status(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path((session_id, job_id)): Path<(Uuid, Uuid)>,
+) -> Response {
+    let (Some(svc), Some(pool)) = (state.transcripts.as_ref(), state.pool.as_ref()) else {
+        return service_unavailable();
+    };
+    if let Err(resp) = session_gate(svc, session_id, user.user_id).await {
+        return resp;
+    }
+    match ai_jobs::get(pool, job_id, session_id).await {
+        Ok(Some(job)) => Json(serde_json::json!({
+            "status": job.status,
+            "error": job.error,
+            "result": job.result_json,
+        }))
+        .into_response(),
+        Ok(None) => (StatusCode::NOT_FOUND, "no such job").into_response(),
+        Err(e) => {
+            tracing::error!("ai job load failed: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response()
+        }
+    }
 }
 
 /// `GET /api/billing/ai-pricing` — per-feature user rates for client cost
@@ -1589,30 +1640,72 @@ pub async fn report_generate(
         }
     }
 
-    let (markdown, model) = match ai_report::generate_report(
-        &state.groq,
-        ai,
-        &export,
-        format,
-        &lang,
-        guidelines.as_deref(),
-    )
-    .await
-    {
-        Ok(out) => out,
+    // Generation fans out into many Groq calls; on a multi-hour transcript that
+    // exceeds the edge proxy's request ceiling, so run it as a background job and
+    // return a handle the client polls. Identical in-flight requests (a
+    // double-click → same params_key) join the running job instead of charging
+    // twice; a regenerate (terminal job) reclaims the slot.
+    let params_key = format!(
+        "{format}\u{1f}{lang}\u{1f}{}",
+        guidelines.as_deref().unwrap_or("")
+    );
+    let job_id = match ai_jobs::claim(pool, session_id, user.user_id, "report", &params_key).await {
+        Ok(ai_jobs::Claim::Owned(id)) => {
+            let st = state.clone();
+            let (uid, fmt, lng, gl) = (user.user_id, format.to_string(), lang, guidelines);
+            tokio::spawn(ai_jobs::run(pool.clone(), id, async move {
+                run_report_inner(st, session_id, uid, export, cost, fmt, lng, gl).await
+            }));
+            id
+        }
+        Ok(ai_jobs::Claim::AlreadyRunning(id)) => id,
         Err(e) => {
-            tracing::error!("report generation failed: {e}");
-            return (
-                StatusCode::BAD_GATEWAY,
-                "report generation failed — you were not charged",
-            )
-                .into_response();
+            tracing::error!("ai_report job claim failed: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
         }
     };
+    ai_job_accepted(job_id)
+}
+
+/// Background body of [`report_generate`]: generate → charge → persist, returning
+/// the JSON the synchronous endpoint used to return (or a [`JobFailure`]). The
+/// user-favorable failure policy is unchanged: Groq failure never charges;
+/// `InsufficientFunds` at deduct withholds the report (and carries the 402 body);
+/// our own deduct/insert errors deliver the report free.
+#[allow(clippy::too_many_arguments)]
+async fn run_report_inner(
+    state: AppState,
+    session_id: Uuid,
+    user_id: Uuid,
+    export: TranscriptExport,
+    cost: Decimal,
+    format: String,
+    lang: String,
+    guidelines: Option<String>,
+) -> Result<serde_json::Value, ai_jobs::JobFailure> {
+    let (Some(billing), Some(pool), Some(cfg)) = (
+        state.billing.as_ref(),
+        state.pool.as_ref(),
+        state.config.billing.as_ref(),
+    ) else {
+        return Err(ai_jobs::JobFailure::new("unavailable"));
+    };
+    let ai = &cfg.ai;
+
+    let (markdown, model) =
+        match ai_report::generate_report(&state.groq, ai, &export, &format, &lang, guidelines.as_deref())
+            .await
+        {
+            Ok(out) => out,
+            Err(e) => {
+                tracing::error!("report generation failed: {e}");
+                return Err(ai_jobs::JobFailure::new("groq"));
+            }
+        };
 
     let balance = match billing
         .deduct_feature(
-            user.user_id,
+            user_id,
             Some(session_id),
             "ai_report",
             cost,
@@ -1623,11 +1716,11 @@ pub async fn report_generate(
     {
         Ok(b) => Some(b),
         Err(BillingError::InsufficientFunds) => {
-            let available = billing
-                .get_balance(user.user_id)
-                .await
-                .unwrap_or(Decimal::ZERO);
-            return insufficient_credits("ai_report", cost, available);
+            let available = billing.get_balance(user_id).await.unwrap_or(Decimal::ZERO);
+            return Err(ai_jobs::JobFailure::with_payload(
+                "insufficient_credits",
+                insufficient_body("ai_report", cost, available),
+            ));
         }
         Err(e) => {
             tracing::error!("ai_report deduction failed AFTER generation — delivering free: {e}");
@@ -1635,11 +1728,11 @@ pub async fn report_generate(
         }
     };
 
-    match ai_report::save_report(
+    let v = match ai_report::save_report(
         pool,
         session_id,
-        user.user_id,
-        format,
+        user_id,
+        &format,
         &lang,
         guidelines.as_deref(),
         &markdown,
@@ -1653,7 +1746,7 @@ pub async fn report_generate(
             if let Some(b) = balance {
                 v["balance"] = serde_json::json!(b.to_f64().unwrap_or(0.0));
             }
-            (StatusCode::CREATED, Json(v)).into_response()
+            v
         }
         Err(e) => {
             // Charged but couldn't persist — deliver the markdown anyway.
@@ -1669,9 +1762,10 @@ pub async fn report_generate(
             if let Some(b) = balance {
                 v["balance"] = serde_json::json!(b.to_f64().unwrap_or(0.0));
             }
-            (StatusCode::CREATED, Json(v)).into_response()
+            v
         }
-    }
+    };
+    Ok(v)
 }
 
 /// `GET /api/sessions/{id}/report` — the latest stored report. Any participant
@@ -2049,22 +2143,63 @@ pub async fn correction_generate(
         }
     }
 
+    // Correcting a long transcript fans out into many Groq batches — far longer
+    // than the edge proxy's request ceiling — so run it as a background job. A
+    // double-click (same mode+lang) joins the running job rather than charging
+    // twice; the corrected text itself is still served by the corrected download.
+    let params_key = format!("{}\u{1f}{lang}", mode.as_str());
+    let job_id =
+        match ai_jobs::claim(pool, session_id, user.user_id, "correction", &params_key).await {
+            Ok(ai_jobs::Claim::Owned(id)) => {
+                let st = state.clone();
+                let (uid, lng) = (user.user_id, lang);
+                tokio::spawn(ai_jobs::run(pool.clone(), id, async move {
+                    run_correction_inner(st, session_id, uid, export, cost, mode, lng).await
+                }));
+                id
+            }
+            Ok(ai_jobs::Claim::AlreadyRunning(id)) => id,
+            Err(e) => {
+                tracing::error!("ai_correction job claim failed: {e}");
+                return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
+            }
+        };
+    ai_job_accepted(job_id)
+}
+
+/// Background body of [`correction_generate`]: generate → charge → persist,
+/// returning the metadata the synchronous endpoint used to return (or a
+/// [`JobFailure`]). Same user-favorable failure policy as the report path.
+async fn run_correction_inner(
+    state: AppState,
+    session_id: Uuid,
+    user_id: Uuid,
+    export: TranscriptExport,
+    cost: Decimal,
+    mode: CorrectionMode,
+    lang: String,
+) -> Result<serde_json::Value, ai_jobs::JobFailure> {
+    let (Some(billing), Some(pool), Some(cfg)) = (
+        state.billing.as_ref(),
+        state.pool.as_ref(),
+        state.config.billing.as_ref(),
+    ) else {
+        return Err(ai_jobs::JobFailure::new("unavailable"));
+    };
+    let ai = &cfg.ai;
+
     let (lines, model) =
         match ai_correction::generate_correction(&state.groq, ai, &export, mode, &lang).await {
             Ok(out) => out,
             Err(e) => {
                 tracing::error!("correction generation failed: {e}");
-                return (
-                    StatusCode::BAD_GATEWAY,
-                    "transcript correction failed — you were not charged",
-                )
-                    .into_response();
+                return Err(ai_jobs::JobFailure::new("groq"));
             }
         };
 
     let balance = match billing
         .deduct_feature(
-            user.user_id,
+            user_id,
             Some(session_id),
             "ai_correction",
             cost,
@@ -2078,16 +2213,14 @@ pub async fn correction_generate(
     {
         Ok(b) => Some(b),
         Err(BillingError::InsufficientFunds) => {
-            let available = billing
-                .get_balance(user.user_id)
-                .await
-                .unwrap_or(Decimal::ZERO);
-            return insufficient_credits("ai_correction", cost, available);
+            let available = billing.get_balance(user_id).await.unwrap_or(Decimal::ZERO);
+            return Err(ai_jobs::JobFailure::with_payload(
+                "insufficient_credits",
+                insufficient_body("ai_correction", cost, available),
+            ));
         }
         Err(e) => {
-            tracing::error!(
-                "ai_correction deduction failed AFTER generation — delivering free: {e}"
-            );
+            tracing::error!("ai_correction deduction failed AFTER generation — delivering free: {e}");
             None
         }
     };
@@ -2096,23 +2229,12 @@ pub async fn correction_generate(
     // UNIQUE race means a concurrent request already cached it: we charged, so
     // report success rather than a confusing error.
     let charged = balance.is_some();
-    match ai_correction::save_correction(
-        pool,
-        session_id,
-        user.user_id,
-        mode,
-        &lang,
-        &lines,
-        &model,
-        cost,
+    let v = match ai_correction::save_correction(
+        pool, session_id, user_id, mode, &lang, &lines, &model, cost,
     )
     .await
     {
-        Ok(Some(row)) => (
-            StatusCode::CREATED,
-            Json(correction_meta(&row, false, charged, balance)),
-        )
-            .into_response(),
+        Ok(Some(row)) => correction_meta(&row, false, charged, balance),
         other => {
             if let Err(e) = other {
                 tracing::error!("correction insert failed after charge: {e}");
@@ -2129,9 +2251,10 @@ pub async fn correction_generate(
             if let Some(b) = balance {
                 v["balance"] = serde_json::json!(b.to_f64().unwrap_or(0.0));
             }
-            (StatusCode::CREATED, Json(v)).into_response()
+            v
         }
-    }
+    };
+    Ok(v)
 }
 
 /// Correction metadata for the client (never the corrected text — that comes
@@ -2534,9 +2657,78 @@ pub async fn email_draft_generate(
         }
     }
 
+    // Drafting condenses the whole transcript first — too slow for one request
+    // on a long call — so run it as a background job. The params_key folds in the
+    // recipients so a true double-click joins the running job (no double charge),
+    // while a deliberate regenerate (different recipients/tone/...) starts fresh.
+    let include_summary = body.include_summary.unwrap_or(true);
+    let params_key = format!(
+        "{}\u{1f}{lang}\u{1f}{}\u{1f}{include_summary}\u{1f}{}",
+        tone.unwrap_or(""),
+        guidelines.as_deref().unwrap_or(""),
+        recipients,
+    );
+    let job_id =
+        match ai_jobs::claim(pool, session_id, user.user_id, "email_draft", &params_key).await {
+            Ok(ai_jobs::Claim::Owned(id)) => {
+                let st = state.clone();
+                let uid = user.user_id;
+                let tone_owned = tone.map(str::to_string);
+                tokio::spawn(ai_jobs::run(pool.clone(), id, async move {
+                    run_email_inner(
+                        st,
+                        session_id,
+                        uid,
+                        export,
+                        cost,
+                        recipients,
+                        tone_owned,
+                        lang,
+                        guidelines,
+                        include_summary,
+                    )
+                    .await
+                }));
+                id
+            }
+            Ok(ai_jobs::Claim::AlreadyRunning(id)) => id,
+            Err(e) => {
+                tracing::error!("ai_email job claim failed: {e}");
+                return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
+            }
+        };
+    ai_job_accepted(job_id)
+}
+
+/// Background body of [`email_draft_generate`]: pull the report summary (if any),
+/// generate → charge → persist, returning the JSON the synchronous endpoint used
+/// to return (or a [`JobFailure`]). Same user-favorable failure policy as report.
+#[allow(clippy::too_many_arguments)]
+async fn run_email_inner(
+    state: AppState,
+    session_id: Uuid,
+    user_id: Uuid,
+    export: TranscriptExport,
+    cost: Decimal,
+    recipients: serde_json::Value,
+    tone: Option<String>,
+    lang: String,
+    guidelines: Option<String>,
+    include_summary: bool,
+) -> Result<serde_json::Value, ai_jobs::JobFailure> {
+    let (Some(billing), Some(pool), Some(cfg)) = (
+        state.billing.as_ref(),
+        state.pool.as_ref(),
+        state.config.billing.as_ref(),
+    ) else {
+        return Err(ai_jobs::JobFailure::new("unavailable"));
+    };
+    let ai = &cfg.ai;
+    let tone = tone.as_deref();
+
     // Reuse the stored report's executive summary when available — better
     // grounding for free (no extra model call).
-    let summary = if body.include_summary.unwrap_or(true) {
+    let summary = if include_summary {
         match ai_report::latest_report(pool, session_id).await {
             Ok(Some(r)) => ai_email::extract_exec_summary(&r.markdown),
             Ok(None) => None,
@@ -2563,17 +2755,13 @@ pub async fn email_draft_generate(
         Ok(out) => out,
         Err(e) => {
             tracing::error!("email draft failed: {e}");
-            return (
-                StatusCode::BAD_GATEWAY,
-                "email draft failed — you were not charged",
-            )
-                .into_response();
+            return Err(ai_jobs::JobFailure::new("groq"));
         }
     };
 
     let balance = match billing
         .deduct_feature(
-            user.user_id,
+            user_id,
             Some(session_id),
             "ai_email",
             cost,
@@ -2586,11 +2774,11 @@ pub async fn email_draft_generate(
         // Charging after delivery would make 402-then-retry a free path, so
         // a genuine InsufficientFunds at the gate withholds the result.
         Err(BillingError::InsufficientFunds) => {
-            let available = billing
-                .get_balance(user.user_id)
-                .await
-                .unwrap_or(Decimal::ZERO);
-            return insufficient_credits("ai_email", cost, available);
+            let available = billing.get_balance(user_id).await.unwrap_or(Decimal::ZERO);
+            return Err(ai_jobs::JobFailure::with_payload(
+                "insufficient_credits",
+                insufficient_body("ai_email", cost, available),
+            ));
         }
         // Any other failure is ours, not the user's: deliver free and log.
         Err(e) => {
@@ -2599,10 +2787,10 @@ pub async fn email_draft_generate(
         }
     };
 
-    match ai_email::save_email(
+    let v = match ai_email::save_email(
         pool,
         session_id,
-        user.user_id,
+        user_id,
         &draft,
         &recipients,
         tone,
@@ -2616,7 +2804,7 @@ pub async fn email_draft_generate(
             if let Some(b) = balance {
                 v["balance"] = serde_json::json!(b.to_f64().unwrap_or(0.0));
             }
-            (StatusCode::CREATED, Json(v)).into_response()
+            v
         }
         Err(e) => {
             // Charged but couldn't persist — deliver the draft anyway (it just
@@ -2635,9 +2823,10 @@ pub async fn email_draft_generate(
             if let Some(b) = balance {
                 v["balance"] = serde_json::json!(b.to_f64().unwrap_or(0.0));
             }
-            (StatusCode::CREATED, Json(v)).into_response()
+            v
         }
-    }
+    };
+    Ok(v)
 }
 
 #[derive(Deserialize)]

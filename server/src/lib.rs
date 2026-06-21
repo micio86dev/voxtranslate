@@ -419,6 +419,12 @@ pub fn app(state: AppState) -> Router {
             "/api/sessions/{id}/correction",
             get(api::correction_status).post(api::correction_generate),
         )
+        // Poll a background AI job (report / correction / email draft): the heavy
+        // POSTs return a job handle and the client polls this until done/failed.
+        .route(
+            "/api/sessions/{id}/ai-job/{job_id}",
+            get(api::ai_job_status),
+        )
         .route("/api/quiz/generate", post(api::quiz_generate))
         .route(
             "/api/sessions/{id}/email-draft",
