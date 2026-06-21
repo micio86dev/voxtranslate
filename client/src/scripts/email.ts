@@ -313,6 +313,7 @@ function build(slot: HTMLElement, sessionId: string): void {
       return;
     }
     genBtn.disabled = true;
+    genBtn.classList.add('btn-loading');
     status.textContent = t('aiEmailGenerating');
     const result = await generateEmailDraft(sessionId, {
       recipients: refs,
@@ -323,6 +324,7 @@ function build(slot: HTMLElement, sessionId: string): void {
     });
     if (active !== sessionId) return; // navigated to another session meanwhile
     genBtn.disabled = false;
+    genBtn.classList.remove('btn-loading');
     if (result.email) {
       status.textContent = '';
       if (typeof result.email.balance === 'number') applyBalance(result.email.balance);

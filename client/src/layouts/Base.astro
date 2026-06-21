@@ -252,6 +252,25 @@ const appleSplash: [number, number, number][] = [
       .btn-primary:disabled:hover {
         filter: none;
       }
+      /* Loading spinner for any button mid async work: add class .btn-loading.
+         Renders a spinning ring before the button's existing label and inherits
+         its color (currentColor), so it needs no extra markup or copy. */
+      @keyframes btn-spin { to { transform: rotate(360deg); } }
+      .btn-loading::before {
+        content: "";
+        display: inline-block;
+        width: 0.95em;
+        height: 0.95em;
+        margin-inline-end: 0.55em;
+        vertical-align: -0.1em;
+        border: 2px solid currentColor;
+        border-top-color: transparent;
+        border-radius: 50%;
+        animation: btn-spin 0.7s linear infinite;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .btn-loading::before { animation-duration: 1.8s; }
+      }
       .btn-ghost {
         background: var(--btn-ghost-bg);
         border: 1px solid var(--btn-ghost-border);

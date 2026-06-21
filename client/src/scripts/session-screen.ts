@@ -385,6 +385,7 @@ for (const format of DL_FORMATS) {
     const prev = btn.textContent;
     downloading = true;
     setDownloadsBusy(true);
+    btn.classList.add('btn-loading');
     try {
       // SRT/VTT also carry the lang-mode dropdown (original/translated/both).
       const mode = $<HTMLSelectElement>('session-sub-mode').value as auth.SubtitleMode;
@@ -417,6 +418,7 @@ for (const format of DL_FORMATS) {
       if (!r.ok) flashStatus(r.status === 429 ? t('downloadRateLimited') : t('downloadFailed'));
     } finally {
       btn.textContent = prev;
+      btn.classList.remove('btn-loading');
       downloading = false;
       setDownloadsBusy(false); // re-enable (a no-event session stays disabled)
     }

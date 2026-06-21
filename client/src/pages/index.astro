@@ -250,8 +250,9 @@ const jsonLd = {
           </div>
         </div>
 
-        <!-- AI tools (report / sentiment / email) — slots filled by later phases. -->
-        <div id="session-ai" class="card hidden">
+        <!-- AI tools (report / sentiment / email) — each tool renders its own
+             card into its slot (see .ai-section), so they read as separate boxes. -->
+        <div id="session-ai" class="hidden">
           <span class="card-title" data-i18n="aiTools">{T('aiTools')}</span>
           <div id="ai-report-slot"></div>
           <div id="ai-sentiment-slot"></div>
@@ -1068,7 +1069,17 @@ const jsonLd = {
     .session-quizzes-list :global(.quiz-card-summary) { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); font-size: 0.82rem; color: var(--text); }
 
     /* ---------- AI tools (report — spec 0014; DOM created in JS) ---------- */
-    #session-ai :global(.ai-section) { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+    /* The panel is a transparent container; each tool renders its own .ai-section
+       card, so Report / Sentiment / Follow-up email read as separate boxes. The
+       slots are layout-transparent (display:contents) so a tool that renders
+       nothing (e.g. email when Resend is off) leaves no empty box. */
+    #session-ai { display: flex; flex-direction: column; gap: 14px; }
+    #session-ai > div { display: contents; }
+    #session-ai :global(.ai-section) {
+      display: flex; flex-direction: column; gap: 10px;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 18px;
+    }
     #session-ai :global(.ai-section-head) { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
     #session-ai :global(.ai-section-title) { font-weight: 700; font-size: 0.92rem; }
     #session-ai :global(.ai-cost) { font-size: 0.82rem; color: var(--muted); font-variant-numeric: tabular-nums; }

@@ -177,6 +177,7 @@ function build(slot: HTMLElement, sessionId: string, durationSeconds: number): v
   genBtn.addEventListener('click', async () => {
     if (genBtn.disabled) return;
     genBtn.disabled = true;
+    genBtn.classList.add('btn-loading');
     status.textContent = t('aiReportGenerating');
     const result = await generateReport(sessionId, {
       format: fmtSel.value,
@@ -185,6 +186,7 @@ function build(slot: HTMLElement, sessionId: string, durationSeconds: number): v
     });
     if (active !== sessionId) return; // navigated to another session meanwhile
     genBtn.disabled = false;
+    genBtn.classList.remove('btn-loading');
     if (result.report) {
       status.textContent = '';
       if (typeof result.report.balance === 'number') applyBalance(result.report.balance);

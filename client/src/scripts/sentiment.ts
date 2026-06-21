@@ -228,10 +228,12 @@ function build(slot: HTMLElement, sessionId: string, fallbackDuration: number): 
   runBtn.addEventListener('click', async () => {
     if (runBtn.disabled) return;
     runBtn.disabled = true;
+    runBtn.classList.add('btn-loading');
     status.textContent = t('aiSentimentRunning');
     const result = await generateSentiment(sessionId);
     if (active !== sessionId) return; // navigated to another session meanwhile
     runBtn.disabled = false;
+    runBtn.classList.remove('btn-loading');
     if (result.sentiment) {
       status.textContent = '';
       if (typeof result.sentiment.balance === 'number') applyBalance(result.sentiment.balance);
