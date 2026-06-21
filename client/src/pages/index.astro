@@ -1511,6 +1511,10 @@ const jsonLd = {
     #btn-mic { box-shadow: 0 0 0 calc(var(--mic-level, 0) * 8px) rgba(34, 197, 94, 0.45); }
     .control-btn.active-danger { background: var(--danger); }
     .control-btn.active-success { background: var(--success); }
+    /* Subtitle 4-state cycle: translation-only = yellow, original-only = orange.
+       Both backgrounds are light, so force a dark glyph for legible icon contrast. */
+    .control-btn.active-warning { background: #eab308; color: #1a1a1a; }
+    .control-btn.active-orange { background: #f97316; color: #1a1a1a; }
     .control-btn.leave { background: var(--danger); }
     /* Floating reaction tray above the controls (spec 0060 / #94 → chips in 0061 / #98):
        a centered, transparent group so the CHIPS themselves are the visual — no wrapping

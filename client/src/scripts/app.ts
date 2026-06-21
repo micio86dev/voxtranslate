@@ -383,7 +383,8 @@ function ensureSonioxManager(): SonioxManager {
           : null;
       },
       onSubtitle: (speakerId, text, interim) => {
-        if (subtitlesOn) showSubtitle(speakerId, text, interim);
+        // Soniox yields translated tokens only — never the source language.
+        showSubtitle(speakerId, { translation: text, interim });
       },
       onUtterance: (speakerId, text) => {
         // Spoken translation: same on-device voice path as every other engine, gated by
@@ -453,7 +454,15 @@ let vbg: VirtualBackground | null = null;
 // would race on `vbg` / `localStream`.
 let videoBusy = false;
 let ttsOn = true; // "translated voice" mode: hear the translation, mute foreign originals
-let subtitlesOn = true; // show subtitle overlays on video cells
+// Subtitle overlay mode, cycled by the bottom-bar button (4-state toggle):
+//   'both'       — translation + source line (default, green)
+//   'translated' — translation only           (yellow)
+//   'original'   — source language only        (orange)
+//   'off'        — hidden
+// Each click advances both → translated → original → off → both.
+type SubtitleMode = 'both' | 'translated' | 'original' | 'off';
+const SUBTITLE_CYCLE: SubtitleMode[] = ['both', 'translated', 'original', 'off'];
+let subtitleMode: SubtitleMode = 'both';
 let handRaised = false;
 let pipWindow: Window | null = null;
 // PiP-window control buttons (spec 0057): live in the floating window, driven by
@@ -1668,7 +1677,9 @@ async function handleServer(msg: any): Promise<void> {
       break;
     }
     case 'subtitle_interim':
-      if (subtitlesOn) showSubtitle(msg.speaker_id, msg.text, true);
+      // Interim transcript is in the speaker's original language (translation lands
+      // on the final frame), so feed it as `original`.
+      showSubtitle(msg.speaker_id, { original: msg.text, interim: true });
       break;
     case 'translated_audio': {
       // Premium engine (spec 0093): real translated speech from the server. The
@@ -1729,7 +1740,9 @@ async function handleServer(msg: any): Promise<void> {
       transcriptEvents++;
       const myLang = session?.lang || 'en';
       const text = msg.translations?.[myLang] ?? msg.original;
-      if (subtitlesOn) showSubtitle(msg.speaker_id, text, false, msg.original);
+      // `text` is the best line for me (translation, or the original when the speaker
+      // already talks my language); `msg.original` is always the source.
+      showSubtitle(msg.speaker_id, { translation: text, original: msg.original, interim: false });
       // Track active speaker for speaker view
       if (msg.speaker_id !== myId) {
         lastSpeakerId = msg.speaker_id;
@@ -2532,22 +2545,48 @@ function updateParticipantsList(): void {
 }
 
 // ---- Subtitles -------------------------------------------------------------
-function showSubtitle(speakerId: string, text: string, interim: boolean, original?: string): void {
+// `translation` / `original` are passed explicitly because the two STT engines
+// disagree on what an interim frame carries: the server path sends interim text in
+// the ORIGINAL language (translation arrives only on the final frame), while the
+// Soniox client-direct path (spec 0101) only ever yields TRANSLATED tokens and never
+// the source. Each caller declares which text it actually has, so the per-mode
+// rendering below stays correct regardless of engine.
+function showSubtitle(
+  speakerId: string,
+  { translation, original, interim }: { translation?: string; original?: string; interim: boolean },
+): void {
+  if (subtitleMode === 'off') return;
   const cell = videoGrid.querySelector(`[data-peer="${cssEsc(speakerId)}"]`);
   if (!cell) return;
   const area = cell.querySelector('.subtitle-area') as HTMLElement;
+
+  // Pick the line(s) the current mode wants. `.subtitle-translation` styles the
+  // prominent main line (whatever its language); `.subtitle-original` styles the
+  // smaller source line shown beneath it in 'both' mode.
+  const lines: Array<{ cls: string; text: string }> = [];
+  if (subtitleMode === 'translated') {
+    if (translation) lines.push({ cls: 'subtitle-translation', text: translation });
+  } else if (subtitleMode === 'original') {
+    if (original) lines.push({ cls: 'subtitle-translation', text: original });
+  } else {
+    const main = translation ?? original;
+    if (main) lines.push({ cls: 'subtitle-translation', text: main });
+    if (!interim && translation && original && original !== translation) {
+      lines.push({ cls: 'subtitle-original', text: original });
+    }
+  }
+  // Nothing to render for this mode (e.g. an interim frame while showing only
+  // translations): leave whatever is on screen rather than blanking it.
+  if (!lines.length) return;
+
   area.innerHTML = '';
   const box = document.createElement('div');
   box.className = `subtitle${interim ? ' subtitle-interim' : ''}`;
-  const main = document.createElement('span');
-  main.className = 'subtitle-translation';
-  main.textContent = text;
-  box.appendChild(main);
-  if (!interim && original && original !== text) {
-    const orig = document.createElement('span');
-    orig.className = 'subtitle-original';
-    orig.textContent = original;
-    box.appendChild(orig);
+  for (const line of lines) {
+    const span = document.createElement('span');
+    span.className = line.cls;
+    span.textContent = line.text;
+    box.appendChild(span);
   }
   area.appendChild(box);
 
@@ -2588,9 +2627,20 @@ function setControlState(): void {
   btnTts.classList.toggle('active-success', ttsOn);
   btnTts.innerHTML = icon(ttsOn ? 'volume-on' : 'volume-off');
   setToggleState(btnTts, ttsOn);
-  btnSubtitle.classList.toggle('active-success', subtitlesOn);
-  btnSubtitle.innerHTML = icon(subtitlesOn ? 'subtitle' : 'subtitle-off');
-  setToggleState(btnSubtitle, subtitlesOn, t(subtitlesOn ? 'subtitleTip' : 'subtitleOffTip'));
+  const subOn = subtitleMode !== 'off';
+  btnSubtitle.classList.toggle('active-success', subtitleMode === 'both');
+  btnSubtitle.classList.toggle('active-warning', subtitleMode === 'translated');
+  btnSubtitle.classList.toggle('active-orange', subtitleMode === 'original');
+  btnSubtitle.innerHTML = icon(subOn ? 'subtitle' : 'subtitle-off');
+  const subKey =
+    subtitleMode === 'translated' ? 'subTranslated'
+    : subtitleMode === 'original' ? 'subOriginal'
+    : subtitleMode === 'off' ? 'subtitleOffTip'
+    : 'subtitleTip';
+  // Keep data-i18n-title in sync so a later applyI18n() (language switch) reapplies
+  // the right per-mode tooltip instead of reverting to the plain "Subtitles on".
+  btnSubtitle.dataset.i18nTitle = subKey;
+  setToggleState(btnSubtitle, subOn, t(subKey));
   btnHand.classList.toggle('active-success', handRaised);
   btnHand.innerHTML = icon(handRaised ? 'hand-raised' : 'hand');
   setToggleState(btnHand, handRaised, handRaised ? t('handUp') : t('handTip'));
@@ -2835,10 +2885,11 @@ btnTts.addEventListener('click', () => {
 });
 
 btnSubtitle.addEventListener('click', () => {
-  subtitlesOn = !subtitlesOn;
-  if (!subtitlesOn) {
-    document.querySelectorAll<HTMLElement>('.subtitle-area').forEach((a) => { a.innerHTML = ''; });
-  }
+  const i = SUBTITLE_CYCLE.indexOf(subtitleMode);
+  subtitleMode = SUBTITLE_CYCLE[(i + 1) % SUBTITLE_CYCLE.length];
+  // Clear current overlays so the new mode renders cleanly from the next frame
+  // (and so 'off' blanks immediately).
+  document.querySelectorAll<HTMLElement>('.subtitle-area').forEach((a) => { a.innerHTML = ''; });
   setControlState();
 });
 
