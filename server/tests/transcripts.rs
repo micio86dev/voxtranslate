@@ -1000,17 +1000,24 @@ async fn sentiment_cache_billing_and_gates() {
     assert_eq!(body["feature"], "ai_sentiment");
     assert!(body["required"].as_f64().unwrap() >= 0.07, "{body}");
 
-    // Groq-failure path: funds restored, analysis dies at Groq (dummy key)
-    // -> 502, balance untouched, no ledger row.
+    // Groq-failure path: funds restored, the POST claims a background job (202)
+    // and analysis dies inside the task (dummy Groq key). The failure surfaces
+    // on the polled job; balance untouched, no ledger row.
     sqlx::query("UPDATE users SET balance = $2 WHERE id = $1")
         .bind(tess)
         .bind(usd(2.0))
         .execute(&srv.pool)
         .await
         .unwrap();
-    let failed = http.post(&url).bearer_auth(&tess_jwt).send().await.unwrap();
-    assert_eq!(failed.status(), 502);
-    assert!(failed.text().await.unwrap().contains("not charged"));
+    let accepted = http.post(&url).bearer_auth(&tess_jwt).send().await.unwrap();
+    assert_eq!(accepted.status(), 202);
+    let job_id = accepted.json::<serde_json::Value>().await.unwrap()["job_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let job = poll_ai_job(&http, &base, session_id, &job_id, &tess_jwt).await;
+    assert_eq!(job["status"], "failed", "Groq failure → failed job: {job}");
+    assert_eq!(job["error"], "groq");
     let balance: rust_decimal::Decimal =
         sqlx::query_scalar("SELECT balance FROM users WHERE id = $1")
             .bind(tess)

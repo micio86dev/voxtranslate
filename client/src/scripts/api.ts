@@ -689,7 +689,21 @@ export async function generateSentiment(sessionId: string): Promise<AiSentimentR
     if (res.status === 402) {
       return { sentiment: null, insufficient: await parseInsufficient(res), error: '' };
     }
+    // 202 → analysis runs in the background; poll the job for the result.
+    if (res.status === 202) {
+      const { job_id: jobId } = (await res.json()) as { job_id: string };
+      const job = await pollAiJob(sessionId, jobId);
+      if (job.status === 'done') {
+        return { sentiment: job.result as AiSentiment, insufficient: null, error: '' };
+      }
+      if (job.error === 'insufficient_credits') {
+        return { sentiment: null, insufficient: asInsufficient(job.result), error: '' };
+      }
+      // Generic failure / timeout → '' lets the UI show its localized message.
+      return { sentiment: null, insufficient: null, error: '' };
+    }
     if (!res.ok) return { sentiment: null, insufficient: null, error: await res.text() };
+    // Cache hit (200) or backward-compatible synchronous result.
     return { sentiment: (await res.json()) as AiSentiment, insufficient: null, error: '' };
   } catch {
     return { sentiment: null, insufficient: null, error: '' };

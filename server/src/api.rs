@@ -1924,21 +1924,58 @@ pub async fn sentiment_generate(
         }
     }
 
+    // Analysis chunks the whole transcript and fans out into many Groq calls —
+    // too slow for one request on a long call — so run it as a background job.
+    // No params (per-session cache), so the slot key is empty; a double-click
+    // joins the running job instead of charging twice.
+    let job_id = match ai_jobs::claim(pool, session_id, user.user_id, "sentiment", "").await {
+        Ok(ai_jobs::Claim::Owned(id)) => {
+            let st = state.clone();
+            let uid = user.user_id;
+            tokio::spawn(ai_jobs::run(pool.clone(), id, async move {
+                run_sentiment_inner(st, session_id, uid, export, cost).await
+            }));
+            id
+        }
+        Ok(ai_jobs::Claim::AlreadyRunning(id)) => id,
+        Err(e) => {
+            tracing::error!("ai_sentiment job claim failed: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
+        }
+    };
+    ai_job_accepted(job_id)
+}
+
+/// Background body of [`sentiment_generate`]: analyze → charge → persist,
+/// returning the JSON the synchronous endpoint used to return (or a
+/// [`JobFailure`]). Same user-favorable failure policy as the other AI jobs.
+async fn run_sentiment_inner(
+    state: AppState,
+    session_id: Uuid,
+    user_id: Uuid,
+    export: TranscriptExport,
+    cost: Decimal,
+) -> Result<serde_json::Value, ai_jobs::JobFailure> {
+    let (Some(billing), Some(pool), Some(cfg)) = (
+        state.billing.as_ref(),
+        state.pool.as_ref(),
+        state.config.billing.as_ref(),
+    ) else {
+        return Err(ai_jobs::JobFailure::new("unavailable"));
+    };
+    let ai = &cfg.ai;
+
     let (result, model) = match ai_sentiment::analyze(&state.groq, ai, &export).await {
         Ok(out) => out,
         Err(e) => {
             tracing::error!("sentiment analysis failed: {e}");
-            return (
-                StatusCode::BAD_GATEWAY,
-                "sentiment analysis failed — you were not charged",
-            )
-                .into_response();
+            return Err(ai_jobs::JobFailure::new("groq"));
         }
     };
 
     let balance = match billing
         .deduct_feature(
-            user.user_id,
+            user_id,
             Some(session_id),
             "ai_sentiment",
             cost,
@@ -1951,11 +1988,11 @@ pub async fn sentiment_generate(
         // Charging after delivery would make 402-then-retry a free path, so
         // a genuine InsufficientFunds at the gate withholds the result.
         Err(BillingError::InsufficientFunds) => {
-            let available = billing
-                .get_balance(user.user_id)
-                .await
-                .unwrap_or(Decimal::ZERO);
-            return insufficient_credits("ai_sentiment", cost, available);
+            let available = billing.get_balance(user_id).await.unwrap_or(Decimal::ZERO);
+            return Err(ai_jobs::JobFailure::with_payload(
+                "insufficient_credits",
+                insufficient_body("ai_sentiment", cost, available),
+            ));
         }
         // Any other failure is ours, not the user's: deliver free and log.
         Err(e) => {
@@ -1964,14 +2001,14 @@ pub async fn sentiment_generate(
         }
     };
 
-    match ai_sentiment::save_sentiment(pool, session_id, user.user_id, &result, &model, cost).await
+    let v = match ai_sentiment::save_sentiment(pool, session_id, user_id, &result, &model, cost).await
     {
         Ok(Some(row)) => {
             let mut v = sentiment_json(&row, false);
             if let Some(b) = balance {
                 v["balance"] = serde_json::json!(b.to_f64().unwrap_or(0.0));
             }
-            (StatusCode::CREATED, Json(v)).into_response()
+            v
         }
         // Lost the UNIQUE race or the insert failed — we already charged, so
         // deliver what we computed rather than a confusing error.
@@ -1988,9 +2025,10 @@ pub async fn sentiment_generate(
             if let Some(b) = balance {
                 v["balance"] = serde_json::json!(b.to_f64().unwrap_or(0.0));
             }
-            (StatusCode::CREATED, Json(v)).into_response()
+            v
         }
-    }
+    };
+    Ok(v)
 }
 
 /// `GET /api/sessions/{id}/sentiment` — the cached analysis. Any participant
