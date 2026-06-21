@@ -31,6 +31,18 @@ const CONDENSE_CONCURRENCY: usize = 6;
 /// to shrink, in which case we send the best-effort result (the report model's
 /// context is large enough to accept it).
 const MAX_CONDENSE_PASSES: usize = 4;
+/// When a map-step chunk can't be summarized (even after retries), fall back to
+/// this many chars of the raw segment so one bad chunk never sinks the whole job.
+/// Kept small (≈ a summary's size) so the text still shrinks toward the budget.
+const CONDENSE_FALLBACK_CHARS: usize = 2_000;
+
+/// Take at most `max` chars of `s` on a char boundary (no panics on multibyte).
+fn truncate_chars(s: &str, max: usize) -> String {
+    match s.char_indices().nth(max) {
+        Some((idx, _)) => s[..idx].to_string(),
+        None => s.to_string(),
+    }
+}
 
 /// Whole minutes for per-minute billing, rounded up; 0-second sessions bill 1.
 pub fn billed_minutes(duration_seconds: i64) -> i64 {
@@ -128,23 +140,39 @@ pub async fn condense_transcript(
                          detailed bullet points, preserving WHO said WHAT, all decisions, action \
                          items, numbers, dates and names. Keep the original language(s). Output \
                          only the bullets.";
+                    // Bounded slice of the raw segment to fall back to if the model
+                    // can't summarize this chunk (e.g. a reasoning run returns empty
+                    // even after retries) — so one bad chunk never sinks the job.
+                    let raw_fallback = truncate_chars(&chunk, CONDENSE_FALLBACK_CHARS);
                     let mut req = ChatRequest::new(model, system, chunk);
-                    req.max_tokens = 1024;
+                    // gpt-oss is a reasoning model: a 1024-token budget could be
+                    // fully consumed by reasoning, leaving empty content. Give the
+                    // summary real headroom.
+                    req.max_tokens = 3072;
                     req.timeout = Duration::from_secs(30);
                     req.max_retries = 3;
-                    (i, groq.chat(req).await)
+                    let summary = match groq.chat(req).await {
+                        Ok(s) => s,
+                        Err(e) => {
+                            tracing::warn!(
+                                "condense step {}/{} failed ({e}); using truncated raw segment",
+                                i + 1,
+                                total
+                            );
+                            raw_fallback
+                        }
+                    };
+                    (i, summary)
                 }
             })
             .collect();
         // `buffered` yields results in input order, so segments stay in sequence.
-        let results: Vec<(usize, Result<String, String>)> = futures::stream::iter(futs)
+        let results: Vec<(usize, String)> = futures::stream::iter(futs)
             .buffered(CONDENSE_CONCURRENCY)
             .collect()
             .await;
         let mut parts = Vec::with_capacity(total);
-        for (i, res) in results {
-            let summary =
-                res.map_err(|e| format!("condense step {}/{} failed: {e}", i + 1, total))?;
+        for (i, summary) in results {
             parts.push(format!("--- segment {}/{} ---\n{}", i + 1, total, summary));
         }
         text = parts.join("\n\n");

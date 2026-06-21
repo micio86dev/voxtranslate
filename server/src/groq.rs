@@ -161,13 +161,28 @@ impl Groq {
                 .await
                 .map_err(|e| format!("groq response parse failed: {e}"))?;
 
-            return parsed
+            let content = parsed
                 .choices
                 .into_iter()
                 .next()
                 .map(|c| c.message.content.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .ok_or_else(|| "groq returned empty completion".to_string());
+                .unwrap_or_default();
+
+            // An empty completion is transient, not fatal: the gpt-oss models are
+            // reasoning models, so a run that spends its whole token budget on
+            // reasoning returns no visible content. This is non-deterministic
+            // (a re-run of the same prompt usually succeeds), so retry it like a
+            // 429 instead of sinking the caller — long-call condense fans out into
+            // many of these and a single empty must not fail the whole job.
+            if content.is_empty() {
+                last_err = "groq returned empty completion".to_string();
+                if attempt + 1 < attempts {
+                    tokio::time::sleep(Duration::from_millis(400 << attempt)).await;
+                    continue;
+                }
+                return Err(last_err);
+            }
+            return Ok(content);
         }
 
         Err(if last_err.is_empty() {
