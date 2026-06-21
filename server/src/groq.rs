@@ -108,28 +108,50 @@ impl Groq {
     }
 
     /// Run one chat completion; returns the assistant message content.
-    /// Retries on 429 up to `max_retries` times with exponential backoff.
+    /// Retries up to `max_retries` times with exponential backoff on TRANSIENT
+    /// failures — 429, 5xx, and transport errors (timeouts, connection resets).
+    /// A single slow Groq call must not sink a long-call report/email that fans
+    /// out into many condense calls. 4xx is terminal (the request itself is bad).
     pub async fn chat(&self, req: ChatRequest) -> Result<String, String> {
         let body = req.body();
         let attempts = u32::from(req.max_retries) + 1;
+        let mut last_err = String::new();
         for attempt in 0..attempts {
-            let resp = self
+            let send = self
                 .http
                 .post(GROQ_URL)
                 .bearer_auth(&self.api_key)
                 .timeout(req.timeout)
                 .json(&body)
                 .send()
-                .await
-                .map_err(|e| format!("groq request failed: {e}"))?;
+                .await;
 
-            if resp.status() == reqwest::StatusCode::TOO_MANY_REQUESTS && attempt + 1 < attempts {
+            let resp = match send {
+                Ok(r) => r,
+                // Timeout / connection reset / DNS hiccup: back off and retry like
+                // a 429 instead of failing the whole pipeline on one flaky call.
+                Err(e) => {
+                    last_err = format!("groq request failed: {e}");
+                    if attempt + 1 < attempts {
+                        tokio::time::sleep(Duration::from_millis(400 << attempt)).await;
+                        continue;
+                    }
+                    return Err(last_err);
+                }
+            };
+
+            let status = resp.status();
+            // 429 (rate limited) and 5xx (transient server-side) are worth a retry;
+            // 4xx is the caller's fault and retrying just doubles the wait.
+            if (status == reqwest::StatusCode::TOO_MANY_REQUESTS || status.is_server_error())
+                && attempt + 1 < attempts
+            {
+                last_err = format!("groq returned {status}");
                 tokio::time::sleep(Duration::from_millis(400 << attempt)).await;
                 continue;
             }
 
-            if !resp.status().is_success() {
-                let status = resp.status();
+            if !status.is_success() {
                 let detail = resp.text().await.unwrap_or_default();
                 return Err(format!("groq returned {status}: {detail}"));
             }
@@ -148,7 +170,11 @@ impl Groq {
                 .ok_or_else(|| "groq returned empty completion".to_string());
         }
 
-        Err("groq rate limited after retry".to_string())
+        Err(if last_err.is_empty() {
+            "groq exhausted retries".to_string()
+        } else {
+            last_err
+        })
     }
 
     /// Like [`chat`](Self::chat) but forces JSON mode and parses the result.

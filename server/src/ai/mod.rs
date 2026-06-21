@@ -11,6 +11,7 @@ pub mod sentiment;
 use crate::config::AiConfig;
 use crate::groq::{ChatRequest, Groq};
 use crate::transcripts::TranscriptExport;
+use futures::StreamExt;
 use std::time::Duration;
 
 /// Above this many characters the transcript is condensed (map-reduce) before
@@ -19,6 +20,16 @@ use std::time::Duration;
 pub const MAX_DIRECT_CHARS: usize = 48_000;
 /// Size of each map-step chunk (split on line boundaries).
 pub const CHUNK_CHARS: usize = 24_000;
+/// Concurrent map-step Groq calls. Long calls produce many chunks; summarizing
+/// them sequentially made a multi-hour transcript's report/email take minutes —
+/// long enough for the upstream request proxy to time out and the feature to
+/// "silently" fail. Bounded to keep 429s rare (mirrors sentiment's CONCURRENCY).
+const CONDENSE_CONCURRENCY: usize = 6;
+/// Safety cap on map-reduce passes. Each pass shrinks the text several-fold, so
+/// 1–2 passes suffice; the cap only guards a pathological transcript that refuses
+/// to shrink, in which case we send the best-effort result (the report model's
+/// context is large enough to accept it).
+const MAX_CONDENSE_PASSES: usize = 4;
 
 /// Whole minutes for per-minute billing, rounded up; 0-second sessions bill 1.
 pub fn billed_minutes(duration_seconds: i64) -> i64 {
@@ -89,33 +100,55 @@ pub fn chunk_lines(text: &str, max_chars: usize) -> Vec<String> {
 /// cheap fallback model, preserving speakers/decisions/numbers) whose outputs
 /// are concatenated for the final reduce prompt. A 2h call ≈ 100k+ chars —
 /// over the practical context budget — so this is required day one.
+///
+/// The map step runs chunks concurrently (bounded by [`CONDENSE_CONCURRENCY`]),
+/// and repeats while the result still exceeds [`MAX_DIRECT_CHARS`], so even very
+/// long calls converge to a single bounded final prompt instead of timing out.
 pub async fn condense_transcript(
     groq: &Groq,
     ai: &AiConfig,
-    text: String,
+    mut text: String,
 ) -> Result<String, String> {
-    if text.len() <= MAX_DIRECT_CHARS {
-        return Ok(text);
+    for _ in 0..MAX_CONDENSE_PASSES {
+        if text.len() <= MAX_DIRECT_CHARS {
+            return Ok(text);
+        }
+        let chunks = chunk_lines(&text, CHUNK_CHARS);
+        let total = chunks.len();
+        let futs: Vec<_> = chunks
+            .into_iter()
+            .enumerate()
+            .map(|(i, chunk)| {
+                let groq = groq.clone();
+                let model = ai.fallback_model.clone();
+                async move {
+                    let system =
+                        "You condense meeting-transcript segments. Summarize the segment in \
+                         detailed bullet points, preserving WHO said WHAT, all decisions, action \
+                         items, numbers, dates and names. Keep the original language(s). Output \
+                         only the bullets.";
+                    let mut req = ChatRequest::new(model, system, chunk);
+                    req.max_tokens = 1024;
+                    req.timeout = Duration::from_secs(30);
+                    req.max_retries = 3;
+                    (i, groq.chat(req).await)
+                }
+            })
+            .collect();
+        // `buffered` yields results in input order, so segments stay in sequence.
+        let results: Vec<(usize, Result<String, String>)> = futures::stream::iter(futs)
+            .buffered(CONDENSE_CONCURRENCY)
+            .collect()
+            .await;
+        let mut parts = Vec::with_capacity(total);
+        for (i, res) in results {
+            let summary =
+                res.map_err(|e| format!("condense step {}/{} failed: {e}", i + 1, total))?;
+            parts.push(format!("--- segment {}/{} ---\n{}", i + 1, total, summary));
+        }
+        text = parts.join("\n\n");
     }
-    let chunks = chunk_lines(&text, CHUNK_CHARS);
-    let total = chunks.len();
-    let mut parts = Vec::with_capacity(total);
-    for (i, chunk) in chunks.into_iter().enumerate() {
-        let system = "You condense meeting-transcript segments. Summarize the segment in \
-                      detailed bullet points, preserving WHO said WHAT, all decisions, action \
-                      items, numbers, dates and names. Keep the original language(s). Output \
-                      only the bullets.";
-        let mut req = ChatRequest::new(ai.fallback_model.clone(), system, chunk);
-        req.max_tokens = 1024;
-        req.timeout = Duration::from_secs(30);
-        req.max_retries = 3;
-        let summary = groq
-            .chat(req)
-            .await
-            .map_err(|e| format!("condense step {}/{} failed: {e}", i + 1, total))?;
-        parts.push(format!("--- segment {}/{} ---\n{}", i + 1, total, summary));
-    }
-    Ok(parts.join("\n\n"))
+    Ok(text)
 }
 
 #[cfg(test)]
