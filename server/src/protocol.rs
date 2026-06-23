@@ -69,8 +69,14 @@ pub enum ClientMessage {
     },
     /// Toggle screen-share state, broadcast to peers (spec 0033) so they can mark
     /// the tile (badge + mobile pan/zoom). The media itself flows over WebRTC.
+    /// `audio` is true only when the sharer routed the shared tab/system audio to
+    /// peers (spec 0085): peers must keep that track audible even across a language
+    /// gap, whereas a share without audio still carries the bare mic and must stay
+    /// duckable so the original voice doesn't double the TTS (#229 follow-up).
     ScreenShare {
         active: bool,
+        #[serde(default)]
+        audio: bool,
     },
     /// Manual language correction (spec 0012): overrides a wrong auto-detect
     /// result. The client restarts capture so the next Deepgram stream opens
@@ -204,10 +210,13 @@ pub enum ServerMessage {
         raised: bool,
     },
 
-    /// A peer started or stopped sharing their screen (spec 0033).
+    /// A peer started or stopped sharing their screen (spec 0033). `audio` is true
+    /// only when shared tab/system audio rides the WebRTC audio track (spec 0085),
+    /// so receivers keep it audible instead of ducking it for the translated voice.
     ScreenShare {
         peer_id: String,
         active: bool,
+        audio: bool,
     },
 
     /// A whiteboard op from a peer, relayed to the others (spec 0045).

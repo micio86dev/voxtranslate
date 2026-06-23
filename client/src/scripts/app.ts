@@ -1633,8 +1633,8 @@ async function handleServer(msg: any): Promise<void> {
       updateParticipantsList();
       break;
     case 'screen_share':
-      setScreenShareIndicator(msg.peer_id, msg.active);
-      applyAudioMode(); // re-evaluate muting: a sharer's audio is never muted, so shared audio is heard (#229)
+      setScreenShareIndicator(msg.peer_id, msg.active, msg.audio ?? false);
+      applyAudioMode(); // re-evaluate muting: only a *with-audio* share is exempt, so a mic-only share still ducks (#229 follow-up)
       spotlightShare(msg.peer_id, msg.active); // zoom the sharer's tile into focus (spec 0089)
       break;
     case 'whiteboard': // a peer's stroke/clear (spec 0045)
@@ -2241,11 +2241,14 @@ function applyAudioMode(): void {
       video.muted = true; // locally blocked → always silent
     } else {
       const peerLang = peerNames.get(id)?.lang;
-      // A screen-sharing peer's audio track may carry shared tab/system audio
-      // (music, a video) that everyone should hear — never mute it for the
-      // translated-voice setting, or the shared audio is lost (#229).
-      const sharing = cell.classList.contains('sharing');
-      video.muted = !sharing && !!(ttsOn && peerLang && myLang && peerLang !== myLang);
+      // A peer who shares with "share audio" ticked sends shared tab/system audio
+      // (music, a video) on the WebRTC track — everyone must hear it, so never mute
+      // it for the translated-voice setting, or that audio is lost (#229). But a
+      // share WITHOUT audio leaves the bare mic on the wire, so it must stay
+      // duckable like normal — otherwise the original voice doubles the TTS while
+      // sharing (#229 follow-up). `share-audio`, not `sharing`, gates the exemption.
+      const shareAudio = cell.classList.contains('share-audio');
+      video.muted = !shareAudio && !!(ttsOn && peerLang && myLang && peerLang !== myLang);
     }
     // PiP clones are display-only and always muted (audio stays on these live
     // elements), so there's nothing to keep in sync here.
@@ -2283,10 +2286,14 @@ function setHandIndicator(id: string, raised: boolean): void {
 
 // A peer started/stopped screen-sharing (spec 0033): mark the tile with `.sharing`
 // (gates the mobile pan/zoom) + the 🖥 badge, mirroring the self-share treatment.
-function setScreenShareIndicator(id: string, active: boolean): void {
+// `shareAudio` is true only when the peer routed shared tab/system audio to the
+// room (spec 0085); it gets its own `.share-audio` class so applyAudioMode knows
+// not to duck that track for the translated voice (#229 follow-up).
+function setScreenShareIndicator(id: string, active: boolean, shareAudio = false): void {
   const cell = videoGrid.querySelector(`[data-peer="${cssEsc(id)}"]`);
   if (!cell) return;
   cell.classList.toggle('sharing', active);
+  cell.classList.toggle('share-audio', active && shareAudio);
   let badge = cell.querySelector('.screen-share-badge') as HTMLElement | null;
   if (active) {
     if (!badge) {
@@ -3152,6 +3159,10 @@ async function startScreenShare(): Promise<void> {
     // feed STT unchanged. It leaves on the always-present audio sender via
     // replaceTrack — no renegotiation. No screen-audio track (box unticked /
     // unsupported) → the mic path is untouched.
+    // True once the shared tab/system audio is actually on the wire to peers, so
+    // we can tell them to keep it audible across a language gap (spec 0085). A
+    // share without audio leaves it false → the bare mic stays duckable as usual.
+    let shareHasAudio = false;
     const shareAudio = s.getAudioTracks();
     if (shareAudio.length) {
       try {
@@ -3167,6 +3178,7 @@ async function startScreenShare(): Promise<void> {
         shareMixTrack = dest.stream.getAudioTracks()[0] ?? null;
         // Peers get the screen audio alone (mic excluded → no doubled voice).
         mesh.replaceAudioTrack(shareAudio[0]);
+        shareHasAudio = true;
       } catch {
         // WebAudio unavailable → mic-only audio (if any); the screen video still shares.
         shareAudioCtx = null;
@@ -3211,7 +3223,7 @@ async function startScreenShare(): Promise<void> {
     // Stop sharing when user clicks "Stop sharing" in browser
     s.getVideoTracks()[0]?.addEventListener('ended', stopScreenShare);
     playScreenShareSound(); // audible cue that screen sharing has started
-    ws?.send(JSON.stringify({ type: 'screen_share', active: true })); // tell peers (spec 0033)
+    ws?.send(JSON.stringify({ type: 'screen_share', active: true, audio: shareHasAudio })); // tell peers (spec 0033/0085)
     spotlightShare(myId, true); // zoom my own share into focus too (spec 0089)
     setControlState();
   } catch {
@@ -3272,7 +3284,7 @@ function stopScreenShare(): void {
   cell?.classList.remove('sharing');
   cell?.querySelector('.screen-share-badge')?.remove();
   if (cell) disablePan(cell as HTMLElement); // drop the mobile pan/zoom ⊕ on the self tile too
-  ws?.send(JSON.stringify({ type: 'screen_share', active: false })); // tell peers (spec 0033)
+  ws?.send(JSON.stringify({ type: 'screen_share', active: false, audio: false })); // tell peers (spec 0033)
   spotlightShare(myId, false); // restore the prior focus (zoom-out) (spec 0089)
   setControlState();
   showNotif(t('stopShare'));

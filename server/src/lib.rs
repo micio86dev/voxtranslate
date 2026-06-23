@@ -1603,13 +1603,14 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
                                 .to_json(),
                             );
                         }
-                        Ok(ClientMessage::ScreenShare { active }) => {
+                        Ok(ClientMessage::ScreenShare { active, audio }) => {
                             state.rooms.broadcast_except(
                                 &room,
                                 &id,
                                 &ServerMessage::ScreenShare {
                                     peer_id: id.clone(),
                                     active,
+                                    audio,
                                 }
                                 .to_json(),
                             );
