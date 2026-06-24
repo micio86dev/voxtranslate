@@ -238,9 +238,12 @@ async fn analyze_chunk(
 /// Run the full analysis. Returns `(result_json, model_used)`.
 ///
 /// The first chunk also probes the model: a 4xx (decommissioned model id)
-/// switches the whole run to the fallback model, mirroring the report path.
-/// Individual chunk failures are dropped; the analysis only errors when *no*
-/// chunk succeeds, so the caller can refuse to charge.
+/// switches the whole run to the fallback model, mirroring the report path. Any
+/// OTHER first-chunk failure (timeout, 429/5xx after retries, malformed JSON) is
+/// dropped exactly like the rest — a single flaky call must not sink an
+/// otherwise-fine analysis (notably long sessions, whose wider first window is a
+/// bigger, slower, more timeout-prone request). The analysis only errors when
+/// *no* chunk succeeds, so the caller can refuse to charge.
 pub async fn analyze(
     groq: &Groq,
     ai: &AiConfig,
@@ -256,13 +259,18 @@ pub async fn analyze(
     let mut points: Vec<(i64, serde_json::Value)> = Vec::with_capacity(chunks.len());
     match analyze_chunk(groq.clone(), model.clone(), first.text.clone()).await {
         Ok(v) => points.push((first.start_secs, v)),
+        // Decommissioned model id (4xx): switch the whole run to the fallback and
+        // re-probe — but a failure there is dropped too, not fatal.
         Err(e) if e.contains("groq returned 4") && ai.fallback_model != model => {
             tracing::warn!("sentiment model failed ({e}); retrying on fallback model");
             model = ai.fallback_model.clone();
-            let v = analyze_chunk(groq.clone(), model.clone(), first.text.clone()).await?;
-            points.push((first.start_secs, v));
+            match analyze_chunk(groq.clone(), model.clone(), first.text.clone()).await {
+                Ok(v) => points.push((first.start_secs, v)),
+                Err(e) => tracing::warn!("sentiment first chunk failed on fallback (dropped): {e}"),
+            }
         }
-        Err(e) => return Err(e),
+        // Transient failure on the first chunk: drop it like any other chunk.
+        Err(e) => tracing::warn!("sentiment first chunk failed (dropped): {e}"),
     }
 
     let futs: Vec<_> = rest
@@ -284,6 +292,11 @@ pub async fn analyze(
             Ok(v) => points.push((t, v)),
             Err(e) => tracing::warn!("sentiment chunk at {t}s failed (dropped): {e}"),
         }
+    }
+
+    // Refuse to charge only when EVERY chunk failed (e.g. Groq fully unavailable).
+    if points.is_empty() {
+        return Err("all sentiment chunks failed".to_string());
     }
     points.sort_by_key(|(t, _)| *t);
 
