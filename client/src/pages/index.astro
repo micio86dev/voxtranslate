@@ -1895,6 +1895,10 @@ const jsonLd = {
       opacity: 0; transition: opacity 0.25s, transform 0.25s; pointer-events: none;
     }
     :global(.vox-toast.show) { opacity: 1; transform: translate(-50%, 0); }
+    /* Outcome variants for async actions (session-detail AI tools, etc.): a
+       colored accent border so success/failure reads at a glance. */
+    :global(.vox-toast.ok) { border-color: var(--success, #22c55e); }
+    :global(.vox-toast.err) { border-color: var(--danger, #ef4444); }
 
     /* Detected-language toast (spec 0012, created in JS). Interactive — it
        carries a Change button/picker — so it can't reuse the pointer-events:none

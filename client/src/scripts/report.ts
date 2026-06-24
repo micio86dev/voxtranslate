@@ -8,6 +8,7 @@ import * as auth from './auth';
 import { fetchAiPricing, fetchLatestReport, generateReport, type AiReport } from './api';
 import { ENDONYM, SUPPORTED, getUiLang, t } from './i18n';
 import { estimateReportCost, mdToHtml } from './report-md';
+import { toast } from './toast';
 
 const $ = (id: string) => document.getElementById(id) as HTMLElement;
 
@@ -192,17 +193,22 @@ function build(slot: HTMLElement, sessionId: string, durationSeconds: number): v
       if (typeof result.report.balance === 'number') applyBalance(result.report.balance);
       showReport(result.report);
       paintCost();
+      toast(`✓ ${t('aiReportTitle')}`, 'ok');
       return;
     }
     if (result.insufficient) {
-      status.textContent = insufficientMsg(
+      const msg = insufficientMsg(
         result.insufficient.required,
         result.insufficient.available,
       );
+      status.textContent = msg;
       paintCost();
+      toast(msg, 'err');
       return;
     }
-    status.textContent = result.error || t('aiReportFailed');
+    const err = result.error || t('aiReportFailed');
+    status.textContent = err;
+    toast(err, 'err');
   });
 
   // Regenerate just reopens the (prefilled) form — the charge only happens on
