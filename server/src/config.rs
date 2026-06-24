@@ -52,6 +52,19 @@ pub struct Config {
     /// Max members for a `business`-plan org (Enterprise is unlimited). Enforced
     /// when an invite is accepted. Override via `ORG_BUSINESS_MEMBER_LIMIT`.
     pub business_member_limit: i64,
+    /// Enterprise data-retention sweep (spec 0106). OFF by default so the feature
+    /// ships dormant — enabling it (`RETENTION_SWEEP_ENABLED` truthy) starts a
+    /// background task that deletes recordings + transcripts older than each
+    /// Enterprise org's configured `retention_days`. Also needs `recordings`
+    /// storage configured to do anything.
+    pub retention_sweep_enabled: bool,
+    /// How often the retention sweep runs, in seconds (default 6h). Override via
+    /// `RETENTION_SWEEP_INTERVAL_SECS`.
+    pub retention_sweep_interval_secs: u64,
+    /// Max sessions purged per sweep pass — a safety bound so a first run over a
+    /// large backlog can't issue an unbounded burst of deletes. Override via
+    /// `RETENTION_SWEEP_BATCH`.
+    pub retention_sweep_batch: i64,
     /// OpenAI GPT-Realtime-Translate "Pro" engine (spec 0093). Present only when the
     /// `OPENAI_PRO` rollout flag is truthy AND `OPENAI_API_KEY` is set — registered (and
     /// shown in the selector) iff this is `Some`, so the tier ships dark behind the flag.
@@ -747,6 +760,9 @@ impl Config {
                 .filter(|s| !s.is_empty())
                 .unwrap_or_else(|| "https://dashboard.voxtranslate.app".into()),
             business_member_limit: parse_or("ORG_BUSINESS_MEMBER_LIMIT", 20i64),
+            retention_sweep_enabled: env_flag("RETENTION_SWEEP_ENABLED"),
+            retention_sweep_interval_secs: parse_or("RETENTION_SWEEP_INTERVAL_SECS", 21_600u64),
+            retention_sweep_batch: parse_or("RETENTION_SWEEP_BATCH", 200i64),
             openai,
             google,
             soniox,
@@ -997,6 +1013,9 @@ impl Config {
             app_base_url: "https://voxtranslate.app".into(),
             dashboard_base_url: "https://dashboard.voxtranslate.app".into(),
             business_member_limit: 20,
+            retention_sweep_enabled: false,
+            retention_sweep_interval_secs: 21_600,
+            retention_sweep_batch: 200,
             openai: None,
             google: None,
             soniox: None,

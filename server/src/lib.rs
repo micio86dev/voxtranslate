@@ -602,6 +602,28 @@ pub async fn serve() {
         tokio::spawn(crate::analytics::run_rollup(pool, Duration::from_secs(300)));
     }
 
+    // Enterprise data-retention sweep (spec 0106): delete recordings + transcripts
+    // past each org's retention window. Ships dormant — only runs when
+    // RETENTION_SWEEP_ENABLED is set AND a DB is present. Recordings storage is
+    // additionally required to purge the storage objects themselves.
+    if state.config.retention_sweep_enabled {
+        if state.pool.is_some() {
+            let interval = Duration::from_secs(state.config.retention_sweep_interval_secs.max(60));
+            let batch = state.config.retention_sweep_batch.max(1);
+            tracing::info!(
+                "Enterprise data-retention sweep enabled (every {}s, batch {batch})",
+                interval.as_secs()
+            );
+            tokio::spawn(crate::business::retention::run_sweep(
+                state.clone(),
+                interval,
+                batch,
+            ));
+        } else {
+            tracing::warn!("RETENTION_SWEEP_ENABLED set but no database — sweep not started");
+        }
+    }
+
     let addr = format!("0.0.0.0:{port}");
     let listener = match tokio::net::TcpListener::bind(&addr).await {
         Ok(l) => l,
