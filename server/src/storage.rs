@@ -154,6 +154,53 @@ impl SupabaseStorage {
             .ok_or("supabase sign response had no signedURL")?;
         Ok(signed_full_url(&self.base_url, signed))
     }
+
+    /// Mint a one-shot **signed upload** URL so the browser can PUT an object
+    /// straight to the private bucket — the server never proxies the bytes (spec
+    /// 0106: recordings are large call videos). The returned absolute URL embeds a
+    /// short-lived token; the client PUTs the file to it with `x-upsert: true`.
+    pub async fn create_signed_upload_url(&self, object_path: &str) -> Result<String, String> {
+        let url = sign_upload_request_url(&self.base_url, &self.bucket, object_path);
+        let resp = self
+            .http
+            .post(&url)
+            .header(
+                reqwest::header::AUTHORIZATION,
+                format!("Bearer {}", self.service_key),
+            )
+            .header("apikey", &self.service_key)
+            .timeout(Duration::from_secs(30))
+            .send()
+            .await
+            .map_err(|e| format!("supabase sign-upload request failed: {e}"))?;
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let detail = resp.text().await.unwrap_or_default();
+            return Err(format!("supabase sign-upload returned {status}: {detail}"));
+        }
+        let body: serde_json::Value = resp
+            .json()
+            .await
+            .map_err(|e| format!("supabase sign-upload parse failed: {e}"))?;
+        let signed = body
+            .get("url")
+            .or_else(|| body.get("signedUrl"))
+            .or_else(|| body.get("signedURL"))
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .ok_or("supabase sign-upload response had no url")?;
+        Ok(signed_full_url(&self.base_url, signed))
+    }
+}
+
+/// The Storage REST endpoint that mints a signed UPLOAD URL for an object.
+pub fn sign_upload_request_url(base_url: &str, bucket: &str, object_path: &str) -> String {
+    format!(
+        "{}/storage/v1/object/upload/sign/{}/{}",
+        base_url.trim_end_matches('/'),
+        bucket,
+        object_path
+    )
 }
 
 /// The Storage REST endpoint that accepts an object's bytes (POST/PUT).

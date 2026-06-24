@@ -1,78 +1,99 @@
-//! Cloud recording (spec 0106): upload a finished call's audio to the private
-//! `recordings` bucket, charge the org pool, and kick off transcription; plus a
-//! signed playback URL. The `session_id` path param is the persistent call id.
+//! Cloud recording (spec 0106): the browser uploads the finished call **video**
+//! DIRECTLY to the private `recordings` bucket via a one-shot signed upload URL —
+//! the server never proxies the bytes (a long call is ~1 GB). `complete` then
+//! records the object path, charges the org pool, and kicks off transcription
+//! (Deepgram fetches the recording by signed URL). Plus a signed playback URL.
 
-use axum::extract::{Multipart, Path, State};
+use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
+use serde::Deserialize;
 use serde_json::json;
 use uuid::Uuid;
 
 use crate::business::{
-    audit, bad_request, credits, db_err, not_found, require_call_role, require_pool, transcripts,
-    MEMBER,
+    audit, bad_request, credits, db_err, forbidden, not_found, require_call_role, require_pool,
+    transcripts, MEMBER,
 };
 use crate::middleware::AuthUser;
+use crate::storage::SupabaseStorage;
 use crate::AppState;
 
-/// Body cap for a recording upload (≈200 MiB of Opus/WebM is hours of audio).
-pub const RECORDING_MAX_BYTES: usize = 200 * 1024 * 1024;
-
-/// `POST /api/business/rooms/{session_id}/recording/complete` — multipart upload
-/// of the call audio (member). Stores it privately, deducts org credits
-/// (1/min, round up), and enqueues transcription.
-pub async fn complete(
-    State(state): State<AppState>,
-    user: AuthUser,
-    Path(session_id): Path<Uuid>,
-    mut multipart: Multipart,
-) -> Result<Response, Response> {
-    let pool = require_pool(&state)?;
-    let (org_id, _) = require_call_role(pool, session_id, user.user_id, MEMBER).await?;
-    let recordings = state.recordings_storage.as_ref().ok_or_else(|| {
+/// `recordings_storage` or a 503 — recording is dormant unless SUPABASE_* is set.
+fn store(state: &AppState) -> Result<&SupabaseStorage, Response> {
+    state.recordings_storage.as_ref().ok_or_else(|| {
         (
             StatusCode::SERVICE_UNAVAILABLE,
             "recording storage not configured",
         )
             .into_response()
-    })?;
+    })
+}
 
-    let mut duration_seconds: i64 = 0;
-    let mut bytes: Option<Vec<u8>> = None;
-    while let Some(field) = multipart
-        .next_field()
-        .await
-        .map_err(|_| bad_request("malformed upload"))?
-    {
-        match field.name() {
-            Some("duration_seconds") => {
-                duration_seconds = field
-                    .text()
-                    .await
-                    .ok()
-                    .and_then(|s| s.trim().parse().ok())
-                    .unwrap_or(0);
-            }
-            Some("file") => {
-                bytes = field.bytes().await.ok().map(|b| b.to_vec());
-            }
-            _ => {}
-        }
-    }
-    let bytes = bytes.ok_or_else(|| bad_request("missing audio file"))?;
-    if bytes.is_empty() {
-        return Err(bad_request("empty audio file"));
+/// `POST /api/business/rooms/{session_id}/recording/upload-url` — issue a one-shot
+/// signed URL the browser PUTs the recording straight to (member of the call's
+/// org). Only for calls that actually have cloud recording enabled — which is set
+/// exclusively by the subscription-gated room binding, so this is also where the
+/// "recording is a paid feature" rule is enforced for the upload path.
+pub async fn upload_url(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(session_id): Path<Uuid>,
+) -> Result<Response, Response> {
+    let pool = require_pool(&state)?;
+    let (org_id, _) = require_call_role(pool, session_id, user.user_id, MEMBER).await?;
+    let recordings = store(&state)?;
+
+    let enabled: Option<bool> =
+        sqlx::query_scalar("SELECT cloud_recording_enabled FROM call_sessions WHERE id = $1")
+            .bind(session_id)
+            .fetch_optional(pool)
+            .await
+            .map_err(db_err)?;
+    if enabled != Some(true) {
+        return Err(forbidden("cloud recording is not enabled for this call"));
     }
 
     let object_path = format!("{org_id}/{session_id}/{}.webm", Uuid::new_v4());
-    recordings
-        .upload(&object_path, bytes, "audio/webm")
+    let url = recordings
+        .create_signed_upload_url(&object_path)
         .await
         .map_err(|e| {
-            tracing::error!("recording upload failed: {e}");
-            (StatusCode::BAD_GATEWAY, "recording upload failed").into_response()
+            tracing::error!("recording sign-upload failed: {e}");
+            (StatusCode::BAD_GATEWAY, "could not create upload url").into_response()
         })?;
+    Ok(Json(json!({ "upload_url": url, "object_path": object_path })).into_response())
+}
+
+#[derive(Deserialize)]
+pub struct CompleteRecording {
+    /// The exact path returned by `upload-url` (validated to this org+call below).
+    object_path: String,
+    #[serde(default)]
+    duration_seconds: i64,
+}
+
+/// `POST /api/business/rooms/{session_id}/recording/complete` — after the direct
+/// upload, record the object path, charge the org (1 credit/min, round up), and
+/// enqueue transcription.
+pub async fn complete(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(session_id): Path<Uuid>,
+    Json(body): Json<CompleteRecording>,
+) -> Result<Response, Response> {
+    let pool = require_pool(&state)?;
+    let (org_id, _) = require_call_role(pool, session_id, user.user_id, MEMBER).await?;
+
+    // The path must be exactly the namespace we issued for THIS org + call — never
+    // a client-chosen path into another tenant's space.
+    let prefix = format!("{org_id}/{session_id}/");
+    if !body.object_path.starts_with(&prefix) || body.object_path.contains("..") {
+        return Err(bad_request("invalid recording path"));
+    }
+    let object_path = body.object_path;
+    let duration_seconds = body.duration_seconds.max(0);
 
     sqlx::query(
         "UPDATE call_sessions
@@ -86,7 +107,7 @@ pub async fn complete(
     .map_err(db_err)?;
 
     // Charge for the recording. If the org can't cover it, keep the file but don't
-    // transcribe (and revert the status), and tell the caller to top up.
+    // transcribe (revert the status), and tell the caller to top up.
     let cost = credits::recording_credits(duration_seconds);
     match credits::deduct_org_credits(
         pool,
@@ -136,13 +157,7 @@ pub async fn url(
 ) -> Result<Response, Response> {
     let pool = require_pool(&state)?;
     let (org_id, _) = require_call_role(pool, session_id, user.user_id, MEMBER).await?;
-    let recordings = state.recordings_storage.as_ref().ok_or_else(|| {
-        (
-            StatusCode::SERVICE_UNAVAILABLE,
-            "recording storage not configured",
-        )
-            .into_response()
-    })?;
+    let recordings = store(&state)?;
 
     let path: Option<String> =
         sqlx::query_scalar("SELECT recording_storage_path FROM call_sessions WHERE id = $1")

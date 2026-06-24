@@ -1,6 +1,5 @@
 //! Route table for the Business API. Merged into the main router in `lib.rs::app`.
 
-use axum::extract::DefaultBodyLimit;
 use axum::routing::{delete, get, patch, post};
 use axum::Router;
 
@@ -55,10 +54,15 @@ pub fn routes() -> Router<AppState> {
             "/api/business/organizations/{org_id}/projects/{project_id}/rooms",
             get(calls::list_project_rooms),
         )
-        // ---- Recording (PR-B) ----
+        // ---- Recording (PR-B): direct-to-storage upload, so no large body flows
+        //      through the server (a long-call video is ~1 GB). ----
+        .route(
+            "/api/business/rooms/{session_id}/recording/upload-url",
+            post(recording::upload_url),
+        )
         .route(
             "/api/business/rooms/{session_id}/recording/complete",
-            post(recording::complete).layer(DefaultBodyLimit::max(recording::RECORDING_MAX_BYTES)),
+            post(recording::complete),
         )
         .route(
             "/api/business/rooms/{session_id}/recording/url",

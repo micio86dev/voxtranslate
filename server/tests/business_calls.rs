@@ -11,7 +11,6 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use reqwest::header::CONTENT_TYPE;
 use reqwest::Client;
 use serde_json::{json, Value};
 use uuid::Uuid;
@@ -103,28 +102,6 @@ async fn make_call(srv: &Server, org: Uuid, status: &str) -> Uuid {
     .await
     .unwrap();
     id
-}
-
-/// A minimal multipart/form-data body (reqwest has no multipart feature here).
-fn multipart(duration: &str, file: &[u8]) -> (String, Vec<u8>) {
-    let b = "BoUnDaRy1234567";
-    let mut body = Vec::new();
-    body.extend_from_slice(
-        format!(
-            "--{b}\r\nContent-Disposition: form-data; name=\"duration_seconds\"\r\n\r\n{duration}\r\n"
-        )
-        .as_bytes(),
-    );
-    body.extend_from_slice(
-        format!(
-            "--{b}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"rec.webm\"\r\n\
-             Content-Type: audio/webm\r\n\r\n"
-        )
-        .as_bytes(),
-    );
-    body.extend_from_slice(file);
-    body.extend_from_slice(format!("\r\n--{b}--\r\n").as_bytes());
-    (format!("multipart/form-data; boundary={b}"), body)
 }
 
 #[tokio::test]
@@ -269,49 +246,56 @@ async fn recording_guards() {
     let (owner, jwt) = user(&srv).await;
     let org = make_org(&srv, owner).await;
     let sid = make_call(&srv, org, "none").await;
-    let (ct, body) = multipart("30", b"\x00\x01\x02");
+    let upload = format!(
+        "{}/api/business/rooms/{sid}/recording/upload-url",
+        base(&srv)
+    );
+    let complete = format!("{}/api/business/rooms/{sid}/recording/complete", base(&srv));
 
-    // No token → 401.
-    let anon = http
-        .post(format!(
-            "{}/api/business/rooms/{sid}/recording/complete",
-            base(&srv)
-        ))
-        .header(CONTENT_TYPE, &ct)
-        .body(body.clone())
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(anon.status(), 401);
+    // No token → 401 on both endpoints.
+    assert_eq!(http.post(&upload).send().await.unwrap().status(), 401);
+    assert_eq!(
+        http.post(&complete)
+            .json(&json!({ "object_path": format!("{org}/{sid}/x.webm"), "duration_seconds": 30 }))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        401
+    );
 
     // A non-member → 404 (call existence hidden).
     let (_outsider, jwt_out) = user(&srv).await;
-    let outsider = http
-        .post(format!(
-            "{}/api/business/rooms/{sid}/recording/complete",
-            base(&srv)
-        ))
-        .bearer_auth(&jwt_out)
-        .header(CONTENT_TYPE, &ct)
-        .body(body.clone())
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(outsider.status(), 404);
+    assert_eq!(
+        http.post(&upload)
+            .bearer_auth(&jwt_out)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        404
+    );
 
-    // A member, but storage isn't configured in this env → 503 (no charge).
-    let member = http
-        .post(format!(
-            "{}/api/business/rooms/{sid}/recording/complete",
-            base(&srv)
-        ))
+    // A member, but recording storage isn't configured in this env → 503 (no charge).
+    assert_eq!(
+        http.post(&upload)
+            .bearer_auth(&jwt)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        503
+    );
+
+    // `complete` rejects a path outside this org+call's namespace (anti-tampering).
+    let bad = http
+        .post(&complete)
         .bearer_auth(&jwt)
-        .header(CONTENT_TYPE, &ct)
-        .body(body)
+        .json(&json!({ "object_path": "other-org/x/y.webm", "duration_seconds": 30 }))
         .send()
         .await
         .unwrap();
-    assert_eq!(member.status(), 503);
+    assert_eq!(bad.status(), 400);
 }
 
 #[tokio::test]
