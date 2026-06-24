@@ -1261,7 +1261,11 @@ const jsonLd = {
        transient rec/timer badges; the stage's isolation (spec 0054) still pins it below
        the control-bar ⋯ menu. */
     .stage-meta {
-      display: flex; align-items: center; gap: 8px; max-width: calc(100% - 20px);
+      display: flex; align-items: center; gap: 8px; max-width: 100%;
+      /* min-width:0 + overflow:hidden keep the pill within its (capped) width so a
+         long room/name can't spill past the reserved half and slide under the
+         centred REC badge (the name ellipsizes instead). */
+      min-width: 0; overflow: hidden;
       padding: 5px 12px; border-radius: 999px;
       background: rgba(0, 0, 0, 0.5); backdrop-filter: blur(6px);
     }
@@ -2410,6 +2414,12 @@ const jsonLd = {
          can't slide under it on narrow screens (spec 0070 follow-up). */
       .stage-meta-wrap { gap: 4px; max-width: calc(100% - 76px); }
       .stage-meta { padding: 4px 10px; gap: 6px; }
+      /* On phones the centred REC badge has no room — drop it to the top-left
+         corner. While recording, the meta cluster slides just below it and reclaims
+         full width, so REC never overlaps the cluster and the visibility/timer/
+         balance strip stops breaking (it was crushed by the 50%-80px record cap). */
+      .rec-badge { left: 10px; transform: none; }
+      .video-stage.recording .stage-meta-wrap { top: 44px; max-width: calc(100% - 20px); }
       /* Keep your identity (name · lang) visible on phones too (user request); just a
          tighter name cap so the meta pill can't grow into the top-right counter. */
       .stage-self-name { max-width: 9ch; }
