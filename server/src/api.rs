@@ -1692,16 +1692,22 @@ async fn run_report_inner(
     };
     let ai = &cfg.ai;
 
-    let (markdown, model) =
-        match ai_report::generate_report(&state.groq, ai, &export, &format, &lang, guidelines.as_deref())
-            .await
-        {
-            Ok(out) => out,
-            Err(e) => {
-                tracing::error!("report generation failed: {e}");
-                return Err(ai_jobs::JobFailure::new("groq"));
-            }
-        };
+    let (markdown, model) = match ai_report::generate_report(
+        &state.groq,
+        ai,
+        &export,
+        &format,
+        &lang,
+        guidelines.as_deref(),
+    )
+    .await
+    {
+        Ok(out) => out,
+        Err(e) => {
+            tracing::error!("report generation failed: {e}");
+            return Err(ai_jobs::JobFailure::new("groq"));
+        }
+    };
 
     let balance = match billing
         .deduct_feature(
@@ -2001,7 +2007,8 @@ async fn run_sentiment_inner(
         }
     };
 
-    let v = match ai_sentiment::save_sentiment(pool, session_id, user_id, &result, &model, cost).await
+    let v = match ai_sentiment::save_sentiment(pool, session_id, user_id, &result, &model, cost)
+        .await
     {
         Ok(Some(row)) => {
             let mut v = sentiment_json(&row, false);
@@ -2258,7 +2265,9 @@ async fn run_correction_inner(
             ));
         }
         Err(e) => {
-            tracing::error!("ai_correction deduction failed AFTER generation — delivering free: {e}");
+            tracing::error!(
+                "ai_correction deduction failed AFTER generation — delivering free: {e}"
+            );
             None
         }
     };

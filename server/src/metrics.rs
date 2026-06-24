@@ -53,7 +53,12 @@ pub fn record_gemini_ttfa(ms: u64) {
 
 /// Record one Gemini Live session connect+setup duration (ms).
 pub fn record_gemini_connect(ms: u64) {
-    observe(&GEM_CONNECT_SUM, &GEM_CONNECT_COUNT, &GEM_CONNECT_BUCKETS, ms);
+    observe(
+        &GEM_CONNECT_SUM,
+        &GEM_CONNECT_COUNT,
+        &GEM_CONNECT_BUCKETS,
+        ms,
+    );
 }
 
 /// Record one completed request. Called from the canonical-log middleware, which
@@ -113,12 +118,21 @@ fn snapshot() -> Snapshot {
         gem_ttfa_buckets: std::array::from_fn(|i| GEM_TTFA_BUCKETS[i].load(Ordering::Relaxed)),
         gem_connect_sum: GEM_CONNECT_SUM.load(Ordering::Relaxed),
         gem_connect_count: GEM_CONNECT_COUNT.load(Ordering::Relaxed),
-        gem_connect_buckets: std::array::from_fn(|i| GEM_CONNECT_BUCKETS[i].load(Ordering::Relaxed)),
+        gem_connect_buckets: std::array::from_fn(|i| {
+            GEM_CONNECT_BUCKETS[i].load(Ordering::Relaxed)
+        }),
     }
 }
 
 /// Write one cumulative-bucket histogram in Prometheus text format.
-fn write_histogram(o: &mut String, name: &str, help: &str, sum: u64, count: u64, buckets: &[u64; 11]) {
+fn write_histogram(
+    o: &mut String,
+    name: &str,
+    help: &str,
+    sum: u64,
+    count: u64,
+    buckets: &[u64; 11],
+) {
     let _ = writeln!(o, "# HELP {name} {help}");
     let _ = writeln!(o, "# TYPE {name} histogram");
     for (i, le) in BUCKETS_MS.iter().enumerate() {

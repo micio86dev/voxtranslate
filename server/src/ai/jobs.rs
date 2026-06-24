@@ -54,11 +54,17 @@ pub struct JobFailure {
 
 impl JobFailure {
     pub fn new(reason: impl Into<String>) -> Self {
-        Self { reason: reason.into(), payload: None }
+        Self {
+            reason: reason.into(),
+            payload: None,
+        }
     }
 
     pub fn with_payload(reason: impl Into<String>, payload: serde_json::Value) -> Self {
-        Self { reason: reason.into(), payload: Some(payload) }
+        Self {
+            reason: reason.into(),
+            payload: Some(payload),
+        }
     }
 }
 

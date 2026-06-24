@@ -305,10 +305,10 @@ async fn session_task(
         match gemini::open_session(&config, &reader.lang).await {
             Ok((sink, source)) => {
                 failures = 0; // a successful connect resets the failure budget
-                // latency: the WS connect + setup-send cost. Audio buffered during this
-                // window waits, so it lands on the FIRST utterance's critical path unless
-                // the session was pre-warmed (opened before the speaker talks). Aggregated
-                // into the `voxtranslate_gemini_connect_ms` histogram (/metrics).
+                              // latency: the WS connect + setup-send cost. Audio buffered during this
+                              // window waits, so it lands on the FIRST utterance's critical path unless
+                              // the session was pre-warmed (opened before the speaker talks). Aggregated
+                              // into the `voxtranslate_gemini_connect_ms` histogram (/metrics).
                 let connect_ms = connect_started.elapsed().as_millis() as u64;
                 crate::metrics::record_gemini_connect(connect_ms);
                 tracing::debug!(lang = %reader.lang, connect_ms, "gemini.latency: session connected");
@@ -352,10 +352,10 @@ async fn run_connection(
     let mut translated = String::new(); // this session's output language
     let mut dirty = false;
     let mut audio_seq: u64 = 0; // orders translated-audio chunks for the client
-    // latency: per-segment time-to-first-audio. `seg_first_in` marks when this
-    // segment's first audio chunk was forwarded to Gemini; on the first translated
-    // audio back we record the gap (the model's ear-voice span) once, then reset both
-    // at the next turn boundary so every segment is measured.
+                                // latency: per-segment time-to-first-audio. `seg_first_in` marks when this
+                                // segment's first audio chunk was forwarded to Gemini; on the first translated
+                                // audio back we record the gap (the model's ear-voice span) once, then reset both
+                                // at the next turn boundary so every segment is measured.
     let mut seg_first_in: Option<Instant> = None;
     let mut seg_ttfa_logged = false;
     let idle = sleep(Duration::from_millis(SEGMENT_IDLE_MS));
@@ -815,7 +815,9 @@ mod tests {
         println!("\n=== LOCAL E2E Premium (engine→Gemini→listener), from first audio fed ===");
         println!("  input audio duration   : {in_dur:.2}s");
         println!("  first translated CAPTION: {first_subtitle:?} ms");
-        println!("  first translated AUDIO  : {first_audio:?} ms  <- server-internal ear-voice span");
+        println!(
+            "  first translated AUDIO  : {first_audio:?} ms  <- server-internal ear-voice span"
+        );
         println!("  translated audio frames : {audio_frames}");
         assert!(
             first_audio.is_some(),

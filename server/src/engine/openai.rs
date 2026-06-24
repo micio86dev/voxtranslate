@@ -202,7 +202,8 @@ mod tests {
         // No voice configured → field omitted (default behaviour unchanged).
         assert!(upd["session"]["audio"]["output"].get("voice").is_none());
         // With a voice configured → pinned on the session.
-        let pinned: Value = serde_json::from_str(&session_update_json("es", Some("marin"))).unwrap();
+        let pinned: Value =
+            serde_json::from_str(&session_update_json("es", Some("marin"))).unwrap();
         assert_eq!(pinned["session"]["audio"]["output"]["voice"], "marin");
 
         let app: Value = serde_json::from_str(&audio_append_json(&[0u8, 255, 128])).unwrap();
