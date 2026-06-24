@@ -118,6 +118,32 @@ impl SupabaseStorage {
         Ok(())
     }
 
+    /// Permanently delete an object (server-side, service key). Used by the
+    /// Enterprise data-retention sweep (spec 0106). A 404 counts as success —
+    /// the goal is "the object is gone", and a re-run over an already-cleared
+    /// session must not error.
+    pub async fn delete(&self, object_path: &str) -> Result<(), String> {
+        let url = upload_url(&self.base_url, &self.bucket, object_path);
+        let resp = self
+            .http
+            .delete(&url)
+            .header(
+                reqwest::header::AUTHORIZATION,
+                format!("Bearer {}", self.service_key),
+            )
+            .header("apikey", &self.service_key)
+            .timeout(Duration::from_secs(30))
+            .send()
+            .await
+            .map_err(|e| format!("supabase delete request failed: {e}"))?;
+        if resp.status().is_success() || resp.status() == reqwest::StatusCode::NOT_FOUND {
+            return Ok(());
+        }
+        let status = resp.status();
+        let detail = resp.text().await.unwrap_or_default();
+        Err(format!("supabase delete returned {status}: {detail}"))
+    }
+
     /// Mint a time-limited signed download URL for an already-uploaded object.
     /// Works against a **private** bucket; the link is valid for
     /// `signed_ttl_secs`. Returns the absolute, browser-usable URL.
