@@ -120,6 +120,15 @@ test('flag ON: language-first picker filters tiers by language and flips RTL', a
 test('flag ON, guest: language-first offers only Standard (premium tiers need credits)', async ({ browser }) => {
   const t = await openPage(browser);
   // No login() → guest. Billing config still on, so the login gate shows; continue as guest.
+  // Seed the guest 18+/ToS consent (a returning guest) so its modal doesn't overlay the
+  // home controls this test asserts on — the test is about tier offering, not the consent gate.
+  await t.page.addInitScript(() => {
+    try {
+      localStorage.setItem('vox_guest_consent', '1');
+    } catch {
+      /* private mode — consent falls back to in-memory */
+    }
+  });
   await mockApi(t.page, { flag: true });
   await t.page.goto('/', { waitUntil: 'networkidle' });
   await t.page.click('#guest-btn');

@@ -7,7 +7,7 @@ import { openPage, closePage, trackConsoleErrors } from './helpers';
 // — the tour is independent of how the user got into the call.
 
 test('onboarding home wizard: auto-open, step nav, persistence, relaunch, a11y', async ({ browser }) => {
-  const t = await openPage(browser, { width: 1100, height: 860 });
+  const t = await openPage(browser, { width: 1100, height: 860 }, false, false);
   const { page } = t;
   const errors = trackConsoleErrors(page);
   await page.goto('/', { waitUntil: 'networkidle' });
@@ -75,7 +75,7 @@ test('onboarding home wizard: auto-open, step nav, persistence, relaunch, a11y',
 test('onboarding call tour: spotlight, ⋯ force-open for share, relaunch flag, release', async ({
   browser,
 }) => {
-  const t = await openPage(browser, { width: 1200, height: 860 });
+  const t = await openPage(browser, { width: 1200, height: 860 }, false, false);
   const { page } = t;
   const errors = trackConsoleErrors(page);
   await page.goto('/', { waitUntil: 'networkidle' });
