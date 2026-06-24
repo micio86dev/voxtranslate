@@ -136,9 +136,12 @@ pub async fn create_invite(
     .await
     .map_err(db_err)?;
 
+    // Invites land on the dashboard (a separate origin from the call app), at its
+    // locale-prefixed, trailing-slash join route — not `app_base_url/join`, which
+    // is the consumer app and has no such page (it 404s).
     let join_url = format!(
-        "{}/join?token={}",
-        state.config.app_base_url.trim_end_matches('/'),
+        "{}/en/join/?token={}",
+        state.config.dashboard_base_url.trim_end_matches('/'),
         token
     );
     let mut email_sent = false;

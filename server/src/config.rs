@@ -45,6 +45,10 @@ pub struct Config {
     /// point at our own domain, never a client-supplied host. Override via
     /// `APP_BASE_URL`; trailing slash is trimmed.
     pub app_base_url: String,
+    /// Base URL of the Business dashboard — a SEPARATE origin from the call app
+    /// (`app_base_url`). Used to build org invite/join links, whose page lives in
+    /// the dashboard, not the consumer app. Override via `DASHBOARD_BASE_URL`.
+    pub dashboard_base_url: String,
     /// OpenAI GPT-Realtime-Translate "Pro" engine (spec 0093). Present only when the
     /// `OPENAI_PRO` rollout flag is truthy AND `OPENAI_API_KEY` is set — registered (and
     /// shown in the selector) iff this is `Some`, so the tier ships dark behind the flag.
@@ -734,6 +738,11 @@ impl Config {
                 .map(|s| s.trim().trim_end_matches('/').to_string())
                 .filter(|s| !s.is_empty())
                 .unwrap_or_else(|| "https://voxtranslate.app".into()),
+            dashboard_base_url: env::var("DASHBOARD_BASE_URL")
+                .ok()
+                .map(|s| s.trim().trim_end_matches('/').to_string())
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "https://dashboard.voxtranslate.app".into()),
             openai,
             google,
             soniox,
@@ -982,6 +991,7 @@ impl Config {
             turn: None,
             bug_report_to: "test@example.com".into(),
             app_base_url: "https://voxtranslate.app".into(),
+            dashboard_base_url: "https://dashboard.voxtranslate.app".into(),
             openai: None,
             google: None,
             soniox: None,
