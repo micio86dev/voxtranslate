@@ -483,6 +483,99 @@ pub async fn bug_report(
     Json(serde_json::json!({ "ok": true })).into_response()
 }
 
+/// Max characters in a contact-form message.
+const CONTACT_MAX_LEN: usize = 4000;
+
+#[derive(serde::Deserialize)]
+pub struct ContactRequest {
+    pub name: String,
+    pub email: String,
+    pub message: String,
+    #[serde(default)]
+    pub company: Option<String>,
+}
+
+/// `POST /api/contact` — public Business sales/contact form (from the marketing
+/// site). Emails the support inbox via Resend; no auth, rate-limited per IP. The
+/// target is `SUPPORT_EMAIL` (default `support@voxtranslate.app`).
+pub async fn contact(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<ContactRequest>,
+) -> Response {
+    let ip = crate::observability::client_ip(&headers);
+    if !state
+        .rate_limiter
+        .allow(&format!("contact:{ip}"), 5, Duration::from_secs(60))
+    {
+        return (StatusCode::TOO_MANY_REQUESTS, "too many requests").into_response();
+    }
+
+    let name = body.name.trim();
+    let email = body.email.trim();
+    let message = body.message.trim();
+    if name.is_empty() || message.is_empty() {
+        return (StatusCode::BAD_REQUEST, "name and message required").into_response();
+    }
+    if !crate::ai::email_draft::valid_email(email) {
+        return (StatusCode::BAD_REQUEST, "a valid email is required").into_response();
+    }
+    if message.chars().count() > CONTACT_MAX_LEN || name.chars().count() > 200 {
+        return (StatusCode::BAD_REQUEST, "message too long").into_response();
+    }
+    let company = body
+        .company
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("—");
+
+    let Some(resend) = state.resend.as_ref() else {
+        return (StatusCode::SERVICE_UNAVAILABLE, "contact unavailable").into_response();
+    };
+    let to = std::env::var("SUPPORT_EMAIL")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "support@voxtranslate.app".to_string());
+
+    let body_text = format!(
+        "New Business enquiry\n\nName: {name}\nEmail: {email}\nCompany: {company}\n\n{message}"
+    );
+    let inner_html = format!(
+        "<p style=\"margin:0 0 12px;\">Name: {}<br>Email: {}<br>Company: {}</p>\
+         <pre style=\"white-space:pre-wrap;font-family:inherit;background:#f4f6fb;\
+         padding:14px 16px;border-radius:8px;margin:0;\">{}</pre>",
+        crate::admin::html_escape(name),
+        crate::admin::html_escape(email),
+        crate::admin::html_escape(company),
+        crate::admin::html_escape(message),
+    );
+    let tagline = crate::email_template::tagline("en");
+    let html = crate::email_template::render_html(&crate::email_template::EmailLayout {
+        app_base_url: &state.config.app_base_url,
+        preheader: "New Business enquiry",
+        heading: Some("New Business enquiry"),
+        body_html: &inner_html,
+        button: None,
+        tagline,
+    });
+    let text =
+        crate::email_template::render_text(&body_text, None, &state.config.app_base_url, tagline);
+    let email_msg = OutboundEmail {
+        to: vec![to],
+        cc: vec![],
+        subject: format!("VoxTranslate — Business enquiry from {name}"),
+        html,
+        text,
+    };
+    if let Err(e) = resend.send(&email_msg).await {
+        tracing::error!("contact email failed: {e}");
+        return (StatusCode::BAD_GATEWAY, "could not send message").into_response();
+    }
+    Json(serde_json::json!({ "ok": true })).into_response()
+}
+
 #[derive(Deserialize)]
 pub struct CheckoutRequest {
     pub package_id: String,

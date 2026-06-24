@@ -402,6 +402,7 @@ pub fn app(state: AppState) -> Router {
         .route("/api/auth/config", get(auth::auth_config))
         .route("/api/ice", get(api::ice))
         .route("/api/bug-report", post(api::bug_report))
+        .route("/api/contact", post(api::contact))
         .route("/api/auth/google", post(auth::auth_google))
         .route("/api/user/me", get(auth::user_me))
         .route("/api/engines", get(api::engines))

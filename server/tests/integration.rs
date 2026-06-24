@@ -156,6 +156,48 @@ async fn health_and_rooms_and_bad_params() {
 }
 
 #[tokio::test]
+async fn contact_form_validates_and_requires_email_provider() {
+    // Public Business contact form (POST /api/contact). Validation runs before the
+    // email-provider check, so bad input is 400 regardless of Resend; a well-formed
+    // message with no Resend configured (the test config) is 503.
+    let (addr, _) = spawn().await;
+    let http = reqwest::Client::new();
+    let url = format!("http://{addr}/api/contact");
+
+    // Missing name/message -> 400.
+    let bad = http
+        .post(&url)
+        .json(&serde_json::json!({ "name": "", "email": "a@b.com", "message": "" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(bad.status(), 400);
+
+    // Invalid email -> 400.
+    let bad_email = http
+        .post(&url)
+        .json(&serde_json::json!({ "name": "Acme", "email": "nope", "message": "hi there" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(bad_email.status(), 400);
+
+    // Valid payload, but no Resend in the test config -> 503 (feature dormant).
+    let ok_shape = http
+        .post(&url)
+        .json(&serde_json::json!({
+            "name": "Acme Inc",
+            "email": "buyer@acme.com",
+            "company": "Acme",
+            "message": "We'd like 30 seats on Enterprise."
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(ok_shape.status(), 503);
+}
+
+#[tokio::test]
 async fn engines_endpoint_lists_standard_without_leaking_cost() {
     // The engine registry is surfaced for the pre-join selector (spec 0093). The
     // default `standard` engine is always present; raw cost/markup never leave the
