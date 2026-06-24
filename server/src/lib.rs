@@ -12,6 +12,7 @@ pub mod analytics;
 pub mod api;
 pub mod auth;
 pub mod billing;
+pub mod business;
 pub mod config;
 pub mod content;
 pub mod db;
@@ -474,6 +475,8 @@ pub fn app(state: AppState) -> Router {
         .route("/api/admin/bonus", post(admin::bonus))
         .route("/api/admin/report/resolve", post(admin::resolve_report))
         .route("/api/admin/user/delete", post(admin::delete_user))
+        // VoxTranslate for Business — org workspace API (spec 0106).
+        .merge(business::routes::routes())
         // Canonical log line + request-id span per request (spec 0050).
         .layer(axum::middleware::from_fn(observability::canonical_log))
         .layer(cors)
