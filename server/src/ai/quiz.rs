@@ -36,8 +36,9 @@ pub fn clamp_count(requested: Option<usize>) -> usize {
 /// unchanged from before.
 pub fn quiz_cost(ai: &AiConfig, count: usize, num_langs: usize) -> Decimal {
     let langs = num_langs.max(1) as u64;
-    (usd(ai.quiz_base) + usd(ai.quiz_per_question) * Decimal::from(count as u64) * Decimal::from(langs))
-        .round_dp(6)
+    (usd(ai.quiz_base)
+        + usd(ai.quiz_per_question) * Decimal::from(count as u64) * Decimal::from(langs))
+    .round_dp(6)
 }
 
 /// One validated multiple-choice question. `answer` indexes `options`.

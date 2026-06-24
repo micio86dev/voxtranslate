@@ -268,6 +268,18 @@ mod ws_metering {
         (frame, ws)
     }
 
+    /// Grant 18+/ToS consent so a token-authed test user clears the WS consent
+    /// gate (`authorize` → `has_consented`). Real users consent via
+    /// `POST /api/user/consent`; these tests insert users directly, so set the
+    /// `users` flags the gate reads. Guests (no token) are exempt.
+    async fn consent(pool: &sqlx::PgPool, user_id: Uuid) {
+        sqlx::query("UPDATE users SET age_confirmed = TRUE, consent_tos_at = now() WHERE id = $1")
+            .bind(user_id)
+            .execute(pool)
+            .await
+            .unwrap();
+    }
+
     #[tokio::test]
     async fn guest_billed_and_auth_rejections() {
         let Some(srv) = setup().await else {
@@ -297,6 +309,7 @@ mod ws_metering {
         )
         .await
         .unwrap();
+        consent(&srv.pool, user.id).await;
         let jwt = issue_jwt(&srv.secret, &user.id, &user.email, &user.name, 168).unwrap();
         let (frame, _billed) = connect_first(
             addr,
@@ -352,6 +365,8 @@ mod ws_metering {
         .fetch_one(&srv.pool)
         .await
         .unwrap();
+        // Consent so the gate passes and the balance check (not consent) is what rejects.
+        consent(&srv.pool, broke_id).await;
         let broke_jwt = issue_jwt(&srv.secret, &broke_id, "b@x.com", "Broke", 168).unwrap();
         let (frame, _) = connect_first(
             addr,
@@ -426,6 +441,7 @@ mod ws_metering {
         )
         .await
         .unwrap();
+        consent(&srv.pool, user.id).await;
         let jwt = issue_jwt(&srv.secret, &user.id, &user.email, &user.name, 168).unwrap();
         let pid = format!("u-{}", user.id);
         let (frame, mut ws) = connect_first(
@@ -1107,6 +1123,16 @@ mod safety_ws {
         assert_eq!(priv_guest["type"], "room_joined");
     }
 
+    /// Grant 18+/ToS consent so a token-authed test user clears the WS consent
+    /// gate (`authorize` → `has_consented`). Guests (no token) are exempt.
+    async fn consent(pool: &sqlx::PgPool, user_id: Uuid) {
+        sqlx::query("UPDATE users SET age_confirmed = TRUE, consent_tos_at = now() WHERE id = $1")
+            .bind(user_id)
+            .execute(pool)
+            .await
+            .unwrap();
+    }
+
     #[tokio::test]
     async fn guest_cannot_spoof_into_public_room() {
         // Regression (#232): a guest must not bypass the public-room gate by
@@ -1137,6 +1163,7 @@ mod safety_ws {
         )
         .await
         .unwrap();
+        consent(&srv.pool, user.id).await;
         let jwt = issue_jwt(&srv.secret, &user.id, &user.email, &user.name, 168).unwrap();
         let (mut host_ws, _) = tokio_tungstenite::connect_async(format!(
             "ws://{addr}/ws?room=spoofr&lang=en&id=host&public=true&token={jwt}"
