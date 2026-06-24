@@ -1,9 +1,10 @@
 //! Route table for the Business API. Merged into the main router in `lib.rs::app`.
 
-use axum::routing::{delete, get, post};
+use axum::extract::DefaultBodyLimit;
+use axum::routing::{delete, get, patch, post};
 use axum::Router;
 
-use crate::business::{members, organizations, projects};
+use crate::business::{calls, members, organizations, projects, recording, transcripts};
 use crate::AppState;
 
 /// All `/api/business/...` routes (Phase 2 PR-A: orgs, members, invites, projects).
@@ -43,5 +44,37 @@ pub fn routes() -> Router<AppState> {
             get(projects::get)
                 .patch(projects::patch)
                 .delete(projects::delete),
+        )
+        // ---- Calls: binding, history (PR-B) ----
+        .route("/api/rooms/{room}/business", patch(calls::bind))
+        .route(
+            "/api/business/organizations/{org_id}/rooms",
+            get(calls::list_org_rooms),
+        )
+        .route(
+            "/api/business/organizations/{org_id}/projects/{project_id}/rooms",
+            get(calls::list_project_rooms),
+        )
+        // ---- Recording (PR-B) ----
+        .route(
+            "/api/business/rooms/{session_id}/recording/complete",
+            post(recording::complete).layer(DefaultBodyLimit::max(recording::RECORDING_MAX_BYTES)),
+        )
+        .route(
+            "/api/business/rooms/{session_id}/recording/url",
+            get(recording::url),
+        )
+        // ---- Transcript: read, translate, export (PR-B) ----
+        .route(
+            "/api/business/rooms/{session_id}/transcript",
+            get(transcripts::get_transcript),
+        )
+        .route(
+            "/api/business/rooms/{session_id}/transcript/translate",
+            post(transcripts::translate),
+        )
+        .route(
+            "/api/business/rooms/{session_id}/transcript/export",
+            get(transcripts::export),
         )
 }

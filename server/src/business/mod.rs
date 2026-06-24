@@ -12,10 +12,14 @@
 #![allow(clippy::result_large_err)]
 
 pub mod audit;
+pub mod calls;
+pub mod credits;
 pub mod members;
 pub mod organizations;
 pub mod projects;
+pub mod recording;
 pub mod routes;
+pub mod transcripts;
 
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
@@ -70,6 +74,26 @@ pub async fn require_role(
         Some(r) if role_rank(&r) >= min_rank => Ok(r),
         Some(_) => Err(forbidden("insufficient role")),
     }
+}
+
+/// Resolve the org that owns a call (`call_sessions.id`) and enforce a minimum
+/// role for the caller. 404 when the call doesn't exist or isn't a business call
+/// (no `org_id`). Returns `(org_id, caller_role)`.
+pub async fn require_call_role(
+    pool: &Pool,
+    session_id: Uuid,
+    user_id: Uuid,
+    min_rank: u8,
+) -> Result<(Uuid, String), Response> {
+    let org_id: Option<Uuid> = sqlx::query_scalar("SELECT org_id FROM call_sessions WHERE id = $1")
+        .bind(session_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(db_err)?
+        .flatten();
+    let org_id = org_id.ok_or_else(|| not_found("call not found"))?;
+    let role = require_role(pool, org_id, user_id, min_rank).await?;
+    Ok((org_id, role))
 }
 
 pub fn bad_request(msg: &str) -> Response {
