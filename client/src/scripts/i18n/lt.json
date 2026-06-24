@@ -414,5 +414,12 @@
   "onbCallLeaveTitle": "Palik skambutį",
   "onbCallLeaveBody": "Padėk ragelį, kai baigsi. Gausi santrauką su transkripcijomis ir atsisiuntimais.",
   "onbCallDoneTitle": "Viskas paruošta",
-  "onbCallDoneBody": "Šią apžvalgą bet kada atidarysi iš naujo \"?\" mygtuku. Mėgaukis pokalbiu."
+  "onbCallDoneBody": "Šią apžvalgą bet kada atidarysi iš naujo \"?\" mygtuku. Mėgaukis pokalbiu.",
+  "workspace": "Darbo sritis",
+  "bizOrg": "Organizacija",
+  "bizProject": "Projektas",
+  "bizNoProject": "Nėra projekto",
+  "bizRecord": "Įrašyti šį skambutį į debesį",
+  "bizRecordingNotice": "Šis skambutis įrašomas.",
+  "bizRecordingUploaded": "Įrašas išsaugotas jūsų darbo srityje."
 }

@@ -93,6 +93,7 @@ const jsonLd = {
             <span id="account-balance" class="account-balance"></span>
           </div>
           <button id="buy-btn" class="btn-ghost" data-i18n="buyCredits">{T('buyCredits')}</button>
+          <a id="workspace-btn" class="btn-ghost hidden" data-i18n="workspace" target="_blank" rel="noopener">{T('workspace')}</a>
           <button id="privacy-open" class="btn-ghost icon-btn" data-i18n-title="privacyData" title={T('privacyData')} aria-label="Privacy"></button>
           <button id="logout-btn" class="btn-ghost icon-btn" data-i18n-title="logout" title={T('logout')} aria-label="Logout"></button>
         </div>
@@ -296,6 +297,22 @@ const jsonLd = {
           </label>
         </div>
         <p id="prejoin-status" class="status-line" role="status"></p>
+        <!-- VoxTranslate for Business (spec 0106): associate this call with an org/project
+             and optionally record it. Hidden for non-business users. -->
+        <div id="biz-prejoin" class="field-row hidden">
+          <label class="field grow">
+            <span class="field-label" data-i18n="bizOrg">{T('bizOrg')}</span>
+            <select id="biz-org"></select>
+          </label>
+          <label class="field grow">
+            <span class="field-label" data-i18n="bizProject">{T('bizProject')}</span>
+            <select id="biz-project"></select>
+          </label>
+        </div>
+        <label id="biz-record-row" class="biz-record-row hidden">
+          <input id="biz-record" type="checkbox" />
+          <span data-i18n="bizRecord">{T('bizRecord')}</span>
+        </label>
         <div class="prejoin-actions">
           <button id="back-btn" class="btn-ghost" data-i18n="back">{T('back')}</button>
           <button id="join-btn" class="btn-primary" data-i18n="join">{T('join')}</button>

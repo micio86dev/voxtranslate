@@ -414,5 +414,12 @@
   "onbCallLeaveTitle": "יציאה מהשיחה",
   "onbCallLeaveBody": "נתקו כשתסיימו. תקבלו סיכום עם תמלולים והורדות.",
   "onbCallDoneTitle": "הכול מוכן",
-  "onbCallDoneBody": "פתחו מחדש את הסיור הזה בכל רגע מכפתור ה-\"?\". תיהנו מהשיחה."
+  "onbCallDoneBody": "פתחו מחדש את הסיור הזה בכל רגע מכפתור ה-\"?\". תיהנו מהשיחה.",
+  "workspace": "סביבת עבודה",
+  "bizOrg": "ארגון",
+  "bizProject": "פרויקט",
+  "bizNoProject": "ללא פרויקט",
+  "bizRecord": "הקלט שיחה זו בענן",
+  "bizRecordingNotice": "שיחה זו מוקלטת.",
+  "bizRecordingUploaded": "ההקלטה נשמרה בסביבת העבודה שלך."
 }

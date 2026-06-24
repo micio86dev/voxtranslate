@@ -414,5 +414,12 @@
   "onbCallLeaveTitle": "Sair da chamada",
   "onbCallLeaveBody": "Desligue quando terminar. Você receberá um resumo com transcrições e downloads.",
   "onbCallDoneTitle": "Tudo pronto",
-  "onbCallDoneBody": "Reabra este tour a qualquer momento pelo botão \"?\". Aproveite a conversa."
+  "onbCallDoneBody": "Reabra este tour a qualquer momento pelo botão \"?\". Aproveite a conversa.",
+  "workspace": "Espaço de trabalho",
+  "bizOrg": "Organização",
+  "bizProject": "Projeto",
+  "bizNoProject": "Sem projeto",
+  "bizRecord": "Gravar esta chamada na nuvem",
+  "bizRecordingNotice": "Esta chamada está a ser gravada.",
+  "bizRecordingUploaded": "Gravação guardada no seu espaço de trabalho."
 }

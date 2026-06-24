@@ -414,5 +414,12 @@
   "onbCallLeaveTitle": "Saír da chamada",
   "onbCallLeaveBody": "Colga cando remates. Recibirás un resumo coas transcricións e as descargas.",
   "onbCallDoneTitle": "Xa está todo listo",
-  "onbCallDoneBody": "Reabre esta visita en calquera momento desde o botón «?». Goza da conversa."
+  "onbCallDoneBody": "Reabre esta visita en calquera momento desde o botón «?». Goza da conversa.",
+  "workspace": "Espazo de traballo",
+  "bizOrg": "Organización",
+  "bizProject": "Proxecto",
+  "bizNoProject": "Sen proxecto",
+  "bizRecord": "Grava esta chamada na nube",
+  "bizRecordingNotice": "Esta chamada estase a gravar.",
+  "bizRecordingUploaded": "Gravación gardada no teu espazo de traballo."
 }

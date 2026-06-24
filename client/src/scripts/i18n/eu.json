@@ -414,5 +414,12 @@
   "onbCallLeaveTitle": "Irten deitik",
   "onbCallLeaveBody": "Eseki amaitzen duzunean. Laburpen bat jasoko duzu transkripzioekin eta deskargekin.",
   "onbCallDoneTitle": "Dena prest duzu",
-  "onbCallDoneBody": "Ireki bisita hau berriro nahi duzunean \"?\" botoitik. Gozatu elkarrizketaz."
+  "onbCallDoneBody": "Ireki bisita hau berriro nahi duzunean \"?\" botoitik. Gozatu elkarrizketaz.",
+  "workspace": "Lan-eremua",
+  "bizOrg": "Erakundea",
+  "bizProject": "Proiektua",
+  "bizNoProject": "Proiekturik ez",
+  "bizRecord": "Grabatu dei hau hodeian",
+  "bizRecordingNotice": "Dei hau grabatzen ari da.",
+  "bizRecordingUploaded": "Grabaketa zure lan-eremuan gorde da."
 }

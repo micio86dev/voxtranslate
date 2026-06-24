@@ -414,5 +414,12 @@
   "onbCallLeaveTitle": "Kite apèl la",
   "onbCallLeaveBody": "Rakroche lè ou fini. W ap jwenn yon rezime ak transkripsyon ak telechajman.",
   "onbCallDoneTitle": "Ou pare nèt",
-  "onbCallDoneBody": "Reouvri vizit sa a nenpòt lè ak bouton \"?\" a. Pwofite konvèsasyon an."
+  "onbCallDoneBody": "Reouvri vizit sa a nenpòt lè ak bouton \"?\" a. Pwofite konvèsasyon an.",
+  "workspace": "Espas travay",
+  "bizOrg": "Òganizasyon",
+  "bizProject": "Pwojè",
+  "bizNoProject": "Pa gen pwojè",
+  "bizRecord": "Anrejistre apèl sa a nan nyaj la",
+  "bizRecordingNotice": "Y ap anrejistre apèl sa a.",
+  "bizRecordingUploaded": "Anrejistreman sere nan espas travay ou."
 }

@@ -414,5 +414,12 @@
   "onbCallLeaveTitle": "Opuść rozmowę",
   "onbCallLeaveBody": "Rozłącz się, gdy skończysz. Otrzymasz podsumowanie z transkrypcjami i plikami do pobrania.",
   "onbCallDoneTitle": "Wszystko gotowe",
-  "onbCallDoneBody": "W każdej chwili możesz otworzyć ten przewodnik przyciskiem \"?\". Miłej rozmowy."
+  "onbCallDoneBody": "W każdej chwili możesz otworzyć ten przewodnik przyciskiem \"?\". Miłej rozmowy.",
+  "workspace": "Obszar roboczy",
+  "bizOrg": "Organizacja",
+  "bizProject": "Projekt",
+  "bizNoProject": "Brak projektu",
+  "bizRecord": "Nagraj tę rozmowę w chmurze",
+  "bizRecordingNotice": "Ta rozmowa jest nagrywana.",
+  "bizRecordingUploaded": "Nagranie zapisano w Twoim obszarze roboczym."
 }

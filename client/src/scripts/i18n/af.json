@@ -414,5 +414,12 @@
   "onbCallLeaveTitle": "Verlaat die oproep",
   "onbCallLeaveBody": "Sit neer wanneer jy klaar is. Jy kry 'n opsomming met transkripsies en aflaaie.",
   "onbCallDoneTitle": "Jy's reg",
-  "onbCallDoneBody": "Maak hierdie toer enige tyd weer oop met die \"?\"-knoppie. Geniet die gesprek."
+  "onbCallDoneBody": "Maak hierdie toer enige tyd weer oop met die \"?\"-knoppie. Geniet die gesprek.",
+  "workspace": "Werkruimte",
+  "bizOrg": "Organisasie",
+  "bizProject": "Projek",
+  "bizNoProject": "Geen projek",
+  "bizRecord": "Neem hierdie oproep in die wolk op",
+  "bizRecordingNotice": "Hierdie oproep word opgeneem.",
+  "bizRecordingUploaded": "Opname in jou werkruimte gestoor."
 }

@@ -414,5 +414,12 @@
   "onbCallLeaveTitle": "Lépjen ki a hívásból",
   "onbCallLeaveBody": "Tegye le, amikor végzett. Kap egy összefoglalót átiratokkal és letöltésekkel.",
   "onbCallDoneTitle": "Minden készen áll",
-  "onbCallDoneBody": "Ezt a bemutatót bármikor újra megnyithatja a \"?\" gombbal. Élvezze a beszélgetést."
+  "onbCallDoneBody": "Ezt a bemutatót bármikor újra megnyithatja a \"?\" gombbal. Élvezze a beszélgetést.",
+  "workspace": "Munkaterület",
+  "bizOrg": "Szervezet",
+  "bizProject": "Projekt",
+  "bizNoProject": "Nincs projekt",
+  "bizRecord": "Rögzítsd ezt a hívást a felhőbe",
+  "bizRecordingNotice": "Ezt a hívást rögzítjük.",
+  "bizRecordingUploaded": "A felvétel mentve a munkaterületedre."
 }

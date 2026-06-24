@@ -414,5 +414,12 @@
   "onbCallLeaveTitle": "Qo'ng'iroqdan chiqish",
   "onbCallLeaveBody": "Tugatganingizda qo'ng'iroqni yakunlang. Transkriptlar va yuklab olishlar bilan birga xulosa olasiz.",
   "onbCallDoneTitle": "Hammasi tayyor",
-  "onbCallDoneBody": "Bu qo'llanmani istalgan vaqtda \"?\" tugmasi orqali qayta oching. Suhbatdan rohatlaning."
+  "onbCallDoneBody": "Bu qo'llanmani istalgan vaqtda \"?\" tugmasi orqali qayta oching. Suhbatdan rohatlaning.",
+  "workspace": "Ish maydoni",
+  "bizOrg": "Tashkilot",
+  "bizProject": "Loyiha",
+  "bizNoProject": "Loyiha yoʻq",
+  "bizRecord": "Bu qoʻngʻiroqni bulutga yozib oling",
+  "bizRecordingNotice": "Bu qoʻngʻiroq yozib olinmoqda.",
+  "bizRecordingUploaded": "Yozuv ish maydoningizga saqlandi."
 }

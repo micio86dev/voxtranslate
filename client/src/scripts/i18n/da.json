@@ -414,5 +414,12 @@
   "onbCallLeaveTitle": "Forlad opkaldet",
   "onbCallLeaveBody": "Læg på, når du er færdig. Du får et resumé med udskrifter og downloads.",
   "onbCallDoneTitle": "Du er klar",
-  "onbCallDoneBody": "Åbn denne rundvisning igen når som helst fra knappen \"?\". God fornøjelse med samtalen."
+  "onbCallDoneBody": "Åbn denne rundvisning igen når som helst fra knappen \"?\". God fornøjelse med samtalen.",
+  "workspace": "Arbejdsområde",
+  "bizOrg": "Organisation",
+  "bizProject": "Projekt",
+  "bizNoProject": "Intet projekt",
+  "bizRecord": "Optag dette opkald i skyen",
+  "bizRecordingNotice": "Dette opkald bliver optaget.",
+  "bizRecordingUploaded": "Optagelse gemt i dit arbejdsområde."
 }

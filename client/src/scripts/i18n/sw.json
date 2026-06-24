@@ -414,5 +414,12 @@
   "onbCallLeaveTitle": "Ondoka kwenye simu",
   "onbCallLeaveBody": "Kata simu ukimaliza. Utapata muhtasari wenye nakala na vipakuliwa.",
   "onbCallDoneTitle": "Uko tayari kabisa",
-  "onbCallDoneBody": "Fungua mwongozo huu wakati wowote kutoka kwa kitufe cha \"?\". Furahia mazungumzo."
+  "onbCallDoneBody": "Fungua mwongozo huu wakati wowote kutoka kwa kitufe cha \"?\". Furahia mazungumzo.",
+  "workspace": "Nafasi ya kazi",
+  "bizOrg": "Shirika",
+  "bizProject": "Mradi",
+  "bizNoProject": "Hakuna mradi",
+  "bizRecord": "Rekodi simu hii kwenye wingu",
+  "bizRecordingNotice": "Simu hii inarekodiwa.",
+  "bizRecordingUploaded": "Rekodi imehifadhiwa kwenye nafasi yako ya kazi."
 }

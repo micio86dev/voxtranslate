@@ -414,5 +414,12 @@
   "onbCallLeaveTitle": "Napustite poziv",
   "onbCallLeaveBody": "Prekinite kada završite. Dobit ćete sažetak s transkriptima i preuzimanjima.",
   "onbCallDoneTitle": "Sve je spremno",
-  "onbCallDoneBody": "Ovaj obilazak ponovo otvorite bilo kada pomoću dugmeta \"?\". Uživajte u razgovoru."
+  "onbCallDoneBody": "Ovaj obilazak ponovo otvorite bilo kada pomoću dugmeta \"?\". Uživajte u razgovoru.",
+  "workspace": "Radni prostor",
+  "bizOrg": "Organizacija",
+  "bizProject": "Projekat",
+  "bizNoProject": "Bez projekta",
+  "bizRecord": "Snimi ovaj poziv u oblak",
+  "bizRecordingNotice": "Ovaj poziv se snima.",
+  "bizRecordingUploaded": "Snimak je sačuvan u vašem radnom prostoru."
 }

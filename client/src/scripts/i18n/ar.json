@@ -414,5 +414,12 @@
   "onbCallLeaveTitle": "مغادرة المكالمة",
   "onbCallLeaveBody": "أنهِ المكالمة عند الانتهاء. ستحصل على ملخّص مع نصوص وتنزيلات.",
   "onbCallDoneTitle": "كل شيء جاهز",
-  "onbCallDoneBody": "أعد فتح هذه الجولة في أي وقت من زر \"?\". استمتع بالمحادثة."
+  "onbCallDoneBody": "أعد فتح هذه الجولة في أي وقت من زر \"?\". استمتع بالمحادثة.",
+  "workspace": "مساحة العمل",
+  "bizOrg": "المؤسسة",
+  "bizProject": "المشروع",
+  "bizNoProject": "بدون مشروع",
+  "bizRecord": "سجّل هذه المكالمة في السحابة",
+  "bizRecordingNotice": "يتم تسجيل هذه المكالمة.",
+  "bizRecordingUploaded": "تم حفظ التسجيل في مساحة عملك."
 }

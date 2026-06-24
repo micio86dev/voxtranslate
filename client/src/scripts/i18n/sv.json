@@ -414,5 +414,12 @@
   "onbCallLeaveTitle": "Lämna samtalet",
   "onbCallLeaveBody": "Lägg på när du är klar. Du får en sammanfattning med utskrifter och nedladdningar.",
   "onbCallDoneTitle": "Allt är klart",
-  "onbCallDoneBody": "Öppna den här rundturen igen när som helst via \"?\"-knappen. Ha ett trevligt samtal."
+  "onbCallDoneBody": "Öppna den här rundturen igen när som helst via \"?\"-knappen. Ha ett trevligt samtal.",
+  "workspace": "Arbetsyta",
+  "bizOrg": "Organisation",
+  "bizProject": "Projekt",
+  "bizNoProject": "Inget projekt",
+  "bizRecord": "Spela in detta samtal i molnet",
+  "bizRecordingNotice": "Det här samtalet spelas in.",
+  "bizRecordingUploaded": "Inspelningen sparades i din arbetsyta."
 }

@@ -414,5 +414,12 @@
   "onbCallLeaveTitle": "Het gesprek verlaten",
   "onbCallLeaveBody": "Hang op als je klaar bent. Je krijgt een samenvatting met transcripties en downloads.",
   "onbCallDoneTitle": "Je bent helemaal klaar",
-  "onbCallDoneBody": "Open deze rondleiding op elk moment opnieuw via de \"?\"-knop. Geniet van het gesprek."
+  "onbCallDoneBody": "Open deze rondleiding op elk moment opnieuw via de \"?\"-knop. Geniet van het gesprek.",
+  "workspace": "Werkruimte",
+  "bizOrg": "Organisatie",
+  "bizProject": "Project",
+  "bizNoProject": "Geen project",
+  "bizRecord": "Neem dit gesprek op in de cloud",
+  "bizRecordingNotice": "Dit gesprek wordt opgenomen.",
+  "bizRecordingUploaded": "Opname opgeslagen in je werkruimte."
 }

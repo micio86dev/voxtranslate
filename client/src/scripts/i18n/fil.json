@@ -414,5 +414,12 @@
   "onbCallLeaveTitle": "Umalis sa tawag",
   "onbCallLeaveBody": "Mag-hang up kapag tapos ka na. Makakakuha ka ng summary na may mga transcript at download.",
   "onbCallDoneTitle": "Handa ka na",
-  "onbCallDoneBody": "Buksan ulit ang tour na ito kahit kailan mula sa \"?\" button. Mag-enjoy sa usapan."
+  "onbCallDoneBody": "Buksan ulit ang tour na ito kahit kailan mula sa \"?\" button. Mag-enjoy sa usapan.",
+  "workspace": "Workspace",
+  "bizOrg": "Organisasyon",
+  "bizProject": "Proyekto",
+  "bizNoProject": "Walang proyekto",
+  "bizRecord": "I-record ang tawag na ito sa cloud",
+  "bizRecordingNotice": "Nire-record ang tawag na ito.",
+  "bizRecordingUploaded": "Na-save ang recording sa iyong workspace."
 }

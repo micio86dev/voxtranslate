@@ -414,5 +414,12 @@
   "onbCallLeaveTitle": "Părăsiți apelul",
   "onbCallLeaveBody": "Închideți când ați terminat. Veți primi un rezumat cu transcrieri și descărcări.",
   "onbCallDoneTitle": "Sunteți gata",
-  "onbCallDoneBody": "Redeschideți acest tur oricând din butonul \"?\". Bucurați-vă de conversație."
+  "onbCallDoneBody": "Redeschideți acest tur oricând din butonul \"?\". Bucurați-vă de conversație.",
+  "workspace": "Spațiu de lucru",
+  "bizOrg": "Organizație",
+  "bizProject": "Proiect",
+  "bizNoProject": "Fără proiect",
+  "bizRecord": "Înregistrează acest apel în cloud",
+  "bizRecordingNotice": "Acest apel este înregistrat.",
+  "bizRecordingUploaded": "Înregistrarea a fost salvată în spațiul tău de lucru."
 }

@@ -414,5 +414,12 @@
   "onbCallLeaveTitle": "Largohuni nga telefonata",
   "onbCallLeaveBody": "Mbyllni kur të mbaroni. Do të merrni një përmbledhje me transkripte dhe shkarkime.",
   "onbCallDoneTitle": "Gjithçka gati",
-  "onbCallDoneBody": "Rihapni këtë shëtitje në çdo kohë nga butoni \"?\". Gëzojeni bisedën."
+  "onbCallDoneBody": "Rihapni këtë shëtitje në çdo kohë nga butoni \"?\". Gëzojeni bisedën.",
+  "workspace": "Hapësira e punës",
+  "bizOrg": "Organizata",
+  "bizProject": "Projekti",
+  "bizNoProject": "Pa projekt",
+  "bizRecord": "Regjistro këtë telefonatë në cloud",
+  "bizRecordingNotice": "Kjo telefonatë po regjistrohet.",
+  "bizRecordingUploaded": "Regjistrimi u ruajt në hapësirën tënde të punës."
 }

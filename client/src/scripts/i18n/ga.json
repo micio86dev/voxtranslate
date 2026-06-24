@@ -414,5 +414,12 @@
   "onbCallLeaveTitle": "Fág an glao",
   "onbCallLeaveBody": "Croch suas nuair atá tú críochnaithe. Gheobhaidh tú achoimre le tras-scríbhinní agus íoslódálacha.",
   "onbCallDoneTitle": "Tá tú réidh",
-  "onbCallDoneBody": "Athoscail an turas seo am ar bith ón gcnaipe \"?\". Bain taitneamh as an gcomhrá."
+  "onbCallDoneBody": "Athoscail an turas seo am ar bith ón gcnaipe \"?\". Bain taitneamh as an gcomhrá.",
+  "workspace": "Spás oibre",
+  "bizOrg": "Eagraíocht",
+  "bizProject": "Tionscadal",
+  "bizNoProject": "Gan tionscadal",
+  "bizRecord": "Taifead an glao seo sa scamall",
+  "bizRecordingNotice": "Tá an glao seo á thaifeadadh.",
+  "bizRecordingUploaded": "Sábháladh an taifeadadh i do spás oibre."
 }

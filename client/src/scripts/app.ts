@@ -38,6 +38,14 @@ import { CHAT_MAX_HEIGHT, counterLabel, counterState, insertAt, resizeBox } from
 import { checkUploadFile, fetchAiPricing, fetchSonioxSession, fileUploadEnabled, generateAiQuiz, saveQuizHistory, sendInvites, uploadChatFile } from './api';
 import { buildInviteLink, MAX_INVITE_EMAILS, parseRoomParam, validateInviteEmails } from './invite';
 import * as auth from './auth';
+import {
+  bindRoom,
+  DASHBOARD_URL,
+  listMyOrgs,
+  listProjects,
+  uploadRecording,
+  type BusinessOrg,
+} from './business';
 import { initBookmarks, setBookmarkSession } from './bookmarks';
 import { initBugReport } from './bug-report';
 import * as onboarding from './onboarding';
@@ -504,6 +512,12 @@ const remoteStreams = new Map<string, MediaStream>();
 let activeSessionId: string | null = null;
 let transcriptEvents = 0; // speech finals + chat lines seen this call
 let callStartedAt = 0; // ms epoch of room_joined (0 = never actually joined)
+
+// VoxTranslate for Business (spec 0106): orgs the signed-in user belongs to
+// (fetched once), and whether THIS call is cloud-recording (chosen in pre-join) —
+// which drives the recording notice + the end-of-call upload.
+let bizOrgs: BusinessOrg[] | null = null;
+let bizRecording = false;
 let sessionTimerId = 0; // 1s interval driving the session-duration chip (spec 0055)
 
 const peerNames = new Map<string, { name: string; lang: string; avatar?: string | null }>();
@@ -1182,6 +1196,7 @@ async function goPrejoin(room: string, isPublic: boolean): Promise<void> {
   prejoinRoom.textContent = room;
   prejoinVis.textContent = isPublic ? t('public') : t('private');
   prejoinStatus.textContent = '';
+  void setupBizPrejoin();
   micOn = true;
   camOn = true;
   try {
@@ -1438,7 +1453,15 @@ async function startCall(): Promise<void> {
   // Fetch ICE servers (incl. the TURN relay if configured) before opening the
   // socket, so the mesh has them ready when peers arrive — no race (spec 0026).
   iceServers = await fetchIceServers();
+  // Associate this room with the chosen org/project (+recording) before joining,
+  // so the server's call_session inherits it (business users only; no-op otherwise).
+  await bindRoomIfBusiness();
   openSocket();
+  // Cloud recording: auto-start the composite recorder and notify participants.
+  if (bizRecording) {
+    showNotif(t('bizRecordingNotice'));
+    void startRecording();
+  }
 }
 
 function openSocket(): void {
@@ -3415,7 +3438,18 @@ async function stopRecording(partial = false): Promise<void> {
   showNotif(t('processing'));
   const blob = await rec.stop();
   if (blob.size > 0) {
-    auth.downloadBlob(blob, recordingFilename(session?.room || 'call', new Date()));
+    // Business cloud recording → upload to the workspace; otherwise download locally.
+    if (bizRecording && activeSessionId && billing && auth.isLoggedIn()) {
+      const dur = Math.round((Date.now() - rec.startedAt) / 1000);
+      const ok = await uploadRecording(activeSessionId, blob, dur);
+      if (ok) {
+        showNotif(t('bizRecordingUploaded'));
+      } else {
+        auth.downloadBlob(blob, recordingFilename(session?.room || 'call', new Date()));
+      }
+    } else {
+      auth.downloadBlob(blob, recordingFilename(session?.room || 'call', new Date()));
+    }
   }
   if (partial) toast(t('recordingPartial'));
 }
@@ -3943,6 +3977,69 @@ function renderAccount(): void {
     accountAvatar.style.display = 'none';
   }
   setBalanceUi(u.balance);
+  void updateWorkspaceLink();
+}
+
+// --- VoxTranslate for Business hooks (spec 0106) ---
+
+async function ensureBizOrgs(): Promise<BusinessOrg[]> {
+  if (bizOrgs) return bizOrgs;
+  bizOrgs = billing && auth.isLoggedIn() ? await listMyOrgs() : [];
+  return bizOrgs;
+}
+
+// Reveal the navbar "Workspace" link once we know the user belongs to ≥1 org.
+async function updateWorkspaceLink(): Promise<void> {
+  const orgs = await ensureBizOrgs();
+  if (orgs.length === 0) return;
+  const btn = $<HTMLAnchorElement>('workspace-btn');
+  btn.href = DASHBOARD_URL;
+  show(btn, true);
+}
+
+// Populate the pre-join org/project selector for business users.
+async function setupBizPrejoin(): Promise<void> {
+  const block = $('biz-prejoin');
+  const recRow = $('biz-record-row');
+  const orgs = await ensureBizOrgs();
+  if (orgs.length === 0) {
+    show(block, false);
+    show(recRow, false);
+    return;
+  }
+  const orgSel = $<HTMLSelectElement>('biz-org');
+  const projSel = $<HTMLSelectElement>('biz-project');
+  orgSel.replaceChildren(...orgs.map((o) => new Option(o.name, o.id)));
+  // Hide the org picker when there's only one org (its value is still used).
+  const orgLabel = orgSel.closest('label');
+  if (orgLabel) (orgLabel as HTMLElement).style.display = orgs.length > 1 ? '' : 'none';
+  const loadProjects = async () => {
+    const projects = await listProjects(orgSel.value);
+    projSel.replaceChildren(
+      new Option(t('bizNoProject'), ''),
+      ...projects.map((p) => new Option(p.name, p.id)),
+    );
+  };
+  orgSel.onchange = () => void loadProjects();
+  await loadProjects();
+  show(block, true);
+  show(recRow, true);
+}
+
+// Before opening the socket: bind the room to the chosen org/project (+recording)
+// so the server's session_started inherits it. Sets `bizRecording`.
+async function bindRoomIfBusiness(): Promise<void> {
+  bizRecording = false;
+  if (!session || $('biz-prejoin').classList.contains('hidden')) return;
+  const orgId = $<HTMLSelectElement>('biz-org').value;
+  if (!orgId) return;
+  const record = $<HTMLInputElement>('biz-record').checked;
+  const ok = await bindRoom(session.room, {
+    org_id: orgId,
+    project_id: $<HTMLSelectElement>('biz-project').value || null,
+    cloud_recording_enabled: record,
+  });
+  if (ok) bizRecording = record;
 }
 
 function setBalanceUi(balance: number): void {

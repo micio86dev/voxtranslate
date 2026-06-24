@@ -414,5 +414,12 @@
   "onbCallLeaveTitle": "Phuma ekholini",
   "onbCallLeaveBody": "Vala ucingo lapho usuqedile. Uzothola isifinyezo esinemibhalo nokokulanda.",
   "onbCallDoneTitle": "Usulungele konke",
-  "onbCallDoneBody": "Vula kabusha lesi siqondiso noma nini ngenkinobho ethi \"?\". Jabulela ingxoxo."
+  "onbCallDoneBody": "Vula kabusha lesi siqondiso noma nini ngenkinobho ethi \"?\". Jabulela ingxoxo.",
+  "workspace": "Isikhala somsebenzi",
+  "bizOrg": "Inhlangano",
+  "bizProject": "Iphrojekthi",
+  "bizNoProject": "Ayikho iphrojekthi",
+  "bizRecord": "Rekhoda le kholi kwi-cloud",
+  "bizRecordingNotice": "Le kholi iyarekhodwa.",
+  "bizRecordingUploaded": "Ukurekhoda kulondolozwe esikhaleni sakho somsebenzi."
 }

@@ -414,5 +414,12 @@
   "onbCallLeaveTitle": "Pụọ n'oku",
   "onbCallLeaveBody": "Kwụsị mgbe ị mechara. Ị ga-enweta nchịkọta nwere ihe edeturu na nbudata.",
   "onbCallDoneTitle": "Ị dị njikere kpamkpam",
-  "onbCallDoneBody": "Meghee nleta a ọzọ mgbe ọ bụla site na bọtịnụ \"?\". Nwee ọṅụ na mkparịta ụka ahụ."
+  "onbCallDoneBody": "Meghee nleta a ọzọ mgbe ọ bụla site na bọtịnụ \"?\". Nwee ọṅụ na mkparịta ụka ahụ.",
+  "workspace": "Oghere ọrụ",
+  "bizOrg": "Òtù",
+  "bizProject": "Ọrụ",
+  "bizNoProject": "Enweghị ọrụ",
+  "bizRecord": "Dekọọ oku a na ígwé ojii",
+  "bizRecordingNotice": "A na-edekọ oku a.",
+  "bizRecordingUploaded": "Echekwara ndekọ na oghere ọrụ gị."
 }

@@ -414,5 +414,12 @@
   "onbCallLeaveTitle": "Tinggalkan panggilan",
   "onbCallLeaveBody": "Tutup saat Anda selesai. Anda akan mendapat ringkasan dengan transkrip dan unduhan.",
   "onbCallDoneTitle": "Anda sudah siap",
-  "onbCallDoneBody": "Buka kembali tur ini kapan saja dari tombol \"?\". Nikmati percakapannya."
+  "onbCallDoneBody": "Buka kembali tur ini kapan saja dari tombol \"?\". Nikmati percakapannya.",
+  "workspace": "Ruang kerja",
+  "bizOrg": "Organisasi",
+  "bizProject": "Proyek",
+  "bizNoProject": "Tidak ada proyek",
+  "bizRecord": "Rekam panggilan ini ke cloud",
+  "bizRecordingNotice": "Panggilan ini sedang direkam.",
+  "bizRecordingUploaded": "Rekaman disimpan ke ruang kerja Anda."
 }

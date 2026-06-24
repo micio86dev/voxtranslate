@@ -414,5 +414,12 @@
   "onbCallLeaveTitle": "Poistu puhelusta",
   "onbCallLeaveBody": "Lopeta puhelu, kun olet valmis. Saat yhteenvedon litterointeineen ja latauksineen.",
   "onbCallDoneTitle": "Kaikki on valmista",
-  "onbCallDoneBody": "Avaa tämä kierros uudelleen milloin tahansa \"?\"-painikkeesta. Nauti keskustelusta."
+  "onbCallDoneBody": "Avaa tämä kierros uudelleen milloin tahansa \"?\"-painikkeesta. Nauti keskustelusta.",
+  "workspace": "Työtila",
+  "bizOrg": "Organisaatio",
+  "bizProject": "Projekti",
+  "bizNoProject": "Ei projektia",
+  "bizRecord": "Tallenna tämä puhelu pilveen",
+  "bizRecordingNotice": "Tätä puhelua tallennetaan.",
+  "bizRecordingUploaded": "Tallenne tallennettu työtilaasi."
 }

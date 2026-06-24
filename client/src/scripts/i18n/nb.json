@@ -414,5 +414,12 @@
   "onbCallLeaveTitle": "Forlat samtalen",
   "onbCallLeaveBody": "Legg på når du er ferdig. Du får et sammendrag med transkripsjoner og nedlastinger.",
   "onbCallDoneTitle": "Da er du klar",
-  "onbCallDoneBody": "Åpne denne omvisningen igjen når som helst fra \"?\"-knappen. Kos deg med samtalen."
+  "onbCallDoneBody": "Åpne denne omvisningen igjen når som helst fra \"?\"-knappen. Kos deg med samtalen.",
+  "workspace": "Arbeidsområde",
+  "bizOrg": "Organisasjon",
+  "bizProject": "Prosjekt",
+  "bizNoProject": "Ingen prosjekt",
+  "bizRecord": "Ta opp denne samtalen i skyen",
+  "bizRecordingNotice": "Denne samtalen tas opp.",
+  "bizRecordingUploaded": "Opptak lagret i arbeidsområdet ditt."
 }

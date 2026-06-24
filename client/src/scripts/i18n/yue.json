@@ -414,5 +414,12 @@
   "onbCallLeaveTitle": "離開通話",
   "onbCallLeaveBody": "傾完就收線。你會收到一份摘要，連埋逐字稿同下載檔案。",
   "onbCallDoneTitle": "一切就緒",
-  "onbCallDoneBody": "隨時可以撳 \"?\" 掣重新打開呢個導覽。祝你傾得開心。"
+  "onbCallDoneBody": "隨時可以撳 \"?\" 掣重新打開呢個導覽。祝你傾得開心。",
+  "workspace": "工作區",
+  "bizOrg": "機構",
+  "bizProject": "專案",
+  "bizNoProject": "冇專案",
+  "bizRecord": "將呢個通話錄製到雲端",
+  "bizRecordingNotice": "呢個通話正在錄製。",
+  "bizRecordingUploaded": "錄製已儲存到你嘅工作區。"
 }
