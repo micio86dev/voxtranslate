@@ -12,6 +12,7 @@
 #![allow(clippy::result_large_err)]
 
 pub mod audit;
+pub mod billing;
 pub mod calls;
 pub mod credits;
 pub mod members;

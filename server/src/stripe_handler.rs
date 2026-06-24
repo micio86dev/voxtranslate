@@ -9,7 +9,7 @@ use hmac::{Hmac, Mac};
 use sha2::Sha256;
 use uuid::Uuid;
 
-use crate::config::{BillingConfig, CreditPackage};
+use crate::config::{BillingConfig, CreditPackage, OrgBillingConfig};
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -42,6 +42,118 @@ pub async fn create_checkout_session(
         .post(format!("{STRIPE_API_BASE}/v1/checkout/sessions"))
         .bearer_auth(&cfg.stripe_secret_key)
         .form(&params)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !resp.status().is_success() {
+        return Err(format!("stripe returned {}", resp.status()));
+    }
+    let body: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+    body["url"]
+        .as_str()
+        .map(str::to_string)
+        .ok_or_else(|| "checkout session had no url".to_string())
+}
+
+/// Create a Stripe Checkout Session in **subscription** mode for an org (spec
+/// 0106): auto-renewing, the customer manages it via the Billing Portal. The
+/// `org_id`/`plan`/`interval` ride along as metadata so the webhook can link the
+/// resulting customer + subscription to the org.
+pub async fn create_org_subscription_checkout(
+    http: &reqwest::Client,
+    cfg: &BillingConfig,
+    org_cfg: &OrgBillingConfig,
+    org_id: &Uuid,
+    price_id: &str,
+    plan: &str,
+    interval: &str,
+) -> Result<String, String> {
+    let oid = org_id.to_string();
+    let params = [
+        ("mode", "subscription".to_string()),
+        ("success_url", org_cfg.success_url.clone()),
+        ("cancel_url", org_cfg.cancel_url.clone()),
+        ("client_reference_id", oid.clone()),
+        ("line_items[0][price]", price_id.to_string()),
+        ("line_items[0][quantity]", "1".to_string()),
+        ("metadata[org_id]", oid.clone()),
+        ("metadata[plan]", plan.to_string()),
+        ("metadata[interval]", interval.to_string()),
+        ("subscription_data[metadata][org_id]", oid),
+    ];
+    post_checkout(http, cfg, &params).await
+}
+
+/// Create a one-off Checkout Session that tops up an org's credit pool by
+/// `credits` (priced inline at `credit_unit_amount_cents` each).
+pub async fn create_org_purchase_checkout(
+    http: &reqwest::Client,
+    cfg: &BillingConfig,
+    org_cfg: &OrgBillingConfig,
+    org_id: &Uuid,
+    credits: i32,
+) -> Result<String, String> {
+    let oid = org_id.to_string();
+    let params = [
+        ("mode", "payment".to_string()),
+        ("success_url", org_cfg.success_url.clone()),
+        ("cancel_url", org_cfg.cancel_url.clone()),
+        ("client_reference_id", oid.clone()),
+        ("line_items[0][price_data][currency]", "usd".to_string()),
+        (
+            "line_items[0][price_data][product_data][name]",
+            "VoxTranslate organization credits".to_string(),
+        ),
+        (
+            "line_items[0][price_data][unit_amount]",
+            org_cfg.credit_unit_amount_cents.to_string(),
+        ),
+        ("line_items[0][quantity]", credits.to_string()),
+        ("metadata[org_id]", oid),
+        ("metadata[credits]", credits.to_string()),
+    ];
+    post_checkout(http, cfg, &params).await
+}
+
+/// Create a Stripe Billing **Customer Portal** session so an org admin can cancel
+/// auto-renew, switch plan, or update their card — Stripe-hosted, no custom UI.
+pub async fn create_portal_session(
+    http: &reqwest::Client,
+    cfg: &BillingConfig,
+    org_cfg: &OrgBillingConfig,
+    customer_id: &str,
+) -> Result<String, String> {
+    let params = [
+        ("customer", customer_id.to_string()),
+        ("return_url", org_cfg.portal_return_url.clone()),
+    ];
+    let resp = http
+        .post(format!("{STRIPE_API_BASE}/v1/billing_portal/sessions"))
+        .bearer_auth(&cfg.stripe_secret_key)
+        .form(&params)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !resp.status().is_success() {
+        return Err(format!("stripe returned {}", resp.status()));
+    }
+    let body: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+    body["url"]
+        .as_str()
+        .map(str::to_string)
+        .ok_or_else(|| "portal session had no url".to_string())
+}
+
+/// Shared POST to Checkout Sessions returning the hosted `url`.
+async fn post_checkout(
+    http: &reqwest::Client,
+    cfg: &BillingConfig,
+    params: &[(&str, String)],
+) -> Result<String, String> {
+    let resp = http
+        .post(format!("{STRIPE_API_BASE}/v1/checkout/sessions"))
+        .bearer_auth(&cfg.stripe_secret_key)
+        .form(params)
         .send()
         .await
         .map_err(|e| e.to_string())?;
