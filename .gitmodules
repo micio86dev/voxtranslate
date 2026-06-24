@@ -6,3 +6,7 @@
 	path = dashboard
 	url = git@github.com:micio86dev/voxtranslate-dashboard.git
 	branch = main
+[submodule "n8n"]
+	path = n8n
+	url = git@github.com:micio86dev/voxtranslate-n8n.git
+	branch = main
