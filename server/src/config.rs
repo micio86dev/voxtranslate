@@ -478,6 +478,92 @@ pub struct BillingConfig {
     /// Max term pairs allowed per room glossary.
     pub glossary_max_entries: usize,
     pub ai: AiConfig,
+    /// Org (B2B) billing — subscriptions + portal + one-off top-up (spec 0106).
+    /// `Some` only when `ORG_STRIPE_WEBHOOK_SECRET` is configured.
+    pub org_billing: Option<OrgBillingConfig>,
+}
+
+/// B2B org billing config (spec 0106): Stripe price ids per plan/interval, the
+/// monthly credit allotment per plan (annual grants 12×), the one-off credit unit
+/// price, and the URLs + webhook secret for the org Checkout/Portal flow.
+#[derive(Debug, Clone)]
+pub struct OrgBillingConfig {
+    pub webhook_secret: String,
+    pub success_url: String,
+    pub cancel_url: String,
+    pub portal_return_url: String,
+    /// One-off purchase: Stripe charges this many cents per credit.
+    pub credit_unit_amount_cents: i64,
+    pub business_monthly_price_id: String,
+    pub business_annual_price_id: String,
+    pub enterprise_monthly_price_id: String,
+    pub enterprise_annual_price_id: String,
+    pub business_monthly_credits: i32,
+    pub enterprise_monthly_credits: i32,
+}
+
+impl OrgBillingConfig {
+    fn from_env() -> Self {
+        Self {
+            webhook_secret: env::var("ORG_STRIPE_WEBHOOK_SECRET").unwrap_or_default(),
+            success_url: env::var("ORG_STRIPE_SUCCESS_URL").unwrap_or_default(),
+            cancel_url: env::var("ORG_STRIPE_CANCEL_URL").unwrap_or_default(),
+            portal_return_url: env::var("ORG_STRIPE_PORTAL_RETURN_URL").unwrap_or_default(),
+            credit_unit_amount_cents: parse_or("ORG_CREDIT_UNIT_CENTS", 100i64),
+            business_monthly_price_id: env::var("ORG_PRICE_BUSINESS_MONTHLY").unwrap_or_default(),
+            business_annual_price_id: env::var("ORG_PRICE_BUSINESS_ANNUAL").unwrap_or_default(),
+            enterprise_monthly_price_id: env::var("ORG_PRICE_ENTERPRISE_MONTHLY")
+                .unwrap_or_default(),
+            enterprise_annual_price_id: env::var("ORG_PRICE_ENTERPRISE_ANNUAL").unwrap_or_default(),
+            business_monthly_credits: parse_or("ORG_CREDITS_BUSINESS_MONTHLY", 1000i32),
+            enterprise_monthly_credits: parse_or("ORG_CREDITS_ENTERPRISE_MONTHLY", 5000i32),
+        }
+    }
+
+    /// Stripe price id for a `(plan, interval)` pair, or `None` if unknown/unset.
+    pub fn price_id(&self, plan: &str, interval: &str) -> Option<&str> {
+        let id = match (plan, interval) {
+            ("business", "month") => &self.business_monthly_price_id,
+            ("business", "year") => &self.business_annual_price_id,
+            ("enterprise", "month") => &self.enterprise_monthly_price_id,
+            ("enterprise", "year") => &self.enterprise_annual_price_id,
+            _ => return None,
+        };
+        Some(id).filter(|s| !s.is_empty()).map(String::as_str)
+    }
+
+    /// Reverse-map a Stripe price id back to its `(plan, interval)`. Used by the
+    /// webhook (invoices carry the price id, not our metadata).
+    pub fn plan_interval_for_price(&self, price_id: &str) -> Option<(&'static str, &'static str)> {
+        if price_id.is_empty() {
+            return None;
+        }
+        if price_id == self.business_monthly_price_id {
+            Some(("business", "month"))
+        } else if price_id == self.business_annual_price_id {
+            Some(("business", "year"))
+        } else if price_id == self.enterprise_monthly_price_id {
+            Some(("enterprise", "month"))
+        } else if price_id == self.enterprise_annual_price_id {
+            Some(("enterprise", "year"))
+        } else {
+            None
+        }
+    }
+
+    /// Credits granted per successful invoice for a `(plan, interval)`. Annual
+    /// invoices grant 12× the monthly allotment.
+    pub fn grant_credits(&self, plan: &str, interval: &str) -> i32 {
+        let monthly = match plan {
+            "enterprise" => self.enterprise_monthly_credits,
+            _ => self.business_monthly_credits,
+        };
+        if interval == "year" {
+            monthly * 12
+        } else {
+            monthly
+        }
+    }
 }
 
 /// AI-feature pricing and models. Costs are USD (same unit as `users.balance`),
@@ -683,6 +769,8 @@ impl BillingConfig {
             pricing: PricingConfig::from_env(),
             glossary_max_entries: parse_or("GLOSSARY_MAX_ENTRIES", 200usize),
             ai: AiConfig::from_env(),
+            // B2B billing activates only when its webhook secret is present.
+            org_billing: present("ORG_STRIPE_WEBHOOK_SECRET").then(OrgBillingConfig::from_env),
         }
     }
 }
@@ -887,6 +975,7 @@ impl Config {
                 },
                 glossary_max_entries: 200,
                 ai: AiConfig::test_default(),
+                org_billing: None,
             }),
             resend: None,
             storage: None,

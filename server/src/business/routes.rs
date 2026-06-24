@@ -4,7 +4,7 @@ use axum::extract::DefaultBodyLimit;
 use axum::routing::{delete, get, patch, post};
 use axum::Router;
 
-use crate::business::{calls, members, organizations, projects, recording, transcripts};
+use crate::business::{billing, calls, members, organizations, projects, recording, transcripts};
 use crate::AppState;
 
 /// All `/api/business/...` routes (Phase 2 PR-A: orgs, members, invites, projects).
@@ -77,4 +77,22 @@ pub fn routes() -> Router<AppState> {
             "/api/business/rooms/{session_id}/transcript/export",
             get(transcripts::export),
         )
+        // ---- Org billing: subscriptions, portal, top-up, webhook (PR-C) ----
+        .route(
+            "/api/business/organizations/{org_id}/subscription",
+            post(billing::subscribe),
+        )
+        .route(
+            "/api/business/organizations/{org_id}/subscription/portal",
+            post(billing::portal),
+        )
+        .route(
+            "/api/business/organizations/{org_id}/credits/purchase",
+            post(billing::purchase),
+        )
+        .route(
+            "/api/business/organizations/{org_id}/credits",
+            get(billing::credits),
+        )
+        .route("/api/business/stripe/webhook", post(billing::webhook))
 }
