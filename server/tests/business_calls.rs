@@ -468,3 +468,60 @@ async fn history_pagination_and_isolation() {
         .unwrap();
     assert_eq!(denied.status(), 404);
 }
+
+#[tokio::test]
+async fn analytics_summary_aggregates_calls_and_spend() {
+    let Some(srv) = setup().await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner).await;
+
+    // Two calls (one with a ready transcript), and some recording spend.
+    make_call(&srv, org, "ready").await;
+    make_call(&srv, org, "none").await;
+    add_org_credits(&srv.pool, org, 100, "purchase", "topup", None)
+        .await
+        .unwrap();
+    deduct_org_credits(&srv.pool, org, 7, "recording", None, "rec")
+        .await
+        .unwrap();
+
+    let http = Client::new();
+    let res = http
+        .get(format!(
+            "{}/api/business/organizations/{org}/analytics?days=30",
+            base(&srv)
+        ))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 200);
+    let body: Value = res.json().await.unwrap();
+
+    assert!(body["kpis"]["calls"].as_i64().unwrap() >= 2);
+    assert!(body["kpis"]["transcripts"].as_i64().unwrap() >= 1);
+    assert_eq!(body["kpis"]["credits_spent"].as_i64().unwrap(), 7);
+    // Spend is bucketed by ledger type.
+    let by_type = body["credits_by_type"].as_array().unwrap();
+    assert!(by_type
+        .iter()
+        .any(|t| t["type"] == "recording" && t["spent"].as_i64().unwrap() >= 7));
+    // Per-day series is present.
+    assert!(!body["calls_by_day"].as_array().unwrap().is_empty());
+
+    // A non-member is denied (404 — org not visible to them).
+    let (_b, jwt_b) = user(&srv).await;
+    let denied = http
+        .get(format!(
+            "{}/api/business/organizations/{org}/analytics",
+            base(&srv)
+        ))
+        .bearer_auth(&jwt_b)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(denied.status(), 404);
+}

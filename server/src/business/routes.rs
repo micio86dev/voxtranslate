@@ -3,7 +3,9 @@
 use axum::routing::{delete, get, patch, post};
 use axum::Router;
 
-use crate::business::{billing, calls, members, organizations, projects, recording, transcripts};
+use crate::business::{
+    analytics, billing, calls, members, organizations, projects, recording, transcripts,
+};
 use crate::AppState;
 
 /// All `/api/business/...` routes (Phase 2 PR-A: orgs, members, invites, projects).
@@ -49,6 +51,10 @@ pub fn routes() -> Router<AppState> {
         .route(
             "/api/business/organizations/{org_id}/rooms",
             get(calls::list_org_rooms),
+        )
+        .route(
+            "/api/business/organizations/{org_id}/analytics",
+            get(analytics::summary),
         )
         .route(
             "/api/business/organizations/{org_id}/projects/{project_id}/rooms",
