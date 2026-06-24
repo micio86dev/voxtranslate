@@ -139,6 +139,13 @@ async fn login(srv: &Server, name: &str) -> (Uuid, String) {
     )
     .await
     .unwrap();
+    // Clear the 18+/ToS consent gate (`authorize` → `has_consented`) so this
+    // authed user can join over WS. Real users consent via `POST /api/user/consent`.
+    sqlx::query("UPDATE users SET age_confirmed = TRUE, consent_tos_at = now() WHERE id = $1")
+        .bind(user.id)
+        .execute(&srv.pool)
+        .await
+        .unwrap();
     let jwt = issue_jwt(&srv.secret, &user.id, &user.email, &user.name, 168).unwrap();
     (user.id, jwt)
 }
