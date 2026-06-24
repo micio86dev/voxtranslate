@@ -37,6 +37,9 @@ struct OrgSummary {
     name: String,
     slug: String,
     plan: String,
+    /// 'none' | 'active' | 'past_due' | 'canceled' — gates paid features like
+    /// cloud recording on the client and server.
+    subscription_status: String,
     credits_balance: i32,
     role: String,
 }
@@ -122,7 +125,7 @@ pub async fn list_mine(
 ) -> Result<Response, Response> {
     let pool = require_pool(&state)?;
     let rows: Vec<OrgSummary> = sqlx::query_as(
-        "SELECT o.id, o.name, o.slug, o.plan, o.credits_balance, m.role
+        "SELECT o.id, o.name, o.slug, o.plan, o.subscription_status, o.credits_balance, m.role
          FROM organizations o
          JOIN organization_members m ON m.org_id = o.id
          WHERE m.user_id = $1

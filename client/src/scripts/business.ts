@@ -13,6 +13,15 @@ export interface BusinessOrg {
   id: string;
   name: string;
   role: string;
+  /** 'business' | 'enterprise'. */
+  plan: string;
+  /** 'none' | 'active' | 'past_due' | 'canceled' — gates cloud recording. */
+  subscription_status: string;
+}
+
+/** Cloud recording is a paid feature — only orgs with an active subscription. */
+export function canCloudRecord(org: BusinessOrg | undefined): boolean {
+  return org?.subscription_status === 'active';
 }
 
 export interface BusinessProject {

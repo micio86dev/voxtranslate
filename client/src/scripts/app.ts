@@ -40,6 +40,7 @@ import { buildInviteLink, MAX_INVITE_EMAILS, parseRoomParam, validateInviteEmail
 import * as auth from './auth';
 import {
   bindRoom,
+  canCloudRecord,
   DASHBOARD_URL,
   listMyOrgs,
   listProjects,
@@ -4020,10 +4021,22 @@ async function setupBizPrejoin(): Promise<void> {
       ...projects.map((p) => new Option(p.name, p.id)),
     );
   };
-  orgSel.onchange = () => void loadProjects();
+  // Cloud recording is a paid feature: only offer it for the selected org when it
+  // has an active Business/Enterprise subscription. Re-evaluated when the org
+  // changes; the toggle is reset off when it's not available.
+  const updateRecordRow = () => {
+    const org = orgs.find((o) => o.id === orgSel.value);
+    const allowed = canCloudRecord(org);
+    show(recRow, allowed);
+    if (!allowed) $<HTMLInputElement>('biz-record').checked = false;
+  };
+  orgSel.onchange = () => {
+    updateRecordRow();
+    void loadProjects();
+  };
   await loadProjects();
+  updateRecordRow();
   show(block, true);
-  show(recRow, true);
 }
 
 // Before opening the socket: bind the room to the chosen org/project (+recording)

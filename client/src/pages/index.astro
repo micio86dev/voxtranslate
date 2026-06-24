@@ -310,8 +310,12 @@ const jsonLd = {
           </label>
         </div>
         <label id="biz-record-row" class="biz-record-row hidden">
-          <input id="biz-record" type="checkbox" />
-          <span data-i18n="bizRecord">{T('bizRecord')}</span>
+          <span class="biz-record-icon" aria-hidden="true">☁️</span>
+          <span class="biz-record-text" data-i18n="bizRecord">{T('bizRecord')}</span>
+          <span class="biz-switch">
+            <input id="biz-record" type="checkbox" />
+            <span class="biz-switch-track" aria-hidden="true"></span>
+          </span>
         </label>
         <div class="prejoin-actions">
           <button id="back-btn" class="btn-ghost" data-i18n="back">{T('back')}</button>
@@ -2441,6 +2445,45 @@ const jsonLd = {
       .invite-panel.closed { margin-inline-end: 0; }
       .invite-panel.open { transform: translateY(0); }
       .video-grid[data-peers="3"] :global(.video-cell:nth-child(3)) { max-width: 100%; }
+    }
+
+    /* Cloud-recording toggle (Business, spec 0106): a glassy card + switch,
+       shown in pre-join only for orgs with an active subscription. */
+    .biz-record-row {
+      display: flex;
+      align-items: center;
+      gap: 0.65rem;
+      padding: 0.7rem 0.85rem;
+      border: 1px solid var(--border);
+      border-radius: var(--radius, 0.7rem);
+      background: var(--surface-2);
+      cursor: pointer;
+      user-select: none;
+      transition: border-color 0.15s ease, background 0.15s ease;
+    }
+    .biz-record-row:hover {
+      border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
+    }
+    .biz-record-icon { font-size: 1.15rem; line-height: 1; }
+    .biz-record-text { flex: 1; font-size: 0.95rem; color: var(--text); }
+    .biz-switch { position: relative; flex-shrink: 0; width: 42px; height: 24px; }
+    .biz-switch input {
+      position: absolute; inset: 0; width: 100%; height: 100%; margin: 0;
+      opacity: 0; cursor: pointer;
+    }
+    .biz-switch-track {
+      position: absolute; inset: 0; border-radius: 999px;
+      background: var(--border); transition: background 0.18s ease;
+    }
+    .biz-switch-track::after {
+      content: ""; position: absolute; top: 3px; left: 3px;
+      width: 18px; height: 18px; border-radius: 50%;
+      background: #fff; transition: transform 0.18s ease;
+    }
+    .biz-switch input:checked + .biz-switch-track { background: var(--accent); }
+    .biz-switch input:checked + .biz-switch-track::after { transform: translateX(18px); }
+    .biz-switch input:focus-visible + .biz-switch-track {
+      outline: 2px solid var(--accent); outline-offset: 2px;
     }
   </style>
 
