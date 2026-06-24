@@ -12,6 +12,12 @@ export async function openPage(
   browser: Browser,
   viewport = { width: 1000, height: 720 },
   mobile = false,
+  // The first-run home tour auto-opens on a fresh context (flag unset) and its
+  // modal overlays the home screen — intercepting clicks on #enter etc. Every
+  // spec EXCEPT onboarding.spec is testing some other flow, so seed the "seen"
+  // flags by default so the tour stays closed. onboarding.spec passes false to
+  // exercise the genuine first-visit auto-open.
+  seedToursSeen = true,
 ): Promise<Tracked> {
   const ctx = await browser.newContext({
     permissions: ['microphone', 'camera'],
@@ -23,6 +29,16 @@ export async function openPage(
     serviceWorkers: 'block',
   });
   const page = await ctx.newPage();
+  if (seedToursSeen) {
+    await page.addInitScript(() => {
+      try {
+        localStorage.setItem('vox_home_tour_seen', '1');
+        localStorage.setItem('vox_call_tour_seen', '1');
+      } catch {
+        /* private mode — onboarding falls back to in-memory, tour still gated */
+      }
+    });
+  }
   await startCoverage(page);
   return { page, ctx };
 }
