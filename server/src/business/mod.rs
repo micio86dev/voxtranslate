@@ -11,6 +11,7 @@
 // (it carries the rejection), and the cascade covers the submodules too.
 #![allow(clippy::result_large_err)]
 
+pub mod analytics;
 pub mod audit;
 pub mod billing;
 pub mod calls;
