@@ -230,6 +230,108 @@ pub fn parse_prerecorded_response(json: &serde_json::Value) -> (String, Option<S
     (transcript, lang)
 }
 
+/// One diarized utterance from a prerecorded transcription (spec 0106 business
+/// recordings): a single speaker's contiguous speech with millisecond offsets.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DiarizedUtterance {
+    /// Deepgram's numeric speaker label (0, 1, …).
+    pub speaker: i64,
+    pub text: String,
+    pub start_ms: i64,
+    pub end_ms: i64,
+}
+
+/// Result of a diarized prerecorded transcription.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct DiarizedTranscript {
+    pub utterances: Vec<DiarizedUtterance>,
+    pub language: Option<String>,
+    pub duration_seconds: Option<f64>,
+}
+
+/// Transcribe a prerecorded recording with **diarization** (spec 0106). Separate
+/// from the realtime streaming engine and from [`transcribe_file`]: it asks
+/// Deepgram for speaker-labelled utterances (`diarize=true&utterances=true`) so a
+/// post-call transcript can attribute each segment to a speaker.
+pub async fn transcribe_file_diarized(
+    http: &reqwest::Client,
+    config: &Config,
+    bytes: Vec<u8>,
+    content_type: &str,
+) -> Result<DiarizedTranscript, String> {
+    let resp = http
+        .post(
+            "https://api.deepgram.com/v1/listen\
+             ?diarize=true&utterances=true&punctuate=true&smart_format=true\
+             &detect_language=true&model=nova-2",
+        )
+        .header(
+            reqwest::header::AUTHORIZATION,
+            format!("Token {}", config.deepgram_key),
+        )
+        .header(reqwest::header::CONTENT_TYPE, content_type)
+        // Full recordings can be long; allow generous time.
+        .timeout(Duration::from_secs(300))
+        .body(bytes)
+        .send()
+        .await
+        .map_err(|e| format!("deepgram diarize request failed: {e}"))?;
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let detail = resp.text().await.unwrap_or_default();
+        return Err(format!("deepgram diarize returned {status}: {detail}"));
+    }
+    let json: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("deepgram diarize parse failed: {e}"))?;
+    Ok(parse_diarized_response(&json))
+}
+
+/// Parse a diarized `/v1/listen` response into utterances + language + duration.
+/// Pure, for tests. Utterances live at `results.utterances[]` (each with
+/// `speaker`, `transcript`, `start`, `end` in seconds); duration at
+/// `metadata.duration`; language at `results.channels[0].detected_language`.
+pub fn parse_diarized_response(json: &serde_json::Value) -> DiarizedTranscript {
+    let language = json
+        .pointer("/results/channels/0/detected_language")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
+    let duration_seconds = json.pointer("/metadata/duration").and_then(|v| v.as_f64());
+    let utterances = json
+        .pointer("/results/utterances")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|u| {
+                    let text = u
+                        .get("transcript")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .trim();
+                    if text.is_empty() {
+                        return None;
+                    }
+                    Some(DiarizedUtterance {
+                        speaker: u.get("speaker").and_then(|v| v.as_i64()).unwrap_or(0),
+                        text: text.to_string(),
+                        start_ms: (u.get("start").and_then(|v| v.as_f64()).unwrap_or(0.0) * 1000.0)
+                            as i64,
+                        end_ms: (u.get("end").and_then(|v| v.as_f64()).unwrap_or(0.0) * 1000.0)
+                            as i64,
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    DiarizedTranscript {
+        utterances,
+        language,
+        duration_seconds,
+    }
+}
+
 /// Extract `(detected_language, confidence)` from a `/v1/listen` REST response.
 /// Pure, for tests; the language lives at `results.channels[0].detected_language`.
 pub fn parse_detect_response(json: &serde_json::Value) -> Result<(String, Option<f64>), String> {

@@ -146,6 +146,10 @@ pub struct AppState {
     /// Supabase Storage uploader (spec 0018) — `Some` only when SUPABASE_* is
     /// configured; gates chat file upload.
     pub storage: Option<storage::SupabaseStorage>,
+    /// Private `recordings` bucket uploader for Business cloud recordings (spec
+    /// 0106). Same Supabase project as `storage`, different bucket + 1h signed-URL
+    /// TTL. `Some` whenever `storage` is.
+    pub recordings_storage: Option<storage::SupabaseStorage>,
     /// Verifies Google credentials (swappable for tests).
     pub verifier: Arc<dyn TokenVerifier>,
     /// Shared HTTP client (Google tokeninfo, Stripe).
@@ -173,6 +177,15 @@ pub struct AppState {
 
 /// Read a positive `u32` from `var`, falling back to `default`.
 fn env_u32(var: &str, default: u32) -> u32 {
+    std::env::var(var)
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .filter(|&n| n > 0)
+        .unwrap_or(default)
+}
+
+/// Read a positive `u64` from `var`, falling back to `default`.
+fn env_u64(var: &str, default: u64) -> u64 {
     std::env::var(var)
         .ok()
         .and_then(|v| v.parse().ok())
@@ -210,6 +223,17 @@ impl AppState {
             .storage
             .as_ref()
             .map(|c| storage::SupabaseStorage::new(http.clone(), c));
+        // Recordings live in a separate private bucket on the same project, with a
+        // 1h signed-URL TTL for playback (spec 0106). Built whenever storage is.
+        let recordings_storage = config.storage.as_ref().map(|c| {
+            let bucket = std::env::var("SUPABASE_RECORDINGS_BUCKET")
+                .ok()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "recordings".to_string());
+            let ttl = env_u64("SUPABASE_RECORDINGS_TTL_SECS", 3600);
+            storage::SupabaseStorage::for_bucket(http.clone(), c, bucket, ttl)
+        });
         // Engine registry (spec 0093): Standard wraps the Deepgram+Groq pipeline
         // and is always available; Premium (OpenAI) is registered separately when
         // its key is configured. Per-session services (rooms, moderator,
@@ -282,6 +306,7 @@ impl AppState {
             glossary: None,
             resend,
             storage,
+            recordings_storage,
             verifier,
             http,
             rate_limiter: Arc::new(RateLimiter::new()),

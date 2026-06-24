@@ -186,9 +186,24 @@ impl TranscriptService {
 
     /// Ensure the session row exists. Idempotent — every joiner calls it, the
     /// first one wins (`ON CONFLICT DO NOTHING`).
+    ///
+    /// The call inherits any business binding for its room code (spec 0106): if a
+    /// `room_business_bindings` row exists, the new `call_sessions` row is created
+    /// with that org/project and recording intent. Consumer rooms have no binding,
+    /// so the sub-selects return NULL/false and the behaviour is unchanged.
     pub async fn session_started(&self, session_id: Uuid, room: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
-            "INSERT INTO call_sessions (id, room) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING",
+            "INSERT INTO call_sessions (id, room, org_id, project_id, cloud_recording_enabled)
+             VALUES (
+                 $1, $2,
+                 (SELECT org_id FROM room_business_bindings WHERE room = $2),
+                 (SELECT project_id FROM room_business_bindings WHERE room = $2),
+                 COALESCE(
+                     (SELECT cloud_recording_enabled FROM room_business_bindings WHERE room = $2),
+                     FALSE
+                 )
+             )
+             ON CONFLICT (id) DO NOTHING",
         )
         .bind(session_id)
         .bind(room)

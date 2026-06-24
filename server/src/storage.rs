@@ -37,6 +37,52 @@ impl SupabaseStorage {
         }
     }
 
+    /// Build an uploader for an arbitrary bucket/TTL on the same Supabase project,
+    /// reusing the credentials from a [`StorageConfig`]. Used for the private
+    /// `recordings` bucket (spec 0106), which has a different name + signed-URL TTL
+    /// than chat files.
+    pub fn for_bucket(
+        http: reqwest::Client,
+        cfg: &StorageConfig,
+        bucket: String,
+        signed_ttl_secs: u64,
+    ) -> Self {
+        Self {
+            http,
+            base_url: cfg.supabase_url.clone(),
+            service_key: cfg.service_key.clone(),
+            bucket,
+            signed_ttl_secs,
+        }
+    }
+
+    /// Download an object's bytes (server-side, service key). Used internally to
+    /// feed a recording to transcription — never exposed to the browser.
+    pub async fn download(&self, object_path: &str) -> Result<Vec<u8>, String> {
+        let url = upload_url(&self.base_url, &self.bucket, object_path);
+        let resp = self
+            .http
+            .get(&url)
+            .header(
+                reqwest::header::AUTHORIZATION,
+                format!("Bearer {}", self.service_key),
+            )
+            .header("apikey", &self.service_key)
+            .timeout(Duration::from_secs(120))
+            .send()
+            .await
+            .map_err(|e| format!("supabase download request failed: {e}"))?;
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let detail = resp.text().await.unwrap_or_default();
+            return Err(format!("supabase download returned {status}: {detail}"));
+        }
+        resp.bytes()
+            .await
+            .map(|b| b.to_vec())
+            .map_err(|e| format!("supabase download read failed: {e}"))
+    }
+
     /// Upload `bytes` to `object_path` (relative to the bucket). `object_path`
     /// should already be sanitized by [`object_path`].
     pub async fn upload(
