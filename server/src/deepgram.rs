@@ -249,15 +249,16 @@ pub struct DiarizedTranscript {
     pub duration_seconds: Option<f64>,
 }
 
-/// Transcribe a prerecorded recording with **diarization** (spec 0106). Separate
-/// from the realtime streaming engine and from [`transcribe_file`]: it asks
-/// Deepgram for speaker-labelled utterances (`diarize=true&utterances=true`) so a
-/// post-call transcript can attribute each segment to a speaker.
-pub async fn transcribe_file_diarized(
+/// Transcribe a prerecorded recording with **diarization** (spec 0106), fetched
+/// by Deepgram from a (signed) URL rather than uploaded as bytes. This keeps the
+/// recording — a full call **video**, up to ~1 GB on a long call — off the server
+/// entirely: Deepgram pulls it straight from storage. Asks for speaker-labelled
+/// utterances (`diarize=true&utterances=true`) so the post-call transcript can
+/// attribute each segment to a speaker.
+pub async fn transcribe_url_diarized(
     http: &reqwest::Client,
     config: &Config,
-    bytes: Vec<u8>,
-    content_type: &str,
+    media_url: &str,
 ) -> Result<DiarizedTranscript, String> {
     let resp = http
         .post(
@@ -269,10 +270,10 @@ pub async fn transcribe_file_diarized(
             reqwest::header::AUTHORIZATION,
             format!("Token {}", config.deepgram_key),
         )
-        .header(reqwest::header::CONTENT_TYPE, content_type)
-        // Full recordings can be long; allow generous time.
+        .header(reqwest::header::CONTENT_TYPE, "application/json")
+        // Deepgram downloads + transcribes the full recording; allow generous time.
         .timeout(Duration::from_secs(300))
-        .body(bytes)
+        .json(&serde_json::json!({ "url": media_url }))
         .send()
         .await
         .map_err(|e| format!("deepgram diarize request failed: {e}"))?;

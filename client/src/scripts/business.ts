@@ -72,24 +72,45 @@ export async function bindRoom(
   }
 }
 
-/** Upload a finished cloud recording for a business call. Returns success. */
-export function uploadRecording(
+/** Upload a finished cloud recording for a business call. Returns success.
+ *
+ * Direct-to-storage: the server hands back a one-shot signed URL, the browser PUTs
+ * the (potentially ~1 GB) video straight to storage, then `complete` records the
+ * path + charges credits. The recording never flows through our server. */
+export async function uploadRecording(
   sessionId: string,
   blob: Blob,
   durationSeconds: number,
 ): Promise<boolean> {
-  return new Promise((resolve) => {
-    const form = new FormData();
-    form.append('duration_seconds', String(durationSeconds));
-    form.append('file', blob, 'recording.webm');
-    const xhr = new XMLHttpRequest();
-    xhr.open(
-      'POST',
-      `${HTTP_BASE}/api/business/rooms/${encodeURIComponent(sessionId)}/recording/complete`,
-    );
-    for (const [k, v] of Object.entries(authHeaders())) xhr.setRequestHeader(k, v);
-    xhr.onload = () => resolve(xhr.status >= 200 && xhr.status < 300);
-    xhr.onerror = () => resolve(false);
-    xhr.send(form);
-  });
+  try {
+    const base = `${HTTP_BASE}/api/business/rooms/${encodeURIComponent(sessionId)}/recording`;
+    // 1) Ask for a signed upload URL + the object path to report back.
+    const presign = await fetch(`${base}/upload-url`, {
+      method: 'POST',
+      headers: authHeaders(),
+    });
+    if (!presign.ok) return false;
+    const { upload_url, object_path } = (await presign.json()) as {
+      upload_url: string;
+      object_path: string;
+    };
+
+    // 2) PUT the video straight to storage (no auth header — the URL is signed).
+    const put = await fetch(upload_url, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'video/webm', 'x-upsert': 'true' },
+      body: blob,
+    });
+    if (!put.ok) return false;
+
+    // 3) Tell the server it landed → record path, charge credits, transcribe.
+    const done = await fetch(`${base}/complete`, {
+      method: 'POST',
+      headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ object_path, duration_seconds: durationSeconds }),
+    });
+    return done.ok;
+  } catch {
+    return false;
+  }
 }

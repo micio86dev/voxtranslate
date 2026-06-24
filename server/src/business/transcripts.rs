@@ -70,9 +70,10 @@ async fn process(
         .as_ref()
         .ok_or("no recordings storage")?;
 
-    let bytes = recordings.download(storage_path).await?;
-    let result =
-        deepgram::transcribe_file_diarized(&state.http, &state.config, bytes, "audio/webm").await?;
+    // Hand Deepgram a short-lived signed URL so it fetches the (large, video)
+    // recording straight from storage — the server never downloads/buffers it.
+    let media_url = recordings.create_signed_url(storage_path).await?;
+    let result = deepgram::transcribe_url_diarized(&state.http, &state.config, &media_url).await?;
 
     let segments: Vec<Segment> = result
         .utterances
