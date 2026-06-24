@@ -229,8 +229,13 @@ async fn analyze_chunk(
     text: String,
 ) -> Result<serde_json::Value, String> {
     let mut req = ChatRequest::new(model, chunk_prompt(), text);
-    req.max_tokens = 256;
-    req.timeout = Duration::from_secs(20);
+    // gpt-oss is a REASONING model in JSON mode: a small (256) budget is consumed
+    // by hidden reasoning before any JSON is emitted, so Groq rejects the call with
+    // `json_validate_failed` (empty generation) — which dropped every chunk on long
+    // calls. The visible JSON is tiny; the budget is for the reasoning (mirrors the
+    // report path's 2048).
+    req.max_tokens = 2048;
+    req.timeout = Duration::from_secs(30);
     req.max_retries = 3;
     groq.chat_json(req).await
 }

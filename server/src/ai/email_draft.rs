@@ -245,7 +245,9 @@ pub async fn generate_draft(
     let system = draft_prompt(tone, lang, guidelines, report_summary.is_some());
 
     let mut req = ChatRequest::new(ai.report_model.clone(), system, user);
-    req.max_tokens = 1536;
+    // gpt-oss reasoning + a full email can exceed 1536 (Groq returns
+    // `json_validate_failed` / "max completion tokens reached"); give it room.
+    req.max_tokens = 3072;
     req.temperature = 0.3;
     req.timeout = Duration::from_secs(30);
     req.max_retries = 3;
