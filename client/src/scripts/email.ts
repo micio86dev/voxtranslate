@@ -15,6 +15,7 @@ import {
 } from './api';
 import { buildRecipientRefs, validEmail } from './email-utils';
 import { ENDONYM, SUPPORTED, getUiLang, t } from './i18n';
+import { toast } from './toast';
 
 const $ = (id: string) => document.getElementById(id) as HTMLElement;
 
@@ -329,17 +330,22 @@ function build(slot: HTMLElement, sessionId: string): void {
       status.textContent = '';
       if (typeof result.email.balance === 'number') applyBalance(result.email.balance);
       showEmail(result.email);
+      toast(`✓ ${t('aiEmailTitle')}`, 'ok');
       return;
     }
     if (result.insufficient) {
-      status.textContent = insufficientMsg(
+      const msg = insufficientMsg(
         result.insufficient.required,
         result.insufficient.available,
       );
+      status.textContent = msg;
       paintCost();
+      toast(msg, 'err');
       return;
     }
-    status.textContent = result.error || t('aiEmailFailed');
+    const err = result.error || t('aiEmailFailed');
+    status.textContent = err;
+    toast(err, 'err');
   });
 
   sendBtn.addEventListener('click', async () => {
@@ -365,9 +371,12 @@ function build(slot: HTMLElement, sessionId: string): void {
         status: 'sent',
         sent_at: result.sent.sent_at,
       });
+      toast(`✓ ${t('aiEmailSent')}`, 'ok');
       return;
     }
-    viewStatus.textContent = result.error || t('aiEmailSendFailed');
+    const err = result.error || t('aiEmailSendFailed');
+    viewStatus.textContent = err;
+    toast(err, 'err');
   });
 
   // Regenerate just reopens the (prefilled) form — the charge only happens on

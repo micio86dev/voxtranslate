@@ -57,6 +57,7 @@ import type { Quiz } from './quiz';
 import { CallTimer, spokenDuration, formatClock } from './timer';
 import { dismissLangToast, initLangDetect, onLanguageDetected } from './lang-detect';
 import { initNetStatus, setNetworkDegraded } from './net-status';
+import { toast } from './toast';
 import {
   playCallEnterSound,
   playCallLeaveSound,
@@ -4425,18 +4426,6 @@ $('exhausted-buy').addEventListener('click', () => {
 // ============================================================================
 // Trust & safety + GDPR
 // ============================================================================
-function toast(msg: string): void {
-  const el = document.createElement('div');
-  el.className = 'vox-toast';
-  el.textContent = msg;
-  document.body.appendChild(el);
-  requestAnimationFrame(() => el.classList.add('show'));
-  setTimeout(() => {
-    el.classList.remove('show');
-    setTimeout(() => el.remove(), 300);
-  }, 3500);
-}
-
 // --- Age + ToS consent gate ---
 function syncConsentAccept(): void {
   const ok =

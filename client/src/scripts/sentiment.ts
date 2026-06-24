@@ -13,6 +13,7 @@ import {
 } from './api';
 import { t } from './i18n';
 import { drawSentimentTimeline } from './sentiment-chart';
+import { toast } from './toast';
 
 const $ = (id: string) => document.getElementById(id) as HTMLElement;
 
@@ -238,17 +239,22 @@ function build(slot: HTMLElement, sessionId: string, fallbackDuration: number): 
       status.textContent = '';
       if (typeof result.sentiment.balance === 'number') applyBalance(result.sentiment.balance);
       showResult(result.sentiment);
+      toast(`✓ ${t('aiSentimentTitle')}`, 'ok');
       return;
     }
     if (result.insufficient) {
-      status.textContent = insufficientMsg(
+      const msg = insufficientMsg(
         result.insufficient.required,
         result.insufficient.available,
       );
+      status.textContent = msg;
       paintCost();
+      toast(msg, 'err');
       return;
     }
-    status.textContent = result.error || t('aiSentimentFailed');
+    const err = result.error || t('aiSentimentFailed');
+    status.textContent = err;
+    toast(err, 'err');
   });
 }
 
