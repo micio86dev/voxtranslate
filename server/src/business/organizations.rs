@@ -9,8 +9,8 @@ use sqlx::FromRow;
 use uuid::Uuid;
 
 use crate::business::{
-    bad_request, conflict, db_err, is_unique_violation, not_found, require_pool, require_role,
-    ADMIN, MEMBER,
+    bad_request, conflict, db_err, forbidden, is_unique_violation, not_found, require_pool,
+    require_role, ADMIN, MEMBER,
 };
 use crate::middleware::AuthUser;
 use crate::AppState;
@@ -188,6 +188,27 @@ pub async fn patch(
     if let Some(s) = &body.settings {
         if !s.is_object() {
             return Err(bad_request("settings must be a JSON object"));
+        }
+    }
+
+    // Compliance mode (and its audit log) is an Enterprise feature — a business-plan
+    // org may not enable it.
+    let enabling_compliance = body
+        .settings
+        .as_ref()
+        .and_then(|s| s.get("compliance_mode"))
+        .and_then(|v| v.as_bool())
+        == Some(true);
+    if enabling_compliance {
+        let plan: String = sqlx::query_scalar("SELECT plan FROM organizations WHERE id = $1")
+            .bind(org_id)
+            .fetch_one(pool)
+            .await
+            .map_err(db_err)?;
+        if plan != "enterprise" {
+            return Err(forbidden(
+                "compliance mode is available on the Enterprise plan",
+            ));
         }
     }
 

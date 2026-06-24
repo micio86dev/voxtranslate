@@ -238,6 +238,35 @@ pub async fn accept_invite(
         return Err((StatusCode::GONE, "invite expired").into_response());
     }
 
+    // Business plan has a member cap (Enterprise is unlimited). Enforce in-tx so
+    // concurrent accepts can't overshoot; a user who is already a member re-accepts
+    // freely (the insert below is idempotent and consumes no new seat).
+    let already_member: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM organization_members WHERE org_id = $1 AND user_id = $2)",
+    )
+    .bind(inv.org_id)
+    .bind(user.user_id)
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(db_err)?;
+    if !already_member {
+        let (plan, members): (String, i64) = sqlx::query_as(
+            "SELECT plan, (SELECT count(*) FROM organization_members WHERE org_id = $1)
+             FROM organizations WHERE id = $1",
+        )
+        .bind(inv.org_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(db_err)?;
+        if plan != "enterprise" && members >= state.config.business_member_limit {
+            return Err((
+                StatusCode::CONFLICT,
+                "this organization has reached its Business-plan member limit",
+            )
+                .into_response());
+        }
+    }
+
     sqlx::query(
         "INSERT INTO organization_members (org_id, user_id, role, invited_by)
          VALUES ($1, $2, $3, (SELECT invited_by FROM organization_invites WHERE id = $4))
