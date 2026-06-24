@@ -414,5 +414,12 @@
   "onbCallLeaveTitle": "Görüşmeden ayrılın",
   "onbCallLeaveBody": "İşiniz bittiğinde telefonu kapatın. Dökümler ve indirmeler içeren bir özet alırsınız.",
   "onbCallDoneTitle": "Her şey hazır",
-  "onbCallDoneBody": "Bu turu istediğiniz zaman \"?\" düğmesinden yeniden açın. Sohbetin tadını çıkarın."
+  "onbCallDoneBody": "Bu turu istediğiniz zaman \"?\" düğmesinden yeniden açın. Sohbetin tadını çıkarın.",
+  "workspace": "Çalışma alanı",
+  "bizOrg": "Kuruluş",
+  "bizProject": "Proje",
+  "bizNoProject": "Proje yok",
+  "bizRecord": "Bu aramayı buluta kaydet",
+  "bizRecordingNotice": "Bu arama kaydediliyor.",
+  "bizRecordingUploaded": "Kayıt çalışma alanınıza kaydedildi."
 }

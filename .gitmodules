@@ -2,3 +2,7 @@
 	path = website
 	url = git@github.com:micio86dev/voxtranslate-website.git
 	branch = main
+[submodule "dashboard"]
+	path = dashboard
+	url = git@github.com:micio86dev/voxtranslate-dashboard.git
+	branch = main

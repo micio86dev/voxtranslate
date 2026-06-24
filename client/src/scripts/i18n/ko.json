@@ -414,5 +414,12 @@
   "onbCallLeaveTitle": "통화 나가기",
   "onbCallLeaveBody": "끝나면 통화를 종료하세요. 기록물과 다운로드가 포함된 요약을 받게 됩니다.",
   "onbCallDoneTitle": "준비가 끝났습니다",
-  "onbCallDoneBody": "이 투어는 \"?\" 버튼에서 언제든 다시 열 수 있습니다. 즐거운 대화 되세요."
+  "onbCallDoneBody": "이 투어는 \"?\" 버튼에서 언제든 다시 열 수 있습니다. 즐거운 대화 되세요.",
+  "workspace": "워크스페이스",
+  "bizOrg": "조직",
+  "bizProject": "프로젝트",
+  "bizNoProject": "프로젝트 없음",
+  "bizRecord": "이 통화를 클라우드에 녹화",
+  "bizRecordingNotice": "이 통화는 녹화되고 있습니다.",
+  "bizRecordingUploaded": "녹화가 워크스페이스에 저장되었습니다."
 }

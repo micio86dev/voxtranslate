@@ -414,5 +414,12 @@
   "onbCallLeaveTitle": "Fita daga kiran",
   "onbCallLeaveBody": "Kashe kiran sa'ad da ka gama. Za ka samu taƙaitawa tare da rubuce-rubuce da saukarwa.",
   "onbCallDoneTitle": "Komai ya shirya",
-  "onbCallDoneBody": "Sake buɗe wannan yawon a kowane lokaci daga maɓallin \"?\". Ji daɗin hirar."
+  "onbCallDoneBody": "Sake buɗe wannan yawon a kowane lokaci daga maɓallin \"?\". Ji daɗin hirar.",
+  "workspace": "Wurin aiki",
+  "bizOrg": "Ƙungiya",
+  "bizProject": "Aiki",
+  "bizNoProject": "Babu aiki",
+  "bizRecord": "Yi rikodin wannan kira a cikin gajimare",
+  "bizRecordingNotice": "Ana yin rikodin wannan kira.",
+  "bizRecordingUploaded": "An ajiye rikodin a wurin aikinka."
 }

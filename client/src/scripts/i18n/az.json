@@ -414,5 +414,12 @@
   "onbCallLeaveTitle": "Zəngi tərk et",
   "onbCallLeaveBody": "Bitirdikdə zəngi dayandırın. Transkriptlər və yükləmələrlə birlikdə xülasə alacaqsınız.",
   "onbCallDoneTitle": "Hər şey hazırdır",
-  "onbCallDoneBody": "Bu turu istənilən vaxt \"?\" düyməsindən yenidən açın. Söhbətdən həzz alın."
+  "onbCallDoneBody": "Bu turu istənilən vaxt \"?\" düyməsindən yenidən açın. Söhbətdən həzz alın.",
+  "workspace": "İş sahəsi",
+  "bizOrg": "Təşkilat",
+  "bizProject": "Layihə",
+  "bizNoProject": "Layihə yoxdur",
+  "bizRecord": "Bu zəngi buludda yaz",
+  "bizRecordingNotice": "Bu zəng qeydə alınır.",
+  "bizRecordingUploaded": "Qeyd iş sahənizə yadda saxlanıldı."
 }

@@ -414,5 +414,12 @@
   "onbCallLeaveTitle": "Tinggalkan panggilan",
   "onbCallLeaveBody": "Tutup panggilan apabila anda selesai. Anda akan mendapat ringkasan dengan transkrip dan muat turun.",
   "onbCallDoneTitle": "Anda dah sedia",
-  "onbCallDoneBody": "Buka semula lawatan ini bila-bila masa daripada butang \"?\". Selamat berbual."
+  "onbCallDoneBody": "Buka semula lawatan ini bila-bila masa daripada butang \"?\". Selamat berbual.",
+  "workspace": "Ruang kerja",
+  "bizOrg": "Organisasi",
+  "bizProject": "Projek",
+  "bizNoProject": "Tiada projek",
+  "bizRecord": "Rakam panggilan ini ke awan",
+  "bizRecordingNotice": "Panggilan ini sedang dirakam.",
+  "bizRecordingUploaded": "Rakaman disimpan ke ruang kerja anda."
 }

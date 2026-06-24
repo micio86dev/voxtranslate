@@ -414,5 +414,12 @@
   "onbCallLeaveTitle": "Itlaq mis-sejħa",
   "onbCallLeaveBody": "Agħlaq is-sejħa meta tlesti. Tirċievi sommarju bit-traskrizzjonijiet u d-downloads.",
   "onbCallDoneTitle": "Int lest għalkollox",
-  "onbCallDoneBody": "Erġa' iftaħ dan it-tour meta trid mill-buttuna \"?\". Gawdi l-konversazzjoni."
+  "onbCallDoneBody": "Erġa' iftaħ dan it-tour meta trid mill-buttuna \"?\". Gawdi l-konversazzjoni.",
+  "workspace": "Spazju tax-xogħol",
+  "bizOrg": "Organizzazzjoni",
+  "bizProject": "Proġett",
+  "bizNoProject": "L-ebda proġett",
+  "bizRecord": "Irrekordja din is-sejħa fil-cloud",
+  "bizRecordingNotice": "Din is-sejħa qed tiġi rrekordjata.",
+  "bizRecordingUploaded": "Ir-rekording ġie ssejvjat fl-ispazju tax-xogħol tiegħek."
 }

@@ -414,5 +414,12 @@
   "onbCallLeaveTitle": "Ka bax wicitaanka",
   "onbCallLeaveBody": "Xidh markaad dhammeyso. Waxaad heli doontaa soo koobid leh qoraallo iyo soo dejinno.",
   "onbCallDoneTitle": "Waad diyaar tahay",
-  "onbCallDoneBody": "Dib u fur hagiddan wakhti kasta badhanka \"?\". Ku raaxayso wadahadalka."
+  "onbCallDoneBody": "Dib u fur hagiddan wakhti kasta badhanka \"?\". Ku raaxayso wadahadalka.",
+  "workspace": "Goobta shaqada",
+  "bizOrg": "Urur",
+  "bizProject": "Mashruuc",
+  "bizNoProject": "Mashruuc ma jiro",
+  "bizRecord": "Duub wicitaankan oo geli daruurta",
+  "bizRecordingNotice": "Wicitaankan waa la duubayaa.",
+  "bizRecordingUploaded": "Duubista waxaa lagu kaydiyay goobtaada shaqada."
 }

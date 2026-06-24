@@ -414,5 +414,12 @@
   "onbCallLeaveTitle": "Lahku kõnest",
   "onbCallLeaveBody": "Lõpeta kõne, kui oled valmis. Saad kokkuvõtte koos transkriptsioonide ja allalaadimistega.",
   "onbCallDoneTitle": "Kõik on valmis",
-  "onbCallDoneBody": "Ava see tuur millal tahes uuesti nupust \"?\". Naudi vestlust."
+  "onbCallDoneBody": "Ava see tuur millal tahes uuesti nupust \"?\". Naudi vestlust.",
+  "workspace": "Tööruum",
+  "bizOrg": "Organisatsioon",
+  "bizProject": "Projekt",
+  "bizNoProject": "Projekti pole",
+  "bizRecord": "Salvesta see kõne pilve",
+  "bizRecordingNotice": "Seda kõnet salvestatakse.",
+  "bizRecordingUploaded": "Salvestus salvestati teie tööruumi."
 }

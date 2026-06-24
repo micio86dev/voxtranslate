@@ -414,5 +414,12 @@
   "onbCallLeaveTitle": "Surt de la trucada",
   "onbCallLeaveBody": "Penja quan acabis. Rebràs un resum amb transcripcions i descàrregues.",
   "onbCallDoneTitle": "Ja ho tens tot a punt",
-  "onbCallDoneBody": "Torna a obrir aquesta visita quan vulguis amb el botó \"?\". Gaudeix de la conversa."
+  "onbCallDoneBody": "Torna a obrir aquesta visita quan vulguis amb el botó \"?\". Gaudeix de la conversa.",
+  "workspace": "Espai de treball",
+  "bizOrg": "Organització",
+  "bizProject": "Projecte",
+  "bizNoProject": "Sense projecte",
+  "bizRecord": "Enregistra aquesta trucada al núvol",
+  "bizRecordingNotice": "Aquesta trucada s'està enregistrant.",
+  "bizRecordingUploaded": "Enregistrament desat al teu espai de treball."
 }

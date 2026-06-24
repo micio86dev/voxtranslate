@@ -414,5 +414,12 @@
   "onbCallLeaveTitle": "Zapustite klic",
   "onbCallLeaveBody": "Ko končate, odložite. Prejeli boste povzetek s prepisi in prenosi.",
   "onbCallDoneTitle": "Vse je pripravljeno",
-  "onbCallDoneBody": "Ta ogled kadar koli znova odprite z gumbom »?«. Uživajte v pogovoru."
+  "onbCallDoneBody": "Ta ogled kadar koli znova odprite z gumbom »?«. Uživajte v pogovoru.",
+  "workspace": "Delovni prostor",
+  "bizOrg": "Organizacija",
+  "bizProject": "Projekt",
+  "bizNoProject": "Brez projekta",
+  "bizRecord": "Posnemi ta klic v oblak",
+  "bizRecordingNotice": "Ta klic se snema.",
+  "bizRecordingUploaded": "Posnetek shranjen v vaš delovni prostor."
 }

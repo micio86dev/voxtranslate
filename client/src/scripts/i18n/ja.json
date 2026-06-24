@@ -414,5 +414,12 @@
   "onbCallLeaveTitle": "通話から退出",
   "onbCallLeaveBody": "終わったら退出しましょう。文字起こしとダウンロード付きのまとめが届きます。",
   "onbCallDoneTitle": "準備完了です",
-  "onbCallDoneBody": "このツアーは「?」ボタンからいつでも開けます。会話をお楽しみください。"
+  "onbCallDoneBody": "このツアーは「?」ボタンからいつでも開けます。会話をお楽しみください。",
+  "workspace": "ワークスペース",
+  "bizOrg": "組織",
+  "bizProject": "プロジェクト",
+  "bizNoProject": "プロジェクトなし",
+  "bizRecord": "この通話をクラウドに録画",
+  "bizRecordingNotice": "この通話は録画されています。",
+  "bizRecordingUploaded": "録画をワークスペースに保存しました。"
 }

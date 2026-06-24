@@ -414,5 +414,12 @@
   "onbCallLeaveTitle": "ጥሪውን ለቀቁ",
   "onbCallLeaveBody": "ሲጨርሱ ስልኩን ይዝጉ። ከግልባጮችና ከውርዶች ጋር ማጠቃለያ ያገኛሉ።",
   "onbCallDoneTitle": "ሁሉም ነገር ተዘጋጅቷል",
-  "onbCallDoneBody": "ይህን ጉብኝት በማንኛውም ጊዜ ከ\"?\" ቁልፍ እንደገና ይክፈቱ። ውይይቱን ይደሰቱበት።"
+  "onbCallDoneBody": "ይህን ጉብኝት በማንኛውም ጊዜ ከ\"?\" ቁልፍ እንደገና ይክፈቱ። ውይይቱን ይደሰቱበት።",
+  "workspace": "የስራ ቦታ",
+  "bizOrg": "ድርጅት",
+  "bizProject": "ፕሮጀክት",
+  "bizNoProject": "ምንም ፕሮጀክት የለም",
+  "bizRecord": "ይህን ጥሪ ወደ ደመና ይቅዱ",
+  "bizRecordingNotice": "ይህ ጥሪ እየተቀዳ ነው።",
+  "bizRecordingUploaded": "ቀረጻ ወደ ስራ ቦታዎ ተቀምጧል።"
 }

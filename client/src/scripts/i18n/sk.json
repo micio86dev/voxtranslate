@@ -414,5 +414,12 @@
   "onbCallLeaveTitle": "Opustite hovor",
   "onbCallLeaveBody": "Po skončení zaveste. Dostanete zhrnutie s prepismi a súbormi na stiahnutie.",
   "onbCallDoneTitle": "Všetko je pripravené",
-  "onbCallDoneBody": "Túto prehliadku kedykoľvek znova otvoríte tlačidlom „?“. Užite si rozhovor."
+  "onbCallDoneBody": "Túto prehliadku kedykoľvek znova otvoríte tlačidlom „?“. Užite si rozhovor.",
+  "workspace": "Pracovný priestor",
+  "bizOrg": "Organizácia",
+  "bizProject": "Projekt",
+  "bizNoProject": "Žiadny projekt",
+  "bizRecord": "Nahrať tento hovor do cloudu",
+  "bizRecordingNotice": "Tento hovor sa nahráva.",
+  "bizRecordingUploaded": "Nahrávka uložená do vášho pracovného priestoru."
 }

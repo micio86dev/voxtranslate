@@ -414,5 +414,12 @@
   "onbCallLeaveTitle": "Rời cuộc gọi",
   "onbCallLeaveBody": "Cúp máy khi bạn xong. Bạn sẽ nhận được bản tóm tắt kèm bản ghi và các bản tải về.",
   "onbCallDoneTitle": "Bạn đã sẵn sàng",
-  "onbCallDoneBody": "Mở lại hướng dẫn này bất cứ lúc nào từ nút \"?\". Chúc bạn trò chuyện vui vẻ."
+  "onbCallDoneBody": "Mở lại hướng dẫn này bất cứ lúc nào từ nút \"?\". Chúc bạn trò chuyện vui vẻ.",
+  "workspace": "Không gian làm việc",
+  "bizOrg": "Tổ chức",
+  "bizProject": "Dự án",
+  "bizNoProject": "Không có dự án",
+  "bizRecord": "Ghi cuộc gọi này lên đám mây",
+  "bizRecordingNotice": "Cuộc gọi này đang được ghi.",
+  "bizRecordingUploaded": "Bản ghi đã được lưu vào không gian làm việc của bạn."
 }

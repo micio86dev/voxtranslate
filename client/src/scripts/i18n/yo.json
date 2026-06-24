@@ -414,5 +414,12 @@
   "onbCallLeaveTitle": "Kúrò ní ìpè náà",
   "onbCallLeaveBody": "Gé ìpè náà nígbà tí o bá parí. Wàá rí àkótán pẹ̀lú àwọn àkọsílẹ̀ àti àwọn ìgbàsílẹ̀.",
   "onbCallDoneTitle": "O ti ṣetán pátápátá",
-  "onbCallDoneBody": "Tún ṣí ìtọ́sọ́nà yìí nígbàkigbà látinú bọ́tìnnì \"?\". Gbádùn ìfọ̀rọ̀wérọ̀ náà."
+  "onbCallDoneBody": "Tún ṣí ìtọ́sọ́nà yìí nígbàkigbà látinú bọ́tìnnì \"?\". Gbádùn ìfọ̀rọ̀wérọ̀ náà.",
+  "workspace": "Aaye iṣẹ́",
+  "bizOrg": "Àjọ",
+  "bizProject": "Iṣẹ́ àkànṣe",
+  "bizNoProject": "Kò sí iṣẹ́ àkànṣe",
+  "bizRecord": "Gba ìpè yìí sílẹ̀ sí ìkùukùu",
+  "bizRecordingNotice": "A ń gba ìpè yìí sílẹ̀.",
+  "bizRecordingUploaded": "A ti fi gbígbasílẹ̀ pamọ́ sí aaye iṣẹ́ rẹ."
 }

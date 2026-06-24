@@ -414,5 +414,12 @@
   "onbCallLeaveTitle": "Gadewch yr alwad",
   "onbCallLeaveBody": "Rhowch y ffôn i lawr pan fyddwch wedi gorffen. Cewch grynodeb gyda thrawsgrifiadau a lawrlwythiadau.",
   "onbCallDoneTitle": "Rydych chi'n barod",
-  "onbCallDoneBody": "Ailagorwch y daith hon ar unrhyw adeg o'r botwm \"?\". Mwynhewch y sgwrs."
+  "onbCallDoneBody": "Ailagorwch y daith hon ar unrhyw adeg o'r botwm \"?\". Mwynhewch y sgwrs.",
+  "workspace": "Gweithle",
+  "bizOrg": "Sefydliad",
+  "bizProject": "Prosiect",
+  "bizNoProject": "Dim prosiect",
+  "bizRecord": "Recordiwch yr alwad hon i'r cwmwl",
+  "bizRecordingNotice": "Mae'r alwad hon yn cael ei recordio.",
+  "bizRecordingUploaded": "Recordiad wedi'i gadw i'ch gweithle."
 }

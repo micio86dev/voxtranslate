@@ -414,5 +414,12 @@
   "onbCallLeaveTitle": "Pamet zvanu",
   "onbCallLeaveBody": "Noliec klausuli, kad esi pabeidzis. Saņemsi kopsavilkumu ar transkriptiem un lejupielādēm.",
   "onbCallDoneTitle": "Viss ir gatavs",
-  "onbCallDoneBody": "Šo ceļvedi jebkurā brīdī atver no jauna ar pogu \"?\". Bauda sarunu."
+  "onbCallDoneBody": "Šo ceļvedi jebkurā brīdī atver no jauna ar pogu \"?\". Bauda sarunu.",
+  "workspace": "Darba telpa",
+  "bizOrg": "Organizācija",
+  "bizProject": "Projekts",
+  "bizNoProject": "Nav projekta",
+  "bizRecord": "Ierakstīt šo zvanu mākonī",
+  "bizRecordingNotice": "Šis zvans tiek ierakstīts.",
+  "bizRecordingUploaded": "Ieraksts saglabāts jūsu darba telpā."
 }

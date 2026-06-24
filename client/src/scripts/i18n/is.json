@@ -414,5 +414,12 @@
   "onbCallLeaveTitle": "Yfirgefa símtalið",
   "onbCallLeaveBody": "Leggðu á þegar þú ert búin. Þú færð samantekt með uppskriftum og niðurhali.",
   "onbCallDoneTitle": "Þú ert tilbúin",
-  "onbCallDoneBody": "Opnaðu þessa leiðsögn aftur hvenær sem er með \"?\" hnappnum. Njóttu samtalsins."
+  "onbCallDoneBody": "Opnaðu þessa leiðsögn aftur hvenær sem er með \"?\" hnappnum. Njóttu samtalsins.",
+  "workspace": "Vinnusvæði",
+  "bizOrg": "Fyrirtæki",
+  "bizProject": "Verkefni",
+  "bizNoProject": "Ekkert verkefni",
+  "bizRecord": "Taktu þetta símtal upp í skýið",
+  "bizRecordingNotice": "Þetta símtal er tekið upp.",
+  "bizRecordingUploaded": "Upptaka vistuð á vinnusvæðið þitt."
 }
