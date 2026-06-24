@@ -23,6 +23,39 @@ static LAT_COUNT: AtomicU64 = AtomicU64::new(0);
 // Cumulative buckets: index i counts requests with latency <= BUCKETS_MS[i].
 static LAT_BUCKETS: [AtomicU64; 11] = [const { AtomicU64::new(0) }; 11];
 
+// Premium (Gemini Live) audio-translation latency (spec 0100). `ttfa` is the
+// per-segment time from a speaker's first audio chunk reaching Gemini to the first
+// translated-audio chunk back (the model's ear-voice span); `connect` is the
+// per-session WS connect+setup cost. Aggregated here instead of logged per segment
+// so they stay cheap at scale. Both reuse `BUCKETS_MS`.
+static GEM_TTFA_SUM: AtomicU64 = AtomicU64::new(0);
+static GEM_TTFA_COUNT: AtomicU64 = AtomicU64::new(0);
+static GEM_TTFA_BUCKETS: [AtomicU64; 11] = [const { AtomicU64::new(0) }; 11];
+static GEM_CONNECT_SUM: AtomicU64 = AtomicU64::new(0);
+static GEM_CONNECT_COUNT: AtomicU64 = AtomicU64::new(0);
+static GEM_CONNECT_BUCKETS: [AtomicU64; 11] = [const { AtomicU64::new(0) }; 11];
+
+/// Add one observation (ms) to a cumulative-bucket histogram.
+fn observe(sum: &AtomicU64, count: &AtomicU64, buckets: &[AtomicU64; 11], ms: u64) {
+    sum.fetch_add(ms, Ordering::Relaxed);
+    count.fetch_add(1, Ordering::Relaxed);
+    for (i, &le) in BUCKETS_MS.iter().enumerate() {
+        if ms <= le {
+            buckets[i].fetch_add(1, Ordering::Relaxed);
+        }
+    }
+}
+
+/// Record one Premium segment's time-to-first-translated-audio (ms).
+pub fn record_gemini_ttfa(ms: u64) {
+    observe(&GEM_TTFA_SUM, &GEM_TTFA_COUNT, &GEM_TTFA_BUCKETS, ms);
+}
+
+/// Record one Gemini Live session connect+setup duration (ms).
+pub fn record_gemini_connect(ms: u64) {
+    observe(&GEM_CONNECT_SUM, &GEM_CONNECT_COUNT, &GEM_CONNECT_BUCKETS, ms);
+}
+
 /// Record one completed request. Called from the canonical-log middleware, which
 /// already has the final status + wall latency, so there's no extra timing cost.
 pub fn record_request(status: u16, latency_ms: u64) {
@@ -56,6 +89,12 @@ struct Snapshot {
     lat_sum_ms: u64,
     lat_count: u64,
     lat_buckets: [u64; 11],
+    gem_ttfa_sum: u64,
+    gem_ttfa_count: u64,
+    gem_ttfa_buckets: [u64; 11],
+    gem_connect_sum: u64,
+    gem_connect_count: u64,
+    gem_connect_buckets: [u64; 11],
 }
 
 fn snapshot() -> Snapshot {
@@ -69,7 +108,25 @@ fn snapshot() -> Snapshot {
         lat_sum_ms: LAT_SUM_MS.load(Ordering::Relaxed),
         lat_count: LAT_COUNT.load(Ordering::Relaxed),
         lat_buckets: std::array::from_fn(|i| LAT_BUCKETS[i].load(Ordering::Relaxed)),
+        gem_ttfa_sum: GEM_TTFA_SUM.load(Ordering::Relaxed),
+        gem_ttfa_count: GEM_TTFA_COUNT.load(Ordering::Relaxed),
+        gem_ttfa_buckets: std::array::from_fn(|i| GEM_TTFA_BUCKETS[i].load(Ordering::Relaxed)),
+        gem_connect_sum: GEM_CONNECT_SUM.load(Ordering::Relaxed),
+        gem_connect_count: GEM_CONNECT_COUNT.load(Ordering::Relaxed),
+        gem_connect_buckets: std::array::from_fn(|i| GEM_CONNECT_BUCKETS[i].load(Ordering::Relaxed)),
     }
+}
+
+/// Write one cumulative-bucket histogram in Prometheus text format.
+fn write_histogram(o: &mut String, name: &str, help: &str, sum: u64, count: u64, buckets: &[u64; 11]) {
+    let _ = writeln!(o, "# HELP {name} {help}");
+    let _ = writeln!(o, "# TYPE {name} histogram");
+    for (i, le) in BUCKETS_MS.iter().enumerate() {
+        let _ = writeln!(o, "{name}_bucket{{le=\"{le}\"}} {}", buckets[i]);
+    }
+    let _ = writeln!(o, "{name}_bucket{{le=\"+Inf\"}} {count}");
+    let _ = writeln!(o, "{name}_sum {sum}");
+    let _ = writeln!(o, "{name}_count {count}");
 }
 
 /// Render the Prometheus text-format exposition for the current snapshot plus the
@@ -135,6 +192,23 @@ fn render_from(s: &Snapshot, active_rooms: u64, active_peers: u64) -> String {
     let _ = writeln!(o, "# TYPE voxtranslate_active_peers gauge");
     let _ = writeln!(o, "voxtranslate_active_peers {active_peers}");
 
+    write_histogram(
+        &mut o,
+        "voxtranslate_gemini_ttfa_ms",
+        "Premium per-segment time-to-first-translated-audio (Gemini ear-voice span), ms.",
+        s.gem_ttfa_sum,
+        s.gem_ttfa_count,
+        &s.gem_ttfa_buckets,
+    );
+    write_histogram(
+        &mut o,
+        "voxtranslate_gemini_connect_ms",
+        "Gemini Live session connect+setup duration, ms.",
+        s.gem_connect_sum,
+        s.gem_connect_count,
+        &s.gem_connect_buckets,
+    );
+
     o
 }
 
@@ -150,6 +224,13 @@ mod tests {
             lat_count: 14,
             // cumulative: <=5ms:2, <=10ms:5, … <=10000ms:14
             lat_buckets: [2, 5, 9, 11, 12, 13, 14, 14, 14, 14, 14],
+            // ttfa: 4 segments, one cold (>1000ms) + three warm (<=100ms).
+            gem_ttfa_sum: 2200,
+            gem_ttfa_count: 4,
+            gem_ttfa_buckets: [1, 2, 3, 3, 3, 3, 3, 3, 4, 4, 4],
+            gem_connect_sum: 180,
+            gem_connect_count: 2,
+            gem_connect_buckets: [0, 0, 0, 0, 1, 2, 2, 2, 2, 2, 2],
         };
         let out = render_from(&snap, 2, 5);
 
@@ -164,8 +245,30 @@ mod tests {
         // Gauges.
         assert!(out.contains("voxtranslate_active_rooms 2"));
         assert!(out.contains("voxtranslate_active_peers 5"));
+        // Gemini latency histograms.
+        assert!(out.contains("voxtranslate_gemini_ttfa_ms_bucket{le=\"+Inf\"} 4"));
+        assert!(out.contains("voxtranslate_gemini_ttfa_ms_sum 2200"));
+        assert!(out.contains("voxtranslate_gemini_ttfa_ms_count 4"));
+        assert!(out.contains("voxtranslate_gemini_connect_ms_bucket{le=\"100\"} 1"));
+        assert!(out.contains("voxtranslate_gemini_connect_ms_count 2"));
         // Every metric is preceded by a TYPE line (Prometheus exposition hygiene).
-        assert_eq!(out.matches("# TYPE ").count(), 4);
+        assert_eq!(out.matches("# TYPE ").count(), 6);
+    }
+
+    #[test]
+    fn record_gemini_helpers_bucket_observations() {
+        let before = snapshot();
+        record_gemini_ttfa(2000); // cold segment
+        record_gemini_ttfa(40); // warm segment
+        record_gemini_connect(60);
+        let after = snapshot();
+
+        assert_eq!(after.gem_ttfa_count - before.gem_ttfa_count, 2);
+        assert_eq!(after.gem_ttfa_sum - before.gem_ttfa_sum, 2040);
+        // The 40ms ttfa lands in le=50 (index 3) but not le=25 (index 2).
+        assert_eq!(after.gem_ttfa_buckets[3] - before.gem_ttfa_buckets[3], 1);
+        assert_eq!(after.gem_connect_count - before.gem_connect_count, 1);
+        assert_eq!(after.gem_connect_sum - before.gem_connect_sum, 60);
     }
 
     #[test]

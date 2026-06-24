@@ -307,12 +307,11 @@ async fn session_task(
                 failures = 0; // a successful connect resets the failure budget
                 // latency: the WS connect + setup-send cost. Audio buffered during this
                 // window waits, so it lands on the FIRST utterance's critical path unless
-                // the session was pre-warmed (opened before the speaker talks).
-                tracing::info!(
-                    lang = %reader.lang,
-                    connect_ms = connect_started.elapsed().as_millis() as u64,
-                    "gemini.latency: session connected"
-                );
+                // the session was pre-warmed (opened before the speaker talks). Aggregated
+                // into the `voxtranslate_gemini_connect_ms` histogram (/metrics).
+                let connect_ms = connect_started.elapsed().as_millis() as u64;
+                crate::metrics::record_gemini_connect(connect_ms);
+                tracing::debug!(lang = %reader.lang, connect_ms, "gemini.latency: session connected");
                 match run_connection(sink, source, &mut feed_rx, &reader).await {
                     ConnOutcome::AudioClosed => return,
                     ConnOutcome::Dropped => {
@@ -355,8 +354,8 @@ async fn run_connection(
     let mut audio_seq: u64 = 0; // orders translated-audio chunks for the client
     // latency: per-segment time-to-first-audio. `seg_first_in` marks when this
     // segment's first audio chunk was forwarded to Gemini; on the first translated
-    // audio back we log the gap (the model's ear-voice span) once, then reset both at
-    // the next turn boundary so every segment is measured.
+    // audio back we record the gap (the model's ear-voice span) once, then reset both
+    // at the next turn boundary so every segment is measured.
     let mut seg_first_in: Option<Instant> = None;
     let mut seg_ttfa_logged = false;
     let idle = sleep(Duration::from_millis(SEGMENT_IDLE_MS));
@@ -425,11 +424,12 @@ async fn run_connection(
                         GeminiEvent::OutputAudio(pcm) => {
                             if !seg_ttfa_logged {
                                 if let Some(t0) = seg_first_in {
-                                    tracing::info!(
-                                        lang = %reader.lang,
-                                        ttfa_ms = t0.elapsed().as_millis() as u64,
-                                        "gemini.latency: first translated audio (ear-voice span)"
-                                    );
+                                    // Per-segment ear-voice span → the
+                                    // `voxtranslate_gemini_ttfa_ms` histogram (/metrics),
+                                    // not a per-segment log line (too chatty at scale).
+                                    let ttfa_ms = t0.elapsed().as_millis() as u64;
+                                    crate::metrics::record_gemini_ttfa(ttfa_ms);
+                                    tracing::debug!(lang = %reader.lang, ttfa_ms, "gemini.latency: first translated audio (ear-voice span)");
                                     seg_ttfa_logged = true;
                                 }
                             }
