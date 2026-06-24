@@ -212,6 +212,27 @@ async fn room_binding_is_inherited_by_new_call() {
     assert_eq!(bad.status(), 400);
     let _ = other_org;
 
+    // Cloud recording requires an ACTIVE subscription — rejected without one.
+    let no_sub = http
+        .patch(format!("{}/api/rooms/inherit-room/business", base(&srv)))
+        .bearer_auth(&jwt)
+        .json(&json!({ "org_id": org, "project_id": project, "cloud_recording_enabled": true }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        no_sub.status(),
+        403,
+        "recording needs an active subscription"
+    );
+
+    // Activate the org's subscription; now the recording binding is allowed.
+    sqlx::query("UPDATE organizations SET subscription_status = 'active' WHERE id = $1")
+        .bind(org)
+        .execute(&srv.pool)
+        .await
+        .unwrap();
+
     // Bind the room to org + project with recording on.
     let bind = http
         .patch(format!("{}/api/rooms/inherit-room/business", base(&srv)))
