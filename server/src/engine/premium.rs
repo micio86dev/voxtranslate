@@ -301,9 +301,18 @@ async fn session_task(
 ) {
     let mut failures: u32 = 0;
     loop {
+        let connect_started = Instant::now();
         match gemini::open_session(&config, &reader.lang).await {
             Ok((sink, source)) => {
                 failures = 0; // a successful connect resets the failure budget
+                // latency: the WS connect + setup-send cost. Audio buffered during this
+                // window waits, so it lands on the FIRST utterance's critical path unless
+                // the session was pre-warmed (opened before the speaker talks).
+                tracing::info!(
+                    lang = %reader.lang,
+                    connect_ms = connect_started.elapsed().as_millis() as u64,
+                    "gemini.latency: session connected"
+                );
                 match run_connection(sink, source, &mut feed_rx, &reader).await {
                     ConnOutcome::AudioClosed => return,
                     ConnOutcome::Dropped => {
@@ -344,6 +353,12 @@ async fn run_connection(
     let mut translated = String::new(); // this session's output language
     let mut dirty = false;
     let mut audio_seq: u64 = 0; // orders translated-audio chunks for the client
+    // latency: per-segment time-to-first-audio. `seg_first_in` marks when this
+    // segment's first audio chunk was forwarded to Gemini; on the first translated
+    // audio back we log the gap (the model's ear-voice span) once, then reset both at
+    // the next turn boundary so every segment is measured.
+    let mut seg_first_in: Option<Instant> = None;
+    let mut seg_ttfa_logged = false;
     let idle = sleep(Duration::from_millis(SEGMENT_IDLE_MS));
     tokio::pin!(idle);
 
@@ -351,6 +366,9 @@ async fn run_connection(
         tokio::select! {
             chunk = feed_rx.recv() => match chunk {
                 Some(c) => {
+                    if seg_first_in.is_none() {
+                        seg_first_in = Some(Instant::now());
+                    }
                     let _ = sink.send(Message::text(gemini::audio_input_json(&c))).await;
                 }
                 None => {
@@ -405,6 +423,16 @@ async fn run_connection(
                             idle.as_mut().reset(Instant::now() + Duration::from_millis(SEGMENT_IDLE_MS));
                         }
                         GeminiEvent::OutputAudio(pcm) => {
+                            if !seg_ttfa_logged {
+                                if let Some(t0) = seg_first_in {
+                                    tracing::info!(
+                                        lang = %reader.lang,
+                                        ttfa_ms = t0.elapsed().as_millis() as u64,
+                                        "gemini.latency: first translated audio (ear-voice span)"
+                                    );
+                                    seg_ttfa_logged = true;
+                                }
+                            }
                             reader.emit_audio(audio_seq, &pcm);
                             audio_seq += 1;
                         }
@@ -416,6 +444,9 @@ async fn run_connection(
                                 translated.clear();
                                 dirty = false;
                             }
+                            // New segment starts on the next audio: re-arm the TTFA probe.
+                            seg_first_in = None;
+                            seg_ttfa_logged = false;
                             idle.as_mut().reset(Instant::now() + Duration::from_secs(3600));
                         }
                         // The server is about to disconnect — flush and reconnect
@@ -440,6 +471,8 @@ async fn run_connection(
                     translated.clear();
                     dirty = false;
                 }
+                seg_first_in = None;
+                seg_ttfa_logged = false;
                 idle.as_mut().reset(Instant::now() + Duration::from_secs(3600));
             }
         }
@@ -655,5 +688,138 @@ mod tests {
             .start_session(speaker_ctx("r", "spk", "it"), deps(rm))
             .await;
         assert!(matches!(out, SessionOutcome::Started(_)));
+    }
+
+    /// Real end-to-end AUDIO-latency probe against the LIVE Gemini Live API: drive
+    /// the actual engine (`start_session` → resample → Gemini → broadcast) and time
+    /// when the listener peer receives the first `translated_audio` frame, measured
+    /// from when the first audio chunk was fed in. This is the server-internal
+    /// ear-voice span — what local users feel, minus only the browser/network legs.
+    ///
+    /// `#[ignore]` because it needs a real key + network and bills Gemini minutes.
+    /// Run it explicitly (it prints with --nocapture):
+    /// ```text
+    /// GOOGLE_AI_API_KEY=... GEMINI_LATENCY_PCM=/tmp/gemtest/utt_24k.pcm \
+    ///   cargo test -p voxtranslate-server --lib \
+    ///   engine::premium::tests::premium_audio_latency_e2e -- --ignored --nocapture
+    /// ```
+    /// `GEMINI_LATENCY_PCM` must be mono PCM16 little-endian at 24 kHz (the capture
+    /// rate the engine resamples from).
+    #[tokio::test]
+    #[ignore]
+    async fn premium_audio_latency_e2e() {
+        use std::sync::atomic::AtomicBool;
+
+        let _ = dotenvy::dotenv();
+        let key = match std::env::var("GOOGLE_AI_API_KEY") {
+            Ok(k) if !k.trim().is_empty() => k,
+            _ => {
+                eprintln!("skip: set GOOGLE_AI_API_KEY");
+                return;
+            }
+        };
+        let pcm_path = match std::env::var("GEMINI_LATENCY_PCM") {
+            Ok(p) if !p.trim().is_empty() => p,
+            _ => {
+                eprintln!("skip: set GEMINI_LATENCY_PCM to a 24kHz mono PCM16 file");
+                return;
+            }
+        };
+        let pcm = std::fs::read(&pcm_path).expect("read PCM sample");
+        let in_dur = pcm.len() as f64 / 2.0 / 24000.0;
+        let model = std::env::var("GEMINI_LIVE_TRANSLATE_MODEL")
+            .unwrap_or_else(|_| "gemini-3.5-live-translate-preview".into());
+
+        let mut config = cfg(4);
+        config.api_key = key;
+        config.model = model;
+
+        // Room: speaker (it) + a listener (en) whose receiver we keep so we can read
+        // the translated audio the engine broadcasts.
+        let rm = RoomManager::new();
+        join_peer(&rm, "lat", "spk", "it");
+        let (tx, mut rx, _ovf) = PeerTx::channel(2048);
+        let listener = Peer {
+            id: "lis".into(),
+            conn: Uuid::new_v4(),
+            name: "lis".into(),
+            lang: "en".into(),
+            engine: GEMINI_ID.to_string(),
+            avatar_url: None,
+            tx,
+            speaking: Arc::new(AtomicBool::new(false)),
+        };
+        rm.join("lat", listener, Visibility::Private).unwrap();
+
+        let engine = PremiumEngine::new(&config);
+        let audio_tx = match engine
+            .start_session(speaker_ctx("lat", "spk", "it"), deps(rm))
+            .await
+        {
+            SessionOutcome::Started(tx) => tx,
+            _ => panic!("expected Started session outcome (engine at capacity or failed)"),
+        };
+
+        // Feed 24kHz PCM16 in 100ms chunks, in real time (simulate a live mic).
+        const BYTES_PER_CHUNK: usize = 24000 * 2 * 100 / 1000; // 4800
+        let t0 = Instant::now();
+        let feeder = {
+            let audio_tx = audio_tx.clone();
+            let pcm = pcm.clone();
+            tokio::spawn(async move {
+                for ch in pcm.chunks(BYTES_PER_CHUNK) {
+                    if audio_tx.send(ch.to_vec()).await.is_err() {
+                        break;
+                    }
+                    sleep(Duration::from_millis(100)).await;
+                }
+            })
+        };
+
+        let mut first_subtitle: Option<u128> = None;
+        let mut first_audio: Option<u128> = None;
+        let mut audio_frames = 0u32;
+        let deadline = Instant::now() + Duration::from_secs(40);
+        loop {
+            let left = deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                break;
+            }
+            match tokio::time::timeout(left, rx.recv()).await {
+                Ok(Some(msg)) => {
+                    let v: serde_json::Value = serde_json::from_str(&msg).unwrap_or_default();
+                    match v["type"].as_str() {
+                        Some("subtitle_interim") | Some("subtitle_final")
+                            if first_subtitle.is_none() =>
+                        {
+                            first_subtitle = Some(t0.elapsed().as_millis());
+                        }
+                        Some("translated_audio") => {
+                            if first_audio.is_none() {
+                                first_audio = Some(t0.elapsed().as_millis());
+                            }
+                            audio_frames += 1;
+                        }
+                        _ => {}
+                    }
+                    if first_audio.is_some() && audio_frames >= 25 {
+                        break; // enough to confirm a steady stream
+                    }
+                }
+                _ => break,
+            }
+        }
+        feeder.abort();
+        drop(audio_tx);
+
+        println!("\n=== LOCAL E2E Premium (engine→Gemini→listener), from first audio fed ===");
+        println!("  input audio duration   : {in_dur:.2}s");
+        println!("  first translated CAPTION: {first_subtitle:?} ms");
+        println!("  first translated AUDIO  : {first_audio:?} ms  <- server-internal ear-voice span");
+        println!("  translated audio frames : {audio_frames}");
+        assert!(
+            first_audio.is_some(),
+            "expected at least one translated_audio frame from Gemini"
+        );
     }
 }
