@@ -490,3 +490,126 @@ async fn projects_crud_and_permissions() {
         .unwrap();
     assert_eq!(list.as_array().unwrap().len(), 0);
 }
+
+#[tokio::test]
+async fn compliance_mode_is_enterprise_only() {
+    let Some(srv) = setup().await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    let http = Client::new();
+    let (_a, jwt) = user(&srv).await;
+
+    // Business org (default plan) cannot enable compliance mode.
+    let biz = create_org(&http, &srv, &jwt, "Biz Co").await;
+    let denied = http
+        .patch(format!("{}/api/business/organizations/{biz}", base(&srv)))
+        .bearer_auth(&jwt)
+        .json(&json!({ "settings": { "compliance_mode": true } }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(denied.status(), 403, "compliance is Enterprise-only");
+
+    // An Enterprise org can.
+    let ent: Value = http
+        .post(format!("{}/api/business/organizations", base(&srv)))
+        .bearer_auth(&jwt)
+        .json(&json!({
+            "name": "Ent Co",
+            "slug": format!("ent-{}", Uuid::new_v4().simple()),
+            "plan": "enterprise",
+        }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let ent_id = ent["id"].as_str().unwrap();
+    let ok = http
+        .patch(format!(
+            "{}/api/business/organizations/{ent_id}",
+            base(&srv)
+        ))
+        .bearer_auth(&jwt)
+        .json(&json!({ "settings": { "compliance_mode": true } }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(ok.status(), 200, "Enterprise can enable compliance");
+}
+
+#[tokio::test]
+async fn business_member_cap_enforced_and_lifted_on_enterprise() {
+    let Some(srv) = setup().await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    let http = Client::new();
+    let (_a, jwt_a) = user(&srv).await;
+    let org = create_org(&http, &srv, &jwt_a, "Capped Co").await;
+
+    // Fill the org to its 20-member Business cap (owner + 19 inserted directly).
+    sqlx::query(
+        "WITH new_users AS (
+            INSERT INTO users (google_id, email, name)
+            SELECT 'cap-' || g || '-' || $2::text,
+                   'cap-' || g || '-' || $2::text || '@x.com',
+                   'Cap Member'
+            FROM generate_series(1, 19) g
+            RETURNING id
+         )
+         INSERT INTO organization_members (org_id, user_id, role)
+         SELECT $1, id, 'member' FROM new_users",
+    )
+    .bind(org)
+    .bind(org.to_string())
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+
+    // Invite a 21st member; accepting is rejected on the Business plan.
+    let (_b, jwt_b) = user(&srv).await;
+    let invite: Value = http
+        .post(format!(
+            "{}/api/business/organizations/{org}/invites",
+            base(&srv)
+        ))
+        .bearer_auth(&jwt_a)
+        .json(&json!({ "email": "over@example.com", "role": "member" }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let token = invite["token"].as_str().unwrap();
+    let over = http
+        .post(format!(
+            "{}/api/business/invites/{token}/accept",
+            base(&srv)
+        ))
+        .bearer_auth(&jwt_b)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(over.status(), 409, "21st member rejected on Business plan");
+
+    // Upgrading to Enterprise lifts the cap — the same pending invite now accepts.
+    sqlx::query("UPDATE organizations SET plan = 'enterprise' WHERE id = $1")
+        .bind(org)
+        .execute(&srv.pool)
+        .await
+        .unwrap();
+    let now_ok = http
+        .post(format!(
+            "{}/api/business/invites/{token}/accept",
+            base(&srv)
+        ))
+        .bearer_auth(&jwt_b)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(now_ok.status(), 200, "Enterprise is unlimited");
+}

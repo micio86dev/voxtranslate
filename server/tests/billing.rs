@@ -176,6 +176,7 @@ mod guest_mode {
             bug_report_to: "test@example.com".into(),
             app_base_url: "https://voxtranslate.app".into(),
             dashboard_base_url: "https://dashboard.voxtranslate.app".into(),
+            business_member_limit: 20,
             openai: None,
             google: None,
             soniox: None,
