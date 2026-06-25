@@ -14,6 +14,19 @@ use crate::email_template::{render_button, tagline, EmailButton};
 /// extra (bounces, declines) — kept low so we can't be used as a spam relay.
 pub const MAX_INVITE_EMAILS: usize = 5;
 
+/// Generate a fresh, unguessable room code for a scheduled meeting. Uses a reduced
+/// alphabet (no ambiguous 0/o/1/l) and a `vox-` prefix; the result always passes
+/// [`sanitize_room`]. Collisions are astronomically unlikely (32^10).
+pub fn gen_room_code() -> String {
+    use rand::Rng;
+    const CHARS: &[u8] = b"abcdefghijkmnpqrstuvwxyz23456789";
+    let mut rng = rand::thread_rng();
+    let suffix: String = (0..10)
+        .map(|_| CHARS[rng.gen_range(0..CHARS.len())] as char)
+        .collect();
+    format!("vox-{suffix}")
+}
+
 /// Accept a room code only if it's URL- and HTML-safe, so it can be dropped into
 /// an email link verbatim. Returns the lowercased code, or `None` to reject.
 pub fn sanitize_room(code: &str) -> Option<String> {

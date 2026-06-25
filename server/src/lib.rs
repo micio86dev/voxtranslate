@@ -24,10 +24,12 @@ pub mod email_template;
 pub mod engine;
 pub mod files;
 pub mod glossary;
+pub mod google_calendar;
 pub mod google_oauth;
 pub mod groq;
 pub mod invite;
 pub mod log_shipping;
+pub mod meetings;
 pub mod metrics;
 pub mod middleware;
 pub mod moderation;
@@ -470,6 +472,16 @@ pub fn app(state: AppState) -> Router {
             axum::routing::delete(auth::disconnect_google),
         )
         .route("/api/user/me", get(auth::user_me))
+        // ---- Personal (B2C) scheduled meetings on Google Calendar ----
+        .route(
+            "/api/meetings",
+            get(meetings::list).post(meetings::create),
+        )
+        .route("/api/meetings/{meeting_id}", get(meetings::get))
+        .route(
+            "/api/meetings/{meeting_id}/cancel",
+            post(meetings::cancel),
+        )
         .route("/api/engines", get(api::engines))
         .route("/api/soniox/session", post(api::soniox_session))
         .route("/api/billing/packages", get(api::billing_packages))

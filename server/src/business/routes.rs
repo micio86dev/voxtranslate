@@ -4,8 +4,8 @@ use axum::routing::{delete, get, patch, post};
 use axum::Router;
 
 use crate::business::{
-    analytics, billing, calls, members, organizations, projects, recording, storyboard, teams,
-    transcripts,
+    analytics, billing, calls, meetings, members, organizations, projects, recording, storyboard,
+    teams, transcripts,
 };
 use crate::AppState;
 
@@ -67,6 +67,19 @@ pub fn routes() -> Router<AppState> {
         .route(
             "/api/business/organizations/{org_id}/teams/{team_id}/members/{user_id}",
             delete(teams::remove_member),
+        )
+        // ---- Scheduled meetings (Google Calendar) ----
+        .route(
+            "/api/business/organizations/{org_id}/meetings",
+            get(meetings::list).post(meetings::create),
+        )
+        .route(
+            "/api/business/organizations/{org_id}/meetings/{meeting_id}",
+            get(meetings::get).patch(meetings::update),
+        )
+        .route(
+            "/api/business/organizations/{org_id}/meetings/{meeting_id}/cancel",
+            post(meetings::cancel),
         )
         // ---- Calls: binding, history (PR-B) ----
         .route("/api/rooms/{room}/business", patch(calls::bind))

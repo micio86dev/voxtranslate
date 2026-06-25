@@ -16,6 +16,7 @@ pub mod audit;
 pub mod billing;
 pub mod calls;
 pub mod credits;
+pub mod meetings;
 pub mod members;
 pub mod organizations;
 pub mod projects;
