@@ -613,3 +613,190 @@ async fn business_member_cap_enforced_and_lifted_on_enterprise() {
         .unwrap();
     assert_eq!(now_ok.status(), 200, "Enterprise is unlimited");
 }
+
+/// Invite `email` to `org` as `role` (owner JWT) and have `accepter_jwt` accept it.
+async fn invite_and_accept(
+    http: &Client,
+    srv: &Server,
+    owner_jwt: &str,
+    org: Uuid,
+    accepter_jwt: &str,
+    role: &str,
+) {
+    let invite: Value = http
+        .post(format!(
+            "{}/api/business/organizations/{org}/invites",
+            base(srv)
+        ))
+        .bearer_auth(owner_jwt)
+        .json(&json!({ "email": format!("{}@x.com", Uuid::new_v4()), "role": role }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let token = invite["token"].as_str().unwrap();
+    let accept = http
+        .post(format!("{}/api/business/invites/{token}/accept", base(srv)))
+        .bearer_auth(accepter_jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(accept.status(), 200, "accept invite");
+}
+
+#[tokio::test]
+async fn teams_crud_and_flexible_membership() {
+    let Some(srv) = setup().await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    let http = Client::new();
+    let (_a, jwt_a) = user(&srv).await; // owner
+    let (b_id, jwt_b) = user(&srv).await; // member
+    let org = create_org(&http, &srv, &jwt_a, "Teams Co").await;
+    invite_and_accept(&http, &srv, &jwt_a, org, &jwt_b, "member").await;
+
+    let teams_url = format!("{}/api/business/organizations/{org}/teams", base(&srv));
+
+    // A member can't create a team (ADMIN-gated).
+    let denied = http
+        .post(&teams_url)
+        .bearer_auth(&jwt_b)
+        .json(&json!({ "name": "Nope" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(denied.status(), 403);
+
+    // Owner creates two teams.
+    let mk = |name: &str| {
+        let url = teams_url.clone();
+        let jwt = jwt_a.clone();
+        let name = name.to_string();
+        let http = http.clone();
+        async move {
+            let r = http
+                .post(&url)
+                .bearer_auth(&jwt)
+                .json(&json!({ "name": name }))
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(r.status(), 201);
+            let v: Value = r.json().await.unwrap();
+            Uuid::parse_str(v["id"].as_str().unwrap()).unwrap()
+        }
+    };
+    let eng = mk("Engineering").await;
+    let sales = mk("Sales").await;
+
+    // Add B to BOTH teams → flexible multi-team membership.
+    for team in [eng, sales] {
+        let r = http
+            .post(format!("{teams_url}/{team}/members"))
+            .bearer_auth(&jwt_a)
+            .json(&json!({ "user_id": b_id }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(r.status(), 204);
+    }
+    // Idempotent re-add.
+    let again = http
+        .post(format!("{teams_url}/{eng}/members"))
+        .bearer_auth(&jwt_a)
+        .json(&json!({ "user_id": b_id }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(again.status(), 204);
+
+    // List shows both teams, each with member_count 1.
+    let teams: Value = http
+        .get(&teams_url)
+        .bearer_auth(&jwt_b)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let arr = teams.as_array().unwrap();
+    assert_eq!(arr.len(), 2);
+    assert!(arr.iter().all(|t| t["member_count"].as_i64().unwrap() == 1));
+
+    // Team member list includes B.
+    let eng_members: Value = http
+        .get(format!("{teams_url}/{eng}/members"))
+        .bearer_auth(&jwt_a)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(eng_members
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|m| m["user_id"] == b_id.to_string()));
+
+    // Adding a NON-org-member is rejected (400).
+    let (outsider, _) = user(&srv).await;
+    let bad = http
+        .post(format!("{teams_url}/{eng}/members"))
+        .bearer_auth(&jwt_a)
+        .json(&json!({ "user_id": outsider }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(bad.status(), 400);
+
+    // "Move" B out of Sales (remove); Eng membership untouched.
+    let removed = http
+        .delete(format!("{teams_url}/{sales}/members/{b_id}"))
+        .bearer_auth(&jwt_a)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(removed.status(), 204);
+    let sales_members: Value = http
+        .get(format!("{teams_url}/{sales}/members"))
+        .bearer_auth(&jwt_a)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(sales_members.as_array().unwrap().len(), 0);
+
+    // Rename + delete (admin).
+    let renamed = http
+        .patch(format!("{teams_url}/{eng}"))
+        .bearer_auth(&jwt_a)
+        .json(&json!({ "name": "Eng" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(renamed.status(), 200);
+    let del = http
+        .delete(format!("{teams_url}/{sales}"))
+        .bearer_auth(&jwt_a)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(del.status(), 204);
+
+    // A non-member can't see this org's teams (404).
+    let (_c, jwt_c) = user(&srv).await;
+    let outsider_view = http
+        .get(&teams_url)
+        .bearer_auth(&jwt_c)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(outsider_view.status(), 404);
+}

@@ -22,6 +22,7 @@ pub mod projects;
 pub mod recording;
 pub mod retention;
 pub mod routes;
+pub mod teams;
 pub mod transcripts;
 
 use axum::http::StatusCode;
