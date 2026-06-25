@@ -4,7 +4,8 @@ use axum::routing::{delete, get, patch, post};
 use axum::Router;
 
 use crate::business::{
-    analytics, billing, calls, members, organizations, projects, recording, teams, transcripts,
+    analytics, billing, calls, members, organizations, projects, recording, storyboard, teams,
+    transcripts,
 };
 use crate::AppState;
 
@@ -45,6 +46,10 @@ pub fn routes() -> Router<AppState> {
             get(projects::get)
                 .patch(projects::patch)
                 .delete(projects::delete),
+        )
+        .route(
+            "/api/business/organizations/{org_id}/projects/{project_id}/storyboard",
+            get(storyboard::get).post(storyboard::generate),
         )
         // ---- Teams: people-groups with flexible membership (Phase 2) ----
         .route(

@@ -606,3 +606,95 @@ async fn member_analytics_tracks_calls_spend_and_collaborators() {
         .unwrap();
     assert_eq!(nf.status(), 404);
 }
+
+#[tokio::test]
+async fn storyboard_guards_and_preconditions() {
+    let Some(srv) = setup().await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    let http = Client::new();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner).await;
+    let project: Uuid = sqlx::query_scalar(
+        "INSERT INTO projects (org_id, name, created_by) VALUES ($1, 'P', $2) RETURNING id",
+    )
+    .bind(org)
+    .bind(owner)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
+    let sb_url = format!(
+        "{}/api/business/organizations/{org}/projects/{project}/storyboard",
+        base(&srv)
+    );
+
+    // No storyboard yet → 404.
+    let none = http.get(&sb_url).bearer_auth(&jwt).send().await.unwrap();
+    assert_eq!(none.status(), 404);
+
+    // Generate with no calls in the project → 400 (nothing to summarize; no Groq call).
+    let empty = http
+        .post(&sb_url)
+        .bearer_auth(&jwt)
+        .json(&json!({}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(empty.status(), 400);
+
+    // Add a call to the project; org has 0 credits → 402 (pre-check before Groq).
+    let sid = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO call_sessions (id, room, org_id, project_id, transcript_status)
+         VALUES ($1, $2, $3, $4, 'none')",
+    )
+    .bind(sid)
+    .bind(format!("room-{}", Uuid::new_v4().simple()))
+    .bind(org)
+    .bind(project)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+    let broke = http
+        .post(&sb_url)
+        .bearer_auth(&jwt)
+        .json(&json!({}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(broke.status(), 402);
+
+    // A non-admin member can't generate → 403.
+    let (b, jwt_b) = user(&srv).await;
+    sqlx::query(
+        "INSERT INTO organization_members (org_id, user_id, role) VALUES ($1, $2, 'member')",
+    )
+    .bind(org)
+    .bind(b)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+    let denied = http
+        .post(&sb_url)
+        .bearer_auth(&jwt_b)
+        .json(&json!({}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(denied.status(), 403);
+
+    // Generate for a non-existent project → 404.
+    let ghost = http
+        .post(format!(
+            "{}/api/business/organizations/{org}/projects/{}/storyboard",
+            base(&srv),
+            Uuid::new_v4()
+        ))
+        .bearer_auth(&jwt)
+        .json(&json!({}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(ghost.status(), 404);
+}
