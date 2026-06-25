@@ -27,6 +27,7 @@ import type { SonioxManager } from './soniox';
 import { type CallModules, loadCallModules } from './call-modules';
 import { loadRemoteI18n } from './content';
 import { setupScheduling } from './meetings';
+import { initAnalytics, track } from './analytics';
 import { maybeSubscribePush } from './push';
 import { icon } from './icons';
 import type { MeshManager } from './webrtc';
@@ -1082,6 +1083,7 @@ enterBtn.addEventListener('click', () => {
   if (!room) return homeStatusMsg(t('enterRoom'), true);
   // Belt-and-suspenders: a guest can't create a public room (spec 0022 / 0036).
   if (visibilityPublic && billing && !auth.isLoggedIn()) return openSigninGate();
+  track('start_call', { visibility: visibilityPublic ? 'public' : 'private' });
   goPrejoin(room, visibilityPublic);
 });
 
@@ -2468,6 +2470,7 @@ async function sendInvitesFromForm(): Promise<void> {
     return;
   }
   inviteEmailInput.value = '';
+  track('invite_sent', { count: res.sent });
   let msg = t('inviteSent').replace('{n}', String(res.sent));
   if (res.failed) msg += ` · ${t('inviteSomeFailed').replace('{n}', String(res.failed))}`;
   setInviteStatus(msg, 'ok');
@@ -4134,6 +4137,7 @@ async function onGoogleCode(resp: { code?: string; error?: string }): Promise<vo
   if (!resp.code) return;
   try {
     await auth.exchangeGoogleCode(resp.code);
+    track('login', { method: 'google' });
     enterHome();
   } catch {
     /* stay on the login screen; the user can retry */
@@ -4151,6 +4155,7 @@ $('logout-btn').addEventListener('click', () => {
 
 // --- Buy-credits modal ---
 function openBuyModal(): void {
+  track('buy_credits_open');
   show(buyModal, true);
   buyStatus.textContent = '';
   buyStatus.classList.remove('error');
@@ -4526,7 +4531,9 @@ function initCookieBanner(): void {
   } catch {
     /* storage blocked */
   }
-  if (!accepted) show(cookieBanner, true);
+  // Analytics loads only once cookies are accepted (no-op without PUBLIC_GA_ID).
+  if (accepted) initAnalytics();
+  else show(cookieBanner, true);
   $('cookie-accept').addEventListener('click', () => {
     try {
       localStorage.setItem('vox.cookie', '1');
@@ -4534,6 +4541,7 @@ function initCookieBanner(): void {
       /* ignore */
     }
     show(cookieBanner, false);
+    initAnalytics();
   });
 }
 

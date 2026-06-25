@@ -5,6 +5,7 @@
 //! friend-picker invite source alongside the email field.
 
 import { authHeaders, HTTP_BASE, isLoggedIn } from "./auth";
+import { track } from "./analytics";
 
 export interface Meeting {
   id: string;
@@ -243,6 +244,7 @@ export function setupScheduling(t: (k: string) => string): void {
         }
         return;
       }
+      track("schedule_meeting", { recurring: !!recurrence });
       close();
       ($("sm-title") as HTMLInputElement).value = "";
       ($("sm-emails") as HTMLInputElement).value = "";
