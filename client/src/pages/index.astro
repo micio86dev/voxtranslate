@@ -657,7 +657,7 @@ const jsonLd = {
         </div>
         <label class="field">
           <span class="field-label" data-i18n="scheduleFTitle">{T('scheduleFTitle')}</span>
-          <input id="sm-title" type="text" maxlength="120" autocomplete="off" />
+          <input id="sm-title" type="text" maxlength="120" autocomplete="off" data-i18n-ph="scheduleFTitlePh" placeholder={T('scheduleFTitlePh')} />
         </label>
         <label class="field">
           <span class="field-label" data-i18n="scheduleFStart">{T('scheduleFStart')}</span>
@@ -675,6 +675,17 @@ const jsonLd = {
         <div class="modal-actions">
           <button id="sm-cancel-btn2" class="btn-ghost" data-i18n="cancel">{T('cancel')}</button>
           <button id="sm-create" class="btn-primary" data-i18n="scheduleCreate">{T('scheduleCreate')}</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===================== CONFIRM DIALOG (custom, localised) ===================== -->
+    <div id="confirm-modal" class="modal-overlay hidden">
+      <div class="modal card modal-narrow" role="dialog" aria-modal="true">
+        <p id="confirm-text" class="modal-text"></p>
+        <div class="modal-actions">
+          <button id="confirm-no" class="btn-ghost"></button>
+          <button id="confirm-yes" class="btn-danger"></button>
         </div>
       </div>
     </div>

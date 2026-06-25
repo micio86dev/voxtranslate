@@ -4,10 +4,10 @@
 //! before a call, and upload the cloud recording afterwards. Everything is
 //! best-effort and guarded by the caller so the consumer flow is never affected.
 
-import { authHeaders, HTTP_BASE } from './auth';
+import { authHeaders, HTTP_BASE } from "./auth";
 
 /** Where the standalone Business dashboard lives (separate origin). */
-export const DASHBOARD_URL = 'https://dashboard.voxtranslate.app';
+export const DASHBOARD_URL = "https://dashboard.voxtranslate.app";
 
 export interface BusinessOrg {
   id: string;
@@ -21,7 +21,7 @@ export interface BusinessOrg {
 
 /** Cloud recording is a paid feature — only orgs with an active subscription. */
 export function canCloudRecord(org: BusinessOrg | undefined): boolean {
-  return org?.subscription_status === 'active';
+  return org?.subscription_status === "active";
 }
 
 export interface BusinessProject {
@@ -45,9 +45,12 @@ export async function listMyOrgs(): Promise<BusinessOrg[]> {
 /** Active projects in an org. */
 export async function listProjects(orgId: string): Promise<BusinessProject[]> {
   try {
-    const res = await fetch(`${HTTP_BASE}/api/business/organizations/${orgId}/projects`, {
-      headers: authHeaders(),
-    });
+    const res = await fetch(
+      `${HTTP_BASE}/api/business/organizations/${orgId}/projects`,
+      {
+        headers: authHeaders(),
+      },
+    );
     if (!res.ok) return [];
     return (await res.json()) as BusinessProject[];
   } catch {
@@ -58,14 +61,21 @@ export async function listProjects(orgId: string): Promise<BusinessProject[]> {
 /** Bind a room to an org/project + recording intent before the call starts. */
 export async function bindRoom(
   room: string,
-  body: { org_id: string; project_id?: string | null; cloud_recording_enabled?: boolean },
+  body: {
+    org_id: string;
+    project_id?: string | null;
+    cloud_recording_enabled?: boolean;
+  },
 ): Promise<boolean> {
   try {
-    const res = await fetch(`${HTTP_BASE}/api/rooms/${encodeURIComponent(room)}/business`, {
-      method: 'PATCH',
-      headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
+    const res = await fetch(
+      `${HTTP_BASE}/api/rooms/${encodeURIComponent(room)}/business`,
+      {
+        method: "PATCH",
+        headers: { ...authHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      },
+    );
     return res.ok;
   } catch {
     return false;
@@ -86,7 +96,7 @@ export async function uploadRecording(
     const base = `${HTTP_BASE}/api/business/rooms/${encodeURIComponent(sessionId)}/recording`;
     // 1) Ask for a signed upload URL + the object path to report back.
     const presign = await fetch(`${base}/upload-url`, {
-      method: 'POST',
+      method: "POST",
       headers: authHeaders(),
     });
     if (!presign.ok) return false;
@@ -97,20 +107,40 @@ export async function uploadRecording(
 
     // 2) PUT the video straight to storage (no auth header — the URL is signed).
     const put = await fetch(upload_url, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'video/webm', 'x-upsert': 'true' },
+      method: "PUT",
+      headers: { "Content-Type": "video/webm", "x-upsert": "true" },
       body: blob,
     });
     if (!put.ok) return false;
 
     // 3) Tell the server it landed → record path, charge credits, transcribe.
     const done = await fetch(`${base}/complete`, {
-      method: 'POST',
-      headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+      method: "POST",
+      headers: { ...authHeaders(), "Content-Type": "application/json" },
       body: JSON.stringify({ object_path, duration_seconds: durationSeconds }),
     });
     return done.ok;
   } catch {
     return false;
+  }
+}
+
+/** The org/project a room is already bound to (e.g. a scheduled meeting created in
+ *  the dashboard), so the pre-join UI can pre-select it instead of clobbering the
+ *  project on connect. Returns null when unbound or the caller isn't a member. */
+export async function getRoomBinding(
+  room: string,
+): Promise<{ org_id: string; project_id: string | null } | null> {
+  try {
+    const res = await fetch(
+      `${HTTP_BASE}/api/rooms/${encodeURIComponent(room)}/business`,
+      {
+        headers: authHeaders(),
+      },
+    );
+    if (!res.ok) return null;
+    return (await res.json()) as { org_id: string; project_id: string | null };
+  } catch {
+    return null;
   }
 }

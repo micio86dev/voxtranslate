@@ -430,5 +430,14 @@
   "scheduleFDuration": "Duration (min)",
   "scheduleFEmails": "Invite by email",
   "scheduleFEmailsPh": "comma,separated@emails.com",
-  "scheduleCreate": "Create"
+  "scheduleCreate": "Create",
+  "scheduleFTitlePh": "Weekly sync",
+  "scheduleJoin": "Join",
+  "scheduleEmpty": "No upcoming meetings.",
+  "scheduleCancelConfirm": "Cancel this meeting? The attendees will be notified.",
+  "scheduleErrRequired": "Title and start time are required.",
+  "scheduleConnectCalendar": "Sign in again to connect your Google Calendar.",
+  "scheduleErrSave": "Could not create the meeting.",
+  "scheduleCancelMeeting": "Cancel meeting",
+  "scheduleKeep": "Keep"
 }

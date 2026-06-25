@@ -430,5 +430,14 @@
   "scheduleFDuration": "Duración (min)",
   "scheduleFEmails": "Invitar por correo",
   "scheduleFEmailsPh": "correos,separados@porcomas.com",
-  "scheduleCreate": "Crear"
+  "scheduleCreate": "Crear",
+  "scheduleFTitlePh": "Sync semanal",
+  "scheduleJoin": "Unirse",
+  "scheduleEmpty": "No hay reuniones programadas.",
+  "scheduleCancelConfirm": "¿Cancelar esta reunión? Se avisará a los asistentes.",
+  "scheduleErrRequired": "El título y la hora de inicio son obligatorios.",
+  "scheduleConnectCalendar": "Inicia sesión de nuevo para conectar Google Calendar.",
+  "scheduleErrSave": "No se pudo crear la reunión.",
+  "scheduleCancelMeeting": "Cancelar reunión",
+  "scheduleKeep": "Mantener"
 }

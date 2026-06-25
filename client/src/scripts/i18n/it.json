@@ -430,5 +430,14 @@
   "scheduleFDuration": "Durata (min)",
   "scheduleFEmails": "Invita via email",
   "scheduleFEmailsPh": "email,separate@dacomma.com",
-  "scheduleCreate": "Crea"
+  "scheduleCreate": "Crea",
+  "scheduleFTitlePh": "Sync settimanale",
+  "scheduleJoin": "Entra",
+  "scheduleEmpty": "Nessuna riunione in programma.",
+  "scheduleCancelConfirm": "Annullare questa riunione? I partecipanti verranno avvisati.",
+  "scheduleErrRequired": "Titolo e orario di inizio sono obbligatori.",
+  "scheduleConnectCalendar": "Accedi di nuovo per collegare Google Calendar.",
+  "scheduleErrSave": "Impossibile creare la riunione.",
+  "scheduleCancelMeeting": "Annulla riunione",
+  "scheduleKeep": "Mantieni"
 }

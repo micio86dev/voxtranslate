@@ -430,5 +430,14 @@
   "scheduleFDuration": "Dauer (Min.)",
   "scheduleFEmails": "Per E-Mail einladen",
   "scheduleFEmailsPh": "kommagetrennte@emails.com",
-  "scheduleCreate": "Erstellen"
+  "scheduleCreate": "Erstellen",
+  "scheduleFTitlePh": "Wöchentlicher Sync",
+  "scheduleJoin": "Beitreten",
+  "scheduleEmpty": "Keine geplanten Meetings.",
+  "scheduleCancelConfirm": "Dieses Meeting absagen? Die Teilnehmer werden benachrichtigt.",
+  "scheduleErrRequired": "Titel und Startzeit sind erforderlich.",
+  "scheduleConnectCalendar": "Melde dich erneut an, um Google Calendar zu verbinden.",
+  "scheduleErrSave": "Meeting konnte nicht erstellt werden.",
+  "scheduleCancelMeeting": "Meeting absagen",
+  "scheduleKeep": "Behalten"
 }

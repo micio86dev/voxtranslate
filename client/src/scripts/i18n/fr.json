@@ -430,5 +430,14 @@
   "scheduleFDuration": "Durée (min)",
   "scheduleFEmails": "Inviter par e-mail",
   "scheduleFEmailsPh": "emails,séparés@par-virgules.com",
-  "scheduleCreate": "Créer"
+  "scheduleCreate": "Créer",
+  "scheduleFTitlePh": "Sync hebdo",
+  "scheduleJoin": "Rejoindre",
+  "scheduleEmpty": "Aucune réunion planifiée.",
+  "scheduleCancelConfirm": "Annuler cette réunion ? Les participants seront prévenus.",
+  "scheduleErrRequired": "Le titre et l'heure de début sont obligatoires.",
+  "scheduleConnectCalendar": "Reconnectez-vous pour lier Google Calendar.",
+  "scheduleErrSave": "Impossible de créer la réunion.",
+  "scheduleCancelMeeting": "Annuler la réunion",
+  "scheduleKeep": "Conserver"
 }

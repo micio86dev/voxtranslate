@@ -430,5 +430,14 @@
   "onbCallLeaveTitle": "Leave the call",
   "onbCallLeaveBody": "Hang up when you're done. You'll get a summary with transcripts and downloads.",
   "onbCallDoneTitle": "You're all set",
-  "onbCallDoneBody": "Reopen this tour any time from the \"?\" button. Enjoy the conversation."
+  "onbCallDoneBody": "Reopen this tour any time from the \"?\" button. Enjoy the conversation.",
+  "scheduleFTitlePh": "Weekly sync",
+  "scheduleJoin": "Join",
+  "scheduleEmpty": "No upcoming meetings.",
+  "scheduleCancelConfirm": "Cancel this meeting? The attendees will be notified.",
+  "scheduleErrRequired": "Title and start time are required.",
+  "scheduleConnectCalendar": "Sign in again to connect your Google Calendar.",
+  "scheduleErrSave": "Could not create the meeting.",
+  "scheduleCancelMeeting": "Cancel meeting",
+  "scheduleKeep": "Keep"
 }

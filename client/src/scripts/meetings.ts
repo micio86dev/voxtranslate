@@ -1,5 +1,5 @@
 //! Personal scheduled meetings for the consumer app (spec: scheduled meetings,
-//! Phase 1e). Thin client over `/api/meetings`, plus `setupScheduling()` which wires
+//! Phase 1e). Thin client over `/api/meetings`, plus `setupScheduling(t)` which wires
 //! the home-screen "Scheduled meetings" card + create modal. Self-contained and
 //! best-effort so the core call flow is never affected. Phase 2 (friends) adds a
 //! friend-picker invite source alongside the email field.
@@ -77,6 +77,53 @@ function esc(s: string): string {
   );
 }
 
+// Localised lookup, set by setupScheduling. Falls back to the key.
+let T: (k: string) => string = (k) => k;
+
+/** Custom confirm dialog (localised, responsive) replacing window.confirm. Resolves
+ *  true/false. Falls back to native confirm if the markup is missing. */
+function confirmDialog(
+  message: string,
+  yesLabel: string,
+  noLabel: string,
+): Promise<boolean> {
+  return new Promise((resolve) => {
+    const modal = $("confirm-modal");
+    const text = $("confirm-text");
+    const yes = $("confirm-yes");
+    const no = $("confirm-no");
+    if (!modal || !text || !yes || !no) {
+      resolve(window.confirm(message));
+      return;
+    }
+    text.textContent = message;
+    yes.textContent = yesLabel;
+    no.textContent = noLabel;
+    const done = (v: boolean) => {
+      modal.classList.add("hidden");
+      (yes as HTMLElement).onclick = null;
+      (no as HTMLElement).onclick = null;
+      resolve(v);
+    };
+    (yes as HTMLElement).onclick = () => done(true);
+    (no as HTMLElement).onclick = () => done(false);
+    modal.classList.remove("hidden");
+  });
+}
+
+/** Join a meeting's room without leaving the web app: prefill the room field and
+ *  trigger the normal connect flow (which runs the business pre-join binding). */
+function joinRoom(code: string): void {
+  const roomInput = document.getElementById("room") as HTMLInputElement | null;
+  const enterBtn = document.getElementById("enter") as HTMLButtonElement | null;
+  if (roomInput && enterBtn) {
+    roomInput.value = code;
+    enterBtn.click();
+  } else {
+    location.href = `/?room=${encodeURIComponent(code)}`;
+  }
+}
+
 async function renderList(): Promise<void> {
   const list = $("schedule-list");
   if (!list) return;
@@ -92,16 +139,25 @@ async function renderList(): Promise<void> {
               <span class="schedule-item-title">${esc(m.title)}</span>
               <span class="schedule-item-when">${esc(when)}</span>
             </div>
-            <a href="${esc(m.join_url)}" class="btn-ghost" target="_blank" rel="noopener">Join</a>
-            <button class="btn-ghost sm-cancel" data-id="${m.id}">Cancel</button>
+            <button class="btn-ghost join-meet" data-room="${esc(m.room_code)}">${esc(T("scheduleJoin"))}</button>
+            <button class="btn-ghost sm-cancel" data-id="${m.id}">${esc(T("cancel"))}</button>
           </div>`;
         })
         .join("")
-    : `<p class="schedule-empty">No upcoming meetings.</p>`;
+    : `<p class="schedule-empty">${esc(T("scheduleEmpty"))}</p>`;
+  list
+    .querySelectorAll<HTMLButtonElement>(".join-meet")
+    .forEach((b) =>
+      b.addEventListener("click", () => joinRoom(b.dataset.room!)),
+    );
   list.querySelectorAll<HTMLButtonElement>(".sm-cancel").forEach((b) =>
     b.addEventListener("click", async () => {
-      if (!confirm("Cancel this meeting? Attendees will be notified.")) return;
-      if (await cancelMeeting(b.dataset.id!)) void renderList();
+      const ok = await confirmDialog(
+        T("scheduleCancelConfirm"),
+        T("scheduleCancelMeeting"),
+        T("scheduleKeep"),
+      );
+      if (ok && (await cancelMeeting(b.dataset.id!))) void renderList();
     }),
   );
 }
@@ -113,7 +169,8 @@ let wired = false;
  * Calendar access comes from the login scope). Idempotent — safe to call on every
  * home entry; listeners attach once. No-ops if the markup is absent.
  */
-export function setupScheduling(): void {
+export function setupScheduling(t: (k: string) => string): void {
+  T = t;
   const card = $("schedule-card");
   if (!card) return;
   if (!isLoggedIn()) {
@@ -142,7 +199,7 @@ export function setupScheduling(): void {
       const startVal = ($("sm-start") as HTMLInputElement)?.value;
       if (!title || !startVal) {
         if (err) {
-          err.textContent = "Title and start time are required.";
+          err.textContent = T("scheduleErrRequired");
           err.classList.remove("hidden");
         }
         return;
@@ -162,9 +219,7 @@ export function setupScheduling(): void {
       if (typeof res === "number") {
         if (err) {
           err.textContent =
-            res === 409
-              ? "Sign in again to connect your Google Calendar."
-              : "Could not create the meeting.";
+            res === 409 ? T("scheduleConnectCalendar") : T("scheduleErrSave");
           err.classList.remove("hidden");
         }
         return;

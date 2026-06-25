@@ -44,6 +44,7 @@ import {
   bindRoom,
   canCloudRecord,
   DASHBOARD_URL,
+  getRoomBinding,
   listMyOrgs,
   listProjects,
   uploadRecording,
@@ -3909,7 +3910,7 @@ function enterHome(): void {
   }
   updatePublicGate();
   // Scheduled-meetings card: shows when signed in, hides for guests (idempotent).
-  setupScheduling();
+  setupScheduling(t);
   refreshGlossaryHome(); // 📖 home button is auth-only
   startLobby();
   // Invite deep-link (spec 0082): the FIRST time we reach home carrying an invite
@@ -4043,6 +4044,18 @@ async function setupBizPrejoin(): Promise<void> {
   };
   await loadProjects();
   updateRecordRow();
+  // Pre-select the org/project this room is already bound to (e.g. a scheduled
+  // meeting created in the dashboard) so connecting doesn't clobber the project.
+  const boundRoom = roomInput.value.trim();
+  if (boundRoom) {
+    const binding = await getRoomBinding(boundRoom);
+    if (binding && orgs.some((o) => o.id === binding.org_id)) {
+      orgSel.value = binding.org_id;
+      updateRecordRow();
+      await loadProjects();
+      if (binding.project_id) projSel.value = binding.project_id;
+    }
+  }
   show(block, true);
 }
 
@@ -4534,6 +4547,7 @@ $('chat-send').innerHTML = icon('send', 20);
 chatAttach.innerHTML = icon('paperclip', 20);
 $('logout-btn').innerHTML = icon('leave', 16);
 $('buy-close').innerHTML = icon('close', 16);
+$('sm-cancel-btn').innerHTML = icon('close', 16);
 $('privacy-open').innerHTML = icon('shield', 16);
 $('report-close').innerHTML = icon('close', 16);
 $('privacy-close').innerHTML = icon('close', 16);
