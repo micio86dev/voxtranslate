@@ -202,6 +202,22 @@ export async function loginWithGoogle(credential: string): Promise<User> {
   return data.user;
 }
 
+/** Exchange an OAuth authorization code (popup code flow, `redirect_uri:'postmessage'`)
+ * for a session; stores token + user. The code flow lets the server obtain a refresh
+ * token for the Calendar scope (scheduled meetings). Carries the acquisition source. */
+export async function exchangeGoogleCode(code: string): Promise<User> {
+  const source = getAcquisitionSource() || undefined;
+  const res = await fetch(`${HTTP_BASE}/api/auth/google`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code, redirect_uri: 'postmessage', source }),
+  });
+  if (!res.ok) throw new Error(`login failed (${res.status})`);
+  const data = (await res.json()) as { token: string; user: User };
+  saveSession(data.token, data.user);
+  return data.user;
+}
+
 /** Re-fetch the current user (balance) from the server. */
 export async function refreshMe(): Promise<User | null> {
   if (!token) return null;

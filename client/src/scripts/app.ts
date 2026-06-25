@@ -4065,14 +4065,16 @@ function setBalanceUi(balance: number): void {
   callBalance.classList.toggle('low', low);
 }
 
-// --- Google Identity Services ---
+// --- Google Identity Services (OAuth code flow) ---
+// We use the OAuth *authorization-code* flow (popup) so the server can obtain a
+// refresh token and schedule meetings on the user's Google Calendar (spec: scheduled
+// meetings). This replaces the older ID-token / FedCM chooser — the popup is now the
+// single sign-in path. The OAuth consent screen must list the Calendar scope.
 let gsiLoaded = false;
-let gsiFallbackTimer: number | undefined;
+// Scopes requested at sign-in; keep in sync with the server's GOOGLE_CALENDAR_SCOPES.
+const OAUTH_SCOPE = 'openid email profile https://www.googleapis.com/auth/calendar.events';
+let googleCodeClient: { requestCode: () => void } | undefined;
 
-// Our own Google-branded button opens Google's NATIVE account chooser (FedCM), so
-// there is no white personalized card (spec 0087). If the chooser can't show
-// (no FedCM / rate-limited), we fall back to Google's official rendered button so
-// sign-in always works.
 function setupGoogleSignIn(): void {
   const clientId = auth.getGoogleClientId();
   const customBtn = document.getElementById('gsi-signin');
@@ -4080,57 +4082,17 @@ function setupGoogleSignIn(): void {
   loadGsi()
     .then(() => {
       const g = (window as unknown as { google?: any }).google;
-      if (!g?.accounts?.id) return;
-      // use_fedcm_for_prompt → the browser's native chooser, not a white GSI card.
-      g.accounts.id.initialize({
+      if (!g?.accounts?.oauth2) return;
+      googleCodeClient = g.accounts.oauth2.initCodeClient({
         client_id: clientId,
-        callback: onGoogleCredential,
-        use_fedcm_for_prompt: true,
+        scope: OAUTH_SCOPE,
+        ux_mode: 'popup',
+        callback: onGoogleCode,
       });
       show(customBtn, true);
-      customBtn.onclick = () => triggerGoogleSignIn(g);
+      customBtn.onclick = () => googleCodeClient?.requestCode();
     })
     .catch(() => {});
-}
-
-function triggerGoogleSignIn(g: any): void {
-  let fellBack = false;
-  const fallback = () => {
-    if (fellBack) return;
-    fellBack = true;
-    showGoogleOfficialButton(g);
-  };
-  try {
-    g.accounts.id.prompt(
-      (notification: { isNotDisplayed?: () => boolean; isSkippedMoment?: () => boolean }) => {
-        try {
-          if (notification.isNotDisplayed?.() || notification.isSkippedMoment?.()) fallback();
-        } catch {
-          /* FedCM: moment methods are unavailable — the timer below is the net */
-        }
-      },
-    );
-  } catch {
-    fallback();
-    return;
-  }
-  // Safety net: if no credential lands shortly, the chooser likely never opened.
-  window.clearTimeout(gsiFallbackTimer);
-  gsiFallbackTimer = window.setTimeout(fallback, 7000);
-}
-
-// Reveal Google's official rendered button as a working fallback (it carries the
-// white personalized card, but it always signs in).
-function showGoogleOfficialButton(g: any): void {
-  const official = document.getElementById('gsi-official');
-  const customBtn = document.getElementById('gsi-signin');
-  if (!official || official.childElementCount > 0) return;
-  if (customBtn) show(customBtn, false);
-  try {
-    g.accounts.id.renderButton(official, { theme: 'filled_blue', size: 'large', shape: 'pill', text: 'continue_with' });
-  } catch {
-    if (customBtn) show(customBtn, true); // render failed → restore our button
-  }
 }
 
 function loadGsi(): Promise<void> {
@@ -4149,11 +4111,10 @@ function loadGsi(): Promise<void> {
   });
 }
 
-async function onGoogleCredential(resp: { credential?: string }): Promise<void> {
-  window.clearTimeout(gsiFallbackTimer); // sign-in fired — cancel the fallback net
-  if (!resp.credential) return;
+async function onGoogleCode(resp: { code?: string; error?: string }): Promise<void> {
+  if (!resp.code) return;
   try {
-    await auth.loginWithGoogle(resp.credential);
+    await auth.exchangeGoogleCode(resp.code);
     enterHome();
   } catch {
     /* stay on the login screen; the user can retry */
