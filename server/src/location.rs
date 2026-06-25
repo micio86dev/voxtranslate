@@ -24,6 +24,14 @@ pub struct LocationInput {
     pub accuracy: Option<f64>,
 }
 
+/// True when the coordinates are finite and within the valid lat/lng ranges.
+fn valid_coords(lat: f64, lng: f64) -> bool {
+    lat.is_finite()
+        && lng.is_finite()
+        && (-90.0..=90.0).contains(&lat)
+        && (-180.0..=180.0).contains(&lng)
+}
+
 /// `POST /api/user/location` — record the caller's opt-in location. The browser only
 /// reaches this after the user granted both our prompt and the OS geolocation
 /// permission, so arrival here is itself the consent signal.
@@ -35,11 +43,7 @@ pub async fn update_location(
     let Some(pool) = state.pool.as_ref() else {
         return (StatusCode::SERVICE_UNAVAILABLE, "unavailable").into_response();
     };
-    if !body.latitude.is_finite()
-        || !body.longitude.is_finite()
-        || !(-90.0..=90.0).contains(&body.latitude)
-        || !(-180.0..=180.0).contains(&body.longitude)
-    {
+    if !valid_coords(body.latitude, body.longitude) {
         return (StatusCode::BAD_REQUEST, "invalid coordinates").into_response();
     }
     let res = sqlx::query(
@@ -110,4 +114,27 @@ pub async fn ensure_geometry(pool: &Pool) {
         }
     }
     tracing::info!("user location geometry ready — Directus map enabled");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::valid_coords;
+
+    #[test]
+    fn accepts_in_range_coordinates() {
+        assert!(valid_coords(0.0, 0.0));
+        assert!(valid_coords(45.4642, 9.19)); // Milan
+        assert!(valid_coords(-90.0, -180.0)); // corners are inclusive
+        assert!(valid_coords(90.0, 180.0));
+    }
+
+    #[test]
+    fn rejects_out_of_range_or_nonfinite() {
+        assert!(!valid_coords(90.1, 0.0));
+        assert!(!valid_coords(0.0, 180.1));
+        assert!(!valid_coords(-90.1, 0.0));
+        assert!(!valid_coords(0.0, -180.1));
+        assert!(!valid_coords(f64::NAN, 0.0));
+        assert!(!valid_coords(0.0, f64::INFINITY));
+    }
 }

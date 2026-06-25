@@ -14,6 +14,9 @@ const {
 const canonicalURL = new URL(Astro.url.pathname, Astro.site);
 const imageURL = new URL(image, Astro.site);
 
+// Staging builds (PUBLIC_STAGING=true) are never indexed, on any page.
+const noindexPage = noindex || import.meta.env.PUBLIC_STAGING === 'true';
+
 // Warm the cross-origin API connection during HTML parse. The whole boot chain
 // (files/config → content/i18n → auth/config) waits on a fresh DNS+TCP+TLS
 // handshake to this origin; preconnecting it overlaps that cost with the CSS/JS
@@ -67,7 +70,7 @@ const appleSplash: [number, number, number][] = [
     <!-- SEO -->
     <meta name="description" content={description} />
     <link rel="canonical" href={canonicalURL} />
-    <meta name="robots" content={noindex ? 'noindex, nofollow' : 'index, follow'} />
+    <meta name="robots" content={noindexPage ? 'noindex, nofollow' : 'index, follow'} />
 
     <!-- Open Graph (Facebook, LinkedIn, iMessage, Slack, …) -->
     <meta property="og:type" content="website" />

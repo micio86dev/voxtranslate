@@ -533,6 +533,18 @@ mod tests {
     }
 
     #[test]
+    fn clean_locale_normalizes_to_base_code() {
+        assert_eq!(clean_locale(None), None);
+        assert_eq!(clean_locale(Some("  ")), None);
+        assert_eq!(clean_locale(Some("it")), Some("it".to_string()));
+        assert_eq!(clean_locale(Some("PT-BR")), Some("pt".to_string())); // region dropped + lowercased
+        assert_eq!(clean_locale(Some("zh_Hans")), Some("zh".to_string())); // underscore variant
+        assert_eq!(clean_locale(Some("e")), None); // too short
+        assert_eq!(clean_locale(Some("123")), None); // non-letters rejected
+        assert_eq!(clean_locale(Some("toolonglocale")), None); // > 8 chars
+    }
+
+    #[test]
     fn jwt_round_trip_and_reject_tampered() {
         let id = Uuid::new_v4();
         let token = issue_jwt("secret", &id, "a@b.com", "Alice", 168).unwrap();

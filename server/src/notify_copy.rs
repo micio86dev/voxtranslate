@@ -174,4 +174,36 @@ mod tests {
         assert_eq!(t, "Demo");
         assert!(b.is_empty());
     }
+
+    #[test]
+    fn every_kind_localizes_for_each_language() {
+        let kinds = [
+            "meeting_invited",
+            "meeting_reminder",
+            "meeting_updated",
+            "meeting_cancelled",
+        ];
+        for lang in ["en", "it", "es", "fr", "de", "pt", "ja", "zh", "xx"] {
+            for kind in kinds {
+                let (title, body) = meeting_copy(kind, lang, "Standup");
+                assert!(
+                    title.contains("Standup"),
+                    "{lang}/{kind} title missing meeting name"
+                );
+                assert!(
+                    !title.is_empty() && !body.is_empty(),
+                    "{lang}/{kind} empty copy"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn join_label_localizes_with_english_fallback() {
+        assert_eq!(join_label("it"), "Entra");
+        assert_eq!(join_label("de"), "Beitreten");
+        assert_eq!(join_label("ja"), "参加");
+        assert_eq!(join_label("en"), "Join");
+        assert_eq!(join_label("xx"), "Join"); // unknown → fallback
+    }
 }
