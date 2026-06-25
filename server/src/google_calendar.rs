@@ -23,6 +23,9 @@ pub struct EventInput {
     pub attendee_emails: Vec<String>,
     /// `extendedProperties.private` key/values (our app metadata).
     pub private_props: HashMap<String, String>,
+    /// RRULE strings for a recurring series (e.g. `["RRULE:FREQ=WEEKLY;COUNT=10"]`).
+    /// `None` for a one-off event.
+    pub recurrence: Option<Vec<String>>,
 }
 
 #[derive(Serialize)]
@@ -53,6 +56,8 @@ struct EventBody {
     attendees: Vec<Attendee>,
     #[serde(rename = "extendedProperties")]
     extended_properties: ExtendedProperties,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    recurrence: Option<Vec<String>>,
 }
 
 /// A created/updated event, as far as we care about it.
@@ -84,6 +89,7 @@ impl EventInput {
             extended_properties: ExtendedProperties {
                 private: self.private_props.clone(),
             },
+            recurrence: self.recurrence.clone(),
         }
     }
 }

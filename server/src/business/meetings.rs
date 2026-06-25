@@ -38,7 +38,46 @@ pub struct MeetingRow {
     pub join_url: String,
     pub status: String,
     pub reminder_minutes_before: i32,
+    /// RRULE for a recurring series, or NULL for a one-off meeting.
+    pub recurrence: Option<String>,
     pub created_at: DateTime<Utc>,
+}
+
+/// Structured recurrence from the UI; converted to an RRULE server-side.
+#[derive(Deserialize)]
+pub struct Recurrence {
+    /// DAILY | WEEKLY | MONTHLY.
+    pub freq: String,
+    #[serde(default)]
+    pub interval: Option<i32>,
+    /// Number of occurrences (mutually exclusive with `until`).
+    #[serde(default)]
+    pub count: Option<i32>,
+    /// End date (UTC).
+    #[serde(default)]
+    pub until: Option<DateTime<Utc>>,
+}
+
+/// Build a one-element RRULE vec from a structured [`Recurrence`], or `None` if the
+/// frequency is invalid.
+pub fn build_rrule(r: &Recurrence) -> Option<Vec<String>> {
+    let freq = match r.freq.to_uppercase().as_str() {
+        "DAILY" => "DAILY",
+        "WEEKLY" => "WEEKLY",
+        "MONTHLY" => "MONTHLY",
+        _ => return None,
+    };
+    let mut rule = format!("RRULE:FREQ={freq}");
+    let interval = r.interval.unwrap_or(1).max(1);
+    if interval > 1 {
+        rule.push_str(&format!(";INTERVAL={interval}"));
+    }
+    if let Some(c) = r.count.filter(|c| *c > 0) {
+        rule.push_str(&format!(";COUNT={}", c.min(730)));
+    } else if let Some(until) = r.until {
+        rule.push_str(&format!(";UNTIL={}", until.format("%Y%m%dT%H%M%SZ")));
+    }
+    Some(vec![rule])
 }
 
 #[derive(FromRow, Serialize)]
@@ -78,6 +117,9 @@ pub struct MeetingInput {
     /// External invitees by email.
     #[serde(default)]
     pub invitee_emails: Vec<String>,
+    /// Optional recurrence (recurring series). `None` = one-off.
+    #[serde(default)]
+    pub recurrence: Option<Recurrence>,
 }
 
 #[derive(Deserialize, Default)]
@@ -148,7 +190,7 @@ async fn resolve_invitees(
 async fn load_detail(pool: &Pool, org_id: Uuid, meeting_id: Uuid) -> Result<MeetingDetail, Response> {
     let meeting: Option<MeetingRow> = sqlx::query_as(
         "SELECT id, org_id, project_id, title, description, scheduled_at, end_at, timezone,
-                room_code, join_url, status, reminder_minutes_before, created_at
+                room_code, join_url, status, reminder_minutes_before, recurrence, created_at
          FROM scheduled_meetings WHERE id = $1 AND org_id = $2",
     )
     .bind(meeting_id)
@@ -240,6 +282,9 @@ pub async fn create(
     let room_code = gen_room_code();
     let join_url = format!("{}/?room={}", state.config.app_base_url, room_code);
 
+    let rrule = body.recurrence.as_ref().and_then(build_rrule);
+    let recurrence_str = rrule.as_ref().and_then(|v| v.first().cloned());
+
     // Calendar is the source of truth: create the event first (requires a connected
     // Google account). Bail before writing our row if there's no connection.
     let access = google_oauth::valid_access_token(&state, user.user_id)
@@ -257,6 +302,7 @@ pub async fn create(
             timezone: timezone.clone(),
             attendee_emails: invitees.iter().map(|i| i.email.clone()).collect(),
             private_props: private_props(meeting_id, &room_code, body.project_id),
+            recurrence: rrule,
         },
     )
     .await
@@ -269,8 +315,9 @@ pub async fn create(
     sqlx::query(
         "INSERT INTO scheduled_meetings
             (id, creator_user_id, org_id, project_id, title, description, scheduled_at, end_at,
-             timezone, room_code, join_url, google_calendar_event_id, reminder_minutes_before)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)",
+             timezone, room_code, join_url, google_calendar_event_id, reminder_minutes_before,
+             recurrence)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)",
     )
     .bind(meeting_id)
     .bind(user.user_id)
@@ -285,6 +332,7 @@ pub async fn create(
     .bind(&join_url)
     .bind(&event.id)
     .bind(reminder)
+    .bind(&recurrence_str)
     .execute(&mut *tx)
     .await
     .map_err(db_err)?;
@@ -397,7 +445,7 @@ pub async fn list(
     let to = q.to.unwrap_or_else(|| Utc::now() + ChronoDuration::days(90));
     let rows: Vec<MeetingRow> = sqlx::query_as(
         "SELECT id, org_id, project_id, title, description, scheduled_at, end_at, timezone,
-                room_code, join_url, status, reminder_minutes_before, created_at
+                room_code, join_url, status, reminder_minutes_before, recurrence, created_at
          FROM scheduled_meetings
          WHERE org_id = $1 AND scheduled_at >= $2 AND scheduled_at <= $3
          ORDER BY scheduled_at",
@@ -458,6 +506,8 @@ pub async fn update(
         .unwrap_or(existing.meeting.reminder_minutes_before)
         .clamp(0, 1440);
     let invitees = resolve_invitees(pool, org_id, &body.invitee_user_ids, &body.invitee_emails).await?;
+    let rrule = body.recurrence.as_ref().and_then(build_rrule);
+    let recurrence_str = rrule.as_ref().and_then(|v| v.first().cloned());
 
     // Update the Calendar event (source of truth) first.
     let event_id: Option<String> = sqlx::query_scalar(
@@ -484,6 +534,7 @@ pub async fn update(
                 timezone: timezone.clone(),
                 attendee_emails: invitees.iter().map(|i| i.email.clone()).collect(),
                 private_props: private_props(meeting_id, &existing.meeting.room_code, body.project_id),
+                recurrence: rrule,
             },
         )
         .await
@@ -497,7 +548,7 @@ pub async fn update(
     sqlx::query(
         "UPDATE scheduled_meetings SET
             title = $2, description = $3, scheduled_at = $4, end_at = $5, timezone = $6,
-            project_id = $7, reminder_minutes_before = $8,
+            project_id = $7, reminder_minutes_before = $8, recurrence = $9,
             reminder_sent_at = NULL, updated_at = now()
          WHERE id = $1",
     )
@@ -509,6 +560,7 @@ pub async fn update(
     .bind(&timezone)
     .bind(body.project_id)
     .bind(reminder)
+    .bind(&recurrence_str)
     .execute(&mut *tx)
     .await
     .map_err(db_err)?;

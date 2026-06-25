@@ -13,7 +13,7 @@ use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use serde::Deserialize;
 use uuid::Uuid;
 
-use crate::business::meetings::{InviteeRow, MeetingDetail, MeetingRow};
+use crate::business::meetings::{build_rrule, InviteeRow, MeetingDetail, MeetingRow, Recurrence};
 use crate::business::{bad_request, conflict, db_err, not_found, require_pool};
 use crate::db::Pool;
 use crate::google_calendar::{self, EventInput};
@@ -38,6 +38,8 @@ pub struct CreateInput {
     reminder_minutes_before: Option<i32>,
     #[serde(default)]
     invitee_emails: Vec<String>,
+    #[serde(default)]
+    recurrence: Option<Recurrence>,
 }
 
 #[derive(Deserialize, Default)]
@@ -61,7 +63,7 @@ fn calendar_token_err(e: OauthError) -> Response {
 async fn load_detail(pool: &Pool, creator_id: Uuid, meeting_id: Uuid) -> Result<MeetingDetail, Response> {
     let meeting: Option<MeetingRow> = sqlx::query_as(
         "SELECT id, org_id, project_id, title, description, scheduled_at, end_at, timezone,
-                room_code, join_url, status, reminder_minutes_before, created_at
+                room_code, join_url, status, reminder_minutes_before, recurrence, created_at
          FROM scheduled_meetings WHERE id = $1 AND creator_user_id = $2",
     )
     .bind(meeting_id)
@@ -130,6 +132,8 @@ pub async fn create(
     let mut props = HashMap::new();
     props.insert("vox_meeting_id".to_string(), meeting_id.to_string());
     props.insert("vox_room_code".to_string(), room_code.clone());
+    let rrule = body.recurrence.as_ref().and_then(build_rrule);
+    let recurrence_str = rrule.as_ref().and_then(|v| v.first().cloned());
     let event = google_calendar::create_event(
         &state.http,
         &access,
@@ -142,6 +146,7 @@ pub async fn create(
             timezone: timezone.clone(),
             attendee_emails: emails.clone(),
             private_props: props,
+            recurrence: rrule,
         },
     )
     .await
@@ -154,8 +159,8 @@ pub async fn create(
     sqlx::query(
         "INSERT INTO scheduled_meetings
             (id, creator_user_id, title, description, scheduled_at, end_at, timezone,
-             room_code, join_url, google_calendar_event_id, reminder_minutes_before)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
+             room_code, join_url, google_calendar_event_id, reminder_minutes_before, recurrence)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)",
     )
     .bind(meeting_id)
     .bind(user.user_id)
@@ -168,6 +173,7 @@ pub async fn create(
     .bind(&join_url)
     .bind(&event.id)
     .bind(reminder)
+    .bind(&recurrence_str)
     .execute(&mut *tx)
     .await
     .map_err(db_err)?;
@@ -199,7 +205,7 @@ pub async fn list(
     let to = q.to.unwrap_or_else(|| Utc::now() + ChronoDuration::days(90));
     let rows: Vec<MeetingRow> = sqlx::query_as(
         "SELECT id, org_id, project_id, title, description, scheduled_at, end_at, timezone,
-                room_code, join_url, status, reminder_minutes_before, created_at
+                room_code, join_url, status, reminder_minutes_before, recurrence, created_at
          FROM scheduled_meetings
          WHERE creator_user_id = $1 AND scheduled_at >= $2 AND scheduled_at <= $3
          ORDER BY scheduled_at",
