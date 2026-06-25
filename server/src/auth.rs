@@ -246,8 +246,18 @@ impl From<User> for UserProfile {
 
 #[derive(Deserialize)]
 pub struct GoogleAuthRequest {
-    /// The GSI `credential` (a Google ID token).
-    pub credential: String,
+    /// Legacy GSI `credential` (a Google ID token). Still accepted during the
+    /// transition to the OAuth code flow; mutually exclusive with `code`.
+    #[serde(default)]
+    pub credential: Option<String>,
+    /// OAuth authorization `code` from `google.accounts.oauth2.initCodeClient`. The
+    /// server exchanges it for an id_token + access/refresh tokens (Calendar access).
+    #[serde(default)]
+    pub code: Option<String>,
+    /// Redirect URI the code client used (the app origin for `ux_mode:'popup'`).
+    /// Must match an Authorized redirect URI on the OAuth client.
+    #[serde(default)]
+    pub redirect_uri: Option<String>,
     /// Acquisition source for marketing attribution (`?source` / `utm_source` the
     /// visitor arrived with). Recorded only on first login; ignored thereafter.
     #[serde(default)]
@@ -266,6 +276,10 @@ fn clean_source(raw: Option<&str>) -> Option<String> {
 pub struct AuthResponse {
     pub token: String,
     pub user: UserProfile,
+    /// True when this session has a usable Google Calendar connection (a stored
+    /// refresh token). The frontends gate meeting-scheduling on this and otherwise
+    /// prompt a re-consent sign-in.
+    pub calendar_connected: bool,
 }
 
 /// `POST /api/auth/google` — verify a Google credential, upsert the user
@@ -289,9 +303,49 @@ pub async fn auth_google(
         return (StatusCode::TOO_MANY_REQUESTS, "too many requests").into_response();
     }
 
-    let identity = match state.verifier.verify(&body.credential).await {
-        Ok(id) => id,
-        Err(_) => return (StatusCode::UNAUTHORIZED, "invalid Google credential").into_response(),
+    // Resolve a verified identity from EITHER the new OAuth code (which also yields
+    // Calendar tokens to persist) OR the legacy ID-token credential.
+    let (identity, token_set) = if let Some(code) =
+        body.code.as_deref().filter(|c| !c.is_empty())
+    {
+        if !billing.calendar_enabled() {
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "google calendar oauth not configured",
+            )
+                .into_response();
+        }
+        let redirect_uri = body.redirect_uri.as_deref().unwrap_or_default();
+        let tokens = match crate::google_oauth::exchange_code(
+            &state.http,
+            &billing.google_client_id,
+            &billing.google_client_secret,
+            code,
+            redirect_uri,
+        )
+        .await
+        {
+            Ok(t) => t,
+            Err(e) => {
+                tracing::warn!("google code exchange failed: {e}");
+                return (StatusCode::UNAUTHORIZED, "google sign-in failed").into_response();
+            }
+        };
+        match state.verifier.verify(&tokens.id_token).await {
+            Ok(id) => (id, Some(tokens)),
+            Err(_) => {
+                return (StatusCode::UNAUTHORIZED, "invalid Google credential").into_response()
+            }
+        }
+    } else if let Some(credential) = body.credential.as_deref().filter(|c| !c.is_empty()) {
+        match state.verifier.verify(credential).await {
+            Ok(id) => (id, None),
+            Err(_) => {
+                return (StatusCode::UNAUTHORIZED, "invalid Google credential").into_response()
+            }
+        }
+    } else {
+        return (StatusCode::BAD_REQUEST, "missing credential or code").into_response();
     };
 
     let free_credits = Decimal::from_f64_retain(billing.pricing.free_credits)
@@ -305,6 +359,30 @@ pub async fn auth_google(
             return (StatusCode::INTERNAL_SERVER_ERROR, "login failed").into_response();
         }
     };
+
+    // Persist Google tokens (best-effort — a storage hiccup must not block login,
+    // it just means calendar features are unavailable until the next sign-in).
+    let mut calendar_connected = false;
+    if let Some(tokens) = token_set.as_ref() {
+        if let Some(enc_key) = billing.google_token_enc_key.as_deref() {
+            match crate::google_oauth::store_tokens(pool, enc_key, user.id, tokens).await {
+                Ok(()) => calendar_connected = true,
+                Err(e) => tracing::error!("store google tokens failed: {e}"),
+            }
+        }
+    } else {
+        // Credential (legacy) path — report whether a prior connection still exists.
+        calendar_connected = sqlx::query_scalar::<_, bool>(
+            "SELECT refresh_token_encrypted IS NOT NULL
+             FROM google_oauth_tokens WHERE user_id = $1",
+        )
+        .bind(user.id)
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or(false);
+    }
 
     let token = match issue_jwt(
         &billing.jwt_secret,
@@ -323,8 +401,25 @@ pub async fn auth_google(
     Json(AuthResponse {
         token,
         user: UserProfile::from(user),
+        calendar_connected,
     })
     .into_response()
+}
+
+/// `DELETE /api/auth/google/connection` — forget the caller's stored Google tokens
+/// (account change / explicit disconnect). Login still works; calendar features go
+/// dormant until the user signs in again and re-consents.
+pub async fn disconnect_google(State(state): State<AppState>, user: AuthUser) -> Response {
+    let Some(pool) = state.pool.as_ref() else {
+        return service_unavailable();
+    };
+    match crate::google_oauth::disconnect(pool, user.user_id).await {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(e) => {
+            tracing::error!("disconnect google failed: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "disconnect failed").into_response()
+        }
+    }
 }
 
 /// `GET /api/auth/config` — public auth config for the client (the Google OAuth

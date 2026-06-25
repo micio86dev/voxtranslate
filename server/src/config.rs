@@ -502,6 +502,14 @@ pub struct StorageConfig {
 pub struct BillingConfig {
     pub database_url: String,
     pub google_client_id: String,
+    /// OAuth web-client secret — needed for the authorization-code exchange that
+    /// yields a refresh token (Calendar access). Empty disables the calendar flow.
+    pub google_client_secret: String,
+    /// 32-byte AEAD key (base64 `GOOGLE_TOKEN_ENC_KEY`) used to encrypt Google
+    /// refresh tokens at rest. `None`/wrong-length disables the calendar flow.
+    pub google_token_enc_key: Option<Vec<u8>>,
+    /// Space-separated OAuth scopes requested at login (incl. `calendar.events`).
+    pub google_calendar_scopes: String,
     pub jwt_secret: String,
     pub jwt_expiry_hours: i64,
     pub stripe_secret_key: String,
@@ -811,10 +819,27 @@ impl Config {
 }
 
 impl BillingConfig {
+    /// True when the Google Calendar OAuth flow is fully configured (client secret +
+    /// a valid 32-byte token-encryption key). Calendar/meeting features gate on this.
+    pub fn calendar_enabled(&self) -> bool {
+        !self.google_client_secret.is_empty() && self.google_token_enc_key.is_some()
+    }
+
     fn from_env() -> Self {
         Self {
             database_url: env::var("DATABASE_URL").unwrap_or_default(),
             google_client_id: env::var("GOOGLE_CLIENT_ID").unwrap_or_default(),
+            google_client_secret: env::var("GOOGLE_CLIENT_SECRET").unwrap_or_default(),
+            google_token_enc_key: env::var("GOOGLE_TOKEN_ENC_KEY")
+                .ok()
+                .and_then(|s| decode_enc_key(s.trim())),
+            google_calendar_scopes: env::var("GOOGLE_CALENDAR_SCOPES")
+                .ok()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| {
+                    "openid email profile https://www.googleapis.com/auth/calendar.events".into()
+                }),
             jwt_secret: env::var("JWT_SECRET").unwrap_or_default(),
             jwt_expiry_hours: parse_or("JWT_EXPIRY_HOURS", 168i64),
             stripe_secret_key: env::var("STRIPE_SECRET_KEY").unwrap_or_default(),
@@ -964,6 +989,20 @@ fn present(name: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// Decode the base64 `GOOGLE_TOKEN_ENC_KEY` into exactly 32 bytes (XChaCha20-Poly1305
+/// key). Returns `None` for empty/invalid/wrong-length input so the calendar flow
+/// simply stays disabled rather than panicking at startup.
+fn decode_enc_key(raw: &str) -> Option<Vec<u8>> {
+    use base64::Engine;
+    if raw.is_empty() {
+        return None;
+    }
+    base64::engine::general_purpose::STANDARD
+        .decode(raw)
+        .ok()
+        .filter(|bytes| bytes.len() == 32)
+}
+
 /// A boolean feature flag from the environment. Truthy = `1`/`true`/`yes`/`on`
 /// (case-insensitive); anything else, or unset, is `false`.
 fn env_flag(name: &str) -> bool {
@@ -1016,6 +1055,10 @@ impl Config {
             billing: Some(BillingConfig {
                 database_url: database_url.into(),
                 google_client_id: "test-client".into(),
+                google_client_secret: String::new(),
+                google_token_enc_key: None,
+                google_calendar_scopes:
+                    "openid email profile https://www.googleapis.com/auth/calendar.events".into(),
                 jwt_secret: jwt_secret.into(),
                 jwt_expiry_hours: 168,
                 stripe_secret_key: String::new(),

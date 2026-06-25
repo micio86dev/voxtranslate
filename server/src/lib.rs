@@ -24,6 +24,7 @@ pub mod email_template;
 pub mod engine;
 pub mod files;
 pub mod glossary;
+pub mod google_oauth;
 pub mod groq;
 pub mod invite;
 pub mod log_shipping;
@@ -464,6 +465,10 @@ pub fn app(state: AppState) -> Router {
         .route("/api/bug-report", post(api::bug_report))
         .route("/api/contact", post(api::contact))
         .route("/api/auth/google", post(auth::auth_google))
+        .route(
+            "/api/auth/google/connection",
+            axum::routing::delete(auth::disconnect_google),
+        )
         .route("/api/user/me", get(auth::user_me))
         .route("/api/engines", get(api::engines))
         .route("/api/soniox/session", post(api::soniox_session))
