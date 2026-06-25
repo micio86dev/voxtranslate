@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use tokio::sync::Semaphore;
 
+use crate::cache::{cache_key, glossary_fingerprint, word_count, TranslationCache};
 use crate::glossary::RoomGlossary;
 use crate::groq::Groq;
 
@@ -31,6 +32,15 @@ pub struct Translator {
     sem: Arc<Semaphore>,
     /// Configured permit count (== `sem` capacity at rest), kept for inspection.
     max_inflight: usize,
+    /// Optional DragonflyDB translation cache (spec 0107). `None` (default) ⇒ every
+    /// translation takes the byte-for-byte pre-cache Groq path; populated only when
+    /// `TRANSLATION_CACHE_ENABLED` is set AND the lazy connect succeeded (fail-open).
+    cache: Option<Arc<TranslationCache>>,
+    /// Phrases longer than this many words bypass the cache (no read/write), spec
+    /// 0107 R5. Inert while `cache` is `None`.
+    cache_max_words: usize,
+    /// TTL applied to every cache write, seconds. Inert while `cache` is `None`.
+    cache_ttl_secs: u64,
 }
 
 impl Translator {
@@ -42,13 +52,34 @@ impl Translator {
 
     /// Build a translator capping concurrent in-flight Groq calls at
     /// `max_inflight` (floored to 1, so a misconfigured `0` still makes progress).
+    /// The cache starts off (`None`); call [`Translator::with_cache`] to wire it.
     pub fn with_max_inflight(groq: Groq, max_inflight: usize) -> Self {
         let permits = max_inflight.max(1);
         Self {
             groq,
             sem: Arc::new(Semaphore::new(permits)),
             max_inflight: permits,
+            cache: None,
+            // Inert while `cache` is `None`; real values arrive via `with_cache`.
+            cache_max_words: 8,
+            cache_ttl_secs: 604_800,
         }
+    }
+
+    /// Fold an optional translation cache into the translator (spec 0107). `cache =
+    /// None` leaves the pre-cache behavior untouched, so this is safe to call
+    /// unconditionally from the wiring. Builder-style (consumes + returns `self`) so
+    /// it chains off [`Translator::with_max_inflight`].
+    pub fn with_cache(
+        mut self,
+        cache: Option<Arc<TranslationCache>>,
+        cache_max_words: usize,
+        cache_ttl_secs: u64,
+    ) -> Self {
+        self.cache = cache;
+        self.cache_max_words = cache_max_words;
+        self.cache_ttl_secs = cache_ttl_secs;
+        self
     }
 
     /// The configured concurrency cap (permits granted to in-flight Groq calls).
@@ -78,6 +109,9 @@ impl Translator {
             }
             let groq = self.groq.clone();
             let sem = self.sem.clone();
+            let cache = self.cache.clone();
+            let cache_max_words = self.cache_max_words;
+            let cache_ttl_secs = self.cache_ttl_secs;
             let text = text.to_string();
             let src = source_lang.to_string();
             let tgt = tgt.clone();
@@ -85,13 +119,37 @@ impl Translator {
                 .map(|g| g.terms_for(&src, &tgt))
                 .unwrap_or_default();
             tasks.push(tokio::spawn(async move {
-                // Hold a permit for the whole Groq call → at most `max_inflight`
-                // translations run at once process-wide. The semaphore is never
-                // closed, so `acquire_owned` only errs on shutdown; treat that as
-                // a failed translation (omitted from the map) rather than an
-                // unbounded call.
+                // Hold a permit for the whole translation → at most `max_inflight`
+                // run at once process-wide. A cache HIT skips Groq but still holds
+                // (and promptly releases) the permit. The semaphore is never closed,
+                // so `acquire_owned` only errs on shutdown; treat that as a failed
+                // translation (omitted from the map) rather than an unbounded call.
                 let translated = match sem.acquire_owned().await {
-                    Ok(_permit) => groq.translate(&text, &src, &tgt, &terms).await,
+                    Ok(_permit) => {
+                        // Fingerprint the direction-filtered "src=tgt" pairs — exactly
+                        // what alters the Groq prompt — so glossary rooms key apart.
+                        // Only computed when a cache is present; otherwise unused.
+                        let fp = if cache.is_some() {
+                            let fp_terms: Vec<String> =
+                                terms.iter().map(|(s, t)| format!("{s}={t}")).collect();
+                            glossary_fingerprint(Some(&fp_terms))
+                        } else {
+                            String::new()
+                        };
+                        translate_cached(
+                            &groq,
+                            cache.as_deref(),
+                            cache_max_words,
+                            cache_ttl_secs,
+                            &text,
+                            &src,
+                            &tgt,
+                            &terms,
+                            &fp,
+                        )
+                        .await
+                        .map(|(translated, _hit)| translated)
+                    }
                     Err(_) => Err("translator semaphore closed".to_string()),
                 };
                 (tgt.clone(), translated)
@@ -105,6 +163,85 @@ impl Translator {
         }
         translations
     }
+
+    /// Translate a single phrase through the same cached path the live fan-out
+    /// uses, returning `(translation, was_hit)`. Backs the internal benchmark
+    /// endpoint (spec 0107 R9), so its latency reflects the cache exactly like
+    /// production. The optional `glossary` is a raw term list fingerprinted into
+    /// the cache key only — no pairs are injected into the Groq prompt here; bench
+    /// keys measure latency/isolation, not live-room key matching (spec §8).
+    pub async fn translate_one(
+        &self,
+        text: &str,
+        src: &str,
+        tgt: &str,
+        glossary: Option<&[String]>,
+    ) -> Result<(String, bool), String> {
+        // Hold an admission permit for the whole call, mirroring the live fan-out
+        // (spec 0069) — a HIT still acquires and promptly releases it.
+        let _permit = self
+            .sem
+            .acquire()
+            .await
+            .map_err(|_| "translator semaphore closed".to_string())?;
+        let fp = glossary_fingerprint(glossary);
+        translate_cached(
+            &self.groq,
+            self.cache.as_deref(),
+            self.cache_max_words,
+            self.cache_ttl_secs,
+            text,
+            src,
+            tgt,
+            &[],
+            &fp,
+        )
+        .await
+    }
+}
+
+/// Translate one `(text, src, tgt)` through the cache when one is present,
+/// reporting whether the result was a cache HIT. Shared by the live fan-out and
+/// the benchmark endpoint so both honor the identical cache rules (spec 0107).
+/// With `cache = None`, or a phrase past the word-count bound, this is the
+/// byte-identical pre-cache call: `groq.translate(...)` returning `(_, false)`.
+#[allow(clippy::too_many_arguments)]
+async fn translate_cached(
+    groq: &Groq,
+    cache: Option<&TranslationCache>,
+    cache_max_words: usize,
+    cache_ttl_secs: u64,
+    text: &str,
+    src: &str,
+    tgt: &str,
+    terms: &[(String, String)],
+    glossary_fp: &str,
+) -> Result<(String, bool), String> {
+    if let Some(cache) = cache {
+        if within_cache_word_limit(text, cache_max_words) {
+            let key = cache_key(text, src, tgt, glossary_fp);
+            // HIT → return the stored translation, Groq untouched (R3).
+            if let Some(hit) = cache.get(&key).await {
+                return Ok((hit, true));
+            }
+            // MISS → compute as usual, then store best-effort with TTL (R4). A
+            // failed write is logged inside `set` and swallowed here.
+            let out = groq.translate(text, src, tgt, terms).await?;
+            let _ = cache.set(&key, &out, cache_ttl_secs).await;
+            return Ok((out, false));
+        }
+    }
+    // Cache disabled (R1) or phrase too long (R5): untouched pre-cache path.
+    let out = groq.translate(text, src, tgt, terms).await?;
+    Ok((out, false))
+}
+
+/// Whether `text` is short enough to cache — the word-count filter (spec 0107
+/// R5), applied before any cache I/O. Pure, so the bypass rule is unit-tested
+/// without a live DragonflyDB. (The "cache must be present" half of eligibility
+/// is enforced structurally by the `Option<&TranslationCache>` match above.)
+fn within_cache_word_limit(text: &str, max_words: usize) -> bool {
+    word_count(text) <= max_words
 }
 
 #[cfg(test)]
@@ -124,6 +261,21 @@ mod tests {
             .translate_fanout("ciao", "it", &["it".to_string()], None)
             .await;
         assert_eq!(m2.len(), 1);
+    }
+
+    #[test]
+    fn word_limit_gates_caching() {
+        // Within the bound → eligible (cache I/O allowed).
+        assert!(within_cache_word_limit("ciao", 8));
+        assert!(within_cache_word_limit("ciao come stai", 8));
+        assert!(within_cache_word_limit("", 8)); // 0 words
+                                                 // Exactly at the bound is still eligible.
+        assert!(within_cache_word_limit("a b c d e f g h", 8));
+        // Past the bound (9 words) → bypass the cache entirely (R5).
+        assert!(!within_cache_word_limit(
+            "uno due tre quattro cinque sei sette otto nove",
+            8
+        ));
     }
 
     #[tokio::test]

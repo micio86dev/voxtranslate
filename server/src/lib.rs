@@ -11,8 +11,10 @@ pub mod ai;
 pub mod analytics;
 pub mod api;
 pub mod auth;
+pub mod bench;
 pub mod billing;
 pub mod business;
+pub mod cache;
 pub mod config;
 pub mod content;
 pub mod db;
@@ -62,6 +64,7 @@ use uuid::Uuid;
 
 use crate::auth::{GoogleVerifier, TokenVerifier};
 use crate::billing::{usd, BillingService};
+use crate::cache::TranslationCache;
 use crate::config::Config;
 use crate::db::Pool;
 use crate::engine::{EngineRegistry, PremiumEngine, ProEngine, StandardEngine};
@@ -131,6 +134,12 @@ pub struct AppState {
     /// Direct Groq chat client for the AI features (report, sentiment, email
     /// draft, suggestions). Shares the pooled HTTP client with `translator`.
     pub groq: Groq,
+    /// Optional DragonflyDB translation cache (spec 0107). `Some` only when
+    /// `TRANSLATION_CACHE_ENABLED` is set AND the lazy connect in [`AppState::init`]
+    /// succeeded — fail-open, so a missing URL or an unreachable DragonflyDB just
+    /// leaves this `None`. The same handle is folded into `translator`; it's kept
+    /// here for the internal benchmark endpoint (spec 0107 R9).
+    pub translation_cache: Option<Arc<TranslationCache>>,
     /// Postgres pool — `Some` only when auth/billing is configured.
     pub pool: Option<Pool>,
     /// Credit ledger service — `Some` only when auth/billing is configured.
@@ -193,11 +202,52 @@ fn env_u64(var: &str, default: u64) -> u64 {
         .unwrap_or(default)
 }
 
+/// Lazily connect the translation cache (spec 0107), **fail-open**: returns `None`
+/// — and logs why — when the flag is off, `DRAGONFLY_PRIVATE_URL` is unset, or the
+/// DragonflyDB connection fails. The server then runs on the byte-for-byte
+/// pre-cache path, so startup never fails on the cache (R2). `BENCH_SECRET` and the
+/// connection URL are never logged.
+async fn connect_translation_cache(config: &Config) -> Option<Arc<TranslationCache>> {
+    if !config.cache_enabled {
+        return None;
+    }
+    match config.dragonfly_url.as_deref() {
+        Some(url) => match TranslationCache::connect(url).await {
+            Ok(c) => {
+                tracing::info!("translation cache connected (DragonflyDB)");
+                Some(Arc::new(c))
+            }
+            Err(e) => {
+                tracing::warn!("translation cache unavailable: {e} — continuing without cache");
+                None
+            }
+        },
+        None => {
+            tracing::warn!(
+                "TRANSLATION_CACHE_ENABLED is set but DRAGONFLY_PRIVATE_URL is unset — continuing without cache"
+            );
+            None
+        }
+    }
+}
+
 impl AppState {
-    /// Build state from a [`Config`] **without** touching the database. The pool
-    /// stays `None`; use [`AppState::init`] to connect + migrate when billing is
-    /// configured.
+    /// Build state from a [`Config`] **without** touching the database or the
+    /// translation cache. The pool and `translation_cache` stay `None`; use
+    /// [`AppState::init`] to connect + migrate (and lazily connect DragonflyDB)
+    /// when configured.
     pub fn new(config: Config) -> Self {
+        Self::with_translation_cache(config, None)
+    }
+
+    /// Inner constructor shared by [`AppState::new`] (cache `None`) and
+    /// [`AppState::init`] (which lazily connects DragonflyDB first, spec 0107).
+    /// The cache is folded into `translator` so the live fan-out and the bench
+    /// endpoint share one handle, and stored on state for the bench endpoint.
+    fn with_translation_cache(
+        config: Config,
+        translation_cache: Option<Arc<TranslationCache>>,
+    ) -> Self {
         let config = Arc::new(config);
         let groq = Groq::new(config.groq_key.clone(), config.translation_model.clone());
         // Admission cap on concurrent in-flight Groq translation calls across the
@@ -206,7 +256,13 @@ impl AppState {
             "GROQ_TRANSLATE_MAX_CONCURRENCY",
             translator::DEFAULT_MAX_INFLIGHT as u32,
         ) as usize;
-        let translator = Translator::with_max_inflight(groq.clone(), translate_max);
+        // Fold the (optional) cache in; `None` leaves the byte-for-byte pre-cache
+        // path (spec 0107 R1).
+        let translator = Translator::with_max_inflight(groq.clone(), translate_max).with_cache(
+            translation_cache.clone(),
+            config.cache_max_words,
+            config.cache_ttl_secs,
+        );
         let http = reqwest::Client::new();
         let client_id = config
             .billing
@@ -299,6 +355,7 @@ impl AppState {
             translator,
             engines,
             groq,
+            translation_cache,
             pool: None,
             billing: None,
             safety: None,
@@ -331,9 +388,12 @@ impl AppState {
     }
 
     /// Build state and, when billing is configured, connect the database and run
-    /// migrations. In guest-only mode this is just [`AppState::new`].
+    /// migrations. Also lazily connects the translation cache (spec 0107) when
+    /// enabled — fail-open, so an unreachable DragonflyDB never blocks startup. In
+    /// guest-only mode the rest is just [`AppState::new`] with the connected cache.
     pub async fn init(config: Config) -> Result<Self, String> {
-        let mut state = Self::new(config);
+        let translation_cache = connect_translation_cache(&config).await;
+        let mut state = Self::with_translation_cache(config, translation_cache);
         if let Some(billing) = state.config.billing.clone() {
             let pool = db::connect(&billing.database_url)
                 .await
@@ -501,6 +561,9 @@ pub fn app(state: AppState) -> Router {
         .route("/api/admin/bonus", post(admin::bonus))
         .route("/api/admin/report/resolve", post(admin::resolve_report))
         .route("/api/admin/user/delete", post(admin::delete_user))
+        // Internal benchmark endpoint (spec 0107) — guarded by `BENCH_SECRET`
+        // (404 when unset, 401 on a wrong token); intentionally undocumented.
+        .route("/internal/bench/translate", post(bench::translate))
         // VoxTranslate for Business — org workspace API (spec 0106).
         .merge(business::routes::routes())
         // Canonical log line + request-id span per request (spec 0050).

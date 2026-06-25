@@ -47,6 +47,11 @@ fn make_state() -> (AppState, bool) {
                 standard_enabled: true,
                 listener_pays: false,
                 language_first_ux: false,
+                cache_enabled: false,
+                cache_max_words: 8,
+                cache_ttl_secs: 604_800,
+                dragonfly_url: None,
+                bench_secret: None,
             }),
             false,
         ),
@@ -447,6 +452,11 @@ async fn deepgram_unavailable_sends_error() {
         standard_enabled: true,
         listener_pays: false,
         language_first_ux: false,
+        cache_enabled: false,
+        cache_max_words: 8,
+        cache_ttl_secs: 604_800,
+        dragonfly_url: None,
+        bench_secret: None,
     });
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -520,7 +530,43 @@ fn guest_config() -> Config {
         standard_enabled: true,
         listener_pays: false,
         language_first_ux: false,
+        cache_enabled: false,
+        cache_max_words: 8,
+        cache_ttl_secs: 604_800,
+        dragonfly_url: None,
+        bench_secret: None,
     }
+}
+
+#[tokio::test]
+async fn bench_translate_404_without_secret() {
+    // BENCH_SECRET unset (guest_config) → the internal endpoint is invisible: the
+    // `BenchAuth` extractor 404s before any body parse (spec 0107 R9).
+    let addr = spawn_state(AppState::new(guest_config())).await;
+    let res = reqwest::Client::new()
+        .post(format!("http://{addr}/internal/bench/translate"))
+        .json(&serde_json::json!({ "text": "ciao", "src": "it", "tgt": "en" }))
+        .send()
+        .await
+        .expect("request");
+    assert_eq!(res.status().as_u16(), 404);
+}
+
+#[tokio::test]
+async fn bench_translate_401_with_wrong_token() {
+    // With a secret configured, a missing/wrong bearer token → 401, again before
+    // the body is deserialized or Groq is ever touched (spec 0107 R9).
+    let mut cfg = guest_config();
+    cfg.bench_secret = Some("right-secret".into());
+    let addr = spawn_state(AppState::new(cfg)).await;
+    let res = reqwest::Client::new()
+        .post(format!("http://{addr}/internal/bench/translate"))
+        .header(reqwest::header::AUTHORIZATION, "Bearer wrong-secret")
+        .json(&serde_json::json!({ "text": "ciao", "src": "it", "tgt": "en" }))
+        .send()
+        .await
+        .expect("request");
+    assert_eq!(res.status().as_u16(), 401);
 }
 
 #[tokio::test]

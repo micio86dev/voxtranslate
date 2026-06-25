@@ -43,3 +43,7 @@
 
 # Claude Code local scheduler lock (runtime artifact)
 .claude/scheduled_tasks.lock
+
+# Translation-cache benchmark (spec 0107): generated reports + local secrets
+/scripts/bench_results/
+/scripts/.env.bench

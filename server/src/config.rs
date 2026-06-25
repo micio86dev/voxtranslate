@@ -96,6 +96,25 @@ pub struct Config {
     /// it" over the full language union. Exposed to the client via `GET /api/engines`
     /// (guest-safe). Rollback = unset it.
     pub language_first_ux: bool,
+    /// Translation cache master switch (spec 0107), `TRANSLATION_CACHE_ENABLED`. OFF by
+    /// default: when false the Standard-tier translator carries no cache and every
+    /// translation takes the byte-for-byte pre-cache Groq path. Even when ON, the cache
+    /// only activates if `dragonfly_url` is set AND the connection succeeds (fail-open).
+    pub cache_enabled: bool,
+    /// Phrases longer than this many words bypass the cache entirely — no read, no
+    /// write — regardless of the flag (long phrases rarely recur, spec 0107 R5).
+    /// `TRANSLATION_CACHE_MAX_WORDS`, default 8.
+    pub cache_max_words: usize,
+    /// TTL applied to every cache write, in seconds. `TRANSLATION_CACHE_TTL_SECONDS`,
+    /// default 604800 (7 days).
+    pub cache_ttl_secs: u64,
+    /// DragonflyDB connection URL, Railway-provided `DRAGONFLY_PRIVATE_URL`. `None` ⇒ no
+    /// connection is attempted and the cache stays off even when `cache_enabled` is true
+    /// (logged as a warn at startup, spec 0107 R2).
+    pub dragonfly_url: Option<String>,
+    /// Bearer secret guarding `POST /internal/bench/translate` (spec 0107 R9). `None` ⇒
+    /// the endpoint returns 404. Server-only, never logged.
+    pub bench_secret: Option<String>,
 }
 
 /// OpenAI Realtime Translation credentials + pricing (spec 0093). All-or-nothing
@@ -769,6 +788,20 @@ impl Config {
             standard_enabled,
             listener_pays: env_flag("LISTENER_PAYS"),
             language_first_ux: env_flag("LANGUAGE_FIRST_UX"),
+            // Translation cache (spec 0107) — opt-in, fail-open. The flag only arms the
+            // cache; the actual connect happens lazily in `AppState::init` and degrades
+            // to "always miss" when the URL is unset or DragonflyDB is unreachable.
+            cache_enabled: env_flag("TRANSLATION_CACHE_ENABLED"),
+            cache_max_words: parse_or("TRANSLATION_CACHE_MAX_WORDS", 8usize),
+            cache_ttl_secs: parse_or("TRANSLATION_CACHE_TTL_SECONDS", 604_800u64),
+            dragonfly_url: env::var("DRAGONFLY_PRIVATE_URL")
+                .ok()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty()),
+            bench_secret: env::var("BENCH_SECRET")
+                .ok()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty()),
         })
     }
 
@@ -1022,6 +1055,11 @@ impl Config {
             standard_enabled: true,
             listener_pays: false,
             language_first_ux: false,
+            cache_enabled: false,
+            cache_max_words: 8,
+            cache_ttl_secs: 604_800,
+            dragonfly_url: None,
+            bench_secret: None,
         }
     }
 }
