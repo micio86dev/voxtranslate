@@ -29,6 +29,7 @@ import Legal from '../layouts/Legal.astro';
   <h2>2. What data we process</h2>
   <ul>
     <li><strong>Account data</strong> — when you sign in with Google, we receive your name, email address, and profile picture URL.</li>
+    <li><strong>Google Calendar data</strong> — if you use meeting scheduling, we create, update, and delete the calendar events for the meetings you schedule, with the people you invite as attendees (see section 9).</li>
     <li><strong>Audio (transient)</strong> — while you speak, your microphone audio is streamed to our speech-to-text provider to generate a live transcript. We do not store raw audio.</li>
     <li><strong>Transcripts &amp; translations (transient)</strong> — generated to display subtitles and translated text to other participants in your call. They are relayed in real time and are not retained after the call, except where included in an abuse report (see below).</li>
     <li><strong>Chat messages</strong> — relayed and translated between participants during a call.</li>
@@ -121,7 +122,35 @@ import Legal from '../layouts/Legal.astro';
     If you believe a child has provided us data, contact us and we will delete it.
   </p>
 
-  <h2>9. Changes</h2>
+  <h2>9. Google user data (Calendar) and Limited Use</h2>
+  <p>
+    When you sign in with Google and use VoxTranslate's meeting-scheduling feature, we
+    access certain data from your Google Account: your basic profile (name, email
+    address, profile picture) to create and identify your account, and your Google
+    Calendar via the <code>https://www.googleapis.com/auth/calendar.events</code> scope.
+    We use Calendar access solely to create, update, and delete the calendar events for
+    the meetings you schedule through VoxTranslate, and to add the people you invite as
+    attendees so Google can send them invitations and reminders. We only create and
+    modify events that you create through VoxTranslate's scheduling feature (each is
+    tagged so we can recognise it); we never read, edit, or delete any of your other
+    calendar entries. To keep your events in sync we store a Google refresh token,
+    encrypted at rest, plus a minimal record of each meeting (title, time, room link,
+    and the invitees you choose). You can disconnect Google Calendar at any time, which
+    deletes the stored token.
+  </p>
+  <p>
+    VoxTranslate's use and transfer of information received from Google APIs to any
+    other app will adhere to the <a
+      href="https://developers.google.com/terms/api-services-user-data-policy"
+      target="_blank"
+      rel="noopener">Google API Services User Data Policy</a
+    >, including the Limited Use requirements. We do not use Google user data for
+    advertising, we do not sell it, and we do not allow humans to read it unless we have
+    your consent, it is necessary for security or to comply with applicable law, or the
+    data has been aggregated and anonymised.
+  </p>
+
+  <h2>10. Changes</h2>
   <p>
     We may update this Policy; we will revise the version and date above and, for
     material changes, take additional steps where required by law.
