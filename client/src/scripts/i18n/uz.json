@@ -421,5 +421,14 @@
   "bizNoProject": "Loyiha yoʻq",
   "bizRecord": "Bu qoʻngʻiroqni bulutga yozib oling",
   "bizRecordingNotice": "Bu qoʻngʻiroq yozib olinmoqda.",
-  "bizRecordingUploaded": "Yozuv ish maydoningizga saqlandi."
+  "bizRecordingUploaded": "Yozuv ish maydoningizga saqlandi.",
+  "cancel": "Cancel",
+  "scheduleTitle": "Scheduled meetings",
+  "scheduleNew": "Schedule a meeting",
+  "scheduleFTitle": "Title",
+  "scheduleFStart": "Start",
+  "scheduleFDuration": "Duration (min)",
+  "scheduleFEmails": "Invite by email",
+  "scheduleFEmailsPh": "comma,separated@emails.com",
+  "scheduleCreate": "Create"
 }

@@ -421,5 +421,14 @@
   "bizNoProject": "Brez projekta",
   "bizRecord": "Posnemi ta klic v oblak",
   "bizRecordingNotice": "Ta klic se snema.",
-  "bizRecordingUploaded": "Posnetek shranjen v vaš delovni prostor."
+  "bizRecordingUploaded": "Posnetek shranjen v vaš delovni prostor.",
+  "cancel": "Cancel",
+  "scheduleTitle": "Scheduled meetings",
+  "scheduleNew": "Schedule a meeting",
+  "scheduleFTitle": "Title",
+  "scheduleFStart": "Start",
+  "scheduleFDuration": "Duration (min)",
+  "scheduleFEmails": "Invite by email",
+  "scheduleFEmailsPh": "comma,separated@emails.com",
+  "scheduleCreate": "Create"
 }

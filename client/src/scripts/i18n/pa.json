@@ -421,5 +421,14 @@
   "bizNoProject": "ਕੋਈ ਪ੍ਰੋਜੈਕਟ ਨਹੀਂ",
   "bizRecord": "ਇਸ ਕਾਲ ਨੂੰ ਕਲਾਉਡ ਵਿੱਚ ਰਿਕਾਰਡ ਕਰੋ",
   "bizRecordingNotice": "ਇਹ ਕਾਲ ਰਿਕਾਰਡ ਹੋ ਰਹੀ ਹੈ।",
-  "bizRecordingUploaded": "ਰਿਕਾਰਡਿੰਗ ਤੁਹਾਡੇ ਵਰਕਸਪੇਸ ਵਿੱਚ ਸੰਭਾਲੀ ਗਈ।"
+  "bizRecordingUploaded": "ਰਿਕਾਰਡਿੰਗ ਤੁਹਾਡੇ ਵਰਕਸਪੇਸ ਵਿੱਚ ਸੰਭਾਲੀ ਗਈ।",
+  "cancel": "Cancel",
+  "scheduleTitle": "Scheduled meetings",
+  "scheduleNew": "Schedule a meeting",
+  "scheduleFTitle": "Title",
+  "scheduleFStart": "Start",
+  "scheduleFDuration": "Duration (min)",
+  "scheduleFEmails": "Invite by email",
+  "scheduleFEmailsPh": "comma,separated@emails.com",
+  "scheduleCreate": "Create"
 }

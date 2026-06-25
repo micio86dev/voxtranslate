@@ -421,5 +421,14 @@
   "bizNoProject": "Sense projecte",
   "bizRecord": "Enregistra aquesta trucada al núvol",
   "bizRecordingNotice": "Aquesta trucada s'està enregistrant.",
-  "bizRecordingUploaded": "Enregistrament desat al teu espai de treball."
+  "bizRecordingUploaded": "Enregistrament desat al teu espai de treball.",
+  "cancel": "Cancel",
+  "scheduleTitle": "Scheduled meetings",
+  "scheduleNew": "Schedule a meeting",
+  "scheduleFTitle": "Title",
+  "scheduleFStart": "Start",
+  "scheduleFDuration": "Duration (min)",
+  "scheduleFEmails": "Invite by email",
+  "scheduleFEmailsPh": "comma,separated@emails.com",
+  "scheduleCreate": "Create"
 }

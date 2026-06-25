@@ -421,5 +421,14 @@
   "bizNoProject": "គ្មានគម្រោង",
   "bizRecord": "ថតការហៅនេះទៅក្នុងពពក",
   "bizRecordingNotice": "ការហៅនេះកំពុងត្រូវបានថត។",
-  "bizRecordingUploaded": "ការថតត្រូវបានរក្សាទុកក្នុងតំបន់ការងាររបស់អ្នក។"
+  "bizRecordingUploaded": "ការថតត្រូវបានរក្សាទុកក្នុងតំបន់ការងាររបស់អ្នក។",
+  "cancel": "Cancel",
+  "scheduleTitle": "Scheduled meetings",
+  "scheduleNew": "Schedule a meeting",
+  "scheduleFTitle": "Title",
+  "scheduleFStart": "Start",
+  "scheduleFDuration": "Duration (min)",
+  "scheduleFEmails": "Invite by email",
+  "scheduleFEmailsPh": "comma,separated@emails.com",
+  "scheduleCreate": "Create"
 }

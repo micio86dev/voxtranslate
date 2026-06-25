@@ -421,5 +421,14 @@
   "bizNoProject": "Pa projekt",
   "bizRecord": "Regjistro këtë telefonatë në cloud",
   "bizRecordingNotice": "Kjo telefonatë po regjistrohet.",
-  "bizRecordingUploaded": "Regjistrimi u ruajt në hapësirën tënde të punës."
+  "bizRecordingUploaded": "Regjistrimi u ruajt në hapësirën tënde të punës.",
+  "cancel": "Cancel",
+  "scheduleTitle": "Scheduled meetings",
+  "scheduleNew": "Schedule a meeting",
+  "scheduleFTitle": "Title",
+  "scheduleFStart": "Start",
+  "scheduleFDuration": "Duration (min)",
+  "scheduleFEmails": "Invite by email",
+  "scheduleFEmailsPh": "comma,separated@emails.com",
+  "scheduleCreate": "Create"
 }

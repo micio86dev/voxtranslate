@@ -421,5 +421,14 @@
   "bizNoProject": "Projekti pole",
   "bizRecord": "Salvesta see kõne pilve",
   "bizRecordingNotice": "Seda kõnet salvestatakse.",
-  "bizRecordingUploaded": "Salvestus salvestati teie tööruumi."
+  "bizRecordingUploaded": "Salvestus salvestati teie tööruumi.",
+  "cancel": "Cancel",
+  "scheduleTitle": "Scheduled meetings",
+  "scheduleNew": "Schedule a meeting",
+  "scheduleFTitle": "Title",
+  "scheduleFStart": "Start",
+  "scheduleFDuration": "Duration (min)",
+  "scheduleFEmails": "Invite by email",
+  "scheduleFEmailsPh": "comma,separated@emails.com",
+  "scheduleCreate": "Create"
 }

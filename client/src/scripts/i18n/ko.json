@@ -421,5 +421,14 @@
   "bizNoProject": "프로젝트 없음",
   "bizRecord": "이 통화를 클라우드에 녹화",
   "bizRecordingNotice": "이 통화는 녹화되고 있습니다.",
-  "bizRecordingUploaded": "녹화가 워크스페이스에 저장되었습니다."
+  "bizRecordingUploaded": "녹화가 워크스페이스에 저장되었습니다.",
+  "cancel": "Cancel",
+  "scheduleTitle": "Scheduled meetings",
+  "scheduleNew": "Schedule a meeting",
+  "scheduleFTitle": "Title",
+  "scheduleFStart": "Start",
+  "scheduleFDuration": "Duration (min)",
+  "scheduleFEmails": "Invite by email",
+  "scheduleFEmailsPh": "comma,separated@emails.com",
+  "scheduleCreate": "Create"
 }

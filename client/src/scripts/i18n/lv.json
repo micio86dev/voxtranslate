@@ -421,5 +421,14 @@
   "bizNoProject": "Nav projekta",
   "bizRecord": "Ierakstīt šo zvanu mākonī",
   "bizRecordingNotice": "Šis zvans tiek ierakstīts.",
-  "bizRecordingUploaded": "Ieraksts saglabāts jūsu darba telpā."
+  "bizRecordingUploaded": "Ieraksts saglabāts jūsu darba telpā.",
+  "cancel": "Cancel",
+  "scheduleTitle": "Scheduled meetings",
+  "scheduleNew": "Schedule a meeting",
+  "scheduleFTitle": "Title",
+  "scheduleFStart": "Start",
+  "scheduleFDuration": "Duration (min)",
+  "scheduleFEmails": "Invite by email",
+  "scheduleFEmailsPh": "comma,separated@emails.com",
+  "scheduleCreate": "Create"
 }

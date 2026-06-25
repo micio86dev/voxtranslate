@@ -421,5 +421,14 @@
   "bizNoProject": "Kee Projet",
   "bizRecord": "Dësen Uruff an d'Wollek ophuelen",
   "bizRecordingNotice": "Dësen Uruff gëtt opgeholl.",
-  "bizRecordingUploaded": "Opnam an Ärem Aarbechtsraum gespäichert."
+  "bizRecordingUploaded": "Opnam an Ärem Aarbechtsraum gespäichert.",
+  "cancel": "Cancel",
+  "scheduleTitle": "Scheduled meetings",
+  "scheduleNew": "Schedule a meeting",
+  "scheduleFTitle": "Title",
+  "scheduleFStart": "Start",
+  "scheduleFDuration": "Duration (min)",
+  "scheduleFEmails": "Invite by email",
+  "scheduleFEmailsPh": "comma,separated@emails.com",
+  "scheduleCreate": "Create"
 }

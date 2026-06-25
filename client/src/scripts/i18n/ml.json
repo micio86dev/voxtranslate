@@ -421,5 +421,14 @@
   "bizNoProject": "പ്രോജക്റ്റ് ഇല്ല",
   "bizRecord": "ഈ കോൾ ക്ലൗഡിലേക്ക് റെക്കോർഡ് ചെയ്യുക",
   "bizRecordingNotice": "ഈ കോൾ റെക്കോർഡ് ചെയ്യുന്നു.",
-  "bizRecordingUploaded": "റെക്കോർഡിംഗ് നിങ്ങളുടെ വർക്ക്‌സ്‌പേസിൽ സംരക്ഷിച്ചു."
+  "bizRecordingUploaded": "റെക്കോർഡിംഗ് നിങ്ങളുടെ വർക്ക്‌സ്‌പേസിൽ സംരക്ഷിച്ചു.",
+  "cancel": "Cancel",
+  "scheduleTitle": "Scheduled meetings",
+  "scheduleNew": "Schedule a meeting",
+  "scheduleFTitle": "Title",
+  "scheduleFStart": "Start",
+  "scheduleFDuration": "Duration (min)",
+  "scheduleFEmails": "Invite by email",
+  "scheduleFEmailsPh": "comma,separated@emails.com",
+  "scheduleCreate": "Create"
 }

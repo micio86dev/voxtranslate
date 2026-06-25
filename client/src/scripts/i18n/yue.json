@@ -421,5 +421,14 @@
   "bizNoProject": "冇專案",
   "bizRecord": "將呢個通話錄製到雲端",
   "bizRecordingNotice": "呢個通話正在錄製。",
-  "bizRecordingUploaded": "錄製已儲存到你嘅工作區。"
+  "bizRecordingUploaded": "錄製已儲存到你嘅工作區。",
+  "cancel": "Cancel",
+  "scheduleTitle": "Scheduled meetings",
+  "scheduleNew": "Schedule a meeting",
+  "scheduleFTitle": "Title",
+  "scheduleFStart": "Start",
+  "scheduleFDuration": "Duration (min)",
+  "scheduleFEmails": "Invite by email",
+  "scheduleFEmailsPh": "comma,separated@emails.com",
+  "scheduleCreate": "Create"
 }

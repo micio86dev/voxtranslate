@@ -421,5 +421,14 @@
   "bizNoProject": "Žiadny projekt",
   "bizRecord": "Nahrať tento hovor do cloudu",
   "bizRecordingNotice": "Tento hovor sa nahráva.",
-  "bizRecordingUploaded": "Nahrávka uložená do vášho pracovného priestoru."
+  "bizRecordingUploaded": "Nahrávka uložená do vášho pracovného priestoru.",
+  "cancel": "Cancel",
+  "scheduleTitle": "Scheduled meetings",
+  "scheduleNew": "Schedule a meeting",
+  "scheduleFTitle": "Title",
+  "scheduleFStart": "Start",
+  "scheduleFDuration": "Duration (min)",
+  "scheduleFEmails": "Invite by email",
+  "scheduleFEmailsPh": "comma,separated@emails.com",
+  "scheduleCreate": "Create"
 }

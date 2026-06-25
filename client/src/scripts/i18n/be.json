@@ -421,5 +421,14 @@
   "bizNoProject": "Без праекта",
   "bizRecord": "Запісаць гэты званок у воблака",
   "bizRecordingNotice": "Гэты званок запісваецца.",
-  "bizRecordingUploaded": "Запіс захаваны ў вашай працоўнай прасторы."
+  "bizRecordingUploaded": "Запіс захаваны ў вашай працоўнай прасторы.",
+  "cancel": "Cancel",
+  "scheduleTitle": "Scheduled meetings",
+  "scheduleNew": "Schedule a meeting",
+  "scheduleFTitle": "Title",
+  "scheduleFStart": "Start",
+  "scheduleFDuration": "Duration (min)",
+  "scheduleFEmails": "Invite by email",
+  "scheduleFEmailsPh": "comma,separated@emails.com",
+  "scheduleCreate": "Create"
 }

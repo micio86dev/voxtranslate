@@ -66,3 +66,41 @@ self.addEventListener('fetch', (event) => {
   // Everything else same-origin: network, fall back to cache.
   event.respondWith(fetch(req).catch(() => caches.match(req)));
 });
+
+// --- Web Push (spec: scheduled meetings, Phase 1e) ---
+// Payload from the server: { title, body, data:{ join_url, meeting_id, ... } }.
+self.addEventListener('push', (event) => {
+  let payload = {};
+  try {
+    payload = event.data ? event.data.json() : {};
+  } catch {
+    payload = { title: 'VoxTranslate', body: event.data ? event.data.text() : '' };
+  }
+  const data = payload.data || {};
+  event.waitUntil(
+    self.registration.showNotification(payload.title || 'VoxTranslate', {
+      body: payload.body || '',
+      icon: '/icon.png',
+      badge: '/icon.png',
+      data,
+    }),
+  );
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const data = event.notification.data || {};
+  const url = data.join_url || '/';
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+      for (const client of clients) {
+        if ('focus' in client) {
+          client.focus();
+          if ('navigate' in client && url.startsWith('/')) client.navigate(url);
+          return;
+        }
+      }
+      return self.clients.openWindow(url);
+    }),
+  );
+});

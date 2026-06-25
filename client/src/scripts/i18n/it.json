@@ -421,5 +421,14 @@
   "onbCallLeaveTitle": "Esci dalla chiamata",
   "onbCallLeaveBody": "Riaggancia quando hai finito. Riceverai un riepilogo con trascrizioni e download.",
   "onbCallDoneTitle": "È tutto pronto",
-  "onbCallDoneBody": "Riapri questo tour quando vuoi dal pulsante \"?\". Buona conversazione."
+  "onbCallDoneBody": "Riapri questo tour quando vuoi dal pulsante \"?\". Buona conversazione.",
+  "cancel": "Annulla",
+  "scheduleTitle": "Riunioni programmate",
+  "scheduleNew": "Programma una riunione",
+  "scheduleFTitle": "Titolo",
+  "scheduleFStart": "Inizio",
+  "scheduleFDuration": "Durata (min)",
+  "scheduleFEmails": "Invita via email",
+  "scheduleFEmailsPh": "email,separate@dacomma.com",
+  "scheduleCreate": "Crea"
 }

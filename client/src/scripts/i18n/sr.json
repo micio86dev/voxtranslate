@@ -421,5 +421,14 @@
   "bizNoProject": "Без пројекта",
   "bizRecord": "Сними овај позив у облак",
   "bizRecordingNotice": "Овај позив се снима.",
-  "bizRecordingUploaded": "Снимак је сачуван у вашем радном простору."
+  "bizRecordingUploaded": "Снимак је сачуван у вашем радном простору.",
+  "cancel": "Cancel",
+  "scheduleTitle": "Scheduled meetings",
+  "scheduleNew": "Schedule a meeting",
+  "scheduleFTitle": "Title",
+  "scheduleFStart": "Start",
+  "scheduleFDuration": "Duration (min)",
+  "scheduleFEmails": "Invite by email",
+  "scheduleFEmailsPh": "comma,separated@emails.com",
+  "scheduleCreate": "Create"
 }

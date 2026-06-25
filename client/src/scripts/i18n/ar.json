@@ -421,5 +421,14 @@
   "bizNoProject": "بدون مشروع",
   "bizRecord": "سجّل هذه المكالمة في السحابة",
   "bizRecordingNotice": "يتم تسجيل هذه المكالمة.",
-  "bizRecordingUploaded": "تم حفظ التسجيل في مساحة عملك."
+  "bizRecordingUploaded": "تم حفظ التسجيل في مساحة عملك.",
+  "cancel": "Cancel",
+  "scheduleTitle": "Scheduled meetings",
+  "scheduleNew": "Schedule a meeting",
+  "scheduleFTitle": "Title",
+  "scheduleFStart": "Start",
+  "scheduleFDuration": "Duration (min)",
+  "scheduleFEmails": "Invite by email",
+  "scheduleFEmailsPh": "comma,separated@emails.com",
+  "scheduleCreate": "Create"
 }

@@ -421,5 +421,14 @@
   "bizNoProject": "ပရောဂျက်မရှိ",
   "bizRecord": "ဤခေါ်ဆိုမှုကို cloud သို့ ရိုက်ကူးပါ",
   "bizRecordingNotice": "ဤခေါ်ဆိုမှုကို ရိုက်ကူးနေသည်။",
-  "bizRecordingUploaded": "ရိုက်ကူးမှုကို သင့်လုပ်ငန်းခွင်တွင် သိမ်းဆည်းပြီးပါပြီ။"
+  "bizRecordingUploaded": "ရိုက်ကူးမှုကို သင့်လုပ်ငန်းခွင်တွင် သိမ်းဆည်းပြီးပါပြီ။",
+  "cancel": "Cancel",
+  "scheduleTitle": "Scheduled meetings",
+  "scheduleNew": "Schedule a meeting",
+  "scheduleFTitle": "Title",
+  "scheduleFStart": "Start",
+  "scheduleFDuration": "Duration (min)",
+  "scheduleFEmails": "Invite by email",
+  "scheduleFEmailsPh": "comma,separated@emails.com",
+  "scheduleCreate": "Create"
 }

@@ -421,5 +421,14 @@
   "bizNoProject": "Kò sí iṣẹ́ àkànṣe",
   "bizRecord": "Gba ìpè yìí sílẹ̀ sí ìkùukùu",
   "bizRecordingNotice": "A ń gba ìpè yìí sílẹ̀.",
-  "bizRecordingUploaded": "A ti fi gbígbasílẹ̀ pamọ́ sí aaye iṣẹ́ rẹ."
+  "bizRecordingUploaded": "A ti fi gbígbasílẹ̀ pamọ́ sí aaye iṣẹ́ rẹ.",
+  "cancel": "Cancel",
+  "scheduleTitle": "Scheduled meetings",
+  "scheduleNew": "Schedule a meeting",
+  "scheduleFTitle": "Title",
+  "scheduleFStart": "Start",
+  "scheduleFDuration": "Duration (min)",
+  "scheduleFEmails": "Invite by email",
+  "scheduleFEmailsPh": "comma,separated@emails.com",
+  "scheduleCreate": "Create"
 }

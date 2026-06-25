@@ -421,5 +421,14 @@
   "bizNoProject": "无项目",
   "bizRecord": "将此通话录制到云端",
   "bizRecordingNotice": "此通话正在录制。",
-  "bizRecordingUploaded": "录制已保存到你的工作区。"
+  "bizRecordingUploaded": "录制已保存到你的工作区。",
+  "cancel": "Cancel",
+  "scheduleTitle": "Scheduled meetings",
+  "scheduleNew": "Schedule a meeting",
+  "scheduleFTitle": "Title",
+  "scheduleFStart": "Start",
+  "scheduleFDuration": "Duration (min)",
+  "scheduleFEmails": "Invite by email",
+  "scheduleFEmailsPh": "comma,separated@emails.com",
+  "scheduleCreate": "Create"
 }

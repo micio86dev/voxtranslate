@@ -421,5 +421,14 @@
   "bizNoProject": "هیچ پڕۆژەیەک نییە",
   "bizRecord": "ئەم پەیوەندییە لە هەوردا تۆمار بکە",
   "bizRecordingNotice": "ئەم پەیوەندییە تۆمار دەکرێت.",
-  "bizRecordingUploaded": "تۆمارەکە لە شوێنی کارتدا پاشەکەوت کرا."
+  "bizRecordingUploaded": "تۆمارەکە لە شوێنی کارتدا پاشەکەوت کرا.",
+  "cancel": "Cancel",
+  "scheduleTitle": "Scheduled meetings",
+  "scheduleNew": "Schedule a meeting",
+  "scheduleFTitle": "Title",
+  "scheduleFStart": "Start",
+  "scheduleFDuration": "Duration (min)",
+  "scheduleFEmails": "Invite by email",
+  "scheduleFEmailsPh": "comma,separated@emails.com",
+  "scheduleCreate": "Create"
 }

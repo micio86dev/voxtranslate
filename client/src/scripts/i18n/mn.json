@@ -421,5 +421,14 @@
   "bizNoProject": "Төсөл байхгүй",
   "bizRecord": "Энэ дуудлагыг үүлэн рүү бичих",
   "bizRecordingNotice": "Энэ дуудлагыг бичиж байна.",
-  "bizRecordingUploaded": "Бичлэгийг таны ажлын талбарт хадгаллаа."
+  "bizRecordingUploaded": "Бичлэгийг таны ажлын талбарт хадгаллаа.",
+  "cancel": "Cancel",
+  "scheduleTitle": "Scheduled meetings",
+  "scheduleNew": "Schedule a meeting",
+  "scheduleFTitle": "Title",
+  "scheduleFStart": "Start",
+  "scheduleFDuration": "Duration (min)",
+  "scheduleFEmails": "Invite by email",
+  "scheduleFEmailsPh": "comma,separated@emails.com",
+  "scheduleCreate": "Create"
 }

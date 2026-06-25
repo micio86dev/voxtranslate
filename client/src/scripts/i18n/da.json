@@ -421,5 +421,14 @@
   "bizNoProject": "Intet projekt",
   "bizRecord": "Optag dette opkald i skyen",
   "bizRecordingNotice": "Dette opkald bliver optaget.",
-  "bizRecordingUploaded": "Optagelse gemt i dit arbejdsområde."
+  "bizRecordingUploaded": "Optagelse gemt i dit arbejdsområde.",
+  "cancel": "Cancel",
+  "scheduleTitle": "Scheduled meetings",
+  "scheduleNew": "Schedule a meeting",
+  "scheduleFTitle": "Title",
+  "scheduleFStart": "Start",
+  "scheduleFDuration": "Duration (min)",
+  "scheduleFEmails": "Invite by email",
+  "scheduleFEmailsPh": "comma,separated@emails.com",
+  "scheduleCreate": "Create"
 }

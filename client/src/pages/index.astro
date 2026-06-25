@@ -178,6 +178,15 @@ const jsonLd = {
           <p id="home-status" class="status-line" role="status"></p>
         </div>
 
+        <!-- Scheduled meetings on Google Calendar (signed-in only; spec: Phase 1e). -->
+        <div class="card hidden" id="schedule-card">
+          <div class="card-title-row">
+            <span class="card-title" data-i18n="scheduleTitle">{T('scheduleTitle')}</span>
+            <button id="schedule-open" class="btn-ghost" data-i18n="scheduleNew">{T('scheduleNew')}</button>
+          </div>
+          <div id="schedule-list" class="schedule-list"></div>
+        </div>
+
         <div class="card">
           <div class="card-title-row">
             <span class="card-title" data-i18n="publicRooms">{T('publicRooms')}</span>
@@ -639,6 +648,37 @@ const jsonLd = {
       <button id="onb-call-help" class="help-fab help-fab-call" type="button" data-i18n-title="onbHelpLabel" title={T('onbHelpLabel')} aria-label={T('onbHelpLabel')}>?</button>
     </section>
 
+    <!-- ===================== SCHEDULE MEETING MODAL ===================== -->
+    <div id="schedule-modal" class="modal-overlay hidden">
+      <div class="modal card modal-narrow" role="dialog" aria-modal="true" aria-labelledby="sm-title-h">
+        <div class="modal-head">
+          <span id="sm-title-h" class="card-title" data-i18n="scheduleNew">{T('scheduleNew')}</span>
+          <button id="sm-cancel-btn" class="btn-ghost icon-btn" data-i18n-title="closeTip" title={T('closeTip')} aria-label={T('closeTip')}></button>
+        </div>
+        <label class="field">
+          <span class="field-label" data-i18n="scheduleFTitle">{T('scheduleFTitle')}</span>
+          <input id="sm-title" type="text" maxlength="120" autocomplete="off" />
+        </label>
+        <label class="field">
+          <span class="field-label" data-i18n="scheduleFStart">{T('scheduleFStart')}</span>
+          <input id="sm-start" type="datetime-local" />
+        </label>
+        <label class="field">
+          <span class="field-label" data-i18n="scheduleFDuration">{T('scheduleFDuration')}</span>
+          <input id="sm-duration" type="number" min="5" step="5" value="30" />
+        </label>
+        <label class="field">
+          <span class="field-label" data-i18n="scheduleFEmails">{T('scheduleFEmails')}</span>
+          <input id="sm-emails" type="text" autocomplete="off" data-i18n-ph="scheduleFEmailsPh" placeholder={T('scheduleFEmailsPh')} />
+        </label>
+        <p id="sm-err" class="status-line hidden" role="status"></p>
+        <div class="modal-actions">
+          <button id="sm-cancel-btn2" class="btn-ghost" data-i18n="cancel">{T('cancel')}</button>
+          <button id="sm-create" class="btn-primary" data-i18n="scheduleCreate">{T('scheduleCreate')}</button>
+        </div>
+      </div>
+    </div>
+
     <!-- ===================== BUY CREDITS MODAL ===================== -->
     <div id="buy-modal" class="modal-overlay hidden">
       <div class="modal card" role="dialog" aria-modal="true" aria-labelledby="buy-title">
@@ -996,6 +1036,12 @@ const jsonLd = {
       display: flex; flex-direction: column; gap: 14px;
     }
     .rooms-list { display: flex; flex-direction: column; gap: 10px; }
+    .schedule-list { display: flex; flex-direction: column; gap: 8px; }
+    .schedule-list :global(.schedule-item) { display: flex; align-items: center; gap: 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+    .schedule-list :global(.schedule-item-main) { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+    .schedule-list :global(.schedule-item-title) { font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .schedule-list :global(.schedule-item-when) { font-size: 0.82rem; color: var(--muted); }
+    .schedule-list :global(.schedule-empty) { color: var(--muted); font-size: var(--font-sm); margin: 0; }
     /* Lobby items are created in JS — style via :global() under .rooms-list. */
     .rooms-list :global(.room-item) {
       width: 100%; text-align: start; background: var(--bg); border: 1px solid var(--border);

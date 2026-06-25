@@ -421,5 +421,14 @@
   "bizNoProject": "Tidak ada proyek",
   "bizRecord": "Rekam panggilan ini ke cloud",
   "bizRecordingNotice": "Panggilan ini sedang direkam.",
-  "bizRecordingUploaded": "Rekaman disimpan ke ruang kerja Anda."
+  "bizRecordingUploaded": "Rekaman disimpan ke ruang kerja Anda.",
+  "cancel": "Cancel",
+  "scheduleTitle": "Scheduled meetings",
+  "scheduleNew": "Schedule a meeting",
+  "scheduleFTitle": "Title",
+  "scheduleFStart": "Start",
+  "scheduleFDuration": "Duration (min)",
+  "scheduleFEmails": "Invite by email",
+  "scheduleFEmailsPh": "comma,separated@emails.com",
+  "scheduleCreate": "Create"
 }

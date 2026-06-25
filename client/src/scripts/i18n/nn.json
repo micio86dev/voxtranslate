@@ -421,5 +421,14 @@
   "bizNoProject": "Ingen prosjekt",
   "bizRecord": "Ta opp denne samtalen i skya",
   "bizRecordingNotice": "Denne samtalen blir teken opp.",
-  "bizRecordingUploaded": "Opptak lagra i arbeidsområdet ditt."
+  "bizRecordingUploaded": "Opptak lagra i arbeidsområdet ditt.",
+  "cancel": "Cancel",
+  "scheduleTitle": "Scheduled meetings",
+  "scheduleNew": "Schedule a meeting",
+  "scheduleFTitle": "Title",
+  "scheduleFStart": "Start",
+  "scheduleFDuration": "Duration (min)",
+  "scheduleFEmails": "Invite by email",
+  "scheduleFEmailsPh": "comma,separated@emails.com",
+  "scheduleCreate": "Create"
 }

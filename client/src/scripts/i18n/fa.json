@@ -421,5 +421,14 @@
   "bizNoProject": "بدون پروژه",
   "bizRecord": "این تماس را در ابر ضبط کنید",
   "bizRecordingNotice": "این تماس در حال ضبط است.",
-  "bizRecordingUploaded": "ضبط در فضای کاری شما ذخیره شد."
+  "bizRecordingUploaded": "ضبط در فضای کاری شما ذخیره شد.",
+  "cancel": "Cancel",
+  "scheduleTitle": "Scheduled meetings",
+  "scheduleNew": "Schedule a meeting",
+  "scheduleFTitle": "Title",
+  "scheduleFStart": "Start",
+  "scheduleFDuration": "Duration (min)",
+  "scheduleFEmails": "Invite by email",
+  "scheduleFEmailsPh": "comma,separated@emails.com",
+  "scheduleCreate": "Create"
 }

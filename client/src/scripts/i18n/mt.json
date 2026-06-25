@@ -421,5 +421,14 @@
   "bizNoProject": "L-ebda proġett",
   "bizRecord": "Irrekordja din is-sejħa fil-cloud",
   "bizRecordingNotice": "Din is-sejħa qed tiġi rrekordjata.",
-  "bizRecordingUploaded": "Ir-rekording ġie ssejvjat fl-ispazju tax-xogħol tiegħek."
+  "bizRecordingUploaded": "Ir-rekording ġie ssejvjat fl-ispazju tax-xogħol tiegħek.",
+  "cancel": "Cancel",
+  "scheduleTitle": "Scheduled meetings",
+  "scheduleNew": "Schedule a meeting",
+  "scheduleFTitle": "Title",
+  "scheduleFStart": "Start",
+  "scheduleFDuration": "Duration (min)",
+  "scheduleFEmails": "Invite by email",
+  "scheduleFEmailsPh": "comma,separated@emails.com",
+  "scheduleCreate": "Create"
 }

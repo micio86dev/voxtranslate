@@ -421,5 +421,14 @@
   "bizNoProject": "कुनै परियोजना छैन",
   "bizRecord": "यो कल क्लाउडमा रेकर्ड गर्नुहोस्",
   "bizRecordingNotice": "यो कल रेकर्ड गरिँदैछ।",
-  "bizRecordingUploaded": "रेकर्डिङ तपाईंको कार्यक्षेत्रमा सुरक्षित गरियो।"
+  "bizRecordingUploaded": "रेकर्डिङ तपाईंको कार्यक्षेत्रमा सुरक्षित गरियो।",
+  "cancel": "Cancel",
+  "scheduleTitle": "Scheduled meetings",
+  "scheduleNew": "Schedule a meeting",
+  "scheduleFTitle": "Title",
+  "scheduleFStart": "Start",
+  "scheduleFDuration": "Duration (min)",
+  "scheduleFEmails": "Invite by email",
+  "scheduleFEmailsPh": "comma,separated@emails.com",
+  "scheduleCreate": "Create"
 }

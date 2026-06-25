@@ -421,5 +421,14 @@
   "bizNoProject": "Χωρίς έργο",
   "bizRecord": "Καταγραφή αυτής της κλήσης στο cloud",
   "bizRecordingNotice": "Αυτή η κλήση καταγράφεται.",
-  "bizRecordingUploaded": "Η εγγραφή αποθηκεύτηκε στον χώρο εργασίας σας."
+  "bizRecordingUploaded": "Η εγγραφή αποθηκεύτηκε στον χώρο εργασίας σας.",
+  "cancel": "Cancel",
+  "scheduleTitle": "Scheduled meetings",
+  "scheduleNew": "Schedule a meeting",
+  "scheduleFTitle": "Title",
+  "scheduleFStart": "Start",
+  "scheduleFDuration": "Duration (min)",
+  "scheduleFEmails": "Invite by email",
+  "scheduleFEmailsPh": "comma,separated@emails.com",
+  "scheduleCreate": "Create"
 }

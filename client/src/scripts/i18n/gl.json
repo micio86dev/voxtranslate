@@ -421,5 +421,14 @@
   "bizNoProject": "Sen proxecto",
   "bizRecord": "Grava esta chamada na nube",
   "bizRecordingNotice": "Esta chamada estase a gravar.",
-  "bizRecordingUploaded": "Gravación gardada no teu espazo de traballo."
+  "bizRecordingUploaded": "Gravación gardada no teu espazo de traballo.",
+  "cancel": "Cancel",
+  "scheduleTitle": "Scheduled meetings",
+  "scheduleNew": "Schedule a meeting",
+  "scheduleFTitle": "Title",
+  "scheduleFStart": "Start",
+  "scheduleFDuration": "Duration (min)",
+  "scheduleFEmails": "Invite by email",
+  "scheduleFEmailsPh": "comma,separated@emails.com",
+  "scheduleCreate": "Create"
 }

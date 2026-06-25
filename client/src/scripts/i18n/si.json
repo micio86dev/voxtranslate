@@ -421,5 +421,14 @@
   "bizNoProject": "ව්‍යාපෘතියක් නැත",
   "bizRecord": "මෙම ඇමතුම cloud වෙත පටිගත කරන්න",
   "bizRecordingNotice": "මෙම ඇමතුම පටිගත වෙමින් පවතී.",
-  "bizRecordingUploaded": "පටිගත කිරීම ඔබේ කාර්ය අවකාශයට සුරැකිණි."
+  "bizRecordingUploaded": "පටිගත කිරීම ඔබේ කාර්ය අවකාශයට සුරැකිණි.",
+  "cancel": "Cancel",
+  "scheduleTitle": "Scheduled meetings",
+  "scheduleNew": "Schedule a meeting",
+  "scheduleFTitle": "Title",
+  "scheduleFStart": "Start",
+  "scheduleFDuration": "Duration (min)",
+  "scheduleFEmails": "Invite by email",
+  "scheduleFEmailsPh": "comma,separated@emails.com",
+  "scheduleCreate": "Create"
 }

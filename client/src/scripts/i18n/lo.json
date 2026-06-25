@@ -421,5 +421,14 @@
   "bizNoProject": "ບໍ່ມີໂຄງການ",
   "bizRecord": "ບັນທຶກການໂທນີ້ໄປຍັງຄລາວ",
   "bizRecordingNotice": "ການໂທນີ້ກຳລັງຖືກບັນທຶກ.",
-  "bizRecordingUploaded": "ບັນທຶກຖືກບັນທຶກໄວ້ໃນພື້ນທີ່ເຮັດວຽກຂອງທ່ານ."
+  "bizRecordingUploaded": "ບັນທຶກຖືກບັນທຶກໄວ້ໃນພື້ນທີ່ເຮັດວຽກຂອງທ່ານ.",
+  "cancel": "Cancel",
+  "scheduleTitle": "Scheduled meetings",
+  "scheduleNew": "Schedule a meeting",
+  "scheduleFTitle": "Title",
+  "scheduleFStart": "Start",
+  "scheduleFDuration": "Duration (min)",
+  "scheduleFEmails": "Invite by email",
+  "scheduleFEmailsPh": "comma,separated@emails.com",
+  "scheduleCreate": "Create"
 }

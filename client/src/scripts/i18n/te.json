@@ -421,5 +421,14 @@
   "bizNoProject": "ప్రాజెక్ట్ లేదు",
   "bizRecord": "ఈ కాల్‌ను క్లౌడ్‌లో రికార్డ్ చేయండి",
   "bizRecordingNotice": "ఈ కాల్ రికార్డ్ అవుతోంది.",
-  "bizRecordingUploaded": "రికార్డింగ్ మీ వర్క్‌స్పేస్‌లో సేవ్ చేయబడింది."
+  "bizRecordingUploaded": "రికార్డింగ్ మీ వర్క్‌స్పేస్‌లో సేవ్ చేయబడింది.",
+  "cancel": "Cancel",
+  "scheduleTitle": "Scheduled meetings",
+  "scheduleNew": "Schedule a meeting",
+  "scheduleFTitle": "Title",
+  "scheduleFStart": "Start",
+  "scheduleFDuration": "Duration (min)",
+  "scheduleFEmails": "Invite by email",
+  "scheduleFEmailsPh": "comma,separated@emails.com",
+  "scheduleCreate": "Create"
 }

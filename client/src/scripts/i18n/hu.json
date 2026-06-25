@@ -421,5 +421,14 @@
   "bizNoProject": "Nincs projekt",
   "bizRecord": "Rögzítsd ezt a hívást a felhőbe",
   "bizRecordingNotice": "Ezt a hívást rögzítjük.",
-  "bizRecordingUploaded": "A felvétel mentve a munkaterületedre."
+  "bizRecordingUploaded": "A felvétel mentve a munkaterületedre.",
+  "cancel": "Cancel",
+  "scheduleTitle": "Scheduled meetings",
+  "scheduleNew": "Schedule a meeting",
+  "scheduleFTitle": "Title",
+  "scheduleFStart": "Start",
+  "scheduleFDuration": "Duration (min)",
+  "scheduleFEmails": "Invite by email",
+  "scheduleFEmailsPh": "comma,separated@emails.com",
+  "scheduleCreate": "Create"
 }

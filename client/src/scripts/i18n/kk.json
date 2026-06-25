@@ -421,5 +421,14 @@
   "bizNoProject": "Жоба жоқ",
   "bizRecord": "Бұл қоңырауды бұлтқа жазу",
   "bizRecordingNotice": "Бұл қоңырау жазылып жатыр.",
-  "bizRecordingUploaded": "Жазба жұмыс кеңістігіңізге сақталды."
+  "bizRecordingUploaded": "Жазба жұмыс кеңістігіңізге сақталды.",
+  "cancel": "Cancel",
+  "scheduleTitle": "Scheduled meetings",
+  "scheduleNew": "Schedule a meeting",
+  "scheduleFTitle": "Title",
+  "scheduleFStart": "Start",
+  "scheduleFDuration": "Duration (min)",
+  "scheduleFEmails": "Invite by email",
+  "scheduleFEmailsPh": "comma,separated@emails.com",
+  "scheduleCreate": "Create"
 }

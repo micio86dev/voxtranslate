@@ -421,5 +421,14 @@
   "bizNoProject": "ಯೋಜನೆ ಇಲ್ಲ",
   "bizRecord": "ಈ ಕರೆಯನ್ನು ಕ್ಲೌಡ್‌ಗೆ ರೆಕಾರ್ಡ್ ಮಾಡಿ",
   "bizRecordingNotice": "ಈ ಕರೆ ರೆಕಾರ್ಡ್ ಆಗುತ್ತಿದೆ.",
-  "bizRecordingUploaded": "ರೆಕಾರ್ಡಿಂಗ್ ನಿಮ್ಮ ಕಾರ್ಯಸ್ಥಳಕ್ಕೆ ಉಳಿಸಲಾಗಿದೆ."
+  "bizRecordingUploaded": "ರೆಕಾರ್ಡಿಂಗ್ ನಿಮ್ಮ ಕಾರ್ಯಸ್ಥಳಕ್ಕೆ ಉಳಿಸಲಾಗಿದೆ.",
+  "cancel": "Cancel",
+  "scheduleTitle": "Scheduled meetings",
+  "scheduleNew": "Schedule a meeting",
+  "scheduleFTitle": "Title",
+  "scheduleFStart": "Start",
+  "scheduleFDuration": "Duration (min)",
+  "scheduleFEmails": "Invite by email",
+  "scheduleFEmailsPh": "comma,separated@emails.com",
+  "scheduleCreate": "Create"
 }

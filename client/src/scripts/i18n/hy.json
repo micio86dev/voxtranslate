@@ -421,5 +421,14 @@
   "bizNoProject": "Նախագիծ չկա",
   "bizRecord": "Ձայնագրեք այս զանգը ամպում",
   "bizRecordingNotice": "Այս զանգը ձայնագրվում է։",
-  "bizRecordingUploaded": "Ձայնագրությունը պահվեց ձեր աշխատանքային տարածքում։"
+  "bizRecordingUploaded": "Ձայնագրությունը պահվեց ձեր աշխատանքային տարածքում։",
+  "cancel": "Cancel",
+  "scheduleTitle": "Scheduled meetings",
+  "scheduleNew": "Schedule a meeting",
+  "scheduleFTitle": "Title",
+  "scheduleFStart": "Start",
+  "scheduleFDuration": "Duration (min)",
+  "scheduleFEmails": "Invite by email",
+  "scheduleFEmailsPh": "comma,separated@emails.com",
+  "scheduleCreate": "Create"
 }

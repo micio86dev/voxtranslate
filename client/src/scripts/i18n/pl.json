@@ -421,5 +421,14 @@
   "bizNoProject": "Brak projektu",
   "bizRecord": "Nagraj tę rozmowę w chmurze",
   "bizRecordingNotice": "Ta rozmowa jest nagrywana.",
-  "bizRecordingUploaded": "Nagranie zapisano w Twoim obszarze roboczym."
+  "bizRecordingUploaded": "Nagranie zapisano w Twoim obszarze roboczym.",
+  "cancel": "Cancel",
+  "scheduleTitle": "Scheduled meetings",
+  "scheduleNew": "Schedule a meeting",
+  "scheduleFTitle": "Title",
+  "scheduleFStart": "Start",
+  "scheduleFDuration": "Duration (min)",
+  "scheduleFEmails": "Invite by email",
+  "scheduleFEmailsPh": "comma,separated@emails.com",
+  "scheduleCreate": "Create"
 }

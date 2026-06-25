@@ -421,5 +421,14 @@
   "onbCallLeaveTitle": "Quitter l'appel",
   "onbCallLeaveBody": "Raccrochez quand vous avez terminé. Vous recevrez un récapitulatif avec les transcriptions et les téléchargements.",
   "onbCallDoneTitle": "Tout est prêt",
-  "onbCallDoneBody": "Rouvrez cette visite à tout moment depuis le bouton « ? ». Profitez bien de la conversation."
+  "onbCallDoneBody": "Rouvrez cette visite à tout moment depuis le bouton « ? ». Profitez bien de la conversation.",
+  "cancel": "Annuler",
+  "scheduleTitle": "Réunions planifiées",
+  "scheduleNew": "Planifier une réunion",
+  "scheduleFTitle": "Titre",
+  "scheduleFStart": "Début",
+  "scheduleFDuration": "Durée (min)",
+  "scheduleFEmails": "Inviter par e-mail",
+  "scheduleFEmailsPh": "emails,séparés@par-virgules.com",
+  "scheduleCreate": "Créer"
 }

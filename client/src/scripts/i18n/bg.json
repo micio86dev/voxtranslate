@@ -421,5 +421,14 @@
   "bizNoProject": "Без проект",
   "bizRecord": "Запиши това обаждане в облака",
   "bizRecordingNotice": "Това обаждане се записва.",
-  "bizRecordingUploaded": "Записът е запазен в работното ви пространство."
+  "bizRecordingUploaded": "Записът е запазен в работното ви пространство.",
+  "cancel": "Cancel",
+  "scheduleTitle": "Scheduled meetings",
+  "scheduleNew": "Schedule a meeting",
+  "scheduleFTitle": "Title",
+  "scheduleFStart": "Start",
+  "scheduleFDuration": "Duration (min)",
+  "scheduleFEmails": "Invite by email",
+  "scheduleFEmailsPh": "comma,separated@emails.com",
+  "scheduleCreate": "Create"
 }

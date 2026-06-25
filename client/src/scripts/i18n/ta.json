@@ -421,5 +421,14 @@
   "bizNoProject": "திட்டம் இல்லை",
   "bizRecord": "இந்த அழைப்பை கிளவுடில் பதிவு செய்யவும்",
   "bizRecordingNotice": "இந்த அழைப்பு பதிவு செய்யப்படுகிறது.",
-  "bizRecordingUploaded": "பதிவு உங்கள் பணியிடத்தில் சேமிக்கப்பட்டது."
+  "bizRecordingUploaded": "பதிவு உங்கள் பணியிடத்தில் சேமிக்கப்பட்டது.",
+  "cancel": "Cancel",
+  "scheduleTitle": "Scheduled meetings",
+  "scheduleNew": "Schedule a meeting",
+  "scheduleFTitle": "Title",
+  "scheduleFStart": "Start",
+  "scheduleFDuration": "Duration (min)",
+  "scheduleFEmails": "Invite by email",
+  "scheduleFEmailsPh": "comma,separated@emails.com",
+  "scheduleCreate": "Create"
 }

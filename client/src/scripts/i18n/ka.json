@@ -421,5 +421,14 @@
   "bizNoProject": "პროექტის გარეშე",
   "bizRecord": "ჩაწერეთ ეს ზარი ღრუბელში",
   "bizRecordingNotice": "ეს ზარი იწერება.",
-  "bizRecordingUploaded": "ჩანაწერი შენახულია თქვენს სამუშაო სივრცეში."
+  "bizRecordingUploaded": "ჩანაწერი შენახულია თქვენს სამუშაო სივრცეში.",
+  "cancel": "Cancel",
+  "scheduleTitle": "Scheduled meetings",
+  "scheduleNew": "Schedule a meeting",
+  "scheduleFTitle": "Title",
+  "scheduleFStart": "Start",
+  "scheduleFDuration": "Duration (min)",
+  "scheduleFEmails": "Invite by email",
+  "scheduleFEmailsPh": "comma,separated@emails.com",
+  "scheduleCreate": "Create"
 }

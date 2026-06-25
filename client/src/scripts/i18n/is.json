@@ -421,5 +421,14 @@
   "bizNoProject": "Ekkert verkefni",
   "bizRecord": "Taktu þetta símtal upp í skýið",
   "bizRecordingNotice": "Þetta símtal er tekið upp.",
-  "bizRecordingUploaded": "Upptaka vistuð á vinnusvæðið þitt."
+  "bizRecordingUploaded": "Upptaka vistuð á vinnusvæðið þitt.",
+  "cancel": "Cancel",
+  "scheduleTitle": "Scheduled meetings",
+  "scheduleNew": "Schedule a meeting",
+  "scheduleFTitle": "Title",
+  "scheduleFStart": "Start",
+  "scheduleFDuration": "Duration (min)",
+  "scheduleFEmails": "Invite by email",
+  "scheduleFEmailsPh": "comma,separated@emails.com",
+  "scheduleCreate": "Create"
 }

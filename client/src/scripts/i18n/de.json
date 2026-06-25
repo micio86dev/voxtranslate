@@ -421,5 +421,14 @@
   "onbCallLeaveTitle": "Anruf verlassen",
   "onbCallLeaveBody": "Leg auf, wenn du fertig bist. Du erhältst eine Zusammenfassung mit Transkripten und Downloads.",
   "onbCallDoneTitle": "Alles bereit",
-  "onbCallDoneBody": "Öffne diese Tour jederzeit wieder über die Schaltfläche \"?\". Viel Spaß beim Gespräch."
+  "onbCallDoneBody": "Öffne diese Tour jederzeit wieder über die Schaltfläche \"?\". Viel Spaß beim Gespräch.",
+  "cancel": "Abbrechen",
+  "scheduleTitle": "Geplante Meetings",
+  "scheduleNew": "Meeting planen",
+  "scheduleFTitle": "Titel",
+  "scheduleFStart": "Beginn",
+  "scheduleFDuration": "Dauer (Min.)",
+  "scheduleFEmails": "Per E-Mail einladen",
+  "scheduleFEmailsPh": "kommagetrennte@emails.com",
+  "scheduleCreate": "Erstellen"
 }

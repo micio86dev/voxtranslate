@@ -421,5 +421,14 @@
   "onbCallLeaveTitle": "Salir de la llamada",
   "onbCallLeaveBody": "Cuelga cuando termines. Recibirás un resumen con transcripciones y descargas.",
   "onbCallDoneTitle": "Ya está todo listo",
-  "onbCallDoneBody": "Vuelve a abrir este tour cuando quieras desde el botón \"?\". Disfruta de la conversación."
+  "onbCallDoneBody": "Vuelve a abrir este tour cuando quieras desde el botón \"?\". Disfruta de la conversación.",
+  "cancel": "Cancelar",
+  "scheduleTitle": "Reuniones programadas",
+  "scheduleNew": "Programar una reunión",
+  "scheduleFTitle": "Título",
+  "scheduleFStart": "Inicio",
+  "scheduleFDuration": "Duración (min)",
+  "scheduleFEmails": "Invitar por correo",
+  "scheduleFEmailsPh": "correos,separados@porcomas.com",
+  "scheduleCreate": "Crear"
 }

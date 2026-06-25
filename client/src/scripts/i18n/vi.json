@@ -421,5 +421,14 @@
   "bizNoProject": "Không có dự án",
   "bizRecord": "Ghi cuộc gọi này lên đám mây",
   "bizRecordingNotice": "Cuộc gọi này đang được ghi.",
-  "bizRecordingUploaded": "Bản ghi đã được lưu vào không gian làm việc của bạn."
+  "bizRecordingUploaded": "Bản ghi đã được lưu vào không gian làm việc của bạn.",
+  "cancel": "Cancel",
+  "scheduleTitle": "Scheduled meetings",
+  "scheduleNew": "Schedule a meeting",
+  "scheduleFTitle": "Title",
+  "scheduleFStart": "Start",
+  "scheduleFDuration": "Duration (min)",
+  "scheduleFEmails": "Invite by email",
+  "scheduleFEmailsPh": "comma,separated@emails.com",
+  "scheduleCreate": "Create"
 }

@@ -421,5 +421,14 @@
   "bizNoProject": "Babu aiki",
   "bizRecord": "Yi rikodin wannan kira a cikin gajimare",
   "bizRecordingNotice": "Ana yin rikodin wannan kira.",
-  "bizRecordingUploaded": "An ajiye rikodin a wurin aikinka."
+  "bizRecordingUploaded": "An ajiye rikodin a wurin aikinka.",
+  "cancel": "Cancel",
+  "scheduleTitle": "Scheduled meetings",
+  "scheduleNew": "Schedule a meeting",
+  "scheduleFTitle": "Title",
+  "scheduleFStart": "Start",
+  "scheduleFDuration": "Duration (min)",
+  "scheduleFEmails": "Invite by email",
+  "scheduleFEmailsPh": "comma,separated@emails.com",
+  "scheduleCreate": "Create"
 }

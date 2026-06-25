@@ -421,5 +421,14 @@
   "bizNoProject": "Inget projekt",
   "bizRecord": "Spela in detta samtal i molnet",
   "bizRecordingNotice": "Det här samtalet spelas in.",
-  "bizRecordingUploaded": "Inspelningen sparades i din arbetsyta."
+  "bizRecordingUploaded": "Inspelningen sparades i din arbetsyta.",
+  "cancel": "Cancel",
+  "scheduleTitle": "Scheduled meetings",
+  "scheduleNew": "Schedule a meeting",
+  "scheduleFTitle": "Title",
+  "scheduleFStart": "Start",
+  "scheduleFDuration": "Duration (min)",
+  "scheduleFEmails": "Invite by email",
+  "scheduleFEmailsPh": "comma,separated@emails.com",
+  "scheduleCreate": "Create"
 }

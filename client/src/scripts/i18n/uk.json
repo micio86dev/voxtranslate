@@ -421,5 +421,14 @@
   "bizNoProject": "Без проєкту",
   "bizRecord": "Записати цей дзвінок у хмару",
   "bizRecordingNotice": "Цей дзвінок записується.",
-  "bizRecordingUploaded": "Запис збережено у вашому робочому просторі."
+  "bizRecordingUploaded": "Запис збережено у вашому робочому просторі.",
+  "cancel": "Cancel",
+  "scheduleTitle": "Scheduled meetings",
+  "scheduleNew": "Schedule a meeting",
+  "scheduleFTitle": "Title",
+  "scheduleFStart": "Start",
+  "scheduleFDuration": "Duration (min)",
+  "scheduleFEmails": "Invite by email",
+  "scheduleFEmailsPh": "comma,separated@emails.com",
+  "scheduleCreate": "Create"
 }

@@ -421,5 +421,14 @@
   "bizNoProject": "کوئی پروجیکٹ نہیں",
   "bizRecord": "اس کال کو کلاؤڈ میں ریکارڈ کریں",
   "bizRecordingNotice": "یہ کال ریکارڈ ہو رہی ہے۔",
-  "bizRecordingUploaded": "ریکارڈنگ آپ کے ورک اسپیس میں محفوظ ہو گئی۔"
+  "bizRecordingUploaded": "ریکارڈنگ آپ کے ورک اسپیس میں محفوظ ہو گئی۔",
+  "cancel": "Cancel",
+  "scheduleTitle": "Scheduled meetings",
+  "scheduleNew": "Schedule a meeting",
+  "scheduleFTitle": "Title",
+  "scheduleFStart": "Start",
+  "scheduleFDuration": "Duration (min)",
+  "scheduleFEmails": "Invite by email",
+  "scheduleFEmailsPh": "comma,separated@emails.com",
+  "scheduleCreate": "Create"
 }

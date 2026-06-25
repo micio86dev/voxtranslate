@@ -421,5 +421,14 @@
   "bizNoProject": "कोई प्रोजेक्ट नहीं",
   "bizRecord": "इस कॉल को क्लाउड में रिकॉर्ड करें",
   "bizRecordingNotice": "यह कॉल रिकॉर्ड की जा रही है।",
-  "bizRecordingUploaded": "रिकॉर्डिंग आपके वर्कस्पेस में सहेजी गई।"
+  "bizRecordingUploaded": "रिकॉर्डिंग आपके वर्कस्पेस में सहेजी गई।",
+  "cancel": "Cancel",
+  "scheduleTitle": "Scheduled meetings",
+  "scheduleNew": "Schedule a meeting",
+  "scheduleFTitle": "Title",
+  "scheduleFStart": "Start",
+  "scheduleFDuration": "Duration (min)",
+  "scheduleFEmails": "Invite by email",
+  "scheduleFEmailsPh": "comma,separated@emails.com",
+  "scheduleCreate": "Create"
 }

@@ -421,5 +421,14 @@
   "bizNoProject": "Walang proyekto",
   "bizRecord": "I-record ang tawag na ito sa cloud",
   "bizRecordingNotice": "Nire-record ang tawag na ito.",
-  "bizRecordingUploaded": "Na-save ang recording sa iyong workspace."
+  "bizRecordingUploaded": "Na-save ang recording sa iyong workspace.",
+  "cancel": "Cancel",
+  "scheduleTitle": "Scheduled meetings",
+  "scheduleNew": "Schedule a meeting",
+  "scheduleFTitle": "Title",
+  "scheduleFStart": "Start",
+  "scheduleFDuration": "Duration (min)",
+  "scheduleFEmails": "Invite by email",
+  "scheduleFEmailsPh": "comma,separated@emails.com",
+  "scheduleCreate": "Create"
 }

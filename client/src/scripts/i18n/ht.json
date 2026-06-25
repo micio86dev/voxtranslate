@@ -421,5 +421,14 @@
   "bizNoProject": "Pa gen pwojè",
   "bizRecord": "Anrejistre apèl sa a nan nyaj la",
   "bizRecordingNotice": "Y ap anrejistre apèl sa a.",
-  "bizRecordingUploaded": "Anrejistreman sere nan espas travay ou."
+  "bizRecordingUploaded": "Anrejistreman sere nan espas travay ou.",
+  "cancel": "Cancel",
+  "scheduleTitle": "Scheduled meetings",
+  "scheduleNew": "Schedule a meeting",
+  "scheduleFTitle": "Title",
+  "scheduleFStart": "Start",
+  "scheduleFDuration": "Duration (min)",
+  "scheduleFEmails": "Invite by email",
+  "scheduleFEmailsPh": "comma,separated@emails.com",
+  "scheduleCreate": "Create"
 }

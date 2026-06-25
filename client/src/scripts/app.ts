@@ -26,6 +26,8 @@ import { type LangMeta, langMeta } from './langmap';
 import type { SonioxManager } from './soniox';
 import { type CallModules, loadCallModules } from './call-modules';
 import { loadRemoteI18n } from './content';
+import { setupScheduling } from './meetings';
+import { maybeSubscribePush } from './push';
 import { icon } from './icons';
 import type { MeshManager } from './webrtc';
 import { resolvePeerId } from './peer-id';
@@ -3899,11 +3901,15 @@ function enterHome(): void {
       ensureConsent();
     });
     ensureConsent();
+    // Re-subscribe to push if already permitted (silent); scheduling card below.
+    void maybeSubscribePush();
   } else if (billing) {
     // Guests have no account; gate them with the same blocking 18+/ToS modal.
     ensureConsent();
   }
   updatePublicGate();
+  // Scheduled-meetings card: shows when signed in, hides for guests (idempotent).
+  setupScheduling();
   refreshGlossaryHome(); // 📖 home button is auth-only
   startLobby();
   // Invite deep-link (spec 0082): the FIRST time we reach home carrying an invite

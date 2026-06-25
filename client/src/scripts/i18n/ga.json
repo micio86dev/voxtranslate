@@ -421,5 +421,14 @@
   "bizNoProject": "Gan tionscadal",
   "bizRecord": "Taifead an glao seo sa scamall",
   "bizRecordingNotice": "Tá an glao seo á thaifeadadh.",
-  "bizRecordingUploaded": "Sábháladh an taifeadadh i do spás oibre."
+  "bizRecordingUploaded": "Sábháladh an taifeadadh i do spás oibre.",
+  "cancel": "Cancel",
+  "scheduleTitle": "Scheduled meetings",
+  "scheduleNew": "Schedule a meeting",
+  "scheduleFTitle": "Title",
+  "scheduleFStart": "Start",
+  "scheduleFDuration": "Duration (min)",
+  "scheduleFEmails": "Invite by email",
+  "scheduleFEmailsPh": "comma,separated@emails.com",
+  "scheduleCreate": "Create"
 }

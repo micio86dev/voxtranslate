@@ -421,5 +421,14 @@
   "bizNoProject": "Ei projektia",
   "bizRecord": "Tallenna tämä puhelu pilveen",
   "bizRecordingNotice": "Tätä puhelua tallennetaan.",
-  "bizRecordingUploaded": "Tallenne tallennettu työtilaasi."
+  "bizRecordingUploaded": "Tallenne tallennettu työtilaasi.",
+  "cancel": "Cancel",
+  "scheduleTitle": "Scheduled meetings",
+  "scheduleNew": "Schedule a meeting",
+  "scheduleFTitle": "Title",
+  "scheduleFStart": "Start",
+  "scheduleFDuration": "Duration (min)",
+  "scheduleFEmails": "Invite by email",
+  "scheduleFEmailsPh": "comma,separated@emails.com",
+  "scheduleCreate": "Create"
 }

@@ -421,5 +421,14 @@
   "bizNoProject": "Geen project",
   "bizRecord": "Neem dit gesprek op in de cloud",
   "bizRecordingNotice": "Dit gesprek wordt opgenomen.",
-  "bizRecordingUploaded": "Opname opgeslagen in je werkruimte."
+  "bizRecordingUploaded": "Opname opgeslagen in je werkruimte.",
+  "cancel": "Cancel",
+  "scheduleTitle": "Scheduled meetings",
+  "scheduleNew": "Schedule a meeting",
+  "scheduleFTitle": "Title",
+  "scheduleFStart": "Start",
+  "scheduleFDuration": "Duration (min)",
+  "scheduleFEmails": "Invite by email",
+  "scheduleFEmailsPh": "comma,separated@emails.com",
+  "scheduleCreate": "Create"
 }
