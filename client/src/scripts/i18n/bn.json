@@ -439,5 +439,12 @@
   "scheduleConnectCalendar": "Sign in again to connect your Google Calendar.",
   "scheduleErrSave": "Could not create the meeting.",
   "scheduleCancelMeeting": "Cancel meeting",
-  "scheduleKeep": "Keep"
+  "scheduleKeep": "Keep",
+  "scheduleFRepeat": "Repeat",
+  "scheduleRepeatNone": "Does not repeat",
+  "scheduleRepeatDaily": "Daily",
+  "scheduleRepeatWeekly": "Weekly",
+  "scheduleRepeatMonthly": "Monthly",
+  "scheduleFOccurrences": "Number of occurrences",
+  "scheduleOccurrencesPh": "e.g. 10"
 }

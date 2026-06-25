@@ -670,6 +670,19 @@ const jsonLd = {
           <input id="sm-duration" type="number" min="5" step="5" value="30" />
         </label>
         <label class="field">
+          <span class="field-label" data-i18n="scheduleFRepeat">{T('scheduleFRepeat')}</span>
+          <select id="sm-repeat">
+            <option value="" data-i18n="scheduleRepeatNone">{T('scheduleRepeatNone')}</option>
+            <option value="DAILY" data-i18n="scheduleRepeatDaily">{T('scheduleRepeatDaily')}</option>
+            <option value="WEEKLY" data-i18n="scheduleRepeatWeekly">{T('scheduleRepeatWeekly')}</option>
+            <option value="MONTHLY" data-i18n="scheduleRepeatMonthly">{T('scheduleRepeatMonthly')}</option>
+          </select>
+        </label>
+        <label id="sm-count-wrap" class="field hidden">
+          <span class="field-label" data-i18n="scheduleFOccurrences">{T('scheduleFOccurrences')}</span>
+          <input id="sm-count" type="number" min="1" max="730" data-i18n-ph="scheduleOccurrencesPh" placeholder={T('scheduleOccurrencesPh')} />
+        </label>
+        <label class="field">
           <span class="field-label" data-i18n="scheduleFEmails">{T('scheduleFEmails')}</span>
           <input id="sm-emails" type="text" autocomplete="off" data-i18n-ph="scheduleFEmailsPh" placeholder={T('scheduleFEmailsPh')} />
         </label>

@@ -439,5 +439,12 @@
   "scheduleConnectCalendar": "Accedi di nuovo per collegare Google Calendar.",
   "scheduleErrSave": "Impossibile creare la riunione.",
   "scheduleCancelMeeting": "Annulla riunione",
-  "scheduleKeep": "Mantieni"
+  "scheduleKeep": "Mantieni",
+  "scheduleFRepeat": "Ripeti",
+  "scheduleRepeatNone": "Non si ripete",
+  "scheduleRepeatDaily": "Ogni giorno",
+  "scheduleRepeatWeekly": "Ogni settimana",
+  "scheduleRepeatMonthly": "Ogni mese",
+  "scheduleFOccurrences": "Numero di occorrenze",
+  "scheduleOccurrencesPh": "es. 10"
 }

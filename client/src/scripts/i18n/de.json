@@ -439,5 +439,12 @@
   "scheduleConnectCalendar": "Melde dich erneut an, um Google Calendar zu verbinden.",
   "scheduleErrSave": "Meeting konnte nicht erstellt werden.",
   "scheduleCancelMeeting": "Meeting absagen",
-  "scheduleKeep": "Behalten"
+  "scheduleKeep": "Behalten",
+  "scheduleFRepeat": "Wiederholen",
+  "scheduleRepeatNone": "Wird nicht wiederholt",
+  "scheduleRepeatDaily": "Täglich",
+  "scheduleRepeatWeekly": "Wöchentlich",
+  "scheduleRepeatMonthly": "Monatlich",
+  "scheduleFOccurrences": "Anzahl der Wiederholungen",
+  "scheduleOccurrencesPh": "z. B. 10"
 }

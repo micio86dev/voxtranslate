@@ -32,12 +32,18 @@ async function listMeetings(): Promise<Meeting[]> {
   }
 }
 
+interface Recurrence {
+  freq: string;
+  count?: number;
+}
+
 interface CreateBody {
   title: string;
   scheduled_at: string;
   duration_minutes?: number;
   timezone?: string;
   invitee_emails?: string[];
+  recurrence?: Recurrence;
 }
 
 /** Returns the created meeting, or a status code on failure (409 = connect calendar). */
@@ -193,6 +199,12 @@ export function setupScheduling(t: (k: string) => string): void {
     $("sm-cancel-btn")?.addEventListener("click", close);
     $("sm-cancel-btn2")?.addEventListener("click", close);
 
+    // Show the "occurrences" field only for a recurring meeting.
+    const repeatSel = $("sm-repeat") as HTMLSelectElement | null;
+    repeatSel?.addEventListener("change", () =>
+      $("sm-count-wrap")?.classList.toggle("hidden", !repeatSel.value),
+    );
+
     $("sm-create")?.addEventListener("click", async () => {
       err?.classList.add("hidden");
       const title = ($("sm-title") as HTMLInputElement)?.value.trim();
@@ -208,6 +220,12 @@ export function setupScheduling(t: (k: string) => string): void {
         .split(",")
         .map((e) => e.trim())
         .filter(Boolean);
+      const freq = ($("sm-repeat") as HTMLSelectElement)?.value;
+      let recurrence: Recurrence | undefined;
+      if (freq) {
+        const count = Number(($("sm-count") as HTMLInputElement)?.value);
+        recurrence = { freq, ...(count > 0 ? { count } : {}) };
+      }
       const res = await createMeeting({
         title,
         scheduled_at: new Date(startVal).toISOString(),
@@ -215,6 +233,7 @@ export function setupScheduling(t: (k: string) => string): void {
           Number(($("sm-duration") as HTMLInputElement)?.value) || 30,
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
         invitee_emails: emails,
+        recurrence,
       });
       if (typeof res === "number") {
         if (err) {
@@ -227,6 +246,8 @@ export function setupScheduling(t: (k: string) => string): void {
       close();
       ($("sm-title") as HTMLInputElement).value = "";
       ($("sm-emails") as HTMLInputElement).value = "";
+      ($("sm-repeat") as HTMLSelectElement).value = "";
+      $("sm-count-wrap")?.classList.add("hidden");
       void renderList();
     });
   }
