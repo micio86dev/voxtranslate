@@ -13,7 +13,7 @@ use serde_json::json;
 use sqlx::FromRow;
 use uuid::Uuid;
 
-use crate::business::{db_err, require_pool, require_role, ADMIN};
+use crate::business::{db_err, not_found, require_pool, require_role, ADMIN};
 use crate::middleware::AuthUser;
 use crate::AppState;
 
@@ -52,6 +52,12 @@ struct ProjectStat {
     name: String,
     calls: i64,
     minutes: i64,
+}
+
+#[derive(FromRow, Serialize)]
+struct Collaborator {
+    name: String,
+    calls: i64,
 }
 
 /// `GET /api/business/organizations/{org_id}/analytics?days=30` (admin+).
@@ -149,6 +155,99 @@ pub async fn summary(
         "credits_by_type": by_type,
         "calls_by_day": by_day,
         "top_projects": top_projects,
+    }))
+    .into_response())
+}
+
+/// `GET /api/business/organizations/{org_id}/members/{user_id}/analytics?days=30`
+/// (admin+). Per-member trend: time in calls, who they collaborated with, and the
+/// credits they personally triggered (since 019, ledger rows carry an actor).
+pub async fn member_summary(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path((org_id, target)): Path<(Uuid, Uuid)>,
+    Query(q): Query<AnalyticsQuery>,
+) -> Result<Response, Response> {
+    let pool = require_pool(&state)?;
+    require_role(pool, org_id, user.user_id, ADMIN).await?;
+    let days = q.days.unwrap_or(30).clamp(1, 365);
+
+    // The target must be a member of this org.
+    let who: Option<(String, String)> = sqlx::query_as(
+        "SELECT u.name, u.email FROM users u
+         JOIN organization_members m ON m.user_id = u.id
+         WHERE m.org_id = $1 AND u.id = $2",
+    )
+    .bind(org_id)
+    .bind(target)
+    .fetch_optional(pool)
+    .await
+    .map_err(db_err)?;
+    let (name, email) = who.ok_or_else(|| not_found("member not found"))?;
+
+    // Calls joined + minutes in calls (open rows fall back to the call's end / now).
+    let (calls, minutes): (i64, i64) = sqlx::query_as(
+        "SELECT count(DISTINCT sp.session_id)::bigint,
+                COALESCE(SUM(EXTRACT(EPOCH FROM
+                    (COALESCE(sp.left_at, cs.ended_at, now()) - sp.joined_at)) / 60), 0)::bigint
+         FROM session_participants sp
+         JOIN call_sessions cs ON cs.id = sp.session_id
+         WHERE cs.org_id = $1 AND sp.user_id = $2
+           AND sp.joined_at >= now() - make_interval(days => $3::int)",
+    )
+    .bind(org_id)
+    .bind(target)
+    .bind(days)
+    .fetch_one(pool)
+    .await
+    .map_err(db_err)?;
+
+    // Credits this member personally triggered, bucketed by type.
+    let by_type: Vec<TypeSpend> = sqlx::query_as(
+        "SELECT type, COALESCE(SUM(-amount), 0)::bigint AS spent
+         FROM organization_credits_transactions
+         WHERE org_id = $1 AND actor_id = $2 AND amount < 0
+           AND created_at >= now() - make_interval(days => $3::int)
+         GROUP BY type
+         ORDER BY spent DESC",
+    )
+    .bind(org_id)
+    .bind(target)
+    .bind(days)
+    .fetch_all(pool)
+    .await
+    .map_err(db_err)?;
+    let credits_spent: i64 = by_type.iter().map(|t| t.spent).sum();
+
+    // Who they shared calls with most (by distinct shared sessions). `IS DISTINCT
+    // FROM` excludes the member's own (re-joined) rows and includes guests.
+    let collaborators: Vec<Collaborator> = sqlx::query_as(
+        "SELECT other.name AS name, count(DISTINCT other.session_id)::bigint AS calls
+         FROM session_participants me
+         JOIN session_participants other
+           ON other.session_id = me.session_id AND other.user_id IS DISTINCT FROM me.user_id
+         JOIN call_sessions cs ON cs.id = me.session_id
+         WHERE cs.org_id = $1 AND me.user_id = $2
+           AND me.joined_at >= now() - make_interval(days => $3::int)
+         GROUP BY other.name
+         ORDER BY calls DESC, name
+         LIMIT 10",
+    )
+    .bind(org_id)
+    .bind(target)
+    .bind(days)
+    .fetch_all(pool)
+    .await
+    .map_err(db_err)?;
+
+    Ok(Json(json!({
+        "range_days": days,
+        "user": { "id": target, "name": name, "email": email },
+        "calls": calls,
+        "minutes_in_calls": minutes,
+        "credits_spent": credits_spent,
+        "credits_by_type": by_type,
+        "collaborators": collaborators,
     }))
     .into_response())
 }

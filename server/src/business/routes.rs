@@ -74,6 +74,10 @@ pub fn routes() -> Router<AppState> {
             get(analytics::summary),
         )
         .route(
+            "/api/business/organizations/{org_id}/members/{user_id}/analytics",
+            get(analytics::member_summary),
+        )
+        .route(
             "/api/business/organizations/{org_id}/projects/{project_id}/rooms",
             get(calls::list_project_rooms),
         )

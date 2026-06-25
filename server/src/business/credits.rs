@@ -26,6 +26,7 @@ pub async fn deduct_org_credits(
     amount: i32,
     kind: &str,
     session_id: Option<Uuid>,
+    actor_id: Option<Uuid>,
     description: &str,
 ) -> Result<OrgCharge, sqlx::Error> {
     let mut tx = pool.begin().await?;
@@ -48,14 +49,16 @@ pub async fn deduct_org_credits(
         .execute(&mut *tx)
         .await?;
     sqlx::query(
-        "INSERT INTO organization_credits_transactions (org_id, amount, type, description, session_id)
-         VALUES ($1, $2, $3, $4, $5)",
+        "INSERT INTO organization_credits_transactions
+            (org_id, amount, type, description, session_id, actor_id)
+         VALUES ($1, $2, $3, $4, $5, $6)",
     )
     .bind(org_id)
     .bind(-amount)
     .bind(kind)
     .bind(description)
     .bind(session_id)
+    .bind(actor_id)
     .execute(&mut *tx)
     .await?;
     tx.commit().await?;
