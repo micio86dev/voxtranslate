@@ -64,6 +64,7 @@ async fn login(srv: &Server, name: &str) -> (Uuid, String) {
         &identity,
         rust_decimal::Decimal::new(200, 2),
         None,
+        None,
     )
     .await
     .unwrap();

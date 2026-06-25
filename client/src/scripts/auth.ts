@@ -3,6 +3,8 @@
 // usage/credit history. When the backend runs in guest-only mode (billing off),
 // `billingEnabled()` resolves false and the UI skips all of this.
 
+import { getUiLang } from './i18n';
+
 const WS_HOST = import.meta.env.PUBLIC_WS_HOST || location.host;
 const WS_PROTO = location.protocol === 'https:' ? 'wss:' : 'ws:';
 export const WS_BASE = `${WS_PROTO}//${WS_HOST}`;
@@ -194,7 +196,7 @@ export async function loginWithGoogle(credential: string): Promise<User> {
   const res = await fetch(`${HTTP_BASE}/api/auth/google`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ credential, source }),
+    body: JSON.stringify({ credential, source, locale: getUiLang() }),
   });
   if (!res.ok) throw new Error(`login failed (${res.status})`);
   const data = (await res.json()) as { token: string; user: User };
@@ -210,7 +212,7 @@ export async function exchangeGoogleCode(code: string): Promise<User> {
   const res = await fetch(`${HTTP_BASE}/api/auth/google`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ code, redirect_uri: 'postmessage', source }),
+    body: JSON.stringify({ code, redirect_uri: 'postmessage', source, locale: getUiLang() }),
   });
   if (!res.ok) throw new Error(`login failed (${res.status})`);
   const data = (await res.json()) as { token: string; user: User };

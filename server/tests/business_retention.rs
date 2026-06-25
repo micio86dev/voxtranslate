@@ -27,7 +27,7 @@ async fn make_user(pool: &db::Pool) -> Uuid {
         name: "Retention Owner".into(),
         avatar_url: None,
     };
-    upsert_google_user(pool, &identity, Decimal::ZERO, None)
+    upsert_google_user(pool, &identity, Decimal::ZERO, None, None)
         .await
         .unwrap()
         .id

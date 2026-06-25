@@ -166,6 +166,7 @@ pub async fn upsert_google_user(
     identity: &GoogleIdentity,
     free_credits: Decimal,
     source: Option<&str>,
+    locale: Option<&str>,
 ) -> Result<User, sqlx::Error> {
     let mut tx = pool.begin().await?;
 
@@ -176,21 +177,24 @@ pub async fn upsert_google_user(
 
     let user = match existing {
         Some(_) => {
+            // COALESCE keeps the stored locale when this login omitted one.
             sqlx::query_as(
-                "UPDATE users SET email = $2, name = $3, avatar_url = $4, updated_at = now()
+                "UPDATE users SET email = $2, name = $3, avatar_url = $4,
+                                  locale = COALESCE($5, locale), updated_at = now()
                  WHERE google_id = $1 RETURNING *",
             )
             .bind(&identity.google_id)
             .bind(&identity.email)
             .bind(&identity.name)
             .bind(&identity.avatar_url)
+            .bind(locale)
             .fetch_one(&mut *tx)
             .await?
         }
         None => {
             let user: User = sqlx::query_as(
-                "INSERT INTO users (google_id, email, name, avatar_url, balance, source)
-                 VALUES ($1, $2, $3, $4, $5, $6) RETURNING *",
+                "INSERT INTO users (google_id, email, name, avatar_url, balance, source, locale)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *",
             )
             .bind(&identity.google_id)
             .bind(&identity.email)
@@ -198,6 +202,7 @@ pub async fn upsert_google_user(
             .bind(&identity.avatar_url)
             .bind(free_credits)
             .bind(source)
+            .bind(locale)
             .fetch_one(&mut *tx)
             .await?;
             sqlx::query(
@@ -262,6 +267,11 @@ pub struct GoogleAuthRequest {
     /// visitor arrived with). Recorded only on first login; ignored thereafter.
     #[serde(default)]
     pub source: Option<String>,
+    /// The UI language the user is signing in with (e.g. `it`, `pt-BR`). Stored on the
+    /// user so outbound notifications can be localized in their own language. Updated
+    /// on every login so a language switch is reflected.
+    #[serde(default)]
+    pub locale: Option<String>,
 }
 
 /// Normalise a client-supplied acquisition source: trim, drop empties, and cap at
@@ -270,6 +280,20 @@ fn clean_source(raw: Option<&str>) -> Option<String> {
     raw.map(str::trim)
         .filter(|s| !s.is_empty())
         .map(|s| s.chars().take(64).collect())
+}
+
+/// Normalise a client-supplied UI locale to a short base code (e.g. `pt-BR` → `pt`).
+/// Keeps only ASCII letters, lowercases, and caps length so a hostile value can't
+/// bloat the column or break the localized-copy lookup. Returns `None` if unusable.
+fn clean_locale(raw: Option<&str>) -> Option<String> {
+    let base = raw?
+        .trim()
+        .split(['-', '_'])
+        .next()
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let ok = (2..=8).contains(&base.len()) && base.chars().all(|c| c.is_ascii_lowercase());
+    ok.then_some(base)
 }
 
 #[derive(Serialize)]
@@ -305,9 +329,7 @@ pub async fn auth_google(
 
     // Resolve a verified identity from EITHER the new OAuth code (which also yields
     // Calendar tokens to persist) OR the legacy ID-token credential.
-    let (identity, token_set) = if let Some(code) =
-        body.code.as_deref().filter(|c| !c.is_empty())
-    {
+    let (identity, token_set) = if let Some(code) = body.code.as_deref().filter(|c| !c.is_empty()) {
         if !billing.calendar_enabled() {
             return (
                 StatusCode::SERVICE_UNAVAILABLE,
@@ -352,7 +374,16 @@ pub async fn auth_google(
         .unwrap_or(Decimal::ZERO)
         .round_dp(6);
     let source = clean_source(body.source.as_deref());
-    let user = match upsert_google_user(pool, &identity, free_credits, source.as_deref()).await {
+    let locale = clean_locale(body.locale.as_deref());
+    let user = match upsert_google_user(
+        pool,
+        &identity,
+        free_credits,
+        source.as_deref(),
+        locale.as_deref(),
+    )
+    .await
+    {
         Ok(u) => u,
         Err(e) => {
             tracing::error!("upsert user failed: {e}");
@@ -552,12 +583,13 @@ mod tests {
         };
         let free = Decimal::new(200, 2); // 2.00
 
-        let u1 = upsert_google_user(&pool, &identity, free, Some("reddit-launch"))
+        let u1 = upsert_google_user(&pool, &identity, free, Some("reddit-launch"), Some("it"))
             .await
             .unwrap();
         assert_eq!(u1.balance, free);
         assert_eq!(u1.name, "First");
         assert_eq!(u1.source.as_deref(), Some("reddit-launch"));
+        assert_eq!(u1.locale.as_deref(), Some("it"));
 
         // Second login: profile refresh, balance unchanged.
         let identity2 = GoogleIdentity {
@@ -566,11 +598,13 @@ mod tests {
         };
         // Second login with a *different* source: profile refreshes, but the
         // first-touch source (and balance) is preserved.
-        let u2 = upsert_google_user(&pool, &identity2, free, Some("twitter-ad"))
+        // ...and a login that omits the locale must not wipe the stored one (COALESCE).
+        let u2 = upsert_google_user(&pool, &identity2, free, Some("twitter-ad"), None)
             .await
             .unwrap();
         assert_eq!(u2.id, u1.id);
         assert_eq!(u2.name, "Renamed");
+        assert_eq!(u2.locale.as_deref(), Some("it"));
         assert_eq!(u2.balance, free);
         assert_eq!(u2.source.as_deref(), Some("reddit-launch"));
 

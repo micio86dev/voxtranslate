@@ -152,8 +152,8 @@ async fn post_token(
 // --- Encryption (XChaCha20-Poly1305; 24-byte random nonce prepended) -------------
 
 fn encrypt_token(key: &[u8], plaintext: &str) -> Result<String, OauthError> {
-    let cipher = XChaCha20Poly1305::new_from_slice(key)
-        .map_err(|e| OauthError::Crypto(e.to_string()))?;
+    let cipher =
+        XChaCha20Poly1305::new_from_slice(key).map_err(|e| OauthError::Crypto(e.to_string()))?;
     let nonce = XChaCha20Poly1305::generate_nonce(&mut OsRng);
     let ct = cipher
         .encrypt(&nonce, plaintext.as_bytes())
@@ -171,8 +171,8 @@ fn decrypt_token(key: &[u8], b64: &str) -> Result<String, OauthError> {
         return Err(OauthError::Crypto("ciphertext too short".into()));
     }
     let (nonce_bytes, ct) = blob.split_at(24);
-    let cipher = XChaCha20Poly1305::new_from_slice(key)
-        .map_err(|e| OauthError::Crypto(e.to_string()))?;
+    let cipher =
+        XChaCha20Poly1305::new_from_slice(key).map_err(|e| OauthError::Crypto(e.to_string()))?;
     let pt = cipher
         .decrypt(XNonce::from_slice(nonce_bytes), ct)
         .map_err(|e| OauthError::Crypto(e.to_string()))?;
@@ -293,7 +293,10 @@ mod tests {
         let blob = encrypt_token(&key, "1//refresh-token-value").unwrap();
         // Ciphertext is not the plaintext, and decrypts back exactly.
         assert!(!blob.contains("refresh-token-value"));
-        assert_eq!(decrypt_token(&key, &blob).unwrap(), "1//refresh-token-value");
+        assert_eq!(
+            decrypt_token(&key, &blob).unwrap(),
+            "1//refresh-token-value"
+        );
     }
 
     #[test]

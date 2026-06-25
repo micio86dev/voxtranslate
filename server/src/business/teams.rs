@@ -59,13 +59,14 @@ fn valid_name(raw: &str) -> Option<&str> {
 /// Resolve a team that belongs to this org, or 404. Keeps every team operation
 /// tenant-scoped (a team_id from another org is invisible).
 async fn team_in_org(pool: &crate::db::Pool, org_id: Uuid, team_id: Uuid) -> Result<(), Response> {
-    let exists: Option<Uuid> =
-        sqlx::query_scalar("SELECT id FROM teams WHERE id = $1 AND org_id = $2 AND archived_at IS NULL")
-            .bind(team_id)
-            .bind(org_id)
-            .fetch_optional(pool)
-            .await
-            .map_err(db_err)?;
+    let exists: Option<Uuid> = sqlx::query_scalar(
+        "SELECT id FROM teams WHERE id = $1 AND org_id = $2 AND archived_at IS NULL",
+    )
+    .bind(team_id)
+    .bind(org_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(db_err)?;
     exists
         .map(|_| ())
         .ok_or_else(|| not_found("team not found"))

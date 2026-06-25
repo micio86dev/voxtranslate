@@ -55,12 +55,20 @@ fn calendar_token_err(e: OauthError) -> Response {
         }
         other => {
             tracing::error!("calendar token error: {other}");
-            (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "calendar error").into_response()
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "calendar error",
+            )
+                .into_response()
         }
     }
 }
 
-async fn load_detail(pool: &Pool, creator_id: Uuid, meeting_id: Uuid) -> Result<MeetingDetail, Response> {
+async fn load_detail(
+    pool: &Pool,
+    creator_id: Uuid,
+    meeting_id: Uuid,
+) -> Result<MeetingDetail, Response> {
     let meeting: Option<MeetingRow> = sqlx::query_as(
         "SELECT id, org_id, project_id, title, description, scheduled_at, end_at, timezone,
                 room_code, join_url, status, reminder_minutes_before, recurrence, created_at
@@ -94,9 +102,9 @@ pub async fn create(
     if title.is_empty() {
         return Err(bad_request("title is required"));
     }
-    let end_at = body
-        .end_at
-        .unwrap_or_else(|| body.scheduled_at + ChronoDuration::minutes(body.duration_minutes.unwrap_or(30).max(1)));
+    let end_at = body.end_at.unwrap_or_else(|| {
+        body.scheduled_at + ChronoDuration::minutes(body.duration_minutes.unwrap_or(30).max(1))
+    });
     if end_at <= body.scheduled_at {
         return Err(bad_request("end must be after start"));
     }
@@ -152,7 +160,11 @@ pub async fn create(
     .await
     .map_err(|e| {
         tracing::error!("create calendar event failed: {e}");
-        (axum::http::StatusCode::BAD_GATEWAY, "could not create the calendar event").into_response()
+        (
+            axum::http::StatusCode::BAD_GATEWAY,
+            "could not create the calendar event",
+        )
+            .into_response()
     })?;
 
     let mut tx = pool.begin().await.map_err(db_err)?;
@@ -201,8 +213,11 @@ pub async fn list(
     Query(q): Query<ListQuery>,
 ) -> Result<Response, Response> {
     let pool = require_pool(&state)?;
-    let from = q.from.unwrap_or_else(|| Utc::now() - ChronoDuration::days(7));
-    let to = q.to.unwrap_or_else(|| Utc::now() + ChronoDuration::days(90));
+    let from = q
+        .from
+        .unwrap_or_else(|| Utc::now() - ChronoDuration::days(7));
+    let to =
+        q.to.unwrap_or_else(|| Utc::now() + ChronoDuration::days(90));
     let rows: Vec<MeetingRow> = sqlx::query_as(
         "SELECT id, org_id, project_id, title, description, scheduled_at, end_at, timezone,
                 room_code, join_url, status, reminder_minutes_before, recurrence, created_at
@@ -255,10 +270,12 @@ pub async fn cancel(
             }
         }
     }
-    sqlx::query("UPDATE scheduled_meetings SET status = 'cancelled', updated_at = now() WHERE id = $1")
-        .bind(meeting_id)
-        .execute(pool)
-        .await
-        .map_err(db_err)?;
+    sqlx::query(
+        "UPDATE scheduled_meetings SET status = 'cancelled', updated_at = now() WHERE id = $1",
+    )
+    .bind(meeting_id)
+    .execute(pool)
+    .await
+    .map_err(db_err)?;
     Ok(axum::http::StatusCode::NO_CONTENT.into_response())
 }

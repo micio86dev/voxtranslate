@@ -89,11 +89,10 @@ pub async fn list(
     let page = q.page.unwrap_or(0).max(0);
     let offset = page * limit;
     let action = q.action.filter(|s| !s.trim().is_empty());
-    let search = q
-        .q
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .map(|s| format!("%{s}%"));
+    let search =
+        q.q.map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .map(|s| format!("%{s}%"));
 
     let rows: Vec<AuditRow> = sqlx::query_as(
         "SELECT a.id, a.actor_id, u.name AS actor_name, u.email AS actor_email,

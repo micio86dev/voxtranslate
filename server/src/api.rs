@@ -3226,34 +3226,50 @@ pub async fn invite_send(
     // The link always points at OUR canonical origin + the sanitised room — a
     // client never supplies the URL we put our brand behind.
     let join_url = format!("{}/?room={room}", state.config.app_base_url);
-    let lang = body.lang.as_deref().unwrap_or("en");
+    // The sender's UI language is the fallback; if a recipient is a known user we
+    // localize their email in *their* stored locale instead.
+    let sender_lang = body.lang.as_deref().unwrap_or("en");
     let inviter: String = user.name.chars().take(60).collect();
-
-    let invite = crate::invite::build_invite_email(lang, &inviter, &join_url);
-    let html = crate::email_template::render_html(&crate::email_template::EmailLayout {
-        app_base_url: &state.config.app_base_url,
-        preheader: &invite.preheader,
-        heading: Some(&invite.heading),
-        body_html: &invite.body_html,
-        button: None, // the button is embedded in body_html, ahead of the link
-        tagline: &invite.tagline,
-    });
-    let text = crate::email_template::render_text(
-        &invite.body_text,
-        None,
-        &state.config.app_base_url,
-        &invite.tagline,
-    );
 
     let mut sent = 0usize;
     let mut failed = 0usize;
     for addr in &recipients {
+        let recipient_lang: Option<String> = match state.pool.as_ref() {
+            Some(pool) => sqlx::query_scalar::<_, Option<String>>(
+                "SELECT locale FROM users WHERE lower(email) = lower($1)",
+            )
+            .bind(addr)
+            .fetch_optional(pool)
+            .await
+            .ok()
+            .flatten()
+            .flatten(),
+            None => None,
+        };
+        let lang = recipient_lang.as_deref().unwrap_or(sender_lang);
+
+        let invite = crate::invite::build_invite_email(lang, &inviter, &join_url);
+        let html = crate::email_template::render_html(&crate::email_template::EmailLayout {
+            app_base_url: &state.config.app_base_url,
+            preheader: &invite.preheader,
+            heading: Some(&invite.heading),
+            body_html: &invite.body_html,
+            button: None, // the button is embedded in body_html, ahead of the link
+            tagline: &invite.tagline,
+        });
+        let text = crate::email_template::render_text(
+            &invite.body_text,
+            None,
+            &state.config.app_base_url,
+            &invite.tagline,
+        );
+
         let msg = OutboundEmail {
             to: vec![addr.clone()],
             cc: vec![],
-            subject: invite.subject.clone(),
-            html: html.clone(),
-            text: text.clone(),
+            subject: invite.subject,
+            html,
+            text,
         };
         match resend.send(&msg).await {
             Ok(_) => sent += 1,

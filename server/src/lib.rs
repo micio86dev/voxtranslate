@@ -34,6 +34,7 @@ pub mod metrics;
 pub mod middleware;
 pub mod moderation;
 pub mod notifications;
+pub mod notify_copy;
 pub mod observability;
 pub mod pdf;
 pub mod protocol;
@@ -474,15 +475,9 @@ pub fn app(state: AppState) -> Router {
         )
         .route("/api/user/me", get(auth::user_me))
         // ---- Personal (B2C) scheduled meetings on Google Calendar ----
-        .route(
-            "/api/meetings",
-            get(meetings::list).post(meetings::create),
-        )
+        .route("/api/meetings", get(meetings::list).post(meetings::create))
         .route("/api/meetings/{meeting_id}", get(meetings::get))
-        .route(
-            "/api/meetings/{meeting_id}/cancel",
-            post(meetings::cancel),
-        )
+        .route("/api/meetings/{meeting_id}/cancel", post(meetings::cancel))
         // ---- Notifications: web-push, preferences, in-app center ----
         .route(
             "/api/push/subscribe",

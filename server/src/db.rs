@@ -35,6 +35,9 @@ pub struct User {
     // Acquisition source (added in migration 007): the `?source`/`utm_source` the
     // user arrived with on first login. NULL = organic / pre-attribution.
     pub source: Option<String>,
+    // UI locale captured at login (migration 026): the language the user uses the
+    // product in, so outbound notifications can be localized to them. NULL = unknown.
+    pub locale: Option<String>,
 }
 
 /// A row from `chat_files` (spec 0018): metadata for a file attached to chat.

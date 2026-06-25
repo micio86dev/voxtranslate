@@ -36,25 +36,36 @@ pub const TYPES: [&str; 4] = [
 pub const CHANNELS: [&str; 3] = ["push", "email", "in_app"];
 
 fn esc_html(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }
 
 // --- Fan-out -------------------------------------------------------------------
 
 /// Deliver a notification to `user_id` across every enabled channel. Best-effort:
 /// a failure on one channel never blocks the others, and the call never panics.
-pub async fn notify(state: &AppState, user_id: Uuid, kind: &str, title: &str, body: &str, data: Value) {
+pub async fn notify(
+    state: &AppState,
+    user_id: Uuid,
+    kind: &str,
+    lang: &str,
+    title: &str,
+    body: &str,
+    data: Value,
+) {
     let Some(pool) = state.pool.as_ref() else {
         return;
     };
 
     // Per-(type,channel) overrides; absence = enabled.
-    let prefs: Vec<(String, String, bool)> =
-        sqlx::query_as("SELECT type, channel, enabled FROM notification_preferences WHERE user_id = $1")
-            .bind(user_id)
-            .fetch_all(pool)
-            .await
-            .unwrap_or_default();
+    let prefs: Vec<(String, String, bool)> = sqlx::query_as(
+        "SELECT type, channel, enabled FROM notification_preferences WHERE user_id = $1",
+    )
+    .bind(user_id)
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default();
     let disabled = |channel: &str| {
         prefs
             .iter()
@@ -95,14 +106,17 @@ pub async fn notify(state: &AppState, user_id: Uuid, kind: &str, title: &str, bo
             {
                 let join = data.get("join_url").and_then(|v| v.as_str());
                 let body_html = format!("<p>{}</p>", esc_html(body));
-                let button = join.map(|u| EmailButton { label: "Join", url: u });
+                let button = join.map(|u| EmailButton {
+                    label: crate::notify_copy::join_label(lang),
+                    url: u,
+                });
                 let html = render_html(&EmailLayout {
                     app_base_url: &state.config.app_base_url,
                     preheader: title,
                     heading: Some(title),
                     body_html: &body_html,
                     button,
-                    tagline: tagline("en"),
+                    tagline: tagline(lang),
                 });
                 let text = format!("{title}\n\n{body}\n\n{}", join.unwrap_or(""));
                 let _ = resend
@@ -178,16 +192,21 @@ async fn send_web_push(
     auth: &str,
     payload: &str,
 ) -> Result<(), PushSendError> {
-    let subscription = SubscriptionInfo::new(endpoint.to_string(), p256dh.to_string(), auth.to_string());
+    let subscription =
+        SubscriptionInfo::new(endpoint.to_string(), p256dh.to_string(), auth.to_string());
     let mut sig = VapidSignatureBuilder::from_base64(&push.vapid_private_key, &subscription)
         .map_err(|e| PushSendError::Build(e.to_string()))?;
     sig.add_claim("sub", push.vapid_subject.as_str());
-    let signature = sig.build().map_err(|e| PushSendError::Build(e.to_string()))?;
+    let signature = sig
+        .build()
+        .map_err(|e| PushSendError::Build(e.to_string()))?;
 
     let mut builder = WebPushMessageBuilder::new(&subscription);
     builder.set_payload(ContentEncoding::Aes128Gcm, payload.as_bytes());
     builder.set_vapid_signature(signature);
-    let message = builder.build().map_err(|e| PushSendError::Build(e.to_string()))?;
+    let message = builder
+        .build()
+        .map_err(|e| PushSendError::Build(e.to_string()))?;
 
     let mut req = http
         .post(message.endpoint.to_string())
@@ -201,7 +220,10 @@ async fn send_web_push(
         }
         req = req.body(p.content);
     }
-    let resp = req.send().await.map_err(|e| PushSendError::Http(e.to_string()))?;
+    let resp = req
+        .send()
+        .await
+        .map_err(|e| PushSendError::Http(e.to_string()))?;
     let status = resp.status();
     if status.is_success() {
         Ok(())
@@ -298,14 +320,18 @@ struct PrefsResponse {
 }
 
 /// `GET /api/notifications/preferences` — effective matrix (type × channel) + quiet hours.
-pub async fn get_preferences(State(state): State<AppState>, user: AuthUser) -> Result<Response, Response> {
+pub async fn get_preferences(
+    State(state): State<AppState>,
+    user: AuthUser,
+) -> Result<Response, Response> {
     let pool = require_pool(&state)?;
-    let overrides: Vec<(String, String, bool)> =
-        sqlx::query_as("SELECT type, channel, enabled FROM notification_preferences WHERE user_id = $1")
-            .bind(user.user_id)
-            .fetch_all(pool)
-            .await
-            .map_err(db_err)?;
+    let overrides: Vec<(String, String, bool)> = sqlx::query_as(
+        "SELECT type, channel, enabled FROM notification_preferences WHERE user_id = $1",
+    )
+    .bind(user.user_id)
+    .fetch_all(pool)
+    .await
+    .map_err(db_err)?;
     let lookup = |t: &str, c: &str| {
         overrides
             .iter()
@@ -382,7 +408,8 @@ pub async fn patch_preferences(
         .await
         .map_err(db_err)?;
     }
-    if body.quiet_hours_start.is_some() || body.quiet_hours_end.is_some() || body.timezone.is_some() {
+    if body.quiet_hours_start.is_some() || body.quiet_hours_end.is_some() || body.timezone.is_some()
+    {
         sqlx::query(
             "INSERT INTO notification_settings (user_id, quiet_hours_start, quiet_hours_end, timezone, updated_at)
              VALUES ($1,$2,$3,COALESCE($4,'UTC'),now())
@@ -450,12 +477,13 @@ pub async fn list(
         .await
     }
     .map_err(db_err)?;
-    let unread: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM notifications WHERE user_id = $1 AND read_at IS NULL")
-            .bind(user.user_id)
-            .fetch_one(pool)
-            .await
-            .map_err(db_err)?;
+    let unread: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM notifications WHERE user_id = $1 AND read_at IS NULL",
+    )
+    .bind(user.user_id)
+    .fetch_one(pool)
+    .await
+    .map_err(db_err)?;
     Ok(Json(json!({ "notifications": rows, "unread": unread })).into_response())
 }
 
@@ -476,7 +504,10 @@ pub async fn mark_read(
 }
 
 /// `POST /api/notifications/read-all`
-pub async fn mark_all_read(State(state): State<AppState>, user: AuthUser) -> Result<Response, Response> {
+pub async fn mark_all_read(
+    State(state): State<AppState>,
+    user: AuthUser,
+) -> Result<Response, Response> {
     let pool = require_pool(&state)?;
     sqlx::query("UPDATE notifications SET read_at = now() WHERE user_id = $1 AND read_at IS NULL")
         .bind(user.user_id)
@@ -550,10 +581,21 @@ pub async fn run_reminder_scheduler(state: AppState, interval: Duration) {
                 "join_url": m.join_url,
                 "scheduled_at": m.scheduled_at,
             });
-            let title = format!("Starting soon: {}", m.title);
-            let body = "Your meeting is about to start.".to_string();
             for uid in recipients {
-                notify(&state, uid, "meeting_reminder", &title, &body, data.clone()).await;
+                // Each recipient gets the reminder in their own UI language.
+                let lang = crate::notify_copy::user_locale(&pool, uid).await;
+                let (title, body) =
+                    crate::notify_copy::meeting_copy("meeting_reminder", &lang, &m.title);
+                notify(
+                    &state,
+                    uid,
+                    "meeting_reminder",
+                    &lang,
+                    &title,
+                    &body,
+                    data.clone(),
+                )
+                .await;
             }
         }
     }

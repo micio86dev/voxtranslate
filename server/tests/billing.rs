@@ -163,6 +163,7 @@ mod guest_mode {
 
     async fn spawn_guest() -> SocketAddr {
         let config = Config {
+            push: None,
             deepgram_key: "d".into(),
             groq_key: "g".into(),
             translation_model: "openai/gpt-oss-20b".into(),
@@ -316,6 +317,7 @@ mod ws_metering {
             &identity,
             rust_decimal::Decimal::new(200, 2),
             None,
+            None,
         )
         .await
         .unwrap();
@@ -447,6 +449,7 @@ mod ws_metering {
             &srv.pool,
             &identity,
             rust_decimal::Decimal::new(500, 2),
+            None,
             None,
         )
         .await
@@ -847,6 +850,7 @@ mod account_api {
             &identity,
             rust_decimal::Decimal::new(200, 2),
             None,
+            None,
         )
         .await
         .unwrap();
@@ -938,6 +942,7 @@ mod safety_http {
             &srv.pool,
             &identity,
             rust_decimal::Decimal::new(200, 2),
+            None,
             None,
         )
         .await
@@ -1111,6 +1116,7 @@ mod safety_ws {
             &identity,
             rust_decimal::Decimal::new(200, 2),
             None,
+            None,
         )
         .await
         .unwrap();
@@ -1169,6 +1175,7 @@ mod safety_ws {
             &srv.pool,
             &identity,
             rust_decimal::Decimal::new(500, 2),
+            None,
             None,
         )
         .await
@@ -1237,10 +1244,16 @@ mod admin_api {
             name: "Adm".into(),
             avatar_url: None,
         };
-        upsert_google_user(pool, &identity, rust_decimal::Decimal::new(200, 2), None)
-            .await
-            .unwrap()
-            .id
+        upsert_google_user(
+            pool,
+            &identity,
+            rust_decimal::Decimal::new(200, 2),
+            None,
+            None,
+        )
+        .await
+        .unwrap()
+        .id
     }
 
     #[tokio::test]

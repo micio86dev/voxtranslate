@@ -24,6 +24,7 @@ fn make_state() -> (AppState, bool) {
         Ok(c) => (AppState::new(c), true),
         Err(_) => (
             AppState::new(Config {
+                push: None,
                 deepgram_key: "dummy".into(),
                 groq_key: "dummy".into(),
                 translation_model: "openai/gpt-oss-20b".into(),
@@ -429,6 +430,7 @@ async fn deepgram_unavailable_sends_error() {
     let _ = dotenvy::dotenv();
     let groq = std::env::var("GROQ_API_KEY").unwrap_or_else(|_| "dummy".into());
     let state = AppState::new(Config {
+        push: None,
         deepgram_key: "bad-deepgram-key".into(),
         groq_key: groq,
         translation_model: "openai/gpt-oss-20b".into(),
@@ -507,6 +509,7 @@ async fn spawn_state(state: AppState) -> SocketAddr {
 
 fn guest_config() -> Config {
     Config {
+        push: None,
         deepgram_key: "dummy".into(),
         groq_key: "dummy".into(),
         translation_model: "openai/gpt-oss-20b".into(),

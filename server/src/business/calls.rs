@@ -131,13 +131,12 @@ pub async fn get_binding(
 ) -> Result<Response, Response> {
     let pool = require_pool(&state)?;
     let room = sanitize_room(&room).ok_or_else(|| bad_request("invalid room code"))?;
-    let row: Option<(Uuid, Option<Uuid>)> = sqlx::query_as(
-        "SELECT org_id, project_id FROM room_business_bindings WHERE room = $1",
-    )
-    .bind(&room)
-    .fetch_optional(pool)
-    .await
-    .map_err(db_err)?;
+    let row: Option<(Uuid, Option<Uuid>)> =
+        sqlx::query_as("SELECT org_id, project_id FROM room_business_bindings WHERE room = $1")
+            .bind(&room)
+            .fetch_optional(pool)
+            .await
+            .map_err(db_err)?;
     let Some((org_id, project_id)) = row else {
         return Err(not_found("no binding"));
     };
