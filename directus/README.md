@@ -229,7 +229,45 @@ Screenshots of the actual screens (in `directus/screenshots/`):
 4. Add a term in `blocklist_terms` → restart the server → that word is filtered
    in transcripts/chat.
 
+## 10. User map (opt-in location) — superadmin only
+
+A filterable map of every user who opted into location sharing. The data layer is
+already built by the server; this is a one-time Directus setup.
+
+**How the data gets there.** The frontend shows an optional "share your location to
+help us improve the service" prompt (never required). On accept it POSTs to
+`/api/user/location`, which stores `latitude`/`longitude`/`location_consent`/
+`location_updated_at` on the `users` row (migration `027_user_location.sql`).
+On boot the server also runs `location::ensure_geometry` (best-effort): it enables
+PostGIS and adds a generated `users.location` `geometry(Point,4326)` column kept in
+sync from lat/lng — exactly what the Directus **Map** layout needs. (Supabase Postgres
+ships PostGIS, so this just works; on a DB without it the server logs a warning and
+skips the geometry column, and you'd fall back to the raw lat/lng numbers.)
+
+**Set it up in Directus:**
+
+1. **Settings → Data Model → `users`** → if `location`, `latitude`, `longitude`,
+   `location_consent` aren't listed yet, click **⋯ → Import fields from database**
+   (Directus reads new columns from the live schema). The `location` column shows up
+   as a **Map / Geometry** field.
+2. Open the **`users` collection** and switch the layout (top-right) to **Map**.
+   Pick `location` as the geometry field. Each consenting user becomes a pin.
+3. **Filter** (so you only plot people who actually opted in, and slice the view):
+   - `location_consent` **equals** `true`
+   - optionally `location_updated_at` within the last N days (recency)
+   - optionally join/scope by org for B2B drill-downs.
+4. **Basemap (optional, nicer tiles):** Settings → Project Settings → **Map** →
+   add a **Mapbox** access token. Without it Directus uses its built-in basemap.
+5. **Permissions:** this is a **superadmin** view — keep the `location*` fields readable
+   only by the admin/superadmin role (Settings → Roles), not by any B2B-scoped role,
+   so customer admins never see end-user coordinates.
+
+Withdrawing consent (the app's DELETE `/api/user/location`, or a future settings
+toggle) nulls the coordinates and flips `location_consent` to false, so the pin
+disappears on the next load.
+
 ## Endpoint reference (server)
 
 Read (public): `GET /api/content/i18n`, `GET /api/content/legal/{slug}?lang=xx`.
 Admin (require `X-Admin-Secret`): `POST /api/admin/{ban,unban,credit,report/resolve,user/delete}`.
+User location (require session JWT): `POST /api/user/location` (opt-in store), `DELETE /api/user/location` (withdraw).

@@ -819,6 +819,15 @@ const jsonLd = {
       </div>
     </div>
 
+    <!-- ===================== LOCATION OPT-IN (optional, helps improve service) ===================== -->
+    <div id="geo-banner" class="cookie-banner hidden">
+      <span id="geo-text" class="cookie-text" data-i18n="geoText">{T('geoText')}</span>
+      <div class="cookie-actions">
+        <button id="geo-dismiss" class="btn-ghost cookie-btn" data-i18n="geoNotNow">{T('geoNotNow')}</button>
+        <button id="geo-enable" class="btn-primary cookie-btn" data-i18n="geoEnable">{T('geoEnable')}</button>
+      </div>
+    </div>
+
     <!-- ===================== BALANCE EXHAUSTED MODAL ===================== -->
     <div id="exhausted-modal" class="modal-overlay hidden">
       <div class="modal card modal-narrow" role="dialog" aria-modal="true" aria-labelledby="exhausted-title">

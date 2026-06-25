@@ -446,5 +446,8 @@
   "scheduleRepeatWeekly": "Ogni settimana",
   "scheduleRepeatMonthly": "Ogni mese",
   "scheduleFOccurrences": "Numero di occorrenze",
-  "scheduleOccurrencesPh": "es. 10"
+  "scheduleOccurrencesPh": "es. 10",
+  "geoText": "Condividi la tua posizione per aiutarci a migliorare VoxTranslate. È facoltativo e puoi disattivarlo quando vuoi.",
+  "geoEnable": "Condividi posizione",
+  "geoNotNow": "Non ora"
 }

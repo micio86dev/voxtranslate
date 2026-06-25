@@ -28,6 +28,7 @@ pub mod google_calendar;
 pub mod google_oauth;
 pub mod groq;
 pub mod invite;
+pub mod location;
 pub mod log_shipping;
 pub mod meetings;
 pub mod metrics;
@@ -406,6 +407,9 @@ impl AppState {
             db::migrate(&pool)
                 .await
                 .map_err(|e| format!("migrations failed: {e}"))?;
+            // Best-effort: add the PostGIS geometry column for the Directus user map.
+            // Never fatal — a DB without PostGIS just logs and skips it.
+            location::ensure_geometry(&pool).await;
             let min_join = usd(billing.pricing.min_balance_to_join);
             state.billing = Some(BillingService::new(pool.clone(), min_join));
             state.safety = Some(SafetyService::new(pool.clone()));
@@ -585,6 +589,10 @@ pub fn app(state: AppState) -> Router {
         .route("/api/report", post(api::report))
         .route("/api/user/consent", post(api::submit_consent))
         .route("/api/user/data", get(api::export_data))
+        .route(
+            "/api/user/location",
+            post(location::update_location).delete(location::clear_location),
+        )
         .route("/api/user", axum::routing::delete(api::delete_account))
         // Public, read-only managed content (client merges over its bundled copy).
         .route("/api/content/i18n", get(content::get_i18n))

@@ -28,6 +28,7 @@ import { type CallModules, loadCallModules } from './call-modules';
 import { loadRemoteI18n } from './content';
 import { setupScheduling } from './meetings';
 import { initAnalytics, track } from './analytics';
+import { setupGeoOptIn } from './geo';
 import { maybeSubscribePush } from './push';
 import { icon } from './icons';
 import type { MeshManager } from './webrtc';
@@ -3914,6 +3915,7 @@ function enterHome(): void {
   updatePublicGate();
   // Scheduled-meetings card: shows when signed in, hides for guests (idempotent).
   setupScheduling(t);
+  setupGeoOptIn(); // optional location opt-in (signed-in, once)
   refreshGlossaryHome(); // 📖 home button is auth-only
   startLobby();
   // Invite deep-link (spec 0082): the FIRST time we reach home carrying an invite
