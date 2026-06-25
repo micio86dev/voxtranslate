@@ -176,5 +176,14 @@ pub async fn delete(
     if res.rows_affected() == 0 {
         return Err(not_found("project not found"));
     }
+    crate::business::audit::log_audit_event(
+        pool,
+        org_id,
+        user.user_id,
+        "project.archive",
+        "project",
+        project_id,
+        serde_json::json!({}),
+    );
     Ok(StatusCode::NO_CONTENT.into_response())
 }

@@ -319,6 +319,16 @@ pub async fn create(
     .map_err(db_err)?;
     tx.commit().await.map_err(db_err)?;
 
+    super::audit::log_audit_event(
+        pool,
+        org_id,
+        user.user_id,
+        "meeting.create",
+        "meeting",
+        meeting_id,
+        serde_json::json!({ "title": title }),
+    );
+
     // Notify invitees who have an account (external emails get Google's native invite).
     let data = serde_json::json!({
         "meeting_id": meeting_id, "room_code": room_code, "join_url": join_url,
@@ -603,5 +613,14 @@ pub async fn cancel(
         serde_json::json!({ "meeting_id": meeting_id, "room_code": detail.meeting.room_code }),
     )
     .await;
+    super::audit::log_audit_event(
+        pool,
+        org_id,
+        user.user_id,
+        "meeting.cancel",
+        "meeting",
+        meeting_id,
+        serde_json::json!({ "title": detail.meeting.title }),
+    );
     Ok(axum::http::StatusCode::NO_CONTENT.into_response())
 }

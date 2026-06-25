@@ -4,8 +4,8 @@ use axum::routing::{delete, get, patch, post};
 use axum::Router;
 
 use crate::business::{
-    analytics, billing, calls, meetings, members, organizations, projects, recording, storyboard,
-    teams, transcripts,
+    analytics, audit, billing, calls, meetings, members, organizations, projects, recording,
+    storyboard, teams, transcripts,
 };
 use crate::AppState;
 
@@ -93,6 +93,10 @@ pub fn routes() -> Router<AppState> {
         .route(
             "/api/business/organizations/{org_id}/analytics",
             get(analytics::summary),
+        )
+        .route(
+            "/api/business/organizations/{org_id}/audit",
+            get(audit::list),
         )
         .route(
             "/api/business/organizations/{org_id}/members/{user_id}/analytics",

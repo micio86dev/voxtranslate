@@ -60,7 +60,7 @@ fn valid_name(raw: &str) -> Option<&str> {
 /// tenant-scoped (a team_id from another org is invisible).
 async fn team_in_org(pool: &crate::db::Pool, org_id: Uuid, team_id: Uuid) -> Result<(), Response> {
     let exists: Option<Uuid> =
-        sqlx::query_scalar("SELECT id FROM teams WHERE id = $1 AND org_id = $2")
+        sqlx::query_scalar("SELECT id FROM teams WHERE id = $1 AND org_id = $2 AND archived_at IS NULL")
             .bind(team_id)
             .bind(org_id)
             .fetch_optional(pool)
@@ -84,7 +84,7 @@ pub async fn list(
                 (SELECT count(*) FROM team_members tm WHERE tm.team_id = t.id)::bigint AS member_count,
                 t.created_at
          FROM teams t
-         WHERE t.org_id = $1
+         WHERE t.org_id = $1 AND t.archived_at IS NULL
          ORDER BY t.created_at",
     )
     .bind(org_id)
@@ -119,6 +119,15 @@ pub async fn create(
     .fetch_one(pool)
     .await
     .map_err(db_err)?;
+    super::audit::log_audit_event(
+        pool,
+        org_id,
+        user.user_id,
+        "team.create",
+        "team",
+        row.id,
+        serde_json::json!({ "name": row.name }),
+    );
     Ok((StatusCode::CREATED, Json(row)).into_response())
 }
 
@@ -156,8 +165,9 @@ pub async fn patch(
     Ok(Json(row).into_response())
 }
 
-/// `DELETE /api/business/organizations/{org_id}/teams/{team_id}` (admin). Hard
-/// delete — `team_members` cascade; call history is unaffected (not team-linked).
+/// `DELETE /api/business/organizations/{org_id}/teams/{team_id}` (admin). Soft
+/// delete — sets `archived_at` so an accidental delete is recoverable; the row and
+/// its `team_members` stay in the DB. Call history is unaffected (not team-linked).
 pub async fn delete(
     State(state): State<AppState>,
     user: AuthUser,
@@ -165,15 +175,27 @@ pub async fn delete(
 ) -> Result<Response, Response> {
     let pool = require_pool(&state)?;
     require_role(pool, org_id, user.user_id, ADMIN).await?;
-    let res = sqlx::query("DELETE FROM teams WHERE id = $1 AND org_id = $2")
-        .bind(team_id)
-        .bind(org_id)
-        .execute(pool)
-        .await
-        .map_err(db_err)?;
-    if res.rows_affected() == 0 {
+    let row: Option<(String,)> = sqlx::query_as(
+        "UPDATE teams SET archived_at = now(), updated_at = now()
+         WHERE id = $1 AND org_id = $2 AND archived_at IS NULL RETURNING name",
+    )
+    .bind(team_id)
+    .bind(org_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(db_err)?;
+    let Some((name,)) = row else {
         return Err(not_found("team not found"));
-    }
+    };
+    super::audit::log_audit_event(
+        pool,
+        org_id,
+        user.user_id,
+        "team.delete",
+        "team",
+        team_id,
+        serde_json::json!({ "name": name }),
+    );
     Ok(StatusCode::NO_CONTENT.into_response())
 }
 
