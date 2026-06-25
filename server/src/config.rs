@@ -49,6 +49,9 @@ pub struct Config {
     /// (`app_base_url`). Used to build org invite/join links, whose page lives in
     /// the dashboard, not the consumer app. Override via `DASHBOARD_BASE_URL`.
     pub dashboard_base_url: String,
+    /// Web-push (VAPID) config for notifications. `Some` only when the VAPID keys are
+    /// set; otherwise push delivery is skipped (email + in-app still work).
+    pub push: Option<PushConfig>,
     /// Max members for a `business`-plan org (Enterprise is unlimited). Enforced
     /// when an invite is accepted. Override via `ORG_BUSINESS_MEMBER_LIMIT`.
     pub business_member_limit: i64,
@@ -786,6 +789,7 @@ impl Config {
                 .map(|s| s.trim().trim_end_matches('/').to_string())
                 .filter(|s| !s.is_empty())
                 .unwrap_or_else(|| "https://dashboard.voxtranslate.app".into()),
+            push: PushConfig::from_env(),
             business_member_limit: parse_or("ORG_BUSINESS_MEMBER_LIMIT", 20i64),
             retention_sweep_enabled: env_flag("RETENTION_SWEEP_ENABLED"),
             retention_sweep_interval_secs: parse_or("RETENTION_SWEEP_INTERVAL_SECS", 21_600u64),
@@ -815,6 +819,36 @@ impl Config {
 
     pub fn billing_enabled(&self) -> bool {
         self.billing.is_some()
+    }
+}
+
+/// Web-push (VAPID) keys + contact subject. Keys are URL-safe base64 (no padding),
+/// the format emitted by `web-push generate-vapid-keys` / online generators.
+#[derive(Debug, Clone)]
+pub struct PushConfig {
+    pub vapid_public_key: String,
+    pub vapid_private_key: String,
+    /// VAPID `sub` claim — a `mailto:` or `https:` contact URL.
+    pub vapid_subject: String,
+}
+
+impl PushConfig {
+    /// `Some` only when both VAPID keys are present.
+    fn from_env() -> Option<Self> {
+        let public = env::var("VAPID_PUBLIC_KEY").unwrap_or_default();
+        let private = env::var("VAPID_PRIVATE_KEY").unwrap_or_default();
+        if public.trim().is_empty() || private.trim().is_empty() {
+            return None;
+        }
+        Some(Self {
+            vapid_public_key: public.trim().to_string(),
+            vapid_private_key: private.trim().to_string(),
+            vapid_subject: env::var("VAPID_SUBJECT")
+                .ok()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "mailto:micio86dev@gmail.com".into()),
+        })
     }
 }
 
@@ -1088,6 +1122,7 @@ impl Config {
             bug_report_to: "test@example.com".into(),
             app_base_url: "https://voxtranslate.app".into(),
             dashboard_base_url: "https://dashboard.voxtranslate.app".into(),
+            push: None,
             business_member_limit: 20,
             retention_sweep_enabled: false,
             retention_sweep_interval_secs: 21_600,

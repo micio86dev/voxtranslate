@@ -33,6 +33,7 @@ pub mod meetings;
 pub mod metrics;
 pub mod middleware;
 pub mod moderation;
+pub mod notifications;
 pub mod observability;
 pub mod pdf;
 pub mod protocol;
@@ -482,6 +483,28 @@ pub fn app(state: AppState) -> Router {
             "/api/meetings/{meeting_id}/cancel",
             post(meetings::cancel),
         )
+        // ---- Notifications: web-push, preferences, in-app center ----
+        .route(
+            "/api/push/subscribe",
+            post(notifications::subscribe).delete(notifications::unsubscribe),
+        )
+        .route(
+            "/api/push/vapid-public-key",
+            get(notifications::vapid_public_key),
+        )
+        .route(
+            "/api/notifications/preferences",
+            get(notifications::get_preferences).patch(notifications::patch_preferences),
+        )
+        .route("/api/notifications", get(notifications::list))
+        .route(
+            "/api/notifications/{id}/read",
+            post(notifications::mark_read),
+        )
+        .route(
+            "/api/notifications/read-all",
+            post(notifications::mark_all_read),
+        )
         .route("/api/engines", get(api::engines))
         .route("/api/soniox/session", post(api::soniox_session))
         .route("/api/billing/packages", get(api::billing_packages))
@@ -680,6 +703,15 @@ pub async fn serve() {
     // tables Directus dashboards read. Skipped in guest-only mode (no DB).
     if let Some(pool) = state.pool.clone() {
         tokio::spawn(crate::analytics::run_rollup(pool, Duration::from_secs(300)));
+    }
+
+    // Scheduled-meeting reminder scheduler (spec: scheduled meetings, Phase 1d).
+    // Emits `meeting_reminder` notifications when a meeting's lead time is reached.
+    if state.pool.is_some() {
+        tokio::spawn(crate::notifications::run_reminder_scheduler(
+            state.clone(),
+            Duration::from_secs(30),
+        ));
     }
 
     // Enterprise data-retention sweep (spec 0106): delete recordings + transcripts

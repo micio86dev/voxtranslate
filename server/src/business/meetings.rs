@@ -319,8 +319,58 @@ pub async fn create(
     .map_err(db_err)?;
     tx.commit().await.map_err(db_err)?;
 
+    // Notify invitees who have an account (external emails get Google's native invite).
+    let data = serde_json::json!({
+        "meeting_id": meeting_id, "room_code": room_code, "join_url": join_url,
+        "scheduled_at": body.scheduled_at,
+    });
+    let ntitle = format!("Invitation: {title}");
+    for inv in &invitees {
+        if let Some(uid) = inv.user_id {
+            crate::notifications::notify(
+                &state,
+                uid,
+                "meeting_invited",
+                &ntitle,
+                "You've been invited to a meeting.",
+                data.clone(),
+            )
+            .await;
+        }
+    }
+
     let detail = load_detail(pool, org_id, meeting_id).await?;
     Ok((axum::http::StatusCode::CREATED, Json(detail)).into_response())
+}
+
+/// Notify the creator + every invitee that has an account.
+async fn notify_participants(
+    state: &AppState,
+    meeting_id: Uuid,
+    creator_id: Uuid,
+    kind: &str,
+    title: &str,
+    body: &str,
+    data: serde_json::Value,
+) {
+    let Some(pool) = state.pool.as_ref() else {
+        return;
+    };
+    let mut ids: Vec<Uuid> = vec![creator_id];
+    if let Ok(rows) = sqlx::query_scalar::<_, Uuid>(
+        "SELECT user_id FROM scheduled_meeting_invitees WHERE meeting_id = $1 AND user_id IS NOT NULL",
+    )
+    .bind(meeting_id)
+    .fetch_all(pool)
+    .await
+    {
+        ids.extend(rows);
+    }
+    ids.sort();
+    ids.dedup();
+    for uid in ids {
+        crate::notifications::notify(state, uid, kind, title, body, data.clone()).await;
+    }
 }
 
 /// `GET /api/business/organizations/{org_id}/meetings?from=&to=` — list from our
@@ -478,6 +528,27 @@ pub async fn update(
         .map_err(db_err)?;
     tx.commit().await.map_err(db_err)?;
 
+    let creator: Uuid =
+        sqlx::query_scalar("SELECT creator_user_id FROM scheduled_meetings WHERE id = $1")
+            .bind(meeting_id)
+            .fetch_one(pool)
+            .await
+            .unwrap_or(user.user_id);
+    let data = serde_json::json!({
+        "meeting_id": meeting_id, "room_code": existing.meeting.room_code,
+        "join_url": existing.meeting.join_url, "scheduled_at": body.scheduled_at,
+    });
+    notify_participants(
+        &state,
+        meeting_id,
+        creator,
+        "meeting_updated",
+        &format!("Updated: {title}"),
+        "A meeting was updated.",
+        data,
+    )
+    .await;
+
     let detail = load_detail(pool, org_id, meeting_id).await?;
     Ok(Json(detail).into_response())
 }
@@ -515,6 +586,22 @@ pub async fn cancel(
         .execute(pool)
         .await
         .map_err(db_err)?;
-    let _ = detail;
+
+    let creator: Uuid =
+        sqlx::query_scalar("SELECT creator_user_id FROM scheduled_meetings WHERE id = $1")
+            .bind(meeting_id)
+            .fetch_one(pool)
+            .await
+            .unwrap_or(user.user_id);
+    notify_participants(
+        &state,
+        meeting_id,
+        creator,
+        "meeting_cancelled",
+        &format!("Cancelled: {}", detail.meeting.title),
+        "A meeting was cancelled.",
+        serde_json::json!({ "meeting_id": meeting_id, "room_code": detail.meeting.room_code }),
+    )
+    .await;
     Ok(axum::http::StatusCode::NO_CONTENT.into_response())
 }
