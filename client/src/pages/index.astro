@@ -92,10 +92,12 @@ const jsonLd = {
             <span id="account-name" class="account-name"></span>
             <span id="account-balance" class="account-balance"></span>
           </div>
-          <button id="buy-btn" class="btn-ghost" data-i18n="buyCredits">{T('buyCredits')}</button>
-          <a id="workspace-btn" class="btn-ghost hidden" data-i18n="workspace" target="_blank" rel="noopener">{T('workspace')}</a>
-          <button id="privacy-open" class="btn-ghost icon-btn" data-i18n-title="privacyData" title={T('privacyData')} aria-label="Privacy"></button>
-          <button id="logout-btn" class="btn-ghost icon-btn" data-i18n-title="logout" title={T('logout')} aria-label="Logout"></button>
+          <div class="account-actions">
+            <button id="buy-btn" class="btn-ghost" data-i18n="buyCredits">{T('buyCredits')}</button>
+            <a id="workspace-btn" class="btn-ghost hidden" data-i18n="workspace" target="_blank" rel="noopener">{T('workspace')}</a>
+            <button id="privacy-open" class="btn-ghost icon-btn" data-i18n-title="privacyData" title={T('privacyData')} aria-label="Privacy"></button>
+            <button id="logout-btn" class="btn-ghost icon-btn" data-i18n-title="logout" title={T('logout')} aria-label="Logout"></button>
+          </div>
         </div>
         <!-- Guests have no account bar, so this is their only way back to the login
              screen (spec 0037). Sits where the account bar would be for parity. -->
@@ -1776,21 +1778,22 @@ const jsonLd = {
     .guest-btn { min-height: 44px; padding: 0 20px; }
 
     /* ---------- Account bar ---------- */
-    .account-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; max-width: 480px; margin: 14px auto 0; padding: 8px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; }
+    .account-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; max-width: 560px; margin: 14px auto 0; padding: 10px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; }
     .account-avatar { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; background: var(--surface-2); flex: none; }
-    .account-info { display: flex; flex-direction: column; min-width: 0; flex: 1; text-align: start; }
+    /* Identity always gets its own full row, so the name is never covered/squeezed
+       by the action buttons (the bug this replaced). */
+    .account-info { display: flex; flex-direction: column; min-width: 0; flex: 1 1 auto; text-align: start; }
     .account-name { font-weight: 600; font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .account-balance { font-size: 0.82rem; color: var(--success); font-variant-numeric: tabular-nums; }
     .account-balance.low { color: var(--danger); }
-    .account-bar .btn-ghost { flex: none; }
-    /* Phones: keep the bar from overflowing/overlapping (esp. with the B2B
-       "Workspace" button + long labels). Identity fills row 1; the action buttons
-       drop to row 2 and the text buttons share the width. Works with or without
-       the Workspace button (B2B vs B2C). */
-    @media (max-width: 460px) {
-      .account-info { flex: 1 1 calc(100% - 46px); }
-      .account-bar #buy-btn,
-      .account-bar #workspace-btn { flex: 1 1 auto; text-align: center; }
+    /* The action buttons live on their own row as one block (flex-basis 100% forces
+       the wrap), so a single icon never drops alone — identical on desktop and mobile. */
+    .account-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; flex: 1 1 100%; }
+    .account-actions .btn-ghost { flex: none; }
+    /* Phones: the two text buttons stretch to share the row width. */
+    @media (max-width: 480px) {
+      .account-actions #buy-btn,
+      .account-actions #workspace-btn { flex: 1 1 auto; text-align: center; }
     }
 
     /* ---------- Guest sign-in bar (spec 0037) ----------
