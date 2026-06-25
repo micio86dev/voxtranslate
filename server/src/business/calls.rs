@@ -13,7 +13,9 @@ use serde_json::json;
 use sqlx::FromRow;
 use uuid::Uuid;
 
-use crate::business::{bad_request, db_err, forbidden, require_pool, require_role, MEMBER};
+use crate::business::{
+    bad_request, db_err, forbidden, not_found, require_pool, require_role, MEMBER,
+};
 use crate::invite::sanitize_room;
 use crate::middleware::AuthUser;
 use crate::AppState;
@@ -116,6 +118,32 @@ pub async fn bind(
         "cloud_recording_enabled": body.cloud_recording_enabled.unwrap_or(false),
     }))
     .into_response())
+}
+
+/// `GET /api/rooms/{room}/business` — the room's existing org/project binding, so the
+/// pre-join UI can pre-select them (e.g. when joining a scheduled meeting via link)
+/// instead of clobbering the project with an empty selection on connect. 404 when the
+/// room isn't bound or the caller isn't a member of the bound org.
+pub async fn get_binding(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(room): Path<String>,
+) -> Result<Response, Response> {
+    let pool = require_pool(&state)?;
+    let room = sanitize_room(&room).ok_or_else(|| bad_request("invalid room code"))?;
+    let row: Option<(Uuid, Option<Uuid>)> = sqlx::query_as(
+        "SELECT org_id, project_id FROM room_business_bindings WHERE room = $1",
+    )
+    .bind(&room)
+    .fetch_optional(pool)
+    .await
+    .map_err(db_err)?;
+    let Some((org_id, project_id)) = row else {
+        return Err(not_found("no binding"));
+    };
+    // Only reveal the binding to a member of the bound org.
+    require_role(pool, org_id, user.user_id, MEMBER).await?;
+    Ok(Json(json!({ "org_id": org_id, "project_id": project_id })).into_response())
 }
 
 /// `GET /api/business/organizations/{org_id}/rooms` — paginated call history (member).

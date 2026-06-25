@@ -82,7 +82,10 @@ pub fn routes() -> Router<AppState> {
             post(meetings::cancel),
         )
         // ---- Calls: binding, history (PR-B) ----
-        .route("/api/rooms/{room}/business", patch(calls::bind))
+        .route(
+            "/api/rooms/{room}/business",
+            get(calls::get_binding).patch(calls::bind),
+        )
         .route(
             "/api/business/organizations/{org_id}/rooms",
             get(calls::list_org_rooms),
