@@ -120,7 +120,7 @@ async fn org_credit_ledger_add_deduct_insufficient() {
         10
     );
 
-    match deduct_org_credits(&srv.pool, org, 3, "recording", None, "rec")
+    match deduct_org_credits(&srv.pool, org, 3, "recording", None, None, "rec")
         .await
         .unwrap()
     {
@@ -128,7 +128,7 @@ async fn org_credit_ledger_add_deduct_insufficient() {
         OrgCharge::Insufficient { .. } => panic!("should have charged"),
     }
 
-    match deduct_org_credits(&srv.pool, org, 100, "recording", None, "rec")
+    match deduct_org_credits(&srv.pool, org, 100, "recording", None, None, "rec")
         .await
         .unwrap()
     {
@@ -484,7 +484,7 @@ async fn analytics_summary_aggregates_calls_and_spend() {
     add_org_credits(&srv.pool, org, 100, "purchase", "topup", None)
         .await
         .unwrap();
-    deduct_org_credits(&srv.pool, org, 7, "recording", None, "rec")
+    deduct_org_credits(&srv.pool, org, 7, "recording", None, None, "rec")
         .await
         .unwrap();
 
@@ -524,4 +524,85 @@ async fn analytics_summary_aggregates_calls_and_spend() {
         .await
         .unwrap();
     assert_eq!(denied.status(), 404);
+}
+
+#[tokio::test]
+async fn member_analytics_tracks_calls_spend_and_collaborators() {
+    let Some(srv) = setup().await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner).await;
+    let session = make_call(&srv, org, "ready").await;
+
+    // Owner in the call for 30 min, alongside a guest collaborator "Bob".
+    sqlx::query(
+        "INSERT INTO session_participants (session_id, peer_id, user_id, name, lang, joined_at, left_at)
+         VALUES ($1, 'p-owner', $2, 'Owner', 'en', now() - interval '40 min', now() - interval '10 min')",
+    )
+    .bind(session)
+    .bind(owner)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO session_participants (session_id, peer_id, user_id, name, lang, joined_at, left_at)
+         VALUES ($1, 'p-bob', NULL, 'Bob', 'it', now() - interval '40 min', now() - interval '10 min')",
+    )
+    .bind(session)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+
+    // Spend attributed to the owner (actor_id).
+    add_org_credits(&srv.pool, org, 100, "purchase", "topup", None)
+        .await
+        .unwrap();
+    deduct_org_credits(
+        &srv.pool,
+        org,
+        5,
+        "recording",
+        Some(session),
+        Some(owner),
+        "rec",
+    )
+    .await
+    .unwrap();
+
+    let http = Client::new();
+    let body: Value = http
+        .get(format!(
+            "{}/api/business/organizations/{org}/members/{owner}/analytics?days=30",
+            base(&srv)
+        ))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(body["calls"], 1);
+    assert!(body["minutes_in_calls"].as_i64().unwrap() >= 29);
+    assert_eq!(body["credits_spent"], 5);
+    assert!(body["collaborators"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|c| c["name"] == "Bob"));
+
+    // A user who isn't a member of this org → 404.
+    let (stranger, _) = user(&srv).await;
+    let nf = http
+        .get(format!(
+            "{}/api/business/organizations/{org}/members/{stranger}/analytics",
+            base(&srv)
+        ))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(nf.status(), 404);
 }

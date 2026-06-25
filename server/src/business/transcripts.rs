@@ -131,6 +131,7 @@ async fn process(
             cost,
             "transcription",
             Some(session_id),
+            None, // background job — no user actor
             "diarized transcription",
         )
         .await;
@@ -251,6 +252,7 @@ pub async fn translate(
         cost,
         "translation",
         Some(session_id),
+        Some(user.user_id),
         "transcript translation",
     )
     .await

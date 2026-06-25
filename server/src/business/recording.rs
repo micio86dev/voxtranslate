@@ -115,6 +115,7 @@ pub async fn complete(
         cost,
         "recording",
         Some(session_id),
+        Some(user.user_id),
         "cloud recording",
     )
     .await
