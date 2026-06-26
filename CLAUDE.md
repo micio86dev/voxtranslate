@@ -32,6 +32,16 @@ Next step: add P2P video calling (WebRTC mesh, max 4) + auto-translated text cha
 - Environment variables via dotenvy
 - Emoji reactions and hand-raise are relayed without translation
 
+## Branching & releases (Git Flow)
+
+Project-wide rule — applies to this repo and every submodule (`dashboard/`, `website/`, …):
+
+- `feature/<name>` off `develop`; `release/<X.Y.Z>` (three-number version); `hotfix/<name>` off `main`.
+- `develop` → **staging** deploy; `main` → **production** deploy (on release/hotfix close).
+- Merge with `--no-ff`; tag releases `vX.Y.Z`; merge a release into both `main` and `develop`.
+- After every merge, prune the closed branch locally **and** on the remote.
+- Each submodule is its own repo + deploy target; bump the parent's submodule pointer after a release.
+
 ## API Keys
 
 - DEEPGRAM_API_KEY — Nova-2 streaming STT

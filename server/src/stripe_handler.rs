@@ -5,6 +5,7 @@
 //! verification of the `Stripe-Signature` webhook header). The webhook handler
 //! and crediting live in `api.rs` / `billing.rs`.
 
+use chrono::DateTime;
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
 use uuid::Uuid;
@@ -142,6 +143,63 @@ pub async fn create_portal_session(
         .as_str()
         .map(str::to_string)
         .ok_or_else(|| "portal session had no url".to_string())
+}
+
+/// Retrieve a Stripe Subscription and return the fields the dashboard's
+/// subscription box surfaces: raw status, period dates, cancel flags, amount +
+/// interval, and the default card. Unix timestamps are converted to RFC3339
+/// strings so they overlay cleanly on our DB view; the default payment method is
+/// expanded so we can show the card brand + last4. Absent values come back null.
+pub async fn get_subscription(
+    http: &reqwest::Client,
+    cfg: &BillingConfig,
+    subscription_id: &str,
+) -> Result<serde_json::Value, String> {
+    let resp = http
+        .get(format!(
+            "{STRIPE_API_BASE}/v1/subscriptions/{subscription_id}"
+        ))
+        .query(&[("expand[]", "default_payment_method")])
+        .bearer_auth(&cfg.stripe_secret_key)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !resp.status().is_success() {
+        return Err(format!("stripe returned {}", resp.status()));
+    }
+    let s: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+
+    // First non-empty unix-seconds value among the given JSON pointers → RFC3339.
+    // (Newer Stripe API versions moved the period to the subscription item, so we
+    // try the item paths as a fallback to the top-level fields.)
+    let iso = |paths: &[&str]| -> Option<String> {
+        paths.iter().find_map(|p| {
+            s.pointer(p)
+                .and_then(|v| v.as_i64())
+                .filter(|n| *n > 0)
+                .and_then(|n| DateTime::from_timestamp(n, 0))
+                .map(|d| d.to_rfc3339())
+        })
+    };
+    let price = s.pointer("/items/data/0/price");
+    let card = s.pointer("/default_payment_method/card");
+
+    Ok(serde_json::json!({
+        "stripe_status": s["status"].as_str(),
+        "start_date": iso(&["/start_date"]),
+        "current_period_start": iso(&["/current_period_start", "/items/data/0/current_period_start"]),
+        "current_period_end": iso(&["/current_period_end", "/items/data/0/current_period_end"]),
+        "cancel_at_period_end": s["cancel_at_period_end"].as_bool(),
+        "cancel_at": iso(&["/cancel_at"]),
+        "canceled_at": iso(&["/canceled_at"]),
+        "amount": price.and_then(|p| p.get("unit_amount")).and_then(|v| v.as_i64()),
+        "currency": price.and_then(|p| p.get("currency")).and_then(|v| v.as_str()),
+        "interval": price.and_then(|p| p.pointer("/recurring/interval")).and_then(|v| v.as_str()),
+        "card_brand": card.and_then(|c| c.get("brand")).and_then(|v| v.as_str()),
+        "card_last4": card.and_then(|c| c.get("last4")).and_then(|v| v.as_str()),
+        "card_exp_month": card.and_then(|c| c.get("exp_month")).and_then(|v| v.as_i64()),
+        "card_exp_year": card.and_then(|c| c.get("exp_year")).and_then(|v| v.as_i64()),
+    }))
 }
 
 /// Shared POST to Checkout Sessions returning the hosted `url`.

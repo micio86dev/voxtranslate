@@ -136,7 +136,7 @@ pub fn routes() -> Router<AppState> {
         // ---- Org billing: subscriptions, portal, top-up, webhook (PR-C) ----
         .route(
             "/api/business/organizations/{org_id}/subscription",
-            post(billing::subscribe),
+            post(billing::subscribe).get(billing::subscription),
         )
         .route(
             "/api/business/organizations/{org_id}/subscription/portal",
