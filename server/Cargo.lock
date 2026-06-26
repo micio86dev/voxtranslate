@@ -5869,7 +5869,7 @@ dependencies = [
  "md5",
  "pdf-extract",
  "quick-xml 0.38.4",
- "rand 0.8.6",
+ "rand 0.9.4",
  "redis",
  "reqwest",
  "rust_decimal",
