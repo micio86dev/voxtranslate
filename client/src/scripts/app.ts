@@ -27,7 +27,7 @@ import type { SonioxManager } from './soniox';
 import { type CallModules, loadCallModules } from './call-modules';
 import { loadRemoteI18n } from './content';
 import { setupScheduling } from './meetings';
-import { initAnalytics, track } from './analytics';
+import { initAnalytics, grantAnalyticsConsent, track } from './analytics';
 import { setupGeoOptIn } from './geo';
 import { maybeSubscribePush } from './push';
 import { icon } from './icons';
@@ -4533,8 +4533,10 @@ function initCookieBanner(): void {
   } catch {
     /* storage blocked */
   }
-  // Analytics loads only once cookies are accepted (no-op without PUBLIC_GA_ID).
-  if (accepted) initAnalytics();
+  // Consent Mode v2: load the tag immediately (consent denied by default) so it's
+  // detectable + GDPR-safe; grant analytics consent only once the user accepts.
+  initAnalytics();
+  if (accepted) grantAnalyticsConsent();
   else show(cookieBanner, true);
   $('cookie-accept').addEventListener('click', () => {
     try {
@@ -4543,7 +4545,7 @@ function initCookieBanner(): void {
       /* ignore */
     }
     show(cookieBanner, false);
-    initAnalytics();
+    grantAnalyticsConsent();
   });
 }
 
