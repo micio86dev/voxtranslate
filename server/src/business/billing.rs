@@ -19,7 +19,7 @@ use serde_json::{json, Value};
 use sqlx::FromRow;
 use uuid::Uuid;
 
-use crate::business::{bad_request, db_err, require_pool, require_role, ADMIN, OWNER};
+use crate::business::{bad_request, db_err, not_found, require_pool, require_role, ADMIN, OWNER};
 use crate::config::{BillingConfig, OrgBillingConfig};
 use crate::db::Pool;
 use crate::middleware::AuthUser;
@@ -139,6 +139,66 @@ pub async fn portal(
             bad_gateway()
         })?;
     Ok(Json(json!({ "url": url })).into_response())
+}
+
+/// `GET /api/business/organizations/{org_id}/subscription` — subscription detail
+/// for the dashboard's billing box (owner/admin). Always returns the DB-known
+/// fields (status, plan, interval, period end, cancel flag); when a live Stripe
+/// subscription exists it overlays richer data (start date, amount, card). The
+/// overlay is best-effort — a Stripe hiccup degrades to the DB view, not an error.
+pub async fn subscription(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(org_id): Path<Uuid>,
+) -> Result<Response, Response> {
+    let pool = require_pool(&state)?;
+    require_role(pool, org_id, user.user_id, ADMIN).await?;
+
+    let row: Option<(
+        String,
+        String,
+        Option<String>,
+        Option<DateTime<Utc>>,
+        bool,
+        Option<String>,
+    )> = sqlx::query_as(
+        "SELECT plan, subscription_status, subscription_interval,
+                current_period_end, cancel_at_period_end, stripe_subscription_id
+         FROM organizations WHERE id = $1",
+    )
+    .bind(org_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(db_err)?;
+    let (plan, status, interval, period_end, cancel_at_period_end, sub_id) =
+        row.ok_or_else(|| not_found("organization not found"))?;
+
+    let mut out = json!({
+        "status": status,
+        "plan": plan,
+        "interval": interval,
+        "current_period_end": period_end,
+        "cancel_at_period_end": cancel_at_period_end,
+    });
+
+    // Overlay live Stripe detail when we have a subscription and billing is set up.
+    if let Some(sid) = sub_id.as_deref() {
+        if let Ok((billing, _)) = billing_and_org(&state) {
+            match stripe_handler::get_subscription(&state.http, billing, sid).await {
+                Ok(detail) => {
+                    if let (Value::Object(base), Value::Object(extra)) = (&mut out, detail) {
+                        for (k, v) in extra {
+                            if !v.is_null() {
+                                base.insert(k, v);
+                            }
+                        }
+                    }
+                }
+                Err(e) => tracing::warn!("stripe get_subscription({sid}) failed: {e}"),
+            }
+        }
+    }
+    Ok(Json(out).into_response())
 }
 
 /// `POST /api/business/organizations/{org_id}/credits/purchase` — one-off top-up
