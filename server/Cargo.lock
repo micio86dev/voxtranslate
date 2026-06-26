@@ -5868,7 +5868,7 @@ dependencies = [
  "jsonwebtoken",
  "md5",
  "pdf-extract",
- "quick-xml 0.38.4",
+ "quick-xml 0.39.4",
  "rand 0.8.6",
  "redis",
  "reqwest",
