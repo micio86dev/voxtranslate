@@ -144,6 +144,9 @@ const lowBanner = $('low-banner');
 const lowBannerText = $('low-banner-text');
 const buyModal = $('buy-modal');
 const packagesList = $('packages-list');
+// Cached credit packages (spec 0028) so the checkout handler can resolve the picked one for
+// analytics without re-fetching. Populated by renderPackages().
+let creditPackages: auth.CreditPackage[] = [];
 const ledgerList = $('ledger-list');
 const modalBalance = $('modal-balance');
 const buyStatus = $('buy-status');
@@ -1258,6 +1261,9 @@ function randomRoom(): string {
 // enterHome), so they just confirm name + camera and join — no extra home-screen tap.
 // Otherwise start from a fresh random room.
 let pendingInviteRoom = parseRoomParam(location.search);
+// Entry URL captured at load (before any client-side nav) so join analytics can tell how the
+// user arrived: `&src=meeting` (scheduled), `?room=` (shared invite link), or direct.
+const entrySearch = location.search;
 roomInput.value = pendingInviteRoom ?? randomRoom();
 $('dice').addEventListener('click', () => (roomInput.value = randomRoom()));
 
@@ -1641,13 +1647,22 @@ async function startCall(): Promise<void> {
   prejoinScreen.classList.add('hidden');
   callScreen.classList.remove('hidden');
   
-  // Track successful call join
-  const method = session?.createdFromInvite ? 'invite_email' : 
-                 session?.createdFromMeeting ? 'scheduled' : 'direct_link';
-  track('room_joined', { 
-    method,
-    is_returning_user: billing && auth.isLoggedIn() 
-  });
+  // Track successful call join. How the user reached this call: a scheduled meeting (flagged
+  // in sessionStorage by meetings.ts, surviving both the in-app and full-navigation join
+  // paths), a shared invite link (`?room=` in the entry URL), or a direct/manual join.
+  let fromMeeting = false;
+  try {
+    fromMeeting = sessionStorage.getItem('vox_join_src') === 'meeting';
+    sessionStorage.removeItem('vox_join_src');
+  } catch {
+    /* sessionStorage unavailable — fall through to URL detection */
+  }
+  const method = fromMeeting
+    ? 'scheduled'
+    : new URLSearchParams(entrySearch).has('room')
+      ? 'invite_email'
+      : 'direct_link';
+  track('room_joined', { method, is_returning_user: !!billing && auth.isLoggedIn() });
   callRoom.textContent = session.room;
   callVis.textContent = session.isPublic ? t('public') : t('private');
   // Your name + lang live in the meta row instead of on the self tile (see #stage-self).
@@ -4438,7 +4453,8 @@ function openBuyModal(): void {
 
 async function renderPackages(): Promise<void> {
   packagesList.innerHTML = '';
-  const pkgs = await auth.fetchPackages();
+  creditPackages = await auth.fetchPackages();
+  const pkgs = creditPackages;
   for (const p of pkgs) {
     const btn = document.createElement('button');
     btn.className = 'pkg';
@@ -4465,13 +4481,13 @@ async function checkout(pkgId: string, btn: HTMLButtonElement): Promise<void> {
   buyStatus.textContent = '';
   buyStatus.classList.remove('error');
   // Track upgrade attempt
-  const pkg = packages.find(p => p.id === pkgId);
+  const pkg = creditPackages.find((p) => p.id === pkgId);
   if (pkg) {
-    track('upgrade_clicked', { 
+    track('upgrade_clicked', {
       package_id: pkgId,
-      credits: pkg.credits,
-      amount_cents: pkg.cents,
-      location: 'buy_modal'
+      credits: pkg.credits_usd,
+      amount_cents: Math.round(pkg.price_usd * 100),
+      location: 'buy_modal',
     });
   }
   try {
