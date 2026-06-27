@@ -57,121 +57,89 @@ pub async fn billing_packages(State(state): State<AppState>) -> Response {
 pub async fn engines(State(state): State<AppState>) -> Response {
     Json(serde_json::json!({
         "engines": state.engines.infos(),
-        "flags": { "language_first_ux": state.config.language_first_ux },
+        "flags": {
+            "language_first_ux": state.config.language_first_ux,
+            // Enhanced voice cloning (spec 0108): drives the pre-join voice-prep step.
+            "voice_cloning_enabled": state
+                .config
+                .cartesia
+                .as_ref()
+                .map(|c| c.voice_cloning_enabled)
+                .unwrap_or(false),
+        },
     }))
     .into_response()
 }
 
-// ---- Soniox "Enhanced" client-direct session (spec 0101) -------------------
+// ---- Cartesia "Enhanced" client-direct session + voice cloning (spec 0108) --
 
-#[derive(Deserialize, Default)]
-pub struct SonioxSessionRequest {
-    /// Also mint a TTS key for the optional "Spoken translation" leg. Default `false`
-    /// → subtitles only, which stays within Soniox's small TTS concurrency cap.
-    #[serde(default)]
-    pub spoken: bool,
-}
-
-/// Build the Soniox temporary-key request body (spec 0101). `usage_type` is
-/// `"transcribe_websocket"` (STT + translation) or `"tts_rt"` (spoken translation) —
-/// note the STT value is Soniox's documented enum, not the `stt_rt` shorthand. Keys are
-/// single-use (one WebSocket each) and short-lived; the browser mints a fresh one per
-/// connection. Pure → unit-tested.
-fn soniox_key_request(usage_type: &str, client_ref: &str) -> serde_json::Value {
-    serde_json::json!({
-        "usage_type": usage_type,
-        "expires_in_seconds": 3600,           // max allowed (range 1–3600)
-        "single_use": true,
-        "max_session_duration_seconds": 7200, // ≤ 18000 allowed
-        "client_reference_id": client_ref,    // our user id, for Soniox-side tracing
-    })
-}
-
-/// Parse `{ api_key, expires_at }` from Soniox's 201 response. The `api_key` here is the
-/// scoped, single-use TEMP key meant for the browser — never the raw `SONIOX_API_KEY`.
-fn parse_soniox_key(body: &serde_json::Value) -> Result<(String, String), String> {
-    let api_key = body
-        .get("api_key")
-        .and_then(|v| v.as_str())
-        .filter(|s| !s.is_empty())
-        .ok_or("soniox response missing api_key")?
-        .to_string();
-    let expires_at = body
-        .get("expires_at")
-        .and_then(|v| v.as_str())
-        .unwrap_or_default()
-        .to_string();
-    Ok((api_key, expires_at))
-}
-
-/// Mint one Soniox temporary key (server→Soniox, Bearer = the region's raw key). Mirrors
-/// the Cloudflare-TURN minting pattern: the raw key stays server-side, only the minted
-/// temp key reaches the client.
-async fn mint_soniox_key(
+/// Mint one short-lived Cartesia access token (server→Cartesia, Bearer = the raw API key).
+/// Mirrors the Cloudflare-TURN credential-minting pattern: the raw `CARTESIA_API_KEY` stays
+/// server-side, only the scoped token (both STT + TTS grants, ≤1 h) reaches the client,
+/// which passes it as the WS `access_token` query param. Returns `(token, expires_at_unix)`.
+async fn mint_cartesia_token(
     http: &reqwest::Client,
-    raw_key: &str,
-    usage_type: &str,
-    client_ref: &str,
-) -> Result<(String, String), String> {
+    cartesia: &crate::config::CartesiaConfig,
+) -> Result<(String, i64), String> {
     let resp = http
-        .post(crate::config::SONIOX_TEMP_KEY_URL)
-        .bearer_auth(raw_key)
-        .json(&soniox_key_request(usage_type, client_ref))
+        .post(cartesia.access_token_url())
+        .bearer_auth(&cartesia.api_key)
+        .header("Cartesia-Version", &cartesia.version)
+        .json(&serde_json::json!({
+            "grants": { "stt": true, "tts": true },
+            "expires_in": 3600, // seconds; Cartesia max is 3600 (1 h)
+        }))
         .timeout(Duration::from_secs(5))
         .send()
         .await
-        .map_err(|e| format!("soniox temp-key request failed: {e}"))?;
+        .map_err(|e| format!("cartesia token request failed: {e}"))?;
     if !resp.status().is_success() {
         let status = resp.status();
         let detail = resp.text().await.unwrap_or_default();
-        return Err(format!("soniox returned {status}: {detail}"));
+        return Err(format!("cartesia returned {status}: {detail}"));
     }
     let body: serde_json::Value = resp
         .json()
         .await
-        .map_err(|e| format!("soniox temp-key bad JSON: {e}"))?;
-    parse_soniox_key(&body)
+        .map_err(|e| format!("cartesia token bad JSON: {e}"))?;
+    let token = body
+        .get("token")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .ok_or("cartesia response missing token")?
+        .to_string();
+    // Cartesia returns the token only; we issued `expires_in = 3600`, so derive the
+    // absolute expiry for the client's refresh-before-expiry logic.
+    let expires_at = Utc::now().timestamp() + 3600;
+    Ok((token, expires_at))
 }
 
-fn soniox_region_label(region: crate::config::SonioxRegion) -> &'static str {
-    match region {
-        crate::config::SonioxRegion::Us => "US",
-        crate::config::SonioxRegion::Eu => "EU",
-        crate::config::SonioxRegion::Jp => "JP",
-    }
-}
-
-/// `POST /api/soniox/session` — mint scoped, single-use Soniox temp keys so the browser
-/// can connect DIRECTLY to Soniox for the "Enhanced" tier (spec 0101). Auth-gated (so
-/// guests, who are pinned to Standard, get 401), credit-gated, rate-limited, and routed
-/// to a regional Soniox project via Cloudflare's `CF-IPCountry`. The raw `SONIOX_API_KEY`
-/// never leaves the server — only the minted temp keys + public endpoints reach the
-/// client. Returns `503` when the tier is not enabled (`SONIOX_ENHANCED` off).
-pub async fn soniox_session(
-    State(state): State<AppState>,
-    user: AuthUser,
-    headers: HeaderMap,
-    Json(body): Json<SonioxSessionRequest>,
-) -> Response {
-    let (Some(soniox), Some(billing), Some(cfg)) = (
-        state.config.soniox.as_ref(),
+/// `POST /api/sessions/enhanced/session` — mint a scoped, short-lived Cartesia access token
+/// so the browser can connect DIRECTLY to Cartesia STT (Ink-2) + TTS (Sonic-3.5) for the
+/// "Enhanced" tier (spec 0108). Auth-gated (guests, pinned to Standard, get 401),
+/// credit-gated, and rate-limited. The raw `CARTESIA_API_KEY` never leaves the server —
+/// only the token + public endpoints reach the client. Returns `503` when the tier is not
+/// enabled (`CARTESIA_ENHANCED` off).
+pub async fn enhanced_session(State(state): State<AppState>, user: AuthUser) -> Response {
+    let (Some(cartesia), Some(billing), Some(cfg)) = (
+        state.config.cartesia.as_ref(),
         state.billing.as_ref(),
         state.config.billing.as_ref(),
     ) else {
         return service_unavailable();
     };
 
-    // Throttle (spec 0028): every Soniox WS (re)connect needs a fresh single-use key and
-    // mesh churn is bursty, but cap scraping of our key-minting endpoint.
+    // Throttle (spec 0028): each Cartesia (re)connect needs a fresh token and mesh churn is
+    // bursty, but cap scraping of our token-minting endpoint.
     if !state.rate_limiter.allow(
-        &format!("soniox:{}", user.user_id),
+        &format!("cartesia:{}", user.user_id),
         60,
         Duration::from_secs(60),
     ) {
         return (StatusCode::TOO_MANY_REQUESTS, "too many requests").into_response();
     }
 
-    // Credit gate: same threshold as joining a call — don't mint a key the listener
+    // Credit gate: same threshold as joining a call — don't mint a token the listener
     // can't afford to use. Advisory; the listener-pays meter is the real gate.
     match billing.can_join(user.user_id).await {
         Ok(true) => {}
@@ -181,67 +149,167 @@ pub async fn soniox_session(
                 .await
                 .unwrap_or(Decimal::ZERO);
             return insufficient_credits(
-                "soniox_enhanced",
+                "cartesia_enhanced",
                 usd(cfg.pricing.min_balance_to_join),
                 available,
             );
         }
         Err(e) => {
-            tracing::error!("soniox can_join check failed: {e}");
+            tracing::error!("cartesia can_join check failed: {e}");
             return (StatusCode::INTERNAL_SERVER_ERROR, "billing error").into_response();
         }
     }
 
-    // Region routing (spec 0101): Cloudflare's edge sets `CF-IPCountry`. Only US is live;
-    // EU/JP fall back to US until their regional projects + keys exist.
-    let region = crate::config::soniox_region_for_country(
-        headers.get("cf-ipcountry").and_then(|v| v.to_str().ok()),
-    );
-    let region_cfg = soniox.region(region);
-    let client_ref = user.user_id.to_string();
-
-    let stt = match mint_soniox_key(
-        &state.http,
-        &region_cfg.api_key,
-        "transcribe_websocket",
-        &client_ref,
-    )
-    .await
-    {
-        Ok((api_key, expires_at)) => serde_json::json!({
-            "api_key": api_key,
-            "expires_at": expires_at,
-            "endpoint": region_cfg.stt_endpoint,
-        }),
+    let (token, expires_at) = match mint_cartesia_token(&state.http, cartesia).await {
+        Ok(t) => t,
         Err(e) => {
-            tracing::error!("soniox STT temp-key mint failed: {e}");
-            return (StatusCode::BAD_GATEWAY, "soniox unavailable").into_response();
+            tracing::error!("cartesia access-token mint failed: {e}");
+            return (StatusCode::BAD_GATEWAY, "cartesia unavailable").into_response();
         }
-    };
-
-    let tts = if body.spoken {
-        match mint_soniox_key(&state.http, &region_cfg.api_key, "tts_rt", &client_ref).await {
-            Ok((api_key, expires_at)) => serde_json::json!({
-                "api_key": api_key,
-                "expires_at": expires_at,
-                "endpoint": region_cfg.tts_endpoint,
-            }),
-            Err(e) => {
-                tracing::error!("soniox TTS temp-key mint failed: {e}");
-                return (StatusCode::BAD_GATEWAY, "soniox unavailable").into_response();
-            }
-        }
-    } else {
-        serde_json::Value::Null
     };
 
     Json(serde_json::json!({
-        "stt": stt,
-        "tts": tts,
-        "region": soniox_region_label(region),
-        "stt_model": soniox.stt_model,
+        "token": token,
+        "expires_at": expires_at,
+        "cartesia_version": cartesia.version,
+        "stt": { "endpoint": cartesia.stt_endpoint, "model": cartesia.stt_model },
+        "tts": { "endpoint": cartesia.tts_endpoint, "model": cartesia.tts_model },
+        "voice_cloning_enabled": cartesia.voice_cloning_enabled,
+        "default_voice_id": cartesia.default_voice_id,
     }))
     .into_response()
+}
+
+/// Call Cartesia Instant Voice Cloning (server→Cartesia). Forwards the recorded clip as
+/// multipart and returns the new `voice_id`. The raw key stays server-side.
+async fn clone_cartesia_voice(
+    http: &reqwest::Client,
+    cartesia: &crate::config::CartesiaConfig,
+    name: &str,
+    filename: String,
+    content_type: String,
+    bytes: Bytes,
+    language: &str,
+) -> Result<String, String> {
+    let part = reqwest::multipart::Part::bytes(bytes.to_vec())
+        .file_name(filename)
+        .mime_str(&content_type)
+        .map_err(|e| format!("cartesia clip mime error: {e}"))?;
+    let form = reqwest::multipart::Form::new()
+        .part("clip", part)
+        .text("name", name.to_string())
+        .text("language", language.to_string());
+    let resp = http
+        .post(cartesia.clone_voice_url())
+        .bearer_auth(&cartesia.api_key)
+        .header("Cartesia-Version", &cartesia.version)
+        .multipart(form)
+        .timeout(Duration::from_secs(5))
+        .send()
+        .await
+        .map_err(|e| format!("cartesia clone request failed: {e}"))?;
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let detail = resp.text().await.unwrap_or_default();
+        return Err(format!("cartesia clone returned {status}: {detail}"));
+    }
+    let body: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("cartesia clone bad JSON: {e}"))?;
+    body.get("id")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .ok_or_else(|| "cartesia clone response missing id".to_string())
+}
+
+/// `POST /api/sessions/enhanced/clone-voice` — Instant Voice Cloning for the Enhanced tier
+/// (spec 0108). Auth-gated; gated by `CARTESIA_VOICE_CLONING_ENABLED`. Accepts
+/// `multipart/form-data` with a `clip` audio file (+ optional `language`), calls Cartesia
+/// IVC, stores the returned `voice_id` on the user row, and returns it. On ANY failure or
+/// timeout it returns `{ voice_id: null, fallback: true }` so the client silently uses a
+/// default voice and the call is never blocked.
+pub async fn clone_voice(
+    State(state): State<AppState>,
+    user: AuthUser,
+    mut multipart: axum::extract::Multipart,
+) -> Response {
+    let (Some(cartesia), Some(billing)) = (state.config.cartesia.as_ref(), state.billing.as_ref())
+    else {
+        return service_unavailable();
+    };
+    if !cartesia.voice_cloning_enabled {
+        return service_unavailable();
+    }
+
+    // Voice cloning is a heavier upstream call than token minting — throttle it harder.
+    if !state.rate_limiter.allow(
+        &format!("cartesia_clone:{}", user.user_id),
+        10,
+        Duration::from_secs(60),
+    ) {
+        return (StatusCode::TOO_MANY_REQUESTS, "too many requests").into_response();
+    }
+
+    // Parse the multipart body: the `clip` file (bytes + filename + content-type) and an
+    // optional `language` (ISO 639-1, defaults to English).
+    let mut clip: Option<(String, String, Bytes)> = None;
+    let mut language = "en".to_string();
+    while let Ok(Some(field)) = multipart.next_field().await {
+        match field.name() {
+            Some("clip") => {
+                let filename = field.file_name().unwrap_or("voice.webm").to_string();
+                let content_type = field
+                    .content_type()
+                    .unwrap_or("application/octet-stream")
+                    .to_string();
+                match field.bytes().await {
+                    Ok(b) => clip = Some((filename, content_type, b)),
+                    Err(_) => return (StatusCode::BAD_REQUEST, "invalid clip").into_response(),
+                }
+            }
+            Some("language") => {
+                if let Ok(t) = field.text().await {
+                    let t = t.trim().to_string();
+                    if !t.is_empty() {
+                        language = t;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    let Some((filename, content_type, bytes)) = clip else {
+        return (StatusCode::BAD_REQUEST, "missing clip").into_response();
+    };
+
+    let name = format!("vox-user-{}", user.user_id);
+    match clone_cartesia_voice(
+        &state.http,
+        cartesia,
+        &name,
+        filename,
+        content_type,
+        bytes,
+        &language,
+    )
+    .await
+    {
+        Ok(voice_id) => {
+            // Best-effort persist: even if the write fails the client can use the voice for
+            // THIS session, so still return it (next join falls back to a default voice).
+            if let Err(e) = billing.set_cartesia_voice_id(user.user_id, &voice_id).await {
+                tracing::error!("store cartesia voice_id failed: {e}");
+            }
+            Json(serde_json::json!({ "voice_id": voice_id })).into_response()
+        }
+        Err(e) => {
+            // Never block the call: degrade to a default voice (spec 0108 R6).
+            tracing::warn!("cartesia voice clone failed: {e}");
+            Json(serde_json::json!({ "voice_id": null, "fallback": true })).into_response()
+        }
+    }
 }
 
 /// `GET /api/ice` — ICE servers for WebRTC peer connections (spec 0026). Always
@@ -3316,38 +3384,31 @@ mod tests {
     }
 
     #[test]
-    fn soniox_key_request_uses_documented_usage_types_and_single_use() {
-        // STT uses Soniox's documented enum value, NOT the `stt_rt` shorthand.
-        let stt = soniox_key_request("transcribe_websocket", "user-1");
-        assert_eq!(stt["usage_type"], "transcribe_websocket");
-        assert_eq!(stt["single_use"], true);
-        assert_eq!(stt["expires_in_seconds"], 3600);
-        assert_eq!(stt["max_session_duration_seconds"], 7200);
-        assert_eq!(stt["client_reference_id"], "user-1");
-        let tts = soniox_key_request("tts_rt", "user-1");
-        assert_eq!(tts["usage_type"], "tts_rt");
-    }
-
-    #[test]
-    fn parse_soniox_key_reads_temp_key_or_errors() {
-        let ok = serde_json::json!({
-            "api_key": "temp:WYJ67RBEFUWQXXPKYPD2UGXKWB",
-            "expires_at": "2025-02-22T22:47:37.150Z"
-        });
-        let (key, exp) = parse_soniox_key(&ok).unwrap();
-        assert_eq!(key, "temp:WYJ67RBEFUWQXXPKYPD2UGXKWB");
-        assert_eq!(exp, "2025-02-22T22:47:37.150Z");
-        // Missing / empty key is an error (never hand the client a blank credential).
-        assert!(parse_soniox_key(&serde_json::json!({ "expires_at": "x" })).is_err());
-        assert!(parse_soniox_key(&serde_json::json!({ "api_key": "" })).is_err());
-    }
-
-    #[test]
-    fn soniox_region_labels() {
-        use crate::config::SonioxRegion;
-        assert_eq!(soniox_region_label(SonioxRegion::Us), "US");
-        assert_eq!(soniox_region_label(SonioxRegion::Eu), "EU");
-        assert_eq!(soniox_region_label(SonioxRegion::Jp), "JP");
+    fn cartesia_config_urls_compose_off_the_rest_base() {
+        // The session + clone handlers derive their upstream URLs from the configured REST
+        // base (spec 0108); assert they compose without a double slash so a trailing-slash
+        // override can't break the path.
+        let cfg = crate::config::CartesiaConfig {
+            api_key: "sk_car_test".into(),
+            stt_model: "ink-2".into(),
+            tts_model: "sonic-3.5".into(),
+            cost_per_minute: 0.036,
+            markup: 0.85,
+            voice_cloning_enabled: true,
+            default_voice_id: None,
+            api_base: "https://api.cartesia.ai/".into(), // trailing slash on purpose
+            stt_endpoint: "wss://api.cartesia.ai/stt/websocket".into(),
+            tts_endpoint: "wss://api.cartesia.ai/tts/websocket".into(),
+            version: "2026-03-01".into(),
+        };
+        assert_eq!(
+            cfg.access_token_url(),
+            "https://api.cartesia.ai/access-token"
+        );
+        assert_eq!(
+            cfg.clone_voice_url(),
+            "https://api.cartesia.ai/voices/clone"
+        );
     }
 
     #[test]

@@ -21,8 +21,8 @@ pub struct EngineCapabilities {
     /// bills a flat rate. Drives the meter multiplier AND the pre-join price note,
     /// so the user is told up front that a group call costs more.
     pub cost_scales_per_language: bool,
-    /// The browser connects DIRECTLY to the provider (spec 0101, Soniox "Enhanced"):
-    /// the server mints a scoped temp key and never proxies the audio. Such an engine
+    /// The browser connects DIRECTLY to the provider (spec 0108, Cartesia "Enhanced"):
+    /// the server mints a scoped access token and never proxies the audio. Such an engine
     /// is NOT run on the server speaking path — its listeners translate locally — so
     /// the call sites that fan a speaker's audio to server engines, and the Standard
     /// "serve everyone" delivery, must skip these peers (they'd otherwise be

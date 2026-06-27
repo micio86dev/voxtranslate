@@ -314,10 +314,10 @@ impl AppState {
             )));
         }
         // Registration order = display order: Standard, Enhanced, Pro, Premium. Enhanced
-        // (Soniox, spec 0101) is the client-direct tier between Standard and Pro; it ships
-        // dark behind the SONIOX_ENHANCED flag (gated in `config.soniox`).
-        if let Some(sx) = config.soniox.as_ref() {
-            registry.register(Arc::new(crate::engine::SonioxEngine::new(sx)));
+        // (Cartesia, spec 0108) is the client-direct tier between Standard and Pro; it ships
+        // dark behind the CARTESIA_ENHANCED flag (gated in `config.cartesia`).
+        if let Some(ca) = config.cartesia.as_ref() {
+            registry.register(Arc::new(crate::engine::CartesiaEngine::new(ca)));
         }
         // The OpenAI engine is the "Pro" tier (its stable id is still `premium`); register
         // it BEFORE Gemini so Pro shows above Premium. Ships dark until its key is set.
@@ -347,7 +347,7 @@ impl AppState {
         // Client-direct engines (spec 0101): tell the room manager which engine ids
         // translate in the browser so its "serve everyone" subtitle fan-out skips those
         // listeners (they render their own). Computed from the live registry, so it's
-        // non-empty only when such an engine (Soniox "Enhanced") is registered.
+        // non-empty only when such an engine (Cartesia "Enhanced") is registered.
         let client_direct_engines: std::collections::HashSet<String> = engines
             .list()
             .filter(|e| e.metadata().capabilities.client_direct)
@@ -505,7 +505,11 @@ pub fn app(state: AppState) -> Router {
             post(notifications::mark_all_read),
         )
         .route("/api/engines", get(api::engines))
-        .route("/api/soniox/session", post(api::soniox_session))
+        .route(
+            "/api/sessions/enhanced/session",
+            post(api::enhanced_session),
+        )
+        .route("/api/sessions/enhanced/clone-voice", post(api::clone_voice))
         .route("/api/billing/packages", get(api::billing_packages))
         .route("/api/billing/checkout", post(api::billing_checkout))
         .route("/api/billing/webhook", post(api::billing_webhook))
@@ -838,11 +842,13 @@ pub(crate) fn now_unix() -> u64 {
         .unwrap_or(0)
 }
 
-/// An authenticated, billable peer: their user id and Google avatar.
+/// An authenticated, billable peer: their user id, Google avatar, and cloned voice.
 #[derive(Clone)]
 struct AuthedPeer {
     user_id: Uuid,
     avatar_url: Option<String>,
+    /// Cartesia cloned-voice id (spec 0108), if the user has completed voice prep.
+    cartesia_voice_id: Option<String>,
 }
 
 /// Resolve the (optional) billed user for a WS connection from its token:
@@ -905,9 +911,13 @@ async fn authorize(
     match svc.can_join(uid).await {
         Ok(true) => {
             let avatar_url = svc.get_avatar(uid).await.unwrap_or_default();
+            // Cloned-voice id (spec 0108) for the Enhanced tier — best-effort, like the
+            // avatar: a lookup failure just means this peer is heard in a default voice.
+            let cartesia_voice_id = svc.get_cartesia_voice_id(uid).await.unwrap_or_default();
             Ok(Some(AuthedPeer {
                 user_id: uid,
                 avatar_url,
+                cartesia_voice_id,
             }))
         }
         Ok(false) => Err(ServerMessage::Error {
@@ -1121,7 +1131,10 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
         }
     };
     let billed_user = authed.as_ref().map(|a| a.user_id);
-    let avatar_url = authed.and_then(|a| a.avatar_url);
+    let avatar_url = authed.as_ref().and_then(|a| a.avatar_url.clone());
+    // Cloned-voice id (spec 0108), propagated to peers so an Enhanced listener speaks this
+    // peer's translated audio in their own voice. `None` for guests / users without a clone.
+    let cartesia_voice_id = authed.and_then(|a| a.cartesia_voice_id);
 
     // Guests always use the default (Standard) engine: Premium/Pro are paid per target
     // language and a guest has no billing account to charge. Pin it server-side so a
@@ -1131,7 +1144,7 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
         active_engine = state.engines.default();
     }
 
-    // Enhanced (Soniox, spec 0101) is a client-direct, listener-side RECEIVE tier: the
+    // Enhanced (Cartesia, spec 0108) is a client-direct, listener-side RECEIVE tier: the
     // browser translates the audio it hears locally. It only makes sense under
     // listener-pays (each listener picks the quality THEY receive). In the legacy
     // speaker-pays mode there is no listener-side engine, and the server has no session
@@ -1179,6 +1192,7 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
         // speech for this peer. Guests are already pinned to the default above.
         engine: active_engine.metadata().id.clone(),
         avatar_url: avatar_url.clone(),
+        cartesia_voice_id: cartesia_voice_id.clone(),
         tx: out_tx.clone(),
         speaking: Arc::new(AtomicBool::new(false)),
     };
@@ -1295,6 +1309,7 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
             user_name: name.clone(),
             lang: lang.clone(),
             avatar_url: avatar_url.clone(),
+            cartesia_voice_id: cartesia_voice_id.clone(),
         }
         .to_json(),
     );
@@ -1867,9 +1882,9 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
                             }
                         }
                         Ok(ClientMessage::EnhancedFallback { speaker_id }) => {
-                            // The browser-direct Enhanced (Soniox) pipeline gave up
-                            // translating in-browser (spec 0101) — e.g. Soniox's concurrent-
-                            // session cap. Fall this listener back to server-side Standard for
+                            // The browser-direct Enhanced (Cartesia) pipeline gave up
+                            // translating in-browser (spec 0108) — e.g. Cartesia's concurrency
+                            // limit (429). Fall this listener back to server-side Standard for
                             // the rest of the call, mirroring the low-balance downgrade above.
                             // Idempotent: act only while still on a client-direct engine.
                             let cur = state.rooms.peer_engine(&room, &id);
@@ -1880,7 +1895,7 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
                                 .unwrap_or(false);
                             if on_client_direct {
                                 let from =
-                                    cur.unwrap_or_else(|| crate::engine::SONIOX_ID.to_string());
+                                    cur.unwrap_or_else(|| crate::engine::CARTESIA_ID.to_string());
                                 let default = state.engines.default();
                                 let to = default.metadata().id.clone();
                                 state.rooms.set_peer_engine(&room, &id, &to);
@@ -1916,6 +1931,36 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
                                 // room's PCM-capture decision may shift — re-push capture formats.
                                 notify_capture_formats(&state, &room);
                             }
+                        }
+                        Ok(ClientMessage::TranslateText {
+                            request_id,
+                            text,
+                            source,
+                            target,
+                        }) => {
+                            // Enhanced translate hop (spec 0108): Cartesia does STT + TTS but
+                            // not translation, so the client-direct listener sends each
+                            // finalized source segment here and we reply with the Groq
+                            // translation. Text only — no audio. Spawn so the per-utterance
+                            // Groq round-trip never blocks this peer's WS receive loop, and
+                            // route the reply back over the same `out_tx` channel. The
+                            // DragonflyDB cache stays Standard-only (spec 0107), so call the
+                            // raw Groq client here rather than the cached `translator`.
+                            let groq = state.groq.clone();
+                            let reply_tx = out_tx.clone();
+                            tokio::spawn(async move {
+                                let translated = groq
+                                    .translate(&text, &source, &target, &[])
+                                    .await
+                                    .unwrap_or(text);
+                                let _ = reply_tx.send(
+                                    ServerMessage::TranslatedText {
+                                        request_id,
+                                        text: translated,
+                                    }
+                                    .to_json(),
+                                );
+                            });
                         }
                         Err(_) => {} // unknown / malformed control frame
                     },

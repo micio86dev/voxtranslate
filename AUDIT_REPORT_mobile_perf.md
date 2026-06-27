@@ -147,14 +147,14 @@ What changed (in impact order):
 ### Remaining (deferred, low priority)
 
 - ~47 KB "unused JavaScript" still sits in the 205 KB-raw entry chunk — it bundles in-call
-  modules (WebRTC, chat, Soniox, glossary) that the landing page never exercises (causes #4/#5).
+  modules (WebRTC, chat, Cartesia, glossary) that the landing page never exercises (causes #4/#5).
   Code-splitting those behind the call flow would push LCP under 2.5 s and the score toward 95+,
   but it is a larger, higher-risk refactor of the core call path — left as a follow-up.
 
 ## Post-Split Results
 
 The follow-up above, implemented as **spec 0105** (branch `perf/0105-code-split-call-modules`):
-`app.ts` statically imported every in-call module (WebRTC, chat, Soniox, audio/PCM capture,
+`app.ts` statically imported every in-call module (WebRTC, chat, Cartesia, audio/PCM capture,
 whiteboard, mini-games, recording, screen-share, blur, session screen), so they all sat in the
 landing entry chunk even though the landing/lobby page never makes a call. They're now
 dynamically `import()`-ed — the core + collaborative bundle at **pre-join entry** (overlapping
@@ -174,7 +174,7 @@ button. "Before" = the Post-Fix (spec 0104) baseline above.
 | Total page weight | 383 KiB | 353 KiB | −30 KiB |
 
 The headline win is **structural**: the entry chunk gz nearly halved and 13 in-call modules
-(`webrtc` 1.7 KB, `chat` 1 KB, `soniox` 3.3 KB, `quiz` 9.7 KB, `whiteboard` 3.8 KB,
+(`webrtc` 1.7 KB, `chat` 1 KB, `cartesia` 3.3 KB, `quiz` 9.7 KB, `whiteboard` 3.8 KB,
 `composite-recorder` 2.3 KB, `session-screen` 8 KB, …) are now on-demand chunks — first-load JS
 ≈ entry 34.8 KB + `content` 15 KB ≈ **50 KB gz** (was ~80 KB). The Lighthouse **score** moved
 less than the byte reduction suggests because after spec 0104 LCP is already gated by the

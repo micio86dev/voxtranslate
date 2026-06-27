@@ -6,13 +6,13 @@
 //! engine-agnostic: adding an engine = new module + `register`, nothing else
 //! (Open/Closed — no `if engine == X` in the call sites).
 
+pub mod cartesia;
 pub mod gemini;
 pub mod langmap;
 pub mod metadata;
 pub mod openai;
 pub mod premium;
 pub mod pro;
-pub mod soniox;
 pub mod standard;
 
 use std::collections::HashSet;
@@ -27,10 +27,10 @@ use crate::moderation::Moderator;
 use crate::rooms::RoomManager;
 use crate::transcripts::TranscriptService;
 
+pub use cartesia::CartesiaEngine;
 pub use metadata::{EngineCapabilities, EngineInfo, EngineMetadata};
 pub use premium::PremiumEngine;
 pub use pro::ProEngine;
-pub use soniox::SonioxEngine;
 pub use standard::StandardEngine;
 
 /// Stable engine ids. Persisted in `usage_sessions.engine_id` and sent in the join
@@ -44,11 +44,13 @@ pub const STANDARD_ID: &str = "standard";
 pub const OPENAI_ID: &str = "premium";
 /// Gemini 3.5 Live Translate — the "Premium" tier (`engine::premium`, spec 0100).
 pub const GEMINI_ID: &str = "gemini_live_translate";
-/// Soniox real-time STT+translation — the "Enhanced" tier (`engine::soniox`, spec 0101).
-/// The only **client-direct** engine: the browser connects straight to Soniox with a
-/// server-minted temp key, so this id only tags `usage_sessions` / the listener-meter
-/// rate and never opens a server session.
-pub const SONIOX_ID: &str = "soniox";
+/// Cartesia real-time STT (Ink-2) + TTS (Sonic-3.5) — the "Enhanced" tier
+/// (`engine::cartesia`, spec 0108, replacing the previous Enhanced engine in spec 0101).
+/// The only **client-direct** engine: the browser connects straight to Cartesia with a
+/// server-minted access token, so this id only tags `usage_sessions` / the listener-meter
+/// rate and never opens a server session. (Pre-0108 Enhanced-tier `usage_sessions` rows
+/// keep their old engine_id historically; `resolve()` falls unknown ids back to the default.)
+pub const CARTESIA_ID: &str = "cartesia";
 
 /// Live per-speaker dependencies the handler hands an engine when speech starts.
 ///

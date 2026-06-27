@@ -314,6 +314,14 @@ const jsonLd = {
           </label>
         </div>
         <p id="prejoin-status" class="status-line" role="status"></p>
+        <!-- Enhanced voice preparation (spec 0108): clones the user's voice so others hear
+             them translated in their own voice. Shown only for Enhanced-tier users with
+             cloning enabled and no existing clone; toggled by app.ts. -->
+        <div id="voiceprep" class="voiceprep hidden">
+          <p class="voiceprep-title" data-i18n="voicePrepTitle">{T('voicePrepTitle')}</p>
+          <p class="voiceprep-prompt" data-i18n="voicePrepPrompt">{T('voicePrepPrompt')}</p>
+          <p class="voiceprep-sample" data-i18n="voicePrepSample">{T('voicePrepSample')}</p>
+        </div>
         <!-- VoxTranslate for Business (spec 0106): associate this call with an org/project
              and optionally record it. Hidden for non-business users. -->
         <div id="biz-prejoin" class="field-row hidden">
@@ -767,6 +775,8 @@ const jsonLd = {
         </div>
         <button id="export-data" class="btn-ghost privacy-btn" data-i18n="exportData">{T('exportData')}</button>
         <button id="delete-account" class="btn-ghost privacy-btn danger" data-i18n="deleteAccount">{T('deleteAccount')}</button>
+        <!-- Enhanced voice-clone status (spec 0108). -->
+        <p class="status-line voice-clone-line"><strong data-i18n="voiceCloneTitle">{T('voiceCloneTitle')}</strong> — <span id="voice-clone-state"></span></p>
         <p id="privacy-status" class="status-line" role="status"></p>
         <div class="legal-links">
           <a href="/terms" target="_blank" data-i18n="terms">{T('terms')}</a> ·
@@ -1320,6 +1330,11 @@ const jsonLd = {
     .preview-avatar :global(.preview-avatar-img) { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
     .preview-controls { position: absolute; bottom: 12px; left: 0; right: 0; display: flex; justify-content: center; gap: 12px; }
     .preview-controls .control-btn { box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4); }
+    .voiceprep { margin: 6px 0 2px; padding: 12px 14px; border: 1px solid var(--border, #2a2a35); border-radius: 12px; background: rgba(120,120,200,0.06); }
+    .voiceprep-title { font-weight: 600; margin: 0 0 4px; }
+    .voiceprep-prompt { margin: 0 0 6px; opacity: 0.85; font-size: 0.92em; }
+    .voiceprep-sample { margin: 0; font-style: italic; opacity: 0.7; font-size: 0.9em; }
+    .voiceprep.recording { border-color: #e0556e; }
     .prejoin-actions { display: flex; gap: 10px; margin-top: 14px; }
     .prejoin-actions .btn-ghost { min-height: 48px; padding: 0 20px; }
     .prejoin-actions .btn-primary { flex: 1; }

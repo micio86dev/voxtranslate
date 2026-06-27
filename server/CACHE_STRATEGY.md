@@ -20,7 +20,7 @@ For the implementation prompt and architecture details, see `CACHE.md`.
 | Tier | Provider | Cache | Reason |
 |---|---|---|---|
 | Standard | Deepgram + Groq | ✅ | Only tier with explicit intermediate text (post-STT, pre-Groq) |
-| Enhanced | Soniox | ❌ | Speech-to-speech WebSocket — no text intercept point |
+| Enhanced | Cartesia | ❌ | Client-direct STT/TTS; Groq translate hop uses the uncached path by design (cache is Standard-only) |
 | Pro | OpenAI Realtime | ❌ | Speech-to-speech pipeline — no text intercept point |
 | Premium | Gemini Live | ❌ | Speech-to-speech pipeline — no text intercept point |
 
@@ -289,7 +289,7 @@ Improvement: XX.X%
 
 | Tier | Reason |
 |---|---|
-| Enhanced (Soniox) | Speech-to-speech — no text intercept point |
+| Enhanced (Cartesia) | Client-direct STT/TTS; translate hop is uncached by design (Standard-only) |
 | Pro (OpenAI Realtime) | Speech-to-speech — no text intercept point |
 | Premium (Gemini Live) | Speech-to-speech — no text intercept point |
 

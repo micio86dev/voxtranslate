@@ -18,7 +18,7 @@
 - [x] Project licensed **PolyForm Shield 1.0.0** (`LICENSE`, © 2026 Alessandro Micelli) — source-available, anti-competition; `license` field updated in `server/Cargo.toml` (`LicenseRef-PolyForm-Shield-1.0.0`) and `client/package.json` (`SEE LICENSE IN LICENSE`), README updated. Note: not an OSI "open source" license (by design — true OSS can't forbid competition).
 - [x] **Dependency licenses clean** — 0 GPL/AGPL/SSPL in 572 Rust crates and ~350 npm packages. Only permissive (MIT/Apache/BSD/ISC) + harmless LGPL native image lib (`sharp`/libvips, build-time).
 - [x] **Fonts** — Noto Sans (+JP/SC) under SIL Open Font License, and `OFL.txt` is bundled alongside them (`server/assets/fonts/`). Correct.
-- [x] **Soniox temp keys hardened** — `single_use`, `expires_in_seconds: 3600`, `max_session_duration_seconds`, `client_reference_id` (`server/src/api.rs:79-86`).
+- [x] **Cartesia access tokens hardened** — short-lived (`expires_in: 3600`, ≤1 h), scoped to STT+TTS grants, minted server-side; the raw `CARTESIA_API_KEY` never reaches the browser (`server/src/api.rs` `mint_cartesia_token`).
 - [x] **AI icons** (ChatGPT) — usable commercially (OpenAI assigns output rights). Protect via trademark (logo), not copyright — see P2.
 - [x] **Terms/Privacy pages exist**, GDPR-aligned, 18+, with a sub-processor table.
 
@@ -37,7 +37,7 @@ The Gemini **free / AI-Studio-unpaid tier trains on your users' audio and humans
 ### 2. Zero Data Retention on the other providers (free settings)
 - [x] **OpenAI (Pro tier):** request/enable **ZDR** for your org — https://platform.openai.com (Settings → Data controls, or via sales). Note: without ZDR, API logs are being preserved under the NYT court order.
 - [x] **Groq:** console.groq.com → **Settings → Data Controls** → enable Zero Data Retention. Ref: https://console.groq.com/docs/your-data
-- [x] **Soniox:** zero-retention is the **default** (no action) — but **request a DPA** (see #4).
+- [x] **Cartesia:** zero-retention is the **default** (no action) — but **request a DPA** (see #4).
 
 ### 3. Deepgram — keep the discount now, tighten later ✅ (decided)
 **Decision:** keep the **Model Improvement Program ON** (do NOT add `mip_opt_out`) for now, to preserve the self-serve discount and stretch your **$200 bonus** while testing with first users.
@@ -48,11 +48,11 @@ The Gemini **free / AI-Studio-unpaid tier trains on your users' audio and humans
 
 ### 4. Request DPAs / data agreements
 - [ ] **Deepgram** — request DPA/ZDR *(trigger: first B2B client or end of $200 bonus)*
-- [ ] **Soniox** — request DPA/BAA *(trigger: first B2B client)*
+- [ ] **Cartesia** — request DPA/BAA *(trigger: first B2B client)*
 - [x] OpenAI / Groq / Google publish standard DPAs — accept/keep on file. (standard DPA, auto-accepted)
 
 ### 5. Don't train on provider output
-- [x] Do **not** use Deepgram / OpenAI / Gemini output to train or fine-tune your own STT/translation model — all three have "no competing model" clauses. (Groq's is narrower; Soniox has none. acknowledged — no fine-tuning pipeline planned)
+- [x] Do **not** use Deepgram / OpenAI / Gemini output to train or fine-tune your own STT/translation model — all three have "no competing model" clauses. (Groq's is narrower; review Cartesia's terms with the DPA. acknowledged — no fine-tuning pipeline planned)
 
 ---
 
@@ -62,12 +62,12 @@ The Gemini **free / AI-Studio-unpaid tier trains on your users' audio and humans
 `client/src/pages/privacy.astro` currently lists Deepgram + Groq but not the providers behind the new tiers. **When you enable a tier, add its row.** Ready-to-paste (matches the existing table format, section 4):
 
 ```html
-<tr><td>Soniox</td><td>Speech-to-text &amp; translation (Enhanced tier; the browser connects directly)</td><td>Streamed audio, transcripts (transient)</td></tr>
+<tr><td>Cartesia</td><td>Speech-to-text &amp; translation (Enhanced tier; the browser connects directly)</td><td>Streamed audio, transcripts (transient)</td></tr>
 <tr><td>OpenAI</td><td>Real-time speech translation &amp; synthesized voice (Pro tier)</td><td>Streamed audio, transcripts (transient)</td></tr>
 <tr><td>Google (Gemini API)</td><td>Real-time speech translation &amp; synthesized voice (Premium tier)</td><td>Streamed audio, transcripts (transient)</td></tr>
 ```
 
-- [x] **DONE** — Soniox, OpenAI, Google (Gemini) rows added to `privacy.astro` (all tiers confirmed live).
+- [x] **DONE** — Cartesia, OpenAI, Google (Gemini) rows added to `privacy.astro` (all tiers confirmed live).
 
 ### 7. Add an "AI-generated content" disclosure (required by OpenAI; EU AI Act Art. 50)
 - [x] **DONE** — "AI-generated content" section added to `client/src/pages/terms.astro` (now §12; Contact → §13):
