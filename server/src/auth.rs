@@ -234,6 +234,10 @@ pub struct UserProfile {
     pub balance: f64,
     /// True once the user confirmed 18+ and accepted the ToS/Privacy.
     pub consent_given: bool,
+    /// True once the account has a stored Cartesia cloned voice (spec 0108). The client
+    /// uses this to skip the pre-join voice-prep prompt on EVERY device, not just the one
+    /// that recorded it — the per-device localStorage flag is only a local short-circuit.
+    pub has_voice_clone: bool,
 }
 
 impl From<User> for UserProfile {
@@ -245,6 +249,7 @@ impl From<User> for UserProfile {
             avatar_url: u.avatar_url,
             balance: u.balance.to_f64().unwrap_or(0.0),
             consent_given: u.age_confirmed && u.consent_tos_at.is_some(),
+            has_voice_clone: u.cartesia_voice_id.is_some(),
         }
     }
 }
