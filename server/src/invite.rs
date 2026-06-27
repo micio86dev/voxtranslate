@@ -20,9 +20,9 @@ pub const MAX_INVITE_EMAILS: usize = 5;
 pub fn gen_room_code() -> String {
     use rand::Rng;
     const CHARS: &[u8] = b"abcdefghijkmnpqrstuvwxyz23456789";
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     let suffix: String = (0..10)
-        .map(|_| CHARS[rng.gen_range(0..CHARS.len())] as char)
+        .map(|_| CHARS[rng.random_range(0..CHARS.len())] as char)
         .collect();
     format!("vox-{suffix}")
 }
