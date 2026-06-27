@@ -362,4 +362,102 @@ mod tests {
     fn empty_segments_get_a_placeholder() {
         assert_eq!(object_path("", "", "txt"), "x/x.txt");
     }
+
+    // ---- HTTP method tests against a raw mock Supabase Storage endpoint --------
+    // A tiny TCP listener replies with a fixed HTTP/1.1 message and closes the socket,
+    // so reqwest reads the body to EOF (no Content-Length bookkeeping). Each test points
+    // a SupabaseStorage at its own mock, exercising the success AND error branches of the
+    // upload/download/delete/sign methods without any real Supabase.
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    fn cfg(base: &str) -> crate::config::StorageConfig {
+        crate::config::StorageConfig {
+            supabase_url: base.to_string(),
+            service_key: "svc-key".into(),
+            bucket: "recordings".into(),
+            max_bytes: 25 * 1024 * 1024,
+            signed_ttl_secs: 60,
+        }
+    }
+
+    async fn spawn_mock(response: &'static str) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            while let Ok((mut sock, _)) = listener.accept().await {
+                tokio::spawn(async move {
+                    let mut buf = [0u8; 2048];
+                    let _ = sock.read(&mut buf).await; // consume the request
+                    let _ = sock.write_all(response.as_bytes()).await;
+                    let _ = sock.flush().await;
+                    // socket drops here → connection close delimits the body
+                });
+            }
+        });
+        format!("http://{addr}")
+    }
+
+    fn storage(base: &str) -> SupabaseStorage {
+        SupabaseStorage::new(reqwest::Client::new(), &cfg(base))
+    }
+
+    const OK_EMPTY: &str = "HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n";
+    const ERR_500: &str = "HTTP/1.1 500 Internal Server Error\r\nConnection: close\r\n\r\nboom";
+    const NOT_FOUND: &str = "HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n";
+
+    #[tokio::test]
+    async fn upload_ok_and_error() {
+        let ok = spawn_mock(OK_EMPTY).await;
+        assert!(storage(&ok).upload("s/f.webm", vec![1, 2, 3], "audio/webm").await.is_ok());
+        let bad = spawn_mock(ERR_500).await;
+        let e = storage(&bad).upload("s/f.webm", vec![1], "audio/webm").await.unwrap_err();
+        assert!(e.contains("500"), "{e}");
+    }
+
+    #[tokio::test]
+    async fn download_ok_and_error() {
+        let ok = spawn_mock("HTTP/1.1 200 OK\r\nConnection: close\r\n\r\nfilebytes").await;
+        assert_eq!(storage(&ok).download("s/f.webm").await.unwrap(), b"filebytes");
+        let bad = spawn_mock(NOT_FOUND).await;
+        assert!(storage(&bad).download("s/f.webm").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn delete_ok_404_is_ok_and_error() {
+        let ok = spawn_mock(OK_EMPTY).await;
+        assert!(storage(&ok).delete("s/f.webm").await.is_ok());
+        // A 404 means "already gone" → success (idempotent retention sweep).
+        let gone = spawn_mock(NOT_FOUND).await;
+        assert!(storage(&gone).delete("s/f.webm").await.is_ok());
+        let bad = spawn_mock(ERR_500).await;
+        assert!(storage(&bad).delete("s/f.webm").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn create_signed_url_ok_error_and_missing_field() {
+        let ok = spawn_mock(
+            "HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n{\"signedURL\":\"/object/sign/recordings/p?token=abc\"}",
+        )
+        .await;
+        let url = storage(&ok).create_signed_url("s/f.webm").await.unwrap();
+        assert!(url.contains("token=abc") && url.contains("/storage/v1/"), "{url}");
+        let bad = spawn_mock(ERR_500).await;
+        assert!(storage(&bad).create_signed_url("s/f.webm").await.is_err());
+        let empty = spawn_mock("HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n{}").await;
+        let e = storage(&empty).create_signed_url("s/f.webm").await.unwrap_err();
+        assert!(e.contains("signedURL"), "{e}");
+    }
+
+    #[tokio::test]
+    async fn create_signed_upload_url_ok_and_error() {
+        let ok = spawn_mock(
+            "HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n{\"url\":\"/object/upload/sign/recordings/p?token=xyz\"}",
+        )
+        .await;
+        let url = storage(&ok).create_signed_upload_url("s/f.webm").await.unwrap();
+        assert!(url.contains("token=xyz"), "{url}");
+        let bad = spawn_mock(ERR_500).await;
+        assert!(storage(&bad).create_signed_upload_url("s/f.webm").await.is_err());
+    }
 }
