@@ -27,6 +27,10 @@ export interface CartesiaSession {
   cartesiaVersion: string;
   sttEndpoint: string;
   sttModel: string;
+  /** Per-language STT model overrides (server config): for each speaker pick the fastest
+   *  model that supports their SOURCE language, else `sttModel`. Keyed by lowercase base
+   *  language code (e.g. `{ en: 'ink-2' }`). */
+  sttModelsByLang?: Record<string, string>;
   ttsEndpoint: string;
   ttsModel: string;
   voiceCloningEnabled: boolean;
@@ -105,15 +109,28 @@ export function liveLine(state: TranscriptState): string {
   return (state.confirmed + sep + state.interim).trim();
 }
 
-/** Build the Cartesia STT WebSocket URL with auth + format as query params. */
+/** Pick the fastest STT model that supports `sourceLang`: a per-language override from server
+ *  config (e.g. English → `ink-2`, Cartesia's fastest but English-only) else the multilingual
+ *  default (`sttModel`, `ink-whisper`). Matched on the lowercase base language code, so
+ *  regional variants (`en-US`) resolve too. */
+export function resolveSttModel(session: CartesiaSession, sourceLang: string): string {
+  const lc = (sourceLang || '').toLowerCase();
+  const base = lc.split('-')[0];
+  const map = session.sttModelsByLang;
+  return (map && (map[lc] ?? map[base])) || session.sttModel;
+}
+
+/** Build the Cartesia STT WebSocket URL with auth + format as query params. The model is
+ *  chosen per source language; `language` is normalized to the base ISO code Cartesia expects
+ *  (`ink-2` wants `en`; `ink-whisper`/Whisper uses base codes). */
 export function sttUrl(session: CartesiaSession, sourceLang: string): string {
   const url = new URL(session.sttEndpoint);
-  url.searchParams.set('model', session.sttModel);
+  url.searchParams.set('model', resolveSttModel(session, sourceLang));
   url.searchParams.set('encoding', 'pcm_s16le');
   url.searchParams.set('sample_rate', String(STT_SAMPLE_RATE));
   url.searchParams.set('cartesia_version', session.cartesiaVersion);
   url.searchParams.set('access_token', session.token);
-  if (sourceLang) url.searchParams.set('language', sourceLang);
+  if (sourceLang) url.searchParams.set('language', sourceLang.split('-')[0].toLowerCase());
   return url.toString();
 }
 
