@@ -162,6 +162,9 @@ let selectedEngine = 'standard';
 // from /api/engines). `selectedLang` is the chosen TARGET language; the hidden #lang
 // <select> stays the canonical value holder so the join payload / UI language are unchanged.
 let languageFirstUx = false;
+// Enhanced voice cloning (spec 0108): gates the pre-join voice-preparation step. Server flag
+// (`CARTESIA_VOICE_CLONING_ENABLED`) surfaced via `/api/engines` flags.
+let voiceCloningEnabled = false;
 let selectedLang = 'en';
 let langPickerWired = false;
 let exhaustedIsGuest = false; // last balance_exhausted was a guest trial vs a billed user
@@ -471,6 +474,117 @@ function translateViaServer(
     );
   });
 }
+
+// ---- Enhanced voice preparation (spec 0108) -------------------------------
+// Per-device flag: we already cloned this signed-in user's voice, so skip re-recording. The
+// server stores the authoritative `cartesia_voice_id`; this just avoids re-prompting on the
+// same device (a fresh device re-clones — Cartesia Instant Voice Cloning has no upfront cost).
+const VOICE_CLONED_KEY = 'vox_voice_cloned';
+const voiceprepEl = $('voiceprep');
+
+function showVoicePrep(on: boolean, recording = false): void {
+  show(voiceprepEl, on);
+  voiceprepEl.classList.toggle('recording', recording);
+}
+
+/** Record a short mic sample, resolving once ≥3 s of actual speech is captured (energy
+ *  threshold, not raw time), or null if too little speech by the time ceiling. */
+function recordVoiceSample(stream: MediaStream): Promise<Blob | null> {
+  return new Promise((resolve) => {
+    let recorder: MediaRecorder;
+    try {
+      const mime = ['audio/webm;codecs=opus', 'audio/mp4', 'audio/webm'].find((ty) =>
+        MediaRecorder.isTypeSupported?.(ty),
+      );
+      recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+    } catch {
+      resolve(null);
+      return;
+    }
+    const chunks: BlobPart[] = [];
+    recorder.ondataavailable = (e) => {
+      if (e.data.size) chunks.push(e.data);
+    };
+    const Ctx =
+      window.AudioContext ??
+      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    const ctx = new Ctx();
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 512;
+    ctx.createMediaStreamSource(stream).connect(analyser);
+    const buf = new Float32Array(analyser.fftSize);
+    let speechMs = 0;
+    let elapsedMs = 0;
+    const TICK = 100;
+    const SPEECH_RMS = 0.02; // energy floor that counts as speech (not room noise)
+    const MIN_SPEECH_MS = 3000; // Cartesia IVC wants ≥3 s of actual speech
+    const MAX_MS = 8000; // hard ceiling so we never hold the join hostage
+    recorder.onstop = () => {
+      const type = recorder.mimeType || 'audio/webm';
+      resolve(speechMs >= MIN_SPEECH_MS && chunks.length ? new Blob(chunks, { type }) : null);
+    };
+    const timer = setInterval(() => {
+      analyser.getFloatTimeDomainData(buf);
+      let sum = 0;
+      for (const v of buf) sum += v * v;
+      if (Math.sqrt(sum / buf.length) > SPEECH_RMS) speechMs += TICK;
+      elapsedMs += TICK;
+      if (speechMs >= MIN_SPEECH_MS + 500 || elapsedMs >= MAX_MS) {
+        clearInterval(timer);
+        void ctx.close().catch(() => {});
+        try {
+          recorder.stop();
+        } catch {
+          resolve(null);
+        }
+      }
+    }, TICK);
+    try {
+      recorder.start();
+    } catch {
+      clearInterval(timer);
+      resolve(null);
+    }
+  });
+}
+
+/** Clone the signed-in Enhanced user's voice before joining (spec 0108). Best-effort and
+ *  non-blocking: any failure silently falls back to a default voice and the call proceeds. */
+async function prepareVoice(): Promise<void> {
+  if (
+    !auth.isLoggedIn() ||
+    !voiceCloningEnabled ||
+    !engineIsClientDirect(session?.engine, availableEngines) ||
+    localStorage.getItem(VOICE_CLONED_KEY)
+  ) {
+    return;
+  }
+  const track = localStream?.getAudioTracks()[0];
+  if (!track) return;
+  showVoicePrep(true, true);
+  prejoinStatus.textContent = t('voicePrepRecording');
+  prejoinStatus.classList.remove('error');
+  try {
+    const blob = await recordVoiceSample(new MediaStream([track]));
+    if (!blob) {
+      showVoicePrep(false);
+      return; // too little speech → skip silently, use a default voice
+    }
+    showVoicePrep(true, false);
+    prejoinStatus.textContent = t('voicePrepSaving');
+    const res = await cloneVoice(blob, session?.lang);
+    if (res.voice_id) {
+      localStorage.setItem(VOICE_CLONED_KEY, '1');
+      prejoinStatus.textContent = t('voicePrepSaved');
+    } else {
+      prejoinStatus.textContent = t('voicePrepFailed');
+    }
+  } catch {
+    prejoinStatus.textContent = t('voicePrepFailed');
+  } finally {
+    showVoicePrep(false);
+  }
+}
 // Listener-pays (spec 0099): once the server sends a `capture_format` message our
 // capture is server-driven (PCM iff a Premium listener is present), not chosen from
 // our own engine. `null` until the first message → speaker-pays (self-engine) mode.
@@ -636,9 +750,13 @@ async function initEngines(): Promise<void> {
     if (Array.isArray(data)) {
       availableEngines = data as EngineInfo[];
     } else if (data && typeof data === 'object') {
-      const obj = data as { engines?: EngineInfo[]; flags?: { language_first_ux?: boolean } };
+      const obj = data as {
+        engines?: EngineInfo[];
+        flags?: { language_first_ux?: boolean; voice_cloning_enabled?: boolean };
+      };
       availableEngines = obj.engines ?? [];
       languageFirstUx = !!obj.flags?.language_first_ux;
+      voiceCloningEnabled = !!obj.flags?.voice_cloning_enabled;
     }
   } catch {
     return; // offline / unreachable → default engine, selector hidden
@@ -1426,7 +1544,12 @@ $('join-btn').addEventListener('click', () => {
   if (!localStream || !session) return;
   unlockTts(); // iOS: prime speechSynthesis inside the tap so translations play
   pcmPlayback.unlock(); // same for the Premium translated-audio context (spec 0093)
-  void startCall();
+  void (async () => {
+    // Enhanced voice prep (spec 0108): clone the user's voice first when applicable. Never
+    // blocks — a failure or skip just means a default voice — so always proceed to the call.
+    await prepareVoice().catch(() => {});
+    void startCall();
+  })();
 });
 
 // ============================================================================
@@ -4557,6 +4680,11 @@ $('consent-decline').addEventListener('click', () => {
 // --- Privacy & data (GDPR) ---
 $('privacy-open').addEventListener('click', () => {
   $('privacy-status').textContent = '';
+  // Enhanced voice-clone status (spec 0108): per-device signal that this user cloned their
+  // voice here. The server holds the authoritative `cartesia_voice_id`.
+  $('voice-clone-state').textContent = localStorage.getItem(VOICE_CLONED_KEY)
+    ? t('voiceCloneStatusSaved')
+    : t('voiceCloneStatusNone');
   show(privacyModal, true);
 });
 $('privacy-close').addEventListener('click', () => show(privacyModal, false));

@@ -57,7 +57,16 @@ pub async fn billing_packages(State(state): State<AppState>) -> Response {
 pub async fn engines(State(state): State<AppState>) -> Response {
     Json(serde_json::json!({
         "engines": state.engines.infos(),
-        "flags": { "language_first_ux": state.config.language_first_ux },
+        "flags": {
+            "language_first_ux": state.config.language_first_ux,
+            // Enhanced voice cloning (spec 0108): drives the pre-join voice-prep step.
+            "voice_cloning_enabled": state
+                .config
+                .cartesia
+                .as_ref()
+                .map(|c| c.voice_cloning_enabled)
+                .unwrap_or(false),
+        },
     }))
     .into_response()
 }
