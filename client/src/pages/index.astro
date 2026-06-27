@@ -82,7 +82,7 @@ const jsonLd = {
     <section id="home" class="screen">
       <header class="home-header">
         <div class="brand-row">
-          <img class="brand-logo" src="/icon.png" alt="" width="44" height="44" decoding="async" />
+          <img class="brand-logo" src="/logo-88.png" alt="" width="44" height="44" decoding="async" fetchpriority="high" />
           <h1 class="brand">Vox<span>Translate</span></h1>
         </div>
         <p class="tagline" data-i18n="tagline">{T('tagline')}</p>
@@ -94,7 +94,13 @@ const jsonLd = {
           </div>
           <div class="account-actions">
             <button id="buy-btn" class="btn-ghost" data-i18n="buyCredits">{T('buyCredits')}</button>
-            <a id="workspace-btn" class="btn-ghost hidden" data-i18n="workspace" target="_blank" rel="noopener">{T('workspace')}</a>
+            <a id="workspace-btn" class="btn-ghost workspace-btn hidden" data-i18n-title="workspace" data-i18n-label="workspace" title={T('workspace')} aria-label={T('workspace')} target="_blank" rel="noopener">
+              <svg class="ws-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="2" y="7" width="20" height="14" rx="2" />
+                <path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+              </svg>
+              <span class="btn-label" data-i18n="workspace">{T('workspace')}</span>
+            </a>
             <button id="privacy-open" class="btn-ghost icon-btn" data-i18n-title="privacyData" title={T('privacyData')} aria-label="Privacy"></button>
             <button id="logout-btn" class="btn-ghost icon-btn" data-i18n-title="logout" title={T('logout')} aria-label="Logout"></button>
           </div>
@@ -1067,7 +1073,7 @@ const jsonLd = {
     .brand span { color: var(--accent); }
     .tagline { margin: 4px 0 0; color: var(--muted); font-size: 0.92rem; }
     .home-body {
-      width: 100%; max-width: 480px; margin: 0 auto; padding: 14px 16px 28px;
+      width: 100%; max-width: 600px; margin: 0 auto; padding: 14px 16px 28px;
       display: flex; flex-direction: column; gap: 14px;
     }
     .rooms-list { display: flex; flex-direction: column; gap: 10px; }
@@ -1800,7 +1806,7 @@ const jsonLd = {
     .guest-btn { min-height: 44px; padding: 0 20px; }
 
     /* ---------- Account bar ---------- */
-    .account-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; max-width: 560px; margin: 14px auto 0; padding: 10px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; }
+    .account-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; max-width: 600px; margin: 14px auto 0; padding: 10px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; }
     .account-avatar { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; background: var(--surface-2); flex: none; }
     /* Identity always gets its own full row, so the name is never covered/squeezed
        by the action buttons (the bug this replaced). */
@@ -1808,14 +1814,21 @@ const jsonLd = {
     .account-name { font-weight: 600; font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .account-balance { font-size: 0.82rem; color: var(--success); font-variant-numeric: tabular-nums; }
     .account-balance.low { color: var(--danger); }
-    /* The action buttons live on their own row as one block (flex-basis 100% forces
-       the wrap), so a single icon never drops alone — identical on desktop and mobile. */
-    .account-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; flex: 1 1 100%; }
+    /* Desktop: the identity column grows + truncates (min-width:0 + ellipsis on
+       .account-name) so the action buttons sit inline on its right, right-aligned.
+       On narrow widths the whole action group wraps to its own row as a unit —
+       never a single lone icon. */
+    .account-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; flex: 0 0 auto; margin-inline-start: auto; }
     .account-actions .btn-ghost { flex: none; }
-    /* Phones: the two text buttons stretch to share the row width. */
-    @media (max-width: 480px) {
-      .account-actions #buy-btn,
-      .account-actions #workspace-btn { flex: 1 1 auto; text-align: center; }
+    /* Workspace link: icon + label inline; label collapses to icon-only on phones. */
+    .workspace-btn { display: inline-flex; align-items: center; gap: 6px; }
+    .workspace-btn .ws-icon { flex: none; }
+    /* Phones: actions drop to their own full-width row, right-aligned as one group;
+       Workspace shows just its icon to keep the row compact. */
+    @media (max-width: 560px) {
+      .account-actions { flex: 1 1 100%; }
+      .workspace-btn .btn-label { display: none; }
+      .workspace-btn { padding-inline: 10px; }
     }
 
     /* ---------- Guest sign-in bar (spec 0037) ----------
@@ -1823,7 +1836,7 @@ const jsonLd = {
        accent wash (vs the account bar's plain surface) reads as an invitation, not
        a warning. Same footprint as the account bar for visual parity. */
     .guest-bar {
-      display: flex; align-items: center; gap: 12px; max-width: 480px; margin: 14px auto 0;
+      display: flex; align-items: center; gap: 12px; max-width: 600px; margin: 14px auto 0;
       padding-block: 10px; padding-inline-start: 14px; padding-inline-end: 12px; border-radius: 12px; text-align: start;
       background: linear-gradient(180deg, var(--accent-dim), var(--surface));
       border: 1px solid var(--accent-dim);
