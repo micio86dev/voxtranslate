@@ -313,7 +313,12 @@ export class CartesiaManager {
     ws.onerror = () => this.handleError(peerId, 'websocket_error', 'stt socket error');
     ws.onclose = (ev) => {
       // A clean close (we tore it down) is ignored; an unexpected one is a transient error.
-      if (!pipe.stopped) this.handleError(peerId, 'websocket_error', `closed ${ev.code}`);
+      // Include the close REASON (Cartesia sends a human string, e.g. "Invalid language for
+      // model" on a 1008) — without it a fallback is undebuggable from the console alone.
+      if (!pipe.stopped) {
+        const reason = ev.reason ? ` ${ev.reason}` : '';
+        this.handleError(peerId, 'websocket_error', `closed ${ev.code}${reason}`);
+      }
     };
   }
 

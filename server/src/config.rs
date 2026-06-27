@@ -259,7 +259,10 @@ pub struct CartesiaConfig {
     /// Raw server API key (`CARTESIA_API_KEY`, `sk_car_…`). Server-only — never serialized;
     /// the browser receives only short-lived access tokens minted from it.
     pub api_key: String,
-    /// Realtime STT model id (`CARTESIA_STT_MODEL`, e.g. `ink-2`).
+    /// Realtime STT model id (`CARTESIA_STT_MODEL`). Defaults to `ink-whisper`, which is
+    /// multilingual — `ink-2` is ENGLISH-ONLY and closes the STT WS with `1008 "Invalid
+    /// language for model"` for any non-`en` speaker, dropping Enhanced to Standard. Only
+    /// override to `ink-2` for an English-only deployment.
     pub stt_model: String,
     /// Streaming TTS model id (`CARTESIA_TTS_MODEL`, e.g. `sonic-3.5`).
     pub tts_model: String,
@@ -310,7 +313,7 @@ impl CartesiaConfig {
                 .unwrap_or_default()
                 .trim()
                 .to_string(),
-            stt_model: str_or("CARTESIA_STT_MODEL", "ink-2"),
+            stt_model: str_or("CARTESIA_STT_MODEL", "ink-whisper"),
             tts_model: str_or("CARTESIA_TTS_MODEL", "sonic-3.5"),
             cost_per_minute: parse_or("CARTESIA_COST_PER_MINUTE", 0.036f64),
             markup: percent / 100.0,
