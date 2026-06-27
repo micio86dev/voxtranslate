@@ -38,6 +38,11 @@ pub struct User {
     // UI locale captured at login (migration 026): the language the user uses the
     // product in, so outbound notifications can be localized to them. NULL = unknown.
     pub locale: Option<String>,
+    // Cartesia Instant Voice Cloning id (spec 0108): the account's cloned voice, reused
+    // across devices so we never re-prompt a user who already cloned. NULL until they
+    // complete the pre-join voice-prep step. Every `users` query here is `SELECT *` /
+    // `RETURNING *`, so adding this column-backed field maps cleanly.
+    pub cartesia_voice_id: Option<String>,
 }
 
 /// A row from `chat_files` (spec 0018): metadata for a file attached to chat.
