@@ -139,7 +139,13 @@ export async function getRoomBinding(
       },
     );
     if (!res.ok) return null;
-    return (await res.json()) as { org_id: string; project_id: string | null };
+    const data = (await res.json()) as {
+      org_id: string | null;
+      project_id: string | null;
+    };
+    // The server now returns 200 with a null org_id for an unbound room (instead of
+    // a 404 that logged a console error on every standard call) — treat it as null.
+    return data.org_id ? { org_id: data.org_id, project_id: data.project_id } : null;
   } catch {
     return null;
   }
