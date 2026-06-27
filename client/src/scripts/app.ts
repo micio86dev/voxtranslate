@@ -476,9 +476,10 @@ function translateViaServer(
 }
 
 // ---- Enhanced voice preparation (spec 0108) -------------------------------
-// Per-device flag: we already cloned this signed-in user's voice, so skip re-recording. The
-// server stores the authoritative `cartesia_voice_id`; this just avoids re-prompting on the
-// same device (a fresh device re-clones — Cartesia Instant Voice Cloning has no upfront cost).
+// Whether to re-record the signed-in user's voice. The account is the source of truth:
+// `/api/user/me` → `has_voice_clone` is set once the server has stored a `cartesia_voice_id`,
+// so the prompt is skipped on EVERY device once cloned. This per-device localStorage flag is
+// just a fast local short-circuit within a session (and a fallback before `me` is fetched).
 const VOICE_CLONED_KEY = 'vox_voice_cloned';
 const voiceprepEl = $('voiceprep');
 
@@ -555,6 +556,7 @@ async function prepareVoice(): Promise<void> {
     !auth.isLoggedIn() ||
     !voiceCloningEnabled ||
     !engineIsClientDirect(session?.engine, availableEngines) ||
+    auth.getUser()?.has_voice_clone || // account already cloned (any device) — never re-prompt
     localStorage.getItem(VOICE_CLONED_KEY)
   ) {
     return;
@@ -3645,7 +3647,12 @@ async function stopRecording(partial = false): Promise<void> {
   const rec = recorder;
   if (!rec) return;
   recorder = null;
-  const duration = recordingStartedAt ? Math.floor((Date.now() - recordingStartedAt) / 1000) : 0;
+  // Use the recorder's own start time — there is NO module-level `recordingStartedAt`.
+  // Referencing that undeclared name here threw a ReferenceError that aborted stopRecording
+  // right after nulling `recorder`, wedging the call: the MediaRecorder kept running,
+  // `isRecording` stayed true, `recorder` was null, so every later stop click no-op'd
+  // (#"can't stop the recording", any platform/account).
+  const duration = Math.floor((Date.now() - rec.startedAt) / 1000);
   if (!partial) track('recording_stopped', { duration_seconds: duration });
   isRecording = false;
   clearInterval(recTimerId);

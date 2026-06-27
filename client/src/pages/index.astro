@@ -1457,6 +1457,10 @@ const jsonLd = {
        whenever recording is off. */
     .video-stage.recording .stage-meta-wrap { max-width: calc(50% - 80px); }
     .video-stage.recording .part-count-badge { max-width: calc(50% - 80px); }
+    /* Desktop only: nudge the centred REC badge below the top tile overlays so it
+       doesn't cover a peer's name/lang label on the second tile (user request).
+       Mobile keeps top:10px and is pinned top-left via the max-width:600px block. */
+    @media (min-width: 601px) { .rec-badge { top: 52px; } }
     /* ---- Voice-command timer (spec 0052) ---- */
     /* Stacked BELOW the participant badge (spec 0061) so the two top-right overlays
        never collide. */

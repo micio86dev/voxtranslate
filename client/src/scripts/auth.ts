@@ -18,6 +18,10 @@ export interface User {
   balance: number;
   /** True once the user confirmed 18+ and accepted the ToS/Privacy. */
   consent_given?: boolean;
+  /** True once this account has a stored Cartesia cloned voice (spec 0108): the
+   *  pre-join voice-prep prompt is then skipped on every device, not just the one
+   *  that recorded it. */
+  has_voice_clone?: boolean;
 }
 
 export interface CreditPackage {
