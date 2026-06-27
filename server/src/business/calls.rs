@@ -14,7 +14,7 @@ use sqlx::FromRow;
 use uuid::Uuid;
 
 use crate::business::{
-    bad_request, db_err, forbidden, not_found, require_pool, require_role, MEMBER,
+    bad_request, db_err, forbidden, require_pool, require_role, MEMBER,
 };
 use crate::invite::sanitize_room;
 use crate::middleware::AuthUser;
@@ -137,11 +137,18 @@ pub async fn get_binding(
             .fetch_optional(pool)
             .await
             .map_err(db_err)?;
+    // Unbound room (the normal case for any standard room), or the caller isn't a
+    // member of the bound org → return an explicit "unbound" 200, not 404/403. The
+    // pre-join UI probes this for EVERY room, so a 404 here logged a scary console
+    // error on every non-business call; the null payload also avoids leaking a
+    // binding's existence to non-members.
+    let unbound = || Json(json!({ "org_id": null, "project_id": null })).into_response();
     let Some((org_id, project_id)) = row else {
-        return Err(not_found("no binding"));
+        return Ok(unbound());
     };
-    // Only reveal the binding to a member of the bound org.
-    require_role(pool, org_id, user.user_id, MEMBER).await?;
+    if require_role(pool, org_id, user.user_id, MEMBER).await.is_err() {
+        return Ok(unbound());
+    }
     Ok(Json(json!({ "org_id": org_id, "project_id": project_id })).into_response())
 }
 
