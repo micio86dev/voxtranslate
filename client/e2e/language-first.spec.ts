@@ -28,7 +28,7 @@ function eng(id: string, tier: string, rate: number, out: string[], caps: Partia
 
 const ALL_ENGINES = [
   eng('standard', 'standard', 0.01, L8),
-  eng('soniox', 'enhanced', 0.028, ENHANCED, { client_direct: true, scales: true }),
+  eng('cartesia', 'enhanced', 0.067, ENHANCED, { client_direct: true, scales: true }),
   eng('premium', 'pro', 0.063, PRO, { translated_audio: true, scales: true }),
   eng('gemini_live_translate', 'premium', 0.068, PREMIUM, { translated_audio: true, scales: true }),
 ];

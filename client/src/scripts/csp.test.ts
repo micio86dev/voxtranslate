@@ -63,6 +63,8 @@ describe('call CSP (issue #237 regression guard)', () => {
     // WebRTC signalling + STT/translation stream to our API over WS.
     expect(directive('connect-src')).toContain('wss://api.voxtranslate.app');
     expect(directive('connect-src')).toContain('https://api.voxtranslate.app');
+    // Enhanced tier (spec 0108): the browser connects DIRECTLY to Cartesia STT/TTS over WS.
+    expect(directive('connect-src')).toContain('wss://api.cartesia.ai');
     // MediaRecorder / recording playback uses blob: object URLs for media.
     expect(directive('media-src')).toContain('blob:');
     // Google Identity Services (sign-in) loads its script + frame.

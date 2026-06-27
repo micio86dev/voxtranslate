@@ -166,6 +166,7 @@ pub async fn enhanced_session(State(state): State<AppState>, user: AuthUser) -> 
         "stt": { "endpoint": cartesia.stt_endpoint, "model": cartesia.stt_model },
         "tts": { "endpoint": cartesia.tts_endpoint, "model": cartesia.tts_model },
         "voice_cloning_enabled": cartesia.voice_cloning_enabled,
+        "default_voice_id": cartesia.default_voice_id,
     }))
     .into_response()
 }
@@ -3386,6 +3387,7 @@ mod tests {
             cost_per_minute: 0.036,
             markup: 0.85,
             voice_cloning_enabled: true,
+            default_voice_id: None,
             api_base: "https://api.cartesia.ai/".into(), // trailing slash on purpose
             stt_endpoint: "wss://api.cartesia.ai/stt/websocket".into(),
             tts_endpoint: "wss://api.cartesia.ai/tts/websocket".into(),

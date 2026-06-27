@@ -1,5 +1,5 @@
 // Lazy-loaded in-call module bundle (spec 0105). The landing + lobby pages never make a
-// call, so these modules — WebRTC mesh, chat, audio capture, the Soniox receive pipeline, the
+// call, so these modules — WebRTC mesh, chat, audio capture, the Cartesia receive pipeline, the
 // collaborative whiteboard and mini-games — are split OUT of the landing entry chunk and
 // dynamically imported at PRE-JOIN entry. The download overlaps camera/device setup, so there
 // is no perceived join latency, and a visitor who only browses the landing page never pays for
@@ -14,7 +14,7 @@
 export type CallModules = {
   webrtc: typeof import('./webrtc');
   chat: typeof import('./chat');
-  soniox: typeof import('./soniox');
+  cartesia: typeof import('./cartesia');
   audioCapture: typeof import('./audio-capture');
   pcmCapture: typeof import('./pcm-capture');
   micMeter: typeof import('./mic-meter');
@@ -36,7 +36,7 @@ export function loadCallModules(): Promise<CallModules> {
     cached = Promise.all([
       import('./webrtc'),
       import('./chat'),
-      import('./soniox'),
+      import('./cartesia'),
       import('./audio-capture'),
       import('./pcm-capture'),
       import('./mic-meter'),
@@ -45,10 +45,10 @@ export function loadCallModules(): Promise<CallModules> {
       import('./quiz'),
     ])
       .then(
-        ([webrtc, chat, soniox, audioCapture, pcmCapture, micMeter, whiteboard, tictactoe, quiz]) => ({
+        ([webrtc, chat, cartesia, audioCapture, pcmCapture, micMeter, whiteboard, tictactoe, quiz]) => ({
           webrtc,
           chat,
-          soniox,
+          cartesia,
           audioCapture,
           pcmCapture,
           micMeter,

@@ -93,6 +93,7 @@ mod tests {
             cost_per_minute: 0.036,
             markup: 0.85,
             voice_cloning_enabled: true,
+            default_voice_id: None,
             api_base: "https://api.cartesia.ai".into(),
             stt_endpoint: "wss://api.cartesia.ai/stt/websocket".into(),
             tts_endpoint: "wss://api.cartesia.ai/tts/websocket".into(),

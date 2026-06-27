@@ -271,6 +271,10 @@ pub struct CartesiaConfig {
     /// Instant Voice Cloning master switch (`CARTESIA_VOICE_CLONING_ENABLED`). When off,
     /// the pre-join voice-prep step is skipped and TTS uses a default voice.
     pub voice_cloning_enabled: bool,
+    /// Optional fallback Cartesia voice id (`CARTESIA_DEFAULT_VOICE_ID`) used for a speaker
+    /// without a clone (cloning off, or they never completed voice prep). `None` → such a
+    /// speaker is shown subtitles only. Sent to the client with the session.
+    pub default_voice_id: Option<String>,
     /// REST base for access-token minting + voice cloning (`CARTESIA_API_BASE`).
     pub api_base: String,
     /// Public STT WebSocket endpoint handed to the browser (`CARTESIA_STT_ENDPOINT`).
@@ -308,6 +312,10 @@ impl CartesiaConfig {
             cost_per_minute: parse_or("CARTESIA_COST_PER_MINUTE", 0.036f64),
             markup: percent / 100.0,
             voice_cloning_enabled: env_flag("CARTESIA_VOICE_CLONING_ENABLED"),
+            default_voice_id: env::var("CARTESIA_DEFAULT_VOICE_ID")
+                .ok()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty()),
             api_base: str_or("CARTESIA_API_BASE", CARTESIA_DEFAULT_API_BASE),
             stt_endpoint: str_or("CARTESIA_STT_ENDPOINT", CARTESIA_DEFAULT_STT_ENDPOINT),
             tts_endpoint: str_or("CARTESIA_TTS_ENDPOINT", CARTESIA_DEFAULT_TTS_ENDPOINT),

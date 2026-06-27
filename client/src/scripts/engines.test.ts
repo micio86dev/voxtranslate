@@ -33,7 +33,7 @@ function engine(id: string, langs: string[], rate = 0.01): EngineInfo {
     capabilities: {
       translated_audio: id === 'premium',
       cost_scales_per_language: id === 'premium',
-      client_direct: id === 'soniox',
+      client_direct: id === 'cartesia',
       max_room_size: 4,
     },
   };
@@ -129,10 +129,10 @@ describe('engineNeedsPcm', () => {
 });
 
 describe('engineIsClientDirect', () => {
-  // Soniox "Enhanced" (spec 0101): browser ↔ provider directly; the listener
+  // Cartesia "Enhanced" (spec 0108): browser ↔ provider directly; the listener
   // translates in-browser. Keyed on the capability, not the id.
-  const SONIOX: EngineInfo = {
-    ...engine('soniox', ['en', 'it']),
+  const CARTESIA: EngineInfo = {
+    ...engine('cartesia', ['en', 'it']),
     tier: 'enhanced',
     capabilities: {
       translated_audio: false,
@@ -141,22 +141,22 @@ describe('engineIsClientDirect', () => {
       max_room_size: 4,
     },
   };
-  const list = [STANDARD, SONIOX, PREMIUM];
+  const list = [STANDARD, CARTESIA, PREMIUM];
 
   it('is true only for a client-direct engine', () => {
-    expect(engineIsClientDirect('soniox', list)).toBe(true);
+    expect(engineIsClientDirect('cartesia', list)).toBe(true);
     expect(engineIsClientDirect('standard', list)).toBe(false);
     expect(engineIsClientDirect('premium', list)).toBe(false);
   });
   it('is false for an unknown or absent engine', () => {
     expect(engineIsClientDirect('nope', list)).toBe(false);
     expect(engineIsClientDirect(undefined, list)).toBe(false);
-    expect(engineIsClientDirect('soniox', [])).toBe(false);
+    expect(engineIsClientDirect('cartesia', [])).toBe(false);
   });
   it('does not force PCM capture (Enhanced is receive-side, not translated_audio)', () => {
-    // A Soniox listener must NOT flip the speaker to PCM16 — that is for server
+    // A Cartesia listener must NOT flip the speaker to PCM16 — that is for server
     // speech-to-speech engines only.
-    expect(engineNeedsPcm('soniox', list)).toBe(false);
+    expect(engineNeedsPcm('cartesia', list)).toBe(false);
   });
 });
 
@@ -268,7 +268,7 @@ describe('preference persistence', () => {
 
   it('maps tiers to localized description keys, null for unknown (#236)', () => {
     expect(engineDescKey('standard')).toBe('engineDescStandard');
-    expect(engineDescKey('enhanced')).toBe('engineDescEnhanced'); // Soniox = the "Enhanced" tier
+    expect(engineDescKey('enhanced')).toBe('engineDescEnhanced'); // Cartesia = the "Enhanced" tier
     expect(engineDescKey('pro')).toBe('engineDescPro'); // OpenAI = the "Pro" tier
     expect(engineDescKey('premium')).toBe('engineDescPremium'); // Gemini = the "Premium" tier
     expect(engineDescKey('enterprise')).toBeNull(); // unknown → caller falls back to server desc
