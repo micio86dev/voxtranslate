@@ -36,6 +36,8 @@
   "voicePrepSaved": "Tu voz está lista.",
   "voicePrepSkip": "Omitir",
   "voicePrepFailed": "No pudimos configurar tu voz: usaremos una voz estándar por ahora.",
+  "voicePrepRecord": "Grabar mi voz",
+  "voicePrepRerecord": "Volver a grabar",
   "voiceCloneTitle": "Tu voz traducida",
   "voiceCloneStatusSaved": "Tu voz está guardada.",
   "voiceCloneStatusNone": "Aún no hay clon de voz: únete a una llamada para configurarlo.",

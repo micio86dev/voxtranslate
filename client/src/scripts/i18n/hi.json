@@ -36,6 +36,8 @@
   "voicePrepSaved": "आपकी आवाज़ तैयार है।",
   "voicePrepSkip": "छोड़ें",
   "voicePrepFailed": "हम आपकी आवाज़ सेट नहीं कर सके — फ़िलहाल हम एक मानक आवाज़ का उपयोग करेंगे।",
+  "voicePrepRecord": "मेरी आवाज़ रिकॉर्ड करें",
+  "voicePrepRerecord": "फिर से रिकॉर्ड करें",
   "voiceCloneTitle": "आपकी अनुवादित आवाज़",
   "voiceCloneStatusSaved": "आपकी आवाज़ सहेजी गई है।",
   "voiceCloneStatusNone": "अभी तक कोई वॉइस क्लोन नहीं — इसे सेट करने के लिए कॉल में शामिल हों।",

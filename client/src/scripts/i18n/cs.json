@@ -36,6 +36,8 @@
   "voicePrepSaved": "Váš hlas je připraven.",
   "voicePrepSkip": "Přeskočit",
   "voicePrepFailed": "Nepodařilo se nám nastavit váš hlas — prozatím použijeme standardní hlas.",
+  "voicePrepRecord": "Nahrát můj hlas",
+  "voicePrepRerecord": "Nahrát znovu",
   "voiceCloneTitle": "Váš přeložený hlas",
   "voiceCloneStatusSaved": "Váš hlas je uložen.",
   "voiceCloneStatusNone": "Zatím žádný klon hlasu — připojte se k hovoru a nastavte si jej.",

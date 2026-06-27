@@ -36,6 +36,8 @@
   "voicePrepSaved": "Ваш голос готов.",
   "voicePrepSkip": "Пропустить",
   "voicePrepFailed": "Не удалось настроить ваш голос — пока будем использовать стандартный голос.",
+  "voicePrepRecord": "Записать мой голос",
+  "voicePrepRerecord": "Записать заново",
   "voiceCloneTitle": "Ваш переведённый голос",
   "voiceCloneStatusSaved": "Ваш голос сохранён.",
   "voiceCloneStatusNone": "Клона голоса пока нет — присоединитесь к звонку, чтобы его настроить.",

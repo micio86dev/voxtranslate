@@ -36,6 +36,8 @@
   "voicePrepSaved": "Giọng của bạn đã sẵn sàng.",
   "voicePrepSkip": "Bỏ qua",
   "voicePrepFailed": "Chúng tôi không thể thiết lập giọng của bạn — tạm thời sẽ dùng giọng tiêu chuẩn.",
+  "voicePrepRecord": "Ghi âm giọng của tôi",
+  "voicePrepRerecord": "Ghi âm lại",
   "voiceCloneTitle": "Giọng đã dịch của bạn",
   "voiceCloneStatusSaved": "Giọng của bạn đã được lưu.",
   "voiceCloneStatusNone": "Chưa có bản sao giọng — tham gia cuộc gọi để thiết lập.",

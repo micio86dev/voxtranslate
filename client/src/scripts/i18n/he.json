@@ -36,6 +36,8 @@
   "voicePrepSaved": "הקול שלך מוכן.",
   "voicePrepSkip": "דלג",
   "voicePrepFailed": "לא הצלחנו להגדיר את הקול שלך — נשתמש בקול רגיל לעת עתה.",
+  "voicePrepRecord": "הקלט את הקול שלי",
+  "voicePrepRerecord": "הקלט מחדש",
   "voiceCloneTitle": "הקול המתורגם שלך",
   "voiceCloneStatusSaved": "הקול שלך נשמר.",
   "voiceCloneStatusNone": "אין עדיין שכפול קול — הצטרף לשיחה כדי להגדיר אותו.",

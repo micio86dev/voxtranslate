@@ -36,6 +36,8 @@
   "voicePrepSaved": "Ваш глас је спреман.",
   "voicePrepSkip": "Прескочи",
   "voicePrepFailed": "Нисмо успели да подесимо ваш глас — за сада ћемо користити стандардни глас.",
+  "voicePrepRecord": "Сними мој глас",
+  "voicePrepRerecord": "Сними поново",
   "voiceCloneTitle": "Ваш преведени глас",
   "voiceCloneStatusSaved": "Ваш глас је сачуван.",
   "voiceCloneStatusNone": "Још нема клона гласа — придружите се позиву да га подесите.",

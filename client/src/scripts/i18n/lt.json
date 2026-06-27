@@ -36,6 +36,8 @@
   "voicePrepSaved": "Jūsų balsas paruoštas.",
   "voicePrepSkip": "Praleisti",
   "voicePrepFailed": "Nepavyko nustatyti jūsų balso — kol kas naudosime standartinį balsą.",
+  "voicePrepRecord": "Įrašyti mano balsą",
+  "voicePrepRerecord": "Įrašyti iš naujo",
   "voiceCloneTitle": "Jūsų išverstas balsas",
   "voiceCloneStatusSaved": "Jūsų balsas išsaugotas.",
   "voiceCloneStatusNone": "Balso klono dar nėra — prisijunkite prie skambučio, kad jį nustatytumėte.",

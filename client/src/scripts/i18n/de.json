@@ -36,6 +36,8 @@
   "voicePrepSaved": "Deine Stimme ist bereit.",
   "voicePrepSkip": "Überspringen",
   "voicePrepFailed": "Wir konnten deine Stimme nicht einrichten — wir verwenden vorerst eine Standardstimme.",
+  "voicePrepRecord": "Meine Stimme aufnehmen",
+  "voicePrepRerecord": "Neu aufnehmen",
   "voiceCloneTitle": "Deine übersetzte Stimme",
   "voiceCloneStatusSaved": "Deine Stimme ist gespeichert.",
   "voiceCloneStatusNone": "Noch kein Stimmklon — tritt einem Anruf bei, um ihn einzurichten.",

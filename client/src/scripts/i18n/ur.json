@@ -36,6 +36,8 @@
   "voicePrepSaved": "آپ کی آواز تیار ہے۔",
   "voicePrepSkip": "چھوڑ دیں",
   "voicePrepFailed": "ہم آپ کی آواز ترتیب نہیں دے سکے — فی الحال ہم ایک معیاری آواز استعمال کریں گے۔",
+  "voicePrepRecord": "میری آواز ریکارڈ کریں",
+  "voicePrepRerecord": "دوبارہ ریکارڈ کریں",
   "voiceCloneTitle": "آپ کی ترجمہ شدہ آواز",
   "voiceCloneStatusSaved": "آپ کی آواز محفوظ ہے۔",
   "voiceCloneStatusNone": "ابھی تک کوئی وائس کلون نہیں — اسے ترتیب دینے کے لیے کال میں شامل ہوں۔",

@@ -36,6 +36,8 @@
   "voicePrepSaved": "Ovozingiz tayyor.",
   "voicePrepSkip": "O'tkazib yuborish",
   "voicePrepFailed": "Ovozingizni sozlay olmadik — hozircha standart ovozdan foydalanamiz.",
+  "voicePrepRecord": "Ovozimni yozish",
+  "voicePrepRerecord": "Qayta yozish",
   "voiceCloneTitle": "Tarjima qilingan ovozingiz",
   "voiceCloneStatusSaved": "Ovozingiz saqlandi.",
   "voiceCloneStatusNone": "Hali ovoz kloni yo'q — uni sozlash uchun qo'ng'iroqqa qo'shiling.",

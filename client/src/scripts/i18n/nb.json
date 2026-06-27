@@ -36,6 +36,8 @@
   "voicePrepSaved": "Stemmen din er klar.",
   "voicePrepSkip": "Hopp over",
   "voicePrepFailed": "Vi klarte ikke å sette opp stemmen din — vi bruker en standardstemme inntil videre.",
+  "voicePrepRecord": "Ta opp stemmen min",
+  "voicePrepRerecord": "Ta opp på nytt",
   "voiceCloneTitle": "Din oversatte stemme",
   "voiceCloneStatusSaved": "Stemmen din er lagret.",
   "voiceCloneStatusNone": "Ingen stemmekloning ennå — bli med i en samtale for å sette den opp.",

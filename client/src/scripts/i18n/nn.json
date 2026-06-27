@@ -36,6 +36,8 @@
   "voicePrepSaved": "Røysta di er klar.",
   "voicePrepSkip": "Hopp over",
   "voicePrepFailed": "Vi klarte ikkje å setje opp røysta di — vi brukar ei standardrøyst inntil vidare.",
+  "voicePrepRecord": "Ta opp røysta mi",
+  "voicePrepRerecord": "Ta opp på nytt",
   "voiceCloneTitle": "Di omsette røyst",
   "voiceCloneStatusSaved": "Røysta di er lagra.",
   "voiceCloneStatusNone": "Inga røystkloning enno — bli med i ein samtale for å setje det opp.",

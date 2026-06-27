@@ -36,6 +36,8 @@
   "voicePrepSaved": "Səsiniz hazırdır.",
   "voicePrepSkip": "Keç",
   "voicePrepFailed": "Səsinizi qura bilmədik — hələlik standart səsdən istifadə edəcəyik.",
+  "voicePrepRecord": "Səsimi yaz",
+  "voicePrepRerecord": "Yenidən yaz",
   "voiceCloneTitle": "Tərcümə olunmuş səsiniz",
   "voiceCloneStatusSaved": "Səsiniz yadda saxlanıldı.",
   "voiceCloneStatusNone": "Hələ səs klonu yoxdur — qurmaq üçün zəngə qoşulun.",

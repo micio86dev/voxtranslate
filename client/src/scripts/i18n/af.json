@@ -36,6 +36,8 @@
   "voicePrepSaved": "Jou stem is gereed.",
   "voicePrepSkip": "Slaan oor",
   "voicePrepFailed": "Ons kon nie jou stem opstel nie — ons gebruik voorlopig 'n standaardstem.",
+  "voicePrepRecord": "Neem my stem op",
+  "voicePrepRerecord": "Neem weer op",
   "voiceCloneTitle": "Jou vertaalde stem",
   "voiceCloneStatusSaved": "Jou stem is gestoor.",
   "voiceCloneStatusNone": "Nog geen stemkloon nie — sluit by 'n oproep aan om dit op te stel.",

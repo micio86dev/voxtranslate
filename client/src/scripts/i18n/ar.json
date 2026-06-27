@@ -36,6 +36,8 @@
   "voicePrepSaved": "صوتك جاهز.",
   "voicePrepSkip": "تخطّي",
   "voicePrepFailed": "تعذّر علينا إعداد صوتك — سنستخدم صوتًا قياسيًا في الوقت الحالي.",
+  "voicePrepRecord": "سجّل صوتي",
+  "voicePrepRerecord": "إعادة التسجيل",
   "voiceCloneTitle": "صوتك المترجَم",
   "voiceCloneStatusSaved": "تم حفظ صوتك.",
   "voiceCloneStatusNone": "لا يوجد استنساخ صوتي بعد — انضمّ إلى مكالمة لإعداده.",

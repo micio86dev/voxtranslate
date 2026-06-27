@@ -36,6 +36,8 @@
   "voicePrepSaved": "صدای شما آماده است.",
   "voicePrepSkip": "رد کردن",
   "voicePrepFailed": "نتوانستیم صدای شما را تنظیم کنیم — فعلاً از یک صدای استاندارد استفاده می‌کنیم.",
+  "voicePrepRecord": "ضبط صدای من",
+  "voicePrepRerecord": "ضبط مجدد",
   "voiceCloneTitle": "صدای ترجمه‌شده شما",
   "voiceCloneStatusSaved": "صدای شما ذخیره شد.",
   "voiceCloneStatusNone": "هنوز هیچ کلون صدایی وجود ندارد — برای تنظیم آن به یک تماس بپیوندید.",

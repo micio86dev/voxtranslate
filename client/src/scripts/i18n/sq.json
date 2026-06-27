@@ -36,6 +36,8 @@
   "voicePrepSaved": "Zëri juaj është gati.",
   "voicePrepSkip": "Kalo",
   "voicePrepFailed": "Nuk arritëm ta konfigurojmë zërin tuaj — për momentin do të përdorim një zë standard.",
+  "voicePrepRecord": "Regjistro zërin tim",
+  "voicePrepRerecord": "Regjistro përsëri",
   "voiceCloneTitle": "Zëri juaj i përkthyer",
   "voiceCloneStatusSaved": "Zëri juaj është ruajtur.",
   "voiceCloneStatusNone": "Ende pa klon zëri — bashkohuni në një telefonatë për ta konfiguruar.",

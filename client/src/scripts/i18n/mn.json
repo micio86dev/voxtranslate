@@ -36,6 +36,8 @@
   "voicePrepSaved": "Таны хоолой бэлэн боллоо.",
   "voicePrepSkip": "Алгасах",
   "voicePrepFailed": "Таны хоолойг тохируулж чадсангүй — одоохондоо стандарт хоолой ашиглана.",
+  "voicePrepRecord": "Хоолойгоо бичих",
+  "voicePrepRerecord": "Дахин бичих",
   "voiceCloneTitle": "Таны орчуулсан хоолой",
   "voiceCloneStatusSaved": "Таны хоолой хадгалагдсан.",
   "voiceCloneStatusNone": "Одоогоор хоолойны хувилбар алга — тохируулахын тулд дуудлагад нэгдээрэй.",

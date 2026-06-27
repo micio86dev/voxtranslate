@@ -36,6 +36,8 @@
   "voicePrepSaved": "Muryarka tana shirye.",
   "voicePrepSkip": "Tsallake",
   "voicePrepFailed": "Ba mu iya saita muryarka ba — za mu yi amfani da murya ta yau da kullum a yanzu.",
+  "voicePrepRecord": "Yi rikodin muryata",
+  "voicePrepRerecord": "Sake rikodi",
   "voiceCloneTitle": "Muryarka da aka fassara",
   "voiceCloneStatusSaved": "An ajiye muryarka.",
   "voiceCloneStatusNone": "Babu kwafin murya tukuna — shiga kira don saita shi.",

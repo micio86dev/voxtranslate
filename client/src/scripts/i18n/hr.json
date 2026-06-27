@@ -36,6 +36,8 @@
   "voicePrepSaved": "Vaš glas je spreman.",
   "voicePrepSkip": "Preskoči",
   "voicePrepFailed": "Nismo uspjeli postaviti vaš glas — za sada ćemo koristiti standardni glas.",
+  "voicePrepRecord": "Snimi moj glas",
+  "voicePrepRerecord": "Snimi ponovno",
   "voiceCloneTitle": "Vaš prevedeni glas",
   "voiceCloneStatusSaved": "Vaš glas je spremljen.",
   "voiceCloneStatusNone": "Još nema klona glasa — pridružite se pozivu da ga postavite.",

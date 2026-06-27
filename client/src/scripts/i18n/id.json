@@ -36,6 +36,8 @@
   "voicePrepSaved": "Suara Anda siap.",
   "voicePrepSkip": "Lewati",
   "voicePrepFailed": "Kami tidak dapat menyiapkan suara Anda — untuk saat ini kami akan menggunakan suara standar.",
+  "voicePrepRecord": "Rekam suara saya",
+  "voicePrepRerecord": "Rekam ulang",
   "voiceCloneTitle": "Suara terjemahan Anda",
   "voiceCloneStatusSaved": "Suara Anda tersimpan.",
   "voiceCloneStatusNone": "Belum ada klon suara — gabung ke panggilan untuk menyiapkannya.",

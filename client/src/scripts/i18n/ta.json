@@ -36,6 +36,8 @@
   "voicePrepSaved": "உங்கள் குரல் தயார்.",
   "voicePrepSkip": "தவிர்",
   "voicePrepFailed": "உங்கள் குரலை அமைக்க முடியவில்லை — தற்போதைக்கு நிலையான குரலைப் பயன்படுத்துவோம்.",
+  "voicePrepRecord": "என் குரலைப் பதிவு செய்",
+  "voicePrepRerecord": "மீண்டும் பதிவு செய்",
   "voiceCloneTitle": "உங்கள் மொழிபெயர்க்கப்பட்ட குரல்",
   "voiceCloneStatusSaved": "உங்கள் குரல் சேமிக்கப்பட்டது.",
   "voiceCloneStatusNone": "இன்னும் குரல் நகல் இல்லை — அதை அமைக்க அழைப்பில் சேருங்கள்.",

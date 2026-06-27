@@ -36,6 +36,8 @@
   "voicePrepSaved": "Twój głos jest gotowy.",
   "voicePrepSkip": "Pomiń",
   "voicePrepFailed": "Nie udało się skonfigurować Twojego głosu — na razie użyjemy głosu standardowego.",
+  "voicePrepRecord": "Nagraj mój głos",
+  "voicePrepRerecord": "Nagraj ponownie",
   "voiceCloneTitle": "Twój przetłumaczony głos",
   "voiceCloneStatusSaved": "Twój głos został zapisany.",
   "voiceCloneStatusNone": "Brak klonu głosu — dołącz do rozmowy, aby go skonfigurować.",
