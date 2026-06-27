@@ -36,6 +36,8 @@
   "voicePrepSaved": "Din röst är klar.",
   "voicePrepSkip": "Hoppa över",
   "voicePrepFailed": "Vi kunde inte ställa in din röst — vi använder en standardröst tills vidare.",
+  "voicePrepRecord": "Spela in min röst",
+  "voicePrepRerecord": "Spela in igen",
   "voiceCloneTitle": "Din översatta röst",
   "voiceCloneStatusSaved": "Din röst är sparad.",
   "voiceCloneStatusNone": "Ingen röstklon ännu — gå med i ett samtal för att ställa in den.",

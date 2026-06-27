@@ -36,6 +36,8 @@
   "voicePrepSaved": "আপনার কণ্ঠ প্রস্তুত।",
   "voicePrepSkip": "এড়িয়ে যান",
   "voicePrepFailed": "আমরা আপনার কণ্ঠ সেট আপ করতে পারিনি — আপাতত একটি স্ট্যান্ডার্ড কণ্ঠ ব্যবহার করব।",
+  "voicePrepRecord": "আমার কণ্ঠ রেকর্ড করুন",
+  "voicePrepRerecord": "আবার রেকর্ড করুন",
   "voiceCloneTitle": "আপনার অনূদিত কণ্ঠ",
   "voiceCloneStatusSaved": "আপনার কণ্ঠ সংরক্ষিত হয়েছে।",
   "voiceCloneStatusNone": "এখনও কোনো কণ্ঠ ক্লোন নেই — এটি সেট আপ করতে একটি কলে যোগ দিন।",

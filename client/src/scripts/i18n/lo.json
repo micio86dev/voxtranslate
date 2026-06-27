@@ -36,6 +36,8 @@
   "voicePrepSaved": "ສຽງຂອງທ່ານພ້ອມແລ້ວ.",
   "voicePrepSkip": "ຂ້າມ",
   "voicePrepFailed": "ພວກເຮົາຕັ້ງຄ່າສຽງຂອງທ່ານບໍ່ໄດ້ — ຕອນນີ້ພວກເຮົາຈະໃຊ້ສຽງມາດຕະຖານ.",
+  "voicePrepRecord": "ບັນທຶກສຽງຂອງຂ້ອຍ",
+  "voicePrepRerecord": "ບັນທຶກໃໝ່",
   "voiceCloneTitle": "ສຽງແປຂອງທ່ານ",
   "voiceCloneStatusSaved": "ສຽງຂອງທ່ານຖືກບັນທຶກໄວ້ແລ້ວ.",
   "voiceCloneStatusNone": "ຍັງບໍ່ມີໂຄລນສຽງ — ເຂົ້າຮ່ວມການໂທເພື່ອຕັ້ງຄ່າ.",

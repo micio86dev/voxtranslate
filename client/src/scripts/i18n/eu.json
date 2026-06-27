@@ -36,6 +36,8 @@
   "voicePrepSaved": "Zure ahotsa prest dago.",
   "voicePrepSkip": "Saltatu",
   "voicePrepFailed": "Ezin izan dugu zure ahotsa konfiguratu — oraingoz ahots estandar bat erabiliko dugu.",
+  "voicePrepRecord": "Grabatu nire ahotsa",
+  "voicePrepRerecord": "Grabatu berriro",
   "voiceCloneTitle": "Zure itzulitako ahotsa",
   "voiceCloneStatusSaved": "Zure ahotsa gordeta dago.",
   "voiceCloneStatusNone": "Oraindik ez dago ahots-klonik — bat egin dei batekin konfiguratzeko.",

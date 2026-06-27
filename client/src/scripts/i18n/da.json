@@ -36,6 +36,8 @@
   "voicePrepSaved": "Din stemme er klar.",
   "voicePrepSkip": "Spring over",
   "voicePrepFailed": "Vi kunne ikke konfigurere din stemme — vi bruger en standardstemme indtil videre.",
+  "voicePrepRecord": "Optag min stemme",
+  "voicePrepRerecord": "Optag igen",
   "voiceCloneTitle": "Din oversatte stemme",
   "voiceCloneStatusSaved": "Din stemme er gemt.",
   "voiceCloneStatusNone": "Ingen stemmeklon endnu — deltag i et opkald for at konfigurere den.",

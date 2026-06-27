@@ -36,6 +36,8 @@
   "voicePrepSaved": "Your voice is ready.",
   "voicePrepSkip": "Skip",
   "voicePrepFailed": "We couldn’t set up your voice — we’ll use a standard voice for now.",
+  "voicePrepRecord": "Record my voice",
+  "voicePrepRerecord": "Re-record",
   "voiceCloneTitle": "Your translated voice",
   "voiceCloneStatusSaved": "Your voice is saved.",
   "voiceCloneStatusNone": "No voice clone yet — join a call to set it up.",

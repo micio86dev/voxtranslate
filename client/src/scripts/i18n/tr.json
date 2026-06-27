@@ -36,6 +36,8 @@
   "voicePrepSaved": "Sesiniz hazır.",
   "voicePrepSkip": "Atla",
   "voicePrepFailed": "Sesinizi ayarlayamadık — şimdilik standart bir ses kullanacağız.",
+  "voicePrepRecord": "Sesimi kaydet",
+  "voicePrepRerecord": "Yeniden kaydet",
   "voiceCloneTitle": "Çevrilmiş sesiniz",
   "voiceCloneStatusSaved": "Sesiniz kaydedildi.",
   "voiceCloneStatusNone": "Henüz ses klonu yok — ayarlamak için bir aramaya katılın.",

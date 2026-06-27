@@ -36,6 +36,8 @@
   "voicePrepSaved": "Äänesi on valmis.",
   "voicePrepSkip": "Ohita",
   "voicePrepFailed": "Emme voineet määrittää ääntäsi — käytämme toistaiseksi vakioääntä.",
+  "voicePrepRecord": "Nauhoita ääneni",
+  "voicePrepRerecord": "Nauhoita uudelleen",
   "voiceCloneTitle": "Käännetty äänesi",
   "voiceCloneStatusSaved": "Äänesi on tallennettu.",
   "voiceCloneStatusNone": "Ei vielä äänikloonia — liity puheluun määrittääksesi sen.",

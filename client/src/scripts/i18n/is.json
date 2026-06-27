@@ -36,6 +36,8 @@
   "voicePrepSaved": "Röddin þín er tilbúin.",
   "voicePrepSkip": "Sleppa",
   "voicePrepFailed": "Okkur tókst ekki að setja upp röddina þína — við notum staðlaða rödd í bili.",
+  "voicePrepRecord": "Taka upp röddina mína",
+  "voicePrepRerecord": "Taka upp aftur",
   "voiceCloneTitle": "Þýdda röddin þín",
   "voiceCloneStatusSaved": "Röddin þín er vistuð.",
   "voiceCloneStatusNone": "Engin raddafritun enn — taktu þátt í símtali til að setja hana upp.",

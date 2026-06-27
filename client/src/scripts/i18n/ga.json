@@ -36,6 +36,8 @@
   "voicePrepSaved": "Tá do ghuth réidh.",
   "voicePrepSkip": "Scipeáil",
   "voicePrepFailed": "Níorbh fhéidir linn do ghuth a shocrú — úsáidfimid guth caighdeánach don am i láthair.",
+  "voicePrepRecord": "Taifead mo ghuth",
+  "voicePrepRerecord": "Taifead arís",
   "voiceCloneTitle": "Do ghuth aistrithe",
   "voiceCloneStatusSaved": "Tá do ghuth sábháilte.",
   "voiceCloneStatusNone": "Níl aon chlón gutha ann fós — bí páirteach i nglao chun é a shocrú.",

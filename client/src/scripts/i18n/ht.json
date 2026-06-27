@@ -36,6 +36,8 @@
   "voicePrepSaved": "Vwa ou pare.",
   "voicePrepSkip": "Sote",
   "voicePrepFailed": "Nou pa t kapab konfigire vwa ou — n ap itilize yon vwa estanda pou kounye a.",
+  "voicePrepRecord": "Anrejistre vwa mwen",
+  "voicePrepRerecord": "Anrejistre ankò",
   "voiceCloneTitle": "Vwa tradui ou",
   "voiceCloneStatusSaved": "Vwa ou anrejistre.",
   "voiceCloneStatusNone": "Poko gen klon vwa — antre nan yon apèl pou konfigire l.",

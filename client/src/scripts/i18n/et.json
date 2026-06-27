@@ -36,6 +36,8 @@
   "voicePrepSaved": "Sinu hääl on valmis.",
   "voicePrepSkip": "Jäta vahele",
   "voicePrepFailed": "Me ei saanud sinu häält seadistada — kasutame praegu tavalist häält.",
+  "voicePrepRecord": "Salvesta mu hääl",
+  "voicePrepRerecord": "Salvesta uuesti",
   "voiceCloneTitle": "Sinu tõlgitud hääl",
   "voiceCloneStatusSaved": "Sinu hääl on salvestatud.",
   "voiceCloneStatusNone": "Häälklooni veel pole — liitu kõnega, et see seadistada.",

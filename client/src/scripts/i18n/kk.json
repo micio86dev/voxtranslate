@@ -36,6 +36,8 @@
   "voicePrepSaved": "Дауысыңыз дайын.",
   "voicePrepSkip": "Өткізіп жіберу",
   "voicePrepFailed": "Дауысыңызды баптай алмадық — әзірге стандартты дауысты қолданамыз.",
+  "voicePrepRecord": "Дауысымды жазу",
+  "voicePrepRerecord": "Қайта жазу",
   "voiceCloneTitle": "Аударылған дауысыңыз",
   "voiceCloneStatusSaved": "Дауысыңыз сақталды.",
   "voiceCloneStatusNone": "Әзірге дауыс клоны жоқ — оны баптау үшін қоңырауға қосылыңыз.",

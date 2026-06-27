@@ -36,6 +36,8 @@
   "voicePrepSaved": "Jūsu balss ir gatava.",
   "voicePrepSkip": "Izlaist",
   "voicePrepFailed": "Neizdevās iestatīt jūsu balsi — pagaidām izmantosim standarta balsi.",
+  "voicePrepRecord": "Ierakstīt manu balsi",
+  "voicePrepRerecord": "Ierakstīt vēlreiz",
   "voiceCloneTitle": "Jūsu tulkotā balss",
   "voiceCloneStatusSaved": "Jūsu balss ir saglabāta.",
   "voiceCloneStatusNone": "Vēl nav balss klona — pievienojieties zvanam, lai to iestatītu.",

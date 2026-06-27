@@ -36,6 +36,8 @@
   "voicePrepSaved": "Ваш голас гатовы.",
   "voicePrepSkip": "Прапусціць",
   "voicePrepFailed": "Не атрымалася наладзіць ваш голас — пакуль выкарыстаем стандартны голас.",
+  "voicePrepRecord": "Запісаць мой голас",
+  "voicePrepRerecord": "Запісаць зноў",
   "voiceCloneTitle": "Ваш перакладзены голас",
   "voiceCloneStatusSaved": "Ваш голас захаваны.",
   "voiceCloneStatusNone": "Кланаванне голасу яшчэ не наладжана — далучыцеся да званка, каб наладзіць яго.",

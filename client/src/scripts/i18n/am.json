@@ -36,6 +36,8 @@
   "voicePrepSaved": "ድምፅዎ ዝግጁ ነው።",
   "voicePrepSkip": "ዝለል",
   "voicePrepFailed": "ድምፅዎን ማዋቀር አልቻልንም — ለአሁኑ መደበኛ ድምፅ እንጠቀማለን።",
+  "voicePrepRecord": "ድምፄን ይቅዱ",
+  "voicePrepRerecord": "እንደገና ይቅዱ",
   "voiceCloneTitle": "የተተረጎመ ድምፅዎ",
   "voiceCloneStatusSaved": "ድምፅዎ ተቀምጧል።",
   "voiceCloneStatusNone": "እስካሁን ምንም የድምፅ ክሎን የለም — ለማዋቀር ጥሪ ይቀላቀሉ።",

@@ -36,6 +36,8 @@
   "voicePrepSaved": "សំឡេងរបស់អ្នករួចរាល់ហើយ។",
   "voicePrepSkip": "រំលង",
   "voicePrepFailed": "យើងមិនអាចរៀបចំសំឡេងរបស់អ្នកបានទេ — ឥឡូវនេះយើងនឹងប្រើសំឡេងស្ដង់ដារ។",
+  "voicePrepRecord": "ថតសំឡេងរបស់ខ្ញុំ",
+  "voicePrepRerecord": "ថតឡើងវិញ",
   "voiceCloneTitle": "សំឡេងបកប្រែរបស់អ្នក",
   "voiceCloneStatusSaved": "សំឡេងរបស់អ្នកត្រូវបានរក្សាទុក។",
   "voiceCloneStatusNone": "មិនទាន់មានក្លូនសំឡេងនៅឡើយទេ — ចូលរួមការហៅ ដើម្បីរៀបចំវា។",

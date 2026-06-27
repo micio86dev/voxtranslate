@@ -36,6 +36,8 @@
   "voicePrepSaved": "Mae'ch llais yn barod.",
   "voicePrepSkip": "Hepgor",
   "voicePrepFailed": "Doedden ni ddim yn gallu sefydlu'ch llais — byddwn yn defnyddio llais safonol am y tro.",
+  "voicePrepRecord": "Recordio fy llais",
+  "voicePrepRerecord": "Ail-recordio",
   "voiceCloneTitle": "Eich llais wedi'i gyfieithu",
   "voiceCloneStatusSaved": "Mae'ch llais wedi'i gadw.",
   "voiceCloneStatusNone": "Dim clôn llais eto — ymunwch â galwad i'w sefydlu.",

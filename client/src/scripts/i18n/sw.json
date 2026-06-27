@@ -36,6 +36,8 @@
   "voicePrepSaved": "Sauti yako iko tayari.",
   "voicePrepSkip": "Ruka",
   "voicePrepFailed": "Hatukuweza kusanidi sauti yako — kwa sasa tutatumia sauti ya kawaida.",
+  "voicePrepRecord": "Rekodi sauti yangu",
+  "voicePrepRerecord": "Rekodi tena",
   "voiceCloneTitle": "Sauti yako iliyotafsiriwa",
   "voiceCloneStatusSaved": "Sauti yako imehifadhiwa.",
   "voiceCloneStatusNone": "Bado hakuna nakala ya sauti — jiunge na simu ili kuisanidi.",

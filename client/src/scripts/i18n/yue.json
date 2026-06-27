@@ -36,6 +36,8 @@
   "voicePrepSaved": "你把聲準備好喇。",
   "voicePrepSkip": "略過",
   "voicePrepFailed": "我哋設定唔到你把聲 —— 暫時會用標準語音。",
+  "voicePrepRecord": "錄低我把聲",
+  "voicePrepRerecord": "重新錄製",
   "voiceCloneTitle": "你嘅翻譯語音",
   "voiceCloneStatusSaved": "你把聲已經儲存。",
   "voiceCloneStatusNone": "仲未有語音複製 —— 加入通話嚟設定。",

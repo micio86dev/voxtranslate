@@ -36,6 +36,8 @@
   "voicePrepSaved": "Il-leħen tiegħek lest.",
   "voicePrepSkip": "Aqbeż",
   "voicePrepFailed": "Ma stajniex nissettjaw il-leħen tiegħek — għalissa se nużaw leħen standard.",
+  "voicePrepRecord": "Irreġistra leħni",
+  "voicePrepRerecord": "Irreġistra mill-ġdid",
   "voiceCloneTitle": "Il-leħen tradott tiegħek",
   "voiceCloneStatusSaved": "Il-leħen tiegħek ġie ssejvjat.",
   "voiceCloneStatusNone": "Għad m'hemmx klon tal-leħen — ingħaqad ma' sejħa biex tissettjah.",

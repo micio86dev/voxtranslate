@@ -36,6 +36,8 @@
   "voicePrepSaved": "Гласът ви е готов.",
   "voicePrepSkip": "Пропусни",
   "voicePrepFailed": "Не успяхме да настроим гласа ви — засега ще използваме стандартен глас.",
+  "voicePrepRecord": "Запиши гласа ми",
+  "voicePrepRerecord": "Запиши отново",
   "voiceCloneTitle": "Вашият преведен глас",
   "voiceCloneStatusSaved": "Гласът ви е запазен.",
   "voiceCloneStatusNone": "Все още няма клониран глас — присъединете се към разговор, за да го настроите.",

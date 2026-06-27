@@ -36,6 +36,8 @@
   "voicePrepSaved": "Vocea ta este gata.",
   "voicePrepSkip": "Omite",
   "voicePrepFailed": "Nu am putut configura vocea ta — deocamdată vom folosi o voce standard.",
+  "voicePrepRecord": "Înregistrează vocea mea",
+  "voicePrepRerecord": "Reînregistrează",
   "voiceCloneTitle": "Vocea ta tradusă",
   "voiceCloneStatusSaved": "Vocea ta este salvată.",
   "voiceCloneStatusNone": "Încă nu există o clonă a vocii — alătură-te unui apel pentru a o configura.",
