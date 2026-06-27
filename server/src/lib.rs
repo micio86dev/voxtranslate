@@ -505,11 +505,11 @@ pub fn app(state: AppState) -> Router {
             post(notifications::mark_all_read),
         )
         .route("/api/engines", get(api::engines))
-        .route("/api/sessions/enhanced/session", post(api::enhanced_session))
         .route(
-            "/api/sessions/enhanced/clone-voice",
-            post(api::clone_voice),
+            "/api/sessions/enhanced/session",
+            post(api::enhanced_session),
         )
+        .route("/api/sessions/enhanced/clone-voice", post(api::clone_voice))
         .route("/api/billing/packages", get(api::billing_packages))
         .route("/api/billing/checkout", post(api::billing_checkout))
         .route("/api/billing/webhook", post(api::billing_webhook))

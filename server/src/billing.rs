@@ -56,7 +56,10 @@ impl BillingService {
 
     /// A user's stored Cartesia cloned-voice id (spec 0108), if any. `None` until they
     /// complete the pre-join voice-prep step.
-    pub async fn get_cartesia_voice_id(&self, user_id: Uuid) -> Result<Option<String>, sqlx::Error> {
+    pub async fn get_cartesia_voice_id(
+        &self,
+        user_id: Uuid,
+    ) -> Result<Option<String>, sqlx::Error> {
         let voice_id: Option<String> =
             sqlx::query_scalar("SELECT cartesia_voice_id FROM users WHERE id = $1")
                 .bind(user_id)

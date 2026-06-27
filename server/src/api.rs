@@ -235,8 +235,7 @@ pub async fn clone_voice(
     user: AuthUser,
     mut multipart: axum::extract::Multipart,
 ) -> Response {
-    let (Some(cartesia), Some(billing)) =
-        (state.config.cartesia.as_ref(), state.billing.as_ref())
+    let (Some(cartesia), Some(billing)) = (state.config.cartesia.as_ref(), state.billing.as_ref())
     else {
         return service_unavailable();
     };
@@ -3406,7 +3405,10 @@ mod tests {
             cfg.access_token_url(),
             "https://api.cartesia.ai/access-token"
         );
-        assert_eq!(cfg.clone_voice_url(), "https://api.cartesia.ai/voices/clone");
+        assert_eq!(
+            cfg.clone_voice_url(),
+            "https://api.cartesia.ai/voices/clone"
+        );
     }
 
     #[test]

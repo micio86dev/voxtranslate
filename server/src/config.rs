@@ -306,7 +306,10 @@ impl CartesiaConfig {
                 .unwrap_or_else(|| default.to_string())
         };
         Self {
-            api_key: env::var("CARTESIA_API_KEY").unwrap_or_default().trim().to_string(),
+            api_key: env::var("CARTESIA_API_KEY")
+                .unwrap_or_default()
+                .trim()
+                .to_string(),
             stt_model: str_or("CARTESIA_STT_MODEL", "ink-2"),
             tts_model: str_or("CARTESIA_TTS_MODEL", "sonic-3.5"),
             cost_per_minute: parse_or("CARTESIA_COST_PER_MINUTE", 0.036f64),
