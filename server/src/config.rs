@@ -4,6 +4,7 @@
 //! `GOOGLE_CLIENT_ID` and `JWT_SECRET` are all set. Otherwise the server runs in
 //! guest-only mode (no accounts, no metering) — the original behavior.
 
+use std::collections::HashMap;
 use std::env;
 
 use serde::{Deserialize, Serialize};
@@ -264,6 +265,12 @@ pub struct CartesiaConfig {
     /// language for model"` for any non-`en` speaker, dropping Enhanced to Standard. Only
     /// override to `ink-2` for an English-only deployment.
     pub stt_model: String,
+    /// Per-language STT model overrides (`CARTESIA_STT_MODEL_BY_LANG`, a JSON object like
+    /// `{"en":"ink-2"}`). The client picks, per speaker, the fastest model that supports the
+    /// SOURCE language, falling back to `stt_model` (multilingual). Defaults to routing
+    /// English to `ink-2` (Cartesia's fastest STT, English-only); every other language uses
+    /// `ink-whisper`. Keyed by lowercase base language code.
+    pub stt_model_by_lang: HashMap<String, String>,
     /// Streaming TTS model id (`CARTESIA_TTS_MODEL`, e.g. `sonic-3.5`).
     pub tts_model: String,
     /// Raw server cost per minute, USD (`CARTESIA_COST_PER_MINUTE`). Never serialized.
@@ -314,6 +321,9 @@ impl CartesiaConfig {
                 .trim()
                 .to_string(),
             stt_model: str_or("CARTESIA_STT_MODEL", "ink-whisper"),
+            stt_model_by_lang: parse_stt_model_map(
+                env::var("CARTESIA_STT_MODEL_BY_LANG").ok().as_deref(),
+            ),
             tts_model: str_or("CARTESIA_TTS_MODEL", "sonic-3.5"),
             cost_per_minute: parse_or("CARTESIA_COST_PER_MINUTE", 0.036f64),
             markup: percent / 100.0,
@@ -976,6 +986,20 @@ fn parse_packages(json: &str) -> Vec<CreditPackage> {
     serde_json::from_str(json).unwrap_or_default()
 }
 
+/// Parse `CARTESIA_STT_MODEL_BY_LANG` (a JSON object `{ lang: model }`, keys lowercased to
+/// base language codes). Absent or malformed → default to routing English to Cartesia's
+/// fastest STT (`ink-2`); every other language falls back to the multilingual `stt_model`.
+fn parse_stt_model_map(json: Option<&str>) -> HashMap<String, String> {
+    json.and_then(|s| serde_json::from_str::<HashMap<String, String>>(s).ok())
+        .map(|m| {
+            m.into_iter()
+                .map(|(k, v)| (k.to_lowercase(), v))
+                .collect::<HashMap<_, _>>()
+        })
+        .filter(|m| !m.is_empty())
+        .unwrap_or_else(|| HashMap::from([("en".to_string(), "ink-2".to_string())]))
+}
+
 fn present(name: &str) -> bool {
     env::var(name)
         .map(|v| !v.trim().is_empty())
@@ -1183,6 +1207,23 @@ mod tests {
         assert!(cfg.access_token_url().ends_with("/access-token"));
         assert!(cfg.clone_voice_url().ends_with("/voices/clone"));
         assert!(!cfg.access_token_url().contains("//access-token"));
+        // STT model map defaults to English→ink-2 (fastest), others fall back to stt_model.
+        assert_eq!(cfg.stt_model_by_lang.get("en").map(String::as_str), Some("ink-2"));
+    }
+
+    #[test]
+    fn stt_model_map_defaults_and_overrides() {
+        // Default (absent): English → ink-2, other languages absent (→ multilingual fallback).
+        let def = parse_stt_model_map(None);
+        assert_eq!(def.get("en").map(String::as_str), Some("ink-2"));
+        assert!(def.get("it").is_none());
+        // Malformed JSON → the same default.
+        assert_eq!(parse_stt_model_map(Some("not json")), def);
+        assert_eq!(parse_stt_model_map(Some("{}")), def);
+        // Valid override, keys lowercased to base codes.
+        let m = parse_stt_model_map(Some(r#"{"EN":"ink-2","de":"ink-de"}"#));
+        assert_eq!(m.get("en").map(String::as_str), Some("ink-2"));
+        assert_eq!(m.get("de").map(String::as_str), Some("ink-de"));
     }
 
     // NOTE: `Config::from_env()` reads process-global env, so its guest-vs-billing
