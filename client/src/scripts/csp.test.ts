@@ -69,4 +69,17 @@ describe('call CSP (issue #237 regression guard)', () => {
     expect(directive('script-src')).toContain('https://accounts.google.com');
     expect(directive('frame-src')).toContain('https://accounts.google.com');
   });
+
+  it('allows GA4 (gtag.js) to load and send hits', () => {
+    // gtag.js itself is fetched from googletagmanager.com.
+    expect(directive('script-src')).toContain('https://www.googletagmanager.com');
+    // GA4 sends collect beacons (sendBeacon/fetch) to the analytics endpoints,
+    // including regional collectors (region1.google-analytics.com, *.analytics.google.com).
+    expect(directive('connect-src')).toContain('https://www.googletagmanager.com');
+    expect(directive('connect-src')).toContain('https://www.google-analytics.com');
+    expect(directive('connect-src')).toContain('https://*.google-analytics.com');
+    expect(directive('connect-src')).toContain('https://*.analytics.google.com');
+    // Legacy image-pixel beacon fallback.
+    expect(directive('img-src')).toContain('https://www.google-analytics.com');
+  });
 });
