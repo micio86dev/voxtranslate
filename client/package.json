@@ -15,12 +15,12 @@
   "dependencies": {
     "@soniox/speech-to-text-web": "^1.4.0",
     "astro": "^5.0.0",
-    "driver.js": "^1.4.0"
+    "driver.js": "^1.6.0"
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.9",
-    "@axe-core/playwright": "^4.11.3",
-    "@playwright/test": "^1.61.0",
+    "@axe-core/playwright": "^4.12.1",
+    "@playwright/test": "^1.61.1",
     "@vitest/coverage-v8": "^4.1.9",
     "monocart-coverage-reports": "^2.12.12",
     "typescript": "^6.0.3",
