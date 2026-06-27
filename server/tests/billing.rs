@@ -401,6 +401,7 @@ mod ws_metering {
         config.cartesia = Some(voxtranslate_server::config::CartesiaConfig {
             api_key: "sk_car_test".into(),
             stt_model: "ink-2".into(),
+            stt_model_by_lang: Default::default(),
             tts_model: "sonic-3.5".into(),
             cost_per_minute: 0.036,
             markup: 0.85,
