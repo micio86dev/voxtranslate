@@ -36,6 +36,8 @@
   "voicePrepSaved": "თქვენი ხმა მზადაა.",
   "voicePrepSkip": "გამოტოვება",
   "voicePrepFailed": "ვერ მოვახერხეთ თქვენი ხმის დაყენება — ამჯერად სტანდარტულ ხმას გამოვიყენებთ.",
+  "voicePrepRecord": "ჩემი ხმის ჩაწერა",
+  "voicePrepRerecord": "ხელახლა ჩაწერა",
   "voiceCloneTitle": "თქვენი თარგმნილი ხმა",
   "voiceCloneStatusSaved": "თქვენი ხმა შენახულია.",
   "voiceCloneStatusNone": "ხმის კლონი ჯერ არ არის — შეუერთდით ზარს მის დასაყენებლად.",

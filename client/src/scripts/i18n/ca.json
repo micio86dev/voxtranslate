@@ -36,6 +36,8 @@
   "voicePrepSaved": "La teva veu està a punt.",
   "voicePrepSkip": "Omet",
   "voicePrepFailed": "No hem pogut configurar la teva veu — de moment farem servir una veu estàndard.",
+  "voicePrepRecord": "Grava la meva veu",
+  "voicePrepRerecord": "Torna a gravar",
   "voiceCloneTitle": "La teva veu traduïda",
   "voiceCloneStatusSaved": "La teva veu s'ha desat.",
   "voiceCloneStatusNone": "Encara no hi ha cap clon de veu — uneix-te a una trucada per configurar-lo.",

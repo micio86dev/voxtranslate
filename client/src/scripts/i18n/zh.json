@@ -36,6 +36,8 @@
   "voicePrepSaved": "你的声音已就绪。",
   "voicePrepSkip": "跳过",
   "voicePrepFailed": "我们无法设置你的声音——暂时先使用标准语音。",
+  "voicePrepRecord": "录制我的声音",
+  "voicePrepRerecord": "重新录制",
   "voiceCloneTitle": "你的翻译语音",
   "voiceCloneStatusSaved": "你的声音已保存。",
   "voiceCloneStatusNone": "尚无语音克隆——加入通话即可设置。",

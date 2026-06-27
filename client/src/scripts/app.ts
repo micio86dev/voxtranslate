@@ -483,15 +483,54 @@ function translateViaServer(
 // just a fast local short-circuit within a session (and a fallback before `me` is fetched).
 const VOICE_CLONED_KEY = 'vox_voice_cloned';
 const voiceprepEl = $('voiceprep');
+const vpMeter = $('voiceprep-meter');
+const vpMeterFill = $('voiceprep-meter-fill');
+const vpResult = $('voiceprep-result');
+const vpRecordBtn = $('voiceprep-record') as HTMLButtonElement;
 
-function showVoicePrep(on: boolean, recording = false): void {
-  show(voiceprepEl, on);
-  voiceprepEl.classList.toggle('recording', recording);
+type VoicePrepState = 'idle' | 'recording' | 'saving' | 'cloned' | 'failed';
+
+/** Whether this account already has a cloned voice (server truth, or this device's flag). */
+function hasVoiceClone(): boolean {
+  return !!auth.getUser()?.has_voice_clone || !!localStorage.getItem(VOICE_CLONED_KEY);
+}
+
+/** Width of the live capture meter (0..1 of the speech needed for a clone). */
+function setVoicePrepMeter(fraction: number): void {
+  vpMeterFill.style.width = `${Math.min(100, Math.max(0, fraction * 100))}%`;
+}
+
+/** Drive the voice-prep panel through its states, giving live + persistent final feedback. */
+function setVoicePrepState(s: VoicePrepState): void {
+  voiceprepEl.classList.toggle('recording', s === 'recording');
+  show(vpMeter, s === 'recording');
+  if (s === 'recording') setVoicePrepMeter(0);
+  vpRecordBtn.disabled = s === 'recording' || s === 'saving';
+  // "Record my voice" the first time; "Re-record" once a clone exists or after any attempt.
+  const redo = hasVoiceClone() || s === 'cloned' || s === 'failed';
+  vpRecordBtn.dataset.i18n = redo ? 'voicePrepRerecord' : 'voicePrepRecord';
+  vpRecordBtn.textContent = t(redo ? 'voicePrepRerecord' : 'voicePrepRecord');
+  // Persistent ✓/✗ outcome; transient status goes to the shared pre-join status line.
+  const terminal = s === 'cloned' || s === 'failed';
+  show(vpResult, terminal);
+  if (s === 'cloned') {
+    vpResult.textContent = `✓ ${t('voicePrepSaved')}`;
+    vpResult.className = 'voiceprep-result ok';
+  } else if (s === 'failed') {
+    vpResult.textContent = `✗ ${t('voicePrepFailed')}`;
+    vpResult.className = 'voiceprep-result err';
+  }
+  prejoinStatus.classList.remove('error');
+  prejoinStatus.textContent =
+    s === 'recording' ? t('voicePrepRecording') : s === 'saving' ? t('voicePrepSaving') : '';
 }
 
 /** Record a short mic sample, resolving once ≥3 s of actual speech is captured (energy
  *  threshold, not raw time), or null if too little speech by the time ceiling. */
-function recordVoiceSample(stream: MediaStream): Promise<Blob | null> {
+function recordVoiceSample(
+  stream: MediaStream,
+  onProgress?: (fraction: number) => void,
+): Promise<Blob | null> {
   return new Promise((resolve) => {
     let recorder: MediaRecorder;
     try {
@@ -530,6 +569,7 @@ function recordVoiceSample(stream: MediaStream): Promise<Blob | null> {
       let sum = 0;
       for (const v of buf) sum += v * v;
       if (Math.sqrt(sum / buf.length) > SPEECH_RMS) speechMs += TICK;
+      onProgress?.(Math.min(1, speechMs / MIN_SPEECH_MS));
       elapsedMs += TICK;
       if (speechMs >= MIN_SPEECH_MS + 500 || elapsedMs >= MAX_MS) {
         clearInterval(timer);
@@ -550,44 +590,44 @@ function recordVoiceSample(stream: MediaStream): Promise<Blob | null> {
   });
 }
 
-/** Clone the signed-in Enhanced user's voice before joining (spec 0108). Best-effort and
- *  non-blocking: any failure silently falls back to a default voice and the call proceeds. */
-async function prepareVoice(): Promise<void> {
-  if (
-    !auth.isLoggedIn() ||
-    !voiceCloningEnabled ||
-    !engineIsClientDirect(session?.engine, availableEngines) ||
-    auth.getUser()?.has_voice_clone || // account already cloned (any device) — never re-prompt
-    localStorage.getItem(VOICE_CLONED_KEY)
-  ) {
-    return;
-  }
+/** Show the voice-prep panel for eligible users (signed-in, cloning on, client-direct engine)
+ *  in its initial state: a "ready" outcome + Re-record when a clone already exists, otherwise
+ *  a prompt to record. Called on pre-join entry and whenever the chosen engine changes. */
+function syncVoicePrep(): void {
+  const eligible =
+    auth.isLoggedIn() &&
+    voiceCloningEnabled &&
+    engineIsClientDirect(selectedEngine, availableEngines);
+  show(voiceprepEl, eligible);
+  if (eligible) setVoicePrepState(hasVoiceClone() ? 'cloned' : 'idle');
+}
+
+/** Record the user's voice and clone it (spec 0108). Explicit + repeatable from the pre-join,
+ *  with live capture feedback and a clear cloned/not-cloned outcome. Best-effort: too little
+ *  speech or a clone failure just falls back to a default voice — never blocks the call. */
+async function runVoiceClone(): Promise<void> {
   const track = localStream?.getAudioTracks()[0];
   if (!track) return;
-  showVoicePrep(true, true);
-  prejoinStatus.textContent = t('voicePrepRecording');
-  prejoinStatus.classList.remove('error');
+  setVoicePrepState('recording');
   try {
-    const blob = await recordVoiceSample(new MediaStream([track]));
+    const blob = await recordVoiceSample(new MediaStream([track]), setVoicePrepMeter);
     if (!blob) {
-      showVoicePrep(false);
-      return; // too little speech → skip silently, use a default voice
+      setVoicePrepState('failed'); // too little speech captured — let them try again
+      return;
     }
-    showVoicePrep(true, false);
-    prejoinStatus.textContent = t('voicePrepSaving');
+    setVoicePrepState('saving');
     const res = await cloneVoice(blob, session?.lang);
     if (res.voice_id) {
       localStorage.setItem(VOICE_CLONED_KEY, '1');
-      prejoinStatus.textContent = t('voicePrepSaved');
+      setVoicePrepState('cloned');
     } else {
-      prejoinStatus.textContent = t('voicePrepFailed');
+      setVoicePrepState('failed');
     }
   } catch {
-    prejoinStatus.textContent = t('voicePrepFailed');
-  } finally {
-    showVoicePrep(false);
+    setVoicePrepState('failed');
   }
 }
+vpRecordBtn.addEventListener('click', () => void runVoiceClone());
 // Listener-pays (spec 0099): once the server sends a `capture_format` message our
 // capture is server-driven (PCM iff a Premium listener is present), not chosen from
 // our own engine. `null` until the first message → speaker-pays (self-engine) mode.
@@ -858,6 +898,7 @@ function selectEngine(id: string): void {
   saveEnginePref(id);
   renderEngineSelector();
   rebuildLangOptions();
+  syncVoicePrep(); // voice-prep only applies to the client-direct (Enhanced) engine.
 }
 
 // Rebuild the language dropdown from the COMMON languages across all engines
@@ -1156,6 +1197,7 @@ function selectTier(id: string): void {
   selectedEngine = id;
   saveEnginePref(id);
   renderTierCards();
+  syncVoicePrep(); // voice-prep only applies to the client-direct (Enhanced) engine.
 }
 
 /** The note below the tier cards: a single-tier explanation, the credit balance, and a
@@ -1367,6 +1409,7 @@ async function goPrejoin(room: string, isPublic: boolean): Promise<void> {
   prejoinVis.textContent = isPublic ? t('public') : t('private');
   prejoinStatus.textContent = '';
   void setupBizPrejoin();
+  syncVoicePrep(); // Enhanced voice-prep panel (spec 0108): show/init for eligible users.
   micOn = true;
   camOn = true;
   try {
@@ -1547,12 +1590,10 @@ $('join-btn').addEventListener('click', () => {
   if (!localStream || !session) return;
   unlockTts(); // iOS: prime speechSynthesis inside the tap so translations play
   pcmPlayback.unlock(); // same for the Premium translated-audio context (spec 0093)
-  void (async () => {
-    // Enhanced voice prep (spec 0108): clone the user's voice first when applicable. Never
-    // blocks — a failure or skip just means a default voice — so always proceed to the call.
-    await prepareVoice().catch(() => {});
-    void startCall();
-  })();
+  // Voice cloning (spec 0108) is now an explicit, repeatable pre-join step (the voice-prep
+  // panel) — not coupled to join. Whatever the user did there (clone / re-record / skip) is
+  // already applied; just enter the call.
+  void startCall();
 });
 
 // ============================================================================

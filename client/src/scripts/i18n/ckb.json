@@ -36,6 +36,8 @@
   "voicePrepSaved": "دەنگت ئامادەیە.",
   "voicePrepSkip": "تێپەڕاندن",
   "voicePrepFailed": "نەمانتوانی دەنگت ڕێکبخەین — بۆ ئێستا دەنگێکی ستاندارد بەکاردەهێنین.",
+  "voicePrepRecord": "دەنگم تۆمار بکە",
+  "voicePrepRerecord": "دووبارە تۆمار بکە",
   "voiceCloneTitle": "دەنگە وەرگێڕدراوەکەت",
   "voiceCloneStatusSaved": "دەنگت پاشەکەوت کرا.",
   "voiceCloneStatusNone": "هێشتا هیچ کلۆنی دەنگ نییە — بۆ ڕێکخستنی بەشداری پەیوەندییەک بکە.",

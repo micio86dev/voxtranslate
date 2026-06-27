@@ -36,6 +36,8 @@
   "voicePrepSaved": "Handa na ang boses mo.",
   "voicePrepSkip": "Laktawan",
   "voicePrepFailed": "Hindi namin na-set up ang boses mo — gagamit muna kami ng standard na boses.",
+  "voicePrepRecord": "I-record ang boses ko",
+  "voicePrepRerecord": "I-record ulit",
   "voiceCloneTitle": "Ang naisalin mong boses",
   "voiceCloneStatusSaved": "Naka-save ang boses mo.",
   "voiceCloneStatusNone": "Wala pang voice clone — sumali sa isang tawag para i-set up ito.",

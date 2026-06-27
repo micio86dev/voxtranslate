@@ -36,6 +36,8 @@
   "voicePrepSaved": "音声の準備ができました。",
   "voicePrepSkip": "スキップ",
   "voicePrepFailed": "音声を設定できませんでした。今回は標準の音声を使用します。",
+  "voicePrepRecord": "自分の声を録音",
+  "voicePrepRerecord": "録音し直す",
   "voiceCloneTitle": "翻訳されたあなたの声",
   "voiceCloneStatusSaved": "音声を保存しました。",
   "voiceCloneStatusNone": "まだ音声クローンがありません。通話に参加して設定してください。",

@@ -36,6 +36,8 @@
   "voicePrepSaved": "ඔබේ හඬ සූදානම්.",
   "voicePrepSkip": "මඟ හරින්න",
   "voicePrepFailed": "ඔබේ හඬ සැකසීමට අපට නොහැකි විය — දැනට අපි සම්මත හඬක් භාවිතා කරමු.",
+  "voicePrepRecord": "මගේ හඬ පටිගත කරන්න",
+  "voicePrepRerecord": "නැවත පටිගත කරන්න",
   "voiceCloneTitle": "ඔබේ පරිවර්තිත හඬ",
   "voiceCloneStatusSaved": "ඔබේ හඬ සුරැකී ඇත.",
   "voiceCloneStatusNone": "තවම හඬ පිටපතක් නැත — එය සැකසීමට ඇමතුමකට සම්බන්ධ වන්න.",

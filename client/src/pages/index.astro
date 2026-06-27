@@ -315,12 +315,17 @@ const jsonLd = {
         </div>
         <p id="prejoin-status" class="status-line" role="status"></p>
         <!-- Enhanced voice preparation (spec 0108): clones the user's voice so others hear
-             them translated in their own voice. Shown only for Enhanced-tier users with
-             cloning enabled and no existing clone; toggled by app.ts. -->
+             them translated in their own voice. Shown for Enhanced-tier users with cloning
+             enabled; an explicit record/re-record step driven by app.ts. -->
         <div id="voiceprep" class="voiceprep hidden">
           <p class="voiceprep-title" data-i18n="voicePrepTitle">{T('voicePrepTitle')}</p>
           <p class="voiceprep-prompt" data-i18n="voicePrepPrompt">{T('voicePrepPrompt')}</p>
           <p class="voiceprep-sample" data-i18n="voicePrepSample">{T('voicePrepSample')}</p>
+          <!-- Live level meter: fills as enough speech is captured while reading the phrase. -->
+          <div id="voiceprep-meter" class="voiceprep-meter hidden" aria-hidden="true"><span id="voiceprep-meter-fill"></span></div>
+          <!-- Persistent outcome: ✓ cloned / ✗ not cloned (then a default voice is used). -->
+          <p id="voiceprep-result" class="voiceprep-result hidden" role="status"></p>
+          <button id="voiceprep-record" class="voiceprep-btn" type="button" data-i18n="voicePrepRecord">{T('voicePrepRecord')}</button>
         </div>
         <!-- VoxTranslate for Business (spec 0106): associate this call with an org/project
              and optionally record it. Hidden for non-business users. -->
@@ -1335,6 +1340,17 @@ const jsonLd = {
     .voiceprep-prompt { margin: 0 0 6px; opacity: 0.85; font-size: 0.92em; }
     .voiceprep-sample { margin: 0; font-style: italic; opacity: 0.7; font-size: 0.9em; }
     .voiceprep.recording { border-color: #e0556e; }
+    /* Highlight the phrase to read while recording so the user knows to speak now. */
+    .voiceprep.recording .voiceprep-sample { color: #e0556e; opacity: 1; }
+    /* Live capture meter: #voiceprep-meter-fill width is set by app.ts as speech accrues. */
+    .voiceprep-meter { height: 8px; border-radius: 999px; background: rgba(255,255,255,0.12); overflow: hidden; margin: 8px 0 6px; }
+    .voiceprep-meter > span { display: block; height: 100%; width: 0; border-radius: 999px; background: linear-gradient(90deg, #6c7bff, #e0556e); transition: width 0.12s linear; }
+    .voiceprep-result { margin: 4px 0 0; font-weight: 600; font-size: 0.92em; }
+    .voiceprep-result.ok { color: #34d399; }
+    .voiceprep-result.err { color: #f0a35e; }
+    .voiceprep-btn { margin-top: 10px; min-height: 40px; padding: 0 16px; border-radius: 10px; border: 1px solid var(--border, #2a2a35); background: rgba(120,120,200,0.12); color: inherit; font: inherit; font-weight: 600; cursor: pointer; }
+    .voiceprep-btn:hover { background: rgba(120,120,200,0.2); }
+    .voiceprep-btn:disabled { opacity: 0.5; cursor: default; }
     .prejoin-actions { display: flex; gap: 10px; margin-top: 14px; }
     .prejoin-actions .btn-ghost { min-height: 48px; padding: 0 20px; }
     .prejoin-actions .btn-primary { flex: 1; }

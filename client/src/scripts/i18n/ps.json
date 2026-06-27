@@ -36,6 +36,8 @@
   "voicePrepSaved": "ستاسو غږ چمتو دی.",
   "voicePrepSkip": "پرېښودل",
   "voicePrepFailed": "موږ ستاسو غږ نشو ترتیب کولی — د اوس لپاره به یو معیاري غږ وکاروو.",
+  "voicePrepRecord": "زما غږ ثبت کړئ",
+  "voicePrepRerecord": "بیا ثبت کړئ",
   "voiceCloneTitle": "ستاسو ژباړل شوی غږ",
   "voiceCloneStatusSaved": "ستاسو غږ خوندي شو.",
   "voiceCloneStatusNone": "تر اوسه د غږ کلون نشته — د دې د ترتیبولو لپاره په کال کې ګډون وکړئ.",

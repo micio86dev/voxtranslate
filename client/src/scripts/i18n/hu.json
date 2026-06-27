@@ -36,6 +36,8 @@
   "voicePrepSaved": "A hangja készen áll.",
   "voicePrepSkip": "Kihagyás",
   "voicePrepFailed": "Nem sikerült beállítani a hangját — egyelőre normál hangot használunk.",
+  "voicePrepRecord": "Hangom rögzítése",
+  "voicePrepRerecord": "Újrarögzítés",
   "voiceCloneTitle": "Az Ön lefordított hangja",
   "voiceCloneStatusSaved": "A hangja mentve van.",
   "voiceCloneStatusNone": "Még nincs hangklón — csatlakozzon egy híváshoz a beállításához.",

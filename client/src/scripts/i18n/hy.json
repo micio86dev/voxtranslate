@@ -36,6 +36,8 @@
   "voicePrepSaved": "Ձեր ձայնը պատրաստ է։",
   "voicePrepSkip": "Բաց թողնել",
   "voicePrepFailed": "Չկարողացանք կարգավորել ձեր ձայնը՝ առայժմ կօգտագործենք ստանդարտ ձայն։",
+  "voicePrepRecord": "Ձայնագրել իմ ձայնը",
+  "voicePrepRerecord": "Ձայնագրել նորից",
   "voiceCloneTitle": "Ձեր թարգմանված ձայնը",
   "voiceCloneStatusSaved": "Ձեր ձայնը պահպանված է։",
   "voiceCloneStatusNone": "Դեռ ձայնի կլոն չկա՝ միացեք զանգին այն կարգավորելու համար։",

@@ -36,6 +36,8 @@
   "voicePrepSaved": "음성이 준비되었습니다.",
   "voicePrepSkip": "건너뛰기",
   "voicePrepFailed": "음성을 설정하지 못했습니다 — 지금은 표준 음성을 사용합니다.",
+  "voicePrepRecord": "내 음성 녹음",
+  "voicePrepRerecord": "다시 녹음",
   "voiceCloneTitle": "번역된 내 목소리",
   "voiceCloneStatusSaved": "음성이 저장되었습니다.",
   "voiceCloneStatusNone": "아직 음성 복제본이 없습니다 — 통화에 참여하여 설정하세요.",

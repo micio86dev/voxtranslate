@@ -36,6 +36,8 @@
   "voicePrepSaved": "เสียงของคุณพร้อมแล้ว",
   "voicePrepSkip": "ข้าม",
   "voicePrepFailed": "เราตั้งค่าเสียงของคุณไม่ได้ — ตอนนี้จะใช้เสียงมาตรฐานไปก่อน",
+  "voicePrepRecord": "บันทึกเสียงของฉัน",
+  "voicePrepRerecord": "บันทึกใหม่",
   "voiceCloneTitle": "เสียงที่แปลแล้วของคุณ",
   "voiceCloneStatusSaved": "บันทึกเสียงของคุณแล้ว",
   "voiceCloneStatusNone": "ยังไม่มีเสียงโคลน — เข้าร่วมการโทรเพื่อตั้งค่า",

@@ -36,6 +36,8 @@
   "voicePrepSaved": "మీ స్వరం సిద్ధంగా ఉంది.",
   "voicePrepSkip": "దాటవేయి",
   "voicePrepFailed": "మీ స్వరాన్ని సెటప్ చేయలేకపోయాం — ప్రస్తుతానికి ప్రామాణిక స్వరాన్ని ఉపయోగిస్తాం.",
+  "voicePrepRecord": "నా స్వరాన్ని రికార్డ్ చెయ్యి",
+  "voicePrepRerecord": "మళ్లీ రికార్డ్ చెయ్యి",
   "voiceCloneTitle": "మీ అనువదిత స్వరం",
   "voiceCloneStatusSaved": "మీ స్వరం సేవ్ చేయబడింది.",
   "voiceCloneStatusNone": "ఇంకా స్వర క్లోన్ లేదు — దాన్ని సెటప్ చేయడానికి కాల్‌లో చేరండి.",

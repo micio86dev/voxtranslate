@@ -36,6 +36,8 @@
   "voicePrepSaved": "તમારો અવાજ તૈયાર છે.",
   "voicePrepSkip": "છોડો",
   "voicePrepFailed": "અમે તમારો અવાજ સેટ કરી શક્યા નહીં — હાલ પૂરતું અમે માનક અવાજ વાપરીશું.",
+  "voicePrepRecord": "મારો અવાજ રેકોર્ડ કરો",
+  "voicePrepRerecord": "ફરી રેકોર્ડ કરો",
   "voiceCloneTitle": "તમારો અનુવાદિત અવાજ",
   "voiceCloneStatusSaved": "તમારો અવાજ સાચવાયેલો છે.",
   "voiceCloneStatusNone": "હજુ સુધી કોઈ વૉઇસ ક્લોન નથી — તેને સેટ કરવા માટે કૉલમાં જોડાઓ.",
