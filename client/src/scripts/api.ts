@@ -16,7 +16,7 @@ export interface EnhancedSessionResponse {
   /** Unix seconds at which the token expires. */
   expires_at: number;
   cartesia_version: string;
-  stt: { endpoint: string; model: string };
+  stt: { endpoint: string; model: string; models_by_lang?: Record<string, string> };
   tts: { endpoint: string; model: string };
   voice_cloning_enabled: boolean;
   /** Optional env-configured fallback voice for speakers without a clone. */

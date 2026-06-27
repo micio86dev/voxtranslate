@@ -9,6 +9,7 @@ import {
   CartesiaManager,
   type CartesiaSession,
   liveLine,
+  resolveSttModel,
   sttUrl,
   ttsUrl,
 } from './cartesia';
@@ -18,7 +19,8 @@ const SESSION: CartesiaSession = {
   expiresAt: Math.floor(Date.now() / 1000) + 3600,
   cartesiaVersion: '2026-03-01',
   sttEndpoint: 'wss://api.cartesia.ai/stt/websocket',
-  sttModel: 'ink-2',
+  sttModel: 'ink-whisper',
+  sttModelsByLang: { en: 'ink-2' },
   ttsEndpoint: 'wss://api.cartesia.ai/tts/websocket',
   ttsModel: 'sonic-3.5',
   voiceCloningEnabled: true,
@@ -49,12 +51,26 @@ describe('sttUrl / ttsUrl', () => {
   it('builds the STT URL with auth + format query params', () => {
     const u = new URL(sttUrl(SESSION, 'it'));
     expect(u.origin + u.pathname).toBe('wss://api.cartesia.ai/stt/websocket');
-    expect(u.searchParams.get('model')).toBe('ink-2');
+    expect(u.searchParams.get('model')).toBe('ink-whisper'); // 'it' → multilingual default
     expect(u.searchParams.get('encoding')).toBe('pcm_s16le');
     expect(u.searchParams.get('sample_rate')).toBe('16000');
     expect(u.searchParams.get('cartesia_version')).toBe('2026-03-01');
     expect(u.searchParams.get('access_token')).toBe('tok_abc');
     expect(u.searchParams.get('language')).toBe('it');
+  });
+
+  it('routes each speaker to the fastest STT model for their language', () => {
+    // English → the per-language override (ink-2, Cartesia's fastest, English-only).
+    expect(new URL(sttUrl(SESSION, 'en')).searchParams.get('model')).toBe('ink-2');
+    // Regional English variant resolves on the base code; language is normalized to `en`.
+    const enUs = new URL(sttUrl(SESSION, 'en-US'));
+    expect(enUs.searchParams.get('model')).toBe('ink-2');
+    expect(enUs.searchParams.get('language')).toBe('en');
+    // Any other language → the multilingual default.
+    expect(new URL(sttUrl(SESSION, 'es')).searchParams.get('model')).toBe('ink-whisper');
+    // No map / unknown language → the default model.
+    expect(resolveSttModel({ ...SESSION, sttModelsByLang: undefined }, 'en')).toBe('ink-whisper');
+    expect(resolveSttModel(SESSION, 'de')).toBe('ink-whisper');
   });
 
   it('builds the TTS URL with auth', () => {

@@ -172,7 +172,11 @@ pub async fn enhanced_session(State(state): State<AppState>, user: AuthUser) -> 
         "token": token,
         "expires_at": expires_at,
         "cartesia_version": cartesia.version,
-        "stt": { "endpoint": cartesia.stt_endpoint, "model": cartesia.stt_model },
+        "stt": {
+            "endpoint": cartesia.stt_endpoint,
+            "model": cartesia.stt_model,
+            "models_by_lang": cartesia.stt_model_by_lang,
+        },
         "tts": { "endpoint": cartesia.tts_endpoint, "model": cartesia.tts_model },
         "voice_cloning_enabled": cartesia.voice_cloning_enabled,
         "default_voice_id": cartesia.default_voice_id,
@@ -3394,6 +3398,7 @@ mod tests {
         let cfg = crate::config::CartesiaConfig {
             api_key: "sk_car_test".into(),
             stt_model: "ink-2".into(),
+            stt_model_by_lang: Default::default(),
             tts_model: "sonic-3.5".into(),
             cost_per_minute: 0.036,
             markup: 0.85,

@@ -404,6 +404,7 @@ function ensureCartesiaManager(): CartesiaManager {
           cartesiaVersion: s.cartesia_version,
           sttEndpoint: s.stt.endpoint,
           sttModel: s.stt.model,
+          sttModelsByLang: s.stt.models_by_lang ?? {},
           ttsEndpoint: s.tts.endpoint,
           ttsModel: s.tts.model,
           voiceCloningEnabled: s.voice_cloning_enabled,
