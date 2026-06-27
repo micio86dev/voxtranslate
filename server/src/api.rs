@@ -204,7 +204,10 @@ async fn clone_cartesia_voice(
         .bearer_auth(&cartesia.api_key)
         .header("Cartesia-Version", &cartesia.version)
         .multipart(form)
-        .timeout(Duration::from_secs(5))
+        // Instant Voice Cloning processes the clip server-side and routinely takes ~8-12s
+        // (measured ~8.4s for an 8.5s clip). The old 5s timed out EVERY clone — even on a
+        // paid plan — returning fallback=true. 30s leaves ample headroom.
+        .timeout(Duration::from_secs(30))
         .send()
         .await
         .map_err(|e| format!("cartesia clone request failed: {e}"))?;
