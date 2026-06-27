@@ -121,6 +121,13 @@ function confirmDialog(
 /** Join a meeting's room without leaving the web app: prefill the room field and
  *  trigger the normal connect flow (which runs the business pre-join binding). */
 function joinRoom(code: string): void {
+  // Mark the join source so app.ts can attribute the `room_joined` analytics to a scheduled
+  // meeting — survives both the in-app click path and the full-navigation reload below.
+  try {
+    sessionStorage.setItem("vox_join_src", "meeting");
+  } catch {
+    /* sessionStorage unavailable — analytics just won't tag this as scheduled */
+  }
   const roomInput = document.getElementById("room") as HTMLInputElement | null;
   const enterBtn = document.getElementById("enter") as HTMLButtonElement | null;
   if (roomInput && enterBtn) {
