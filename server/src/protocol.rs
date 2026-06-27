@@ -95,13 +95,23 @@ pub enum ClientMessage {
     Game {
         state: serde_json::Value,
     },
-    /// The client-direct "Enhanced" (Soniox) pipeline gave up translating a remote
-    /// speaker in-browser (spec 0101): a permanent error, or a transient one that
-    /// survived all retries — e.g. Soniox's concurrent-session cap. Ask the server to
+    /// The client-direct "Enhanced" (Cartesia) pipeline gave up translating a remote
+    /// speaker in-browser (spec 0108): a permanent error, or a transient one that
+    /// survived all retries — e.g. Cartesia's concurrency limit (429). Ask the server to
     /// fall this listener back to server-side Standard translation (and re-bill at the
     /// Standard rate). `speaker_id` is for logging only; the downgrade is whole-listener.
     EnhancedFallback {
         speaker_id: String,
+    },
+    /// Translate one finalized Enhanced transcript (spec 0108). Cartesia does STT + TTS but
+    /// NOT translation, so the client-direct listener sends each finalized source-language
+    /// segment here and the server replies with [`ServerMessage::TranslatedText`] (Groq,
+    /// uncached). `request_id` correlates the reply; text-only — no audio crosses the server.
+    TranslateText {
+        request_id: String,
+        text: String,
+        source: String,
+        target: String,
     },
 }
 
@@ -127,6 +137,11 @@ pub struct PeerInfo {
     /// Avatar URL for authenticated peers; absent for guests.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub avatar_url: Option<String>,
+    /// The peer's Cartesia cloned-voice id (spec 0108), if they have one. Propagated so an
+    /// Enhanced listener can render THIS speaker's translated audio in their own voice.
+    /// Absent for guests / users who haven't cloned a voice (→ a default TTS voice).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cartesia_voice_id: Option<String>,
 }
 
 /// Messages the server pushes to peers as JSON text frames.
@@ -152,6 +167,9 @@ pub enum ServerMessage {
         lang: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         avatar_url: Option<String>,
+        /// The peer's Cartesia cloned-voice id (spec 0108), if any — see [`PeerInfo`].
+        #[serde(skip_serializing_if = "Option::is_none")]
+        cartesia_voice_id: Option<String>,
     },
     /// A peer left.
     PeerLeft {
@@ -299,6 +317,14 @@ pub enum ServerMessage {
     /// Credits exhausted: the speaking session (audio → STT) was stopped. The
     /// WebRTC call itself stays up; the user can buy credits and resume.
     BalanceExhausted,
+
+    /// The translation of a [`ClientMessage::TranslateText`] request (spec 0108), echoed
+    /// back to the requesting Enhanced listener only. `request_id` matches the request; the
+    /// listener then speaks `text` via Cartesia TTS in the speaker's cloned voice.
+    TranslatedText {
+        request_id: String,
+        text: String,
+    },
 
     /// A speaker's translation engine was switched mid-call (spec 0093) — e.g.
     /// Premium downgraded to the cheaper default when its credits ran low.
@@ -531,6 +557,15 @@ mod tests {
         assert!(dg.contains("\"from\":\"premium\"") && dg.contains("\"to\":\"standard\""));
         assert!(dg.contains("\"reason\":\"low_balance\""));
 
+        // Enhanced translate-hop reply (spec 0108): tagged + carries request id + text.
+        let tt = ServerMessage::TranslatedText {
+            request_id: "r1".into(),
+            text: "hello".into(),
+        }
+        .to_json();
+        assert!(tt.contains("\"type\":\"translated_text\""));
+        assert!(tt.contains("\"request_id\":\"r1\"") && tt.contains("\"text\":\"hello\""));
+
         // Emoji reactions + hand-raise (PR #1).
         let e = ServerMessage::EmojiReaction {
             peer_id: "a".into(),
@@ -683,6 +718,15 @@ mod tests {
             )
             .unwrap(),
             ClientMessage::EnhancedFallback { speaker_id } if speaker_id == "p1"
+        ));
+        // Enhanced translate hop (spec 0108): carries request id + text + langs.
+        assert!(matches!(
+            serde_json::from_str::<ClientMessage>(
+                r#"{"type":"translate_text","request_id":"r1","text":"ciao","source":"it","target":"en"}"#
+            )
+            .unwrap(),
+            ClientMessage::TranslateText { request_id, source, target, .. }
+                if request_id == "r1" && source == "it" && target == "en"
         ));
         assert!(serde_json::from_str::<ClientMessage>(r#"{"type":"bogus"}"#).is_err());
     }

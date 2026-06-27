@@ -114,6 +114,10 @@ pub struct Peer {
     pub engine: String,
     /// Google avatar URL for authenticated users; `None` for guests.
     pub avatar_url: Option<String>,
+    /// Cartesia cloned-voice id (spec 0108) for authenticated users who completed voice
+    /// prep; `None` otherwise. Propagated to other peers so an Enhanced listener speaks
+    /// THIS peer's translated audio in their own voice.
+    pub cartesia_voice_id: Option<String>,
     pub tx: PeerTx,
     /// `true` while this peer has an open speaking session (between `Start` and
     /// `Stop`/disconnect). Listener metering (spec 0099) reads this to bill each
@@ -204,7 +208,7 @@ pub struct PeerSnapshot {
 #[derive(Default)]
 pub struct RoomManager {
     rooms: DashMap<String, Room>,
-    /// Engine ids whose translation happens client-direct (spec 0101, Soniox
+    /// Engine ids whose translation happens client-direct (spec 0108, Cartesia
     /// "Enhanced"): their listeners translate in the browser, so the server's
     /// "serve everyone" subtitle fan-out skips them — otherwise they'd be
     /// double-translated. Set once at startup from the engine registry; empty
@@ -283,6 +287,7 @@ impl RoomManager {
                 user_name: p.name.clone(),
                 lang: p.lang.clone(),
                 avatar_url: p.avatar_url.clone(),
+                cartesia_voice_id: p.cartesia_voice_id.clone(),
             })
             .collect();
         room.peers.push(peer);
@@ -365,7 +370,7 @@ impl RoomManager {
 
     /// Broadcast to every peer EXCEPT client-direct-engine listeners (spec 0101), plus
     /// `keep_peer` whatever their engine. The Standard "serve everyone" delivery uses
-    /// this in listener-pays mode: a client-direct (Soniox "Enhanced") listener renders
+    /// this in listener-pays mode: a client-direct (Cartesia "Enhanced") listener renders
     /// its OWN in-browser subtitles, so the server must not also push it Standard's —
     /// while every other listener (Standard, plus any Premium listener who fell back to
     /// capacity) is still served, and the speaker still sees their own caption via
@@ -721,6 +726,7 @@ mod tests {
                 lang: lang.into(),
                 engine: engine.into(),
                 avatar_url: None,
+                cartesia_voice_id: None,
                 tx,
                 speaking: Arc::new(AtomicBool::new(false)),
             },
@@ -797,24 +803,24 @@ mod tests {
     }
 
     #[test]
-    fn broadcast_excluding_client_direct_skips_soniox_keeps_others_and_speaker() {
-        // Spec 0101: the Standard "serve everyone" path must reach Standard listeners and
-        // a fallen-back Premium listener, but NOT a Soniox ("enhanced") listener — who
+    fn broadcast_excluding_client_direct_skips_cartesia_keeps_others_and_speaker() {
+        // Spec 0108: the Standard "serve everyone" path must reach Standard listeners and
+        // a fallen-back Premium listener, but NOT a Cartesia ("enhanced") listener — who
         // renders its own in-browser subtitles — while the speaker still sees their own
         // caption even when the SPEAKER is on the client-direct engine.
         let rm = RoomManager::new();
-        rm.init_client_direct_engines(HashSet::from(["soniox".to_string()]));
+        rm.init_client_direct_engines(HashSet::from(["cartesia".to_string()]));
 
-        // Speaker `spk` is itself on Soniox; std + premium are cross-language listeners;
-        // `sx` is another Soniox listener that must be excluded.
-        let (spk, mut r_spk) = peer_full("spk", "it", "soniox", Uuid::new_v4());
+        // Speaker `spk` is itself on Cartesia; std + premium are cross-language listeners;
+        // `cx` is another Cartesia listener that must be excluded.
+        let (spk, mut r_spk) = peer_full("spk", "it", "cartesia", Uuid::new_v4());
         let (std, mut r_std) = peer_full("std", "en", "standard", Uuid::new_v4());
         let (prem, mut r_prem) = peer_full("prem", "fr", "premium", Uuid::new_v4());
-        let (sx, mut r_sx) = peer_full("sx", "de", "soniox", Uuid::new_v4());
+        let (cx, mut r_cx) = peer_full("cx", "de", "cartesia", Uuid::new_v4());
         rm.join("r", spk, Visibility::Private).unwrap();
         rm.join("r", std, Visibility::Private).unwrap();
         rm.join("r", prem, Visibility::Private).unwrap();
-        rm.join("r", sx, Visibility::Private).unwrap();
+        rm.join("r", cx, Visibility::Private).unwrap();
 
         rm.broadcast_excluding_client_direct("r", "spk", "caption");
 
@@ -834,13 +840,13 @@ mod tests {
             "speaker keeps own caption even on a client-direct engine"
         );
         assert!(
-            r_sx.try_recv().is_err(),
-            "client-direct (Soniox) listener is NOT double-served"
+            r_cx.try_recv().is_err(),
+            "client-direct (Cartesia) listener is NOT double-served"
         );
 
         // With no client-direct engine configured it behaves like a plain broadcast.
         let rm2 = RoomManager::new();
-        let (a, mut ra) = peer_full("a", "it", "soniox", Uuid::new_v4());
+        let (a, mut ra) = peer_full("a", "it", "cartesia", Uuid::new_v4());
         rm2.join("r", a, Visibility::Private).unwrap();
         rm2.broadcast_excluding_client_direct("r", "nobody", "x");
         assert_eq!(

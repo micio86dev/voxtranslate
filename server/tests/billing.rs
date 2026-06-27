@@ -183,7 +183,7 @@ mod guest_mode {
             retention_sweep_batch: 200,
             openai: None,
             google: None,
-            soniox: None,
+            cartesia: None,
             standard_enabled: true,
             listener_pays: false,
             language_first_ux: false,
@@ -389,7 +389,7 @@ mod ws_metering {
         assert_eq!(frame["code"], "insufficient_balance");
     }
 
-    /// Like [`setup`], but with listener-pays on and the Enhanced (Soniox) engine
+    /// Like [`setup`], but with listener-pays on and the Enhanced (Cartesia) engine
     /// registered — the only configuration in which a client-direct receive tier exists.
     async fn setup_enhanced() -> Option<Server> {
         let secret = "ws-enh-secret".to_string();
@@ -398,18 +398,17 @@ mod ws_metering {
         db::migrate(&pool).await.ok()?;
         let mut config = Config::test_with_billing(&url, &secret, 5.0);
         config.listener_pays = true;
-        let region = || voxtranslate_server::config::SonioxRegionConfig {
-            api_key: "k".into(),
-            stt_endpoint: "wss://stt".into(),
-            tts_endpoint: "wss://tts".into(),
-        };
-        config.soniox = Some(voxtranslate_server::config::SonioxConfig {
-            stt_model: "stt-rt-v5".into(),
-            cost_per_minute: 0.015,
+        config.cartesia = Some(voxtranslate_server::config::CartesiaConfig {
+            api_key: "sk_car_test".into(),
+            stt_model: "ink-2".into(),
+            tts_model: "sonic-3.5".into(),
+            cost_per_minute: 0.036,
             markup: 0.85,
-            us: region(),
-            eu: region(),
-            jp: region(),
+            voice_cloning_enabled: false,
+            api_base: "https://api.cartesia.ai".into(),
+            stt_endpoint: "wss://api.cartesia.ai/stt/websocket".into(),
+            tts_endpoint: "wss://api.cartesia.ai/tts/websocket".into(),
+            version: "2026-03-01".into(),
         });
         let min_join = usd(config.billing.as_ref().unwrap().pricing.min_balance_to_join);
         let mut state = AppState::new(config);
@@ -426,7 +425,7 @@ mod ws_metering {
     }
 
     /// When an Enhanced (client-direct) listener's in-browser pipeline gives up, the
-    /// `enhanced_fallback` signal must downgrade THAT listener to Standard (spec 0101):
+    /// `enhanced_fallback` signal must downgrade THAT listener to Standard (spec 0108):
     /// the server flips their receive engine and confirms with `engine_downgraded`
     /// (`reason: "enhanced_unavailable"`), after which the existing Standard fan-out
     /// reaches them and the meter (respawned here) bills at the Standard rate.
@@ -438,7 +437,7 @@ mod ws_metering {
             return;
         };
 
-        // A billed listener joins on the Enhanced (Soniox) receive engine.
+        // A billed listener joins on the Enhanced (Cartesia) receive engine.
         let identity = GoogleIdentity {
             google_id: format!("g-{}", Uuid::new_v4()),
             email: format!("{}@x.com", Uuid::new_v4()),
@@ -459,19 +458,19 @@ mod ws_metering {
         let pid = format!("u-{}", user.id);
         let (frame, mut ws) = connect_first(
             srv.addr,
-            &format!("room=efb&lang=en&id={pid}&engine=soniox&token={jwt}"),
+            &format!("room=efb&lang=en&id={pid}&engine=cartesia&token={jwt}"),
         )
         .await;
         assert_eq!(frame["type"], "room_joined");
 
-        // The in-browser Soniox pipeline gave up → ask the server to fall us back.
+        // The in-browser Cartesia pipeline gave up → ask the server to fall us back.
         ws.send(tokio_tungstenite::tungstenite::Message::Text(
             r#"{"type":"enhanced_fallback","speaker_id":"someone"}"#.into(),
         ))
         .await
         .unwrap();
 
-        // We get a self-targeted downgrade: soniox → standard, reason enhanced_unavailable.
+        // We get a self-targeted downgrade: cartesia → standard, reason enhanced_unavailable.
         let dg = loop {
             match tokio::time::timeout(Duration::from_secs(2), ws.next()).await {
                 Ok(Some(Ok(tokio_tungstenite::tungstenite::Message::Text(t)))) => {
@@ -485,7 +484,7 @@ mod ws_metering {
             }
         };
         assert_eq!(dg["peer_id"], pid);
-        assert_eq!(dg["from"], "soniox");
+        assert_eq!(dg["from"], "cartesia");
         assert_eq!(dg["to"], "standard");
         assert_eq!(dg["reason"], "enhanced_unavailable");
     }
@@ -558,37 +557,26 @@ mod stripe_api {
         .unwrap()
     }
 
-    /// Soniox "Enhanced" key-minting endpoint (spec 0101): guests are rejected (401),
-    /// and an authed user gets 503 while the tier is disabled (`soniox: None` here — the
-    /// happy path needs a live Soniox key and isn't exercised in CI).
+    /// Cartesia "Enhanced" access-token endpoint (spec 0108): guests are rejected (401),
+    /// and an authed user gets 503 while the tier is disabled (`cartesia: None` here — the
+    /// happy path needs a live Cartesia key and isn't exercised in CI).
     #[tokio::test]
-    async fn soniox_session_auth_and_tier_gates() {
+    async fn enhanced_session_auth_and_tier_gates() {
         let Some(srv) = setup().await else {
             eprintln!("skipping — no DATABASE_URL");
             return;
         };
         let http = reqwest::Client::new();
-        let url = format!("http://{}/api/soniox/session", srv.addr);
+        let url = format!("http://{}/api/sessions/enhanced/session", srv.addr);
 
-        // No token → 401: guests are pinned to Standard and can't mint Enhanced keys.
-        let guest = http
-            .post(&url)
-            .json(&serde_json::json!({}))
-            .send()
-            .await
-            .unwrap();
+        // No token → 401: guests are pinned to Standard and can't mint Enhanced tokens.
+        let guest = http.post(&url).send().await.unwrap();
         assert_eq!(guest.status(), 401);
 
-        // Authed, but Enhanced is not enabled in this config (soniox: None) → 503.
+        // Authed, but Enhanced is not enabled in this config (cartesia: None) → 503.
         let uid = make_user(&srv.pool, 500).await;
         let jwt = issue_jwt(&srv.secret, &uid, "u@x.com", "U", 168).unwrap();
-        let unavailable = http
-            .post(&url)
-            .bearer_auth(&jwt)
-            .json(&serde_json::json!({ "spoken": false }))
-            .send()
-            .await
-            .unwrap();
+        let unavailable = http.post(&url).bearer_auth(&jwt).send().await.unwrap();
         assert_eq!(unavailable.status(), 503);
     }
 
