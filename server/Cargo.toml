@@ -27,7 +27,10 @@ chrono = { version = "0.4", features = ["serde"] }
 rust_decimal = { version = "1", features = ["serde"] }
 hmac = "0.12"
 sha2 = "0.10"
-sha1 = "0.11"
+# Pinned to 0.10 (not the 0.11 Dependabot bump): sha1 0.11 pulls digest 0.11,
+# but hmac 0.12 is on digest 0.10, so Hmac::<Sha1> (TURN cred HMAC in api.rs)
+# stops compiling. Bump only together with a digest-0.11-compatible hmac.
+sha1 = "0.10"
 hex = "0.4"
 base64 = "0.22"
 async-trait = "0.1"
