@@ -59,7 +59,11 @@ export function initAnalytics(): void {
   s.src = `https://www.googletagmanager.com/gtag/js?id=${GA_ID}`;
   document.head.appendChild(s);
   window.gtag('js', new Date());
-  window.gtag('config', GA_ID);
+  window.gtag('config', GA_ID, {
+    linker: {
+      domains: ['voxtranslate.app', 'website.voxtranslate.app', 'dashboard.voxtranslate.app']
+    }
+  });
 }
 
 /** Flip analytics consent to granted — call when the user accepts cookies. */

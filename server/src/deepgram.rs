@@ -409,6 +409,15 @@ pub async fn process_transcripts(
         speaker_user_id,
         glossary,
     } = ctx;
+    // Guard against duplicate finals: Deepgram can occasionally re-emit a
+    // byte-identical final for the same utterance, which surfaced as the same
+    // sentence appearing several times in BOTH the live subtitles and the saved
+    // transcript (reported "in call sometimes repeats phrases"). Skip a final that
+    // exactly repeats the previous accepted one from this speaker within a short
+    // window; distinct phrases — and the same phrase genuinely said again later —
+    // still pass.
+    const DUP_FINAL_WINDOW: std::time::Duration = std::time::Duration::from_secs(8);
+    let mut last_final: Option<(String, std::time::Instant)> = None;
     while let Some(msg) = source.next().await {
         let text = match msg {
             Ok(Message::Text(t)) => t,
@@ -455,6 +464,18 @@ pub async fn process_transcripts(
         }
 
         let transcript = transcript.to_string();
+
+        // Drop a final that exactly repeats the previous accepted one within the
+        // window (see DUP_FINAL_WINDOW above) — kills the "repeats the same phrase"
+        // glitch without affecting distinct speech.
+        let now_inst = std::time::Instant::now();
+        if let Some((prev, when)) = &last_final {
+            if prev == &transcript && now_inst.duration_since(*when) < DUP_FINAL_WINDOW {
+                tracing::debug!(%room, speaker = %speaker_id, "skipping duplicate Deepgram final");
+                continue;
+            }
+        }
+        last_final = Some((transcript.clone(), now_inst));
 
         // Moderation: drop a flagged final (don't translate/broadcast it) and warn
         // only the speaker, so abusive speech isn't shown/translated to the room.

@@ -1327,9 +1327,19 @@ async function acquireMedia(): Promise<void> {
   if (localStream) localStream.getTracks().forEach((t2) => t2.stop());
   try {
     localStream = await navigator.mediaDevices.getUserMedia({ audio, video: videoConstraints() });
-  } catch {
+  } catch (e) {
     // Fall back to audio-only (no camera available / denied video).
-    localStream = await navigator.mediaDevices.getUserMedia({ audio });
+    if (e instanceof Error && e.name === 'NotAllowedError') {
+      track('camera_permission_denied');
+    }
+    try {
+      localStream = await navigator.mediaDevices.getUserMedia({ audio });
+    } catch (audioErr) {
+      if (audioErr instanceof Error && audioErr.name === 'NotAllowedError') {
+        track('mic_permission_denied');
+      }
+      throw audioErr;
+    }
   }
   // applyPreToggles releases the camera again if it's currently toggled off.
   previewVideo.srcObject = localStream;
@@ -1397,6 +1407,7 @@ async function fetchIceServers(): Promise<RTCIceServer[] | undefined> {
 }
 
 async function startCall(): Promise<void> {
+  // Track call started with context
   // Guests have no server-side consent record; enforce the 18+/ToS self-attestation
   // here too so a guest can't reach a call without it (accounts are gated server-side).
   if (billing && !auth.isLoggedIn() && !auth.guestConsentGiven()) {
@@ -1421,6 +1432,14 @@ async function startCall(): Promise<void> {
   await loadLocale(getUiLang());
   prejoinScreen.classList.add('hidden');
   callScreen.classList.remove('hidden');
+  
+  // Track successful call join
+  const method = session?.createdFromInvite ? 'invite_email' : 
+                 session?.createdFromMeeting ? 'scheduled' : 'direct_link';
+  track('room_joined', { 
+    method,
+    is_returning_user: billing && auth.isLoggedIn() 
+  });
   callRoom.textContent = session.room;
   callVis.textContent = session.isPublic ? t('public') : t('private');
   // Your name + lang live in the meta row instead of on the self tile (see #stage-self).
@@ -1619,6 +1638,7 @@ async function handleServer(msg: any): Promise<void> {
       schedulePeerRemoval(msg.peer_id);
       break;
     case 'room_full':
+      track('call_failed', { reason: 'room_full' });
       leaveCall();
       homeStatusMsg(t('roomFull'), true);
       break;
@@ -1838,6 +1858,7 @@ async function handleServer(msg: any): Promise<void> {
       break;
     case 'error':
       if (msg.code === 'insufficient_balance') {
+        track('limit_reached', { type: 'credits_exhausted' });
         leaveCall();
         homeStatusMsg(t('outOfCredits'), true);
         if (billing) openBuyModal();
@@ -1847,6 +1868,7 @@ async function handleServer(msg: any): Promise<void> {
         homeStatusMsg(t('publicNeedsLogin'), true);
         if (billing) showLogin();
       } else if (msg.code === 'banned') {
+        track('call_failed', { reason: 'banned' });
         leaveCall();
         homeStatusMsg(msg.message || t('bannedMsg'), true);
       } else if (msg.code === 'consent_required') {
@@ -2441,6 +2463,7 @@ inviteCopyBtn.addEventListener('click', async () => {
   if (!link) return;
   try {
     await navigator.clipboard.writeText(link);
+    track('invite_link_copied');
   } catch {
     inviteLinkInput.select(); // fallback: select it for a manual copy
   }
@@ -2935,7 +2958,10 @@ btnSubtitle.addEventListener('click', () => {
 function toggleHand(): void {
   handRaised = !handRaised;
   ws?.send(JSON.stringify({ type: 'hand_raise', raised: handRaised }));
-  if (handRaised) playHandRaiseSound(); // confirmation cue for the local user
+  if (handRaised) {
+    track('hand_raised');
+    playHandRaiseSound(); // confirmation cue for the local user
+  }
   // The server relays hand_raised to peers only — update our own tile + list.
   setHandIndicator(myId, handRaised);
   updateParticipantsList();
@@ -3174,6 +3200,7 @@ async function startScreenShare(): Promise<void> {
   // Independent of the camera: works whether you're camera-on, camera-off, or
   // joined audio-only. We keep `localStream` as the real mic/camera stream and
   // only swap the outgoing *video* track for the screen.
+  track('screen_share_started');
   if (!mesh) return;
   try {
     // audio: true makes the browser offer the "share tab/system audio" checkbox
@@ -3279,6 +3306,7 @@ async function startScreenShare(): Promise<void> {
 }
 
 function stopScreenShare(): void {
+  track('screen_share_stopped');
   if (!isSharingScreen || !mesh) return;
   isSharingScreen = false;
   // Tear down the compositor (RAF loop + canvas track) before releasing the
@@ -3397,6 +3425,7 @@ function recorderSources(): ParticipantSource[] {
 }
 
 async function startRecording(): Promise<void> {
+  track('recording_started');
   if (recorder || !localStream) return;
   // Lazy chunk (spec 0105): the canvas compositor + audio mixer + encoder load only on record.
   let CompositeRecorder: typeof import('./recording/composite-recorder').CompositeRecorder;
@@ -3439,6 +3468,8 @@ async function stopRecording(partial = false): Promise<void> {
   const rec = recorder;
   if (!rec) return;
   recorder = null;
+  const duration = recordingStartedAt ? Math.floor((Date.now() - recordingStartedAt) / 1000) : 0;
+  if (!partial) track('recording_stopped', { duration_seconds: duration });
   isRecording = false;
   clearInterval(recTimerId);
   show($('rec-badge'), false);
@@ -3588,7 +3619,16 @@ $('btn-leave').addEventListener('click', leaveCall);
 function leaveCall(): void {
   // Meet-style cue: you left the call — only if we actually joined (callStartedAt
   // stays 0 on a room-full bounce), so it never fires for a non-entry (spec 0024).
-  if (callStartedAt > 0) playCallLeaveSound();
+  if (callStartedAt > 0) {
+    playCallLeaveSound();
+    // Track call ended with duration and participants
+    const duration = Math.floor((Date.now() - callStartedAt) / 1000);
+    const participantCount = videoGrid.querySelectorAll('.cell').length;
+    track('call_ended', { 
+      duration_seconds: duration,
+      participants: participantCount
+    });
+  }
   // Snapshot transcript state before teardown wipes it (spec 0009); the
   // post-call download modal opens once we're back on the home screen.
   const ended =
@@ -3882,6 +3922,8 @@ async function boot(): Promise<void> {
   }
   // Returned from a Stripe checkout → refresh balance + tidy the URL.
   if (billing && auth.isLoggedIn() && location.search.includes('checkout=success')) {
+    // Track successful payment
+    track('payment_completed');
     await auth.refreshMe();
     renderAccount();
     history.replaceState(null, '', location.pathname);
@@ -4195,6 +4237,16 @@ async function checkout(pkgId: string, btn: HTMLButtonElement): Promise<void> {
   btn.disabled = true;
   buyStatus.textContent = '';
   buyStatus.classList.remove('error');
+  // Track upgrade attempt
+  const pkg = packages.find(p => p.id === pkgId);
+  if (pkg) {
+    track('upgrade_clicked', { 
+      package_id: pkgId,
+      credits: pkg.credits,
+      amount_cents: pkg.cents,
+      location: 'buy_modal'
+    });
+  }
   try {
     location.href = await auth.startCheckout(pkgId);
   } catch (e) {
@@ -4911,6 +4963,7 @@ document.addEventListener('click', () => setEmojiPanelOpen(false));
 function sendEmoji(emoji: string): void {
   if (!reactionLimiter.tryAcquire()) return; // drop bursts past the cap
   ws?.send(JSON.stringify({ type: 'emoji', emoji }));
+  track('emoji_reaction_sent', { emoji });
   // Panel intentionally stays open so users can fire multiple reactions quickly.
 }
 

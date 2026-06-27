@@ -15,6 +15,12 @@ export default defineConfig({
   },
   // The floating dev toolbar overlaps the bottom control bar; not shipped in builds.
   devToolbar: { enabled: false },
+  // Inline ALL stylesheets into the HTML so the first paint isn't render-blocked
+  // by separate CSS round-trips (Lighthouse flagged ~480ms of render-blocking
+  // Base+index CSS). 'auto' left them linked (raw size > Vite's 4KB inline limit);
+  // 'always' inlines them outright. Trade-off — the CSS is re-sent per page instead
+  // of cached — is worth it on this 5-page, homepage-first static site.
+  build: { inlineStylesheets: 'always' },
   vite: {
     build: {
       sourcemap: coverage ? 'inline' : false,
