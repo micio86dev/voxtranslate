@@ -1,7 +1,7 @@
 {
   "name": "voxtranslate-client",
   "type": "module",
-  "version": "1.2.4",
+  "version": "1.3.0",
   "private": true,
   "license": "SEE LICENSE IN LICENSE",
   "scripts": {
@@ -13,7 +13,6 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
-    "@soniox/speech-to-text-web": "^1.4.0",
     "astro": "^7.0.3",
     "driver.js": "^1.6.0"
   },

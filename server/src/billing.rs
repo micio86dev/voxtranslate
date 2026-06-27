@@ -54,6 +54,34 @@ impl BillingService {
         Ok(avatar)
     }
 
+    /// A user's stored Cartesia cloned-voice id (spec 0108), if any. `None` until they
+    /// complete the pre-join voice-prep step.
+    pub async fn get_cartesia_voice_id(
+        &self,
+        user_id: Uuid,
+    ) -> Result<Option<String>, sqlx::Error> {
+        let voice_id: Option<String> =
+            sqlx::query_scalar("SELECT cartesia_voice_id FROM users WHERE id = $1")
+                .bind(user_id)
+                .fetch_one(&self.pool)
+                .await?;
+        Ok(voice_id)
+    }
+
+    /// Persist a user's Cartesia cloned-voice id after Instant Voice Cloning (spec 0108).
+    pub async fn set_cartesia_voice_id(
+        &self,
+        user_id: Uuid,
+        voice_id: &str,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query("UPDATE users SET cartesia_voice_id = $1, updated_at = now() WHERE id = $2")
+            .bind(voice_id)
+            .bind(user_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     /// Add credit (purchase / free grant / refund). Locks the user row, bumps the
     /// balance, and writes a ledger entry. Returns the new balance.
     pub async fn add_credits(

@@ -5,40 +5,63 @@
 
 import { authHeaders, HTTP_BASE } from './auth';
 
-// ---- Soniox "Enhanced" client-direct session (POST /api/soniox/session) ----
-// Spec 0101: mint a scoped, single-use Soniox temp key so the browser can connect
-// DIRECTLY to Soniox. The raw key never reaches the client — only this short-lived
-// temp key + the public endpoint. Auth-gated server-side (guests get 401).
+// ---- Cartesia "Enhanced" client-direct session + voice cloning (spec 0108) --
+// Mint a scoped, short-lived Cartesia access token so the browser can connect DIRECTLY to
+// Cartesia STT (Ink-2) + TTS (Sonic-3.5). The raw `CARTESIA_API_KEY` never reaches the
+// client — only this token + the public endpoints. Auth-gated server-side (guests get 401).
 
-export interface SonioxKey {
-  api_key: string;
-  expires_at: string;
-  endpoint: string;
+export interface EnhancedSessionResponse {
+  /** Short-lived Cartesia access token (STT + TTS grants), passed as the WS query param. */
+  token: string;
+  /** Unix seconds at which the token expires. */
+  expires_at: number;
+  cartesia_version: string;
+  stt: { endpoint: string; model: string };
+  tts: { endpoint: string; model: string };
+  voice_cloning_enabled: boolean;
+  /** Optional env-configured fallback voice for speakers without a clone. */
+  default_voice_id?: string | null;
 }
 
-export interface SonioxSessionResponse {
-  stt: SonioxKey;
-  /** Present only when `spoken: true` was requested; null otherwise. */
-  tts: SonioxKey | null;
-  region: string;
-  stt_model: string;
-}
-
-/** Mint a fresh Soniox session (one per pipeline / reconnect — keys are single-use).
- *  Returns null on any failure so the caller can degrade gracefully. */
-export async function fetchSonioxSession(
-  spoken = false,
-): Promise<SonioxSessionResponse | null> {
+/** Mint a fresh Enhanced (Cartesia) session. Returns null on any failure so the caller can
+ *  degrade gracefully (fall back to Standard). */
+export async function fetchEnhancedSession(): Promise<EnhancedSessionResponse | null> {
   try {
-    const res = await fetch(`${HTTP_BASE}/api/soniox/session`, {
+    const res = await fetch(`${HTTP_BASE}/api/sessions/enhanced/session`, {
       method: 'POST',
-      headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-      body: JSON.stringify({ spoken }),
+      headers: { ...authHeaders() },
     });
     if (!res.ok) return null;
-    return (await res.json()) as SonioxSessionResponse;
+    return (await res.json()) as EnhancedSessionResponse;
   } catch {
     return null;
+  }
+}
+
+/** Instant Voice Cloning result (spec 0108): `voice_id` is null when the clone failed and
+ *  the call should proceed with a default voice. */
+export interface CloneVoiceResponse {
+  voice_id: string | null;
+  fallback?: boolean;
+}
+
+/** Upload a recorded voice clip for Instant Voice Cloning. Never throws — voice prep must
+ *  not block the call; transport failures resolve to a fallback shape. */
+export async function cloneVoice(clip: Blob, language?: string): Promise<CloneVoiceResponse> {
+  try {
+    const form = new FormData();
+    form.append('clip', clip, 'voice.webm');
+    if (language) form.append('language', language);
+    // Do NOT set Content-Type: the browser adds the multipart boundary itself.
+    const res = await fetch(`${HTTP_BASE}/api/sessions/enhanced/clone-voice`, {
+      method: 'POST',
+      headers: { ...authHeaders() },
+      body: form,
+    });
+    if (!res.ok) return { voice_id: null, fallback: true };
+    return (await res.json()) as CloneVoiceResponse;
+  } catch {
+    return { voice_id: null, fallback: true };
   }
 }
 

@@ -616,6 +616,7 @@ mod tests {
             lang: lang.into(),
             engine: "standard".to_string(),
             avatar_url: None,
+            cartesia_voice_id: None,
             tx,
             speaking: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         };
@@ -746,6 +747,7 @@ mod tests {
             lang: "en".into(),
             engine: GEMINI_ID.to_string(),
             avatar_url: None,
+            cartesia_voice_id: None,
             tx,
             speaking: Arc::new(AtomicBool::new(false)),
         };

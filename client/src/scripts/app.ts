@@ -23,7 +23,7 @@ import { type LangMeta, langMeta } from './langmap';
 // In-call modules are lazy-loaded at pre-join (spec 0105) — keep only their TYPES here so the
 // landing entry chunk doesn't statically pull them in; the runtime values come from the
 // `CallModules` namespaces returned by `loadCallModules()`.
-import type { SonioxManager } from './soniox';
+import type { CartesiaManager, CartesiaSession } from './cartesia';
 import { type CallModules, loadCallModules } from './call-modules';
 import { loadRemoteI18n } from './content';
 import { setupScheduling } from './meetings';
@@ -39,7 +39,7 @@ import { pcmPlayback } from './pcm-playback';
 import type { MicMeter } from './mic-meter';
 import type { ChatManager, ChatPayload } from './chat';
 import { CHAT_MAX_HEIGHT, counterLabel, counterState, insertAt, resizeBox } from './chat-input';
-import { checkUploadFile, fetchAiPricing, fetchSonioxSession, fileUploadEnabled, generateAiQuiz, saveQuizHistory, sendInvites, uploadChatFile } from './api';
+import { checkUploadFile, cloneVoice, fetchAiPricing, fetchEnhancedSession, fileUploadEnabled, generateAiQuiz, saveQuizHistory, sendInvites, uploadChatFile } from './api';
 import { buildInviteLink, MAX_INVITE_EMAILS, parseRoomParam, validateInviteEmails } from './invite';
 import * as auth from './auth';
 import {
@@ -162,6 +162,9 @@ let selectedEngine = 'standard';
 // from /api/engines). `selectedLang` is the chosen TARGET language; the hidden #lang
 // <select> stays the canonical value holder so the join payload / UI language are unchanged.
 let languageFirstUx = false;
+// Enhanced voice cloning (spec 0108): gates the pre-join voice-preparation step. Server flag
+// (`CARTESIA_VOICE_CLONING_ENABLED`) surfaced via `/api/engines` flags.
+let voiceCloningEnabled = false;
 let selectedLang = 'en';
 let langPickerWired = false;
 let exhaustedIsGuest = false; // last balance_exhausted was a guest trial vs a billed user
@@ -382,53 +385,205 @@ const callTimer = new CallTimer({
   onCancel: () => toast(t('timerCancelled')),
 });
 let audioCapture: AudioCapture | PcmCapture | null = null;
-// Enhanced (Soniox, spec 0101): client-direct receive pipeline. Lazily created; only
+// Enhanced (Cartesia, spec 0108): client-direct receive pipeline. Lazily created; only
 // activated for a signed-in, listener-pays listener whose engine is client-direct — for
 // every other engine/mode it stays null/inert.
-let sonioxManager: SonioxManager | null = null;
-function ensureSonioxManager(): SonioxManager {
-  if (!sonioxManager) {
-    sonioxManager = new callMods!.soniox.SonioxManager({
-      // v1 spoken translation reuses the on-device voice (onUtterance → speak), so we
-      // request STT only (no Soniox TTS key) — lowest latency, within the TTS cap.
+let cartesiaManager: CartesiaManager | null = null;
+// Peers' Cartesia cloned-voice ids (from presence) so we can speak each in their own voice,
+// even for peers who joined before the manager existed (seeded on activate).
+const peerVoiceIds = new Map<string, string>();
+function ensureCartesiaManager(): CartesiaManager {
+  if (!cartesiaManager) {
+    cartesiaManager = new callMods!.cartesia.CartesiaManager({
       fetchSession: async () => {
-        const s = await fetchSonioxSession(false);
-        return s
-          ? { sttApiKey: s.stt.api_key, sttEndpoint: s.stt.endpoint, model: s.stt_model }
-          : null;
+        const s = await fetchEnhancedSession();
+        if (!s) return null;
+        return {
+          token: s.token,
+          expiresAt: s.expires_at,
+          cartesiaVersion: s.cartesia_version,
+          sttEndpoint: s.stt.endpoint,
+          sttModel: s.stt.model,
+          ttsEndpoint: s.tts.endpoint,
+          ttsModel: s.tts.model,
+          voiceCloningEnabled: s.voice_cloning_enabled,
+          defaultVoiceId: s.default_voice_id ?? undefined,
+        } satisfies CartesiaSession;
       },
+      // Cartesia does STT + TTS but not translation — route each finalized segment through
+      // the server's Groq translator over the room WS (spec 0108).
+      translate: (text, source, target) => translateViaServer(text, source, target),
       onSubtitle: (speakerId, text, interim) => {
-        // Soniox yields translated tokens only — never the source language.
         showSubtitle(speakerId, { translation: text, interim });
       },
-      onUtterance: (speakerId, text) => {
-        // Spoken translation: same on-device voice path as every other engine, gated by
-        // the "translated voice" toggle (prefer local voices, minimal delay).
-        if (ttsOn && speakerId !== myId) speak(text, session?.lang || 'en');
+      // Speak the translation in the SPEAKER's cloned voice via the shared PCM graph; the
+      // "translated voice" toggle gates it (see `ttsEnabled`).
+      playAudio: (speakerId, seq, b64) => {
+        if (speakerId !== myId) pcmPlayback.enqueue(speakerId, seq, b64);
       },
+      ttsEnabled: () => ttsOn,
       onError: (speakerId, status, message) => {
         // A pipeline gave up (permanent error, or transient survived all retries). Ask the
         // server to fall this listener back to Standard translation for the rest of the call
-        // (spec 0101): it switches our receive engine, re-bills at the Standard rate, and
-        // replies with `engine_downgraded` — which is where we deactivate Soniox + notify the
-        // user. We send no toast here so there's exactly one, server-confirmed message.
-        console.warn(`[soniox] giving up on ${speakerId} (${status}: ${message})`);
+        // (spec 0108): it switches our receive engine, re-bills at the Standard rate, and
+        // replies with `engine_downgraded` — which is where we deactivate + notify the user.
+        // We send no toast here so there's exactly one, server-confirmed message.
+        console.warn(`[cartesia] giving up on ${speakerId} (${status}: ${message})`);
         ws?.send(JSON.stringify({ type: 'enhanced_fallback', speaker_id: speakerId }));
       },
     });
   }
-  return sonioxManager;
+  return cartesiaManager;
 }
-/** Start/stop the Enhanced receive pipeline for the current call (spec 0101). Inert
+/** Start/stop the Enhanced receive pipeline for the current call (spec 0108). Inert
  *  unless a signed-in, listener-pays listener is on a client-direct engine. */
-function syncSonioxForCall(): void {
+function syncCartesiaForCall(): void {
   const enabled =
     auth.isLoggedIn() &&
     auth.isListenerPays() &&
     engineIsClientDirect(session?.engine, availableEngines) &&
-    callMods!.soniox.SonioxManager.supported;
-  if (enabled) ensureSonioxManager().activate(session?.lang || 'en');
-  else sonioxManager?.deactivate();
+    callMods!.cartesia.CartesiaManager.supported;
+  if (enabled) {
+    const mgr = ensureCartesiaManager();
+    mgr.activate(session?.lang || 'en');
+    // Seed peer langs + voice ids captured before the manager existed (presence on join).
+    for (const [pid, info] of peerNames) mgr.setPeerLang(pid, info.lang);
+    for (const [pid, vid] of peerVoiceIds) mgr.setPeerVoiceId(pid, vid);
+  } else cartesiaManager?.deactivate();
+}
+// Enhanced translate hop (spec 0108): Cartesia can't translate, so each finalized segment is
+// sent as `translate_text` over the room WS and matched to its `translated_text` reply by
+// `request_id`. Resolves to null on timeout so a lost reply never hangs a pipeline.
+const pendingTranslations = new Map<string, (text: string | null) => void>();
+let translateReqSeq = 0;
+function translateViaServer(
+  text: string,
+  source: string,
+  target: string,
+): Promise<string | null> {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return Promise.resolve(null);
+  const requestId = `tr-${myId}-${translateReqSeq++}`;
+  return new Promise<string | null>((resolve) => {
+    const settle = (v: string | null) => {
+      if (pendingTranslations.delete(requestId)) resolve(v);
+    };
+    pendingTranslations.set(requestId, settle);
+    setTimeout(() => settle(null), 5000);
+    ws!.send(
+      JSON.stringify({ type: 'translate_text', request_id: requestId, text, source, target }),
+    );
+  });
+}
+
+// ---- Enhanced voice preparation (spec 0108) -------------------------------
+// Per-device flag: we already cloned this signed-in user's voice, so skip re-recording. The
+// server stores the authoritative `cartesia_voice_id`; this just avoids re-prompting on the
+// same device (a fresh device re-clones — Cartesia Instant Voice Cloning has no upfront cost).
+const VOICE_CLONED_KEY = 'vox_voice_cloned';
+const voiceprepEl = $('voiceprep');
+
+function showVoicePrep(on: boolean, recording = false): void {
+  show(voiceprepEl, on);
+  voiceprepEl.classList.toggle('recording', recording);
+}
+
+/** Record a short mic sample, resolving once ≥3 s of actual speech is captured (energy
+ *  threshold, not raw time), or null if too little speech by the time ceiling. */
+function recordVoiceSample(stream: MediaStream): Promise<Blob | null> {
+  return new Promise((resolve) => {
+    let recorder: MediaRecorder;
+    try {
+      const mime = ['audio/webm;codecs=opus', 'audio/mp4', 'audio/webm'].find((ty) =>
+        MediaRecorder.isTypeSupported?.(ty),
+      );
+      recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+    } catch {
+      resolve(null);
+      return;
+    }
+    const chunks: BlobPart[] = [];
+    recorder.ondataavailable = (e) => {
+      if (e.data.size) chunks.push(e.data);
+    };
+    const Ctx =
+      window.AudioContext ??
+      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    const ctx = new Ctx();
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 512;
+    ctx.createMediaStreamSource(stream).connect(analyser);
+    const buf = new Float32Array(analyser.fftSize);
+    let speechMs = 0;
+    let elapsedMs = 0;
+    const TICK = 100;
+    const SPEECH_RMS = 0.02; // energy floor that counts as speech (not room noise)
+    const MIN_SPEECH_MS = 3000; // Cartesia IVC wants ≥3 s of actual speech
+    const MAX_MS = 8000; // hard ceiling so we never hold the join hostage
+    recorder.onstop = () => {
+      const type = recorder.mimeType || 'audio/webm';
+      resolve(speechMs >= MIN_SPEECH_MS && chunks.length ? new Blob(chunks, { type }) : null);
+    };
+    const timer = setInterval(() => {
+      analyser.getFloatTimeDomainData(buf);
+      let sum = 0;
+      for (const v of buf) sum += v * v;
+      if (Math.sqrt(sum / buf.length) > SPEECH_RMS) speechMs += TICK;
+      elapsedMs += TICK;
+      if (speechMs >= MIN_SPEECH_MS + 500 || elapsedMs >= MAX_MS) {
+        clearInterval(timer);
+        void ctx.close().catch(() => {});
+        try {
+          recorder.stop();
+        } catch {
+          resolve(null);
+        }
+      }
+    }, TICK);
+    try {
+      recorder.start();
+    } catch {
+      clearInterval(timer);
+      resolve(null);
+    }
+  });
+}
+
+/** Clone the signed-in Enhanced user's voice before joining (spec 0108). Best-effort and
+ *  non-blocking: any failure silently falls back to a default voice and the call proceeds. */
+async function prepareVoice(): Promise<void> {
+  if (
+    !auth.isLoggedIn() ||
+    !voiceCloningEnabled ||
+    !engineIsClientDirect(session?.engine, availableEngines) ||
+    localStorage.getItem(VOICE_CLONED_KEY)
+  ) {
+    return;
+  }
+  const track = localStream?.getAudioTracks()[0];
+  if (!track) return;
+  showVoicePrep(true, true);
+  prejoinStatus.textContent = t('voicePrepRecording');
+  prejoinStatus.classList.remove('error');
+  try {
+    const blob = await recordVoiceSample(new MediaStream([track]));
+    if (!blob) {
+      showVoicePrep(false);
+      return; // too little speech → skip silently, use a default voice
+    }
+    showVoicePrep(true, false);
+    prejoinStatus.textContent = t('voicePrepSaving');
+    const res = await cloneVoice(blob, session?.lang);
+    if (res.voice_id) {
+      localStorage.setItem(VOICE_CLONED_KEY, '1');
+      prejoinStatus.textContent = t('voicePrepSaved');
+    } else {
+      prejoinStatus.textContent = t('voicePrepFailed');
+    }
+  } catch {
+    prejoinStatus.textContent = t('voicePrepFailed');
+  } finally {
+    showVoicePrep(false);
+  }
 }
 // Listener-pays (spec 0099): once the server sends a `capture_format` message our
 // capture is server-driven (PCM iff a Premium listener is present), not chosen from
@@ -595,9 +750,13 @@ async function initEngines(): Promise<void> {
     if (Array.isArray(data)) {
       availableEngines = data as EngineInfo[];
     } else if (data && typeof data === 'object') {
-      const obj = data as { engines?: EngineInfo[]; flags?: { language_first_ux?: boolean } };
+      const obj = data as {
+        engines?: EngineInfo[];
+        flags?: { language_first_ux?: boolean; voice_cloning_enabled?: boolean };
+      };
       availableEngines = obj.engines ?? [];
       languageFirstUx = !!obj.flags?.language_first_ux;
+      voiceCloningEnabled = !!obj.flags?.voice_cloning_enabled;
     }
   } catch {
     return; // offline / unreachable → default engine, selector hidden
@@ -1385,7 +1544,12 @@ $('join-btn').addEventListener('click', () => {
   if (!localStream || !session) return;
   unlockTts(); // iOS: prime speechSynthesis inside the tap so translations play
   pcmPlayback.unlock(); // same for the Premium translated-audio context (spec 0093)
-  void startCall();
+  void (async () => {
+    // Enhanced voice prep (spec 0108): clone the user's voice first when applicable. Never
+    // blocks — a failure or skip just means a default voice — so always proceed to the call.
+    await prepareVoice().catch(() => {});
+    void startCall();
+  })();
 });
 
 // ============================================================================
@@ -1516,15 +1680,15 @@ function openSocket(): void {
       remoteStreams.set(peerId, stream);
       recorder?.addParticipant(participantSource(peerId, stream));
       attachStream(peerId, stream);
-      // Enhanced (spec 0101): feed this peer's audio to its in-browser Soniox pipeline.
-      sonioxManager?.setPeerStream(peerId, stream);
+      // Enhanced (spec 0108): feed this peer's audio to its in-browser Cartesia pipeline.
+      cartesiaManager?.setPeerStream(peerId, stream);
     };
     mesh.onPeerRemoved = (peerId) => removeCell(peerId);
     mesh.setAudioEnabled(micOn);
     mesh.setVideoEnabled(camOn);
-    // Enhanced (spec 0101): turn the client-direct receive pipeline on for this call
+    // Enhanced (spec 0108): turn the client-direct receive pipeline on for this call
     // (no-op for every other engine / speaker-pays / guest).
-    syncSonioxForCall();
+    syncCartesiaForCall();
 
     // We recreate `audioCapture` fresh on every (re)connect, so CLEAR the listener-pays
     // server-driven format (spec 0099) first: otherwise a stale `serverCaptureFormat`
@@ -1603,7 +1767,9 @@ async function handleServer(msg: any): Promise<void> {
       for (const p of msg.peers) {
         peerNames.set(p.id, { name: p.user_name, lang: p.lang, avatar: p.avatar_url });
         addCell(p.id, p.user_name, p.lang, false, p.avatar_url);
-        sonioxManager?.setPeerLang(p.id, p.lang); // spec 0101: source lang for Enhanced
+        if (p.cartesia_voice_id) peerVoiceIds.set(p.id, p.cartesia_voice_id); // spec 0108
+        cartesiaManager?.setPeerLang(p.id, p.lang); // spec 0108: source lang for Enhanced
+        cartesiaManager?.setPeerVoiceId(p.id, p.cartesia_voice_id); // spec 0108: their voice
         await mesh?.addPeer(p.id, false); // they'll initiate the offer
       }
       updateParticipantsList();
@@ -1621,7 +1787,9 @@ async function handleServer(msg: any): Promise<void> {
       premiumSpeakers.delete(msg.peer_id);
       peerNames.set(msg.peer_id, { name: msg.user_name, lang: msg.lang, avatar: msg.avatar_url });
       addCell(msg.peer_id, msg.user_name, msg.lang, false, msg.avatar_url);
-      sonioxManager?.setPeerLang(msg.peer_id, msg.lang); // spec 0101: source lang for Enhanced
+      if (msg.cartesia_voice_id) peerVoiceIds.set(msg.peer_id, msg.cartesia_voice_id); // spec 0108
+      cartesiaManager?.setPeerLang(msg.peer_id, msg.lang); // spec 0108: source lang for Enhanced
+      cartesiaManager?.setPeerVoiceId(msg.peer_id, msg.cartesia_voice_id); // spec 0108: their voice
       if (!reconnected) playJoinSound(); // audible cue only for a genuinely new peer
       await mesh?.addPeer(msg.peer_id, true); // we initiate toward the newcomer
       // Re-announce our current mute/camera state so the newcomer's UI matches.
@@ -1711,10 +1879,10 @@ async function handleServer(msg: any): Promise<void> {
       if (info) info.lang = msg.lang;
       const badge = videoGrid.querySelector(`[data-peer="${cssEsc(msg.peer_id)}"] .peer-lang`);
       if (badge) badge.textContent = `${FLAG[msg.lang] || ''} ${msg.lang.toUpperCase()}`.trim();
-      // Enhanced (spec 0101): a peer's resolved source language, or — for us — our own
-      // translation target moving, both restart the affected Soniox pipeline(s).
-      if (msg.peer_id === myId) sonioxManager?.setMyLang(msg.lang);
-      else sonioxManager?.setPeerLang(msg.peer_id, msg.lang);
+      // Enhanced (spec 0108): a peer's resolved source language, or — for us — our own
+      // translation target moving, both restart the affected Cartesia pipeline(s).
+      if (msg.peer_id === myId) cartesiaManager?.setMyLang(msg.lang);
+      else cartesiaManager?.setPeerLang(msg.peer_id, msg.lang);
       if (msg.peer_id === myId && session) {
         session.lang = msg.lang;
         stageSelfLang.textContent = `${FLAG[msg.lang] || ''} ${msg.lang.toUpperCase()}`.trim();
@@ -1741,6 +1909,14 @@ async function handleServer(msg: any): Promise<void> {
       if (ttsOn && msg.speaker_id !== myId) pcmPlayback.enqueue(msg.speaker_id, msg.seq, msg.pcm16_b64);
       break;
     }
+    case 'translated_text': {
+      // Enhanced (spec 0108): the Groq translation of a `translate_text` we sent. Hand it to
+      // the waiting pipeline (matched by request_id); unknown/late ids are ignored.
+      pendingTranslations.get(msg.request_id)?.(
+        typeof msg.text === 'string' ? msg.text : null,
+      );
+      break;
+    }
     case 'capture_format': {
       // Listener-pays (spec 0099): the server dictates our capture format from the
       // room's Premium composition. From now on capture is server-driven.
@@ -1756,10 +1932,10 @@ async function handleServer(msg: any): Promise<void> {
           // ran out of credit → now I receive Standard). Capture is server-driven
           // (capture_format), so we do NOT swap it here; just record + notify.
           if (session) session.engine = msg.to;
-          // Enhanced (spec 0101): if we were the client-direct (Soniox) tier and got
+          // Enhanced (spec 0108): if we were the client-direct (Cartesia) tier and got
           // downgraded, tear down the in-browser pipelines — the server now delivers
           // Standard subtitles for us. No-op when we weren't on Enhanced.
-          sonioxManager?.deactivate();
+          cartesiaManager?.deactivate();
           const notifKey =
             msg.reason === 'enhanced_unavailable'
               ? 'engineEnhancedUnavailable'
@@ -2043,7 +2219,8 @@ function removeCell(id: string): void {
   peerCamOff.delete(id);
   remoteStreams.delete(id);
   recorder?.removeParticipant(id);
-  sonioxManager?.removePeer(id); // spec 0101: tear down this peer's Enhanced pipeline
+  cartesiaManager?.removePeer(id); // spec 0108: tear down this peer's Enhanced pipeline
+  peerVoiceIds.delete(id);
   if (pinnedPeerId === id) pinnedPeerId = null;
   if (lastSpeakerId === id) lastSpeakerId = null;
   updateGridCount();
@@ -2610,7 +2787,7 @@ function updateParticipantsList(): void {
 // `translation` / `original` are passed explicitly because the two STT engines
 // disagree on what an interim frame carries: the server path sends interim text in
 // the ORIGINAL language (translation arrives only on the final frame), while the
-// Soniox client-direct path (spec 0101) only ever yields TRANSLATED tokens and never
+// Cartesia client-direct path (spec 0108) only ever yields TRANSLATED text and never
 // the source. Each caller declares which text it actually has, so the per-mode
 // rendering below stays correct regardless of engine.
 function showSubtitle(
@@ -3643,7 +3820,8 @@ function leaveCall(): void {
   activeSessionId = null;
   transcriptEvents = 0;
   callStartedAt = 0;
-  sonioxManager?.deactivate(); // spec 0101: stop all Enhanced pipelines on leave
+  cartesiaManager?.deactivate(); // spec 0108: stop all Enhanced pipelines on leave
+  peerVoiceIds.clear();
   clearPendingRemovals(); // drop any in-flight reconnect grace timers (#233)
   show($('transcript-indicator'), false);
   manualClose = true;
@@ -4502,6 +4680,11 @@ $('consent-decline').addEventListener('click', () => {
 // --- Privacy & data (GDPR) ---
 $('privacy-open').addEventListener('click', () => {
   $('privacy-status').textContent = '';
+  // Enhanced voice-clone status (spec 0108): per-device signal that this user cloned their
+  // voice here. The server holds the authoritative `cartesia_voice_id`.
+  $('voice-clone-state').textContent = localStorage.getItem(VOICE_CLONED_KEY)
+    ? t('voiceCloneStatusSaved')
+    : t('voiceCloneStatusNone');
   show(privacyModal, true);
 });
 $('privacy-close').addEventListener('click', () => show(privacyModal, false));

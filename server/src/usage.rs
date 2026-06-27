@@ -346,6 +346,7 @@ mod tests {
                 lang: lang.into(),
                 engine: "premium".into(),
                 avatar_url: None,
+                cartesia_voice_id: None,
                 tx,
                 speaking: sp,
             }

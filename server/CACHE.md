@@ -76,7 +76,7 @@ MD5("ciao come stai|it|en|<fingerprint>")  →  different key, isolated result
 | Tier | Cache applied | Reason |
 |---|---|---|
 | Standard (Deepgram + Groq) | ✅ Yes | Post-STT text is wrappable; only tier with text intercept point |
-| Enhanced (Soniox) | ❌ No | Speech-to-speech WebSocket — no text intercept point |
+| Enhanced (Cartesia) | ❌ No | Client-direct STT/TTS; its Groq translate hop uses the uncached path by design (cache is Standard-only, spec 0108) |
 | Pro (OpenAI Realtime) | ❌ No | Speech-to-speech pipeline — no text intercept point |
 | Premium (Gemini Live) | ❌ No | Speech-to-speech pipeline — no text intercept point |
 

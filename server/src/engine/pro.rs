@@ -551,6 +551,7 @@ mod tests {
             lang: lang.into(),
             engine: "standard".to_string(),
             avatar_url: None,
+            cartesia_voice_id: None,
             tx,
             speaking: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         };
