@@ -126,6 +126,13 @@ pub fn translation_credits(word_count: i64) -> i32 {
     (ceil_div(word_count, 1000) * 2) as i32
 }
 
+/// Credits to charge for one insights query/report — a flat fee per LLM synthesis
+/// (embedding + one Groq call over bounded context). Comparable to a transcript
+/// translation; charged only when the synthesis succeeds.
+pub fn insight_credits() -> i32 {
+    3
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -144,5 +151,7 @@ mod tests {
         assert_eq!(translation_credits(0), 0);
         assert_eq!(translation_credits(1000), 2);
         assert_eq!(translation_credits(1001), 4);
+
+        assert_eq!(insight_credits(), 3);
     }
 }

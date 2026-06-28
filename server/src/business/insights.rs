@@ -26,7 +26,8 @@ use sqlx::FromRow;
 use uuid::Uuid;
 
 use crate::business::{
-    audit, bad_request, db_err, forbidden, require_pool, require_role, role_rank, MEMBER, OWNER,
+    audit, bad_request, credits, db_err, forbidden, require_pool, require_role, role_rank, MEMBER,
+    OWNER,
 };
 use crate::groq::ChatRequest;
 use crate::middleware::AuthUser;
@@ -68,6 +69,20 @@ struct ChunkRow {
 
 fn svc_unavailable(msg: &str) -> Response {
     (StatusCode::SERVICE_UNAVAILABLE, msg.to_string()).into_response()
+}
+
+/// 402 with the org's balance + the required credits (same shape as the transcript
+/// translate endpoint).
+fn insufficient(balance: i32, required: i32) -> Response {
+    (
+        StatusCode::PAYMENT_REQUIRED,
+        Json(json!({
+            "error": "insufficient_org_credits",
+            "balance": balance,
+            "required": required,
+        })),
+    )
+        .into_response()
 }
 
 /// `POST /api/business/organizations/{org_id}/insights`.
@@ -141,11 +156,38 @@ pub async fn generate(
         }
     };
 
+    // Charge the org up front; refund below if the embedding or synthesis fails.
+    let cost = credits::insight_credits();
+    match credits::deduct_org_credits(
+        pool,
+        org_id,
+        cost,
+        "insight",
+        None, // org-scoped, not tied to one session
+        Some(user.user_id),
+        "insights query",
+    )
+    .await
+    .map_err(db_err)?
+    {
+        credits::OrgCharge::Insufficient { balance, required } => {
+            return Err(insufficient(balance, required))
+        }
+        credits::OrgCharge::Charged { .. } => {}
+    }
+    let refund = || async {
+        let _ = credits::add_org_credits(pool, org_id, cost, "insight", "refund", None).await;
+    };
+
     // --- Retrieve grounding transcript chunks (semantic) ---
-    let vector = embedder.embed_one(&query_text).await.map_err(|e| {
-        tracing::error!("insight query embedding failed: {e}");
-        (StatusCode::BAD_GATEWAY, "embedding failed").into_response()
-    })?;
+    let vector = match embedder.embed_one(&query_text).await {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::error!("insight query embedding failed: {e}");
+            refund().await;
+            return Err((StatusCode::BAD_GATEWAY, "embedding failed").into_response());
+        }
+    };
     let qvec = pgvector::Vector::from(vector);
     let scope_projects: Option<&[Uuid]> = match &scope {
         Scope::All => None,
@@ -192,15 +234,15 @@ pub async fn generate(
     let answer = match state.groq.chat(make_req(&ai.report_model)).await {
         Ok(a) => a,
         // Primary model decommissioned / rejected → one retry on the fallback model
-        // (same policy as ai/report.rs).
-        Err(_) => state
-            .groq
-            .chat(make_req(&ai.fallback_model))
-            .await
-            .map_err(|e| {
+        // (same policy as ai/report.rs). Refund the org if both fail.
+        Err(_) => match state.groq.chat(make_req(&ai.fallback_model)).await {
+            Ok(a) => a,
+            Err(e) => {
                 tracing::error!("insight synthesis failed: {e}");
-                (StatusCode::BAD_GATEWAY, "synthesis failed").into_response()
-            })?,
+                refund().await;
+                return Err((StatusCode::BAD_GATEWAY, "synthesis failed").into_response());
+            }
+        },
     };
 
     // Compliance trail — log the shape, never the raw question.
@@ -236,6 +278,7 @@ pub async fn generate(
         "answer_markdown": answer,
         "sources": sources,
         "model": ai.report_model,
+        "credits_deducted": cost,
     }))
     .into_response())
 }
