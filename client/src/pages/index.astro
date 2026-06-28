@@ -101,6 +101,8 @@ const jsonLd = {
               </svg>
               <span class="btn-label" data-i18n="workspace">{T('workspace')}</span>
             </a>
+            <button id="profile-open" class="btn-ghost icon-btn" data-i18n-title="profileTitle" title={T('profileTitle')} aria-label={T('profileTitle')}></button>
+            <button id="friends-open" class="btn-ghost icon-btn friends-open" data-i18n-title="friendsTitle" title={T('friendsTitle')} aria-label={T('friendsTitle')}><span id="friends-ico"></span><span id="friends-badge" class="chat-badge" hidden>0</span></button>
             <button id="privacy-open" class="btn-ghost icon-btn" data-i18n-title="privacyData" title={T('privacyData')} aria-label="Privacy"></button>
             <button id="logout-btn" class="btn-ghost icon-btn" data-i18n-title="logout" title={T('logout')} aria-label="Logout"></button>
           </div>
@@ -571,7 +573,7 @@ const jsonLd = {
                   <span class="mi"><button id="btn-participants" class="control-btn" data-i18n-title="participantsTip" title={T('participantsTip')} aria-label={T('participantsTip')} aria-expanded="false" aria-controls="participants-panel"><span class="part-ico"></span><span id="part-badge" class="chat-badge" hidden>0</span></button><span class="mi-label" data-i18n="participantsTip">{T('participantsTip')}</span></span>
                   <span class="mi hidden" id="mi-invite"><button id="btn-invite" class="control-btn" data-i18n-title="inviteTip" title={T('inviteTip')} aria-label={T('inviteTip')} aria-expanded="false" aria-controls="invite-panel"></button><span class="mi-label" data-i18n="inviteTip">{T('inviteTip')}</span></span>
                   <span class="mi"><button id="btn-bookmark" class="control-btn" data-i18n-title="bookmarkTip" title={T('bookmarkTip')} data-i18n-label="bookmarkTip" aria-label={T('bookmarkTip')} hidden></button><span class="mi-label" data-i18n="bookmarkTip">{T('bookmarkTip')}</span></span>
-                  <span class="mi"><button id="btn-minigame" class="control-btn" data-i18n-title="minigameTip" title={T('minigameTip')} aria-label={T('minigameTip')}></button><span class="mi-label" data-i18n="minigameTip">{T('minigameTip')}</span></span>
+                  <span class="mi hidden" id="mi-minigame"><button id="btn-minigame" class="control-btn" data-i18n-title="minigameTip" title={T('minigameTip')} aria-label={T('minigameTip')}></button><span class="mi-label" data-i18n="minigameTip">{T('minigameTip')}</span></span>
                   <span class="mi"><button id="btn-quiz" class="control-btn" data-i18n-title="quizTip" title={T('quizTip')} aria-label={T('quizTip')}></button><span class="mi-label" data-i18n="quizTip">{T('quizTip')}</span></span>
                   <span class="mi"><button id="btn-timer" class="control-btn" data-i18n-title="timerTip" title={T('timerTip')} aria-label={T('timerTip')}></button><span class="mi-label" data-i18n="timerTip">{T('timerTip')}</span></span>
                 </div>
@@ -740,6 +742,86 @@ const jsonLd = {
           <button id="tab-transcripts" class="seg-btn" aria-pressed="false" data-i18n="transcripts">{T('transcripts')}</button>
         </div>
         <div id="ledger-list" class="ledger-list"></div>
+      </div>
+    </div>
+
+    <!-- ===================== PROFILE SCREEN ===================== -->
+    <!-- Dedicated screen (toggled like the others via .hidden): account info, friends
+         management (remove inline; add/requests open the friends modal), and the
+         per-event notification preferences matrix. -->
+    <section id="profile" class="screen hidden">
+      <div class="profile-wrap">
+        <header class="profile-head">
+          <button id="profile-back" class="btn-ghost icon-btn" data-i18n-title="back" title={T('back')} aria-label={T('back')}></button>
+          <h1 class="profile-title" data-i18n="profileTitle">{T('profileTitle')}</h1>
+        </header>
+
+        <div class="profile-card">
+          <span id="profile-avatar" class="profile-avatar" aria-hidden="true"></span>
+          <div class="profile-id">
+            <span id="profile-name" class="profile-name"></span>
+            <span id="profile-email" class="profile-email"></span>
+          </div>
+        </div>
+
+        <section class="profile-section">
+          <div class="profile-section-head">
+            <h2 class="profile-section-title" data-i18n="friendsYours">{T('friendsYours')}</h2>
+            <button id="profile-manage-friends" class="btn-ghost profile-link" data-i18n="friendsManage">{T('friendsManage')}</button>
+          </div>
+          <div id="profile-friends-list" class="friend-list"></div>
+          <p id="profile-friends-empty" class="friend-empty" data-i18n="friendsEmpty" hidden>{T('friendsEmpty')}</p>
+        </section>
+
+        <section class="profile-section">
+          <h2 class="profile-section-title" data-i18n="notifTitle">{T('notifTitle')}</h2>
+          <p class="profile-section-hint" data-i18n="notifHint">{T('notifHint')}</p>
+          <div id="notif-prefs" class="notif-prefs"></div>
+        </section>
+      </div>
+    </section>
+
+    <!-- Actionable in-app banner (e.g. a friend is in a public room → Join). A fixed
+         top overlay populated + toggled from app.ts. Distinct from the transient
+         #notif-banner weak-network nudge. -->
+    <div id="friend-banner" class="friend-banner hidden" role="status" aria-live="polite">
+      <span id="friend-banner-text" class="friend-banner-text"></span>
+      <div class="friend-banner-actions">
+        <button id="friend-banner-join" class="btn-primary" data-i18n="join">{T('join')}</button>
+        <button id="friend-banner-dismiss" class="btn-ghost" data-i18n="dismiss">{T('dismiss')}</button>
+      </div>
+    </div>
+
+    <!-- ===================== FRIENDS MODAL ===================== -->
+    <!-- Persistent friends list + requests. A .modal-overlay, so it inherits the
+         shared focus-trap / ESC / focus-restore and works on home AND in-call. -->
+    <div id="friends-modal" class="modal-overlay hidden">
+      <div class="modal card" role="dialog" aria-modal="true" aria-labelledby="friends-title">
+        <div class="modal-head">
+          <span id="friends-title" class="card-title" data-i18n="friendsTitle">{T('friendsTitle')}</span>
+          <button id="friends-close" class="btn-ghost icon-btn" data-i18n-title="closeTip" title={T('closeTip')} aria-label={T('closeTip')}></button>
+        </div>
+        <form id="friend-add" class="friend-add">
+          <input id="friend-add-email" class="friend-add-input" type="email" autocomplete="off" maxlength="320" data-i18n-ph="friendAddPlaceholder" placeholder={T('friendAddPlaceholder')} />
+          <button id="friend-add-btn" type="submit" class="btn-primary friend-add-btn" data-i18n="friendAdd">{T('friendAdd')}</button>
+        </form>
+        <p id="friend-add-msg" class="status-line friend-add-msg" role="status" hidden></p>
+
+        <section id="friend-requests-section" class="friend-section" hidden>
+          <h3 class="friend-section-title" data-i18n="friendRequestsIn">{T('friendRequestsIn')}</h3>
+          <div id="friend-requests-list" class="friend-list"></div>
+        </section>
+
+        <section id="friend-outgoing-section" class="friend-section" hidden>
+          <h3 class="friend-section-title" data-i18n="friendRequestsOut">{T('friendRequestsOut')}</h3>
+          <div id="friend-outgoing-list" class="friend-list"></div>
+        </section>
+
+        <section class="friend-section">
+          <h3 class="friend-section-title" data-i18n="friendsYours">{T('friendsYours')}</h3>
+          <div id="friends-list" class="friend-list"></div>
+          <p id="friends-empty" class="friend-empty" data-i18n="friendsEmpty" hidden>{T('friendsEmpty')}</p>
+        </section>
       </div>
     </div>
 
@@ -1928,6 +2010,64 @@ const jsonLd = {
     .modal-text { color: var(--muted); font-size: 0.9rem; margin: 0; }
     .modal-actions { display: flex; gap: 10px; justify-content: center; }
     .modal-actions .btn-primary { width: auto; padding: 12px 22px; }
+
+    /* ---- Friends panel (spec: friends) ---- */
+    .friends-open { position: relative; }
+    .friend-add { display: flex; gap: 8px; }
+    .friend-add-input {
+      flex: 1; min-width: 0; padding: 10px 12px; font-size: 0.9rem;
+      background: var(--surface); color: var(--text);
+      border: 1px solid var(--border); border-radius: 10px;
+    }
+    .friend-add-input:focus { outline: none; border-color: var(--accent); }
+    .friend-add-btn { width: auto; flex: none; padding: 0 16px; min-height: 44px; }
+    .friend-add-msg { margin: 0; }
+    .friend-section { display: flex; flex-direction: column; gap: 8px; }
+    .friend-section-title { margin: 4px 0 0; font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+    .friend-list { display: flex; flex-direction: column; gap: 6px; }
+    /* Rows are built in JS (app.ts), so they carry no Astro scope attribute — anchor
+       on the scoped .friend-list container and use :global for its JS-made children. */
+    .friend-list :global(.friend-row) { display: flex; align-items: center; gap: 10px; padding: 6px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+    .friend-list :global(.friend-avatar) { width: 36px; height: 36px; border-radius: 50%; flex: none; display: grid; place-items: center; font-weight: 700; font-size: 0.8rem; color: rgba(255,255,255,0.95); overflow: hidden; }
+    .friend-list :global(.friend-avatar img) { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
+    .friend-list :global(.friend-row-info) { display: flex; flex-direction: column; min-width: 0; flex: 1 1 auto; text-align: start; }
+    .friend-list :global(.friend-row-name) { font-weight: 600; font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .friend-list :global(.friend-row-sub) { font-size: 0.78rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .friend-list :global(.friend-row-actions) { display: flex; gap: 6px; flex: none; }
+    .friend-list :global(.friend-row-actions .btn-ghost), .friend-list :global(.friend-row-actions .btn-primary) { width: auto; padding: 6px 12px; min-height: 36px; font-size: 0.82rem; }
+    .friend-list :global(.friend-danger) { color: var(--danger); }
+    .friend-empty { margin: 0; font-size: 0.85rem; color: var(--muted); }
+
+    /* ---- Profile screen (spec: friends/notifications) ---- */
+    .profile-wrap { max-width: 560px; margin: 0 auto; padding: 16px; display: flex; flex-direction: column; gap: 20px; }
+    .profile-head { display: flex; align-items: center; gap: 10px; }
+    .profile-title { margin: 0; font-size: 1.3rem; font-weight: 700; color: var(--text); }
+    .profile-card { display: flex; align-items: center; gap: 14px; padding: 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; }
+    .profile-avatar { width: 56px; height: 56px; border-radius: 50%; flex: none; display: grid; place-items: center; font-weight: 700; font-size: 1.1rem; color: rgba(255,255,255,0.95); overflow: hidden; }
+    .profile-avatar :global(img) { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
+    .profile-id { display: flex; flex-direction: column; min-width: 0; }
+    .profile-name { font-weight: 700; font-size: 1rem; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .profile-email { font-size: 0.85rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .profile-section { display: flex; flex-direction: column; gap: 10px; }
+    .profile-section-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .profile-section-title { margin: 0; font-size: 1rem; font-weight: 700; color: var(--text); }
+    .profile-section-hint { margin: -4px 0 0; font-size: 0.82rem; color: var(--muted); }
+    .profile-link { width: auto; padding: 6px 10px; min-height: 36px; font-size: 0.82rem; }
+    /* Notification preferences matrix: event rows × push/email/in-app columns. */
+    .notif-prefs :global(.notif-grid) { display: grid; grid-template-columns: 1fr 52px 52px 52px; gap: 10px 4px; align-items: center; }
+    .notif-prefs :global(.notif-h) { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.02em; color: var(--muted); text-align: center; }
+    .notif-prefs :global(.notif-h.lead) { text-align: start; }
+    .notif-prefs :global(.notif-evt) { font-size: 0.86rem; color: var(--text); }
+    .notif-prefs :global(.notif-cell) { display: grid; place-items: center; }
+    .notif-prefs :global(.notif-cell input) { width: 18px; height: 18px; accent-color: var(--accent); cursor: pointer; }
+
+    /* Actionable in-app banner (friend in a public room, call invite). Fixed width +
+       column layout so the message reads as a couple of lines with the actions beneath,
+       instead of shrink-to-fit wrapping one word per line next to the buttons. */
+    .friend-banner { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 60; width: min(480px, 92vw); display: flex; flex-direction: column; gap: 10px; padding: 12px 14px; background: var(--surface); border: 1px solid var(--accent); border-radius: 12px; box-shadow: 0 12px 32px rgba(0,0,0,0.45); }
+    .friend-banner-text { font-size: 0.9rem; color: var(--text); line-height: 1.35; }
+    .friend-banner-actions { display: flex; gap: 8px; justify-content: flex-end; }
+    .friend-banner-actions .btn-primary, .friend-banner-actions .btn-ghost { width: auto; padding: 6px 14px; min-height: 36px; font-size: 0.82rem; }
     /* Sign-in gate (spec 0022): benefits read better left-aligned inside the centered modal. */
     .gate-benefits { text-align: start; margin: 4px 0 2px; padding-inline-start: 18px; color: var(--text); font-size: 0.88rem; display: flex; flex-direction: column; gap: 6px; }
     .gate-benefits li { line-height: 1.35; }
@@ -2318,8 +2458,17 @@ const jsonLd = {
       display: flex; flex-direction: column; gap: 10px; padding: 12px;
       background: rgba(19,20,28,0.96); backdrop-filter: blur(12px);
       border: 1px solid var(--border); border-radius: 14px; box-shadow: 0 12px 32px rgba(0,0,0,0.45);
+      /* Long content (e.g. the end-of-quiz recap with many questions) must scroll
+         instead of overflowing off the top of the screen on mobile. */
+      max-height: calc(100dvh - 96px); overflow-y: auto; overscroll-behavior: contain;
     }
-    .mg-head { display: flex; align-items: center; justify-content: space-between; }
+    .mg-head {
+      display: flex; align-items: center; justify-content: space-between;
+      /* Stay pinned while the card scrolls so the title + close (X) are always reachable. */
+      position: sticky; top: 0; z-index: 1;
+      margin: -12px -12px 0; padding: 12px 12px 8px;
+      background: #13141c; border-radius: 14px 14px 0 0;
+    }
     .mg-title { font-weight: 700; font-size: 0.95rem; color: var(--text); }
     .mg-status { margin: 0; font-size: 0.82rem; color: var(--muted); min-height: 1.1em; text-align: center; }
     .mg-board { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }

@@ -134,6 +134,10 @@ pub struct PeerInfo {
     pub id: String,
     pub user_name: String,
     pub lang: String,
+    /// The peer's account id, present only for authenticated (non-guest) peers. Lets
+    /// others send an in-call friend request (spec: friends). Absent for guests.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_id: Option<uuid::Uuid>,
     /// Avatar URL for authenticated peers; absent for guests.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub avatar_url: Option<String>,
@@ -165,6 +169,9 @@ pub enum ServerMessage {
         peer_id: String,
         user_name: String,
         lang: String,
+        /// The peer's account id (authenticated peers only) — see [`PeerInfo`].
+        #[serde(skip_serializing_if = "Option::is_none")]
+        user_id: Option<uuid::Uuid>,
         #[serde(skip_serializing_if = "Option::is_none")]
         avatar_url: Option<String>,
         /// The peer's Cartesia cloned-voice id (spec 0108), if any — see [`PeerInfo`].
