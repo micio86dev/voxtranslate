@@ -299,7 +299,13 @@ pub async fn invite(
 
 /// Fan a friend-event notification out to `recipient` in their own language, naming
 /// the `actor` (the other person) in the body.
-async fn notify_friend(state: &AppState, pool: &Pool, recipient: Uuid, kind: &str, actor: &AuthUser) {
+async fn notify_friend(
+    state: &AppState,
+    pool: &Pool,
+    recipient: Uuid,
+    kind: &str,
+    actor: &AuthUser,
+) {
     let lang = user_locale(pool, recipient).await;
     let (title, text) = friend_copy(kind, &lang, &actor.name);
     notify(

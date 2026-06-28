@@ -1273,7 +1273,7 @@ mod tests {
         // Default (absent): English → ink-2, other languages absent (→ multilingual fallback).
         let def = parse_stt_model_map(None);
         assert_eq!(def.get("en").map(String::as_str), Some("ink-2"));
-        assert!(def.get("it").is_none());
+        assert!(!def.contains_key("it"));
         // Malformed JSON → the same default.
         assert_eq!(parse_stt_model_map(Some("not json")), def);
         assert_eq!(parse_stt_model_map(Some("{}")), def);

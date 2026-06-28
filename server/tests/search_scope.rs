@@ -184,9 +184,19 @@ async fn member_scope_is_created_or_participated_admin_sees_all() {
 
     // Member's visible set = created ∪ participated, never the third project.
     let visible = visible_projects(&pool, org_id, member).await;
-    assert!(visible.contains(&p_created), "member should see created project");
-    assert!(visible.contains(&p_part), "member should see participated project");
-    assert_eq!(visible.len(), 2, "member must NOT see the unrelated project");
+    assert!(
+        visible.contains(&p_created),
+        "member should see created project"
+    );
+    assert!(
+        visible.contains(&p_part),
+        "member should see participated project"
+    );
+    assert_eq!(
+        visible.len(),
+        2,
+        "member must NOT see the unrelated project"
+    );
 
     // Member's scoped search returns only their two sessions.
     let member_hits = scoped_session_ids(&pool, org_id, Some(&visible)).await;
@@ -200,10 +210,15 @@ async fn member_scope_is_created_or_participated_admin_sees_all() {
     // Admin (scope = None) reaches every session in the org, including the third.
     let admin_hits = scoped_session_ids(&pool, org_id, None).await;
     for s in [s_created, s_part, s_other] {
-        assert!(admin_hits.contains(&s), "admin should see every org transcript");
+        assert!(
+            admin_hits.contains(&s),
+            "admin should see every org transcript"
+        );
     }
     // Sanity: the admin role does resolve above member rank.
-    assert!(voxtranslate_server::business::role_rank("admin") >= voxtranslate_server::business::ADMIN);
+    assert!(
+        voxtranslate_server::business::role_rank("admin") >= voxtranslate_server::business::ADMIN
+    );
     let _ = admin; // used via role seeding above
 
     // Clean up this run's rows (org cascade removes members/projects/sessions/etc).

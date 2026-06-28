@@ -56,9 +56,15 @@ async fn user(srv: &Server) -> (Uuid, String) {
         name: "Notif Tester".into(),
         avatar_url: None,
     };
-    let u = upsert_google_user(&srv.pool, &identity, rust_decimal::Decimal::ZERO, None, None)
-        .await
-        .unwrap();
+    let u = upsert_google_user(
+        &srv.pool,
+        &identity,
+        rust_decimal::Decimal::ZERO,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
     let jwt = issue_jwt(SECRET, &u.id, &u.email, &u.name, 168).unwrap();
     (u.id, jwt)
 }
@@ -114,11 +120,12 @@ async fn subscribe_then_unsubscribe_roundtrip() {
         .await
         .unwrap();
     assert_eq!(r.status(), 204);
-    let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM user_push_subscriptions WHERE user_id = $1")
-        .bind(uid)
-        .fetch_one(&srv.pool)
-        .await
-        .unwrap();
+    let n: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM user_push_subscriptions WHERE user_id = $1")
+            .bind(uid)
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap();
     assert_eq!(n, 1);
 
     // Re-subscribing the same endpoint upserts (still one row).
@@ -130,11 +137,12 @@ async fn subscribe_then_unsubscribe_roundtrip() {
         .await
         .unwrap();
     assert_eq!(r.status(), 204);
-    let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM user_push_subscriptions WHERE user_id = $1")
-        .bind(uid)
-        .fetch_one(&srv.pool)
-        .await
-        .unwrap();
+    let n: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM user_push_subscriptions WHERE user_id = $1")
+            .bind(uid)
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap();
     assert_eq!(n, 1);
 
     let r = Client::new()
@@ -145,11 +153,12 @@ async fn subscribe_then_unsubscribe_roundtrip() {
         .await
         .unwrap();
     assert_eq!(r.status(), 204);
-    let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM user_push_subscriptions WHERE user_id = $1")
-        .bind(uid)
-        .fetch_one(&srv.pool)
-        .await
-        .unwrap();
+    let n: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM user_push_subscriptions WHERE user_id = $1")
+            .bind(uid)
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap();
     assert_eq!(n, 0);
 }
 
