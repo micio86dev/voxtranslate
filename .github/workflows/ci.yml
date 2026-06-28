@@ -37,21 +37,30 @@ jobs:
       - name: Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt, clippy
+          components: rustfmt, clippy, llvm-tools-preview
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: server
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
       - name: Rustfmt
         working-directory: server
         run: cargo fmt --check
       - name: Clippy
         working-directory: server
         run: cargo clippy --all-targets --locked -- -D warnings
-      - name: Server build + tests
+      - name: Server build + tests + coverage gate
         working-directory: server
         run: |
           cargo build --locked
-          cargo test --locked
+          # ENFORCED, realistic line-coverage floor on the always-run job (the
+          # Postgres service above lets the DB integration tests run; no provider
+          # keys here, so Deepgram/Groq paths are excluded → keep the bar below the
+          # with-keys figure). `llvm-cov test` also runs the full test suite, so this
+          # replaces the plain `cargo test`. Ratchet the floor up as coverage grows.
+          # (Supersedes the dormant, secret-gated 85% gate in the `e2e` job below.)
+          cargo llvm-cov test --locked --fail-under-lines 68
 
       - name: Node
         uses: actions/setup-node@v6
@@ -164,9 +173,12 @@ jobs:
         with:
           tool: cargo-llvm-cov
 
-      - name: Server coverage (≥85% lines)
+      # Informational: the fuller WITH-keys coverage figure (Deepgram/Groq paths
+      # covered too). The ENFORCED gate lives in the always-run `test` job; this run
+      # no longer fails the build (it was dormant theatre — secret-gated at 85%).
+      - name: Server coverage report (with provider keys)
         working-directory: server
-        run: cargo llvm-cov test --locked --fail-under-lines 85
+        run: cargo llvm-cov test --locked
 
       - name: Run backend
         working-directory: server
