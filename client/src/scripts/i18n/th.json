@@ -106,6 +106,8 @@
   "continueGuest": "ใช้งานต่อในฐานะผู้เยี่ยมชม",
   "continueGoogle": "ดำเนินการต่อด้วย Google",
   "buyCredits": "ซื้อเครดิต",
+  "account": "บัญชี",
+  "billingTitle": "การเรียกเก็บเงินและการใช้งาน",
   "logout": "ออกจากระบบ",
   "currentBalance": "ยอดคงเหลือปัจจุบัน",
   "history": "เครดิต",

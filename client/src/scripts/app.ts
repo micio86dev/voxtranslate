@@ -158,6 +158,7 @@ const guestBar = $('guest-bar');
 const accountAvatar = $<HTMLImageElement>('account-avatar');
 const accountName = $('account-name');
 const accountBalance = $('account-balance');
+const billingBalance = $('billing-balance');
 const callBalance = $('call-balance');
 const lowBanner = $('low-banner');
 const lowBannerText = $('low-banner-text');
@@ -172,7 +173,6 @@ const buyStatus = $('buy-status');
 const exhaustedModal = $('exhausted-modal');
 const consentModal = $('consent-modal');
 const reportModal = $('report-modal');
-const privacyModal = $('privacy-modal');
 const cookieBanner = $('cookie-banner');
 
 let billing = false; // accounts/credits enabled on this backend
@@ -4429,10 +4429,13 @@ async function bindRoomIfBusiness(): Promise<void> {
 
 function setBalanceUi(balance: number): void {
   const low = balance < 0.5;
-  accountBalance.textContent = auth.formatCredits(balance);
+  const formatted = auth.formatCredits(balance);
+  accountBalance.textContent = formatted;
   accountBalance.classList.toggle('low', low);
+  billingBalance.textContent = formatted; // Account → Billing section mirror
+  billingBalance.classList.toggle('low', low);
   callBalance.classList.remove('hidden');
-  callBalance.textContent = auth.formatCredits(balance);
+  callBalance.textContent = formatted;
   callBalance.classList.toggle('low', low);
 }
 
@@ -4511,7 +4514,6 @@ function openBuyModal(): void {
   const u = auth.getUser();
   if (u) modalBalance.textContent = auth.formatCredits(u.balance);
   void renderPackages();
-  selectTab('history');
 }
 
 async function renderPackages(): Promise<void> {
@@ -4570,7 +4572,7 @@ type LedgerTab = 'history' | 'usage' | 'transcripts';
 function selectTab(which: LedgerTab): void {
   for (const [id, tab] of [['tab-history', 'history'], ['tab-usage', 'usage'], ['tab-transcripts', 'transcripts']] as const) {
     $(id).classList.toggle('active', which === tab);
-    $(id).setAttribute('aria-pressed', String(which === tab));
+    $(id).setAttribute('aria-selected', String(which === tab));
   }
   void loadLedger(which);
 }
@@ -4752,29 +4754,56 @@ $('buy-close').addEventListener('click', () => show(buyModal, false));
 buyModal.addEventListener('click', (e) => {
   if (e.target === buyModal) show(buyModal, false);
 });
+$('billing-buy-btn').addEventListener('click', openBuyModal); // Account → Billing shortcut
+
+// ---- Avatar account menu (spec: account hub) ----
+// The single entry point for every secondary account destination. Items with a
+// `data-acct-nav` deep-link into the matching Account section; Logout / Workspace keep
+// their own handlers and the menu just closes around them.
+const accountTrigger = $('account-trigger');
+const accountMenu = $('account-menu');
+function closeAccountMenu(): void {
+  accountMenu.classList.add('hidden');
+  accountTrigger.setAttribute('aria-expanded', 'false');
+}
+accountTrigger.addEventListener('click', (e) => {
+  e.stopPropagation(); // don't let the document handler immediately re-close it
+  const open = accountMenu.classList.toggle('hidden');
+  accountTrigger.setAttribute('aria-expanded', String(!open));
+});
+accountMenu.addEventListener('click', (e) => {
+  const item = (e.target as HTMLElement).closest<HTMLElement>('.acct-item');
+  if (!item) return;
+  const nav = item.dataset.acctNav as AccountSection | undefined;
+  if (nav) openAccount(nav);
+  closeAccountMenu();
+});
+// Dismiss on outside-click + ESC, mirroring the modal-overlay affordances.
+document.addEventListener('click', (e) => {
+  if (!accountMenu.classList.contains('hidden') && !accountBar.contains(e.target as Node))
+    closeAccountMenu();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !accountMenu.classList.contains('hidden')) {
+    closeAccountMenu();
+    accountTrigger.focus();
+  }
+});
 
 // ============================================================================
 // ---- Friends: persistent list + requests + invite-to-call (spec: friends) --
-const friendsModal = $('friends-modal');
-const friendsBadge = $('friends-badge');
-const friendAddForm = $<HTMLFormElement>('friend-add');
-const friendAddEmail = $<HTMLInputElement>('friend-add-email');
-const friendAddMsg = $('friend-add-msg');
-const friendRequestsSection = $('friend-requests-section');
-const friendRequestsList = $('friend-requests-list');
-const friendOutgoingSection = $('friend-outgoing-section');
-const friendOutgoingList = $('friend-outgoing-list');
-const friendsListEl = $('friends-list');
-const friendsEmptyEl = $('friends-empty');
+// Friends live ONLY in Account → Friends now (the standalone modal was removed). The
+// request count surfaces at rest on three badges: the avatar (home), the avatar menu
+// item, and the Account section tab.
+const friendsBadge = $('friends-badge'); // on the avatar trigger
+const friendsMenuBadge = $('friends-menu-badge'); // in the avatar dropdown
+const friendsTabBadge = $('friends-tab-badge'); // on the Account section tab
 
 // Cached relationship ids so the in-call participant list can hide "add friend" for
 // people you're already connected to / have a pending request with either way.
 const friendIds = new Set<string>();
 const friendIncomingIds = new Set<string>();
 const friendOutgoingIds = new Set<string>();
-
-$('friends-ico').innerHTML = icon('users', 16);
-$('friends-close').innerHTML = icon('close', 16);
 
 function friendActionBtn(label: string, primary: boolean, danger: boolean, onClick: () => void): HTMLButtonElement {
   const b = document.createElement('button');
@@ -4856,25 +4885,18 @@ function renderFriendLists(
   show(els.friendsEmpty, friends.length === 0);
 }
 
-function renderFriends(friends: Friend[], incoming: Friend[], outgoing: Friend[]): void {
-  renderFriendLists(
-    {
-      incomingSection: friendRequestsSection,
-      incomingList: friendRequestsList,
-      outgoingSection: friendOutgoingSection,
-      outgoingList: friendOutgoingList,
-      friendsList: friendsListEl,
-      friendsEmpty: friendsEmptyEl,
-    },
-    friends,
-    incoming,
-    outgoing,
-  );
+/** Mirror the pending-incoming-request count onto all three request badges (avatar,
+ *  avatar-menu item, Account tab). Hidden when there are none. */
+function setRequestBadges(count: number): void {
+  for (const badge of [friendsBadge, friendsMenuBadge, friendsTabBadge]) {
+    badge.textContent = String(count);
+    show(badge, count > 0);
+  }
 }
 
-/** Fetch friends + requests, refresh the cached id sets and the request badge, and
- *  (when `render`) repaint the open panel. Also refreshes the participant list so the
- *  in-call "add friend" buttons reflect the new state. */
+/** Fetch friends + requests, refresh the cached id sets and the request badges, and
+ *  (when `render`, or whenever the Account → Friends section is on screen) repaint the
+ *  lists. Also refreshes the participant list so in-call "add friend" buttons stay in sync. */
 async function loadFriendState(render: boolean): Promise<void> {
   if (!auth.isLoggedIn()) return;
   const [friends, reqs] = await Promise.all([fetchFriends(), fetchFriendRequests()]);
@@ -4885,11 +4907,9 @@ async function loadFriendState(render: boolean): Promise<void> {
   friendOutgoingIds.clear();
   reqs.outgoing.forEach((f) => friendOutgoingIds.add(f.id));
 
-  friendsBadge.textContent = String(reqs.incoming.length);
-  show(friendsBadge, reqs.incoming.length > 0);
+  setRequestBadges(reqs.incoming.length);
 
-  if (render) renderFriends(friends, reqs.incoming, reqs.outgoing);
-  if (!profileScreen.classList.contains('hidden'))
+  if (render || accountFriendsVisible())
     renderProfileFriends(friends, reqs.incoming, reqs.outgoing);
   if (session) {
     updateParticipantsList(); // keep the participants-panel add-friend buttons in sync
@@ -4901,7 +4921,7 @@ function clearFriendState(): void {
   friendIds.clear();
   friendIncomingIds.clear();
   friendOutgoingIds.clear();
-  show(friendsBadge, false);
+  setRequestBadges(0);
 }
 
 async function onFriendAccept(id: string): Promise<void> {
@@ -5022,17 +5042,9 @@ function refreshTileFriendButtons(): void {
   }
 }
 
-function openFriends(): void {
-  show(friendsModal, true);
-  friendAddEmail.value = '';
-  show(friendAddMsg, false);
-  renderFriends([], [], []); // clear any stale rows, then load fresh
-  void loadFriendState(true);
-}
-
-/** Shared add-by-email submit for the friends modal and the profile screen: send the
- *  request, show a clear "sent / pending" (green) or error (red) message, then refresh
- *  every list so the new request immediately appears under "Sent requests". */
+/** Add-by-email submit for the Account → Friends section: send the request, show a clear
+ *  "sent / pending" (green) or error (red) message, then refresh every list so the new
+ *  request immediately appears under "Sent requests". */
 async function submitFriendAdd(emailInput: HTMLInputElement, msgEl: HTMLElement): Promise<void> {
   const email = emailInput.value.trim();
   if (!email) return;
@@ -5051,20 +5063,9 @@ async function submitFriendAdd(emailInput: HTMLInputElement, msgEl: HTMLElement)
   await loadFriendState(true);
 }
 
-friendAddForm.addEventListener('submit', (e) => {
-  e.preventDefault();
-  void submitFriendAdd(friendAddEmail, friendAddMsg);
-});
-
-$('friends-open').addEventListener('click', openFriends);
-$('friends-close').addEventListener('click', () => show(friendsModal, false));
-friendsModal.addEventListener('click', (e) => {
-  if (e.target === friendsModal) show(friendsModal, false);
-});
-
 // ============================================================================
-// ---- Profile screen + notification preferences + in-app banner (spec: friends) --
-const profileScreen = $('profile');
+// ---- Account screen: sections + notification preferences + in-app banner (spec: friends) --
+const accountScreen = $('account');
 const profileAvatar = $('profile-avatar');
 const profileName = $('profile-name');
 const profileEmail = $('profile-email');
@@ -5079,12 +5080,32 @@ const profileFriendOutgoingSection = $('profile-friend-outgoing-section');
 const profileFriendOutgoingList = $('profile-friend-outgoing-list');
 const notifPrefsEl = $('notif-prefs');
 
-$('profile-open').innerHTML = icon('user', 16);
-$('profile-back').innerHTML = icon('chevron-left', 18);
+// Account section nav (spec: account hub). Each id matches a `data-acct-section` (the
+// on-screen rail) / `data-acct-nav` (the avatar menu) value, so both entry points route
+// to the same section.
+type AccountSection = 'profile' | 'billing' | 'friends' | 'notifications' | 'privacy';
+const accountSectionEls: Record<AccountSection, HTMLElement> = {
+  profile: $('acct-profile'),
+  billing: $('acct-billing'),
+  friends: $('acct-friends'),
+  notifications: $('acct-notifications'),
+  privacy: $('acct-privacy'),
+};
+const accountTabs = Array.from(
+  document.querySelectorAll<HTMLButtonElement>('.acct-tab[data-acct-section]'),
+);
+let currentAccountSection: AccountSection = 'profile';
 
-/** The profile screen's full friends panel: incoming requests (accept/reject),
- *  outgoing/pending requests (cancel), and accepted friends (remove). Mirrors the
- *  friends modal so everything is manageable without leaving the profile. */
+$('account-back').innerHTML = icon('chevron-left', 18);
+
+/** True when the Account screen is open on its Friends section, so friend-state polls
+ *  know to repaint the lists in place. */
+function accountFriendsVisible(): boolean {
+  return !accountScreen.classList.contains('hidden') && currentAccountSection === 'friends';
+}
+
+/** The Account → Friends section's three lists: incoming requests (accept/reject),
+ *  outgoing/pending requests (cancel), and accepted friends (remove). */
 function renderProfileFriends(friends: Friend[], incoming: Friend[], outgoing: Friend[]): void {
   renderFriendLists(
     {
@@ -5177,24 +5198,55 @@ async function loadNotifPrefs(): Promise<void> {
   if (prefs) buildNotifMatrix(prefs);
 }
 
-function openProfile(): void {
+/** Switch the visible Account section, sync the tab selection, and lazy-load that
+ *  section's data (friends list, notif prefs, billing history, voice-clone state). */
+function selectAccountSection(section: AccountSection): void {
+  currentAccountSection = section;
+  for (const tab of accountTabs)
+    tab.setAttribute('aria-selected', String(tab.dataset.acctSection === section));
+  for (const key of Object.keys(accountSectionEls) as AccountSection[])
+    accountSectionEls[key].classList.toggle('hidden', key !== section);
+
+  switch (section) {
+    case 'friends':
+      profileFriendAddEmail.value = '';
+      show(profileFriendAddMsg, false);
+      void loadFriendState(true); // section visible → paint the lists
+      break;
+    case 'notifications':
+      void loadNotifPrefs();
+      break;
+    case 'billing':
+      selectTab('history'); // (re)load the credits ledger by default
+      break;
+    case 'privacy':
+      $('privacy-status').textContent = '';
+      // Enhanced voice-clone status (spec 0108): per-device signal that this user cloned
+      // their voice here. The server holds the authoritative `cartesia_voice_id`.
+      $('voice-clone-state').textContent = localStorage.getItem(VOICE_CLONED_KEY)
+        ? t('voiceCloneStatusSaved')
+        : t('voiceCloneStatusNone');
+      break;
+  }
+}
+
+/** Open the Account screen on `section` (default Profile). Reached from the avatar menu. */
+function openAccount(section: AccountSection = 'profile'): void {
   const u = auth.getUser();
   fillAvatar(profileAvatar, u?.name || '', u?.avatar_url, 56, 2);
   profileName.textContent = u?.name || '';
   profileEmail.textContent = u?.email || '';
   homeScreen.classList.add('hidden');
-  profileScreen.classList.remove('hidden');
-  profileFriendAddEmail.value = '';
-  show(profileFriendAddMsg, false);
-  void loadFriendState(false); // profile visible → also paints the profile friends list
-  void loadNotifPrefs();
+  accountScreen.classList.remove('hidden');
+  selectAccountSection(section);
 }
-function closeProfile(): void {
-  profileScreen.classList.add('hidden');
+function closeAccount(): void {
+  accountScreen.classList.add('hidden');
   homeScreen.classList.remove('hidden');
 }
-$('profile-open').addEventListener('click', openProfile);
-$('profile-back').addEventListener('click', closeProfile);
+for (const tab of accountTabs)
+  tab.addEventListener('click', () => selectAccountSection(tab.dataset.acctSection as AccountSection));
+$('account-back').addEventListener('click', closeAccount);
 profileFriendAddForm.addEventListener('submit', (e) => {
   e.preventDefault();
   void submitFriendAdd(profileFriendAddEmail, profileFriendAddMsg);
@@ -5220,9 +5272,9 @@ function showNotifBanner(n: InAppNotification): void {
 
 async function pollNotifications(): Promise<void> {
   if (!auth.isLoggedIn() || session) return; // never mid-call (session is set in a call)
-  // Keep the pending-request badge (and any open friends UI) fresh without a reload, so
-  // an incoming request lights up the homepage badge on its own.
-  void loadFriendState(!friendsModal.classList.contains('hidden'));
+  // Keep the pending-request badges (and the Account → Friends list, if it's on screen)
+  // fresh without a reload, so an incoming request lights up the avatar badge on its own.
+  void loadFriendState(false);
   if (bannerNotif) return; // show one at a time
   const list = await fetchUnread(10);
   const next = list.find(
@@ -5249,7 +5301,7 @@ $('friend-banner-join').addEventListener('click', () => {
   void markRead(n.id);
   const room = typeof n.data.room === 'string' ? n.data.room : '';
   if (room) {
-    profileScreen.classList.add('hidden');
+    accountScreen.classList.add('hidden');
     void goPrejoin(room, true);
   } else if (typeof n.data.join_url === 'string') {
     location.href = n.data.join_url;
@@ -5314,20 +5366,8 @@ $('consent-decline').addEventListener('click', () => {
   showLogin();
 });
 
-// --- Privacy & data (GDPR) ---
-$('privacy-open').addEventListener('click', () => {
-  $('privacy-status').textContent = '';
-  // Enhanced voice-clone status (spec 0108): per-device signal that this user cloned their
-  // voice here. The server holds the authoritative `cartesia_voice_id`.
-  $('voice-clone-state').textContent = localStorage.getItem(VOICE_CLONED_KEY)
-    ? t('voiceCloneStatusSaved')
-    : t('voiceCloneStatusNone');
-  show(privacyModal, true);
-});
-$('privacy-close').addEventListener('click', () => show(privacyModal, false));
-privacyModal.addEventListener('click', (e) => {
-  if (e.target === privacyModal) show(privacyModal, false);
-});
+// --- Privacy & data (GDPR) — now the Account → Privacy section (opened via the avatar
+//     menu; voice-clone state is refreshed in selectAccountSection). ---
 $('export-data').addEventListener('click', async () => {
   const data = await auth.exportData();
   if (!data) {
@@ -5340,7 +5380,7 @@ $('export-data').addEventListener('click', async () => {
 $('delete-account').addEventListener('click', async () => {
   if (!confirm(t('deleteConfirm'))) return;
   if (await auth.deleteAccount()) {
-    show(privacyModal, false);
+    accountScreen.classList.add('hidden');
     accountBar.classList.add('hidden');
     showLogin();
   } else {
@@ -5429,13 +5469,14 @@ $('dice').innerHTML = icon('shuffle', 18);
 $('chat-close').innerHTML = icon('close', 16);
 $('chat-send').innerHTML = icon('send', 20);
 chatAttach.innerHTML = icon('paperclip', 20);
-$('logout-btn').innerHTML = icon('leave', 16);
 $('buy-close').innerHTML = icon('close', 16);
 $('sm-cancel-btn').innerHTML = icon('close', 16);
-$('privacy-open').innerHTML = icon('shield', 16);
 $('report-close').innerHTML = icon('close', 16);
-$('privacy-close').innerHTML = icon('close', 16);
 $('part-close').innerHTML = icon('close', 16);
+// Account bar + menu + section tabs (spec: account hub): every `[data-ico]` span gets its
+// glyph here so the label text beside it stays intact (icons live in their own span).
+for (const el of document.querySelectorAll<HTMLElement>('[data-ico]'))
+  el.innerHTML = icon(el.dataset.ico!, el.classList.contains('balance-ico') ? 15 : 18);
 $('invite-close').innerHTML = icon('close', 16); // was missing → empty pill (spec 0090)
 $('postcall-close').innerHTML = icon('close', 16);
 $('btn-bookmark').innerHTML = icon('bookmark');

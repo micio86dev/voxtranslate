@@ -106,6 +106,8 @@
   "continueGuest": "以访客身份继续",
   "continueGoogle": "通过 Google 继续",
   "buyCredits": "购买积分",
+  "account": "账户",
+  "billingTitle": "账单与用量",
   "logout": "退出登录",
   "currentBalance": "当前余额",
   "history": "积分",
