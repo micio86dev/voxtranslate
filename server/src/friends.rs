@@ -6,6 +6,9 @@
 //! who sent a still-`pending` request so the UI can show it as incoming or outgoing;
 //! accepting flips the row to `accepted`, while reject / cancel / unfriend all just
 //! delete the row (one `DELETE` covers all three — see [`remove`]).
+//!
+//! The full request → accept → unfriend cycle, mutual-request auto-accept, the
+//! error paths, and call invites are covered end-to-end in `tests/friends.rs`.
 
 use std::sync::LazyLock;
 use std::time::{Duration, Instant};
