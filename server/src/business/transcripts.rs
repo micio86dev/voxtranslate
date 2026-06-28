@@ -101,10 +101,11 @@ async fn process(
         .execute(&mut *tx)
         .await
         .map_err(|e| e.to_string())?;
-    sqlx::query(
+    let transcript_id: Uuid = sqlx::query_scalar(
         "INSERT INTO transcripts
             (session_id, org_id, source_language, segments, duration_seconds, word_count, processed_at)
-         VALUES ($1, $2, $3, $4, $5, $6, now())",
+         VALUES ($1, $2, $3, $4, $5, $6, now())
+         RETURNING id",
     )
     .bind(session_id)
     .bind(org_id)
@@ -112,7 +113,7 @@ async fn process(
     .bind(&segments_json)
     .bind(duration as i32)
     .bind(word_count as i32)
-    .execute(&mut *tx)
+    .fetch_one(&mut *tx)
     .await
     .map_err(|e| e.to_string())?;
     sqlx::query("UPDATE call_sessions SET transcript_status = 'ready' WHERE id = $1")
@@ -121,6 +122,30 @@ async fn process(
         .await
         .map_err(|e| e.to_string())?;
     tx.commit().await.map_err(|e| e.to_string())?;
+
+    // Index the transcript for semantic search (Business dashboard). Best-effort:
+    // a failure must not fail transcription — search just omits this call until a
+    // re-process or the `/internal/embeddings/backfill` run picks it up. No-op when
+    // embeddings aren't configured. `project_id` scopes the result to its project.
+    let project_id: Option<Uuid> =
+        sqlx::query_scalar("SELECT project_id FROM call_sessions WHERE id = $1")
+            .bind(session_id)
+            .fetch_optional(pool)
+            .await
+            .ok()
+            .flatten();
+    if let Err(e) = embed_and_store(
+        state,
+        transcript_id,
+        session_id,
+        org_id,
+        project_id,
+        &segments,
+    )
+    .await
+    {
+        tracing::warn!("transcript embedding failed ({session_id}): {e}");
+    }
 
     // Charge transcription credits (best-effort; the transcript is already saved).
     let cost = credits::transcription_credits(duration);
@@ -403,6 +428,124 @@ pub async fn export(
     }
 }
 
+// ---- Semantic-search embeddings ----------------------------------------------
+
+/// Target words per embedding chunk. Diarized utterances are short; grouping
+/// consecutive segments up to this size gives chunks coherent enough to embed
+/// well while still precise enough to surface as a result snippet.
+const CHUNK_TARGET_WORDS: usize = 250;
+
+/// A contiguous run of transcript segments embedded as one unit.
+pub struct Chunk {
+    /// Joined plain text of the run — embedded and shown as the result snippet.
+    pub content: String,
+    /// First speaker in the run (a chunk may span speakers; this labels the snippet).
+    pub speaker_name: String,
+    pub start_ms: i64,
+    pub end_ms: i64,
+}
+
+/// Group consecutive diarized segments into ~[`CHUNK_TARGET_WORDS`]-word chunks,
+/// preserving order. Empty/whitespace segments are skipped; the final partial
+/// chunk is always flushed.
+pub fn chunk_segments(segments: &[Segment]) -> Vec<Chunk> {
+    let mut chunks = Vec::new();
+    let mut texts: Vec<&str> = Vec::new();
+    let mut words = 0usize;
+    let mut start_ms = 0i64;
+    let mut end_ms = 0i64;
+    let mut speaker = String::new();
+    for seg in segments {
+        let text = seg.text.trim();
+        if text.is_empty() {
+            continue;
+        }
+        if texts.is_empty() {
+            start_ms = seg.start_ms;
+            speaker = seg.speaker_name.clone();
+        }
+        texts.push(text);
+        end_ms = seg.end_ms;
+        words += text.split_whitespace().count();
+        if words >= CHUNK_TARGET_WORDS {
+            chunks.push(Chunk {
+                content: texts.join(" "),
+                speaker_name: std::mem::take(&mut speaker),
+                start_ms,
+                end_ms,
+            });
+            texts.clear();
+            words = 0;
+        }
+    }
+    if !texts.is_empty() {
+        chunks.push(Chunk {
+            content: texts.join(" "),
+            speaker_name: speaker,
+            start_ms,
+            end_ms,
+        });
+    }
+    chunks
+}
+
+/// Embed a transcript's chunks and (re)store them in `transcript_embeddings`.
+/// Idempotent: deletes any prior rows for `transcript_id` first, so a re-process
+/// or backfill is safe to repeat. No-op (returns 0) when embeddings aren't
+/// configured. Shared by the post-transcription hook and the backfill endpoint.
+pub async fn embed_and_store(
+    state: &AppState,
+    transcript_id: Uuid,
+    session_id: Uuid,
+    org_id: Uuid,
+    project_id: Option<Uuid>,
+    segments: &[Segment],
+) -> Result<usize, String> {
+    let Some(embedder) = state.embeddings.as_ref() else {
+        return Ok(0);
+    };
+    let pool = state.pool.as_ref().ok_or("no database")?;
+    let chunks = chunk_segments(segments);
+    if chunks.is_empty() {
+        return Ok(0);
+    }
+    let texts: Vec<String> = chunks.iter().map(|c| c.content.clone()).collect();
+    let vectors = embedder.embed_batch(&texts).await?;
+    if vectors.len() != chunks.len() {
+        return Err("embedding count mismatch".to_string());
+    }
+
+    let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
+    sqlx::query("DELETE FROM transcript_embeddings WHERE transcript_id = $1")
+        .bind(transcript_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| e.to_string())?;
+    for (i, (chunk, vec)) in chunks.iter().zip(vectors.into_iter()).enumerate() {
+        sqlx::query(
+            "INSERT INTO transcript_embeddings
+                (transcript_id, session_id, org_id, project_id, chunk_index,
+                 speaker_name, start_ms, end_ms, content, embedding)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+        )
+        .bind(transcript_id)
+        .bind(session_id)
+        .bind(org_id)
+        .bind(project_id)
+        .bind(i as i32)
+        .bind(&chunk.speaker_name)
+        .bind(chunk.start_ms)
+        .bind(chunk.end_ms)
+        .bind(&chunk.content)
+        .bind(pgvector::Vector::from(vec))
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| e.to_string())?;
+    }
+    tx.commit().await.map_err(|e| e.to_string())?;
+    Ok(chunks.len())
+}
+
 // ---- helpers -----------------------------------------------------------------
 
 fn parse_segments(segments: &Value) -> Vec<Segment> {
@@ -486,4 +629,67 @@ fn insufficient(balance: i32, required: i32) -> Response {
         })),
     )
         .into_response()
+}
+
+#[cfg(test)]
+mod chunk_tests {
+    use super::*;
+
+    fn seg(text: &str, start: i64, end: i64, speaker: &str) -> Segment {
+        Segment {
+            speaker_id: speaker.to_string(),
+            speaker_name: speaker.to_string(),
+            text: text.to_string(),
+            start_ms: start,
+            end_ms: end,
+        }
+    }
+
+    #[test]
+    fn short_transcript_is_one_chunk_with_full_span() {
+        let segs = vec![
+            seg("hello there", 0, 1000, "A"),
+            seg("how are you", 1000, 2000, "B"),
+        ];
+        let chunks = chunk_segments(&segs);
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(chunks[0].content, "hello there how are you");
+        assert_eq!(chunks[0].speaker_name, "A"); // first speaker labels the chunk
+        assert_eq!(chunks[0].start_ms, 0);
+        assert_eq!(chunks[0].end_ms, 2000);
+    }
+
+    #[test]
+    fn long_transcript_splits_on_word_budget() {
+        // 6 segments × 50 words = 300 words > CHUNK_TARGET_WORDS (250) → splits.
+        let fifty = "word ".repeat(50);
+        let segs: Vec<Segment> = (0..6)
+            .map(|i| seg(fifty.trim(), i * 1000, i * 1000 + 1000, "A"))
+            .collect();
+        let chunks = chunk_segments(&segs);
+        assert!(chunks.len() >= 2, "expected a split, got {}", chunks.len());
+        // Order/timestamps are preserved and contiguous.
+        assert_eq!(chunks[0].start_ms, 0);
+        assert!(chunks.last().unwrap().end_ms >= chunks[0].end_ms);
+    }
+
+    #[test]
+    fn empty_segments_are_skipped() {
+        let segs = vec![
+            seg("   ", 0, 500, "A"),
+            seg("real text", 500, 1500, "B"),
+            seg("", 1500, 2000, "C"),
+        ];
+        let chunks = chunk_segments(&segs);
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(chunks[0].content, "real text");
+        assert_eq!(chunks[0].speaker_name, "B"); // first NON-empty segment
+        assert_eq!(chunks[0].start_ms, 500);
+    }
+
+    #[test]
+    fn all_empty_yields_no_chunks() {
+        let segs = vec![seg("  ", 0, 100, "A"), seg("", 100, 200, "B")];
+        assert!(chunk_segments(&segs).is_empty());
+    }
 }

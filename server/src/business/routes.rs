@@ -5,7 +5,7 @@ use axum::Router;
 
 use crate::business::{
     analytics, audit, billing, calls, meetings, members, organizations, projects, recording,
-    storyboard, teams, transcripts,
+    search, storyboard, teams, transcripts,
 };
 use crate::AppState;
 
@@ -105,6 +105,11 @@ pub fn routes() -> Router<AppState> {
         .route(
             "/api/business/organizations/{org_id}/projects/{project_id}/rooms",
             get(calls::list_project_rooms),
+        )
+        // ---- Semantic transcript search (per-project, role-scoped) ----
+        .route(
+            "/api/business/organizations/{org_id}/search",
+            get(search::list),
         )
         // ---- Recording (PR-B): direct-to-storage upload, so no large body flows
         //      through the server (a long-call video is ~1 GB). ----

@@ -53,6 +53,8 @@ fn make_state() -> (AppState, bool) {
                 cache_ttl_secs: 604_800,
                 dragonfly_url: None,
                 bench_secret: None,
+                embeddings: None,
+                embeddings_backfill_secret: None,
             }),
             false,
         ),
@@ -459,6 +461,8 @@ async fn deepgram_unavailable_sends_error() {
         cache_ttl_secs: 604_800,
         dragonfly_url: None,
         bench_secret: None,
+        embeddings: None,
+        embeddings_backfill_secret: None,
     });
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -538,6 +542,8 @@ fn guest_config() -> Config {
         cache_ttl_secs: 604_800,
         dragonfly_url: None,
         bench_secret: None,
+        embeddings: None,
+        embeddings_backfill_secret: None,
     }
 }
 

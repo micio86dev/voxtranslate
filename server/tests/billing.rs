@@ -192,6 +192,8 @@ mod guest_mode {
             cache_ttl_secs: 604_800,
             dragonfly_url: None,
             bench_secret: None,
+            embeddings: None,
+            embeddings_backfill_secret: None,
         };
         let state = AppState::new(config);
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
