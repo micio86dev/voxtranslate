@@ -521,7 +521,7 @@ pub async fn embed_and_store(
         .execute(&mut *tx)
         .await
         .map_err(|e| e.to_string())?;
-    for (i, (chunk, vec)) in chunks.iter().zip(vectors.into_iter()).enumerate() {
+    for (i, (chunk, vec)) in chunks.iter().zip(vectors).enumerate() {
         sqlx::query(
             "INSERT INTO transcript_embeddings
                 (transcript_id, session_id, org_id, project_id, chunk_index,
