@@ -172,6 +172,16 @@ pub fn friend_copy(kind: &str, lang: &str, actor: &str) -> (String, String) {
             "zh" => ("通话邀请", "{n} 邀请你加入通话。"),
             _ => ("Call invite", "{n} invited you to a call."),
         },
+        "friend_active" => match lang {
+            "it" => ("Un amico è online", "{n} è in una stanza pubblica. Va di fare due chiacchiere?"),
+            "es" => ("Un amigo está en línea", "{n} está en una sala pública. ¿Te apetece charlar?"),
+            "fr" => ("Un ami est en ligne", "{n} est dans un salon public. Envie de discuter ?"),
+            "de" => ("Ein Freund ist online", "{n} ist in einem öffentlichen Raum. Lust auf einen Plausch?"),
+            "pt" => ("Um amigo está online", "{n} está numa sala pública. Que tal conversar?"),
+            "ja" => ("友達がオンラインです", "{n}さんが公開ルームにいます。少しおしゃべりしませんか？"),
+            "zh" => ("好友在线", "{n} 正在一个公开房间里。想聊聊吗？"),
+            _ => ("A friend is online", "{n} is in a public room. Fancy a chat?"),
+        },
         _ => ("Notification", "{n}"),
     };
     (title.to_string(), body.replace("{n}", actor))

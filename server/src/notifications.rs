@@ -27,7 +27,7 @@ use crate::middleware::AuthUser;
 use crate::AppState;
 
 /// Notification types. Phase 1 = meetings; Phase 2 = friends/presence (spec: friends).
-pub const TYPES: [&str; 7] = [
+pub const TYPES: [&str; 8] = [
     "meeting_invited",
     "meeting_reminder",
     "meeting_updated",
@@ -35,6 +35,7 @@ pub const TYPES: [&str; 7] = [
     "friend_request",
     "friend_accepted",
     "call_invite",
+    "friend_active",
 ];
 pub const CHANNELS: [&str; 3] = ["push", "email", "in_app"];
 

@@ -29,7 +29,17 @@ import { loadRemoteI18n } from './content';
 import { setupScheduling } from './meetings';
 import { initAnalytics, grantAnalyticsConsent, track } from './analytics';
 import { setupGeoOptIn } from './geo';
-import { maybeSubscribePush } from './push';
+import { enablePush, maybeSubscribePush } from './push';
+import {
+  fetchPreferences,
+  fetchUnread,
+  type InAppNotification,
+  markRead,
+  NOTIF_CHANNELS,
+  NOTIF_EVENTS,
+  type Prefs,
+  savePreferences,
+} from './notifications';
 import { icon } from './icons';
 import type { MeshManager } from './webrtc';
 import { resolvePeerId } from './peer-id';
@@ -1385,12 +1395,14 @@ function renderRooms(
 function startLobby(): void {
   fetchRooms();
   if (!lobbyTimer) lobbyTimer = window.setInterval(fetchRooms, 3000);
+  startNotifPolling(); // poll in-app alerts while on the home/profile screens
 }
 function stopLobby(): void {
   if (lobbyTimer) {
     clearInterval(lobbyTimer);
     lobbyTimer = null;
   }
+  stopNotifPolling(); // no alerts while in pre-join / a call
 }
 $('refresh').addEventListener('click', fetchRooms);
 
@@ -4841,6 +4853,7 @@ async function loadFriendState(render: boolean): Promise<void> {
   show(friendsBadge, reqs.incoming.length > 0);
 
   if (render) renderFriends(friends, reqs.incoming, reqs.outgoing);
+  if (!profileScreen.classList.contains('hidden')) renderProfileFriends(friends);
   if (session) updateParticipantsList(); // keep in-call add-friend buttons in sync
 }
 
@@ -4928,6 +4941,183 @@ $('friends-open').addEventListener('click', openFriends);
 $('friends-close').addEventListener('click', () => show(friendsModal, false));
 friendsModal.addEventListener('click', (e) => {
   if (e.target === friendsModal) show(friendsModal, false);
+});
+
+// ============================================================================
+// ---- Profile screen + notification preferences + in-app banner (spec: friends) --
+const profileScreen = $('profile');
+const profileAvatar = $('profile-avatar');
+const profileName = $('profile-name');
+const profileEmail = $('profile-email');
+const profileFriendsList = $('profile-friends-list');
+const profileFriendsEmpty = $('profile-friends-empty');
+const notifPrefsEl = $('notif-prefs');
+
+$('profile-open').innerHTML = icon('user', 16);
+$('profile-back').innerHTML = icon('chevron-left', 18);
+
+/** The profile screen's friends list: accepted friends with an inline Remove. Add &
+ *  requests stay in the friends modal (reached via the "manage" link). */
+function renderProfileFriends(friends: Friend[]): void {
+  profileFriendsList.innerHTML = '';
+  for (const f of friends) {
+    profileFriendsList.appendChild(
+      friendRow(f, [friendActionBtn(t('friendRemove'), false, true, () => void onFriendRemove(f.id))]),
+    );
+  }
+  show(profileFriendsEmpty, friends.length === 0);
+}
+
+const NOTIF_EVENT_LABEL: Record<string, string> = {
+  friend_request: 'notifEvtFriendRequest',
+  friend_accepted: 'notifEvtFriendAccepted',
+  call_invite: 'notifEvtCallInvite',
+  friend_active: 'notifEvtFriendActive',
+  meeting_invited: 'notifEvtMeetingInvited',
+  meeting_reminder: 'notifEvtMeetingReminder',
+  meeting_updated: 'notifEvtMeetingUpdated',
+  meeting_cancelled: 'notifEvtMeetingCancelled',
+};
+const NOTIF_CHANNEL_LABEL: Record<string, string> = {
+  push: 'notifChPush',
+  email: 'notifChEmail',
+  in_app: 'notifChInApp',
+};
+
+/** Build the event×channel toggle matrix into #notif-prefs. */
+function buildNotifMatrix(prefs: Prefs): void {
+  const isOn = (type: string, ch: string) =>
+    prefs.preferences.find((p) => p.type === type && p.channel === ch)?.enabled ?? true;
+  const grid = document.createElement('div');
+  grid.className = 'notif-grid';
+  const corner = document.createElement('span');
+  corner.className = 'notif-h lead';
+  grid.appendChild(corner);
+  for (const ch of NOTIF_CHANNELS) {
+    const h = document.createElement('span');
+    h.className = 'notif-h';
+    h.textContent = t(NOTIF_CHANNEL_LABEL[ch]);
+    grid.appendChild(h);
+  }
+  for (const type of NOTIF_EVENTS) {
+    const lbl = document.createElement('span');
+    lbl.className = 'notif-evt';
+    lbl.textContent = t(NOTIF_EVENT_LABEL[type]);
+    grid.appendChild(lbl);
+    for (const ch of NOTIF_CHANNELS) {
+      const cell = document.createElement('label');
+      cell.className = 'notif-cell';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = isOn(type, ch);
+      cb.addEventListener('change', () => void onPrefToggle(type, ch, cb));
+      cell.appendChild(cb);
+      grid.appendChild(cell);
+    }
+  }
+  notifPrefsEl.innerHTML = '';
+  notifPrefsEl.appendChild(grid);
+}
+
+async function onPrefToggle(type: string, channel: string, cb: HTMLInputElement): Promise<void> {
+  const enabled = cb.checked;
+  // Turning a push channel ON needs browser permission + a live subscription.
+  if (channel === 'push' && enabled) {
+    const ok = await enablePush();
+    if (!ok) {
+      cb.checked = false;
+      toast(t('pushBlocked'), 'err');
+      return;
+    }
+  }
+  const saved = await savePreferences([{ type, channel, enabled }]);
+  if (!saved) {
+    cb.checked = !enabled; // revert on failure
+    toast(t('notifSaveErr'), 'err');
+  } else {
+    toast(t('notifSaved'), 'ok');
+  }
+}
+
+async function loadNotifPrefs(): Promise<void> {
+  const prefs = await fetchPreferences();
+  if (prefs) buildNotifMatrix(prefs);
+}
+
+function openProfile(): void {
+  const u = auth.getUser();
+  fillAvatar(profileAvatar, u?.name || '', u?.avatar_url, 56, 2);
+  profileName.textContent = u?.name || '';
+  profileEmail.textContent = u?.email || '';
+  homeScreen.classList.add('hidden');
+  profileScreen.classList.remove('hidden');
+  void loadFriendState(false); // profile visible → also paints the profile friends list
+  void loadNotifPrefs();
+}
+function closeProfile(): void {
+  profileScreen.classList.add('hidden');
+  homeScreen.classList.remove('hidden');
+}
+$('profile-open').addEventListener('click', openProfile);
+$('profile-back').addEventListener('click', closeProfile);
+$('profile-manage-friends').addEventListener('click', openFriends);
+
+// ---- In-app actionable banner (friend in a public room / call invite) ----
+const friendBanner = $('friend-banner');
+const friendBannerText = $('friend-banner-text');
+const shownNotifIds = new Set<string>();
+let bannerNotif: InAppNotification | null = null;
+let friendNotifTimer: number | null = null;
+
+function hideNotifBanner(): void {
+  bannerNotif = null;
+  show(friendBanner, false);
+}
+function showNotifBanner(n: InAppNotification): void {
+  bannerNotif = n;
+  shownNotifIds.add(n.id);
+  friendBannerText.textContent = n.body || n.title;
+  show(friendBanner, true);
+}
+
+async function pollNotifications(): Promise<void> {
+  if (!auth.isLoggedIn() || session) return; // never mid-call (session is set in a call)
+  if (bannerNotif) return; // show one at a time
+  const list = await fetchUnread(10);
+  const next = list.find(
+    (n) => (n.type === 'friend_active' || n.type === 'call_invite') && !shownNotifIds.has(n.id),
+  );
+  if (next) showNotifBanner(next);
+}
+function startNotifPolling(): void {
+  void pollNotifications();
+  if (!friendNotifTimer) friendNotifTimer = window.setInterval(() => void pollNotifications(), 20000);
+}
+function stopNotifPolling(): void {
+  if (friendNotifTimer) {
+    clearInterval(friendNotifTimer);
+    friendNotifTimer = null;
+  }
+  hideNotifBanner();
+}
+
+$('friend-banner-join').addEventListener('click', () => {
+  const n = bannerNotif;
+  hideNotifBanner();
+  if (!n) return;
+  void markRead(n.id);
+  const room = typeof n.data.room === 'string' ? n.data.room : '';
+  if (room) {
+    profileScreen.classList.add('hidden');
+    void goPrejoin(room, true);
+  } else if (typeof n.data.join_url === 'string') {
+    location.href = n.data.join_url;
+  }
+});
+$('friend-banner-dismiss').addEventListener('click', () => {
+  const n = bannerNotif;
+  hideNotifBanner();
+  if (n) void markRead(n.id);
 });
 
 $('low-banner-buy').addEventListener('click', openBuyModal);

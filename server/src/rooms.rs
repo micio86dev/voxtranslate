@@ -302,6 +302,14 @@ impl RoomManager {
         })
     }
 
+    /// True if `user_id` is an authenticated peer currently present in any room (i.e.
+    /// in a call). Used to avoid pinging a friend who's already busy (spec: friends).
+    pub fn is_user_online(&self, user_id: Uuid) -> bool {
+        self.rooms
+            .iter()
+            .any(|r| r.peers.iter().any(|p| p.user_id == Some(user_id)))
+    }
+
     /// Remove a connection by `(id, conn)`, dropping the room once empty. Matching
     /// on `conn` (not just `id`) means a stale connection's teardown leaves the
     /// live reconnect untouched — it reports [`LeaveOutcome::Superseded`] so the

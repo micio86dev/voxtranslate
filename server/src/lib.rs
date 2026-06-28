@@ -1250,6 +1250,19 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
     let session_start = std::time::Instant::now(); // for the WS session canonical line (spec 0050)
     tracing::info!(%room, %name, %lang, peers = existing.len() + 1, "peer joined");
 
+    // Tell this user's friends they're now in a PUBLIC room, so they can drop in for a
+    // chat (spec: friends). Fire-and-forget + rate-limited; never blocks the join path.
+    if room_public {
+        if let Some(uid) = billed_user {
+            let st = state.clone();
+            let nm = name.clone();
+            let rm = room.clone();
+            tokio::spawn(async move {
+                crate::friends::notify_friends_of_public_join(st, uid, nm, rm).await;
+            });
+        }
+    }
+
     // Transcript persistence: ensure the session row exists (first joiner wins)
     // and record this participant. `participant_row` is kept for `left_at`.
     let participant_row = match state.transcripts.as_ref() {

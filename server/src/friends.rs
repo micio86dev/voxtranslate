@@ -7,10 +7,14 @@
 //! accepting flips the row to `accepted`, while reject / cancel / unfriend all just
 //! delete the row (one `DELETE` covers all three — see [`remove`]).
 
+use std::sync::LazyLock;
+use std::time::{Duration, Instant};
+
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
+use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::FromRow;
@@ -308,6 +312,80 @@ async fn notify_friend(state: &AppState, pool: &Pool, recipient: Uuid, kind: &st
         json!({ "from_user_id": actor.user_id, "from_name": actor.name }),
     )
     .await;
+}
+
+// --- "Friend is in a public room" alert (spec: friends, presence) ----------------
+
+/// Anti-spam guard: the last time we told `recipient` that `joiner` is in `room`.
+/// In-memory + pruned opportunistically — a dropped entry just means one extra alert.
+static FRIEND_ALERT_SEEN: LazyLock<DashMap<(Uuid, Uuid, String), Instant>> =
+    LazyLock::new(DashMap::new);
+const FRIEND_ALERT_COOLDOWN: Duration = Duration::from_secs(15 * 60);
+
+/// When an authenticated user joins a PUBLIC room, alert their accepted friends so they
+/// can drop in for a chat. Best-effort and rate-limited: skips friends who are currently
+/// in a call (online), and won't re-alert the same (friend, joiner, room) within the
+/// cooldown. Per-channel notification preferences are enforced by [`notify`] — a friend
+/// who turned the `friend_active` event off simply isn't reached on that channel.
+pub async fn notify_friends_of_public_join(
+    state: AppState,
+    joiner_id: Uuid,
+    joiner_name: String,
+    room: String,
+) {
+    let Some(pool) = state.pool.as_ref() else {
+        return;
+    };
+    // Drop stale dedupe entries so the map can't grow unbounded.
+    FRIEND_ALERT_SEEN.retain(|_, t| t.elapsed() < FRIEND_ALERT_COOLDOWN);
+
+    let friends: Vec<Uuid> = match sqlx::query_scalar(
+        "SELECT CASE WHEN user_low = $1 THEN user_high ELSE user_low END
+           FROM friendships
+          WHERE status = 'accepted' AND (user_low = $1 OR user_high = $1)",
+    )
+    .bind(joiner_id)
+    .fetch_all(pool)
+    .await
+    {
+        Ok(f) => f,
+        Err(e) => {
+            tracing::error!("friend alert: load friends failed: {e}");
+            return;
+        }
+    };
+    if friends.is_empty() {
+        return;
+    }
+
+    let join_url = format!("{}/?room={}", state.config.app_base_url, room);
+    for friend_id in friends {
+        // Don't interrupt a friend who's already in a call.
+        if state.rooms.is_user_online(friend_id) {
+            continue;
+        }
+        let key = (friend_id, joiner_id, room.clone());
+        if FRIEND_ALERT_SEEN
+            .get(&key)
+            .is_some_and(|t| t.elapsed() < FRIEND_ALERT_COOLDOWN)
+        {
+            continue;
+        }
+        FRIEND_ALERT_SEEN.insert(key, Instant::now());
+
+        let lang = user_locale(pool, friend_id).await;
+        let (title, body) = friend_copy("friend_active", &lang, &joiner_name);
+        notify(
+            &state,
+            friend_id,
+            "friend_active",
+            &lang,
+            &title,
+            &body,
+            json!({ "from_user_id": joiner_id, "from_name": joiner_name, "room": room, "join_url": join_url }),
+        )
+        .await;
+    }
 }
 
 #[cfg(test)]
