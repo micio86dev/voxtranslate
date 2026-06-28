@@ -298,4 +298,43 @@ mod tests {
         assert_eq!(join_label("en"), "Join");
         assert_eq!(join_label("xx"), "Join"); // unknown → fallback
     }
+
+    #[test]
+    fn friend_copy_localizes_every_kind_and_language() {
+        // Every friend/call notification kind, in every supported UI language, must
+        // yield a non-empty title and a body with the actor's name substituted in.
+        let kinds = [
+            "friend_request",
+            "friend_accepted",
+            "call_invite",
+            "friend_active",
+        ];
+        for lang in ["en", "it", "es", "fr", "de", "pt", "ja", "zh", "xx"] {
+            for kind in kinds {
+                let (title, body) = friend_copy(kind, lang, "Alice");
+                assert!(!title.is_empty(), "{lang}/{kind} empty title");
+                assert!(
+                    body.contains("Alice"),
+                    "{lang}/{kind} body missing actor name: {body}"
+                );
+                assert!(!body.contains("{n}"), "{lang}/{kind} left {{n}} unreplaced");
+            }
+        }
+    }
+
+    #[test]
+    fn friend_copy_unknown_lang_falls_back_to_english() {
+        let (title, body) = friend_copy("friend_request", "xx", "Bob");
+        assert_eq!(title, "Friend request");
+        assert_eq!(body, "Bob sent you a friend request.");
+    }
+
+    #[test]
+    fn friend_copy_unknown_kind_is_a_bare_notification() {
+        // Anything outside the known kinds collapses to a generic title with the
+        // actor as the whole body (the `{n}` template).
+        let (title, body) = friend_copy("mystery", "it", "Carla");
+        assert_eq!(title, "Notification");
+        assert_eq!(body, "Carla");
+    }
 }

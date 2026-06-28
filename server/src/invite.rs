@@ -318,4 +318,40 @@ mod tests {
         let e = build_invite_email("en", "   ", "https://voxtranslate.app/?room=x");
         assert!(e.subject.starts_with("Someone invited you"));
     }
+
+    #[test]
+    fn build_invite_email_renders_every_language() {
+        // Each supported UI language (plus an unknown code → English) must render a
+        // complete invite: inviter substituted into subject + intro, the join link
+        // embedded in both HTML and text parts, and no leftover placeholders.
+        let url = "https://voxtranslate.app/?room=blue-fox";
+        for lang in ["en", "it", "es", "fr", "de", "pt", "ja", "zh", "xx"] {
+            let e = build_invite_email(lang, "Marco", url);
+            assert!(
+                e.subject.contains("Marco"),
+                "{lang} subject missing inviter"
+            );
+            assert!(
+                !e.subject.contains("{inviter}"),
+                "{lang} subject placeholder"
+            );
+            assert!(
+                e.body_html.contains("Marco"),
+                "{lang} intro missing inviter"
+            );
+            assert!(
+                !e.body_html.contains("{inviter}"),
+                "{lang} html placeholder"
+            );
+            assert!(
+                e.body_html.contains(&format!("href=\"{url}\"")),
+                "{lang} html missing join link"
+            );
+            assert!(e.body_text.contains(url), "{lang} text missing join link");
+            assert!(
+                !e.heading.is_empty() && !e.preheader.is_empty() && !e.tagline.is_empty(),
+                "{lang} empty heading/preheader/tagline"
+            );
+        }
+    }
 }
