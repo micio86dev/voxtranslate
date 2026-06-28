@@ -23,6 +23,7 @@ pub mod projects;
 pub mod recording;
 pub mod retention;
 pub mod routes;
+pub mod search;
 pub mod storyboard;
 pub mod teams;
 pub mod transcripts;

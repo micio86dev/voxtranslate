@@ -21,6 +21,7 @@ pub mod db;
 pub mod deepgram;
 pub mod email;
 pub mod email_template;
+pub mod embeddings;
 pub mod engine;
 pub mod files;
 pub mod friends;
@@ -141,6 +142,10 @@ pub struct AppState {
     /// Direct Groq chat client for the AI features (report, sentiment, email
     /// draft, suggestions). Shares the pooled HTTP client with `translator`.
     pub groq: Groq,
+    /// OpenAI embeddings client for semantic transcript search (Business dashboard).
+    /// `Some` whenever `OPENAI_API_KEY` is set — decoupled from the Pro engine flag.
+    /// `None` ⇒ transcripts aren't embedded and `GET …/search` returns 503.
+    pub embeddings: Option<embeddings::OpenAiEmbeddings>,
     /// Optional DragonflyDB translation cache (spec 0107). `Some` only when
     /// `TRANSLATION_CACHE_ENABLED` is set AND the lazy connect in [`AppState::init`]
     /// succeeded — fail-open, so a missing URL or an unreachable DragonflyDB just
@@ -356,12 +361,19 @@ impl AppState {
             .collect();
         let rooms = Arc::new(RoomManager::new());
         rooms.init_client_direct_engines(client_direct_engines);
+        // OpenAI embeddings for semantic transcript search — built whenever the key is
+        // configured (independent of the Pro engine rollout flag).
+        let embeddings = config
+            .embeddings
+            .as_ref()
+            .map(embeddings::OpenAiEmbeddings::from_config);
         Self {
             config,
             rooms,
             translator,
             engines,
             groq,
+            embeddings,
             translation_cache,
             pool: None,
             billing: None,
@@ -619,6 +631,12 @@ pub fn app(state: AppState) -> Router {
         // Internal benchmark endpoint (spec 0107) — guarded by `BENCH_SECRET`
         // (404 when unset, 401 on a wrong token); intentionally undocumented.
         .route("/internal/bench/translate", post(bench::translate))
+        // Internal one-time embeddings backfill — guarded by `EMBEDDINGS_BACKFILL_SECRET`
+        // (404 when unset). Embeds pre-existing transcripts in resumable batches.
+        .route(
+            "/internal/embeddings/backfill",
+            post(business::search::backfill),
+        )
         // VoxTranslate for Business — org workspace API (spec 0106).
         .merge(business::routes::routes())
         // Canonical log line + request-id span per request (spec 0050).

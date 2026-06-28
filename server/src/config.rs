@@ -120,6 +120,14 @@ pub struct Config {
     /// Bearer secret guarding `POST /internal/bench/translate` (spec 0107 R9). `None` ⇒
     /// the endpoint returns 404. Server-only, never logged.
     pub bench_secret: Option<String>,
+    /// OpenAI embeddings for semantic transcript search (Business dashboard). Present
+    /// whenever `OPENAI_API_KEY` is set — DECOUPLED from the `OPENAI_PRO` realtime flag,
+    /// so search works even when the Pro tier ships dark. `None` ⇒ transcripts are not
+    /// embedded and `GET …/search` returns 503.
+    pub embeddings: Option<EmbeddingsConfig>,
+    /// Bearer secret guarding `POST /internal/embeddings/backfill` (one-time embed of
+    /// pre-existing transcripts). `None` ⇒ the endpoint returns 404. Server-only.
+    pub embeddings_backfill_secret: Option<String>,
 }
 
 /// OpenAI Realtime Translation credentials + pricing (spec 0093). All-or-nothing
@@ -143,6 +151,36 @@ pub struct OpenAiConfig {
     /// `None` (default) leaves the model's default. Set it to pin one consistent
     /// timbre for all translated audio. Opt-in so the default behaviour is unchanged.
     pub voice: Option<String>,
+}
+
+/// OpenAI embeddings config for semantic transcript search. Reuses the same
+/// `OPENAI_API_KEY` as the Pro engine but activates independently of the
+/// `OPENAI_PRO` flag (search is a separate, always-eligible feature).
+#[derive(Debug, Clone)]
+pub struct EmbeddingsConfig {
+    /// Server-only OpenAI API key (Bearer auth to the embeddings REST endpoint);
+    /// never sent to clients and never logged.
+    pub api_key: String,
+    /// Embedding model id (`EMBEDDINGS_MODEL`, default `text-embedding-3-small`).
+    /// The model's output dimension MUST match the `vector(1536)` column in
+    /// migration 030 — changing to a different-dimension model needs a new migration.
+    pub model: String,
+}
+
+impl EmbeddingsConfig {
+    fn from_env() -> Self {
+        Self {
+            api_key: env::var("OPENAI_API_KEY")
+                .unwrap_or_default()
+                .trim()
+                .to_string(),
+            model: env::var("EMBEDDINGS_MODEL")
+                .ok()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "text-embedding-3-small".to_string()),
+        }
+    }
 }
 
 /// Gemini Live Translate credentials + pricing (spec 0100). All-or-nothing like
@@ -713,6 +751,15 @@ impl Config {
             None
         };
 
+        // Semantic transcript search (Business dashboard): OpenAI embeddings. Reuses
+        // the OpenAI key but is DECOUPLED from `OPENAI_PRO` — present whenever the key
+        // is set, so search works even when the realtime Pro tier is dark.
+        let embeddings = if present("OPENAI_API_KEY") {
+            Some(EmbeddingsConfig::from_env())
+        } else {
+            None
+        };
+
         // Premium engine — Gemini Live Translate (spec 0100): `GEMINI_PREMIUM` + key.
         let google = if env_flag("GEMINI_PREMIUM") && present("GOOGLE_AI_API_KEY") {
             Some(GeminiConfig::from_env())
@@ -780,6 +827,11 @@ impl Config {
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty()),
             bench_secret: env::var("BENCH_SECRET")
+                .ok()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty()),
+            embeddings,
+            embeddings_backfill_secret: env::var("EMBEDDINGS_BACKFILL_SECRET")
                 .ok()
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty()),
@@ -1121,6 +1173,8 @@ impl Config {
             cache_ttl_secs: 604_800,
             dragonfly_url: None,
             bench_secret: None,
+            embeddings: None,
+            embeddings_backfill_secret: None,
         }
     }
 }
@@ -1208,7 +1262,10 @@ mod tests {
         assert!(cfg.clone_voice_url().ends_with("/voices/clone"));
         assert!(!cfg.access_token_url().contains("//access-token"));
         // STT model map defaults to English→ink-2 (fastest), others fall back to stt_model.
-        assert_eq!(cfg.stt_model_by_lang.get("en").map(String::as_str), Some("ink-2"));
+        assert_eq!(
+            cfg.stt_model_by_lang.get("en").map(String::as_str),
+            Some("ink-2")
+        );
     }
 
     #[test]

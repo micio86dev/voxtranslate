@@ -1,6 +1,6 @@
 [package]
 name = "voxtranslate-server"
-version = "1.6.0"
+version = "1.7.0"
 edition = "2021"
 license = "LicenseRef-PolyForm-Shield-1.0.0"
 
@@ -22,6 +22,9 @@ url = "2"
 
 # Auth + billing
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres", "uuid", "chrono", "rust_decimal", "macros", "migrate", "json"] }
+# Semantic transcript search: binds Postgres `vector(1536)` (pgvector) through sqlx
+# so transcript-chunk embeddings round-trip as a typed column.
+pgvector = { version = "0.4", features = ["sqlx"] }
 jsonwebtoken = "9"
 chrono = { version = "0.4", features = ["serde"] }
 rust_decimal = { version = "1", features = ["serde"] }
