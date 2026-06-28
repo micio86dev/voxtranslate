@@ -51,9 +51,15 @@ async fn user(srv: &Server) -> (Uuid, String) {
         name: "Scheduler".into(),
         avatar_url: None,
     };
-    let u = upsert_google_user(&srv.pool, &identity, rust_decimal::Decimal::ZERO, None, None)
-        .await
-        .unwrap();
+    let u = upsert_google_user(
+        &srv.pool,
+        &identity,
+        rust_decimal::Decimal::ZERO,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
     let jwt = issue_jwt(SECRET, &u.id, &u.email, &u.name, 168).unwrap();
     (u.id, jwt)
 }
@@ -106,7 +112,12 @@ async fn create_validates_input_then_requires_google() {
     };
 
     // Empty title → 400.
-    let r = post(json!({ "title": "  ", "scheduled_at": at }), jwt.clone(), base(&srv)).await;
+    let r = post(
+        json!({ "title": "  ", "scheduled_at": at }),
+        jwt.clone(),
+        base(&srv),
+    )
+    .await;
     assert_eq!(r.status(), 400);
 
     // end before start → 400.
@@ -203,7 +214,11 @@ async fn cancel_marks_cancelled_or_404() {
 
     // Cancelling someone else's / unknown meeting → 404.
     let r = Client::new()
-        .post(format!("{}/api/meetings/{}/cancel", base(&srv), Uuid::new_v4()))
+        .post(format!(
+            "{}/api/meetings/{}/cancel",
+            base(&srv),
+            Uuid::new_v4()
+        ))
         .bearer_auth(&jwt)
         .send()
         .await
