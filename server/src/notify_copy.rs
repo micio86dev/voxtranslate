@@ -137,6 +137,46 @@ pub fn join_label(lang: &str) -> &'static str {
     }
 }
 
+/// `(title, body)` for the friend / call-invite notifications (Phase 2), localized to
+/// `lang`, with the other person's display name `actor` interpolated where `{n}`
+/// appears. Same language bar as [`meeting_copy`]; English fallback for the rest.
+pub fn friend_copy(kind: &str, lang: &str, actor: &str) -> (String, String) {
+    let (title, body): (&str, &str) = match kind {
+        "friend_request" => match lang {
+            "it" => ("Richiesta di amicizia", "{n} ti ha inviato una richiesta di amicizia."),
+            "es" => ("Solicitud de amistad", "{n} te ha enviado una solicitud de amistad."),
+            "fr" => ("Demande d'ami", "{n} vous a envoyé une demande d'ami."),
+            "de" => ("Freundschaftsanfrage", "{n} hat dir eine Freundschaftsanfrage gesendet."),
+            "pt" => ("Pedido de amizade", "{n} enviou-te um pedido de amizade."),
+            "ja" => ("友達リクエスト", "{n}さんから友達リクエストが届きました。"),
+            "zh" => ("好友请求", "{n} 向你发送了好友请求。"),
+            _ => ("Friend request", "{n} sent you a friend request."),
+        },
+        "friend_accepted" => match lang {
+            "it" => ("Amicizia accettata", "{n} ha accettato la tua richiesta di amicizia."),
+            "es" => ("Amistad aceptada", "{n} aceptó tu solicitud de amistad."),
+            "fr" => ("Demande acceptée", "{n} a accepté votre demande d'ami."),
+            "de" => ("Anfrage angenommen", "{n} hat deine Freundschaftsanfrage angenommen."),
+            "pt" => ("Amizade aceite", "{n} aceitou o teu pedido de amizade."),
+            "ja" => ("リクエスト承認", "{n}さんが友達リクエストを承認しました。"),
+            "zh" => ("请求已接受", "{n} 接受了你的好友请求。"),
+            _ => ("Friend request accepted", "{n} accepted your friend request."),
+        },
+        "call_invite" => match lang {
+            "it" => ("Invito alla chiamata", "{n} ti ha invitato a una chiamata."),
+            "es" => ("Invitación a una llamada", "{n} te ha invitado a una llamada."),
+            "fr" => ("Invitation à un appel", "{n} vous a invité à un appel."),
+            "de" => ("Anrufeinladung", "{n} hat dich zu einem Anruf eingeladen."),
+            "pt" => ("Convite para chamada", "{n} convidou-te para uma chamada."),
+            "ja" => ("通話への招待", "{n}さんが通話に招待しました。"),
+            "zh" => ("通话邀请", "{n} 邀请你加入通话。"),
+            _ => ("Call invite", "{n} invited you to a call."),
+        },
+        _ => ("Notification", "{n}"),
+    };
+    (title.to_string(), body.replace("{n}", actor))
+}
+
 /// The recipient's stored UI locale, or `"en"` when unknown. Used to pick
 /// [`meeting_copy`] / `invite::build_invite_email` language for that user.
 pub async fn user_locale(pool: &Pool, user_id: Uuid) -> String {

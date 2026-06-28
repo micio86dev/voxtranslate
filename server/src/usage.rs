@@ -344,6 +344,7 @@ mod tests {
                 conn: Uuid::new_v4(),
                 name: id.into(),
                 lang: lang.into(),
+                user_id: None,
                 engine: "premium".into(),
                 avatar_url: None,
                 cartesia_voice_id: None,

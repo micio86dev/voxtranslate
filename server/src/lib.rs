@@ -23,6 +23,7 @@ pub mod email;
 pub mod email_template;
 pub mod engine;
 pub mod files;
+pub mod friends;
 pub mod glossary;
 pub mod google_calendar;
 pub mod google_oauth;
@@ -482,6 +483,13 @@ pub fn app(state: AppState) -> Router {
         .route("/api/meetings", get(meetings::list).post(meetings::create))
         .route("/api/meetings/{meeting_id}", get(meetings::get))
         .route("/api/meetings/{meeting_id}/cancel", post(meetings::cancel))
+        // ---- Friends: list, requests, send/accept/remove, invite-to-call ----
+        .route("/api/friends", get(friends::list))
+        .route("/api/friends/requests", get(friends::requests))
+        .route("/api/friends/request", post(friends::request))
+        .route("/api/friends/{id}/accept", post(friends::accept))
+        .route("/api/friends/{id}/invite", post(friends::invite))
+        .route("/api/friends/{id}", axum::routing::delete(friends::remove))
         // ---- Notifications: web-push, preferences, in-app center ----
         .route(
             "/api/push/subscribe",
@@ -1187,6 +1195,7 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
         conn,
         name: name.clone(),
         lang: lang.clone(),
+        user_id: billed_user,
         // The engine whose quality this peer RECEIVES (spec 0099). In speaker-pays it's
         // unused for routing; in listener-pays it drives which engine translates others'
         // speech for this peer. Guests are already pinned to the default above.
@@ -1308,6 +1317,7 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
             peer_id: id.clone(),
             user_name: name.clone(),
             lang: lang.clone(),
+            user_id: billed_user,
             avatar_url: avatar_url.clone(),
             cartesia_voice_id: cartesia_voice_id.clone(),
         }

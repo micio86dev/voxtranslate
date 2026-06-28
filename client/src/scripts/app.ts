@@ -41,6 +41,15 @@ import type { ChatManager, ChatPayload } from './chat';
 import { CHAT_MAX_HEIGHT, counterLabel, counterState, insertAt, resizeBox } from './chat-input';
 import { checkUploadFile, cloneVoice, fetchAiPricing, fetchEnhancedSession, fileUploadEnabled, generateAiQuiz, saveQuizHistory, sendInvites, uploadChatFile } from './api';
 import { buildInviteLink, MAX_INVITE_EMAILS, parseRoomParam, validateInviteEmails } from './invite';
+import {
+  acceptFriend,
+  type Friend,
+  fetchFriendRequests,
+  fetchFriends,
+  inviteFriendToCall,
+  removeFriend,
+  sendFriendRequest,
+} from './friends';
 import * as auth from './auth';
 import {
   bindRoom,
@@ -272,6 +281,7 @@ const participantsList = $('participants-list');
 const partClose = $('part-close');
 // ---- Invite panel refs (spec 0082) -----------------------------------------
 const miInvite = $('mi-invite'); // the overflow-menu item (hidden when room is full)
+const miMinigame = $('mi-minigame'); // tic-tac-toe item (hidden until there's an opponent)
 const btnInvite = $('btn-invite');
 const invitePanel = $('invite-panel');
 const inviteClose = $('invite-close');
@@ -728,7 +738,10 @@ let bizOrgs: BusinessOrg[] | null = null;
 let bizRecording = false;
 let sessionTimerId = 0; // 1s interval driving the session-duration chip (spec 0055)
 
-const peerNames = new Map<string, { name: string; lang: string; avatar?: string | null }>();
+const peerNames = new Map<
+  string,
+  { name: string; lang: string; avatar?: string | null; userId?: string | null }
+>();
 const peerCamOff = new Map<string, boolean>(); // camera-off state from peer_muted
 const peerMicMuted = new Map<string, boolean>(); // mic muted state from peer_muted
 const peerHandRaised = new Map<string, boolean>(); // hand-raise state
@@ -1824,7 +1837,7 @@ async function handleServer(msg: any): Promise<void> {
       setBookmarkSession(activeSessionId); // 🔖 button appears (authed users only)
       setGlossaryRoom(session?.room ?? null); // 📖 badge target (spec 0011)
       for (const p of msg.peers) {
-        peerNames.set(p.id, { name: p.user_name, lang: p.lang, avatar: p.avatar_url });
+        peerNames.set(p.id, { name: p.user_name, lang: p.lang, avatar: p.avatar_url, userId: p.user_id });
         addCell(p.id, p.user_name, p.lang, false, p.avatar_url);
         if (p.cartesia_voice_id) peerVoiceIds.set(p.id, p.cartesia_voice_id); // spec 0108
         cartesiaManager?.setPeerLang(p.id, p.lang); // spec 0108: source lang for Enhanced
@@ -1844,7 +1857,7 @@ async function handleServer(msg: any): Promise<void> {
       // suppressing their TTS forever (only subtitles). They're re-flagged on their next
       // `translated_audio` frame if still on a speech-to-speech engine.
       premiumSpeakers.delete(msg.peer_id);
-      peerNames.set(msg.peer_id, { name: msg.user_name, lang: msg.lang, avatar: msg.avatar_url });
+      peerNames.set(msg.peer_id, { name: msg.user_name, lang: msg.lang, avatar: msg.avatar_url, userId: msg.user_id });
       addCell(msg.peer_id, msg.user_name, msg.lang, false, msg.avatar_url);
       if (msg.cartesia_voice_id) peerVoiceIds.set(msg.peer_id, msg.cartesia_voice_id); // spec 0108
       cartesiaManager?.setPeerLang(msg.peer_id, msg.lang); // spec 0108: source lang for Enhanced
@@ -2688,6 +2701,18 @@ function updateInviteAvailability(count: number): void {
   if (!canInvite && !invitePanel.classList.contains('closed')) toggleInvite(false);
 }
 
+// Tic-tac-toe needs an opponent: only offer the button with 2+ in the room. The
+// moment we're alone again (the other player left) close the panel and drop the
+// board locally, so a half-played game can't linger with no one to play against.
+function updateMinigameAvailability(count: number): void {
+  const canPlay = count >= 2;
+  show(miMinigame, canPlay);
+  if (!canPlay) {
+    toggleMinigame(false);
+    tictactoe?.reset();
+  }
+}
+
 btnInvite.addEventListener('click', () => {
   setMoreOpen(false);
   toggleInvite();
@@ -2781,11 +2806,11 @@ function updateParticipantsList(): void {
   const myLang = session?.lang || 'en';
   const myName = session?.name || t('namePlaceholder');
   const myAvatar = auth.getUser()?.avatar_url ?? null;
-  const items: Array<{ id: string; name: string; lang: string; isSelf: boolean; micMuted: boolean; handRaised: boolean; avatar: string | null }> = [];
+  const items: Array<{ id: string; name: string; lang: string; isSelf: boolean; micMuted: boolean; handRaised: boolean; avatar: string | null; userId?: string | null }> = [];
 
   items.push({ id: myId, name: myName, lang: myLang, isSelf: true, micMuted: !micOn, handRaised, avatar: myAvatar });
   for (const [id, info] of peerNames) {
-    items.push({ id, name: info.name, lang: info.lang, isSelf: false, micMuted: peerMicMuted.get(id) ?? false, handRaised: peerHandRaised.get(id) ?? false, avatar: info.avatar ?? null });
+    items.push({ id, name: info.name, lang: info.lang, isSelf: false, micMuted: peerMicMuted.get(id) ?? false, handRaised: peerHandRaised.get(id) ?? false, avatar: info.avatar ?? null, userId: info.userId ?? null });
   }
 
   $('part-count-n').textContent = String(items.length); // live count (spec 0055)
@@ -2793,6 +2818,7 @@ function updateParticipantsList(): void {
   // may have just changed with this join/leave/lang update).
   if (!quizEl.classList.contains('hidden')) void refreshQuizCost();
   updateInviteAvailability(items.length); // show "Invite" only while a seat is free (spec 0082)
+  updateMinigameAvailability(items.length); // tic-tac-toe needs 2+; close it if we end up alone
   // Your avatar (image when available, else initial + gradient) in the on-video
   // participant badge (spec 0061 / #98 → avatars in spec 0070 R2.3).
   fillAvatar(partAvatarEl, myName, myAvatar, 48, 1);
@@ -2835,6 +2861,26 @@ function updateParticipantsList(): void {
       // Show a plain mic icon for unmuted peers so everyone's mic state is visible at
       // a glance, not just the muted ones (incorporated from contributor PR #141).
       status.innerHTML += icon('mic', 16);
+    }
+
+    // Add-friend: only for a logged-in peer (has an account id) who isn't me, isn't
+    // already a friend, and has no request pending either way (spec: friends).
+    if (
+      !p.isSelf &&
+      p.userId &&
+      auth.isLoggedIn() &&
+      !friendIds.has(p.userId) &&
+      !friendOutgoingIds.has(p.userId) &&
+      !friendIncomingIds.has(p.userId)
+    ) {
+      const add = document.createElement('button');
+      add.className = 'btn-ghost icon-btn part-addfriend';
+      add.title = t('friendAdd');
+      add.setAttribute('aria-label', t('friendAdd'));
+      add.innerHTML = icon('user-plus', 16);
+      const uid = p.userId;
+      add.addEventListener('click', () => void addFriendByPeer(uid, add));
+      status.appendChild(add);
     }
 
     el.append(avatar, info, status);
@@ -4262,10 +4308,12 @@ function renderAccount(): void {
     accountBar.classList.add('hidden');
     // Guest (billing on, no user) → offer the sign-in bar; guest-only mode → nothing.
     guestBar.classList.toggle('hidden', !billing);
+    clearFriendState(); // no account → no friends cache / request badge
     return;
   }
   accountBar.classList.remove('hidden');
   guestBar.classList.add('hidden');
+  void loadFriendState(false); // populate the request badge + cached ids for this user
   accountName.textContent = u.name;
   const av = auth.avatarUrl(u.avatar_url, 72);
   if (av) {
@@ -4689,6 +4737,199 @@ $('buy-close').addEventListener('click', () => show(buyModal, false));
 buyModal.addEventListener('click', (e) => {
   if (e.target === buyModal) show(buyModal, false);
 });
+
+// ============================================================================
+// ---- Friends: persistent list + requests + invite-to-call (spec: friends) --
+const friendsModal = $('friends-modal');
+const friendsBadge = $('friends-badge');
+const friendAddForm = $<HTMLFormElement>('friend-add');
+const friendAddEmail = $<HTMLInputElement>('friend-add-email');
+const friendAddMsg = $('friend-add-msg');
+const friendRequestsSection = $('friend-requests-section');
+const friendRequestsList = $('friend-requests-list');
+const friendOutgoingSection = $('friend-outgoing-section');
+const friendOutgoingList = $('friend-outgoing-list');
+const friendsListEl = $('friends-list');
+const friendsEmptyEl = $('friends-empty');
+
+// Cached relationship ids so the in-call participant list can hide "add friend" for
+// people you're already connected to / have a pending request with either way.
+const friendIds = new Set<string>();
+const friendIncomingIds = new Set<string>();
+const friendOutgoingIds = new Set<string>();
+
+$('friends-ico').innerHTML = icon('users', 16);
+$('friends-close').innerHTML = icon('close', 16);
+
+function friendActionBtn(label: string, primary: boolean, danger: boolean, onClick: () => void): HTMLButtonElement {
+  const b = document.createElement('button');
+  b.className = `${primary ? 'btn-primary' : 'btn-ghost'}${danger ? ' friend-danger' : ''}`;
+  b.textContent = label;
+  b.addEventListener('click', onClick);
+  return b;
+}
+
+/** One friend/request row: avatar + name/email + the given action buttons. */
+function friendRow(f: Friend, actions: HTMLButtonElement[]): HTMLDivElement {
+  const row = document.createElement('div');
+  row.className = 'friend-row';
+  const av = document.createElement('span');
+  av.className = 'friend-avatar';
+  fillAvatar(av, f.name, f.avatar_url, 36, 2);
+  const info = document.createElement('div');
+  info.className = 'friend-row-info';
+  const name = document.createElement('div');
+  name.className = 'friend-row-name';
+  name.textContent = f.name; // textContent: names are user-controlled (XSS, spec 0028)
+  const sub = document.createElement('div');
+  sub.className = 'friend-row-sub';
+  sub.textContent = f.email;
+  info.append(name, sub);
+  const acts = document.createElement('div');
+  acts.className = 'friend-row-actions';
+  acts.append(...actions);
+  row.append(av, info, acts);
+  return row;
+}
+
+function renderFriends(friends: Friend[], incoming: Friend[], outgoing: Friend[]): void {
+  const inCall = !!session?.room;
+
+  friendRequestsList.innerHTML = '';
+  for (const f of incoming) {
+    friendRequestsList.appendChild(
+      friendRow(f, [
+        friendActionBtn(t('friendAccept'), true, false, () => void onFriendAccept(f.id)),
+        friendActionBtn(t('friendReject'), false, true, () => void onFriendRemove(f.id)),
+      ]),
+    );
+  }
+  show(friendRequestsSection, incoming.length > 0);
+
+  friendOutgoingList.innerHTML = '';
+  for (const f of outgoing) {
+    friendOutgoingList.appendChild(
+      friendRow(f, [friendActionBtn(t('friendCancel'), false, true, () => void onFriendRemove(f.id))]),
+    );
+  }
+  show(friendOutgoingSection, outgoing.length > 0);
+
+  friendsListEl.innerHTML = '';
+  for (const f of friends) {
+    const acts: HTMLButtonElement[] = [];
+    if (inCall) acts.push(friendActionBtn(t('friendInvite'), true, false, () => void onFriendInvite(f.id)));
+    acts.push(friendActionBtn(t('friendRemove'), false, true, () => void onFriendRemove(f.id)));
+    friendsListEl.appendChild(friendRow(f, acts));
+  }
+  show(friendsEmptyEl, friends.length === 0);
+}
+
+/** Fetch friends + requests, refresh the cached id sets and the request badge, and
+ *  (when `render`) repaint the open panel. Also refreshes the participant list so the
+ *  in-call "add friend" buttons reflect the new state. */
+async function loadFriendState(render: boolean): Promise<void> {
+  if (!auth.isLoggedIn()) return;
+  const [friends, reqs] = await Promise.all([fetchFriends(), fetchFriendRequests()]);
+  friendIds.clear();
+  friends.forEach((f) => friendIds.add(f.id));
+  friendIncomingIds.clear();
+  reqs.incoming.forEach((f) => friendIncomingIds.add(f.id));
+  friendOutgoingIds.clear();
+  reqs.outgoing.forEach((f) => friendOutgoingIds.add(f.id));
+
+  friendsBadge.textContent = String(reqs.incoming.length);
+  show(friendsBadge, reqs.incoming.length > 0);
+
+  if (render) renderFriends(friends, reqs.incoming, reqs.outgoing);
+  if (session) updateParticipantsList(); // keep in-call add-friend buttons in sync
+}
+
+function clearFriendState(): void {
+  friendIds.clear();
+  friendIncomingIds.clear();
+  friendOutgoingIds.clear();
+  show(friendsBadge, false);
+}
+
+async function onFriendAccept(id: string): Promise<void> {
+  if (await acceptFriend(id)) {
+    toast(t('friendAccepted'), 'ok');
+    await loadFriendState(true);
+  } else {
+    toast(t('friendError'), 'err');
+  }
+}
+
+async function onFriendRemove(id: string): Promise<void> {
+  if (await removeFriend(id)) {
+    await loadFriendState(true);
+  } else {
+    toast(t('friendError'), 'err');
+  }
+}
+
+async function onFriendInvite(id: string): Promise<void> {
+  if (!session?.room) return;
+  const ok = await inviteFriendToCall(id, session.room);
+  toast(ok ? t('friendInvited') : t('friendError'), ok ? 'ok' : 'err');
+}
+
+/** Map a server error string to a localized message for the add-by-email form. */
+function friendAddErrorText(err: string): string {
+  if (err.includes('no user')) return t('friendErrNotFound');
+  if (err.includes('already friends')) return t('friendErrAlready');
+  if (err.includes('already sent')) return t('friendErrPending');
+  if (err.includes('yourself')) return t('friendErrSelf');
+  return t('friendError');
+}
+
+/** "Add friend" from the in-call participant list (by the peer's account id). */
+async function addFriendByPeer(userId: string, btn: HTMLButtonElement): Promise<void> {
+  btn.disabled = true;
+  const err = await sendFriendRequest({ userId });
+  if (err === null) {
+    friendOutgoingIds.add(userId); // optimistic: the button drops on next render
+    toast(t('friendRequestSent'), 'ok');
+    await loadFriendState(false);
+  } else {
+    btn.disabled = false;
+    toast(friendAddErrorText(err), 'err');
+  }
+}
+
+function openFriends(): void {
+  show(friendsModal, true);
+  friendAddEmail.value = '';
+  show(friendAddMsg, false);
+  renderFriends([], [], []); // clear any stale rows, then load fresh
+  void loadFriendState(true);
+}
+
+friendAddForm.addEventListener('submit', (e) => {
+  e.preventDefault();
+  const email = friendAddEmail.value.trim();
+  if (!email) return;
+  void (async () => {
+    const err = await sendFriendRequest({ email });
+    if (err === null) {
+      friendAddEmail.value = '';
+      friendAddMsg.textContent = t('friendRequestSent');
+      friendAddMsg.classList.remove('error');
+    } else {
+      friendAddMsg.textContent = friendAddErrorText(err);
+      friendAddMsg.classList.add('error');
+    }
+    show(friendAddMsg, true);
+    await loadFriendState(true);
+  })();
+});
+
+$('friends-open').addEventListener('click', openFriends);
+$('friends-close').addEventListener('click', () => show(friendsModal, false));
+friendsModal.addEventListener('click', (e) => {
+  if (e.target === friendsModal) show(friendsModal, false);
+});
+
 $('low-banner-buy').addEventListener('click', openBuyModal);
 $('tab-history').addEventListener('click', () => selectTab('history'));
 $('tab-usage').addEventListener('click', () => selectTab('usage'));
