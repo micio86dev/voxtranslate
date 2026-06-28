@@ -59,11 +59,13 @@ jobs:
       - name: Server build + tests + coverage gate
         working-directory: server
         env:
-          # The default bfd `ld` intermittently OOMs (SIGBUS, signal 7) while
-          # linking the large llvm-cov-instrumented test binary on the 7 GB
-          # runner, which silently skips the deploy-server job. lld is far leaner
-          # on memory and reliably links it.
-          RUSTFLAGS: "-C link-arg=-fuse-ld=lld"
+          # Linking the llvm-cov-instrumented test binary (huge dep tree incl. the
+          # typst/PDF stack) exhausts the 7 GB runner's linker → "ld terminated with
+          # signal 7 [Bus error]", which silently skips deploy-server. Two memory
+          # cuts: drop debug info from the coverage build (coverage mapping is emitted
+          # by -Cinstrument-coverage into __llvm_covmap, independent of DWARF, so
+          # line coverage is unaffected) and link with the leaner lld.
+          RUSTFLAGS: "-C debuginfo=0 -C link-arg=-fuse-ld=lld"
         run: |
           cargo build --locked
           # ENFORCED, realistic line-coverage floor on the always-run job (the
