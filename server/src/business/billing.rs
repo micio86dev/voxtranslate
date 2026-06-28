@@ -141,6 +141,17 @@ pub async fn portal(
     Ok(Json(json!({ "url": url })).into_response())
 }
 
+/// Row shape for the subscription query, factored out to satisfy clippy's
+/// `type_complexity` lint: (plan, status, interval, period_end, cancel_flag, stripe_sub_id).
+type SubscriptionRow = (
+    String,
+    String,
+    Option<String>,
+    Option<DateTime<Utc>>,
+    bool,
+    Option<String>,
+);
+
 /// `GET /api/business/organizations/{org_id}/subscription` — subscription detail
 /// for the dashboard's billing box (owner/admin). Always returns the DB-known
 /// fields (status, plan, interval, period end, cancel flag); when a live Stripe
@@ -154,14 +165,7 @@ pub async fn subscription(
     let pool = require_pool(&state)?;
     require_role(pool, org_id, user.user_id, ADMIN).await?;
 
-    let row: Option<(
-        String,
-        String,
-        Option<String>,
-        Option<DateTime<Utc>>,
-        bool,
-        Option<String>,
-    )> = sqlx::query_as(
+    let row: Option<SubscriptionRow> = sqlx::query_as(
         "SELECT plan, subscription_status, subscription_interval,
                 current_period_end, cancel_at_period_end, stripe_subscription_id
          FROM organizations WHERE id = $1",

@@ -13,9 +13,7 @@ use serde_json::json;
 use sqlx::FromRow;
 use uuid::Uuid;
 
-use crate::business::{
-    bad_request, db_err, forbidden, require_pool, require_role, MEMBER,
-};
+use crate::business::{bad_request, db_err, forbidden, require_pool, require_role, MEMBER};
 use crate::invite::sanitize_room;
 use crate::middleware::AuthUser;
 use crate::AppState;
@@ -146,7 +144,10 @@ pub async fn get_binding(
     let Some((org_id, project_id)) = row else {
         return Ok(unbound());
     };
-    if require_role(pool, org_id, user.user_id, MEMBER).await.is_err() {
+    if require_role(pool, org_id, user.user_id, MEMBER)
+        .await
+        .is_err()
+    {
         return Ok(unbound());
     }
     Ok(Json(json!({ "org_id": org_id, "project_id": project_id })).into_response())

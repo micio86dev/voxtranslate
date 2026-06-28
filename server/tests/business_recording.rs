@@ -75,8 +75,12 @@ async fn setup(mock_base: &str) -> Option<Server> {
         max_bytes: 25 * 1024 * 1024,
         signed_ttl_secs: 3600,
     };
-    state.recordings_storage =
-        Some(SupabaseStorage::for_bucket(Client::new(), &scfg, "recordings".into(), 3600));
+    state.recordings_storage = Some(SupabaseStorage::for_bucket(
+        Client::new(),
+        &scfg,
+        "recordings".into(),
+        3600,
+    ));
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move {
@@ -92,9 +96,15 @@ async fn user(srv: &Server) -> (Uuid, String) {
         name: "Recorder".into(),
         avatar_url: None,
     };
-    let u = upsert_google_user(&srv.pool, &identity, rust_decimal::Decimal::ZERO, None, None)
-        .await
-        .unwrap();
+    let u = upsert_google_user(
+        &srv.pool,
+        &identity,
+        rust_decimal::Decimal::ZERO,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
     let jwt = issue_jwt(SECRET, &u.id, &u.email, &u.name, 168).unwrap();
     (u.id, jwt)
 }
@@ -108,12 +118,14 @@ async fn make_org(srv: &Server, owner: Uuid) -> Uuid {
     .fetch_one(&srv.pool)
     .await
     .unwrap();
-    sqlx::query("INSERT INTO organization_members (org_id, user_id, role) VALUES ($1, $2, 'owner')")
-        .bind(id)
-        .bind(owner)
-        .execute(&srv.pool)
-        .await
-        .unwrap();
+    sqlx::query(
+        "INSERT INTO organization_members (org_id, user_id, role) VALUES ($1, $2, 'owner')",
+    )
+    .bind(id)
+    .bind(owner)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
     id
 }
 
@@ -155,7 +167,11 @@ async fn upload_url_happy_and_disabled() {
     // Enabled call → a signed upload URL scoped to {org}/{session}/.
     let call = make_call(&srv, org, true).await;
     let r = Client::new()
-        .post(format!("{}/api/business/rooms/{}/recording/upload-url", base(&srv), call))
+        .post(format!(
+            "{}/api/business/rooms/{}/recording/upload-url",
+            base(&srv),
+            call
+        ))
         .bearer_auth(&jwt)
         .send()
         .await
@@ -163,12 +179,19 @@ async fn upload_url_happy_and_disabled() {
     assert_eq!(r.status(), 200);
     let v: Value = r.json().await.unwrap();
     assert!(v["upload_url"].as_str().unwrap().contains("token=up123"));
-    assert!(v["object_path"].as_str().unwrap().starts_with(&format!("{org}/{call}/")));
+    assert!(v["object_path"]
+        .as_str()
+        .unwrap()
+        .starts_with(&format!("{org}/{call}/")));
 
     // Recording not enabled → forbidden.
     let call2 = make_call(&srv, org, false).await;
     let r = Client::new()
-        .post(format!("{}/api/business/rooms/{}/recording/upload-url", base(&srv), call2))
+        .post(format!(
+            "{}/api/business/rooms/{}/recording/upload-url",
+            base(&srv),
+            call2
+        ))
         .bearer_auth(&jwt)
         .send()
         .await
@@ -186,7 +209,11 @@ async fn playback_url_happy_and_missing() {
 
     // No recording stored yet → 404.
     let r = Client::new()
-        .get(format!("{}/api/business/rooms/{}/recording/url", base(&srv), call))
+        .get(format!(
+            "{}/api/business/rooms/{}/recording/url",
+            base(&srv),
+            call
+        ))
         .bearer_auth(&jwt)
         .send()
         .await
@@ -201,7 +228,11 @@ async fn playback_url_happy_and_missing() {
         .await
         .unwrap();
     let r = Client::new()
-        .get(format!("{}/api/business/rooms/{}/recording/url", base(&srv), call))
+        .get(format!(
+            "{}/api/business/rooms/{}/recording/url",
+            base(&srv),
+            call
+        ))
         .bearer_auth(&jwt)
         .send()
         .await
@@ -222,7 +253,11 @@ async fn complete_charges_validates_path_and_handles_insufficient() {
 
     // A path outside the {org}/{session}/ namespace is rejected.
     let r = Client::new()
-        .post(format!("{}/api/business/rooms/{}/recording/complete", base(&srv), call))
+        .post(format!(
+            "{}/api/business/rooms/{}/recording/complete",
+            base(&srv),
+            call
+        ))
         .bearer_auth(&jwt)
         .json(&json!({ "object_path": "someone-else/evil.webm", "duration_seconds": 60 }))
         .send()
@@ -234,18 +269,23 @@ async fn complete_charges_validates_path_and_handles_insufficient() {
 
     // No org credits → 402 and the status is reverted to 'none'.
     let r = Client::new()
-        .post(format!("{}/api/business/rooms/{}/recording/complete", base(&srv), call))
+        .post(format!(
+            "{}/api/business/rooms/{}/recording/complete",
+            base(&srv),
+            call
+        ))
         .bearer_auth(&jwt)
         .json(&json!({ "object_path": good_path, "duration_seconds": 600 }))
         .send()
         .await
         .unwrap();
     assert_eq!(r.status(), 402);
-    let status: String = sqlx::query_scalar("SELECT transcript_status FROM call_sessions WHERE id = $1")
-        .bind(call)
-        .fetch_one(&srv.pool)
-        .await
-        .unwrap();
+    let status: String =
+        sqlx::query_scalar("SELECT transcript_status FROM call_sessions WHERE id = $1")
+            .bind(call)
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap();
     assert_eq!(status, "none");
 
     // Fund the org → complete succeeds, path stored, transcription enqueued.
@@ -253,7 +293,11 @@ async fn complete_charges_validates_path_and_handles_insufficient() {
         .await
         .unwrap();
     let r = Client::new()
-        .post(format!("{}/api/business/rooms/{}/recording/complete", base(&srv), call))
+        .post(format!(
+            "{}/api/business/rooms/{}/recording/complete",
+            base(&srv),
+            call
+        ))
         .bearer_auth(&jwt)
         .json(&json!({ "object_path": good_path, "duration_seconds": 600 }))
         .send()
@@ -281,7 +325,11 @@ async fn recording_endpoints_require_membership() {
     // A different, non-member user is forbidden (require_call_role).
     let (_stranger, other_jwt) = user(&srv).await;
     let r = Client::new()
-        .get(format!("{}/api/business/rooms/{}/recording/url", base(&srv), call))
+        .get(format!(
+            "{}/api/business/rooms/{}/recording/url",
+            base(&srv),
+            call
+        ))
         .bearer_auth(&other_jwt)
         .send()
         .await

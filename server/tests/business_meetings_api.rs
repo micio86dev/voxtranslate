@@ -51,9 +51,15 @@ async fn user(srv: &Server) -> (Uuid, String) {
         name: "Org Scheduler".into(),
         avatar_url: None,
     };
-    let u = upsert_google_user(&srv.pool, &identity, rust_decimal::Decimal::ZERO, None, None)
-        .await
-        .unwrap();
+    let u = upsert_google_user(
+        &srv.pool,
+        &identity,
+        rust_decimal::Decimal::ZERO,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
     let jwt = issue_jwt(SECRET, &u.id, &u.email, &u.name, 168).unwrap();
     (u.id, jwt)
 }
@@ -67,16 +73,24 @@ async fn make_org(srv: &Server, owner: Uuid) -> Uuid {
     .fetch_one(&srv.pool)
     .await
     .unwrap();
-    sqlx::query("INSERT INTO organization_members (org_id, user_id, role) VALUES ($1, $2, 'owner')")
-        .bind(id)
-        .bind(owner)
-        .execute(&srv.pool)
-        .await
-        .unwrap();
+    sqlx::query(
+        "INSERT INTO organization_members (org_id, user_id, role) VALUES ($1, $2, 'owner')",
+    )
+    .bind(id)
+    .bind(owner)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
     id
 }
 
-async fn seed_meeting(srv: &Server, org: Uuid, creator: Uuid, status: &str, at: DateTime<Utc>) -> Uuid {
+async fn seed_meeting(
+    srv: &Server,
+    org: Uuid,
+    creator: Uuid,
+    status: &str,
+    at: DateTime<Utc>,
+) -> Uuid {
     let id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO scheduled_meetings
@@ -168,7 +182,11 @@ async fn list_get_in_org() {
     seed_meeting(&srv, org, uid, "scheduled", Utc::now() + Duration::days(2)).await;
 
     let v: Value = Client::new()
-        .get(format!("{}/api/business/organizations/{}/meetings", base(&srv), org))
+        .get(format!(
+            "{}/api/business/organizations/{}/meetings",
+            base(&srv),
+            org
+        ))
         .bearer_auth(&jwt)
         .send()
         .await
@@ -179,7 +197,12 @@ async fn list_get_in_org() {
     assert_eq!(v.as_array().unwrap().len(), 2);
 
     let r = Client::new()
-        .get(format!("{}/api/business/organizations/{}/meetings/{}", base(&srv), org, id))
+        .get(format!(
+            "{}/api/business/organizations/{}/meetings/{}",
+            base(&srv),
+            org,
+            id
+        ))
         .bearer_auth(&jwt)
         .send()
         .await
@@ -189,7 +212,12 @@ async fn list_get_in_org() {
     assert_eq!(v["id"], id.to_string());
 
     let r = Client::new()
-        .get(format!("{}/api/business/organizations/{}/meetings/{}", base(&srv), org, Uuid::new_v4()))
+        .get(format!(
+            "{}/api/business/organizations/{}/meetings/{}",
+            base(&srv),
+            org,
+            Uuid::new_v4()
+        ))
         .bearer_auth(&jwt)
         .send()
         .await
@@ -207,7 +235,12 @@ async fn update_guards_not_editable_and_empty_title() {
     // A cancelled meeting is not editable → 409.
     let cancelled = seed_meeting(&srv, org, uid, "cancelled", Utc::now() + Duration::days(1)).await;
     let r = Client::new()
-        .patch(format!("{}/api/business/organizations/{}/meetings/{}", base(&srv), org, cancelled))
+        .patch(format!(
+            "{}/api/business/organizations/{}/meetings/{}",
+            base(&srv),
+            org,
+            cancelled
+        ))
         .bearer_auth(&jwt)
         .json(&json!({ "title": "New", "scheduled_at": at }))
         .send()
@@ -218,7 +251,12 @@ async fn update_guards_not_editable_and_empty_title() {
     // A scheduled meeting with an empty title → 400.
     let scheduled = seed_meeting(&srv, org, uid, "scheduled", Utc::now() + Duration::days(1)).await;
     let r = Client::new()
-        .patch(format!("{}/api/business/organizations/{}/meetings/{}", base(&srv), org, scheduled))
+        .patch(format!(
+            "{}/api/business/organizations/{}/meetings/{}",
+            base(&srv),
+            org,
+            scheduled
+        ))
         .bearer_auth(&jwt)
         .json(&json!({ "title": "  ", "scheduled_at": at }))
         .send()
@@ -235,7 +273,12 @@ async fn cancel_marks_cancelled_or_404() {
     let id = seed_meeting(&srv, org, uid, "scheduled", Utc::now() + Duration::days(1)).await;
 
     let r = Client::new()
-        .post(format!("{}/api/business/organizations/{}/meetings/{}/cancel", base(&srv), org, id))
+        .post(format!(
+            "{}/api/business/organizations/{}/meetings/{}/cancel",
+            base(&srv),
+            org,
+            id
+        ))
         .bearer_auth(&jwt)
         .send()
         .await
@@ -268,7 +311,11 @@ async fn meetings_require_auth() {
     let (uid, _) = user(&srv).await;
     let org = make_org(&srv, uid).await;
     let r = Client::new()
-        .get(format!("{}/api/business/organizations/{}/meetings", base(&srv), org))
+        .get(format!(
+            "{}/api/business/organizations/{}/meetings",
+            base(&srv),
+            org
+        ))
         .send()
         .await
         .unwrap();

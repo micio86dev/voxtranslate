@@ -409,16 +409,25 @@ mod tests {
     #[tokio::test]
     async fn upload_ok_and_error() {
         let ok = spawn_mock(OK_EMPTY).await;
-        assert!(storage(&ok).upload("s/f.webm", vec![1, 2, 3], "audio/webm").await.is_ok());
+        assert!(storage(&ok)
+            .upload("s/f.webm", vec![1, 2, 3], "audio/webm")
+            .await
+            .is_ok());
         let bad = spawn_mock(ERR_500).await;
-        let e = storage(&bad).upload("s/f.webm", vec![1], "audio/webm").await.unwrap_err();
+        let e = storage(&bad)
+            .upload("s/f.webm", vec![1], "audio/webm")
+            .await
+            .unwrap_err();
         assert!(e.contains("500"), "{e}");
     }
 
     #[tokio::test]
     async fn download_ok_and_error() {
         let ok = spawn_mock("HTTP/1.1 200 OK\r\nConnection: close\r\n\r\nfilebytes").await;
-        assert_eq!(storage(&ok).download("s/f.webm").await.unwrap(), b"filebytes");
+        assert_eq!(
+            storage(&ok).download("s/f.webm").await.unwrap(),
+            b"filebytes"
+        );
         let bad = spawn_mock(NOT_FOUND).await;
         assert!(storage(&bad).download("s/f.webm").await.is_err());
     }
@@ -441,11 +450,17 @@ mod tests {
         )
         .await;
         let url = storage(&ok).create_signed_url("s/f.webm").await.unwrap();
-        assert!(url.contains("token=abc") && url.contains("/storage/v1/"), "{url}");
+        assert!(
+            url.contains("token=abc") && url.contains("/storage/v1/"),
+            "{url}"
+        );
         let bad = spawn_mock(ERR_500).await;
         assert!(storage(&bad).create_signed_url("s/f.webm").await.is_err());
         let empty = spawn_mock("HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n{}").await;
-        let e = storage(&empty).create_signed_url("s/f.webm").await.unwrap_err();
+        let e = storage(&empty)
+            .create_signed_url("s/f.webm")
+            .await
+            .unwrap_err();
         assert!(e.contains("signedURL"), "{e}");
     }
 
@@ -455,9 +470,15 @@ mod tests {
             "HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n{\"url\":\"/object/upload/sign/recordings/p?token=xyz\"}",
         )
         .await;
-        let url = storage(&ok).create_signed_upload_url("s/f.webm").await.unwrap();
+        let url = storage(&ok)
+            .create_signed_upload_url("s/f.webm")
+            .await
+            .unwrap();
         assert!(url.contains("token=xyz"), "{url}");
         let bad = spawn_mock(ERR_500).await;
-        assert!(storage(&bad).create_signed_upload_url("s/f.webm").await.is_err());
+        assert!(storage(&bad)
+            .create_signed_upload_url("s/f.webm")
+            .await
+            .is_err());
     }
 }
