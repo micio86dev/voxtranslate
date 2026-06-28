@@ -33,6 +33,14 @@ struct TeamMemberRow {
     email: String,
     avatar_url: Option<String>,
     joined_at: DateTime<Utc>,
+    /// 'lead' | 'member' — leads can run the insights assistant scoped to this team.
+    role: String,
+}
+
+#[derive(Deserialize)]
+pub struct PatchTeamMember {
+    /// 'lead' | 'member'.
+    role: String,
 }
 
 #[derive(Deserialize)]
@@ -210,11 +218,11 @@ pub async fn list_members(
     require_role(pool, org_id, user.user_id, MEMBER).await?;
     team_in_org(pool, org_id, team_id).await?;
     let rows: Vec<TeamMemberRow> = sqlx::query_as(
-        "SELECT tm.user_id, u.name, u.email, u.avatar_url, tm.joined_at
+        "SELECT tm.user_id, u.name, u.email, u.avatar_url, tm.joined_at, tm.role
          FROM team_members tm
          JOIN users u ON u.id = tm.user_id
          WHERE tm.team_id = $1
-         ORDER BY tm.joined_at",
+         ORDER BY tm.role = 'lead' DESC, tm.joined_at",
     )
     .bind(team_id)
     .fetch_all(pool)
@@ -278,4 +286,34 @@ pub async fn remove_member(
         .await
         .map_err(db_err)?;
     Ok(StatusCode::NO_CONTENT.into_response())
+}
+
+/// `PATCH /api/business/organizations/{org_id}/teams/{team_id}/members/{user_id}` —
+/// set a team member's role to 'lead' or 'member' (admin). Team leads can run the
+/// insights assistant scoped to their team. 404 if the target isn't on the team.
+pub async fn set_member_role(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path((org_id, team_id, target)): Path<(Uuid, Uuid, Uuid)>,
+    Json(body): Json<PatchTeamMember>,
+) -> Result<Response, Response> {
+    let pool = require_pool(&state)?;
+    require_role(pool, org_id, user.user_id, ADMIN).await?;
+    team_in_org(pool, org_id, team_id).await?;
+    let role = match body.role.as_str() {
+        "lead" | "member" => body.role.as_str(),
+        _ => return Err(bad_request("role must be 'lead' or 'member'")),
+    };
+    let updated =
+        sqlx::query("UPDATE team_members SET role = $3 WHERE team_id = $1 AND user_id = $2")
+            .bind(team_id)
+            .bind(target)
+            .bind(role)
+            .execute(pool)
+            .await
+            .map_err(db_err)?;
+    if updated.rows_affected() == 0 {
+        return Err(not_found("user is not a member of this team"));
+    }
+    Ok(Json(serde_json::json!({ "user_id": target, "role": role })).into_response())
 }

@@ -4,8 +4,8 @@ use axum::routing::{delete, get, patch, post};
 use axum::Router;
 
 use crate::business::{
-    analytics, audit, billing, calls, meetings, members, organizations, projects, recording,
-    search, storyboard, teams, transcripts,
+    analytics, audit, billing, calls, insights, meetings, members, organizations, projects,
+    recording, search, storyboard, teams, transcripts,
 };
 use crate::AppState;
 
@@ -66,7 +66,7 @@ pub fn routes() -> Router<AppState> {
         )
         .route(
             "/api/business/organizations/{org_id}/teams/{team_id}/members/{user_id}",
-            delete(teams::remove_member),
+            delete(teams::remove_member).patch(teams::set_member_role),
         )
         // ---- Scheduled meetings (Google Calendar) ----
         .route(
@@ -110,6 +110,11 @@ pub fn routes() -> Router<AppState> {
         .route(
             "/api/business/organizations/{org_id}/search",
             get(search::list),
+        )
+        // ---- Admin insights assistant (team-lead scoped, RAG + Groq) ----
+        .route(
+            "/api/business/organizations/{org_id}/insights",
+            post(insights::generate),
         )
         // ---- Recording (PR-B): direct-to-storage upload, so no large body flows
         //      through the server (a long-call video is ~1 GB). ----
