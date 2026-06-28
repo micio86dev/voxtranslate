@@ -102,7 +102,7 @@ const jsonLd = {
               <span class="btn-label" data-i18n="workspace">{T('workspace')}</span>
             </a>
             <button id="profile-open" class="btn-ghost icon-btn" data-i18n-title="profileTitle" title={T('profileTitle')} aria-label={T('profileTitle')}></button>
-            <button id="friends-open" class="btn-ghost icon-btn friends-open" data-i18n-title="friendsTitle" title={T('friendsTitle')} aria-label={T('friendsTitle')}><span id="friends-ico"></span><span id="friends-badge" class="chat-badge" hidden>0</span></button>
+            <button id="friends-open" class="btn-ghost icon-btn friends-open" data-i18n-title="friendsTitle" title={T('friendsTitle')} aria-label={T('friendsTitle')}><span id="friends-ico"></span><span id="friends-badge" class="chat-badge hidden">0</span></button>
             <button id="privacy-open" class="btn-ghost icon-btn" data-i18n-title="privacyData" title={T('privacyData')} aria-label="Privacy"></button>
             <button id="logout-btn" class="btn-ghost icon-btn" data-i18n-title="logout" title={T('logout')} aria-label="Logout"></button>
           </div>
@@ -772,12 +772,12 @@ const jsonLd = {
           </form>
           <p id="profile-friend-add-msg" class="status-line friend-add-msg hidden" role="status"></p>
 
-          <section id="profile-friend-requests-section" class="friend-section" hidden>
+          <section id="profile-friend-requests-section" class="friend-section hidden">
             <h3 class="friend-section-title" data-i18n="friendRequestsIn">{T('friendRequestsIn')}</h3>
             <div id="profile-friend-requests-list" class="friend-list"></div>
           </section>
 
-          <section id="profile-friend-outgoing-section" class="friend-section" hidden>
+          <section id="profile-friend-outgoing-section" class="friend-section hidden">
             <h3 class="friend-section-title" data-i18n="friendRequestsOut">{T('friendRequestsOut')}</h3>
             <div id="profile-friend-outgoing-list" class="friend-list"></div>
           </section>
@@ -785,7 +785,7 @@ const jsonLd = {
           <section class="friend-section">
             <h3 class="friend-section-title" data-i18n="friendsYours">{T('friendsYours')}</h3>
             <div id="profile-friends-list" class="friend-list"></div>
-            <p id="profile-friends-empty" class="friend-empty" data-i18n="friendsEmpty" hidden>{T('friendsEmpty')}</p>
+            <p id="profile-friends-empty" class="friend-empty hidden" data-i18n="friendsEmpty">{T('friendsEmpty')}</p>
           </section>
         </section>
 
@@ -823,12 +823,12 @@ const jsonLd = {
         </form>
         <p id="friend-add-msg" class="status-line friend-add-msg hidden" role="status"></p>
 
-        <section id="friend-requests-section" class="friend-section" hidden>
+        <section id="friend-requests-section" class="friend-section hidden">
           <h3 class="friend-section-title" data-i18n="friendRequestsIn">{T('friendRequestsIn')}</h3>
           <div id="friend-requests-list" class="friend-list"></div>
         </section>
 
-        <section id="friend-outgoing-section" class="friend-section" hidden>
+        <section id="friend-outgoing-section" class="friend-section hidden">
           <h3 class="friend-section-title" data-i18n="friendRequestsOut">{T('friendRequestsOut')}</h3>
           <div id="friend-outgoing-list" class="friend-list"></div>
         </section>
@@ -836,7 +836,7 @@ const jsonLd = {
         <section class="friend-section">
           <h3 class="friend-section-title" data-i18n="friendsYours">{T('friendsYours')}</h3>
           <div id="friends-list" class="friend-list"></div>
-          <p id="friends-empty" class="friend-empty" data-i18n="friendsEmpty" hidden>{T('friendsEmpty')}</p>
+          <p id="friends-empty" class="friend-empty hidden" data-i18n="friendsEmpty">{T('friendsEmpty')}</p>
         </section>
       </div>
     </div>
