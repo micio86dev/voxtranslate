@@ -2231,6 +2231,9 @@ function addCell(id: string, name: string, lang: string, isSelf: boolean, avatar
   if (!isSelf) {
     const actions = document.createElement('div');
     actions.className = 'cell-actions';
+    // Add/remove this peer as a friend (only for a logged-in viewer + an account peer).
+    const friendUid = auth.isLoggedIn() ? peerNames.get(id)?.userId : undefined;
+    if (friendUid) actions.appendChild(tileFriendButton(friendUid));
     if (billing && auth.isLoggedIn()) {
       const reportBtn = document.createElement('button');
       reportBtn.className = 'cell-action';
@@ -4804,36 +4807,69 @@ function friendRow(f: Friend, actions: HTMLButtonElement[]): HTMLDivElement {
   return row;
 }
 
-function renderFriends(friends: Friend[], incoming: Friend[], outgoing: Friend[]): void {
+interface FriendListEls {
+  incomingSection: HTMLElement;
+  incomingList: HTMLElement;
+  outgoingSection: HTMLElement;
+  outgoingList: HTMLElement;
+  friendsList: HTMLElement;
+  friendsEmpty: HTMLElement;
+}
+
+/** Paint the three friend lists — incoming requests (accept/reject), outgoing/pending
+ *  (cancel), and accepted friends — into the given containers. Shared by the friends
+ *  modal and the profile screen so both surfaces show the same live state. */
+function renderFriendLists(
+  els: FriendListEls,
+  friends: Friend[],
+  incoming: Friend[],
+  outgoing: Friend[],
+): void {
   const inCall = !!session?.room;
 
-  friendRequestsList.innerHTML = '';
+  els.incomingList.innerHTML = '';
   for (const f of incoming) {
-    friendRequestsList.appendChild(
+    els.incomingList.appendChild(
       friendRow(f, [
         friendActionBtn(t('friendAccept'), true, false, () => void onFriendAccept(f.id)),
         friendActionBtn(t('friendReject'), false, true, () => void onFriendRemove(f.id)),
       ]),
     );
   }
-  show(friendRequestsSection, incoming.length > 0);
+  show(els.incomingSection, incoming.length > 0);
 
-  friendOutgoingList.innerHTML = '';
+  els.outgoingList.innerHTML = '';
   for (const f of outgoing) {
-    friendOutgoingList.appendChild(
+    els.outgoingList.appendChild(
       friendRow(f, [friendActionBtn(t('friendCancel'), false, true, () => void onFriendRemove(f.id))]),
     );
   }
-  show(friendOutgoingSection, outgoing.length > 0);
+  show(els.outgoingSection, outgoing.length > 0);
 
-  friendsListEl.innerHTML = '';
+  els.friendsList.innerHTML = '';
   for (const f of friends) {
     const acts: HTMLButtonElement[] = [];
     if (inCall) acts.push(friendActionBtn(t('friendInvite'), true, false, () => void onFriendInvite(f.id)));
     acts.push(friendActionBtn(t('friendRemove'), false, true, () => void onFriendRemove(f.id)));
-    friendsListEl.appendChild(friendRow(f, acts));
+    els.friendsList.appendChild(friendRow(f, acts));
   }
-  show(friendsEmptyEl, friends.length === 0);
+  show(els.friendsEmpty, friends.length === 0);
+}
+
+function renderFriends(friends: Friend[], incoming: Friend[], outgoing: Friend[]): void {
+  renderFriendLists(
+    {
+      incomingSection: friendRequestsSection,
+      incomingList: friendRequestsList,
+      outgoingSection: friendOutgoingSection,
+      outgoingList: friendOutgoingList,
+      friendsList: friendsListEl,
+      friendsEmpty: friendsEmptyEl,
+    },
+    friends,
+    incoming,
+    outgoing,
+  );
 }
 
 /** Fetch friends + requests, refresh the cached id sets and the request badge, and
@@ -4853,8 +4889,12 @@ async function loadFriendState(render: boolean): Promise<void> {
   show(friendsBadge, reqs.incoming.length > 0);
 
   if (render) renderFriends(friends, reqs.incoming, reqs.outgoing);
-  if (!profileScreen.classList.contains('hidden')) renderProfileFriends(friends);
-  if (session) updateParticipantsList(); // keep in-call add-friend buttons in sync
+  if (!profileScreen.classList.contains('hidden'))
+    renderProfileFriends(friends, reqs.incoming, reqs.outgoing);
+  if (session) {
+    updateParticipantsList(); // keep the participants-panel add-friend buttons in sync
+    refreshTileFriendButtons(); // and the per-tile add/remove-friend controls
+  }
 }
 
 function clearFriendState(): void {
@@ -4910,6 +4950,78 @@ async function addFriendByPeer(userId: string, btn: HTMLButtonElement): Promise<
   }
 }
 
+/** The add/remove-friend control on a participant's video tile (sits next to the
+ *  report + block buttons). It reflects the live relationship — add, pending (cancel),
+ *  incoming (accept), or friends (remove) — and rebuilds itself after each action via
+ *  loadFriendState → refreshTileFriendButtons. `uid` is the peer's account id. */
+function tileFriendButton(uid: string): HTMLButtonElement {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'cell-action cell-action-friend';
+
+  let label: string;
+  let glyph: string;
+  let positive = false;
+  let action: () => Promise<void>;
+  if (friendIds.has(uid)) {
+    label = t('friendRemove');
+    glyph = 'users';
+    action = async () => void (await removeFriend(uid));
+  } else if (friendIncomingIds.has(uid)) {
+    label = t('friendAccept');
+    glyph = 'user-plus';
+    positive = true;
+    action = async () => {
+      if (await acceptFriend(uid)) toast(t('friendAccepted'), 'ok');
+    };
+  } else if (friendOutgoingIds.has(uid)) {
+    label = t('friendCancel'); // request sent, still pending → click cancels it
+    glyph = 'timer';
+    action = async () => void (await removeFriend(uid));
+  } else {
+    label = t('friendAdd');
+    glyph = 'user-plus';
+    positive = true;
+    action = async () => {
+      const err = await sendFriendRequest({ userId: uid });
+      toast(err === null ? t('friendRequestSent') : friendAddErrorText(err), err === null ? 'ok' : 'err');
+    };
+  }
+
+  btn.title = label;
+  btn.setAttribute('aria-label', label);
+  btn.innerHTML = icon(glyph, 15);
+  if (positive) btn.classList.add('friend-pos'); // accent (not danger) hover for add/accept
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation(); // don't trigger the cell's pin/spotlight click
+    void (async () => {
+      btn.disabled = true;
+      await action();
+      await loadFriendState(false); // refreshes the id sets and rebuilds this button
+    })();
+  });
+  return btn;
+}
+
+/** Repaint the friend button on every open video tile so it matches the current
+ *  relationships (called whenever friend state changes while in a call). */
+function refreshTileFriendButtons(): void {
+  for (const cell of videoGrid.querySelectorAll<HTMLElement>('.video-cell')) {
+    const id = cell.dataset.peer;
+    const actions = cell.querySelector('.cell-actions');
+    if (!id || !actions) continue;
+    const uid = auth.isLoggedIn() ? peerNames.get(id)?.userId : undefined;
+    const existing = actions.querySelector('.cell-action-friend');
+    if (!uid) {
+      existing?.remove();
+      continue;
+    }
+    const fresh = tileFriendButton(uid);
+    if (existing) existing.replaceWith(fresh);
+    else actions.insertBefore(fresh, actions.firstChild); // friend button leads the row
+  }
+}
+
 function openFriends(): void {
   show(friendsModal, true);
   friendAddEmail.value = '';
@@ -4918,23 +5030,30 @@ function openFriends(): void {
   void loadFriendState(true);
 }
 
+/** Shared add-by-email submit for the friends modal and the profile screen: send the
+ *  request, show a clear "sent / pending" (green) or error (red) message, then refresh
+ *  every list so the new request immediately appears under "Sent requests". */
+async function submitFriendAdd(emailInput: HTMLInputElement, msgEl: HTMLElement): Promise<void> {
+  const email = emailInput.value.trim();
+  if (!email) return;
+  const err = await sendFriendRequest({ email });
+  if (err === null) {
+    emailInput.value = '';
+    msgEl.textContent = t('friendRequestSent');
+    msgEl.classList.add('ok');
+    msgEl.classList.remove('error');
+  } else {
+    msgEl.textContent = friendAddErrorText(err);
+    msgEl.classList.add('error');
+    msgEl.classList.remove('ok');
+  }
+  show(msgEl, true);
+  await loadFriendState(true);
+}
+
 friendAddForm.addEventListener('submit', (e) => {
   e.preventDefault();
-  const email = friendAddEmail.value.trim();
-  if (!email) return;
-  void (async () => {
-    const err = await sendFriendRequest({ email });
-    if (err === null) {
-      friendAddEmail.value = '';
-      friendAddMsg.textContent = t('friendRequestSent');
-      friendAddMsg.classList.remove('error');
-    } else {
-      friendAddMsg.textContent = friendAddErrorText(err);
-      friendAddMsg.classList.add('error');
-    }
-    show(friendAddMsg, true);
-    await loadFriendState(true);
-  })();
+  void submitFriendAdd(friendAddEmail, friendAddMsg);
 });
 
 $('friends-open').addEventListener('click', openFriends);
@@ -4951,21 +5070,35 @@ const profileName = $('profile-name');
 const profileEmail = $('profile-email');
 const profileFriendsList = $('profile-friends-list');
 const profileFriendsEmpty = $('profile-friends-empty');
+const profileFriendAddForm = $<HTMLFormElement>('profile-friend-add');
+const profileFriendAddEmail = $<HTMLInputElement>('profile-friend-add-email');
+const profileFriendAddMsg = $('profile-friend-add-msg');
+const profileFriendRequestsSection = $('profile-friend-requests-section');
+const profileFriendRequestsList = $('profile-friend-requests-list');
+const profileFriendOutgoingSection = $('profile-friend-outgoing-section');
+const profileFriendOutgoingList = $('profile-friend-outgoing-list');
 const notifPrefsEl = $('notif-prefs');
 
 $('profile-open').innerHTML = icon('user', 16);
 $('profile-back').innerHTML = icon('chevron-left', 18);
 
-/** The profile screen's friends list: accepted friends with an inline Remove. Add &
- *  requests stay in the friends modal (reached via the "manage" link). */
-function renderProfileFriends(friends: Friend[]): void {
-  profileFriendsList.innerHTML = '';
-  for (const f of friends) {
-    profileFriendsList.appendChild(
-      friendRow(f, [friendActionBtn(t('friendRemove'), false, true, () => void onFriendRemove(f.id))]),
-    );
-  }
-  show(profileFriendsEmpty, friends.length === 0);
+/** The profile screen's full friends panel: incoming requests (accept/reject),
+ *  outgoing/pending requests (cancel), and accepted friends (remove). Mirrors the
+ *  friends modal so everything is manageable without leaving the profile. */
+function renderProfileFriends(friends: Friend[], incoming: Friend[], outgoing: Friend[]): void {
+  renderFriendLists(
+    {
+      incomingSection: profileFriendRequestsSection,
+      incomingList: profileFriendRequestsList,
+      outgoingSection: profileFriendOutgoingSection,
+      outgoingList: profileFriendOutgoingList,
+      friendsList: profileFriendsList,
+      friendsEmpty: profileFriendsEmpty,
+    },
+    friends,
+    incoming,
+    outgoing,
+  );
 }
 
 const NOTIF_EVENT_LABEL: Record<string, string> = {
@@ -5051,6 +5184,8 @@ function openProfile(): void {
   profileEmail.textContent = u?.email || '';
   homeScreen.classList.add('hidden');
   profileScreen.classList.remove('hidden');
+  profileFriendAddEmail.value = '';
+  show(profileFriendAddMsg, false);
   void loadFriendState(false); // profile visible → also paints the profile friends list
   void loadNotifPrefs();
 }
@@ -5060,7 +5195,10 @@ function closeProfile(): void {
 }
 $('profile-open').addEventListener('click', openProfile);
 $('profile-back').addEventListener('click', closeProfile);
-$('profile-manage-friends').addEventListener('click', openFriends);
+profileFriendAddForm.addEventListener('submit', (e) => {
+  e.preventDefault();
+  void submitFriendAdd(profileFriendAddEmail, profileFriendAddMsg);
+});
 
 // ---- In-app actionable banner (friend in a public room / call invite) ----
 const friendBanner = $('friend-banner');
@@ -5082,6 +5220,9 @@ function showNotifBanner(n: InAppNotification): void {
 
 async function pollNotifications(): Promise<void> {
   if (!auth.isLoggedIn() || session) return; // never mid-call (session is set in a call)
+  // Keep the pending-request badge (and any open friends UI) fresh without a reload, so
+  // an incoming request lights up the homepage badge on its own.
+  void loadFriendState(!friendsModal.classList.contains('hidden'));
   if (bannerNotif) return; // show one at a time
   const list = await fetchUnread(10);
   const next = list.find(
