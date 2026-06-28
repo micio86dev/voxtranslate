@@ -107,6 +107,9 @@ pub struct Peer {
     pub conn: Uuid,
     pub name: String,
     pub lang: String,
+    /// The authenticated account behind this peer; `None` for guests. Propagated to
+    /// other peers (presence) so they can send an in-call friend request (spec: friends).
+    pub user_id: Option<Uuid>,
     /// The engine whose quality this peer wants to **receive** (spec 0099,
     /// listener-pays). When someone else speaks, this peer's translation is
     /// produced by — and billed at the rate of — this engine. Guests are pinned
@@ -286,6 +289,7 @@ impl RoomManager {
                 id: p.id.clone(),
                 user_name: p.name.clone(),
                 lang: p.lang.clone(),
+                user_id: p.user_id,
                 avatar_url: p.avatar_url.clone(),
                 cartesia_voice_id: p.cartesia_voice_id.clone(),
             })
@@ -296,6 +300,14 @@ impl RoomManager {
             existing,
             public: room.visibility == Visibility::Public,
         })
+    }
+
+    /// True if `user_id` is an authenticated peer currently present in any room (i.e.
+    /// in a call). Used to avoid pinging a friend who's already busy (spec: friends).
+    pub fn is_user_online(&self, user_id: Uuid) -> bool {
+        self.rooms
+            .iter()
+            .any(|r| r.peers.iter().any(|p| p.user_id == Some(user_id)))
     }
 
     /// Remove a connection by `(id, conn)`, dropping the room once empty. Matching
@@ -724,6 +736,7 @@ mod tests {
                 conn,
                 name: id.to_uppercase(),
                 lang: lang.into(),
+                user_id: None,
                 engine: engine.into(),
                 avatar_url: None,
                 cartesia_voice_id: None,
