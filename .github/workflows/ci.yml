@@ -53,8 +53,17 @@ jobs:
       - name: Clippy
         working-directory: server
         run: cargo clippy --all-targets --locked -- -D warnings
+      - name: Install lld (lighter linker — avoids the ld SIGBUS/OOM flake)
+        run: sudo apt-get update && sudo apt-get install -y lld
+
       - name: Server build + tests + coverage gate
         working-directory: server
+        env:
+          # The default bfd `ld` intermittently OOMs (SIGBUS, signal 7) while
+          # linking the large llvm-cov-instrumented test binary on the 7 GB
+          # runner, which silently skips the deploy-server job. lld is far leaner
+          # on memory and reliably links it.
+          RUSTFLAGS: "-C link-arg=-fuse-ld=lld"
         run: |
           cargo build --locked
           # ENFORCED, realistic line-coverage floor on the always-run job (the
