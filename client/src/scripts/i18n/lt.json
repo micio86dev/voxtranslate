@@ -79,6 +79,7 @@
   "send": "Siųsti",
   "attachTip": "Pridėti failą",
   "voiceMsgTip": "Įrašyti balso žinutę",
+  "chatVoiceDownload": "Atsisiųsti balso žinutę",
   "wsVoiceIntro": "Įrašykite balso pastabą ir pridėkite ją prie projekto. Ji transkribuojama ir išverčiama jūsų komandos įžvalgoms.",
   "wsNoNotes": "Šiame projekte balso pastabų dar nėra.",
   "wsVoiceSent": "Balso pastaba išsiųsta į projektą.",

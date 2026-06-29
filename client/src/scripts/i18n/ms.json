@@ -79,6 +79,7 @@
   "send": "Hantar",
   "attachTip": "Lampirkan fail",
   "voiceMsgTip": "Rakam mesej suara",
+  "chatVoiceDownload": "Muat turun mesej suara",
   "wsVoiceIntro": "Rakam nota suara dan lampirkannya pada projek. Ia ditranskripsikan dan diterjemahkan untuk pandangan pasukan anda.",
   "wsNoNotes": "Belum ada nota suara dalam projek ini.",
   "wsVoiceSent": "Nota suara dihantar ke projek.",

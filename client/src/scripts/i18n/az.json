@@ -79,6 +79,7 @@
   "send": "Göndər",
   "attachTip": "Fayl əlavə et",
   "voiceMsgTip": "Səsli mesaj yaz",
+  "chatVoiceDownload": "Səsli mesajı endir",
   "wsVoiceIntro": "Səsli qeyd yazıb layihəyə əlavə edin. Komandanızın təhlilləri üçün mətnə çevrilir və tərcümə olunur.",
   "wsNoNotes": "Bu layihədə hələ səsli qeyd yoxdur.",
   "wsVoiceSent": "Səsli qeyd layihəyə göndərildi.",

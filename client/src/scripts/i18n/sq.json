@@ -79,6 +79,7 @@
   "send": "Dërgo",
   "attachTip": "Bashkëngjit një skedar",
   "voiceMsgTip": "Regjistro mesazh zanor",
+  "chatVoiceDownload": "Shkarko mesazhin zanor",
   "wsVoiceIntro": "Regjistroni një shënim zanor dhe bashkëngjiteni një projekti. Transkriptohet dhe përkthehet për njohuritë e ekipit tuaj.",
   "wsNoNotes": "Ende nuk ka shënime zanore në këtë projekt.",
   "wsVoiceSent": "Shënimi zanor u dërgua te projekti.",

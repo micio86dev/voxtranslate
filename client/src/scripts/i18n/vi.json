@@ -79,6 +79,7 @@
   "send": "Gửi",
   "attachTip": "Đính kèm tệp",
   "voiceMsgTip": "Ghi âm tin nhắn thoại",
+  "chatVoiceDownload": "Tải tin nhắn thoại",
   "wsVoiceIntro": "Ghi âm một ghi chú thoại và đính kèm vào một dự án. Nó được chuyển thành văn bản và dịch để phục vụ thông tin chi tiết của nhóm bạn.",
   "wsNoNotes": "Chưa có ghi chú thoại nào trong dự án này.",
   "wsVoiceSent": "Đã gửi ghi chú thoại đến dự án.",
