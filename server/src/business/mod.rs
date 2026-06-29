@@ -28,6 +28,7 @@ pub mod search;
 pub mod storyboard;
 pub mod teams;
 pub mod transcripts;
+pub mod voice_messages;
 
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};

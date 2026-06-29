@@ -83,7 +83,8 @@ pub async fn summary(
              count(*) FILTER (WHERE transcript_status = 'ready')::bigint AS transcripts,
              count(*) FILTER (WHERE recording_storage_path IS NOT NULL)::bigint AS recordings
          FROM call_sessions
-         WHERE org_id = $1 AND started_at >= now() - make_interval(days => $2::int)",
+         WHERE org_id = $1 AND kind = 'call'
+           AND started_at >= now() - make_interval(days => $2::int)",
     )
     .bind(org_id)
     .bind(days)
@@ -114,7 +115,8 @@ pub async fn summary(
                 COALESCE(SUM(CASE WHEN ended_at IS NOT NULL
                              THEN EXTRACT(EPOCH FROM (ended_at - started_at)) / 60 ELSE 0 END), 0)::bigint AS minutes
          FROM call_sessions
-         WHERE org_id = $1 AND started_at >= now() - make_interval(days => $2::int)
+         WHERE org_id = $1 AND kind = 'call'
+           AND started_at >= now() - make_interval(days => $2::int)
          GROUP BY day
          ORDER BY day",
     )
@@ -132,7 +134,8 @@ pub async fn summary(
                              THEN EXTRACT(EPOCH FROM (cs.ended_at - cs.started_at)) / 60 ELSE 0 END), 0)::bigint AS minutes
          FROM call_sessions cs
          JOIN projects p ON p.id = cs.project_id
-         WHERE cs.org_id = $1 AND cs.started_at >= now() - make_interval(days => $2::int)
+         WHERE cs.org_id = $1 AND cs.kind = 'call'
+           AND cs.started_at >= now() - make_interval(days => $2::int)
          GROUP BY p.id, p.name
          ORDER BY calls DESC, minutes DESC
          LIMIT 8",
@@ -192,7 +195,7 @@ pub async fn member_summary(
                     (COALESCE(sp.left_at, cs.ended_at, now()) - sp.joined_at)) / 60), 0)::bigint
          FROM session_participants sp
          JOIN call_sessions cs ON cs.id = sp.session_id
-         WHERE cs.org_id = $1 AND sp.user_id = $2
+         WHERE cs.org_id = $1 AND cs.kind = 'call' AND sp.user_id = $2
            AND sp.joined_at >= now() - make_interval(days => $3::int)",
     )
     .bind(org_id)
@@ -227,7 +230,7 @@ pub async fn member_summary(
          JOIN session_participants other
            ON other.session_id = me.session_id AND other.user_id IS DISTINCT FROM me.user_id
          JOIN call_sessions cs ON cs.id = me.session_id
-         WHERE cs.org_id = $1 AND me.user_id = $2
+         WHERE cs.org_id = $1 AND cs.kind = 'call' AND me.user_id = $2
            AND me.joined_at >= now() - make_interval(days => $3::int)
          GROUP BY other.name
          ORDER BY calls DESC, name

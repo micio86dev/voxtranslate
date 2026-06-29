@@ -246,11 +246,13 @@ async fn gather_summary(
     project_id: Uuid,
     project_name: &str,
 ) -> Result<(String, i64), Response> {
-    let total: i64 = sqlx::query_scalar("SELECT count(*) FROM call_sessions WHERE project_id = $1")
-        .bind(project_id)
-        .fetch_one(pool)
-        .await
-        .map_err(db_err)?;
+    let total: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM call_sessions WHERE project_id = $1 AND kind = 'call'",
+    )
+    .bind(project_id)
+    .fetch_one(pool)
+    .await
+    .map_err(db_err)?;
     if total == 0 {
         return Ok((String::new(), 0));
     }
@@ -260,7 +262,7 @@ async fn gather_summary(
         "SELECT sp.name AS name, count(DISTINCT sp.session_id)::bigint AS calls
          FROM session_participants sp
          JOIN call_sessions cs ON cs.id = sp.session_id
-         WHERE cs.project_id = $1
+         WHERE cs.project_id = $1 AND cs.kind = 'call'
          GROUP BY sp.name
          ORDER BY calls DESC
          LIMIT 30",
@@ -281,7 +283,7 @@ async fn gather_summary(
                           FROM transcripts tr, jsonb_array_elements(tr.segments) seg
                           WHERE tr.session_id = cs.id), '') AS excerpt
          FROM call_sessions cs
-         WHERE cs.project_id = $1
+         WHERE cs.project_id = $1 AND cs.kind = 'call'
          ORDER BY cs.started_at DESC
          LIMIT $2",
     )
