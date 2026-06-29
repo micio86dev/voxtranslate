@@ -78,6 +78,7 @@
   "chatPlaceholder": "Escriu un missatge…",
   "send": "Envia",
   "attachTip": "Adjunta un fitxer",
+  "voiceMsgTip": "Enregistra un missatge de veu",
   "uploading": "S'està pujant…",
   "uploadFailed": "No s'ha pogut pujar",
   "uploadNotTranslatedSignin": "Fitxer compartit — inicia la sessió per traduir el document.",

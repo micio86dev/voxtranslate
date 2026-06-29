@@ -78,6 +78,7 @@
   "chatPlaceholder": "Въведете съобщение…",
   "send": "Изпращане",
   "attachTip": "Прикачване на файл",
+  "voiceMsgTip": "Запиши гласово съобщение",
   "uploading": "Качване…",
   "uploadFailed": "Качването е неуспешно",
   "uploadNotTranslatedSignin": "Файлът е споделен — влезте, за да преведете документа.",

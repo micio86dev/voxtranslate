@@ -78,6 +78,7 @@
   "chatPlaceholder": "Skriv ett meddelande…",
   "send": "Skicka",
   "attachTip": "Bifoga en fil",
+  "voiceMsgTip": "Spela in röstmeddelande",
   "uploading": "Laddar upp…",
   "uploadFailed": "Uppladdning misslyckades",
   "uploadNotTranslatedSignin": "Filen delad — logga in för att översätta dokumentet.",

@@ -78,6 +78,7 @@
   "chatPlaceholder": "Rašykite žinutę…",
   "send": "Siųsti",
   "attachTip": "Pridėti failą",
+  "voiceMsgTip": "Įrašyti balso žinutę",
   "uploading": "Įkeliama…",
   "uploadFailed": "Įkelti nepavyko",
   "uploadNotTranslatedSignin": "Failas bendrintas — prisijunkite, kad išverstumėte dokumentą.",

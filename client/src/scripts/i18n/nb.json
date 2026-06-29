@@ -78,6 +78,7 @@
   "chatPlaceholder": "Skriv en melding…",
   "send": "Send",
   "attachTip": "Legg ved en fil",
+  "voiceMsgTip": "Ta opp talemelding",
   "uploading": "Laster opp…",
   "uploadFailed": "Opplasting mislyktes",
   "uploadNotTranslatedSignin": "Filen ble delt — logg inn for å oversette dokumentet.",

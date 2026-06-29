@@ -78,6 +78,7 @@
   "chatPlaceholder": "Унесите поруку…",
   "send": "Пошаљи",
   "attachTip": "Приложи датотеку",
+  "voiceMsgTip": "Сними гласовну поруку",
   "uploading": "Отпремање…",
   "uploadFailed": "Отпремање није успело",
   "uploadNotTranslatedSignin": "Датотека је подељена — пријавите се да бисте превели документ.",

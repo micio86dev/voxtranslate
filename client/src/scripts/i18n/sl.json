@@ -78,6 +78,7 @@
   "chatPlaceholder": "Napišite sporočilo …",
   "send": "Pošlji",
   "attachTip": "Pripni datoteko",
+  "voiceMsgTip": "Posnemi glasovno sporočilo",
   "uploading": "Nalaganje …",
   "uploadFailed": "Nalaganje ni uspelo",
   "uploadNotTranslatedSignin": "Datoteka je deljena — prijavite se za prevod dokumenta.",

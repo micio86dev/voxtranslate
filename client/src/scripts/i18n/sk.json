@@ -78,6 +78,7 @@
   "chatPlaceholder": "Napíšte správu…",
   "send": "Odoslať",
   "attachTip": "Priložiť súbor",
+  "voiceMsgTip": "Nahrať hlasovú správu",
   "uploading": "Nahráva sa…",
   "uploadFailed": "Nahrávanie zlyhalo",
   "uploadNotTranslatedSignin": "Súbor zdieľaný — prihláste sa na preklad dokumentu.",
