@@ -440,12 +440,14 @@ async fn admin_gift_subscription() {
         .unwrap();
     assert_eq!(missing.status(), 404);
 
-    // Default gift: enterprise, blank months/credits sent the way Directus does
-    // (quoted, possibly empty). months → 1, credits → enterprise monthly (5000).
+    // Default gift: enterprise, blank months/credits sent the way Directus ACTUALLY
+    // renders an unfilled confirmation field — the literal string "null", not "".
+    // months → 1, credits → enterprise monthly (5000). (Regression: this used to
+    // 422 with `months: invalid digit found in string`.)
     let resp = http
         .post(&url)
         .header("x-admin-secret", "test-admin-secret")
-        .json(&json!({ "org_id": org, "plan": "enterprise", "months": "", "credits": "", "message": "welcome!" }))
+        .json(&json!({ "org_id": org, "plan": "enterprise", "months": "null", "credits": "null", "message": "welcome!" }))
         .send()
         .await
         .unwrap();
