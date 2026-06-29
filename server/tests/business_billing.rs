@@ -386,3 +386,128 @@ async fn billing_endpoint_guards() {
         .unwrap();
     assert_eq!(denied.status(), 404);
 }
+
+/// `POST /api/admin/org/gift-subscription` — the Directus "Gift subscription" Flow
+/// (secret-guarded, server-to-server). Covers the secret guard, validation, the
+/// blank-input defaults (Directus sends numeric fields as quoted strings → "" =
+/// use the plan package default), the credit grant + ledger row + active period,
+/// and the Stripe-managed refusal. `admin_api_secret` is `test-admin-secret` (set
+/// by `Config::test_with_billing`).
+#[tokio::test]
+async fn admin_gift_subscription() {
+    let Some(srv) = setup().await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    let http = Client::new();
+    let (owner, _) = user(&srv).await;
+    let org = make_org(&srv, owner).await;
+    let url = format!("{}/api/admin/org/gift-subscription", base(&srv));
+
+    // Wrong secret → 403, nothing changes.
+    let bad = http
+        .post(&url)
+        .header("x-admin-secret", "nope")
+        .json(&json!({ "org_id": org, "plan": "business" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(bad.status(), 403);
+    assert_eq!(org_balance(&srv, org).await, 0);
+
+    // Bad plan → 400; months out of range → 400.
+    for body in [
+        json!({ "org_id": org, "plan": "gold" }),
+        json!({ "org_id": org, "plan": "business", "months": 0 }),
+    ] {
+        let r = http
+            .post(&url)
+            .header("x-admin-secret", "test-admin-secret")
+            .json(&body)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(r.status(), 400, "rejected {body}");
+    }
+
+    // Unknown org → 404 (no row to gift).
+    let missing = http
+        .post(&url)
+        .header("x-admin-secret", "test-admin-secret")
+        .json(&json!({ "org_id": Uuid::new_v4(), "plan": "business" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(missing.status(), 404);
+
+    // Default gift: enterprise, blank months/credits sent the way Directus does
+    // (quoted, possibly empty). months → 1, credits → enterprise monthly (5000).
+    let resp = http
+        .post(&url)
+        .header("x-admin-secret", "test-admin-secret")
+        .json(&json!({ "org_id": org, "plan": "enterprise", "months": "", "credits": "", "message": "welcome!" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let body: Value = resp.json().await.unwrap();
+    assert_eq!(body["plan"], "enterprise");
+    assert_eq!(body["months"], 1);
+    assert_eq!(body["credits_granted"], 5000);
+    assert_eq!(body["balance"], 5000);
+
+    // The org row is now an active, ~1-month, non-renewing enterprise gift, and a
+    // single 'gift' ledger row was written.
+    let (plan, status, future, cancel): (String, String, bool, bool) = sqlx::query_as(
+        "SELECT plan, subscription_status, current_period_end > now(), cancel_at_period_end
+         FROM organizations WHERE id = $1",
+    )
+    .bind(org)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
+    assert_eq!(plan, "enterprise");
+    assert_eq!(status, "active");
+    assert!(future, "period end is in the future");
+    assert!(cancel, "a gift never auto-renews");
+    let gift_rows: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM organization_credits_transactions WHERE org_id = $1 AND type = 'gift'",
+    )
+    .bind(org)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
+    assert_eq!(gift_rows, 1);
+
+    // Explicit credits + multi-month: business, 3 months, 250 credits → +250 and the
+    // plan flips to business (period extends past the prior gift).
+    let resp2 = http
+        .post(&url)
+        .header("x-admin-secret", "test-admin-secret")
+        .json(&json!({ "org_id": org, "plan": "business", "months": "3", "credits": "250" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp2.status(), 200);
+    let body2: Value = resp2.json().await.unwrap();
+    assert_eq!(body2["months"], 3);
+    assert_eq!(body2["credits_granted"], 250);
+    assert_eq!(body2["balance"], 5250);
+    assert_eq!(org_balance(&srv, org).await, 5250);
+
+    // A live Stripe subscription blocks gifting (409) so a gift can't desync billing.
+    sqlx::query("UPDATE organizations SET stripe_subscription_id = 'sub_live' WHERE id = $1")
+        .bind(org)
+        .execute(&srv.pool)
+        .await
+        .unwrap();
+    let conflict = http
+        .post(&url)
+        .header("x-admin-secret", "test-admin-secret")
+        .json(&json!({ "org_id": org, "plan": "business" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(conflict.status(), 409);
+    assert_eq!(org_balance(&srv, org).await, 5250, "no grant on conflict");
+}

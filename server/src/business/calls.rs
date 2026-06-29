@@ -59,22 +59,19 @@ pub async fn bind(
     require_role(pool, body.org_id, user.user_id, MEMBER).await?;
     let room = sanitize_room(&room).ok_or_else(|| bad_request("invalid room code"))?;
 
-    // Cloud recording is a paid Business/Enterprise feature: require an ACTIVE
-    // subscription on the target org. The pre-join UI gates this too; this is the
-    // server-side enforcement so the gate can't be bypassed.
-    if body.cloud_recording_enabled == Some(true) {
-        let status: String =
-            sqlx::query_scalar("SELECT subscription_status FROM organizations WHERE id = $1")
-                .bind(body.org_id)
-                .fetch_optional(pool)
-                .await
-                .map_err(db_err)?
-                .unwrap_or_default();
-        if status != "active" {
-            return Err(forbidden(
-                "cloud recording requires an active Business or Enterprise subscription",
-            ));
-        }
+    // Cloud recording is a paid Business/Enterprise feature: require a live (active
+    // and unlapsed) subscription on the target org. The pre-join UI gates this too;
+    // this is the server-side enforcement so the gate can't be bypassed. Using the
+    // shared date-aware check means an admin-gifted subscription stops unlocking
+    // recording the moment its gifted month ends.
+    if body.cloud_recording_enabled == Some(true)
+        && !crate::business::credits::org_subscription_active(pool, body.org_id)
+            .await
+            .map_err(db_err)?
+    {
+        return Err(forbidden(
+            "cloud recording requires an active Business or Enterprise subscription",
+        ));
     }
 
     if let Some(project_id) = body.project_id {

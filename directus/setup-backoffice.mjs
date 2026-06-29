@@ -59,6 +59,7 @@ async function getToken() {
 // ──────────────────────────────────────────────────────────────────────────
 const FOLDERS = [
   { name: 'accounts', icon: 'group', color: '#2ECDA7', note: 'Users, credits & billing ledger' },
+  { name: 'business', icon: 'corporate_fare', color: '#00C4B4', note: 'B2B orgs, members, projects & org credit ledger (spec 0106)' },
   { name: 'sessions', icon: 'record_voice_over', color: '#3399FF', note: 'Calls, participants, transcripts & files' },
   { name: 'moderation', icon: 'shield', color: '#E35169', note: 'Reports, bans, blocklist & audit trail' },
   { name: 'ai_features', icon: 'smart_toy', color: '#6644FF', note: 'AI reports, sentiment, emails & glossaries' },
@@ -72,6 +73,14 @@ const COLLECTIONS = [
   ['credit_transactions', { group: 'accounts', icon: 'receipt_long', display: '{{kind}} {{amount}} → {{balance_after}}', note: 'Immutable money ledger (signed amounts).', sort: 2 }],
   ['usage_sessions', { group: 'accounts', icon: 'mic', display: '{{room}} · {{speaking_seconds}}s', note: 'Per-call speaking time billed to a user.', sort: 3 }],
   ['stripe_events', { group: 'accounts', icon: 'payments', display: '{{type}} · {{id}}', note: 'Stripe webhook idempotency log (one row per event).', sort: 4 }],
+  // business (spec 0106) — B2B workspaces. plan/subscription/credits change via
+  // Stripe or the "Gift subscription" Flow button, NEVER by hand (keep read-only).
+  ['organizations', { group: 'business', icon: 'corporate_fare', color: '#00C4B4', display: '{{name}} · {{plan}} ({{subscription_status}})', note: 'B2B workspaces. Gift a Business/Enterprise month via the Gift subscription Flow; do NOT edit plan / credits_balance / subscription_* by hand.', sort: 1 }],
+  ['organization_members', { group: 'business', icon: 'badge', display: '{{role}}', note: 'Who belongs to each org and their role (owner/admin/member/guest).', sort: 2 }],
+  ['organization_invites', { group: 'business', icon: 'mail', display: '{{email}} · {{role}}', note: 'Pending email invites (secret-token join links).', sort: 3 }],
+  ['projects', { group: 'business', icon: 'folder', display: '{{name}}', note: 'Call groupings within an org (archived_at = soft-deleted).', sort: 4 }],
+  ['organization_credits_transactions', { group: 'business', icon: 'receipt_long', display: '{{type}} {{amount}}', note: 'Immutable org credit ledger (INTEGER, separate currency from consumer credits). type=gift = admin gift.', sort: 5 }],
+  ['audit_logs', { group: 'business', icon: 'policy', display: '{{action}} · {{resource_type}}', note: 'Per-org compliance audit trail (written only when compliance_mode is on).', sort: 6 }],
   // sessions
   ['call_sessions', { group: 'sessions', icon: 'videocam', display: '{{room}} · {{started_at}}', note: 'One row per room lifetime. ended_at NULL = live.', sort: 1 }],
   ['session_participants', { group: 'sessions', icon: 'groups', display: '{{name}} ({{lang}})', note: 'Who took part in each call.', sort: 2 }],
