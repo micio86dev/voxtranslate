@@ -78,6 +78,7 @@
   "chatPlaceholder": "Зурвас бичих…",
   "send": "Илгээх",
   "attachTip": "Файл хавсаргах",
+  "voiceMsgTip": "Дуут мессеж бичих",
   "uploading": "Байршуулж байна…",
   "uploadFailed": "Байршуулж чадсангүй",
   "uploadNotTranslatedSignin": "Файл хуваалцлаа — баримтыг орчуулахын тулд нэвтэрнэ үү.",

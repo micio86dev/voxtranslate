@@ -78,6 +78,7 @@
   "chatPlaceholder": "Írjon egy üzenetet…",
   "send": "Küldés",
   "attachTip": "Fájl csatolása",
+  "voiceMsgTip": "Hangüzenet rögzítése",
   "uploading": "Feltöltés…",
   "uploadFailed": "A feltöltés nem sikerült",
   "uploadNotTranslatedSignin": "Fájl megosztva — jelentkezzen be a dokumentum fordításához.",

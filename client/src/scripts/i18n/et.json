@@ -78,6 +78,7 @@
   "chatPlaceholder": "Kirjuta sõnum…",
   "send": "Saada",
   "attachTip": "Lisa fail",
+  "voiceMsgTip": "Lindista häälsõnum",
   "uploading": "Üleslaadimine…",
   "uploadFailed": "Üleslaadimine ebaõnnestus",
   "uploadNotTranslatedSignin": "Fail jagatud — logi sisse, et dokumenti tõlkida.",

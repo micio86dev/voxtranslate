@@ -78,6 +78,7 @@
   "chatPlaceholder": "Nachricht schreiben…",
   "send": "Senden",
   "attachTip": "Datei anhängen",
+  "voiceMsgTip": "Sprachnachricht aufnehmen",
   "uploading": "Wird hochgeladen…",
   "uploadFailed": "Upload fehlgeschlagen",
   "uploadNotTranslatedSignin": "Datei geteilt – melde dich an, um das Dokument zu übersetzen.",

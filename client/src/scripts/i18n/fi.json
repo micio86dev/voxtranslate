@@ -78,6 +78,7 @@
   "chatPlaceholder": "Kirjoita viesti…",
   "send": "Lähetä",
   "attachTip": "Liitä tiedosto",
+  "voiceMsgTip": "Nauhoita ääniviesti",
   "uploading": "Ladataan…",
   "uploadFailed": "Lataus epäonnistui",
   "uploadNotTranslatedSignin": "Tiedosto jaettu — kirjaudu sisään kääntääksesi asiakirjan.",

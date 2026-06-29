@@ -78,6 +78,7 @@
   "chatPlaceholder": "پیامی بنویسید…",
   "send": "ارسال",
   "attachTip": "پیوست کردن فایل",
+  "voiceMsgTip": "ضبط پیام صوتی",
   "uploading": "در حال بارگذاری…",
   "uploadFailed": "بارگذاری ناموفق بود",
   "uploadNotTranslatedSignin": "فایل به اشتراک گذاشته شد — برای ترجمه سند وارد شوید.",

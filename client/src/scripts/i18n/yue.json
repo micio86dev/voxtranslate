@@ -78,6 +78,7 @@
   "chatPlaceholder": "輸入訊息…",
   "send": "傳送",
   "attachTip": "附加檔案",
+  "voiceMsgTip": "錄製語音訊息",
   "uploading": "上載緊…",
   "uploadFailed": "上載失敗",
   "uploadNotTranslatedSignin": "檔案已分享 —— 登入即可翻譯文件。",

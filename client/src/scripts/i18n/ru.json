@@ -78,6 +78,7 @@
   "chatPlaceholder": "Введите сообщение…",
   "send": "Отправить",
   "attachTip": "Прикрепить файл",
+  "voiceMsgTip": "Записать голосовое сообщение",
   "uploading": "Загрузка…",
   "uploadFailed": "Не удалось загрузить",
   "uploadNotTranslatedSignin": "Файл отправлен — войдите, чтобы перевести документ.",

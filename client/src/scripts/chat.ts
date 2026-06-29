@@ -105,21 +105,44 @@ export class ChatManager {
     }
   }
 
-  /** Build the attachment block: audio player for audio, else a download chip. */
+  /** Build the attachment block: a voice-message player (audio + speed control)
+   *  for audio, else a labelled download chip for documents. */
   private renderAttachment(att: ChatAttachment): HTMLElement {
     const wrap = document.createElement('div');
     wrap.className = 'chat-attachment';
 
+    // Voice message: inline player + a tap-to-cycle 1×/1.5×/2× speed pill. The
+    // transcript is the message text, so no download chip is shown for audio.
     if (att.content_type.startsWith('audio/')) {
+      const player = document.createElement('div');
+      player.className = 'chat-audio-player';
       const audio = document.createElement('audio');
       audio.controls = true;
       audio.preload = 'none';
       audio.src = att.url;
       audio.className = 'chat-audio';
-      wrap.appendChild(audio);
+      const rates = [1, 1.5, 2];
+      let ri = 0;
+      const speed = document.createElement('button');
+      speed.type = 'button';
+      speed.className = 'chat-audio-speed';
+      speed.textContent = '1×';
+      speed.addEventListener('click', () => {
+        ri = (ri + 1) % rates.length;
+        audio.playbackRate = rates[ri];
+        speed.textContent = `${rates[ri]}×`;
+      });
+      // Browsers reset playbackRate when a new source plays; reapply on each play.
+      audio.addEventListener('play', () => {
+        audio.playbackRate = rates[ri];
+      });
+      player.appendChild(audio);
+      player.appendChild(speed);
+      wrap.appendChild(player);
+      return wrap;
     }
 
-    // Always offer a labelled download link (the file name + size).
+    // Document: a labelled download link (the file name + size).
     const link = document.createElement('a');
     link.className = 'chat-file-chip';
     link.href = att.url;

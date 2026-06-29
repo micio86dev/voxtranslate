@@ -78,6 +78,7 @@
   "chatPlaceholder": "输入消息…",
   "send": "发送",
   "attachTip": "附加文件",
+  "voiceMsgTip": "录制语音消息",
   "uploading": "上传中…",
   "uploadFailed": "上传失败",
   "uploadNotTranslatedSignin": "文件已分享。登录后可翻译文档。",

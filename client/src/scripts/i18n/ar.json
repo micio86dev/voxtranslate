@@ -78,6 +78,7 @@
   "chatPlaceholder": "اكتب رسالة…",
   "send": "إرسال",
   "attachTip": "إرفاق ملف",
+  "voiceMsgTip": "تسجيل رسالة صوتية",
   "uploading": "جارٍ الرفع…",
   "uploadFailed": "فشل الرفع",
   "uploadNotTranslatedSignin": "تمت مشاركة الملف — سجّل الدخول لترجمة المستند.",

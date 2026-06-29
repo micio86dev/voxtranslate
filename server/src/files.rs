@@ -45,6 +45,10 @@ pub enum FileKind {
     /// `.pptx`) — stored + shared as an attachment, but NOT text-extracted, so
     /// they never hit the (paid) translation fan-out.
     Other,
+    /// A recorded voice message (`.webm` / `.m4a` / `.ogg` / `.mp3` / …). Stored
+    /// and shared like any attachment, transcribed via Deepgram's prerecorded API,
+    /// and the transcript then rides the same translation fan-out as typed chat.
+    Audio,
 }
 
 /// `GET /api/files/config` — whether chat file upload is available (Supabase
@@ -129,7 +133,8 @@ pub async fn upload_file(
     let Some(kind) = classify_ext(&ext) else {
         return (
             StatusCode::UNSUPPORTED_MEDIA_TYPE,
-            "unsupported file type (documents only: txt, md, csv, pdf, docx, doc, odt, rtf, xlsx, pptx)",
+            "unsupported file type (documents: txt, md, csv, pdf, docx, doc, odt, rtf, xlsx, pptx; \
+             or voice messages: webm, m4a, mp3, ogg, wav)",
         )
             .into_response();
     };
@@ -180,8 +185,15 @@ pub async fn upload_file(
         }
     }
 
-    // ---- Extract text by type (best-effort; failure → empty body) ----------
-    let (text, source_lang) = extract_text(kind, bytes, &snapshot.lang).await;
+    // ---- Get the translatable text (best-effort; failure → empty body) -----
+    // Documents are text-extracted locally; a voice message is transcribed via
+    // Deepgram's prerecorded API. Either way the result flows through the same
+    // translation fan-out + persistence as typed chat below.
+    let (text, source_lang) = if kind == FileKind::Audio {
+        transcribe_audio(&state, bytes, content_type, &snapshot.lang).await
+    } else {
+        extract_text(kind, bytes, &snapshot.lang).await
+    };
     let text = truncate_chars(text.trim(), MAX_TEXT_CHARS);
 
     // ---- Translate (paid Groq fan-out) — pay-to-translate policy --------------
@@ -222,7 +234,7 @@ pub async fn upload_file(
                         charge_session,
                         "upload_translate",
                         cost,
-                        &format!("Document translation: {file_name} ({} langs)", targets.len()),
+                        &format!("Chat upload translation: {file_name} ({} langs)", targets.len()),
                         serde_json::json!({ "file": file_name, "ext": ext, "langs": targets.len() }),
                     )
                     .await
@@ -391,6 +403,39 @@ async fn extract_text(kind: FileKind, bytes: Vec<u8>, sender_lang: &str) -> (Str
         }
         // Stored + shared, but not extracted → no translation cost.
         FileKind::Other => (String::new(), sender_lang.to_string()),
+        // Audio is transcribed by `transcribe_audio` (needs the HTTP client +
+        // config), not here — guarded by the FileKind::Audio branch in upload_file.
+        FileKind::Audio => (String::new(), sender_lang.to_string()),
+    }
+}
+
+/// Transcribe a recorded voice message via Deepgram's prerecorded API, returning
+/// `(transcript, source_lang)`. The selected call tier drives the LIVE streaming
+/// STT engine, but a discrete clip always uses Deepgram batch: it accepts the
+/// MediaRecorder WebM/Opus (or m4a) container directly and auto-detects the
+/// language. Any failure degrades to an empty transcript, so the clip still posts
+/// as a playable attachment (just without translatable text), matching the
+/// best-effort document path.
+async fn transcribe_audio(
+    state: &AppState,
+    bytes: Vec<u8>,
+    content_type: &str,
+    sender_lang: &str,
+) -> (String, String) {
+    match crate::deepgram::transcribe_file(&state.http, &state.config, bytes, content_type).await {
+        Ok((transcript, detected)) => {
+            // Deepgram may report a regional tag (e.g. "en-US"); the room keys its
+            // translation targets off the primary subtag, so normalize to that.
+            let lang = detected
+                .map(|l| l.split('-').next().unwrap_or(&l).to_ascii_lowercase())
+                .filter(|l| !l.is_empty())
+                .unwrap_or_else(|| sender_lang.to_string());
+            (transcript, lang)
+        }
+        Err(e) => {
+            tracing::error!("voice message transcription failed: {e}");
+            (String::new(), sender_lang.to_string())
+        }
     }
 }
 
@@ -467,6 +512,12 @@ pub fn classify_ext(ext: &str) -> Option<FileKind> {
         "pdf" => Some(FileKind::Pdf),
         "docx" => Some(FileKind::Docx),
         "doc" | "odt" | "rtf" | "xlsx" | "pptx" => Some(FileKind::Other),
+        // Voice messages: MediaRecorder emits webm/opus (Chrome/Firefox/Android)
+        // or m4a/mp4 (Safari/iOS); the rest cover attached audio files. All are
+        // transcribed via Deepgram batch.
+        "webm" | "ogg" | "oga" | "opus" | "m4a" | "mp3" | "wav" | "aac" | "flac" => {
+            Some(FileKind::Audio)
+        }
         _ => None,
     }
 }
@@ -495,6 +546,15 @@ fn content_type_for(ext: &str) -> &'static str {
         "rtf" => "application/rtf",
         "xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         "pptx" => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        // Audio — every value starts with `audio/`, which is what the chat client
+        // keys the inline <audio> player off.
+        "webm" => "audio/webm",
+        "ogg" | "oga" | "opus" => "audio/ogg",
+        "m4a" => "audio/mp4",
+        "mp3" => "audio/mpeg",
+        "wav" => "audio/wav",
+        "aac" => "audio/aac",
+        "flac" => "audio/flac",
         _ => "application/octet-stream",
     }
 }
@@ -542,7 +602,7 @@ mod tests {
     }
 
     #[test]
-    fn classification_covers_documents_only() {
+    fn classification_covers_documents_and_audio() {
         // Extractable → translated.
         assert_eq!(classify_ext("txt"), Some(FileKind::Text));
         assert_eq!(classify_ext("md"), Some(FileKind::Text));
@@ -554,9 +614,14 @@ mod tests {
         assert_eq!(classify_ext("odt"), Some(FileKind::Other));
         assert_eq!(classify_ext("xlsx"), Some(FileKind::Other));
         assert_eq!(classify_ext("pptx"), Some(FileKind::Other));
-        // Audio and everything else is rejected.
-        assert_eq!(classify_ext("mp3"), None);
-        assert_eq!(classify_ext("wav"), None);
+        // Voice messages → transcribed via Deepgram, then translated.
+        assert_eq!(classify_ext("webm"), Some(FileKind::Audio));
+        assert_eq!(classify_ext("m4a"), Some(FileKind::Audio));
+        assert_eq!(classify_ext("mp3"), Some(FileKind::Audio));
+        assert_eq!(classify_ext("ogg"), Some(FileKind::Audio));
+        assert_eq!(classify_ext("wav"), Some(FileKind::Audio));
+        // Video and everything else is still rejected.
+        assert_eq!(classify_ext("mp4"), None);
         assert_eq!(classify_ext("exe"), None);
         assert_eq!(classify_ext("png"), None);
         assert_eq!(classify_ext(""), None);
@@ -590,6 +655,11 @@ mod tests {
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         );
         assert_eq!(content_type_for("rtf"), "application/rtf");
+        // Audio MIME types must start with `audio/` so the client renders a player.
+        assert_eq!(content_type_for("webm"), "audio/webm");
+        assert_eq!(content_type_for("m4a"), "audio/mp4");
+        assert_eq!(content_type_for("mp3"), "audio/mpeg");
+        assert!(content_type_for("ogg").starts_with("audio/"));
     }
 
     #[test]

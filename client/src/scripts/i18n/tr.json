@@ -78,6 +78,7 @@
   "chatPlaceholder": "Bir mesaj yazın…",
   "send": "Gönder",
   "attachTip": "Dosya ekle",
+  "voiceMsgTip": "Sesli mesaj kaydet",
   "uploading": "Yükleniyor…",
   "uploadFailed": "Yükleme başarısız",
   "uploadNotTranslatedSignin": "Dosya paylaşıldı — belgeyi çevirmek için oturum açın.",

@@ -87,6 +87,7 @@
   "chatPlaceholder": "Type a message…",
   "send": "Send",
   "attachTip": "Attach a file",
+  "voiceMsgTip": "Record voice message",
   "uploading": "Uploading…",
   "uploadFailed": "Upload failed",
   "uploadNotTranslatedSignin": "File shared — sign in to translate the document.",

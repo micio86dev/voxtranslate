@@ -78,6 +78,7 @@
   "chatPlaceholder": "Ierakstiet ziņojumu…",
   "send": "Sūtīt",
   "attachTip": "Pievienot failu",
+  "voiceMsgTip": "Ierakstīt balss ziņojumu",
   "uploading": "Augšupielādē…",
   "uploadFailed": "Augšupielāde neizdevās",
   "uploadNotTranslatedSignin": "Fails kopīgots — pierakstieties, lai tulkotu dokumentu.",

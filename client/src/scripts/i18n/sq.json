@@ -78,6 +78,7 @@
   "chatPlaceholder": "Shkruani një mesazh…",
   "send": "Dërgo",
   "attachTip": "Bashkëngjit një skedar",
+  "voiceMsgTip": "Regjistro mesazh zanor",
   "uploading": "Po ngarkohet…",
   "uploadFailed": "Ngarkimi dështoi",
   "uploadNotTranslatedSignin": "Skedari u nda — identifikohuni për të përkthyer dokumentin.",

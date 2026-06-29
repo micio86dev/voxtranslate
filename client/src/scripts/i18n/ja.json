@@ -78,6 +78,7 @@
   "chatPlaceholder": "メッセージを入力…",
   "send": "送信",
   "attachTip": "ファイルを添付",
+  "voiceMsgTip": "音声メッセージを録音",
   "uploading": "アップロード中…",
   "uploadFailed": "アップロードに失敗しました",
   "uploadNotTranslatedSignin": "ファイルを共有しました。文書を翻訳するにはサインインしてください。",

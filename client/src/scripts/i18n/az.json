@@ -78,6 +78,7 @@
   "chatPlaceholder": "Mesaj yazın…",
   "send": "Göndər",
   "attachTip": "Fayl əlavə et",
+  "voiceMsgTip": "Səsli mesaj yaz",
   "uploading": "Yüklənir…",
   "uploadFailed": "Yükləmə uğursuz oldu",
   "uploadNotTranslatedSignin": "Fayl paylaşıldı — sənədi tərcümə etmək üçün daxil olun.",

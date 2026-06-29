@@ -78,6 +78,7 @@
   "chatPlaceholder": "Хабарлама жазыңыз…",
   "send": "Жіберу",
   "attachTip": "Файл тіркеу",
+  "voiceMsgTip": "Дауыстық хабарлама жазу",
   "uploading": "Жүктелуде…",
   "uploadFailed": "Жүктеу сәтсіз аяқталды",
   "uploadNotTranslatedSignin": "Файл бөлісілді — құжатты аудару үшін кіріңіз.",
