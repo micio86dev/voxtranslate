@@ -403,7 +403,7 @@ async fn gather_metrics(
                     COALESCE(SUM(EXTRACT(EPOCH FROM (COALESCE(cs.ended_at, now()) - cs.started_at)) / 60), 0)::bigint,
                     count(*) FILTER (WHERE cs.transcript_status = 'ready')::bigint
              FROM call_sessions cs
-             WHERE cs.org_id = $1 AND cs.project_id = $2
+             WHERE cs.org_id = $1 AND cs.kind = 'call' AND cs.project_id = $2
                AND cs.started_at >= now() - make_interval(days => 90)",
         )
         .bind(org_id)
@@ -419,7 +419,7 @@ async fn gather_metrics(
             "SELECT DISTINCT u.name FROM session_participants sp
              JOIN call_sessions cs ON cs.id = sp.session_id
              JOIN users u ON u.id = sp.user_id
-             WHERE cs.org_id = $1 AND cs.project_id = $2 LIMIT 20",
+             WHERE cs.org_id = $1 AND cs.kind = 'call' AND cs.project_id = $2 LIMIT 20",
         )
         .bind(org_id)
         .bind(pid)
@@ -434,7 +434,7 @@ async fn gather_metrics(
             "SELECT count(DISTINCT sp.session_id)::bigint,
                     COALESCE(SUM(EXTRACT(EPOCH FROM (COALESCE(sp.left_at, cs.ended_at, now()) - sp.joined_at)) / 60), 0)::bigint
              FROM session_participants sp JOIN call_sessions cs ON cs.id = sp.session_id
-             WHERE cs.org_id = $1 AND sp.user_id = $2
+             WHERE cs.org_id = $1 AND cs.kind = 'call' AND sp.user_id = $2
                AND sp.joined_at >= now() - make_interval(days => 90)",
         )
         .bind(org_id)
@@ -450,7 +450,7 @@ async fn gather_metrics(
              JOIN session_participants other
                ON other.session_id = me.session_id AND other.user_id IS DISTINCT FROM me.user_id
              JOIN call_sessions cs ON cs.id = me.session_id
-             WHERE cs.org_id = $1 AND me.user_id = $2
+             WHERE cs.org_id = $1 AND cs.kind = 'call' AND me.user_id = $2
                AND me.joined_at >= now() - make_interval(days => 90)
              GROUP BY other.name ORDER BY count(DISTINCT other.session_id) DESC, other.name LIMIT 8",
         )

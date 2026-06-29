@@ -537,7 +537,7 @@ pub fn ext_of(name: &str) -> String {
 /// The canonical content type for an allowed (already `classify_ext`-validated)
 /// extension. Returns a `'static str` so it can travel with the broadcast;
 /// derived purely from the extension so a client can't mislabel the bytes.
-fn content_type_for(ext: &str) -> &'static str {
+pub fn content_type_for(ext: &str) -> &'static str {
     match ext {
         "txt" | "log" => "text/plain",
         "md" => "text/markdown",

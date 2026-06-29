@@ -190,7 +190,7 @@ async fn history(
         "SELECT id, room, started_at, ended_at, project_id, transcript_status,
                 (recording_storage_path IS NOT NULL) AS has_recording
          FROM call_sessions
-         WHERE org_id = $1
+         WHERE org_id = $1 AND kind = 'call'
            AND ($2::uuid IS NULL OR project_id = $2)
            AND ($3::timestamptz IS NULL OR started_at >= $3)
            AND ($4::timestamptz IS NULL OR started_at <= $4)

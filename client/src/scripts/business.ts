@@ -125,6 +125,112 @@ export async function uploadRecording(
   }
 }
 
+/** A project voice note in the project's data history (spec: B2B project voice notes). */
+export interface ProjectVoiceMessage {
+  id: string;
+  session_id: string;
+  transcript_id: string | null;
+  created_by_name: string;
+  file_name: string;
+  content_type: string;
+  size_bytes: number;
+  duration_seconds: number | null;
+  source_language: string;
+  word_count: number | null;
+  translated: boolean;
+  created_at: string;
+}
+
+/** Outcome of a project voice-message upload (mirrors the chat-upload result). */
+export interface VoiceMessageResult {
+  ok: boolean;
+  status: number;
+  /** Why the transcript wasn't translated, when applicable: 'credits' (org out of
+   *  credits — note saved untranslated), 'error' (Groq failed, refunded). */
+  translateBlocked?: "credits" | "error";
+}
+
+/**
+ * Upload a recorded voice note onto a project (no call). XHR (not fetch) so we can
+ * report progress. The server transcribes + translates + persists into the
+ * project's data history; the response carries the translate-blocked reason.
+ */
+export function uploadProjectVoiceMessage(
+  orgId: string,
+  projectId: string,
+  file: File,
+  durationSeconds: number | null,
+  onProgress?: (fraction: number) => void,
+): Promise<VoiceMessageResult> {
+  return new Promise((resolve) => {
+    const form = new FormData();
+    form.append("file", file, file.name);
+    if (durationSeconds != null) form.append("duration_seconds", String(Math.round(durationSeconds)));
+
+    const xhr = new XMLHttpRequest();
+    xhr.open(
+      "POST",
+      `${HTTP_BASE}/api/business/organizations/${encodeURIComponent(orgId)}/projects/${encodeURIComponent(projectId)}/voice-messages`,
+    );
+    for (const [k, v] of Object.entries(authHeaders())) xhr.setRequestHeader(k, v);
+    if (onProgress && xhr.upload) {
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) onProgress(e.loaded / e.total);
+      };
+    }
+    xhr.onload = () => {
+      const ok = xhr.status >= 200 && xhr.status < 300;
+      let translateBlocked: "credits" | "error" | undefined;
+      try {
+        const b = JSON.parse(xhr.responseText)?.translate_blocked;
+        if (b === "credits" || b === "error") translateBlocked = b;
+      } catch {
+        /* non-JSON body — ignore */
+      }
+      resolve({ ok, status: xhr.status, translateBlocked });
+    };
+    xhr.onerror = () => resolve({ ok: false, status: 0 });
+    xhr.onabort = () => resolve({ ok: false, status: 0 });
+    xhr.send(form);
+  });
+}
+
+/** A project's voice notes, newest first (empty on error). */
+export async function listProjectVoiceMessages(
+  orgId: string,
+  projectId: string,
+): Promise<ProjectVoiceMessage[]> {
+  try {
+    const res = await fetch(
+      `${HTTP_BASE}/api/business/organizations/${orgId}/projects/${projectId}/voice-messages`,
+      { headers: authHeaders() },
+    );
+    if (!res.ok) return [];
+    const data = (await res.json()) as { voice_messages?: ProjectVoiceMessage[] };
+    return data.voice_messages ?? [];
+  } catch {
+    return [];
+  }
+}
+
+/** A short-lived signed playback URL for a project voice note (null on error). */
+export async function voiceMessageAudioUrl(
+  orgId: string,
+  projectId: string,
+  voiceMessageId: string,
+): Promise<string | null> {
+  try {
+    const res = await fetch(
+      `${HTTP_BASE}/api/business/organizations/${orgId}/projects/${projectId}/voice-messages/${voiceMessageId}/audio-url`,
+      { headers: authHeaders() },
+    );
+    if (!res.ok) return null;
+    return ((await res.json()) as { url?: string }).url ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /** The org/project a room is already bound to (e.g. a scheduled meeting created in
  *  the dashboard), so the pre-join UI can pre-select it instead of clobbering the
  *  project on connect. Returns null when unbound or the caller isn't a member. */
