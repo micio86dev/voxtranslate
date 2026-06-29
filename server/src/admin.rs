@@ -14,6 +14,7 @@ use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::billing::usd;
+use crate::business::credits::GiftOutcome;
 use crate::db::Pool;
 use crate::email::OutboundEmail;
 use crate::AppState;
@@ -500,6 +501,173 @@ pub async fn delete_user(
         Err(e) => {
             tracing::error!("admin delete failed: {e}");
             (StatusCode::INTERNAL_SERVER_ERROR, "delete failed").into_response()
+        }
+    }
+}
+
+/// Fallback monthly credit allotments per plan, used only when org billing isn't
+/// configured (so the gift endpoint can still default sensibly). Mirrors the
+/// `OrgBillingConfig::from_env` defaults.
+const FALLBACK_BUSINESS_MONTHLY_CREDITS: i64 = 1000;
+const FALLBACK_ENTERPRISE_MONTHLY_CREDITS: i64 = 5000;
+
+/// The plan's configured monthly credit grant (the "package amount"), falling back
+/// to the constants above when org billing is unset.
+fn plan_monthly_credits(state: &AppState, plan: &str) -> i64 {
+    let cfg = state
+        .config
+        .billing
+        .as_ref()
+        .and_then(|b| b.org_billing.as_ref());
+    match (cfg, plan) {
+        (Some(c), "enterprise") => c.enterprise_monthly_credits as i64,
+        (Some(c), _) => c.business_monthly_credits as i64,
+        (None, "enterprise") => FALLBACK_ENTERPRISE_MONTHLY_CREDITS,
+        (None, _) => FALLBACK_BUSINESS_MONTHLY_CREDITS,
+    }
+}
+
+/// Deserialize an optional integer that may arrive as a JSON number, a JSON
+/// string (Directus Flow webhook bodies render every confirmation field as a
+/// quoted template, so a numeric field becomes `"3"` — or `""` when left blank),
+/// or null. Empty / absent → `None`. This lets a single optional field in the
+/// Directus form mean "use the default" while still accepting plain JSON numbers
+/// from direct API callers.
+fn de_opt_int<'de, D>(d: D) -> Result<Option<i64>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    match Option::<serde_json::Value>::deserialize(d)? {
+        None | Some(serde_json::Value::Null) => Ok(None),
+        Some(serde_json::Value::Number(n)) => Ok(n.as_i64()),
+        Some(serde_json::Value::String(s)) => {
+            let t = s.trim();
+            if t.is_empty() {
+                Ok(None)
+            } else {
+                t.parse::<i64>().map(Some).map_err(serde::de::Error::custom)
+            }
+        }
+        Some(_) => Err(serde::de::Error::custom(
+            "expected an integer, a numeric string, or null",
+        )),
+    }
+}
+
+#[derive(Deserialize)]
+pub struct GiftSubscriptionRequest {
+    /// The B2B organization to gift the subscription to.
+    pub org_id: Uuid,
+    /// `business` or `enterprise`.
+    pub plan: String,
+    /// How many months the gifted subscription stays active. Default 1.
+    #[serde(default, deserialize_with = "de_opt_int")]
+    pub months: Option<i64>,
+    /// Org credits to grant. Omit/blank → the plan's monthly package amount × months.
+    #[serde(default, deserialize_with = "de_opt_int")]
+    pub credits: Option<i64>,
+    /// Optional admin note (recorded in the audit detail).
+    #[serde(default)]
+    pub message: Option<String>,
+    #[serde(default)]
+    pub actor: Option<String>,
+}
+
+/// `POST /api/admin/org/gift-subscription` — gift a B2B org an **active**,
+/// non-renewing Business or Enterprise subscription for `months` months (one by
+/// default) and top up its credit pool. `credits` defaults to the plan's monthly
+/// package amount times the number of months when omitted, so the common case —
+/// gift one month of Business/Enterprise with the standard credits — is a single
+/// click in Directus.
+///
+/// Org money + subscription state stay behind the server (the org Stripe webhook
+/// is the source of truth for real subscriptions): this refuses with `409` when
+/// the org already has a managed Stripe subscription, so a gift can't desync it.
+pub async fn gift_subscription(
+    State(state): State<AppState>,
+    _admin: AdminAuth,
+    Json(body): Json<GiftSubscriptionRequest>,
+) -> Response {
+    let Some(pool) = state.pool.as_ref() else {
+        return unavailable();
+    };
+    let plan = match body.plan.trim() {
+        "business" => "business",
+        "enterprise" => "enterprise",
+        _ => {
+            return (
+                StatusCode::BAD_REQUEST,
+                "plan must be business or enterprise",
+            )
+                .into_response()
+        }
+    };
+    let months = body.months.unwrap_or(1);
+    if !(1..=36).contains(&months) {
+        return (StatusCode::BAD_REQUEST, "months must be between 1 and 36").into_response();
+    }
+    let months = months as i32;
+
+    let credits = body
+        .credits
+        .unwrap_or_else(|| plan_monthly_credits(&state, plan) * months as i64);
+    if !(0..=10_000_000).contains(&credits) {
+        return (
+            StatusCode::BAD_REQUEST,
+            "credits must be between 0 and 10,000,000",
+        )
+            .into_response();
+    }
+    let credits = credits as i32;
+    let message = body
+        .message
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+
+    match crate::business::credits::gift_subscription(pool, body.org_id, plan, months, credits)
+        .await
+    {
+        Ok(GiftOutcome::Gifted {
+            credits_balance,
+            credits_granted,
+            current_period_end,
+        }) => {
+            audit(
+                pool,
+                actor(&body.actor),
+                "gift_subscription",
+                Some(&body.org_id.to_string()),
+                serde_json::json!({
+                    "plan": plan,
+                    "months": months,
+                    "credits_granted": credits_granted,
+                    "current_period_end": current_period_end,
+                    "message": message,
+                }),
+            )
+            .await;
+            Json(serde_json::json!({
+                "ok": true,
+                "plan": plan,
+                "months": months,
+                "credits_granted": credits_granted,
+                "balance": credits_balance,
+                "current_period_end": current_period_end,
+            }))
+            .into_response()
+        }
+        Ok(GiftOutcome::NotFound) => {
+            (StatusCode::NOT_FOUND, "organization not found").into_response()
+        }
+        Ok(GiftOutcome::ManagedByStripe) => (
+            StatusCode::CONFLICT,
+            "organization has a managed Stripe subscription; change the plan in Stripe",
+        )
+            .into_response(),
+        Err(e) => {
+            tracing::error!("gift_subscription failed: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "gift failed").into_response()
         }
     }
 }

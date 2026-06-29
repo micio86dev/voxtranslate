@@ -131,11 +131,27 @@ the inputs (days, reason, amount, …). Set `actor` to `{{$accountability.user}}
 | **Unban user** | `users` | `{{$env.VOX_API_URL}}/api/admin/unban` | `{ "user_id": "{{$trigger.keys[0]}}", "actor": "{{$accountability.user}}" }` |
 | **Adjust credits** | `users` | `{{$env.VOX_API_URL}}/api/admin/credit` | `{ "user_id": "{{$trigger.keys[0]}}", "amount": {{amount}}, "reason": "{{reason}}", "actor": "{{$accountability.user}}" }` |
 | **Gift bonus** | `users` | `{{$env.VOX_API_URL}}/api/admin/bonus` | `{ "user_id": "{{$trigger.keys[0]}}", "amount": {{amount}}, "message": "{{message}}", "actor": "{{$accountability.user}}" }` |
+| **Gift subscription** | `organizations` | `{{$env.VOX_API_URL}}/api/admin/org/gift-subscription` | `{ "org_id": "{{$trigger.keys[0]}}", "plan": "{{plan}}", "months": "{{months}}", "credits": "{{credits}}", "message": "{{message}}", "actor": "{{$accountability.user}}" }` |
 | **Resolve report** | `reports` | `{{$env.VOX_API_URL}}/api/admin/report/resolve` | `{ "report_id": "{{$trigger.keys[0]}}", "action": "{{action}}", "note": "{{note}}", "actor": "{{$accountability.user}}" }` |
 | **GDPR delete** | `users` | `{{$env.VOX_API_URL}}/api/admin/user/delete` | `{ "user_id": "{{$trigger.keys[0]}}", "actor": "{{$accountability.user}}" }` |
 
-`action` for Resolve report is `resolved` or `dismissed`. **Gift bonus** (issue
-#11) grants a positive USD bonus to the user and emails them a notification
+`action` for Resolve report is `resolved` or `dismissed`.
+
+**Gift subscription** runs on the **`organizations`** collection (a B2B org is the
+subscription holder — `plan`, `credits_balance` and `subscription_*` live on the
+org row, never on a user). It puts the org on an **active**, non-renewing
+**Business** or **Enterprise** plan for `months` months (default **1**) and tops
+up the org credit pool. `credits` defaults to the plan's monthly package amount ×
+months when **left blank** (Business 1000 / Enterprise 5000 per month, env-tunable
+via `ORG_CREDITS_BUSINESS_MONTHLY` / `ORG_CREDITS_ENTERPRISE_MONTHLY`), so the
+common case — "gift one month of Business with the standard credits" — is just
+*pick the plan and confirm*. The gift sets `current_period_end` so it **auto-expires**
+(no Stripe sub backs it; the server's recording gate stops unlocking when the month
+lapses), and it **refuses with `409`** when the org already has a managed Stripe
+subscription, so a gift can't desync live billing. Re-gifting *extends* the period.
+The `months`/`credits` inputs are sent quoted and parsed leniently, so blank = use
+the default. **Gift bonus** (issue #11) grants a positive USD bonus to the user and
+emails them a notification
 (best-effort — needs `RESEND_*` configured; the response's `email_sent` flag and
 the `admin_audit` detail record whether it went out). `amount` must be positive;
 `message` is an optional note shown in the email. Use **Adjust credits** instead
@@ -157,6 +173,18 @@ history.
 > # or, instead of email+password: DIRECTUS_TOKEN=<static admin token>
 > ```
 
+> **Reproducible setup for Gift subscription.** Same idea, on the `organizations`
+> collection, via `setup-gift-subscription-flow.mjs` (idempotent; repairs in place
+> if it already exists). Run `setup-backoffice.mjs` (§9) **first** so `organizations`
+> is a registered collection — the manual button only shows on a managed collection.
+>
+> ```bash
+> DIRECTUS_URL=https://<your-directus> \
+>   DIRECTUS_ADMIN_EMAIL=… DIRECTUS_ADMIN_PASSWORD=… \
+>   node directus/setup-gift-subscription-flow.mjs
+> # or, instead of email+password: DIRECTUS_TOKEN=<static admin token>
+> ```
+
 ## 9. KPI dashboards + collections in one shot (`setup-backoffice.mjs`)
 
 Rather than enabling collections and building Insights panels by hand, provision the
@@ -173,9 +201,13 @@ DIRECTUS_URL=https://<your-directus> \
 
 It does two things:
 
-1. **Data model** — registers all 22 app tables as collections, grouped into five
-   folders (**accounts · sessions · moderation · ai_features · content**) with icons,
-   colours and display templates, so the admin reads like a product, not raw SQL.
+1. **Data model** — registers the app tables as collections, grouped into six
+   folders (**accounts · business · sessions · moderation · ai_features · content**)
+   with icons, colours and display templates, so the admin reads like a product, not
+   raw SQL. The **business** folder (spec 0106) carries `organizations`,
+   `organization_members`, `organization_invites`, `projects`,
+   `organization_credits_transactions` and `audit_logs` — registering `organizations`
+   is what gives the **Gift subscription** Flow button (§7) a home.
 2. **Insights** — four dashboards of KPI panels:
    - **📊 Overview** — users (total / new 30d / banned), calls (total / live),
      translations, chat, files; new-users and calls per day.
@@ -269,5 +301,6 @@ disappears on the next load.
 ## Endpoint reference (server)
 
 Read (public): `GET /api/content/i18n`, `GET /api/content/legal/{slug}?lang=xx`.
-Admin (require `X-Admin-Secret`): `POST /api/admin/{ban,unban,credit,report/resolve,user/delete}`.
+Admin (require `X-Admin-Secret`): `POST /api/admin/{ban,unban,credit,bonus,report/resolve,user/delete}`,
+`POST /api/admin/org/gift-subscription` (gift a B2B org a Business/Enterprise month + credits).
 User location (require session JWT): `POST /api/user/location` (opt-in store), `DELETE /api/user/location` (withdraw).
