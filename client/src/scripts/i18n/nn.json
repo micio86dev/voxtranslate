@@ -79,6 +79,7 @@
   "send": "Send",
   "attachTip": "Legg ved ei fil",
   "voiceMsgTip": "Ta opp talemelding",
+  "chatVoiceDownload": "Last ned talemelding",
   "wsVoiceIntro": "Ta opp eit talenotat og legg det ved eit prosjekt. Det blir transkribert og omsett for innsiktene til teamet ditt.",
   "wsNoNotes": "Ingen talenotat i dette prosjektet enno.",
   "wsVoiceSent": "Talenotat sendt til prosjektet.",

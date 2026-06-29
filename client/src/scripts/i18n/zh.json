@@ -79,6 +79,7 @@
   "send": "发送",
   "attachTip": "附加文件",
   "voiceMsgTip": "录制语音消息",
+  "chatVoiceDownload": "下载语音消息",
   "wsVoiceIntro": "录制语音备注并附加到项目。系统会为你的团队洞察进行转写和翻译。",
   "wsNoNotes": "此项目还没有语音备注。",
   "wsVoiceSent": "语音备注已发送到项目。",

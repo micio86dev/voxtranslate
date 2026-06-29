@@ -79,6 +79,7 @@
   "send": "Enviar",
   "attachTip": "Anexar un ficheiro",
   "voiceMsgTip": "Gravar mensaxe de voz",
+  "chatVoiceDownload": "Descargar mensaxe de voz",
   "wsVoiceIntro": "Grava unha nota de voz e anéxaa a un proxecto. Transcríbese e tradúcese para os coñecementos do teu equipo.",
   "wsNoNotes": "Aínda non hai notas de voz neste proxecto.",
   "wsVoiceSent": "Nota de voz enviada ao proxecto.",

@@ -79,6 +79,7 @@
   "send": "Küldés",
   "attachTip": "Fájl csatolása",
   "voiceMsgTip": "Hangüzenet rögzítése",
+  "chatVoiceDownload": "Hangüzenet letöltése",
   "wsVoiceIntro": "Vegyen fel egy hangjegyzetet, és csatolja egy projekthez. Átírjuk és lefordítjuk a csapata elemzéseihez.",
   "wsNoNotes": "Ebben a projektben még nincsenek hangjegyzetek.",
   "wsVoiceSent": "Hangjegyzet elküldve a projektnek.",

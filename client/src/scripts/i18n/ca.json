@@ -79,6 +79,7 @@
   "send": "Envia",
   "attachTip": "Adjunta un fitxer",
   "voiceMsgTip": "Enregistra un missatge de veu",
+  "chatVoiceDownload": "Baixa el missatge de veu",
   "wsVoiceIntro": "Enregistra una nota de veu i adjunta-la a un projecte. Es transcriu i es tradueix per als coneixements del teu equip.",
   "wsNoNotes": "Encara no hi ha notes de veu en aquest projecte.",
   "wsVoiceSent": "Nota de veu enviada al projecte.",
