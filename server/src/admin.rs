@@ -527,12 +527,23 @@ fn plan_monthly_credits(state: &AppState, plan: &str) -> i64 {
     }
 }
 
+/// True for a string that means "no value" coming from a Directus Flow. A blank
+/// confirmation field is NOT rendered as an empty string — Directus substitutes
+/// the literal text `null` (and sometimes `undefined`) for an unfilled
+/// `{{$trigger.body.x}}`. Treat all of those (case-insensitively, trimmed) as
+/// absent so an empty optional field means "use the default".
+fn is_blank_token(s: &str) -> bool {
+    let t = s.trim();
+    t.is_empty() || t.eq_ignore_ascii_case("null") || t.eq_ignore_ascii_case("undefined")
+}
+
 /// Deserialize an optional integer that may arrive as a JSON number, a JSON
 /// string (Directus Flow webhook bodies render every confirmation field as a
-/// quoted template, so a numeric field becomes `"3"` — or `""` when left blank),
-/// or null. Empty / absent → `None`. This lets a single optional field in the
-/// Directus form mean "use the default" while still accepting plain JSON numbers
-/// from direct API callers.
+/// quoted template, so a numeric field becomes `"3"` — or the literal `"null"`
+/// when left blank), or JSON null. Blank / `"null"` / `"undefined"` / absent →
+/// `None`. This lets a single optional field in the Directus form mean "use the
+/// default" while still accepting plain JSON numbers from direct API callers; a
+/// genuinely non-numeric value (e.g. `"abc"`) is still a hard error.
 fn de_opt_int<'de, D>(d: D) -> Result<Option<i64>, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -541,11 +552,13 @@ where
         None | Some(serde_json::Value::Null) => Ok(None),
         Some(serde_json::Value::Number(n)) => Ok(n.as_i64()),
         Some(serde_json::Value::String(s)) => {
-            let t = s.trim();
-            if t.is_empty() {
+            if is_blank_token(&s) {
                 Ok(None)
             } else {
-                t.parse::<i64>().map(Some).map_err(serde::de::Error::custom)
+                s.trim()
+                    .parse::<i64>()
+                    .map(Some)
+                    .map_err(serde::de::Error::custom)
             }
         }
         Some(_) => Err(serde::de::Error::custom(
@@ -623,7 +636,7 @@ pub async fn gift_subscription(
         .message
         .as_deref()
         .map(str::trim)
-        .filter(|s| !s.is_empty());
+        .filter(|s| !is_blank_token(s));
 
     match crate::business::credits::gift_subscription(pool, body.org_id, plan, months, credits)
         .await
@@ -674,8 +687,28 @@ pub async fn gift_subscription(
 
 #[cfg(test)]
 mod tests {
-    use super::{bonus_email, constant_eq, html_escape};
+    use super::{bonus_email, constant_eq, html_escape, is_blank_token};
     use rust_decimal::Decimal;
+
+    #[test]
+    fn blank_token_treats_directus_empties_as_absent() {
+        // Directus renders an unfilled confirmation field as the literal "null"
+        // (or "undefined"), not an empty string — all must mean "use the default".
+        for blank in [
+            "",
+            "   ",
+            "null",
+            "NULL",
+            " null ",
+            "undefined",
+            "Undefined",
+        ] {
+            assert!(is_blank_token(blank), "{blank:?} should be blank");
+        }
+        for present in ["0", "1", "12", "abc", "null-ish"] {
+            assert!(!is_blank_token(present), "{present:?} should NOT be blank");
+        }
+    }
 
     #[test]
     fn constant_eq_matches_only_exact() {
