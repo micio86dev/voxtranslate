@@ -34,6 +34,7 @@ struct RoomRow {
     started_at: DateTime<Utc>,
     ended_at: Option<DateTime<Utc>>,
     project_id: Option<Uuid>,
+    project_name: Option<String>,
     transcript_status: String,
     has_recording: bool,
 }
@@ -45,6 +46,14 @@ pub struct HistoryQuery {
     limit: Option<i64>,
     from: Option<String>,
     to: Option<String>,
+    /// Comma-separated participant user-ids. OR filter: keep calls that included
+    /// ANY of them. Empty/garbage ⇒ no member filter.
+    member_ids: Option<String>,
+}
+
+/// Admins/owners see every org call; plain members are scoped to their own.
+fn is_org_admin(role: &str) -> bool {
+    matches!(role, "admin" | "owner")
 }
 
 /// `PATCH /api/rooms/{room}/business` — bind a room to an org/project + recording
@@ -158,8 +167,8 @@ pub async fn list_org_rooms(
     Query(q): Query<HistoryQuery>,
 ) -> Result<Response, Response> {
     let pool = require_pool(&state)?;
-    require_role(pool, org_id, user.user_id, MEMBER).await?;
-    history(pool, org_id, &q).await
+    let role = require_role(pool, org_id, user.user_id, MEMBER).await?;
+    history(pool, org_id, user.user_id, is_org_admin(&role), &q).await
 }
 
 /// `GET /api/business/organizations/{org_id}/projects/{project_id}/rooms` (member).
@@ -170,14 +179,16 @@ pub async fn list_project_rooms(
     Query(mut q): Query<HistoryQuery>,
 ) -> Result<Response, Response> {
     let pool = require_pool(&state)?;
-    require_role(pool, org_id, user.user_id, MEMBER).await?;
+    let role = require_role(pool, org_id, user.user_id, MEMBER).await?;
     q.project_id = Some(project_id);
-    history(pool, org_id, &q).await
+    history(pool, org_id, user.user_id, is_org_admin(&role), &q).await
 }
 
 async fn history(
     pool: &crate::db::Pool,
     org_id: Uuid,
+    viewer_id: Uuid,
+    is_admin: bool,
     q: &HistoryQuery,
 ) -> Result<Response, Response> {
     let limit = q.limit.unwrap_or(20).clamp(1, 100);
@@ -185,16 +196,36 @@ async fn history(
     let offset = (page - 1) * limit;
     let from = parse_ts(&q.from)?;
     let to = parse_ts(&q.to)?;
+    // Comma-separated participant ids → OR filter; drop unparseable/empty ⇒ no filter.
+    let member_ids: Option<Vec<Uuid>> = q
+        .member_ids
+        .as_deref()
+        .map(|s| {
+            s.split(',')
+                .filter_map(|x| Uuid::parse_str(x.trim()).ok())
+                .collect::<Vec<Uuid>>()
+        })
+        .filter(|v| !v.is_empty());
 
     let rows: Vec<RoomRow> = sqlx::query_as(
-        "SELECT id, room, started_at, ended_at, project_id, transcript_status,
-                (recording_storage_path IS NOT NULL) AS has_recording
-         FROM call_sessions
-         WHERE org_id = $1 AND kind = 'call'
-           AND ($2::uuid IS NULL OR project_id = $2)
-           AND ($3::timestamptz IS NULL OR started_at >= $3)
-           AND ($4::timestamptz IS NULL OR started_at <= $4)
-         ORDER BY started_at DESC
+        "SELECT cs.id, cs.room, cs.started_at, cs.ended_at, cs.project_id,
+                p.name AS project_name, cs.transcript_status,
+                (cs.recording_storage_path IS NOT NULL) AS has_recording
+         FROM call_sessions cs
+         LEFT JOIN projects p ON p.id = cs.project_id
+         WHERE cs.org_id = $1 AND cs.kind = 'call'
+           AND ($2::uuid IS NULL OR cs.project_id = $2)
+           AND ($3::timestamptz IS NULL OR cs.started_at >= $3)
+           AND ($4::timestamptz IS NULL OR cs.started_at <= $4)
+           -- Non-admins only see calls they participated in.
+           AND ($7 OR EXISTS (
+                 SELECT 1 FROM session_participants sp
+                 WHERE sp.session_id = cs.id AND sp.user_id = $8))
+           -- Optional participant filter (any of the selected members).
+           AND ($9::uuid[] IS NULL OR EXISTS (
+                 SELECT 1 FROM session_participants spm
+                 WHERE spm.session_id = cs.id AND spm.user_id = ANY($9)))
+         ORDER BY cs.started_at DESC
          LIMIT $5 OFFSET $6",
     )
     .bind(org_id)
@@ -203,6 +234,9 @@ async fn history(
     .bind(to)
     .bind(limit)
     .bind(offset)
+    .bind(is_admin)
+    .bind(viewer_id)
+    .bind(member_ids.as_deref())
     .fetch_all(pool)
     .await
     .map_err(db_err)?;
