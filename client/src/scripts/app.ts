@@ -49,7 +49,7 @@ import { pcmPlayback } from './pcm-playback';
 import type { MicMeter } from './mic-meter';
 import type { ChatManager, ChatPayload } from './chat';
 import { CHAT_MAX_HEIGHT, counterLabel, counterState, insertAt, resizeBox } from './chat-input';
-import { checkUploadFile, cloneVoice, fetchAiPricing, fetchEnhancedSession, fileUploadEnabled, generateAiQuiz, saveQuizHistory, sendInvites, uploadChatFile } from './api';
+import { checkUploadFile, cloneVoice, fetchAiPricing, fetchEnhancedSession, fileUploadEnabled, generateAiQuiz, saveQuizHistory, sendInvites, UPLOAD_ACCEPT, uploadChatFile } from './api';
 import { buildInviteLink, MAX_INVITE_EMAILS, parseRoomParam, validateInviteEmails } from './invite';
 import {
   acceptFriend,
@@ -3855,6 +3855,9 @@ void fileUploadEnabled().then((on) => {
   if (on) chatAttach.hidden = false;
 });
 
+// Single source of truth for the picker filter (extensions + MIME types), so the
+// mobile file picker doesn't grey out documents (see UPLOAD_ACCEPT).
+chatFileInput.accept = UPLOAD_ACCEPT;
 chatAttach.addEventListener('click', () => chatFileInput.click());
 chatFileInput.addEventListener('change', () => {
   const file = chatFileInput.files?.[0];
