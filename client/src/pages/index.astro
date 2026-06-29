@@ -668,7 +668,9 @@ const jsonLd = {
             </div>
             <!-- Attach a file (spec 0018): hidden until the backend reports storage on. -->
             <button id="chat-attach" class="btn-ghost icon-btn attach-btn" hidden data-i18n-title="attachTip" title={T('attachTip')} aria-label="Attach"></button>
-            <input id="chat-file-input" type="file" hidden accept=".txt,.md,.csv,.log,.pdf,.docx,.doc,.odt,.rtf,.xlsx,.pptx" />
+            <!-- `accept` is set from UPLOAD_ACCEPT in app.ts (extensions + MIME types) so
+                 the mobile picker doesn't grey out documents. -->
+            <input id="chat-file-input" type="file" hidden />
             <button id="chat-send" class="btn-primary send-btn" data-i18n-title="send" title={T('send')} aria-label={T('send')}></button>
           </div>
         </div>
@@ -2310,6 +2312,21 @@ const jsonLd = {
       display: flex; gap: 6px; justify-content: space-between;
       border-bottom: 1px solid var(--border); padding-bottom: 8px; margin-bottom: 8px;
     }
+    /* On the mobile bottom-sheet (chat docks at the screen bottom, ≤768px) the emoji
+       button lives in the action bar BELOW the textarea, so opening the panel upward
+       from it covered the input. Anchor the panel to the whole composer row instead so
+       it floats as a full-width tray ABOVE the input — over the conversation, never the
+       field you're typing in (the standard messaging pattern). */
+    @media (max-width: 768px) {
+      .chat-input-row { position: relative; }
+      .emoji-picker-wrap { position: static; }
+      .emoji-panel {
+        inset-inline: 12px; bottom: calc(100% + 8px); width: auto;
+        max-height: min(48vh, 340px); overflow-y: auto; -webkit-overflow-scrolling: touch;
+      }
+      /* Fill the wider tray rather than leaving six columns adrift. */
+      .emoji-grid { grid-template-columns: repeat(auto-fill, minmax(40px, 1fr)); }
+    }
 
     /* ---------- Pinned / Focus layout ---------- */
     .video-grid[data-mode="focus"] :global(.video-cell) { display: none; }
@@ -2549,6 +2566,15 @@ const jsonLd = {
     .minigame :global(.mg-cell:not(:disabled):hover) { border-color: var(--accent); }
     .minigame :global(.mg-cell:disabled) { cursor: default; }
     .mg-action { min-height: 40px; }
+    /* The end-of-quiz recap (R4.4) can run long and the card scrolls; pin the
+       action ("New quiz" / "Next" / "Reveal") to the bottom of the scroll area so
+       it stays reachable on mobile without scrolling past every question. Mirrors
+       the sticky .mg-head. The ::before bleeds a solid backdrop to the card edges
+       so recap rows scroll cleanly behind it instead of peeking through. */
+    .quiz .mg-action { position: sticky; bottom: 0; z-index: 1; }
+    .quiz .mg-action::before {
+      content: ''; position: absolute; inset: -10px -12px -12px; z-index: -1; background: #13141c;
+    }
 
     /* ---- Trivia quiz (spec 0047) — reuses the .minigame card ---- */
     .quiz { width: 320px; left: 50%; transform: translateX(-50%); }
