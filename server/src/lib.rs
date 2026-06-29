@@ -626,6 +626,10 @@ pub fn app(state: AppState) -> Router {
         .route("/api/admin/unban", post(admin::unban))
         .route("/api/admin/credit", post(admin::credit))
         .route("/api/admin/bonus", post(admin::bonus))
+        .route(
+            "/api/admin/org/gift-subscription",
+            post(admin::gift_subscription),
+        )
         .route("/api/admin/report/resolve", post(admin::resolve_report))
         .route("/api/admin/user/delete", post(admin::delete_user))
         // Internal benchmark endpoint (spec 0107) — guarded by `BENCH_SECRET`
