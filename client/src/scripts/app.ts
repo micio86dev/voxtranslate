@@ -48,8 +48,8 @@ import type { PcmCapture } from './pcm-capture';
 import { pcmPlayback } from './pcm-playback';
 import type { MicMeter } from './mic-meter';
 import type { ChatManager, ChatPayload } from './chat';
-import { CHAT_MAX_HEIGHT, counterLabel, counterState, insertAt, resizeBox } from './chat-input';
-import { checkUploadFile, cloneVoice, fetchAiPricing, fetchEnhancedSession, fileUploadEnabled, generateAiQuiz, saveQuizHistory, sendInvites, uploadChatFile } from './api';
+import { CHAT_MAX_HEIGHT, counterLabel, counterState, insertAt, recTimeLabel, resizeBox } from './chat-input';
+import { checkUploadFile, cloneVoice, fetchAiPricing, fetchEnhancedSession, fileUploadEnabled, generateAiQuiz, saveQuizHistory, sendInvites, UPLOAD_ACCEPT, UPLOAD_MAX_BYTES, uploadChatFile } from './api';
 import { buildInviteLink, MAX_INVITE_EMAILS, parseRoomParam, validateInviteEmails } from './invite';
 import {
   acceptFriend,
@@ -271,6 +271,11 @@ const chatDrop = $('chat-drop');
 const chatUpload = $('chat-upload');
 const chatUploadFill = $('chat-upload-fill');
 const chatUploadLabel = $('chat-upload-label');
+// Voice messages: record a clip → upload via the same /files endpoint → server
+// transcribes (Deepgram) + translates → renders as an audio attachment + transcript.
+const chatRecord = $('chat-record');
+const chatInputRow = $('chat-input-row');
+const chatRecTime = $('chat-rec-time');
 const btnMic = $('btn-mic');
 const btnCam = $('btn-cam');
 const btnBg = $('btn-bg');
@@ -3851,10 +3856,17 @@ fitChatInput(); // size correctly on first paint
 // ---- Chat file upload (spec 0018) ------------------------------------------
 // The attach button + drag-and-drop appear only when the backend has Supabase
 // Storage configured (probed once at startup; the chat panel is in-call only).
+// Voice messages ride the same /files pipeline, so reveal the mic alongside attach.
 void fileUploadEnabled().then((on) => {
-  if (on) chatAttach.hidden = false;
+  if (on) {
+    chatAttach.hidden = false;
+    chatRecord.hidden = false;
+  }
 });
 
+// Single source of truth for the picker filter (extensions + MIME types), so the
+// mobile file picker doesn't grey out documents (see UPLOAD_ACCEPT).
+chatFileInput.accept = UPLOAD_ACCEPT;
 chatAttach.addEventListener('click', () => chatFileInput.click());
 chatFileInput.addEventListener('change', () => {
   const file = chatFileInput.files?.[0];
@@ -3916,6 +3928,115 @@ async function handleFileUpload(file: File): Promise<void> {
     );
   }
 }
+
+// ---- Voice messages --------------------------------------------------------
+// Tap the mic to record (a fresh getUserMedia stream, independent of the call
+// mic so a muted mic still records), then stop & send or discard from the bar.
+// The clip uploads through the same /files endpoint; the server transcribes it
+// (Deepgram batch) and translates the transcript like any chat message.
+let voiceRecorder: MediaRecorder | null = null;
+let voiceChunks: BlobPart[] = [];
+let voiceStream: MediaStream | null = null;
+let voiceTimer: number | null = null;
+let voiceStartMs = 0;
+let voiceShouldSend = false;
+/** Hard cap on a voice message; well within the 5 MB upload ceiling. */
+const VOICE_MAX_MS = 60_000;
+
+async function startVoiceRecording(): Promise<void> {
+  if (voiceRecorder || chatRecord.hidden || !session) return; // recording / storage off
+  let stream: MediaStream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch {
+    showNotif(t('camMicDenied'));
+    return;
+  }
+  const mime = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'].find((ty) =>
+    MediaRecorder.isTypeSupported?.(ty),
+  );
+  voiceChunks = [];
+  voiceShouldSend = false;
+  try {
+    voiceRecorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+  } catch {
+    stream.getTracks().forEach((tr) => tr.stop());
+    showNotif(t('uploadFailed'));
+    return;
+  }
+  voiceStream = stream;
+  voiceRecorder.ondataavailable = (e) => {
+    if (e.data.size) voiceChunks.push(e.data);
+  };
+  voiceRecorder.onstop = finalizeVoiceRecording;
+  voiceRecorder.start();
+  voiceStartMs = Date.now();
+  chatRecTime.textContent = '0:00';
+  chatInputRow.classList.add('recording');
+  voiceTimer = window.setInterval(() => {
+    const elapsed = Date.now() - voiceStartMs;
+    chatRecTime.textContent = recTimeLabel(elapsed);
+    if (elapsed >= VOICE_MAX_MS) stopVoiceRecording(true); // auto-send at the cap
+  }, 200);
+}
+
+/** Stop recording; `send` decides whether the clip is uploaded or discarded.
+ *  The actual blob assembly + send happens in `finalizeVoiceRecording` (onstop). */
+function stopVoiceRecording(send: boolean): void {
+  if (!voiceRecorder) return;
+  voiceShouldSend = send;
+  if (voiceTimer !== null) {
+    clearInterval(voiceTimer);
+    voiceTimer = null;
+  }
+  if (voiceRecorder.state !== 'inactive') voiceRecorder.stop();
+}
+
+function finalizeVoiceRecording(): void {
+  const chunks = voiceChunks;
+  const type = voiceRecorder?.mimeType || 'audio/webm';
+  voiceRecorder = null;
+  voiceChunks = [];
+  if (voiceStream) {
+    voiceStream.getTracks().forEach((tr) => tr.stop());
+    voiceStream = null;
+  }
+  chatInputRow.classList.remove('recording');
+  if (!voiceShouldSend || !chunks.length) return;
+  void sendVoiceMessage(new Blob(chunks, { type }));
+}
+
+async function sendVoiceMessage(blob: Blob): Promise<void> {
+  if (chatRecord.hidden || !session) return;
+  // Name the file by container so the server derives the right audio MIME + ext.
+  const ext = /mp4|m4a|aac/.test(blob.type) ? 'm4a' : /ogg/.test(blob.type) ? 'ogg' : 'webm';
+  const file = new File([blob], `voice-message.${ext}`, { type: blob.type || `audio/${ext}` });
+  if (file.size === 0 || file.size > UPLOAD_MAX_BYTES) {
+    showNotif(t('uploadFailed'));
+    return;
+  }
+  // Reuse the upload-progress UI; the transcribed + translated message arrives over WS.
+  chatUpload.classList.remove('hidden');
+  chatUploadFill.style.width = '0%';
+  chatUploadLabel.textContent = t('uploading');
+  const res = await uploadChatFile(session.room, myId, file, (frac) => {
+    chatUploadFill.style.width = `${Math.round(frac * 100)}%`;
+  });
+  chatUpload.classList.add('hidden');
+  if (!res.ok) {
+    showNotif(t('uploadFailed'));
+  } else if (res.translateBlocked) {
+    showNotif(
+      res.translateBlocked === 'signin'
+        ? t('uploadNotTranslatedSignin')
+        : t('uploadNotTranslatedCredits'),
+    );
+  }
+}
+
+chatRecord.addEventListener('click', () => void startVoiceRecording());
+$('chat-rec-send').addEventListener('click', () => stopVoiceRecording(true));
+$('chat-rec-cancel').addEventListener('click', () => stopVoiceRecording(false));
 
 $('btn-leave').addEventListener('click', leaveCall);
 function leaveCall(): void {
@@ -3986,6 +4107,7 @@ function leaveCall(): void {
   mesh = null;
   audioCapture = null;
   chat = null;
+  if (voiceRecorder) stopVoiceRecording(false); // drop any in-progress voice message
   remoteStreams.clear();
   chatPanel.classList.remove('open');
   participantsPanel.classList.remove('open');
@@ -5469,6 +5591,9 @@ $('dice').innerHTML = icon('shuffle', 18);
 $('chat-close').innerHTML = icon('close', 16);
 $('chat-send').innerHTML = icon('send', 20);
 chatAttach.innerHTML = icon('paperclip', 20);
+chatRecord.innerHTML = icon('mic', 20);
+$('chat-rec-send').innerHTML = icon('send', 20);
+$('chat-rec-cancel').innerHTML = icon('trash', 18);
 $('buy-close').innerHTML = icon('close', 16);
 $('sm-cancel-btn').innerHTML = icon('close', 16);
 $('report-close').innerHTML = icon('close', 16);

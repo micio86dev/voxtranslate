@@ -78,6 +78,7 @@
   "chatPlaceholder": "พิมพ์ข้อความ…",
   "send": "ส่ง",
   "attachTip": "แนบไฟล์",
+  "voiceMsgTip": "อัดข้อความเสียง",
   "uploading": "กำลังอัปโหลด…",
   "uploadFailed": "อัปโหลดไม่สำเร็จ",
   "uploadNotTranslatedSignin": "แชร์ไฟล์แล้ว — ลงชื่อเข้าใช้เพื่อแปลเอกสาร",

@@ -78,6 +78,7 @@
   "chatPlaceholder": "Scrieți un mesaj…",
   "send": "Trimite",
   "attachTip": "Atașează un fișier",
+  "voiceMsgTip": "Înregistrează un mesaj vocal",
   "uploading": "Se încarcă…",
   "uploadFailed": "Încărcarea a eșuat",
   "uploadNotTranslatedSignin": "Fișier partajat — conectați-vă pentru a traduce documentul.",

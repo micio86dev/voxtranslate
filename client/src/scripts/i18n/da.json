@@ -78,6 +78,7 @@
   "chatPlaceholder": "Skriv en besked…",
   "send": "Send",
   "attachTip": "Vedhæft en fil",
+  "voiceMsgTip": "Optag talebesked",
   "uploading": "Uploader…",
   "uploadFailed": "Upload mislykkedes",
   "uploadNotTranslatedSignin": "Fil delt — log ind for at oversætte dokumentet.",

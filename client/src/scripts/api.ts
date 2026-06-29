@@ -292,8 +292,24 @@ export const UPLOAD_EXTS = [
   'txt', 'md', 'csv', 'log', 'pdf', 'docx', 'doc', 'odt', 'rtf', 'xlsx', 'pptx',
 ] as const;
 
-/** The `accept` attribute value for the file picker (documents only). */
-export const UPLOAD_ACCEPT = UPLOAD_EXTS.map((e) => `.${e}`).join(',');
+/** The `accept` attribute value for the file picker (documents only). Pairs every
+ *  extension with its MIME type: bare extensions alone make mobile file pickers
+ *  (iOS especially) grey out documents so nothing is selectable, so we add the MIME
+ *  types mobile keys off while keeping the extensions desktop prefers. Selection is
+ *  still validated by extension in `checkUploadFile`, so a broader picker is safe. */
+export const UPLOAD_ACCEPT = [
+  ...UPLOAD_EXTS.map((e) => `.${e}`),
+  'text/plain', // txt, log
+  'text/markdown', // md
+  'text/csv', // csv
+  'application/pdf', // pdf
+  'application/msword', // doc
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // docx
+  'application/vnd.oasis.opendocument.text', // odt
+  'application/rtf', // rtf
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // xlsx
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation', // pptx
+].join(',');
 
 /** Client-side size cap, 5 MB (must stay ≤ the server's `SUPABASE_MAX_UPLOAD_BYTES`). */
 export const UPLOAD_MAX_BYTES = 5 * 1024 * 1024;

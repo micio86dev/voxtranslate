@@ -78,6 +78,7 @@
   "chatPlaceholder": "메시지를 입력하세요…",
   "send": "보내기",
   "attachTip": "파일 첨부",
+  "voiceMsgTip": "음성 메시지 녹음",
   "uploading": "업로드 중…",
   "uploadFailed": "업로드 실패",
   "uploadNotTranslatedSignin": "파일을 공유했습니다 — 문서를 번역하려면 로그인하세요.",

@@ -42,6 +42,14 @@ export function resizeBox(
   return { height: maxPx, overflowY: 'auto' };
 }
 
+/** Format an elapsed recording duration (milliseconds) as `m:ss` for the voice-
+ *  message timer, e.g. 0 → "0:00", 5_000 → "0:05", 65_000 → "1:05". Negative
+ *  inputs clamp to zero. */
+export function recTimeLabel(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
+}
+
 /** Result of inserting `emoji` into `value` over the [start,end) selection,
  *  hard-capped at `max`. Returns null (no change) if it would exceed the cap. */
 export function insertAt(

@@ -78,6 +78,7 @@
   "chatPlaceholder": "Typ een bericht…",
   "send": "Verzenden",
   "attachTip": "Bestand bijvoegen",
+  "voiceMsgTip": "Spraakbericht opnemen",
   "uploading": "Uploaden…",
   "uploadFailed": "Uploaden mislukt",
   "uploadNotTranslatedSignin": "Bestand gedeeld — log in om het document te vertalen.",

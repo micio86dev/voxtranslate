@@ -654,7 +654,7 @@ const jsonLd = {
         <!-- Two-row composer (spec 0084): the textarea spans the full panel width
              so there's room to write, with a slim action bar beneath it. Same
              structure on the desktop side panel and the mobile bottom sheet. -->
-        <div class="chat-input-row">
+        <div class="chat-input-row" id="chat-input-row">
           <textarea id="chat-input" rows="1" maxlength="500" autocomplete="off" data-i18n-ph="chatPlaceholder" placeholder={T('chatPlaceholder')}></textarea>
           <div class="chat-input-actions">
             <div class="emoji-picker-wrap">
@@ -668,8 +668,21 @@ const jsonLd = {
             </div>
             <!-- Attach a file (spec 0018): hidden until the backend reports storage on. -->
             <button id="chat-attach" class="btn-ghost icon-btn attach-btn" hidden data-i18n-title="attachTip" title={T('attachTip')} aria-label="Attach"></button>
-            <input id="chat-file-input" type="file" hidden accept=".txt,.md,.csv,.log,.pdf,.docx,.doc,.odt,.rtf,.xlsx,.pptx" />
+            <!-- `accept` is set from UPLOAD_ACCEPT in app.ts (extensions + MIME types) so
+                 the mobile picker doesn't grey out documents. -->
+            <input id="chat-file-input" type="file" hidden />
+            <!-- Record a voice message: tap to start, then stop & send or discard from the
+                 recording bar below. Hidden until storage is on (it rides the /files upload). -->
+            <button id="chat-record" class="btn-ghost icon-btn record-btn" hidden data-i18n-title="voiceMsgTip" title={T('voiceMsgTip')} aria-label={T('voiceMsgTip')}></button>
             <button id="chat-send" class="btn-primary send-btn" data-i18n-title="send" title={T('send')} aria-label={T('send')}></button>
+          </div>
+          <!-- Voice-message recording bar: replaces the composer while recording. -->
+          <div id="chat-recording" class="chat-recording" data-i18n-label="recording" aria-label={T('recording')}>
+            <button id="chat-rec-cancel" class="btn-ghost icon-btn rec-cancel" data-i18n-title="cancel" title={T('cancel')} aria-label={T('cancel')}></button>
+            <span class="rec-dot" aria-hidden="true"></span>
+            <span id="chat-rec-time" class="rec-time">0:00</span>
+            <span class="rec-wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
+            <button id="chat-rec-send" class="btn-primary rec-send" data-i18n-title="send" title={T('send')} aria-label={T('send')}></button>
           </div>
         </div>
         <!-- Character counter (spec 0070): bottom-right, appears as you near the cap. -->
@@ -1882,6 +1895,18 @@ const jsonLd = {
     /* File attachment chip + inline audio player (spec 0018). JS-created → :global(). */
     .chat-messages :global(.chat-attachment) { display: flex; flex-direction: column; gap: 6px; margin: 4px 0; }
     .chat-messages :global(.chat-audio) { width: 100%; max-width: 260px; height: 36px; }
+    /* Voice message (spec: voice chat): the audio player + a tap-to-cycle playback
+       speed pill (1× → 1.5× → 2×). No file chip — the transcript is the message text. */
+    .chat-messages :global(.chat-audio-player) { display: flex; align-items: center; gap: 8px; }
+    .chat-messages :global(.chat-audio-player .chat-audio) { flex: 1; min-width: 0; }
+    .chat-messages :global(.chat-audio-speed) {
+      flex: none; height: 28px; min-width: 40px; padding: 0 9px; border-radius: 999px;
+      background: var(--surface-2); border: 1px solid var(--border); color: var(--text);
+      font-size: 0.74rem; font-weight: 700; font-variant-numeric: tabular-nums; cursor: pointer;
+      touch-action: manipulation; transition: border-color 0.12s, background 0.12s;
+    }
+    .chat-messages :global(.chat-audio-speed:hover) { border-color: var(--accent); }
+    .chat-messages :global(.chat-audio-speed:active) { background: var(--accent-dim); }
     .chat-messages :global(.chat-file-chip) { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--border); color: var(--text); text-decoration: none; }
     .chat-messages :global(.chat-file-chip:hover) { border-color: var(--accent-dim); }
     .chat-messages :global(.chat-file-meta) { display: flex; flex-direction: column; min-width: 0; }
@@ -1896,6 +1921,27 @@ const jsonLd = {
     /* Equal-height, equal-width icon buttons so emoji + attach are true peers (spec 0070). */
     .chat-input-row .icon-btn { flex: none; min-width: 44px; min-height: 44px; padding: 0; }
     .chat-input-row .btn-primary { width: auto; min-height: 44px; padding: 0 16px; }
+    /* Voice-message recording bar: while recording, it replaces the textarea +
+       action bar in the same composer slot (toggled by .recording on the row). */
+    .chat-recording { display: none; align-items: center; gap: 10px; }
+    .chat-input-row.recording > #chat-input,
+    .chat-input-row.recording > .chat-input-actions { display: none; }
+    .chat-input-row.recording > .chat-recording { display: flex; }
+    .rec-dot { flex: none; width: 10px; height: 10px; border-radius: 50%; background: var(--danger); animation: rec-pulse 1.3s ease-in-out infinite; }
+    .rec-time { font-variant-numeric: tabular-nums; font-size: 0.9rem; font-weight: 600; color: var(--text); min-width: 40px; }
+    .rec-wave { flex: 1; display: flex; align-items: center; justify-content: center; gap: 3px; height: 28px; }
+    .rec-wave i { width: 3px; height: 30%; border-radius: 2px; background: var(--accent); animation: rec-wave 0.9s ease-in-out infinite; }
+    .rec-wave i:nth-child(2) { animation-delay: 0.12s; }
+    .rec-wave i:nth-child(3) { animation-delay: 0.24s; }
+    .rec-wave i:nth-child(4) { animation-delay: 0.36s; }
+    .rec-wave i:nth-child(5) { animation-delay: 0.48s; }
+    .rec-send { margin-inline-start: auto; }
+    @keyframes rec-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.2; } }
+    @keyframes rec-wave { 0%, 100% { height: 25%; } 50% { height: 95%; } }
+    @media (prefers-reduced-motion: reduce) {
+      .rec-dot, .rec-wave i { animation: none; }
+      .rec-wave i { height: 55%; }
+    }
     /* Auto-resizing chat textarea (spec 0070): grows with content up to a cap,
        then scrolls. Enter sends, Shift+Enter inserts a newline (see app.ts). */
     #chat-input {
@@ -2310,6 +2356,21 @@ const jsonLd = {
       display: flex; gap: 6px; justify-content: space-between;
       border-bottom: 1px solid var(--border); padding-bottom: 8px; margin-bottom: 8px;
     }
+    /* On the mobile bottom-sheet (chat docks at the screen bottom, ≤768px) the emoji
+       button lives in the action bar BELOW the textarea, so opening the panel upward
+       from it covered the input. Anchor the panel to the whole composer row instead so
+       it floats as a full-width tray ABOVE the input — over the conversation, never the
+       field you're typing in (the standard messaging pattern). */
+    @media (max-width: 768px) {
+      .chat-input-row { position: relative; }
+      .emoji-picker-wrap { position: static; }
+      .emoji-panel {
+        inset-inline: 12px; bottom: calc(100% + 8px); width: auto;
+        max-height: min(48vh, 340px); overflow-y: auto; -webkit-overflow-scrolling: touch;
+      }
+      /* Fill the wider tray rather than leaving six columns adrift. */
+      .emoji-grid { grid-template-columns: repeat(auto-fill, minmax(40px, 1fr)); }
+    }
 
     /* ---------- Pinned / Focus layout ---------- */
     .video-grid[data-mode="focus"] :global(.video-cell) { display: none; }
@@ -2549,6 +2610,15 @@ const jsonLd = {
     .minigame :global(.mg-cell:not(:disabled):hover) { border-color: var(--accent); }
     .minigame :global(.mg-cell:disabled) { cursor: default; }
     .mg-action { min-height: 40px; }
+    /* The end-of-quiz recap (R4.4) can run long and the card scrolls; pin the
+       action ("New quiz" / "Next" / "Reveal") to the bottom of the scroll area so
+       it stays reachable on mobile without scrolling past every question. Mirrors
+       the sticky .mg-head. The ::before bleeds a solid backdrop to the card edges
+       so recap rows scroll cleanly behind it instead of peeking through. */
+    .quiz .mg-action { position: sticky; bottom: 0; z-index: 1; }
+    .quiz .mg-action::before {
+      content: ''; position: absolute; inset: -10px -12px -12px; z-index: -1; background: #13141c;
+    }
 
     /* ---- Trivia quiz (spec 0047) — reuses the .minigame card ---- */
     .quiz { width: 320px; left: 50%; transform: translateX(-50%); }
