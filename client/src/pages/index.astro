@@ -783,6 +783,8 @@ const jsonLd = {
             <button class="acct-tab" type="button" role="tab" aria-selected="false" data-acct-section="friends" aria-controls="acct-friends"><span class="acct-tab-ico" data-ico="users" aria-hidden="true"></span><span class="acct-tab-label" data-i18n="friendsTitle">{T('friendsTitle')}</span><span id="friends-tab-badge" class="chat-badge acct-item-badge hidden">0</span></button>
             <button class="acct-tab" type="button" role="tab" aria-selected="false" data-acct-section="notifications" aria-controls="acct-notifications"><span class="acct-tab-ico" data-ico="bell" aria-hidden="true"></span><span class="acct-tab-label" data-i18n="notifTitle">{T('notifTitle')}</span></button>
             <button class="acct-tab" type="button" role="tab" aria-selected="false" data-acct-section="privacy" aria-controls="acct-privacy"><span class="acct-tab-ico" data-ico="shield" aria-hidden="true"></span><span class="acct-tab-label" data-i18n="privacyData">{T('privacyData')}</span></button>
+            <!-- Workspace voice notes (Business/Enterprise): hidden until an active-sub org is found. -->
+            <button id="acct-tab-workspace" class="acct-tab hidden" type="button" role="tab" aria-selected="false" data-acct-section="workspace" aria-controls="acct-workspace"><span class="acct-tab-ico" data-ico="grid" aria-hidden="true"></span><span class="acct-tab-label" data-i18n="workspace">{T('workspace')}</span></button>
           </nav>
 
           <div class="account-content">
@@ -857,6 +859,39 @@ const jsonLd = {
                 <a href="/privacy" target="_blank" data-i18n="privacy">{T('privacy')}</a> ·
                 <a href="/acceptable-use" target="_blank" data-i18n="acceptableUse">{T('acceptableUse')}</a>
               </div>
+            </section>
+
+            <!-- Workspace: record a voice note onto a project (Business/Enterprise). The
+                 note is transcribed + translated and lands in the project's insights data. -->
+            <section id="acct-workspace" class="acct-section hidden" role="tabpanel" data-section="workspace" data-i18n-label="workspace" aria-label={T('workspace')}>
+              <p class="profile-section-hint" data-i18n="wsVoiceIntro">{T('wsVoiceIntro')}</p>
+              <div class="ws-pickers">
+                <label class="ws-field" id="ws-org-field">
+                  <span class="ws-field-label" data-i18n="bizOrg">{T('bizOrg')}</span>
+                  <select id="ws-org" class="ws-select"></select>
+                </label>
+                <label class="ws-field">
+                  <span class="ws-field-label" data-i18n="bizProject">{T('bizProject')}</span>
+                  <select id="ws-project" class="ws-select"></select>
+                </label>
+              </div>
+              <!-- Recorder: idle record button, then a recording bar (reuses the chat rec-* styles). -->
+              <div id="ws-recorder" class="ws-recorder">
+                <button id="ws-record" class="btn-primary ws-record-btn" data-i18n="voiceMsgTip" disabled>{T('voiceMsgTip')}</button>
+                <div id="ws-recording" class="ws-recording hidden">
+                  <button id="ws-rec-cancel" class="btn-ghost icon-btn rec-cancel" data-i18n-title="cancel" title={T('cancel')} aria-label={T('cancel')}></button>
+                  <span class="rec-dot" aria-hidden="true"></span>
+                  <span id="ws-rec-time" class="rec-time">0:00</span>
+                  <span class="rec-wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
+                  <button id="ws-rec-send" class="btn-primary rec-send" data-i18n-title="send" title={T('send')} aria-label={T('send')}></button>
+                </div>
+              </div>
+              <div id="ws-upload" class="chat-upload hidden">
+                <span id="ws-upload-label" class="chat-upload-label"></span>
+                <div class="chat-upload-bar"><div id="ws-upload-fill" class="chat-upload-fill"></div></div>
+              </div>
+              <p id="ws-status" class="status-line" role="status"></p>
+              <div id="ws-notes" class="ws-notes"></div>
             </section>
           </div>
         </div>
@@ -2139,6 +2174,26 @@ const jsonLd = {
     .acct-tab-label { flex: 1 1 auto; }
     .account-content { min-width: 0; }
     .acct-section { display: flex; flex-direction: column; gap: 14px; }
+    /* Workspace voice notes (Business). The recording bar reuses the chat rec-* styles. */
+    .ws-pickers { display: flex; flex-wrap: wrap; gap: 12px; }
+    .ws-field { display: flex; flex-direction: column; gap: 4px; flex: 1 1 180px; min-width: 0; }
+    .ws-field-label { font-size: 0.78rem; font-weight: 600; color: var(--muted); }
+    .ws-record-btn { width: auto; align-self: flex-start; padding: 0 18px; min-height: 44px; }
+    .ws-recording {
+      display: flex; align-items: center; gap: 10px; padding: 8px 12px;
+      border: 1px solid var(--border); border-radius: 12px; background: var(--surface);
+    }
+    .ws-notes { display: flex; flex-direction: column; gap: 10px; }
+    .ws-notes :global(.ws-note) {
+      border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; background: var(--surface);
+    }
+    .ws-notes :global(.ws-note-head) {
+      display: flex; justify-content: space-between; gap: 10px; font-size: 0.78rem; color: var(--muted); margin-bottom: 6px;
+    }
+    .ws-notes :global(.ws-note-transcript) { font-size: 0.9rem; color: var(--text); line-height: 1.4; white-space: pre-wrap; }
+    .ws-notes :global(.ws-note-orig) { display: block; font-size: 0.78rem; color: var(--muted); margin-top: 3px; }
+    .ws-notes :global(.ws-note audio) { width: 100%; max-width: 320px; height: 36px; margin-top: 8px; }
+    .ws-notes :global(.ws-note-empty) { color: var(--muted); font-size: 0.88rem; }
 
     /* Billing section: balance + a quick path back to checkout, above the history tabs. */
     .billing-balance-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; }

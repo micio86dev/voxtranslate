@@ -67,9 +67,13 @@ import {
   DASHBOARD_URL,
   getRoomBinding,
   listMyOrgs,
+  listProjectVoiceMessages,
   listProjects,
+  uploadProjectVoiceMessage,
   uploadRecording,
+  voiceMessageAudioUrl,
   type BusinessOrg,
+  type ProjectVoiceMessage,
 } from './business';
 import { initBookmarks, setBookmarkSession } from './bookmarks';
 import { initBugReport } from './bug-report';
@@ -4471,14 +4475,234 @@ async function ensureBizOrgs(): Promise<BusinessOrg[]> {
   return bizOrgs;
 }
 
-// Reveal the navbar "Workspace" link once we know the user belongs to ≥1 org.
+// Reveal the navbar "Workspace" link once we know the user belongs to ≥1 org, and
+// the Account → Workspace tab (project voice notes) once an org has an active plan.
 async function updateWorkspaceLink(): Promise<void> {
   const orgs = await ensureBizOrgs();
   if (orgs.length === 0) return;
   const btn = $<HTMLAnchorElement>('workspace-btn');
   btn.href = DASHBOARD_URL;
   show(btn, true);
+  // Project voice notes are gated on an active subscription (same as cloud recording).
+  if (orgs.some((o) => canCloudRecord(o))) show($('acct-tab-workspace'), true);
 }
+
+// ---- Workspace: project voice notes (spec: B2B project voice notes) --------
+// Record a clip and attach it to a project (no call); it's transcribed +
+// translated server-side and lands in the project's insights data. Its own
+// recorder state (independent of the in-call chat recorder).
+const wsOrgSel = $<HTMLSelectElement>('ws-org');
+const wsProjectSel = $<HTMLSelectElement>('ws-project');
+const wsRecordBtn = $<HTMLButtonElement>('ws-record');
+const wsRecordingBar = $('ws-recording');
+const wsRecTime = $('ws-rec-time');
+const wsUpload = $('ws-upload');
+const wsUploadFill = $('ws-upload-fill');
+const wsUploadLabel = $('ws-upload-label');
+const wsNotes = $('ws-notes');
+$('ws-rec-send').innerHTML = icon('send', 20);
+$('ws-rec-cancel').innerHTML = icon('trash', 18);
+
+let wsOrgsLoaded = false;
+let wsRecorder: MediaRecorder | null = null;
+let wsChunks: BlobPart[] = [];
+let wsStream: MediaStream | null = null;
+let wsTimer: number | null = null;
+let wsStartMs = 0;
+let wsShouldSend = false;
+let wsDurationS = 0;
+
+/** Populate the org picker (active-sub orgs only) the first time the section opens. */
+async function setupWorkspaceVoice(): Promise<void> {
+  if (wsOrgsLoaded) return;
+  const orgs = (await ensureBizOrgs()).filter((o) => canCloudRecord(o));
+  wsOrgSel.innerHTML = '';
+  for (const o of orgs) {
+    const opt = document.createElement('option');
+    opt.value = o.id;
+    opt.textContent = o.name;
+    wsOrgSel.appendChild(opt);
+  }
+  show($('ws-org-field'), orgs.length > 1); // single org → hide the picker
+  wsOrgsLoaded = true;
+  if (orgs.length) await loadWorkspaceProjects();
+}
+
+async function loadWorkspaceProjects(): Promise<void> {
+  const orgId = wsOrgSel.value;
+  wsProjectSel.innerHTML = '';
+  wsRecordBtn.disabled = true;
+  wsNotes.innerHTML = '';
+  if (!orgId) return;
+  const projects = await listProjects(orgId);
+  if (!projects.length) {
+    const opt = document.createElement('option');
+    opt.value = '';
+    opt.textContent = t('bizNoProject');
+    wsProjectSel.appendChild(opt);
+    return;
+  }
+  for (const p of projects) {
+    const opt = document.createElement('option');
+    opt.value = p.id;
+    opt.textContent = p.name;
+    wsProjectSel.appendChild(opt);
+  }
+  await loadWorkspaceNotes();
+}
+
+async function loadWorkspaceNotes(): Promise<void> {
+  const orgId = wsOrgSel.value;
+  const projectId = wsProjectSel.value;
+  wsRecordBtn.disabled = !(orgId && projectId);
+  if (!orgId || !projectId) return;
+  renderWorkspaceNotes(orgId, projectId, await listProjectVoiceMessages(orgId, projectId));
+}
+
+function renderWorkspaceNotes(
+  orgId: string,
+  projectId: string,
+  notes: ProjectVoiceMessage[],
+): void {
+  wsNotes.innerHTML = '';
+  if (!notes.length) {
+    const empty = document.createElement('p');
+    empty.className = 'ws-note-empty';
+    empty.textContent = t('wsNoNotes');
+    wsNotes.appendChild(empty);
+    return;
+  }
+  for (const n of notes) {
+    const card = document.createElement('div');
+    card.className = 'ws-note';
+    const head = document.createElement('div');
+    head.className = 'ws-note-head';
+    const who = document.createElement('span');
+    who.textContent = `${n.created_by_name} · ${n.source_language.toUpperCase()}${n.translated ? ' ✓' : ''}`;
+    const when = document.createElement('span');
+    when.textContent = new Date(n.created_at).toLocaleString();
+    head.append(who, when);
+    card.appendChild(head);
+    // Lazy playback: fetch a signed URL only when the user asks to listen.
+    const play = document.createElement('button');
+    play.type = 'button';
+    play.className = 'btn-ghost';
+    play.textContent = `▶ ${recTimeLabel((n.duration_seconds ?? 0) * 1000)}`;
+    play.addEventListener('click', async () => {
+      play.disabled = true;
+      const url = await voiceMessageAudioUrl(orgId, projectId, n.id);
+      if (!url) {
+        play.disabled = false;
+        toast(t('uploadFailed'), 'err');
+        return;
+      }
+      const audio = document.createElement('audio');
+      audio.controls = true;
+      audio.src = url;
+      audio.autoplay = true;
+      play.replaceWith(audio);
+    });
+    card.appendChild(play);
+    wsNotes.appendChild(card);
+  }
+}
+
+async function startWsRecording(): Promise<void> {
+  if (wsRecorder || !wsOrgSel.value || !wsProjectSel.value) return;
+  let stream: MediaStream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch {
+    toast(t('camMicDenied'), 'err');
+    return;
+  }
+  const mime = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'].find((ty) =>
+    MediaRecorder.isTypeSupported?.(ty),
+  );
+  wsChunks = [];
+  wsShouldSend = false;
+  try {
+    wsRecorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+  } catch {
+    stream.getTracks().forEach((tr) => tr.stop());
+    toast(t('uploadFailed'), 'err');
+    return;
+  }
+  wsStream = stream;
+  wsRecorder.ondataavailable = (e) => {
+    if (e.data.size) wsChunks.push(e.data);
+  };
+  wsRecorder.onstop = finalizeWsRecording;
+  wsRecorder.start();
+  wsStartMs = Date.now();
+  wsRecTime.textContent = '0:00';
+  show(wsRecordBtn, false);
+  show(wsRecordingBar, true);
+  wsTimer = window.setInterval(() => {
+    const elapsed = Date.now() - wsStartMs;
+    wsRecTime.textContent = recTimeLabel(elapsed);
+    if (elapsed >= VOICE_MAX_MS) stopWsRecording(true);
+  }, 200);
+}
+
+function stopWsRecording(send: boolean): void {
+  if (!wsRecorder) return;
+  wsShouldSend = send;
+  wsDurationS = Math.round((Date.now() - wsStartMs) / 1000);
+  if (wsTimer !== null) {
+    clearInterval(wsTimer);
+    wsTimer = null;
+  }
+  if (wsRecorder.state !== 'inactive') wsRecorder.stop();
+}
+
+function finalizeWsRecording(): void {
+  const chunks = wsChunks;
+  const type = wsRecorder?.mimeType || 'audio/webm';
+  wsRecorder = null;
+  wsChunks = [];
+  if (wsStream) {
+    wsStream.getTracks().forEach((tr) => tr.stop());
+    wsStream = null;
+  }
+  show(wsRecordingBar, false);
+  show(wsRecordBtn, true);
+  if (!wsShouldSend || !chunks.length) return;
+  void sendWsVoice(new Blob(chunks, { type }), wsDurationS);
+}
+
+async function sendWsVoice(blob: Blob, durationS: number): Promise<void> {
+  const orgId = wsOrgSel.value;
+  const projectId = wsProjectSel.value;
+  if (!orgId || !projectId) return;
+  const ext = /mp4|m4a|aac/.test(blob.type) ? 'm4a' : /ogg/.test(blob.type) ? 'ogg' : 'webm';
+  const file = new File([blob], `voice-message.${ext}`, { type: blob.type || `audio/${ext}` });
+  if (file.size === 0 || file.size > UPLOAD_MAX_BYTES) {
+    toast(t('uploadFailed'), 'err');
+    return;
+  }
+  wsRecordBtn.disabled = true;
+  show(wsUpload, true);
+  wsUploadFill.style.width = '0%';
+  wsUploadLabel.textContent = t('uploading');
+  const res = await uploadProjectVoiceMessage(orgId, projectId, file, durationS, (frac) => {
+    wsUploadFill.style.width = `${Math.round(frac * 100)}%`;
+  });
+  show(wsUpload, false);
+  wsRecordBtn.disabled = false;
+  if (!res.ok) {
+    toast(t('uploadFailed'), 'err');
+    return;
+  }
+  toast(res.translateBlocked === 'credits' ? t('uploadNotTranslatedCredits') : t('wsVoiceSent'), res.translateBlocked === 'credits' ? 'err' : 'ok');
+  await loadWorkspaceNotes(); // refresh the project's history
+}
+
+wsOrgSel.addEventListener('change', () => void loadWorkspaceProjects());
+wsProjectSel.addEventListener('change', () => void loadWorkspaceNotes());
+wsRecordBtn.addEventListener('click', () => void startWsRecording());
+$('ws-rec-send').addEventListener('click', () => stopWsRecording(true));
+$('ws-rec-cancel').addEventListener('click', () => stopWsRecording(false));
 
 // Populate the pre-join org/project selector for business users.
 async function setupBizPrejoin(): Promise<void> {
@@ -5205,13 +5429,14 @@ const notifPrefsEl = $('notif-prefs');
 // Account section nav (spec: account hub). Each id matches a `data-acct-section` (the
 // on-screen rail) / `data-acct-nav` (the avatar menu) value, so both entry points route
 // to the same section.
-type AccountSection = 'profile' | 'billing' | 'friends' | 'notifications' | 'privacy';
+type AccountSection = 'profile' | 'billing' | 'friends' | 'notifications' | 'privacy' | 'workspace';
 const accountSectionEls: Record<AccountSection, HTMLElement> = {
   profile: $('acct-profile'),
   billing: $('acct-billing'),
   friends: $('acct-friends'),
   notifications: $('acct-notifications'),
   privacy: $('acct-privacy'),
+  workspace: $('acct-workspace'),
 };
 const accountTabs = Array.from(
   document.querySelectorAll<HTMLButtonElement>('.acct-tab[data-acct-section]'),
@@ -5348,6 +5573,9 @@ function selectAccountSection(section: AccountSection): void {
       $('voice-clone-state').textContent = localStorage.getItem(VOICE_CLONED_KEY)
         ? t('voiceCloneStatusSaved')
         : t('voiceCloneStatusNone');
+      break;
+    case 'workspace':
+      void setupWorkspaceVoice();
       break;
   }
 }
