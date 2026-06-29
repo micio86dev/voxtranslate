@@ -79,6 +79,7 @@
   "send": "Trimite",
   "attachTip": "Atașează un fișier",
   "voiceMsgTip": "Înregistrează un mesaj vocal",
+  "chatVoiceDownload": "Descarcă mesajul vocal",
   "wsVoiceIntro": "Înregistrează o notă vocală și atașeaz-o unui proiect. Este transcrisă și tradusă pentru analizele echipei tale.",
   "wsNoNotes": "Încă nu există note vocale în acest proiect.",
   "wsVoiceSent": "Notă vocală trimisă către proiect.",

@@ -67,6 +67,9 @@ describe('call CSP (issue #237 regression guard)', () => {
     expect(directive('connect-src')).toContain('wss://api.cartesia.ai');
     // MediaRecorder / recording playback uses blob: object URLs for media.
     expect(directive('media-src')).toContain('blob:');
+    // Chat voice messages are served as signed Supabase storage URLs, so the
+    // <audio> element loads media cross-origin from supabase.co (not blob:).
+    expect(directive('media-src')).toContain('https://*.supabase.co');
     // Google Identity Services (sign-in) loads its script + frame.
     expect(directive('script-src')).toContain('https://accounts.google.com');
     expect(directive('frame-src')).toContain('https://accounts.google.com');

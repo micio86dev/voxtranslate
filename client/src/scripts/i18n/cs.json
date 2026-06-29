@@ -79,6 +79,7 @@
   "send": "Odeslat",
   "attachTip": "Připojit soubor",
   "voiceMsgTip": "Nahrát hlasovou zprávu",
+  "chatVoiceDownload": "Stáhnout hlasovou zprávu",
   "wsVoiceIntro": "Nahrajte hlasovou poznámku a připojte ji k projektu. Přepíše se a přeloží pro přehledy vašeho týmu.",
   "wsNoNotes": "V tomto projektu zatím nejsou žádné hlasové poznámky.",
   "wsVoiceSent": "Hlasová poznámka odeslána do projektu.",

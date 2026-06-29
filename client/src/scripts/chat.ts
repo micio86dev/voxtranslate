@@ -2,6 +2,7 @@
 // original shown small below when it was translated. Tracks unread while closed.
 
 import { avatarUrl } from './auth';
+import { t } from './i18n';
 import { icon } from './icons';
 
 /** A file attached to a chat message (spec 0018). */
@@ -10,6 +11,21 @@ export interface ChatAttachment {
   name: string;
   content_type: string;
   size: number;
+}
+
+/** File extension for a voice-message download, from its MIME type. The stored
+ *  format is already a lightweight audio format (Opus/WebM, 32 kbps mono). */
+function audioExt(contentType: string): string {
+  const base = contentType.split(';')[0].trim();
+  const map: Record<string, string> = {
+    'audio/webm': 'webm',
+    'audio/ogg': 'ogg',
+    'audio/mpeg': 'mp3',
+    'audio/mp4': 'm4a',
+    'audio/aac': 'aac',
+    'audio/wav': 'wav',
+  };
+  return map[base] ?? 'webm';
 }
 
 export interface ChatPayload {
@@ -136,8 +152,36 @@ export class ChatManager {
       audio.addEventListener('play', () => {
         audio.playbackRate = rates[ri];
       });
+      // Save the voice note as a file. The signed URL is cross-origin, so the
+      // <a download> attribute is ignored — fetch the bytes (supabase.co is in
+      // connect-src) and save via an object URL; fall back to opening the file.
+      const dl = document.createElement('button');
+      dl.type = 'button';
+      dl.className = 'chat-audio-dl';
+      dl.innerHTML = icon('download', 16);
+      dl.title = t('chatVoiceDownload');
+      dl.setAttribute('aria-label', t('chatVoiceDownload'));
+      dl.addEventListener('click', async () => {
+        dl.disabled = true;
+        try {
+          const res = await fetch(att.url);
+          if (!res.ok) throw new Error(`download failed: ${res.status}`);
+          const blob = await res.blob();
+          const objUrl = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = objUrl;
+          a.download = `voice-message.${audioExt(att.content_type)}`;
+          a.click();
+          URL.revokeObjectURL(objUrl);
+        } catch {
+          window.open(att.url, '_blank', 'noopener');
+        } finally {
+          dl.disabled = false;
+        }
+      });
       player.appendChild(audio);
       player.appendChild(speed);
+      player.appendChild(dl);
       wrap.appendChild(player);
       return wrap;
     }

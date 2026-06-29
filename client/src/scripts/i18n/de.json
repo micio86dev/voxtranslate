@@ -79,6 +79,7 @@
   "send": "Senden",
   "attachTip": "Datei anhängen",
   "voiceMsgTip": "Sprachnachricht aufnehmen",
+  "chatVoiceDownload": "Sprachnachricht herunterladen",
   "wsVoiceIntro": "Nimm eine Sprachnotiz auf und hänge sie an ein Projekt an. Sie wird transkribiert und für die Insights deines Teams übersetzt.",
   "wsNoNotes": "Noch keine Sprachnotizen in diesem Projekt.",
   "wsVoiceSent": "Sprachnotiz an das Projekt gesendet.",

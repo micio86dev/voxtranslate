@@ -1932,7 +1932,9 @@ const jsonLd = {
     .chat-messages :global(.chat-audio) { width: 100%; max-width: 260px; height: 36px; }
     /* Voice message (spec: voice chat): the audio player + a tap-to-cycle playback
        speed pill (1× → 1.5× → 2×). No file chip — the transcript is the message text. */
-    .chat-messages :global(.chat-audio-player) { display: flex; align-items: center; gap: 8px; }
+    /* min-width keeps a short voice note's player wide enough that the native play
+       button is always visible/tappable (the audio can otherwise collapse to ~0). */
+    .chat-messages :global(.chat-audio-player) { display: flex; align-items: center; gap: 8px; min-width: 220px; max-width: 100%; }
     .chat-messages :global(.chat-audio-player .chat-audio) { flex: 1; min-width: 0; }
     .chat-messages :global(.chat-audio-speed) {
       flex: none; height: 28px; min-width: 40px; padding: 0 9px; border-radius: 999px;
@@ -1942,6 +1944,16 @@ const jsonLd = {
     }
     .chat-messages :global(.chat-audio-speed:hover) { border-color: var(--accent); }
     .chat-messages :global(.chat-audio-speed:active) { background: var(--accent-dim); }
+    /* Download voice note — a same-shape icon button next to the speed pill. */
+    .chat-messages :global(.chat-audio-dl) {
+      flex: none; display: inline-flex; align-items: center; justify-content: center;
+      width: 28px; height: 28px; padding: 0; border-radius: 999px;
+      background: var(--surface-2); border: 1px solid var(--border); color: var(--text);
+      cursor: pointer; touch-action: manipulation; transition: border-color 0.12s, background 0.12s;
+    }
+    .chat-messages :global(.chat-audio-dl:hover) { border-color: var(--accent); }
+    .chat-messages :global(.chat-audio-dl:active) { background: var(--accent-dim); }
+    .chat-messages :global(.chat-audio-dl:disabled) { opacity: 0.5; cursor: default; }
     .chat-messages :global(.chat-file-chip) { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--border); color: var(--text); text-decoration: none; }
     .chat-messages :global(.chat-file-chip:hover) { border-color: var(--accent-dim); }
     .chat-messages :global(.chat-file-meta) { display: flex; flex-direction: column; min-width: 0; }
@@ -1949,7 +1961,10 @@ const jsonLd = {
     .chat-messages :global(.chat-file-size) { font-size: 0.72rem; color: var(--muted); }
     /* Two-row composer (spec 0084): textarea on top spans the full panel width
        (room to write); the action bar sits beneath it. */
-    .chat-input-row { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-top: 1px solid var(--border); }
+    /* position: relative makes this the anchor for the emoji panel, so the panel
+       floats ABOVE the whole composer (over the conversation) and never covers the
+       textarea you're typing in — on desktop as well as the mobile bottom-sheet. */
+    .chat-input-row { position: relative; display: flex; flex-direction: column; gap: 8px; padding: 12px; border-top: 1px solid var(--border); }
     .chat-input-actions { display: flex; align-items: center; gap: 8px; }
     /* Emoji + attach group on the left; send pushed to the far right. */
     .chat-input-actions .send-btn { margin-inline-start: auto; }
@@ -2373,12 +2388,15 @@ const jsonLd = {
     }
     .chat-messages :global(.chat-avatar) { width: 18px; height: 18px; border-radius: 50%; object-fit: cover; vertical-align: middle; margin-inline-end: 5px; }
     /* ---------- Emoji picker ---------- */
-    .emoji-picker-wrap { position: relative; }
+    /* static so the panel anchors to .chat-input-row (the composer), not this small
+       button wrap — letting it clear the textarea regardless of the textarea height. */
+    .emoji-picker-wrap { position: static; }
     /* Sizing comes from .chat-input-row .icon-btn (44px square) so it matches the
        attach button; here we only set the glyph size (spec 0070). */
     .emoji-btn { font-size: 1.3rem; line-height: 1; }
     .emoji-panel {
-      position: absolute; bottom: 50px; inset-inline-start: 0; width: min(288px, calc(100vw - 32px));
+      position: absolute; bottom: calc(100% + 8px); inset-inline-start: 12px; width: min(288px, calc(100vw - 32px));
+      max-height: min(60vh, 360px); overflow-y: auto;
       background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
       padding: 10px; box-shadow: 0 8px 28px rgba(0,0,0,0.45); z-index: 30;
     }

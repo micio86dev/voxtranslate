@@ -79,6 +79,7 @@
   "send": "Sūtīt",
   "attachTip": "Pievienot failu",
   "voiceMsgTip": "Ierakstīt balss ziņojumu",
+  "chatVoiceDownload": "Lejupielādēt balss ziņojumu",
   "wsVoiceIntro": "Ierakstiet balss piezīmi un pievienojiet to projektam. Tā tiek transkribēta un tulkota jūsu komandas ieskatiem.",
   "wsNoNotes": "Šajā projektā vēl nav balss piezīmju.",
   "wsVoiceSent": "Balss piezīme nosūtīta projektam.",
