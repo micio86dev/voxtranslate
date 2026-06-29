@@ -6,8 +6,28 @@ import {
   counterLabel,
   counterState,
   insertAt,
+  recTimeLabel,
   resizeBox,
 } from './chat-input';
+
+describe('recTimeLabel (voice-message timer)', () => {
+  it('formats sub-minute durations as 0:ss with zero-padding', () => {
+    expect(recTimeLabel(0)).toBe('0:00');
+    expect(recTimeLabel(5_000)).toBe('0:05');
+    expect(recTimeLabel(59_000)).toBe('0:59');
+  });
+
+  it('rolls over into minutes', () => {
+    expect(recTimeLabel(60_000)).toBe('1:00');
+    expect(recTimeLabel(65_000)).toBe('1:05');
+    expect(recTimeLabel(600_000)).toBe('10:00');
+  });
+
+  it('floors partial seconds and clamps negatives to zero', () => {
+    expect(recTimeLabel(1_999)).toBe('0:01');
+    expect(recTimeLabel(-1_000)).toBe('0:00');
+  });
+});
 
 describe('counterState', () => {
   it('is hidden well below the cap', () => {

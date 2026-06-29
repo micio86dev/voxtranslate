@@ -423,20 +423,23 @@ async fn transcribe_audio(
     sender_lang: &str,
 ) -> (String, String) {
     match crate::deepgram::transcribe_file(&state.http, &state.config, bytes, content_type).await {
-        Ok((transcript, detected)) => {
-            // Deepgram may report a regional tag (e.g. "en-US"); the room keys its
-            // translation targets off the primary subtag, so normalize to that.
-            let lang = detected
-                .map(|l| l.split('-').next().unwrap_or(&l).to_ascii_lowercase())
-                .filter(|l| !l.is_empty())
-                .unwrap_or_else(|| sender_lang.to_string());
-            (transcript, lang)
-        }
+        Ok((transcript, detected)) => (transcript, normalize_detected_lang(detected, sender_lang)),
         Err(e) => {
             tracing::error!("voice message transcription failed: {e}");
             (String::new(), sender_lang.to_string())
         }
     }
+}
+
+/// Normalize Deepgram's detected language to the app's short code: the primary
+/// subtag, lowercased (e.g. "en-US" → "en"). Falls back to `sender_lang` when
+/// detection is absent or empty, so the transcript always has a source language
+/// for the translation fan-out. Pure, for tests.
+fn normalize_detected_lang(detected: Option<String>, sender_lang: &str) -> String {
+    detected
+        .map(|l| l.split('-').next().unwrap_or(&l).to_ascii_lowercase())
+        .filter(|l| !l.is_empty())
+        .unwrap_or_else(|| sender_lang.to_string())
 }
 
 /// Extract plain text from a `.docx` (a zip whose `word/document.xml` holds the
@@ -660,6 +663,17 @@ mod tests {
         assert_eq!(content_type_for("m4a"), "audio/mp4");
         assert_eq!(content_type_for("mp3"), "audio/mpeg");
         assert!(content_type_for("ogg").starts_with("audio/"));
+    }
+
+    #[test]
+    fn detected_lang_normalizes_to_primary_subtag() {
+        // Regional tags collapse to the lowercased primary subtag.
+        assert_eq!(normalize_detected_lang(Some("en-US".into()), "it"), "en");
+        assert_eq!(normalize_detected_lang(Some("IT".into()), "en"), "it");
+        assert_eq!(normalize_detected_lang(Some("es".into()), "en"), "es");
+        // Absent / empty detection falls back to the sender's language.
+        assert_eq!(normalize_detected_lang(None, "de"), "de");
+        assert_eq!(normalize_detected_lang(Some(String::new()), "fr"), "fr");
     }
 
     #[test]

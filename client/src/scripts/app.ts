@@ -48,7 +48,7 @@ import type { PcmCapture } from './pcm-capture';
 import { pcmPlayback } from './pcm-playback';
 import type { MicMeter } from './mic-meter';
 import type { ChatManager, ChatPayload } from './chat';
-import { CHAT_MAX_HEIGHT, counterLabel, counterState, insertAt, resizeBox } from './chat-input';
+import { CHAT_MAX_HEIGHT, counterLabel, counterState, insertAt, recTimeLabel, resizeBox } from './chat-input';
 import { checkUploadFile, cloneVoice, fetchAiPricing, fetchEnhancedSession, fileUploadEnabled, generateAiQuiz, saveQuizHistory, sendInvites, UPLOAD_MAX_BYTES, uploadChatFile } from './api';
 import { buildInviteLink, MAX_INVITE_EMAILS, parseRoomParam, validateInviteEmails } from './invite';
 import {
@@ -3940,11 +3940,6 @@ let voiceShouldSend = false;
 /** Hard cap on a voice message; well within the 5 MB upload ceiling. */
 const VOICE_MAX_MS = 60_000;
 
-function fmtRecTime(ms: number): string {
-  const s = Math.floor(ms / 1000);
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
-}
-
 async function startVoiceRecording(): Promise<void> {
   if (voiceRecorder || chatRecord.hidden || !session) return; // recording / storage off
   let stream: MediaStream;
@@ -3977,7 +3972,7 @@ async function startVoiceRecording(): Promise<void> {
   chatInputRow.classList.add('recording');
   voiceTimer = window.setInterval(() => {
     const elapsed = Date.now() - voiceStartMs;
-    chatRecTime.textContent = fmtRecTime(elapsed);
+    chatRecTime.textContent = recTimeLabel(elapsed);
     if (elapsed >= VOICE_MAX_MS) stopVoiceRecording(true); // auto-send at the cap
   }, 200);
 }
