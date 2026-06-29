@@ -1,11 +1,12 @@
 //! Route table for the Business API. Merged into the main router in `lib.rs::app`.
 
+use axum::extract::DefaultBodyLimit;
 use axum::routing::{delete, get, patch, post};
 use axum::Router;
 
 use crate::business::{
     analytics, audit, billing, calls, insights, meetings, members, organizations, projects,
-    recording, search, storyboard, teams, transcripts,
+    recording, search, storyboard, teams, transcripts, voice_messages,
 };
 use crate::AppState;
 
@@ -50,6 +51,17 @@ pub fn routes() -> Router<AppState> {
         .route(
             "/api/business/organizations/{org_id}/projects/{project_id}/storyboard",
             get(storyboard::get).post(storyboard::generate),
+        )
+        // ---- Project voice messages: record a note onto a project (no call) ----
+        .route(
+            "/api/business/organizations/{org_id}/projects/{project_id}/voice-messages",
+            get(voice_messages::list).post(voice_messages::create).layer(
+                DefaultBodyLimit::max(crate::files::MAX_BODY_BYTES),
+            ),
+        )
+        .route(
+            "/api/business/organizations/{org_id}/projects/{project_id}/voice-messages/{voice_message_id}/audio-url",
+            get(voice_messages::audio_url),
         )
         // ---- Teams: people-groups with flexible membership (Phase 2) ----
         .route(
