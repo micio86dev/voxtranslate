@@ -34,6 +34,13 @@ export interface SessionRef {
 let current: SessionRef | null = null;
 let onCloseCb: (() => void) | null = null;
 
+// Top-level screens this view can be opened over (home after a call / the buy
+// modal; account when reached from Billing → Transcripts). We hide whichever is
+// showing and restore it on close, so the originating screen never lingers
+// behind the detail and Back returns the user where they were.
+const RETURN_SCREENS = ['home', 'account'] as const;
+let returnScreen = 'home';
+
 /** The session currently shown (null when the screen is closed). */
 export function currentSession(): SessionRef | null {
   return current;
@@ -43,7 +50,8 @@ export function openSessionScreen(ref: SessionRef, opts: { onClose?: () => void 
   current = ref;
   onCloseCb = opts.onClose ?? null;
   renderHeader(ref);
-  $('home').classList.add('hidden');
+  returnScreen = RETURN_SCREENS.find((id) => !$(id).classList.contains('hidden')) ?? 'home';
+  $(returnScreen).classList.add('hidden');
   $('session').classList.remove('hidden');
   initReportSlot(ref);
   initSentimentSlot(ref);
@@ -55,7 +63,7 @@ export function openSessionScreen(ref: SessionRef, opts: { onClose?: () => void 
 export function closeSessionScreen(): void {
   current = null;
   $('session').classList.add('hidden');
-  $('home').classList.remove('hidden');
+  $(returnScreen).classList.remove('hidden');
   const cb = onCloseCb;
   onCloseCb = null;
   cb?.();
