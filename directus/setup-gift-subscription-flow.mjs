@@ -72,8 +72,19 @@ async function getToken() {
 
 // Keep a sibling org-flow's placement/confirmation wiring (if any); swap the inputs.
 function buildTriggerOptions(template) {
-  const o = template ? structuredClone(template) : { location: 'item', requireSelection: true };
+  const o = template ? structuredClone(template) : {};
   o.collections = [COLLECTION];
+  o.location = 'item';
+  // The confirmation dialog is what collects plan/months/credits. WITHOUT
+  // `requireConfirmation` Directus skips the dialog and fires the webhook
+  // immediately with empty fields → the server rejects it. The other admin flows
+  // (Gift bonus / Ban / Adjust credits) all set this; the gift flow had no sibling
+  // on `organizations` to clone it from, so set it explicitly. `requireSelection`
+  // is false to match them (the item is already targeted on its detail page).
+  o.requireConfirmation = true;
+  o.requireSelection = false;
+  o.confirmationDescription =
+    'Gift this organization an active Business/Enterprise subscription.';
   o.fields = [
     {
       field: 'plan',
