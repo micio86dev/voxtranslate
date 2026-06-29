@@ -114,8 +114,11 @@ pub async fn create(
         .map_err(db_err)?
         .unwrap_or_else(|| "Member".to_string());
 
-    // Ids are generated up front so the credit ledger row can reference the
-    // session even though it's persisted last.
+    // Ids are generated up front so the transcript/artifact/embedding all share
+    // one session id. NOTE: the synthetic call_sessions row is persisted LAST, so
+    // the translation charge below must NOT reference it — organization_credits_
+    // transactions.session_id has an FK to call_sessions(id), and charging before
+    // the row exists raised a 23503 foreign-key violation (the "db error" 500).
     let session_id = Uuid::new_v4();
     let file_id = Uuid::new_v4();
 
@@ -172,7 +175,11 @@ pub async fn create(
                 org_id,
                 cost,
                 "translation",
-                Some(session_id),
+                // No session link: the call_sessions row is persisted after this
+                // charge, and the ledger's session_id FK would reject it (see the
+                // note where session_id is generated). The charge is still fully
+                // recorded (org, amount, type 'translation', actor, description).
+                None,
                 Some(user.user_id),
                 "Project voice message translation",
             )
