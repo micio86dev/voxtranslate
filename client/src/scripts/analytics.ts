@@ -44,8 +44,14 @@ export function initAnalytics(): void {
   if (started || !analyticsEnabled() || typeof document === 'undefined') return;
   started = true;
   window.dataLayer = window.dataLayer || [];
-  window.gtag = function (...args: unknown[]) {
-    window.dataLayer!.push(args);
+  // gtag.js dispatches a queued command ONLY when the pushed item is the
+  // `arguments` object (this is how Google's own snippet works). Pushing a plain
+  // array — which `(...args) => push(args)` does — is silently ignored: every
+  // consent/config/event no-ops and NO hit is ever sent (no error, no /collect
+  // request). So push `arguments` verbatim, exactly like the canonical snippet.
+  window.gtag = function gtag() {
+    // eslint-disable-next-line prefer-rest-params
+    window.dataLayer!.push(arguments);
   };
   // Consent Mode v2 — deny by default until the user accepts the cookie banner.
   window.gtag('consent', 'default', {
