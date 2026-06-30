@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { jpegPagesToPdf } from './wb-export';
+import { jpegPagesToPdf, pngBlob } from './wb-export';
 
 // jpegPagesToPdf is pure (TextEncoder/atob/Blob are Node globals): assert the PDF
 // structure rather than rendering. The embedded "JPEG" bytes are arbitrary base64 —
@@ -34,5 +34,26 @@ describe('jpegPagesToPdf (spec 0062)', () => {
     // MediaBox carries each page's own dimensions.
     expect(t).toContain('/MediaBox [0 0 100 50]');
     expect(t).toContain('/MediaBox [0 0 102 52]');
+  });
+});
+
+describe('pngBlob', () => {
+  it('resolves with the Blob that canvas.toBlob yields', async () => {
+    const expected = new Blob(['png'], { type: 'image/png' });
+    // Duck-typed canvas: toBlob invokes its callback with the produced blob.
+    const canvas = {
+      toBlob: (cb: (b: Blob | null) => void, type?: string) => {
+        expect(type).toBe('image/png');
+        cb(expected);
+      },
+    } as unknown as HTMLCanvasElement;
+    await expect(pngBlob(canvas)).resolves.toBe(expected);
+  });
+
+  it('resolves null when the canvas cannot produce a blob', async () => {
+    const canvas = {
+      toBlob: (cb: (b: Blob | null) => void) => cb(null),
+    } as unknown as HTMLCanvasElement;
+    await expect(pngBlob(canvas)).resolves.toBeNull();
   });
 });
