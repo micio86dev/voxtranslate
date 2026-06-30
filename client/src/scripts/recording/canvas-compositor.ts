@@ -91,7 +91,15 @@ export class CanvasCompositor {
       video.playsInline = true;
       this.videos.set(src.peerId, video);
     }
-    if (video.srcObject !== src.stream) {
+    // Re-bind only when the underlying video TRACK changes — not when the caller
+    // hands a fresh MediaStream wrapper around the same track. selfRecordingStream()
+    // and whiteboard.captureStream() build a NEW MediaStream every roster tick
+    // (~1×/s via syncRoster); reassigning srcObject reloads the element (videoWidth
+    // drops to 0 for a frame → placeholder), which made the self tile flicker like
+    // the camera was toggling off/on. Comparing tracks keeps a steady stream steady.
+    const curTrack = (video.srcObject as MediaStream | null)?.getVideoTracks()[0] ?? null;
+    const nextTrack = src.stream?.getVideoTracks()[0] ?? null;
+    if (curTrack !== nextTrack) {
       video.srcObject = src.stream;
       if (src.stream) void video.play().catch(() => {});
     }
