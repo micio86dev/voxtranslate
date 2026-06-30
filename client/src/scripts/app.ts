@@ -3798,6 +3798,12 @@ async function stopRecording(partial = false): Promise<void> {
   const rec = recorder;
   if (!rec) return;
   recorder = null;
+  // Capture the cloud-upload target NOW, synchronously. The leave/end-call path nulls
+  // `activeSessionId` during teardown, and the upload only happens after the async
+  // `rec.stop()` below resolves — reading the module global at that point would see
+  // null and silently fall back to a LOCAL download. That stranded every recording of
+  // a business call that was ended via hang-up (only manual mid-call stops uploaded).
+  const sessionId = activeSessionId;
   // Use the recorder's own start time — there is NO module-level `recordingStartedAt`.
   // Referencing that undeclared name here threw a ReferenceError that aborted stopRecording
   // right after nulling `recorder`, wedging the call: the MediaRecorder kept running,
@@ -3814,9 +3820,9 @@ async function stopRecording(partial = false): Promise<void> {
   const blob = await rec.stop();
   if (blob.size > 0) {
     // Business cloud recording → upload to the workspace; otherwise download locally.
-    if (bizRecording && activeSessionId && billing && auth.isLoggedIn()) {
+    if (bizRecording && sessionId && billing && auth.isLoggedIn()) {
       const dur = Math.round((Date.now() - rec.startedAt) / 1000);
-      const ok = await uploadRecording(activeSessionId, blob, dur);
+      const ok = await uploadRecording(sessionId, blob, dur);
       if (ok) {
         showNotif(t('bizRecordingUploaded'));
       } else {
@@ -4091,6 +4097,11 @@ function leaveCall(): void {
           durationMs: Date.now() - callStartedAt,
         }
       : null;
+  // Stop + upload the cloud recording while activeSessionId is still set:
+  // stopRecording captures it synchronously, so the null on the next line can't
+  // strand the upload into a local download. Chunks are already collected, so the
+  // async Blob assembly survives the teardown below.
+  if (isRecording) void stopRecording();
   activeSessionId = null;
   transcriptEvents = 0;
   callStartedAt = 0;
@@ -4103,9 +4114,7 @@ function leaveCall(): void {
   audioCapture?.stop();
   micMeter?.stop();
   micMeter = null;
-  // Initiate the recording stop BEFORE tearing down the mesh: the chunks are
-  // already collected, so the async Blob assembly survives the cleanup below.
-  if (isRecording) void stopRecording();
+  // (Recording stop was already initiated above, before activeSessionId was nulled.)
   mesh?.destroy();
   if (pipWindow && !pipWindow.closed) { pipWindow.close(); pipWindow = null; }
   pipCtl = null;
