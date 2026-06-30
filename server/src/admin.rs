@@ -505,6 +505,27 @@ pub async fn delete_user(
     }
 }
 
+/// `POST /api/admin/rls/enforce` — re-run the Postgres-side RLS lockdown
+/// (`public.enforce_public_rls()`, installed by
+/// `infra/supabase/rls-lockdown-cron.sql`) so a freshly-created Directus
+/// collection is locked within seconds instead of waiting for the nightly
+/// pg_cron job. Triggered by a Directus `collections.create` Flow; no request
+/// body. Idempotent — the function only touches tables still RLS-off.
+pub async fn enforce_rls(_admin: AdminAuth, State(state): State<AppState>) -> Response {
+    let Some(pool) = state.pool.as_ref() else {
+        return unavailable();
+    };
+    if let Err(e) = sqlx::query("SELECT public.enforce_public_rls()")
+        .execute(pool)
+        .await
+    {
+        tracing::error!("rls enforce failed: {e}");
+        return (StatusCode::INTERNAL_SERVER_ERROR, "rls enforce failed").into_response();
+    }
+    audit(pool, "directus", "rls.enforce", None, serde_json::json!({})).await;
+    ok()
+}
+
 /// Fallback monthly credit allotments per plan, used only when org billing isn't
 /// configured (so the gift endpoint can still default sensibly). Mirrors the
 /// `OrgBillingConfig::from_env` defaults.
