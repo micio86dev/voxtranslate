@@ -4,6 +4,24 @@ All notable changes to the VoxTranslate server are documented here. The version
 is the umbrella release version (anchored on this crate's `Cargo.toml`). This log
 starts at 1.11.4; for earlier history see the `vX.Y.Z` git tags.
 
+## [1.11.7] — 2026-06-30
+
+Follow-ups to the 1.11.6 recording/transcript release.
+
+### Fixed
+- **Self-tile flicker in cloud recordings.** `selfRecordingStream()` (and the
+  whiteboard source) build a fresh `MediaStream` wrapper around the same track on
+  every `syncRoster` tick (~1×/s). The compositor re-bound `srcObject` and replayed
+  the `<video>` each time, reloading it (`videoWidth` → 0 for a frame → placeholder)
+  so the recorded self tile flickered like the camera was toggling off/on; the audio
+  mixer was re-wired on the same cadence. Both now re-bind only when the underlying
+  track actually changes.
+- **Transcript-status column showed "—" for calls with a live transcript.** The
+  call-history query reported only the recording-derived `transcript_status`, so a
+  call whose transcript opens fine via the realtime fallback still listed as "—". It
+  now reports `live` when there's no recording transcript but realtime speech events
+  exist (companion dashboard label in `voxtranslate-dashboard` 0.8.3).
+
 ## [1.11.6] — 2026-06-30
 
 Bug-fix release for the B2B dashboard's call recordings and transcripts (reported
