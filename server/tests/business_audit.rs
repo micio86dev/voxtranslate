@@ -49,9 +49,15 @@ async fn user(srv: &Server, name: &str) -> (Uuid, String) {
         name: name.into(),
         avatar_url: None,
     };
-    let u = upsert_google_user(&srv.pool, &identity, rust_decimal::Decimal::ZERO, None, None)
-        .await
-        .unwrap();
+    let u = upsert_google_user(
+        &srv.pool,
+        &identity,
+        rust_decimal::Decimal::ZERO,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
     let jwt = issue_jwt(SECRET, &u.id, &u.email, &u.name, 168).unwrap();
     (u.id, jwt)
 }
@@ -134,9 +140,7 @@ async fn audit_list_filters_and_scoping() {
     assert_eq!(all["limit"], 50);
     assert_eq!(all["page"], 0);
     // The join surfaces the actor's name/email.
-    assert!(entries
-        .iter()
-        .any(|e| e["actor_name"] == "Audit Owner"));
+    assert!(entries.iter().any(|e| e["actor_name"] == "Audit Owner"));
 
     // action filter narrows to one kind.
     let invited = list(&http, &srv, org, &jwt, "?action=member.invited").await;
@@ -145,14 +149,7 @@ async fn audit_list_filters_and_scoping() {
     assert!(inv.iter().all(|e| e["action"] == "member.invited"));
 
     // free-text q matches the actor email.
-    let by_q = list(
-        &http,
-        &srv,
-        org,
-        &jwt,
-        "?q=project.created",
-    )
-    .await;
+    let by_q = list(&http, &srv, org, &jwt, "?q=project.created").await;
     assert!(!by_q["entries"].as_array().unwrap().is_empty());
 
     // pagination: limit echoes back and caps the page size.
@@ -188,12 +185,14 @@ async fn audit_requires_admin_and_membership() {
 
     // A plain member (below admin rank) is forbidden — 403.
     let (member_id, member_jwt) = user(&srv, "Plain Member").await;
-    sqlx::query("INSERT INTO organization_members (org_id, user_id, role) VALUES ($1, $2, 'member')")
-        .bind(org)
-        .bind(member_id)
-        .execute(&srv.pool)
-        .await
-        .unwrap();
+    sqlx::query(
+        "INSERT INTO organization_members (org_id, user_id, role) VALUES ($1, $2, 'member')",
+    )
+    .bind(org)
+    .bind(member_id)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
     let r = http
         .get(format!(
             "{}/api/business/organizations/{}/audit",

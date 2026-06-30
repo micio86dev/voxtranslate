@@ -47,9 +47,15 @@ async fn user(srv: &Server) -> String {
         name: "Proj Owner".into(),
         avatar_url: None,
     };
-    let u = upsert_google_user(&srv.pool, &identity, rust_decimal::Decimal::ZERO, None, None)
-        .await
-        .unwrap();
+    let u = upsert_google_user(
+        &srv.pool,
+        &identity,
+        rust_decimal::Decimal::ZERO,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
     issue_jwt(SECRET, &u.id, &u.email, &u.name, 168).unwrap()
 }
 
@@ -148,7 +154,11 @@ async fn patch_rejects_blank_name() {
 
     // Create a real project to patch.
     let created: Value = http
-        .post(format!("{}/api/business/organizations/{}/projects", base(&srv), org))
+        .post(format!(
+            "{}/api/business/organizations/{}/projects",
+            base(&srv),
+            org
+        ))
         .bearer_auth(&jwt)
         .json(&json!({ "name": "Real" }))
         .send()
@@ -182,7 +192,11 @@ async fn delete_is_idempotent_then_404() {
     let org = create_org(&http, &srv, &jwt).await;
 
     let created: Value = http
-        .post(format!("{}/api/business/organizations/{}/projects", base(&srv), org))
+        .post(format!(
+            "{}/api/business/organizations/{}/projects",
+            base(&srv),
+            org
+        ))
         .bearer_auth(&jwt)
         .json(&json!({ "name": "Doomed" }))
         .send()
@@ -201,7 +215,11 @@ async fn delete_is_idempotent_then_404() {
 
     // First delete archives it (2xx); a second delete finds nothing live → 404.
     let first = http.delete(&url).bearer_auth(&jwt).send().await.unwrap();
-    assert!(first.status().is_success(), "first delete: {}", first.status());
+    assert!(
+        first.status().is_success(),
+        "first delete: {}",
+        first.status()
+    );
     let second = http.delete(&url).bearer_auth(&jwt).send().await.unwrap();
     assert_eq!(second.status(), 404);
 }
