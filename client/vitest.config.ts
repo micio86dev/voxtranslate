@@ -34,6 +34,15 @@ export default defineConfig({
         // Voice-command timer: only the pure intent parser + formatters — the
         // CallTimer badge/countdown needs a DOM (covered manually) (spec 0052).
         'src/scripts/timer-intent.ts',
+        // Stable per-tab peer identity: pure id/sessionStorage helpers (#219).
+        'src/scripts/peer-id.ts',
+        // UI i18n: synchronous dict lookup + locale switch + DOM application
+        // (applyI18n tested under jsdom via a per-file env override) (spec 0102).
+        'src/scripts/i18n.ts',
+        // Sound cues: Web Audio scheduling, driven via a fake AudioContext.
+        'src/scripts/sfx.ts',
+        // Whiteboard export: pure PDF assembler + canvas→PNG/download helpers (spec 0062).
+        'src/scripts/wb-export.ts',
       ],
       reporter: ['text', 'json-summary'],
       reportsDirectory: './coverage-unit',

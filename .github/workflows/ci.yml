@@ -74,7 +74,7 @@ jobs:
           # with-keys figure). `llvm-cov test` also runs the full test suite, so this
           # replaces the plain `cargo test`. Ratchet the floor up as coverage grows.
           # (Supersedes the dormant, secret-gated 85% gate in the `e2e` job below.)
-          cargo llvm-cov test --locked --fail-under-lines 68
+          cargo llvm-cov test --locked --fail-under-lines 69
 
       - name: Node
         uses: actions/setup-node@v6

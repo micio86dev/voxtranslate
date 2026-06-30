@@ -709,3 +709,64 @@ pub async fn cancel(
     );
     Ok(axum::http::StatusCode::NO_CONTENT.into_response())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::TimeZone;
+
+    fn rec(freq: &str, interval: Option<i32>, count: Option<i32>, until: Option<DateTime<Utc>>) -> Recurrence {
+        Recurrence {
+            freq: freq.into(),
+            interval,
+            count,
+            until,
+        }
+    }
+
+    #[test]
+    fn rrule_basic_frequencies_case_insensitive() {
+        assert_eq!(build_rrule(&rec("daily", None, None, None)).unwrap(), vec!["RRULE:FREQ=DAILY"]);
+        assert_eq!(build_rrule(&rec("Weekly", None, None, None)).unwrap(), vec!["RRULE:FREQ=WEEKLY"]);
+        assert_eq!(build_rrule(&rec("MONTHLY", None, None, None)).unwrap(), vec!["RRULE:FREQ=MONTHLY"]);
+    }
+
+    #[test]
+    fn rrule_invalid_frequency_is_none() {
+        assert!(build_rrule(&rec("YEARLY", None, None, None)).is_none());
+        assert!(build_rrule(&rec("", None, None, None)).is_none());
+    }
+
+    #[test]
+    fn rrule_interval_only_emitted_above_one() {
+        // interval 1 (and <1, clamped to 1) → no INTERVAL token.
+        assert_eq!(build_rrule(&rec("DAILY", Some(1), None, None)).unwrap()[0], "RRULE:FREQ=DAILY");
+        assert_eq!(build_rrule(&rec("DAILY", Some(0), None, None)).unwrap()[0], "RRULE:FREQ=DAILY");
+        // interval > 1 → INTERVAL token present.
+        assert_eq!(
+            build_rrule(&rec("WEEKLY", Some(2), None, None)).unwrap()[0],
+            "RRULE:FREQ=WEEKLY;INTERVAL=2"
+        );
+    }
+
+    #[test]
+    fn rrule_count_clamped_and_takes_precedence_over_until() {
+        let until = Utc.with_ymd_and_hms(2030, 1, 2, 3, 4, 5).unwrap();
+        // count wins over until when both set; positive count passes through.
+        let r = build_rrule(&rec("DAILY", None, Some(5), Some(until))).unwrap();
+        assert_eq!(r[0], "RRULE:FREQ=DAILY;COUNT=5");
+        // count clamped to the 730 cap.
+        let r = build_rrule(&rec("DAILY", None, Some(10_000), None)).unwrap();
+        assert_eq!(r[0], "RRULE:FREQ=DAILY;COUNT=730");
+        // count <= 0 is ignored (filtered), so `until` is used instead.
+        let r = build_rrule(&rec("DAILY", None, Some(0), Some(until))).unwrap();
+        assert_eq!(r[0], "RRULE:FREQ=DAILY;UNTIL=20300102T030405Z");
+    }
+
+    #[test]
+    fn rrule_until_formatted_as_utc_basic() {
+        let until = Utc.with_ymd_and_hms(2027, 12, 31, 23, 59, 0).unwrap();
+        let r = build_rrule(&rec("MONTHLY", Some(3), None, Some(until))).unwrap();
+        assert_eq!(r[0], "RRULE:FREQ=MONTHLY;INTERVAL=3;UNTIL=20271231T235900Z");
+    }
+}

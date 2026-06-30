@@ -46,4 +46,33 @@ describe('resolvePeerId (#219 reconnect identity)', () => {
   it('freshPeerId returns distinct ids', () => {
     expect(freshPeerId()).not.toBe(freshPeerId());
   });
+
+  it('freshPeerId falls back to Math.random when crypto.randomUUID is unavailable', () => {
+    vi.stubGlobal('crypto', {}); // no randomUUID
+    expect(freshPeerId()).toMatch(/^id-/);
+    vi.unstubAllGlobals();
+  });
+
+  it('defaults to sessionStorage when present (no explicit storage passed)', () => {
+    vi.stubGlobal('sessionStorage', memStorage({ [PEER_ID_KEY]: 'peer-tab' }));
+    expect(resolvePeerId()).toBe('peer-tab');
+    vi.unstubAllGlobals();
+  });
+
+  it('defaults to an ephemeral id when sessionStorage is absent', () => {
+    // node has no sessionStorage global → safeSessionStorage() returns null.
+    expect(resolvePeerId()).toBeTruthy();
+  });
+
+  it('survives sessionStorage access throwing (sandboxed iframe)', () => {
+    Object.defineProperty(globalThis, 'sessionStorage', {
+      configurable: true,
+      get() {
+        throw new Error('access denied');
+      },
+    });
+    expect(resolvePeerId()).toBeTruthy();
+    // @ts-expect-error cleanup the throwing accessor
+    delete globalThis.sessionStorage;
+  });
 });

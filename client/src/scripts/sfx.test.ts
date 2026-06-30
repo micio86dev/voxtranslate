@@ -123,6 +123,24 @@ describe('sfx', () => {
     expect(created[0].frequency.value).toBeGreaterThan(created[1].frequency.value);
   });
 
+  it('playTimerSetSound plays two rising triangle tones (spec 0052)', async () => {
+    installAudioContext('running');
+    const sfx = await loadSfx();
+    sfx.playTimerSetSound();
+    expect(created.length).toBe(2);
+    expect(created[0].type).toBe('triangle');
+    // Rising acknowledgement: second tone higher than the first.
+    expect(created[1].frequency.value).toBeGreaterThan(created[0].frequency.value);
+  });
+
+  it('playTimerDoneSound plays a four-tone alarm (spec 0052)', async () => {
+    installAudioContext('running');
+    const sfx = await loadSfx();
+    sfx.playTimerDoneSound();
+    expect(created.length).toBe(4);
+    expect(created[0].type).toBe('triangle');
+  });
+
   it('setSfxEnabled(false) silences cues, true restores them', async () => {
     installAudioContext('running');
     const sfx = await loadSfx();
