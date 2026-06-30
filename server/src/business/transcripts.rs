@@ -1085,7 +1085,7 @@ mod naming_tests {
         let segments = vec![seg("0", "please review the attached report", 0, 3000)];
         let realtime = vec![nu("Maria", "report submitted yesterday", 60_000)];
         let map = map_clusters_to_names(&segments, &realtime);
-        assert!(map.get("0").is_none());
+        assert!(!map.contains_key("0"));
     }
 
     #[test]
