@@ -76,6 +76,15 @@ jobs:
           # (Supersedes the dormant, secret-gated 85% gate in the `e2e` job below.)
           cargo llvm-cov test --locked --fail-under-lines 69
 
+      # The llvm-cov-instrumented build (one large binary per integration test) is
+      # done with above; drop it so the client `npm ci` + build have disk headroom
+      # on the ~14 GB runner. Not cached by rust-cache (it caches the default target).
+      - name: Reclaim disk before client steps
+        run: |
+          df -h / | tail -1
+          rm -rf server/target/llvm-cov-target
+          df -h / | tail -1
+
       - name: Node
         uses: actions/setup-node@v6
         with:
