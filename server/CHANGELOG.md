@@ -4,6 +4,22 @@ All notable changes to the VoxTranslate server are documented here. The version
 is the umbrella release version (anchored on this crate's `Cargo.toml`). This log
 starts at 1.11.4; for earlier history see the `vX.Y.Z` git tags.
 
+## [1.11.8] — 2026-06-30
+
+### Fixed
+- **Diarized transcripts showed "Speaker 1/2/…" instead of real names.** The
+  post-call transcription labelled each utterance by Deepgram's integer
+  voice-cluster index and stored that, so the dashboard transcript view and the
+  TXT/PDF exports never showed who actually spoke — even though the names are
+  captured live in `transcript_events`. Each diarized cluster is now attributed
+  to a real participant by matching its utterances against the realtime
+  transcript (shared content words, reinforced by timestamp overlap) and taking
+  the cluster's top-voted name; a cluster with no confident evidence keeps its
+  "Speaker N" placeholder. Applied both in the transcription job (new transcripts
+  store real names — search embeddings benefit too) and on the fly when reading/
+  exporting, so existing transcripts get real names with no data migration.
+  Pre-existing cached translations keep their baked-in labels until re-translated.
+
 ## [1.11.7] — 2026-06-30
 
 Follow-ups to the 1.11.6 recording/transcript release.
