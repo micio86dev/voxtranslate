@@ -56,6 +56,7 @@
   "tierEstMinutes": "≈ {min} min",
   "tierTopUp": "Top up credits",
   "camMicDenied": "Camera/microphone access denied",
+  "webrtcUnsupported": "This browser can't make video calls. Please open the link directly in Chrome or Safari.",
   "connecting": "Connecting…",
   "roomFull": "This room is full (max 4)",
   "createOrJoin": "Create or join a room",

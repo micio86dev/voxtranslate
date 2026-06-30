@@ -200,6 +200,50 @@ async fn upload_url_happy_and_disabled() {
 }
 
 #[tokio::test]
+async fn upload_url_falls_back_to_live_room_binding() {
+    // Regression: the call's frozen snapshot is `false` (the call_sessions row
+    // materialized before recording was turned on, and session_started is
+    // ON CONFLICT DO NOTHING so it never updates), but the room's CURRENT binding has
+    // recording enabled. upload-url must authorize off the live binding, not the stale
+    // call flag — otherwise an in-progress room is permanently un-recordable.
+    let mock = spawn_mock(SIGN_UPLOAD_OK).await;
+    let srv = skip_without_db!(setup(&mock).await);
+    let (uid, jwt) = user(&srv).await;
+    let org = make_org(&srv, uid).await;
+
+    let call = make_call(&srv, org, false).await; // frozen flag = false
+    let room: String = sqlx::query_scalar("SELECT room FROM call_sessions WHERE id = $1")
+        .bind(call)
+        .fetch_one(&srv.pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO room_business_bindings (room, org_id, cloud_recording_enabled, created_by)
+         VALUES ($1, $2, TRUE, $3)",
+    )
+    .bind(&room)
+    .bind(org)
+    .bind(uid)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+
+    let r = Client::new()
+        .post(format!(
+            "{}/api/business/rooms/{}/recording/upload-url",
+            base(&srv),
+            call
+        ))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 200, "live room binding should authorize the upload");
+    let v: Value = r.json().await.unwrap();
+    assert!(v["upload_url"].as_str().unwrap().contains("token=up123"));
+}
+
+#[tokio::test]
 async fn playback_url_happy_and_missing() {
     let mock = spawn_mock(SIGN_DOWNLOAD_OK).await;
     let srv = skip_without_db!(setup(&mock).await);

@@ -56,6 +56,7 @@
   "tierEstMinutes": "≈ {min} min",
   "tierTopUp": "Tegoed bijvullen",
   "camMicDenied": "Toegang tot camera/microfoon geweigerd",
+  "webrtcUnsupported": "Deze browser kan geen videogesprekken voeren. Open de link rechtstreeks in Chrome of Safari.",
   "connecting": "Verbinden…",
   "roomFull": "Deze kamer is vol (max. 4)",
   "createOrJoin": "Maak of betreed een kamer",

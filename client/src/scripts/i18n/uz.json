@@ -56,6 +56,7 @@
   "tierEstMinutes": "≈ {min} daq",
   "tierTopUp": "Kredit to'ldirish",
   "camMicDenied": "Kamera/mikrofonga ruxsat berilmadi",
+  "webrtcUnsupported": "Bu brauzer video qoʻngʻiroqlar qila olmaydi. Iltimos, havolani toʻgʻridan-toʻgʻri Chrome yoki Safari'da oching.",
   "connecting": "Ulanmoqda…",
   "roomFull": "Bu xona to'la (eng ko'pi 4)",
   "createOrJoin": "Xona yarating yoki qo'shiling",

@@ -56,6 +56,7 @@
   "tierEstMinutes": "≈ {min} nkeji",
   "tierTopUp": "Tinyekwuo kredit",
   "camMicDenied": "Ajụrụ ohere igwefoto/maịkrofoonu",
+  "webrtcUnsupported": "Ihe nchọgharị a enweghị ike ịkpọ oku vidiyo. Biko mepee njikọ ahụ ozugbo na Chrome maọbụ Safari.",
   "connecting": "Na-ejikọ…",
   "roomFull": "Ụlọ a ejupụtala (kacha 4)",
   "createOrJoin": "Mepụta ma ọ bụ sonye n'ụlọ",

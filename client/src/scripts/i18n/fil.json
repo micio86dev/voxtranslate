@@ -56,6 +56,7 @@
   "tierEstMinutes": "≈ {min} min",
   "tierTopUp": "Mag-top up ng credits",
   "camMicDenied": "Tinanggihan ang access sa camera/mikropono",
+  "webrtcUnsupported": "Hindi makakagawa ng video call ang browser na ito. Pakibuksan ang link nang direkta sa Chrome o Safari.",
   "connecting": "Kumokonekta…",
   "roomFull": "Puno na ang room na ito (max 4)",
   "createOrJoin": "Gumawa o sumali sa room",

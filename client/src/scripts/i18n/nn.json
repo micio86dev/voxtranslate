@@ -56,6 +56,7 @@
   "tierEstMinutes": "≈ {min} min",
   "tierTopUp": "Fyll på kredittar",
   "camMicDenied": "Tilgang til kamera/mikrofon vart nekta",
+  "webrtcUnsupported": "Denne nettlesaren kan ikkje ringe videosamtalar. Opne lenkja direkte i Chrome eller Safari.",
   "connecting": "Koplar til…",
   "roomFull": "Dette rommet er fullt (maks. 4)",
   "createOrJoin": "Opprett eller bli med i eit rom",

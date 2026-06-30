@@ -56,6 +56,7 @@
   "tierEstMinutes": "≈ {min} min",
   "tierTopUp": "Tambah kredit",
   "camMicDenied": "Akses kamera/mikrofon dinafikan",
+  "webrtcUnsupported": "Pelayar ini tidak dapat membuat panggilan video. Sila buka pautan terus dalam Chrome atau Safari.",
   "connecting": "Menyambung…",
   "roomFull": "Bilik ini penuh (maksimum 4)",
   "createOrJoin": "Cipta atau sertai bilik",

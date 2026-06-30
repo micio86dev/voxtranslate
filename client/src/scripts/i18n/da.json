@@ -56,6 +56,7 @@
   "tierEstMinutes": "≈ {min} min.",
   "tierTopUp": "Fyld kreditter op",
   "camMicDenied": "Adgang til kamera/mikrofon nægtet",
+  "webrtcUnsupported": "Denne browser kan ikke foretage videoopkald. Åbn linket direkte i Chrome eller Safari.",
   "connecting": "Opretter forbindelse…",
   "roomFull": "Dette rum er fuldt (maks. 4)",
   "createOrJoin": "Opret eller deltag i et rum",

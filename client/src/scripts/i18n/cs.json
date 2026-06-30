@@ -56,6 +56,7 @@
   "tierEstMinutes": "≈ {min} min",
   "tierTopUp": "Dobít kredity",
   "camMicDenied": "Přístup ke kameře/mikrofonu byl zamítnut",
+  "webrtcUnsupported": "Tento prohlížeč neumí videohovory. Otevřete prosím odkaz přímo v prohlížeči Chrome nebo Safari.",
   "connecting": "Připojování…",
   "roomFull": "Tato místnost je plná (max. 4)",
   "createOrJoin": "Vytvořte nebo se připojte k místnosti",

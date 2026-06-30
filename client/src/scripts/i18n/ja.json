@@ -56,6 +56,7 @@
   "tierEstMinutes": "約 {min} 分",
   "tierTopUp": "クレジットを補充",
   "camMicDenied": "カメラ／マイクへのアクセスが拒否されました",
+  "webrtcUnsupported": "このブラウザではビデオ通話ができません。リンクを Chrome または Safari で直接開いてください。",
   "connecting": "接続中…",
   "roomFull": "ルームが満員です（最大4人）",
   "createOrJoin": "ルームを作成または参加",

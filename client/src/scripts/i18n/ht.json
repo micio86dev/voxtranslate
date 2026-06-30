@@ -56,6 +56,7 @@
   "tierEstMinutes": "≈ {min} min",
   "tierTopUp": "Ajoute kredi",
   "camMicDenied": "Aksè kamera/mikwofòn refize",
+  "webrtcUnsupported": "Navigatè sa a pa ka fè apèl videyo. Tanpri ouvri lyen an dirèkteman nan Chrome oswa Safari.",
   "connecting": "K ap konekte…",
   "roomFull": "Sal sa a plen (maksimòm 4)",
   "createOrJoin": "Kreye oswa antre nan yon sal",

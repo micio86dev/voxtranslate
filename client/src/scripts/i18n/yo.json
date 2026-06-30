@@ -56,6 +56,7 @@
   "tierEstMinutes": "≈ {min} ìṣẹ́jú",
   "tierTopUp": "Fi kírẹ́dítì kún",
   "camMicDenied": "A kọ̀ ọ̀nà sí kámẹ́rà/máíkùrófóònù",
+  "webrtcUnsupported": "Ẹrọ aṣàwákiri yìí kò lè ṣe ìpè fídíò. Jọ̀wọ́ ṣí ọ̀nà àsopọ̀ náà tààrà nínú Chrome tàbí Safari.",
   "connecting": "Ń darapọ̀…",
   "roomFull": "Yàrá yìí ti kún (4 ni ó pọ̀ jù)",
   "createOrJoin": "Ṣẹ̀dá tàbí darapọ̀ mọ́ yàrá kan",

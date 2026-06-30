@@ -56,6 +56,7 @@
   "tierEstMinutes": "≈ {min} min.",
   "tierTopUp": "Papildyti kreditus",
   "camMicDenied": "Prieiga prie kameros/mikrofono uždrausta",
+  "webrtcUnsupported": "Ši naršyklė negali atlikti vaizdo skambučių. Atidarykite nuorodą tiesiogiai naršyklėje Chrome arba Safari.",
   "connecting": "Jungiamasi…",
   "roomFull": "Šis kambarys pilnas (daugiausia 4)",
   "createOrJoin": "Sukurkite kambarį arba prie jo prisijunkite",

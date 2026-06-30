@@ -56,6 +56,7 @@
   "tierEstMinutes": "≈ {min} मिनिटे",
   "tierTopUp": "क्रेडिट जोडा",
   "camMicDenied": "कॅमेरा/मायक्रोफोन प्रवेश नाकारला",
+  "webrtcUnsupported": "हा ब्राउझर व्हिडिओ कॉल करू शकत नाही. कृपया लिंक थेट Chrome किंवा Safari मध्ये उघडा.",
   "connecting": "कनेक्ट होत आहे…",
   "roomFull": "हा रूम भरला आहे (कमाल 4)",
   "createOrJoin": "रूम तयार करा किंवा सामील व्हा",

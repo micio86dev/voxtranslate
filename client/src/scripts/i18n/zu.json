@@ -56,6 +56,7 @@
   "tierEstMinutes": "≈ imizuzu engu-{min}",
   "tierTopUp": "Faka amakhredithi",
   "camMicDenied": "Ukufinyelela kwekhamera/imakrofoni kunqatshiwe",
+  "webrtcUnsupported": "Lesi siphequluli asikwazi ukwenza amakholi evidiyo. Sicela uvule isixhumanisi ngqo ku-Chrome noma i-Safari.",
   "connecting": "Kuyaxhumana…",
   "roomFull": "Leli kamelo ligcwele (okungenani 4)",
   "createOrJoin": "Dala noma ujoyine ikamelo",

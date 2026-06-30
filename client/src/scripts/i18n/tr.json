@@ -56,6 +56,7 @@
   "tierEstMinutes": "≈ {min} dk",
   "tierTopUp": "Kredi yükle",
   "camMicDenied": "Kamera/mikrofon erişimi reddedildi",
+  "webrtcUnsupported": "Bu tarayıcı görüntülü arama yapamıyor. Lütfen bağlantıyı doğrudan Chrome veya Safari'de açın.",
   "connecting": "Bağlanılıyor…",
   "roomFull": "Bu oda dolu (en fazla 4)",
   "createOrJoin": "Oda oluşturun veya katılın",

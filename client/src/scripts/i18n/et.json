@@ -56,6 +56,7 @@
   "tierEstMinutes": "≈ {min} min",
   "tierTopUp": "Lisa krediiti",
   "camMicDenied": "Kaamera/mikrofoni juurdepääs keelatud",
+  "webrtcUnsupported": "See brauser ei saa videokõnesid teha. Palun ava link otse Chrome'is või Safaris.",
   "connecting": "Ühendamine…",
   "roomFull": "See ruum on täis (max 4)",
   "createOrJoin": "Loo või liitu ruumiga",

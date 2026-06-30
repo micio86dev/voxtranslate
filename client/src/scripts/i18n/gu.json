@@ -56,6 +56,7 @@
   "tierEstMinutes": "≈ {min} મિનિટ",
   "tierTopUp": "ક્રેડિટ ઉમેરો",
   "camMicDenied": "કૅમેરા/માઇક્રોફોન ઍક્સેસ નકારી",
+  "webrtcUnsupported": "આ બ્રાઉઝર વિડિઓ કૉલ કરી શકતું નથી. કૃપા કરીને લિંકને સીધી Chrome અથવા Safari માં ખોલો.",
   "connecting": "કનેક્ટ થઈ રહ્યું છે…",
   "roomFull": "આ રૂમ ભરાઈ ગયો છે (મહત્તમ 4)",
   "createOrJoin": "રૂમ બનાવો અથવા જોડાઓ",
