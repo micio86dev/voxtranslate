@@ -238,7 +238,11 @@ async fn upload_url_falls_back_to_live_room_binding() {
         .send()
         .await
         .unwrap();
-    assert_eq!(r.status(), 200, "live room binding should authorize the upload");
+    assert_eq!(
+        r.status(),
+        200,
+        "live room binding should authorize the upload"
+    );
     let v: Value = r.json().await.unwrap();
     assert!(v["upload_url"].as_str().unwrap().contains("token=up123"));
 }
