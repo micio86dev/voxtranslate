@@ -4,6 +4,20 @@ All notable changes to the VoxTranslate server are documented here. The version
 is the umbrella release version (anchored on this crate's `Cargo.toml`). This log
 starts at 1.11.4; for earlier history see the `vX.Y.Z` git tags.
 
+## [1.11.9] — 2026-06-30
+
+### Added
+- **Durable RLS lockdown for new public tables.** Supabase re-flagged
+  `rls_disabled_in_public` on staging + prod: the sqlx migrations already lock
+  every app table, but new Directus collections (and any table created after the
+  last manual lockdown) land RLS-off. New `infra/supabase/rls-lockdown-cron.sql`
+  installs `public.enforce_public_rls()` and a nightly `pg_cron` job that enables
+  RLS on any RLS-off public table and revokes `anon`/`authenticated` — idempotent,
+  and locks down immediately on first run. A secret-guarded
+  `POST /api/admin/rls/enforce` endpoint plus a Directus `collections.create` Flow
+  (`directus/setup-rls-lockdown-flow.mjs`) lock a freshly-created collection within
+  seconds rather than waiting for the nightly job.
+
 ## [1.11.8] — 2026-06-30
 
 ### Fixed
