@@ -632,6 +632,7 @@ pub fn app(state: AppState) -> Router {
         )
         .route("/api/admin/report/resolve", post(admin::resolve_report))
         .route("/api/admin/user/delete", post(admin::delete_user))
+        .route("/api/admin/rls/enforce", post(admin::enforce_rls))
         // Internal benchmark endpoint (spec 0107) — guarded by `BENCH_SECRET`
         // (404 when unset, 401 on a wrong token); intentionally undocumented.
         .route("/internal/bench/translate", post(bench::translate))
