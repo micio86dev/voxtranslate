@@ -51,9 +51,15 @@ async fn make_user(srv: &Server) -> (Uuid, String) {
         name: "Admin Target".into(),
         avatar_url: None,
     };
-    let u = upsert_google_user(&srv.pool, &identity, rust_decimal::Decimal::ZERO, None, None)
-        .await
-        .unwrap();
+    let u = upsert_google_user(
+        &srv.pool,
+        &identity,
+        rust_decimal::Decimal::ZERO,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
     let jwt = issue_jwt(SECRET, &u.id, &u.email, &u.name, 168).unwrap();
     (u.id, jwt)
 }
@@ -117,7 +123,11 @@ async fn admin_auth_gate() {
         .send()
         .await
         .unwrap();
-    assert!(ok.status().is_success(), "bearer admin auth: {}", ok.status());
+    assert!(
+        ok.status().is_success(),
+        "bearer admin auth: {}",
+        ok.status()
+    );
 }
 
 #[tokio::test]
@@ -127,43 +137,73 @@ async fn ban_unban_credit_bonus_delete() {
     let (uid, _) = make_user(&srv).await;
 
     // ban → unban.
-    assert!(admin_post(&http, &srv, "/api/admin/ban", json!({ "user_id": uid, "days": 7, "reason": "abuse" }))
-        .await
-        .status()
-        .is_success());
-    assert!(admin_post(&http, &srv, "/api/admin/unban", json!({ "user_id": uid }))
-        .await
-        .status()
-        .is_success());
+    assert!(admin_post(
+        &http,
+        &srv,
+        "/api/admin/ban",
+        json!({ "user_id": uid, "days": 7, "reason": "abuse" })
+    )
+    .await
+    .status()
+    .is_success());
+    assert!(
+        admin_post(&http, &srv, "/api/admin/unban", json!({ "user_id": uid }))
+            .await
+            .status()
+            .is_success()
+    );
 
     // credit (an adjustment with a reason).
-    assert!(admin_post(&http, &srv, "/api/admin/credit", json!({ "user_id": uid, "amount": 1.5, "reason": "goodwill" }))
-        .await
-        .status()
-        .is_success());
+    assert!(admin_post(
+        &http,
+        &srv,
+        "/api/admin/credit",
+        json!({ "user_id": uid, "amount": 1.5, "reason": "goodwill" })
+    )
+    .await
+    .status()
+    .is_success());
 
     // bonus: positive ok; non-positive rejected.
-    assert!(admin_post(&http, &srv, "/api/admin/bonus", json!({ "user_id": uid, "amount": 2.0 }))
-        .await
-        .status()
-        .is_success());
-    let bad_bonus = admin_post(&http, &srv, "/api/admin/bonus", json!({ "user_id": uid, "amount": -1.0 })).await;
+    assert!(admin_post(
+        &http,
+        &srv,
+        "/api/admin/bonus",
+        json!({ "user_id": uid, "amount": 2.0 })
+    )
+    .await
+    .status()
+    .is_success());
+    let bad_bonus = admin_post(
+        &http,
+        &srv,
+        "/api/admin/bonus",
+        json!({ "user_id": uid, "amount": -1.0 }),
+    )
+    .await;
     assert_eq!(bad_bonus.status(), 400);
 
     // balance reflects credit + bonus (1.5 + 2.0 = 3.5).
-    let bal: rust_decimal::Decimal =
-        sqlx::query_scalar("SELECT balance FROM users WHERE id = $1")
-            .bind(uid)
-            .fetch_one(&srv.pool)
-            .await
-            .unwrap();
-    assert!(bal >= rust_decimal::Decimal::new(35, 1), "balance was {bal}");
+    let bal: rust_decimal::Decimal = sqlx::query_scalar("SELECT balance FROM users WHERE id = $1")
+        .bind(uid)
+        .fetch_one(&srv.pool)
+        .await
+        .unwrap();
+    assert!(
+        bal >= rust_decimal::Decimal::new(35, 1),
+        "balance was {bal}"
+    );
 
     // delete the user (GDPR erase).
-    assert!(admin_post(&http, &srv, "/api/admin/user/delete", json!({ "user_id": uid }))
-        .await
-        .status()
-        .is_success());
+    assert!(admin_post(
+        &http,
+        &srv,
+        "/api/admin/user/delete",
+        json!({ "user_id": uid })
+    )
+    .await
+    .status()
+    .is_success());
     let exists: i64 = sqlx::query_scalar("SELECT count(*) FROM users WHERE id = $1")
         .bind(uid)
         .fetch_one(&srv.pool)

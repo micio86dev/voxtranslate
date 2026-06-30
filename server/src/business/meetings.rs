@@ -715,7 +715,12 @@ mod tests {
     use super::*;
     use chrono::TimeZone;
 
-    fn rec(freq: &str, interval: Option<i32>, count: Option<i32>, until: Option<DateTime<Utc>>) -> Recurrence {
+    fn rec(
+        freq: &str,
+        interval: Option<i32>,
+        count: Option<i32>,
+        until: Option<DateTime<Utc>>,
+    ) -> Recurrence {
         Recurrence {
             freq: freq.into(),
             interval,
@@ -726,9 +731,18 @@ mod tests {
 
     #[test]
     fn rrule_basic_frequencies_case_insensitive() {
-        assert_eq!(build_rrule(&rec("daily", None, None, None)).unwrap(), vec!["RRULE:FREQ=DAILY"]);
-        assert_eq!(build_rrule(&rec("Weekly", None, None, None)).unwrap(), vec!["RRULE:FREQ=WEEKLY"]);
-        assert_eq!(build_rrule(&rec("MONTHLY", None, None, None)).unwrap(), vec!["RRULE:FREQ=MONTHLY"]);
+        assert_eq!(
+            build_rrule(&rec("daily", None, None, None)).unwrap(),
+            vec!["RRULE:FREQ=DAILY"]
+        );
+        assert_eq!(
+            build_rrule(&rec("Weekly", None, None, None)).unwrap(),
+            vec!["RRULE:FREQ=WEEKLY"]
+        );
+        assert_eq!(
+            build_rrule(&rec("MONTHLY", None, None, None)).unwrap(),
+            vec!["RRULE:FREQ=MONTHLY"]
+        );
     }
 
     #[test]
@@ -740,8 +754,14 @@ mod tests {
     #[test]
     fn rrule_interval_only_emitted_above_one() {
         // interval 1 (and <1, clamped to 1) → no INTERVAL token.
-        assert_eq!(build_rrule(&rec("DAILY", Some(1), None, None)).unwrap()[0], "RRULE:FREQ=DAILY");
-        assert_eq!(build_rrule(&rec("DAILY", Some(0), None, None)).unwrap()[0], "RRULE:FREQ=DAILY");
+        assert_eq!(
+            build_rrule(&rec("DAILY", Some(1), None, None)).unwrap()[0],
+            "RRULE:FREQ=DAILY"
+        );
+        assert_eq!(
+            build_rrule(&rec("DAILY", Some(0), None, None)).unwrap()[0],
+            "RRULE:FREQ=DAILY"
+        );
         // interval > 1 → INTERVAL token present.
         assert_eq!(
             build_rrule(&rec("WEEKLY", Some(2), None, None)).unwrap()[0],

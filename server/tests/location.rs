@@ -42,9 +42,15 @@ async fn make_user(srv: &Server) -> (Uuid, String) {
         name: "Geo Tester".into(),
         avatar_url: None,
     };
-    let u = upsert_google_user(&srv.pool, &identity, rust_decimal::Decimal::ZERO, None, None)
-        .await
-        .unwrap();
+    let u = upsert_google_user(
+        &srv.pool,
+        &identity,
+        rust_decimal::Decimal::ZERO,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
     let jwt = issue_jwt(SECRET, &u.id, &u.email, &u.name, 168).unwrap();
     (u.id, jwt)
 }
@@ -110,7 +116,13 @@ async fn rejects_out_of_range_coordinates() {
         json!({ "latitude": 200.0, "longitude": 9.0 }),
         json!({ "latitude": 45.0, "longitude": -999.0 }),
     ] {
-        let res = http.post(&base).bearer_auth(&jwt).json(&bad).send().await.unwrap();
+        let res = http
+            .post(&base)
+            .bearer_auth(&jwt)
+            .json(&bad)
+            .send()
+            .await
+            .unwrap();
         assert_eq!(res.status(), 400, "out-of-range coords must be rejected");
     }
 }

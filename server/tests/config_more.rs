@@ -148,7 +148,10 @@ fn engines_present_with_explicit_overrides() {
     std::env::set_var("CARTESIA_ENHANCED", "yes");
     std::env::set_var("CARTESIA_API_KEY", "sk-car");
     std::env::set_var("CARTESIA_STT_MODEL", "ink-whisper");
-    std::env::set_var("CARTESIA_STT_MODEL_BY_LANG", r#"{"EN":"ink-2","de":"ink-de"}"#);
+    std::env::set_var(
+        "CARTESIA_STT_MODEL_BY_LANG",
+        r#"{"EN":"ink-2","de":"ink-de"}"#,
+    );
     std::env::set_var("CARTESIA_TTS_MODEL", "sonic-x");
     std::env::set_var("CARTESIA_COST_PER_MINUTE", "0.04");
     std::env::set_var("CARTESIA_COST_MARKUP_PERCENT", "85");
@@ -185,7 +188,10 @@ fn engines_present_with_explicit_overrides() {
     assert!((ca.markup - 0.85).abs() < 1e-9);
     assert!(ca.voice_cloning_enabled);
     assert_eq!(ca.default_voice_id.as_deref(), Some("voice-123"));
-    assert_eq!(ca.stt_model_by_lang.get("de").map(String::as_str), Some("ink-de"));
+    assert_eq!(
+        ca.stt_model_by_lang.get("de").map(String::as_str),
+        Some("ink-de")
+    );
     // Endpoint overrides flow through to the URL builders (trailing slash trimmed).
     assert_eq!(ca.access_token_url(), "https://car.example/access-token");
     assert_eq!(ca.clone_voice_url(), "https://car.example/voices/clone");
@@ -226,7 +232,10 @@ fn engines_absent_when_flag_off_even_with_key() {
     assert!(c.openai.is_none());
     assert!(c.google.is_none());
     assert!(c.cartesia.is_none());
-    assert!(c.embeddings.is_some(), "embeddings ride the key, not OPENAI_PRO");
+    assert!(
+        c.embeddings.is_some(),
+        "embeddings ride the key, not OPENAI_PRO"
+    );
     base_env();
 }
 
@@ -239,7 +248,10 @@ fn billing_org_billing_and_calendar() {
     std::env::set_var("JWT_SECRET", "secret");
     std::env::set_var("GOOGLE_CLIENT_SECRET", "gsecret");
     std::env::set_var("GOOGLE_TOKEN_ENC_KEY", ENC_KEY_B64);
-    std::env::set_var("CREDIT_PACKAGES", r#"[{"id":"p","name":"P","price_usd":10,"credits_usd":12,"stripe_price_id":"price_p"}]"#);
+    std::env::set_var(
+        "CREDIT_PACKAGES",
+        r#"[{"id":"p","name":"P","price_usd":10,"credits_usd":12,"stripe_price_id":"price_p"}]"#,
+    );
     std::env::set_var("GUEST_MAX_MINUTES", "30");
     std::env::set_var("ADMIN_API_SECRET", "admin");
     // org billing
@@ -266,8 +278,14 @@ fn billing_org_billing_and_calendar() {
     assert_eq!(ob.price_id("business", "month"), Some("price_bm"));
     assert_eq!(ob.price_id("enterprise", "year"), Some("price_ea"));
     assert_eq!(ob.price_id("business", "weekly"), None);
-    assert_eq!(ob.plan_interval_for_price("price_em"), Some(("enterprise", "month")));
-    assert_eq!(ob.plan_interval_for_price("price_ba"), Some(("business", "year")));
+    assert_eq!(
+        ob.plan_interval_for_price("price_em"),
+        Some(("enterprise", "month"))
+    );
+    assert_eq!(
+        ob.plan_interval_for_price("price_ba"),
+        Some(("business", "year"))
+    );
     assert_eq!(ob.plan_interval_for_price("nope"), None);
     assert_eq!(ob.plan_interval_for_price(""), None);
     // monthly vs annual (12×) grants per plan.
@@ -323,7 +341,10 @@ fn turn_secret_static_and_cloudflare_modes() {
     base_env();
 
     // Secret (coturn) mode: URLs + TURN_SECRET.
-    std::env::set_var("TURN_URLS", "turn:relay.example:3478, ,turn:relay2.example:3478");
+    std::env::set_var(
+        "TURN_URLS",
+        "turn:relay.example:3478, ,turn:relay2.example:3478",
+    );
     std::env::set_var("TURN_SECRET", "hmac-secret");
     std::env::set_var("TURN_TTL_SECS", "1200");
     let t = Config::from_env().unwrap().turn.expect("turn present");
@@ -339,7 +360,10 @@ fn turn_secret_static_and_cloudflare_modes() {
     base_env();
     std::env::set_var("TURN_CLOUDFLARE_KEY_ID", "cf-key");
     std::env::set_var("TURN_CLOUDFLARE_API_TOKEN", "cf-token");
-    let cf = Config::from_env().unwrap().turn.expect("cloudflare turn present");
+    let cf = Config::from_env()
+        .unwrap()
+        .turn
+        .expect("cloudflare turn present");
     assert!(cf.urls.is_empty());
 
     // URLs present but no usable credential → TURN stays off.
@@ -367,7 +391,10 @@ fn core_overrides_origins_and_flags() {
 
     let c = Config::from_env().unwrap();
     assert_eq!(c.port, 8080);
-    assert_eq!(c.allowed_origins, vec!["https://a.example", "https://b.example"]);
+    assert_eq!(
+        c.allowed_origins,
+        vec!["https://a.example", "https://b.example"]
+    );
     assert_eq!(c.app_base_url, "https://app.example"); // trailing slash trimmed
     assert_eq!(c.dashboard_base_url, "https://dash.example");
     assert_eq!(c.translation_model, "my-model");

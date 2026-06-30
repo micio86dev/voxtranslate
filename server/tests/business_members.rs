@@ -52,9 +52,15 @@ async fn user(srv: &Server, name: &str) -> (Uuid, String) {
         name: name.into(),
         avatar_url: None,
     };
-    let u = upsert_google_user(&srv.pool, &identity, rust_decimal::Decimal::ZERO, None, None)
-        .await
-        .unwrap();
+    let u = upsert_google_user(
+        &srv.pool,
+        &identity,
+        rust_decimal::Decimal::ZERO,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
     let jwt = issue_jwt(SECRET, &u.id, &u.email, &u.name, 168).unwrap();
     (u.id, jwt)
 }
@@ -148,7 +154,11 @@ async fn get_invite_missing_expired_and_accepted() {
 
     // Unknown token → 404.
     let missing = http
-        .get(format!("{}/api/business/invites/{}", base(&srv), Uuid::new_v4()))
+        .get(format!(
+            "{}/api/business/invites/{}",
+            base(&srv),
+            Uuid::new_v4()
+        ))
         .send()
         .await
         .unwrap();
@@ -158,7 +168,11 @@ async fn get_invite_missing_expired_and_accepted() {
     let expired_tok = format!("tok-exp-{}", Uuid::new_v4());
     seed_invite(&srv, org, owner, &expired_tok, -1, false).await;
     let expired = http
-        .get(format!("{}/api/business/invites/{}", base(&srv), expired_tok))
+        .get(format!(
+            "{}/api/business/invites/{}",
+            base(&srv),
+            expired_tok
+        ))
         .send()
         .await
         .unwrap();
@@ -168,7 +182,11 @@ async fn get_invite_missing_expired_and_accepted() {
     let accepted_tok = format!("tok-acc-{}", Uuid::new_v4());
     seed_invite(&srv, org, owner, &accepted_tok, 48, true).await;
     let accepted = http
-        .get(format!("{}/api/business/invites/{}", base(&srv), accepted_tok))
+        .get(format!(
+            "{}/api/business/invites/{}",
+            base(&srv),
+            accepted_tok
+        ))
         .send()
         .await
         .unwrap();
@@ -187,7 +205,11 @@ async fn accept_invite_expired_and_member_limit() {
     seed_invite(&srv, org, owner, &exp_tok, -2, false).await;
     let (_u2, u2_jwt) = user(&srv, "Late Joiner").await;
     let late = http
-        .post(format!("{}/api/business/invites/{}/accept", base(&srv), exp_tok))
+        .post(format!(
+            "{}/api/business/invites/{}/accept",
+            base(&srv),
+            exp_tok
+        ))
         .bearer_auth(&u2_jwt)
         .send()
         .await
@@ -199,7 +221,11 @@ async fn accept_invite_expired_and_member_limit() {
     seed_invite(&srv, org, owner, &ok_tok, 48, false).await;
     let (_u3, u3_jwt) = user(&srv, "Over Limit").await;
     let over = http
-        .post(format!("{}/api/business/invites/{}/accept", base(&srv), ok_tok))
+        .post(format!(
+            "{}/api/business/invites/{}/accept",
+            base(&srv),
+            ok_tok
+        ))
         .bearer_auth(&u3_jwt)
         .send()
         .await
@@ -244,12 +270,14 @@ async fn remove_member_guards() {
 
     // A plain member can't remove anyone → 403.
     let (member_id, member_jwt) = user(&srv, "Plain").await;
-    sqlx::query("INSERT INTO organization_members (org_id, user_id, role) VALUES ($1, $2, 'member')")
-        .bind(org)
-        .bind(member_id)
-        .execute(&srv.pool)
-        .await
-        .unwrap();
+    sqlx::query(
+        "INSERT INTO organization_members (org_id, user_id, role) VALUES ($1, $2, 'member')",
+    )
+    .bind(org)
+    .bind(member_id)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
     let by_member = http
         .delete(format!(
             "{}/api/business/organizations/{}/members/{}",
