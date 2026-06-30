@@ -3,8 +3,16 @@
 // cache-first for immutable hashed assets, and cross-origin requests (the
 // Railway API/WebSocket) are left untouched.
 
-const CACHE = 'voxtranslate-v2';
+const CACHE = 'voxtranslate-v3';
 const SHELL = ['/', '/manifest.webmanifest', '/icon.png', '/icon-maskable.png'];
+
+// `respondWith` THROWS "Failed to convert value to 'Response'" if its promise
+// resolves to `undefined` — which a `fetch().catch(() => caches.match(req))` does
+// whenever the network fails AND the cache misses (common on a flaky connection).
+// Coerce any cache miss to a real Response so a failed request degrades to a clean
+// 504 instead of an uncaught service-worker error.
+const OFFLINE = () => new Response('', { status: 504, statusText: 'Offline' });
+const orOffline = (res) => res || OFFLINE();
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -42,7 +50,7 @@ self.addEventListener('fetch', (event) => {
           caches.open(CACHE).then((c) => c.put('/', copy));
           return res;
         })
-        .catch(() => caches.match('/')),
+        .catch(() => caches.match('/').then(orOffline)),
     );
     return;
   }
@@ -53,18 +61,20 @@ self.addEventListener('fetch', (event) => {
       caches.match(req).then(
         (cached) =>
           cached ||
-          fetch(req).then((res) => {
-            const copy = res.clone();
-            caches.open(CACHE).then((c) => c.put(req, copy));
-            return res;
-          }),
+          fetch(req)
+            .then((res) => {
+              const copy = res.clone();
+              caches.open(CACHE).then((c) => c.put(req, copy));
+              return res;
+            })
+            .catch(() => OFFLINE()),
       ),
     );
     return;
   }
 
   // Everything else same-origin: network, fall back to cache.
-  event.respondWith(fetch(req).catch(() => caches.match(req)));
+  event.respondWith(fetch(req).catch(() => caches.match(req).then(orOffline)));
 });
 
 // --- Web Push (spec: scheduled meetings, Phase 1e) ---
