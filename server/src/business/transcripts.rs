@@ -209,6 +209,7 @@ pub async fn get_transcript(
                 .unwrap_or_default();
             Ok(Json(json!({
                 "status": status,
+                "source": "recording",
                 "source_language": t.source_language,
                 "segments": t.segments,
                 "duration_seconds": t.duration_seconds,
@@ -217,8 +218,104 @@ pub async fn get_transcript(
             }))
             .into_response())
         }
-        None => Ok(Json(json!({ "status": status, "segments": [] })).into_response()),
+        // No recording-derived transcript. Fall back to the realtime transcript
+        // captured live during the call (`transcript_events`) so the dashboard shows
+        // the same transcript the call app does — a business call that was never
+        // cloud-recorded still has its live transcript, and the user expects to read
+        // it here. `source: "live"` tells the UI to hide the recording-only tools
+        // (translate/export/playback all read the `transcripts` row, which is absent).
+        None => {
+            let live = live_transcript(pool, session_id).await?;
+            if live.segments.is_empty() {
+                Ok(
+                    Json(json!({ "status": status, "source": "live", "segments": [] }))
+                        .into_response(),
+                )
+            } else {
+                Ok(Json(json!({
+                    "status": "ready",
+                    "source": "live",
+                    "source_language": live.source_language,
+                    "segments": live.segments,
+                    "duration_seconds": live.duration_seconds,
+                    "word_count": live.word_count,
+                    "translated_languages": [],
+                }))
+                .into_response())
+            }
+        }
     }
+}
+
+/// A transcript reconstructed from the realtime `transcript_events` of a call —
+/// the fallback when no cloud recording was made (so no diarized `transcripts`
+/// row exists). Only `speech` events become segments; chat is excluded.
+struct LiveTranscript {
+    source_language: String,
+    segments: Vec<Segment>,
+    duration_seconds: i32,
+    word_count: i32,
+}
+
+async fn live_transcript(
+    pool: &crate::db::Pool,
+    session_id: Uuid,
+) -> Result<LiveTranscript, Response> {
+    let times: Option<(DateTime<Utc>, Option<DateTime<Utc>>)> =
+        sqlx::query_as("SELECT started_at, ended_at FROM call_sessions WHERE id = $1")
+            .bind(session_id)
+            .fetch_optional(pool)
+            .await
+            .map_err(db_err)?;
+    let (started_at, ended_at) = times.unwrap_or_else(|| (Utc::now(), None));
+
+    let rows: Vec<(String, String, String, DateTime<Utc>)> = sqlx::query_as(
+        "SELECT speaker_peer_id, speaker_name, original_text, ts
+         FROM transcript_events
+         WHERE session_id = $1 AND event_type = 'speech'
+         ORDER BY ts",
+    )
+    .bind(session_id)
+    .fetch_all(pool)
+    .await
+    .map_err(db_err)?;
+
+    let source_language: String = sqlx::query_scalar(
+        "SELECT lang FROM session_participants WHERE session_id = $1 ORDER BY joined_at LIMIT 1",
+    )
+    .bind(session_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(db_err)?
+    .unwrap_or_else(|| "en".to_string());
+
+    let segments: Vec<Segment> = rows
+        .into_iter()
+        .map(|(speaker_id, speaker_name, text, ts)| {
+            let start_ms = (ts - started_at).num_milliseconds().max(0);
+            Segment {
+                speaker_id,
+                speaker_name,
+                text,
+                start_ms,
+                end_ms: start_ms,
+            }
+        })
+        .collect();
+    let word_count: i32 = segments
+        .iter()
+        .map(|s| s.text.split_whitespace().count() as i32)
+        .sum();
+    let duration_seconds = (ended_at.unwrap_or(started_at) - started_at)
+        .num_seconds()
+        .clamp(0, i32::MAX as i64) as i32;
+
+    Ok(LiveTranscript {
+        source_language,
+        segments,
+        duration_seconds,
+        word_count,
+    })
 }
 
 #[derive(Deserialize)]
