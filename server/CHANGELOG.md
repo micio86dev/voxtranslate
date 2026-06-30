@@ -4,6 +4,30 @@ All notable changes to the VoxTranslate server are documented here. The version
 is the umbrella release version (anchored on this crate's `Cargo.toml`). This log
 starts at 1.11.4; for earlier history see the `vX.Y.Z` git tags.
 
+## [1.11.6] — 2026-06-30
+
+Bug-fix release for the B2B dashboard's call recordings and transcripts (reported
+from production: calls visible in History but with no transcript/recording, and an
+empty project detail).
+
+### Fixed
+- **Recorded business calls were saved locally instead of uploaded to the cloud.**
+  Ending a recorded call via hang-up nulled `activeSessionId` during teardown
+  *before* the async `stopRecording()` resolved, so the cloud-upload gate failed
+  and the recording fell back to a local download — only manual mid-call stops
+  uploaded. `stopRecording` now captures the session id synchronously and the stop
+  is initiated before `activeSessionId` is cleared.
+- **Dashboard showed "no transcript" for calls that were never cloud-recorded.**
+  The transcript endpoint only read the recording-derived `transcripts` row. It now
+  falls back to reconstructing the transcript from the realtime `transcript_events`
+  captured during the call (the same one shown in the call app) and returns
+  `source: "live"` so the dashboard hides the recording-only tools.
+
+### Dashboard (companion release `voxtranslate-dashboard` 0.8.2)
+- Project detail now lists the project's calls (was a hardcoded placeholder).
+- Renders `source: "live"` transcripts; "Enable push" CTA hidden when push is
+  already enabled.
+
 ## [1.11.5] — 2026-06-30
 
 Bug-fix release for three production issues reported from a live call.
