@@ -31,7 +31,11 @@ as $$
 declare
   r record;
 begin
-  -- Enable RLS on every public table that doesn't have it yet.
+  -- Enable RLS on every public table that doesn't have it yet, EXCEPT tables
+  -- managed by an extension (deptype 'e' in pg_depend) — e.g. PostGIS
+  -- `spatial_ref_sys`. Those are owned by `supabase_admin`, so `postgres` can't
+  -- ALTER them ("must be owner of table ..."), which would abort this whole
+  -- function. Extension tables are instead handled by the REVOKE below.
   for r in
     select c.relname
     from pg_class c
@@ -39,12 +43,20 @@ begin
     where n.nspname = 'public'
       and c.relkind in ('r', 'p')   -- ordinary + partitioned tables
       and c.relrowsecurity = false  -- skip tables already locked
+      and not exists (              -- skip extension-managed tables (can't ALTER)
+        select 1 from pg_depend d
+        where d.classid = 'pg_class'::regclass and d.objid = c.oid and d.deptype = 'e'
+      )
   loop
     execute format('alter table public.%I enable row level security;', r.relname);
   end loop;
 
   -- Defense in depth: strip the PostgREST roles' privileges (guarded — these
-  -- roles exist only on Supabase, not in local/CI Postgres).
+  -- roles exist only on Supabase, not in local/CI Postgres). This also closes
+  -- the exposure on extension tables we can't RLS-lock (PostGIS
+  -- `spatial_ref_sys`, which ships with anon/authenticated INSERT/UPDATE/DELETE/
+  -- TRUNCATE grants). A table `postgres` lacks authority to revoke on raises a
+  -- NOTICE, not an error, so the loop above plus these REVOKEs never abort.
   if exists (select 1 from pg_roles where rolname = 'anon') then
     revoke all on all tables    in schema public from anon;
     revoke all on all sequences in schema public from anon;
