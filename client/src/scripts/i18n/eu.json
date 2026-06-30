@@ -56,6 +56,7 @@
   "tierEstMinutes": "≈ {min} min",
   "tierTopUp": "Kargatu kredituak",
   "camMicDenied": "Kamerarako/mikrofonorako sarbidea ukatu da",
+  "webrtcUnsupported": "Nabigatzaile honek ezin du bideo-deirik egin. Mesedez, ireki esteka zuzenean Chrome edo Safari nabigatzailean.",
   "connecting": "Konektatzen…",
   "roomFull": "Gela hau beteta dago (gehienez 4)",
   "createOrJoin": "Sortu edo elkartu gela batera",

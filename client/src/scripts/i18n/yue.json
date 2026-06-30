@@ -56,6 +56,7 @@
   "tierEstMinutes": "≈ {min} 分鐘",
   "tierTopUp": "增值積分",
   "camMicDenied": "相機／麥克風存取被拒",
+  "webrtcUnsupported": "呢個瀏覽器冇辦法打視像電話。請直接喺 Chrome 或者 Safari 打開個連結。",
   "connecting": "連接緊…",
   "roomFull": "呢個房間已滿（最多 4 人）",
   "createOrJoin": "建立或加入房間",

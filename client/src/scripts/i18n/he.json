@@ -56,6 +56,7 @@
   "tierEstMinutes": "≈ {min} דק׳",
   "tierTopUp": "טעינת קרדיטים",
   "camMicDenied": "הגישה למצלמה/מיקרופון נדחתה",
+  "webrtcUnsupported": "דפדפן זה אינו יכול לבצע שיחות וידאו. אנא פתח את הקישור ישירות ב-Chrome או ב-Safari.",
   "connecting": "מתחבר…",
   "roomFull": "החדר מלא (עד 4)",
   "createOrJoin": "צרו חדר או הצטרפו לאחד",

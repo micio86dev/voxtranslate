@@ -139,6 +139,21 @@ const IS_MOBILE =
   (navigator.maxTouchPoints > 1 &&
     /Mac/.test((navigator as unknown as { platform?: string }).platform ?? ''));
 
+// Whether this browser can open a peer connection at all. False in in-app browsers /
+// restricted WebViews that strip WebRTC, privacy setups that delete RTCPeerConnection,
+// and insecure (non-HTTPS) contexts. Gates the join so we show a clear message instead
+// of crashing with "RTCPeerConnection is not a constructor" deep in the mesh. Kept
+// inline (not imported from ./webrtc) so the heavy call module stays lazy-loaded.
+function webrtcSupported(): boolean {
+  const g = globalThis as unknown as {
+    RTCPeerConnection?: unknown;
+    webkitRTCPeerConnection?: unknown;
+  };
+  const hasCtor =
+    typeof g.RTCPeerConnection === 'function' || typeof g.webkitRTCPeerConnection === 'function';
+  return hasCtor && (typeof isSecureContext === 'undefined' || isSecureContext);
+}
+
 // Total video upload budget (bit/s), split per-peer and network-adapted (specs
 // 0030–0032). Tunable via Vercel BUILD-TIME env (PUBLIC_*), falling back to the
 // previous hardcoded values when unset — so behaviour is identical until the env
@@ -1663,6 +1678,15 @@ async function startCall(): Promise<void> {
     return;
   }
   if (!session || !localStream) return;
+  // Bail before entering a call this browser can't run: in-app browsers / restricted
+  // WebViews (the call link opened inside Instagram, Gmail, etc.) and insecure contexts
+  // don't expose RTCPeerConnection, so the mesh would crash on the first peer. Stay on
+  // pre-join and tell the user to open the link in a real browser.
+  if (!webrtcSupported()) {
+    prejoinStatus.textContent = t('webrtcUnsupported');
+    prejoinStatus.classList.add('error');
+    return;
+  }
   // The in-call modules (warmed at pre-join, usually already settled) must be present before we
   // show the call UI. On failure — e.g. the chunk couldn't be fetched offline — stay on pre-join
   // and surface an error instead of entering a broken call (spec 0105).

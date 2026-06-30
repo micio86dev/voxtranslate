@@ -56,6 +56,7 @@
   "tierEstMinutes": "≈ {min} دقیقې",
   "tierTopUp": "د کرېډېټ ډکول",
   "camMicDenied": "کامرې/مایکروفون ته لاسرسی رد شو",
+  "webrtcUnsupported": "دا براوزر نشي کولی ویډیو کالونه وکړي. مهرباني وکړئ لینک مستقیم په Chrome یا Safari کې پرانیزئ.",
   "connecting": "نښلول کېږي…",
   "roomFull": "دا خونه ډکه ده (تر ۴ پورې)",
   "createOrJoin": "خونه جوړه کړئ یا یوې سره یوځای شئ",

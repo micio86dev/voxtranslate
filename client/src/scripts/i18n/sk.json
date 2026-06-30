@@ -56,6 +56,7 @@
   "tierEstMinutes": "≈ {min} min",
   "tierTopUp": "Doplniť kredity",
   "camMicDenied": "Prístup ku kamere/mikrofónu bol zamietnutý",
+  "webrtcUnsupported": "Tento prehliadač nedokáže uskutočňovať videohovory. Otvorte odkaz priamo v prehliadači Chrome alebo Safari.",
   "connecting": "Pripája sa…",
   "roomFull": "Táto miestnosť je plná (max. 4)",
   "createOrJoin": "Vytvorte alebo sa pripojte do miestnosti",

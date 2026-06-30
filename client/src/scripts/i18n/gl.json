@@ -56,6 +56,7 @@
   "tierEstMinutes": "≈ {min} min",
   "tierTopUp": "Recargar créditos",
   "camMicDenied": "Acceso á cámara/micrófono denegado",
+  "webrtcUnsupported": "Este navegador non pode facer videochamadas. Abre a ligazón directamente en Chrome ou Safari.",
   "connecting": "Conectando…",
   "roomFull": "Esta sala está chea (máx. 4)",
   "createOrJoin": "Crea ou únete a unha sala",

@@ -56,6 +56,7 @@
   "tierEstMinutes": "≈ dakika {min}",
   "tierTopUp": "Ongeza salio",
   "camMicDenied": "Ufikiaji wa kamera/maikrofoni umekataliwa",
+  "webrtcUnsupported": "Kivinjari hiki hakiwezi kupiga simu za video. Tafadhali fungua kiungo moja kwa moja katika Chrome au Safari.",
   "connecting": "Inaunganisha…",
   "roomFull": "Chumba hiki kimejaa (kikomo 4)",
   "createOrJoin": "Unda au jiunge na chumba",

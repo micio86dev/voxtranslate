@@ -56,6 +56,7 @@
   "tierEstMinutes": "≈ {min} dəq",
   "tierTopUp": "Kredit yüklə",
   "camMicDenied": "Kamera/mikrofon girişi rədd edildi",
+  "webrtcUnsupported": "Bu brauzer video zəng edə bilmir. Zəhmət olmasa, linki birbaşa Chrome və ya Safari-də açın.",
   "connecting": "Qoşulur…",
   "roomFull": "Bu otaq doludur (maksimum 4)",
   "createOrJoin": "Otaq yaradın və ya qoşulun",

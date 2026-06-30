@@ -56,6 +56,7 @@
   "tierEstMinutes": "≈ {min} min",
   "tierTopUp": "Papildināt kredītus",
   "camMicDenied": "Piekļuve kamerai/mikrofonam liegta",
+  "webrtcUnsupported": "Šī pārlūkprogramma nevar veikt videozvanus. Lūdzu, atveriet saiti tieši pārlūkā Chrome vai Safari.",
   "connecting": "Savieno…",
   "roomFull": "Šī istaba ir pilna (maks. 4)",
   "createOrJoin": "Izveidojiet vai pievienojieties istabai",

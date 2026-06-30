@@ -56,6 +56,7 @@
   "tierEstMinutes": "≈ {min} daq",
   "tierTopUp": "Buuxi krediidh",
   "camMicDenied": "Gelitaanka kamarada/makarafoonka waa la diiday",
+  "webrtcUnsupported": "Browserkani ma samayn karo wicitaanno fiidiyow ah. Fadlan toos ugu fur xiriiriyaha Chrome ama Safari.",
   "connecting": "Waa la xidhiidhinayaa…",
   "roomFull": "Qolkani waa buuxaa (ugu badnaan 4)",
   "createOrJoin": "Abuur ama ku biir qol",

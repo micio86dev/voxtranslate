@@ -56,6 +56,7 @@
   "tierEstMinutes": "≈ {min} منٹ",
   "tierTopUp": "کریڈٹ بھریں",
   "camMicDenied": "کیمرہ/مائیکروفون تک رسائی مسترد",
+  "webrtcUnsupported": "یہ براؤزر ویڈیو کالز نہیں کر سکتا۔ براہ کرم لنک کو براہ راست Chrome یا Safari میں کھولیں۔",
   "connecting": "جوڑا جا رہا ہے…",
   "roomFull": "یہ روم بھرا ہوا ہے (زیادہ سے زیادہ 4)",
   "createOrJoin": "روم بنائیں یا شامل ہوں",

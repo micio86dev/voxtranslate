@@ -56,6 +56,7 @@
   "tierEstMinutes": "≈ {min} min",
   "tierTopUp": "Nadoplati kredite",
   "camMicDenied": "Pristup kameri/mikrofonu odbijen",
+  "webrtcUnsupported": "Ovaj preglednik ne može upućivati videopozive. Molimo otvorite poveznicu izravno u Chromeu ili Safariju.",
   "connecting": "Povezivanje…",
   "roomFull": "Ova soba je puna (najviše 4)",
   "createOrJoin": "Stvorite ili se pridružite sobi",
