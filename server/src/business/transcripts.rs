@@ -10,6 +10,7 @@ use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::FromRow;
+use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
 use crate::business::{
@@ -75,7 +76,7 @@ async fn process(
     let media_url = recordings.create_signed_url(storage_path).await?;
     let result = deepgram::transcribe_url_diarized(&state.http, &state.config, &media_url).await?;
 
-    let segments: Vec<Segment> = result
+    let mut segments: Vec<Segment> = result
         .utterances
         .iter()
         .map(|u| Segment {
@@ -86,6 +87,23 @@ async fn process(
             end_ms: u.end_ms,
         })
         .collect();
+
+    // Deepgram diarization labels voices by an integer cluster index ("Speaker
+    // N"), with no idea who anyone is. Attribute each cluster to a real
+    // participant by matching its utterances against the realtime
+    // `transcript_events` captured during the call (which carry the actual
+    // names). Clusters we can't confidently attribute keep their "Speaker N"
+    // placeholder.
+    let realtime = realtime_named_utterances(pool, session_id)
+        .await
+        .map_err(|e| e.to_string())?;
+    let name_map = map_clusters_to_names(&segments, &realtime);
+    for seg in &mut segments {
+        if let Some(name) = name_map.get(&seg.speaker_id) {
+            seg.speaker_name = name.clone();
+        }
+    }
+
     let source_language = result.language.unwrap_or_else(|| "en".to_string());
     let duration = result.duration_seconds.unwrap_or(0.0).round() as i64;
     let word_count: i64 = segments
@@ -207,11 +225,12 @@ pub async fn get_transcript(
                 .as_object()
                 .map(|o| o.keys().cloned().collect())
                 .unwrap_or_default();
+            let segments = segments_with_names(pool, session_id, &t.segments).await?;
             Ok(Json(json!({
                 "status": status,
                 "source": "recording",
                 "source_language": t.source_language,
-                "segments": t.segments,
+                "segments": segments,
                 "duration_seconds": t.duration_seconds,
                 "word_count": t.word_count,
                 "translated_languages": translated,
@@ -345,11 +364,13 @@ pub async fn translate(
     .map_err(db_err)?
     .ok_or_else(|| not_found("transcript not ready"))?;
 
+    let segments = segments_with_names(pool, session_id, &t.segments).await?;
+
     // Original language → just flatten, no charge.
     if target == t.source_language {
         return Ok(Json(json!({
             "language": target,
-            "text": flatten(&t.segments),
+            "text": flatten(&segments),
             "cached": true,
             "credits_deducted": 0,
         }))
@@ -386,7 +407,7 @@ pub async fn translate(
         credits::OrgCharge::Charged { .. } => {}
     }
 
-    let source_text = flatten(&t.segments);
+    let source_text = flatten(&segments);
     let map = state
         .translator
         .translate_fanout(
@@ -472,7 +493,7 @@ pub async fn export(
                     .and_then(|v| v.as_str())
                     .map(str::to_string)
                     .ok_or_else(|| not_found("no translation for that language"))?,
-                _ => flatten(&t.segments),
+                _ => flatten(&segments_with_names(pool, session_id, &t.segments).await?),
             };
             Ok((
                 [
@@ -497,7 +518,14 @@ pub async fn export(
             .fetch_one(pool)
             .await
             .map_err(db_err)?;
-            let export = build_export(session_id, &meta, &t);
+            let segments = segments_with_names(pool, session_id, &t.segments).await?;
+            let export = build_export(
+                session_id,
+                &meta,
+                &t.source_language,
+                t.duration_seconds.unwrap_or(0),
+                &segments,
+            );
             let doc =
                 pdf::build_pdf_doc(&export, chrono_tz::Tz::UTC, &t.source_language).to_string();
             let render = tokio::task::spawn_blocking(move || pdf::render_transcript_pdf(&doc))
@@ -650,8 +678,8 @@ fn parse_segments(segments: &Value) -> Vec<Segment> {
 }
 
 /// Flatten diarized segments into `Speaker: text` lines.
-fn flatten(segments: &Value) -> String {
-    parse_segments(segments)
+fn flatten(segments: &[Segment]) -> String {
+    segments
         .iter()
         .map(|s| format!("{}: {}", s.speaker_name, s.text))
         .collect::<Vec<_>>()
@@ -662,18 +690,19 @@ fn flatten(segments: &Value) -> String {
 fn build_export(
     session_id: Uuid,
     meta: &(String, DateTime<Utc>, Option<DateTime<Utc>>),
-    t: &TranscriptRow,
+    source_language: &str,
+    duration_seconds: i32,
+    segments: &[Segment],
 ) -> TranscriptExport {
     let (room, started_at, ended_at) = (meta.0.clone(), meta.1, meta.2);
-    let segments = parse_segments(&t.segments);
 
     let mut participants: Vec<ExportParticipant> = Vec::new();
-    for s in &segments {
+    for s in segments {
         if !participants.iter().any(|p| p.id == s.speaker_id) {
             participants.push(ExportParticipant {
                 id: s.speaker_id.clone(),
                 name: s.speaker_name.clone(),
-                language: t.source_language.clone(),
+                language: source_language.to_string(),
             });
         }
     }
@@ -685,9 +714,9 @@ fn build_export(
             ts: started_at + Duration::milliseconds(s.start_ms),
             speaker_id: s.speaker_id.clone(),
             speaker_name: s.speaker_name.clone(),
-            lang: t.source_language.clone(),
+            lang: source_language.to_string(),
             original: s.text.clone(),
-            translations: std::collections::HashMap::new(),
+            translations: HashMap::new(),
         })
         .collect();
 
@@ -697,13 +726,175 @@ fn build_export(
             room_name: room,
             started_at,
             ended_at,
-            duration_seconds: t.duration_seconds.unwrap_or(0) as i64,
+            duration_seconds: duration_seconds as i64,
             participants,
         },
         events,
         bookmarks: Vec::new(),
         exported_at: Utc::now(),
     }
+}
+
+// ---- Real-name attribution for diarized clusters -----------------------------
+
+/// How far a realtime event's timestamp may sit outside a diarized utterance's
+/// window and still count as the same moment. Generous because the cloud
+/// recording starts a beat after the call does (compositor + MediaRecorder
+/// spin-up), so the two clocks share an origin only approximately.
+const ATTRIBUTION_TIME_TOLERANCE_MS: i64 = 8_000;
+
+/// A realtime speech event (from `transcript_events`), carrying the *real*
+/// speaker name and the offset (ms from the call's `started_at`) at which it
+/// was spoken — the evidence we attribute diarized clusters from.
+struct NamedUtterance {
+    name: String,
+    text: String,
+    offset_ms: i64,
+}
+
+/// `true` for the synthetic `"Speaker N"` labels diarization produces, i.e. the
+/// ones we still want to replace with a real name.
+fn is_placeholder_name(name: &str) -> bool {
+    name.strip_prefix("Speaker ")
+        .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+}
+
+/// Content words of an utterance, normalized for matching: lowercased, split on
+/// non-alphanumerics, single characters dropped (they carry no signal and would
+/// match noisily). A set, since we score on *which* words are shared, not counts.
+fn content_token_set(text: &str) -> HashSet<String> {
+    text.split(|c: char| !c.is_alphanumeric())
+        .filter(|t| t.chars().count() >= 2)
+        .map(str::to_lowercase)
+        .collect()
+}
+
+/// Map each diarized cluster id (`Segment.speaker_id`) to the real participant
+/// name, inferred from the realtime transcript. For every diarized utterance we
+/// find the realtime utterance it most likely *is* — most shared content words,
+/// reinforced when the timestamps also line up — and let that vote for the
+/// cluster's name. Each cluster takes its top-voted name.
+///
+/// Conservative by design: a vote needs either two shared words, or one shared
+/// word *and* time agreement, so a lone incidental word ("yes", "okay") can't
+/// mislabel a speaker. Clusters with no qualifying evidence are simply absent
+/// from the map, so the caller keeps their "Speaker N" placeholder rather than
+/// risk a confidently-wrong name.
+fn map_clusters_to_names(
+    segments: &[Segment],
+    realtime: &[NamedUtterance],
+) -> HashMap<String, String> {
+    let rt: Vec<(&NamedUtterance, HashSet<String>)> = realtime
+        .iter()
+        .map(|u| (u, content_token_set(&u.text)))
+        .collect();
+
+    // votes[cluster][name] = summed confidence.
+    let mut votes: HashMap<String, HashMap<String, i64>> = HashMap::new();
+    for seg in segments {
+        let seg_tokens = content_token_set(&seg.text);
+        if seg_tokens.is_empty() {
+            continue;
+        }
+        // The single best-matching realtime utterance for this segment.
+        let mut best: Option<(&str, i64)> = None;
+        for (u, u_tokens) in &rt {
+            let shared = seg_tokens.intersection(u_tokens).count() as i64;
+            if shared == 0 {
+                continue;
+            }
+            let time_ok = u.offset_ms >= seg.start_ms - ATTRIBUTION_TIME_TOLERANCE_MS
+                && u.offset_ms <= seg.end_ms + ATTRIBUTION_TIME_TOLERANCE_MS;
+            if shared < 2 && !time_ok {
+                continue; // one incidental word, clocks disagree → not enough.
+            }
+            let weight = shared * if time_ok { 2 } else { 1 };
+            if best.is_none_or(|(_, w)| weight > w) {
+                best = Some((u.name.as_str(), weight));
+            }
+        }
+        if let Some((name, weight)) = best {
+            *votes
+                .entry(seg.speaker_id.clone())
+                .or_default()
+                .entry(name.to_string())
+                .or_default() += weight;
+        }
+    }
+
+    votes
+        .into_iter()
+        .filter_map(|(cluster, names)| {
+            names
+                .into_iter()
+                .max_by_key(|(_, w)| *w)
+                .map(|(name, _)| (cluster, name))
+        })
+        .collect()
+}
+
+/// Load the call's realtime speech events as [`NamedUtterance`]s (empty if the
+/// call has no `started_at` yet or no realtime transcript).
+async fn realtime_named_utterances(
+    pool: &crate::db::Pool,
+    session_id: Uuid,
+) -> Result<Vec<NamedUtterance>, sqlx::Error> {
+    let started_at: Option<DateTime<Utc>> =
+        sqlx::query_scalar("SELECT started_at FROM call_sessions WHERE id = $1")
+            .bind(session_id)
+            .fetch_optional(pool)
+            .await?;
+    let Some(started_at) = started_at else {
+        return Ok(Vec::new());
+    };
+    let rows: Vec<(String, String, DateTime<Utc>)> = sqlx::query_as(
+        "SELECT speaker_name, original_text, ts
+         FROM transcript_events
+         WHERE session_id = $1 AND event_type = 'speech'
+         ORDER BY ts",
+    )
+    .bind(session_id)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|(name, text, ts)| NamedUtterance {
+            name,
+            text,
+            offset_ms: (ts - started_at).num_milliseconds().max(0),
+        })
+        .collect())
+}
+
+/// Parse the stored diarized segments, attributing any that still carry a
+/// `"Speaker N"` placeholder to a real name from the realtime transcript.
+/// Transcripts produced after real-name attribution already carry real names,
+/// so this is a no-op for them and skips the extra query — the placeholder check
+/// gates it. This is what lets historical exports show real names without a data
+/// migration.
+async fn segments_with_names(
+    pool: &crate::db::Pool,
+    session_id: Uuid,
+    segments_json: &Value,
+) -> Result<Vec<Segment>, Response> {
+    let mut segments = parse_segments(segments_json);
+    if segments
+        .iter()
+        .any(|s| is_placeholder_name(&s.speaker_name))
+    {
+        let realtime = realtime_named_utterances(pool, session_id)
+            .await
+            .map_err(db_err)?;
+        let name_map = map_clusters_to_names(&segments, &realtime);
+        for seg in &mut segments {
+            if is_placeholder_name(&seg.speaker_name) {
+                if let Some(name) = name_map.get(&seg.speaker_id) {
+                    seg.speaker_name = name.clone();
+                }
+            }
+        }
+    }
+    Ok(segments)
 }
 
 /// Validate a language code (lowercase letters / hyphen, ≤ 12 chars).
@@ -788,5 +979,118 @@ mod chunk_tests {
     fn all_empty_yields_no_chunks() {
         let segs = vec![seg("  ", 0, 100, "A"), seg("", 100, 200, "B")];
         assert!(chunk_segments(&segs).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod naming_tests {
+    use super::*;
+
+    fn seg(speaker_id: &str, text: &str, start: i64, end: i64) -> Segment {
+        Segment {
+            speaker_id: speaker_id.to_string(),
+            speaker_name: format!("Speaker {}", speaker_id.parse::<i64>().unwrap_or(0) + 1),
+            text: text.to_string(),
+            start_ms: start,
+            end_ms: end,
+        }
+    }
+
+    fn nu(name: &str, text: &str, offset_ms: i64) -> NamedUtterance {
+        NamedUtterance {
+            name: name.to_string(),
+            text: text.to_string(),
+            offset_ms,
+        }
+    }
+
+    #[test]
+    fn placeholder_detection() {
+        assert!(is_placeholder_name("Speaker 1"));
+        assert!(is_placeholder_name("Speaker 12"));
+        assert!(!is_placeholder_name("Speaker"));
+        assert!(!is_placeholder_name("Speaker "));
+        assert!(!is_placeholder_name("Speaker A"));
+        assert!(!is_placeholder_name("Alessandro"));
+        assert!(!is_placeholder_name("Speaker 1 Smith"));
+    }
+
+    #[test]
+    fn content_tokens_normalize_and_drop_singletons() {
+        let toks = content_token_set("Hello, there! A B12 ok.");
+        assert!(toks.contains("hello"));
+        assert!(toks.contains("there"));
+        assert!(toks.contains("b12"));
+        assert!(toks.contains("ok"));
+        assert!(!toks.contains("a")); // single char dropped
+    }
+
+    #[test]
+    fn maps_two_clusters_to_real_names() {
+        // Cluster "0" speaks the first line, cluster "1" the second; the
+        // realtime transcript carries the real names for the same words.
+        let segments = vec![
+            seg(
+                "0",
+                "the quarterly revenue looks strong this period",
+                0,
+                4000,
+            ),
+            seg(
+                "1",
+                "agreed we should expand the sales team soon",
+                5000,
+                9000,
+            ),
+        ];
+        let realtime = vec![
+            nu(
+                "Alessandro",
+                "the quarterly revenue looks strong this period",
+                200,
+            ),
+            nu("Maria", "agreed we should expand the sales team soon", 5200),
+        ];
+        let map = map_clusters_to_names(&segments, &realtime);
+        assert_eq!(map.get("0"), Some(&"Alessandro".to_string()));
+        assert_eq!(map.get("1"), Some(&"Maria".to_string()));
+    }
+
+    #[test]
+    fn majority_vote_survives_a_noisy_utterance() {
+        // Cluster "0" is Alessandro across three utterances; one short line
+        // happens to share a word with Maria, but the majority still wins.
+        let segments = vec![
+            seg("0", "budget planning for the next fiscal year", 0, 3000),
+            seg("0", "marketing spend needs careful review", 3000, 6000),
+            seg("0", "team agreed", 6000, 7000),
+        ];
+        let realtime = vec![
+            nu(
+                "Alessandro",
+                "budget planning for the next fiscal year",
+                100,
+            ),
+            nu("Alessandro", "marketing spend needs careful review", 3100),
+            nu("Maria", "the whole team agreed completely", 30000),
+        ];
+        let map = map_clusters_to_names(&segments, &realtime);
+        assert_eq!(map.get("0"), Some(&"Alessandro".to_string()));
+    }
+
+    #[test]
+    fn lone_incidental_word_without_time_agreement_does_not_map() {
+        // The only overlap is a single common word, and the timestamps are far
+        // apart — too weak to attribute, so the cluster is left unmapped.
+        let segments = vec![seg("0", "please review the attached report", 0, 3000)];
+        let realtime = vec![nu("Maria", "report submitted yesterday", 60_000)];
+        let map = map_clusters_to_names(&segments, &realtime);
+        assert!(map.get("0").is_none());
+    }
+
+    #[test]
+    fn empty_realtime_maps_nothing() {
+        let segments = vec![seg("0", "some words here", 0, 2000)];
+        assert!(map_clusters_to_names(&segments, &[]).is_empty());
     }
 }
