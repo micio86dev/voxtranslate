@@ -208,8 +208,20 @@ async fn history(
         .filter(|v| !v.is_empty());
 
     let rows: Vec<RoomRow> = sqlx::query_as(
+        // `transcript_status` tracks the recording-derived transcript. A call that
+        // was never cloud-recorded still has a realtime transcript (the detail view
+        // falls back to it), so report 'live' here too — otherwise the list shows
+        // '—' for a call whose transcript opens fine, which reads as a bug.
         "SELECT cs.id, cs.room, cs.started_at, cs.ended_at, cs.project_id,
-                p.name AS project_name, cs.transcript_status,
+                p.name AS project_name,
+                CASE
+                    WHEN cs.transcript_status IN ('ready', 'processing', 'failed')
+                        THEN cs.transcript_status
+                    WHEN EXISTS (SELECT 1 FROM transcript_events te
+                                 WHERE te.session_id = cs.id AND te.event_type = 'speech')
+                        THEN 'live'
+                    ELSE cs.transcript_status
+                END AS transcript_status,
                 (cs.recording_storage_path IS NOT NULL) AS has_recording
          FROM call_sessions cs
          LEFT JOIN projects p ON p.id = cs.project_id

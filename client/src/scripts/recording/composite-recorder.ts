@@ -93,7 +93,13 @@ export class CompositeRecorder {
     for (const id of prev.keys()) if (!next.has(id)) this.mixer.remove(id);
     for (const [id, s] of next) {
       const before = prev.get(id);
-      if (!before || before.stream !== s.stream) this.mixer.add(id, s.stream);
+      // Re-wire the mixer only when the audio TRACK changes — not when the caller
+      // hands a fresh MediaStream wrapper around the same track every tick (else the
+      // self mic node is disconnected/reconnected ~1×/s, which is wasteful and can
+      // glitch the audio). Same root cause as the video flicker fix.
+      const beforeAudio = before?.stream?.getAudioTracks()[0] ?? null;
+      const nextAudio = s.stream?.getAudioTracks()[0] ?? null;
+      if (!before || beforeAudio !== nextAudio) this.mixer.add(id, s.stream);
     }
     this.sources = [...list];
     // The compositor re-tiles from this set and only (re)plays a tile whose
