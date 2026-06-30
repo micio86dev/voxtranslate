@@ -56,6 +56,7 @@
   "tierEstMinutes": "≈ {min} min",
   "tierTopUp": "Vul krediete aan",
   "camMicDenied": "Toegang tot kamera/mikrofoon geweier",
+  "webrtcUnsupported": "Hierdie blaaier kan nie video-oproepe maak nie. Maak die skakel asseblief direk in Chrome of Safari oop.",
   "connecting": "Verbind tans…",
   "roomFull": "Hierdie kamer is vol (maks. 4)",
   "createOrJoin": "Skep of sluit by 'n kamer aan",

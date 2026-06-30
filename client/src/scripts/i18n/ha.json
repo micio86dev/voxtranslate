@@ -56,6 +56,7 @@
   "tierEstMinutes": "≈ minti {min}",
   "tierTopUp": "Cika kuɗi",
   "camMicDenied": "An ƙi damar kyamara/makirufo",
+  "webrtcUnsupported": "Wannan birawza ba zai iya yin kiran bidiyo ba. Da fatan za a buɗe hanyar haɗin kai tsaye a cikin Chrome ko Safari.",
   "connecting": "Ana haɗawa…",
   "roomFull": "Wannan dakin ya cika (matsakaicin 4)",
   "createOrJoin": "Ƙirƙira ko shiga daki",

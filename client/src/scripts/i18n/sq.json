@@ -56,6 +56,7 @@
   "tierEstMinutes": "≈ {min} min",
   "tierTopUp": "Rimbush kreditet",
   "camMicDenied": "Qasja te kamera/mikrofoni u refuzua",
+  "webrtcUnsupported": "Ky shfletues nuk mund të bëjë thirrje me video. Ju lutemi, hapeni lidhjen drejtpërdrejt në Chrome ose Safari.",
   "connecting": "Po lidhet…",
   "roomFull": "Kjo dhomë është plot (maksimumi 4)",
   "createOrJoin": "Krijo ose bashkohu në një dhomë",

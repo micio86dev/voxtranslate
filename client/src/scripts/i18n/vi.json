@@ -56,6 +56,7 @@
   "tierEstMinutes": "≈ {min} phút",
   "tierTopUp": "Nạp thêm tín dụng",
   "camMicDenied": "Quyền truy cập camera/micrô bị từ chối",
+  "webrtcUnsupported": "Trình duyệt này không thể thực hiện cuộc gọi video. Vui lòng mở liên kết trực tiếp trong Chrome hoặc Safari.",
   "connecting": "Đang kết nối…",
   "roomFull": "Phòng này đã đầy (tối đa 4)",
   "createOrJoin": "Tạo hoặc tham gia phòng",

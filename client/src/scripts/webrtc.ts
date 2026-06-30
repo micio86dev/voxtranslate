@@ -13,6 +13,21 @@ const ICE_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun1.l.google.com:19302' },
 ];
 
+/** The `RTCPeerConnection` constructor, with the legacy `webkit`-prefixed fallback.
+ *  Resolved lazily (not at module load) so a stripped environment — an in-app
+ *  browser / restricted WebView, or a privacy setup that deletes the global — can't
+ *  crash the whole bundle on import. `undefined` when the browser exposes neither;
+ *  the join is gated on this up front in app.ts (`webrtcSupported`) so users see a
+ *  clear "open in Chrome/Safari" message instead of an uncaught
+ *  "RTCPeerConnection is not a constructor" crash here in createPeer. */
+function rtcPeerConnectionCtor(): typeof RTCPeerConnection | undefined {
+  const g = globalThis as unknown as {
+    RTCPeerConnection?: typeof RTCPeerConnection;
+    webkitRTCPeerConnection?: typeof RTCPeerConnection;
+  };
+  return g.RTCPeerConnection ?? g.webkitRTCPeerConnection;
+}
+
 /** Floor for the per-stream video cap (spec 0031): below this, video is too
  *  degraded to be worth more dividing — we just send the floor to each peer. */
 const MIN_VIDEO_BITRATE = 200_000;
@@ -154,7 +169,13 @@ export class MeshManager {
    *  sending an offer. Used by addPeer and by handleOffer when an offer arrives
    *  for a peer we haven't set up yet. */
   private createPeer(peerId: string): PeerState {
-    const pc = new RTCPeerConnection({ iceServers: this.iceServers });
+    const Ctor = rtcPeerConnectionCtor();
+    if (!Ctor) {
+      // Should be unreachable: callers gate the join on `webrtcSupported()`. Throw
+      // a clear error rather than the opaque "RTCPeerConnection is not a constructor".
+      throw new Error('WebRTC is not supported in this browser');
+    }
+    const pc = new Ctor({ iceServers: this.iceServers });
     const peer: PeerState = {
       id: peerId,
       pc,

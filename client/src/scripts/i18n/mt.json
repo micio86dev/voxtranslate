@@ -56,6 +56,7 @@
   "tierEstMinutes": "≈ {min} min",
   "tierTopUp": "Żid krediti",
   "camMicDenied": "L-aċċess għall-kamera/mikrofonu ġie miċħud",
+  "webrtcUnsupported": "Dan il-browser ma jistax jagħmel sejħiet bil-vidjo. Jekk jogħġbok iftaħ il-link direttament fi Chrome jew Safari.",
   "connecting": "Qed jgħaqqad…",
   "roomFull": "Din il-kamra hija mimlija (massimu 4)",
   "createOrJoin": "Oħloq jew issieħeb f'kamra",

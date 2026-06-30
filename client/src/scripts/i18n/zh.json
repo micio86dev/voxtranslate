@@ -56,6 +56,7 @@
   "tierEstMinutes": "约 {min} 分钟",
   "tierTopUp": "充值积分",
   "camMicDenied": "摄像头/麦克风访问被拒绝",
+  "webrtcUnsupported": "此浏览器无法进行视频通话。请直接在 Chrome 或 Safari 中打开链接。",
   "connecting": "连接中…",
   "roomFull": "房间已满（最多4人）",
   "createOrJoin": "创建或加入房间",

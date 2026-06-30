@@ -56,6 +56,7 @@
   "tierEstMinutes": "≈ {min} mun",
   "tierTopUp": "Ychwanegu credydau",
   "camMicDenied": "Gwrthodwyd mynediad i'r camera/meicroffon",
+  "webrtcUnsupported": "Ni all y porwr hwn wneud galwadau fideo. Agorwch y ddolen yn uniongyrchol yn Chrome neu Safari.",
   "connecting": "Yn cysylltu…",
   "roomFull": "Mae'r ystafell hon yn llawn (uchafswm 4)",
   "createOrJoin": "Creu neu ymuno ag ystafell",

@@ -56,6 +56,7 @@
   "tierEstMinutes": "≈ {min}분",
   "tierTopUp": "크레딧 충전",
   "camMicDenied": "카메라/마이크 접근이 거부되었습니다",
+  "webrtcUnsupported": "이 브라우저에서는 영상 통화를 할 수 없습니다. Chrome 또는 Safari에서 링크를 직접 열어 주세요.",
   "connecting": "연결 중…",
   "roomFull": "방이 가득 찼습니다(최대 4명)",
   "createOrJoin": "방을 만들거나 참여하세요",

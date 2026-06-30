@@ -45,12 +45,25 @@ pub async fn upload_url(
     let (org_id, _) = require_call_role(pool, session_id, user.user_id, MEMBER).await?;
     let recordings = store(&state)?;
 
-    let enabled: Option<bool> =
-        sqlx::query_scalar("SELECT cloud_recording_enabled FROM call_sessions WHERE id = $1")
-            .bind(session_id)
-            .fetch_optional(pool)
-            .await
-            .map_err(db_err)?;
+    // Authorize against the call's frozen flag OR the room's *current* binding.
+    // `session_started` snapshots `cloud_recording_enabled` into `call_sessions` once
+    // (ON CONFLICT DO NOTHING) and the session id is stable while the room stays
+    // occupied — so a call that materialized before recording was turned on would
+    // otherwise be permanently un-recordable even after the host enables it. Falling
+    // back to the live binding fixes that without weakening the paid-feature gate:
+    // the binding can only be set to true by `bind`, which already requires an active
+    // subscription. The LEFT JOIN keeps consumer rooms (no binding) unchanged.
+    let enabled: Option<bool> = sqlx::query_scalar(
+        "SELECT COALESCE(cs.cloud_recording_enabled, FALSE)
+             OR COALESCE(rb.cloud_recording_enabled, FALSE)
+         FROM call_sessions cs
+         LEFT JOIN room_business_bindings rb ON rb.room = cs.room
+         WHERE cs.id = $1",
+    )
+    .bind(session_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(db_err)?;
     if enabled != Some(true) {
         return Err(forbidden("cloud recording is not enabled for this call"));
     }

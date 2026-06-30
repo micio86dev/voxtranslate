@@ -56,6 +56,7 @@
   "tierEstMinutes": "≈ {min} min",
   "tierTopUp": "Doładuj środki",
   "camMicDenied": "Odmówiono dostępu do kamery/mikrofonu",
+  "webrtcUnsupported": "Ta przeglądarka nie może wykonywać połączeń wideo. Otwórz link bezpośrednio w przeglądarce Chrome lub Safari.",
   "connecting": "Łączenie…",
   "roomFull": "Ten pokój jest pełny (maks. 4)",
   "createOrJoin": "Utwórz lub dołącz do pokoju",

@@ -56,6 +56,7 @@
   "tierEstMinutes": "≈ {min} min",
   "tierTopUp": "Recharger des crédits",
   "camMicDenied": "Accès caméra/micro refusé",
+  "webrtcUnsupported": "Ce navigateur ne peut pas passer d'appels vidéo. Veuillez ouvrir le lien directement dans Chrome ou Safari.",
   "connecting": "Connexion…",
   "roomFull": "Salle pleine (max 4)",
   "createOrJoin": "Créer ou rejoindre une salle",

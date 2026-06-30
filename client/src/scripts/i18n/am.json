@@ -56,6 +56,7 @@
   "tierEstMinutes": "≈ {min} ደቂቃ",
   "tierTopUp": "ክሬዲት ይሙሉ",
   "camMicDenied": "የካሜራ/ማይክሮፎን መዳረሻ ተከልክሏል",
+  "webrtcUnsupported": "ይህ አሳሽ የቪዲዮ ጥሪ ማድረግ አይችልም። እባክዎ አገናኙን በቀጥታ በChrome ወይም Safari ይክፈቱት።",
   "connecting": "በማገናኘት ላይ…",
   "roomFull": "ይህ ክፍል ሞልቷል (ቢበዛ 4)",
   "createOrJoin": "ክፍል ይፍጠሩ ወይም ይቀላቀሉ",

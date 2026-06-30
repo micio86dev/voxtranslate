@@ -56,6 +56,7 @@
   "tierEstMinutes": "≈ {min} min",
   "tierTopUp": "Adaugă credite",
   "camMicDenied": "Acces la cameră/microfon refuzat",
+  "webrtcUnsupported": "Acest browser nu poate efectua apeluri video. Deschide linkul direct în Chrome sau Safari.",
   "connecting": "Se conectează…",
   "roomFull": "Această cameră este plină (max. 4)",
   "createOrJoin": "Creați sau alăturați-vă unei camere",

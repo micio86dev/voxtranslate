@@ -56,6 +56,7 @@
   "tierEstMinutes": "≈ {min} nóim",
   "tierTopUp": "Cuir creidmheasanna leis",
   "camMicDenied": "Diúltaíodh rochtain ar an gceamara/mhicreafón",
+  "webrtcUnsupported": "Ní féidir leis an mbrabhsálaí seo glaonna físe a dhéanamh. Oscail an nasc go díreach i Chrome nó Safari, le do thoil.",
   "connecting": "Á cheangal…",
   "roomFull": "Tá an seomra seo lán (uasmhéid 4)",
   "createOrJoin": "Cruthaigh nó téigh isteach i seomra",
