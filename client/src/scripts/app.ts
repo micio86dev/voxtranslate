@@ -85,6 +85,7 @@ import type { Quiz } from './quiz';
 import { CallTimer, spokenDuration, formatClock } from './timer';
 import { dismissLangToast, initLangDetect, onLanguageDetected } from './lang-detect';
 import { initNetStatus, setNetworkDegraded } from './net-status';
+import { isRestrictedNetwork } from './restricted-net';
 import { toast } from './toast';
 import {
   playCallEnterSound,
@@ -1659,9 +1660,16 @@ $('join-btn').addEventListener('click', () => {
 // returns public STUN plus a time-limited TURN relay when coturn is configured.
 // Passed to the mesh; falls back to the mesh's built-in STUN on failure.
 let iceServers: RTCIceServer[] | undefined;
-async function fetchIceServers(): Promise<RTCIceServer[] | undefined> {
+// Set once per call from the Great-Firewall reachability probe (restricted-net.ts).
+// When true we ask /api/ice for the turns://:443 profile AND force the mesh through
+// relay — scoped to this (China-side) client, so non-China calls are unchanged.
+let restrictedNet = false;
+async function fetchIceServers(restricted: boolean): Promise<RTCIceServer[] | undefined> {
   try {
-    const res = await fetch(`${HTTP_BASE}/api/ice`, { cache: 'no-store' });
+    // Restricted clients get the GFW-survivable profile (turns://:443 TLS relay);
+    // everyone else gets the default response, byte-for-byte as before.
+    const url = restricted ? `${HTTP_BASE}/api/ice?restricted=1` : `${HTTP_BASE}/api/ice`;
+    const res = await fetch(url, { cache: 'no-store' });
     const data = await res.json();
     return Array.isArray(data?.iceServers) ? (data.iceServers as RTCIceServer[]) : undefined;
   } catch {
@@ -1758,9 +1766,13 @@ async function startCall(): Promise<void> {
   }
 
   manualClose = false;
+  // Detect a Great-Firewall-restricted network (reachability probe, not geo-IP) so we
+  // can request the turns://:443 relay + force-relay for this China-side client. Fails
+  // open (false) so it never blocks a normal join. Cached per page load.
+  restrictedNet = await isRestrictedNetwork();
   // Fetch ICE servers (incl. the TURN relay if configured) before opening the
   // socket, so the mesh has them ready when peers arrive — no race (spec 0026).
-  iceServers = await fetchIceServers();
+  iceServers = await fetchIceServers(restrictedNet);
   // Associate this room with the chosen org/project (+recording) before joining,
   // so the server's call_session inherits it (business users only; no-op otherwise).
   await bindRoomIfBusiness();
@@ -1791,6 +1803,9 @@ function openSocket(): void {
       iceServers,
       IS_MOBILE ? VIDEO_BUDGET_MOBILE : VIDEO_BUDGET_DESKTOP, // total upload budget, split per-peer (spec 0030/0031, env-tunable 0044)
       myId, // own id → picks the polite/impolite negotiation role per peer
+      // GFW-restricted client: force every peer connection through the turns://:443 relay,
+      // skipping host/srflx UDP candidates the Great Firewall resets. Undefined otherwise.
+      restrictedNet ? 'relay' : undefined,
     );
     mesh.onNetworkWeak = showWeakNetworkWarning;
     mesh.onRemoteStream = (peerId, stream) => {

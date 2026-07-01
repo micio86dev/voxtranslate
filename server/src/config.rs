@@ -38,6 +38,14 @@ pub struct Config {
     /// (spec 0026 / 0059). Without it the client uses STUN only and cross-NAT
     /// (e.g. cross-border) calls may fail to connect.
     pub turn: Option<TurnConfig>,
+    /// Restricted-network (Great Firewall) TURN profile, returned by
+    /// `/api/ice?restricted=1` to clients that detect a GFW-restricted network. It
+    /// is a `turns://…:443` TLS-on-443 relay (managed Asia PoP or coturn) that looks
+    /// like ordinary HTTPS, so it survives the DPI that resets plain TURN/UDP and
+    /// Cloudflare's 3478/5349 endpoints inside mainland China. Parsed from `TURN_TLS_*`,
+    /// SEPARATELY from `turn` (whose Cloudflare mode has no :443 endpoint). `None` when
+    /// unconfigured — restricted clients then fall back to the default `turn` relay.
+    pub turn_restricted: Option<TurnConfig>,
     /// Recipient for user bug reports (spec 0071). Defaults to the owner's address;
     /// override via `BUG_REPORT_TO`. Email is only sent when `resend` is also set.
     pub bug_report_to: String,
@@ -486,6 +494,47 @@ impl TurnConfig {
         }
         Some(TurnConfig { urls, cred })
     }
+
+    /// Build the restricted-network (GFW) TURN profile from raw values. Pure (no env
+    /// reads) so it's unit-testable. Requires non-empty `urls` (the `turns://…:443`
+    /// relay) AND a resolvable credential — HMAC secret (coturn) preferred, else a
+    /// managed relay's static username/password. Cloudflare is intentionally excluded:
+    /// it offers no `turns://…:443` endpoint, which is the entire reason this profile
+    /// exists. `None` when URLs or a credential are missing.
+    fn restricted(
+        urls: Vec<String>,
+        secret: &str,
+        username: &str,
+        password: &str,
+        ttl_secs: u64,
+    ) -> Option<Self> {
+        if urls.is_empty() {
+            return None;
+        }
+        // Reuse `pick` with Cloudflare disabled → precedence Secret → Static → None.
+        let cred = TurnCred::pick("", "", secret, username, password, ttl_secs)?;
+        Some(TurnConfig { urls, cred })
+    }
+
+    /// Parse the restricted-network TURN profile from `TURN_TLS_URLS` + a credential
+    /// (`TURN_TLS_SECRET`, or `TURN_TLS_USERNAME` + `TURN_TLS_PASSWORD`), sharing
+    /// `TURN_TTL_SECS` with the default relay. `None` unless fully configured, so the
+    /// feature is off by default and the default `turn` path is unaffected.
+    fn restricted_from_env() -> Option<Self> {
+        let urls: Vec<String> = env::var("TURN_TLS_URLS")
+            .unwrap_or_default()
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+        Self::restricted(
+            urls,
+            &env::var("TURN_TLS_SECRET").unwrap_or_default(),
+            &env::var("TURN_TLS_USERNAME").unwrap_or_default(),
+            &env::var("TURN_TLS_PASSWORD").unwrap_or_default(),
+            parse_or("TURN_TTL_SECS", 3600u64),
+        )
+    }
 }
 
 /// Supabase Storage credentials for chat file upload (spec 0018). All-or-nothing
@@ -738,6 +787,9 @@ impl Config {
         // coturn `TURN_SECRET`, or a managed relay's `TURN_USERNAME` + `TURN_PASSWORD`.
         // `from_env` returns None when it's not fully configured.
         let turn = TurnConfig::from_env();
+        // Restricted-network (GFW) profile: a `turns://…:443` TLS relay handed only to
+        // clients that request `/api/ice?restricted=1`. Off unless `TURN_TLS_*` is set.
+        let turn_restricted = TurnConfig::restricted_from_env();
 
         // Per-tier rollout flags (spec 0101): each tier is gated on BOTH its provider
         // key AND a `<PROVIDER>_<TIER>` enable flag, so operators can switch a tier on or
@@ -791,6 +843,7 @@ impl Config {
             resend,
             storage,
             turn,
+            turn_restricted,
             bug_report_to: env::var("BUG_REPORT_TO")
                 .ok()
                 .filter(|s| !s.trim().is_empty())
@@ -1154,6 +1207,7 @@ impl Config {
             resend: None,
             storage: None,
             turn: None,
+            turn_restricted: None,
             bug_report_to: "test@example.com".into(),
             app_base_url: "https://voxtranslate.app".into(),
             dashboard_base_url: "https://dashboard.voxtranslate.app".into(),
@@ -1238,6 +1292,36 @@ mod tests {
         // Static needs BOTH halves; partial / empty config leaves TURN off.
         assert!(TurnCred::pick("", "", "", "user", "", 3600).is_none());
         assert!(TurnCred::pick("", "", "", "", "", 3600).is_none());
+    }
+
+    #[test]
+    fn turn_restricted_profile_needs_urls_and_a_credential_no_cloudflare() {
+        let urls = vec!["turns:relay.example.com:443?transport=tcp".to_string()];
+        // Managed static creds → a Static profile that PRESERVES the :443 URLs (unlike
+        // the Cloudflare default mode, which ignores TURN_URLS).
+        match TurnConfig::restricted(urls.clone(), "", "user", "pass", 3600) {
+            Some(TurnConfig {
+                urls: u,
+                cred: TurnCred::Static { username, password },
+            }) => {
+                assert_eq!(u, urls);
+                assert_eq!(username, "user");
+                assert_eq!(password, "pass");
+            }
+            other => panic!("expected Static restricted profile, got {other:?}"),
+        }
+        // A coturn HMAC secret wins over static — and Cloudflare is never chosen here.
+        assert!(matches!(
+            TurnConfig::restricted(urls.clone(), "s3cr3t", "user", "pass", 900),
+            Some(TurnConfig {
+                cred: TurnCred::Secret { .. },
+                ..
+            })
+        ));
+        // No URLs → no profile, even with valid creds (there'd be nothing to relay through).
+        assert!(TurnConfig::restricted(vec![], "", "user", "pass", 3600).is_none());
+        // URLs but no usable credential → no profile.
+        assert!(TurnConfig::restricted(urls, "", "user", "", 3600).is_none());
     }
 
     #[test]
