@@ -505,5 +505,6 @@
   "notifEvtMeetingCancelled": "ການຍົກເລີກປະຊຸມ",
   "notifSaved": "ບັນທຶກການຕັ້ງຄ່າແລ້ວ",
   "notifSaveErr": "ບໍ່ສາມາດບັນທຶກການຕັ້ງຄ່າໄດ້",
-  "pushBlocked": "ອະນຸຍາດການແຈ້ງເຕືອນໃນບຣາວເຊີຂອງທ່ານເພື່ອໃຊ້ Push."
+  "pushBlocked": "ອະນຸຍາດການແຈ້ງເຕືອນໃນບຣາວເຊີຂອງທ່ານເພື່ອໃຊ້ Push.",
+  "engineRestrictedNetwork": "Enhanced ບໍ່ສາມາດໃຊ້ໄດ້ໃນເຄືອຂ່າຍຂອງທ່ານ — ກຳລັງໃຊ້ການແປ Standard."
 }

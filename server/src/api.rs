@@ -319,13 +319,52 @@ pub async fn clone_voice(
     }
 }
 
+/// Query for `GET /api/ice`. `restricted=1` asks for the Great-Firewall-survivable
+/// profile (a `turns://…:443` TLS relay + forced-relay on the client), set by the
+/// browser's own reachability probe. Absent/unset ⇒ the default relay, unchanged.
+#[derive(Deserialize, Default)]
+pub struct IceQuery {
+    #[serde(default)]
+    restricted: Option<String>,
+}
+
+/// Whether a query flag is present and truthy (`1` / `true` / `yes`). Lenient so the
+/// client can send any of them; anything else (incl. `0` / absent) is false.
+fn is_truthy(v: Option<&str>) -> bool {
+    matches!(v, Some("1") | Some("true") | Some("yes"))
+}
+
+/// Which TURN profile `/api/ice` serves. A restricted (GFW) client prefers the
+/// `turns://…:443` TLS profile and falls back to the default relay when it isn't
+/// configured; everyone else always gets the default. Pure → unit-testable.
+fn select_turn<'a>(
+    restricted: bool,
+    default: Option<&'a crate::config::TurnConfig>,
+    tls: Option<&'a crate::config::TurnConfig>,
+) -> Option<&'a crate::config::TurnConfig> {
+    if restricted {
+        tls.or(default)
+    } else {
+        default
+    }
+}
+
 /// `GET /api/ice` — ICE servers for WebRTC peer connections (spec 0026). Always
 /// returns public STUN; when a self-hosted coturn is configured (`TURN_*`) it also
 /// returns time-limited TURN credentials via coturn's REST-API convention:
 /// `username = "<unix-expiry>:vox"`, `credential = base64(HMAC-SHA1(secret, username))`.
 /// The shared secret never leaves the server — only the derived credential does, and
 /// it expires, so a leaked client config can't be abused for long.
-pub async fn ice(State(state): State<AppState>, headers: HeaderMap) -> Response {
+///
+/// `?restricted=1` (set by the client's Great-Firewall reachability probe) prefers the
+/// `turns://…:443` TLS-on-443 profile (`TURN_TLS_*`) when configured, which survives the
+/// DPI that resets plain TURN/UDP inside mainland China; it falls back to the default
+/// relay when that profile is absent. Without the flag the response is unchanged.
+pub async fn ice(
+    State(state): State<AppState>,
+    Query(q): Query<IceQuery>,
+    headers: HeaderMap,
+) -> Response {
     // Per-IP throttle (spec 0028): /api/ice mints TURN credentials for anonymous
     // callers, so cap scraping (best-effort — coturn quotas bound the real damage).
     // Keyed by the trusted-proxy IP (issue #117 — last X-Forwarded-For hop).
@@ -339,7 +378,12 @@ pub async fn ice(State(state): State<AppState>, headers: HeaderMap) -> Response 
     let mut servers = vec![serde_json::json!({
         "urls": ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"]
     })];
-    if let Some(turn) = state.config.turn.as_ref() {
+    let restricted = is_truthy(q.restricted.as_deref());
+    if let Some(turn) = select_turn(
+        restricted,
+        state.config.turn.as_ref(),
+        state.config.turn_restricted.as_ref(),
+    ) {
         let entry = match &turn.cred {
             // coturn REST: HMAC-sign a short expiry with the shared secret (spec 0026).
             crate::config::TurnCred::Secret { secret, ttl_secs } => {
@@ -3436,6 +3480,54 @@ mod tests {
             parse_cf_ice_servers(&serde_json::json!({ "iceServers": { "urls": [] } })).is_none()
         );
         assert!(parse_cf_ice_servers(&serde_json::json!({ "error": "bad token" })).is_none());
+    }
+
+    #[test]
+    fn ice_restricted_flag_is_lenient_but_strict_on_falsey() {
+        assert!(is_truthy(Some("1")));
+        assert!(is_truthy(Some("true")));
+        assert!(is_truthy(Some("yes")));
+        // Absent or explicitly off ⇒ default (non-restricted) path.
+        assert!(!is_truthy(None));
+        assert!(!is_truthy(Some("0")));
+        assert!(!is_truthy(Some("false")));
+        assert!(!is_truthy(Some("")));
+    }
+
+    #[test]
+    fn ice_select_turn_prefers_tls_for_restricted_then_falls_back() {
+        use crate::config::{TurnConfig, TurnCred};
+        let dflt = TurnConfig {
+            urls: vec!["turn:relay:3478".into()],
+            cred: TurnCred::Static {
+                username: "a".into(),
+                password: "b".into(),
+            },
+        };
+        let tls = TurnConfig {
+            urls: vec!["turns:relay:443?transport=tcp".into()],
+            cred: TurnCred::Static {
+                username: "c".into(),
+                password: "d".into(),
+            },
+        };
+        // Non-restricted → always the default relay, even when a TLS profile exists.
+        assert_eq!(
+            select_turn(false, Some(&dflt), Some(&tls)).unwrap().urls,
+            dflt.urls
+        );
+        // Restricted + TLS profile configured → the :443 TLS profile.
+        assert_eq!(
+            select_turn(true, Some(&dflt), Some(&tls)).unwrap().urls,
+            tls.urls
+        );
+        // Restricted but no TLS profile → fall back to the default (better than STUN-only).
+        assert_eq!(
+            select_turn(true, Some(&dflt), None).unwrap().urls,
+            dflt.urls
+        );
+        // No TURN configured at all → None regardless of the flag.
+        assert!(select_turn(true, None, None).is_none());
     }
 
     #[test]

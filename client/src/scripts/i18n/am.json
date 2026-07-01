@@ -505,5 +505,6 @@
   "notifEvtMeetingCancelled": "የስብሰባ ስረዛዎች",
   "notifSaved": "ምርጫዎች ተቀምጠዋል",
   "notifSaveErr": "ምርጫዎችን ማስቀመጥ አልተቻለም",
-  "pushBlocked": "ግፊት ማሳወቂያዎችን ለመጠቀም በአሳሽዎ ውስጥ ማሳወቂያዎችን ይፍቀዱ።"
+  "pushBlocked": "ግፊት ማሳወቂያዎችን ለመጠቀም በአሳሽዎ ውስጥ ማሳወቂያዎችን ይፍቀዱ።",
+  "engineRestrictedNetwork": "Enhanced በአውታረ መረብዎ ላይ አይገኝም — የStandard ትርጉም እየተጠቀመ ነው።"
 }

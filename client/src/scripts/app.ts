@@ -7,6 +7,7 @@ import {
   DEFAULT_ENGINE_ID,
   cheapestTier,
   commonLangs,
+  enforceEngineForNetwork,
   engineDescKey,
   engineIsClientDirect,
   engineNeedsPcm,
@@ -18,6 +19,7 @@ import {
   resolveEnginePref,
   saveEnginePref,
   searchLanguages,
+  selectableEngines,
 } from './engines';
 import { type LangMeta, langMeta } from './langmap';
 // In-call modules are lazy-loaded at pre-join (spec 0105) — keep only their TYPES here so the
@@ -85,6 +87,7 @@ import type { Quiz } from './quiz';
 import { CallTimer, spokenDuration, formatClock } from './timer';
 import { dismissLangToast, initLangDetect, onLanguageDetected } from './lang-detect';
 import { initNetStatus, setNetworkDegraded } from './net-status';
+import { isRestrictedNetwork } from './restricted-net';
 import { toast } from './toast';
 import {
   playCallEnterSound,
@@ -862,6 +865,22 @@ async function initEngines(): Promise<void> {
     renderEngineSelector();
     rebuildLangOptions();
   }
+  // Great-Firewall check (restricted-net.ts): the client-direct Enhanced tier connects the
+  // browser straight to a blocked domain, so a restricted network can't use it. The probe is
+  // async and fails open, so the picker renders immediately and only re-renders (dropping
+  // Enhanced) in the rare restricted case. Silent here — the one user-facing notice fires at
+  // join, if a still-selected Enhanced choice has to be overridden (see startCall).
+  void isRestrictedNetwork().then((restricted) => {
+    if (!restricted || restrictedNet) return;
+    restrictedNet = true;
+    selectedEngine = resolveEnginePref(loadEnginePref(), enginePool());
+    if (languageFirstUx) {
+      renderLanguageFirstPicker();
+    } else {
+      renderEngineSelector();
+      rebuildLangOptions();
+    }
+  });
 }
 
 function renderEngineSelector(): void {
@@ -895,7 +914,7 @@ function renderEngineSelector(): void {
     return;
   }
   engineOptions.replaceChildren();
-  for (const e of availableEngines) {
+  for (const e of enginePool()) {
     const active = e.id === selectedEngine;
     const btn = document.createElement('button');
     btn.type = 'button';
@@ -998,11 +1017,14 @@ function rebuildLangOptions(): void {
 /** The engines a user may choose among: guests are pinned to Standard (premium tiers need
  *  credits), exactly as the legacy selector does (`renderEngineSelector`). */
 function enginePool(): EngineInfo[] {
+  // On a Great-Firewall-restricted network, drop the client-direct tier(s) (Enhanced
+  // connects the browser straight to a blocked domain). No-op until the reachability
+  // probe flags `restrictedNet`, so non-China pickers are unchanged.
   if (!auth.isLoggedIn()) {
     const std = availableEngines.filter((e) => e.id === DEFAULT_ENGINE_ID);
-    return std.length ? std : availableEngines;
+    return selectableEngines(std.length ? std : availableEngines, restrictedNet);
   }
-  return availableEngines;
+  return selectableEngines(availableEngines, restrictedNet);
 }
 
 /** Recently-used target languages. Best-effort localStorage, SEEDED from the browser's
@@ -1659,9 +1681,16 @@ $('join-btn').addEventListener('click', () => {
 // returns public STUN plus a time-limited TURN relay when coturn is configured.
 // Passed to the mesh; falls back to the mesh's built-in STUN on failure.
 let iceServers: RTCIceServer[] | undefined;
-async function fetchIceServers(): Promise<RTCIceServer[] | undefined> {
+// Set once per call from the Great-Firewall reachability probe (restricted-net.ts).
+// When true we ask /api/ice for the turns://:443 profile AND force the mesh through
+// relay — scoped to this (China-side) client, so non-China calls are unchanged.
+let restrictedNet = false;
+async function fetchIceServers(restricted: boolean): Promise<RTCIceServer[] | undefined> {
   try {
-    const res = await fetch(`${HTTP_BASE}/api/ice`, { cache: 'no-store' });
+    // Restricted clients get the GFW-survivable profile (turns://:443 TLS relay);
+    // everyone else gets the default response, byte-for-byte as before.
+    const url = restricted ? `${HTTP_BASE}/api/ice?restricted=1` : `${HTTP_BASE}/api/ice`;
+    const res = await fetch(url, { cache: 'no-store' });
     const data = await res.json();
     return Array.isArray(data?.iceServers) ? (data.iceServers as RTCIceServer[]) : undefined;
   } catch {
@@ -1758,9 +1787,25 @@ async function startCall(): Promise<void> {
   }
 
   manualClose = false;
+  // Detect a Great-Firewall-restricted network (reachability probe, not geo-IP) so we
+  // can request the turns://:443 relay + force-relay for this China-side client. Fails
+  // open (false) so it never blocks a normal join. Cached per page load.
+  restrictedNet = await isRestrictedNetwork();
+  // GFW: the client-direct Enhanced tier can't reach its provider behind the firewall,
+  // so downgrade this join to server-proxied Standard and tell the user once. No-op unless
+  // the network is restricted AND Enhanced is still selected (e.g. a very fast join before
+  // the pre-join picker re-rendered). The probe is awaited above, so this is deterministic.
+  if (session?.engine && restrictedNet) {
+    const safe = enforceEngineForNetwork(session.engine, availableEngines, true);
+    if (safe !== session.engine) {
+      session.engine = safe;
+      saveEnginePref(safe);
+      toast(t('engineRestrictedNetwork'));
+    }
+  }
   // Fetch ICE servers (incl. the TURN relay if configured) before opening the
   // socket, so the mesh has them ready when peers arrive — no race (spec 0026).
-  iceServers = await fetchIceServers();
+  iceServers = await fetchIceServers(restrictedNet);
   // Associate this room with the chosen org/project (+recording) before joining,
   // so the server's call_session inherits it (business users only; no-op otherwise).
   await bindRoomIfBusiness();
@@ -1791,6 +1836,9 @@ function openSocket(): void {
       iceServers,
       IS_MOBILE ? VIDEO_BUDGET_MOBILE : VIDEO_BUDGET_DESKTOP, // total upload budget, split per-peer (spec 0030/0031, env-tunable 0044)
       myId, // own id → picks the polite/impolite negotiation role per peer
+      // GFW-restricted client: force every peer connection through the turns://:443 relay,
+      // skipping host/srflx UDP candidates the Great Firewall resets. Undefined otherwise.
+      restrictedNet ? 'relay' : undefined,
     );
     mesh.onNetworkWeak = showWeakNetworkWarning;
     mesh.onRemoteStream = (peerId, stream) => {

@@ -505,5 +505,6 @@
   "notifEvtMeetingCancelled": "Zrušené schůzky",
   "notifSaved": "Předvolby uloženy",
   "notifSaveErr": "Předvolby se nepodařilo uložit",
-  "pushBlocked": "Chcete-li používat push, povolte oznámení v prohlížeči."
+  "pushBlocked": "Chcete-li používat push, povolte oznámení v prohlížeči.",
+  "engineRestrictedNetwork": "Enhanced není ve vaší síti dostupný — používá se překlad Standard."
 }

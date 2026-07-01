@@ -505,5 +505,6 @@
   "notifEvtMeetingCancelled": "Értekezlet lemondásai",
   "notifSaved": "Beállítások mentve",
   "notifSaveErr": "A beállítások mentése nem sikerült",
-  "pushBlocked": "Engedélyezze az értesítéseket a böngészőjében a push használatához."
+  "pushBlocked": "Engedélyezze az értesítéseket a böngészőjében a push használatához.",
+  "engineRestrictedNetwork": "Az Enhanced nem érhető el a hálózatodon — Standard fordítás használatban."
 }

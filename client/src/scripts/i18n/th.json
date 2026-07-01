@@ -505,5 +505,6 @@
   "notifEvtMeetingCancelled": "ยกเลิกการประชุม",
   "notifSaved": "บันทึกการตั้งค่าแล้ว",
   "notifSaveErr": "บันทึกการตั้งค่าไม่สำเร็จ",
-  "pushBlocked": "อนุญาตการแจ้งเตือนในเบราว์เซอร์เพื่อใช้พุช"
+  "pushBlocked": "อนุญาตการแจ้งเตือนในเบราว์เซอร์เพื่อใช้พุช",
+  "engineRestrictedNetwork": "Enhanced ใช้งานไม่ได้บนเครือข่ายของคุณ — กำลังใช้การแปล Standard"
 }

@@ -505,5 +505,6 @@
   "notifEvtMeetingCancelled": "会议取消",
   "notifSaved": "偏好已保存",
   "notifSaveErr": "无法保存偏好",
-  "pushBlocked": "请在浏览器中允许通知以使用推送。"
+  "pushBlocked": "请在浏览器中允许通知以使用推送。",
+  "engineRestrictedNetwork": "你的网络无法使用 Enhanced — 改用 Standard 翻译。"
 }

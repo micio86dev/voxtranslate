@@ -174,6 +174,7 @@ mod guest_mode {
             resend: None,
             storage: None,
             turn: None,
+            turn_restricted: None,
             bug_report_to: "test@example.com".into(),
             app_base_url: "https://voxtranslate.app".into(),
             dashboard_base_url: "https://dashboard.voxtranslate.app".into(),

@@ -505,5 +505,6 @@
   "notifEvtMeetingCancelled": "회의 취소",
   "notifSaved": "설정이 저장됨",
   "notifSaveErr": "설정을 저장하지 못했습니다",
-  "pushBlocked": "푸시를 사용하려면 브라우저에서 알림을 허용하세요."
+  "pushBlocked": "푸시를 사용하려면 브라우저에서 알림을 허용하세요.",
+  "engineRestrictedNetwork": "현재 네트워크에서는 Enhanced를 사용할 수 없습니다 — Standard 번역을 사용합니다."
 }

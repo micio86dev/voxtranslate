@@ -505,5 +505,6 @@
   "notifEvtMeetingCancelled": "ਮੀਟਿੰਗ ਰੱਦ",
   "notifSaved": "ਤਰਜੀਹਾਂ ਸੰਭਾਲੀਆਂ ਗਈਆਂ",
   "notifSaveErr": "ਤਰਜੀਹਾਂ ਸੰਭਾਲੀਆਂ ਨਹੀਂ ਜਾ ਸਕੀਆਂ",
-  "pushBlocked": "ਪੁਸ਼ ਵਰਤਣ ਲਈ ਆਪਣੇ ਬ੍ਰਾਊਜ਼ਰ ਵਿੱਚ ਸੂਚਨਾਵਾਂ ਦੀ ਇਜਾਜ਼ਤ ਦਿਓ।"
+  "pushBlocked": "ਪੁਸ਼ ਵਰਤਣ ਲਈ ਆਪਣੇ ਬ੍ਰਾਊਜ਼ਰ ਵਿੱਚ ਸੂਚਨਾਵਾਂ ਦੀ ਇਜਾਜ਼ਤ ਦਿਓ।",
+  "engineRestrictedNetwork": "ਤੁਹਾਡੇ ਨੈੱਟਵਰਕ 'ਤੇ Enhanced ਉਪਲਬਧ ਨਹੀਂ ਹੈ — Standard ਅਨੁਵਾਦ ਵਰਤਿਆ ਜਾ ਰਿਹਾ ਹੈ।"
 }

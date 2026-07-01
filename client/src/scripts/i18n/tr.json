@@ -505,5 +505,6 @@
   "notifEvtMeetingCancelled": "Toplantı iptalleri",
   "notifSaved": "Tercihler kaydedildi",
   "notifSaveErr": "Tercihler kaydedilemedi",
-  "pushBlocked": "Anlık bildirimleri kullanmak için tarayıcınızda bildirimlere izin verin."
+  "pushBlocked": "Anlık bildirimleri kullanmak için tarayıcınızda bildirimlere izin verin.",
+  "engineRestrictedNetwork": "Enhanced ağınızda kullanılamıyor — Standard çeviri kullanılıyor."
 }

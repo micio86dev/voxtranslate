@@ -505,5 +505,6 @@
   "notifEvtMeetingCancelled": "Zrušenia stretnutí",
   "notifSaved": "Predvoľby uložené",
   "notifSaveErr": "Predvoľby sa nepodarilo uložiť",
-  "pushBlocked": "Povoľte upozornenia v prehliadači, aby ste mohli používať push."
+  "pushBlocked": "Povoľte upozornenia v prehliadači, aby ste mohli používať push.",
+  "engineRestrictedNetwork": "Enhanced nie je vo vašej sieti dostupný — používa sa preklad Standard."
 }

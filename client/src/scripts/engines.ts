@@ -127,6 +127,26 @@ export function engineIsClientDirect(engineId: string | undefined, engines: Engi
   return engines.find((e) => e.id === engineId)?.capabilities.client_direct ?? false;
 }
 
+/** The engines a client on a Great-Firewall-restricted network may use: drops the
+ *  client-direct tier(s) (e.g. Enhanced/Cartesia, whose browser connects straight to a
+ *  GFW-blocked domain and can't reach it). `restricted=false` returns the list unchanged,
+ *  so non-China clients are unaffected. Pure → unit-testable. */
+export function selectableEngines(engines: EngineInfo[], restricted: boolean): EngineInfo[] {
+  return restricted ? engines.filter((e) => !e.capabilities.client_direct) : engines;
+}
+
+/** The engine id a client should actually JOIN with on a restricted network: a
+ *  client-direct tier (unreachable behind the GFW) is downgraded to the default
+ *  server-proxied tier; anything else passes through unchanged. Deterministic backstop
+ *  for the picker gate, applied once the reachability verdict is known. Pure. */
+export function enforceEngineForNetwork(
+  engineId: string,
+  engines: EngineInfo[],
+  restricted: boolean,
+): string {
+  return restricted && engineIsClientDirect(engineId, engines) ? DEFAULT_ENGINE_ID : engineId;
+}
+
 // ---- Language-first picker (spec 0102) -------------------------------------
 // The picker flips the flow: pick a TARGET language from the union, then choose among
 // the tiers that can output it. Languages and per-tier output lists come from the shared

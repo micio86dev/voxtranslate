@@ -7,6 +7,7 @@ import {
   cheapestTier,
   commonLangs,
   defaultEngineId,
+  enforceEngineForNetwork,
   engineDescKey,
   engineIsClientDirect,
   engineLangs,
@@ -19,6 +20,7 @@ import {
   resolveEnginePref,
   saveEnginePref,
   searchLanguages,
+  selectableEngines,
 } from './engines';
 
 function engine(id: string, langs: string[], rate = 0.01): EngineInfo {
@@ -157,6 +159,35 @@ describe('engineIsClientDirect', () => {
     // A Cartesia listener must NOT flip the speaker to PCM16 — that is for server
     // speech-to-speech engines only.
     expect(engineNeedsPcm('cartesia', list)).toBe(false);
+  });
+});
+
+describe('selectableEngines (Great-Firewall gate)', () => {
+  const CARTESIA = { ...engine('cartesia', ['en', 'it']), tier: 'enhanced' };
+  const list = [STANDARD, CARTESIA, PREMIUM];
+
+  it('drops client-direct tiers on a restricted network', () => {
+    const ids = selectableEngines(list, true).map((e) => e.id);
+    expect(ids).toEqual(['standard', 'premium']); // cartesia (client_direct) removed
+  });
+  it('returns the list unchanged when not restricted', () => {
+    expect(selectableEngines(list, false)).toBe(list);
+  });
+});
+
+describe('enforceEngineForNetwork (Great-Firewall gate)', () => {
+  const CARTESIA = { ...engine('cartesia', ['en', 'it']), tier: 'enhanced' };
+  const list = [STANDARD, CARTESIA, PREMIUM];
+
+  it('downgrades a client-direct engine to the default on a restricted network', () => {
+    expect(enforceEngineForNetwork('cartesia', list, true)).toBe(DEFAULT_ENGINE_ID);
+  });
+  it('passes server-proxied engines through even when restricted', () => {
+    expect(enforceEngineForNetwork('premium', list, true)).toBe('premium');
+    expect(enforceEngineForNetwork('standard', list, true)).toBe('standard');
+  });
+  it('is a no-op when the network is not restricted', () => {
+    expect(enforceEngineForNetwork('cartesia', list, false)).toBe('cartesia');
   });
 });
 

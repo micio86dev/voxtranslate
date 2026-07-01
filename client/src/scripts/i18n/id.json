@@ -505,5 +505,6 @@
   "notifEvtMeetingCancelled": "Pembatalan rapat",
   "notifSaved": "Preferensi disimpan",
   "notifSaveErr": "Tidak dapat menyimpan preferensi",
-  "pushBlocked": "Izinkan notifikasi di browser Anda untuk menggunakan push."
+  "pushBlocked": "Izinkan notifikasi di browser Anda untuk menggunakan push.",
+  "engineRestrictedNetwork": "Enhanced tidak tersedia di jaringan Anda — menggunakan terjemahan Standard."
 }

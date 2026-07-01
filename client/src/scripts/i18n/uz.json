@@ -505,5 +505,6 @@
   "notifEvtMeetingCancelled": "Uchrashuv bekor qilinishi",
   "notifSaved": "Sozlamalar saqlandi",
   "notifSaveErr": "Sozlamalarni saqlab boʻlmadi",
-  "pushBlocked": "Pushdan foydalanish uchun brauzeringizda bildirishnomalarga ruxsat bering."
+  "pushBlocked": "Pushdan foydalanish uchun brauzeringizda bildirishnomalarga ruxsat bering.",
+  "engineRestrictedNetwork": "Enhanced tarmog'ingizda mavjud emas — Standard tarjimasi ishlatilmoqda."
 }

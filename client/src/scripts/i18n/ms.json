@@ -505,5 +505,6 @@
   "notifEvtMeetingCancelled": "Pembatalan mesyuarat",
   "notifSaved": "Keutamaan disimpan",
   "notifSaveErr": "Tidak dapat menyimpan keutamaan",
-  "pushBlocked": "Benarkan pemberitahuan dalam pelayar anda untuk menggunakan push."
+  "pushBlocked": "Benarkan pemberitahuan dalam pelayar anda untuk menggunakan push.",
+  "engineRestrictedNetwork": "Enhanced tidak tersedia pada rangkaian anda — menggunakan terjemahan Standard."
 }

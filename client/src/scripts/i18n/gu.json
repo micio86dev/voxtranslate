@@ -505,5 +505,6 @@
   "notifEvtMeetingCancelled": "મીટિંગ રદ",
   "notifSaved": "પસંદગીઓ સાચવાઈ",
   "notifSaveErr": "પસંદગીઓ સાચવી શકાઈ નહીં",
-  "pushBlocked": "પુશનો ઉપયોગ કરવા તમારા બ્રાઉઝરમાં સૂચનાઓને મંજૂરી આપો."
+  "pushBlocked": "પુશનો ઉપયોગ કરવા તમારા બ્રાઉઝરમાં સૂચનાઓને મંજૂરી આપો.",
+  "engineRestrictedNetwork": "તમારા નેટવર્ક પર Enhanced ઉપલબ્ધ નથી — Standard અનુવાદ વપરાય છે."
 }

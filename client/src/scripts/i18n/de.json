@@ -505,5 +505,6 @@
   "notifEvtMeetingCancelled": "Meeting-Absagen",
   "notifSaved": "Einstellungen gespeichert",
   "notifSaveErr": "Einstellungen konnten nicht gespeichert werden",
-  "pushBlocked": "Erlaube Benachrichtigungen in deinem Browser, um Push zu nutzen."
+  "pushBlocked": "Erlaube Benachrichtigungen in deinem Browser, um Push zu nutzen.",
+  "engineRestrictedNetwork": "Enhanced ist in deinem Netzwerk nicht verfügbar — Standard-Übersetzung wird verwendet."
 }

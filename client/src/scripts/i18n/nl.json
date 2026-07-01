@@ -505,5 +505,6 @@
   "notifEvtMeetingCancelled": "Vergaderannuleringen",
   "notifSaved": "Voorkeuren opgeslagen",
   "notifSaveErr": "Kon voorkeuren niet opslaan",
-  "pushBlocked": "Sta meldingen toe in je browser om push te gebruiken."
+  "pushBlocked": "Sta meldingen toe in je browser om push te gebruiken.",
+  "engineRestrictedNetwork": "Enhanced is niet beschikbaar op je netwerk — Standard-vertaling wordt gebruikt."
 }
