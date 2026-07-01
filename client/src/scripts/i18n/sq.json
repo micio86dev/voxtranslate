@@ -505,5 +505,6 @@
   "notifEvtMeetingCancelled": "Anulimet e takimeve",
   "notifSaved": "Preferencat u ruajtën",
   "notifSaveErr": "Preferencat nuk u ruajtën dot",
-  "pushBlocked": "Lejo njoftimet në shfletues për të përdorur push-in."
+  "pushBlocked": "Lejo njoftimet në shfletues për të përdorur push-in.",
+  "engineRestrictedNetwork": "Enhanced nuk është i disponueshëm në rrjetin tënd — po përdoret përkthimi Standard."
 }

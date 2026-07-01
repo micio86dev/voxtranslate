@@ -505,5 +505,6 @@
   "notifEvtMeetingCancelled": "মিটিং বাতিল",
   "notifSaved": "পছন্দ সংরক্ষিত হয়েছে",
   "notifSaveErr": "পছন্দ সংরক্ষণ করা যায়নি",
-  "pushBlocked": "পুশ ব্যবহার করতে আপনার ব্রাউজারে বিজ্ঞপ্তির অনুমতি দিন।"
+  "pushBlocked": "পুশ ব্যবহার করতে আপনার ব্রাউজারে বিজ্ঞপ্তির অনুমতি দিন।",
+  "engineRestrictedNetwork": "আপনার নেটওয়ার্কে Enhanced উপলব্ধ নয় — Standard অনুবাদ ব্যবহার করা হচ্ছে।"
 }

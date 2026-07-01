@@ -505,5 +505,6 @@
   "notifEvtMeetingCancelled": "Otkazivanja sastanaka",
   "notifSaved": "Postavke spremljene",
   "notifSaveErr": "Postavke nije moguće spremiti",
-  "pushBlocked": "Dopustite obavijesti u pregledniku za korištenje push obavijesti."
+  "pushBlocked": "Dopustite obavijesti u pregledniku za korištenje push obavijesti.",
+  "engineRestrictedNetwork": "Enhanced nije dostupan na vašoj mreži — koristi se Standard prijevod."
 }

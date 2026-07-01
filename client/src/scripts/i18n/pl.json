@@ -505,5 +505,6 @@
   "notifEvtMeetingCancelled": "Odwołania spotkań",
   "notifSaved": "Zapisano preferencje",
   "notifSaveErr": "Nie udało się zapisać preferencji",
-  "pushBlocked": "Zezwól na powiadomienia w przeglądarce, aby korzystać z push."
+  "pushBlocked": "Zezwól na powiadomienia w przeglądarce, aby korzystać z push.",
+  "engineRestrictedNetwork": "Enhanced jest niedostępny w Twojej sieci — używane jest tłumaczenie Standard."
 }

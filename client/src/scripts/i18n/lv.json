@@ -505,5 +505,6 @@
   "notifEvtMeetingCancelled": "Sapulču atcelšana",
   "notifSaved": "Iestatījumi saglabāti",
   "notifSaveErr": "Neizdevās saglabāt iestatījumus",
-  "pushBlocked": "Lai izmantotu Push, atļaujiet paziņojumus pārlūkprogrammā."
+  "pushBlocked": "Lai izmantotu Push, atļaujiet paziņojumus pārlūkprogrammā.",
+  "engineRestrictedNetwork": "Enhanced nav pieejams jūsu tīklā — tiek izmantots Standard tulkojums."
 }

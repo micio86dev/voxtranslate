@@ -505,5 +505,6 @@
   "notifEvtMeetingCancelled": "Koosolekute tühistamised",
   "notifSaved": "Eelistused salvestatud",
   "notifSaveErr": "Eelistuste salvestamine ebaõnnestus",
-  "pushBlocked": "Push-teavituste kasutamiseks luba teavitused oma brauseris."
+  "pushBlocked": "Push-teavituste kasutamiseks luba teavitused oma brauseris.",
+  "engineRestrictedNetwork": "Enhanced pole teie võrgus saadaval — kasutatakse Standard-tõlget."
 }

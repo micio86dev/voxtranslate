@@ -7,6 +7,7 @@ import {
   DEFAULT_ENGINE_ID,
   cheapestTier,
   commonLangs,
+  enforceEngineForNetwork,
   engineDescKey,
   engineIsClientDirect,
   engineNeedsPcm,
@@ -18,6 +19,7 @@ import {
   resolveEnginePref,
   saveEnginePref,
   searchLanguages,
+  selectableEngines,
 } from './engines';
 import { type LangMeta, langMeta } from './langmap';
 // In-call modules are lazy-loaded at pre-join (spec 0105) — keep only their TYPES here so the
@@ -863,6 +865,22 @@ async function initEngines(): Promise<void> {
     renderEngineSelector();
     rebuildLangOptions();
   }
+  // Great-Firewall check (restricted-net.ts): the client-direct Enhanced tier connects the
+  // browser straight to a blocked domain, so a restricted network can't use it. The probe is
+  // async and fails open, so the picker renders immediately and only re-renders (dropping
+  // Enhanced) in the rare restricted case. Silent here — the one user-facing notice fires at
+  // join, if a still-selected Enhanced choice has to be overridden (see startCall).
+  void isRestrictedNetwork().then((restricted) => {
+    if (!restricted || restrictedNet) return;
+    restrictedNet = true;
+    selectedEngine = resolveEnginePref(loadEnginePref(), enginePool());
+    if (languageFirstUx) {
+      renderLanguageFirstPicker();
+    } else {
+      renderEngineSelector();
+      rebuildLangOptions();
+    }
+  });
 }
 
 function renderEngineSelector(): void {
@@ -896,7 +914,7 @@ function renderEngineSelector(): void {
     return;
   }
   engineOptions.replaceChildren();
-  for (const e of availableEngines) {
+  for (const e of enginePool()) {
     const active = e.id === selectedEngine;
     const btn = document.createElement('button');
     btn.type = 'button';
@@ -999,11 +1017,14 @@ function rebuildLangOptions(): void {
 /** The engines a user may choose among: guests are pinned to Standard (premium tiers need
  *  credits), exactly as the legacy selector does (`renderEngineSelector`). */
 function enginePool(): EngineInfo[] {
+  // On a Great-Firewall-restricted network, drop the client-direct tier(s) (Enhanced
+  // connects the browser straight to a blocked domain). No-op until the reachability
+  // probe flags `restrictedNet`, so non-China pickers are unchanged.
   if (!auth.isLoggedIn()) {
     const std = availableEngines.filter((e) => e.id === DEFAULT_ENGINE_ID);
-    return std.length ? std : availableEngines;
+    return selectableEngines(std.length ? std : availableEngines, restrictedNet);
   }
-  return availableEngines;
+  return selectableEngines(availableEngines, restrictedNet);
 }
 
 /** Recently-used target languages. Best-effort localStorage, SEEDED from the browser's
@@ -1770,6 +1791,18 @@ async function startCall(): Promise<void> {
   // can request the turns://:443 relay + force-relay for this China-side client. Fails
   // open (false) so it never blocks a normal join. Cached per page load.
   restrictedNet = await isRestrictedNetwork();
+  // GFW: the client-direct Enhanced tier can't reach its provider behind the firewall,
+  // so downgrade this join to server-proxied Standard and tell the user once. No-op unless
+  // the network is restricted AND Enhanced is still selected (e.g. a very fast join before
+  // the pre-join picker re-rendered). The probe is awaited above, so this is deterministic.
+  if (session?.engine && restrictedNet) {
+    const safe = enforceEngineForNetwork(session.engine, availableEngines, true);
+    if (safe !== session.engine) {
+      session.engine = safe;
+      saveEnginePref(safe);
+      toast(t('engineRestrictedNetwork'));
+    }
+  }
   // Fetch ICE servers (incl. the TURN relay if configured) before opening the
   // socket, so the mesh has them ready when peers arrive — no race (spec 0026).
   iceServers = await fetchIceServers(restrictedNet);

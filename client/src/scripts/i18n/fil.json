@@ -505,5 +505,6 @@
   "notifEvtMeetingCancelled": "Mga kanseladong meeting",
   "notifSaved": "Na-save ang mga preference",
   "notifSaveErr": "Hindi na-save ang mga preference",
-  "pushBlocked": "Payagan ang mga notification sa iyong browser para magamit ang push."
+  "pushBlocked": "Payagan ang mga notification sa iyong browser para magamit ang push.",
+  "engineRestrictedNetwork": "Hindi available ang Enhanced sa iyong network — gumagamit ng Standard na pagsasalin."
 }

@@ -505,5 +505,6 @@
   "notifEvtMeetingCancelled": "ביטולי פגישות",
   "notifSaved": "ההעדפות נשמרו",
   "notifSaveErr": "לא ניתן היה לשמור את ההעדפות",
-  "pushBlocked": "אפשרו התראות בדפדפן כדי להשתמש בהתראות דחיפה."
+  "pushBlocked": "אפשרו התראות בדפדפן כדי להשתמש בהתראות דחיפה.",
+  "engineRestrictedNetwork": "Enhanced אינו זמין ברשת שלך — נעשה שימוש בתרגום Standard."
 }

@@ -505,5 +505,6 @@
   "notifEvtMeetingCancelled": "Reuniouns-Annulatiounen",
   "notifSaved": "Astellunge gespäichert",
   "notifSaveErr": "Astellunge konnten net gespäichert ginn",
-  "pushBlocked": "Erlaabt Notifikatiounen an Ärem Browser fir Push ze benotzen."
+  "pushBlocked": "Erlaabt Notifikatiounen an Ärem Browser fir Push ze benotzen.",
+  "engineRestrictedNetwork": "Enhanced ass op ärem Netzwierk net verfügbar — Standard-Iwwersetzung gëtt benotzt."
 }

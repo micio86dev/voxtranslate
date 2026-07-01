@@ -505,5 +505,6 @@
   "notifEvtMeetingCancelled": "Ìfagilé ìpàdé",
   "notifSaved": "A ti fi àwọn ìfẹ́ pamọ́",
   "notifSaveErr": "A kò lè fi àwọn ìfẹ́ pamọ́",
-  "pushBlocked": "Gba àwọn ìfitónilétí láàyè nínú ẹ̀rọ aṣàwákiri rẹ láti lo push."
+  "pushBlocked": "Gba àwọn ìfitónilétí láàyè nínú ẹ̀rọ aṣàwákiri rẹ láti lo push.",
+  "engineRestrictedNetwork": "Enhanced kò sí lórí nẹ́tíwọ́kì rẹ — À ń lo ìtumọ̀ Standard."
 }

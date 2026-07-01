@@ -505,5 +505,6 @@
   "notifEvtMeetingCancelled": "Odpovedi sestankov",
   "notifSaved": "Nastavitve shranjene",
   "notifSaveErr": "Nastavitev ni bilo mogoče shraniti",
-  "pushBlocked": "Dovolite obvestila v brskalniku za uporabo potisnih obvestil."
+  "pushBlocked": "Dovolite obvestila v brskalniku za uporabo potisnih obvestil.",
+  "engineRestrictedNetwork": "Enhanced v vašem omrežju ni na voljo — uporablja se prevod Standard."
 }

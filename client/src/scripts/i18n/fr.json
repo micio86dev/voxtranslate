@@ -505,5 +505,6 @@
   "notifEvtMeetingCancelled": "Annulations de réunion",
   "notifSaved": "Préférences enregistrées",
   "notifSaveErr": "Impossible d’enregistrer les préférences",
-  "pushBlocked": "Autorisez les notifications dans votre navigateur pour utiliser le push."
+  "pushBlocked": "Autorisez les notifications dans votre navigateur pour utiliser le push.",
+  "engineRestrictedNetwork": "Enhanced n'est pas disponible sur votre réseau — traduction Standard utilisée."
 }

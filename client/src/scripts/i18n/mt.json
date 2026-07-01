@@ -505,5 +505,6 @@
   "notifEvtMeetingCancelled": "Kanċellazzjonijiet ta' laqgħat",
   "notifSaved": "Preferenzi salvati",
   "notifSaveErr": "Ma stajniex insalvaw il-preferenzi",
-  "pushBlocked": "Ippermetti n-notifiki fil-browser tiegħek biex tuża push."
+  "pushBlocked": "Ippermetti n-notifiki fil-browser tiegħek biex tuża push.",
+  "engineRestrictedNetwork": "Enhanced mhux disponibbli fuq in-netwerk tiegħek — qed tintuża t-traduzzjoni Standard."
 }

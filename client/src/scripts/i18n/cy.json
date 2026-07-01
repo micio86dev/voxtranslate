@@ -505,5 +505,6 @@
   "notifEvtMeetingCancelled": "Cyfarfodydd wedi'u canslo",
   "notifSaved": "Dewisiadau wedi'u cadw",
   "notifSaveErr": "Methwyd cadw'r dewisiadau",
-  "pushBlocked": "Caniatewch hysbysiadau yn eich porwr i ddefnyddio gwthio."
+  "pushBlocked": "Caniatewch hysbysiadau yn eich porwr i ddefnyddio gwthio.",
+  "engineRestrictedNetwork": "Nid yw Enhanced ar gael ar eich rhwydwaith — defnyddir cyfieithu Standard."
 }

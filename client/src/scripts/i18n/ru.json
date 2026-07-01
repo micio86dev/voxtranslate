@@ -505,5 +505,6 @@
   "notifEvtMeetingCancelled": "Отмены встреч",
   "notifSaved": "Настройки сохранены",
   "notifSaveErr": "Не удалось сохранить настройки",
-  "pushBlocked": "Разрешите уведомления в браузере, чтобы получать push."
+  "pushBlocked": "Разрешите уведомления в браузере, чтобы получать push.",
+  "engineRestrictedNetwork": "Enhanced недоступен в вашей сети — используется перевод Standard."
 }

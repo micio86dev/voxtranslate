@@ -505,5 +505,6 @@
   "notifEvtMeetingCancelled": "Sokewar taro",
   "notifSaved": "An ajiye zaɓuɓɓuka",
   "notifSaveErr": "An kasa ajiye zaɓuɓɓuka",
-  "pushBlocked": "Ba da damar sanarwa a cikin burauzanka domin amfani da push."
+  "pushBlocked": "Ba da damar sanarwa a cikin burauzanka domin amfani da push.",
+  "engineRestrictedNetwork": "Enhanced ba ya samuwa a hanyar sadarwarka — ana amfani da fassarar Standard."
 }

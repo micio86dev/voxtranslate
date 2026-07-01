@@ -505,5 +505,6 @@
   "notifEvtMeetingCancelled": "Görüş ləğvləri",
   "notifSaved": "Tənzimləmələr yadda saxlanıldı",
   "notifSaveErr": "Tənzimləmələri saxlamaq mümkün olmadı",
-  "pushBlocked": "Push bildirişlərdən istifadə üçün brauzerinizdə bildirişlərə icazə verin."
+  "pushBlocked": "Push bildirişlərdən istifadə üçün brauzerinizdə bildirişlərə icazə verin.",
+  "engineRestrictedNetwork": "Enhanced şəbəkənizdə əlçatan deyil — Standard tərcüməsi istifadə olunur."
 }

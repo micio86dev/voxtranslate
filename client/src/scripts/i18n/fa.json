@@ -505,5 +505,6 @@
   "notifEvtMeetingCancelled": "لغو جلسه",
   "notifSaved": "ترجیحات ذخیره شد",
   "notifSaveErr": "ذخیره ترجیحات ممکن نشد",
-  "pushBlocked": "برای استفاده از پوش، اعلان‌ها را در مرورگر خود مجاز کنید."
+  "pushBlocked": "برای استفاده از پوش، اعلان‌ها را در مرورگر خود مجاز کنید.",
+  "engineRestrictedNetwork": "Enhanced روی شبکه شما در دسترس نیست — از ترجمه Standard استفاده می‌شود."
 }

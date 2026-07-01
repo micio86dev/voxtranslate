@@ -505,5 +505,6 @@
   "notifEvtMeetingCancelled": "Ukukhanselwa komhlangano",
   "notifSaved": "Izintandokazi zilondoloziwe",
   "notifSaveErr": "Azikwazanga ukulondoloza izintandokazi",
-  "pushBlocked": "Vumela izaziso kusiphequluli sakho ukuze usebenzise i-push."
+  "pushBlocked": "Vumela izaziso kusiphequluli sakho ukuze usebenzise i-push.",
+  "engineRestrictedNetwork": "I-Enhanced ayitholakali kunethiwekhi yakho — kusetshenziswa ukuhumusha kwe-Standard."
 }

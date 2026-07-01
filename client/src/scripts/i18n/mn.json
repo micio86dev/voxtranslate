@@ -505,5 +505,6 @@
   "notifEvtMeetingCancelled": "Уулзалт цуцлагдсан",
   "notifSaved": "Тохиргоо хадгалагдлаа",
   "notifSaveErr": "Тохиргоог хадгалж чадсангүй",
-  "pushBlocked": "Push ашиглахын тулд хөтөч дээрээ мэдэгдлийг зөвшөөрнө үү."
+  "pushBlocked": "Push ашиглахын тулд хөтөч дээрээ мэдэгдлийг зөвшөөрнө үү.",
+  "engineRestrictedNetwork": "Enhanced таны сүлжээнд боломжгүй байна — Standard орчуулгыг ашиглаж байна."
 }

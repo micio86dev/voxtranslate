@@ -505,5 +505,6 @@
   "notifEvtMeetingCancelled": "Aflyste møder",
   "notifSaved": "Indstillinger gemt",
   "notifSaveErr": "Indstillingerne kunne ikke gemmes",
-  "pushBlocked": "Tillad notifikationer i din browser for at bruge push."
+  "pushBlocked": "Tillad notifikationer i din browser for at bruge push.",
+  "engineRestrictedNetwork": "Enhanced er ikke tilgængelig på dit netværk — bruger Standard-oversættelse."
 }

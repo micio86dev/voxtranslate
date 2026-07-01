@@ -505,5 +505,6 @@
   "notifEvtMeetingCancelled": "Baajinta kulanka",
   "notifSaved": "Doorashooyinka waa la kaydiyay",
   "notifSaveErr": "Lama kaydin karin doorashooyinka",
-  "pushBlocked": "U ogolow ogeysiisyada browser-kaaga si aad u isticmaasho push."
+  "pushBlocked": "U ogolow ogeysiisyada browser-kaaga si aad u isticmaasho push.",
+  "engineRestrictedNetwork": "Enhanced lagama heli karo shabakadaada — waxaa la isticmaalayaa turjumaadda Standard."
 }
