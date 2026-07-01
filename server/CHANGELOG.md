@@ -4,6 +4,26 @@ All notable changes to the VoxTranslate server are documented here. The version
 is the umbrella release version (anchored on this crate's `Cargo.toml`). This log
 starts at 1.11.4; for earlier history see the `vX.Y.Z` git tags.
 
+## [1.12.0] — 2026-07-01
+
+### Added
+- **China / Great-Firewall corridor: survivable TURN + Enhanced tier gate.**
+  Additive and scoped to detected China-side clients — non-China behavior is
+  byte-for-byte unchanged.
+  - Restricted TURN profile (`TURN_TLS_*`): `GET /api/ice?restricted=1` returns a
+    `turns://…:443` TLS-on-443 relay (managed Asia PoP), parsed independently of the
+    default relay's Cloudflare mode (which offers no `:443` endpoint). Off unless
+    configured; without the flag the response is unchanged. (#331)
+  - Client reachability probe (`restricted-net.ts`) — reachability, not geo-IP, so
+    it's robust to VPN/geo-spoofing — that requests the `:443` profile and forces
+    `iceTransportPolicy: 'relay'` for GFW-restricted peers, whose direct UDP
+    candidates the firewall resets. Fails open. (#331)
+  - The client-direct Enhanced (Cartesia) tier — the browser connects straight to a
+    GFW-blocked domain — is gated to server-proxied Standard for restricted clients,
+    reusing the existing degradation path; new `engineRestrictedNetwork` string
+    translated across all 84 locales. (#332)
+  - Ops runbook + dependency-free TURN Allocate validator under `infra/turn/`. (#331)
+
 ## [1.11.9] — 2026-06-30
 
 ### Added
