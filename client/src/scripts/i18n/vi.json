@@ -505,5 +505,6 @@
   "notifEvtMeetingCancelled": "Hủy cuộc họp",
   "notifSaved": "Đã lưu tùy chọn",
   "notifSaveErr": "Không thể lưu tùy chọn",
-  "pushBlocked": "Cho phép thông báo trong trình duyệt để dùng thông báo đẩy."
+  "pushBlocked": "Cho phép thông báo trong trình duyệt để dùng thông báo đẩy.",
+  "engineRestrictedNetwork": "Enhanced không khả dụng trên mạng của bạn — đang dùng bản dịch Standard."
 }

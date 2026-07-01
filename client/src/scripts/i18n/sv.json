@@ -505,5 +505,6 @@
   "notifEvtMeetingCancelled": "Inställda möten",
   "notifSaved": "Inställningar sparade",
   "notifSaveErr": "Det gick inte att spara inställningarna",
-  "pushBlocked": "Tillåt aviseringar i webbläsaren för att använda push."
+  "pushBlocked": "Tillåt aviseringar i webbläsaren för att använda push.",
+  "engineRestrictedNetwork": "Enhanced är inte tillgängligt i ditt nätverk — Standard-översättning används."
 }

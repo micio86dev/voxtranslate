@@ -505,5 +505,6 @@
   "notifEvtMeetingCancelled": "Anulări de întâlnire",
   "notifSaved": "Preferințe salvate",
   "notifSaveErr": "Nu am putut salva preferințele",
-  "pushBlocked": "Permite notificările în browser pentru a folosi push."
+  "pushBlocked": "Permite notificările în browser pentru a folosi push.",
+  "engineRestrictedNetwork": "Enhanced nu este disponibil în rețeaua ta — se folosește traducerea Standard."
 }

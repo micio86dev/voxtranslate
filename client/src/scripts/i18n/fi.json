@@ -505,5 +505,6 @@
   "notifEvtMeetingCancelled": "Peruutetut kokoukset",
   "notifSaved": "Asetukset tallennettu",
   "notifSaveErr": "Asetusten tallennus epäonnistui",
-  "pushBlocked": "Salli ilmoitukset selaimessasi, jotta voit käyttää push-ilmoituksia."
+  "pushBlocked": "Salli ilmoitukset selaimessasi, jotta voit käyttää push-ilmoituksia.",
+  "engineRestrictedNetwork": "Enhanced ei ole käytettävissä verkossasi — käytetään Standard-käännöstä."
 }

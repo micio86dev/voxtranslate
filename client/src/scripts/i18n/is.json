@@ -505,5 +505,6 @@
   "notifEvtMeetingCancelled": "Aflýstir fundir",
   "notifSaved": "Stillingar vistaðar",
   "notifSaveErr": "Ekki tókst að vista stillingar",
-  "pushBlocked": "Leyfðu tilkynningar í vafranum þínum til að nota push."
+  "pushBlocked": "Leyfðu tilkynningar í vafranum þínum til að nota push.",
+  "engineRestrictedNetwork": "Enhanced er ekki í boði á netinu þínu — Standard-þýðing er notuð."
 }

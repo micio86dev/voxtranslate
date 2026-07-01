@@ -505,5 +505,6 @@
   "notifEvtMeetingCancelled": "Mkagbu nzukọ",
   "notifSaved": "Echekwala nhọrọ",
   "notifSaveErr": "Enweghị ike ịchekwa nhọrọ",
-  "pushBlocked": "Kwenye ọkwa na ihe nchọgharị gị iji jiri push."
+  "pushBlocked": "Kwenye ọkwa na ihe nchọgharị gị iji jiri push.",
+  "engineRestrictedNetwork": "Enhanced adịghị na netwọk gị — a na-eji nsụgharị Standard."
 }

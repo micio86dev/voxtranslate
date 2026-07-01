@@ -505,5 +505,6 @@
   "notifEvtMeetingCancelled": "會議取消",
   "notifSaved": "偏好設定已儲存",
   "notifSaveErr": "儲存唔到偏好設定",
-  "pushBlocked": "喺瀏覽器允許通知先可以用推送。"
+  "pushBlocked": "喺瀏覽器允許通知先可以用推送。",
+  "engineRestrictedNetwork": "你嘅網絡用唔到 Enhanced — 改用 Standard 翻譯。"
 }

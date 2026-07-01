@@ -505,5 +505,6 @@
   "notifEvtMeetingCancelled": "შეხვედრის გაუქმება",
   "notifSaved": "პარამეტრები შენახულია",
   "notifSaveErr": "პარამეტრების შენახვა ვერ მოხერხდა",
-  "pushBlocked": "Push-ის გამოსაყენებლად დაუშვით შეტყობინებები ბრაუზერში."
+  "pushBlocked": "Push-ის გამოსაყენებლად დაუშვით შეტყობინებები ბრაუზერში.",
+  "engineRestrictedNetwork": "Enhanced მიუწვდომელია თქვენს ქსელში — გამოიყენება Standard თარგმანი."
 }

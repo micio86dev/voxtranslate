@@ -505,5 +505,6 @@
   "notifEvtMeetingCancelled": "Susitikimų atšaukimai",
   "notifSaved": "Nuostatos išsaugotos",
   "notifSaveErr": "Nepavyko išsaugoti nuostatų",
-  "pushBlocked": "Kad galėtumėte naudoti „Push“, leiskite pranešimus naršyklėje."
+  "pushBlocked": "Kad galėtumėte naudoti „Push“, leiskite pranešimus naršyklėje.",
+  "engineRestrictedNetwork": "Enhanced nepasiekiamas jūsų tinkle — naudojamas Standard vertimas."
 }

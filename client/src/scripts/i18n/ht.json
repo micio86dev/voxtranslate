@@ -505,5 +505,6 @@
   "notifEvtMeetingCancelled": "Anilasyon reyinyon",
   "notifSaved": "Preferans yo anrejistre",
   "notifSaveErr": "Nou pa t kapab anrejistre preferans yo",
-  "pushBlocked": "Otorize notifikasyon nan navigatè ou pou itilize push."
+  "pushBlocked": "Otorize notifikasyon nan navigatè ou pou itilize push.",
+  "engineRestrictedNetwork": "Enhanced pa disponib sou rezo ou — n ap itilize tradiksyon Standard."
 }

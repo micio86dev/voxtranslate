@@ -505,5 +505,6 @@
   "notifEvtMeetingCancelled": "Møteavlysingar",
   "notifSaved": "Innstillingar lagra",
   "notifSaveErr": "Klarte ikkje lagre innstillingane",
-  "pushBlocked": "Tillat varsel i nettlesaren for å bruke push."
+  "pushBlocked": "Tillat varsel i nettlesaren for å bruke push.",
+  "engineRestrictedNetwork": "Enhanced er ikkje tilgjengeleg på nettverket ditt — bruker Standard-omsetjing."
 }

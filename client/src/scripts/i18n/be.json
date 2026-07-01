@@ -505,5 +505,6 @@
   "notifEvtMeetingCancelled": "Скасаванні сустрэч",
   "notifSaved": "Налады захаваны",
   "notifSaveErr": "Не ўдалося захаваць налады",
-  "pushBlocked": "Дазвольце апавяшчэнні ў браўзеры, каб карыстацца push."
+  "pushBlocked": "Дазвольце апавяшчэнні ў браўзеры, каб карыстацца push.",
+  "engineRestrictedNetwork": "Enhanced недаступны ў вашай сетцы — выкарыстоўваецца пераклад Standard."
 }

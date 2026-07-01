@@ -505,5 +505,6 @@
   "notifEvtMeetingCancelled": "Kughairiwa kwa mkutano",
   "notifSaved": "Mapendeleo yamehifadhiwa",
   "notifSaveErr": "Imeshindwa kuhifadhi mapendeleo",
-  "pushBlocked": "Ruhusu arifa katika kivinjari chako ili kutumia push."
+  "pushBlocked": "Ruhusu arifa katika kivinjari chako ili kutumia push.",
+  "engineRestrictedNetwork": "Enhanced haipatikani kwenye mtandao wako — inatumia tafsiri ya Standard."
 }

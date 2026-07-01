@@ -505,5 +505,6 @@
   "notifEvtMeetingCancelled": "රැස්වීම් අවලංගු කිරීම්",
   "notifSaved": "මනාප සුරැකිණි",
   "notifSaveErr": "මනාප සුරැකීමට නොහැකි විය",
-  "pushBlocked": "Push භාවිතා කිරීමට ඔබේ බ්‍රවුසරයේ දැනුම්දීම්වලට ඉඩ දෙන්න."
+  "pushBlocked": "Push භාවිතා කිරීමට ඔබේ බ්‍රවුසරයේ දැනුම්දීම්වලට ඉඩ දෙන්න.",
+  "engineRestrictedNetwork": "ඔබගේ ජාලයේ Enhanced ලබා ගත නොහැක — Standard පරිවර්තනය භාවිත කරයි."
 }

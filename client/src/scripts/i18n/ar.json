@@ -505,5 +505,6 @@
   "notifEvtMeetingCancelled": "إلغاء الاجتماعات",
   "notifSaved": "تم حفظ التفضيلات",
   "notifSaveErr": "تعذّر حفظ التفضيلات",
-  "pushBlocked": "اسمح بالإشعارات في متصفحك لاستخدام الإشعارات الفورية."
+  "pushBlocked": "اسمح بالإشعارات في متصفحك لاستخدام الإشعارات الفورية.",
+  "engineRestrictedNetwork": "Enhanced غير متاح على شبكتك — يتم استخدام ترجمة Standard."
 }

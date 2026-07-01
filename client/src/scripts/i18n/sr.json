@@ -505,5 +505,6 @@
   "notifEvtMeetingCancelled": "Откази састанака",
   "notifSaved": "Подешавања сачувана",
   "notifSaveErr": "Није могуће сачувати подешавања",
-  "pushBlocked": "Дозволите обавештења у прегледачу да бисте користили push."
+  "pushBlocked": "Дозволите обавештења у прегледачу да бисте користили push.",
+  "engineRestrictedNetwork": "Enhanced није доступан на вашој мрежи — користи се Standard превод."
 }

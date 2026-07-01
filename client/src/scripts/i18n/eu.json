@@ -505,5 +505,6 @@
   "notifEvtMeetingCancelled": "Bilera-ezeztapenak",
   "notifSaved": "Hobespenak gordeta",
   "notifSaveErr": "Ezin izan dira hobespenak gorde",
-  "pushBlocked": "Baimendu jakinarazpenak nabigatzailean push erabiltzeko."
+  "pushBlocked": "Baimendu jakinarazpenak nabigatzailean push erabiltzeko.",
+  "engineRestrictedNetwork": "Enhanced ez dago erabilgarri zure sarean — Standard itzulpena erabiltzen ari da."
 }

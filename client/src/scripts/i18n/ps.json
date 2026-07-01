@@ -505,5 +505,6 @@
   "notifEvtMeetingCancelled": "د غونډې لغوه کول",
   "notifSaved": "غوره توبونه خوندي شول",
   "notifSaveErr": "غوره توبونه خوندي نه شول",
-  "pushBlocked": "د پُش کارولو لپاره په خپل براوزر کې خبرتیاوې اجازه ورکړئ."
+  "pushBlocked": "د پُش کارولو لپاره په خپل براوزر کې خبرتیاوې اجازه ورکړئ.",
+  "engineRestrictedNetwork": "Enhanced ستاسو په شبکه کې شتون نلري — د Standard ژباړه کارول کیږي."
 }

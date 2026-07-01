@@ -505,5 +505,6 @@
   "notifEvtMeetingCancelled": "Vergaderkansellasies",
   "notifSaved": "Voorkeure gestoor",
   "notifSaveErr": "Kon nie voorkeure stoor nie",
-  "pushBlocked": "Laat kennisgewings in jou blaaier toe om stoot te gebruik."
+  "pushBlocked": "Laat kennisgewings in jou blaaier toe om stoot te gebruik.",
+  "engineRestrictedNetwork": "Enhanced is nie op jou netwerk beskikbaar nie — Standard-vertaling word gebruik."
 }

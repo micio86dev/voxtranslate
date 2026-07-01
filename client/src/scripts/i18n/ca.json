@@ -505,5 +505,6 @@
   "notifEvtMeetingCancelled": "Reunions cancel·lades",
   "notifSaved": "Preferències desades",
   "notifSaveErr": "No s'han pogut desar les preferències",
-  "pushBlocked": "Permet les notificacions al navegador per fer servir el push."
+  "pushBlocked": "Permet les notificacions al navegador per fer servir el push.",
+  "engineRestrictedNetwork": "Enhanced no està disponible a la teva xarxa — s'utilitza la traducció Standard."
 }

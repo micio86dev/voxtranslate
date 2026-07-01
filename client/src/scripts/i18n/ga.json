@@ -505,5 +505,6 @@
   "notifEvtMeetingCancelled": "Cealuithe cruinnithe",
   "notifSaved": "Sábháladh na sainroghanna",
   "notifSaveErr": "Níorbh fhéidir na sainroghanna a shábháil",
-  "pushBlocked": "Ceadaigh fógraí i do bhrabhsálaí chun push a úsáid."
+  "pushBlocked": "Ceadaigh fógraí i do bhrabhsálaí chun push a úsáid.",
+  "engineRestrictedNetwork": "Níl Enhanced ar fáil ar do líonra — úsáidtear aistriúchán Standard."
 }
