@@ -4,6 +4,18 @@ All notable changes to the VoxTranslate server are documented here. The version
 is the umbrella release version (anchored on this crate's `Cargo.toml`). This log
 starts at 1.11.4; for earlier history see the `vX.Y.Z` git tags.
 
+## [1.12.1] — 2026-07-01
+
+### Fixed
+- **GFW probe flagged every user as restricted (regression from 1.12.0).** The
+  China reachability probe (`restricted-net.ts`) fetches two hosts, but neither was in
+  the client CSP `connect-src`, so the browser blocked both fetches — indistinguishable
+  from a network failure — and every prod user (incl. non-China) was treated as
+  restricted: the Enhanced tier was hidden and `iceTransportPolicy` was forced to
+  `relay`. Added `https://www.google.com` + `https://api.cartesia.ai` to `connect-src`,
+  switched the canary from `gstatic` (often reachable inside China) to
+  `www.google.com/generate_204`, and added a CSP test guarding the probe hosts.
+
 ## [1.12.0] — 2026-07-01
 
 ### Added

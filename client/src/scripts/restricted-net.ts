@@ -16,11 +16,14 @@
 // hardened path (also correct). Detection FAILS OPEN — any error resolves to `false`
 // (normal behavior) so it can never block a call for a non-China user.
 
-/** Endpoints whose reachability we probe. `gstatic/generate_204` is Chromium's own
- *  connectivity canary (blocked/poisoned in mainland China); `api.cartesia.ai` is the
- *  Enhanced tier's direct dependency. `const` so they can be tuned in one place. */
+/** Endpoints whose reachability we probe. `google.com/generate_204` is a connectivity
+ *  canary reliably blocked by the GFW (unlike gstatic, which is often reachable inside
+ *  China → false negatives); `api.cartesia.ai` is the Enhanced tier's direct dependency.
+ *  BOTH hosts MUST be in the CSP `connect-src` (`client/vercel.json`) — otherwise the
+ *  browser blocks the fetch before it leaves, which is indistinguishable from a network
+ *  failure and would flag EVERY user as restricted. `const` so they're tuned in one place. */
 export const RESTRICTED_PROBE_URLS = [
-  'https://www.gstatic.com/generate_204',
+  'https://www.google.com/generate_204',
   'https://api.cartesia.ai/',
 ] as const;
 

@@ -65,6 +65,12 @@ describe('call CSP (issue #237 regression guard)', () => {
     expect(directive('connect-src')).toContain('https://api.voxtranslate.app');
     // Enhanced tier (spec 0108): the browser connects DIRECTLY to Cartesia STT/TTS over WS.
     expect(directive('connect-src')).toContain('wss://api.cartesia.ai');
+    // Great-Firewall detection (restricted-net.ts) fetches these two hosts to probe
+    // reachability. They MUST be in connect-src or the browser blocks the probe →
+    // indistinguishable from a network failure → every user flagged restricted
+    // (Enhanced hidden + forced relay). Keep in sync with RESTRICTED_PROBE_URLS.
+    expect(directive('connect-src')).toContain('https://www.google.com');
+    expect(directive('connect-src')).toContain('https://api.cartesia.ai');
     // MediaRecorder / recording playback uses blob: object URLs for media.
     expect(directive('media-src')).toContain('blob:');
     // Chat voice messages are served as signed Supabase storage URLs, so the
