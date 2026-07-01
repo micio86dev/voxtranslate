@@ -323,4 +323,19 @@ describe('MeshManager', () => {
     m.replaceAudioTrack(null); // stop sharing → revert to the plain mic track
     expect(audioSender.replaceTrack).toHaveBeenCalledWith(null);
   });
+
+  // Great-Firewall hardening: a restricted client is constructed with
+  // iceTransportPolicy 'relay' so every peer connection goes straight to TURN.
+  it('omits iceTransportPolicy by default (unrestricted → browser default all)', async () => {
+    const m = new MeshManager(fakeStream(), vi.fn());
+    await m.addPeer('p1', true);
+    expect(pcs[0].cfg.iceTransportPolicy).toBeUndefined();
+    expect('iceTransportPolicy' in pcs[0].cfg).toBe(false);
+  });
+
+  it('forces relay when iceTransportPolicy is set (China-side peer)', async () => {
+    const m = new MeshManager(fakeStream(), vi.fn(), undefined, undefined, '', 'relay');
+    await m.addPeer('p1', true);
+    expect(pcs[0].cfg.iceTransportPolicy).toBe('relay');
+  });
 });

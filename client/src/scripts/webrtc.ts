@@ -62,6 +62,12 @@ export class MeshManager {
   private localStream: MediaStream;
   private send: (s: Signal) => void;
   private iceServers: RTCIceServer[];
+  /** When set (to `'relay'`), every peer connection is forced through TURN,
+   *  skipping host/srflx candidates. Used for Great-Firewall-restricted clients,
+   *  whose direct UDP candidates the GFW resets anyway — going straight to the
+   *  `turns://…:443` relay avoids stalling on doomed candidate pairs. Left
+   *  `undefined` for everyone else so behavior is unchanged (browser default `all`). */
+  private iceTransportPolicy?: RTCIceTransportPolicy;
   private videoBudget: number;
   /** This client's own peer id — compared against each remote id to pick the
    *  polite/impolite role for perfect negotiation. */
@@ -83,10 +89,12 @@ export class MeshManager {
     iceServers: RTCIceServer[] = ICE_SERVERS,
     videoBudget = 2_400_000,
     localId = '',
+    iceTransportPolicy?: RTCIceTransportPolicy,
   ) {
     this.localStream = localStream;
     this.send = send;
     this.iceServers = iceServers;
+    this.iceTransportPolicy = iceTransportPolicy;
     this.videoBudget = videoBudget;
     this.currentBudget = videoBudget;
     this.localId = localId;
@@ -175,7 +183,12 @@ export class MeshManager {
       // a clear error rather than the opaque "RTCPeerConnection is not a constructor".
       throw new Error('WebRTC is not supported in this browser');
     }
-    const pc = new Ctor({ iceServers: this.iceServers });
+    // Only set iceTransportPolicy when forcing relay — omitting the key keeps the
+    // config byte-for-byte identical to the default (unrestricted) path.
+    const pc = new Ctor({
+      iceServers: this.iceServers,
+      ...(this.iceTransportPolicy ? { iceTransportPolicy: this.iceTransportPolicy } : {}),
+    });
     const peer: PeerState = {
       id: peerId,
       pc,
