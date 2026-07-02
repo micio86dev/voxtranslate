@@ -4,6 +4,19 @@ All notable changes to the VoxTranslate server are documented here. The version
 is the umbrella release version (anchored on this crate's `Cargo.toml`). This log
 starts at 1.11.4; for earlier history see the `vX.Y.Z` git tags.
 
+## [1.12.2] — 2026-07-02
+
+### Fixed
+- **Pro tier (OpenAI) translated into the speaker's language, not the listener's.**
+  When `OPENAI_VOICE` was set, the realtime `session.update` included
+  `session.audio.output.voice`, which the `/v1/realtime/translations` endpoint
+  (`gpt-realtime-translate`) rejects ("Unknown parameter"). OpenAI dropped the whole
+  update, so the (correct) `output.language` never applied and the model fell back to
+  the source language — the listener heard/read the speaker's language. Target
+  selection and delivery were correct; only the OpenAI session config was poisoned.
+  We now send only the language (the endpoint offers no voice selection), so Pro
+  translates correctly regardless of `OPENAI_VOICE`.
+
 ## [1.12.1] — 2026-07-01
 
 ### Fixed
