@@ -612,6 +612,7 @@ pub fn app(state: AppState) -> Router {
         )
         .route("/api/report", post(api::report))
         .route("/api/user/consent", post(api::submit_consent))
+        .route("/api/user/tts-prefs", post(api::update_tts_prefs))
         .route("/api/user/data", get(api::export_data))
         .route(
             "/api/user/location",

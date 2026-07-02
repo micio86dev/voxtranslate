@@ -284,6 +284,27 @@ export async function deleteGlossary(room: string): Promise<boolean> {
   }
 }
 
+// ---- Vox Voices preferences (server-synced) --------------------------------
+
+/** Persist the user's speech-engine + Vox-voice preference server-side (logged-in only;
+ *  the caller gates on isLoggedIn). Best-effort: a failure just leaves the local copy,
+ *  which still drives playback. Returns whether the save was accepted. */
+export async function saveTtsPrefs(prefs: {
+  tts_engine_pref?: string;
+  tts_voice_id?: string | null;
+}): Promise<boolean> {
+  try {
+    const res = await fetch(`${HTTP_BASE}/api/user/tts-prefs`, {
+      method: 'POST',
+      headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(prefs),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 // ---- Chat file upload (spec 0018) ------------------------------------------
 
 /** Supported upload extensions — documents only (mirrors the server's `classify_ext`).

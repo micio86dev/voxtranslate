@@ -73,9 +73,69 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // Vox Voices model bytes: served same-origin from IndexedDB (never the network),
+  // so the local TTS engine loads them within `connect-src 'self'` / `worker-src 'self'`
+  // and keeps working offline. See the vox helpers below.
+  if (url.pathname.startsWith(VOX_PREFIX)) {
+    const key = decodeURIComponent(url.pathname.slice(VOX_PREFIX.length));
+    event.respondWith(
+      voxGetFile(key)
+        .then((blob) =>
+          blob
+            ? new Response(blob, { headers: { 'Cache-Control': 'no-store' } })
+            : new Response('', { status: 404, statusText: 'Not Installed' }),
+        )
+        .catch(() => new Response('', { status: 404, statusText: 'Not Installed' })),
+    );
+    return;
+  }
+
   // Everything else same-origin: network, fall back to cache.
   event.respondWith(fetch(req).catch(() => caches.match(req).then(orOffline)));
 });
+
+// --- Vox Voices model store (IndexedDB, shared with src/scripts/tts/storage.ts) ---
+// The app downloads + integrity-verifies voice-pack files and stores them in IndexedDB;
+// we serve them here at /vox-models/<packId>/<version>/<path>. Keep this DB/store/key
+// contract in sync with storage.ts. We mirror the SAME schema in onupgradeneeded so
+// whichever side opens the DB first creates the correct stores (no schema race that
+// would leave the DB store-less and break the app).
+const VOX_DB = 'vox-voices';
+const VOX_DB_VERSION = 1;
+const VOX_FILES = 'files';
+const VOX_PREFIX = '/vox-models/';
+
+function voxOpenDb() {
+  return new Promise((resolve, reject) => {
+    const open = indexedDB.open(VOX_DB, VOX_DB_VERSION);
+    open.onupgradeneeded = () => {
+      const db = open.result;
+      if (!db.objectStoreNames.contains('files')) db.createObjectStore('files', { keyPath: 'key' });
+      if (!db.objectStoreNames.contains('meta')) db.createObjectStore('meta', { keyPath: 'packId' });
+      if (!db.objectStoreNames.contains('bench'))
+        db.createObjectStore('bench', { keyPath: 'packId' });
+    };
+    open.onsuccess = () => resolve(open.result);
+    open.onerror = () => reject(open.error);
+  });
+}
+
+function voxGetFile(key) {
+  return voxOpenDb().then(
+    (db) =>
+      new Promise((resolve) => {
+        let store;
+        try {
+          store = db.transaction(VOX_FILES, 'readonly').objectStore(VOX_FILES);
+        } catch {
+          return resolve(undefined); // store missing (fresh DB) → treat as a miss
+        }
+        const r = store.get(key);
+        r.onsuccess = () => resolve(r.result ? r.result.blob : undefined);
+        r.onerror = () => resolve(undefined);
+      }),
+  );
+}
 
 // --- Web Push (spec: scheduled meetings, Phase 1e) ---
 // Payload from the server: { title, body, data:{ join_url, meeting_id, ... } }.

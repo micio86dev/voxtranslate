@@ -82,6 +82,27 @@ impl BillingService {
         Ok(())
     }
 
+    /// Persist a user's Vox Voices preferences (migration 033). A NULL argument leaves that
+    /// column unchanged (COALESCE), so the engine choice and the voice can be updated
+    /// independently — the client sends only the field it changed.
+    pub async fn set_tts_prefs(
+        &self,
+        user_id: Uuid,
+        engine_pref: Option<&str>,
+        voice_id: Option<&str>,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "UPDATE users SET tts_engine_pref = COALESCE($1, tts_engine_pref), \
+             tts_voice_id = COALESCE($2, tts_voice_id), updated_at = now() WHERE id = $3",
+        )
+        .bind(engine_pref)
+        .bind(voice_id)
+        .bind(user_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
     /// Add credit (purchase / free grant / refund). Locks the user row, bumps the
     /// balance, and writes a ledger entry. Returns the new balance.
     pub async fn add_credits(
