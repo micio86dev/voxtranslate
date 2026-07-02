@@ -343,7 +343,7 @@ function failedBenchResult(): BenchmarkResult {
     initMs: 0,
     firstAudioMs: TTS_CONFIG.BENCH_TIMEOUT_MS,
     avgSynthMs: TTS_CONFIG.BENCH_TIMEOUT_MS,
-    webgpu: false,
+    webgpu: hasWebGPU(), // report the REAL capability, not a hardcoded false
     passed: false,
   };
 }

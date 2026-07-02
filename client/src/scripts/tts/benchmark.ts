@@ -41,11 +41,17 @@ export async function runBenchmark(provider: KokoroProvider): Promise<BenchmarkR
   const t0 = performance.now();
   const engine = await provider.engineHandle();
   const initMs = performance.now() - t0;
+  // Diagnostics (filter the console by `[vox-bench]`): shows where the time goes even if a
+  // later step times out — init vs the one-time warm-up vs steady-state per-line synth.
+  console.info(`[vox-bench] device=${engine.device} webgpu=${engine.webgpu} init=${Math.round(initMs)}ms`);
 
-  // Warm up: the very first inference pays a one-time cost (ONNX graph optimization,
-  // memory-pool allocation) that dwarfs steady-state and unfairly fails fast devices.
-  // Prime it with a throwaway synth so the timed lines measure what the device sustains.
+  // Warm up: the very first inference pays a one-time cost (WebGPU shader compilation, ONNX
+  // graph optimization, memory-pool allocation) that dwarfs steady-state and unfairly fails
+  // fast devices. Prime it with a throwaway synth so the timed lines measure what the device
+  // sustains, not the cold start.
+  const w0 = performance.now();
   await engine.synth(BENCH_LINES[0], '');
+  console.info(`[vox-bench] warmup=${Math.round(performance.now() - w0)}ms (one-time)`);
 
   const synthMs: number[] = [];
   let audioMs = 0;
@@ -57,6 +63,7 @@ export async function runBenchmark(provider: KokoroProvider): Promise<BenchmarkR
     synthMs.push(dt);
     audioMs += (samples.length / SAMPLE_RATE) * 1000;
     if (i === 0) firstAudioMs = dt;
+    console.info(`[vox-bench] line ${i + 1}=${Math.round(dt)}ms`);
   }
   const totalSynth = synthMs.reduce((a, b) => a + b, 0);
   const avgSynthMs = totalSynth / synthMs.length;
