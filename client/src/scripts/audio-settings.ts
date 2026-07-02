@@ -266,10 +266,35 @@ function updateProgress(p: { fraction: number; receivedBytes: number; totalBytes
   el('audio-progress-bytes').textContent = `${formatBytes(p.receivedBytes)} / ${formatBytes(p.totalBytes)}`;
 }
 
+/** Kokoro is only fast enough on-device with WebGPU. Without it, ONNX runs single-threaded
+ *  WASM (multi-threading needs cross-origin isolation, which we can't enable — COOP
+ *  same-origin breaks the Google-login popup), which is far too slow for live speech. */
+function hasWebGPU(): boolean {
+  return (
+    typeof navigator !== 'undefined' && 'gpu' in navigator && !!(navigator as { gpu?: unknown }).gpu
+  );
+}
+
 async function doBenchmark(): Promise<void> {
   const provider = getVoxProvider();
   const meta = await installedMeta();
   if (!provider || !meta) return;
+
+  // No WebGPU → don't load the model or wait out a timeout; decide Browser Voice at once.
+  if (!hasWebGPU()) {
+    await packStorage
+      .putBench({
+        packId: meta.packId,
+        version: meta.version,
+        ranAt: Date.now(),
+        result: failedBenchResult(),
+      })
+      .catch(() => {});
+    ttsManager.setBenchmarkPassed(false);
+    await refresh();
+    return;
+  }
+
   const btn = el<HTMLButtonElement>('audio-bench-btn');
   el('audio-bench-verdict').textContent = t('voxBenchRunning');
   btn.classList.add('btn-loading');

@@ -42,7 +42,7 @@ export const TTS_CONFIG = {
   /** Hard cap for the whole benchmark (engine load + synth). If a device can't finish in
    *  time (e.g. iOS Safari stalling on the model), we stop waiting, mark it failed and use
    *  Browser Voice — never an infinite spinner. */
-  BENCH_TIMEOUT_MS: 30000,
+  BENCH_TIMEOUT_MS: 15000,
 
   /** Voice-pack manifest (Supabase Storage, public-read). Set at build time via
    *  PUBLIC_VOX_MANIFEST_URL; an empty string keeps the whole feature dormant
