@@ -307,16 +307,17 @@ async function doRemove(): Promise<void> {
 
 async function renderVoices(installed: boolean): Promise<void> {
   const { browser, vox } = await ttsManager.listVoices();
-  // Filter browser voices to show only those matching the user's selected language.
+  // Show only voices matching the user's selected output language (both engines).
   const langSel = document.getElementById('lang') as HTMLSelectElement | null;
   const lang = langSel?.value;
-  const filteredBrowser =
+  const byLang = <T extends { lang: string }>(list: T[]): T[] =>
     lang && lang !== 'auto'
-      ? browser.filter((v) => v.lang.toLowerCase().startsWith(lang.toLowerCase()))
-      : browser;
-  toggle('audio-vox-voices', installed && vox.length > 0);
-  renderVoiceList(el('audio-vox-list'), vox, 'vox', loadVoxVoice());
-  renderVoiceList(el('audio-browser-list'), filteredBrowser, 'browser', loadBrowserVoice());
+      ? list.filter((v) => v.lang.toLowerCase().startsWith(lang.toLowerCase()))
+      : list;
+  const filteredVox = byLang(vox);
+  toggle('audio-vox-voices', installed && filteredVox.length > 0);
+  renderVoiceList(el('audio-vox-list'), filteredVox, 'vox', loadVoxVoice());
+  renderVoiceList(el('audio-browser-list'), byLang(browser), 'browser', loadBrowserVoice());
 }
 
 function renderVoiceList(
