@@ -238,6 +238,10 @@ pub struct UserProfile {
     /// uses this to skip the pre-join voice-prep prompt on EVERY device, not just the one
     /// that recorded it — the per-device localStorage flag is only a local short-circuit.
     pub has_voice_clone: bool,
+    /// Vox Voices: the user's speech-engine preference ('auto'|'browser'|'vox') and chosen
+    /// Vox voice id, synced across devices. NULL when never set (client defaults to 'auto').
+    pub tts_engine_pref: Option<String>,
+    pub tts_voice_id: Option<String>,
 }
 
 impl From<User> for UserProfile {
@@ -250,6 +254,8 @@ impl From<User> for UserProfile {
             balance: u.balance.to_f64().unwrap_or(0.0),
             consent_given: u.age_confirmed && u.consent_tos_at.is_some(),
             has_voice_clone: u.cartesia_voice_id.is_some(),
+            tts_engine_pref: u.tts_engine_pref,
+            tts_voice_id: u.tts_voice_id,
         }
     }
 }

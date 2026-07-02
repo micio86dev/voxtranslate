@@ -49,6 +49,8 @@ import type { AudioCapture } from './audio-capture';
 import type { PcmCapture } from './pcm-capture';
 import { pcmPlayback } from './pcm-playback';
 import type { MicMeter } from './mic-meter';
+import { ttsManager } from './tts/manager';
+import { registerVoxIfInstalled } from './tts/register';
 import type { ChatManager, ChatPayload } from './chat';
 import { CHAT_MAX_HEIGHT, counterLabel, counterState, insertAt, recTimeLabel, resizeBox } from './chat-input';
 import { checkUploadFile, cloneVoice, fetchAiPricing, fetchEnhancedSession, fileUploadEnabled, generateAiQuiz, saveQuizHistory, sendInvites, UPLOAD_ACCEPT, UPLOAD_MAX_BYTES, uploadChatFile } from './api';
@@ -425,12 +427,12 @@ const callTimer = new CallTimer({
     playTimerSetSound();
     // Optional spoken confirmation, gated on the "translated voice" output toggle
     // so it stays opt-in; the visual badge + cue always fire.
-    if (ttsOn) speak(t('timerSetSpeak').replace('{d}', human), getUiLang());
+    if (ttsOn) speakSystem(t('timerSetSpeak').replace('{d}', human), getUiLang());
   },
   onDone: () => {
     toast(t('timerDone'));
     playTimerDoneSound();
-    if (ttsOn) speak(t('timerDoneSpeak'), getUiLang());
+    if (ttsOn) speakSystem(t('timerDoneSpeak'), getUiLang());
   },
   onCancel: () => toast(t('timerCancelled')),
 });
@@ -3324,6 +3326,27 @@ btnTts.addEventListener('click', () => {
   setControlState();
 });
 
+// ---- Audio settings (Vox Voices) -------------------------------------------
+// The modal contents are lazy-loaded on first open; show() gives the overlay its
+// focus trap. Reachable from the pre-join card and the in-call ⋯ menu.
+const audioModal = $('audio-modal');
+let audioSettingsMod: typeof import('./audio-settings') | null = null;
+async function openAudioSettings(): Promise<void> {
+  show(audioModal, true);
+  try {
+    audioSettingsMod = audioSettingsMod ?? (await import('./audio-settings'));
+    await audioSettingsMod.openAudioSettings();
+  } catch {
+    /* settings unavailable — Browser Voice still works */
+  }
+}
+$('prejoin-audio-btn').addEventListener('click', () => void openAudioSettings());
+$('btn-audio-settings').addEventListener('click', () => void openAudioSettings());
+$('audio-close').addEventListener('click', () => show(audioModal, false));
+audioModal.addEventListener('click', (e) => {
+  if (e.target === audioModal) show(audioModal, false);
+});
+
 btnSubtitle.addEventListener('click', () => {
   const i = SUBTITLE_CYCLE.indexOf(subtitleMode);
   subtitleMode = SUBTITLE_CYCLE[(i + 1) % SUBTITLE_CYCLE.length];
@@ -4261,87 +4284,38 @@ function cssEsc(s: string): string {
   return (window.CSS && CSS.escape ? CSS.escape(s) : s.replace(/["\\]/g, '\\$&'));
 }
 
-// Translated-voice TTS. Utterances are QUEUED and played one at a time (chained on
-// `onend`) — we never cancel the in-progress one, otherwise a quickly-following
-// sentence would cut off the previous translation mid-word (the reported bug). A
-// generous backlog cap keeps a fast talker from pushing playback minutes behind
-// live: past the cap the OLDEST still-waiting lines are dropped so we stay near
-// real time (a normal conversation, with pauses, never reaches it).
-const ttsQueue: SpeechSynthesisUtterance[] = [];
-let ttsSpeaking = false;
-const TTS_MAX_QUEUE = 8;
+// Translated-voice TTS now lives behind the provider-based TTSManager ("Vox Voices"):
+// the app still calls speak() / unlockTts() / stopTts() exactly as before, but the
+// manager owns the queue (no-cut, drop-oldest past cap — spec 0040), picks Browser vs
+// a high-quality local engine by capability/health, and silently falls back to Browser
+// on any failure. The ORIGINAL SpeechSynthesis path (delay-first voice pick, rate 1.1,
+// iOS unlock) is preserved verbatim inside BrowserSpeechProvider (tts/providers/browser.ts).
+// A one-time, non-blocking notice if we ever fall back mid-session.
+ttsManager.onFallback(() => toast(t('ttsFallbackNotice')));
+// If a Vox Voices pack is already installed, register its provider (dynamic-imported,
+// so the heavy engine only loads when actually used). No-op unless the feature is
+// configured AND a pack is installed — Browser Voice remains the default otherwise.
+void registerVoxIfInstalled();
 
-// Pick a voice for `lang`, optimised for the owner's hard priority: MINIMAL DELAY.
-// Local/offline voices (localService) start instantly, so they win heavily; among
-// those we prefer premium/enhanced ones (Apple "Enhanced", etc.) to sound less
-// robotic AT NO LATENCY COST. Network voices (e.g. "Google …") sound natural but
-// fetch audio over the wire and add start-up lag, so they're a last resort — only
-// when no local voice matches the language at all (spec 0042).
-function pickVoice(lang: string): SpeechSynthesisVoice | undefined {
-  const want = lang.toLowerCase();
-  const matches = speechSynthesis.getVoices().filter((v) => v.lang.toLowerCase().startsWith(want));
-  if (!matches.length) return undefined;
-  const score = (v: SpeechSynthesisVoice): number =>
-    (v.localService ? 100 : 0) + // local = instant; the dominant factor
-    (/premium|enhanced|neural|natural|siri/i.test(`${v.name} ${v.voiceURI}`) ? 10 : 0) +
-    (v.default ? 1 : 0);
-  return matches.reduce((best, v) => (score(v) > score(best) ? v : best));
-}
-
+/** Speak a translated line — manager routes it to the best available engine. */
 function speak(text: string, lang: string): void {
-  if (!window.speechSynthesis) return;
-  const u = new SpeechSynthesisUtterance(text);
-  const v = pickVoice(lang);
-  if (v) u.voice = v;
-  u.lang = lang;
-  u.rate = 1.1;
-  ttsQueue.push(u);
-  if (ttsQueue.length > TTS_MAX_QUEUE) ttsQueue.splice(0, ttsQueue.length - TTS_MAX_QUEUE);
-  pumpTts();
+  ttsManager.speak(text, lang);
 }
 
-/** Speak the next queued utterance once the current one finishes (or errors). */
-function pumpTts(): void {
-  if (ttsSpeaking || !window.speechSynthesis) return;
-  const u = ttsQueue.shift();
-  if (!u) return;
-  ttsSpeaking = true;
-  const next = () => {
-    ttsSpeaking = false;
-    pumpTts();
-  };
-  u.onend = next;
-  u.onerror = next;
-  speechSynthesis.speak(u);
+/** Speak a system phrase (timer confirmations) — always Browser Voice, never Vox. */
+function speakSystem(text: string, lang: string): void {
+  ttsManager.speakSystem(text, lang);
 }
 
-// iOS/WebKit gate speechSynthesis behind a real user gesture: unless the FIRST
-// speak() runs inside a tap handler, every later (programmatic) translated-voice
-// utterance is silently dropped — the reported "no translated audio on iPhone"
-// (Chrome on iOS is WebKit too, so it repros there). Prime the engine from the
-// join tap / TTS-toggle with one inaudible utterance so the real translations
-// play. No-op where it isn't needed; re-armed on leaveCall via stopTts().
-let ttsUnlocked = false;
+/** Prime audio inside a user gesture (iOS/WebKit unlock), on the join tap / toggle. */
 function unlockTts(): void {
-  if (ttsUnlocked || !window.speechSynthesis) return;
-  try {
-    const u = new SpeechSynthesisUtterance(' ');
-    u.volume = 0;
-    speechSynthesis.speak(u);
-    ttsUnlocked = true;
-  } catch {
-    /* best-effort: a later real speak() will still attempt to unlock */
-  }
+  ttsManager.unlock();
 }
 
 /** Stop playback and drop the queue (TTS toggled off / leaving the call). */
 function stopTts(): void {
-  ttsQueue.length = 0;
-  ttsSpeaking = false;
-  ttsUnlocked = false; // re-prime on the next join / TTS-toggle gesture (iOS)
-  if (window.speechSynthesis) speechSynthesis.cancel();
+  ttsManager.stop();
 }
-if (window.speechSynthesis) speechSynthesis.getVoices();
 
 // Copy room code from the on-video meta cluster. Brief "Copied" feedback swaps the
 // room badge's OWN text (spec 0061: #call-vis moved into the info popover).

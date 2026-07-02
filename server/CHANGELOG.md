@@ -4,6 +4,17 @@ All notable changes to the VoxTranslate server are documented here. The version
 is the umbrella release version (anchored on this crate's `Cargo.toml`). This log
 starts at 1.11.4; for earlier history see the `vX.Y.Z` git tags.
 
+## [1.13.0] — 2026-07-02
+
+### Added
+- **Vox Voices — local neural TTS (Kokoro) with a permanent Browser fallback.** New
+  server-synced per-user preferences for translated-speech playback: migration `033`
+  adds `users.tts_engine_pref` + `users.tts_voice_id`, surfaced on the profile and
+  written via `POST /api/user/tts-prefs` (engine preference + chosen Vox voice sync
+  across devices; the browser voice stays device-local). The feature is client-side and
+  dormant unless configured — no behavioural change to existing tiers. See
+  `docs/vox-voices.md`.
+
 ## [1.12.2] — 2026-07-02
 
 ### Fixed

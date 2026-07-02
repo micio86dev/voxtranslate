@@ -303,6 +303,7 @@ const jsonLd = {
         <div class="prejoin-head">
           <h1 class="card-title" data-i18n="prejoinTitle">{T('prejoinTitle')}</h1>
           <span class="room-tag"><span id="prejoin-room" class="mono"></span> · <span id="prejoin-vis" class="vis-badge"></span></span>
+          <button id="prejoin-audio-btn" class="btn-ghost icon-btn" type="button" data-i18n-title="audioSettings" title={T('audioSettings')} aria-label={T('audioSettings')} aria-haspopup="dialog">⚙</button>
         </div>
         <div class="preview-wrap">
           <video id="preview" autoplay playsinline muted></video>
@@ -573,6 +574,7 @@ const jsonLd = {
                   <span class="mi"><button id="btn-fullscreen" class="control-btn" data-i18n-title="fullscreenTip" title={T('fullscreenTip')} aria-label={T('fullscreenTip')}></button><span class="mi-label" data-i18n="fullscreenTip">{T('fullscreenTip')}</span></span>
                   <span class="mi"><button id="btn-record" class="control-btn" data-i18n-title="recordingTip" title={T('recordingTip')} aria-label={T('recordingTip')}></button><span class="mi-label" data-i18n="recordingTip">{T('recordingTip')}</span></span>
                   <span class="mi"><button id="btn-whiteboard" class="control-btn" data-i18n-title="whiteboardTip" title={T('whiteboardTip')} aria-label={T('whiteboardTip')}></button><span class="mi-label" data-i18n="whiteboardTip">{T('whiteboardTip')}</span></span>
+                  <span class="mi"><button id="btn-audio-settings" class="control-btn" data-i18n-title="audioSettings" title={T('audioSettings')} aria-label={T('audioSettings')} aria-haspopup="dialog">⚙</button><span class="mi-label" data-i18n="audioSettings">{T('audioSettings')}</span></span>
                 </div>
               </div>
               <div class="mm-group">
@@ -761,6 +763,94 @@ const jsonLd = {
         <p class="modal-balance"><span data-i18n="currentBalance">{T('currentBalance')}</span>: <strong id="modal-balance"></strong></p>
         <p id="buy-status" class="status-line" role="status"></p>
         <div id="packages-list" class="packages-list"></div>
+      </div>
+    </div>
+
+    <!-- ===================== AUDIO SETTINGS (Vox Voices) ===================== -->
+    <!-- One surface for translated-speech playback: current engine + status, the Vox
+         Voices voice-pack (install / update / remove with progress), the device benchmark,
+         and per-engine voice selection with previews. The engine picker + voice choice are
+         provider-agnostic (TTSManager); Browser Voice always works, so every Vox-specific
+         block is revealed only when the feature is configured / installed. -->
+    <div id="audio-modal" class="modal-overlay hidden">
+      <div class="modal card audio-modal" role="dialog" aria-modal="true" aria-labelledby="audio-title">
+        <div class="modal-head">
+          <span id="audio-title" class="card-title" data-i18n="audioSettings">{T('audioSettings')}</span>
+          <button id="audio-close" class="btn-ghost icon-btn" data-i18n-title="closeTip" title={T('closeTip')} aria-label={T('closeTip')}></button>
+        </div>
+
+        <!-- Speech-engine status -->
+        <div class="audio-section">
+          <span class="audio-section-title" data-i18n="audioEngineSection">{T('audioEngineSection')}</span>
+          <dl class="audio-status">
+            <div><dt data-i18n="audioCurrentEngine">{T('audioCurrentEngine')}</dt><dd id="audio-current-engine"></dd></div>
+            <div><dt data-i18n="audioEngineStatus">{T('audioEngineStatus')}</dt><dd id="audio-status-val"></dd></div>
+            <div id="audio-bench-status-row" class="hidden"><dt data-i18n="audioBenchmark">{T('audioBenchmark')}</dt><dd id="audio-bench-val"></dd></div>
+            <div id="audio-version-row" class="hidden"><dt data-i18n="audioPackVersion">{T('audioPackVersion')}</dt><dd id="audio-version-val"></dd></div>
+          </dl>
+        </div>
+
+        <!-- Voice pack: install card / progress / installed actions. Shown only when the
+             feature is configured (a manifest URL is present). -->
+        <div id="audio-pack" class="audio-section hidden">
+          <div id="audio-install-card" class="audio-install-card hidden">
+            <p class="audio-install-title" data-i18n="voxInstallTitle">{T('voxInstallTitle')}</p>
+            <p class="audio-install-desc" data-i18n="voxInstallDesc">{T('voxInstallDesc')}</p>
+            <ul class="audio-install-points">
+              <li data-i18n="voxInstallOneTime">{T('voxInstallOneTime')}</li>
+              <li><span data-i18n="voxInstallSize">{T('voxInstallSize')}</span>: <span id="audio-install-size"></span></li>
+              <li data-i18n="voxInstallOffline">{T('voxInstallOffline')}</li>
+              <li data-i18n="voxInstallRemovable">{T('voxInstallRemovable')}</li>
+            </ul>
+            <button id="audio-install-btn" class="btn-primary" type="button" data-i18n="voxInstallCta">{T('voxInstallCta')}</button>
+          </div>
+
+          <div id="audio-progress" class="audio-progress hidden" role="group" data-i18n-label="voxInstalling" aria-label={T('voxInstalling')}>
+            <div class="chat-upload-bar"><div id="audio-progress-fill" class="chat-upload-fill"></div></div>
+            <p class="audio-progress-label">
+              <span id="audio-progress-pct" aria-live="polite">0%</span>
+              <span id="audio-progress-bytes" class="audio-progress-bytes"></span>
+            </p>
+            <button id="audio-cancel-btn" class="btn-ghost" type="button" data-i18n="cancel">{T('cancel')}</button>
+          </div>
+
+          <div id="audio-installed" class="audio-installed hidden">
+            <button id="audio-update-btn" class="btn-primary hidden" type="button" data-i18n="voxUpdateNow">{T('voxUpdateNow')}</button>
+            <button id="audio-remove-btn" class="btn-ghost" type="button" data-i18n="voxRemove">{T('voxRemove')}</button>
+          </div>
+
+          <p id="audio-pack-status" class="status-line" role="status"></p>
+        </div>
+
+        <!-- Benchmark: friendly verdict + re-run. Shown once a pack is installed. -->
+        <div id="audio-bench-section" class="audio-section hidden">
+          <span class="audio-section-title" data-i18n="audioBenchmark">{T('audioBenchmark')}</span>
+          <p id="audio-bench-verdict" class="audio-bench-verdict" role="status"></p>
+          <button id="audio-bench-btn" class="btn-ghost" type="button" data-i18n="voxRunBenchmark">{T('voxRunBenchmark')}</button>
+        </div>
+
+        <!-- Voice selection: engine + per-engine voice pickers (each voice previewable). -->
+        <div class="audio-section">
+          <span class="audio-section-title" data-i18n="audioVoiceSection">{T('audioVoiceSection')}</span>
+          <label class="field">
+            <span class="field-label" data-i18n="audioEnginePref">{T('audioEnginePref')}</span>
+            <select id="audio-engine-select"></select>
+          </label>
+          <div id="audio-vox-voices" class="audio-voices hidden">
+            <span class="field-label" data-i18n="voxVoices">{T('voxVoices')}</span>
+            <div id="audio-vox-list" class="audio-voice-list" role="radiogroup" data-i18n-label="voxVoices" aria-label={T('voxVoices')}></div>
+          </div>
+          <div class="audio-voices">
+            <span class="field-label" data-i18n="browserVoices">{T('browserVoices')}</span>
+            <div id="audio-browser-list" class="audio-voice-list" role="radiogroup" data-i18n-label="browserVoices" aria-label={T('browserVoices')}></div>
+          </div>
+        </div>
+
+        <!-- Developer mode: raw benchmark/engine metrics. Hidden unless dev mode is on. -->
+        <div id="audio-dev" class="audio-section audio-dev hidden">
+          <span class="audio-section-title" data-i18n="audioDevMode">{T('audioDevMode')}</span>
+          <pre id="audio-dev-info" class="audio-dev-info"></pre>
+        </div>
       </div>
     </div>
 
@@ -2009,6 +2099,33 @@ const jsonLd = {
     .chat-upload-label { font-size: 0.78rem; color: var(--muted); }
     .chat-upload-bar { height: 4px; border-radius: 999px; background: var(--surface-2); overflow: hidden; }
     .chat-upload-fill { height: 100%; width: 0; background: var(--accent); transition: width 0.15s ease; }
+
+    /* ---- Audio settings (Vox Voices) ---- */
+    .audio-modal { max-width: 440px; text-align: left; max-height: 85vh; overflow-y: auto; }
+    .audio-section { display: flex; flex-direction: column; gap: 10px; padding: 14px 0; border-top: 1px solid var(--border); }
+    .audio-section:first-of-type { border-top: 0; }
+    .audio-section-title { font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+    .audio-status { display: flex; flex-direction: column; gap: 6px; margin: 0; }
+    .audio-status > div { display: flex; justify-content: space-between; gap: 12px; }
+    .audio-status dt { color: var(--muted); margin: 0; }
+    .audio-status dd { margin: 0; font-weight: 600; text-align: right; }
+    .audio-install-card { display: flex; flex-direction: column; gap: 8px; padding: 14px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-2); }
+    .audio-install-title { font-weight: 700; margin: 0; }
+    .audio-install-desc { color: var(--muted); margin: 0; }
+    .audio-install-points { margin: 4px 0; padding-left: 18px; color: var(--muted); display: flex; flex-direction: column; gap: 2px; }
+    .audio-progress { display: flex; flex-direction: column; gap: 8px; }
+    .audio-progress-label { display: flex; justify-content: space-between; gap: 12px; margin: 0; font-variant-numeric: tabular-nums; }
+    .audio-progress-bytes { color: var(--muted); }
+    .audio-installed { display: flex; gap: 8px; flex-wrap: wrap; }
+    .audio-bench-verdict { margin: 0; }
+    .audio-voices { display: flex; flex-direction: column; gap: 6px; }
+    .audio-voice-list { display: flex; flex-direction: column; gap: 4px; max-height: 168px; overflow-y: auto; }
+    .audio-voice-row { display: flex; align-items: center; gap: 6px; }
+    .audio-voice-select { flex: 1; text-align: left; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); color: inherit; cursor: pointer; min-height: var(--tap-target); }
+    .audio-voice-select[aria-checked='true'] { border-color: var(--accent); background: var(--surface-2); font-weight: 600; }
+    .audio-voice-preview { min-width: var(--tap-target); min-height: var(--tap-target); border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); color: inherit; cursor: pointer; }
+    .audio-voice-empty { color: var(--muted); font-size: 13px; padding: 6px 0; }
+    .audio-dev-info { white-space: pre-wrap; word-break: break-word; font-size: 12px; background: var(--surface-2); padding: 10px; border-radius: var(--radius); margin: 0; }
     /* Drag-and-drop overlay (spec 0018), covers the chat panel while dragging. */
     .chat-drop { position: absolute; inset: 0; z-index: 3; display: grid; place-items: center;
       background: color-mix(in srgb, var(--accent) 16%, var(--surface)); border: 2px dashed var(--accent);

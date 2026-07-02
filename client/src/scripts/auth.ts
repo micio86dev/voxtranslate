@@ -22,6 +22,12 @@ export interface User {
    *  pre-join voice-prep prompt is then skipped on every device, not just the one
    *  that recorded it. */
   has_voice_clone?: boolean;
+  /** Vox Voices: the user's chosen speech engine (`auto`|`browser`|`vox`), synced
+   *  across devices. Absent → default (`auto`). */
+  tts_engine_pref?: string | null;
+  /** Vox Voices: the chosen Vox voice id (portable across devices). The browser-voice
+   *  choice is device-local (voiceURIs aren't portable) and is NOT stored here. */
+  tts_voice_id?: string | null;
 }
 
 export interface CreditPackage {
@@ -120,6 +126,17 @@ export function clearSession(): void {
 export function setBalance(balance: number): void {
   if (!user) return;
   user = { ...user, balance };
+  store().setItem(USER_KEY, JSON.stringify(user));
+}
+
+/** Patch the cached Vox Voices prefs (after a settings change) so getUser() stays in
+ *  sync with what we POST to the server. No-op for guests (no cached user). */
+export function setTtsPrefs(patch: {
+  tts_engine_pref?: string | null;
+  tts_voice_id?: string | null;
+}): void {
+  if (!user) return;
+  user = { ...user, ...patch };
   store().setItem(USER_KEY, JSON.stringify(user));
 }
 
