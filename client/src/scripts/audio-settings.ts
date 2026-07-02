@@ -319,7 +319,9 @@ function renderVoiceList(
     pick.className = 'audio-voice-select';
     pick.setAttribute('role', 'radio');
     pick.setAttribute('aria-checked', String(v.id === selectedId));
-    pick.textContent = `${v.name} · ${v.lang}`;
+    pick.innerHTML =
+      `<span class="audio-voice-name">${v.name}</span>` +
+      `<span class="audio-voice-lang">${v.lang}</span>`;
     pick.addEventListener('click', () => {
       if (providerId === 'vox') {
         saveVoxVoice(v.id);
