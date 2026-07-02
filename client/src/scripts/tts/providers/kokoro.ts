@@ -60,12 +60,23 @@ export class KokoroProvider implements TTSProvider {
     return this.ensureEngine();
   }
 
-  async speak(text: string, _lang: string, opts?: SpeakOptions): Promise<void> {
+  async speak(text: string, lang: string, opts?: SpeakOptions): Promise<void> {
     const engine = await this.ensureEngine();
     const t0 = performance.now();
-    const samples = await engine.synth(text, opts?.voiceId ?? this.defaultVoice);
+    const samples = await engine.synth(text, this.voiceForLang(lang, opts?.voiceId));
     this.onTiming?.(performance.now() - t0);
     await this.playback.play(samples);
+  }
+
+  /** Pick a voice whose language matches the utterance. The saved preference wins only
+   *  when it speaks the right language (the pack is now multilingual, so an English voice
+   *  must not be used to read Italian) — otherwise fall back to the first matching voice. */
+  private voiceForLang(lang: string, preferredId?: string): string {
+    const base = baseLang(lang);
+    const pref = this.meta.voices.find((v) => v.id === preferredId);
+    if (pref && baseLang(pref.lang) === base) return pref.id;
+    const match = this.meta.voices.find((v) => baseLang(v.lang) === base);
+    return match?.id ?? preferredId ?? this.defaultVoice;
   }
 
   unlock(): void {

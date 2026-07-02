@@ -365,7 +365,10 @@ function renderVoiceList(
     preview.textContent = '▶';
     preview.addEventListener('click', () => {
       ttsManager.unlock();
-      void ttsManager.preview(providerId, TTS_CONFIG.SAMPLE_SENTENCE, v.lang, v.id);
+      const sample =
+        TTS_CONFIG.SAMPLE_BY_LANG[v.lang.toLowerCase().split(/[-_]/)[0]] ??
+        TTS_CONFIG.SAMPLE_SENTENCE;
+      void ttsManager.preview(providerId, sample, v.lang, v.id);
     });
 
     row.append(pick, preview);
