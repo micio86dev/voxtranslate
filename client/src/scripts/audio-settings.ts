@@ -159,6 +159,9 @@ function currentEngineLabel(): string {
 }
 
 function statusLabel(configured: boolean, installed: boolean): string {
+  // Browser Voice is the permanent fallback and always available; only report
+  // "unavailable / not installed" when Vox is actually the chosen engine.
+  if (ttsManager.chooseProvider('en', false).id !== 'vox') return t('audioStatusReady');
   if (!configured) return t('audioStatusUnavailable');
   return installed ? t('audioStatusReady') : t('audioStatusNotInstalled');
 }
@@ -281,9 +284,16 @@ async function doRemove(): Promise<void> {
 
 async function renderVoices(installed: boolean): Promise<void> {
   const { browser, vox } = await ttsManager.listVoices();
+  // Filter browser voices to show only those matching the user's selected language.
+  const langSel = document.getElementById('lang') as HTMLSelectElement | null;
+  const lang = langSel?.value;
+  const filteredBrowser =
+    lang && lang !== 'auto'
+      ? browser.filter((v) => v.lang.toLowerCase().startsWith(lang.toLowerCase()))
+      : browser;
   toggle('audio-vox-voices', installed && vox.length > 0);
   renderVoiceList(el('audio-vox-list'), vox, 'vox', loadVoxVoice());
-  renderVoiceList(el('audio-browser-list'), browser, 'browser', loadBrowserVoice());
+  renderVoiceList(el('audio-browser-list'), filteredBrowser, 'browser', loadBrowserVoice());
 }
 
 function renderVoiceList(

@@ -970,6 +970,7 @@ function selectEngine(id: string): void {
   renderEngineSelector();
   rebuildLangOptions();
   syncVoicePrep(); // voice-prep only applies to the client-direct (Enhanced) engine.
+  syncAudioSettingsBtn();
 }
 
 // Rebuild the language dropdown from the COMMON languages across all engines
@@ -1272,6 +1273,7 @@ function selectTier(id: string): void {
   saveEnginePref(id);
   renderTierCards();
   syncVoicePrep(); // voice-prep only applies to the client-direct (Enhanced) engine.
+  syncAudioSettingsBtn();
 }
 
 /** The note below the tier cards: a single-tier explanation, the credit balance, and a
@@ -1489,6 +1491,7 @@ async function goPrejoin(room: string, isPublic: boolean): Promise<void> {
   prejoinStatus.textContent = '';
   void setupBizPrejoin();
   syncVoicePrep(); // Enhanced voice-prep panel (spec 0108): show/init for eligible users.
+  syncAudioSettingsBtn(); // Audio settings only relevant for Standard tier.
   micOn = true;
   camOn = true;
   try {
@@ -3340,6 +3343,14 @@ async function openAudioSettings(): Promise<void> {
     /* settings unavailable — Browser Voice still works */
   }
 }
+
+// Show the pre-join audio-settings button only for Standard tier (other tiers have
+// server-side or Cartesia voice synthesis, so browser TTS voice choice is irrelevant).
+const prejoinAudioBtn = $('prejoin-audio-btn');
+function syncAudioSettingsBtn(): void {
+  prejoinAudioBtn.classList.toggle('hidden', selectedEngine !== 'standard');
+}
+
 $('prejoin-audio-btn').addEventListener('click', () => void openAudioSettings());
 $('btn-audio-settings').addEventListener('click', () => void openAudioSettings());
 $('audio-close').addEventListener('click', () => show(audioModal, false));
@@ -5880,12 +5891,14 @@ $('chat-rec-cancel').innerHTML = icon('trash', 18);
 $('buy-close').innerHTML = icon('close', 16);
 $('sm-cancel-btn').innerHTML = icon('close', 16);
 $('report-close').innerHTML = icon('close', 16);
+$('audio-close').innerHTML = icon('close', 16);
 $('part-close').innerHTML = icon('close', 16);
 // Account bar + menu + section tabs (spec: account hub): every `[data-ico]` span gets its
 // glyph here so the label text beside it stays intact (icons live in their own span).
 for (const el of document.querySelectorAll<HTMLElement>('[data-ico]'))
   el.innerHTML = icon(el.dataset.ico!, el.classList.contains('balance-ico') ? 15 : 18);
 $('invite-close').innerHTML = icon('close', 16); // was missing → empty pill (spec 0090)
+$('prejoin-audio-btn').innerHTML = icon('headphones', 18);
 $('postcall-close').innerHTML = icon('close', 16);
 $('btn-bookmark').innerHTML = icon('bookmark');
 $('bookmarks-close').innerHTML = icon('close', 16);
