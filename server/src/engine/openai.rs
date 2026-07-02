@@ -80,17 +80,19 @@ pub fn parse_openai_event(text: &str) -> OpenAiEvent {
     }
 }
 
-/// The `session.update` frame that sets the output language for a session, and an
-/// optional fixed voice (`OPENAI_VOICE`) so every session shares one timbre. With
-/// no voice configured the field is omitted — the model keeps its default.
-pub fn session_update_json(output_lang: &str, voice: Option<&str>) -> String {
-    let mut output = serde_json::json!({ "language": output_lang });
-    if let Some(v) = voice {
-        output["voice"] = serde_json::Value::String(v.to_string());
-    }
+/// The `session.update` frame that sets the output (target) language for a translation
+/// session. We send ONLY the language: the `/v1/realtime/translations` endpoint
+/// (`gpt-realtime-translate`) does NOT accept a `voice` parameter — sending
+/// `session.audio.output.voice` makes OpenAI reject the ENTIRE update ("Unknown
+/// parameter: 'session.audio.output.voice'"), so the output language is never applied
+/// and the model falls back to the source language (the Pro tier appeared to translate
+/// into the *speaker's* language instead of the listener's — see the corridor debug,
+/// 2026-07-02). `_voice` is kept for call-site compatibility but intentionally NOT
+/// emitted; the translation endpoint offers no voice selection.
+pub fn session_update_json(output_lang: &str, _voice: Option<&str>) -> String {
     serde_json::json!({
         "type": "session.update",
-        "session": { "audio": { "output": output } }
+        "session": { "audio": { "output": { "language": output_lang } } }
     })
     .to_string()
 }
@@ -199,12 +201,17 @@ mod tests {
         let upd: Value = serde_json::from_str(&session_update_json("es", None)).unwrap();
         assert_eq!(upd["type"], "session.update");
         assert_eq!(upd["session"]["audio"]["output"]["language"], "es");
-        // No voice configured → field omitted (default behaviour unchanged).
+        // `voice` must NEVER be sent — the translations endpoint rejects
+        // `session.audio.output.voice`, which makes OpenAI drop the whole update (so the
+        // output language wouldn't apply and translation would break). Assert it's absent
+        // EVEN when a voice is configured, so a set OPENAI_VOICE can't reintroduce the bug.
         assert!(upd["session"]["audio"]["output"].get("voice").is_none());
-        // With a voice configured → pinned on the session.
-        let pinned: Value =
+        let with_voice: Value =
             serde_json::from_str(&session_update_json("es", Some("marin"))).unwrap();
-        assert_eq!(pinned["session"]["audio"]["output"]["voice"], "marin");
+        assert!(with_voice["session"]["audio"]["output"]
+            .get("voice")
+            .is_none());
+        assert_eq!(with_voice["session"]["audio"]["output"]["language"], "es");
 
         let app: Value = serde_json::from_str(&audio_append_json(&[0u8, 255, 128])).unwrap();
         assert_eq!(app["type"], "session.input_audio_buffer.append");
