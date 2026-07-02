@@ -303,7 +303,7 @@ const jsonLd = {
         <div class="prejoin-head">
           <h1 class="card-title" data-i18n="prejoinTitle">{T('prejoinTitle')}</h1>
           <span class="room-tag"><span id="prejoin-room" class="mono"></span> · <span id="prejoin-vis" class="vis-badge"></span></span>
-          <button id="prejoin-audio-btn" class="btn-ghost icon-btn" type="button" data-i18n-title="audioSettings" title={T('audioSettings')} aria-label={T('audioSettings')} aria-haspopup="dialog">⚙</button>
+          <button id="prejoin-audio-btn" class="btn-ghost icon-btn" type="button" data-i18n-title="audioSettings" title={T('audioSettings')} aria-label={T('audioSettings')} aria-haspopup="dialog"></button>
         </div>
         <div class="preview-wrap">
           <video id="preview" autoplay playsinline muted></video>
@@ -2118,13 +2118,15 @@ const jsonLd = {
     .audio-progress-bytes { color: var(--muted); }
     .audio-installed { display: flex; gap: 8px; flex-wrap: wrap; }
     .audio-bench-verdict { margin: 0; }
-    .audio-voices { display: flex; flex-direction: column; gap: 6px; }
-    .audio-voice-list { display: flex; flex-direction: column; gap: 4px; max-height: 168px; overflow-y: auto; }
+    .audio-voices { display: flex; flex-direction: column; gap: 4px; }
+    .audio-voice-list { display: flex; flex-direction: column; gap: 1px; max-height: 220px; overflow-y: auto; border-radius: var(--radius-sm); padding: 2px; }
     .audio-voice-row { display: flex; align-items: center; gap: 6px; }
-    .audio-voice-select { flex: 1; text-align: left; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); color: inherit; cursor: pointer; min-height: var(--tap-target); }
-    .audio-voice-select[aria-checked='true'] { border-color: var(--accent); background: var(--surface-2); font-weight: 600; }
-    .audio-voice-preview { min-width: var(--tap-target); min-height: var(--tap-target); border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); color: inherit; cursor: pointer; }
-    .audio-voice-empty { color: var(--muted); font-size: 13px; padding: 6px 0; }
+    .audio-voice-select { flex: 1; text-align: left; padding: 10px 12px; border: none; border-radius: var(--radius-sm); background: transparent; color: inherit; cursor: pointer; min-height: var(--tap-target); font-size: var(--font-sm); line-height: 1.3; transition: background var(--transition-fast); }
+    .audio-voice-select:hover { background: var(--surface-2); }
+    .audio-voice-select[aria-checked='true'] { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+    .audio-voice-preview { flex: none; width: 36px; height: 36px; display: grid; place-items: center; border: 1px solid var(--border); border-radius: var(--radius-sm); background: transparent; color: var(--muted); cursor: pointer; font-size: 0.75rem; transition: border-color var(--transition-fast), color var(--transition-fast); }
+    .audio-voice-preview:hover { border-color: var(--accent); color: var(--text); }
+    .audio-voice-empty { color: var(--muted); font-size: 13px; padding: 8px 0; }
     .audio-dev-info { white-space: pre-wrap; word-break: break-word; font-size: 12px; background: var(--surface-2); padding: 10px; border-radius: var(--radius); margin: 0; }
     /* Drag-and-drop overlay (spec 0018), covers the chat panel while dragging. */
     .chat-drop { position: absolute; inset: 0; z-index: 3; display: grid; place-items: center;

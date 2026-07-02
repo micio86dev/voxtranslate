@@ -141,6 +141,8 @@ const PATHS: Record<string, string> = {
   // Email envelope (spec 0082).
   mail:
     '<rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-9.5 6.5a1.7 1.7 0 0 1-1 .3 1.7 1.7 0 0 1-1-.3L2 7"/>',
+  headphones:
+    '<path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3z"/><path d="M3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/>',
 };
 
 /** Return inline SVG markup for `name`, drawn in `currentColor`. */
