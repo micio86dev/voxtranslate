@@ -44,12 +44,24 @@ function sha256(file) {
   return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 }
 
-/** Kokoro voice metadata from its id: a*=American, b*=British; f/m = gender. */
+/** Kokoro voice-id prefix → BCP-47 lang. First char = language/region, second = gender.
+ *  (a=American, b=British English; e=Spanish, f=French, i=Italian, p=BR Portuguese, h=Hindi.) */
+const LANG_BY_PREFIX = {
+  a: 'en-US',
+  b: 'en-GB',
+  e: 'es-ES',
+  f: 'fr-FR',
+  i: 'it-IT',
+  p: 'pt-BR',
+  h: 'hi-IN',
+};
+
+/** Kokoro voice metadata from its id, e.g. `if_sara` → Italian female "Sara". */
 function voiceMeta(id) {
-  const region = id.startsWith('b') ? 'en-GB' : 'en-US';
+  const lang = LANG_BY_PREFIX[id[0]] ?? 'en-US';
   const gender = id[1] === 'f' ? 'female' : id[1] === 'm' ? 'male' : undefined;
   const name = id.split('_')[1]?.replace(/^./, (c) => c.toUpperCase()) ?? id;
-  return { id, name, lang: region, gender };
+  return { id, name, lang, gender };
 }
 
 const files = walk(srcDir).map((rel) => {
@@ -61,12 +73,16 @@ const voices = files
   .filter((f) => f.path.startsWith('voices/') && f.path.endsWith('.bin'))
   .map((f) => voiceMeta(path.basename(f.path, '.bin')));
 
+// Supported languages = the unique base codes of the bundled voices (data-driven, so
+// adding a voice for a new language automatically un-gates it in the app).
+const languages = [...new Set(voices.map((v) => v.lang.split('-')[0]))];
+
 const pack = {
   id: packId,
   engine: 'kokoro',
   version,
-  displayName: 'Vox Voices — English',
-  languages: ['en'],
+  displayName: 'Vox Voices',
+  languages,
   totalBytes: files.reduce((n, f) => n + f.bytes, 0),
   baseUrl: baseUrl.replace(/\/?$/, '/'),
   files,

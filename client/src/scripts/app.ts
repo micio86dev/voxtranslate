@@ -3344,13 +3344,18 @@ async function openAudioSettings(): Promise<void> {
   }
 }
 
-// Show the pre-join audio-settings button only for Standard tier (other tiers have
-// server-side or Cartesia voice synthesis, so browser TTS voice choice is irrelevant).
+// Show the audio-settings entry points (pre-join button + in-call "…" menu item) only
+// for Standard tier (other tiers have server-side or Cartesia voice synthesis, so the
+// browser TTS voice choice is irrelevant).
 const prejoinAudioBtn = $('prejoin-audio-btn');
+const miAudioSettings = $('mi-audio-settings');
 function syncAudioSettingsBtn(): void {
-  prejoinAudioBtn.classList.toggle('hidden', selectedEngine !== 'standard');
+  const standard = selectedEngine === 'standard';
+  prejoinAudioBtn.classList.toggle('hidden', !standard);
+  miAudioSettings.classList.toggle('hidden', !standard);
 }
 
+$('btn-audio-settings').innerHTML = icon('headphones', 22); // match pre-join icon + menu sizing
 $('prejoin-audio-btn').addEventListener('click', () => void openAudioSettings());
 $('btn-audio-settings').addEventListener('click', () => void openAudioSettings());
 $('audio-close').addEventListener('click', () => show(audioModal, false));

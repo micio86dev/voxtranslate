@@ -6,6 +6,11 @@
 /client/dist
 /client/.astro
 
+# Cloudflare Wrangler + Supabase CLI local state (R2/pack ops)
+.wrangler/
+/client/.wrangler/
+/client/supabase/
+
 # Env / secrets
 .env
 /server/.env
