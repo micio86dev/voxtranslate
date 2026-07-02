@@ -3629,6 +3629,53 @@ pub async fn submit_consent(
     }
 }
 
+#[derive(Deserialize)]
+pub struct TtsPrefsRequest {
+    /// Speech engine: 'auto' | 'browser' | 'vox'. Absent → left unchanged.
+    #[serde(default)]
+    pub tts_engine_pref: Option<String>,
+    /// Chosen Vox voice id (portable). Absent → left unchanged.
+    #[serde(default)]
+    pub tts_voice_id: Option<String>,
+}
+
+/// `POST /api/user/tts-prefs` — persist the user's Vox Voices engine + voice choice so it
+/// syncs across their devices. Partial: send only the field that changed.
+pub async fn update_tts_prefs(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Json(body): Json<TtsPrefsRequest>,
+) -> Response {
+    let Some(billing) = state.billing.as_ref() else {
+        return service_unavailable();
+    };
+    // Validate the engine preference against the known set (reject junk).
+    if let Some(v) = body.tts_engine_pref.as_deref() {
+        if !matches!(v, "auto" | "browser" | "vox") {
+            return (StatusCode::BAD_REQUEST, "invalid engine preference").into_response();
+        }
+    }
+    // Normalise the voice id: trim, drop empties, and cap length to avoid abuse.
+    let voice = body
+        .tts_voice_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty());
+    if voice.is_some_and(|v| v.len() > 128) {
+        return (StatusCode::BAD_REQUEST, "voice id too long").into_response();
+    }
+    match billing
+        .set_tts_prefs(user.user_id, body.tts_engine_pref.as_deref(), voice)
+        .await
+    {
+        Ok(()) => Json(serde_json::json!({ "ok": true })).into_response(),
+        Err(e) => {
+            tracing::error!("tts prefs failed: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "save failed").into_response()
+        }
+    }
+}
+
 /// `GET /api/user/data` — export everything we hold on the user (GDPR).
 pub async fn export_data(State(state): State<AppState>, user: AuthUser) -> Response {
     let Some(safety) = state.safety.as_ref() else {

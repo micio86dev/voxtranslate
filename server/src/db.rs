@@ -43,6 +43,11 @@ pub struct User {
     // complete the pre-join voice-prep step. Every `users` query here is `SELECT *` /
     // `RETURNING *`, so adding this column-backed field maps cleanly.
     pub cartesia_voice_id: Option<String>,
+    // Vox Voices preferences (migration 033): the chosen speech engine
+    // ('auto'|'browser'|'vox') and Vox voice id, synced across the user's devices. The
+    // browser-voice choice is device-local (not portable) and lives only in the client.
+    pub tts_engine_pref: Option<String>,
+    pub tts_voice_id: Option<String>,
 }
 
 /// A row from `chat_files` (spec 0018): metadata for a file attached to chat.

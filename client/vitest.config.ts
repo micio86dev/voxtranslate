@@ -16,6 +16,17 @@ export default defineConfig({
         // Translation-engine selection: pure preference/lang helpers — the
         // fetch + selector rendering needs a DOM (spec 0093).
         'src/scripts/engines.ts',
+        // Vox Voices: the provider-selection manager (queue, capability/health
+        // routing, silent fallback) — DOM-free, driven via injected fake providers.
+        // The concrete Browser/Kokoro providers need real audio APIs (tested manually).
+        'src/scripts/tts/manager.ts',
+        // Vox Voices: pure manifest parsing/version logic + the installer's
+        // download/verify/store/update orchestration (fake storage, mocked fetch,
+        // real Web Crypto). The IndexedDB store itself is covered manually.
+        'src/scripts/tts/manifest.ts',
+        'src/scripts/tts/installer.ts',
+        // Vox Voices: runtime health monitor (session-only degrade) — pure thresholds.
+        'src/scripts/tts/health.ts',
         // Premium PCM helpers: pure Float32↔PCM16 + base64 decode — the
         // AudioWorklet capture/playback needs real audio APIs (spec 0093).
         'src/scripts/pcm.ts',

@@ -14,7 +14,8 @@
   },
   "dependencies": {
     "astro": "^7.0.3",
-    "driver.js": "^1.6.0"
+    "driver.js": "^1.6.0",
+    "kokoro-js": "^1.2.1"
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.9",
