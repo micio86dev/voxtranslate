@@ -88,13 +88,15 @@ function selectedLangBase(): string | null {
   return v.toLowerCase().split(/[-_]/)[0];
 }
 
-/** True when a manifest pack can actually serve the user's selected language.
- *  `auto` returns true (we can't know the target, so don't hide the option). */
+/** True when a manifest pack can actually serve the user's selected language. Fails OPEN:
+ *  `auto`, or a manifest we couldn't load (network/CORS), returns true — we only HIDE the
+ *  pack section when we positively know the language isn't covered, never on a fetch hiccup. */
 async function manifestSupportsUserLang(): Promise<boolean> {
   const lang = selectedLangBase();
   if (!lang) return true;
   const manifest = await loadManifestOnce();
-  return !!manifest && packsForLanguage(manifest, lang).length > 0;
+  if (!manifest) return true;
+  return packsForLanguage(manifest, lang).length > 0;
 }
 
 /** Wire the modal's controls once. */
