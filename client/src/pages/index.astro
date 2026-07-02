@@ -2119,14 +2119,6 @@ const jsonLd = {
     .audio-installed { display: flex; gap: 8px; flex-wrap: wrap; }
     .audio-bench-verdict { margin: 0; }
     .audio-voices { display: flex; flex-direction: column; gap: 4px; }
-    .audio-voice-list { display: flex; flex-direction: column; gap: 1px; max-height: 220px; overflow-y: auto; border-radius: var(--radius-sm); padding: 2px; }
-    .audio-voice-row { display: flex; align-items: center; gap: 6px; }
-    .audio-voice-select { flex: 1; text-align: left; padding: 10px 12px; border: none; border-radius: var(--radius-sm); background: transparent; color: inherit; cursor: pointer; min-height: var(--tap-target); font-size: var(--font-sm); line-height: 1.3; transition: background var(--transition-fast); }
-    .audio-voice-select:hover { background: var(--surface-2); }
-    .audio-voice-select[aria-checked='true'] { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
-    .audio-voice-preview { flex: none; width: 36px; height: 36px; display: grid; place-items: center; border: 1px solid var(--border); border-radius: var(--radius-sm); background: transparent; color: var(--muted); cursor: pointer; font-size: 0.75rem; transition: border-color var(--transition-fast), color var(--transition-fast); }
-    .audio-voice-preview:hover { border-color: var(--accent); color: var(--text); }
-    .audio-voice-empty { color: var(--muted); font-size: 13px; padding: 8px 0; }
     .audio-dev-info { white-space: pre-wrap; word-break: break-word; font-size: 12px; background: var(--surface-2); padding: 10px; border-radius: var(--radius); margin: 0; }
     /* Drag-and-drop overlay (spec 0018), covers the chat panel while dragging. */
     .chat-drop { position: absolute; inset: 0; z-index: 3; display: grid; place-items: center;
@@ -3121,6 +3113,52 @@ const jsonLd = {
        outside this component's scope, so scoped selectors wouldn't reach them. All selectors are
        prefixed (.help-fab / .onb-* / .driver-*) to stay collision-free. -->
   <style is:global>
+    /* ---- Audio voice list (dynamically built by audio-settings.ts → must be :global) ---- */
+    .audio-voice-list {
+      display: flex; flex-direction: column; gap: 2px;
+      max-height: 220px; overflow-y: auto;
+      background: var(--surface-2); border-radius: var(--radius-sm);
+      padding: 4px;
+    }
+    .audio-voice-row { display: flex; align-items: center; gap: 6px; }
+    .audio-voice-select {
+      flex: 1; text-align: left;
+      padding: 9px 12px;
+      border: none; border-radius: 6px;
+      background: transparent;
+      color: var(--text);
+      cursor: pointer;
+      min-height: 40px;
+      font-size: var(--font-sm);
+      line-height: 1.3;
+      -webkit-appearance: none; appearance: none;
+      transition: background var(--transition-fast);
+    }
+    .audio-voice-select:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+    .audio-voice-select[aria-checked='true'] {
+      background: var(--accent-strong);
+      color: #fff;
+      font-weight: 600;
+    }
+    .audio-voice-name { display: block; }
+    .audio-voice-lang { display: block; font-size: 0.75em; opacity: 0.65; }
+    .audio-voice-select[aria-checked='true'] .audio-voice-lang { opacity: 0.8; }
+    .audio-voice-preview {
+      flex: none; width: 34px; height: 34px;
+      display: grid; place-items: center;
+      border: 1px solid var(--border); border-radius: 6px;
+      background: transparent; color: var(--muted);
+      cursor: pointer; font-size: 0.7rem;
+      -webkit-appearance: none; appearance: none;
+      transition: border-color var(--transition-fast), color var(--transition-fast);
+    }
+    .audio-voice-preview:hover { border-color: var(--accent); color: var(--text); }
+    .audio-voice-empty { color: var(--muted); font-size: 13px; padding: 8px 4px; }
+    @media (max-width: 480px) {
+      .audio-voice-select { padding: 10px 10px; min-height: 44px; }
+      .audio-voice-preview { width: 38px; height: 38px; }
+    }
+
     /* Shared "?" launcher — round, accent-tinted; bottom-RIGHT (the bug FAB owns bottom-left). */
     .help-fab {
       position: fixed; inset-inline-end: 16px; bottom: 16px; z-index: 6;
