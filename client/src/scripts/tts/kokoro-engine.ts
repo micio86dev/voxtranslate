@@ -96,8 +96,11 @@ export async function loadKokoro(
   await seedVoiceCache(storage, meta);
 
   const device: KokoroDevice = opts.device ?? (webgpuAvailable() ? 'webgpu' : 'wasm');
+  // fp16, NOT q8: on the WebGPU backend onnxruntime-web can't run int8 ops, so a q8 model
+  // silently falls back to CPU (~7-11 s/line, observed). fp16 is WebGPU-native → GPU-resident.
+  // Vox is WebGPU-gated (see audio-settings hasWebGPU), so this is the path that matters.
   const tts = await KokoroTTS.from_pretrained(`${meta.packId}/${meta.version}`, {
-    dtype: opts.dtype ?? 'q8',
+    dtype: opts.dtype ?? 'fp16',
     device,
     progress_callback: opts.onProgress as never,
   });
