@@ -23,6 +23,19 @@ function setChoice(v: string): void {
   }
 }
 
+/** Whether the document's Permissions-Policy actually permits geolocation. The header in
+ *  vercel.json ships `geolocation=()` (disabled), so calling getCurrentPosition would just
+ *  log a policy-violation warning and always fail — skip the whole opt-in in that case. */
+function geolocationAllowed(): boolean {
+  try {
+    const fp = (document as unknown as { featurePolicy?: { allowsFeature(f: string): boolean } })
+      .featurePolicy;
+    return fp?.allowsFeature ? fp.allowsFeature("geolocation") : true;
+  } catch {
+    return true; // unknown API → let the browser enforce
+  }
+}
+
 async function sendLocation(pos: GeolocationPosition): Promise<void> {
   try {
     await fetch(`${HTTP_BASE}/api/user/location`, {
@@ -47,7 +60,7 @@ async function sendLocation(pos: GeolocationPosition): Promise<void> {
 export function setupGeoOptIn(): void {
   const banner = document.getElementById("geo-banner");
   if (!banner) return;
-  if (!isLoggedIn() || !("geolocation" in navigator) || getChoice()) {
+  if (!isLoggedIn() || !("geolocation" in navigator) || !geolocationAllowed() || getChoice()) {
     banner.classList.add("hidden");
     return;
   }
