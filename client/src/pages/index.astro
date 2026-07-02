@@ -71,9 +71,9 @@ const jsonLd = {
         <div class="login-or"><span data-i18n="orText">{T('orText')}</span></div>
         <button id="guest-btn" class="btn-ghost guest-btn" data-i18n="continueGuest">{T('continueGuest')}</button>
         <p class="legal-footer">
-          <a href="/terms" target="_blank" data-i18n="terms">{T('terms')}</a>
-          <a href="/privacy" target="_blank" data-i18n="privacy">{T('privacy')}</a>
-          <a href="/acceptable-use" target="_blank" data-i18n="acceptableUse">{T('acceptableUse')}</a>
+          <a href="/terms" target="_blank" rel="noopener" data-i18n="terms">{T('terms')}</a>
+          <a href="/privacy" target="_blank" rel="noopener" data-i18n="privacy">{T('privacy')}</a>
+          <a href="/acceptable-use" target="_blank" rel="noopener" data-i18n="acceptableUse">{T('acceptableUse')}</a>
         </p>
       </div>
     </section>
@@ -945,9 +945,9 @@ const jsonLd = {
               <p class="status-line voice-clone-line"><strong data-i18n="voiceCloneTitle">{T('voiceCloneTitle')}</strong> — <span id="voice-clone-state"></span></p>
               <p id="privacy-status" class="status-line" role="status"></p>
               <div class="legal-links">
-                <a href="/terms" target="_blank" data-i18n="terms">{T('terms')}</a> ·
-                <a href="/privacy" target="_blank" data-i18n="privacy">{T('privacy')}</a> ·
-                <a href="/acceptable-use" target="_blank" data-i18n="acceptableUse">{T('acceptableUse')}</a>
+                <a href="/terms" target="_blank" rel="noopener" data-i18n="terms">{T('terms')}</a> ·
+                <a href="/privacy" target="_blank" rel="noopener" data-i18n="privacy">{T('privacy')}</a> ·
+                <a href="/acceptable-use" target="_blank" rel="noopener" data-i18n="acceptableUse">{T('acceptableUse')}</a>
               </div>
             </section>
 
@@ -1076,7 +1076,7 @@ const jsonLd = {
     <div id="cookie-banner" class="cookie-banner hidden">
       <span id="cookie-text" class="cookie-text" data-i18n="cookieText">{T('cookieText')}</span>
       <div class="cookie-actions">
-        <a href="/privacy" target="_blank" class="cookie-link" data-i18n="privacy">{T('privacy')}</a>
+        <a href="/privacy" target="_blank" rel="noopener" class="cookie-link" data-i18n="privacy">{T('privacy')}</a>
         <button id="cookie-accept" class="btn-primary cookie-btn" data-i18n="gotIt">{T('gotIt')}</button>
       </div>
     </div>

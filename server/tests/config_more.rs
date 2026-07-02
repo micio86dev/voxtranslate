@@ -245,7 +245,7 @@ fn billing_org_billing_and_calendar() {
     base_env();
     std::env::set_var("DATABASE_URL", "postgres://x");
     std::env::set_var("GOOGLE_CLIENT_ID", "gid");
-    std::env::set_var("JWT_SECRET", "secret");
+    std::env::set_var("JWT_SECRET", "test-jwt-secret-0123456789abcdef-abcdef");
     std::env::set_var("GOOGLE_CLIENT_SECRET", "gsecret");
     std::env::set_var("GOOGLE_TOKEN_ENC_KEY", ENC_KEY_B64);
     std::env::set_var(
@@ -302,7 +302,7 @@ fn calendar_disabled_without_valid_enc_key() {
     base_env();
     std::env::set_var("DATABASE_URL", "postgres://x");
     std::env::set_var("GOOGLE_CLIENT_ID", "gid");
-    std::env::set_var("JWT_SECRET", "secret");
+    std::env::set_var("JWT_SECRET", "test-jwt-secret-0123456789abcdef-abcdef");
     std::env::set_var("GOOGLE_CLIENT_SECRET", "gsecret");
     // A wrong-length / invalid key decodes to None → calendar stays off.
     std::env::set_var("GOOGLE_TOKEN_ENC_KEY", "not-base64-or-wrong-length");

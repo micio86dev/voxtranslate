@@ -129,6 +129,40 @@ impl Drop for ConnGuard {
     }
 }
 
+/// Rolling window over which a guest's cumulative STT time is tracked per IP.
+/// Once it elapses the counter resets, so `GUEST_MAX_MINUTES` becomes a per-IP
+/// budget *per window* rather than a per-connection cap that a reconnect resets (H1).
+const GUEST_USAGE_WINDOW: Duration = Duration::from_secs(3600);
+
+/// Cumulative guest speech-to-text usage, keyed by client IP (H1). The guest meter
+/// ([`crate::usage::run_guest_meter`]) shares one counter per IP so an anonymous user
+/// can't reset their `GUEST_MAX_MINUTES` cap by dropping and reopening the WebSocket.
+/// Entries reset once [`GUEST_USAGE_WINDOW`] elapses, and are pruned when the map grows
+/// large (same bound as the rate limiter).
+#[derive(Default)]
+pub struct GuestUsage {
+    by_ip: dashmap::DashMap<String, (Arc<AtomicU64>, Instant)>,
+}
+
+impl GuestUsage {
+    /// The shared cumulative-seconds counter for `ip`, resetting after the window.
+    fn counter(&self, ip: &str) -> Arc<AtomicU64> {
+        let now = Instant::now();
+        if self.by_ip.len() > 10_000 {
+            self.by_ip
+                .retain(|_, (_, start)| now.duration_since(*start) <= GUEST_USAGE_WINDOW);
+        }
+        let mut entry = self
+            .by_ip
+            .entry(ip.to_string())
+            .or_insert_with(|| (Arc::new(AtomicU64::new(0)), now));
+        if now.duration_since(entry.1) > GUEST_USAGE_WINDOW {
+            *entry = (Arc::new(AtomicU64::new(0)), now);
+        }
+        entry.0.clone()
+    }
+}
+
 /// Shared application state.
 #[derive(Clone)]
 pub struct AppState {
@@ -194,6 +228,9 @@ pub struct AppState {
     /// it — blocking direct-to-origin access that bypasses the Cloudflare WAF.
     /// `None` (default) ⇒ the guard is dormant.
     pub cf_origin_secret: Option<String>,
+    /// Cumulative guest STT usage per IP (H1) — makes `GUEST_MAX_MINUTES` survive
+    /// reconnects instead of resetting per connection.
+    pub guest_usage: Arc<GuestUsage>,
 }
 
 /// Read a positive `u32` from `var`, falling back to `default`.
@@ -403,6 +440,7 @@ impl AppState {
                 .ok()
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty()),
+            guest_usage: Arc::new(GuestUsage::default()),
         }
     }
 
@@ -453,15 +491,31 @@ pub fn app(state: AppState) -> Router {
     // on every route and the parsed `allowed_origins` was dead code, so any site
     // could call the API from a browser. (Auth is a Bearer header, no cookies, so
     // this was not credentialed-CSRF — but it left expensive endpoints open.)
-    let cors = if state.config.allowed_origins.is_empty() {
+    //
+    // M8 — fail-closed in production: if the allowlist is empty but billing is
+    // configured (i.e. this is a real deployment, not guest-only/dev), don't fall
+    // back to permissive. Derive the allowlist from our own known origins
+    // (`APP_BASE_URL` + `DASHBOARD_BASE_URL`) so a missing `ALLOWED_ORIGINS` can't
+    // silently leave the API open to every origin.
+    let mut allowed = state.config.allowed_origins.clone();
+    if allowed.is_empty() && state.config.billing.is_some() {
+        allowed = [
+            state.config.app_base_url.clone(),
+            state.config.dashboard_base_url.clone(),
+        ]
+        .into_iter()
+        .filter(|o| !o.is_empty())
+        .collect();
+        tracing::warn!(
+            "ALLOWED_ORIGINS unset in a billing deployment — restricting CORS to \
+             app_base_url + dashboard_base_url instead of permissive (M8)"
+        );
+    }
+    let cors = if allowed.is_empty() {
         CorsLayer::permissive()
     } else {
-        let origins: Vec<axum::http::HeaderValue> = state
-            .config
-            .allowed_origins
-            .iter()
-            .filter_map(|o| o.parse().ok())
-            .collect();
+        let origins: Vec<axum::http::HeaderValue> =
+            allowed.iter().filter_map(|o| o.parse().ok()).collect();
         CorsLayer::new()
             .allow_origin(origins)
             .allow_methods([
@@ -684,9 +738,26 @@ async fn origin_lock(
 }
 
 /// Whether the request carries the expected Cloudflare-injected origin secret.
-/// Pure (no state) so it's unit-testable.
+/// Pure (no state) so it's unit-testable. Compared in constant time so a wrong
+/// header can't recover the secret byte-by-byte via response timing.
 fn origin_header_ok(headers: &HeaderMap, secret: &str) -> bool {
-    headers.get("x-origin-verify").and_then(|v| v.to_str().ok()) == Some(secret)
+    match headers.get("x-origin-verify").and_then(|v| v.to_str().ok()) {
+        Some(presented) => ct_eq(presented.as_bytes(), secret.as_bytes()),
+        None => false,
+    }
+}
+
+/// Length-checked, branch-free byte comparison (avoids leaking a secret prefix via
+/// timing). Matches the convention used in `admin`/`stripe_handler`.
+fn ct_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
 }
 
 /// Binary entry point: load config, build state, bind, and serve.
@@ -701,6 +772,28 @@ pub async fn serve() {
             std::process::exit(1);
         }
     };
+
+    // M7 — behind Cloudflare (CF_ORIGIN_SECRET set) the app sees Cloudflare's edge IP
+    // as the last X-Forwarded-For hop, so unless CLIENT_IP_HEADER=cf-connecting-ip is
+    // set every per-IP bucket keys on ONE shared IP and per-IP throttling becomes
+    // global/meaningless. Warn loudly rather than silently degrade.
+    let cf_deployment = std::env::var("CF_ORIGIN_SECRET")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .is_some();
+    if cf_deployment {
+        let ip_header = std::env::var("CLIENT_IP_HEADER")
+            .unwrap_or_default()
+            .trim()
+            .to_ascii_lowercase();
+        if ip_header != "cf-connecting-ip" {
+            tracing::warn!(
+                "CF_ORIGIN_SECRET is set (Cloudflare deployment) but CLIENT_IP_HEADER \
+                 is not 'cf-connecting-ip' — per-IP rate limits will collapse onto \
+                 Cloudflare's edge IP. Set CLIENT_IP_HEADER=cf-connecting-ip."
+            );
+        }
+    }
 
     let port = config.port;
     // Resilient startup: if billing is configured but the database can't be
@@ -793,14 +886,44 @@ pub async fn serve() {
     }
 }
 
+/// Max accepted length for the join `room`/`name` query params — bounds per-peer /
+/// per-room memory and keeps room keys sane (the DB columns and client room codes are
+/// well under this). Cosmetic/DoS-adjacent hardening, not an exploit fix on its own.
+const MAX_ROOM_LEN: usize = 128;
+const MAX_NAME_LEN: usize = 100;
+
 async fn ws_handler(
     ws: WebSocketUpgrade,
-    Query(params): Query<WsParams>,
+    Query(mut params): Query<WsParams>,
     headers: HeaderMap,
     State(state): State<AppState>,
 ) -> Response {
     if params.room.trim().is_empty() || params.lang.trim().is_empty() {
         return (StatusCode::BAD_REQUEST, "missing room or lang").into_response();
+    }
+    // Validate + normalize the language BEFORE it is interpolated into the Deepgram
+    // streaming URL (M4). Without this a peer could smuggle extra query params via
+    // `?lang=en%26redact%3Dpci`. Matches the mid-call `set_lang` rules but keeps
+    // "auto" (join-time auto-detect is legitimate; set_lang rejects it as a manual
+    // override).
+    let norm_lang = params.lang.trim().to_lowercase();
+    let lang_ok = (1..=8).contains(&norm_lang.len())
+        && norm_lang
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-');
+    if !lang_ok {
+        return (StatusCode::BAD_REQUEST, "invalid language code").into_response();
+    }
+    params.lang = norm_lang;
+    // Bound room/name lengths so a crafted join can't store oversized strings per
+    // peer/room (billing #5 / injection minor).
+    if params.room.trim().len() > MAX_ROOM_LEN {
+        return (StatusCode::BAD_REQUEST, "room too long").into_response();
+    }
+    if let Some(name) = params.name.as_ref() {
+        if name.len() > MAX_NAME_LEN {
+            return (StatusCode::BAD_REQUEST, "name too long").into_response();
+        }
     }
     // Per-IP connect throttle (spec 0064). Best-effort (IP from X-Forwarded-For behind
     // Railway's proxy); the global cap in handle_peer is the robust flood ceiling.
@@ -812,7 +935,7 @@ async fn ws_handler(
     ) {
         return (StatusCode::TOO_MANY_REQUESTS, "too many connections").into_response();
     }
-    ws.on_upgrade(move |socket| handle_peer(socket, params, state))
+    ws.on_upgrade(move |socket| handle_peer(socket, params, state, ip))
 }
 
 /// Lobby: list public rooms with their currently online participants. Per-IP throttled
@@ -841,7 +964,10 @@ async fn metrics_handler(headers: HeaderMap, State(state): State<AppState>) -> R
             .get(axum::http::header::AUTHORIZATION)
             .and_then(|v| v.to_str().ok())
             .and_then(|h| h.strip_prefix("Bearer "));
-        if presented != Some(token.as_str()) {
+        let ok = presented
+            .map(|p| ct_eq(p.as_bytes(), token.as_bytes()))
+            .unwrap_or(false);
+        if !ok {
             return StatusCode::UNAUTHORIZED.into_response();
         }
     }
@@ -1106,7 +1232,7 @@ fn spawn_listener_meter(
 
 /// A peer's WebSocket: receives audio (binary) + control/signaling/chat (text),
 /// and is sent room lifecycle, relayed signaling, subtitles, chat, and peer state.
-async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
+async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState, client_ip: String) {
     let WsParams {
         room,
         lang,
@@ -1411,7 +1537,9 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState) {
     } else {
         None
     };
-    let guest_spent = guest_cap_secs.map(|_| Arc::new(AtomicU64::new(0)));
+    // Cumulative per-IP counter (H1): shared across this IP's connections within the
+    // rolling window, so reconnecting no longer resets the guest cap.
+    let guest_spent = guest_cap_secs.map(|_| state.guest_usage.counter(&client_ip));
 
     // Active speaking session (Some only while unmuted/talking) — speaker-pays path.
     let mut audio_tx: Option<mpsc::Sender<Vec<u8>>> = None;

@@ -323,11 +323,14 @@ async fn handle_event(
     obj: &Value,
 ) -> Result<(), sqlx::Error> {
     match event_type {
-        "checkout.session.completed" => match obj["mode"].as_str() {
-            Some("subscription") => {
-                if let Some(org_id) = obj_org_id(obj) {
-                    sqlx::query(
-                        "UPDATE organizations SET
+        // `async_payment_succeeded` covers delayed methods (bank transfer, etc.) whose
+        // `completed` arrives unpaid and settles later (M5).
+        "checkout.session.completed" | "checkout.session.async_payment_succeeded" => {
+            match obj["mode"].as_str() {
+                Some("subscription") => {
+                    if let Some(org_id) = obj_org_id(obj) {
+                        sqlx::query(
+                            "UPDATE organizations SET
                             stripe_customer_id = $2,
                             stripe_subscription_id = $3,
                             plan = COALESCE($4, plan),
@@ -335,30 +338,35 @@ async fn handle_event(
                             subscription_status = 'active',
                             updated_at = now()
                          WHERE id = $1",
-                    )
-                    .bind(org_id)
-                    .bind(obj["customer"].as_str())
-                    .bind(obj["subscription"].as_str())
-                    .bind(obj["metadata"]["plan"].as_str())
-                    .bind(obj["metadata"]["interval"].as_str())
-                    .execute(pool)
-                    .await?;
+                        )
+                        .bind(org_id)
+                        .bind(obj["customer"].as_str())
+                        .bind(obj["subscription"].as_str())
+                        .bind(obj["metadata"]["plan"].as_str())
+                        .bind(obj["metadata"]["interval"].as_str())
+                        .execute(pool)
+                        .await?;
+                    }
                 }
-            }
-            Some("payment") => {
-                let credits = obj["metadata"]["credits"]
-                    .as_str()
-                    .and_then(|s| s.parse::<i32>().ok())
-                    .unwrap_or(0);
-                if let (Some(org_id), true) = (obj_org_id(obj), credits > 0) {
-                    grant(
-                        pool, event_id, event_type, org_id, credits, "purchase", None, None,
-                    )
-                    .await?;
+                Some("payment") => {
+                    // M5: only grant credits once the payment has actually settled.
+                    if obj["payment_status"].as_str() != Some("paid") {
+                        return Ok(());
+                    }
+                    let credits = obj["metadata"]["credits"]
+                        .as_str()
+                        .and_then(|s| s.parse::<i32>().ok())
+                        .unwrap_or(0);
+                    if let (Some(org_id), true) = (obj_org_id(obj), credits > 0) {
+                        grant(
+                            pool, event_id, event_type, org_id, credits, "purchase", None, None,
+                        )
+                        .await?;
+                    }
                 }
+                _ => {}
             }
-            _ => {}
-        },
+        }
         "invoice.payment_succeeded" => {
             if let Some(customer) = obj["customer"].as_str() {
                 let org: Option<(Uuid, String)> = sqlx::query_as(

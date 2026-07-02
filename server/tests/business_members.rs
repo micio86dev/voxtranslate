@@ -65,6 +65,28 @@ async fn user(srv: &Server, name: &str) -> (Uuid, String) {
     (u.id, jwt)
 }
 
+/// Like [`user`] but with a caller-chosen email, so an invite can be seeded to the
+/// exact address this user will accept from (accept_invite now binds to email, M3).
+async fn user_with_email(srv: &Server, name: &str, email: &str) -> (Uuid, String) {
+    let identity = GoogleIdentity {
+        google_id: format!("g-{}", Uuid::new_v4()),
+        email: email.to_string(),
+        name: name.into(),
+        avatar_url: None,
+    };
+    let u = upsert_google_user(
+        &srv.pool,
+        &identity,
+        rust_decimal::Decimal::ZERO,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+    let jwt = issue_jwt(SECRET, &u.id, &u.email, &u.name, 168).unwrap();
+    (u.id, jwt)
+}
+
 fn base(srv: &Server) -> String {
     format!("http://{}", srv.addr)
 }
@@ -90,13 +112,14 @@ async fn seed_invite(
     token: &str,
     expires_in_hours: i64,
     accepted: bool,
+    email: &str,
 ) {
     sqlx::query(
         "INSERT INTO organization_invites (org_id, email, role, invited_by, token, expires_at, accepted_at)
          VALUES ($1, $2, 'member', $3, $4, $5, $6)",
     )
     .bind(org)
-    .bind(format!("{}@invitee.test", Uuid::new_v4()))
+    .bind(email)
     .bind(inviter)
     .bind(token)
     .bind(Utc::now() + Duration::hours(expires_in_hours))
@@ -166,7 +189,16 @@ async fn get_invite_missing_expired_and_accepted() {
 
     // Expired → 410.
     let expired_tok = format!("tok-exp-{}", Uuid::new_v4());
-    seed_invite(&srv, org, owner, &expired_tok, -1, false).await;
+    seed_invite(
+        &srv,
+        org,
+        owner,
+        &expired_tok,
+        -1,
+        false,
+        "any@invitee.test",
+    )
+    .await;
     let expired = http
         .get(format!(
             "{}/api/business/invites/{}",
@@ -180,7 +212,16 @@ async fn get_invite_missing_expired_and_accepted() {
 
     // Already accepted → 410.
     let accepted_tok = format!("tok-acc-{}", Uuid::new_v4());
-    seed_invite(&srv, org, owner, &accepted_tok, 48, true).await;
+    seed_invite(
+        &srv,
+        org,
+        owner,
+        &accepted_tok,
+        48,
+        true,
+        "any@invitee.test",
+    )
+    .await;
     let accepted = http
         .get(format!(
             "{}/api/business/invites/{}",
@@ -202,7 +243,7 @@ async fn accept_invite_expired_and_member_limit() {
 
     // Expired invite accept → 410.
     let exp_tok = format!("tok-exp-{}", Uuid::new_v4());
-    seed_invite(&srv, org, owner, &exp_tok, -2, false).await;
+    seed_invite(&srv, org, owner, &exp_tok, -2, false, "any@invitee.test").await;
     let (_u2, u2_jwt) = user(&srv, "Late Joiner").await;
     let late = http
         .post(format!(
@@ -216,10 +257,13 @@ async fn accept_invite_expired_and_member_limit() {
         .unwrap();
     assert_eq!(late.status(), 410);
 
-    // Valid invite but the org is already at its member limit (1) → 409.
+    // Valid invite but the org is already at its member limit (1) → 409. The invite
+    // is seeded to u3's own email so it clears the M3 email-binding check and actually
+    // reaches the member-limit gate.
     let ok_tok = format!("tok-ok-{}", Uuid::new_v4());
-    seed_invite(&srv, org, owner, &ok_tok, 48, false).await;
-    let (_u3, u3_jwt) = user(&srv, "Over Limit").await;
+    let over_email = format!("over-{}@invitee.test", Uuid::new_v4());
+    seed_invite(&srv, org, owner, &ok_tok, 48, false, &over_email).await;
+    let (_u3, u3_jwt) = user_with_email(&srv, "Over Limit", &over_email).await;
     let over = http
         .post(format!(
             "{}/api/business/invites/{}/accept",
@@ -231,6 +275,36 @@ async fn accept_invite_expired_and_member_limit() {
         .await
         .unwrap();
     assert_eq!(over.status(), 409, "member limit reached");
+}
+
+#[tokio::test]
+async fn accept_invite_wrong_email_rejected() {
+    let srv = skip_without_db!(setup().await);
+    let http = Client::new();
+    let (owner, owner_jwt) = user(&srv, "Owner").await;
+    let org = create_org(&http, &srv, &owner_jwt).await;
+
+    // Invite is issued for one address, but a different authenticated user holds the
+    // token (the M3 leak model: token exposed via URL/referrer/logs).
+    let tok = format!("tok-wrong-{}", Uuid::new_v4());
+    seed_invite(&srv, org, owner, &tok, 48, false, "intended@invitee.test").await;
+    let (_intruder, intruder_jwt) = user(&srv, "Intruder").await;
+
+    let resp = http
+        .post(format!(
+            "{}/api/business/invites/{}/accept",
+            base(&srv),
+            tok
+        ))
+        .bearer_auth(&intruder_jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        403,
+        "invite bound to a different email must be rejected"
+    );
 }
 
 #[tokio::test]

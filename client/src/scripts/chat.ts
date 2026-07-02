@@ -13,6 +13,18 @@ export interface ChatAttachment {
   size: number;
 }
 
+/** Only allow http(s) attachment URLs before they reach `href`/`src`/`fetch`.
+ *  Attachment URLs are server-issued Supabase links today, but this is cheap
+ *  defense-in-depth against a `javascript:`/`data:` URL ever reaching a click sink. */
+function safeHttpUrl(u: string): string {
+  try {
+    const parsed = new URL(u, window.location.origin);
+    return parsed.protocol === 'https:' || parsed.protocol === 'http:' ? parsed.href : '#';
+  } catch {
+    return '#';
+  }
+}
+
 /** File extension for a voice-message download, from its MIME type. The stored
  *  format is already a lightweight audio format (Opus/WebM, 32 kbps mono). */
 function audioExt(contentType: string): string {
@@ -126,6 +138,7 @@ export class ChatManager {
   private renderAttachment(att: ChatAttachment): HTMLElement {
     const wrap = document.createElement('div');
     wrap.className = 'chat-attachment';
+    const safeUrl = safeHttpUrl(att.url);
 
     // Voice message: inline player + a tap-to-cycle 1×/1.5×/2× speed pill. The
     // transcript is the message text, so no download chip is shown for audio.
@@ -135,7 +148,7 @@ export class ChatManager {
       const audio = document.createElement('audio');
       audio.controls = true;
       audio.preload = 'none';
-      audio.src = att.url;
+      audio.src = safeUrl;
       audio.className = 'chat-audio';
       const rates = [1, 1.5, 2];
       let ri = 0;
@@ -164,7 +177,7 @@ export class ChatManager {
       dl.addEventListener('click', async () => {
         dl.disabled = true;
         try {
-          const res = await fetch(att.url);
+          const res = await fetch(safeUrl);
           if (!res.ok) throw new Error(`download failed: ${res.status}`);
           const blob = await res.blob();
           const objUrl = URL.createObjectURL(blob);
@@ -174,7 +187,7 @@ export class ChatManager {
           a.click();
           URL.revokeObjectURL(objUrl);
         } catch {
-          window.open(att.url, '_blank', 'noopener');
+          window.open(safeUrl, '_blank', 'noopener');
         } finally {
           dl.disabled = false;
         }
@@ -189,7 +202,7 @@ export class ChatManager {
     // Document: a labelled download link (the file name + size).
     const link = document.createElement('a');
     link.className = 'chat-file-chip';
-    link.href = att.url;
+    link.href = safeUrl;
     link.target = '_blank';
     link.rel = 'noopener noreferrer';
     link.innerHTML = icon('file', 18);

@@ -770,8 +770,25 @@ pub async fn billing_webhook(
         return (StatusCode::BAD_REQUEST, "missing event id").into_response();
     }
 
-    if event_type == "checkout.session.completed" {
-        let meta = &event["data"]["object"]["metadata"];
+    // Credit on the paid checkout. For delayed payment methods (bank transfer, some
+    // wallets) Stripe fires `completed` with payment_status != "paid" and settles
+    // later via `async_payment_succeeded` — so we handle both event types but only
+    // when the money has actually settled (M5). The two events carry distinct ids, so
+    // the event-id idempotency in `credit_from_stripe_event` still prevents any
+    // double-credit.
+    if event_type == "checkout.session.completed"
+        || event_type == "checkout.session.async_payment_succeeded"
+    {
+        let obj = &event["data"]["object"];
+        if obj["payment_status"].as_str() != Some("paid") {
+            tracing::info!(
+                %event_id,
+                payment_status = obj["payment_status"].as_str().unwrap_or("?"),
+                "checkout not yet paid — not crediting"
+            );
+            return (StatusCode::OK, "ok").into_response();
+        }
+        let meta = &obj["metadata"];
         let user_id = meta["user_id"]
             .as_str()
             .and_then(|s| Uuid::parse_str(s).ok());
@@ -3139,8 +3156,12 @@ pub async fn email_send(
         return (StatusCode::CONFLICT, "already sent").into_response();
     }
 
-    // Apply pre-send edits; body_html is rebuilt from the edited text so the
-    // two parts can't drift apart.
+    // Apply pre-send edits; body_html is ALWAYS rebuilt from the text via the
+    // escaping `text_to_html` — never the raw model HTML (injection #2). The draft's
+    // stored `body_html` is unsanitized LLM output built from call-transcript content,
+    // so a participant could prompt-inject phishing links/tracking pixels into it;
+    // rebuilding from the plain-text body neutralizes that while keeping the two parts
+    // in sync.
     let subject = match body.subject.as_deref().map(str::trim) {
         None => row.subject.clone(),
         Some("") => return (StatusCode::BAD_REQUEST, "subject cannot be empty").into_response(),
@@ -3150,7 +3171,10 @@ pub async fn email_send(
         Some(s) => s.to_string(),
     };
     let (body_text, body_html) = match body.body_text.as_deref().map(str::trim) {
-        None => (row.body_text.clone(), row.body_html.clone()),
+        None => (
+            row.body_text.clone(),
+            ai_email::text_to_html(&row.body_text),
+        ),
         Some("") => return (StatusCode::BAD_REQUEST, "body cannot be empty").into_response(),
         Some(t) if t.chars().count() > 20_000 => {
             return (StatusCode::BAD_REQUEST, "body too long (max 20000 chars)").into_response()

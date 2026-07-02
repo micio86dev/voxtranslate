@@ -27,7 +27,12 @@ services:
       # DATABASE_URL). The pooler requires SSL.
       DB_CLIENT: pg
       DB_CONNECTION_STRING: ${DATABASE_URL}
-      DB_SSL__REJECT_UNAUTHORIZED: 'false'
+      # Verify the DB server certificate (secure by default) so the Directus→Supabase
+      # link can't be MITM'd. Provide the Supabase CA bundle via SUPABASE_DB_CA_CERT
+      # (Dashboard → Settings → Database → SSL certificate, paste the PEM). Only set
+      # DIRECTUS_DB_SSL_STRICT=false as a temporary escape hatch if the CA isn't wired.
+      DB_SSL__REJECT_UNAUTHORIZED: ${DIRECTUS_DB_SSL_STRICT:-true}
+      DB_SSL__CA: ${SUPABASE_DB_CA_CERT:-}
 
       PUBLIC_URL: ${DIRECTUS_PUBLIC_URL:-http://localhost:8055}
       WEBSOCKETS_ENABLED: 'true'
@@ -37,5 +42,8 @@ services:
       VOX_API_URL: ${VOX_API_URL}
       ADMIN_API_SECRET: ${ADMIN_API_SECRET}
       # Let Flow operations read these env vars via {{$env.NAME}} (so the webhook
-      # can send the secret header without hardcoding it in the flow).
+      # can send the secret header without hardcoding it in the flow). Kept to the
+      # minimum two vars the admin flow needs. NOTE (M12): this exposes ADMIN_API_SECRET
+      # to any flow author — if Directus becomes multi-user, restrict who can edit flows
+      # and rotate ADMIN_API_SECRET on offboarding.
       FLOWS_ENV_ALLOW_LIST: ADMIN_API_SECRET,VOX_API_URL
