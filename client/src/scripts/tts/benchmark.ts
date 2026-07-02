@@ -42,6 +42,11 @@ export async function runBenchmark(provider: KokoroProvider): Promise<BenchmarkR
   const engine = await provider.engineHandle();
   const initMs = performance.now() - t0;
 
+  // Warm up: the very first inference pays a one-time cost (ONNX graph optimization,
+  // memory-pool allocation) that dwarfs steady-state and unfairly fails fast devices.
+  // Prime it with a throwaway synth so the timed lines measure what the device sustains.
+  await engine.synth(BENCH_LINES[0], '');
+
   const synthMs: number[] = [];
   let audioMs = 0;
   let firstAudioMs = 0;

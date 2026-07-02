@@ -22,7 +22,7 @@ import {
 } from './tts/preferences';
 import { activateVoxProvider, deactivateVoxProvider, getVoxProvider } from './tts/register';
 import { packStorage, type InstallMeta } from './tts/storage';
-import type { EnginePref, VoiceInfo } from './tts/types';
+import type { BenchmarkResult, EnginePref, VoiceInfo } from './tts/types';
 
 const el = <T extends HTMLElement = HTMLElement>(id: string): T =>
   document.getElementById(id) as T;
@@ -276,7 +276,14 @@ async function doBenchmark(): Promise<void> {
   btn.disabled = true;
   try {
     ttsManager.unlock();
-    const result = await runBenchmark(provider);
+    // Cap the whole run: a device that can't finish (e.g. iOS Safari stalling on the
+    // model) must fall back to Browser Voice, never spin forever.
+    const result = await Promise.race([
+      runBenchmark(provider),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('bench-timeout')), TTS_CONFIG.BENCH_TIMEOUT_MS),
+      ),
+    ]);
     await packStorage.putBench({
       packId: meta.packId,
       version: meta.version,
@@ -285,12 +292,35 @@ async function doBenchmark(): Promise<void> {
     });
     ttsManager.setBenchmarkPassed(result.passed);
   } catch {
-    toast(t('voxBenchFailed'), 'err');
+    // Timed out or errored → treat as "device can't run Vox comfortably": record a failed
+    // verdict and default to Browser Voice. Remembered, so we don't re-hang on reopen.
+    await packStorage
+      .putBench({
+        packId: meta.packId,
+        version: meta.version,
+        ranAt: Date.now(),
+        result: failedBenchResult(),
+      })
+      .catch(() => {});
+    ttsManager.setBenchmarkPassed(false);
   } finally {
     btn.classList.remove('btn-loading');
     btn.disabled = false;
   }
   await refresh();
+}
+
+/** A synthetic "did not pass" benchmark, stored when the run times out or errors so the
+ *  UI shows the Browser-Voice verdict and we don't auto-retry into another hang. */
+function failedBenchResult(): BenchmarkResult {
+  return {
+    engine: 'vox',
+    initMs: 0,
+    firstAudioMs: TTS_CONFIG.BENCH_TIMEOUT_MS,
+    avgSynthMs: TTS_CONFIG.BENCH_TIMEOUT_MS,
+    webgpu: false,
+    passed: false,
+  };
 }
 
 async function doRemove(): Promise<void> {
