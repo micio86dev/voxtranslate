@@ -10,7 +10,7 @@ import { toast } from './toast';
 import { TTS_CONFIG } from './tts/config';
 import { runBenchmark, benchmarkVerdictKey } from './tts/benchmark';
 import { isCancel, VoicePackInstaller } from './tts/installer';
-import { type Manifest, compareVersions, selectPack } from './tts/manifest';
+import { type Manifest, compareVersions, packsForLanguage, selectPack } from './tts/manifest';
 import { ttsManager } from './tts/manager';
 import {
   loadBrowserVoice,
@@ -80,6 +80,23 @@ async function loadManifestOnce(): Promise<Manifest | null> {
   return manifestCache;
 }
 
+/** The user's selected output language as a base code (`en-US` → `en`), or null for `auto`. */
+function selectedLangBase(): string | null {
+  const sel = document.getElementById('lang') as HTMLSelectElement | null;
+  const v = sel?.value;
+  if (!v || v === 'auto') return null;
+  return v.toLowerCase().split(/[-_]/)[0];
+}
+
+/** True when a manifest pack can actually serve the user's selected language.
+ *  `auto` returns true (we can't know the target, so don't hide the option). */
+async function manifestSupportsUserLang(): Promise<boolean> {
+  const lang = selectedLangBase();
+  if (!lang) return true;
+  const manifest = await loadManifestOnce();
+  return !!manifest && packsForLanguage(manifest, lang).length > 0;
+}
+
 /** Wire the modal's controls once. */
 export function initAudioSettings(): void {
   if (inited) return;
@@ -124,13 +141,17 @@ async function refresh(): Promise<void> {
       : t('audioBenchNeedsRun');
   }
 
-  // Voice pack.
-  toggle('audio-pack', configured);
+  // Voice pack. The install CTA only makes sense when a pack can serve the user's
+  // language (Kokoro is English-only today) — otherwise installing would download a
+  // pack that can never apply to their output language. Already-installed packs stay
+  // manageable regardless, so the user can update/remove them.
+  const langSupported = await manifestSupportsUserLang();
+  toggle('audio-pack', configured && (installed || installing || langSupported));
   if (configured) {
-    toggle('audio-install-card', !installed && !installing);
+    toggle('audio-install-card', langSupported && !installed && !installing);
     toggle('audio-progress', installing);
     toggle('audio-installed', installed && !installing);
-    if (!installed && !installing) await populateInstallCard();
+    if (langSupported && !installed && !installing) await populateInstallCard();
     if (installed && !installing) toggle('audio-update-btn', await updateAvailable(meta!));
   }
 

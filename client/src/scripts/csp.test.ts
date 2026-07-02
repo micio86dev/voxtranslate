@@ -81,6 +81,16 @@ describe('call CSP (issue #237 regression guard)', () => {
     expect(directive('frame-src')).toContain('https://accounts.google.com');
   });
 
+  it('allows Vox Voices to fetch its manifest + pack from R2 storage', () => {
+    // Vox Voices (on-device Kokoro TTS) fetches PUBLIC_VOX_MANIFEST_URL and then
+    // downloads the pack files during install via fetch() — both cross-origin to the
+    // R2 bucket, served over the branded custom domain voices.voxtranslate.app (NOT
+    // the rate-limited *.r2.dev dev URL). Without it in connect-src the browser blocks
+    // the manifest fetch → install button stays disabled. (Runtime model loading is
+    // same-origin via the SW at /vox-models/, covered by 'self'.)
+    expect(directive('connect-src')).toContain('https://voices.voxtranslate.app');
+  });
+
   it('allows GA4 (gtag.js) to load and send hits', () => {
     // gtag.js itself is fetched from googletagmanager.com.
     expect(directive('script-src')).toContain('https://www.googletagmanager.com');

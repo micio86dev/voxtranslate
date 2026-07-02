@@ -574,7 +574,7 @@ const jsonLd = {
                   <span class="mi"><button id="btn-fullscreen" class="control-btn" data-i18n-title="fullscreenTip" title={T('fullscreenTip')} aria-label={T('fullscreenTip')}></button><span class="mi-label" data-i18n="fullscreenTip">{T('fullscreenTip')}</span></span>
                   <span class="mi"><button id="btn-record" class="control-btn" data-i18n-title="recordingTip" title={T('recordingTip')} aria-label={T('recordingTip')}></button><span class="mi-label" data-i18n="recordingTip">{T('recordingTip')}</span></span>
                   <span class="mi"><button id="btn-whiteboard" class="control-btn" data-i18n-title="whiteboardTip" title={T('whiteboardTip')} aria-label={T('whiteboardTip')}></button><span class="mi-label" data-i18n="whiteboardTip">{T('whiteboardTip')}</span></span>
-                  <span class="mi"><button id="btn-audio-settings" class="control-btn" data-i18n-title="audioSettings" title={T('audioSettings')} aria-label={T('audioSettings')} aria-haspopup="dialog">⚙</button><span class="mi-label" data-i18n="audioSettings">{T('audioSettings')}</span></span>
+                  <span class="mi hidden" id="mi-audio-settings"><button id="btn-audio-settings" class="control-btn" data-i18n-title="audioSettings" title={T('audioSettings')} aria-label={T('audioSettings')} aria-haspopup="dialog"></button><span class="mi-label" data-i18n="audioSettings">{T('audioSettings')}</span></span>
                 </div>
               </div>
               <div class="mm-group">
@@ -3229,8 +3229,11 @@ const jsonLd = {
       font-weight: 600; font-size: var(--font-sm); padding: 6px 12px;
     }
     .onb-driver .driver-popover-next-btn { background: var(--accent-strong); border-color: var(--accent-strong); color: #fff; }
-    .onb-driver .driver-popover-prev-btn:hover { background: var(--btn-ghost-bg-hover); }
-    .onb-driver .driver-popover-next-btn:hover { filter: brightness(1.08); }
+    /* Restate background AND color on :hover — driver.css ships its own light hover
+       background at equal specificity, which otherwise wins by load order and leaves the
+       Next button's white text on a white fill (invisible). */
+    .onb-driver .driver-popover-prev-btn:hover { background: var(--btn-ghost-bg-hover); color: var(--text); }
+    .onb-driver .driver-popover-next-btn:hover { background: var(--accent-strong); color: #fff; filter: brightness(1.08); }
     .onb-driver .driver-popover-btn-disabled { opacity: 0.45; }
     /* Tint the popover arrow to match the surface, per side. */
     .onb-driver.driver-popover .driver-popover-arrow-side-top { border-top-color: var(--surface); }
