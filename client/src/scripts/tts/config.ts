@@ -16,6 +16,15 @@ export const TTS_CONFIG = {
   RATE: 1.1,
   /** Fixed preview line so voices compare like-for-like across engines/voices. */
   SAMPLE_SENTENCE: 'Hello! This is how I sound in VoxTranslate.',
+  /** Per-language preview lines, so a voice previews in the language it actually speaks
+   *  (keyed by base lang code; falls back to SAMPLE_SENTENCE). */
+  SAMPLE_BY_LANG: {
+    en: 'Hello! This is how I sound in VoxTranslate.',
+    es: '¡Hola! Así es como sueno en VoxTranslate.',
+    fr: 'Bonjour ! Voici comment je sonne dans VoxTranslate.',
+    it: 'Ciao! Ecco come suono su VoxTranslate.',
+    pt: 'Olá! É assim que eu soo no VoxTranslate.',
+  } as Record<string, string>,
 
   /** Runtime health: if Vox time-to-first-audio exceeds this many ms for
    *  HEALTH_MAX_STRIKES consecutive utterances, fall back to Browser for the

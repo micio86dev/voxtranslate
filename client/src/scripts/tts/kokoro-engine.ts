@@ -15,6 +15,7 @@ import { KokoroTTS } from 'kokoro-js';
 import { env as tjEnv } from '@huggingface/transformers';
 
 import { TTS_CONFIG } from './config';
+import { espeakLangFor, espeakPhonemize, needsEspeak, normalizeForKokoro } from './espeak-phonemizer';
 import type { InstallMeta, PackStorage } from './storage';
 import type { VoiceInfo } from './types';
 
@@ -111,6 +112,14 @@ export async function loadKokoro(
   const defaultVoice = meta.voices[0]?.id ?? 'af_heart';
   const langs = new Set(meta.languages.map(baseLang));
 
+  // Full eSpeak NG (shipped in the pack) — served SAME-ORIGIN by the SW, so non-English
+  // phonemization stays CSP-clean and offline. Only fetched when a non-English voice runs.
+  const packRoot = `${TTS_CONFIG.MODEL_PATH_PREFIX}${meta.packId}/${meta.version}/espeak/`;
+  const espeakLoaderUrl = `${packRoot}espeak-ng.js`;
+  const espeakWasmUrl = `${packRoot}espeak-ng.wasm`;
+  // Kokoro's phoneme inventory, to strip glyphs it can't tokenize (best-effort).
+  const vocab = extractVocab(tts);
+
   return {
     device,
     webgpu: device === 'webgpu',
@@ -118,9 +127,32 @@ export async function loadKokoro(
     supports: (lang: string) => langs.has(baseLang(lang)),
     synth: async (text: string, voiceId: string): Promise<Float32Array> => {
       const voice = infos.some((v) => v.id === voiceId) ? voiceId : defaultVoice;
+      // English (a*/b*) stays on kokoro-js's built-in phonemizer. Other languages run
+      // through full eSpeak → normalize → feed phonemes straight to the model, skipping
+      // kokoro-js's English-only phonemizer.
+      const espeakLang = needsEspeak(voice) ? espeakLangFor(voice) : null;
+      if (espeakLang) {
+        const ipa = await espeakPhonemize(text, espeakLang, espeakLoaderUrl, espeakWasmUrl);
+        const phonemes = normalizeForKokoro(ipa, vocab);
+        const { input_ids } = tts.tokenizer(phonemes, { truncation: true });
+        const audio = await tts.generate_from_ids(input_ids, { voice: voice as never });
+        return audio.audio as Float32Array;
+      }
       const audio = await tts.generate(text, { voice: voice as never });
       // RawAudio.audio is a Float32Array at RawAudio.sampling_rate (24 kHz for Kokoro).
       return audio.audio as Float32Array;
     },
   };
+}
+
+/** Best-effort read of the tokenizer's phoneme vocabulary (symbol set). Returns undefined
+ *  if the internal shape changes — normalization then skips the vocab-filter step. */
+function extractVocab(tts: KokoroTTS): Set<string> | undefined {
+  try {
+    const vocab = (tts as unknown as { tokenizer: { model?: { vocab?: Record<string, number> } } })
+      .tokenizer.model?.vocab;
+    return vocab ? new Set(Object.keys(vocab)) : undefined;
+  } catch {
+    return undefined;
+  }
 }
