@@ -55,6 +55,20 @@ const appleSplash: [number, number, number][] = [
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="color-scheme" content="dark" />
 
+    <!-- Pre-paint screen pick (CLS). A session-less visitor lands on the login
+         screen (billing app), so decide that BEFORE first paint. Otherwise boot()
+         paints the home screen first and, ~3.4s later once billingEnabled()
+         resolves, swaps to login — that reflowed the home cards and cost ~0.19
+         CLS on mobile. A stored token means a likely-returning user, so we keep
+         home-first for them. showLogin()/enterHome() drop this class once boot()
+         confirms, leaving JS (.hidden) authoritative. -->
+    <script is:inline>
+      try {
+        if (!localStorage.getItem('vox.token'))
+          document.documentElement.classList.add('boot-login');
+      } catch (e) {}
+    </script>
+
     <!-- Resource hints (kept early so connections warm during parse). -->
     {apiOrigin && <link rel="preconnect" href={apiOrigin} crossorigin />}
     {/* dns-prefetch fallback for browsers that skip a crossorigin preconnect (spec 0104). */}
@@ -132,6 +146,19 @@ const appleSplash: [number, number, number][] = [
   <body>
     <slot />
     <style is:global>
+      /* Pre-paint screen pick (see the boot-login script in <head>): for a
+         session-less visitor, show the login screen — and keep the home screen
+         out of layout — before first paint, so the home cards never render then
+         swap to login (that cost ~0.19 CLS on mobile). id + !important beats the
+         scoped .screen/.hidden rules in index.astro; boot() removes the class so
+         JS regains control. */
+      html.boot-login #home {
+        display: none !important;
+      }
+      html.boot-login #login {
+        display: flex !important;
+      }
+
       :root {
         --bg: #0a0b10;
         --surface: #13141c;
