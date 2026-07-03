@@ -6,7 +6,7 @@
 //! and crediting live in `api.rs` / `billing.rs`.
 
 use chrono::DateTime;
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use sha2::Sha256;
 use uuid::Uuid;
 
