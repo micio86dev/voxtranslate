@@ -40,7 +40,7 @@ async-trait = "0.1"
 
 # Translation cache (spec 0107): DragonflyDB is Redis-compatible, reached over the
 # async connection manager (auto-reconnect). md5 keys the normalized phrase.
-redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
+redis = { version = "1.3", features = ["tokio-comp", "connection-manager"] }
 md5 = "0.8"
 
 # Transcript PDF export (spec 0009). Exact pins: typst-as-lib tracks typst
