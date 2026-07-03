@@ -28,12 +28,12 @@ pgvector = { version = "0.4", features = ["sqlx"] }
 jsonwebtoken = "9"
 chrono = { version = "0.4", features = ["serde"] }
 rust_decimal = { version = "1", features = ["serde"] }
-hmac = "0.12"
-sha2 = "0.10"
+hmac = "0.13"
+sha2 = "0.11"
 # Pinned to 0.10 (not the 0.11 Dependabot bump): sha1 0.11 pulls digest 0.11,
 # but hmac 0.12 is on digest 0.10, so Hmac::<Sha1> (TURN cred HMAC in api.rs)
 # stops compiling. Bump only together with a digest-0.11-compatible hmac.
-sha1 = "0.10"
+sha1 = "0.11"
 hex = "0.4"
 base64 = "0.22"
 async-trait = "0.1"
@@ -57,7 +57,7 @@ pdf-extract = "0.7"
 zip = { version = "8", default-features = false, features = ["deflate"] }
 quick-xml = "0.39"
 chacha20poly1305 = "0.10"
-rand = "0.9"
+rand = "0.10"
 web-push = { version = "0.11.0", default-features = false }
 
 [profile.release]
