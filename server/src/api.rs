@@ -20,7 +20,7 @@ use rust_decimal::Decimal;
 use chrono::{DateTime, Utc};
 
 use base64::Engine as _;
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use sha1::Sha1;
 
 use crate::ai::correction as ai_correction;
