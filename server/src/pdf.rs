@@ -9,8 +9,8 @@ use std::collections::HashMap;
 use std::sync::OnceLock;
 
 use typst::foundations::{Dict, IntoValue};
-use typst::layout::PagedDocument;
 use typst_as_lib::{TypstEngine, TypstTemplateMainFile};
+use typst_layout::PagedDocument;
 
 use crate::transcripts::TranscriptExport;
 
@@ -51,7 +51,7 @@ pub fn render_transcript_pdf(doc_json: &str) -> Result<PdfRender, String> {
         .map_err(|e| format!("pdf export failed: {e:?}"))?;
     Ok(PdfRender {
         bytes,
-        pages: doc.pages.len(),
+        pages: doc.pages().len(),
     })
 }
 
