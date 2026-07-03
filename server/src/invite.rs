@@ -18,7 +18,7 @@ pub const MAX_INVITE_EMAILS: usize = 5;
 /// alphabet (no ambiguous 0/o/1/l) and a `vox-` prefix; the result always passes
 /// [`sanitize_room`]. Collisions are astronomically unlikely (32^10).
 pub fn gen_room_code() -> String {
-    use rand::Rng;
+    use rand::RngExt;
     const CHARS: &[u8] = b"abcdefghijkmnpqrstuvwxyz23456789";
     let mut rng = rand::rng();
     let suffix: String = (0..10)
