@@ -9,8 +9,15 @@ use std::env;
 
 use serde::{Deserialize, Serialize};
 
+/// Default cumulative guest (unauthenticated) STT cap, in minutes, when
+/// `GUEST_MAX_MINUTES` is unset. Chosen so anonymous abuse can't run up unbounded
+/// paid Deepgram/Groq spend while still allowing a genuine guest trial (H1).
+const DEFAULT_GUEST_MAX_MINUTES: u64 = 10;
+
 /// Runtime configuration for the server.
-#[derive(Debug, Clone)]
+// NOTE: `Debug` is hand-written below (redacting secrets) rather than derived, so
+// an accidental `tracing::debug!("{config:?}")`/panic can never dump keys/secrets.
+#[derive(Clone)]
 pub struct Config {
     pub deepgram_key: String,
     pub groq_key: String,
@@ -140,7 +147,7 @@ pub struct Config {
 
 /// OpenAI Realtime Translation credentials + pricing (spec 0093). All-or-nothing
 /// like billing/Resend: activates only when `OPENAI_API_KEY` is present.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct OpenAiConfig {
     /// Server-only API key (Bearer auth to the realtime WS); never sent to clients.
     pub api_key: String,
@@ -164,7 +171,7 @@ pub struct OpenAiConfig {
 /// OpenAI embeddings config for semantic transcript search. Reuses the same
 /// `OPENAI_API_KEY` as the Pro engine but activates independently of the
 /// `OPENAI_PRO` flag (search is a separate, always-eligible feature).
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct EmbeddingsConfig {
     /// Server-only OpenAI API key (Bearer auth to the embeddings REST endpoint);
     /// never sent to clients and never logged.
@@ -193,7 +200,7 @@ impl EmbeddingsConfig {
 
 /// Gemini Live Translate credentials + pricing (spec 0100). All-or-nothing like
 /// the OpenAI engine: activates only when `GOOGLE_AI_API_KEY` is present.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct GeminiConfig {
     /// Server-only Google API key (passed in the Live API URL query string, NOT a
     /// header); never sent to clients and never logged.
@@ -301,7 +308,7 @@ const CARTESIA_DEFAULT_VERSION: &str = "2026-03-01";
 /// billing logic — the values flow into `EngineMetadata` and the existing meter does the
 /// rest. Cartesia does STT + TTS but NOT translation (Groq stays the translator); it is a
 /// single global endpoint, so there is no region map.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct CartesiaConfig {
     /// Raw server API key (`CARTESIA_API_KEY`, `sk_car_…`). Server-only — never serialized;
     /// the browser receives only short-lived access tokens minted from it.
@@ -397,7 +404,7 @@ impl CartesiaConfig {
 }
 
 /// How `/api/ice` authenticates a client to the TURN relay (spec 0026 / 0059).
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum TurnCred {
     /// coturn REST convention: mint a time-limited credential by HMAC-signing an
     /// expiry with the `static-auth-secret`. The secret never leaves the server —
@@ -460,7 +467,7 @@ impl TurnCred {
 /// coturn), or `TURN_URLS` + `TURN_USERNAME` + `TURN_PASSWORD` (a managed relay,
 /// spec 0059). Without it the client uses STUN only and cross-NAT (e.g. cross-border)
 /// calls may fail.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct TurnConfig {
     /// TURN URLs, e.g. `turn:relay.example.com:3478?transport=tcp`. Empty in the
     /// Cloudflare mode — there the minted response carries Cloudflare's anycast URLs.
@@ -539,7 +546,7 @@ impl TurnConfig {
 
 /// Supabase Storage credentials for chat file upload (spec 0018). All-or-nothing
 /// like billing — the feature activates only when both URL and key are present.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct StorageConfig {
     /// Project base URL, e.g. `https://<ref>.supabase.co` (no trailing slash).
     pub supabase_url: String,
@@ -557,7 +564,7 @@ pub struct StorageConfig {
 }
 
 /// Everything needed for accounts, credits, and payments.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct BillingConfig {
     pub database_url: String,
     pub google_client_id: String,
@@ -592,7 +599,7 @@ pub struct BillingConfig {
 /// B2B org billing config (spec 0106): Stripe price ids per plan/interval, the
 /// monthly credit allotment per plan (annual grants 12×), the one-off credit unit
 /// price, and the URLs + webhook secret for the org Checkout/Portal flow.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct OrgBillingConfig {
     pub webhook_secret: String,
     pub success_url: String,
@@ -704,7 +711,7 @@ pub struct AiConfig {
 }
 
 /// Resend (transactional email) credentials. All-or-nothing like billing.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ResendConfig {
     pub api_key: String,
     pub from_email: String,
@@ -761,6 +768,19 @@ impl Config {
         // Billing activates only when the three core values are present.
         let billing =
             if present("DATABASE_URL") && present("GOOGLE_CLIENT_ID") && present("JWT_SECRET") {
+                // Sessions are HS256 JWTs signed with JWT_SECRET; a short/low-entropy
+                // secret is offline-brute-forceable from any issued token, which would
+                // let an attacker forge a token for any user (account takeover). Refuse
+                // to enable billing with a weak secret rather than boot insecure. Use
+                // `openssl rand -hex 32` (or -base64 32) to generate one.
+                const MIN_JWT_SECRET_BYTES: usize = 32;
+                let jwt_len = env::var("JWT_SECRET").unwrap_or_default().trim().len();
+                if jwt_len < MIN_JWT_SECRET_BYTES {
+                    return Err(format!(
+                        "JWT_SECRET is too short ({jwt_len} bytes); require at least \
+                         {MIN_JWT_SECRET_BYTES} bytes of entropy (e.g. `openssl rand -hex 32`)"
+                    ));
+                }
                 Some(BillingConfig::from_env())
             } else {
                 None
@@ -898,7 +918,7 @@ impl Config {
 
 /// Web-push (VAPID) keys + contact subject. Keys are URL-safe base64 (no padding),
 /// the format emitted by `web-push generate-vapid-keys` / online generators.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct PushConfig {
     pub vapid_public_key: String,
     pub vapid_private_key: String,
@@ -954,9 +974,23 @@ impl BillingConfig {
             stripe_webhook_secret: env::var("STRIPE_WEBHOOK_SECRET").unwrap_or_default(),
             stripe_success_url: env::var("STRIPE_SUCCESS_URL").unwrap_or_default(),
             stripe_cancel_url: env::var("STRIPE_CANCEL_URL").unwrap_or_default(),
-            guest_max_minutes: env::var("GUEST_MAX_MINUTES")
+            // Cumulative guest STT cap (H1): defaults to a safe non-`None` value so a
+            // fresh deployment never leaves unauthenticated speech-to-text uncapped.
+            // `GUEST_MAX_MINUTES=0` explicitly disables the cap (opt-in unlimited).
+            // Enforced per-IP over a rolling window (see `GuestUsage` in lib.rs), so
+            // reconnecting no longer resets it.
+            guest_max_minutes: match env::var("GUEST_MAX_MINUTES")
                 .ok()
-                .and_then(|s| s.parse().ok()),
+                .map(|s| s.trim().to_string())
+            {
+                Some(s) if s.is_empty() => Some(DEFAULT_GUEST_MAX_MINUTES),
+                Some(s) => match s.parse::<u64>() {
+                    Ok(0) => None, // explicit opt-out
+                    Ok(n) => Some(n),
+                    Err(_) => Some(DEFAULT_GUEST_MAX_MINUTES),
+                },
+                None => Some(DEFAULT_GUEST_MAX_MINUTES),
+            },
             admin_api_secret: env::var("ADMIN_API_SECRET")
                 .ok()
                 .map(|s| s.trim().to_string())
@@ -1230,6 +1264,139 @@ impl Config {
             embeddings: None,
             embeddings_backfill_secret: None,
         }
+    }
+}
+
+// --- Redacting Debug impls (spec: secrets must never reach logs) ------------
+// Hand-written instead of derived so an accidental `debug!("{config:?}")`, a
+// `dbg!`, or a panic that formats a config struct can never dump API keys, JWT
+// secrets, Stripe keys, or TURN credentials. Each impl prints only innocuous
+// fields and marks the redacted remainder with `..`.
+
+impl std::fmt::Debug for Config {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Config")
+            .field("port", &self.port)
+            .field("translation_model", &self.translation_model)
+            .field("allowed_origins", &self.allowed_origins)
+            .field("app_base_url", &self.app_base_url)
+            .field("billing", &self.billing.is_some())
+            .field("resend", &self.resend.is_some())
+            .field("storage", &self.storage.is_some())
+            .field("turn", &self.turn.is_some())
+            .field("openai", &self.openai.is_some())
+            .field("google", &self.google.is_some())
+            .field("cartesia", &self.cartesia.is_some())
+            .field("push", &self.push.is_some())
+            .finish_non_exhaustive()
+    }
+}
+
+impl std::fmt::Debug for BillingConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BillingConfig")
+            .field("google_client_id", &self.google_client_id)
+            .field("jwt_expiry_hours", &self.jwt_expiry_hours)
+            .field("guest_max_minutes", &self.guest_max_minutes)
+            .field(
+                "admin_api_secret",
+                &self.admin_api_secret.as_ref().map(|_| "***"),
+            )
+            .finish_non_exhaustive()
+    }
+}
+
+impl std::fmt::Debug for OpenAiConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OpenAiConfig")
+            .field("model", &self.model)
+            .field("max_sessions", &self.max_sessions)
+            .finish_non_exhaustive()
+    }
+}
+
+impl std::fmt::Debug for EmbeddingsConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EmbeddingsConfig")
+            .field("model", &self.model)
+            .finish_non_exhaustive()
+    }
+}
+
+impl std::fmt::Debug for GeminiConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GeminiConfig")
+            .field("model", &self.model)
+            .field("max_sessions", &self.max_sessions)
+            .finish_non_exhaustive()
+    }
+}
+
+impl std::fmt::Debug for CartesiaConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CartesiaConfig")
+            .field("stt_model", &self.stt_model)
+            .field("tts_model", &self.tts_model)
+            .field("api_base", &self.api_base)
+            .finish_non_exhaustive()
+    }
+}
+
+impl std::fmt::Debug for TurnCred {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Every variant holds a secret — print only the variant name.
+        let variant = match self {
+            TurnCred::Secret { .. } => "Secret",
+            TurnCred::Static { .. } => "Static",
+            TurnCred::Cloudflare { .. } => "Cloudflare",
+        };
+        write!(f, "TurnCred::{variant}(..)")
+    }
+}
+
+impl std::fmt::Debug for TurnConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TurnConfig")
+            .field("urls", &self.urls)
+            .field("cred", &self.cred) // redacted by TurnCred's own Debug
+            .finish()
+    }
+}
+
+impl std::fmt::Debug for StorageConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StorageConfig")
+            .field("supabase_url", &self.supabase_url)
+            .field("bucket", &self.bucket)
+            .field("max_bytes", &self.max_bytes)
+            .finish_non_exhaustive()
+    }
+}
+
+impl std::fmt::Debug for OrgBillingConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OrgBillingConfig")
+            .field("success_url", &self.success_url)
+            .finish_non_exhaustive()
+    }
+}
+
+impl std::fmt::Debug for ResendConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ResendConfig")
+            .field("from_email", &self.from_email)
+            .field("from_name", &self.from_name)
+            .finish_non_exhaustive()
+    }
+}
+
+impl std::fmt::Debug for PushConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PushConfig")
+            // vapid_public_key is public by design; the private key is omitted.
+            .field("vapid_public_key", &self.vapid_public_key)
+            .field("vapid_subject", &self.vapid_subject)
+            .finish_non_exhaustive()
     }
 }
 

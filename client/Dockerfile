@@ -17,5 +17,9 @@ WORKDIR /app
 RUN npm install -g serve
 COPY --from=builder /app/dist ./dist
 
+# Drop root: the node image ships an unprivileged `node` user; serving static files
+# needs no root.
+USER node
+
 EXPOSE 4321
 CMD ["serve", "-s", "dist", "-l", "4321"]

@@ -3,6 +3,13 @@
 //! Used to throttle the auth and checkout endpoints. Fixed-window (not a
 //! sliding window) is intentionally simple: each key gets `max` calls per
 //! `window`; the counter resets when the window elapses.
+//!
+//! SCALING CAVEAT (M6): counters are per-process/in-memory. This is correct for a
+//! single instance (the current Railway topology). If the server is ever run with
+//! more than one replica behind a load balancer, each replica keeps its own counters,
+//! so a caller's effective limit becomes `max × replica_count`. Before scaling out,
+//! back this with the shared DragonflyDB (see `crate::cache`) using atomic
+//! `INCR`+`EXPIRE` so limits are global across instances.
 
 use std::time::{Duration, Instant};
 

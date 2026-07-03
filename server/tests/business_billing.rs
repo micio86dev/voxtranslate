@@ -149,6 +149,7 @@ async fn webhook_signature_and_idempotent_purchase_grant() {
         "type": "checkout.session.completed",
         "data": { "object": {
             "mode": "payment",
+            "payment_status": "paid",
             "metadata": { "org_id": org.to_string(), "credits": "50" }
         }}
     });

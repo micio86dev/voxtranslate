@@ -25,7 +25,8 @@ fn from_env_detects_guest_and_billing_modes() {
     // Billing mode activates when the three core values are present.
     std::env::set_var("DATABASE_URL", "postgres://x");
     std::env::set_var("GOOGLE_CLIENT_ID", "gid");
-    std::env::set_var("JWT_SECRET", "secret");
+    // ≥32 bytes: from_env now rejects a weak JWT_SECRET (M1).
+    std::env::set_var("JWT_SECRET", "test-jwt-secret-0123456789abcdef-abcdef");
     std::env::set_var("COST_PER_MINUTE", "0.01");
     std::env::set_var("MARKUP_PERCENTAGE", "0.5");
     let c = Config::from_env().unwrap();

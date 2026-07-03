@@ -24,7 +24,10 @@ use crate::AppState;
 /// `X-Admin-Secret: <secret>`. Being a `FromRequestParts` extractor it runs
 /// BEFORE the JSON body is parsed, so an unauthorized caller always gets `403`
 /// (never a `422` body-validation error) and the body is never deserialized.
-pub struct AdminAuth;
+/// Holds the request's source IP so it's recorded in every `admin_audit` row (L4).
+/// The `actor` name in the body is self-reported (all callers share one secret), so
+/// the unspoofable source IP is the reliable attribution signal.
+pub struct AdminAuth(pub String);
 
 impl FromRequestParts<AppState> for AdminAuth {
     type Rejection = Response;
@@ -51,7 +54,7 @@ impl FromRequestParts<AppState> for AdminAuth {
             .get("x-admin-secret")
             .and_then(|v| v.to_str().ok());
         if constant_eq(bearer, secret) || constant_eq(xhdr, secret) {
-            Ok(AdminAuth)
+            Ok(AdminAuth(crate::observability::client_ip(&parts.headers)))
         } else {
             Err((StatusCode::FORBIDDEN, "invalid admin secret").into_response())
         }
@@ -72,14 +75,20 @@ fn constant_eq(given: Option<&str>, secret: &str) -> bool {
     diff == 0
 }
 
-/// Append one audit row. Failures are logged, never fatal to the action.
+/// Append one audit row. Failures are logged, never fatal to the action. The
+/// caller's source IP (from [`AdminAuth`]) is folded into `detail` as `actor_ip`
+/// (L4) so a spoofed `actor` name can still be cross-checked against where it came from.
 async fn audit(
     pool: &Pool,
+    admin: &AdminAuth,
     actor: &str,
     action: &str,
     target: Option<&str>,
-    detail: serde_json::Value,
+    mut detail: serde_json::Value,
 ) {
+    if let Some(obj) = detail.as_object_mut() {
+        obj.insert("actor_ip".to_string(), serde_json::json!(admin.0));
+    }
     if let Err(e) = sqlx::query(
         "INSERT INTO admin_audit (actor, action, target, detail) VALUES ($1, $2, $3, $4::jsonb)",
     )
@@ -119,7 +128,7 @@ pub struct BanRequest {
 /// `POST /api/admin/ban` — ban a user for `days` (omit for permanent).
 pub async fn ban(
     State(state): State<AppState>,
-    _admin: AdminAuth,
+    admin: AdminAuth,
     Json(body): Json<BanRequest>,
 ) -> Response {
     let (Some(safety), Some(pool)) = (state.safety.as_ref(), state.pool.as_ref()) else {
@@ -129,6 +138,7 @@ pub async fn ban(
         Ok(()) => {
             audit(
                 pool,
+                &admin,
                 actor(&body.actor),
                 "ban",
                 Some(&body.user_id.to_string()),
@@ -154,7 +164,7 @@ pub struct UnbanRequest {
 /// `POST /api/admin/unban` — lift a user's ban.
 pub async fn unban(
     State(state): State<AppState>,
-    _admin: AdminAuth,
+    admin: AdminAuth,
     Json(body): Json<UnbanRequest>,
 ) -> Response {
     let (Some(safety), Some(pool)) = (state.safety.as_ref(), state.pool.as_ref()) else {
@@ -164,6 +174,7 @@ pub async fn unban(
         Ok(()) => {
             audit(
                 pool,
+                &admin,
                 actor(&body.actor),
                 "unban",
                 Some(&body.user_id.to_string()),
@@ -192,7 +203,7 @@ pub struct CreditRequest {
 /// `POST /api/admin/credit` — manually adjust a user's balance (grant/refund).
 pub async fn credit(
     State(state): State<AppState>,
-    _admin: AdminAuth,
+    admin: AdminAuth,
     Json(body): Json<CreditRequest>,
 ) -> Response {
     let (Some(billing), Some(pool)) = (state.billing.as_ref(), state.pool.as_ref()) else {
@@ -211,6 +222,7 @@ pub async fn credit(
         Ok(new_balance) => {
             audit(
                 pool,
+                &admin,
                 actor(&body.actor),
                 "credit",
                 Some(&body.user_id.to_string()),
@@ -245,7 +257,7 @@ pub struct BonusRequest {
 /// never blocks the grant, it just reports `email_sent: false`.
 pub async fn bonus(
     State(state): State<AppState>,
-    _admin: AdminAuth,
+    admin: AdminAuth,
     Json(body): Json<BonusRequest>,
 ) -> Response {
     let (Some(billing), Some(pool)) = (state.billing.as_ref(), state.pool.as_ref()) else {
@@ -291,6 +303,7 @@ pub async fn bonus(
 
     audit(
         pool,
+        &admin,
         actor(&body.actor),
         "bonus",
         Some(&body.user_id.to_string()),
@@ -427,7 +440,7 @@ pub struct ResolveRequest {
 /// `POST /api/admin/report/resolve` — close a report (resolved or dismissed).
 pub async fn resolve_report(
     State(state): State<AppState>,
-    _admin: AdminAuth,
+    admin: AdminAuth,
     Json(body): Json<ResolveRequest>,
 ) -> Response {
     let Some(pool) = state.pool.as_ref() else {
@@ -455,6 +468,7 @@ pub async fn resolve_report(
         Ok(_) => {
             audit(
                 pool,
+                &admin,
                 who,
                 "resolve_report",
                 Some(&body.report_id.to_string()),
@@ -480,7 +494,7 @@ pub struct DeleteRequest {
 /// `POST /api/admin/user/delete` — erase a user and all linked data (GDPR).
 pub async fn delete_user(
     State(state): State<AppState>,
-    _admin: AdminAuth,
+    admin: AdminAuth,
     Json(body): Json<DeleteRequest>,
 ) -> Response {
     let (Some(safety), Some(pool)) = (state.safety.as_ref(), state.pool.as_ref()) else {
@@ -490,6 +504,7 @@ pub async fn delete_user(
     // audit (it's a free-standing table), but recording first is the safe order.
     audit(
         pool,
+        &admin,
         actor(&body.actor),
         "delete_user",
         Some(&body.user_id.to_string()),
@@ -511,7 +526,7 @@ pub async fn delete_user(
 /// collection is locked within seconds instead of waiting for the nightly
 /// pg_cron job. Triggered by a Directus `collections.create` Flow; no request
 /// body. Idempotent — the function only touches tables still RLS-off.
-pub async fn enforce_rls(_admin: AdminAuth, State(state): State<AppState>) -> Response {
+pub async fn enforce_rls(admin: AdminAuth, State(state): State<AppState>) -> Response {
     let Some(pool) = state.pool.as_ref() else {
         return unavailable();
     };
@@ -522,7 +537,15 @@ pub async fn enforce_rls(_admin: AdminAuth, State(state): State<AppState>) -> Re
         tracing::error!("rls enforce failed: {e}");
         return (StatusCode::INTERNAL_SERVER_ERROR, "rls enforce failed").into_response();
     }
-    audit(pool, "directus", "rls.enforce", None, serde_json::json!({})).await;
+    audit(
+        pool,
+        &admin,
+        "directus",
+        "rls.enforce",
+        None,
+        serde_json::json!({}),
+    )
+    .await;
     ok()
 }
 
@@ -619,7 +642,7 @@ pub struct GiftSubscriptionRequest {
 /// the org already has a managed Stripe subscription, so a gift can't desync it.
 pub async fn gift_subscription(
     State(state): State<AppState>,
-    _admin: AdminAuth,
+    admin: AdminAuth,
     Json(body): Json<GiftSubscriptionRequest>,
 ) -> Response {
     let Some(pool) = state.pool.as_ref() else {
@@ -669,6 +692,7 @@ pub async fn gift_subscription(
         }) => {
             audit(
                 pool,
+                &admin,
                 actor(&body.actor),
                 "gift_subscription",
                 Some(&body.org_id.to_string()),

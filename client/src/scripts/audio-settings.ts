@@ -398,9 +398,16 @@ function renderVoiceList(
     pick.className = 'audio-voice-select';
     pick.setAttribute('role', 'radio');
     pick.setAttribute('aria-checked', String(v.id === selectedId));
-    pick.innerHTML =
-      `<span class="audio-voice-name">${v.name}</span>` +
-      `<span class="audio-voice-lang">${v.lang}</span>`;
+    // Build with textContent, not innerHTML, so a voice name/lang can't inject markup
+    // (the values come from speechSynthesis / the Vox manifest, not other users — but
+    // stay consistent with the rest of the codebase).
+    const nameEl = document.createElement('span');
+    nameEl.className = 'audio-voice-name';
+    nameEl.textContent = v.name;
+    const langEl = document.createElement('span');
+    langEl.className = 'audio-voice-lang';
+    langEl.textContent = v.lang;
+    pick.append(nameEl, langEl);
     pick.addEventListener('click', () => {
       if (providerId === 'vox') {
         saveVoxVoice(v.id);

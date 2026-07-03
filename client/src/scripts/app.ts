@@ -5725,7 +5725,16 @@ $('friend-banner-join').addEventListener('click', () => {
     accountScreen.classList.add('hidden');
     void goPrejoin(room, true);
   } else if (typeof n.data.join_url === 'string') {
-    location.href = n.data.join_url;
+    // Only navigate to an http(s) URL — never a `javascript:`/`data:` scheme, in case
+    // a notification's join_url is ever influenced by another user (defense-in-depth).
+    try {
+      const target = new URL(n.data.join_url, window.location.origin);
+      if (target.protocol === 'https:' || target.protocol === 'http:') {
+        location.href = target.href;
+      }
+    } catch {
+      /* malformed URL — ignore */
+    }
   }
 });
 $('friend-banner-dismiss').addEventListener('click', () => {
