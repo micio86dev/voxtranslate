@@ -4431,12 +4431,16 @@ async function boot(): Promise<void> {
 }
 
 function showLogin(): void {
+  // Boot has decided — hand screen control back to .hidden (see the boot-login
+  // pre-paint script in Base.astro). No-op past the first call.
+  document.documentElement.classList.remove('boot-login');
   loginScreen.classList.remove('hidden');
   homeScreen.classList.add('hidden');
   setupGoogleSignIn();
 }
 
 function enterHome(): void {
+  document.documentElement.classList.remove('boot-login');
   loginScreen.classList.add('hidden');
   homeScreen.classList.remove('hidden');
   if (billing && auth.isLoggedIn()) {
