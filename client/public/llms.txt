@@ -1,0 +1,19 @@
+# VoxTranslate
+
+> Free real-time AI voice translator for video calls: translate your voice live, voice-to-voice, with live captions and auto-translated chat across 84 languages, right in your browser.
+
+VoxTranslate is a browser-based app for real-time translated video calls and meetings. Speak your own language and be understood in everyone else's: live speech-to-text captions, spoken voice-to-voice translation, and auto-translated text chat. No install, free to start.
+
+## App
+- [Launch VoxTranslate](https://voxtranslate.app/): start or join a real-time translated video call.
+
+## Product & blog
+- [Product site](https://website.voxtranslate.app/en/): features, four quality tiers, pricing, and the blog.
+- [VoxTranslate for Business](https://website.voxtranslate.app/en/business/): translated meetings for teams — shared history, transcripts, projects, and compliance.
+- [Guides & comparisons (blog)](https://website.voxtranslate.app/en/blog/): including how AI voice translation compares to Google Translate.
+- [Machine-readable site map for LLMs](https://website.voxtranslate.app/llms.txt): the marketing site's own llms.txt with the full article list.
+
+## Legal
+- [Privacy Policy](https://voxtranslate.app/privacy/)
+- [Terms of Service](https://voxtranslate.app/terms/)
+- [Acceptable Use Policy](https://voxtranslate.app/acceptable-use/)

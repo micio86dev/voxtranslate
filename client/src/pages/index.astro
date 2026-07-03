@@ -22,14 +22,16 @@ const jsonLd = {
   '@context': 'https://schema.org',
   '@type': 'WebApplication',
   name: 'VoxTranslate',
+  alternateName: 'VoxTranslate AI Voice Translator',
   url: 'https://voxtranslate.app',
   applicationCategory: 'CommunicationApplication',
   operatingSystem: 'Any (web browser)',
   description:
-    'Real-time video meetings with live AI voice translation and auto-translated chat, so everyone can speak their own language and be understood.',
+    'Real-time AI voice translator for video calls: VoxTranslate translates your voice live — voice-to-voice — with auto-translated chat, so everyone speaks their own language and is understood.',
   offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
   featureList: [
     'Real-time AI voice translation',
+    'Voice-to-voice translation in video calls',
     'Auto-translated text chat',
     'Peer-to-peer video meetings',
     'Live speech-to-text captions',
@@ -38,8 +40,8 @@ const jsonLd = {
 ---
 
 <Base
-  title="VoxTranslate — Real-Time Video Meetings with Live Translation"
-  description="Host video meetings with real-time AI voice translation and auto-translated chat. Speak your own language and be understood in everyone else's — free to start, right in your browser."
+  title="VoxTranslate — AI Voice Translator for Real-Time Video Calls"
+  description="Free real-time AI voice translator. Speak your own language and be understood in everyone else's — VoxTranslate translates your voice live, voice-to-voice, in video calls and chat across 84 languages, right in your browser."
 >
   <script type="application/ld+json" is:inline set:html={JSON.stringify(jsonLd)} />
   <main class="app">
