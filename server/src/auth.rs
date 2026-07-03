@@ -64,6 +64,13 @@ impl TokenVerifier for GoogleVerifier {
             #[serde(default)]
             picture: Option<String>,
             aud: String,
+            /// Token issuer. The tokeninfo endpoint doesn't enforce it's Google, so we do.
+            #[serde(default)]
+            iss: String,
+            /// Whether Google has verified the email. Returned as the string "true"/"false"
+            /// (sometimes a bool) — accept either shape.
+            #[serde(default)]
+            email_verified: serde_json::Value,
         }
 
         let resp = self
@@ -83,6 +90,19 @@ impl TokenVerifier for GoogleVerifier {
         // The token must have been minted for *our* OAuth client.
         if info.aud != self.client_id {
             return Err(AuthError::AudienceMismatch);
+        }
+        // Assert Google actually issued it (L1) — tokeninfo will happily echo a token
+        // from another issuer.
+        if info.iss != "accounts.google.com" && info.iss != "https://accounts.google.com" {
+            return Err(AuthError::InvalidToken);
+        }
+        // Require a Google-verified email (L1). It feeds friend-lookup-by-email and
+        // org-invite matching, so an unverified address can't be trusted. Accept the
+        // string "true" or a JSON bool true.
+        let email_verified = info.email_verified.as_bool() == Some(true)
+            || info.email_verified.as_str() == Some("true");
+        if !email_verified {
+            return Err(AuthError::InvalidToken);
         }
         let name = if info.name.trim().is_empty() {
             info.email.clone()

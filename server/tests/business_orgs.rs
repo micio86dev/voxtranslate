@@ -65,6 +65,28 @@ async fn user(srv: &Server) -> (Uuid, String) {
     (u.id, jwt)
 }
 
+/// Like [`user`] but with a caller-chosen email, so an invite sent to that address
+/// can actually be accepted (accept_invite now binds to the invited email, M3).
+async fn user_with_email(srv: &Server, email: &str) -> (Uuid, String) {
+    let identity = GoogleIdentity {
+        google_id: format!("g-{}", Uuid::new_v4()),
+        email: email.to_string(),
+        name: "Biz Tester".into(),
+        avatar_url: None,
+    };
+    let u = upsert_google_user(
+        &srv.pool,
+        &identity,
+        rust_decimal::Decimal::ZERO,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+    let jwt = issue_jwt(SECRET, &u.id, &u.email, &u.name, 168).unwrap();
+    (u.id, jwt)
+}
+
 fn base(srv: &Server) -> String {
     format!("http://{}", srv.addr)
 }
@@ -237,7 +259,9 @@ async fn invite_create_accept_membership() {
     };
     let http = Client::new();
     let (_a, jwt_a) = user(&srv).await;
-    let (b_id, jwt_b) = user(&srv).await;
+    // Unique per run (the test DB persists between runs; email is unique-constrained).
+    let member_email = format!("newbie-{}@example.com", Uuid::new_v4());
+    let (b_id, jwt_b) = user_with_email(&srv, &member_email).await;
 
     let org = create_org(&http, &srv, &jwt_a, "Team Co").await;
 
@@ -248,7 +272,7 @@ async fn invite_create_accept_membership() {
             base(&srv)
         ))
         .bearer_auth(&jwt_a)
-        .json(&json!({ "email": "newbie@example.com", "role": "member" }))
+        .json(&json!({ "email": member_email, "role": "member" }))
         .send()
         .await
         .unwrap()
@@ -334,7 +358,8 @@ async fn roles_remove_and_self_leave() {
     };
     let http = Client::new();
     let (a_id, jwt_a) = user(&srv).await;
-    let (c_id, jwt_c) = user(&srv).await;
+    let c_email = format!("c-{}@example.com", Uuid::new_v4());
+    let (c_id, jwt_c) = user_with_email(&srv, &c_email).await;
 
     let org = create_org(&http, &srv, &jwt_a, "Roles Co").await;
 
@@ -345,7 +370,7 @@ async fn roles_remove_and_self_leave() {
             base(&srv)
         ))
         .bearer_auth(&jwt_a)
-        .json(&json!({ "email": "c@example.com" }))
+        .json(&json!({ "email": c_email }))
         .send()
         .await
         .unwrap()
@@ -576,14 +601,15 @@ async fn business_member_cap_enforced_and_lifted_on_enterprise() {
     .unwrap();
 
     // Invite a 21st member; accepting is rejected on the Business plan.
-    let (_b, jwt_b) = user(&srv).await;
+    let over_email = format!("over-{}@example.com", Uuid::new_v4());
+    let (_b, jwt_b) = user_with_email(&srv, &over_email).await;
     let invite: Value = http
         .post(format!(
             "{}/api/business/organizations/{org}/invites",
             base(&srv)
         ))
         .bearer_auth(&jwt_a)
-        .json(&json!({ "email": "over@example.com", "role": "member" }))
+        .json(&json!({ "email": over_email, "role": "member" }))
         .send()
         .await
         .unwrap()
@@ -620,13 +646,16 @@ async fn business_member_cap_enforced_and_lifted_on_enterprise() {
     assert_eq!(now_ok.status(), 200, "Enterprise is unlimited");
 }
 
-/// Invite `email` to `org` as `role` (owner JWT) and have `accepter_jwt` accept it.
+/// Invite `accepter_email` to `org` as `role` (owner JWT) and have `accepter_jwt`
+/// accept it. The invited address must be the accepter's own email — accept_invite
+/// binds to it (M3).
 async fn invite_and_accept(
     http: &Client,
     srv: &Server,
     owner_jwt: &str,
     org: Uuid,
     accepter_jwt: &str,
+    accepter_email: &str,
     role: &str,
 ) {
     let invite: Value = http
@@ -635,7 +664,7 @@ async fn invite_and_accept(
             base(srv)
         ))
         .bearer_auth(owner_jwt)
-        .json(&json!({ "email": format!("{}@x.com", Uuid::new_v4()), "role": role }))
+        .json(&json!({ "email": accepter_email, "role": role }))
         .send()
         .await
         .unwrap()
@@ -660,9 +689,10 @@ async fn teams_crud_and_flexible_membership() {
     };
     let http = Client::new();
     let (_a, jwt_a) = user(&srv).await; // owner
-    let (b_id, jwt_b) = user(&srv).await; // member
+    let b_email = format!("member-{}@x.com", Uuid::new_v4());
+    let (b_id, jwt_b) = user_with_email(&srv, &b_email).await; // member
     let org = create_org(&http, &srv, &jwt_a, "Teams Co").await;
-    invite_and_accept(&http, &srv, &jwt_a, org, &jwt_b, "member").await;
+    invite_and_accept(&http, &srv, &jwt_a, org, &jwt_b, &b_email, "member").await;
 
     let teams_url = format!("{}/api/business/organizations/{org}/teams", base(&srv));
 

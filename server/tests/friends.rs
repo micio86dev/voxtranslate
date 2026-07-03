@@ -132,7 +132,7 @@ async fn request_accept_list_and_unfriend_full_cycle() {
             json!({ "email": bob.email })
         )
         .await,
-        201
+        202
     );
 
     // It shows as outgoing for Alice and incoming for Bob, with the right person.
@@ -199,7 +199,8 @@ async fn request_validation_errors() {
         400
     );
 
-    // Unknown email → 404 (no account enumeration leak beyond not-found).
+    // Unknown email → 202 (M2: same response as a real queued request, so the
+    // endpoint can't be used to enumerate which emails have accounts).
     assert_eq!(
         post_status(
             &srv,
@@ -208,10 +209,10 @@ async fn request_validation_errors() {
             json!({ "email": "nobody-xyz@example.com" })
         )
         .await,
-        404
+        202
     );
 
-    // First request OK, a duplicate from the same sender is a 409.
+    // First request OK (202), a duplicate from the same sender is a 409.
     assert_eq!(
         post_status(
             &srv,
@@ -220,7 +221,7 @@ async fn request_validation_errors() {
             json!({ "email": bob.email })
         )
         .await,
-        201
+        202
     );
     assert_eq!(
         post_status(
@@ -250,7 +251,7 @@ async fn mutual_request_becomes_instant_friends() {
             json!({ "email": bob.email })
         )
         .await,
-        201
+        202
     );
     assert_eq!(
         post_status(

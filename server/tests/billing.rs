@@ -725,11 +725,14 @@ mod stripe_api {
         let payload = serde_json::json!({
             "id": event_id,
             "type": "checkout.session.completed",
-            "data": { "object": { "metadata": {
-                "user_id": uid.to_string(),
-                "credits_usd": "5.000000",
-                "package_id": "starter",
-            }}}
+            "data": { "object": {
+                "payment_status": "paid",
+                "metadata": {
+                    "user_id": uid.to_string(),
+                    "credits_usd": "5.000000",
+                    "package_id": "starter",
+                }
+            }}
         })
         .to_string()
         .into_bytes();

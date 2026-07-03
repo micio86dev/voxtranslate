@@ -65,6 +65,7 @@ struct InvitePending {
     id: Uuid,
     org_id: Uuid,
     role: String,
+    email: String,
     accepted_at: Option<DateTime<Utc>>,
     expires_at: DateTime<Utc>,
 }
@@ -223,7 +224,7 @@ pub async fn accept_invite(
     let pool = require_pool(&state)?;
     let mut tx = pool.begin().await.map_err(db_err)?;
     let row: Option<InvitePending> = sqlx::query_as(
-        "SELECT id, org_id, role, accepted_at, expires_at
+        "SELECT id, org_id, role, email, accepted_at, expires_at
          FROM organization_invites WHERE token = $1 FOR UPDATE",
     )
     .bind(&token)
@@ -236,6 +237,17 @@ pub async fn accept_invite(
     }
     if inv.expires_at < Utc::now() {
         return Err((StatusCode::GONE, "invite expired").into_response());
+    }
+    // M3: bind the invite to the address it was sent to. The token travels in a
+    // dashboard URL (leaks via referrer/history/logs/shared links), so without this
+    // any authenticated user holding it could join the org with the invited role
+    // (up to admin). Require the caller's own verified email to match.
+    if !inv.email.trim().eq_ignore_ascii_case(user.email.trim()) {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "this invite was issued for a different email address",
+        )
+            .into_response());
     }
 
     // Business plan has a member cap (Enterprise is unlimited). Enforce in-tx so

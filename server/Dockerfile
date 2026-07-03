@@ -39,6 +39,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 COPY --from=builder /app/target/release/voxtranslate-server /usr/local/bin/voxtranslate-server
 
+# Drop root: run as an unprivileged system user (defense-in-depth if the process is
+# ever compromised). The binary needs no write access to the image.
+RUN useradd --system --no-create-home --uid 10001 appuser
+USER appuser
+
 # The server reads PORT from the environment (Railway injects it); defaults to 3001.
 EXPOSE 3001
 CMD ["voxtranslate-server"]

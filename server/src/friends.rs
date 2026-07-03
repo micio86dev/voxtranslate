@@ -142,8 +142,17 @@ pub async fn request(
 ) -> Result<Response, Response> {
     let pool = require_pool(&state)?;
 
-    // Resolve + verify the target so the FK can't 500 on a bogus id, and so an
-    // unknown email is a clean 404.
+    // Rate-limit per requester (M2): without this, /api/friends/request is a free
+    // email-enumeration + notification-spam oracle. 20/min is far above any human use.
+    if !state.rate_limiter.allow(
+        &format!("friend_req:{}", user.user_id),
+        20,
+        Duration::from_secs(60),
+    ) {
+        return Err((StatusCode::TOO_MANY_REQUESTS, "slow down").into_response());
+    }
+
+    // Resolve + verify the target so the FK can't 500 on a bogus id.
     let target_id: Uuid = if let Some(uid) = body.user_id {
         sqlx::query_scalar::<_, Uuid>("SELECT id FROM users WHERE id = $1")
             .bind(uid)
@@ -156,12 +165,17 @@ pub async fn request(
         if email.is_empty() {
             return Err(bad_request("email or user_id is required"));
         }
-        sqlx::query_scalar::<_, Uuid>("SELECT id FROM users WHERE lower(email) = $1")
+        match sqlx::query_scalar::<_, Uuid>("SELECT id FROM users WHERE lower(email) = $1")
             .bind(&email)
             .fetch_optional(pool)
             .await
             .map_err(db_err)?
-            .ok_or_else(|| not_found("no user with that email"))?
+        {
+            Some(id) => id,
+            // M2: don't reveal whether the email is registered. Return the SAME
+            // 202 as a queued request instead of a distinguishable 404.
+            None => return Ok(StatusCode::ACCEPTED.into_response()),
+        }
     };
 
     if target_id == user.user_id {
@@ -210,7 +224,8 @@ pub async fn request(
     .await
     .map_err(db_err)?;
     notify_friend(&state, pool, target_id, "friend_request", &user).await;
-    Ok(StatusCode::CREATED.into_response())
+    // 202 (not 201) so this is indistinguishable from the unknown-email path (M2).
+    Ok(StatusCode::ACCEPTED.into_response())
 }
 
 /// `POST /api/friends/{id}/accept` — accept a pending request from `{id}`.
@@ -267,10 +282,12 @@ pub async fn invite(
     Json(body): Json<InviteInput>,
 ) -> Result<Response, Response> {
     let pool = require_pool(&state)?;
-    let room = body.room.trim().to_string();
-    if room.is_empty() {
-        return Err(bad_request("room is required"));
-    }
+    // Sanitize the room code (L5) — same rules as the other invite path — so it can't
+    // inject query params into the join link or carry an unsafe value into the
+    // notification payload.
+    let Some(room) = crate::invite::sanitize_room(&body.room) else {
+        return Err(bad_request("invalid room code"));
+    };
     let (low, high) = ordered(user.user_id, other);
     let is_friend: bool = sqlx::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM friendships
