@@ -48,7 +48,7 @@ md5 = "0.8"
 chrono-tz = "0.10"
 typst = "=0.14.2"
 typst-pdf = "=0.14.2"
-typst-as-lib = "=0.15.5"
+typst-as-lib = "=0.16.0"
 
 # Chat file upload (spec 0018): extract text from uploaded text-layer PDFs.
 pdf-extract = "0.7"
