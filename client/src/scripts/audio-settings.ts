@@ -192,6 +192,20 @@ function statusLabel(configured: boolean, installed: boolean): string {
 
 function populateEngineSelect(installed: boolean): void {
   const sel = el<HTMLSelectElement>('audio-engine-select');
+  const field = sel.closest('.field') as HTMLElement | null;
+  // Vox disabled (TTS_CONFIG.MANIFEST_URL === '') → Browser Voice is the only engine, so
+  // there is nothing to pick: hide the engine field and pin the preference to 'browser'
+  // (a stale 'vox'/'auto' pref is otherwise inert — the manager already falls back — but
+  // this keeps the saved value honest).
+  if (!TTS_CONFIG.MANIFEST_URL) {
+    if (field) field.hidden = true;
+    if (loadEnginePref() !== 'browser') {
+      saveEnginePref('browser');
+      ttsManager.setPreference('browser');
+    }
+    return;
+  }
+  if (field) field.hidden = false;
   const opts: [EnginePref, string][] = [
     ['auto', t('audioEngineAuto')],
     ['browser', t('audioEngineBrowser')],

@@ -8,6 +8,14 @@ function envStr(key: string): string | undefined {
   return typeof v === 'string' && v ? v : undefined;
 }
 
+/** Vox Voices master switch. OFF as of 2026-07-05: the on-device Kokoro model is too slow
+ *  on the CPU/wasm path (no usable WebGPU-fp32 today) for LIVE translation — the browser's
+ *  own voices are far lower-latency. While this is false the whole feature stays dormant
+ *  REGARDLESS of `PUBLIC_VOX_MANIFEST_URL` (no engine option, no install/benchmark UI,
+ *  installed packs unused — Browser Voice only). Flip to true (and set the manifest env
+ *  var) to bring it back. */
+export const VOX_ENABLED = false;
+
 export const TTS_CONFIG = {
   /** Max utterances queued for playback; past this the OLDEST still-waiting lines
    *  are dropped so playback stays near real-time (spec 0040 no-cut + backlog cap). */
@@ -48,7 +56,7 @@ export const TTS_CONFIG = {
   /** Voice-pack manifest (Supabase Storage, public-read). Set at build time via
    *  PUBLIC_VOX_MANIFEST_URL; an empty string keeps the whole feature dormant
    *  (no install UI, Browser Voice only) — the zero-config default. */
-  MANIFEST_URL: envStr('PUBLIC_VOX_MANIFEST_URL') ?? '',
+  MANIFEST_URL: VOX_ENABLED ? (envStr('PUBLIC_VOX_MANIFEST_URL') ?? '') : '',
 
   /** Same-origin path prefix the Service Worker serves installed model bytes from
    *  (keeps model loading within `connect-src 'self'` / `worker-src 'self'`). */

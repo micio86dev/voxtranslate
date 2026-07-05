@@ -1,12 +1,12 @@
-// Audio Settings modal (spec 0093 Vox Voices UI) reached from pre-join. The e2e build
-// sets no PUBLIC_VOX_MANIFEST_URL, so Vox Voices is DORMANT: the pack/install and Vox
-// voice blocks stay hidden and the engine picker offers Browser Voice only. This pins
-// the modal's open → populate → close flow (and a clean console) without a backend,
-// peers, or an installed pack.
+// Audio Settings modal reached from pre-join. Vox Voices is currently DISABLED
+// (config VOX_ENABLED=false — too slow on CPU/wasm for live use), so the modal is just
+// the Browser Voice picker: the engine field, the pack/install/benchmark blocks and the
+// Vox voice list all stay hidden. This pins the modal's open → populate → close flow
+// (and a clean console) without a backend, peers, or an installed pack.
 import { test, expect } from '@playwright/test';
 import { openPage, closePage, trackConsoleErrors } from './helpers';
 
-test('audio settings: engine picker + browser voices, Vox dormant without a manifest', async ({
+test('audio settings: Browser Voice picker only, all Vox UI hidden (Vox disabled)', async ({
   browser,
 }) => {
   const t = await openPage(browser);
@@ -24,24 +24,10 @@ test('audio settings: engine picker + browser voices, Vox dormant without a mani
   await t.page.click('#prejoin-audio-btn');
   await expect(t.page.locator('#audio-modal')).toBeVisible();
 
-  // The status block reports a current engine, and the engine picker is populated
-  // (Browser Voice is always available). Vox is offered but DISABLED until a pack is
-  // installed — with no manifest it can never install, so it stays a dead option.
-  await expect(t.page.locator('#audio-current-engine')).not.toBeEmpty();
-  const engineOptions = t.page.locator('#audio-engine-select option');
-  await expect(engineOptions).not.toHaveCount(0);
-  const engineValues = await engineOptions.evaluateAll((os) =>
-    os.map((o) => (o as HTMLOptionElement).value),
-  );
-  expect(engineValues).toContain('browser');
-  // (`<option>` disabled state — Playwright's toBeDisabled() doesn't read it, so assert
-  // the DOM property directly.)
-  await expect(t.page.locator('#audio-engine-select option[value="vox"]')).toHaveJSProperty(
-    'disabled',
-    true,
-  );
-
-  // Feature dormant (no manifest) → the pack card and the Vox voice list stay hidden.
+  // Vox disabled → no engine to choose: the engine-preference field is hidden (there is
+  // no vox option at all), and every Vox-specific block stays hidden.
+  await expect(t.page.locator('#audio-engine-select')).toBeHidden();
+  await expect(t.page.locator('#audio-engine-select option[value="vox"]')).toHaveCount(0);
   await expect(t.page.locator('#audio-pack')).toBeHidden();
   await expect(t.page.locator('#audio-vox-voices')).toBeHidden();
 

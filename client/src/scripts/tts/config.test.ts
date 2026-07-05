@@ -2,17 +2,20 @@
 // read that keeps the whole feature dormant when unset.
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-describe('TTS_CONFIG.MANIFEST_URL (build-time env)', () => {
+describe('TTS_CONFIG.MANIFEST_URL (Vox master switch)', () => {
   afterEach(() => {
     vi.unstubAllEnvs();
     vi.resetModules();
   });
 
-  it('uses PUBLIC_VOX_MANIFEST_URL when set', async () => {
+  it('is force-disabled while VOX_ENABLED is false — dormant even if the env var is set', async () => {
+    // Vox Voices is currently OFF (too slow on CPU/wasm for live use); the manifest URL
+    // resolves to '' regardless of PUBLIC_VOX_MANIFEST_URL so the whole feature stays dormant.
     vi.stubEnv('PUBLIC_VOX_MANIFEST_URL', 'https://cdn.test/vox/manifest.json');
     vi.resetModules();
-    const { TTS_CONFIG } = await import('./config');
-    expect(TTS_CONFIG.MANIFEST_URL).toBe('https://cdn.test/vox/manifest.json');
+    const { TTS_CONFIG, VOX_ENABLED } = await import('./config');
+    expect(VOX_ENABLED).toBe(false);
+    expect(TTS_CONFIG.MANIFEST_URL).toBe('');
   });
 
   it('stays dormant (empty string) when the var is empty', async () => {

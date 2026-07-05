@@ -234,13 +234,15 @@ describe('openAudioSettings status painting', () => {
     expect(el<HTMLSelectElement>('audio-engine-select').value).toBe('auto');
   });
 
-  it('unconfigured feature + vox pinned: unavailable status, pack section hidden', async () => {
+  it('Vox disabled (no manifest): engine picker suppressed + pref pinned to browser, pack hidden', async () => {
     h.config.MANIFEST_URL = '';
-    h.manager.chooseProvider.mockReturnValue({ id: 'vox' });
+    h.loadEnginePref.mockReturnValue('auto'); // a stale non-browser pref
     await openSettings();
-    expect(text('audio-current-engine')).toBe('audioEngineVox');
-    expect(text('audio-status-val')).toBe('audioStatusUnavailable');
     expect(hiddenEl('audio-pack')).toBe(true);
+    // No engine to choose → the picker is left empty and the preference pinned to browser.
+    expect(el<HTMLSelectElement>('audio-engine-select').options.length).toBe(0);
+    expect(h.saveEnginePref).toHaveBeenCalledWith('browser');
+    expect(h.manager.setPreference).toHaveBeenCalledWith('browser');
   });
 
   it('configured but not installed + vox chosen: "not installed" status', async () => {
