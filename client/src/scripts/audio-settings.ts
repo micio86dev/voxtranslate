@@ -12,6 +12,7 @@ import { runBenchmark, benchmarkVerdictKey } from './tts/benchmark';
 import { isCancel, VoicePackInstaller } from './tts/installer';
 import { type Manifest, compareVersions, packsForLanguage, selectPack } from './tts/manifest';
 import { ttsManager } from './tts/manager';
+import { defaultBrowserVoiceId } from './tts/providers/browser';
 import {
   loadBrowserVoice,
   loadEnginePref,
@@ -372,7 +373,22 @@ async function renderVoices(installed: boolean): Promise<void> {
   const filteredVox = byLang(vox);
   toggle('audio-vox-voices', installed && filteredVox.length > 0);
   renderVoiceList(el('audio-vox-list'), filteredVox, 'vox', loadVoxVoice());
-  renderVoiceList(el('audio-browser-list'), byLang(browser), 'browser', loadBrowserVoice());
+
+  // Standard tier = Browser Voice: there must ALWAYS be a voice selected for the chosen
+  // output language, preferring Chrome's natural "Google …" voices. Honor a saved pick
+  // only while it still serves this language; otherwise fall back to — and persist — the
+  // best default so the picker is never left blank and the manager speaks with it.
+  const browserByLang = byLang(browser);
+  const saved = loadBrowserVoice();
+  let browserSelected = saved && browserByLang.some((v) => v.id === saved) ? saved : null;
+  if (!browserSelected) {
+    browserSelected = defaultBrowserVoiceId(browser, lang ?? 'auto');
+    if (browserSelected) {
+      saveBrowserVoice(browserSelected);
+      ttsManager.setBrowserVoice(browserSelected);
+    }
+  }
+  renderVoiceList(el('audio-browser-list'), browserByLang, 'browser', browserSelected);
 }
 
 function renderVoiceList(

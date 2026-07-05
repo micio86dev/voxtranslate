@@ -59,9 +59,21 @@ With it unset (the default) the whole feature is **dormant**: no install UI, Bro
 
 ## Building & uploading the pack (ops)
 
-1. Assemble a source dir mirroring `onnx-community/Kokoro-82M-v1.0-ONNX` (dtype **q8** →
-   `onnx/model_quantized.onnx`) plus `voices/<voice>.bin` and a self-hosted ORT runtime under
-   `ort/` (`ort-wasm-simd-threaded.jsep.wasm` + `.mjs`, from `onnxruntime-web/dist`).
+1. Assemble a source dir mirroring `onnx-community/Kokoro-82M-v1.0-ONNX`. Ship **both**
+   model dtypes so the engine can pick the right backend per device (see the ⚠️ note below):
+   - `onnx/model.onnx` — **fp32**, used on the **WebGPU** path (GPU-resident and correct).
+   - `onnx/model_quantized.onnx` — **q8**, used on the **wasm/CPU** path (fast + correct).
+
+   Plus `voices/<voice>.bin` and a self-hosted ORT runtime under `ort/`
+   (`ort-wasm-simd-threaded.jsep.wasm` + `.mjs`, from `onnxruntime-web/dist`).
+
+   > ⚠️ **Do NOT ship only `model_fp16.onnx`.** Kokoro's iSTFT vocoder is garbled by
+   > onnxruntime-web's **fp16-on-WebGPU** path (robotic ~half-second noise / distorted
+   > speech on Apple-Silicon Metal — kokoro-js's README: *"if using webgpu, we recommend
+   > dtype=fp32"*). `kokoro-engine.ts` therefore **never** runs fp16 on WebGPU: it uses
+   > fp32 on WebGPU (only if the pack ships `model.onnx`) and otherwise falls back to the
+   > wasm path with q8/fp16. A pack that ships fp16 only will run on wasm (correct but
+   > slower) and will usually fail the benchmark → Browser Voice.
 2. Generate the pack manifest with hashes:
    ```
    node client/scripts/build-vox-pack.mjs <srcDir> \
@@ -99,6 +111,12 @@ the Audio Settings modal. Hidden from normal users.
 
 ## Known follow-ups
 
+- ⚠️ **The currently hosted pack (`voices.voxtranslate.app`, kokoro-en 1.0.0) ships only
+  `onnx/model_fp16.onnx`** → on WebGPU devices (e.g. Apple-Silicon Macs) Vox produced
+  distorted/robotic audio. The client fix (device-aware dtype, never webgpu+fp16) is in, but
+  to get the *fast* WebGPU path back the pack must be **re-uploaded with `onnx/model.onnx`
+  (fp32) added** (and ideally `onnx/model_quantized.onnx` q8 for the wasm path). Until then,
+  clients run the fp16 model on wasm (correct but slower).
 - Upload the pack + manifest to Supabase and run the manual browser QA above (needs the hosted pack).
 - i18n: the 40 UI strings are fully translated for 24 locales; **59 locales use English fallback**
   pending a native pass (see `scratchpad/vox-i18n.mjs` for the merge tooling/table).

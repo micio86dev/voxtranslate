@@ -121,4 +121,29 @@ describe('AudioCapture', () => {
     ac.start();
     expect(ws.send).not.toHaveBeenCalled();
   });
+
+  it('stop before start and stop on an already-inactive recorder are safe', () => {
+    const ws = fakeWs();
+    const ac = new AudioCapture(fakeStream(), ws);
+    ac.stop(); // never started → no recorder, no control frame
+    expect(ws.send).not.toHaveBeenCalled();
+
+    ac.start();
+    const rec = lastRecorder;
+    rec.state = 'inactive'; // recorder died on its own
+    rec.stop = vi.fn();
+    ac.stop();
+    expect(rec.stop).not.toHaveBeenCalled(); // no double-stop on a dead recorder
+    expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: 'stop' })); // server still told
+  });
+
+  it('drops chunks when the socket closed mid-capture', () => {
+    const ws = fakeWs();
+    const ac = new AudioCapture(fakeStream(), ws);
+    ac.start();
+    ws.send.mockClear();
+    ws.readyState = 0; // socket dropped while the recorder is still flushing
+    lastRecorder.ondataavailable({ data: { size: 10 } });
+    expect(ws.send).not.toHaveBeenCalled();
+  });
 });

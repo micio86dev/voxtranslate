@@ -59,6 +59,53 @@ function webgpuAvailable(): boolean {
   return typeof navigator !== 'undefined' && 'gpu' in navigator && !!navigator.gpu;
 }
 
+/** transformers.js dtype → the onnx/ filename it fetches (its suffix mapping). */
+const MODEL_FILE: Record<KokoroDtype, string> = {
+  fp32: 'model.onnx',
+  fp16: 'model_fp16.onnx',
+  q8: 'model_quantized.onnx',
+  q4: 'model_q4.onnx',
+  q4f16: 'model_q4f16.onnx',
+};
+
+/** Which model dtypes the installed pack actually ships (probed by onnx/ filename).
+ *  Empty only for a legacy install whose meta predates file listing — callers then
+ *  assume the old fp16-only build. */
+function shippedDtypes(meta: InstallMeta): Set<KokoroDtype> {
+  const paths = new Set(meta.files.map((f) => f.path));
+  const out = new Set<KokoroDtype>();
+  for (const dtype of Object.keys(MODEL_FILE) as KokoroDtype[])
+    if (paths.has(`onnx/${MODEL_FILE[dtype]}`)) out.add(dtype);
+  return out;
+}
+
+/** Pick a (device, dtype) that is BOTH shipped in the pack AND numerically sound.
+ *  Kokoro's iSTFT vocoder comes out GARBLED under onnxruntime-web's fp16 WebGPU path
+ *  (robotic ~half-second noise / distorted speech on Apple-Silicon Metal — kokoro-js's
+ *  own README says "if using webgpu, we recommend dtype=fp32"), so we NEVER run fp16 on
+ *  WebGPU:
+ *    • WebGPU → fp32 only (GPU-resident and correct). q8's int8 ops silently fall back
+ *      to CPU and fp16 distorts, so if the pack ships no fp32 we drop to the wasm path.
+ *    • wasm/CPU → q8 (fast + correct), else fp16, else fp32.
+ *  A fully-specified {device,dtype} override still wins verbatim (benchmark/tests). */
+function chooseBackend(
+  meta: InstallMeta,
+  opts: LoadOptions,
+): { device: KokoroDevice; dtype: KokoroDtype } {
+  if (opts.device && opts.dtype) return { device: opts.device, dtype: opts.dtype };
+
+  const shipped = shippedDtypes(meta);
+  const has = (d: KokoroDtype): boolean => (shipped.size ? shipped.has(d) : d === 'fp16');
+  const wantGpu = opts.device ? opts.device === 'webgpu' : webgpuAvailable();
+
+  // fp32 is the only Kokoro dtype WebGPU renders correctly — never emit webgpu+fp16.
+  if (wantGpu && has('fp32')) return { device: 'webgpu', dtype: 'fp32' };
+  if (opts.dtype && has(opts.dtype)) return { device: 'wasm', dtype: opts.dtype };
+  for (const d of ['q8', 'fp16', 'fp32'] as KokoroDtype[])
+    if (has(d)) return { device: 'wasm', dtype: d };
+  return { device: 'wasm', dtype: 'fp16' };
+}
+
 /** Point transformers.js at the SAME-ORIGIN, SW-served pack (never remote). */
 function configureEnv(meta: InstallMeta): void {
   tjEnv.allowRemoteModels = false;
@@ -95,12 +142,12 @@ export async function loadKokoro(
   configureEnv(meta);
   await seedVoiceCache(storage, meta);
 
-  const device: KokoroDevice = opts.device ?? (webgpuAvailable() ? 'webgpu' : 'wasm');
-  // fp16, NOT q8: on the WebGPU backend onnxruntime-web can't run int8 ops, so a q8 model
-  // silently falls back to CPU (~7-11 s/line, observed). fp16 is WebGPU-native → GPU-resident.
-  // Vox is WebGPU-gated (see audio-settings hasWebGPU), so this is the path that matters.
+  // Device+dtype are chosen from what the pack actually ships, never landing on the
+  // distorted webgpu+fp16 combination (see chooseBackend). WebGPU needs the fp32 model;
+  // a pack that ships only fp16/q8 runs correctly (if slower) on the wasm backend.
+  const { device, dtype } = chooseBackend(meta, opts);
   const tts = await KokoroTTS.from_pretrained(`${meta.packId}/${meta.version}`, {
-    dtype: opts.dtype ?? 'fp16',
+    dtype,
     device,
     progress_callback: opts.onProgress as never,
   });

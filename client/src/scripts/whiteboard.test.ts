@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeAll } from 'vitest';
+import { describe, it, expect, vi, beforeAll, afterEach } from 'vitest';
 import { Whiteboard, pageOf, drawOp, contentRect, type WbOp, type WbTool } from './whiteboard';
 
 // The board needs a <canvas> + 2D context; in the node test env we stub both. Every
@@ -10,10 +10,16 @@ interface CanvasStub {
   ctx: CanvasRenderingContext2D;
   listeners: Map<string, (e: PointerEvent) => void>;
   setSize: (w: number, h: number) => void;
+  /** Style writes made to the sibling .wb-frame overlay (letterbox marker, #96). */
+  frameStyle: Record<string, string>;
+  /** Records canvas.captureStream(fps) calls (#230). */
+  capture: ReturnType<typeof vi.fn>;
 }
 function stub(w = 800, h = 600): CanvasStub {
   const ctx = new Proxy({}, { get: () => () => {} }) as unknown as CanvasRenderingContext2D;
   const listeners = new Map<string, (e: PointerEvent) => void>();
+  const frameStyle: Record<string, string> = {};
+  const capture = vi.fn(() => ({}) as MediaStream);
   let cw = w;
   let ch = h;
   const canvas = {
@@ -30,16 +36,46 @@ function stub(w = 800, h = 600): CanvasStub {
     setPointerCapture: () => {},
     releasePointerCapture: () => {},
     getBoundingClientRect: () => ({ left: 0, top: 0, width: cw, height: ch }),
+    captureStream: capture,
+    parentElement: {
+      querySelector: (sel: string) => (sel === '.wb-frame' ? { style: frameStyle } : null),
+    },
   } as unknown as HTMLCanvasElement;
   return {
     canvas,
     ctx,
     listeners,
+    frameStyle,
+    capture,
     setSize: (nw: number, nh: number) => {
       cw = nw;
       ch = nh;
     },
   };
+}
+
+// Deterministic rAF fakes: callbacks queue here and run only when a test flushes them
+// (shape previews and the ResizeObserver re-fit both coalesce through rAF).
+const rafCbs = new Map<number, FrameRequestCallback>();
+let nextRafId = 1;
+function flushRaf(): void {
+  const pending = [...rafCbs.values()];
+  rafCbs.clear();
+  for (const cb of pending) cb(0);
+}
+
+/** Records the observe callback so tests can simulate the canvas element resizing
+ *  without a window 'resize' (panel open/close — #225 follow-up). */
+class FakeResizeObserver {
+  static instances: FakeResizeObserver[] = [];
+  observed: unknown[] = [];
+  constructor(public cb: () => void) {
+    FakeResizeObserver.instances.push(this);
+  }
+  observe(el: unknown): void {
+    this.observed.push(el);
+  }
+  disconnect(): void {}
 }
 
 // The board reads window.devicePixelRatio in resize() and window.setTimeout while
@@ -52,6 +88,23 @@ beforeAll(() => {
       clearTimeout: (id: ReturnType<typeof setTimeout>) => clearTimeout(id),
     };
   }
+  (globalThis as { requestAnimationFrame?: unknown }).requestAnimationFrame = (
+    cb: FrameRequestCallback,
+  ): number => {
+    const id = nextRafId++;
+    rafCbs.set(id, cb);
+    return id;
+  };
+  (globalThis as { cancelAnimationFrame?: unknown }).cancelAnimationFrame = (id: number): void => {
+    rafCbs.delete(id);
+  };
+  (globalThis as { ResizeObserver?: unknown }).ResizeObserver = FakeResizeObserver;
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+  rafCbs.clear();
+  FakeResizeObserver.instances = [];
 });
 
 /** Synthesise a pointer gesture (down → moves → up) at CSS-pixel coordinates. */
@@ -129,7 +182,7 @@ describe('Whiteboard resize / coordinate stability (issue #225)', () => {
   it('redraws from the op-log on resize WITHOUT mutating stored normalised ops', () => {
     const s = stub();
     const wb = new Whiteboard(s.canvas, vi.fn());
-    const op = draw('p1:0');
+    const op = draw('p1:0') as WbOp & { points: [number, number][] };
     const before = JSON.stringify(op.points);
     wb.applyOp(op);
     s.setSize(400, 1200); // a wildly different aspect
@@ -316,6 +369,321 @@ describe('Whiteboard multi-page model (spec 0062)', () => {
     wb.addPage();
     expect(wb.pageCount()).toBe(2);
     wb.applyOp({ op: 'clear' });
+    expect(wb.pageCount()).toBe(1);
+    expect(wb.pageIndex()).toBe(0);
+  });
+});
+
+/** A structural marker op (page-add / page-del / page-clear) as relayed by a peer. */
+const marker = (tool: 'page-add' | 'page-del' | 'page-clear', pid: string): WbOp => ({
+  op: 'draw',
+  id: `${pid}:${tool}`,
+  tool,
+  color: '',
+  width: 0,
+  points: [],
+});
+
+const ev = (x: number, y: number): PointerEvent =>
+  ({ clientX: x, clientY: y, pointerId: 1, preventDefault: () => {} }) as unknown as PointerEvent;
+
+describe('Whiteboard shape tools (spec 0062)', () => {
+  it('commits a rect on pointerup with exactly [start, end] normalised points', () => {
+    const s = stub(1600, 900); // 16:9 → the content box fills the CSS box
+    const send = vi.fn();
+    const wb = new Whiteboard(s.canvas, send);
+    wb.resize();
+    wb.tool = 'rect';
+    gesture(s, [
+      [160, 90],
+      [800, 450],
+    ]);
+    expect(send).toHaveBeenCalledTimes(1);
+    const op = send.mock.calls[0][0] as WbOp & { points: [number, number][] };
+    expect(op.op).toBe('draw');
+    if (op.op !== 'draw') return;
+    expect(op.tool).toBe('rect');
+    expect(op.points.length).toBe(2);
+    expect(op.points[0][0]).toBeCloseTo(0.1, 6);
+    expect(op.points[0][1]).toBeCloseTo(0.1, 6);
+    expect(op.points[1][0]).toBeCloseTo(0.5, 6);
+    expect(op.points[1][1]).toBeCloseTo(0.5, 6);
+  });
+
+  it('previews shapes through rAF, coalescing bursts to one frame', () => {
+    const s = stub(1600, 900);
+    const send = vi.fn();
+    const wb = new Whiteboard(s.canvas, send);
+    wb.resize();
+    wb.tool = 'ellipse';
+    rafCbs.clear();
+    s.listeners.get('pointerdown')?.(ev(160, 90));
+    s.listeners.get('pointermove')?.(ev(400, 300)); // schedules one preview frame
+    s.listeners.get('pointermove')?.(ev(500, 300)); // coalesced — no second rAF
+    expect(rafCbs.size).toBe(1);
+    flushRaf(); // the rubber-band renders; nothing is relayed yet
+    expect(send).not.toHaveBeenCalled();
+    s.listeners.get('pointerup')?.(ev(800, 450));
+    expect(send).toHaveBeenCalledTimes(1);
+    const op = send.mock.calls[0][0] as WbOp;
+    expect(op.op === 'draw' && op.tool).toBe('ellipse');
+  });
+
+  it('cancels a pending preview on pointerup and ignores zero-size shapes', () => {
+    const s = stub(1600, 900);
+    const send = vi.fn();
+    const wb = new Whiteboard(s.canvas, send);
+    wb.resize();
+    wb.tool = 'line';
+    rafCbs.clear();
+    s.listeners.get('pointerdown')?.(ev(300, 300));
+    s.listeners.get('pointermove')?.(ev(600, 400)); // preview armed but never flushed
+    s.listeners.get('pointerup')?.(ev(301, 300)); // back at the start → a stray click
+    expect(send).not.toHaveBeenCalled(); // zero-size shape dropped
+    expect(rafCbs.size).toBe(0); // and its preview frame cancelled
+  });
+});
+
+describe('Whiteboard free-hand batching (spec 0045)', () => {
+  it('flushes point batches on the 55ms cadence, chaining batches via the last point', () => {
+    vi.useFakeTimers();
+    const s = stub(1600, 900);
+    const send = vi.fn();
+    const wb = new Whiteboard(s.canvas, send);
+    wb.resize();
+    s.listeners.get('pointerdown')?.(ev(160, 90));
+    s.listeners.get('pointermove')?.(ev(320, 180));
+    expect(send).not.toHaveBeenCalled(); // still batching
+    vi.advanceTimersByTime(55);
+    expect(send).toHaveBeenCalledTimes(1);
+    const first = send.mock.calls[0][0] as WbOp & { points: [number, number][]; id: string };
+    expect(first.points.length).toBe(2);
+    s.listeners.get('pointermove')?.(ev(480, 270));
+    vi.advanceTimersByTime(55);
+    expect(send).toHaveBeenCalledTimes(2);
+    const second = send.mock.calls[1][0] as WbOp & { points: [number, number][]; id: string };
+    // seamless joins: each batch re-carries the previous batch's last point
+    expect(second.points[0]).toEqual(first.points[first.points.length - 1]);
+    expect(second.id).toBe(first.id); // same stroke
+    s.listeners.get('pointerup')?.(ev(480, 270)); // nothing pending → no extra op
+    expect(send).toHaveBeenCalledTimes(2);
+  });
+
+  it('scales the op width for the eraser and highlighter', () => {
+    const s = stub(1600, 900);
+    const send = vi.fn();
+    const wb = new Whiteboard(s.canvas, send);
+    wb.resize();
+    const widthOf = (tool: WbTool, key: 's' | 'm' | 'l'): number => {
+      wb.tool = tool;
+      wb.widthKey = key;
+      send.mockClear();
+      gesture(s, [[800, 450]]);
+      return (send.mock.calls[0][0] as WbOp & { width: number }).width;
+    };
+    expect(widthOf('eraser', 'm')).toBeCloseTo(0.006 * 6, 9); // chunky eraser
+    expect(widthOf('highlighter', 's')).toBeCloseTo(0.0035 * 4, 9); // broad highlighter
+    expect(widthOf('pen', 'l')).toBeCloseTo(0.011, 9); // pen uses the base width
+  });
+
+  it('maps pointers through the bounding rect before the first resize()', () => {
+    const s = stub(1600, 900);
+    const send = vi.fn();
+    const wb = new Whiteboard(s.canvas, send);
+    expect(wb.pageCount()).toBe(1); // constructed, never resized
+    gesture(s, [[800, 450]]); // centre tap with no content box computed yet
+    const op = send.mock.calls[0][0] as WbOp & { points: [number, number][] };
+    expect(op.points[0][0]).toBeCloseTo(0.5, 6);
+    expect(op.points[0][1]).toBeCloseTo(0.5, 6);
+  });
+});
+
+describe('Whiteboard remote marker ops (spec 0062)', () => {
+  it('applies a remote page-del, falling back to the first page, and never relays', () => {
+    const send = vi.fn();
+    const onPages = vi.fn();
+    const { canvas } = stub();
+    const wb = new Whiteboard(canvas, send, onPages);
+    wb.applyOp(marker('page-add', 'pA'));
+    wb.setPageIndex(1); // viewing pA
+    wb.applyOp(draw('pA:1'));
+    wb.applyOp(marker('page-del', 'pA'));
+    expect(wb.pageCount()).toBe(1);
+    expect(wb.pageIndex()).toBe(0); // dropped back to p1
+    expect(onPages).toHaveBeenLastCalledWith(1, 0);
+    expect(send).not.toHaveBeenCalled(); // remote ops must never echo
+    wb.applyOp(marker('page-del', 'p1')); // the last page is indestructible
+    expect(wb.pageCount()).toBe(1);
+  });
+
+  it('applies a remote page-clear only to the target page', () => {
+    const send = vi.fn();
+    const { canvas } = stub();
+    const wb = new Whiteboard(canvas, send);
+    wb.applyOp(draw('p1:0'));
+    wb.applyOp(draw('pA:0')); // a drawable on an unseen page registers it
+    expect(wb.pageCount()).toBe(2);
+    wb.applyOp(marker('page-clear', 'p1')); // current page → redrawn
+    wb.applyOp(marker('page-clear', 'pZ')); // some other page → no redraw
+    expect(wb.pageCount()).toBe(2); // clearing never removes pages
+    // Behavioural proof p1 is now empty: duplicating it relays ONLY the page-add.
+    send.mockClear();
+    wb.duplicatePage();
+    expect(send).toHaveBeenCalledTimes(1);
+    expect((send.mock.calls[0][0] as { tool: string }).tool).toBe('page-add');
+  });
+});
+
+describe('Whiteboard page navigation (spec 0062)', () => {
+  it('nextPage/prevPage/setPageIndex clamp to the valid range and skip no-ops', () => {
+    const onPages = vi.fn();
+    const { canvas } = stub();
+    const wb = new Whiteboard(canvas, vi.fn(), onPages);
+    wb.applyOp(marker('page-add', 'pA'));
+    wb.applyOp(marker('page-add', 'pB')); // three pages, viewing p1
+    onPages.mockClear();
+    wb.nextPage();
+    expect(wb.pageIndex()).toBe(1);
+    wb.nextPage();
+    expect(wb.pageIndex()).toBe(2);
+    wb.nextPage(); // already at the end
+    expect(wb.pageIndex()).toBe(2);
+    wb.prevPage();
+    expect(wb.pageIndex()).toBe(1);
+    wb.setPageIndex(0);
+    expect(wb.pageIndex()).toBe(0);
+    wb.setPageIndex(0); // same page → no notify
+    wb.setPageIndex(99); // out of range → no notify
+    expect(onPages).toHaveBeenCalledTimes(4); // only the real switches
+  });
+});
+
+describe('Whiteboard lifecycle', () => {
+  it('reset drops pages, ops and pending batches without relaying', () => {
+    vi.useFakeTimers();
+    const s = stub(1600, 900);
+    const send = vi.fn();
+    const wb = new Whiteboard(s.canvas, send);
+    wb.resize();
+    wb.addPage();
+    s.listeners.get('pointerdown')?.(ev(160, 90));
+    s.listeners.get('pointermove')?.(ev(320, 180)); // a batch is now pending
+    send.mockClear();
+    wb.reset();
+    expect(wb.pageCount()).toBe(1);
+    expect(wb.pageIndex()).toBe(0);
+    vi.advanceTimersByTime(200); // the armed flush timer must be dead
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('captureStream hands out the canvas stream at the requested fps (#230)', () => {
+    const s = stub();
+    const wb = new Whiteboard(s.canvas, vi.fn());
+    wb.captureStream();
+    expect(s.capture).toHaveBeenCalledWith(10); // default recorder cadence
+    wb.captureStream(30);
+    expect(s.capture).toHaveBeenCalledWith(30);
+  });
+
+  it('re-fits when the canvas element itself resizes (ResizeObserver → one rAF)', () => {
+    const s = stub(640, 360);
+    new Whiteboard(s.canvas, vi.fn());
+    const ro = FakeResizeObserver.instances.at(-1);
+    expect(ro?.observed).toContain(s.canvas);
+    rafCbs.clear();
+    s.setSize(1280, 720); // e.g. the chat panel closed — no window resize fires
+    ro?.cb();
+    ro?.cb(); // burst: coalesced into a single scheduled re-fit
+    expect(rafCbs.size).toBe(1);
+    flushRaf();
+    expect((s.canvas as unknown as { width: number }).width).toBe(1280); // dpr 1
+    expect((s.canvas as unknown as { height: number }).height).toBe(720);
+  });
+
+  it('positions the .wb-frame overlay exactly over the letterboxed content box', () => {
+    const s = stub(2000, 500); // ultra-wide → pillarboxed
+    const wb = new Whiteboard(s.canvas, vi.fn());
+    wb.resize();
+    const r = contentRect(2000, 500);
+    expect(s.frameStyle.left).toBe(`${r.x}px`);
+    expect(s.frameStyle.top).toBe(`${r.y}px`);
+    expect(s.frameStyle.width).toBe(`${r.w}px`);
+    expect(s.frameStyle.height).toBe(`${r.h}px`);
+  });
+});
+
+describe('Whiteboard exportPng (spec 0062)', () => {
+  it('downloads the current page as a PNG named by page number', async () => {
+    const anchors: Array<{ href: string; download: string; clicked: boolean }> = [];
+    const revoke = vi.fn();
+    const realDoc = (globalThis as { document?: unknown }).document;
+    const realUrl = (globalThis as { URL?: unknown }).URL;
+    (globalThis as { document?: unknown }).document = {
+      createElement: (tag: string) => {
+        if (tag === 'canvas') {
+          return {
+            width: 0,
+            height: 0,
+            getContext: () => new Proxy({}, { get: () => () => {} }),
+            toBlob: (cb: (b: Blob | null) => void) => cb(new Blob(['png'], { type: 'image/png' })),
+          };
+        }
+        const a = {
+          href: '',
+          download: '',
+          clicked: false,
+          click(): void {
+            this.clicked = true;
+          },
+          remove(): void {},
+        };
+        anchors.push(a);
+        return a;
+      },
+      body: { appendChild: () => {} },
+    };
+    (globalThis as { URL?: unknown }).URL = { createObjectURL: () => 'blob:png', revokeObjectURL: revoke };
+    vi.useFakeTimers();
+    try {
+      const s = stub();
+      const wb = new Whiteboard(s.canvas, vi.fn());
+      wb.applyOp(draw('p1:0'));
+      await wb.exportPng();
+      expect(anchors.length).toBe(1);
+      expect(anchors[0].download).toBe('whiteboard-page-1.png');
+      expect(anchors[0].clicked).toBe(true);
+      vi.runAllTimers(); // the deferred object-URL release
+      expect(revoke).toHaveBeenCalledWith('blob:png');
+    } finally {
+      vi.useRealTimers();
+      (globalThis as { document?: unknown }).document = realDoc;
+      (globalThis as { URL?: unknown }).URL = realUrl;
+    }
+  });
+});
+
+describe('Whiteboard snapshot edge cases (spec 0062)', () => {
+  it('tolerates junk, honours page-clear, and survives every page being deleted', () => {
+    const { canvas } = stub();
+    const wb = new Whiteboard(canvas, vi.fn());
+    wb.applySnapshot(null as unknown as WbOp[]); // non-array payload → empty board
+    expect(wb.pageCount()).toBe(1);
+    wb.applySnapshot([
+      { op: 'clear' }, // non-draw entries are skipped
+      draw('p1:0'),
+      marker('page-clear', 'p1'), // wipes p1's drawables
+      marker('page-del', 'p1'), // snapshots may even delete the default page
+    ]);
+    expect(wb.pageCount()).toBe(1); // restored to a single default page
+    expect(wb.pageIndex()).toBe(0);
+  });
+
+  it('moves the view back to the first page when the current page vanishes', () => {
+    const { canvas } = stub();
+    const wb = new Whiteboard(canvas, vi.fn());
+    wb.applyOp(marker('page-add', 'pA'));
+    wb.setPageIndex(1); // viewing pA
+    wb.applySnapshot([draw('p1:0')]); // the server log has no pA
     expect(wb.pageCount()).toBe(1);
     expect(wb.pageIndex()).toBe(0);
   });
