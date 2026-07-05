@@ -2140,9 +2140,14 @@ async function handleServer(msg: any): Promise<void> {
     case 'subtitle_final': {
       transcriptEvents++;
       const myLang = session?.lang || 'en';
-      const text = msg.translations?.[myLang] ?? msg.original;
+      // Prefer my-language translation, but fall back to the source when it's MISSING OR
+      // EMPTY. The Pro (OpenAI gpt-realtime-translate) engine sometimes ships an empty
+      // output transcript — `?? original` doesn't catch `''`, so a foreign speaker's
+      // caption rendered blank (you'd hear the translated audio but see nothing).
+      const translated = msg.translations?.[myLang];
+      const text = translated && translated.trim() ? translated : msg.original;
       // `text` is the best line for me (translation, or the original when the speaker
-      // already talks my language); `msg.original` is always the source.
+      // already talks my language / no translation text arrived); `msg.original` is the source.
       showSubtitle(msg.speaker_id, { translation: text, original: msg.original, interim: false });
       // Track active speaker for speaker view
       if (msg.speaker_id !== myId) {
