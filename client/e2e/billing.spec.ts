@@ -76,19 +76,23 @@ test('a logged-in user sees their balance and can open buy-credits', async ({ br
   await expect(t.page.locator('#buy-modal')).toBeVisible();
   await expect(t.page.locator('.pkg-name')).toHaveText('Starter');
   await expect(t.page.locator('.pkg-price')).toHaveText('$5.00');
-
-  // The history tab lists the welcome credit.
-  await expect(t.page.locator('.ledger-row')).toHaveCount(1);
-  await expect(t.page.locator('.ledger-amount')).toContainText('+$2.00');
-
-  // The usage tab is empty (no sessions yet).
-  await t.page.click('#tab-usage');
-  await expect(t.page.locator('.ledger-empty')).toBeVisible();
-
   await t.page.click('#buy-close');
   await expect(t.page.locator('#buy-modal')).toBeHidden();
 
-  // Logout returns to the login gate.
+  // The credit ledger lives in Account → Billing (reached from the avatar menu). The
+  // history tab lists the welcome credit; the usage tab is empty (no sessions yet).
+  await t.page.click('#account-trigger');
+  await t.page.click('[data-acct-nav="billing"]');
+  await expect(t.page.locator('#account')).toBeVisible();
+  await expect(t.page.locator('#acct-billing .ledger-row')).toHaveCount(1);
+  await expect(t.page.locator('#acct-billing .ledger-amount')).toContainText('+$2.00');
+  await t.page.click('#tab-usage');
+  await expect(t.page.locator('#acct-billing .ledger-empty')).toBeVisible();
+
+  // Back to home, then logout returns to the login gate.
+  await t.page.click('#account-back');
+  await expect(t.page.locator('#home')).toBeVisible();
+  await t.page.click('#account-trigger');
   await t.page.click('#logout-btn');
   await expect(t.page.locator('#login')).toBeVisible();
 

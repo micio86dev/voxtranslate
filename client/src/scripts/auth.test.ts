@@ -326,6 +326,45 @@ describe('transcripts', () => {
     expect(r.status).toBe(403); // surfaced so callers can special-case 429 (#222)
     expect(anchor.click).not.toHaveBeenCalled();
   });
+
+  it('downloadTranscript returns status 0 on a network error', async () => {
+    const auth = await fresh();
+    const anchor = stubDownloadDom();
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('net down')));
+    expect(await auth.downloadTranscript('s6', 'json')).toEqual({ ok: false, status: 0 });
+    expect(anchor.click).not.toHaveBeenCalled();
+  });
+
+  it('downloadTranscript appends corrected=1 with and without an existing query', async () => {
+    const auth = await fresh();
+    stubDownloadDom();
+    const fetchMock = vi.fn().mockResolvedValue(blobResponse(null));
+    vi.stubGlobal('fetch', fetchMock);
+
+    // JSON has no other query → corrected starts the query string.
+    expect((await auth.downloadTranscript('s7', 'json', 'en', 'translated', true)).ok).toBe(true);
+    expect(fetchMock.mock.calls[0][0]).toContain('/transcript.json?corrected=1');
+    // SRT already carries lang/target → corrected is appended with '&'.
+    expect((await auth.downloadTranscript('s7', 'srt', 'it', 'both', true)).ok).toBe(true);
+    expect(fetchMock.mock.calls[1][0]).toContain('lang=both&target=it&corrected=1');
+  });
+
+  it('downloadTranscript(pdf) falls back to tz=UTC when Intl is unavailable', async () => {
+    const auth = await fresh();
+    const realIntl = Intl;
+    vi.stubGlobal('Intl', {
+      DateTimeFormat: () => {
+        throw new Error('no intl');
+      },
+    });
+    stubDownloadDom();
+    const fetchMock = vi.fn().mockResolvedValue(blobResponse(null));
+    vi.stubGlobal('fetch', fetchMock);
+    expect((await auth.downloadTranscript('s8', 'pdf', 'de')).ok).toBe(true);
+    expect(fetchMock.mock.calls[0][0]).toContain('tz=UTC');
+    expect(fetchMock.mock.calls[0][0]).toContain('lang=de');
+    vi.stubGlobal('Intl', realIntl);
+  });
 });
 
 describe('formatters', () => {
@@ -381,5 +420,116 @@ describe('acquisition source', () => {
     await auth.loginWithGoogle('cred');
     const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
     expect(body.source).toBeUndefined();
+  });
+
+  it('no-ops when location is unavailable or URL parsing is blocked', async () => {
+    const auth = await fresh();
+    // SSR/tests: no `location` at all.
+    vi.stubGlobal('location', undefined);
+    auth.captureAcquisitionSource();
+    expect(auth.getAcquisitionSource()).toBeNull();
+    // A `location` whose search accessor throws (privacy tooling) is swallowed.
+    vi.stubGlobal('location', {
+      protocol: 'http:',
+      host: 'localhost:4321',
+      get search(): string {
+        throw new Error('blocked');
+      },
+    });
+    auth.captureAcquisitionSource();
+    expect(auth.getAcquisitionSource()).toBeNull();
+    vi.stubGlobal('location', { protocol: 'http:', host: 'localhost:4321' });
+  });
+});
+
+describe('exchangeGoogleCode (popup code flow)', () => {
+  it('exchanges an OAuth code with the postmessage redirect and stores the session', async () => {
+    // Arrive via ?ref= so the fallback param + source forwarding are both exercised.
+    vi.stubGlobal('location', { protocol: 'http:', host: 'localhost:4321', search: '?ref=blog' });
+    const auth = await fresh();
+    auth.captureAcquisitionSource();
+    const user = { id: 'u9', email: 'c@d.com', name: 'Co', balance: 4 };
+    const fetchMock = vi.fn().mockResolvedValue(okJson({ token: 'jwt9', user }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const u = await auth.exchangeGoogleCode('4/0Acode');
+    expect(u.name).toBe('Co');
+    expect(auth.getToken()).toBe('jwt9');
+    expect(auth.getUser()?.balance).toBe(4);
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+    expect(body).toMatchObject({ code: '4/0Acode', redirect_uri: 'postmessage', source: 'blog' });
+  });
+
+  it('throws on a rejected code exchange', async () => {
+    const auth = await fresh();
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(okJson('no', 403)));
+    await expect(auth.exchangeGoogleCode('bad')).rejects.toThrow('login failed (403)');
+    expect(auth.isLoggedIn()).toBe(false);
+  });
+});
+
+describe('tts prefs + listener-pays', () => {
+  it('setTtsPrefs patches the cached user and persists; no-op for guests', async () => {
+    const auth = await fresh();
+    auth.saveSession('t', { id: 'u', email: 'e', name: 'n', balance: 1 });
+    auth.setTtsPrefs({ tts_engine_pref: 'vox', tts_voice_id: 'af_bella' });
+    expect(auth.getUser()?.tts_engine_pref).toBe('vox');
+    expect(auth.getUser()?.tts_voice_id).toBe('af_bella');
+
+    // Persisted: a fresh module rehydrates the patched user.
+    const auth2 = await fresh();
+    expect(auth2.getUser()?.tts_voice_id).toBe('af_bella');
+
+    // Guests have no cached user → no-op.
+    auth2.clearSession();
+    auth2.setTtsPrefs({ tts_engine_pref: 'browser' });
+    expect(auth2.getUser()).toBeNull();
+  });
+
+  it('isListenerPays reflects listener_pays from the auth config', async () => {
+    const auth = await fresh();
+    expect(auth.isListenerPays()).toBe(false);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(okJson({ google_client_id: 'gid', listener_pays: true })),
+    );
+    expect(await auth.billingEnabled()).toBe(true);
+    expect(auth.isListenerPays()).toBe(true);
+  });
+});
+
+describe('guest consent', () => {
+  it('records + reads the local guest attestation', async () => {
+    const auth = await fresh();
+    expect(auth.guestConsentGiven()).toBe(false);
+    auth.setGuestConsent();
+    expect(auth.guestConsentGiven()).toBe(true);
+    // A fresh module still sees it (persisted client-side).
+    const auth2 = await fresh();
+    expect(auth2.guestConsentGiven()).toBe(true);
+  });
+});
+
+describe('memory-store fallback', () => {
+  it('falls back to an in-memory store when localStorage is unavailable', async () => {
+    vi.stubGlobal('localStorage', undefined);
+    try {
+      const auth = await fresh();
+      expect(auth.getToken()).toBeNull(); // mem getItem miss
+      auth.saveSession('memtok', { id: 'u', email: 'e', name: 'n', balance: 1 }); // mem setItem
+      expect(auth.getToken()).toBe('memtok');
+      expect(auth.isLoggedIn()).toBe(true);
+      auth.clearSession(); // mem removeItem
+      expect(auth.isLoggedIn()).toBe(false);
+      expect(auth.getAcquisitionSource()).toBeNull();
+    } finally {
+      // Restore the map-backed stub for the rest of the suite.
+      vi.stubGlobal('localStorage', {
+        getItem: (k: string) => (backing.has(k) ? backing.get(k)! : null),
+        setItem: (k: string, v: string) => void backing.set(k, String(v)),
+        removeItem: (k: string) => void backing.delete(k),
+        clear: () => backing.clear(),
+      });
+    }
   });
 });

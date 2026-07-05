@@ -47,12 +47,48 @@ describe('parseManifest', () => {
     ['missing packs', { schemaVersion: 1 }],
     ['pack missing id', { schemaVersion: 1, packs: [rawPack({ id: '' })] }],
     ['pack with no files', { schemaVersion: 1, packs: [rawPack({ files: [] })] }],
+    ['a non-object file entry', { schemaVersion: 1, packs: [rawPack({ files: [42] })] }],
+    [
+      'a file missing its path',
+      { schemaVersion: 1, packs: [rawPack({ files: [{ path: '', bytes: 1, sha256: SHA }] })] },
+    ],
     [
       'bad sha256',
       { schemaVersion: 1, packs: [rawPack({ files: [{ path: 'a', bytes: 1, sha256: 'nope' }] })] },
     ],
   ])('throws on %s', (_label, bad) => {
     expect(() => parseManifest(bad)).toThrow();
+  });
+
+  it('tolerates malformed/missing optional fields (voices, languages, bytes)', () => {
+    const m = parseManifest({
+      schemaVersion: 1,
+      packs: [
+        rawPack({
+          voices: 'not-an-array',
+          languages: undefined,
+          files: [{ path: 'a', bytes: undefined, sha256: SHA }],
+        }),
+      ],
+    });
+    expect(m.packs[0].voices).toEqual([]);
+    expect(m.packs[0].languages).toEqual([]);
+    expect(m.packs[0].files[0].bytes).toBe(0);
+  });
+
+  it('fills voice name/gender defaults and filters non-object voice entries', () => {
+    const m = parseManifest({
+      schemaVersion: 1,
+      packs: [
+        rawPack({
+          voices: [{ id: 'x' }, null, 'nope', { id: 'y', name: 'Yara', lang: 'it-IT', gender: 5 }],
+        }),
+      ],
+    });
+    expect(m.packs[0].voices).toEqual([
+      { id: 'x', name: 'x', lang: '', gender: undefined }, // name defaults to id
+      { id: 'y', name: 'Yara', lang: 'it-IT', gender: undefined }, // non-string gender dropped
+    ]);
   });
 });
 
