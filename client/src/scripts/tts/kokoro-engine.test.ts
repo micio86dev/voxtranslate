@@ -30,7 +30,7 @@ interface FakeTts {
   generate_from_ids: ReturnType<typeof vi.fn>;
 }
 
-function makeTts(vocab?: Record<string, number>): FakeTts {
+function makeTts(vocab?: Record<string, number> | unknown[]): FakeTts {
   const tokenizer = Object.assign(vi.fn(() => ({ input_ids: [7, 8, 9] })), {
     model: vocab ? { vocab } : {},
   });
@@ -247,6 +247,17 @@ describe('loadKokoro', () => {
       expect(tts.tokenizer).toHaveBeenCalledWith('normalized', { truncation: true });
       expect(tts.generate_from_ids).toHaveBeenCalledWith([7, 8, 9], { voice: 'if_sara' });
       expect(audio).toEqual(new Float32Array([0.9]));
+    });
+
+    it('extracts phonemes from the tokenizer ARRAY vocab, not its indices (the eSpeak fix)', async () => {
+      // kokoro-js exposes `model.vocab` as an ARRAY of token strings. The old code did
+      // Object.keys() → ["0","1",…] (indices), so normalizeForKokoro stripped every
+      // phoneme → empty input → ~0.3s of clipped noise for non-English voices. Assert the
+      // real phoneme chars now reach normalizeForKokoro.
+      h.from_pretrained.mockResolvedValue(makeTts(['a', 'ɾ', 'ʃ', 'n']));
+      const engine = await loadKokoro(makeStorage(), meta);
+      await engine.synth('ciao', 'if_sara');
+      expect(espeak.normalizeForKokoro).toHaveBeenCalledWith(' raw ipa ', new Set(['a', 'ɾ', 'ʃ', 'n']));
     });
 
     it('passes an undefined vocab when the tokenizer exposes none', async () => {

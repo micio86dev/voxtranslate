@@ -195,13 +195,31 @@ export async function loadKokoro(
   };
 }
 
-/** Best-effort read of the tokenizer's phoneme vocabulary (symbol set). Returns undefined
- *  if the internal shape changes — normalization then skips the vocab-filter step. */
+/** Best-effort read of the tokenizer's phoneme vocabulary (the SYMBOL set). Returns
+ *  undefined if the internal shape is unrecognized — normalization then skips the
+ *  vocab-filter step (safer than filtering against the wrong set).
+ *
+ *  CRITICAL: kokoro-js's tokenizer exposes `model.vocab` as an ARRAY of token strings
+ *  (`["$", ";", "a", "ɑ", …]`), NOT a `{token: id}` map. The old code did
+ *  `Object.keys(vocab)`, which on an array yields the INDICES `["0","1","2",…]` — so the
+ *  filter kept only digits and STRIPPED EVERY PHONEME, leaving empty input → ~0.3 s of
+ *  clipped noise for every non-English (eSpeak) voice. Handle the array shape explicitly. */
 function extractVocab(tts: KokoroTTS): Set<string> | undefined {
   try {
-    const vocab = (tts as unknown as { tokenizer: { model?: { vocab?: Record<string, number> } } })
+    const vocab = (tts as unknown as { tokenizer: { model?: { vocab?: unknown } } })
       .tokenizer.model?.vocab;
-    return vocab ? new Set(Object.keys(vocab)) : undefined;
+    if (Array.isArray(vocab)) {
+      const set = new Set<string>();
+      for (const entry of vocab) {
+        // Either a bare token string, or a `[token, score]` pair (Unigram models).
+        const tok = Array.isArray(entry) ? entry[0] : entry;
+        if (typeof tok === 'string') set.add(tok);
+      }
+      return set.size ? set : undefined;
+    }
+    // Legacy `{token: id}` map — the keys ARE the tokens.
+    if (vocab && typeof vocab === 'object') return new Set(Object.keys(vocab as object));
+    return undefined;
   } catch {
     return undefined;
   }
