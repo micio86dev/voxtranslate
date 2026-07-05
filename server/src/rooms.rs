@@ -380,6 +380,53 @@ impl RoomManager {
         }
     }
 
+    /// Like [`broadcast_to_lang`](Self::broadcast_to_lang) but skips `except_id`. The
+    /// Pro/Premium primary session captions same-language LISTENERS in the speaker's own
+    /// language — no per-language translation session serves them (source→source is not
+    /// translated), so mirror Standard, which captions everyone. The speaker already gets
+    /// their own live caption via [`relay_to_peer`](Self::relay_to_peer), so exclude them
+    /// to avoid a duplicate frame.
+    pub fn broadcast_to_lang_except(
+        &self,
+        room_id: &str,
+        lang: &str,
+        except_id: &str,
+        message: &str,
+    ) {
+        if let Some(room) = self.rooms.get(room_id) {
+            for p in room
+                .peers
+                .iter()
+                .filter(|p| p.lang == lang && p.id != except_id)
+            {
+                let _ = p.tx.send(message.to_string());
+            }
+        }
+    }
+
+    /// Listener-pays variant of [`broadcast_to_lang_except`](Self::broadcast_to_lang_except):
+    /// same-language listeners who ALSO chose `engine`, excluding `except_id`. Keeps the
+    /// original caption from leaking to a same-language listener served by another engine
+    /// (e.g. their own Standard/Deepgram captions).
+    pub fn broadcast_to_lang_engine_except(
+        &self,
+        room_id: &str,
+        lang: &str,
+        engine: &str,
+        except_id: &str,
+        message: &str,
+    ) {
+        if let Some(room) = self.rooms.get(room_id) {
+            for p in room
+                .peers
+                .iter()
+                .filter(|p| p.lang == lang && p.engine == engine && p.id != except_id)
+            {
+                let _ = p.tx.send(message.to_string());
+            }
+        }
+    }
+
     /// Broadcast to every peer EXCEPT client-direct-engine listeners (spec 0101), plus
     /// `keep_peer` whatever their engine. The Standard "serve everyone" delivery uses
     /// this in listener-pays mode: a client-direct (Cartesia "Enhanced") listener renders
@@ -813,6 +860,44 @@ mod tests {
         rm.broadcast_except("r", "a", "z");
         assert_eq!(rb.try_recv().unwrap(), "z");
         assert!(ra.try_recv().is_err());
+    }
+
+    #[test]
+    fn broadcast_to_lang_except_captions_same_language_listeners_not_the_speaker() {
+        // Pro/Premium same-language caption path (option B): the speaker's original reaches
+        // listeners whose output language IS the speaker's source language, but not the
+        // speaker (who gets their own via relay) nor foreign-language listeners.
+        let rm = RoomManager::new();
+        let (spk, mut r_spk) = peer("spk", "it");
+        let (same, mut r_same) = peer("same", "it");
+        let (other, mut r_other) = peer("other", "en");
+        rm.join("r", spk, Visibility::Private).unwrap();
+        rm.join("r", same, Visibility::Private).unwrap();
+        rm.join("r", other, Visibility::Private).unwrap();
+
+        rm.broadcast_to_lang_except("r", "it", "spk", "cap");
+        assert_eq!(r_same.try_recv().unwrap(), "cap"); // same-language listener captioned
+        assert!(r_spk.try_recv().is_err()); // speaker excluded — no duplicate
+        assert!(r_other.try_recv().is_err()); // foreign listener untouched
+    }
+
+    #[test]
+    fn broadcast_to_lang_engine_except_scopes_by_engine_and_skips_speaker() {
+        // Listener-pays: only same-language listeners on the SAME engine get the original,
+        // so a same-language Standard listener (served by their own Deepgram captions) is
+        // not doubled. The speaker is excluded.
+        let rm = RoomManager::new();
+        let (spk, mut r_spk) = peer("spk", "it");
+        let (pro, mut r_pro) = peer_full("pro", "it", "premium", Uuid::new_v4()); // Pro tier == OPENAI_ID
+        let (std, mut r_std) = peer_full("std", "it", "standard", Uuid::new_v4());
+        rm.join("r", spk, Visibility::Private).unwrap();
+        rm.join("r", pro, Visibility::Private).unwrap();
+        rm.join("r", std, Visibility::Private).unwrap();
+
+        rm.broadcast_to_lang_engine_except("r", "it", "premium", "spk", "cap");
+        assert_eq!(r_pro.try_recv().unwrap(), "cap"); // same-lang Pro listener captioned
+        assert!(r_std.try_recv().is_err()); // same-lang Standard listener not doubled
+        assert!(r_spk.try_recv().is_err()); // speaker excluded
     }
 
     #[test]
