@@ -822,14 +822,22 @@ initNetStatus();
 langSel.addEventListener('change', () => {
   setUiLang(langSel.value);
   writeCache(LANG_CACHE_KEY, langSel.value);
-  withLocale(langSel.value, () => {
-    applyI18n();
-    updateVisHint();
-  });
+  withLocale(langSel.value, repaintLocale);
 });
 
 function updateVisHint(): void {
   visHint.textContent = visibilityPublic ? '' : t('privateHint');
+}
+
+/** Re-render every locale-dependent home surface after a language switch. Both entry
+ *  points — the #lang <select> and the language-first panel — route through here so a new
+ *  locale repaints the data-i18n strings, the tier/engine picker (whose card copy is
+ *  JS-rendered, not data-i18n) and the visibility hint together. Previously the <select>
+ *  path skipped the picker, leaving its copy in the old language until a page refresh. */
+function repaintLocale(): void {
+  applyI18n();
+  renderEngineSelector(); // mode-aware: tier cards (language-first) or the engine selector (legacy)
+  updateVisHint();
 }
 
 // ============================================================================
@@ -1186,14 +1194,10 @@ function selectLang(code: string, persist = true): void {
     writeCache(LANG_CACHE_KEY, code);
     pushRecentLang(code);
   }
-  // The chosen UI locale streams in on demand (spec 0104); re-render data-i18n strings,
-  // tier-card copy and the visibility hint (all `t()`-driven) once it lands. `applyI18n`
-  // also flips document dir for RTL (i18n.ts).
-  withLocale(code, () => {
-    applyI18n();
-    renderTierCards();
-    updateVisHint();
-  });
+  // The chosen UI locale streams in on demand (spec 0104); repaint every locale-dependent
+  // surface once it lands (shared with the #lang <select> path). `applyI18n` also flips
+  // document dir for RTL (i18n.ts).
+  withLocale(code, repaintLocale);
   updateLangTrigger(); // langmap-driven (flag/endonym) — no UI dictionary needed
   closeLangPanel();
 }
@@ -2318,8 +2322,10 @@ function addCell(id: string, name: string, lang: string, isSelf: boolean, avatar
     const actions = document.createElement('div');
     actions.className = 'cell-actions';
     // Add/remove this peer as a friend (only for a logged-in viewer + an account peer).
+    // Never for a tile that is MY OWN account (e.g. the same login open in another tab /
+    // device): befriending yourself is a no-op the server rejects, so hide the control.
     const friendUid = auth.isLoggedIn() ? peerNames.get(id)?.userId : undefined;
-    if (friendUid) actions.appendChild(tileFriendButton(friendUid));
+    if (friendUid && friendUid !== auth.getUser()?.id) actions.appendChild(tileFriendButton(friendUid));
     if (billing && auth.isLoggedIn()) {
       const reportBtn = document.createElement('button');
       reportBtn.className = 'cell-action';
@@ -5403,10 +5409,14 @@ function tileFriendButton(uid: string): HTMLButtonElement {
   let label: string;
   let glyph: string;
   let positive = false;
+  let isFriend = false;
   let action: () => Promise<void>;
   if (friendIds.has(uid)) {
+    // Already friends: show a clear, solid friend badge (accent, not a neutral "add"
+    // control); the label/hover still offers removal.
     label = t('friendRemove');
-    glyph = 'users';
+    glyph = 'user-check';
+    isFriend = true;
     action = async () => void (await removeFriend(uid));
   } else if (friendIncomingIds.has(uid)) {
     label = t('friendAccept');
@@ -5433,6 +5443,7 @@ function tileFriendButton(uid: string): HTMLButtonElement {
   btn.setAttribute('aria-label', label);
   btn.innerHTML = icon(glyph, 15);
   if (positive) btn.classList.add('friend-pos'); // accent (not danger) hover for add/accept
+  if (isFriend) btn.classList.add('is-friend'); // solid accent badge = "this peer is your friend"
   btn.addEventListener('click', (e) => {
     e.stopPropagation(); // don't trigger the cell's pin/spotlight click
     void (async () => {
@@ -5453,7 +5464,8 @@ function refreshTileFriendButtons(): void {
     if (!id || !actions) continue;
     const uid = auth.isLoggedIn() ? peerNames.get(id)?.userId : undefined;
     const existing = actions.querySelector('.cell-action-friend');
-    if (!uid) {
+    // No account, or it's MY OWN account on another tile → no friend control.
+    if (!uid || uid === auth.getUser()?.id) {
       existing?.remove();
       continue;
     }

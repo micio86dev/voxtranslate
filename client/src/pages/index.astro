@@ -2438,6 +2438,10 @@ const jsonLd = {
     .video-grid :global(.cell-action) { width: 30px; height: 30px; border-radius: 50%; border: none; background: rgba(0,0,0,0.55); color: #fff; display: grid; place-items: center; cursor: pointer; backdrop-filter: blur(4px); }
     .video-grid :global(.cell-action:hover) { background: var(--danger); }
     .video-grid :global(.cell-action.friend-pos:hover) { background: var(--accent-strong); }
+    /* Existing friend: a solid accent badge (always, not just on hover) so it clearly
+       reads as "this peer is your friend"; hover reveals the danger tint to remove. */
+    .video-grid :global(.cell-action.is-friend) { background: var(--accent-strong); }
+    .video-grid :global(.cell-action.is-friend:hover) { background: var(--danger); }
     .video-grid :global(.cell-action .ico) { width: 15px; height: 15px; }
     /* Transient-drop grace (#233): a peer awaiting a possible reconnect keeps its
        tile (last received frame held) but dims + pulses to signal the unstable
