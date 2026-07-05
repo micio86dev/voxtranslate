@@ -499,7 +499,12 @@ function syncCartesiaForCall(): void {
   if (enabled) {
     const mgr = ensureCartesiaManager();
     mgr.activate(session?.lang || 'en');
-    // Seed peer langs + voice ids captured before the manager existed (presence on join).
+    // Seed everything captured before the manager existed (or cleared by a prior
+    // deactivate). MUST include the STREAMS: without them `reconcile` sees no audio and
+    // never starts a peer's pipeline, so an Enhanced listener saw NO foreign-speaker
+    // subtitles whenever the manager was (re)created after the WebRTC streams had already
+    // arrived. Langs/voice-ids alone are not enough.
+    for (const [pid, stream] of remoteStreams) mgr.setPeerStream(pid, stream);
     for (const [pid, info] of peerNames) mgr.setPeerLang(pid, info.lang);
     for (const [pid, vid] of peerVoiceIds) mgr.setPeerVoiceId(pid, vid);
   } else cartesiaManager?.deactivate();
