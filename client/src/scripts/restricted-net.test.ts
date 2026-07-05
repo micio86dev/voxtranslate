@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 
 import { isRestrictedVerdict } from './restricted-net';
 
@@ -77,5 +77,39 @@ describe('isRestrictedNetwork (probing)', () => {
     resetRestrictedNetwork();
     await isRestrictedNetwork();
     expect(stub).toHaveBeenCalledTimes(RESTRICTED_PROBE_URLS.length * 2);
+  });
+});
+
+describe('probe mechanics', () => {
+  beforeEach(() => {
+    vi.resetModules();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('fails open without ever fetching when AbortSignal.timeout is unavailable', async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+    vi.stubGlobal('AbortSignal', class {}); // no static timeout (older browser)
+    const { isRestrictedNetwork } = await import('./restricted-net');
+    expect(await isRestrictedNetwork()).toBe(false);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('hits every probe URL with no-cors + no-store + a timeout signal', async () => {
+    const stub = vi.fn((_url: string, _init?: RequestInit) => Promise.resolve({} as Response));
+    vi.stubGlobal('fetch', stub);
+    const { isRestrictedNetwork, RESTRICTED_PROBE_URLS } = await import('./restricted-net');
+    await isRestrictedNetwork();
+    expect(stub.mock.calls.map((c) => c[0])).toEqual([...RESTRICTED_PROBE_URLS]);
+    for (const [, init] of stub.mock.calls) {
+      // no-cors so a CORS rejection can't masquerade as a network failure, and a
+      // bounded signal so a GFW blackhole settles instead of hanging the join.
+      expect(init?.mode).toBe('no-cors');
+      expect(init?.cache).toBe('no-store');
+      expect(init?.signal).toBeInstanceOf(AbortSignal);
+    }
   });
 });

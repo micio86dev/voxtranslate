@@ -373,6 +373,7 @@ async fn run_connection(
                         dirty = true;
                         if reader.is_primary {
                             reader.emit_interim_to_speaker(&original);
+                            reader.emit_interim_to_source_listeners(&original);
                         }
                         idle.as_mut().reset(Instant::now() + Duration::from_millis(SEGMENT_IDLE_MS));
                     }
@@ -488,6 +489,67 @@ impl SessionReader {
         );
     }
 
+    /// Deliver an ORIGINAL-language caption to LISTENERS whose output language is the
+    /// speaker's source language. No per-language session serves them (source→source is
+    /// not translated), so without this they'd see nothing while the speaker uses Pro —
+    /// unlike Standard, which captions everyone. The speaker is excluded (they get their
+    /// own via `emit_interim_to_speaker`); in listener-pays only same-language Pro
+    /// listeners are targeted, so a Standard listener's Deepgram captions aren't doubled.
+    fn deliver_source(&self, message: &str) {
+        if self.listener_pays {
+            self.rooms.broadcast_to_lang_engine_except(
+                &self.room,
+                &self.source_lang,
+                OPENAI_ID,
+                &self.speaker_id,
+                message,
+            );
+        } else {
+            self.rooms.broadcast_to_lang_except(
+                &self.room,
+                &self.source_lang,
+                &self.speaker_id,
+                message,
+            );
+        }
+    }
+
+    /// Live original caption to same-language listeners (see [`deliver_source`]).
+    fn emit_interim_to_source_listeners(&self, original: &str) {
+        self.deliver_source(
+            &ServerMessage::SubtitleInterim {
+                speaker_id: self.speaker_id.clone(),
+                speaker_name: self.speaker_name.clone(),
+                text: original.to_string(),
+                lang: self.source_lang.clone(),
+            }
+            .to_json(),
+        );
+    }
+
+    /// Final original caption to same-language listeners: a `subtitle_final` whose
+    /// translations map carries the SOURCE language = the original text, so those listeners
+    /// resolve `translations[my_lang]` to it. Does NOT record — the per-target `flush_final`
+    /// already persists the segment once.
+    fn flush_final_to_source_listeners(&self, original: &str) {
+        let original = original.trim();
+        if original.is_empty() {
+            return;
+        }
+        let mut translations = HashMap::new();
+        translations.insert(self.source_lang.clone(), original.to_string());
+        self.deliver_source(
+            &ServerMessage::SubtitleFinal {
+                speaker_id: self.speaker_id.clone(),
+                speaker_name: self.speaker_name.clone(),
+                original: original.to_string(),
+                lang: self.source_lang.clone(),
+                translations,
+            }
+            .to_json(),
+        );
+    }
+
     /// Finalize a segment: record it (once) and broadcast a `subtitle_final` to
     /// the listeners of this language. The translations map carries this one
     /// language; each language's listeners get their own targeted message — so a
@@ -521,6 +583,10 @@ impl SessionReader {
             }
             .to_json(),
         );
+        // The primary session also captions same-language listeners in the original.
+        if self.is_primary {
+            self.flush_final_to_source_listeners(original);
+        }
     }
 }
 

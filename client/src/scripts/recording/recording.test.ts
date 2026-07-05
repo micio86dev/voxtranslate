@@ -1,10 +1,11 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { COMP_W, COMP_H, GAP, computeLayout, containFit } from './layout';
 import {
   MIME_CANDIDATES,
   formatElapsed,
   hueOf,
   initials,
+  isRecordingSupported,
   pickMimeType,
   recordingFilename,
 } from './utils';
@@ -167,5 +168,44 @@ describe('placeholder helpers', () => {
       expect(h).toBeGreaterThanOrEqual(0);
       expect(h).toBeLessThan(360);
     }
+  });
+});
+
+describe('pickMimeType default detector', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('returns "" when MediaRecorder is missing entirely (stripped env)', () => {
+    vi.stubGlobal('MediaRecorder', undefined);
+    expect(pickMimeType()).toBe('');
+  });
+
+  it('consults MediaRecorder.isTypeSupported when present', () => {
+    vi.stubGlobal('MediaRecorder', { isTypeSupported: (t: string) => t === 'video/webm' });
+    expect(pickMimeType()).toBe('video/webm');
+  });
+});
+
+describe('isRecordingSupported', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('requires MediaRecorder + AudioContext + canvas captureStream (Safari lacks parts)', () => {
+    vi.stubGlobal('MediaRecorder', undefined);
+    vi.stubGlobal('AudioContext', undefined);
+    vi.stubGlobal('HTMLCanvasElement', undefined);
+    expect(isRecordingSupported()).toBe(false); // nothing at all
+
+    vi.stubGlobal('MediaRecorder', class {});
+    expect(isRecordingSupported()).toBe(false); // no AudioContext
+
+    vi.stubGlobal('AudioContext', class {});
+    expect(isRecordingSupported()).toBe(false); // no HTMLCanvasElement
+
+    class FakeCanvas {}
+    vi.stubGlobal('HTMLCanvasElement', FakeCanvas);
+    expect(isRecordingSupported()).toBe(false); // canvas without captureStream
+
+    (FakeCanvas.prototype as unknown as { captureStream: () => void }).captureStream = () =>
+      undefined;
+    expect(isRecordingSupported()).toBe(true); // full composite-recording stack
   });
 });

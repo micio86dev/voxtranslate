@@ -8,6 +8,45 @@
 import { TTS_CONFIG } from '../config';
 import type { SpeakOptions, TTSProvider, VoiceInfo } from '../types';
 
+/** Base language code, e.g. `it-IT` → `it`. */
+function baseLang(lang: string): string {
+  return lang.toLowerCase().split(/[-_]/)[0];
+}
+
+/** True for Chrome/Chromium's natural "Google …" voices (e.g. "Google italiano"). */
+function isGoogleVoice(v: SpeechSynthesisVoice): boolean {
+  return /^google\b/i.test(v.name.trim());
+}
+
+/** Trim the raw platform voice list to the ones worth offering. On Chrome/Chromium the
+ *  "Google …" voices sound markedly more natural than the bundled local ones, so for any
+ *  language a Google voice covers we drop the rest (Italian collapses to just "Google
+ *  italiano"). Languages with NO Google voice keep theirs, so nothing becomes unpickable.
+ *  On Safari/Firefox there are no Google voices, so the list is returned unchanged — those
+ *  platforms already expose only a couple of (Siri/system) voices per language. */
+export function curateVoices(voices: SpeechSynthesisVoice[]): SpeechSynthesisVoice[] {
+  const googleLangs = new Set(voices.filter(isGoogleVoice).map((v) => baseLang(v.lang)));
+  if (!googleLangs.size) return voices;
+  return voices.filter((v) => isGoogleVoice(v) || !googleLangs.has(baseLang(v.lang)));
+}
+
+/** The best default browser-voice id for `lang` from a VoiceInfo list — Google-preferring,
+ *  then local — mirroring the runtime pickVoice order. Audio Settings uses it so the
+ *  Standard (Browser) tier ALWAYS has a concrete voice pre-selected for the chosen output
+ *  language. `lang` may be a base code (`it`), a regional code (`it-IT`) or `auto`/empty
+ *  (then the best voice across all languages wins). Returns null only for an empty list. */
+export function defaultBrowserVoiceId(voices: VoiceInfo[], lang: string): string | null {
+  const base = baseLang(lang);
+  const wantLang = !!base && base !== 'auto';
+  // A specific language with no matching voice → null (the UI shows its empty state
+  // rather than pre-selecting a wrong-language voice); `auto`/empty ranks over all voices.
+  const pool = wantLang ? voices.filter((v) => baseLang(v.lang) === base) : voices;
+  if (!pool.length) return null;
+  const score = (v: VoiceInfo): number =>
+    (/^google\b/i.test(v.name.trim()) ? 1000 : 0) + (v.local ? 100 : 0);
+  return pool.reduce((best, v) => (score(v) > score(best) ? v : best)).id;
+}
+
 export class BrowserSpeechProvider implements TTSProvider {
   readonly id = 'browser';
   private unlocked = false;
@@ -35,7 +74,7 @@ export class BrowserSpeechProvider implements TTSProvider {
 
   async listVoices(): Promise<VoiceInfo[]> {
     if (!this.isAvailable()) return [];
-    const voices = await this.voicesReady();
+    const voices = curateVoices(await this.voicesReady());
     return voices.map((v) => ({
       id: v.voiceURI,
       name: v.name,
@@ -100,7 +139,11 @@ export class BrowserSpeechProvider implements TTSProvider {
     const matches = all.filter((v) => v.lang.toLowerCase().startsWith(want));
     if (!matches.length) return undefined;
     const score = (v: SpeechSynthesisVoice): number =>
-      (v.localService ? 100 : 0) + // local = instant; the dominant factor
+      // Chrome's "Google …" voices sound clearly more natural, so they win outright —
+      // a deliberate quality-over-latency choice for the browser fallback (they are
+      // network voices, so this trades a little first-audio delay for a better voice).
+      (isGoogleVoice(v) ? 1000 : 0) +
+      (v.localService ? 100 : 0) + // local = instant; the dominant factor on Safari/Firefox
       (/premium|enhanced|neural|natural|siri/i.test(`${v.name} ${v.voiceURI}`) ? 10 : 0) +
       (v.default ? 1 : 0);
     return matches.reduce((best, v) => (score(v) > score(best) ? v : best));

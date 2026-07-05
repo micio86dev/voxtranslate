@@ -237,6 +237,69 @@ describe('TTSManager health integration', () => {
   });
 });
 
+describe('TTSManager.preview', () => {
+  it('previews on the requested provider with the requested voice, bypassing routing', async () => {
+    const browser = new FakeProvider('browser');
+    const vox = new FakeProvider('vox');
+    const mgr = new TTSManager(browser);
+    mgr.setVoxProvider(vox);
+    mgr.setPreference('browser'); // routing pins Browser — preview must ignore it
+
+    await mgr.preview('vox', 'sample', 'en', 'af_heart');
+    await mgr.preview('browser', 'sample', 'en', 'Daniel');
+
+    expect(vox.spoken).toEqual([{ text: 'sample', lang: 'en', voiceId: 'af_heart' }]);
+    expect(browser.spoken).toEqual([{ text: 'sample', lang: 'en', voiceId: 'Daniel' }]);
+  });
+
+  it('is a no-op when the requested provider is not registered', async () => {
+    const mgr = new TTSManager(new FakeProvider('browser'));
+    await expect(mgr.preview('vox', 'sample', 'en')).resolves.toBeUndefined();
+  });
+
+  it('never throws — a failed preview resolves silently', async () => {
+    const browser = new FakeProvider('browser');
+    browser.fail = true;
+    const mgr = new TTSManager(browser);
+    await expect(mgr.preview('browser', 'sample', 'en')).resolves.toBeUndefined();
+  });
+});
+
+describe('TTSManager fallback notice robustness', () => {
+  it('a throwing onFallback callback cannot break playback', async () => {
+    const browser = new FakeProvider('browser');
+    const vox = new FakeProvider('vox');
+    vox.fail = true;
+    const mgr = new TTSManager(browser);
+    mgr.setVoxProvider(vox);
+    mgr.setBenchmarkPassed(true);
+    mgr.onFallback(() => {
+      throw new Error('UI exploded');
+    });
+
+    mgr.speak('resilient', 'en');
+    await flush();
+    expect(browser.spoken.map((s) => s.text)).toEqual(['resilient']); // still played
+  });
+
+  it('gives up on a single line only when the Browser retry also fails', async () => {
+    const browser = new FakeProvider('browser');
+    const vox = new FakeProvider('vox');
+    vox.fail = true;
+    browser.fail = true; // even the fallback fails
+    const mgr = new TTSManager(browser);
+    mgr.setVoxProvider(vox);
+    mgr.setBenchmarkPassed(true);
+
+    mgr.speak('doomed', 'en');
+    await flush();
+    browser.fail = false;
+    mgr.speak('next line', 'en'); // the queue must keep going
+    await flush();
+    expect(browser.spoken.map((s) => s.text)).toEqual(['next line']);
+  });
+});
+
 describe('TTSManager lifecycle', () => {
   it('unlock/stop reach both providers; stop clears the queue', () => {
     const browser = new FakeProvider('browser');

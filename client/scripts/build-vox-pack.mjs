@@ -9,7 +9,11 @@
 //             config.json
 //             tokenizer.json
 //             tokenizer_config.json
-//             onnx/model_quantized.onnx          (dtype q8)
+//             onnx/model.onnx                    (dtype fp32 — the WebGPU path; REQUIRED for
+//                                                 GPU devices. NEVER ship fp16-only: kokoro's
+//                                                 iSTFT distorts under fp16-on-WebGPU, so the
+//                                                 engine uses fp32 on WebGPU / q8 on wasm.)
+//             onnx/model_quantized.onnx          (dtype q8 — the wasm/CPU path)
 //             voices/<voice>.bin                 (one per voice)
 //             ort/ort-wasm-simd-threaded.jsep.wasm
 //             ort/ort-wasm-simd-threaded.jsep.mjs

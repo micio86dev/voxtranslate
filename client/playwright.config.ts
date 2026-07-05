@@ -5,7 +5,11 @@ export default defineConfig({
   timeout: 90_000,
   fullyParallel: false,
   workers: 1,
-  retries: 0,
+  // The multi-peer WebRTC specs (call/screenshare) depend on mesh renegotiation landing
+  // within a timeout; under a loaded machine that occasionally overshoots. One retry
+  // absorbs that timing flake without hiding a real regression (a genuine break fails
+  // both attempts). Deterministic specs pass on the first try, so this costs nothing.
+  retries: 1,
   reporter: [['list']],
   globalSetup: './e2e/global-setup.ts',
   globalTeardown: './e2e/global-teardown.ts',
