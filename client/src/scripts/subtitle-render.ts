@@ -6,7 +6,7 @@
 //   'translated' → only the translation | 'original' → only the source
 //   'both' → translation (prominent) + source line beneath | 'off' → handled by the caller.
 
-export type SubtitleMode = "off" | "translated" | "original" | "both";
+export type SubtitleMode = 'off' | 'translated' | 'original' | 'both';
 
 export interface SubtitleParts {
   /** The listener's-language translation (server tiers: `translations[myLang]`; Enhanced: the
@@ -21,7 +21,7 @@ export interface SubtitleParts {
 /** One styled line to render. `subtitle-translation` is the prominent main line (whatever its
  *  language); `subtitle-original` is the smaller source line shown beneath it in 'both' mode. */
 export interface SubtitleLine {
-  cls: "subtitle-translation" | "subtitle-original";
+  cls: 'subtitle-translation' | 'subtitle-original';
   text: string;
 }
 
@@ -33,18 +33,17 @@ export function subtitleLines(
   { translation, original, interim }: SubtitleParts,
 ): SubtitleLine[] {
   const lines: SubtitleLine[] = [];
-  if (mode === "translated") {
-    if (translation)
-      lines.push({ cls: "subtitle-translation", text: translation });
-  } else if (mode === "original") {
-    if (original) lines.push({ cls: "subtitle-translation", text: original });
-  } else if (mode === "both") {
+  if (mode === 'translated') {
+    if (translation) lines.push({ cls: 'subtitle-translation', text: translation });
+  } else if (mode === 'original') {
+    if (original) lines.push({ cls: 'subtitle-translation', text: original });
+  } else if (mode === 'both') {
     const main = translation ?? original;
-    if (main) lines.push({ cls: "subtitle-translation", text: main });
+    if (main) lines.push({ cls: 'subtitle-translation', text: main });
     // The smaller source line only makes sense on a FINAL frame that has both a translation
     // and a distinct original.
     if (!interim && translation && original && original !== translation) {
-      lines.push({ cls: "subtitle-original", text: original });
+      lines.push({ cls: 'subtitle-original', text: original });
     }
   }
   return lines;
@@ -61,11 +60,11 @@ export function renderSubtitleInto(
   const lines = subtitleLines(mode, parts);
   if (!lines.length) return false;
   const doc = area.ownerDocument;
-  area.innerHTML = "";
-  const box = doc.createElement("div");
-  box.className = `subtitle${parts.interim ? " subtitle-interim" : ""}`;
+  area.innerHTML = '';
+  const box = doc.createElement('div');
+  box.className = `subtitle${parts.interim ? ' subtitle-interim' : ''}`;
   for (const line of lines) {
-    const span = doc.createElement("span");
+    const span = doc.createElement('span');
     span.className = line.cls;
     span.textContent = line.text;
     box.appendChild(span);
