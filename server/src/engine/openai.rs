@@ -80,19 +80,40 @@ pub fn parse_openai_event(text: &str) -> OpenAiEvent {
     }
 }
 
-/// The `session.update` frame that sets the output (target) language for a translation
-/// session. We send ONLY the language: the `/v1/realtime/translations` endpoint
-/// (`gpt-realtime-translate`) does NOT accept a `voice` parameter — sending
-/// `session.audio.output.voice` makes OpenAI reject the ENTIRE update ("Unknown
-/// parameter: 'session.audio.output.voice'"), so the output language is never applied
-/// and the model falls back to the source language (the Pro tier appeared to translate
-/// into the *speaker's* language instead of the listener's — see the corridor debug,
-/// 2026-07-02). `_voice` is kept for call-site compatibility but intentionally NOT
+/// The transcription model that makes the endpoint emit source-language transcript
+/// deltas. `session.input_transcript.delta` is only produced when input transcription
+/// is configured (per the OpenAI realtime-translation docs) — this is the value OpenAI
+/// documents for `gpt-realtime-translate`.
+pub const INPUT_TRANSCRIPTION_MODEL: &str = "gpt-realtime-whisper";
+
+/// The `session.update` frame that configures a translation session: the output (target)
+/// language AND source-language input transcription.
+///
+/// **Why input transcription is enabled:** `session.input_transcript.delta` (the speaker's
+/// ORIGINAL words) is emitted ONLY when `audio.input.transcription` is set — omit it and
+/// OpenAI never sends the input transcript, so [`ProEngine`](crate::engine::pro)'s
+/// `original` is always empty. That silently broke three things: the speaker's own interim
+/// caption, same-language listeners' captions, and — worst — the Groq recovery for a segment
+/// whose TRANSLATED transcript came back empty (it Groq-translates `original`, which had
+/// nothing to translate), so those captions dropped entirely. Enabling it makes `original`
+/// reliable, which is what the recovery path depends on.
+///
+/// We send NO `voice`: the `/v1/realtime/translations` endpoint (`gpt-realtime-translate`)
+/// does NOT accept `session.audio.output.voice` — sending it makes OpenAI reject the ENTIRE
+/// update ("Unknown parameter: 'session.audio.output.voice'"), so the output language is
+/// never applied and the model falls back to the source language (the Pro tier appeared to
+/// translate into the *speaker's* language instead of the listener's — see the corridor
+/// debug, 2026-07-02). `_voice` is kept for call-site compatibility but intentionally NOT
 /// emitted; the translation endpoint offers no voice selection.
 pub fn session_update_json(output_lang: &str, _voice: Option<&str>) -> String {
     serde_json::json!({
         "type": "session.update",
-        "session": { "audio": { "output": { "language": output_lang } } }
+        "session": {
+            "audio": {
+                "input": { "transcription": { "model": INPUT_TRANSCRIPTION_MODEL } },
+                "output": { "language": output_lang }
+            }
+        }
     })
     .to_string()
 }
@@ -201,6 +222,14 @@ mod tests {
         let upd: Value = serde_json::from_str(&session_update_json("es", None)).unwrap();
         assert_eq!(upd["type"], "session.update");
         assert_eq!(upd["session"]["audio"]["output"]["language"], "es");
+        // Input transcription MUST be enabled, or OpenAI never emits
+        // `session.input_transcript.delta` → `original` is always empty → the Groq
+        // recovery for an empty translated transcript has nothing to translate and the
+        // caption drops (same-language listeners + the speaker's interim break too).
+        assert_eq!(
+            upd["session"]["audio"]["input"]["transcription"]["model"],
+            INPUT_TRANSCRIPTION_MODEL
+        );
         // `voice` must NEVER be sent — the translations endpoint rejects
         // `session.audio.output.voice`, which makes OpenAI drop the whole update (so the
         // output language wouldn't apply and translation would break). Assert it's absent
