@@ -45,8 +45,11 @@ export interface CartesiaManagerOptions {
   /** Translate one finalized source segment via the backend (Groq). Returns null on failure
    *  so the caller can fall back to the untranslated source. */
   translate: (text: string, source: string, target: string) => Promise<string | null>;
-  /** Render a translated subtitle for `speakerId` (interim while still streaming). */
-  onSubtitle: (speakerId: string, text: string, interim: boolean) => void;
+  /** Render a subtitle for `speakerId`. An `interim` frame carries the untranslated SOURCE
+   *  as `text` (translation not ready yet). The FINAL frame carries the translation as `text`
+   *  plus the source `original`, so 'both' mode can show translation + original together like
+   *  the server tiers (which send both on `subtitle_final`). */
+  onSubtitle: (speakerId: string, text: string, interim: boolean, original?: string) => void;
   /** A pipeline gave up on `speakerId` (a permanent error, or a transient one that survived
    *  all retries — e.g. Cartesia's concurrency limit). The app uses this to fall the listener
    *  back to server-side Standard translation. */
@@ -399,7 +402,10 @@ export class CartesiaManager {
         if (this.pipelines.get(peerId) !== pipe || pipe.stopped || !this.active) return;
         const text = (translated ?? source).trim();
         if (!text) return;
-        this.opts.onSubtitle(peerId, text, false);
+        // Pass the source as `original` so 'both' mode renders translation + original
+        // together (matching the server tiers). renderSubtitleInto drops the small original
+        // line when it equals the main text, so the translate-failed fallback stays clean.
+        this.opts.onSubtitle(peerId, text, false, source);
         if (this.opts.ttsEnabled?.() ?? true) this.speak(peerId, text);
       })
       .catch(() => {});
