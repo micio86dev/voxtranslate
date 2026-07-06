@@ -295,6 +295,9 @@ impl TranslationEngine for StandardEngine {
             participant_row,
             listener_pays,
             pcm_input,
+            // Standard already translates via this Groq path directly; the field is
+            // only consumed by the premium engines' empty-transcript fallback.
+            translator: _,
         } = deps;
         let format = AudioFormat::from_pcm(pcm_input);
         // Standard never reports AtCapacity (no bounded upstream pool): it either
