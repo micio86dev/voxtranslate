@@ -534,6 +534,7 @@ pub fn app(state: AppState) -> Router {
         .route("/ws", get(ws_handler))
         .route("/rooms", get(rooms_handler))
         .route("/health", get(|| async { "ok" }))
+        .route("/version", get(version_handler))
         .route("/metrics", get(metrics_handler))
         .route("/api/auth/config", get(auth::auth_config))
         .route("/api/ice", get(api::ice))
@@ -719,22 +720,46 @@ pub fn app(state: AppState) -> Router {
 }
 
 /// Reject requests that didn't come through Cloudflare (#111). When
-/// `CF_ORIGIN_SECRET` is configured, every request except `/health` must carry the
-/// matching `x-origin-verify` header (injected by a Cloudflare Transform Rule);
-/// otherwise it's a `403`. `/health` is always allowed because Railway's platform
-/// healthcheck hits the origin directly, bypassing Cloudflare — blocking it would
-/// fail every deploy. No-op (pass-through) when the secret is unset.
+/// `CF_ORIGIN_SECRET` is configured, every request except `/health` and `/version`
+/// must carry the matching `x-origin-verify` header (injected by a Cloudflare
+/// Transform Rule); otherwise it's a `403`. `/health` is always allowed because
+/// Railway's platform healthcheck hits the origin directly, bypassing Cloudflare —
+/// blocking it would fail every deploy; `/version` stays open for deploy checks.
+/// No-op (pass-through) when the secret is unset.
 async fn origin_lock(
     State(state): State<AppState>,
     req: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> Response {
     if let Some(secret) = state.cf_origin_secret.as_deref() {
-        if req.uri().path() != "/health" && !origin_header_ok(req.headers(), secret) {
+        // `/health` and `/version` are always allowed: the former is Railway's
+        // healthcheck (hits the origin directly), the latter must stay curl-able for
+        // deploy verification even when the origin lock is armed.
+        let path = req.uri().path();
+        if !matches!(path, "/health" | "/version") && !origin_header_ok(req.headers(), secret) {
             return StatusCode::FORBIDDEN.into_response();
         }
     }
     next.run(req).await
+}
+
+/// Build/version info for deploy verification. Deliberately public (no auth, exempt
+/// from the origin lock like `/health`) so a deployment can be confirmed with a plain
+/// `curl /version`. `version` is the crate semver baked in at compile time — bumped on
+/// every release, so it authoritatively identifies the shipped build. `commit` is
+/// best-effort: the git SHA when the build or runtime environment supplies one
+/// (`GIT_SHA`, or Railway's `RAILWAY_GIT_COMMIT_SHA`), otherwise `"unknown"`.
+async fn version_handler() -> Json<serde_json::Value> {
+    let commit = option_env!("GIT_SHA")
+        .map(str::to_string)
+        .or_else(|| std::env::var("GIT_SHA").ok())
+        .or_else(|| std::env::var("RAILWAY_GIT_COMMIT_SHA").ok())
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| "unknown".to_string());
+    Json(serde_json::json!({
+        "version": env!("CARGO_PKG_VERSION"),
+        "commit": commit,
+    }))
 }
 
 /// Whether the request carries the expected Cloudflare-injected origin secret.
@@ -2395,8 +2420,16 @@ async fn shutdown_signal() {
 
 #[cfg(test)]
 mod tests {
-    use super::origin_header_ok;
+    use super::{origin_header_ok, version_handler};
     use axum::http::HeaderMap;
+
+    #[tokio::test]
+    async fn version_handler_reports_the_crate_version() {
+        let axum::Json(body) = version_handler().await;
+        assert_eq!(body["version"], env!("CARGO_PKG_VERSION"));
+        // `commit` is always a string (a SHA, or "unknown" off Railway/CI).
+        assert!(body["commit"].is_string());
+    }
 
     fn with_header(name: &str, value: &str) -> HeaderMap {
         let mut h = HeaderMap::new();
