@@ -863,14 +863,11 @@ mod tests {
         let collected = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
         let sink = collected.clone();
         let drainer = tokio::spawn(async move {
-            loop {
-                match tokio::time::timeout(Duration::from_secs(20), r_lis.recv()).await {
-                    Ok(Some(m)) => {
-                        if m.contains(r#""type":"subtitle_final""#) {
-                            sink.lock().unwrap().push(m);
-                        }
-                    }
-                    _ => break,
+            while let Ok(Some(m)) =
+                tokio::time::timeout(Duration::from_secs(20), r_lis.recv()).await
+            {
+                if m.contains(r#""type":"subtitle_final""#) {
+                    sink.lock().unwrap().push(m);
                 }
             }
         });
