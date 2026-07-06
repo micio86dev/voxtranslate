@@ -807,4 +807,100 @@ mod tests {
 
         assert!(r_lis.try_recv().is_err(), "empty segment delivers nothing");
     }
+
+    /// End-to-end proof that a foreign listener actually RECEIVES a translated
+    /// `subtitle_final` from the real Pro pipeline — the exact behaviour the
+    /// `audio.input.transcription` fix restores. Hits real OpenAI + Groq, so it is
+    /// `#[ignore]`d (never runs in CI). Run locally:
+    /// `OPENAI_API_KEY=… GROQ_API_KEY=… PRO_TEST_PCM=/path/sample_24k.pcm \
+    ///   cargo test --lib -- --ignored --nocapture real_openai_pro_listener`
+    /// where the PCM is mono s16le @ 24 kHz of an Italian speaker.
+    #[tokio::test]
+    #[ignore = "hits real OpenAI + Groq; set OPENAI_API_KEY, GROQ_API_KEY, PRO_TEST_PCM"]
+    async fn real_openai_pro_listener_receives_translated_subtitle() {
+        let config = OpenAiConfig {
+            api_key: std::env::var("OPENAI_API_KEY").expect("OPENAI_API_KEY"),
+            model: std::env::var("OPENAI_REALTIME_MODEL")
+                .unwrap_or_else(|_| "gpt-realtime-translate".into()),
+            cost_per_minute: 0.04,
+            markup: 0.5,
+            max_sessions: 4,
+            voice: None,
+        };
+        let pcm = std::fs::read(std::env::var("PRO_TEST_PCM").expect("PRO_TEST_PCM"))
+            .expect("read PRO_TEST_PCM");
+
+        let rm = Arc::new(RoomManager::new());
+        join_peer(&rm, "r", "spk", "it");
+        let mut r_lis = join_peer_rx(&rm, "r", "lis", "en"); // foreign (EN) listener
+
+        let deps = SessionDeps {
+            rooms: rm.clone(),
+            moderator: Arc::new(Moderator::from_env()),
+            transcripts: None,
+            participant_row: None,
+            listener_pays: false,
+            pcm_input: true,
+            translator: Translator::new(crate::groq::Groq::new(
+                std::env::var("GROQ_API_KEY").expect("GROQ_API_KEY"),
+                std::env::var("GROQ_TRANSLATION_MODEL")
+                    .unwrap_or_else(|_| "openai/gpt-oss-20b".into()),
+            )),
+        };
+
+        let engine = ProEngine::new(&config);
+        let tx = match engine
+            .start_session(speaker_ctx("r", "spk", "it"), deps)
+            .await
+        {
+            SessionOutcome::Started(tx) => tx,
+            _ => panic!("session did not start"),
+        };
+
+        // Drain the listener CONTINUOUSLY into a buffer — the peer channel is bounded
+        // (cap 8) and drops on overflow, so interim + translated-audio frames would evict
+        // the final if we only read at the end.
+        let collected = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let sink = collected.clone();
+        let drainer = tokio::spawn(async move {
+            loop {
+                match tokio::time::timeout(Duration::from_secs(20), r_lis.recv()).await {
+                    Ok(Some(m)) => {
+                        if m.contains(r#""type":"subtitle_final""#) {
+                            sink.lock().unwrap().push(m);
+                        }
+                    }
+                    _ => break,
+                }
+            }
+        });
+
+        // Stream the sample as ~40 ms PCM16 frames at ~2× realtime.
+        for frame in pcm.chunks(1920) {
+            let _ = tx.send(frame.to_vec()).await;
+            sleep(Duration::from_millis(20)).await;
+        }
+        sleep(Duration::from_secs(3)).await; // let transcripts + idle-flush land
+        drop(tx); // closing the feed forces a final flush + OpenAI close
+        sleep(Duration::from_secs(3)).await; // allow the final flush to be delivered
+        drainer.abort();
+
+        let finals = collected.lock().unwrap();
+        let msg = finals
+            .last()
+            .cloned()
+            .expect("foreign listener received a subtitle_final");
+        eprintln!(
+            "RECEIVED {} subtitle_final frame(s); last: {msg}",
+            finals.len()
+        );
+        let v: serde_json::Value = serde_json::from_str(&msg).unwrap();
+        let translated = v["translations"]["en"].as_str().unwrap_or_default();
+        assert!(
+            !translated.trim().is_empty(),
+            "the caption carries a NON-EMPTY English translation (this is what the \
+             input-transcription fix guarantees even when OpenAI's output transcript is \
+             empty): {msg}"
+        );
+    }
 }
