@@ -76,6 +76,12 @@ pub struct SessionDeps {
     /// Standard engine opens Deepgram in `linear16` mode. `false` = WebM/Opus
     /// (spec 0043, the universal default).
     pub pcm_input: bool,
+    /// Reliable text translator (Groq), the same one the Standard tier uses. The Pro
+    /// engine falls back to it for the SUBTITLE text when OpenAI's gpt-realtime-translate
+    /// ships an EMPTY output transcript for a segment (it does this intermittently — the
+    /// translated audio still plays, but the caption would otherwise carry no translated
+    /// text, so the client shows the untranslated original). Cheap to clone (Arc-backed).
+    pub translator: crate::translator::Translator,
 }
 
 /// Outcome of opening a speaking session.

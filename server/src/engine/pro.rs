@@ -15,7 +15,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use base64::Engine as _;
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use futures::{SinkExt as _, StreamExt as _};
 use tokio::sync::{mpsc, OwnedSemaphorePermit, Semaphore};
 use tokio::time::{interval, sleep, Instant, MissedTickBehavior};
@@ -27,6 +27,7 @@ use crate::deepgram::SpeakerCtx;
 use crate::protocol::ServerMessage;
 use crate::rooms::RoomManager;
 use crate::transcripts::{EventKind, TranscriptEvent, TranscriptService};
+use crate::translator::Translator;
 
 use super::metadata::{EngineCapabilities, EngineMetadata};
 use super::openai::{self, OaSink, OaSource, OpenAiEvent};
@@ -272,6 +273,7 @@ fn spawn_lang_session(
         session_id: ctx.session_id,
         speaker_user_id: ctx.speaker_user_id,
         listener_pays: deps.listener_pays,
+        translator: deps.translator.clone(),
     };
     tokio::spawn(session_task(config.clone(), reader, feed_rx, permit));
     if is_primary {
@@ -415,6 +417,7 @@ async fn run_connection(
 }
 
 /// Emit context for one language session — turns transcript/audio into subtitles.
+#[derive(Clone)]
 struct SessionReader {
     lang: String,
     is_primary: bool,
@@ -430,6 +433,9 @@ struct SessionReader {
     /// who chose OpenAI ("Pro"), not every listener of the language (a Standard or
     /// Gemini listener of the same language is served by their own engine).
     listener_pays: bool,
+    /// Groq fallback for the subtitle TEXT when OpenAI ships an empty output
+    /// transcript for a segment (see [`Self::flush_final`]).
+    translator: Translator,
 }
 
 impl SessionReader {
@@ -554,12 +560,55 @@ impl SessionReader {
     /// the listeners of this language. The translations map carries this one
     /// language; each language's listeners get their own targeted message — so a
     /// listener never sees text that differs from the audio they hear.
+    ///
+    /// OpenAI's gpt-realtime-translate intermittently ships an EMPTY output
+    /// transcript for a segment even though it translated the AUDIO fine, leaving the
+    /// caption with no translated text — so the client falls back to the untranslated
+    /// original ("Pro subtitles show the original, never the translation"). When that
+    /// happens we recover the caption text off the reliable Groq path (the same one
+    /// the Standard tier uses) in a spawned task, so the audio pipeline is never
+    /// stalled waiting on it. If Groq also fails we deliver the empty translation, so
+    /// behaviour is never worse than today.
     fn flush_final(&self, original: &str, translated: &str) {
-        if translated.trim().is_empty() && original.trim().is_empty() {
+        let original = original.trim().to_string();
+        let translated = translated.trim().to_string();
+        if translated.is_empty() && original.is_empty() {
             return;
         }
+        // Same-language listeners are captioned in the original immediately (they hear
+        // the speaker's real voice — no translation involved), regardless of whether
+        // the translated text below needs recovering.
+        if self.is_primary {
+            self.flush_final_to_source_listeners(&original);
+        }
+        // Timestamp the segment now (when spoken), not after any Groq round-trip, so
+        // transcript ordering matches reality.
+        let ts = Utc::now();
+        if !translated.is_empty() {
+            self.emit_translated(&original, &translated, ts);
+            return;
+        }
+        // Empty upstream transcript → recover the caption text via Groq without
+        // blocking the audio loop. `SessionReader` is cheap to clone (Arc/String).
+        let reader = self.clone();
+        tokio::spawn(async move {
+            let recovered = reader
+                .translator
+                .translate_one(&original, &reader.source_lang, &reader.lang, None)
+                .await
+                .map(|(text, _hit)| text)
+                .unwrap_or_default();
+            reader.emit_translated(&original, &recovered, ts);
+        });
+    }
+
+    /// Record the segment (once) and deliver the translated `subtitle_final` to this
+    /// language's listeners. `translated` may be empty (upstream AND the Groq fallback
+    /// both blank) — the client then shows the original source line. Shared by the
+    /// synchronous path and the empty-transcript recovery in [`Self::flush_final`].
+    fn emit_translated(&self, original: &str, translated: &str, ts: DateTime<Utc>) {
         let mut translations = HashMap::new();
-        translations.insert(self.lang.clone(), translated.trim().to_string());
+        translations.insert(self.lang.clone(), translated.to_string());
         if let Some(svc) = self.transcripts.as_ref() {
             svc.record(TranscriptEvent {
                 session_id: self.session_id,
@@ -567,26 +616,22 @@ impl SessionReader {
                 speaker_peer_id: self.speaker_id.clone(),
                 speaker_user_id: self.speaker_user_id,
                 speaker_name: self.speaker_name.clone(),
-                original_text: original.trim().to_string(),
+                original_text: original.to_string(),
                 original_lang: self.source_lang.clone(),
                 translations: translations.clone(),
-                ts: Utc::now(),
+                ts,
             });
         }
         self.deliver(
             &ServerMessage::SubtitleFinal {
                 speaker_id: self.speaker_id.clone(),
                 speaker_name: self.speaker_name.clone(),
-                original: original.trim().to_string(),
+                original: original.to_string(),
                 lang: self.source_lang.clone(),
                 translations,
             }
             .to_json(),
         );
-        // The primary session also captions same-language listeners in the original.
-        if self.is_primary {
-            self.flush_final_to_source_listeners(original);
-        }
     }
 }
 
@@ -633,6 +678,10 @@ mod tests {
             participant_row: None,
             listener_pays: false,
             pcm_input: false,
+            translator: Translator::new(crate::groq::Groq::new(
+                "k".into(),
+                "openai/gpt-oss-20b".into(),
+            )),
         }
     }
 
@@ -677,5 +726,85 @@ mod tests {
             .start_session(speaker_ctx("r", "spk", "it"), deps(rm))
             .await;
         assert!(matches!(out, SessionOutcome::Started(_)));
+    }
+
+    /// Join a peer and keep its receiver so the test can assert what it was sent.
+    fn join_peer_rx(
+        rm: &RoomManager,
+        room: &str,
+        id: &str,
+        lang: &str,
+    ) -> tokio::sync::mpsc::Receiver<String> {
+        let (tx, rx, _ovf) = PeerTx::channel(8);
+        let peer = Peer {
+            id: id.into(),
+            conn: Uuid::new_v4(),
+            name: id.into(),
+            lang: lang.into(),
+            user_id: None,
+            engine: "standard".to_string(),
+            avatar_url: None,
+            cartesia_voice_id: None,
+            tx,
+            speaking: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        };
+        rm.join(room, peer, Visibility::Private).unwrap();
+        rx
+    }
+
+    /// A primary reader for speaker `spk` (source `it`) translating into `target_lang`,
+    /// in speaker-pays mode (delivers to every listener of the language).
+    fn reader(rm: Arc<RoomManager>, target_lang: &str) -> SessionReader {
+        SessionReader {
+            lang: target_lang.into(),
+            is_primary: true,
+            rooms: rm,
+            transcripts: None,
+            room: "r".into(),
+            speaker_id: "spk".into(),
+            speaker_name: "spk".into(),
+            source_lang: "it".into(),
+            session_id: Uuid::new_v4(),
+            speaker_user_id: None,
+            listener_pays: false,
+            translator: Translator::new(crate::groq::Groq::new(
+                "k".into(),
+                "openai/gpt-oss-20b".into(),
+            )),
+        }
+    }
+
+    #[tokio::test]
+    async fn flush_final_delivers_translation_to_foreign_listener() {
+        // Healthy path: OpenAI supplied the translated transcript, so a foreign listener
+        // receives a `subtitle_final` whose translations map carries THEIR language — the
+        // caption they read is the translation, not the untranslated original.
+        let rm = Arc::new(RoomManager::new());
+        join_peer(&rm, "r", "spk", "it");
+        let mut r_lis = join_peer_rx(&rm, "r", "lis", "en");
+
+        reader(rm.clone(), "en").flush_final("ciao a tutti", "hello everyone");
+
+        let msg = r_lis.try_recv().expect("foreign listener captioned");
+        assert!(
+            msg.contains(r#""type":"subtitle_final""#),
+            "is a final: {msg}"
+        );
+        assert!(
+            msg.contains("hello everyone"),
+            "carries the translation, not just the original: {msg}"
+        );
+    }
+
+    #[tokio::test]
+    async fn flush_final_ignores_a_fully_empty_segment() {
+        // Nothing spoken AND nothing translated → no caption at all (never a blank frame).
+        let rm = Arc::new(RoomManager::new());
+        join_peer(&rm, "r", "spk", "it");
+        let mut r_lis = join_peer_rx(&rm, "r", "lis", "en");
+
+        reader(rm.clone(), "en").flush_final("   ", "  ");
+
+        assert!(r_lis.try_recv().is_err(), "empty segment delivers nothing");
     }
 }

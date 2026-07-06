@@ -1678,6 +1678,7 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState, clien
                                         participant_row,
                                         listener_pays: lp,
                                         pcm_input: pcm,
+                                        translator: state.translator.clone(),
                                     };
                                     let mut feeds: Vec<mpsc::Sender<Vec<u8>>> = Vec::new();
                                     let mut any_premium_ok = false;
@@ -1784,6 +1785,7 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState, clien
                                     // per-lang fan-out + WebM/Opus capture.
                                     listener_pays: false,
                                     pcm_input: false,
+                                    translator: state.translator.clone(),
                                 };
                                 // Engine routing (spec 0093): the engine owns the
                                 // STT/translation pipeline incl. the `auto` detect
