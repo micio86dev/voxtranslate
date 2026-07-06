@@ -467,14 +467,14 @@ function ensureCartesiaManager(): CartesiaManager {
       // Cartesia does STT + TTS but not translation — route each finalized segment through
       // the server's Groq translator over the room WS (spec 0108).
       translate: (text, source, target) => translateViaServer(text, source, target),
-      onSubtitle: (speakerId, text, interim) => {
+      onSubtitle: (speakerId, text, interim, original) => {
         // Cartesia STT interim results are the SOURCE (untranslated) text — only the
-        // flushed FINAL is the Groq translation. Feed interim as `original` (not
-        // `translation`), matching the server tiers' `subtitle_interim` handling, so
-        // 'translated' mode shows a clean translation instead of the foreign source line
-        // flashing as if it were the translation ("le traduzioni non si vedono come si deve").
+        // flushed FINAL is the Groq translation (carrying the source as `original`). Match
+        // the server tiers: interim → `original` (so 'translated' mode doesn't flash the
+        // foreign source); final → `translation` + `original` so 'both' mode shows the
+        // translation big with the original small beneath, like every other tier.
         if (interim) showSubtitle(speakerId, { original: text, interim: true });
-        else showSubtitle(speakerId, { translation: text, interim: false });
+        else showSubtitle(speakerId, { translation: text, original, interim: false });
       },
       // Speak the translation in the SPEAKER's cloned voice via the shared PCM graph; the
       // "translated voice" toggle gates it (see `ttsEnabled`).

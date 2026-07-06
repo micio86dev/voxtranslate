@@ -295,7 +295,7 @@ describe('CartesiaManager', () => {
     stt.onmessage?.({ data: JSON.stringify({ type: 'transcript', is_final: true, text: 'ciao' }) });
     // Idle-flush fires the translate → subtitle(final) → TTS path.
     await vi.runAllTimersAsync();
-    expect(onSubtitle).toHaveBeenCalledWith('p1', 'hello there', false);
+    expect(onSubtitle).toHaveBeenCalledWith('p1', 'hello there', false, 'ciao');
     // A TTS socket opened and a generation request carrying the peer's voice id was sent.
     const tts = sockets.find((s) => s.url.includes('/tts/websocket'));
     expect(tts).toBeTruthy();
@@ -656,9 +656,9 @@ describe('CartesiaManager', () => {
     await vi.advanceTimersByTimeAsync(500);
     stt.onmessage?.({ data: JSON.stringify({ type: 'transcript', is_final: false, text: 'ciao amico' }) });
     await vi.advanceTimersByTimeAsync(500); // 1 s after the first, 0.5 s after the second
-    expect(onSubtitle).not.toHaveBeenCalledWith('p1', expect.anything(), false); // timer was reset
+    expect(onSubtitle).not.toHaveBeenCalledWith('p1', expect.anything(), false, expect.anything()); // timer was reset
     await vi.runAllTimersAsync(); // idle elapsed → interim-only text still flushes
-    expect(onSubtitle).toHaveBeenCalledWith('p1', 'hello', false);
+    expect(onSubtitle).toHaveBeenCalledWith('p1', 'hello', false, 'ciao amico');
   });
 
   it('falls back to the source text when translation fails, honouring the TTS toggle', async () => {
@@ -666,7 +666,7 @@ describe('CartesiaManager', () => {
     m.activate('en');
     const stt = await openPipeline(m);
     await utter(stt, 'ciao');
-    expect(onSubtitle).toHaveBeenCalledWith('p1', 'ciao', false); // untranslated fallback
+    expect(onSubtitle).toHaveBeenCalledWith('p1', 'ciao', false, 'ciao'); // untranslated fallback
     expect(ttsSockets().length).toBe(0); // spoken translation off → subtitles only
   });
 
@@ -676,7 +676,7 @@ describe('CartesiaManager', () => {
     const stt = await openPipeline(m);
     await utter(stt, 'ciao');
     expect(onSubtitle).toHaveBeenCalledWith('p1', 'ciao', true);
-    expect(onSubtitle).not.toHaveBeenCalledWith('p1', expect.anything(), false);
+    expect(onSubtitle).not.toHaveBeenCalledWith('p1', expect.anything(), false, expect.anything());
     expect(ttsSockets().length).toBe(0);
   });
 
@@ -686,7 +686,7 @@ describe('CartesiaManager', () => {
     const stt = await openPipeline(m);
     await utter(stt, 'ciao');
     expect(onSubtitle).toHaveBeenCalledWith('p1', 'ciao', true);
-    expect(onSubtitle).not.toHaveBeenCalledWith('p1', expect.anything(), false);
+    expect(onSubtitle).not.toHaveBeenCalledWith('p1', expect.anything(), false, expect.anything());
   });
 
   it('drops a translation that resolves after the pipeline restarted', async () => {
@@ -705,7 +705,7 @@ describe('CartesiaManager', () => {
     await vi.runAllTimersAsync();
     resolveT('too late');
     await vi.runAllTimersAsync();
-    expect(onSubtitle).not.toHaveBeenCalledWith('p1', 'too late', false);
+    expect(onSubtitle).not.toHaveBeenCalledWith('p1', 'too late', false, expect.anything());
   });
 
   it('renders subtitles only when there is no clone and no default voice', async () => {
@@ -715,7 +715,7 @@ describe('CartesiaManager', () => {
     m.activate('en');
     const stt = await openPipeline(m);
     await utter(stt, 'ciao');
-    expect(onSubtitle).toHaveBeenCalledWith('p1', 'hola', false);
+    expect(onSubtitle).toHaveBeenCalledWith('p1', 'hola', false, 'ciao');
     expect(ttsSockets().length).toBe(1);
     expect(ttsSockets()[0].sent.length).toBe(0); // socket opened, but nothing to speak with
   });
@@ -737,7 +737,7 @@ describe('CartesiaManager', () => {
     m.activate('en');
     const stt = await openPipeline(m);
     await utter(stt, 'ciao');
-    expect(onSubtitle).toHaveBeenCalledWith('p1', 'hola', false);
+    expect(onSubtitle).toHaveBeenCalledWith('p1', 'hola', false, 'ciao');
     expect(ttsSockets().length).toBe(0);
   });
 
