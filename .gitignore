@@ -49,6 +49,9 @@
 # Claude Code local scheduler lock (runtime artifact)
 .claude/scheduled_tasks.lock
 
+# gentle-ai skill-registry cache (auto-generated, machine-specific absolute paths)
+/.atl/
+
 # Translation-cache benchmark (spec 0107): generated reports + local secrets
 /scripts/bench_results/
 /scripts/.env.bench
