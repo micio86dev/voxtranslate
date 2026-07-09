@@ -241,6 +241,18 @@ pub fn insight_credits() -> i32 {
     3
 }
 
+/// Credits to deduct for one minute of a voice-assistant session.
+///
+/// Formula: `ceil(cost_per_minute × (1 + markup) × 100)` where 100 credits = $1.
+/// The markup is stored as a fraction (e.g. 0.25 = 25%). The ceiling ensures we
+/// never under-charge for fractional cents.
+///
+/// Example (default config): `ceil(0.30 × 1.25 × 100) = ceil(37.5) = 38`.
+pub fn voice_assistant_minute_credits(cfg: &crate::config::VoiceAssistantConfig) -> i32 {
+    let raw = cfg.cost_per_minute * (1.0 + cfg.markup) * 100.0;
+    raw.ceil() as i32
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

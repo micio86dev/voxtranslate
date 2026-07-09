@@ -56,6 +56,7 @@ fn make_state() -> (AppState, bool) {
                 bench_secret: None,
                 embeddings: None,
                 embeddings_backfill_secret: None,
+                voice_assistant: None,
             }),
             false,
         ),
@@ -465,6 +466,7 @@ async fn deepgram_unavailable_sends_error() {
         bench_secret: None,
         embeddings: None,
         embeddings_backfill_secret: None,
+        voice_assistant: None,
     });
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -547,6 +549,7 @@ fn guest_config() -> Config {
         bench_secret: None,
         embeddings: None,
         embeddings_backfill_secret: None,
+        voice_assistant: None,
     }
 }
 

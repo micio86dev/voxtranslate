@@ -14,6 +14,8 @@ pub mod openai;
 pub mod premium;
 pub mod pro;
 pub mod standard;
+pub mod voice_assistant;
+pub mod voice_assistant_client;
 
 use std::collections::HashSet;
 use std::sync::Arc;
