@@ -236,10 +236,6 @@ pub async fn open_va_session(config: &VoiceAssistantConfig) -> Result<(VaSink, V
     let auth = HeaderValue::from_str(&format!("Bearer {}", config.api_key))
         .map_err(|e| format!("invalid voice assistant key header: {e}"))?;
     request.headers_mut().insert(AUTHORIZATION, auth);
-    // OpenAI Realtime requires the OpenAI-Beta header for the v1/realtime endpoint.
-    request
-        .headers_mut()
-        .insert("OpenAI-Beta", HeaderValue::from_static("realtime=v1"));
 
     let (ws, _resp) = connect_async(request)
         .await
