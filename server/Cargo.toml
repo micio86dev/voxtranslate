@@ -53,7 +53,7 @@ typst-as-lib = "=0.16.0"
 typst-layout = "=0.15.0"
 
 # Chat file upload (spec 0018): extract text from uploaded text-layer PDFs.
-pdf-extract = "0.7"
+pdf-extract = "0.12"
 # Chat-file text extraction for .docx (a zip of XML): read word/document.xml and
 # pull the <w:t> runs. deflate-only keeps the zip backend lean.
 zip = { version = "8", default-features = false, features = ["deflate"] }
