@@ -204,7 +204,7 @@ pub struct VoiceAssistantConfig {
     /// Never sent to clients. Shared with `EmbeddingsConfig` but the feature is gated
     /// independently on `VOICE_ASSISTANT_ENABLED`.
     pub api_key: String,
-    /// GPT-Realtime model id (`VOICE_ASSISTANT_MODEL`, default `gpt-realtime-2.1`).
+    /// GPT-Realtime model id (`VOICE_ASSISTANT_MODEL`, default `gpt-4o-realtime-preview`).
     pub model: String,
     /// Raw server cost per minute, USD (`VOICE_ASSISTANT_COST_PER_MINUTE`, default 0.30).
     /// Never serialized; used only for credit-deduction math.
@@ -234,7 +234,7 @@ impl VoiceAssistantConfig {
                 .ok()
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty())
-                .unwrap_or_else(|| "gpt-realtime-2.1".to_string()),
+                .unwrap_or_else(|| "gpt-4o-realtime-preview".to_string()),
             cost_per_minute: parse_or("VOICE_ASSISTANT_COST_PER_MINUTE", 0.30f64),
             markup: percent / 100.0,
             max_sessions: parse_or("VOICE_ASSISTANT_MAX_SESSIONS", 10usize),
@@ -252,7 +252,7 @@ pub struct HelpAssistantConfig {
     /// Never sent to clients. The feature is gated independently on
     /// `HELP_ASSISTANT_ENABLED` so the key can be shared without enabling all tiers.
     pub api_key: String,
-    /// GPT-Realtime model id (`HELP_ASSISTANT_MODEL`, default `gpt-realtime-2.1`).
+    /// GPT-Realtime model id (`HELP_ASSISTANT_MODEL`, default `gpt-4o-realtime-preview`).
     pub model: String,
     /// Raw server cost per minute, USD (`HELP_ASSISTANT_COST_PER_MINUTE`, default 0.18).
     /// Never serialized; used only for credit-deduction math.
@@ -282,7 +282,7 @@ impl HelpAssistantConfig {
                 .ok()
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty())
-                .unwrap_or_else(|| "gpt-realtime-2.1".to_string()),
+                .unwrap_or_else(|| "gpt-4o-realtime-preview".to_string()),
             cost_per_minute: parse_or("HELP_ASSISTANT_COST_PER_MINUTE", 0.18f64),
             markup: percent / 100.0,
             max_sessions: parse_or("HELP_ASSISTANT_MAX_SESSIONS", 10usize),
