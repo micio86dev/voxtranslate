@@ -135,11 +135,15 @@ pub fn build_ha_session_update_json(voice: &str) -> String {
             "type": "realtime",
             "modalities": ["text", "audio"],
             "instructions": build_help_instructions(),
-            "voice": voice,
-            "input_audio_format": "pcm16",
-            "output_audio_format": "pcm16",
-            "input_audio_transcription": {
-                "model": "whisper-1"
+            "audio": {
+                "input": {
+                    "format": "pcm16",
+                    "transcription": { "model": "gpt-realtime-whisper" }
+                },
+                "output": {
+                    "format": "pcm16",
+                    "voice": voice
+                }
             },
             "turn_detection": {
                 "type": "server_vad"
@@ -208,10 +212,10 @@ mod tests {
         assert_eq!(v["type"], "session.update");
         let sess = &v["session"];
         assert_eq!(sess["type"], "realtime");
-        assert_eq!(sess["voice"], "alloy");
-        assert_eq!(sess["input_audio_format"], "pcm16");
-        assert_eq!(sess["output_audio_format"], "pcm16");
-        assert_eq!(sess["input_audio_transcription"]["model"], "whisper-1");
+        assert_eq!(sess["audio"]["input"]["format"], "pcm16");
+        assert_eq!(sess["audio"]["input"]["transcription"]["model"], "gpt-realtime-whisper");
+        assert_eq!(sess["audio"]["output"]["format"], "pcm16");
+        assert_eq!(sess["audio"]["output"]["voice"], "alloy");
         assert_eq!(sess["turn_detection"]["type"], "server_vad");
         let instr = sess["instructions"].as_str().unwrap();
         assert!(!instr.is_empty());
