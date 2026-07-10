@@ -57,10 +57,63 @@ fn make_state() -> (AppState, bool) {
                 embeddings: None,
                 embeddings_backfill_secret: None,
                 voice_assistant: None,
+                help_assistant: None,
             }),
             false,
         ),
     }
+}
+
+/// Build a minimal no-external-services state (resend=None, billing=None, storage=None).
+/// Use for tests that must exercise "feature dormant / provider absent" paths regardless
+/// of what the local .env contains.
+fn make_minimal_state() -> AppState {
+    AppState::new(Config {
+        push: None,
+        deepgram_key: "dummy".into(),
+        groq_key: "dummy".into(),
+        translation_model: "openai/gpt-oss-20b".into(),
+        port: 0,
+        allowed_origins: vec![],
+        auto_detect_buffer_ms: 3000,
+        billing: None,
+        resend: None,
+        storage: None,
+        turn: None,
+        turn_restricted: None,
+        bug_report_to: "test@example.com".into(),
+        app_base_url: "https://voxtranslate.app".into(),
+        dashboard_base_url: "https://dashboard.voxtranslate.app".into(),
+        business_member_limit: 20,
+        retention_sweep_enabled: false,
+        retention_sweep_interval_secs: 21_600,
+        retention_sweep_batch: 200,
+        openai: None,
+        google: None,
+        cartesia: None,
+        standard_enabled: true,
+        listener_pays: false,
+        language_first_ux: false,
+        cache_enabled: false,
+        cache_max_words: 8,
+        cache_ttl_secs: 604_800,
+        dragonfly_url: None,
+        bench_secret: None,
+        embeddings: None,
+        embeddings_backfill_secret: None,
+        voice_assistant: None,
+        help_assistant: None,
+    })
+}
+
+async fn spawn_minimal() -> SocketAddr {
+    let state = make_minimal_state();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        let _ = axum::serve(listener, app(state)).await;
+    });
+    addr
 }
 
 /// Start the app on a random local port, return (addr, has_keys).
@@ -172,8 +225,10 @@ async fn health_and_rooms_and_bad_params() {
 async fn contact_form_validates_and_requires_email_provider() {
     // Public Business contact form (POST /api/contact). Validation runs before the
     // email-provider check, so bad input is 400 regardless of Resend; a well-formed
-    // message with no Resend configured (the test config) is 503.
-    let (addr, _) = spawn().await;
+    // message with no Resend configured is 503.
+    // Uses spawn_minimal() so the test is deterministic even when the local .env has
+    // a real RESEND_API_KEY (make_state() would pick it up and return 200).
+    let addr = spawn_minimal().await;
     let http = reqwest::Client::new();
     let url = format!("http://{addr}/api/contact");
 
@@ -467,6 +522,7 @@ async fn deepgram_unavailable_sends_error() {
         embeddings: None,
         embeddings_backfill_secret: None,
         voice_assistant: None,
+        help_assistant: None,
     });
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -550,6 +606,7 @@ fn guest_config() -> Config {
         embeddings: None,
         embeddings_backfill_secret: None,
         voice_assistant: None,
+        help_assistant: None,
     }
 }
 

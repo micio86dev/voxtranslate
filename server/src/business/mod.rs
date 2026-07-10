@@ -16,6 +16,7 @@ pub mod audit;
 pub mod billing;
 pub mod calls;
 pub mod credits;
+pub mod help_assistant;
 pub mod insights;
 pub mod meetings;
 pub mod members;

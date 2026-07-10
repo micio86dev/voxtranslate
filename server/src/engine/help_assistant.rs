@@ -1,35 +1,21 @@
-//! B2B Voice Assistant relay engine.
+//! Dashboard Help Assistant relay engine.
 //!
 //! Bridges a dashboard WebSocket client to OpenAI Realtime (`v1/realtime`) for
-//! full-duplex voice Q&A grounded by RAG over the org's transcript embeddings.
+//! full-duplex voice Q&A grounded by a STATIC product-knowledge prompt (no RAG).
 //!
 //! ## Session lifecycle
 //!
-//! 1. Acquire a semaphore permit (capacity cap from [`VoiceAssistantConfig::max_sessions`]).
-//! 2. Embed a context query → KNN over `transcript_embeddings` → inject into `session.update`.
-//! 3. Open the upstream OpenAI Realtime WS and send `session.update`.
+//! 1. Acquire a semaphore permit (capacity cap from `HelpAssistantConfig::max_sessions`).
+//! 2. Send `session.update` with static dashboard help instructions.
+//! 3. Open the upstream OpenAI Realtime WS.
 //! 4. Bidirectional relay loop:
 //!    - Browser binary frames (PCM16) → `input_audio_buffer.append` to OpenAI.
 //!    - Browser text `{"type":"stop"}` → close upstream and begin flush.
 //!    - OpenAI events → forwarded as text frames to the browser.
 //!    - Every 10 s: emit `cost_tick` to browser; deduct credits.
-//! 5. On close: deduct final credits, persist interaction, best-effort re-embed.
-//!
-//! ## Cost transparency
-//!
-//! Every 10 seconds the server emits:
-//! ```json
-//! { "type": "cost_tick", "duration_s": 10, "credits_so_far": 38, "cost_display": "€0.38" }
-//! ```
-//! On session close:
-//! ```json
-//! { "type": "session_end", "duration_s": 72, "credits_used": 76, "cost_display": "€0.76" }
-//! ```
-//!
-//! If credits run out mid-session, the relay closes with:
-//! ```json
-//! { "type": "error", "code": "credits_exhausted", "message": "..." }
-//! ```
+//! 5. On close: deduct final credits, persist interaction with
+//!    `interaction_kind = 'help_assistant'` (NO re-embed — help answers are
+//!    not knowledge-base content).
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -42,12 +28,11 @@ use tokio::time::{interval, Instant, MissedTickBehavior};
 use uuid::Uuid;
 
 use crate::business::credits;
-use crate::config::VoiceAssistantConfig;
+use crate::config::HelpAssistantConfig;
 use crate::db::Pool;
-use crate::embeddings::OpenAiEmbeddings;
-use crate::engine::voice_assistant_client::{
-    self, build_cost_tick_json, build_session_end_json, format_cost_display, open_va_session,
-    parse_realtime_event, va_audio_append_json, VaEvent, VaSink, VaSource,
+use crate::engine::help_assistant_client::{
+    self, build_cost_tick_json, build_session_end_json, format_cost_display, ha_audio_append_json,
+    open_ha_session, HaEvent, HaSink, HaSource,
 };
 use tokio_tungstenite::tungstenite::Message as TungMessage;
 
@@ -59,7 +44,7 @@ pub fn capacity_full_error() -> String {
     serde_json::json!({
         "type": "error",
         "code": "capacity_full",
-        "message": "Voice assistant is at capacity. Please try again in a moment.",
+        "message": "Help assistant is at capacity. Please try again in a moment.",
     })
     .to_string()
 }
@@ -69,7 +54,7 @@ fn credits_exhausted_error(balance: i32, required: i32) -> String {
     serde_json::json!({
         "type": "error",
         "code": "credits_exhausted",
-        "message": "Insufficient credits to continue the voice assistant session.",
+        "message": "Insufficient credits to continue the help assistant session.",
         "balance": balance,
         "required": required,
     })
@@ -77,36 +62,30 @@ fn credits_exhausted_error(balance: i32, required: i32) -> String {
 }
 
 /// Dependencies injected by the route handler into the relay.
+///
+/// Notably lighter than `voice_assistant::RelayDeps` — no embedder, no RAG chunks,
+/// no project/member scope. The static prompt eliminates all of those.
 pub struct RelayDeps {
-    pub config: VoiceAssistantConfig,
+    pub config: HelpAssistantConfig,
     pub semaphore: Arc<Semaphore>,
     pub pool: Pool,
-    pub embedder: OpenAiEmbeddings,
     pub org_id: Uuid,
     pub user_id: Uuid,
-    pub project_id: Option<Uuid>,
-    pub member_id: Option<Uuid>,
-    pub org_name: String,
-    pub project_name: Option<String>,
-    pub member_name: Option<String>,
-    /// Top-K RAG chunks retrieved before the session starts. Empty means no
-    /// prior transcriptions — the assistant will say so.
-    pub rag_chunks: Vec<String>,
 }
 
-/// Try to acquire a semaphore permit for a new voice-assistant session.
+/// Try to acquire a semaphore permit for a new help-assistant session.
 ///
-/// Returns `Ok(permit)` if capacity is available, or `Err(())` when the cap
-/// is reached. The `Err` path sends a `capacity_full` error to the client.
+/// Returns `Ok(permit)` if capacity is available, or `Err(())` when the cap is
+/// reached. The `Err` path sends a `capacity_full` error to the client.
 pub async fn try_acquire(semaphore: &Arc<Semaphore>) -> Result<OwnedSemaphorePermit, ()> {
     semaphore.clone().try_acquire_owned().map_err(|_| ())
 }
 
-/// Run the full relay for one voice-assistant session over an Axum WebSocket.
+/// Run the full relay for one help-assistant session over an Axum WebSocket.
 ///
-/// Called by the route handler after auth, role, and credit checks pass.
+/// Called by the route handler after auth, subscription, and credit checks pass.
 /// On semaphore-full, sends the `capacity_full` error and closes the WS before
-/// touching OpenAI (product decision 5).
+/// touching OpenAI (mirrors `voice_assistant::run_relay` behavior).
 pub async fn run_relay(mut browser_ws: WebSocket, deps: RelayDeps) {
     // 1. Semaphore — must acquire before contacting OpenAI.
     let permit = match try_acquire(&deps.semaphore).await {
@@ -116,37 +95,29 @@ pub async fn run_relay(mut browser_ws: WebSocket, deps: RelayDeps) {
                 .send(WsMessage::Text(capacity_full_error().into()))
                 .await;
             let _ = browser_ws.close().await;
-            tracing::warn!(org_id = %deps.org_id, "voice_assistant: capacity_full");
+            tracing::warn!(org_id = %deps.org_id, "help_assistant: capacity_full");
             return;
         }
     };
 
-    // 2. Build RAG-grounded instructions (already retrieved by the route handler).
-    let instructions = voice_assistant_client::build_rag_instructions(
-        &deps.rag_chunks,
-        &deps.org_name,
-        deps.project_name.as_deref(),
-        deps.member_name.as_deref(),
-    );
-
-    // 3. Open OpenAI Realtime upstream.
-    let va_voice = std::env::var("VOICE_ASSISTANT_VOICE")
+    // 2. Build session.update with the static help instructions.
+    let ha_voice = std::env::var("HELP_ASSISTANT_VOICE")
         .ok()
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "alloy".to_string());
-    let session_update =
-        voice_assistant_client::build_session_update_json(&instructions, &va_voice);
+    let session_update = help_assistant_client::build_ha_session_update_json(&ha_voice);
 
-    let (mut oa_sink, mut oa_source) = match open_va_session(&deps.config).await {
+    // 3. Open OpenAI Realtime upstream.
+    let (mut oa_sink, mut oa_source) = match open_ha_session(&deps.config).await {
         Ok(pair) => pair,
         Err(e) => {
-            tracing::error!(org_id = %deps.org_id, "voice_assistant: upstream open failed: {e}");
+            tracing::error!(org_id = %deps.org_id, "help_assistant: upstream open failed: {e}");
             let _ = browser_ws
                 .send(WsMessage::Text(
                     serde_json::json!({
                         "type": "error",
                         "code": "upstream_error",
-                        "message": "Failed to connect to voice assistant backend."
+                        "message": "Failed to connect to help assistant backend."
                     })
                     .to_string()
                     .into(),
@@ -158,7 +129,7 @@ pub async fn run_relay(mut browser_ws: WebSocket, deps: RelayDeps) {
     };
 
     if let Err(e) = oa_sink.send(TungMessage::text(session_update)).await {
-        tracing::error!(org_id = %deps.org_id, "voice_assistant: session.update failed: {e}");
+        tracing::error!(org_id = %deps.org_id, "help_assistant: session.update failed: {e}");
         let _ = browser_ws.close().await;
         return;
     }
@@ -166,8 +137,7 @@ pub async fn run_relay(mut browser_ws: WebSocket, deps: RelayDeps) {
     tracing::info!(
         org_id = %deps.org_id,
         user_id = %deps.user_id,
-        project_id = ?deps.project_id,
-        "voice_assistant: session started"
+        "help_assistant: session started"
     );
 
     // 4. Relay loop.
@@ -183,27 +153,22 @@ pub async fn run_relay(mut browser_ws: WebSocket, deps: RelayDeps) {
         .await;
     let _ = browser_ws.close().await;
 
-    // 6. Persist + re-embed on a background task (non-blocking, best-effort).
+    // 6. Persist on a background task — NO re-embed (help answers are not
+    //    knowledge-base content; they are product guidance only).
     if !user_transcript.is_empty() || !ai_response.is_empty() {
         let pool = deps.pool.clone();
-        let embedder = deps.embedder.clone();
         let org_id = deps.org_id;
         let user_id = deps.user_id;
-        let project_id = deps.project_id;
-        let member_id = deps.member_id;
         let duration_secs = duration_s as i32;
         let user_txt = user_transcript.clone();
         let ai_txt = ai_response.clone();
 
         tokio::spawn(async move {
-            persist_and_reindex(
+            persist_interaction(
                 &pool,
-                &embedder,
                 PersistArgs {
                     org_id,
                     user_id,
-                    project_id,
-                    member_id,
                     user_transcript: user_txt,
                     ai_response: ai_txt,
                     duration_seconds: duration_secs,
@@ -219,8 +184,8 @@ pub async fn run_relay(mut browser_ws: WebSocket, deps: RelayDeps) {
 /// duration_seconds, credits_used)` when the session ends.
 async fn relay_loop(
     browser: &mut WebSocket,
-    oa_sink: &mut VaSink,
-    oa_source: &mut VaSource,
+    oa_sink: &mut HaSink,
+    oa_source: &mut HaSource,
     deps: &RelayDeps,
     _permit: OwnedSemaphorePermit, // dropped on return → frees semaphore slot
 ) -> (String, String, u64, i32) {
@@ -230,14 +195,12 @@ async fn relay_loop(
     let mut total_credits: i32 = 0;
 
     let credits_per_tick =
-        credits::voice_assistant_minute_credits(&deps.config) * (TICK_SECS as i32) / 60;
-    // At minimum 1 credit per tick to avoid charging 0 due to integer truncation.
+        credits::help_assistant_minute_credits(&deps.config) * (TICK_SECS as i32) / 60;
     let credits_per_tick = credits_per_tick.max(1);
 
     let mut tick = interval(Duration::from_secs(TICK_SECS));
     tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
-    // Consume the first tick (fires immediately) — we don't charge at t=0.
-    tick.tick().await;
+    tick.tick().await; // consume immediate first tick
 
     loop {
         tokio::select! {
@@ -245,28 +208,26 @@ async fn relay_loop(
             browser_msg = browser.recv() => {
                 match browser_msg {
                     Some(Ok(WsMessage::Binary(pcm))) => {
-                        // Forward raw PCM16 to OpenAI as input_audio_buffer.append.
-                        let json = va_audio_append_json(&pcm);
+                        let json = ha_audio_append_json(&pcm);
                         if let Err(e) = oa_sink.send(TungMessage::text(json)).await {
-                            tracing::warn!(org_id = %deps.org_id, "voice_assistant: oa send failed: {e}");
+                            tracing::warn!(org_id = %deps.org_id, "help_assistant: oa send failed: {e}");
                             break;
                         }
                     }
                     Some(Ok(WsMessage::Text(text))) => {
-                        // Control message from browser ({"type":"stop"} etc.)
                         let v: serde_json::Value = serde_json::from_str(text.as_str()).unwrap_or_default();
                         if v.get("type").and_then(|t| t.as_str()) == Some("stop") {
-                            tracing::info!(org_id = %deps.org_id, "voice_assistant: client stop received");
+                            tracing::info!(org_id = %deps.org_id, "help_assistant: client stop received");
                             break;
                         }
                     }
                     Some(Ok(WsMessage::Close(_))) | None => {
-                        tracing::info!(org_id = %deps.org_id, "voice_assistant: browser disconnected");
+                        tracing::info!(org_id = %deps.org_id, "help_assistant: browser disconnected");
                         break;
                     }
-                    Some(Ok(_)) => {} // ping/pong etc.
+                    Some(Ok(_)) => {}
                     Some(Err(e)) => {
-                        tracing::warn!(org_id = %deps.org_id, "voice_assistant: browser ws error: {e}");
+                        tracing::warn!(org_id = %deps.org_id, "help_assistant: browser ws error: {e}");
                         break;
                     }
                 }
@@ -276,9 +237,8 @@ async fn relay_loop(
             oa_msg = oa_source.next() => {
                 match oa_msg {
                     Some(Ok(TungMessage::Text(text))) => {
-                        match parse_realtime_event(text.as_str()) {
-                            VaEvent::AudioDelta(pcm) => {
-                                // Forward audio to browser as base64-encoded text frame.
+                        match crate::engine::help_assistant_client::parse_realtime_event(text.as_str()) {
+                            HaEvent::AudioDelta(pcm) => {
                                 let b64 = base64::engine::general_purpose::STANDARD.encode(&pcm);
                                 let msg = serde_json::json!({
                                     "type": "answer_audio",
@@ -286,7 +246,7 @@ async fn relay_loop(
                                 }).to_string();
                                 let _ = browser.send(WsMessage::Text(msg.into())).await;
                             }
-                            VaEvent::TextDelta(d) => {
+                            HaEvent::TextDelta(d) => {
                                 ai_response.push_str(&d);
                                 let msg = serde_json::json!({
                                     "type": "transcript",
@@ -295,8 +255,7 @@ async fn relay_loop(
                                 }).to_string();
                                 let _ = browser.send(WsMessage::Text(msg.into())).await;
                             }
-                            VaEvent::TranscriptDelta(d) => {
-                                // Input transcription delta (user's words).
+                            HaEvent::TranscriptDelta(d) => {
                                 user_transcript.push_str(&d);
                                 let msg = serde_json::json!({
                                     "type": "transcript",
@@ -305,20 +264,20 @@ async fn relay_loop(
                                 }).to_string();
                                 let _ = browser.send(WsMessage::Text(msg.into())).await;
                             }
-                            VaEvent::SpeechStarted => {
+                            HaEvent::SpeechStarted => {
                                 let msg = serde_json::json!({"type": "speech_started"}).to_string();
                                 let _ = browser.send(WsMessage::Text(msg.into())).await;
                             }
-                            VaEvent::SpeechStopped => {
+                            HaEvent::SpeechStopped => {
                                 let msg = serde_json::json!({"type": "speech_stopped"}).to_string();
                                 let _ = browser.send(WsMessage::Text(msg.into())).await;
                             }
-                            VaEvent::ResponseDone => {
+                            HaEvent::ResponseDone => {
                                 let msg = serde_json::json!({"type": "response_done"}).to_string();
                                 let _ = browser.send(WsMessage::Text(msg.into())).await;
                             }
-                            VaEvent::Error(e) => {
-                                tracing::warn!(org_id = %deps.org_id, "voice_assistant: openai error: {e}");
+                            HaEvent::Error(e) => {
+                                tracing::warn!(org_id = %deps.org_id, "help_assistant: openai error: {e}");
                                 let msg = serde_json::json!({
                                     "type": "error",
                                     "code": "openai_error",
@@ -326,16 +285,16 @@ async fn relay_loop(
                                 }).to_string();
                                 let _ = browser.send(WsMessage::Text(msg.into())).await;
                             }
-                            VaEvent::Other => {}
+                            HaEvent::Other => {}
                         }
                     }
                     Some(Ok(TungMessage::Close(_))) | None => {
-                        tracing::info!(org_id = %deps.org_id, "voice_assistant: openai closed upstream");
+                        tracing::info!(org_id = %deps.org_id, "help_assistant: openai closed upstream");
                         break;
                     }
-                    Some(Ok(_)) => {} // ping/pong/binary
+                    Some(Ok(_)) => {}
                     Some(Err(e)) => {
-                        tracing::warn!(org_id = %deps.org_id, "voice_assistant: openai ws error: {e}");
+                        tracing::warn!(org_id = %deps.org_id, "help_assistant: openai ws error: {e}");
                         break;
                     }
                 }
@@ -346,15 +305,14 @@ async fn relay_loop(
                 let elapsed_s = start.elapsed().as_secs();
                 total_credits += credits_per_tick;
 
-                // Deduct from org pool.
                 match credits::deduct_org_credits(
                     &deps.pool,
                     deps.org_id,
                     credits_per_tick,
-                    "voice_assistant",
+                    "help_assistant",
                     None,
                     Some(deps.user_id),
-                    "voice assistant session tick",
+                    "help assistant session tick",
                 )
                 .await
                 {
@@ -363,7 +321,7 @@ async fn relay_loop(
                             org_id = %deps.org_id,
                             balance,
                             required,
-                            "voice_assistant: credits exhausted — closing"
+                            "help_assistant: credits exhausted — closing"
                         );
                         let _ = browser.send(WsMessage::Text(
                             credits_exhausted_error(balance, required).into(),
@@ -371,7 +329,6 @@ async fn relay_loop(
                         break;
                     }
                     Ok(credits::OrgCharge::Charged { balance_after }) => {
-                        // Emit cost_tick to browser.
                         let cost_display = format_cost_display(total_credits);
                         let tick_msg =
                             build_cost_tick_json(elapsed_s, total_credits, &cost_display);
@@ -381,12 +338,12 @@ async fn relay_loop(
                             elapsed_s,
                             total_credits,
                             balance_after,
-                            "voice_assistant: cost_tick"
+                            "help_assistant: cost_tick"
                         );
                     }
                     Err(e) => {
-                        tracing::error!(org_id = %deps.org_id, "voice_assistant: credit deduction db error: {e}");
-                        // Fail-open: log and continue rather than killing the session on a db hiccup.
+                        tracing::error!(org_id = %deps.org_id, "help_assistant: credit deduction db error: {e}");
+                        // Fail-open: log and continue.
                     }
                 }
             }
@@ -397,47 +354,39 @@ async fn relay_loop(
     (user_transcript, ai_response, duration_s, total_credits)
 }
 
-/// Arguments for `persist_and_reindex` — grouped to stay under clippy's argument limit.
 struct PersistArgs {
     org_id: Uuid,
     user_id: Uuid,
-    project_id: Option<Uuid>,
-    member_id: Option<Uuid>,
     user_transcript: String,
     ai_response: String,
     duration_seconds: i32,
     credits_used: i32,
 }
 
-/// Persist a completed interaction and best-effort re-embed both sides.
+/// Persist a completed help-assistant interaction.
 ///
-/// Called from a spawned background task after the relay loop ends.
-/// A failure here is logged but NEVER propagates to the session close path
-/// (product decision 3 — re-indexing failures must not surface as session errors).
-async fn persist_and_reindex(pool: &Pool, embedder: &OpenAiEmbeddings, args: PersistArgs) {
+/// Uses `interaction_kind = 'help_assistant'` (migration 035 discriminator).
+/// Unlike the voice assistant, there is NO re-embed step — help answers are
+/// product guidance, not searchable knowledge-base content.
+async fn persist_interaction(pool: &Pool, args: PersistArgs) {
     let PersistArgs {
         org_id,
         user_id,
-        project_id,
-        member_id,
         user_transcript,
         ai_response,
         duration_seconds,
         credits_used,
     } = args;
-    // Insert the interaction row. `interaction_kind = 'project_qa'` is written
-    // explicitly so this insert is unambiguous after migration 035 adds the column.
+
     let interaction_id: Option<Uuid> = sqlx::query_scalar(
         "INSERT INTO voice_assistant_interactions
-            (org_id, user_id, project_id, member_id, user_transcript, ai_response,
+            (org_id, user_id, user_transcript, ai_response,
              duration_seconds, credits_used, interaction_kind)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'project_qa')
+         VALUES ($1, $2, $3, $4, $5, $6, 'help_assistant')
          RETURNING id",
     )
     .bind(org_id)
     .bind(user_id)
-    .bind(project_id)
-    .bind(member_id)
     .bind(user_transcript.as_str())
     .bind(ai_response.as_str())
     .bind(duration_seconds)
@@ -445,63 +394,15 @@ async fn persist_and_reindex(pool: &Pool, embedder: &OpenAiEmbeddings, args: Per
     .fetch_optional(pool)
     .await
     .unwrap_or_else(|e| {
-        tracing::warn!("voice_assistant: persist interaction failed: {e}");
+        tracing::warn!("help_assistant: persist interaction failed: {e}");
         None
     });
 
-    let Some(interaction_id) = interaction_id else {
-        return;
-    };
-
-    tracing::info!(
-        %org_id,
-        %interaction_id,
-        "voice_assistant: interaction persisted"
-    );
-
-    // Re-embed user_transcript and ai_response into transcript_embeddings
-    // with transcript_id = NULL and interaction_id = this interaction's id.
-    let texts_to_embed: Vec<(String, &str)> =
-        [(user_transcript, "user"), (ai_response, "assistant")]
-            .into_iter()
-            .filter(|(t, _)| !t.trim().is_empty())
-            .collect();
-
-    for (text, role) in texts_to_embed {
-        match embedder.embed_one(&text).await {
-            Ok(vec) => {
-                let qvec = pgvector::Vector::from(vec);
-                if let Err(e) = sqlx::query(
-                    "INSERT INTO transcript_embeddings
-                        (org_id, project_id, transcript_id, interaction_id,
-                         content, speaker_name, embedding)
-                     VALUES ($1, $2, NULL, $3, $4, $5, $6)",
-                )
-                .bind(org_id)
-                .bind(project_id)
-                .bind(interaction_id)
-                .bind(text)
-                .bind(role) // speaker_name = "user" or "assistant"
-                .bind(qvec)
-                .execute(pool)
-                .await
-                {
-                    tracing::warn!(
-                        %org_id,
-                        %interaction_id,
-                        role,
-                        "voice_assistant: re-embed insert failed: {e}"
-                    );
-                }
-            }
-            Err(e) => {
-                tracing::warn!(
-                    %org_id,
-                    %interaction_id,
-                    role,
-                    "voice_assistant: embed failed: {e}"
-                );
-            }
-        }
+    if let Some(id) = interaction_id {
+        tracing::info!(
+            %org_id,
+            interaction_id = %id,
+            "help_assistant: interaction persisted"
+        );
     }
 }

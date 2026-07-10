@@ -148,6 +148,13 @@ pub struct Config {
     /// `OPENAI_API_KEY` is set. `None` ⇒ the relay route is not registered and the
     /// dashboard hides the voice button. Ships dark until both env vars are set.
     pub voice_assistant: Option<VoiceAssistantConfig>,
+    /// Dashboard Help Assistant — global GPT-Realtime relay with static product-knowledge
+    /// prompt, available to all active B2B members (no role restriction). Present only
+    /// when `HELP_ASSISTANT_ENABLED` is truthy AND `OPENAI_API_KEY` is set. `None` ⇒
+    /// the relay route is not registered and the floating help button is hidden. Ships
+    /// dark until both env vars are set. Decoupled from voice_assistant so pricing and
+    /// the session cap can be tuned independently.
+    pub help_assistant: Option<HelpAssistantConfig>,
 }
 
 /// OpenAI Realtime Translation credentials + pricing (spec 0093). All-or-nothing
@@ -231,6 +238,54 @@ impl VoiceAssistantConfig {
             cost_per_minute: parse_or("VOICE_ASSISTANT_COST_PER_MINUTE", 0.30f64),
             markup: percent / 100.0,
             max_sessions: parse_or("VOICE_ASSISTANT_MAX_SESSIONS", 10usize),
+        }
+    }
+}
+
+/// Dashboard Help Assistant config (static product-knowledge relay for ALL active
+/// B2B members). Decoupled from `VoiceAssistantConfig` — different default pricing,
+/// independent session cap, and no role restriction. Activates only when
+/// `HELP_ASSISTANT_ENABLED` is truthy AND `OPENAI_API_KEY` is set.
+#[derive(Clone)]
+pub struct HelpAssistantConfig {
+    /// Server-only OpenAI API key (same var as VA/Pro: `OPENAI_API_KEY`).
+    /// Never sent to clients. The feature is gated independently on
+    /// `HELP_ASSISTANT_ENABLED` so the key can be shared without enabling all tiers.
+    pub api_key: String,
+    /// GPT-Realtime model id (`HELP_ASSISTANT_MODEL`, default `gpt-realtime-2.1`).
+    pub model: String,
+    /// Raw server cost per minute, USD (`HELP_ASSISTANT_COST_PER_MINUTE`, default 0.18).
+    /// Never serialized; used only for credit-deduction math.
+    pub cost_per_minute: f64,
+    /// Markup as a FRACTION (e.g. 0.25 = 25%). Configured via
+    /// `HELP_ASSISTANT_MARKUP_PERCENT` (a percentage, e.g. 25), divided by 100.
+    /// Default 25.0 → 0.25.
+    pub markup: f64,
+    /// Hard cap on concurrent help-assistant sessions across the process
+    /// (`HELP_ASSISTANT_MAX_SESSIONS`, default 10). Semaphore-backed; new
+    /// connections beyond this cap receive a `capacity_full` error and are closed.
+    pub max_sessions: usize,
+}
+
+impl HelpAssistantConfig {
+    fn from_env() -> Self {
+        let percent = env::var("HELP_ASSISTANT_MARKUP_PERCENT")
+            .ok()
+            .and_then(|v| v.trim().parse::<f64>().ok())
+            .unwrap_or(25.0);
+        Self {
+            api_key: env::var("OPENAI_API_KEY")
+                .unwrap_or_default()
+                .trim()
+                .to_string(),
+            model: env::var("HELP_ASSISTANT_MODEL")
+                .ok()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "gpt-realtime-2.1".to_string()),
+            cost_per_minute: parse_or("HELP_ASSISTANT_COST_PER_MINUTE", 0.18f64),
+            markup: percent / 100.0,
+            max_sessions: parse_or("HELP_ASSISTANT_MAX_SESSIONS", 10usize),
         }
     }
 }
@@ -894,6 +949,15 @@ impl Config {
             None
         };
 
+        // Dashboard Help Assistant: static-prompt GPT-Realtime relay for ALL active
+        // B2B members. Independent kill switch + pricing from the voice assistant.
+        // Ships dark until HELP_ASSISTANT_ENABLED=true AND OPENAI_API_KEY is set.
+        let help_assistant = if env_flag("HELP_ASSISTANT_ENABLED") && present("OPENAI_API_KEY") {
+            Some(HelpAssistantConfig::from_env())
+        } else {
+            None
+        };
+
         // Premium engine — Gemini Live Translate (spec 0100): `GEMINI_PREMIUM` + key.
         let google = if env_flag("GEMINI_PREMIUM") && present("GOOGLE_AI_API_KEY") {
             Some(GeminiConfig::from_env())
@@ -971,6 +1035,7 @@ impl Config {
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty()),
             voice_assistant,
+            help_assistant,
         })
     }
 
@@ -1327,6 +1392,7 @@ impl Config {
             embeddings: None,
             embeddings_backfill_secret: None,
             voice_assistant: None,
+            help_assistant: None,
         }
     }
 }
@@ -1353,6 +1419,7 @@ impl std::fmt::Debug for Config {
             .field("cartesia", &self.cartesia.is_some())
             .field("push", &self.push.is_some())
             .field("voice_assistant", &self.voice_assistant.is_some())
+            .field("help_assistant", &self.help_assistant.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -1361,6 +1428,16 @@ impl std::fmt::Debug for VoiceAssistantConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // api_key is server-only and must never reach logs — redacted.
         f.debug_struct("VoiceAssistantConfig")
+            .field("model", &self.model)
+            .field("max_sessions", &self.max_sessions)
+            .finish_non_exhaustive()
+    }
+}
+
+impl std::fmt::Debug for HelpAssistantConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // api_key is server-only and must never reach logs — redacted.
+        f.debug_struct("HelpAssistantConfig")
             .field("model", &self.model)
             .field("max_sessions", &self.max_sessions)
             .finish_non_exhaustive()
