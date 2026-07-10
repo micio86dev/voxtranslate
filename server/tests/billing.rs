@@ -196,6 +196,7 @@ mod guest_mode {
             embeddings: None,
             embeddings_backfill_secret: None,
             voice_assistant: None,
+            help_assistant: None,
         };
         let state = AppState::new(config);
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
