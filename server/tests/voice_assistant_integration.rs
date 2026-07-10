@@ -38,22 +38,32 @@ fn build_session_update_has_required_fields() {
     let v: serde_json::Value = serde_json::from_str(&json_str).expect("valid JSON");
     assert_eq!(v["type"], "session.update");
     let sess = &v["session"];
-    // modalities must include audio and text
-    let modalities = sess["modalities"].as_array().expect("modalities array");
+    assert_eq!(sess["type"], "realtime");
+    // GA schema: output_modalities is audio (audio output carries its transcript)
+    let modalities = sess["output_modalities"]
+        .as_array()
+        .expect("output_modalities array");
     let modality_strs: Vec<&str> = modalities.iter().filter_map(|m| m.as_str()).collect();
-    assert!(modality_strs.contains(&"text"), "must include text");
     assert!(modality_strs.contains(&"audio"), "must include audio");
     // instructions injected
     assert_eq!(sess["instructions"], instructions);
     // voice
-    assert_eq!(sess["voice"], "alloy");
-    // audio formats
-    assert_eq!(sess["input_audio_format"], "pcm16");
-    assert_eq!(sess["output_audio_format"], "pcm16");
-    // input audio transcription enabled
-    assert_eq!(sess["input_audio_transcription"]["model"], "whisper-1");
-    // server VAD
-    assert_eq!(sess["turn_detection"]["type"], "server_vad");
+    assert_eq!(sess["audio"]["output"]["voice"], "alloy");
+    // audio formats are nested objects with an explicit rate
+    assert_eq!(sess["audio"]["input"]["format"]["type"], "audio/pcm");
+    assert_eq!(sess["audio"]["input"]["format"]["rate"], 24000);
+    assert_eq!(sess["audio"]["output"]["format"]["type"], "audio/pcm");
+    assert_eq!(sess["audio"]["output"]["format"]["rate"], 24000);
+    // input audio transcription enabled (GA streaming model)
+    assert_eq!(
+        sess["audio"]["input"]["transcription"]["model"],
+        "gpt-realtime-whisper"
+    );
+    // semantic VAD
+    assert_eq!(
+        sess["audio"]["input"]["turn_detection"]["type"],
+        "semantic_vad"
+    );
 }
 
 /// A different voice is reflected correctly.
@@ -61,7 +71,7 @@ fn build_session_update_has_required_fields() {
 fn build_session_update_custom_voice() {
     let json_str = voice_assistant_client::build_session_update_json("sys", "nova");
     let v: serde_json::Value = serde_json::from_str(&json_str).unwrap();
-    assert_eq!(v["session"]["voice"], "nova");
+    assert_eq!(v["session"]["audio"]["output"]["voice"], "nova");
 }
 
 /// audio_append_json wraps PCM16 bytes in an input_audio_buffer.append frame.

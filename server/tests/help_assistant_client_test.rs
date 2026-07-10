@@ -58,15 +58,28 @@ fn ha_session_update_has_required_fields() {
     let v: Value = serde_json::from_str(&json_str).expect("valid JSON");
     assert_eq!(v["type"], "session.update");
     let sess = &v["session"];
-    let mods = sess["modalities"].as_array().expect("modalities array");
+    assert_eq!(sess["type"], "realtime");
+    let mods = sess["output_modalities"]
+        .as_array()
+        .expect("output_modalities array");
     let mods: Vec<&str> = mods.iter().filter_map(|m| m.as_str()).collect();
-    assert!(mods.contains(&"text"), "modalities must contain text");
-    assert!(mods.contains(&"audio"), "modalities must contain audio");
-    assert_eq!(sess["voice"], "alloy");
-    assert_eq!(sess["input_audio_format"], "pcm16");
-    assert_eq!(sess["output_audio_format"], "pcm16");
-    assert_eq!(sess["input_audio_transcription"]["model"], "whisper-1");
-    assert_eq!(sess["turn_detection"]["type"], "server_vad");
+    assert!(
+        mods.contains(&"audio"),
+        "output_modalities must contain audio"
+    );
+    assert_eq!(sess["audio"]["output"]["voice"], "alloy");
+    assert_eq!(sess["audio"]["input"]["format"]["type"], "audio/pcm");
+    assert_eq!(sess["audio"]["input"]["format"]["rate"], 24000);
+    assert_eq!(
+        sess["audio"]["input"]["transcription"]["model"],
+        "gpt-realtime-whisper"
+    );
+    assert_eq!(sess["audio"]["output"]["format"]["type"], "audio/pcm");
+    assert_eq!(sess["audio"]["output"]["format"]["rate"], 24000);
+    assert_eq!(
+        sess["audio"]["input"]["turn_detection"]["type"],
+        "semantic_vad"
+    );
     // instructions must be the static help prompt (non-empty).
     let instr = sess["instructions"].as_str().expect("instructions string");
     assert!(
@@ -80,7 +93,7 @@ fn ha_session_update_has_required_fields() {
 fn ha_session_update_reflects_voice_param() {
     let json_str = build_ha_session_update_json("echo");
     let v: Value = serde_json::from_str(&json_str).expect("valid JSON");
-    assert_eq!(v["session"]["voice"], "echo");
+    assert_eq!(v["session"]["audio"]["output"]["voice"], "echo");
 }
 
 // ---- ha_audio_append_json ---------------------------------------------------
