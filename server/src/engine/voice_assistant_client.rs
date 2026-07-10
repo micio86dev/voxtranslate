@@ -280,8 +280,14 @@ mod tests {
         assert_eq!(sess["instructions"], "sys prompt");
         assert_eq!(sess["audio"]["input"]["format"]["type"], "audio/pcm");
         assert_eq!(sess["audio"]["input"]["format"]["rate"], 24000);
-        assert_eq!(sess["audio"]["input"]["transcription"]["model"], "gpt-realtime-whisper");
-        assert_eq!(sess["audio"]["input"]["turn_detection"]["type"], "semantic_vad");
+        assert_eq!(
+            sess["audio"]["input"]["transcription"]["model"],
+            "gpt-realtime-whisper"
+        );
+        assert_eq!(
+            sess["audio"]["input"]["turn_detection"]["type"],
+            "semantic_vad"
+        );
         assert_eq!(sess["audio"]["output"]["format"]["type"], "audio/pcm");
         assert_eq!(sess["audio"]["output"]["format"]["rate"], 24000);
         assert_eq!(sess["audio"]["output"]["voice"], "alloy");
