@@ -133,11 +133,12 @@ pub fn build_ha_session_update_json(voice: &str) -> String {
         "type": "session.update",
         "session": {
             "type": "realtime",
-            "modalities": ["text", "audio"],
+            "output_modalities": ["audio"],
             "instructions": build_help_instructions(),
             "audio": {
                 "input": {
                     "format": { "type": "audio/pcm", "rate": 24000 },
+                    "transcription": { "model": "gpt-realtime-whisper" },
                     "turn_detection": { "type": "semantic_vad" }
                 },
                 "output": {
@@ -209,8 +210,10 @@ mod tests {
         assert_eq!(v["type"], "session.update");
         let sess = &v["session"];
         assert_eq!(sess["type"], "realtime");
+        assert_eq!(sess["output_modalities"][0], "audio");
         assert_eq!(sess["audio"]["input"]["format"]["type"], "audio/pcm");
         assert_eq!(sess["audio"]["input"]["format"]["rate"], 24000);
+        assert_eq!(sess["audio"]["input"]["transcription"]["model"], "gpt-realtime-whisper");
         assert_eq!(sess["audio"]["input"]["turn_detection"]["type"], "semantic_vad");
         assert_eq!(sess["audio"]["output"]["format"]["type"], "audio/pcm");
         assert_eq!(sess["audio"]["output"]["voice"], "alloy");

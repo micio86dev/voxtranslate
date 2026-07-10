@@ -59,24 +59,26 @@ pub enum VaEvent {
 
 /// Build the `session.update` payload that configures a voice-assistant session.
 ///
-/// The session is set up with:
-/// - `modalities`: `["text", "audio"]`
+/// The session is set up per the GA Realtime schema (gpt-realtime-2):
+/// - `type`: `"realtime"`
+/// - `output_modalities`: `["audio"]` (audio output carries its own transcript)
 /// - `instructions`: the RAG-grounded system instructions
-/// - `voice`: caller-supplied (default `"alloy"`, env-configurable)
-/// - `input_audio_format` / `output_audio_format`: `"pcm16"`
-/// - `input_audio_transcription`: Whisper-1 (so the relay gets the user's spoken
-///   text and can persist it to `voice_assistant_interactions`)
-/// - `turn_detection`: server VAD (no manual push-to-talk)
+/// - `audio.input.format`: `{ type: "audio/pcm", rate: 24000 }`
+/// - `audio.input.transcription`: `gpt-realtime-whisper` (so the relay gets the
+///   user's spoken text and can persist it to `voice_assistant_interactions`)
+/// - `audio.input.turn_detection`: `semantic_vad` (no manual push-to-talk)
+/// - `audio.output.format`: `{ type: "audio/pcm" }`, `audio.output.voice`: caller-supplied
 pub fn build_session_update_json(instructions: &str, voice: &str) -> String {
     serde_json::json!({
         "type": "session.update",
         "session": {
             "type": "realtime",
-            "modalities": ["text", "audio"],
+            "output_modalities": ["audio"],
             "instructions": instructions,
             "audio": {
                 "input": {
                     "format": { "type": "audio/pcm", "rate": 24000 },
+                    "transcription": { "model": "gpt-realtime-whisper" },
                     "turn_detection": { "type": "semantic_vad" }
                 },
                 "output": {
@@ -194,15 +196,19 @@ pub fn parse_realtime_event(text: &str) -> VaEvent {
             .to_string()
     };
     match v.get("type").and_then(|t| t.as_str()).unwrap_or_default() {
-        "response.audio.delta" => {
+        // GA event names (gpt-realtime-2) use the `output_` prefix; the beta names
+        // are kept for backward compatibility if the model is overridden to a beta id.
+        "response.output_audio.delta" | "response.audio.delta" => {
             let d = delta();
             match base64::engine::general_purpose::STANDARD.decode(&d) {
                 Ok(bytes) => VaEvent::AudioDelta(bytes),
                 Err(_) => VaEvent::Other,
             }
         }
-        "response.text.delta" => VaEvent::TextDelta(delta()),
-        "response.audio_transcript.delta" => VaEvent::TranscriptDelta(delta()),
+        "response.output_text.delta" | "response.text.delta" => VaEvent::TextDelta(delta()),
+        "response.output_audio_transcript.delta" | "response.audio_transcript.delta" => {
+            VaEvent::TranscriptDelta(delta())
+        }
         "input_audio_buffer.speech_started" => VaEvent::SpeechStarted,
         "input_audio_buffer.speech_stopped" => VaEvent::SpeechStopped,
         "response.done" => VaEvent::ResponseDone,
@@ -268,13 +274,13 @@ mod tests {
         assert_eq!(v["type"], "session.update");
         let sess = &v["session"];
         assert_eq!(sess["type"], "realtime");
-        let mods = sess["modalities"].as_array().unwrap();
+        let mods = sess["output_modalities"].as_array().unwrap();
         let mods: Vec<&str> = mods.iter().filter_map(|m| m.as_str()).collect();
-        assert!(mods.contains(&"text"));
         assert!(mods.contains(&"audio"));
         assert_eq!(sess["instructions"], "sys prompt");
         assert_eq!(sess["audio"]["input"]["format"]["type"], "audio/pcm");
         assert_eq!(sess["audio"]["input"]["format"]["rate"], 24000);
+        assert_eq!(sess["audio"]["input"]["transcription"]["model"], "gpt-realtime-whisper");
         assert_eq!(sess["audio"]["input"]["turn_detection"]["type"], "semantic_vad");
         assert_eq!(sess["audio"]["output"]["format"]["type"], "audio/pcm");
         assert_eq!(sess["audio"]["output"]["voice"], "alloy");
@@ -295,7 +301,7 @@ mod tests {
     #[test]
     fn parse_audio_delta() {
         let b64 = base64::engine::general_purpose::STANDARD.encode([1u8, 2, 3]);
-        let frame = format!(r#"{{"type":"response.audio.delta","delta":"{b64}"}}"#);
+        let frame = format!(r#"{{"type":"response.output_audio.delta","delta":"{b64}"}}"#);
         assert!(matches!(
             parse_realtime_event(&frame),
             VaEvent::AudioDelta(b) if b == vec![1u8, 2, 3]
@@ -304,7 +310,7 @@ mod tests {
 
     #[test]
     fn parse_text_delta() {
-        let frame = r#"{"type":"response.text.delta","delta":"hello"}"#;
+        let frame = r#"{"type":"response.output_text.delta","delta":"hello"}"#;
         assert!(matches!(
             parse_realtime_event(frame),
             VaEvent::TextDelta(s) if s == "hello"
@@ -313,7 +319,7 @@ mod tests {
 
     #[test]
     fn parse_transcript_delta() {
-        let frame = r#"{"type":"response.audio_transcript.delta","delta":"world"}"#;
+        let frame = r#"{"type":"response.output_audio_transcript.delta","delta":"world"}"#;
         assert!(matches!(
             parse_realtime_event(frame),
             VaEvent::TranscriptDelta(s) if s == "world"
