@@ -8,6 +8,8 @@
 
 pub mod cartesia;
 pub mod gemini;
+pub mod help_assistant;
+pub mod help_assistant_client;
 pub mod langmap;
 pub mod metadata;
 pub mod openai;

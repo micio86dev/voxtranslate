@@ -253,6 +253,18 @@ pub fn voice_assistant_minute_credits(cfg: &crate::config::VoiceAssistantConfig)
     raw.ceil() as i32
 }
 
+/// Credits charged per minute of a Dashboard Help Assistant session.
+///
+/// Formula: `ceil(cost_per_minute × (1 + markup) × 100)` where 100 credits = $1.
+/// Mirrors `voice_assistant_minute_credits` exactly — different default cost (0.18
+/// vs 0.30), same ceiling math.
+///
+/// Example (default config): `ceil(0.18 × 1.25 × 100) = ceil(22.5) = 23`.
+pub fn help_assistant_minute_credits(cfg: &crate::config::HelpAssistantConfig) -> i32 {
+    let raw = cfg.cost_per_minute * (1.0 + cfg.markup) * 100.0;
+    raw.ceil() as i32
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
