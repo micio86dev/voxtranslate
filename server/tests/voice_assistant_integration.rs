@@ -319,8 +319,8 @@ fn role_rank_ordering_is_correct() {
     assert_eq!(role_rank("owner"), OWNER);
     assert_eq!(role_rank("admin"), ADMIN);
     assert_eq!(role_rank("member"), MEMBER);
-    assert!(OWNER > ADMIN, "owner must outrank admin");
-    assert!(ADMIN > MEMBER, "admin must outrank member");
+    const { assert!(OWNER > ADMIN, "owner must outrank admin") };
+    const { assert!(ADMIN > MEMBER, "admin must outrank member") };
 }
 
 /// Unknown role strings map to rank 0 (below MEMBER).
