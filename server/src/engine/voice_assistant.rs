@@ -467,19 +467,22 @@ async fn persist_and_reindex(pool: &Pool, embedder: &OpenAiEmbeddings, args: Per
             .filter(|(t, _)| !t.trim().is_empty())
             .collect();
 
-    for (text, role) in texts_to_embed {
+    for (chunk_index, (text, role)) in texts_to_embed.into_iter().enumerate() {
         match embedder.embed_one(&text).await {
             Ok(vec) => {
                 let qvec = pgvector::Vector::from(vec);
+                // session_id omitted (assistant interactions have no call session →
+                // nullable since migration 036); chunk_index is 0=user, 1=assistant.
                 if let Err(e) = sqlx::query(
                     "INSERT INTO transcript_embeddings
                         (org_id, project_id, transcript_id, interaction_id,
-                         content, speaker_name, embedding)
-                     VALUES ($1, $2, NULL, $3, $4, $5, $6)",
+                         chunk_index, content, speaker_name, embedding)
+                     VALUES ($1, $2, NULL, $3, $4, $5, $6, $7)",
                 )
                 .bind(org_id)
                 .bind(project_id)
                 .bind(interaction_id)
+                .bind(chunk_index as i32)
                 .bind(text)
                 .bind(role) // speaker_name = "user" or "assistant"
                 .bind(qvec)
