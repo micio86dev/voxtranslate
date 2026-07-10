@@ -142,7 +142,7 @@ pub fn build_ha_session_update_json(voice: &str) -> String {
                     "turn_detection": { "type": "semantic_vad" }
                 },
                 "output": {
-                    "format": { "type": "audio/pcm" },
+                    "format": { "type": "audio/pcm", "rate": 24000 },
                     "voice": voice
                 }
             }
@@ -216,6 +216,7 @@ mod tests {
         assert_eq!(sess["audio"]["input"]["transcription"]["model"], "gpt-realtime-whisper");
         assert_eq!(sess["audio"]["input"]["turn_detection"]["type"], "semantic_vad");
         assert_eq!(sess["audio"]["output"]["format"]["type"], "audio/pcm");
+        assert_eq!(sess["audio"]["output"]["format"]["rate"], 24000);
         assert_eq!(sess["audio"]["output"]["voice"], "alloy");
         let instr = sess["instructions"].as_str().unwrap();
         assert!(!instr.is_empty());
