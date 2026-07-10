@@ -125,10 +125,10 @@ fn help_assistant_defaults() {
         .help_assistant
         .expect("help_assistant must be Some when flag=true + key set");
 
-    // Default model is gpt-4o-realtime-preview.
+    // Default model is gpt-realtime-2.
     assert_eq!(
-        ha.model, "gpt-4o-realtime-preview",
-        "default model should be gpt-4o-realtime-preview"
+        ha.model, "gpt-realtime-2",
+        "default model should be gpt-realtime-2"
     );
     // Default cost per minute is 0.18.
     assert!(
