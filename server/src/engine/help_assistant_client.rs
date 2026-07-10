@@ -132,7 +132,7 @@ pub fn build_ha_session_update_json(voice: &str) -> String {
     serde_json::json!({
         "type": "session.update",
         "session": {
-            "type": "conversation",
+            "type": "realtime",
             "modalities": ["text", "audio"],
             "instructions": build_help_instructions(),
             "voice": voice,
@@ -207,7 +207,7 @@ mod tests {
         let v: serde_json::Value = serde_json::from_str(&json_str).unwrap();
         assert_eq!(v["type"], "session.update");
         let sess = &v["session"];
-        assert_eq!(sess["type"], "conversation");
+        assert_eq!(sess["type"], "realtime");
         assert_eq!(sess["voice"], "alloy");
         assert_eq!(sess["input_audio_format"], "pcm16");
         assert_eq!(sess["output_audio_format"], "pcm16");

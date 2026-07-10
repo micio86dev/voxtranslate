@@ -71,7 +71,7 @@ pub fn build_session_update_json(instructions: &str, voice: &str) -> String {
     serde_json::json!({
         "type": "session.update",
         "session": {
-            "type": "conversation",
+            "type": "realtime",
             "modalities": ["text", "audio"],
             "instructions": instructions,
             "voice": voice,
@@ -266,7 +266,7 @@ mod tests {
         let v: Value = serde_json::from_str(&json_str).unwrap();
         assert_eq!(v["type"], "session.update");
         let sess = &v["session"];
-        assert_eq!(sess["type"], "conversation");
+        assert_eq!(sess["type"], "realtime");
         let mods = sess["modalities"].as_array().unwrap();
         let mods: Vec<&str> = mods.iter().filter_map(|m| m.as_str()).collect();
         assert!(mods.contains(&"text"));
