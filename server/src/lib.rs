@@ -231,6 +231,14 @@ pub struct AppState {
     /// Cumulative guest STT usage per IP (H1) — makes `GUEST_MAX_MINUTES` survive
     /// reconnects instead of resetting per connection.
     pub guest_usage: Arc<GuestUsage>,
+    /// Process-wide semaphore for voice-assistant sessions (spec voice-assistant).
+    /// `Some` only when `VoiceAssistantConfig` is present; cap = `max_sessions`.
+    /// `None` when the voice assistant is disabled (route is not registered).
+    pub voice_assistant_semaphore: Option<Arc<tokio::sync::Semaphore>>,
+    /// Process-wide semaphore for help-assistant sessions.
+    /// `Some` only when `HelpAssistantConfig` is present; cap = `max_sessions`.
+    /// `None` when the help assistant is disabled (route is not registered).
+    pub help_assistant_semaphore: Option<Arc<tokio::sync::Semaphore>>,
 }
 
 /// Read a positive `u32` from `var`, falling back to `default`.
@@ -404,6 +412,17 @@ impl AppState {
             .embeddings
             .as_ref()
             .map(embeddings::OpenAiEmbeddings::from_config);
+        // Voice-assistant semaphore — process-wide cap on concurrent relay sessions.
+        // Built only when the voice assistant is enabled (same gate as the route).
+        let voice_assistant_semaphore = config
+            .voice_assistant
+            .as_ref()
+            .map(|va| Arc::new(tokio::sync::Semaphore::new(va.max_sessions.max(1))));
+        // Help-assistant semaphore — independent cap for the dashboard help relay.
+        let help_assistant_semaphore = config
+            .help_assistant
+            .as_ref()
+            .map(|ha| Arc::new(tokio::sync::Semaphore::new(ha.max_sessions.max(1))));
         Self {
             config,
             rooms,
@@ -441,6 +460,8 @@ impl AppState {
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty()),
             guest_usage: Arc::new(GuestUsage::default()),
+            voice_assistant_semaphore,
+            help_assistant_semaphore,
         }
     }
 
@@ -700,6 +721,19 @@ pub fn app(state: AppState) -> Router {
         )
         // VoxTranslate for Business — org workspace API (spec 0106).
         .merge(business::routes::routes())
+        // B2B Voice Assistant — registered only when config is present (ships dark).
+        .merge(if state.config.voice_assistant.is_some() {
+            business::routes::voice_assistant_routes()
+        } else {
+            axum::Router::new()
+        })
+        // Dashboard Help Assistant — registered only when config is present (ships dark).
+        // When absent the route is 404 — satisfies spec feature-flag-disabled behavior.
+        .merge(if state.config.help_assistant.is_some() {
+            business::routes::help_assistant_routes()
+        } else {
+            axum::Router::new()
+        })
         // Canonical log line + request-id span per request (spec 0050).
         .layer(axum::middleware::from_fn(observability::canonical_log))
         .layer(cors)

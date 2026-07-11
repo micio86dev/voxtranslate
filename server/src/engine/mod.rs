@@ -8,12 +8,16 @@
 
 pub mod cartesia;
 pub mod gemini;
+pub mod help_assistant;
+pub mod help_assistant_client;
 pub mod langmap;
 pub mod metadata;
 pub mod openai;
 pub mod premium;
 pub mod pro;
 pub mod standard;
+pub mod voice_assistant;
+pub mod voice_assistant_client;
 
 use std::collections::HashSet;
 use std::sync::Arc;

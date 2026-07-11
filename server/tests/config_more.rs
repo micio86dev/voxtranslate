@@ -22,6 +22,12 @@ fn lock() -> std::sync::MutexGuard<'static, ()> {
 /// leftovers from a prior test can't bleed in. The two required provider keys are
 /// (re)set by `base_env`.
 const OPTIONAL_VARS: &[&str] = &[
+    // voice assistant
+    "VOICE_ASSISTANT_ENABLED",
+    "VOICE_ASSISTANT_MODEL",
+    "VOICE_ASSISTANT_COST_PER_MINUTE",
+    "VOICE_ASSISTANT_MARKUP_PERCENT",
+    "VOICE_ASSISTANT_MAX_SESSIONS",
     "PORT",
     "ALLOWED_ORIGINS",
     "GROQ_TRANSLATION_MODEL",
@@ -404,5 +410,97 @@ fn core_overrides_origins_and_flags() {
     assert_eq!(c.dragonfly_url.as_deref(), Some("redis://dragon:6379"));
     assert_eq!(c.bench_secret.as_deref(), Some("bench"));
     assert!(c.retention_sweep_enabled);
+    base_env();
+}
+
+// ---- VoiceAssistantConfig ---------------------------------------------------
+
+#[test]
+fn voice_assistant_config_defaults() {
+    let _g = lock();
+    base_env();
+    // No voice assistant env vars set → feature is disabled (None).
+    let c = Config::from_env().unwrap();
+    assert!(
+        c.voice_assistant.is_none(),
+        "voice_assistant must be None when VOICE_ASSISTANT_ENABLED is unset/false"
+    );
+}
+
+#[test]
+fn voice_assistant_config_from_env() {
+    let _g = lock();
+    base_env();
+    std::env::set_var("VOICE_ASSISTANT_ENABLED", "true");
+    std::env::set_var("OPENAI_API_KEY", "sk-va-key");
+    std::env::set_var("VOICE_ASSISTANT_MODEL", "gpt-realtime-2.1");
+    std::env::set_var("VOICE_ASSISTANT_COST_PER_MINUTE", "0.10");
+    std::env::set_var("VOICE_ASSISTANT_MARKUP_PERCENT", "25");
+    std::env::set_var("VOICE_ASSISTANT_MAX_SESSIONS", "5");
+
+    let c = Config::from_env().unwrap();
+    let va = c.voice_assistant.expect(
+        "voice_assistant must be Some when VOICE_ASSISTANT_ENABLED=true + OPENAI_API_KEY set",
+    );
+
+    assert_eq!(va.api_key, "sk-va-key");
+    assert_eq!(va.model, "gpt-realtime-2.1");
+    assert!((va.cost_per_minute - 0.10).abs() < 1e-9);
+    // 25 percent → stored as 0.25
+    assert!((va.markup - 0.25).abs() < 1e-9);
+    assert_eq!(va.max_sessions, 5);
+    base_env();
+}
+
+#[test]
+fn voice_assistant_markup_percent_stored_as_fraction() {
+    let _g = lock();
+    base_env();
+    std::env::set_var("VOICE_ASSISTANT_ENABLED", "1");
+    std::env::set_var("OPENAI_API_KEY", "sk-va-key2");
+    // Default markup (25%) when VOICE_ASSISTANT_MARKUP_PERCENT is absent.
+    let c = Config::from_env().unwrap();
+    let va = c.voice_assistant.expect("voice_assistant present");
+    // Default 25.0 percent → fraction 0.25
+    assert!(
+        (va.markup - 0.25).abs() < 1e-9,
+        "expected 0.25 (25%), got {}",
+        va.markup
+    );
+    // Explicit 50% → 0.50
+    std::env::set_var("VOICE_ASSISTANT_MARKUP_PERCENT", "50");
+    let va2 = Config::from_env()
+        .unwrap()
+        .voice_assistant
+        .expect("voice_assistant present");
+    assert!((va2.markup - 0.50).abs() < 1e-9);
+    base_env();
+}
+
+#[test]
+fn voice_assistant_absent_when_flag_off_even_with_key() {
+    let _g = lock();
+    base_env();
+    // Key present but flag off → stays None.
+    std::env::set_var("OPENAI_API_KEY", "sk-va-key3");
+    let c = Config::from_env().unwrap();
+    assert!(
+        c.voice_assistant.is_none(),
+        "voice_assistant must be None when VOICE_ASSISTANT_ENABLED is not truthy"
+    );
+    base_env();
+}
+
+#[test]
+fn voice_assistant_absent_when_no_api_key() {
+    let _g = lock();
+    base_env();
+    // Flag on but no OPENAI_API_KEY → stays None.
+    std::env::set_var("VOICE_ASSISTANT_ENABLED", "true");
+    let c = Config::from_env().unwrap();
+    assert!(
+        c.voice_assistant.is_none(),
+        "voice_assistant must be None when OPENAI_API_KEY is absent"
+    );
     base_env();
 }

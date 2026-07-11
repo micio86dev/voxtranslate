@@ -16,6 +16,7 @@ pub mod audit;
 pub mod billing;
 pub mod calls;
 pub mod credits;
+pub mod help_assistant;
 pub mod insights;
 pub mod meetings;
 pub mod members;
@@ -28,6 +29,7 @@ pub mod search;
 pub mod storyboard;
 pub mod teams;
 pub mod transcripts;
+pub mod voice_assistant;
 pub mod voice_messages;
 
 use axum::http::StatusCode;

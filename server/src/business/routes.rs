@@ -5,8 +5,8 @@ use axum::routing::{delete, get, patch, post};
 use axum::Router;
 
 use crate::business::{
-    analytics, audit, billing, calls, insights, meetings, members, organizations, projects,
-    recording, search, storyboard, teams, transcripts, voice_messages,
+    analytics, audit, billing, calls, help_assistant, insights, meetings, members, organizations,
+    projects, recording, search, storyboard, teams, transcripts, voice_assistant, voice_messages,
 };
 use crate::AppState;
 
@@ -173,4 +173,24 @@ pub fn routes() -> Router<AppState> {
             get(billing::credits),
         )
         .route("/api/business/stripe/webhook", post(billing::webhook))
+}
+
+/// Voice-assistant route, registered separately so it is absent when the
+/// config is `None` (the route ships dark until `VOICE_ASSISTANT_ENABLED` is set).
+pub fn voice_assistant_routes() -> Router<AppState> {
+    Router::new().route(
+        "/api/business/organizations/{org_id}/voice-assistant",
+        get(voice_assistant::ws_handler),
+    )
+}
+
+/// Help-assistant route, registered separately so it is absent when the
+/// config is `None` (the route ships dark until `HELP_ASSISTANT_ENABLED` is set).
+/// When the route is absent, a client request returns 404, satisfying the
+/// spec requirement for feature-flag-disabled behavior.
+pub fn help_assistant_routes() -> Router<AppState> {
+    Router::new().route(
+        "/api/business/organizations/{org_id}/help-assistant",
+        get(help_assistant::ws_handler),
+    )
 }
