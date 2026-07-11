@@ -91,6 +91,16 @@ describe('call CSP (issue #237 regression guard)', () => {
     expect(directive('connect-src')).toContain('https://voices.voxtranslate.app');
   });
 
+  it('allows the webinar media path (WHIP ingest + HLS playback)', () => {
+    // The presenter POSTs the WHIP offer + hls.js fetches HLS segments (connect-src);
+    // the participant <video> plays the HLS stream cross-origin (media-src). Without
+    // these the browser blocks going live / watching a webinar (F1-4/F1-5).
+    for (const host of ['https://ingest.voxtranslate.app', 'https://hls.voxtranslate.app']) {
+      expect(directive('connect-src')).toContain(host);
+      expect(directive('media-src')).toContain(host);
+    }
+  });
+
   it('allows GA4 (gtag.js) to load and send hits', () => {
     // gtag.js itself is fetched from googletagmanager.com.
     expect(directive('script-src')).toContain('https://www.googletagmanager.com');

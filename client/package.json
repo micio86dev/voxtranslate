@@ -15,12 +15,16 @@
   "dependencies": {
     "astro": "^7.0.6",
     "driver.js": "^1.6.0",
-    "kokoro-js": "^1.2.1"
+    "hls.js": "^1.6.16",
+    "kokoro-js": "^1.2.1",
+    "qrcode": "^1.5.4"
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.9",
+    "@astrojs/vercel": "^11.0.2",
     "@axe-core/playwright": "^4.12.1",
     "@playwright/test": "^1.61.1",
+    "@types/qrcode": "^1.5.6",
     "@vitest/coverage-v8": "^4.1.9",
     "jsdom": "^29.1.1",
     "monocart-coverage-reports": "^2.12.12",

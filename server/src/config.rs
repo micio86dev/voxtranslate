@@ -155,6 +155,87 @@ pub struct Config {
     /// dark until both env vars are set. Decoupled from voice_assistant so pricing and
     /// the session cap can be tuned independently.
     pub help_assistant: Option<HelpAssistantConfig>,
+    /// Webinar Mode (SPEC "Webinar Mode") — 1-to-many broadcast control plane.
+    /// Present only when `MEDIA_INGEST_HOST` is set; `None` ⇒ the `/api/webinars`
+    /// and `/api/w/{code}` routes are not registered (feature ships dark).
+    pub webinar: Option<WebinarConfig>,
+}
+
+/// Webinar Mode config: the off-box media server hosts, join-code length, and the
+/// HMAC/caller secrets for the WHIP publish auth (F1-1/F1-2). Secrets are
+/// server-only and redacted from `Debug`.
+#[derive(Clone)]
+pub struct WebinarConfig {
+    /// WHIP ingest host, e.g. `ingest.voxtranslate.app` (`MEDIA_INGEST_HOST`).
+    pub ingest_host: String,
+    /// LL-HLS playback host (`MEDIA_HLS_HOST`); defaults to `ingest_host` in Phase 1
+    /// (HLS served from the origin) until the R2/CDN host is split out.
+    pub hls_host: String,
+    /// Join-code length (`WEBINAR_CODE_LEN`, default [`crate::webinar::DEFAULT_CODE_LEN`]).
+    pub code_len: usize,
+    /// HMAC-SHA256 key that signs WHIP publish tokens (`MEDIAMTX_AUTH_SECRET`).
+    /// Server-only; never serialized or logged.
+    pub auth_secret: Vec<u8>,
+    /// Shared secret carried in the `/internal/media-auth/{secret}` path, which
+    /// authenticates MediaMTX as the caller (`MEDIA_CALLER_SECRET`). Server-only.
+    pub caller_secret: String,
+    /// Publish-token TTL, seconds (`WEBINAR_PUBLISH_TOKEN_TTL_SECS`, default 120).
+    /// Short by design — the token is only needed at WHIP connect; the live WebRTC
+    /// session outlives it, so a short TTL shrinks the replay window.
+    pub publish_token_ttl_secs: u64,
+}
+
+impl WebinarConfig {
+    fn from_env() -> Self {
+        let ingest_host = env::var("MEDIA_INGEST_HOST")
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        let hls_host = env::var("MEDIA_HLS_HOST")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| ingest_host.clone());
+        Self {
+            ingest_host,
+            hls_host,
+            code_len: parse_or("WEBINAR_CODE_LEN", crate::webinar::DEFAULT_CODE_LEN),
+            auth_secret: env::var("MEDIAMTX_AUTH_SECRET")
+                .unwrap_or_default()
+                .into_bytes(),
+            caller_secret: env::var("MEDIA_CALLER_SECRET")
+                .unwrap_or_default()
+                .trim()
+                .to_string(),
+            publish_token_ttl_secs: parse_or("WEBINAR_PUBLISH_TOKEN_TTL_SECS", 120u64),
+        }
+    }
+
+    /// Test-only config (doc-hidden) so the integration test can enable the
+    /// webinar routes without provisioning a real media server.
+    #[doc(hidden)]
+    pub fn test_default() -> Self {
+        Self {
+            ingest_host: "ingest.test".into(),
+            hls_host: "hls.test".into(),
+            code_len: crate::webinar::DEFAULT_CODE_LEN,
+            auth_secret: b"test-webinar-auth-secret".to_vec(),
+            caller_secret: "test-caller-secret".into(),
+            publish_token_ttl_secs: 120,
+        }
+    }
+}
+
+impl std::fmt::Debug for WebinarConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // auth_secret + caller_secret are server-only secrets — redacted.
+        f.debug_struct("WebinarConfig")
+            .field("ingest_host", &self.ingest_host)
+            .field("hls_host", &self.hls_host)
+            .field("code_len", &self.code_len)
+            .field("publish_token_ttl_secs", &self.publish_token_ttl_secs)
+            .finish_non_exhaustive()
+    }
 }
 
 /// OpenAI Realtime Translation credentials + pricing (spec 0093). All-or-nothing
@@ -958,6 +1039,19 @@ impl Config {
             None
         };
 
+        // Webinar Mode (SPEC "Webinar Mode"): the 1-to-many broadcast control plane.
+        // Enabled once the off-box media server host AND its publish-auth secrets are
+        // configured; ships dark otherwise (the /api/webinars, /api/w/{code}, and
+        // /internal/media-auth routes are not registered).
+        let webinar = if present("MEDIA_INGEST_HOST")
+            && present("MEDIAMTX_AUTH_SECRET")
+            && present("MEDIA_CALLER_SECRET")
+        {
+            Some(WebinarConfig::from_env())
+        } else {
+            None
+        };
+
         // Premium engine — Gemini Live Translate (spec 0100): `GEMINI_PREMIUM` + key.
         let google = if env_flag("GEMINI_PREMIUM") && present("GOOGLE_AI_API_KEY") {
             Some(GeminiConfig::from_env())
@@ -1036,6 +1130,7 @@ impl Config {
                 .filter(|s| !s.is_empty()),
             voice_assistant,
             help_assistant,
+            webinar,
         })
     }
 
@@ -1393,6 +1488,7 @@ impl Config {
             embeddings_backfill_secret: None,
             voice_assistant: None,
             help_assistant: None,
+            webinar: None,
         }
     }
 }
@@ -1420,6 +1516,7 @@ impl std::fmt::Debug for Config {
             .field("push", &self.push.is_some())
             .field("voice_assistant", &self.voice_assistant.is_some())
             .field("help_assistant", &self.help_assistant.is_some())
+            .field("webinar", &self.webinar.is_some())
             .finish_non_exhaustive()
     }
 }

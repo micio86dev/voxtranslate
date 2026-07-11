@@ -1,6 +1,6 @@
 [package]
 name = "voxtranslate-server"
-version = "1.15.1"
+version = "1.16.0"
 edition = "2021"
 license = "LicenseRef-PolyForm-Shield-1.0.0"
 
@@ -37,6 +37,9 @@ sha2 = "0.11"
 sha1 = "0.11"
 hex = "0.4"
 base64 = "0.22"
+# Constant-time secret comparison for the MediaMTX publish-auth caller secret
+# (F1-2, /internal/media-auth). HMAC sig verification uses hmac's own verify_slice.
+subtle = "2"
 async-trait = "0.1"
 
 # Translation cache (spec 0107): DragonflyDB is Redis-compatible, reached over the
@@ -53,11 +56,13 @@ typst-as-lib = "=0.16.0"
 typst-layout = "=0.15.0"
 
 # Chat file upload (spec 0018): extract text from uploaded text-layer PDFs.
-pdf-extract = "0.7"
+# Pinned to 0.12: pulls a fixed lopdf (>= 0.42) that closed the deeply-nested-PDF
+# stack overflow (RUSTSEC-2026-0187) reachable from the uploaded-file text path.
+pdf-extract = "0.12"
 # Chat-file text extraction for .docx (a zip of XML): read word/document.xml and
 # pull the <w:t> runs. deflate-only keeps the zip backend lean.
 zip = { version = "8", default-features = false, features = ["deflate"] }
-quick-xml = "0.39"
+quick-xml = "0.41"
 chacha20poly1305 = "0.10"
 rand = "0.10"
 web-push = { version = "0.11.0", default-features = false }

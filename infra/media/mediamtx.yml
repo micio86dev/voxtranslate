@@ -1,0 +1,48 @@
+###############################################################################
+# MediaMTX — VoxTranslate webinar ingest (WHIP) → LL-HLS  (F1-0 + F1-2)
+#
+# Host publishes to  https://ingest.voxtranslate.app/webinar/{code}/whip
+# Guests read        https://ingest.voxtranslate.app/webinar/{code}/index.m3u8
+#
+# Deploy: see /DEPLOY-HETZNER.md. REPLACE_CALLER_SECRET is injected from env at
+# deploy time — NEVER commit the real value.
+###############################################################################
+
+# --- WebRTC (WHIP ingest) --------------------------------------------------
+# webrtcAdditionalHosts MUST be the grey-cloud (DNS-only) ingest subdomain (or the
+# box's public IP). Behind Cloudflare's orange proxy the ICE candidates advertise
+# the wrong address and WebRTC never connects (DEPLOY-HETZNER.md §"DNS").
+webrtcAdditionalHosts: [ingest.voxtranslate.app]
+webrtcLocalUDPAddress: :8189
+
+# --- LL-HLS (participant playback) -----------------------------------------
+hls: yes
+hlsVariant: lowLatency
+hlsAlwaysRemux: yes
+hlsSegmentDuration: 1s
+hlsPartDuration: 200ms
+
+# --- External auth (F1-2) --------------------------------------------------
+# PUBLISH is authorized by the Axum control plane: MediaMTX POSTs each attempt to
+# the address below, whose PATH carries the caller secret. read/playback are
+# EXCLUDED, so guests pull HLS with no token (the code's entropy is the gate).
+# The control-plane URL must be HTTPS (valid cert ⇒ no authHTTPFingerprint needed).
+authMethod: http
+authHTTPAddress: https://api.voxtranslate.app/internal/media-auth/REPLACE_CALLER_SECRET
+authHTTPExclude:
+  - action: read
+  - action: playback
+  - action: api
+  - action: metrics
+  - action: pprof
+
+# Control/metrics API off — nothing external needs it, and HTTP auth mode has no
+# internal admin user to protect (so there is no admin password to set).
+api: no
+metrics: no
+playback: no
+
+paths:
+  # Any path under webinar/ is publisher-sourced (the host's WHIP stream).
+  ~^webinar/.*$:
+    source: publisher

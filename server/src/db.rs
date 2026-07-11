@@ -273,4 +273,135 @@ mod tests {
             "FK cascade removes the file with its session"
         );
     }
+
+    /// F0-1: the `webinars` table (SPEC §7 subset) round-trips and enforces its
+    /// constraints — UNIQUE `code`, CHECK on `status`/`tier`, FK to
+    /// `organizations`, and ON DELETE CASCADE from the org. Skipped without
+    /// `DATABASE_URL`; local: `DATABASE_URL=postgres://…@localhost:5432/voxtest`.
+    #[tokio::test]
+    async fn webinars_schema_constraints() {
+        let Ok(url) = std::env::var("DATABASE_URL") else {
+            eprintln!("skipping db test — no DATABASE_URL");
+            return;
+        };
+        let pool = connect(&url).await.expect("connect");
+        migrate(&pool).await.expect("migrate");
+
+        // Parents for the FKs: a host user and an org.
+        let host_id: Uuid = sqlx::query_scalar(
+            "INSERT INTO users (google_id, email, name) VALUES ($1,$2,$3) RETURNING id",
+        )
+        .bind(format!("g-{}", Uuid::new_v4()))
+        .bind(format!("{}@x.com", Uuid::new_v4()))
+        .bind("Host")
+        .fetch_one(&pool)
+        .await
+        .expect("insert host");
+        let org_id: Uuid = sqlx::query_scalar(
+            "INSERT INTO organizations (name, slug, owner_id) VALUES ($1,$2,$3) RETURNING id",
+        )
+        .bind("Acme")
+        .bind(format!("acme-{}", Uuid::new_v4().simple()))
+        .bind(host_id)
+        .fetch_one(&pool)
+        .await
+        .expect("insert org");
+
+        let code = format!("w-{}", Uuid::new_v4().simple());
+
+        // Happy path: a valid webinar inserts and defaults status/tier.
+        let (_wid, status, tier): (Uuid, String, String) = sqlx::query_as(
+            "INSERT INTO webinars (org_id, host_user_id, code, title, source_language)
+             VALUES ($1,$2,$3,$4,$5) RETURNING id, status, tier",
+        )
+        .bind(org_id)
+        .bind(host_id)
+        .bind(&code)
+        .bind("Launch webinar")
+        .bind("en")
+        .fetch_one(&pool)
+        .await
+        .expect("insert webinar");
+        assert_eq!(status, "scheduled", "status defaults to scheduled");
+        assert_eq!(tier, "enhanced", "tier defaults to enhanced");
+
+        // Helper: attempt an insert with an overridable code/status/tier/org.
+        async fn try_insert(
+            pool: &Pool,
+            org: Uuid,
+            host: Uuid,
+            code: &str,
+            status: &str,
+            tier: &str,
+        ) -> Result<sqlx::postgres::PgQueryResult, sqlx::Error> {
+            sqlx::query(
+                "INSERT INTO webinars
+                    (org_id, host_user_id, code, title, source_language, status, tier)
+                 VALUES ($1,$2,$3,$4,'en',$5,$6)",
+            )
+            .bind(org)
+            .bind(host)
+            .bind(code)
+            .bind(code) // reuse code as title, irrelevant here
+            .bind(status)
+            .bind(tier)
+            .execute(pool)
+            .await
+        }
+
+        let uniq = || format!("w-{}", Uuid::new_v4().simple());
+
+        // UNIQUE(code): a second webinar with the same code is rejected.
+        assert!(
+            try_insert(&pool, org_id, host_id, &code, "scheduled", "enhanced")
+                .await
+                .is_err(),
+            "duplicate code must violate UNIQUE"
+        );
+        // CHECK(status): an unknown status is rejected.
+        assert!(
+            try_insert(&pool, org_id, host_id, &uniq(), "bogus", "enhanced")
+                .await
+                .is_err(),
+            "unknown status must violate CHECK"
+        );
+        // CHECK(tier): an unknown tier is rejected.
+        assert!(
+            try_insert(&pool, org_id, host_id, &uniq(), "scheduled", "gold")
+                .await
+                .is_err(),
+            "unknown tier must violate CHECK"
+        );
+        // FK(org_id): a non-existent org is rejected.
+        assert!(
+            try_insert(
+                &pool,
+                Uuid::new_v4(),
+                host_id,
+                &uniq(),
+                "scheduled",
+                "enhanced"
+            )
+            .await
+            .is_err(),
+            "unknown org_id must violate FK"
+        );
+
+        // ON DELETE CASCADE: dropping the org removes its webinars.
+        sqlx::query("DELETE FROM organizations WHERE id = $1")
+            .bind(org_id)
+            .execute(&pool)
+            .await
+            .expect("delete org");
+        let survivors: i64 = sqlx::query_scalar("SELECT count(*) FROM webinars WHERE org_id = $1")
+            .bind(org_id)
+            .fetch_one(&pool)
+            .await
+            .expect("count");
+        assert_eq!(survivors, 0, "org delete cascades its webinars");
+        let _ = sqlx::query("DELETE FROM users WHERE id = $1")
+            .bind(host_id)
+            .execute(&pool)
+            .await;
+    }
 }
