@@ -142,9 +142,10 @@ jobs:
   # Deploy the Rust backend to Railway on every push to main, after tests pass.
   # Railway isn't wired to GitHub auto-deploy, so CI does it (Git Flow: merge to
   # main → ship). Runs only when a RAILWAY_TOKEN secret is configured; the client
-  # deploys separately via Vercel's own Git integration.
+  # deploys separately via Vercel's own Git integration. Gated on `security-audit`
+  # too: a RustSec vulnerability (see that job) blocks the ship, never deploys over it.
   deploy-server:
-    needs: [test, check-secrets]
+    needs: [test, check-secrets, security-audit]
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.check-secrets.outputs.has_railway == 'true' && needs.check-secrets.outputs.server_changed == 'true' }}
     runs-on: ubuntu-latest
     steps:
@@ -241,9 +242,13 @@ jobs:
             client/coverage-unit
           if-no-files-found: ignore
 
-  # Supply-chain advisory scan (spec 0029) — informational. Dependabot is the real
-  # gate, so this never fails the pipeline (continue-on-error); it surfaces RustSec /
-  # npm advisories in the logs as a reminder.
+  # Supply-chain advisory scan (spec 0029). `cargo audit` is a HARD GATE: it fails
+  # the job on any RustSec vulnerability and, via deploy-server's `needs`, blocks the
+  # server deploy. Consciously-accepted advisories (no upstream fix / unreachable)
+  # are triaged in server/.cargo/audit.toml with inline justification — add an entry
+  # there to clear a new finding. The npm scan stays informational (continue-on-error):
+  # the client ships via Vercel's own Git integration, not this pipeline, and npm has
+  # no clean per-advisory allowlist equivalent to cargo's audit.toml.
   security-audit:
     runs-on: ubuntu-latest
     steps:
@@ -252,14 +257,13 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-audit
-      - name: cargo audit (server)
+      - name: cargo audit (server) — HARD GATE (triage via server/.cargo/audit.toml)
         working-directory: server
-        continue-on-error: true
         run: cargo audit
       - uses: actions/setup-node@v6
         with:
           node-version: 22
-      - name: npm audit (client)
+      - name: npm audit (client) — informational (client deploys via Vercel)
         working-directory: client
         continue-on-error: true
         run: npm audit --audit-level=high
