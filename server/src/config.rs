@@ -161,9 +161,10 @@ pub struct Config {
     pub webinar: Option<WebinarConfig>,
 }
 
-/// Webinar Mode config: the off-box media server hosts + join-code length. The
-/// HMAC secrets for publish tokens land here in Phase 1 (F1-1/F1-2).
-#[derive(Clone, Debug)]
+/// Webinar Mode config: the off-box media server hosts, join-code length, and the
+/// HMAC/caller secrets for the WHIP publish auth (F1-1/F1-2). Secrets are
+/// server-only and redacted from `Debug`.
+#[derive(Clone)]
 pub struct WebinarConfig {
     /// WHIP ingest host, e.g. `ingest.voxtranslate.app` (`MEDIA_INGEST_HOST`).
     pub ingest_host: String,
@@ -172,6 +173,16 @@ pub struct WebinarConfig {
     pub hls_host: String,
     /// Join-code length (`WEBINAR_CODE_LEN`, default [`crate::webinar::DEFAULT_CODE_LEN`]).
     pub code_len: usize,
+    /// HMAC-SHA256 key that signs WHIP publish tokens (`MEDIAMTX_AUTH_SECRET`).
+    /// Server-only; never serialized or logged.
+    pub auth_secret: Vec<u8>,
+    /// Shared secret carried in the `/internal/media-auth/{secret}` path, which
+    /// authenticates MediaMTX as the caller (`MEDIA_CALLER_SECRET`). Server-only.
+    pub caller_secret: String,
+    /// Publish-token TTL, seconds (`WEBINAR_PUBLISH_TOKEN_TTL_SECS`, default 120).
+    /// Short by design — the token is only needed at WHIP connect; the live WebRTC
+    /// session outlives it, so a short TTL shrinks the replay window.
+    pub publish_token_ttl_secs: u64,
 }
 
 impl WebinarConfig {
@@ -189,6 +200,14 @@ impl WebinarConfig {
             ingest_host,
             hls_host,
             code_len: parse_or("WEBINAR_CODE_LEN", crate::webinar::DEFAULT_CODE_LEN),
+            auth_secret: env::var("MEDIAMTX_AUTH_SECRET")
+                .unwrap_or_default()
+                .into_bytes(),
+            caller_secret: env::var("MEDIA_CALLER_SECRET")
+                .unwrap_or_default()
+                .trim()
+                .to_string(),
+            publish_token_ttl_secs: parse_or("WEBINAR_PUBLISH_TOKEN_TTL_SECS", 120u64),
         }
     }
 
@@ -200,7 +219,22 @@ impl WebinarConfig {
             ingest_host: "ingest.test".into(),
             hls_host: "hls.test".into(),
             code_len: crate::webinar::DEFAULT_CODE_LEN,
+            auth_secret: b"test-webinar-auth-secret".to_vec(),
+            caller_secret: "test-caller-secret".into(),
+            publish_token_ttl_secs: 120,
         }
+    }
+}
+
+impl std::fmt::Debug for WebinarConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // auth_secret + caller_secret are server-only secrets — redacted.
+        f.debug_struct("WebinarConfig")
+            .field("ingest_host", &self.ingest_host)
+            .field("hls_host", &self.hls_host)
+            .field("code_len", &self.code_len)
+            .field("publish_token_ttl_secs", &self.publish_token_ttl_secs)
+            .finish_non_exhaustive()
     }
 }
 
@@ -1006,9 +1040,13 @@ impl Config {
         };
 
         // Webinar Mode (SPEC "Webinar Mode"): the 1-to-many broadcast control plane.
-        // Enabled once the off-box media server host is configured; ships dark
-        // otherwise (the /api/webinars + /api/w/{code} routes are not registered).
-        let webinar = if present("MEDIA_INGEST_HOST") {
+        // Enabled once the off-box media server host AND its publish-auth secrets are
+        // configured; ships dark otherwise (the /api/webinars, /api/w/{code}, and
+        // /internal/media-auth routes are not registered).
+        let webinar = if present("MEDIA_INGEST_HOST")
+            && present("MEDIAMTX_AUTH_SECRET")
+            && present("MEDIA_CALLER_SECRET")
+        {
             Some(WebinarConfig::from_env())
         } else {
             None

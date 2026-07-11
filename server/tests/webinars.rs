@@ -399,3 +399,147 @@ async fn guest_session_sets_and_reuses_id() {
         "guest_id is stable across reloads"
     );
 }
+
+/// POST the MediaMTX external-auth hook; returns the HTTP status.
+async fn media_auth_req(
+    http: &Client,
+    srv: &Server,
+    caller: &str,
+    action: &str,
+    path: &str,
+    query: &str,
+) -> reqwest::StatusCode {
+    http.post(format!("{}/internal/media-auth/{caller}", base(srv)))
+        .json(&json!({ "action": action, "path": path, "query": query }))
+        .send()
+        .await
+        .unwrap()
+        .status()
+}
+
+#[tokio::test]
+async fn go_live_mints_tokenized_publish_url() {
+    let Some(srv) = setup().await else {
+        return;
+    };
+    let http = Client::new();
+    let (owner, jwt) = user(&srv).await;
+    let org_id = org(&srv, owner, true).await;
+    let created = create_webinar(&http, &srv, &jwt, org_id).await;
+    let id = created["id"].as_str().unwrap().to_string();
+    let code = created["code"].as_str().unwrap().to_string();
+
+    let r = http
+        .post(format!("{}/api/webinars/{id}/go-live", base(&srv)))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 200);
+    let b: Value = r.json().await.unwrap();
+    let url = b["publish_url"].as_str().unwrap();
+    assert!(
+        url.starts_with(&format!("https://ingest.test/webinar/{code}/whip?token=")),
+        "publish_url shape: {url}"
+    );
+    assert!(b["expires_in"].as_u64().unwrap() > 0, "expires_in set");
+
+    // No auth → 401; non-member → 404.
+    let na = http
+        .post(format!("{}/api/webinars/{id}/go-live", base(&srv)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(na.status(), 401);
+    let (_o, other) = user(&srv).await;
+    let nm = http
+        .post(format!("{}/api/webinars/{id}/go-live", base(&srv)))
+        .bearer_auth(&other)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(nm.status(), 404);
+}
+
+#[tokio::test]
+async fn media_auth_authorizes_only_valid_publish() {
+    let Some(srv) = setup().await else {
+        return;
+    };
+    let http = Client::new();
+    let (owner, jwt) = user(&srv).await;
+    let org_id = org(&srv, owner, true).await;
+    let created = create_webinar(&http, &srv, &jwt, org_id).await;
+    let id = created["id"].as_str().unwrap().to_string();
+    let code = created["code"].as_str().unwrap().to_string();
+    let path = format!("webinar/{code}");
+
+    // A real token straight from the go-live endpoint (exercises F1-1 → F1-2).
+    let gl: Value = http
+        .post(format!("{}/api/webinars/{id}/go-live", base(&srv)))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let token = gl["publish_url"]
+        .as_str()
+        .unwrap()
+        .split("?token=")
+        .nth(1)
+        .unwrap()
+        .to_string();
+    let good_query = format!("token={token}");
+    const CALLER: &str = "test-caller-secret"; // WebinarConfig::test_default()
+
+    // Valid publish → 200.
+    assert_eq!(
+        media_auth_req(&http, &srv, CALLER, "publish", &path, &good_query).await,
+        200,
+        "valid token authorizes publish"
+    );
+    // Wrong caller secret → 401.
+    assert_eq!(
+        media_auth_req(&http, &srv, "nope", "publish", &path, &good_query).await,
+        401,
+        "wrong caller secret rejected"
+    );
+    // Non-publish action → 401 (read/playback never reach here in prod).
+    assert_eq!(
+        media_auth_req(&http, &srv, CALLER, "read", &path, &good_query).await,
+        401,
+        "non-publish action rejected"
+    );
+    // Token minted for a different path → 401.
+    assert_eq!(
+        media_auth_req(&http, &srv, CALLER, "publish", "webinar/OTHER", &good_query).await,
+        401,
+        "token bound to another path rejected"
+    );
+    // Missing token → 401.
+    assert_eq!(
+        media_auth_req(&http, &srv, CALLER, "publish", &path, "").await,
+        401,
+        "missing token rejected"
+    );
+    // Tampered signature → 401.
+    let mut chars: Vec<char> = token.chars().collect();
+    let last = chars.len() - 1;
+    chars[last] = if chars[last] == 'a' { 'b' } else { 'a' };
+    let tampered: String = chars.into_iter().collect();
+    assert_eq!(
+        media_auth_req(
+            &http,
+            &srv,
+            CALLER,
+            "publish",
+            &path,
+            &format!("token={tampered}")
+        )
+        .await,
+        401,
+        "tampered token rejected"
+    );
+}

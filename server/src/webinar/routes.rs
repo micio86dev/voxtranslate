@@ -28,6 +28,7 @@ use crate::config::WebinarConfig;
 use crate::db::Pool;
 use crate::middleware::AuthUser;
 use crate::webinar::guest::{guest_session, GuestId};
+use crate::webinar::media::{media_auth, mint_publish_token, publish_url};
 use crate::webinar::{
     create_webinar, find_by_code, find_by_id, join_url, playback_url, NewWebinar, Webinar,
 };
@@ -44,6 +45,10 @@ pub fn routes() -> Router<AppState> {
         .route("/api/webinars", post(create).get(list))
         .route("/api/webinars/{id}", get(get_one).patch(patch))
         .route("/api/webinars/{id}/cancel", post(cancel))
+        // Host mints a short-lived tokenized WHIP publish URL to go on air (F1-1).
+        .route("/api/webinars/{id}/go-live", post(go_live))
+        // MediaMTX external-auth hook (F1-2) — server-to-server, path-secret auth.
+        .route("/internal/media-auth/{caller_secret}", post(media_auth))
         .merge(public)
 }
 
@@ -350,6 +355,29 @@ pub async fn cancel(
     .await
     .map_err(db_err)?;
     Ok(Json(host_view(&updated, &state.config.app_base_url, cfg)).into_response())
+}
+
+/// `POST /api/webinars/{id}/go-live` — mint a short-lived, path-bound WHIP publish
+/// URL (token) for the host to publish to (F1-1). Host (org member) only; the
+/// live/ended state transition is driven separately (F1-3).
+pub async fn go_live(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+) -> Result<Response, Response> {
+    let pool = require_pool(&state)?;
+    let cfg = require_cfg(&state)?;
+    let w = require_webinar_role(pool, id, user.user_id, MEMBER).await?;
+    if w.status == "ended" || w.status == "cancelled" {
+        return Err((StatusCode::CONFLICT, "webinar has ended").into_response());
+    }
+    let path = format!("webinar/{}", w.code);
+    let token = mint_publish_token(&cfg.auth_secret, &path, cfg.publish_token_ttl_secs);
+    Ok(Json(json!({
+        "publish_url": publish_url(&cfg.ingest_host, &w.code, &token),
+        "expires_in": cfg.publish_token_ttl_secs,
+    }))
+    .into_response())
 }
 
 /// `GET /api/w/{code}` — public, auth-free resolution for guests. NO host PII.

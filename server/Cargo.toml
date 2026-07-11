@@ -37,6 +37,9 @@ sha2 = "0.11"
 sha1 = "0.11"
 hex = "0.4"
 base64 = "0.22"
+# Constant-time secret comparison for the MediaMTX publish-auth caller secret
+# (F1-2, /internal/media-auth). HMAC sig verification uses hmac's own verify_slice.
+subtle = "2"
 async-trait = "0.1"
 
 # Translation cache (spec 0107): DragonflyDB is Redis-compatible, reached over the
