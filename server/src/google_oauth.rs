@@ -9,9 +9,10 @@
 //! Google Calendar API on the user's behalf.
 
 use base64::Engine;
-use chacha20poly1305::aead::{Aead, AeadCore, KeyInit, OsRng};
+use chacha20poly1305::aead::{Aead, KeyInit};
 use chacha20poly1305::{XChaCha20Poly1305, XNonce};
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
+use rand::RngExt;
 use serde::Deserialize;
 use uuid::Uuid;
 
@@ -154,11 +155,13 @@ async fn post_token(
 fn encrypt_token(key: &[u8], plaintext: &str) -> Result<String, OauthError> {
     let cipher =
         XChaCha20Poly1305::new_from_slice(key).map_err(|e| OauthError::Crypto(e.to_string()))?;
-    let nonce = XChaCha20Poly1305::generate_nonce(&mut OsRng);
+    // 24-byte random nonce (generated via `rand` — stable across the aead API churn).
+    let nonce_bytes: [u8; 24] = rand::rng().random();
+    let nonce = XNonce::from(nonce_bytes);
     let ct = cipher
         .encrypt(&nonce, plaintext.as_bytes())
         .map_err(|e| OauthError::Crypto(e.to_string()))?;
-    let mut blob = nonce.to_vec();
+    let mut blob = nonce_bytes.to_vec();
     blob.extend_from_slice(&ct);
     Ok(base64::engine::general_purpose::STANDARD.encode(blob))
 }
@@ -173,8 +176,10 @@ fn decrypt_token(key: &[u8], b64: &str) -> Result<String, OauthError> {
     let (nonce_bytes, ct) = blob.split_at(24);
     let cipher =
         XChaCha20Poly1305::new_from_slice(key).map_err(|e| OauthError::Crypto(e.to_string()))?;
+    let nonce =
+        XNonce::try_from(nonce_bytes).map_err(|_| OauthError::Crypto("invalid nonce".into()))?;
     let pt = cipher
-        .decrypt(XNonce::from_slice(nonce_bytes), ct)
+        .decrypt(&nonce, ct)
         .map_err(|e| OauthError::Crypto(e.to_string()))?;
     String::from_utf8(pt).map_err(|e| OauthError::Crypto(e.to_string()))
 }
