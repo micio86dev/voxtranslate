@@ -77,7 +77,7 @@ Caddy fetches a Let's Encrypt cert for `ingest.voxtranslate.app` automatically
   WebRTC media (UDP/ICE) does **not** pass Cloudflare's HTTP proxy; behind the orange
   cloud the ICE candidates point at the wrong place and WebRTC never connects. This
   is also why `webrtcAdditionalHosts` in `mediamtx.yml` is the grey-cloud host.
-- `control.voxtranslate.app` (the Axum control plane) stays **behind Cloudflare**, so
+- `api.voxtranslate.app` (the Axum control plane) stays **behind Cloudflare**, so
   MediaMTX's HTTPS auth call is injected with the CF origin header and passes the
   origin lock. Phase 1 serves HLS from `ingest…`; the R2/CDN `hls.voxtranslate.app`
   split comes later.
@@ -93,7 +93,7 @@ MEDIAMTX_AUTH_SECRET=<hex>
 MEDIA_CALLER_SECRET=<same hex as the box>
 ```
 
-MediaMTX will `POST https://control.voxtranslate.app/internal/media-auth/<MEDIA_CALLER_SECRET>`
+MediaMTX will `POST https://api.voxtranslate.app/internal/media-auth/<MEDIA_CALLER_SECRET>`
 for each publish; the control plane verifies the host's HMAC token + expiry + path.
 
 ## 7. Smoke test (closes Phase 1 → F1-6)

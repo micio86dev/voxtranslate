@@ -28,7 +28,7 @@ hlsPartDuration: 200ms
 # EXCLUDED, so guests pull HLS with no token (the code's entropy is the gate).
 # The control-plane URL must be HTTPS (valid cert ⇒ no authHTTPFingerprint needed).
 authMethod: http
-authHTTPAddress: https://control.voxtranslate.app/internal/media-auth/REPLACE_CALLER_SECRET
+authHTTPAddress: https://api.voxtranslate.app/internal/media-auth/REPLACE_CALLER_SECRET
 authHTTPExclude:
   - action: read
   - action: playback
