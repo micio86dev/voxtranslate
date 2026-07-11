@@ -11,6 +11,10 @@ services:
     restart: unless-stopped
     volumes:
       - ./mediamtx.yml:/mediamtx.yml:ro
+      # The scratch-based MediaMTX image ships no CA bundle, so its outbound HTTPS
+      # call to the control-plane auth endpoint fails ("x509: certificate signed by
+      # unknown authority"). Mount the host CA bundle so Go can verify the cert.
+      - /etc/ssl/certs/ca-certificates.crt:/etc/ssl/certs/ca-certificates.crt:ro
 
   caddy:
     image: caddy:2
