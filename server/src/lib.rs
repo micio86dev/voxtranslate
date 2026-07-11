@@ -777,8 +777,16 @@ async fn origin_lock(
         // `/health` and `/version` are always allowed: the former is Railway's
         // healthcheck (hits the origin directly), the latter must stay curl-able for
         // deploy verification even when the origin lock is armed.
+        //
+        // `/internal/media-auth/*` is also exempt: the off-box MediaMTX calls it
+        // server-to-server via the direct Railway origin (bypassing Cloudflare, whose
+        // bot challenge a headless Go client can't solve), so it never carries the
+        // CF-injected header. It's independently protected by the caller secret in the
+        // path + the HMAC publish-token check, so skipping the origin lock is safe.
         let path = req.uri().path();
-        if !matches!(path, "/health" | "/version") && !origin_header_ok(req.headers(), secret) {
+        let exempt =
+            matches!(path, "/health" | "/version") || path.starts_with("/internal/media-auth/");
+        if !exempt && !origin_header_ok(req.headers(), secret) {
             return StatusCode::FORBIDDEN.into_response();
         }
     }

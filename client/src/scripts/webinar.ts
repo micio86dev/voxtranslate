@@ -106,6 +106,35 @@ export function canHostWebinar(org: BusinessOrg | undefined): boolean {
   return org?.subscription_status === "active";
 }
 
+/** Filename for a downloaded webinar QR PNG, e.g. `webinar-ab12cd.png`. The code is
+ *  sanitized to safe filename characters (letters, digits, `-`, `_`); anything else
+ *  becomes `-`, and an empty result falls back to `webinar` so the name is always valid. */
+export function qrDownloadFilename(code: string): string {
+  const safe = (code || "").replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
+  return `webinar-${safe || "webinar"}.png`;
+}
+
+/** Whether the "Clone my voice" toggle should be offered when creating a webinar.
+ *  Voice cloning runs only on the Enhanced tier (Cartesia); Standard (Deepgram)
+ *  cannot clone. It's also moot once the host already has a cloned voice — the
+ *  existing clone is reused automatically — so hide it in that case. */
+export function showVoiceCloneToggle(
+  tier: WebinarTier | string,
+  hasClone: boolean,
+): boolean {
+  return tier === "enhanced" && !hasClone;
+}
+
+/** Whether the pre-live "Clone your voice" action should be offered on a webinar
+ *  card: only for Enhanced webinars whose host has not cloned a voice yet. Standard
+ *  webinars can't use a cloned voice, and an already-cloned voice is reused. */
+export function showWebinarCloneAction(
+  tier: WebinarTier | string,
+  hasClone: boolean,
+): boolean {
+  return tier === "enhanced" && !hasClone;
+}
+
 /** Parse a host response, throwing a typed `WebinarError` on a non-2xx. */
 async function parse<T>(res: Response): Promise<T> {
   if (!res.ok) {
