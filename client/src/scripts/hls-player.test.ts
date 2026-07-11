@@ -1,0 +1,250 @@
+// HLS participant player (webinar phase 1, F1-5). Mocks the public-webinar fetch, a
+// fake hls.js, and a fake <video> so format selection, the waiting→live→ended state
+// machine, autoplay-blocked handling, and guest_id persistence are covered without a
+// real MediaSource or network.
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+// The player only uses `getPublicWebinar` via an injectable option, so stub the module
+// to avoid pulling in ./auth (which reads `location` at import in the node environment).
+vi.mock('./webinar', () => ({ getPublicWebinar: vi.fn() }));
+
+import {
+  HlsPlayer,
+  GUEST_ID_KEY,
+  persistGuestId,
+  getStoredGuestId,
+  selectFormat,
+  stateFromStatus,
+  tryAutoplay,
+  type PlayerState,
+} from './hls-player';
+import type { PublicWebinar } from './webinar';
+
+const webinar = (over: Partial<PublicWebinar> = {}): PublicWebinar => ({
+  code: 'ab12cd',
+  title: 'Launch',
+  status: 'scheduled',
+  source_language: 'en',
+  tier: 'enhanced',
+  join_url: 'https://voxtranslate.app/w/ab12cd',
+  playback_url: 'https://hls.example/webinar/ab12cd/index.m3u8',
+  guest_id: 'guest-1',
+  ...over,
+});
+
+// A fake <video> with just what the player touches.
+function fakeVideo(opts: { canNative?: boolean } = {}) {
+  const v: any = {
+    src: '',
+    muted: false,
+    canPlayType: vi.fn((t: string) =>
+      opts.canNative && t === 'application/vnd.apple.mpegurl' ? 'maybe' : '',
+    ),
+    play: vi.fn(async () => {}),
+    removeAttribute: vi.fn(() => {
+      v.src = '';
+    }),
+  };
+  return v as HTMLVideoElement & { play: any; canPlayType: any };
+}
+
+// A fake hls.js default export.
+function fakeHls(supported = true) {
+  const instances: any[] = [];
+  const Hls: any = function () {
+    const inst = {
+      loadSource: vi.fn(),
+      attachMedia: vi.fn(),
+      destroy: vi.fn(),
+    };
+    instances.push(inst);
+    return inst;
+  };
+  Hls.isSupported = () => supported;
+  return { Hls, instances };
+}
+
+beforeEach(() => {
+  // A fresh fake localStorage per test so guest_id persistence starts clean (the
+  // module's own in-memory fallback would leak across tests).
+  const map = new Map<string, string>();
+  vi.stubGlobal('localStorage', {
+    getItem: (k: string) => (map.has(k) ? map.get(k)! : null),
+    setItem: (k: string, v: string) => void map.set(k, v),
+    removeItem: (k: string) => void map.delete(k),
+  });
+  vi.useRealTimers();
+});
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+describe('selectFormat', () => {
+  it('prefers native HLS on Safari (canPlayType hls)', () => {
+    expect(selectFormat({ canPlayType: () => 'maybe' } as any, true)).toBe('native');
+  });
+  it('uses hls.js when native HLS is unavailable but MediaSource is supported', () => {
+    expect(selectFormat({ canPlayType: () => '' } as any, true)).toBe('hlsjs');
+  });
+  it('is unsupported when neither works', () => {
+    expect(selectFormat({ canPlayType: () => '' } as any, false)).toBe('unsupported');
+  });
+});
+
+describe('stateFromStatus', () => {
+  it('maps webinar status to player state', () => {
+    expect(stateFromStatus('scheduled')).toBe('waiting');
+    expect(stateFromStatus('live')).toBe('live');
+    expect(stateFromStatus('ended')).toBe('ended');
+    expect(stateFromStatus('cancelled')).toBe('ended');
+  });
+});
+
+describe('persistGuestId', () => {
+  it('stores the guest id, first write wins', () => {
+    expect(getStoredGuestId()).toBeNull();
+    expect(persistGuestId('g1')).toBe('g1');
+    expect(getStoredGuestId()).toBe('g1');
+    // A later, different id does NOT overwrite the first identity.
+    expect(persistGuestId('g2')).toBe('g1');
+    expect(getStoredGuestId()).toBe('g1');
+    expect(GUEST_ID_KEY).toBe('vox.guest_id');
+  });
+});
+
+describe('tryAutoplay', () => {
+  it('plays with sound when allowed', async () => {
+    const v = { muted: false, play: vi.fn(async () => {}) };
+    expect(await tryAutoplay(v)).toEqual({ playing: true, needsTap: false });
+    expect(v.muted).toBe(false);
+  });
+  it('retries muted when sound autoplay is blocked', async () => {
+    const play = vi.fn().mockRejectedValueOnce(new Error('blocked')).mockResolvedValueOnce(undefined);
+    const v = { muted: false, play };
+    expect(await tryAutoplay(v)).toEqual({ playing: true, needsTap: false });
+    expect(v.muted).toBe(true);
+  });
+  it('needs a tap when even muted autoplay is blocked', async () => {
+    const v = { muted: false, play: vi.fn().mockRejectedValue(new Error('blocked')) };
+    expect(await tryAutoplay(v)).toEqual({ playing: false, needsTap: true });
+  });
+});
+
+describe('HlsPlayer state machine', () => {
+  it('starts waiting, then polls to live and attaches via hls.js', async () => {
+    vi.useFakeTimers();
+    const { Hls, instances } = fakeHls(true);
+    const video = fakeVideo({ canNative: false });
+    const states: PlayerState[] = [];
+    const fetchWebinar = vi
+      .fn()
+      .mockResolvedValueOnce(webinar({ status: 'scheduled' }))
+      .mockResolvedValueOnce(webinar({ status: 'live' }));
+    const p = new HlsPlayer({
+      code: 'ab12cd',
+      video,
+      onState: (s) => states.push(s),
+      loadHls: async () => ({ Hls }),
+      fetchWebinar,
+    });
+
+    await p.start();
+    expect(p.getState()).toBe('waiting');
+    expect(getStoredGuestId()).toBe('guest-1'); // guest id persisted from the API
+
+    // Advance the poll interval → sees "live" → attaches + plays via hls.js.
+    await vi.advanceTimersByTimeAsync(5_000);
+    await Promise.resolve();
+    expect(p.getState()).toBe('live');
+    expect(instances[0].loadSource).toHaveBeenCalledWith('https://hls.example/webinar/ab12cd/index.m3u8');
+    expect(instances[0].attachMedia).toHaveBeenCalledWith(video);
+
+    // A later poll flips it to ended → polling stops, hls torn down on destroy.
+    fetchWebinar.mockResolvedValue(webinar({ status: 'ended' }));
+    await vi.advanceTimersByTimeAsync(5_000);
+    await Promise.resolve();
+    expect(p.getState()).toBe('ended');
+    p.destroy();
+    expect(instances[0].destroy).toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  it('attaches natively on Safari (no hls.js chunk loaded)', async () => {
+    const video = fakeVideo({ canNative: true });
+    const loadHls = vi.fn();
+    const p = new HlsPlayer({
+      code: 'ab12cd',
+      video,
+      loadHls,
+      fetchWebinar: vi.fn().mockResolvedValue(webinar({ status: 'live' })),
+    });
+    await p.start();
+    expect(p.getState()).toBe('live');
+    expect(video.src).toBe('https://hls.example/webinar/ab12cd/index.m3u8');
+    expect(loadHls).not.toHaveBeenCalled(); // native path never loads the chunk
+  });
+
+  it('reports tap-to-start when autoplay is fully blocked', async () => {
+    const video = fakeVideo({ canNative: true });
+    (video.play as any).mockRejectedValue(new Error('blocked')); // sound + muted both blocked
+    let needsTap = false;
+    const p = new HlsPlayer({
+      code: 'ab12cd',
+      video,
+      onTapToStart: (n) => (needsTap = n),
+      fetchWebinar: vi.fn().mockResolvedValue(webinar({ status: 'live' })),
+    });
+    await p.start();
+    expect(needsTap).toBe(true);
+
+    // userStart() unmutes + plays under the tap gesture.
+    (video.play as any).mockResolvedValue(undefined);
+    expect(await p.userStart()).toBe(true);
+    expect(video.muted).toBe(false);
+    expect(needsTap).toBe(false);
+  });
+
+  it('goes to error when the initial fetch fails', async () => {
+    const video = fakeVideo();
+    const p = new HlsPlayer({
+      code: 'ab12cd',
+      video,
+      fetchWebinar: vi.fn().mockRejectedValue(new Error('boom')),
+    });
+    await p.start();
+    expect(p.getState()).toBe('error');
+  });
+
+  it('goes to error when neither playback engine is supported', async () => {
+    const { Hls } = fakeHls(false); // hls.js reports NOT supported
+    const video = fakeVideo({ canNative: false }); // and no native HLS
+    const p = new HlsPlayer({
+      code: 'ab12cd',
+      video,
+      loadHls: async () => ({ Hls }),
+      fetchWebinar: vi.fn().mockResolvedValue(webinar({ status: 'live' })),
+    });
+    await p.start();
+    expect(p.getState()).toBe('error');
+  });
+
+  it('ignores a transient poll failure and keeps waiting', async () => {
+    vi.useFakeTimers();
+    const video = fakeVideo({ canNative: true });
+    const fetchWebinar = vi
+      .fn()
+      .mockResolvedValueOnce(webinar({ status: 'scheduled' }))
+      .mockRejectedValueOnce(new Error('flaky'))
+      .mockResolvedValueOnce(webinar({ status: 'live' }));
+    const p = new HlsPlayer({ code: 'ab12cd', video, fetchWebinar });
+    await p.start();
+    await vi.advanceTimersByTimeAsync(5_000); // poll rejects → still waiting
+    await Promise.resolve();
+    expect(p.getState()).toBe('waiting');
+    await vi.advanceTimersByTimeAsync(5_000); // next poll → live
+    await Promise.resolve();
+    expect(p.getState()).toBe('live');
+    p.destroy();
+    vi.useRealTimers();
+  });
+});

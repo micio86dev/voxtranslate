@@ -40,6 +40,31 @@ export interface WebinarView {
   created_at: string;
 }
 
+/** The public (no-auth) view of a webinar for a participant landing on `/w/{code}`.
+ *  Returned by `GET /api/w/{code}`. `playback_url` is the LL-HLS manifest to play;
+ *  `guest_id` is a stable anonymous id the participant persists locally. */
+export interface PublicWebinar {
+  code: string;
+  title: string;
+  status: WebinarStatus;
+  source_language: string;
+  tier: WebinarTier;
+  join_url: string;
+  /** LL-HLS manifest `https://{hls_host}/webinar/{code}/index.m3u8` (may be absent
+   *  until the host goes live). */
+  playback_url: string | null;
+  guest_id: string;
+}
+
+/** Response of `POST /api/webinars/{id}/go-live`: a short-lived tokenized WHIP
+ *  ingest URL to publish to. Fetch it right before publishing — the token in
+ *  `publish_url` expires in ~`expires_in` seconds. */
+export interface GoLiveResponse {
+  /** Tokenized WHIP endpoint (the `?token=` is already embedded — POST verbatim). */
+  publish_url: string;
+  expires_in: number;
+}
+
 /** Body for `POST /api/webinars`. */
 export interface CreateWebinarBody {
   org_id: string;
@@ -174,4 +199,63 @@ export async function cancelWebinar(id: string): Promise<WebinarView> {
     netError();
   }
   return parse<WebinarView>(res);
+}
+
+/** Request a fresh tokenized WHIP publish URL for a webinar (host only). The token
+ *  embedded in `publish_url` is short-lived (~120s), so call this immediately before
+ *  publishing. Throws `WebinarError` on failure. */
+export async function goLive(id: string): Promise<GoLiveResponse> {
+  let res: Response;
+  try {
+    res = await fetch(
+      `${HTTP_BASE}/api/webinars/${encodeURIComponent(id)}/go-live`,
+      { method: "POST", headers: authHeaders() },
+    );
+  } catch {
+    netError();
+  }
+  return parse<GoLiveResponse>(res);
+}
+
+/** Tell the server the WHIP publish is connected (status → `live`). Call once the
+ *  publisher's peer connection reaches `connected`. Throws `WebinarError` on failure. */
+export async function publishStarted(id: string): Promise<WebinarView> {
+  let res: Response;
+  try {
+    res = await fetch(
+      `${HTTP_BASE}/api/webinars/${encodeURIComponent(id)}/publish-started`,
+      { method: "POST", headers: authHeaders() },
+    );
+  } catch {
+    netError();
+  }
+  return parse<WebinarView>(res);
+}
+
+/** Tell the server the publish stopped (status → `ended`). Call on manual stop or
+ *  page unload. Throws `WebinarError` on failure. */
+export async function publishStopped(id: string): Promise<WebinarView> {
+  let res: Response;
+  try {
+    res = await fetch(
+      `${HTTP_BASE}/api/webinars/${encodeURIComponent(id)}/publish-stopped`,
+      { method: "POST", headers: authHeaders() },
+    );
+  } catch {
+    netError();
+  }
+  return parse<WebinarView>(res);
+}
+
+/** Fetch the public (no-auth) view of a webinar by its short code. Used by the
+ *  participant page `/w/{code}`. Throws `WebinarError` (404 when the code is unknown
+ *  or the webinar was cancelled). */
+export async function getPublicWebinar(code: string): Promise<PublicWebinar> {
+  let res: Response;
+  try {
+    res = await fetch(`${HTTP_BASE}/api/w/${encodeURIComponent(code)}`);
+  } catch {
+    netError();
+  }
+  return parse<PublicWebinar>(res);
 }

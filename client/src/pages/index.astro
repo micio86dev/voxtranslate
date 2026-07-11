@@ -2411,6 +2411,12 @@ const jsonLd = {
     .webinar-list :global(.webinar-copy-btn) { flex: none; padding: 0 14px; min-height: 38px; }
     .webinar-list :global(.webinar-qr) { align-self: flex-start; width: 160px; height: 160px; border-radius: 10px; background: #fff; padding: 6px; }
     .webinar-list :global(.webinar-cancel-btn) { align-self: flex-start; padding: 0 14px; min-height: 38px; }
+    /* Go-live / publish control (webinar phase 1). */
+    .webinar-list :global(.webinar-live-row) { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .webinar-list :global(.webinar-golive-btn) { width: auto; padding: 0 18px; min-height: 40px; flex: none; }
+    .webinar-list :global(.webinar-golive-btn.danger) { background: var(--danger); }
+    .webinar-list :global(.webinar-cam-btn) { flex: none; padding: 0 14px; min-height: 40px; }
+    .webinar-list :global(.webinar-onair-badge) { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; padding: 4px 10px; border-radius: 999px; background: color-mix(in srgb, var(--danger) 18%, transparent); color: var(--danger); }
 
     /* Billing section: balance + a quick path back to checkout, above the history tabs. */
     .billing-balance-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; }
