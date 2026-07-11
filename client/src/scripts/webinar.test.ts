@@ -20,6 +20,9 @@ import {
   patchWebinar,
   publishStarted,
   publishStopped,
+  qrDownloadFilename,
+  showVoiceCloneToggle,
+  showWebinarCloneAction,
   type PublicWebinar,
   type WebinarView,
 } from './webinar';
@@ -320,5 +323,49 @@ describe('WebinarError', () => {
     expect(e.name).toBe('WebinarError');
     expect(e.status).toBe(402);
     expect(e.message).toBe('nope');
+  });
+});
+
+describe('qrDownloadFilename', () => {
+  it('builds a webinar-{code}.png name', () => {
+    expect(qrDownloadFilename('ab12cd')).toBe('webinar-ab12cd.png');
+  });
+
+  it('keeps letters, digits, dashes and underscores', () => {
+    expect(qrDownloadFilename('AB-12_cd')).toBe('webinar-AB-12_cd.png');
+  });
+
+  it('replaces unsafe characters and trims stray dashes', () => {
+    expect(qrDownloadFilename('a b/c.d')).toBe('webinar-a-b-c-d.png');
+    expect(qrDownloadFilename('..bad..')).toBe('webinar-bad.png');
+  });
+
+  it('falls back to "webinar" for an empty or all-unsafe code', () => {
+    expect(qrDownloadFilename('')).toBe('webinar-webinar.png');
+    expect(qrDownloadFilename('///')).toBe('webinar-webinar.png');
+  });
+});
+
+describe('showVoiceCloneToggle', () => {
+  it('shows only for Enhanced when the voice is not yet cloned', () => {
+    expect(showVoiceCloneToggle('enhanced', false)).toBe(true);
+  });
+
+  it('hides when the voice is already cloned', () => {
+    expect(showVoiceCloneToggle('enhanced', true)).toBe(false);
+  });
+
+  it('hides on the Standard tier regardless of clone state', () => {
+    expect(showVoiceCloneToggle('standard', false)).toBe(false);
+    expect(showVoiceCloneToggle('standard', true)).toBe(false);
+  });
+});
+
+describe('showWebinarCloneAction', () => {
+  it('offers the pre-live clone action only for Enhanced + not-yet-cloned', () => {
+    expect(showWebinarCloneAction('enhanced', false)).toBe(true);
+    expect(showWebinarCloneAction('enhanced', true)).toBe(false);
+    expect(showWebinarCloneAction('standard', false)).toBe(false);
+    expect(showWebinarCloneAction('standard', true)).toBe(false);
   });
 });

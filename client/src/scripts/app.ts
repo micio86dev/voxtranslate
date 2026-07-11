@@ -85,6 +85,9 @@ import {
   canHostWebinar,
   createWebinar,
   listWebinars,
+  qrDownloadFilename,
+  showVoiceCloneToggle,
+  showWebinarCloneAction,
   WebinarError,
   type WebinarView,
 } from './webinar';
@@ -4802,9 +4805,58 @@ const webinarCreateBtn = $<HTMLButtonElement>('webinar-create-btn');
 const webinarCreateStatus = $('webinar-create-status');
 const webinarList = $('webinar-list');
 const webinarListEmpty = $('webinar-list-empty');
+// Create-form toggle switches (role=switch buttons; state lives in aria-checked).
+const webinarRecordVideoSw = $<HTMLButtonElement>('webinar-record-video');
+const webinarRecordTranscriptSw = $<HTMLButtonElement>('webinar-record-transcript');
+const webinarVoiceCloneSw = $<HTMLButtonElement>('webinar-voice-clone');
+const webinarVoiceCloneRow = $('webinar-voice-clone-row');
+const webinarVoiceClonedHint = $('webinar-voice-cloned-hint');
+// Fullscreen QR zoom overlay.
+const webinarQrModal = $('webinar-qr-modal');
+const webinarQrModalImg = $<HTMLImageElement>('webinar-qr-modal-img');
+const webinarQrModalTitle = $('webinar-qr-modal-title');
+const webinarQrModalUrl = $('webinar-qr-modal-url');
 $('webinars-back').innerHTML = icon('chevron-left', 18);
 
 let webinarOrgsLoaded = false;
+
+/** Read a role=switch button's on/off state from its `aria-checked` attribute. */
+function switchOn(sw: HTMLButtonElement): boolean {
+  return sw.getAttribute('aria-checked') === 'true';
+}
+
+/** Set a role=switch button's on/off state. */
+function setSwitch(sw: HTMLButtonElement, on: boolean): void {
+  sw.setAttribute('aria-checked', String(on));
+}
+
+/** Wire a role=switch button: click + Space/Enter toggle its `aria-checked`, then
+ *  run the optional callback with the new state. Native buttons already fire click
+ *  on Space/Enter, so a click listener covers keyboard operation. */
+function wireSwitch(sw: HTMLButtonElement, onChange?: (on: boolean) => void): void {
+  sw.addEventListener('click', () => {
+    const next = !switchOn(sw);
+    setSwitch(sw, next);
+    onChange?.(next);
+  });
+}
+wireSwitch(webinarRecordVideoSw);
+wireSwitch(webinarRecordTranscriptSw);
+wireSwitch(webinarVoiceCloneSw);
+
+/** Show the voice-clone toggle only for Enhanced when the host hasn't cloned yet;
+ *  otherwise show the "already cloned" hint (cloned) or nothing (Standard). Called on
+ *  entry and whenever the tier changes. */
+function syncWebinarVoiceClone(): void {
+  const enhanced = webinarTierSel.value === 'enhanced';
+  const cloned = hasVoiceClone();
+  const showToggle = showVoiceCloneToggle(webinarTierSel.value, cloned);
+  show(webinarVoiceCloneRow, showToggle);
+  // "Voice already cloned ✓" hint: only meaningful for the tier that uses it.
+  show(webinarVoiceClonedHint, enhanced && cloned);
+  if (!showToggle) setSwitch(webinarVoiceCloneSw, false); // never send voice_clone otherwise
+}
+webinarTierSel.addEventListener('change', syncWebinarVoiceClone);
 
 /** Map a WebinarError HTTP status to a localized message. */
 function webinarErrorMessage(err: unknown): string {
@@ -4852,6 +4904,7 @@ async function openWebinars(): Promise<void> {
   homeScreen.classList.add('hidden');
   webinarsScreen.classList.remove('hidden');
   fillWebinarLangs();
+  syncWebinarVoiceClone(); // tier-aware toggle/hint (voice clone is Enhanced-only)
   if (!webinarOrgsLoaded) {
     const orgs = (await ensureBizOrgs()).filter((o) => canHostWebinar(o));
     webinarOrgSel.innerHTML = '';
@@ -4942,13 +4995,65 @@ function renderWebinarCard(w: WebinarView): void {
   card.appendChild(linkRow);
 
   // QR of the EXACT join_url from the API (never rebuilt). Lazy-imported chunk.
+  // Tappable (mouse + keyboard) → fullscreen zoom overlay.
   const qr = document.createElement('img');
   qr.className = 'webinar-qr';
   qr.alt = t('webinarQrAlt');
   qr.width = 160;
   qr.height = 160;
+  qr.tabIndex = 0;
+  qr.setAttribute('role', 'button');
+  qr.setAttribute('aria-label', t('webinarQrZoom'));
+  qr.title = t('webinarQrZoom');
+  qr.addEventListener('click', () => openQrModal(w, qr.src));
+  qr.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      openQrModal(w, qr.src);
+    }
+  });
   card.appendChild(qr);
   void renderQr(qr, w.join_url);
+
+  // QR actions: download the QR as a PNG, or print just the QR + join URL.
+  const qrActions = document.createElement('div');
+  qrActions.className = 'webinar-qr-actions';
+  const dlBtn = document.createElement('button');
+  dlBtn.type = 'button';
+  dlBtn.className = 'btn-ghost';
+  dlBtn.textContent = t('webinarQrDownload');
+  dlBtn.addEventListener('click', async () => {
+    dlBtn.disabled = true;
+    try {
+      downloadQr(await qrDataUrl(w.join_url, qr.src), w.code);
+    } finally {
+      dlBtn.disabled = false;
+    }
+  });
+  const printBtn = document.createElement('button');
+  printBtn.type = 'button';
+  printBtn.className = 'btn-ghost';
+  printBtn.textContent = t('webinarQrPrint');
+  printBtn.addEventListener('click', async () => {
+    printBtn.disabled = true;
+    try {
+      printQr(await qrDataUrl(w.join_url, qr.src), w.title, w.join_url);
+    } finally {
+      printBtn.disabled = false;
+    }
+  });
+  qrActions.append(dlBtn, printBtn);
+  card.appendChild(qrActions);
+
+  // Pre-live "Clone your voice" (webinar-ui-fixes #5): only for Enhanced webinars whose
+  // host hasn't cloned yet, and only while it can still be broadcast. Reuses the exact
+  // capture + clone flow from the call pre-join.
+  if (
+    (w.status === 'scheduled' || w.status === 'live') &&
+    showWebinarCloneAction(w.tier, hasVoiceClone())
+  ) {
+    card.appendChild(buildWebinarCloneRow());
+  }
 
   // Go-live / publish control (webinar phase 1): capture mic (+ optional cam) and
   // publish to the media server over WHIP. Offered while the webinar can still be
@@ -5120,6 +5225,156 @@ async function renderQr(img: HTMLImageElement, text: string): Promise<void> {
   }
 }
 
+/** Generate a larger, print/download-quality QR data URL for `text`. Falls back to
+ *  the already-rendered card `<img>` src if the lazy chunk fails to load. */
+async function qrDataUrl(text: string, fallbackSrc: string): Promise<string> {
+  try {
+    const { toDataURL } = await import('qrcode');
+    return await toDataURL(text, { margin: 2, width: 512 });
+  } catch {
+    return fallbackSrc;
+  }
+}
+
+/** Save a QR data URL as a PNG file (`webinar-{code}.png`). */
+function downloadQr(dataUrl: string, code: string): void {
+  const a = document.createElement('a');
+  a.href = dataUrl;
+  a.download = qrDownloadFilename(code);
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+/** Open a print window showing just the QR + the webinar title and join URL, centered.
+ *  Built with DOM APIs (no `document.write`); user-supplied text is set via
+ *  `textContent`, so there's no HTML-injection surface. */
+function printQr(dataUrl: string, title: string, joinUrl: string): void {
+  const win = window.open('', '_blank', 'noopener,noreferrer,width=520,height=640');
+  if (!win) {
+    toast(t('webinarQrPrintBlocked'), 'err');
+    return;
+  }
+  const doc = win.document;
+  doc.title = title;
+  const style = doc.createElement('style');
+  style.textContent =
+    'html,body{height:100%;margin:0}' +
+    'body{display:flex;flex-direction:column;align-items:center;justify-content:center;' +
+    'gap:16px;font-family:system-ui,-apple-system,sans-serif;padding:24px;text-align:center}' +
+    'h1{font-size:20px;margin:0}img{width:320px;height:320px}' +
+    'p{margin:0;color:#444;word-break:break-all;max-width:360px}';
+  doc.head.appendChild(style);
+  const h1 = doc.createElement('h1');
+  h1.textContent = title;
+  const img = doc.createElement('img');
+  img.src = dataUrl;
+  img.alt = '';
+  const p = doc.createElement('p');
+  p.textContent = joinUrl;
+  doc.body.append(h1, img, p);
+  const fire = () => {
+    win.focus();
+    win.print();
+  };
+  // Print once the QR image has decoded, else fall back to a short delay.
+  if (img.complete) fire();
+  else {
+    img.addEventListener('load', fire, { once: true });
+    img.addEventListener('error', fire, { once: true });
+  }
+}
+
+/** Open the fullscreen QR zoom overlay for a webinar (reuses the shared modal focus
+ *  trap + Escape via `show()` on a `.modal-overlay`). */
+function openQrModal(w: WebinarView, cardQrSrc: string): void {
+  webinarQrModalTitle.textContent = w.title;
+  webinarQrModalUrl.textContent = w.join_url;
+  webinarQrModalImg.alt = t('webinarQrAlt');
+  webinarQrModalImg.src = cardQrSrc; // instant; upgraded to a crisp large QR below
+  void qrDataUrl(w.join_url, cardQrSrc).then((url) => (webinarQrModalImg.src = url));
+  show(webinarQrModal, true);
+}
+webinarQrModal.addEventListener('click', (e) => {
+  if (e.target === webinarQrModal) show(webinarQrModal, false); // click-outside to close
+});
+$('webinar-qr-close').addEventListener('click', () => show(webinarQrModal, false));
+
+/** Pre-live voice clone from a webinar card (webinar-ui-fixes #5). Reuses the exact
+ *  capture + clone flow the call pre-join uses (`recordVoiceSample` → `cloneVoice`):
+ *  grab the mic, record ≥3 s of speech, clone it, and mark the account cloned so the
+ *  toggle/hint update everywhere. Best-effort — never throws. `onState` drives the
+ *  card's inline feedback. Returns whether a clone was stored. */
+async function runWebinarVoiceClone(
+  onState: (s: VoicePrepState) => void,
+): Promise<boolean> {
+  let stream: MediaStream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch {
+    onState('failed'); // mic denied / unavailable
+    return false;
+  }
+  onState('recording');
+  try {
+    const blob = await recordVoiceSample(stream);
+    if (!blob) {
+      onState('failed'); // too little speech captured
+      return false;
+    }
+    onState('saving');
+    const res = await cloneVoice(blob, webinarLangSel.value || getUiLang());
+    if (res.voice_id) {
+      localStorage.setItem(VOICE_CLONED_KEY, '1');
+      onState('cloned');
+      return true;
+    }
+    onState('failed');
+    return false;
+  } catch {
+    onState('failed');
+    return false;
+  } finally {
+    stream.getTracks().forEach((tr) => tr.stop());
+  }
+}
+
+/** A "Clone your voice" row for a webinar card: a button that records + clones the
+ *  host's voice, plus an inline status note. On success it re-renders the list so the
+ *  toggle/hint update per the now-cloned state. */
+function buildWebinarCloneRow(): HTMLElement {
+  const row = document.createElement('div');
+  row.className = 'webinar-clone-row';
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'btn-ghost webinar-clone-btn';
+  btn.textContent = t('webinarCloneVoice');
+  const note = document.createElement('span');
+  note.className = 'webinar-clone-note';
+  const setNote = (msg: string, kind: 'ok' | 'err' | '') => {
+    note.textContent = msg;
+    note.classList.toggle('ok', kind === 'ok');
+    note.classList.toggle('err', kind === 'err');
+  };
+  const onState = (s: VoicePrepState): void => {
+    btn.disabled = s === 'recording' || s === 'saving';
+    if (s === 'recording') setNote(t('voicePrepRecording'), '');
+    else if (s === 'saving') setNote(t('voicePrepSaving'), '');
+    else if (s === 'cloned') setNote(`✓ ${t('voicePrepSaved')}`, 'ok');
+    else if (s === 'failed') setNote(`✗ ${t('voicePrepFailed')}`, 'err');
+  };
+  btn.addEventListener('click', async () => {
+    const ok = await runWebinarVoiceClone(onState);
+    // Refresh the list so the create-form toggle/hint and this row reflect the clone.
+    if (ok) {
+      syncWebinarVoiceClone();
+      await loadWebinars();
+    }
+  });
+  row.append(btn, note);
+  return row;
+}
+
 async function submitWebinar(): Promise<void> {
   const orgId = webinarOrgSel.value;
   const title = webinarTitleInput.value.trim();
@@ -5134,14 +5389,17 @@ async function submitWebinar(): Promise<void> {
   webinarCreateBtn.disabled = true;
   setWebinarStatus(t('webinarCreating'), '');
   try {
+    // Voice cloning is Enhanced-only and moot once already cloned — only send it
+    // when the tier-aware toggle is actually offered AND on.
+    const cloneOffered = showVoiceCloneToggle(webinarTierSel.value, hasVoiceClone());
     await createWebinar({
       org_id: orgId,
       title,
       source_language: webinarLangSel.value,
       tier: webinarTierSel.value as WebinarView['tier'],
-      record_video: $<HTMLInputElement>('webinar-record-video').checked,
-      record_transcript: $<HTMLInputElement>('webinar-record-transcript').checked,
-      voice_clone: $<HTMLInputElement>('webinar-voice-clone').checked,
+      record_video: switchOn(webinarRecordVideoSw),
+      record_transcript: switchOn(webinarRecordTranscriptSw),
+      voice_clone: cloneOffered && switchOn(webinarVoiceCloneSw),
     });
     webinarTitleInput.value = '';
     setWebinarStatus(t('webinarCreated'), 'ok');

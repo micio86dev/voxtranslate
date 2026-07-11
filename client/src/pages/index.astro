@@ -1032,10 +1032,24 @@ const jsonLd = {
                 <option value="standard" data-i18n="webinarTierStandard">{T('webinarTierStandard')}</option>
               </select>
             </label>
+            <!-- Accessible toggle switches (role=switch + aria-checked), wired in app.ts.
+                 Label + switch sit on one row; keyboard-operable (Space/Enter). -->
             <div class="webinar-toggles">
-              <label class="webinar-toggle"><input id="webinar-record-video" type="checkbox" /><span data-i18n="webinarRecordVideo">{T('webinarRecordVideo')}</span></label>
-              <label class="webinar-toggle"><input id="webinar-record-transcript" type="checkbox" checked /><span data-i18n="webinarRecordTranscript">{T('webinarRecordTranscript')}</span></label>
-              <label class="webinar-toggle"><input id="webinar-voice-clone" type="checkbox" /><span data-i18n="webinarVoiceClone">{T('webinarVoiceClone')}</span></label>
+              <div class="webinar-toggle-row">
+                <span class="webinar-toggle-label" id="webinar-record-video-label" data-i18n="webinarRecordVideo">{T('webinarRecordVideo')}</span>
+                <button id="webinar-record-video" class="ws-switch" type="button" role="switch" aria-checked="false" aria-labelledby="webinar-record-video-label"><span class="ws-switch-knob" aria-hidden="true"></span></button>
+              </div>
+              <div class="webinar-toggle-row">
+                <span class="webinar-toggle-label" id="webinar-record-transcript-label" data-i18n="webinarRecordTranscript">{T('webinarRecordTranscript')}</span>
+                <button id="webinar-record-transcript" class="ws-switch" type="button" role="switch" aria-checked="true" aria-labelledby="webinar-record-transcript-label"><span class="ws-switch-knob" aria-hidden="true"></span></button>
+              </div>
+              <!-- Voice clone: shown only for Enhanced + when the voice isn't cloned yet (app.ts). -->
+              <div class="webinar-toggle-row hidden" id="webinar-voice-clone-row">
+                <span class="webinar-toggle-label" id="webinar-voice-clone-label" data-i18n="webinarVoiceClone">{T('webinarVoiceClone')}</span>
+                <button id="webinar-voice-clone" class="ws-switch" type="button" role="switch" aria-checked="false" aria-labelledby="webinar-voice-clone-label"><span class="ws-switch-knob" aria-hidden="true"></span></button>
+              </div>
+              <!-- Shown instead of the toggle when the host's voice is already cloned. -->
+              <p id="webinar-voice-cloned-hint" class="webinar-cloned-hint hidden" data-i18n="webinarVoiceCloned">{T('webinarVoiceCloned')}</p>
             </div>
             <button id="webinar-create-btn" type="submit" class="btn-primary webinar-create-btn" data-i18n="webinarCreate">{T('webinarCreate')}</button>
             <p id="webinar-create-status" class="status-line hidden" role="status"></p>
@@ -1048,6 +1062,20 @@ const jsonLd = {
         </div>
       </div>
     </section>
+
+    <!-- Fullscreen QR zoom (webinar-ui-fixes #9): tapping a card's QR opens this
+         centered overlay with a large QR + the join URL. Reuses the shared
+         .modal-overlay focus-trap + Escape + focus-restore wired in app.ts. -->
+    <div id="webinar-qr-modal" class="modal-overlay hidden">
+      <div class="modal card webinar-qr-modal" role="dialog" aria-modal="true" aria-labelledby="webinar-qr-modal-title">
+        <div class="modal-head">
+          <span id="webinar-qr-modal-title" class="card-title"></span>
+          <button id="webinar-qr-close" class="btn-ghost icon-btn" data-i18n-title="closeTip" title={T('closeTip')} aria-label={T('closeTip')}></button>
+        </div>
+        <img id="webinar-qr-modal-img" class="webinar-qr-large" alt="" />
+        <p id="webinar-qr-modal-url" class="webinar-qr-modal-url"></p>
+      </div>
+    </div>
 
     <!-- Actionable in-app banner (e.g. a friend is in a public room → Join). A fixed
          top overlay populated + toggled from app.ts. Distinct from the transient
@@ -2385,10 +2413,26 @@ const jsonLd = {
     /* Webinars host hub (webinar phase 0). Cards are built in app.ts, so their inner
        selectors are :global() (Astro scopes only static markup). */
     .webinars-body { display: flex; flex-direction: column; gap: 16px; }
-    .webinar-form { display: flex; flex-direction: column; gap: 12px; padding: 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; }
+    .webinar-form { display: flex; flex-direction: column; gap: 12px; padding: 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; }
     .webinar-form .ws-field { flex: none; }
-    .webinar-toggles { display: flex; flex-wrap: wrap; gap: 14px; }
-    .webinar-toggle { display: flex; align-items: center; gap: 6px; font-size: 0.88rem; color: var(--text); cursor: pointer; }
+    /* Create-form toggles: one label + switch per row, evenly spaced. */
+    .webinar-toggles { display: flex; flex-direction: column; gap: 4px; padding: 4px 0; }
+    .webinar-toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 40px; }
+    .webinar-toggle-label { font-size: 0.9rem; color: var(--text); }
+    .webinar-cloned-hint { margin: 2px 0 0; font-size: 0.84rem; color: var(--success); display: flex; align-items: center; gap: 6px; }
+    /* Accessible on/off switch (button[role=switch]); driven by aria-checked. */
+    .ws-switch {
+      flex: none; position: relative; width: 46px; height: 26px; padding: 0; border-radius: 999px;
+      border: 1px solid var(--border); background: var(--bg); cursor: pointer;
+      transition: background 0.15s ease, border-color 0.15s ease;
+    }
+    .ws-switch .ws-switch-knob {
+      position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; border-radius: 50%;
+      background: var(--muted); transition: transform 0.15s ease, background 0.15s ease;
+    }
+    .ws-switch[aria-checked='true'] { background: var(--accent); border-color: var(--accent); }
+    .ws-switch[aria-checked='true'] .ws-switch-knob { transform: translateX(20px); background: #fff; }
+    .ws-switch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     .webinar-create-btn { width: auto; align-self: flex-start; padding: 0 18px; min-height: 44px; }
     .webinar-list-title { font-size: 1.05rem; font-weight: 700; margin: 0; }
     .webinar-list { display: flex; flex-direction: column; gap: 12px; }
@@ -2397,8 +2441,8 @@ const jsonLd = {
       border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface);
     }
     .webinar-list :global(.webinar-card-head) { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-    .webinar-list :global(.webinar-card-title) { font-weight: 700; font-size: 1rem; }
-    .webinar-list :global(.webinar-status) { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; padding: 2px 8px; border-radius: 999px; background: var(--border); color: var(--muted); }
+    .webinar-list :global(.webinar-card-title) { font-weight: 700; font-size: 1rem; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+    .webinar-list :global(.webinar-status) { flex: none; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; padding: 2px 8px; border-radius: 999px; background: var(--border); color: var(--muted); }
     .webinar-list :global(.webinar-status-scheduled) { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent); }
     .webinar-list :global(.webinar-status-live) { background: color-mix(in srgb, var(--danger) 18%, transparent); color: var(--danger); }
     .webinar-list :global(.webinar-status-cancelled) { text-decoration: line-through; }
@@ -2409,7 +2453,17 @@ const jsonLd = {
       border: 1px solid var(--border); border-radius: 10px; background: var(--bg); color: var(--text);
     }
     .webinar-list :global(.webinar-copy-btn) { flex: none; padding: 0 14px; min-height: 38px; }
-    .webinar-list :global(.webinar-qr) { align-self: flex-start; width: 160px; height: 160px; border-radius: 10px; background: #fff; padding: 6px; }
+    /* QR: tappable (opens the fullscreen zoom). */
+    .webinar-list :global(.webinar-qr) { align-self: flex-start; width: 160px; height: 160px; border-radius: 10px; background: #fff; padding: 6px; cursor: zoom-in; }
+    .webinar-list :global(.webinar-qr:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+    /* QR actions row: download + print, styled as ghost buttons. */
+    .webinar-list :global(.webinar-qr-actions) { display: flex; flex-wrap: wrap; gap: 8px; }
+    .webinar-list :global(.webinar-qr-actions .btn-ghost) { flex: none; padding: 0 14px; min-height: 38px; }
+    .webinar-list :global(.webinar-clone-row) { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+    .webinar-list :global(.webinar-clone-btn) { flex: none; padding: 0 14px; min-height: 38px; }
+    .webinar-list :global(.webinar-clone-note) { font-size: 0.82rem; color: var(--muted); }
+    .webinar-list :global(.webinar-clone-note.ok) { color: var(--success); }
+    .webinar-list :global(.webinar-clone-note.err) { color: var(--danger); }
     .webinar-list :global(.webinar-cancel-btn) { align-self: flex-start; padding: 0 14px; min-height: 38px; }
     /* Go-live / publish control (webinar phase 1). */
     .webinar-list :global(.webinar-live-row) { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
@@ -2417,6 +2471,19 @@ const jsonLd = {
     .webinar-list :global(.webinar-golive-btn.danger) { background: var(--danger); }
     .webinar-list :global(.webinar-cam-btn) { flex: none; padding: 0 14px; min-height: 40px; }
     .webinar-list :global(.webinar-onair-badge) { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; padding: 4px 10px; border-radius: 999px; background: color-mix(in srgb, var(--danger) 18%, transparent); color: var(--danger); }
+    /* Fullscreen QR zoom overlay (webinar-ui-fixes #9). */
+    .webinar-qr-modal { max-width: 420px; align-items: center; text-align: center; }
+    .webinar-qr-large { width: 100%; max-width: 320px; height: auto; aspect-ratio: 1 / 1; border-radius: 12px; background: #fff; padding: 12px; }
+    .webinar-qr-modal-url { margin: 0; font-size: 0.85rem; color: var(--muted); word-break: break-all; }
+    /* Narrow viewports (the host tested on a phone): let card actions wrap full-width. */
+    @media (max-width: 560px) {
+      .webinar-create-btn { width: 100%; align-self: stretch; }
+      .webinar-list :global(.webinar-qr) { align-self: center; }
+      .webinar-list :global(.webinar-qr-actions .btn-ghost),
+      .webinar-list :global(.webinar-clone-btn),
+      .webinar-list :global(.webinar-copy-btn) { flex: 1 1 auto; }
+      .webinar-list :global(.webinar-golive-btn) { width: 100%; }
+    }
 
     /* Billing section: balance + a quick path back to checkout, above the history tabs. */
     .billing-balance-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; }
