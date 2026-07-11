@@ -215,6 +215,12 @@ const jsonLd = {
           </div>
           <div id="rooms-list" class="rooms-list"></div>
         </div>
+        <!-- Legal links footer on the lobby (mirrors the login-screen footer; keeps terms/privacy/acceptable-use reachable from the app home). -->
+        <p class="legal-footer">
+          <a href="/terms" target="_blank" rel="noopener" data-i18n="terms">{T('terms')}</a>
+          <a href="/privacy" target="_blank" rel="noopener" data-i18n="privacy">{T('privacy')}</a>
+          <a href="/acceptable-use" target="_blank" rel="noopener" data-i18n="acceptableUse">{T('acceptableUse')}</a>
+        </p>
       </div>
       <button id="onb-home-help" class="help-fab" type="button" data-i18n-title="onbHelpLabel" title={T('onbHelpLabel')} aria-label={T('onbHelpLabel')}>?</button>
     </section>
