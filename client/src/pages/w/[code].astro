@@ -1,0 +1,263 @@
+---
+// Webinar participant page (webinar phase 1, F1-5). A guest opens a shared link
+// `/w/{code}` and watches the host's live, auto-translated broadcast.
+//
+// This route is rendered ON-DEMAND (`prerender = false`) — the whole rest of the app
+// stays static. On-demand rendering lets us server-side fetch the webinar so the
+// <title> and Open Graph tags reflect the real webinar title (a shared link must
+// preview correctly on social / chat). A missing/cancelled code returns 404 and we
+// render a friendly "not found" state. All playback + polling happens client-side in
+// hls-player.ts (mounted below).
+export const prerender = false;
+
+import Base from '../../layouts/Base.astro';
+
+const { code = '' } = Astro.params;
+
+// Server-side API origin. In production PUBLIC_WS_HOST points at the API host; locally
+// (unset) we skip the SSR fetch and let the client fetch same-origin at runtime.
+const wsHost = import.meta.env.PUBLIC_WS_HOST;
+const apiBase = wsHost ? `https://${wsHost}` : '';
+
+interface PublicWebinar {
+  code: string;
+  title: string;
+  status: 'scheduled' | 'live' | 'ended' | 'cancelled';
+  source_language: string;
+  tier: 'standard' | 'enhanced';
+  join_url: string;
+  playback_url: string | null;
+  guest_id: string;
+}
+
+let webinar: PublicWebinar | null = null;
+let notFound = false;
+
+if (apiBase && code) {
+  try {
+    const res = await fetch(`${apiBase}/api/w/${encodeURIComponent(code)}`);
+    if (res.ok) {
+      webinar = (await res.json()) as PublicWebinar;
+    } else if (res.status === 404) {
+      notFound = true;
+    }
+    // Any other status (5xx / network): fall through with webinar=null; the client
+    // player will retry the fetch and surface its own error/waiting state.
+  } catch {
+    // SSR fetch failed (API cold / unreachable) — render the shell and let the client
+    // player fetch at runtime. Not a hard 404.
+  }
+}
+
+if (notFound) {
+  Astro.response.status = 404;
+}
+
+// SEO/meta: the real webinar title when known, a generic fallback otherwise. This
+// page is never indexed (public but ephemeral, one row per broadcast).
+const pageTitle = webinar
+  ? `${webinar.title} · VoxTranslate`
+  : 'Webinar · VoxTranslate';
+const pageDesc = webinar
+  ? `Join “${webinar.title}” on VoxTranslate — watch live, auto-translated into your own language.`
+  : 'Watch a live, auto-translated webinar on VoxTranslate.';
+---
+
+<Base title={pageTitle} description={pageDesc} noindex={true}>
+  <main class="wv" data-code={code} data-notfound={notFound ? '1' : '0'}>
+    {
+      notFound ? (
+        <div class="wv-card">
+          <div class="wv-glyph" aria-hidden="true">🌐</div>
+          <h1 class="wv-title" data-i18n="wvNotFoundTitle">Webinar not found</h1>
+          <p class="wv-text" data-i18n="wvNotFoundText">
+            This webinar link is invalid or has been cancelled.
+          </p>
+          <a class="wv-btn" href="/" data-i18n="wvBackHome">Back to VoxTranslate</a>
+        </div>
+      ) : (
+        <div class="wv-stage">
+          <header class="wv-head">
+            <h1 class="wv-heading">{webinar ? webinar.title : ''}</h1>
+            <span id="wv-status" class="wv-badge" role="status" data-i18n="wvStateWaiting">
+              Waiting to start…
+            </span>
+          </header>
+
+          <div class="wv-video-wrap">
+            <!-- `playsinline` is required for iOS to play inline (not fullscreen); the
+                 muted default lets autoplay proceed under the browser audio policy. -->
+            <video
+              id="wv-video"
+              class="wv-video"
+              playsinline
+              controls
+              muted
+              preload="none"
+            ></video>
+
+            <!-- Tap-to-start overlay: shown only when even muted autoplay was blocked. -->
+            <button id="wv-tap" type="button" class="wv-tap hidden" data-i18n="wvTapToStart">
+              Tap to start
+            </button>
+
+            <!-- Waiting / ended overlays (driven by the player state). -->
+            <div id="wv-overlay-waiting" class="wv-overlay">
+              <div class="wv-spinner" aria-hidden="true"></div>
+              <p data-i18n="wvWaitingBody">The host hasn’t started yet. This page will start playing automatically.</p>
+            </div>
+            <div id="wv-overlay-ended" class="wv-overlay hidden">
+              <div class="wv-glyph" aria-hidden="true">👋</div>
+              <p data-i18n="wvEndedBody">This webinar has ended. Thanks for watching!</p>
+              <a class="wv-btn" href="/" data-i18n="wvBackHome">Back to VoxTranslate</a>
+            </div>
+            <div id="wv-overlay-error" class="wv-overlay hidden">
+              <div class="wv-glyph" aria-hidden="true">⚠️</div>
+              <p data-i18n="wvErrorBody">We couldn’t load this webinar. Please refresh to try again.</p>
+            </div>
+          </div>
+        </div>
+      )
+    }
+  </main>
+
+  <script>
+    import { mountWebinarPlayer } from '../../scripts/webinar-view';
+    mountWebinarPlayer();
+  </script>
+
+  <style>
+    .wv {
+      min-height: 100dvh;
+      display: grid;
+      place-items: center;
+      padding: 16px;
+      background:
+        radial-gradient(1200px 600px at 50% -10%, rgba(59, 130, 246, 0.18), transparent 60%),
+        var(--bg);
+    }
+    .wv-card {
+      text-align: center;
+      max-width: 460px;
+      width: 100%;
+    }
+    .wv-glyph {
+      font-size: 3rem;
+      margin-bottom: 12px;
+    }
+    .wv-title {
+      font-size: 1.5rem;
+      margin: 0 0 8px;
+    }
+    .wv-text {
+      color: var(--text-muted, #9aa4b2);
+      margin: 0 0 20px;
+    }
+    .wv-btn {
+      display: inline-block;
+      padding: 12px 20px;
+      border-radius: 10px;
+      background: var(--accent, #3b82f6);
+      color: #fff;
+      text-decoration: none;
+      font-weight: 600;
+    }
+    .wv-stage {
+      width: 100%;
+      max-width: 960px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .wv-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .wv-heading {
+      font-size: 1.3rem;
+      margin: 0;
+    }
+    .wv-badge {
+      font-size: 0.82rem;
+      font-weight: 600;
+      padding: 4px 12px;
+      border-radius: 999px;
+      background: var(--surface, #1b2330);
+      border: 1px solid var(--border, #2a3444);
+      color: var(--text-muted, #9aa4b2);
+    }
+    .wv-badge.is-live {
+      background: rgba(239, 68, 68, 0.15);
+      border-color: rgba(239, 68, 68, 0.5);
+      color: #f87171;
+    }
+    .wv-video-wrap {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: #000;
+      border-radius: 14px;
+      overflow: hidden;
+    }
+    .wv-video {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      background: #000;
+    }
+    .wv-overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 14px;
+      padding: 24px;
+      text-align: center;
+      color: #e5e7eb;
+      background: rgba(0, 0, 0, 0.55);
+      backdrop-filter: blur(2px);
+    }
+    .wv-overlay.hidden {
+      display: none;
+    }
+    .wv-tap {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: #fff;
+      background: rgba(0, 0, 0, 0.5);
+      border: none;
+      cursor: pointer;
+    }
+    .wv-tap.hidden {
+      display: none;
+    }
+    .wv-spinner {
+      width: 42px;
+      height: 42px;
+      border-radius: 50%;
+      border: 3px solid rgba(255, 255, 255, 0.25);
+      border-top-color: #fff;
+      animation: wv-spin 0.9s linear infinite;
+    }
+    @keyframes wv-spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+    /* Respect reduced-motion: freeze the spinner (WCAG 2.3.3). */
+    @media (prefers-reduced-motion: reduce) {
+      .wv-spinner {
+        animation: none;
+      }
+    }
+  </style>
+</Base>

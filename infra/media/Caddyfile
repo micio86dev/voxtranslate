@@ -1,0 +1,10 @@
+# TLS termination + reverse proxy for the webinar ingest host.
+# WHIP signaling and HLS both ride 443; MediaMTX's internal 8888/8889 stay closed
+# at the firewall. Caddy fetches a Let's Encrypt cert automatically (needs :80).
+ingest.voxtranslate.app {
+	# WHIP/WHEP signaling → MediaMTX WebRTC HTTP port.
+	reverse_proxy /webinar/*/whip localhost:8889
+	reverse_proxy /webinar/*/whep localhost:8889
+	# Everything else under /webinar/ = HLS playlist + segments.
+	reverse_proxy /webinar/* localhost:8888
+}

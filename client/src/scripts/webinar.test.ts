@@ -13,9 +13,14 @@ import {
   cancelWebinar,
   canHostWebinar,
   createWebinar,
+  getPublicWebinar,
   getWebinar,
+  goLive,
   listWebinars,
   patchWebinar,
+  publishStarted,
+  publishStopped,
+  type PublicWebinar,
   type WebinarView,
 } from './webinar';
 import type { BusinessOrg } from './business';
@@ -223,6 +228,88 @@ describe('cancelWebinar', () => {
     await expect(cancelWebinar('w1')).rejects.toMatchObject({ status: 404 });
     fetchMock.mockRejectedValueOnce(new Error('net'));
     await expect(cancelWebinar('w1')).rejects.toMatchObject({ status: 0 });
+  });
+});
+
+describe('goLive', () => {
+  it('POSTs to the go-live endpoint and returns the tokenized publish URL', async () => {
+    fetchMock.mockResolvedValue(
+      okJson({ publish_url: 'https://ingest/webinar/ab12/whip?token=t', expires_in: 120 }),
+    );
+    const out = await goLive('w1');
+    expect(out).toEqual({ publish_url: 'https://ingest/webinar/ab12/whip?token=t', expires_in: 120 });
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('http://test/api/webinars/w1/go-live');
+    expect(init?.method).toBe('POST');
+    expect(init?.headers).toEqual({ Authorization: 'Bearer tok' });
+  });
+
+  it('throws on error and on network failure', async () => {
+    fetchMock.mockResolvedValueOnce(okJson({ error: 'not scheduled' }, 409));
+    await expect(goLive('w1')).rejects.toMatchObject({ status: 409, message: 'not scheduled' });
+    fetchMock.mockRejectedValueOnce(new Error('net'));
+    await expect(goLive('w1')).rejects.toMatchObject({ status: 0 });
+  });
+});
+
+describe('publishStarted / publishStopped', () => {
+  it('POSTs publish-started and returns the live webinar', async () => {
+    fetchMock.mockResolvedValue(okJson(webinar({ status: 'live' })));
+    const out = await publishStarted('w1');
+    expect(out.status).toBe('live');
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('http://test/api/webinars/w1/publish-started');
+    expect(init?.method).toBe('POST');
+    expect(init?.headers).toEqual({ Authorization: 'Bearer tok' });
+  });
+
+  it('POSTs publish-stopped and returns the ended webinar', async () => {
+    fetchMock.mockResolvedValue(okJson(webinar({ status: 'ended' })));
+    const out = await publishStopped('w1');
+    expect(out.status).toBe('ended');
+    expect(fetchMock.mock.calls[0][0]).toBe('http://test/api/webinars/w1/publish-stopped');
+  });
+
+  it('throw a typed error / network error', async () => {
+    fetchMock.mockResolvedValueOnce(okJson({}, 401));
+    await expect(publishStarted('w1')).rejects.toMatchObject({ status: 401 });
+    fetchMock.mockRejectedValueOnce(new Error('net'));
+    await expect(publishStopped('w1')).rejects.toMatchObject({ status: 0 });
+  });
+});
+
+describe('getPublicWebinar', () => {
+  const pub = (over: Partial<PublicWebinar> = {}): PublicWebinar => ({
+    code: 'ab12cd',
+    title: 'Launch',
+    status: 'live',
+    source_language: 'en',
+    tier: 'enhanced',
+    join_url: 'https://voxtranslate.app/w/ab12cd',
+    playback_url: 'https://hls/webinar/ab12cd/index.m3u8',
+    guest_id: 'guest-1',
+    ...over,
+  });
+
+  it('GETs the public endpoint by code with NO auth headers', async () => {
+    fetchMock.mockResolvedValue(okJson(pub()));
+    const out = await getPublicWebinar('ab12cd');
+    expect(out).toEqual(pub());
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('http://test/api/w/ab12cd');
+    // Public endpoint — no Authorization header (init is undefined → no headers).
+    expect(init).toBeUndefined();
+  });
+
+  it('encodes the code and throws 404 for an unknown/cancelled webinar', async () => {
+    fetchMock.mockResolvedValue(okJson({ error: 'not found' }, 404));
+    await expect(getPublicWebinar('bad code')).rejects.toMatchObject({ status: 404 });
+    expect(fetchMock.mock.calls[0][0]).toBe('http://test/api/w/bad%20code');
+  });
+
+  it('throws a status-0 error when fetch rejects', async () => {
+    fetchMock.mockRejectedValue(new Error('net'));
+    await expect(getPublicWebinar('ab12cd')).rejects.toMatchObject({ status: 0 });
   });
 });
 

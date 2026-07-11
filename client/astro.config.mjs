@@ -1,11 +1,25 @@
 import { defineConfig } from 'astro/config';
+import vercel from '@astrojs/vercel';
 
-// Static client. The WebSocket server runs separately (see PUBLIC_WS_HOST).
+// Mostly-static client. The WebSocket server runs separately (see PUBLIC_WS_HOST).
 // COVERAGE=1 produces an un-minified build with sourcemaps so Playwright V8
 // coverage maps back to src/scripts/*.ts.
+//
+// Output stays `static` (the default): every page prerenders to HTML at build time
+// EXCEPT the webinar participant page `/w/[code]`, which opts into on-demand rendering
+// via `export const prerender = false` so it can server-side fetch the webinar for its
+// <title>/OG tags (a shared link must preview correctly). The Vercel adapter supplies
+// the serverless runtime that renders only that one route on-demand; the rest of the
+// app ships as unchanged static HTML.
 const coverage = process.env.COVERAGE === '1';
 
 export default defineConfig({
+  // Serverless runtime for the single on-demand route (/w/[code]); every other page
+  // stays prerendered static (output defaults to `static`). The adapter is required for
+  // any `prerender = false` route to build, so it is always applied — `astro build`
+  // emits `.vercel/output/` and `astro preview` (used by the Playwright e2e webServer)
+  // is served through the adapter.
+  adapter: vercel(),
   // Canonical origin for SEO: powers Astro.site so the layout emits absolute
   // canonical / Open Graph / sitemap URLs. Production domain (see CORS allowlist).
   site: 'https://voxtranslate.app',

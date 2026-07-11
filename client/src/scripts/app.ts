@@ -88,6 +88,7 @@ import {
   WebinarError,
   type WebinarView,
 } from './webinar';
+import { WhipPublisher, type WhipState } from './whip-publisher';
 import { initBookmarks, setBookmarkSession } from './bookmarks';
 import { initBugReport } from './bug-report';
 import * as onboarding from './onboarding';
@@ -4949,6 +4950,13 @@ function renderWebinarCard(w: WebinarView): void {
   card.appendChild(qr);
   void renderQr(qr, w.join_url);
 
+  // Go-live / publish control (webinar phase 1): capture mic (+ optional cam) and
+  // publish to the media server over WHIP. Offered while the webinar can still be
+  // broadcast (scheduled → live). `ended` webinars can't be re-broadcast.
+  if (w.status === 'scheduled' || w.status === 'live') {
+    card.appendChild(buildGoLiveControl(w));
+  }
+
   // Cancel — only while the webinar is still scheduled.
   if (w.status === 'scheduled') {
     const cancelBtn = document.createElement('button');
@@ -4971,6 +4979,133 @@ function renderWebinarCard(w: WebinarView): void {
   }
 
   webinarList.appendChild(card);
+}
+
+// Only one webinar can be broadcast from a device at a time. `activePublisher` holds
+// the live WhipPublisher; `activePublisherId` is the webinar it's publishing so a card
+// re-render can restore the on-air UI.
+let activePublisher: WhipPublisher | null = null;
+let activePublisherId: string | null = null;
+
+/** Map a WhipPublisher state to the localized copy shown on the go-live button/badge. */
+function whipStateLabel(state: WhipState): string {
+  switch (state) {
+    case 'connecting':
+      return t('webinarGoingLive');
+    case 'on-air':
+      return t('webinarOnAir');
+    case 'reconnecting':
+      return t('webinarReconnecting');
+    case 'mic-denied':
+      return t('webinarMicDenied');
+    case 'error':
+      return t('webinarPublishError');
+    default:
+      return t('webinarGoLive');
+  }
+}
+
+/**
+ * Build the per-webinar "Go live" control: a go-live/stop button, an on-air badge, and
+ * a webcam toggle. Starting capture publishes over WHIP and flips the webinar to live;
+ * stopping tears the publish down and ends it. Only one broadcast runs at a time.
+ */
+function buildGoLiveControl(w: WebinarView): HTMLElement {
+  const wrap = document.createElement('div');
+  wrap.className = 'webinar-live-row';
+
+  const goBtn = document.createElement('button');
+  goBtn.type = 'button';
+  goBtn.className = 'btn-primary webinar-golive-btn';
+
+  const badge = document.createElement('span');
+  badge.className = 'webinar-onair-badge hidden';
+  badge.setAttribute('role', 'status');
+
+  const camBtn = document.createElement('button');
+  camBtn.type = 'button';
+  camBtn.className = 'btn-ghost webinar-cam-btn hidden';
+
+  // Render the control for a given publisher state (also used to restore a live card).
+  const paint = (state: WhipState): void => {
+    const live = state === 'on-air' || state === 'connecting' || state === 'reconnecting';
+    badge.textContent = whipStateLabel(state);
+    show(badge, live);
+    goBtn.textContent = live ? t('webinarStopBroadcast') : t('webinarGoLive');
+    goBtn.classList.toggle('danger', live);
+    show(camBtn, live);
+  };
+
+  const updateCamLabel = (on: boolean): void => {
+    camBtn.textContent = on ? t('webinarCamOff') : t('webinarCamOn');
+  };
+  updateCamLabel(false);
+
+  const startBroadcast = async (): Promise<void> => {
+    if (activePublisher) {
+      // A different webinar is already broadcasting from this device.
+      if (activePublisherId !== w.id) {
+        toast(t('webinarAlreadyLive'), 'err');
+        return;
+      }
+      return;
+    }
+    goBtn.disabled = true;
+    const publisher = new WhipPublisher({
+      webinarId: w.id,
+      onState: (state) => {
+        paint(state);
+        if (state === 'mic-denied') toast(t('webinarMicDenied'), 'err');
+        if (state === 'error') toast(t('webinarPublishError'), 'err');
+      },
+    });
+    try {
+      await publisher.start();
+      activePublisher = publisher;
+      activePublisherId = w.id;
+    } catch {
+      // start() already surfaced mic-denied / error via onState + toast.
+    } finally {
+      goBtn.disabled = false;
+    }
+  };
+
+  const stopBroadcast = async (): Promise<void> => {
+    if (!activePublisher || activePublisherId !== w.id) return;
+    goBtn.disabled = true;
+    await activePublisher.stop();
+    activePublisher = null;
+    activePublisherId = null;
+    goBtn.disabled = false;
+    paint('idle');
+    updateCamLabel(false);
+    await loadWebinars(); // reflect the now-ended status
+  };
+
+  goBtn.addEventListener('click', () => {
+    const live = activePublisher != null && activePublisherId === w.id;
+    void (live ? stopBroadcast() : startBroadcast());
+  });
+
+  camBtn.addEventListener('click', async () => {
+    if (!activePublisher || activePublisherId !== w.id) return;
+    camBtn.disabled = true;
+    const on = await activePublisher.toggleCamera(!activePublisher.isCameraOn());
+    updateCamLabel(on);
+    camBtn.disabled = false;
+  });
+
+  // Restore the on-air UI if THIS webinar is the one already broadcasting (card
+  // re-render while live — e.g. after a status refresh).
+  if (activePublisher && activePublisherId === w.id) {
+    paint(activePublisher.getState());
+    updateCamLabel(activePublisher.isCameraOn());
+  } else {
+    paint('idle');
+  }
+
+  wrap.append(goBtn, camBtn, badge);
+  return wrap;
 }
 
 /** Render a QR of `text` into `img` as a data URL. The `qrcode` browser bundle is a

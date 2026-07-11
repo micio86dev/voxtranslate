@@ -28,6 +28,7 @@ use crate::config::WebinarConfig;
 use crate::db::Pool;
 use crate::middleware::AuthUser;
 use crate::webinar::guest::{guest_session, GuestId};
+use crate::webinar::media::{media_auth, mint_publish_token, publish_url};
 use crate::webinar::{
     create_webinar, find_by_code, find_by_id, join_url, playback_url, NewWebinar, Webinar,
 };
@@ -44,6 +45,13 @@ pub fn routes() -> Router<AppState> {
         .route("/api/webinars", post(create).get(list))
         .route("/api/webinars/{id}", get(get_one).patch(patch))
         .route("/api/webinars/{id}/cancel", post(cancel))
+        // Host mints a short-lived tokenized WHIP publish URL to go on air (F1-1).
+        .route("/api/webinars/{id}/go-live", post(go_live))
+        // Lifecycle: host client reports on-air / off-air (F1-3).
+        .route("/api/webinars/{id}/publish-started", post(publish_started))
+        .route("/api/webinars/{id}/publish-stopped", post(publish_stopped))
+        // MediaMTX external-auth hook (F1-2) — server-to-server, path-secret auth.
+        .route("/internal/media-auth/{caller_secret}", post(media_auth))
         .merge(public)
 }
 
@@ -350,6 +358,83 @@ pub async fn cancel(
     .await
     .map_err(db_err)?;
     Ok(Json(host_view(&updated, &state.config.app_base_url, cfg)).into_response())
+}
+
+/// `POST /api/webinars/{id}/go-live` — mint a short-lived, path-bound WHIP publish
+/// URL (token) for the host to publish to (F1-1). Host (org member) only; the
+/// live/ended state transition is driven separately (F1-3).
+pub async fn go_live(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+) -> Result<Response, Response> {
+    let pool = require_pool(&state)?;
+    let cfg = require_cfg(&state)?;
+    let w = require_webinar_role(pool, id, user.user_id, MEMBER).await?;
+    if w.status == "ended" || w.status == "cancelled" {
+        return Err((StatusCode::CONFLICT, "webinar has ended").into_response());
+    }
+    let path = format!("webinar/{}", w.code);
+    let token = mint_publish_token(&cfg.auth_secret, &path, cfg.publish_token_ttl_secs);
+    Ok(Json(json!({
+        "publish_url": publish_url(&cfg.ingest_host, &w.code, &token),
+        "expires_in": cfg.publish_token_ttl_secs,
+    }))
+    .into_response())
+}
+
+/// `POST /api/webinars/{id}/publish-started` — the host went on air (F1-3).
+/// Idempotent: the first call flips scheduled→live and stamps `actual_start`;
+/// repeats keep it live with the original start time.
+///
+/// This explicit signal from the host client is the primary lifecycle driver. A
+/// grace window on an *unexpected* WHIP disconnect (so a transient blip doesn't
+/// end the webinar) is the MediaMTX `runOnNotReady` backstop, wired with the box
+/// in F1-0.
+pub async fn publish_started(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+) -> Result<Response, Response> {
+    let pool = require_pool(&state)?;
+    let cfg = require_cfg(&state)?;
+    let w = require_webinar_role(pool, id, user.user_id, MEMBER).await?;
+    if w.status == "ended" || w.status == "cancelled" {
+        return Err((StatusCode::CONFLICT, "webinar has already ended").into_response());
+    }
+    let updated: Webinar = sqlx::query_as(
+        "UPDATE webinars
+            SET status = 'live', actual_start = COALESCE(actual_start, now()), updated_at = now()
+         WHERE id = $1 RETURNING *",
+    )
+    .bind(id)
+    .fetch_one(pool)
+    .await
+    .map_err(db_err)?;
+    Ok(Json(host_view(&updated, &state.config.app_base_url, cfg)).into_response())
+}
+
+/// `POST /api/webinars/{id}/publish-stopped` — the host went off air (F1-3).
+/// Ends a live webinar and stamps `actual_end`; idempotent for any other state.
+pub async fn publish_stopped(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+) -> Result<Response, Response> {
+    let pool = require_pool(&state)?;
+    let cfg = require_cfg(&state)?;
+    let w = require_webinar_role(pool, id, user.user_id, MEMBER).await?;
+    // Only a live webinar transitions to ended; any other state is returned as-is.
+    sqlx::query(
+        "UPDATE webinars SET status = 'ended', actual_end = now(), updated_at = now()
+         WHERE id = $1 AND status = 'live'",
+    )
+    .bind(id)
+    .execute(pool)
+    .await
+    .map_err(db_err)?;
+    let current = find_by_id(pool, id).await.map_err(db_err)?.unwrap_or(w);
+    Ok(Json(host_view(&current, &state.config.app_base_url, cfg)).into_response())
 }
 
 /// `GET /api/w/{code}` — public, auth-free resolution for guests. NO host PII.
