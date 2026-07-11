@@ -1,0 +1,26 @@
+# MediaMTX (WHIP ingest → LL-HLS) + Caddy (automatic TLS) for the VoxTranslate
+# webinar media server. Runs on the Hetzner box — see /DEPLOY-HETZNER.md.
+#
+# Both use host networking: MediaMTX needs the raw WebRTC UDP range (:8189) and
+# Caddy binds :80/:443. MediaMTX's HTTP ports (8888 HLS, 8889 WHIP) stay on
+# localhost and are reverse-proxied by Caddy — they are NOT opened in the firewall.
+services:
+  mediamtx:
+    image: bluenviron/mediamtx:latest
+    network_mode: host
+    restart: unless-stopped
+    volumes:
+      - ./mediamtx.yml:/mediamtx.yml:ro
+
+  caddy:
+    image: caddy:2
+    network_mode: host
+    restart: unless-stopped
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:
