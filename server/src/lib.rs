@@ -51,6 +51,7 @@ pub mod subtitles;
 pub mod transcripts;
 pub mod translator;
 pub mod usage;
+pub mod webinar;
 
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -731,6 +732,13 @@ pub fn app(state: AppState) -> Router {
         // When absent the route is 404 — satisfies spec feature-flag-disabled behavior.
         .merge(if state.config.help_assistant.is_some() {
             business::routes::help_assistant_routes()
+        } else {
+            axum::Router::new()
+        })
+        // Webinar Mode — 1-to-many broadcast API. Registered only when
+        // config.webinar is set (MEDIA_INGEST_HOST); otherwise ships dark (404).
+        .merge(if state.config.webinar.is_some() {
+            webinar::routes::routes()
         } else {
             axum::Router::new()
         })

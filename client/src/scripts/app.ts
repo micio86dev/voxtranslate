@@ -21,7 +21,7 @@ import {
   searchLanguages,
   selectableEngines,
 } from './engines';
-import { type LangMeta, langMeta } from './langmap';
+import { type LangMeta, LANGUAGES, langMeta } from './langmap';
 // In-call modules are lazy-loaded at pre-join (spec 0105) — keep only their TYPES here so the
 // landing entry chunk doesn't statically pull them in; the runtime values come from the
 // `CallModules` namespaces returned by `loadCallModules()`.
@@ -80,6 +80,14 @@ import {
   type BusinessOrg,
   type ProjectVoiceMessage,
 } from './business';
+import {
+  cancelWebinar,
+  canHostWebinar,
+  createWebinar,
+  listWebinars,
+  WebinarError,
+  type WebinarView,
+} from './webinar';
 import { initBookmarks, setBookmarkSession } from './bookmarks';
 import { initBugReport } from './bug-report';
 import * as onboarding from './onboarding';
@@ -4558,6 +4566,8 @@ async function updateWorkspaceLink(): Promise<void> {
   show(btn, true);
   // Project voice notes are gated on an active subscription (same as cloud recording).
   if (orgs.some((o) => canCloudRecord(o))) show($('acct-tab-workspace'), true);
+  // Hosting webinars is gated on an active subscription too (webinar phase 0).
+  if (orgs.some((o) => canHostWebinar(o))) show($('webinars-btn'), true);
 }
 
 // ---- Workspace: project voice notes (spec: B2B project voice notes) --------
@@ -4776,6 +4786,248 @@ wsProjectSel.addEventListener('change', () => void loadWorkspaceNotes());
 wsRecordBtn.addEventListener('click', () => void startWsRecording());
 $('ws-rec-send').addEventListener('click', () => stopWsRecording(true));
 $('ws-rec-cancel').addEventListener('click', () => stopWsRecording(false));
+
+// ---- Webinars: B2B host hub (webinar phase 0) ------------------------------
+// A signed-in host with an active-subscription org creates and manages webinars.
+// Each webinar shows a copyable public join link + a QR encoding that link. Screen
+// switch mirrors the Account hub (homeScreen.hidden ↔ webinarsScreen.hidden).
+const webinarsScreen = $('webinars');
+const webinarOrgSel = $<HTMLSelectElement>('webinar-org');
+const webinarLangSel = $<HTMLSelectElement>('webinar-lang');
+const webinarTierSel = $<HTMLSelectElement>('webinar-tier');
+const webinarTitleInput = $<HTMLInputElement>('webinar-title');
+const webinarForm = $<HTMLFormElement>('webinar-create');
+const webinarCreateBtn = $<HTMLButtonElement>('webinar-create-btn');
+const webinarCreateStatus = $('webinar-create-status');
+const webinarList = $('webinar-list');
+const webinarListEmpty = $('webinar-list-empty');
+$('webinars-back').innerHTML = icon('chevron-left', 18);
+
+let webinarOrgsLoaded = false;
+
+/** Map a WebinarError HTTP status to a localized message. */
+function webinarErrorMessage(err: unknown): string {
+  const status = err instanceof WebinarError ? err.status : 0;
+  switch (status) {
+    case 401:
+      return t('webinarErrAuth');
+    case 402:
+      return t('webinarErrInactive');
+    case 404:
+      return t('webinarErrOrg');
+    case 409:
+      return t('webinarErrLocked');
+    case 400:
+      return t('webinarErrInput');
+    default:
+      return t('webinarErrGeneric');
+  }
+}
+
+function setWebinarStatus(msg: string, kind: 'ok' | 'err' | ''): void {
+  webinarCreateStatus.textContent = msg;
+  webinarCreateStatus.classList.toggle('ok', kind === 'ok');
+  webinarCreateStatus.classList.toggle('err', kind === 'err');
+  show(webinarCreateStatus, !!msg);
+}
+
+/** Populate the source-language select once (every union language, endonym-labelled). */
+function fillWebinarLangs(): void {
+  if (webinarLangSel.options.length) return;
+  for (const l of LANGUAGES) {
+    const opt = document.createElement('option');
+    opt.value = l.code;
+    opt.textContent = `${l.native} (${l.english})`;
+    webinarLangSel.appendChild(opt);
+  }
+  // Default to the host's UI language when it's in the union, else English.
+  const ui = getUiLang();
+  webinarLangSel.value = LANGUAGES.some((l) => l.code === ui) ? ui : 'en';
+}
+
+/** Open the Webinars screen: load the host's active-sub orgs on first entry, then
+ *  render that org's webinars. */
+async function openWebinars(): Promise<void> {
+  homeScreen.classList.add('hidden');
+  webinarsScreen.classList.remove('hidden');
+  fillWebinarLangs();
+  if (!webinarOrgsLoaded) {
+    const orgs = (await ensureBizOrgs()).filter((o) => canHostWebinar(o));
+    webinarOrgSel.innerHTML = '';
+    for (const o of orgs) {
+      const opt = document.createElement('option');
+      opt.value = o.id;
+      opt.textContent = o.name;
+      webinarOrgSel.appendChild(opt);
+    }
+    show($('webinar-org-field'), orgs.length > 1); // single org → hide the picker
+    webinarCreateBtn.disabled = orgs.length === 0;
+    webinarOrgsLoaded = true;
+  }
+  await loadWebinars();
+}
+
+function closeWebinars(): void {
+  webinarsScreen.classList.add('hidden');
+  homeScreen.classList.remove('hidden');
+}
+
+/** Fetch + render the selected org's webinars (newest server order preserved). */
+async function loadWebinars(): Promise<void> {
+  const orgId = webinarOrgSel.value;
+  webinarList.innerHTML = '';
+  show(webinarListEmpty, false);
+  if (!orgId) return;
+  let webinars: WebinarView[];
+  try {
+    webinars = await listWebinars(orgId);
+  } catch (err) {
+    toast(webinarErrorMessage(err), 'err');
+    return;
+  }
+  if (!webinars.length) {
+    show(webinarListEmpty, true);
+    return;
+  }
+  for (const w of webinars) renderWebinarCard(w);
+}
+
+/** One webinar card: title/status, the copyable join link, a QR of that link, and
+ *  a Cancel action while it's still scheduled. */
+function renderWebinarCard(w: WebinarView): void {
+  const card = document.createElement('div');
+  card.className = 'webinar-card';
+  card.dataset.webinarId = w.id;
+
+  const head = document.createElement('div');
+  head.className = 'webinar-card-head';
+  const title = document.createElement('span');
+  title.className = 'webinar-card-title';
+  title.textContent = w.title;
+  const status = document.createElement('span');
+  status.className = `webinar-status webinar-status-${w.status}`;
+  status.textContent = t(`webinarStatus_${w.status}`) || w.status;
+  head.append(title, status);
+  card.appendChild(head);
+
+  const meta = document.createElement('span');
+  meta.className = 'webinar-card-meta';
+  meta.textContent = `${(langMeta(w.source_language)?.native ?? w.source_language)} · ${t(`webinarTier_${w.tier}`) || w.tier}`;
+  card.appendChild(meta);
+
+  // Copyable join link. The button briefly swaps to "Copied" (room-code pattern).
+  const linkRow = document.createElement('div');
+  linkRow.className = 'webinar-link-row';
+  const linkInput = document.createElement('input');
+  linkInput.className = 'webinar-link-input';
+  linkInput.readOnly = true;
+  linkInput.value = w.join_url;
+  linkInput.setAttribute('aria-label', t('webinarJoinLink'));
+  const copyBtn = document.createElement('button');
+  copyBtn.type = 'button';
+  copyBtn.className = 'btn-ghost webinar-copy-btn';
+  copyBtn.textContent = t('copy');
+  copyBtn.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(w.join_url);
+      copyBtn.textContent = t('copied');
+      setTimeout(() => (copyBtn.textContent = t('copy')), 1200);
+    } catch {
+      linkInput.select(); // fallback: select for a manual copy
+      toast(t('copyFailed'), 'err');
+    }
+  });
+  linkRow.append(linkInput, copyBtn);
+  card.appendChild(linkRow);
+
+  // QR of the EXACT join_url from the API (never rebuilt). Lazy-imported chunk.
+  const qr = document.createElement('img');
+  qr.className = 'webinar-qr';
+  qr.alt = t('webinarQrAlt');
+  qr.width = 160;
+  qr.height = 160;
+  card.appendChild(qr);
+  void renderQr(qr, w.join_url);
+
+  // Cancel — only while the webinar is still scheduled.
+  if (w.status === 'scheduled') {
+    const cancelBtn = document.createElement('button');
+    cancelBtn.type = 'button';
+    cancelBtn.className = 'btn-ghost webinar-cancel-btn danger';
+    cancelBtn.textContent = t('webinarCancel');
+    cancelBtn.addEventListener('click', async () => {
+      if (!confirm(t('webinarCancelConfirm'))) return;
+      cancelBtn.disabled = true;
+      try {
+        await cancelWebinar(w.id);
+        toast(t('webinarCancelled'), 'ok');
+        await loadWebinars();
+      } catch (err) {
+        cancelBtn.disabled = false;
+        toast(webinarErrorMessage(err), 'err');
+      }
+    });
+    card.appendChild(cancelBtn);
+  }
+
+  webinarList.appendChild(card);
+}
+
+/** Render a QR of `text` into `img` as a data URL. The `qrcode` browser bundle is a
+ *  lazy chunk (dynamic import), so it never weighs on the main app load. */
+async function renderQr(img: HTMLImageElement, text: string): Promise<void> {
+  try {
+    const { toDataURL } = await import('qrcode');
+    img.src = await toDataURL(text, { margin: 1, width: 160 });
+  } catch {
+    // QR is a convenience — the copyable link still works if the chunk fails.
+    show(img, false);
+  }
+}
+
+async function submitWebinar(): Promise<void> {
+  const orgId = webinarOrgSel.value;
+  const title = webinarTitleInput.value.trim();
+  if (!orgId) {
+    setWebinarStatus(t('webinarErrOrg'), 'err');
+    return;
+  }
+  if (!title) {
+    setWebinarStatus(t('webinarErrTitle'), 'err');
+    return;
+  }
+  webinarCreateBtn.disabled = true;
+  setWebinarStatus(t('webinarCreating'), '');
+  try {
+    await createWebinar({
+      org_id: orgId,
+      title,
+      source_language: webinarLangSel.value,
+      tier: webinarTierSel.value as WebinarView['tier'],
+      record_video: $<HTMLInputElement>('webinar-record-video').checked,
+      record_transcript: $<HTMLInputElement>('webinar-record-transcript').checked,
+      voice_clone: $<HTMLInputElement>('webinar-voice-clone').checked,
+    });
+    webinarTitleInput.value = '';
+    setWebinarStatus(t('webinarCreated'), 'ok');
+    await loadWebinars();
+  } catch (err) {
+    setWebinarStatus(webinarErrorMessage(err), 'err');
+  } finally {
+    webinarCreateBtn.disabled = false;
+  }
+}
+
+webinarForm.addEventListener('submit', (e) => {
+  e.preventDefault();
+  void submitWebinar();
+});
+webinarOrgSel.addEventListener('change', () => void loadWebinars());
+$('webinars-back').addEventListener('click', closeWebinars);
+$('webinars-btn').addEventListener('click', () => {
+  closeAccountMenu();
+  void openWebinars();
+});
 
 // Populate the pre-join org/project selector for business users.
 async function setupBizPrejoin(): Promise<void> {
