@@ -63,7 +63,7 @@ pdf-extract = "0.12"
 # pull the <w:t> runs. deflate-only keeps the zip backend lean.
 zip = { version = "8", default-features = false, features = ["deflate"] }
 quick-xml = "0.41"
-chacha20poly1305 = "0.10"
+chacha20poly1305 = "0.11"
 rand = "0.10"
 web-push = { version = "0.11.0", default-features = false }
 
