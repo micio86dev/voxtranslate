@@ -93,8 +93,14 @@ MEDIAMTX_AUTH_SECRET=<hex>
 MEDIA_CALLER_SECRET=<same hex as the box>
 ```
 
-MediaMTX will `POST https://api.voxtranslate.app/internal/media-auth/<MEDIA_CALLER_SECRET>`
-for each publish; the control plane verifies the host's HMAC token + expiry + path.
+MediaMTX POSTs each publish attempt to the control plane's **direct Railway origin**
+(`https://voxtranslate-server-production.up.railway.app/internal/media-auth/<MEDIA_CALLER_SECRET>`,
+in `mediamtx.yml`) — NOT `api.voxtranslate.app`. The API is behind Cloudflare, whose
+bot managed-challenge returns a 403 JS page to MediaMTX's headless Go client; hitting
+the origin directly bypasses it. `/internal/media-auth/*` is exempt from the server's
+origin-lock for this, and the container needs the host CA bundle (mounted in the
+compose file) to verify the origin's TLS cert. The control plane then verifies the
+host's HMAC token + expiry + path.
 
 ## 7. Smoke test (closes Phase 1 → F1-6)
 
