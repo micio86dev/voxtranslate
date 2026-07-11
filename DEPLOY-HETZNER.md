@@ -18,8 +18,8 @@ guests. So a small shared-vCPU instance is plenty.
 
 | Item | Cost (excl. VAT, EU) | Notes |
 |---|---|---|
-| **Hetzner CX32** (4 vCPU, 8 GB, 80 GB) | **~€6.80/mo** | Recommended start. 20 TB traffic + 1 IPv4. |
-| **Hetzner CAX21** (ARM, 4 vCPU, 8 GB) | ~€8/mo | ARM works great (MediaMTX/ffmpeg are native); best price/perf. |
+| **Hetzner CX33** (4 vCPU, 8 GB, 80 GB) | **~€5.5–6.6/mo** | Recommended. 20 TB traffic + 1 IPv4. |
+| **Hetzner CAX21** (ARM, 4 vCPU, 8 GB) | ~€8/mo | Native ARM; best price/perf when in stock (often unavailable). |
 | Cloudflare R2 (HLS segments, later) | ~€0–1/mo | Egress-free. Phase 1 serves HLS from the origin. |
 | Cloudflare CDN | €0 (free plan) | Absorbs guest bandwidth. |
 | **Total infra** | **~€7–10/mo** | AI APIs are billed to the org, not here. |
@@ -27,7 +27,7 @@ guests. So a small shared-vCPU instance is plenty.
 **Do NOT buy CCX/CPX** (dedicated vCPU) — 2–3× the price and unnecessary. New Hetzner
 accounts get ~€20 welcome credit. Verify the exact price on the pricing page at signup.
 
-**TL;DR: create a Hetzner account → `voxtranslate-media` project → provision a CX32
+**TL;DR: create a Hetzner account → `voxtranslate-media` project → provision a CX33
 (or CAX21) via the Terraform in `infra/media/`.**
 
 ## 2. Provision (Terraform)
@@ -39,7 +39,7 @@ terraform init
 terraform apply \
   -var="hcloud_token=<Security → API Tokens, Read/Write>" \
   -var="admin_ip=$(curl -s ifconfig.me)/32" \
-  -var="server_type=cx32"          # or cax21 for ARM
+  -var="server_type=cx33"          # or cax21 for ARM
 ```
 
 This creates the box (Ubuntu 24.04) + a firewall: **22** (your IP only), **80/443**

@@ -21,9 +21,9 @@ variable "hcloud_token" {
 }
 
 variable "server_type" {
-  description = "cx32 (Intel/AMD shared, ~EUR 6.80/mo) or cax21 (ARM Ampere, best price/perf, ~EUR 8/mo). Do NOT use CCX/CPX dedicated — 2-3x the price and unneeded here."
+  description = "cx33 (Intel/AMD shared, 4 vCPU / 8 GB, ~EUR 5.5-6.6/mo) or cax21 (ARM Ampere, if available in your location). Do NOT use CCX/CPX dedicated — 2-3x the price and unneeded here."
   type        = string
-  default     = "cx32"
+  default     = "cx33"
 }
 
 variable "location" {
