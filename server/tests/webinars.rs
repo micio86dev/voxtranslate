@@ -658,3 +658,87 @@ async fn lifecycle_requires_membership() {
         .unwrap();
     assert_eq!(nm.status(), 404, "non-member → 404");
 }
+
+/// Create a webinar with a scheduled start/end; returns the parsed body.
+async fn create_scheduled_webinar(http: &Client, srv: &Server, jwt: &str, org_id: Uuid) -> Value {
+    let r = http
+        .post(format!("{}/api/webinars", base(srv)))
+        .bearer_auth(jwt)
+        .json(&json!({
+            "org_id": org_id,
+            "title": "Scheduled",
+            "source_language": "en",
+            "scheduled_start": "2030-01-01T10:00:00Z",
+            "scheduled_end": "2030-01-01T11:00:00Z",
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 201, "create scheduled webinar");
+    r.json().await.unwrap()
+}
+
+#[tokio::test]
+async fn calendar_requires_scheduled_start() {
+    let Some(srv) = setup().await else {
+        return;
+    };
+    let http = Client::new();
+    let (owner, jwt) = user(&srv).await;
+    let org_id = org(&srv, owner, true).await;
+    let created = create_webinar(&http, &srv, &jwt, org_id).await; // no scheduled_start
+    let id = created["id"].as_str().unwrap();
+    let r = http
+        .post(format!("{}/api/webinars/{id}/calendar", base(&srv)))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 400, "unscheduled webinar → 400");
+}
+
+#[tokio::test]
+async fn calendar_requires_google_connection() {
+    let Some(srv) = setup().await else {
+        return;
+    };
+    let http = Client::new();
+    let (owner, jwt) = user(&srv).await;
+    let org_id = org(&srv, owner, true).await;
+    let created = create_scheduled_webinar(&http, &srv, &jwt, org_id).await;
+    let id = created["id"].as_str().unwrap();
+    // The test user has no connected Google Calendar → 409 "connect calendar".
+    let r = http
+        .post(format!("{}/api/webinars/{id}/calendar", base(&srv)))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 409, "no Google connection → 409");
+}
+
+#[tokio::test]
+async fn calendar_authz() {
+    let Some(srv) = setup().await else {
+        return;
+    };
+    let http = Client::new();
+    let (owner, jwt) = user(&srv).await;
+    let org_id = org(&srv, owner, true).await;
+    let created = create_scheduled_webinar(&http, &srv, &jwt, org_id).await;
+    let id = created["id"].as_str().unwrap();
+    let na = http
+        .post(format!("{}/api/webinars/{id}/calendar", base(&srv)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(na.status(), 401, "no auth → 401");
+    let (_o, other) = user(&srv).await;
+    let nm = http
+        .post(format!("{}/api/webinars/{id}/calendar", base(&srv)))
+        .bearer_auth(&other)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(nm.status(), 404, "non-member → 404");
+}

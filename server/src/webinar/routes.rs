@@ -15,7 +15,9 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use chrono::{DateTime, Utc};
+use std::collections::HashMap;
+
+use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use uuid::Uuid;
@@ -26,6 +28,8 @@ use crate::business::credits::org_subscription_active;
 use crate::business::{bad_request, db_err, not_found, require_pool, require_role, MEMBER};
 use crate::config::WebinarConfig;
 use crate::db::Pool;
+use crate::google_calendar::{self, EventInput};
+use crate::google_oauth::{self, OauthError};
 use crate::middleware::AuthUser;
 use crate::webinar::guest::{guest_session, GuestId};
 use crate::webinar::media::{media_auth, mint_publish_token, publish_url};
@@ -45,6 +49,8 @@ pub fn routes() -> Router<AppState> {
         .route("/api/webinars", post(create).get(list))
         .route("/api/webinars/{id}", get(get_one).patch(patch))
         .route("/api/webinars/{id}/cancel", post(cancel))
+        // Add a scheduled webinar to the host's Google Calendar (#7).
+        .route("/api/webinars/{id}/calendar", post(add_to_calendar))
         // Host mints a short-lived tokenized WHIP publish URL to go on air (F1-1).
         .route("/api/webinars/{id}/go-live", post(go_live))
         // Lifecycle: host client reports on-air / off-air (F1-3).
@@ -357,6 +363,12 @@ pub async fn cancel(
     .fetch_one(pool)
     .await
     .map_err(db_err)?;
+    // Best-effort: drop the Google Calendar event if one was created (#7).
+    if let Some(eid) = w.google_event_id.as_deref() {
+        if let Ok(access) = google_oauth::valid_access_token(&state, user.user_id).await {
+            let _ = google_calendar::delete_event(&state.http, &access, "primary", eid).await;
+        }
+    }
     Ok(Json(host_view(&updated, &state.config.app_base_url, cfg)).into_response())
 }
 
@@ -435,6 +447,90 @@ pub async fn publish_stopped(
     .map_err(db_err)?;
     let current = find_by_id(pool, id).await.map_err(db_err)?.unwrap_or(w);
     Ok(Json(host_view(&current, &state.config.app_base_url, cfg)).into_response())
+}
+
+/// Map a Google OAuth error to a client response (409 tells the client to connect
+/// their Google Calendar first).
+fn calendar_token_err(e: OauthError) -> Response {
+    match e {
+        OauthError::NotConfigured | OauthError::NoConnection => {
+            (StatusCode::CONFLICT, "connect your Google Calendar first").into_response()
+        }
+        other => {
+            tracing::error!("webinar calendar token error: {other}");
+            (StatusCode::BAD_GATEWAY, "calendar error").into_response()
+        }
+    }
+}
+
+/// `POST /api/webinars/{id}/calendar` — create (or re-sync) a Google Calendar event
+/// for a scheduled webinar on the host's primary calendar, carrying the join link,
+/// and store the event id (#7). Host (org member) only; needs a scheduled start and a
+/// connected Google Calendar (409 otherwise).
+pub async fn add_to_calendar(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+) -> Result<Response, Response> {
+    let pool = require_pool(&state)?;
+    let w = require_webinar_role(pool, id, user.user_id, MEMBER).await?;
+    let Some(start) = w.scheduled_start else {
+        return Err(bad_request("webinar has no scheduled start"));
+    };
+    let end = w.scheduled_end.unwrap_or(start + ChronoDuration::hours(1));
+    let join = join_url(&state.config.app_base_url, &w.code);
+    let description = match w.description.as_deref() {
+        Some(d) if !d.trim().is_empty() => format!("{d}\n\nJoin: {join}"),
+        _ => format!("Join: {join}"),
+    };
+
+    let access = google_oauth::valid_access_token(&state, user.user_id)
+        .await
+        .map_err(calendar_token_err)?;
+
+    let mut props = HashMap::new();
+    props.insert("webinar_id".to_string(), w.id.to_string());
+    props.insert("webinar_code".to_string(), w.code.clone());
+    let input = EventInput {
+        summary: w.title.clone(),
+        description: Some(description),
+        start_rfc3339: start.to_rfc3339(),
+        end_rfc3339: end.to_rfc3339(),
+        timezone: "UTC".to_string(),
+        attendee_emails: vec![],
+        private_props: props,
+        recurrence: None,
+    };
+
+    // Re-syncing an already-scheduled webinar updates the existing event.
+    let event = match w.google_event_id.as_deref() {
+        Some(eid) => {
+            google_calendar::update_event(&state.http, &access, "primary", eid, &input).await
+        }
+        None => google_calendar::create_event(&state.http, &access, "primary", &input).await,
+    }
+    .map_err(|e| {
+        tracing::error!("webinar calendar event failed: {e}");
+        (
+            StatusCode::BAD_GATEWAY,
+            "could not create the calendar event",
+        )
+            .into_response()
+    })?;
+
+    sqlx::query("UPDATE webinars SET google_event_id = $1, updated_at = now() WHERE id = $2")
+        .bind(&event.id)
+        .bind(id)
+        .execute(pool)
+        .await
+        .map_err(db_err)?;
+
+    Ok(Json(json!({
+        "google_event_id": event.id,
+        "html_link": event.html_link,
+        "join_url": join,
+    }))
+    .into_response())
 }
 
 /// `GET /api/w/{code}` — public, auth-free resolution for guests. NO host PII.
