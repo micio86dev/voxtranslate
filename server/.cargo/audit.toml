@@ -1,0 +1,53 @@
+# cargo-audit configuration — read from the crate directory `cargo audit` runs in
+# (CI runs the security-audit job with `working-directory: server`).
+#
+# Every ID below is a DELIBERATE, documented exception: either no upstream fix
+# exists and the advisory is unreachable in our usage, or it is a transitive
+# residual locked behind an exact dependency pin that we cannot move without a
+# breaking upgrade, and it is not reachable with untrusted input. Advisories that
+# COULD be fixed at the root were fixed and are NOT listed here:
+#   * RUSTSEC-2026-0204 (crossbeam-epoch) → updated to 0.9.20
+#   * RUSTSEC-2026-0187 (lopdf stack overflow) → pdf-extract 0.12 pulls lopdf 0.42
+#   * RUSTSEC-2026-0190 (anyhow unsound)       → updated to 1.0.103
+#   * RUSTSEC-2026-0186 (memmap2 unsound)      → updated to 0.9.11
+# Revisit on every dependency bump; drop an entry the moment its root fix lands.
+
+[advisories]
+ignore = [
+    # rsa 0.9.10 — Marvin timing side-channel. NO upstream fix exists. Reached only
+    # transitively via web-push -> jwt-simple -> superboring (rsa is compiled into
+    # the binary via superboring's default feature), but NO call site invokes an RSA
+    # operation: web-push VAPID signs exclusively with ES256 (p256::ecdsa). The RSA
+    # code is linked yet never exercised, so the timing side-channel is unreachable.
+    "RUSTSEC-2023-0071",
+
+    # quick-xml quadratic duplicate-attribute check (DoS). Our DIRECT dependency is
+    # already patched to 0.41 (fixed). The residual 0.38.4 / 0.39.4 copies are
+    # locked behind the exact typst 0.15 pins (citationberg/hayagriva and
+    # syntect/two-face under typst-library) and parse ONLY our own PDF export
+    # templates — never untrusted XML — so the DoS is not reachable.
+    "RUSTSEC-2026-0194",
+
+    # quick-xml unbounded namespace-declaration allocation (memory-exhaustion DoS).
+    # Same rationale as RUSTSEC-2026-0194: direct dep patched to 0.41; residual
+    # 0.38.4 / 0.39.4 are typst-locked and only parse our own templates.
+    "RUSTSEC-2026-0195",
+
+    # bincode 1.3.3 — UNMAINTAINED (informational, not a vulnerability). Transitive
+    # only; no direct use. No security impact; kept until an upstream drops it.
+    "RUSTSEC-2025-0141",
+
+    # paste 1.0.15 — UNMAINTAINED (informational, not a vulnerability). Transitive
+    # proc-macro helper; no security impact and no drop-in replacement upstream.
+    "RUSTSEC-2024-0436",
+
+    # ttf-parser 0.25.1 — UNMAINTAINED (informational, not a vulnerability).
+    # Transitive via the typst 0.15 font stack; unfixable without moving the typst
+    # pins. Parses only the fonts we bundle for PDF export.
+    "RUSTSEC-2026-0192",
+
+    # yaml-rust 0.4.5 — UNMAINTAINED (informational, not a vulnerability).
+    # Transitive via syntect (typst theme/syntax loading); unfixable without moving
+    # the typst pins. No untrusted YAML is parsed.
+    "RUSTSEC-2024-0320",
+]

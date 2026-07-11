@@ -380,9 +380,11 @@ async fn extract_text(kind: FileKind, bytes: Vec<u8>, sender_lang: &str) -> (Str
             // pdf_extract is synchronous + CPU-bound — run it off the async pool,
             // bounded by a timeout so a decompression-bomb PDF can't pin the request
             // (spec 0029). The blocking task may run on, but the request returns.
-            let handle = tokio::task::spawn_blocking(move || {
-                pdf_extract::extract_text_from_mem(&bytes).unwrap_or_default()
-            });
+            // NB: the timeout bounds CPU/time exhaustion only — it does NOT stop a
+            // genuine stack overflow, which aborts the whole process regardless. That
+            // DoS (RUSTSEC-2026-0187) is closed at the root by lopdf >= 0.42, not by
+            // this timeout or the size guard below.
+            let handle = tokio::task::spawn_blocking(move || pdf_text_from_bytes(&bytes));
             let text = tokio::time::timeout(std::time::Duration::from_secs(15), handle)
                 .await
                 .ok()
@@ -407,6 +409,36 @@ async fn extract_text(kind: FileKind, bytes: Vec<u8>, sender_lang: &str) -> (Str
         // config), not here — guarded by the FileKind::Audio branch in upload_file.
         FileKind::Audio => (String::new(), sender_lang.to_string()),
     }
+}
+
+/// Cap on the PDF bytes we hand to `pdf_extract` (a text-layer document that big
+/// is not a normal chat attachment). The uploaded-file route already bounds input
+/// before extraction — `SUPABASE_MAX_UPLOAD_BYTES` (default 5 MiB) per file, under
+/// the 8 MiB `MAX_BODY_BYTES` multipart ceiling — so this 16 MiB cap is pure
+/// defense-in-depth for the CPU-bound, deeply-nesting-sensitive parser
+/// (RUSTSEC-2026-0187): an oversized buffer is skipped up front rather than fed to
+/// the extractor. Sits above the worst-case admitted upload so it never rejects a
+/// normally accepted file.
+const MAX_PDF_EXTRACT_BYTES: usize = 16 * 1024 * 1024;
+
+/// Whether a buffer of `len` bytes should be handed to the `pdf_extract` parser.
+/// The guard: non-empty and within [`MAX_PDF_EXTRACT_BYTES`]. Split out as a pure
+/// predicate so the size-gate is deterministically unit-testable (an oversized
+/// document is otherwise indistinguishable from one the parser simply can't read).
+fn should_extract_pdf(len: usize) -> bool {
+    len != 0 && len <= MAX_PDF_EXTRACT_BYTES
+}
+
+/// Extract the text layer from PDF `bytes`, best-effort. An empty or oversized
+/// buffer short-circuits to an empty string WITHOUT invoking the CPU-bound
+/// `pdf_extract` parser; any extraction failure also degrades to empty (the file
+/// still posts as an attachment). Pure + synchronous, so it's unit-testable and
+/// safe to run under `spawn_blocking`.
+fn pdf_text_from_bytes(bytes: &[u8]) -> String {
+    if !should_extract_pdf(bytes.len()) {
+        return String::new();
+    }
+    pdf_extract::extract_text_from_mem(bytes).unwrap_or_default()
 }
 
 /// Transcribe a recorded voice message via Deepgram's prerecorded API, returning
@@ -700,6 +732,81 @@ mod tests {
         assert!(text.contains("Second & line"), "got: {text:?}");
         // A non-zip / garbage input degrades to empty, never panics.
         assert_eq!(docx_extract(b"not a zip"), "");
+    }
+
+    #[test]
+    fn pdf_size_guard_gates_extraction() {
+        // The size gate is the defense-in-depth for the CPU-bound parser
+        // (RUSTSEC-2026-0187). Test the predicate directly so the boundary is
+        // deterministic (an oversized document is otherwise indistinguishable from
+        // one the parser simply can't read — both yield empty text).
+        assert!(!should_extract_pdf(0)); // empty → skip
+        assert!(should_extract_pdf(1)); // smallest non-empty → extract
+        assert!(should_extract_pdf(MAX_PDF_EXTRACT_BYTES)); // exactly at cap → extract
+        assert!(!should_extract_pdf(MAX_PDF_EXTRACT_BYTES + 1)); // just over → skip
+    }
+
+    #[test]
+    fn pdf_over_cap_is_skipped_without_extraction() {
+        // An oversized buffer is short-circuited to empty WITHOUT handing the
+        // (potentially malicious) bytes to `pdf_extract`. Building a 16 MiB+ vec
+        // and getting an instant empty result proves the guard fired: a real parse
+        // of a buffer this size would be measurably slow, not instant.
+        let oversized = vec![b'%'; MAX_PDF_EXTRACT_BYTES + 1];
+        assert_eq!(
+            pdf_text_from_bytes(&oversized),
+            "",
+            "oversized PDF must be skipped, returning empty without extraction"
+        );
+
+        // An empty buffer is likewise skipped (never handed to the parser).
+        assert_eq!(pdf_text_from_bytes(&[]), "");
+
+        // A small, valid PDF is NOT skipped: it reaches the extractor and its text
+        // layer is recovered — proving the guard gates on size, not a blanket
+        // reject, and that the pdf-extract 0.12 upgrade still extracts text.
+        let pdf = minimal_text_pdf("Guard me");
+        assert!(
+            pdf_text_from_bytes(&pdf).contains("Guard me"),
+            "a small valid PDF must still extract after the pdf-extract 0.12 upgrade"
+        );
+    }
+
+    /// Build a minimal, valid single-page PDF whose content stream draws `text`,
+    /// so `pdf_extract` can recover it. Enough structure (xref + trailer) for the
+    /// parser to walk the document; used to prove small valid PDFs still extract.
+    fn minimal_text_pdf(text: &str) -> Vec<u8> {
+        let content = format!("BT /F1 24 Tf 72 720 Td ({text}) Tj ET");
+        let objs: Vec<String> = vec![
+            "<< /Type /Catalog /Pages 2 0 R >>".into(),
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".into(),
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] \
+             /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>"
+                .into(),
+            format!(
+                "<< /Length {} >>\nstream\n{content}\nendstream",
+                content.len()
+            ),
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".into(),
+        ];
+
+        let mut pdf = String::from("%PDF-1.4\n");
+        let mut offsets = Vec::with_capacity(objs.len());
+        for (i, body) in objs.iter().enumerate() {
+            offsets.push(pdf.len());
+            pdf.push_str(&format!("{} 0 obj\n{body}\nendobj\n", i + 1));
+        }
+        let xref_start = pdf.len();
+        pdf.push_str(&format!("xref\n0 {}\n", objs.len() + 1));
+        pdf.push_str("0000000000 65535 f \n");
+        for off in &offsets {
+            pdf.push_str(&format!("{off:010} 00000 n \n"));
+        }
+        pdf.push_str(&format!(
+            "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref_start}\n%%EOF",
+            objs.len() + 1
+        ));
+        pdf.into_bytes()
     }
 
     #[test]
