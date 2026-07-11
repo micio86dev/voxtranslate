@@ -113,6 +113,8 @@ const jsonLd = {
               <button class="acct-item" type="button" role="menuitem" data-acct-nav="notifications"><span class="acct-item-ico" data-ico="bell" aria-hidden="true"></span><span class="acct-item-label" data-i18n="notifTitle">{T('notifTitle')}</span></button>
               <button class="acct-item" type="button" role="menuitem" data-acct-nav="privacy"><span class="acct-item-ico" data-ico="shield" aria-hidden="true"></span><span class="acct-item-label" data-i18n="privacyData">{T('privacyData')}</span></button>
               <a id="workspace-btn" class="acct-item workspace-btn hidden" role="menuitem" data-i18n-title="workspace" title={T('workspace')} target="_blank" rel="noopener"><span class="acct-item-ico" data-ico="grid" aria-hidden="true"></span><span class="acct-item-label" data-i18n="workspace">{T('workspace')}</span></a>
+              <!-- Webinars host hub (webinar phase 0): revealed once an active-sub org is found. -->
+              <button id="webinars-btn" class="acct-item webinars-btn hidden" type="button" role="menuitem"><span class="acct-item-ico" data-ico="video" aria-hidden="true"></span><span class="acct-item-label" data-i18n="webinarsTitle">{T('webinarsTitle')}</span></button>
               <div class="acct-sep" role="separator"></div>
               <button id="logout-btn" class="acct-item acct-danger" type="button" role="menuitem"><span class="acct-item-ico" data-ico="leave" aria-hidden="true"></span><span class="acct-item-label" data-i18n="logout">{T('logout')}</span></button>
             </div>
@@ -992,6 +994,57 @@ const jsonLd = {
               <div id="ws-notes" class="ws-notes"></div>
             </section>
           </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== WEBINARS (B2B host hub, webinar phase 0) ===================== -->
+    <!-- A signed-in host with an active-subscription org creates and manages webinars.
+         Each webinar shows a copyable public join link + a QR encoding that link. -->
+    <section id="webinars" class="screen hidden">
+      <div class="account-wrap">
+        <header class="account-head">
+          <button id="webinars-back" class="btn-ghost icon-btn" data-i18n-title="back" title={T('back')} aria-label={T('back')}></button>
+          <h1 class="account-title" data-i18n="webinarsTitle">{T('webinarsTitle')}</h1>
+        </header>
+
+        <div class="webinars-body">
+          <p class="profile-section-hint" data-i18n="webinarsIntro">{T('webinarsIntro')}</p>
+
+          <!-- Create form -->
+          <form id="webinar-create" class="webinar-form">
+            <label class="ws-field" id="webinar-org-field">
+              <span class="ws-field-label" data-i18n="bizOrg">{T('bizOrg')}</span>
+              <select id="webinar-org" class="ws-select"></select>
+            </label>
+            <label class="ws-field">
+              <span class="ws-field-label" data-i18n="webinarTitleLabel">{T('webinarTitleLabel')}</span>
+              <input id="webinar-title" class="ws-select" type="text" maxlength="200" required autocomplete="off" data-i18n-ph="webinarTitlePlaceholder" placeholder={T('webinarTitlePlaceholder')} />
+            </label>
+            <label class="ws-field">
+              <span class="ws-field-label" data-i18n="webinarSourceLang">{T('webinarSourceLang')}</span>
+              <select id="webinar-lang" class="ws-select"></select>
+            </label>
+            <label class="ws-field">
+              <span class="ws-field-label" data-i18n="webinarTier">{T('webinarTier')}</span>
+              <select id="webinar-tier" class="ws-select">
+                <option value="enhanced" data-i18n="webinarTierEnhanced">{T('webinarTierEnhanced')}</option>
+                <option value="standard" data-i18n="webinarTierStandard">{T('webinarTierStandard')}</option>
+              </select>
+            </label>
+            <div class="webinar-toggles">
+              <label class="webinar-toggle"><input id="webinar-record-video" type="checkbox" /><span data-i18n="webinarRecordVideo">{T('webinarRecordVideo')}</span></label>
+              <label class="webinar-toggle"><input id="webinar-record-transcript" type="checkbox" checked /><span data-i18n="webinarRecordTranscript">{T('webinarRecordTranscript')}</span></label>
+              <label class="webinar-toggle"><input id="webinar-voice-clone" type="checkbox" /><span data-i18n="webinarVoiceClone">{T('webinarVoiceClone')}</span></label>
+            </div>
+            <button id="webinar-create-btn" type="submit" class="btn-primary webinar-create-btn" data-i18n="webinarCreate">{T('webinarCreate')}</button>
+            <p id="webinar-create-status" class="status-line hidden" role="status"></p>
+          </form>
+
+          <!-- Existing webinars for the selected org -->
+          <h2 class="webinar-list-title" data-i18n="webinarYours">{T('webinarYours')}</h2>
+          <p id="webinar-list-empty" class="friend-empty hidden" data-i18n="webinarNone">{T('webinarNone')}</p>
+          <div id="webinar-list" class="webinar-list"></div>
         </div>
       </div>
     </section>
@@ -2328,6 +2381,36 @@ const jsonLd = {
     .ws-notes :global(.ws-note-orig) { display: block; font-size: 0.78rem; color: var(--muted); margin-top: 3px; }
     .ws-notes :global(.ws-note audio) { width: 100%; max-width: 320px; height: 36px; margin-top: 8px; }
     .ws-notes :global(.ws-note-empty) { color: var(--muted); font-size: 0.88rem; }
+
+    /* Webinars host hub (webinar phase 0). Cards are built in app.ts, so their inner
+       selectors are :global() (Astro scopes only static markup). */
+    .webinars-body { display: flex; flex-direction: column; gap: 16px; }
+    .webinar-form { display: flex; flex-direction: column; gap: 12px; padding: 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; }
+    .webinar-form .ws-field { flex: none; }
+    .webinar-toggles { display: flex; flex-wrap: wrap; gap: 14px; }
+    .webinar-toggle { display: flex; align-items: center; gap: 6px; font-size: 0.88rem; color: var(--text); cursor: pointer; }
+    .webinar-create-btn { width: auto; align-self: flex-start; padding: 0 18px; min-height: 44px; }
+    .webinar-list-title { font-size: 1.05rem; font-weight: 700; margin: 0; }
+    .webinar-list { display: flex; flex-direction: column; gap: 12px; }
+    .webinar-list :global(.webinar-card) {
+      display: flex; flex-direction: column; gap: 10px; padding: 14px;
+      border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface);
+    }
+    .webinar-list :global(.webinar-card-head) { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .webinar-list :global(.webinar-card-title) { font-weight: 700; font-size: 1rem; }
+    .webinar-list :global(.webinar-status) { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; padding: 2px 8px; border-radius: 999px; background: var(--border); color: var(--muted); }
+    .webinar-list :global(.webinar-status-scheduled) { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent); }
+    .webinar-list :global(.webinar-status-live) { background: color-mix(in srgb, var(--danger) 18%, transparent); color: var(--danger); }
+    .webinar-list :global(.webinar-status-cancelled) { text-decoration: line-through; }
+    .webinar-list :global(.webinar-card-meta) { font-size: 0.8rem; color: var(--muted); }
+    .webinar-list :global(.webinar-link-row) { display: flex; gap: 8px; }
+    .webinar-list :global(.webinar-link-input) {
+      flex: 1 1 auto; min-width: 0; font-size: 0.85rem; padding: 8px 10px;
+      border: 1px solid var(--border); border-radius: 10px; background: var(--bg); color: var(--text);
+    }
+    .webinar-list :global(.webinar-copy-btn) { flex: none; padding: 0 14px; min-height: 38px; }
+    .webinar-list :global(.webinar-qr) { align-self: flex-start; width: 160px; height: 160px; border-radius: 10px; background: #fff; padding: 6px; }
+    .webinar-list :global(.webinar-cancel-btn) { align-self: flex-start; padding: 0 14px; min-height: 38px; }
 
     /* Billing section: balance + a quick path back to checkout, above the history tabs. */
     .billing-balance-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; }
