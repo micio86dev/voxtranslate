@@ -543,3 +543,118 @@ async fn media_auth_authorizes_only_valid_publish() {
         "tampered token rejected"
     );
 }
+
+#[tokio::test]
+async fn lifecycle_live_then_ended() {
+    let Some(srv) = setup().await else {
+        return;
+    };
+    let http = Client::new();
+    let (owner, jwt) = user(&srv).await;
+    let org_id = org(&srv, owner, true).await;
+    let created = create_webinar(&http, &srv, &jwt, org_id).await;
+    let id = created["id"].as_str().unwrap().to_string();
+    let code = created["code"].as_str().unwrap().to_string();
+
+    // publish-started → live + actual_start.
+    let s1: Value = http
+        .post(format!("{}/api/webinars/{id}/publish-started", base(&srv)))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(s1["status"], "live");
+    let start = s1["actual_start"].as_str().unwrap().to_string();
+    assert!(!start.is_empty(), "actual_start stamped");
+
+    // Idempotent: a second publish-started keeps it live with the same start.
+    let s2: Value = http
+        .post(format!("{}/api/webinars/{id}/publish-started", base(&srv)))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(s2["status"], "live");
+    assert_eq!(
+        s2["actual_start"].as_str().unwrap(),
+        start,
+        "actual_start is stamped once"
+    );
+
+    // The public lookup reflects live.
+    let pv: Value = http
+        .get(format!("{}/api/w/{code}", base(&srv)))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(pv["status"], "live");
+
+    // publish-stopped → ended + actual_end.
+    let e: Value = http
+        .post(format!("{}/api/webinars/{id}/publish-stopped", base(&srv)))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(e["status"], "ended");
+    assert!(e["actual_end"].as_str().is_some(), "actual_end stamped");
+
+    // The public lookup shows ended (200 — only 'cancelled' is hidden as 404).
+    let pe = http
+        .get(format!("{}/api/w/{code}", base(&srv)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(pe.status(), 200);
+    let pe: Value = pe.json().await.unwrap();
+    assert_eq!(pe["status"], "ended");
+
+    // Re-going-live after ended is rejected.
+    let again = http
+        .post(format!("{}/api/webinars/{id}/publish-started", base(&srv)))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(again.status(), 409, "cannot restart an ended webinar");
+}
+
+#[tokio::test]
+async fn lifecycle_requires_membership() {
+    let Some(srv) = setup().await else {
+        return;
+    };
+    let http = Client::new();
+    let (owner, jwt) = user(&srv).await;
+    let org_id = org(&srv, owner, true).await;
+    let created = create_webinar(&http, &srv, &jwt, org_id).await;
+    let id = created["id"].as_str().unwrap().to_string();
+
+    let na = http
+        .post(format!("{}/api/webinars/{id}/publish-started", base(&srv)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(na.status(), 401, "no auth → 401");
+
+    let (_o, other) = user(&srv).await;
+    let nm = http
+        .post(format!("{}/api/webinars/{id}/publish-started", base(&srv)))
+        .bearer_auth(&other)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(nm.status(), 404, "non-member → 404");
+}
