@@ -51,6 +51,7 @@ pub mod subtitles;
 pub mod transcripts;
 pub mod translator;
 pub mod usage;
+pub mod webinar;
 
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
