@@ -7,7 +7,15 @@
 
 use std::future::Future;
 
+use chrono::{DateTime, Utc};
 use rand::RngExt;
+use sqlx::FromRow;
+use uuid::Uuid;
+
+use crate::config::WebinarConfig;
+use crate::db::Pool;
+
+pub mod routes;
 
 /// Base58 alphabet: digits + letters MINUS the visually ambiguous `0 O I l`, so a
 /// code read off a screen or scanned from a QR is unambiguous.
@@ -55,6 +63,118 @@ where
             Err(e) => return Err(e),
         }
     }
+}
+
+// ---- DB layer: the `webinars` row + create (with code retry) ---------------
+
+/// A row from `webinars` (migration 037).
+#[derive(Debug, Clone, FromRow)]
+pub struct Webinar {
+    pub id: Uuid,
+    pub org_id: Uuid,
+    pub host_user_id: Option<Uuid>,
+    pub code: String,
+    pub title: String,
+    pub description: Option<String>,
+    pub source_language: String,
+    pub tier: String,
+    pub status: String,
+    pub scheduled_start: Option<DateTime<Utc>>,
+    pub scheduled_end: Option<DateTime<Utc>>,
+    pub actual_start: Option<DateTime<Utc>>,
+    pub actual_end: Option<DateTime<Utc>>,
+    pub record_video: bool,
+    pub record_transcript: bool,
+    pub voice_clone: bool,
+    pub project_id: Option<Uuid>,
+    pub google_event_id: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+/// Fields for creating a webinar (F0-3); the `code` is generated server-side.
+pub struct NewWebinar<'a> {
+    pub org_id: Uuid,
+    pub host_user_id: Uuid,
+    pub title: &'a str,
+    pub description: Option<&'a str>,
+    pub source_language: &'a str,
+    pub tier: &'a str,
+    pub record_video: bool,
+    pub record_transcript: bool,
+    pub voice_clone: bool,
+    pub scheduled_start: Option<DateTime<Utc>>,
+    pub scheduled_end: Option<DateTime<Utc>>,
+}
+
+/// Insert a webinar, generating a fresh code and retrying the rare UNIQUE(code)
+/// collision (F0-2).
+pub async fn create_webinar(
+    pool: &Pool,
+    new: &NewWebinar<'_>,
+    code_len: usize,
+) -> Result<Webinar, sqlx::Error> {
+    const MAX_ATTEMPTS: usize = 8;
+    with_code_retry(code_len, MAX_ATTEMPTS, is_unique_violation, |code| {
+        insert_webinar(pool, new, code)
+    })
+    .await
+}
+
+async fn insert_webinar(
+    pool: &Pool,
+    new: &NewWebinar<'_>,
+    code: String,
+) -> Result<Webinar, sqlx::Error> {
+    sqlx::query_as(
+        "INSERT INTO webinars
+            (org_id, host_user_id, code, title, description, source_language, tier,
+             record_video, record_transcript, voice_clone, scheduled_start, scheduled_end)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+         RETURNING *",
+    )
+    .bind(new.org_id)
+    .bind(new.host_user_id)
+    .bind(code)
+    .bind(new.title)
+    .bind(new.description)
+    .bind(new.source_language)
+    .bind(new.tier)
+    .bind(new.record_video)
+    .bind(new.record_transcript)
+    .bind(new.voice_clone)
+    .bind(new.scheduled_start)
+    .bind(new.scheduled_end)
+    .fetch_one(pool)
+    .await
+}
+
+/// Look up a webinar by its public join code.
+pub async fn find_by_code(pool: &Pool, code: &str) -> Result<Option<Webinar>, sqlx::Error> {
+    sqlx::query_as("SELECT * FROM webinars WHERE code = $1")
+        .bind(code)
+        .fetch_optional(pool)
+        .await
+}
+
+/// Look up a webinar by id.
+pub async fn find_by_id(pool: &Pool, id: Uuid) -> Result<Option<Webinar>, sqlx::Error> {
+    sqlx::query_as("SELECT * FROM webinars WHERE id = $1")
+        .bind(id)
+        .fetch_optional(pool)
+        .await
+}
+
+// ---- URL helpers -----------------------------------------------------------
+
+/// Public participant page for a code: `{app_base_url}/w/{code}`.
+pub fn join_url(app_base_url: &str, code: &str) -> String {
+    format!("{}/w/{}", app_base_url.trim_end_matches('/'), code)
+}
+
+/// Public LL-HLS playback URL for a code (served from the HLS host).
+pub fn playback_url(cfg: &WebinarConfig, code: &str) -> String {
+    format!("https://{}/webinar/{}/index.m3u8", cfg.hls_host, code)
 }
 
 #[cfg(test)]
@@ -159,5 +279,27 @@ mod tests {
         .await;
         assert_eq!(out, Err(Fatal));
         assert_eq!(calls.get(), 1, "a non-collision error is not retried");
+    }
+
+    #[test]
+    fn join_url_uses_app_base_and_code() {
+        assert_eq!(
+            join_url("https://voxtranslate.app", "AbC123"),
+            "https://voxtranslate.app/w/AbC123"
+        );
+        // A trailing slash on the base is trimmed, not doubled.
+        assert_eq!(
+            join_url("https://voxtranslate.app/", "x"),
+            "https://voxtranslate.app/w/x"
+        );
+    }
+
+    #[test]
+    fn playback_url_points_at_hls_host() {
+        let cfg = WebinarConfig::test_default();
+        assert_eq!(
+            playback_url(&cfg, "AbC123"),
+            "https://hls.test/webinar/AbC123/index.m3u8"
+        );
     }
 }

@@ -155,6 +155,53 @@ pub struct Config {
     /// dark until both env vars are set. Decoupled from voice_assistant so pricing and
     /// the session cap can be tuned independently.
     pub help_assistant: Option<HelpAssistantConfig>,
+    /// Webinar Mode (SPEC "Webinar Mode") — 1-to-many broadcast control plane.
+    /// Present only when `MEDIA_INGEST_HOST` is set; `None` ⇒ the `/api/webinars`
+    /// and `/api/w/{code}` routes are not registered (feature ships dark).
+    pub webinar: Option<WebinarConfig>,
+}
+
+/// Webinar Mode config: the off-box media server hosts + join-code length. The
+/// HMAC secrets for publish tokens land here in Phase 1 (F1-1/F1-2).
+#[derive(Clone, Debug)]
+pub struct WebinarConfig {
+    /// WHIP ingest host, e.g. `ingest.voxtranslate.app` (`MEDIA_INGEST_HOST`).
+    pub ingest_host: String,
+    /// LL-HLS playback host (`MEDIA_HLS_HOST`); defaults to `ingest_host` in Phase 1
+    /// (HLS served from the origin) until the R2/CDN host is split out.
+    pub hls_host: String,
+    /// Join-code length (`WEBINAR_CODE_LEN`, default [`crate::webinar::DEFAULT_CODE_LEN`]).
+    pub code_len: usize,
+}
+
+impl WebinarConfig {
+    fn from_env() -> Self {
+        let ingest_host = env::var("MEDIA_INGEST_HOST")
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        let hls_host = env::var("MEDIA_HLS_HOST")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| ingest_host.clone());
+        Self {
+            ingest_host,
+            hls_host,
+            code_len: parse_or("WEBINAR_CODE_LEN", crate::webinar::DEFAULT_CODE_LEN),
+        }
+    }
+
+    /// Test-only config (doc-hidden) so the integration test can enable the
+    /// webinar routes without provisioning a real media server.
+    #[doc(hidden)]
+    pub fn test_default() -> Self {
+        Self {
+            ingest_host: "ingest.test".into(),
+            hls_host: "hls.test".into(),
+            code_len: crate::webinar::DEFAULT_CODE_LEN,
+        }
+    }
 }
 
 /// OpenAI Realtime Translation credentials + pricing (spec 0093). All-or-nothing
@@ -958,6 +1005,15 @@ impl Config {
             None
         };
 
+        // Webinar Mode (SPEC "Webinar Mode"): the 1-to-many broadcast control plane.
+        // Enabled once the off-box media server host is configured; ships dark
+        // otherwise (the /api/webinars + /api/w/{code} routes are not registered).
+        let webinar = if present("MEDIA_INGEST_HOST") {
+            Some(WebinarConfig::from_env())
+        } else {
+            None
+        };
+
         // Premium engine — Gemini Live Translate (spec 0100): `GEMINI_PREMIUM` + key.
         let google = if env_flag("GEMINI_PREMIUM") && present("GOOGLE_AI_API_KEY") {
             Some(GeminiConfig::from_env())
@@ -1036,6 +1092,7 @@ impl Config {
                 .filter(|s| !s.is_empty()),
             voice_assistant,
             help_assistant,
+            webinar,
         })
     }
 
@@ -1393,6 +1450,7 @@ impl Config {
             embeddings_backfill_secret: None,
             voice_assistant: None,
             help_assistant: None,
+            webinar: None,
         }
     }
 }
@@ -1420,6 +1478,7 @@ impl std::fmt::Debug for Config {
             .field("push", &self.push.is_some())
             .field("voice_assistant", &self.voice_assistant.is_some())
             .field("help_assistant", &self.help_assistant.is_some())
+            .field("webinar", &self.webinar.is_some())
             .finish_non_exhaustive()
     }
 }

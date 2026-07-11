@@ -735,6 +735,13 @@ pub fn app(state: AppState) -> Router {
         } else {
             axum::Router::new()
         })
+        // Webinar Mode — 1-to-many broadcast API. Registered only when
+        // config.webinar is set (MEDIA_INGEST_HOST); otherwise ships dark (404).
+        .merge(if state.config.webinar.is_some() {
+            webinar::routes::routes()
+        } else {
+            axum::Router::new()
+        })
         // Canonical log line + request-id span per request (spec 0050).
         .layer(axum::middleware::from_fn(observability::canonical_log))
         .layer(cors)
