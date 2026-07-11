@@ -347,3 +347,55 @@ async fn cancel_hides_from_public() {
         .unwrap();
     assert_eq!(pubr.status(), 404, "cancelled webinar is hidden publicly");
 }
+
+#[tokio::test]
+async fn guest_session_sets_and_reuses_id() {
+    let Some(srv) = setup().await else {
+        return;
+    };
+    let http = Client::new();
+    let (owner, jwt) = user(&srv).await;
+    let org_id = org(&srv, owner, true).await;
+    let created = create_webinar(&http, &srv, &jwt, org_id).await;
+    let code = created["code"].as_str().unwrap().to_string();
+
+    // First visit (no cookie): the server mints a guest_id, sets it as an
+    // HttpOnly/SameSite=Lax cookie, and echoes it in the body for localStorage.
+    let r = http
+        .get(format!("{}/api/w/{code}", base(&srv)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 200);
+    let set_cookie = r
+        .headers()
+        .get(reqwest::header::SET_COOKIE)
+        .expect("guest cookie set on first visit")
+        .to_str()
+        .unwrap()
+        .to_string();
+    assert!(set_cookie.contains("guest_id="), "sets guest_id cookie");
+    assert!(set_cookie.contains("HttpOnly") && set_cookie.contains("SameSite=Lax"));
+    let body: Value = r.json().await.unwrap();
+    let guest = body["guest_id"].as_str().unwrap().to_string();
+    assert!(Uuid::parse_str(&guest).is_ok(), "guest_id is a uuid");
+
+    // Second visit WITH the cookie: the same id, and no fresh Set-Cookie.
+    let r2 = http
+        .get(format!("{}/api/w/{code}", base(&srv)))
+        .header(reqwest::header::COOKIE, format!("guest_id={guest}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r2.status(), 200);
+    assert!(
+        r2.headers().get(reqwest::header::SET_COOKIE).is_none(),
+        "an existing guest cookie is reused, not re-set"
+    );
+    let body2: Value = r2.json().await.unwrap();
+    assert_eq!(
+        body2["guest_id"].as_str().unwrap(),
+        guest,
+        "guest_id is stable across reloads"
+    );
+}

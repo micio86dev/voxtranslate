@@ -20,11 +20,14 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
+use axum::Extension;
+
 use crate::business::credits::org_subscription_active;
 use crate::business::{bad_request, db_err, not_found, require_pool, require_role, MEMBER};
 use crate::config::WebinarConfig;
 use crate::db::Pool;
 use crate::middleware::AuthUser;
+use crate::webinar::guest::{guest_session, GuestId};
 use crate::webinar::{
     create_webinar, find_by_code, find_by_id, join_url, playback_url, NewWebinar, Webinar,
 };
@@ -32,12 +35,16 @@ use crate::AppState;
 
 /// All webinar routes. Registered in `lib.rs::app` only when `config.webinar` is set.
 pub fn routes() -> Router<AppState> {
+    // The public participant lookup carries a guest-session cookie (F0-4); scope
+    // that middleware to this route only, not the authenticated host CRUD.
+    let public = Router::new()
+        .route("/api/w/{code}", get(public_get))
+        .layer(axum::middleware::from_fn(guest_session));
     Router::new()
         .route("/api/webinars", post(create).get(list))
         .route("/api/webinars/{id}", get(get_one).patch(patch))
         .route("/api/webinars/{id}/cancel", post(cancel))
-        // Public: guests resolve a webinar from the join code — NO auth, NO PII.
-        .route("/api/w/{code}", get(public_get))
+        .merge(public)
 }
 
 // ---- request bodies --------------------------------------------------------
@@ -346,8 +353,10 @@ pub async fn cancel(
 }
 
 /// `GET /api/w/{code}` — public, auth-free resolution for guests. NO host PII.
+/// Echoes the guest's `guest_id` (F0-4) so the client can mirror it to localStorage.
 pub async fn public_get(
     State(state): State<AppState>,
+    Extension(guest): Extension<GuestId>,
     Path(code): Path<String>,
 ) -> Result<Response, Response> {
     let pool = require_pool(&state)?;
@@ -360,5 +369,9 @@ pub async fn public_get(
     if w.status == "cancelled" {
         return Err(not_found("webinar not found"));
     }
-    Ok(Json(public_view(&w, &state.config.app_base_url, cfg)).into_response())
+    let mut body = public_view(&w, &state.config.app_base_url, cfg);
+    if let Some(obj) = body.as_object_mut() {
+        obj.insert("guest_id".into(), json!(guest.0));
+    }
+    Ok(Json(body).into_response())
 }
