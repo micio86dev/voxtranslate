@@ -18,7 +18,12 @@
 // The pure logic (URL/SDP handling, the state machine) is kept independent of a real
 // RTCPeerConnection so it can be unit-tested with a fake ctor (like webrtc.test.ts).
 
-import { goLive, publishStarted, publishStopped } from "./webinar";
+import {
+  buildPublishConstraints,
+  goLive,
+  publishStarted,
+  publishStopped,
+} from "./webinar";
 
 /** ICE servers for the WHIP ingest connection. STUN only — the media server acts as
  *  the far end, so a TURN relay is generally not needed for host→server ingest. */
@@ -122,11 +127,17 @@ export function waitForIceGathering(
 }
 
 /** Options for the publisher — the webinar id it publishes for, whether to start with
- *  the webcam on, and a state callback the UI subscribes to. */
+ *  the webcam on, the pre-live device choice, and a state callback the UI subscribes to. */
 export interface WhipPublisherOptions {
   webinarId: string;
   /** Start capture with the webcam on. Default false (mic-only). */
   withCamera?: boolean;
+  /** Microphone `deviceId` chosen in the pre-live step (from `enumerateDevices`).
+   *  When set it is pinned with `deviceId: { exact }`; otherwise the browser default. */
+  audioDeviceId?: string;
+  /** Camera `deviceId` chosen in the pre-live step. Only used when `withCamera` is set
+   *  (or when the camera is later toggled on); otherwise the default camera is used. */
+  videoDeviceId?: string;
   /** Fired on every state transition so the UI can render connecting / on-air / etc. */
   onState?: (state: WhipState) => void;
   /** Injectable getUserMedia for tests; defaults to `navigator.mediaDevices`. */
@@ -141,6 +152,8 @@ export interface WhipPublisherOptions {
 export class WhipPublisher {
   private id: string;
   private wantCamera: boolean;
+  private audioDeviceId?: string;
+  private videoDeviceId?: string;
   private onState: (s: WhipState) => void;
   private getMedia: (c: MediaStreamConstraints) => Promise<MediaStream>;
 
@@ -161,6 +174,8 @@ export class WhipPublisher {
   constructor(opts: WhipPublisherOptions) {
     this.id = opts.webinarId;
     this.wantCamera = !!opts.withCamera;
+    this.audioDeviceId = opts.audioDeviceId;
+    this.videoDeviceId = opts.videoDeviceId;
     this.onState = opts.onState ?? (() => {});
     this.getMedia =
       opts.getUserMedia ??
@@ -175,6 +190,12 @@ export class WhipPublisher {
   /** Whether the webcam is currently capturing + being sent. */
   isCameraOn(): boolean {
     return !!this.cameraTrack && this.cameraTrack.readyState === "live";
+  }
+
+  /** The captured local media stream (mic [+ camera]) so the studio view can show the
+   *  host's own preview. Null before `start()` / after `stop()`. */
+  getLocalStream(): MediaStream | null {
+    return this.stream;
   }
 
   private setState(s: WhipState): void {
@@ -193,9 +214,16 @@ export class WhipPublisher {
     this.setState("connecting");
 
     // Microphone is REQUIRED; the webcam is optional and requested up front only when
-    // the host chose to start with it on (it can be toggled at runtime afterward).
+    // the host chose to start with it on (it can be toggled at runtime afterward). The
+    // pre-live device choice is honored via deviceId: { exact } (buildPublishConstraints).
     try {
-      this.stream = await this.getMedia({ audio: true, video: this.wantCamera });
+      this.stream = await this.getMedia(
+        buildPublishConstraints({
+          audioDeviceId: this.audioDeviceId,
+          videoDeviceId: this.videoDeviceId,
+          withCamera: this.wantCamera,
+        }),
+      );
     } catch {
       // getUserMedia rejects on a denied permission (or no device) — surface it
       // distinctly so the UI can prompt the host to allow the mic.
@@ -305,7 +333,12 @@ export class WhipPublisher {
       if (this.isCameraOn()) return true;
       let camStream: MediaStream;
       try {
-        camStream = await this.getMedia({ video: true });
+        // Reuse the pre-live camera choice when toggling on at runtime.
+        const constraints = buildPublishConstraints({
+          videoDeviceId: this.videoDeviceId,
+          withCamera: true,
+        });
+        camStream = await this.getMedia({ video: constraints.video });
       } catch {
         return false; // camera denied / unavailable — stay audio-only
       }

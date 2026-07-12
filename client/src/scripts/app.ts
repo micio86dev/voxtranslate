@@ -81,13 +81,16 @@ import {
   type ProjectVoiceMessage,
 } from './business';
 import {
+  addToCalendar,
   cancelWebinar,
   canHostWebinar,
   createWebinar,
+  fromDatetimeLocalValue,
   listWebinars,
   qrDownloadFilename,
   showVoiceCloneToggle,
   showWebinarCloneAction,
+  webinarPresenceStub,
   WebinarError,
   type WebinarView,
 } from './webinar';
@@ -4800,6 +4803,8 @@ const webinarOrgSel = $<HTMLSelectElement>('webinar-org');
 const webinarLangSel = $<HTMLSelectElement>('webinar-lang');
 const webinarTierSel = $<HTMLSelectElement>('webinar-tier');
 const webinarTitleInput = $<HTMLInputElement>('webinar-title');
+const webinarStartInput = $<HTMLInputElement>('webinar-start');
+const webinarEndInput = $<HTMLInputElement>('webinar-end');
 const webinarForm = $<HTMLFormElement>('webinar-create');
 const webinarCreateBtn = $<HTMLButtonElement>('webinar-create-btn');
 const webinarCreateStatus = $('webinar-create-status');
@@ -5057,9 +5062,18 @@ function renderWebinarCard(w: WebinarView): void {
 
   // Go-live / publish control (webinar phase 1): capture mic (+ optional cam) and
   // publish to the media server over WHIP. Offered while the webinar can still be
-  // broadcast (scheduled → live). `ended` webinars can't be re-broadcast.
+  // broadcast (scheduled → live). `ended` webinars can't be re-broadcast. The
+  // control now opens a Meet-style pre-live step (device pickers) before publishing —
+  // device selection lives there, so the old standalone "activate webcam" button is gone.
   if (w.status === 'scheduled' || w.status === 'live') {
     card.appendChild(buildGoLiveControl(w));
+  }
+
+  // "Add to Google Calendar" — only for a scheduled webinar that has a start time.
+  // On 409 (calendar not connected) it routes the host into the connect-calendar flow
+  // and retries; on 400 (unscheduled) it explains a start time is required.
+  if (w.status === 'scheduled' && w.scheduled_start) {
+    card.appendChild(buildAddCalendarRow(w));
   }
 
   // Cancel — only while the webinar is still scheduled.
@@ -5087,33 +5101,14 @@ function renderWebinarCard(w: WebinarView): void {
 }
 
 // Only one webinar can be broadcast from a device at a time. `activePublisher` holds
-// the live WhipPublisher; `activePublisherId` is the webinar it's publishing so a card
-// re-render can restore the on-air UI.
+// the live WhipPublisher; `activePublisherId` is the webinar it's publishing.
 let activePublisher: WhipPublisher | null = null;
 let activePublisherId: string | null = null;
 
-/** Map a WhipPublisher state to the localized copy shown on the go-live button/badge. */
-function whipStateLabel(state: WhipState): string {
-  switch (state) {
-    case 'connecting':
-      return t('webinarGoingLive');
-    case 'on-air':
-      return t('webinarOnAir');
-    case 'reconnecting':
-      return t('webinarReconnecting');
-    case 'mic-denied':
-      return t('webinarMicDenied');
-    case 'error':
-      return t('webinarPublishError');
-    default:
-      return t('webinarGoLive');
-  }
-}
-
 /**
- * Build the per-webinar "Go live" control: a go-live/stop button, an on-air badge, and
- * a webcam toggle. Starting capture publishes over WHIP and flips the webinar to live;
- * stopping tears the publish down and ends it. Only one broadcast runs at a time.
+ * Build the per-webinar "Go live" control. Clicking it no longer publishes immediately —
+ * it opens a Meet-style pre-live step (camera preview + device pickers). If THIS webinar
+ * is already live, the button re-opens the studio view instead.
  */
 function buildGoLiveControl(w: WebinarView): HTMLElement {
   const wrap = document.createElement('div');
@@ -5123,94 +5118,438 @@ function buildGoLiveControl(w: WebinarView): HTMLElement {
   goBtn.type = 'button';
   goBtn.className = 'btn-primary webinar-golive-btn';
 
-  const badge = document.createElement('span');
-  badge.className = 'webinar-onair-badge hidden';
-  badge.setAttribute('role', 'status');
+  const live = activePublisher != null && activePublisherId === w.id;
+  goBtn.textContent = live ? t('webinarBackToStudio') : t('webinarGoLive');
 
-  const camBtn = document.createElement('button');
-  camBtn.type = 'button';
-  camBtn.className = 'btn-ghost webinar-cam-btn hidden';
-
-  // Render the control for a given publisher state (also used to restore a live card).
-  const paint = (state: WhipState): void => {
-    const live = state === 'on-air' || state === 'connecting' || state === 'reconnecting';
-    badge.textContent = whipStateLabel(state);
-    show(badge, live);
-    goBtn.textContent = live ? t('webinarStopBroadcast') : t('webinarGoLive');
-    goBtn.classList.toggle('danger', live);
-    show(camBtn, live);
-  };
-
-  const updateCamLabel = (on: boolean): void => {
-    camBtn.textContent = on ? t('webinarCamOff') : t('webinarCamOn');
-  };
-  updateCamLabel(false);
-
-  const startBroadcast = async (): Promise<void> => {
-    if (activePublisher) {
-      // A different webinar is already broadcasting from this device.
-      if (activePublisherId !== w.id) {
-        toast(t('webinarAlreadyLive'), 'err');
-        return;
-      }
+  goBtn.addEventListener('click', () => {
+    if (activePublisher && activePublisherId === w.id) {
+      openWebinarStudio(w); // resume the running broadcast's studio
       return;
     }
-    goBtn.disabled = true;
-    const publisher = new WhipPublisher({
-      webinarId: w.id,
-      onState: (state) => {
-        paint(state);
-        if (state === 'mic-denied') toast(t('webinarMicDenied'), 'err');
-        if (state === 'error') toast(t('webinarPublishError'), 'err');
-      },
-    });
-    try {
-      await publisher.start();
-      activePublisher = publisher;
-      activePublisherId = w.id;
-    } catch {
-      // start() already surfaced mic-denied / error via onState + toast.
-    } finally {
-      goBtn.disabled = false;
+    if (activePublisher) {
+      // A different webinar is already broadcasting from this device.
+      toast(t('webinarAlreadyLive'), 'err');
+      return;
     }
-  };
+    void openWebinarPrelive(w);
+  });
 
-  const stopBroadcast = async (): Promise<void> => {
-    if (!activePublisher || activePublisherId !== w.id) return;
-    goBtn.disabled = true;
+  wrap.append(goBtn);
+  return wrap;
+}
+
+// ---- Webinar pre-live (Meet-style): camera preview + device pickers -----------
+// Mirrors the call pre-join. The chosen mic/camera device ids + toggle state flow into
+// the WhipPublisher when the host taps "Go on air".
+const wpScreen = $('webinar-prelive');
+const wpPreviewVideo = $<HTMLVideoElement>('webinar-preview');
+const wpPreviewOff = $('webinar-preview-off');
+const wpPreviewAvatar = $('webinar-preview-avatar');
+const wpCamSelect = $<HTMLSelectElement>('webinar-cam-select');
+const wpMicSelect = $<HTMLSelectElement>('webinar-mic-select');
+const wpPreMic = $<HTMLButtonElement>('webinar-pre-mic');
+const wpPreCam = $<HTMLButtonElement>('webinar-pre-cam');
+const wpName = $('webinar-prelive-name');
+const wpStatus = $('webinar-prelive-status');
+const wpGoBtn = $<HTMLButtonElement>('webinar-prelive-go');
+const wpCancelBtn = $<HTMLButtonElement>('webinar-prelive-cancel');
+
+let wpStream: MediaStream | null = null;
+let wpMicOn = true;
+let wpCamOn = true;
+let wpWebinar: WebinarView | null = null;
+
+/** Video constraints for the pre-live preview honouring the selected camera device. */
+function wpVideoConstraints(): MediaTrackConstraints {
+  const camId = wpCamSelect.value;
+  return {
+    width: { ideal: 1280, max: 1280 },
+    height: { ideal: 720, max: 720 },
+    frameRate: { ideal: 24, max: 30 },
+    ...(camId ? { deviceId: { exact: camId } } : {}),
+  };
+}
+
+/** (Re)acquire the preview stream for the selected mic/camera devices. */
+async function wpAcquireMedia(): Promise<void> {
+  const micId = wpMicSelect.value;
+  const audio: MediaTrackConstraints = {
+    echoCancellation: true,
+    noiseSuppression: true,
+    autoGainControl: true,
+    ...(micId ? { deviceId: { exact: micId } } : {}),
+  };
+  if (wpStream) wpStream.getTracks().forEach((tr) => tr.stop());
+  try {
+    wpStream = await navigator.mediaDevices.getUserMedia({ audio, video: wpVideoConstraints() });
+  } catch (e) {
+    if (e instanceof Error && e.name === 'NotAllowedError') track('camera_permission_denied');
+    // Fall back to audio-only (no camera / video denied) — mic is required to publish.
+    wpStream = await navigator.mediaDevices.getUserMedia({ audio });
+  }
+  wpPreviewVideo.srcObject = wpStream;
+  void wpPreviewVideo.play().catch(() => {});
+  wpApplyToggles();
+}
+
+/** Apply the mic/camera toggle state to the preview stream + control buttons. */
+function wpApplyToggles(): void {
+  if (wpStream) {
+    wpStream.getAudioTracks().forEach((tr) => (tr.enabled = wpMicOn));
+    if (!wpCamOn) wpStream.getVideoTracks().forEach((tr) => tr.stop());
+  }
+  const hasLiveVideo =
+    !!wpStream && wpStream.getVideoTracks().some((tr) => tr.readyState === 'live');
+  if (wpCamOn && !hasLiveVideo) wpCamOn = false;
+  wpPreviewOff.hidden = wpCamOn && hasLiveVideo;
+  if (!wpPreviewOff.hidden) {
+    const name = wpWebinar?.title || t('webinarsTitle');
+    const avatar =
+      billing && auth.isLoggedIn() ? auth.avatarUrl(auth.getUser()?.avatar_url, 192) : null;
+    if (avatar) {
+      wpPreviewAvatar.textContent = '';
+      wpPreviewAvatar.style.background = 'none';
+      const img = document.createElement('img');
+      img.className = 'preview-avatar-img';
+      img.referrerPolicy = 'no-referrer';
+      img.alt = '';
+      img.src = avatar;
+      img.addEventListener('error', () => {
+        img.remove();
+        wpPreviewAvatar.textContent = name.slice(0, 2).toUpperCase();
+        wpPreviewAvatar.style.background = avatarGradient(name);
+      });
+      wpPreviewAvatar.appendChild(img);
+    } else {
+      wpPreviewAvatar.textContent = name.slice(0, 2).toUpperCase();
+      wpPreviewAvatar.style.background = avatarGradient(name);
+    }
+  }
+  wpPreMic.classList.toggle('active-danger', !wpMicOn);
+  wpPreMic.innerHTML = icon(wpMicOn ? 'mic' : 'mic-off');
+  wpPreCam.classList.toggle('active-danger', !wpCamOn);
+  wpPreCam.innerHTML = icon(wpCamOn ? 'video' : 'video-off');
+}
+
+async function wpTogglePreCam(): Promise<void> {
+  wpCamOn = !wpCamOn;
+  const hasLiveVideo =
+    !!wpStream && wpStream.getVideoTracks().some((tr) => tr.readyState === 'live');
+  if (wpCamOn && wpStream && !hasLiveVideo) {
+    try {
+      const s = await navigator.mediaDevices.getUserMedia({ video: wpVideoConstraints() });
+      const track2 = s.getVideoTracks()[0] ?? null;
+      if (track2) {
+        wpStream.getVideoTracks().forEach((tr) => {
+          tr.stop();
+          wpStream!.removeTrack(tr);
+        });
+        wpStream.addTrack(track2);
+        wpPreviewVideo.srcObject = wpStream;
+        void wpPreviewVideo.play().catch(() => {});
+      }
+    } catch {
+      wpCamOn = false; // camera unavailable — stay off
+    }
+  }
+  wpApplyToggles();
+}
+
+/** Populate the pre-live camera + mic device selectors from the current permissions. */
+async function wpPopulateDevices(): Promise<void> {
+  const devices = await navigator.mediaDevices.enumerateDevices();
+  const cams = devices.filter((d) => d.kind === 'videoinput');
+  const mics = devices.filter((d) => d.kind === 'audioinput');
+  const curCam = wpStream?.getVideoTracks()[0]?.getSettings().deviceId || '';
+  const curMic = wpStream?.getAudioTracks()[0]?.getSettings().deviceId || '';
+  fillDeviceSelect(wpCamSelect, cams, curCam, 'Camera');
+  fillDeviceSelect(wpMicSelect, mics, curMic, 'Mic');
+}
+
+/** Release the pre-live preview stream (on cancel or once handed to the publisher). */
+function wpTeardown(): void {
+  if (wpStream) wpStream.getTracks().forEach((tr) => tr.stop());
+  wpStream = null;
+  wpPreviewVideo.srcObject = null;
+}
+
+/** Open the Meet-style pre-live step for a webinar: preview + device pickers, then a
+ *  "Go on air" button that publishes with the chosen device ids. */
+async function openWebinarPrelive(w: WebinarView): Promise<void> {
+  wpWebinar = w;
+  wpMicOn = true;
+  wpCamOn = true;
+  wpStatus.textContent = '';
+  wpStatus.classList.remove('error');
+  wpName.textContent = w.title;
+  wpGoBtn.disabled = false;
+  closeWebinars();
+  show(wpScreen, true);
+  try {
+    await wpAcquireMedia();
+    await wpPopulateDevices();
+  } catch {
+    wpStatus.textContent = t('webinarPreliveDenied');
+    wpStatus.classList.add('error');
+    wpGoBtn.disabled = true;
+  }
+}
+
+/** Close the pre-live step, releasing media, and return to the Webinars list. */
+function closeWebinarPrelive(): void {
+  wpTeardown();
+  show(wpScreen, false);
+  void openWebinars();
+}
+
+wpPreMic.addEventListener('click', () => {
+  wpMicOn = !wpMicOn;
+  wpApplyToggles();
+});
+wpPreCam.addEventListener('click', () => void wpTogglePreCam());
+wpCamSelect.addEventListener('change', () => void wpAcquireMedia());
+wpMicSelect.addEventListener('change', () => void wpAcquireMedia());
+wpCancelBtn.addEventListener('click', closeWebinarPrelive);
+
+wpGoBtn.addEventListener('click', () => {
+  if (!wpWebinar) return;
+  const w = wpWebinar;
+  // Capture the chosen device ids + toggle state before tearing the preview down.
+  const audioDeviceId = wpMicSelect.value || undefined;
+  const videoDeviceId = wpCamSelect.value || undefined;
+  const withCamera = wpCamOn;
+  wpTeardown(); // release the preview device; the publisher re-acquires with the same ids
+  show(wpScreen, false);
+  void startWebinarBroadcast(w, { audioDeviceId, videoDeviceId, withCamera });
+});
+
+// ---- Webinar studio (Meet-style host screen while broadcasting) --------------
+const wsScreen = $('webinar-studio');
+const wsVideo = $<HTMLVideoElement>('webinar-studio-video');
+const wsVideoOff = $('webinar-studio-video-off');
+const wsAvatar = $('webinar-studio-avatar');
+const wsTitle = $('webinar-studio-title');
+const wsCode = $('webinar-studio-code');
+const wsLink = $<HTMLInputElement>('webinar-studio-link');
+const wsCopyBtn = $<HTMLButtonElement>('webinar-studio-copy');
+const wsQr = $<HTMLImageElement>('webinar-studio-qr');
+const wsCamBtn = $<HTMLButtonElement>('webinar-studio-cam');
+const wsEndBtn = $<HTMLButtonElement>('webinar-studio-end');
+const wsOnairText = $('webinar-onair-text');
+const wsCountN = $('webinar-count-n');
+const wsEndModal = $('webinar-end-modal');
+const wsEndConfirm = $<HTMLButtonElement>('webinar-end-confirm');
+const wsEndCancel = $<HTMLButtonElement>('webinar-end-cancel');
+
+/** Render the live participant count into its own element. Sources the value from
+ *  `webinarPresenceStub()` (returns 0 today) — a follow-up wires it to real presence,
+ *  so this is the single swap point. */
+function renderWebinarCount(): void {
+  wsCountN.textContent = String(webinarPresenceStub());
+}
+
+/** Reflect the WhipPublisher state on the studio's ON AIR badge. */
+function wsPaintState(state: WhipState): void {
+  const label =
+    state === 'reconnecting'
+      ? t('webinarReconnecting')
+      : state === 'connecting'
+        ? t('webinarGoingLive')
+        : t('webinarOnAir');
+  wsOnairText.textContent = label;
+}
+
+function wsUpdateCamLabel(on: boolean): void {
+  wsCamBtn.textContent = on ? t('webinarCamOff') : t('webinarCamOn');
+}
+
+/** Show the studio's local preview from the active publisher's captured stream. */
+function wsAttachLocalVideo(): void {
+  const stream = activePublisher?.getLocalStream() ?? null;
+  const on = !!activePublisher?.isCameraOn();
+  if (stream && on) {
+    wsVideo.srcObject = stream;
+    void wsVideo.play().catch(() => {});
+    wsVideoOff.hidden = true;
+  } else {
+    wsVideo.srcObject = null;
+    wsVideoOff.hidden = false;
+    const name = activeWebinar?.title || t('webinarsTitle');
+    const avatar =
+      billing && auth.isLoggedIn() ? auth.avatarUrl(auth.getUser()?.avatar_url, 192) : null;
+    if (avatar) {
+      wsAvatar.textContent = '';
+      wsAvatar.style.background = 'none';
+      const img = document.createElement('img');
+      img.className = 'preview-avatar-img';
+      img.referrerPolicy = 'no-referrer';
+      img.alt = '';
+      img.src = avatar;
+      wsAvatar.replaceChildren(img);
+    } else {
+      wsAvatar.textContent = name.slice(0, 2).toUpperCase();
+      wsAvatar.style.background = avatarGradient(name);
+    }
+  }
+}
+
+let activeWebinar: WebinarView | null = null;
+
+/** Open the studio view for a (live or just-started) webinar. */
+function openWebinarStudio(w: WebinarView): void {
+  activeWebinar = w;
+  closeWebinars();
+  show(wpScreen, false);
+  show(wsScreen, true);
+  wsTitle.textContent = w.title;
+  wsCode.textContent = w.code;
+  wsLink.value = w.join_url;
+  wsQr.alt = t('webinarQrAlt');
+  void renderQr(wsQr, w.join_url);
+  renderWebinarCount();
+  wsUpdateCamLabel(!!activePublisher?.isCameraOn());
+  wsPaintState(activePublisher?.getState() ?? 'on-air');
+  wsAttachLocalVideo();
+}
+
+/** Start the broadcast with the pre-live device choice, then show the studio. */
+async function startWebinarBroadcast(
+  w: WebinarView,
+  choice: { audioDeviceId?: string; videoDeviceId?: string; withCamera: boolean },
+): Promise<void> {
+  if (activePublisher) {
+    toast(t('webinarAlreadyLive'), 'err');
+    void openWebinars();
+    return;
+  }
+  const publisher = new WhipPublisher({
+    webinarId: w.id,
+    withCamera: choice.withCamera,
+    audioDeviceId: choice.audioDeviceId,
+    videoDeviceId: choice.videoDeviceId,
+    onState: (state) => {
+      if (activePublisherId === w.id) {
+        wsPaintState(state);
+        wsAttachLocalVideo();
+      }
+      if (state === 'mic-denied') toast(t('webinarMicDenied'), 'err');
+      if (state === 'error') toast(t('webinarPublishError'), 'err');
+    },
+  });
+  try {
+    await publisher.start();
+    activePublisher = publisher;
+    activePublisherId = w.id;
+    openWebinarStudio(w);
+  } catch {
+    // start() surfaced mic-denied / error via onState + toast — back to the list.
+    void openWebinars();
+  }
+}
+
+/** Stop the active broadcast (host confirmed End), then return to the Webinars list. */
+async function endWebinarBroadcast(): Promise<void> {
+  if (activePublisher) {
     await activePublisher.stop();
     activePublisher = null;
     activePublisherId = null;
-    goBtn.disabled = false;
-    paint('idle');
-    updateCamLabel(false);
-    await loadWebinars(); // reflect the now-ended status
-  };
-
-  goBtn.addEventListener('click', () => {
-    const live = activePublisher != null && activePublisherId === w.id;
-    void (live ? stopBroadcast() : startBroadcast());
-  });
-
-  camBtn.addEventListener('click', async () => {
-    if (!activePublisher || activePublisherId !== w.id) return;
-    camBtn.disabled = true;
-    const on = await activePublisher.toggleCamera(!activePublisher.isCameraOn());
-    updateCamLabel(on);
-    camBtn.disabled = false;
-  });
-
-  // Restore the on-air UI if THIS webinar is the one already broadcasting (card
-  // re-render while live — e.g. after a status refresh).
-  if (activePublisher && activePublisherId === w.id) {
-    paint(activePublisher.getState());
-    updateCamLabel(activePublisher.isCameraOn());
-  } else {
-    paint('idle');
   }
+  activeWebinar = null;
+  wsVideo.srcObject = null;
+  show(wsScreen, false);
+  void openWebinars(); // reflects the now-ended status
+}
 
-  wrap.append(goBtn, camBtn, badge);
-  return wrap;
+wsCopyBtn.addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText(wsLink.value);
+    wsCopyBtn.textContent = t('copied');
+    setTimeout(() => (wsCopyBtn.textContent = t('copy')), 1200);
+  } catch {
+    wsLink.select();
+    toast(t('copyFailed'), 'err');
+  }
+});
+
+wsCamBtn.addEventListener('click', async () => {
+  if (!activePublisher || activePublisherId !== activeWebinar?.id) return;
+  wsCamBtn.disabled = true;
+  const on = await activePublisher.toggleCamera(!activePublisher.isCameraOn());
+  wsUpdateCamLabel(on);
+  wsAttachLocalVideo();
+  wsCamBtn.disabled = false;
+});
+
+wsEndBtn.addEventListener('click', () => show(wsEndModal, true));
+wsEndCancel.addEventListener('click', () => show(wsEndModal, false));
+wsEndConfirm.addEventListener('click', async () => {
+  wsEndConfirm.disabled = true;
+  try {
+    show(wsEndModal, false);
+    await endWebinarBroadcast();
+  } finally {
+    wsEndConfirm.disabled = false;
+  }
+});
+wsEndModal.addEventListener('click', (e) => {
+  if (e.target === wsEndModal) show(wsEndModal, false);
+});
+
+// ---- Add to Google Calendar (scheduled webinars) -----------------------------
+// A pending calendar-add retried after the connect-calendar (OAuth re-consent) flow.
+let pendingCalendarWebinarId: string | null = null;
+
+/** Build the "Add to Google Calendar" row for a scheduled webinar. On 409 (calendar
+ *  not connected) it routes the host into the existing connect-calendar flow and retries
+ *  after re-consent; on 400 (unscheduled) it explains a start time is needed. On success
+ *  it surfaces a link to the created event. */
+function buildAddCalendarRow(w: WebinarView): HTMLElement {
+  const row = document.createElement('div');
+  row.className = 'webinar-calendar-row';
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'btn-ghost webinar-calendar-btn';
+  btn.textContent = t('webinarAddCalendar');
+  const note = document.createElement('span');
+  note.className = 'webinar-calendar-note';
+  const setNote = (msg: string, kind: 'ok' | 'err' | '', link?: string) => {
+    note.replaceChildren();
+    note.classList.toggle('ok', kind === 'ok');
+    note.classList.toggle('err', kind === 'err');
+    note.append(document.createTextNode(msg));
+    if (link) {
+      const a = document.createElement('a');
+      a.href = link;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      a.textContent = ` ${t('webinarCalendarView')}`;
+      note.append(a);
+    }
+  };
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    setNote(t('webinarCalendarAdding'), '');
+    try {
+      const evt = await addToCalendar(w.id);
+      setNote(t('webinarCalendarAdded'), 'ok', evt.html_link);
+    } catch (err) {
+      const status = err instanceof WebinarError ? err.status : 0;
+      if (status === 409) {
+        // Calendar not connected — route into the connect-calendar OAuth flow, then retry.
+        setNote(t('webinarCalendarConnecting'), '');
+        pendingCalendarWebinarId = w.id;
+        connectCalendar();
+      } else if (status === 400) {
+        setNote(t('webinarCalendarNotScheduled'), 'err');
+      } else {
+        setNote(webinarErrorMessage(err), 'err');
+      }
+    } finally {
+      btn.disabled = false;
+    }
+  });
+  row.append(btn, note);
+  return row;
 }
 
 /** Render a QR of `text` into `img` as a data URL. The `qrcode` browser bundle is a
@@ -5392,6 +5731,9 @@ async function submitWebinar(): Promise<void> {
     // Voice cloning is Enhanced-only and moot once already cloned — only send it
     // when the tier-aware toggle is actually offered AND on.
     const cloneOffered = showVoiceCloneToggle(webinarTierSel.value, hasVoiceClone());
+    // Optional schedule: empty inputs → immediate webinar (null start/end).
+    const scheduledStart = fromDatetimeLocalValue(webinarStartInput.value);
+    const scheduledEnd = fromDatetimeLocalValue(webinarEndInput.value);
     await createWebinar({
       org_id: orgId,
       title,
@@ -5400,8 +5742,12 @@ async function submitWebinar(): Promise<void> {
       record_video: switchOn(webinarRecordVideoSw),
       record_transcript: switchOn(webinarRecordTranscriptSw),
       voice_clone: cloneOffered && switchOn(webinarVoiceCloneSw),
+      scheduled_start: scheduledStart,
+      scheduled_end: scheduledEnd,
     });
     webinarTitleInput.value = '';
+    webinarStartInput.value = '';
+    webinarEndInput.value = '';
     setWebinarStatus(t('webinarCreated'), 'ok');
     await loadWebinars();
   } catch (err) {
@@ -5553,10 +5899,41 @@ async function onGoogleCode(resp: { code?: string; error?: string }): Promise<vo
   if (!resp.code) return;
   try {
     await auth.exchangeGoogleCode(resp.code);
+    // A pending "Add to Google Calendar" retry (re-consent path): the server now holds a
+    // fresh refresh token with the Calendar scope, so retry the calendar add in place —
+    // don't navigate away from the Webinars screen the host is on.
+    if (pendingCalendarWebinarId) {
+      const id = pendingCalendarWebinarId;
+      pendingCalendarWebinarId = null;
+      try {
+        const evt = await addToCalendar(id);
+        toast(t('webinarCalendarAdded'), 'ok');
+        void openEventLink(evt.html_link);
+      } catch (err) {
+        toast(webinarErrorMessage(err), 'err');
+      }
+      return;
+    }
     track('login', { method: 'google' });
     enterHome();
   } catch {
-    /* stay on the login screen; the user can retry */
+    /* stay on the current screen; the user can retry */
+  }
+}
+
+/** Open the created calendar event in a new tab (noopener). */
+function openEventLink(url: string): void {
+  window.open(url, '_blank', 'noopener,noreferrer');
+}
+
+/** Route the host into the existing Google connect-calendar flow (OAuth code popup).
+ *  On success `onGoogleCode` retries any `pendingCalendarWebinarId`. Falls back to a
+ *  toast if the Google client isn't ready. */
+function connectCalendar(): void {
+  if (googleCodeClient) {
+    googleCodeClient.requestCode();
+  } else {
+    toast(t('scheduleConnectCalendar'), 'err');
   }
 }
 
