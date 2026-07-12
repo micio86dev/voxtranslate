@@ -605,7 +605,7 @@
   "webinarGoOnAir": "Емитувај во живо",
   "webinarBackToStudio": "Назад во студиото",
   "webinarParticipants": "Учесници",
-  "webinarCountWiring": "Броячот во живо се подготвува",
+  "webinarWatching": "{n} гледаат",
   "webinarEnd": "Заврши вебинар",
   "webinarEndTitle": "Да завршиш за сите?",
   "webinarEndBody": "Гостите ќе бидат исклучени и не можат повторно да се приклучат.",

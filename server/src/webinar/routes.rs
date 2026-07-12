@@ -58,6 +58,11 @@ pub fn routes() -> Router<AppState> {
         .route("/api/webinars/{id}/publish-stopped", post(publish_stopped))
         // MediaMTX external-auth hook (F1-2) — server-to-server, path-secret auth.
         .route("/internal/media-auth/{caller_secret}", post(media_auth))
+        // Realtime presence (Fase 4) — public WebSocket keyed by webinar code.
+        .route(
+            "/api/w/{code}/presence",
+            get(crate::webinar::presence::presence_ws),
+        )
         .merge(public)
 }
 

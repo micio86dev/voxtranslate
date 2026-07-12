@@ -605,7 +605,7 @@
   "webinarGoOnAir": "Börja sända",
   "webinarBackToStudio": "Tillbaka till studion",
   "webinarParticipants": "Deltagare",
-  "webinarCountWiring": "Live-räknare kommer snart",
+  "webinarWatching": "{n} tittar nu",
   "webinarEnd": "Avsluta webbinariet",
   "webinarEndTitle": "Avsluta för alla?",
   "webinarEndBody": "Gästerna kopplas bort och kan inte återansluta.",

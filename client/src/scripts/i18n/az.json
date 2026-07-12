@@ -605,7 +605,7 @@
   "webinarGoOnAir": "Canlı yayıma başla",
   "webinarBackToStudio": "Studiyaya qayıt",
   "webinarParticipants": "İştirakçılar",
-  "webinarCountWiring": "Canlı say qoşulur",
+  "webinarWatching": "{n} nəfər izləyir",
   "webinarEnd": "Vebinarı bitir",
   "webinarEndTitle": "Hamı üçün bitirilsin?",
   "webinarEndBody": "Qonaqların bağlantısı kəsiləcək və yenidən qoşula bilməyəcəklər.",

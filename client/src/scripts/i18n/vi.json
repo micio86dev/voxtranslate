@@ -605,7 +605,7 @@
   "webinarGoOnAir": "Phát trực tiếp",
   "webinarBackToStudio": "Quay lại studio",
   "webinarParticipants": "Người tham gia",
-  "webinarCountWiring": "Số lượng trực tiếp sắp có",
+  "webinarWatching": "{n} người đang xem",
   "webinarEnd": "Kết thúc hội thảo",
   "webinarEndTitle": "Kết thúc cho mọi người?",
   "webinarEndBody": "Khách sẽ bị ngắt kết nối và không thể tham gia lại.",

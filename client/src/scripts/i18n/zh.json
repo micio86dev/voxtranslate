@@ -605,7 +605,7 @@
   "webinarGoOnAir": "开始直播",
   "webinarBackToStudio": "返回直播间",
   "webinarParticipants": "参与者",
-  "webinarCountWiring": "实时人数即将上线",
+  "webinarWatching": "{n}人正在观看",
   "webinarEnd": "结束网络研讨会",
   "webinarEndTitle": "为所有人结束？",
   "webinarEndBody": "来宾将被断开连接，且无法重新加入。",

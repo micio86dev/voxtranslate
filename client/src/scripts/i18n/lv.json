@@ -605,7 +605,7 @@
   "webinarGoOnAir": "Sākt pārraidi",
   "webinarBackToStudio": "Atpakaļ uz studiju",
   "webinarParticipants": "Dalībnieki",
-  "webinarCountWiring": "Tiešais skaitītājs tiek gatavots",
+  "webinarWatching": "{n} skatās",
   "webinarEnd": "Beigt vebināru",
   "webinarEndTitle": "Beigt visiem?",
   "webinarEndBody": "Viesi tiks atvienoti un nevarēs pievienoties atkārtoti.",

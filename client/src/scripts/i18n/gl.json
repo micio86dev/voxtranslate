@@ -605,7 +605,7 @@
   "webinarGoOnAir": "Emitir en directo",
   "webinarBackToStudio": "Volver ao estudio",
   "webinarParticipants": "Participantes",
-  "webinarCountWiring": "Conectando o reconto en directo",
+  "webinarWatching": "{n} vendo agora",
   "webinarEnd": "Rematar o webinar",
   "webinarEndTitle": "Rematar para todos?",
   "webinarEndBody": "Os convidados desconectaranse e non poderán volver unirse.",

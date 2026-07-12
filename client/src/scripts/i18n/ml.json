@@ -605,7 +605,7 @@
   "webinarGoOnAir": "ലൈവ് ആകുക",
   "webinarBackToStudio": "സ്റ്റുഡിയോയിലേക്ക് മടങ്ങുക",
   "webinarParticipants": "പങ്കാളികൾ",
-  "webinarCountWiring": "ലൈവ് എണ്ണം തയ്യാറാകുന്നു",
+  "webinarWatching": "{n} പേർ കാണുന്നു",
   "webinarEnd": "വെബിനാർ അവസാനിപ്പിക്കുക",
   "webinarEndTitle": "എല്ലാവർക്കുമായി അവസാനിപ്പിക്കണോ?",
   "webinarEndBody": "അതിഥികളുടെ കണക്ഷൻ വിച്ഛേദിക്കപ്പെടും, വീണ്ടും ചേരാനാവില്ല.",

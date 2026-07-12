@@ -605,7 +605,7 @@
   "webinarGoOnAir": "Эфирге шығу",
   "webinarBackToStudio": "Студияға оралу",
   "webinarParticipants": "Қатысушылар",
-  "webinarCountWiring": "Тікелей есептегіш дайындалуда",
+  "webinarWatching": "{n} көріп жатыр",
   "webinarEnd": "Вебинарды аяқтау",
   "webinarEndTitle": "Барлығы үшін аяқтау керек пе?",
   "webinarEndBody": "Қонақтар ажыратылады және қайта қосыла алмайды.",

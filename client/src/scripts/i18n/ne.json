@@ -605,7 +605,7 @@
   "webinarGoOnAir": "प्रत्यक्ष प्रसारण सुरु गर्नुहोस्",
   "webinarBackToStudio": "स्टुडियोमा फर्कनुहोस्",
   "webinarParticipants": "सहभागीहरू",
-  "webinarCountWiring": "प्रत्यक्ष गणना तयारीमा छ",
+  "webinarWatching": "{n} जनाले हेर्दै",
   "webinarEnd": "वेबिनार अन्त्य गर्नुहोस्",
   "webinarEndTitle": "सबैका लागि अन्त्य गर्ने?",
   "webinarEndBody": "पाहुनाहरूको जडान टुट्नेछ र पुनः सामेल हुन सक्दैनन्।",

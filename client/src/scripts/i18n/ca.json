@@ -605,7 +605,7 @@
   "webinarGoOnAir": "Emet en directe",
   "webinarBackToStudio": "Torna a l'estudi",
   "webinarParticipants": "Participants",
-  "webinarCountWiring": "S'està connectant el recompte en directe",
+  "webinarWatching": "{n} mirant ara",
   "webinarEnd": "Finalitza el webinar",
   "webinarEndTitle": "Finalitzar per a tothom?",
   "webinarEndBody": "Els convidats es desconnectaran i no podran tornar a unir-se.",

@@ -79,9 +79,15 @@ const pageDesc = webinar
         <div class="wv-stage">
           <header class="wv-head">
             <h1 class="wv-heading">{webinar ? webinar.title : ''}</h1>
-            <span id="wv-status" class="wv-badge" role="status" data-i18n="wvStateWaiting">
-              Waiting to start…
-            </span>
+            <div class="wv-head-meta">
+              <!-- Live audience count — hidden until the presence WS reports a value. -->
+              <span id="wv-watching" class="wv-watching hidden" role="status" aria-live="polite">
+                <span class="wv-watching-ico" aria-hidden="true"></span><span id="wv-watching-text"></span>
+              </span>
+              <span id="wv-status" class="wv-badge" role="status" data-i18n="wvStateWaiting">
+                Waiting to start…
+              </span>
+            </div>
           </header>
 
           <div class="wv-video-wrap">
@@ -176,9 +182,36 @@ const pageDesc = webinar
       gap: 12px;
       flex-wrap: wrap;
     }
+    .wv-head-meta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
     .wv-heading {
       font-size: 1.3rem;
       margin: 0;
+    }
+    .wv-watching {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.82rem;
+      font-weight: 600;
+      padding: 4px 12px;
+      border-radius: 999px;
+      background: var(--surface, #1b2330);
+      border: 1px solid var(--border, #2a3444);
+      color: var(--text-muted, #9aa4b2);
+    }
+    .wv-watching.hidden {
+      display: none;
+    }
+    .wv-watching-ico {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: currentColor;
+      opacity: 0.7;
     }
     .wv-badge {
       font-size: 0.82rem;

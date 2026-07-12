@@ -605,7 +605,7 @@
   "webinarGoOnAir": "Вийти в ефір",
   "webinarBackToStudio": "Назад до студії",
   "webinarParticipants": "Учасники",
-  "webinarCountWiring": "Лічильник наживо незабаром",
+  "webinarWatching": "{n} дивляться",
   "webinarEnd": "Завершити вебінар",
   "webinarEndTitle": "Завершити для всіх?",
   "webinarEndBody": "Гостей буде від'єднано, і вони не зможуть приєднатися знову.",

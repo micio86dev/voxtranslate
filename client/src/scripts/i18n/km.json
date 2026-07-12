@@ -605,7 +605,7 @@
   "webinarGoOnAir": "ចាប់ផ្ដើមផ្សាយផ្ទាល់",
   "webinarBackToStudio": "ត្រឡប់ទៅស្ទូឌីយោ",
   "webinarParticipants": "អ្នកចូលរួម",
-  "webinarCountWiring": "ចំនួនផ្សាយផ្ទាល់កំពុងរៀបចំ",
+  "webinarWatching": "{n} កំពុងមើល",
   "webinarEnd": "បញ្ចប់វេបប៊ីណា",
   "webinarEndTitle": "បញ្ចប់សម្រាប់អ្នកទាំងអស់គ្នា?",
   "webinarEndBody": "ភ្ញៀវនឹងត្រូវផ្ដាច់ ហើយមិនអាចចូលរួមម្ដងទៀតបានទេ។",

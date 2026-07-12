@@ -605,7 +605,7 @@
   "webinarGoOnAir": "Gå live",
   "webinarBackToStudio": "Tilbake til studio",
   "webinarParticipants": "Deltakere",
-  "webinarCountWiring": "Sanntidsteller under arbeid",
+  "webinarWatching": "{n} ser på nå",
   "webinarEnd": "Avslutt webinar",
   "webinarEndTitle": "Avslutte for alle?",
   "webinarEndBody": "Gjester blir koblet fra og kan ikke bli med igjen.",

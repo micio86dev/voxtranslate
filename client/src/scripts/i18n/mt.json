@@ -605,7 +605,7 @@
   "webinarGoOnAir": "Ixxandar live",
   "webinarBackToStudio": "Lura lejn l-istudjo",
   "webinarParticipants": "Parteċipanti",
-  "webinarCountWiring": "L-għadd live qed jitħejja",
+  "webinarWatching": "{n} qed jaraw",
   "webinarEnd": "Temm il-webinar",
   "webinarEndTitle": "Ittemm għal kulħadd?",
   "webinarEndBody": "Il-mistednin jiġu skonnettjati u ma jistgħux jerġgħu jingħaqdu.",

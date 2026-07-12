@@ -605,7 +605,7 @@
   "webinarGoOnAir": "Започни излъчване",
   "webinarBackToStudio": "Обратно към студиото",
   "webinarParticipants": "Участници",
-  "webinarCountWiring": "Броенето на живо все още се свързва",
+  "webinarWatching": "{n} гледат",
   "webinarEnd": "Приключи уебинара",
   "webinarEndTitle": "Да приключи за всички?",
   "webinarEndBody": "Гостите ще бъдат прекъснати и няма да могат да се присъединят отново.",

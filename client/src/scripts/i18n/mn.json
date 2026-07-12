@@ -605,7 +605,7 @@
   "webinarGoOnAir": "Шууд эфирт гарах",
   "webinarBackToStudio": "Студи руу буцах",
   "webinarParticipants": "Оролцогчид",
-  "webinarCountWiring": "Шууд тоолуур бэлтгэгдэж байна",
+  "webinarWatching": "{n} үзэж байна",
   "webinarEnd": "Вебинарыг дуусгах",
   "webinarEndTitle": "Бүгдэд нь дуусгах уу?",
   "webinarEndBody": "Зочид салгагдах ба дахин нэгдэж чадахгүй.",

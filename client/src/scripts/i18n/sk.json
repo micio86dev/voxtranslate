@@ -605,7 +605,7 @@
   "webinarGoOnAir": "Spustiť vysielanie",
   "webinarBackToStudio": "Späť do štúdia",
   "webinarParticipants": "Účastníci",
-  "webinarCountWiring": "Počítadlo naživo čoskoro",
+  "webinarWatching": "{n} sleduje",
   "webinarEnd": "Ukončiť webinár",
   "webinarEndTitle": "Ukončiť pre všetkých?",
   "webinarEndBody": "Hostia budú odpojení a nebudú sa môcť znova pripojiť.",

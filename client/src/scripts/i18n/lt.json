@@ -605,7 +605,7 @@
   "webinarGoOnAir": "Pradėti transliaciją",
   "webinarBackToStudio": "Grįžti į studiją",
   "webinarParticipants": "Dalyviai",
-  "webinarCountWiring": "Tiesioginis skaitiklis ruošiamas",
+  "webinarWatching": "{n} žiūri",
   "webinarEnd": "Baigti internetinį seminarą",
   "webinarEndTitle": "Baigti visiems?",
   "webinarEndBody": "Svečiai bus atjungti ir negalės prisijungti iš naujo.",

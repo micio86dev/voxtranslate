@@ -605,7 +605,7 @@
   "webinarGoOnAir": "लाइव जाएं",
   "webinarBackToStudio": "स्टूडियो पर वापस जाएं",
   "webinarParticipants": "प्रतिभागी",
-  "webinarCountWiring": "लाइव गिनती कनेक्ट हो रही है",
+  "webinarWatching": "{n} देख रहे हैं",
   "webinarEnd": "वेबिनार समाप्त करें",
   "webinarEndTitle": "सभी के लिए समाप्त करें?",
   "webinarEndBody": "मेहमानों का कनेक्शन कट जाएगा और वे दोबारा शामिल नहीं हो पाएंगे.",

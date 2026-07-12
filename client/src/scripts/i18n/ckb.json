@@ -605,7 +605,7 @@
   "webinarGoOnAir": "پەخشی ڕاستەوخۆ بکە",
   "webinarBackToStudio": "گەڕانەوە بۆ ستۆدیۆ",
   "webinarParticipants": "بەشداربووان",
-  "webinarCountWiring": "ژماردنی ڕاستەوخۆ لە پرۆسەی پەیوەندیدایە",
+  "webinarWatching": "{n} تەماشا دەکەن",
   "webinarEnd": "کۆتایی بە وێبینار بهێنە",
   "webinarEndTitle": "بۆ هەمووان کۆتایی پێبهێنرێت؟",
   "webinarEndBody": "میوانەکان پەیوەندییان دەپچڕێت و ناتوانن دووبارە بگەڕێنەوە.",
