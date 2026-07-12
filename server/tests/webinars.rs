@@ -952,3 +952,216 @@ async fn create_links_to_project_in_same_org_only() {
         .unwrap();
     assert_eq!(bad.status(), 400, "project from another org rejected");
 }
+
+// ---- ④ Realtime subtitles (SPEC Fase 2) — STT ingest WS security -----------
+
+/// Attempt an STT WebSocket handshake and return the HTTP status the server
+/// replied with. A successful upgrade is `101`; the auth/authz guards reject
+/// BEFORE the upgrade, so a rejection surfaces as an `Http` error carrying the
+/// real status (401/404/409).
+async fn stt_handshake_status(addr: SocketAddr, id: &str, token: Option<&str>) -> u16 {
+    let mut url = format!("ws://{addr}/api/webinars/{id}/stt");
+    if let Some(t) = token {
+        url.push_str(&format!("?token={t}"));
+    }
+    match tokio_tungstenite::connect_async(url).await {
+        Ok((ws, resp)) => {
+            drop(ws);
+            resp.status().as_u16()
+        }
+        Err(tokio_tungstenite::tungstenite::Error::Http(resp)) => resp.status().as_u16(),
+        Err(e) => panic!("unexpected WS error: {e:?}"),
+    }
+}
+
+#[tokio::test]
+async fn stt_guest_and_cross_tenant_are_rejected() {
+    let Some(srv) = setup().await else {
+        return;
+    };
+    let http = Client::new();
+    let (owner, jwt) = user(&srv).await;
+    let org_id = org(&srv, owner, true).await;
+    let created = create_webinar(&http, &srv, &jwt, org_id).await;
+    let id = created["id"].as_str().unwrap().to_string();
+
+    // (1) Guest — no token → 401. The host mic cannot be opened anonymously.
+    assert_eq!(
+        stt_handshake_status(srv.addr, &id, None).await,
+        401,
+        "no token → 401"
+    );
+
+    // A garbage token is also 401 (not a valid JWT).
+    assert_eq!(
+        stt_handshake_status(srv.addr, &id, Some("not-a-jwt")).await,
+        401,
+        "invalid token → 401"
+    );
+
+    // (1) Wrong org — a valid user who is NOT a member of the webinar's org → 404
+    // (cross-tenant existence is hidden, exactly like the REST host API).
+    let (_outsider, other) = user(&srv).await;
+    assert_eq!(
+        stt_handshake_status(srv.addr, &id, Some(&other)).await,
+        404,
+        "non-member → 404"
+    );
+}
+
+#[tokio::test]
+async fn stt_requires_live_or_scheduled_status() {
+    let Some(srv) = setup().await else {
+        return;
+    };
+    let http = Client::new();
+    let (owner, jwt) = user(&srv).await;
+    let org_id = org(&srv, owner, true).await;
+    let created = create_webinar(&http, &srv, &jwt, org_id).await;
+    let id = created["id"].as_str().unwrap().to_string();
+
+    // A fresh webinar is `scheduled` → the host may warm the mic (handshake would
+    // upgrade; we only need to confirm it is NOT rejected by the status gate).
+    assert_ne!(
+        stt_handshake_status(srv.addr, &id, Some(&jwt)).await,
+        409,
+        "scheduled webinar allows STT"
+    );
+
+    // End it → `stt` is now a 409 (no subtitles after the webinar is over).
+    http.post(format!("{}/api/webinars/{id}/publish-started", base(&srv)))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap();
+    http.post(format!("{}/api/webinars/{id}/publish-stopped", base(&srv)))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        stt_handshake_status(srv.addr, &id, Some(&jwt)).await,
+        409,
+        "ended webinar → 409"
+    );
+}
+
+#[tokio::test]
+async fn presence_ws_ignores_inbound_frames() {
+    // (2) A viewer writing to their own presence socket must NEVER produce a
+    // subtitle broadcast — subtitles come ONLY from the STT processor.
+    let Some(srv) = setup().await else {
+        return;
+    };
+    let http = Client::new();
+    let (owner, jwt) = user(&srv).await;
+    let org_id = org(&srv, owner, true).await;
+    let created = create_webinar(&http, &srv, &jwt, org_id).await;
+    let code = created["code"].as_str().unwrap().to_string();
+
+    use futures::{SinkExt, StreamExt};
+    use tokio_tungstenite::tungstenite::Message;
+
+    let url = format!("ws://{}/api/w/{code}/presence?lang=es", srv.addr);
+    let (mut ws, _) = tokio_tungstenite::connect_async(url).await.unwrap();
+    assert_eq!(next_count(&mut ws).await, 1, "viewer joined");
+
+    // The viewer tries to inject a subtitle frame over its OWN socket.
+    ws.send(Message::Text(
+        r#"{"type":"subtitle","kind":"final","original":"hacked","lang":"es","translations":{"es":"hacked"}}"#
+            .into(),
+    ))
+    .await
+    .unwrap();
+
+    // Nothing the viewer sends is ever echoed back as a subtitle. Give the server
+    // a moment; the only frames it ever pushes here are `count`s.
+    let got_subtitle = tokio::time::timeout(std::time::Duration::from_millis(300), async {
+        loop {
+            match ws.next().await {
+                Some(Ok(Message::Text(t))) => {
+                    let v: Value = serde_json::from_str(&t).unwrap();
+                    if v["type"] == "subtitle" {
+                        return true;
+                    }
+                }
+                Some(Ok(_)) => continue,
+                _ => return false,
+            }
+        }
+    })
+    .await
+    .unwrap_or(false);
+    assert!(
+        !got_subtitle,
+        "an inbound viewer frame must never produce a subtitle broadcast"
+    );
+}
+
+#[tokio::test]
+async fn presence_validates_viewer_lang_server_side() {
+    // (3) `lang` is validated with `valid_lang` before it is stored/used. A valid
+    // code is persisted on the participant row; a malformed one is dropped.
+    let Some(srv) = setup().await else {
+        return;
+    };
+    let http = Client::new();
+    let (owner, jwt) = user(&srv).await;
+    let org_id = org(&srv, owner, true).await;
+    let created = create_webinar(&http, &srv, &jwt, org_id).await;
+    let code = created["code"].as_str().unwrap().to_string();
+    let webinar_id = Uuid::parse_str(created["id"].as_str().unwrap()).unwrap();
+
+    // A valid language is stored on the participant row.
+    let good_guest = Uuid::new_v4();
+    let (mut g, _) = tokio_tungstenite::connect_async(format!(
+        "ws://{}/api/w/{code}/presence?guest_id={good_guest}&lang=es",
+        srv.addr
+    ))
+    .await
+    .unwrap();
+    let _ = next_count(&mut g).await;
+
+    // A malformed language (contains a disallowed char) is rejected → NOT stored.
+    let bad_guest = Uuid::new_v4();
+    let (mut b, _) = tokio_tungstenite::connect_async(format!(
+        "ws://{}/api/w/{code}/presence?guest_id={bad_guest}&lang=es%3Bdrop",
+        srv.addr
+    ))
+    .await
+    .unwrap();
+    let _ = next_count(&mut b).await;
+
+    // The join is best-effort/async; poll briefly for the participant rows.
+    let mut good_lang: Option<String> = None;
+    let mut bad_lang: Option<String> = Some("sentinel".into());
+    for _ in 0..20 {
+        good_lang = sqlx::query_scalar(
+            "SELECT language_code FROM webinar_participants WHERE webinar_id = $1 AND guest_id = $2",
+        )
+        .bind(webinar_id)
+        .bind(good_guest)
+        .fetch_optional(&srv.pool)
+        .await
+        .unwrap()
+        .flatten();
+        bad_lang = sqlx::query_scalar(
+            "SELECT language_code FROM webinar_participants WHERE webinar_id = $1 AND guest_id = $2",
+        )
+        .bind(webinar_id)
+        .bind(bad_guest)
+        .fetch_optional(&srv.pool)
+        .await
+        .unwrap()
+        .flatten();
+        if good_lang.is_some() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    assert_eq!(good_lang.as_deref(), Some("es"), "valid lang stored");
+    assert_eq!(
+        bad_lang, None,
+        "a malformed lang is validated away, not stored"
+    );
+}
