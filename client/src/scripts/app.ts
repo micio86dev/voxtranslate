@@ -5535,7 +5535,7 @@ async function openWebinarPrelive(w: WebinarView): Promise<void> {
   wpStatus.classList.remove('error');
   wpName.textContent = w.title;
   wpGoBtn.disabled = false;
-  closeWebinars();
+  show(webinarsScreen, false); // leave the list; do NOT re-show #home under the pre-live
   show(wpScreen, true);
   try {
     await wpAcquireMedia();
@@ -5783,7 +5783,7 @@ let activeWebinar: WebinarView | null = null;
 /** Open the studio view for a (live or just-started) webinar. */
 function openWebinarStudio(w: WebinarView): void {
   activeWebinar = w;
-  closeWebinars();
+  show(webinarsScreen, false); // leave the list; do NOT re-show #home under the studio
   show(wpScreen, false);
   show(wsScreen, true);
   wsTitle.textContent = w.title;

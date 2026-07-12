@@ -61,6 +61,9 @@ async function mockApi(page: Page): Promise<void> {
     }
     // Everything else the home screen pings (packages, usage, friends, notifications…).
     if (p === '/api/billing/packages') return route.fulfill(json([]));
+    // Friend requests are an object ({incoming, outgoing}), NOT a list — loadFriendState
+    // iterates reqs.incoming/outgoing, so a bare [] would throw on boot.
+    if (p === '/api/friends/requests') return route.fulfill(json({ incoming: [], outgoing: [] }));
     if (p.startsWith('/api/billing/') || p.startsWith('/api/usage/') || p.startsWith('/api/friends')) {
       return route.fulfill(json([]));
     }
@@ -95,7 +98,8 @@ test('a host creates a webinar and sees the join link + a QR of the join_url', a
   await expect(t.page.locator('#home')).toBeHidden();
   await expect(t.page.locator('#webinar-list-empty')).toBeVisible();
 
-  // Fill the create form and submit.
+  // Reveal the create form (collapsed on entry), then fill it and submit.
+  await t.page.click('#webinar-create-toggle');
   await t.page.fill('#webinar-title', 'Product launch');
   await t.page.selectOption('#webinar-lang', 'en');
   await t.page.selectOption('#webinar-tier', 'enhanced');
@@ -128,6 +132,40 @@ test('a host creates a webinar and sees the join link + a QR of the join_url', a
   await expect(t.page.locator('#home')).toBeVisible();
   expect(errors).toEqual([]);
 
+  await closePage(t);
+});
+
+test('going live hides the home screen — only the pre-live studio is on stage', async ({ browser }) => {
+  const t = await openPage(browser);
+  const errors = trackConsoleErrors(t.page);
+  await mockApi(t.page);
+  await seedSession(t.page);
+
+  await t.page.goto('/', { waitUntil: 'networkidle' });
+
+  // Reach the Webinars screen and create one so a Go-live control is offered.
+  await t.page.click('#account-trigger');
+  await t.page.click('#webinars-btn');
+  await expect(t.page.locator('#webinars')).toBeVisible();
+  await t.page.click('#webinar-create-toggle');
+  await t.page.fill('#webinar-title', 'Product launch');
+  await t.page.selectOption('#webinar-lang', 'en');
+  await t.page.click('#webinar-create-btn');
+  const card = t.page.locator('.webinar-card');
+  await expect(card).toHaveCount(1);
+
+  // "Go live" opens the Meet-style pre-live step (camera preview + device pickers).
+  await card.locator('.webinar-golive-btn').click();
+  await expect(t.page.locator('#webinar-prelive')).toBeVisible();
+
+  // The invariant: exactly ONE screen is on stage. The bug was that opening the pre-live
+  // re-showed #home (via closeWebinars()), so the webcam preview stacked BELOW the home
+  // content — the host saw their camera "under the footer". Home and the list must both
+  // be hidden while the pre-live/studio is up.
+  await expect(t.page.locator('#home')).toBeHidden();
+  await expect(t.page.locator('#webinars')).toBeHidden();
+
+  expect(errors).toEqual([]);
   await closePage(t);
 });
 
