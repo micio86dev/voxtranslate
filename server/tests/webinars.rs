@@ -1343,6 +1343,74 @@ async fn chat_guest_send_persists_and_returns_id() {
 }
 
 #[tokio::test]
+async fn chat_global_rate_limit_caps_the_webinar_across_senders() {
+    // A cookieless client is minted a FRESH guest_id per request, so the per-sender
+    // cap never collides — the webinar-wide cap (keyed without the sender) is what
+    // must stop a scripted flood. Sends past WEBINAR_RATE_MAX in the window → 429.
+    let Some(srv) = setup().await else {
+        return;
+    };
+    let http = Client::new(); // no cookie store → a new guest identity each request
+    let (owner, jwt) = user(&srv).await;
+    let org_id = org(&srv, owner, true).await;
+    let created = create_chat_webinar(&http, &srv, &jwt, org_id).await;
+    let code = created["code"].as_str().unwrap().to_string();
+
+    // The webinar-wide cap is 30 / 10s (WEBINAR_RATE_MAX). The first 30 pass; the
+    // 31st, still within the window and from yet another fresh guest, is throttled.
+    for i in 0..30 {
+        let r = http
+            .post(format!("{}/api/w/{code}/chat", base(&srv)))
+            .json(&json!({ "text": format!("msg {i}") }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(r.status(), 200, "message {i} within the webinar cap → 200");
+    }
+    let over = http
+        .post(format!("{}/api/w/{code}/chat", base(&srv)))
+        .json(&json!({ "text": "one too many" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        over.status(),
+        429,
+        "past the webinar-wide cap → 429 even from a fresh guest id"
+    );
+}
+
+#[tokio::test]
+async fn chat_invalid_lang_label_falls_back_to_auto() {
+    // `lang` is client-supplied and persisted + re-broadcast, so a malformed value
+    // must not be stored verbatim — it clamps to "auto".
+    let Some(srv) = setup().await else {
+        return;
+    };
+    let http = Client::new();
+    let (owner, jwt) = user(&srv).await;
+    let org_id = org(&srv, owner, true).await;
+    let created = create_chat_webinar(&http, &srv, &jwt, org_id).await;
+    let code = created["code"].as_str().unwrap().to_string();
+    let webinar_id = Uuid::parse_str(created["id"].as_str().unwrap()).unwrap();
+
+    let r = http
+        .post(format!("{}/api/w/{code}/chat", base(&srv)))
+        .json(&json!({ "text": "hola", "lang": "not a lang!!" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 200);
+    let lang: (String,) =
+        sqlx::query_as("SELECT original_lang FROM webinar_chat_messages WHERE webinar_id = $1")
+            .bind(webinar_id)
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap();
+    assert_eq!(lang.0, "auto", "a malformed lang label clamps to auto");
+}
+
+#[tokio::test]
 async fn chat_host_send_is_sender_kind_host() {
     let Some(srv) = setup().await else {
         return;

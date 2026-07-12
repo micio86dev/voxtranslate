@@ -42,6 +42,7 @@ use crate::db::Pool;
 use crate::moderation::Severity;
 use crate::webinar::guest::GuestId;
 use crate::webinar::presence::ChatEvent;
+use crate::webinar::routes::valid_lang;
 use crate::webinar::{find_by_code, Webinar};
 use crate::AppState;
 
@@ -54,6 +55,13 @@ const DEFAULT_NAME: &str = "Guest";
 /// Per-sender chat rate limit: `RATE_MAX` messages per `RATE_WINDOW`.
 const RATE_MAX: u32 = 5;
 const RATE_WINDOW: Duration = Duration::from_secs(10);
+/// Per-WEBINAR global chat rate limit (all senders combined). Because a guest
+/// with no cookie is minted a fresh `guest_id` per request, the per-sender key can
+/// be evaded by cookie rotation — this webinar-wide cap (keyed WITHOUT the sender)
+/// bounds paid Groq fan-out per webinar regardless of how identity is derived. Set
+/// well above any real chat cadence, low enough to cap a scripted flood.
+const WEBINAR_RATE_MAX: u32 = 30;
+const WEBINAR_RATE_WINDOW: Duration = Duration::from_secs(10);
 
 /// The request body for `POST /api/w/{code}/chat`.
 #[derive(Deserialize)]
@@ -134,12 +142,14 @@ pub async fn post_chat(
     let text = valid_chat_text(&body.text)?.to_string();
     let display_name = valid_display_name(body.display_name.as_deref());
     // The sender's UI language is only a label; the "auto" fan-out below drives
-    // the actual per-viewer translation keys.
+    // the actual per-viewer translation keys. It is client-supplied and gets
+    // persisted + re-broadcast verbatim, so validate its shape (reuse `valid_lang`
+    // → `[A-Za-z0-9-]{1,32}`) and fall back to "auto" on anything malformed rather
+    // than storing an arbitrary string.
     let original_lang = body
         .lang
         .as_deref()
-        .map(str::trim)
-        .filter(|l| !l.is_empty())
+        .and_then(|l| valid_lang(l).ok())
         .unwrap_or("auto")
         .to_string();
 
@@ -147,7 +157,18 @@ pub async fn post_chat(
     // host; anyone else (no/invalid token, or a non-member) is the guest.
     let (sender_kind, sender_id) = resolve_sender(&state, pool, &w, &headers, guest).await;
 
-    // (5) Rate-limit per sender, keyed by webinar + identity.
+    // (5) Rate-limit. Two gates:
+    //   (a) a webinar-wide cap keyed WITHOUT the sender — the real cost backstop,
+    //       un-bypassable by cookie rotation (a cookieless guest is minted a fresh
+    //       id per request, so a per-sender key alone would never collide);
+    //   (b) a per-sender cap as the normal-use UX throttle.
+    let global_key = format!("chat:{}", w.id);
+    if !state
+        .rate_limiter
+        .allow(&global_key, WEBINAR_RATE_MAX, WEBINAR_RATE_WINDOW)
+    {
+        return Err((StatusCode::TOO_MANY_REQUESTS, "chat is busy, slow down").into_response());
+    }
     let rl_key = format!("chat:{}:{}", w.id, sender_id);
     if !state.rate_limiter.allow(&rl_key, RATE_MAX, RATE_WINDOW) {
         return Err((StatusCode::TOO_MANY_REQUESTS, "slow down").into_response());
