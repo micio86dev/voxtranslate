@@ -549,6 +549,8 @@
   "engineRestrictedNetwork": "Az Enhanced nem érhető el a hálózatodon — Standard fordítás használatban.",
   "webinarsTitle": "Webináriumok",
   "webinarsIntro": "Hozzon létre egy webináriumot, és ossza meg a csatlakozási linket. A résztvevők élőben, a saját nyelvükre lefordítva hallják Önt.",
+  "webinarProject": "Projekt",
+  "webinarNoProject": "Nincs projekt",
   "webinarTitleLabel": "Cím",
   "webinarTitlePlaceholder": "pl. Termékbemutató",
   "webinarSourceLang": "Az Ön nyelve",

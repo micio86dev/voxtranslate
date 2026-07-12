@@ -549,6 +549,8 @@
   "engineRestrictedNetwork": "Enhanced không khả dụng trên mạng của bạn — đang dùng bản dịch Standard.",
   "webinarsTitle": "Hội thảo trực tuyến",
   "webinarsIntro": "Tạo hội thảo trực tuyến và chia sẻ liên kết tham gia. Người tham dự nghe bạn được dịch trực tiếp sang ngôn ngữ của họ.",
+  "webinarProject": "Dự án",
+  "webinarNoProject": "Không có dự án",
   "webinarTitleLabel": "Tiêu đề",
   "webinarTitlePlaceholder": "ví dụ: Ra mắt sản phẩm",
   "webinarSourceLang": "Ngôn ngữ của bạn",

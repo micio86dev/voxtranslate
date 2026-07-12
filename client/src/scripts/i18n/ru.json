@@ -549,6 +549,8 @@
   "engineRestrictedNetwork": "Enhanced недоступен в вашей сети — используется перевод Standard.",
   "webinarsTitle": "Вебинары",
   "webinarsIntro": "Создайте вебинар и поделитесь ссылкой для входа. Участники услышат вас с переводом в реальном времени на свой язык.",
+  "webinarProject": "Проект",
+  "webinarNoProject": "Без проекта",
   "webinarTitleLabel": "Название",
   "webinarTitlePlaceholder": "напр. Запуск продукта",
   "webinarSourceLang": "Ваш язык",

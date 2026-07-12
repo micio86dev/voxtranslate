@@ -549,6 +549,8 @@
   "engineRestrictedNetwork": "お使いのネットワークでは Enhanced を利用できません — Standard 翻訳を使用します。",
   "webinarsTitle": "ウェビナー",
   "webinarsIntro": "ウェビナーを作成して参加リンクを共有しましょう。参加者はあなたの話をリアルタイム翻訳で自分の言語で聞けます。",
+  "webinarProject": "プロジェクト",
+  "webinarNoProject": "プロジェクトなし",
   "webinarTitleLabel": "タイトル",
   "webinarTitlePlaceholder": "例: 製品発表会",
   "webinarSourceLang": "あなたの言語",

@@ -549,6 +549,8 @@
   "engineRestrictedNetwork": "你的网络无法使用 Enhanced — 改用 Standard 翻译。",
   "webinarsTitle": "网络研讨会",
   "webinarsIntro": "创建网络研讨会并分享加入链接。与会者会听到实时翻译成他们自己语言的内容。",
+  "webinarProject": "项目",
+  "webinarNoProject": "无项目",
   "webinarTitleLabel": "标题",
   "webinarTitlePlaceholder": "例如：产品发布",
   "webinarSourceLang": "您的语言",

@@ -549,6 +549,8 @@
   "engineRestrictedNetwork": "သင့်ကွန်ရက်တွင် Enhanced ကို မရနိုင်ပါ — Standard ဘာသာပြန်ကို အသုံးပြုနေသည်။",
   "webinarsTitle": "ဝဘ်ဆီနာများ",
   "webinarsIntro": "ဝဘ်ဆီနာတစ်ခုဖန်တီးပြီး ပါဝင်ရန်လင့်ခ်ကို မျှဝေပါ။ ပါဝင်သူများသည် သင့်အသံကို ၎င်းတို့၏ဘာသာစကားဖြင့် တိုက်ရိုက်ဘာသာပြန်ကြားနာရမည်ဖြစ်သည်။",
+  "webinarProject": "ပရောဂျက်",
+  "webinarNoProject": "ပရောဂျက်မရှိ",
   "webinarTitleLabel": "ခေါင်းစဉ်",
   "webinarTitlePlaceholder": "ဥပမာ - ထုတ်ကုန်မိတ်ဆက်ပွဲ",
   "webinarSourceLang": "သင့်ဘာသာစကား",

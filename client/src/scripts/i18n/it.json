@@ -549,6 +549,8 @@
   "engineRestrictedNetwork": "Enhanced non è disponibile sulla tua rete — si usa la traduzione Standard.",
   "webinarsTitle": "Webinar",
   "webinarsIntro": "Crea un webinar e condividi il link di partecipazione. I partecipanti ti sentono tradotto in tempo reale nella loro lingua.",
+  "webinarProject": "Progetto",
+  "webinarNoProject": "Nessun progetto",
   "webinarTitleLabel": "Titolo",
   "webinarTitlePlaceholder": "es. Lancio prodotto",
   "webinarSourceLang": "La tua lingua",

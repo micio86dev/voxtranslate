@@ -549,6 +549,8 @@
   "engineRestrictedNetwork": "Enhanced tidak tersedia di jaringan Anda — menggunakan terjemahan Standard.",
   "webinarsTitle": "Webinar",
   "webinarsIntro": "Buat webinar dan bagikan tautan gabung. Peserta mendengar Anda diterjemahkan secara langsung ke bahasa mereka sendiri.",
+  "webinarProject": "Proyek",
+  "webinarNoProject": "Tanpa proyek",
   "webinarTitleLabel": "Judul",
   "webinarTitlePlaceholder": "mis. Peluncuran produk",
   "webinarSourceLang": "Bahasa Anda",

@@ -549,6 +549,8 @@
   "engineRestrictedNetwork": "Enhanced nepasiekiamas jūsų tinkle — naudojamas Standard vertimas.",
   "webinarsTitle": "Internetiniai seminarai",
   "webinarsIntro": "Sukurkite internetinį seminarą ir pasidalykite prisijungimo nuoroda. Dalyviai jus girdės išverstą tiesiogiai į jų kalbą.",
+  "webinarProject": "Projektas",
+  "webinarNoProject": "Nėra projekto",
   "webinarTitleLabel": "Pavadinimas",
   "webinarTitlePlaceholder": "pvz., Produkto pristatymas",
   "webinarSourceLang": "Jūsų kalba",

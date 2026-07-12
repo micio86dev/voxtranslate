@@ -549,6 +549,8 @@
   "engineRestrictedNetwork": "Enhanced není ve vaší síti dostupný — používá se překlad Standard.",
   "webinarsTitle": "Webináře",
   "webinarsIntro": "Vytvořte webinář a sdílejte odkaz pro připojení. Účastníci vás slyší živě přeložené do svého vlastního jazyka.",
+  "webinarProject": "Projekt",
+  "webinarNoProject": "Žádný projekt",
   "webinarTitleLabel": "Název",
   "webinarTitlePlaceholder": "např. Uvedení produktu",
   "webinarSourceLang": "Váš jazyk",

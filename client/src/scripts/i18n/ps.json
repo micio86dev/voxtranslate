@@ -549,6 +549,8 @@
   "engineRestrictedNetwork": "Enhanced ستاسو په شبکه کې شتون نلري — د Standard ژباړه کارول کیږي.",
   "webinarsTitle": "ویبینارونه",
   "webinarsIntro": "یو ویبینار جوړ کړئ او د ګډون لینک شریک کړئ. ګډونوال تاسو په خپله ژبه ژوندۍ ژباړل شوي اوري.",
+  "webinarProject": "پروژه",
+  "webinarNoProject": "پروژه نشته",
   "webinarTitleLabel": "سرلیک",
   "webinarTitlePlaceholder": "لکه: د محصول پیل",
   "webinarSourceLang": "ستاسو ژبه",

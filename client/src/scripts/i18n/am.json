@@ -549,6 +549,8 @@
   "engineRestrictedNetwork": "Enhanced በአውታረ መረብዎ ላይ አይገኝም — የStandard ትርጉም እየተጠቀመ ነው።",
   "webinarsTitle": "ድር ሴሚናሮች",
   "webinarsIntro": "ድር ሴሚናር ይፍጠሩ እና የመቀላቀያ አገናኙን ያጋሩ። ተሳታፊዎች እርስዎን በራሳቸው ቋንቋ በቀጥታ ተተርጉሞ ይሰማሉ።",
+  "webinarProject": "ፕሮጀክት",
+  "webinarNoProject": "ምንም ፕሮጀክት የለም",
   "webinarTitleLabel": "ርዕስ",
   "webinarTitlePlaceholder": "ለምሳሌ የምርት ማስተዋወቅ",
   "webinarSourceLang": "የእርስዎ ቋንቋ",

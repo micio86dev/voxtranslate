@@ -549,6 +549,8 @@
   "engineRestrictedNetwork": "Enhanced lagama heli karo shabakadaada — waxaa la isticmaalayaa turjumaadda Standard.",
   "webinarsTitle": "Webinaarada",
   "webinarsIntro": "Samee webinaar oo la wadaag xiriirka lagu soo biiro. Ka-qaybgalayaashu waxay ku maqli doonaan si toos ah oo loo turjumay luqaddooda.",
+  "webinarProject": "Mashruuc",
+  "webinarNoProject": "Mashruuc ma jiro",
   "webinarTitleLabel": "Cinwaan",
   "webinarTitlePlaceholder": "tusaale ahaan Bilaabista alaabta",
   "webinarSourceLang": "Luqaddaada",

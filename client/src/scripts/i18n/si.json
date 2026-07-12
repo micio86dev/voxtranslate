@@ -549,6 +549,8 @@
   "engineRestrictedNetwork": "ඔබගේ ජාලයේ Enhanced ලබා ගත නොහැක — Standard පරිවර්තනය භාවිත කරයි.",
   "webinarsTitle": "වෙබිනාර්",
   "webinarsIntro": "වෙබිනාරයක් සාදා සම්බන්ධ වීමේ සබැඳිය බෙදාගන්න. සහභාගිවන්නන් ඔබ ඔවුන්ගේම භාෂාවට සජීවීව පරිවර්තනය කර අසයි.",
+  "webinarProject": "ව්‍යාපෘතිය",
+  "webinarNoProject": "ව්‍යාපෘතියක් නැත",
   "webinarTitleLabel": "මාතෘකාව",
   "webinarTitlePlaceholder": "උදා. නිෂ්පාදන දියත් කිරීම",
   "webinarSourceLang": "ඔබේ භාෂාව",

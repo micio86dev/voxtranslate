@@ -549,6 +549,8 @@
   "engineRestrictedNetwork": "Enhanced pole teie võrgus saadaval — kasutatakse Standard-tõlget.",
   "webinarsTitle": "Veebiseminarid",
   "webinarsIntro": "Loo veebiseminar ja jaga liitumislinki. Osalejad kuulevad sind reaalajas nende endi keelde tõlgituna.",
+  "webinarProject": "Projekt",
+  "webinarNoProject": "Projekt puudub",
   "webinarTitleLabel": "Pealkiri",
   "webinarTitlePlaceholder": "nt Toote turuletoomine",
   "webinarSourceLang": "Sinu keel",

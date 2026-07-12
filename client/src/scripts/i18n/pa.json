@@ -549,6 +549,8 @@
   "engineRestrictedNetwork": "ਤੁਹਾਡੇ ਨੈੱਟਵਰਕ 'ਤੇ Enhanced ਉਪਲਬਧ ਨਹੀਂ ਹੈ — Standard ਅਨੁਵਾਦ ਵਰਤਿਆ ਜਾ ਰਿਹਾ ਹੈ।",
   "webinarsTitle": "ਵੈਬੀਨਾਰ",
   "webinarsIntro": "ਇੱਕ ਵੈਬੀਨਾਰ ਬਣਾਓ ਅਤੇ ਸ਼ਾਮਲ ਹੋਣ ਦਾ ਲਿੰਕ ਸਾਂਝਾ ਕਰੋ। ਹਾਜ਼ਰੀਨ ਤੁਹਾਨੂੰ ਆਪਣੀ ਭਾਸ਼ਾ ਵਿੱਚ ਲਾਈਵ ਅਨੁਵਾਦ ਕੀਤਾ ਸੁਣਦੇ ਹਨ।",
+  "webinarProject": "ਪ੍ਰੋਜੈਕਟ",
+  "webinarNoProject": "ਕੋਈ ਪ੍ਰੋਜੈਕਟ ਨਹੀਂ",
   "webinarTitleLabel": "ਸਿਰਲੇਖ",
   "webinarTitlePlaceholder": "ਜਿਵੇਂ ਕਿ ਉਤਪਾਦ ਲਾਂਚ",
   "webinarSourceLang": "ਤੁਹਾਡੀ ਭਾਸ਼ਾ",

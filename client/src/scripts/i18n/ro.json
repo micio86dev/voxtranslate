@@ -549,6 +549,8 @@
   "engineRestrictedNetwork": "Enhanced nu este disponibil în rețeaua ta — se folosește traducerea Standard.",
   "webinarsTitle": "Webinarii",
   "webinarsIntro": "Creează un webinar și distribuie linkul de alăturare. Participanții te aud tradus în timp real în propria lor limbă.",
+  "webinarProject": "Proiect",
+  "webinarNoProject": "Niciun proiect",
   "webinarTitleLabel": "Titlu",
   "webinarTitlePlaceholder": "ex.: Lansare de produs",
   "webinarSourceLang": "Limba ta",

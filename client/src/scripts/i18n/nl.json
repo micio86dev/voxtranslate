@@ -549,6 +549,8 @@
   "engineRestrictedNetwork": "Enhanced is niet beschikbaar op je netwerk — Standard-vertaling wordt gebruikt.",
   "webinarsTitle": "Webinars",
   "webinarsIntro": "Maak een webinar aan en deel de deelnamelink. Deelnemers horen je live vertaald in hun eigen taal.",
+  "webinarProject": "Project",
+  "webinarNoProject": "Geen project",
   "webinarTitleLabel": "Titel",
   "webinarTitlePlaceholder": "bijv. Productlancering",
   "webinarSourceLang": "Jouw taal",

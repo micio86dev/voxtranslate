@@ -549,6 +549,8 @@
   "engineRestrictedNetwork": "Enhanced isn't available on your network — using Standard translation.",
   "webinarsTitle": "Webinars",
   "webinarsIntro": "Create a webinar and share the join link. Attendees hear you live-translated into their own language.",
+  "webinarProject": "Project",
+  "webinarNoProject": "No project",
   "webinarTitleLabel": "Title",
   "webinarTitlePlaceholder": "e.g. Product launch",
   "webinarSourceLang": "Your language",

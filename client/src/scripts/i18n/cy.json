@@ -549,6 +549,8 @@
   "engineRestrictedNetwork": "Nid yw Enhanced ar gael ar eich rhwydwaith — defnyddir cyfieithu Standard.",
   "webinarsTitle": "Gweminarau",
   "webinarsIntro": "Crëwch weminar a rhannwch y ddolen ymuno. Mae mynychwyr yn eich clywed wedi'i gyfieithu'n fyw i'w hiaith eu hunain.",
+  "webinarProject": "Prosiect",
+  "webinarNoProject": "Dim prosiect",
   "webinarTitleLabel": "Teitl",
   "webinarTitlePlaceholder": "e.e. Lansiad cynnyrch",
   "webinarSourceLang": "Eich iaith",

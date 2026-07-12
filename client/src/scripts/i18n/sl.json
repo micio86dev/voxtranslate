@@ -549,6 +549,8 @@
   "engineRestrictedNetwork": "Enhanced v vašem omrežju ni na voljo — uporablja se prevod Standard.",
   "webinarsTitle": "Spletni seminarji",
   "webinarsIntro": "Ustvarite spletni seminar in delite povezavo za pridružitev. Udeleženci vas slišijo v živo prevedene v svoj jezik.",
+  "webinarProject": "Projekt",
+  "webinarNoProject": "Brez projekta",
   "webinarTitleLabel": "Naslov",
   "webinarTitlePlaceholder": "npr. Predstavitev izdelka",
   "webinarSourceLang": "Vaš jezik",

@@ -71,6 +71,7 @@ const webinar = (over: Partial<WebinarView> = {}): WebinarView => ({
   source_language: 'en',
   tier: 'enhanced',
   status: 'scheduled',
+  project_id: null,
   scheduled_start: null,
   scheduled_end: null,
   actual_start: null,
@@ -130,6 +131,26 @@ describe('createWebinar', () => {
       source_language: 'en',
       tier: 'enhanced',
       record_transcript: true,
+    });
+  });
+
+  it('carries an optional project_id in the POST body when one is chosen', async () => {
+    fetchMock.mockResolvedValue(okJson(webinar({ project_id: 'p1' })));
+    const out = await createWebinar({
+      org_id: 'o1',
+      title: 'Launch',
+      source_language: 'en',
+      project_id: 'p1',
+      tier: 'enhanced',
+    });
+    expect(out.project_id).toBe('p1');
+    const [, init] = fetchMock.mock.calls[0];
+    expect(JSON.parse(init?.body as string)).toEqual({
+      org_id: 'o1',
+      title: 'Launch',
+      source_language: 'en',
+      project_id: 'p1',
+      tier: 'enhanced',
     });
   });
 

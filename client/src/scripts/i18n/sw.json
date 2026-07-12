@@ -549,6 +549,8 @@
   "engineRestrictedNetwork": "Enhanced haipatikani kwenye mtandao wako — inatumia tafsiri ya Standard.",
   "webinarsTitle": "Wavuti",
   "webinarsIntro": "Unda wavuti na ushiriki kiungo cha kujiunga. Washiriki wanakusikia ukitafsiriwa moja kwa moja katika lugha yao.",
+  "webinarProject": "Mradi",
+  "webinarNoProject": "Hakuna mradi",
   "webinarTitleLabel": "Kichwa",
   "webinarTitlePlaceholder": "k.m. Uzinduzi wa bidhaa",
   "webinarSourceLang": "Lugha yako",
