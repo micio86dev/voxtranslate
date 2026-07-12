@@ -555,6 +555,13 @@ pub fn app(state: AppState) -> Router {
                 axum::http::header::AUTHORIZATION,
                 axum::http::header::CONTENT_TYPE,
             ])
+            // The webinar chat POST/history are cross-origin (app → api) and sent with
+            // `credentials: 'include'` so the anonymous `guest_id` cookie rides along.
+            // Browsers drop the response of a credentialed request unless CORS echoes
+            // `Access-Control-Allow-Credentials: true` — without it every chat send
+            // failed as a network error. Safe here: the allow-list is explicit app
+            // origins (never `*`, which would be incompatible with credentials).
+            .allow_credentials(true)
     };
     Router::new()
         .route("/ws", get(ws_handler))
