@@ -569,6 +569,7 @@
   "webinarQrPrint": "Drukāt QR",
   "webinarQrPrintBlocked": "Atļaujiet uznirstošos logus, lai drukātu QR kodu.",
   "webinarCreate": "Izveidot vebināru",
+  "webinarCreateToggle": "Izveidot vebināru",
   "webinarCreating": "Notiek izveide…",
   "webinarCreated": "Vebinārs izveidots.",
   "webinarYours": "Jūsu vebināri",

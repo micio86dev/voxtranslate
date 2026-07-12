@@ -569,6 +569,7 @@
   "webinarQrPrint": "Natisni QR",
   "webinarQrPrintBlocked": "Dovolite pojavna okna za tiskanje kode QR.",
   "webinarCreate": "Ustvari spletni seminar",
+  "webinarCreateToggle": "Ustvari spletni seminar",
   "webinarCreating": "Ustvarjanje…",
   "webinarCreated": "Spletni seminar je ustvarjen.",
   "webinarYours": "Vaši spletni seminarji",

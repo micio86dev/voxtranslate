@@ -569,6 +569,7 @@
   "webinarQrPrint": "列印 QR",
   "webinarQrPrintBlocked": "請允許彈出視窗以列印 QR 碼。",
   "webinarCreate": "建立網絡研討會",
+  "webinarCreateToggle": "建立網絡研討會",
   "webinarCreating": "建立緊…",
   "webinarCreated": "已建立網絡研討會。",
   "webinarYours": "你嘅網絡研討會",

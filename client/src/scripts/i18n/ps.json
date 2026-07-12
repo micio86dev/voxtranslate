@@ -569,6 +569,7 @@
   "webinarQrPrint": "QR چاپ کړئ",
   "webinarQrPrintBlocked": "د QR کوډ چاپولو لپاره پاپ-اپ ته اجازه ورکړئ.",
   "webinarCreate": "ویبینار جوړ کړئ",
+  "webinarCreateToggle": "ویبینار جوړ کړئ",
   "webinarCreating": "جوړېږي…",
   "webinarCreated": "ویبینار جوړ شو.",
   "webinarYours": "ستاسو ویبینارونه",

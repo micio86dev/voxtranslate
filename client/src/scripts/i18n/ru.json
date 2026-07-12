@@ -569,6 +569,7 @@
   "webinarQrPrint": "Печать QR",
   "webinarQrPrintBlocked": "Разрешите всплывающие окна, чтобы распечатать QR-код.",
   "webinarCreate": "Создать вебинар",
+  "webinarCreateToggle": "Создать вебинар",
   "webinarCreating": "Создание…",
   "webinarCreated": "Вебинар создан.",
   "webinarYours": "Ваши вебинары",

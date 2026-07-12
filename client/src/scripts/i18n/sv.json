@@ -569,6 +569,7 @@
   "webinarQrPrint": "Skriv ut QR",
   "webinarQrPrintBlocked": "Tillåt popup-fönster för att skriva ut QR-koden.",
   "webinarCreate": "Skapa webbinarium",
+  "webinarCreateToggle": "Skapa ett webbinarium",
   "webinarCreating": "Skapar…",
   "webinarCreated": "Webbinariet har skapats.",
   "webinarYours": "Dina webbinarier",

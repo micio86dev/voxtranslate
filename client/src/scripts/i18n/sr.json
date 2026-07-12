@@ -569,6 +569,7 @@
   "webinarQrPrint": "Одштампај QR",
   "webinarQrPrintBlocked": "Дозволите искачуће прозоре да бисте одштампали QR код.",
   "webinarCreate": "Направи вебинар",
+  "webinarCreateToggle": "Направи вебинар",
   "webinarCreating": "Прављење…",
   "webinarCreated": "Вебинар је направљен.",
   "webinarYours": "Ваши вебинари",

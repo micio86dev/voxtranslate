@@ -569,6 +569,7 @@
   "webinarQrPrint": "QR አትም",
   "webinarQrPrintBlocked": "QR ኮዱን ለማተም ብቅ-ባይ መስኮቶችን ይፍቀዱ።",
   "webinarCreate": "ድር ሴሚናር ይፍጠሩ",
+  "webinarCreateToggle": "ድር ሴሚናር ይፍጠሩ",
   "webinarCreating": "በመፍጠር ላይ…",
   "webinarCreated": "ድር ሴሚናር ተፈጥሯል።",
   "webinarYours": "የእርስዎ ድር ሴሚናሮች",

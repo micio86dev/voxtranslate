@@ -4813,6 +4813,8 @@ const webinarStartInput = $<HTMLInputElement>('webinar-start');
 const webinarEndInput = $<HTMLInputElement>('webinar-end');
 const webinarForm = $<HTMLFormElement>('webinar-create');
 const webinarCreateBtn = $<HTMLButtonElement>('webinar-create-btn');
+const webinarCreateToggle = $<HTMLButtonElement>('webinar-create-toggle');
+const webinarCreateCancel = $<HTMLButtonElement>('webinar-create-cancel');
 const webinarCreateStatus = $('webinar-create-status');
 const webinarList = $('webinar-list');
 const webinarListEmpty = $('webinar-list-empty');
@@ -4917,9 +4919,24 @@ function fillWebinarLangs(): void {
 
 /** Open the Webinars screen: load the host's active-sub orgs on first entry, then
  *  render that org's webinars. */
+/** Collapse the create form behind the "Create a webinar" button — the default state
+ *  on entry and after a successful create, so the screen leads with the list. */
+function collapseWebinarForm(): void {
+  show(webinarForm, false);
+  show(webinarCreateToggle, true);
+}
+
+/** Reveal the create form and hide the toggle button (focus the first field). */
+function revealWebinarForm(): void {
+  show(webinarCreateToggle, false);
+  show(webinarForm, true);
+  webinarTitleInput.focus();
+}
+
 async function openWebinars(): Promise<void> {
   homeScreen.classList.add('hidden');
   webinarsScreen.classList.remove('hidden');
+  collapseWebinarForm(); // always re-enter with the form collapsed
   resetWebinarTabs(); // always re-enter on the Active list
   fillWebinarLangs();
   syncWebinarVoiceClone(); // tier-aware toggle/hint (voice clone is Enhanced-only)
@@ -4934,6 +4951,7 @@ async function openWebinars(): Promise<void> {
     }
     show($('webinar-org-field'), orgs.length > 1); // single org → hide the picker
     webinarCreateBtn.disabled = orgs.length === 0;
+    webinarCreateToggle.disabled = orgs.length === 0; // no host-capable org → can't create
     webinarOrgsLoaded = true;
   }
   await loadWebinarProjects();
@@ -6025,6 +6043,7 @@ async function submitWebinar(): Promise<void> {
     webinarEndInput.value = '';
     webinarProjectSel.value = ''; // reset to "No project" for the next create
     setWebinarStatus(t('webinarCreated'), 'ok');
+    collapseWebinarForm(); // tidy back to the button; the new webinar shows in the list
     await loadWebinars();
   } catch (err) {
     setWebinarStatus(webinarErrorMessage(err), 'err');
@@ -6037,6 +6056,8 @@ webinarForm.addEventListener('submit', (e) => {
   e.preventDefault();
   void submitWebinar();
 });
+webinarCreateToggle.addEventListener('click', () => revealWebinarForm());
+webinarCreateCancel.addEventListener('click', () => collapseWebinarForm());
 webinarOrgSel.addEventListener('change', () => {
   void loadWebinarProjects();
   void loadWebinars();

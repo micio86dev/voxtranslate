@@ -569,6 +569,7 @@
   "webinarQrPrint": "Spausdinti QR",
   "webinarQrPrintBlocked": "Leiskite iššokančiuosius langus, kad išspausdintumėte QR kodą.",
   "webinarCreate": "Sukurti seminarą",
+  "webinarCreateToggle": "Sukurti seminarą",
   "webinarCreating": "Kuriama…",
   "webinarCreated": "Seminaras sukurtas.",
   "webinarYours": "Jūsų seminarai",

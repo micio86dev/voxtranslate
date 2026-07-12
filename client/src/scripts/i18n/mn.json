@@ -569,6 +569,7 @@
   "webinarQrPrint": "QR хэвлэх",
   "webinarQrPrintBlocked": "QR кодыг хэвлэхийн тулд гарч ирэх цонхыг зөвшөөрнө үү.",
   "webinarCreate": "Вебинар үүсгэх",
+  "webinarCreateToggle": "Вебинар үүсгэх",
   "webinarCreating": "Үүсгэж байна…",
   "webinarCreated": "Вебинар үүсгэлээ.",
   "webinarYours": "Таны вебинарууд",

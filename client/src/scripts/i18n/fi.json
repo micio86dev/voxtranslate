@@ -569,6 +569,7 @@
   "webinarQrPrint": "Tulosta QR",
   "webinarQrPrintBlocked": "Salli ponnahdusikkunat QR-koodin tulostamiseksi.",
   "webinarCreate": "Luo webinaari",
+  "webinarCreateToggle": "Luo webinaari",
   "webinarCreating": "Luodaan…",
   "webinarCreated": "Webinaari luotu.",
   "webinarYours": "Webinaarisi",

@@ -569,6 +569,7 @@
   "webinarQrPrint": "Տպել QR",
   "webinarQrPrintBlocked": "Թույլատրեք ելնող պատուհանները՝ QR կոդը տպելու համար։",
   "webinarCreate": "Ստեղծել վեբինար",
+  "webinarCreateToggle": "Ստեղծել վեբինար",
   "webinarCreating": "Ստեղծվում է…",
   "webinarCreated": "Վեբինարը ստեղծվեց։",
   "webinarYours": "Ձեր վեբինարները",

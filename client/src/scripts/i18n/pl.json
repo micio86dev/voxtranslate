@@ -569,6 +569,7 @@
   "webinarQrPrint": "Drukuj QR",
   "webinarQrPrintBlocked": "Zezwól na wyskakujące okienka, aby wydrukować kod QR.",
   "webinarCreate": "Utwórz webinar",
+  "webinarCreateToggle": "Utwórz webinar",
   "webinarCreating": "Tworzenie…",
   "webinarCreated": "Webinar utworzony.",
   "webinarYours": "Twoje webinary",
