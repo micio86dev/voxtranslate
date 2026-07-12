@@ -65,6 +65,15 @@ export interface GoLiveResponse {
   expires_in: number;
 }
 
+/** Response of `POST /api/webinars/{id}/calendar`: the Google Calendar event that
+ *  was created for a scheduled webinar. `html_link` opens the event in the user's
+ *  calendar UI; `join_url` is the webinar's public link that was embedded in it. */
+export interface CalendarEventResponse {
+  google_event_id: string;
+  html_link: string;
+  join_url: string;
+}
+
 /** Body for `POST /api/webinars`. */
 export interface CreateWebinarBody {
   org_id: string;
@@ -276,6 +285,24 @@ export async function publishStopped(id: string): Promise<WebinarView> {
   return parse<WebinarView>(res);
 }
 
+/** Add a scheduled webinar to the host's Google Calendar (host only). The server
+ *  creates the event (title, times, the public join link) and returns it. A `409`
+ *  means the host hasn't connected Google Calendar yet — the UI should route them
+ *  through the connect-calendar flow and retry; a `400` means the webinar isn't
+ *  scheduled (no start time to place on the calendar). Throws `WebinarError`. */
+export async function addToCalendar(id: string): Promise<CalendarEventResponse> {
+  let res: Response;
+  try {
+    res = await fetch(
+      `${HTTP_BASE}/api/webinars/${encodeURIComponent(id)}/calendar`,
+      { method: "POST", headers: authHeaders() },
+    );
+  } catch {
+    netError();
+  }
+  return parse<CalendarEventResponse>(res);
+}
+
 /** Fetch the public (no-auth) view of a webinar by its short code. Used by the
  *  participant page `/w/{code}`. Throws `WebinarError` (404 when the code is unknown
  *  or the webinar was cancelled). */
@@ -287,4 +314,70 @@ export async function getPublicWebinar(code: string): Promise<PublicWebinar> {
     netError();
   }
   return parse<PublicWebinar>(res);
+}
+
+/** The device ids chosen in the webinar pre-live step (Meet-style device pickers).
+ *  Empty/undefined means "let the browser pick the default device". */
+export interface WebinarDeviceChoice {
+  /** Selected microphone `deviceId` (from `enumerateDevices`), or empty for default. */
+  audioDeviceId?: string;
+  /** Selected camera `deviceId`, or empty for default. */
+  videoDeviceId?: string;
+  /** Whether to start capture with the webcam on. Default false (mic-only). */
+  withCamera?: boolean;
+}
+
+/** Build the `MediaStreamConstraints` for a WHIP publish from the host's pre-live
+ *  device choice. The microphone is ALWAYS requested (a webinar needs audio); a
+ *  specific device is pinned with `deviceId: { exact }`, otherwise `true` lets the
+ *  browser pick the default. The camera is requested only when `withCamera` is set —
+ *  when off it is `false` so `getUserMedia` never lights the camera. Pure + framework
+ *  free so the pre-join's device choice flows into `WhipPublisher` deterministically. */
+export function buildPublishConstraints(
+  choice: WebinarDeviceChoice = {},
+): MediaStreamConstraints {
+  const audio: MediaTrackConstraints | boolean = choice.audioDeviceId
+    ? { deviceId: { exact: choice.audioDeviceId } }
+    : true;
+  let video: MediaTrackConstraints | boolean = false;
+  if (choice.withCamera) {
+    video = choice.videoDeviceId
+      ? { deviceId: { exact: choice.videoDeviceId } }
+      : true;
+  }
+  return { audio, video };
+}
+
+/** STUB participant presence for a live webinar. Real presence (a WS/HLS viewer
+ *  count) is a follow-up task; today this always returns 0 so the studio's count
+ *  element renders with a clear "wiring in progress" affordance. Kept as a tiny pure
+ *  function so swapping it for a real source later is a one-line change at the call
+ *  site — do NOT build presence networking here. */
+export function webinarPresenceStub(): number {
+  return 0;
+}
+
+/** Format an ISO timestamp (or null) for a `<input type="datetime-local">` value:
+ *  the local `YYYY-MM-DDTHH:mm` the control expects. Returns "" for null/invalid so
+ *  an unscheduled (immediate) webinar leaves the inputs empty. Pure. */
+export function toDatetimeLocalValue(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return (
+    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` +
+    `T${pad(d.getHours())}:${pad(d.getMinutes())}`
+  );
+}
+
+/** Convert a `datetime-local` input value (local wall-clock) to an ISO-8601 UTC
+ *  string for the webinar create/patch body, or null when the field is empty (an
+ *  immediate webinar). Returns null for an unparseable value too. Pure. */
+export function fromDatetimeLocalValue(value: string): string | null {
+  const v = value.trim();
+  if (!v) return null;
+  const d = new Date(v);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toISOString();
 }
