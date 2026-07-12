@@ -110,6 +110,7 @@ pub struct NewWebinar<'a> {
     pub voice_clone: bool,
     pub scheduled_start: Option<DateTime<Utc>>,
     pub scheduled_end: Option<DateTime<Utc>>,
+    pub project_id: Option<Uuid>,
 }
 
 /// Insert a webinar, generating a fresh code and retrying the rare UNIQUE(code)
@@ -134,8 +135,9 @@ async fn insert_webinar(
     sqlx::query_as(
         "INSERT INTO webinars
             (org_id, host_user_id, code, title, description, source_language, tier,
-             record_video, record_transcript, voice_clone, scheduled_start, scheduled_end)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+             record_video, record_transcript, voice_clone, scheduled_start, scheduled_end,
+             project_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
          RETURNING *",
     )
     .bind(new.org_id)
@@ -150,6 +152,7 @@ async fn insert_webinar(
     .bind(new.voice_clone)
     .bind(new.scheduled_start)
     .bind(new.scheduled_end)
+    .bind(new.project_id)
     .fetch_one(pool)
     .await
 }

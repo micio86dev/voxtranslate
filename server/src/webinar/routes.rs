@@ -90,6 +90,9 @@ pub struct CreateWebinar {
     pub scheduled_start: Option<DateTime<Utc>>,
     #[serde(default)]
     pub scheduled_end: Option<DateTime<Utc>>,
+    /// Optional project this webinar belongs to (must be in the same org).
+    #[serde(default)]
+    pub project_id: Option<Uuid>,
 }
 
 #[derive(Deserialize)]
@@ -118,6 +121,8 @@ pub struct PatchWebinar {
     pub scheduled_start: Option<DateTime<Utc>>,
     #[serde(default)]
     pub scheduled_end: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub project_id: Option<Uuid>,
 }
 
 // ---- validation ------------------------------------------------------------
@@ -181,6 +186,7 @@ fn host_view(w: &Webinar, app_base_url: &str, cfg: &WebinarConfig) -> Value {
         "record_video": w.record_video,
         "record_transcript": w.record_transcript,
         "voice_clone": w.voice_clone,
+        "project_id": w.project_id,
         "join_url": join_url(app_base_url, &w.code),
         "playback_url": playback_url(cfg, &w.code),
         "created_at": w.created_at,
@@ -219,6 +225,21 @@ async fn require_webinar_role(
 
 // ---- handlers --------------------------------------------------------------
 
+/// Ensure a project belongs to the org (else 400). Mirrors `business/meetings`.
+async fn validate_project(pool: &Pool, org_id: Uuid, project_id: Uuid) -> Result<(), Response> {
+    let ok: Option<bool> =
+        sqlx::query_scalar("SELECT true FROM projects WHERE id = $1 AND org_id = $2")
+            .bind(project_id)
+            .bind(org_id)
+            .fetch_optional(pool)
+            .await
+            .map_err(db_err)?;
+    if ok.is_none() {
+        return Err(bad_request("project does not belong to this org"));
+    }
+    Ok(())
+}
+
 /// `POST /api/webinars` — the host creates a webinar for one of their orgs.
 pub async fn create(
     State(state): State<AppState>,
@@ -239,6 +260,9 @@ pub async fn create(
     {
         return Err((StatusCode::PAYMENT_REQUIRED, "org subscription inactive").into_response());
     }
+    if let Some(pid) = body.project_id {
+        validate_project(pool, body.org_id, pid).await?;
+    }
     let new = NewWebinar {
         org_id: body.org_id,
         host_user_id: user.user_id,
@@ -255,6 +279,7 @@ pub async fn create(
         voice_clone: body.voice_clone,
         scheduled_start: body.scheduled_start,
         scheduled_end: body.scheduled_end,
+        project_id: body.project_id,
     };
     let w = create_webinar(pool, &new, cfg.code_len)
         .await
@@ -331,6 +356,9 @@ pub async fn patch(
         Some(_) => Some(valid_tier(&body.tier)?),
         None => None,
     };
+    if let Some(pid) = body.project_id {
+        validate_project(pool, w.org_id, pid).await?;
+    }
     // COALESCE keeps the existing value for any omitted field.
     let updated: Webinar = sqlx::query_as(
         "UPDATE webinars SET
@@ -342,6 +370,7 @@ pub async fn patch(
             voice_clone       = COALESCE($7, voice_clone),
             scheduled_start   = COALESCE($8, scheduled_start),
             scheduled_end     = COALESCE($9, scheduled_end),
+            project_id        = COALESCE($10, project_id),
             updated_at        = now()
          WHERE id = $1
          RETURNING *",
@@ -355,6 +384,7 @@ pub async fn patch(
     .bind(body.voice_clone)
     .bind(body.scheduled_start)
     .bind(body.scheduled_end)
+    .bind(body.project_id)
     .fetch_one(pool)
     .await
     .map_err(db_err)?;
