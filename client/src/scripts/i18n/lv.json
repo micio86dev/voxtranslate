@@ -604,8 +604,6 @@
   "webinarOnAir": "Ēterā",
   "webinarReconnecting": "Notiek atkārtota savienošana…",
   "webinarStopBroadcast": "Apturēt raidīšanu",
-  "webinarCamOn": "Ieslēgt kameru",
-  "webinarCamOff": "Izslēgt kameru",
   "webinarMicDenied": "Lai sāktu tiešraidi, ir nepieciešama piekļuve mikrofonam. Lūdzu, atļaujiet to un mēģiniet vēlreiz.",
   "webinarPublishError": "Neizdevās sākt raidīšanu. Lūdzu, mēģiniet vēlreiz.",
   "webinarAlreadyLive": "Jūs jau raidāt citu vebināru.",

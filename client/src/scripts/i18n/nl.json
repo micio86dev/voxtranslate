@@ -604,8 +604,6 @@
   "webinarOnAir": "In de uitzending",
   "webinarReconnecting": "Opnieuw verbinden…",
   "webinarStopBroadcast": "Uitzending stoppen",
-  "webinarCamOn": "Camera inschakelen",
-  "webinarCamOff": "Camera uitschakelen",
   "webinarMicDenied": "Toegang tot de microfoon is vereist om live te gaan. Geef toestemming en probeer het opnieuw.",
   "webinarPublishError": "Kan de uitzending niet starten. Probeer het opnieuw.",
   "webinarAlreadyLive": "Je bent al bezig met het uitzenden van een ander webinar.",

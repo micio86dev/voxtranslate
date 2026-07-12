@@ -604,8 +604,6 @@
   "webinarOnAir": "Yayında",
   "webinarReconnecting": "Yeniden bağlanılıyor…",
   "webinarStopBroadcast": "Yayını durdur",
-  "webinarCamOn": "Kamerayı aç",
-  "webinarCamOff": "Kamerayı kapat",
   "webinarMicDenied": "Canlı yayına geçmek için mikrofon erişimi gerekiyor. Lütfen izin verip tekrar deneyin.",
   "webinarPublishError": "Yayın başlatılamadı. Lütfen tekrar deneyin.",
   "webinarAlreadyLive": "Zaten başka bir web semineri yayınlıyorsunuz.",

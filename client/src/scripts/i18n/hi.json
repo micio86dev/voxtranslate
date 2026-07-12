@@ -604,8 +604,6 @@
   "webinarOnAir": "प्रसारण जारी",
   "webinarReconnecting": "फिर से कनेक्ट हो रहा है…",
   "webinarStopBroadcast": "प्रसारण रोकें",
-  "webinarCamOn": "कैमरा चालू करें",
-  "webinarCamOff": "कैमरा बंद करें",
   "webinarMicDenied": "लाइव जाने के लिए माइक्रोफ़ोन की अनुमति आवश्यक है. कृपया इसे अनुमति दें और फिर से प्रयास करें.",
   "webinarPublishError": "प्रसारण शुरू नहीं हो सका. कृपया फिर से प्रयास करें.",
   "webinarAlreadyLive": "आप पहले से ही कोई दूसरा वेबिनार प्रसारित कर रहे हैं.",

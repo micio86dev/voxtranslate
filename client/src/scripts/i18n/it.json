@@ -604,8 +604,6 @@
   "webinarOnAir": "In onda",
   "webinarReconnecting": "Riconnessione…",
   "webinarStopBroadcast": "Interrompi diretta",
-  "webinarCamOn": "Attiva videocamera",
-  "webinarCamOff": "Disattiva videocamera",
   "webinarMicDenied": "Per andare in diretta è necessario l’accesso al microfono. Consentilo e riprova.",
   "webinarPublishError": "Impossibile avviare la diretta. Riprova.",
   "webinarAlreadyLive": "Sei già in diretta con un altro webinar.",

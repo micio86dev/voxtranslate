@@ -604,8 +604,6 @@
   "webinarOnAir": "પ્રસારણમાં",
   "webinarReconnecting": "ફરી કનેક્ટ થઈ રહ્યું છે…",
   "webinarStopBroadcast": "પ્રસારણ બંધ કરો",
-  "webinarCamOn": "કૅમેરા ચાલુ કરો",
-  "webinarCamOff": "કૅમેરા બંધ કરો",
   "webinarMicDenied": "લાઇવ થવા માટે માઇક્રોફોનની ઍક્સેસ જરૂરી છે. કૃપા કરીને તેને મંજૂરી આપો અને ફરી પ્રયાસ કરો.",
   "webinarPublishError": "પ્રસારણ શરૂ કરી શકાયું નહીં. કૃપા કરીને ફરી પ્રયાસ કરો.",
   "webinarAlreadyLive": "તમે પહેલેથી જ બીજું વેબિનાર પ્રસારિત કરી રહ્યા છો.",

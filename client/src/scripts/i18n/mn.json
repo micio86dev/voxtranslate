@@ -604,8 +604,6 @@
   "webinarOnAir": "Эфирт",
   "webinarReconnecting": "Дахин холбогдож байна…",
   "webinarStopBroadcast": "Дамжуулалтыг зогсоох",
-  "webinarCamOn": "Камер асаах",
-  "webinarCamOff": "Камер унтраах",
   "webinarMicDenied": "Шууд эфир эхлүүлэхийн тулд микрофоны хандалт шаардлагатай. Зөвшөөрөөд дахин оролдоно уу.",
   "webinarPublishError": "Дамжуулалтыг эхлүүлж чадсангүй. Дахин оролдоно уу.",
   "webinarAlreadyLive": "Та аль хэдийн өөр вебинар дамжуулж байна.",

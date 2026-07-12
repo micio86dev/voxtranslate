@@ -604,8 +604,6 @@
   "webinarOnAir": "En antena",
   "webinarReconnecting": "Reconnectant…",
   "webinarStopBroadcast": "Atura l’emissió",
-  "webinarCamOn": "Activa la càmera",
-  "webinarCamOff": "Desactiva la càmera",
   "webinarMicDenied": "Cal accés al micròfon per emetre en directe. Autoritza’l i torna-ho a provar.",
   "webinarPublishError": "No s’ha pogut iniciar l’emissió. Torna-ho a provar.",
   "webinarAlreadyLive": "Ja estàs emetent un altre webinar.",

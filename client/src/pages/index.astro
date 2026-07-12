@@ -1151,8 +1151,9 @@ const jsonLd = {
     </section>
 
     <!-- Webinar studio (Meet-style host screen while broadcasting): the host's own
-         video, an ON AIR badge, title + code, a copyable join link + QR, a live
-         participant count, a camera on/off toggle, and End webinar. -->
+         video, an ON AIR badge, title + code, a live participant count, round mic/cam
+         controls, and End webinar. Sharing (join link + QR) lives on the pre-live/card,
+         not here on-air. -->
     <section id="webinar-studio" class="screen hidden">
       <div class="studio-wrap">
         <div class="studio-stage">
@@ -1172,13 +1173,9 @@ const jsonLd = {
             <span id="webinar-studio-title" class="card-title"></span>
             <span id="webinar-studio-code" class="webinar-studio-code mono"></span>
           </div>
-          <div class="webinar-link-row">
-            <input id="webinar-studio-link" class="webinar-link-input" type="text" readonly aria-label={T('webinarJoinLink')} />
-            <button id="webinar-studio-copy" class="btn-ghost webinar-copy-btn" type="button" data-i18n="copy">{T('copy')}</button>
-          </div>
-          <img id="webinar-studio-qr" class="webinar-qr" width="140" height="140" alt={T('webinarQrAlt')} />
           <div class="studio-controls">
-            <button id="webinar-studio-cam" class="btn-ghost webinar-cam-btn" type="button"></button>
+            <button id="webinar-studio-mic" class="control-btn" type="button" data-i18n-title="muteTip" title={T('muteTip')} aria-label={T('muteTip')}></button>
+            <button id="webinar-studio-cam" class="control-btn" type="button" data-i18n-title="camTip" title={T('camTip')} aria-label={T('camTip')}></button>
             <button id="webinar-studio-end" class="btn-primary danger" type="button" data-i18n="webinarEnd">{T('webinarEnd')}</button>
           </div>
         </div>
@@ -2691,8 +2688,11 @@ const jsonLd = {
     .studio-panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
     .webinar-studio-code { font-size: 0.9rem; color: var(--muted); }
     .studio-panel :global(.webinar-qr) { align-self: flex-start; width: 140px; height: 140px; border-radius: 10px; background: #fff; padding: 6px; }
-    .studio-controls { display: flex; gap: 10px; flex-wrap: wrap; }
+    /* Round mic/cam controls (identical to the call bar's .control-btn) + the End button.
+       The End button is pushed to the far side so the round toggles group on the left. */
+    .studio-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
     .studio-controls .btn-ghost, .studio-controls .btn-primary { flex: none; width: auto; padding: 0 18px; min-height: 44px; }
+    .studio-controls #webinar-studio-end { margin-left: auto; }
     .studio-controls .btn-primary.danger { background: var(--danger); }
     /* Host chat panel (Feature ⑤): the same auto-translated chat the viewers see. Message
        rows are created at runtime by app.ts, so their classes must be :global. */
@@ -2718,7 +2718,8 @@ const jsonLd = {
     .studio-chat :global(.wv-chat-notice.hidden) { display: none; }
     @media (prefers-reduced-motion: reduce) { .studio-chat :global(.wv-chat-list) { scroll-behavior: auto; } }
     @media (max-width: 520px) {
-      .studio-controls .btn-ghost, .studio-controls .btn-primary { flex: 1 1 auto; }
+      /* End drops to its own full-width row under the round mic/cam toggles. */
+      .studio-controls #webinar-studio-end { flex: 1 1 100%; margin-left: 0; }
     }
     /* Narrow viewports (the host tested on a phone): let card actions wrap full-width. */
     @media (max-width: 560px) {

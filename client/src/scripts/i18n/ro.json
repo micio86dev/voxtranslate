@@ -604,8 +604,6 @@
   "webinarOnAir": "În direct",
   "webinarReconnecting": "Se reconectează…",
   "webinarStopBroadcast": "Oprește transmisiunea",
-  "webinarCamOn": "Pornește camera",
-  "webinarCamOff": "Oprește camera",
   "webinarMicDenied": "Este necesar accesul la microfon pentru a intra în direct. Permite accesul și încearcă din nou.",
   "webinarPublishError": "Nu s-a putut porni transmisiunea. Încearcă din nou.",
   "webinarAlreadyLive": "Transmiți deja un alt webinar.",

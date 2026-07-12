@@ -604,8 +604,6 @@
   "webinarOnAir": "On air",
   "webinarReconnecting": "Reconnecting…",
   "webinarStopBroadcast": "Stop broadcast",
-  "webinarCamOn": "Turn camera on",
-  "webinarCamOff": "Turn camera off",
   "webinarMicDenied": "Microphone access is required to go live. Please allow it and try again.",
   "webinarPublishError": "Couldn’t start the broadcast. Please try again.",
   "webinarAlreadyLive": "You’re already broadcasting another webinar.",

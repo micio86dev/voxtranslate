@@ -604,8 +604,6 @@
   "webinarOnAir": "กำลังถ่ายทอดสด",
   "webinarReconnecting": "กำลังเชื่อมต่อใหม่…",
   "webinarStopBroadcast": "หยุดการถ่ายทอด",
-  "webinarCamOn": "เปิดกล้อง",
-  "webinarCamOff": "ปิดกล้อง",
   "webinarMicDenied": "ต้องอนุญาตให้เข้าถึงไมโครโฟนเพื่อถ่ายทอดสด โปรดอนุญาตแล้วลองอีกครั้ง",
   "webinarPublishError": "ไม่สามารถเริ่มการถ่ายทอดได้ โปรดลองอีกครั้ง",
   "webinarAlreadyLive": "คุณกำลังถ่ายทอดสัมมนาออนไลน์อื่นอยู่แล้ว",

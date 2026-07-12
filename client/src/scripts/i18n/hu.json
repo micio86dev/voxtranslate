@@ -604,8 +604,6 @@
   "webinarOnAir": "Adásban",
   "webinarReconnecting": "Újracsatlakozás…",
   "webinarStopBroadcast": "Adás leállítása",
-  "webinarCamOn": "Kamera bekapcsolása",
-  "webinarCamOff": "Kamera kikapcsolása",
   "webinarMicDenied": "Az élő adáshoz mikrofonhozzáférés szükséges. Engedélyezd, majd próbáld újra.",
   "webinarPublishError": "Nem sikerült elindítani az adást. Kérjük, próbáld újra.",
   "webinarAlreadyLive": "Már közvetítesz egy másik webináriumot.",

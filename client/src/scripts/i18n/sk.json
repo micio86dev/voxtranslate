@@ -604,8 +604,6 @@
   "webinarOnAir": "Vo vysielaní",
   "webinarReconnecting": "Opätovné pripájanie…",
   "webinarStopBroadcast": "Zastaviť vysielanie",
-  "webinarCamOn": "Zapnúť kameru",
-  "webinarCamOff": "Vypnúť kameru",
   "webinarMicDenied": "Na spustenie vysielania je potrebný prístup k mikrofónu. Povoľte ho a skúste to znova.",
   "webinarPublishError": "Vysielanie sa nepodarilo spustiť. Skúste to znova.",
   "webinarAlreadyLive": "Už vysielate iný webinár.",

@@ -604,8 +604,6 @@
   "webinarOnAir": "Lähetyksessä",
   "webinarReconnecting": "Yhdistetään uudelleen…",
   "webinarStopBroadcast": "Lopeta lähetys",
-  "webinarCamOn": "Ota kamera käyttöön",
-  "webinarCamOff": "Poista kamera käytöstä",
   "webinarMicDenied": "Lähetyksen aloittaminen edellyttää mikrofonin käyttöoikeutta. Salli se ja yritä uudelleen.",
   "webinarPublishError": "Lähetystä ei voitu aloittaa. Yritä uudelleen.",
   "webinarAlreadyLive": "Lähetät jo toista webinaaria.",

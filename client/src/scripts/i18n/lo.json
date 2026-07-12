@@ -604,8 +604,6 @@
   "webinarOnAir": "ກຳລັງຖ່າຍທອດສົດ",
   "webinarReconnecting": "ກຳລັງເຊື່ອມຕໍ່ໃໝ່…",
   "webinarStopBroadcast": "ຢຸດການຖ່າຍທອດ",
-  "webinarCamOn": "ເປີດກ້ອງ",
-  "webinarCamOff": "ປິດກ້ອງ",
   "webinarMicDenied": "ຈຳເປັນຕ້ອງອະນຸຍາດໃຫ້ເຂົ້າເຖິງໄມໂຄຣໂຟນເພື່ອຖ່າຍທອດສົດ. ກະລຸນາອະນຸຍາດ ແລ້ວລອງໃໝ່ອີກຄັ້ງ.",
   "webinarPublishError": "ບໍ່ສາມາດເລີ່ມການຖ່າຍທອດໄດ້. ກະລຸນາລອງໃໝ່ອີກຄັ້ງ.",
   "webinarAlreadyLive": "ທ່ານກຳລັງຖ່າຍທອດເວັບບີນາອື່ນຢູ່ແລ້ວ.",

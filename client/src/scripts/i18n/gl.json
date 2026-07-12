@@ -604,8 +604,6 @@
   "webinarOnAir": "En directo",
   "webinarReconnecting": "Reconectando…",
   "webinarStopBroadcast": "Deter a emisión",
-  "webinarCamOn": "Activar a cámara",
-  "webinarCamOff": "Desactivar a cámara",
   "webinarMicDenied": "Necesítase acceso ao micrófono para emitir en directo. Permíteo e téntao de novo.",
   "webinarPublishError": "Non se puido iniciar a emisión. Téntao de novo.",
   "webinarAlreadyLive": "Xa estás a emitir outro webinar.",

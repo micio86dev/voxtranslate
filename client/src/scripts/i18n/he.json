@@ -604,8 +604,6 @@
   "webinarOnAir": "בשידור",
   "webinarReconnecting": "מתחבר מחדש…",
   "webinarStopBroadcast": "עצור שידור",
-  "webinarCamOn": "הפעל מצלמה",
-  "webinarCamOff": "כבה מצלמה",
   "webinarMicDenied": "כדי לעלות לשידור חי נדרשת גישה למיקרופון. אנא אשר אותה ונסה שוב.",
   "webinarPublishError": "לא ניתן היה להתחיל את השידור. אנא נסה שוב.",
   "webinarAlreadyLive": "אתה כבר משדר וובינר אחר.",

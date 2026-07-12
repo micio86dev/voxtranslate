@@ -604,8 +604,6 @@
   "webinarOnAir": "På lufta",
   "webinarReconnecting": "Koplar til på nytt…",
   "webinarStopBroadcast": "Stopp sending",
-  "webinarCamOn": "Slå på kameraet",
-  "webinarCamOff": "Slå av kameraet",
   "webinarMicDenied": "Mikrofontilgang krevst for å gå live. Gi tilgang og prøv på nytt.",
   "webinarPublishError": "Kunne ikkje starte sendinga. Prøv på nytt.",
   "webinarAlreadyLive": "Du sender allereie eit anna webinar.",
