@@ -642,5 +642,16 @@
   "wvMuteAudio": "Исклучи звук",
   "wvUnmuteAudio": "Вклучи звук",
   "wvSubtitlesOn": "Титлови вклучени",
-  "wvSubtitlesOff": "Титлови исклучени"
+  "wvSubtitlesOff": "Титлови исклучени",
+  "webinarChatEnabled": "Овозможи разговор",
+  "wvChatShow": "Прикажи разговор",
+  "wvChatHide": "Сокриј разговор",
+  "wvChatPlaceholder": "Напишете порака…",
+  "wvChatSend": "Испрати",
+  "wvChatHost": "Домаќин",
+  "wvChatNamePrompt": "Изберете прикажано име за разговор",
+  "wvChatNamePlaceholder": "Вашето име",
+  "wvChatEmpty": "Сè уште нема пораки. Поздравете се!",
+  "wvChatRateLimited": "Испраќате пораки премногу брзо. Почекајте момент.",
+  "wvChatBlocked": "Вашата порака не можеше да се испрати."
 }

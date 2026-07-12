@@ -642,5 +642,16 @@
   "wvMuteAudio": "Thulisa umsindo",
   "wvUnmuteAudio": "Vula umsindo",
   "wvSubtitlesOn": "Imibhalo engezansi ivuliwe",
-  "wvSubtitlesOff": "Imibhalo engezansi ivaliwe"
+  "wvSubtitlesOff": "Imibhalo engezansi ivaliwe",
+  "webinarChatEnabled": "Vula ingxoxo",
+  "wvChatShow": "Bonisa ingxoxo",
+  "wvChatHide": "Fihla ingxoxo",
+  "wvChatPlaceholder": "Bhala umlayezo…",
+  "wvChatSend": "Thumela",
+  "wvChatHost": "Umsingathi",
+  "wvChatNamePrompt": "Khetha igama elibonakalayo ukuze uxoxe",
+  "wvChatNamePlaceholder": "Igama lakho",
+  "wvChatEmpty": "Ayikho imilayezo okwamanje. Sho sawubona!",
+  "wvChatRateLimited": "Uthumela imilayezo ngokushesha kakhulu. Sicela ulinde umzuzwana.",
+  "wvChatBlocked": "Umlayezo wakho awukwazanga ukuthunyelwa."
 }

@@ -642,5 +642,16 @@
   "wvMuteAudio": "ஒலியை நிறுத்து",
   "wvUnmuteAudio": "ஒலியை இயக்கு",
   "wvSubtitlesOn": "வசன வரிகள் இயக்கப்பட்டன",
-  "wvSubtitlesOff": "வசன வரிகள் நிறுத்தப்பட்டன"
+  "wvSubtitlesOff": "வசன வரிகள் நிறுத்தப்பட்டன",
+  "webinarChatEnabled": "அரட்டையை இயக்கு",
+  "wvChatShow": "அரட்டையைக் காட்டு",
+  "wvChatHide": "அரட்டையை மறை",
+  "wvChatPlaceholder": "ஒரு செய்தியை உள்ளிடுங்கள்…",
+  "wvChatSend": "அனுப்பு",
+  "wvChatHost": "தொகுப்பாளர்",
+  "wvChatNamePrompt": "அரட்டையடிக்க ஒரு காட்சிப் பெயரைத் தேர்ந்தெடுக்கவும்",
+  "wvChatNamePlaceholder": "உங்கள் பெயர்",
+  "wvChatEmpty": "இன்னும் செய்திகள் இல்லை. வணக்கம் சொல்லுங்கள்!",
+  "wvChatRateLimited": "நீங்கள் மிக வேகமாகச் செய்திகளை அனுப்புகிறீர்கள். சிறிது நேரம் காத்திருக்கவும்.",
+  "wvChatBlocked": "உங்கள் செய்தியை அனுப்ப முடியவில்லை."
 }

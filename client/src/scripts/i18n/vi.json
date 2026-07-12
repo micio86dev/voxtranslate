@@ -642,5 +642,16 @@
   "wvMuteAudio": "Tắt âm thanh",
   "wvUnmuteAudio": "Bật âm thanh",
   "wvSubtitlesOn": "Phụ đề đang bật",
-  "wvSubtitlesOff": "Phụ đề đang tắt"
+  "wvSubtitlesOff": "Phụ đề đang tắt",
+  "webinarChatEnabled": "Bật trò chuyện",
+  "wvChatShow": "Hiện trò chuyện",
+  "wvChatHide": "Ẩn trò chuyện",
+  "wvChatPlaceholder": "Nhập tin nhắn…",
+  "wvChatSend": "Gửi",
+  "wvChatHost": "Người tổ chức",
+  "wvChatNamePrompt": "Chọn tên hiển thị để trò chuyện",
+  "wvChatNamePlaceholder": "Tên của bạn",
+  "wvChatEmpty": "Chưa có tin nhắn nào. Hãy chào hỏi nhé!",
+  "wvChatRateLimited": "Bạn đang gửi tin nhắn quá nhanh. Vui lòng đợi một lát.",
+  "wvChatBlocked": "Không thể gửi tin nhắn của bạn."
 }

@@ -642,5 +642,16 @@
   "wvMuteAudio": "Zima sauti",
   "wvUnmuteAudio": "Washa sauti",
   "wvSubtitlesOn": "Manukuu yamewashwa",
-  "wvSubtitlesOff": "Manukuu yamezimwa"
+  "wvSubtitlesOff": "Manukuu yamezimwa",
+  "webinarChatEnabled": "Washa gumzo",
+  "wvChatShow": "Onyesha gumzo",
+  "wvChatHide": "Ficha gumzo",
+  "wvChatPlaceholder": "Andika ujumbe…",
+  "wvChatSend": "Tuma",
+  "wvChatHost": "Mwenyeji",
+  "wvChatNamePrompt": "Chagua jina la kuonyesha ili kupiga gumzo",
+  "wvChatNamePlaceholder": "Jina lako",
+  "wvChatEmpty": "Bado hakuna ujumbe. Sema hujambo!",
+  "wvChatRateLimited": "Unatuma ujumbe haraka mno. Tafadhali subiri kidogo.",
+  "wvChatBlocked": "Ujumbe wako haukuweza kutumwa."
 }

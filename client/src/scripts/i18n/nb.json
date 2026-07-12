@@ -642,5 +642,16 @@
   "wvMuteAudio": "Demp lyd",
   "wvUnmuteAudio": "Slå på lyd",
   "wvSubtitlesOn": "Undertekster på",
-  "wvSubtitlesOff": "Undertekster av"
+  "wvSubtitlesOff": "Undertekster av",
+  "webinarChatEnabled": "Aktiver chat",
+  "wvChatShow": "Vis chat",
+  "wvChatHide": "Skjul chat",
+  "wvChatPlaceholder": "Skriv en melding…",
+  "wvChatSend": "Send",
+  "wvChatHost": "Vert",
+  "wvChatNamePrompt": "Velg et visningsnavn for å chatte",
+  "wvChatNamePlaceholder": "Navnet ditt",
+  "wvChatEmpty": "Ingen meldinger ennå. Si hei!",
+  "wvChatRateLimited": "Du sender meldinger for raskt. Vent et øyeblikk.",
+  "wvChatBlocked": "Meldingen din kunne ikke sendes."
 }

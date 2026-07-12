@@ -642,5 +642,16 @@
   "wvMuteAudio": "Ztlumit zvuk",
   "wvUnmuteAudio": "Zapnout zvuk",
   "wvSubtitlesOn": "Titulky zapnuty",
-  "wvSubtitlesOff": "Titulky vypnuty"
+  "wvSubtitlesOff": "Titulky vypnuty",
+  "webinarChatEnabled": "Povolit chat",
+  "wvChatShow": "Zobrazit chat",
+  "wvChatHide": "Skrýt chat",
+  "wvChatPlaceholder": "Napište zprávu…",
+  "wvChatSend": "Odeslat",
+  "wvChatHost": "Hostitel",
+  "wvChatNamePrompt": "Vyberte zobrazované jméno pro chat",
+  "wvChatNamePlaceholder": "Vaše jméno",
+  "wvChatEmpty": "Zatím žádné zprávy. Pozdravte!",
+  "wvChatRateLimited": "Posíláte zprávy příliš rychle. Chvíli prosím počkejte.",
+  "wvChatBlocked": "Vaši zprávu se nepodařilo odeslat."
 }

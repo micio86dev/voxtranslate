@@ -642,5 +642,16 @@
   "wvMuteAudio": "Isključi zvuk",
   "wvUnmuteAudio": "Uključi zvuk",
   "wvSubtitlesOn": "Titlovi uključeni",
-  "wvSubtitlesOff": "Titlovi isključeni"
+  "wvSubtitlesOff": "Titlovi isključeni",
+  "webinarChatEnabled": "Omogući razgovor",
+  "wvChatShow": "Prikaži razgovor",
+  "wvChatHide": "Sakrij razgovor",
+  "wvChatPlaceholder": "Upišite poruku…",
+  "wvChatSend": "Pošalji",
+  "wvChatHost": "Domaćin",
+  "wvChatNamePrompt": "Odaberite prikazano ime za razgovor",
+  "wvChatNamePlaceholder": "Vaše ime",
+  "wvChatEmpty": "Još nema poruka. Pozdravite!",
+  "wvChatRateLimited": "Šaljete poruke prebrzo. Pričekajte trenutak.",
+  "wvChatBlocked": "Vaša poruka nije poslana."
 }

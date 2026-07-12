@@ -642,5 +642,16 @@
   "wvMuteAudio": "Distewi’r sain",
   "wvUnmuteAudio": "Dad-ddistewi’r sain",
   "wvSubtitlesOn": "Isdeitlau ymlaen",
-  "wvSubtitlesOff": "Isdeitlau i ffwrdd"
+  "wvSubtitlesOff": "Isdeitlau i ffwrdd",
+  "webinarChatEnabled": "Galluogi sgwrs",
+  "wvChatShow": "Dangos sgwrs",
+  "wvChatHide": "Cuddio sgwrs",
+  "wvChatPlaceholder": "Teipiwch neges…",
+  "wvChatSend": "Anfon",
+  "wvChatHost": "Cynghorydd",
+  "wvChatNamePrompt": "Dewiswch enw arddangos i sgwrsio",
+  "wvChatNamePlaceholder": "Eich enw",
+  "wvChatEmpty": "Dim negeseuon eto. Dywedwch helo!",
+  "wvChatRateLimited": "Rydych chi’n anfon negeseuon yn rhy gyflym. Arhoswch eiliad, os gwelwch yn dda.",
+  "wvChatBlocked": "Ni ellid anfon eich neges."
 }

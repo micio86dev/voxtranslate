@@ -642,5 +642,16 @@
   "wvMuteAudio": "Demp klank",
   "wvUnmuteAudio": "Ontdemp klank",
   "wvSubtitlesOn": "Onderskrifte aan",
-  "wvSubtitlesOff": "Onderskrifte af"
+  "wvSubtitlesOff": "Onderskrifte af",
+  "webinarChatEnabled": "Klets aktiveer",
+  "wvChatShow": "Wys klets",
+  "wvChatHide": "Versteek klets",
+  "wvChatPlaceholder": "Tik ’n boodskap…",
+  "wvChatSend": "Stuur",
+  "wvChatHost": "Gasheer",
+  "wvChatNamePrompt": "Kies ’n vertoonnaam om te klets",
+  "wvChatNamePlaceholder": "Jou naam",
+  "wvChatEmpty": "Nog geen boodskappe nie. Sê hallo!",
+  "wvChatRateLimited": "Jy stuur boodskappe te vinnig. Wag asseblief ’n oomblik.",
+  "wvChatBlocked": "Jou boodskap kon nie gestuur word nie."
 }

@@ -642,5 +642,16 @@
   "wvMuteAudio": "دەنگ بێدەنگ بکە",
   "wvUnmuteAudio": "دەنگ چالاک بکە",
   "wvSubtitlesOn": "ژێرنووس چالاکە",
-  "wvSubtitlesOff": "ژێرنووس ناچالاکە"
+  "wvSubtitlesOff": "ژێرنووس ناچالاکە",
+  "webinarChatEnabled": "چالاککردنی چات",
+  "wvChatShow": "پیشاندانی چات",
+  "wvChatHide": "شاردنەوەی چات",
+  "wvChatPlaceholder": "نامەیەک بنووسە…",
+  "wvChatSend": "ناردن",
+  "wvChatHost": "ڕێوەبەر",
+  "wvChatNamePrompt": "ناوێکی پیشاندان هەڵبژێرە بۆ چاتکردن",
+  "wvChatNamePlaceholder": "ناوت",
+  "wvChatEmpty": "هێشتا هیچ نامەیەک نییە. سڵاو بکە!",
+  "wvChatRateLimited": "تۆ زۆر بە خێرایی نامە دەنێریت. تکایە کەمێک چاوەڕێ بکە.",
+  "wvChatBlocked": "نەتوانرا نامەکەت بنێردرێت."
 }

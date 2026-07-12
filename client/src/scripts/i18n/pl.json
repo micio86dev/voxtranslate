@@ -642,5 +642,16 @@
   "wvMuteAudio": "Wycisz dźwięk",
   "wvUnmuteAudio": "Włącz dźwięk",
   "wvSubtitlesOn": "Napisy włączone",
-  "wvSubtitlesOff": "Napisy wyłączone"
+  "wvSubtitlesOff": "Napisy wyłączone",
+  "webinarChatEnabled": "Włącz czat",
+  "wvChatShow": "Pokaż czat",
+  "wvChatHide": "Ukryj czat",
+  "wvChatPlaceholder": "Napisz wiadomość…",
+  "wvChatSend": "Wyślij",
+  "wvChatHost": "Gospodarz",
+  "wvChatNamePrompt": "Wybierz nazwę wyświetlaną do czatu",
+  "wvChatNamePlaceholder": "Twoje imię",
+  "wvChatEmpty": "Brak wiadomości. Przywitaj się!",
+  "wvChatRateLimited": "Wysyłasz wiadomości zbyt szybko. Poczekaj chwilę.",
+  "wvChatBlocked": "Nie udało się wysłać Twojej wiadomości."
 }

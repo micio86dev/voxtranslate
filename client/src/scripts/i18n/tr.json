@@ -642,5 +642,16 @@
   "wvMuteAudio": "Sesi kapat",
   "wvUnmuteAudio": "Sesi aç",
   "wvSubtitlesOn": "Altyazılar açık",
-  "wvSubtitlesOff": "Altyazılar kapalı"
+  "wvSubtitlesOff": "Altyazılar kapalı",
+  "webinarChatEnabled": "Sohbeti etkinleştir",
+  "wvChatShow": "Sohbeti göster",
+  "wvChatHide": "Sohbeti gizle",
+  "wvChatPlaceholder": "Bir mesaj yazın…",
+  "wvChatSend": "Gönder",
+  "wvChatHost": "Sunucu",
+  "wvChatNamePrompt": "Sohbet etmek için bir görünen ad seçin",
+  "wvChatNamePlaceholder": "Adınız",
+  "wvChatEmpty": "Henüz mesaj yok. Merhaba deyin!",
+  "wvChatRateLimited": "Mesajları çok hızlı gönderiyorsunuz. Lütfen bir an bekleyin.",
+  "wvChatBlocked": "Mesajınız gönderilemedi."
 }

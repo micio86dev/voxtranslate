@@ -642,5 +642,16 @@
   "wvMuteAudio": "Kashe sauti",
   "wvUnmuteAudio": "Buɗe sauti",
   "wvSubtitlesOn": "Fassarar rubutu a kunne",
-  "wvSubtitlesOff": "Fassarar rubutu a kashe"
+  "wvSubtitlesOff": "Fassarar rubutu a kashe",
+  "webinarChatEnabled": "Kunna taɗi",
+  "wvChatShow": "Nuna taɗi",
+  "wvChatHide": "Ɓoye taɗi",
+  "wvChatPlaceholder": "Rubuta saƙo…",
+  "wvChatSend": "Aika",
+  "wvChatHost": "Mai masaukin baki",
+  "wvChatNamePrompt": "Zaɓi sunan nunawa don yin taɗi",
+  "wvChatNamePlaceholder": "Sunanka",
+  "wvChatEmpty": "Babu saƙonni tukuna. Ka gaishe su!",
+  "wvChatRateLimited": "Kana aika saƙonni da sauri sosai. Da fatan ka jira ɗan lokaci.",
+  "wvChatBlocked": "An kasa aika saƙonka."
 }

@@ -642,5 +642,16 @@
   "wvMuteAudio": "Ovozni o‘chirish",
   "wvUnmuteAudio": "Ovozni yoqish",
   "wvSubtitlesOn": "Subtitrlar yoqilgan",
-  "wvSubtitlesOff": "Subtitrlar o‘chirilgan"
+  "wvSubtitlesOff": "Subtitrlar o‘chirilgan",
+  "webinarChatEnabled": "Chatni yoqish",
+  "wvChatShow": "Chatni ko‘rsatish",
+  "wvChatHide": "Chatni yashirish",
+  "wvChatPlaceholder": "Xabar yozing…",
+  "wvChatSend": "Yuborish",
+  "wvChatHost": "Boshlovchi",
+  "wvChatNamePrompt": "Suhbatlashish uchun ko‘rsatiladigan ism tanlang",
+  "wvChatNamePlaceholder": "Ismingiz",
+  "wvChatEmpty": "Hozircha xabarlar yo‘q. Salom ayting!",
+  "wvChatRateLimited": "Siz xabarlarni juda tez yuboryapsiz. Iltimos, bir oz kuting.",
+  "wvChatBlocked": "Xabaringizni yuborib bo‘lmadi."
 }

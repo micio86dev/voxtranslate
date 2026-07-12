@@ -642,5 +642,16 @@
   "wvMuteAudio": "Fèmen son an",
   "wvUnmuteAudio": "Ouvri son an",
   "wvSubtitlesOn": "Soutit aktive",
-  "wvSubtitlesOff": "Soutit dezaktive"
+  "wvSubtitlesOff": "Soutit dezaktive",
+  "webinarChatEnabled": "Aktive chat",
+  "wvChatShow": "Montre chat",
+  "wvChatHide": "Kache chat",
+  "wvChatPlaceholder": "Tape yon mesaj…",
+  "wvChatSend": "Voye",
+  "wvChatHost": "Òganizatè",
+  "wvChatNamePrompt": "Chwazi yon non pou afiche pou w ka chat",
+  "wvChatNamePlaceholder": "Non ou",
+  "wvChatEmpty": "Poko gen mesaj. Di bonjou!",
+  "wvChatRateLimited": "W ap voye mesaj twò vit. Tanpri tann yon ti moman.",
+  "wvChatBlocked": "Nou pa t kapab voye mesaj ou a."
 }

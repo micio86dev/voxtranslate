@@ -642,5 +642,16 @@
   "wvMuteAudio": "Bisukan audio",
   "wvUnmuteAudio": "Aktifkan audio",
   "wvSubtitlesOn": "Subtitel aktif",
-  "wvSubtitlesOff": "Subtitel nonaktif"
+  "wvSubtitlesOff": "Subtitel nonaktif",
+  "webinarChatEnabled": "Aktifkan obrolan",
+  "wvChatShow": "Tampilkan obrolan",
+  "wvChatHide": "Sembunyikan obrolan",
+  "wvChatPlaceholder": "Ketik pesan…",
+  "wvChatSend": "Kirim",
+  "wvChatHost": "Pembawa acara",
+  "wvChatNamePrompt": "Pilih nama tampilan untuk mengobrol",
+  "wvChatNamePlaceholder": "Nama Anda",
+  "wvChatEmpty": "Belum ada pesan. Sapa mereka!",
+  "wvChatRateLimited": "Anda mengirim pesan terlalu cepat. Mohon tunggu sebentar.",
+  "wvChatBlocked": "Pesan Anda tidak dapat dikirim."
 }

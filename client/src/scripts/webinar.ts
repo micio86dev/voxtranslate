@@ -36,6 +36,8 @@ export interface WebinarView {
   record_video: boolean;
   record_transcript: boolean;
   voice_clone: boolean;
+  /** Whether the auto-translated chat (Feature ⑤) is enabled for this webinar. */
+  chat_enabled: boolean;
   /** Public join link — encode THIS verbatim in the QR (never rebuild it). */
   join_url: string;
   playback_url: string | null;
@@ -54,6 +56,8 @@ export interface PublicWebinar {
   source_language: string;
   tier: WebinarTier;
   join_url: string;
+  /** Whether the auto-translated chat (Feature ⑤) is enabled for this webinar. */
+  chat_enabled: boolean;
   /** LL-HLS manifest `https://{hls_host}/webinar/{code}/index.m3u8` (may be absent
    *  until the host goes live). */
   playback_url: string | null;
@@ -89,6 +93,8 @@ export interface CreateWebinarBody {
   record_video?: boolean;
   record_transcript?: boolean;
   voice_clone?: boolean;
+  /** Enable the auto-translated chat (Feature ⑤) for the webinar. */
+  chat_enabled?: boolean;
   scheduled_start?: string | null;
   scheduled_end?: string | null;
 }
@@ -105,6 +111,8 @@ export interface PatchWebinarBody {
   record_video?: boolean;
   record_transcript?: boolean;
   voice_clone?: boolean;
+  /** Enable/disable the auto-translated chat (Feature ⑤) for the webinar. */
+  chat_enabled?: boolean;
   scheduled_start?: string | null;
   scheduled_end?: string | null;
 }

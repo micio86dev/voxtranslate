@@ -642,5 +642,16 @@
   "wvMuteAudio": "Silenciar áudio",
   "wvUnmuteAudio": "Ativar áudio",
   "wvSubtitlesOn": "Legendas ativadas",
-  "wvSubtitlesOff": "Legendas desativadas"
+  "wvSubtitlesOff": "Legendas desativadas",
+  "webinarChatEnabled": "Ativar chat",
+  "wvChatShow": "Mostrar chat",
+  "wvChatHide": "Ocultar chat",
+  "wvChatPlaceholder": "Escreva uma mensagem…",
+  "wvChatSend": "Enviar",
+  "wvChatHost": "Anfitrião",
+  "wvChatNamePrompt": "Escolha um nome para conversar",
+  "wvChatNamePlaceholder": "O seu nome",
+  "wvChatEmpty": "Ainda não há mensagens. Diga olá!",
+  "wvChatRateLimited": "Está a enviar mensagens depressa demais. Aguarde um momento.",
+  "wvChatBlocked": "Não foi possível enviar a sua mensagem."
 }

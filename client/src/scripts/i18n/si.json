@@ -642,5 +642,16 @@
   "wvMuteAudio": "ශබ්දය නිශ්ශබ්ද කරන්න",
   "wvUnmuteAudio": "ශබ්දය සක්‍රීය කරන්න",
   "wvSubtitlesOn": "උපසිරැසි ක්‍රියාත්මකයි",
-  "wvSubtitlesOff": "උපසිරැසි අක්‍රියයි"
+  "wvSubtitlesOff": "උපසිරැසි අක්‍රියයි",
+  "webinarChatEnabled": "කතාබහ සක්‍රීය කරන්න",
+  "wvChatShow": "කතාබහ පෙන්වන්න",
+  "wvChatHide": "කතාබහ සඟවන්න",
+  "wvChatPlaceholder": "පණිවිඩයක් ටයිප් කරන්න…",
+  "wvChatSend": "යවන්න",
+  "wvChatHost": "සත්කාරක",
+  "wvChatNamePrompt": "කතාබහ සඳහා දර්ශන නමක් තෝරන්න",
+  "wvChatNamePlaceholder": "ඔබේ නම",
+  "wvChatEmpty": "තවම පණිවිඩ නැත. ආයුබෝවන් කියන්න!",
+  "wvChatRateLimited": "ඔබ ඉතා වේගයෙන් පණිවිඩ යවනවා. කරුණාකර මොහොතක් රැඳී සිටින්න.",
+  "wvChatBlocked": "ඔබේ පණිවිඩය යැවීමට නොහැකි විය."
 }

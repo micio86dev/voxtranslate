@@ -140,7 +140,33 @@ const pageDesc = webinar
             <button id="wv-cc" type="button" class="wv-ctl" aria-pressed="true" data-i18n="wvSubtitlesOn">
               Subtitles on
             </button>
+            <!-- Chat show/hide toggle (Feature ⑤). Hidden until the view controller confirms
+                 the webinar has chat enabled; then it reveals + toggles the panel below. -->
+            <button id="wv-chat-toggle" type="button" class="wv-ctl hidden" aria-pressed="false" aria-controls="wv-chat" data-i18n="wvChatShow">
+              Show chat
+            </button>
           </div>
+
+          <!-- Auto-translated chat panel (Feature ⑤). Everyone sends; everyone reads each
+               message translated into their own language. Collapsed + hidden until enabled
+               and the guest taps "Show chat". The list has aria-live=polite so new messages
+               are announced; the input row is reachable above the mobile keyboard. -->
+          <section id="wv-chat" class="wv-chat hidden" aria-label="Chat">
+            <div id="wv-chat-list" class="wv-chat-list" role="log" aria-live="polite" aria-relevant="additions"></div>
+            <!-- One-time display-name prompt for a guest who hasn't chosen a name yet. -->
+            <div id="wv-chat-name" class="wv-chat-name hidden">
+              <label class="wv-chat-name-label" for="wv-chat-name-input" data-i18n="wvChatNamePrompt">Choose a display name to chat</label>
+              <div class="wv-chat-name-row">
+                <input id="wv-chat-name-input" class="wv-chat-name-input" type="text" maxlength="40" autocomplete="off" data-i18n-ph="wvChatNamePlaceholder" placeholder="Your name" />
+                <button id="wv-chat-name-save" type="button" class="wv-chat-send" data-i18n="wvChatSend">Send</button>
+              </div>
+            </div>
+            <form id="wv-chat-form" class="wv-chat-form">
+              <input id="wv-chat-input" class="wv-chat-input" type="text" maxlength="500" autocomplete="off" enterkeyhint="send" data-i18n-ph="wvChatPlaceholder" placeholder="Type a message…" />
+              <button id="wv-chat-send" type="submit" class="wv-chat-send" data-i18n="wvChatSend">Send</button>
+            </form>
+            <p id="wv-chat-notice" class="wv-chat-notice hidden" role="status" aria-live="polite"></p>
+          </section>
         </div>
       )
     }
@@ -357,6 +383,144 @@ const pageDesc = webinar
       border-color: rgba(59, 130, 246, 0.5);
       color: #93c5fd;
     }
+    /* Auto-translated chat panel (Feature ⑤). Mobile-first: a bounded, scrollable message
+       list with a sticky input row that clears the on-screen keyboard via the safe-area
+       inset. Tap targets are >=44px; motion respects prefers-reduced-motion. */
+    .wv-chat {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      width: 100%;
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 12px;
+      border-radius: 14px;
+      background: var(--surface, #1b2330);
+      border: 1px solid var(--border, #2a3444);
+    }
+    .wv-chat.hidden {
+      display: none;
+    }
+    .wv-chat-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      min-height: 120px;
+      max-height: 40vh;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      -webkit-overflow-scrolling: touch;
+      scroll-behavior: smooth;
+      padding-right: 4px;
+    }
+    /* One message row: a colored name + the translated body. Host messages are tinted. */
+    .wv-chat-msg {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      padding: 8px 10px;
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.03);
+      line-height: 1.35;
+      word-break: break-word;
+    }
+    .wv-chat-msg.is-host {
+      background: rgba(59, 130, 246, 0.12);
+      border: 1px solid rgba(59, 130, 246, 0.35);
+    }
+    .wv-chat-name-line {
+      font-size: 0.78rem;
+      font-weight: 700;
+      color: var(--text-muted, #9aa4b2);
+    }
+    .wv-chat-msg.is-host .wv-chat-name-line {
+      color: #93c5fd;
+    }
+    .wv-chat-host-tag {
+      font-size: 0.68rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-left: 6px;
+      padding: 1px 6px;
+      border-radius: 999px;
+      background: rgba(59, 130, 246, 0.25);
+      color: #bfdbfe;
+    }
+    .wv-chat-body {
+      font-size: 0.95rem;
+      color: var(--text, #e5e7eb);
+    }
+    .wv-chat-empty {
+      margin: auto;
+      padding: 16px;
+      text-align: center;
+      font-size: 0.85rem;
+      color: var(--text-muted, #9aa4b2);
+    }
+    /* Input row + one-time name row: reachable above the mobile keyboard. */
+    .wv-chat-form,
+    .wv-chat-name-row {
+      display: flex;
+      gap: 8px;
+      padding-bottom: env(safe-area-inset-bottom, 0);
+    }
+    .wv-chat-name {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .wv-chat-name.hidden {
+      display: none;
+    }
+    .wv-chat-name-label {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--text-muted, #9aa4b2);
+    }
+    .wv-chat-input,
+    .wv-chat-name-input {
+      flex: 1 1 auto;
+      min-width: 0;
+      min-height: 44px;
+      padding: 0 14px;
+      font-size: 1rem;
+      border-radius: 10px;
+      background: var(--bg, #0d0f16);
+      border: 1px solid var(--border, #2a3444);
+      color: var(--text, #e5e7eb);
+    }
+    .wv-chat-input:focus,
+    .wv-chat-name-input:focus {
+      outline: 2px solid var(--accent, #3b82f6);
+      outline-offset: 1px;
+    }
+    .wv-chat-send {
+      flex: 0 0 auto;
+      min-height: 44px;
+      min-width: 44px;
+      padding: 0 18px;
+      font-size: 0.9rem;
+      font-weight: 700;
+      border-radius: 10px;
+      border: none;
+      background: var(--accent, #3b82f6);
+      color: #fff;
+      cursor: pointer;
+    }
+    .wv-chat-send:disabled {
+      opacity: 0.55;
+      cursor: default;
+    }
+    .wv-chat-notice {
+      margin: 0;
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: #f87171;
+    }
+    .wv-chat-notice.hidden {
+      display: none;
+    }
     .wv-spinner {
       width: 42px;
       height: 42px;
@@ -370,10 +534,13 @@ const pageDesc = webinar
         transform: rotate(360deg);
       }
     }
-    /* Respect reduced-motion: freeze the spinner (WCAG 2.3.3). */
+    /* Respect reduced-motion: freeze the spinner + drop smooth chat auto-scroll (WCAG 2.3.3). */
     @media (prefers-reduced-motion: reduce) {
       .wv-spinner {
         animation: none;
+      }
+      .wv-chat-list {
+        scroll-behavior: auto;
       }
     }
   </style>

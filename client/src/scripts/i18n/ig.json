@@ -642,5 +642,16 @@
   "wvMuteAudio": "Mechie ụda",
   "wvUnmuteAudio": "Meghee ụda",
   "wvSubtitlesOn": "Okwu ndabere agbanyere",
-  "wvSubtitlesOff": "Okwu ndabere agbanyụọ"
+  "wvSubtitlesOff": "Okwu ndabere agbanyụọ",
+  "webinarChatEnabled": "Kwado nkata",
+  "wvChatShow": "Gosi nkata",
+  "wvChatHide": "Zoo nkata",
+  "wvChatPlaceholder": "Pịnye ozi…",
+  "wvChatSend": "Zipu",
+  "wvChatHost": "Onye nnabata",
+  "wvChatNamePrompt": "Họrọ aha ngosi iji kparịta ụka",
+  "wvChatNamePlaceholder": "Aha gị",
+  "wvChatEmpty": "Enwebeghị ozi ọ bụla. Kwuo ndewo!",
+  "wvChatRateLimited": "Ị na-ezipu ozi ọsọ ọsọ karịrị. Biko chere nwa oge.",
+  "wvChatBlocked": "Enweghị ike izipu ozi gị."
 }

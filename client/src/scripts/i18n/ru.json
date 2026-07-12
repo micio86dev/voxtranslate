@@ -642,5 +642,16 @@
   "wvMuteAudio": "Выключить звук",
   "wvUnmuteAudio": "Включить звук",
   "wvSubtitlesOn": "Субтитры включены",
-  "wvSubtitlesOff": "Субтитры выключены"
+  "wvSubtitlesOff": "Субтитры выключены",
+  "webinarChatEnabled": "Включить чат",
+  "wvChatShow": "Показать чат",
+  "wvChatHide": "Скрыть чат",
+  "wvChatPlaceholder": "Введите сообщение…",
+  "wvChatSend": "Отправить",
+  "wvChatHost": "Ведущий",
+  "wvChatNamePrompt": "Выберите отображаемое имя для чата",
+  "wvChatNamePlaceholder": "Ваше имя",
+  "wvChatEmpty": "Пока нет сообщений. Поздоровайтесь!",
+  "wvChatRateLimited": "Вы отправляете сообщения слишком быстро. Пожалуйста, подождите немного.",
+  "wvChatBlocked": "Не удалось отправить ваше сообщение."
 }

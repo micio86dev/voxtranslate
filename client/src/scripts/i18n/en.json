@@ -642,5 +642,16 @@
   "wvMuteAudio": "Mute audio",
   "wvUnmuteAudio": "Unmute audio",
   "wvSubtitlesOn": "Subtitles on",
-  "wvSubtitlesOff": "Subtitles off"
+  "wvSubtitlesOff": "Subtitles off",
+  "webinarChatEnabled": "Enable chat",
+  "wvChatShow": "Show chat",
+  "wvChatHide": "Hide chat",
+  "wvChatPlaceholder": "Type a message…",
+  "wvChatSend": "Send",
+  "wvChatHost": "Host",
+  "wvChatNamePrompt": "Choose a display name to chat",
+  "wvChatNamePlaceholder": "Your name",
+  "wvChatEmpty": "No messages yet. Say hello!",
+  "wvChatRateLimited": "You’re sending messages too fast. Please wait a moment.",
+  "wvChatBlocked": "Your message couldn’t be sent."
 }

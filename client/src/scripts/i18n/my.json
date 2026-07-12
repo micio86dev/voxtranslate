@@ -642,5 +642,16 @@
   "wvMuteAudio": "အသံပိတ်ရန်",
   "wvUnmuteAudio": "အသံဖွင့်ရန်",
   "wvSubtitlesOn": "စာတန်းထိုး ဖွင့်ထားသည်",
-  "wvSubtitlesOff": "စာတန်းထိုး ပိတ်ထားသည်"
+  "wvSubtitlesOff": "စာတန်းထိုး ပိတ်ထားသည်",
+  "webinarChatEnabled": "ချတ်ကို ဖွင့်ရန်",
+  "wvChatShow": "ချတ်ကို ပြရန်",
+  "wvChatHide": "ချတ်ကို ဖျောက်ရန်",
+  "wvChatPlaceholder": "မက်ဆေ့ချ် ရိုက်ထည့်ပါ…",
+  "wvChatSend": "ပို့ရန်",
+  "wvChatHost": "အိမ်ရှင်",
+  "wvChatNamePrompt": "ချတ်ရန် ပြသမည့်အမည် ရွေးချယ်ပါ",
+  "wvChatNamePlaceholder": "သင့်အမည်",
+  "wvChatEmpty": "မက်ဆေ့ချ် မရှိသေးပါ။ နှုတ်ဆက်လိုက်ပါ!",
+  "wvChatRateLimited": "သင် မက်ဆေ့ချ်များကို မြန်လွန်းစွာ ပို့နေပါသည်။ ခဏစောင့်ပါ။",
+  "wvChatBlocked": "သင့်မက်ဆေ့ချ်ကို ပို့၍မရပါ။"
 }

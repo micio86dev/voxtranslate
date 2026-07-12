@@ -642,5 +642,16 @@
   "wvMuteAudio": "Вимкнути звук",
   "wvUnmuteAudio": "Увімкнути звук",
   "wvSubtitlesOn": "Субтитри увімкнено",
-  "wvSubtitlesOff": "Субтитри вимкнено"
+  "wvSubtitlesOff": "Субтитри вимкнено",
+  "webinarChatEnabled": "Увімкнути чат",
+  "wvChatShow": "Показати чат",
+  "wvChatHide": "Сховати чат",
+  "wvChatPlaceholder": "Введіть повідомлення…",
+  "wvChatSend": "Надіслати",
+  "wvChatHost": "Ведучий",
+  "wvChatNamePrompt": "Виберіть відображуване ім’я для чату",
+  "wvChatNamePlaceholder": "Ваше ім’я",
+  "wvChatEmpty": "Повідомлень поки немає. Привітайтеся!",
+  "wvChatRateLimited": "Ви надсилаєте повідомлення надто швидко. Будь ласка, зачекайте хвилинку.",
+  "wvChatBlocked": "Не вдалося надіслати ваше повідомлення."
 }

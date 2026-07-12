@@ -642,5 +642,16 @@
   "wvMuteAudio": "Выключыць гук",
   "wvUnmuteAudio": "Уключыць гук",
   "wvSubtitlesOn": "Субтытры ўключаны",
-  "wvSubtitlesOff": "Субтытры выключаны"
+  "wvSubtitlesOff": "Субтытры выключаны",
+  "webinarChatEnabled": "Уключыць чат",
+  "wvChatShow": "Паказаць чат",
+  "wvChatHide": "Схаваць чат",
+  "wvChatPlaceholder": "Напішыце паведамленне…",
+  "wvChatSend": "Адправіць",
+  "wvChatHost": "Вядучы",
+  "wvChatNamePrompt": "Выберыце адлюстроўванае імя для чату",
+  "wvChatNamePlaceholder": "Ваша імя",
+  "wvChatEmpty": "Паведамленняў пакуль няма. Павітайцеся!",
+  "wvChatRateLimited": "Вы адпраўляеце паведамленні занадта хутка. Калі ласка, крыху пачакайце.",
+  "wvChatBlocked": "Не ўдалося адправіць ваша паведамленне."
 }

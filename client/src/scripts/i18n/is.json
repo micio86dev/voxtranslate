@@ -642,5 +642,16 @@
   "wvMuteAudio": "Þagga hljóð",
   "wvUnmuteAudio": "Kveikja á hljóði",
   "wvSubtitlesOn": "Skjátextar á",
-  "wvSubtitlesOff": "Skjátextar af"
+  "wvSubtitlesOff": "Skjátextar af",
+  "webinarChatEnabled": "Virkja spjall",
+  "wvChatShow": "Sýna spjall",
+  "wvChatHide": "Fela spjall",
+  "wvChatPlaceholder": "Skrifaðu skilaboð…",
+  "wvChatSend": "Senda",
+  "wvChatHost": "Gestgjafi",
+  "wvChatNamePrompt": "Veldu birtingarnafn til að spjalla",
+  "wvChatNamePlaceholder": "Nafnið þitt",
+  "wvChatEmpty": "Engin skilaboð enn. Heilsaðu!",
+  "wvChatRateLimited": "Þú sendir skilaboð of hratt. Vinsamlegast bíddu andartak.",
+  "wvChatBlocked": "Ekki tókst að senda skilaboðin þín."
 }
