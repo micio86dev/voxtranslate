@@ -29,6 +29,75 @@ export function parsePresenceCount(data: string): number | null {
   return frame.count;
 }
 
+/**
+ * A live-subtitle event pushed by the server over the SAME presence WS (webinar
+ * Fase 2 translation). The server streams the host's speech transcribed + translated:
+ *  - `final`   — a completed segment with the source `original`, its `lang`, and the
+ *                per-language `translations` map (always incl. the source language).
+ *  - `interim` — a still-streaming partial carrying only the source `text` + `lang`.
+ * A viewer renders `translations[myLang]`, falling back to `original`.
+ */
+export type SubtitleEvent =
+  | {
+      kind: "final";
+      /** The speaker's source words. */
+      original: string;
+      /** The detected source language code. */
+      lang: string;
+      /** Per-language translations (always includes `lang`). */
+      translations: Record<string, string>;
+    }
+  | {
+      kind: "interim";
+      /** The still-streaming source words (shown as the interim caption). */
+      text: string;
+      /** The detected source language code. */
+      lang: string;
+    };
+
+/** Parse a server subtitle frame. Returns a well-typed `SubtitleEvent` for a valid
+ *  `{type:"subtitle",kind:"final"|"interim",…}` text frame, else null — so malformed
+ *  JSON, other frame types (e.g. `count`), or a shape mismatch are ignored. Pure,
+ *  mirroring `parsePresenceCount`. */
+export function parseSubtitleFrame(data: string): SubtitleEvent | null {
+  let msg: unknown;
+  try {
+    msg = JSON.parse(data);
+  } catch {
+    return null; // not JSON
+  }
+  if (typeof msg !== "object" || msg === null) return null;
+  const frame = msg as {
+    type?: unknown;
+    kind?: unknown;
+    original?: unknown;
+    text?: unknown;
+    lang?: unknown;
+    translations?: unknown;
+  };
+  if (frame.type !== "subtitle") return null; // not a subtitle frame
+  if (typeof frame.lang !== "string") return null;
+
+  if (frame.kind === "final") {
+    if (typeof frame.original !== "string") return null;
+    const tr = frame.translations;
+    // `translations` must be a plain object of string values (drop any non-string).
+    if (typeof tr !== "object" || tr === null) return null;
+    const translations: Record<string, string> = {};
+    for (const [k, v] of Object.entries(tr as Record<string, unknown>)) {
+      if (typeof v === "string") translations[k] = v;
+    }
+    return { kind: "final", original: frame.original, lang: frame.lang, translations };
+  }
+
+  if (frame.kind === "interim") {
+    if (typeof frame.text !== "string") return null;
+    return { kind: "interim", text: frame.text, lang: frame.lang };
+  }
+
+  return null; // unknown kind
+}
+
 /** The subset of the WebSocket API we drive, so a fake can stand in for tests. */
 export interface PresenceSocket {
   onopen: ((this: unknown, ev: unknown) => unknown) | null;
@@ -54,6 +123,9 @@ export interface PresenceClientOptions {
   lang?: string | null;
   /** Called with the latest audience count on every `count` frame. */
   onCount: (count: number) => void;
+  /** Called with each live-subtitle event (webinar Fase 2 translation) that arrives
+   *  on the same presence WS. Optional — the host studio doesn't render captions. */
+  onSubtitle?: (event: SubtitleEvent) => void;
   /** Injectable WebSocket ctor for tests. Defaults to the global `WebSocket`. */
   socketFactory?: PresenceSocketFactory;
   /** First reconnect delay in ms (doubles each attempt, capped). Default 1000. */
@@ -135,7 +207,13 @@ export class PresenceClient {
     sock.onmessage = (ev) => {
       if (typeof ev.data !== "string") return; // ignore binary frames
       const n = parsePresenceCount(ev.data);
-      if (n !== null) this.opts.onCount(n);
+      if (n !== null) {
+        this.opts.onCount(n);
+        return; // a count frame is never also a subtitle frame
+      }
+      // Not a count frame — try the subtitle path (same WS carries both).
+      const sub = this.opts.onSubtitle ? parseSubtitleFrame(ev.data) : null;
+      if (sub) this.opts.onSubtitle!(sub);
     };
     sock.onclose = () => {
       this.socket = null;

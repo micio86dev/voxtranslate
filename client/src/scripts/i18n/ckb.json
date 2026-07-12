@@ -637,5 +637,10 @@
   "wvTapToStart": "بۆ دەستپێکردن دەست لێبدە",
   "wvNotFoundTitle": "وێبینار نەدۆزرایەوە",
   "wvNotFoundText": "ئەم بەستەری وێبینارە نادروستە یان هەڵوەشێنراوەتەوە.",
-  "wvBackHome": "گەڕانەوە بۆ VoxTranslate"
+  "wvBackHome": "گەڕانەوە بۆ VoxTranslate",
+  "wvListenOriginal": "گوێ بگرە بە زمانی ڕەسەن",
+  "wvMuteAudio": "دەنگ بێدەنگ بکە",
+  "wvUnmuteAudio": "دەنگ چالاک بکە",
+  "wvSubtitlesOn": "ژێرنووس چالاکە",
+  "wvSubtitlesOff": "ژێرنووس ناچالاکە"
 }

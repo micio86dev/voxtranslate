@@ -637,5 +637,10 @@
   "wvTapToStart": "Tẹ̀ láti bẹ̀rẹ̀",
   "wvNotFoundTitle": "Wẹ́bínà kò sí",
   "wvNotFoundText": "Ọ̀nà àsopọ̀ wẹ́bínà yìí kò tọ̀nà tàbí a ti fagilé rẹ̀.",
-  "wvBackHome": "Padà sí VoxTranslate"
+  "wvBackHome": "Padà sí VoxTranslate",
+  "wvListenOriginal": "Tẹ́tí sí èdè ìpilẹ̀",
+  "wvMuteAudio": "Pa ohùn",
+  "wvUnmuteAudio": "Ṣí ohùn",
+  "wvSubtitlesOn": "Àkọlé wà ní ṣíṣí",
+  "wvSubtitlesOff": "Àkọlé wà ní pípa"
 }

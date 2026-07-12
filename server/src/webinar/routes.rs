@@ -59,6 +59,9 @@ pub fn routes() -> Router<AppState> {
         // Lifecycle: host client reports on-air / off-air (F1-3).
         .route("/api/webinars/{id}/publish-started", post(publish_started))
         .route("/api/webinars/{id}/publish-stopped", post(publish_stopped))
+        // Realtime subtitles (Fase 2) — host STT ingest WebSocket. Query-param JWT
+        // auth (browsers can't set WS headers); see `webinar::stt`.
+        .route("/api/webinars/{id}/stt", get(crate::webinar::stt::stt_ws))
         // MediaMTX external-auth hook (F1-2) — server-to-server, path-secret auth.
         .route("/internal/media-auth/{caller_secret}", post(media_auth))
         // Realtime presence (Fase 4) — public WebSocket keyed by webinar code.
@@ -135,7 +138,7 @@ fn valid_title(raw: &str) -> Result<&str, Response> {
     Ok(t)
 }
 
-fn valid_lang(raw: &str) -> Result<&str, Response> {
+pub(crate) fn valid_lang(raw: &str) -> Result<&str, Response> {
     let l = raw.trim();
     if l.is_empty()
         || l.chars().count() > 32

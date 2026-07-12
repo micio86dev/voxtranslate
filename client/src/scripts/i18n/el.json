@@ -637,5 +637,10 @@
   "wvTapToStart": "Πατήστε για έναρξη",
   "wvNotFoundTitle": "Το διαδικτυακό σεμινάριο δεν βρέθηκε",
   "wvNotFoundText": "Αυτός ο σύνδεσμος του διαδικτυακού σεμιναρίου δεν είναι έγκυρος ή έχει ακυρωθεί.",
-  "wvBackHome": "Επιστροφή στο VoxTranslate"
+  "wvBackHome": "Επιστροφή στο VoxTranslate",
+  "wvListenOriginal": "Ακρόαση στην αρχική γλώσσα",
+  "wvMuteAudio": "Σίγαση ήχου",
+  "wvUnmuteAudio": "Κατάργηση σίγασης",
+  "wvSubtitlesOn": "Υπότιτλοι ενεργοί",
+  "wvSubtitlesOff": "Υπότιτλοι ανενεργοί"
 }

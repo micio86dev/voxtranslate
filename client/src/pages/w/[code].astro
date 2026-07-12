@@ -102,6 +102,10 @@ const pageDesc = webinar
               preload="none"
             ></video>
 
+            <!-- Live subtitles overlay (Fase 2): the host's speech transcribed +
+                 translated into the viewer's language, streamed over the presence WS. -->
+            <div id="wv-subtitles" class="wv-subtitles" role="status" aria-live="polite"></div>
+
             <!-- Tap-to-start overlay: shown only when even muted autoplay was blocked. -->
             <button id="wv-tap" type="button" class="wv-tap hidden" data-i18n="wvTapToStart">
               Tap to start
@@ -121,6 +125,21 @@ const pageDesc = webinar
               <div class="wv-glyph" aria-hidden="true">⚠️</div>
               <p data-i18n="wvErrorBody">We couldn’t load this webinar. Please refresh to try again.</p>
             </div>
+          </div>
+
+          <!-- Viewer controls (Fase 2): audio mute/unmute + "listen in the original
+               language" + a captions on/off toggle. The video starts muted for autoplay;
+               these let the guest opt into the host's audio and control subtitles. -->
+          <div class="wv-controls">
+            <button id="wv-mute" type="button" class="wv-ctl" aria-pressed="false" data-i18n="wvMuteAudio">
+              Mute audio
+            </button>
+            <button id="wv-listen" type="button" class="wv-ctl" aria-pressed="false" data-i18n="wvListenOriginal">
+              Listen in the original language
+            </button>
+            <button id="wv-cc" type="button" class="wv-ctl" aria-pressed="true" data-i18n="wvSubtitlesOn">
+              Subtitles on
+            </button>
           </div>
         </div>
       )
@@ -272,6 +291,71 @@ const pageDesc = webinar
     }
     .wv-tap.hidden {
       display: none;
+    }
+    /* Live-subtitle overlay: a caption band along the bottom of the video. Empty until
+       the first frame; pointer-events off so it never blocks the video controls. */
+    .wv-subtitles {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 8px;
+      display: flex;
+      justify-content: center;
+      padding: 0 16px;
+      pointer-events: none;
+      z-index: 2;
+    }
+    /* The subtitle box + line spans are created at runtime by subtitle-render.ts, so their
+       classes must be :global (Astro's scoping can't reach JS-created nodes). */
+    .wv-subtitles :global(.subtitle) {
+      display: inline-flex;
+      flex-direction: column;
+      gap: 2px;
+      max-width: 90%;
+      padding: 6px 12px;
+      border-radius: 8px;
+      background: rgba(0, 0, 0, 0.68);
+      color: #fff;
+      text-align: center;
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+      line-height: 1.35;
+    }
+    .wv-subtitles :global(.subtitle-interim) {
+      opacity: 0.75;
+    }
+    .wv-subtitles :global(.subtitle-translation) {
+      font-size: 1rem;
+      font-weight: 600;
+    }
+    .wv-subtitles :global(.subtitle-original) {
+      font-size: 0.82rem;
+      opacity: 0.8;
+    }
+    /* Viewer controls row (audio + captions). */
+    .wv-controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: center;
+    }
+    .wv-ctl {
+      font-size: 0.85rem;
+      font-weight: 600;
+      padding: 8px 14px;
+      border-radius: 999px;
+      background: var(--surface, #1b2330);
+      border: 1px solid var(--border, #2a3444);
+      color: var(--text, #e5e7eb);
+      cursor: pointer;
+    }
+    .wv-ctl:hover {
+      border-color: var(--accent, #3b82f6);
+    }
+    /* Pressed state (audio on / captions on) — a subtle accent tint. */
+    .wv-ctl[aria-pressed='true'] {
+      background: rgba(59, 130, 246, 0.15);
+      border-color: rgba(59, 130, 246, 0.5);
+      color: #93c5fd;
     }
     .wv-spinner {
       width: 42px;

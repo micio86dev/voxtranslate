@@ -637,5 +637,10 @@
   "wvTapToStart": "点按开始",
   "wvNotFoundTitle": "未找到网络研讨会",
   "wvNotFoundText": "此网络研讨会链接无效或已取消。",
-  "wvBackHome": "返回 VoxTranslate"
+  "wvBackHome": "返回 VoxTranslate",
+  "wvListenOriginal": "以原始语言收听",
+  "wvMuteAudio": "静音",
+  "wvUnmuteAudio": "取消静音",
+  "wvSubtitlesOn": "字幕已开启",
+  "wvSubtitlesOff": "字幕已关闭"
 }

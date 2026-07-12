@@ -637,5 +637,10 @@
   "wvTapToStart": "Palieskite, kad pradėtumėte",
   "wvNotFoundTitle": "Internetinis seminaras nerastas",
   "wvNotFoundText": "Ši internetinio seminaro nuoroda negalioja arba buvo atšaukta.",
-  "wvBackHome": "Grįžti į VoxTranslate"
+  "wvBackHome": "Grįžti į VoxTranslate",
+  "wvListenOriginal": "Klausytis originalo kalba",
+  "wvMuteAudio": "Nutildyti garsą",
+  "wvUnmuteAudio": "Įjungti garsą",
+  "wvSubtitlesOn": "Subtitrai įjungti",
+  "wvSubtitlesOff": "Subtitrai išjungti"
 }

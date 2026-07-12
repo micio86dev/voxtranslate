@@ -637,5 +637,10 @@
   "wvTapToStart": "Toca per començar",
   "wvNotFoundTitle": "Webinar no trobat",
   "wvNotFoundText": "Aquest enllaç del webinar no és vàlid o s’ha cancel·lat.",
-  "wvBackHome": "Torna a VoxTranslate"
+  "wvBackHome": "Torna a VoxTranslate",
+  "wvListenOriginal": "Escolta en l’idioma original",
+  "wvMuteAudio": "Silencia l’àudio",
+  "wvUnmuteAudio": "Activa l’àudio",
+  "wvSubtitlesOn": "Subtítols activats",
+  "wvSubtitlesOff": "Subtítols desactivats"
 }

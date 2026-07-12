@@ -637,5 +637,10 @@
   "wvTapToStart": "הקש כדי להתחיל",
   "wvNotFoundTitle": "הוובינר לא נמצא",
   "wvNotFoundText": "קישור הוובינר הזה אינו תקין או שבוטל.",
-  "wvBackHome": "חזרה אל VoxTranslate"
+  "wvBackHome": "חזרה אל VoxTranslate",
+  "wvListenOriginal": "האזנה בשפת המקור",
+  "wvMuteAudio": "השתקת האודיו",
+  "wvUnmuteAudio": "ביטול ההשתקה",
+  "wvSubtitlesOn": "כתוביות פועלות",
+  "wvSubtitlesOff": "כתוביות כבויות"
 }

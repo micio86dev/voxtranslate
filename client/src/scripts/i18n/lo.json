@@ -637,5 +637,10 @@
   "wvTapToStart": "ແຕະເພື່ອເລີ່ມ",
   "wvNotFoundTitle": "ບໍ່ພົບເວັບບີນາ",
   "wvNotFoundText": "ລິ້ງເວັບບີນານີ້ບໍ່ຖືກຕ້ອງ ຫຼື ຖືກຍົກເລີກແລ້ວ.",
-  "wvBackHome": "ກັບໄປ VoxTranslate"
+  "wvBackHome": "ກັບໄປ VoxTranslate",
+  "wvListenOriginal": "ຟັງໃນພາສາຕົ້ນສະບັບ",
+  "wvMuteAudio": "ປິດສຽງ",
+  "wvUnmuteAudio": "ເປີດສຽງ",
+  "wvSubtitlesOn": "ເປີດຄຳບັນຍາຍ",
+  "wvSubtitlesOff": "ປິດຄຳບັນຍາຍ"
 }

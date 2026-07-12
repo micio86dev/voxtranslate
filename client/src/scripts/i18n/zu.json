@@ -637,5 +637,10 @@
   "wvTapToStart": "Thepha ukuze uqale",
   "wvNotFoundTitle": "I-webinar ayitholakali",
   "wvNotFoundText": "Le khasi le-webinar aliphephile noma likhanseliwe.",
-  "wvBackHome": "Buyela ku-VoxTranslate"
+  "wvBackHome": "Buyela ku-VoxTranslate",
+  "wvListenOriginal": "Lalela ngolimi lwangempela",
+  "wvMuteAudio": "Thulisa umsindo",
+  "wvUnmuteAudio": "Vula umsindo",
+  "wvSubtitlesOn": "Imibhalo engezansi ivuliwe",
+  "wvSubtitlesOff": "Imibhalo engezansi ivaliwe"
 }

@@ -637,5 +637,10 @@
   "wvTapToStart": "Tik om te begin",
   "wvNotFoundTitle": "Webinar nie gevind nie",
   "wvNotFoundText": "Hierdie webinar-skakel is ongeldig of is gekanselleer.",
-  "wvBackHome": "Terug na VoxTranslate"
+  "wvBackHome": "Terug na VoxTranslate",
+  "wvListenOriginal": "Luister in die oorspronklike taal",
+  "wvMuteAudio": "Demp klank",
+  "wvUnmuteAudio": "Ontdemp klank",
+  "wvSubtitlesOn": "Onderskrifte aan",
+  "wvSubtitlesOff": "Onderskrifte af"
 }

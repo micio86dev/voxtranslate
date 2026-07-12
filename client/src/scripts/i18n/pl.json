@@ -637,5 +637,10 @@
   "wvTapToStart": "Dotknij, aby rozpocząć",
   "wvNotFoundTitle": "Nie znaleziono webinaru",
   "wvNotFoundText": "Ten link do webinaru jest nieprawidłowy lub został anulowany.",
-  "wvBackHome": "Powrót do VoxTranslate"
+  "wvBackHome": "Powrót do VoxTranslate",
+  "wvListenOriginal": "Słuchaj w języku oryginalnym",
+  "wvMuteAudio": "Wycisz dźwięk",
+  "wvUnmuteAudio": "Włącz dźwięk",
+  "wvSubtitlesOn": "Napisy włączone",
+  "wvSubtitlesOff": "Napisy wyłączone"
 }

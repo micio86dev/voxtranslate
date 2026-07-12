@@ -204,6 +204,38 @@ describe('HlsPlayer state machine', () => {
     expect(needsTap).toBe(false);
   });
 
+  it('muteAudio toggles the video mute flag and resumes on unmute', () => {
+    const video = fakeVideo({ canNative: true }) as any;
+    video.paused = true; // element is paused (autoplay was muted → user opts into sound)
+    const p = new HlsPlayer({
+      code: 'ab12cd',
+      video,
+      fetchWebinar: vi.fn().mockResolvedValue(webinar({ status: 'live' })),
+    });
+    // Unmute: clears the flag AND (since paused) tries to (re)start playback.
+    expect(p.muteAudio(false)).toBe(false);
+    expect(video.muted).toBe(false);
+    expect(p.isMuted()).toBe(false);
+    expect(video.play).toHaveBeenCalled();
+    // Mute again: sets the flag, never calls play().
+    video.play.mockClear();
+    expect(p.muteAudio(true)).toBe(true);
+    expect(video.muted).toBe(true);
+    expect(video.play).not.toHaveBeenCalled();
+  });
+
+  it('muteAudio does not call play() when the video is already playing', () => {
+    const video = fakeVideo({ canNative: true }) as any;
+    video.paused = false; // already playing
+    const p = new HlsPlayer({
+      code: 'ab12cd',
+      video,
+      fetchWebinar: vi.fn().mockResolvedValue(webinar({ status: 'live' })),
+    });
+    p.muteAudio(false);
+    expect(video.play).not.toHaveBeenCalled();
+  });
+
   it('goes to error when the initial fetch fails', async () => {
     const video = fakeVideo();
     const p = new HlsPlayer({

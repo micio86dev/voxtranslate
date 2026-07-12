@@ -637,5 +637,10 @@
   "wvTapToStart": "Appuyez pour démarrer",
   "wvNotFoundTitle": "Webinaire introuvable",
   "wvNotFoundText": "Ce lien de webinaire est invalide ou a été annulé.",
-  "wvBackHome": "Retour à VoxTranslate"
+  "wvBackHome": "Retour à VoxTranslate",
+  "wvListenOriginal": "Écouter dans la langue originale",
+  "wvMuteAudio": "Couper le son",
+  "wvUnmuteAudio": "Rétablir le son",
+  "wvSubtitlesOn": "Sous-titres activés",
+  "wvSubtitlesOff": "Sous-titres désactivés"
 }

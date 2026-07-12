@@ -637,5 +637,10 @@
   "wvTapToStart": "Agħfas biex tibda",
   "wvNotFoundTitle": "Il-webinar ma nstabx",
   "wvNotFoundText": "Din il-link tal-webinar hija invalida jew ġiet ikkanċellata.",
-  "wvBackHome": "Lura għal VoxTranslate"
+  "wvBackHome": "Lura għal VoxTranslate",
+  "wvListenOriginal": "Isma' bil-lingwa oriġinali",
+  "wvMuteAudio": "Silenzja l-awdjo",
+  "wvUnmuteAudio": "Attiva l-awdjo",
+  "wvSubtitlesOn": "Sottotitli mixgħula",
+  "wvSubtitlesOff": "Sottotitli mitfija"
 }

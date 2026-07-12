@@ -19,6 +19,7 @@ pub mod guest;
 pub mod media;
 pub mod presence;
 pub mod routes;
+pub mod stt;
 
 /// Base58 alphabet: digits + letters MINUS the visually ambiguous `0 O I l`, so a
 /// code read off a screen or scanned from a QR is unambiguous.

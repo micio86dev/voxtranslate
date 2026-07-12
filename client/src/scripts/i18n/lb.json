@@ -637,5 +637,10 @@
   "wvTapToStart": "Tippt fir unzefänken",
   "wvNotFoundTitle": "Webinar net fonnt",
   "wvNotFoundText": "Dëse Webinar-Link ass ongëlteg oder gouf annuléiert.",
-  "wvBackHome": "Zréck op VoxTranslate"
+  "wvBackHome": "Zréck op VoxTranslate",
+  "wvListenOriginal": "An der Originalsprooch lauschteren",
+  "wvMuteAudio": "Toun ausschalten",
+  "wvUnmuteAudio": "Toun aschalten",
+  "wvSubtitlesOn": "Ënnertitelen un",
+  "wvSubtitlesOff": "Ënnertitelen aus"
 }

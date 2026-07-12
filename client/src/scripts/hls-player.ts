@@ -250,6 +250,30 @@ export class HlsPlayer {
     }
   }
 
+  /**
+   * Mute or unmute the HLS audio (webinar Fase 2 audio controls). The `<video>` starts
+   * muted so muted-autoplay is allowed; the participant opts into sound via the audio
+   * buttons. Unmuting also (best-effort) resumes playback if the element is paused —
+   * this runs inside the button's click handler, a user gesture the autoplay policy
+   * honours, so the previously-blocked sound can start. Returns whether the element is
+   * muted after the call.
+   */
+  muteAudio(muted: boolean): boolean {
+    this.video.muted = muted;
+    if (!muted && this.video.paused) {
+      // A user gesture is driving this — try to (re)start playback with sound.
+      void this.video.play?.().catch(() => {
+        /* still blocked (rare) — the tap-to-start overlay remains the fallback */
+      });
+    }
+    return this.video.muted;
+  }
+
+  /** Whether the HLS audio is currently muted. */
+  isMuted(): boolean {
+    return this.video.muted;
+  }
+
   /** User tapped the start overlay: unmute and play (a user gesture always allows
    *  playback). Returns whether playback started. */
   async userStart(): Promise<boolean> {

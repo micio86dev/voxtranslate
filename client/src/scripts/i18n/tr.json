@@ -637,5 +637,10 @@
   "wvTapToStart": "Başlatmak için dokunun",
   "wvNotFoundTitle": "Web semineri bulunamadı",
   "wvNotFoundText": "Bu web semineri bağlantısı geçersiz veya iptal edilmiş.",
-  "wvBackHome": "VoxTranslate'e dön"
+  "wvBackHome": "VoxTranslate'e dön",
+  "wvListenOriginal": "Orijinal dilde dinle",
+  "wvMuteAudio": "Sesi kapat",
+  "wvUnmuteAudio": "Sesi aç",
+  "wvSubtitlesOn": "Altyazılar açık",
+  "wvSubtitlesOff": "Altyazılar kapalı"
 }

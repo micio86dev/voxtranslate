@@ -637,5 +637,10 @@
   "wvTapToStart": "Ketik untuk bermula",
   "wvNotFoundTitle": "Webinar tidak dijumpai",
   "wvNotFoundText": "Pautan webinar ini tidak sah atau telah dibatalkan.",
-  "wvBackHome": "Kembali ke VoxTranslate"
+  "wvBackHome": "Kembali ke VoxTranslate",
+  "wvListenOriginal": "Dengar dalam bahasa asal",
+  "wvMuteAudio": "Bisukan audio",
+  "wvUnmuteAudio": "Nyahbisukan audio",
+  "wvSubtitlesOn": "Sari kata hidup",
+  "wvSubtitlesOff": "Sari kata mati"
 }

@@ -637,5 +637,10 @@
   "wvTapToStart": "Tryk for at starte",
   "wvNotFoundTitle": "Webinar ikke fundet",
   "wvNotFoundText": "Dette webinarlink er ugyldigt eller er blevet annulleret.",
-  "wvBackHome": "Tilbage til VoxTranslate"
+  "wvBackHome": "Tilbage til VoxTranslate",
+  "wvListenOriginal": "Lyt på originalsproget",
+  "wvMuteAudio": "Slå lyd fra",
+  "wvUnmuteAudio": "Slå lyd til",
+  "wvSubtitlesOn": "Undertekster til",
+  "wvSubtitlesOff": "Undertekster fra"
 }

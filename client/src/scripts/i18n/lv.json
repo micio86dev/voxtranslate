@@ -637,5 +637,10 @@
   "wvTapToStart": "Pieskarieties, lai sāktu",
   "wvNotFoundTitle": "Vebinārs nav atrasts",
   "wvNotFoundText": "Šī vebināra saite nav derīga vai ir atcelta.",
-  "wvBackHome": "Atpakaļ uz VoxTranslate"
+  "wvBackHome": "Atpakaļ uz VoxTranslate",
+  "wvListenOriginal": "Klausīties oriģinālvalodā",
+  "wvMuteAudio": "Izslēgt skaņu",
+  "wvUnmuteAudio": "Ieslēgt skaņu",
+  "wvSubtitlesOn": "Subtitri ieslēgti",
+  "wvSubtitlesOff": "Subtitri izslēgti"
 }

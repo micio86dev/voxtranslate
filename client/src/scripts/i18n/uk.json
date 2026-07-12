@@ -637,5 +637,10 @@
   "wvTapToStart": "Торкніться, щоб почати",
   "wvNotFoundTitle": "Вебінар не знайдено",
   "wvNotFoundText": "Це посилання на вебінар недійсне або його скасовано.",
-  "wvBackHome": "Назад до VoxTranslate"
+  "wvBackHome": "Назад до VoxTranslate",
+  "wvListenOriginal": "Слухати мовою оригіналу",
+  "wvMuteAudio": "Вимкнути звук",
+  "wvUnmuteAudio": "Увімкнути звук",
+  "wvSubtitlesOn": "Субтитри увімкнено",
+  "wvSubtitlesOff": "Субтитри вимкнено"
 }

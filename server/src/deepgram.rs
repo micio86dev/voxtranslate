@@ -48,7 +48,9 @@ pub struct SpeakerCtx {
 
 type DgStream = WebSocketStream<MaybeTlsStream<TcpStream>>;
 type DgSink = SplitSink<DgStream, Message>;
-type DgSource = SplitStream<DgStream>;
+/// The receive half of a Deepgram streaming connection (transcript frames).
+/// Public so other pipelines (e.g. the webinar STT ingest) can consume it.
+pub type DgSource = SplitStream<DgStream>;
 
 /// The audio container/encoding the speaker is streaming, which decides the
 /// Deepgram input params (spec 0099 surgical audio).

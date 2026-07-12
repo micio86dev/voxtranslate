@@ -637,5 +637,10 @@
   "wvTapToStart": "შეეხეთ დასაწყებად",
   "wvNotFoundTitle": "ვებინარი ვერ მოიძებნა",
   "wvNotFoundText": "ამ ვებინარის ბმული არასწორია ან გაუქმებულია.",
-  "wvBackHome": "VoxTranslate-ზე დაბრუნება"
+  "wvBackHome": "VoxTranslate-ზე დაბრუნება",
+  "wvListenOriginal": "მოსმენა ორიგინალ ენაზე",
+  "wvMuteAudio": "ხმის დადუმება",
+  "wvUnmuteAudio": "ხმის ჩართვა",
+  "wvSubtitlesOn": "სუბტიტრები ჩართულია",
+  "wvSubtitlesOff": "სუბტიტრები გამორთულია"
 }

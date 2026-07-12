@@ -637,5 +637,10 @@
   "wvTapToStart": "Boshlash uchun bosing",
   "wvNotFoundTitle": "Vebinar topilmadi",
   "wvNotFoundText": "Ushbu vebinar havolasi yaroqsiz yoki bekor qilingan.",
-  "wvBackHome": "VoxTranslate’ga qaytish"
+  "wvBackHome": "VoxTranslate’ga qaytish",
+  "wvListenOriginal": "Asl tilda tinglang",
+  "wvMuteAudio": "Ovozni o‘chirish",
+  "wvUnmuteAudio": "Ovozni yoqish",
+  "wvSubtitlesOn": "Subtitrlar yoqilgan",
+  "wvSubtitlesOff": "Subtitrlar o‘chirilgan"
 }

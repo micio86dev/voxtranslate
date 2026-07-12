@@ -637,5 +637,10 @@
   "wvTapToStart": "Бастау үшін түртіңіз",
   "wvNotFoundTitle": "Вебинар табылмады",
   "wvNotFoundText": "Бұл вебинар сілтемесі жарамсыз немесе тоқтатылған.",
-  "wvBackHome": "VoxTranslate-ке оралу"
+  "wvBackHome": "VoxTranslate-ке оралу",
+  "wvListenOriginal": "Түпнұсқа тілде тыңдау",
+  "wvMuteAudio": "Дыбысты өшіру",
+  "wvUnmuteAudio": "Дыбысты қосу",
+  "wvSubtitlesOn": "Субтитрлер қосулы",
+  "wvSubtitlesOff": "Субтитрлер өшірулі"
 }

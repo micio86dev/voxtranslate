@@ -637,5 +637,10 @@
   "wvTapToStart": "Puuduta alustamiseks",
   "wvNotFoundTitle": "Veebiseminari ei leitud",
   "wvNotFoundText": "See veebiseminari link on kehtetu või tühistatud.",
-  "wvBackHome": "Tagasi VoxTranslate’i"
+  "wvBackHome": "Tagasi VoxTranslate’i",
+  "wvListenOriginal": "Kuula algkeeles",
+  "wvMuteAudio": "Vaigista heli",
+  "wvUnmuteAudio": "Taasta heli",
+  "wvSubtitlesOn": "Subtiitrid sees",
+  "wvSubtitlesOff": "Subtiitrid väljas"
 }

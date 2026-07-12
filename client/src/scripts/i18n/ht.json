@@ -637,5 +637,10 @@
   "wvTapToStart": "Peze pou kòmanse",
   "wvNotFoundTitle": "Webinè pa jwenn",
   "wvNotFoundText": "Lyen webinè sa a pa valab oswa yo anile l.",
-  "wvBackHome": "Retounen nan VoxTranslate"
+  "wvBackHome": "Retounen nan VoxTranslate",
+  "wvListenOriginal": "Koute nan lang orijinal la",
+  "wvMuteAudio": "Fèmen son an",
+  "wvUnmuteAudio": "Ouvri son an",
+  "wvSubtitlesOn": "Soutit aktive",
+  "wvSubtitlesOff": "Soutit dezaktive"
 }

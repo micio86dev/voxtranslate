@@ -637,5 +637,10 @@
   "wvTapToStart": "Pịa iji malite",
   "wvNotFoundTitle": "Ahụghị webinar",
   "wvNotFoundText": "Njikọ webinar a ezighị ezi ma ọ bụ a kagburu ya.",
-  "wvBackHome": "Laghachi na VoxTranslate"
+  "wvBackHome": "Laghachi na VoxTranslate",
+  "wvListenOriginal": "Gee ntị n'asụsụ mbụ",
+  "wvMuteAudio": "Mechie ụda",
+  "wvUnmuteAudio": "Meghee ụda",
+  "wvSubtitlesOn": "Okwu ndabere agbanyere",
+  "wvSubtitlesOff": "Okwu ndabere agbanyụọ"
 }

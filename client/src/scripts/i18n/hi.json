@@ -637,5 +637,10 @@
   "wvTapToStart": "शुरू करने के लिए टैप करें",
   "wvNotFoundTitle": "वेबिनार नहीं मिला",
   "wvNotFoundText": "यह वेबिनार लिंक अमान्य है या रद्द कर दिया गया है.",
-  "wvBackHome": "VoxTranslate पर वापस जाएँ"
+  "wvBackHome": "VoxTranslate पर वापस जाएँ",
+  "wvListenOriginal": "मूल भाषा में सुनें",
+  "wvMuteAudio": "ऑडियो म्यूट करें",
+  "wvUnmuteAudio": "ऑडियो अनम्यूट करें",
+  "wvSubtitlesOn": "सबटाइटल चालू",
+  "wvSubtitlesOff": "सबटाइटल बंद"
 }

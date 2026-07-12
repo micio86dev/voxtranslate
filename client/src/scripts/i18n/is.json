@@ -637,5 +637,10 @@
   "wvTapToStart": "Ýttu til að byrja",
   "wvNotFoundTitle": "Vefnámskeið fannst ekki",
   "wvNotFoundText": "Þessi hlekkur á vefnámskeið er ógildur eða hefur verið felldur niður.",
-  "wvBackHome": "Til baka í VoxTranslate"
+  "wvBackHome": "Til baka í VoxTranslate",
+  "wvListenOriginal": "Hlusta á upprunalega tungumálið",
+  "wvMuteAudio": "Þagga hljóð",
+  "wvUnmuteAudio": "Kveikja á hljóði",
+  "wvSubtitlesOn": "Skjátextar á",
+  "wvSubtitlesOff": "Skjátextar af"
 }
