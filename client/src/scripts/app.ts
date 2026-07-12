@@ -97,6 +97,8 @@ import {
 } from './webinar';
 import { PresenceClient } from './webinar-presence';
 import { WhipPublisher, type WhipState } from './whip-publisher';
+import { WebinarSttClient } from './webinar-stt';
+import { AudioCapture as WebinarAudioCapture } from './audio-capture';
 import { initBookmarks, setBookmarkSession } from './bookmarks';
 import { initBugReport } from './bug-report';
 import * as onboarding from './onboarding';
@@ -5234,6 +5236,11 @@ function renderArchivedWebinarCard(w: WebinarView): void {
 // the live WhipPublisher; `activePublisherId` is the webinar it's publishing.
 let activePublisher: WhipPublisher | null = null;
 let activePublisherId: string | null = null;
+// The host's live STT bridge (webinar Fase 2): streams the SAME mic track to the API's
+// Deepgram ingest so the server can transcribe + translate and fan subtitle frames out to
+// every viewer over the presence WS. Runs for the life of a broadcast; self-reconnects on
+// a silent socket drop so subtitles don't stop while the video keeps flowing.
+let activeWebinarStt: WebinarSttClient | null = null;
 
 /**
  * Build the per-webinar "Go live" control. Clicking it no longer publishes immediately —
@@ -5500,6 +5507,34 @@ function closeWebinarPresence(): void {
   webinarPresence = null;
 }
 
+/** Open the host STT bridge for a live broadcast: stream the publisher's mic track to the
+ *  API's Deepgram ingest WS (binary WebM/Opus chunks) so subtitles fan out to viewers.
+ *  Requires an authenticated host (the ingest WS is token-gated) and a captured stream.
+ *  Idempotent — closes any previous bridge first. No-op for guests / before capture. */
+function openWebinarStt(webinarId: string, publisher: WhipPublisher): void {
+  closeWebinarStt();
+  const token = auth.getToken();
+  const stream = publisher.getLocalStream();
+  if (!token || !stream) return; // only an authenticated host with a live mic can ingest
+  activeWebinarStt = new WebinarSttClient({
+    wsBase: WS_BASE,
+    webinarId,
+    token,
+    // A fresh AudioCapture per (re)connect: a new MediaRecorder emits a header-bearing
+    // first WebM chunk, which each new Deepgram stream requires. It sends binary chunks;
+    // its harmless start/stop text frames are ignored by the ingest server.
+    makeCapture: (socket) => new WebinarAudioCapture(stream, socket as unknown as WebSocket),
+  });
+  activeWebinarStt.start();
+}
+
+/** Close the host STT bridge (broadcast ended). Closing the ingest socket flushes any
+ *  pending finals server-side. Idempotent. */
+function closeWebinarStt(): void {
+  activeWebinarStt?.stop();
+  activeWebinarStt = null;
+}
+
 /** Reflect the WhipPublisher state on the studio's ON AIR badge. */
 function wsPaintState(state: WhipState): void {
   const label =
@@ -5592,6 +5627,9 @@ async function startWebinarBroadcast(
     await publisher.start();
     activePublisher = publisher;
     activePublisherId = w.id;
+    // Bridge the mic to the server STT ingest so viewers get live subtitles. Best-effort:
+    // a guest (no token) or a missing stream just skips it — the video still broadcasts.
+    openWebinarStt(w.id, publisher);
     openWebinarStudio(w);
   } catch {
     // start() surfaced mic-denied / error via onState + toast — back to the list.
@@ -5601,6 +5639,9 @@ async function startWebinarBroadcast(
 
 /** Stop the active broadcast (host confirmed End), then return to the Webinars list. */
 async function endWebinarBroadcast(): Promise<void> {
+  // Close the STT bridge FIRST: closing the ingest socket flushes pending finals before we
+  // stop capturing, so the last words still reach viewers as a subtitle.
+  closeWebinarStt();
   if (activePublisher) {
     await activePublisher.stop();
     activePublisher = null;

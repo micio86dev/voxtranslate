@@ -28,7 +28,70 @@ use crate::AppState;
 /// One live viewer/host connection.
 struct Conn {
     is_host: bool,
+    /// The viewer's chosen subtitle language (validated with `valid_lang` before
+    /// storing). `None` for the host studio and for viewers that didn't send one.
+    lang: Option<String>,
     tx: mpsc::UnboundedSender<Message>,
+}
+
+/// A realtime subtitle frame broadcast to viewers over the presence WS (Fase 2).
+///
+/// # Wire contract (EXACT — the participant client matches on `type` + `kind`)
+///
+/// A finalized utterance carries the original text, its source language, and the
+/// full `{ lang: text }` translation map (always including the source language);
+/// each viewer renders `translations[my_lang]`, falling back to `original`:
+///
+/// ```json
+/// {"type":"subtitle","kind":"final","original":"<src text>","lang":"<source_language>",
+///  "translations":{"en":"...","es":"..."}}
+/// ```
+///
+/// A live partial is untranslated — just the source text and language:
+///
+/// ```json
+/// {"type":"subtitle","kind":"interim","text":"<src text>","lang":"<source_language>"}
+/// ```
+///
+/// Frames carry ONLY text + language — never any host PII (no `host_user_id`,
+/// email, or org id). Subtitles originate solely from the STT processor; the
+/// presence WS never turns an inbound viewer frame into a subtitle.
+#[derive(Debug, Clone, PartialEq)]
+pub enum SubtitleEvent {
+    /// A live partial in the source language (untranslated).
+    Interim { text: String, lang: String },
+    /// A finalized utterance + its translation fan-out.
+    Final {
+        original: String,
+        lang: String,
+        translations: HashMap<String, String>,
+    },
+}
+
+impl SubtitleEvent {
+    /// Serialize to the exact JSON wire contract documented on [`SubtitleEvent`].
+    pub fn to_json(&self) -> String {
+        let value = match self {
+            SubtitleEvent::Interim { text, lang } => json!({
+                "type": "subtitle",
+                "kind": "interim",
+                "text": text,
+                "lang": lang,
+            }),
+            SubtitleEvent::Final {
+                original,
+                lang,
+                translations,
+            } => json!({
+                "type": "subtitle",
+                "kind": "final",
+                "original": original,
+                "lang": lang,
+                "translations": translations,
+            }),
+        };
+        value.to_string()
+    }
 }
 
 /// In-memory realtime presence, keyed by webinar code.
@@ -36,6 +99,26 @@ struct Conn {
 pub struct PresenceRegistry {
     rooms: DashMap<String, HashMap<u64, Conn>>,
     next: AtomicU64,
+    /// Single-flight guard: at most one active host STT stream per webinar code.
+    /// A second concurrent STT socket would open its own Deepgram connection and
+    /// re-run the Groq fan-out for every utterance — multiplying cost AND
+    /// duplicating subtitles for viewers. One entry per code while a stream holds
+    /// the slot; freed by [`SttGuard`] on drop.
+    stt_active: DashMap<String, ()>,
+}
+
+/// RAII slot for the single active host STT stream of a webinar. Held for the life
+/// of the STT socket; dropping it frees the slot so a later (e.g. reconnecting)
+/// host can start a fresh stream.
+pub struct SttGuard {
+    registry: std::sync::Arc<PresenceRegistry>,
+    code: String,
+}
+
+impl Drop for SttGuard {
+    fn drop(&mut self) {
+        self.registry.stt_active.remove(&self.code);
+    }
 }
 
 fn audience(room: &HashMap<u64, Conn>) -> usize {
@@ -69,6 +152,24 @@ impl PresenceRegistry {
         }
     }
 
+    /// Try to acquire the single active-STT slot for `code`. Returns a guard that
+    /// frees the slot on drop, or `None` if a stream is already active — so a
+    /// second concurrent STT socket is refused (409) instead of doubling cost and
+    /// duplicating subtitles. Atomic per key via the dashmap entry API.
+    pub fn try_begin_stt(self: &std::sync::Arc<Self>, code: &str) -> Option<SttGuard> {
+        use dashmap::mapref::entry::Entry;
+        match self.stt_active.entry(code.to_string()) {
+            Entry::Occupied(_) => None,
+            Entry::Vacant(v) => {
+                v.insert(());
+                Some(SttGuard {
+                    registry: std::sync::Arc::clone(self),
+                    code: code.to_string(),
+                })
+            }
+        }
+    }
+
     /// Current audience count (non-host connections) for a code.
     pub fn count(&self, code: &str) -> usize {
         self.rooms.get(code).map(|r| audience(&r)).unwrap_or(0)
@@ -79,6 +180,35 @@ impl PresenceRegistry {
         if let Some(room) = self.rooms.get(code) {
             let payload = json!({ "type": "count", "count": audience(&room) }).to_string();
             for c in room.values() {
+                let _ = c.tx.send(Message::Text(payload.clone().into()));
+            }
+        }
+    }
+
+    /// Distinct subtitle languages of the current non-host viewers, read LIVE from
+    /// the registry so a late joiner's language is picked up on the very next
+    /// final. Host connections and viewers without a language are excluded.
+    /// Order is unspecified (translation fan-out is order-insensitive).
+    pub fn target_languages(&self, code: &str) -> Vec<String> {
+        let Some(room) = self.rooms.get(code) else {
+            return Vec::new();
+        };
+        let mut seen = std::collections::HashSet::new();
+        room.values()
+            .filter(|c| !c.is_host)
+            .filter_map(|c| c.lang.as_deref())
+            .filter(|l| seen.insert(l.to_string()))
+            .map(str::to_string)
+            .collect()
+    }
+
+    /// Broadcast a subtitle frame to the room's VIEWER connections (the host
+    /// studio doesn't need its own subtitles). Fire-and-forget per connection: a
+    /// closed viewer socket is silently skipped, exactly like `broadcast_count`.
+    pub fn broadcast_subtitle(&self, code: &str, event: &SubtitleEvent) {
+        if let Some(room) = self.rooms.get(code) {
+            let payload = event.to_json();
+            for c in room.values().filter(|c| !c.is_host) {
                 let _ = c.tx.send(Message::Text(payload.clone().into()));
             }
         }
@@ -113,7 +243,15 @@ async fn handle_presence(socket: WebSocket, state: AppState, code: String, param
         .and_then(|s| Uuid::parse_str(s).ok())
         .unwrap_or_else(Uuid::new_v4);
     let is_host = params.host;
-    let lang = params.lang.clone();
+    // Validate the viewer's subtitle language server-side (it decides the
+    // translation fan-out). A malformed value is dropped, not trusted — the viewer
+    // simply gets no translated subtitle rather than injecting a bad language code.
+    let lang = params
+        .lang
+        .as_deref()
+        .map(str::trim)
+        .filter(|l| crate::webinar::routes::valid_lang(l).is_ok())
+        .map(str::to_string);
 
     let (mut ws_tx, mut ws_rx) = socket.split();
     let (tx, mut rx) = mpsc::unbounded_channel::<Message>();
@@ -128,7 +266,14 @@ async fn handle_presence(socket: WebSocket, state: AppState, code: String, param
         None => None,
     };
 
-    let conn_id = state.webinar_presence.join(&code, Conn { is_host, tx });
+    let conn_id = state.webinar_presence.join(
+        &code,
+        Conn {
+            is_host,
+            lang: lang.clone(),
+            tx,
+        },
+    );
     state.webinar_presence.broadcast_count(&code);
 
     // Persist the join + a participant row (audience only, best-effort).
@@ -146,7 +291,10 @@ async fn handle_presence(socket: WebSocket, state: AppState, code: String, param
         }
     });
 
-    // Read until the socket closes (ignore inbound payloads for now).
+    // Drain until the socket closes, discarding every inbound frame. This is a
+    // security boundary, not a TODO: subtitles originate ONLY from the STT
+    // processor (`broadcast_subtitle`), so a viewer can never inject or spoof a
+    // subtitle by writing to their own presence socket.
     while let Some(Ok(msg)) = ws_rx.next().await {
         if matches!(msg, Message::Close(_)) {
             break;
@@ -213,4 +361,201 @@ async fn record_leave(pool: &Pool, webinar_id: Uuid, participant_id: Option<Uuid
     .bind(participant_id)
     .execute(pool)
     .await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Register a connection and return its outbound receiver so a test can read
+    /// exactly what the registry pushes to it. Mirrors the real `join` path.
+    fn add(
+        reg: &PresenceRegistry,
+        code: &str,
+        is_host: bool,
+        lang: Option<&str>,
+    ) -> mpsc::UnboundedReceiver<Message> {
+        let (tx, rx) = mpsc::unbounded_channel();
+        reg.join(
+            code,
+            Conn {
+                is_host,
+                lang: lang.map(str::to_string),
+                tx,
+            },
+        );
+        rx
+    }
+
+    fn text_of(msg: &Message) -> &str {
+        match msg {
+            Message::Text(t) => t.as_str(),
+            other => panic!("expected a text frame, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn subtitle_event_final_json_matches_contract() {
+        let mut translations = HashMap::new();
+        translations.insert("en".to_string(), "hello everyone".to_string());
+        translations.insert("es".to_string(), "hola a todos".to_string());
+        let ev = SubtitleEvent::Final {
+            original: "ciao a tutti".to_string(),
+            lang: "it".to_string(),
+            translations,
+        };
+        let v: serde_json::Value = serde_json::from_str(&ev.to_json()).unwrap();
+        assert_eq!(v["type"], "subtitle");
+        assert_eq!(v["kind"], "final");
+        assert_eq!(v["original"], "ciao a tutti");
+        assert_eq!(v["lang"], "it");
+        assert_eq!(v["translations"]["en"], "hello everyone");
+        assert_eq!(v["translations"]["es"], "hola a todos");
+        // A final frame carries NO interim-only `text` field.
+        assert!(v.get("text").is_none(), "final must not carry `text`");
+    }
+
+    #[test]
+    fn subtitle_event_interim_json_matches_contract() {
+        let ev = SubtitleEvent::Interim {
+            text: "ciao a".to_string(),
+            lang: "it".to_string(),
+        };
+        let v: serde_json::Value = serde_json::from_str(&ev.to_json()).unwrap();
+        assert_eq!(v["type"], "subtitle");
+        assert_eq!(v["kind"], "interim");
+        assert_eq!(v["text"], "ciao a");
+        assert_eq!(v["lang"], "it");
+        // Interim is untranslated — no `original`/`translations`.
+        assert!(v.get("original").is_none());
+        assert!(v.get("translations").is_none());
+    }
+
+    #[test]
+    fn subtitle_frames_carry_no_host_pii() {
+        let mut translations = HashMap::new();
+        translations.insert("en".to_string(), "hi".to_string());
+        let json = SubtitleEvent::Final {
+            original: "ciao".to_string(),
+            lang: "it".to_string(),
+            translations,
+        }
+        .to_json();
+        for leaked in ["host_user_id", "user_id", "email", "org_id", "speaker_id"] {
+            assert!(!json.contains(leaked), "subtitle frame leaked `{leaked}`");
+        }
+    }
+
+    #[test]
+    fn target_languages_are_distinct_non_host_viewers() {
+        let reg = PresenceRegistry::new();
+        let _es1 = add(&reg, "C", false, Some("es"));
+        let _es2 = add(&reg, "C", false, Some("es")); // duplicate collapses
+        let _fr = add(&reg, "C", false, Some("fr"));
+        let _de = add(&reg, "C", false, Some("de"));
+        let _host = add(&reg, "C", true, Some("zh")); // host excluded
+        let _no_lang = add(&reg, "C", false, None); // no lang excluded
+
+        let mut langs = reg.target_languages("C");
+        langs.sort();
+        assert_eq!(langs, vec!["de", "es", "fr"]);
+    }
+
+    #[test]
+    fn target_languages_reads_live_registry_for_late_joiners() {
+        let reg = PresenceRegistry::new();
+        let _es = add(&reg, "C", false, Some("es"));
+        assert_eq!(reg.target_languages("C"), vec!["es".to_string()]);
+        // A late joiner's language shows up immediately on the next read.
+        let _fr = add(&reg, "C", false, Some("fr"));
+        let mut langs = reg.target_languages("C");
+        langs.sort();
+        assert_eq!(langs, vec!["es", "fr"]);
+    }
+
+    #[test]
+    fn target_languages_unknown_code_is_empty() {
+        let reg = PresenceRegistry::new();
+        assert!(reg.target_languages("nope").is_empty());
+    }
+
+    #[test]
+    fn stt_slot_is_single_flight_per_code() {
+        let reg = std::sync::Arc::new(PresenceRegistry::new());
+        let g1 = reg
+            .try_begin_stt("W")
+            .expect("first stream acquires the slot");
+        assert!(
+            reg.try_begin_stt("W").is_none(),
+            "a second concurrent STT stream is refused"
+        );
+        // A different webinar is independent.
+        assert!(reg.try_begin_stt("OTHER").is_some());
+        // Releasing the slot lets a later (reconnecting) host start again.
+        drop(g1);
+        assert!(
+            reg.try_begin_stt("W").is_some(),
+            "the slot is free once the guard drops"
+        );
+    }
+
+    #[test]
+    fn broadcast_subtitle_reaches_every_viewer() {
+        let reg = PresenceRegistry::new();
+        let mut es = add(&reg, "C", false, Some("es"));
+        let mut fr = add(&reg, "C", false, Some("fr"));
+
+        let mut translations = HashMap::new();
+        translations.insert("es".to_string(), "hola".to_string());
+        translations.insert("fr".to_string(), "salut".to_string());
+        let ev = SubtitleEvent::Final {
+            original: "ciao".to_string(),
+            lang: "it".to_string(),
+            translations,
+        };
+        reg.broadcast_subtitle("C", &ev);
+
+        // Each viewer receives the full fan-out; assert its OWN language key so a
+        // dropped-language regression can't hide behind a shared key.
+        for (rx, lang, expect) in [(&mut es, "es", "hola"), (&mut fr, "fr", "salut")] {
+            let msg = rx.try_recv().expect("viewer got a subtitle frame");
+            let v: serde_json::Value = serde_json::from_str(text_of(&msg)).unwrap();
+            assert_eq!(v["kind"], "final");
+            assert_eq!(v["translations"][lang], expect);
+        }
+    }
+
+    #[test]
+    fn broadcast_subtitle_skips_the_host() {
+        let reg = PresenceRegistry::new();
+        let mut viewer = add(&reg, "C", false, Some("es"));
+        let mut host = add(&reg, "C", true, None);
+
+        reg.broadcast_subtitle(
+            "C",
+            &SubtitleEvent::Interim {
+                text: "ciao".to_string(),
+                lang: "it".to_string(),
+            },
+        );
+
+        assert!(viewer.try_recv().is_ok(), "viewer receives the subtitle");
+        assert!(
+            host.try_recv().is_err(),
+            "host studio must NOT receive its own subtitle"
+        );
+    }
+
+    #[test]
+    fn broadcast_subtitle_unknown_code_is_a_noop() {
+        let reg = PresenceRegistry::new();
+        // No panic, nothing to deliver.
+        reg.broadcast_subtitle(
+            "ghost",
+            &SubtitleEvent::Interim {
+                text: "x".to_string(),
+                lang: "en".to_string(),
+            },
+        );
+    }
 }

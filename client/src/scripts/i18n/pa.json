@@ -637,5 +637,10 @@
   "wvTapToStart": "ਸ਼ੁਰੂ ਕਰਨ ਲਈ ਟੈਪ ਕਰੋ",
   "wvNotFoundTitle": "ਵੈਬੀਨਾਰ ਨਹੀਂ ਮਿਲਿਆ",
   "wvNotFoundText": "ਇਹ ਵੈਬੀਨਾਰ ਲਿੰਕ ਗਲਤ ਹੈ ਜਾਂ ਰੱਦ ਕਰ ਦਿੱਤਾ ਗਿਆ ਹੈ।",
-  "wvBackHome": "VoxTranslate 'ਤੇ ਵਾਪਸ"
+  "wvBackHome": "VoxTranslate 'ਤੇ ਵਾਪਸ",
+  "wvListenOriginal": "ਮੂਲ ਭਾਸ਼ਾ ਵਿੱਚ ਸੁਣੋ",
+  "wvMuteAudio": "ਆਡੀਓ ਮਿਊਟ ਕਰੋ",
+  "wvUnmuteAudio": "ਆਡੀਓ ਅਨਮਿਊਟ ਕਰੋ",
+  "wvSubtitlesOn": "ਉਪਸਿਰਲੇਖ ਚਾਲੂ",
+  "wvSubtitlesOff": "ਉਪਸਿਰਲੇਖ ਬੰਦ"
 }

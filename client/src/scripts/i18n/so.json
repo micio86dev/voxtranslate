@@ -637,5 +637,10 @@
   "wvTapToStart": "Taabo si aad u bilowdo",
   "wvNotFoundTitle": "Webinar lama helin",
   "wvNotFoundText": "Xidhiidhkan webinar-ka waa mid aan sax ahayn ama waa la joojiyay.",
-  "wvBackHome": "Dib ugu noqo VoxTranslate"
+  "wvBackHome": "Dib ugu noqo VoxTranslate",
+  "wvListenOriginal": "Ku dhagayso luqadda asalka ah",
+  "wvMuteAudio": "Aamus codka",
+  "wvUnmuteAudio": "Fur codka",
+  "wvSubtitlesOn": "Qoraalka hoose waa shidan yahay",
+  "wvSubtitlesOff": "Qoraalka hoose waa demis yahay"
 }

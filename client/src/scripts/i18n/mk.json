@@ -637,5 +637,10 @@
   "wvTapToStart": "Допрете за да започнете",
   "wvNotFoundTitle": "Вебинарот не е пронајден",
   "wvNotFoundText": "Оваа врска до вебинарот е неважечка или е откажана.",
-  "wvBackHome": "Назад кон VoxTranslate"
+  "wvBackHome": "Назад кон VoxTranslate",
+  "wvListenOriginal": "Слушај на оригиналниот јазик",
+  "wvMuteAudio": "Исклучи звук",
+  "wvUnmuteAudio": "Вклучи звук",
+  "wvSubtitlesOn": "Титлови вклучени",
+  "wvSubtitlesOff": "Титлови исклучени"
 }

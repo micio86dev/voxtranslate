@@ -637,5 +637,10 @@
   "wvTapToStart": "ប៉ះដើម្បីចាប់ផ្ដើម",
   "wvNotFoundTitle": "រកមិនឃើញវេបប៊ីណារ",
   "wvNotFoundText": "តំណវេបប៊ីណារនេះមិនត្រឹមត្រូវ ឬត្រូវបានលុបចោល។",
-  "wvBackHome": "ត្រឡប់ទៅ VoxTranslate"
+  "wvBackHome": "ត្រឡប់ទៅ VoxTranslate",
+  "wvListenOriginal": "ស្តាប់ជាភាសាដើម",
+  "wvMuteAudio": "បិទសំឡេង",
+  "wvUnmuteAudio": "បើកសំឡេង",
+  "wvSubtitlesOn": "បើកអក្សររត់",
+  "wvSubtitlesOff": "បិទអក្សររត់"
 }

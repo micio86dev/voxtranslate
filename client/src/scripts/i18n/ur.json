@@ -637,5 +637,10 @@
   "wvTapToStart": "شروع کرنے کے لیے تھپتھپائیں",
   "wvNotFoundTitle": "ویبینار نہیں ملا",
   "wvNotFoundText": "یہ ویبینار لنک غلط ہے یا منسوخ کر دیا گیا ہے۔",
-  "wvBackHome": "VoxTranslate پر واپس جائیں"
+  "wvBackHome": "VoxTranslate پر واپس جائیں",
+  "wvListenOriginal": "اصل زبان میں سنیں",
+  "wvMuteAudio": "آواز بند کریں",
+  "wvUnmuteAudio": "آواز چالو کریں",
+  "wvSubtitlesOn": "سب ٹائٹلز آن ہیں",
+  "wvSubtitlesOff": "سب ٹائٹلز آف ہیں"
 }

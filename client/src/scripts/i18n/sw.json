@@ -637,5 +637,10 @@
   "wvTapToStart": "Gusa ili kuanza",
   "wvNotFoundTitle": "Webina haikupatikana",
   "wvNotFoundText": "Kiungo hiki cha webina si sahihi au kimeghairiwa.",
-  "wvBackHome": "Rudi kwa VoxTranslate"
+  "wvBackHome": "Rudi kwa VoxTranslate",
+  "wvListenOriginal": "Sikiliza kwa lugha asili",
+  "wvMuteAudio": "Zima sauti",
+  "wvUnmuteAudio": "Washa sauti",
+  "wvSubtitlesOn": "Manukuu yamewashwa",
+  "wvSubtitlesOff": "Manukuu yamezimwa"
 }

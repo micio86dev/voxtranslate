@@ -637,5 +637,10 @@
   "wvTapToStart": "தொடங்க தட்டவும்",
   "wvNotFoundTitle": "வெபினார் கிடைக்கவில்லை",
   "wvNotFoundText": "இந்த வெபினார் இணைப்பு தவறானது அல்லது ரத்து செய்யப்பட்டுள்ளது.",
-  "wvBackHome": "VoxTranslate க்குத் திரும்பு"
+  "wvBackHome": "VoxTranslate க்குத் திரும்பு",
+  "wvListenOriginal": "மூல மொழியில் கேளுங்கள்",
+  "wvMuteAudio": "ஒலியை நிறுத்து",
+  "wvUnmuteAudio": "ஒலியை இயக்கு",
+  "wvSubtitlesOn": "வசன வரிகள் இயக்கப்பட்டன",
+  "wvSubtitlesOff": "வசன வரிகள் நிறுத்தப்பட்டன"
 }

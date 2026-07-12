@@ -637,5 +637,10 @@
   "wvTapToStart": "タップして開始",
   "wvNotFoundTitle": "ウェビナーが見つかりません",
   "wvNotFoundText": "このウェビナーのリンクは無効か、キャンセルされています。",
-  "wvBackHome": "VoxTranslate に戻る"
+  "wvBackHome": "VoxTranslate に戻る",
+  "wvListenOriginal": "元の言語で聞く",
+  "wvMuteAudio": "音声をミュート",
+  "wvUnmuteAudio": "ミュートを解除",
+  "wvSubtitlesOn": "字幕オン",
+  "wvSubtitlesOff": "字幕オフ"
 }

@@ -637,5 +637,10 @@
   "wvTapToStart": "Aloita napauttamalla",
   "wvNotFoundTitle": "Webinaaria ei löytynyt",
   "wvNotFoundText": "Tämä webinaarilinkki on virheellinen tai peruutettu.",
-  "wvBackHome": "Takaisin VoxTranslateen"
+  "wvBackHome": "Takaisin VoxTranslateen",
+  "wvListenOriginal": "Kuuntele alkuperäisellä kielellä",
+  "wvMuteAudio": "Mykistä ääni",
+  "wvUnmuteAudio": "Poista mykistys",
+  "wvSubtitlesOn": "Tekstitys päällä",
+  "wvSubtitlesOff": "Tekstitys pois"
 }

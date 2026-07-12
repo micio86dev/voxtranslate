@@ -637,5 +637,10 @@
   "wvTapToStart": "輕觸開始",
   "wvNotFoundTitle": "搵唔到網絡研討會",
   "wvNotFoundText": "呢個網絡研討會連結無效或者已經取消。",
-  "wvBackHome": "返回 VoxTranslate"
+  "wvBackHome": "返回 VoxTranslate",
+  "wvListenOriginal": "以原文語言收聽",
+  "wvMuteAudio": "靜音",
+  "wvUnmuteAudio": "取消靜音",
+  "wvSubtitlesOn": "字幕已開",
+  "wvSubtitlesOff": "字幕已關"
 }

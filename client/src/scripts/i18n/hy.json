@@ -637,5 +637,10 @@
   "wvTapToStart": "Հպեք՝ սկսելու համար",
   "wvNotFoundTitle": "Վեբինարը չի գտնվել",
   "wvNotFoundText": "Այս վեբինարի հղումն անվավեր է կամ չեղարկվել է։",
-  "wvBackHome": "Վերադառնալ VoxTranslate"
+  "wvBackHome": "Վերադառնալ VoxTranslate",
+  "wvListenOriginal": "Լսել բնօրինակ լեզվով",
+  "wvMuteAudio": "Անջատել ձայնը",
+  "wvUnmuteAudio": "Միացնել ձայնը",
+  "wvSubtitlesOn": "Ենթագրերը միացված են",
+  "wvSubtitlesOff": "Ենթագրերն անջատված են"
 }

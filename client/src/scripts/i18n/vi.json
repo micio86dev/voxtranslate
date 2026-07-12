@@ -637,5 +637,10 @@
   "wvTapToStart": "Chạm để bắt đầu",
   "wvNotFoundTitle": "Không tìm thấy hội thảo trực tuyến",
   "wvNotFoundText": "Liên kết hội thảo trực tuyến này không hợp lệ hoặc đã bị hủy.",
-  "wvBackHome": "Quay lại VoxTranslate"
+  "wvBackHome": "Quay lại VoxTranslate",
+  "wvListenOriginal": "Nghe bằng ngôn ngữ gốc",
+  "wvMuteAudio": "Tắt âm thanh",
+  "wvUnmuteAudio": "Bật âm thanh",
+  "wvSubtitlesOn": "Phụ đề đang bật",
+  "wvSubtitlesOff": "Phụ đề đang tắt"
 }

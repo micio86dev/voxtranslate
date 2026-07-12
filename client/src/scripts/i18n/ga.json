@@ -637,5 +637,10 @@
   "wvTapToStart": "Tapáil chun tosú",
   "wvNotFoundTitle": "Seimineár gréasáin gan aimsiú",
   "wvNotFoundText": "Tá an nasc seimineáir gréasáin seo neamhbhailí nó cealaithe.",
-  "wvBackHome": "Ar ais go VoxTranslate"
+  "wvBackHome": "Ar ais go VoxTranslate",
+  "wvListenOriginal": "Éist sa teanga bhunaidh",
+  "wvMuteAudio": "Balbhaigh an fhuaim",
+  "wvUnmuteAudio": "Díbhalbhaigh an fhuaim",
+  "wvSubtitlesOn": "Fotheidil ar siúl",
+  "wvSubtitlesOff": "Fotheidil múchta"
 }

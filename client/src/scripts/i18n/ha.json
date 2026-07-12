@@ -637,5 +637,10 @@
   "wvTapToStart": "Danna don farawa",
   "wvNotFoundTitle": "Ba a sami webinar ba",
   "wvNotFoundText": "Wannan hanyar haɗin webinar ba ta da inganci ko an soke ta.",
-  "wvBackHome": "Koma zuwa VoxTranslate"
+  "wvBackHome": "Koma zuwa VoxTranslate",
+  "wvListenOriginal": "Saurara da ainihin harshe",
+  "wvMuteAudio": "Kashe sauti",
+  "wvUnmuteAudio": "Buɗe sauti",
+  "wvSubtitlesOn": "Fassarar rubutu a kunne",
+  "wvSubtitlesOff": "Fassarar rubutu a kashe"
 }

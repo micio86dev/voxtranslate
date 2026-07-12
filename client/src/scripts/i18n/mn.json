@@ -637,5 +637,10 @@
   "wvTapToStart": "Эхлүүлэхийн тулд товшино уу",
   "wvNotFoundTitle": "Вебинар олдсонгүй",
   "wvNotFoundText": "Энэ вебинарын холбоос буруу эсвэл цуцлагдсан байна.",
-  "wvBackHome": "VoxTranslate руу буцах"
+  "wvBackHome": "VoxTranslate руу буцах",
+  "wvListenOriginal": "Эх хэл дээр сонсох",
+  "wvMuteAudio": "Дуу хаах",
+  "wvUnmuteAudio": "Дуу нээх",
+  "wvSubtitlesOn": "Хадмал асаалттай",
+  "wvSubtitlesOff": "Хадмал унтраалттай"
 }

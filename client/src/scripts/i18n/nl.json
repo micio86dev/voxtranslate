@@ -637,5 +637,10 @@
   "wvTapToStart": "Tik om te starten",
   "wvNotFoundTitle": "Webinar niet gevonden",
   "wvNotFoundText": "Deze webinarlink is ongeldig of is geannuleerd.",
-  "wvBackHome": "Terug naar VoxTranslate"
+  "wvBackHome": "Terug naar VoxTranslate",
+  "wvListenOriginal": "Luister in de oorspronkelijke taal",
+  "wvMuteAudio": "Geluid dempen",
+  "wvUnmuteAudio": "Geluid inschakelen",
+  "wvSubtitlesOn": "Ondertiteling aan",
+  "wvSubtitlesOff": "Ondertiteling uit"
 }
