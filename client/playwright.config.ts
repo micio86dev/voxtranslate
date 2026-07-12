@@ -16,10 +16,16 @@ export default defineConfig({
   // Build a coverage-instrumented bundle and serve it. (The Rust backend on
   // :3001 must be running separately — it needs DEEPGRAM/GROQ keys.)
   webServer: {
-    command: 'COVERAGE=1 PUBLIC_WS_HOST=localhost:3001 npm run build && npx astro preview --port 4321',
+    // COVERAGE/PUBLIC_WS_HOST go in `env` (not a shell prefix) so they reach BOTH
+    // `npm run build` AND `astro preview`. `astro preview` re-reads astro.config, and
+    // COVERAGE=1 there selects the Node standalone adapter — the Vercel adapter cannot
+    // serve `astro preview`. A shell prefix would only apply to the build, leaving preview
+    // on the Vercel adapter and failing to start.
+    command: 'npm run build && npx astro preview --port 4321',
+    env: { COVERAGE: '1', PUBLIC_WS_HOST: 'localhost:3001' },
     url: 'http://localhost:4321',
     reuseExistingServer: true,
-    timeout: 120_000,
+    timeout: 180_000,
   },
   use: {
     baseURL: process.env.E2E_BASE || 'http://localhost:4321',

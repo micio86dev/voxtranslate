@@ -1,5 +1,6 @@
 import { defineConfig } from 'astro/config';
 import vercel from '@astrojs/vercel';
+import node from '@astrojs/node';
 
 // Mostly-static client. The WebSocket server runs separately (see PUBLIC_WS_HOST).
 // COVERAGE=1 produces an un-minified build with sourcemaps so Playwright V8
@@ -15,11 +16,15 @@ const coverage = process.env.COVERAGE === '1';
 
 export default defineConfig({
   // Serverless runtime for the single on-demand route (/w/[code]); every other page
-  // stays prerendered static (output defaults to `static`). The adapter is required for
-  // any `prerender = false` route to build, so it is always applied — `astro build`
-  // emits `.vercel/output/` and `astro preview` (used by the Playwright e2e webServer)
-  // is served through the adapter.
-  adapter: vercel(),
+  // stays prerendered static (output defaults to `static`). An adapter is required for
+  // any `prerender = false` route to build, so one is always applied.
+  //
+  // Production ships on Vercel (`astro build` → `.vercel/output/`). The Playwright e2e
+  // webServer, however, builds with COVERAGE=1 and serves via `astro preview` — which
+  // the Vercel adapter does NOT support ("does not support the preview command"). So the
+  // coverage/e2e build swaps in the Node standalone adapter: same on-demand route, but
+  // `astro preview` runs its server. COVERAGE=1 is set only by the e2e webServer command.
+  adapter: coverage ? node({ mode: 'standalone' }) : vercel(),
   // Canonical origin for SEO: powers Astro.site so the layout emits absolute
   // canonical / Open Graph / sitemap URLs. Production domain (see CORS allowlist).
   site: 'https://voxtranslate.app',
