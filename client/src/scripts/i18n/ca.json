@@ -599,6 +599,8 @@
   "webinarErrInput": "Comprova les dades del webinar i torna-ho a provar.",
   "webinarErrGeneric": "Alguna cosa ha anat malament. Torna-ho a provar.",
   "webinarErrTitle": "Introdueix un títol.",
+  "webinarErrStartPast": "La data d'inici ha de ser futura.",
+  "webinarErrEndBeforeStart": "El final ha de ser posterior a l'inici.",
   "webinarGoLive": "Emet en directe",
   "webinarGoingLive": "Iniciant l’emissió…",
   "webinarOnAir": "En antena",

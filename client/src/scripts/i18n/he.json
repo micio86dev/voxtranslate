@@ -599,6 +599,8 @@
   "webinarErrInput": "יש לבדוק את פרטי הוובינר ולנסות שוב.",
   "webinarErrGeneric": "משהו השתבש. נסו שוב.",
   "webinarErrTitle": "יש להזין כותרת.",
+  "webinarErrStartPast": "תאריך ההתחלה חייב להיות בעתיד.",
+  "webinarErrEndBeforeStart": "הסיום חייב להיות אחרי ההתחלה.",
   "webinarGoLive": "עלה לשידור חי",
   "webinarGoingLive": "עולה לשידור חי…",
   "webinarOnAir": "בשידור",

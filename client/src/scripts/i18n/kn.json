@@ -599,6 +599,8 @@
   "webinarErrInput": "ದಯವಿಟ್ಟು ವೆಬಿನಾರ್ ವಿವರಗಳನ್ನು ಪರಿಶೀಲಿಸಿ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.",
   "webinarErrGeneric": "ಏನೋ ತಪ್ಪಾಗಿದೆ. ದಯವಿಟ್ಟು ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.",
   "webinarErrTitle": "ದಯವಿಟ್ಟು ಶೀರ್ಷಿಕೆಯನ್ನು ನಮೂದಿಸಿ.",
+  "webinarErrStartPast": "ಪ್ರಾರಂಭ ದಿನಾಂಕ ಭವಿಷ್ಯದಲ್ಲಿ ಇರಬೇಕು.",
+  "webinarErrEndBeforeStart": "ಮುಕ್ತಾಯವು ಪ್ರಾರಂಭದ ನಂತರ ಇರಬೇಕು.",
   "webinarGoLive": "ನೇರ ಪ್ರಸಾರ ಪ್ರಾರಂಭಿಸಿ",
   "webinarGoingLive": "ನೇರ ಪ್ರಸಾರ ಪ್ರಾರಂಭಿಸಲಾಗುತ್ತಿದೆ…",
   "webinarOnAir": "ಪ್ರಸಾರದಲ್ಲಿ",

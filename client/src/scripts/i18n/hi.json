@@ -599,6 +599,8 @@
   "webinarErrInput": "कृपया वेबिनार का विवरण जांचें और फिर से प्रयास करें.",
   "webinarErrGeneric": "कुछ गलत हो गया. कृपया फिर से प्रयास करें.",
   "webinarErrTitle": "कृपया एक शीर्षक दर्ज करें.",
+  "webinarErrStartPast": "प्रारंभ तिथि भविष्य में होनी चाहिए।",
+  "webinarErrEndBeforeStart": "समाप्ति प्रारंभ के बाद होनी चाहिए।",
   "webinarGoLive": "लाइव जाएँ",
   "webinarGoingLive": "लाइव हो रहे हैं…",
   "webinarOnAir": "प्रसारण जारी",

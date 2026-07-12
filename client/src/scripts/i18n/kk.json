@@ -599,6 +599,8 @@
   "webinarErrInput": "Вебинар мәліметтерін тексеріп, қайталап көріңіз.",
   "webinarErrGeneric": "Бірдеңе дұрыс болмады. Қайталап көріңіз.",
   "webinarErrTitle": "Тақырып енгізіңіз.",
+  "webinarErrStartPast": "Басталу күні болашақта болуы керек.",
+  "webinarErrEndBeforeStart": "Аяқталуы басталудан кейін болуы керек.",
   "webinarGoLive": "Тікелей эфирге шығу",
   "webinarGoingLive": "Тікелей эфирге шығуда…",
   "webinarOnAir": "Эфирде",

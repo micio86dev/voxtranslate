@@ -599,6 +599,8 @@
   "webinarErrInput": "कृपया वेबिनारचे तपशील तपासा आणि पुन्हा प्रयत्न करा.",
   "webinarErrGeneric": "काहीतरी चूक झाली. कृपया पुन्हा प्रयत्न करा.",
   "webinarErrTitle": "कृपया एक शीर्षक प्रविष्ट करा.",
+  "webinarErrStartPast": "सुरुवातीची तारीख भविष्यात असावी.",
+  "webinarErrEndBeforeStart": "शेवट सुरुवातीनंतर असावा.",
   "webinarGoLive": "थेट प्रसारण सुरू करा",
   "webinarGoingLive": "थेट प्रसारण सुरू होत आहे…",
   "webinarOnAir": "प्रसारणात",

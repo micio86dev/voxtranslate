@@ -599,6 +599,8 @@
   "webinarErrInput": "Проверьте данные вебинара и попробуйте снова.",
   "webinarErrGeneric": "Что-то пошло не так. Попробуйте снова.",
   "webinarErrTitle": "Введите название.",
+  "webinarErrStartPast": "Дата начала должна быть в будущем.",
+  "webinarErrEndBeforeStart": "Окончание должно быть после начала.",
   "webinarGoLive": "Начать эфир",
   "webinarGoingLive": "Запуск эфира…",
   "webinarOnAir": "В эфире",

@@ -599,6 +599,8 @@
   "webinarErrInput": "Kontrollera webbinariets uppgifter och försök igen.",
   "webinarErrGeneric": "Något gick fel. Försök igen.",
   "webinarErrTitle": "Ange en titel.",
+  "webinarErrStartPast": "Startdatumet måste vara i framtiden.",
+  "webinarErrEndBeforeStart": "Slutet måste vara efter starten.",
   "webinarGoLive": "Sänd live",
   "webinarGoingLive": "Startar sändning…",
   "webinarOnAir": "Sänder",

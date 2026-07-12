@@ -599,6 +599,8 @@
   "webinarErrInput": "કૃપા કરીને વેબિનારની વિગતો તપાસો અને ફરી પ્રયાસ કરો.",
   "webinarErrGeneric": "કંઈક ખોટું થયું. કૃપા કરીને ફરી પ્રયાસ કરો.",
   "webinarErrTitle": "કૃપા કરીને શીર્ષક દાખલ કરો.",
+  "webinarErrStartPast": "શરૂઆતની તારીખ ભવિષ્યમાં હોવી જોઈએ.",
+  "webinarErrEndBeforeStart": "અંત શરૂઆત પછી હોવો જોઈએ.",
   "webinarGoLive": "લાઇવ થાઓ",
   "webinarGoingLive": "લાઇવ થઈ રહ્યું છે…",
   "webinarOnAir": "પ્રસારણમાં",

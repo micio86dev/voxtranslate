@@ -599,6 +599,8 @@
   "webinarErrInput": "Skontrolujte údaje webinára a skúste to znova.",
   "webinarErrGeneric": "Niečo sa pokazilo. Skúste to znova.",
   "webinarErrTitle": "Zadajte názov.",
+  "webinarErrStartPast": "Dátum začiatku musí byť v budúcnosti.",
+  "webinarErrEndBeforeStart": "Koniec musí byť po začiatku.",
   "webinarGoLive": "Spustiť vysielanie",
   "webinarGoingLive": "Spúšťa sa vysielanie…",
   "webinarOnAir": "Vo vysielaní",

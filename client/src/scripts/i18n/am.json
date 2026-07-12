@@ -599,6 +599,8 @@
   "webinarErrInput": "እባክዎ የድር ሴሚናሩን ዝርዝሮች ያረጋግጡ እና እንደገና ይሞክሩ።",
   "webinarErrGeneric": "የሆነ ስህተት ተፈጥሯል። እባክዎ እንደገና ይሞክሩ።",
   "webinarErrTitle": "እባክዎ ርዕስ ያስገቡ።",
+  "webinarErrStartPast": "የመጀመሪያው ቀን ወደፊት መሆን አለበት።",
+  "webinarErrEndBeforeStart": "መጨረሻው ከመጀመሪያው በኋላ መሆን አለበት።",
   "webinarGoLive": "በቀጥታ ጀምር",
   "webinarGoingLive": "በቀጥታ በመጀመር ላይ…",
   "webinarOnAir": "በአየር ላይ",

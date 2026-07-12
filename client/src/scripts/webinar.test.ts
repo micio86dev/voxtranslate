@@ -32,6 +32,7 @@ import {
   showWebinarCloneAction,
   toDatetimeLocalValue,
   unarchiveWebinar,
+  validateSchedule,
   type PublicWebinar,
   type PublicWebinarListItem,
   type WebinarView,
@@ -695,5 +696,51 @@ describe('fromDatetimeLocalValue', () => {
     const iso = fromDatetimeLocalValue(local);
     expect(iso).not.toBeNull();
     expect(toDatetimeLocalValue(iso)).toBe(local);
+  });
+});
+
+describe('validateSchedule', () => {
+  const NOW = Date.UTC(2030, 0, 1, 12, 0, 0); // fixed reference "now"
+  const iso = (ms: number) => new Date(NOW + ms).toISOString();
+  const MIN = 60 * 1000;
+  const HOUR = 60 * MIN;
+
+  it('accepts an empty (immediate) schedule', () => {
+    expect(validateSchedule(null, null, NOW)).toBe('ok');
+  });
+
+  it('accepts a future start', () => {
+    expect(validateSchedule(iso(HOUR), null, NOW)).toBe('ok');
+  });
+
+  it('rejects a clearly-past start', () => {
+    expect(validateSchedule(iso(-HOUR), null, NOW)).toBe('startPast');
+  });
+
+  it('tolerates a start within the clock-skew window', () => {
+    // 1 minute in the past — inside the 2-minute tolerance.
+    expect(validateSchedule(iso(-1 * MIN), null, NOW)).toBe('ok');
+  });
+
+  it('rejects an end at or before the start', () => {
+    expect(validateSchedule(iso(HOUR), iso(HOUR), NOW)).toBe('endBeforeStart');
+    expect(validateSchedule(iso(2 * HOUR), iso(HOUR), NOW)).toBe(
+      'endBeforeStart',
+    );
+  });
+
+  it('accepts an end after the start', () => {
+    expect(validateSchedule(iso(HOUR), iso(2 * HOUR), NOW)).toBe('ok');
+  });
+
+  it('reports the past start first when both rules fail', () => {
+    // Past start AND end-before-start → startPast wins (checked first).
+    expect(validateSchedule(iso(-2 * HOUR), iso(-3 * HOUR), NOW)).toBe(
+      'startPast',
+    );
+  });
+
+  it('skips the end check when there is no start to compare', () => {
+    expect(validateSchedule(null, iso(HOUR), NOW)).toBe('ok');
   });
 });

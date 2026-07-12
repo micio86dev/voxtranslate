@@ -599,6 +599,8 @@
   "webinarErrInput": "অনুগ্রহ করে ওয়েবিনারের বিবরণ যাচাই করে আবার চেষ্টা করুন।",
   "webinarErrGeneric": "কিছু একটা ভুল হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।",
   "webinarErrTitle": "অনুগ্রহ করে একটি শিরোনাম লিখুন।",
+  "webinarErrStartPast": "শুরুর তারিখ ভবিষ্যতে হতে হবে।",
+  "webinarErrEndBeforeStart": "শেষটি শুরুর পরে হতে হবে।",
   "webinarGoLive": "লাইভ শুরু করুন",
   "webinarGoingLive": "লাইভ শুরু হচ্ছে…",
   "webinarOnAir": "সম্প্রচারে",

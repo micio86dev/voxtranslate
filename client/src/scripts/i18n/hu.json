@@ -599,6 +599,8 @@
   "webinarErrInput": "Ellenőrizze a webinárium adatait, és próbálja újra.",
   "webinarErrGeneric": "Valami hiba történt. Kérjük, próbálja újra.",
   "webinarErrTitle": "Adjon meg egy címet.",
+  "webinarErrStartPast": "A kezdő dátumnak a jövőben kell lennie.",
+  "webinarErrEndBeforeStart": "A befejezésnek a kezdés után kell lennie.",
   "webinarGoLive": "Élő adás indítása",
   "webinarGoingLive": "Élő adás indítása…",
   "webinarOnAir": "Adásban",

@@ -599,6 +599,8 @@
   "webinarErrInput": "Preverite podatke spletnega seminarja in poskusite znova.",
   "webinarErrGeneric": "Prišlo je do napake. Poskusite znova.",
   "webinarErrTitle": "Vnesite naslov.",
+  "webinarErrStartPast": "Datum začetka mora biti v prihodnosti.",
+  "webinarErrEndBeforeStart": "Konec mora biti po začetku.",
   "webinarGoLive": "Začni prenos v živo",
   "webinarGoingLive": "Zagon prenosa v živo…",
   "webinarOnAir": "V živo",

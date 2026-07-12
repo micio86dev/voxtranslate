@@ -599,6 +599,8 @@
   "webinarErrInput": "براہِ کرم ویبینار کی تفصیلات جانچیں اور دوبارہ کوشش کریں۔",
   "webinarErrGeneric": "کچھ غلط ہو گیا۔ براہِ کرم دوبارہ کوشش کریں۔",
   "webinarErrTitle": "براہِ کرم ایک عنوان درج کریں۔",
+  "webinarErrStartPast": "آغاز کی تاریخ مستقبل میں ہونی چاہیے۔",
+  "webinarErrEndBeforeStart": "اختتام آغاز کے بعد ہونا چاہیے۔",
   "webinarGoLive": "براہِ راست نشریات شروع کریں",
   "webinarGoingLive": "براہِ راست نشریات شروع ہو رہی ہیں…",
   "webinarOnAir": "نشر ہو رہا ہے",

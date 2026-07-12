@@ -599,6 +599,8 @@
   "webinarErrInput": "Biko lelee nkọwa webinar ma nwaa ọzọ.",
   "webinarErrGeneric": "Ọ nwere ihe na-adịghị mma. Biko nwaa ọzọ.",
   "webinarErrTitle": "Biko tinye isiokwu.",
+  "webinarErrStartPast": "Ụbọchị mmalite aghaghị ịbụ n'ọdịnihu.",
+  "webinarErrEndBeforeStart": "Njedebe aghaghị ịbụ mgbe mmalite gasịrị.",
   "webinarGoLive": "Malite ọsọ ọsọ",
   "webinarGoingLive": "Na-amalite ọsọ ọsọ…",
   "webinarOnAir": "Na-agbasa",

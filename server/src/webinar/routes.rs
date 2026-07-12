@@ -191,6 +191,38 @@ fn valid_visibility(raw: &Option<String>) -> Result<&'static str, Response> {
     }
 }
 
+/// Clock-skew tolerance for the "start must be in the future" check: a start is
+/// only rejected once it's clearly in the past (more than this before `now`), so a
+/// small client/server clock drift never bounces a just-now schedule.
+const SCHEDULE_PAST_TOLERANCE: ChronoDuration = ChronoDuration::minutes(2);
+
+/// Validate an optional webinar schedule. Pure + `now`-injected so it's
+/// deterministic and unit-testable without a live request. Mirrors the 400 style
+/// of [`valid_lang`]/[`valid_visibility`].
+///
+/// Rules (only enforced for the fields that are present):
+/// - `start`, when given, must be in the future — rejected only if it's clearly
+///   past (`start < now - 2min`), tolerating benign clock skew.
+/// - `end`, when given AND an effective `start` is known, must be strictly after
+///   `start`. With no `start` to compare against, `end` alone is not validated here.
+pub(crate) fn valid_schedule(
+    start: Option<DateTime<Utc>>,
+    end: Option<DateTime<Utc>>,
+    now: DateTime<Utc>,
+) -> Result<(), Response> {
+    if let Some(start) = start {
+        if start < now - SCHEDULE_PAST_TOLERANCE {
+            return Err(bad_request("scheduled_start must be in the future"));
+        }
+    }
+    if let (Some(start), Some(end)) = (start, end) {
+        if end <= start {
+            return Err(bad_request("scheduled_end must be after scheduled_start"));
+        }
+    }
+    Ok(())
+}
+
 // ---- config guard + views --------------------------------------------------
 
 fn require_cfg(state: &AppState) -> Result<&WebinarConfig, Response> {
@@ -310,6 +342,8 @@ pub async fn create(
     let lang = valid_lang(&body.source_language)?;
     let tier = valid_tier(&body.tier)?;
     let visibility = valid_visibility(&body.visibility)?;
+    // Integrity: a scheduled start must be in the future and end after start.
+    valid_schedule(body.scheduled_start, body.scheduled_end, Utc::now())?;
     // Only a member of the org may host, and the org must have an active
     // subscription — the host's org pays (SPEC §1).
     require_role(pool, body.org_id, user.user_id, MEMBER).await?;
@@ -423,6 +457,22 @@ pub async fn patch(
     };
     if let Some(pid) = body.project_id {
         validate_project(pool, w.org_id, pid).await?;
+    }
+    // Integrity of the (possibly partial) schedule edit. Only a *newly provided*
+    // start is checked for being in the future — a stored start that has already
+    // passed must not bounce an unrelated edit. The end (when provided) is always
+    // validated against the effective start: the patched start if present, else the
+    // stored one (COALESCE keeps that stored start), so a lone `scheduled_end` is
+    // still checked against the existing start.
+    let now = Utc::now();
+    valid_schedule(body.scheduled_start, None, now)?;
+    let effective_start = body.scheduled_start.or(w.scheduled_start);
+    if let Some(end) = body.scheduled_end {
+        if let Some(start) = effective_start {
+            if end <= start {
+                return Err(bad_request("scheduled_end must be after scheduled_start"));
+            }
+        }
     }
     // COALESCE keeps the existing value for any omitted field.
     let updated: Webinar = sqlx::query_as(
@@ -739,4 +789,75 @@ pub async fn public_list(State(state): State<AppState>) -> Result<Response, Resp
         })
         .collect();
     Ok(Json(json!({ "webinars": items })).into_response())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn utc(s: &str) -> DateTime<Utc> {
+        DateTime::parse_from_rfc3339(s).unwrap().with_timezone(&Utc)
+    }
+
+    #[test]
+    fn schedule_none_none_is_ok() {
+        let now = utc("2030-01-01T00:00:00Z");
+        assert!(valid_schedule(None, None, now).is_ok());
+    }
+
+    #[test]
+    fn schedule_clearly_past_start_rejected() {
+        let now = utc("2030-01-01T12:00:00Z");
+        // 10 minutes before now — clearly past (beyond the 2-minute tolerance).
+        let start = utc("2030-01-01T11:50:00Z");
+        let err = valid_schedule(Some(start), None, now).unwrap_err();
+        assert_eq!(err.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn schedule_future_start_ok() {
+        let now = utc("2030-01-01T12:00:00Z");
+        let start = utc("2030-01-01T13:00:00Z");
+        assert!(valid_schedule(Some(start), None, now).is_ok());
+    }
+
+    #[test]
+    fn schedule_start_within_tolerance_ok() {
+        let now = utc("2030-01-01T12:00:00Z");
+        // 1 minute in the past — inside the 2-minute clock-skew tolerance.
+        let start = utc("2030-01-01T11:59:00Z");
+        assert!(valid_schedule(Some(start), None, now).is_ok());
+    }
+
+    #[test]
+    fn schedule_end_before_start_rejected() {
+        let now = utc("2030-01-01T00:00:00Z");
+        let start = utc("2030-01-01T13:00:00Z");
+        let end = utc("2030-01-01T12:00:00Z");
+        let err = valid_schedule(Some(start), Some(end), now).unwrap_err();
+        assert_eq!(err.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn schedule_end_equal_to_start_rejected() {
+        let now = utc("2030-01-01T00:00:00Z");
+        let start = utc("2030-01-01T13:00:00Z");
+        assert!(valid_schedule(Some(start), Some(start), now).is_err());
+    }
+
+    #[test]
+    fn schedule_end_after_start_ok() {
+        let now = utc("2030-01-01T00:00:00Z");
+        let start = utc("2030-01-01T13:00:00Z");
+        let end = utc("2030-01-01T14:00:00Z");
+        assert!(valid_schedule(Some(start), Some(end), now).is_ok());
+    }
+
+    #[test]
+    fn schedule_end_only_no_start_is_ok() {
+        // No effective start to compare against → end alone can't be validated here.
+        let now = utc("2030-01-01T00:00:00Z");
+        let end = utc("2030-01-01T14:00:00Z");
+        assert!(valid_schedule(None, Some(end), now).is_ok());
+    }
 }

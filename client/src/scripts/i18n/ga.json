@@ -599,6 +599,8 @@
   "webinarErrInput": "Seiceáil sonraí an ghréasáin agus bain triail eile as, le do thoil.",
   "webinarErrGeneric": "Chuaigh rud éigin cearr. Bain triail eile as, le do thoil.",
   "webinarErrTitle": "Cuir teideal isteach, le do thoil.",
+  "webinarErrStartPast": "Caithfidh an dáta tosaigh a bheith sa todhchaí.",
+  "webinarErrEndBeforeStart": "Caithfidh an deireadh a bheith tar éis an tosaigh.",
   "webinarGoLive": "Craol beo",
   "webinarGoingLive": "Ag dul beo…",
   "webinarOnAir": "Beo ar an aer",

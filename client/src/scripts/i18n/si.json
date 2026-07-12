@@ -599,6 +599,8 @@
   "webinarErrInput": "කරුණාකර වෙබිනාර් විස්තර පරීක්ෂා කර නැවත උත්සාහ කරන්න.",
   "webinarErrGeneric": "යම් දෝෂයක් සිදු විය. කරුණාකර නැවත උත්සාහ කරන්න.",
   "webinarErrTitle": "කරුණාකර මාතෘකාවක් ඇතුළත් කරන්න.",
+  "webinarErrStartPast": "ආරම්භක දිනය අනාගතයේ තිබිය යුතුය.",
+  "webinarErrEndBeforeStart": "අවසානය ආරම්භයෙන් පසුව තිබිය යුතුය.",
   "webinarGoLive": "සජීවීව විකාශනය කරන්න",
   "webinarGoingLive": "සජීවී විකාශනය ආරම්භ වෙමින්…",
   "webinarOnAir": "විකාශනය වෙමින්",

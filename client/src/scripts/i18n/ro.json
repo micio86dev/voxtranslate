@@ -599,6 +599,8 @@
   "webinarErrInput": "Verifică detaliile webinarului și încearcă din nou.",
   "webinarErrGeneric": "Ceva n-a mers bine. Încearcă din nou.",
   "webinarErrTitle": "Introdu un titlu.",
+  "webinarErrStartPast": "Data de început trebuie să fie în viitor.",
+  "webinarErrEndBeforeStart": "Sfârșitul trebuie să fie după început.",
   "webinarGoLive": "Intră în direct",
   "webinarGoingLive": "Se intră în direct…",
   "webinarOnAir": "În direct",

@@ -599,6 +599,8 @@
   "webinarErrInput": "Kontrolli palun veebiseminari andmeid ja proovi uuesti.",
   "webinarErrGeneric": "Midagi läks valesti. Proovi palun uuesti.",
   "webinarErrTitle": "Sisesta palun pealkiri.",
+  "webinarErrStartPast": "Alguskuupäev peab olema tulevikus.",
+  "webinarErrEndBeforeStart": "Lõpp peab olema pärast algust.",
   "webinarGoLive": "Alusta otseülekannet",
   "webinarGoingLive": "Otseülekande alustamine…",
   "webinarOnAir": "Eetris",

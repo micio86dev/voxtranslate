@@ -599,6 +599,8 @@
   "webinarErrInput": "请检查网络研讨会详情后重试。",
   "webinarErrGeneric": "出了点问题。请重试。",
   "webinarErrTitle": "请输入标题。",
+  "webinarErrStartPast": "开始日期必须在未来。",
+  "webinarErrEndBeforeStart": "结束时间必须晚于开始时间。",
   "webinarGoLive": "开始直播",
   "webinarGoingLive": "正在开始直播…",
   "webinarOnAir": "直播中",

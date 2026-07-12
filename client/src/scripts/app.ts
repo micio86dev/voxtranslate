@@ -96,6 +96,7 @@ import {
   showVoiceCloneToggle,
   showWebinarCloneAction,
   unarchiveWebinar,
+  validateSchedule,
   WebinarError,
   type WebinarView,
 } from './webinar';
@@ -6098,15 +6099,25 @@ async function submitWebinar(): Promise<void> {
     setWebinarStatus(t('webinarErrTitle'), 'err');
     return;
   }
+  // Optional schedule: empty inputs → immediate webinar (null start/end).
+  const scheduledStart = fromDatetimeLocalValue(webinarStartInput.value);
+  const scheduledEnd = fromDatetimeLocalValue(webinarEndInput.value);
+  // Friendly inline validation before the API call (server re-checks, 400).
+  const schedule = validateSchedule(scheduledStart, scheduledEnd, Date.now());
+  if (schedule === 'startPast') {
+    setWebinarStatus(t('webinarErrStartPast'), 'err');
+    return;
+  }
+  if (schedule === 'endBeforeStart') {
+    setWebinarStatus(t('webinarErrEndBeforeStart'), 'err');
+    return;
+  }
   webinarCreateBtn.disabled = true;
   setWebinarStatus(t('webinarCreating'), '');
   try {
     // Voice cloning is Enhanced-only and moot once already cloned — only send it
     // when the tier-aware toggle is actually offered AND on.
     const cloneOffered = showVoiceCloneToggle(webinarTierSel.value, hasVoiceClone());
-    // Optional schedule: empty inputs → immediate webinar (null start/end).
-    const scheduledStart = fromDatetimeLocalValue(webinarStartInput.value);
-    const scheduledEnd = fromDatetimeLocalValue(webinarEndInput.value);
     // Optional project: the "No project" default has an empty value → omit project_id.
     const projectId = webinarProjectSel.value || undefined;
     await createWebinar({

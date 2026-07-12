@@ -599,6 +599,8 @@
   "webinarErrInput": "Lütfen web semineri ayrıntılarını kontrol edip tekrar deneyin.",
   "webinarErrGeneric": "Bir şeyler ters gitti. Lütfen tekrar deneyin.",
   "webinarErrTitle": "Lütfen bir başlık girin.",
+  "webinarErrStartPast": "Başlangıç tarihi gelecekte olmalıdır.",
+  "webinarErrEndBeforeStart": "Bitiş, başlangıçtan sonra olmalıdır.",
   "webinarGoLive": "Canlı yayına geç",
   "webinarGoingLive": "Canlı yayına geçiliyor…",
   "webinarOnAir": "Yayında",

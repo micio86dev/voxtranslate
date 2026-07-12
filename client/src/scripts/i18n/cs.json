@@ -599,6 +599,8 @@
   "webinarErrInput": "Zkontrolujte prosím údaje webináře a zkuste to znovu.",
   "webinarErrGeneric": "Něco se pokazilo. Zkuste to prosím znovu.",
   "webinarErrTitle": "Zadejte prosím název.",
+  "webinarErrStartPast": "Datum začátku musí být v budoucnosti.",
+  "webinarErrEndBeforeStart": "Konec musí být po začátku.",
   "webinarGoLive": "Spustit vysílání",
   "webinarGoingLive": "Spouštění vysílání…",
   "webinarOnAir": "Ve vysílání",

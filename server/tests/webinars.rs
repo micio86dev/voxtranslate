@@ -1903,3 +1903,81 @@ async fn public_list_returns_only_public_discoverable_webinars() {
         );
     }
 }
+
+// ---- schedule validation (create) ------------------------------------------
+
+/// RFC-3339 UTC string `hours` from now (negative → in the past).
+fn iso_from_now(hours: i64) -> String {
+    (chrono::Utc::now() + chrono::Duration::hours(hours)).to_rfc3339()
+}
+
+#[tokio::test]
+async fn create_rejects_past_scheduled_start() {
+    let Some(srv) = setup().await else {
+        return;
+    };
+    let http = Client::new();
+    let (owner, jwt) = user(&srv).await;
+    let org_id = org(&srv, owner, true).await;
+    let r = http
+        .post(format!("{}/api/webinars", base(&srv)))
+        .bearer_auth(&jwt)
+        .json(&json!({
+            "org_id": org_id,
+            "title": "Past start",
+            "source_language": "en",
+            "scheduled_start": iso_from_now(-24),
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 400, "a clearly-past scheduled_start → 400");
+}
+
+#[tokio::test]
+async fn create_rejects_end_before_start() {
+    let Some(srv) = setup().await else {
+        return;
+    };
+    let http = Client::new();
+    let (owner, jwt) = user(&srv).await;
+    let org_id = org(&srv, owner, true).await;
+    let r = http
+        .post(format!("{}/api/webinars", base(&srv)))
+        .bearer_auth(&jwt)
+        .json(&json!({
+            "org_id": org_id,
+            "title": "Bad range",
+            "source_language": "en",
+            "scheduled_start": iso_from_now(48),
+            "scheduled_end": iso_from_now(24), // before the start
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 400, "scheduled_end before start → 400");
+}
+
+#[tokio::test]
+async fn create_accepts_valid_future_schedule() {
+    let Some(srv) = setup().await else {
+        return;
+    };
+    let http = Client::new();
+    let (owner, jwt) = user(&srv).await;
+    let org_id = org(&srv, owner, true).await;
+    let r = http
+        .post(format!("{}/api/webinars", base(&srv)))
+        .bearer_auth(&jwt)
+        .json(&json!({
+            "org_id": org_id,
+            "title": "Valid schedule",
+            "source_language": "en",
+            "scheduled_start": iso_from_now(24),
+            "scheduled_end": iso_from_now(25),
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 201, "a valid future schedule → 201");
+}

@@ -599,6 +599,8 @@
   "webinarErrInput": "Проверите детаље вебинара и покушајте поново.",
   "webinarErrGeneric": "Нешто је пошло наопако. Покушајте поново.",
   "webinarErrTitle": "Унесите наслов.",
+  "webinarErrStartPast": "Датум почетка мора бити у будућности.",
+  "webinarErrEndBeforeStart": "Крај мора бити након почетка.",
   "webinarGoLive": "Почни уживо",
   "webinarGoingLive": "Покретање уживо…",
   "webinarOnAir": "У етру",

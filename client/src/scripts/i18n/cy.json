@@ -599,6 +599,8 @@
   "webinarErrInput": "Gwiriwch fanylion y gweminar a rhowch gynnig arall arni.",
   "webinarErrGeneric": "Aeth rhywbeth o'i le. Rhowch gynnig arall arni.",
   "webinarErrTitle": "Rhowch deitl.",
+  "webinarErrStartPast": "Rhaid i'r dyddiad dechrau fod yn y dyfodol.",
+  "webinarErrEndBeforeStart": "Rhaid i'r diwedd fod ar ôl y dechrau.",
   "webinarGoLive": "Mynd yn fyw",
   "webinarGoingLive": "Yn mynd yn fyw…",
   "webinarOnAir": "Ar yr awyr",

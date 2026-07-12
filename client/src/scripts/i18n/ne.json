@@ -599,6 +599,8 @@
   "webinarErrInput": "कृपया वेबिनार विवरण जाँच गर्नुहोस् र फेरि प्रयास गर्नुहोस्।",
   "webinarErrGeneric": "केही गडबड भयो। कृपया फेरि प्रयास गर्नुहोस्।",
   "webinarErrTitle": "कृपया शीर्षक प्रविष्ट गर्नुहोस्।",
+  "webinarErrStartPast": "सुरु मिति भविष्यमा हुनुपर्छ।",
+  "webinarErrEndBeforeStart": "अन्त्य सुरुपछि हुनुपर्छ।",
   "webinarGoLive": "प्रत्यक्ष प्रसारण गर्नुहोस्",
   "webinarGoingLive": "प्रत्यक्ष प्रसारण सुरु हुँदै…",
   "webinarOnAir": "प्रसारणमा",

@@ -599,6 +599,8 @@
   "webinarErrInput": "โปรดตรวจสอบรายละเอียดเว็บบินาร์แล้วลองอีกครั้ง",
   "webinarErrGeneric": "เกิดข้อผิดพลาดบางอย่าง โปรดลองอีกครั้ง",
   "webinarErrTitle": "โปรดป้อนชื่อเรื่อง",
+  "webinarErrStartPast": "วันที่เริ่มต้นต้องอยู่ในอนาคต",
+  "webinarErrEndBeforeStart": "เวลาสิ้นสุดต้องอยู่หลังเวลาเริ่มต้น",
   "webinarGoLive": "เริ่มถ่ายทอดสด",
   "webinarGoingLive": "กำลังเริ่มถ่ายทอดสด…",
   "webinarOnAir": "กำลังถ่ายทอดสด",

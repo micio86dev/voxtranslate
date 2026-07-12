@@ -599,6 +599,8 @@
   "webinarErrInput": "Моля, проверете данните за уебинара и опитайте отново.",
   "webinarErrGeneric": "Нещо се обърка. Моля, опитайте отново.",
   "webinarErrTitle": "Моля, въведете заглавие.",
+  "webinarErrStartPast": "Началната дата трябва да е в бъдещето.",
+  "webinarErrEndBeforeStart": "Краят трябва да е след началото.",
   "webinarGoLive": "Започни на живо",
   "webinarGoingLive": "Стартиране на живо…",
   "webinarOnAir": "В ефир",

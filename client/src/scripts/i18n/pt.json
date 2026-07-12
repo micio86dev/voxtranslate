@@ -599,6 +599,8 @@
   "webinarErrInput": "Verifique os detalhes do webinar e tente novamente.",
   "webinarErrGeneric": "Algo correu mal. Tente novamente.",
   "webinarErrTitle": "Introduza um título.",
+  "webinarErrStartPast": "A data de início deve ser no futuro.",
+  "webinarErrEndBeforeStart": "O fim deve ser posterior ao início.",
   "webinarGoLive": "Entrar ao vivo",
   "webinarGoingLive": "A entrar ao vivo…",
   "webinarOnAir": "No ar",

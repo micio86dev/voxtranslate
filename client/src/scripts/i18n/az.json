@@ -599,6 +599,8 @@
   "webinarErrInput": "Zəhmət olmasa, vebinar məlumatlarını yoxlayın və yenidən cəhd edin.",
   "webinarErrGeneric": "Nəsə səhv oldu. Zəhmət olmasa, yenidən cəhd edin.",
   "webinarErrTitle": "Zəhmət olmasa, başlıq daxil edin.",
+  "webinarErrStartPast": "Başlanğıc tarixi gələcəkdə olmalıdır.",
+  "webinarErrEndBeforeStart": "Bitmə başlanğıcdan sonra olmalıdır.",
   "webinarGoLive": "Canlı yayına başla",
   "webinarGoingLive": "Canlı yayına başlanır…",
   "webinarOnAir": "Efirdə",

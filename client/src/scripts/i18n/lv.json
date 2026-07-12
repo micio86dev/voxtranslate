@@ -599,6 +599,8 @@
   "webinarErrInput": "Lūdzu, pārbaudiet vebināra informāciju un mēģiniet vēlreiz.",
   "webinarErrGeneric": "Kaut kas nogāja greizi. Lūdzu, mēģiniet vēlreiz.",
   "webinarErrTitle": "Lūdzu, ievadiet nosaukumu.",
+  "webinarErrStartPast": "Sākuma datumam jābūt nākotnē.",
+  "webinarErrEndBeforeStart": "Beigām jābūt pēc sākuma.",
   "webinarGoLive": "Sākt tiešraidi",
   "webinarGoingLive": "Notiek tiešraides sākšana…",
   "webinarOnAir": "Ēterā",
