@@ -605,7 +605,7 @@
   "webinarGoOnAir": "방송 시작",
   "webinarBackToStudio": "스튜디오로 돌아가기",
   "webinarParticipants": "참여자",
-  "webinarCountWiring": "실시간 참여자 수 준비 중",
+  "webinarWatching": "{n}명 시청 중",
   "webinarEnd": "웨비나 종료",
   "webinarEndTitle": "모두에게 종료하시겠어요?",
   "webinarEndBody": "참가자의 연결이 끊기며 다시 참여할 수 없습니다.",

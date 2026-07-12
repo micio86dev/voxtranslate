@@ -605,7 +605,7 @@
   "webinarGoOnAir": "লাইভে যান",
   "webinarBackToStudio": "স্টুডিওতে ফিরুন",
   "webinarParticipants": "অংশগ্রহণকারী",
-  "webinarCountWiring": "লাইভ গণনা এখনও সংযুক্ত হচ্ছে",
+  "webinarWatching": "{n} জন দেখছেন",
   "webinarEnd": "ওয়েবিনার শেষ করুন",
   "webinarEndTitle": "সবার জন্য শেষ করবেন?",
   "webinarEndBody": "অতিথিদের সংযোগ বিচ্ছিন্ন হবে এবং তারা আবার যোগ দিতে পারবেন না।",

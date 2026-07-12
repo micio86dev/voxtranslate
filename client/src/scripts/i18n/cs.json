@@ -605,7 +605,7 @@
   "webinarGoOnAir": "Spustit vysílání",
   "webinarBackToStudio": "Zpět do studia",
   "webinarParticipants": "Účastníci",
-  "webinarCountWiring": "Živé počítání se stále připojuje",
+  "webinarWatching": "{n} sleduje",
   "webinarEnd": "Ukončit webinář",
   "webinarEndTitle": "Ukončit pro všechny?",
   "webinarEndBody": "Hosté budou odpojeni a nebudou se moci znovu připojit.",

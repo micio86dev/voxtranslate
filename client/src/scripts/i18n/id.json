@@ -605,7 +605,7 @@
   "webinarGoOnAir": "Mulai siaran",
   "webinarBackToStudio": "Kembali ke studio",
   "webinarParticipants": "Peserta",
-  "webinarCountWiring": "Penghitung langsung sedang disiapkan",
+  "webinarWatching": "{n} sedang menonton",
   "webinarEnd": "Akhiri webinar",
   "webinarEndTitle": "Akhiri untuk semua?",
   "webinarEndBody": "Tamu akan terputus dan tidak bisa bergabung lagi.",

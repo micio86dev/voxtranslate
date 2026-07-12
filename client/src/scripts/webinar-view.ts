@@ -4,13 +4,29 @@
 // All playback + polling logic lives in hls-player.ts (pure/unit-tested); this file is
 // intentionally DOM-only and runs solely in the browser.
 
-import { HlsPlayer, type PlayerState } from './hls-player';
-import { applyI18n, detectLang, loadLocale, setUiLang, t } from './i18n';
+import { HlsPlayer, getStoredGuestId, type PlayerState } from './hls-player';
+import { applyI18n, detectLang, getUiLang, loadLocale, setUiLang, t } from './i18n';
+import { PresenceClient } from './webinar-presence';
+
+// App WS base, mirroring auth.ts (this file never imports auth to keep the /w/ bundle
+// lean and free of the accounts/billing surface).
+const WS_HOST = import.meta.env.PUBLIC_WS_HOST || location.host;
+const WS_PROTO = location.protocol === 'https:' ? 'wss:' : 'ws:';
+const WS_BASE = `${WS_PROTO}//${WS_HOST}`;
 
 /** Toggle an element's `.hidden` CLASS (never the HTML `hidden` attribute — the app's
  *  show() gotcha: elements are styled off via the class). No-op for a missing element. */
 function show(el: HTMLElement | null, visible: boolean): void {
   el?.classList.toggle('hidden', !visible);
+}
+
+/** Render the live audience count into the "N watching" indicator, revealing it on the
+ *  first frame. */
+function renderWatching(count: number): void {
+  const badge = document.getElementById('wv-watching');
+  const text = document.getElementById('wv-watching-text');
+  if (text) text.textContent = t('webinarWatching').replace('{n}', String(count));
+  show(badge, true);
 }
 
 /** Reflect the player state onto the page: the status badge + the overlays. */
@@ -71,9 +87,32 @@ export function mountWebinarPlayer(): void {
     void player.userStart();
   });
 
-  // Free the poll timer + hls.js when the guest navigates away.
-  addEventListener('pagehide', () => player.destroy(), { once: true });
+  let presence: PresenceClient | null = null;
+
+  // Free the poll timer + hls.js + presence WS when the guest navigates away.
+  addEventListener(
+    'pagehide',
+    () => {
+      player.destroy();
+      presence?.close();
+      presence = null;
+    },
+    { once: true },
+  );
 
   renderState('waiting');
-  void player.start();
+  // start() fetches the webinar and persists the guest_id; once it resolves we open the
+  // live-presence socket (counted audience) so the "N watching" indicator streams updates.
+  void player.start().then(() => {
+    const guestId = getStoredGuestId();
+    if (!guestId) return; // no identity (fetch failed) — skip the count, playback still works
+    presence = new PresenceClient({
+      wsBase: WS_BASE,
+      code,
+      guestId,
+      host: false,
+      lang: getUiLang(),
+      onCount: renderWatching,
+    });
+  });
 }

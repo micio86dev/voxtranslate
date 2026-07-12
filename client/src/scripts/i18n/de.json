@@ -605,7 +605,7 @@
   "webinarGoOnAir": "Live gehen",
   "webinarBackToStudio": "Zurück zum Studio",
   "webinarParticipants": "Teilnehmer",
-  "webinarCountWiring": "Live-Zählung wird noch verbunden",
+  "webinarWatching": "{n} sehen gerade zu",
   "webinarEnd": "Webinar beenden",
   "webinarEndTitle": "Für alle beenden?",
   "webinarEndBody": "Gäste werden getrennt und können nicht erneut beitreten.",

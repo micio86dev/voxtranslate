@@ -605,7 +605,7 @@
   "webinarGoOnAir": "配信を開始",
   "webinarBackToStudio": "スタジオに戻る",
   "webinarParticipants": "参加者",
-  "webinarCountWiring": "ライブ参加者数は準備中です",
+  "webinarWatching": "{n}人が視聴中",
   "webinarEnd": "ウェビナーを終了",
   "webinarEndTitle": "全員に対して終了しますか？",
   "webinarEndBody": "ゲストは切断され、再参加できなくなります。",

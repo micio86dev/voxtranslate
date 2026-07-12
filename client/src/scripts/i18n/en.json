@@ -605,7 +605,7 @@
   "webinarGoOnAir": "Go on air",
   "webinarBackToStudio": "Back to studio",
   "webinarParticipants": "Participants",
-  "webinarCountWiring": "Live count wiring in progress",
+  "webinarWatching": "{n} watching",
   "webinarEnd": "End webinar",
   "webinarEndTitle": "End for everyone?",
   "webinarEndBody": "Guests will be disconnected and can’t rejoin.",

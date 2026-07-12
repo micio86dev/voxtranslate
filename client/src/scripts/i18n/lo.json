@@ -605,7 +605,7 @@
   "webinarGoOnAir": "ເລີ່ມຖ່າຍທອດສົດ",
   "webinarBackToStudio": "ກັບໄປຫາສະຕູດິໂອ",
   "webinarParticipants": "ຜູ້ເຂົ້າຮ່ວມ",
-  "webinarCountWiring": "ຕົວນັບສົດກຳລັງຕຽມ",
+  "webinarWatching": "{n} ກຳລັງເບິ່ງ",
   "webinarEnd": "ຈົບເວັບບີນາ",
   "webinarEndTitle": "ຈົບສຳລັບທຸກຄົນບໍ?",
   "webinarEndBody": "ແຂກຈະຖືກຕັດການເຊື່ອມຕໍ່ ແລະ ບໍ່ສາມາດເຂົ້າຮ່ວມຄືນໄດ້.",

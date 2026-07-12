@@ -605,7 +605,7 @@
   "webinarGoOnAir": "Vai in onda",
   "webinarBackToStudio": "Torna allo studio",
   "webinarParticipants": "Partecipanti",
-  "webinarCountWiring": "Conteggio in tempo reale in arrivo",
+  "webinarWatching": "{n} in ascolto",
   "webinarEnd": "Termina webinar",
   "webinarEndTitle": "Terminare per tutti?",
   "webinarEndBody": "Gli ospiti saranno disconnessi e non potranno rientrare.",

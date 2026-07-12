@@ -605,7 +605,7 @@
   "webinarGoOnAir": "خپرول پیل کړئ",
   "webinarBackToStudio": "بیرته سټوډیو ته",
   "webinarParticipants": "ګډونوال",
-  "webinarCountWiring": "ژوندی شمېر ډېر ژر راروان دی",
+  "webinarWatching": "{n} یې ګوري",
   "webinarEnd": "ویبینار پای ته ورسوئ",
   "webinarEndTitle": "د ټولو لپاره یې پای ته ورسوئ؟",
   "webinarEndBody": "میلمانه به قطع شي او بیا نشي یوځای کیدلی.",

@@ -605,7 +605,7 @@
   "webinarGoOnAir": "Élő adás indítása",
   "webinarBackToStudio": "Vissza a stúdióba",
   "webinarParticipants": "Résztvevők",
-  "webinarCountWiring": "Az élő számláló még készül",
+  "webinarWatching": "{n} néző",
   "webinarEnd": "Webinárium befejezése",
   "webinarEndTitle": "Befejezed mindenkinek?",
   "webinarEndBody": "A vendégek lecsatlakoznak, és nem tudnak visszalépni.",

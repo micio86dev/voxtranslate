@@ -27,7 +27,6 @@ import {
   showVoiceCloneToggle,
   showWebinarCloneAction,
   toDatetimeLocalValue,
-  webinarPresenceStub,
   type PublicWebinar,
   type WebinarView,
 } from './webinar';
@@ -460,12 +459,6 @@ describe('buildPublishConstraints', () => {
       audio: { deviceId: { exact: 'mic-1' } },
       video: { deviceId: { exact: 'cam-1' } },
     });
-  });
-});
-
-describe('webinarPresenceStub', () => {
-  it('returns 0 until real presence wiring lands', () => {
-    expect(webinarPresenceStub()).toBe(0);
   });
 });
 

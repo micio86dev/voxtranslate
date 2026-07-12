@@ -348,15 +348,6 @@ export function buildPublishConstraints(
   return { audio, video };
 }
 
-/** STUB participant presence for a live webinar. Real presence (a WS/HLS viewer
- *  count) is a follow-up task; today this always returns 0 so the studio's count
- *  element renders with a clear "wiring in progress" affordance. Kept as a tiny pure
- *  function so swapping it for a real source later is a one-line change at the call
- *  site — do NOT build presence networking here. */
-export function webinarPresenceStub(): number {
-  return 0;
-}
-
 /** Format an ISO timestamp (or null) for a `<input type="datetime-local">` value:
  *  the local `YYYY-MM-DDTHH:mm` the control expects. Returns "" for null/invalid so
  *  an unscheduled (immediate) webinar leaves the inputs empty. Pure. */

@@ -605,7 +605,7 @@
   "webinarGoOnAir": "တိုက်ရိုက်ထုတ်လွှင့်ရန်",
   "webinarBackToStudio": "စတူဒီယိုသို့ ပြန်သွားရန်",
   "webinarParticipants": "ပါဝင်သူများ",
-  "webinarCountWiring": "တိုက်ရိုက်အရေအတွက် ပြင်ဆင်နေသည်",
+  "webinarWatching": "{n} ဦး ကြည့်ရှုနေသည်",
   "webinarEnd": "ဝက်ဘီနာ အဆုံးသတ်ရန်",
   "webinarEndTitle": "အားလုံးအတွက် အဆုံးသတ်မလား?",
   "webinarEndBody": "ဧည့်သည်များ ချိတ်ဆက်မှုပြတ်တောက်မည်ဖြစ်ပြီး ပြန်ဝင်၍မရပါ။",

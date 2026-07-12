@@ -605,7 +605,7 @@
   "webinarGoOnAir": "Kreni uživo",
   "webinarBackToStudio": "Natrag u studio",
   "webinarParticipants": "Sudionici",
-  "webinarCountWiring": "Brojač uživo u pripremi",
+  "webinarWatching": "{n} gleda",
   "webinarEnd": "Završi webinar",
   "webinarEndTitle": "Završiti za sve?",
   "webinarEndBody": "Gosti će biti odspojeni i ne mogu se ponovno pridružiti.",
