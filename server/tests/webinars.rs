@@ -1686,3 +1686,220 @@ async fn chat_history_limit_caps_and_returns_most_recent() {
         "over-cap limit still works"
     );
 }
+
+// ---- Public/private visibility --------------------------------------------
+
+/// Create a webinar with an explicit visibility; returns the parsed body.
+async fn create_visibility_webinar(
+    http: &Client,
+    srv: &Server,
+    jwt: &str,
+    org_id: Uuid,
+    visibility: &str,
+) -> Value {
+    let r = http
+        .post(format!("{}/api/webinars", base(srv)))
+        .bearer_auth(jwt)
+        .json(&json!({
+            "org_id": org_id,
+            "title": "Visible",
+            "source_language": "en",
+            "visibility": visibility,
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        r.status(),
+        201,
+        "create webinar with visibility={visibility}"
+    );
+    r.json().await.unwrap()
+}
+
+#[tokio::test]
+async fn visibility_defaults_private_and_round_trips_public() {
+    let Some(srv) = setup().await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    let http = Client::new();
+    let (owner, jwt) = user(&srv).await;
+    let org_id = org(&srv, owner, true).await;
+
+    // Default (omitted) → private, visible on the host view.
+    let default = create_webinar(&http, &srv, &jwt, org_id).await;
+    assert_eq!(
+        default["visibility"], "private",
+        "visibility defaults to private on create"
+    );
+
+    // Explicit visibility:"public" → host view echoes it AND the public view
+    // exposes it (a guest on /w/{code} may see it).
+    let pubw = create_visibility_webinar(&http, &srv, &jwt, org_id, "public").await;
+    assert_eq!(pubw["visibility"], "public", "host view carries visibility");
+    let code = pubw["code"].as_str().unwrap().to_string();
+
+    let pubr = http
+        .get(format!("{}/api/w/{code}", base(&srv)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(pubr.status(), 200);
+    let body: Value = pubr.json().await.unwrap();
+    assert_eq!(
+        body["visibility"], "public",
+        "public view exposes visibility"
+    );
+}
+
+#[tokio::test]
+async fn create_rejects_invalid_visibility() {
+    let Some(srv) = setup().await else {
+        return;
+    };
+    let http = Client::new();
+    let (owner, jwt) = user(&srv).await;
+    let org_id = org(&srv, owner, true).await;
+    let r = http
+        .post(format!("{}/api/webinars", base(&srv)))
+        .bearer_auth(&jwt)
+        .json(&json!({
+            "org_id": org_id,
+            "title": "x",
+            "source_language": "en",
+            "visibility": "unlisted",
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 400, "invalid visibility → 400");
+}
+
+#[tokio::test]
+async fn patch_updates_visibility() {
+    let Some(srv) = setup().await else {
+        return;
+    };
+    let http = Client::new();
+    let (owner, jwt) = user(&srv).await;
+    let org_id = org(&srv, owner, true).await;
+    // Starts private (the default).
+    let created = create_webinar(&http, &srv, &jwt, org_id).await;
+    assert_eq!(created["visibility"], "private");
+    let id = created["id"].as_str().unwrap().to_string();
+
+    // PATCH visibility → public (COALESCE keeps other fields).
+    let ok = http
+        .patch(format!("{}/api/webinars/{id}", base(&srv)))
+        .bearer_auth(&jwt)
+        .json(&json!({ "visibility": "public" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(ok.status(), 200);
+    let ok: Value = ok.json().await.unwrap();
+    assert_eq!(ok["visibility"], "public", "PATCH updates visibility");
+
+    // An invalid visibility on PATCH → 400.
+    let bad = http
+        .patch(format!("{}/api/webinars/{id}", base(&srv)))
+        .bearer_auth(&jwt)
+        .json(&json!({ "visibility": "secret" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(bad.status(), 400, "invalid visibility on PATCH → 400");
+}
+
+#[tokio::test]
+async fn public_list_returns_only_public_discoverable_webinars() {
+    let Some(srv) = setup().await else {
+        return;
+    };
+    let http = Client::new();
+    let (owner, jwt) = user(&srv).await;
+    let org_id = org(&srv, owner, true).await;
+
+    // A PUBLIC + scheduled webinar → discoverable.
+    let pubw = create_visibility_webinar(&http, &srv, &jwt, org_id, "public").await;
+    let pub_code = pubw["code"].as_str().unwrap().to_string();
+
+    // A PRIVATE webinar → NOT discoverable.
+    let priv_w = create_webinar(&http, &srv, &jwt, org_id).await;
+    let priv_code = priv_w["code"].as_str().unwrap().to_string();
+
+    // A PUBLIC but cancelled webinar → NOT discoverable.
+    let cancelled = create_visibility_webinar(&http, &srv, &jwt, org_id, "public").await;
+    let cancelled_id = cancelled["id"].as_str().unwrap().to_string();
+    let cancelled_code = cancelled["code"].as_str().unwrap().to_string();
+    http.post(format!("{}/api/webinars/{cancelled_id}/cancel", base(&srv)))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap();
+
+    // A PUBLIC but archived webinar → NOT discoverable.
+    let archived = create_visibility_webinar(&http, &srv, &jwt, org_id, "public").await;
+    let archived_id = archived["id"].as_str().unwrap().to_string();
+    let archived_code = archived["code"].as_str().unwrap().to_string();
+    http.post(format!("{}/api/webinars/{archived_id}/archive", base(&srv)))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap();
+
+    // The public list is UNAUTH (no token/cookie) and still works.
+    let r = http
+        .get(format!("{}/api/webinars/public", base(&srv)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 200, "public list is open (no auth)");
+    let body: Value = r.json().await.unwrap();
+    let items = body["webinars"].as_array().expect("webinars array");
+
+    let codes: Vec<&str> = items.iter().map(|w| w["code"].as_str().unwrap()).collect();
+    assert!(
+        codes.contains(&pub_code.as_str()),
+        "public+scheduled listed"
+    );
+    assert!(!codes.contains(&priv_code.as_str()), "private NOT listed");
+    assert!(
+        !codes.contains(&cancelled_code.as_str()),
+        "cancelled NOT listed"
+    );
+    assert!(
+        !codes.contains(&archived_code.as_str()),
+        "archived NOT listed"
+    );
+
+    // The listed item carries the PII-free public shape + a live `viewers` count.
+    let item = items
+        .iter()
+        .find(|w| w["code"].as_str() == Some(pub_code.as_str()))
+        .unwrap();
+    for key in [
+        "code",
+        "title",
+        "status",
+        "source_language",
+        "tier",
+        "join_url",
+        "viewers",
+    ] {
+        assert!(item.get(key).is_some(), "public list item has `{key}`");
+    }
+    assert_eq!(
+        item["viewers"].as_u64().unwrap(),
+        0,
+        "viewers count present"
+    );
+    let obj = item.as_object().unwrap();
+    for leaked in ["org_id", "host_user_id", "email", "playback_url"] {
+        assert!(
+            !obj.contains_key(leaked),
+            "public list item leaks `{leaked}`"
+        );
+    }
+}
