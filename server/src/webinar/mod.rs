@@ -93,6 +93,8 @@ pub struct Webinar {
     pub google_event_id: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    /// Soft-archive timestamp (039). NULL = active; set = hidden from the active list.
+    pub archived_at: Option<DateTime<Utc>>,
 }
 
 /// Fields for creating a webinar (F0-3); the `code` is generated server-side.

@@ -17,6 +17,9 @@ vi.mock('./hls-player', () => ({
     this.userStart = userStart;
     this.destroy = destroy;
   }),
+  // No stored guest identity → the controller skips the presence connect, so these
+  // tests exercise the player wiring only (not the viewer-count side effect).
+  getStoredGuestId: vi.fn(() => null),
 }));
 
 // i18n: identity `t` (returns the key) + no-op locale glue, so we assert on keys.

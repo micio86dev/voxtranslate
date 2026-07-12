@@ -11,6 +11,7 @@ vi.mock('./auth', () => ({
 import {
   WebinarError,
   addToCalendar,
+  archiveWebinar,
   buildPublishConstraints,
   cancelWebinar,
   canHostWebinar,
@@ -27,6 +28,7 @@ import {
   showVoiceCloneToggle,
   showWebinarCloneAction,
   toDatetimeLocalValue,
+  unarchiveWebinar,
   type PublicWebinar,
   type WebinarView,
 } from './webinar';
@@ -79,6 +81,7 @@ const webinar = (over: Partial<WebinarView> = {}): WebinarView => ({
   join_url: 'https://voxtranslate.app/w/ab12cd',
   playback_url: null,
   created_at: '2026-07-11T00:00:00Z',
+  archived_at: null,
   ...over,
 });
 
@@ -153,13 +156,25 @@ describe('createWebinar', () => {
 });
 
 describe('listWebinars', () => {
-  it('GETs the org list with an encoded org_id and auth headers', async () => {
+  it('GETs the active list by default (archived=false) with an encoded org_id and auth headers', async () => {
     fetchMock.mockResolvedValue(okJson([webinar()]));
     const out = await listWebinars('org 1');
     expect(out).toEqual([webinar()]);
-    expect(fetchMock).toHaveBeenCalledWith('http://test/api/webinars?org_id=org%201', {
-      headers: { Authorization: 'Bearer tok' },
-    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://test/api/webinars?org_id=org%201&archived=false',
+      { headers: { Authorization: 'Bearer tok' } },
+    );
+  });
+
+  it('requests the archived list when archived is true', async () => {
+    const archived = webinar({ archived_at: '2026-07-12T00:00:00Z', status: 'ended' });
+    fetchMock.mockResolvedValue(okJson([archived]));
+    const out = await listWebinars('o1', true);
+    expect(out).toEqual([archived]);
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://test/api/webinars?org_id=o1&archived=true',
+      { headers: { Authorization: 'Bearer tok' } },
+    );
   });
 
   it('throws on a non-ok response', async () => {
@@ -235,6 +250,58 @@ describe('cancelWebinar', () => {
     await expect(cancelWebinar('w1')).rejects.toMatchObject({ status: 404 });
     fetchMock.mockRejectedValueOnce(new Error('net'));
     await expect(cancelWebinar('w1')).rejects.toMatchObject({ status: 0 });
+  });
+});
+
+describe('archiveWebinar', () => {
+  it('POSTs to the archive endpoint and returns the webinar with archived_at set', async () => {
+    fetchMock.mockResolvedValue(okJson(webinar({ archived_at: '2026-07-12T00:00:00Z' })));
+    const out = await archiveWebinar('w1');
+    expect(out.archived_at).toBe('2026-07-12T00:00:00Z');
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('http://test/api/webinars/w1/archive');
+    expect(init?.method).toBe('POST');
+    expect(init?.headers).toEqual({ Authorization: 'Bearer tok' });
+    expect(init?.body).toBeUndefined();
+  });
+
+  it('encodes the id in the path', async () => {
+    fetchMock.mockResolvedValue(okJson(webinar()));
+    await archiveWebinar('w 1/x');
+    expect(fetchMock.mock.calls[0][0]).toBe('http://test/api/webinars/w%201%2Fx/archive');
+  });
+
+  it('throws on error and on network failure', async () => {
+    fetchMock.mockResolvedValueOnce(okJson({ error: 'not found' }, 404));
+    await expect(archiveWebinar('w1')).rejects.toMatchObject({ status: 404 });
+    fetchMock.mockRejectedValueOnce(new Error('net'));
+    await expect(archiveWebinar('w1')).rejects.toMatchObject({ name: 'WebinarError', status: 0 });
+  });
+});
+
+describe('unarchiveWebinar', () => {
+  it('POSTs to the unarchive endpoint and returns the restored webinar (archived_at null)', async () => {
+    fetchMock.mockResolvedValue(okJson(webinar({ archived_at: null })));
+    const out = await unarchiveWebinar('w1');
+    expect(out.archived_at).toBeNull();
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('http://test/api/webinars/w1/unarchive');
+    expect(init?.method).toBe('POST');
+    expect(init?.headers).toEqual({ Authorization: 'Bearer tok' });
+    expect(init?.body).toBeUndefined();
+  });
+
+  it('encodes the id in the path', async () => {
+    fetchMock.mockResolvedValue(okJson(webinar()));
+    await unarchiveWebinar('w 1/x');
+    expect(fetchMock.mock.calls[0][0]).toBe('http://test/api/webinars/w%201%2Fx/unarchive');
+  });
+
+  it('throws on error and on network failure', async () => {
+    fetchMock.mockResolvedValueOnce(okJson({ error: 'not found' }, 404));
+    await expect(unarchiveWebinar('w1')).rejects.toMatchObject({ status: 404 });
+    fetchMock.mockRejectedValueOnce(new Error('net'));
+    await expect(unarchiveWebinar('w1')).rejects.toMatchObject({ name: 'WebinarError', status: 0 });
   });
 });
 
