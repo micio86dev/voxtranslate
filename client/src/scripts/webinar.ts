@@ -38,6 +38,8 @@ export interface WebinarView {
   join_url: string;
   playback_url: string | null;
   created_at: string;
+  /** ISO timestamp the webinar was soft-archived, or null while it's active. */
+  archived_at: string | null;
 }
 
 /** The public (no-auth) view of a webinar for a participant landing on `/w/{code}`.
@@ -179,12 +181,17 @@ export async function createWebinar(body: CreateWebinarBody): Promise<WebinarVie
   return parse<WebinarView>(res);
 }
 
-/** List an org's webinars. Throws `WebinarError` on failure. */
-export async function listWebinars(orgId: string): Promise<WebinarView[]> {
+/** List an org's webinars. Pass `archived: true` for the archived (historical) list;
+ *  the default `false` returns the active list. Throws `WebinarError` on failure. */
+export async function listWebinars(
+  orgId: string,
+  archived = false,
+): Promise<WebinarView[]> {
   let res: Response;
   try {
     res = await fetch(
-      `${HTTP_BASE}/api/webinars?org_id=${encodeURIComponent(orgId)}`,
+      `${HTTP_BASE}/api/webinars?org_id=${encodeURIComponent(orgId)}` +
+        `&archived=${archived}`,
       { headers: authHeaders() },
     );
   } catch {
@@ -231,6 +238,38 @@ export async function cancelWebinar(id: string): Promise<WebinarView> {
   try {
     res = await fetch(
       `${HTTP_BASE}/api/webinars/${encodeURIComponent(id)}/cancel`,
+      { method: "POST", headers: authHeaders() },
+    );
+  } catch {
+    netError();
+  }
+  return parse<WebinarView>(res);
+}
+
+/** Soft-archive a webinar (host only): the server sets `archived_at` and drops it
+ *  from the active list. Returns the archived webinar (`archived_at` populated).
+ *  Throws `WebinarError` on failure. */
+export async function archiveWebinar(id: string): Promise<WebinarView> {
+  let res: Response;
+  try {
+    res = await fetch(
+      `${HTTP_BASE}/api/webinars/${encodeURIComponent(id)}/archive`,
+      { method: "POST", headers: authHeaders() },
+    );
+  } catch {
+    netError();
+  }
+  return parse<WebinarView>(res);
+}
+
+/** Restore an archived webinar (host only): the server clears `archived_at` and it
+ *  reappears in the active list. Returns the restored webinar (`archived_at: null`).
+ *  Throws `WebinarError` on failure. */
+export async function unarchiveWebinar(id: string): Promise<WebinarView> {
+  let res: Response;
+  try {
+    res = await fetch(
+      `${HTTP_BASE}/api/webinars/${encodeURIComponent(id)}/unarchive`,
       { method: "POST", headers: authHeaders() },
     );
   } catch {
