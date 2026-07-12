@@ -599,6 +599,8 @@
   "webinarErrInput": "請檢查網絡研討會嘅詳情再試多次。",
   "webinarErrGeneric": "出咗啲問題。請再試多次。",
   "webinarErrTitle": "請輸入標題。",
+  "webinarErrStartPast": "開始日期必須喺將來。",
+  "webinarErrEndBeforeStart": "結束時間必須喺開始之後。",
   "webinarGoLive": "開始直播",
   "webinarGoingLive": "正在開始直播…",
   "webinarOnAir": "直播中",

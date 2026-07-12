@@ -599,6 +599,8 @@
   "webinarErrInput": "Kontroller webinardetaljane og prøv igjen.",
   "webinarErrGeneric": "Noko gjekk gale. Prøv igjen.",
   "webinarErrTitle": "Skriv inn ein tittel.",
+  "webinarErrStartPast": "Startdatoen må vere i framtida.",
+  "webinarErrEndBeforeStart": "Slutten må vere etter starten.",
   "webinarGoLive": "Gå live",
   "webinarGoingLive": "Går live…",
   "webinarOnAir": "På lufta",

@@ -599,6 +599,8 @@
   "webinarErrInput": "សូមពិនិត្យព័ត៌មានលម្អិតវេប៊ីណា ហើយព្យាយាមម្តងទៀត។",
   "webinarErrGeneric": "មានបញ្ហាកើតឡើង។ សូមព្យាយាមម្តងទៀត។",
   "webinarErrTitle": "សូមបញ្ចូលចំណងជើង។",
+  "webinarErrStartPast": "កាលបរិច្ឆេទចាប់ផ្តើមត្រូវតែនៅពេលអនាគត។",
+  "webinarErrEndBeforeStart": "ការបញ្ចប់ត្រូវតែក្រោយពេលចាប់ផ្តើម។",
   "webinarGoLive": "ចាប់ផ្ដើមផ្សាយផ្ទាល់",
   "webinarGoingLive": "កំពុងចាប់ផ្ដើមផ្សាយផ្ទាល់…",
   "webinarOnAir": "កំពុងផ្សាយផ្ទាល់",

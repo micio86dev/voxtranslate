@@ -599,6 +599,8 @@
   "webinarErrInput": "Sila semak butiran webinar dan cuba lagi.",
   "webinarErrGeneric": "Sesuatu tidak kena. Sila cuba lagi.",
   "webinarErrTitle": "Sila masukkan tajuk.",
+  "webinarErrStartPast": "Tarikh mula mestilah pada masa hadapan.",
+  "webinarErrEndBeforeStart": "Penamat mestilah selepas permulaan.",
   "webinarGoLive": "Mula siaran langsung",
   "webinarGoingLive": "Memulakan siaran langsung…",
   "webinarOnAir": "Di udara",

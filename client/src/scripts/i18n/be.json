@@ -599,6 +599,8 @@
   "webinarErrInput": "Калі ласка, праверце дэталі вебінара і паспрабуйце зноў.",
   "webinarErrGeneric": "Нешта пайшло не так. Калі ласка, паспрабуйце зноў.",
   "webinarErrTitle": "Калі ласка, увядзіце назву.",
+  "webinarErrStartPast": "Дата пачатку павінна быць у будучыні.",
+  "webinarErrEndBeforeStart": "Заканчэнне павінна быць пасля пачатку.",
   "webinarGoLive": "Пачаць эфір",
   "webinarGoingLive": "Пачынаем эфір…",
   "webinarOnAir": "У эфіры",

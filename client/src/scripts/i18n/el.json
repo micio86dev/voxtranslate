@@ -599,6 +599,8 @@
   "webinarErrInput": "Ελέγξτε τα στοιχεία του σεμιναρίου και δοκιμάστε ξανά.",
   "webinarErrGeneric": "Κάτι πήγε στραβά. Δοκιμάστε ξανά.",
   "webinarErrTitle": "Εισαγάγετε έναν τίτλο.",
+  "webinarErrStartPast": "Η ημερομηνία έναρξης πρέπει να είναι στο μέλλον.",
+  "webinarErrEndBeforeStart": "Η λήξη πρέπει να είναι μετά την έναρξη.",
   "webinarGoLive": "Έναρξη ζωντανής μετάδοσης",
   "webinarGoingLive": "Έναρξη ζωντανής μετάδοσης…",
   "webinarOnAir": "Στον αέρα",

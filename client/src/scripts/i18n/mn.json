@@ -599,6 +599,8 @@
   "webinarErrInput": "Вебинарын мэдээллийг шалгаад дахин оролдоно уу.",
   "webinarErrGeneric": "Алдаа гарлаа. Дахин оролдоно уу.",
   "webinarErrTitle": "Гарчиг оруулна уу.",
+  "webinarErrStartPast": "Эхлэх огноо ирээдүйд байх ёстой.",
+  "webinarErrEndBeforeStart": "Төгсгөл нь эхлэлээс хойш байх ёстой.",
   "webinarGoLive": "Шууд эфир эхлүүлэх",
   "webinarGoingLive": "Шууд эфир эхэлж байна…",
   "webinarOnAir": "Эфирт",

@@ -599,6 +599,8 @@
   "webinarErrInput": "Tanpri verifye detay webinè a epi eseye ankò.",
   "webinarErrGeneric": "Yon bagay pa mache. Tanpri eseye ankò.",
   "webinarErrTitle": "Tanpri antre yon tit.",
+  "webinarErrStartPast": "Dat kòmansman an dwe nan lavni.",
+  "webinarErrEndBeforeStart": "Fen an dwe apre kòmansman an.",
   "webinarGoLive": "Pase an dirèk",
   "webinarGoingLive": "N ap pase an dirèk…",
   "webinarOnAir": "An dirèk",

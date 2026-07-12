@@ -599,6 +599,8 @@
   "webinarErrInput": "لطفاً جزئیات وبینار را بررسی کرده و دوباره تلاش کنید.",
   "webinarErrGeneric": "مشکلی پیش آمد. لطفاً دوباره تلاش کنید.",
   "webinarErrTitle": "لطفاً یک عنوان وارد کنید.",
+  "webinarErrStartPast": "تاریخ شروع باید در آینده باشد.",
+  "webinarErrEndBeforeStart": "پایان باید پس از شروع باشد.",
   "webinarGoLive": "شروع پخش زنده",
   "webinarGoingLive": "در حال شروع پخش زنده…",
   "webinarOnAir": "روی آنتن",

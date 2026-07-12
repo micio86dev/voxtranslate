@@ -599,6 +599,8 @@
   "webinarErrInput": "ウェビナーの詳細を確認して、もう一度お試しください。",
   "webinarErrGeneric": "問題が発生しました。もう一度お試しください。",
   "webinarErrTitle": "タイトルを入力してください。",
+  "webinarErrStartPast": "開始日時は未来である必要があります。",
+  "webinarErrEndBeforeStart": "終了は開始より後にしてください。",
   "webinarGoLive": "配信を開始",
   "webinarGoingLive": "配信を開始しています…",
   "webinarOnAir": "配信中",

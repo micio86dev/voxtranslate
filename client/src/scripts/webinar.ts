@@ -491,3 +491,37 @@ export function fromDatetimeLocalValue(value: string): string | null {
   if (Number.isNaN(d.getTime())) return null;
   return d.toISOString();
 }
+
+/** Outcome of validating an optional webinar schedule client-side, mirroring the
+ *  server's 400 rules so the UI can flag it inline before the API call. `ok` means
+ *  the (possibly partial) schedule is valid to submit. */
+export type ScheduleValidity = "ok" | "startPast" | "endBeforeStart";
+
+/** Small clock-skew tolerance (ms) so a "start = right now" schedule isn't
+ *  bounced by sub-minute drift; matches the server's 2-minute past tolerance. */
+const SCHEDULE_PAST_TOLERANCE_MS = 2 * 60 * 1000;
+
+/** Validate an optional webinar schedule (ISO strings, e.g. from
+ *  [`fromDatetimeLocalValue`]) against `nowMs`. Pure + `now`-injected so it's
+ *  deterministic and DOM-free.
+ *
+ *  - A `startISO` in the clear past (`start < now - 2min`) → `startPast`.
+ *  - An `endISO` at or before the effective start → `endBeforeStart`.
+ *  - Missing/unparseable values are skipped (an immediate/partial schedule is ok).
+ *  The start-in-future check runs first, so a past start with a bad range still
+ *  reports `startPast`. */
+export function validateSchedule(
+  startISO: string | null,
+  endISO: string | null,
+  nowMs: number,
+): ScheduleValidity {
+  const start = startISO ? new Date(startISO).getTime() : NaN;
+  const end = endISO ? new Date(endISO).getTime() : NaN;
+  if (!Number.isNaN(start) && start < nowMs - SCHEDULE_PAST_TOLERANCE_MS) {
+    return "startPast";
+  }
+  if (!Number.isNaN(start) && !Number.isNaN(end) && end <= start) {
+    return "endBeforeStart";
+  }
+  return "ok";
+}

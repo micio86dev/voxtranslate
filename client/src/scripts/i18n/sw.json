@@ -599,6 +599,8 @@
   "webinarErrInput": "Tafadhali angalia maelezo ya wavuti na ujaribu tena.",
   "webinarErrGeneric": "Kuna hitilafu imetokea. Tafadhali jaribu tena.",
   "webinarErrTitle": "Tafadhali weka kichwa.",
+  "webinarErrStartPast": "Tarehe ya kuanza lazima iwe siku zijazo.",
+  "webinarErrEndBeforeStart": "Mwisho lazima uwe baada ya mwanzo.",
   "webinarGoLive": "Anza matangazo",
   "webinarGoingLive": "Inaanza matangazo…",
   "webinarOnAir": "Inatangaza moja kwa moja",

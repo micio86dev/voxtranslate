@@ -599,6 +599,8 @@
   "webinarErrInput": "Egiaztatu webinarraren xehetasunak eta saiatu berriro.",
   "webinarErrGeneric": "Zerbait gaizki joan da. Saiatu berriro.",
   "webinarErrTitle": "Sartu izenburu bat.",
+  "webinarErrStartPast": "Hasiera-datak etorkizunekoa izan behar du.",
+  "webinarErrEndBeforeStart": "Amaierak hasieraren ondorengoa izan behar du.",
   "webinarGoLive": "Zuzenean hasi",
   "webinarGoingLive": "Zuzenean hasten…",
   "webinarOnAir": "Airean",

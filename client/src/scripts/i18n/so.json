@@ -599,6 +599,8 @@
   "webinarErrInput": "Fadlan hubi faahfaahinta webinaarka oo isku day mar kale.",
   "webinarErrGeneric": "Wax baa qaldamay. Fadlan isku day mar kale.",
   "webinarErrTitle": "Fadlan geli cinwaan.",
+  "webinarErrStartPast": "Taariikhda bilowga waa inay mustaqbalka ku jirtaa.",
+  "webinarErrEndBeforeStart": "Dhammaadku waa inuu ka danbeeyaa bilowga.",
   "webinarGoLive": "Bilow faafinta tooska ah",
   "webinarGoingLive": "Waxaa bilaabmaya faafin toos ah…",
   "webinarOnAir": "Hawada dhexdeeda",

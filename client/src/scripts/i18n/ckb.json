@@ -599,6 +599,8 @@
   "webinarErrInput": "تکایە وردەکارییەکانی وێبینار بپشکنە و دووبارە هەوڵ بدەرەوە.",
   "webinarErrGeneric": "شتێک هەڵەی تێدابوو. تکایە دووبارە هەوڵ بدەرەوە.",
   "webinarErrTitle": "تکایە ناونیشانێک بنووسە.",
+  "webinarErrStartPast": "پێویستە بەرواری دەستپێک لە داهاتوودا بێت.",
+  "webinarErrEndBeforeStart": "پێویستە کۆتایی دوای دەستپێک بێت.",
   "webinarGoLive": "ڕاستەوخۆ دەستپێبکە",
   "webinarGoingLive": "ڕاستەوخۆ دەستپێدەکرێت…",
   "webinarOnAir": "لەسەر ئێر",

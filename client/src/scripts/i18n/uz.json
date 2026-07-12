@@ -599,6 +599,8 @@
   "webinarErrInput": "Vebinar maʼlumotlarini tekshiring va qaytadan urinib koʻring.",
   "webinarErrGeneric": "Nimadir xato ketdi. Qaytadan urinib koʻring.",
   "webinarErrTitle": "Sarlavha kiriting.",
+  "webinarErrStartPast": "Boshlanish sanasi kelajakda bo'lishi kerak.",
+  "webinarErrEndBeforeStart": "Tugash boshlanishdan keyin bo'lishi kerak.",
   "webinarGoLive": "Jonli efirni boshlash",
   "webinarGoingLive": "Jonli efir boshlanmoqda…",
   "webinarOnAir": "Efirda",

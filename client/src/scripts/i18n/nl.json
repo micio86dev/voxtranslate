@@ -599,6 +599,8 @@
   "webinarErrInput": "Controleer de webinargegevens en probeer het opnieuw.",
   "webinarErrGeneric": "Er is iets misgegaan. Probeer het opnieuw.",
   "webinarErrTitle": "Voer een titel in.",
+  "webinarErrStartPast": "De startdatum moet in de toekomst liggen.",
+  "webinarErrEndBeforeStart": "Het einde moet na het begin liggen.",
   "webinarGoLive": "Live gaan",
   "webinarGoingLive": "Gaat live…",
   "webinarOnAir": "In de uitzending",

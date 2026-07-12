@@ -599,6 +599,8 @@
   "webinarErrInput": "Iwwerpréift w.e.g. d'Webinar-Detailer an probéiert et nach eng Kéier.",
   "webinarErrGeneric": "Eppes ass schifgaang. Probéiert et w.e.g. nach eng Kéier.",
   "webinarErrTitle": "Gitt w.e.g. en Titel an.",
+  "webinarErrStartPast": "D'Startdatum muss an der Zukunft leien.",
+  "webinarErrEndBeforeStart": "D'Enn muss no dem Start leien.",
   "webinarGoLive": "Live goen",
   "webinarGoingLive": "Live gëtt gestart…",
   "webinarOnAir": "Op der Antenn",

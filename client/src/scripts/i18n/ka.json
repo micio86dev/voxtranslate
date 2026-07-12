@@ -599,6 +599,8 @@
   "webinarErrInput": "გთხოვთ, გადაამოწმოთ ვებინარის დეტალები და სცადოთ ხელახლა.",
   "webinarErrGeneric": "რაღაც შეცდომა მოხდა. გთხოვთ, სცადოთ ხელახლა.",
   "webinarErrTitle": "გთხოვთ, შეიყვანოთ სათაური.",
+  "webinarErrStartPast": "დაწყების თარიღი მომავალში უნდა იყოს.",
+  "webinarErrEndBeforeStart": "დასრულება დაწყების შემდეგ უნდა იყოს.",
   "webinarGoLive": "პირდაპირ ეთერში გასვლა",
   "webinarGoingLive": "პირდაპირ ეთერში გასვლა…",
   "webinarOnAir": "ეთერში",

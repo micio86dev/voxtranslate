@@ -599,6 +599,8 @@
   "webinarErrInput": "Provjerite pojedinosti webinara i pokušajte ponovno.",
   "webinarErrGeneric": "Nešto je pošlo po zlu. Pokušajte ponovno.",
   "webinarErrTitle": "Unesite naslov.",
+  "webinarErrStartPast": "Datum početka mora biti u budućnosti.",
+  "webinarErrEndBeforeStart": "Kraj mora biti nakon početka.",
   "webinarGoLive": "Kreni uživo",
   "webinarGoingLive": "Prelazak uživo…",
   "webinarOnAir": "U eteru",

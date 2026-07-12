@@ -599,6 +599,8 @@
   "webinarErrInput": "يرجى التحقق من تفاصيل الندوة والمحاولة مرة أخرى.",
   "webinarErrGeneric": "حدث خطأ ما. يرجى المحاولة مرة أخرى.",
   "webinarErrTitle": "يرجى إدخال عنوان.",
+  "webinarErrStartPast": "يجب أن يكون تاريخ البدء في المستقبل.",
+  "webinarErrEndBeforeStart": "يجب أن تكون النهاية بعد البداية.",
   "webinarGoLive": "بدء البث المباشر",
   "webinarGoingLive": "جارٍ بدء البث المباشر…",
   "webinarOnAir": "على الهواء",

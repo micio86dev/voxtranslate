@@ -599,6 +599,8 @@
   "webinarErrInput": "Veuillez vérifier les détails du webinaire et réessayer.",
   "webinarErrGeneric": "Une erreur s'est produite. Veuillez réessayer.",
   "webinarErrTitle": "Veuillez saisir un titre.",
+  "webinarErrStartPast": "La date de début doit être dans le futur.",
+  "webinarErrEndBeforeStart": "La fin doit être postérieure au début.",
   "webinarGoLive": "Passer en direct",
   "webinarGoingLive": "Passage en direct…",
   "webinarOnAir": "En direct",

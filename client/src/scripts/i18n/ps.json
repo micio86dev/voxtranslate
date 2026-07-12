@@ -599,6 +599,8 @@
   "webinarErrInput": "مهرباني وکړئ د ویبینار جزئیات وګورئ او بیا هڅه وکړئ.",
   "webinarErrGeneric": "یو څه غلط شو. مهرباني وکړئ بیا هڅه وکړئ.",
   "webinarErrTitle": "مهرباني وکړئ یو سرلیک دننه کړئ.",
+  "webinarErrStartPast": "د پیل نیټه باید په راتلونکي کې وي.",
+  "webinarErrEndBeforeStart": "پای باید د پیل وروسته وي.",
   "webinarGoLive": "ژوندۍ خپرونه پیل کړئ",
   "webinarGoingLive": "ژوندۍ خپرونه پیلېږي…",
   "webinarOnAir": "په خپرونه کې",

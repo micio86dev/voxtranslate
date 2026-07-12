@@ -599,6 +599,8 @@
   "webinarErrInput": "Bitte überprüfe die Webinar-Details und versuche es erneut.",
   "webinarErrGeneric": "Etwas ist schiefgelaufen. Bitte versuche es erneut.",
   "webinarErrTitle": "Bitte gib einen Titel ein.",
+  "webinarErrStartPast": "Das Startdatum muss in der Zukunft liegen.",
+  "webinarErrEndBeforeStart": "Das Ende muss nach dem Start liegen.",
   "webinarGoLive": "Live gehen",
   "webinarGoingLive": "Wird live geschaltet…",
   "webinarOnAir": "Auf Sendung",

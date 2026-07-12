@@ -599,6 +599,8 @@
   "webinarErrInput": "Mangyaring tingnan ang mga detalye ng webinar at subukang muli.",
   "webinarErrGeneric": "May nangyaring mali. Mangyaring subukang muli.",
   "webinarErrTitle": "Mangyaring maglagay ng pamagat.",
+  "webinarErrStartPast": "Ang petsa ng pagsisimula ay dapat nasa hinaharap.",
+  "webinarErrEndBeforeStart": "Ang pagtatapos ay dapat matapos ang pagsisimula.",
   "webinarGoLive": "Mag-live",
   "webinarGoingLive": "Nagsisimula nang mag-live…",
   "webinarOnAir": "Nasa ere",

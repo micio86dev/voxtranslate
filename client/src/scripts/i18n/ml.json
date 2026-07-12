@@ -599,6 +599,8 @@
   "webinarErrInput": "വെബിനാർ വിശദാംശങ്ങൾ പരിശോധിച്ച് വീണ്ടും ശ്രമിക്കുക.",
   "webinarErrGeneric": "എന്തോ കുഴപ്പം സംഭവിച്ചു. ദയവായി വീണ്ടും ശ്രമിക്കുക.",
   "webinarErrTitle": "ദയവായി ഒരു ശീർഷകം നൽകുക.",
+  "webinarErrStartPast": "ആരംഭ തീയതി ഭാവിയിലായിരിക്കണം.",
+  "webinarErrEndBeforeStart": "അവസാനം ആരംഭത്തിനു ശേഷമായിരിക്കണം.",
   "webinarGoLive": "ലൈവ് ആരംഭിക്കുക",
   "webinarGoingLive": "ലൈവ് ആരംഭിക്കുന്നു…",
   "webinarOnAir": "പ്രക്ഷേപണത്തിൽ",

@@ -599,6 +599,8 @@
   "webinarErrInput": "Sicela uhlole imininingwane yewebhinari uphinde uzame futhi.",
   "webinarErrGeneric": "Kukhona okungahambanga kahle. Sicela uzame futhi.",
   "webinarErrTitle": "Sicela ufake isihloko.",
+  "webinarErrStartPast": "Usuku lokuqala kufanele lube esikhathini esizayo.",
+  "webinarErrEndBeforeStart": "Ukuphela kufanele kube ngemva kokuqala.",
   "webinarGoLive": "Qala ukusakaza bukhoma",
   "webinarGoingLive": "Iyaqala ukusakaza bukhoma…",
   "webinarOnAir": "Iyasakaza",

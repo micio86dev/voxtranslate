@@ -599,6 +599,8 @@
   "webinarErrInput": "Da fatan za a duba bayanan webinar sannan a sake gwadawa.",
   "webinarErrGeneric": "Wani abu ya faskara. Da fatan za a sake gwadawa.",
   "webinarErrTitle": "Da fatan za a shigar da take.",
+  "webinarErrStartPast": "Ranar farawa dole ta kasance a nan gaba.",
+  "webinarErrEndBeforeStart": "Ƙarshen dole ya kasance bayan farawa.",
   "webinarGoLive": "Fara yaɗawa kai tsaye",
   "webinarGoingLive": "Ana fara kai tsaye…",
   "webinarOnAir": "Ana yaɗawa",

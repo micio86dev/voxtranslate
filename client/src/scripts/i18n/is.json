@@ -599,6 +599,8 @@
   "webinarErrInput": "Vinsamlegast athugaðu upplýsingar vefnámskeiðsins og reyndu aftur.",
   "webinarErrGeneric": "Eitthvað fór úrskeiðis. Vinsamlegast reyndu aftur.",
   "webinarErrTitle": "Vinsamlegast sláðu inn titil.",
+  "webinarErrStartPast": "Upphafsdagsetning verður að vera í framtíðinni.",
+  "webinarErrEndBeforeStart": "Lokin verða að vera á eftir upphafinu.",
   "webinarGoLive": "Fara í beina útsendingu",
   "webinarGoingLive": "Fer í beina útsendingu…",
   "webinarOnAir": "Í útsendingu",

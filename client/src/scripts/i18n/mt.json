@@ -599,6 +599,8 @@
   "webinarErrInput": "Jekk jogħġbok iċċekkja d-dettalji tal-webinar u erġa' pprova.",
   "webinarErrGeneric": "Xi ħaġa marret ħażin. Jekk jogħġbok erġa' pprova.",
   "webinarErrTitle": "Jekk jogħġbok daħħal titlu.",
+  "webinarErrStartPast": "Id-data tal-bidu trid tkun fil-futur.",
+  "webinarErrEndBeforeStart": "It-tmiem irid ikun wara l-bidu.",
   "webinarGoLive": "Ixxandar dirett",
   "webinarGoingLive": "Qed jibda x-xandir…",
   "webinarOnAir": "Fuq l-arja",

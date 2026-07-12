@@ -599,6 +599,8 @@
   "webinarErrInput": "Jọ̀wọ́ ṣàyẹ̀wò àwọn àlàyé wẹ́bínà kí o sì gbìyànjú lẹ́ẹ̀kansi.",
   "webinarErrGeneric": "Nkan kan lọ àṣìṣe. Jọ̀wọ́ gbìyànjú lẹ́ẹ̀kansi.",
   "webinarErrTitle": "Jọ̀wọ́ tẹ àkọ́lé kan sí i.",
+  "webinarErrStartPast": "Ọjọ́ ìbẹ̀rẹ̀ gbọ́dọ̀ wà ní ọjọ́ iwájú.",
+  "webinarErrEndBeforeStart": "Ìparí gbọ́dọ̀ wà lẹ́yìn ìbẹ̀rẹ̀.",
   "webinarGoLive": "Bẹ̀rẹ̀ ìgbóhùnsáféfé",
   "webinarGoingLive": "Ń bẹ̀rẹ̀ ìgbóhùnsáféfé…",
   "webinarOnAir": "Lórí afẹ́fẹ́",

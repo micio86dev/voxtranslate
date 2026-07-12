@@ -599,6 +599,8 @@
   "webinarErrInput": "Patikrinkite seminaro duomenis ir bandykite dar kartą.",
   "webinarErrGeneric": "Kažkas nepavyko. Bandykite dar kartą.",
   "webinarErrTitle": "Įveskite pavadinimą.",
+  "webinarErrStartPast": "Pradžios data turi būti ateityje.",
+  "webinarErrEndBeforeStart": "Pabaiga turi būti po pradžios.",
   "webinarGoLive": "Pradėti tiesioginę transliaciją",
   "webinarGoingLive": "Pradedama tiesioginė transliacija…",
   "webinarOnAir": "Eteryje",

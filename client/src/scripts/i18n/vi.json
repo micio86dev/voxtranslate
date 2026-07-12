@@ -599,6 +599,8 @@
   "webinarErrInput": "Vui lòng kiểm tra thông tin hội thảo trực tuyến và thử lại.",
   "webinarErrGeneric": "Đã xảy ra lỗi. Vui lòng thử lại.",
   "webinarErrTitle": "Vui lòng nhập tiêu đề.",
+  "webinarErrStartPast": "Ngày bắt đầu phải ở trong tương lai.",
+  "webinarErrEndBeforeStart": "Thời điểm kết thúc phải sau thời điểm bắt đầu.",
   "webinarGoLive": "Phát trực tiếp",
   "webinarGoingLive": "Đang bắt đầu phát trực tiếp…",
   "webinarOnAir": "Đang phát sóng",

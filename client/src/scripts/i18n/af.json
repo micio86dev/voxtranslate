@@ -599,6 +599,8 @@
   "webinarErrInput": "Gaan asseblief die webinar-besonderhede na en probeer weer.",
   "webinarErrGeneric": "Iets het verkeerd geloop. Probeer asseblief weer.",
   "webinarErrTitle": "Voer asseblief 'n titel in.",
+  "webinarErrStartPast": "Die begindatum moet in die toekoms wees.",
+  "webinarErrEndBeforeStart": "Die einde moet na die begin wees.",
   "webinarGoLive": "Gaan regstreeks",
   "webinarGoingLive": "Gaan regstreeks…",
   "webinarOnAir": "In die lug",

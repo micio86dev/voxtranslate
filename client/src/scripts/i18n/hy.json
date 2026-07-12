@@ -599,6 +599,8 @@
   "webinarErrInput": "Խնդրում ենք ստուգել վեբինարի մանրամասները և կրկին փորձել։",
   "webinarErrGeneric": "Ինչ-որ բան սխալ գնաց։ Խնդրում ենք կրկին փորձել։",
   "webinarErrTitle": "Խնդրում ենք մուտքագրել վերնագիր։",
+  "webinarErrStartPast": "Սկզբի ամսաթիվը պետք է լինի ապագայում։",
+  "webinarErrEndBeforeStart": "Ավարտը պետք է լինի սկզբից հետո։",
   "webinarGoLive": "Անցնել ուղիղ եթեր",
   "webinarGoingLive": "Անցում ուղիղ եթեր…",
   "webinarOnAir": "Եթերում",

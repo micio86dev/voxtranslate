@@ -1,0 +1,7 @@
+# Keep `railway up` uploads lean: never ship local build artifacts or env files.
+# The Dockerfile builds from src/migrations/assets only, so target/ (multi-GB from
+# local cargo builds) must never enter the upload context.
+target/
+.env
+.env.*
+*.log

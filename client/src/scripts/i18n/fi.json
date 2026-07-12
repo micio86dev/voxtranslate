@@ -599,6 +599,8 @@
   "webinarErrInput": "Tarkista webinaarin tiedot ja yritä uudelleen.",
   "webinarErrGeneric": "Jokin meni pieleen. Yritä uudelleen.",
   "webinarErrTitle": "Anna otsikko.",
+  "webinarErrStartPast": "Alkamispäivän on oltava tulevaisuudessa.",
+  "webinarErrEndBeforeStart": "Lopun on oltava alun jälkeen.",
   "webinarGoLive": "Aloita lähetys",
   "webinarGoingLive": "Aloitetaan lähetystä…",
   "webinarOnAir": "Lähetyksessä",

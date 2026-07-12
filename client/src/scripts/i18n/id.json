@@ -599,6 +599,8 @@
   "webinarErrInput": "Silakan periksa detail webinar dan coba lagi.",
   "webinarErrGeneric": "Terjadi kesalahan. Silakan coba lagi.",
   "webinarErrTitle": "Silakan masukkan judul.",
+  "webinarErrStartPast": "Tanggal mulai harus di masa depan.",
+  "webinarErrEndBeforeStart": "Akhir harus setelah awal.",
   "webinarGoLive": "Mulai siaran langsung",
   "webinarGoingLive": "Memulai siaran langsung…",
   "webinarOnAir": "Sedang tayang",
