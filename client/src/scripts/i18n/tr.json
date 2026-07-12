@@ -549,6 +549,8 @@
   "engineRestrictedNetwork": "Enhanced ağınızda kullanılamıyor — Standard çeviri kullanılıyor.",
   "webinarsTitle": "Web seminerleri",
   "webinarsIntro": "Bir web semineri oluşturun ve katılım bağlantısını paylaşın. Katılımcılar sizi kendi dillerine canlı çevrilmiş olarak duyar.",
+  "webinarProject": "Proje",
+  "webinarNoProject": "Proje yok",
   "webinarTitleLabel": "Başlık",
   "webinarTitlePlaceholder": "örn. Ürün lansmanı",
   "webinarSourceLang": "Diliniz",

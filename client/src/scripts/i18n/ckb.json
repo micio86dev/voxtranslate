@@ -549,6 +549,8 @@
   "engineRestrictedNetwork": "Enhanced لەسەر تۆڕەکەت بەردەست نییە — وەرگێڕانی Standard بەکاردێت.",
   "webinarsTitle": "وێبینارەکان",
   "webinarsIntro": "وێبینارێک دروست بکە و بەستەری بەشداریکردن بڵاو بکەرەوە. بەشداربووان بە زمانی خۆیان بە شێوەی ڕاستەوخۆ وەرگێڕدراو گوێت لێ دەگرن.",
+  "webinarProject": "پڕۆژە",
+  "webinarNoProject": "بێ پڕۆژە",
   "webinarTitleLabel": "ناونیشان",
   "webinarTitlePlaceholder": "بۆ نموونە دەستپێکردنی بەرهەم",
   "webinarSourceLang": "زمانەکەت",

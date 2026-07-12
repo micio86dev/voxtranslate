@@ -549,6 +549,8 @@
   "engineRestrictedNetwork": "Enhanced ez dago erabilgarri zure sarean — Standard itzulpena erabiltzen ari da.",
   "webinarsTitle": "Webinarrak",
   "webinarsIntro": "Sortu webinar bat eta partekatu batzeko esteka. Parte-hartzaileek zuzenean beren hizkuntzara itzulita entzungo zaituzte.",
+  "webinarProject": "Proiektua",
+  "webinarNoProject": "Proiekturik ez",
   "webinarTitleLabel": "Izenburua",
   "webinarTitlePlaceholder": "adib. Produktuaren aurkezpena",
   "webinarSourceLang": "Zure hizkuntza",

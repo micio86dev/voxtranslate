@@ -549,6 +549,8 @@
   "engineRestrictedNetwork": "Το Enhanced δεν είναι διαθέσιμο στο δίκτυό σας — χρησιμοποιείται μετάφραση Standard.",
   "webinarsTitle": "Διαδικτυακά σεμινάρια",
   "webinarsIntro": "Δημιουργήστε ένα διαδικτυακό σεμινάριο και μοιραστείτε τον σύνδεσμο συμμετοχής. Οι συμμετέχοντες σας ακούν σε ζωντανή μετάφραση στη δική τους γλώσσα.",
+  "webinarProject": "Έργο",
+  "webinarNoProject": "Χωρίς έργο",
   "webinarTitleLabel": "Τίτλος",
   "webinarTitlePlaceholder": "π.χ. Λανσάρισμα προϊόντος",
   "webinarSourceLang": "Η γλώσσα σας",

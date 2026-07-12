@@ -549,6 +549,8 @@
   "engineRestrictedNetwork": "你嘅網絡用唔到 Enhanced — 改用 Standard 翻譯。",
   "webinarsTitle": "網絡研討會",
   "webinarsIntro": "建立網絡研討會並分享加入連結。與會者會聽到即時翻譯成佢哋自己語言嘅內容。",
+  "webinarProject": "專案",
+  "webinarNoProject": "冇專案",
   "webinarTitleLabel": "標題",
   "webinarTitlePlaceholder": "例如：產品發佈",
   "webinarSourceLang": "你嘅語言",

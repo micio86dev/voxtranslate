@@ -549,6 +549,8 @@
   "engineRestrictedNetwork": "Enhanced nuk është i disponueshëm në rrjetin tënd — po përdoret përkthimi Standard.",
   "webinarsTitle": "Webinaret",
   "webinarsIntro": "Krijoni një webinar dhe ndani lidhjen e bashkimit. Pjesëmarrësit ju dëgjojnë të përkthyer drejtpërdrejt në gjuhën e tyre.",
+  "webinarProject": "Projekti",
+  "webinarNoProject": "Asnjë projekt",
   "webinarTitleLabel": "Titulli",
   "webinarTitlePlaceholder": "p.sh. Lansimi i produktit",
   "webinarSourceLang": "Gjuha juaj",

@@ -549,6 +549,8 @@
   "engineRestrictedNetwork": "Enhanced روی شبکه شما در دسترس نیست — از ترجمه Standard استفاده می‌شود.",
   "webinarsTitle": "وبینارها",
   "webinarsIntro": "یک وبینار بسازید و لینک پیوستن را به اشتراک بگذارید. شرکت‌کنندگان صدای شما را به‌صورت زنده و ترجمه‌شده به زبان خودشان می‌شنوند.",
+  "webinarProject": "پروژه",
+  "webinarNoProject": "بدون پروژه",
   "webinarTitleLabel": "عنوان",
   "webinarTitlePlaceholder": "مثلاً معرفی محصول",
   "webinarSourceLang": "زبان شما",

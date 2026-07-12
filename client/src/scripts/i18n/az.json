@@ -549,6 +549,8 @@
   "engineRestrictedNetwork": "Enhanced şəbəkənizdə əlçatan deyil — Standard tərcüməsi istifadə olunur.",
   "webinarsTitle": "Vebinarlar",
   "webinarsIntro": "Vebinar yaradın və qoşulma linkini paylaşın. İştirakçılar sizi öz dillərinə canlı tərcümə olunmuş şəkildə eşidəcək.",
+  "webinarProject": "Layihə",
+  "webinarNoProject": "Layihə yoxdur",
   "webinarTitleLabel": "Başlıq",
   "webinarTitlePlaceholder": "məs. Məhsul təqdimatı",
   "webinarSourceLang": "Sizin diliniz",

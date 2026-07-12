@@ -549,6 +549,8 @@
   "engineRestrictedNetwork": "तुमच्या नेटवर्कवर Enhanced उपलब्ध नाही — Standard भाषांतर वापरले जात आहे.",
   "webinarsTitle": "वेबिनार",
   "webinarsIntro": "वेबिनार तयार करा आणि सहभागी होण्याची लिंक शेअर करा. सहभागी तुम्हाला त्यांच्या स्वतःच्या भाषेत थेट अनुवादित ऐकतील.",
+  "webinarProject": "प्रकल्प",
+  "webinarNoProject": "कोणताही प्रकल्प नाही",
   "webinarTitleLabel": "शीर्षक",
   "webinarTitlePlaceholder": "उदा. उत्पादन लाँच",
   "webinarSourceLang": "तुमची भाषा",

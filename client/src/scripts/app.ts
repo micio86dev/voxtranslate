@@ -4802,6 +4802,7 @@ $('ws-rec-cancel').addEventListener('click', () => stopWsRecording(false));
 // switch mirrors the Account hub (homeScreen.hidden ↔ webinarsScreen.hidden).
 const webinarsScreen = $('webinars');
 const webinarOrgSel = $<HTMLSelectElement>('webinar-org');
+const webinarProjectSel = $<HTMLSelectElement>('webinar-project');
 const webinarLangSel = $<HTMLSelectElement>('webinar-lang');
 const webinarTierSel = $<HTMLSelectElement>('webinar-tier');
 const webinarTitleInput = $<HTMLInputElement>('webinar-title');
@@ -4930,7 +4931,34 @@ async function openWebinars(): Promise<void> {
     webinarCreateBtn.disabled = orgs.length === 0;
     webinarOrgsLoaded = true;
   }
+  await loadWebinarProjects();
   await loadWebinars();
+}
+
+/** Populate the optional "Project" picker from the selected org's projects. Always
+ *  starts with a "No project" default; the field is hidden when the org has none.
+ *  Called on entry and whenever the chosen org changes. */
+async function loadWebinarProjects(): Promise<void> {
+  const orgId = webinarOrgSel.value;
+  webinarProjectSel.innerHTML = '';
+  const projectField = $('webinar-project-field');
+  if (!orgId) {
+    show(projectField, false);
+    return;
+  }
+  // "No project" default — value "" means the create call omits project_id.
+  const none = document.createElement('option');
+  none.value = '';
+  none.textContent = t('webinarNoProject');
+  webinarProjectSel.appendChild(none);
+  const projects = await listProjects(orgId);
+  for (const p of projects) {
+    const opt = document.createElement('option');
+    opt.value = p.id;
+    opt.textContent = p.name;
+    webinarProjectSel.appendChild(opt);
+  }
+  show(projectField, projects.length > 0); // hide the picker when the org has none
 }
 
 function closeWebinars(): void {
@@ -5859,10 +5887,13 @@ async function submitWebinar(): Promise<void> {
     // Optional schedule: empty inputs → immediate webinar (null start/end).
     const scheduledStart = fromDatetimeLocalValue(webinarStartInput.value);
     const scheduledEnd = fromDatetimeLocalValue(webinarEndInput.value);
+    // Optional project: the "No project" default has an empty value → omit project_id.
+    const projectId = webinarProjectSel.value || undefined;
     await createWebinar({
       org_id: orgId,
       title,
       source_language: webinarLangSel.value,
+      ...(projectId ? { project_id: projectId } : {}),
       tier: webinarTierSel.value as WebinarView['tier'],
       record_video: switchOn(webinarRecordVideoSw),
       record_transcript: switchOn(webinarRecordTranscriptSw),
@@ -5873,6 +5904,7 @@ async function submitWebinar(): Promise<void> {
     webinarTitleInput.value = '';
     webinarStartInput.value = '';
     webinarEndInput.value = '';
+    webinarProjectSel.value = ''; // reset to "No project" for the next create
     setWebinarStatus(t('webinarCreated'), 'ok');
     await loadWebinars();
   } catch (err) {
@@ -5886,7 +5918,10 @@ webinarForm.addEventListener('submit', (e) => {
   e.preventDefault();
   void submitWebinar();
 });
-webinarOrgSel.addEventListener('change', () => void loadWebinars());
+webinarOrgSel.addEventListener('change', () => {
+  void loadWebinarProjects();
+  void loadWebinars();
+});
 // Active | Archived segmented control: switch the shown list on click.
 webinarTabs.addEventListener('click', (e) => {
   const btn = (e.target as HTMLElement).closest('.seg-btn') as HTMLElement | null;

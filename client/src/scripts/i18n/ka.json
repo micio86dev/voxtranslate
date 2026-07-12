@@ -549,6 +549,8 @@
   "engineRestrictedNetwork": "Enhanced მიუწვდომელია თქვენს ქსელში — გამოიყენება Standard თარგმანი.",
   "webinarsTitle": "ვებინარები",
   "webinarsIntro": "შექმენით ვებინარი და გააზიარეთ შეერთების ბმული. დამსწრეები გესმით პირდაპირ ეთერში, თარგმნილს მათ ენაზე.",
+  "webinarProject": "პროექტი",
+  "webinarNoProject": "პროექტის გარეშე",
   "webinarTitleLabel": "სათაური",
   "webinarTitlePlaceholder": "მაგ. პროდუქტის გაშვება",
   "webinarSourceLang": "თქვენი ენა",

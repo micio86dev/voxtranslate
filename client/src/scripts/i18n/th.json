@@ -549,6 +549,8 @@
   "engineRestrictedNetwork": "Enhanced ใช้งานไม่ได้บนเครือข่ายของคุณ — กำลังใช้การแปล Standard",
   "webinarsTitle": "เว็บบินาร์",
   "webinarsIntro": "สร้างเว็บบินาร์และแชร์ลิงก์เข้าร่วม ผู้เข้าร่วมจะได้ยินคุณแปลสดเป็นภาษาของตนเอง",
+  "webinarProject": "โปรเจกต์",
+  "webinarNoProject": "ไม่มีโปรเจกต์",
   "webinarTitleLabel": "ชื่อเรื่อง",
   "webinarTitlePlaceholder": "เช่น เปิดตัวผลิตภัณฑ์",
   "webinarSourceLang": "ภาษาของคุณ",

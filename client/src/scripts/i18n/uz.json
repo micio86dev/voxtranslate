@@ -549,6 +549,8 @@
   "engineRestrictedNetwork": "Enhanced tarmog'ingizda mavjud emas — Standard tarjimasi ishlatilmoqda.",
   "webinarsTitle": "Vebinarlar",
   "webinarsIntro": "Vebinar yarating va qoʻshilish havolasini ulashing. Ishtirokchilar sizni oʻz tiliga jonli tarjima qilingan holda eshitadi.",
+  "webinarProject": "Loyiha",
+  "webinarNoProject": "Loyihasiz",
   "webinarTitleLabel": "Sarlavha",
   "webinarTitlePlaceholder": "masalan, Mahsulot taqdimoti",
   "webinarSourceLang": "Sizning tilingiz",

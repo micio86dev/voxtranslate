@@ -549,6 +549,8 @@
   "engineRestrictedNetwork": "Enhanced មិនអាចប្រើបានលើបណ្ដាញរបស់អ្នកទេ — កំពុងប្រើការបកប្រែ Standard។",
   "webinarsTitle": "វេប៊ីណា",
   "webinarsIntro": "បង្កើតវេប៊ីណា ហើយចែករំលែកតំណចូលរួម។ អ្នកចូលរួមឮអ្នកបកប្រែផ្ទាល់ជាភាសារបស់ពួកគេ។",
+  "webinarProject": "គម្រោង",
+  "webinarNoProject": "គ្មានគម្រោង",
   "webinarTitleLabel": "ចំណងជើង",
   "webinarTitlePlaceholder": "ឧ. ការបើកដំណើរការផលិតផល",
   "webinarSourceLang": "ភាសារបស់អ្នក",

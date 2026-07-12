@@ -549,6 +549,8 @@
   "engineRestrictedNetwork": "உங்கள் நெட்வொர்க்கில் Enhanced கிடைக்கவில்லை — Standard மொழிபெயர்ப்பு பயன்படுத்தப்படுகிறது.",
   "webinarsTitle": "வலையரங்குகள்",
   "webinarsIntro": "ஒரு வலையரங்கை உருவாக்கி இணைப்புச் சுட்டியைப் பகிரவும். கலந்துகொள்பவர்கள் உங்களை நேரலையில் தங்கள் மொழியில் மொழிபெயர்க்கப்பட்டதாகக் கேட்பார்கள்.",
+  "webinarProject": "திட்டம்",
+  "webinarNoProject": "திட்டம் இல்லை",
   "webinarTitleLabel": "தலைப்பு",
   "webinarTitlePlaceholder": "எ.கா. தயாரிப்பு அறிமுகம்",
   "webinarSourceLang": "உங்கள் மொழி",

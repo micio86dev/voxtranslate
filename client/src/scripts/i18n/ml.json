@@ -549,6 +549,8 @@
   "engineRestrictedNetwork": "നിങ്ങളുടെ നെറ്റ്‌വർക്കിൽ Enhanced ലഭ്യമല്ല — Standard വിവർത്തനം ഉപയോഗിക്കുന്നു.",
   "webinarsTitle": "വെബിനാറുകൾ",
   "webinarsIntro": "ഒരു വെബിനാർ സൃഷ്ടിച്ച് ജോയിൻ ലിങ്ക് പങ്കിടുക. പങ്കെടുക്കുന്നവർ നിങ്ങളെ അവരുടെ ഭാഷയിലേക്ക് തത്സമയം വിവർത്തനം ചെയ്ത് കേൾക്കും.",
+  "webinarProject": "പ്രോജക്റ്റ്",
+  "webinarNoProject": "പ്രോജക്റ്റ് ഇല്ല",
   "webinarTitleLabel": "ശീർഷകം",
   "webinarTitlePlaceholder": "ഉദാ. ഉൽപ്പന്ന ലോഞ്ച്",
   "webinarSourceLang": "നിങ്ങളുടെ ഭാഷ",

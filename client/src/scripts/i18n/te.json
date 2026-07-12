@@ -549,6 +549,8 @@
   "engineRestrictedNetwork": "మీ నెట్‌వర్క్‌లో Enhanced అందుబాటులో లేదు — Standard అనువాదం ఉపయోగించబడుతోంది.",
   "webinarsTitle": "వెబినార్లు",
   "webinarsIntro": "వెబినార్‌ను సృష్టించి చేరే లింక్‌ను షేర్ చేయండి. హాజరైనవారు మిమ్మల్ని వారి స్వంత భాషలోకి ప్రత్యక్షంగా అనువదించి వింటారు.",
+  "webinarProject": "ప్రాజెక్ట్",
+  "webinarNoProject": "ప్రాజెక్ట్ లేదు",
   "webinarTitleLabel": "శీర్షిక",
   "webinarTitlePlaceholder": "ఉదా. ఉత్పత్తి ప్రారంభం",
   "webinarSourceLang": "మీ భాష",

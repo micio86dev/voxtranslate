@@ -549,6 +549,8 @@
   "engineRestrictedNetwork": "Enhanced är inte tillgängligt i ditt nätverk — Standard-översättning används.",
   "webinarsTitle": "Webbinarier",
   "webinarsIntro": "Skapa ett webbinarium och dela anslutningslänken. Deltagarna hör dig direktöversatt till sitt eget språk.",
+  "webinarProject": "Projekt",
+  "webinarNoProject": "Inget projekt",
   "webinarTitleLabel": "Titel",
   "webinarTitlePlaceholder": "t.ex. Produktlansering",
   "webinarSourceLang": "Ditt språk",

@@ -549,6 +549,8 @@
   "engineRestrictedNetwork": "현재 네트워크에서는 Enhanced를 사용할 수 없습니다 — Standard 번역을 사용합니다.",
   "webinarsTitle": "웨비나",
   "webinarsIntro": "웨비나를 만들고 참여 링크를 공유하세요. 참석자는 실시간으로 번역된 발표를 자신의 언어로 듣습니다.",
+  "webinarProject": "프로젝트",
+  "webinarNoProject": "프로젝트 없음",
   "webinarTitleLabel": "제목",
   "webinarTitlePlaceholder": "예: 제품 출시",
   "webinarSourceLang": "내 언어",
