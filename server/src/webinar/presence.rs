@@ -22,6 +22,8 @@ use serde_json::json;
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
+use crate::auth::verify_jwt;
+use crate::business::{require_role, MEMBER};
 use crate::db::Pool;
 use crate::AppState;
 
@@ -281,9 +283,32 @@ pub struct PresenceParams {
     guest_id: Option<String>,
     #[serde(default)]
     lang: Option<String>,
-    /// The host studio watches the count but isn't part of the audience.
+    /// The host studio watches the count but isn't part of the audience. Only
+    /// HONORED when `token` proves org membership (see [`verify_host_member`]) —
+    /// otherwise a claimant is silently treated as a viewer.
     #[serde(default)]
     host: bool,
+    /// The host's session JWT, carried in the query string because browsers can't
+    /// set WebSocket headers (same as the STT endpoint). Required to be honored as
+    /// a host; ignored for ordinary viewers.
+    #[serde(default)]
+    token: Option<String>,
+}
+
+/// Whether `token` is a valid session JWT whose user is a MEMBER of `org_id` — the
+/// gate for honoring a `host=true` presence claim. Anyone can send `?host=true`, so
+/// without this an audience count could be skewed by a guest self-marking as host.
+async fn verify_host_member(state: &AppState, pool: &Pool, org_id: Uuid, token: &str) -> bool {
+    let Some(billing) = state.config.billing.as_ref() else {
+        return false;
+    };
+    let Ok(claims) = verify_jwt(&billing.jwt_secret, token) else {
+        return false;
+    };
+    let Ok(user_id) = Uuid::parse_str(&claims.sub) else {
+        return false;
+    };
+    require_role(pool, org_id, user_id, MEMBER).await.is_ok()
 }
 
 /// `GET /api/w/{code}/presence` (WebSocket) — join the realtime presence channel.
@@ -302,7 +327,6 @@ async fn handle_presence(socket: WebSocket, state: AppState, code: String, param
         .as_deref()
         .and_then(|s| Uuid::parse_str(s).ok())
         .unwrap_or_else(Uuid::new_v4);
-    let is_host = params.host;
     // Validate the viewer's subtitle language server-side (it decides the
     // translation fan-out). A malformed value is dropped, not trusted — the viewer
     // simply gets no translated subtitle rather than injecting a bad language code.
@@ -316,15 +340,27 @@ async fn handle_presence(socket: WebSocket, state: AppState, code: String, param
     let (mut ws_tx, mut ws_rx) = socket.split();
     let (tx, mut rx) = mpsc::unbounded_channel::<Message>();
 
-    // Resolve the webinar id up front for the DB history (best-effort).
-    let webinar_id = match state.pool.as_ref() {
-        Some(p) => crate::webinar::find_by_code(p, &code)
-            .await
-            .ok()
-            .flatten()
-            .map(|w| w.id),
+    // Resolve the webinar up front — needed both for the DB history and for
+    // org-scoped host authorization (best-effort; without a pool we stay a viewer).
+    let webinar = match state.pool.as_ref() {
+        Some(p) => crate::webinar::find_by_code(p, &code).await.ok().flatten(),
         None => None,
     };
+    let webinar_id = webinar.as_ref().map(|w| w.id);
+
+    // Only honor `host=true` for an authenticated org MEMBER. Browsers can't set WS
+    // headers, so the host JWT rides the `token` query param (like /stt). A claimed
+    // host without a valid member token is silently downgraded to a viewer: the
+    // socket still works, it just counts in the audience instead of skewing it.
+    let is_host = params.host
+        && match (
+            state.pool.as_ref(),
+            webinar.as_ref(),
+            params.token.as_deref(),
+        ) {
+            (Some(p), Some(w), Some(tok)) => verify_host_member(&state, p, w.org_id, tok).await,
+            _ => false,
+        };
 
     let conn_id = state.webinar_presence.join(
         &code,

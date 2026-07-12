@@ -5558,6 +5558,7 @@ function openWebinarPresence(w: WebinarView): void {
     code: w.code,
     guestId: myId, // host isn't counted; guest_id just satisfies the endpoint contract
     host: true,
+    token: auth.getToken(), // proves org membership so the server honors host=true
     onCount: renderWebinarCount,
     onChat: onChat ?? undefined,
   });
