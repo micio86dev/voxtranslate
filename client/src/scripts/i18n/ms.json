@@ -605,7 +605,7 @@
   "webinarGoOnAir": "Mula siaran langsung",
   "webinarBackToStudio": "Kembali ke studio",
   "webinarParticipants": "Peserta",
-  "webinarCountWiring": "Kiraan langsung sedang disediakan",
+  "webinarWatching": "{n} sedang menonton",
   "webinarEnd": "Tamatkan webinar",
   "webinarEndTitle": "Tamatkan untuk semua?",
   "webinarEndBody": "Tetamu akan diputuskan sambungan dan tidak boleh menyertai semula.",

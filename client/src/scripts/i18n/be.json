@@ -605,7 +605,7 @@
   "webinarGoOnAir": "Выйсці ў эфір",
   "webinarBackToStudio": "Назад у студыю",
   "webinarParticipants": "Удзельнікі",
-  "webinarCountWiring": "Падлік у рэальным часе яшчэ падключаецца",
+  "webinarWatching": "{n} глядзяць",
   "webinarEnd": "Завяршыць вебінар",
   "webinarEndTitle": "Завяршыць для ўсіх?",
   "webinarEndBody": "Госці будуць адключаны і не змогуць далучыцца зноў.",

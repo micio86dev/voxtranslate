@@ -605,7 +605,7 @@
   "webinarGoOnAir": "Efirga chiqish",
   "webinarBackToStudio": "Studiyaga qaytish",
   "webinarParticipants": "Ishtirokchilar",
-  "webinarCountWiring": "Jonli hisob tez orada",
+  "webinarWatching": "{n} tomosha qilmoqda",
   "webinarEnd": "Vebinarni yakunlash",
   "webinarEndTitle": "Hamma uchun yakunlansinmi?",
   "webinarEndBody": "Mehmonlar uzib qo'yiladi va qayta qo'shila olmaydi.",

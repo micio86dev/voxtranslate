@@ -1,0 +1,197 @@
+// Live webinar presence (audience count) over a WebSocket. The server exposes
+// `GET /api/w/{code}/presence` and pushes JSON text frames `{"type":"count","count":N}`
+// on every join/leave. Two consumers:
+//   - the HOST studio (`host=true`) — watches the count but is NOT counted as audience;
+//   - each PARTICIPANT (`host=false`, carrying its guest_id + optional lang) — counted.
+//
+// The socket carries no required client→server messages for now; we only read `count`
+// frames and ignore anything else. On an unexpected drop we auto-reconnect with a
+// capped exponential backoff, so a flaky network doesn't freeze the count. `close()`
+// tears everything down and stops any pending reconnect.
+//
+// The WebSocket ctor is injectable so the parsing + reconnect logic unit-tests with a
+// fake socket (mirroring hls-player.test.ts / webrtc.test.ts).
+
+/** Parse a server presence frame. Returns the count for a well-formed
+ *  `{type:"count",count:N}` text frame (N a finite number), else null — used to
+ *  ignore malformed JSON, other frame types, or a non-numeric count. Pure. */
+export function parsePresenceCount(data: string): number | null {
+  let msg: unknown;
+  try {
+    msg = JSON.parse(data);
+  } catch {
+    return null; // not JSON
+  }
+  if (typeof msg !== "object" || msg === null) return null;
+  const frame = msg as { type?: unknown; count?: unknown };
+  if (frame.type !== "count") return null; // unknown/other frame type
+  if (typeof frame.count !== "number" || !Number.isFinite(frame.count)) return null;
+  return frame.count;
+}
+
+/** The subset of the WebSocket API we drive, so a fake can stand in for tests. */
+export interface PresenceSocket {
+  onopen: ((this: unknown, ev: unknown) => unknown) | null;
+  onmessage: ((this: unknown, ev: { data: unknown }) => unknown) | null;
+  onclose: ((this: unknown, ev: unknown) => unknown) | null;
+  onerror: ((this: unknown, ev: unknown) => unknown) | null;
+  close(): void;
+}
+
+/** A WebSocket constructor (the global `WebSocket`, or a fake in tests). */
+export type PresenceSocketFactory = (url: string) => PresenceSocket;
+
+export interface PresenceClientOptions {
+  /** The app WS base, e.g. `wss://api.voxtranslate.app` (no trailing slash). */
+  wsBase: string;
+  /** The webinar's public code. */
+  code: string;
+  /** This client's stable anonymous id (UUID string). */
+  guestId: string;
+  /** True for the host studio (watches the count, not counted as audience). */
+  host: boolean;
+  /** Optional listener language (participant side, when known). */
+  lang?: string | null;
+  /** Called with the latest audience count on every `count` frame. */
+  onCount: (count: number) => void;
+  /** Injectable WebSocket ctor for tests. Defaults to the global `WebSocket`. */
+  socketFactory?: PresenceSocketFactory;
+  /** First reconnect delay in ms (doubles each attempt, capped). Default 1000. */
+  reconnectBaseMs?: number;
+  /** Reconnect delay cap in ms. Default 30000. */
+  reconnectMaxMs?: number;
+}
+
+/** Build the presence WS URL from the app WS base + params. Pure/exported so the
+ *  URL shape is testable without opening a socket. */
+export function buildPresenceUrl(opts: {
+  wsBase: string;
+  code: string;
+  guestId: string;
+  host: boolean;
+  lang?: string | null;
+}): string {
+  const base = opts.wsBase.replace(/\/+$/, "");
+  const q = new URLSearchParams();
+  q.set("guest_id", opts.guestId);
+  q.set("host", opts.host ? "true" : "false");
+  if (opts.lang) q.set("lang", opts.lang);
+  return `${base}/api/w/${encodeURIComponent(opts.code)}/presence?${q.toString()}`;
+}
+
+/**
+ * A live presence connection. Opens the WS on construction, invokes `onCount(n)`
+ * for every valid `count` frame, and auto-reconnects with capped exponential
+ * backoff if the socket drops. `close()` stops reconnects and closes the socket.
+ */
+export class PresenceClient {
+  private readonly opts: Required<
+    Pick<PresenceClientOptions, "reconnectBaseMs" | "reconnectMaxMs">
+  > &
+    PresenceClientOptions;
+  private readonly factory: PresenceSocketFactory;
+  private socket: PresenceSocket | null = null;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private attempt = 0;
+  private closed = false;
+
+  constructor(opts: PresenceClientOptions) {
+    this.opts = {
+      reconnectBaseMs: 1_000,
+      reconnectMaxMs: 30_000,
+      ...opts,
+    };
+    this.factory =
+      opts.socketFactory ??
+      ((url) => new WebSocket(url) as unknown as PresenceSocket);
+    this.connect();
+  }
+
+  private url(): string {
+    return buildPresenceUrl({
+      wsBase: this.opts.wsBase,
+      code: this.opts.code,
+      guestId: this.opts.guestId,
+      host: this.opts.host,
+      lang: this.opts.lang,
+    });
+  }
+
+  private connect(): void {
+    if (this.closed) return;
+    let sock: PresenceSocket;
+    try {
+      sock = this.factory(this.url());
+    } catch {
+      // Constructing the socket threw (bad URL / offline) — treat as a drop and
+      // retry on backoff so the count self-heals when connectivity returns.
+      this.scheduleReconnect();
+      return;
+    }
+    this.socket = sock;
+    sock.onopen = () => {
+      this.attempt = 0; // a successful open resets the backoff
+    };
+    sock.onmessage = (ev) => {
+      if (typeof ev.data !== "string") return; // ignore binary frames
+      const n = parsePresenceCount(ev.data);
+      if (n !== null) this.opts.onCount(n);
+    };
+    sock.onclose = () => {
+      this.socket = null;
+      this.scheduleReconnect();
+    };
+    sock.onerror = () => {
+      // An error is usually followed by a close; closing here makes the drop
+      // deterministic. onclose then schedules the reconnect.
+      try {
+        sock.close();
+      } catch {
+        /* already closing */
+      }
+    };
+  }
+
+  /** Schedule the next reconnect with exponential backoff, capped. No-op once
+   *  closed or when a reconnect is already pending. */
+  private scheduleReconnect(): void {
+    if (this.closed || this.reconnectTimer != null) return;
+    const delay = Math.min(
+      this.opts.reconnectBaseMs * 2 ** this.attempt,
+      this.opts.reconnectMaxMs,
+    );
+    this.attempt += 1;
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      this.connect();
+    }, delay);
+  }
+
+  /** Close the socket and stop reconnecting. Idempotent. */
+  close(): void {
+    if (this.closed) return;
+    this.closed = true;
+    if (this.reconnectTimer != null) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    if (this.socket) {
+      // Drop handlers first so the impending close() doesn't schedule a reconnect.
+      this.socket.onopen = null;
+      this.socket.onmessage = null;
+      this.socket.onclose = null;
+      this.socket.onerror = null;
+      try {
+        this.socket.close();
+      } catch {
+        /* best-effort */
+      }
+      this.socket = null;
+    }
+  }
+}
+
+/** Convenience factory mirroring the HlsPlayer construction style. */
+export function connectPresence(opts: PresenceClientOptions): PresenceClient {
+  return new PresenceClient(opts);
+}

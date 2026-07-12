@@ -605,7 +605,7 @@
   "webinarGoOnAir": "Ga live",
   "webinarBackToStudio": "Terug naar studio",
   "webinarParticipants": "Deelnemers",
-  "webinarCountWiring": "Live teller wordt voorbereid",
+  "webinarWatching": "{n} kijken nu",
   "webinarEnd": "Webinar beëindigen",
   "webinarEndTitle": "Voor iedereen beëindigen?",
   "webinarEndBody": "Gasten worden losgekoppeld en kunnen niet opnieuw deelnemen.",

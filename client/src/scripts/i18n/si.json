@@ -605,7 +605,7 @@
   "webinarGoOnAir": "සජීවීව යන්න",
   "webinarBackToStudio": "ස්ටුඩියෝවට ආපසු",
   "webinarParticipants": "සහභාගිවන්නන්",
-  "webinarCountWiring": "සජීවී ගණන ළඟදීම",
+  "webinarWatching": "{n} දෙනෙක් නරඹමින්",
   "webinarEnd": "වෙබිනාරය අවසන් කරන්න",
   "webinarEndTitle": "සැමට අවසන් කරන්නද?",
   "webinarEndBody": "අමුත්තන් විසන්ධි වන අතර නැවත සම්බන්ධ විය නොහැක.",

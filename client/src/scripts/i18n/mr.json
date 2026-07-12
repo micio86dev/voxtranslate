@@ -605,7 +605,7 @@
   "webinarGoOnAir": "थेट प्रक्षेपण सुरू करा",
   "webinarBackToStudio": "स्टुडिओकडे परत जा",
   "webinarParticipants": "सहभागी",
-  "webinarCountWiring": "थेट संख्या तयार होत आहे",
+  "webinarWatching": "{n} पाहत आहेत",
   "webinarEnd": "वेबिनार समाप्त करा",
   "webinarEndTitle": "सर्वांसाठी समाप्त करायचे?",
   "webinarEndBody": "पाहुण्यांचे कनेक्शन तुटेल आणि ते पुन्हा सामील होऊ शकणार नाहीत.",

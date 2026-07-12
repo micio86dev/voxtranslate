@@ -605,7 +605,7 @@
   "webinarGoOnAir": "התחילו לשדר",
   "webinarBackToStudio": "חזרה לאולפן",
   "webinarParticipants": "משתתפים",
-  "webinarCountWiring": "מונה המשתתפים החי עדיין מתחבר",
+  "webinarWatching": "{n} צופים כעת",
   "webinarEnd": "סיום הוובינר",
   "webinarEndTitle": "לסיים לכולם?",
   "webinarEndBody": "האורחים ינותקו ולא יוכלו להצטרף שוב.",

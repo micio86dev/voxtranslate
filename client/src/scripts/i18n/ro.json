@@ -605,7 +605,7 @@
   "webinarGoOnAir": "Intră în direct",
   "webinarBackToStudio": "Înapoi la studio",
   "webinarParticipants": "Participanți",
-  "webinarCountWiring": "Numărătoarea în timp real vine în curând",
+  "webinarWatching": "{n} urmăresc acum",
   "webinarEnd": "Încheie webinarul",
   "webinarEndTitle": "Închei pentru toți?",
   "webinarEndBody": "Invitații vor fi deconectați și nu se pot reconecta.",

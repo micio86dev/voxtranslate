@@ -605,7 +605,7 @@
   "webinarGoOnAir": "நேரலைக்குச் செல்",
   "webinarBackToStudio": "ஸ்டூடியோவுக்குத் திரும்பு",
   "webinarParticipants": "பங்கேற்பாளர்கள்",
-  "webinarCountWiring": "நேரலை எண்ணிக்கை விரைவில்",
+  "webinarWatching": "{n} பேர் பார்க்கிறார்கள்",
   "webinarEnd": "வெபினாரை முடி",
   "webinarEndTitle": "அனைவருக்கும் முடிக்கவா?",
   "webinarEndBody": "விருந்தினர்கள் துண்டிக்கப்படுவார்கள், மீண்டும் இணைய முடியாது.",

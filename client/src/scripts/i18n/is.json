@@ -605,7 +605,7 @@
   "webinarGoOnAir": "Fara í loftið",
   "webinarBackToStudio": "Til baka í stúdíó",
   "webinarParticipants": "Þátttakendur",
-  "webinarCountWiring": "Rauntímateljari í undirbúningi",
+  "webinarWatching": "{n} horfa núna",
   "webinarEnd": "Ljúka vefnámskeiði",
   "webinarEndTitle": "Ljúka fyrir alla?",
   "webinarEndBody": "Gestir aftengjast og geta ekki tengst aftur.",

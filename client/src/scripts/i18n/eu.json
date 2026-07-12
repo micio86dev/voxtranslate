@@ -605,7 +605,7 @@
   "webinarGoOnAir": "Eman zuzenean",
   "webinarBackToStudio": "Itzuli estudiora",
   "webinarParticipants": "Parte-hartzaileak",
-  "webinarCountWiring": "Zuzeneko zenbaketa konektatzen",
+  "webinarWatching": "{n} ari dira ikusten",
   "webinarEnd": "Amaitu webinarra",
   "webinarEndTitle": "Guztientzat amaitu?",
   "webinarEndBody": "Gonbidatuak deskonektatu egingo dira eta ezingo dute berriro sartu.",

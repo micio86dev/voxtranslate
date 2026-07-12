@@ -90,10 +90,10 @@ import {
   qrDownloadFilename,
   showVoiceCloneToggle,
   showWebinarCloneAction,
-  webinarPresenceStub,
   WebinarError,
   type WebinarView,
 } from './webinar';
+import { PresenceClient } from './webinar-presence';
 import { WhipPublisher, type WhipState } from './whip-publisher';
 import { initBookmarks, setBookmarkSession } from './bookmarks';
 import { initBugReport } from './bug-report';
@@ -5341,11 +5341,33 @@ const wsEndModal = $('webinar-end-modal');
 const wsEndConfirm = $<HTMLButtonElement>('webinar-end-confirm');
 const wsEndCancel = $<HTMLButtonElement>('webinar-end-cancel');
 
-/** Render the live participant count into its own element. Sources the value from
- *  `webinarPresenceStub()` (returns 0 today) — a follow-up wires it to real presence,
- *  so this is the single swap point. */
-function renderWebinarCount(): void {
-  wsCountN.textContent = String(webinarPresenceStub());
+/** The host studio's live-presence connection (opened while the studio is on screen,
+ *  closed when it leaves). The host watches the audience count but is NOT counted. */
+let webinarPresence: PresenceClient | null = null;
+
+/** Render the live audience count into its own element. */
+function renderWebinarCount(count: number): void {
+  wsCountN.textContent = String(count);
+}
+
+/** Open the host presence WS for a webinar and stream its count into the studio badge.
+ *  Closes any previous connection first (idempotent across studio re-opens). */
+function openWebinarPresence(code: string): void {
+  closeWebinarPresence();
+  renderWebinarCount(0); // reset until the first frame arrives
+  webinarPresence = new PresenceClient({
+    wsBase: WS_BASE,
+    code,
+    guestId: myId, // host isn't counted; guest_id just satisfies the endpoint contract
+    host: true,
+    onCount: renderWebinarCount,
+  });
+}
+
+/** Close the host presence WS (broadcast ended / studio closed). Idempotent. */
+function closeWebinarPresence(): void {
+  webinarPresence?.close();
+  webinarPresence = null;
 }
 
 /** Reflect the WhipPublisher state on the studio's ON AIR badge. */
@@ -5406,7 +5428,7 @@ function openWebinarStudio(w: WebinarView): void {
   wsLink.value = w.join_url;
   wsQr.alt = t('webinarQrAlt');
   void renderQr(wsQr, w.join_url);
-  renderWebinarCount();
+  openWebinarPresence(w.code);
   wsUpdateCamLabel(!!activePublisher?.isCameraOn());
   wsPaintState(activePublisher?.getState() ?? 'on-air');
   wsAttachLocalVideo();
@@ -5454,6 +5476,7 @@ async function endWebinarBroadcast(): Promise<void> {
     activePublisher = null;
     activePublisherId = null;
   }
+  closeWebinarPresence();
   activeWebinar = null;
   wsVideo.srcObject = null;
   show(wsScreen, false);

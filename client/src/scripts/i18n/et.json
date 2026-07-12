@@ -605,7 +605,7 @@
   "webinarGoOnAir": "Mine otse-eetrisse",
   "webinarBackToStudio": "Tagasi stuudiosse",
   "webinarParticipants": "Osalejad",
-  "webinarCountWiring": "Reaalajas loendus alles ühendub",
+  "webinarWatching": "{n} vaatab",
   "webinarEnd": "Lõpeta veebiseminar",
   "webinarEndTitle": "Kas lõpetada kõigi jaoks?",
   "webinarEndBody": "Külalised ühendatakse lahti ega saa uuesti liituda.",

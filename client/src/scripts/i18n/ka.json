@@ -605,7 +605,7 @@
   "webinarGoOnAir": "ეთერში გასვლა",
   "webinarBackToStudio": "სტუდიაში დაბრუნება",
   "webinarParticipants": "მონაწილეები",
-  "webinarCountWiring": "ცოცხალი მთვლელი მზადების პროცესშია",
+  "webinarWatching": "{n} უყურებს",
   "webinarEnd": "ვებინარის დასრულება",
   "webinarEndTitle": "დაასრულოთ ყველასთვის?",
   "webinarEndBody": "სტუმრები გაითიშებიან და ვეღარ დაბრუნდებიან.",

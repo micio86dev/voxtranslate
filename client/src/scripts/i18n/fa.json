@@ -605,7 +605,7 @@
   "webinarGoOnAir": "پخش زنده را آغاز کنید",
   "webinarBackToStudio": "بازگشت به استودیو",
   "webinarParticipants": "شرکت‌کنندگان",
-  "webinarCountWiring": "اتصال شمارش زنده در حال انجام است",
+  "webinarWatching": "{n} در حال تماشا",
   "webinarEnd": "پایان وبینار",
   "webinarEndTitle": "برای همه پایان یابد؟",
   "webinarEndBody": "مهمانان قطع می‌شوند و نمی‌توانند دوباره بپیوندند.",

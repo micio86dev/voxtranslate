@@ -605,7 +605,7 @@
   "webinarGoOnAir": "Rozpocznij transmisję",
   "webinarBackToStudio": "Powrót do studia",
   "webinarParticipants": "Uczestnicy",
-  "webinarCountWiring": "Licznik na żywo wkrótce dostępny",
+  "webinarWatching": "{n} oglądających",
   "webinarEnd": "Zakończ webinar",
   "webinarEndTitle": "Zakończyć dla wszystkich?",
   "webinarEndBody": "Goście zostaną rozłączeni i nie będą mogli dołączyć ponownie.",

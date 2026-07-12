@@ -605,7 +605,7 @@
   "webinarGoOnAir": "Nis transmetimin",
   "webinarBackToStudio": "Kthehu te studioja",
   "webinarParticipants": "Pjesëmarrësit",
-  "webinarCountWiring": "Numërimi live po vjen së shpejti",
+  "webinarWatching": "{n} po shikojnë",
   "webinarEnd": "Përfundo webinarin",
   "webinarEndTitle": "Ta përfundoj për të gjithë?",
   "webinarEndBody": "Të ftuarit do të shkëputen dhe nuk mund të ribashkohen.",

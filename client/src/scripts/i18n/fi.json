@@ -605,7 +605,7 @@
   "webinarGoOnAir": "Aloita lähetys",
   "webinarBackToStudio": "Takaisin studioon",
   "webinarParticipants": "Osallistujat",
-  "webinarCountWiring": "Reaaliaikaista laskuria yhdistetään",
+  "webinarWatching": "{n} katsoo",
   "webinarEnd": "Lopeta webinaari",
   "webinarEndTitle": "Lopetetaanko kaikilta?",
   "webinarEndBody": "Vieraiden yhteys katkaistaan, eivätkä he voi liittyä uudelleen.",

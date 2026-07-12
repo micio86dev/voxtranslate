@@ -605,7 +605,7 @@
   "webinarGoOnAir": "Ir ao ar",
   "webinarBackToStudio": "Voltar ao estúdio",
   "webinarParticipants": "Participantes",
-  "webinarCountWiring": "Contagem ao vivo em breve",
+  "webinarWatching": "{n} assistindo agora",
   "webinarEnd": "Encerrar webinar",
   "webinarEndTitle": "Encerrar para todos?",
   "webinarEndBody": "Os convidados serão desconectados e não poderão entrar novamente.",

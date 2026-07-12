@@ -605,7 +605,7 @@
   "webinarGoOnAir": "ابدأ البثّ",
   "webinarBackToStudio": "العودة إلى الاستوديو",
   "webinarParticipants": "المشاركون",
-  "webinarCountWiring": "جارٍ ربط العدّ المباشر",
+  "webinarWatching": "{n} يشاهدون الآن",
   "webinarEnd": "إنهاء الندوة",
   "webinarEndTitle": "إنهاؤها للجميع؟",
   "webinarEndBody": "سيتم فصل الضيوف ولن يتمكّنوا من الانضمام مجددًا.",

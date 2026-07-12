@@ -605,7 +605,7 @@
   "webinarGoOnAir": "በቀጥታ ተላለፍ",
   "webinarBackToStudio": "ወደ ስቱዲዮ ተመለስ",
   "webinarParticipants": "ተሳታፊዎች",
-  "webinarCountWiring": "የቀጥታ ቁጥር ማገናኘት በሂደት ላይ",
+  "webinarWatching": "{n} በመመልከት ላይ",
   "webinarEnd": "ዌቢናር አጠናቅቅ",
   "webinarEndTitle": "ለሁሉም ይጠናቀቅ?",
   "webinarEndBody": "እንግዶች ይቋረጣሉ እና እንደገና መቀላቀል አይችሉም።",

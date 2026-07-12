@@ -240,6 +240,9 @@ pub struct AppState {
     /// `Some` only when `HelpAssistantConfig` is present; cap = `max_sessions`.
     /// `None` when the help assistant is disabled (route is not registered).
     pub help_assistant_semaphore: Option<Arc<tokio::sync::Semaphore>>,
+    /// In-memory realtime webinar presence (SPEC Fase 4): live audience count per
+    /// webinar code, backing the `/api/w/{code}/presence` WebSocket.
+    pub webinar_presence: Arc<crate::webinar::presence::PresenceRegistry>,
 }
 
 /// Read a positive `u32` from `var`, falling back to `default`.
@@ -463,6 +466,7 @@ impl AppState {
             guest_usage: Arc::new(GuestUsage::default()),
             voice_assistant_semaphore,
             help_assistant_semaphore,
+            webinar_presence: Arc::new(crate::webinar::presence::PresenceRegistry::new()),
         }
     }
 

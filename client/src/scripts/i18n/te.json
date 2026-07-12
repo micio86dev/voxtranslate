@@ -605,7 +605,7 @@
   "webinarGoOnAir": "ప్రత్యక్ష ప్రసారం చేయి",
   "webinarBackToStudio": "స్టూడియోకు తిరిగి వెళ్లు",
   "webinarParticipants": "పాల్గొనేవారు",
-  "webinarCountWiring": "ప్రత్యక్ష లెక్క త్వరలో",
+  "webinarWatching": "{n} మంది చూస్తున్నారు",
   "webinarEnd": "వెబినార్‌ను ముగించు",
   "webinarEndTitle": "అందరికీ ముగించాలా?",
   "webinarEndBody": "అతిథులు డిస్‌కనెక్ట్ అవుతారు, తిరిగి చేరలేరు.",

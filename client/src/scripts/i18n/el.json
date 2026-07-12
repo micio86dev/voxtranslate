@@ -605,7 +605,7 @@
   "webinarGoOnAir": "Ξεκινήστε τη μετάδοση",
   "webinarBackToStudio": "Επιστροφή στο στούντιο",
   "webinarParticipants": "Συμμετέχοντες",
-  "webinarCountWiring": "Η ζωντανή καταμέτρηση συνδέεται ακόμη",
+  "webinarWatching": "{n} παρακολουθούν",
   "webinarEnd": "Τερματισμός webinar",
   "webinarEndTitle": "Τερματισμός για όλους;",
   "webinarEndBody": "Οι επισκέπτες θα αποσυνδεθούν και δεν θα μπορούν να επανασυνδεθούν.",

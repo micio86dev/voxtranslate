@@ -605,7 +605,7 @@
   "webinarGoOnAir": "ออกอากาศ",
   "webinarBackToStudio": "กลับไปที่สตูดิโอ",
   "webinarParticipants": "ผู้เข้าร่วม",
-  "webinarCountWiring": "จำนวนแบบเรียลไทม์เร็วๆ นี้",
+  "webinarWatching": "{n} คนกำลังรับชม",
   "webinarEnd": "จบเว็บบินาร์",
   "webinarEndTitle": "จบสำหรับทุกคนไหม?",
   "webinarEndBody": "ผู้เข้าร่วมจะถูกตัดการเชื่อมต่อและไม่สามารถเข้าร่วมอีกได้",

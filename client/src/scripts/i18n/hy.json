@@ -605,7 +605,7 @@
   "webinarGoOnAir": "Դուրս գալ եթեր",
   "webinarBackToStudio": "Վերադառնալ ստուդիա",
   "webinarParticipants": "Մասնակիցներ",
-  "webinarCountWiring": "Ուղիղ հաշվիչը պատրաստվում է",
+  "webinarWatching": "{n} դիտում է",
   "webinarEnd": "Ավարտել վեբինարը",
   "webinarEndTitle": "Ավարտե՞լ բոլորի համար։",
   "webinarEndBody": "Հյուրերը կանջատվեն և չեն կարողանա նորից միանալ։",
