@@ -569,6 +569,7 @@
   "webinarQrPrint": "Отпечатай QR",
   "webinarQrPrintBlocked": "Разрешете изскачащите прозорци, за да отпечатате QR кода.",
   "webinarCreate": "Създай уебинар",
+  "webinarCreateToggle": "Създай уебинар",
   "webinarCreating": "Създаване…",
   "webinarCreated": "Уебинарът е създаден.",
   "webinarYours": "Вашите уебинари",

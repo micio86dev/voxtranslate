@@ -813,6 +813,73 @@ async fn presence_counts_and_records_history() {
     assert_eq!(next_count(&mut a).await, 1, "A sees B leave");
 }
 
+#[tokio::test]
+async fn presence_host_flag_only_honored_with_a_member_token() {
+    // `?host=true` excludes a connection from the audience count. Anyone can send it,
+    // so it must be gated: only a valid JWT of an org MEMBER is honored; every other
+    // claimant is silently downgraded to a counted viewer.
+    let Some(srv) = setup().await else {
+        return;
+    };
+    let http = Client::new();
+    let (owner, jwt) = user(&srv).await; // jwt = a MEMBER of the webinar's org
+    let org_id = org(&srv, owner, true).await;
+    let (_other, other_jwt) = user(&srv).await; // valid JWT, NOT a member of org_id
+    let created = create_webinar(&http, &srv, &jwt, org_id).await;
+    let code = created["code"].as_str().unwrap().to_string();
+    let addr = srv.addr;
+
+    // Viewer A joins → audience 1.
+    let (mut a, _) = tokio_tungstenite::connect_async(format!(
+        "ws://{addr}/api/w/{code}/presence?guest_id={}",
+        Uuid::new_v4()
+    ))
+    .await
+    .unwrap();
+    assert_eq!(next_count(&mut a).await, 1, "first viewer → 1");
+
+    // A real host (member token) joins → NOT counted; A still sees 1.
+    let (host, _) = tokio_tungstenite::connect_async(format!(
+        "ws://{addr}/api/w/{code}/presence?host=true&guest_id={}&token={jwt}",
+        Uuid::new_v4()
+    ))
+    .await
+    .unwrap();
+    assert_eq!(
+        next_count(&mut a).await,
+        1,
+        "a member-token host is not part of the audience"
+    );
+
+    // host=true WITHOUT a token → downgraded to a viewer → counted; A sees 2.
+    let (faker, _) = tokio_tungstenite::connect_async(format!(
+        "ws://{addr}/api/w/{code}/presence?host=true&guest_id={}",
+        Uuid::new_v4()
+    ))
+    .await
+    .unwrap();
+    assert_eq!(
+        next_count(&mut a).await,
+        2,
+        "host=true with no token is just a viewer"
+    );
+
+    // host=true with a NON-member's valid JWT → also downgraded → counted; A sees 3.
+    let (outsider, _) = tokio_tungstenite::connect_async(format!(
+        "ws://{addr}/api/w/{code}/presence?host=true&guest_id={}&token={other_jwt}",
+        Uuid::new_v4()
+    ))
+    .await
+    .unwrap();
+    assert_eq!(
+        next_count(&mut a).await,
+        3,
+        "host=true with a non-member token is just a viewer"
+    );
+
+    drop((host, faker, outsider));
+}
+
 /// List an org's webinars (active or archived); returns the JSON array.
 async fn list_webinars(
     http: &Client,

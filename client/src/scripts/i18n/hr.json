@@ -569,6 +569,7 @@
   "webinarQrPrint": "Ispiši QR",
   "webinarQrPrintBlocked": "Dopustite skočne prozore za ispis QR koda.",
   "webinarCreate": "Stvori webinar",
+  "webinarCreateToggle": "Stvori webinar",
   "webinarCreating": "Stvaranje…",
   "webinarCreated": "Webinar je stvoren.",
   "webinarYours": "Vaši webinari",

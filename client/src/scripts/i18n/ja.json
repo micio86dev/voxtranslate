@@ -569,6 +569,7 @@
   "webinarQrPrint": "QRを印刷",
   "webinarQrPrintBlocked": "QRコードを印刷するにはポップアップを許可してください。",
   "webinarCreate": "ウェビナーを作成",
+  "webinarCreateToggle": "ウェビナーを作成",
   "webinarCreating": "作成中…",
   "webinarCreated": "ウェビナーを作成しました。",
   "webinarYours": "あなたのウェビナー",

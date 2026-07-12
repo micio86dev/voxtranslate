@@ -569,6 +569,7 @@
   "webinarQrPrint": "Skriv ut QR",
   "webinarQrPrintBlocked": "Tillat oppsprettvindauge for å skrive ut QR-koden.",
   "webinarCreate": "Opprett webinar",
+  "webinarCreateToggle": "Opprett eit webinar",
   "webinarCreating": "Opprettar…",
   "webinarCreated": "Webinar oppretta.",
   "webinarYours": "Dine webinar",

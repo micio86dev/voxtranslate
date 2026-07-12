@@ -569,6 +569,7 @@
   "webinarQrPrint": "Printează QR",
   "webinarQrPrintBlocked": "Permite ferestrele pop-up pentru a printa codul QR.",
   "webinarCreate": "Creează webinar",
+  "webinarCreateToggle": "Creează un webinar",
   "webinarCreating": "Se creează…",
   "webinarCreated": "Webinar creat.",
   "webinarYours": "Webinariile tale",

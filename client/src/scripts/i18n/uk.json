@@ -569,6 +569,7 @@
   "webinarQrPrint": "Друкувати QR",
   "webinarQrPrintBlocked": "Дозвольте спливаючі вікна, щоб надрукувати QR-код.",
   "webinarCreate": "Створити вебінар",
+  "webinarCreateToggle": "Створити вебінар",
   "webinarCreating": "Створення…",
   "webinarCreated": "Вебінар створено.",
   "webinarYours": "Ваші вебінари",

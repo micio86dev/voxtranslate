@@ -569,6 +569,7 @@
   "webinarQrPrint": "Imprimeix el QR",
   "webinarQrPrintBlocked": "Permet les finestres emergents per imprimir el codi QR.",
   "webinarCreate": "Crea el webinar",
+  "webinarCreateToggle": "Crea un webinar",
   "webinarCreating": "S'està creant…",
   "webinarCreated": "Webinar creat.",
   "webinarYours": "Els teus webinars",

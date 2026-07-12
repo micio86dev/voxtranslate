@@ -569,6 +569,7 @@
   "webinarQrPrint": "طباعة QR",
   "webinarQrPrintBlocked": "اسمح بالنوافذ المنبثقة لطباعة رمز QR.",
   "webinarCreate": "إنشاء ندوة",
+  "webinarCreateToggle": "إنشاء ندوة",
   "webinarCreating": "جارٍ الإنشاء…",
   "webinarCreated": "تم إنشاء الندوة.",
   "webinarYours": "ندواتك",

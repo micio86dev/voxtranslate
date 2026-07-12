@@ -569,6 +569,7 @@
   "webinarQrPrint": "QR басып шығару",
   "webinarQrPrintBlocked": "QR кодын басып шығару үшін қалқымалы терезелерге рұқсат беріңіз.",
   "webinarCreate": "Вебинар жасау",
+  "webinarCreateToggle": "Вебинар жасау",
   "webinarCreating": "Жасалуда…",
   "webinarCreated": "Вебинар жасалды.",
   "webinarYours": "Сіздің вебинарларыңыз",

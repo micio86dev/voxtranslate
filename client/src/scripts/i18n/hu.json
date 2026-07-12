@@ -569,6 +569,7 @@
   "webinarQrPrint": "QR nyomtatása",
   "webinarQrPrintBlocked": "Engedélyezd a felugró ablakokat a QR-kód nyomtatásához.",
   "webinarCreate": "Webinárium létrehozása",
+  "webinarCreateToggle": "Webinárium létrehozása",
   "webinarCreating": "Létrehozás…",
   "webinarCreated": "A webinárium létrejött.",
   "webinarYours": "Az Ön webináriumai",

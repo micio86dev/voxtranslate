@@ -569,6 +569,7 @@
   "webinarQrPrint": "QR 인쇄",
   "webinarQrPrintBlocked": "QR 코드를 인쇄하려면 팝업을 허용하세요.",
   "webinarCreate": "웨비나 만들기",
+  "webinarCreateToggle": "웨비나 만들기",
   "webinarCreating": "만드는 중…",
   "webinarCreated": "웨비나가 생성되었습니다.",
   "webinarYours": "내 웨비나",

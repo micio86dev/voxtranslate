@@ -569,6 +569,7 @@
   "webinarQrPrint": "Vytisknout QR",
   "webinarQrPrintBlocked": "Povolte vyskakovací okna pro tisk QR kódu.",
   "webinarCreate": "Vytvořit webinář",
+  "webinarCreateToggle": "Vytvořit webinář",
   "webinarCreating": "Vytváření…",
   "webinarCreated": "Webinář vytvořen.",
   "webinarYours": "Vaše webináře",

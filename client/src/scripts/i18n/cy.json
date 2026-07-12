@@ -569,6 +569,7 @@
   "webinarQrPrint": "Argraffu QR",
   "webinarQrPrintBlocked": "Caniatewch ffenestri naid i argraffu'r cod QR.",
   "webinarCreate": "Creu gweminar",
+  "webinarCreateToggle": "Creu gweminar",
   "webinarCreating": "Yn creu…",
   "webinarCreated": "Gweminar wedi'i greu.",
   "webinarYours": "Eich gweminarau",

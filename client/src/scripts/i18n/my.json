@@ -569,6 +569,7 @@
   "webinarQrPrint": "QR ပရင့်ထုတ်ရန်",
   "webinarQrPrintBlocked": "QR ကုဒ်ကို ပရင့်ထုတ်ရန် ပေါ့ပ်အပ်များကို ခွင့်ပြုပါ။",
   "webinarCreate": "ဝဘ်ဆီနာဖန်တီးရန်",
+  "webinarCreateToggle": "ဝဘ်ဆီနာဖန်တီးရန်",
   "webinarCreating": "ဖန်တီးနေသည်…",
   "webinarCreated": "ဝဘ်ဆီနာ ဖန်တီးပြီးပါပြီ။",
   "webinarYours": "သင့်ဝဘ်ဆီနာများ",
