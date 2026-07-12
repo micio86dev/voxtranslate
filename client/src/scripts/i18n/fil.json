@@ -642,5 +642,16 @@
   "wvMuteAudio": "I-mute ang audio",
   "wvUnmuteAudio": "I-unmute ang audio",
   "wvSubtitlesOn": "Naka-on ang subtitle",
-  "wvSubtitlesOff": "Naka-off ang subtitle"
+  "wvSubtitlesOff": "Naka-off ang subtitle",
+  "webinarChatEnabled": "Paganahin ang chat",
+  "wvChatShow": "Ipakita ang chat",
+  "wvChatHide": "Itago ang chat",
+  "wvChatPlaceholder": "Mag-type ng mensahe…",
+  "wvChatSend": "Ipadala",
+  "wvChatHost": "Host",
+  "wvChatNamePrompt": "Pumili ng display name para makipag-chat",
+  "wvChatNamePlaceholder": "Iyong pangalan",
+  "wvChatEmpty": "Wala pang mga mensahe. Kumustahin mo sila!",
+  "wvChatRateLimited": "Masyado kang mabilis magpadala ng mga mensahe. Maghintay ka muna sandali.",
+  "wvChatBlocked": "Hindi maipadala ang iyong mensahe."
 }

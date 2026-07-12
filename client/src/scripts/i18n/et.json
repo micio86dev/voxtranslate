@@ -642,5 +642,16 @@
   "wvMuteAudio": "Vaigista heli",
   "wvUnmuteAudio": "Taasta heli",
   "wvSubtitlesOn": "Subtiitrid sees",
-  "wvSubtitlesOff": "Subtiitrid väljas"
+  "wvSubtitlesOff": "Subtiitrid väljas",
+  "webinarChatEnabled": "Luba vestlus",
+  "wvChatShow": "Näita vestlust",
+  "wvChatHide": "Peida vestlus",
+  "wvChatPlaceholder": "Kirjuta sõnum…",
+  "wvChatSend": "Saada",
+  "wvChatHost": "Korraldaja",
+  "wvChatNamePrompt": "Vali vestlemiseks kuvatav nimi",
+  "wvChatNamePlaceholder": "Sinu nimi",
+  "wvChatEmpty": "Sõnumeid veel pole. Ütle tere!",
+  "wvChatRateLimited": "Saadad sõnumeid liiga kiiresti. Palun oota hetk.",
+  "wvChatBlocked": "Sinu sõnumit ei õnnestunud saata."
 }

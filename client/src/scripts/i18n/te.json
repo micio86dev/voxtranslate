@@ -642,5 +642,16 @@
   "wvMuteAudio": "ఆడియోను మ్యూట్ చేయండి",
   "wvUnmuteAudio": "ఆడియోను అన్‌మ్యూట్ చేయండి",
   "wvSubtitlesOn": "ఉపశీర్షికలు ఆన్‌లో ఉన్నాయి",
-  "wvSubtitlesOff": "ఉపశీర్షికలు ఆఫ్‌లో ఉన్నాయి"
+  "wvSubtitlesOff": "ఉపశీర్షికలు ఆఫ్‌లో ఉన్నాయి",
+  "webinarChatEnabled": "చాట్‌ను ప్రారంభించండి",
+  "wvChatShow": "చాట్‌ను చూపించు",
+  "wvChatHide": "చాట్‌ను దాచు",
+  "wvChatPlaceholder": "ఒక సందేశాన్ని టైప్ చేయండి…",
+  "wvChatSend": "పంపు",
+  "wvChatHost": "హోస్ట్",
+  "wvChatNamePrompt": "చాట్ చేయడానికి ప్రదర్శన పేరును ఎంచుకోండి",
+  "wvChatNamePlaceholder": "మీ పేరు",
+  "wvChatEmpty": "ఇంకా సందేశాలు లేవు. హలో చెప్పండి!",
+  "wvChatRateLimited": "మీరు సందేశాలను చాలా వేగంగా పంపుతున్నారు. దయచేసి కొద్దిసేపు వేచి ఉండండి.",
+  "wvChatBlocked": "మీ సందేశాన్ని పంపడం సాధ్యం కాలేదు."
 }

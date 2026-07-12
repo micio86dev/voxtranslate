@@ -642,5 +642,16 @@
   "wvMuteAudio": "Bisukan audio",
   "wvUnmuteAudio": "Nyahbisukan audio",
   "wvSubtitlesOn": "Sari kata hidup",
-  "wvSubtitlesOff": "Sari kata mati"
+  "wvSubtitlesOff": "Sari kata mati",
+  "webinarChatEnabled": "Dayakan sembang",
+  "wvChatShow": "Tunjuk sembang",
+  "wvChatHide": "Sembunyi sembang",
+  "wvChatPlaceholder": "Taip mesej…",
+  "wvChatSend": "Hantar",
+  "wvChatHost": "Hos",
+  "wvChatNamePrompt": "Pilih nama paparan untuk bersembang",
+  "wvChatNamePlaceholder": "Nama anda",
+  "wvChatEmpty": "Belum ada mesej. Ucap helo!",
+  "wvChatRateLimited": "Anda menghantar mesej terlalu cepat. Sila tunggu sebentar.",
+  "wvChatBlocked": "Mesej anda tidak dapat dihantar."
 }

@@ -642,5 +642,16 @@
   "wvMuteAudio": "音声をミュート",
   "wvUnmuteAudio": "ミュートを解除",
   "wvSubtitlesOn": "字幕オン",
-  "wvSubtitlesOff": "字幕オフ"
+  "wvSubtitlesOff": "字幕オフ",
+  "webinarChatEnabled": "チャットを有効にする",
+  "wvChatShow": "チャットを表示",
+  "wvChatHide": "チャットを非表示",
+  "wvChatPlaceholder": "メッセージを入力…",
+  "wvChatSend": "送信",
+  "wvChatHost": "ホスト",
+  "wvChatNamePrompt": "チャットに使う表示名を選んでください",
+  "wvChatNamePlaceholder": "お名前",
+  "wvChatEmpty": "まだメッセージはありません。あいさつしましょう！",
+  "wvChatRateLimited": "メッセージの送信が速すぎます。少しお待ちください。",
+  "wvChatBlocked": "メッセージを送信できませんでした。"
 }

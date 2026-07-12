@@ -1062,6 +1062,10 @@ const jsonLd = {
                 <span class="webinar-toggle-label" id="webinar-record-transcript-label" data-i18n="webinarRecordTranscript">{T('webinarRecordTranscript')}</span>
                 <button id="webinar-record-transcript" class="ws-switch" type="button" role="switch" aria-checked="true" aria-labelledby="webinar-record-transcript-label"><span class="ws-switch-knob" aria-hidden="true"></span></button>
               </div>
+              <div class="webinar-toggle-row">
+                <span class="webinar-toggle-label" id="webinar-chat-enabled-label" data-i18n="webinarChatEnabled">{T('webinarChatEnabled')}</span>
+                <button id="webinar-chat-enabled" class="ws-switch" type="button" role="switch" aria-checked="false" aria-labelledby="webinar-chat-enabled-label"><span class="ws-switch-knob" aria-hidden="true"></span></button>
+              </div>
               <!-- Voice clone: shown only for Enhanced + when the voice isn't cloned yet (app.ts). -->
               <div class="webinar-toggle-row hidden" id="webinar-voice-clone-row">
                 <span class="webinar-toggle-label" id="webinar-voice-clone-label" data-i18n="webinarVoiceClone">{T('webinarVoiceClone')}</span>
@@ -1156,6 +1160,24 @@ const jsonLd = {
             <button id="webinar-studio-end" class="btn-primary danger" type="button" data-i18n="webinarEnd">{T('webinarEnd')}</button>
           </div>
         </div>
+
+        <!-- Host chat panel (Feature ⑤): the same auto-translated chat the viewers see. The
+             host sends with their auth token (→ sender_kind:"host"). Hidden until app.ts
+             confirms the active webinar has chat enabled. -->
+        <section id="webinar-studio-chat" class="studio-chat card hidden" aria-label={T('webinarChatEnabled')}>
+          <div class="studio-chat-head">
+            <span class="card-title" data-i18n="webinarChatEnabled">{T('webinarChatEnabled')}</span>
+            <button id="webinar-studio-chat-toggle" class="btn-ghost webinar-copy-btn" type="button" aria-pressed="true" aria-controls="webinar-studio-chat-body" data-i18n="wvChatHide">{T('wvChatHide')}</button>
+          </div>
+          <div id="webinar-studio-chat-body" class="studio-chat-body">
+            <div id="webinar-studio-chat-list" class="wv-chat-list" role="log" aria-live="polite" aria-relevant="additions"></div>
+            <form id="webinar-studio-chat-form" class="wv-chat-form">
+              <input id="webinar-studio-chat-input" class="wv-chat-input" type="text" maxlength="500" autocomplete="off" enterkeyhint="send" data-i18n-ph="wvChatPlaceholder" placeholder={T('wvChatPlaceholder')} />
+              <button id="webinar-studio-chat-send" type="submit" class="wv-chat-send" data-i18n="wvChatSend">{T('wvChatSend')}</button>
+            </form>
+            <p id="webinar-studio-chat-notice" class="wv-chat-notice hidden" role="status" aria-live="polite"></p>
+          </div>
+        </section>
       </div>
     </section>
 
@@ -2627,6 +2649,29 @@ const jsonLd = {
     .studio-controls { display: flex; gap: 10px; flex-wrap: wrap; }
     .studio-controls .btn-ghost, .studio-controls .btn-primary { flex: none; width: auto; padding: 0 18px; min-height: 44px; }
     .studio-controls .btn-primary.danger { background: var(--danger); }
+    /* Host chat panel (Feature ⑤): the same auto-translated chat the viewers see. Message
+       rows are created at runtime by app.ts, so their classes must be :global. */
+    .studio-chat { display: flex; flex-direction: column; gap: 12px; }
+    .studio-chat.hidden { display: none; }
+    .studio-chat-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .studio-chat-body { display: flex; flex-direction: column; gap: 10px; }
+    .studio-chat.is-collapsed .studio-chat-body { display: none; }
+    .studio-chat :global(.wv-chat-list) { display: flex; flex-direction: column; gap: 8px; min-height: 120px; max-height: 40vh; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; scroll-behavior: smooth; padding-right: 4px; }
+    .studio-chat :global(.wv-chat-msg) { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border-radius: 10px; background: rgba(255,255,255,0.03); line-height: 1.35; word-break: break-word; }
+    .studio-chat :global(.wv-chat-msg.is-host) { background: color-mix(in srgb, var(--accent) 12%, transparent); border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent); }
+    .studio-chat :global(.wv-chat-name-line) { font-size: 0.78rem; font-weight: 700; color: var(--muted); }
+    .studio-chat :global(.wv-chat-msg.is-host .wv-chat-name-line) { color: var(--accent); }
+    .studio-chat :global(.wv-chat-host-tag) { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; margin-left: 6px; padding: 1px 6px; border-radius: 999px; background: color-mix(in srgb, var(--accent) 25%, transparent); color: var(--accent); }
+    .studio-chat :global(.wv-chat-body) { font-size: 0.95rem; color: var(--text); }
+    .studio-chat :global(.wv-chat-empty) { margin: auto; padding: 16px; text-align: center; font-size: 0.85rem; color: var(--muted); }
+    .studio-chat :global(.wv-chat-form) { display: flex; gap: 8px; padding-bottom: env(safe-area-inset-bottom, 0); }
+    .studio-chat :global(.wv-chat-input) { flex: 1 1 auto; min-width: 0; min-height: 44px; padding: 0 14px; font-size: 1rem; border-radius: 10px; background: var(--bg); border: 1px solid var(--border); color: var(--text); }
+    .studio-chat :global(.wv-chat-input:focus) { outline: 2px solid var(--accent); outline-offset: 1px; }
+    .studio-chat :global(.wv-chat-send) { flex: 0 0 auto; min-height: 44px; min-width: 44px; padding: 0 18px; font-size: 0.9rem; font-weight: 700; border-radius: 10px; border: none; background: var(--accent); color: #fff; cursor: pointer; }
+    .studio-chat :global(.wv-chat-send:disabled) { opacity: 0.55; cursor: default; }
+    .studio-chat :global(.wv-chat-notice) { margin: 0; font-size: 0.82rem; font-weight: 600; color: var(--danger); }
+    .studio-chat :global(.wv-chat-notice.hidden) { display: none; }
+    @media (prefers-reduced-motion: reduce) { .studio-chat :global(.wv-chat-list) { scroll-behavior: auto; } }
     @media (max-width: 520px) {
       .studio-controls .btn-ghost, .studio-controls .btn-primary { flex: 1 1 auto; }
     }

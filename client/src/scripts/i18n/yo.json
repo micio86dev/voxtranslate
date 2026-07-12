@@ -642,5 +642,16 @@
   "wvMuteAudio": "Pa ohùn",
   "wvUnmuteAudio": "Ṣí ohùn",
   "wvSubtitlesOn": "Àkọlé wà ní ṣíṣí",
-  "wvSubtitlesOff": "Àkọlé wà ní pípa"
+  "wvSubtitlesOff": "Àkọlé wà ní pípa",
+  "webinarChatEnabled": "Mú ìfọ̀rọ̀wérọ̀ ṣiṣẹ́",
+  "wvChatShow": "Fi ìfọ̀rọ̀wérọ̀ hàn",
+  "wvChatHide": "Fi ìfọ̀rọ̀wérọ̀ pamọ́",
+  "wvChatPlaceholder": "Kọ ìhìn kan…",
+  "wvChatSend": "Fi ránṣẹ́",
+  "wvChatHost": "Olùgbàlejò",
+  "wvChatNamePrompt": "Yan orúkọ ìfihàn láti fọ̀rọ̀wérọ̀",
+  "wvChatNamePlaceholder": "Orúkọ rẹ",
+  "wvChatEmpty": "Kò sí ìhìn kankan síbẹ̀. Kí àwọn ènìyàn!",
+  "wvChatRateLimited": "O ń fi ìhìn ránṣẹ́ ní kíákíá jù. Jọ̀wọ́ dúró díẹ̀.",
+  "wvChatBlocked": "A kò lè fi ìhìn rẹ ránṣẹ́."
 }

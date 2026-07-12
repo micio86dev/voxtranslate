@@ -642,5 +642,16 @@
   "wvMuteAudio": "Stäng av ljud",
   "wvUnmuteAudio": "Slå på ljud",
   "wvSubtitlesOn": "Undertexter på",
-  "wvSubtitlesOff": "Undertexter av"
+  "wvSubtitlesOff": "Undertexter av",
+  "webinarChatEnabled": "Aktivera chatt",
+  "wvChatShow": "Visa chatt",
+  "wvChatHide": "Dölj chatt",
+  "wvChatPlaceholder": "Skriv ett meddelande…",
+  "wvChatSend": "Skicka",
+  "wvChatHost": "Värd",
+  "wvChatNamePrompt": "Välj ett visningsnamn för att chatta",
+  "wvChatNamePlaceholder": "Ditt namn",
+  "wvChatEmpty": "Inga meddelanden än. Säg hej!",
+  "wvChatRateLimited": "Du skickar meddelanden för snabbt. Vänta ett ögonblick.",
+  "wvChatBlocked": "Ditt meddelande kunde inte skickas."
 }

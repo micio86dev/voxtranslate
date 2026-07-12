@@ -642,5 +642,16 @@
   "wvMuteAudio": "Mututu audioa",
   "wvUnmuteAudio": "Kendu audioaren mututzea",
   "wvSubtitlesOn": "Azpitituluak piztuta",
-  "wvSubtitlesOff": "Azpitituluak itzalita"
+  "wvSubtitlesOff": "Azpitituluak itzalita",
+  "webinarChatEnabled": "Gaitu txata",
+  "wvChatShow": "Erakutsi txata",
+  "wvChatHide": "Ezkutatu txata",
+  "wvChatPlaceholder": "Idatzi mezu bat…",
+  "wvChatSend": "Bidali",
+  "wvChatHost": "Antolatzailea",
+  "wvChatNamePrompt": "Aukeratu bistaratzeko izen bat txateatzeko",
+  "wvChatNamePlaceholder": "Zure izena",
+  "wvChatEmpty": "Oraindik ez dago mezurik. Esan kaixo!",
+  "wvChatRateLimited": "Mezuak azkarregi bidaltzen ari zara. Itxaron une bat, mesedez.",
+  "wvChatBlocked": "Zure mezua ezin izan da bidali."
 }

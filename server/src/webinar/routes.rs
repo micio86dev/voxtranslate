@@ -44,6 +44,12 @@ pub fn routes() -> Router<AppState> {
     // that middleware to this route only, not the authenticated host CRUD.
     let public = Router::new()
         .route("/api/w/{code}", get(public_get))
+        // Auto-translated chat (⑤): SEND (POST, host or guest) + history (GET).
+        // Both ride the guest-session middleware so `Extension<GuestId>` is set.
+        .route(
+            "/api/w/{code}/chat",
+            post(crate::webinar::chat::post_chat).get(crate::webinar::chat::list_chat),
+        )
         .layer(axum::middleware::from_fn(guest_session));
     Router::new()
         .route("/api/webinars", post(create).get(list))
@@ -89,6 +95,11 @@ pub struct CreateWebinar {
     pub record_transcript: bool,
     #[serde(default)]
     pub voice_clone: bool,
+    /// Turn on the auto-translated chat panel for this webinar (⑤). When set,
+    /// every message is persisted (recorded) — gated by this flag, not
+    /// `record_transcript`.
+    #[serde(default)]
+    pub chat_enabled: bool,
     #[serde(default)]
     pub scheduled_start: Option<DateTime<Utc>>,
     #[serde(default)]
@@ -120,6 +131,8 @@ pub struct PatchWebinar {
     pub record_transcript: Option<bool>,
     #[serde(default)]
     pub voice_clone: Option<bool>,
+    #[serde(default)]
+    pub chat_enabled: Option<bool>,
     #[serde(default)]
     pub scheduled_start: Option<DateTime<Utc>>,
     #[serde(default)]
@@ -189,6 +202,7 @@ fn host_view(w: &Webinar, app_base_url: &str, cfg: &WebinarConfig) -> Value {
         "record_video": w.record_video,
         "record_transcript": w.record_transcript,
         "voice_clone": w.voice_clone,
+        "chat_enabled": w.chat_enabled,
         "project_id": w.project_id,
         "join_url": join_url(app_base_url, &w.code),
         "playback_url": playback_url(cfg, &w.code),
@@ -205,6 +219,8 @@ fn public_view(w: &Webinar, app_base_url: &str, cfg: &WebinarConfig) -> Value {
         "status": w.status,
         "source_language": w.source_language,
         "tier": w.tier,
+        // Guests need this to decide whether to render the chat panel (⑤).
+        "chat_enabled": w.chat_enabled,
         "join_url": join_url(app_base_url, &w.code),
         "playback_url": playback_url(cfg, &w.code),
     })
@@ -280,6 +296,7 @@ pub async fn create(
         record_video: body.record_video,
         record_transcript: body.record_transcript,
         voice_clone: body.voice_clone,
+        chat_enabled: body.chat_enabled,
         scheduled_start: body.scheduled_start,
         scheduled_end: body.scheduled_end,
         project_id: body.project_id,
@@ -371,9 +388,10 @@ pub async fn patch(
             record_video      = COALESCE($5, record_video),
             record_transcript = COALESCE($6, record_transcript),
             voice_clone       = COALESCE($7, voice_clone),
-            scheduled_start   = COALESCE($8, scheduled_start),
-            scheduled_end     = COALESCE($9, scheduled_end),
-            project_id        = COALESCE($10, project_id),
+            chat_enabled      = COALESCE($8, chat_enabled),
+            scheduled_start   = COALESCE($9, scheduled_start),
+            scheduled_end     = COALESCE($10, scheduled_end),
+            project_id        = COALESCE($11, project_id),
             updated_at        = now()
          WHERE id = $1
          RETURNING *",
@@ -385,6 +403,7 @@ pub async fn patch(
     .bind(body.record_video)
     .bind(body.record_transcript)
     .bind(body.voice_clone)
+    .bind(body.chat_enabled)
     .bind(body.scheduled_start)
     .bind(body.scheduled_end)
     .bind(body.project_id)

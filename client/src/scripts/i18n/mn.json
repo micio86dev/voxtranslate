@@ -642,5 +642,16 @@
   "wvMuteAudio": "Дуу хаах",
   "wvUnmuteAudio": "Дуу нээх",
   "wvSubtitlesOn": "Хадмал асаалттай",
-  "wvSubtitlesOff": "Хадмал унтраалттай"
+  "wvSubtitlesOff": "Хадмал унтраалттай",
+  "webinarChatEnabled": "Чатыг идэвхжүүлэх",
+  "wvChatShow": "Чатыг харуулах",
+  "wvChatHide": "Чатыг нуух",
+  "wvChatPlaceholder": "Зурвас бичих…",
+  "wvChatSend": "Илгээх",
+  "wvChatHost": "Хөтлөгч",
+  "wvChatNamePrompt": "Чатлахын тулд харагдах нэрээ сонгоно уу",
+  "wvChatNamePlaceholder": "Таны нэр",
+  "wvChatEmpty": "Одоохондоо зурвас алга. Мэндлээрэй!",
+  "wvChatRateLimited": "Та хэт хурдан зурвас илгээж байна. Түр хүлээнэ үү.",
+  "wvChatBlocked": "Таны зурвасыг илгээж чадсангүй."
 }

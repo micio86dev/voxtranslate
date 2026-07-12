@@ -642,5 +642,16 @@
   "wvMuteAudio": "Toun ausschalten",
   "wvUnmuteAudio": "Toun aschalten",
   "wvSubtitlesOn": "Ënnertitelen un",
-  "wvSubtitlesOff": "Ënnertitelen aus"
+  "wvSubtitlesOff": "Ënnertitelen aus",
+  "webinarChatEnabled": "Chat aktivéieren",
+  "wvChatShow": "Chat weisen",
+  "wvChatHide": "Chat verstoppen",
+  "wvChatPlaceholder": "Schreif eng Noriicht…",
+  "wvChatSend": "Schécken",
+  "wvChatHost": "Moderator",
+  "wvChatNamePrompt": "Wiel en Uweisungsnumm fir ze chatten",
+  "wvChatNamePlaceholder": "Däin Numm",
+  "wvChatEmpty": "Nach keng Noriichten. Sob Moien!",
+  "wvChatRateLimited": "Du schécks ze séier Noriichten. Waart wgl. e Moment.",
+  "wvChatBlocked": "Deng Noriicht konnt net geschéckt ginn."
 }

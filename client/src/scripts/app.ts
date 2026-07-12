@@ -95,7 +95,8 @@ import {
   WebinarError,
   type WebinarView,
 } from './webinar';
-import { PresenceClient } from './webinar-presence';
+import { PresenceClient, type ChatEvent } from './webinar-presence';
+import { ChatPanel } from './webinar-chat';
 import { WhipPublisher, type WhipState } from './whip-publisher';
 import { WebinarSttClient } from './webinar-stt';
 import { AudioCapture as WebinarAudioCapture } from './audio-capture';
@@ -4820,6 +4821,7 @@ const webinarTabs = $('webinar-tabs');
 // Create-form toggle switches (role=switch buttons; state lives in aria-checked).
 const webinarRecordVideoSw = $<HTMLButtonElement>('webinar-record-video');
 const webinarRecordTranscriptSw = $<HTMLButtonElement>('webinar-record-transcript');
+const webinarChatEnabledSw = $<HTMLButtonElement>('webinar-chat-enabled');
 const webinarVoiceCloneSw = $<HTMLButtonElement>('webinar-voice-clone');
 const webinarVoiceCloneRow = $('webinar-voice-clone-row');
 const webinarVoiceClonedHint = $('webinar-voice-cloned-hint');
@@ -4856,6 +4858,7 @@ function wireSwitch(sw: HTMLButtonElement, onChange?: (on: boolean) => void): vo
 }
 wireSwitch(webinarRecordVideoSw);
 wireSwitch(webinarRecordTranscriptSw);
+wireSwitch(webinarChatEnabledSw);
 wireSwitch(webinarVoiceCloneSw);
 
 /** Show the voice-clone toggle only for Enhanced when the host hasn't cloned yet;
@@ -5477,27 +5480,86 @@ const wsCountN = $('webinar-count-n');
 const wsEndModal = $('webinar-end-modal');
 const wsEndConfirm = $<HTMLButtonElement>('webinar-end-confirm');
 const wsEndCancel = $<HTMLButtonElement>('webinar-end-cancel');
+// Host chat panel (Feature ⑤): the same auto-translated chat the viewers see. The host
+// sends WITH their auth token (→ sender_kind:"host"); the panel is revealed only when the
+// active webinar has chat enabled.
+const wsChat = $('webinar-studio-chat');
+const wsChatToggle = $<HTMLButtonElement>('webinar-studio-chat-toggle');
+const wsChatList = $('webinar-studio-chat-list');
+const wsChatInput = $<HTMLInputElement>('webinar-studio-chat-input');
+const wsChatSend = $<HTMLButtonElement>('webinar-studio-chat-send');
+const wsChatNotice = $('webinar-studio-chat-notice');
+const wsChatForm = $<HTMLFormElement>('webinar-studio-chat-form');
 
 /** The host studio's live-presence connection (opened while the studio is on screen,
  *  closed when it leaves). The host watches the audience count but is NOT counted. */
 let webinarPresence: PresenceClient | null = null;
+/** The host studio's chat controller, live while a chat-enabled webinar's studio is open. */
+let webinarChat: ChatPanel | null = null;
 
 /** Render the live audience count into its own element. */
 function renderWebinarCount(count: number): void {
   wsCountN.textContent = String(count);
 }
 
+/** Localized strings the host chat panel needs. */
+function webinarChatStrings() {
+  return {
+    send: t('wvChatSend'),
+    hostTag: t('wvChatHost'),
+    empty: t('wvChatEmpty'),
+    rateLimited: t('wvChatRateLimited'),
+    blocked: t('wvChatBlocked'),
+    genericError: t('wvChatBlocked'),
+  };
+}
+
+/** Set up the host chat panel for a chat-enabled webinar: reveal it, mount a ChatPanel
+ *  (host token → sender_kind:"host"), load history, and return the `onChat` handler to feed
+ *  live WS messages in. Returns null when the webinar has chat disabled (panel stays hidden). */
+function openWebinarChat(w: WebinarView): ((event: ChatEvent) => void) | null {
+  webinarChat = null;
+  if (!w.chat_enabled) {
+    show(wsChat, false);
+    return null;
+  }
+  show(wsChat, true);
+  wsChatList.innerHTML = '';
+  wsChat.classList.remove('is-collapsed');
+  wsChatToggle.setAttribute('aria-pressed', 'true');
+  wsChatToggle.textContent = t('wvChatHide');
+  const panel = new ChatPanel({
+    list: wsChatList,
+    input: wsChatInput,
+    sendBtn: wsChatSend,
+    notice: wsChatNotice,
+    httpBase: HTTP_BASE,
+    code: w.code,
+    myLang: () => getUiLang(),
+    senderLang: () => getUiLang(),
+    displayName: () => auth.getUser()?.name || t('wvChatHost'),
+    token: () => auth.getToken(), // host sends authenticated → sender_kind:"host"
+    strings: webinarChatStrings(),
+  });
+  webinarChat = panel;
+  void panel.loadHistory();
+  return (event) => panel.append(event);
+}
+
 /** Open the host presence WS for a webinar and stream its count into the studio badge.
- *  Closes any previous connection first (idempotent across studio re-opens). */
-function openWebinarPresence(code: string): void {
+ *  When the webinar has chat enabled, the same WS also feeds the host chat panel. Closes any
+ *  previous connection first (idempotent across studio re-opens). */
+function openWebinarPresence(w: WebinarView): void {
   closeWebinarPresence();
   renderWebinarCount(0); // reset until the first frame arrives
+  const onChat = openWebinarChat(w);
   webinarPresence = new PresenceClient({
     wsBase: WS_BASE,
-    code,
+    code: w.code,
     guestId: myId, // host isn't counted; guest_id just satisfies the endpoint contract
     host: true,
     onCount: renderWebinarCount,
+    onChat: onChat ?? undefined,
   });
 }
 
@@ -5505,7 +5567,21 @@ function openWebinarPresence(code: string): void {
 function closeWebinarPresence(): void {
   webinarPresence?.close();
   webinarPresence = null;
+  webinarChat = null;
 }
+
+// Host chat: submit sends with the host token (→ sender_kind:"host"); a collapse toggle
+// hides the body without tearing down the WS.
+wsChatForm.addEventListener('submit', (e) => {
+  e.preventDefault();
+  void webinarChat?.send();
+});
+wsChatToggle.addEventListener('click', () => {
+  const collapsed = wsChat.classList.toggle('is-collapsed');
+  wsChatToggle.setAttribute('aria-pressed', collapsed ? 'false' : 'true');
+  wsChatToggle.textContent = t(collapsed ? 'wvChatShow' : 'wvChatHide');
+  if (!collapsed) wsChatInput.focus();
+});
 
 /** Open the host STT bridge for a live broadcast: stream the publisher's mic track to the
  *  API's Deepgram ingest WS (binary WebM/Opus chunks) so subtitles fan out to viewers.
@@ -5593,7 +5669,7 @@ function openWebinarStudio(w: WebinarView): void {
   wsLink.value = w.join_url;
   wsQr.alt = t('webinarQrAlt');
   void renderQr(wsQr, w.join_url);
-  openWebinarPresence(w.code);
+  openWebinarPresence(w);
   wsUpdateCamLabel(!!activePublisher?.isCameraOn());
   wsPaintState(activePublisher?.getState() ?? 'on-air');
   wsAttachLocalVideo();
@@ -5938,6 +6014,7 @@ async function submitWebinar(): Promise<void> {
       tier: webinarTierSel.value as WebinarView['tier'],
       record_video: switchOn(webinarRecordVideoSw),
       record_transcript: switchOn(webinarRecordTranscriptSw),
+      chat_enabled: switchOn(webinarChatEnabledSw),
       voice_clone: cloneOffered && switchOn(webinarVoiceCloneSw),
       scheduled_start: scheduledStart,
       scheduled_end: scheduledEnd,

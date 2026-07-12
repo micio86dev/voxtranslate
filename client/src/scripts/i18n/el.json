@@ -642,5 +642,16 @@
   "wvMuteAudio": "Σίγαση ήχου",
   "wvUnmuteAudio": "Κατάργηση σίγασης",
   "wvSubtitlesOn": "Υπότιτλοι ενεργοί",
-  "wvSubtitlesOff": "Υπότιτλοι ανενεργοί"
+  "wvSubtitlesOff": "Υπότιτλοι ανενεργοί",
+  "webinarChatEnabled": "Ενεργοποίηση συνομιλίας",
+  "wvChatShow": "Εμφάνιση συνομιλίας",
+  "wvChatHide": "Απόκρυψη συνομιλίας",
+  "wvChatPlaceholder": "Πληκτρολογήστε ένα μήνυμα…",
+  "wvChatSend": "Αποστολή",
+  "wvChatHost": "Οικοδεσπότης",
+  "wvChatNamePrompt": "Επιλέξτε ένα εμφανιζόμενο όνομα για συνομιλία",
+  "wvChatNamePlaceholder": "Το όνομά σας",
+  "wvChatEmpty": "Δεν υπάρχουν μηνύματα ακόμη. Πείτε ένα γεια!",
+  "wvChatRateLimited": "Στέλνετε μηνύματα πολύ γρήγορα. Περιμένετε λίγο, παρακαλώ.",
+  "wvChatBlocked": "Δεν ήταν δυνατή η αποστολή του μηνύματός σας."
 }

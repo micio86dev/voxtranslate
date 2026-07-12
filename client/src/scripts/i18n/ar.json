@@ -642,5 +642,16 @@
   "wvMuteAudio": "كتم الصوت",
   "wvUnmuteAudio": "إلغاء كتم الصوت",
   "wvSubtitlesOn": "الترجمة النصية مفعّلة",
-  "wvSubtitlesOff": "الترجمة النصية متوقفة"
+  "wvSubtitlesOff": "الترجمة النصية متوقفة",
+  "webinarChatEnabled": "تفعيل الدردشة",
+  "wvChatShow": "إظهار الدردشة",
+  "wvChatHide": "إخفاء الدردشة",
+  "wvChatPlaceholder": "اكتب رسالة…",
+  "wvChatSend": "إرسال",
+  "wvChatHost": "المضيف",
+  "wvChatNamePrompt": "اختر اسمًا معروضًا للدردشة",
+  "wvChatNamePlaceholder": "اسمك",
+  "wvChatEmpty": "لا توجد رسائل بعد. ألقِ التحية!",
+  "wvChatRateLimited": "أنت ترسل الرسائل بسرعة كبيرة. يُرجى الانتظار لحظة.",
+  "wvChatBlocked": "تعذّر إرسال رسالتك."
 }

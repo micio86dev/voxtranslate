@@ -642,5 +642,16 @@
   "wvMuteAudio": "غږ بند کړئ",
   "wvUnmuteAudio": "غږ چالان کړئ",
   "wvSubtitlesOn": "فرعي سرلیکونه چالان",
-  "wvSubtitlesOff": "فرعي سرلیکونه بند"
+  "wvSubtitlesOff": "فرعي سرلیکونه بند",
+  "webinarChatEnabled": "چټ فعال کړئ",
+  "wvChatShow": "چټ وښایاست",
+  "wvChatHide": "چټ پټ کړئ",
+  "wvChatPlaceholder": "یو پیغام ولیکئ…",
+  "wvChatSend": "واستوئ",
+  "wvChatHost": "کوربه",
+  "wvChatNamePrompt": "د چټ لپاره یو ښکاره نوم غوره کړئ",
+  "wvChatNamePlaceholder": "ستاسو نوم",
+  "wvChatEmpty": "تر اوسه هیڅ پیغام نشته. سلام ووایاست!",
+  "wvChatRateLimited": "تاسو ډېر ژر پیغامونه لیږئ. مهرباني وکړئ یو شیبه انتظار وکړئ.",
+  "wvChatBlocked": "ستاسو پیغام ونه لیږل شو."
 }

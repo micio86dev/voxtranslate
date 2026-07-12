@@ -94,6 +94,52 @@ impl SubtitleEvent {
     }
 }
 
+/// A chat message frame broadcast to EVERYONE in a webinar over the presence WS
+/// (⑤). Unlike a subtitle, a chat frame reaches the host too (there is no
+/// `is_host` filter on [`PresenceRegistry::broadcast_chat`]) so the sender sees
+/// their own echo and the host reads the audience.
+///
+/// # Wire contract (EXACT — the participant client matches on `type`)
+///
+/// ```json
+/// {"type":"chat","id":"<uuid>","sender_kind":"host|guest","display_name":"<cosmetic>",
+///  "original":"<text>","lang":"<original_lang>","translations":{"en":"...","es":"..."},
+///  "created_at":"<rfc3339>"}
+/// ```
+///
+/// Each recipient renders `translations[my_lang]`, falling back to `original`.
+/// The frame carries ONLY the cosmetic `display_name` — NEVER the trustworthy
+/// sender identity (no `sender_id`, `guest_id`, `user_id`, email, or org id): a
+/// guest can't spoof identity because the server-side cookie UUID drives it, and
+/// it's simply not put on the wire.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ChatEvent {
+    pub id: Uuid,
+    pub sender_kind: String,
+    pub display_name: String,
+    pub original: String,
+    pub lang: String,
+    pub translations: HashMap<String, String>,
+    pub created_at: String,
+}
+
+impl ChatEvent {
+    /// Serialize to the exact JSON wire contract documented on [`ChatEvent`].
+    pub fn to_json(&self) -> String {
+        json!({
+            "type": "chat",
+            "id": self.id.to_string(),
+            "sender_kind": self.sender_kind,
+            "display_name": self.display_name,
+            "original": self.original,
+            "lang": self.lang,
+            "translations": self.translations,
+            "created_at": self.created_at,
+        })
+        .to_string()
+    }
+}
+
 /// In-memory realtime presence, keyed by webinar code.
 #[derive(Default)]
 pub struct PresenceRegistry {
@@ -209,6 +255,20 @@ impl PresenceRegistry {
         if let Some(room) = self.rooms.get(code) {
             let payload = event.to_json();
             for c in room.values().filter(|c| !c.is_host) {
+                let _ = c.tx.send(Message::Text(payload.clone().into()));
+            }
+        }
+    }
+
+    /// Broadcast a chat frame to EVERYONE in the room — host + all viewers +
+    /// the sender's own echo. Deliberately has NO `is_host` filter (unlike
+    /// [`PresenceRegistry::broadcast_subtitle`]): chat is a shared conversation,
+    /// so the host reads the audience and the sender sees their own message.
+    /// Fire-and-forget per connection: a closed socket is silently skipped.
+    pub fn broadcast_chat(&self, code: &str, event: &ChatEvent) {
+        if let Some(room) = self.rooms.get(code) {
+            let payload = event.to_json();
+            for c in room.values() {
                 let _ = c.tx.send(Message::Text(payload.clone().into()));
             }
         }
@@ -447,6 +507,61 @@ mod tests {
     }
 
     #[test]
+    fn chat_event_json_matches_contract() {
+        let mut translations = HashMap::new();
+        translations.insert("en".to_string(), "hello everyone".to_string());
+        translations.insert("es".to_string(), "hola a todos".to_string());
+        let id = Uuid::new_v4();
+        let ev = ChatEvent {
+            id,
+            sender_kind: "host".to_string(),
+            display_name: "Alice".to_string(),
+            original: "ciao a tutti".to_string(),
+            lang: "it".to_string(),
+            translations,
+            created_at: "2026-07-12T10:00:00Z".to_string(),
+        };
+        let v: serde_json::Value = serde_json::from_str(&ev.to_json()).unwrap();
+        assert_eq!(v["type"], "chat");
+        assert_eq!(v["id"], id.to_string());
+        assert_eq!(v["sender_kind"], "host");
+        assert_eq!(v["display_name"], "Alice");
+        assert_eq!(v["original"], "ciao a tutti");
+        assert_eq!(v["lang"], "it");
+        assert_eq!(v["translations"]["en"], "hello everyone");
+        assert_eq!(v["translations"]["es"], "hola a todos");
+        assert_eq!(v["created_at"], "2026-07-12T10:00:00Z");
+    }
+
+    #[test]
+    fn chat_frames_carry_no_sender_pii() {
+        // A guest chat frame must never leak the trustworthy sender identity — only
+        // the cosmetic display_name is public. Mirrors `subtitle_frames_carry_no_host_pii`.
+        let mut translations = HashMap::new();
+        translations.insert("en".to_string(), "hi".to_string());
+        let json = ChatEvent {
+            id: Uuid::new_v4(),
+            sender_kind: "guest".to_string(),
+            display_name: "Guest".to_string(),
+            original: "ciao".to_string(),
+            lang: "it".to_string(),
+            translations,
+            created_at: "2026-07-12T10:00:00Z".to_string(),
+        }
+        .to_json();
+        for leaked in [
+            "sender_id",
+            "guest_id",
+            "user_id",
+            "host_user_id",
+            "email",
+            "org_id",
+        ] {
+            assert!(!json.contains(leaked), "chat frame leaked `{leaked}`");
+        }
+    }
+
+    #[test]
     fn target_languages_are_distinct_non_host_viewers() {
         let reg = PresenceRegistry::new();
         let _es1 = add(&reg, "C", false, Some("es"));
@@ -543,6 +658,58 @@ mod tests {
         assert!(
             host.try_recv().is_err(),
             "host studio must NOT receive its own subtitle"
+        );
+    }
+
+    #[test]
+    fn broadcast_chat_reaches_host_and_every_viewer() {
+        let reg = PresenceRegistry::new();
+        let mut es = add(&reg, "C", false, Some("es"));
+        let mut fr = add(&reg, "C", false, Some("fr"));
+        // The host IS included (unlike subtitles) — they read the chat.
+        let mut host = add(&reg, "C", true, None);
+
+        let mut translations = HashMap::new();
+        translations.insert("es".to_string(), "hola".to_string());
+        translations.insert("fr".to_string(), "salut".to_string());
+        let ev = ChatEvent {
+            id: Uuid::new_v4(),
+            sender_kind: "guest".to_string(),
+            display_name: "Guest".to_string(),
+            original: "ciao".to_string(),
+            lang: "it".to_string(),
+            translations,
+            created_at: "2026-07-12T10:00:00Z".to_string(),
+        };
+        reg.broadcast_chat("C", &ev);
+
+        // Every viewer gets the full fan-out; assert their OWN language key.
+        for (rx, lang, expect) in [(&mut es, "es", "hola"), (&mut fr, "fr", "salut")] {
+            let msg = rx.try_recv().expect("viewer got a chat frame");
+            let v: serde_json::Value = serde_json::from_str(text_of(&msg)).unwrap();
+            assert_eq!(v["type"], "chat");
+            assert_eq!(v["translations"][lang], expect);
+        }
+        // The host receives it too — chat is NOT filtered by `is_host`.
+        let hmsg = host.try_recv().expect("host got the chat frame");
+        let hv: serde_json::Value = serde_json::from_str(text_of(&hmsg)).unwrap();
+        assert_eq!(hv["type"], "chat");
+    }
+
+    #[test]
+    fn broadcast_chat_unknown_code_is_a_noop() {
+        let reg = PresenceRegistry::new();
+        reg.broadcast_chat(
+            "ghost",
+            &ChatEvent {
+                id: Uuid::new_v4(),
+                sender_kind: "guest".to_string(),
+                display_name: "Guest".to_string(),
+                original: "x".to_string(),
+                lang: "en".to_string(),
+                translations: HashMap::new(),
+                created_at: "2026-07-12T10:00:00Z".to_string(),
+            },
         );
     }
 

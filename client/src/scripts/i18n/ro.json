@@ -642,5 +642,16 @@
   "wvMuteAudio": "Dezactivează sunetul",
   "wvUnmuteAudio": "Activează sunetul",
   "wvSubtitlesOn": "Subtitrări activate",
-  "wvSubtitlesOff": "Subtitrări dezactivate"
+  "wvSubtitlesOff": "Subtitrări dezactivate",
+  "webinarChatEnabled": "Activează chatul",
+  "wvChatShow": "Afișează chatul",
+  "wvChatHide": "Ascunde chatul",
+  "wvChatPlaceholder": "Scrie un mesaj…",
+  "wvChatSend": "Trimite",
+  "wvChatHost": "Gazdă",
+  "wvChatNamePrompt": "Alege un nume afișat pentru a conversa",
+  "wvChatNamePlaceholder": "Numele tău",
+  "wvChatEmpty": "Încă nu există mesaje. Salută!",
+  "wvChatRateLimited": "Trimiți mesaje prea repede. Te rugăm să aștepți un moment.",
+  "wvChatBlocked": "Mesajul tău nu a putut fi trimis."
 }

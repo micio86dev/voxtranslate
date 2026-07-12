@@ -642,5 +642,16 @@
   "wvMuteAudio": "Stlmiť zvuk",
   "wvUnmuteAudio": "Zapnúť zvuk",
   "wvSubtitlesOn": "Titulky zapnuté",
-  "wvSubtitlesOff": "Titulky vypnuté"
+  "wvSubtitlesOff": "Titulky vypnuté",
+  "webinarChatEnabled": "Povoliť chat",
+  "wvChatShow": "Zobraziť chat",
+  "wvChatHide": "Skryť chat",
+  "wvChatPlaceholder": "Napíšte správu…",
+  "wvChatSend": "Odoslať",
+  "wvChatHost": "Hostiteľ",
+  "wvChatNamePrompt": "Vyberte si zobrazované meno na chatovanie",
+  "wvChatNamePlaceholder": "Vaše meno",
+  "wvChatEmpty": "Zatiaľ žiadne správy. Pozdravte sa!",
+  "wvChatRateLimited": "Odosielate správy príliš rýchlo. Chvíľu, prosím, počkajte.",
+  "wvChatBlocked": "Vašu správu sa nepodarilo odoslať."
 }

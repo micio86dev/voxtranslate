@@ -7,8 +7,10 @@ import {
   PresenceClient,
   buildPresenceUrl,
   connectPresence,
+  parseChatFrame,
   parsePresenceCount,
   parseSubtitleFrame,
+  type ChatEvent,
   type PresenceSocket,
   type SubtitleEvent,
 } from './webinar-presence';
@@ -140,6 +142,75 @@ describe('parseSubtitleFrame', () => {
   });
 });
 
+describe('parseChatFrame', () => {
+  const valid =
+    '{"type":"chat","id":"m1","sender_kind":"guest","display_name":"Ada","original":"hola","lang":"es","translations":{"es":"hola","en":"hi"},"created_at":"2026-07-12T10:00:00Z"}';
+  it('parses a valid chat frame with the translations map', () => {
+    expect(parseChatFrame(valid)).toEqual<ChatEvent>({
+      id: 'm1',
+      sender_kind: 'guest',
+      display_name: 'Ada',
+      original: 'hola',
+      lang: 'es',
+      translations: { es: 'hola', en: 'hi' },
+      created_at: '2026-07-12T10:00:00Z',
+    });
+  });
+  it('accepts the host sender_kind and drops non-string translation values', () => {
+    const ev = parseChatFrame(
+      '{"type":"chat","id":"m2","sender_kind":"host","display_name":"H","original":"hi","lang":"en","translations":{"en":"hi","xx":5},"created_at":"t"}',
+    );
+    expect(ev).toEqual<ChatEvent>({
+      id: 'm2',
+      sender_kind: 'host',
+      display_name: 'H',
+      original: 'hi',
+      lang: 'en',
+      translations: { en: 'hi' },
+      created_at: 't',
+    });
+  });
+  it('returns null for the wrong frame type', () => {
+    expect(parseChatFrame('{"type":"count","count":3}')).toBeNull();
+    expect(
+      parseChatFrame(
+        '{"type":"subtitle","kind":"final","original":"x","lang":"en","translations":{}}',
+      ),
+    ).toBeNull();
+  });
+  it('returns null when a required field is missing or mistyped', () => {
+    // bad sender_kind
+    expect(
+      parseChatFrame(
+        '{"type":"chat","id":"m","sender_kind":"admin","display_name":"A","original":"x","lang":"en","translations":{},"created_at":"t"}',
+      ),
+    ).toBeNull();
+    // missing id
+    expect(
+      parseChatFrame(
+        '{"type":"chat","sender_kind":"guest","display_name":"A","original":"x","lang":"en","translations":{},"created_at":"t"}',
+      ),
+    ).toBeNull();
+    // missing translations object
+    expect(
+      parseChatFrame(
+        '{"type":"chat","id":"m","sender_kind":"guest","display_name":"A","original":"x","lang":"en","created_at":"t"}',
+      ),
+    ).toBeNull();
+    // non-string lang
+    expect(
+      parseChatFrame(
+        '{"type":"chat","id":"m","sender_kind":"guest","display_name":"A","original":"x","lang":5,"translations":{},"created_at":"t"}',
+      ),
+    ).toBeNull();
+  });
+  it('returns null for garbage / non-object JSON', () => {
+    expect(parseChatFrame('not json')).toBeNull();
+    expect(parseChatFrame('42')).toBeNull();
+    expect(parseChatFrame('null')).toBeNull();
+  });
+});
+
 describe('buildPresenceUrl', () => {
   it('builds the participant URL with guest_id + host=false', () => {
     expect(buildPresenceUrl({ ...baseOpts })).toBe(
@@ -214,6 +285,43 @@ describe('PresenceClient', () => {
     expect(subs).toEqual<SubtitleEvent[]>([
       { kind: 'final', original: 'ciao', lang: 'it', translations: { it: 'ciao', en: 'hi' } },
       { kind: 'interim', text: 'cia', lang: 'it' },
+    ]);
+    client.close();
+  });
+
+  it('dispatches onChat for chat frames and never confuses them with counts/subtitles', () => {
+    const { sockets, factory } = makeFactory();
+    const counts: number[] = [];
+    const subs: SubtitleEvent[] = [];
+    const chats: ChatEvent[] = [];
+    const client = new PresenceClient({
+      ...baseOpts,
+      onCount: (n) => counts.push(n),
+      onSubtitle: (s) => subs.push(s),
+      onChat: (c) => chats.push(c),
+      socketFactory: factory,
+    });
+    const s = sockets[0];
+    s.emitMessage('{"type":"count","count":4}'); // count only
+    s.emitMessage(
+      '{"type":"subtitle","kind":"final","original":"ciao","lang":"it","translations":{"it":"ciao"}}',
+    ); // subtitle only
+    s.emitMessage(
+      '{"type":"chat","id":"m1","sender_kind":"guest","display_name":"Ada","original":"hola","lang":"es","translations":{"es":"hola","en":"hi"},"created_at":"t"}',
+    );
+    s.emitMessage('garbage'); // ignored by all
+    expect(counts).toEqual([4]);
+    expect(subs).toHaveLength(1);
+    expect(chats).toEqual<ChatEvent[]>([
+      {
+        id: 'm1',
+        sender_kind: 'guest',
+        display_name: 'Ada',
+        original: 'hola',
+        lang: 'es',
+        translations: { es: 'hola', en: 'hi' },
+        created_at: 't',
+      },
     ]);
     client.close();
   });

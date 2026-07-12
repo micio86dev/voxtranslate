@@ -98,6 +98,76 @@ export function parseSubtitleFrame(data: string): SubtitleEvent | null {
   return null; // unknown kind
 }
 
+/**
+ * An auto-translated chat message pushed by the server over the SAME presence WS (webinar
+ * Feature ⑤). Everyone in the room sends (host + guests); everyone reads each message
+ * translated into their own language — a recipient renders `translations[myLang]`, falling
+ * back to `original` (the exact rule live subtitles use). Mirrors `SubtitleEvent`.
+ */
+export interface ChatEvent {
+  /** Server-assigned message id (used to de-dupe the WS echo of an optimistic send). */
+  id: string;
+  /** Who sent it — `host` (the broadcaster) or `guest` (a viewer). */
+  sender_kind: 'host' | 'guest';
+  /** The sender's cosmetic display name. */
+  display_name: string;
+  /** The sender's original words. */
+  original: string;
+  /** The source language code of `original`. */
+  lang: string;
+  /** Per-language translations (always includes `lang`). */
+  translations: Record<string, string>;
+  /** RFC3339 timestamp the server stamped on the message. */
+  created_at: string;
+}
+
+/** Parse a server chat frame. Returns a well-typed `ChatEvent` for a valid
+ *  `{type:"chat",id,sender_kind,display_name,original,lang,translations,created_at}` text
+ *  frame, else null — so malformed JSON, other frame types (`count`/`subtitle`), or a shape
+ *  mismatch are ignored. Pure, mirroring `parseSubtitleFrame`. */
+export function parseChatFrame(data: string): ChatEvent | null {
+  let msg: unknown;
+  try {
+    msg = JSON.parse(data);
+  } catch {
+    return null; // not JSON
+  }
+  if (typeof msg !== "object" || msg === null) return null;
+  const frame = msg as {
+    type?: unknown;
+    id?: unknown;
+    sender_kind?: unknown;
+    display_name?: unknown;
+    original?: unknown;
+    lang?: unknown;
+    translations?: unknown;
+    created_at?: unknown;
+  };
+  if (frame.type !== "chat") return null; // not a chat frame
+  if (typeof frame.id !== "string") return null;
+  if (frame.sender_kind !== "host" && frame.sender_kind !== "guest") return null;
+  if (typeof frame.display_name !== "string") return null;
+  if (typeof frame.original !== "string") return null;
+  if (typeof frame.lang !== "string") return null;
+  if (typeof frame.created_at !== "string") return null;
+  const tr = frame.translations;
+  // `translations` must be a plain object of string values (drop any non-string).
+  if (typeof tr !== "object" || tr === null) return null;
+  const translations: Record<string, string> = {};
+  for (const [k, v] of Object.entries(tr as Record<string, unknown>)) {
+    if (typeof v === "string") translations[k] = v;
+  }
+  return {
+    id: frame.id,
+    sender_kind: frame.sender_kind,
+    display_name: frame.display_name,
+    original: frame.original,
+    lang: frame.lang,
+    translations,
+    created_at: frame.created_at,
+  };
+}
+
 /** The subset of the WebSocket API we drive, so a fake can stand in for tests. */
 export interface PresenceSocket {
   onopen: ((this: unknown, ev: unknown) => unknown) | null;
@@ -126,6 +196,9 @@ export interface PresenceClientOptions {
   /** Called with each live-subtitle event (webinar Fase 2 translation) that arrives
    *  on the same presence WS. Optional — the host studio doesn't render captions. */
   onSubtitle?: (event: SubtitleEvent) => void;
+  /** Called with each auto-translated chat message (webinar Feature ⑤) that arrives on
+   *  the same presence WS. Optional — only wired when the webinar has chat enabled. */
+  onChat?: (event: ChatEvent) => void;
   /** Injectable WebSocket ctor for tests. Defaults to the global `WebSocket`. */
   socketFactory?: PresenceSocketFactory;
   /** First reconnect delay in ms (doubles each attempt, capped). Default 1000. */
@@ -213,7 +286,13 @@ export class PresenceClient {
       }
       // Not a count frame — try the subtitle path (same WS carries both).
       const sub = this.opts.onSubtitle ? parseSubtitleFrame(ev.data) : null;
-      if (sub) this.opts.onSubtitle!(sub);
+      if (sub) {
+        this.opts.onSubtitle!(sub);
+        return; // a subtitle frame is never also a chat frame
+      }
+      // Not a count or subtitle frame — try the chat path (same WS carries all three).
+      const chat = this.opts.onChat ? parseChatFrame(ev.data) : null;
+      if (chat) this.opts.onChat!(chat);
     };
     sock.onclose = () => {
       this.socket = null;
