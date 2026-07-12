@@ -136,17 +136,45 @@ pub async fn stt_ws(
         return Err((StatusCode::CONFLICT, "webinar is not live").into_response());
     }
 
+    // Single-flight: refuse a second concurrent STT stream for this webinar so a
+    // reconnect race (or an abusive/buggy client opening many sockets) can't
+    // multiply Deepgram+Groq cost or double up subtitles. Acquire BEFORE the
+    // upgrade so the caller gets a clean 409, and hold the guard for the socket's
+    // whole life (it frees the slot on drop).
+    let stt_guard = state
+        .webinar_presence
+        .try_begin_stt(&w.code)
+        .ok_or_else(|| (StatusCode::CONFLICT, "an STT stream is already active").into_response())?;
+
     let code = w.code.clone();
     let source_language = w.source_language.clone();
     let record = w.record_transcript;
     let webinar_id = w.id;
     Ok(ws.on_upgrade(move |socket| {
-        handle_stt(socket, state, code, source_language, webinar_id, record)
+        handle_stt(
+            socket,
+            state,
+            code,
+            source_language,
+            webinar_id,
+            record,
+            stt_guard,
+        )
     }))
 }
 
 fn unauthorized() -> Response {
     (StatusCode::UNAUTHORIZED, "unauthorized").into_response()
+}
+
+/// Aborts a spawned task when dropped. Dropping a bare `JoinHandle` only detaches
+/// the task; this ensures a dropped STT session actually cancels its work.
+struct AbortOnDrop(tokio::task::AbortHandle);
+
+impl Drop for AbortOnDrop {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
 }
 
 /// On upgrade: bridge the host's audio into Deepgram and drive the subtitle
@@ -158,6 +186,9 @@ async fn handle_stt(
     source_language: String,
     webinar_id: Uuid,
     record_transcript: bool,
+    // Held for the socket's whole life; frees the single-flight slot on drop
+    // (normal close OR the whole future being dropped on shutdown).
+    _stt_guard: crate::webinar::presence::SttGuard,
 ) {
     // Open the per-host Deepgram streaming connection (WebM/Opus, spec 0043 —
     // same as the P2P call's MediaRecorder path). On failure we just close: no
@@ -183,6 +214,15 @@ async fn handle_stt(
         webinar_id,
         record_transcript,
     ));
+    // Abort-on-drop: if this future is dropped before the clean teardown below
+    // (e.g. runtime shutdown, or the read loop never returning on a half-open
+    // socket), both tasks are cancelled so the Deepgram connection can't leak and
+    // keep billing. On the normal path the awaits below finish first, making these
+    // no-ops.
+    let _abort = (
+        AbortOnDrop(forward.abort_handle()),
+        AbortOnDrop(process.abort_handle()),
+    );
     // The presence WS pushes count/subtitle frames; the STT socket is audio-in
     // only, so there's nothing to send back on it. Keep the sink alive to close
     // it cleanly at the end.
@@ -268,39 +308,46 @@ async fn process_webinar_transcripts(
                 }
                 last_final = Some((text.clone(), now));
 
-                // Fan out per distinct viewer language read LIVE from the registry
-                // (P2: late joiners are covered because we read on every final).
-                let targets = state.webinar_presence.target_languages(&code);
-                let translations = state
-                    .translator
-                    .translate_fanout(&text, &source_language, &targets, None)
-                    .await;
+                // Spawn the translate → broadcast → persist work so a slow/stalled
+                // Groq call never head-of-line-blocks subsequent finals & interims
+                // (mirrors the P2P path in `deepgram::process_transcripts`, which
+                // also spawns per final). The dup-final guard above stays in the
+                // loop, so ordering of the dedup decision is preserved.
+                let state = state.clone();
+                let code = code.clone();
+                let source_language = source_language.clone();
+                tokio::spawn(async move {
+                    // Fan out per distinct viewer language read LIVE from the
+                    // registry (P2: late joiners covered — we read on every final).
+                    let targets = state.webinar_presence.target_languages(&code);
+                    let translations = state
+                        .translator
+                        .translate_fanout(&text, &source_language, &targets, None)
+                        .await;
 
-                state.webinar_presence.broadcast_subtitle(
-                    &code,
-                    &SubtitleEvent::Final {
-                        original: text.clone(),
-                        lang: source_language.clone(),
-                        translations: translations.clone(),
-                    },
-                );
+                    state.webinar_presence.broadcast_subtitle(
+                        &code,
+                        &SubtitleEvent::Final {
+                            original: text.clone(),
+                            lang: source_language.clone(),
+                            translations: translations.clone(),
+                        },
+                    );
 
-                // P4: persist best-effort (fire-and-forget) only when recording is
-                // on — same posture as `presence::record_join` (`let _ = ...`).
-                if let Some(pool) = state.pool.clone() {
-                    let src = source_language.clone();
-                    tokio::spawn(async move {
+                    // P4: persist best-effort only when recording is on — same
+                    // posture as `presence::record_join` (`let _ = ...`).
+                    if let Some(pool) = state.pool.clone() {
                         persist_final(
                             record_transcript,
                             &pool,
                             webinar_id,
                             &text,
-                            &src,
+                            &source_language,
                             &translations,
                         )
                         .await;
-                    });
-                }
+                    }
+                });
             }
         }
     }

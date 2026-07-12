@@ -99,6 +99,26 @@ impl SubtitleEvent {
 pub struct PresenceRegistry {
     rooms: DashMap<String, HashMap<u64, Conn>>,
     next: AtomicU64,
+    /// Single-flight guard: at most one active host STT stream per webinar code.
+    /// A second concurrent STT socket would open its own Deepgram connection and
+    /// re-run the Groq fan-out for every utterance — multiplying cost AND
+    /// duplicating subtitles for viewers. One entry per code while a stream holds
+    /// the slot; freed by [`SttGuard`] on drop.
+    stt_active: DashMap<String, ()>,
+}
+
+/// RAII slot for the single active host STT stream of a webinar. Held for the life
+/// of the STT socket; dropping it frees the slot so a later (e.g. reconnecting)
+/// host can start a fresh stream.
+pub struct SttGuard {
+    registry: std::sync::Arc<PresenceRegistry>,
+    code: String,
+}
+
+impl Drop for SttGuard {
+    fn drop(&mut self) {
+        self.registry.stt_active.remove(&self.code);
+    }
 }
 
 fn audience(room: &HashMap<u64, Conn>) -> usize {
@@ -128,6 +148,24 @@ impl PresenceRegistry {
             drop(room);
             if empty {
                 self.rooms.remove(code);
+            }
+        }
+    }
+
+    /// Try to acquire the single active-STT slot for `code`. Returns a guard that
+    /// frees the slot on drop, or `None` if a stream is already active — so a
+    /// second concurrent STT socket is refused (409) instead of doubling cost and
+    /// duplicating subtitles. Atomic per key via the dashmap entry API.
+    pub fn try_begin_stt(self: &std::sync::Arc<Self>, code: &str) -> Option<SttGuard> {
+        use dashmap::mapref::entry::Entry;
+        match self.stt_active.entry(code.to_string()) {
+            Entry::Occupied(_) => None,
+            Entry::Vacant(v) => {
+                v.insert(());
+                Some(SttGuard {
+                    registry: std::sync::Arc::clone(self),
+                    code: code.to_string(),
+                })
             }
         }
     }
@@ -442,6 +480,26 @@ mod tests {
     }
 
     #[test]
+    fn stt_slot_is_single_flight_per_code() {
+        let reg = std::sync::Arc::new(PresenceRegistry::new());
+        let g1 = reg
+            .try_begin_stt("W")
+            .expect("first stream acquires the slot");
+        assert!(
+            reg.try_begin_stt("W").is_none(),
+            "a second concurrent STT stream is refused"
+        );
+        // A different webinar is independent.
+        assert!(reg.try_begin_stt("OTHER").is_some());
+        // Releasing the slot lets a later (reconnecting) host start again.
+        drop(g1);
+        assert!(
+            reg.try_begin_stt("W").is_some(),
+            "the slot is free once the guard drops"
+        );
+    }
+
+    #[test]
     fn broadcast_subtitle_reaches_every_viewer() {
         let reg = PresenceRegistry::new();
         let mut es = add(&reg, "C", false, Some("es"));
@@ -457,11 +515,13 @@ mod tests {
         };
         reg.broadcast_subtitle("C", &ev);
 
-        for rx in [&mut es, &mut fr] {
+        // Each viewer receives the full fan-out; assert its OWN language key so a
+        // dropped-language regression can't hide behind a shared key.
+        for (rx, lang, expect) in [(&mut es, "es", "hola"), (&mut fr, "fr", "salut")] {
             let msg = rx.try_recv().expect("viewer got a subtitle frame");
             let v: serde_json::Value = serde_json::from_str(text_of(&msg)).unwrap();
             assert_eq!(v["kind"], "final");
-            assert_eq!(v["translations"]["es"], "hola");
+            assert_eq!(v["translations"][lang], expect);
         }
     }
 
