@@ -569,6 +569,7 @@
   "webinarQrPrint": "چاپ QR",
   "webinarQrPrintBlocked": "برای چاپ کد QR پنجره‌های بازشو را مجاز کنید.",
   "webinarCreate": "ساخت وبینار",
+  "webinarCreateToggle": "ساخت وبینار",
   "webinarCreating": "در حال ساخت…",
   "webinarCreated": "وبینار ساخته شد.",
   "webinarYours": "وبینارهای شما",

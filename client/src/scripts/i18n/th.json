@@ -569,6 +569,7 @@
   "webinarQrPrint": "พิมพ์ QR",
   "webinarQrPrintBlocked": "อนุญาตป๊อปอัปเพื่อพิมพ์รหัส QR",
   "webinarCreate": "สร้างเว็บบินาร์",
+  "webinarCreateToggle": "สร้างเว็บบินาร์",
   "webinarCreating": "กำลังสร้าง…",
   "webinarCreated": "สร้างเว็บบินาร์แล้ว",
   "webinarYours": "เว็บบินาร์ของคุณ",

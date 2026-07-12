@@ -569,6 +569,7 @@
   "webinarQrPrint": "Inprimatu QR",
   "webinarQrPrintBlocked": "Baimendu leiho gainerakorrak QR kodea inprimatzeko.",
   "webinarCreate": "Sortu webinarra",
+  "webinarCreateToggle": "Sortu webinar bat",
   "webinarCreating": "Sortzen…",
   "webinarCreated": "Webinarra sortu da.",
   "webinarYours": "Zure webinarrak",

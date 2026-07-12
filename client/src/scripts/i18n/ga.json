@@ -569,6 +569,7 @@
   "webinarQrPrint": "Priontáil QR",
   "webinarQrPrintBlocked": "Ceadaigh preabfhuinneoga chun an cód QR a phriontáil.",
   "webinarCreate": "Cruthaigh gréasán",
+  "webinarCreateToggle": "Cruthaigh gréasán",
   "webinarCreating": "Á chruthú…",
   "webinarCreated": "Gréasán cruthaithe.",
   "webinarYours": "Do ghréasáin",

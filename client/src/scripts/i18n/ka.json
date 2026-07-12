@@ -569,6 +569,7 @@
   "webinarQrPrint": "QR-ის ამობეჭდვა",
   "webinarQrPrintBlocked": "დაუშვით ამომხტარი ფანჯრები QR კოდის ამოსაბეჭდად.",
   "webinarCreate": "ვებინარის შექმნა",
+  "webinarCreateToggle": "ვებინარის შექმნა",
   "webinarCreating": "იქმნება…",
   "webinarCreated": "ვებინარი შეიქმნა.",
   "webinarYours": "თქვენი ვებინარები",

@@ -569,6 +569,7 @@
   "webinarQrPrint": "הדפסת QR",
   "webinarQrPrintBlocked": "אפשר חלונות קופצים כדי להדפיס את קוד ה-QR.",
   "webinarCreate": "יצירת וובינר",
+  "webinarCreateToggle": "יצירת וובינר",
   "webinarCreating": "יוצר…",
   "webinarCreated": "הוובינר נוצר.",
   "webinarYours": "הוובינרים שלך",

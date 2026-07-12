@@ -569,6 +569,7 @@
   "webinarQrPrint": "QR chop etish",
   "webinarQrPrintBlocked": "QR kodni chop etish uchun qalqib chiquvchi oynalarga ruxsat bering.",
   "webinarCreate": "Vebinar yaratish",
+  "webinarCreateToggle": "Vebinar yaratish",
   "webinarCreating": "Yaratilmoqda…",
   "webinarCreated": "Vebinar yaratildi.",
   "webinarYours": "Sizning vebinarlaringiz",

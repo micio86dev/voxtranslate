@@ -569,6 +569,7 @@
   "webinarQrPrint": "QR yazdır",
   "webinarQrPrintBlocked": "QR kodunu yazdırmak için açılır pencerelere izin verin.",
   "webinarCreate": "Web semineri oluştur",
+  "webinarCreateToggle": "Web semineri oluştur",
   "webinarCreating": "Oluşturuluyor…",
   "webinarCreated": "Web semineri oluşturuldu.",
   "webinarYours": "Web seminerleriniz",

@@ -569,6 +569,7 @@
   "webinarQrPrint": "Εκτύπωση QR",
   "webinarQrPrintBlocked": "Επιτρέψτε τα αναδυόμενα παράθυρα για να εκτυπώσετε τον κωδικό QR.",
   "webinarCreate": "Δημιουργία σεμιναρίου",
+  "webinarCreateToggle": "Δημιουργία σεμιναρίου",
   "webinarCreating": "Δημιουργία…",
   "webinarCreated": "Το σεμινάριο δημιουργήθηκε.",
   "webinarYours": "Τα σεμινάριά σας",

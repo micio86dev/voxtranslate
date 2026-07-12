@@ -569,6 +569,7 @@
   "webinarQrPrint": "QR प्रिंट करें",
   "webinarQrPrintBlocked": "QR कोड प्रिंट करने के लिए पॉप-अप की अनुमति दें।",
   "webinarCreate": "वेबिनार बनाएं",
+  "webinarCreateToggle": "वेबिनार बनाएं",
   "webinarCreating": "बनाया जा रहा है…",
   "webinarCreated": "वेबिनार बन गया.",
   "webinarYours": "आपके वेबिनार",

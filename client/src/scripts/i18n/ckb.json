@@ -569,6 +569,7 @@
   "webinarQrPrint": "چاپکردنی QR",
   "webinarQrPrintBlocked": "ڕێگە بە پەنجەرە دەرپەڕیوەکان بدە بۆ چاپکردنی کۆدی QR.",
   "webinarCreate": "دروستکردنی وێبینار",
+  "webinarCreateToggle": "دروستکردنی وێبینار",
   "webinarCreating": "دروستدەکرێت…",
   "webinarCreated": "وێبینار دروستکرا.",
   "webinarYours": "وێبینارەکانت",

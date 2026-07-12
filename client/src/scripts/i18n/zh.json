@@ -569,6 +569,7 @@
   "webinarQrPrint": "打印 QR",
   "webinarQrPrintBlocked": "请允许弹出窗口以打印二维码。",
   "webinarCreate": "创建网络研讨会",
+  "webinarCreateToggle": "创建网络研讨会",
   "webinarCreating": "创建中…",
   "webinarCreated": "网络研讨会已创建。",
   "webinarYours": "您的网络研讨会",

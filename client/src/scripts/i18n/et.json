@@ -569,6 +569,7 @@
   "webinarQrPrint": "Prindi QR",
   "webinarQrPrintBlocked": "Luba hüpikaknad, et QR-koodi printida.",
   "webinarCreate": "Loo veebiseminar",
+  "webinarCreateToggle": "Loo veebiseminar",
   "webinarCreating": "Loomine…",
   "webinarCreated": "Veebiseminar loodud.",
   "webinarYours": "Sinu veebiseminarid",

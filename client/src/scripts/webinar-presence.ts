@@ -189,6 +189,9 @@ export interface PresenceClientOptions {
   guestId: string;
   /** True for the host studio (watches the count, not counted as audience). */
   host: boolean;
+  /** The host's session JWT — sent only when `host` so the server honors the host
+   *  claim (org-membership checked). Viewers omit it. */
+  token?: string | null;
   /** Optional listener language (participant side, when known). */
   lang?: string | null;
   /** Called with the latest audience count on every `count` frame. */
@@ -215,12 +218,16 @@ export function buildPresenceUrl(opts: {
   guestId: string;
   host: boolean;
   lang?: string | null;
+  token?: string | null;
 }): string {
   const base = opts.wsBase.replace(/\/+$/, "");
   const q = new URLSearchParams();
   q.set("guest_id", opts.guestId);
   q.set("host", opts.host ? "true" : "false");
   if (opts.lang) q.set("lang", opts.lang);
+  // The host studio proves org membership with its session JWT so the server
+  // honors host=true (browsers can't set WS headers). Viewers send no token.
+  if (opts.host && opts.token) q.set("token", opts.token);
   return `${base}/api/w/${encodeURIComponent(opts.code)}/presence?${q.toString()}`;
 }
 
@@ -259,6 +266,7 @@ export class PresenceClient {
       guestId: this.opts.guestId,
       host: this.opts.host,
       lang: this.opts.lang,
+      token: this.opts.token,
     });
   }
 

@@ -569,6 +569,7 @@
   "webinarQrPrint": "Cetak QR",
   "webinarQrPrintBlocked": "Benarkan tetingkap timbul untuk mencetak kod QR.",
   "webinarCreate": "Cipta webinar",
+  "webinarCreateToggle": "Cipta webinar",
   "webinarCreating": "Mencipta…",
   "webinarCreated": "Webinar dicipta.",
   "webinarYours": "Webinar anda",
