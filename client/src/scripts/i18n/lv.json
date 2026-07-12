@@ -549,6 +549,8 @@
   "engineRestrictedNetwork": "Enhanced nav pieejams jūsu tīklā — tiek izmantots Standard tulkojums.",
   "webinarsTitle": "Vebināri",
   "webinarsIntro": "Izveidojiet vebināru un kopīgojiet pievienošanās saiti. Dalībnieki dzirdēs jūs tiešraidē tulkotu viņu valodā.",
+  "webinarProject": "Projekts",
+  "webinarNoProject": "Nav projekta",
   "webinarTitleLabel": "Nosaukums",
   "webinarTitlePlaceholder": "piem., Produkta prezentācija",
   "webinarSourceLang": "Jūsu valoda",

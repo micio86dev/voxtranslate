@@ -549,6 +549,8 @@
   "engineRestrictedNetwork": "Enhanced желіңізде қолжетімді емес — Standard аудармасы қолданылады.",
   "webinarsTitle": "Вебинарлар",
   "webinarsIntro": "Вебинар жасап, қосылу сілтемесін бөлісіңіз. Қатысушылар сізді өз тілінде тікелей эфирде аударылған күйде естиді.",
+  "webinarProject": "Жоба",
+  "webinarNoProject": "Жоба жоқ",
   "webinarTitleLabel": "Тақырып",
   "webinarTitlePlaceholder": "мыс. Өнім таныстырылымы",
   "webinarSourceLang": "Сіздің тіліңіз",

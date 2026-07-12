@@ -902,3 +902,53 @@ async fn archive_hides_from_active_and_restores() {
         "restored to active"
     );
 }
+
+#[tokio::test]
+async fn create_links_to_project_in_same_org_only() {
+    let Some(srv) = setup().await else {
+        return;
+    };
+    let http = Client::new();
+    let (owner, jwt) = user(&srv).await;
+    let org_id = org(&srv, owner, true).await;
+    let project_id: Uuid =
+        sqlx::query_scalar("INSERT INTO projects (org_id, name) VALUES ($1, 'P') RETURNING id")
+            .bind(org_id)
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap();
+
+    // Link to a project in the caller's org → 201, echoed back.
+    let r = http
+        .post(format!("{}/api/webinars", base(&srv)))
+        .bearer_auth(&jwt)
+        .json(&json!({
+            "org_id": org_id, "title": "P", "source_language": "en", "project_id": project_id
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 201);
+    let b: Value = r.json().await.unwrap();
+    assert_eq!(b["project_id"].as_str().unwrap(), project_id.to_string());
+
+    // A project from ANOTHER org → 400.
+    let (o2, _) = user(&srv).await;
+    let org2 = org(&srv, o2, true).await;
+    let foreign: Uuid =
+        sqlx::query_scalar("INSERT INTO projects (org_id, name) VALUES ($1, 'X') RETURNING id")
+            .bind(org2)
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap();
+    let bad = http
+        .post(format!("{}/api/webinars", base(&srv)))
+        .bearer_auth(&jwt)
+        .json(&json!({
+            "org_id": org_id, "title": "x", "source_language": "en", "project_id": foreign
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(bad.status(), 400, "project from another org rejected");
+}

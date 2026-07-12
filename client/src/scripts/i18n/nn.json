@@ -549,6 +549,8 @@
   "engineRestrictedNetwork": "Enhanced er ikkje tilgjengeleg på nettverket ditt — bruker Standard-omsetjing.",
   "webinarsTitle": "Webinar",
   "webinarsIntro": "Opprett eit webinar og del påmeldingslenkja. Deltakarane høyrer deg direkteomsett til sitt eige språk.",
+  "webinarProject": "Prosjekt",
+  "webinarNoProject": "Ingen prosjekt",
   "webinarTitleLabel": "Tittel",
   "webinarTitlePlaceholder": "t.d. Produktlansering",
   "webinarSourceLang": "Ditt språk",

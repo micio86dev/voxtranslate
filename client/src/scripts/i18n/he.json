@@ -549,6 +549,8 @@
   "engineRestrictedNetwork": "Enhanced אינו זמין ברשת שלך — נעשה שימוש בתרגום Standard.",
   "webinarsTitle": "וובינרים",
   "webinarsIntro": "צרו וובינר ושתפו את קישור ההצטרפות. המשתתפים שומעים אתכם מתורגם בזמן אמת לשפה שלהם.",
+  "webinarProject": "פרויקט",
+  "webinarNoProject": "ללא פרויקט",
   "webinarTitleLabel": "כותרת",
   "webinarTitlePlaceholder": "לדוגמה, השקת מוצר",
   "webinarSourceLang": "השפה שלך",

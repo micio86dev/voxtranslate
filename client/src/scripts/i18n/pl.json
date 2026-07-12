@@ -549,6 +549,8 @@
   "engineRestrictedNetwork": "Enhanced jest niedostępny w Twojej sieci — używane jest tłumaczenie Standard.",
   "webinarsTitle": "Webinary",
   "webinarsIntro": "Utwórz webinar i udostępnij link dołączenia. Uczestnicy słyszą Cię tłumaczonego na żywo na ich język.",
+  "webinarProject": "Projekt",
+  "webinarNoProject": "Brak projektu",
   "webinarTitleLabel": "Tytuł",
   "webinarTitlePlaceholder": "np. Premiera produktu",
   "webinarSourceLang": "Twój język",

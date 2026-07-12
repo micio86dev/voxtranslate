@@ -549,6 +549,8 @@
   "engineRestrictedNetwork": "Enhanced-ը հասանելի չէ ձեր ցանցում — օգտագործվում է Standard թարգմանություն։",
   "webinarsTitle": "Վեբինարներ",
   "webinarsIntro": "Ստեղծեք վեբինար և կիսվեք միանալու հղումով։ Մասնակիցները ձեզ լսում են ուղիղ եթերում՝ թարգմանված իրենց լեզվով։",
+  "webinarProject": "Նախագիծ",
+  "webinarNoProject": "Առանց նախագծի",
   "webinarTitleLabel": "Վերնագիր",
   "webinarTitlePlaceholder": "օր. Ապրանքի թողարկում",
   "webinarSourceLang": "Ձեր լեզուն",

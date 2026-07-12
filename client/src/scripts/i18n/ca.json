@@ -549,6 +549,8 @@
   "engineRestrictedNetwork": "Enhanced no està disponible a la teva xarxa — s'utilitza la traducció Standard.",
   "webinarsTitle": "Webinars",
   "webinarsIntro": "Crea un webinar i comparteix l'enllaç per unir-s'hi. Els assistents t'escolten traduït en directe a la seva pròpia llengua.",
+  "webinarProject": "Projecte",
+  "webinarNoProject": "Cap projecte",
   "webinarTitleLabel": "Títol",
   "webinarTitlePlaceholder": "p. ex. Llançament de producte",
   "webinarSourceLang": "El teu idioma",

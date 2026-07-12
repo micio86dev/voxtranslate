@@ -1017,6 +1017,12 @@ const jsonLd = {
               <span class="ws-field-label" data-i18n="bizOrg">{T('bizOrg')}</span>
               <select id="webinar-org" class="ws-select"></select>
             </label>
+            <!-- Optional business project — populated from the selected org (app.ts);
+                 hidden when the org has no projects. Defaults to "No project". -->
+            <label class="ws-field hidden" id="webinar-project-field">
+              <span class="ws-field-label" data-i18n="webinarProject">{T('webinarProject')}</span>
+              <select id="webinar-project" class="ws-select"></select>
+            </label>
             <label class="ws-field">
               <span class="ws-field-label" data-i18n="webinarTitleLabel">{T('webinarTitleLabel')}</span>
               <input id="webinar-title" class="ws-select" type="text" maxlength="200" required autocomplete="off" data-i18n-ph="webinarTitlePlaceholder" placeholder={T('webinarTitlePlaceholder')} />

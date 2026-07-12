@@ -549,6 +549,8 @@
   "engineRestrictedNetwork": "Enhanced غير متاح على شبكتك — يتم استخدام ترجمة Standard.",
   "webinarsTitle": "ندوات عبر الإنترنت",
   "webinarsIntro": "أنشئ ندوة عبر الإنترنت وشارك رابط الانضمام. يسمعك الحاضرون مترجمًا مباشرةً إلى لغتهم.",
+  "webinarProject": "المشروع",
+  "webinarNoProject": "بدون مشروع",
   "webinarTitleLabel": "العنوان",
   "webinarTitlePlaceholder": "مثال: إطلاق منتج",
   "webinarSourceLang": "لغتك",

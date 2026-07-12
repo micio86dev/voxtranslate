@@ -549,6 +549,8 @@
   "engineRestrictedNetwork": "আপনার নেটওয়ার্কে Enhanced উপলব্ধ নয় — Standard অনুবাদ ব্যবহার করা হচ্ছে।",
   "webinarsTitle": "ওয়েবিনার",
   "webinarsIntro": "একটি ওয়েবিনার তৈরি করুন এবং যোগদানের লিঙ্ক শেয়ার করুন। অংশগ্রহণকারীরা আপনাকে তাদের নিজস্ব ভাষায় সরাসরি অনূদিত শুনতে পাবেন।",
+  "webinarProject": "প্রকল্প",
+  "webinarNoProject": "কোনো প্রকল্প নেই",
   "webinarTitleLabel": "শিরোনাম",
   "webinarTitlePlaceholder": "যেমন পণ্য উন্মোচন",
   "webinarSourceLang": "আপনার ভাষা",

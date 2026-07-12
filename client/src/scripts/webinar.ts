@@ -27,6 +27,8 @@ export interface WebinarView {
   source_language: string;
   tier: WebinarTier;
   status: WebinarStatus;
+  /** Business project this webinar is filed under, or null when unassigned. */
+  project_id: string | null;
   scheduled_start: string | null;
   scheduled_end: string | null;
   actual_start: string | null;
@@ -81,6 +83,8 @@ export interface CreateWebinarBody {
   org_id: string;
   title: string;
   source_language: string;
+  /** Optional business project to file the webinar under (omit/null for none). */
+  project_id?: string | null;
   tier?: WebinarTier;
   record_video?: boolean;
   record_transcript?: boolean;
@@ -93,6 +97,10 @@ export interface CreateWebinarBody {
 export interface PatchWebinarBody {
   title?: string;
   description?: string | null;
+  /** Reassign the business project the webinar is filed under. Server-side is
+   * COALESCE-based: sending a project id reassigns; null/omit leaves it unchanged
+   * (there is no unlink today). */
+  project_id?: string | null;
   tier?: WebinarTier;
   record_video?: boolean;
   record_transcript?: boolean;

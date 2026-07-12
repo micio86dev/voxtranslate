@@ -549,6 +549,8 @@
   "engineRestrictedNetwork": "Enhanced nije dostupan na vašoj mreži — koristi se Standard prijevod.",
   "webinarsTitle": "Webinari",
   "webinarsIntro": "Kreirajte webinar i podijelite link za pridruživanje. Učesnici vas čuju uživo prevedenog na njihov jezik.",
+  "webinarProject": "Projekat",
+  "webinarNoProject": "Nema projekta",
   "webinarTitleLabel": "Naslov",
   "webinarTitlePlaceholder": "npr. Predstavljanje proizvoda",
   "webinarSourceLang": "Vaš jezik",

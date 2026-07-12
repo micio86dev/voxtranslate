@@ -549,6 +549,8 @@
   "engineRestrictedNetwork": "Enhanced er ekki í boði á netinu þínu — Standard-þýðing er notuð.",
   "webinarsTitle": "Vefnámskeið",
   "webinarsIntro": "Búðu til vefnámskeið og deildu þátttökutenglinum. Þátttakendur heyra þig þýddan í beinni á sitt eigið tungumál.",
+  "webinarProject": "Verkefni",
+  "webinarNoProject": "Ekkert verkefni",
   "webinarTitleLabel": "Titill",
   "webinarTitlePlaceholder": "t.d. Vörukynning",
   "webinarSourceLang": "Tungumálið þitt",

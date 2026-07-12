@@ -549,6 +549,8 @@
   "engineRestrictedNetwork": "Enhanced таны сүлжээнд боломжгүй байна — Standard орчуулгыг ашиглаж байна.",
   "webinarsTitle": "Вебинарууд",
   "webinarsIntro": "Вебинар үүсгээд нэгдэх холбоосыг хуваалцаарай. Оролцогчид таныг өөрсдийн хэлээр шууд орчуулан сонсоно.",
+  "webinarProject": "Төсөл",
+  "webinarNoProject": "Төсөл байхгүй",
   "webinarTitleLabel": "Гарчиг",
   "webinarTitlePlaceholder": "жишээ нь: Бүтээгдэхүүний нээлт",
   "webinarSourceLang": "Таны хэл",

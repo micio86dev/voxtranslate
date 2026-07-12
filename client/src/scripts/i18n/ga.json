@@ -549,6 +549,8 @@
   "engineRestrictedNetwork": "Níl Enhanced ar fáil ar do líonra — úsáidtear aistriúchán Standard.",
   "webinarsTitle": "Gréasáin",
   "webinarsIntro": "Cruthaigh gréasán agus roinn an nasc rannpháirtíochta. Cloiseann na rannpháirtithe thú aistrithe beo ina dteanga féin.",
+  "webinarProject": "Tionscadal",
+  "webinarNoProject": "Gan tionscadal",
   "webinarTitleLabel": "Teideal",
   "webinarTitlePlaceholder": "m.sh. Seoladh táirge",
   "webinarSourceLang": "Do theanga",

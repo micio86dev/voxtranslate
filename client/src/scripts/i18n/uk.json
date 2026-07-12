@@ -549,6 +549,8 @@
   "engineRestrictedNetwork": "Enhanced недоступний у вашій мережі — використовується переклад Standard.",
   "webinarsTitle": "Вебінари",
   "webinarsIntro": "Створіть вебінар і поділіться посиланням для приєднання. Учасники чують вас у прямому ефірі, перекладеного їхньою мовою.",
+  "webinarProject": "Проєкт",
+  "webinarNoProject": "Без проєкту",
   "webinarTitleLabel": "Назва",
   "webinarTitlePlaceholder": "напр. Запуск продукту",
   "webinarSourceLang": "Ваша мова",

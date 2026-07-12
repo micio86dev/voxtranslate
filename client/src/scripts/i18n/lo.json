@@ -549,6 +549,8 @@
   "engineRestrictedNetwork": "Enhanced ບໍ່ສາມາດໃຊ້ໄດ້ໃນເຄືອຂ່າຍຂອງທ່ານ — ກຳລັງໃຊ້ການແປ Standard.",
   "webinarsTitle": "ເວັບບິນາ",
   "webinarsIntro": "ສ້າງເວັບບິນາ ແລະ ແບ່ງປັນລິ້ງເຂົ້າຮ່ວມ. ຜູ້ເຂົ້າຮ່ວມຈະໄດ້ຍິນທ່ານແປສົດເປັນພາສາຂອງເຂົາເຈົ້າ.",
+  "webinarProject": "ໂຄງການ",
+  "webinarNoProject": "ບໍ່ມີໂຄງການ",
   "webinarTitleLabel": "ຫົວຂໍ້",
   "webinarTitlePlaceholder": "ຕົວຢ່າງ: ການເປີດຕົວຜະລິດຕະພັນ",
   "webinarSourceLang": "ພາສາຂອງທ່ານ",

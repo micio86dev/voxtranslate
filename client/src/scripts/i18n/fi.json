@@ -549,6 +549,8 @@
   "engineRestrictedNetwork": "Enhanced ei ole käytettävissä verkossasi — käytetään Standard-käännöstä.",
   "webinarsTitle": "Webinaarit",
   "webinarsIntro": "Luo webinaari ja jaa liittymislinkki. Osallistujat kuulevat sinut reaaliajassa käännettynä omalle kielelleen.",
+  "webinarProject": "Projekti",
+  "webinarNoProject": "Ei projektia",
   "webinarTitleLabel": "Otsikko",
   "webinarTitlePlaceholder": "esim. Tuotelanseeraus",
   "webinarSourceLang": "Kielesi",
