@@ -94,6 +94,9 @@ pub struct Webinar {
     /// When set, the per-webinar auto-translated chat panel is on; every message
     /// is persisted (recorded) — the gate is independent of `record_transcript`.
     pub chat_enabled: bool,
+    /// `'private'` (default) — reachable only via the direct `/w/{code}` link — or
+    /// `'public'` — also discoverable via the public list endpoint (042).
+    pub visibility: String,
     pub project_id: Option<Uuid>,
     pub google_event_id: Option<String>,
     pub created_at: DateTime<Utc>,
@@ -114,6 +117,7 @@ pub struct NewWebinar<'a> {
     pub record_transcript: bool,
     pub voice_clone: bool,
     pub chat_enabled: bool,
+    pub visibility: &'a str,
     pub scheduled_start: Option<DateTime<Utc>>,
     pub scheduled_end: Option<DateTime<Utc>>,
     pub project_id: Option<Uuid>,
@@ -141,9 +145,9 @@ async fn insert_webinar(
     sqlx::query_as(
         "INSERT INTO webinars
             (org_id, host_user_id, code, title, description, source_language, tier,
-             record_video, record_transcript, voice_clone, chat_enabled, scheduled_start,
-             scheduled_end, project_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+             record_video, record_transcript, voice_clone, chat_enabled, visibility,
+             scheduled_start, scheduled_end, project_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
          RETURNING *",
     )
     .bind(new.org_id)
@@ -157,6 +161,7 @@ async fn insert_webinar(
     .bind(new.record_transcript)
     .bind(new.voice_clone)
     .bind(new.chat_enabled)
+    .bind(new.visibility)
     .bind(new.scheduled_start)
     .bind(new.scheduled_end)
     .bind(new.project_id)

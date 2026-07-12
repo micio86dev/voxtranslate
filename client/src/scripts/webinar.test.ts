@@ -16,10 +16,13 @@ import {
   cancelWebinar,
   canHostWebinar,
   createWebinar,
+  formatScheduledStart,
   fromDatetimeLocalValue,
   getPublicWebinar,
   getWebinar,
   goLive,
+  isWebinarLive,
+  listPublicWebinars,
   listWebinars,
   patchWebinar,
   publishStarted,
@@ -30,6 +33,7 @@ import {
   toDatetimeLocalValue,
   unarchiveWebinar,
   type PublicWebinar,
+  type PublicWebinarListItem,
   type WebinarView,
 } from './webinar';
 import type { BusinessOrg } from './business';
@@ -71,6 +75,7 @@ const webinar = (over: Partial<WebinarView> = {}): WebinarView => ({
   source_language: 'en',
   tier: 'enhanced',
   status: 'scheduled',
+  visibility: 'private',
   project_id: null,
   scheduled_start: null,
   scheduled_end: null,
@@ -150,6 +155,24 @@ describe('createWebinar', () => {
       title: 'Launch',
       source_language: 'en',
       chat_enabled: true,
+    });
+  });
+
+  it('carries visibility in the POST body when the create-form toggle is on', async () => {
+    fetchMock.mockResolvedValue(okJson(webinar({ visibility: 'public' })));
+    const out = await createWebinar({
+      org_id: 'o1',
+      title: 'Launch',
+      source_language: 'en',
+      visibility: 'public',
+    });
+    expect(out.visibility).toBe('public');
+    const [, init] = fetchMock.mock.calls[0];
+    expect(JSON.parse(init?.body as string)).toEqual({
+      org_id: 'o1',
+      title: 'Launch',
+      source_language: 'en',
+      visibility: 'public',
     });
   });
 
@@ -424,6 +447,83 @@ describe('getPublicWebinar', () => {
   it('throws a status-0 error when fetch rejects', async () => {
     fetchMock.mockRejectedValue(new Error('net'));
     await expect(getPublicWebinar('ab12cd')).rejects.toMatchObject({ status: 0 });
+  });
+});
+
+describe('listPublicWebinars', () => {
+  const listItem = (over: Partial<PublicWebinarListItem> = {}): PublicWebinarListItem => ({
+    code: 'ab12cd',
+    title: 'Launch',
+    status: 'live',
+    source_language: 'en',
+    tier: 'enhanced',
+    scheduled_start: null,
+    join_url: 'https://voxtranslate.app/w/ab12cd',
+    viewers: 12,
+    ...over,
+  });
+
+  it('GETs the public endpoint with NO auth and unwraps the { webinars } envelope', async () => {
+    const items = [listItem(), listItem({ code: 'ef34gh', status: 'scheduled', viewers: 0 })];
+    fetchMock.mockResolvedValue(okJson({ webinars: items }));
+    const out = await listPublicWebinars();
+    expect(out).toEqual(items);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('http://test/api/webinars/public');
+    expect(init).toBeUndefined(); // public endpoint — no Authorization header
+  });
+
+  it('returns [] when the envelope has no webinars array', async () => {
+    fetchMock.mockResolvedValue(okJson({}));
+    expect(await listPublicWebinars()).toEqual([]);
+  });
+
+  it('returns [] on a non-2xx response (best-effort)', async () => {
+    fetchMock.mockResolvedValue(okJson({ error: 'nope' }, 500));
+    expect(await listPublicWebinars()).toEqual([]);
+  });
+
+  it('returns [] when the body is not JSON (parse throws)', async () => {
+    // ok:true response whose json() rejects — exercises the try/catch around parsing.
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => {
+        throw new Error('not json');
+      },
+    } as unknown as Response);
+    expect(await listPublicWebinars()).toEqual([]);
+  });
+
+  it('returns [] when fetch rejects (offline)', async () => {
+    fetchMock.mockRejectedValue(new Error('net'));
+    expect(await listPublicWebinars()).toEqual([]);
+  });
+});
+
+describe('isWebinarLive', () => {
+  it('is true only for the live status', () => {
+    expect(isWebinarLive({ status: 'live' })).toBe(true);
+    expect(isWebinarLive({ status: 'scheduled' })).toBe(false);
+    expect(isWebinarLive({ status: 'ended' })).toBe(false);
+  });
+});
+
+describe('formatScheduledStart', () => {
+  it('returns "" for null/undefined/empty (an immediate webinar)', () => {
+    expect(formatScheduledStart(null)).toBe('');
+    expect(formatScheduledStart(undefined)).toBe('');
+    expect(formatScheduledStart('')).toBe('');
+  });
+
+  it('returns "" for an unparseable value', () => {
+    expect(formatScheduledStart('not-a-date')).toBe('');
+  });
+
+  it('formats a valid ISO timestamp into a non-empty short date-time string', () => {
+    const out = formatScheduledStart('2026-07-12T15:00:00Z');
+    expect(out).not.toBe('');
+    expect(typeof out).toBe('string');
   });
 });
 

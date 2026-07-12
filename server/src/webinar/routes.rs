@@ -50,6 +50,8 @@ pub fn routes() -> Router<AppState> {
             "/api/w/{code}/chat",
             post(crate::webinar::chat::post_chat).get(crate::webinar::chat::list_chat),
         )
+        // Public, auth-free discovery list of public + upcoming/live webinars (042).
+        .route("/api/webinars/public", get(public_list))
         .layer(axum::middleware::from_fn(guest_session));
     Router::new()
         .route("/api/webinars", post(create).get(list))
@@ -100,6 +102,10 @@ pub struct CreateWebinar {
     /// `record_transcript`.
     #[serde(default)]
     pub chat_enabled: bool,
+    /// `public` = discoverable via the public list; absent/`private` = link-only.
+    /// Validated with [`valid_visibility`]; a bad value is a clean 400.
+    #[serde(default)]
+    pub visibility: Option<String>,
     #[serde(default)]
     pub scheduled_start: Option<DateTime<Utc>>,
     #[serde(default)]
@@ -133,6 +139,8 @@ pub struct PatchWebinar {
     pub voice_clone: Option<bool>,
     #[serde(default)]
     pub chat_enabled: Option<bool>,
+    #[serde(default)]
+    pub visibility: Option<String>,
     #[serde(default)]
     pub scheduled_start: Option<DateTime<Utc>>,
     #[serde(default)]
@@ -172,6 +180,17 @@ fn valid_tier(raw: &Option<String>) -> Result<&'static str, Response> {
     }
 }
 
+/// Validate a webinar's visibility. Default is `private` (link-only); `public`
+/// makes it discoverable via the public list. A bad value is a clean 400, not a
+/// CHECK-constraint 500. Mirrors [`valid_lang`].
+fn valid_visibility(raw: &Option<String>) -> Result<&'static str, Response> {
+    match raw.as_deref().map(str::trim) {
+        None | Some("") | Some("private") => Ok("private"),
+        Some("public") => Ok("public"),
+        _ => Err(bad_request("visibility must be 'public' or 'private'")),
+    }
+}
+
 // ---- config guard + views --------------------------------------------------
 
 fn require_cfg(state: &AppState) -> Result<&WebinarConfig, Response> {
@@ -203,6 +222,7 @@ fn host_view(w: &Webinar, app_base_url: &str, cfg: &WebinarConfig) -> Value {
         "record_transcript": w.record_transcript,
         "voice_clone": w.voice_clone,
         "chat_enabled": w.chat_enabled,
+        "visibility": w.visibility,
         "project_id": w.project_id,
         "join_url": join_url(app_base_url, &w.code),
         "playback_url": playback_url(cfg, &w.code),
@@ -221,8 +241,27 @@ fn public_view(w: &Webinar, app_base_url: &str, cfg: &WebinarConfig) -> Value {
         "tier": w.tier,
         // Guests need this to decide whether to render the chat panel (⑤).
         "chat_enabled": w.chat_enabled,
+        // A guest on /w/{code} may see whether the webinar is public or private.
+        "visibility": w.visibility,
         "join_url": join_url(app_base_url, &w.code),
         "playback_url": playback_url(cfg, &w.code),
+    })
+}
+
+/// Public list item: the PII-free discoverable shape rendered on the home page.
+/// A trimmed [`public_view`] — NO `playback_url` — plus a LIVE `viewers` count
+/// read from the in-memory presence registry. NO host PII (no org_id /
+/// host_user_id / email).
+fn public_list_item(w: &Webinar, app_base_url: &str, viewers: usize) -> Value {
+    json!({
+        "code": w.code,
+        "title": w.title,
+        "status": w.status,
+        "source_language": w.source_language,
+        "tier": w.tier,
+        "scheduled_start": w.scheduled_start,
+        "join_url": join_url(app_base_url, &w.code),
+        "viewers": viewers,
     })
 }
 
@@ -270,6 +309,7 @@ pub async fn create(
     let title = valid_title(&body.title)?;
     let lang = valid_lang(&body.source_language)?;
     let tier = valid_tier(&body.tier)?;
+    let visibility = valid_visibility(&body.visibility)?;
     // Only a member of the org may host, and the org must have an active
     // subscription — the host's org pays (SPEC §1).
     require_role(pool, body.org_id, user.user_id, MEMBER).await?;
@@ -297,6 +337,7 @@ pub async fn create(
         record_transcript: body.record_transcript,
         voice_clone: body.voice_clone,
         chat_enabled: body.chat_enabled,
+        visibility,
         scheduled_start: body.scheduled_start,
         scheduled_end: body.scheduled_end,
         project_id: body.project_id,
@@ -376,6 +417,10 @@ pub async fn patch(
         Some(_) => Some(valid_tier(&body.tier)?),
         None => None,
     };
+    let visibility = match body.visibility {
+        Some(_) => Some(valid_visibility(&body.visibility)?),
+        None => None,
+    };
     if let Some(pid) = body.project_id {
         validate_project(pool, w.org_id, pid).await?;
     }
@@ -392,6 +437,7 @@ pub async fn patch(
             scheduled_start   = COALESCE($9, scheduled_start),
             scheduled_end     = COALESCE($10, scheduled_end),
             project_id        = COALESCE($11, project_id),
+            visibility        = COALESCE($12, visibility),
             updated_at        = now()
          WHERE id = $1
          RETURNING *",
@@ -407,6 +453,7 @@ pub async fn patch(
     .bind(body.scheduled_start)
     .bind(body.scheduled_end)
     .bind(body.project_id)
+    .bind(visibility)
     .fetch_one(pool)
     .await
     .map_err(db_err)?;
@@ -663,4 +710,33 @@ pub async fn public_get(
         obj.insert("guest_id".into(), json!(guest.0));
     }
     Ok(Json(body).into_response())
+}
+
+/// `GET /api/webinars/public` — the public, auth-free discovery list. Returns
+/// every `public`, upcoming-or-live, non-archived webinar (the client renders
+/// these on the home page next to the public rooms). Each item is PII-free and
+/// carries a LIVE audience `viewers` count. Private, cancelled/ended, and
+/// archived webinars are never listed. Envelope: `{ "webinars": [ … ] }`.
+pub async fn public_list(State(state): State<AppState>) -> Result<Response, Response> {
+    let pool = require_pool(&state)?;
+    require_cfg(&state)?;
+    let rows: Vec<Webinar> = sqlx::query_as(
+        "SELECT * FROM webinars
+         WHERE visibility = 'public'
+           AND status IN ('scheduled', 'live')
+           AND archived_at IS NULL
+         ORDER BY (status = 'live') DESC, scheduled_start ASC NULLS LAST, created_at DESC
+         LIMIT 100",
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(db_err)?;
+    let items: Vec<Value> = rows
+        .iter()
+        .map(|w| {
+            let viewers = state.webinar_presence.count(&w.code);
+            public_list_item(w, &state.config.app_base_url, viewers)
+        })
+        .collect();
+    Ok(Json(json!({ "webinars": items })).into_response())
 }
