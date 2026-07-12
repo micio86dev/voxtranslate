@@ -812,3 +812,93 @@ async fn presence_counts_and_records_history() {
     drop(b);
     assert_eq!(next_count(&mut a).await, 1, "A sees B leave");
 }
+
+/// List an org's webinars (active or archived); returns the JSON array.
+async fn list_webinars(
+    http: &Client,
+    srv: &Server,
+    jwt: &str,
+    org_id: Uuid,
+    archived: bool,
+) -> Value {
+    http.get(format!(
+        "{}/api/webinars?org_id={org_id}&archived={archived}",
+        base(srv)
+    ))
+    .bearer_auth(jwt)
+    .send()
+    .await
+    .unwrap()
+    .json()
+    .await
+    .unwrap()
+}
+
+#[tokio::test]
+async fn archive_hides_from_active_and_restores() {
+    let Some(srv) = setup().await else {
+        return;
+    };
+    let http = Client::new();
+    let (owner, jwt) = user(&srv).await;
+    let org_id = org(&srv, owner, true).await;
+    let created = create_webinar(&http, &srv, &jwt, org_id).await;
+    let id = created["id"].as_str().unwrap();
+
+    assert_eq!(
+        list_webinars(&http, &srv, &jwt, org_id, false)
+            .await
+            .as_array()
+            .unwrap()
+            .len(),
+        1,
+        "active list shows it"
+    );
+
+    // Archive → gone from active, present in archived, data preserved.
+    let a = http
+        .post(format!("{}/api/webinars/{id}/archive", base(&srv)))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(a.status(), 200);
+    let a: Value = a.json().await.unwrap();
+    assert!(a["archived_at"].as_str().is_some(), "archived_at stamped");
+    assert_eq!(
+        list_webinars(&http, &srv, &jwt, org_id, false)
+            .await
+            .as_array()
+            .unwrap()
+            .len(),
+        0,
+        "hidden from active"
+    );
+    assert_eq!(
+        list_webinars(&http, &srv, &jwt, org_id, true)
+            .await
+            .as_array()
+            .unwrap()
+            .len(),
+        1,
+        "shown in archived"
+    );
+
+    // Unarchive → back in active.
+    let u = http
+        .post(format!("{}/api/webinars/{id}/unarchive", base(&srv)))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(u.status(), 200);
+    assert_eq!(
+        list_webinars(&http, &srv, &jwt, org_id, false)
+            .await
+            .as_array()
+            .unwrap()
+            .len(),
+        1,
+        "restored to active"
+    );
+}
