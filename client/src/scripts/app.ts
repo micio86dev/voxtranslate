@@ -86,8 +86,12 @@ import {
   cancelWebinar,
   canHostWebinar,
   createWebinar,
+  formatScheduledStart,
   fromDatetimeLocalValue,
+  isWebinarLive,
+  listPublicWebinars,
   listWebinars,
+  type PublicWebinarListItem,
   qrDownloadFilename,
   showVoiceCloneToggle,
   showWebinarCloneAction,
@@ -283,6 +287,9 @@ const homeStatus = $('home-status');
 const visGroup = $('vis-group');
 const visHint = $('vis-hint');
 const roomsList = $('rooms-list');
+// Public webinars lobby section (sibling of the rooms list); the card is hidden when empty.
+const publicWebinarsCard = $('public-webinars-card');
+const publicWebinarsList = $('public-webinars');
 
 // ---- Pre-join refs ---------------------------------------------------------
 const previewVideo = $<HTMLVideoElement>('preview');
@@ -1478,9 +1485,80 @@ function renderRooms(
   }
 }
 
+// Public webinars discovery on the home page (spec: webinar visibility). Best-effort:
+// listPublicWebinars() swallows failures to [], and an empty list hides the whole
+// card so the lobby never shows an empty "Public webinars" section.
+async function fetchPublicWebinars(): Promise<void> {
+  const webinars = await listPublicWebinars();
+  renderPublicWebinars(webinars);
+}
+
+function renderPublicWebinars(webinars: PublicWebinarListItem[]): void {
+  publicWebinarsList.innerHTML = '';
+  if (!webinars.length) {
+    show(publicWebinarsCard, false); // hide the section entirely when there's nothing to show
+    return;
+  }
+  show(publicWebinarsCard, true);
+  for (const w of webinars) {
+    const item = document.createElement('button');
+    item.className = 'webinar-item';
+    item.type = 'button';
+
+    const main = document.createElement('div');
+    main.className = 'webinar-item-main';
+    const title = document.createElement('span');
+    title.className = 'webinar-item-title';
+    title.textContent = w.title;
+    main.appendChild(title);
+    const live = isWebinarLive(w);
+    if (live) {
+      // Viewers count on the right of the title, only while broadcasting.
+      const viewers = document.createElement('span');
+      viewers.className = 'webinar-item-viewers';
+      viewers.innerHTML = `${icon('users', 13)} ${t('webinarViewersCount').replace('{n}', String(w.viewers))}`;
+      main.appendChild(viewers);
+    }
+
+    // Secondary meta row: LIVE badge (or a scheduled hint) + the source language.
+    const meta = document.createElement('div');
+    meta.className = 'webinar-item-meta';
+    if (live) {
+      const badge = document.createElement('span');
+      badge.className = 'webinar-live-badge';
+      badge.textContent = t('webinarLiveNow');
+      meta.appendChild(badge);
+    } else {
+      const when = formatScheduledStart(w.scheduled_start);
+      if (when) {
+        const hint = document.createElement('span');
+        hint.textContent = when;
+        meta.appendChild(hint);
+      }
+    }
+    const lang = document.createElement('span');
+    lang.textContent = `${FLAG[w.source_language] || ''} ${(ENDONYM[w.source_language] ?? w.source_language)}`.trim();
+    meta.appendChild(lang);
+
+    item.append(main, meta);
+    // A webinar card is a FULL navigation to the participant page (/w/{code}), not a
+    // room prejoin — open the server-provided join_url verbatim.
+    item.addEventListener('click', () => {
+      window.location.href = w.join_url;
+    });
+    publicWebinarsList.appendChild(item);
+  }
+}
+
 function startLobby(): void {
   fetchRooms();
-  if (!lobbyTimer) lobbyTimer = window.setInterval(fetchRooms, 3000);
+  void fetchPublicWebinars();
+  if (!lobbyTimer) {
+    lobbyTimer = window.setInterval(() => {
+      fetchRooms();
+      void fetchPublicWebinars();
+    }, 3000);
+  }
   startNotifPolling(); // poll in-app alerts while on the home/profile screens
 }
 function stopLobby(): void {
@@ -1490,7 +1568,10 @@ function stopLobby(): void {
   }
   stopNotifPolling(); // no alerts while in pre-join / a call
 }
-$('refresh').addEventListener('click', fetchRooms);
+$('refresh').addEventListener('click', () => {
+  fetchRooms();
+  void fetchPublicWebinars();
+});
 
 // Guest sign-in gate (spec 0022): a guest clicking an online public room is shown
 // why an account is needed and what they gain, instead of reaching pre-join.
@@ -4824,6 +4905,8 @@ const webinarTabs = $('webinar-tabs');
 const webinarRecordVideoSw = $<HTMLButtonElement>('webinar-record-video');
 const webinarRecordTranscriptSw = $<HTMLButtonElement>('webinar-record-transcript');
 const webinarChatEnabledSw = $<HTMLButtonElement>('webinar-chat-enabled');
+// Visibility toggle: OFF (default) = private/link-only; ON = public (listed on home).
+const webinarVisibilitySw = $<HTMLButtonElement>('webinar-visibility-public');
 const webinarVoiceCloneSw = $<HTMLButtonElement>('webinar-voice-clone');
 const webinarVoiceCloneRow = $('webinar-voice-clone-row');
 const webinarVoiceClonedHint = $('webinar-voice-cloned-hint');
@@ -4861,6 +4944,7 @@ function wireSwitch(sw: HTMLButtonElement, onChange?: (on: boolean) => void): vo
 wireSwitch(webinarRecordVideoSw);
 wireSwitch(webinarRecordTranscriptSw);
 wireSwitch(webinarChatEnabledSw);
+wireSwitch(webinarVisibilitySw);
 wireSwitch(webinarVoiceCloneSw);
 
 /** Show the voice-clone toggle only for Enhanced when the host hasn't cloned yet;
@@ -6034,6 +6118,7 @@ async function submitWebinar(): Promise<void> {
       record_video: switchOn(webinarRecordVideoSw),
       record_transcript: switchOn(webinarRecordTranscriptSw),
       chat_enabled: switchOn(webinarChatEnabledSw),
+      visibility: switchOn(webinarVisibilitySw) ? 'public' : 'private',
       voice_clone: cloneOffered && switchOn(webinarVoiceCloneSw),
       scheduled_start: scheduledStart,
       scheduled_end: scheduledEnd,
