@@ -161,6 +161,7 @@ export class WhipPublisher {
   private stream: MediaStream | null = null;
   private resourceUrl: string | null = null;
   private cameraTrack: MediaStreamTrack | null = null;
+  private audioTrack: MediaStreamTrack | null = null;
   private videoSender: RTCRtpSender | null = null;
 
   private state: WhipState = "idle";
@@ -190,6 +191,13 @@ export class WhipPublisher {
   /** Whether the webcam is currently capturing + being sent. */
   isCameraOn(): boolean {
     return !!this.cameraTrack && this.cameraTrack.readyState === "live";
+  }
+
+  /** Whether the microphone is currently live (not muted). A muted mic keeps the track
+   *  (so the WHIP sender + the STT MediaRecorder stay wired) but disables it, yielding
+   *  silence. False before `start()` / when there is no captured audio track. */
+  isMicrophoneOn(): boolean {
+    return !!this.audioTrack && this.audioTrack.enabled;
   }
 
   /** The captured local media stream (mic [+ camera]) so the studio view can show the
@@ -231,6 +239,10 @@ export class WhipPublisher {
       throw new Error("microphone permission denied");
     }
     this.cameraTrack = this.stream.getVideoTracks()[0] ?? null;
+    // Keep a handle on the captured mic track so it can be muted at runtime. The SAME
+    // track object is ALSO wrapped by the STT bridge's MediaRecorder (audio-capture),
+    // so toggling its `.enabled` silences BOTH the WHIP broadcast and the STT ingest.
+    this.audioTrack = this.stream.getAudioTracks()[0] ?? null;
 
     try {
       await this.connect(false);
@@ -360,6 +372,19 @@ export class WhipPublisher {
   }
 
   /**
+   * Mute / unmute the microphone at runtime by toggling the captured audio track's
+   * `.enabled`. The track object is shared with the STT bridge's MediaRecorder, so a
+   * disabled track yields silence for BOTH the WHIP broadcast and the server STT ingest
+   * (no viewer audio, no subtitles) with a single call. Returns the new on/off state.
+   * No-op (returns false) before `start()` / when there is no audio track.
+   */
+  toggleMicrophone(on: boolean): boolean {
+    if (!this.audioTrack) return false;
+    this.audioTrack.enabled = on;
+    return on;
+  }
+
+  /**
    * Stop publishing: DELETE the WHIP resource, close the peer connection, stop all
    * capture, tell the server the webinar ended, and reset to idle. Idempotent.
    */
@@ -394,5 +419,6 @@ export class WhipPublisher {
     this.stream?.getTracks().forEach((t) => t.stop());
     this.stream = null;
     this.cameraTrack = null;
+    this.audioTrack = null;
   }
 }

@@ -604,8 +604,6 @@
   "webinarOnAir": "በአየር ላይ",
   "webinarReconnecting": "እንደገና በመገናኘት ላይ…",
   "webinarStopBroadcast": "ስርጭት አቁም",
-  "webinarCamOn": "ካሜራ አብራ",
-  "webinarCamOff": "ካሜራ አጥፋ",
   "webinarMicDenied": "በቀጥታ ለመጀመር የማይክሮፎን መዳረሻ ያስፈልጋል። እባክዎ ይፍቀዱት እና እንደገና ይሞክሩ።",
   "webinarPublishError": "ስርጭቱን መጀመር አልተቻለም። እባክዎ እንደገና ይሞክሩ።",
   "webinarAlreadyLive": "አስቀድመው ሌላ ዌቢናር በቀጥታ እያሰራጩ ነው።",

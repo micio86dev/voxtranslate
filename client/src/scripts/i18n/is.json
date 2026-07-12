@@ -604,8 +604,6 @@
   "webinarOnAir": "Í útsendingu",
   "webinarReconnecting": "Tengist aftur…",
   "webinarStopBroadcast": "Stöðva útsendingu",
-  "webinarCamOn": "Kveikja á myndavél",
-  "webinarCamOff": "Slökkva á myndavél",
   "webinarMicDenied": "Aðgangur að hljóðnema er nauðsynlegur til að fara í beina útsendingu. Leyfðu hann og reyndu aftur.",
   "webinarPublishError": "Ekki tókst að hefja útsendinguna. Reyndu aftur.",
   "webinarAlreadyLive": "Þú ert þegar í útsendingu á öðru vefnámskeiði.",

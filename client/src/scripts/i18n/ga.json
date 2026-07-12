@@ -604,8 +604,6 @@
   "webinarOnAir": "Beo ar an aer",
   "webinarReconnecting": "Ag athnascadh…",
   "webinarStopBroadcast": "Stop an craoladh",
-  "webinarCamOn": "Cas an ceamara air",
-  "webinarCamOff": "Cas an ceamara as",
   "webinarMicDenied": "Tá rochtain ar an micreafón riachtanach chun craoladh beo. Ceadaigh í agus bain triail eile as.",
   "webinarPublishError": "Níorbh fhéidir an craoladh a thosú. Bain triail eile as, le do thoil.",
   "webinarAlreadyLive": "Tá seimineár gréasáin eile á chraoladh agat cheana.",

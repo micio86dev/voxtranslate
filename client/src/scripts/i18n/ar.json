@@ -604,8 +604,6 @@
   "webinarOnAir": "على الهواء",
   "webinarReconnecting": "جارٍ إعادة الاتصال…",
   "webinarStopBroadcast": "إيقاف البث",
-  "webinarCamOn": "تشغيل الكاميرا",
-  "webinarCamOff": "إيقاف الكاميرا",
   "webinarMicDenied": "يلزم الوصول إلى الميكروفون لبدء البث المباشر. يُرجى السماح به والمحاولة مرة أخرى.",
   "webinarPublishError": "تعذّر بدء البث. يُرجى المحاولة مرة أخرى.",
   "webinarAlreadyLive": "أنت تبث ندوة أخرى بالفعل.",

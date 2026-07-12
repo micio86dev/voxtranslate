@@ -604,8 +604,6 @@
   "webinarOnAir": "U eteru",
   "webinarReconnecting": "Ponovno povezivanje…",
   "webinarStopBroadcast": "Zaustavi prijenos",
-  "webinarCamOn": "Uključi kameru",
-  "webinarCamOff": "Isključi kameru",
   "webinarMicDenied": "Za prijenos uživo potreban je pristup mikrofonu. Molimo dozvolite ga i pokušajte ponovo.",
   "webinarPublishError": "Prijenos nije moguće pokrenuti. Molimo pokušajte ponovo.",
   "webinarAlreadyLive": "Već emitujete drugi webinar.",

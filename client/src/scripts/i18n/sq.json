@@ -604,8 +604,6 @@
   "webinarOnAir": "Në transmetim",
   "webinarReconnecting": "Duke u rilidhur…",
   "webinarStopBroadcast": "Ndalo transmetimin",
-  "webinarCamOn": "Ndiz kamerën",
-  "webinarCamOff": "Fik kamerën",
   "webinarMicDenied": "Nevojitet qasja te mikrofoni për të nisur transmetimin. Ju lutemi lejojeni dhe provoni sërish.",
   "webinarPublishError": "Transmetimi nuk mund të nisej. Ju lutemi provoni sërish.",
   "webinarAlreadyLive": "Ju tashmë po transmetoni një webinar tjetër.",

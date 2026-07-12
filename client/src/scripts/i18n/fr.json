@@ -604,8 +604,6 @@
   "webinarOnAir": "En direct",
   "webinarReconnecting": "Reconnexion…",
   "webinarStopBroadcast": "Arrêter la diffusion",
-  "webinarCamOn": "Activer la caméra",
-  "webinarCamOff": "Désactiver la caméra",
   "webinarMicDenied": "L’accès au microphone est requis pour passer en direct. Veuillez l’autoriser et réessayer.",
   "webinarPublishError": "Impossible de démarrer la diffusion. Veuillez réessayer.",
   "webinarAlreadyLive": "Vous diffusez déjà un autre webinaire.",

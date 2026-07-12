@@ -604,8 +604,6 @@
   "webinarOnAir": "Eteryje",
   "webinarReconnecting": "Iš naujo jungiamasi…",
   "webinarStopBroadcast": "Sustabdyti transliaciją",
-  "webinarCamOn": "Įjungti kamerą",
-  "webinarCamOff": "Išjungti kamerą",
   "webinarMicDenied": "Norint pradėti tiesioginę transliaciją, reikia prieigos prie mikrofono. Leiskite ją ir bandykite dar kartą.",
   "webinarPublishError": "Nepavyko pradėti transliacijos. Bandykite dar kartą.",
   "webinarAlreadyLive": "Jūs jau transliuojate kitą internetinį seminarą.",

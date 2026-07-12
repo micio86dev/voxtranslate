@@ -5560,9 +5560,10 @@ wpGoBtn.addEventListener('click', () => {
   const audioDeviceId = wpMicSelect.value || undefined;
   const videoDeviceId = wpCamSelect.value || undefined;
   const withCamera = wpCamOn;
+  const withMic = wpMicOn; // carry the pre-live mute state into the broadcast
   wpTeardown(); // release the preview device; the publisher re-acquires with the same ids
   show(wpScreen, false);
-  void startWebinarBroadcast(w, { audioDeviceId, videoDeviceId, withCamera });
+  void startWebinarBroadcast(w, { audioDeviceId, videoDeviceId, withCamera, withMic });
 });
 
 // ---- Webinar studio (Meet-style host screen while broadcasting) --------------
@@ -5572,9 +5573,7 @@ const wsVideoOff = $('webinar-studio-video-off');
 const wsAvatar = $('webinar-studio-avatar');
 const wsTitle = $('webinar-studio-title');
 const wsCode = $('webinar-studio-code');
-const wsLink = $<HTMLInputElement>('webinar-studio-link');
-const wsCopyBtn = $<HTMLButtonElement>('webinar-studio-copy');
-const wsQr = $<HTMLImageElement>('webinar-studio-qr');
+const wsMicBtn = $<HTMLButtonElement>('webinar-studio-mic');
 const wsCamBtn = $<HTMLButtonElement>('webinar-studio-cam');
 const wsEndBtn = $<HTMLButtonElement>('webinar-studio-end');
 const wsOnairText = $('webinar-onair-text');
@@ -5725,8 +5724,18 @@ function wsPaintState(state: WhipState): void {
   wsOnairText.textContent = label;
 }
 
-function wsUpdateCamLabel(on: boolean): void {
-  wsCamBtn.textContent = on ? t('webinarCamOff') : t('webinarCamOn');
+/** Render the studio's round mic + cam toggles from the active publisher's live state,
+ *  mirroring the call bar's `setControlState`: mic/mic-off + video/video-off icons, a
+ *  red `.active-danger` background when off, and `setToggleState` for aria-pressed. */
+function wsUpdateControls(): void {
+  const micOn = !!activePublisher?.isMicrophoneOn();
+  wsMicBtn.classList.toggle('active-danger', !micOn);
+  wsMicBtn.innerHTML = icon(micOn ? 'mic' : 'mic-off');
+  setToggleState(wsMicBtn, micOn, t('muteTip'));
+  const camOn = !!activePublisher?.isCameraOn();
+  wsCamBtn.classList.toggle('active-danger', !camOn);
+  wsCamBtn.innerHTML = icon(camOn ? 'video' : 'video-off');
+  setToggleState(wsCamBtn, camOn, t('camTip'));
 }
 
 /** Show the studio's local preview from the active publisher's captured stream. */
@@ -5769,11 +5778,8 @@ function openWebinarStudio(w: WebinarView): void {
   show(wsScreen, true);
   wsTitle.textContent = w.title;
   wsCode.textContent = w.code;
-  wsLink.value = w.join_url;
-  wsQr.alt = t('webinarQrAlt');
-  void renderQr(wsQr, w.join_url);
   openWebinarPresence(w);
-  wsUpdateCamLabel(!!activePublisher?.isCameraOn());
+  wsUpdateControls();
   wsPaintState(activePublisher?.getState() ?? 'on-air');
   wsAttachLocalVideo();
 }
@@ -5781,7 +5787,12 @@ function openWebinarStudio(w: WebinarView): void {
 /** Start the broadcast with the pre-live device choice, then show the studio. */
 async function startWebinarBroadcast(
   w: WebinarView,
-  choice: { audioDeviceId?: string; videoDeviceId?: string; withCamera: boolean },
+  choice: {
+    audioDeviceId?: string;
+    videoDeviceId?: string;
+    withCamera: boolean;
+    withMic?: boolean;
+  },
 ): Promise<void> {
   if (activePublisher) {
     toast(t('webinarAlreadyLive'), 'err');
@@ -5806,6 +5817,10 @@ async function startWebinarBroadcast(
     await publisher.start();
     activePublisher = publisher;
     activePublisherId = w.id;
+    // Carry the pre-live mute choice into the broadcast (disabling the shared audio
+    // track also silences the STT ingest, so a host who went on air muted emits no
+    // subtitles until they unmute).
+    if (choice.withMic === false) publisher.toggleMicrophone(false);
     // Bridge the mic to the server STT ingest so viewers get live subtitles. Best-effort:
     // a guest (no token) or a missing stream just skips it — the video still broadcasts.
     openWebinarStt(w.id, publisher);
@@ -5833,22 +5848,20 @@ async function endWebinarBroadcast(): Promise<void> {
   void openWebinars(); // reflects the now-ended status
 }
 
-wsCopyBtn.addEventListener('click', async () => {
-  try {
-    await navigator.clipboard.writeText(wsLink.value);
-    wsCopyBtn.textContent = t('copied');
-    setTimeout(() => (wsCopyBtn.textContent = t('copy')), 1200);
-  } catch {
-    wsLink.select();
-    toast(t('copyFailed'), 'err');
-  }
+// Round mic toggle: mute/unmute the captured audio track. Because the STT bridge's
+// MediaRecorder wraps the SAME track, disabling it silences BOTH the WHIP broadcast and
+// the server STT ingest (no viewer audio, no subtitles) — one call covers both paths.
+wsMicBtn.addEventListener('click', () => {
+  if (!activePublisher || activePublisherId !== activeWebinar?.id) return;
+  activePublisher.toggleMicrophone(!activePublisher.isMicrophoneOn());
+  wsUpdateControls();
 });
 
 wsCamBtn.addEventListener('click', async () => {
   if (!activePublisher || activePublisherId !== activeWebinar?.id) return;
   wsCamBtn.disabled = true;
-  const on = await activePublisher.toggleCamera(!activePublisher.isCameraOn());
-  wsUpdateCamLabel(on);
+  await activePublisher.toggleCamera(!activePublisher.isCameraOn());
+  wsUpdateControls();
   wsAttachLocalVideo();
   wsCamBtn.disabled = false;
 });

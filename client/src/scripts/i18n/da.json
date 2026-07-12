@@ -604,8 +604,6 @@
   "webinarOnAir": "På skærmen",
   "webinarReconnecting": "Genopretter forbindelse…",
   "webinarStopBroadcast": "Stop udsendelse",
-  "webinarCamOn": "Tænd kamera",
-  "webinarCamOff": "Sluk kamera",
   "webinarMicDenied": "Der kræves adgang til mikrofonen for at gå live. Tillad det, og prøv igen.",
   "webinarPublishError": "Udsendelsen kunne ikke startes. Prøv igen.",
   "webinarAlreadyLive": "Du udsender allerede et andet webinar.",

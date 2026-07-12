@@ -604,8 +604,6 @@
   "webinarOnAir": "Airean",
   "webinarReconnecting": "Berriz konektatzen…",
   "webinarStopBroadcast": "Emisioa gelditu",
-  "webinarCamOn": "Kamera piztu",
-  "webinarCamOff": "Kamera itzali",
   "webinarMicDenied": "Mikrofonorako sarbidea behar da zuzenean hasteko. Baimendu eta saiatu berriro.",
   "webinarPublishError": "Ezin izan da emisioa hasi. Saiatu berriro.",
   "webinarAlreadyLive": "Dagoeneko beste webinar bat ari zara emititzen.",

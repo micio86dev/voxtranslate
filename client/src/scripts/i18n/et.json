@@ -604,8 +604,6 @@
   "webinarOnAir": "Eetris",
   "webinarReconnecting": "Taasühendamine…",
   "webinarStopBroadcast": "Peata ülekanne",
-  "webinarCamOn": "Lülita kaamera sisse",
-  "webinarCamOff": "Lülita kaamera välja",
   "webinarMicDenied": "Otseülekande alustamiseks on vaja juurdepääsu mikrofonile. Palun luba see ja proovi uuesti.",
   "webinarPublishError": "Ülekannet ei õnnestunud alustada. Palun proovi uuesti.",
   "webinarAlreadyLive": "Sa juba edastad teist veebiseminari.",

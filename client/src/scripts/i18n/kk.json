@@ -604,8 +604,6 @@
   "webinarOnAir": "Эфирде",
   "webinarReconnecting": "Қайта қосылуда…",
   "webinarStopBroadcast": "Таратуды тоқтату",
-  "webinarCamOn": "Камераны қосу",
-  "webinarCamOff": "Камераны өшіру",
   "webinarMicDenied": "Тікелей эфирге шығу үшін микрофонға рұқсат қажет. Оны рұқсат етіп, қайталап көріңіз.",
   "webinarPublishError": "Таратуды бастау мүмкін болмады. Қайталап көріңіз.",
   "webinarAlreadyLive": "Сіз қазірдің өзінде басқа вебинарды таратудасыз.",

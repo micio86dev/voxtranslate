@@ -604,8 +604,6 @@
   "webinarOnAir": "Di udara",
   "webinarReconnecting": "Menyambung semula…",
   "webinarStopBroadcast": "Hentikan siaran",
-  "webinarCamOn": "Hidupkan kamera",
-  "webinarCamOff": "Matikan kamera",
   "webinarMicDenied": "Akses mikrofon diperlukan untuk membuat siaran langsung. Sila benarkan dan cuba lagi.",
   "webinarPublishError": "Tidak dapat memulakan siaran. Sila cuba lagi.",
   "webinarAlreadyLive": "Anda sedang menyiarkan webinar lain.",

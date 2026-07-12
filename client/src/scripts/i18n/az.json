@@ -604,8 +604,6 @@
   "webinarOnAir": "Efirdə",
   "webinarReconnecting": "Yenidən qoşulur…",
   "webinarStopBroadcast": "Yayımı dayandır",
-  "webinarCamOn": "Kameranı yandır",
-  "webinarCamOff": "Kameranı söndür",
   "webinarMicDenied": "Canlı yayına başlamaq üçün mikrofona giriş tələb olunur. Zəhmət olmasa, ona icazə verin və yenidən cəhd edin.",
   "webinarPublishError": "Yayımı başlatmaq alınmadı. Zəhmət olmasa, yenidən cəhd edin.",
   "webinarAlreadyLive": "Siz artıq başqa vebinar yayımlayırsınız.",

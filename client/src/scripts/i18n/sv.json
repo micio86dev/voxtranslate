@@ -604,8 +604,6 @@
   "webinarOnAir": "Sänder",
   "webinarReconnecting": "Återansluter…",
   "webinarStopBroadcast": "Stoppa sändning",
-  "webinarCamOn": "Slå på kameran",
-  "webinarCamOff": "Stäng av kameran",
   "webinarMicDenied": "Mikrofonåtkomst krävs för att sända live. Tillåt den och försök igen.",
   "webinarPublishError": "Det gick inte att starta sändningen. Försök igen.",
   "webinarAlreadyLive": "Du sänder redan ett annat webbinarium.",

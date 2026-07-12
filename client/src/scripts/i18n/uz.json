@@ -604,8 +604,6 @@
   "webinarOnAir": "Efirda",
   "webinarReconnecting": "Qayta ulanmoqda…",
   "webinarStopBroadcast": "Translatsiyani to‘xtatish",
-  "webinarCamOn": "Kamerani yoqish",
-  "webinarCamOff": "Kamerani o‘chirish",
   "webinarMicDenied": "Jonli efirni boshlash uchun mikrofonga ruxsat kerak. Iltimos, ruxsat bering va qayta urinib ko‘ring.",
   "webinarPublishError": "Translatsiyani boshlab bo‘lmadi. Iltimos, qayta urinib ko‘ring.",
   "webinarAlreadyLive": "Siz allaqachon boshqa vebinarni translatsiya qilyapsiz.",

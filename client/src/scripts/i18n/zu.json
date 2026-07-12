@@ -604,8 +604,6 @@
   "webinarOnAir": "Iyasakaza",
   "webinarReconnecting": "Iyaxhumeka kabusha…",
   "webinarStopBroadcast": "Misa ukusakaza",
-  "webinarCamOn": "Vula ikhamera",
-  "webinarCamOff": "Vala ikhamera",
   "webinarMicDenied": "Ukufinyelela kumakrofoni kuyadingeka ukuze usakaze bukhoma. Sicela ukuvumele bese uzama futhi.",
   "webinarPublishError": "Asikwazanga ukuqala ukusakaza. Sicela uzame futhi.",
   "webinarAlreadyLive": "Usuvele usakaza enye i-webinar.",

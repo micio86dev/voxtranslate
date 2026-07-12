@@ -604,8 +604,6 @@
   "webinarOnAir": "Auf Sendung",
   "webinarReconnecting": "Verbindung wird wiederhergestellt…",
   "webinarStopBroadcast": "Übertragung beenden",
-  "webinarCamOn": "Kamera einschalten",
-  "webinarCamOff": "Kamera ausschalten",
   "webinarMicDenied": "Für die Live-Übertragung ist Zugriff auf das Mikrofon erforderlich. Bitte erlaube ihn und versuche es erneut.",
   "webinarPublishError": "Die Übertragung konnte nicht gestartet werden. Bitte versuche es erneut.",
   "webinarAlreadyLive": "Du überträgst bereits ein anderes Webinar.",

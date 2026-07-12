@@ -604,8 +604,6 @@
   "webinarOnAir": "Đang phát sóng",
   "webinarReconnecting": "Đang kết nối lại…",
   "webinarStopBroadcast": "Dừng phát",
-  "webinarCamOn": "Bật camera",
-  "webinarCamOff": "Tắt camera",
   "webinarMicDenied": "Cần quyền truy cập micrô để phát trực tiếp. Vui lòng cho phép và thử lại.",
   "webinarPublishError": "Không thể bắt đầu buổi phát. Vui lòng thử lại.",
   "webinarAlreadyLive": "Bạn đang phát trực tiếp một hội thảo trực tuyến khác.",

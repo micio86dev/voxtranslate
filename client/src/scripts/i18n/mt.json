@@ -604,8 +604,6 @@
   "webinarOnAir": "Fuq l-arja",
   "webinarReconnecting": "Qed nerġgħu nikkonnettjaw…",
   "webinarStopBroadcast": "Waqqaf ix-xandira",
-  "webinarCamOn": "Ixgħel il-kamera",
-  "webinarCamOff": "Itfi l-kamera",
   "webinarMicDenied": "Jinħtieġ aċċess għall-mikrofonu biex tixxandar dirett. Jekk jogħġbok ippermettih u erġa' pprova.",
   "webinarPublishError": "Ma stajniex nibdew ix-xandira. Jekk jogħġbok erġa' pprova.",
   "webinarAlreadyLive": "Diġà qed tixxandar webinar ieħor.",

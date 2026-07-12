@@ -604,8 +604,6 @@
   "webinarOnAir": "В эфире",
   "webinarReconnecting": "Переподключение…",
   "webinarStopBroadcast": "Остановить трансляцию",
-  "webinarCamOn": "Включить камеру",
-  "webinarCamOff": "Выключить камеру",
   "webinarMicDenied": "Для начала эфира необходим доступ к микрофону. Разрешите его и повторите попытку.",
   "webinarPublishError": "Не удалось начать трансляцию. Повторите попытку.",
   "webinarAlreadyLive": "Вы уже транслируете другой вебинар.",

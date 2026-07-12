@@ -604,8 +604,6 @@
   "webinarOnAir": "روی آنتن",
   "webinarReconnecting": "در حال اتصال مجدد…",
   "webinarStopBroadcast": "توقف پخش",
-  "webinarCamOn": "روشن کردن دوربین",
-  "webinarCamOff": "خاموش کردن دوربین",
   "webinarMicDenied": "برای پخش زنده دسترسی به میکروفون لازم است. لطفاً آن را مجاز کنید و دوباره تلاش کنید.",
   "webinarPublishError": "شروع پخش ممکن نشد. لطفاً دوباره تلاش کنید.",
   "webinarAlreadyLive": "شما در حال حاضر یک وبینار دیگر را پخش می‌کنید.",

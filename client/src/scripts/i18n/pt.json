@@ -604,8 +604,6 @@
   "webinarOnAir": "No ar",
   "webinarReconnecting": "A reconectar…",
   "webinarStopBroadcast": "Parar transmissão",
-  "webinarCamOn": "Ligar a câmara",
-  "webinarCamOff": "Desligar a câmara",
   "webinarMicDenied": "É necessário acesso ao microfone para entrar ao vivo. Permita o acesso e tente novamente.",
   "webinarPublishError": "Não foi possível iniciar a transmissão. Tente novamente.",
   "webinarAlreadyLive": "Já está a transmitir outro webinar.",

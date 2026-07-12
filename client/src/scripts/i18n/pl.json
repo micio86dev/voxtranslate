@@ -604,8 +604,6 @@
   "webinarOnAir": "Na antenie",
   "webinarReconnecting": "Ponowne łączenie…",
   "webinarStopBroadcast": "Zatrzymaj transmisję",
-  "webinarCamOn": "Włącz kamerę",
-  "webinarCamOff": "Wyłącz kamerę",
   "webinarMicDenied": "Aby rozpocząć transmisję, wymagany jest dostęp do mikrofonu. Zezwól na dostęp i spróbuj ponownie.",
   "webinarPublishError": "Nie udało się rozpocząć transmisji. Spróbuj ponownie.",
   "webinarAlreadyLive": "Prowadzisz już transmisję innego webinaru.",

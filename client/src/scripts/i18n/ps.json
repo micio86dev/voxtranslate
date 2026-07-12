@@ -604,8 +604,6 @@
   "webinarOnAir": "په خپرونه کې",
   "webinarReconnecting": "بیا نښلول کیږي…",
   "webinarStopBroadcast": "خپرونه ودروئ",
-  "webinarCamOn": "کیمره روښانه کړئ",
-  "webinarCamOff": "کیمره بنده کړئ",
   "webinarMicDenied": "د ژوندۍ خپرونې لپاره د مایکروفون لاسرسي ته اړتیا ده. مهرباني وکړئ اجازه ورکړئ او بیا هڅه وکړئ.",
   "webinarPublishError": "خپرونه پیل نه شوه. مهرباني وکړئ بیا هڅه وکړئ.",
   "webinarAlreadyLive": "تاسو دمخه بله ویبینار خپروئ.",

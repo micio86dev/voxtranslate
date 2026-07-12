@@ -604,8 +604,6 @@
   "webinarOnAir": "ეთერში",
   "webinarReconnecting": "ხელახლა დაკავშირება…",
   "webinarStopBroadcast": "ტრანსლაციის შეწყვეტა",
-  "webinarCamOn": "კამერის ჩართვა",
-  "webinarCamOff": "კამერის გამორთვა",
   "webinarMicDenied": "პირდაპირ ეთერში გასასვლელად საჭიროა მიკროფონზე წვდომა. დართეთ ნება და სცადეთ ხელახლა.",
   "webinarPublishError": "ტრანსლაციის დაწყება ვერ მოხერხდა. სცადეთ ხელახლა.",
   "webinarAlreadyLive": "თქვენ უკვე გადასცემთ სხვა ვებინარს.",

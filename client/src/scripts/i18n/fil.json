@@ -604,8 +604,6 @@
   "webinarOnAir": "Nasa ere",
   "webinarReconnecting": "Muling kumukonekta…",
   "webinarStopBroadcast": "Itigil ang broadcast",
-  "webinarCamOn": "Buksan ang camera",
-  "webinarCamOff": "Isara ang camera",
   "webinarMicDenied": "Kailangan ng access sa mikropono para mag-live. Pakipayagan ito at subukang muli.",
   "webinarPublishError": "Hindi masimulan ang broadcast. Pakisubukang muli.",
   "webinarAlreadyLive": "Nagba-broadcast ka na ng ibang webinar.",

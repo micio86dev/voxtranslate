@@ -604,8 +604,6 @@
   "webinarOnAir": "В ефир",
   "webinarReconnecting": "Повторно свързване…",
   "webinarStopBroadcast": "Спри излъчването",
-  "webinarCamOn": "Включи камерата",
-  "webinarCamOff": "Изключи камерата",
   "webinarMicDenied": "За излъчване на живо е необходим достъп до микрофона. Моля, разрешете го и опитайте отново.",
   "webinarPublishError": "Излъчването не можа да бъде стартирано. Моля, опитайте отново.",
   "webinarAlreadyLive": "Вече излъчвате друг уебинар.",
