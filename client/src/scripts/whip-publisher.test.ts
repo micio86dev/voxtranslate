@@ -352,6 +352,41 @@ describe('WhipPublisher.toggleCamera', () => {
   });
 });
 
+describe('WhipPublisher.toggleMicrophone', () => {
+  it('captures the mic track live at start (isMicrophoneOn true)', async () => {
+    fetchMock.mockResolvedValue(whipAnswer());
+    const audio = { ...fakeTrack('audio'), enabled: true };
+    const getUserMedia = vi.fn(async () => fakeStream([audio]));
+    const p = new WhipPublisher({ webinarId: 'w1', getUserMedia });
+    await p.start();
+    expect(p.isMicrophoneOn()).toBe(true);
+  });
+
+  it('mutes + unmutes by toggling the captured audio track enabled flag', async () => {
+    fetchMock.mockResolvedValue(whipAnswer());
+    const audio = { ...fakeTrack('audio'), enabled: true };
+    const getUserMedia = vi.fn(async () => fakeStream([audio]));
+    const p = new WhipPublisher({ webinarId: 'w1', getUserMedia });
+    await p.start();
+
+    // Mute: the SAME track the STT MediaRecorder wraps is disabled → silence for both paths.
+    expect(p.toggleMicrophone(false)).toBe(false);
+    expect(audio.enabled).toBe(false);
+    expect(p.isMicrophoneOn()).toBe(false);
+
+    // Unmute: track re-enabled.
+    expect(p.toggleMicrophone(true)).toBe(true);
+    expect(audio.enabled).toBe(true);
+    expect(p.isMicrophoneOn()).toBe(true);
+  });
+
+  it('is a no-op before start() (no captured track)', () => {
+    const p = new WhipPublisher({ webinarId: 'w1' });
+    expect(p.isMicrophoneOn()).toBe(false);
+    expect(p.toggleMicrophone(false)).toBe(false);
+  });
+});
+
 describe('WhipPublisher.stop', () => {
   it('DELETEs the WHIP resource, closes the pc, stops media, ends the webinar', async () => {
     fetchMock.mockResolvedValue(whipAnswer('answer-sdp', 201, 'https://ingest.example/whip/s/1'));

@@ -23,6 +23,7 @@ async function setup(): Promise<{
   deps: {
     show: ReturnType<typeof vi.fn>;
     isLoggedIn: ReturnType<typeof vi.fn>;
+    isB2B: ReturnType<typeof vi.fn>;
     forceMore: ReturnType<typeof vi.fn>;
   };
 }> {
@@ -34,7 +35,12 @@ async function setup(): Promise<{
   const onb = await import('./index');
   const hw = vi.mocked(await import('./home-wizard'));
   const ct = vi.mocked(await import('./call-tour'));
-  const deps = { show: vi.fn(), isLoggedIn: vi.fn(() => true), forceMore: vi.fn() };
+  const deps = {
+    show: vi.fn(),
+    isLoggedIn: vi.fn(() => true),
+    isB2B: vi.fn(() => false),
+    forceMore: vi.fn(),
+  };
   onb.initOnboarding(deps);
   return { onb, hw, ct, deps };
 }
@@ -45,11 +51,12 @@ afterEach(() => {
 });
 
 describe('initOnboarding', () => {
-  it('passes show/isLoggedIn through to the home wizard', async () => {
+  it('passes show/isLoggedIn/isB2B through to the home wizard', async () => {
     const { hw, deps } = await setup();
     expect(hw.initHomeWizard).toHaveBeenCalledWith({
       show: deps.show,
       isLoggedIn: deps.isLoggedIn,
+      isB2B: deps.isB2B,
     });
   });
 
