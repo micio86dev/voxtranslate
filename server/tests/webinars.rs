@@ -1165,3 +1165,389 @@ async fn presence_validates_viewer_lang_server_side() {
         "a malformed lang is validated away, not stored"
     );
 }
+
+// ---- ⑤ Auto-translated chat (SPEC Feature ⑤) -------------------------------
+
+/// Create a webinar with chat enabled; returns the parsed body.
+async fn create_chat_webinar(http: &Client, srv: &Server, jwt: &str, org_id: Uuid) -> Value {
+    let r = http
+        .post(format!("{}/api/webinars", base(srv)))
+        .bearer_auth(jwt)
+        .json(&json!({
+            "org_id": org_id,
+            "title": "Chatty",
+            "source_language": "en",
+            "chat_enabled": true,
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 201, "create chat webinar");
+    r.json().await.unwrap()
+}
+
+#[tokio::test]
+async fn chat_enabled_flag_round_trips_create_host_and_public() {
+    let Some(srv) = setup().await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    let http = Client::new();
+    let (owner, jwt) = user(&srv).await;
+    let org_id = org(&srv, owner, true).await;
+
+    // Default (omitted) → chat is off, visible on the host view.
+    let off = create_webinar(&http, &srv, &jwt, org_id).await;
+    assert_eq!(off["chat_enabled"], false, "chat defaults off on create");
+
+    // Explicit chat_enabled:true → host view echoes it AND the public view exposes
+    // it (guests need it to render the panel).
+    let on = create_chat_webinar(&http, &srv, &jwt, org_id).await;
+    assert_eq!(on["chat_enabled"], true, "host view carries chat_enabled");
+    let code = on["code"].as_str().unwrap().to_string();
+
+    let pubr = http
+        .get(format!("{}/api/w/{code}", base(&srv)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(pubr.status(), 200);
+    let body: Value = pubr.json().await.unwrap();
+    assert_eq!(
+        body["chat_enabled"], true,
+        "public view exposes chat_enabled for the guest panel"
+    );
+    // The public view still leaks no host PII.
+    let obj = body.as_object().unwrap();
+    for leaked in ["org_id", "host_user_id", "email"] {
+        assert!(!obj.contains_key(leaked), "public payload leaks {leaked}");
+    }
+}
+
+/// Count chat rows for a webinar.
+async fn chat_count(srv: &Server, webinar_id: Uuid) -> i64 {
+    sqlx::query_scalar("SELECT count(*) FROM webinar_chat_messages WHERE webinar_id = $1")
+        .bind(webinar_id)
+        .fetch_one(&srv.pool)
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn chat_send_rejected_when_disabled() {
+    let Some(srv) = setup().await else {
+        return;
+    };
+    let http = Client::new();
+    let (owner, jwt) = user(&srv).await;
+    let org_id = org(&srv, owner, true).await;
+    // A webinar with chat OFF (the default).
+    let created = create_webinar(&http, &srv, &jwt, org_id).await;
+    let code = created["code"].as_str().unwrap().to_string();
+    let webinar_id = Uuid::parse_str(created["id"].as_str().unwrap()).unwrap();
+
+    // Guest send → 403, nothing persisted.
+    let r = http
+        .post(format!("{}/api/w/{code}/chat", base(&srv)))
+        .json(&json!({ "text": "hello", "display_name": "Bob" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 403, "chat disabled → 403");
+    assert_eq!(chat_count(&srv, webinar_id).await, 0, "nothing persisted");
+
+    // Unknown code → 404.
+    let nf = http
+        .post(format!("{}/api/w/NOPECODE/chat", base(&srv)))
+        .json(&json!({ "text": "hi" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(nf.status(), 404, "unknown code → 404");
+}
+
+#[tokio::test]
+async fn chat_send_validates_text() {
+    let Some(srv) = setup().await else {
+        return;
+    };
+    let http = Client::new();
+    let (owner, jwt) = user(&srv).await;
+    let org_id = org(&srv, owner, true).await;
+    let created = create_chat_webinar(&http, &srv, &jwt, org_id).await;
+    let code = created["code"].as_str().unwrap().to_string();
+
+    // Empty text → 400.
+    let empty = http
+        .post(format!("{}/api/w/{code}/chat", base(&srv)))
+        .json(&json!({ "text": "   " }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(empty.status(), 400, "empty text → 400");
+
+    // Over 500 chars → 400.
+    let long = http
+        .post(format!("{}/api/w/{code}/chat", base(&srv)))
+        .json(&json!({ "text": "a".repeat(501) }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(long.status(), 400, "too-long text → 400");
+}
+
+#[tokio::test]
+async fn chat_guest_send_persists_and_returns_id() {
+    let Some(srv) = setup().await else {
+        return;
+    };
+    let http = Client::new();
+    let (owner, jwt) = user(&srv).await;
+    let org_id = org(&srv, owner, true).await;
+    let created = create_chat_webinar(&http, &srv, &jwt, org_id).await;
+    let code = created["code"].as_str().unwrap().to_string();
+    let webinar_id = Uuid::parse_str(created["id"].as_str().unwrap()).unwrap();
+
+    // A guest (no Authorization header) sends → 200 { id, created_at }.
+    let r = http
+        .post(format!("{}/api/w/{code}/chat", base(&srv)))
+        .json(&json!({ "text": "ciao a tutti", "display_name": "Guest Gina", "lang": "it" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 200, "guest send → 200");
+    let body: Value = r.json().await.unwrap();
+    assert!(
+        Uuid::parse_str(body["id"].as_str().unwrap()).is_ok(),
+        "returns a message id"
+    );
+    assert!(body["created_at"].as_str().is_some(), "returns created_at");
+
+    // Persisted as a guest row with the original text + label lang.
+    assert_eq!(chat_count(&srv, webinar_id).await, 1, "one row persisted");
+    let row: (String, String, String, String) = sqlx::query_as(
+        "SELECT sender_kind, display_name, original_text, original_lang
+         FROM webinar_chat_messages WHERE webinar_id = $1",
+    )
+    .bind(webinar_id)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
+    assert_eq!(row.0, "guest", "no JWT → guest sender_kind");
+    assert_eq!(row.1, "Guest Gina");
+    assert_eq!(row.2, "ciao a tutti");
+    assert_eq!(
+        row.3, "it",
+        "original_lang stores the sender's UI language label"
+    );
+}
+
+#[tokio::test]
+async fn chat_host_send_is_sender_kind_host() {
+    let Some(srv) = setup().await else {
+        return;
+    };
+    let http = Client::new();
+    let (owner, jwt) = user(&srv).await;
+    let org_id = org(&srv, owner, true).await;
+    let created = create_chat_webinar(&http, &srv, &jwt, org_id).await;
+    let code = created["code"].as_str().unwrap().to_string();
+    let webinar_id = Uuid::parse_str(created["id"].as_str().unwrap()).unwrap();
+
+    // A member's JWT on the Authorization header → sender_kind "host".
+    let r = http
+        .post(format!("{}/api/w/{code}/chat", base(&srv)))
+        .bearer_auth(&jwt)
+        .json(&json!({ "text": "welcome everyone", "display_name": "Host" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 200);
+    let kind: String =
+        sqlx::query_scalar("SELECT sender_kind FROM webinar_chat_messages WHERE webinar_id = $1")
+            .bind(webinar_id)
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap();
+    assert_eq!(kind, "host", "member JWT → host sender_kind");
+
+    // A NON-member's JWT falls back to guest (optional-auth: bad identity ≠ host).
+    let (_outsider, other) = user(&srv).await;
+    let r2 = http
+        .post(format!("{}/api/w/{code}/chat", base(&srv)))
+        .bearer_auth(&other)
+        .json(&json!({ "text": "hi from outside" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r2.status(), 200, "a non-member can still chat as a guest");
+    let kinds: Vec<String> = sqlx::query_scalar(
+        "SELECT sender_kind FROM webinar_chat_messages WHERE webinar_id = $1 ORDER BY created_at",
+    )
+    .bind(webinar_id)
+    .fetch_all(&srv.pool)
+    .await
+    .unwrap();
+    assert_eq!(kinds, vec!["host", "guest"], "non-member JWT → guest");
+}
+
+#[tokio::test]
+async fn chat_moderated_message_is_422_and_not_persisted() {
+    let Some(srv) = setup().await else {
+        return;
+    };
+    let http = Client::new();
+    let (owner, jwt) = user(&srv).await;
+    let org_id = org(&srv, owner, true).await;
+    let created = create_chat_webinar(&http, &srv, &jwt, org_id).await;
+    let code = created["code"].as_str().unwrap().to_string();
+    let webinar_id = Uuid::parse_str(created["id"].as_str().unwrap()).unwrap();
+
+    // A message containing a default-blocklist slur → 422, never persisted.
+    let r = http
+        .post(format!("{}/api/w/{code}/chat", base(&srv)))
+        .json(&json!({ "text": "you retard" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 422, "severe message → 422");
+    assert_eq!(
+        chat_count(&srv, webinar_id).await,
+        0,
+        "a moderated message is NOT persisted"
+    );
+}
+
+/// Send a chat message as a guest (no auth); asserts 200.
+async fn send_chat(http: &Client, srv: &Server, code: &str, text: &str) {
+    let r = http
+        .post(format!("{}/api/w/{code}/chat", base(srv)))
+        .json(&json!({ "text": text, "display_name": "Guest" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 200, "send chat");
+}
+
+/// GET the chat history; returns the JSON array.
+async fn get_history(http: &Client, srv: &Server, code: &str, limit: Option<u32>) -> Value {
+    let mut url = format!("{}/api/w/{code}/chat", base(srv));
+    if let Some(n) = limit {
+        url.push_str(&format!("?limit={n}"));
+    }
+    let r = http.get(url).send().await.unwrap();
+    assert_eq!(r.status(), 200, "history is public");
+    r.json().await.unwrap()
+}
+
+#[tokio::test]
+async fn chat_history_returns_recent_chronological() {
+    let Some(srv) = setup().await else {
+        return;
+    };
+    let http = Client::new();
+    let (owner, jwt) = user(&srv).await;
+    let org_id = org(&srv, owner, true).await;
+    let created = create_chat_webinar(&http, &srv, &jwt, org_id).await;
+    let code = created["code"].as_str().unwrap().to_string();
+
+    for t in ["first", "second", "third"] {
+        send_chat(&http, &srv, &code, t).await;
+    }
+
+    // History is returned oldest → newest (chronological).
+    let hist = get_history(&http, &srv, &code, None).await;
+    let arr = hist.as_array().unwrap();
+    assert_eq!(arr.len(), 3, "all three messages returned");
+    let texts: Vec<&str> = arr
+        .iter()
+        .map(|m| m["original"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        texts,
+        vec!["first", "second", "third"],
+        "chronological order"
+    );
+
+    // Each entry carries the public shape and NO sender identity.
+    let m = &arr[0];
+    for key in [
+        "id",
+        "sender_kind",
+        "display_name",
+        "original",
+        "lang",
+        "translations",
+        "created_at",
+    ] {
+        assert!(m.get(key).is_some(), "history entry has `{key}`");
+    }
+    for leaked in ["sender_id", "guest_id", "user_id", "host_user_id", "email"] {
+        assert!(
+            m.get(leaked).is_none(),
+            "history entry must not leak `{leaked}`"
+        );
+    }
+}
+
+#[tokio::test]
+async fn chat_history_empty_when_disabled() {
+    let Some(srv) = setup().await else {
+        return;
+    };
+    let http = Client::new();
+    let (owner, jwt) = user(&srv).await;
+    let org_id = org(&srv, owner, true).await;
+    // Chat OFF → history is an empty list (200, not 403 — reading is harmless).
+    let created = create_webinar(&http, &srv, &jwt, org_id).await;
+    let code = created["code"].as_str().unwrap().to_string();
+
+    let hist = get_history(&http, &srv, &code, None).await;
+    assert_eq!(
+        hist.as_array().unwrap().len(),
+        0,
+        "chat disabled → empty history"
+    );
+
+    // Unknown code → 404.
+    let nf = http
+        .get(format!("{}/api/w/NOPECODE/chat", base(&srv)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(nf.status(), 404, "unknown code → 404");
+}
+
+#[tokio::test]
+async fn chat_history_limit_caps_and_returns_most_recent() {
+    let Some(srv) = setup().await else {
+        return;
+    };
+    let http = Client::new();
+    let (owner, jwt) = user(&srv).await;
+    let org_id = org(&srv, owner, true).await;
+    let created = create_chat_webinar(&http, &srv, &jwt, org_id).await;
+    let code = created["code"].as_str().unwrap().to_string();
+
+    for i in 0..5 {
+        send_chat(&http, &srv, &code, &format!("msg{i}")).await;
+    }
+
+    // limit=2 → the two MOST RECENT, still chronological within the slice.
+    let hist = get_history(&http, &srv, &code, Some(2)).await;
+    let arr = hist.as_array().unwrap();
+    assert_eq!(arr.len(), 2, "limit caps the count");
+    let texts: Vec<&str> = arr
+        .iter()
+        .map(|m| m["original"].as_str().unwrap())
+        .collect();
+    assert_eq!(texts, vec!["msg3", "msg4"], "most-recent, chronological");
+
+    // A limit over the hard cap (100) is clamped, not an error.
+    let all = get_history(&http, &srv, &code, Some(9999)).await;
+    assert_eq!(
+        all.as_array().unwrap().len(),
+        5,
+        "over-cap limit still works"
+    );
+}

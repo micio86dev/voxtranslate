@@ -15,6 +15,7 @@ use uuid::Uuid;
 use crate::config::WebinarConfig;
 use crate::db::Pool;
 
+pub mod chat;
 pub mod guest;
 pub mod media;
 pub mod presence;
@@ -90,6 +91,9 @@ pub struct Webinar {
     pub record_video: bool,
     pub record_transcript: bool,
     pub voice_clone: bool,
+    /// When set, the per-webinar auto-translated chat panel is on; every message
+    /// is persisted (recorded) — the gate is independent of `record_transcript`.
+    pub chat_enabled: bool,
     pub project_id: Option<Uuid>,
     pub google_event_id: Option<String>,
     pub created_at: DateTime<Utc>,
@@ -109,6 +113,7 @@ pub struct NewWebinar<'a> {
     pub record_video: bool,
     pub record_transcript: bool,
     pub voice_clone: bool,
+    pub chat_enabled: bool,
     pub scheduled_start: Option<DateTime<Utc>>,
     pub scheduled_end: Option<DateTime<Utc>>,
     pub project_id: Option<Uuid>,
@@ -136,9 +141,9 @@ async fn insert_webinar(
     sqlx::query_as(
         "INSERT INTO webinars
             (org_id, host_user_id, code, title, description, source_language, tier,
-             record_video, record_transcript, voice_clone, scheduled_start, scheduled_end,
-             project_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+             record_video, record_transcript, voice_clone, chat_enabled, scheduled_start,
+             scheduled_end, project_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
          RETURNING *",
     )
     .bind(new.org_id)
@@ -151,6 +156,7 @@ async fn insert_webinar(
     .bind(new.record_video)
     .bind(new.record_transcript)
     .bind(new.voice_clone)
+    .bind(new.chat_enabled)
     .bind(new.scheduled_start)
     .bind(new.scheduled_end)
     .bind(new.project_id)
