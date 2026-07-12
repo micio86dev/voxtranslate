@@ -1032,6 +1032,19 @@ const jsonLd = {
                 <option value="standard" data-i18n="webinarTierStandard">{T('webinarTierStandard')}</option>
               </select>
             </label>
+            <!-- Optional schedule (spec: calendar wiring). Leave both empty for an
+                 immediate webinar; a start enables "Add to Google Calendar" on the card. -->
+            <div class="webinar-schedule-row">
+              <label class="ws-field grow">
+                <span class="ws-field-label" data-i18n="webinarScheduleStart">{T('webinarScheduleStart')}</span>
+                <input id="webinar-start" class="ws-select" type="datetime-local" autocomplete="off" />
+              </label>
+              <label class="ws-field grow">
+                <span class="ws-field-label" data-i18n="webinarScheduleEnd">{T('webinarScheduleEnd')}</span>
+                <input id="webinar-end" class="ws-select" type="datetime-local" autocomplete="off" />
+              </label>
+            </div>
+            <p class="webinar-schedule-hint" data-i18n="webinarScheduleHint">{T('webinarScheduleHint')}</p>
             <!-- Accessible toggle switches (role=switch + aria-checked), wired in app.ts.
                  Label + switch sit on one row; keyboard-operable (Space/Enter). -->
             <div class="webinar-toggles">
@@ -1063,6 +1076,94 @@ const jsonLd = {
       </div>
     </section>
 
+    <!-- Webinar pre-live (Meet-style): clicking "Go live" on a card opens this step —
+         camera preview + mic/camera device pickers + mic/cam toggles — before publishing.
+         Mirrors the call pre-join (#prejoin). The chosen device ids flow into WhipPublisher. -->
+    <section id="webinar-prelive" class="screen hidden">
+      <div class="prejoin-card card">
+        <div class="prejoin-head">
+          <h1 class="card-title" data-i18n="webinarPreliveTitle">{T('webinarPreliveTitle')}</h1>
+          <span class="room-tag"><span id="webinar-prelive-name" class="mono"></span></span>
+        </div>
+        <div class="preview-wrap">
+          <video id="webinar-preview" autoplay playsinline muted></video>
+          <div class="preview-off" id="webinar-preview-off" hidden>
+            <span class="preview-avatar" id="webinar-preview-avatar"></span>
+          </div>
+          <div class="preview-controls">
+            <button id="webinar-pre-mic" class="control-btn" type="button" data-i18n-title="muteTip" title={T('muteTip')} aria-label={T('muteTip')}></button>
+            <button id="webinar-pre-cam" class="control-btn" type="button" data-i18n-title="camTip" title={T('camTip')} aria-label={T('camTip')}></button>
+          </div>
+        </div>
+        <div class="field-row">
+          <label class="field grow">
+            <span class="field-label" data-i18n="camera">{T('camera')}</span>
+            <select id="webinar-cam-select"></select>
+          </label>
+          <label class="field grow">
+            <span class="field-label" data-i18n="microphone">{T('microphone')}</span>
+            <select id="webinar-mic-select"></select>
+          </label>
+        </div>
+        <p id="webinar-prelive-status" class="status-line" role="status"></p>
+        <div class="webinar-prelive-actions">
+          <button id="webinar-prelive-cancel" class="btn-ghost" type="button" data-i18n="cancel">{T('cancel')}</button>
+          <button id="webinar-prelive-go" class="btn-primary" type="button" data-i18n="webinarGoOnAir">{T('webinarGoOnAir')}</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Webinar studio (Meet-style host screen while broadcasting): the host's own
+         video, an ON AIR badge, title + code, a copyable join link + QR, a live
+         participant count, a camera on/off toggle, and End webinar. -->
+    <section id="webinar-studio" class="screen hidden">
+      <div class="studio-wrap">
+        <div class="studio-stage">
+          <video id="webinar-studio-video" autoplay playsinline muted></video>
+          <div class="studio-video-off" id="webinar-studio-video-off" hidden>
+            <span class="preview-avatar" id="webinar-studio-avatar"></span>
+          </div>
+          <span class="studio-onair-badge" id="webinar-onair-badge" role="status">
+            <span class="onair-dot" aria-hidden="true"></span><span id="webinar-onair-text" data-i18n="webinarOnAir">{T('webinarOnAir')}</span>
+          </span>
+          <span class="studio-count-badge" id="webinar-count-badge" data-i18n-title="webinarParticipants" title={T('webinarParticipants')}>
+            <span class="studio-count-ico" aria-hidden="true"></span><span id="webinar-count-n">0</span>
+          </span>
+        </div>
+        <div class="studio-panel card">
+          <div class="studio-panel-head">
+            <span id="webinar-studio-title" class="card-title"></span>
+            <span id="webinar-studio-code" class="webinar-studio-code mono"></span>
+          </div>
+          <p id="webinar-count-hint" class="webinar-count-hint" data-i18n="webinarCountWiring">{T('webinarCountWiring')}</p>
+          <div class="webinar-link-row">
+            <input id="webinar-studio-link" class="webinar-link-input" type="text" readonly aria-label={T('webinarJoinLink')} />
+            <button id="webinar-studio-copy" class="btn-ghost webinar-copy-btn" type="button" data-i18n="copy">{T('copy')}</button>
+          </div>
+          <img id="webinar-studio-qr" class="webinar-qr" width="140" height="140" alt={T('webinarQrAlt')} />
+          <div class="studio-controls">
+            <button id="webinar-studio-cam" class="btn-ghost webinar-cam-btn" type="button"></button>
+            <button id="webinar-studio-end" class="btn-primary danger" type="button" data-i18n="webinarEnd">{T('webinarEnd')}</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- End-webinar confirmation (spec: End webinar). Reuses the shared
+         .modal-overlay focus-trap + Escape + focus-restore wired in app.ts. -->
+    <div id="webinar-end-modal" class="modal-overlay hidden">
+      <div class="modal card" role="dialog" aria-modal="true" aria-labelledby="webinar-end-modal-title">
+        <div class="modal-head">
+          <span id="webinar-end-modal-title" class="card-title" data-i18n="webinarEndTitle">{T('webinarEndTitle')}</span>
+        </div>
+        <p class="webinar-end-body" data-i18n="webinarEndBody">{T('webinarEndBody')}</p>
+        <div class="modal-actions">
+          <button id="webinar-end-cancel" class="btn-ghost" type="button" data-i18n="cancel">{T('cancel')}</button>
+          <button id="webinar-end-confirm" class="btn-primary danger" type="button" data-i18n="webinarEndConfirm">{T('webinarEndConfirm')}</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Fullscreen QR zoom (webinar-ui-fixes #9): tapping a card's QR opens this
          centered overlay with a large QR + the join URL. Reuses the shared
          .modal-overlay focus-trap + Escape + focus-restore wired in app.ts. -->
@@ -1070,7 +1171,7 @@ const jsonLd = {
       <div class="modal card webinar-qr-modal" role="dialog" aria-modal="true" aria-labelledby="webinar-qr-modal-title">
         <div class="modal-head">
           <span id="webinar-qr-modal-title" class="card-title"></span>
-          <button id="webinar-qr-close" class="btn-ghost icon-btn" data-i18n-title="closeTip" title={T('closeTip')} aria-label={T('closeTip')}></button>
+          <button id="webinar-qr-close" class="btn-ghost icon-btn" data-i18n-title="closeTip" title={T('closeTip')} aria-label={T('closeTip')}>✕</button>
         </div>
         <img id="webinar-qr-modal-img" class="webinar-qr-large" alt="" />
         <p id="webinar-qr-modal-url" class="webinar-qr-modal-url"></p>
@@ -2471,10 +2572,49 @@ const jsonLd = {
     .webinar-list :global(.webinar-golive-btn.danger) { background: var(--danger); }
     .webinar-list :global(.webinar-cam-btn) { flex: none; padding: 0 14px; min-height: 40px; }
     .webinar-list :global(.webinar-onair-badge) { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; padding: 4px 10px; border-radius: 999px; background: color-mix(in srgb, var(--danger) 18%, transparent); color: var(--danger); }
+    /* Add-to-calendar row (scheduled webinars). */
+    .webinar-list :global(.webinar-calendar-row) { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+    .webinar-list :global(.webinar-calendar-btn) { flex: none; padding: 0 14px; min-height: 38px; }
+    .webinar-list :global(.webinar-calendar-note) { font-size: 0.82rem; color: var(--muted); }
+    .webinar-list :global(.webinar-calendar-note.ok) { color: var(--success); }
+    .webinar-list :global(.webinar-calendar-note.err) { color: var(--danger); }
+    .webinar-list :global(.webinar-calendar-note a) { color: var(--accent); }
+    /* Create-form optional schedule inputs. */
+    .webinar-schedule-row { display: flex; gap: 12px; flex-wrap: wrap; }
+    .webinar-schedule-row .ws-field.grow { flex: 1 1 160px; }
+    .webinar-schedule-hint { margin: 0; font-size: 0.8rem; color: var(--muted); }
     /* Fullscreen QR zoom overlay (webinar-ui-fixes #9). */
     .webinar-qr-modal { max-width: 420px; align-items: center; text-align: center; }
     .webinar-qr-large { width: 100%; max-width: 320px; height: auto; aspect-ratio: 1 / 1; border-radius: 12px; background: #fff; padding: 12px; }
     .webinar-qr-modal-url { margin: 0; font-size: 0.85rem; color: var(--muted); word-break: break-all; }
+    /* End-webinar confirmation modal actions. */
+    .webinar-end-body { margin: 0; color: var(--muted); font-size: 0.9rem; line-height: 1.5; }
+    #webinar-end-modal .modal-actions,
+    .webinar-prelive-actions { display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
+    .webinar-prelive-actions .btn-primary,
+    .webinar-prelive-actions .btn-ghost { flex: none; padding: 0 18px; min-height: 42px; width: auto; }
+    /* Webinar studio (Meet-style host screen while broadcasting). */
+    .studio-wrap { display: flex; flex-direction: column; gap: 16px; max-width: 960px; margin: 0 auto; padding: 16px; width: 100%; box-sizing: border-box; }
+    .studio-stage { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #0d0f16; border-radius: 14px; overflow: hidden; }
+    .studio-stage video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+    .studio-video-off { position: absolute; inset: 0; display: grid; place-items: center; background: #0d0f16; }
+    .studio-video-off .preview-avatar { width: 120px; height: 120px; border-radius: 50%; overflow: hidden; display: grid; place-items: center; font-size: 2.4rem; font-weight: 700; color: rgba(255,255,255,0.95); }
+    .studio-video-off :global(.preview-avatar-img) { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
+    .studio-onair-badge { position: absolute; top: 12px; left: 12px; display: inline-flex; align-items: center; gap: 7px; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; padding: 5px 11px; border-radius: 999px; background: color-mix(in srgb, var(--danger) 22%, rgba(0,0,0,0.5)); color: #fff; }
+    .studio-onair-badge .onair-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--danger); box-shadow: 0 0 0 0 color-mix(in srgb, var(--danger) 60%, transparent); animation: onair-pulse 1.6s infinite; }
+    @keyframes onair-pulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--danger) 60%, transparent); } 70% { box-shadow: 0 0 0 8px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
+    .studio-count-badge { position: absolute; top: 12px; right: 12px; display: inline-flex; align-items: center; gap: 6px; font-size: 0.85rem; font-weight: 700; padding: 5px 11px; border-radius: 999px; background: rgba(0,0,0,0.5); color: #fff; }
+    .studio-panel { display: flex; flex-direction: column; gap: 12px; }
+    .studio-panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+    .webinar-studio-code { font-size: 0.9rem; color: var(--muted); }
+    .webinar-count-hint { margin: -4px 0 0; font-size: 0.78rem; color: var(--muted); font-style: italic; }
+    .studio-panel :global(.webinar-qr) { align-self: flex-start; width: 140px; height: 140px; border-radius: 10px; background: #fff; padding: 6px; }
+    .studio-controls { display: flex; gap: 10px; flex-wrap: wrap; }
+    .studio-controls .btn-ghost, .studio-controls .btn-primary { flex: none; width: auto; padding: 0 18px; min-height: 44px; }
+    .studio-controls .btn-primary.danger { background: var(--danger); }
+    @media (max-width: 520px) {
+      .studio-controls .btn-ghost, .studio-controls .btn-primary { flex: 1 1 auto; }
+    }
     /* Narrow viewports (the host tested on a phone): let card actions wrap full-width. */
     @media (max-width: 560px) {
       .webinar-create-btn { width: 100%; align-self: stretch; }

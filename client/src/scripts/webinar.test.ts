@@ -10,9 +10,12 @@ vi.mock('./auth', () => ({
 
 import {
   WebinarError,
+  addToCalendar,
+  buildPublishConstraints,
   cancelWebinar,
   canHostWebinar,
   createWebinar,
+  fromDatetimeLocalValue,
   getPublicWebinar,
   getWebinar,
   goLive,
@@ -23,6 +26,8 @@ import {
   qrDownloadFilename,
   showVoiceCloneToggle,
   showWebinarCloneAction,
+  toDatetimeLocalValue,
+  webinarPresenceStub,
   type PublicWebinar,
   type WebinarView,
 } from './webinar';
@@ -367,5 +372,128 @@ describe('showWebinarCloneAction', () => {
     expect(showWebinarCloneAction('enhanced', true)).toBe(false);
     expect(showWebinarCloneAction('standard', false)).toBe(false);
     expect(showWebinarCloneAction('standard', true)).toBe(false);
+  });
+});
+
+describe('addToCalendar', () => {
+  const evt = {
+    google_event_id: 'gcal-1',
+    html_link: 'https://calendar.google.com/event?eid=gcal-1',
+    join_url: 'https://voxtranslate.app/w/ab12cd',
+  };
+
+  it('POSTs to the calendar endpoint with auth headers and returns the event', async () => {
+    fetchMock.mockResolvedValue(okJson(evt));
+    const out = await addToCalendar('w1');
+    expect(out).toEqual(evt);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('http://test/api/webinars/w1/calendar');
+    expect(init?.method).toBe('POST');
+    expect(init?.headers).toEqual({ Authorization: 'Bearer tok' });
+    // No JSON body — the server derives the event from the webinar's schedule.
+    expect(init?.body).toBeUndefined();
+  });
+
+  it('encodes the id in the path', async () => {
+    fetchMock.mockResolvedValue(okJson(evt));
+    await addToCalendar('w 1/x');
+    expect(fetchMock.mock.calls[0][0]).toBe('http://test/api/webinars/w%201%2Fx/calendar');
+  });
+
+  it('throws 409 when Google Calendar is not connected', async () => {
+    fetchMock.mockResolvedValue(okJson({ error: 'calendar not connected' }, 409));
+    await expect(addToCalendar('w1')).rejects.toMatchObject({
+      status: 409,
+      message: 'calendar not connected',
+    });
+  });
+
+  it('throws 400 when the webinar is not scheduled', async () => {
+    fetchMock.mockResolvedValue(okJson({ error: 'webinar has no scheduled start' }, 400));
+    await expect(addToCalendar('w1')).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('throws a status-0 WebinarError when fetch rejects', async () => {
+    fetchMock.mockRejectedValue(new Error('net'));
+    await expect(addToCalendar('w1')).rejects.toMatchObject({ name: 'WebinarError', status: 0 });
+  });
+});
+
+describe('buildPublishConstraints', () => {
+  it('always requests the mic; camera off by default (mic-only)', () => {
+    expect(buildPublishConstraints()).toEqual({ audio: true, video: false });
+    expect(buildPublishConstraints({})).toEqual({ audio: true, video: false });
+  });
+
+  it('pins the chosen mic device with deviceId: { exact }', () => {
+    expect(buildPublishConstraints({ audioDeviceId: 'mic-2' })).toEqual({
+      audio: { deviceId: { exact: 'mic-2' } },
+      video: false,
+    });
+  });
+
+  it('requests the camera only when withCamera is set, honoring the device id', () => {
+    expect(buildPublishConstraints({ withCamera: true })).toEqual({
+      audio: true,
+      video: true,
+    });
+    expect(
+      buildPublishConstraints({ withCamera: true, videoDeviceId: 'cam-2' }),
+    ).toEqual({ audio: true, video: { deviceId: { exact: 'cam-2' } } });
+  });
+
+  it('ignores the video device id when the camera is off', () => {
+    expect(buildPublishConstraints({ videoDeviceId: 'cam-9' })).toEqual({
+      audio: true,
+      video: false,
+    });
+  });
+
+  it('combines pinned mic + pinned camera', () => {
+    expect(
+      buildPublishConstraints({
+        audioDeviceId: 'mic-1',
+        videoDeviceId: 'cam-1',
+        withCamera: true,
+      }),
+    ).toEqual({
+      audio: { deviceId: { exact: 'mic-1' } },
+      video: { deviceId: { exact: 'cam-1' } },
+    });
+  });
+});
+
+describe('webinarPresenceStub', () => {
+  it('returns 0 until real presence wiring lands', () => {
+    expect(webinarPresenceStub()).toBe(0);
+  });
+});
+
+describe('toDatetimeLocalValue', () => {
+  it('returns "" for null/undefined/invalid (immediate webinar)', () => {
+    expect(toDatetimeLocalValue(null)).toBe('');
+    expect(toDatetimeLocalValue(undefined)).toBe('');
+    expect(toDatetimeLocalValue('not-a-date')).toBe('');
+  });
+
+  it('formats an ISO timestamp as local YYYY-MM-DDTHH:mm', () => {
+    // Build from a local Date so the assertion is timezone-independent.
+    const d = new Date(2026, 6, 11, 9, 5); // 2026-07-11 09:05 local
+    expect(toDatetimeLocalValue(d.toISOString())).toBe('2026-07-11T09:05');
+  });
+});
+
+describe('fromDatetimeLocalValue', () => {
+  it('returns null for an empty/whitespace/invalid value', () => {
+    expect(fromDatetimeLocalValue('')).toBeNull();
+    expect(fromDatetimeLocalValue('   ')).toBeNull();
+    expect(fromDatetimeLocalValue('nonsense')).toBeNull();
+  });
+
+  it('round-trips through toDatetimeLocalValue', () => {
+    const local = '2026-07-11T09:05';
+    const iso = fromDatetimeLocalValue(local);
+    expect(iso).not.toBeNull();
+    expect(toDatetimeLocalValue(iso)).toBe(local);
   });
 });

@@ -7,10 +7,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const goLive = vi.fn();
 const publishStarted = vi.fn();
 const publishStopped = vi.fn();
+// The publisher builds its capture constraints via webinar.buildPublishConstraints,
+// so the mock provides a faithful implementation (mic always on, camera deviceId-pinned).
 vi.mock('./webinar', () => ({
   goLive: (id: string) => goLive(id),
   publishStarted: (id: string) => publishStarted(id),
   publishStopped: (id: string) => publishStopped(id),
+  buildPublishConstraints: (choice: any = {}) => {
+    const audio = choice.audioDeviceId ? { deviceId: { exact: choice.audioDeviceId } } : true;
+    let video: any = false;
+    if (choice.withCamera) {
+      video = choice.videoDeviceId ? { deviceId: { exact: choice.videoDeviceId } } : true;
+    }
+    return { audio, video };
+  },
 }));
 
 import {
@@ -244,6 +254,35 @@ describe('WhipPublisher.start', () => {
     // The video track is on a real sender (addTrack), not a placeholder transceiver.
     expect(pcs[0].senders.some((s: any) => s.track?.kind === 'video')).toBe(true);
     expect(pcs[0].transceivers.length).toBe(0);
+  });
+
+  it('honors the pre-live device choice via deviceId: { exact } (mic + camera)', async () => {
+    fetchMock.mockResolvedValue(whipAnswer());
+    const getUserMedia = vi.fn(async () => fakeStream([fakeTrack('audio'), fakeTrack('video')]));
+    const p = new WhipPublisher({
+      webinarId: 'w1',
+      withCamera: true,
+      audioDeviceId: 'mic-2',
+      videoDeviceId: 'cam-2',
+      getUserMedia,
+    });
+    await p.start();
+    expect(getUserMedia).toHaveBeenCalledWith({
+      audio: { deviceId: { exact: 'mic-2' } },
+      video: { deviceId: { exact: 'cam-2' } },
+    });
+  });
+
+  it('pins the mic device but stays mic-only when withCamera is false', async () => {
+    fetchMock.mockResolvedValue(whipAnswer());
+    const getUserMedia = vi.fn(async () => fakeStream([fakeTrack('audio')]));
+    const p = new WhipPublisher({ webinarId: 'w1', audioDeviceId: 'mic-9', getUserMedia });
+    await p.start();
+    // Camera stays off (video: false) even though a videoDeviceId was not provided.
+    expect(getUserMedia).toHaveBeenCalledWith({
+      audio: { deviceId: { exact: 'mic-9' } },
+      video: false,
+    });
   });
 
   it('surfaces mic-denied when getUserMedia rejects', async () => {
