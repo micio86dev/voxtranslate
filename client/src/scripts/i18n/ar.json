@@ -637,5 +637,10 @@
   "wvTapToStart": "انقر للبدء",
   "wvNotFoundTitle": "لم يتم العثور على الندوة",
   "wvNotFoundText": "رابط الندوة هذا غير صالح أو تم إلغاؤه.",
-  "wvBackHome": "العودة إلى VoxTranslate"
+  "wvBackHome": "العودة إلى VoxTranslate",
+  "wvListenOriginal": "الاستماع باللغة الأصلية",
+  "wvMuteAudio": "كتم الصوت",
+  "wvUnmuteAudio": "إلغاء كتم الصوت",
+  "wvSubtitlesOn": "الترجمة النصية مفعّلة",
+  "wvSubtitlesOff": "الترجمة النصية متوقفة"
 }

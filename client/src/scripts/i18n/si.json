@@ -637,5 +637,10 @@
   "wvTapToStart": "ආරම්භ කිරීමට තට්ටු කරන්න",
   "wvNotFoundTitle": "වෙබිනාරය හමු නොවීය",
   "wvNotFoundText": "මෙම වෙබිනාර සබැඳිය වලංගු නොවේ හෝ අවලංගු කර ඇත.",
-  "wvBackHome": "නැවත VoxTranslate වෙත"
+  "wvBackHome": "නැවත VoxTranslate වෙත",
+  "wvListenOriginal": "මුල් භාෂාවෙන් අසන්න",
+  "wvMuteAudio": "ශබ්දය නිශ්ශබ්ද කරන්න",
+  "wvUnmuteAudio": "ශබ්දය සක්‍රීය කරන්න",
+  "wvSubtitlesOn": "උපසිරැසි ක්‍රියාත්මකයි",
+  "wvSubtitlesOff": "උපසිරැසි අක්‍රියයි"
 }

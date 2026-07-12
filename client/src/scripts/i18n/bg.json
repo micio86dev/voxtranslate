@@ -637,5 +637,10 @@
   "wvTapToStart": "Докоснете, за да започнете",
   "wvNotFoundTitle": "Уебинарът не е намерен",
   "wvNotFoundText": "Тази връзка към уебинара е невалидна или е отменена.",
-  "wvBackHome": "Обратно към VoxTranslate"
+  "wvBackHome": "Обратно към VoxTranslate",
+  "wvListenOriginal": "Слушане на оригиналния език",
+  "wvMuteAudio": "Изключване на звука",
+  "wvUnmuteAudio": "Включване на звука",
+  "wvSubtitlesOn": "Субтитрите са включени",
+  "wvSubtitlesOff": "Субтитрите са изключени"
 }

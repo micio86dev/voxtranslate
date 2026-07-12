@@ -637,5 +637,10 @@
   "wvTapToStart": "ప్రారంభించడానికి నొక్కండి",
   "wvNotFoundTitle": "వెబినార్ కనుగొనబడలేదు",
   "wvNotFoundText": "ఈ వెబినార్ లింక్ చెల్లదు లేదా రద్దు చేయబడింది.",
-  "wvBackHome": "VoxTranslateకి తిరిగి వెళ్లండి"
+  "wvBackHome": "VoxTranslateకి తిరిగి వెళ్లండి",
+  "wvListenOriginal": "అసలు భాషలో వినండి",
+  "wvMuteAudio": "ఆడియోను మ్యూట్ చేయండి",
+  "wvUnmuteAudio": "ఆడియోను అన్‌మ్యూట్ చేయండి",
+  "wvSubtitlesOn": "ఉపశీర్షికలు ఆన్‌లో ఉన్నాయి",
+  "wvSubtitlesOff": "ఉపశీర్షికలు ఆఫ్‌లో ఉన్నాయి"
 }

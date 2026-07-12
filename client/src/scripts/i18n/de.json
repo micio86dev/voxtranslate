@@ -637,5 +637,10 @@
   "wvTapToStart": "Zum Starten tippen",
   "wvNotFoundTitle": "Webinar nicht gefunden",
   "wvNotFoundText": "Dieser Webinar-Link ist ungültig oder wurde storniert.",
-  "wvBackHome": "Zurück zu VoxTranslate"
+  "wvBackHome": "Zurück zu VoxTranslate",
+  "wvListenOriginal": "In der Originalsprache anhören",
+  "wvMuteAudio": "Ton stummschalten",
+  "wvUnmuteAudio": "Stummschaltung aufheben",
+  "wvSubtitlesOn": "Untertitel an",
+  "wvSubtitlesOff": "Untertitel aus"
 }

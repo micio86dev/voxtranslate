@@ -637,5 +637,10 @@
   "wvTapToStart": "แตะเพื่อเริ่ม",
   "wvNotFoundTitle": "ไม่พบสัมมนาออนไลน์",
   "wvNotFoundText": "ลิงก์สัมมนาออนไลน์นี้ไม่ถูกต้องหรือถูกยกเลิกแล้ว",
-  "wvBackHome": "กลับไปที่ VoxTranslate"
+  "wvBackHome": "กลับไปที่ VoxTranslate",
+  "wvListenOriginal": "ฟังในภาษาต้นฉบับ",
+  "wvMuteAudio": "ปิดเสียง",
+  "wvUnmuteAudio": "เปิดเสียง",
+  "wvSubtitlesOn": "เปิดคำบรรยาย",
+  "wvSubtitlesOff": "ปิดคำบรรยาย"
 }

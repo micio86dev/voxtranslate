@@ -8,7 +8,9 @@ import {
   buildPresenceUrl,
   connectPresence,
   parsePresenceCount,
+  parseSubtitleFrame,
   type PresenceSocket,
+  type SubtitleEvent,
 } from './webinar-presence';
 
 // A fake WebSocket capturing its URL and letting a test fire lifecycle events.
@@ -83,6 +85,61 @@ describe('parsePresenceCount', () => {
   });
 });
 
+describe('parseSubtitleFrame', () => {
+  it('parses a final frame with the source + translations map', () => {
+    const ev = parseSubtitleFrame(
+      '{"type":"subtitle","kind":"final","original":"hola","lang":"es","translations":{"es":"hola","en":"hi"}}',
+    );
+    expect(ev).toEqual<SubtitleEvent>({
+      kind: 'final',
+      original: 'hola',
+      lang: 'es',
+      translations: { es: 'hola', en: 'hi' },
+    });
+  });
+  it('parses an interim frame carrying only the source text', () => {
+    const ev = parseSubtitleFrame(
+      '{"type":"subtitle","kind":"interim","text":"hol","lang":"es"}',
+    );
+    expect(ev).toEqual<SubtitleEvent>({ kind: 'interim', text: 'hol', lang: 'es' });
+  });
+  it('drops non-string values from the translations map', () => {
+    const ev = parseSubtitleFrame(
+      '{"type":"subtitle","kind":"final","original":"ok","lang":"en","translations":{"en":"ok","xx":5}}',
+    );
+    expect(ev).toEqual<SubtitleEvent>({
+      kind: 'final',
+      original: 'ok',
+      lang: 'en',
+      translations: { en: 'ok' },
+    });
+  });
+  it('returns null for the wrong frame type or a missing kind', () => {
+    expect(parseSubtitleFrame('{"type":"count","count":3}')).toBeNull();
+    expect(parseSubtitleFrame('{"type":"subtitle","lang":"en"}')).toBeNull(); // no kind
+    expect(parseSubtitleFrame('{"type":"subtitle","kind":"other","lang":"en"}')).toBeNull();
+  });
+  it('returns null when required fields are missing or mistyped', () => {
+    // final without original / translations
+    expect(
+      parseSubtitleFrame('{"type":"subtitle","kind":"final","lang":"en","translations":{}}'),
+    ).toBeNull();
+    expect(
+      parseSubtitleFrame('{"type":"subtitle","kind":"final","original":"x","lang":"en"}'),
+    ).toBeNull();
+    // interim without text, and any frame without a string lang
+    expect(parseSubtitleFrame('{"type":"subtitle","kind":"interim","lang":"en"}')).toBeNull();
+    expect(
+      parseSubtitleFrame('{"type":"subtitle","kind":"interim","text":"x","lang":5}'),
+    ).toBeNull();
+  });
+  it('returns null for garbage / non-object JSON', () => {
+    expect(parseSubtitleFrame('not json')).toBeNull();
+    expect(parseSubtitleFrame('42')).toBeNull();
+    expect(parseSubtitleFrame('null')).toBeNull();
+  });
+});
+
 describe('buildPresenceUrl', () => {
   it('builds the participant URL with guest_id + host=false', () => {
     expect(buildPresenceUrl({ ...baseOpts })).toBe(
@@ -133,6 +190,31 @@ describe('PresenceClient', () => {
     s.emitMessage({ notString: true }); // binary/non-string — ignored
     s.emitMessage('{"type":"count","count":5}');
     expect(counts).toEqual([3, 5]);
+    client.close();
+  });
+
+  it('dispatches onSubtitle for subtitle frames and never confuses them with counts', () => {
+    const { sockets, factory } = makeFactory();
+    const counts: number[] = [];
+    const subs: SubtitleEvent[] = [];
+    const client = new PresenceClient({
+      ...baseOpts,
+      onCount: (n) => counts.push(n),
+      onSubtitle: (s) => subs.push(s),
+      socketFactory: factory,
+    });
+    const s = sockets[0];
+    s.emitMessage('{"type":"count","count":2}'); // count only
+    s.emitMessage(
+      '{"type":"subtitle","kind":"final","original":"ciao","lang":"it","translations":{"it":"ciao","en":"hi"}}',
+    );
+    s.emitMessage('{"type":"subtitle","kind":"interim","text":"cia","lang":"it"}');
+    s.emitMessage('garbage'); // ignored by both
+    expect(counts).toEqual([2]);
+    expect(subs).toEqual<SubtitleEvent[]>([
+      { kind: 'final', original: 'ciao', lang: 'it', translations: { it: 'ciao', en: 'hi' } },
+      { kind: 'interim', text: 'cia', lang: 'it' },
+    ]);
     client.close();
   });
 

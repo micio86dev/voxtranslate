@@ -637,5 +637,10 @@
   "wvTapToStart": "Sakatu hasteko",
   "wvNotFoundTitle": "Ez da webinarra aurkitu",
   "wvNotFoundText": "Webinar honen esteka baliogabea da edo bertan behera geratu da.",
-  "wvBackHome": "VoxTranslate-era itzuli"
+  "wvBackHome": "VoxTranslate-era itzuli",
+  "wvListenOriginal": "Entzun jatorrizko hizkuntzan",
+  "wvMuteAudio": "Mututu audioa",
+  "wvUnmuteAudio": "Kendu audioaren mututzea",
+  "wvSubtitlesOn": "Azpitituluak piztuta",
+  "wvSubtitlesOff": "Azpitituluak itzalita"
 }

@@ -637,5 +637,10 @@
   "wvTapToStart": "Trokit për të nisur",
   "wvNotFoundTitle": "Webinari nuk u gjet",
   "wvNotFoundText": "Kjo lidhje webinari është e pavlefshme ose është anuluar.",
-  "wvBackHome": "Kthehu te VoxTranslate"
+  "wvBackHome": "Kthehu te VoxTranslate",
+  "wvListenOriginal": "Dëgjo në gjuhën origjinale",
+  "wvMuteAudio": "Çaktivizo audion",
+  "wvUnmuteAudio": "Aktivizo audion",
+  "wvSubtitlesOn": "Titrat aktivë",
+  "wvSubtitlesOff": "Titrat joaktivë"
 }

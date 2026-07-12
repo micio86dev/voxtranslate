@@ -637,5 +637,10 @@
   "wvTapToStart": "Toca para empezar",
   "wvNotFoundTitle": "Seminario web no encontrado",
   "wvNotFoundText": "Este enlace del seminario web no es válido o se ha cancelado.",
-  "wvBackHome": "Volver a VoxTranslate"
+  "wvBackHome": "Volver a VoxTranslate",
+  "wvListenOriginal": "Escuchar en el idioma original",
+  "wvMuteAudio": "Silenciar audio",
+  "wvUnmuteAudio": "Activar audio",
+  "wvSubtitlesOn": "Subtítulos activados",
+  "wvSubtitlesOff": "Subtítulos desactivados"
 }

@@ -637,5 +637,10 @@
   "wvTapToStart": "Dodirnite za početak",
   "wvNotFoundTitle": "Webinar nije pronađen",
   "wvNotFoundText": "Ova poveznica webinara nije valjana ili je otkazana.",
-  "wvBackHome": "Natrag na VoxTranslate"
+  "wvBackHome": "Natrag na VoxTranslate",
+  "wvListenOriginal": "Slušaj na izvornom jeziku",
+  "wvMuteAudio": "Isključi zvuk",
+  "wvUnmuteAudio": "Uključi zvuk",
+  "wvSubtitlesOn": "Titlovi uključeni",
+  "wvSubtitlesOff": "Titlovi isključeni"
 }

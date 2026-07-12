@@ -637,5 +637,10 @@
   "wvTapToStart": "Atinge pentru a începe",
   "wvNotFoundTitle": "Webinarul nu a fost găsit",
   "wvNotFoundText": "Acest link către webinar este invalid sau a fost anulat.",
-  "wvBackHome": "Înapoi la VoxTranslate"
+  "wvBackHome": "Înapoi la VoxTranslate",
+  "wvListenOriginal": "Ascultă în limba originală",
+  "wvMuteAudio": "Dezactivează sunetul",
+  "wvUnmuteAudio": "Activează sunetul",
+  "wvSubtitlesOn": "Subtitrări activate",
+  "wvSubtitlesOff": "Subtitrări dezactivate"
 }

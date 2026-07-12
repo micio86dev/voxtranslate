@@ -637,5 +637,10 @@
   "wvTapToStart": "Başlamaq üçün toxunun",
   "wvNotFoundTitle": "Vebinar tapılmadı",
   "wvNotFoundText": "Bu vebinar keçidi etibarsızdır və ya ləğv edilib.",
-  "wvBackHome": "VoxTranslate-ə qayıt"
+  "wvBackHome": "VoxTranslate-ə qayıt",
+  "wvListenOriginal": "Orijinal dildə dinlə",
+  "wvMuteAudio": "Səsi kəs",
+  "wvUnmuteAudio": "Səsi aç",
+  "wvSubtitlesOn": "Altyazılar aktiv",
+  "wvSubtitlesOff": "Altyazılar deaktiv"
 }

@@ -637,5 +637,10 @@
   "wvTapToStart": "ಪ್ರಾರಂಭಿಸಲು ಟ್ಯಾಪ್ ಮಾಡಿ",
   "wvNotFoundTitle": "ವೆಬಿನಾರ್ ಸಿಗಲಿಲ್ಲ",
   "wvNotFoundText": "ಈ ವೆಬಿನಾರ್ ಲಿಂಕ್ ಅಮಾನ್ಯವಾಗಿದೆ ಅಥವಾ ರದ್ದುಗೊಳಿಸಲಾಗಿದೆ.",
-  "wvBackHome": "VoxTranslate ಗೆ ಹಿಂತಿರುಗಿ"
+  "wvBackHome": "VoxTranslate ಗೆ ಹಿಂತಿರುಗಿ",
+  "wvListenOriginal": "ಮೂಲ ಭಾಷೆಯಲ್ಲಿ ಕೇಳಿ",
+  "wvMuteAudio": "ಆಡಿಯೊ ಮ್ಯೂಟ್ ಮಾಡಿ",
+  "wvUnmuteAudio": "ಆಡಿಯೊ ಅನ್‌ಮ್ಯೂಟ್ ಮಾಡಿ",
+  "wvSubtitlesOn": "ಉಪಶೀರ್ಷಿಕೆ ಆನ್",
+  "wvSubtitlesOff": "ಉಪಶೀರ್ಷಿಕೆ ಆಫ್"
 }

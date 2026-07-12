@@ -637,5 +637,10 @@
   "wvTapToStart": "Klepnutím spustíte",
   "wvNotFoundTitle": "Webinář nebyl nalezen",
   "wvNotFoundText": "Tento odkaz na webinář je neplatný nebo byl zrušen.",
-  "wvBackHome": "Zpět na VoxTranslate"
+  "wvBackHome": "Zpět na VoxTranslate",
+  "wvListenOriginal": "Poslouchat v původním jazyce",
+  "wvMuteAudio": "Ztlumit zvuk",
+  "wvUnmuteAudio": "Zapnout zvuk",
+  "wvSubtitlesOn": "Titulky zapnuty",
+  "wvSubtitlesOff": "Titulky vypnuty"
 }

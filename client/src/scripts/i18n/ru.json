@@ -637,5 +637,10 @@
   "wvTapToStart": "Нажмите, чтобы начать",
   "wvNotFoundTitle": "Вебинар не найден",
   "wvNotFoundText": "Эта ссылка на вебинар недействительна или была отменена.",
-  "wvBackHome": "Вернуться в VoxTranslate"
+  "wvBackHome": "Вернуться в VoxTranslate",
+  "wvListenOriginal": "Слушать на языке оригинала",
+  "wvMuteAudio": "Выключить звук",
+  "wvUnmuteAudio": "Включить звук",
+  "wvSubtitlesOn": "Субтитры включены",
+  "wvSubtitlesOff": "Субтитры выключены"
 }

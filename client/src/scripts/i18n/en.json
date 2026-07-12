@@ -637,5 +637,10 @@
   "wvTapToStart": "Tap to start",
   "wvNotFoundTitle": "Webinar not found",
   "wvNotFoundText": "This webinar link is invalid or has been cancelled.",
-  "wvBackHome": "Back to VoxTranslate"
+  "wvBackHome": "Back to VoxTranslate",
+  "wvListenOriginal": "Listen in the original language",
+  "wvMuteAudio": "Mute audio",
+  "wvUnmuteAudio": "Unmute audio",
+  "wvSubtitlesOn": "Subtitles on",
+  "wvSubtitlesOff": "Subtitles off"
 }

@@ -637,5 +637,10 @@
   "wvTapToStart": "စတင်ရန် တို့ပါ",
   "wvNotFoundTitle": "ဝက်ဘီနာ ရှာမတွေ့ပါ",
   "wvNotFoundText": "ဤဝက်ဘီနာလင့်ခ်သည် မမှန်ကန်ပါ သို့မဟုတ် ပယ်ဖျက်ခံထားရပါသည်။",
-  "wvBackHome": "VoxTranslate သို့ ပြန်သွားရန်"
+  "wvBackHome": "VoxTranslate သို့ ပြန်သွားရန်",
+  "wvListenOriginal": "မူရင်းဘာသာစကားဖြင့် နားထောင်ရန်",
+  "wvMuteAudio": "အသံပိတ်ရန်",
+  "wvUnmuteAudio": "အသံဖွင့်ရန်",
+  "wvSubtitlesOn": "စာတန်းထိုး ဖွင့်ထားသည်",
+  "wvSubtitlesOff": "စာတန်းထိုး ပိတ်ထားသည်"
 }

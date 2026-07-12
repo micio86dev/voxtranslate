@@ -637,5 +637,10 @@
   "wvTapToStart": "ለመጀመር ንካ",
   "wvNotFoundTitle": "ዌቢናር አልተገኘም",
   "wvNotFoundText": "ይህ የዌቢናር አገናኝ ልክ ያልሆነ ወይም የተሰረዘ ነው።",
-  "wvBackHome": "ወደ VoxTranslate ተመለስ"
+  "wvBackHome": "ወደ VoxTranslate ተመለስ",
+  "wvListenOriginal": "በዋናው ቋንቋ ያዳምጡ",
+  "wvMuteAudio": "ድምፅ አጥፋ",
+  "wvUnmuteAudio": "ድምፅ አብራ",
+  "wvSubtitlesOn": "የትርጉም ጽሑፍ በርቷል",
+  "wvSubtitlesOff": "የትርጉም ጽሑፍ ጠፍቷል"
 }

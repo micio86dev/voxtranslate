@@ -637,5 +637,10 @@
   "wvTapToStart": "I-tap para magsimula",
   "wvNotFoundTitle": "Hindi nakita ang webinar",
   "wvNotFoundText": "Hindi wasto ang link na ito ng webinar o kinansela na ito.",
-  "wvBackHome": "Bumalik sa VoxTranslate"
+  "wvBackHome": "Bumalik sa VoxTranslate",
+  "wvListenOriginal": "Makinig sa orihinal na wika",
+  "wvMuteAudio": "I-mute ang audio",
+  "wvUnmuteAudio": "I-unmute ang audio",
+  "wvSubtitlesOn": "Naka-on ang subtitle",
+  "wvSubtitlesOff": "Naka-off ang subtitle"
 }

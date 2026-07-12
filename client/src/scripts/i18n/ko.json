@@ -637,5 +637,10 @@
   "wvTapToStart": "탭하여 시작",
   "wvNotFoundTitle": "웨비나를 찾을 수 없음",
   "wvNotFoundText": "이 웨비나 링크가 잘못되었거나 취소되었습니다.",
-  "wvBackHome": "VoxTranslate로 돌아가기"
+  "wvBackHome": "VoxTranslate로 돌아가기",
+  "wvListenOriginal": "원어로 듣기",
+  "wvMuteAudio": "오디오 음소거",
+  "wvUnmuteAudio": "음소거 해제",
+  "wvSubtitlesOn": "자막 켜짐",
+  "wvSubtitlesOff": "자막 꺼짐"
 }
