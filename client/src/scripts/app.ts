@@ -4575,7 +4575,7 @@ function enterHome(): void {
   } else {
     // First-visit home wizard — skipped while the blocking 18+/ToS consent gate is up (the
     // consent-accept handler re-runs this once it closes) or when home isn't the visible screen.
-    onboarding.maybeAutoStartHome(() => openOverlay === null && !homeScreen.classList.contains('hidden'));
+    autoStartHomeWizard();
   }
 }
 
@@ -4647,6 +4647,15 @@ async function ensureBizOrgs(): Promise<BusinessOrg[]> {
   if (bizOrgs) return bizOrgs;
   bizOrgs = billing && auth.isLoggedIn() ? await listMyOrgs() : [];
   return bizOrgs;
+}
+
+// Kick off the first-visit home wizard, but warm the org cache first so the B2B-only
+// webinar-explainer step (which reads `bizOrgs` synchronously via isB2B) is included for
+// members of ≥1 org. `maybeAutoStartHome` is idempotent (marks HOME_FLAG on open), so the
+// warmed call is a no-op once the wizard has already been shown.
+function autoStartHomeWizard(): void {
+  const canStart = () => openOverlay === null && !homeScreen.classList.contains('hidden');
+  void ensureBizOrgs().then(() => onboarding.maybeAutoStartHome(canStart));
 }
 
 // Reveal the navbar "Workspace" link once we know the user belongs to ≥1 org, and
@@ -7198,13 +7207,13 @@ $('consent-accept').addEventListener('click', async () => {
     // Guest: record the 18+/ToS attestation locally (no server account to update).
     auth.setGuestConsent();
     show(consentModal, false);
-    onboarding.maybeAutoStartHome(() => openOverlay === null && !homeScreen.classList.contains('hidden'));
+    autoStartHomeWizard();
     return;
   }
   if (await auth.submitConsent(true)) {
     show(consentModal, false);
     renderAccount();
-    onboarding.maybeAutoStartHome(() => openOverlay === null && !homeScreen.classList.contains('hidden'));
+    autoStartHomeWizard();
   } else {
     status.textContent = t('consentFailed');
     status.classList.add('error');
@@ -7703,6 +7712,9 @@ initBugReport(); // always-available "report a problem" button (spec 0071)
 onboarding.initOnboarding({
   show,
   isLoggedIn: auth.isLoggedIn,
+  // B2B = member of ≥1 org (any subscription status). Reads the warmed org cache so the
+  // webinar-explainer step selection stays synchronous; autoStartHomeWizard() warms it first.
+  isB2B: () => (bizOrgs?.length ?? 0) > 0,
   forceMore: (open) => document.body.classList.toggle('onb-more-forced', open),
 });
 // boot() runs the lobby (startLobby) and resumes any session.

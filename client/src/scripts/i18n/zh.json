@@ -462,6 +462,8 @@
   "onbHomeCreditsBody": "通话会按分钟、按每种翻译语言从你的余额中扣除。随时用购买积分充值——你的余额始终显示在顶部。",
   "onbHomeGuestTitle": "登录以保存你的历史记录",
   "onbHomeGuestBody": "现在就以访客身份开始交流。登录即可跨设备保留你的通话记录、转录和积分。",
+  "wizWebinarTitle": "直播网络研讨会",
+  "wizWebinarBody": "举办一场直播网络研讨会，让你的观众通过实时翻译用他们自己的语言跟着观看。创建网络研讨会需要有效的 Business 或 Enterprise 订阅。",
   "onbHomeCtaTitle": "随时为你准备就绪",
   "onbHomeCtaBody": "导览到此结束。设置你的语言、选一个房间，打个招呼吧。随时可以从 \"?\" 按钮重新打开本指南。",
   "onbHomeCtaButton": "开始交流",
