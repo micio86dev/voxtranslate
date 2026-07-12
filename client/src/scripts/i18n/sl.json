@@ -642,5 +642,16 @@
   "wvMuteAudio": "Utišaj zvok",
   "wvUnmuteAudio": "Vklopi zvok",
   "wvSubtitlesOn": "Podnapisi vklopljeni",
-  "wvSubtitlesOff": "Podnapisi izklopljeni"
+  "wvSubtitlesOff": "Podnapisi izklopljeni",
+  "webinarChatEnabled": "Omogoči klepet",
+  "wvChatShow": "Pokaži klepet",
+  "wvChatHide": "Skrij klepet",
+  "wvChatPlaceholder": "Napišite sporočilo…",
+  "wvChatSend": "Pošlji",
+  "wvChatHost": "Gostitelj",
+  "wvChatNamePrompt": "Izberite prikazno ime za klepet",
+  "wvChatNamePlaceholder": "Vaše ime",
+  "wvChatEmpty": "Sporočil še ni. Pozdravite!",
+  "wvChatRateLimited": "Sporočila pošiljate prehitro. Počakajte trenutek.",
+  "wvChatBlocked": "Vašega sporočila ni bilo mogoče poslati."
 }

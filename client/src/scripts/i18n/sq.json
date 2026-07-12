@@ -642,5 +642,16 @@
   "wvMuteAudio": "Çaktivizo audion",
   "wvUnmuteAudio": "Aktivizo audion",
   "wvSubtitlesOn": "Titrat aktivë",
-  "wvSubtitlesOff": "Titrat joaktivë"
+  "wvSubtitlesOff": "Titrat joaktivë",
+  "webinarChatEnabled": "Aktivizo bisedën",
+  "wvChatShow": "Shfaq bisedën",
+  "wvChatHide": "Fshih bisedën",
+  "wvChatPlaceholder": "Shkruaj një mesazh…",
+  "wvChatSend": "Dërgo",
+  "wvChatHost": "Nikoqiri",
+  "wvChatNamePrompt": "Zgjidh një emër shfaqjeje për të biseduar",
+  "wvChatNamePlaceholder": "Emri yt",
+  "wvChatEmpty": "Ende asnjë mesazh. Përshëndet!",
+  "wvChatRateLimited": "Po dërgon mesazhe shumë shpejt. Të lutem prit një çast.",
+  "wvChatBlocked": "Mesazhi yt nuk mund të dërgohej."
 }

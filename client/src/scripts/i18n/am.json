@@ -642,5 +642,16 @@
   "wvMuteAudio": "ድምፅ አጥፋ",
   "wvUnmuteAudio": "ድምፅ አብራ",
   "wvSubtitlesOn": "የትርጉም ጽሑፍ በርቷል",
-  "wvSubtitlesOff": "የትርጉም ጽሑፍ ጠፍቷል"
+  "wvSubtitlesOff": "የትርጉም ጽሑፍ ጠፍቷል",
+  "webinarChatEnabled": "ውይይትን አንቃ",
+  "wvChatShow": "ውይይት አሳይ",
+  "wvChatHide": "ውይይት ደብቅ",
+  "wvChatPlaceholder": "መልእክት ይተይቡ…",
+  "wvChatSend": "ላክ",
+  "wvChatHost": "አስተናጋጅ",
+  "wvChatNamePrompt": "ለመወያየት የሚታይ ስም ይምረጡ",
+  "wvChatNamePlaceholder": "ስምዎ",
+  "wvChatEmpty": "እስካሁን መልእክት የለም። ሰላም ይበሉ!",
+  "wvChatRateLimited": "መልእክቶችን በጣም በፍጥነት እየላኩ ነው። እባክዎ ትንሽ ይጠብቁ።",
+  "wvChatBlocked": "መልእክትዎ መላክ አልተቻለም።"
 }

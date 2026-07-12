@@ -642,5 +642,16 @@
   "wvMuteAudio": "ხმის დადუმება",
   "wvUnmuteAudio": "ხმის ჩართვა",
   "wvSubtitlesOn": "სუბტიტრები ჩართულია",
-  "wvSubtitlesOff": "სუბტიტრები გამორთულია"
+  "wvSubtitlesOff": "სუბტიტრები გამორთულია",
+  "webinarChatEnabled": "ჩატის ჩართვა",
+  "wvChatShow": "ჩატის ჩვენება",
+  "wvChatHide": "ჩატის დამალვა",
+  "wvChatPlaceholder": "აკრიფეთ შეტყობინება…",
+  "wvChatSend": "გაგზავნა",
+  "wvChatHost": "წამყვანი",
+  "wvChatNamePrompt": "აირჩიეთ სახელი ჩატისთვის",
+  "wvChatNamePlaceholder": "თქვენი სახელი",
+  "wvChatEmpty": "ჯერ შეტყობინებები არ არის. მიესალმეთ!",
+  "wvChatRateLimited": "შეტყობინებებს ძალიან სწრაფად აგზავნით. გთხოვთ, დაელოდოთ ცოტა ხანს.",
+  "wvChatBlocked": "თქვენი შეტყობინების გაგზავნა ვერ მოხერხდა."
 }

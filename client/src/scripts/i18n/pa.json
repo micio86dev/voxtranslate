@@ -642,5 +642,16 @@
   "wvMuteAudio": "ਆਡੀਓ ਮਿਊਟ ਕਰੋ",
   "wvUnmuteAudio": "ਆਡੀਓ ਅਨਮਿਊਟ ਕਰੋ",
   "wvSubtitlesOn": "ਉਪਸਿਰਲੇਖ ਚਾਲੂ",
-  "wvSubtitlesOff": "ਉਪਸਿਰਲੇਖ ਬੰਦ"
+  "wvSubtitlesOff": "ਉਪਸਿਰਲੇਖ ਬੰਦ",
+  "webinarChatEnabled": "ਚੈਟ ਚਾਲੂ ਕਰੋ",
+  "wvChatShow": "ਚੈਟ ਦਿਖਾਓ",
+  "wvChatHide": "ਚੈਟ ਲੁਕਾਓ",
+  "wvChatPlaceholder": "ਇੱਕ ਸੁਨੇਹਾ ਟਾਈਪ ਕਰੋ…",
+  "wvChatSend": "ਭੇਜੋ",
+  "wvChatHost": "ਹੋਸਟ",
+  "wvChatNamePrompt": "ਚੈਟ ਕਰਨ ਲਈ ਇੱਕ ਪ੍ਰਦਰਸ਼ਨ ਨਾਮ ਚੁਣੋ",
+  "wvChatNamePlaceholder": "ਤੁਹਾਡਾ ਨਾਮ",
+  "wvChatEmpty": "ਹਾਲੇ ਕੋਈ ਸੁਨੇਹਾ ਨਹੀਂ। ਸਤ ਸ੍ਰੀ ਅਕਾਲ ਕਹੋ!",
+  "wvChatRateLimited": "ਤੁਸੀਂ ਸੁਨੇਹੇ ਬਹੁਤ ਤੇਜ਼ੀ ਨਾਲ ਭੇਜ ਰਹੇ ਹੋ। ਕਿਰਪਾ ਕਰਕੇ ਥੋੜ੍ਹਾ ਇੰਤਜ਼ਾਰ ਕਰੋ।",
+  "wvChatBlocked": "ਤੁਹਾਡਾ ਸੁਨੇਹਾ ਭੇਜਿਆ ਨਹੀਂ ਜਾ ਸਕਿਆ।"
 }

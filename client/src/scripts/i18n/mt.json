@@ -642,5 +642,16 @@
   "wvMuteAudio": "Silenzja l-awdjo",
   "wvUnmuteAudio": "Attiva l-awdjo",
   "wvSubtitlesOn": "Sottotitli mixgħula",
-  "wvSubtitlesOff": "Sottotitli mitfija"
+  "wvSubtitlesOff": "Sottotitli mitfija",
+  "webinarChatEnabled": "Attiva ċ-chat",
+  "wvChatShow": "Uri ċ-chat",
+  "wvChatHide": "Aħbi ċ-chat",
+  "wvChatPlaceholder": "Ikteb messaġġ…",
+  "wvChatSend": "Ibgħat",
+  "wvChatHost": "Ospitant",
+  "wvChatNamePrompt": "Agħżel isem tal-wiri biex tikkjattja",
+  "wvChatNamePlaceholder": "Ismek",
+  "wvChatEmpty": "Għad m'hemm l-ebda messaġġ. Sellem!",
+  "wvChatRateLimited": "Qed tibgħat messaġġi malajr wisq. Jekk jogħġbok stenna ftit.",
+  "wvChatBlocked": "Il-messaġġ tiegħek ma setax jintbagħat."
 }

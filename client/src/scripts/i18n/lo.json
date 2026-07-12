@@ -642,5 +642,16 @@
   "wvMuteAudio": "ປິດສຽງ",
   "wvUnmuteAudio": "ເປີດສຽງ",
   "wvSubtitlesOn": "ເປີດຄຳບັນຍາຍ",
-  "wvSubtitlesOff": "ປິດຄຳບັນຍາຍ"
+  "wvSubtitlesOff": "ປິດຄຳບັນຍາຍ",
+  "webinarChatEnabled": "ເປີດໃຊ້ການສົນທະນາ",
+  "wvChatShow": "ສະແດງການສົນທະນາ",
+  "wvChatHide": "ເຊື່ອງການສົນທະນາ",
+  "wvChatPlaceholder": "ພິມຂໍ້ຄວາມ…",
+  "wvChatSend": "ສົ່ງ",
+  "wvChatHost": "ຜູ້ຈັດ",
+  "wvChatNamePrompt": "ເລືອກຊື່ສະແດງເພື່ອສົນທະນາ",
+  "wvChatNamePlaceholder": "ຊື່ຂອງທ່ານ",
+  "wvChatEmpty": "ຍັງບໍ່ມີຂໍ້ຄວາມ. ທັກທາຍກັນເລີຍ!",
+  "wvChatRateLimited": "ທ່ານກຳລັງສົ່ງຂໍ້ຄວາມໄວເກີນໄປ. ກະລຸນາລໍຖ້າຊົ່ວຄາວ.",
+  "wvChatBlocked": "ບໍ່ສາມາດສົ່ງຂໍ້ຄວາມຂອງທ່ານໄດ້."
 }

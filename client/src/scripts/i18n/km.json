@@ -642,5 +642,16 @@
   "wvMuteAudio": "បិទសំឡេង",
   "wvUnmuteAudio": "បើកសំឡេង",
   "wvSubtitlesOn": "បើកអក្សររត់",
-  "wvSubtitlesOff": "បិទអក្សររត់"
+  "wvSubtitlesOff": "បិទអក្សររត់",
+  "webinarChatEnabled": "បើកការជជែក",
+  "wvChatShow": "បង្ហាញការជជែក",
+  "wvChatHide": "លាក់ការជជែក",
+  "wvChatPlaceholder": "វាយសារ…",
+  "wvChatSend": "ផ្ញើ",
+  "wvChatHost": "ម្ចាស់ផ្ទះ",
+  "wvChatNamePrompt": "ជ្រើសរើសឈ្មោះបង្ហាញដើម្បីជជែក",
+  "wvChatNamePlaceholder": "ឈ្មោះរបស់អ្នក",
+  "wvChatEmpty": "មិនទាន់មានសារនៅឡើយ។ ស្វាគមន៍!",
+  "wvChatRateLimited": "អ្នកកំពុងផ្ញើសារលឿនពេក។ សូមរង់ចាំបន្តិច។",
+  "wvChatBlocked": "សាររបស់អ្នកមិនអាចផ្ញើបានទេ។"
 }

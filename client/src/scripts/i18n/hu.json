@@ -642,5 +642,16 @@
   "wvMuteAudio": "Hang némítása",
   "wvUnmuteAudio": "Némítás feloldása",
   "wvSubtitlesOn": "Felirat bekapcsolva",
-  "wvSubtitlesOff": "Felirat kikapcsolva"
+  "wvSubtitlesOff": "Felirat kikapcsolva",
+  "webinarChatEnabled": "Csevegés engedélyezése",
+  "wvChatShow": "Csevegés megjelenítése",
+  "wvChatHide": "Csevegés elrejtése",
+  "wvChatPlaceholder": "Írj egy üzenetet…",
+  "wvChatSend": "Küldés",
+  "wvChatHost": "Házigazda",
+  "wvChatNamePrompt": "Válassz megjelenítendő nevet a csevegéshez",
+  "wvChatNamePlaceholder": "A neved",
+  "wvChatEmpty": "Még nincsenek üzenetek. Köszönj be!",
+  "wvChatRateLimited": "Túl gyorsan küldesz üzeneteket. Kérlek, várj egy pillanatot.",
+  "wvChatBlocked": "Az üzenetedet nem sikerült elküldeni."
 }

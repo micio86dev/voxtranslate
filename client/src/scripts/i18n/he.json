@@ -642,5 +642,16 @@
   "wvMuteAudio": "השתקת האודיו",
   "wvUnmuteAudio": "ביטול ההשתקה",
   "wvSubtitlesOn": "כתוביות פועלות",
-  "wvSubtitlesOff": "כתוביות כבויות"
+  "wvSubtitlesOff": "כתוביות כבויות",
+  "webinarChatEnabled": "הפעלת צ׳אט",
+  "wvChatShow": "הצגת הצ׳אט",
+  "wvChatHide": "הסתרת הצ׳אט",
+  "wvChatPlaceholder": "הקלידו הודעה…",
+  "wvChatSend": "שליחה",
+  "wvChatHost": "מארח",
+  "wvChatNamePrompt": "בחרו שם תצוגה כדי להשתתף בצ׳אט",
+  "wvChatNamePlaceholder": "השם שלך",
+  "wvChatEmpty": "אין עדיין הודעות. אמרו שלום!",
+  "wvChatRateLimited": "אתם שולחים הודעות מהר מדי. המתינו רגע.",
+  "wvChatBlocked": "לא ניתן היה לשלוח את ההודעה שלך."
 }

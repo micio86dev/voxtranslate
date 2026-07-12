@@ -642,5 +642,16 @@
   "wvMuteAudio": "Silencia l’àudio",
   "wvUnmuteAudio": "Activa l’àudio",
   "wvSubtitlesOn": "Subtítols activats",
-  "wvSubtitlesOff": "Subtítols desactivats"
+  "wvSubtitlesOff": "Subtítols desactivats",
+  "webinarChatEnabled": "Activa el xat",
+  "wvChatShow": "Mostra el xat",
+  "wvChatHide": "Amaga el xat",
+  "wvChatPlaceholder": "Escriu un missatge…",
+  "wvChatSend": "Envia",
+  "wvChatHost": "Amfitrió",
+  "wvChatNamePrompt": "Tria un nom visible per xatejar",
+  "wvChatNamePlaceholder": "El teu nom",
+  "wvChatEmpty": "Encara no hi ha missatges. Digues hola!",
+  "wvChatRateLimited": "Estàs enviant missatges massa de pressa. Espera un moment, si us plau.",
+  "wvChatBlocked": "No s’ha pogut enviar el teu missatge."
 }

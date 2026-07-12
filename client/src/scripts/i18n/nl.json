@@ -642,5 +642,16 @@
   "wvMuteAudio": "Geluid dempen",
   "wvUnmuteAudio": "Geluid inschakelen",
   "wvSubtitlesOn": "Ondertiteling aan",
-  "wvSubtitlesOff": "Ondertiteling uit"
+  "wvSubtitlesOff": "Ondertiteling uit",
+  "webinarChatEnabled": "Chat inschakelen",
+  "wvChatShow": "Chat tonen",
+  "wvChatHide": "Chat verbergen",
+  "wvChatPlaceholder": "Typ een bericht…",
+  "wvChatSend": "Verzenden",
+  "wvChatHost": "Host",
+  "wvChatNamePrompt": "Kies een weergavenaam om te chatten",
+  "wvChatNamePlaceholder": "Je naam",
+  "wvChatEmpty": "Nog geen berichten. Zeg hallo!",
+  "wvChatRateLimited": "Je verstuurt berichten te snel. Wacht even.",
+  "wvChatBlocked": "Je bericht kon niet worden verzonden."
 }

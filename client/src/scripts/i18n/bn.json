@@ -642,5 +642,16 @@
   "wvMuteAudio": "অডিও মিউট করুন",
   "wvUnmuteAudio": "অডিও আনমিউট করুন",
   "wvSubtitlesOn": "সাবটাইটেল চালু",
-  "wvSubtitlesOff": "সাবটাইটেল বন্ধ"
+  "wvSubtitlesOff": "সাবটাইটেল বন্ধ",
+  "webinarChatEnabled": "চ্যাট সক্ষম করুন",
+  "wvChatShow": "চ্যাট দেখান",
+  "wvChatHide": "চ্যাট লুকান",
+  "wvChatPlaceholder": "একটি বার্তা লিখুন…",
+  "wvChatSend": "পাঠান",
+  "wvChatHost": "হোস্ট",
+  "wvChatNamePrompt": "চ্যাট করতে একটি প্রদর্শন নাম বেছে নিন",
+  "wvChatNamePlaceholder": "আপনার নাম",
+  "wvChatEmpty": "এখনও কোনো বার্তা নেই। হ্যালো বলুন!",
+  "wvChatRateLimited": "আপনি খুব দ্রুত বার্তা পাঠাচ্ছেন। অনুগ্রহ করে একটু অপেক্ষা করুন।",
+  "wvChatBlocked": "আপনার বার্তা পাঠানো যায়নি।"
 }

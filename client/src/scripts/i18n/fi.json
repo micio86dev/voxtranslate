@@ -642,5 +642,16 @@
   "wvMuteAudio": "Mykistä ääni",
   "wvUnmuteAudio": "Poista mykistys",
   "wvSubtitlesOn": "Tekstitys päällä",
-  "wvSubtitlesOff": "Tekstitys pois"
+  "wvSubtitlesOff": "Tekstitys pois",
+  "webinarChatEnabled": "Ota chat käyttöön",
+  "wvChatShow": "Näytä chat",
+  "wvChatHide": "Piilota chat",
+  "wvChatPlaceholder": "Kirjoita viesti…",
+  "wvChatSend": "Lähetä",
+  "wvChatHost": "Isäntä",
+  "wvChatNamePrompt": "Valitse näyttönimi keskustelua varten",
+  "wvChatNamePlaceholder": "Nimesi",
+  "wvChatEmpty": "Ei vielä viestejä. Sano moi!",
+  "wvChatRateLimited": "Lähetät viestejä liian nopeasti. Odota hetki.",
+  "wvChatBlocked": "Viestiäsi ei voitu lähettää."
 }

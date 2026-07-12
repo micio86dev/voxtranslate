@@ -642,5 +642,16 @@
   "wvMuteAudio": "靜音",
   "wvUnmuteAudio": "取消靜音",
   "wvSubtitlesOn": "字幕已開",
-  "wvSubtitlesOff": "字幕已關"
+  "wvSubtitlesOff": "字幕已關",
+  "webinarChatEnabled": "啟用聊天",
+  "wvChatShow": "顯示聊天",
+  "wvChatHide": "隱藏聊天",
+  "wvChatPlaceholder": "輸入訊息…",
+  "wvChatSend": "傳送",
+  "wvChatHost": "主持人",
+  "wvChatNamePrompt": "揀個顯示名稱先可以傾偈",
+  "wvChatNamePlaceholder": "你嘅名",
+  "wvChatEmpty": "仲未有訊息。同大家打個招呼啦!",
+  "wvChatRateLimited": "你傳訊息傳得太快啦。請等一等。",
+  "wvChatBlocked": "你嘅訊息傳送唔到。"
 }

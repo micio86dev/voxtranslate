@@ -642,5 +642,16 @@
   "wvMuteAudio": "Дыбысты өшіру",
   "wvUnmuteAudio": "Дыбысты қосу",
   "wvSubtitlesOn": "Субтитрлер қосулы",
-  "wvSubtitlesOff": "Субтитрлер өшірулі"
+  "wvSubtitlesOff": "Субтитрлер өшірулі",
+  "webinarChatEnabled": "Чатты қосу",
+  "wvChatShow": "Чатты көрсету",
+  "wvChatHide": "Чатты жасыру",
+  "wvChatPlaceholder": "Хабарлама теріңіз…",
+  "wvChatSend": "Жіберу",
+  "wvChatHost": "Жүргізуші",
+  "wvChatNamePrompt": "Чат үшін көрсетілетін атауды таңдаңыз",
+  "wvChatNamePlaceholder": "Атыңыз",
+  "wvChatEmpty": "Әзірге хабарлама жоқ. Сәлемдесіңіз!",
+  "wvChatRateLimited": "Хабарламаларды тым жылдам жіберіп жатырсыз. Сәл күте тұрыңыз.",
+  "wvChatBlocked": "Хабарламаңызды жіберу мүмкін болмады."
 }

@@ -642,5 +642,16 @@
   "wvMuteAudio": "Balbhaigh an fhuaim",
   "wvUnmuteAudio": "Díbhalbhaigh an fhuaim",
   "wvSubtitlesOn": "Fotheidil ar siúl",
-  "wvSubtitlesOff": "Fotheidil múchta"
+  "wvSubtitlesOff": "Fotheidil múchta",
+  "webinarChatEnabled": "Cuir comhrá ar chumas",
+  "wvChatShow": "Taispeáin comhrá",
+  "wvChatHide": "Folaigh comhrá",
+  "wvChatPlaceholder": "Clóscríobh teachtaireacht…",
+  "wvChatSend": "Seol",
+  "wvChatHost": "Óstach",
+  "wvChatNamePrompt": "Roghnaigh ainm taispeána chun comhrá a dhéanamh",
+  "wvChatNamePlaceholder": "D’ainm",
+  "wvChatEmpty": "Níl aon teachtaireacht ann fós. Abair haló!",
+  "wvChatRateLimited": "Tá tú ag seoladh teachtaireachtaí róthapa. Fan nóiméad, le do thoil.",
+  "wvChatBlocked": "Níorbh fhéidir do theachtaireacht a sheoladh."
 }

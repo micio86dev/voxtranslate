@@ -79,6 +79,7 @@ const webinar = (over: Partial<WebinarView> = {}): WebinarView => ({
   record_video: false,
   record_transcript: true,
   voice_clone: false,
+  chat_enabled: false,
   join_url: 'https://voxtranslate.app/w/ab12cd',
   playback_url: null,
   created_at: '2026-07-11T00:00:00Z',
@@ -131,6 +132,24 @@ describe('createWebinar', () => {
       source_language: 'en',
       tier: 'enhanced',
       record_transcript: true,
+    });
+  });
+
+  it('carries chat_enabled in the POST body when the create-form toggle is on', async () => {
+    fetchMock.mockResolvedValue(okJson(webinar({ chat_enabled: true })));
+    const out = await createWebinar({
+      org_id: 'o1',
+      title: 'Launch',
+      source_language: 'en',
+      chat_enabled: true,
+    });
+    expect(out.chat_enabled).toBe(true);
+    const [, init] = fetchMock.mock.calls[0];
+    expect(JSON.parse(init?.body as string)).toEqual({
+      org_id: 'o1',
+      title: 'Launch',
+      source_language: 'en',
+      chat_enabled: true,
     });
   });
 

@@ -642,5 +642,16 @@
   "wvMuteAudio": "Ton stummschalten",
   "wvUnmuteAudio": "Stummschaltung aufheben",
   "wvSubtitlesOn": "Untertitel an",
-  "wvSubtitlesOff": "Untertitel aus"
+  "wvSubtitlesOff": "Untertitel aus",
+  "webinarChatEnabled": "Chat aktivieren",
+  "wvChatShow": "Chat anzeigen",
+  "wvChatHide": "Chat ausblenden",
+  "wvChatPlaceholder": "Nachricht eingeben…",
+  "wvChatSend": "Senden",
+  "wvChatHost": "Host",
+  "wvChatNamePrompt": "Wähle einen Anzeigenamen zum Chatten",
+  "wvChatNamePlaceholder": "Dein Name",
+  "wvChatEmpty": "Noch keine Nachrichten. Sag Hallo!",
+  "wvChatRateLimited": "Du sendest Nachrichten zu schnell. Bitte warte einen Moment.",
+  "wvChatBlocked": "Deine Nachricht konnte nicht gesendet werden."
 }

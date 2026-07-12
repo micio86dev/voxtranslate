@@ -8,12 +8,33 @@ import { HlsPlayer, getStoredGuestId, type PlayerState } from './hls-player';
 import { applyI18n, detectLang, getUiLang, loadLocale, setUiLang, t } from './i18n';
 import { PresenceClient, type SubtitleEvent } from './webinar-presence';
 import { renderSubtitleInto } from './subtitle-render';
+import { getPublicWebinar } from './webinar';
+import {
+  ChatPanel,
+  getStoredDisplayName,
+  setStoredDisplayName,
+  type ChatPanelStrings,
+} from './webinar-chat';
 
 // App WS base, mirroring auth.ts (this file never imports auth to keep the /w/ bundle
 // lean and free of the accounts/billing surface).
 const WS_HOST = import.meta.env.PUBLIC_WS_HOST || location.host;
 const WS_PROTO = location.protocol === 'https:' ? 'wss:' : 'ws:';
 const WS_BASE = `${WS_PROTO}//${WS_HOST}`;
+// App HTTP base (derived from WS_BASE, mirroring auth.ts) for the chat REST calls.
+const HTTP_BASE = WS_BASE.replace(/^ws/, 'http');
+
+/** The localized strings the chat panel needs, read from the current locale. */
+function chatStrings(): ChatPanelStrings {
+  return {
+    send: t('wvChatSend'),
+    hostTag: t('wvChatHost'),
+    empty: t('wvChatEmpty'),
+    rateLimited: t('wvChatRateLimited'),
+    blocked: t('wvChatBlocked'),
+    genericError: t('wvChatBlocked'),
+  };
+}
 
 /** Toggle an element's `.hidden` CLASS (never the HTML `hidden` attribute — the app's
  *  show() gotcha: elements are styled off via the class). No-op for a missing element. */
@@ -160,6 +181,11 @@ export function mountWebinarPlayer(): void {
 
   let presence: PresenceClient | null = null;
 
+  // Auto-translated chat (Feature ⑤). Gated on the webinar's `chat_enabled` flag, fetched
+  // once below; when on, we reveal the show/hide toggle and mount the panel. The returned
+  // handler is wired into the presence WS's `onChat` so live messages append into the list.
+  const chatHandler = setupChat(code);
+
   // Free the poll timer + hls.js + presence WS when the guest navigates away.
   addEventListener(
     'pagehide',
@@ -173,11 +199,13 @@ export function mountWebinarPlayer(): void {
 
   renderState('waiting');
   // start() fetches the webinar and persists the guest_id; once it resolves we open the
-  // live-presence socket (counted audience) so the "N watching" indicator streams updates
-  // AND the live subtitle frames (same WS) render into the overlay in the viewer's language.
-  void player.start().then(() => {
+  // live-presence socket (counted audience) so the "N watching" indicator streams updates,
+  // the live subtitle frames (same WS) render into the overlay, AND — when chat is enabled —
+  // chat frames (same WS) append into the panel, all in the viewer's language.
+  void player.start().then(async () => {
     const guestId = getStoredGuestId();
     if (!guestId) return; // no identity (fetch failed) — skip the count, playback still works
+    const onChat = await chatHandler;
     presence = new PresenceClient({
       wsBase: WS_BASE,
       code,
@@ -188,6 +216,111 @@ export function mountWebinarPlayer(): void {
       onSubtitle: subtitleOverlay
         ? (event) => renderSubtitle(subtitleOverlay, event)
         : undefined,
+      onChat: onChat ?? undefined,
     });
   });
+}
+
+/**
+ * Wire the viewer chat panel if the webinar has chat enabled. Fetches the public webinar to
+ * read `chat_enabled`; when off (or on error), resolves to null and the panel stays hidden.
+ * When on: reveals the show/hide toggle, mounts a `ChatPanel`, wires the send form + the
+ * one-time guest display-name prompt, loads history on first open, and returns an `onChat`
+ * handler that appends live WS messages into the list. All DOM lives here; the panel logic
+ * (render, optimistic send, notice mapping) lives in webinar-chat.ts.
+ */
+async function setupChat(
+  code: string,
+): Promise<((event: import('./webinar-chat').ChatEvent) => void) | null> {
+  const toggleBtn = document.getElementById('wv-chat-toggle') as HTMLButtonElement | null;
+  const panel = document.getElementById('wv-chat');
+  const list = document.getElementById('wv-chat-list');
+  const input = document.getElementById('wv-chat-input') as HTMLInputElement | null;
+  const sendBtn = document.getElementById('wv-chat-send') as HTMLButtonElement | null;
+  const notice = document.getElementById('wv-chat-notice');
+  const form = document.getElementById('wv-chat-form') as HTMLFormElement | null;
+  const nameBox = document.getElementById('wv-chat-name');
+  const nameInput = document.getElementById('wv-chat-name-input') as HTMLInputElement | null;
+  const nameSave = document.getElementById('wv-chat-name-save') as HTMLButtonElement | null;
+  if (!toggleBtn || !panel || !list || !input || !sendBtn || !notice || !form) return null;
+
+  // Read the chat flag. A failure (offline / SSR-skipped) just leaves chat hidden.
+  let enabled = false;
+  try {
+    const info = await getPublicWebinar(code);
+    enabled = !!info.chat_enabled;
+  } catch {
+    return null;
+  }
+  if (!enabled) return null;
+
+  // Reveal the toggle now that chat is confirmed on.
+  show(toggleBtn, true);
+
+  const panelCtl = new ChatPanel({
+    list,
+    input,
+    sendBtn,
+    notice,
+    httpBase: HTTP_BASE,
+    code,
+    myLang: () => getUiLang(),
+    senderLang: () => getUiLang(),
+    // Guests send with their stored display name (or the prompt gates the first send below).
+    displayName: () => getStoredDisplayName(),
+    token: () => null, // viewers are unauthenticated guests → sender_kind:"guest"
+    strings: chatStrings(),
+  });
+
+  let historyLoaded = false;
+  let open = false;
+  function paintToggle(): void {
+    if (!toggleBtn) return;
+    toggleBtn.textContent = t(open ? 'wvChatHide' : 'wvChatShow');
+    toggleBtn.setAttribute('aria-pressed', open ? 'true' : 'false');
+  }
+  toggleBtn.addEventListener('click', () => {
+    open = !open;
+    show(panel, open);
+    paintToggle();
+    if (open) {
+      maybePromptName();
+      if (!historyLoaded) {
+        historyLoaded = true;
+        void panelCtl.loadHistory(); // late joiners get prior context in their language
+      }
+      input?.focus();
+    }
+  });
+  paintToggle();
+
+  // One-time display-name prompt: a guest picks a name before their first message. Once set,
+  // the prompt hides and the input row is enabled.
+  function maybePromptName(): void {
+    const hasName = !!getStoredDisplayName();
+    show(nameBox, !hasName);
+    show(form, hasName);
+  }
+  nameSave?.addEventListener('click', () => {
+    const chosen = setStoredDisplayName(nameInput?.value ?? '');
+    if (!chosen) {
+      nameInput?.focus();
+      return;
+    }
+    maybePromptName();
+    input.focus();
+  });
+  maybePromptName();
+
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    if (!getStoredDisplayName()) {
+      maybePromptName();
+      nameInput?.focus();
+      return;
+    }
+    void panelCtl.send();
+  });
+
+  return (event) => panelCtl.append(event);
 }

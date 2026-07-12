@@ -642,5 +642,16 @@
   "wvMuteAudio": "Aamus codka",
   "wvUnmuteAudio": "Fur codka",
   "wvSubtitlesOn": "Qoraalka hoose waa shidan yahay",
-  "wvSubtitlesOff": "Qoraalka hoose waa demis yahay"
+  "wvSubtitlesOff": "Qoraalka hoose waa demis yahay",
+  "webinarChatEnabled": "Shid sheekada",
+  "wvChatShow": "Muuji sheekada",
+  "wvChatHide": "Qari sheekada",
+  "wvChatPlaceholder": "Qor fariin…",
+  "wvChatSend": "Dir",
+  "wvChatHost": "Martida",
+  "wvChatNamePrompt": "Dooro magac lagu muujiyo si aad u sheekaysato",
+  "wvChatNamePlaceholder": "Magacaaga",
+  "wvChatEmpty": "Wali fariimo ma jiraan. Salaan bixi!",
+  "wvChatRateLimited": "Fariimo ayaad si degdeg ah u diraysaa. Fadlan sug daqiiqad.",
+  "wvChatBlocked": "Fariintaada lama diri karin."
 }

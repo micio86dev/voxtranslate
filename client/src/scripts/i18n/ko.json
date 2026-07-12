@@ -642,5 +642,16 @@
   "wvMuteAudio": "오디오 음소거",
   "wvUnmuteAudio": "음소거 해제",
   "wvSubtitlesOn": "자막 켜짐",
-  "wvSubtitlesOff": "자막 꺼짐"
+  "wvSubtitlesOff": "자막 꺼짐",
+  "webinarChatEnabled": "채팅 활성화",
+  "wvChatShow": "채팅 표시",
+  "wvChatHide": "채팅 숨기기",
+  "wvChatPlaceholder": "메시지를 입력하세요…",
+  "wvChatSend": "보내기",
+  "wvChatHost": "호스트",
+  "wvChatNamePrompt": "채팅에 사용할 표시 이름을 선택하세요",
+  "wvChatNamePlaceholder": "이름",
+  "wvChatEmpty": "아직 메시지가 없습니다. 인사를 건네보세요!",
+  "wvChatRateLimited": "메시지를 너무 빠르게 보내고 있습니다. 잠시 기다려 주세요.",
+  "wvChatBlocked": "메시지를 보낼 수 없습니다."
 }
