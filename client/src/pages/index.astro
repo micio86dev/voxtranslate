@@ -217,6 +217,16 @@ const jsonLd = {
           </div>
           <div id="rooms-list" class="rooms-list"></div>
         </div>
+
+        <!-- Public webinars discovery (sibling of the public rooms list). Hidden while
+             the list is empty; populated from GET /api/webinars/public in app.ts.
+             Clicking a card navigates to the participant page /w/{code}. -->
+        <div class="card hidden" id="public-webinars-card">
+          <div class="card-title-row">
+            <span class="card-title" data-i18n="publicWebinars">{T('publicWebinars')}</span>
+          </div>
+          <div id="public-webinars" class="webinars-list"></div>
+        </div>
         <!-- Legal links footer on the lobby (mirrors the login-screen footer; keeps terms/privacy/acceptable-use reachable from the app home). -->
         <p class="legal-footer">
           <a href="/terms" target="_blank" rel="noopener" data-i18n="terms">{T('terms')}</a>
@@ -1070,6 +1080,11 @@ const jsonLd = {
                 <span class="webinar-toggle-label" id="webinar-chat-enabled-label" data-i18n="webinarChatEnabled">{T('webinarChatEnabled')}</span>
                 <button id="webinar-chat-enabled" class="ws-switch" type="button" role="switch" aria-checked="false" aria-labelledby="webinar-chat-enabled-label"><span class="ws-switch-knob" aria-hidden="true"></span></button>
               </div>
+              <!-- Visibility: OFF (default) = private/link-only; ON = public, listed on the home page. -->
+              <div class="webinar-toggle-row">
+                <span class="webinar-toggle-label" id="webinar-visibility-public-label" data-i18n="webinarVisibilityPublic">{T('webinarVisibilityPublic')}</span>
+                <button id="webinar-visibility-public" class="ws-switch" type="button" role="switch" aria-checked="false" aria-labelledby="webinar-visibility-public-label"><span class="ws-switch-knob" aria-hidden="true"></span></button>
+              </div>
               <!-- Voice clone: shown only for Enhanced + when the voice isn't cloned yet (app.ts). -->
               <div class="webinar-toggle-row hidden" id="webinar-voice-clone-row">
                 <span class="webinar-toggle-label" id="webinar-voice-clone-label" data-i18n="webinarVoiceClone">{T('webinarVoiceClone')}</span>
@@ -1592,6 +1607,24 @@ const jsonLd = {
     .rooms-list :global(.ri-av:first-child) { margin-inline-start: 0; }
     .rooms-list :global(.ri-av img) { width: 100%; height: 100%; object-fit: cover; display: block; }
     .rooms-list :global(.lobby-empty) { color: var(--muted); text-align: center; font-size: 0.88rem; padding: 14px 0; }
+
+    /* Public webinars list — mirrors the room-item visual language but is its own
+       card class (a webinar card is a full navigation to /w/{code}, not a prejoin). */
+    .webinars-list { display: flex; flex-direction: column; gap: 10px; }
+    .webinars-list :global(.webinar-item) {
+      width: 100%; text-align: start; background: var(--bg); border: 1px solid var(--border);
+      border-radius: 10px; padding: 12px 14px; transition: all 0.15s; cursor: pointer;
+    }
+    .webinars-list :global(.webinar-item:hover) { border-color: var(--accent); }
+    .webinars-list :global(.webinar-item:active) { transform: translateY(1px); }
+    .webinars-list :global(.webinar-item-main) { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .webinars-list :global(.webinar-item-title) { font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .webinars-list :global(.webinar-item-viewers) { font-size: 0.82rem; color: var(--muted); flex: none; display: inline-flex; align-items: center; gap: 5px; }
+    .webinars-list :global(.webinar-item-meta) { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 0.82rem; color: var(--muted); }
+    .webinars-list :global(.webinar-live-badge) {
+      font-size: 0.7rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+      color: #fff; background: #e5484d; border-radius: 999px; padding: 2px 8px; flex: none;
+    }
 
     /* ---------- Session detail ---------- */
     .session-body {

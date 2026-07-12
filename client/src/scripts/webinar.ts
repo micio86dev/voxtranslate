@@ -16,6 +16,10 @@ export type WebinarTier = "standard" | "enhanced";
 /** Lifecycle status of a webinar as returned by the host endpoints. */
 export type WebinarStatus = "scheduled" | "live" | "ended" | "cancelled";
 
+/** Whether a webinar is discoverable. `private` (the default) is reachable only by
+ *  its direct `/w/{code}` link; `public` also gets listed on the app home page. */
+export type WebinarVisibility = "public" | "private";
+
 /** The host view of a webinar (the shape every host endpoint returns). */
 export interface WebinarView {
   id: string;
@@ -27,6 +31,8 @@ export interface WebinarView {
   source_language: string;
   tier: WebinarTier;
   status: WebinarStatus;
+  /** Discovery mode: `private` (default, link-only) or `public` (listed on the home). */
+  visibility: WebinarVisibility;
   /** Business project this webinar is filed under, or null when unassigned. */
   project_id: string | null;
   scheduled_start: string | null;
@@ -95,6 +101,8 @@ export interface CreateWebinarBody {
   voice_clone?: boolean;
   /** Enable the auto-translated chat (Feature ⑤) for the webinar. */
   chat_enabled?: boolean;
+  /** Discovery mode; defaults to `private` server-side when omitted. */
+  visibility?: WebinarVisibility;
   scheduled_start?: string | null;
   scheduled_end?: string | null;
 }
@@ -113,6 +121,8 @@ export interface PatchWebinarBody {
   voice_clone?: boolean;
   /** Enable/disable the auto-translated chat (Feature ⑤) for the webinar. */
   chat_enabled?: boolean;
+  /** Change the discovery mode (`public` lists it on the home; `private` hides it). */
+  visibility?: WebinarVisibility;
   scheduled_start?: string | null;
   scheduled_end?: string | null;
 }
@@ -369,6 +379,60 @@ export async function getPublicWebinar(code: string): Promise<PublicWebinar> {
     netError();
   }
   return parse<PublicWebinar>(res);
+}
+
+/** A single entry in the home page's "Public webinars" list, as returned by the
+ *  unauthenticated `GET /api/webinars/public` endpoint. Only public, non-archived,
+ *  scheduled-or-live webinars appear (live-first). `viewers` is the live audience
+ *  count (0 while scheduled). Distinct from `PublicWebinar` (the full participant
+ *  view for `/w/{code}`): this is the compact card shape for the lobby list. */
+export interface PublicWebinarListItem {
+  code: string;
+  title: string;
+  /** `scheduled` or `live` only (ended/cancelled/archived are never listed). */
+  status: "scheduled" | "live";
+  source_language: string;
+  tier: WebinarTier;
+  scheduled_start: string | null;
+  /** Public join link — navigate here to open the participant page (`/w/{code}`). */
+  join_url: string;
+  /** Live audience count; 0 for a scheduled (not-yet-live) webinar. */
+  viewers: number;
+}
+
+/** Whether a public-list webinar is currently broadcasting (drives the LIVE badge
+ *  and whether the viewers count is shown). Pure. */
+export function isWebinarLive(item: { status: string }): boolean {
+  return item.status === "live";
+}
+
+/** Format a webinar's `scheduled_start` for the card's "scheduled" hint: a short
+ *  localized date + time (e.g. `Jul 12, 3:00 PM`), or "" when there is no scheduled
+ *  start (an immediate webinar) or the value is unparseable. Pure. */
+export function formatScheduledStart(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+/** Fetch the public webinar list for the home page. Unauthenticated GET; best-effort
+ *  — any failure (network, non-2xx, malformed body) resolves to `[]` so the home lobby
+ *  never breaks over an optional discovery section. Returns `json.webinars` unwrapped. */
+export async function listPublicWebinars(): Promise<PublicWebinarListItem[]> {
+  try {
+    const res = await fetch(`${HTTP_BASE}/api/webinars/public`);
+    if (!res.ok) return [];
+    const json = (await res.json()) as { webinars?: PublicWebinarListItem[] };
+    return Array.isArray(json.webinars) ? json.webinars : [];
+  } catch {
+    return [];
+  }
 }
 
 /** The device ids chosen in the webinar pre-live step (Meet-style device pickers).
