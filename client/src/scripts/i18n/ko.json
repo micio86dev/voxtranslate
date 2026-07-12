@@ -462,6 +462,8 @@
   "onbHomeCreditsBody": "통화는 번역 언어별로, 분 단위로 잔액에서 차감됩니다. 크레딧 구매로 언제든 충전하세요 — 잔액은 항상 위쪽에 표시됩니다.",
   "onbHomeGuestTitle": "기록을 저장하려면 로그인하세요",
   "onbHomeGuestBody": "지금 바로 게스트로 대화를 시작하세요. 로그인하면 통화 기록, 기록물, 크레딧을 모든 기기에서 유지할 수 있습니다.",
+  "wizWebinarTitle": "라이브 웨비나 방송하기",
+  "wizWebinarBody": "라이브 웨비나를 개최하고 청중이 실시간 번역으로 각자의 언어로 함께 볼 수 있게 하세요. 웨비나를 만들려면 활성 Business 또는 Enterprise 구독이 필요합니다.",
   "onbHomeCtaTitle": "준비되면 언제든지",
   "onbHomeCtaBody": "투어는 여기까지입니다. 언어를 설정하고, 방을 고르고, 인사를 건네세요. 이 가이드는 \"?\" 버튼에서 언제든 다시 열 수 있습니다.",
   "onbHomeCtaButton": "대화 시작하기",

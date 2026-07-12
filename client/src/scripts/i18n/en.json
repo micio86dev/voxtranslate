@@ -462,6 +462,8 @@
   "onbHomeCreditsBody": "Calls draw from your balance by the minute, per translation language. Top up any time with Buy credits — your balance always shows up top.",
   "onbHomeGuestTitle": "Sign in to save your history",
   "onbHomeGuestBody": "Start talking as a guest right now. Sign in to keep your call history, transcripts and credits across devices.",
+  "wizWebinarTitle": "Broadcast a live webinar",
+  "wizWebinarBody": "Host a live webinar and let your audience follow along with real-time translation in their own language. Creating a webinar needs an active Business or Enterprise subscription.",
   "onbHomeCtaTitle": "Ready when you are",
   "onbHomeCtaBody": "That's the tour. Set your language, pick a room and say hello. Reopen this guide any time from the \"?\" button.",
   "onbHomeCtaButton": "Start talking",

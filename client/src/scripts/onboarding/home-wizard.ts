@@ -4,11 +4,13 @@
 // dots, ←/→ navigation, and guest-vs-authed step selection.
 
 import { t } from '../i18n';
-import { HOME_WIZARD_STEPS, type WizardStep } from './steps';
+import { selectWizardSteps, type WizardStep } from './steps';
 
 interface WizardDeps {
   show: (el: HTMLElement, visible: boolean) => void;
   isLoggedIn: () => boolean;
+  /** Whether the signed-in user belongs to ≥1 organization (drives the webinar step). */
+  isB2B: () => boolean;
 }
 
 const byId = <T extends HTMLElement = HTMLElement>(id: string): T | null =>
@@ -29,6 +31,8 @@ const GLYPHS: Record<string, string> = {
     '<svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8" r="3.6"/><path d="M5 20c0-3.7 3.1-6.2 7-6.2s7 2.5 7 6.2"/></svg>',
   rocket:
     '<svg viewBox="0 0 24 24" fill="none"><path d="M12 3c3.5 1.7 5.4 4.9 5.4 9 0 1.7-.4 3.3-1.2 4.8H7.8C7 15.3 6.6 13.7 6.6 12 6.6 7.9 8.5 4.7 12 3Z"/><circle cx="12" cy="10" r="1.7"/><path d="M9 17.5c-1.5.6-2.4 2-2.5 3.5 1.5-.1 2.9-1 3.5-2.4M15 17.5c1.5.6 2.4 2 2.5 3.5-1.5-.1-2.9-1-3.5-2.4"/></svg>',
+  broadcast:
+    '<svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="2.4"/><path d="M8.2 8.2a5.4 5.4 0 0 0 0 7.6M15.8 8.2a5.4 5.4 0 0 1 0 7.6M5.6 5.6a9 9 0 0 0 0 12.8M18.4 5.6a9 9 0 0 1 0 12.8"/></svg>',
 };
 
 let deps: WizardDeps;
@@ -65,9 +69,7 @@ export function initHomeWizard(d: WizardDeps): void {
 
 export function openHomeWizard(): void {
   if (!modal) return;
-  steps = HOME_WIZARD_STEPS.filter((s) =>
-    s.role === 'all' ? true : (s.role === 'authed') === deps.isLoggedIn(),
-  );
+  steps = selectWizardSteps({ isLoggedIn: deps.isLoggedIn(), isB2B: deps.isB2B() });
   idx = 0;
   deps.show(modal, true); // focus-trap + ESC + focus-restore (app.ts)
   render();

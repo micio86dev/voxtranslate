@@ -462,6 +462,8 @@
   "onbHomeCreditsBody": "Puhelut veloitetaan saldostasi minuutilta, kutakin käännöskieltä kohden. Lisää saldoa milloin tahansa Osta krediittejä -painikkeella — saldosi näkyy aina ylhäällä.",
   "onbHomeGuestTitle": "Kirjaudu sisään tallentaaksesi historiasi",
   "onbHomeGuestBody": "Ala puhua vieraana heti nyt. Kirjaudu sisään säilyttääksesi puheluhistoriasi, litteroinnit ja krediitit kaikilla laitteilla.",
+  "wizWebinarTitle": "Lähetä livewebinaari",
+  "wizWebinarBody": "Järjestä livewebinaari ja anna yleisösi seurata sitä omalla kielellään reaaliaikaisen käännöksen avulla. Webinaarin luominen edellyttää aktiivista Business- tai Enterprise-tilausta.",
   "onbHomeCtaTitle": "Valmista, kun sinä olet",
   "onbHomeCtaBody": "Siinä oli kierros. Aseta kielesi, valitse huone ja sano hei. Avaa tämä opas uudelleen milloin tahansa \"?\"-painikkeesta.",
   "onbHomeCtaButton": "Ala puhua",

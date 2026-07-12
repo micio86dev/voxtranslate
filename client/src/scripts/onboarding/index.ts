@@ -30,6 +30,8 @@ const markSeen = (flag: string): void => store().setItem(flag, '1');
 export interface OnboardingDeps {
   show: (el: HTMLElement, visible: boolean) => void;
   isLoggedIn: () => boolean;
+  /** Whether the signed-in user belongs to ≥1 organization (drives the webinar step). */
+  isB2B: () => boolean;
   /** Toggle the in-call ⋯ overflow menu visible for the tour's share/invite steps. */
   forceMore: (open: boolean) => void;
 }
@@ -38,7 +40,7 @@ let deps: OnboardingDeps;
 
 export function initOnboarding(d: OnboardingDeps): void {
   deps = d;
-  initHomeWizard({ show: d.show, isLoggedIn: d.isLoggedIn });
+  initHomeWizard({ show: d.show, isLoggedIn: d.isLoggedIn, isB2B: d.isB2B });
   wireHelpButton('onb-home-help', startHomeWizard);
   wireHelpButton('onb-call-help', startCallTourNow);
 }

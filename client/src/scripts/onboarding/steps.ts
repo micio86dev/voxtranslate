@@ -6,23 +6,59 @@
 
 export interface WizardStep {
   key: string;
-  /** `authed`/`guest` steps render only for that audience; `all` always renders. */
-  role: 'all' | 'guest' | 'authed';
+  /** `authed`/`guest` steps render only for that audience; `all` always renders.
+   *  `b2b` renders only for a signed-in member of ≥1 organization (webinar pitch). */
+  role: 'all' | 'guest' | 'authed' | 'b2b';
   /** Key into the inline glyph set in home-wizard.ts. */
   glyph: string;
   titleKey: string;
   bodyKey: string;
 }
 
-// What VoxTranslate does → how to start → tiers → credits (authed) / sign-up (guest) → CTA.
+// What VoxTranslate does → how to start → tiers → credits (authed) / sign-up (guest) →
+// webinars (B2B) → CTA.
 export const HOME_WIZARD_STEPS: WizardStep[] = [
   { key: 'welcome', role: 'all', glyph: 'globe', titleKey: 'onbHomeWelcomeTitle', bodyKey: 'onbHomeWelcomeBody' },
   { key: 'start', role: 'all', glyph: 'call', titleKey: 'onbHomeStartTitle', bodyKey: 'onbHomeStartBody' },
   { key: 'tiers', role: 'all', glyph: 'tiers', titleKey: 'onbHomeTiersTitle', bodyKey: 'onbHomeTiersBody' },
   { key: 'credits', role: 'authed', glyph: 'credits', titleKey: 'onbHomeCreditsTitle', bodyKey: 'onbHomeCreditsBody' },
   { key: 'guest', role: 'guest', glyph: 'guest', titleKey: 'onbHomeGuestTitle', bodyKey: 'onbHomeGuestBody' },
+  { key: 'webinar', role: 'b2b', glyph: 'broadcast', titleKey: 'wizWebinarTitle', bodyKey: 'wizWebinarBody' },
   { key: 'cta', role: 'all', glyph: 'rocket', titleKey: 'onbHomeCtaTitle', bodyKey: 'onbHomeCtaBody' },
 ];
+
+/** The audience a step render decision is made against. `b2b` is a signed-in member of
+ *  ≥1 organization (regardless of subscription status — the webinar step exists to tell
+ *  them hosting needs a Business/Enterprise plan). */
+export interface WizardAudience {
+  isLoggedIn: boolean;
+  /** Member of ≥1 organization (any subscription status). Implies `isLoggedIn`. */
+  isB2B: boolean;
+}
+
+/** Whether the webinar-explainer step should be shown: only to B2B users (≥1 org). Pure
+ *  so the gate is unit-testable without the DOM. */
+export function shouldShowWebinarStep(audience: WizardAudience): boolean {
+  return audience.isB2B;
+}
+
+/** Select the wizard steps for the current audience. `all` always renders; `authed`/`guest`
+ *  key off sign-in; `b2b` uses {@link shouldShowWebinarStep}. Pure — the modal calls this at
+ *  open time so the active auth/org state wins. */
+export function selectWizardSteps(audience: WizardAudience): WizardStep[] {
+  return HOME_WIZARD_STEPS.filter((s) => {
+    switch (s.role) {
+      case 'all':
+        return true;
+      case 'authed':
+        return audience.isLoggedIn;
+      case 'guest':
+        return !audience.isLoggedIn;
+      case 'b2b':
+        return shouldShowWebinarStep(audience);
+    }
+  });
+}
 
 export interface TourStep {
   key: string;

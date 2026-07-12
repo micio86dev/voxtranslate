@@ -26,12 +26,13 @@ const MODAL_HTML = `
 async function setup(
   loggedIn: boolean,
   withModal = true,
+  isB2B = false,
 ): Promise<{ mod: Wizard; show: ReturnType<typeof vi.fn> }> {
   vi.resetModules();
   document.body.innerHTML = withModal ? MODAL_HTML : '<input id="name" />';
   const mod = await import('./home-wizard');
   const show = vi.fn();
-  mod.initHomeWizard({ show, isLoggedIn: () => loggedIn });
+  mod.initHomeWizard({ show, isLoggedIn: () => loggedIn, isB2B: () => isB2B });
   return { mod, show };
 }
 
@@ -88,6 +89,25 @@ describe('initHomeWizard / openHomeWizard', () => {
     next().click();
     expect(title()).toBe(en.onbHomeGuestTitle);
     expect(counter()).toBe(stepCounter(4, 5));
+  });
+
+  it('adds the webinar step for a B2B user (≥1 org) after credits', async () => {
+    const { mod } = await setup(true, true, true);
+    mod.openHomeWizard();
+    // welcome → start → tiers → credits (authed) → webinar (b2b)
+    for (let i = 0; i < 4; i++) next().click();
+    expect(title()).toBe(en.wizWebinarTitle);
+    expect(byId('onb-home-body').textContent).toBe(en.wizWebinarBody);
+    expect(document.querySelectorAll('#onb-home-dots .onb-dot').length).toBe(6);
+    expect(counter()).toBe(stepCounter(5, 6));
+  });
+
+  it('hides the webinar step for a non-B2B authed user', async () => {
+    const { mod } = await setup(true, true, false);
+    mod.openHomeWizard();
+    for (let i = 0; i < 4; i++) next().click();
+    expect(title()).toBe(en.onbHomeCtaTitle); // straight to CTA, no webinar step
+    expect(document.querySelectorAll('#onb-home-dots .onb-dot').length).toBe(5);
   });
 });
 
