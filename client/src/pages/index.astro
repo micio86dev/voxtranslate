@@ -1070,6 +1070,11 @@ const jsonLd = {
 
           <!-- Existing webinars for the selected org -->
           <h2 class="webinar-list-title" data-i18n="webinarYours">{T('webinarYours')}</h2>
+          <!-- Active | Archived toggle: switches which list `loadWebinars` fetches. -->
+          <div id="webinar-tabs" class="seg webinar-tabs" role="tablist">
+            <button type="button" class="seg-btn active" data-archived="false" role="tab" aria-selected="true" data-i18n="webinarTabActive">{T('webinarTabActive')}</button>
+            <button type="button" class="seg-btn" data-archived="true" role="tab" aria-selected="false" data-i18n="webinarTabArchived">{T('webinarTabArchived')}</button>
+          </div>
           <p id="webinar-list-empty" class="friend-empty hidden" data-i18n="webinarNone">{T('webinarNone')}</p>
           <div id="webinar-list" class="webinar-list"></div>
         </div>
@@ -2535,7 +2540,13 @@ const jsonLd = {
     .ws-switch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     .webinar-create-btn { width: auto; align-self: flex-start; padding: 0 18px; min-height: 44px; }
     .webinar-list-title { font-size: 1.05rem; font-weight: 700; margin: 0; }
+    /* Active | Archived toggle (reuses the shared .seg / .seg-btn segmented control). */
+    .webinar-tabs { margin: 0 0 4px; }
     .webinar-list { display: flex; flex-direction: column; gap: 12px; }
+    /* Archived cards are historical (title, code, created date, Restore) — muted. */
+    .webinar-list :global(.webinar-card-archived) { opacity: 0.85; }
+    .webinar-list :global(.webinar-archive-btn),
+    .webinar-list :global(.webinar-restore-btn) { align-self: flex-start; padding: 0 14px; min-height: 38px; }
     .webinar-list :global(.webinar-card) {
       display: flex; flex-direction: column; gap: 10px; padding: 14px;
       border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface);

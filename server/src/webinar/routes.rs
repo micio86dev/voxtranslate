@@ -51,6 +51,9 @@ pub fn routes() -> Router<AppState> {
         .route("/api/webinars/{id}/cancel", post(cancel))
         // Add a scheduled webinar to the host's Google Calendar (#7).
         .route("/api/webinars/{id}/calendar", post(add_to_calendar))
+        // Soft-archive / restore (③) — hide from the active list, data preserved.
+        .route("/api/webinars/{id}/archive", post(archive))
+        .route("/api/webinars/{id}/unarchive", post(unarchive))
         // Host mints a short-lived tokenized WHIP publish URL to go on air (F1-1).
         .route("/api/webinars/{id}/go-live", post(go_live))
         // Lifecycle: host client reports on-air / off-air (F1-3).
@@ -92,6 +95,9 @@ pub struct CreateWebinar {
 #[derive(Deserialize)]
 pub struct ListQuery {
     pub org_id: Uuid,
+    /// `false`/absent = active webinars; `true` = the archived ones.
+    #[serde(default)]
+    pub archived: bool,
 }
 
 #[derive(Deserialize)]
@@ -178,6 +184,7 @@ fn host_view(w: &Webinar, app_base_url: &str, cfg: &WebinarConfig) -> Value {
         "join_url": join_url(app_base_url, &w.code),
         "playback_url": playback_url(cfg, &w.code),
         "created_at": w.created_at,
+        "archived_at": w.archived_at,
     })
 }
 
@@ -268,12 +275,17 @@ pub async fn list(
     let pool = require_pool(&state)?;
     let cfg = require_cfg(&state)?;
     require_role(pool, q.org_id, user.user_id, MEMBER).await?;
-    let rows: Vec<Webinar> =
-        sqlx::query_as("SELECT * FROM webinars WHERE org_id = $1 ORDER BY created_at DESC")
-            .bind(q.org_id)
-            .fetch_all(pool)
-            .await
-            .map_err(db_err)?;
+    // Default lists the active webinars; `?archived=true` lists the archived ones.
+    let rows: Vec<Webinar> = sqlx::query_as(
+        "SELECT * FROM webinars
+         WHERE org_id = $1 AND (archived_at IS NOT NULL) = $2
+         ORDER BY created_at DESC",
+    )
+    .bind(q.org_id)
+    .bind(q.archived)
+    .fetch_all(pool)
+    .await
+    .map_err(db_err)?;
     let views: Vec<Value> = rows
         .iter()
         .map(|w| host_view(w, &state.config.app_base_url, cfg))
@@ -452,6 +464,45 @@ pub async fn publish_stopped(
     .map_err(db_err)?;
     let current = find_by_id(pool, id).await.map_err(db_err)?.unwrap_or(w);
     Ok(Json(host_view(&current, &state.config.app_base_url, cfg)).into_response())
+}
+
+/// `POST /api/webinars/{id}/archive` — soft-archive (hide from the active list;
+/// data preserved). Member only.
+pub async fn archive(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+) -> Result<Response, Response> {
+    let pool = require_pool(&state)?;
+    let cfg = require_cfg(&state)?;
+    require_webinar_role(pool, id, user.user_id, MEMBER).await?;
+    let updated: Webinar = sqlx::query_as(
+        "UPDATE webinars SET archived_at = now(), updated_at = now() WHERE id = $1 RETURNING *",
+    )
+    .bind(id)
+    .fetch_one(pool)
+    .await
+    .map_err(db_err)?;
+    Ok(Json(host_view(&updated, &state.config.app_base_url, cfg)).into_response())
+}
+
+/// `POST /api/webinars/{id}/unarchive` — restore an archived webinar. Member only.
+pub async fn unarchive(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+) -> Result<Response, Response> {
+    let pool = require_pool(&state)?;
+    let cfg = require_cfg(&state)?;
+    require_webinar_role(pool, id, user.user_id, MEMBER).await?;
+    let updated: Webinar = sqlx::query_as(
+        "UPDATE webinars SET archived_at = NULL, updated_at = now() WHERE id = $1 RETURNING *",
+    )
+    .bind(id)
+    .fetch_one(pool)
+    .await
+    .map_err(db_err)?;
+    Ok(Json(host_view(&updated, &state.config.app_base_url, cfg)).into_response())
 }
 
 /// Map a Google OAuth error to a client response (409 tells the client to connect

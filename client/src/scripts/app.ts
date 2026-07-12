@@ -82,6 +82,7 @@ import {
 } from './business';
 import {
   addToCalendar,
+  archiveWebinar,
   cancelWebinar,
   canHostWebinar,
   createWebinar,
@@ -90,6 +91,7 @@ import {
   qrDownloadFilename,
   showVoiceCloneToggle,
   showWebinarCloneAction,
+  unarchiveWebinar,
   WebinarError,
   type WebinarView,
 } from './webinar';
@@ -4810,6 +4812,8 @@ const webinarCreateBtn = $<HTMLButtonElement>('webinar-create-btn');
 const webinarCreateStatus = $('webinar-create-status');
 const webinarList = $('webinar-list');
 const webinarListEmpty = $('webinar-list-empty');
+// Active | Archived segmented control above the list (buttons carry data-archived).
+const webinarTabs = $('webinar-tabs');
 // Create-form toggle switches (role=switch buttons; state lives in aria-checked).
 const webinarRecordVideoSw = $<HTMLButtonElement>('webinar-record-video');
 const webinarRecordTranscriptSw = $<HTMLButtonElement>('webinar-record-transcript');
@@ -4824,6 +4828,8 @@ const webinarQrModalUrl = $('webinar-qr-modal-url');
 $('webinars-back').innerHTML = icon('chevron-left', 18);
 
 let webinarOrgsLoaded = false;
+// Which list the Webinars screen is showing: false = active, true = archived.
+let webinarShowArchived = false;
 
 /** Read a role=switch button's on/off state from its `aria-checked` attribute. */
 function switchOn(sw: HTMLButtonElement): boolean {
@@ -4908,6 +4914,7 @@ function fillWebinarLangs(): void {
 async function openWebinars(): Promise<void> {
   homeScreen.classList.add('hidden');
   webinarsScreen.classList.remove('hidden');
+  resetWebinarTabs(); // always re-enter on the Active list
   fillWebinarLangs();
   syncWebinarVoiceClone(); // tier-aware toggle/hint (voice clone is Enhanced-only)
   if (!webinarOrgsLoaded) {
@@ -4931,7 +4938,9 @@ function closeWebinars(): void {
   homeScreen.classList.remove('hidden');
 }
 
-/** Fetch + render the selected org's webinars (newest server order preserved). */
+/** Fetch + render the selected org's webinars (newest server order preserved). Honors
+ *  the Active | Archived toggle: archived cards are historical (title, code, created
+ *  date, Restore); active cards get the full go-live / QR / archive actions. */
 async function loadWebinars(): Promise<void> {
   const orgId = webinarOrgSel.value;
   webinarList.innerHTML = '';
@@ -4939,21 +4948,54 @@ async function loadWebinars(): Promise<void> {
   if (!orgId) return;
   let webinars: WebinarView[];
   try {
-    webinars = await listWebinars(orgId);
+    webinars = await listWebinars(orgId, webinarShowArchived);
   } catch (err) {
     toast(webinarErrorMessage(err), 'err');
     return;
   }
   if (!webinars.length) {
+    webinarListEmpty.textContent = t(
+      webinarShowArchived ? 'webinarNoneArchived' : 'webinarNone',
+    );
     show(webinarListEmpty, true);
     return;
   }
   for (const w of webinars) renderWebinarCard(w);
 }
 
+/** Reset the Active | Archived toggle back to Active (screen state + button styling).
+ *  Called on every entry to the Webinars screen so it never opens on the archived list. */
+function resetWebinarTabs(): void {
+  webinarShowArchived = false;
+  webinarTabs.querySelectorAll('.seg-btn').forEach((b) => {
+    const on = (b as HTMLElement).dataset.archived === 'false';
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-selected', String(on));
+  });
+}
+
+/** Switch the Webinars screen between the active and archived lists, reflect the
+ *  choice on the segmented control, persist it in screen state, and reload. */
+async function selectWebinarTab(archived: boolean): Promise<void> {
+  if (webinarShowArchived === archived) return;
+  webinarShowArchived = archived;
+  webinarTabs.querySelectorAll('.seg-btn').forEach((b) => {
+    const on = (b as HTMLElement).dataset.archived === String(archived);
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-selected', String(on));
+  });
+  await loadWebinars();
+}
+
 /** One webinar card: title/status, the copyable join link, a QR of that link, and
- *  a Cancel action while it's still scheduled. */
+ *  a Cancel/Archive action while it's active. Archived webinars render a slimmed-down
+ *  historical card (title, code, created date, Restore) via `renderArchivedWebinarCard`. */
 function renderWebinarCard(w: WebinarView): void {
+  if (w.archived_at) {
+    renderArchivedWebinarCard(w);
+    return;
+  }
+
   const card = document.createElement('div');
   card.className = 'webinar-card';
   card.dataset.webinarId = w.id;
@@ -5096,6 +5138,66 @@ function renderWebinarCard(w: WebinarView): void {
     });
     card.appendChild(cancelBtn);
   }
+
+  // Archive — move any active webinar into the historical (Archived) list. Available
+  // regardless of status; a soft-archive that can be undone from the Archived tab.
+  const archiveBtn = document.createElement('button');
+  archiveBtn.type = 'button';
+  archiveBtn.className = 'btn-ghost webinar-archive-btn';
+  archiveBtn.textContent = t('webinarArchive');
+  archiveBtn.addEventListener('click', async () => {
+    archiveBtn.disabled = true;
+    try {
+      await archiveWebinar(w.id);
+      toast(t('webinarArchived'), 'ok');
+      await loadWebinars();
+    } catch (err) {
+      archiveBtn.disabled = false;
+      toast(webinarErrorMessage(err), 'err');
+    }
+  });
+  card.appendChild(archiveBtn);
+
+  webinarList.appendChild(card);
+}
+
+/** A slimmed-down historical card for an archived webinar: title, short code, created
+ *  date, and a Restore action. No go-live / QR / calendar actions — archived webinars
+ *  are read-only history until restored back into the active list. */
+function renderArchivedWebinarCard(w: WebinarView): void {
+  const card = document.createElement('div');
+  card.className = 'webinar-card webinar-card-archived';
+  card.dataset.webinarId = w.id;
+
+  const head = document.createElement('div');
+  head.className = 'webinar-card-head';
+  const title = document.createElement('span');
+  title.className = 'webinar-card-title';
+  title.textContent = w.title;
+  head.appendChild(title);
+  card.appendChild(head);
+
+  const meta = document.createElement('span');
+  meta.className = 'webinar-card-meta';
+  meta.textContent = `${t('webinarCode')}: ${w.code} · ${t('webinarCreatedOn')} ${new Date(w.created_at).toLocaleDateString()}`;
+  card.appendChild(meta);
+
+  const restoreBtn = document.createElement('button');
+  restoreBtn.type = 'button';
+  restoreBtn.className = 'btn-ghost webinar-restore-btn';
+  restoreBtn.textContent = t('webinarRestore');
+  restoreBtn.addEventListener('click', async () => {
+    restoreBtn.disabled = true;
+    try {
+      await unarchiveWebinar(w.id);
+      toast(t('webinarRestored'), 'ok');
+      await loadWebinars();
+    } catch (err) {
+      restoreBtn.disabled = false;
+      toast(webinarErrorMessage(err), 'err');
+    }
+  });
+  card.appendChild(restoreBtn);
 
   webinarList.appendChild(card);
 }
@@ -5785,6 +5887,12 @@ webinarForm.addEventListener('submit', (e) => {
   void submitWebinar();
 });
 webinarOrgSel.addEventListener('change', () => void loadWebinars());
+// Active | Archived segmented control: switch the shown list on click.
+webinarTabs.addEventListener('click', (e) => {
+  const btn = (e.target as HTMLElement).closest('.seg-btn') as HTMLElement | null;
+  if (!btn) return;
+  void selectWebinarTab(btn.dataset.archived === 'true');
+});
 $('webinars-back').addEventListener('click', closeWebinars);
 $('webinars-btn').addEventListener('click', () => {
   closeAccountMenu();
