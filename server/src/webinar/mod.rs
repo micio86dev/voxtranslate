@@ -17,6 +17,7 @@ use crate::db::Pool;
 
 pub mod guest;
 pub mod media;
+pub mod presence;
 pub mod routes;
 
 /// Base58 alphabet: digits + letters MINUS the visually ambiguous `0 O I l`, so a

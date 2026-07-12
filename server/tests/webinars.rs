@@ -742,3 +742,73 @@ async fn calendar_authz() {
         .unwrap();
     assert_eq!(nm.status(), 404, "non-member → 404");
 }
+
+/// Read the next `{type:"count"}` message off a presence WebSocket.
+async fn next_count<S>(ws: &mut S) -> u64
+where
+    S: futures::StreamExt<
+            Item = Result<
+                tokio_tungstenite::tungstenite::Message,
+                tokio_tungstenite::tungstenite::Error,
+            >,
+        > + Unpin,
+{
+    use tokio_tungstenite::tungstenite::Message;
+    loop {
+        let msg = ws.next().await.expect("ws open").expect("ws msg");
+        if let Message::Text(t) = msg {
+            let v: Value = serde_json::from_str(&t).unwrap();
+            if v["type"] == "count" {
+                return v["count"].as_u64().unwrap();
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn presence_counts_and_records_history() {
+    let Some(srv) = setup().await else {
+        return;
+    };
+    let http = Client::new();
+    let (owner, jwt) = user(&srv).await;
+    let org_id = org(&srv, owner, true).await;
+    let created = create_webinar(&http, &srv, &jwt, org_id).await;
+    let code = created["code"].as_str().unwrap().to_string();
+    let webinar_id = Uuid::parse_str(created["id"].as_str().unwrap()).unwrap();
+    let ws_url = |g: Uuid| format!("ws://{}/api/w/{code}/presence?guest_id={g}", srv.addr);
+
+    // Guest A joins → audience count 1.
+    let (mut a, _) = tokio_tungstenite::connect_async(ws_url(Uuid::new_v4()))
+        .await
+        .unwrap();
+    assert_eq!(next_count(&mut a).await, 1, "first viewer → 1");
+
+    // Guest B joins → both are notified of count 2.
+    let (mut b, _) = tokio_tungstenite::connect_async(ws_url(Uuid::new_v4()))
+        .await
+        .unwrap();
+    assert_eq!(next_count(&mut b).await, 2, "second viewer → 2");
+    assert_eq!(next_count(&mut a).await, 2, "A sees B join");
+
+    // History persisted (validates the 038 schema end-to-end).
+    let joins: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM webinar_events WHERE webinar_id = $1 AND type = 'join'",
+    )
+    .bind(webinar_id)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
+    assert!(joins >= 2, "join events recorded");
+    let participants: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM webinar_participants WHERE webinar_id = $1")
+            .bind(webinar_id)
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap();
+    assert_eq!(participants, 2, "one participant row per guest");
+
+    // B leaves → A is notified of count 1.
+    drop(b);
+    assert_eq!(next_count(&mut a).await, 1, "A sees B leave");
+}
