@@ -56,6 +56,28 @@ export type WhipState =
   | "mic-denied"
   | "error";
 
+/** Reorder the video codec payload types in a WHIP SDP offer so H264 is preferred over
+ *  VP8/VP9. MediaMTX's LL-HLS output requires H264 for video — Chrome negotiates VP8
+ *  first by default, which MediaMTX cannot remux into HLS segments playable by all
+ *  browsers, resulting in a black video track for participants. Pure, unit-testable. */
+export function preferH264InSdp(sdp: string): string {
+  return sdp.replace(/m=video \d+ [\w/]+ ([\d ]+)/, (mLine, ptList: string) => {
+    const pts = ptList.trim().split(" ");
+    // Collect H264 payload types from rtpmap lines.
+    const h264PTs = new Set<string>();
+    for (const m of sdp.matchAll(/a=rtpmap:(\d+) H264\//g)) h264PTs.add(m[1]);
+    // Include each H264 entry's RTX companion (a=fmtp:PT apt=H264_PT).
+    for (const h264PT of [...h264PTs]) {
+      for (const m of sdp.matchAll(new RegExp(`a=fmtp:(\\d+) apt=${h264PT}\\b`, "g"))) {
+        h264PTs.add(m[1]);
+      }
+    }
+    const preferred = pts.filter((pt) => h264PTs.has(pt));
+    const rest = pts.filter((pt) => !h264PTs.has(pt));
+    return mLine.replace(ptList, [...preferred, ...rest].join(" "));
+  });
+}
+
 /** POST the WHIP offer SDP to the tokenized ingest URL and return the 201 answer SDP
  *  plus the `Location` resource URL. NO auth headers — the media server is cross-origin
  *  and authorizes via the `?token=` already baked into `url`. Pure over `fetch`, so it
@@ -286,7 +308,7 @@ export class WhipPublisher {
     await pc.setLocalDescription(offer);
     await waitForIceGathering(pc);
 
-    const offerSdp = pc.localDescription?.sdp ?? offer.sdp ?? "";
+    const offerSdp = preferH264InSdp(pc.localDescription?.sdp ?? offer.sdp ?? "");
     const { answerSdp, resourceUrl } = await whipPublish(publish_url, offerSdp);
     this.resourceUrl = resourceUrl;
     await pc.setRemoteDescription({ type: "answer", sdp: answerSdp });
