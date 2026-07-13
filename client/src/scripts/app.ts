@@ -2181,6 +2181,11 @@ async function handleServer(msg: any): Promise<void> {
         else toast(t('langChanged'));
       }
       updateParticipantsList();
+      // Re-evaluate muting: a language change (peer detected, manual correction, or
+      // our own auto-detection resolving) can flip a peer from same-language (unmuted)
+      // to foreign (muted) or vice versa. Without this, muted state stays stale until
+      // the next attachStream call — causing persistent original-language audio.
+      applyAudioMode();
       break;
     }
     case 'subtitle_interim':
@@ -2743,13 +2748,16 @@ function attachStream(id: string, stream: MediaStream): void {
   const cell = videoGrid.querySelector(`[data-peer="${cssEsc(id)}"]`);
   if (!cell) return;
   const video = cell.querySelector('video') as HTMLVideoElement;
+  // Apply muting BEFORE assigning srcObject so the browser's autoplay never fires
+  // for an unmuted foreign-language peer — avoids a brief original-language audio
+  // burst before applyAudioMode() runs.
+  applyAudioMode();
   video.srcObject = stream;
   void video.play().catch(() => {});
   // A disabled remote track still counts, so a known camera-off state (from
   // peer_muted) takes precedence over the raw track count.
   const hasVideo = stream.getVideoTracks().length > 0;
   if (id !== myId) setCameraOff(id, peerCamOff.get(id) ?? !hasVideo);
-  applyAudioMode();
   schedulePipSync(); // a stream just attached — push it into the PiP clone too (spec 0057)
 }
 
