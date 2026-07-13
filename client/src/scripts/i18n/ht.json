@@ -660,5 +660,11 @@
   "wvChatNamePlaceholder": "Non ou",
   "wvChatEmpty": "Poko gen mesaj. Di bonjou!",
   "wvChatRateLimited": "W ap voye mesaj twò vit. Tanpri tann yon ti moman.",
-  "wvChatBlocked": "Nou pa t kapab voye mesaj ou a."
+  "wvChatBlocked": "Nou pa t kapab voye mesaj ou a.",
+  "wvRecapTitle": "Rezime sesyon an",
+  "wvRecapClose": "Retounen nan webinè yo",
+  "wvRecapTabTranscript": "Transkripsyon",
+  "wvRecapTabChat": "Chat tradui",
+  "wvRecapTranscriptEmpty": "Pa gen okenn transkripsyon anrejistre pou sesyon sa a.",
+  "wvRecapChatEmpty": "Pa gen okenn mesaj chat pou sesyon sa a."
 }

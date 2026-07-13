@@ -660,5 +660,11 @@
   "wvChatNamePlaceholder": "Nama Anda",
   "wvChatEmpty": "Belum ada pesan. Sapa mereka!",
   "wvChatRateLimited": "Anda mengirim pesan terlalu cepat. Mohon tunggu sebentar.",
-  "wvChatBlocked": "Pesan Anda tidak dapat dikirim."
+  "wvChatBlocked": "Pesan Anda tidak dapat dikirim.",
+  "wvRecapTitle": "Ringkasan sesi",
+  "wvRecapClose": "Kembali ke webinar",
+  "wvRecapTabTranscript": "Transkripsi",
+  "wvRecapTabChat": "Obrolan terjemahan",
+  "wvRecapTranscriptEmpty": "Tidak ada transkripsi yang direkam untuk sesi ini.",
+  "wvRecapChatEmpty": "Tidak ada pesan obrolan untuk sesi ini."
 }

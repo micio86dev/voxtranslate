@@ -660,5 +660,11 @@
   "wvChatNamePlaceholder": "ឈ្មោះរបស់អ្នក",
   "wvChatEmpty": "មិនទាន់មានសារនៅឡើយ។ ស្វាគមន៍!",
   "wvChatRateLimited": "អ្នកកំពុងផ្ញើសារលឿនពេក។ សូមរង់ចាំបន្តិច។",
-  "wvChatBlocked": "សាររបស់អ្នកមិនអាចផ្ញើបានទេ។"
+  "wvChatBlocked": "សាររបស់អ្នកមិនអាចផ្ញើបានទេ។",
+  "wvRecapTitle": "សង្ខេបវគ្គ",
+  "wvRecapClose": "ត្រឡប់ទៅ webinar",
+  "wvRecapTabTranscript": "ការចម្លង",
+  "wvRecapTabChat": "ជជែកដែលបានបកប្រែ",
+  "wvRecapTranscriptEmpty": "គ្មានការចម្លងត្រូវបានកត់ត្រាសម្រាប់វគ្គនេះទេ។",
+  "wvRecapChatEmpty": "គ្មានសារជជែកសម្រាប់វគ្គនេះទេ។"
 }

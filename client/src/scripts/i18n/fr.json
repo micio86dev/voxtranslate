@@ -660,5 +660,11 @@
   "wvChatNamePlaceholder": "Votre nom",
   "wvChatEmpty": "Aucun message pour le moment. Dites bonjour !",
   "wvChatRateLimited": "Vous envoyez des messages trop rapidement. Veuillez patienter un instant.",
-  "wvChatBlocked": "Votre message n’a pas pu être envoyé."
+  "wvChatBlocked": "Votre message n’a pas pu être envoyé.",
+  "wvRecapTitle": "Récapitulatif de la session",
+  "wvRecapClose": "Retour aux webinaires",
+  "wvRecapTabTranscript": "Transcriptions",
+  "wvRecapTabChat": "Chat traduit",
+  "wvRecapTranscriptEmpty": "Aucune transcription enregistrée pour cette session.",
+  "wvRecapChatEmpty": "Aucun message de chat pour cette session."
 }

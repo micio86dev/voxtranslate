@@ -660,5 +660,11 @@
   "wvChatNamePlaceholder": "你嘅名",
   "wvChatEmpty": "仲未有訊息。同大家打個招呼啦!",
   "wvChatRateLimited": "你傳訊息傳得太快啦。請等一等。",
-  "wvChatBlocked": "你嘅訊息傳送唔到。"
+  "wvChatBlocked": "你嘅訊息傳送唔到。",
+  "wvRecapTitle": "會議回顧",
+  "wvRecapClose": "返回網絡研討會",
+  "wvRecapTabTranscript": "文字記錄",
+  "wvRecapTabChat": "翻譯對話",
+  "wvRecapTranscriptEmpty": "本次會議沒有記錄任何文字記錄。",
+  "wvRecapChatEmpty": "本次會議沒有對話訊息。"
 }

@@ -660,5 +660,11 @@
   "wvChatNamePlaceholder": "El teu nom",
   "wvChatEmpty": "Encara no hi ha missatges. Digues hola!",
   "wvChatRateLimited": "Estàs enviant missatges massa de pressa. Espera un moment, si us plau.",
-  "wvChatBlocked": "No s’ha pogut enviar el teu missatge."
+  "wvChatBlocked": "No s’ha pogut enviar el teu missatge.",
+  "wvRecapTitle": "Resum de la sessió",
+  "wvRecapClose": "Torna als webinars",
+  "wvRecapTabTranscript": "Transcripcions",
+  "wvRecapTabChat": "Xat traduït",
+  "wvRecapTranscriptEmpty": "No s'han enregistrat transcripcions per a aquesta sessió.",
+  "wvRecapChatEmpty": "No hi ha missatges de xat per a aquesta sessió."
 }

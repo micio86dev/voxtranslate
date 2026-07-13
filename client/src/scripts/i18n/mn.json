@@ -660,5 +660,11 @@
   "wvChatNamePlaceholder": "Таны нэр",
   "wvChatEmpty": "Одоохондоо зурвас алга. Мэндлээрэй!",
   "wvChatRateLimited": "Та хэт хурдан зурвас илгээж байна. Түр хүлээнэ үү.",
-  "wvChatBlocked": "Таны зурвасыг илгээж чадсангүй."
+  "wvChatBlocked": "Таны зурвасыг илгээж чадсангүй.",
+  "wvRecapTitle": "Сесийн тойм",
+  "wvRecapClose": "Вебинар руу буцах",
+  "wvRecapTabTranscript": "Транскрипцүүд",
+  "wvRecapTabChat": "Орчуулсан чат",
+  "wvRecapTranscriptEmpty": "Энэ сесийн хувьд транскрипц бичигдээгүй байна.",
+  "wvRecapChatEmpty": "Энэ сесийн хувьд чат мессеж байхгүй байна."
 }

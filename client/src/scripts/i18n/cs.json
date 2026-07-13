@@ -660,5 +660,11 @@
   "wvChatNamePlaceholder": "Vaše jméno",
   "wvChatEmpty": "Zatím žádné zprávy. Pozdravte!",
   "wvChatRateLimited": "Posíláte zprávy příliš rychle. Chvíli prosím počkejte.",
-  "wvChatBlocked": "Vaši zprávu se nepodařilo odeslat."
+  "wvChatBlocked": "Vaši zprávu se nepodařilo odeslat.",
+  "wvRecapTitle": "Shrnutí relace",
+  "wvRecapClose": "Zpět na webináře",
+  "wvRecapTabTranscript": "Přepisy",
+  "wvRecapTabChat": "Přeložený chat",
+  "wvRecapTranscriptEmpty": "Pro tuto relaci nebyly zaznamenány žádné přepisy.",
+  "wvRecapChatEmpty": "Pro tuto relaci nejsou žádné zprávy z chatu."
 }

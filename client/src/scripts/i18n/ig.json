@@ -660,5 +660,11 @@
   "wvChatNamePlaceholder": "Aha gị",
   "wvChatEmpty": "Enwebeghị ozi ọ bụla. Kwuo ndewo!",
   "wvChatRateLimited": "Ị na-ezipu ozi ọsọ ọsọ karịrị. Biko chere nwa oge.",
-  "wvChatBlocked": "Enweghị ike izipu ozi gị."
+  "wvChatBlocked": "Enweghị ike izipu ozi gị.",
+  "wvRecapTitle": "Nchoputa nke oge",
+  "wvRecapClose": "Laghachi na webinar",
+  "wvRecapTabTranscript": "Nsụpụta",
+  "wvRecapTabChat": "Mkparịta ụka etinyere",
+  "wvRecapTranscriptEmpty": "Enweghị nsụpụta edekọtara maka oge a.",
+  "wvRecapChatEmpty": "Enweghị ozi mkparịta ụka maka oge a."
 }

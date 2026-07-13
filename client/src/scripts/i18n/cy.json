@@ -660,5 +660,11 @@
   "wvChatNamePlaceholder": "Eich enw",
   "wvChatEmpty": "Dim negeseuon eto. Dywedwch helo!",
   "wvChatRateLimited": "Rydych chi’n anfon negeseuon yn rhy gyflym. Arhoswch eiliad, os gwelwch yn dda.",
-  "wvChatBlocked": "Ni ellid anfon eich neges."
+  "wvChatBlocked": "Ni ellid anfon eich neges.",
+  "wvRecapTitle": "Crynodeb y sesiwn",
+  "wvRecapClose": "Yn ôl i'r gweminarau",
+  "wvRecapTabTranscript": "Trawsgrifiadau",
+  "wvRecapTabChat": "Sgwrs wedi'i chyfieithu",
+  "wvRecapTranscriptEmpty": "Nid oes unrhyw drawsgrifiadau wedi'u cofnodi ar gyfer y sesiwn hon.",
+  "wvRecapChatEmpty": "Nid oes unrhyw negeseuon sgwrs ar gyfer y sesiwn hon."
 }

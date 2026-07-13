@@ -660,5 +660,11 @@
   "wvChatNamePlaceholder": "သင့်အမည်",
   "wvChatEmpty": "မက်ဆေ့ချ် မရှိသေးပါ။ နှုတ်ဆက်လိုက်ပါ!",
   "wvChatRateLimited": "သင် မက်ဆေ့ချ်များကို မြန်လွန်းစွာ ပို့နေပါသည်။ ခဏစောင့်ပါ။",
-  "wvChatBlocked": "သင့်မက်ဆေ့ချ်ကို ပို့၍မရပါ။"
+  "wvChatBlocked": "သင့်မက်ဆေ့ချ်ကို ပို့၍မရပါ။",
+  "wvRecapTitle": "အစည်းအဝေး အကျဉ်းချုပ်",
+  "wvRecapClose": "ဝက်ဘ်နာများသို့ ပြန်သွားရန်",
+  "wvRecapTabTranscript": "ကြာကြာ မှတ်တမ်းများ",
+  "wvRecapTabChat": "ဘာသာပြန် ချတ်",
+  "wvRecapTranscriptEmpty": "ဤအစည်းအဝေးအတွက် မှတ်တမ်းများ မတင်ထားပါ။",
+  "wvRecapChatEmpty": "ဤအစည်းအဝေးအတွက် ချတ်မှတ်တမ်းများ မရှိပါ။"
 }

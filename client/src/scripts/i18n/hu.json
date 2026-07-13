@@ -660,5 +660,11 @@
   "wvChatNamePlaceholder": "A neved",
   "wvChatEmpty": "Még nincsenek üzenetek. Köszönj be!",
   "wvChatRateLimited": "Túl gyorsan küldesz üzeneteket. Kérlek, várj egy pillanatot.",
-  "wvChatBlocked": "Az üzenetedet nem sikerült elküldeni."
+  "wvChatBlocked": "Az üzenetedet nem sikerült elküldeni.",
+  "wvRecapTitle": "Munkamenet összefoglalója",
+  "wvRecapClose": "Vissza a webináriumokhoz",
+  "wvRecapTabTranscript": "Átiratok",
+  "wvRecapTabChat": "Lefordított csevegés",
+  "wvRecapTranscriptEmpty": "Ehhez a munkamenethez nem rögzítettünk átiratokat.",
+  "wvRecapChatEmpty": "Ehhez a munkamenethez nincsenek csevegőüzenetek."
 }

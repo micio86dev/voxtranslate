@@ -660,5 +660,11 @@
   "wvChatNamePlaceholder": "اسمك",
   "wvChatEmpty": "لا توجد رسائل بعد. ألقِ التحية!",
   "wvChatRateLimited": "أنت ترسل الرسائل بسرعة كبيرة. يُرجى الانتظار لحظة.",
-  "wvChatBlocked": "تعذّر إرسال رسالتك."
+  "wvChatBlocked": "تعذّر إرسال رسالتك.",
+  "wvRecapTitle": "ملخص الجلسة",
+  "wvRecapClose": "العودة إلى الندوات",
+  "wvRecapTabTranscript": "النصوص المكتوبة",
+  "wvRecapTabChat": "المحادثة المترجمة",
+  "wvRecapTranscriptEmpty": "لم يتم تسجيل أي نصوص لهذه الجلسة.",
+  "wvRecapChatEmpty": "لا توجد رسائل دردشة لهذه الجلسة."
 }

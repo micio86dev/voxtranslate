@@ -660,5 +660,11 @@
   "wvChatNamePlaceholder": "이름",
   "wvChatEmpty": "아직 메시지가 없습니다. 인사를 건네보세요!",
   "wvChatRateLimited": "메시지를 너무 빠르게 보내고 있습니다. 잠시 기다려 주세요.",
-  "wvChatBlocked": "메시지를 보낼 수 없습니다."
+  "wvChatBlocked": "메시지를 보낼 수 없습니다.",
+  "wvRecapTitle": "세션 요약",
+  "wvRecapClose": "웨비나로 돌아가기",
+  "wvRecapTabTranscript": "전사 내용",
+  "wvRecapTabChat": "번역된 채팅",
+  "wvRecapTranscriptEmpty": "이 세션에 기록된 전사 내용이 없습니다.",
+  "wvRecapChatEmpty": "이 세션의 채팅 메시지가 없습니다."
 }

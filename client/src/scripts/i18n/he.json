@@ -660,5 +660,11 @@
   "wvChatNamePlaceholder": "השם שלך",
   "wvChatEmpty": "אין עדיין הודעות. אמרו שלום!",
   "wvChatRateLimited": "אתם שולחים הודעות מהר מדי. המתינו רגע.",
-  "wvChatBlocked": "לא ניתן היה לשלוח את ההודעה שלך."
+  "wvChatBlocked": "לא ניתן היה לשלוח את ההודעה שלך.",
+  "wvRecapTitle": "סיכום הסשן",
+  "wvRecapClose": "חזרה לוובינרים",
+  "wvRecapTabTranscript": "תמלולים",
+  "wvRecapTabChat": "צ'אט מתורגם",
+  "wvRecapTranscriptEmpty": "לא הוקלטו תמלולים עבור סשן זה.",
+  "wvRecapChatEmpty": "אין הודעות צ'אט עבור סשן זה."
 }

@@ -660,5 +660,11 @@
   "wvChatNamePlaceholder": "Nafnið þitt",
   "wvChatEmpty": "Engin skilaboð enn. Heilsaðu!",
   "wvChatRateLimited": "Þú sendir skilaboð of hratt. Vinsamlegast bíddu andartak.",
-  "wvChatBlocked": "Ekki tókst að senda skilaboðin þín."
+  "wvChatBlocked": "Ekki tókst að senda skilaboðin þín.",
+  "wvRecapTitle": "Samantekt fundar",
+  "wvRecapClose": "Til baka í vefnámskeiðin",
+  "wvRecapTabTranscript": "Afrit",
+  "wvRecapTabChat": "Þýddur spjall",
+  "wvRecapTranscriptEmpty": "Engin afrit voru skráð fyrir þennan fund.",
+  "wvRecapChatEmpty": "Engar spjallskilaboð eru fyrir þennan fund."
 }

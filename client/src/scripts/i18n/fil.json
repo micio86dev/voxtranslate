@@ -660,5 +660,11 @@
   "wvChatNamePlaceholder": "Iyong pangalan",
   "wvChatEmpty": "Wala pang mga mensahe. Kumustahin mo sila!",
   "wvChatRateLimited": "Masyado kang mabilis magpadala ng mga mensahe. Maghintay ka muna sandali.",
-  "wvChatBlocked": "Hindi maipadala ang iyong mensahe."
+  "wvChatBlocked": "Hindi maipadala ang iyong mensahe.",
+  "wvRecapTitle": "Buod ng sesyon",
+  "wvRecapClose": "Bumalik sa mga webinar",
+  "wvRecapTabTranscript": "Mga transkripsiyon",
+  "wvRecapTabChat": "Isinalin na chat",
+  "wvRecapTranscriptEmpty": "Walang naitala na transkripsiyon para sa sesyong ito.",
+  "wvRecapChatEmpty": "Walang mga mensahe sa chat para sa sesyong ito."
 }

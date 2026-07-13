@@ -1200,6 +1200,27 @@ const jsonLd = {
       </div>
     </section>
 
+    <section id="webinar-recap" class="screen hidden">
+      <div class="recap-wrap">
+        <div class="recap-header">
+          <h2 data-i18n="wvRecapTitle">{T('wvRecapTitle')}</h2>
+          <button id="recap-close" class="btn-ghost" type="button" data-i18n="wvRecapClose">{T('wvRecapClose')}</button>
+        </div>
+        <div class="recap-tabs" role="tablist">
+          <button id="recap-tab-transcript" class="recap-tab active" role="tab" aria-selected="true" data-i18n="wvRecapTabTranscript">{T('wvRecapTabTranscript')}</button>
+          <button id="recap-tab-chat" class="recap-tab" role="tab" aria-selected="false" data-i18n="wvRecapTabChat">{T('wvRecapTabChat')}</button>
+        </div>
+        <div id="recap-transcript-panel" class="recap-panel">
+          <p id="recap-transcript-empty" class="recap-empty hidden" data-i18n="wvRecapTranscriptEmpty">{T('wvRecapTranscriptEmpty')}</p>
+          <div id="recap-transcript-list" class="recap-list"></div>
+        </div>
+        <div id="recap-chat-panel" class="recap-panel hidden">
+          <p id="recap-chat-empty" class="recap-empty hidden" data-i18n="wvRecapChatEmpty">{T('wvRecapChatEmpty')}</p>
+          <div id="recap-chat-list" class="recap-list"></div>
+        </div>
+      </div>
+    </section>
+
     <!-- End-webinar confirmation (spec: End webinar). Reuses the shared
          .modal-overlay focus-trap + Escape + focus-restore wired in app.ts. -->
     <div id="webinar-end-modal" class="modal-overlay hidden">
@@ -2732,6 +2753,22 @@ const jsonLd = {
       .webinar-list :global(.webinar-copy-btn) { flex: 1 1 auto; }
       .webinar-list :global(.webinar-golive-btn) { width: 100%; }
     }
+
+    /* ---- Webinar recap screen ---- */
+    #webinar-recap { background: var(--bg); overflow-y: auto; }
+    .recap-wrap { max-width: 720px; margin: 0 auto; padding: 24px 16px 48px; }
+    .recap-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+    .recap-header h2 { font-size: 1.1rem; font-weight: 600; }
+    .recap-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+    .recap-tab { background: none; border: none; padding: 8px 16px; font-size: 0.875rem; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+    .recap-tab.active { color: var(--fg); border-bottom-color: var(--accent, #3b82f6); font-weight: 500; }
+    .recap-panel { display: flex; flex-direction: column; gap: 10px; }
+    .recap-list { display: flex; flex-direction: column; gap: 10px; }
+    .recap-utterance { font-size: 0.9rem; line-height: 1.5; padding: 10px 12px; background: var(--surface, rgba(0,0,0,0.03)); border-radius: 6px; }
+    .recap-utterance time { display: block; font-size: 0.75rem; color: var(--muted); margin-bottom: 4px; }
+    .recap-chat-msg { font-size: 0.875rem; padding: 8px 12px; background: var(--surface, rgba(0,0,0,0.03)); border-radius: 6px; }
+    .recap-chat-msg .recap-sender { font-weight: 500; font-size: 0.8rem; margin-bottom: 2px; }
+    .recap-empty { color: var(--muted); font-size: 0.875rem; }
 
     /* Billing section: balance + a quick path back to checkout, above the history tabs. */
     .billing-balance-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; }

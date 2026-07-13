@@ -660,5 +660,11 @@
   "wvChatNamePlaceholder": "Igama lakho",
   "wvChatEmpty": "Ayikho imilayezo okwamanje. Sho sawubona!",
   "wvChatRateLimited": "Uthumela imilayezo ngokushesha kakhulu. Sicela ulinde umzuzwana.",
-  "wvChatBlocked": "Umlayezo wakho awukwazanga ukuthunyelwa."
+  "wvChatBlocked": "Umlayezo wakho awukwazanga ukuthunyelwa.",
+  "wvRecapTitle": "Isifinyezo seseshini",
+  "wvRecapClose": "Buyela eziwebhinarini",
+  "wvRecapTabTranscript": "Izingxoxo ezibhaliwe",
+  "wvRecapTabChat": "Ingxoxo ehunyushiwe",
+  "wvRecapTranscriptEmpty": "Awekho amazwi abhaliwe arekodiwe kulesi seshini.",
+  "wvRecapChatEmpty": "Awekho imilayezo yengxoxo kulesi seshini."
 }

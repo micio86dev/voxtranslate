@@ -660,5 +660,11 @@
   "wvChatNamePlaceholder": "D’ainm",
   "wvChatEmpty": "Níl aon teachtaireacht ann fós. Abair haló!",
   "wvChatRateLimited": "Tá tú ag seoladh teachtaireachtaí róthapa. Fan nóiméad, le do thoil.",
-  "wvChatBlocked": "Níorbh fhéidir do theachtaireacht a sheoladh."
+  "wvChatBlocked": "Níorbh fhéidir do theachtaireacht a sheoladh.",
+  "wvRecapTitle": "Achoimre na seisiúin",
+  "wvRecapClose": "Ar ais chuig na seimineáir",
+  "wvRecapTabTranscript": "Tras-scríbhinní",
+  "wvRecapTabChat": "Comhrá aistrithe",
+  "wvRecapTranscriptEmpty": "Níor taifeadadh aon tras-scríbhinní don seisiún seo.",
+  "wvRecapChatEmpty": "Níl aon teachtaireachtaí comhrá don seisiún seo."
 }

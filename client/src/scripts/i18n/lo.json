@@ -660,5 +660,11 @@
   "wvChatNamePlaceholder": "ຊື່ຂອງທ່ານ",
   "wvChatEmpty": "ຍັງບໍ່ມີຂໍ້ຄວາມ. ທັກທາຍກັນເລີຍ!",
   "wvChatRateLimited": "ທ່ານກຳລັງສົ່ງຂໍ້ຄວາມໄວເກີນໄປ. ກະລຸນາລໍຖ້າຊົ່ວຄາວ.",
-  "wvChatBlocked": "ບໍ່ສາມາດສົ່ງຂໍ້ຄວາມຂອງທ່ານໄດ້."
+  "wvChatBlocked": "ບໍ່ສາມາດສົ່ງຂໍ້ຄວາມຂອງທ່ານໄດ້.",
+  "wvRecapTitle": "ສະຫຼຸບກອງປະຊຸມ",
+  "wvRecapClose": "ກັບໄປຫາ webinar",
+  "wvRecapTabTranscript": "ການຖ່າຍຂໍ້ຄວາມ",
+  "wvRecapTabChat": "ການສົນທະນາທີ່ແປ",
+  "wvRecapTranscriptEmpty": "ບໍ່ມີການຖ່າຍຂໍ້ຄວາມທີ່ບັນທຶກໄວ້ສໍາລັບກອງປະຊຸມນີ້.",
+  "wvRecapChatEmpty": "ບໍ່ມີຂໍ້ຄວາມສົນທະນາສໍາລັບກອງປະຊຸມນີ້."
 }

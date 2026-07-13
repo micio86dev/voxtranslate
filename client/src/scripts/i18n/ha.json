@@ -660,5 +660,11 @@
   "wvChatNamePlaceholder": "Sunanka",
   "wvChatEmpty": "Babu saƙonni tukuna. Ka gaishe su!",
   "wvChatRateLimited": "Kana aika saƙonni da sauri sosai. Da fatan ka jira ɗan lokaci.",
-  "wvChatBlocked": "An kasa aika saƙonka."
+  "wvChatBlocked": "An kasa aika saƙonka.",
+  "wvRecapTitle": "Taƙaitaccen taro",
+  "wvRecapClose": "Koma ga webinars",
+  "wvRecapTabTranscript": "Rubuce-rubuce",
+  "wvRecapTabChat": "Tattaunawa da aka fassara",
+  "wvRecapTranscriptEmpty": "Ba a yi rikodin rubuce-rubuce ga wannan taro ba.",
+  "wvRecapChatEmpty": "Babu saƙonnin hira ga wannan taro."
 }

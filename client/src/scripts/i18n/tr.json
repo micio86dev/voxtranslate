@@ -660,5 +660,11 @@
   "wvChatNamePlaceholder": "Adınız",
   "wvChatEmpty": "Henüz mesaj yok. Merhaba deyin!",
   "wvChatRateLimited": "Mesajları çok hızlı gönderiyorsunuz. Lütfen bir an bekleyin.",
-  "wvChatBlocked": "Mesajınız gönderilemedi."
+  "wvChatBlocked": "Mesajınız gönderilemedi.",
+  "wvRecapTitle": "Oturum özeti",
+  "wvRecapClose": "Webinarlara geri dön",
+  "wvRecapTabTranscript": "Transkriptler",
+  "wvRecapTabChat": "Çevrilmiş sohbet",
+  "wvRecapTranscriptEmpty": "Bu oturum için hiçbir transkript kaydedilmedi.",
+  "wvRecapChatEmpty": "Bu oturum için sohbet mesajı bulunmuyor."
 }
