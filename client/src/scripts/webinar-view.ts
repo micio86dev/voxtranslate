@@ -5,7 +5,7 @@
 // intentionally DOM-only and runs solely in the browser.
 
 import { HlsPlayer, getStoredGuestId, type PlayerState } from './hls-player';
-import { applyI18n, detectLang, getUiLang, loadLocale, setUiLang, t } from './i18n';
+import { applyI18n, detectLang, getUiLang, loadLocale, setUiLang, SUPPORTED, t } from './i18n';
 import { PresenceClient, type SubtitleEvent } from './webinar-presence';
 import { renderSubtitleInto } from './subtitle-render';
 import { getPublicWebinar } from './webinar';
@@ -23,6 +23,23 @@ const WS_PROTO = location.protocol === 'https:' ? 'wss:' : 'ws:';
 const WS_BASE = `${WS_PROTO}//${WS_HOST}`;
 // App HTTP base (derived from WS_BASE, mirroring auth.ts) for the chat REST calls.
 const HTTP_BASE = WS_BASE.replace(/^ws/, 'http');
+
+// The localStorage key where the main app persists the user's chosen UI language
+// (mirrors LANG_CACHE_KEY in app.ts). On the /w/ page we read it first so a viewer
+// who has already used VoxTranslate gets subtitles in THEIR language, not the browser
+// default. Falls back to detectLang() (browser language → 'en') for first-time visitors.
+const LANG_CACHE_KEY = 'voxtranslate_lang';
+
+/** Resolve the viewer's preferred subtitle language: stored preference → browser language → 'en'. */
+function resolveViewerLang(): string {
+  try {
+    const stored = typeof localStorage !== 'undefined' ? localStorage.getItem(LANG_CACHE_KEY) : null;
+    if (stored && SUPPORTED.includes(stored)) return stored;
+  } catch {
+    /* private mode / blocked */
+  }
+  return detectLang();
+}
 
 /** The localized strings the chat panel needs, read from the current locale. */
 function chatStrings(): ChatPanelStrings {
@@ -112,9 +129,10 @@ export function renderSubtitle(overlay: HTMLElement, event: SubtitleEvent): void
  * starts an HlsPlayer that plays the LL-HLS manifest and polls for live/ended.
  */
 export function mountWebinarPlayer(): void {
-  // Localize the shell in the visitor's browser language, then repaint once the
-  // (lazy) locale dictionary has loaded.
-  const lang = detectLang();
+  // Resolve the viewer's language: stored preference (from a prior app session) takes
+  // priority over the browser default so subtitles arrive in the right language even
+  // for first-time visitors on the /w/ page who haven't explicitly chosen a language here.
+  const lang = resolveViewerLang();
   setUiLang(lang);
   applyI18n();
   void loadLocale(lang).then(applyI18n);
@@ -144,25 +162,32 @@ export function mountWebinarPlayer(): void {
     void player.userStart();
   });
 
-  // Audio controls (webinar Fase 2). The video starts muted (autoplay policy); the guest
-  // opts into sound. Both buttons drive `player.muteAudio` — the mute button toggles, and
-  // "listen in the original language" is the explicit unmute affordance (Fase 2 carries
-  // only the host's original audio over HLS). `paintAudio` keeps their labels in sync.
+  // Audio controls (webinar Fase 2). Two independent concerns:
+  //   wv-mute  — on/off toggle; aria-pressed=true when audio is ACTIVE (playing).
+  //   wv-listen — audio-source selector; clicks unmute so the guest hears the original
+  //               HLS stream. Fase 3 will extend this to toggle between original and TTS.
+  //               Its aria-pressed is NOT driven by paintAudio — the two buttons are
+  //               visually decoupled so pressing one never highlights the other.
   function paintAudio(): void {
     const muted = player.isMuted();
     if (muteBtn) {
       muteBtn.textContent = t(muted ? 'wvUnmuteAudio' : 'wvMuteAudio');
-      muteBtn.setAttribute('aria-pressed', muted ? 'true' : 'false');
+      // aria-pressed=true = audio is currently active (playing), not "mute is active".
+      muteBtn.setAttribute('aria-pressed', muted ? 'false' : 'true');
     }
-    if (listenBtn) listenBtn.setAttribute('aria-pressed', muted ? 'false' : 'true');
+    // listenBtn state is managed independently — never touch it here.
   }
   muteBtn?.addEventListener('click', () => {
     player.muteAudio(!player.isMuted());
     paintAudio();
   });
   listenBtn?.addEventListener('click', () => {
-    player.muteAudio(false); // ensure the host's original audio is unmuted + playing
-    paintAudio();
+    // Unmute to start hearing the original HLS audio.
+    // Future Fase 3: will also toggle between original audio and server-side TTS.
+    if (player.isMuted()) {
+      player.muteAudio(false);
+      paintAudio();
+    }
   });
   paintAudio();
 

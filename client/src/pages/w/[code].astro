@@ -127,9 +127,11 @@ const pageDesc = webinar
             </div>
           </div>
 
-          <!-- Viewer controls (Fase 2): audio mute/unmute + "listen in the original
-               language" + a captions on/off toggle. The video starts muted for autoplay;
-               these let the guest opt into the host's audio and control subtitles. -->
+          <!-- Viewer controls (Fase 2): two independent audio buttons + a captions toggle.
+               wv-mute  = on/off toggle (aria-pressed=true when audio is active).
+               wv-listen = audio-source selector; unmutes to play the original HLS stream;
+                           Fase 3 will extend it to switch between original and TTS audio.
+               The video starts muted for autoplay; these let the guest opt in. -->
           <div class="wv-controls">
             <button id="wv-mute" type="button" class="wv-ctl" aria-pressed="false" data-i18n="wvMuteAudio">
               Mute audio
