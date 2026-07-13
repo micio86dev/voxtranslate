@@ -188,6 +188,11 @@ export class MeshManager {
     const pc = new Ctor({
       iceServers: this.iceServers,
       ...(this.iceTransportPolicy ? { iceTransportPolicy: this.iceTransportPolicy } : {}),
+      // Pre-gather up to 2 ICE candidates before the offer is created so the
+      // browser has STUN/TURN reflexive candidates ready immediately — reduces
+      // the ICE establishment time (no cold-start 5-second STUN timeout before
+      // TURN fallback) which is the primary cause of multi-second call latency.
+      iceCandidatePoolSize: 2,
     });
     const peer: PeerState = {
       id: peerId,
@@ -240,7 +245,17 @@ export class MeshManager {
     // `peer_left` from the server (→ removePeer).
     pc.oniceconnectionstatechange = () => {
       const st = pc.iceConnectionState;
-      if (st === 'failed') {
+      if (st === 'connected' || st === 'completed') {
+        // Minimize receiver jitter buffer to reduce A/V playback latency. The
+        // browser adaptive jitter buffer can grow to several seconds under packet
+        // loss; setting jitterBufferTarget = 0 tells it to use the minimum
+        // possible buffering. Feature-detected — not yet in all browsers.
+        for (const receiver of pc.getReceivers()) {
+          if ('jitterBufferTarget' in receiver) {
+            receiver.jitterBufferTarget = 0;
+          }
+        }
+      } else if (st === 'failed') {
         void this.negotiate(peer, true);
       } else if (st === 'disconnected') {
         setTimeout(() => {
