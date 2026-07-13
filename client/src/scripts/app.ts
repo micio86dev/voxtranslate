@@ -4484,6 +4484,14 @@ function overlayKeydown(e: KeyboardEvent): void {
   }
 }
 
+function escHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
 function show(el: HTMLElement, visible: boolean): void {
   el.classList.toggle('hidden', !visible);
   if (!el.classList.contains('modal-overlay')) return;
@@ -5029,6 +5037,7 @@ function revealWebinarForm(): void {
 
 async function openWebinars(): Promise<void> {
   homeScreen.classList.add('hidden');
+  show(recapScreen, false);
   webinarsScreen.classList.remove('hidden');
   collapseWebinarForm(); // always re-enter with the form collapsed
   resetWebinarTabs(); // always re-enter on the Active list
@@ -5161,81 +5170,104 @@ function renderWebinarCard(w: WebinarView): void {
   meta.textContent = `${(langMeta(w.source_language)?.native ?? w.source_language)} · ${t(`webinarTier_${w.tier}`) || w.tier}`;
   card.appendChild(meta);
 
-  // Copyable join link. The button briefly swaps to "Copied" (room-code pattern).
-  const linkRow = document.createElement('div');
-  linkRow.className = 'webinar-link-row';
-  const linkInput = document.createElement('input');
-  linkInput.className = 'webinar-link-input';
-  linkInput.readOnly = true;
-  linkInput.value = w.join_url;
-  linkInput.setAttribute('aria-label', t('webinarJoinLink'));
-  const copyBtn = document.createElement('button');
-  copyBtn.type = 'button';
-  copyBtn.className = 'btn-ghost webinar-copy-btn';
-  copyBtn.textContent = t('copy');
-  copyBtn.addEventListener('click', async () => {
-    try {
-      await navigator.clipboard.writeText(w.join_url);
-      copyBtn.textContent = t('copied');
-      setTimeout(() => (copyBtn.textContent = t('copy')), 1200);
-    } catch {
-      linkInput.select(); // fallback: select for a manual copy
-      toast(t('copyFailed'), 'err');
-    }
-  });
-  linkRow.append(linkInput, copyBtn);
-  card.appendChild(linkRow);
+  const isOver = w.status === 'ended' || w.status === 'cancelled';
 
-  // QR of the EXACT join_url from the API (never rebuilt). Lazy-imported chunk.
-  // Tappable (mouse + keyboard) → fullscreen zoom overlay.
-  const qr = document.createElement('img');
-  qr.className = 'webinar-qr';
-  qr.alt = t('webinarQrAlt');
-  qr.width = 160;
-  qr.height = 160;
-  qr.tabIndex = 0;
-  qr.setAttribute('role', 'button');
-  qr.setAttribute('aria-label', t('webinarQrZoom'));
-  qr.title = t('webinarQrZoom');
-  qr.addEventListener('click', () => openQrModal(w, qr.src));
-  qr.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      openQrModal(w, qr.src);
-    }
-  });
-  card.appendChild(qr);
-  void renderQr(qr, w.join_url);
+  if (!isOver) {
+    // Copyable join link. The button briefly swaps to "Copied" (room-code pattern).
+    const linkRow = document.createElement('div');
+    linkRow.className = 'webinar-link-row';
+    const linkInput = document.createElement('input');
+    linkInput.className = 'webinar-link-input';
+    linkInput.readOnly = true;
+    linkInput.value = w.join_url;
+    linkInput.setAttribute('aria-label', t('webinarJoinLink'));
+    const copyBtn = document.createElement('button');
+    copyBtn.type = 'button';
+    copyBtn.className = 'btn-ghost webinar-copy-btn';
+    copyBtn.textContent = t('copy');
+    copyBtn.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(w.join_url);
+        copyBtn.textContent = t('copied');
+        setTimeout(() => (copyBtn.textContent = t('copy')), 1200);
+      } catch {
+        linkInput.select(); // fallback: select for a manual copy
+        toast(t('copyFailed'), 'err');
+      }
+    });
+    linkRow.append(linkInput, copyBtn);
+    card.appendChild(linkRow);
 
-  // QR actions: download the QR as a PNG, or print just the QR + join URL.
-  const qrActions = document.createElement('div');
-  qrActions.className = 'webinar-qr-actions';
-  const dlBtn = document.createElement('button');
-  dlBtn.type = 'button';
-  dlBtn.className = 'btn-ghost';
-  dlBtn.textContent = t('webinarQrDownload');
-  dlBtn.addEventListener('click', async () => {
-    dlBtn.disabled = true;
-    try {
-      downloadQr(await qrDataUrl(w.join_url, qr.src), w.code);
-    } finally {
-      dlBtn.disabled = false;
+    // QR of the EXACT join_url from the API (never rebuilt). Lazy-imported chunk.
+    // Tappable (mouse + keyboard) → fullscreen zoom overlay.
+    const qr = document.createElement('img');
+    qr.className = 'webinar-qr';
+    qr.alt = t('webinarQrAlt');
+    qr.width = 160;
+    qr.height = 160;
+    qr.tabIndex = 0;
+    qr.setAttribute('role', 'button');
+    qr.setAttribute('aria-label', t('webinarQrZoom'));
+    qr.title = t('webinarQrZoom');
+    qr.addEventListener('click', () => openQrModal(w, qr.src));
+    qr.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        openQrModal(w, qr.src);
+      }
+    });
+    card.appendChild(qr);
+    void renderQr(qr, w.join_url);
+
+    // QR actions: download the QR as a PNG, or print just the QR + join URL.
+    const qrActions = document.createElement('div');
+    qrActions.className = 'webinar-qr-actions';
+    const dlBtn = document.createElement('button');
+    dlBtn.type = 'button';
+    dlBtn.className = 'btn-ghost';
+    dlBtn.textContent = t('webinarQrDownload');
+    dlBtn.addEventListener('click', async () => {
+      dlBtn.disabled = true;
+      try {
+        downloadQr(await qrDataUrl(w.join_url, qr.src), w.code);
+      } finally {
+        dlBtn.disabled = false;
+      }
+    });
+    const printBtn = document.createElement('button');
+    printBtn.type = 'button';
+    printBtn.className = 'btn-ghost';
+    printBtn.textContent = t('webinarQrPrint');
+    printBtn.addEventListener('click', async () => {
+      printBtn.disabled = true;
+      try {
+        printQr(await qrDataUrl(w.join_url, qr.src), w.title, w.join_url);
+      } finally {
+        printBtn.disabled = false;
+      }
+    });
+    qrActions.append(dlBtn, printBtn);
+    card.appendChild(qrActions);
+  } else {
+    // Ended/cancelled: show a compact session summary instead of the join link + QR.
+    const summary = document.createElement('div');
+    summary.className = 'webinar-ended-summary';
+    const parts: string[] = [];
+    if (w.status === 'ended' && w.actual_start) {
+      const dateStr = new Date(w.actual_start).toLocaleDateString(undefined, { dateStyle: 'medium' });
+      parts.push(`${t('webinarBroadcastOn')}: ${dateStr}`);
+      if (w.actual_end) {
+        const ms = new Date(w.actual_end).getTime() - new Date(w.actual_start).getTime();
+        const totalMins = Math.round(ms / 60000);
+        const h = Math.floor(totalMins / 60);
+        const m = totalMins % 60;
+        const durStr = h > 0 ? `${h}h ${m}m` : `${m}m`;
+        parts.push(`${t('webinarDuration')}: ${durStr}`);
+      }
     }
-  });
-  const printBtn = document.createElement('button');
-  printBtn.type = 'button';
-  printBtn.className = 'btn-ghost';
-  printBtn.textContent = t('webinarQrPrint');
-  printBtn.addEventListener('click', async () => {
-    printBtn.disabled = true;
-    try {
-      printQr(await qrDataUrl(w.join_url, qr.src), w.title, w.join_url);
-    } finally {
-      printBtn.disabled = false;
-    }
-  });
-  qrActions.append(dlBtn, printBtn);
-  card.appendChild(qrActions);
+    summary.textContent = parts.join(' · ');
+    card.appendChild(summary);
+  }
 
   // Pre-live "Clone your voice" (webinar-ui-fixes #5): only for Enhanced webinars whose
   // host hasn't cloned yet, and only while it can still be broadcast. Reuses the exact
@@ -5587,6 +5619,7 @@ const wsMicBtn = $<HTMLButtonElement>('webinar-studio-mic');
 const wsCamBtn = $<HTMLButtonElement>('webinar-studio-cam');
 const wsEndBtn = $<HTMLButtonElement>('webinar-studio-end');
 const wsOnairText = $('webinar-onair-text');
+const wsCountIco = $('webinar-count-ico');
 const wsCountN = $('webinar-count-n');
 const wsEndModal = $('webinar-end-modal');
 const wsEndConfirm = $<HTMLButtonElement>('webinar-end-confirm');
@@ -5602,11 +5635,25 @@ const wsChatSend = $<HTMLButtonElement>('webinar-studio-chat-send');
 const wsChatNotice = $('webinar-studio-chat-notice');
 const wsChatForm = $<HTMLFormElement>('webinar-studio-chat-form');
 
+// ---- Webinar recap screen (shown after broadcast ends when transcripts exist) ----
+const recapScreen = $('webinar-recap');
+const recapCloseBtn = $<HTMLButtonElement>('recap-close');
+const recapTabTranscript = $<HTMLButtonElement>('recap-tab-transcript');
+const recapTabChat = $<HTMLButtonElement>('recap-tab-chat');
+const recapTranscriptPanel = $('recap-transcript-panel');
+const recapChatPanel = $('recap-chat-panel');
+const recapTranscriptList = $('recap-transcript-list');
+const recapTranscriptEmpty = $('recap-transcript-empty');
+const recapChatList = $('recap-chat-list');
+const recapChatEmpty = $('recap-chat-empty');
+
 /** The host studio's live-presence connection (opened while the studio is on screen,
  *  closed when it leaves). The host watches the audience count but is NOT counted. */
 let webinarPresence: PresenceClient | null = null;
 /** The host studio's chat controller, live while a chat-enabled webinar's studio is open. */
 let webinarChat: ChatPanel | null = null;
+/** MicMeter driving the studio mic button's voice halo (--mic-level). */
+let wsMicMeter: { stop(): void } | null = null;
 
 /** Render the live audience count into its own element. */
 function renderWebinarCount(count: number): void {
@@ -5788,10 +5835,22 @@ function openWebinarStudio(w: WebinarView): void {
   show(wsScreen, true);
   wsTitle.textContent = w.title;
   wsCode.textContent = w.code;
+  wsCountIco.innerHTML = icon('users', 14);
   openWebinarPresence(w);
   wsUpdateControls();
   wsPaintState(activePublisher?.getState() ?? 'on-air');
   wsAttachLocalVideo();
+  // Wire mic input meter: green halo on the studio mic button while sound is detected.
+  wsMicMeter?.stop();
+  wsMicMeter = null;
+  const studioStream = activePublisher?.getLocalStream();
+  if (studioStream && studioStream.getAudioTracks().length > 0) {
+    void import('./mic-meter').then(({ MicMeter }) => {
+      wsMicMeter = new MicMeter(studioStream, (level) =>
+        wsMicBtn.style.setProperty('--mic-level', level.toFixed(3)),
+      );
+    });
+  }
 }
 
 /** Start the broadcast with the pre-live device choice, then show the studio. */
@@ -5841,8 +5900,106 @@ async function startWebinarBroadcast(
   }
 }
 
+/** Open the post-webinar recap screen: fetch transcripts immediately, lazy-load
+ *  the chat tab on first click. Called after `endWebinarBroadcast` cleans up state. */
+async function openWebinarRecap(webinarId: string, webinarCode: string): Promise<void> {
+  // Switch to the recap screen immediately.
+  show(wsScreen, false);
+  show(recapScreen, true);
+  // Active tab = transcript by default.
+  recapTabTranscript.classList.add('active');
+  recapTabTranscript.setAttribute('aria-selected', 'true');
+  recapTabChat.classList.remove('active');
+  recapTabChat.setAttribute('aria-selected', 'false');
+  show(recapTranscriptPanel, true);
+  show(recapChatPanel, false);
+  recapTranscriptList.innerHTML = '';
+  recapChatList.innerHTML = '';
+  show(recapTranscriptEmpty, false);
+  show(recapChatEmpty, false);
+
+  const myLang = getUiLang();
+
+  // Fetch transcripts (authenticated — host must be an org member).
+  try {
+    const res = await fetch(`${auth.HTTP_BASE}/api/webinars/${encodeURIComponent(webinarId)}/transcripts`, {
+      headers: auth.authHeaders(),
+    });
+    if (res.ok) {
+      const rows: Array<{ original_text: string; original_lang: string; translations: Record<string, string>; spoken_at: string }> = await res.json() as Array<{ original_text: string; original_lang: string; translations: Record<string, string>; spoken_at: string }>;
+      if (rows.length === 0) {
+        show(recapTranscriptEmpty, true);
+      } else {
+        recapTranscriptList.innerHTML = rows
+          .map((r) => {
+            const d = new Date(r.spoken_at);
+            const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            return `<div class="recap-utterance"><time>${escHtml(timeStr)}</time>${escHtml(r.original_text)}</div>`;
+          })
+          .join('');
+      }
+    } else {
+      show(recapTranscriptEmpty, true);
+    }
+  } catch {
+    show(recapTranscriptEmpty, true);
+  }
+
+  // Lazy-load chat tab on first click.
+  let chatLoaded = false;
+  async function loadChatTab(): Promise<void> {
+    if (chatLoaded) return;
+    chatLoaded = true;
+    try {
+      // Chat endpoint is public (guests can read it); plain fetch, no auth headers needed.
+      const res = await fetch(
+        `${auth.HTTP_BASE}/api/w/${encodeURIComponent(webinarCode)}/chat?limit=500`,
+      );
+      if (res.ok) {
+        const msgs: Array<{ text: string; display_name: string; sender_lang: string; translations: Record<string, string>; created_at: string }> = await res.json() as Array<{ text: string; display_name: string; sender_lang: string; translations: Record<string, string>; created_at: string }>;
+        if (msgs.length === 0) {
+          show(recapChatEmpty, true);
+        } else {
+          recapChatList.innerHTML = msgs
+            .map((m) => {
+              const text = m.translations?.[myLang] ?? m.text;
+              return `<div class="recap-chat-msg"><div class="recap-sender">${escHtml(m.display_name ?? '')}</div>${escHtml(text)}</div>`;
+            })
+            .join('');
+        }
+      } else {
+        show(recapChatEmpty, true);
+      }
+    } catch {
+      show(recapChatEmpty, true);
+    }
+  }
+
+  recapTabTranscript.addEventListener('click', () => {
+    recapTabTranscript.classList.add('active');
+    recapTabTranscript.setAttribute('aria-selected', 'true');
+    recapTabChat.classList.remove('active');
+    recapTabChat.setAttribute('aria-selected', 'false');
+    show(recapTranscriptPanel, true);
+    show(recapChatPanel, false);
+  });
+
+  recapTabChat.addEventListener('click', () => {
+    recapTabChat.classList.add('active');
+    recapTabChat.setAttribute('aria-selected', 'true');
+    recapTabTranscript.classList.remove('active');
+    recapTabTranscript.setAttribute('aria-selected', 'false');
+    show(recapChatPanel, true);
+    show(recapTranscriptPanel, false);
+    void loadChatTab();
+  });
+}
+
 /** Stop the active broadcast (host confirmed End), then return to the Webinars list. */
 async function endWebinarBroadcast(): Promise<void> {
+  // Capture webinar info BEFORE clearing state — needed for the recap screen.
+  const recapId = activeWebinar?.id ?? null;
+  const recapCode = activeWebinar?.code ?? null;
   // Close the STT bridge FIRST: closing the ingest socket flushes pending finals before we
   // stop capturing, so the last words still reach viewers as a subtitle.
   closeWebinarStt();
@@ -5851,11 +6008,19 @@ async function endWebinarBroadcast(): Promise<void> {
     activePublisher = null;
     activePublisherId = null;
   }
+  wsMicMeter?.stop();
+  wsMicMeter = null;
+  wsMicBtn.style.removeProperty('--mic-level');
   closeWebinarPresence();
   activeWebinar = null;
   wsVideo.srcObject = null;
-  show(wsScreen, false);
-  void openWebinars(); // reflects the now-ended status
+
+  if (recapId && recapCode) {
+    await openWebinarRecap(recapId, recapCode);
+  } else {
+    show(wsScreen, false);
+    void openWebinars();
+  }
 }
 
 // Round mic toggle: mute/unmute the captured audio track. Because the STT bridge's
@@ -5889,6 +6054,11 @@ wsEndConfirm.addEventListener('click', async () => {
 });
 wsEndModal.addEventListener('click', (e) => {
   if (e.target === wsEndModal) show(wsEndModal, false);
+});
+
+recapCloseBtn?.addEventListener('click', () => {
+  show(recapScreen, false);
+  void openWebinars();
 });
 
 // ---- Add to Google Calendar (scheduled webinars) -----------------------------
@@ -5985,7 +6155,7 @@ function downloadQr(dataUrl: string, code: string): void {
  *  Built with DOM APIs (no `document.write`); user-supplied text is set via
  *  `textContent`, so there's no HTML-injection surface. */
 function printQr(dataUrl: string, title: string, joinUrl: string): void {
-  const win = window.open('', '_blank', 'noopener,noreferrer,width=520,height=640');
+  const win = window.open('', '_blank', 'width=520,height=640');
   if (!win) {
     toast(t('webinarQrPrintBlocked'), 'err');
     return;

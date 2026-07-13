@@ -590,6 +590,8 @@
   "webinarNoneArchived": "ไม่มีเว็บบินาร์ที่จัดเก็บ",
   "webinarCode": "รหัส",
   "webinarCreatedOn": "สร้างเมื่อ",
+  "webinarBroadcastOn": "การออกอากาศ",
+  "webinarDuration": "ระยะเวลา",
   "webinarStatus_scheduled": "กำหนดเวลาแล้ว",
   "webinarStatus_live": "สด",
   "webinarStatus_ended": "สิ้นสุดแล้ว",
@@ -660,5 +662,11 @@
   "wvChatNamePlaceholder": "ชื่อของคุณ",
   "wvChatEmpty": "ยังไม่มีข้อความ ทักทายกันหน่อย!",
   "wvChatRateLimited": "คุณส่งข้อความเร็วเกินไป โปรดรอสักครู่",
-  "wvChatBlocked": "ไม่สามารถส่งข้อความของคุณได้"
+  "wvChatBlocked": "ไม่สามารถส่งข้อความของคุณได้",
+  "wvRecapTitle": "สรุปการประชุม",
+  "wvRecapClose": "กลับไปที่เว็บบินาร์",
+  "wvRecapTabTranscript": "การถอดความ",
+  "wvRecapTabChat": "แชทที่แปลแล้ว",
+  "wvRecapTranscriptEmpty": "ไม่มีการบันทึกการถอดความสำหรับเซสชันนี้",
+  "wvRecapChatEmpty": "ไม่มีข้อความแชทสำหรับเซสชันนี้"
 }

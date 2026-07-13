@@ -590,6 +590,8 @@
   "webinarNoneArchived": "No archived webinars.",
   "webinarCode": "Code",
   "webinarCreatedOn": "Created",
+  "webinarBroadcastOn": "Broadcast",
+  "webinarDuration": "Duration",
   "webinarStatus_scheduled": "Scheduled",
   "webinarStatus_live": "Live",
   "webinarStatus_ended": "Ended",
@@ -660,5 +662,11 @@
   "wvChatNamePlaceholder": "Your name",
   "wvChatEmpty": "No messages yet. Say hello!",
   "wvChatRateLimited": "You’re sending messages too fast. Please wait a moment.",
-  "wvChatBlocked": "Your message couldn’t be sent."
+  "wvChatBlocked": "Your message couldn’t be sent.",
+  "wvRecapTitle": "Session recap",
+  "wvRecapClose": "Back to webinars",
+  "wvRecapTabTranscript": "Transcriptions",
+  "wvRecapTabChat": "Translated chat",
+  "wvRecapTranscriptEmpty": "No transcriptions recorded for this session.",
+  "wvRecapChatEmpty": "No chat messages for this session."
 }

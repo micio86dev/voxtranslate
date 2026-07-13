@@ -590,6 +590,8 @@
   "webinarNoneArchived": "Ez dago artxibatutako webinarrik.",
   "webinarCode": "Kodea",
   "webinarCreatedOn": "Sortua",
+  "webinarBroadcastOn": "Emisioa",
+  "webinarDuration": "Iraupena",
   "webinarStatus_scheduled": "Programatua",
   "webinarStatus_live": "Zuzenean",
   "webinarStatus_ended": "Amaituta",
@@ -660,5 +662,11 @@
   "wvChatNamePlaceholder": "Zure izena",
   "wvChatEmpty": "Oraindik ez dago mezurik. Esan kaixo!",
   "wvChatRateLimited": "Mezuak azkarregi bidaltzen ari zara. Itxaron une bat, mesedez.",
-  "wvChatBlocked": "Zure mezua ezin izan da bidali."
+  "wvChatBlocked": "Zure mezua ezin izan da bidali.",
+  "wvRecapTitle": "Saioaren laburpena",
+  "wvRecapClose": "Itzuli webinarretara",
+  "wvRecapTabTranscript": "Transkripzioak",
+  "wvRecapTabChat": "Itzulitako txata",
+  "wvRecapTranscriptEmpty": "Ez da transkripziorik grabatu saio honetarako.",
+  "wvRecapChatEmpty": "Ez dago txat mezurik saio honetarako."
 }

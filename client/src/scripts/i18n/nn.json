@@ -590,6 +590,8 @@
   "webinarNoneArchived": "Ingen arkiverte webinar.",
   "webinarCode": "Kode",
   "webinarCreatedOn": "Oppretta",
+  "webinarBroadcastOn": "Sending",
+  "webinarDuration": "Varigheit",
   "webinarStatus_scheduled": "Planlagt",
   "webinarStatus_live": "Direkte",
   "webinarStatus_ended": "Avslutta",
@@ -660,5 +662,11 @@
   "wvChatNamePlaceholder": "Namnet ditt",
   "wvChatEmpty": "Ingen meldingar enno. Sei hei!",
   "wvChatRateLimited": "Du sender meldingar for raskt. Vent eit augeblikk.",
-  "wvChatBlocked": "Meldinga di kunne ikkje sendast."
+  "wvChatBlocked": "Meldinga di kunne ikkje sendast.",
+  "wvRecapTitle": "Samanfatning av økt",
+  "wvRecapClose": "Tilbake til webinarane",
+  "wvRecapTabTranscript": "Transkripsjonar",
+  "wvRecapTabChat": "Omsett chat",
+  "wvRecapTranscriptEmpty": "Ingen transkripsjonar vart registrerte for denne økta.",
+  "wvRecapChatEmpty": "Ingen chat-meldingar for denne økta."
 }

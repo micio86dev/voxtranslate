@@ -590,6 +590,8 @@
   "webinarNoneArchived": "සංරක්ෂිත වෙබිනාර් නැත.",
   "webinarCode": "කේතය",
   "webinarCreatedOn": "සෑදූ දිනය",
+  "webinarBroadcastOn": "විකාශය",
+  "webinarDuration": "කාලසීමාව",
   "webinarStatus_scheduled": "සැලසුම් කළ",
   "webinarStatus_live": "සජීවී",
   "webinarStatus_ended": "අවසන් විය",
@@ -660,5 +662,11 @@
   "wvChatNamePlaceholder": "ඔබේ නම",
   "wvChatEmpty": "තවම පණිවිඩ නැත. ආයුබෝවන් කියන්න!",
   "wvChatRateLimited": "ඔබ ඉතා වේගයෙන් පණිවිඩ යවනවා. කරුණාකර මොහොතක් රැඳී සිටින්න.",
-  "wvChatBlocked": "ඔබේ පණිවිඩය යැවීමට නොහැකි විය."
+  "wvChatBlocked": "ඔබේ පණිවිඩය යැවීමට නොහැකි විය.",
+  "wvRecapTitle": "සැසි සාරාංශය",
+  "wvRecapClose": "වෙබිනාර් වෙත ආපසු යන්න",
+  "wvRecapTabTranscript": "පිටසටහන්",
+  "wvRecapTabChat": "පරිවර්තනය කළ කතාබස",
+  "wvRecapTranscriptEmpty": "මෙම සැසිය සඳහා කිසිදු පිටසටහනක් පටිගත කර නැත.",
+  "wvRecapChatEmpty": "මෙම සැසිය සඳහා කතාබස් පණිවිඩ නොමැත."
 }

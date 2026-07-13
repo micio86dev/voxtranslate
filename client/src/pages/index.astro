@@ -1156,27 +1156,29 @@ const jsonLd = {
          not here on-air. -->
     <section id="webinar-studio" class="screen hidden">
       <div class="studio-wrap">
-        <div class="studio-stage">
-          <video id="webinar-studio-video" autoplay playsinline muted></video>
-          <div class="studio-video-off" id="webinar-studio-video-off" hidden>
-            <span class="preview-avatar" id="webinar-studio-avatar"></span>
+        <div class="studio-main">
+          <div class="studio-stage">
+            <video id="webinar-studio-video" autoplay playsinline muted></video>
+            <div class="studio-video-off" id="webinar-studio-video-off" hidden>
+              <span class="preview-avatar" id="webinar-studio-avatar"></span>
+            </div>
+            <span class="studio-onair-badge" id="webinar-onair-badge" role="status">
+              <span class="onair-dot" aria-hidden="true"></span><span id="webinar-onair-text" data-i18n="webinarOnAir">{T('webinarOnAir')}</span>
+            </span>
+            <span class="studio-count-badge" id="webinar-count-badge" data-i18n-title="webinarParticipants" title={T('webinarParticipants')}>
+              <span class="studio-count-ico" id="webinar-count-ico" aria-hidden="true"></span><span id="webinar-count-n">0</span>
+            </span>
           </div>
-          <span class="studio-onair-badge" id="webinar-onair-badge" role="status">
-            <span class="onair-dot" aria-hidden="true"></span><span id="webinar-onair-text" data-i18n="webinarOnAir">{T('webinarOnAir')}</span>
-          </span>
-          <span class="studio-count-badge" id="webinar-count-badge" data-i18n-title="webinarParticipants" title={T('webinarParticipants')}>
-            <span class="studio-count-ico" aria-hidden="true"></span><span id="webinar-count-n">0</span>
-          </span>
-        </div>
-        <div class="studio-panel card">
-          <div class="studio-panel-head">
-            <span id="webinar-studio-title" class="card-title"></span>
-            <span id="webinar-studio-code" class="webinar-studio-code mono"></span>
-          </div>
-          <div class="studio-controls">
-            <button id="webinar-studio-mic" class="control-btn" type="button" data-i18n-title="muteTip" title={T('muteTip')} aria-label={T('muteTip')}></button>
-            <button id="webinar-studio-cam" class="control-btn" type="button" data-i18n-title="camTip" title={T('camTip')} aria-label={T('camTip')}></button>
-            <button id="webinar-studio-end" class="btn-primary danger" type="button" data-i18n="webinarEnd">{T('webinarEnd')}</button>
+          <div class="studio-panel card">
+            <div class="studio-panel-head">
+              <span id="webinar-studio-title" class="card-title"></span>
+              <span id="webinar-studio-code" class="webinar-studio-code mono"></span>
+            </div>
+            <div class="studio-controls">
+              <button id="webinar-studio-mic" class="control-btn" type="button" data-i18n-title="muteTip" title={T('muteTip')} aria-label={T('muteTip')}></button>
+              <button id="webinar-studio-cam" class="control-btn" type="button" data-i18n-title="camTip" title={T('camTip')} aria-label={T('camTip')}></button>
+              <button id="webinar-studio-end" class="btn-primary danger" type="button" data-i18n="webinarEnd">{T('webinarEnd')}</button>
+            </div>
           </div>
         </div>
 
@@ -1197,6 +1199,27 @@ const jsonLd = {
             <p id="webinar-studio-chat-notice" class="wv-chat-notice hidden" role="status" aria-live="polite"></p>
           </div>
         </section>
+      </div>
+    </section>
+
+    <section id="webinar-recap" class="screen hidden">
+      <div class="recap-wrap">
+        <div class="recap-header">
+          <h2 data-i18n="wvRecapTitle">{T('wvRecapTitle')}</h2>
+          <button id="recap-close" class="btn-ghost" type="button" data-i18n="wvRecapClose">{T('wvRecapClose')}</button>
+        </div>
+        <div class="recap-tabs" role="tablist">
+          <button id="recap-tab-transcript" class="recap-tab active" role="tab" aria-selected="true" data-i18n="wvRecapTabTranscript">{T('wvRecapTabTranscript')}</button>
+          <button id="recap-tab-chat" class="recap-tab" role="tab" aria-selected="false" data-i18n="wvRecapTabChat">{T('wvRecapTabChat')}</button>
+        </div>
+        <div id="recap-transcript-panel" class="recap-panel">
+          <p id="recap-transcript-empty" class="recap-empty hidden" data-i18n="wvRecapTranscriptEmpty">{T('wvRecapTranscriptEmpty')}</p>
+          <div id="recap-transcript-list" class="recap-list"></div>
+        </div>
+        <div id="recap-chat-panel" class="recap-panel hidden">
+          <p id="recap-chat-empty" class="recap-empty hidden" data-i18n="wvRecapChatEmpty">{T('wvRecapChatEmpty')}</p>
+          <div id="recap-chat-list" class="recap-list"></div>
+        </div>
       </div>
     </section>
 
@@ -1821,7 +1844,7 @@ const jsonLd = {
     #session-ai :global(.ai-email-subject[readonly]), #session-ai :global(.ai-email-body[readonly]) { opacity: 0.75; }
 
     /* ---------- Pre-join ---------- */
-    #prejoin { align-items: center; justify-content: center; padding: 20px; }
+    #prejoin, #webinar-prelive { align-items: center; justify-content: center; padding: 20px; }
     .prejoin-card { width: 100%; max-width: 460px; }
     .prejoin-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; gap: 10px; }
     .room-tag { font-size: 0.8rem; color: var(--muted); display: flex; align-items: center; gap: 6px; }
@@ -2167,7 +2190,7 @@ const jsonLd = {
     }
     .control-btn:hover { background: var(--border); }
     /* Mic voice halo: --mic-level (0..1) is set per-frame by MicMeter. */
-    #btn-mic { box-shadow: 0 0 0 calc(var(--mic-level, 0) * 8px) rgba(34, 197, 94, 0.45); }
+    #btn-mic, #webinar-studio-mic { box-shadow: 0 0 0 calc(var(--mic-level, 0) * 8px) rgba(34, 197, 94, 0.45); }
     .control-btn.active-danger { background: var(--danger); }
     .control-btn.active-success { background: var(--success); }
     /* Subtitle 4-state cycle: translation-only = yellow, original-only = orange.
@@ -2625,6 +2648,7 @@ const jsonLd = {
     .webinar-list :global(.webinar-status-live) { background: color-mix(in srgb, var(--danger) 18%, transparent); color: var(--danger); }
     .webinar-list :global(.webinar-status-cancelled) { text-decoration: line-through; }
     .webinar-list :global(.webinar-card-meta) { font-size: 0.8rem; color: var(--muted); }
+    .webinar-list :global(.webinar-ended-summary) { font-size: 0.8rem; color: var(--muted); }
     .webinar-list :global(.webinar-link-row) { display: flex; gap: 8px; }
     .webinar-list :global(.webinar-link-input) {
       flex: 1 1 auto; min-width: 0; font-size: 0.85rem; padding: 8px 10px;
@@ -2674,7 +2698,14 @@ const jsonLd = {
     .webinar-prelive-actions .btn-primary,
     .webinar-prelive-actions .btn-ghost { flex: none; padding: 0 18px; min-height: 42px; width: auto; }
     /* Webinar studio (Meet-style host screen while broadcasting). */
-    .studio-wrap { display: flex; flex-direction: column; gap: 16px; max-width: 960px; margin: 0 auto; padding: 16px; width: 100%; box-sizing: border-box; }
+    .studio-wrap { display: flex; flex-direction: column; gap: 16px; max-width: 1200px; margin: 0 auto; padding: 16px; width: 100%; box-sizing: border-box; }
+    .studio-main { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+    @media (min-width: 900px) {
+      .studio-wrap { flex-direction: row; align-items: flex-start; }
+      .studio-main { flex: 1; }
+      .studio-chat { width: 320px; flex-shrink: 0; max-height: calc(100vh - 48px); overflow-y: auto; position: sticky; top: 0; }
+      .studio-chat :global(.wv-chat-list) { max-height: none; flex: 1; }
+    }
     .studio-stage { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #0d0f16; border-radius: 14px; overflow: hidden; }
     .studio-stage video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
     .studio-video-off { position: absolute; inset: 0; display: grid; place-items: center; background: #0d0f16; }
@@ -2732,6 +2763,22 @@ const jsonLd = {
       .webinar-list :global(.webinar-copy-btn) { flex: 1 1 auto; }
       .webinar-list :global(.webinar-golive-btn) { width: 100%; }
     }
+
+    /* ---- Webinar recap screen ---- */
+    #webinar-recap { background: var(--bg); overflow-y: auto; }
+    .recap-wrap { max-width: 720px; margin: 0 auto; padding: 24px 16px 48px; }
+    .recap-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+    .recap-header h2 { font-size: 1.1rem; font-weight: 600; }
+    .recap-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+    .recap-tab { background: none; border: none; padding: 8px 16px; font-size: 0.875rem; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+    .recap-tab.active { color: var(--fg); border-bottom-color: var(--accent, #3b82f6); font-weight: 500; }
+    .recap-panel { display: flex; flex-direction: column; gap: 10px; }
+    .recap-list { display: flex; flex-direction: column; gap: 10px; }
+    .recap-utterance { font-size: 0.9rem; line-height: 1.5; padding: 10px 12px; background: var(--surface, rgba(0,0,0,0.03)); border-radius: 6px; }
+    .recap-utterance time { display: block; font-size: 0.75rem; color: var(--muted); margin-bottom: 4px; }
+    .recap-chat-msg { font-size: 0.875rem; padding: 8px 12px; background: var(--surface, rgba(0,0,0,0.03)); border-radius: 6px; }
+    .recap-chat-msg .recap-sender { font-weight: 500; font-size: 0.8rem; margin-bottom: 2px; }
+    .recap-empty { color: var(--muted); font-size: 0.875rem; }
 
     /* Billing section: balance + a quick path back to checkout, above the history tabs. */
     .billing-balance-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; }

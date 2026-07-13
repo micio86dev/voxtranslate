@@ -590,6 +590,8 @@
   "webinarNoneArchived": "Ei arkistoituja webinaareja.",
   "webinarCode": "Koodi",
   "webinarCreatedOn": "Luotu",
+  "webinarBroadcastOn": "Lähetys",
+  "webinarDuration": "Kesto",
   "webinarStatus_scheduled": "Ajastettu",
   "webinarStatus_live": "Suora",
   "webinarStatus_ended": "Päättynyt",
@@ -660,5 +662,11 @@
   "wvChatNamePlaceholder": "Nimesi",
   "wvChatEmpty": "Ei vielä viestejä. Sano moi!",
   "wvChatRateLimited": "Lähetät viestejä liian nopeasti. Odota hetki.",
-  "wvChatBlocked": "Viestiäsi ei voitu lähettää."
+  "wvChatBlocked": "Viestiäsi ei voitu lähettää.",
+  "wvRecapTitle": "Istunnon yhteenveto",
+  "wvRecapClose": "Takaisin webinaariluetteloon",
+  "wvRecapTabTranscript": "Transkriptiot",
+  "wvRecapTabChat": "Käännetty chat",
+  "wvRecapTranscriptEmpty": "Tälle istunnolle ei tallennettu transkriptioita.",
+  "wvRecapChatEmpty": "Tälle istunnolle ei ole chat-viestejä."
 }

@@ -590,6 +590,8 @@
   "webinarNoneArchived": "সংরক্ষণাগারে কোনো ওয়েবিনার নেই।",
   "webinarCode": "কোড",
   "webinarCreatedOn": "তৈরি হয়েছে",
+  "webinarBroadcastOn": "সম্প্রচার",
+  "webinarDuration": "সময়কাল",
   "webinarStatus_scheduled": "নির্ধারিত",
   "webinarStatus_live": "লাইভ",
   "webinarStatus_ended": "সমাপ্ত",
@@ -660,5 +662,11 @@
   "wvChatNamePlaceholder": "আপনার নাম",
   "wvChatEmpty": "এখনও কোনো বার্তা নেই। হ্যালো বলুন!",
   "wvChatRateLimited": "আপনি খুব দ্রুত বার্তা পাঠাচ্ছেন। অনুগ্রহ করে একটু অপেক্ষা করুন।",
-  "wvChatBlocked": "আপনার বার্তা পাঠানো যায়নি।"
+  "wvChatBlocked": "আপনার বার্তা পাঠানো যায়নি।",
+  "wvRecapTitle": "সেশন সারসংক্ষেপ",
+  "wvRecapClose": "ওয়েবিনারে ফিরে যান",
+  "wvRecapTabTranscript": "ট্রান্সক্রিপশন",
+  "wvRecapTabChat": "অনুবাদিত চ্যাট",
+  "wvRecapTranscriptEmpty": "এই সেশনের জন্য কোনো ট্রান্সক্রিপশন রেকর্ড করা হয়নি।",
+  "wvRecapChatEmpty": "এই সেশনের জন্য কোনো চ্যাট বার্তা নেই।"
 }

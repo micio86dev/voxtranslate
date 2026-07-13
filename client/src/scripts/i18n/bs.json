@@ -590,6 +590,8 @@
   "webinarNoneArchived": "Nema arhiviranih webinara.",
   "webinarCode": "Kôd",
   "webinarCreatedOn": "Kreiran",
+  "webinarBroadcastOn": "Prijenos",
+  "webinarDuration": "Trajanje",
   "webinarStatus_scheduled": "Zakazan",
   "webinarStatus_live": "Uživo",
   "webinarStatus_ended": "Završen",
@@ -660,5 +662,11 @@
   "wvChatNamePlaceholder": "Vaše ime",
   "wvChatEmpty": "Još nema poruka. Pozdravite!",
   "wvChatRateLimited": "Šaljete poruke prebrzo. Molimo pričekajte trenutak.",
-  "wvChatBlocked": "Vaša poruka nije mogla biti poslana."
+  "wvChatBlocked": "Vaša poruka nije mogla biti poslana.",
+  "wvRecapTitle": "Sažetak sesije",
+  "wvRecapClose": "Nazad na webinare",
+  "wvRecapTabTranscript": "Transkripcije",
+  "wvRecapTabChat": "Prevedeni razgovor",
+  "wvRecapTranscriptEmpty": "Za ovu sesiju nisu snimljene nikakve transkripcije.",
+  "wvRecapChatEmpty": "Za ovu sesiju nema poruka iz razgovora."
 }

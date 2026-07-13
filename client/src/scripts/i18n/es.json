@@ -590,6 +590,8 @@
   "webinarNoneArchived": "No hay webinars archivados.",
   "webinarCode": "Código",
   "webinarCreatedOn": "Creado",
+  "webinarBroadcastOn": "Emisión",
+  "webinarDuration": "Duración",
   "webinarStatus_scheduled": "Programado",
   "webinarStatus_live": "En directo",
   "webinarStatus_ended": "Finalizado",
@@ -660,5 +662,11 @@
   "wvChatNamePlaceholder": "Tu nombre",
   "wvChatEmpty": "Aún no hay mensajes. ¡Saluda!",
   "wvChatRateLimited": "Estás enviando mensajes demasiado rápido. Espera un momento.",
-  "wvChatBlocked": "No se pudo enviar tu mensaje."
+  "wvChatBlocked": "No se pudo enviar tu mensaje.",
+  "wvRecapTitle": "Resumen de la sesión",
+  "wvRecapClose": "Volver a los webinars",
+  "wvRecapTabTranscript": "Transcripciones",
+  "wvRecapTabChat": "Chat traducido",
+  "wvRecapTranscriptEmpty": "No se registraron transcripciones para esta sesión.",
+  "wvRecapChatEmpty": "No hay mensajes de chat para esta sesión."
 }

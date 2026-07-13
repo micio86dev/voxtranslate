@@ -2,8 +2,30 @@
 # WHIP signaling and HLS both ride 443; MediaMTX's internal 8888/8889 stay closed
 # at the firewall. Caddy fetches a Let's Encrypt cert automatically (needs :80).
 ingest.voxtranslate.app {
+	# CORS preflight (OPTIONS) for WHIP endpoints — browsers send this before
+	# both POST (publish start) and DELETE (publish stop). Respond inline so the
+	# request never reaches MediaMTX, which doesn't emit the required headers.
+	@whip_preflight {
+		method OPTIONS
+		path /webinar/*/whip /webinar/*/whip/*
+	}
+	handle @whip_preflight {
+		header Access-Control-Allow-Origin "https://voxtranslate.app"
+		header Access-Control-Allow-Methods "POST, DELETE, OPTIONS"
+		header Access-Control-Allow-Headers "Content-Type, Authorization, Link, Location"
+		header Access-Control-Max-Age "86400"
+		respond 204
+	}
+
+	# Inject CORS response headers on real WHIP calls (POST + DELETE).
+	@whip_path path /webinar/*/whip /webinar/*/whip/*
+	header @whip_path Access-Control-Allow-Origin "https://voxtranslate.app"
+	header @whip_path Access-Control-Allow-Methods "POST, DELETE, OPTIONS"
+
 	# WHIP/WHEP signaling → MediaMTX WebRTC HTTP port.
+	# The sub-path rule (/whip/*) catches DELETE /webinar/{code}/whip/{session-id}.
 	reverse_proxy /webinar/*/whip localhost:8889
+	reverse_proxy /webinar/*/whip/* localhost:8889
 	reverse_proxy /webinar/*/whep localhost:8889
 	# Everything else under /webinar/ = HLS playlist + segments.
 	reverse_proxy /webinar/* localhost:8888

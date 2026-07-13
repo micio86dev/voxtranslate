@@ -590,6 +590,8 @@
   "webinarNoneArchived": "Không có hội thảo trực tuyến nào được lưu trữ.",
   "webinarCode": "Mã",
   "webinarCreatedOn": "Đã tạo",
+  "webinarBroadcastOn": "Phát sóng",
+  "webinarDuration": "Thời lượng",
   "webinarStatus_scheduled": "Đã lên lịch",
   "webinarStatus_live": "Trực tiếp",
   "webinarStatus_ended": "Đã kết thúc",
@@ -660,5 +662,11 @@
   "wvChatNamePlaceholder": "Tên của bạn",
   "wvChatEmpty": "Chưa có tin nhắn nào. Hãy chào hỏi nhé!",
   "wvChatRateLimited": "Bạn đang gửi tin nhắn quá nhanh. Vui lòng đợi một lát.",
-  "wvChatBlocked": "Không thể gửi tin nhắn của bạn."
+  "wvChatBlocked": "Không thể gửi tin nhắn của bạn.",
+  "wvRecapTitle": "Tóm tắt phiên",
+  "wvRecapClose": "Quay lại webinar",
+  "wvRecapTabTranscript": "Bản ghi",
+  "wvRecapTabChat": "Trò chuyện đã dịch",
+  "wvRecapTranscriptEmpty": "Không có bản ghi nào được lưu cho phiên này.",
+  "wvRecapChatEmpty": "Không có tin nhắn trò chuyện nào cho phiên này."
 }

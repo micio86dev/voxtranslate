@@ -590,6 +590,8 @@
   "webinarNoneArchived": "Мұрағатталған вебинарлар жоқ.",
   "webinarCode": "Код",
   "webinarCreatedOn": "Жасалды",
+  "webinarBroadcastOn": "Хабар тарату",
+  "webinarDuration": "Ұзақтығы",
   "webinarStatus_scheduled": "Жоспарланған",
   "webinarStatus_live": "Тікелей эфир",
   "webinarStatus_ended": "Аяқталды",
@@ -660,5 +662,11 @@
   "wvChatNamePlaceholder": "Атыңыз",
   "wvChatEmpty": "Әзірге хабарлама жоқ. Сәлемдесіңіз!",
   "wvChatRateLimited": "Хабарламаларды тым жылдам жіберіп жатырсыз. Сәл күте тұрыңыз.",
-  "wvChatBlocked": "Хабарламаңызды жіберу мүмкін болмады."
+  "wvChatBlocked": "Хабарламаңызды жіберу мүмкін болмады.",
+  "wvRecapTitle": "Сессия қорытындысы",
+  "wvRecapClose": "Вебинарларға оралу",
+  "wvRecapTabTranscript": "Транскрипциялар",
+  "wvRecapTabChat": "Аударылған чат",
+  "wvRecapTranscriptEmpty": "Бұл сессия үшін транскрипциялар жазылмаған.",
+  "wvRecapChatEmpty": "Бұл сессия үшін чат хабарлары жоқ."
 }

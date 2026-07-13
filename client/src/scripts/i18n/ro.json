@@ -590,6 +590,8 @@
   "webinarNoneArchived": "Niciun webinar arhivat.",
   "webinarCode": "Cod",
   "webinarCreatedOn": "Creat",
+  "webinarBroadcastOn": "Difuzare",
+  "webinarDuration": "Durată",
   "webinarStatus_scheduled": "Programat",
   "webinarStatus_live": "În direct",
   "webinarStatus_ended": "Încheiat",
@@ -660,5 +662,11 @@
   "wvChatNamePlaceholder": "Numele tău",
   "wvChatEmpty": "Încă nu există mesaje. Salută!",
   "wvChatRateLimited": "Trimiți mesaje prea repede. Te rugăm să aștepți un moment.",
-  "wvChatBlocked": "Mesajul tău nu a putut fi trimis."
+  "wvChatBlocked": "Mesajul tău nu a putut fi trimis.",
+  "wvRecapTitle": "Rezumatul sesiunii",
+  "wvRecapClose": "Înapoi la webinarii",
+  "wvRecapTabTranscript": "Transcrieri",
+  "wvRecapTabChat": "Chat tradus",
+  "wvRecapTranscriptEmpty": "Nu au fost înregistrate transcrieri pentru această sesiune.",
+  "wvRecapChatEmpty": "Nu există mesaje de chat pentru această sesiune."
 }

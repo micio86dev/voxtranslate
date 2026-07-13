@@ -590,6 +590,8 @@
   "webinarNoneArchived": "Немає заархівованих вебінарів.",
   "webinarCode": "Код",
   "webinarCreatedOn": "Створено",
+  "webinarBroadcastOn": "Трансляція",
+  "webinarDuration": "Тривалість",
   "webinarStatus_scheduled": "Заплановано",
   "webinarStatus_live": "У прямому ефірі",
   "webinarStatus_ended": "Завершено",
@@ -660,5 +662,11 @@
   "wvChatNamePlaceholder": "Ваше ім’я",
   "wvChatEmpty": "Повідомлень поки немає. Привітайтеся!",
   "wvChatRateLimited": "Ви надсилаєте повідомлення надто швидко. Будь ласка, зачекайте хвилинку.",
-  "wvChatBlocked": "Не вдалося надіслати ваше повідомлення."
+  "wvChatBlocked": "Не вдалося надіслати ваше повідомлення.",
+  "wvRecapTitle": "Підсумок сесії",
+  "wvRecapClose": "Повернутися до вебінарів",
+  "wvRecapTabTranscript": "Транскрипції",
+  "wvRecapTabChat": "Перекладений чат",
+  "wvRecapTranscriptEmpty": "Для цієї сесії не записано жодних транскрипцій.",
+  "wvRecapChatEmpty": "Для цієї сесії немає повідомлень чату."
 }

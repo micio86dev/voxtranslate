@@ -590,6 +590,8 @@
   "webinarNoneArchived": "Nincsenek archivált webináriumok.",
   "webinarCode": "Kód",
   "webinarCreatedOn": "Létrehozva",
+  "webinarBroadcastOn": "Adás",
+  "webinarDuration": "Időtartam",
   "webinarStatus_scheduled": "Ütemezve",
   "webinarStatus_live": "Élő",
   "webinarStatus_ended": "Befejezve",
@@ -660,5 +662,11 @@
   "wvChatNamePlaceholder": "A neved",
   "wvChatEmpty": "Még nincsenek üzenetek. Köszönj be!",
   "wvChatRateLimited": "Túl gyorsan küldesz üzeneteket. Kérlek, várj egy pillanatot.",
-  "wvChatBlocked": "Az üzenetedet nem sikerült elküldeni."
+  "wvChatBlocked": "Az üzenetedet nem sikerült elküldeni.",
+  "wvRecapTitle": "Munkamenet összefoglalója",
+  "wvRecapClose": "Vissza a webináriumokhoz",
+  "wvRecapTabTranscript": "Átiratok",
+  "wvRecapTabChat": "Lefordított csevegés",
+  "wvRecapTranscriptEmpty": "Ehhez a munkamenethez nem rögzítettünk átiratokat.",
+  "wvRecapChatEmpty": "Ehhez a munkamenethez nincsenek csevegőüzenetek."
 }

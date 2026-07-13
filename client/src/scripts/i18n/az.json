@@ -590,6 +590,8 @@
   "webinarNoneArchived": "Arxivlənmiş vebinar yoxdur.",
   "webinarCode": "Kod",
   "webinarCreatedOn": "Yaradılıb",
+  "webinarBroadcastOn": "Yayım",
+  "webinarDuration": "Müddət",
   "webinarStatus_scheduled": "Planlaşdırılıb",
   "webinarStatus_live": "Canlı",
   "webinarStatus_ended": "Bitib",
@@ -660,5 +662,11 @@
   "wvChatNamePlaceholder": "Adınız",
   "wvChatEmpty": "Hələ mesaj yoxdur. Salam deyin!",
   "wvChatRateLimited": "Mesajları çox sürətli göndərirsiniz. Zəhmət olmasa, bir az gözləyin.",
-  "wvChatBlocked": "Mesajınız göndərilə bilmədi."
+  "wvChatBlocked": "Mesajınız göndərilə bilmədi.",
+  "wvRecapTitle": "Sessiya xülasəsi",
+  "wvRecapClose": "Vebinarlara qayıt",
+  "wvRecapTabTranscript": "Transkripsiyalar",
+  "wvRecapTabChat": "Tərcümə edilmiş söhbət",
+  "wvRecapTranscriptEmpty": "Bu sessiya üçün heç bir transkripsiya qeydə alınmayıb.",
+  "wvRecapChatEmpty": "Bu sessiya üçün söhbət mesajı yoxdur."
 }

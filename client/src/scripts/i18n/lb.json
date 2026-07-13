@@ -590,6 +590,8 @@
   "webinarNoneArchived": "Keng archivéiert Webinaren.",
   "webinarCode": "Code",
   "webinarCreatedOn": "Erstallt",
+  "webinarBroadcastOn": "Sendung",
+  "webinarDuration": "Dauer",
   "webinarStatus_scheduled": "Geplangt",
   "webinarStatus_live": "Live",
   "webinarStatus_ended": "Ofgeschloss",
@@ -660,5 +662,11 @@
   "wvChatNamePlaceholder": "Däin Numm",
   "wvChatEmpty": "Nach keng Noriichten. Sob Moien!",
   "wvChatRateLimited": "Du schécks ze séier Noriichten. Waart wgl. e Moment.",
-  "wvChatBlocked": "Deng Noriicht konnt net geschéckt ginn."
+  "wvChatBlocked": "Deng Noriicht konnt net geschéckt ginn.",
+  "wvRecapTitle": "Resumé vun der Sessioun",
+  "wvRecapClose": "Zréck zu de Webinaren",
+  "wvRecapTabTranscript": "Transkriptiounen",
+  "wvRecapTabChat": "Iwwersate Chat",
+  "wvRecapTranscriptEmpty": "Fir dës Sessioun goufen keng Transkriptiounen opgeholl.",
+  "wvRecapChatEmpty": "Fir dës Sessioun gëtt et keng Chat-Messagen."
 }

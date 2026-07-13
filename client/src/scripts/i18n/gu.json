@@ -590,6 +590,8 @@
   "webinarNoneArchived": "કોઈ આર્કાઇવ કરેલ વેબિનાર નથી.",
   "webinarCode": "કોડ",
   "webinarCreatedOn": "બનાવ્યું",
+  "webinarBroadcastOn": "પ્રસારણ",
+  "webinarDuration": "અવધિ",
   "webinarStatus_scheduled": "નિર્ધારિત",
   "webinarStatus_live": "લાઇવ",
   "webinarStatus_ended": "સમાપ્ત",
@@ -660,5 +662,11 @@
   "wvChatNamePlaceholder": "તમારું નામ",
   "wvChatEmpty": "હજી કોઈ સંદેશ નથી. હેલો કહો!",
   "wvChatRateLimited": "તમે સંદેશા બહુ ઝડપથી મોકલી રહ્યા છો. કૃપા કરીને થોડી વાર રાહ જુઓ.",
-  "wvChatBlocked": "તમારો સંદેશ મોકલી શકાયો નથી."
+  "wvChatBlocked": "તમારો સંદેશ મોકલી શકાયો નથી.",
+  "wvRecapTitle": "સત્ર સારાંશ",
+  "wvRecapClose": "વેબિનારમાં પાછા જાઓ",
+  "wvRecapTabTranscript": "ટ્રાન્સક્રિપ્શન",
+  "wvRecapTabChat": "અનુવાદિત ચેટ",
+  "wvRecapTranscriptEmpty": "આ સત્ર માટે કોઈ ટ્રાન્સક્રિપ્શન રેકોર્ડ થઈ નથી.",
+  "wvRecapChatEmpty": "આ સત્ર માટે કોઈ ચેટ સંદેશ નથી."
 }

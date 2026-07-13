@@ -590,6 +590,8 @@
   "webinarNoneArchived": "Hakuna wavuti za kumbukumbu.",
   "webinarCode": "Msimbo",
   "webinarCreatedOn": "Iliundwa",
+  "webinarBroadcastOn": "Matangazo",
+  "webinarDuration": "Muda",
   "webinarStatus_scheduled": "Iliyoratibiwa",
   "webinarStatus_live": "Moja kwa moja",
   "webinarStatus_ended": "Imekwisha",
@@ -660,5 +662,11 @@
   "wvChatNamePlaceholder": "Jina lako",
   "wvChatEmpty": "Bado hakuna ujumbe. Sema hujambo!",
   "wvChatRateLimited": "Unatuma ujumbe haraka mno. Tafadhali subiri kidogo.",
-  "wvChatBlocked": "Ujumbe wako haukuweza kutumwa."
+  "wvChatBlocked": "Ujumbe wako haukuweza kutumwa.",
+  "wvRecapTitle": "Muhtasari wa kipindi",
+  "wvRecapClose": "Rudi kwenye webinar",
+  "wvRecapTabTranscript": "Maandishi",
+  "wvRecapTabChat": "Mazungumzo yaliyotafsiriwa",
+  "wvRecapTranscriptEmpty": "Hakuna maandishi yaliyorekodiwa kwa kipindi hiki.",
+  "wvRecapChatEmpty": "Hakuna ujumbe wa mazungumzo kwa kipindi hiki."
 }

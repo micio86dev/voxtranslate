@@ -590,6 +590,8 @@
   "webinarNoneArchived": "Arşivlenmiş web semineri yok.",
   "webinarCode": "Kod",
   "webinarCreatedOn": "Oluşturuldu",
+  "webinarBroadcastOn": "Yayın",
+  "webinarDuration": "Süre",
   "webinarStatus_scheduled": "Planlandı",
   "webinarStatus_live": "Canlı",
   "webinarStatus_ended": "Sona erdi",
@@ -660,5 +662,11 @@
   "wvChatNamePlaceholder": "Adınız",
   "wvChatEmpty": "Henüz mesaj yok. Merhaba deyin!",
   "wvChatRateLimited": "Mesajları çok hızlı gönderiyorsunuz. Lütfen bir an bekleyin.",
-  "wvChatBlocked": "Mesajınız gönderilemedi."
+  "wvChatBlocked": "Mesajınız gönderilemedi.",
+  "wvRecapTitle": "Oturum özeti",
+  "wvRecapClose": "Webinarlara geri dön",
+  "wvRecapTabTranscript": "Transkriptler",
+  "wvRecapTabChat": "Çevrilmiş sohbet",
+  "wvRecapTranscriptEmpty": "Bu oturum için hiçbir transkript kaydedilmedi.",
+  "wvRecapChatEmpty": "Bu oturum için sohbet mesajı bulunmuyor."
 }

@@ -590,6 +590,8 @@
   "webinarNoneArchived": "Geen geargiveerde webinars nie.",
   "webinarCode": "Kode",
   "webinarCreatedOn": "Geskep",
+  "webinarBroadcastOn": "Uitsending",
+  "webinarDuration": "Duur",
   "webinarStatus_scheduled": "Geskeduleer",
   "webinarStatus_live": "Lewend",
   "webinarStatus_ended": "Geëindig",
@@ -660,5 +662,11 @@
   "wvChatNamePlaceholder": "Jou naam",
   "wvChatEmpty": "Nog geen boodskappe nie. Sê hallo!",
   "wvChatRateLimited": "Jy stuur boodskappe te vinnig. Wag asseblief ’n oomblik.",
-  "wvChatBlocked": "Jou boodskap kon nie gestuur word nie."
+  "wvChatBlocked": "Jou boodskap kon nie gestuur word nie.",
+  "wvRecapTitle": "Sessie-opsomming",
+  "wvRecapClose": "Terug na webinare",
+  "wvRecapTabTranscript": "Transkripsies",
+  "wvRecapTabChat": "Vertaalde gesels",
+  "wvRecapTranscriptEmpty": "Geen transkripsies vir hierdie sessie opgeneem nie.",
+  "wvRecapChatEmpty": "Geen geselsbergte vir hierdie sessie nie."
 }

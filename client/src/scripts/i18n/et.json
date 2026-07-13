@@ -590,6 +590,8 @@
   "webinarNoneArchived": "Arhiveeritud veebiseminare ei ole.",
   "webinarCode": "Kood",
   "webinarCreatedOn": "Loodud",
+  "webinarBroadcastOn": "Ülekanne",
+  "webinarDuration": "Kestus",
   "webinarStatus_scheduled": "Ajastatud",
   "webinarStatus_live": "Otseülekanne",
   "webinarStatus_ended": "Lõppenud",
@@ -660,5 +662,11 @@
   "wvChatNamePlaceholder": "Sinu nimi",
   "wvChatEmpty": "Sõnumeid veel pole. Ütle tere!",
   "wvChatRateLimited": "Saadad sõnumeid liiga kiiresti. Palun oota hetk.",
-  "wvChatBlocked": "Sinu sõnumit ei õnnestunud saata."
+  "wvChatBlocked": "Sinu sõnumit ei õnnestunud saata.",
+  "wvRecapTitle": "Seansi kokkuvõte",
+  "wvRecapClose": "Tagasi veebiseminaride juurde",
+  "wvRecapTabTranscript": "Transkriptsioonid",
+  "wvRecapTabChat": "Tõlgitud vestlus",
+  "wvRecapTranscriptEmpty": "Selle seansi jaoks ei salvestatud ühtegi transkriptsiooni.",
+  "wvRecapChatEmpty": "Selle seansi jaoks pole vestlussõnumeid."
 }

@@ -590,6 +590,8 @@
   "webinarNoneArchived": "Tidak ada webinar yang diarsipkan.",
   "webinarCode": "Kode",
   "webinarCreatedOn": "Dibuat",
+  "webinarBroadcastOn": "Siaran",
+  "webinarDuration": "Durasi",
   "webinarStatus_scheduled": "Dijadwalkan",
   "webinarStatus_live": "Langsung",
   "webinarStatus_ended": "Selesai",
@@ -660,5 +662,11 @@
   "wvChatNamePlaceholder": "Nama Anda",
   "wvChatEmpty": "Belum ada pesan. Sapa mereka!",
   "wvChatRateLimited": "Anda mengirim pesan terlalu cepat. Mohon tunggu sebentar.",
-  "wvChatBlocked": "Pesan Anda tidak dapat dikirim."
+  "wvChatBlocked": "Pesan Anda tidak dapat dikirim.",
+  "wvRecapTitle": "Ringkasan sesi",
+  "wvRecapClose": "Kembali ke webinar",
+  "wvRecapTabTranscript": "Transkripsi",
+  "wvRecapTabChat": "Obrolan terjemahan",
+  "wvRecapTranscriptEmpty": "Tidak ada transkripsi yang direkam untuk sesi ini.",
+  "wvRecapChatEmpty": "Tidak ada pesan obrolan untuk sesi ini."
 }

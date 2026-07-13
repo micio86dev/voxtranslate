@@ -590,6 +590,8 @@
   "webinarNoneArchived": "कुनै अभिलेख गरिएका वेबिनार छैनन्।",
   "webinarCode": "कोड",
   "webinarCreatedOn": "सिर्जना गरिएको",
+  "webinarBroadcastOn": "प्रसारण",
+  "webinarDuration": "अवधि",
   "webinarStatus_scheduled": "तालिकाबद्ध",
   "webinarStatus_live": "प्रत्यक्ष",
   "webinarStatus_ended": "समाप्त भयो",
@@ -660,5 +662,11 @@
   "wvChatNamePlaceholder": "तपाईंको नाम",
   "wvChatEmpty": "अहिलेसम्म कुनै सन्देश छैन। नमस्ते भन्नुहोस्!",
   "wvChatRateLimited": "तपाईं धेरै छिटो सन्देश पठाउँदै हुनुहुन्छ। कृपया एकछिन पर्खनुहोस्।",
-  "wvChatBlocked": "तपाईंको सन्देश पठाउन सकिएन।"
+  "wvChatBlocked": "तपाईंको सन्देश पठाउन सकिएन।",
+  "wvRecapTitle": "सत्र सारांश",
+  "wvRecapClose": "वेबिनारमा फर्किनुहोस्",
+  "wvRecapTabTranscript": "ट्रान्सक्रिप्सन",
+  "wvRecapTabChat": "अनुवादित च्याट",
+  "wvRecapTranscriptEmpty": "यस सत्रका लागि कुनै ट्रान्सक्रिप्सन रेकर्ड गरिएको छैन।",
+  "wvRecapChatEmpty": "यस सत्रका लागि कुनै च्याट सन्देश छैन।"
 }

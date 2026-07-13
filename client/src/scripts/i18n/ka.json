@@ -590,6 +590,8 @@
   "webinarNoneArchived": "დაარქივებული ვებინარები არ არის.",
   "webinarCode": "კოდი",
   "webinarCreatedOn": "შეიქმნა",
+  "webinarBroadcastOn": "მაუწყებლობა",
+  "webinarDuration": "ხანგრძლივობა",
   "webinarStatus_scheduled": "დაგეგმილი",
   "webinarStatus_live": "პირდაპირ",
   "webinarStatus_ended": "დასრულებული",
@@ -660,5 +662,11 @@
   "wvChatNamePlaceholder": "თქვენი სახელი",
   "wvChatEmpty": "ჯერ შეტყობინებები არ არის. მიესალმეთ!",
   "wvChatRateLimited": "შეტყობინებებს ძალიან სწრაფად აგზავნით. გთხოვთ, დაელოდოთ ცოტა ხანს.",
-  "wvChatBlocked": "თქვენი შეტყობინების გაგზავნა ვერ მოხერხდა."
+  "wvChatBlocked": "თქვენი შეტყობინების გაგზავნა ვერ მოხერხდა.",
+  "wvRecapTitle": "სესიის შეჯამება",
+  "wvRecapClose": "ვებინარებზე დაბრუნება",
+  "wvRecapTabTranscript": "ტრანსკრიპციები",
+  "wvRecapTabChat": "თარგმნილი ჩატი",
+  "wvRecapTranscriptEmpty": "ამ სესიისათვის ტრანსკრიპციები არ ჩაწერილა.",
+  "wvRecapChatEmpty": "ამ სესიისათვის ჩატის შეტყობინებები არ არის."
 }

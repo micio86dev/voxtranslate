@@ -590,6 +590,8 @@
   "webinarNoneArchived": "Няма архіваваных вебінараў.",
   "webinarCode": "Код",
   "webinarCreatedOn": "Створаны",
+  "webinarBroadcastOn": "Трансляцыя",
+  "webinarDuration": "Працягласць",
   "webinarStatus_scheduled": "Запланаваны",
   "webinarStatus_live": "У эфіры",
   "webinarStatus_ended": "Завершаны",
@@ -660,5 +662,11 @@
   "wvChatNamePlaceholder": "Ваша імя",
   "wvChatEmpty": "Паведамленняў пакуль няма. Павітайцеся!",
   "wvChatRateLimited": "Вы адпраўляеце паведамленні занадта хутка. Калі ласка, крыху пачакайце.",
-  "wvChatBlocked": "Не ўдалося адправіць ваша паведамленне."
+  "wvChatBlocked": "Не ўдалося адправіць ваша паведамленне.",
+  "wvRecapTitle": "Зводка сесіі",
+  "wvRecapClose": "Вярнуцца да вэбінараў",
+  "wvRecapTabTranscript": "Транскрыпцыі",
+  "wvRecapTabChat": "Перакладзены чат",
+  "wvRecapTranscriptEmpty": "Для гэтай сесіі транскрыпцыі не запісаны.",
+  "wvRecapChatEmpty": "Для гэтай сесіі паведамленняў чату няма."
 }

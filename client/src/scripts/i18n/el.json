@@ -590,6 +590,8 @@
   "webinarNoneArchived": "Δεν υπάρχουν αρχειοθετημένα σεμινάρια.",
   "webinarCode": "Κωδικός",
   "webinarCreatedOn": "Δημιουργήθηκε",
+  "webinarBroadcastOn": "Μετάδοση",
+  "webinarDuration": "Διάρκεια",
   "webinarStatus_scheduled": "Προγραμματισμένο",
   "webinarStatus_live": "Ζωντανά",
   "webinarStatus_ended": "Ολοκληρώθηκε",
@@ -660,5 +662,11 @@
   "wvChatNamePlaceholder": "Το όνομά σας",
   "wvChatEmpty": "Δεν υπάρχουν μηνύματα ακόμη. Πείτε ένα γεια!",
   "wvChatRateLimited": "Στέλνετε μηνύματα πολύ γρήγορα. Περιμένετε λίγο, παρακαλώ.",
-  "wvChatBlocked": "Δεν ήταν δυνατή η αποστολή του μηνύματός σας."
+  "wvChatBlocked": "Δεν ήταν δυνατή η αποστολή του μηνύματός σας.",
+  "wvRecapTitle": "Σύνοψη συνεδρίας",
+  "wvRecapClose": "Επιστροφή στα webinars",
+  "wvRecapTabTranscript": "Μεταγραφές",
+  "wvRecapTabChat": "Μεταφρασμένη συνομιλία",
+  "wvRecapTranscriptEmpty": "Δεν καταγράφηκαν μεταγραφές για αυτή τη συνεδρία.",
+  "wvRecapChatEmpty": "Δεν υπάρχουν μηνύματα συνομιλίας για αυτή τη συνεδρία."
 }

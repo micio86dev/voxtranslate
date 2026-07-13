@@ -590,6 +590,8 @@
   "webinarNoneArchived": "ఆర్కైవ్ చేసిన వెబినార్లు లేవు.",
   "webinarCode": "కోడ్",
   "webinarCreatedOn": "సృష్టించబడింది",
+  "webinarBroadcastOn": "ప్రసారం",
+  "webinarDuration": "వ్యవధి",
   "webinarStatus_scheduled": "షెడ్యూల్ చేయబడింది",
   "webinarStatus_live": "ప్రత్యక్షం",
   "webinarStatus_ended": "ముగిసింది",
@@ -660,5 +662,11 @@
   "wvChatNamePlaceholder": "మీ పేరు",
   "wvChatEmpty": "ఇంకా సందేశాలు లేవు. హలో చెప్పండి!",
   "wvChatRateLimited": "మీరు సందేశాలను చాలా వేగంగా పంపుతున్నారు. దయచేసి కొద్దిసేపు వేచి ఉండండి.",
-  "wvChatBlocked": "మీ సందేశాన్ని పంపడం సాధ్యం కాలేదు."
+  "wvChatBlocked": "మీ సందేశాన్ని పంపడం సాధ్యం కాలేదు.",
+  "wvRecapTitle": "సెషన్ సారాంశం",
+  "wvRecapClose": "వెబినార్‌లకు తిరిగి వెళ్ళు",
+  "wvRecapTabTranscript": "లిప్యంతరీకరణలు",
+  "wvRecapTabChat": "అనువదించిన చాట్",
+  "wvRecapTranscriptEmpty": "ఈ సెషన్‌కు ఎటువంటి లిప్యంతరీకరణలు నమోదు కాలేదు.",
+  "wvRecapChatEmpty": "ఈ సెషన్‌కు చాట్ సందేశాలు లేవు."
 }
