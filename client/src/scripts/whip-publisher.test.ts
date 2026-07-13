@@ -25,6 +25,7 @@ vi.mock('./webinar', () => ({
 
 import {
   WhipPublisher,
+  preferH264InSdp,
   resolveResourceUrl,
   whipDelete,
   whipPublish,
@@ -142,6 +143,59 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+});
+
+// Minimal SDP with VP8 first and two H264 variants (with RTX) to test reordering.
+const MINIMAL_SDP = [
+  'v=0',
+  'm=audio 9 UDP/TLS/RTP/SAVPF 111',
+  'a=rtpmap:111 opus/48000/2',
+  'm=video 9 UDP/TLS/RTP/SAVPF 96 97 103 104 109 114',
+  'a=rtpmap:96 VP8/90000',
+  'a=rtpmap:97 rtx/90000',
+  'a=fmtp:97 apt=96',
+  'a=rtpmap:103 H264/90000',
+  'a=fmtp:103 level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42001f',
+  'a=rtpmap:104 rtx/90000',
+  'a=fmtp:104 apt=103',
+  'a=rtpmap:109 H264/90000',
+  'a=fmtp:109 level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f',
+  'a=rtpmap:114 rtx/90000',
+  'a=fmtp:114 apt=109',
+].join('\r\n');
+
+describe('preferH264InSdp', () => {
+  it('moves H264 payload types before VP8 in the video m-line', () => {
+    const out = preferH264InSdp(MINIMAL_SDP);
+    const mLine = out.split('\r\n').find((l) => l.startsWith('m=video'))!;
+    const pts = mLine.split(' ').slice(3);
+    // All H264 PTs (103, 104, 109, 114) must precede VP8 (96, 97).
+    const first96 = pts.indexOf('96');
+    expect(pts.indexOf('103')).toBeLessThan(first96);
+    expect(pts.indexOf('104')).toBeLessThan(first96);
+    expect(pts.indexOf('109')).toBeLessThan(first96);
+    expect(pts.indexOf('114')).toBeLessThan(first96);
+  });
+
+  it('includes RTX companions of H264 in the preferred set', () => {
+    const out = preferH264InSdp(MINIMAL_SDP);
+    const mLine = out.split('\r\n').find((l) => l.startsWith('m=video'))!;
+    const pts = mLine.split(' ').slice(3);
+    // RTX for H264 (104, 114) must be in the output and before VP8 RTX (97).
+    expect(pts).toContain('104');
+    expect(pts).toContain('114');
+    expect(pts.indexOf('104')).toBeLessThan(pts.indexOf('97'));
+  });
+
+  it('leaves SDPs with no video m-line unchanged', () => {
+    const audioOnly = 'v=0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=rtpmap:111 opus/48000/2';
+    expect(preferH264InSdp(audioOnly)).toBe(audioOnly);
+  });
+
+  it('leaves SDPs with no H264 codec unchanged', () => {
+    const noH264 = 'm=video 9 UDP/TLS/RTP/SAVPF 96 97\r\na=rtpmap:96 VP8/90000';
+    expect(preferH264InSdp(noH264)).toBe(noH264);
+  });
 });
 
 describe('resolveResourceUrl', () => {

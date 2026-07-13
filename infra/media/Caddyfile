@@ -23,9 +23,18 @@ ingest.voxtranslate.app {
 	header @whip_path Access-Control-Allow-Methods "POST, DELETE, OPTIONS"
 
 	# WHIP/WHEP signaling → MediaMTX WebRTC HTTP port.
+	# Strip CORS headers from the upstream response: MediaMTX reflects the Origin header
+	# as Access-Control-Allow-Origin, which duplicates the header Caddy adds above and
+	# causes browsers to block the request (multiple ACAO values are invalid).
 	# The sub-path rule (/whip/*) catches DELETE /webinar/{code}/whip/{session-id}.
-	reverse_proxy /webinar/*/whip localhost:8889
-	reverse_proxy /webinar/*/whip/* localhost:8889
+	reverse_proxy /webinar/*/whip localhost:8889 {
+		header_down -Access-Control-Allow-Origin
+		header_down -Access-Control-Allow-Methods
+	}
+	reverse_proxy /webinar/*/whip/* localhost:8889 {
+		header_down -Access-Control-Allow-Origin
+		header_down -Access-Control-Allow-Methods
+	}
 	reverse_proxy /webinar/*/whep localhost:8889
 	# Everything else under /webinar/ = HLS playlist + segments.
 	reverse_proxy /webinar/* localhost:8888
