@@ -62,6 +62,8 @@ pub fn routes() -> Router<AppState> {
         // Soft-archive / restore (③) — hide from the active list, data preserved.
         .route("/api/webinars/{id}/archive", post(archive))
         .route("/api/webinars/{id}/unarchive", post(unarchive))
+        // Transcript history for a completed webinar (recap screen).
+        .route("/api/webinars/{id}/transcripts", get(get_transcripts))
         // Host mints a short-lived tokenized WHIP publish URL to go on air (F1-1).
         .route("/api/webinars/{id}/go-live", post(go_live))
         // Lifecycle: host client reports on-air / off-air (F1-3).
@@ -652,6 +654,48 @@ pub async fn unarchive(
     .await
     .map_err(db_err)?;
     Ok(Json(host_view(&updated, &state.config.app_base_url, cfg)).into_response())
+}
+
+/// `GET /api/webinars/{id}/transcripts` — return up to 2 000 transcript rows for
+/// a webinar, ordered chronologically. Members only (same gate as `get_one`).
+/// Returns an empty array when `record_transcript` was not enabled.
+pub async fn get_transcripts(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+) -> Result<Response, Response> {
+    let pool = require_pool(&state)?;
+    require_webinar_role(pool, id, user.user_id, MEMBER).await?;
+    let rows: Vec<serde_json::Value> = sqlx::query_as::<
+        _,
+        (
+            String,
+            String,
+            serde_json::Value,
+            chrono::DateTime<chrono::Utc>,
+        ),
+    >(
+        "SELECT original_text, original_lang, translations, spoken_at
+           FROM webinar_transcripts
+          WHERE webinar_id = $1
+          ORDER BY spoken_at ASC
+          LIMIT 2000",
+    )
+    .bind(id)
+    .fetch_all(pool)
+    .await
+    .map_err(db_err)?
+    .into_iter()
+    .map(|(original_text, original_lang, translations, spoken_at)| {
+        serde_json::json!({
+            "original_text": original_text,
+            "original_lang": original_lang,
+            "translations": translations,
+            "spoken_at": spoken_at,
+        })
+    })
+    .collect();
+    Ok(Json(rows).into_response())
 }
 
 /// Map a Google OAuth error to a client response (409 tells the client to connect

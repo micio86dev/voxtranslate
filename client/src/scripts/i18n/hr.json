@@ -662,5 +662,11 @@
   "wvChatNamePlaceholder": "Vaše ime",
   "wvChatEmpty": "Još nema poruka. Pozdravite!",
   "wvChatRateLimited": "Šaljete poruke prebrzo. Pričekajte trenutak.",
-  "wvChatBlocked": "Vaša poruka nije poslana."
+  "wvChatBlocked": "Vaša poruka nije poslana.",
+  "wvRecapTitle": "Sažetak sesije",
+  "wvRecapClose": "Natrag na webinare",
+  "wvRecapTabTranscript": "Transkripcije",
+  "wvRecapTabChat": "Prevedeni razgovor",
+  "wvRecapTranscriptEmpty": "Za ovu sesiju nisu snimljene transkripcije.",
+  "wvRecapChatEmpty": "Nema poruka chata za ovu sesiju."
 }

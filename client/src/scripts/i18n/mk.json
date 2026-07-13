@@ -662,5 +662,11 @@
   "wvChatNamePlaceholder": "Вашето име",
   "wvChatEmpty": "Сè уште нема пораки. Поздравете се!",
   "wvChatRateLimited": "Испраќате пораки премногу брзо. Почекајте момент.",
-  "wvChatBlocked": "Вашата порака не можеше да се испрати."
+  "wvChatBlocked": "Вашата порака не можеше да се испрати.",
+  "wvRecapTitle": "Резиме на сесијата",
+  "wvRecapClose": "Назад кон вебинарите",
+  "wvRecapTabTranscript": "Транскрипции",
+  "wvRecapTabChat": "Преведен чат",
+  "wvRecapTranscriptEmpty": "За оваа сесија не се снимени транскрипции.",
+  "wvRecapChatEmpty": "Нема пораки во чат за оваа сесија."
 }

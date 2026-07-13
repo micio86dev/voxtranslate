@@ -662,5 +662,11 @@
   "wvChatNamePlaceholder": "آپ کا نام",
   "wvChatEmpty": "ابھی تک کوئی پیغام نہیں۔ سلام کہیں!",
   "wvChatRateLimited": "آپ پیغامات بہت تیزی سے بھیج رہے ہیں۔ براہ کرم ایک لمحہ انتظار کریں۔",
-  "wvChatBlocked": "آپ کا پیغام نہیں بھیجا جا سکا۔"
+  "wvChatBlocked": "آپ کا پیغام نہیں بھیجا جا سکا۔",
+  "wvRecapTitle": "سیشن کا خلاصہ",
+  "wvRecapClose": "ویبیناروں پر واپس جائیں",
+  "wvRecapTabTranscript": "نقل حرفی",
+  "wvRecapTabChat": "ترجمہ شدہ چیٹ",
+  "wvRecapTranscriptEmpty": "اس سیشن کے لیے کوئی نقل حرفی ریکارڈ نہیں کی گئی۔",
+  "wvRecapChatEmpty": "اس سیشن کے لیے کوئی چیٹ پیغام نہیں ہے۔"
 }

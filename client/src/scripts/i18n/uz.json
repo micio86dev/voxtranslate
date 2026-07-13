@@ -662,5 +662,11 @@
   "wvChatNamePlaceholder": "Ismingiz",
   "wvChatEmpty": "Hozircha xabarlar yo‘q. Salom ayting!",
   "wvChatRateLimited": "Siz xabarlarni juda tez yuboryapsiz. Iltimos, bir oz kuting.",
-  "wvChatBlocked": "Xabaringizni yuborib bo‘lmadi."
+  "wvChatBlocked": "Xabaringizni yuborib bo‘lmadi.",
+  "wvRecapTitle": "Sessiya xulosasi",
+  "wvRecapClose": "Vebinarlarga qaytish",
+  "wvRecapTabTranscript": "Transkriptsiyalar",
+  "wvRecapTabChat": "Tarjima qilingan chat",
+  "wvRecapTranscriptEmpty": "Bu sessiya uchun hech qanday transkriptsiya yozilmagan.",
+  "wvRecapChatEmpty": "Bu sessiya uchun chat xabarlari mavjud emas."
 }

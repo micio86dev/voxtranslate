@@ -662,5 +662,11 @@
   "wvChatNamePlaceholder": "您的名字",
   "wvChatEmpty": "还没有消息。打个招呼吧！",
   "wvChatRateLimited": "您发送消息太快了。请稍等片刻。",
-  "wvChatBlocked": "无法发送您的消息。"
+  "wvChatBlocked": "无法发送您的消息。",
+  "wvRecapTitle": "会议回顾",
+  "wvRecapClose": "返回网络研讨会",
+  "wvRecapTabTranscript": "转录内容",
+  "wvRecapTabChat": "已翻译的聊天",
+  "wvRecapTranscriptEmpty": "本次会议未记录任何转录内容。",
+  "wvRecapChatEmpty": "本次会议没有聊天消息。"
 }

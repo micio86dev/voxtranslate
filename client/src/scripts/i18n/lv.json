@@ -662,5 +662,11 @@
   "wvChatNamePlaceholder": "Jūsu vārds",
   "wvChatEmpty": "Vēl nav ziņojumu. Sasveicinieties!",
   "wvChatRateLimited": "Jūs sūtāt ziņojumus pārāk ātri. Lūdzu, uzgaidiet mirkli.",
-  "wvChatBlocked": "Jūsu ziņojumu neizdevās nosūtīt."
+  "wvChatBlocked": "Jūsu ziņojumu neizdevās nosūtīt.",
+  "wvRecapTitle": "Sesijas kopsavilkums",
+  "wvRecapClose": "Atpakaļ uz vebināriem",
+  "wvRecapTabTranscript": "Transkripcijas",
+  "wvRecapTabChat": "Tulkots tērzēšanas logs",
+  "wvRecapTranscriptEmpty": "Šai sesijai nav ierakstītu transkripciju.",
+  "wvRecapChatEmpty": "Šai sesijai nav tērzēšanas ziņojumu."
 }

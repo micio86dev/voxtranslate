@@ -662,5 +662,11 @@
   "wvChatNamePlaceholder": "Navnet ditt",
   "wvChatEmpty": "Ingen meldinger ennå. Si hei!",
   "wvChatRateLimited": "Du sender meldinger for raskt. Vent et øyeblikk.",
-  "wvChatBlocked": "Meldingen din kunne ikke sendes."
+  "wvChatBlocked": "Meldingen din kunne ikke sendes.",
+  "wvRecapTitle": "Sesjonssammendrag",
+  "wvRecapClose": "Tilbake til webinarene",
+  "wvRecapTabTranscript": "Transkripsjoner",
+  "wvRecapTabChat": "Oversatt chat",
+  "wvRecapTranscriptEmpty": "Ingen transkripsjoner ble registrert for denne sesjonen.",
+  "wvRecapChatEmpty": "Ingen chat-meldinger for denne sesjonen."
 }

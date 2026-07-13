@@ -662,5 +662,11 @@
   "wvChatNamePlaceholder": "Emri yt",
   "wvChatEmpty": "Ende asnjë mesazh. Përshëndet!",
   "wvChatRateLimited": "Po dërgon mesazhe shumë shpejt. Të lutem prit një çast.",
-  "wvChatBlocked": "Mesazhi yt nuk mund të dërgohej."
+  "wvChatBlocked": "Mesazhi yt nuk mund të dërgohej.",
+  "wvRecapTitle": "Përmbledhja e sesionit",
+  "wvRecapClose": "Kthehu te webinaret",
+  "wvRecapTabTranscript": "Transkriptime",
+  "wvRecapTabChat": "Bisedë e përkthyer",
+  "wvRecapTranscriptEmpty": "Nuk u regjistruan transkriptime për këtë sesion.",
+  "wvRecapChatEmpty": "Nuk ka mesazhe bisede për këtë sesion."
 }

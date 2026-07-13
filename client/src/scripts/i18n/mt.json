@@ -662,5 +662,11 @@
   "wvChatNamePlaceholder": "Ismek",
   "wvChatEmpty": "Għad m'hemm l-ebda messaġġ. Sellem!",
   "wvChatRateLimited": "Qed tibgħat messaġġi malajr wisq. Jekk jogħġbok stenna ftit.",
-  "wvChatBlocked": "Il-messaġġ tiegħek ma setax jintbagħat."
+  "wvChatBlocked": "Il-messaġġ tiegħek ma setax jintbagħat.",
+  "wvRecapTitle": "Sommarju tas-sessjoni",
+  "wvRecapClose": "Lura għall-webinars",
+  "wvRecapTabTranscript": "Traskrizzjonijiet",
+  "wvRecapTabChat": "Chat tradotta",
+  "wvRecapTranscriptEmpty": "Ma ġiet irrekordjata l-ebda traskrizzjoni għal din is-sessjoni.",
+  "wvRecapChatEmpty": "Ma hemm l-ebda messaġġi ta' chat għal din is-sessjoni."
 }

@@ -662,5 +662,11 @@
   "wvChatNamePlaceholder": "نام شما",
   "wvChatEmpty": "هنوز پیامی نیست. سلام کنید!",
   "wvChatRateLimited": "پیام‌ها را خیلی سریع می‌فرستید. لطفاً کمی صبر کنید.",
-  "wvChatBlocked": "پیام شما ارسال نشد."
+  "wvChatBlocked": "پیام شما ارسال نشد.",
+  "wvRecapTitle": "خلاصه جلسه",
+  "wvRecapClose": "بازگشت به وبینارها",
+  "wvRecapTabTranscript": "رونوشت‌ها",
+  "wvRecapTabChat": "چت ترجمه‌شده",
+  "wvRecapTranscriptEmpty": "هیچ رونوشتی برای این جلسه ثبت نشده است.",
+  "wvRecapChatEmpty": "هیچ پیام چتی برای این جلسه وجود ندارد."
 }

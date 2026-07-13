@@ -662,5 +662,11 @@
   "wvChatNamePlaceholder": "Ditt namn",
   "wvChatEmpty": "Inga meddelanden än. Säg hej!",
   "wvChatRateLimited": "Du skickar meddelanden för snabbt. Vänta ett ögonblick.",
-  "wvChatBlocked": "Ditt meddelande kunde inte skickas."
+  "wvChatBlocked": "Ditt meddelande kunde inte skickas.",
+  "wvRecapTitle": "Sessionssammanfattning",
+  "wvRecapClose": "Tillbaka till webbinarierna",
+  "wvRecapTabTranscript": "Transskriptioner",
+  "wvRecapTabChat": "Översatt chatt",
+  "wvRecapTranscriptEmpty": "Inga transskriptioner spelades in för den här sessionen.",
+  "wvRecapChatEmpty": "Inga chattmeddelanden för den här sessionen."
 }

@@ -662,5 +662,11 @@
   "wvChatNamePlaceholder": "Zure izena",
   "wvChatEmpty": "Oraindik ez dago mezurik. Esan kaixo!",
   "wvChatRateLimited": "Mezuak azkarregi bidaltzen ari zara. Itxaron une bat, mesedez.",
-  "wvChatBlocked": "Zure mezua ezin izan da bidali."
+  "wvChatBlocked": "Zure mezua ezin izan da bidali.",
+  "wvRecapTitle": "Saioaren laburpena",
+  "wvRecapClose": "Itzuli webinarretara",
+  "wvRecapTabTranscript": "Transkripzioak",
+  "wvRecapTabChat": "Itzulitako txata",
+  "wvRecapTranscriptEmpty": "Ez da transkripziorik grabatu saio honetarako.",
+  "wvRecapChatEmpty": "Ez dago txat mezurik saio honetarako."
 }

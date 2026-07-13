@@ -662,5 +662,11 @@
   "wvChatNamePlaceholder": "Twoje imię",
   "wvChatEmpty": "Brak wiadomości. Przywitaj się!",
   "wvChatRateLimited": "Wysyłasz wiadomości zbyt szybko. Poczekaj chwilę.",
-  "wvChatBlocked": "Nie udało się wysłać Twojej wiadomości."
+  "wvChatBlocked": "Nie udało się wysłać Twojej wiadomości.",
+  "wvRecapTitle": "Podsumowanie sesji",
+  "wvRecapClose": "Wróć do webinarów",
+  "wvRecapTabTranscript": "Transkrypcje",
+  "wvRecapTabChat": "Przetłumaczony czat",
+  "wvRecapTranscriptEmpty": "Dla tej sesji nie nagrano żadnych transkrypcji.",
+  "wvRecapChatEmpty": "Brak wiadomości czatu dla tej sesji."
 }

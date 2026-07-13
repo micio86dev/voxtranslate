@@ -662,5 +662,11 @@
   "wvChatNamePlaceholder": "Orúkọ rẹ",
   "wvChatEmpty": "Kò sí ìhìn kankan síbẹ̀. Kí àwọn ènìyàn!",
   "wvChatRateLimited": "O ń fi ìhìn ránṣẹ́ ní kíákíá jù. Jọ̀wọ́ dúró díẹ̀.",
-  "wvChatBlocked": "A kò lè fi ìhìn rẹ ránṣẹ́."
+  "wvChatBlocked": "A kò lè fi ìhìn rẹ ránṣẹ́.",
+  "wvRecapTitle": "Akopọ igba",
+  "wvRecapClose": "Pada si awọn webinar",
+  "wvRecapTabTranscript": "Awọn ipilẹ ọrọ",
+  "wvRecapTabChat": "Ibaraẹnisọrọ ti a tumọ",
+  "wvRecapTranscriptEmpty": "Ko si awọn ipilẹ ọrọ ti a gbasilẹ fun igba yii.",
+  "wvRecapChatEmpty": "Ko si awọn ifiranṣẹ ibaraẹnisọrọ fun igba yii."
 }

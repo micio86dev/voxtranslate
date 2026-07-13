@@ -662,5 +662,11 @@
   "wvChatNamePlaceholder": "お名前",
   "wvChatEmpty": "まだメッセージはありません。あいさつしましょう！",
   "wvChatRateLimited": "メッセージの送信が速すぎます。少しお待ちください。",
-  "wvChatBlocked": "メッセージを送信できませんでした。"
+  "wvChatBlocked": "メッセージを送信できませんでした。",
+  "wvRecapTitle": "セッションの要約",
+  "wvRecapClose": "ウェビナーに戻る",
+  "wvRecapTabTranscript": "文字起こし",
+  "wvRecapTabChat": "翻訳済みチャット",
+  "wvRecapTranscriptEmpty": "このセッションの文字起こしは記録されていません。",
+  "wvRecapChatEmpty": "このセッションのチャットメッセージはありません。"
 }

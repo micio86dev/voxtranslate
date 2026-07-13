@@ -662,5 +662,11 @@
   "wvChatNamePlaceholder": "Вашето име",
   "wvChatEmpty": "Все още няма съобщения. Кажете здравей!",
   "wvChatRateLimited": "Изпращате съобщения твърде бързо. Моля, изчакайте малко.",
-  "wvChatBlocked": "Съобщението ви не можа да бъде изпратено."
+  "wvChatBlocked": "Съобщението ви не можа да бъде изпратено.",
+  "wvRecapTitle": "Обобщение на сесията",
+  "wvRecapClose": "Обратно към уебинарите",
+  "wvRecapTabTranscript": "Транскрипции",
+  "wvRecapTabChat": "Преведен чат",
+  "wvRecapTranscriptEmpty": "За тази сесия не са записани транскрипции.",
+  "wvRecapChatEmpty": "Няма чат съобщения за тази сесия."
 }

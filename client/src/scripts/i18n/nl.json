@@ -662,5 +662,11 @@
   "wvChatNamePlaceholder": "Je naam",
   "wvChatEmpty": "Nog geen berichten. Zeg hallo!",
   "wvChatRateLimited": "Je verstuurt berichten te snel. Wacht even.",
-  "wvChatBlocked": "Je bericht kon niet worden verzonden."
+  "wvChatBlocked": "Je bericht kon niet worden verzonden.",
+  "wvRecapTitle": "Sessieoverzicht",
+  "wvRecapClose": "Terug naar webinars",
+  "wvRecapTabTranscript": "Transcripties",
+  "wvRecapTabChat": "Vertaalde chat",
+  "wvRecapTranscriptEmpty": "Er zijn geen transcripties opgenomen voor deze sessie.",
+  "wvRecapChatEmpty": "Geen chatberichten voor deze sessie."
 }

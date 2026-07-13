@@ -662,5 +662,11 @@
   "wvChatNamePlaceholder": "ناوت",
   "wvChatEmpty": "هێشتا هیچ نامەیەک نییە. سڵاو بکە!",
   "wvChatRateLimited": "تۆ زۆر بە خێرایی نامە دەنێریت. تکایە کەمێک چاوەڕێ بکە.",
-  "wvChatBlocked": "نەتوانرا نامەکەت بنێردرێت."
+  "wvChatBlocked": "نەتوانرا نامەکەت بنێردرێت.",
+  "wvRecapTitle": "کورتەی دانیشتن",
+  "wvRecapClose": "گەڕانەوە بۆ وێبینارەکان",
+  "wvRecapTabTranscript": "نووسینەوەکان",
+  "wvRecapTabChat": "چاتی وەرگێڕدراو",
+  "wvRecapTranscriptEmpty": "هیچ نووسینەوەیەک بۆ ئەم دانیشتنە تۆمار نەکراوە.",
+  "wvRecapChatEmpty": "هیچ نامەی چاتێک بۆ ئەم دانیشتنە نییە."
 }

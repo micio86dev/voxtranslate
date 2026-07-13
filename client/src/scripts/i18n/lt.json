@@ -662,5 +662,11 @@
   "wvChatNamePlaceholder": "Jūsų vardas",
   "wvChatEmpty": "Žinučių dar nėra. Pasisveikinkite!",
   "wvChatRateLimited": "Siunčiate žinutes per greitai. Palaukite akimirką.",
-  "wvChatBlocked": "Jūsų žinutės nepavyko išsiųsti."
+  "wvChatBlocked": "Jūsų žinutės nepavyko išsiųsti.",
+  "wvRecapTitle": "Sesijos santrauka",
+  "wvRecapClose": "Grįžti į webinarus",
+  "wvRecapTabTranscript": "Transkripcijos",
+  "wvRecapTabChat": "Išverstas pokalbis",
+  "wvRecapTranscriptEmpty": "Šiai sesijai neįrašyta jokių transkripcijų.",
+  "wvRecapChatEmpty": "Šiai sesijai nėra pokalbių žinučių."
 }

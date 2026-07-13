@@ -662,5 +662,11 @@
   "wvChatNamePlaceholder": "तुमचे नाव",
   "wvChatEmpty": "अद्याप कोणतेही संदेश नाहीत. नमस्कार करा!",
   "wvChatRateLimited": "तुम्ही खूप वेगाने संदेश पाठवत आहात. कृपया थोडा वेळ थांबा.",
-  "wvChatBlocked": "तुमचा संदेश पाठवता आला नाही."
+  "wvChatBlocked": "तुमचा संदेश पाठवता आला नाही.",
+  "wvRecapTitle": "सत्र सारांश",
+  "wvRecapClose": "वेबिनारवर परत जा",
+  "wvRecapTabTranscript": "लिप्यंतरण",
+  "wvRecapTabChat": "भाषांतरित चॅट",
+  "wvRecapTranscriptEmpty": "या सत्रासाठी कोणतेही लिप्यंतरण नोंदवले गेले नाही.",
+  "wvRecapChatEmpty": "या सत्रासाठी कोणतेही चॅट संदेश नाहीत."
 }

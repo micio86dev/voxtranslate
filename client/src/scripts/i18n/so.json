@@ -662,5 +662,11 @@
   "wvChatNamePlaceholder": "Magacaaga",
   "wvChatEmpty": "Wali fariimo ma jiraan. Salaan bixi!",
   "wvChatRateLimited": "Fariimo ayaad si degdeg ah u diraysaa. Fadlan sug daqiiqad.",
-  "wvChatBlocked": "Fariintaada lama diri karin."
+  "wvChatBlocked": "Fariintaada lama diri karin.",
+  "wvRecapTitle": "Koobidda fadhiga",
+  "wvRecapClose": "Ku laabo webinarka",
+  "wvRecapTabTranscript": "Qoraalada",
+  "wvRecapTabChat": "Sheekada la turjumay",
+  "wvRecapTranscriptEmpty": "Fadhigan kuma qormin qoraal.",
+  "wvRecapChatEmpty": "Ma jiraan farriimaha sheekada fadhigan."
 }

@@ -4484,6 +4484,14 @@ function overlayKeydown(e: KeyboardEvent): void {
   }
 }
 
+function escHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
 function show(el: HTMLElement, visible: boolean): void {
   el.classList.toggle('hidden', !visible);
   if (!el.classList.contains('modal-overlay')) return;
@@ -5029,6 +5037,7 @@ function revealWebinarForm(): void {
 
 async function openWebinars(): Promise<void> {
   homeScreen.classList.add('hidden');
+  show(recapScreen, false);
   webinarsScreen.classList.remove('hidden');
   collapseWebinarForm(); // always re-enter with the form collapsed
   resetWebinarTabs(); // always re-enter on the Active list
@@ -5626,6 +5635,18 @@ const wsChatSend = $<HTMLButtonElement>('webinar-studio-chat-send');
 const wsChatNotice = $('webinar-studio-chat-notice');
 const wsChatForm = $<HTMLFormElement>('webinar-studio-chat-form');
 
+// ---- Webinar recap screen (shown after broadcast ends when transcripts exist) ----
+const recapScreen = $('webinar-recap');
+const recapCloseBtn = $<HTMLButtonElement>('recap-close');
+const recapTabTranscript = $<HTMLButtonElement>('recap-tab-transcript');
+const recapTabChat = $<HTMLButtonElement>('recap-tab-chat');
+const recapTranscriptPanel = $('recap-transcript-panel');
+const recapChatPanel = $('recap-chat-panel');
+const recapTranscriptList = $('recap-transcript-list');
+const recapTranscriptEmpty = $('recap-transcript-empty');
+const recapChatList = $('recap-chat-list');
+const recapChatEmpty = $('recap-chat-empty');
+
 /** The host studio's live-presence connection (opened while the studio is on screen,
  *  closed when it leaves). The host watches the audience count but is NOT counted. */
 let webinarPresence: PresenceClient | null = null;
@@ -5879,8 +5900,106 @@ async function startWebinarBroadcast(
   }
 }
 
+/** Open the post-webinar recap screen: fetch transcripts immediately, lazy-load
+ *  the chat tab on first click. Called after `endWebinarBroadcast` cleans up state. */
+async function openWebinarRecap(webinarId: string, webinarCode: string): Promise<void> {
+  // Switch to the recap screen immediately.
+  show(wsScreen, false);
+  show(recapScreen, true);
+  // Active tab = transcript by default.
+  recapTabTranscript.classList.add('active');
+  recapTabTranscript.setAttribute('aria-selected', 'true');
+  recapTabChat.classList.remove('active');
+  recapTabChat.setAttribute('aria-selected', 'false');
+  show(recapTranscriptPanel, true);
+  show(recapChatPanel, false);
+  recapTranscriptList.innerHTML = '';
+  recapChatList.innerHTML = '';
+  show(recapTranscriptEmpty, false);
+  show(recapChatEmpty, false);
+
+  const myLang = getUiLang();
+
+  // Fetch transcripts (authenticated — host must be an org member).
+  try {
+    const res = await fetch(`${auth.HTTP_BASE}/api/webinars/${encodeURIComponent(webinarId)}/transcripts`, {
+      headers: auth.authHeaders(),
+    });
+    if (res.ok) {
+      const rows: Array<{ original_text: string; original_lang: string; translations: Record<string, string>; spoken_at: string }> = await res.json() as Array<{ original_text: string; original_lang: string; translations: Record<string, string>; spoken_at: string }>;
+      if (rows.length === 0) {
+        show(recapTranscriptEmpty, true);
+      } else {
+        recapTranscriptList.innerHTML = rows
+          .map((r) => {
+            const d = new Date(r.spoken_at);
+            const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            return `<div class="recap-utterance"><time>${escHtml(timeStr)}</time>${escHtml(r.original_text)}</div>`;
+          })
+          .join('');
+      }
+    } else {
+      show(recapTranscriptEmpty, true);
+    }
+  } catch {
+    show(recapTranscriptEmpty, true);
+  }
+
+  // Lazy-load chat tab on first click.
+  let chatLoaded = false;
+  async function loadChatTab(): Promise<void> {
+    if (chatLoaded) return;
+    chatLoaded = true;
+    try {
+      // Chat endpoint is public (guests can read it); plain fetch, no auth headers needed.
+      const res = await fetch(
+        `${auth.HTTP_BASE}/api/w/${encodeURIComponent(webinarCode)}/chat?limit=500`,
+      );
+      if (res.ok) {
+        const msgs: Array<{ text: string; display_name: string; sender_lang: string; translations: Record<string, string>; created_at: string }> = await res.json() as Array<{ text: string; display_name: string; sender_lang: string; translations: Record<string, string>; created_at: string }>;
+        if (msgs.length === 0) {
+          show(recapChatEmpty, true);
+        } else {
+          recapChatList.innerHTML = msgs
+            .map((m) => {
+              const text = m.translations?.[myLang] ?? m.text;
+              return `<div class="recap-chat-msg"><div class="recap-sender">${escHtml(m.display_name ?? '')}</div>${escHtml(text)}</div>`;
+            })
+            .join('');
+        }
+      } else {
+        show(recapChatEmpty, true);
+      }
+    } catch {
+      show(recapChatEmpty, true);
+    }
+  }
+
+  recapTabTranscript.addEventListener('click', () => {
+    recapTabTranscript.classList.add('active');
+    recapTabTranscript.setAttribute('aria-selected', 'true');
+    recapTabChat.classList.remove('active');
+    recapTabChat.setAttribute('aria-selected', 'false');
+    show(recapTranscriptPanel, true);
+    show(recapChatPanel, false);
+  });
+
+  recapTabChat.addEventListener('click', () => {
+    recapTabChat.classList.add('active');
+    recapTabChat.setAttribute('aria-selected', 'true');
+    recapTabTranscript.classList.remove('active');
+    recapTabTranscript.setAttribute('aria-selected', 'false');
+    show(recapChatPanel, true);
+    show(recapTranscriptPanel, false);
+    void loadChatTab();
+  });
+}
+
 /** Stop the active broadcast (host confirmed End), then return to the Webinars list. */
 async function endWebinarBroadcast(): Promise<void> {
+  // Capture webinar info BEFORE clearing state — needed for the recap screen.
+  const recapId = activeWebinar?.id ?? null;
+  const recapCode = activeWebinar?.code ?? null;
   // Close the STT bridge FIRST: closing the ingest socket flushes pending finals before we
   // stop capturing, so the last words still reach viewers as a subtitle.
   closeWebinarStt();
@@ -5895,8 +6014,13 @@ async function endWebinarBroadcast(): Promise<void> {
   closeWebinarPresence();
   activeWebinar = null;
   wsVideo.srcObject = null;
-  show(wsScreen, false);
-  void openWebinars(); // reflects the now-ended status
+
+  if (recapId && recapCode) {
+    await openWebinarRecap(recapId, recapCode);
+  } else {
+    show(wsScreen, false);
+    void openWebinars();
+  }
 }
 
 // Round mic toggle: mute/unmute the captured audio track. Because the STT bridge's
@@ -5930,6 +6054,11 @@ wsEndConfirm.addEventListener('click', async () => {
 });
 wsEndModal.addEventListener('click', (e) => {
   if (e.target === wsEndModal) show(wsEndModal, false);
+});
+
+recapCloseBtn?.addEventListener('click', () => {
+  show(recapScreen, false);
+  void openWebinars();
 });
 
 // ---- Add to Google Calendar (scheduled webinars) -----------------------------

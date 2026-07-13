@@ -662,5 +662,11 @@
   "wvChatNamePlaceholder": "Vaše meno",
   "wvChatEmpty": "Zatiaľ žiadne správy. Pozdravte sa!",
   "wvChatRateLimited": "Odosielate správy príliš rýchlo. Chvíľu, prosím, počkajte.",
-  "wvChatBlocked": "Vašu správu sa nepodarilo odoslať."
+  "wvChatBlocked": "Vašu správu sa nepodarilo odoslať.",
+  "wvRecapTitle": "Súhrn relácie",
+  "wvRecapClose": "Späť na webináre",
+  "wvRecapTabTranscript": "Prepisy",
+  "wvRecapTabChat": "Preložený chat",
+  "wvRecapTranscriptEmpty": "Pre túto reláciu neboli zaznamenané žiadne prepisy.",
+  "wvRecapChatEmpty": "Pre túto reláciu nie sú žiadne správy z chatu."
 }

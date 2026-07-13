@@ -662,5 +662,11 @@
   "wvChatNamePlaceholder": "ਤੁਹਾਡਾ ਨਾਮ",
   "wvChatEmpty": "ਹਾਲੇ ਕੋਈ ਸੁਨੇਹਾ ਨਹੀਂ। ਸਤ ਸ੍ਰੀ ਅਕਾਲ ਕਹੋ!",
   "wvChatRateLimited": "ਤੁਸੀਂ ਸੁਨੇਹੇ ਬਹੁਤ ਤੇਜ਼ੀ ਨਾਲ ਭੇਜ ਰਹੇ ਹੋ। ਕਿਰਪਾ ਕਰਕੇ ਥੋੜ੍ਹਾ ਇੰਤਜ਼ਾਰ ਕਰੋ।",
-  "wvChatBlocked": "ਤੁਹਾਡਾ ਸੁਨੇਹਾ ਭੇਜਿਆ ਨਹੀਂ ਜਾ ਸਕਿਆ।"
+  "wvChatBlocked": "ਤੁਹਾਡਾ ਸੁਨੇਹਾ ਭੇਜਿਆ ਨਹੀਂ ਜਾ ਸਕਿਆ।",
+  "wvRecapTitle": "ਸੈਸ਼ਨ ਸਾਰਾਂਸ਼",
+  "wvRecapClose": "ਵੈਬੀਨਾਰਾਂ 'ਤੇ ਵਾਪਸ ਜਾਓ",
+  "wvRecapTabTranscript": "ਟ੍ਰਾਂਸਕ੍ਰਿਪਸ਼ਨ",
+  "wvRecapTabChat": "ਅਨੁਵਾਦਿਤ ਚੈਟ",
+  "wvRecapTranscriptEmpty": "ਇਸ ਸੈਸ਼ਨ ਲਈ ਕੋਈ ਟ੍ਰਾਂਸਕ੍ਰਿਪਸ਼ਨ ਰਿਕਾਰਡ ਨਹੀਂ ਕੀਤੀ ਗਈ।",
+  "wvRecapChatEmpty": "ਇਸ ਸੈਸ਼ਨ ਲਈ ਕੋਈ ਚੈਟ ਸੁਨੇਹੇ ਨਹੀਂ ਹਨ।"
 }

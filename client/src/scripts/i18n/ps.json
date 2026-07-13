@@ -662,5 +662,11 @@
   "wvChatNamePlaceholder": "ستاسو نوم",
   "wvChatEmpty": "تر اوسه هیڅ پیغام نشته. سلام ووایاست!",
   "wvChatRateLimited": "تاسو ډېر ژر پیغامونه لیږئ. مهرباني وکړئ یو شیبه انتظار وکړئ.",
-  "wvChatBlocked": "ستاسو پیغام ونه لیږل شو."
+  "wvChatBlocked": "ستاسو پیغام ونه لیږل شو.",
+  "wvRecapTitle": "د ناستې لنډیز",
+  "wvRecapClose": "ویبینارونو ته ستنه شه",
+  "wvRecapTabTranscript": "لیکنې",
+  "wvRecapTabChat": "ژباړل شوی خبرې اترې",
+  "wvRecapTranscriptEmpty": "د دې ناستې لپاره هیڅ لیکنه نه ده ثبت شوې.",
+  "wvRecapChatEmpty": "د دې ناستې لپاره هیڅ د خبرو اترو پیغام نشته."
 }

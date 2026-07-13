@@ -662,5 +662,11 @@
   "wvChatNamePlaceholder": "ስምዎ",
   "wvChatEmpty": "እስካሁን መልእክት የለም። ሰላም ይበሉ!",
   "wvChatRateLimited": "መልእክቶችን በጣም በፍጥነት እየላኩ ነው። እባክዎ ትንሽ ይጠብቁ።",
-  "wvChatBlocked": "መልእክትዎ መላክ አልተቻለም።"
+  "wvChatBlocked": "መልእክትዎ መላክ አልተቻለም።",
+  "wvRecapTitle": "የክፍለ ጊዜ ማጠቃለያ",
+  "wvRecapClose": "ወደ ዌቢናሮች ተመለስ",
+  "wvRecapTabTranscript": "ጽሑፍ ምዝገባዎች",
+  "wvRecapTabChat": "የተተረጎመ ውይይት",
+  "wvRecapTranscriptEmpty": "ለዚህ ክፍለ ጊዜ ምንም ጽሑፍ አልተመዘገበም።",
+  "wvRecapChatEmpty": "ለዚህ ክፍለ ጊዜ ምንም የውይይት መልዕክቶች የሉም።"
 }

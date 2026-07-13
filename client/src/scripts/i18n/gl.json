@@ -662,5 +662,11 @@
   "wvChatNamePlaceholder": "O teu nome",
   "wvChatEmpty": "Aínda non hai mensaxes. Saúda!",
   "wvChatRateLimited": "Estás enviando mensaxes demasiado rápido. Agarda un momento.",
-  "wvChatBlocked": "Non se puido enviar a túa mensaxe."
+  "wvChatBlocked": "Non se puido enviar a túa mensaxe.",
+  "wvRecapTitle": "Resumo da sesión",
+  "wvRecapClose": "Volver aos webinars",
+  "wvRecapTabTranscript": "Transcricións",
+  "wvRecapTabChat": "Chat traducido",
+  "wvRecapTranscriptEmpty": "Non se gravaron transcricións para esta sesión.",
+  "wvRecapChatEmpty": "Non hai mensaxes de chat para esta sesión."
 }
