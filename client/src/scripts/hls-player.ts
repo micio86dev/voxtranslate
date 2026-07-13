@@ -127,7 +127,7 @@ export interface HlsPlayerOptions {
  *  the constructor. */
 export interface HlsFactory {
   isSupported(): boolean;
-  new (): HlsLike;
+  new (config?: object): HlsLike;
 }
 
 /**
@@ -221,7 +221,7 @@ export class HlsPlayer {
       this.video.src = url;
     } else if (format === "hlsjs") {
       const { Hls } = await this.loadHls();
-      const hls = new Hls();
+      const hls = new Hls({ lowLatencyMode: true });
       this.hls = hls;
       hls.loadSource(url);
       hls.attachMedia(this.video);

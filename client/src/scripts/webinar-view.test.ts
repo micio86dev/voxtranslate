@@ -28,13 +28,17 @@ vi.mock('./hls-player', () => ({
 }));
 
 // i18n: identity `t` (returns the key) + no-op locale glue, so we assert on keys.
+// SUPPORTED is exported and used by resolveViewerLang to validate a stored language.
+// setUiLangMock is hoisted so the vi.mock factory (which is hoisted) can reference it.
+const { setUiLangMock } = vi.hoisted(() => ({ setUiLangMock: vi.fn() }));
 vi.mock('./i18n', () => ({
   t: (k: string) => k,
   detectLang: () => 'en',
   getUiLang: () => 'en',
-  setUiLang: vi.fn(),
+  setUiLang: setUiLangMock,
   applyI18n: vi.fn(),
   loadLocale: vi.fn(async () => {}),
+  SUPPORTED: ['en', 'es', 'it', 'fr', 'de', 'pt', 'zh', 'ja', 'ko', 'ar', 'ru'],
 }));
 
 import { mountWebinarPlayer, renderSubtitle } from './webinar-view';
@@ -65,7 +69,9 @@ beforeEach(() => {
   destroy.mockClear();
   muteAudio.mockClear();
   isMuted.mockClear();
+  setUiLangMock.mockClear();
   mutedState = true; // reset the fake player's mute flag between tests
+  localStorage.clear(); // start each test without a stored language preference
 });
 afterEach(() => {
   document.body.innerHTML = '';
@@ -147,11 +153,11 @@ describe('mountWebinarPlayer', () => {
   it('paints the audio buttons from the initial (muted) player state', () => {
     buildDom();
     mountWebinarPlayer();
-    // Muted by default → the mute button offers "Unmute" and is "pressed" (mute active);
-    // the listen button is not pressed (audio is off).
+    // Muted by default → the mute button offers "Unmute" and is NOT pressed (audio inactive).
+    // The listen button's aria-pressed is not managed by paintAudio — it stays at its HTML default.
     expect(el('wv-mute').textContent).toBe('wvUnmuteAudio');
-    expect(el('wv-mute').getAttribute('aria-pressed')).toBe('true');
-    expect(el('wv-listen').getAttribute('aria-pressed')).toBe('false');
+    expect(el('wv-mute').getAttribute('aria-pressed')).toBe('false');
+    expect(el('wv-listen').getAttribute('aria-pressed')).toBe('false'); // HTML default, untouched
   });
 
   it('the mute button toggles the HLS audio and repaints', () => {
@@ -162,22 +168,33 @@ describe('mountWebinarPlayer', () => {
     (el('wv-mute') as HTMLButtonElement).click();
     expect(muteAudio).toHaveBeenCalledWith(false);
     expect(el('wv-mute').textContent).toBe('wvMuteAudio'); // now offers "Mute"
-    expect(el('wv-mute').getAttribute('aria-pressed')).toBe('false'); // mute no longer active
-    expect(el('wv-listen').getAttribute('aria-pressed')).toBe('true'); // audio on
+    expect(el('wv-mute').getAttribute('aria-pressed')).toBe('true'); // audio is now active
+    // listenBtn is decoupled — pressing mute must NOT change its visual state.
+    expect(el('wv-listen').getAttribute('aria-pressed')).toBe('false');
     // Click again → mute.
     (el('wv-mute') as HTMLButtonElement).click();
     expect(muteAudio).toHaveBeenLastCalledWith(true);
     expect(el('wv-mute').textContent).toBe('wvUnmuteAudio');
+    expect(el('wv-mute').getAttribute('aria-pressed')).toBe('false');
   });
 
-  it('the listen-original button unmutes the HLS audio', () => {
+  it('the listen-original button unmutes the HLS audio when muted', () => {
     buildDom();
     mountWebinarPlayer();
     muteAudio.mockImplementation((m: boolean) => (mutedState = m));
     (el('wv-listen') as HTMLButtonElement).click();
-    expect(muteAudio).toHaveBeenCalledWith(false); // always unmutes
-    expect(el('wv-listen').getAttribute('aria-pressed')).toBe('true');
-    expect(el('wv-mute').getAttribute('aria-pressed')).toBe('false');
+    expect(muteAudio).toHaveBeenCalledWith(false);
+    // After unmute, mute toggle reflects active audio; listen button state is unchanged.
+    expect(el('wv-mute').getAttribute('aria-pressed')).toBe('true');
+    expect(el('wv-listen').getAttribute('aria-pressed')).toBe('false');
+  });
+
+  it('the listen-original button is a no-op when audio is already playing', () => {
+    buildDom();
+    mountWebinarPlayer();
+    mutedState = false; // fake: already playing
+    (el('wv-listen') as HTMLButtonElement).click();
+    expect(muteAudio).not.toHaveBeenCalled(); // no state change when audio is already on
   });
 
   it('the CC button toggles captions and clears the overlay when turned off', () => {
@@ -231,5 +248,26 @@ describe('mountWebinarPlayer', () => {
     const box = overlay.querySelector('.subtitle');
     expect(box?.classList.contains('subtitle-interim')).toBe(true);
     expect(overlay.querySelector('.subtitle-translation')?.textContent).toBe('hol');
+  });
+
+  it('uses a stored language preference from localStorage over the browser default', () => {
+    localStorage.setItem('voxtranslate_lang', 'es');
+    buildDom();
+    mountWebinarPlayer();
+    // setUiLang should have been called with the stored language, not the detectLang() default ('en')
+    expect(setUiLangMock).toHaveBeenCalledWith('es');
+  });
+
+  it('falls back to detectLang() when localStorage has no stored language', () => {
+    buildDom();
+    mountWebinarPlayer();
+    expect(setUiLangMock).toHaveBeenCalledWith('en');
+  });
+
+  it('falls back to detectLang() when the stored language is not supported', () => {
+    localStorage.setItem('voxtranslate_lang', 'xx'); // 'xx' is not in SUPPORTED
+    buildDom();
+    mountWebinarPlayer();
+    expect(setUiLangMock).toHaveBeenCalledWith('en');
   });
 });
