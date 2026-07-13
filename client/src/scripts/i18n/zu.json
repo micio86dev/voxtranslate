@@ -590,6 +590,8 @@
   "webinarNoneArchived": "Awekho amawebhinari agciniwe.",
   "webinarCode": "Ikhodi",
   "webinarCreatedOn": "Kudalwe",
+  "webinarBroadcastOn": "Ukusabalalisa",
+  "webinarDuration": "Ubude",
   "webinarStatus_scheduled": "Kuhleliwe",
   "webinarStatus_live": "Bukhoma",
   "webinarStatus_ended": "Kuphelile",

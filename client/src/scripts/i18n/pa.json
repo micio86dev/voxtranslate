@@ -590,6 +590,8 @@
   "webinarNoneArchived": "ਕੋਈ ਆਰਕਾਈਵ ਕੀਤਾ ਵੈਬੀਨਾਰ ਨਹੀਂ।",
   "webinarCode": "ਕੋਡ",
   "webinarCreatedOn": "ਬਣਾਇਆ",
+  "webinarBroadcastOn": "ਪ੍ਰਸਾਰਣ",
+  "webinarDuration": "ਮਿਆਦ",
   "webinarStatus_scheduled": "ਨਿਰਧਾਰਿਤ",
   "webinarStatus_live": "ਲਾਈਵ",
   "webinarStatus_ended": "ਸਮਾਪਤ",

@@ -590,6 +590,8 @@
   "webinarNoneArchived": "Δεν υπάρχουν αρχειοθετημένα σεμινάρια.",
   "webinarCode": "Κωδικός",
   "webinarCreatedOn": "Δημιουργήθηκε",
+  "webinarBroadcastOn": "Μετάδοση",
+  "webinarDuration": "Διάρκεια",
   "webinarStatus_scheduled": "Προγραμματισμένο",
   "webinarStatus_live": "Ζωντανά",
   "webinarStatus_ended": "Ολοκληρώθηκε",

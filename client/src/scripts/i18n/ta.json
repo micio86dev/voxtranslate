@@ -590,6 +590,8 @@
   "webinarNoneArchived": "காப்பகப்படுத்தப்பட்ட வலையரங்குகள் இல்லை.",
   "webinarCode": "குறியீடு",
   "webinarCreatedOn": "உருவாக்கப்பட்டது",
+  "webinarBroadcastOn": "ஒளிபரப்பு",
+  "webinarDuration": "கால அளவு",
   "webinarStatus_scheduled": "திட்டமிடப்பட்டது",
   "webinarStatus_live": "நேரலை",
   "webinarStatus_ended": "முடிந்தது",

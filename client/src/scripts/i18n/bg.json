@@ -590,6 +590,8 @@
   "webinarNoneArchived": "Няма архивирани уебинари.",
   "webinarCode": "Код",
   "webinarCreatedOn": "Създаден",
+  "webinarBroadcastOn": "Излъчване",
+  "webinarDuration": "Продължителност",
   "webinarStatus_scheduled": "Планиран",
   "webinarStatus_live": "На живо",
   "webinarStatus_ended": "Приключил",

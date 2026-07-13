@@ -590,6 +590,8 @@
   "webinarNoneArchived": "Nenhum webinar arquivado.",
   "webinarCode": "Código",
   "webinarCreatedOn": "Criado",
+  "webinarBroadcastOn": "Transmissão",
+  "webinarDuration": "Duração",
   "webinarStatus_scheduled": "Agendado",
   "webinarStatus_live": "Ao vivo",
   "webinarStatus_ended": "Terminado",

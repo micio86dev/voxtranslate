@@ -590,6 +590,8 @@
   "webinarNoneArchived": "冇已封存嘅網絡研討會。",
   "webinarCode": "代碼",
   "webinarCreatedOn": "建立於",
+  "webinarBroadcastOn": "廣播",
+  "webinarDuration": "時長",
   "webinarStatus_scheduled": "已排程",
   "webinarStatus_live": "直播中",
   "webinarStatus_ended": "已結束",

@@ -590,6 +590,8 @@
   "webinarNoneArchived": "Pa gen webinè achive.",
   "webinarCode": "Kòd",
   "webinarCreatedOn": "Kreye",
+  "webinarBroadcastOn": "Emisyon",
+  "webinarDuration": "Dire",
   "webinarStatus_scheduled": "Pwograme",
   "webinarStatus_live": "An dirèk",
   "webinarStatus_ended": "Fini",

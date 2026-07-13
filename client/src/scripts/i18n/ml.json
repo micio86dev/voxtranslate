@@ -590,6 +590,8 @@
   "webinarNoneArchived": "ആർക്കൈവ് ചെയ്ത വെബിനാറുകളൊന്നുമില്ല.",
   "webinarCode": "കോഡ്",
   "webinarCreatedOn": "സൃഷ്ടിച്ചത്",
+  "webinarBroadcastOn": "സംപ്രേക്ഷണം",
+  "webinarDuration": "ദൈർഘ്യം",
   "webinarStatus_scheduled": "ഷെഡ്യൂൾ ചെയ്തു",
   "webinarStatus_live": "തത്സമയം",
   "webinarStatus_ended": "അവസാനിച്ചു",

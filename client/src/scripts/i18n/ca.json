@@ -590,6 +590,8 @@
   "webinarNoneArchived": "Cap webinar arxivat.",
   "webinarCode": "Codi",
   "webinarCreatedOn": "Creat",
+  "webinarBroadcastOn": "Emissió",
+  "webinarDuration": "Durada",
   "webinarStatus_scheduled": "Programat",
   "webinarStatus_live": "En directe",
   "webinarStatus_ended": "Finalitzat",

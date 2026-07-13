@@ -590,6 +590,8 @@
   "webinarNoneArchived": "Ma jiraan webinaaro la kaydiyay.",
   "webinarCode": "Koodh",
   "webinarCreatedOn": "La sameeyay",
+  "webinarBroadcastOn": "Baahinta",
+  "webinarDuration": "Muddada",
   "webinarStatus_scheduled": "La qorsheeyay",
   "webinarStatus_live": "Toos",
   "webinarStatus_ended": "Dhammaaday",

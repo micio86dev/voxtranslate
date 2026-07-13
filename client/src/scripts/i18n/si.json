@@ -590,6 +590,8 @@
   "webinarNoneArchived": "සංරක්ෂිත වෙබිනාර් නැත.",
   "webinarCode": "කේතය",
   "webinarCreatedOn": "සෑදූ දිනය",
+  "webinarBroadcastOn": "විකාශය",
+  "webinarDuration": "කාලසීමාව",
   "webinarStatus_scheduled": "සැලසුම් කළ",
   "webinarStatus_live": "සජීවී",
   "webinarStatus_ended": "අවසන් විය",

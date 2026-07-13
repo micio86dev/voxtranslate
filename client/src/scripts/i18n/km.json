@@ -590,6 +590,8 @@
   "webinarNoneArchived": "គ្មានវេប៊ីណាក្នុងប័ណ្ណសារទេ។",
   "webinarCode": "កូដ",
   "webinarCreatedOn": "បានបង្កើត",
+  "webinarBroadcastOn": "ការផ្សាយ",
+  "webinarDuration": "រយៈពេល",
   "webinarStatus_scheduled": "បានកំណត់ពេល",
   "webinarStatus_live": "ផ្ទាល់",
   "webinarStatus_ended": "បានបញ្ចប់",

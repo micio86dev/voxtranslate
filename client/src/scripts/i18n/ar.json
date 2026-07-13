@@ -590,6 +590,8 @@
   "webinarNoneArchived": "لا توجد ندوات مؤرشفة.",
   "webinarCode": "الرمز",
   "webinarCreatedOn": "أُنشئت",
+  "webinarBroadcastOn": "البث",
+  "webinarDuration": "المدة",
   "webinarStatus_scheduled": "مجدولة",
   "webinarStatus_live": "مباشرة",
   "webinarStatus_ended": "منتهية",

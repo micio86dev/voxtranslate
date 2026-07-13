@@ -590,6 +590,8 @@
   "webinarNoneArchived": "Dim gweminarau wedi'u harchifo.",
   "webinarCode": "Cod",
   "webinarCreatedOn": "Crëwyd",
+  "webinarBroadcastOn": "Darllediad",
+  "webinarDuration": "Hyd",
   "webinarStatus_scheduled": "Wedi'i drefnu",
   "webinarStatus_live": "Yn fyw",
   "webinarStatus_ended": "Wedi gorffen",

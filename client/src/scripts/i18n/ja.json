@@ -590,6 +590,8 @@
   "webinarNoneArchived": "アーカイブされたウェビナーはありません。",
   "webinarCode": "コード",
   "webinarCreatedOn": "作成日",
+  "webinarBroadcastOn": "放送",
+  "webinarDuration": "時間",
   "webinarStatus_scheduled": "予定",
   "webinarStatus_live": "ライブ",
   "webinarStatus_ended": "終了",

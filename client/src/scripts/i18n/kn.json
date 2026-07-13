@@ -590,6 +590,8 @@
   "webinarNoneArchived": "ಆರ್ಕೈವ್ ಮಾಡಿದ ವೆಬಿನಾರ್‌ಗಳಿಲ್ಲ.",
   "webinarCode": "ಕೋಡ್",
   "webinarCreatedOn": "ರಚಿಸಲಾಗಿದೆ",
+  "webinarBroadcastOn": "ಪ್ರಸಾರ",
+  "webinarDuration": "ಅವಧಿ",
   "webinarStatus_scheduled": "ನಿಗದಿತ",
   "webinarStatus_live": "ನೇರ",
   "webinarStatus_ended": "ಮುಗಿದಿದೆ",

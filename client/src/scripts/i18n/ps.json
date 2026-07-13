@@ -590,6 +590,8 @@
   "webinarNoneArchived": "هیڅ آرشیف شوی ویبینار نشته.",
   "webinarCode": "کوډ",
   "webinarCreatedOn": "جوړ شوی",
+  "webinarBroadcastOn": "خپرول",
+  "webinarDuration": "موده",
   "webinarStatus_scheduled": "مهال ویش شوی",
   "webinarStatus_live": "ژوندی",
   "webinarStatus_ended": "پای ته ورسید",

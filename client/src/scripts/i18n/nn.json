@@ -590,6 +590,8 @@
   "webinarNoneArchived": "Ingen arkiverte webinar.",
   "webinarCode": "Kode",
   "webinarCreatedOn": "Oppretta",
+  "webinarBroadcastOn": "Sending",
+  "webinarDuration": "Varigheit",
   "webinarStatus_scheduled": "Planlagt",
   "webinarStatus_live": "Direkte",
   "webinarStatus_ended": "Avslutta",

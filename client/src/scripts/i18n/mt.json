@@ -590,6 +590,8 @@
   "webinarNoneArchived": "M'hemm l-ebda webinar arkivjat.",
   "webinarCode": "Kodiċi",
   "webinarCreatedOn": "Inħoloq",
+  "webinarBroadcastOn": "Xandir",
+  "webinarDuration": "Tul",
   "webinarStatus_scheduled": "Skedat",
   "webinarStatus_live": "Dirett",
   "webinarStatus_ended": "Intemm",

@@ -590,6 +590,8 @@
   "webinarNoneArchived": "Nema arhiviranih webinara.",
   "webinarCode": "Kôd",
   "webinarCreatedOn": "Kreiran",
+  "webinarBroadcastOn": "Prijenos",
+  "webinarDuration": "Trajanje",
   "webinarStatus_scheduled": "Zakazan",
   "webinarStatus_live": "Uživo",
   "webinarStatus_ended": "Završen",

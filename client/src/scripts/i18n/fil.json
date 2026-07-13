@@ -590,6 +590,8 @@
   "webinarNoneArchived": "Walang naka-archive na webinar.",
   "webinarCode": "Code",
   "webinarCreatedOn": "Ginawa",
+  "webinarBroadcastOn": "Broadcast",
+  "webinarDuration": "Tagal",
   "webinarStatus_scheduled": "Nakaiskedyul",
   "webinarStatus_live": "Live",
   "webinarStatus_ended": "Tapos na",

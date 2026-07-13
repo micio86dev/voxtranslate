@@ -590,6 +590,8 @@
   "webinarNoneArchived": "ไม่มีเว็บบินาร์ที่จัดเก็บ",
   "webinarCode": "รหัส",
   "webinarCreatedOn": "สร้างเมื่อ",
+  "webinarBroadcastOn": "การออกอากาศ",
+  "webinarDuration": "ระยะเวลา",
   "webinarStatus_scheduled": "กำหนดเวลาแล้ว",
   "webinarStatus_live": "สด",
   "webinarStatus_ended": "สิ้นสุดแล้ว",

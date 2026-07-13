@@ -590,6 +590,8 @@
   "webinarNoneArchived": "보관된 웨비나가 없습니다.",
   "webinarCode": "코드",
   "webinarCreatedOn": "생성일",
+  "webinarBroadcastOn": "방송",
+  "webinarDuration": "시간",
   "webinarStatus_scheduled": "예정됨",
   "webinarStatus_live": "라이브",
   "webinarStatus_ended": "종료됨",

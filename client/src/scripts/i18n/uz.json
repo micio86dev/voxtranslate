@@ -590,6 +590,8 @@
   "webinarNoneArchived": "Arxivlangan vebinarlar yoʻq.",
   "webinarCode": "Kod",
   "webinarCreatedOn": "Yaratilgan",
+  "webinarBroadcastOn": "Translyatsiya",
+  "webinarDuration": "Davomiyligi",
   "webinarStatus_scheduled": "Rejalashtirilgan",
   "webinarStatus_live": "Jonli",
   "webinarStatus_ended": "Yakunlangan",

@@ -590,6 +590,8 @@
   "webinarNoneArchived": "Arşivlenmiş web semineri yok.",
   "webinarCode": "Kod",
   "webinarCreatedOn": "Oluşturuldu",
+  "webinarBroadcastOn": "Yayın",
+  "webinarDuration": "Süre",
   "webinarStatus_scheduled": "Planlandı",
   "webinarStatus_live": "Canlı",
   "webinarStatus_ended": "Sona erdi",

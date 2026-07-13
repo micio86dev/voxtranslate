@@ -590,6 +590,8 @@
   "webinarNoneArchived": "Hakuna wavuti za kumbukumbu.",
   "webinarCode": "Msimbo",
   "webinarCreatedOn": "Iliundwa",
+  "webinarBroadcastOn": "Matangazo",
+  "webinarDuration": "Muda",
   "webinarStatus_scheduled": "Iliyoratibiwa",
   "webinarStatus_live": "Moja kwa moja",
   "webinarStatus_ended": "Imekwisha",

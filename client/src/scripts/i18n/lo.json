@@ -590,6 +590,8 @@
   "webinarNoneArchived": "ບໍ່ມີເວັບບິນາທີ່ຈັດເກັບໄວ້.",
   "webinarCode": "ລະຫັດ",
   "webinarCreatedOn": "ສ້າງເມື່ອ",
+  "webinarBroadcastOn": "ການອອກອາກາດ",
+  "webinarDuration": "ໄລຍະເວລາ",
   "webinarStatus_scheduled": "ກຳນົດເວລາແລ້ວ",
   "webinarStatus_live": "ສົດ",
   "webinarStatus_ended": "ສິ້ນສຸດແລ້ວ",

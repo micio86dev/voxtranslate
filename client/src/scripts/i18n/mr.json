@@ -590,6 +590,8 @@
   "webinarNoneArchived": "कोणतेही संग्रहित वेबिनार नाहीत.",
   "webinarCode": "कोड",
   "webinarCreatedOn": "तयार केले",
+  "webinarBroadcastOn": "प्रसारण",
+  "webinarDuration": "कालावधी",
   "webinarStatus_scheduled": "नियोजित",
   "webinarStatus_live": "थेट",
   "webinarStatus_ended": "संपला",

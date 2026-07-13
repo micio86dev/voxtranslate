@@ -590,6 +590,8 @@
   "webinarNoneArchived": "Không có hội thảo trực tuyến nào được lưu trữ.",
   "webinarCode": "Mã",
   "webinarCreatedOn": "Đã tạo",
+  "webinarBroadcastOn": "Phát sóng",
+  "webinarDuration": "Thời lượng",
   "webinarStatus_scheduled": "Đã lên lịch",
   "webinarStatus_live": "Trực tiếp",
   "webinarStatus_ended": "Đã kết thúc",

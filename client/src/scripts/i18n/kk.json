@@ -590,6 +590,8 @@
   "webinarNoneArchived": "Мұрағатталған вебинарлар жоқ.",
   "webinarCode": "Код",
   "webinarCreatedOn": "Жасалды",
+  "webinarBroadcastOn": "Хабар тарату",
+  "webinarDuration": "Ұзақтығы",
   "webinarStatus_scheduled": "Жоспарланған",
   "webinarStatus_live": "Тікелей эфир",
   "webinarStatus_ended": "Аяқталды",

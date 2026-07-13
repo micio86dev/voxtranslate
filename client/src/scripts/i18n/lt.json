@@ -590,6 +590,8 @@
   "webinarNoneArchived": "Suarchyvuotų seminarų nėra.",
   "webinarCode": "Kodas",
   "webinarCreatedOn": "Sukurta",
+  "webinarBroadcastOn": "Transliacija",
+  "webinarDuration": "Trukmė",
   "webinarStatus_scheduled": "Suplanuota",
   "webinarStatus_live": "Tiesiogiai",
   "webinarStatus_ended": "Pasibaigė",

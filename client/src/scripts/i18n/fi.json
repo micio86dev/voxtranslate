@@ -590,6 +590,8 @@
   "webinarNoneArchived": "Ei arkistoituja webinaareja.",
   "webinarCode": "Koodi",
   "webinarCreatedOn": "Luotu",
+  "webinarBroadcastOn": "Lähetys",
+  "webinarDuration": "Kesto",
   "webinarStatus_scheduled": "Ajastettu",
   "webinarStatus_live": "Suora",
   "webinarStatus_ended": "Päättynyt",

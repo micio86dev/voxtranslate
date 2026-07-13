@@ -590,6 +590,8 @@
   "webinarNoneArchived": "সংরক্ষণাগারে কোনো ওয়েবিনার নেই।",
   "webinarCode": "কোড",
   "webinarCreatedOn": "তৈরি হয়েছে",
+  "webinarBroadcastOn": "সম্প্রচার",
+  "webinarDuration": "সময়কাল",
   "webinarStatus_scheduled": "নির্ধারিত",
   "webinarStatus_live": "লাইভ",
   "webinarStatus_ended": "সমাপ্ত",

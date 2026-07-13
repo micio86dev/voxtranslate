@@ -590,6 +590,8 @@
   "webinarNoneArchived": "Geen geargiveerde webinars nie.",
   "webinarCode": "Kode",
   "webinarCreatedOn": "Geskep",
+  "webinarBroadcastOn": "Uitsending",
+  "webinarDuration": "Duur",
   "webinarStatus_scheduled": "Geskeduleer",
   "webinarStatus_live": "Lewend",
   "webinarStatus_ended": "Geëindig",

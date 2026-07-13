@@ -590,6 +590,8 @@
   "webinarNoneArchived": "אין וובינרים בארכיון.",
   "webinarCode": "קוד",
   "webinarCreatedOn": "נוצר",
+  "webinarBroadcastOn": "שידור",
+  "webinarDuration": "משך",
   "webinarStatus_scheduled": "מתוזמן",
   "webinarStatus_live": "בשידור חי",
   "webinarStatus_ended": "הסתיים",

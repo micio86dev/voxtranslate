@@ -590,6 +590,8 @@
   "webinarNoneArchived": "Արխիվացված վեբինարներ չկան։",
   "webinarCode": "Կոդ",
   "webinarCreatedOn": "Ստեղծվել է",
+  "webinarBroadcastOn": "Հեռարձակում",
+  "webinarDuration": "Տևողություն",
   "webinarStatus_scheduled": "Նախատեսված",
   "webinarStatus_live": "Ուղիղ եթեր",
   "webinarStatus_ended": "Ավարտված",

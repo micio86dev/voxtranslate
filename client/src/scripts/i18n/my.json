@@ -590,6 +590,8 @@
   "webinarNoneArchived": "မှတ်တမ်းသိမ်းထားသော ဝဘ်ဆီနာ မရှိပါ။",
   "webinarCode": "ကုဒ်",
   "webinarCreatedOn": "ဖန်တီးခဲ့သည်",
+  "webinarBroadcastOn": "ထုတ်လွှင့်မှု",
+  "webinarDuration": "ကြာချိန်",
   "webinarStatus_scheduled": "အချိန်ဇယားဆွဲထားသည်",
   "webinarStatus_live": "တိုက်ရိုက်",
   "webinarStatus_ended": "ပြီးဆုံးသွားပြီ",

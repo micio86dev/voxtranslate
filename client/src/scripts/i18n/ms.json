@@ -590,6 +590,8 @@
   "webinarNoneArchived": "Tiada webinar diarkibkan.",
   "webinarCode": "Kod",
   "webinarCreatedOn": "Dicipta",
+  "webinarBroadcastOn": "Siaran",
+  "webinarDuration": "Tempoh",
   "webinarStatus_scheduled": "Dijadualkan",
   "webinarStatus_live": "Langsung",
   "webinarStatus_ended": "Tamat",

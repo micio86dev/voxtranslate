@@ -590,6 +590,8 @@
   "webinarNoneArchived": "هیچ وبینار بایگانی‌شده‌ای وجود ندارد.",
   "webinarCode": "کد",
   "webinarCreatedOn": "ایجادشده",
+  "webinarBroadcastOn": "پخش",
+  "webinarDuration": "مدت",
   "webinarStatus_scheduled": "زمان‌بندی‌شده",
   "webinarStatus_live": "زنده",
   "webinarStatus_ended": "پایان‌یافته",

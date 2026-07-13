@@ -590,6 +590,8 @@
   "webinarNoneArchived": "Enweghị webinar echekwara.",
   "webinarCode": "Koodu",
   "webinarCreatedOn": "Emepụtara",
+  "webinarBroadcastOn": "Mgbasa",
+  "webinarDuration": "Oge",
   "webinarStatus_scheduled": "Ahaziri",
   "webinarStatus_live": "Ndụ",
   "webinarStatus_ended": "Kwụsịrị",

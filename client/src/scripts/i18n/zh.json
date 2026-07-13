@@ -590,6 +590,8 @@
   "webinarNoneArchived": "暂无已归档的网络研讨会。",
   "webinarCode": "代码",
   "webinarCreatedOn": "创建于",
+  "webinarBroadcastOn": "广播",
+  "webinarDuration": "时长",
   "webinarStatus_scheduled": "已排期",
   "webinarStatus_live": "直播中",
   "webinarStatus_ended": "已结束",

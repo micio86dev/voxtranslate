@@ -590,6 +590,8 @@
   "webinarNoneArchived": "Keng archivéiert Webinaren.",
   "webinarCode": "Code",
   "webinarCreatedOn": "Erstallt",
+  "webinarBroadcastOn": "Sendung",
+  "webinarDuration": "Dauer",
   "webinarStatus_scheduled": "Geplangt",
   "webinarStatus_live": "Live",
   "webinarStatus_ended": "Ofgeschloss",

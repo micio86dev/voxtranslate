@@ -590,6 +590,8 @@
   "webinarNoneArchived": "Ez dago artxibatutako webinarrik.",
   "webinarCode": "Kodea",
   "webinarCreatedOn": "Sortua",
+  "webinarBroadcastOn": "Emisioa",
+  "webinarDuration": "Iraupena",
   "webinarStatus_scheduled": "Programatua",
   "webinarStatus_live": "Zuzenean",
   "webinarStatus_ended": "Amaituta",

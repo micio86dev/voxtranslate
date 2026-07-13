@@ -590,6 +590,8 @@
   "webinarNoneArchived": "کوئی محفوظ شدہ ویبینار نہیں۔",
   "webinarCode": "کوڈ",
   "webinarCreatedOn": "تخلیق کردہ",
+  "webinarBroadcastOn": "نشریہ",
+  "webinarDuration": "مدت",
   "webinarStatus_scheduled": "شیڈول شدہ",
   "webinarStatus_live": "براہِ راست",
   "webinarStatus_ended": "ختم",

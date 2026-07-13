@@ -590,6 +590,8 @@
   "webinarNoneArchived": "Arxivlənmiş vebinar yoxdur.",
   "webinarCode": "Kod",
   "webinarCreatedOn": "Yaradılıb",
+  "webinarBroadcastOn": "Yayım",
+  "webinarDuration": "Müddət",
   "webinarStatus_scheduled": "Planlaşdırılıb",
   "webinarStatus_live": "Canlı",
   "webinarStatus_ended": "Bitib",

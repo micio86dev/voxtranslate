@@ -590,6 +590,8 @@
   "webinarNoneArchived": "Kò sí wẹ́bínà tí a fi pamọ́.",
   "webinarCode": "Kóòdù",
   "webinarCreatedOn": "A ṣẹ̀dá",
+  "webinarBroadcastOn": "Ìkéde",
+  "webinarDuration": "Ìgbà",
   "webinarStatus_scheduled": "Tí a ṣètò",
   "webinarStatus_live": "Ní àkókò gidi",
   "webinarStatus_ended": "Tí ó parí",

@@ -590,6 +590,8 @@
   "webinarNoneArchived": "დაარქივებული ვებინარები არ არის.",
   "webinarCode": "კოდი",
   "webinarCreatedOn": "შეიქმნა",
+  "webinarBroadcastOn": "მაუწყებლობა",
+  "webinarDuration": "ხანგრძლივობა",
   "webinarStatus_scheduled": "დაგეგმილი",
   "webinarStatus_live": "პირდაპირ",
   "webinarStatus_ended": "დასრულებული",

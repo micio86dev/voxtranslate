@@ -590,6 +590,8 @@
   "webinarNoneArchived": "Geen gearchiveerde webinars.",
   "webinarCode": "Code",
   "webinarCreatedOn": "Aangemaakt",
+  "webinarBroadcastOn": "Uitzending",
+  "webinarDuration": "Duur",
   "webinarStatus_scheduled": "Gepland",
   "webinarStatus_live": "Live",
   "webinarStatus_ended": "Beëindigd",

@@ -590,6 +590,8 @@
   "webinarNoneArchived": "Архивлагдсан вебинар алга.",
   "webinarCode": "Код",
   "webinarCreatedOn": "Үүсгэсэн",
+  "webinarBroadcastOn": "Дамжуулалт",
+  "webinarDuration": "Үргэлжлэх хугацаа",
   "webinarStatus_scheduled": "Товлогдсон",
   "webinarStatus_live": "Шууд",
   "webinarStatus_ended": "Дууссан",

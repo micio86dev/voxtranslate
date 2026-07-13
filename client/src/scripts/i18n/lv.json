@@ -590,6 +590,8 @@
   "webinarNoneArchived": "Nav arhivētu vebināru.",
   "webinarCode": "Kods",
   "webinarCreatedOn": "Izveidots",
+  "webinarBroadcastOn": "Raidījums",
+  "webinarDuration": "Ilgums",
   "webinarStatus_scheduled": "Ieplānots",
   "webinarStatus_live": "Tiešraidē",
   "webinarStatus_ended": "Beidzies",

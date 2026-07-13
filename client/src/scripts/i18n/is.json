@@ -590,6 +590,8 @@
   "webinarNoneArchived": "Engin skjalfest vefnámskeið.",
   "webinarCode": "Kóði",
   "webinarCreatedOn": "Búið til",
+  "webinarBroadcastOn": "Útsending",
+  "webinarDuration": "Lengd",
   "webinarStatus_scheduled": "Áætlað",
   "webinarStatus_live": "Í beinni",
   "webinarStatus_ended": "Lokið",

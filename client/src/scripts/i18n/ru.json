@@ -590,6 +590,8 @@
   "webinarNoneArchived": "Нет архивных вебинаров.",
   "webinarCode": "Код",
   "webinarCreatedOn": "Создан",
+  "webinarBroadcastOn": "Трансляция",
+  "webinarDuration": "Продолжительность",
   "webinarStatus_scheduled": "Запланирован",
   "webinarStatus_live": "В эфире",
   "webinarStatus_ended": "Завершён",

@@ -590,6 +590,8 @@
   "webinarNoneArchived": "هیچ وێبینارێکی ئەرشیفکراو نییە.",
   "webinarCode": "کۆد",
   "webinarCreatedOn": "دروستکرا",
+  "webinarBroadcastOn": "بڵاوکردنەوە",
+  "webinarDuration": "ماوە",
   "webinarStatus_scheduled": "خشتەکراو",
   "webinarStatus_live": "ڕاستەوخۆ",
   "webinarStatus_ended": "کۆتاییهات",

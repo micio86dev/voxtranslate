@@ -590,6 +590,8 @@
   "webinarNoneArchived": "Žádné archivované webináře.",
   "webinarCode": "Kód",
   "webinarCreatedOn": "Vytvořeno",
+  "webinarBroadcastOn": "Vysílání",
+  "webinarDuration": "Trvání",
   "webinarStatus_scheduled": "Naplánováno",
   "webinarStatus_live": "Živě",
   "webinarStatus_ended": "Ukončeno",

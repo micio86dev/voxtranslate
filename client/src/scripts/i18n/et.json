@@ -590,6 +590,8 @@
   "webinarNoneArchived": "Arhiveeritud veebiseminare ei ole.",
   "webinarCode": "Kood",
   "webinarCreatedOn": "Loodud",
+  "webinarBroadcastOn": "Ülekanne",
+  "webinarDuration": "Kestus",
   "webinarStatus_scheduled": "Ajastatud",
   "webinarStatus_live": "Otseülekanne",
   "webinarStatus_ended": "Lõppenud",

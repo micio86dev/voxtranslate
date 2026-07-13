@@ -590,6 +590,8 @@
   "webinarNoneArchived": "Babu adanannun webinar.",
   "webinarCode": "Lamba",
   "webinarCreatedOn": "An ƙirƙira",
+  "webinarBroadcastOn": "Watsa",
+  "webinarDuration": "Tsawon lokaci",
   "webinarStatus_scheduled": "An tsara",
   "webinarStatus_live": "Kai tsaye",
   "webinarStatus_ended": "An gama",

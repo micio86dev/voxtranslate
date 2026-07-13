@@ -590,6 +590,8 @@
   "webinarNoneArchived": "Asnjë webinar i arkivuar.",
   "webinarCode": "Kodi",
   "webinarCreatedOn": "Krijuar",
+  "webinarBroadcastOn": "Transmetim",
+  "webinarDuration": "Kohëzgjatje",
   "webinarStatus_scheduled": "I planifikuar",
   "webinarStatus_live": "Drejtpërdrejt",
   "webinarStatus_ended": "Përfunduar",
