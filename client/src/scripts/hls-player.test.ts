@@ -29,6 +29,7 @@ const webinar = (over: Partial<PublicWebinar> = {}): PublicWebinar => ({
   join_url: 'https://voxtranslate.app/w/ab12cd',
   playback_url: 'https://hls.example/webinar/ab12cd/index.m3u8',
   guest_id: 'guest-1',
+  host_avatar_url: null,
   ...over,
 });
 

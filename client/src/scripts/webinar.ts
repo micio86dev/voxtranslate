@@ -68,6 +68,10 @@ export interface PublicWebinar {
    *  until the host goes live). */
   playback_url: string | null;
   guest_id: string;
+  /** Host's avatar URL, snapshotted at webinar creation time. Shown in the waiting
+   *  overlay before the stream starts. Null when the host has no avatar or for webinars
+   *  created before migration 043. */
+  host_avatar_url: string | null;
 }
 
 /** Response of `POST /api/webinars/{id}/go-live`: a short-lived tokenized WHIP
