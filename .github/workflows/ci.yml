@@ -114,30 +114,40 @@ jobs:
     outputs:
       has_keys: ${{ steps.c.outputs.has_keys }}
       has_railway: ${{ steps.c.outputs.has_railway }}
+      has_hetzner: ${{ steps.c.outputs.has_hetzner }}
       server_changed: ${{ steps.paths.outputs.server_changed }}
+      infra_changed: ${{ steps.paths.outputs.infra_changed }}
     steps:
       - id: c
         run: |
           echo "has_keys=${{ secrets.GROQ_API_KEY != '' && secrets.DEEPGRAM_API_KEY != '' }}" >> "$GITHUB_OUTPUT"
           echo "has_railway=${{ secrets.RAILWAY_TOKEN != '' }}" >> "$GITHUB_OUTPUT"
-      # Did this push touch the server? Gates the Railway redeploy below so a
-      # docs/client-only merge doesn't rebuild an unchanged server image. Defaults
-      # to "true" on any non-push / shallow-history edge case → never miss a deploy.
+          echo "has_hetzner=${{ secrets.HETZNER_SSH_KEY != '' }}" >> "$GITHUB_OUTPUT"
+      # Did this push touch the server or infra? Gates redeploys so unrelated merges
+      # don't trigger unnecessary rebuilds. Defaults to "true" on shallow-history edge
+      # cases → never miss a deploy.
       - uses: actions/checkout@v7
         with:
           fetch-depth: 2
       - id: paths
         run: |
-          changed=true
+          server_changed=true
+          infra_changed=true
           if [ "${{ github.event_name }}" = "push" ]; then
             if git diff --name-only HEAD~1 HEAD 2>/dev/null | grep -q '^server/'; then
-              changed=true
+              server_changed=true
             else
-              changed=false
+              server_changed=false
+            fi
+            if git diff --name-only HEAD~1 HEAD 2>/dev/null | grep -q '^infra/'; then
+              infra_changed=true
+            else
+              infra_changed=false
             fi
           fi
-          echo "server_changed=$changed" >> "$GITHUB_OUTPUT"
-          echo "server changed → $changed"
+          echo "server_changed=$server_changed" >> "$GITHUB_OUTPUT"
+          echo "infra_changed=$infra_changed" >> "$GITHUB_OUTPUT"
+          echo "server changed → $server_changed | infra changed → $infra_changed"
 
   # Deploy the Rust backend to Railway on every push to main, after tests pass.
   # Railway isn't wired to GitHub auto-deploy, so CI does it (Git Flow: merge to
@@ -160,6 +170,35 @@ jobs:
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
         run: railway up --ci --service voxtranslate-server
+
+  # Deploy the Caddy reverse-proxy config to the Hetzner media box on every push
+  # to main that touches infra/. Copies infra/media/Caddyfile via SCP then reloads
+  # Caddy inside its Docker container. Requires HETZNER_SSH_KEY (private key) and
+  # HETZNER_HOST (server IP/hostname) secrets. Gated on tests passing.
+  deploy-caddy:
+    needs: [test, check-secrets]
+    if: |
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      needs.check-secrets.outputs.has_hetzner == 'true' &&
+      needs.check-secrets.outputs.infra_changed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Set up SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.HETZNER_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "${{ secrets.HETZNER_HOST }}" >> ~/.ssh/known_hosts
+      - name: Copy Caddyfile
+        run: |
+          scp -i ~/.ssh/id_ed25519 infra/media/Caddyfile \
+            root@${{ secrets.HETZNER_HOST }}:/root/media/Caddyfile
+      - name: Reload Caddy
+        run: |
+          ssh -i ~/.ssh/id_ed25519 root@${{ secrets.HETZNER_HOST }} \
+            "docker exec media-caddy-1 caddy reload --config /etc/caddy/Caddyfile"
 
   # Full server coverage + browser e2e — only when secrets are present.
   e2e:
