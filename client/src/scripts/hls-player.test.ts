@@ -58,6 +58,8 @@ function fakeHls(supported = true) {
       loadSource: vi.fn(),
       attachMedia: vi.fn(),
       destroy: vi.fn(),
+      startLoad: vi.fn(),
+      recoverMediaError: vi.fn(),
       on: vi.fn(), // hlsError recovery handler
     };
     instances.push(inst);
@@ -65,6 +67,12 @@ function fakeHls(supported = true) {
   };
   Hls.isSupported = () => supported;
   return { Hls, instances };
+}
+
+/** Fire the hlsError handler that was registered via inst.on('hlsError', cb). */
+function fireHlsError(inst: any, type: string, fatal: boolean): void {
+  const handler = inst.on.mock.calls.find((c: any[]) => c[0] === 'hlsError')?.[1];
+  handler?.('hlsError', { fatal, type });
 }
 
 beforeEach(() => {
@@ -150,6 +158,7 @@ describe('HlsPlayer state machine', () => {
       onState: (s) => states.push(s),
       loadHls: async () => ({ Hls }),
       fetchWebinar,
+      firstFrameTimeoutMs: 0,
     });
 
     await p.start();
@@ -181,6 +190,7 @@ describe('HlsPlayer state machine', () => {
       video,
       loadHls,
       fetchWebinar: vi.fn().mockResolvedValue(webinar({ status: 'live' })),
+      firstFrameTimeoutMs: 0,
     });
     await p.start();
     expect(p.getState()).toBe('live');
@@ -198,6 +208,7 @@ describe('HlsPlayer state machine', () => {
       video,
       onTapToStart: (n) => (needsTap = n),
       fetchWebinar: vi.fn().mockResolvedValue(webinar({ status: 'live' })),
+      firstFrameTimeoutMs: 0,
     });
     await p.start();
     expect(needsTap).toBe(true);
@@ -220,6 +231,7 @@ describe('HlsPlayer state machine', () => {
       video,
       onTapToStart: (n) => (needsTap = n),
       fetchWebinar: vi.fn().mockResolvedValue(webinar({ status: 'live' })),
+      firstFrameTimeoutMs: 0,
     });
     expect(await p.userStart()).toBe(true);
     expect(video.muted).toBe(false);
@@ -234,6 +246,7 @@ describe('HlsPlayer state machine', () => {
       code: 'ab12cd',
       video,
       fetchWebinar: vi.fn().mockResolvedValue(webinar({ status: 'live' })),
+      firstFrameTimeoutMs: 0,
     });
     // Unmute: clears the flag AND (since paused) tries to (re)start playback.
     expect(p.muteAudio(false)).toBe(false);
@@ -254,6 +267,7 @@ describe('HlsPlayer state machine', () => {
       code: 'ab12cd',
       video,
       fetchWebinar: vi.fn().mockResolvedValue(webinar({ status: 'live' })),
+      firstFrameTimeoutMs: 0,
     });
     p.muteAudio(false);
     expect(video.play).not.toHaveBeenCalled();
@@ -265,6 +279,7 @@ describe('HlsPlayer state machine', () => {
       code: 'ab12cd',
       video,
       fetchWebinar: vi.fn().mockRejectedValue(new Error('boom')),
+      firstFrameTimeoutMs: 0,
     });
     await p.start();
     expect(p.getState()).toBe('error');
@@ -278,9 +293,88 @@ describe('HlsPlayer state machine', () => {
       video,
       loadHls: async () => ({ Hls }),
       fetchWebinar: vi.fn().mockResolvedValue(webinar({ status: 'live' })),
+      firstFrameTimeoutMs: 0,
     });
     await p.start();
     expect(p.getState()).toBe('error');
+  });
+
+  it('recovers a fatal network error with startLoad() instead of destroying', async () => {
+    const { Hls, instances } = fakeHls(true);
+    const video = fakeVideo({ canNative: false });
+    const states: PlayerState[] = [];
+    const p = new HlsPlayer({
+      code: 'ab12cd',
+      video,
+      onState: (s) => states.push(s),
+      loadHls: async () => ({ Hls }),
+      fetchWebinar: vi.fn().mockResolvedValue(webinar({ status: 'live' })),
+      firstFrameTimeoutMs: 0,
+    });
+    await p.start();
+    expect(p.getState()).toBe('live');
+
+    // First fatal network error → startLoad(), NOT destroy
+    fireHlsError(instances[0], 'networkError', true);
+    expect(instances[0].startLoad).toHaveBeenCalledTimes(1);
+    expect(instances[0].destroy).not.toHaveBeenCalled();
+    expect(p.getState()).toBe('live'); // state unchanged
+
+    // Second and third → still startLoad()
+    fireHlsError(instances[0], 'networkError', true);
+    fireHlsError(instances[0], 'networkError', true);
+    expect(instances[0].startLoad).toHaveBeenCalledTimes(3);
+    expect(instances[0].destroy).not.toHaveBeenCalled();
+    expect(p.getState()).toBe('live');
+  });
+
+  it('destroys hls.js and resets to waiting after MAX_NETWORK_RETRIES are exhausted', async () => {
+    const { Hls, instances } = fakeHls(true);
+    const video = fakeVideo({ canNative: false });
+    const p = new HlsPlayer({
+      code: 'ab12cd',
+      video,
+      loadHls: async () => ({ Hls }),
+      fetchWebinar: vi.fn().mockResolvedValue(webinar({ status: 'live' })),
+      firstFrameTimeoutMs: 0,
+    });
+    await p.start();
+
+    // Exhaust the 3 network retries
+    fireHlsError(instances[0], 'networkError', true);
+    fireHlsError(instances[0], 'networkError', true);
+    fireHlsError(instances[0], 'networkError', true);
+    expect(instances[0].startLoad).toHaveBeenCalledTimes(3);
+    expect(instances[0].destroy).not.toHaveBeenCalled();
+
+    // 4th fatal error exceeds the limit → destroy + state reset
+    fireHlsError(instances[0], 'networkError', true);
+    expect(instances[0].destroy).toHaveBeenCalledTimes(1);
+    expect(p.getState()).toBe('waiting');
+  });
+
+  it('recovers a fatal media error with recoverMediaError() on the first attempt', async () => {
+    const { Hls, instances } = fakeHls(true);
+    const video = fakeVideo({ canNative: false });
+    const p = new HlsPlayer({
+      code: 'ab12cd',
+      video,
+      loadHls: async () => ({ Hls }),
+      fetchWebinar: vi.fn().mockResolvedValue(webinar({ status: 'live' })),
+      firstFrameTimeoutMs: 0,
+    });
+    await p.start();
+
+    // First media error → recoverMediaError(), not destroy
+    fireHlsError(instances[0], 'mediaError', true);
+    expect(instances[0].recoverMediaError).toHaveBeenCalledTimes(1);
+    expect(instances[0].destroy).not.toHaveBeenCalled();
+    expect(p.getState()).toBe('live');
+
+    // Second media error → unrecoverable → destroy
+    fireHlsError(instances[0], 'mediaError', true);
+    expect(instances[0].destroy).toHaveBeenCalledTimes(1);
+    expect(p.getState()).toBe('waiting');
   });
 
   it('ignores a transient poll failure and keeps waiting', async () => {
@@ -291,7 +385,7 @@ describe('HlsPlayer state machine', () => {
       .mockResolvedValueOnce(webinar({ status: 'scheduled' }))
       .mockRejectedValueOnce(new Error('flaky'))
       .mockResolvedValueOnce(webinar({ status: 'live' }));
-    const p = new HlsPlayer({ code: 'ab12cd', video, fetchWebinar });
+    const p = new HlsPlayer({ code: 'ab12cd', video, fetchWebinar, firstFrameTimeoutMs: 0 });
     await p.start();
     await vi.advanceTimersByTimeAsync(5_000); // poll rejects → still waiting
     await Promise.resolve();

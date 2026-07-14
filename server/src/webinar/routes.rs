@@ -51,6 +51,10 @@ pub fn routes() -> Router<AppState> {
             "/api/w/{code}/chat",
             post(crate::webinar::chat::post_chat).get(crate::webinar::chat::list_chat),
         )
+        // Transcript history for late-joining participants — public, no auth.
+        // Returns utterances in chronological order so a late joiner can read
+        // what was said before they arrived. Empty when `record_transcript` is off.
+        .route("/api/w/{code}/transcript", get(list_public_transcript))
         // Public, auth-free discovery list of public + upcoming/live webinars (042).
         .route("/api/webinars/public", get(public_list))
         .layer(axum::middleware::from_fn(guest_session));
@@ -657,6 +661,59 @@ pub async fn unarchive(
     .await
     .map_err(db_err)?;
     Ok(Json(host_view(&updated, &state.config.app_base_url, cfg)).into_response())
+}
+
+/// `GET /api/w/{code}/transcript?limit=N` — transcript history for participants
+/// (public, no auth). Utterances in chronological order so a late joiner can read
+/// what was said before they arrived. Returns `[]` when `record_transcript` is off
+/// (privacy default: nothing is persisted without explicit host opt-in).
+/// Max 200 rows; default 100.
+pub async fn list_public_transcript(
+    State(state): State<AppState>,
+    Path(code): Path<String>,
+    axum::extract::Query(q): axum::extract::Query<crate::webinar::chat::HistoryQuery>,
+    // Extension<GuestId> from the guest-session middleware (unused here, but the
+    // middleware runs for the whole public sub-router).
+    _guest: Extension<GuestId>,
+) -> Result<Response, Response> {
+    let pool = require_pool(&state)?;
+    let w = find_by_code(pool, &code)
+        .await
+        .map_err(db_err)?
+        .ok_or_else(|| not_found("webinar not found"))?;
+
+    // Privacy gate: transcript not recorded → nothing to serve.
+    if !w.record_transcript {
+        return Ok(Json(json!([])).into_response());
+    }
+
+    // Clamp to 200 max (generous for catch-up; the host endpoint allows 2 000).
+    let limit = q.limit.unwrap_or(100).clamp(1, 200);
+    let rows: Vec<(String, String, Value, DateTime<Utc>)> = sqlx::query_as(
+        "SELECT original_text, original_lang, translations, spoken_at
+           FROM webinar_transcripts
+          WHERE webinar_id = $1
+          ORDER BY spoken_at ASC
+          LIMIT $2",
+    )
+    .bind(w.id)
+    .bind(limit)
+    .fetch_all(pool)
+    .await
+    .map_err(db_err)?;
+
+    let view: Vec<Value> = rows
+        .into_iter()
+        .map(|(original, lang, translations, spoken_at)| {
+            json!({
+                "original": original,
+                "lang": lang,
+                "translations": translations,
+                "spoken_at": spoken_at.to_rfc3339(),
+            })
+        })
+        .collect();
+    Ok(Json(view).into_response())
 }
 
 /// `GET /api/webinars/{id}/transcripts` — return up to 2 000 transcript rows for

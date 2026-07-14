@@ -37,5 +37,11 @@ ingest.voxtranslate.app {
 	}
 	reverse_proxy /webinar/*/whep localhost:8889
 	# Everything else under /webinar/ = HLS playlist + segments.
-	reverse_proxy /webinar/* localhost:8888
+	# flush_interval -1 enables streaming pass-through so Caddy forwards each
+	# LL-HLS partial segment chunk immediately as MediaMTX emits it, instead of
+	# buffering the full response. Without this, Caddy waits for a complete part
+	# before forwarding and LL-HLS degrades to regular-HLS latency (~3-6 s).
+	reverse_proxy /webinar/* localhost:8888 {
+		flush_interval -1
+	}
 }

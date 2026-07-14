@@ -109,7 +109,11 @@ interface HlsLike {
   loadSource(url: string): void;
   attachMedia(video: HTMLVideoElement): void;
   destroy(): void;
-  on(event: string, cb: (event: string, data: { fatal: boolean }) => void): void;
+  /** Restart segment loading (hls.js recovery for transient network errors). */
+  startLoad(): void;
+  /** Attempt in-place codec recovery (hls.js recovery for media decode errors). */
+  recoverMediaError(): void;
+  on(event: string, cb: (event: string, data: { fatal: boolean; type?: string }) => void): void;
 }
 
 /** Options for the player. `code` is the webinar's public code; the callbacks surface
@@ -127,6 +131,9 @@ export interface HlsPlayerOptions {
   loadHls?: () => Promise<{ Hls: HlsFactory }>;
   /** Injectable public-webinar fetch for tests. Defaults to `getPublicWebinar`. */
   fetchWebinar?: (code: string) => Promise<PublicWebinar>;
+  /** Milliseconds to wait for the first decodable video frame before calling play().
+   *  Defaults to 10 000. Pass 0 in tests to skip the wait entirely (no setTimeout). */
+  firstFrameTimeoutMs?: number;
 }
 
 /** The bits of the hls.js default export we use: the static `isSupported()` guard and
@@ -159,6 +166,7 @@ export class HlsPlayer {
   private attached = false;
   private pollTimer: ReturnType<typeof setInterval> | null = null;
   private destroyed = false;
+  private readonly firstFrameTimeoutMs: number;
 
   constructor(opts: HlsPlayerOptions) {
     this.code = opts.code;
@@ -170,6 +178,7 @@ export class HlsPlayer {
       opts.loadHls ??
       (() => import("hls.js").then((m) => ({ Hls: m.default as unknown as HlsFactory })));
     this.fetchWebinar = opts.fetchWebinar ?? getPublicWebinar;
+    this.firstFrameTimeoutMs = opts.firstFrameTimeoutMs ?? 10_000;
   }
 
   getState(): PlayerState {
@@ -242,14 +251,34 @@ export class HlsPlayer {
       const { Hls } = await this.loadHls();
       const hls = new Hls({ lowLatencyMode: true });
       this.hls = hls;
-      // When the HLS stream dies (host disables webcam / disconnects), hls.js fires a
-      // fatal network error. Reset `attached` so the poll loop can re-attach as soon as
-      // the host comes back — without this the participant must reload.
-      hls.on('hlsError', (_evt: string, data: { fatal: boolean }) => {
-        if (data.fatal && this.hls === hls) {
+      // hls.js error recovery (recommended pattern from the hls.js docs):
+      //   - Network errors: call startLoad() to re-issue the manifest/segment
+      //     request. This recovers in seconds when the host stream is just
+      //     starting (manifest temporarily 404), without waiting the full 5 s
+      //     poll interval. We allow MAX_NETWORK_RETRIES outer retries before
+      //     falling back to a full destroy (hls.js also has its own internal
+      //     retries before it fires the fatal event).
+      //   - Media decode errors: try recoverMediaError() once; if it fires
+      //     again, destroy.
+      //   - Anything else: destroy and let the poll re-attach.
+      const MAX_NETWORK_RETRIES = 3;
+      let networkRetries = 0;
+      let mediaErrorRecovered = false;
+      hls.on('hlsError', (_evt: string, data: { fatal: boolean; type?: string }) => {
+        if (!data.fatal || this.hls !== hls) return;
+        if (data.type === 'networkError' && networkRetries < MAX_NETWORK_RETRIES) {
+          networkRetries++;
+          hls.startLoad();
+        } else if (data.type === 'mediaError' && !mediaErrorRecovered) {
+          mediaErrorRecovered = true;
+          hls.recoverMediaError();
+        } else {
+          // Unrecoverable — tear down and let the poll re-attach on the next tick.
           hls.destroy();
           this.hls = null;
           this.attached = false;
+          networkRetries = 0;
+          mediaErrorRecovered = false;
           if (this.state !== 'ended') this.setState('waiting');
         }
       });
@@ -260,10 +289,36 @@ export class HlsPlayer {
       this.setState("error");
       return false;
     }
+    // Set attached early so a concurrent poll doesn't start a second attach() while
+    // we wait for the first decodable frame below.
     this.attached = true;
+    // Keep the waiting overlay visible until the video actually has a frame to show.
+    // Without this, setState("live") removes the overlay while the video canvas is
+    // still black — the classic "tap shows nothing" black-screen bug.
+    await this.waitForFirstFrame();
+    // A fatal error during the wait (native <video> error or hls.js destroy) resets
+    // this.attached — abort so the caller does not override the waiting/error state.
+    if (!this.attached || this.destroyed) return false;
     const { needsTap } = await tryAutoplay(this.video);
     this.onTapToStart(needsTap);
     return true;
+  }
+
+  /** Wait for the first decodable video frame, or give up after firstFrameTimeoutMs.
+   *  Returns immediately (no setTimeout) when firstFrameTimeoutMs === 0 (test mode). */
+  private waitForFirstFrame(): Promise<void> {
+    if (this.firstFrameTimeoutMs === 0) return Promise.resolve();
+    return new Promise<void>((resolve) => {
+      const timer = setTimeout(resolve, this.firstFrameTimeoutMs);
+      this.video.addEventListener(
+        'canplay',
+        () => {
+          clearTimeout(timer);
+          resolve();
+        },
+        { once: true },
+      );
+    });
   }
 
   /** Whether hls.js reports MediaSource support in this browser (loads the chunk to

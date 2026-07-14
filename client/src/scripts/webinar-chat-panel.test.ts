@@ -60,6 +60,55 @@ describe('buildChatRow', () => {
     // No 'fr' translation → falls back to the source original.
     expect(host.querySelector('.wv-chat-body')!.textContent).toBe('hola');
   });
+
+  it('guest always shows initials, never an <img>', () => {
+    const row = buildChatRow(document, ev(), 'en', 'HOST', 'https://example.com/avatar.png');
+    const avatar = row.querySelector('.wv-chat-avatar') as HTMLElement;
+    expect(avatar.querySelector('img')).toBeNull();
+    expect(avatar.textContent).toBe('A'); // 'Ada'[0]
+  });
+
+  it('host without avatar url shows initials', () => {
+    const row = buildChatRow(document, ev({ sender_kind: 'host', display_name: 'Bob' }), 'en', 'HOST');
+    const avatar = row.querySelector('.wv-chat-avatar') as HTMLElement;
+    expect(avatar.querySelector('img')).toBeNull();
+    expect(avatar.textContent).toBe('B');
+    // jsdom normalizes hex to rgb
+    expect(avatar.style.background).toMatch(/rgb\(59,\s*130,\s*246\)|#3b82f6/);
+  });
+
+  it('host with avatar url renders <img> in the avatar span', () => {
+    const row = buildChatRow(
+      document,
+      ev({ sender_kind: 'host', display_name: 'Host' }),
+      'en',
+      'HOST',
+      'https://lh3.googleusercontent.com/photo/abc',
+    );
+    const avatar = row.querySelector('.wv-chat-avatar') as HTMLElement;
+    const img = avatar.querySelector('img');
+    expect(img).not.toBeNull();
+    expect(img!.getAttribute('src')).toContain('abc');
+    expect(img!.referrerPolicy).toBe('no-referrer');
+    expect(img!.alt).toBe('');
+    expect(avatar.textContent).toBe(''); // no initials while image is present
+  });
+
+  it('host avatar img onerror falls back to initials', () => {
+    const row = buildChatRow(
+      document,
+      ev({ sender_kind: 'host', display_name: 'Host' }),
+      'en',
+      'HOST',
+      'https://example.com/avatar.png',
+    );
+    const avatar = row.querySelector('.wv-chat-avatar') as HTMLElement;
+    const img = avatar.querySelector('img')!;
+    img.dispatchEvent(new Event('error'));
+    expect(avatar.querySelector('img')).toBeNull();
+    expect(avatar.textContent).toBe('H');
+    expect(avatar.style.background).toMatch(/rgb\(59,\s*130,\s*246\)|#3b82f6/);
+  });
 });
 
 describe('ChatPanel', () => {

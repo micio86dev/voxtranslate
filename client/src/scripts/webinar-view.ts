@@ -163,9 +163,28 @@ export function mountWebinarPlayer(): void {
   const tapBtn = document.getElementById('wv-tap') as HTMLButtonElement | null;
   if (!video) return;
 
+  // Pre-webinar name gate: collect the guest's display name before they enter.
+  // The gate covers the full screen and disappears once the name is submitted.
+  // Returning visitors (name already stored) never see it.
+  const nameGate = document.getElementById('wv-name-gate');
+  const nameGateInput = document.getElementById('wv-name-gate-input') as HTMLInputElement | null;
+  const nameGateSave = document.getElementById('wv-name-gate-save') as HTMLButtonElement | null;
+  if (!getStoredDisplayName()) {
+    show(nameGate, true);
+    nameGateInput?.focus();
+  }
+  function submitNameGate(): void {
+    const chosen = setStoredDisplayName(nameGateInput?.value ?? '');
+    if (!chosen) { nameGateInput?.focus(); return; }
+    show(nameGate, false);
+  }
+  nameGateSave?.addEventListener('click', submitNameGate);
+  nameGateInput?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') submitNameGate();
+  });
+
   const subtitleOverlay = document.getElementById('wv-subtitles');
   const muteBtn = document.getElementById('wv-mute') as HTMLButtonElement | null;
-  const listenBtn = document.getElementById('wv-listen') as HTMLButtonElement | null;
   const ccBtn = document.getElementById('wv-cc') as HTMLButtonElement | null;
 
   const player = new HlsPlayer({
@@ -174,11 +193,6 @@ export function mountWebinarPlayer(): void {
     onState: renderState,
     onTapToStart: (needsTap) => show(tapBtn, needsTap),
     onInfo: (info) => {
-      // When the host and viewer already speak the same language, the original HLS
-      // audio IS in the viewer's language — there is no alternative to switch to,
-      // so hiding the "listen to original" button avoids a meaningless control.
-      const sameLanguage = info.source_language && info.source_language === getUiLang();
-      show(listenBtn, !sameLanguage);
       // Replace the waiting spinner with the host's avatar when one is available.
       // Falls back to the spinner for webinars without an avatar (pre-043 or no profile pic).
       if (info.host_avatar_url) {
@@ -197,31 +211,15 @@ export function mountWebinarPlayer(): void {
     void player.userStart();
   });
 
-  // Audio controls (webinar Fase 2).
-  //   wv-mute   — global on/off toggle; aria-pressed=true when audio is ACTIVE (playing).
-  //   wv-listen — audio-source selector (original HLS now; Fase 3 will add TTS option).
-  //               Both buttons reflect the same underlying muted state so they stay in
-  //               sync: paintAudio() always calls paintListen().
-  function paintListen(): void {
-    if (!listenBtn) return;
-    // aria-pressed=true = viewer is currently hearing the original HLS stream.
-    listenBtn.setAttribute('aria-pressed', !player.isMuted() ? 'true' : 'false');
-  }
+  // Audio mute toggle (wv-mute): aria-pressed=true when audio is ACTIVE (playing).
   function paintAudio(): void {
     const muted = player.isMuted();
     if (muteBtn) {
       muteBtn.textContent = t(muted ? 'wvUnmuteAudio' : 'wvMuteAudio');
       muteBtn.setAttribute('aria-pressed', muted ? 'false' : 'true');
     }
-    paintListen();
   }
   muteBtn?.addEventListener('click', () => {
-    player.muteAudio(!player.isMuted());
-    paintAudio();
-  });
-  listenBtn?.addEventListener('click', () => {
-    // Toggle: select original audio (unmute) or deselect it (mute).
-    // Fase 3 will replace the mute branch with TTS playback.
     player.muteAudio(!player.isMuted());
     paintAudio();
   });
@@ -246,6 +244,7 @@ export function mountWebinarPlayer(): void {
   const transcriptList = document.getElementById('wv-transcript-list');
   const transcriptEmpty = document.getElementById('wv-transcript-empty');
   let transcriptOpen = false;
+  let transcriptHistoryLoaded = false;
 
   function paintTranscript(): void {
     if (!transcriptToggleBtn) return;
@@ -256,24 +255,68 @@ export function mountWebinarPlayer(): void {
     transcriptOpen = !transcriptOpen;
     show(transcriptPanel, transcriptOpen);
     paintTranscript();
-    if (transcriptOpen && transcriptList) transcriptList.scrollTop = transcriptList.scrollHeight;
+    if (transcriptOpen && transcriptList) {
+      if (!transcriptHistoryLoaded) {
+        transcriptHistoryLoaded = true;
+        void loadTranscriptHistory(code);
+      }
+      transcriptList.scrollTop = transcriptList.scrollHeight;
+    }
   });
   paintTranscript();
 
-  /** Append a confirmed final subtitle line (in the viewer's language) to the history panel. */
-  function appendTranscriptEntry(translation: string): void {
-    if (!transcriptList) return;
-    const now = new Date();
-    const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  /** Build one transcript entry element. Shared by history load and live append. */
+  function buildTranscriptItem(text: string, time: Date): HTMLElement {
     const item = document.createElement('div');
     item.className = 'wv-tr-item';
     const timeEl = document.createElement('span');
     timeEl.className = 'wv-tr-time';
-    timeEl.textContent = timeStr;
+    timeEl.textContent = time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const textEl = document.createElement('span');
     textEl.className = 'wv-tr-text';
-    textEl.textContent = translation;
+    textEl.textContent = text;
     item.append(timeEl, textEl);
+    return item;
+  }
+
+  /** Fetch transcript history and prepend it before any live entries already in the
+   *  list. Only called once (gated by `transcriptHistoryLoaded`). Silently no-ops
+   *  when recording is off or the fetch fails — the panel still shows live entries. */
+  async function loadTranscriptHistory(wCode: string): Promise<void> {
+    if (!transcriptList) return;
+    let rows: Array<{ original: string; lang: string; translations: Record<string, string>; spoken_at: string }>;
+    try {
+      const res = await fetch(
+        `${HTTP_BASE}/api/w/${encodeURIComponent(wCode)}/transcript?limit=200`,
+      );
+      if (!res.ok) return;
+      const data = (await res.json()) as unknown;
+      if (!Array.isArray(data)) return;
+      rows = data as typeof rows;
+    } catch {
+      return;
+    }
+    if (!rows.length) return;
+    const myLang = getUiLang();
+    // Insert history entries BEFORE any live entries already appended.
+    const firstLive = transcriptList.querySelector('.wv-tr-item');
+    for (const e of rows) {
+      const text = e.translations[myLang] ?? e.original;
+      const item = buildTranscriptItem(text, new Date(e.spoken_at));
+      if (firstLive) {
+        transcriptList.insertBefore(item, firstLive);
+      } else {
+        transcriptList.appendChild(item);
+      }
+    }
+    if (transcriptEmpty) transcriptEmpty.style.display = 'none';
+    if (transcriptOpen) transcriptList.scrollTop = transcriptList.scrollHeight;
+  }
+
+  /** Append a confirmed final subtitle line (in the viewer's language) to the history panel. */
+  function appendTranscriptEntry(translation: string): void {
+    if (!transcriptList) return;
+    const item = buildTranscriptItem(translation, new Date());
     transcriptList.appendChild(item);
     // Hide empty state and auto-scroll when the panel is open.
     if (transcriptEmpty) transcriptEmpty.style.display = 'none';
@@ -356,9 +399,11 @@ async function setupChat(
 
   // Read the chat flag. A failure (offline / SSR-skipped) just leaves chat hidden.
   let enabled = false;
+  let hostAvatarUrl: string | null = null;
   try {
     const info = await getPublicWebinar(code);
     enabled = !!info.chat_enabled;
+    hostAvatarUrl = info.host_avatar_url ?? null;
   } catch {
     return null;
   }
@@ -380,6 +425,7 @@ async function setupChat(
     displayName: () => getStoredDisplayName(),
     token: () => null, // viewers are unauthenticated guests → sender_kind:"guest"
     strings: chatStrings(),
+    hostAvatarUrl,
   });
 
   let historyLoaded = false;

@@ -2736,13 +2736,15 @@ const jsonLd = {
     .studio-chat-body { display: flex; flex-direction: column; gap: 10px; }
     .studio-chat.is-collapsed .studio-chat-body { display: none; }
     .studio-chat :global(.wv-chat-list) { display: flex; flex-direction: column; gap: 8px; min-height: 120px; max-height: 40vh; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; scroll-behavior: smooth; padding-right: 4px; }
-    .studio-chat :global(.wv-chat-msg) { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border-radius: 10px; background: rgba(255,255,255,0.03); line-height: 1.35; word-break: break-word; }
-    .studio-chat :global(.wv-chat-msg.is-host) { background: color-mix(in srgb, var(--accent) 12%, transparent); border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent); }
+    .studio-chat :global(.wv-chat-msg) { display: flex; flex-direction: row; align-items: flex-start; gap: 10px; padding: 10px 12px; border-radius: 10px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.06); line-height: 1.45; word-break: break-word; }
+    .studio-chat :global(.wv-chat-msg.is-host) { background: color-mix(in srgb, var(--accent) 10%, transparent); border-color: color-mix(in srgb, var(--accent) 30%, transparent); }
+    .studio-chat :global(.wv-chat-avatar) { flex: 0 0 auto; width: 28px; height: 28px; border-radius: 50%; overflow: hidden; font-size: 0.72rem; font-weight: 700; color: #fff; display: flex; align-items: center; justify-content: center; margin-top: 1px; user-select: none; }
+    .studio-chat :global(.wv-chat-content) { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
     .studio-chat :global(.wv-chat-name-line) { font-size: 0.78rem; font-weight: 700; color: var(--muted); }
     .studio-chat :global(.wv-chat-msg.is-host .wv-chat-name-line) { color: var(--accent); }
-    .studio-chat :global(.wv-chat-host-tag) { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; margin-left: 6px; padding: 1px 6px; border-radius: 999px; background: color-mix(in srgb, var(--accent) 25%, transparent); color: var(--accent); }
+    .studio-chat :global(.wv-chat-host-tag) { font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; margin-left: 6px; padding: 1px 6px; border-radius: 999px; background: color-mix(in srgb, var(--accent) 25%, transparent); color: var(--accent); }
     .studio-chat :global(.wv-chat-body) { font-size: 0.95rem; color: var(--text); }
-    .studio-chat :global(.wv-chat-empty) { margin: auto; padding: 16px; text-align: center; font-size: 0.85rem; color: var(--muted); }
+    .studio-chat :global(.wv-chat-empty) { margin: auto; padding: 20px; text-align: center; font-size: 0.85rem; color: var(--muted); }
     .studio-chat :global(.wv-chat-form) { display: flex; gap: 8px; padding-bottom: env(safe-area-inset-bottom, 0); }
     .studio-chat :global(.wv-chat-input) { flex: 1 1 auto; min-width: 0; min-height: 44px; padding: 0 14px; font-size: 1rem; border-radius: 10px; background: var(--bg); border: 1px solid var(--border); color: var(--text); }
     .studio-chat :global(.wv-chat-input:focus) { outline: 2px solid var(--accent); outline-offset: 1px; }

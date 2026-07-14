@@ -246,6 +246,9 @@ export interface ChatPanelOptions {
   strings: ChatPanelStrings;
   /** Injectable fetch for tests. Defaults to the global `fetch`. */
   fetchImpl?: typeof fetch;
+  /** The host's avatar URL (from `PublicWebinar.host_avatar_url`), used to show a profile
+   *  picture instead of initials for host chat messages. Null for webinars without one. */
+  hostAvatarUrl?: string | null;
 }
 
 /**
@@ -289,7 +292,7 @@ export class ChatPanel {
       this.empty = null;
     }
     const doc = this.opts.list.ownerDocument;
-    const row = buildChatRow(doc, event, this.opts.myLang(), this.opts.strings.hostTag);
+    const row = buildChatRow(doc, event, this.opts.myLang(), this.opts.strings.hostTag, this.opts.hostAvatarUrl);
     this.opts.list.appendChild(row);
     // Scroll to the bottom so the newest message is visible.
     this.opts.list.scrollTop = this.opts.list.scrollHeight;
@@ -373,26 +376,55 @@ export function avatarColor(name: string): string {
   return AVATAR_PALETTE[code % AVATAR_PALETTE.length];
 }
 
+/** Normalize an avatar URL for display at `size` px — mirrors `avatarUrl()` in auth.ts
+ *  (not imported here to keep the /w/ bundle lean). Resizes Google CDN URLs; returns
+ *  other URLs unchanged; returns null for absent/empty values. */
+function processAvatarUrl(url: string | null | undefined, size = 36): string | null {
+  if (!url) return null;
+  if (/=s\d+(-c)?$/.test(url)) return url.replace(/=s\d+(-c)?$/, `=s${size}`);
+  if (url.includes('googleusercontent.com')) return `${url}=s${size}`;
+  return url;
+}
+
 /** Build a single chat message row for `event`, rendered in `myLang`. A host message carries a
- *  small "HOST" tag. Each row starts with a colored initials avatar (Meet style). The body uses
- *  `translations[myLang] ?? original`. Pure over `doc`. */
+ *  small "HOST" tag. The avatar shows the host's profile picture (when `hostAvatarUrl` is set
+ *  and the image loads), falling back to colored initials on error — matching Meet chat behavior.
+ *  Guest messages always use colored initials. The body uses `translations[myLang] ?? original`.
+ *  Pure over `doc`. */
 export function buildChatRow(
   doc: Document,
   event: ChatEvent,
   myLang: string,
   hostTag: string,
+  hostAvatarUrl?: string | null,
 ): HTMLElement {
   const row = doc.createElement('div');
   row.className = `wv-chat-msg${event.sender_kind === 'host' ? ' is-host' : ''}`;
   row.setAttribute('data-id', event.id);
 
-  // Initials avatar: first character of the display name, colored by sender.
   const avatar = doc.createElement('span');
   avatar.className = 'wv-chat-avatar';
   avatar.setAttribute('aria-hidden', 'true');
-  avatar.textContent = (event.display_name || '?')[0].toUpperCase();
-  avatar.style.background =
-    event.sender_kind === 'host' ? '#3b82f6' : avatarColor(event.display_name);
+
+  // Host with an avatar URL → try <img>; onerror falls back to initials.
+  const resolvedUrl = event.sender_kind === 'host' ? processAvatarUrl(hostAvatarUrl, 36) : null;
+  if (resolvedUrl) {
+    const img = doc.createElement('img');
+    img.src = resolvedUrl;
+    img.referrerPolicy = 'no-referrer';
+    img.alt = '';
+    img.style.cssText = 'width:100%;height:100%;object-fit:cover;border-radius:50%';
+    img.addEventListener('error', () => {
+      img.remove();
+      avatar.textContent = (event.display_name || '?')[0].toUpperCase();
+      avatar.style.background = '#3b82f6';
+    });
+    avatar.appendChild(img);
+  } else {
+    avatar.textContent = (event.display_name || '?')[0].toUpperCase();
+    avatar.style.background =
+      event.sender_kind === 'host' ? '#3b82f6' : avatarColor(event.display_name);
+  }
 
   const content = doc.createElement('div');
   content.className = 'wv-chat-content';
