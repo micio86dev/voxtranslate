@@ -280,6 +280,8 @@ fn public_view(w: &Webinar, app_base_url: &str, cfg: &WebinarConfig) -> Value {
         "visibility": w.visibility,
         "join_url": join_url(app_base_url, &w.code),
         "playback_url": playback_url(cfg, &w.code),
+        // Avatar shown in the waiting overlay when the host hasn't gone live yet (043).
+        "host_avatar_url": w.host_avatar_url,
     })
 }
 

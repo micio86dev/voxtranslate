@@ -113,7 +113,10 @@ const pageDesc = webinar
 
             <!-- Waiting / ended overlays (driven by the player state). -->
             <div id="wv-overlay-waiting" class="wv-overlay">
-              <div class="wv-spinner" aria-hidden="true"></div>
+              <!-- Host avatar shown when available (043); falls back to spinner for
+                   webinars without one or while the avatar hasn’t loaded yet. -->
+              <img id="wv-host-avatar" class="wv-host-avatar hidden" alt="" aria-hidden="true" />
+              <div id="wv-waiting-spinner" class="wv-spinner" aria-hidden="true"></div>
               <p data-i18n="wvWaitingBody">The host hasn’t started yet. This page will start playing automatically.</p>
             </div>
             <div id="wv-overlay-ended" class="wv-overlay hidden">
@@ -588,6 +591,17 @@ const pageDesc = webinar
       color: #f87171;
     }
     .wv-chat-notice.hidden {
+      display: none;
+    }
+    .wv-host-avatar {
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      object-fit: cover;
+      margin-bottom: 0.75rem;
+      border: 2px solid rgba(255, 255, 255, 0.15);
+    }
+    .wv-host-avatar.hidden {
       display: none;
     }
     .wv-spinner {

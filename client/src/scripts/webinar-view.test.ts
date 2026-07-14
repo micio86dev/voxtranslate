@@ -51,7 +51,10 @@ function buildDom(code = 'ab12cd', notfound = '0'): void {
       <video id="wv-video"></video>
       <div id="wv-subtitles"></div>
       <button id="wv-tap" class="wv-tap hidden"></button>
-      <div id="wv-overlay-waiting" class="wv-overlay"></div>
+      <div id="wv-overlay-waiting" class="wv-overlay">
+        <img id="wv-host-avatar" class="wv-host-avatar hidden" alt="" />
+        <div id="wv-waiting-spinner" class="wv-spinner"></div>
+      </div>
       <div id="wv-overlay-ended" class="wv-overlay hidden"></div>
       <div id="wv-overlay-error" class="wv-overlay hidden"></div>
       <button id="wv-mute" aria-pressed="false"></button>
@@ -204,7 +207,8 @@ describe('mountWebinarPlayer', () => {
     mountWebinarPlayer();
     // getUiLang() is mocked to return 'en'; host also speaks 'en' → hide listen btn.
     lastOpts.onInfo?.({ source_language: 'en', code: 'x', title: 'T', status: 'scheduled',
-      tier: 'standard', join_url: '', chat_enabled: false, playback_url: null, guest_id: 'g' });
+      tier: 'standard', join_url: '', chat_enabled: false, playback_url: null, guest_id: 'g',
+      host_avatar_url: null });
     expect(el('wv-listen').classList.contains('hidden')).toBe(true);
   });
 
@@ -212,8 +216,32 @@ describe('mountWebinarPlayer', () => {
     buildDom();
     mountWebinarPlayer();
     lastOpts.onInfo?.({ source_language: 'es', code: 'x', title: 'T', status: 'scheduled',
-      tier: 'standard', join_url: '', chat_enabled: false, playback_url: null, guest_id: 'g' });
+      tier: 'standard', join_url: '', chat_enabled: false, playback_url: null, guest_id: 'g',
+      host_avatar_url: null });
     expect(el('wv-listen').classList.contains('hidden')).toBe(false);
+  });
+
+  it('shows the host avatar and hides the spinner when host_avatar_url is set', () => {
+    buildDom();
+    mountWebinarPlayer();
+    lastOpts.onInfo?.({ source_language: 'en', code: 'x', title: 'T', status: 'scheduled',
+      tier: 'standard', join_url: '', chat_enabled: false, playback_url: null, guest_id: 'g',
+      host_avatar_url: 'https://cdn.example/avatar.jpg' });
+    const avatar = el('wv-host-avatar') as HTMLImageElement;
+    const spinner = el('wv-waiting-spinner');
+    expect(avatar.classList.contains('hidden')).toBe(false);
+    expect((avatar as HTMLImageElement).src).toBe('https://cdn.example/avatar.jpg');
+    expect(spinner.classList.contains('hidden')).toBe(true);
+  });
+
+  it('keeps the spinner when host_avatar_url is null', () => {
+    buildDom();
+    mountWebinarPlayer();
+    lastOpts.onInfo?.({ source_language: 'en', code: 'x', title: 'T', status: 'scheduled',
+      tier: 'standard', join_url: '', chat_enabled: false, playback_url: null, guest_id: 'g',
+      host_avatar_url: null });
+    expect(el('wv-host-avatar').classList.contains('hidden')).toBe(true);
+    expect(el('wv-waiting-spinner').classList.contains('hidden')).toBe(false);
   });
 
   it('the CC button toggles captions and clears the overlay when turned off', () => {
