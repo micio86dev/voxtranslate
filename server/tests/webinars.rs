@@ -1911,13 +1911,28 @@ async fn public_list_returns_only_public_discoverable_webinars() {
         );
     }
 
-    // Unauthenticated call → 401.
+    // Unauthenticated call → 200 with the full public list (guests see all, no org exclusion).
     let unauth = http
         .get(format!("{}/api/webinars/public", base(&srv)))
         .send()
         .await
         .unwrap();
-    assert_eq!(unauth.status(), 401, "unauthenticated public list → 401");
+    assert_eq!(
+        unauth.status(),
+        200,
+        "unauthenticated public list → 200 (guests can discover)"
+    );
+    let unauth_body: Value = unauth.json().await.unwrap();
+    let unauth_items = unauth_body["webinars"].as_array().expect("webinars array");
+    // Unauthenticated guests see ALL public webinars (no org exclusion).
+    let unauth_codes: Vec<&str> = unauth_items
+        .iter()
+        .map(|w| w["code"].as_str().unwrap())
+        .collect();
+    assert!(
+        unauth_codes.contains(&pub_code.as_str()),
+        "guest sees public webinar"
+    );
 }
 
 // ---- schedule validation (create) ------------------------------------------

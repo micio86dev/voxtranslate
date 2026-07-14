@@ -1554,8 +1554,6 @@ function renderRooms(
 // listPublicWebinars() swallows failures to [], and an empty list hides the whole
 // card so the lobby never shows an empty "Public webinars" section.
 async function fetchPublicWebinars(): Promise<void> {
-  // Public webinar list requires authentication (Feature 3b).
-  if (!auth.isLoggedIn()) return;
   const webinars = await listPublicWebinars();
   renderPublicWebinars(webinars);
 }
@@ -5004,6 +5002,7 @@ const webinarRecordTranscriptSw = $<HTMLButtonElement>('webinar-record-transcrip
 const webinarChatEnabledSw = $<HTMLButtonElement>('webinar-chat-enabled');
 // Visibility toggle: OFF (default) = private/link-only; ON = public (listed on home).
 const webinarVisibilitySw = $<HTMLButtonElement>('webinar-visibility-public');
+const webinarMembersOnlySw = $<HTMLButtonElement>('webinar-members-only');
 const webinarVoiceCloneSw = $<HTMLButtonElement>('webinar-voice-clone');
 const webinarVoiceCloneRow = $('webinar-voice-clone-row');
 const webinarVoiceClonedHint = $('webinar-voice-cloned-hint');
@@ -5042,6 +5041,7 @@ wireSwitch(webinarRecordVideoSw);
 wireSwitch(webinarRecordTranscriptSw);
 wireSwitch(webinarChatEnabledSw);
 wireSwitch(webinarVisibilitySw);
+wireSwitch(webinarMembersOnlySw);
 wireSwitch(webinarVoiceCloneSw);
 
 /** Show the voice-clone toggle only for Enhanced when the host hasn't cloned yet;
@@ -6408,6 +6408,7 @@ async function submitWebinar(): Promise<void> {
       record_transcript: switchOn(webinarRecordTranscriptSw),
       chat_enabled: switchOn(webinarChatEnabledSw),
       visibility: switchOn(webinarVisibilitySw) ? 'public' : 'private',
+      members_only: switchOn(webinarMembersOnlySw),
       voice_clone: cloneOffered && switchOn(webinarVoiceCloneSw),
       scheduled_start: scheduledStart,
       scheduled_end: scheduledEnd,

@@ -21,6 +21,7 @@ use std::collections::HashMap;
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use serde::Deserialize;
 use serde_json::{json, Value};
+use std::time::Duration;
 use uuid::Uuid;
 
 use axum::Extension;
@@ -45,6 +46,7 @@ pub fn routes() -> Router<AppState> {
     // that middleware to this route only, not the authenticated host CRUD.
     let public = Router::new()
         .route("/api/w/{code}", get(public_get))
+        .route("/api/w/{code}/tts-session", get(tts_session))
         // Auto-translated chat (⑤): SEND (POST, host or guest) + history (GET).
         // Both ride the guest-session middleware so `Extension<GuestId>` is set.
         .route(
@@ -880,6 +882,10 @@ pub async fn public_get(
 /// these on the home page next to the public rooms). Each item is PII-free and
 /// carries a LIVE audience `viewers` count. Private, cancelled/ended, and
 /// archived webinars are never listed. Envelope: `{ "webinars": [ … ] }`.
+///
+/// Auth is OPTIONAL. Logged-in callers additionally have their own orgs'
+/// webinars excluded (they manage those via the host hub, not the discovery
+/// list). Unauthenticated guests receive the full public list.
 pub async fn public_list(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -887,36 +893,46 @@ pub async fn public_list(
     let pool = require_pool(&state)?;
     require_cfg(&state)?;
 
-    // Require authentication: only logged-in users may browse the public webinar list.
-    let caller_id: Uuid = state
-        .config
-        .billing
-        .as_ref()
-        .and_then(|b| {
-            headers
-                .get(AUTHORIZATION)
-                .and_then(|v| v.to_str().ok())
-                .and_then(|v| v.strip_prefix("Bearer "))
-                .and_then(|tok| crate::auth::verify_jwt(&b.jwt_secret, tok).ok())
-                .and_then(|c| Uuid::parse_str(&c.sub).ok())
-        })
-        .ok_or_else(|| (StatusCode::UNAUTHORIZED, "authentication required").into_response())?;
+    // Optional auth: extract caller_id when a valid JWT is present so we can
+    // exclude their own orgs' webinars from the discovery list.
+    let caller_id: Option<Uuid> = state.config.billing.as_ref().and_then(|b| {
+        headers
+            .get(AUTHORIZATION)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.strip_prefix("Bearer "))
+            .and_then(|tok| crate::auth::verify_jwt(&b.jwt_secret, tok).ok())
+            .and_then(|c| Uuid::parse_str(&c.sub).ok())
+    });
 
-    let rows: Vec<Webinar> = sqlx::query_as(
-        "SELECT * FROM webinars
-         WHERE visibility = 'public'
-           AND status IN ('scheduled', 'live')
-           AND archived_at IS NULL
-           AND org_id NOT IN (
-               SELECT org_id FROM organization_members WHERE user_id = $1
-           )
-         ORDER BY (status = 'live') DESC, scheduled_start ASC NULLS LAST, created_at DESC
-         LIMIT 100",
-    )
-    .bind(caller_id)
-    .fetch_all(pool)
-    .await
-    .map_err(db_err)?;
+    let rows: Vec<Webinar> = if let Some(uid) = caller_id {
+        sqlx::query_as(
+            "SELECT * FROM webinars
+             WHERE visibility = 'public'
+               AND status IN ('scheduled', 'live')
+               AND archived_at IS NULL
+               AND org_id NOT IN (
+                   SELECT org_id FROM organization_members WHERE user_id = $1
+               )
+             ORDER BY (status = 'live') DESC, scheduled_start ASC NULLS LAST, created_at DESC
+             LIMIT 100",
+        )
+        .bind(uid)
+        .fetch_all(pool)
+        .await
+        .map_err(db_err)?
+    } else {
+        sqlx::query_as(
+            "SELECT * FROM webinars
+             WHERE visibility = 'public'
+               AND status IN ('scheduled', 'live')
+               AND archived_at IS NULL
+             ORDER BY (status = 'live') DESC, scheduled_start ASC NULLS LAST, created_at DESC
+             LIMIT 100",
+        )
+        .fetch_all(pool)
+        .await
+        .map_err(db_err)?
+    };
     let items: Vec<Value> = rows
         .iter()
         .map(|w| {
@@ -925,6 +941,69 @@ pub async fn public_list(
         })
         .collect();
     Ok(Json(json!({ "webinars": items })).into_response())
+}
+
+/// `GET /api/w/{code}/tts-session` — mint a short-lived Cartesia TTS-only token for
+/// Enhanced-tier webinar participants (including unauthenticated guests). Rate-limited
+/// per webinar code. Returns 422 for Standard webinars (they use browser TTS), 404 if
+/// the webinar doesn't exist, 410 if it's not active, 503 if Cartesia is unconfigured.
+pub async fn tts_session(
+    State(state): State<AppState>,
+    Path(code): Path<String>,
+) -> Result<Response, Response> {
+    let pool = require_pool(&state)?;
+    let cartesia = state.config.cartesia.as_ref().ok_or_else(|| {
+        (StatusCode::SERVICE_UNAVAILABLE, "cartesia not configured").into_response()
+    })?;
+
+    // Rate-limit: 20 mints per code per minute to prevent token farming.
+    if !state
+        .rate_limiter
+        .allow(&format!("wbr-tts:{code}"), 20, Duration::from_secs(60))
+    {
+        return Err((StatusCode::TOO_MANY_REQUESTS, "too many requests").into_response());
+    }
+
+    let webinar: Option<Webinar> =
+        sqlx::query_as("SELECT * FROM webinars WHERE code = $1 AND archived_at IS NULL LIMIT 1")
+            .bind(&code)
+            .fetch_optional(pool)
+            .await
+            .map_err(db_err)?;
+
+    let webinar =
+        webinar.ok_or_else(|| (StatusCode::NOT_FOUND, "webinar not found").into_response())?;
+
+    if webinar.tier != "enhanced" {
+        return Err((
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "standard webinars use browser TTS",
+        )
+            .into_response());
+    }
+
+    if !matches!(webinar.status.as_str(), "scheduled" | "live") {
+        return Err((StatusCode::GONE, "webinar is not active").into_response());
+    }
+
+    let (token, expires_at) = crate::api::mint_cartesia_token_tts_only(&state.http, cartesia)
+        .await
+        .map_err(|e| {
+            tracing::error!("webinar tts-session mint failed: {e}");
+            (StatusCode::BAD_GATEWAY, "cartesia unavailable").into_response()
+        })?;
+
+    Ok(Json(serde_json::json!({
+        "token": token,
+        "expires_at": expires_at,
+        "cartesia_version": cartesia.version,
+        "tts": {
+            "endpoint": cartesia.tts_endpoint,
+            "model": cartesia.tts_model,
+        },
+        "default_voice_id": cartesia.default_voice_id,
+    }))
+    .into_response())
 }
 
 #[cfg(test)]

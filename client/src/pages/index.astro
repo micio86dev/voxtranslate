@@ -1085,6 +1085,11 @@ const jsonLd = {
                 <span class="webinar-toggle-label" id="webinar-visibility-public-label" data-i18n="webinarVisibilityPublic">{T('webinarVisibilityPublic')}</span>
                 <button id="webinar-visibility-public" class="ws-switch" type="button" role="switch" aria-checked="false" aria-labelledby="webinar-visibility-public-label"><span class="ws-switch-knob" aria-hidden="true"></span></button>
               </div>
+              <!-- Members only: OFF (default) = guests can join; ON = login required to join. -->
+              <div class="webinar-toggle-row">
+                <span class="webinar-toggle-label" id="webinar-members-only-label" data-i18n="webinarMembersOnly">{T('webinarMembersOnly')}</span>
+                <button id="webinar-members-only" class="ws-switch" type="button" role="switch" aria-checked="false" aria-labelledby="webinar-members-only-label"><span class="ws-switch-knob" aria-hidden="true"></span></button>
+              </div>
               <!-- Voice clone: shown only for Enhanced + when the voice isn't cloned yet (app.ts). -->
               <div class="webinar-toggle-row hidden" id="webinar-voice-clone-row">
                 <span class="webinar-toggle-label" id="webinar-voice-clone-label" data-i18n="webinarVoiceClone">{T('webinarVoiceClone')}</span>

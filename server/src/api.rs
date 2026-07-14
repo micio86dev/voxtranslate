@@ -77,7 +77,7 @@ pub async fn engines(State(state): State<AppState>) -> Response {
 /// Mirrors the Cloudflare-TURN credential-minting pattern: the raw `CARTESIA_API_KEY` stays
 /// server-side, only the scoped token (both STT + TTS grants, ≤1 h) reaches the client,
 /// which passes it as the WS `access_token` query param. Returns `(token, expires_at_unix)`.
-async fn mint_cartesia_token(
+pub(crate) async fn mint_cartesia_token(
     http: &reqwest::Client,
     cartesia: &crate::config::CartesiaConfig,
 ) -> Result<(String, i64), String> {
@@ -87,6 +87,46 @@ async fn mint_cartesia_token(
         .header("Cartesia-Version", &cartesia.version)
         .json(&serde_json::json!({
             "grants": { "stt": true, "tts": true },
+            "expires_in": 3600, // seconds; Cartesia max is 3600 (1 h)
+        }))
+        .timeout(Duration::from_secs(5))
+        .send()
+        .await
+        .map_err(|e| format!("cartesia token request failed: {e}"))?;
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let detail = resp.text().await.unwrap_or_default();
+        return Err(format!("cartesia returned {status}: {detail}"));
+    }
+    let body: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("cartesia token bad JSON: {e}"))?;
+    let token = body
+        .get("token")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .ok_or("cartesia response missing token")?
+        .to_string();
+    // Cartesia returns the token only; we issued `expires_in = 3600`, so derive the
+    // absolute expiry for the client's refresh-before-expiry logic.
+    let expires_at = Utc::now().timestamp() + 3600;
+    Ok((token, expires_at))
+}
+
+/// Mint a TTS-only Cartesia access token (no STT grant). Used by webinar viewer
+/// endpoints where the viewer only needs TTS playback — the STT grant is not needed
+/// and its absence reduces the blast-radius if the token is leaked.
+pub(crate) async fn mint_cartesia_token_tts_only(
+    http: &reqwest::Client,
+    cartesia: &crate::config::CartesiaConfig,
+) -> Result<(String, i64), String> {
+    let resp = http
+        .post(cartesia.access_token_url())
+        .bearer_auth(&cartesia.api_key)
+        .header("Cartesia-Version", &cartesia.version)
+        .json(&serde_json::json!({
+            "grants": { "stt": false, "tts": true },
             "expires_in": 3600, // seconds; Cartesia max is 3600 (1 h)
         }))
         .timeout(Duration::from_secs(5))
