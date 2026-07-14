@@ -204,6 +204,10 @@ const pageDesc = webinar
                 <button id="wv-chat-name-save" type="button" class="wv-chat-send" data-i18n="wvChatSend">Send</button>
               </div>
             </div>
+            <!-- Upload progress bar (hidden while no upload is in flight). -->
+            <div id="wv-chat-upload" class="wv-chat-upload hidden">
+              <div id="wv-chat-upload-fill" class="wv-chat-upload-fill"></div>
+            </div>
             <form id="wv-chat-form" class="wv-chat-form">
               <!-- Emoji picker: same 20-emoji set as the Meet chat (reused from chat.ts EMOJI_LIST).
                    Populated at runtime by webinar-view.ts; clicking an emoji inserts it into the
@@ -212,7 +216,10 @@ const pageDesc = webinar
               <div class="wv-chat-composer">
                 <textarea id="wv-chat-input" class="wv-chat-input" maxlength="500" rows="1" autocomplete="off" enterkeyhint="send" data-i18n-ph="wvChatPlaceholder" placeholder="Type a message…"></textarea>
                 <div class="wv-chat-actions">
+                  <button id="wv-chat-attach" type="button" class="wv-chat-icon-btn" aria-label="Attach file">📎</button>
+                  <input id="wv-chat-file" type="file" class="hidden" accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv" />
                   <button id="wv-emoji-toggle" type="button" class="wv-chat-icon-btn" aria-label="Emoji" aria-expanded="false" aria-controls="wv-emoji-panel">😀</button>
+                  <span id="wv-chat-counter" class="wv-chat-counter">0/500</span>
                   <button id="wv-chat-send" type="submit" class="wv-chat-send" data-i18n="wvChatSend">Send</button>
                 </div>
               </div>
@@ -781,6 +788,49 @@ const pageDesc = webinar
     }
     .wv-chat-notice.hidden {
       display: none;
+    }
+    .wv-chat-upload {
+      height: 3px;
+      background: var(--border, #2d3748);
+      border-radius: 2px;
+      overflow: hidden;
+      margin: 4px 0;
+    }
+    .wv-chat-upload-fill {
+      height: 100%;
+      background: var(--accent, #3b82f6);
+      transition: width 0.1s linear;
+      width: 0%;
+    }
+    .wv-chat-counter {
+      font-size: 0.7rem;
+      color: var(--text-muted, #9aa4b2);
+      margin-right: 4px;
+      white-space: nowrap;
+    }
+    :global(.wv-chat-counter.is-over) {
+      color: #ef4444;
+    }
+    :global(.wv-chat-att-img) {
+      max-width: 100%;
+      max-height: 200px;
+      border-radius: 6px;
+      margin-top: 4px;
+      display: block;
+    }
+    :global(.wv-chat-att-file) {
+      display: inline-block;
+      margin-top: 4px;
+      padding: 4px 8px;
+      border-radius: 6px;
+      background: var(--surface, #1e2535);
+      color: var(--accent, #3b82f6);
+      font-size: 0.85rem;
+      text-decoration: none;
+      word-break: break-all;
+    }
+    :global(.wv-chat-attachment) {
+      margin-top: 4px;
     }
     .wv-host-avatar {
       width: 80px;

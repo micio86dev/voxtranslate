@@ -101,7 +101,7 @@ import {
   type WebinarView,
 } from './webinar';
 import { PresenceClient, type ChatEvent } from './webinar-presence';
-import { ChatPanel } from './webinar-chat';
+import { ChatPanel, uploadWebinarFile, type ChatAttachment } from './webinar-chat';
 import { WhipPublisher, type WhipState } from './whip-publisher';
 import { WebinarSttClient } from './webinar-stt';
 import { AudioCapture as WebinarAudioCapture } from './audio-capture';
@@ -5716,10 +5716,17 @@ const wsEndCancel = $<HTMLButtonElement>('webinar-end-cancel');
 const wsChat = $('webinar-studio-chat');
 const wsChatToggle = $<HTMLButtonElement>('webinar-studio-chat-toggle');
 const wsChatList = $('webinar-studio-chat-list');
-const wsChatInput = $<HTMLInputElement>('webinar-studio-chat-input');
+const wsChatInput = $<HTMLTextAreaElement>('webinar-studio-chat-input');
 const wsChatSend = $<HTMLButtonElement>('webinar-studio-chat-send');
 const wsChatNotice = $('webinar-studio-chat-notice');
 const wsChatForm = $<HTMLFormElement>('webinar-studio-chat-form');
+const wsEmojiToggle = $<HTMLButtonElement>('webinar-studio-emoji-toggle');
+const wsEmojiPanel = $('webinar-studio-emoji-panel');
+const wsChatAttach = $<HTMLButtonElement>('webinar-studio-chat-attach');
+const wsChatFile = $<HTMLInputElement>('webinar-studio-chat-file');
+const wsChatCounter = $('webinar-studio-chat-counter');
+const wsChatUpload = $('webinar-studio-chat-upload');
+const wsChatUploadFill = $('webinar-studio-chat-upload-fill');
 
 // ---- Webinar recap screen (shown after broadcast ends when transcripts exist) ----
 const recapScreen = $('webinar-recap');
@@ -5784,6 +5791,9 @@ function openWebinarChat(w: WebinarView): ((event: ChatEvent) => void) | null {
     displayName: () => auth.getUser()?.name || t('wvChatHost'),
     token: () => auth.getToken(), // host sends authenticated → sender_kind:"host"
     strings: webinarChatStrings(),
+    hostAvatarUrl: (w as unknown as { host_avatar_url?: string | null }).host_avatar_url ?? null,
+    senderAvatarUrl: () => auth.getUser()?.avatar_url ?? null,
+    counter: wsChatCounter,
   });
   webinarChat = panel;
   void panel.loadHistory();
@@ -5826,6 +5836,75 @@ wsChatToggle.addEventListener('click', () => {
   wsChatToggle.setAttribute('aria-pressed', collapsed ? 'false' : 'true');
   wsChatToggle.textContent = t(collapsed ? 'wvChatShow' : 'wvChatHide');
   if (!collapsed) wsChatInput.focus();
+});
+
+// Host studio chat: textarea auto-resize.
+wsChatInput.addEventListener('input', () => {
+  wsChatInput.style.height = 'auto';
+  const next = Math.min(wsChatInput.scrollHeight, 120);
+  wsChatInput.style.height = `${next}px`;
+  wsChatInput.style.overflowY = wsChatInput.scrollHeight > 120 ? 'auto' : 'hidden';
+});
+
+// Host studio emoji picker.
+const WS_EMOJI_LIST = ['👍','❤️','😂','😮','😢','👏','🎉','🔥','💯','✅','🤔','😍','🙌','💪','🤝','😊','🥳','😎','🤬','👎'];
+if (wsEmojiPanel) {
+  for (const em of WS_EMOJI_LIST) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'wv-emoji-btn';
+    btn.textContent = em;
+    btn.addEventListener('click', () => {
+      const start = wsChatInput.selectionStart ?? wsChatInput.value.length;
+      const end = wsChatInput.selectionEnd ?? start;
+      const result = insertAt(wsChatInput.value, em, start, end);
+      if (result) {
+        wsChatInput.value = result.value;
+        wsChatInput.focus();
+        wsChatInput.setSelectionRange(result.caret, result.caret);
+        wsChatInput.dispatchEvent(new Event('input'));
+      }
+      show(wsEmojiPanel, false);
+      wsEmojiToggle?.setAttribute('aria-expanded', 'false');
+    });
+    wsEmojiPanel.appendChild(btn);
+  }
+}
+wsEmojiToggle?.addEventListener('click', () => {
+  const isOpen = !wsEmojiPanel?.classList.contains('hidden');
+  show(wsEmojiPanel ?? null, !isOpen);
+  wsEmojiToggle.setAttribute('aria-expanded', String(!isOpen));
+});
+document.addEventListener('click', (e) => {
+  if (
+    wsEmojiPanel &&
+    !wsEmojiPanel.classList.contains('hidden') &&
+    !wsEmojiPanel.contains(e.target as Node) &&
+    e.target !== wsEmojiToggle
+  ) {
+    show(wsEmojiPanel, false);
+    wsEmojiToggle?.setAttribute('aria-expanded', 'false');
+  }
+}, { capture: true });
+
+// Host studio file attachment.
+wsChatAttach?.addEventListener('click', () => wsChatFile?.click());
+wsChatFile?.addEventListener('change', async () => {
+  const file = wsChatFile?.files?.[0];
+  if (!file || !wsChatUpload || !wsChatUploadFill) return;
+  show(wsChatUpload, true);
+  wsChatUploadFill.style.width = '0%';
+  const activeW = wpWebinar;
+  if (!activeW) { show(wsChatUpload, false); return; }
+  const att = await uploadWebinarFile(HTTP_BASE, activeW.code, file, (frac) => {
+    wsChatUploadFill.style.width = `${Math.round(frac * 100)}%`;
+  }, auth.getToken());
+  show(wsChatUpload, false);
+  if (wsChatFile) wsChatFile.value = '';
+  if (att) {
+    webinarChat?.setStagedAttachment(att);
+    wsChatInput.focus();
+  }
 });
 
 /** Open the host STT bridge for a live broadcast: stream the publisher's mic track to the

@@ -42,6 +42,7 @@ use crate::db::Pool;
 use crate::moderation::Severity;
 use crate::webinar::guest::GuestId;
 use crate::webinar::presence::ChatEvent;
+use crate::webinar::presence::WvAttachment;
 use crate::webinar::routes::valid_lang;
 use crate::webinar::{find_by_code, Webinar};
 use crate::AppState;
@@ -75,6 +76,10 @@ pub struct ChatBody {
     /// "auto" fan-out drives the real translation keys). Falls back to `"auto"`.
     #[serde(default)]
     pub lang: Option<String>,
+    #[serde(default)]
+    pub avatar_url: Option<String>,
+    #[serde(default)]
+    pub attachment: Option<WvAttachment>,
 }
 
 /// Validate the chat text: trim, reject empty, reject over the length cap. Pure,
@@ -139,7 +144,18 @@ pub async fn post_chat(
     }
 
     // (3) Validate the message + normalize the cosmetic display name.
-    let text = valid_chat_text(&body.text)?.to_string();
+    let avatar_url = body.avatar_url.as_deref().and_then(|u| {
+        if u.starts_with("https://") {
+            Some(u.to_string())
+        } else {
+            None
+        }
+    });
+    let text = if body.attachment.is_some() && body.text.trim().is_empty() {
+        String::new()
+    } else {
+        valid_chat_text(&body.text)?.to_string()
+    };
     let display_name = valid_display_name(body.display_name.as_deref());
     // The sender's UI language is only a label; the "auto" fan-out below drives
     // the actual per-viewer translation keys. It is client-supplied and gets
@@ -184,14 +200,18 @@ pub async fn post_chat(
     // live viewer language. Always include the webinar's source_language so the
     // host sees participant messages translated into their language regardless of
     // whether any viewer happens to share it.
-    let mut targets = state.webinar_presence.target_languages(&code);
-    if !targets.iter().any(|t| t == &w.source_language) {
-        targets.push(w.source_language.clone());
-    }
-    let translations = state
-        .translator
-        .translate_fanout(&text, "auto", &targets, None)
-        .await;
+    let translations = if text.is_empty() {
+        std::collections::HashMap::new()
+    } else {
+        let mut targets = state.webinar_presence.target_languages(&code);
+        if !targets.iter().any(|t| t == &w.source_language) {
+            targets.push(w.source_language.clone());
+        }
+        state
+            .translator
+            .translate_fanout(&text, "auto", &targets, None)
+            .await
+    };
 
     // (8) Persist — always, since chat is enabled (the gate is `chat_enabled`).
     let (id, created_at) = insert_chat_message(
@@ -203,6 +223,8 @@ pub async fn post_chat(
         &text,
         &original_lang,
         &translations,
+        avatar_url.as_deref(),
+        body.attachment.as_ref(),
     )
     .await
     .map_err(db_err)?;
@@ -218,6 +240,8 @@ pub async fn post_chat(
             lang: original_lang,
             translations,
             created_at: created_at.to_rfc3339(),
+            avatar_url,
+            attachment: body.attachment.clone(),
         },
     );
 
@@ -256,12 +280,31 @@ struct ChatRow {
     original_lang: String,
     translations: serde_json::Value,
     created_at: chrono::DateTime<chrono::Utc>,
+    avatar_url: Option<String>,
+    attachment_url: Option<String>,
+    attachment_name: Option<String>,
+    attachment_content_type: Option<String>,
+    attachment_size: Option<i64>,
 }
 
 /// Project a stored row into the PUBLIC history shape — mirrors the live
 /// [`ChatEvent`] frame and carries ONLY `{ id, sender_kind, display_name,
 /// original, lang, translations, created_at }`. NEVER `sender_id` or any PII.
 fn history_view(r: &ChatRow) -> serde_json::Value {
+    let attachment = match (
+        &r.attachment_url,
+        &r.attachment_name,
+        &r.attachment_content_type,
+        r.attachment_size,
+    ) {
+        (Some(url), Some(name), Some(ct), Some(size)) => json!({
+            "url": url,
+            "name": name,
+            "content_type": ct,
+            "size": size,
+        }),
+        _ => json!(null),
+    };
     json!({
         "id": r.id,
         "sender_kind": r.sender_kind,
@@ -270,6 +313,8 @@ fn history_view(r: &ChatRow) -> serde_json::Value {
         "lang": r.original_lang,
         "translations": r.translations,
         "created_at": r.created_at.to_rfc3339(),
+        "avatar_url": r.avatar_url,
+        "attachment": attachment,
     })
 }
 
@@ -299,7 +344,8 @@ pub async fn list_chat(
     // Most recent `limit` rows, newest first…
     let mut rows: Vec<ChatRow> = sqlx::query_as(
         "SELECT id, sender_kind, display_name, original_text, original_lang,
-                translations, created_at
+                translations, created_at,
+                avatar_url, attachment_url, attachment_name, attachment_content_type, attachment_size
          FROM webinar_chat_messages
          WHERE webinar_id = $1
          ORDER BY created_at DESC
@@ -370,13 +416,25 @@ async fn insert_chat_message(
     original_text: &str,
     original_lang: &str,
     translations: &std::collections::HashMap<String, String>,
+    avatar_url: Option<&str>,
+    attachment: Option<&WvAttachment>,
 ) -> Result<(Uuid, chrono::DateTime<chrono::Utc>), sqlx::Error> {
     let payload = serde_json::to_value(translations).unwrap_or_else(|_| json!({}));
+    let (att_url, att_name, att_ct, att_size) = match attachment {
+        Some(a) => (
+            Some(a.url.as_str()),
+            Some(a.name.as_str()),
+            Some(a.content_type.as_str()),
+            Some(a.size),
+        ),
+        None => (None, None, None, None),
+    };
     sqlx::query_as(
         "INSERT INTO webinar_chat_messages
             (webinar_id, sender_kind, sender_id, display_name, original_text,
-             original_lang, translations)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
+             original_lang, translations, avatar_url,
+             attachment_url, attachment_name, attachment_content_type, attachment_size)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
          RETURNING id, created_at",
     )
     .bind(webinar_id)
@@ -386,6 +444,11 @@ async fn insert_chat_message(
     .bind(original_text)
     .bind(original_lang)
     .bind(payload)
+    .bind(avatar_url)
+    .bind(att_url)
+    .bind(att_name)
+    .bind(att_ct)
+    .bind(att_size)
     .fetch_one(pool)
     .await
 }
@@ -450,6 +513,11 @@ mod tests {
             original_lang: "it".to_string(),
             translations: json!({ "en": "hi" }),
             created_at: chrono::Utc::now(),
+            avatar_url: None,
+            attachment_url: None,
+            attachment_name: None,
+            attachment_content_type: None,
+            attachment_size: None,
         };
         let v = history_view(&row);
         // Public projection includes the render fields…
@@ -461,6 +529,8 @@ mod tests {
             "lang",
             "translations",
             "created_at",
+            "avatar_url",
+            "attachment",
         ] {
             assert!(v.get(key).is_some(), "history view has `{key}`");
         }

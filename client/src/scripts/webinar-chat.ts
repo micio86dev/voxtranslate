@@ -35,6 +35,15 @@ export interface ChatEvent {
   translations: Record<string, string>;
   /** RFC3339 timestamp the server stamped on the message. */
   created_at: string;
+  avatar_url?: string | null;
+  attachment?: ChatAttachment | null;
+}
+
+export interface ChatAttachment {
+  url: string;
+  name: string;
+  content_type: string;
+  size: number;
 }
 
 /** Pick the text to show a recipient in their language: the translation for `myLang`,
@@ -93,6 +102,8 @@ export interface SendChatBody {
   text: string;
   display_name?: string;
   lang?: string;
+  avatar_url?: string | null;
+  attachment?: ChatAttachment | null;
 }
 
 /** The 200 response of a successful send. */
@@ -119,6 +130,8 @@ export async function sendChatMessage(
   const payload: SendChatBody = { text: body.text };
   if (body.display_name) payload.display_name = body.display_name;
   if (body.lang) payload.lang = body.lang;
+  if (body.avatar_url) payload.avatar_url = body.avatar_url;
+  if (body.attachment) payload.attachment = body.attachment;
 
   let res: Response;
   try {
@@ -174,6 +187,15 @@ export async function fetchChatHistory(
   }
 }
 
+function parseAttachment(raw: unknown): ChatAttachment | null {
+  if (typeof raw !== 'object' || raw === null) return null;
+  const a = raw as Record<string, unknown>;
+  if (typeof a.url !== 'string' || typeof a.name !== 'string') return null;
+  if (typeof a.content_type !== 'string' || typeof a.size !== 'number') return null;
+  if (!a.url.startsWith('https://')) return null;
+  return { url: a.url, name: a.name, content_type: a.content_type, size: a.size };
+}
+
 /** Coerce one raw history row into a `ChatEvent`, or null if it's malformed. History rows
  *  carry no `sender_id` (public view); the shape otherwise mirrors the WS frame. Pure. */
 function normalizeChat(row: unknown): ChatEvent | null {
@@ -199,6 +221,8 @@ function normalizeChat(row: unknown): ChatEvent | null {
     lang: r.lang,
     translations,
     created_at: r.created_at,
+    avatar_url: typeof r.avatar_url === 'string' ? r.avatar_url : null,
+    attachment: parseAttachment(r.attachment),
   };
 }
 
@@ -249,6 +273,10 @@ export interface ChatPanelOptions {
   /** The host's avatar URL (from `PublicWebinar.host_avatar_url`), used to show a profile
    *  picture instead of initials for host chat messages. Null for webinars without one. */
   hostAvatarUrl?: string | null;
+  /** Returns the sender's own avatar URL (for the optimistic render of host-sent messages). */
+  senderAvatarUrl?: () => string | null;
+  /** Optional character counter element (shows `len/max`, gets `.is-over` when over). */
+  counter?: HTMLElement | null;
 }
 
 /**
@@ -263,12 +291,14 @@ export class ChatPanel {
   private readonly seen = new Set<string>();
   private noticeTimer: ReturnType<typeof setTimeout> | null = null;
   private empty: HTMLElement | null = null;
+  private pendingAttachment: ChatAttachment | null = null;
 
   constructor(opts: ChatPanelOptions) {
     this.opts = opts;
     this.fetchImpl = opts.fetchImpl ?? fetch;
     this.showEmpty();
     // Enter sends via the form submit the caller wires; this keeps the button in sync.
+    this.opts.input.addEventListener('input', () => this.updateCounter());
   }
 
   /** Show the "no messages yet" placeholder (until the first message arrives). */
@@ -304,33 +334,43 @@ export class ChatPanel {
     for (const row of rows) this.append(row);
   }
 
-  /** Send the current input text. Optimistically renders the sent message on a 200 (so it
-   *  appears instantly, not only when the WS echoes it) and clears the input. Maps a failure
-   *  to a friendly notice. Returns whether the send succeeded. */
+  /** Stage an attachment to be sent with the next message. Pass null to clear. */
+  setStagedAttachment(att: ChatAttachment | null): void {
+    this.pendingAttachment = att;
+  }
+
+  /** Send the current input text (and any staged attachment). Optimistically renders the sent
+   *  message on a 200 (so it appears instantly, not only when the WS echoes it) and clears
+   *  the input. Maps a failure to a friendly notice. Returns whether the send succeeded. */
   async send(): Promise<boolean> {
     const text = this.opts.input.value.trim();
-    if (!text) return false;
+    const attachment = this.pendingAttachment;
+    if (!text && !attachment) return false;
     const name = this.opts.displayName() || undefined;
+    const avatarUrl = this.opts.senderAvatarUrl?.() ?? null;
     this.opts.sendBtn.disabled = true;
     try {
       const res = await sendChatMessage(
         this.opts.httpBase,
         this.opts.code,
-        { text, display_name: name, lang: this.opts.senderLang() },
+        { text, display_name: name, lang: this.opts.senderLang(), avatar_url: avatarUrl ?? undefined, attachment: attachment ?? undefined },
         this.opts.token(),
         this.fetchImpl,
       );
-      // Optimistic render: show our own message immediately (the WS echo is de-duped by id).
       this.append({
         id: res.id,
         sender_kind: this.opts.token() ? 'host' : 'guest',
         display_name: name || '',
         original: text,
         lang: this.opts.senderLang(),
-        translations: {}, // we sent the source; render falls back to `original` for us
+        translations: {},
         created_at: res.created_at,
+        avatar_url: avatarUrl,
+        attachment,
       });
       this.opts.input.value = '';
+      this.pendingAttachment = null;
+      this.updateCounter();
       this.hideNotice();
       return true;
     } catch (err) {
@@ -365,6 +405,21 @@ export class ChatPanel {
       this.noticeTimer = null;
     }
   }
+
+  private updateCounter(): void {
+    const counter = this.opts.counter;
+    if (!counter) return;
+    const len = this.opts.input.value.length;
+    counter.textContent = `${len}/${CHAT_TEXT_MAX}`;
+    counter.classList.toggle('is-over', len > CHAT_TEXT_MAX);
+  }
+}
+
+/** Format a file size in bytes to a human-readable string. */
+export function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 /** Palette for guest avatar backgrounds — rotates by the sum of char codes in the display name. */
@@ -406,8 +461,11 @@ export function buildChatRow(
   avatar.className = 'wv-chat-avatar';
   avatar.setAttribute('aria-hidden', 'true');
 
-  // Host with an avatar URL → try <img>; onerror falls back to initials.
-  const resolvedUrl = event.sender_kind === 'host' ? processAvatarUrl(hostAvatarUrl, 36) : null;
+  // Prefer per-message avatar_url (any sender — logged-in members and host both carry one),
+  // then fall back to the host-level avatar for host-tagged messages, then initials.
+  const resolvedUrl =
+    processAvatarUrl(event.avatar_url, 36) ??
+    (event.sender_kind === 'host' ? processAvatarUrl(hostAvatarUrl, 36) : null);
   if (resolvedUrl) {
     const img = doc.createElement('img');
     img.src = resolvedUrl;
@@ -441,9 +499,76 @@ export function buildChatRow(
 
   const body = doc.createElement('div');
   body.className = 'wv-chat-body';
-  body.textContent = renderChatText(event, myLang);
+  const bodyText = renderChatText(event, myLang);
+  if (bodyText) body.textContent = bodyText;
 
   content.append(nameLine, body);
+
+  // Attachment bubble (image preview or file link).
+  if (event.attachment) {
+    const att = event.attachment;
+    const attEl = doc.createElement('div');
+    attEl.className = 'wv-chat-attachment';
+    if (att.content_type.startsWith('image/')) {
+      const img = doc.createElement('img');
+      img.src = att.url;
+      img.alt = att.name;
+      img.className = 'wv-chat-att-img';
+      img.loading = 'lazy';
+      img.referrerPolicy = 'no-referrer';
+      attEl.appendChild(img);
+    } else {
+      const link = doc.createElement('a');
+      link.href = att.url;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      link.className = 'wv-chat-att-file';
+      link.textContent = `📎 ${att.name} (${formatFileSize(att.size)})`;
+      attEl.appendChild(link);
+    }
+    content.appendChild(attEl);
+  }
+
   row.append(avatar, content);
   return row;
+}
+
+/** Upload a file for a webinar chat message. Returns attachment metadata on success,
+ *  or null on failure. The caller embeds the result in the next `sendChatMessage` body. */
+export async function uploadWebinarFile(
+  httpBase: string,
+  code: string,
+  file: File,
+  onProgress?: (fraction: number) => void,
+  token?: string | null,
+): Promise<ChatAttachment | null> {
+  return new Promise((resolve) => {
+    const form = new FormData();
+    form.append('file', file, file.name);
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `${httpBase}/api/w/${encodeURIComponent(code)}/files`);
+    if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+    if (onProgress && xhr.upload) {
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) onProgress(e.loaded / e.total);
+      };
+    }
+    xhr.withCredentials = true;
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          const data = JSON.parse(xhr.responseText) as unknown;
+          const att = parseAttachment(data);
+          resolve(att);
+        } catch {
+          resolve(null);
+        }
+      } else {
+        resolve(null);
+      }
+    };
+    xhr.onerror = () => resolve(null);
+    xhr.onabort = () => resolve(null);
+    xhr.send(form);
+  });
 }

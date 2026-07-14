@@ -14,6 +14,8 @@ import {
   ChatPanel,
   getStoredDisplayName,
   setStoredDisplayName,
+  uploadWebinarFile,
+  type ChatAttachment,
   type ChatPanelStrings,
 } from './webinar-chat';
 import { insertAt } from './chat-input';
@@ -455,6 +457,11 @@ async function setupChat(
   const nameSave = document.getElementById('wv-chat-name-save') as HTMLButtonElement | null;
   const emojiToggle = document.getElementById('wv-emoji-toggle') as HTMLButtonElement | null;
   const emojiPanel = document.getElementById('wv-emoji-panel');
+  const attachBtn = document.getElementById('wv-chat-attach') as HTMLButtonElement | null;
+  const fileInput = document.getElementById('wv-chat-file') as HTMLInputElement | null;
+  const uploadBox = document.getElementById('wv-chat-upload') as HTMLElement | null;
+  const uploadFill = document.getElementById('wv-chat-upload-fill') as HTMLElement | null;
+  const counter = document.getElementById('wv-chat-counter') as HTMLElement | null;
   if (!toggleBtn || !panel || !list || !input || !sendBtn || !notice || !form) return null;
 
   // Read the chat flag. A failure (offline / SSR-skipped) just leaves chat hidden.
@@ -483,9 +490,21 @@ async function setupChat(
     senderLang: () => getUiLang(),
     // Guests send with their stored display name (or the prompt gates the first send below).
     displayName: () => getStoredDisplayName(),
-    token: () => null, // viewers are unauthenticated guests → sender_kind:"guest"
+    // Logged-in viewers send with their token (stored at vox.token, same key the presence
+    // WS already uses). A valid org-member token → sender_kind:"host"; otherwise still
+    // "guest". Either way the avatar_url rides along for display.
+    token: () => { try { return localStorage.getItem('vox.token'); } catch { return null; } },
     strings: chatStrings(),
     hostAvatarUrl,
+    senderAvatarUrl: () => {
+      try {
+        const raw = localStorage.getItem('vox.user');
+        if (!raw) return null;
+        const u = JSON.parse(raw) as { avatar_url?: string | null };
+        return u.avatar_url ?? null;
+      } catch { return null; }
+    },
+    counter,
   });
 
   let historyLoaded = false;
@@ -596,6 +615,24 @@ async function setupChat(
       emojiToggle?.setAttribute('aria-expanded', 'false');
     }
   }, { capture: true });
+
+  // File attachment: clicking the attach button opens the hidden file input.
+  attachBtn?.addEventListener('click', () => fileInput?.click());
+  fileInput?.addEventListener('change', async () => {
+    const file = fileInput?.files?.[0];
+    if (!file || !uploadBox || !uploadFill) return;
+    show(uploadBox, true);
+    uploadFill.style.width = '0%';
+    const att = await uploadWebinarFile(HTTP_BASE, code, file, (frac) => {
+      uploadFill.style.width = `${Math.round(frac * 100)}%`;
+    });
+    show(uploadBox, false);
+    if (fileInput) fileInput.value = '';
+    if (att) {
+      panelCtl.setStagedAttachment(att);
+      input.focus();
+    }
+  });
 
   return (event) => panelCtl.append(event);
 }
