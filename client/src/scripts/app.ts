@@ -5727,6 +5727,7 @@ const wsChatFile = $<HTMLInputElement>('webinar-studio-chat-file');
 const wsChatCounter = $('webinar-studio-chat-counter');
 const wsChatUpload = $('webinar-studio-chat-upload');
 const wsChatUploadFill = $('webinar-studio-chat-upload-fill');
+const wsChatAttachPreview = $('webinar-studio-attach-preview');
 
 // ---- Webinar recap screen (shown after broadcast ends when transcripts exist) ----
 const recapScreen = $('webinar-recap');
@@ -5794,6 +5795,7 @@ function openWebinarChat(w: WebinarView): ((event: ChatEvent) => void) | null {
     hostAvatarUrl: (w as unknown as { host_avatar_url?: string | null }).host_avatar_url ?? null,
     senderAvatarUrl: () => auth.getUser()?.avatar_url ?? null,
     counter: wsChatCounter,
+    attachPreview: wsChatAttachPreview,
   });
   webinarChat = panel;
   void panel.loadHistory();

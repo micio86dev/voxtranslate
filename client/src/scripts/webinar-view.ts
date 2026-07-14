@@ -462,6 +462,7 @@ async function setupChat(
   const uploadBox = document.getElementById('wv-chat-upload') as HTMLElement | null;
   const uploadFill = document.getElementById('wv-chat-upload-fill') as HTMLElement | null;
   const counter = document.getElementById('wv-chat-counter') as HTMLElement | null;
+  const attachPreview = document.getElementById('wv-attach-preview') as HTMLElement | null;
   if (!toggleBtn || !panel || !list || !input || !sendBtn || !notice || !form) return null;
 
   // Read the chat flag. A failure (offline / SSR-skipped) just leaves chat hidden.
@@ -505,6 +506,7 @@ async function setupChat(
       } catch { return null; }
     },
     counter,
+    attachPreview,
   });
 
   let historyLoaded = false;

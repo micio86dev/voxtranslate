@@ -208,6 +208,7 @@ const pageDesc = webinar
             <div id="wv-chat-upload" class="wv-chat-upload hidden">
               <div id="wv-chat-upload-fill" class="wv-chat-upload-fill"></div>
             </div>
+            <div id="wv-attach-preview" class="wv-attach-preview hidden" role="status" aria-live="polite"></div>
             <form id="wv-chat-form" class="wv-chat-form">
               <div class="chat-input-row">
                 <textarea id="wv-chat-input" class="wv-chat-input" maxlength="500" rows="1" autocomplete="off" enterkeyhint="send" data-i18n-ph="wvChatPlaceholder" placeholder="Type a message…"></textarea>
@@ -790,6 +791,41 @@ const pageDesc = webinar
     }
     .wv-chat-notice.hidden {
       display: none;
+    }
+    .wv-attach-preview {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 10px;
+      margin: 0 0 4px;
+      background: var(--surface, #131820);
+      border: 1px solid var(--border, #2a3444);
+      border-radius: 8px;
+      font-size: 0.82rem;
+      color: var(--text, #e2e8f0);
+    }
+    .wv-attach-preview.hidden {
+      display: none;
+    }
+    :global(.attach-chip-name) {
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    :global(.attach-chip-dismiss) {
+      flex: none;
+      background: none;
+      border: none;
+      color: var(--text-muted, #9aa4b2);
+      cursor: pointer;
+      font-size: 1rem;
+      line-height: 1;
+      padding: 0 2px;
+    }
+    :global(.attach-chip-dismiss:hover) {
+      color: var(--text, #e2e8f0);
     }
     .wv-chat-upload {
       height: 3px;
