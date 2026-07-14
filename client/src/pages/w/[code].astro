@@ -91,14 +91,14 @@ const pageDesc = webinar
           </header>
 
           <div class="wv-video-wrap">
-            <!-- `playsinline` is required for iOS to play inline (not fullscreen); the
-                 muted default lets autoplay proceed under the browser audio policy. -->
+            <!-- `playsinline` is required for iOS to play inline (not fullscreen).
+                 No `muted` — tryAutoplay() attempts unmuted first; it falls back to
+                 muted + tap-to-unmute overlay when the browser blocks unmuted autoplay.
+                 No `controls` — we render our own control bar below. -->
             <video
               id="wv-video"
               class="wv-video"
               playsinline
-              controls
-              muted
               preload="none"
             ></video>
 
@@ -129,9 +129,9 @@ const pageDesc = webinar
 
           <!-- Viewer controls (Fase 2): two independent audio buttons + a captions toggle.
                wv-mute  = on/off toggle (aria-pressed=true when audio is active).
-               wv-listen = audio-source selector; unmutes to play the original HLS stream;
+               wv-listen = audio-source selector; toggles original HLS audio on/off;
                            Fase 3 will extend it to switch between original and TTS audio.
-               The video starts muted for autoplay; these let the guest opt in. -->
+               wv-listen is hidden (via onInfo) when host and viewer speak the same language. -->
           <div class="wv-controls">
             <button id="wv-mute" type="button" class="wv-ctl" aria-pressed="false" data-i18n="wvMuteAudio">
               Mute audio
