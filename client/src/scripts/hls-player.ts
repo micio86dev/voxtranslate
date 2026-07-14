@@ -299,6 +299,21 @@ export class HlsPlayer {
     // A fatal error during the wait (native <video> error or hls.js destroy) resets
     // this.attached — abort so the caller does not override the waiting/error state.
     if (!this.attached || this.destroyed) return false;
+    // If the 10-second timeout fired before canplay (stream not ready yet — e.g. the
+    // host's HLS manifest isn't serving segments), readyState is still below
+    // HAVE_CURRENT_DATA (2). Calling play() on an empty MediaSource succeeds silently in
+    // Chrome, producing a black-silent canvas. Instead, tear down and let the poll retry
+    // so the waiting overlay stays visible rather than showing a black screen.
+    if (this.video.readyState < 2 /* HAVE_CURRENT_DATA */) {
+      if (this.hls) {
+        this.hls.destroy();
+        this.hls = null;
+      } else {
+        try { this.video.removeAttribute('src'); } catch { /* best-effort */ }
+      }
+      this.attached = false;
+      return false;
+    }
     const { needsTap } = await tryAutoplay(this.video);
     this.onTapToStart(needsTap);
     return true;
