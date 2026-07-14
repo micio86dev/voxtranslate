@@ -42,9 +42,12 @@ pub enum FileKind {
     /// `.docx` → text pulled from the zipped `word/document.xml`.
     Docx,
     /// Other accepted document formats (`.doc` / `.odt` / `.rtf` / `.xlsx` /
-    /// `.pptx`) — stored + shared as an attachment, but NOT text-extracted, so
-    /// they never hit the (paid) translation fan-out.
+    /// `.pptx` / `.xls` / `.ppt`) — stored + shared as an attachment, but NOT
+    /// text-extracted, so they never hit the (paid) translation fan-out.
     Other,
+    /// Image file (`.jpg` / `.jpeg` / `.png` / `.gif` / `.webp` / `.svg`) —
+    /// stored and shared as an attachment. Not text-extracted (no translation cost).
+    Image,
     /// A recorded voice message (`.webm` / `.m4a` / `.ogg` / `.mp3` / …). Stored
     /// and shared like any attachment, transcribed via Deepgram's prerecorded API,
     /// and the transcript then rides the same translation fan-out as typed chat.
@@ -133,7 +136,8 @@ pub async fn upload_file(
     let Some(kind) = classify_ext(&ext) else {
         return (
             StatusCode::UNSUPPORTED_MEDIA_TYPE,
-            "unsupported file type (documents: txt, md, csv, pdf, docx, doc, odt, rtf, xlsx, pptx; \
+            "unsupported file type (images: jpg, png, gif, webp; \
+             documents: txt, md, csv, pdf, docx, doc, odt, rtf, xls, xlsx, ppt, pptx; \
              or voice messages: webm, m4a, mp3, ogg, wav)",
         )
             .into_response();
@@ -404,7 +408,7 @@ async fn extract_text(kind: FileKind, bytes: Vec<u8>, sender_lang: &str) -> (Str
             (text, sender_lang.to_string())
         }
         // Stored + shared, but not extracted → no translation cost.
-        FileKind::Other => (String::new(), sender_lang.to_string()),
+        FileKind::Other | FileKind::Image => (String::new(), sender_lang.to_string()),
         // Audio is transcribed by `transcribe_audio` (needs the HTTP client +
         // config), not here — guarded by the FileKind::Audio branch in upload_file.
         FileKind::Audio => (String::new(), sender_lang.to_string()),
@@ -546,7 +550,8 @@ pub fn classify_ext(ext: &str) -> Option<FileKind> {
         "txt" | "md" | "csv" | "log" => Some(FileKind::Text),
         "pdf" => Some(FileKind::Pdf),
         "docx" => Some(FileKind::Docx),
-        "doc" | "odt" | "rtf" | "xlsx" | "pptx" => Some(FileKind::Other),
+        "doc" | "odt" | "rtf" | "xls" | "xlsx" | "ppt" | "pptx" => Some(FileKind::Other),
+        "jpg" | "jpeg" | "png" | "gif" | "webp" | "svg" => Some(FileKind::Image),
         // Voice messages: MediaRecorder emits webm/opus (Chrome/Firefox/Android)
         // or m4a/mp4 (Safari/iOS); the rest cover attached audio files. All are
         // transcribed via Deepgram batch.
@@ -579,8 +584,15 @@ pub fn content_type_for(ext: &str) -> &'static str {
         "doc" => "application/msword",
         "odt" => "application/vnd.oasis.opendocument.text",
         "rtf" => "application/rtf",
+        "xls" => "application/vnd.ms-excel",
         "xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "ppt" => "application/vnd.ms-powerpoint",
         "pptx" => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "jpg" | "jpeg" => "image/jpeg",
+        "png" => "image/png",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "svg" => "image/svg+xml",
         // Audio — every value starts with `audio/`, which is what the chat client
         // keys the inline <audio> player off.
         "webm" => "audio/webm",
@@ -647,8 +659,17 @@ mod tests {
         // Accepted but stored-only (no extraction → no translation cost).
         assert_eq!(classify_ext("doc"), Some(FileKind::Other));
         assert_eq!(classify_ext("odt"), Some(FileKind::Other));
+        assert_eq!(classify_ext("xls"), Some(FileKind::Other));
         assert_eq!(classify_ext("xlsx"), Some(FileKind::Other));
+        assert_eq!(classify_ext("ppt"), Some(FileKind::Other));
         assert_eq!(classify_ext("pptx"), Some(FileKind::Other));
+        // Images → stored + shared as attachment, no text extraction.
+        assert_eq!(classify_ext("jpg"), Some(FileKind::Image));
+        assert_eq!(classify_ext("jpeg"), Some(FileKind::Image));
+        assert_eq!(classify_ext("png"), Some(FileKind::Image));
+        assert_eq!(classify_ext("gif"), Some(FileKind::Image));
+        assert_eq!(classify_ext("webp"), Some(FileKind::Image));
+        assert_eq!(classify_ext("svg"), Some(FileKind::Image));
         // Voice messages → transcribed via Deepgram, then translated.
         assert_eq!(classify_ext("webm"), Some(FileKind::Audio));
         assert_eq!(classify_ext("m4a"), Some(FileKind::Audio));
@@ -658,7 +679,6 @@ mod tests {
         // Video and everything else is still rejected.
         assert_eq!(classify_ext("mp4"), None);
         assert_eq!(classify_ext("exe"), None);
-        assert_eq!(classify_ext("png"), None);
         assert_eq!(classify_ext(""), None);
     }
 
@@ -690,6 +710,13 @@ mod tests {
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         );
         assert_eq!(content_type_for("rtf"), "application/rtf");
+        // Image MIME types must start with `image/` for inline rendering.
+        assert_eq!(content_type_for("jpg"), "image/jpeg");
+        assert_eq!(content_type_for("jpeg"), "image/jpeg");
+        assert_eq!(content_type_for("png"), "image/png");
+        assert_eq!(content_type_for("gif"), "image/gif");
+        assert_eq!(content_type_for("webp"), "image/webp");
+        assert_eq!(content_type_for("svg"), "image/svg+xml");
         // Audio MIME types must start with `audio/` so the client renders a player.
         assert_eq!(content_type_for("webm"), "audio/webm");
         assert_eq!(content_type_for("m4a"), "audio/mp4");
