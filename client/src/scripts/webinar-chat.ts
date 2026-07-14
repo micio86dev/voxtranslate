@@ -223,8 +223,8 @@ export interface ChatPanelStrings {
 export interface ChatPanelOptions {
   /** The scrolling message list (`aria-live="polite"`). */
   list: HTMLElement;
-  /** The message text input. */
-  input: HTMLInputElement;
+  /** The message text input or textarea. */
+  input: HTMLInputElement | HTMLTextAreaElement;
   /** The send button (disabled while a send is in flight). */
   sendBtn: HTMLButtonElement;
   /** The transient notice line (rate-limit / moderation / error), shown then auto-hidden. */
@@ -364,8 +364,18 @@ export class ChatPanel {
   }
 }
 
+/** Palette for guest avatar backgrounds — rotates by the sum of char codes in the display name. */
+const AVATAR_PALETTE = ['#10b981', '#8b5cf6', '#f59e0b', '#06b6d4', '#ec4899', '#f97316'];
+
+/** Pick a consistent avatar background color from the sender's display name. Pure. */
+export function avatarColor(name: string): string {
+  const code = [...(name || 'G')].reduce((a, c) => a + c.charCodeAt(0), 0);
+  return AVATAR_PALETTE[code % AVATAR_PALETTE.length];
+}
+
 /** Build a single chat message row for `event`, rendered in `myLang`. A host message carries a
- *  small "HOST" tag. The body uses `translations[myLang] ?? original`. Pure over `doc`. */
+ *  small "HOST" tag. Each row starts with a colored initials avatar (Meet style). The body uses
+ *  `translations[myLang] ?? original`. Pure over `doc`. */
 export function buildChatRow(
   doc: Document,
   event: ChatEvent,
@@ -375,6 +385,17 @@ export function buildChatRow(
   const row = doc.createElement('div');
   row.className = `wv-chat-msg${event.sender_kind === 'host' ? ' is-host' : ''}`;
   row.setAttribute('data-id', event.id);
+
+  // Initials avatar: first character of the display name, colored by sender.
+  const avatar = doc.createElement('span');
+  avatar.className = 'wv-chat-avatar';
+  avatar.setAttribute('aria-hidden', 'true');
+  avatar.textContent = (event.display_name || '?')[0].toUpperCase();
+  avatar.style.background =
+    event.sender_kind === 'host' ? '#3b82f6' : avatarColor(event.display_name);
+
+  const content = doc.createElement('div');
+  content.className = 'wv-chat-content';
 
   const nameLine = doc.createElement('div');
   nameLine.className = 'wv-chat-name-line';
@@ -390,6 +411,7 @@ export function buildChatRow(
   body.className = 'wv-chat-body';
   body.textContent = renderChatText(event, myLang);
 
-  row.append(nameLine, body);
+  content.append(nameLine, body);
+  row.append(avatar, content);
   return row;
 }

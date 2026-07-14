@@ -15,6 +15,7 @@ import {
   setStoredDisplayName,
   type ChatPanelStrings,
 } from './webinar-chat';
+import { insertAt } from './chat-input';
 
 // App WS base, mirroring auth.ts (this file never imports auth to keep the /w/ bundle
 // lean and free of the accounts/billing surface).
@@ -342,13 +343,15 @@ async function setupChat(
   const toggleBtn = document.getElementById('wv-chat-toggle') as HTMLButtonElement | null;
   const panel = document.getElementById('wv-chat');
   const list = document.getElementById('wv-chat-list');
-  const input = document.getElementById('wv-chat-input') as HTMLInputElement | null;
+  const input = document.getElementById('wv-chat-input') as HTMLTextAreaElement | null;
   const sendBtn = document.getElementById('wv-chat-send') as HTMLButtonElement | null;
   const notice = document.getElementById('wv-chat-notice');
   const form = document.getElementById('wv-chat-form') as HTMLFormElement | null;
   const nameBox = document.getElementById('wv-chat-name');
   const nameInput = document.getElementById('wv-chat-name-input') as HTMLInputElement | null;
   const nameSave = document.getElementById('wv-chat-name-save') as HTMLButtonElement | null;
+  const emojiToggle = document.getElementById('wv-emoji-toggle') as HTMLButtonElement | null;
+  const emojiPanel = document.getElementById('wv-emoji-panel');
   if (!toggleBtn || !panel || !list || !input || !sendBtn || !notice || !form) return null;
 
   // Read the chat flag. A failure (offline / SSR-skipped) just leaves chat hidden.
@@ -426,8 +429,67 @@ async function setupChat(
       nameInput?.focus();
       return;
     }
-    void panelCtl.send();
+    void panelCtl.send().then((sent) => {
+      // After a successful send, reset the textarea height (it may have grown).
+      if (sent) {
+        input.style.height = 'auto';
+        input.style.overflowY = 'hidden';
+      }
+    });
   });
+
+  // Auto-grow the textarea as the user types (matches the Meet chat composer).
+  input.addEventListener('input', () => {
+    input.style.height = 'auto';
+    const next = Math.min(input.scrollHeight, 120);
+    input.style.height = `${next}px`;
+    input.style.overflowY = input.scrollHeight > 120 ? 'auto' : 'hidden';
+  });
+
+  // Emoji picker: same 20-emoji set as the Meet chat (chat.ts EMOJI_LIST). Clicking an
+  // emoji inserts it at the textarea cursor via insertAt() from chat-input.ts, then closes
+  // the panel. Clicking outside the panel also closes it.
+  const EMOJI_LIST = ['👍','❤️','😂','😮','😢','👏','🎉','🔥','💯','✅','🤔','😍','🙌','💪','🤝','😊','🥳','😎','🤬','👎'];
+  if (emojiPanel) {
+    for (const em of EMOJI_LIST) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'wv-emoji-btn';
+      btn.textContent = em;
+      btn.addEventListener('click', () => {
+        const start = input.selectionStart ?? input.value.length;
+        const end = input.selectionEnd ?? start;
+        const result = insertAt(input.value, em, start, end);
+        if (result) {
+          input.value = result.value;
+          input.focus();
+          input.setSelectionRange(result.caret, result.caret);
+          // Trigger resize in case the text grew.
+          input.dispatchEvent(new Event('input'));
+        }
+        show(emojiPanel, false);
+        emojiToggle?.setAttribute('aria-expanded', 'false');
+      });
+      emojiPanel.appendChild(btn);
+    }
+  }
+  emojiToggle?.addEventListener('click', () => {
+    const isOpen = !emojiPanel?.classList.contains('hidden');
+    show(emojiPanel ?? null, !isOpen);
+    emojiToggle.setAttribute('aria-expanded', String(!isOpen));
+  });
+  // Close the panel on click outside (capture so it fires before the toggle itself).
+  document.addEventListener('click', (e) => {
+    if (
+      emojiPanel &&
+      !emojiPanel.classList.contains('hidden') &&
+      !emojiPanel.contains(e.target as Node) &&
+      e.target !== emojiToggle
+    ) {
+      show(emojiPanel, false);
+      emojiToggle?.setAttribute('aria-expanded', 'false');
+    }
+  }, { capture: true });
 
   return (event) => panelCtl.append(event);
 }
