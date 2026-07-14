@@ -178,6 +178,17 @@ export function mountWebinarPlayer(): void {
       // so hiding the "listen to original" button avoids a meaningless control.
       const sameLanguage = info.source_language && info.source_language === getUiLang();
       show(listenBtn, !sameLanguage);
+      // Replace the waiting spinner with the host's avatar when one is available.
+      // Falls back to the spinner for webinars without an avatar (pre-043 or no profile pic).
+      if (info.host_avatar_url) {
+        const avatarImg = document.getElementById('wv-host-avatar') as HTMLImageElement | null;
+        const spinner = document.getElementById('wv-waiting-spinner');
+        if (avatarImg) {
+          avatarImg.src = info.host_avatar_url;
+          show(avatarImg, true);
+          show(spinner, false);
+        }
+      }
     },
   });
 

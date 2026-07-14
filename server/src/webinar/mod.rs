@@ -103,6 +103,9 @@ pub struct Webinar {
     pub updated_at: DateTime<Utc>,
     /// Soft-archive timestamp (039). NULL = active; set = hidden from the active list.
     pub archived_at: Option<DateTime<Utc>>,
+    /// Snapshot of the host's avatar URL at webinar creation time (043). NULL for
+    /// webinars created before the migration or when the host has no avatar.
+    pub host_avatar_url: Option<String>,
 }
 
 /// Fields for creating a webinar (F0-3); the `code` is generated server-side.
@@ -146,8 +149,9 @@ async fn insert_webinar(
         "INSERT INTO webinars
             (org_id, host_user_id, code, title, description, source_language, tier,
              record_video, record_transcript, voice_clone, chat_enabled, visibility,
-             scheduled_start, scheduled_end, project_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+             scheduled_start, scheduled_end, project_id, host_avatar_url)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
+             (SELECT avatar_url FROM users WHERE id = $2))
          RETURNING *",
     )
     .bind(new.org_id)
