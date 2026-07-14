@@ -76,6 +76,12 @@ Usamos medidas estándar del sector para proteger los datos personales, incluido
 
 El Servicio es para adultos (18+). No tratamos conscientemente datos de menores. Si crees que un menor nos ha facilitado datos, contáctanos y los eliminaremos.
 
-## 10. Cambios
+## 10. Datos de usuario de Google (Calendario) y uso limitado
+
+Cuando inicias sesión con Google y usas la función de programación de reuniones de VoxTranslate, accedemos a ciertos datos de tu cuenta de Google: tu perfil básico (nombre, dirección de correo, foto de perfil) para crear e identificar tu cuenta, y tu Google Calendar mediante el ámbito calendar.events. Usamos el acceso al Calendario únicamente para crear, actualizar y eliminar los eventos del calendario para las reuniones que programas a través de VoxTranslate y para añadir a las personas que invitas como asistentes, de modo que Google pueda enviarles invitaciones y recordatorios. Solo creamos y modificamos eventos que tú creas a través de la función de programación de VoxTranslate; nunca leemos, editamos ni eliminamos ninguna otra entrada de tu calendario. Para mantener tus eventos sincronizados, almacenamos un token de actualización de Google cifrado en reposo, más un registro mínimo de cada reunión (título, hora, enlace de sala y los asistentes que eliges). Puedes desconectar Google Calendar en cualquier momento, lo que elimina el token almacenado.
+
+El uso y la transferencia de información recibida de las APIs de Google a cualquier otra aplicación por parte de VoxTranslate se ajustarán a la [Política de Datos de Usuario de los Servicios API de Google](https://developers.google.com/terms/api-services-user-data-policy), incluidos los requisitos de uso limitado. No utilizamos los datos de usuario de Google para publicidad, no los vendemos y no permitimos que personas los lean a menos que tengamos tu consentimiento, sea necesario por seguridad o para cumplir la ley aplicable, o los datos hayan sido agregados y anonimizados.
+
+## 11. Cambios
 
 Podemos actualizar esta Política; revisaremos la versión y la fecha y, para cambios sustanciales, adoptaremos medidas adicionales cuando lo exija la ley.

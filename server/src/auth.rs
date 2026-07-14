@@ -262,6 +262,9 @@ pub struct UserProfile {
     /// Vox voice id, synced across devices. NULL when never set (client defaults to 'auto').
     pub tts_engine_pref: Option<String>,
     pub tts_voice_id: Option<String>,
+    /// Preferred call/translation language (migration 045). NULL = not yet persisted on
+    /// the server; the client falls back to localStorage → browser detection → 'en'.
+    pub language: Option<String>,
 }
 
 impl From<User> for UserProfile {
@@ -276,6 +279,7 @@ impl From<User> for UserProfile {
             has_voice_clone: u.cartesia_voice_id.is_some(),
             tts_engine_pref: u.tts_engine_pref,
             tts_voice_id: u.tts_voice_id,
+            language: u.language,
         }
     }
 }

@@ -76,6 +76,12 @@ Adottiamo misure standard del settore per proteggere i dati personali, inclusa l
 
 Il Servizio è destinato agli adulti (18+). Non trattiamo consapevolmente dati di minori. Se ritieni che un minore ci abbia fornito dati, contattaci e li elimineremo.
 
-## 10. Modifiche
+## 10. Dati utente Google (Calendar) e uso limitato
+
+Quando accedi con Google e utilizzi la funzione di pianificazione riunioni di VoxTranslate, accediamo a determinati dati del tuo account Google: il tuo profilo di base (nome, indirizzo email, foto profilo) per creare e identificare il tuo account, e il tuo Google Calendar tramite lo scope calendar.events. Utilizziamo l'accesso al Calendar esclusivamente per creare, aggiornare ed eliminare gli eventi del calendario per le riunioni che pianifichi tramite VoxTranslate e per aggiungere le persone che inviti come partecipanti, in modo che Google possa inviare loro inviti e promemoria. Creiamo e modifichiamo solo gli eventi che tu crei tramite la funzione di pianificazione di VoxTranslate; non leggiamo mai, modifichiamo né eliminiamo nessun'altra voce del tuo calendario. Per mantenere i tuoi eventi sincronizzati, conserviamo un token di aggiornamento Google cifrato a riposo, oltre a un registro minimo di ogni riunione (titolo, orario, link alla stanza e i partecipanti che scegli). Puoi disconnettere Google Calendar in qualsiasi momento, il che eliminerà il token memorizzato.
+
+L'uso e il trasferimento da parte di VoxTranslate delle informazioni ricevute dalle API di Google a qualsiasi altra app avverranno in conformità con la [Google API Services User Data Policy](https://developers.google.com/terms/api-services-user-data-policy), inclusi i requisiti di uso limitato. Non utilizziamo i dati utente Google per scopi pubblicitari, non li vendiamo e non permettiamo a persone di leggerli a meno che non abbiamo il tuo consenso, sia necessario per motivi di sicurezza o per rispettare la legge applicabile, oppure i dati siano stati aggregati e anonimizzati.
+
+## 11. Modifiche
 
 Possiamo aggiornare questa Informativa; ne rivedremo la versione e la data e, per modifiche sostanziali, adotteremo ulteriori misure ove richiesto dalla legge.

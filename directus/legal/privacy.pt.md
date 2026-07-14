@@ -76,6 +76,12 @@ Usamos medidas padrão do setor para proteger os dados pessoais, incluindo encri
 
 O Serviço destina-se a adultos (18+). Não tratamos conscientemente dados de menores. Se acredita que um menor nos forneceu dados, contacte-nos e iremos eliminá-los.
 
-## 10. Alterações
+## 10. Dados de utilizador do Google (Calendário) e utilização limitada
+
+Quando inicia sessão com o Google e usa a funcionalidade de agendamento de reuniões do VoxTranslate, acedemos a determinados dados da sua conta Google: o seu perfil básico (nome, endereço de e-mail, foto de perfil) para criar e identificar a sua conta, e o seu Google Calendário através do âmbito calendar.events. Utilizamos o acesso ao Calendário exclusivamente para criar, atualizar e eliminar os eventos do calendário para as reuniões que agenda através do VoxTranslate e para adicionar as pessoas que convida como participantes, para que o Google possa enviar-lhes convites e lembretes. Criamos e modificamos apenas os eventos que você cria através da funcionalidade de agendamento do VoxTranslate; nunca lemos, editamos ou eliminamos outras entradas do seu calendário. Para manter os seus eventos sincronizados, armazenamos um token de atualização do Google cifrado em repouso, mais um registo mínimo de cada reunião (título, hora, link da sala e os convidados que escolhe). Pode desligar o Google Calendário a qualquer momento, o que eliminará o token armazenado.
+
+A utilização e transferência de informações recebidas das APIs do Google para qualquer outra aplicação por parte do VoxTranslate estará em conformidade com a [Política de Dados de Utilizador dos Serviços de API do Google](https://developers.google.com/terms/api-services-user-data-policy), incluindo os requisitos de utilização limitada. Não utilizamos dados de utilizador do Google para publicidade, não os vendemos e não permitimos que pessoas os leiam, exceto com o seu consentimento, quando necessário por razões de segurança ou para cumprir a lei aplicável, ou quando os dados foram agregados e anonimizados.
+
+## 11. Alterações
 
 Podemos atualizar esta Política; revisaremos a versão e a data e, para alterações substanciais, tomaremos medidas adicionais quando exigido por lei.

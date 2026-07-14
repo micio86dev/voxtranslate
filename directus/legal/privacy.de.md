@@ -76,6 +76,12 @@ Wir setzen branchenübliche Maßnahmen zum Schutz personenbezogener Daten ein, e
 
 Der Dienst ist für Erwachsene (18+) bestimmt. Wir verarbeiten wissentlich keine Daten von Kindern. Wenn Sie glauben, dass ein Kind uns Daten übermittelt hat, kontaktieren Sie uns, und wir werden sie löschen.
 
-## 10. Änderungen
+## 10. Google-Nutzerdaten (Kalender) und eingeschränkte Verwendung
+
+Wenn Sie sich mit Google anmelden und die Terminplanungsfunktion von VoxTranslate nutzen, greifen wir auf bestimmte Daten aus Ihrem Google-Konto zu: Ihr Basisprofil (Name, E-Mail-Adresse, Profilbild) zur Kontoerstellung und -identifizierung sowie Ihren Google Kalender über den calendar.events-Bereich. Wir verwenden den Kalenderzugriff ausschließlich dazu, die Kalendertermine für die von Ihnen über VoxTranslate geplanten Meetings zu erstellen, zu aktualisieren und zu löschen und die von Ihnen eingeladenen Personen als Teilnehmer hinzuzufügen, damit Google ihnen Einladungen und Erinnerungen senden kann. Wir erstellen und ändern nur Termine, die Sie über die Planungsfunktion von VoxTranslate erstellt haben; wir lesen, bearbeiten oder löschen niemals andere Kalendereinträge. Zur Synchronisierung Ihrer Termine speichern wir ein verschlüsseltes Google Refresh-Token sowie einen minimalen Datensatz jedes Meetings (Titel, Uhrzeit, Raumlink und die von Ihnen gewählten Eingeladenen). Sie können Google Kalender jederzeit trennen, wodurch das gespeicherte Token gelöscht wird.
+
+Die Verwendung und Weitergabe von Informationen, die VoxTranslate von Google APIs erhalten hat, an andere Apps erfolgt in Übereinstimmung mit der [Google API Services User Data Policy](https://developers.google.com/terms/api-services-user-data-policy), einschließlich der Anforderungen zur eingeschränkten Verwendung. Wir verwenden Google-Nutzerdaten nicht für Werbung, verkaufen sie nicht und erlauben Menschen keinen Zugriff darauf, außer mit Ihrer Einwilligung, aus Sicherheitsgründen, zur Einhaltung geltenden Rechts oder wenn die Daten aggregiert und anonymisiert wurden.
+
+## 11. Änderungen
 
 Wir können diese Erklärung aktualisieren; wir werden Version und Datum anpassen und bei wesentlichen Änderungen zusätzliche Schritte unternehmen, soweit gesetzlich erforderlich.

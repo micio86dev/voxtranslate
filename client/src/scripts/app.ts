@@ -253,7 +253,6 @@ const engineField = $('engine-field');
 // visitor doesn't re-enter them. Best-effort localStorage (private mode → no-op), in
 // the existing `voxtranslate_*` key namespace.
 const NAME_CACHE_KEY = 'voxtranslate_name';
-const LANG_CACHE_KEY = 'voxtranslate_lang';
 function readCache(key: string): string | null {
   try {
     return localStorage.getItem(key);
@@ -268,11 +267,70 @@ function writeCache(key: string, value: string): void {
     /* private mode / storage blocked */
   }
 }
-function persistLang(lang: string): void {
-  writeCache(LANG_CACHE_KEY, lang);
+function readLangCookie(): string | null {
+  try {
+    const m = document.cookie.match(/(?:^|;\s*)vt_lang=([^;]+)/);
+    return m ? decodeURIComponent(m[1]) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeLangCookie(lang: string): void {
   try {
     document.cookie = `vt_lang=${encodeURIComponent(lang)}; path=/; max-age=31536000; samesite=lax`;
   } catch { /* blocked */ }
+}
+
+function persistLang(lang: string): void {
+  writeLangCookie(lang);
+  void saveLanguageToAccount(lang);
+}
+
+/** Best-effort server sync of the selected language for logged-in users.
+ *  Errors are silenced — localStorage/cookie is always the local fallback. */
+async function saveLanguageToAccount(lang: string): Promise<void> {
+  if (!auth.isLoggedIn()) return;
+  try {
+    await fetch(`${HTTP_BASE}/api/user/language`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...auth.authHeaders() },
+      body: JSON.stringify({ language: lang }),
+    });
+    auth.setLanguagePref(lang);
+  } catch {
+    /* best-effort — client-side fallback is always in place */
+  }
+}
+
+/** Reconcile the UI language against the server-side preference for logged-in users.
+ *
+ * Priority rules (DB is the source of truth for logged-in users):
+ * 1. If the server has a language → apply it immediately (DB wins). Syncs
+ *    localStorage + cookie so subsequent page loads are instant.
+ * 2. If the server has no language but the client has a cached value → promote
+ *    that value to the server so future loads are authoritative.
+ *
+ * Guests are unaffected: their language stays in localStorage/cookie only.
+ */
+function applyUserLanguage(u: auth.User): void {
+  if (!u) return;
+  if (u.language && SUPPORTED.includes(u.language)) {
+    // DB has a preference → it wins. Sync client state.
+    if (langSel.value !== u.language) {
+      langSel.value = u.language;
+      setUiLang(u.language);
+      writeLangCookie(u.language);
+      if (getUiLang() !== 'en') withLocale(u.language, applyI18n);
+    }
+  } else if (!u.language) {
+    // DB has no preference → promote the client's current value (localStorage/cookie
+    // was already restored before boot, so langSel.value is the best available guess).
+    const local = langSel.value;
+    if (local && SUPPORTED.includes(local)) {
+      void saveLanguageToAccount(local);
+    }
+  }
 }
 const engineOptions = $('engine-options');
 // Language-first picker refs (spec 0102) — present in index.astro, hidden until enabled.
@@ -838,7 +896,7 @@ const subtitleTimers = new Map<string, number>();
 // Restore the last-used name + language (cached locally, guests included). The
 // language drives both the call and the UI, so sync `setUiLang` when restoring it;
 // fall back to browser detection when nothing is cached.
-const cachedLang = readCache(LANG_CACHE_KEY);
+const cachedLang = readLangCookie();
 if (cachedLang) {
   langSel.value = cachedLang;
   setUiLang(cachedLang);
@@ -1106,7 +1164,7 @@ function renderLanguageFirstPicker(): void {
   langfirstField.hidden = false;
 
   const offered = offeredLanguageCodes(enginePool());
-  const cached = readCache(LANG_CACHE_KEY);
+  const cached = readLangCookie();
   let code = cached && offered.has(cached) ? cached : detectLang();
   if (!offered.has(code)) {
     code = readRecentLangs().find((c) => offered.has(c)) ?? [...offered][0] ?? 'en';
@@ -4538,7 +4596,11 @@ async function boot(): Promise<void> {
   // (the 🔖 bookmark button, public rooms) while the server rejects every authed
   // action "as a guest". refreshMe() clears it on a 401 (and keeps it on a mere
   // network error), so after this the client's auth state matches the server's.
-  if (billing && auth.isLoggedIn()) await auth.refreshMe();
+  if (billing && auth.isLoggedIn()) {
+    await auth.refreshMe();
+    const freshUser = auth.getUser();
+    if (freshUser) applyUserLanguage(freshUser);
+  }
   if (billing && !auth.isLoggedIn()) {
     showLogin();
   } else {
@@ -4571,9 +4633,10 @@ function enterHome(): void {
     const u = auth.getUser()!;
     if (u.name && !nameInput.value) nameInput.value = u.name;
     renderAccount();
-    void auth.refreshMe().then(() => {
+    void auth.refreshMe().then((freshUser) => {
       renderAccount();
       ensureConsent();
+      if (freshUser) applyUserLanguage(freshUser);
     });
     ensureConsent();
     // Re-subscribe to push if already permitted (silent); scheduling card below.

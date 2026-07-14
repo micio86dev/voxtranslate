@@ -3700,6 +3700,46 @@ pub async fn update_tts_prefs(
     }
 }
 
+/// Request body for `POST /api/user/language`.
+#[derive(Deserialize)]
+pub struct LanguageRequest {
+    /// BCP-47 language code (2-5 chars, e.g. `en`, `pt-BR`). Null clears the preference.
+    #[serde(default)]
+    pub language: Option<String>,
+}
+
+/// `POST /api/user/language` — persist the user's preferred call/translation language
+/// so it syncs across their devices. Null clears the server-side preference.
+pub async fn update_language(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Json(body): Json<LanguageRequest>,
+) -> Response {
+    let Some(billing) = state.billing.as_ref() else {
+        return service_unavailable();
+    };
+    // Validate the language code: must be 2-5 chars (covers 'en', 'pt-BR', etc.)
+    // or null. Rejects obviously invalid values to prevent column abuse.
+    if let Some(ref lang) = body.language {
+        let trimmed = lang.trim();
+        if trimmed.is_empty() || trimmed.len() > 10 {
+            return (StatusCode::BAD_REQUEST, "invalid language code").into_response();
+        }
+    }
+    let lang = body
+        .language
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    match billing.set_language(user.user_id, lang).await {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(e) => {
+            tracing::error!("language pref save failed: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "save failed").into_response()
+        }
+    }
+}
+
 /// `GET /api/user/data` — export everything we hold on the user (GDPR).
 pub async fn export_data(State(state): State<AppState>, user: AuthUser) -> Response {
     let Some(safety) = state.safety.as_ref() else {

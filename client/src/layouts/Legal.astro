@@ -41,7 +41,9 @@ const {
     // copy rendered above (works offline / when the API is down).
     import { fetchLegal, renderMarkdown } from '../scripts/content';
     const slug = location.pathname.replace(/\//g, '');
-    const lang = (navigator.language || 'en').slice(0, 2).toLowerCase();
+    const _m = document.cookie.match(/(?:^|;\s*)vt_lang=([^;]+)/);
+    const _cookie = _m ? decodeURIComponent(_m[1]) : null;
+    const lang = (_cookie || navigator.language || 'en').slice(0, 2).toLowerCase();
     if (slug) {
       fetchLegal(slug, lang)
         .then((doc) => {

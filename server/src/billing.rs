@@ -103,6 +103,21 @@ impl BillingService {
         Ok(())
     }
 
+    /// Persist a user's preferred language (migration 045). Called from
+    /// `POST /api/user/language`; NULL clears the preference.
+    pub async fn set_language(
+        &self,
+        user_id: Uuid,
+        language: Option<&str>,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query("UPDATE users SET language = $1, updated_at = now() WHERE id = $2")
+            .bind(language)
+            .bind(user_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     /// Add credit (purchase / free grant / refund). Locks the user row, bumps the
     /// balance, and writes a ledger entry. Returns the new balance.
     pub async fn add_credits(
