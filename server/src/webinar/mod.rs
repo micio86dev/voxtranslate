@@ -16,6 +16,7 @@ use crate::config::WebinarConfig;
 use crate::db::Pool;
 
 pub mod chat;
+pub mod files;
 pub mod guest;
 pub mod media;
 pub mod presence;

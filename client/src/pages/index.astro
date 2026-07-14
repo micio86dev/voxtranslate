@@ -1197,9 +1197,21 @@ const jsonLd = {
           </div>
           <div id="webinar-studio-chat-body" class="studio-chat-body">
             <div id="webinar-studio-chat-list" class="wv-chat-list" role="log" aria-live="polite" aria-relevant="additions"></div>
+            <div id="webinar-studio-chat-upload" class="wv-chat-upload hidden">
+              <div id="webinar-studio-chat-upload-fill" class="wv-chat-upload-fill"></div>
+            </div>
             <form id="webinar-studio-chat-form" class="wv-chat-form">
-              <input id="webinar-studio-chat-input" class="wv-chat-input" type="text" maxlength="500" autocomplete="off" enterkeyhint="send" data-i18n-ph="wvChatPlaceholder" placeholder={T('wvChatPlaceholder')} />
-              <button id="webinar-studio-chat-send" type="submit" class="wv-chat-send" data-i18n="wvChatSend">{T('wvChatSend')}</button>
+              <div id="webinar-studio-emoji-panel" class="wv-emoji-panel hidden" role="group" aria-label="Emoji"></div>
+              <div class="wv-chat-composer">
+                <textarea id="webinar-studio-chat-input" class="wv-chat-input" maxlength="500" rows="1" autocomplete="off" enterkeyhint="send" data-i18n-ph="wvChatPlaceholder" placeholder={T('wvChatPlaceholder')}></textarea>
+                <div class="wv-chat-actions">
+                  <button id="webinar-studio-chat-attach" type="button" class="wv-chat-icon-btn" aria-label="Attach file">📎</button>
+                  <input id="webinar-studio-chat-file" type="file" class="hidden" accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv" />
+                  <button id="webinar-studio-emoji-toggle" type="button" class="wv-chat-icon-btn" aria-label="Emoji" aria-expanded="false" aria-controls="webinar-studio-emoji-panel">😀</button>
+                  <span id="webinar-studio-chat-counter" class="wv-chat-counter">0/500</span>
+                  <button id="webinar-studio-chat-send" type="submit" class="wv-chat-send" data-i18n="wvChatSend">{T('wvChatSend')}</button>
+                </div>
+              </div>
             </form>
             <p id="webinar-studio-chat-notice" class="wv-chat-notice hidden" role="status" aria-live="polite"></p>
           </div>

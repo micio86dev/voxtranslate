@@ -17,7 +17,7 @@ use axum::extract::{Path, Query, State};
 use axum::response::Response;
 use dashmap::DashMap;
 use futures::{SinkExt, StreamExt};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tokio::sync::mpsc;
 use uuid::Uuid;
@@ -123,6 +123,17 @@ pub struct ChatEvent {
     pub lang: String,
     pub translations: HashMap<String, String>,
     pub created_at: String,
+    pub avatar_url: Option<String>,
+    pub attachment: Option<WvAttachment>,
+}
+
+/// A file attachment carried by a chat message (mirrors the rooms protocol's Attachment).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WvAttachment {
+    pub url: String,
+    pub name: String,
+    pub content_type: String,
+    pub size: i64,
 }
 
 impl ChatEvent {
@@ -137,6 +148,8 @@ impl ChatEvent {
             "lang": self.lang,
             "translations": self.translations,
             "created_at": self.created_at,
+            "avatar_url": self.avatar_url,
+            "attachment": self.attachment,
         })
         .to_string()
     }
@@ -591,6 +604,8 @@ mod tests {
             lang: "it".to_string(),
             translations,
             created_at: "2026-07-12T10:00:00Z".to_string(),
+            avatar_url: None,
+            attachment: None,
         };
         let v: serde_json::Value = serde_json::from_str(&ev.to_json()).unwrap();
         assert_eq!(v["type"], "chat");
@@ -618,6 +633,8 @@ mod tests {
             lang: "it".to_string(),
             translations,
             created_at: "2026-07-12T10:00:00Z".to_string(),
+            avatar_url: None,
+            attachment: None,
         }
         .to_json();
         for leaked in [
@@ -751,6 +768,8 @@ mod tests {
             lang: "it".to_string(),
             translations,
             created_at: "2026-07-12T10:00:00Z".to_string(),
+            avatar_url: None,
+            attachment: None,
         };
         reg.broadcast_chat("C", &ev);
 
@@ -780,6 +799,8 @@ mod tests {
                 lang: "en".to_string(),
                 translations: HashMap::new(),
                 created_at: "2026-07-12T10:00:00Z".to_string(),
+                avatar_url: None,
+                attachment: None,
             },
         );
     }

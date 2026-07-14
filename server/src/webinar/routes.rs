@@ -53,6 +53,12 @@ pub fn routes() -> Router<AppState> {
             "/api/w/{code}/chat",
             post(crate::webinar::chat::post_chat).get(crate::webinar::chat::list_chat),
         )
+        .route(
+            "/api/w/{code}/files",
+            post(crate::webinar::files::upload_webinar_file).layer(
+                axum::extract::DefaultBodyLimit::max(crate::files::MAX_BODY_BYTES),
+            ),
+        )
         // Transcript history for late-joining participants — public, no auth.
         // Returns utterances in chronological order so a late joiner can read
         // what was said before they arrived. Empty when `record_transcript` is off.
