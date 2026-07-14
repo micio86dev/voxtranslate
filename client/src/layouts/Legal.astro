@@ -41,7 +41,10 @@ const {
     // copy rendered above (works offline / when the API is down).
     import { fetchLegal, renderMarkdown } from '../scripts/content';
     const slug = location.pathname.replace(/\//g, '');
-    const lang = (navigator.language || 'en').slice(0, 2).toLowerCase();
+    const _stored = (() => {
+      try { return localStorage.getItem('voxtranslate_lang'); } catch { return null; }
+    })();
+    const lang = (_stored || navigator.language || 'en').slice(0, 2).toLowerCase();
     if (slug) {
       fetchLegal(slug, lang)
         .then((doc) => {
