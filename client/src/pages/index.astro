@@ -2655,8 +2655,11 @@ const jsonLd = {
       border: 1px solid var(--border); border-radius: 10px; background: var(--bg); color: var(--text);
     }
     .webinar-list :global(.webinar-copy-btn) { flex: none; padding: 0 14px; min-height: 38px; }
-    /* QR: tappable (opens the fullscreen zoom). */
-    .webinar-list :global(.webinar-qr) { align-self: flex-start; width: 160px; height: 160px; border-radius: 10px; background: #fff; padding: 6px; cursor: zoom-in; }
+    /* Share section: QR left + (join link + actions) right. Wraps on narrow viewports. */
+    .webinar-list :global(.webinar-share) { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; }
+    .webinar-list :global(.webinar-share-info) { flex: 1 1 180px; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+    /* QR: tappable (opens the fullscreen zoom). Fixed size, never grows. */
+    .webinar-list :global(.webinar-qr) { flex: none; width: 120px; height: 120px; border-radius: 10px; background: #fff; padding: 6px; cursor: zoom-in; }
     .webinar-list :global(.webinar-qr:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
     /* QR actions row: download + print, styled as ghost buttons. */
     .webinar-list :global(.webinar-qr-actions) { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -2668,8 +2671,8 @@ const jsonLd = {
     .webinar-list :global(.webinar-clone-note.err) { color: var(--danger); }
     .webinar-list :global(.webinar-cancel-btn) { align-self: flex-start; padding: 0 14px; min-height: 38px; }
     /* Go-live / publish control (webinar phase 1). */
-    .webinar-list :global(.webinar-live-row) { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-    .webinar-list :global(.webinar-golive-btn) { width: auto; padding: 0 18px; min-height: 40px; flex: none; }
+    .webinar-list :global(.webinar-live-row) { display: flex; justify-content: center; }
+    .webinar-list :global(.webinar-golive-btn) { width: 100%; max-width: 360px; min-height: 52px; font-size: 1.05rem; font-weight: 700; letter-spacing: 0.01em; }
     .webinar-list :global(.webinar-golive-btn.danger) { background: var(--danger); }
     .webinar-list :global(.webinar-cam-btn) { flex: none; padding: 0 14px; min-height: 40px; }
     .webinar-list :global(.webinar-onair-badge) { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; padding: 4px 10px; border-radius: 999px; background: color-mix(in srgb, var(--danger) 18%, transparent); color: var(--danger); }
