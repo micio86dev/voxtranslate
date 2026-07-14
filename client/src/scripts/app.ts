@@ -5204,15 +5204,14 @@ function renderWebinarCard(w: WebinarView): void {
       }
     });
     linkRow.append(linkInput, copyBtn);
-    card.appendChild(linkRow);
 
     // QR of the EXACT join_url from the API (never rebuilt). Lazy-imported chunk.
     // Tappable (mouse + keyboard) → fullscreen zoom overlay.
     const qr = document.createElement('img');
     qr.className = 'webinar-qr';
     qr.alt = t('webinarQrAlt');
-    qr.width = 160;
-    qr.height = 160;
+    qr.width = 120;
+    qr.height = 120;
     qr.tabIndex = 0;
     qr.setAttribute('role', 'button');
     qr.setAttribute('aria-label', t('webinarQrZoom'));
@@ -5224,7 +5223,6 @@ function renderWebinarCard(w: WebinarView): void {
         openQrModal(w, qr.src);
       }
     });
-    card.appendChild(qr);
     void renderQr(qr, w.join_url);
 
     // QR actions: download the QR as a PNG, or print just the QR + join URL.
@@ -5255,7 +5253,16 @@ function renderWebinarCard(w: WebinarView): void {
       }
     });
     qrActions.append(dlBtn, printBtn);
-    card.appendChild(qrActions);
+
+    // Share section: QR on the left, join link + actions on the right.
+    // On narrow viewports the row wraps so QR sits above the info block.
+    const shareInfo = document.createElement('div');
+    shareInfo.className = 'webinar-share-info';
+    shareInfo.append(linkRow, qrActions);
+    const shareSection = document.createElement('div');
+    shareSection.className = 'webinar-share';
+    shareSection.append(qr, shareInfo);
+    card.appendChild(shareSection);
   } else {
     // Ended/cancelled: show a compact session summary instead of the join link + QR.
     const summary = document.createElement('div');

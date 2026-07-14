@@ -2655,8 +2655,11 @@ const jsonLd = {
       border: 1px solid var(--border); border-radius: 10px; background: var(--bg); color: var(--text);
     }
     .webinar-list :global(.webinar-copy-btn) { flex: none; padding: 0 14px; min-height: 38px; }
-    /* QR: tappable (opens the fullscreen zoom). */
-    .webinar-list :global(.webinar-qr) { align-self: flex-start; width: 160px; height: 160px; border-radius: 10px; background: #fff; padding: 6px; cursor: zoom-in; }
+    /* Share section: QR left + (join link + actions) right. Wraps on narrow viewports. */
+    .webinar-list :global(.webinar-share) { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; }
+    .webinar-list :global(.webinar-share-info) { flex: 1 1 180px; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+    /* QR: tappable (opens the fullscreen zoom). Fixed size, never grows. */
+    .webinar-list :global(.webinar-qr) { flex: none; width: 120px; height: 120px; border-radius: 10px; background: #fff; padding: 6px; cursor: zoom-in; }
     .webinar-list :global(.webinar-qr:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
     /* QR actions row: download + print, styled as ghost buttons. */
     .webinar-list :global(.webinar-qr-actions) { display: flex; flex-wrap: wrap; gap: 8px; }
