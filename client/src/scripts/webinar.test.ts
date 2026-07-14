@@ -464,14 +464,14 @@ describe('listPublicWebinars', () => {
     ...over,
   });
 
-  it('GETs the public endpoint with NO auth and unwraps the { webinars } envelope', async () => {
+  it('GETs the public endpoint with auth and unwraps the { webinars } envelope', async () => {
     const items = [listItem(), listItem({ code: 'ef34gh', status: 'scheduled', viewers: 0 })];
     fetchMock.mockResolvedValue(okJson({ webinars: items }));
     const out = await listPublicWebinars();
     expect(out).toEqual(items);
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe('http://test/api/webinars/public');
-    expect(init).toBeUndefined(); // public endpoint — no Authorization header
+    expect((init as RequestInit)?.headers).toEqual({ Authorization: 'Bearer tok' });
   });
 
   it('returns [] when the envelope has no webinars array', async () => {

@@ -120,6 +120,8 @@ pub struct CreateWebinar {
     /// Optional project this webinar belongs to (must be in the same org).
     #[serde(default)]
     pub project_id: Option<Uuid>,
+    #[serde(default)]
+    pub members_only: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -154,6 +156,8 @@ pub struct PatchWebinar {
     pub scheduled_end: Option<DateTime<Utc>>,
     #[serde(default)]
     pub project_id: Option<Uuid>,
+    #[serde(default)]
+    pub members_only: Option<bool>,
 }
 
 // ---- validation ------------------------------------------------------------
@@ -286,6 +290,7 @@ fn public_view(w: &Webinar, app_base_url: &str, cfg: &WebinarConfig) -> Value {
         "playback_url": playback_url(cfg, &w.code),
         // Avatar shown in the waiting overlay when the host hasn't gone live yet (043).
         "host_avatar_url": w.host_avatar_url,
+        "members_only": w.members_only,
     })
 }
 
@@ -303,6 +308,7 @@ fn public_list_item(w: &Webinar, app_base_url: &str, viewers: usize) -> Value {
         "scheduled_start": w.scheduled_start,
         "join_url": join_url(app_base_url, &w.code),
         "viewers": viewers,
+        "members_only": w.members_only,
     })
 }
 
@@ -384,6 +390,7 @@ pub async fn create(
         scheduled_start: body.scheduled_start,
         scheduled_end: body.scheduled_end,
         project_id: body.project_id,
+        members_only: body.members_only.unwrap_or(false),
     };
     let w = create_webinar(pool, &new, cfg.code_len)
         .await
@@ -497,6 +504,7 @@ pub async fn patch(
             scheduled_end     = COALESCE($10, scheduled_end),
             project_id        = COALESCE($11, project_id),
             visibility        = COALESCE($12, visibility),
+            members_only      = COALESCE($13, members_only),
             updated_at        = now()
          WHERE id = $1
          RETURNING *",
@@ -513,6 +521,7 @@ pub async fn patch(
     .bind(body.scheduled_end)
     .bind(body.project_id)
     .bind(visibility)
+    .bind(body.members_only)
     .fetch_one(pool)
     .await
     .map_err(db_err)?;
@@ -878,26 +887,29 @@ pub async fn public_list(
     let pool = require_pool(&state)?;
     require_cfg(&state)?;
 
-    // Optionally identify the caller so we can exclude their own org's webinars.
-    // A host should manage their webinars from their dashboard, not rediscover them
-    // on the public list. Unauthenticated callers (guests) see everything.
-    let caller_id: Option<Uuid> = state.config.billing.as_ref().and_then(|b| {
-        headers
-            .get(AUTHORIZATION)
-            .and_then(|v| v.to_str().ok())
-            .and_then(|v| v.strip_prefix("Bearer "))
-            .and_then(|tok| crate::auth::verify_jwt(&b.jwt_secret, tok).ok())
-            .and_then(|c| Uuid::parse_str(&c.sub).ok())
-    });
+    // Require authentication: only logged-in users may browse the public webinar list.
+    let caller_id: Uuid = state
+        .config
+        .billing
+        .as_ref()
+        .and_then(|b| {
+            headers
+                .get(AUTHORIZATION)
+                .and_then(|v| v.to_str().ok())
+                .and_then(|v| v.strip_prefix("Bearer "))
+                .and_then(|tok| crate::auth::verify_jwt(&b.jwt_secret, tok).ok())
+                .and_then(|c| Uuid::parse_str(&c.sub).ok())
+        })
+        .ok_or_else(|| (StatusCode::UNAUTHORIZED, "authentication required").into_response())?;
 
     let rows: Vec<Webinar> = sqlx::query_as(
         "SELECT * FROM webinars
          WHERE visibility = 'public'
            AND status IN ('scheduled', 'live')
            AND archived_at IS NULL
-           AND ($1::uuid IS NULL OR org_id NOT IN (
+           AND org_id NOT IN (
                SELECT org_id FROM organization_members WHERE user_id = $1
-           ))
+           )
          ORDER BY (status = 'live') DESC, scheduled_start ASC NULLS LAST, created_at DESC
          LIMIT 100",
     )

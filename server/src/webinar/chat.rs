@@ -181,8 +181,13 @@ pub async fn post_chat(
     }
 
     // (7) Translate: "auto" lets Groq detect the source and translate into every
-    // live viewer language (reuse `target_languages` + `translate_fanout`).
-    let targets = state.webinar_presence.target_languages(&code);
+    // live viewer language. Always include the webinar's source_language so the
+    // host sees participant messages translated into their language regardless of
+    // whether any viewer happens to share it.
+    let mut targets = state.webinar_presence.target_languages(&code);
+    if !targets.iter().any(|t| t == &w.source_language) {
+        targets.push(w.source_language.clone());
+    }
     let translations = state
         .translator
         .translate_fanout(&text, "auto", &targets, None)

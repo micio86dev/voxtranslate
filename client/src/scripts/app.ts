@@ -268,6 +268,12 @@ function writeCache(key: string, value: string): void {
     /* private mode / storage blocked */
   }
 }
+function persistLang(lang: string): void {
+  writeCache(LANG_CACHE_KEY, lang);
+  try {
+    document.cookie = `vt_lang=${encodeURIComponent(lang)}; path=/; max-age=31536000; samesite=lax`;
+  } catch { /* blocked */ }
+}
 const engineOptions = $('engine-options');
 // Language-first picker refs (spec 0102) — present in index.astro, hidden until enabled.
 const langField = $('lang-field');
@@ -861,7 +867,7 @@ void initEngines();
 initNetStatus();
 langSel.addEventListener('change', () => {
   setUiLang(langSel.value);
-  writeCache(LANG_CACHE_KEY, langSel.value);
+  persistLang(langSel.value);
   withLocale(langSel.value, repaintLocale);
 });
 
@@ -1231,7 +1237,7 @@ function selectLang(code: string, persist = true): void {
   langSel.value = code;
   setUiLang(code); // a no-op for a language without a UI translation; falls back to English
   if (persist) {
-    writeCache(LANG_CACHE_KEY, code);
+    persistLang(code);
     pushRecentLang(code);
   }
   // The chosen UI locale streams in on demand (spec 0104); repaint every locale-dependent
@@ -1490,6 +1496,8 @@ function renderRooms(
 // listPublicWebinars() swallows failures to [], and an empty list hides the whole
 // card so the lobby never shows an empty "Public webinars" section.
 async function fetchPublicWebinars(): Promise<void> {
+  // Public webinar list requires authentication (Feature 3b).
+  if (!auth.isLoggedIn()) return;
   const webinars = await listPublicWebinars();
   renderPublicWebinars(webinars);
 }
@@ -1593,7 +1601,7 @@ async function goPrejoin(room: string, isPublic: boolean): Promise<void> {
   session = { room, lang: langSel.value, name: nameInput.value.trim(), isPublic, engine: selectedEngine };
   // Remember what was actually used to join, so it's pre-filled next time (guests too).
   writeCache(NAME_CACHE_KEY, session.name);
-  writeCache(LANG_CACHE_KEY, session.lang);
+  persistLang(session.lang);
   // Warm the lazy in-call modules (spec 0105) now, so the chunk downloads while the camera and
   // devices initialise — by the time the user clicks join, `startCall` awaits an already-settled
   // promise. Errors are swallowed here; startCall re-awaits and surfaces a real failure.

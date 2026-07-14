@@ -31,13 +31,25 @@ const HTTP_BASE = WS_BASE.replace(/^ws/, 'http');
 // default. Falls back to detectLang() (browser language → 'en') for first-time visitors.
 const LANG_CACHE_KEY = 'voxtranslate_lang';
 
-/** Resolve the viewer's preferred subtitle language: stored preference → browser language → 'en'. */
+/** Resolve the viewer's preferred subtitle language.
+ *  Priority: localStorage preference → vt_lang cookie (set by the main app) → browser language → 'en'.
+ *  The cookie fallback covers cases where localStorage is unavailable (private/incognito mode, Safari ITP)
+ *  or the participant opened the webinar link before visiting the main app on this browser. */
 function resolveViewerLang(): string {
   try {
     const stored = typeof localStorage !== 'undefined' ? localStorage.getItem(LANG_CACHE_KEY) : null;
     if (stored && SUPPORTED.includes(stored)) return stored;
   } catch {
     /* private mode / blocked */
+  }
+  try {
+    const m = document.cookie.match(/(?:^|;\s*)vt_lang=([^;]+)/);
+    if (m) {
+      const fromCookie = decodeURIComponent(m[1]);
+      if (SUPPORTED.includes(fromCookie)) return fromCookie;
+    }
+  } catch {
+    /* blocked */
   }
   return detectLang();
 }
@@ -158,6 +170,24 @@ export function mountWebinarPlayer(): void {
   const code = root?.dataset.code ?? '';
   // The not-found shell has no player to mount.
   if (!root || root.dataset.notfound === '1' || !code) return;
+
+  // Members-only gate: if the webinar requires authentication and the user has no
+  // stored JWT, show a "log in to join" overlay instead of starting the player.
+  if (root.dataset.membersOnly === '1') {
+    const token = (() => {
+      try { return typeof localStorage !== 'undefined' ? localStorage.getItem('vox.token') : null; }
+      catch { return null; }
+    })();
+    if (!token) {
+      // Reveal the members-only overlay (hidden by default in the page markup).
+      const membersOnlyOverlay = document.getElementById('wv-overlay-members-only');
+      show(membersOnlyOverlay, true);
+      // Hide the normal waiting overlay so only the gate is shown.
+      const waitingOverlay = document.getElementById('wv-overlay-waiting');
+      show(waitingOverlay, false);
+      return;
+    }
+  }
 
   const video = document.getElementById('wv-video') as HTMLVideoElement | null;
   const tapBtn = document.getElementById('wv-tap') as HTMLButtonElement | null;
@@ -355,6 +385,7 @@ export function mountWebinarPlayer(): void {
       code,
       guestId,
       host: false,
+      token: (() => { try { return localStorage.getItem('vox.token'); } catch { return null; } })(),
       lang: getUiLang(),
       onCount: renderWatching,
       onSubtitle: subtitleOverlay

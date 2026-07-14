@@ -225,9 +225,10 @@ export function buildPresenceUrl(opts: {
   q.set("guest_id", opts.guestId);
   q.set("host", opts.host ? "true" : "false");
   if (opts.lang) q.set("lang", opts.lang);
-  // The host studio proves org membership with its session JWT so the server
-  // honors host=true (browsers can't set WS headers). Viewers send no token.
-  if (opts.host && opts.token) q.set("token", opts.token);
+  // The host proves org membership via JWT; authenticated viewers on members-only
+  // webinars also send their token — browsers can't set WS headers, so token rides
+  // the query param in both cases. Server ignores it on non-members-only rooms.
+  if (opts.token) q.set("token", opts.token);
   return `${base}/api/w/${encodeURIComponent(opts.code)}/presence?${q.toString()}`;
 }
 
