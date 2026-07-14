@@ -881,18 +881,14 @@ pub async fn public_list(
     // Optionally identify the caller so we can exclude their own org's webinars.
     // A host should manage their webinars from their dashboard, not rediscover them
     // on the public list. Unauthenticated callers (guests) see everything.
-    let caller_id: Option<Uuid> = state
-        .config
-        .billing
-        .as_ref()
-        .and_then(|b| {
-            headers
-                .get(AUTHORIZATION)
-                .and_then(|v| v.to_str().ok())
-                .and_then(|v| v.strip_prefix("Bearer "))
-                .and_then(|tok| crate::auth::verify_jwt(&b.jwt_secret, tok).ok())
-                .and_then(|c| Uuid::parse_str(&c.sub).ok())
-        });
+    let caller_id: Option<Uuid> = state.config.billing.as_ref().and_then(|b| {
+        headers
+            .get(AUTHORIZATION)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.strip_prefix("Bearer "))
+            .and_then(|tok| crate::auth::verify_jwt(&b.jwt_secret, tok).ok())
+            .and_then(|c| Uuid::parse_str(&c.sub).ok())
+    });
 
     let rows: Vec<Webinar> = sqlx::query_as(
         "SELECT * FROM webinars
