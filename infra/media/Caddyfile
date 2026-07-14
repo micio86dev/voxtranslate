@@ -1,4 +1,4 @@
-# TLS termination + reverse proxy for the webinar ingest host. (ci-deploy-test)
+# TLS termination + reverse proxy for the webinar ingest host.
 # WHIP signaling and HLS both ride 443; MediaMTX's internal 8888/8889 stay closed
 # at the firewall. Caddy fetches a Let's Encrypt cert automatically (needs :80).
 ingest.voxtranslate.app {
