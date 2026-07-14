@@ -3726,7 +3726,11 @@ pub async fn update_language(
             return (StatusCode::BAD_REQUEST, "invalid language code").into_response();
         }
     }
-    let lang = body.language.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    let lang = body
+        .language
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
     match billing.set_language(user.user_id, lang).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(e) => {
