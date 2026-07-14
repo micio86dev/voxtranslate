@@ -209,20 +209,19 @@ const pageDesc = webinar
               <div id="wv-chat-upload-fill" class="wv-chat-upload-fill"></div>
             </div>
             <form id="wv-chat-form" class="wv-chat-form">
-              <!-- Emoji picker: same 20-emoji set as the Meet chat (reused from chat.ts EMOJI_LIST).
-                   Populated at runtime by webinar-view.ts; clicking an emoji inserts it into the
-                   textarea via chat-input.ts insertAt() at the cursor position. -->
-              <div id="wv-emoji-panel" class="wv-emoji-panel hidden" role="group" aria-label="Emoji"></div>
-              <div class="wv-chat-composer">
+              <div class="chat-input-row">
                 <textarea id="wv-chat-input" class="wv-chat-input" maxlength="500" rows="1" autocomplete="off" enterkeyhint="send" data-i18n-ph="wvChatPlaceholder" placeholder="Type a message…"></textarea>
-                <div class="wv-chat-actions">
-                  <button id="wv-chat-attach" type="button" class="wv-chat-icon-btn" aria-label="Attach file">📎</button>
-                  <input id="wv-chat-file" type="file" class="hidden" accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv" />
-                  <button id="wv-emoji-toggle" type="button" class="wv-chat-icon-btn" aria-label="Emoji" aria-expanded="false" aria-controls="wv-emoji-panel">😀</button>
-                  <span id="wv-chat-counter" class="wv-chat-counter">0/500</span>
-                  <button id="wv-chat-send" type="submit" class="wv-chat-send" data-i18n="wvChatSend">Send</button>
+                <div class="chat-input-actions">
+                  <div class="emoji-picker-wrap">
+                    <button id="wv-emoji-toggle" type="button" class="btn-ghost icon-btn emoji-btn" aria-label="Emoji" aria-expanded="false" aria-controls="wv-emoji-panel">😀</button>
+                    <div id="wv-emoji-panel" class="emoji-panel hidden" role="group" aria-label="Emoji"></div>
+                  </div>
+                  <button id="wv-chat-attach" type="button" class="btn-ghost icon-btn attach-btn" aria-label="Attach file">📎</button>
+                  <input id="wv-chat-file" type="file" hidden accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv" />
+                  <button id="wv-chat-send" type="submit" class="btn-primary send-btn" data-i18n="wvChatSend">Send</button>
                 </div>
               </div>
+              <div id="wv-chat-counter" class="chat-counter" aria-live="polite">0/500</div>
             </form>
             <p id="wv-chat-notice" class="wv-chat-notice hidden" role="status" aria-live="polite"></p>
           </section>
@@ -655,18 +654,23 @@ const pageDesc = webinar
       font-size: 0.85rem;
       color: var(--text-muted, #9aa4b2);
     }
-    /* Emoji picker: a compact grid of 20 emoji buttons (same set as the Meet chat).
-       Populated at runtime; hidden by default, toggled by #wv-emoji-toggle. */
-    .wv-emoji-panel {
+    /* Emoji picker: popup panel anchored to .chat-input-row, opens upward. */
+    .emoji-panel {
+      position: absolute;
+      bottom: calc(100% + 8px);
+      inset-inline-start: 0;
+      width: min(288px, calc(100vw - 32px));
       display: flex;
       flex-wrap: wrap;
-      gap: 2px;
-      padding: 8px;
-      border-radius: 10px;
+      gap: 4px;
+      padding: 10px;
+      border-radius: 12px;
       border: 1px solid var(--border, #2a3444);
-      background: var(--bg, #0d0f16);
+      background: var(--surface, #131820);
+      box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+      z-index: 40;
     }
-    .wv-emoji-panel.hidden {
+    .emoji-panel.hidden {
       display: none;
     }
     .wv-emoji-btn {
@@ -685,43 +689,41 @@ const pageDesc = webinar
     .wv-emoji-btn:hover {
       background: rgba(255, 255, 255, 0.08);
     }
-    /* Composer: a two-row layout (emoji panel above, textarea + actions below).
-       The textarea auto-grows up to 120px (5 lines); the actions column stacks
-       the emoji toggle above the send button. */
+    /* Two-row composer: textarea full-width on top, action bar below (matches Meet chat). */
     .wv-chat-form {
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
       padding-bottom: env(safe-area-inset-bottom, 0);
     }
-    .wv-chat-composer {
-      display: flex;
-      gap: 8px;
-      align-items: flex-end;
-    }
-    .wv-chat-actions {
+    .chat-input-row {
+      position: relative;
       display: flex;
       flex-direction: column;
-      gap: 4px;
-      flex: 0 0 auto;
+      gap: 8px;
     }
-    /* Borderless icon button for the emoji toggle. */
-    .wv-chat-icon-btn {
-      width: 36px;
-      height: 36px;
-      border-radius: 8px;
-      border: 1px solid var(--border, #2a3444);
-      background: transparent;
-      color: var(--text-muted, #9aa4b2);
-      font-size: 1rem;
-      cursor: pointer;
+    .chat-input-actions {
       display: flex;
       align-items: center;
-      justify-content: center;
+      gap: 8px;
     }
-    .wv-chat-icon-btn:hover {
-      border-color: var(--accent, #3b82f6);
-      color: var(--text, #e5e7eb);
+    .chat-input-actions .send-btn {
+      margin-inline-start: auto;
+    }
+    .chat-input-row .icon-btn {
+      flex: none;
+      min-width: 44px;
+      min-height: 44px;
+      padding: 0;
+    }
+    .chat-input-row .btn-primary {
+      width: auto;
+      min-height: 44px;
+      padding: 0 16px;
+    }
+    .emoji-picker-wrap {
+      position: static;
+    }
+    .emoji-btn {
+      font-size: 1.3rem;
+      line-height: 1;
     }
     /* One-time name row: reachable above the mobile keyboard. */
     .wv-chat-name-row {
@@ -802,13 +804,14 @@ const pageDesc = webinar
       transition: width 0.1s linear;
       width: 0%;
     }
-    .wv-chat-counter {
-      font-size: 0.7rem;
+    .chat-counter {
+      padding: 0 2px 2px;
+      text-align: end;
+      font-size: 0.72rem;
       color: var(--text-muted, #9aa4b2);
-      margin-right: 4px;
-      white-space: nowrap;
+      font-variant-numeric: tabular-nums;
     }
-    :global(.wv-chat-counter.is-over) {
+    :global(.chat-counter.is-over) {
       color: #ef4444;
     }
     :global(.wv-chat-att-img) {
