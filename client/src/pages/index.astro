@@ -1201,17 +1201,19 @@ const jsonLd = {
               <div id="webinar-studio-chat-upload-fill" class="wv-chat-upload-fill"></div>
             </div>
             <form id="webinar-studio-chat-form" class="wv-chat-form">
-              <div id="webinar-studio-emoji-panel" class="wv-emoji-panel hidden" role="group" aria-label="Emoji"></div>
-              <div class="wv-chat-composer">
+              <div class="chat-input-row">
                 <textarea id="webinar-studio-chat-input" class="wv-chat-input" maxlength="500" rows="1" autocomplete="off" enterkeyhint="send" data-i18n-ph="wvChatPlaceholder" placeholder={T('wvChatPlaceholder')}></textarea>
-                <div class="wv-chat-actions">
-                  <button id="webinar-studio-chat-attach" type="button" class="wv-chat-icon-btn" aria-label="Attach file">📎</button>
-                  <input id="webinar-studio-chat-file" type="file" class="hidden" accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv" />
-                  <button id="webinar-studio-emoji-toggle" type="button" class="wv-chat-icon-btn" aria-label="Emoji" aria-expanded="false" aria-controls="webinar-studio-emoji-panel">😀</button>
-                  <span id="webinar-studio-chat-counter" class="wv-chat-counter">0/500</span>
-                  <button id="webinar-studio-chat-send" type="submit" class="wv-chat-send" data-i18n="wvChatSend">{T('wvChatSend')}</button>
+                <div class="chat-input-actions">
+                  <div class="emoji-picker-wrap">
+                    <button id="webinar-studio-emoji-toggle" type="button" class="btn-ghost icon-btn emoji-btn" aria-label="Emoji" aria-expanded="false" aria-controls="webinar-studio-emoji-panel">😀</button>
+                    <div id="webinar-studio-emoji-panel" class="emoji-panel hidden" role="group" aria-label="Emoji"></div>
+                  </div>
+                  <button id="webinar-studio-chat-attach" type="button" class="btn-ghost icon-btn attach-btn" aria-label="Attach file">📎</button>
+                  <input id="webinar-studio-chat-file" type="file" hidden accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv" />
+                  <button id="webinar-studio-chat-send" type="submit" class="btn-primary send-btn" data-i18n="wvChatSend">{T('wvChatSend')}</button>
                 </div>
               </div>
+              <div id="webinar-studio-chat-counter" class="chat-counter" aria-live="polite">0/500</div>
             </form>
             <p id="webinar-studio-chat-notice" class="wv-chat-notice hidden" role="status" aria-live="polite"></p>
           </div>
@@ -2762,11 +2764,12 @@ const jsonLd = {
     .studio-chat :global(.wv-chat-host-tag) { font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; margin-left: 6px; padding: 1px 6px; border-radius: 999px; background: color-mix(in srgb, var(--accent) 25%, transparent); color: var(--accent); }
     .studio-chat :global(.wv-chat-body) { font-size: 0.95rem; color: var(--text); }
     .studio-chat :global(.wv-chat-empty) { margin: auto; padding: 20px; text-align: center; font-size: 0.85rem; color: var(--muted); }
-    .studio-chat :global(.wv-chat-form) { display: flex; gap: 8px; padding-bottom: env(safe-area-inset-bottom, 0); }
-    .studio-chat :global(.wv-chat-input) { flex: 1 1 auto; min-width: 0; min-height: 44px; padding: 0 14px; font-size: 1rem; border-radius: 10px; background: var(--bg); border: 1px solid var(--border); color: var(--text); }
+    .studio-chat :global(.wv-chat-form) { padding-bottom: env(safe-area-inset-bottom, 0); }
+    .studio-chat :global(.wv-chat-input) { width: 100%; box-sizing: border-box; min-height: 44px; max-height: 120px; padding: 11px 12px; font: inherit; font-size: 1rem; border-radius: 10px; background: var(--bg); border: 1px solid var(--border); color: var(--text); resize: none; overflow-y: hidden; }
     .studio-chat :global(.wv-chat-input:focus) { outline: 2px solid var(--accent); outline-offset: 1px; }
-    .studio-chat :global(.wv-chat-send) { flex: 0 0 auto; min-height: 44px; min-width: 44px; padding: 0 18px; font-size: 0.9rem; font-weight: 700; border-radius: 10px; border: none; background: var(--accent); color: #fff; cursor: pointer; }
-    .studio-chat :global(.wv-chat-send:disabled) { opacity: 0.55; cursor: default; }
+    .studio-chat :global(.wv-emoji-btn) { background: none; border: none; color: inherit; font-size: 1.45rem; min-width: 40px; min-height: 40px; padding: 4px; border-radius: 10px; cursor: pointer; transition: background 0.12s; display: grid; place-items: center; touch-action: manipulation; }
+    .studio-chat :global(.wv-emoji-btn:hover) { background: color-mix(in srgb, var(--accent) 22%, var(--surface)); }
+    :global(.chat-counter.is-over) { color: var(--danger); }
     .studio-chat :global(.wv-chat-notice) { margin: 0; font-size: 0.82rem; font-weight: 600; color: var(--danger); }
     .studio-chat :global(.wv-chat-notice.hidden) { display: none; }
     @media (prefers-reduced-motion: reduce) { .studio-chat :global(.wv-chat-list) { scroll-behavior: auto; } }
