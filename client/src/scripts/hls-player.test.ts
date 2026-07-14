@@ -44,8 +44,9 @@ function fakeVideo(opts: { canNative?: boolean } = {}) {
     removeAttribute: vi.fn(() => {
       v.src = '';
     }),
+    addEventListener: vi.fn(), // native error recovery + canplay retry
   };
-  return v as HTMLVideoElement & { play: any; canPlayType: any };
+  return v as HTMLVideoElement & { play: any; canPlayType: any; addEventListener: any };
 }
 
 // A fake hls.js default export.
@@ -56,6 +57,7 @@ function fakeHls(supported = true) {
       loadSource: vi.fn(),
       attachMedia: vi.fn(),
       destroy: vi.fn(),
+      on: vi.fn(), // hlsError recovery handler
     };
     instances.push(inst);
     return inst;
@@ -118,10 +120,11 @@ describe('tryAutoplay', () => {
     expect(await tryAutoplay(v)).toEqual({ playing: true, needsTap: false });
     expect(v.muted).toBe(false);
   });
-  it('retries muted when sound autoplay is blocked', async () => {
+  it('retries muted when sound autoplay is blocked and signals needsTap', async () => {
     const play = vi.fn().mockRejectedValueOnce(new Error('blocked')).mockResolvedValueOnce(undefined);
     const v = { muted: false, play };
-    expect(await tryAutoplay(v)).toEqual({ playing: true, needsTap: false });
+    // Muted fallback succeeds but the overlay must appear so the user can unmute.
+    expect(await tryAutoplay(v)).toEqual({ playing: true, needsTap: true });
     expect(v.muted).toBe(true);
   });
   it('needs a tap when even muted autoplay is blocked', async () => {
@@ -185,7 +188,8 @@ describe('HlsPlayer state machine', () => {
   });
 
   it('reports tap-to-start when autoplay is fully blocked', async () => {
-    const video = fakeVideo({ canNative: true });
+    const video = fakeVideo({ canNative: true }) as any;
+    video.paused = true; // autoplay fully blocked → video never started playing
     (video.play as any).mockRejectedValue(new Error('blocked')); // sound + muted both blocked
     let needsTap = false;
     const p = new HlsPlayer({
@@ -202,6 +206,24 @@ describe('HlsPlayer state machine', () => {
     expect(await p.userStart()).toBe(true);
     expect(video.muted).toBe(false);
     expect(needsTap).toBe(false);
+  });
+
+  it('userStart just unmutes when video is already playing muted', async () => {
+    const video = fakeVideo({ canNative: true }) as any;
+    video.paused = false; // video already playing (muted autoplay worked)
+    const play = vi.fn().mockResolvedValue(undefined);
+    video.play = play;
+    let needsTap = true;
+    const p = new HlsPlayer({
+      code: 'ab12cd',
+      video,
+      onTapToStart: (n) => (needsTap = n),
+      fetchWebinar: vi.fn().mockResolvedValue(webinar({ status: 'live' })),
+    });
+    expect(await p.userStart()).toBe(true);
+    expect(video.muted).toBe(false);
+    expect(needsTap).toBe(false);
+    expect(play).not.toHaveBeenCalled(); // no play() call needed — already playing
   });
 
   it('muteAudio toggles the video mute flag and resumes on unmute', () => {

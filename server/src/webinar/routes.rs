@@ -11,7 +11,8 @@
 #![allow(clippy::result_large_err)]
 
 use axum::extract::{Path, Query, State};
-use axum::http::StatusCode;
+use axum::http::header::AUTHORIZATION;
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -811,17 +812,41 @@ pub async fn public_get(
 /// these on the home page next to the public rooms). Each item is PII-free and
 /// carries a LIVE audience `viewers` count. Private, cancelled/ended, and
 /// archived webinars are never listed. Envelope: `{ "webinars": [ … ] }`.
-pub async fn public_list(State(state): State<AppState>) -> Result<Response, Response> {
+pub async fn public_list(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Response, Response> {
     let pool = require_pool(&state)?;
     require_cfg(&state)?;
+
+    // Optionally identify the caller so we can exclude their own org's webinars.
+    // A host should manage their webinars from their dashboard, not rediscover them
+    // on the public list. Unauthenticated callers (guests) see everything.
+    let caller_id: Option<Uuid> = state
+        .config
+        .billing
+        .as_ref()
+        .and_then(|b| {
+            headers
+                .get(AUTHORIZATION)
+                .and_then(|v| v.to_str().ok())
+                .and_then(|v| v.strip_prefix("Bearer "))
+                .and_then(|tok| crate::auth::verify_jwt(&b.jwt_secret, tok).ok())
+                .and_then(|c| Uuid::parse_str(&c.sub).ok())
+        });
+
     let rows: Vec<Webinar> = sqlx::query_as(
         "SELECT * FROM webinars
          WHERE visibility = 'public'
            AND status IN ('scheduled', 'live')
            AND archived_at IS NULL
+           AND ($1::uuid IS NULL OR org_id NOT IN (
+               SELECT org_id FROM organization_members WHERE user_id = $1
+           ))
          ORDER BY (status = 'live') DESC, scheduled_start ASC NULLS LAST, created_at DESC
          LIMIT 100",
     )
+    .bind(caller_id)
     .fetch_all(pool)
     .await
     .map_err(db_err)?;

@@ -81,7 +81,8 @@ export function stateFromStatus(status: WebinarStatus): PlayerState {
 
 /** Attempt to play a `<video>`, tolerating the browser autoplay policy: try as-is,
  *  and on rejection retry muted. Returns `{ playing, needsTap }` — `needsTap` means
- *  even muted autoplay was blocked and the UI should show a tap-to-start overlay.
+ *  the UI should show a tap overlay: either nothing plays (total block) or the video
+ *  plays muted and the user must tap to unmute.
  *  Pure over the passed video-like object, so it is unit-testable. */
 export async function tryAutoplay(
   video: Pick<HTMLVideoElement, "play"> & { muted: boolean },
@@ -90,14 +91,15 @@ export async function tryAutoplay(
     await video.play();
     return { playing: true, needsTap: false };
   } catch {
-    /* blocked with sound — retry muted, which most browsers allow */
+    /* unmuted autoplay blocked — retry muted (most browsers allow this) */
   }
   try {
     video.muted = true;
     await video.play();
-    return { playing: true, needsTap: false };
+    // Playing muted: show the tap overlay so the user knows to click to unmute.
+    return { playing: true, needsTap: true };
   } catch {
-    // Even muted autoplay was blocked (strict policy) — the user must tap to start.
+    // Even muted autoplay was blocked — the user must tap to start entirely.
     return { playing: false, needsTap: true };
   }
 }
@@ -107,6 +109,7 @@ interface HlsLike {
   loadSource(url: string): void;
   attachMedia(video: HTMLVideoElement): void;
   destroy(): void;
+  on(event: string, cb: (event: string, data: { fatal: boolean }) => void): void;
 }
 
 /** Options for the player. `code` is the webinar's public code; the callbacks surface
@@ -117,6 +120,9 @@ export interface HlsPlayerOptions {
   onState?: (state: PlayerState) => void;
   /** Called with `true` when autoplay was blocked and the UI must show a start button. */
   onTapToStart?: (needsTap: boolean) => void;
+  /** Called once after the initial fetch with the raw webinar info (e.g. source language,
+   *  tier) so the UI can adapt before the player enters its first state. */
+  onInfo?: (info: PublicWebinar) => void;
   /** Injectable hls.js loader for tests. Defaults to a dynamic `import('hls.js')`. */
   loadHls?: () => Promise<{ Hls: HlsFactory }>;
   /** Injectable public-webinar fetch for tests. Defaults to `getPublicWebinar`. */
@@ -143,6 +149,8 @@ export class HlsPlayer {
   private loadHls: () => Promise<{ Hls: HlsFactory }>;
   private fetchWebinar: (code: string) => Promise<PublicWebinar>;
 
+  private onInfo: (info: PublicWebinar) => void;
+
   private hls: HlsLike | null = null;
   private state: PlayerState = "waiting";
   private playbackUrl: string | null = null;
@@ -157,6 +165,7 @@ export class HlsPlayer {
     this.video = opts.video;
     this.onState = opts.onState ?? (() => {});
     this.onTapToStart = opts.onTapToStart ?? (() => {});
+    this.onInfo = opts.onInfo ?? (() => {});
     this.loadHls =
       opts.loadHls ??
       (() => import("hls.js").then((m) => ({ Hls: m.default as unknown as HlsFactory })));
@@ -183,6 +192,7 @@ export class HlsPlayer {
       this.setState("error");
       return;
     }
+    this.onInfo(info);
     persistGuestId(info.guest_id);
     this.playbackUrl = info.playback_url;
     await this.applyStatus(info);
@@ -219,10 +229,30 @@ export class HlsPlayer {
     const format = selectFormat(this.video, await this.hlsjsSupported());
     if (format === "native") {
       this.video.src = url;
+      // Safari: when the stream dies (host webcam off), the video element fires an
+      // error. Reset attached so the poll loop can reload the src when the host returns.
+      this.video.addEventListener('error', () => {
+        if (this.attached && this.state !== 'ended') {
+          this.video.removeAttribute('src');
+          this.attached = false;
+          this.setState('waiting');
+        }
+      }, { once: true });
     } else if (format === "hlsjs") {
       const { Hls } = await this.loadHls();
       const hls = new Hls({ lowLatencyMode: true });
       this.hls = hls;
+      // When the HLS stream dies (host disables webcam / disconnects), hls.js fires a
+      // fatal network error. Reset `attached` so the poll loop can re-attach as soon as
+      // the host comes back — without this the participant must reload.
+      hls.on('hlsError', (_evt: string, data: { fatal: boolean }) => {
+        if (data.fatal && this.hls === hls) {
+          hls.destroy();
+          this.hls = null;
+          this.attached = false;
+          if (this.state !== 'ended') this.setState('waiting');
+        }
+      });
       hls.loadSource(url);
       hls.attachMedia(this.video);
     } else {
@@ -274,15 +304,41 @@ export class HlsPlayer {
     return this.video.muted;
   }
 
-  /** User tapped the start overlay: unmute and play (a user gesture always allows
-   *  playback). Returns whether playback started. */
+  /** User tapped the start overlay: unmute and/or play (a user gesture always allows
+   *  playback). Returns whether playback started.
+   *
+   *  Handles two scenarios:
+   *  1. Video is already playing muted (muted autoplay worked): just unmute.
+   *  2. Video is paused (autoplay fully blocked): call play() under the user gesture.
+   *     If play() rejects because hls.js has no data yet (host just went live),
+   *     register a one-shot `canplay` listener so the video auto-starts when ready. */
   async userStart(): Promise<boolean> {
     this.video.muted = false;
+    if (!this.video.paused) {
+      // Already playing muted — unmuting alone is enough.
+      this.onTapToStart(false);
+      return true;
+    }
     try {
       await this.video.play();
       this.onTapToStart(false);
       return true;
     } catch {
+      // play() failed — hls.js probably has no data yet (race between the host
+      // going live and the first HLS part arriving).  Auto-retry on canplay so
+      // the participant doesn't have to tap a second time.
+      this.video.addEventListener(
+        'canplay',
+        () => {
+          void this.video
+            .play()
+            .then(() => this.onTapToStart(false))
+            .catch(() => {
+              /* still blocked — tap button stays for another manual attempt */
+            });
+        },
+        { once: true },
+      );
       return false;
     }
   }

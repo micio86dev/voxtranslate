@@ -156,38 +156,46 @@ export function mountWebinarPlayer(): void {
     video,
     onState: renderState,
     onTapToStart: (needsTap) => show(tapBtn, needsTap),
+    onInfo: (info) => {
+      // When the host and viewer already speak the same language, the original HLS
+      // audio IS in the viewer's language — there is no alternative to switch to,
+      // so hiding the "listen to original" button avoids a meaningless control.
+      const sameLanguage = info.source_language && info.source_language === getUiLang();
+      show(listenBtn, !sameLanguage);
+    },
   });
 
   tapBtn?.addEventListener('click', () => {
     void player.userStart();
   });
 
-  // Audio controls (webinar Fase 2). Two independent concerns:
-  //   wv-mute  — on/off toggle; aria-pressed=true when audio is ACTIVE (playing).
-  //   wv-listen — audio-source selector; clicks unmute so the guest hears the original
-  //               HLS stream. Fase 3 will extend this to toggle between original and TTS.
-  //               Its aria-pressed is NOT driven by paintAudio — the two buttons are
-  //               visually decoupled so pressing one never highlights the other.
+  // Audio controls (webinar Fase 2).
+  //   wv-mute   — global on/off toggle; aria-pressed=true when audio is ACTIVE (playing).
+  //   wv-listen — audio-source selector (original HLS now; Fase 3 will add TTS option).
+  //               Both buttons reflect the same underlying muted state so they stay in
+  //               sync: paintAudio() always calls paintListen().
+  function paintListen(): void {
+    if (!listenBtn) return;
+    // aria-pressed=true = viewer is currently hearing the original HLS stream.
+    listenBtn.setAttribute('aria-pressed', !player.isMuted() ? 'true' : 'false');
+  }
   function paintAudio(): void {
     const muted = player.isMuted();
     if (muteBtn) {
       muteBtn.textContent = t(muted ? 'wvUnmuteAudio' : 'wvMuteAudio');
-      // aria-pressed=true = audio is currently active (playing), not "mute is active".
       muteBtn.setAttribute('aria-pressed', muted ? 'false' : 'true');
     }
-    // listenBtn state is managed independently — never touch it here.
+    paintListen();
   }
   muteBtn?.addEventListener('click', () => {
     player.muteAudio(!player.isMuted());
     paintAudio();
   });
   listenBtn?.addEventListener('click', () => {
-    // Unmute to start hearing the original HLS audio.
-    // Future Fase 3: will also toggle between original audio and server-side TTS.
-    if (player.isMuted()) {
-      player.muteAudio(false);
-      paintAudio();
-    }
+    // Toggle: select original audio (unmute) or deselect it (mute).
+    // Fase 3 will replace the mute branch with TTS playback.
+    player.muteAudio(!player.isMuted());
+    paintAudio();
   });
   paintAudio();
 

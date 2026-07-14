@@ -153,48 +153,67 @@ describe('mountWebinarPlayer', () => {
   it('paints the audio buttons from the initial (muted) player state', () => {
     buildDom();
     mountWebinarPlayer();
-    // Muted by default → the mute button offers "Unmute" and is NOT pressed (audio inactive).
-    // The listen button's aria-pressed is not managed by paintAudio — it stays at its HTML default.
+    // Muted by default → mute button offers "Unmute" and is NOT pressed (audio inactive).
+    // listen button also reflects the muted state (not listening to original).
     expect(el('wv-mute').textContent).toBe('wvUnmuteAudio');
     expect(el('wv-mute').getAttribute('aria-pressed')).toBe('false');
-    expect(el('wv-listen').getAttribute('aria-pressed')).toBe('false'); // HTML default, untouched
+    expect(el('wv-listen').getAttribute('aria-pressed')).toBe('false');
   });
 
-  it('the mute button toggles the HLS audio and repaints', () => {
+  it('the mute button toggles the HLS audio and repaints both buttons', () => {
     buildDom();
     mountWebinarPlayer();
-    // Click while muted → unmute (muteAudio(false)); fake reflects the new state.
     muteAudio.mockImplementation((m: boolean) => (mutedState = m));
+    // Click while muted → unmute.
     (el('wv-mute') as HTMLButtonElement).click();
     expect(muteAudio).toHaveBeenCalledWith(false);
-    expect(el('wv-mute').textContent).toBe('wvMuteAudio'); // now offers "Mute"
-    expect(el('wv-mute').getAttribute('aria-pressed')).toBe('true'); // audio is now active
-    // listenBtn is decoupled — pressing mute must NOT change its visual state.
-    expect(el('wv-listen').getAttribute('aria-pressed')).toBe('false');
+    expect(el('wv-mute').textContent).toBe('wvMuteAudio');
+    expect(el('wv-mute').getAttribute('aria-pressed')).toBe('true');
+    // listenBtn follows the same underlying muted state.
+    expect(el('wv-listen').getAttribute('aria-pressed')).toBe('true');
     // Click again → mute.
     (el('wv-mute') as HTMLButtonElement).click();
     expect(muteAudio).toHaveBeenLastCalledWith(true);
-    expect(el('wv-mute').textContent).toBe('wvUnmuteAudio');
     expect(el('wv-mute').getAttribute('aria-pressed')).toBe('false');
+    expect(el('wv-listen').getAttribute('aria-pressed')).toBe('false');
   });
 
-  it('the listen-original button unmutes the HLS audio when muted', () => {
+  it('the listen-original button unmutes when muted and activates itself', () => {
     buildDom();
     mountWebinarPlayer();
     muteAudio.mockImplementation((m: boolean) => (mutedState = m));
     (el('wv-listen') as HTMLButtonElement).click();
     expect(muteAudio).toHaveBeenCalledWith(false);
-    // After unmute, mute toggle reflects active audio; listen button state is unchanged.
+    // Both buttons reflect the new playing state.
     expect(el('wv-mute').getAttribute('aria-pressed')).toBe('true');
+    expect(el('wv-listen').getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('the listen-original button mutes when audio is already playing', () => {
+    buildDom();
+    mountWebinarPlayer();
+    muteAudio.mockImplementation((m: boolean) => (mutedState = m));
+    mutedState = false; // fake: already playing
+    (el('wv-listen') as HTMLButtonElement).click();
+    expect(muteAudio).toHaveBeenCalledWith(true);
     expect(el('wv-listen').getAttribute('aria-pressed')).toBe('false');
   });
 
-  it('the listen-original button is a no-op when audio is already playing', () => {
+  it('hides the listen button when the host speaks the same language as the viewer', () => {
     buildDom();
     mountWebinarPlayer();
-    mutedState = false; // fake: already playing
-    (el('wv-listen') as HTMLButtonElement).click();
-    expect(muteAudio).not.toHaveBeenCalled(); // no state change when audio is already on
+    // getUiLang() is mocked to return 'en'; host also speaks 'en' → hide listen btn.
+    lastOpts.onInfo?.({ source_language: 'en', code: 'x', title: 'T', status: 'scheduled',
+      tier: 'standard', join_url: '', chat_enabled: false, playback_url: null, guest_id: 'g' });
+    expect(el('wv-listen').classList.contains('hidden')).toBe(true);
+  });
+
+  it('shows the listen button when host and viewer speak different languages', () => {
+    buildDom();
+    mountWebinarPlayer();
+    lastOpts.onInfo?.({ source_language: 'es', code: 'x', title: 'T', status: 'scheduled',
+      tier: 'standard', join_url: '', chat_enabled: false, playback_url: null, guest_id: 'g' });
+    expect(el('wv-listen').classList.contains('hidden')).toBe(false);
   });
 
   it('the CC button toggles captions and clears the overlay when turned off', () => {
