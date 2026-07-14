@@ -48,6 +48,10 @@ pub struct User {
     // browser-voice choice is device-local (not portable) and lives only in the client.
     pub tts_engine_pref: Option<String>,
     pub tts_voice_id: Option<String>,
+    // Preferred call/translation language (migration 045): the language code the user
+    // picks in the home screen, synced across devices. NULL = not yet set (client falls
+    // back to localStorage → browser detection → 'en').
+    pub language: Option<String>,
 }
 
 /// A row from `chat_files` (spec 0018): metadata for a file attached to chat.

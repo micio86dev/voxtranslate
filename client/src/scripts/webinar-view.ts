@@ -25,23 +25,9 @@ const WS_BASE = `${WS_PROTO}//${WS_HOST}`;
 // App HTTP base (derived from WS_BASE, mirroring auth.ts) for the chat REST calls.
 const HTTP_BASE = WS_BASE.replace(/^ws/, 'http');
 
-// The localStorage key where the main app persists the user's chosen UI language
-// (mirrors LANG_CACHE_KEY in app.ts). On the /w/ page we read it first so a viewer
-// who has already used VoxTranslate gets subtitles in THEIR language, not the browser
-// default. Falls back to detectLang() (browser language → 'en') for first-time visitors.
-const LANG_CACHE_KEY = 'voxtranslate_lang';
-
 /** Resolve the viewer's preferred subtitle language.
- *  Priority: localStorage preference → vt_lang cookie (set by the main app) → browser language → 'en'.
- *  The cookie fallback covers cases where localStorage is unavailable (private/incognito mode, Safari ITP)
- *  or the participant opened the webinar link before visiting the main app on this browser. */
+ *  Priority: vt_lang cookie → browser language → 'en'. */
 function resolveViewerLang(): string {
-  try {
-    const stored = typeof localStorage !== 'undefined' ? localStorage.getItem(LANG_CACHE_KEY) : null;
-    if (stored && SUPPORTED.includes(stored)) return stored;
-  } catch {
-    /* private mode / blocked */
-  }
   try {
     const m = document.cookie.match(/(?:^|;\s*)vt_lang=([^;]+)/);
     if (m) {

@@ -28,6 +28,9 @@ export interface User {
   /** Vox Voices: the chosen Vox voice id (portable across devices). The browser-voice
    *  choice is device-local (voiceURIs aren't portable) and is NOT stored here. */
   tts_voice_id?: string | null;
+  /** Preferred call/translation language (migration 045), synced across devices.
+   *  Null = not yet persisted; client falls back to localStorage → browser → 'en'. */
+  language?: string | null;
 }
 
 export interface CreditPackage {
@@ -137,6 +140,14 @@ export function setTtsPrefs(patch: {
 }): void {
   if (!user) return;
   user = { ...user, ...patch };
+  store().setItem(USER_KEY, JSON.stringify(user));
+}
+
+/** Patch the cached language preference (after a language change) so getUser() stays in
+ *  sync with what we POST to the server. No-op for guests (no cached user). */
+export function setLanguagePref(language: string | null): void {
+  if (!user) return;
+  user = { ...user, language };
   store().setItem(USER_KEY, JSON.stringify(user));
 }
 
