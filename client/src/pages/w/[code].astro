@@ -28,6 +28,7 @@ interface PublicWebinar {
   join_url: string;
   playback_url: string | null;
   guest_id: string;
+  members_only: boolean;
 }
 
 let webinar: PublicWebinar | null = null;
@@ -64,7 +65,7 @@ const pageDesc = webinar
 ---
 
 <Base title={pageTitle} description={pageDesc} noindex={true}>
-  <main class="wv" data-code={code} data-notfound={notFound ? '1' : '0'}>
+  <main class="wv" data-code={code} data-notfound={notFound ? '1' : '0'} data-members-only={webinar?.members_only ? '1' : '0'}>
     {
       notFound ? (
         <div class="wv-card">
@@ -142,6 +143,17 @@ const pageDesc = webinar
             <div id="wv-overlay-error" class="wv-overlay hidden">
               <div class="wv-glyph" aria-hidden="true">⚠️</div>
               <p data-i18n="wvErrorBody">We couldn’t load this webinar. Please refresh to try again.</p>
+            </div>
+            <!-- Members-only overlay: shown when the webinar requires login and the user is not authenticated. -->
+            <div id="wv-overlay-members-only" class="wv-overlay hidden">
+              <div class="wv-card">
+                <div class="wv-glyph" aria-hidden="true">🔒</div>
+                <h2 class="wv-title" data-i18n="wvMembersOnlyTitle">Members only</h2>
+                <p class="wv-text" data-i18n="wvMembersOnlyText">
+                  Log in to join this webinar.
+                </p>
+                <a class="wv-btn" href="/" data-i18n="wvMembersOnlyLogin">Log in</a>
+              </div>
             </div>
           </div>
 

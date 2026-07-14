@@ -72,6 +72,8 @@ export interface PublicWebinar {
    *  overlay before the stream starts. Null when the host has no avatar or for webinars
    *  created before migration 043. */
   host_avatar_url: string | null;
+  /** When true, only authenticated users may join the presence WebSocket. */
+  members_only: boolean;
 }
 
 /** Response of `POST /api/webinars/{id}/go-live`: a short-lived tokenized WHIP
@@ -107,6 +109,8 @@ export interface CreateWebinarBody {
   chat_enabled?: boolean;
   /** Discovery mode; defaults to `private` server-side when omitted. */
   visibility?: WebinarVisibility;
+  /** When true, only authenticated users can join the presence WebSocket. */
+  members_only?: boolean;
   scheduled_start?: string | null;
   scheduled_end?: string | null;
 }
@@ -127,6 +131,8 @@ export interface PatchWebinarBody {
   chat_enabled?: boolean;
   /** Change the discovery mode (`public` lists it on the home; `private` hides it). */
   visibility?: WebinarVisibility;
+  /** Enable or disable the members-only gate. */
+  members_only?: boolean;
   scheduled_start?: string | null;
   scheduled_end?: string | null;
 }
@@ -402,6 +408,8 @@ export interface PublicWebinarListItem {
   join_url: string;
   /** Live audience count; 0 for a scheduled (not-yet-live) webinar. */
   viewers: number;
+  /** When true, only authenticated users may join; guests see the metadata but are shown a login gate. */
+  members_only: boolean;
 }
 
 /** Whether a public-list webinar is currently broadcasting (drives the LIVE badge
@@ -430,7 +438,9 @@ export function formatScheduledStart(iso: string | null | undefined): string {
  *  never breaks over an optional discovery section. Returns `json.webinars` unwrapped. */
 export async function listPublicWebinars(): Promise<PublicWebinarListItem[]> {
   try {
-    const res = await fetch(`${HTTP_BASE}/api/webinars/public`);
+    const res = await fetch(`${HTTP_BASE}/api/webinars/public`, {
+      headers: authHeaders(),
+    });
     if (!res.ok) return [];
     const json = (await res.json()) as { webinars?: PublicWebinarListItem[] };
     return Array.isArray(json.webinars) ? json.webinars : [];

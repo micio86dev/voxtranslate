@@ -396,4 +396,30 @@ describe('HlsPlayer state machine', () => {
     p.destroy();
     vi.useRealTimers();
   });
+
+  it('stays waiting and tears down hls.js when firstFrame timeout fires with no data', async () => {
+    // Regression: Chrome resolves play() on an empty MediaSource silently — without
+    // this guard the player would call setState('live'), hide the overlay, and show
+    // a permanently black-silent canvas (case C black screen).
+    vi.useFakeTimers();
+    const { Hls, instances } = fakeHls(true);
+    const video = fakeVideo({ canNative: false }) as any;
+    video.readyState = 0; // HAVE_NOTHING — canplay never fired before the timeout
+    const p = new HlsPlayer({
+      code: 'ab12cd',
+      video,
+      loadHls: async () => ({ Hls }),
+      fetchWebinar: vi.fn().mockResolvedValue(webinar({ status: 'live' })),
+      firstFrameTimeoutMs: 50,
+    });
+
+    const startP = p.start();
+    await vi.advanceTimersByTimeAsync(200); // past the 50 ms firstFrame timeout
+    await startP;
+
+    expect(p.getState()).toBe('waiting'); // overlay must stay up, not go live
+    expect(instances[0]?.destroy).toHaveBeenCalled(); // stale hls.js torn down
+    p.destroy();
+    vi.useRealTimers();
+  });
 });

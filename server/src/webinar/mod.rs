@@ -106,6 +106,10 @@ pub struct Webinar {
     /// Snapshot of the host's avatar URL at webinar creation time (043). NULL for
     /// webinars created before the migration or when the host has no avatar.
     pub host_avatar_url: Option<String>,
+    /// When true, only authenticated (logged-in) users may join the presence WebSocket;
+    /// unauthenticated guests can still view metadata but are blocked from participating
+    /// (migration 044).
+    pub members_only: bool,
 }
 
 /// Fields for creating a webinar (F0-3); the `code` is generated server-side.
@@ -124,6 +128,7 @@ pub struct NewWebinar<'a> {
     pub scheduled_start: Option<DateTime<Utc>>,
     pub scheduled_end: Option<DateTime<Utc>>,
     pub project_id: Option<Uuid>,
+    pub members_only: bool,
 }
 
 /// Insert a webinar, generating a fresh code and retrying the rare UNIQUE(code)
@@ -149,9 +154,9 @@ async fn insert_webinar(
         "INSERT INTO webinars
             (org_id, host_user_id, code, title, description, source_language, tier,
              record_video, record_transcript, voice_clone, chat_enabled, visibility,
-             scheduled_start, scheduled_end, project_id, host_avatar_url)
+             scheduled_start, scheduled_end, project_id, host_avatar_url, members_only)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-             (SELECT avatar_url FROM users WHERE id = $2))
+             (SELECT avatar_url FROM users WHERE id = $2), $16)
          RETURNING *",
     )
     .bind(new.org_id)
@@ -169,6 +174,7 @@ async fn insert_webinar(
     .bind(new.scheduled_start)
     .bind(new.scheduled_end)
     .bind(new.project_id)
+    .bind(new.members_only)
     .fetch_one(pool)
     .await
 }

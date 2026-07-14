@@ -337,9 +337,6 @@ async fn handle_presence(socket: WebSocket, state: AppState, code: String, param
         .filter(|l| crate::webinar::routes::valid_lang(l).is_ok())
         .map(str::to_string);
 
-    let (mut ws_tx, mut ws_rx) = socket.split();
-    let (tx, mut rx) = mpsc::unbounded_channel::<Message>();
-
     // Resolve the webinar up front — needed both for the DB history and for
     // org-scoped host authorization (best-effort; without a pool we stay a viewer).
     let webinar = match state.pool.as_ref() {
@@ -361,6 +358,44 @@ async fn handle_presence(socket: WebSocket, state: AppState, code: String, param
             (Some(p), Some(w), Some(tok)) => verify_host_member(&state, p, w.org_id, tok).await,
             _ => false,
         };
+
+    // Members-only gate: non-host connections to a members_only webinar require a
+    // valid JWT. The token is already provided in `params.token` (same mechanism as
+    // host auth). If absent or invalid, close the WS immediately with a policy-violation
+    // close frame (1008) rather than admitting them as a viewer.
+    if !is_host {
+        if let Some(w) = webinar.as_ref() {
+            if w.members_only {
+                let authed = params
+                    .token
+                    .as_deref()
+                    .and_then(|tok| {
+                        state
+                            .config
+                            .billing
+                            .as_ref()
+                            .and_then(|b| verify_jwt(&b.jwt_secret, tok).ok())
+                    })
+                    .and_then(|c| Uuid::parse_str(&c.sub).ok())
+                    .is_some();
+                if !authed {
+                    // Close the WS with a policy-violation code (1008) — the client
+                    // sees the close and can show the login gate.
+                    let mut socket = socket;
+                    let _ = socket
+                        .send(Message::Close(Some(axum::extract::ws::CloseFrame {
+                            code: 1008,
+                            reason: "members only".into(),
+                        })))
+                        .await;
+                    return;
+                }
+            }
+        }
+    }
+
+    let (mut ws_tx, mut ws_rx) = socket.split();
+    let (tx, mut rx) = mpsc::unbounded_channel::<Message>();
 
     let conn_id = state.webinar_presence.join(
         &code,

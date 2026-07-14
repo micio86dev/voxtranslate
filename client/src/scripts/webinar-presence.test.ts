@@ -229,14 +229,17 @@ describe('buildPresenceUrl', () => {
       'wss://x.dev/api/w/',
     );
   });
-  it('sends the host token only when host=true', () => {
-    // A host proves org membership so the server honors host=true.
+  it('sends the token when provided, regardless of host flag', () => {
+    // Hosts and authenticated viewers (members-only rooms) both send their JWT.
     expect(
       buildPresenceUrl({ ...baseOpts, host: true, token: 'jwt-123' }),
     ).toContain('&token=jwt-123');
-    // A viewer never leaks a token even if one is passed.
     expect(
       buildPresenceUrl({ ...baseOpts, host: false, token: 'jwt-123' }),
+    ).toContain('token=jwt-123');
+    // No token param when none is provided.
+    expect(
+      buildPresenceUrl({ ...baseOpts, host: false }),
     ).not.toContain('token=');
   });
 });
