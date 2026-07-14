@@ -76,6 +76,12 @@ Nous utilisons des mesures conformes aux standards du secteur pour protéger les
 
 Le Service est destiné aux adultes (18+). Nous ne traitons pas sciemment de données d'enfants. Si vous pensez qu'un enfant nous a fourni des données, contactez-nous et nous les supprimerons.
 
-## 10. Modifications
+## 10. Données utilisateur Google (Agenda) et utilisation limitée
+
+Lorsque vous vous connectez avec Google et utilisez la fonction de planification de réunions de VoxTranslate, nous accédons à certaines données de votre compte Google : votre profil de base (nom, adresse e-mail, photo de profil) pour créer et identifier votre compte, et votre Google Agenda via le périmètre calendar.events. Nous utilisons l'accès à l'Agenda uniquement pour créer, mettre à jour et supprimer les événements du calendrier pour les réunions que vous planifiez via VoxTranslate et pour ajouter les personnes que vous invitez en tant que participants afin que Google puisse leur envoyer des invitations et des rappels. Nous créons et modifions uniquement les événements que vous créez via la fonctionnalité de planification de VoxTranslate ; nous ne lisons, modifions ni supprimons jamais vos autres entrées de calendrier. Pour maintenir vos événements synchronisés, nous stockons un jeton d'actualisation Google chiffré au repos, ainsi qu'un enregistrement minimal de chaque réunion (titre, heure, lien de salle et les invités que vous choisissez). Vous pouvez déconnecter Google Agenda à tout moment, ce qui supprime le jeton stocké.
+
+L'utilisation et le transfert des informations reçues des API Google vers toute autre application par VoxTranslate seront conformes à la [Politique de données utilisateur des services API Google](https://developers.google.com/terms/api-services-user-data-policy), y compris les exigences d'utilisation limitée. Nous n'utilisons pas les données utilisateur Google à des fins publicitaires, nous ne les vendons pas et nous ne permettons pas à des personnes de les lire à moins que nous ayons votre consentement, que cela soit nécessaire pour des raisons de sécurité ou pour se conformer à la loi applicable, ou que les données aient été agrégées et anonymisées.
+
+## 11. Modifications
 
 Nous pouvons mettre à jour cette Politique ; nous réviserons la version et la date et, pour les modifications substantielles, prendrons des mesures supplémentaires lorsque la loi l'exige.

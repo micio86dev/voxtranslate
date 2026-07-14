@@ -76,6 +76,12 @@ We use industry-standard measures to protect personal data, including encryption
 
 The Service is for adults (18+). We do not knowingly process data of children. If you believe a child has provided us data, contact us and we will delete it.
 
-## 10. Changes
+## 10. Google user data (Calendar) and Limited Use
+
+When you sign in with Google and use VoxTranslate's meeting-scheduling feature, we access certain data from your Google Account: your basic profile (name, email address, profile picture) to create and identify your account, and your Google Calendar via the calendar.events scope. We use Calendar access solely to create, update, and delete the calendar events for the meetings you schedule through VoxTranslate, and to add the people you invite as attendees so Google can send them invitations and reminders. We only create and modify events that you create through VoxTranslate's scheduling feature; we never read, edit, or delete any of your other calendar entries. To keep your events in sync we store a Google refresh token, encrypted at rest, plus a minimal record of each meeting (title, time, room link, and the invitees you choose). You can disconnect Google Calendar at any time, which deletes the stored token.
+
+VoxTranslate's use and transfer of information received from Google APIs to any other app will adhere to the [Google API Services User Data Policy](https://developers.google.com/terms/api-services-user-data-policy), including the Limited Use requirements. We do not use Google user data for advertising, we do not sell it, and we do not allow humans to read it unless we have your consent, it is necessary for security or to comply with applicable law, or the data has been aggregated and anonymised.
+
+## 11. Changes
 
 We may update this Policy; we will revise the version and date and, for material changes, take additional steps where required by law.

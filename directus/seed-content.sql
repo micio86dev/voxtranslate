@@ -566,7 +566,13 @@ Adottiamo misure standard del settore per proteggere i dati personali, inclusa l
 
 Il Servizio è destinato agli adulti (18+). Non trattiamo consapevolmente dati di minori. Se ritieni che un minore ci abbia fornito dati, contattaci e li elimineremo.
 
-## 10. Modifiche
+## 10. Dati utente Google (Calendar) e uso limitato
+
+Quando accedi con Google e utilizzi la funzione di pianificazione riunioni di VoxTranslate, accediamo a determinati dati del tuo account Google: il tuo profilo di base (nome, indirizzo email, foto profilo) per creare e identificare il tuo account, e il tuo Google Calendar tramite lo scope calendar.events. Utilizziamo l''accesso al Calendar esclusivamente per creare, aggiornare ed eliminare gli eventi del calendario per le riunioni che pianifichi tramite VoxTranslate e per aggiungere le persone che inviti come partecipanti, in modo che Google possa inviare loro inviti e promemoria. Creiamo e modifichiamo solo gli eventi che tu crei tramite la funzione di pianificazione di VoxTranslate; non leggiamo mai, modifichiamo né eliminiamo nessun''altra voce del tuo calendario. Per mantenere i tuoi eventi sincronizzati, conserviamo un token di aggiornamento Google cifrato a riposo, oltre a un registro minimo di ogni riunione (titolo, orario, link alla stanza e i partecipanti che scegli). Puoi disconnettere Google Calendar in qualsiasi momento, il che eliminerà il token memorizzato.
+
+L''uso e il trasferimento da parte di VoxTranslate delle informazioni ricevute dalle API di Google a qualsiasi altra app avverranno in conformità con la [Google API Services User Data Policy](https://developers.google.com/terms/api-services-user-data-policy), inclusi i requisiti di uso limitato. Non utilizziamo i dati utente Google per scopi pubblicitari, non li vendiamo e non permettiamo a persone di leggerli a meno che non abbiamo il tuo consenso, sia necessario per motivi di sicurezza o per rispettare la legge applicabile, oppure i dati siano stati aggregati e anonimizzati.
+
+## 11. Modifiche
 
 Possiamo aggiornare questa Informativa; ne rivedremo la versione e la data e, per modifiche sostanziali, adotteremo ulteriori misure ove richiesto dalla legge.' FROM legal_pages WHERE slug = 'privacy'
   ON CONFLICT (page_id, language) DO UPDATE SET title = EXCLUDED.title, body = EXCLUDED.body;
@@ -649,7 +655,13 @@ We use industry-standard measures to protect personal data, including encryption
 
 The Service is for adults (18+). We do not knowingly process data of children. If you believe a child has provided us data, contact us and we will delete it.
 
-## 10. Changes
+## 10. Google user data (Calendar) and Limited Use
+
+When you sign in with Google and use VoxTranslate''s meeting-scheduling feature, we access certain data from your Google Account: your basic profile (name, email address, profile picture) to create and identify your account, and your Google Calendar via the calendar.events scope. We use Calendar access solely to create, update, and delete the calendar events for the meetings you schedule through VoxTranslate, and to add the people you invite as attendees so Google can send them invitations and reminders. We only create and modify events that you create through VoxTranslate''s scheduling feature; we never read, edit, or delete any of your other calendar entries. To keep your events in sync we store a Google refresh token, encrypted at rest, plus a minimal record of each meeting (title, time, room link, and the invitees you choose). You can disconnect Google Calendar at any time, which deletes the stored token.
+
+VoxTranslate''s use and transfer of information received from Google APIs to any other app will adhere to the [Google API Services User Data Policy](https://developers.google.com/terms/api-services-user-data-policy), including the Limited Use requirements. We do not use Google user data for advertising, we do not sell it, and we do not allow humans to read it unless we have your consent, it is necessary for security or to comply with applicable law, or the data has been aggregated and anonymised.
+
+## 11. Changes
 
 We may update this Policy; we will revise the version and date and, for material changes, take additional steps where required by law.' FROM legal_pages WHERE slug = 'privacy'
   ON CONFLICT (page_id, language) DO UPDATE SET title = EXCLUDED.title, body = EXCLUDED.body;
@@ -732,7 +744,13 @@ Usamos medidas estándar del sector para proteger los datos personales, incluido
 
 El Servicio es para adultos (18+). No tratamos conscientemente datos de menores. Si crees que un menor nos ha facilitado datos, contáctanos y los eliminaremos.
 
-## 10. Cambios
+## 10. Datos de usuario de Google (Calendario) y uso limitado
+
+Cuando inicias sesión con Google y usas la función de programación de reuniones de VoxTranslate, accedemos a ciertos datos de tu cuenta de Google: tu perfil básico (nombre, dirección de correo, foto de perfil) para crear e identificar tu cuenta, y tu Google Calendar mediante el ámbito calendar.events. Usamos el acceso al Calendario únicamente para crear, actualizar y eliminar los eventos del calendario para las reuniones que programas a través de VoxTranslate y para añadir a las personas que invitas como asistentes, de modo que Google pueda enviarles invitaciones y recordatorios. Solo creamos y modificamos eventos que tú creas a través de la función de programación de VoxTranslate; nunca leemos, editamos ni eliminamos ninguna otra entrada de tu calendario. Para mantener tus eventos sincronizados, almacenamos un token de actualización de Google cifrado en reposo, más un registro mínimo de cada reunión (título, hora, enlace de sala y los asistentes que eliges). Puedes desconectar Google Calendar en cualquier momento, lo que elimina el token almacenado.
+
+El uso y la transferencia de información recibida de las APIs de Google a cualquier otra aplicación por parte de VoxTranslate se ajustarán a la [Política de Datos de Usuario de los Servicios API de Google](https://developers.google.com/terms/api-services-user-data-policy), incluidos los requisitos de uso limitado. No utilizamos los datos de usuario de Google para publicidad, no los vendemos y no permitimos que personas los lean a menos que tengamos tu consentimiento, sea necesario por seguridad o para cumplir la ley aplicable, o los datos hayan sido agregados y anonimizados.
+
+## 11. Cambios
 
 Podemos actualizar esta Política; revisaremos la versión y la fecha y, para cambios sustanciales, adoptaremos medidas adicionales cuando lo exija la ley.' FROM legal_pages WHERE slug = 'privacy'
   ON CONFLICT (page_id, language) DO UPDATE SET title = EXCLUDED.title, body = EXCLUDED.body;
@@ -815,7 +833,13 @@ Nous utilisons des mesures conformes aux standards du secteur pour protéger les
 
 Le Service est destiné aux adultes (18+). Nous ne traitons pas sciemment de données d''enfants. Si vous pensez qu''un enfant nous a fourni des données, contactez-nous et nous les supprimerons.
 
-## 10. Modifications
+## 10. Données utilisateur Google (Agenda) et utilisation limitée
+
+Lorsque vous vous connectez avec Google et utilisez la fonction de planification de réunions de VoxTranslate, nous accédons à certaines données de votre compte Google : votre profil de base (nom, adresse e-mail, photo de profil) pour créer et identifier votre compte, et votre Google Agenda via le périmètre calendar.events. Nous utilisons l''accès à l''Agenda uniquement pour créer, mettre à jour et supprimer les événements du calendrier pour les réunions que vous planifiez via VoxTranslate et pour ajouter les personnes que vous invitez en tant que participants afin que Google puisse leur envoyer des invitations et des rappels. Nous créons et modifions uniquement les événements que vous créez via la fonctionnalité de planification de VoxTranslate ; nous ne lisons, modifions ni supprimons jamais vos autres entrées de calendrier. Pour maintenir vos événements synchronisés, nous stockons un jeton d''actualisation Google chiffré au repos, ainsi qu''un enregistrement minimal de chaque réunion (titre, heure, lien de salle et les invités que vous choisissez). Vous pouvez déconnecter Google Agenda à tout moment, ce qui supprime le jeton stocké.
+
+L''utilisation et le transfert des informations reçues des API Google vers toute autre application par VoxTranslate seront conformes à la [Politique de données utilisateur des services API Google](https://developers.google.com/terms/api-services-user-data-policy), y compris les exigences d''utilisation limitée. Nous n''utilisons pas les données utilisateur Google à des fins publicitaires, nous ne les vendons pas et nous ne permettons pas à des personnes de les lire à moins que nous ayons votre consentement, que cela soit nécessaire pour des raisons de sécurité ou pour se conformer à la loi applicable, ou que les données aient été agrégées et anonymisées.
+
+## 11. Modifications
 
 Nous pouvons mettre à jour cette Politique ; nous réviserons la version et la date et, pour les modifications substantielles, prendrons des mesures supplémentaires lorsque la loi l''exige.' FROM legal_pages WHERE slug = 'privacy'
   ON CONFLICT (page_id, language) DO UPDATE SET title = EXCLUDED.title, body = EXCLUDED.body;
@@ -898,7 +922,13 @@ Wir setzen branchenübliche Maßnahmen zum Schutz personenbezogener Daten ein, e
 
 Der Dienst ist für Erwachsene (18+) bestimmt. Wir verarbeiten wissentlich keine Daten von Kindern. Wenn Sie glauben, dass ein Kind uns Daten übermittelt hat, kontaktieren Sie uns, und wir werden sie löschen.
 
-## 10. Änderungen
+## 10. Google-Nutzerdaten (Kalender) und eingeschränkte Verwendung
+
+Wenn Sie sich mit Google anmelden und die Terminplanungsfunktion von VoxTranslate nutzen, greifen wir auf bestimmte Daten aus Ihrem Google-Konto zu: Ihr Basisprofil (Name, E-Mail-Adresse, Profilbild) zur Kontoerstellung und -identifizierung sowie Ihren Google Kalender über den calendar.events-Bereich. Wir verwenden den Kalenderzugriff ausschließlich dazu, die Kalendertermine für die von Ihnen über VoxTranslate geplanten Meetings zu erstellen, zu aktualisieren und zu löschen und die von Ihnen eingeladenen Personen als Teilnehmer hinzuzufügen, damit Google ihnen Einladungen und Erinnerungen senden kann. Wir erstellen und ändern nur Termine, die Sie über die Planungsfunktion von VoxTranslate erstellt haben; wir lesen, bearbeiten oder löschen niemals andere Kalendereinträge. Zur Synchronisierung Ihrer Termine speichern wir ein verschlüsseltes Google Refresh-Token sowie einen minimalen Datensatz jedes Meetings (Titel, Uhrzeit, Raumlink und die von Ihnen gewählten Eingeladenen). Sie können Google Kalender jederzeit trennen, wodurch das gespeicherte Token gelöscht wird.
+
+Die Verwendung und Weitergabe von Informationen, die VoxTranslate von Google APIs erhalten hat, an andere Apps erfolgt in Übereinstimmung mit der [Google API Services User Data Policy](https://developers.google.com/terms/api-services-user-data-policy), einschließlich der Anforderungen zur eingeschränkten Verwendung. Wir verwenden Google-Nutzerdaten nicht für Werbung, verkaufen sie nicht und erlauben Menschen keinen Zugriff darauf, außer mit Ihrer Einwilligung, aus Sicherheitsgründen, zur Einhaltung geltenden Rechts oder wenn die Daten aggregiert und anonymisiert wurden.
+
+## 11. Änderungen
 
 Wir können diese Erklärung aktualisieren; wir werden Version und Datum anpassen und bei wesentlichen Änderungen zusätzliche Schritte unternehmen, soweit gesetzlich erforderlich.' FROM legal_pages WHERE slug = 'privacy'
   ON CONFLICT (page_id, language) DO UPDATE SET title = EXCLUDED.title, body = EXCLUDED.body;
@@ -981,7 +1011,13 @@ Usamos medidas padrão do setor para proteger os dados pessoais, incluindo encri
 
 O Serviço destina-se a adultos (18+). Não tratamos conscientemente dados de menores. Se acredita que um menor nos forneceu dados, contacte-nos e iremos eliminá-los.
 
-## 10. Alterações
+## 10. Dados de utilizador do Google (Calendário) e utilização limitada
+
+Quando inicia sessão com o Google e usa a funcionalidade de agendamento de reuniões do VoxTranslate, acedemos a determinados dados da sua conta Google: o seu perfil básico (nome, endereço de e-mail, foto de perfil) para criar e identificar a sua conta, e o seu Google Calendário através do âmbito calendar.events. Utilizamos o acesso ao Calendário exclusivamente para criar, atualizar e eliminar os eventos do calendário para as reuniões que agenda através do VoxTranslate e para adicionar as pessoas que convida como participantes, para que o Google possa enviar-lhes convites e lembretes. Criamos e modificamos apenas os eventos que você cria através da funcionalidade de agendamento do VoxTranslate; nunca lemos, editamos ou eliminamos outras entradas do seu calendário. Para manter os seus eventos sincronizados, armazenamos um token de atualização do Google cifrado em repouso, mais um registo mínimo de cada reunião (título, hora, link da sala e os convidados que escolhe). Pode desligar o Google Calendário a qualquer momento, o que eliminará o token armazenado.
+
+A utilização e transferência de informações recebidas das APIs do Google para qualquer outra aplicação por parte do VoxTranslate estará em conformidade com a [Política de Dados de Utilizador dos Serviços de API do Google](https://developers.google.com/terms/api-services-user-data-policy), incluindo os requisitos de utilização limitada. Não utilizamos dados de utilizador do Google para publicidade, não os vendemos e não permitimos que pessoas os leiam, exceto com o seu consentimento, quando necessário por razões de segurança ou para cumprir a lei aplicável, ou quando os dados foram agregados e anonimizados.
+
+## 11. Alterações
 
 Podemos atualizar esta Política; revisaremos a versão e a data e, para alterações substanciais, tomaremos medidas adicionais quando exigido por lei.' FROM legal_pages WHERE slug = 'privacy'
   ON CONFLICT (page_id, language) DO UPDATE SET title = EXCLUDED.title, body = EXCLUDED.body;
@@ -1064,7 +1100,13 @@ INSERT INTO legal_translations (page_id, language, title, body)
 
 本サービスは成人（18歳以上）向けです。当社は児童のデータを故意に処理しません。児童が当社にデータを提供したと思われる場合は、ご連絡ください。削除いたします。
 
-## 10. 変更
+## 10. Googleユーザーデータ（カレンダー）と限定的な使用
+
+Googleでサインインし、VoxTranslateの会議スケジュール機能をご利用になると、当社はお客様のGoogleアカウントから特定のデータにアクセスします。具体的には、アカウントの作成と識別のための基本プロフィール（名前、メールアドレス、プロフィール画像）、およびcalendar.eventsスコープを通じたGoogleカレンダーです。カレンダーへのアクセスは、お客様がVoxTranslateを通じてスケジュールした会議のカレンダーイベントの作成・更新・削除、およびお客様が招待した方々を参加者として追加することのみを目的としています（これによりGoogleから招待状とリマインダーが送信されます）。作成・変更するのはVoxTranslateのスケジュール機能でお客様が作成したイベントのみであり、他のカレンダーの予定を読み取ったり、編集したり、削除することは一切ありません。イベントを同期させるために、暗号化されたGoogleリフレッシュトークンと各会議の最小限の記録（タイトル、時間、ルームリンク、選択した招待者）を保存します。Googleカレンダーはいつでも切断でき、切断すると保存されたトークンが削除されます。
+
+VoxTranslateによるGoogle APIから受け取った情報の使用および他のアプリへの転送は、限定的な使用の要件を含む[Google APIサービスユーザーデータポリシー](https://developers.google.com/terms/api-services-user-data-policy)に準拠します。当社はGoogleユーザーデータを広告目的で使用せず、販売もせず、お客様の同意がある場合、セキュリティ上の必要性がある場合、適用法の遵守に必要な場合、またはデータが集計・匿名化されている場合を除き、人間がデータを閲覧することを許可しません。
+
+## 11. 変更
 
 当社は本ポリシーを更新することがあります。その際はバージョンと日付を改訂し、重要な変更については、法律で要求される場合に追加の措置を講じます。' FROM legal_pages WHERE slug = 'privacy'
   ON CONFLICT (page_id, language) DO UPDATE SET title = EXCLUDED.title, body = EXCLUDED.body;
@@ -1147,7 +1189,13 @@ INSERT INTO legal_translations (page_id, language, title, body)
 
 本服务面向成年人（18 岁以上）。我们不会有意处理儿童的数据。如果您认为有儿童向我们提供了数据，请联系我们，我们将予以删除。
 
-## 10. 变更
+## 10. Google 用户数据（日历）与限制性使用
+
+当您使用 Google 登录并使用 VoxTranslate 的会议日程功能时，我们会访问您 Google 账户中的特定数据：您的基本资料（姓名、电子邮件地址、头像），用于创建和识别您的账户；以及通过 calendar.events 范围访问您的 Google 日历。我们使用日历访问权限的唯一目的是：为您通过 VoxTranslate 安排的会议创建、更新和删除日历事件，并将您邀请的人员添加为与会者，以便 Google 可以向他们发送邀请和提醒。我们仅创建和修改您通过 VoxTranslate 日程功能创建的事件；我们绝不读取、编辑或删除您的任何其他日历条目。为使您的事件保持同步，我们存储经过静态加密的 Google 刷新令牌，以及每次会议的最少记录（标题、时间、会议室链接和您选择的受邀者）。您可以随时断开 Google 日历连接，这将删除已存储的令牌。
+
+VoxTranslate 对从 Google API 收到的信息的使用和向任何其他应用程序的传输，将遵守 [Google API 服务用户数据政策](https://developers.google.com/terms/api-services-user-data-policy)，包括限制性使用要求。我们不会将 Google 用户数据用于广告目的，不会出售这些数据，且除非获得您的同意、出于安全需要、为遵守适用法律所必要，或数据已经过汇总和匿名化处理，否则不允许任何人读取这些数据。
+
+## 11. 变更
 
 我们可能会更新本政策；届时将修订版本和日期，对于重大变更，将在法律要求时采取额外措施。' FROM legal_pages WHERE slug = 'privacy'
   ON CONFLICT (page_id, language) DO UPDATE SET title = EXCLUDED.title, body = EXCLUDED.body;
