@@ -96,11 +96,17 @@ function renderState(state: PlayerState): void {
 /** Whether captions are currently shown (toggled by the CC button). Starts on. */
 let subtitlesOn = true;
 
+/** Auto-clear timer: hides the subtitle overlay 5 s after the last final line. */
+let subtitleClearTimer: ReturnType<typeof setTimeout> | null = null;
+
 /**
  * Render a live-subtitle event into the overlay in the viewer's language. Finals show
  * `translations[myLang]` (falling back to the source `original`); interims show the raw
  * source `text` while it streams. No-op while captions are toggled off, or when the mode
  * has nothing to show (then the previous caption stays on screen). Exported for unit tests.
+ *
+ * Final subtitles also schedule an auto-clear of the overlay after 5 seconds so the
+ * caption doesn't linger on screen between phrases.
  */
 export function renderSubtitle(overlay: HTMLElement, event: SubtitleEvent): void {
   if (!subtitlesOn) return;
@@ -114,8 +120,18 @@ export function renderSubtitle(overlay: HTMLElement, event: SubtitleEvent): void
       original: event.original,
       interim: false,
     });
+    // Schedule auto-clear: remove the subtitle 5 s after the last final line.
+    if (subtitleClearTimer) clearTimeout(subtitleClearTimer);
+    subtitleClearTimer = setTimeout(() => {
+      overlay.innerHTML = '';
+      subtitleClearTimer = null;
+    }, 5_000);
   } else {
-    // Interim: only the streaming source is known — show it as the main line.
+    // Interim: cancel any pending clear (streaming is active) then render.
+    if (subtitleClearTimer) {
+      clearTimeout(subtitleClearTimer);
+      subtitleClearTimer = null;
+    }
     renderSubtitleInto(overlay, 'both', {
       original: event.text,
       interim: true,
@@ -212,6 +228,46 @@ export function mountWebinarPlayer(): void {
   });
   paintCc();
 
+  // Transcript history panel: accumulates final subtitle lines with timestamps.
+  const transcriptToggleBtn = document.getElementById('wv-transcript-toggle') as HTMLButtonElement | null;
+  const transcriptPanel = document.getElementById('wv-transcript');
+  const transcriptList = document.getElementById('wv-transcript-list');
+  const transcriptEmpty = document.getElementById('wv-transcript-empty');
+  let transcriptOpen = false;
+
+  function paintTranscript(): void {
+    if (!transcriptToggleBtn) return;
+    transcriptToggleBtn.textContent = t(transcriptOpen ? 'wvTranscriptHide' : 'wvTranscriptShow');
+    transcriptToggleBtn.setAttribute('aria-pressed', transcriptOpen ? 'true' : 'false');
+  }
+  transcriptToggleBtn?.addEventListener('click', () => {
+    transcriptOpen = !transcriptOpen;
+    show(transcriptPanel, transcriptOpen);
+    paintTranscript();
+    if (transcriptOpen && transcriptList) transcriptList.scrollTop = transcriptList.scrollHeight;
+  });
+  paintTranscript();
+
+  /** Append a confirmed final subtitle line (in the viewer's language) to the history panel. */
+  function appendTranscriptEntry(translation: string): void {
+    if (!transcriptList) return;
+    const now = new Date();
+    const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const item = document.createElement('div');
+    item.className = 'wv-tr-item';
+    const timeEl = document.createElement('span');
+    timeEl.className = 'wv-tr-time';
+    timeEl.textContent = timeStr;
+    const textEl = document.createElement('span');
+    textEl.className = 'wv-tr-text';
+    textEl.textContent = translation;
+    item.append(timeEl, textEl);
+    transcriptList.appendChild(item);
+    // Hide empty state and auto-scroll when the panel is open.
+    if (transcriptEmpty) transcriptEmpty.style.display = 'none';
+    if (transcriptOpen) transcriptList.scrollTop = transcriptList.scrollHeight;
+  }
+
   let presence: PresenceClient | null = null;
 
   // Auto-translated chat (Feature ⑤). Gated on the webinar's `chat_enabled` flag, fetched
@@ -247,7 +303,14 @@ export function mountWebinarPlayer(): void {
       lang: getUiLang(),
       onCount: renderWatching,
       onSubtitle: subtitleOverlay
-        ? (event) => renderSubtitle(subtitleOverlay, event)
+        ? (event) => {
+            renderSubtitle(subtitleOverlay, event);
+            // Accumulate final lines in the transcript history panel.
+            if (event.kind === 'final') {
+              const myLang = getUiLang();
+              appendTranscriptEntry(event.translations[myLang] ?? event.original);
+            }
+          }
         : undefined,
       onChat: onChat ?? undefined,
     });

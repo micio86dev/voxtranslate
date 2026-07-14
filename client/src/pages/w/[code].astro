@@ -142,12 +142,23 @@ const pageDesc = webinar
             <button id="wv-cc" type="button" class="wv-ctl" aria-pressed="true" data-i18n="wvSubtitlesOn">
               Subtitles on
             </button>
+            <!-- Transcript history toggle. Always shown; collapses the history panel. -->
+            <button id="wv-transcript-toggle" type="button" class="wv-ctl" aria-pressed="false" aria-controls="wv-transcript" data-i18n="wvTranscriptShow">
+              Show transcript
+            </button>
             <!-- Chat show/hide toggle (Feature ⑤). Hidden until the view controller confirms
                  the webinar has chat enabled; then it reveals + toggles the panel below. -->
             <button id="wv-chat-toggle" type="button" class="wv-ctl hidden" aria-pressed="false" aria-controls="wv-chat" data-i18n="wvChatShow">
               Show chat
             </button>
           </div>
+
+          <!-- Transcript history panel: shows final subtitle lines with timestamps.
+               Collapsed by default; the toggle button reveals/hides it. -->
+          <section id="wv-transcript" class="wv-transcript hidden" aria-label="Transcript">
+            <div id="wv-transcript-list" class="wv-tr-list" role="log" aria-live="polite" aria-relevant="additions"></div>
+            <p id="wv-transcript-empty" class="wv-tr-empty" data-i18n="wvTranscriptEmpty">No subtitles yet.</p>
+          </section>
 
           <!-- Auto-translated chat panel (Feature ⑤). Everyone sends; everyone reads each
                message translated into their own language. Collapsed + hidden until enabled
@@ -384,6 +395,62 @@ const pageDesc = webinar
       background: rgba(59, 130, 246, 0.15);
       border-color: rgba(59, 130, 246, 0.5);
       color: #93c5fd;
+    }
+    /* Transcript history panel: scrollable log of final subtitle lines with timestamps. */
+    .wv-transcript {
+      width: 100%;
+      max-width: 960px;
+      margin: 0 auto;
+      border-radius: 14px;
+      background: var(--surface, #1b2330);
+      border: 1px solid var(--border, #2a3444);
+      overflow: hidden;
+    }
+    .wv-transcript.hidden {
+      display: none;
+    }
+    .wv-tr-list {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      max-height: 280px;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      -webkit-overflow-scrolling: touch;
+      scroll-behavior: smooth;
+      padding: 12px;
+    }
+    .wv-tr-list:empty + .wv-tr-empty {
+      display: block;
+    }
+    .wv-tr-empty {
+      display: none;
+      padding: 20px;
+      text-align: center;
+      font-size: 0.85rem;
+      color: var(--text-muted, #9aa4b2);
+    }
+    .wv-tr-item {
+      display: grid;
+      grid-template-columns: 44px 1fr;
+      gap: 8px;
+      padding: 6px 8px;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      line-height: 1.4;
+    }
+    .wv-tr-item:hover {
+      background: rgba(255, 255, 255, 0.03);
+    }
+    .wv-tr-time {
+      font-size: 0.72rem;
+      color: var(--text-muted, #9aa4b2);
+      padding-top: 2px;
+      white-space: nowrap;
+      font-variant-numeric: tabular-nums;
+    }
+    .wv-tr-text {
+      color: var(--text, #e5e7eb);
     }
     /* Auto-translated chat panel (Feature ⑤). Mobile-first: a bounded, scrollable message
        list with a sticky input row that clears the on-screen keyboard via the safe-area
