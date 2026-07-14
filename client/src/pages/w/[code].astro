@@ -77,6 +77,21 @@ const pageDesc = webinar
         </div>
       ) : (
         <div class="wv-stage">
+          <!-- Pre-webinar name gate: shown only to guests who have no stored display name.
+               webinar-view.ts shows it immediately and hides it on submit. Guests who
+               already have a name (returning visitors) never see this overlay. -->
+          <div id="wv-name-gate" class="wv-name-gate hidden">
+            <div class="wv-name-gate-card">
+              <p class="wv-name-gate-label" data-i18n="wvChatNamePrompt">Choose a display name to chat</p>
+              <div class="wv-name-gate-row">
+                <input id="wv-name-gate-input" class="wv-name-gate-input" type="text" maxlength="40"
+                       autocomplete="nickname" enterkeyhint="go"
+                       data-i18n-ph="wvChatNamePlaceholder" placeholder="Your name" />
+                <button id="wv-name-gate-save" type="button" class="wv-btn" data-i18n="wvChatSend">Send</button>
+              </div>
+            </div>
+          </div>
+
           <header class="wv-head">
             <h1 class="wv-heading">{webinar ? webinar.title : ''}</h1>
             <div class="wv-head-meta">
@@ -138,9 +153,6 @@ const pageDesc = webinar
           <div class="wv-controls">
             <button id="wv-mute" type="button" class="wv-ctl" aria-pressed="false" data-i18n="wvMuteAudio">
               Mute audio
-            </button>
-            <button id="wv-listen" type="button" class="wv-ctl" aria-pressed="false" data-i18n="wvListenOriginal">
-              Listen in the original language
             </button>
             <button id="wv-cc" type="button" class="wv-ctl" aria-pressed="true" data-i18n="wvSubtitlesOn">
               Subtitles on
@@ -237,6 +249,59 @@ const pageDesc = webinar
       color: #fff;
       text-decoration: none;
       font-weight: 600;
+    }
+    /* Pre-webinar name gate — shown full-screen before the webinar if the guest has
+       no stored display name. Hides the webinar behind it until the name is submitted. */
+    .wv-name-gate {
+      position: fixed;
+      inset: 0;
+      z-index: 50;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      background: var(--bg, #0d0f16);
+    }
+    .wv-name-gate.hidden {
+      display: none;
+    }
+    .wv-name-gate-card {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      padding: 28px 24px;
+      border-radius: 16px;
+      background: var(--surface, #1b2330);
+      border: 1px solid var(--border, #2a3444);
+      width: 100%;
+      max-width: 360px;
+    }
+    .wv-name-gate-label {
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: var(--text, #e5e7eb);
+      margin: 0;
+      text-align: center;
+    }
+    .wv-name-gate-row {
+      display: flex;
+      gap: 8px;
+    }
+    .wv-name-gate-input {
+      flex: 1 1 auto;
+      min-width: 0;
+      min-height: 44px;
+      padding: 0 14px;
+      font-size: 1rem;
+      font-family: inherit;
+      border-radius: 10px;
+      background: var(--bg, #0d0f16);
+      border: 1px solid var(--border, #2a3444);
+      color: var(--text, #e5e7eb);
+    }
+    .wv-name-gate-input:focus {
+      outline: 2px solid var(--accent, #3b82f6);
+      outline-offset: 1px;
     }
     .wv-stage {
       width: 100%;
@@ -442,26 +507,30 @@ const pageDesc = webinar
       font-size: 0.85rem;
       color: var(--text-muted, #9aa4b2);
     }
-    .wv-tr-item {
-      display: grid;
-      grid-template-columns: 44px 1fr;
-      gap: 8px;
-      padding: 6px 8px;
+    /* Transcript items are created at runtime by buildTranscriptItem() → must be :global. */
+    :global(.wv-tr-item) {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      padding: 8px 12px;
       border-radius: 8px;
       font-size: 0.9rem;
-      line-height: 1.4;
+      line-height: 1.45;
+      border-left: 2px solid rgba(59, 130, 246, 0.3);
+      background: rgba(255, 255, 255, 0.02);
     }
-    .wv-tr-item:hover {
-      background: rgba(255, 255, 255, 0.03);
+    :global(.wv-tr-item:hover) {
+      background: rgba(255, 255, 255, 0.05);
     }
-    .wv-tr-time {
-      font-size: 0.72rem;
+    :global(.wv-tr-time) {
+      font-size: 0.7rem;
       color: var(--text-muted, #9aa4b2);
-      padding-top: 2px;
       white-space: nowrap;
       font-variant-numeric: tabular-nums;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
     }
-    .wv-tr-text {
+    :global(.wv-tr-text) {
       color: var(--text, #e5e7eb);
     }
     /* Auto-translated chat panel (Feature ⑤). Mobile-first: a bounded, scrollable message
@@ -494,31 +563,31 @@ const pageDesc = webinar
       scroll-behavior: smooth;
       padding-right: 4px;
     }
-    /* One message row: initials avatar + content (name + body). Host messages are tinted.
-       Matches the Meet chat layout (avatar left, text right). */
-    .wv-chat-msg {
+    /* Chat message rows + avatars are created at runtime by buildChatRow() → must be
+       :global so Astro's scoped CSS hash doesn't block them from matching. */
+    :global(.wv-chat-msg) {
       display: flex;
       flex-direction: row;
       align-items: flex-start;
-      gap: 8px;
-      padding: 8px 10px;
+      gap: 10px;
+      padding: 10px 12px;
       border-radius: 10px;
-      background: rgba(255, 255, 255, 0.03);
-      line-height: 1.35;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      line-height: 1.45;
       word-break: break-word;
     }
-    .wv-chat-msg.is-host {
-      background: rgba(59, 130, 246, 0.12);
-      border: 1px solid rgba(59, 130, 246, 0.35);
+    :global(.wv-chat-msg.is-host) {
+      background: rgba(59, 130, 246, 0.1);
+      border-color: rgba(59, 130, 246, 0.3);
     }
-    /* Colored initials circle (reuses the Meet avatar concept). Background is set inline
-       by buildChatRow() using avatarColor() — blue for host, palette color for guests. */
-    .wv-chat-avatar {
+    :global(.wv-chat-avatar) {
       flex: 0 0 auto;
-      width: 28px;
-      height: 28px;
+      width: 30px;
+      height: 30px;
       border-radius: 50%;
-      font-size: 0.72rem;
+      overflow: hidden;
+      font-size: 0.75rem;
       font-weight: 700;
       color: #fff;
       display: flex;
@@ -527,39 +596,39 @@ const pageDesc = webinar
       margin-top: 1px;
       user-select: none;
     }
-    .wv-chat-content {
+    :global(.wv-chat-content) {
       flex: 1 1 auto;
       min-width: 0;
       display: flex;
       flex-direction: column;
-      gap: 2px;
+      gap: 3px;
     }
-    .wv-chat-name-line {
+    :global(.wv-chat-name-line) {
       font-size: 0.78rem;
       font-weight: 700;
       color: var(--text-muted, #9aa4b2);
     }
-    .wv-chat-msg.is-host .wv-chat-name-line {
+    :global(.wv-chat-msg.is-host .wv-chat-name-line) {
       color: #93c5fd;
     }
-    .wv-chat-host-tag {
-      font-size: 0.68rem;
+    :global(.wv-chat-host-tag) {
+      font-size: 0.65rem;
       font-weight: 700;
       text-transform: uppercase;
-      letter-spacing: 0.04em;
+      letter-spacing: 0.05em;
       margin-left: 6px;
       padding: 1px 6px;
       border-radius: 999px;
       background: rgba(59, 130, 246, 0.25);
       color: #bfdbfe;
     }
-    .wv-chat-body {
+    :global(.wv-chat-body) {
       font-size: 0.95rem;
       color: var(--text, #e5e7eb);
     }
-    .wv-chat-empty {
+    :global(.wv-chat-empty) {
       margin: auto;
-      padding: 16px;
+      padding: 20px;
       text-align: center;
       font-size: 0.85rem;
       color: var(--text-muted, #9aa4b2);
