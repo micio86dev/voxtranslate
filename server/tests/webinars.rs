@@ -1849,13 +1849,21 @@ async fn public_list_returns_only_public_discoverable_webinars() {
         .await
         .unwrap();
 
-    // The public list is UNAUTH (no token/cookie) and still works.
+    // The public list now requires auth. Use a DIFFERENT user (different org) as
+    // the discoverer — the owner's own org's webinars are excluded from their view.
+    let (visitor, visitor_jwt) = user(&srv).await;
+    let _visitor_org = org(&srv, visitor, true).await;
     let r = http
         .get(format!("{}/api/webinars/public", base(&srv)))
+        .bearer_auth(&visitor_jwt)
         .send()
         .await
         .unwrap();
-    assert_eq!(r.status(), 200, "public list is open (no auth)");
+    assert_eq!(
+        r.status(),
+        200,
+        "public list is accessible to authenticated users"
+    );
     let body: Value = r.json().await.unwrap();
     let items = body["webinars"].as_array().expect("webinars array");
 
@@ -1902,6 +1910,14 @@ async fn public_list_returns_only_public_discoverable_webinars() {
             "public list item leaks `{leaked}`"
         );
     }
+
+    // Unauthenticated call → 401.
+    let unauth = http
+        .get(format!("{}/api/webinars/public", base(&srv)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(unauth.status(), 401, "unauthenticated public list → 401");
 }
 
 // ---- schedule validation (create) ------------------------------------------
