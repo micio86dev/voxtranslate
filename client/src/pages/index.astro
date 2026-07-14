@@ -1200,6 +1200,7 @@ const jsonLd = {
             <div id="webinar-studio-chat-upload" class="wv-chat-upload hidden">
               <div id="webinar-studio-chat-upload-fill" class="wv-chat-upload-fill"></div>
             </div>
+            <div id="webinar-studio-attach-preview" class="wv-attach-preview hidden" role="status" aria-live="polite"></div>
             <form id="webinar-studio-chat-form" class="wv-chat-form">
               <div class="chat-input-row">
                 <textarea id="webinar-studio-chat-input" class="wv-chat-input" maxlength="500" rows="1" autocomplete="off" enterkeyhint="send" data-i18n-ph="wvChatPlaceholder" placeholder={T('wvChatPlaceholder')}></textarea>
@@ -2772,6 +2773,11 @@ const jsonLd = {
     :global(.chat-counter.is-over) { color: var(--danger); }
     .studio-chat :global(.wv-chat-notice) { margin: 0; font-size: 0.82rem; font-weight: 600; color: var(--danger); }
     .studio-chat :global(.wv-chat-notice.hidden) { display: none; }
+    .studio-chat :global(.wv-attach-preview) { display: flex; align-items: center; gap: 6px; padding: 6px 10px; margin: 0 0 4px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; font-size: 0.82rem; color: var(--text); }
+    .studio-chat :global(.wv-attach-preview.hidden) { display: none; }
+    :global(.attach-chip-name) { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    :global(.attach-chip-dismiss) { flex: none; background: none; border: none; color: var(--muted); cursor: pointer; font-size: 1rem; line-height: 1; padding: 0 2px; }
+    :global(.attach-chip-dismiss:hover) { color: var(--text); }
     @media (prefers-reduced-motion: reduce) { .studio-chat :global(.wv-chat-list) { scroll-behavior: auto; } }
     @media (max-width: 520px) {
       /* End drops to its own full-width row under the round mic/cam toggles. */

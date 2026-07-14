@@ -277,6 +277,8 @@ export interface ChatPanelOptions {
   senderAvatarUrl?: () => string | null;
   /** Optional character counter element (shows `len/max`, gets `.is-over` when over). */
   counter?: HTMLElement | null;
+  /** Optional element that shows the staged attachment chip (hidden when no file is staged). */
+  attachPreview?: HTMLElement | null;
 }
 
 /**
@@ -334,9 +336,30 @@ export class ChatPanel {
     for (const row of rows) this.append(row);
   }
 
-  /** Stage an attachment to be sent with the next message. Pass null to clear. */
+  /** Stage an attachment to be sent with the next message. Pass null to clear.
+   *  Updates the `attachPreview` chip element if one was supplied in options. */
   setStagedAttachment(att: ChatAttachment | null): void {
     this.pendingAttachment = att;
+    const preview = this.opts.attachPreview;
+    if (!preview) return;
+    if (!att) {
+      preview.textContent = '';
+      preview.classList.add('hidden');
+      return;
+    }
+    const doc = preview.ownerDocument;
+    preview.textContent = '';
+    const nameSpan = doc.createElement('span');
+    nameSpan.className = 'attach-chip-name';
+    nameSpan.textContent = att.name;
+    const dismiss = doc.createElement('button');
+    dismiss.type = 'button';
+    dismiss.className = 'attach-chip-dismiss';
+    dismiss.setAttribute('aria-label', 'Remove attachment');
+    dismiss.textContent = '✕';
+    dismiss.addEventListener('click', () => this.setStagedAttachment(null));
+    preview.append(nameSpan, dismiss);
+    preview.classList.remove('hidden');
   }
 
   /** Send the current input text (and any staged attachment). Optimistically renders the sent
@@ -369,7 +392,7 @@ export class ChatPanel {
         attachment,
       });
       this.opts.input.value = '';
-      this.pendingAttachment = null;
+      this.setStagedAttachment(null);
       this.updateCounter();
       this.hideNotice();
       return true;
