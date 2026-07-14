@@ -9,6 +9,7 @@ import { applyI18n, detectLang, getUiLang, loadLocale, setUiLang, SUPPORTED, t }
 import { PresenceClient, type SubtitleEvent } from './webinar-presence';
 import { renderSubtitleInto } from './subtitle-render';
 import { getPublicWebinar } from './webinar';
+import { WebinarTts } from './webinar-tts';
 import {
   ChatPanel,
   getStoredDisplayName,
@@ -201,7 +202,11 @@ export function mountWebinarPlayer(): void {
 
   const subtitleOverlay = document.getElementById('wv-subtitles');
   const muteBtn = document.getElementById('wv-mute') as HTMLButtonElement | null;
+  const listenBtn = document.getElementById('wv-listen') as HTMLButtonElement | null;
   const ccBtn = document.getElementById('wv-cc') as HTMLButtonElement | null;
+
+  let listenMode: 'original' | 'translated' = 'original';
+  let webinarTts: WebinarTts | null = null;
 
   const player = new HlsPlayer({
     code,
@@ -219,6 +224,15 @@ export function mountWebinarPlayer(): void {
           show(avatarImg, true);
           show(spinner, false);
         }
+      }
+      if (info.source_language && info.source_language !== lang) {
+        show(listenBtn, true);
+        webinarTts = new WebinarTts({
+          code,
+          tier: info.tier,
+          lang,
+          httpBase: HTTP_BASE,
+        });
       }
     },
   });
@@ -240,6 +254,30 @@ export function mountWebinarPlayer(): void {
     paintAudio();
   });
   paintAudio();
+
+  function paintListen(): void {
+    if (!listenBtn) return;
+    const key = listenMode === 'original' ? 'wvListenTranslated' : 'wvListenOriginal';
+    listenBtn.setAttribute('data-i18n', key);
+    listenBtn.textContent = t(key);
+    listenBtn.setAttribute('aria-pressed', listenMode === 'translated' ? 'true' : 'false');
+  }
+  listenBtn?.addEventListener('click', () => {
+    if (listenMode === 'original') {
+      listenMode = 'translated';
+      player.muteAudio(true);
+      paintAudio();
+      webinarTts?.setEnabled(true);
+    } else {
+      listenMode = 'original';
+      player.muteAudio(false);
+      paintAudio();
+      webinarTts?.setEnabled(false);
+      webinarTts?.stop();
+    }
+    paintListen();
+  });
+  paintListen();
 
   // Captions on/off toggle. Off clears whatever is on screen so a stale line doesn't linger.
   function paintCc(): void {
@@ -353,6 +391,8 @@ export function mountWebinarPlayer(): void {
       player.destroy();
       presence?.close();
       presence = null;
+      webinarTts?.stop();
+      webinarTts = null;
     },
     { once: true },
   );
@@ -377,10 +417,13 @@ export function mountWebinarPlayer(): void {
       onSubtitle: subtitleOverlay
         ? (event) => {
             renderSubtitle(subtitleOverlay, event);
-            // Accumulate final lines in the transcript history panel.
             if (event.kind === 'final') {
               const myLang = getUiLang();
               appendTranscriptEntry(event.translations[myLang] ?? event.original);
+              if (listenMode === 'translated') {
+                const text = event.translations[myLang] ?? event.original;
+                webinarTts?.speak(text);
+              }
             }
           }
         : undefined,

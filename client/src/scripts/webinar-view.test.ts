@@ -74,6 +74,8 @@ beforeEach(() => {
   setUiLangMock.mockClear();
   mutedState = true; // reset the fake player's mute flag between tests
   localStorage.clear(); // start each test without a stored language preference
+  // Clear the vt_lang cookie between tests so language tests don't bleed into each other.
+  document.cookie = 'vt_lang=; max-age=0';
 });
 afterEach(() => {
   document.body.innerHTML = '';
@@ -251,11 +253,11 @@ describe('mountWebinarPlayer', () => {
     expect(overlay.querySelector('.subtitle-translation')?.textContent).toBe('hol');
   });
 
-  it('uses a stored language preference from localStorage over the browser default', () => {
-    localStorage.setItem('voxtranslate_lang', 'es');
+  it('uses a stored language preference from the vt_lang cookie over the browser default', () => {
+    document.cookie = 'vt_lang=es';
     buildDom();
     mountWebinarPlayer();
-    // setUiLang should have been called with the stored language, not the detectLang() default ('en')
+    // setUiLang should have been called with the cookie language, not the detectLang() default ('en')
     expect(setUiLangMock).toHaveBeenCalledWith('es');
   });
 
@@ -265,8 +267,8 @@ describe('mountWebinarPlayer', () => {
     expect(setUiLangMock).toHaveBeenCalledWith('en');
   });
 
-  it('falls back to detectLang() when the stored language is not supported', () => {
-    localStorage.setItem('voxtranslate_lang', 'xx'); // 'xx' is not in SUPPORTED
+  it('falls back to detectLang() when the vt_lang cookie holds an unsupported language', () => {
+    document.cookie = 'vt_lang=xx'; // 'xx' is not in SUPPORTED
     buildDom();
     mountWebinarPlayer();
     expect(setUiLangMock).toHaveBeenCalledWith('en');
