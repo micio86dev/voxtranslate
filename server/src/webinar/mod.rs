@@ -15,6 +15,7 @@ use uuid::Uuid;
 use crate::config::WebinarConfig;
 use crate::db::Pool;
 
+pub mod ai;
 pub mod chat;
 pub mod files;
 pub mod guest;
