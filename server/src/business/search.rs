@@ -39,9 +39,16 @@ pub struct SearchQuery {
     limit: Option<i64>,
 }
 
+/// One KNN hit. A row is EITHER a call (`session_id` set, `webinar_id`/`webinar_code`
+/// NULL) OR a webinar (`webinar_id`/`webinar_code` set, `session_id` NULL) — the
+/// `transcript_embeddings_owner_excl` CHECK (migration 050) guarantees they are
+/// never both set. `room`/`started_at` are coalesced across the two sources so the
+/// snippet metadata is uniform; `webinar_code` links a webinar hit back to `/w/{code}`.
 #[derive(FromRow)]
 struct ResultRow {
-    session_id: Uuid,
+    session_id: Option<Uuid>,
+    webinar_id: Option<Uuid>,
+    webinar_code: Option<String>,
     project_id: Option<Uuid>,
     project_name: Option<String>,
     room: String,
@@ -99,8 +106,24 @@ pub async fn list(
         .fetch_all(pool)
         .await
         .map_err(db_err)?;
+        // A member with no visible projects can still match webinars they HOST, so
+        // only short-circuit when they also host nothing in this org. An empty
+        // `visible` set (bound as `'{}'`) makes the project predicate always false,
+        // leaving only the host-owned webinar rows to match.
         if visible.is_empty() {
-            return Ok(Json(json!({ "results": [] })).into_response());
+            let hosts_any: Option<Uuid> = sqlx::query_scalar(
+                "SELECT id FROM webinars
+                 WHERE org_id = $1 AND host_user_id = $2 AND archived_at IS NULL
+                 LIMIT 1",
+            )
+            .bind(org_id)
+            .bind(user.user_id)
+            .fetch_optional(pool)
+            .await
+            .map_err(db_err)?;
+            if hosts_any.is_none() {
+                return Ok(Json(json!({ "results": [] })).into_response());
+            }
         }
         Some(visible)
     };
@@ -111,19 +134,33 @@ pub async fn list(
     })?;
     let qvec = pgvector::Vector::from(vector);
 
-    // KNN with the scope filter. `$3::uuid[] IS NULL` is the admin path (no project
-    // restriction, including unassigned calls); members pass their visible set, which
-    // also excludes any explicit `project_id` they can't see. `$4` optionally narrows
-    // to one project.
+    // KNN over BOTH call and webinar embeddings (Phase C). The two owner kinds are
+    // LEFT-JOINed to their source so `room`/`started_at` are coalesced (call → the
+    // call_sessions row; webinar → the webinars row); the `owner_excl` CHECK means
+    // exactly one join matches per embedding row.
+    //
+    // Scope: `$3::uuid[] IS NULL` is the admin path (whole org, incl. project-less
+    // calls AND project-less webinars). Members pass their visible project set in
+    // `$3`; a row passes if its `project_id` is in that set OR — for a webinar — the
+    // member is the host (`$6`). This mirrors the meet rule (see own/participated
+    // projects) and additionally lets a host find their OWN webinar even when it is
+    // not bound to a project. `$4` optionally narrows to one project.
     let rows: Vec<ResultRow> = sqlx::query_as(
-        "SELECT te.session_id, te.project_id, p.name AS project_name,
-                cs.room, cs.started_at, te.content, te.speaker_name, te.start_ms,
+        "SELECT te.session_id, te.webinar_id, w.code AS webinar_code,
+                te.project_id, p.name AS project_name,
+                COALESCE(cs.room, w.title) AS room,
+                COALESCE(cs.started_at, w.actual_start, w.created_at) AS started_at,
+                te.content, te.speaker_name, te.start_ms,
                 1 - (te.embedding <=> $2) AS score
          FROM transcript_embeddings te
-         JOIN call_sessions cs ON cs.id = te.session_id
-         LEFT JOIN projects p  ON p.id = te.project_id
+         LEFT JOIN call_sessions cs ON cs.id = te.session_id
+         LEFT JOIN webinars w       ON w.id = te.webinar_id
+         LEFT JOIN projects p       ON p.id = te.project_id
          WHERE te.org_id = $1
-           AND ($3::uuid[] IS NULL OR te.project_id = ANY($3))
+           AND (te.session_id IS NOT NULL OR te.webinar_id IS NOT NULL)
+           AND ($3::uuid[] IS NULL
+                OR te.project_id = ANY($3)
+                OR (te.webinar_id IS NOT NULL AND w.host_user_id = $6))
            AND ($4::uuid IS NULL OR te.project_id = $4)
          ORDER BY te.embedding <=> $2
          LIMIT $5",
@@ -133,6 +170,7 @@ pub async fn list(
     .bind(scope.as_deref())
     .bind(q.project_id)
     .bind(limit)
+    .bind(user.user_id)
     .fetch_all(pool)
     .await
     .map_err(db_err)?;
@@ -149,24 +187,42 @@ pub async fn list(
         json!({ "q_len": query.chars().count(), "project_id": q.project_id, "results": rows.len() }),
     );
 
-    let results: Vec<Value> = rows
-        .iter()
-        .map(|r| {
-            json!({
-                "session_id": r.session_id,
-                "project_id": r.project_id,
-                "project_name": r.project_name,
-                "room": r.room,
-                "started_at": r.started_at,
-                "snippet": r.content,
-                "speaker_name": r.speaker_name,
-                "start_ms": r.start_ms,
-                "score": r.score,
-            })
-        })
-        .collect();
+    // A hit is unambiguously a call OR a webinar. `kind` labels it; call hits carry
+    // `session_id`, webinar hits carry `webinar_id` + `webinar_code` (to link to
+    // `/w/{code}`). The other id is null for the source that didn't produce the row.
+    let results: Vec<Value> = rows.iter().map(result_json).collect();
 
     Ok(Json(json!({ "results": results })).into_response())
+}
+
+/// The source kind of a search hit: `"call"` when it came from a call session,
+/// `"webinar"` when it came from a finished webinar. The `owner_excl` CHECK
+/// (migration 050) guarantees a row is never both; a webinar owner wins if present.
+fn result_kind(r: &ResultRow) -> &'static str {
+    if r.webinar_id.is_some() {
+        "webinar"
+    } else {
+        "call"
+    }
+}
+
+/// Serialize one hit to the API shape. Split out so the call-vs-webinar mapping is
+/// unit-testable without a live database.
+fn result_json(r: &ResultRow) -> Value {
+    json!({
+        "kind": result_kind(r),
+        "session_id": r.session_id,
+        "webinar_id": r.webinar_id,
+        "webinar_code": r.webinar_code,
+        "project_id": r.project_id,
+        "project_name": r.project_name,
+        "room": r.room,
+        "started_at": r.started_at,
+        "snippet": r.content,
+        "speaker_name": r.speaker_name,
+        "start_ms": r.start_ms,
+        "score": r.score,
+    })
 }
 
 // ---- Internal backfill -------------------------------------------------------
@@ -297,4 +353,69 @@ pub async fn backfill(
         "remaining": remaining,
     }))
     .into_response())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn call_row() -> ResultRow {
+        ResultRow {
+            session_id: Some(Uuid::from_u128(1)),
+            webinar_id: None,
+            webinar_code: None,
+            project_id: Some(Uuid::from_u128(9)),
+            project_name: Some("Sales".into()),
+            room: "Standup".into(),
+            started_at: Utc::now(),
+            content: "we shipped the release".into(),
+            speaker_name: Some("Alice".into()),
+            start_ms: Some(12_000),
+            score: 0.83,
+        }
+    }
+
+    fn webinar_row() -> ResultRow {
+        ResultRow {
+            session_id: None,
+            webinar_id: Some(Uuid::from_u128(2)),
+            webinar_code: Some("AbC123".into()),
+            project_id: None,
+            project_name: None,
+            room: "Q3 Webinar".into(),
+            started_at: Utc::now(),
+            content: "welcome everyone".into(),
+            speaker_name: Some("Host".into()),
+            start_ms: Some(0),
+            score: 0.91,
+        }
+    }
+
+    #[test]
+    fn kind_distinguishes_call_from_webinar() {
+        assert_eq!(result_kind(&call_row()), "call");
+        assert_eq!(result_kind(&webinar_row()), "webinar");
+    }
+
+    #[test]
+    fn call_hit_carries_session_id_not_webinar_fields() {
+        let v = result_json(&call_row());
+        assert_eq!(v["kind"], "call");
+        assert_eq!(v["session_id"], Uuid::from_u128(1).to_string());
+        assert!(v["webinar_id"].is_null());
+        assert!(v["webinar_code"].is_null());
+        assert_eq!(v["room"], "Standup");
+        assert_eq!(v["snippet"], "we shipped the release");
+    }
+
+    #[test]
+    fn webinar_hit_carries_webinar_id_and_code_not_session() {
+        let v = result_json(&webinar_row());
+        assert_eq!(v["kind"], "webinar");
+        assert!(v["session_id"].is_null());
+        assert_eq!(v["webinar_id"], Uuid::from_u128(2).to_string());
+        assert_eq!(v["webinar_code"], "AbC123");
+        assert_eq!(v["room"], "Q3 Webinar", "webinar title coalesced into room");
+        assert_eq!(v["snippet"], "welcome everyone");
+    }
 }

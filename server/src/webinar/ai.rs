@@ -212,10 +212,82 @@ pub fn default_report_lang(w: &Webinar) -> &str {
     &w.source_language
 }
 
+// ---- Semantic-search embeddings (webinar-analytics epic, Phase C) ------------
+
+/// Target words per embedding chunk. Kept IDENTICAL to the meet path
+/// (`business::transcripts::CHUNK_TARGET_WORDS`) so webinar and call snippets are
+/// comparably sized in the shared search results.
+const CHUNK_TARGET_WORDS: usize = 250;
+
+/// One embeddable chunk of a webinar transcript. Same shape as the meet
+/// `business::transcripts::Chunk` (content + speaker_name + start_ms/end_ms) so it
+/// maps onto `transcript_embeddings` unchanged; the speaker is always the host.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WebinarChunk {
+    /// Joined ORIGINAL-language text of the run — embedded and shown as the result
+    /// snippet. We embed the source text (not a translation) so a search matches
+    /// what was actually said, mirroring the meet path which embeds the diarized
+    /// original.
+    pub content: String,
+    /// Millisecond offset of the run's first utterance from `anchor`.
+    pub start_ms: i64,
+    /// Millisecond offset of the run's last utterance from `anchor`.
+    pub end_ms: i64,
+}
+
+/// Group consecutive webinar transcript rows into ~[`CHUNK_TARGET_WORDS`]-word
+/// chunks, preserving `spoken_at` order — the webinar analogue of the meet
+/// `chunk_segments`. Empty/whitespace utterances are skipped; the final partial
+/// chunk is always flushed. `start_ms`/`end_ms` are offsets from `anchor` (the
+/// webinar's `actual_start`), clamped at 0, so they read like the meet path's
+/// session-relative timings.
+pub fn chunk_transcript_rows(rows: &[TranscriptRow], anchor: DateTime<Utc>) -> Vec<WebinarChunk> {
+    let offset_ms = |at: DateTime<Utc>| (at - anchor).num_milliseconds().max(0);
+    let mut chunks = Vec::new();
+    let mut texts: Vec<&str> = Vec::new();
+    let mut words = 0usize;
+    let mut start_ms = 0i64;
+    let mut end_ms = 0i64;
+    for r in rows {
+        let text = r.original_text.trim();
+        if text.is_empty() {
+            continue;
+        }
+        if texts.is_empty() {
+            start_ms = offset_ms(r.spoken_at);
+        }
+        texts.push(text);
+        end_ms = offset_ms(r.spoken_at);
+        words += text.split_whitespace().count();
+        if words >= CHUNK_TARGET_WORDS {
+            chunks.push(WebinarChunk {
+                content: texts.join(" "),
+                start_ms,
+                end_ms,
+            });
+            texts.clear();
+            words = 0;
+        }
+    }
+    if !texts.is_empty() {
+        chunks.push(WebinarChunk {
+            content: texts.join(" "),
+            start_ms,
+            end_ms,
+        });
+    }
+    chunks
+}
+
+/// Speaker label stored on every webinar embedding row — a webinar is 1-to-many,
+/// so a single stable label matches the assembled transcript ([`HOST_SPEAKER`]).
+pub const EMBED_SPEAKER: &str = HOST_SPEAKER;
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::config::Config;
+    use chrono::Duration as ChronoDuration;
 
     fn ai() -> AiConfig {
         Config::test_with_billing("postgres://x", "s", 2.0)
@@ -372,6 +444,70 @@ mod tests {
         assert_eq!(usd_to_org_credits(Decimal::new(2, 2)), 2);
         // $0.10 → 10 credits exactly.
         assert_eq!(usd_to_org_credits(Decimal::new(10, 2)), 10);
+    }
+
+    #[test]
+    fn chunk_rows_splits_at_word_target_and_offsets_from_anchor() {
+        let anchor = utc("2030-01-01T10:00:00Z");
+        // 260 one-word utterances → first chunk flushes at 250 words, remainder in a
+        // second chunk. Timestamps advance 1s each so offsets are deterministic.
+        let rows: Vec<TranscriptRow> = (0..260)
+            .map(|i| {
+                let at = anchor + ChronoDuration::seconds(i);
+                TranscriptRow {
+                    original_text: format!("word{i}"),
+                    original_lang: "en".into(),
+                    translations: serde_json::json!({}),
+                    spoken_at: at,
+                }
+            })
+            .collect();
+        let chunks = chunk_transcript_rows(&rows, anchor);
+        assert_eq!(chunks.len(), 2, "250-word flush then 10-word remainder");
+        assert_eq!(chunks[0].content.split_whitespace().count(), 250);
+        assert_eq!(chunks[1].content.split_whitespace().count(), 10);
+        // First chunk starts at the anchor (0ms) and ends at the 250th utterance.
+        assert_eq!(chunks[0].start_ms, 0);
+        assert_eq!(chunks[0].end_ms, 249_000);
+        assert_eq!(chunks[1].start_ms, 250_000);
+        assert_eq!(chunks[1].end_ms, 259_000);
+    }
+
+    #[test]
+    fn chunk_rows_embeds_original_text_not_translations() {
+        let anchor = utc("2030-01-01T10:00:00Z");
+        let rows = vec![row(
+            "ciao a tutti",
+            "it",
+            serde_json::json!({ "en": "hello everyone" }),
+            "2030-01-01T10:00:00Z",
+        )];
+        let chunks = chunk_transcript_rows(&rows, anchor);
+        assert_eq!(chunks.len(), 1);
+        // The SOURCE text is embedded, never the English translation.
+        assert_eq!(chunks[0].content, "ciao a tutti");
+    }
+
+    #[test]
+    fn chunk_rows_skips_blank_and_clamps_pre_anchor_offsets() {
+        let anchor = utc("2030-01-01T10:00:10Z");
+        let rows = vec![
+            // Whitespace-only → skipped entirely.
+            row("   ", "en", serde_json::json!({}), "2030-01-01T10:00:11Z"),
+            // Spoken BEFORE the anchor (clock skew) → offset clamped at 0.
+            row("early", "en", serde_json::json!({}), "2030-01-01T10:00:05Z"),
+        ];
+        let chunks = chunk_transcript_rows(&rows, anchor);
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(chunks[0].content, "early");
+        assert_eq!(chunks[0].start_ms, 0, "negative offset clamped to 0");
+        assert_eq!(chunks[0].end_ms, 0);
+    }
+
+    #[test]
+    fn chunk_rows_empty_is_noop() {
+        let anchor = utc("2030-01-01T10:00:00Z");
+        assert!(chunk_transcript_rows(&[], anchor).is_empty());
     }
 
     #[test]

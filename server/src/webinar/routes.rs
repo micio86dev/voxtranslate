@@ -699,6 +699,23 @@ pub async fn publish_stopped(
         if let Err(e) = finalize_webinar_run(pool, &current, &state.config).await {
             tracing::error!(webinar_id = %id, "webinar finalization failed: {e}");
         }
+        // Phase C: make this finished webinar semantically searchable. Fire-and-
+        // forget so embedding (a network round-trip to OpenAI) NEVER blocks the
+        // host's off-air request; a failure here is logged, never surfaced. Only
+        // worth spawning when a transcript was recorded.
+        if current.record_transcript {
+            let state = state.clone();
+            let w = current.clone();
+            tokio::spawn(async move {
+                match embed_webinar_transcripts(&state, &w).await {
+                    Ok(0) => {}
+                    Ok(n) => {
+                        tracing::info!(webinar_id = %id, chunks = n, "webinar transcript embedded")
+                    }
+                    Err(e) => tracing::warn!(webinar_id = %id, "webinar embedding failed: {e}"),
+                }
+            });
+        }
     }
     Ok(Json(host_view(&current, &state.config.app_base_url, cfg)).into_response())
 }
@@ -1104,6 +1121,89 @@ async fn load_transcript_rows(
             },
         )
         .collect())
+}
+
+/// Embed a finished webinar's transcript into `transcript_embeddings` so it
+/// surfaces in the shared Business semantic search (`business::search`) alongside
+/// meet calls. Mirrors the meet `business::transcripts::embed_and_store`:
+///   * chunks the ORIGINAL-language utterances at the same ~250-word target;
+///   * embeds each chunk via the shared `state.embeddings` client;
+///   * writes rows with `webinar_id` set (session_id/transcript_id NULL) and the
+///     webinar's denormalized `org_id`/`project_id` so the existing scope filter
+///     Just Works;
+///   * is idempotent (delete-then-insert for this webinar) so a re-finalize/retry
+///     is safe.
+///
+/// Degrades gracefully: a `None` embeddings client (OPENAI_API_KEY unset) or a
+/// webinar with no transcript is a no-op returning 0; any API/DB error is returned
+/// as a `String` for the caller to log — it must NEVER fail webinar finalization.
+async fn embed_webinar_transcripts(state: &AppState, w: &Webinar) -> Result<usize, String> {
+    let Some(embedder) = state.embeddings.as_ref() else {
+        return Ok(0);
+    };
+    let pool = state.pool.as_ref().ok_or("no database")?;
+
+    // Idempotency: skip if this webinar already has embedding rows. (A re-finalize
+    // deletes+reinserts below regardless, but the fast path avoids a needless
+    // OpenAI round-trip on the common repeated-publish-stopped case.)
+    let existing: Option<Uuid> =
+        sqlx::query_scalar("SELECT id FROM transcript_embeddings WHERE webinar_id = $1 LIMIT 1")
+            .bind(w.id)
+            .fetch_optional(pool)
+            .await
+            .map_err(|e| e.to_string())?;
+    if existing.is_some() {
+        return Ok(0);
+    }
+
+    let rows = load_transcript_rows(pool, w.id)
+        .await
+        .map_err(|e| e.to_string())?;
+    // Anchor offsets on `actual_start` when present, else the earliest utterance —
+    // same fallback logic the AI export uses.
+    let anchor = w
+        .actual_start
+        .or_else(|| rows.iter().map(|r| r.spoken_at).min())
+        .unwrap_or(w.created_at);
+    let chunks = webinar_ai::chunk_transcript_rows(&rows, anchor);
+    if chunks.is_empty() {
+        return Ok(0);
+    }
+
+    let texts: Vec<String> = chunks.iter().map(|c| c.content.clone()).collect();
+    let vectors = embedder.embed_batch(&texts).await?;
+    if vectors.len() != chunks.len() {
+        return Err("embedding count mismatch".to_string());
+    }
+
+    let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
+    sqlx::query("DELETE FROM transcript_embeddings WHERE webinar_id = $1")
+        .bind(w.id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| e.to_string())?;
+    for (i, (chunk, vec)) in chunks.iter().zip(vectors).enumerate() {
+        sqlx::query(
+            "INSERT INTO transcript_embeddings
+                (webinar_id, org_id, project_id, chunk_index,
+                 speaker_name, start_ms, end_ms, content, embedding)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+        )
+        .bind(w.id)
+        .bind(w.org_id)
+        .bind(w.project_id)
+        .bind(i as i32)
+        .bind(webinar_ai::EMBED_SPEAKER)
+        .bind(chunk.start_ms)
+        .bind(chunk.end_ms)
+        .bind(&chunk.content)
+        .bind(pgvector::Vector::from(vec))
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| e.to_string())?;
+    }
+    tx.commit().await.map_err(|e| e.to_string())?;
+    Ok(chunks.len())
 }
 
 #[derive(Deserialize)]
