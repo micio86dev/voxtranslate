@@ -119,6 +119,9 @@ export interface CreateWebinarBody {
   members_only?: boolean;
   scheduled_start?: string | null;
   scheduled_end?: string | null;
+  /** Lead time (minutes) for the "starting soon" alert sent to the host's friends
+   * when the webinar is public + scheduled. Default 10, clamped 0..=1440 server-side. */
+  reminder_minutes_before?: number;
 }
 
 /** Body for `PATCH /api/webinars/{id}` — every field optional. */
@@ -141,6 +144,8 @@ export interface PatchWebinarBody {
   members_only?: boolean;
   scheduled_start?: string | null;
   scheduled_end?: string | null;
+  /** Change the friend-reminder lead time (minutes). Clamped 0..=1440 server-side. */
+  reminder_minutes_before?: number;
 }
 
 /** A failed host request. `status` is the HTTP status (0 on a network error) so

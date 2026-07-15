@@ -229,6 +229,53 @@ pub fn friend_copy(kind: &str, lang: &str, actor: &str) -> (String, String) {
     (title.to_string(), body.replace("{n}", actor))
 }
 
+/// `(title, body)` for a webinar friend-alert notification, localized to `lang`,
+/// with the host's display name interpolated where `{n}` appears. Kinds:
+/// `webinar_soon` (a scheduled public webinar is about to start) and `webinar_live`
+/// (an unscheduled public webinar just went live). Same language bar as
+/// [`friend_copy`]; English fallback for the rest.
+pub fn webinar_copy(kind: &str, lang: &str, host: &str) -> (String, String) {
+    let (title, body): (&str, &str) = match kind {
+        "webinar_soon" => match lang {
+            "it" => ("Webinar tra poco", "Il webinar di {n} sta per iniziare."),
+            "es" => (
+                "El webinar empieza pronto",
+                "El webinar de {n} está a punto de empezar.",
+            ),
+            "fr" => (
+                "Webinaire bientôt",
+                "Le webinaire de {n} va bientôt commencer.",
+            ),
+            "de" => (
+                "Webinar beginnt bald",
+                "Das Webinar von {n} beginnt gleich.",
+            ),
+            "pt" => (
+                "Webinar em breve",
+                "O webinar de {n} está prestes a começar.",
+            ),
+            "ja" => (
+                "まもなくウェビナー開始",
+                "{n}さんのウェビナーがまもなく始まります。",
+            ),
+            "zh" => ("网络研讨会即将开始", "{n} 的网络研讨会即将开始。"),
+            _ => ("Webinar starting soon", "{n}'s webinar is about to start."),
+        },
+        "webinar_live" => match lang {
+            "it" => ("Webinar iniziato", "{n} è in diretta ora."),
+            "es" => ("Webinar en directo", "{n} está en directo ahora."),
+            "fr" => ("Webinaire en direct", "{n} est en direct maintenant."),
+            "de" => ("Webinar läuft", "{n} ist jetzt live."),
+            "pt" => ("Webinar ao vivo", "{n} está ao vivo agora."),
+            "ja" => ("ウェビナー開始", "{n}さんが今ライブ配信中です。"),
+            "zh" => ("网络研讨会已开始", "{n} 正在直播。"),
+            _ => ("Webinar live now", "{n} is live now."),
+        },
+        _ => ("Notification", "{n}"),
+    };
+    (title.to_string(), body.replace("{n}", host))
+}
+
 /// The recipient's stored UI locale, or `"en"` when unknown. Used to pick
 /// [`meeting_copy`] / `invite::build_invite_email` language for that user.
 pub async fn user_locale(pool: &Pool, user_id: Uuid) -> String {
@@ -327,6 +374,31 @@ mod tests {
         let (title, body) = friend_copy("friend_request", "xx", "Bob");
         assert_eq!(title, "Friend request");
         assert_eq!(body, "Bob sent you a friend request.");
+    }
+
+    #[test]
+    fn webinar_copy_localizes_every_kind_and_language() {
+        // Every webinar friend-alert kind, in every supported UI language, must yield a
+        // non-empty title and a body with the host's name substituted in.
+        let kinds = ["webinar_soon", "webinar_live"];
+        for lang in ["en", "it", "es", "fr", "de", "pt", "ja", "zh", "xx"] {
+            for kind in kinds {
+                let (title, body) = webinar_copy(kind, lang, "Alice");
+                assert!(!title.is_empty(), "{lang}/{kind} empty title");
+                assert!(
+                    body.contains("Alice"),
+                    "{lang}/{kind} body missing host name: {body}"
+                );
+                assert!(!body.contains("{n}"), "{lang}/{kind} left {{n}} unreplaced");
+            }
+        }
+    }
+
+    #[test]
+    fn webinar_copy_unknown_lang_falls_back_to_english() {
+        let (title, body) = webinar_copy("webinar_soon", "xx", "Bob");
+        assert_eq!(title, "Webinar starting soon");
+        assert_eq!(body, "Bob's webinar is about to start.");
     }
 
     #[test]

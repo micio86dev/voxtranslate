@@ -4988,6 +4988,7 @@ const webinarTierSel = $<HTMLSelectElement>('webinar-tier');
 const webinarTitleInput = $<HTMLInputElement>('webinar-title');
 const webinarStartInput = $<HTMLInputElement>('webinar-start');
 const webinarEndInput = $<HTMLInputElement>('webinar-end');
+const webinarReminderInput = $<HTMLInputElement>('webinar-reminder');
 const webinarForm = $<HTMLFormElement>('webinar-create');
 const webinarCreateBtn = $<HTMLButtonElement>('webinar-create-btn');
 const webinarCreateToggle = $<HTMLButtonElement>('webinar-create-toggle');
@@ -6542,6 +6543,13 @@ async function submitWebinar(): Promise<void> {
     const cloneOffered = showVoiceCloneToggle(webinarTierSel.value, hasVoiceClone());
     // Optional project: the "No project" default has an empty value → omit project_id.
     const projectId = webinarProjectSel.value || undefined;
+    // Friend-reminder lead time — only meaningful for a scheduled webinar. Parse +
+    // clamp 0..=1440 (server re-clamps); omit when unscheduled so the default stands.
+    const reminderRaw = Number.parseInt(webinarReminderInput.value, 10);
+    const reminderMinutes =
+      scheduledStart && Number.isFinite(reminderRaw)
+        ? Math.min(1440, Math.max(0, reminderRaw))
+        : undefined;
     await createWebinar({
       org_id: orgId,
       title,
@@ -6556,10 +6564,12 @@ async function submitWebinar(): Promise<void> {
       voice_clone: cloneOffered && switchOn(webinarVoiceCloneSw),
       scheduled_start: scheduledStart,
       scheduled_end: scheduledEnd,
+      ...(reminderMinutes !== undefined ? { reminder_minutes_before: reminderMinutes } : {}),
     });
     webinarTitleInput.value = '';
     webinarStartInput.value = '';
     webinarEndInput.value = '';
+    webinarReminderInput.value = '10';
     webinarProjectSel.value = ''; // reset to "No project" for the next create
     setWebinarStatus(t('webinarCreated'), 'ok');
     collapseWebinarForm(); // tidy back to the button; the new webinar shows in the list
@@ -7404,6 +7414,8 @@ const NOTIF_EVENT_LABEL: Record<string, string> = {
   meeting_reminder: 'notifEvtMeetingReminder',
   meeting_updated: 'notifEvtMeetingUpdated',
   meeting_cancelled: 'notifEvtMeetingCancelled',
+  webinar_soon: 'notifEvtWebinarSoon',
+  webinar_live: 'notifEvtWebinarLive',
 };
 const NOTIF_CHANNEL_LABEL: Record<string, string> = {
   push: 'notifChPush',
