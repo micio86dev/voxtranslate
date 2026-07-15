@@ -206,14 +206,27 @@ export function mountWebinarPlayer(): void {
   const muteBtn = document.getElementById('wv-mute') as HTMLButtonElement | null;
   const listenBtn = document.getElementById('wv-listen') as HTMLButtonElement | null;
   const ccBtn = document.getElementById('wv-cc') as HTMLButtonElement | null;
+  const ctaBtn = document.getElementById('wv-cta') as HTMLButtonElement | null;
 
   let listenMode: 'original' | 'translated' = 'original';
   let webinarTts: WebinarTts | null = null;
+  // Whether a listener-language translation is available (host speaks a different
+  // language). Captured from onInfo and read by the CTA to decide the audio path.
+  let translationAvailable = false;
+  // Whether the viewer has taken the start gesture (via the CTA). Once started, the
+  // CTA no longer reappears on later `live` state polls.
+  let viewerStarted = false;
 
   const player = new HlsPlayer({
     code,
     video,
-    onState: renderState,
+    // Reflect player state onto the shell, and reveal the start CTA the first time
+    // the webinar is live and the viewer hasn't started yet (autoplay policy: the
+    // stream only reliably plays after a user gesture — the CTA click IS that gesture).
+    onState: (state) => {
+      renderState(state);
+      if (state === 'live' && !viewerStarted) show(ctaBtn, true);
+    },
     onTapToStart: (needsTap) => show(tapBtn, needsTap),
     onInfo: (info) => {
       // Replace the waiting spinner with the host's avatar when one is available.
@@ -228,6 +241,7 @@ export function mountWebinarPlayer(): void {
         }
       }
       if (info.source_language && info.source_language !== lang) {
+        translationAvailable = true;
         show(listenBtn, true);
         webinarTts = new WebinarTts({
           code,
@@ -241,6 +255,25 @@ export function mountWebinarPlayer(): void {
 
   tapBtn?.addEventListener('click', () => {
     void player.userStart();
+  });
+
+  // Primary start CTA: the reliable gesture that starts playback (autoplay is blocked
+  // until the user acts). Starts the video unmuted, then — when a translation is
+  // available — switches the audio to the translated TTS track (silencing the original
+  // HLS audio) so the listener hears the webinar in their own language from the first tap.
+  ctaBtn?.addEventListener('click', () => {
+    viewerStarted = true;
+    void player.userStart();
+    if (translationAvailable) {
+      listenMode = 'translated';
+      // userStart() unmuted the original HLS audio; mute it so the TTS is the only
+      // audio, then enable the translated speech and repaint the listen toggle.
+      player.muteAudio(true);
+      paintAudio();
+      webinarTts?.setEnabled(true);
+      paintListen();
+    }
+    show(ctaBtn, false);
   });
 
   // Audio mute toggle (wv-mute): aria-pressed=true when audio is ACTIVE (playing).
@@ -299,7 +332,8 @@ export function mountWebinarPlayer(): void {
   const transcriptPanel = document.getElementById('wv-transcript');
   const transcriptList = document.getElementById('wv-transcript-list');
   const transcriptEmpty = document.getElementById('wv-transcript-empty');
-  let transcriptOpen = false;
+  // Transcript starts OPEN by default so live captions accumulate in view without a click.
+  let transcriptOpen = true;
   let transcriptHistoryLoaded = false;
 
   function paintTranscript(): void {
@@ -307,8 +341,9 @@ export function mountWebinarPlayer(): void {
     transcriptToggleBtn.textContent = t(transcriptOpen ? 'wvTranscriptHide' : 'wvTranscriptShow');
     transcriptToggleBtn.setAttribute('aria-pressed', transcriptOpen ? 'true' : 'false');
   }
-  transcriptToggleBtn?.addEventListener('click', () => {
-    transcriptOpen = !transcriptOpen;
+  // Reveal the panel + load history when the transcript is open (mount or manual toggle).
+  // The history fetch is gated by `transcriptHistoryLoaded` so it runs at most once.
+  function reflectTranscriptOpen(): void {
     show(transcriptPanel, transcriptOpen);
     paintTranscript();
     if (transcriptOpen && transcriptList) {
@@ -318,8 +353,13 @@ export function mountWebinarPlayer(): void {
       }
       transcriptList.scrollTop = transcriptList.scrollHeight;
     }
+  }
+  transcriptToggleBtn?.addEventListener('click', () => {
+    transcriptOpen = !transcriptOpen;
+    reflectTranscriptOpen();
   });
-  paintTranscript();
+  // Reflect the default-open state on mount (shows the panel + loads history once).
+  reflectTranscriptOpen();
 
   /** Build one transcript entry element. Shared by history load and live append. */
   function buildTranscriptItem(text: string, time: Date): HTMLElement {

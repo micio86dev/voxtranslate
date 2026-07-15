@@ -127,6 +127,13 @@ const pageDesc = webinar
               Tap to start
             </button>
 
+            <!-- Primary start CTA: shown once the webinar is live. Clicking it is the
+                 user gesture that reliably starts playback (autoplay is blocked until
+                 then) and activates the translated audio when a translation is available. -->
+            <button id="wv-cta" type="button" class="wv-cta hidden" data-i18n="wvJoinWebinar">
+              Join webinar
+            </button>
+
             <!-- Waiting / ended overlays (driven by the player state). -->
             <div id="wv-overlay-waiting" class="wv-overlay">
               <!-- Host avatar shown when available (043); falls back to spinner for
@@ -184,8 +191,8 @@ const pageDesc = webinar
           </div>
 
           <!-- Transcript history panel: shows final subtitle lines with timestamps.
-               Collapsed by default; the toggle button reveals/hides it. -->
-          <section id="wv-transcript" class="wv-transcript hidden" aria-label="Transcript">
+               Open by default; the toggle button hides/reveals it. -->
+          <section id="wv-transcript" class="wv-transcript" aria-label="Transcript">
             <div id="wv-transcript-list" class="wv-tr-list" role="log" aria-live="polite" aria-relevant="additions"></div>
             <p id="wv-transcript-empty" class="wv-tr-empty" data-i18n="wvTranscriptEmpty">No subtitles yet.</p>
           </section>
@@ -428,6 +435,35 @@ const pageDesc = webinar
       cursor: pointer;
     }
     .wv-tap.hidden {
+      display: none;
+    }
+    /* Primary start CTA — a centered pill button layered over the video. It is the
+       reliable start gesture (autoplay is blocked until the user acts). */
+    .wv-cta {
+      position: absolute;
+      inset: 0;
+      margin: auto;
+      width: max-content;
+      height: max-content;
+      padding: 14px 28px;
+      border: none;
+      border-radius: 999px;
+      background: var(--accent, #3b82f6);
+      color: #fff;
+      font-size: 1.05rem;
+      font-weight: 700;
+      font-family: inherit;
+      cursor: pointer;
+      box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
+    }
+    .wv-cta:hover {
+      filter: brightness(1.08);
+    }
+    .wv-cta:focus-visible {
+      outline: 2px solid #fff;
+      outline-offset: 2px;
+    }
+    .wv-cta.hidden {
       display: none;
     }
     /* Live-subtitle overlay: a caption band along the bottom of the video. Empty until
