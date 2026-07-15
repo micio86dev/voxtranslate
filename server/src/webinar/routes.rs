@@ -674,17 +674,230 @@ pub async fn publish_stopped(
     let cfg = require_cfg(&state)?;
     let w = require_webinar_role(pool, id, user.user_id, MEMBER).await?;
     // Only a live webinar transitions to ended; any other state is returned as-is.
-    sqlx::query(
+    let rows = sqlx::query(
         "UPDATE webinars SET status = 'ended', actual_end = now(), updated_at = now()
          WHERE id = $1 AND status = 'live'",
     )
     .bind(id)
     .execute(pool)
     .await
-    .map_err(db_err)?;
+    .map_err(db_err)?
+    .rows_affected();
     let current = find_by_id(pool, id).await.map_err(db_err)?.unwrap_or(w);
+    // First transition to ended (this call flipped it): finalize the session record +
+    // bill the host's org. Best-effort — a failure here must not fail the host's
+    // publish-stopped, and `finalize_webinar_run` is idempotent (UNIQUE webinar_id).
+    if rows > 0 {
+        if let Err(e) = finalize_webinar_run(pool, &current, &state.config).await {
+            tracing::error!(webinar_id = %id, "webinar finalization failed: {e}");
+        }
+    }
     Ok(Json(host_view(&current, &state.config.app_base_url, cfg)).into_response())
 }
+
+/// Batch-finalize a finished webinar run: sweep its `webinar_events`, compute the
+/// metrics + host cost via the pure [`metrics::finalize_webinar_metrics`], insert a
+/// one-row `webinar_sessions` record, finalize each participant's
+/// `total_watch_seconds`, and deduct the cost from the host's org.
+///
+/// Idempotent: the `webinar_sessions.webinar_id` UNIQUE constraint means a second
+/// run (a repeated publish-stopped, or a retry) inserts nothing and charges nothing.
+/// Defensive: a webinar that never went live (no `actual_start`) writes no record.
+async fn finalize_webinar_run(
+    pool: &Pool,
+    w: &Webinar,
+    config: &crate::config::Config,
+) -> Result<(), sqlx::Error> {
+    use crate::webinar::metrics::{
+        finalize_webinar_metrics, WebinarEvent as MetricEvent, WebinarRates,
+    };
+
+    // Never went live → nothing to record or charge.
+    let (Some(actual_start), Some(actual_end)) = (w.actual_start, w.actual_end) else {
+        return Ok(());
+    };
+
+    // Idempotency guard: skip if this run was already finalized.
+    let already: Option<Uuid> =
+        sqlx::query_scalar("SELECT id FROM webinar_sessions WHERE webinar_id = $1")
+            .bind(w.id)
+            .fetch_optional(pool)
+            .await?;
+    if already.is_some() {
+        return Ok(());
+    }
+
+    // Resolve the per-tier rates from config (keeps the pure function config-free).
+    // The cost model mirrors the meet meter EXACTLY: per broadcast-minute we bill
+    // `rate_per_minute × K` (K = distinct participant languages ≠ source_language);
+    // K=0 ⇒ that interval is free. There is NO host-STT surcharge and NO separate TTS
+    // factor — the per-tier rate already bundles STT + translation + TTS per stream.
+    // Standard: consumer per-minute rate (`billing.pricing.user_rate_per_minute` =
+    //   COST_PER_MINUTE × (1 + MARKUP)); fall back to the built-in default when
+    //   billing isn't configured.
+    // Enhanced: the Cartesia per-minute rate (cost_per_minute × (1 + markup)), which
+    //   already bundles its STT + TTS; fall back to the Standard rate if unset.
+    let standard_rate = config
+        .billing
+        .as_ref()
+        .map(|b| b.pricing.user_rate_per_minute)
+        .unwrap_or(WEBINAR_DEFAULT_STANDARD_RATE_USD);
+    let rates = if w.tier == "enhanced" {
+        match &config.cartesia {
+            Some(c) => WebinarRates::enhanced(c.cost_per_minute * (1.0 + c.markup)),
+            None => WebinarRates::enhanced(standard_rate),
+        }
+    } else {
+        WebinarRates::standard(standard_rate)
+    };
+
+    // Load the event timeline for the cost sweep (join/leave, each join carries the
+    // participant's language_code).
+    let rows: Vec<(Uuid, String, Option<String>, DateTime<Utc>)> = sqlx::query_as(
+        "SELECT participant_id, type, language_code, at
+           FROM webinar_events
+          WHERE webinar_id = $1 AND participant_id IS NOT NULL
+          ORDER BY at",
+    )
+    .bind(w.id)
+    .fetch_all(pool)
+    .await?;
+    let events: Vec<MetricEvent> = rows
+        .into_iter()
+        .map(|(participant_id, kind, language_code, at)| MetricEvent {
+            participant_id,
+            kind,
+            language_code,
+            at,
+        })
+        .collect();
+
+    let m = finalize_webinar_metrics(
+        &events,
+        &w.source_language,
+        &w.tier,
+        actual_start,
+        actual_end,
+        rates,
+    );
+
+    // Insert the session record AND charge the host's org in ONE transaction, so a
+    // crash/DB error between them can never leave a committed session row with no
+    // charge (which the idempotency guard would then skip forever → free broadcast).
+    // ON CONFLICT DO NOTHING makes the insert itself idempotent under a race (two
+    // finalizations arriving together): only the first writer's row lands, and only it
+    // proceeds to charge.
+    let mut tx = pool.begin().await?;
+    let inserted: Option<Uuid> = sqlx::query_scalar(
+        "INSERT INTO webinar_sessions
+            (webinar_id, org_id, host_user_id, actual_start, actual_end, duration_seconds,
+             scheduled_start, scheduled_end, host_online_seconds, peak_viewers,
+             translated_language_count, cost_credits)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+         ON CONFLICT (webinar_id) DO NOTHING
+         RETURNING id",
+    )
+    .bind(w.id)
+    .bind(w.org_id)
+    .bind(w.host_user_id)
+    .bind(actual_start)
+    .bind(actual_end)
+    .bind(m.duration_seconds as i32)
+    .bind(w.scheduled_start)
+    .bind(w.scheduled_end)
+    .bind(m.host_online_seconds as i32)
+    .bind(m.peak_viewers)
+    .bind(m.translated_language_count)
+    .bind(m.cost_credits)
+    .fetch_optional(&mut *tx)
+    .await?;
+    let Some(session_id) = inserted else {
+        // Lost the race; the winning finalization owns the charge. Nothing was
+        // written in this tx → roll it back and return.
+        tx.rollback().await?;
+        return Ok(());
+    };
+
+    // Bill the host's org INSIDE the same tx so the row + charge are atomic.
+    // `session_id` on the ledger FKs to `call_sessions`, which this is NOT, so pass
+    // None and reference the webinar/session in the description.
+    if m.cost_credits > 0 {
+        let desc = format!("webinar broadcast {} (session {})", w.code, session_id);
+        let charge = crate::business::credits::deduct_org_credits_tx(
+            &mut tx,
+            w.org_id,
+            m.cost_credits,
+            "webinar",
+            None,
+            w.host_user_id,
+            &desc,
+        )
+        .await?;
+        if let crate::business::credits::OrgCharge::Insufficient { balance, required } = charge {
+            // The broadcast already happened; we don't roll it back. Record the
+            // shortfall for reconciliation rather than silently dropping the charge —
+            // the session row still commits (with cost_credits set, but no ledger
+            // deduction), matching the prior behavior of NOT reverting the broadcast.
+            tracing::warn!(
+                webinar_id = %w.id, org_id = %w.org_id, balance, required,
+                "webinar host org has insufficient credits for finalized broadcast"
+            );
+        }
+    }
+
+    // Commit the session row + charge together.
+    tx.commit().await?;
+
+    // Finalize each participant's total_watch_seconds = Σ their in-window join→leave
+    // spans (an open join with no leave runs to actual_end). Analytics only, so it
+    // runs OUTSIDE the billing transaction (best-effort, after commit) — a failure
+    // here must not undo the row + charge. Done in SQL over the event log so a re-join
+    // accumulates correctly.
+    if let Err(e) = sqlx::query(
+        "WITH spans AS (
+            SELECT participant_id,
+                   at AS joined_at,
+                   COALESCE(
+                       LEAD(at) OVER (PARTITION BY participant_id ORDER BY at),
+                       $2
+                   ) AS ended_at,
+                   type
+              FROM webinar_events
+             WHERE webinar_id = $1 AND participant_id IS NOT NULL
+        )
+        UPDATE webinar_participants p SET total_watch_seconds = COALESCE(agg.secs, 0)
+          FROM (
+            SELECT participant_id,
+                   SUM(GREATEST(0, EXTRACT(EPOCH FROM (
+                       LEAST(ended_at, $2) - GREATEST(joined_at, $3)
+                   ))))::int AS secs
+              FROM spans
+             WHERE type = 'join'
+             GROUP BY participant_id
+          ) agg
+         WHERE p.id = agg.participant_id AND p.webinar_id = $1",
+    )
+    .bind(w.id)
+    .bind(actual_end)
+    .bind(actual_start)
+    .execute(pool)
+    .await
+    {
+        tracing::warn!(webinar_id = %w.id, "webinar total_watch_seconds update failed: {e}");
+    }
+
+    tracing::info!(
+        webinar_id = %w.id, session_id = %session_id,
+        duration_seconds = m.duration_seconds, peak_viewers = m.peak_viewers,
+        translated_language_count = m.translated_language_count, cost_credits = m.cost_credits,
+        "webinar run finalized"
+    );
+    Ok(())
+}
+
+/// Fallback Standard per-minute rate (USD) when billing config is absent — the
+/// built-in `COST_PER_MINUTE` (0.008) × (1 + `MARKUP_PERCENTAGE` 0.25) = 0.01/min.
+const WEBINAR_DEFAULT_STANDARD_RATE_USD: f64 = 0.01;
 
 /// `POST /api/webinars/{id}/archive` — soft-archive (hide from the active list;
 /// data preserved). Member only.
