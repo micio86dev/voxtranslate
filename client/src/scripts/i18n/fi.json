@@ -646,6 +646,8 @@
   "wvBackHome": "Takaisin VoxTranslateen",
   "wvListenTranslated": "Kuuntele käännös",
   "wvJoinWebinar": "Liity webinaariin",
+  "wvTimerElapsed": "Kulunut aika",
+  "wvTimerRemaining": "Jäljellä oleva aika",
   "wvListenOriginal": "Kuuntele alkuperäinen",
   "wvMuteAudio": "Mykistä ääni",
   "wvUnmuteAudio": "Poista mykistys",

@@ -17,6 +17,7 @@ import {
   canHostWebinar,
   createWebinar,
   formatScheduledStart,
+  formatWebinarClock,
   fromDatetimeLocalValue,
   getPublicWebinar,
   getWebinar,
@@ -753,5 +754,33 @@ describe('validateSchedule', () => {
 
   it('skips the end check when there is no start to compare', () => {
     expect(validateSchedule(null, iso(HOUR), NOW)).toBe('ok');
+  });
+});
+
+describe('formatWebinarClock', () => {
+  it('formats zero seconds as 00:00', () => {
+    expect(formatWebinarClock(0)).toBe('00:00');
+  });
+
+  it('rounds sub-minute seconds down to the current whole minute', () => {
+    expect(formatWebinarClock(65)).toBe('00:01');
+  });
+
+  it('formats exactly one hour as 01:00', () => {
+    expect(formatWebinarClock(3600)).toBe('01:00');
+  });
+
+  it('formats an hour-plus span as zero-padded HH:MM', () => {
+    expect(formatWebinarClock(3725)).toBe('01:02'); // 1h 2m 5s → 01:02
+  });
+
+  it('clamps negatives and non-finite input to 00:00', () => {
+    expect(formatWebinarClock(-5)).toBe('00:00');
+    expect(formatWebinarClock(NaN)).toBe('00:00');
+    expect(formatWebinarClock(Infinity)).toBe('00:00');
+  });
+
+  it('pads hours beyond 9 without truncation', () => {
+    expect(formatWebinarClock(10 * 3600 + 7 * 60)).toBe('10:07');
   });
 });

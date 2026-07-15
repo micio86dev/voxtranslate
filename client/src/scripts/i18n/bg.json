@@ -646,6 +646,8 @@
   "wvBackHome": "Обратно към VoxTranslate",
   "wvListenTranslated": "Слушане с превод",
   "wvJoinWebinar": "Присъединете се към уебинара",
+  "wvTimerElapsed": "Изминало време",
+  "wvTimerRemaining": "Оставащо време",
   "wvListenOriginal": "Слушай оригинала",
   "wvMuteAudio": "Изключване на звука",
   "wvUnmuteAudio": "Включване на звука",

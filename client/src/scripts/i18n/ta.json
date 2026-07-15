@@ -646,6 +646,8 @@
   "wvBackHome": "VoxTranslate க்குத் திரும்பு",
   "wvListenTranslated": "மொழிபெயர்ப்பு கேளுங்கள்",
   "wvJoinWebinar": "வெபினாரில் இணையவும்",
+  "wvTimerElapsed": "கடந்த நேரம்",
+  "wvTimerRemaining": "மீதமுள்ள நேரம்",
   "wvListenOriginal": "அசல் கேளுங்கள்",
   "wvMuteAudio": "ஒலியை நிறுத்து",
   "wvUnmuteAudio": "ஒலியை இயக்கு",

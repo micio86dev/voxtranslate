@@ -646,6 +646,8 @@
   "wvBackHome": "Back to VoxTranslate",
   "wvListenTranslated": "Listen translated",
   "wvJoinWebinar": "Join webinar",
+  "wvTimerElapsed": "Elapsed time",
+  "wvTimerRemaining": "Time remaining",
   "wvListenOriginal": "Listen original",
   "wvMuteAudio": "Mute audio",
   "wvUnmuteAudio": "Unmute audio",

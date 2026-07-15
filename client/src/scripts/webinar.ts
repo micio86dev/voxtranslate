@@ -74,6 +74,12 @@ export interface PublicWebinar {
   host_avatar_url: string | null;
   /** When true, only authenticated users may join the presence WebSocket. */
   members_only: boolean;
+  /** ISO-8601 timestamp the host went live, or null while the webinar hasn't started.
+   *  Drives the audience live timer's elapsed count. */
+  actual_start?: string | null;
+  /** ISO-8601 scheduled end, or null when the webinar was created without an end.
+   *  When present, the live timer can toggle to a countdown to this instant. */
+  scheduled_end?: string | null;
 }
 
 /** Response of `POST /api/webinars/{id}/go-live`: a short-lived tokenized WHIP
@@ -416,6 +422,19 @@ export interface PublicWebinarListItem {
  *  and whether the viewers count is shown). Pure. */
 export function isWebinarLive(item: { status: string }): boolean {
   return item.status === "live";
+}
+
+/** Format a live-webinar clock as zero-padded `HH:MM` from a total number of seconds
+ *  (e.g. `0` → `00:00`, `65` → `00:01`, `3600` → `01:00`, `3725` → `01:02`). Sub-minute
+ *  seconds are truncated to the current whole minute. Negative / non-finite input clamps
+ *  to `00:00`. Pure + input-driven (no `Date.now()`) so the studio and audience timers
+ *  can share and unit-test it deterministically. */
+export function formatWebinarClock(totalSeconds: number): string {
+  const s = Number.isFinite(totalSeconds) ? Math.max(0, Math.floor(totalSeconds)) : 0;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const hours = Math.floor(s / 3600);
+  const minutes = Math.floor((s % 3600) / 60);
+  return `${pad(hours)}:${pad(minutes)}`;
 }
 
 /** Format a webinar's `scheduled_start` for the card's "scheduled" hint: a short

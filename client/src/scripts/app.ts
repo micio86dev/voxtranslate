@@ -87,6 +87,7 @@ import {
   canHostWebinar,
   createWebinar,
   formatScheduledStart,
+  formatWebinarClock,
   fromDatetimeLocalValue,
   isWebinarLive,
   listPublicWebinars,
@@ -5707,6 +5708,7 @@ const wsEndBtn = $<HTMLButtonElement>('webinar-studio-end');
 const wsOnairText = $('webinar-onair-text');
 const wsCountIco = $('webinar-count-ico');
 const wsCountN = $('webinar-count-n');
+const wsClockEl = $<HTMLButtonElement>('webinar-studio-timer');
 const wsEndModal = $('webinar-end-modal');
 const wsEndConfirm = $<HTMLButtonElement>('webinar-end-confirm');
 const wsEndCancel = $<HTMLButtonElement>('webinar-end-cancel');
@@ -5753,6 +5755,64 @@ let wsMicMeter: { stop(): void } | null = null;
 function renderWebinarCount(count: number): void {
   wsCountN.textContent = String(count);
 }
+
+// ---- Host studio live timer -------------------------------------------------
+// A clickable HH:MM clock in the studio stage. Counts UP (elapsed since the host went
+// live) by default; clicking toggles to a COUNTDOWN when the webinar has a scheduled end
+// (no-op otherwise). Reuses formatWebinarClock (pure, unit-tested) for the display.
+let wsTimerMode: 'elapsed' | 'remaining' = 'elapsed';
+let wsTimerStartMs: number | null = null;
+let wsTimerEndMs: number | null = null;
+let wsTimerInterval: ReturnType<typeof setInterval> | null = null;
+
+/** Repaint the studio timer badge for the current mode against the wall clock. */
+function renderWebinarTimer(): void {
+  if (!wsClockEl) return;
+  const now = Date.now();
+  let totalSeconds: number;
+  if (wsTimerMode === 'remaining' && wsTimerEndMs !== null) {
+    totalSeconds = Math.max(0, (wsTimerEndMs - now) / 1000);
+  } else {
+    totalSeconds = wsTimerStartMs !== null ? Math.max(0, (now - wsTimerStartMs) / 1000) : 0;
+  }
+  wsClockEl.textContent = formatWebinarClock(totalSeconds);
+  const labelKey = wsTimerMode === 'remaining' ? 'wvTimerRemaining' : 'wvTimerElapsed';
+  wsClockEl.setAttribute('aria-label', t(labelKey));
+  wsClockEl.setAttribute('title', t(labelKey));
+}
+
+/** Start the studio timer for a live webinar. Prefers the webinar's `actual_start`;
+ *  falls back to "now" (the moment the studio opened live). Idempotent. */
+function startWebinarTimer(w: WebinarView): void {
+  stopWebinarTimer();
+  wsTimerMode = 'elapsed';
+  const startIso = w.actual_start;
+  const parsed = startIso ? new Date(startIso).getTime() : NaN;
+  wsTimerStartMs = Number.isNaN(parsed) ? Date.now() : parsed;
+  const endIso = w.scheduled_end;
+  const endParsed = endIso ? new Date(endIso).getTime() : NaN;
+  wsTimerEndMs = Number.isNaN(endParsed) ? null : endParsed;
+  if (!wsClockEl) return;
+  show(wsClockEl, true);
+  renderWebinarTimer();
+  wsTimerInterval = setInterval(renderWebinarTimer, 1_000);
+}
+
+/** Stop + hide the studio timer (broadcast ended / studio closed). Idempotent. */
+function stopWebinarTimer(): void {
+  if (wsTimerInterval !== null) {
+    clearInterval(wsTimerInterval);
+    wsTimerInterval = null;
+  }
+  if (wsClockEl) show(wsClockEl, false);
+}
+
+// Click toggles elapsed⇄countdown, only when the webinar has a scheduled end.
+wsClockEl?.addEventListener('click', () => {
+  if (wsTimerEndMs === null) return; // no scheduled end → stays elapsed
+  wsTimerMode = wsTimerMode === 'elapsed' ? 'remaining' : 'elapsed';
+  renderWebinarTimer();
+});
 
 /** Localized strings the host chat panel needs. */
 function webinarChatStrings() {
@@ -6004,6 +6064,7 @@ function openWebinarStudio(w: WebinarView): void {
   wsTitle.textContent = w.title;
   wsCode.textContent = w.code;
   wsCountIco.innerHTML = icon('users', 14);
+  startWebinarTimer(w);
   openWebinarPresence(w);
   wsUpdateControls();
   wsPaintState(activePublisher?.getState() ?? 'on-air');
@@ -6179,6 +6240,7 @@ async function endWebinarBroadcast(): Promise<void> {
   wsMicMeter?.stop();
   wsMicMeter = null;
   wsMicBtn.style.removeProperty('--mic-level');
+  stopWebinarTimer();
   closeWebinarPresence();
   activeWebinar = null;
   wsVideo.srcObject = null;

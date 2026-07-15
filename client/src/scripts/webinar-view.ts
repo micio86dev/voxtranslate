@@ -8,7 +8,7 @@ import { HlsPlayer, getStoredGuestId, type PlayerState } from './hls-player';
 import { applyI18n, detectLang, getUiLang, loadLocale, setUiLang, SUPPORTED, t } from './i18n';
 import { PresenceClient, type SubtitleEvent } from './webinar-presence';
 import { renderSubtitleInto } from './subtitle-render';
-import { getPublicWebinar } from './webinar';
+import { formatWebinarClock, getPublicWebinar } from './webinar';
 import { WebinarTts } from './webinar-tts';
 import {
   ChatPanel,
@@ -225,6 +225,56 @@ export function mountWebinarPlayer(): void {
   const ccBtn = document.getElementById('wv-cc') as HTMLButtonElement | null;
   const ctaBtn = document.getElementById('wv-cta') as HTMLButtonElement | null;
 
+  // Live timer (clickable badge). Counts UP (elapsed since the host went live) by
+  // default; clicking toggles to a COUNTDOWN when the webinar has a scheduled end
+  // (a no-op otherwise). Captured from onInfo; started on 'live', stopped on end/error.
+  const timerBtn = document.getElementById('wv-timer') as HTMLButtonElement | null;
+  let timerMode: 'elapsed' | 'remaining' = 'elapsed';
+  let timerActualStartMs: number | null = null;
+  let timerScheduledEndMs: number | null = null;
+  let timerInterval: ReturnType<typeof setInterval> | null = null;
+
+  /** Repaint the timer badge for the current mode, recomputed against the wall clock. */
+  function renderTimer(): void {
+    if (!timerBtn) return;
+    const now = Date.now();
+    let totalSeconds: number;
+    if (timerMode === 'remaining' && timerScheduledEndMs !== null) {
+      totalSeconds = Math.max(0, (timerScheduledEndMs - now) / 1000);
+    } else {
+      // Elapsed (default). Guard against a null start (shouldn't tick without one).
+      totalSeconds = timerActualStartMs !== null ? Math.max(0, (now - timerActualStartMs) / 1000) : 0;
+    }
+    timerBtn.textContent = formatWebinarClock(totalSeconds);
+    const labelKey = timerMode === 'remaining' ? 'wvTimerRemaining' : 'wvTimerElapsed';
+    timerBtn.setAttribute('aria-label', t(labelKey));
+    timerBtn.setAttribute('title', t(labelKey));
+  }
+
+  /** Start (or restart) the 1s timer once the webinar is live and a start time is known. */
+  function startTimer(): void {
+    if (!timerBtn || timerActualStartMs === null || timerInterval !== null) return;
+    show(timerBtn, true);
+    renderTimer();
+    timerInterval = setInterval(renderTimer, 1_000);
+  }
+
+  /** Stop + hide the timer (webinar ended/errored or the page is going away). */
+  function stopTimer(): void {
+    if (timerInterval !== null) {
+      clearInterval(timerInterval);
+      timerInterval = null;
+    }
+    show(timerBtn, false);
+  }
+
+  // Click toggles elapsed⇄countdown, but only when there's a scheduled end to count to.
+  timerBtn?.addEventListener('click', () => {
+    if (timerScheduledEndMs === null) return; // no scheduled end → stays elapsed
+    timerMode = timerMode === 'elapsed' ? 'remaining' : 'elapsed';
+    renderTimer();
+  });
+
   let listenMode: 'original' | 'translated' = 'original';
   let webinarTts: WebinarTts | null = null;
   // Whether a listener-language translation is available (host speaks a different
@@ -243,9 +293,26 @@ export function mountWebinarPlayer(): void {
     onState: (state) => {
       renderState(state);
       if (state === 'live' && !viewerStarted) show(ctaBtn, true);
+      // Drive the live timer off player state: run it while live, stop+hide otherwise.
+      if (state === 'live') startTimer();
+      else stopTimer();
     },
     onTapToStart: (needsTap) => show(tapBtn, needsTap),
     onInfo: (info) => {
+      // Capture the timer anchors. `actual_start` sets the elapsed origin; `scheduled_end`
+      // (when present) unlocks the click-to-countdown toggle. Parse defensively — a bad
+      // ISO yields NaN which we treat as "absent".
+      if (info.actual_start) {
+        const startMs = new Date(info.actual_start).getTime();
+        timerActualStartMs = Number.isNaN(startMs) ? null : startMs;
+      }
+      if (info.scheduled_end) {
+        const endMs = new Date(info.scheduled_end).getTime();
+        timerScheduledEndMs = Number.isNaN(endMs) ? null : endMs;
+      }
+      // If the webinar is already live (onInfo may resolve after the first 'live' poll),
+      // start the timer now that we have the start time. Idempotent while already running.
+      if (info.status === 'live') startTimer();
       // Replace the waiting spinner with the host's avatar when one is available.
       // Falls back to the spinner for webinars without an avatar (pre-043 or no profile pic).
       if (info.host_avatar_url) {
@@ -453,6 +520,7 @@ export function mountWebinarPlayer(): void {
       presence = null;
       webinarTts?.stop();
       webinarTts = null;
+      stopTimer();
     },
     { once: true },
   );

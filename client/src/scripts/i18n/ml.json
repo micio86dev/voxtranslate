@@ -646,6 +646,8 @@
   "wvBackHome": "VoxTranslate-ലേക്ക് മടങ്ങുക",
   "wvListenTranslated": "വിവർത്തനം കേൾക്കുക",
   "wvJoinWebinar": "വെബിനാറിൽ ചേരുക",
+  "wvTimerElapsed": "കഴിഞ്ഞ സമയം",
+  "wvTimerRemaining": "ബാക്കി സമയം",
   "wvListenOriginal": "യഥാർഥം കേൾക്കുക",
   "wvMuteAudio": "ഓഡിയോ മ്യൂട്ട് ചെയ്യുക",
   "wvUnmuteAudio": "ഓഡിയോ അൺമ്യൂട്ട് ചെയ്യുക",

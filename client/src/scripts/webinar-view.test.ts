@@ -47,6 +47,7 @@ import type { SubtitleEvent } from './webinar-presence';
 function buildDom(code = 'ab12cd', notfound = '0'): void {
   document.body.innerHTML = `
     <main class="wv" data-code="${code}" data-notfound="${notfound}">
+      <button id="wv-timer" class="wv-timer hidden"></button>
       <span id="wv-status" class="wv-badge"></span>
       <video id="wv-video"></video>
       <div id="wv-subtitles"></div>
@@ -278,5 +279,102 @@ describe('mountWebinarPlayer', () => {
     buildDom();
     mountWebinarPlayer();
     expect(setUiLangMock).toHaveBeenCalledWith('en');
+  });
+});
+
+describe('mountWebinarPlayer live timer', () => {
+  // A base PublicWebinar-shaped info object; individual tests override the timer fields.
+  const baseInfo = {
+    code: 'x', title: 'T', status: 'live' as const, source_language: 'en',
+    tier: 'standard' as const, join_url: '', chat_enabled: false,
+    playback_url: null, guest_id: 'g', host_avatar_url: null, members_only: false,
+  };
+
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it('shows the elapsed timer when live and actual_start is set', () => {
+    vi.setSystemTime(new Date('2026-07-15T12:00:07Z')); // 7s after start
+    buildDom();
+    mountWebinarPlayer();
+    lastOpts.onInfo({ ...baseInfo, actual_start: '2026-07-15T12:00:00Z', scheduled_end: null });
+    lastOpts.onState('live');
+    const timer = el('wv-timer');
+    expect(timer.classList.contains('hidden')).toBe(false);
+    expect(timer.textContent).toBe('00:00'); // 7s → still the 00 minute
+    expect(timer.getAttribute('aria-label')).toBe('wvTimerElapsed');
+  });
+
+  it('ticks the elapsed count every second', () => {
+    vi.setSystemTime(new Date('2026-07-15T12:00:00Z'));
+    buildDom();
+    mountWebinarPlayer();
+    lastOpts.onInfo({ ...baseInfo, actual_start: '2026-07-15T12:00:00Z', scheduled_end: null });
+    lastOpts.onState('live');
+    // advanceTimersByTime also moves the mocked clock forward, so Date.now() in the
+    // tick reflects the elapsed 65s → 00:01.
+    vi.advanceTimersByTime(65_000);
+    expect(el('wv-timer').textContent).toBe('00:01');
+  });
+
+  it('does not toggle to countdown when there is no scheduled end (stays elapsed)', () => {
+    vi.setSystemTime(new Date('2026-07-15T12:00:00Z'));
+    buildDom();
+    mountWebinarPlayer();
+    lastOpts.onInfo({ ...baseInfo, actual_start: '2026-07-15T12:00:00Z', scheduled_end: null });
+    lastOpts.onState('live');
+    (el('wv-timer') as HTMLButtonElement).click();
+    expect(el('wv-timer').getAttribute('aria-label')).toBe('wvTimerElapsed');
+  });
+
+  it('toggles to countdown on click when a scheduled end is set', () => {
+    vi.setSystemTime(new Date('2026-07-15T12:00:00Z'));
+    buildDom();
+    mountWebinarPlayer();
+    lastOpts.onInfo({
+      ...baseInfo,
+      actual_start: '2026-07-15T12:00:00Z',
+      scheduled_end: '2026-07-15T12:05:00Z', // 5 min out
+    });
+    lastOpts.onState('live');
+    (el('wv-timer') as HTMLButtonElement).click();
+    expect(el('wv-timer').getAttribute('aria-label')).toBe('wvTimerRemaining');
+    expect(el('wv-timer').textContent).toBe('00:05'); // 5 min remaining
+    // Click again → back to elapsed.
+    (el('wv-timer') as HTMLButtonElement).click();
+    expect(el('wv-timer').getAttribute('aria-label')).toBe('wvTimerElapsed');
+  });
+
+  it('remaining never goes negative past the scheduled end', () => {
+    vi.setSystemTime(new Date('2026-07-15T12:10:00Z')); // past the 12:05 end
+    buildDom();
+    mountWebinarPlayer();
+    lastOpts.onInfo({
+      ...baseInfo,
+      actual_start: '2026-07-15T12:00:00Z',
+      scheduled_end: '2026-07-15T12:05:00Z',
+    });
+    lastOpts.onState('live');
+    (el('wv-timer') as HTMLButtonElement).click(); // → remaining
+    expect(el('wv-timer').textContent).toBe('00:00');
+  });
+
+  it('hides + stops the timer when the webinar ends', () => {
+    vi.setSystemTime(new Date('2026-07-15T12:00:00Z'));
+    buildDom();
+    mountWebinarPlayer();
+    lastOpts.onInfo({ ...baseInfo, actual_start: '2026-07-15T12:00:00Z', scheduled_end: null });
+    lastOpts.onState('live');
+    expect(el('wv-timer').classList.contains('hidden')).toBe(false);
+    lastOpts.onState('ended');
+    expect(el('wv-timer').classList.contains('hidden')).toBe(true);
+  });
+
+  it('does not start the timer without an actual_start', () => {
+    buildDom();
+    mountWebinarPlayer();
+    lastOpts.onInfo({ ...baseInfo, actual_start: null, scheduled_end: null });
+    lastOpts.onState('live');
+    expect(el('wv-timer').classList.contains('hidden')).toBe(true);
   });
 });

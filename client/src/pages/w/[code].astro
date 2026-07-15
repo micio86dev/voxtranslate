@@ -29,6 +29,8 @@ interface PublicWebinar {
   playback_url: string | null;
   guest_id: string;
   members_only: boolean;
+  actual_start?: string | null;
+  scheduled_end?: string | null;
 }
 
 let webinar: PublicWebinar | null = null;
@@ -100,6 +102,10 @@ const pageDesc = webinar
               <span id="wv-watching" class="wv-watching hidden" role="status" aria-live="polite">
                 <span class="wv-watching-ico" aria-hidden="true"></span><span id="wv-watching-text"></span>
               </span>
+              <!-- Live timer — hidden until the webinar is live. Counts up (elapsed) by
+                   default; clicking toggles to a countdown when the webinar has a
+                   scheduled end (no-op otherwise). Styled like a clickable .wv-badge. -->
+              <button id="wv-timer" type="button" class="wv-timer hidden" role="status" aria-live="off"></button>
               <span id="wv-status" class="wv-badge" role="status" data-i18n="wvStateWaiting">
                 Waiting to start…
               </span>
@@ -395,6 +401,31 @@ const pageDesc = webinar
       background: rgba(239, 68, 68, 0.15);
       border-color: rgba(239, 68, 68, 0.5);
       color: #f87171;
+    }
+    /* Live timer — a clickable badge consistent with .wv-badge. Tabular numerals keep the
+       HH:MM from jittering as it ticks. Reveals only while the webinar is live. */
+    .wv-timer {
+      font-size: 0.82rem;
+      font-weight: 600;
+      padding: 4px 12px;
+      border-radius: 999px;
+      background: var(--surface, #1b2330);
+      border: 1px solid var(--border, #2a3444);
+      color: var(--text-muted, #9aa4b2);
+      cursor: pointer;
+      font-family: inherit;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: 0.02em;
+    }
+    .wv-timer:hover {
+      border-color: var(--accent, #3b82f6);
+    }
+    .wv-timer:focus-visible {
+      outline: 2px solid var(--accent, #3b82f6);
+      outline-offset: 1px;
+    }
+    .wv-timer.hidden {
+      display: none;
     }
     .wv-video-wrap {
       position: relative;

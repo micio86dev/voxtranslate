@@ -646,6 +646,8 @@
   "wvBackHome": "Zpět na VoxTranslate",
   "wvListenTranslated": "Poslouchat přeložené",
   "wvJoinWebinar": "Připojit se k webináři",
+  "wvTimerElapsed": "Uplynulý čas",
+  "wvTimerRemaining": "Zbývající čas",
   "wvListenOriginal": "Poslouchat originál",
   "wvMuteAudio": "Ztlumit zvuk",
   "wvUnmuteAudio": "Zapnout zvuk",

@@ -1173,6 +1173,9 @@ const jsonLd = {
             <span class="studio-count-badge" id="webinar-count-badge" data-i18n-title="webinarParticipants" title={T('webinarParticipants')}>
               <span class="studio-count-ico" id="webinar-count-ico" aria-hidden="true"></span><span id="webinar-count-n">0</span>
             </span>
+            <!-- Live timer — counts up (elapsed) by default; click toggles to a countdown
+                 when the webinar has a scheduled end. Hidden until the studio opens live. -->
+            <button id="webinar-studio-timer" type="button" class="studio-timer-badge hidden" role="status" aria-live="off"></button>
           </div>
           <div class="studio-panel card">
             <div class="studio-panel-head">
@@ -2749,6 +2752,11 @@ const jsonLd = {
     .studio-onair-badge .onair-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--danger); box-shadow: 0 0 0 0 color-mix(in srgb, var(--danger) 60%, transparent); animation: onair-pulse 1.6s infinite; }
     @keyframes onair-pulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--danger) 60%, transparent); } 70% { box-shadow: 0 0 0 8px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
     .studio-count-badge { position: absolute; top: 12px; right: 12px; display: inline-flex; align-items: center; gap: 6px; font-size: 0.85rem; font-weight: 700; padding: 5px 11px; border-radius: 999px; background: rgba(0,0,0,0.5); color: #fff; }
+    /* Live timer badge — clickable elapsed/countdown clock, top-right under the count. */
+    .studio-timer-badge { position: absolute; top: 48px; right: 12px; display: inline-flex; align-items: center; font-size: 0.85rem; font-weight: 700; padding: 5px 11px; border-radius: 999px; background: rgba(0,0,0,0.5); color: #fff; border: 1px solid transparent; cursor: pointer; font-family: inherit; font-variant-numeric: tabular-nums; letter-spacing: 0.02em; }
+    .studio-timer-badge:hover { border-color: color-mix(in srgb, var(--accent, #3b82f6) 70%, transparent); }
+    .studio-timer-badge:focus-visible { outline: 2px solid var(--accent, #3b82f6); outline-offset: 1px; }
+    .studio-timer-badge.hidden { display: none; }
     .studio-panel { display: flex; flex-direction: column; gap: 12px; }
     .studio-panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
     .webinar-studio-code { font-size: 0.9rem; color: var(--muted); }

@@ -646,6 +646,8 @@
   "wvBackHome": "Vissza a VoxTranslate-hez",
   "wvListenTranslated": "Fordítás meghallgatása",
   "wvJoinWebinar": "Csatlakozás a webináriumhoz",
+  "wvTimerElapsed": "Eltelt idő",
+  "wvTimerRemaining": "Hátralévő idő",
   "wvListenOriginal": "Eredeti hallgatása",
   "wvMuteAudio": "Hang némítása",
   "wvUnmuteAudio": "Némítás feloldása",

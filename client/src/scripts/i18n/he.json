@@ -646,6 +646,8 @@
   "wvBackHome": "חזרה אל VoxTranslate",
   "wvListenTranslated": "האזנה לתרגום",
   "wvJoinWebinar": "הצטרפו לוובינר",
+  "wvTimerElapsed": "זמן שחלף",
+  "wvTimerRemaining": "זמן שנותר",
   "wvListenOriginal": "האזן למקור",
   "wvMuteAudio": "השתקת האודיו",
   "wvUnmuteAudio": "ביטול ההשתקה",
