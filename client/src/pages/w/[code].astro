@@ -127,6 +127,13 @@ const pageDesc = webinar
               Tap to start
             </button>
 
+            <!-- Primary start CTA: shown once the webinar is live. Clicking it is the
+                 user gesture that reliably starts playback (autoplay is blocked until
+                 then) and activates the translated audio when a translation is available. -->
+            <button id="wv-cta" type="button" class="wv-cta hidden" data-i18n="wvJoinWebinar">
+              Join webinar
+            </button>
+
             <!-- Waiting / ended overlays (driven by the player state). -->
             <div id="wv-overlay-waiting" class="wv-overlay">
               <!-- Host avatar shown when available (043); falls back to spinner for
@@ -163,29 +170,34 @@ const pageDesc = webinar
                            Fase 3 will extend it to switch between original and TTS audio.
                wv-listen is hidden (via onInfo) when host and viewer speak the same language. -->
           <div class="wv-controls">
-            <button id="wv-mute" type="button" class="wv-ctl" aria-pressed="false" data-i18n="wvMuteAudio">
-              Mute audio
+            <button id="wv-mute" type="button" class="wv-ctl" aria-pressed="false">
+              <span class="wv-ctl-ico" aria-hidden="true">🔊</span>
+              <span class="wv-ctl-label" data-i18n="wvMuteAudio">Mute audio</span>
             </button>
-            <button id="wv-listen" type="button" class="wv-ctl hidden" aria-pressed="false" data-i18n="wvListenTranslated">
-              Listen translated
+            <button id="wv-listen" type="button" class="wv-ctl hidden" aria-pressed="false">
+              <span class="wv-ctl-ico" aria-hidden="true">🌐</span>
+              <span class="wv-ctl-label" data-i18n="wvListenTranslated">Listen translated</span>
             </button>
-            <button id="wv-cc" type="button" class="wv-ctl" aria-pressed="true" data-i18n="wvSubtitlesOn">
-              Subtitles on
+            <button id="wv-cc" type="button" class="wv-ctl" aria-pressed="true">
+              <span class="wv-ctl-ico wv-cc-badge" aria-hidden="true">CC</span>
+              <span class="wv-ctl-label" data-i18n="wvSubtitlesOn">Subtitles on</span>
             </button>
             <!-- Transcript history toggle. Always shown; collapses the history panel. -->
-            <button id="wv-transcript-toggle" type="button" class="wv-ctl" aria-pressed="false" aria-controls="wv-transcript" data-i18n="wvTranscriptShow">
-              Show transcript
+            <button id="wv-transcript-toggle" type="button" class="wv-ctl" aria-pressed="false" aria-controls="wv-transcript">
+              <span class="wv-ctl-ico" aria-hidden="true">📄</span>
+              <span class="wv-ctl-label" data-i18n="wvTranscriptShow">Show transcript</span>
             </button>
             <!-- Chat show/hide toggle (Feature ⑤). Hidden until the view controller confirms
                  the webinar has chat enabled; then it reveals + toggles the panel below. -->
-            <button id="wv-chat-toggle" type="button" class="wv-ctl hidden" aria-pressed="false" aria-controls="wv-chat" data-i18n="wvChatShow">
-              Show chat
+            <button id="wv-chat-toggle" type="button" class="wv-ctl hidden" aria-pressed="false" aria-controls="wv-chat">
+              <span class="wv-ctl-ico" aria-hidden="true">💬</span>
+              <span class="wv-ctl-label" data-i18n="wvChatShow">Show chat</span>
             </button>
           </div>
 
           <!-- Transcript history panel: shows final subtitle lines with timestamps.
-               Collapsed by default; the toggle button reveals/hides it. -->
-          <section id="wv-transcript" class="wv-transcript hidden" aria-label="Transcript">
+               Open by default; the toggle button hides/reveals it. -->
+          <section id="wv-transcript" class="wv-transcript" aria-label="Transcript">
             <div id="wv-transcript-list" class="wv-tr-list" role="log" aria-live="polite" aria-relevant="additions"></div>
             <p id="wv-transcript-empty" class="wv-tr-empty" data-i18n="wvTranscriptEmpty">No subtitles yet.</p>
           </section>
@@ -395,7 +407,10 @@ const pageDesc = webinar
     .wv-video {
       width: 100%;
       height: 100%;
-      object-fit: contain;
+      /* cover (not contain) so the video ALWAYS fills the 16:9 frame, cropping as
+         needed — webcams aren't all 16:9 (many are 4:3), and pillarboxing looked
+         like a "4:3 video". Matches the meet grid, which also uses cover. */
+      object-fit: cover;
       background: #000;
     }
     .wv-overlay {
@@ -428,6 +443,35 @@ const pageDesc = webinar
       cursor: pointer;
     }
     .wv-tap.hidden {
+      display: none;
+    }
+    /* Primary start CTA — a centered pill button layered over the video. It is the
+       reliable start gesture (autoplay is blocked until the user acts). */
+    .wv-cta {
+      position: absolute;
+      inset: 0;
+      margin: auto;
+      width: max-content;
+      height: max-content;
+      padding: 14px 28px;
+      border: none;
+      border-radius: 999px;
+      background: var(--accent, #3b82f6);
+      color: #fff;
+      font-size: 1.05rem;
+      font-weight: 700;
+      font-family: inherit;
+      cursor: pointer;
+      box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
+    }
+    .wv-cta:hover {
+      filter: brightness(1.08);
+    }
+    .wv-cta:focus-visible {
+      outline: 2px solid #fff;
+      outline-offset: 2px;
+    }
+    .wv-cta.hidden {
       display: none;
     }
     /* Live-subtitle overlay: a caption band along the bottom of the video. Empty until
@@ -477,6 +521,10 @@ const pageDesc = webinar
       justify-content: center;
     }
     .wv-ctl {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
       font-size: 0.85rem;
       font-weight: 600;
       padding: 8px 14px;
@@ -489,11 +537,35 @@ const pageDesc = webinar
     .wv-ctl:hover {
       border-color: var(--accent, #3b82f6);
     }
+    .wv-ctl-ico {
+      font-size: 1rem;
+      line-height: 1;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+    /* Compact "CC" badge — a small bold monospace boxed glyph in place of an emoji. */
+    .wv-cc-badge {
+      font-size: 0.7em;
+      font-weight: 700;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      line-height: 1;
+      padding: 2px 4px;
+      border: 1px solid currentColor;
+      border-radius: 4px;
+    }
     /* Pressed state (audio on / captions on) — a subtle accent tint. */
     .wv-ctl[aria-pressed='true'] {
       background: rgba(59, 130, 246, 0.15);
       border-color: rgba(59, 130, 246, 0.5);
       color: #93c5fd;
+    }
+    /* Mobile: icon-only controls (labels collapse). The button keeps an aria-label,
+       set at runtime, so the icon-only view stays accessible. */
+    @media (max-width: 640px) {
+      .wv-ctl-label {
+        display: none;
+      }
     }
     /* Transcript history panel: scrollable log of final subtitle lines with timestamps. */
     .wv-transcript {
@@ -647,6 +719,7 @@ const pageDesc = webinar
     :global(.wv-chat-body) {
       font-size: 0.95rem;
       color: var(--text, #e5e7eb);
+      overflow-wrap: anywhere;
     }
     :global(.wv-chat-empty) {
       margin: auto;
@@ -853,23 +926,73 @@ const pageDesc = webinar
     :global(.wv-chat-att-img) {
       max-width: 100%;
       max-height: 200px;
+      height: auto;
       border-radius: 6px;
       margin-top: 4px;
       display: block;
     }
     :global(.wv-chat-att-file) {
-      display: inline-block;
+      display: flex;
+      align-items: center;
+      gap: 8px;
       margin-top: 4px;
-      padding: 4px 8px;
-      border-radius: 6px;
+      padding: 6px 10px;
+      border-radius: 10px;
       background: var(--surface, #1e2535);
-      color: var(--accent, #3b82f6);
+      border: 1px solid var(--border, rgba(148, 163, 184, 0.2));
+      color: var(--text, #e5e7eb);
       font-size: 0.85rem;
-      text-decoration: none;
-      word-break: break-all;
+      max-width: 100%;
+      box-sizing: border-box;
+    }
+    :global(.wv-chat-att-file-icon) {
+      flex: none;
+    }
+    :global(.wv-chat-att-file-meta) {
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      flex: 1;
+    }
+    :global(.wv-chat-att-file-name) {
+      font-weight: 600;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    :global(.wv-chat-att-file-size) {
+      font-size: 0.72rem;
+      color: var(--muted, #94a3b8);
+    }
+    :global(.wv-chat-att-dl) {
+      flex: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      padding: 0;
+      border-radius: 999px;
+      background: var(--surface, #1e2535);
+      border: 1px solid var(--border, rgba(148, 163, 184, 0.2));
+      color: var(--accent, #3b82f6);
+      font-size: 0.9rem;
+      cursor: pointer;
+      touch-action: manipulation;
+      transition: border-color 0.12s, background 0.12s;
+    }
+    :global(.wv-chat-att-dl:hover) {
+      border-color: var(--accent, #3b82f6);
+    }
+    :global(.wv-chat-att-dl:disabled) {
+      opacity: 0.5;
+      cursor: default;
     }
     :global(.wv-chat-attachment) {
       margin-top: 4px;
+      max-width: 100%;
+      min-width: 0;
     }
     .wv-host-avatar {
       width: 80px;

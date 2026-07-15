@@ -15,7 +15,6 @@ import {
   getStoredDisplayName,
   setStoredDisplayName,
   uploadWebinarFile,
-  type ChatAttachment,
   type ChatPanelStrings,
 } from './webinar-chat';
 import { insertAt } from './chat-input';
@@ -52,6 +51,7 @@ function chatStrings(): ChatPanelStrings {
     rateLimited: t('wvChatRateLimited'),
     blocked: t('wvChatBlocked'),
     genericError: t('wvChatBlocked'),
+    downloadFile: t('chatDownloadFile'),
   };
 }
 
@@ -59,6 +59,23 @@ function chatStrings(): ChatPanelStrings {
  *  show() gotcha: elements are styled off via the class). No-op for a missing element. */
 function show(el: HTMLElement | null, visible: boolean): void {
   el?.classList.toggle('hidden', !visible);
+}
+
+/** Paint a control button that is icon + label: writes the localized label into the
+ *  `.wv-ctl-label` span (NOT `button.textContent`, which would wipe the icon), mirrors it
+ *  onto the button's `aria-label` (so the icon-only mobile view stays accessible), and —
+ *  when `icon` is provided — updates the `.wv-ctl-ico` glyph. Null-safe: no-ops for a
+ *  missing button or absent spans (spans may not exist in unit-test fixtures). */
+function setCtl(btn: HTMLElement | null, labelKey: string, icon?: string): void {
+  if (!btn) return;
+  const label = t(labelKey);
+  const labelSpan = btn.querySelector('.wv-ctl-label');
+  if (labelSpan) labelSpan.textContent = label;
+  btn.setAttribute('aria-label', label);
+  if (icon !== undefined) {
+    const iconSpan = btn.querySelector('.wv-ctl-ico');
+    if (iconSpan) iconSpan.textContent = icon;
+  }
 }
 
 /** Render the live audience count into the "N watching" indicator, revealing it on the
@@ -206,14 +223,27 @@ export function mountWebinarPlayer(): void {
   const muteBtn = document.getElementById('wv-mute') as HTMLButtonElement | null;
   const listenBtn = document.getElementById('wv-listen') as HTMLButtonElement | null;
   const ccBtn = document.getElementById('wv-cc') as HTMLButtonElement | null;
+  const ctaBtn = document.getElementById('wv-cta') as HTMLButtonElement | null;
 
   let listenMode: 'original' | 'translated' = 'original';
   let webinarTts: WebinarTts | null = null;
+  // Whether a listener-language translation is available (host speaks a different
+  // language). Captured from onInfo and read by the CTA to decide the audio path.
+  let translationAvailable = false;
+  // Whether the viewer has taken the start gesture (via the CTA). Once started, the
+  // CTA no longer reappears on later `live` state polls.
+  let viewerStarted = false;
 
   const player = new HlsPlayer({
     code,
     video,
-    onState: renderState,
+    // Reflect player state onto the shell, and reveal the start CTA the first time
+    // the webinar is live and the viewer hasn't started yet (autoplay policy: the
+    // stream only reliably plays after a user gesture — the CTA click IS that gesture).
+    onState: (state) => {
+      renderState(state);
+      if (state === 'live' && !viewerStarted) show(ctaBtn, true);
+    },
     onTapToStart: (needsTap) => show(tapBtn, needsTap),
     onInfo: (info) => {
       // Replace the waiting spinner with the host's avatar when one is available.
@@ -228,6 +258,7 @@ export function mountWebinarPlayer(): void {
         }
       }
       if (info.source_language && info.source_language !== lang) {
+        translationAvailable = true;
         show(listenBtn, true);
         webinarTts = new WebinarTts({
           code,
@@ -243,11 +274,30 @@ export function mountWebinarPlayer(): void {
     void player.userStart();
   });
 
+  // Primary start CTA: the reliable gesture that starts playback (autoplay is blocked
+  // until the user acts). Starts the video unmuted, then — when a translation is
+  // available — switches the audio to the translated TTS track (silencing the original
+  // HLS audio) so the listener hears the webinar in their own language from the first tap.
+  ctaBtn?.addEventListener('click', () => {
+    viewerStarted = true;
+    void player.userStart();
+    if (translationAvailable) {
+      listenMode = 'translated';
+      // userStart() unmuted the original HLS audio; mute it so the TTS is the only
+      // audio, then enable the translated speech and repaint the listen toggle.
+      player.muteAudio(true);
+      paintAudio();
+      webinarTts?.setEnabled(true);
+      paintListen();
+    }
+    show(ctaBtn, false);
+  });
+
   // Audio mute toggle (wv-mute): aria-pressed=true when audio is ACTIVE (playing).
   function paintAudio(): void {
     const muted = player.isMuted();
     if (muteBtn) {
-      muteBtn.textContent = t(muted ? 'wvUnmuteAudio' : 'wvMuteAudio');
+      setCtl(muteBtn, muted ? 'wvUnmuteAudio' : 'wvMuteAudio', muted ? '🔇' : '🔊');
       muteBtn.setAttribute('aria-pressed', muted ? 'false' : 'true');
     }
   }
@@ -260,8 +310,9 @@ export function mountWebinarPlayer(): void {
   function paintListen(): void {
     if (!listenBtn) return;
     const key = listenMode === 'original' ? 'wvListenTranslated' : 'wvListenOriginal';
-    listenBtn.setAttribute('data-i18n', key);
-    listenBtn.textContent = t(key);
+    // Keep the data-i18n on the label span so applyI18n() re-localizes it on locale change.
+    listenBtn.querySelector('.wv-ctl-label')?.setAttribute('data-i18n', key);
+    setCtl(listenBtn, key);
     listenBtn.setAttribute('aria-pressed', listenMode === 'translated' ? 'true' : 'false');
   }
   listenBtn?.addEventListener('click', () => {
@@ -284,7 +335,7 @@ export function mountWebinarPlayer(): void {
   // Captions on/off toggle. Off clears whatever is on screen so a stale line doesn't linger.
   function paintCc(): void {
     if (!ccBtn) return;
-    ccBtn.textContent = t(subtitlesOn ? 'wvSubtitlesOn' : 'wvSubtitlesOff');
+    setCtl(ccBtn, subtitlesOn ? 'wvSubtitlesOn' : 'wvSubtitlesOff');
     ccBtn.setAttribute('aria-pressed', subtitlesOn ? 'true' : 'false');
   }
   ccBtn?.addEventListener('click', () => {
@@ -299,16 +350,18 @@ export function mountWebinarPlayer(): void {
   const transcriptPanel = document.getElementById('wv-transcript');
   const transcriptList = document.getElementById('wv-transcript-list');
   const transcriptEmpty = document.getElementById('wv-transcript-empty');
-  let transcriptOpen = false;
+  // Transcript starts OPEN by default so live captions accumulate in view without a click.
+  let transcriptOpen = true;
   let transcriptHistoryLoaded = false;
 
   function paintTranscript(): void {
     if (!transcriptToggleBtn) return;
-    transcriptToggleBtn.textContent = t(transcriptOpen ? 'wvTranscriptHide' : 'wvTranscriptShow');
+    setCtl(transcriptToggleBtn, transcriptOpen ? 'wvTranscriptHide' : 'wvTranscriptShow');
     transcriptToggleBtn.setAttribute('aria-pressed', transcriptOpen ? 'true' : 'false');
   }
-  transcriptToggleBtn?.addEventListener('click', () => {
-    transcriptOpen = !transcriptOpen;
+  // Reveal the panel + load history when the transcript is open (mount or manual toggle).
+  // The history fetch is gated by `transcriptHistoryLoaded` so it runs at most once.
+  function reflectTranscriptOpen(): void {
     show(transcriptPanel, transcriptOpen);
     paintTranscript();
     if (transcriptOpen && transcriptList) {
@@ -318,8 +371,13 @@ export function mountWebinarPlayer(): void {
       }
       transcriptList.scrollTop = transcriptList.scrollHeight;
     }
+  }
+  transcriptToggleBtn?.addEventListener('click', () => {
+    transcriptOpen = !transcriptOpen;
+    reflectTranscriptOpen();
   });
-  paintTranscript();
+  // Reflect the default-open state on mount (shows the panel + loads history once).
+  reflectTranscriptOpen();
 
   /** Build one transcript entry element. Shared by history load and live append. */
   function buildTranscriptItem(text: string, time: Date): HTMLElement {
@@ -513,7 +571,7 @@ async function setupChat(
   let open = false;
   function paintToggle(): void {
     if (!toggleBtn) return;
-    toggleBtn.textContent = t(open ? 'wvChatHide' : 'wvChatShow');
+    setCtl(toggleBtn, open ? 'wvChatHide' : 'wvChatShow');
     toggleBtn.setAttribute('aria-pressed', open ? 'true' : 'false');
   }
   toggleBtn.addEventListener('click', () => {

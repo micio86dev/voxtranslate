@@ -642,11 +642,18 @@ describe('buildPublishConstraints', () => {
   it('requests the camera only when withCamera is set, honoring the device id', () => {
     expect(buildPublishConstraints({ withCamera: true })).toEqual({
       audio: true,
-      video: true,
+      video: { width: { ideal: 1280 }, height: { ideal: 720 } },
     });
     expect(
       buildPublishConstraints({ withCamera: true, videoDeviceId: 'cam-2' }),
-    ).toEqual({ audio: true, video: { deviceId: { exact: 'cam-2' } } });
+    ).toEqual({
+      audio: true,
+      video: {
+        deviceId: { exact: 'cam-2' },
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
+      },
+    });
   });
 
   it('ignores the video device id when the camera is off', () => {
@@ -665,7 +672,11 @@ describe('buildPublishConstraints', () => {
       }),
     ).toEqual({
       audio: { deviceId: { exact: 'mic-1' } },
-      video: { deviceId: { exact: 'cam-1' } },
+      video: {
+        deviceId: { exact: 'cam-1' },
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
+      },
     });
   });
 });

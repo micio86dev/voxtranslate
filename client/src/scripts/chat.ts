@@ -199,25 +199,57 @@ export class ChatManager {
       return wrap;
     }
 
-    // Document: a labelled download link (the file name + size).
-    const link = document.createElement('a');
-    link.className = 'chat-file-chip';
-    link.href = safeUrl;
-    link.target = '_blank';
-    link.rel = 'noopener noreferrer';
-    link.innerHTML = icon('file', 18);
+    // Document: a compact, width-constrained chip — file icon, a truncated name,
+    // the size, and a clear download button. No preview, no text content.
+    const chip = document.createElement('div');
+    chip.className = 'chat-file-chip';
+    const iconEl = document.createElement('span');
+    iconEl.className = 'chat-file-icon';
+    iconEl.innerHTML = icon('file', 18);
     const meta = document.createElement('span');
     meta.className = 'chat-file-meta';
     const nameEl = document.createElement('span');
     nameEl.className = 'chat-file-name';
     nameEl.textContent = att.name;
+    nameEl.title = att.name;
     const sizeEl = document.createElement('span');
     sizeEl.className = 'chat-file-size';
     sizeEl.textContent = formatSize(att.size);
     meta.appendChild(nameEl);
     meta.appendChild(sizeEl);
-    link.appendChild(meta);
-    wrap.appendChild(link);
+
+    // Download button: the signed URL is cross-origin, so the <a download>
+    // attribute is ignored — fetch the bytes (supabase.co is in connect-src) and
+    // save via an object URL; fall back to opening the file in a new tab.
+    const dl = document.createElement('button');
+    dl.type = 'button';
+    dl.className = 'chat-file-dl';
+    dl.innerHTML = icon('download', 16);
+    dl.title = t('chatDownloadFile');
+    dl.setAttribute('aria-label', t('chatDownloadFile'));
+    dl.addEventListener('click', async () => {
+      dl.disabled = true;
+      try {
+        const res = await fetch(safeUrl);
+        if (!res.ok) throw new Error(`download failed: ${res.status}`);
+        const blob = await res.blob();
+        const objUrl = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = objUrl;
+        a.download = att.name;
+        a.click();
+        URL.revokeObjectURL(objUrl);
+      } catch {
+        window.open(safeUrl, '_blank', 'noopener');
+      } finally {
+        dl.disabled = false;
+      }
+    });
+
+    chip.appendChild(iconEl);
+    chip.appendChild(meta);
+    chip.appendChild(dl);
+    wrap.appendChild(chip);
 
     return wrap;
   }

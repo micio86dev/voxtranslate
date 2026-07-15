@@ -57,8 +57,14 @@ function buildDom(code = 'ab12cd', notfound = '0'): void {
       </div>
       <div id="wv-overlay-ended" class="wv-overlay hidden"></div>
       <div id="wv-overlay-error" class="wv-overlay hidden"></div>
-      <button id="wv-mute" aria-pressed="false"></button>
-      <button id="wv-cc" aria-pressed="true"></button>
+      <button id="wv-mute" class="wv-ctl" aria-pressed="false">
+        <span class="wv-ctl-ico" aria-hidden="true">🔊</span>
+        <span class="wv-ctl-label">Mute audio</span>
+      </button>
+      <button id="wv-cc" class="wv-ctl" aria-pressed="true">
+        <span class="wv-ctl-ico wv-cc-badge" aria-hidden="true">CC</span>
+        <span class="wv-ctl-label">Subtitles on</span>
+      </button>
     </main>`;
 }
 
@@ -158,7 +164,7 @@ describe('mountWebinarPlayer', () => {
     buildDom();
     mountWebinarPlayer();
     // Muted by default → mute button offers "Unmute" and is NOT pressed (audio inactive).
-    expect(el('wv-mute').textContent).toBe('wvUnmuteAudio');
+    expect(el('wv-mute').querySelector('.wv-ctl-label')?.textContent).toBe('wvUnmuteAudio');
     expect(el('wv-mute').getAttribute('aria-pressed')).toBe('false');
   });
 
@@ -169,7 +175,7 @@ describe('mountWebinarPlayer', () => {
     // Click while muted → unmute.
     (el('wv-mute') as HTMLButtonElement).click();
     expect(muteAudio).toHaveBeenCalledWith(false);
-    expect(el('wv-mute').textContent).toBe('wvMuteAudio');
+    expect(el('wv-mute').querySelector('.wv-ctl-label')?.textContent).toBe('wvMuteAudio');
     expect(el('wv-mute').getAttribute('aria-pressed')).toBe('true');
     // Click again → mute.
     (el('wv-mute') as HTMLButtonElement).click();
@@ -207,12 +213,12 @@ describe('mountWebinarPlayer', () => {
     overlay.innerHTML = '<div>stale caption</div>';
     // Starts on → first click turns it OFF and clears the overlay.
     (el('wv-cc') as HTMLButtonElement).click();
-    expect(el('wv-cc').textContent).toBe('wvSubtitlesOff');
+    expect(el('wv-cc').querySelector('.wv-ctl-label')?.textContent).toBe('wvSubtitlesOff');
     expect(el('wv-cc').getAttribute('aria-pressed')).toBe('false');
     expect(overlay.innerHTML).toBe('');
     // Second click turns it back ON (restore shared module state for other tests).
     (el('wv-cc') as HTMLButtonElement).click();
-    expect(el('wv-cc').textContent).toBe('wvSubtitlesOn');
+    expect(el('wv-cc').querySelector('.wv-ctl-label')?.textContent).toBe('wvSubtitlesOn');
     expect(el('wv-cc').getAttribute('aria-pressed')).toBe('true');
   });
 

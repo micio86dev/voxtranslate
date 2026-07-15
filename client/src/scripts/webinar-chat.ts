@@ -241,6 +241,8 @@ export interface ChatPanelStrings {
   rateLimited: string;
   blocked: string;
   genericError: string;
+  /** Label for the document-attachment download button (aria-label / title). */
+  downloadFile: string;
 }
 
 /** The DOM handles + behavior a `ChatPanel` drives. */
@@ -324,7 +326,14 @@ export class ChatPanel {
       this.empty = null;
     }
     const doc = this.opts.list.ownerDocument;
-    const row = buildChatRow(doc, event, this.opts.myLang(), this.opts.strings.hostTag, this.opts.hostAvatarUrl);
+    const row = buildChatRow(
+      doc,
+      event,
+      this.opts.myLang(),
+      this.opts.strings.hostTag,
+      this.opts.hostAvatarUrl,
+      this.opts.strings.downloadFile,
+    );
     this.opts.list.appendChild(row);
     // Scroll to the bottom so the newest message is visible.
     this.opts.list.scrollTop = this.opts.list.scrollHeight;
@@ -475,6 +484,7 @@ export function buildChatRow(
   myLang: string,
   hostTag: string,
   hostAvatarUrl?: string | null,
+  downloadLabel = 'Download file',
 ): HTMLElement {
   const row = doc.createElement('div');
   row.className = `wv-chat-msg${event.sender_kind === 'host' ? ' is-host' : ''}`;
@@ -541,13 +551,55 @@ export function buildChatRow(
       img.referrerPolicy = 'no-referrer';
       attEl.appendChild(img);
     } else {
-      const link = doc.createElement('a');
-      link.href = att.url;
-      link.target = '_blank';
-      link.rel = 'noopener noreferrer';
-      link.className = 'wv-chat-att-file';
-      link.textContent = `📎 ${att.name} (${formatFileSize(att.size)})`;
-      attEl.appendChild(link);
+      // Document: a compact, width-constrained chip — file icon, a truncated name,
+      // the size, and a clear download button. No preview, no text content.
+      const chip = doc.createElement('div');
+      chip.className = 'wv-chat-att-file';
+      const iconEl = doc.createElement('span');
+      iconEl.className = 'wv-chat-att-file-icon';
+      iconEl.setAttribute('aria-hidden', 'true');
+      iconEl.textContent = '📄';
+      const meta = doc.createElement('span');
+      meta.className = 'wv-chat-att-file-meta';
+      const nameEl = doc.createElement('span');
+      nameEl.className = 'wv-chat-att-file-name';
+      nameEl.textContent = att.name;
+      nameEl.title = att.name;
+      const sizeEl = doc.createElement('span');
+      sizeEl.className = 'wv-chat-att-file-size';
+      sizeEl.textContent = formatFileSize(att.size);
+      meta.append(nameEl, sizeEl);
+
+      // Download button: the signed URL is cross-origin, so the <a download>
+      // attribute is ignored — fetch the bytes and save via an object URL; fall
+      // back to opening the file in a new tab.
+      const dl = doc.createElement('button');
+      dl.type = 'button';
+      dl.className = 'wv-chat-att-dl';
+      dl.textContent = '⬇';
+      dl.title = downloadLabel;
+      dl.setAttribute('aria-label', downloadLabel);
+      dl.addEventListener('click', async () => {
+        dl.disabled = true;
+        try {
+          const res = await fetch(att.url);
+          if (!res.ok) throw new Error(`download failed: ${res.status}`);
+          const blob = await res.blob();
+          const objUrl = URL.createObjectURL(blob);
+          const a = doc.createElement('a');
+          a.href = objUrl;
+          a.download = att.name;
+          a.click();
+          URL.revokeObjectURL(objUrl);
+        } catch {
+          (doc.defaultView ?? window).open(att.url, '_blank', 'noopener');
+        } finally {
+          dl.disabled = false;
+        }
+      });
+
+      chip.append(iconEl, meta, dl);
+      attEl.appendChild(chip);
     }
     content.appendChild(attEl);
   }

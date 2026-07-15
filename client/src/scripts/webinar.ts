@@ -474,9 +474,15 @@ export function buildPublishConstraints(
     : true;
   let video: MediaTrackConstraints | boolean = false;
   if (choice.withCamera) {
+    // Request a 16:9 resolution so cameras don't default to 4:3 (640x480). The
+    // ideal hints let the browser pick the nearest supported 16:9 mode.
     video = choice.videoDeviceId
-      ? { deviceId: { exact: choice.videoDeviceId } }
-      : true;
+      ? {
+          deviceId: { exact: choice.videoDeviceId },
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        }
+      : { width: { ideal: 1280 }, height: { ideal: 720 } };
   }
   return { audio, video };
 }

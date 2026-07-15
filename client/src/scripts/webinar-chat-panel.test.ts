@@ -13,6 +13,7 @@ const strings = {
   rateLimited: 'Too fast',
   blocked: 'Blocked',
   genericError: 'Error',
+  downloadFile: 'Download file',
 };
 
 function dom() {
@@ -108,6 +109,123 @@ describe('buildChatRow', () => {
     expect(avatar.querySelector('img')).toBeNull();
     expect(avatar.textContent).toBe('H');
     expect(avatar.style.background).toMatch(/rgb\(59,\s*130,\s*246\)|#3b82f6/);
+  });
+
+  it('renders an image attachment as an inline preview (width-constrained via CSS class)', () => {
+    const row = buildChatRow(
+      document,
+      ev({
+        attachment: {
+          url: 'https://files.example.com/pic.png',
+          name: 'pic.png',
+          content_type: 'image/png',
+          size: 4096,
+        },
+      }),
+      'en',
+      'HOST',
+    );
+    const img = row.querySelector<HTMLImageElement>('.wv-chat-att-img')!;
+    expect(img).not.toBeNull();
+    expect(img.getAttribute('src')).toBe('https://files.example.com/pic.png');
+    expect(row.querySelector('.wv-chat-att-file')).toBeNull();
+  });
+
+  it('renders a document attachment as a compact chip with a truncated name, size and download button', () => {
+    const row = buildChatRow(
+      document,
+      ev({
+        attachment: {
+          url: 'https://files.example.com/report.pdf',
+          name: 'a-very-long-quarterly-financial-report.pdf',
+          content_type: 'application/pdf',
+          size: 3_565_158,
+        },
+      }),
+      'en',
+      'HOST',
+      undefined,
+      'Download file',
+    );
+    // No inline image, no bare new-tab link — a self-contained chip that can't overflow.
+    expect(row.querySelector('.wv-chat-att-img')).toBeNull();
+    expect(row.querySelector('a.wv-chat-att-file')).toBeNull();
+    const chip = row.querySelector<HTMLElement>('.wv-chat-att-file')!;
+    expect(chip).not.toBeNull();
+    const nameEl = chip.querySelector<HTMLElement>('.wv-chat-att-file-name')!;
+    expect(nameEl.textContent).toBe('a-very-long-quarterly-financial-report.pdf');
+    expect(nameEl.title).toBe('a-very-long-quarterly-financial-report.pdf');
+    expect(chip.querySelector('.wv-chat-att-file-size')?.textContent).toBe('3.4 MB');
+    const dl = chip.querySelector<HTMLButtonElement>('button.wv-chat-att-dl')!;
+    expect(dl).not.toBeNull();
+    expect(dl.getAttribute('aria-label')).toBe('Download file');
+    expect(dl.title).toBe('Download file');
+  });
+
+  it('document download button fetches the bytes and saves them under the file name', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      blob: async () => new Blob(['pdf-bytes']),
+    } as unknown as Response);
+    vi.stubGlobal('fetch', fetchMock);
+    URL.createObjectURL = vi.fn(() => 'blob:wv-1');
+    URL.revokeObjectURL = vi.fn();
+    const clickSpy = vi
+      .spyOn(HTMLAnchorElement.prototype, 'click')
+      .mockImplementation(() => {});
+
+    const row = buildChatRow(
+      document,
+      ev({
+        attachment: {
+          url: 'https://files.example.com/report.pdf',
+          name: 'report.pdf',
+          content_type: 'application/pdf',
+          size: 1024,
+        },
+      }),
+      'en',
+      'HOST',
+      undefined,
+      'Download file',
+    );
+    const dl = row.querySelector<HTMLButtonElement>('.wv-chat-att-dl')!;
+    dl.click();
+    await vi.waitFor(() => expect(dl.disabled).toBe(false));
+
+    expect(fetchMock).toHaveBeenCalledWith('https://files.example.com/report.pdf');
+    const anchor = clickSpy.mock.contexts[0] as HTMLAnchorElement;
+    expect(anchor.getAttribute('href')).toBe('blob:wv-1');
+    expect(anchor.download).toBe('report.pdf');
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:wv-1');
+  });
+
+  it('document download falls back to opening the file when the fetch fails', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: false, status: 403 } as unknown as Response),
+    );
+    const open = vi.spyOn(window, 'open').mockReturnValue(null);
+    const row = buildChatRow(
+      document,
+      ev({
+        attachment: {
+          url: 'https://files.example.com/report.pdf',
+          name: 'report.pdf',
+          content_type: 'application/pdf',
+          size: 1024,
+        },
+      }),
+      'en',
+      'HOST',
+      undefined,
+      'Download file',
+    );
+    const dl = row.querySelector<HTMLButtonElement>('.wv-chat-att-dl')!;
+    dl.click();
+    await vi.waitFor(() => expect(dl.disabled).toBe(false));
+    expect(open).toHaveBeenCalledWith('https://files.example.com/report.pdf', '_blank', 'noopener');
   });
 });
 
