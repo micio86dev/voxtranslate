@@ -719,6 +719,7 @@ const pageDesc = webinar
     :global(.wv-chat-body) {
       font-size: 0.95rem;
       color: var(--text, #e5e7eb);
+      overflow-wrap: anywhere;
     }
     :global(.wv-chat-empty) {
       margin: auto;
@@ -925,23 +926,73 @@ const pageDesc = webinar
     :global(.wv-chat-att-img) {
       max-width: 100%;
       max-height: 200px;
+      height: auto;
       border-radius: 6px;
       margin-top: 4px;
       display: block;
     }
     :global(.wv-chat-att-file) {
-      display: inline-block;
+      display: flex;
+      align-items: center;
+      gap: 8px;
       margin-top: 4px;
-      padding: 4px 8px;
-      border-radius: 6px;
+      padding: 6px 10px;
+      border-radius: 10px;
       background: var(--surface, #1e2535);
-      color: var(--accent, #3b82f6);
+      border: 1px solid var(--border, rgba(148, 163, 184, 0.2));
+      color: var(--text, #e5e7eb);
       font-size: 0.85rem;
-      text-decoration: none;
-      word-break: break-all;
+      max-width: 100%;
+      box-sizing: border-box;
+    }
+    :global(.wv-chat-att-file-icon) {
+      flex: none;
+    }
+    :global(.wv-chat-att-file-meta) {
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      flex: 1;
+    }
+    :global(.wv-chat-att-file-name) {
+      font-weight: 600;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    :global(.wv-chat-att-file-size) {
+      font-size: 0.72rem;
+      color: var(--muted, #94a3b8);
+    }
+    :global(.wv-chat-att-dl) {
+      flex: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      padding: 0;
+      border-radius: 999px;
+      background: var(--surface, #1e2535);
+      border: 1px solid var(--border, rgba(148, 163, 184, 0.2));
+      color: var(--accent, #3b82f6);
+      font-size: 0.9rem;
+      cursor: pointer;
+      touch-action: manipulation;
+      transition: border-color 0.12s, background 0.12s;
+    }
+    :global(.wv-chat-att-dl:hover) {
+      border-color: var(--accent, #3b82f6);
+    }
+    :global(.wv-chat-att-dl:disabled) {
+      opacity: 0.5;
+      cursor: default;
     }
     :global(.wv-chat-attachment) {
       margin-top: 4px;
+      max-width: 100%;
+      min-width: 0;
     }
     .wv-host-avatar {
       width: 80px;

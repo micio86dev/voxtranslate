@@ -90,6 +90,7 @@
   "attachTip": "Pripni datoteko",
   "voiceMsgTip": "Posnemi glasovno sporočilo",
   "chatVoiceDownload": "Prenesi glasovno sporočilo",
+  "chatDownloadFile": "Prenesi datoteko",
   "wsVoiceIntro": "Posnemite glasovno opombo in jo pripnite projektu. Prepiše in prevede se za vpoglede vaše ekipe.",
   "wsNoNotes": "V tem projektu še ni glasovnih opomb.",
   "wsVoiceSent": "Glasovna opomba poslana v projekt.",

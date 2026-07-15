@@ -152,7 +152,7 @@ describe('addMessage', () => {
 });
 
 describe('document attachments', () => {
-  it('renders a download chip with name, human size and a safe new-tab link', () => {
+  it('renders a compact chip with a file glyph, name, human size and a download button', () => {
     const { mgr, container } = makeManager();
     mgr.addMessage(
       payload({
@@ -164,41 +164,122 @@ describe('document attachments', () => {
         }),
       }),
     );
-    const link = container.querySelector<HTMLAnchorElement>('a.chat-file-chip')!;
-    expect(link.getAttribute('href')).toBe('https://files.example.com/report.pdf');
-    expect(link.target).toBe('_blank');
-    expect(link.rel).toBe('noopener noreferrer');
-    expect(link.querySelector('svg')).not.toBeNull(); // file glyph
-    expect(link.querySelector('.chat-file-name')?.textContent).toBe('report.pdf');
-    expect(link.querySelector('.chat-file-size')?.textContent).toBe('3.4 MB');
+    // The chip is a div (not a bare new-tab link) so long names can't overflow.
+    const chip = container.querySelector<HTMLDivElement>('div.chat-file-chip')!;
+    expect(chip).not.toBeNull();
+    expect(container.querySelector('a.chat-file-chip')).toBeNull();
+    expect(chip.querySelector('.chat-file-icon svg')).not.toBeNull(); // file glyph
+    const nameEl = chip.querySelector<HTMLElement>('.chat-file-name')!;
+    expect(nameEl.textContent).toBe('report.pdf');
+    expect(nameEl.title).toBe('report.pdf'); // full name on hover, truncated visually
+    expect(chip.querySelector('.chat-file-size')?.textContent).toBe('3.4 MB');
+    const dl = chip.querySelector<HTMLButtonElement>('button.chat-file-dl')!;
+    expect(dl).not.toBeNull();
+    expect(dl.title).toBe('Download file');
+    expect(dl.getAttribute('aria-label')).toBe('Download file');
+    expect(dl.querySelector('svg')).not.toBeNull(); // download glyph
   });
 
-  it('resolves a relative URL against the page origin', () => {
+  it('downloads the document via an object URL named after the file', async () => {
     const { mgr, container } = makeManager();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        blob: async () => new Blob(['pdf-bytes']),
+      } as unknown as Response),
+    );
+    URL.createObjectURL = vi.fn(() => 'blob:doc-1');
+    URL.revokeObjectURL = vi.fn();
+    const clickSpy = vi
+      .spyOn(HTMLAnchorElement.prototype, 'click')
+      .mockImplementation(() => {});
+
+    mgr.addMessage(
+      payload({
+        attachment: att({
+          url: 'https://files.example.com/report.pdf',
+          name: 'report.pdf',
+          content_type: 'application/pdf',
+        }),
+      }),
+    );
+    const dl = container.querySelector<HTMLButtonElement>('.chat-file-dl')!;
+    dl.click();
+    expect(dl.disabled).toBe(true); // guarded while in flight
+    await vi.waitFor(() => expect(dl.disabled).toBe(false));
+
+    expect(fetch).toHaveBeenCalledWith('https://files.example.com/report.pdf');
+    const anchor = clickSpy.mock.contexts[0] as HTMLAnchorElement;
+    expect(anchor.getAttribute('href')).toBe('blob:doc-1');
+    expect(anchor.download).toBe('report.pdf'); // saved under the real file name
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:doc-1');
+  });
+
+  it('resolves a relative URL against the page origin before fetching', async () => {
+    const { mgr, container } = makeManager();
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      blob: async () => new Blob(['pdf-bytes']),
+    } as unknown as Response);
+    vi.stubGlobal('fetch', fetchMock);
+    URL.createObjectURL = vi.fn(() => 'blob:doc-2');
+    URL.revokeObjectURL = vi.fn();
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+
     mgr.addMessage(
       payload({ attachment: att({ url: '/files/report.pdf', content_type: 'application/pdf' }) }),
     );
-    const link = container.querySelector<HTMLAnchorElement>('a.chat-file-chip')!;
-    expect(link.getAttribute('href')).toBe(`${window.location.origin}/files/report.pdf`);
+    container.querySelector<HTMLButtonElement>('.chat-file-dl')!.click();
+    await vi.waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(`${window.location.origin}/files/report.pdf`),
+    );
   });
 
-  it('neutralises a javascript: URL to "#" (defense-in-depth)', () => {
+  it('neutralises a javascript: URL to "#" (defense-in-depth)', async () => {
     const { mgr, container } = makeManager();
+    const fetchMock = vi.fn().mockRejectedValue(new Error('blocked'));
+    vi.stubGlobal('fetch', fetchMock);
+    vi.spyOn(window, 'open').mockReturnValue(null);
     mgr.addMessage(
       payload({
         // eslint-disable-next-line no-script-url
         attachment: att({ url: 'javascript:alert(1)', content_type: 'application/pdf' }),
       }),
     );
-    expect(container.querySelector('a.chat-file-chip')?.getAttribute('href')).toBe('#');
+    const dl = container.querySelector<HTMLButtonElement>('.chat-file-dl')!;
+    dl.click();
+    await vi.waitFor(() => expect(dl.disabled).toBe(false));
+    expect(fetchMock).toHaveBeenCalledWith('#'); // never the raw javascript: URL
   });
 
-  it('neutralises an unparsable URL to "#"', () => {
+  it('falls back to opening the file when the download fetch fails', async () => {
     const { mgr, container } = makeManager();
-    mgr.addMessage(
-      payload({ attachment: att({ url: 'http://', content_type: 'application/pdf' }) }),
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: false, status: 403 } as unknown as Response),
     );
-    expect(container.querySelector('a.chat-file-chip')?.getAttribute('href')).toBe('#');
+    const open = vi.spyOn(window, 'open').mockReturnValue(null);
+
+    mgr.addMessage(
+      payload({
+        attachment: att({
+          url: 'https://files.example.com/report.pdf',
+          content_type: 'application/pdf',
+        }),
+      }),
+    );
+    const dl = container.querySelector<HTMLButtonElement>('.chat-file-dl')!;
+    dl.click();
+    await vi.waitFor(() => expect(dl.disabled).toBe(false));
+
+    expect(open).toHaveBeenCalledWith(
+      'https://files.example.com/report.pdf',
+      '_blank',
+      'noopener',
+    );
   });
 });
 

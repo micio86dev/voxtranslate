@@ -90,6 +90,7 @@
   "attachTip": "Attach a file",
   "voiceMsgTip": "Record voice message",
   "chatVoiceDownload": "Download voice message",
+  "chatDownloadFile": "Download file",
   "wsVoiceIntro": "Record a voice note and attach it to a project. It's transcribed and translated for your team's insights.",
   "wsNoNotes": "No voice notes in this project yet.",
   "wsVoiceSent": "Voice note sent to the project.",

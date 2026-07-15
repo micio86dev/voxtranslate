@@ -90,6 +90,7 @@
   "attachTip": "Liitä tiedosto",
   "voiceMsgTip": "Nauhoita ääniviesti",
   "chatVoiceDownload": "Lataa ääniviesti",
+  "chatDownloadFile": "Lataa tiedosto",
   "wsVoiceIntro": "Nauhoita ääniviesti ja liitä se projektiin. Se litteroidaan ja käännetään tiimisi analyysejä varten.",
   "wsNoNotes": "Tässä projektissa ei ole vielä ääniviestejä.",
   "wsVoiceSent": "Ääniviesti lähetetty projektiin.",

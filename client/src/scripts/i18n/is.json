@@ -90,6 +90,7 @@
   "attachTip": "Hengja við skrá",
   "voiceMsgTip": "Taka upp talskilaboð",
   "chatVoiceDownload": "Sækja talskilaboð",
+  "chatDownloadFile": "Sækja skrá",
   "wsVoiceIntro": "Taktu upp talskilaboð og hengdu þau við verkefni. Þau eru umrituð og þýdd fyrir innsýn liðsins þíns.",
   "wsNoNotes": "Engin talskilaboð í þessu verkefni enn.",
   "wsVoiceSent": "Talskilaboð send á verkefnið.",

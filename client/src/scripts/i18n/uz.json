@@ -90,6 +90,7 @@
   "attachTip": "Fayl biriktirish",
   "voiceMsgTip": "Ovozli xabar yozish",
   "chatVoiceDownload": "Ovozli xabarni yuklab olish",
+  "chatDownloadFile": "Faylni yuklab olish",
   "wsVoiceIntro": "Ovozli eslatma yozib, uni loyihaga biriktiring. U jamoangiz tahlillari uchun matnga aylantiriladi va tarjima qilinadi.",
   "wsNoNotes": "Bu loyihada hali ovozli eslatmalar yo'q.",
   "wsVoiceSent": "Ovozli eslatma loyihaga yuborildi.",

@@ -90,6 +90,7 @@
   "attachTip": "Priloži datoteku",
   "voiceMsgTip": "Snimi glasovnu poruku",
   "chatVoiceDownload": "Preuzmi glasovnu poruku",
+  "chatDownloadFile": "Preuzmi datoteku",
   "wsVoiceIntro": "Snimite glasovnu bilješku i priložite je projektu. Transkribuje se i prevodi za uvide vašeg tima.",
   "wsNoNotes": "U ovom projektu još nema glasovnih bilješki.",
   "wsVoiceSent": "Glasovna bilješka poslana je projektu.",

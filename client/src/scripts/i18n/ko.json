@@ -90,6 +90,7 @@
   "attachTip": "파일 첨부",
   "voiceMsgTip": "음성 메시지 녹음",
   "chatVoiceDownload": "음성 메시지 다운로드",
+  "chatDownloadFile": "파일 다운로드",
   "wsVoiceIntro": "음성 메모를 녹음하여 프로젝트에 첨부하세요. 팀의 인사이트를 위해 텍스트로 변환되고 번역됩니다.",
   "wsNoNotes": "이 프로젝트에는 아직 음성 메모가 없습니다.",
   "wsVoiceSent": "음성 메모를 프로젝트로 보냈습니다.",

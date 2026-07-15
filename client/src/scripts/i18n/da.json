@@ -90,6 +90,7 @@
   "attachTip": "Vedhæft en fil",
   "voiceMsgTip": "Optag talebesked",
   "chatVoiceDownload": "Download talebesked",
+  "chatDownloadFile": "Download fil",
   "wsVoiceIntro": "Optag en talenote og vedhæft den til et projekt. Den transskriberes og oversættes til dit teams indsigter.",
   "wsNoNotes": "Ingen talenoter i dette projekt endnu.",
   "wsVoiceSent": "Talenote sendt til projektet.",

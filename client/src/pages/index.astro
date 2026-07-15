@@ -2320,7 +2320,7 @@ const jsonLd = {
     /* Original-language line under a translated message (mirrors .subtitle-original). */
     .chat-messages :global(.chat-original) { display: block; font-size: 0.78rem; opacity: 0.6; margin-top: 2px; }
     /* File attachment chip + inline audio player (spec 0018). JS-created → :global(). */
-    .chat-messages :global(.chat-attachment) { display: flex; flex-direction: column; gap: 6px; margin: 4px 0; }
+    .chat-messages :global(.chat-attachment) { display: flex; flex-direction: column; gap: 6px; margin: 4px 0; max-width: 100%; min-width: 0; }
     .chat-messages :global(.chat-audio) { width: 100%; max-width: 260px; height: 36px; }
     /* Voice message (spec: voice chat): the audio player + a tap-to-cycle playback
        speed pill (1× → 1.5× → 2×). No file chip — the transcript is the message text. */
@@ -2346,11 +2346,22 @@ const jsonLd = {
     .chat-messages :global(.chat-audio-dl:hover) { border-color: var(--accent); }
     .chat-messages :global(.chat-audio-dl:active) { background: var(--accent-dim); }
     .chat-messages :global(.chat-audio-dl:disabled) { opacity: 0.5; cursor: default; }
-    .chat-messages :global(.chat-file-chip) { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--border); color: var(--text); text-decoration: none; }
+    .chat-messages :global(.chat-file-chip) { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--border); color: var(--text); text-decoration: none; max-width: 100%; box-sizing: border-box; }
     .chat-messages :global(.chat-file-chip:hover) { border-color: var(--accent-dim); }
-    .chat-messages :global(.chat-file-meta) { display: flex; flex-direction: column; min-width: 0; }
-    .chat-messages :global(.chat-file-name) { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px; }
+    .chat-messages :global(.chat-file-icon) { flex: none; display: inline-flex; align-items: center; }
+    .chat-messages :global(.chat-file-meta) { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+    .chat-messages :global(.chat-file-name) { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
     .chat-messages :global(.chat-file-size) { font-size: 0.72rem; color: var(--muted); }
+    /* Download document — a same-shape icon button as the voice-note download. */
+    .chat-messages :global(.chat-file-dl) {
+      flex: none; display: inline-flex; align-items: center; justify-content: center;
+      width: 28px; height: 28px; padding: 0; border-radius: 999px;
+      background: var(--surface-2); border: 1px solid var(--border); color: var(--text);
+      cursor: pointer; touch-action: manipulation; transition: border-color 0.12s, background 0.12s;
+    }
+    .chat-messages :global(.chat-file-dl:hover) { border-color: var(--accent); }
+    .chat-messages :global(.chat-file-dl:active) { background: var(--accent-dim); }
+    .chat-messages :global(.chat-file-dl:disabled) { opacity: 0.5; cursor: default; }
     /* Two-row composer (spec 0084): textarea on top spans the full panel width
        (room to write); the action bar sits beneath it. */
     /* position: relative makes this the anchor for the emoji panel, so the panel

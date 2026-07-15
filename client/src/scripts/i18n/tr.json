@@ -90,6 +90,7 @@
   "attachTip": "Dosya ekle",
   "voiceMsgTip": "Sesli mesaj kaydet",
   "chatVoiceDownload": "Sesli mesajı indir",
+  "chatDownloadFile": "Dosyayı indir",
   "wsVoiceIntro": "Bir sesli not kaydedin ve bir projeye ekleyin. Ekibinizin içgörüleri için yazıya dökülür ve çevrilir.",
   "wsNoNotes": "Bu projede henüz sesli not yok.",
   "wsVoiceSent": "Sesli not projeye gönderildi.",

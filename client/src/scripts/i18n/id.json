@@ -90,6 +90,7 @@
   "attachTip": "Lampirkan file",
   "voiceMsgTip": "Rekam pesan suara",
   "chatVoiceDownload": "Unduh pesan suara",
+  "chatDownloadFile": "Unduh berkas",
   "wsVoiceIntro": "Rekam catatan suara dan lampirkan ke proyek. Catatan akan ditranskripsikan dan diterjemahkan untuk insight tim Anda.",
   "wsNoNotes": "Belum ada catatan suara di proyek ini.",
   "wsVoiceSent": "Catatan suara terkirim ke proyek.",

@@ -90,6 +90,7 @@
   "attachTip": "Allega un file",
   "voiceMsgTip": "Registra un messaggio vocale",
   "chatVoiceDownload": "Scarica il messaggio vocale",
+  "chatDownloadFile": "Scarica file",
   "wsVoiceIntro": "Registra una nota vocale e allegala a un progetto. Viene trascritta e tradotta per le analisi del tuo team.",
   "wsNoNotes": "Nessuna nota vocale in questo progetto.",
   "wsVoiceSent": "Nota vocale inviata al progetto.",

@@ -101,7 +101,7 @@ import {
   type WebinarView,
 } from './webinar';
 import { PresenceClient, type ChatEvent } from './webinar-presence';
-import { ChatPanel, uploadWebinarFile, type ChatAttachment } from './webinar-chat';
+import { ChatPanel, uploadWebinarFile } from './webinar-chat';
 import { WhipPublisher, type WhipState } from './whip-publisher';
 import { WebinarSttClient } from './webinar-stt';
 import { AudioCapture as WebinarAudioCapture } from './audio-capture';
@@ -5763,6 +5763,7 @@ function webinarChatStrings() {
     rateLimited: t('wvChatRateLimited'),
     blocked: t('wvChatBlocked'),
     genericError: t('wvChatBlocked'),
+    downloadFile: t('chatDownloadFile'),
   };
 }
 

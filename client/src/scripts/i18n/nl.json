@@ -90,6 +90,7 @@
   "attachTip": "Bestand bijvoegen",
   "voiceMsgTip": "Spraakbericht opnemen",
   "chatVoiceDownload": "Spraakbericht downloaden",
+  "chatDownloadFile": "Bestand downloaden",
   "wsVoiceIntro": "Neem een spraaknotitie op en koppel die aan een project. Ze wordt getranscribeerd en vertaald voor de inzichten van je team.",
   "wsNoNotes": "Nog geen spraaknotities in dit project.",
   "wsVoiceSent": "Spraaknotitie naar het project verzonden.",

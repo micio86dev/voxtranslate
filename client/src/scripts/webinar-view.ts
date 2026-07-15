@@ -15,7 +15,6 @@ import {
   getStoredDisplayName,
   setStoredDisplayName,
   uploadWebinarFile,
-  type ChatAttachment,
   type ChatPanelStrings,
 } from './webinar-chat';
 import { insertAt } from './chat-input';
@@ -52,6 +51,7 @@ function chatStrings(): ChatPanelStrings {
     rateLimited: t('wvChatRateLimited'),
     blocked: t('wvChatBlocked'),
     genericError: t('wvChatBlocked'),
+    downloadFile: t('chatDownloadFile'),
   };
 }
 
