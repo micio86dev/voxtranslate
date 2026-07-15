@@ -170,23 +170,28 @@ const pageDesc = webinar
                            Fase 3 will extend it to switch between original and TTS audio.
                wv-listen is hidden (via onInfo) when host and viewer speak the same language. -->
           <div class="wv-controls">
-            <button id="wv-mute" type="button" class="wv-ctl" aria-pressed="false" data-i18n="wvMuteAudio">
-              Mute audio
+            <button id="wv-mute" type="button" class="wv-ctl" aria-pressed="false">
+              <span class="wv-ctl-ico" aria-hidden="true">🔊</span>
+              <span class="wv-ctl-label" data-i18n="wvMuteAudio">Mute audio</span>
             </button>
-            <button id="wv-listen" type="button" class="wv-ctl hidden" aria-pressed="false" data-i18n="wvListenTranslated">
-              Listen translated
+            <button id="wv-listen" type="button" class="wv-ctl hidden" aria-pressed="false">
+              <span class="wv-ctl-ico" aria-hidden="true">🌐</span>
+              <span class="wv-ctl-label" data-i18n="wvListenTranslated">Listen translated</span>
             </button>
-            <button id="wv-cc" type="button" class="wv-ctl" aria-pressed="true" data-i18n="wvSubtitlesOn">
-              Subtitles on
+            <button id="wv-cc" type="button" class="wv-ctl" aria-pressed="true">
+              <span class="wv-ctl-ico wv-cc-badge" aria-hidden="true">CC</span>
+              <span class="wv-ctl-label" data-i18n="wvSubtitlesOn">Subtitles on</span>
             </button>
             <!-- Transcript history toggle. Always shown; collapses the history panel. -->
-            <button id="wv-transcript-toggle" type="button" class="wv-ctl" aria-pressed="false" aria-controls="wv-transcript" data-i18n="wvTranscriptShow">
-              Show transcript
+            <button id="wv-transcript-toggle" type="button" class="wv-ctl" aria-pressed="false" aria-controls="wv-transcript">
+              <span class="wv-ctl-ico" aria-hidden="true">📄</span>
+              <span class="wv-ctl-label" data-i18n="wvTranscriptShow">Show transcript</span>
             </button>
             <!-- Chat show/hide toggle (Feature ⑤). Hidden until the view controller confirms
                  the webinar has chat enabled; then it reveals + toggles the panel below. -->
-            <button id="wv-chat-toggle" type="button" class="wv-ctl hidden" aria-pressed="false" aria-controls="wv-chat" data-i18n="wvChatShow">
-              Show chat
+            <button id="wv-chat-toggle" type="button" class="wv-ctl hidden" aria-pressed="false" aria-controls="wv-chat">
+              <span class="wv-ctl-ico" aria-hidden="true">💬</span>
+              <span class="wv-ctl-label" data-i18n="wvChatShow">Show chat</span>
             </button>
           </div>
 
@@ -402,7 +407,10 @@ const pageDesc = webinar
     .wv-video {
       width: 100%;
       height: 100%;
-      object-fit: contain;
+      /* cover (not contain) so the video ALWAYS fills the 16:9 frame, cropping as
+         needed — webcams aren't all 16:9 (many are 4:3), and pillarboxing looked
+         like a "4:3 video". Matches the meet grid, which also uses cover. */
+      object-fit: cover;
       background: #000;
     }
     .wv-overlay {
@@ -513,6 +521,10 @@ const pageDesc = webinar
       justify-content: center;
     }
     .wv-ctl {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
       font-size: 0.85rem;
       font-weight: 600;
       padding: 8px 14px;
@@ -525,11 +537,35 @@ const pageDesc = webinar
     .wv-ctl:hover {
       border-color: var(--accent, #3b82f6);
     }
+    .wv-ctl-ico {
+      font-size: 1rem;
+      line-height: 1;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+    /* Compact "CC" badge — a small bold monospace boxed glyph in place of an emoji. */
+    .wv-cc-badge {
+      font-size: 0.7em;
+      font-weight: 700;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      line-height: 1;
+      padding: 2px 4px;
+      border: 1px solid currentColor;
+      border-radius: 4px;
+    }
     /* Pressed state (audio on / captions on) — a subtle accent tint. */
     .wv-ctl[aria-pressed='true'] {
       background: rgba(59, 130, 246, 0.15);
       border-color: rgba(59, 130, 246, 0.5);
       color: #93c5fd;
+    }
+    /* Mobile: icon-only controls (labels collapse). The button keeps an aria-label,
+       set at runtime, so the icon-only view stays accessible. */
+    @media (max-width: 640px) {
+      .wv-ctl-label {
+        display: none;
+      }
     }
     /* Transcript history panel: scrollable log of final subtitle lines with timestamps. */
     .wv-transcript {

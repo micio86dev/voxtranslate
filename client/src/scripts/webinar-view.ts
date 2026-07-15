@@ -61,6 +61,23 @@ function show(el: HTMLElement | null, visible: boolean): void {
   el?.classList.toggle('hidden', !visible);
 }
 
+/** Paint a control button that is icon + label: writes the localized label into the
+ *  `.wv-ctl-label` span (NOT `button.textContent`, which would wipe the icon), mirrors it
+ *  onto the button's `aria-label` (so the icon-only mobile view stays accessible), and —
+ *  when `icon` is provided — updates the `.wv-ctl-ico` glyph. Null-safe: no-ops for a
+ *  missing button or absent spans (spans may not exist in unit-test fixtures). */
+function setCtl(btn: HTMLElement | null, labelKey: string, icon?: string): void {
+  if (!btn) return;
+  const label = t(labelKey);
+  const labelSpan = btn.querySelector('.wv-ctl-label');
+  if (labelSpan) labelSpan.textContent = label;
+  btn.setAttribute('aria-label', label);
+  if (icon !== undefined) {
+    const iconSpan = btn.querySelector('.wv-ctl-ico');
+    if (iconSpan) iconSpan.textContent = icon;
+  }
+}
+
 /** Render the live audience count into the "N watching" indicator, revealing it on the
  *  first frame. */
 function renderWatching(count: number): void {
@@ -280,7 +297,7 @@ export function mountWebinarPlayer(): void {
   function paintAudio(): void {
     const muted = player.isMuted();
     if (muteBtn) {
-      muteBtn.textContent = t(muted ? 'wvUnmuteAudio' : 'wvMuteAudio');
+      setCtl(muteBtn, muted ? 'wvUnmuteAudio' : 'wvMuteAudio', muted ? '🔇' : '🔊');
       muteBtn.setAttribute('aria-pressed', muted ? 'false' : 'true');
     }
   }
@@ -293,8 +310,9 @@ export function mountWebinarPlayer(): void {
   function paintListen(): void {
     if (!listenBtn) return;
     const key = listenMode === 'original' ? 'wvListenTranslated' : 'wvListenOriginal';
-    listenBtn.setAttribute('data-i18n', key);
-    listenBtn.textContent = t(key);
+    // Keep the data-i18n on the label span so applyI18n() re-localizes it on locale change.
+    listenBtn.querySelector('.wv-ctl-label')?.setAttribute('data-i18n', key);
+    setCtl(listenBtn, key);
     listenBtn.setAttribute('aria-pressed', listenMode === 'translated' ? 'true' : 'false');
   }
   listenBtn?.addEventListener('click', () => {
@@ -317,7 +335,7 @@ export function mountWebinarPlayer(): void {
   // Captions on/off toggle. Off clears whatever is on screen so a stale line doesn't linger.
   function paintCc(): void {
     if (!ccBtn) return;
-    ccBtn.textContent = t(subtitlesOn ? 'wvSubtitlesOn' : 'wvSubtitlesOff');
+    setCtl(ccBtn, subtitlesOn ? 'wvSubtitlesOn' : 'wvSubtitlesOff');
     ccBtn.setAttribute('aria-pressed', subtitlesOn ? 'true' : 'false');
   }
   ccBtn?.addEventListener('click', () => {
@@ -338,7 +356,7 @@ export function mountWebinarPlayer(): void {
 
   function paintTranscript(): void {
     if (!transcriptToggleBtn) return;
-    transcriptToggleBtn.textContent = t(transcriptOpen ? 'wvTranscriptHide' : 'wvTranscriptShow');
+    setCtl(transcriptToggleBtn, transcriptOpen ? 'wvTranscriptHide' : 'wvTranscriptShow');
     transcriptToggleBtn.setAttribute('aria-pressed', transcriptOpen ? 'true' : 'false');
   }
   // Reveal the panel + load history when the transcript is open (mount or manual toggle).
@@ -553,7 +571,7 @@ async function setupChat(
   let open = false;
   function paintToggle(): void {
     if (!toggleBtn) return;
-    toggleBtn.textContent = t(open ? 'wvChatHide' : 'wvChatShow');
+    setCtl(toggleBtn, open ? 'wvChatHide' : 'wvChatShow');
     toggleBtn.setAttribute('aria-pressed', open ? 'true' : 'false');
   }
   toggleBtn.addEventListener('click', () => {
