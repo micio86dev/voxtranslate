@@ -299,6 +299,11 @@ fn public_view(w: &Webinar, app_base_url: &str, cfg: &WebinarConfig) -> Value {
         // Avatar shown in the waiting overlay when the host hasn't gone live yet (043).
         "host_avatar_url": w.host_avatar_url,
         "members_only": w.members_only,
+        // Timing for the viewer's on-screen counter: elapsed since `actual_start`,
+        // and — when the webinar was scheduled with an end — a countdown to
+        // `scheduled_end`. Both PII-free; null until the host goes live / if unscheduled.
+        "actual_start": w.actual_start,
+        "scheduled_end": w.scheduled_end,
     })
 }
 

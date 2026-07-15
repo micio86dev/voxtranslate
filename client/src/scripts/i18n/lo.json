@@ -646,6 +646,8 @@
   "wvBackHome": "ກັບໄປ VoxTranslate",
   "wvListenTranslated": "ຟັງການແປ",
   "wvJoinWebinar": "ເຂົ້າຮ່ວມເວັບບິນາ",
+  "wvTimerElapsed": "ເວລາທີ່ຜ່ານໄປ",
+  "wvTimerRemaining": "ເວລາທີ່ຍັງເຫຼືອ",
   "wvListenOriginal": "ຟັງຕົ້ນສະບັບ",
   "wvMuteAudio": "ປິດສຽງ",
   "wvUnmuteAudio": "ເປີດສຽງ",

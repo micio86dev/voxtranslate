@@ -646,6 +646,8 @@
   "wvBackHome": "Tagasi VoxTranslate’i",
   "wvListenTranslated": "Kuula tõlget",
   "wvJoinWebinar": "Liitu veebiseminariga",
+  "wvTimerElapsed": "Möödunud aeg",
+  "wvTimerRemaining": "Järelejäänud aeg",
   "wvListenOriginal": "Kuula originaali",
   "wvMuteAudio": "Vaigista heli",
   "wvUnmuteAudio": "Taasta heli",

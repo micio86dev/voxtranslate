@@ -646,6 +646,8 @@
   "wvBackHome": "Volver a VoxTranslate",
   "wvListenTranslated": "Escuchar traducido",
   "wvJoinWebinar": "Unirse al webinar",
+  "wvTimerElapsed": "Tiempo transcurrido",
+  "wvTimerRemaining": "Tiempo restante",
   "wvListenOriginal": "Escuchar original",
   "wvMuteAudio": "Silenciar audio",
   "wvUnmuteAudio": "Activar audio",

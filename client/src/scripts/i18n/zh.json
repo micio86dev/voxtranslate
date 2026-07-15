@@ -646,6 +646,8 @@
   "wvBackHome": "返回 VoxTranslate",
   "wvListenTranslated": "听翻译",
   "wvJoinWebinar": "加入网络研讨会",
+  "wvTimerElapsed": "已用时间",
+  "wvTimerRemaining": "剩余时间",
   "wvListenOriginal": "听原声",
   "wvMuteAudio": "静音",
   "wvUnmuteAudio": "取消静音",

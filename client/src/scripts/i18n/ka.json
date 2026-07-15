@@ -646,6 +646,8 @@
   "wvBackHome": "VoxTranslate-ზე დაბრუნება",
   "wvListenTranslated": "მოსმენა თარგმანით",
   "wvJoinWebinar": "ვებინარზე შეერთება",
+  "wvTimerElapsed": "გასული დრო",
+  "wvTimerRemaining": "დარჩენილი დრო",
   "wvListenOriginal": "მოუსმინე ორიგინალს",
   "wvMuteAudio": "ხმის დადუმება",
   "wvUnmuteAudio": "ხმის ჩართვა",

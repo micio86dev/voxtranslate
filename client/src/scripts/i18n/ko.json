@@ -646,6 +646,8 @@
   "wvBackHome": "VoxTranslate로 돌아가기",
   "wvListenTranslated": "번역 듣기",
   "wvJoinWebinar": "웨비나 참여",
+  "wvTimerElapsed": "경과 시간",
+  "wvTimerRemaining": "남은 시간",
   "wvListenOriginal": "원음 듣기",
   "wvMuteAudio": "오디오 음소거",
   "wvUnmuteAudio": "음소거 해제",

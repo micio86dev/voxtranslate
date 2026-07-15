@@ -646,6 +646,8 @@
   "wvBackHome": "VoxTranslate သို့ ပြန်သွားရန်",
   "wvListenTranslated": "ဘာသာပြန်ကို နားထောင်ရန်",
   "wvJoinWebinar": "ဝဘ်ဆီနာသို့ ဝင်ရောက်ရန်",
+  "wvTimerElapsed": "ကုန်လွန်ခဲ့သည့်အချိန်",
+  "wvTimerRemaining": "ကျန်ရှိသည့်အချိန်",
   "wvListenOriginal": "မူရင်းကို နားထောင်ရန်",
   "wvMuteAudio": "အသံပိတ်ရန်",
   "wvUnmuteAudio": "အသံဖွင့်ရန်",

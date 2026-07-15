@@ -646,6 +646,8 @@
   "wvBackHome": "بازگشت به VoxTranslate",
   "wvListenTranslated": "گوش دادن به ترجمه",
   "wvJoinWebinar": "به وبینار بپیوندید",
+  "wvTimerElapsed": "زمان سپری‌شده",
+  "wvTimerRemaining": "زمان باقی‌مانده",
   "wvListenOriginal": "اصل را بشنوید",
   "wvMuteAudio": "بی‌صدا کردن صدا",
   "wvUnmuteAudio": "باصدا کردن صدا",

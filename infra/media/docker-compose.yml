@@ -6,7 +6,10 @@
 # localhost and are reverse-proxied by Caddy — they are NOT opened in the firewall.
 services:
   mediamtx:
-    image: bluenviron/mediamtx:latest
+    # PINNED (not :latest): an unpinned tag drifts on every `docker compose pull`,
+    # which is how a MediaMTX update silently changed HLS behaviour (session-cookie
+    # gate) and regressed LL-HLS latency. Bump this deliberately + retest.
+    image: bluenviron/mediamtx:1.19.2
     network_mode: host
     restart: unless-stopped
     volumes:
@@ -17,7 +20,8 @@ services:
       - /etc/ssl/certs/ca-certificates.crt:/etc/ssl/certs/ca-certificates.crt:ro
 
   caddy:
-    image: caddy:2
+    # PINNED (not the floating :2 major tag) so the reverse proxy can't drift.
+    image: caddy:2.11.4
     network_mode: host
     restart: unless-stopped
     volumes:

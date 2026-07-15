@@ -646,6 +646,8 @@
   "wvBackHome": "العودة إلى VoxTranslate",
   "wvListenTranslated": "الاستماع للترجمة",
   "wvJoinWebinar": "انضم إلى الندوة",
+  "wvTimerElapsed": "الوقت المنقضي",
+  "wvTimerRemaining": "الوقت المتبقي",
   "wvListenOriginal": "الاستماع للأصل",
   "wvMuteAudio": "كتم الصوت",
   "wvUnmuteAudio": "إلغاء كتم الصوت",

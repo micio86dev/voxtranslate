@@ -646,6 +646,8 @@
   "wvBackHome": "VoxTranslate に戻る",
   "wvListenTranslated": "翻訳を聴く",
   "wvJoinWebinar": "ウェビナーに参加",
+  "wvTimerElapsed": "経過時間",
+  "wvTimerRemaining": "残り時間",
   "wvListenOriginal": "原音を聴く",
   "wvMuteAudio": "音声をミュート",
   "wvUnmuteAudio": "ミュートを解除",

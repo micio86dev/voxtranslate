@@ -646,6 +646,8 @@
   "wvBackHome": "Ar ais go VoxTranslate",
   "wvListenTranslated": "Éist an t-aistriúchán",
   "wvJoinWebinar": "Bí páirteach sa seimineár gréasáin",
+  "wvTimerElapsed": "Am caite",
+  "wvTimerRemaining": "Am fágtha",
   "wvListenOriginal": "Éist leis an mbunleagan",
   "wvMuteAudio": "Balbhaigh an fhuaim",
   "wvUnmuteAudio": "Díbhalbhaigh an fhuaim",
