@@ -7,6 +7,7 @@ use axum::Router;
 use crate::business::{
     analytics, audit, billing, calls, help_assistant, insights, meetings, members, organizations,
     projects, recording, search, storyboard, teams, transcripts, voice_assistant, voice_messages,
+    webinars,
 };
 use crate::AppState;
 
@@ -117,6 +118,19 @@ pub fn routes() -> Router<AppState> {
         .route(
             "/api/business/organizations/{org_id}/projects/{project_id}/rooms",
             get(calls::list_project_rooms),
+        )
+        // ---- Webinar dashboard read-side: history list + detail (Phase D) ----
+        .route(
+            "/api/business/organizations/{org_id}/webinars",
+            get(webinars::list_org_webinars),
+        )
+        .route(
+            "/api/business/organizations/{org_id}/webinars/{webinar_id}",
+            get(webinars::get_webinar_detail),
+        )
+        .route(
+            "/api/business/organizations/{org_id}/projects/{project_id}/webinars",
+            get(webinars::list_project_webinars),
         )
         // ---- Semantic transcript search (per-project, role-scoped) ----
         .route(
