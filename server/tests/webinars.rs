@@ -25,9 +25,24 @@ struct Server {
 }
 
 async fn setup() -> Option<Server> {
-    let url = std::env::var("DATABASE_URL").ok()?;
-    let pool = db::connect(&url).await.ok()?;
-    db::migrate(&pool).await.ok()?;
+    let url = match std::env::var("DATABASE_URL") {
+        Ok(u) => u,
+        Err(e) => {
+            eprintln!("SETUP: no DATABASE_URL: {e}");
+            return None;
+        }
+    };
+    let pool = match db::connect(&url).await {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("SETUP: connect failed: {e}");
+            return None;
+        }
+    };
+    if let Err(e) = db::migrate(&pool).await {
+        eprintln!("SETUP: migrate failed: {e}");
+        return None;
+    }
     let mut config = Config::test_with_billing(&url, SECRET, 0.0);
     config.webinar = Some(WebinarConfig::test_default());
     let min_join = usd(config.billing.as_ref().unwrap().pricing.min_balance_to_join);
@@ -2011,4 +2026,349 @@ async fn create_accepts_valid_future_schedule() {
         .await
         .unwrap();
     assert_eq!(r.status(), 201, "a valid future schedule → 201");
+}
+
+// ---- Phase-A host billing finalization (publish-stopped → webinar_sessions) --
+//
+// End-to-end DB verification of the host-billing path: publish-started → seed an
+// audience directly in `webinar_participants` + `webinar_events` → publish-stopped
+// runs `finalize_webinar_run`, which sweeps the timeline, writes ONE
+// `webinar_sessions` row, and deducts `cost_credits` from the host org atomically.
+//
+// The billed model (metrics.rs): cost = Σ interval_min × ratePerMin × K, where K =
+// distinct participant languages ≠ source_language. Standard default rate = 0.01
+// USD/min and 100 credits = $1 ⇒ exactly 1 credit per stream-minute. So for a clean
+// N-minute broadcast with K distinct foreign languages present the whole time, the
+// expected charge is N × K credits.
+//
+// Determinism: the cost sweep integrates only within [actual_start, actual_end].
+// `publish-started` stamps actual_start=now(); we then OVERWRITE actual_start via SQL
+// to `now() - interval 'N min'` and seed all join events at/before that instant, so at
+// go-live the audience is already present. `publish-stopped` stamps actual_end=now(),
+// giving a span of exactly N minutes (num_seconds() truncates sub-second drift).
+
+/// Create a **Standard**-tier webinar (explicit tier so the deterministic 0.01/min
+/// default rate applies, not the Enhanced/Cartesia rate). Returns the parsed body.
+async fn create_standard_webinar(http: &Client, srv: &Server, jwt: &str, org_id: Uuid) -> Value {
+    let r = http
+        .post(format!("{}/api/webinars", base(srv)))
+        .bearer_auth(jwt)
+        .json(&json!({
+            "org_id": org_id,
+            "title": "Billing Run",
+            "source_language": "en",
+            "tier": "standard",
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 201, "create standard webinar");
+    r.json().await.unwrap()
+}
+
+/// Set the org's credit pool to a known balance so we can assert an exact delta.
+async fn set_org_credits(srv: &Server, org_id: Uuid, credits: i32) {
+    sqlx::query("UPDATE organizations SET credits_balance = $2 WHERE id = $1")
+        .bind(org_id)
+        .bind(credits)
+        .execute(&srv.pool)
+        .await
+        .unwrap();
+}
+
+/// Read the org's current credit pool.
+async fn org_credits(srv: &Server, org_id: Uuid) -> i32 {
+    sqlx::query_scalar("SELECT credits_balance FROM organizations WHERE id = $1")
+        .bind(org_id)
+        .fetch_one(&srv.pool)
+        .await
+        .unwrap()
+}
+
+/// Insert a `webinar_participants` row (a seeded audience member) and return its id.
+async fn insert_participant(srv: &Server, webinar_id: Uuid, lang: &str) -> Uuid {
+    sqlx::query_scalar(
+        "INSERT INTO webinar_participants (webinar_id, guest_id, language_code)
+         VALUES ($1, $2, $3) RETURNING id",
+    )
+    .bind(webinar_id)
+    .bind(Uuid::new_v4())
+    .bind(lang)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap()
+}
+
+/// Insert a `webinar_events` row at `now() + offset_secs` (negative = in the past).
+async fn insert_event(
+    srv: &Server,
+    webinar_id: Uuid,
+    participant_id: Uuid,
+    kind: &str,
+    lang: Option<&str>,
+    offset_secs: i64,
+) {
+    sqlx::query(
+        "INSERT INTO webinar_events (webinar_id, participant_id, type, language_code, at)
+         VALUES ($1, $2, $3, $4, now() + ($5 || ' seconds')::interval)",
+    )
+    .bind(webinar_id)
+    .bind(participant_id)
+    .bind(kind)
+    .bind(lang)
+    .bind(offset_secs.to_string())
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+}
+
+/// Force `actual_start` to exactly `now() - n_min` so the billable span is a clean N
+/// minutes once `publish-stopped` stamps `actual_end=now()`.
+async fn backdate_actual_start(srv: &Server, webinar_id: Uuid, n_min: i64) {
+    sqlx::query(
+        "UPDATE webinars SET actual_start = now() - ($2 || ' minutes')::interval WHERE id = $1",
+    )
+    .bind(webinar_id)
+    .bind(n_min.to_string())
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+}
+
+/// The single finalized session row for a webinar, as (cost_credits, peak_viewers,
+/// translated_language_count, duration_seconds). Panics if not exactly one row.
+async fn session_row(srv: &Server, webinar_id: Uuid) -> (i32, i32, i32, i32) {
+    let count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM webinar_sessions WHERE webinar_id = $1")
+            .bind(webinar_id)
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap();
+    assert_eq!(count, 1, "exactly one webinar_sessions row (got {count})");
+    sqlx::query_as(
+        "SELECT cost_credits, peak_viewers, translated_language_count, duration_seconds
+           FROM webinar_sessions WHERE webinar_id = $1",
+    )
+    .bind(webinar_id)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap()
+}
+
+async fn publish_started(http: &Client, srv: &Server, jwt: &str, id: &str) {
+    let r = http
+        .post(format!("{}/api/webinars/{id}/publish-started", base(srv)))
+        .bearer_auth(jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 200, "publish-started → 200");
+}
+
+async fn publish_stopped(http: &Client, srv: &Server, jwt: &str, id: &str) {
+    let r = http
+        .post(format!("{}/api/webinars/{id}/publish-stopped", base(srv)))
+        .bearer_auth(jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 200, "publish-stopped → 200");
+}
+
+#[tokio::test]
+async fn finalize_bills_host_for_distinct_participant_languages() {
+    let Some(srv) = setup().await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    let http = Client::new();
+    let (owner, jwt) = user(&srv).await;
+    let org_id = org(&srv, owner, true).await;
+    set_org_credits(&srv, org_id, 100_000).await;
+
+    let created = create_standard_webinar(&http, &srv, &jwt, org_id).await;
+    let id = created["id"].as_str().unwrap().to_string();
+    let webinar_id = Uuid::parse_str(&id).unwrap();
+    assert_eq!(
+        created["tier"], "standard",
+        "standard tier for 0.01/min rate"
+    );
+
+    // Go live, then backdate actual_start to a clean N minutes ago.
+    publish_started(&http, &srv, &jwt, &id).await;
+    const N_MIN: i64 = 5;
+    backdate_actual_start(&srv, webinar_id, N_MIN).await;
+
+    // Audience: 2 distinct FOREIGN languages (it, fr) + 1 same-language (en). All join
+    // 10s BEFORE actual_start (i.e. now()-(N_MIN*60+10)s) so they are present for the
+    // WHOLE broadcast (seeded at go-live) and never leave. K = 2 (en is not billable).
+    let join_off = -(N_MIN * 60 + 10);
+    for lang in ["it", "fr", "en"] {
+        let pid = insert_participant(&srv, webinar_id, lang).await;
+        insert_event(&srv, webinar_id, pid, "join", Some(lang), join_off).await;
+    }
+
+    let before = org_credits(&srv, org_id).await;
+    publish_stopped(&http, &srv, &jwt, &id).await;
+    let after = org_credits(&srv, org_id).await;
+
+    let (cost, peak, tlc, dur) = session_row(&srv, webinar_id).await;
+    const K: i32 = 2;
+    let expected = N_MIN as i32 * K; // 5 min × 2 langs × 1 credit/stream-min = 10
+    let charged = before - after;
+
+    eprintln!(
+        "[finalize_bills] N={N_MIN}min K={K} → expected cost_credits={expected}; \
+         got cost_credits={cost} duration_seconds={dur} peak_viewers={peak} \
+         translated_language_count={tlc}; org charged={charged}"
+    );
+
+    assert_eq!(cost, expected, "cost_credits = N × K (5 × 2 = 10)");
+    assert_eq!(peak, 3, "peak_viewers counts all 3 present viewers");
+    assert_eq!(
+        tlc, 2,
+        "translated_language_count = distinct foreign langs (it, fr)"
+    );
+    assert_eq!(dur, (N_MIN * 60) as i32, "duration_seconds = N minutes");
+    assert_eq!(charged, cost, "org balance dropped by exactly cost_credits");
+}
+
+#[tokio::test]
+async fn finalize_is_idempotent_no_double_charge() {
+    let Some(srv) = setup().await else {
+        return;
+    };
+    let http = Client::new();
+    let (owner, jwt) = user(&srv).await;
+    let org_id = org(&srv, owner, true).await;
+    set_org_credits(&srv, org_id, 100_000).await;
+
+    let created = create_standard_webinar(&http, &srv, &jwt, org_id).await;
+    let id = created["id"].as_str().unwrap().to_string();
+    let webinar_id = Uuid::parse_str(&id).unwrap();
+
+    publish_started(&http, &srv, &jwt, &id).await;
+    const N_MIN: i64 = 4;
+    backdate_actual_start(&srv, webinar_id, N_MIN).await;
+    let pid = insert_participant(&srv, webinar_id, "it").await;
+    insert_event(
+        &srv,
+        webinar_id,
+        pid,
+        "join",
+        Some("it"),
+        -(N_MIN * 60 + 10),
+    )
+    .await;
+
+    let before = org_credits(&srv, org_id).await;
+    // Stop TWICE — the second call must not insert a second session or re-charge.
+    publish_stopped(&http, &srv, &jwt, &id).await;
+    let (cost, _, _, _) = session_row(&srv, webinar_id).await;
+    publish_stopped(&http, &srv, &jwt, &id).await;
+    let (cost2, _, _, _) = session_row(&srv, webinar_id).await; // asserts still ONE row
+    let after = org_credits(&srv, org_id).await;
+    let charged = before - after;
+
+    eprintln!(
+        "[idempotent] cost after 1st stop={cost}, after 2nd stop={cost2}; \
+         total org charged (both stops)={charged}"
+    );
+
+    assert_eq!(cost, cost2, "cost_credits unchanged by the second stop");
+    assert_eq!(cost, N_MIN as i32, "K=1 → cost = N credits (4)");
+    assert_eq!(charged, cost, "org charged ONCE, not twice");
+}
+
+#[tokio::test]
+async fn finalize_with_no_foreign_languages_costs_nothing() {
+    let Some(srv) = setup().await else {
+        return;
+    };
+    let http = Client::new();
+    let (owner, jwt) = user(&srv).await;
+    let org_id = org(&srv, owner, true).await;
+    set_org_credits(&srv, org_id, 100_000).await;
+
+    let created = create_standard_webinar(&http, &srv, &jwt, org_id).await;
+    let id = created["id"].as_str().unwrap().to_string();
+    let webinar_id = Uuid::parse_str(&id).unwrap();
+
+    publish_started(&http, &srv, &jwt, &id).await;
+    const N_MIN: i64 = 6;
+    backdate_actual_start(&srv, webinar_id, N_MIN).await;
+    // Two same-language (source = en) viewers → K=0 for the whole run.
+    for _ in 0..2 {
+        let pid = insert_participant(&srv, webinar_id, "en").await;
+        insert_event(
+            &srv,
+            webinar_id,
+            pid,
+            "join",
+            Some("en"),
+            -(N_MIN * 60 + 10),
+        )
+        .await;
+    }
+
+    let before = org_credits(&srv, org_id).await;
+    publish_stopped(&http, &srv, &jwt, &id).await;
+    let after = org_credits(&srv, org_id).await;
+
+    let (cost, peak, tlc, dur) = session_row(&srv, webinar_id).await;
+    eprintln!(
+        "[no_foreign] K=0 → expected cost_credits=0; got cost_credits={cost} \
+         duration_seconds={dur} peak_viewers={peak} translated_language_count={tlc}; \
+         org charged={}",
+        before - after
+    );
+
+    assert_eq!(cost, 0, "K=0 → free broadcast");
+    assert_eq!(tlc, 0, "no foreign languages translated");
+    assert_eq!(peak, 2, "session row still records the audience metrics");
+    assert_eq!(dur, (N_MIN * 60) as i32, "duration still recorded");
+    assert_eq!(
+        before, after,
+        "org balance unchanged when nothing is billed"
+    );
+}
+
+#[tokio::test]
+async fn finalize_finalizes_total_watch_seconds() {
+    let Some(srv) = setup().await else {
+        return;
+    };
+    let http = Client::new();
+    let (owner, jwt) = user(&srv).await;
+    let org_id = org(&srv, owner, true).await;
+    set_org_credits(&srv, org_id, 100_000).await;
+
+    let created = create_standard_webinar(&http, &srv, &jwt, org_id).await;
+    let id = created["id"].as_str().unwrap().to_string();
+    let webinar_id = Uuid::parse_str(&id).unwrap();
+
+    publish_started(&http, &srv, &jwt, &id).await;
+    const N_MIN: i64 = 10;
+    backdate_actual_start(&srv, webinar_id, N_MIN).await;
+
+    // A viewer who joins 4 minutes into the broadcast and leaves 7 minutes in →
+    // in-window watch span = 3 minutes = 180 seconds. actual_start = now()-10min, so:
+    //   join  at now()-6min (= start + 4min), leave at now()-3min (= start + 7min).
+    let pid = insert_participant(&srv, webinar_id, "it").await;
+    insert_event(&srv, webinar_id, pid, "join", Some("it"), -6 * 60).await;
+    insert_event(&srv, webinar_id, pid, "leave", None, -3 * 60).await;
+
+    publish_stopped(&http, &srv, &jwt, &id).await;
+
+    let watched: i32 =
+        sqlx::query_scalar("SELECT total_watch_seconds FROM webinar_participants WHERE id = $1")
+            .bind(pid)
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap();
+    eprintln!("[watch_seconds] join@+4min leave@+7min → expected 180s; got {watched}s");
+    assert_eq!(
+        watched, 180,
+        "total_watch_seconds = join→leave span (3 min)"
+    );
 }
