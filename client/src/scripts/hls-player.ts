@@ -237,6 +237,11 @@ export class HlsPlayer {
     if (this.attached) return true;
     const format = selectFormat(this.video, await this.hlsjsSupported());
     if (format === "native") {
+      // MediaMTX gates HLS behind a session cookie (Set-Cookie on the first request),
+      // so Safari's native player must send credentials or the playlist/segment
+      // requests 401 and playback stalls. CORS returns a per-origin ACAO +
+      // allow-credentials:true, so a credentialed request is valid.
+      this.video.crossOrigin = "use-credentials";
       this.video.src = url;
       // Safari: when the stream dies (host webcam off), the video element fires an
       // error. Reset attached so the poll loop can reload the src when the host returns.
@@ -249,7 +254,17 @@ export class HlsPlayer {
       }, { once: true });
     } else if (format === "hlsjs") {
       const { Hls } = await this.loadHls();
-      const hls = new Hls({ lowLatencyMode: true });
+      // MediaMTX serves LL-HLS behind a session cookie. Send credentials on every
+      // request (xhrSetup) so the BLOCKING low-latency playlist reloads carry the
+      // cookie — without it they 401, hls.js abandons LL-HLS, and end-to-end latency
+      // degrades from ~1-2 s to full-segment (~6-7 s). CORS returns a per-origin
+      // ACAO + allow-credentials:true, so credentialed requests are valid.
+      const hls = new Hls({
+        lowLatencyMode: true,
+        xhrSetup: (xhr: XMLHttpRequest) => {
+          xhr.withCredentials = true;
+        },
+      });
       this.hls = hls;
       // hls.js error recovery (recommended pattern from the hls.js docs):
       //   - Network errors: call startLoad() to re-issue the manifest/segment
