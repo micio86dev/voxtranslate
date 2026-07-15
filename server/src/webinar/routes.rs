@@ -130,6 +130,10 @@ pub struct CreateWebinar {
     pub project_id: Option<Uuid>,
     #[serde(default)]
     pub members_only: Option<bool>,
+    /// Lead time (minutes) for the "starting soon" friend reminder on a PUBLIC
+    /// scheduled webinar. Default 10, clamped 0..=1440 (mirrors scheduled meetings).
+    #[serde(default)]
+    pub reminder_minutes_before: Option<i32>,
 }
 
 #[derive(Deserialize)]
@@ -166,7 +170,15 @@ pub struct PatchWebinar {
     pub project_id: Option<Uuid>,
     #[serde(default)]
     pub members_only: Option<bool>,
+    #[serde(default)]
+    pub reminder_minutes_before: Option<i32>,
 }
+
+/// Default reminder lead time (minutes) when the host doesn't specify one; matches
+/// the scheduled-meeting default.
+const DEFAULT_REMINDER_MINUTES: i32 = 10;
+/// Upper clamp on the reminder lead time (24h), same as scheduled meetings.
+const MAX_REMINDER_MINUTES: i32 = 1440;
 
 // ---- validation ------------------------------------------------------------
 
@@ -275,6 +287,7 @@ fn host_view(w: &Webinar, app_base_url: &str, cfg: &WebinarConfig) -> Value {
         "chat_enabled": w.chat_enabled,
         "visibility": w.visibility,
         "project_id": w.project_id,
+        "reminder_minutes_before": w.reminder_minutes_before,
         "join_url": join_url(app_base_url, &w.code),
         "playback_url": playback_url(cfg, &w.code),
         "created_at": w.created_at,
@@ -404,6 +417,10 @@ pub async fn create(
         scheduled_end: body.scheduled_end,
         project_id: body.project_id,
         members_only: body.members_only.unwrap_or(false),
+        reminder_minutes_before: body
+            .reminder_minutes_before
+            .unwrap_or(DEFAULT_REMINDER_MINUTES)
+            .clamp(0, MAX_REMINDER_MINUTES),
     };
     let w = create_webinar(pool, &new, cfg.code_len)
         .await
@@ -503,22 +520,27 @@ pub async fn patch(
             }
         }
     }
+    // Clamp a provided reminder lead time to 0..=1440 (mirrors create + meetings).
+    let reminder = body
+        .reminder_minutes_before
+        .map(|m| m.clamp(0, MAX_REMINDER_MINUTES));
     // COALESCE keeps the existing value for any omitted field.
     let updated: Webinar = sqlx::query_as(
         "UPDATE webinars SET
-            title             = COALESCE($2, title),
-            description       = COALESCE($3, description),
-            tier              = COALESCE($4, tier),
-            record_video      = COALESCE($5, record_video),
-            record_transcript = COALESCE($6, record_transcript),
-            voice_clone       = COALESCE($7, voice_clone),
-            chat_enabled      = COALESCE($8, chat_enabled),
-            scheduled_start   = COALESCE($9, scheduled_start),
-            scheduled_end     = COALESCE($10, scheduled_end),
-            project_id        = COALESCE($11, project_id),
-            visibility        = COALESCE($12, visibility),
-            members_only      = COALESCE($13, members_only),
-            updated_at        = now()
+            title                   = COALESCE($2, title),
+            description             = COALESCE($3, description),
+            tier                    = COALESCE($4, tier),
+            record_video            = COALESCE($5, record_video),
+            record_transcript       = COALESCE($6, record_transcript),
+            voice_clone             = COALESCE($7, voice_clone),
+            chat_enabled            = COALESCE($8, chat_enabled),
+            scheduled_start         = COALESCE($9, scheduled_start),
+            scheduled_end           = COALESCE($10, scheduled_end),
+            project_id              = COALESCE($11, project_id),
+            visibility              = COALESCE($12, visibility),
+            members_only            = COALESCE($13, members_only),
+            reminder_minutes_before = COALESCE($14, reminder_minutes_before),
+            updated_at              = now()
          WHERE id = $1
          RETURNING *",
     )
@@ -535,6 +557,7 @@ pub async fn patch(
     .bind(body.project_id)
     .bind(visibility)
     .bind(body.members_only)
+    .bind(reminder)
     .fetch_one(pool)
     .await
     .map_err(db_err)?;
@@ -620,6 +643,23 @@ pub async fn publish_started(
     .fetch_one(pool)
     .await
     .map_err(db_err)?;
+    // Go-live hook: an UNSCHEDULED public webinar has no lead time for the timed
+    // scheduler to fire on, so we alert the host's friends at the actual live start.
+    // Fire-and-forget + dedup (reminder_sent_at claimed atomically), so it runs once.
+    if updated.visibility == "public"
+        && updated.scheduled_start.is_none()
+        && updated.reminder_sent_at.is_none()
+    {
+        if let Some(host_id) = updated.host_user_id {
+            tokio::spawn(crate::notifications::notify_webinar_friends(
+                state.clone(),
+                updated.id,
+                host_id,
+                updated.code.clone(),
+                "webinar_live",
+            ));
+        }
+    }
     Ok(Json(host_view(&updated, &state.config.app_base_url, cfg)).into_response())
 }
 

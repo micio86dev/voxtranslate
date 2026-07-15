@@ -27,7 +27,7 @@ use crate::middleware::AuthUser;
 use crate::AppState;
 
 /// Notification types. Phase 1 = meetings; Phase 2 = friends/presence (spec: friends).
-pub const TYPES: [&str; 8] = [
+pub const TYPES: [&str; 10] = [
     "meeting_invited",
     "meeting_reminder",
     "meeting_updated",
@@ -36,6 +36,10 @@ pub const TYPES: [&str; 8] = [
     "friend_accepted",
     "call_invite",
     "friend_active",
+    // Webinar friend alerts (spec: webinar reminders): a public scheduled webinar is
+    // about to start / an unscheduled public webinar just went live.
+    "webinar_soon",
+    "webinar_live",
 ];
 pub const CHANNELS: [&str; 3] = ["push", "email", "in_app"];
 
@@ -601,6 +605,142 @@ pub async fn run_reminder_scheduler(state: AppState, interval: Duration) {
                 )
                 .await;
             }
+        }
+    }
+}
+
+// --- Webinar friend alerts -----------------------------------------------------
+
+/// Notify a webinar HOST's accepted friends that the webinar is starting soon
+/// (`webinar_soon`) or has just gone live (`webinar_live`). Best-effort + per-recipient
+/// localized. Loads the host's display name for the copy and the host's accepted
+/// friends from `friendships`; the join URL is `{app_base_url}/w/{code}` so the email
+/// CTA works. Dedup (`webinars.reminder_sent_at`) is the caller's responsibility — the
+/// go-live hook claims it before spawning, the scheduler claims it in its RETURNING.
+pub async fn notify_webinar_friends(
+    state: AppState,
+    webinar_id: Uuid,
+    host_user_id: Uuid,
+    webinar_code: String,
+    kind: &'static str,
+) {
+    let Some(pool) = state.pool.as_ref() else {
+        return;
+    };
+
+    // Go-live path: claim the dedup marker here so a re-`publish-started` (idempotent)
+    // never double-fires. The scheduler already claimed it via its atomic RETURNING,
+    // so this UPDATE is a no-op there (row_affected == 0) and we keep going.
+    if kind == "webinar_live" {
+        let claimed = sqlx::query(
+            "UPDATE webinars SET reminder_sent_at = now()
+             WHERE id = $1 AND reminder_sent_at IS NULL",
+        )
+        .bind(webinar_id)
+        .execute(pool)
+        .await;
+        match claimed {
+            Ok(r) if r.rows_affected() == 0 => return, // already notified
+            Ok(_) => {}
+            Err(e) => {
+                tracing::error!("webinar go-live dedup claim failed: {e}");
+                return;
+            }
+        }
+    }
+
+    let host_name: String = sqlx::query_scalar("SELECT name FROM users WHERE id = $1")
+        .bind(host_user_id)
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+
+    let friends: Vec<Uuid> = match sqlx::query_scalar(
+        "SELECT CASE WHEN user_low = $1 THEN user_high ELSE user_low END
+           FROM friendships
+          WHERE status = 'accepted' AND (user_low = $1 OR user_high = $1)",
+    )
+    .bind(host_user_id)
+    .fetch_all(pool)
+    .await
+    {
+        Ok(f) => f,
+        Err(e) => {
+            tracing::error!("webinar friend alert: load friends failed: {e}");
+            return;
+        }
+    };
+
+    let join_url = format!(
+        "{}/w/{}",
+        state.config.app_base_url.trim_end_matches('/'),
+        webinar_code
+    );
+    let data = json!({
+        "webinar_id": webinar_id,
+        "code": webinar_code,
+        "join_url": join_url,
+    });
+    for friend_id in friends {
+        let lang = crate::notify_copy::user_locale(pool, friend_id).await;
+        let (title, body) = crate::notify_copy::webinar_copy(kind, &lang, &host_name);
+        notify(&state, friend_id, kind, &lang, &title, &body, data.clone()).await;
+    }
+}
+
+// --- Webinar reminder scheduler ------------------------------------------------
+
+#[derive(sqlx::FromRow)]
+struct DueWebinar {
+    id: Uuid,
+    code: String,
+    host_user_id: Option<Uuid>,
+}
+
+/// Background loop mirroring [`run_reminder_scheduler`] for PUBLIC scheduled webinars.
+/// Every `interval`, atomically claim webinars whose reminder lead-time has arrived
+/// (UPDATE … RETURNING stamps `reminder_sent_at`, so each fires exactly once even with
+/// overlapping ticks) and alert each host's accepted friends with a `webinar_soon`
+/// notification. Unscheduled public webinars are handled by the go-live hook instead.
+pub async fn run_webinar_reminder_scheduler(state: AppState, interval: Duration) {
+    let Some(pool) = state.pool.clone() else {
+        return;
+    };
+    let mut tick = tokio::time::interval(interval);
+    loop {
+        tick.tick().await;
+        let due: Vec<DueWebinar> = match sqlx::query_as(
+            "UPDATE webinars SET reminder_sent_at = now()
+             WHERE id IN (
+                 SELECT id FROM webinars
+                 WHERE visibility = 'public'
+                   AND status = 'scheduled'
+                   AND archived_at IS NULL
+                   AND reminder_sent_at IS NULL
+                   AND scheduled_start IS NOT NULL
+                   AND scheduled_start > now()
+                   AND scheduled_start - (reminder_minutes_before * interval '1 minute') <= now()
+                 FOR UPDATE SKIP LOCKED
+             )
+             RETURNING id, code, host_user_id",
+        )
+        .fetch_all(&pool)
+        .await
+        {
+            Ok(rows) => rows,
+            Err(e) => {
+                tracing::error!("webinar reminder scheduler query failed: {e}");
+                continue;
+            }
+        };
+
+        for w in due {
+            let Some(host_id) = w.host_user_id else {
+                continue;
+            };
+            notify_webinar_friends(state.clone(), w.id, host_id, w.code, "webinar_soon").await;
         }
     }
 }

@@ -111,6 +111,13 @@ pub struct Webinar {
     /// unauthenticated guests can still view metadata but are blocked from participating
     /// (migration 044).
     pub members_only: bool,
+    /// Lead time, in minutes, for the "starting soon" reminder sent to the host's
+    /// accepted friends when this is a PUBLIC scheduled webinar (default 10, clamped
+    /// 0..=1440). Mirrors `scheduled_meetings.reminder_minutes_before` (migration 047).
+    pub reminder_minutes_before: i32,
+    /// Dedup marker for the friend reminder: NULL = not yet notified, set = fired once
+    /// (either the time-based "soon" reminder or the go-live "live now" hook). Migration 047.
+    pub reminder_sent_at: Option<DateTime<Utc>>,
 }
 
 /// Fields for creating a webinar (F0-3); the `code` is generated server-side.
@@ -130,6 +137,8 @@ pub struct NewWebinar<'a> {
     pub scheduled_end: Option<DateTime<Utc>>,
     pub project_id: Option<Uuid>,
     pub members_only: bool,
+    /// Reminder lead time in minutes (already clamped 0..=1440 by the caller).
+    pub reminder_minutes_before: i32,
 }
 
 /// Insert a webinar, generating a fresh code and retrying the rare UNIQUE(code)
@@ -155,9 +164,10 @@ async fn insert_webinar(
         "INSERT INTO webinars
             (org_id, host_user_id, code, title, description, source_language, tier,
              record_video, record_transcript, voice_clone, chat_enabled, visibility,
-             scheduled_start, scheduled_end, project_id, host_avatar_url, members_only)
+             scheduled_start, scheduled_end, project_id, host_avatar_url, members_only,
+             reminder_minutes_before)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-             (SELECT avatar_url FROM users WHERE id = $2), $16)
+             (SELECT avatar_url FROM users WHERE id = $2), $16, $17)
          RETURNING *",
     )
     .bind(new.org_id)
@@ -176,6 +186,7 @@ async fn insert_webinar(
     .bind(new.scheduled_end)
     .bind(new.project_id)
     .bind(new.members_only)
+    .bind(new.reminder_minutes_before)
     .fetch_one(pool)
     .await
 }

@@ -933,6 +933,16 @@ pub async fn serve() {
         ));
     }
 
+    // Webinar reminder scheduler (spec: webinar reminders). Mirrors the meeting
+    // scheduler: emits `webinar_soon` alerts to the host's friends when a PUBLIC
+    // scheduled webinar's lead time is reached (unscheduled ones fire at go-live).
+    if state.pool.is_some() {
+        tokio::spawn(crate::notifications::run_webinar_reminder_scheduler(
+            state.clone(),
+            Duration::from_secs(30),
+        ));
+    }
+
     // Enterprise data-retention sweep (spec 0106): delete recordings + transcripts
     // past each org's retention window. Ships dormant — only runs when
     // RETENTION_SWEEP_ENABLED is set AND a DB is present. Recordings storage is

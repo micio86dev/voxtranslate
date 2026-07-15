@@ -1065,6 +1065,14 @@ const jsonLd = {
               </label>
             </div>
             <p class="webinar-schedule-hint" data-i18n="webinarScheduleHint">{T('webinarScheduleHint')}</p>
+            <!-- Friend-reminder lead time. Only relevant for a PUBLIC scheduled webinar:
+                 the host's friends get a "starting soon" alert this many minutes before
+                 the start. Unscheduled public webinars alert their friends at go-live. -->
+            <label class="ws-field">
+              <span class="ws-field-label" data-i18n="webinarReminderLabel">{T('webinarReminderLabel')}</span>
+              <input id="webinar-reminder" class="ws-select" type="number" min="0" max="1440" step="1" value="10" autocomplete="off" />
+              <span class="webinar-schedule-hint" data-i18n="webinarReminderHint">{T('webinarReminderHint')}</span>
+            </label>
             <!-- Accessible toggle switches (role=switch + aria-checked), wired in app.ts.
                  Label + switch sit on one row; keyboard-operable (Space/Enter). -->
             <div class="webinar-toggles">
