@@ -21,6 +21,10 @@ pub enum OrgCharge {
 /// Deduct `amount` (≥ 0) credits from the org pool, writing a signed (negative)
 /// ledger row, atomically. Returns [`OrgCharge::Insufficient`] (no-op) when the
 /// balance can't cover it.
+///
+/// Opens and commits its own transaction; use [`deduct_org_credits_tx`] to fold the
+/// deduction into a caller-provided transaction (e.g. so a session-record INSERT and
+/// its charge commit or roll back together).
 pub async fn deduct_org_credits(
     pool: &Pool,
     org_id: Uuid,
@@ -31,13 +35,43 @@ pub async fn deduct_org_credits(
     description: &str,
 ) -> Result<OrgCharge, sqlx::Error> {
     let mut tx = pool.begin().await?;
+    let charge = deduct_org_credits_tx(
+        &mut tx,
+        org_id,
+        amount,
+        kind,
+        session_id,
+        actor_id,
+        description,
+    )
+    .await?;
+    // On Insufficient the row was locked (FOR UPDATE) but nothing was written, so the
+    // commit is a harmless no-op releasing the lock; on Charged it persists the writes.
+    tx.commit().await?;
+    Ok(charge)
+}
+
+/// Same balance-check + UPDATE + ledger-INSERT as [`deduct_org_credits`], but running
+/// inside a caller-provided transaction so the deduction is atomic with the caller's
+/// other writes. The caller owns commit/rollback: this function performs NO commit and
+/// only rolls nothing back itself. On [`OrgCharge::Insufficient`] no rows are written
+/// (the `FOR UPDATE` lock is held until the caller's tx ends), so the caller may still
+/// commit its other work if it chooses (e.g. record a broadcast without a charge).
+pub async fn deduct_org_credits_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    org_id: Uuid,
+    amount: i32,
+    kind: &str,
+    session_id: Option<Uuid>,
+    actor_id: Option<Uuid>,
+    description: &str,
+) -> Result<OrgCharge, sqlx::Error> {
     let balance: i32 =
         sqlx::query_scalar("SELECT credits_balance FROM organizations WHERE id = $1 FOR UPDATE")
             .bind(org_id)
-            .fetch_one(&mut *tx)
+            .fetch_one(&mut **tx)
             .await?;
     if amount > 0 && balance < amount {
-        tx.rollback().await?;
         return Ok(OrgCharge::Insufficient {
             balance,
             required: amount,
@@ -47,7 +81,7 @@ pub async fn deduct_org_credits(
     sqlx::query("UPDATE organizations SET credits_balance = $2, updated_at = now() WHERE id = $1")
         .bind(org_id)
         .bind(new_balance)
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await?;
     sqlx::query(
         "INSERT INTO organization_credits_transactions
@@ -60,9 +94,8 @@ pub async fn deduct_org_credits(
     .bind(description)
     .bind(session_id)
     .bind(actor_id)
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await?;
-    tx.commit().await?;
     Ok(OrgCharge::Charged {
         balance_after: new_balance,
     })

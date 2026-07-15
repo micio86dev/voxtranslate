@@ -31,6 +31,7 @@ pub mod teams;
 pub mod transcripts;
 pub mod voice_assistant;
 pub mod voice_messages;
+pub mod webinars;
 
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};

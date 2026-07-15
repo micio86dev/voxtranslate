@@ -60,6 +60,23 @@ struct Collaborator {
     calls: i64,
 }
 
+#[derive(FromRow, Serialize)]
+struct WebinarKpis {
+    /// Finalized broadcasts in the window (webinars with a session record).
+    webinars_hosted: i64,
+    /// Largest single-broadcast peak audience.
+    peak_viewers_max: i64,
+    /// Σ broadcast wall-clock hours.
+    total_broadcast_hours: f64,
+    /// Σ audience watch hours across all participants of those broadcasts.
+    total_watch_hours: f64,
+    /// Σ webinar-session cost (org-credit currency, 100 = $1). This is the cost of
+    /// the broadcasts, matching what `webinar_sessions.cost_credits` recorded — the
+    /// authoritative per-run charge, not the ledger sum (an insufficient-balance run
+    /// still records `cost_credits` but skips the ledger deduction, per migration 048).
+    webinar_spend: i64,
+}
+
 /// `GET /api/business/organizations/{org_id}/analytics?days=30` (admin+).
 /// Spend is financial data, so this matches the credits endpoint's ADMIN gate.
 pub async fn summary(
@@ -146,6 +163,34 @@ pub async fn summary(
     .await
     .map_err(db_err)?;
 
+    // Webinar KPIs for the same window (spec: Webinar Analytics, Phase D). Added as
+    // a `webinars` sub-object rather than a breaking reshape of `kpis`. Broadcasts
+    // are counted from the finalized `webinar_sessions` rollup (one row per run);
+    // watch hours sum every participant of those runs. Left joins keep a broadcast
+    // with zero recorded participants counted (its watch hours are just 0).
+    let webinars: WebinarKpis = sqlx::query_as(
+        "SELECT
+             count(*)::bigint AS webinars_hosted,
+             COALESCE(MAX(s.peak_viewers), 0)::bigint AS peak_viewers_max,
+             COALESCE(SUM(s.duration_seconds), 0)::double precision / 3600.0 AS total_broadcast_hours,
+             COALESCE(SUM(s.cost_credits), 0)::bigint AS webinar_spend,
+             COALESCE((
+                 SELECT SUM(wp.total_watch_seconds)
+                 FROM webinar_participants wp
+                 JOIN webinar_sessions s2 ON s2.webinar_id = wp.webinar_id
+                 WHERE s2.org_id = $1
+                   AND s2.created_at >= now() - make_interval(days => $2::int)
+             ), 0)::double precision / 3600.0 AS total_watch_hours
+         FROM webinar_sessions s
+         WHERE s.org_id = $1
+           AND s.created_at >= now() - make_interval(days => $2::int)",
+    )
+    .bind(org_id)
+    .bind(days)
+    .fetch_one(pool)
+    .await
+    .map_err(db_err)?;
+
     Ok(Json(json!({
         "range_days": days,
         "kpis": {
@@ -158,6 +203,7 @@ pub async fn summary(
         "credits_by_type": by_type,
         "calls_by_day": by_day,
         "top_projects": top_projects,
+        "webinars": webinars,
     }))
     .into_response())
 }

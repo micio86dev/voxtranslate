@@ -122,6 +122,72 @@ pub async fn claim(
     Ok(Claim::AlreadyRunning(existing.0))
 }
 
+/// Claim a WEBINAR job slot for `(webinar, feature, params_key)`. Same atomic
+/// upsert + reclaim semantics as [`claim`], but against `webinar_ai_jobs`
+/// (migration 049) — a webinar is not a `call_sessions` row, so it can't ride
+/// the `ai_jobs` table (its `session_id` FKs `call_sessions`).
+pub async fn claim_webinar(
+    pool: &Pool,
+    webinar_id: Uuid,
+    user_id: Uuid,
+    feature: &str,
+    params_key: &str,
+) -> Result<Claim, sqlx::Error> {
+    let _ = sqlx::query(&format!(
+        "DELETE FROM webinar_ai_jobs WHERE status <> 'pending' AND updated_at < now() - interval '{PRUNE_AFTER}'",
+    ))
+    .execute(pool)
+    .await;
+
+    let owned: Option<(Uuid,)> = sqlx::query_as(
+        "INSERT INTO webinar_ai_jobs (webinar_id, user_id, feature, params_key, status)
+         VALUES ($1, $2, $3, $4, 'pending')
+         ON CONFLICT (webinar_id, feature, params_key) DO UPDATE
+           SET status = 'pending', error = NULL, result_json = NULL,
+               user_id = EXCLUDED.user_id, updated_at = now()
+           WHERE webinar_ai_jobs.status <> 'pending'
+              OR webinar_ai_jobs.updated_at < now() - make_interval(mins => $5)
+         RETURNING id",
+    )
+    .bind(webinar_id)
+    .bind(user_id)
+    .bind(feature)
+    .bind(params_key)
+    .bind(STALE_MINUTES)
+    .fetch_optional(pool)
+    .await?;
+
+    if let Some((id,)) = owned {
+        return Ok(Claim::Owned(id));
+    }
+
+    let existing: (Uuid,) = sqlx::query_as(
+        "SELECT id FROM webinar_ai_jobs WHERE webinar_id = $1 AND feature = $2 AND params_key = $3",
+    )
+    .bind(webinar_id)
+    .bind(feature)
+    .bind(params_key)
+    .fetch_one(pool)
+    .await?;
+    Ok(Claim::AlreadyRunning(existing.0))
+}
+
+/// Fetch a webinar job, scoped to its webinar (blocks cross-webinar id probing).
+pub async fn get_webinar(
+    pool: &Pool,
+    job_id: Uuid,
+    webinar_id: Uuid,
+) -> Result<Option<AiJob>, sqlx::Error> {
+    sqlx::query_as(
+        "SELECT id, status, error, result_json, created_at
+         FROM webinar_ai_jobs WHERE id = $1 AND webinar_id = $2",
+    )
+    .bind(job_id)
+    .bind(webinar_id)
+    .fetch_optional(pool)
+    .await
+}
+
 /// Fetch a job, scoped to its session (the caller is already session-gated, and
 /// scoping blocks cross-session id probing).
 pub async fn get(
@@ -139,12 +205,19 @@ pub async fn get(
     .await
 }
 
-/// Mark a job done and attach the result the client will render.
-async fn complete(pool: &Pool, job_id: Uuid, result: serde_json::Value) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "UPDATE ai_jobs SET status = 'done', result_json = $2, error = NULL, updated_at = now()
+/// Mark a job done and attach the result the client will render. `table` is the
+/// job table (`ai_jobs` for meets, `webinar_ai_jobs` for webinars) — both share
+/// the same columns, so one implementation serves both.
+async fn complete(
+    pool: &Pool,
+    table: &str,
+    job_id: Uuid,
+    result: serde_json::Value,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(&format!(
+        "UPDATE {table} SET status = 'done', result_json = $2, error = NULL, updated_at = now()
          WHERE id = $1",
-    )
+    ))
     .bind(job_id)
     .bind(result)
     .execute(pool)
@@ -155,14 +228,15 @@ async fn complete(pool: &Pool, job_id: Uuid, result: serde_json::Value) -> Resul
 /// Mark a job failed with a machine-readable reason (+ optional payload).
 async fn fail(
     pool: &Pool,
+    table: &str,
     job_id: Uuid,
     reason: &str,
     payload: Option<serde_json::Value>,
 ) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "UPDATE ai_jobs SET status = 'failed', error = $2, result_json = $3, updated_at = now()
+    sqlx::query(&format!(
+        "UPDATE {table} SET status = 'failed', error = $2, result_json = $3, updated_at = now()
          WHERE id = $1",
-    )
+    ))
     .bind(job_id)
     .bind(reason)
     .bind(payload)
@@ -173,37 +247,55 @@ async fn fail(
 
 /// Heartbeat a still-pending job's `updated_at`. Returns `false` once the row is
 /// no longer pending (or gone), which stops the heartbeat loop.
-async fn touch(pool: &Pool, job_id: Uuid) -> bool {
-    sqlx::query("UPDATE ai_jobs SET updated_at = now() WHERE id = $1 AND status = 'pending'")
-        .bind(job_id)
-        .execute(pool)
-        .await
-        .map(|r| r.rows_affected() == 1)
-        .unwrap_or(false)
+async fn touch(pool: &Pool, table: &str, job_id: Uuid) -> bool {
+    sqlx::query(&format!(
+        "UPDATE {table} SET updated_at = now() WHERE id = $1 AND status = 'pending'"
+    ))
+    .bind(job_id)
+    .execute(pool)
+    .await
+    .map(|r| r.rows_affected() == 1)
+    .unwrap_or(false)
 }
 
-async fn heartbeat(pool: Pool, job_id: Uuid) {
+async fn heartbeat(pool: Pool, table: String, job_id: Uuid) {
     loop {
         tokio::time::sleep(HEARTBEAT).await;
-        if !touch(&pool, job_id).await {
+        if !touch(&pool, &table, job_id).await {
             break;
         }
     }
 }
 
-/// Drive a claimed job to completion: heartbeat it while `work` runs, then
-/// record the result or the failure. The spawned future returns the JSON body
-/// the synchronous endpoint used to return, or a [`JobFailure`].
+/// Drive a claimed `ai_jobs` (meet) job to completion. See [`run_on`].
 pub async fn run<F>(pool: Pool, job_id: Uuid, work: F)
 where
     F: std::future::Future<Output = Result<serde_json::Value, JobFailure>>,
 {
-    let hb = tokio::spawn(heartbeat(pool.clone(), job_id));
+    run_on(pool, "ai_jobs", job_id, work).await
+}
+
+/// Drive a claimed WEBINAR (`webinar_ai_jobs`) job to completion. See [`run_on`].
+pub async fn run_webinar<F>(pool: Pool, job_id: Uuid, work: F)
+where
+    F: std::future::Future<Output = Result<serde_json::Value, JobFailure>>,
+{
+    run_on(pool, "webinar_ai_jobs", job_id, work).await
+}
+
+/// Drive a claimed job to completion against `table`: heartbeat it while `work`
+/// runs, then record the result or the failure. The spawned future returns the
+/// JSON body the synchronous endpoint used to return, or a [`JobFailure`].
+async fn run_on<F>(pool: Pool, table: &'static str, job_id: Uuid, work: F)
+where
+    F: std::future::Future<Output = Result<serde_json::Value, JobFailure>>,
+{
+    let hb = tokio::spawn(heartbeat(pool.clone(), table.to_string(), job_id));
     let outcome = work.await;
     hb.abort();
     let written = match outcome {
-        Ok(v) => complete(&pool, job_id, v).await,
-        Err(f) => fail(&pool, job_id, &f.reason, f.payload).await,
+        Ok(v) => complete(&pool, table, job_id, v).await,
+        Err(f) => fail(&pool, table, job_id, &f.reason, f.payload).await,
     };
     if let Err(e) = written {
         tracing::error!("ai job {job_id} result write failed: {e}");

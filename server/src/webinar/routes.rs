@@ -77,6 +77,14 @@ pub fn routes() -> Router<AppState> {
         .route("/api/webinars/{id}/unarchive", post(unarchive))
         // Transcript history for a completed webinar (recap screen).
         .route("/api/webinars/{id}/transcripts", get(get_transcripts))
+        // AI recap (Phase B) — HOST-ONLY. Report (any language) + multilingual
+        // participant recap emails, both async (client polls the job endpoint).
+        .route(
+            "/api/webinars/{id}/ai/report",
+            post(ai_report).get(ai_report_latest),
+        )
+        .route("/api/webinars/{id}/ai/email", post(ai_email))
+        .route("/api/webinars/{id}/ai/job/{job_id}", get(ai_job_status))
         // Host mints a short-lived tokenized WHIP publish URL to go on air (F1-1).
         .route("/api/webinars/{id}/go-live", post(go_live))
         // Lifecycle: host client reports on-air / off-air (F1-3).
@@ -674,17 +682,247 @@ pub async fn publish_stopped(
     let cfg = require_cfg(&state)?;
     let w = require_webinar_role(pool, id, user.user_id, MEMBER).await?;
     // Only a live webinar transitions to ended; any other state is returned as-is.
-    sqlx::query(
+    let rows = sqlx::query(
         "UPDATE webinars SET status = 'ended', actual_end = now(), updated_at = now()
          WHERE id = $1 AND status = 'live'",
     )
     .bind(id)
     .execute(pool)
     .await
-    .map_err(db_err)?;
+    .map_err(db_err)?
+    .rows_affected();
     let current = find_by_id(pool, id).await.map_err(db_err)?.unwrap_or(w);
+    // First transition to ended (this call flipped it): finalize the session record +
+    // bill the host's org. Best-effort — a failure here must not fail the host's
+    // publish-stopped, and `finalize_webinar_run` is idempotent (UNIQUE webinar_id).
+    if rows > 0 {
+        if let Err(e) = finalize_webinar_run(pool, &current, &state.config).await {
+            tracing::error!(webinar_id = %id, "webinar finalization failed: {e}");
+        }
+        // Phase C: make this finished webinar semantically searchable. Fire-and-
+        // forget so embedding (a network round-trip to OpenAI) NEVER blocks the
+        // host's off-air request; a failure here is logged, never surfaced. Only
+        // worth spawning when a transcript was recorded.
+        if current.record_transcript {
+            let state = state.clone();
+            let w = current.clone();
+            tokio::spawn(async move {
+                match embed_webinar_transcripts(&state, &w).await {
+                    Ok(0) => {}
+                    Ok(n) => {
+                        tracing::info!(webinar_id = %id, chunks = n, "webinar transcript embedded")
+                    }
+                    Err(e) => tracing::warn!(webinar_id = %id, "webinar embedding failed: {e}"),
+                }
+            });
+        }
+    }
     Ok(Json(host_view(&current, &state.config.app_base_url, cfg)).into_response())
 }
+
+/// Batch-finalize a finished webinar run: sweep its `webinar_events`, compute the
+/// metrics + host cost via the pure [`metrics::finalize_webinar_metrics`], insert a
+/// one-row `webinar_sessions` record, finalize each participant's
+/// `total_watch_seconds`, and deduct the cost from the host's org.
+///
+/// Idempotent: the `webinar_sessions.webinar_id` UNIQUE constraint means a second
+/// run (a repeated publish-stopped, or a retry) inserts nothing and charges nothing.
+/// Defensive: a webinar that never went live (no `actual_start`) writes no record.
+async fn finalize_webinar_run(
+    pool: &Pool,
+    w: &Webinar,
+    config: &crate::config::Config,
+) -> Result<(), sqlx::Error> {
+    use crate::webinar::metrics::{
+        finalize_webinar_metrics, WebinarEvent as MetricEvent, WebinarRates,
+    };
+
+    // Never went live → nothing to record or charge.
+    let (Some(actual_start), Some(actual_end)) = (w.actual_start, w.actual_end) else {
+        return Ok(());
+    };
+
+    // Idempotency guard: skip if this run was already finalized.
+    let already: Option<Uuid> =
+        sqlx::query_scalar("SELECT id FROM webinar_sessions WHERE webinar_id = $1")
+            .bind(w.id)
+            .fetch_optional(pool)
+            .await?;
+    if already.is_some() {
+        return Ok(());
+    }
+
+    // Resolve the per-tier rates from config (keeps the pure function config-free).
+    // The cost model mirrors the meet meter EXACTLY: per broadcast-minute we bill
+    // `rate_per_minute × K` (K = distinct participant languages ≠ source_language);
+    // K=0 ⇒ that interval is free. There is NO host-STT surcharge and NO separate TTS
+    // factor — the per-tier rate already bundles STT + translation + TTS per stream.
+    // Standard: consumer per-minute rate (`billing.pricing.user_rate_per_minute` =
+    //   COST_PER_MINUTE × (1 + MARKUP)); fall back to the built-in default when
+    //   billing isn't configured.
+    // Enhanced: the Cartesia per-minute rate (cost_per_minute × (1 + markup)), which
+    //   already bundles its STT + TTS; fall back to the Standard rate if unset.
+    let standard_rate = config
+        .billing
+        .as_ref()
+        .map(|b| b.pricing.user_rate_per_minute)
+        .unwrap_or(WEBINAR_DEFAULT_STANDARD_RATE_USD);
+    let rates = if w.tier == "enhanced" {
+        match &config.cartesia {
+            Some(c) => WebinarRates::enhanced(c.cost_per_minute * (1.0 + c.markup)),
+            None => WebinarRates::enhanced(standard_rate),
+        }
+    } else {
+        WebinarRates::standard(standard_rate)
+    };
+
+    // Load the event timeline for the cost sweep (join/leave, each join carries the
+    // participant's language_code).
+    let rows: Vec<(Uuid, String, Option<String>, DateTime<Utc>)> = sqlx::query_as(
+        "SELECT participant_id, type, language_code, at
+           FROM webinar_events
+          WHERE webinar_id = $1 AND participant_id IS NOT NULL
+          ORDER BY at",
+    )
+    .bind(w.id)
+    .fetch_all(pool)
+    .await?;
+    let events: Vec<MetricEvent> = rows
+        .into_iter()
+        .map(|(participant_id, kind, language_code, at)| MetricEvent {
+            participant_id,
+            kind,
+            language_code,
+            at,
+        })
+        .collect();
+
+    let m = finalize_webinar_metrics(
+        &events,
+        &w.source_language,
+        &w.tier,
+        actual_start,
+        actual_end,
+        rates,
+    );
+
+    // Insert the session record AND charge the host's org in ONE transaction, so a
+    // crash/DB error between them can never leave a committed session row with no
+    // charge (which the idempotency guard would then skip forever → free broadcast).
+    // ON CONFLICT DO NOTHING makes the insert itself idempotent under a race (two
+    // finalizations arriving together): only the first writer's row lands, and only it
+    // proceeds to charge.
+    let mut tx = pool.begin().await?;
+    let inserted: Option<Uuid> = sqlx::query_scalar(
+        "INSERT INTO webinar_sessions
+            (webinar_id, org_id, host_user_id, actual_start, actual_end, duration_seconds,
+             scheduled_start, scheduled_end, host_online_seconds, peak_viewers,
+             translated_language_count, cost_credits)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+         ON CONFLICT (webinar_id) DO NOTHING
+         RETURNING id",
+    )
+    .bind(w.id)
+    .bind(w.org_id)
+    .bind(w.host_user_id)
+    .bind(actual_start)
+    .bind(actual_end)
+    .bind(m.duration_seconds as i32)
+    .bind(w.scheduled_start)
+    .bind(w.scheduled_end)
+    .bind(m.host_online_seconds as i32)
+    .bind(m.peak_viewers)
+    .bind(m.translated_language_count)
+    .bind(m.cost_credits)
+    .fetch_optional(&mut *tx)
+    .await?;
+    let Some(session_id) = inserted else {
+        // Lost the race; the winning finalization owns the charge. Nothing was
+        // written in this tx → roll it back and return.
+        tx.rollback().await?;
+        return Ok(());
+    };
+
+    // Bill the host's org INSIDE the same tx so the row + charge are atomic.
+    // `session_id` on the ledger FKs to `call_sessions`, which this is NOT, so pass
+    // None and reference the webinar/session in the description.
+    if m.cost_credits > 0 {
+        let desc = format!("webinar broadcast {} (session {})", w.code, session_id);
+        let charge = crate::business::credits::deduct_org_credits_tx(
+            &mut tx,
+            w.org_id,
+            m.cost_credits,
+            "webinar",
+            None,
+            w.host_user_id,
+            &desc,
+        )
+        .await?;
+        if let crate::business::credits::OrgCharge::Insufficient { balance, required } = charge {
+            // The broadcast already happened; we don't roll it back. Record the
+            // shortfall for reconciliation rather than silently dropping the charge —
+            // the session row still commits (with cost_credits set, but no ledger
+            // deduction), matching the prior behavior of NOT reverting the broadcast.
+            tracing::warn!(
+                webinar_id = %w.id, org_id = %w.org_id, balance, required,
+                "webinar host org has insufficient credits for finalized broadcast"
+            );
+        }
+    }
+
+    // Commit the session row + charge together.
+    tx.commit().await?;
+
+    // Finalize each participant's total_watch_seconds = Σ their in-window join→leave
+    // spans (an open join with no leave runs to actual_end). Analytics only, so it
+    // runs OUTSIDE the billing transaction (best-effort, after commit) — a failure
+    // here must not undo the row + charge. Done in SQL over the event log so a re-join
+    // accumulates correctly.
+    if let Err(e) = sqlx::query(
+        "WITH spans AS (
+            SELECT participant_id,
+                   at AS joined_at,
+                   COALESCE(
+                       LEAD(at) OVER (PARTITION BY participant_id ORDER BY at),
+                       $2
+                   ) AS ended_at,
+                   type
+              FROM webinar_events
+             WHERE webinar_id = $1 AND participant_id IS NOT NULL
+        )
+        UPDATE webinar_participants p SET total_watch_seconds = COALESCE(agg.secs, 0)
+          FROM (
+            SELECT participant_id,
+                   SUM(GREATEST(0, EXTRACT(EPOCH FROM (
+                       LEAST(ended_at, $2) - GREATEST(joined_at, $3)
+                   ))))::int AS secs
+              FROM spans
+             WHERE type = 'join'
+             GROUP BY participant_id
+          ) agg
+         WHERE p.id = agg.participant_id AND p.webinar_id = $1",
+    )
+    .bind(w.id)
+    .bind(actual_end)
+    .bind(actual_start)
+    .execute(pool)
+    .await
+    {
+        tracing::warn!(webinar_id = %w.id, "webinar total_watch_seconds update failed: {e}");
+    }
+
+    tracing::info!(
+        webinar_id = %w.id, session_id = %session_id,
+        duration_seconds = m.duration_seconds, peak_viewers = m.peak_viewers,
+        translated_language_count = m.translated_language_count, cost_credits = m.cost_credits,
+        "webinar run finalized"
+    );
+    Ok(())
+}
+
+/// Fallback Standard per-minute rate (USD) when billing config is absent — the
+/// built-in `COST_PER_MINUTE` (0.008) × (1 + `MARKUP_PERCENTAGE` 0.25) = 0.01/min.
+const WEBINAR_DEFAULT_STANDARD_RATE_USD: f64 = 0.01;
 
 /// `POST /api/webinars/{id}/archive` — soft-archive (hide from the active list;
 /// data preserved). Member only.
@@ -818,6 +1056,675 @@ pub async fn get_transcripts(
     })
     .collect();
     Ok(Json(rows).into_response())
+}
+
+// ---- AI recap: report + multilingual participant emails (Phase B) ----------
+//
+// HOST-ONLY (caller == webinar.host_user_id; 403 otherwise), mirroring the MEET
+// AI system: the shared Groq generation (`crate::ai::report` / `email_draft`)
+// and the async `ai_jobs` claim pattern, sourced from `webinar_transcripts` and
+// charged to the host's ORG credit pool. NO sentiment analysis.
+
+use crate::ai::jobs as ai_jobs;
+use crate::transcripts::TranscriptExport;
+use crate::webinar::ai as webinar_ai;
+
+/// Validate an AI report/email target language (same shape as the meet report:
+/// short, alnum + `-`). Empty/absent is caller's problem to default before here.
+fn valid_ai_lang(raw: &str) -> Result<String, Response> {
+    let l = raw.trim();
+    if l.is_empty() || l.len() > 8 || !l.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+        return Err(bad_request("invalid lang"));
+    }
+    Ok(l.to_string())
+}
+
+/// Fetch a webinar and enforce HOST-ONLY access: the caller must be the webinar's
+/// `host_user_id`. 404 when the webinar doesn't exist; 403 when the caller isn't
+/// the host. Stricter than [`require_webinar_role`] (any org member) — the recap
+/// endpoints are the host's alone (SPEC: host-only + the host org pays).
+async fn require_webinar_host(pool: &Pool, id: Uuid, user_id: Uuid) -> Result<Webinar, Response> {
+    let w = find_by_id(pool, id)
+        .await
+        .map_err(db_err)?
+        .ok_or_else(|| not_found("webinar not found"))?;
+    if w.host_user_id != Some(user_id) {
+        return Err((StatusCode::FORBIDDEN, "host only").into_response());
+    }
+    Ok(w)
+}
+
+/// Load a webinar's transcript rows (original + translations) in `spoken_at`
+/// order for AI assembly. Empty when `record_transcript` was off.
+async fn load_transcript_rows(
+    pool: &Pool,
+    webinar_id: Uuid,
+) -> Result<Vec<webinar_ai::TranscriptRow>, sqlx::Error> {
+    let rows: Vec<(String, String, Value, DateTime<Utc>)> = sqlx::query_as(
+        "SELECT original_text, original_lang, translations, spoken_at
+           FROM webinar_transcripts
+          WHERE webinar_id = $1
+          ORDER BY spoken_at ASC
+          LIMIT 20000",
+    )
+    .bind(webinar_id)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(
+            |(original_text, original_lang, translations, spoken_at)| webinar_ai::TranscriptRow {
+                original_text,
+                original_lang,
+                translations,
+                spoken_at,
+            },
+        )
+        .collect())
+}
+
+/// Embed a finished webinar's transcript into `transcript_embeddings` so it
+/// surfaces in the shared Business semantic search (`business::search`) alongside
+/// meet calls. Mirrors the meet `business::transcripts::embed_and_store`:
+///   * chunks the ORIGINAL-language utterances at the same ~250-word target;
+///   * embeds each chunk via the shared `state.embeddings` client;
+///   * writes rows with `webinar_id` set (session_id/transcript_id NULL) and the
+///     webinar's denormalized `org_id`/`project_id` so the existing scope filter
+///     Just Works;
+///   * is idempotent (delete-then-insert for this webinar) so a re-finalize/retry
+///     is safe.
+///
+/// Degrades gracefully: a `None` embeddings client (OPENAI_API_KEY unset) or a
+/// webinar with no transcript is a no-op returning 0; any API/DB error is returned
+/// as a `String` for the caller to log — it must NEVER fail webinar finalization.
+async fn embed_webinar_transcripts(state: &AppState, w: &Webinar) -> Result<usize, String> {
+    let Some(embedder) = state.embeddings.as_ref() else {
+        return Ok(0);
+    };
+    let pool = state.pool.as_ref().ok_or("no database")?;
+
+    // Idempotency: skip if this webinar already has embedding rows. (A re-finalize
+    // deletes+reinserts below regardless, but the fast path avoids a needless
+    // OpenAI round-trip on the common repeated-publish-stopped case.)
+    let existing: Option<Uuid> =
+        sqlx::query_scalar("SELECT id FROM transcript_embeddings WHERE webinar_id = $1 LIMIT 1")
+            .bind(w.id)
+            .fetch_optional(pool)
+            .await
+            .map_err(|e| e.to_string())?;
+    if existing.is_some() {
+        return Ok(0);
+    }
+
+    let rows = load_transcript_rows(pool, w.id)
+        .await
+        .map_err(|e| e.to_string())?;
+    // Anchor offsets on `actual_start` when present, else the earliest utterance —
+    // same fallback logic the AI export uses.
+    let anchor = w
+        .actual_start
+        .or_else(|| rows.iter().map(|r| r.spoken_at).min())
+        .unwrap_or(w.created_at);
+    let chunks = webinar_ai::chunk_transcript_rows(&rows, anchor);
+    if chunks.is_empty() {
+        return Ok(0);
+    }
+
+    let texts: Vec<String> = chunks.iter().map(|c| c.content.clone()).collect();
+    let vectors = embedder.embed_batch(&texts).await?;
+    if vectors.len() != chunks.len() {
+        return Err("embedding count mismatch".to_string());
+    }
+
+    let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
+    sqlx::query("DELETE FROM transcript_embeddings WHERE webinar_id = $1")
+        .bind(w.id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| e.to_string())?;
+    for (i, (chunk, vec)) in chunks.iter().zip(vectors).enumerate() {
+        sqlx::query(
+            "INSERT INTO transcript_embeddings
+                (webinar_id, org_id, project_id, chunk_index,
+                 speaker_name, start_ms, end_ms, content, embedding)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+        )
+        .bind(w.id)
+        .bind(w.org_id)
+        .bind(w.project_id)
+        .bind(i as i32)
+        .bind(webinar_ai::EMBED_SPEAKER)
+        .bind(chunk.start_ms)
+        .bind(chunk.end_ms)
+        .bind(&chunk.content)
+        .bind(pgvector::Vector::from(vec))
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| e.to_string())?;
+    }
+    tx.commit().await.map_err(|e| e.to_string())?;
+    Ok(chunks.len())
+}
+
+#[derive(Deserialize)]
+pub struct WebinarReportRequest {
+    /// Target language (any). Defaults to the webinar's source language.
+    #[serde(default)]
+    pub lang: Option<String>,
+}
+
+/// `POST /api/webinars/{id}/ai/report` — generate an AI recap report for a
+/// finished webinar in `lang` (host-only). Assembles the transcript from
+/// `webinar_transcripts` (target-language translation when present, else the
+/// original), runs the shared MEET report generation, stores it (one per
+/// (webinar, lang) — a re-run upserts, never re-charges), and charges the host's
+/// org. Async job: a re-click joins the running job (`ai_jobs` claim pattern).
+pub async fn ai_report(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+    Json(body): Json<WebinarReportRequest>,
+) -> Result<Response, Response> {
+    let pool = require_pool(&state)?;
+    require_cfg(&state)?;
+    let Some(billing_cfg) = state.config.billing.as_ref() else {
+        return Err((StatusCode::SERVICE_UNAVAILABLE, "billing not configured").into_response());
+    };
+    let w = require_webinar_host(pool, id, user.user_id).await?;
+
+    let lang = match body.lang.as_deref().map(str::trim) {
+        Some(l) if !l.is_empty() => valid_ai_lang(l)?,
+        _ => valid_ai_lang(webinar_ai::default_report_lang(&w))?,
+    };
+
+    // Assemble the transcript; refuse when there is nothing to report on.
+    let rows = load_transcript_rows(pool, id).await.map_err(db_err)?;
+    if rows.is_empty() {
+        return Err((
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "webinar has no transcript to report on",
+        )
+            .into_response());
+    }
+    let export = webinar_ai::assemble_export(
+        &rows,
+        &lang,
+        &w.title,
+        w.actual_start.unwrap_or(w.created_at),
+        w.actual_end,
+    );
+    let cost = webinar_ai::report_cost_credits(&billing_cfg.ai, export.session.duration_seconds);
+
+    // One live slot per (webinar, lang): a re-click joins the running job.
+    let job_id = match ai_jobs::claim_webinar(pool, id, user.user_id, "report", &lang).await {
+        Ok(ai_jobs::Claim::Owned(job_id)) => {
+            let st = state.clone();
+            let (wid, host_org, host_user, lng) = (id, w.org_id, user.user_id, lang.clone());
+            tokio::spawn(ai_jobs::run_webinar(pool.clone(), job_id, async move {
+                run_webinar_report_inner(st, wid, host_org, host_user, export, cost, lng).await
+            }));
+            job_id
+        }
+        Ok(ai_jobs::Claim::AlreadyRunning(job_id)) => job_id,
+        Err(e) => {
+            tracing::error!("webinar report job claim failed: {e}");
+            return Err(db_err(e));
+        }
+    };
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(json!({ "job_id": job_id, "status": "pending" })),
+    )
+        .into_response())
+}
+
+/// Background body of [`ai_report`]: generate → charge the host org → persist,
+/// returning the JSON the poll endpoint serves. User-favorable failure policy
+/// mirrors the meet report: Groq failure never charges; a persist error after a
+/// charge still returns the markdown.
+async fn run_webinar_report_inner(
+    state: AppState,
+    webinar_id: Uuid,
+    org_id: Uuid,
+    host_user_id: Uuid,
+    export: TranscriptExport,
+    cost_credits: i32,
+    lang: String,
+) -> Result<serde_json::Value, ai_jobs::JobFailure> {
+    let (Some(pool), Some(cfg)) = (state.pool.as_ref(), state.config.billing.as_ref()) else {
+        return Err(ai_jobs::JobFailure::new("unavailable"));
+    };
+    let ai = &cfg.ai;
+
+    // Structured report; the section headings are localized into `lang` by the
+    // shared prompt. No guidelines from this endpoint.
+    let (markdown, model) = match crate::ai::report::generate_report(
+        &state.groq,
+        ai,
+        &export,
+        "structured",
+        &lang,
+        None,
+    )
+    .await
+    {
+        Ok(out) => out,
+        Err(e) => {
+            tracing::error!("webinar report generation failed: {e}");
+            return Err(ai_jobs::JobFailure::new("groq"));
+        }
+    };
+
+    // Charge the host org (idempotency: the upsert below is keyed on (webinar,
+    // lang); a re-run replaces the row but we still charge per successful
+    // generation — the claim dedup prevents a rapid double-click double-charge).
+    if cost_credits > 0 {
+        let desc = format!("webinar AI report ({lang}) — {webinar_id}");
+        match crate::business::credits::deduct_org_credits(
+            pool,
+            org_id,
+            cost_credits,
+            "webinar_ai_report",
+            None,
+            Some(host_user_id),
+            &desc,
+        )
+        .await
+        {
+            Ok(crate::business::credits::OrgCharge::Charged { .. }) => {}
+            Ok(crate::business::credits::OrgCharge::Insufficient { balance, required }) => {
+                return Err(ai_jobs::JobFailure::with_payload(
+                    "insufficient_credits",
+                    json!({ "error": "insufficient_credits", "balance": balance, "required": required }),
+                ));
+            }
+            Err(e) => {
+                // Our own infra error after generation → deliver the report free.
+                tracing::error!("webinar report org charge failed — delivering free: {e}");
+            }
+        }
+    }
+
+    // Persist (upsert on (webinar, lang) so a regenerate replaces the stored one).
+    let row: Result<(Uuid, DateTime<Utc>), sqlx::Error> = sqlx::query_as(
+        "INSERT INTO webinar_reports
+             (webinar_id, user_id, format, lang, markdown, model, cost_credits)
+         VALUES ($1, $2, 'structured', $3, $4, $5, $6)
+         ON CONFLICT (webinar_id, lang) DO UPDATE
+           SET markdown = EXCLUDED.markdown, model = EXCLUDED.model,
+               cost_credits = EXCLUDED.cost_credits, user_id = EXCLUDED.user_id,
+               updated_at = now()
+         RETURNING id, created_at",
+    )
+    .bind(webinar_id)
+    .bind(host_user_id)
+    .bind(&lang)
+    .bind(&markdown)
+    .bind(&model)
+    .bind(cost_credits)
+    .fetch_one(pool)
+    .await;
+
+    let mut v = json!({
+        "lang": lang,
+        "markdown": markdown,
+        "model": model,
+        "cost_credits": cost_credits,
+    });
+    match row {
+        Ok((report_id, created_at)) => {
+            v["id"] = json!(report_id);
+            v["created_at"] = json!(created_at);
+        }
+        Err(e) => {
+            // Charged but couldn't persist — deliver the markdown anyway.
+            tracing::error!("webinar report insert failed after charge: {e}");
+        }
+    }
+    Ok(v)
+}
+
+/// `GET /api/webinars/{id}/ai/report` — the latest stored report for a webinar
+/// (host-only). Optional `?lang=` returns that language's report; without it, the
+/// most recent. 200 + null when none exists yet.
+pub async fn ai_report_latest(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+    Query(q): Query<HashMap<String, String>>,
+) -> Result<Response, Response> {
+    let pool = require_pool(&state)?;
+    require_webinar_host(pool, id, user.user_id).await?;
+    let row: Option<(Uuid, String, String, String, i32, DateTime<Utc>)> = match q.get("lang") {
+        Some(lang) => sqlx::query_as(
+            "SELECT id, lang, markdown, model, cost_credits, created_at
+               FROM webinar_reports WHERE webinar_id = $1 AND lang = $2",
+        )
+        .bind(id)
+        .bind(lang)
+        .fetch_optional(pool)
+        .await
+        .map_err(db_err)?,
+        None => sqlx::query_as(
+            "SELECT id, lang, markdown, model, cost_credits, created_at
+               FROM webinar_reports WHERE webinar_id = $1
+              ORDER BY created_at DESC LIMIT 1",
+        )
+        .bind(id)
+        .fetch_optional(pool)
+        .await
+        .map_err(db_err)?,
+    };
+    let body = match row {
+        Some((rid, lang, markdown, model, cost, created_at)) => json!({
+            "id": rid, "lang": lang, "markdown": markdown, "model": model,
+            "cost_credits": cost, "created_at": created_at,
+        }),
+        None => Value::Null,
+    };
+    Ok(Json(body).into_response())
+}
+
+/// `GET /api/webinars/{id}/ai/job/{job_id}` — poll a webinar AI job (host-only).
+pub async fn ai_job_status(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path((id, job_id)): Path<(Uuid, Uuid)>,
+) -> Result<Response, Response> {
+    let pool = require_pool(&state)?;
+    require_webinar_host(pool, id, user.user_id).await?;
+    match ai_jobs::get_webinar(pool, job_id, id).await {
+        Ok(Some(job)) => Ok(Json(json!({
+            "id": job.id,
+            "status": job.status,
+            "error": job.error,
+            "result": job.result_json,
+            "created_at": job.created_at,
+        }))
+        .into_response()),
+        Ok(None) => Err(not_found("no such job")),
+        Err(e) => Err(db_err(e)),
+    }
+}
+
+/// `POST /api/webinars/{id}/ai/email` — generate + send a recap email to EACH
+/// participant in THEIR language (host-only). For every participant with a
+/// resolvable account email: language = `users.language` (logged-in) else
+/// `webinar_participants.language_code` (guest) else the webinar's source
+/// language. Content is generated ONCE per language (grouped), then sent via
+/// Resend to each recipient. Dedup per (webinar, participant) so a re-run never
+/// double-sends. Guests without an email are skipped. Charges the host org the
+/// per-email cost for each email sent. Async job.
+pub async fn ai_email(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+) -> Result<Response, Response> {
+    let pool = require_pool(&state)?;
+    require_cfg(&state)?;
+    if state.config.billing.is_none() {
+        return Err((StatusCode::SERVICE_UNAVAILABLE, "billing not configured").into_response());
+    }
+    if state.resend.is_none() {
+        return Err((StatusCode::SERVICE_UNAVAILABLE, "email not configured").into_response());
+    }
+    let w = require_webinar_host(pool, id, user.user_id).await?;
+
+    // Something to recap on: no transcript → nothing to send.
+    let rows = load_transcript_rows(pool, id).await.map_err(db_err)?;
+    if rows.is_empty() {
+        return Err((
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "webinar has no transcript to recap",
+        )
+            .into_response());
+    }
+
+    // One live slot per webinar email fan-out (params_key is empty — the run
+    // covers every participant), so a re-click joins the running job.
+    let job_id = match ai_jobs::claim_webinar(pool, id, user.user_id, "email", "").await {
+        Ok(ai_jobs::Claim::Owned(job_id)) => {
+            let st = state.clone();
+            tokio::spawn(ai_jobs::run_webinar(pool.clone(), job_id, async move {
+                run_webinar_email_inner(st, w, user.user_id).await
+            }));
+            job_id
+        }
+        Ok(ai_jobs::Claim::AlreadyRunning(job_id)) => job_id,
+        Err(e) => {
+            tracing::error!("webinar email job claim failed: {e}");
+            return Err(db_err(e));
+        }
+    };
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(json!({ "job_id": job_id, "status": "pending" })),
+    )
+        .into_response())
+}
+
+/// Background body of [`ai_email`]: plan targets → per-language generate → send
+/// via Resend → dedup-persist + charge, once per email actually sent. Returns an
+/// aggregate summary (counts + per-language breakdown) — NEVER any recipient
+/// address (privacy). User-favorable: a Groq/Resend failure for one participant
+/// doesn't sink the batch; only successfully-sent, newly-deduped emails charge.
+async fn run_webinar_email_inner(
+    state: AppState,
+    w: Webinar,
+    host_user_id: Uuid,
+) -> Result<serde_json::Value, ai_jobs::JobFailure> {
+    let (Some(pool), Some(cfg), Some(resend)) = (
+        state.pool.as_ref(),
+        state.config.billing.as_ref(),
+        state.resend.as_ref(),
+    ) else {
+        return Err(ai_jobs::JobFailure::new("unavailable"));
+    };
+    let ai = &cfg.ai;
+    let per_email_cost = webinar_ai::email_cost_credits(ai);
+    let fallback_lang = w.source_language.clone();
+
+    // Resolve every participant's language + account email, server-side.
+    // `(participant_id, users.language, participant.language_code, users.email)`.
+    type ParticipantEmailRow = (Uuid, Option<String>, Option<String>, Option<String>);
+    let prows: Vec<ParticipantEmailRow> = sqlx::query_as(
+        "SELECT p.id, u.language, p.language_code, u.email
+           FROM webinar_participants p
+           LEFT JOIN users u ON u.id = p.user_id
+          WHERE p.webinar_id = $1",
+    )
+    .bind(w.id)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| {
+        tracing::error!("webinar participant load failed: {e}");
+        ai_jobs::JobFailure::new("db")
+    })?;
+    let participants: Vec<webinar_ai::ParticipantRow> = prows
+        .into_iter()
+        .map(
+            |(participant_id, user_language, participant_language, email)| {
+                webinar_ai::ParticipantRow {
+                    participant_id,
+                    user_language,
+                    participant_language,
+                    email,
+                }
+            },
+        )
+        .collect();
+
+    let targets = webinar_ai::plan_email_targets(&participants, &fallback_lang);
+    if targets.is_empty() {
+        return Ok(json!({
+            "sent": 0, "skipped": 0, "failed": 0,
+            "note": "no participants with a resolvable email address",
+        }));
+    }
+
+    // Transcript, assembled per language below (a translation may differ per lang).
+    let rows = load_transcript_rows(pool, w.id).await.map_err(|e| {
+        tracing::error!("webinar transcript load failed: {e}");
+        ai_jobs::JobFailure::new("db")
+    })?;
+
+    let grouped = webinar_ai::group_targets_by_lang(&targets);
+    let tagline_base = &state.config.app_base_url;
+
+    let mut sent = 0i64;
+    let mut skipped = 0i64;
+    let mut failed = 0i64;
+    let mut per_lang: serde_json::Map<String, Value> = serde_json::Map::new();
+
+    for (lang, lang_targets) in &grouped {
+        // Generate the recap email ONCE for this language (content is shared).
+        let export = webinar_ai::assemble_export(
+            &rows,
+            lang,
+            &w.title,
+            w.actual_start.unwrap_or(w.created_at),
+            w.actual_end,
+        );
+        let (draft, _model) = match crate::ai::email_draft::generate_draft(
+            &state.groq,
+            ai,
+            &export,
+            None,
+            None,
+            lang,
+            None,
+        )
+        .await
+        {
+            Ok(out) => out,
+            Err(e) => {
+                tracing::error!("webinar recap email generation failed for {lang}: {e}");
+                failed += lang_targets.len() as i64;
+                per_lang.insert(lang.clone(), json!({ "failed": lang_targets.len() }));
+                continue;
+            }
+        };
+
+        // Branded shell (built once per language); body_html is rebuilt from the
+        // model's plain text via the escaping helper — never raw model HTML.
+        let inner_html = crate::ai::email_draft::text_to_html(&draft.body_text);
+        let tagline = crate::email_template::tagline(lang);
+        let html = crate::email_template::render_html(&crate::email_template::EmailLayout {
+            app_base_url: tagline_base,
+            preheader: &draft.subject,
+            heading: None,
+            body_html: &inner_html,
+            button: None,
+            tagline,
+        });
+        let text =
+            crate::email_template::render_text(&draft.body_text, None, tagline_base, tagline);
+
+        let mut lang_sent = 0i64;
+        let mut lang_skipped = 0i64;
+        let mut lang_failed = 0i64;
+
+        for t in lang_targets {
+            // Dedup + charge atomically per (webinar, participant): claim the row
+            // FIRST (ON CONFLICT DO NOTHING). If we didn't insert, this
+            // participant was already emailed — skip (no re-send, no re-charge).
+            // A prior `failed` row is reclaimed (retry); a `sent` row is not (the
+            // WHERE guard makes the upsert a no-op → no RETURNING → skipped).
+            let claimed: Option<(Uuid,)> = match sqlx::query_as(
+                "INSERT INTO webinar_emails (webinar_id, participant_id, lang, subject, status)
+                 VALUES ($1, $2, $3, $4, 'sent')
+                 ON CONFLICT (webinar_id, participant_id) DO UPDATE
+                   SET lang = EXCLUDED.lang, subject = EXCLUDED.subject,
+                       status = 'sent', error = NULL, resend_id = NULL
+                   WHERE webinar_emails.status = 'failed'
+                 RETURNING id",
+            )
+            .bind(w.id)
+            .bind(t.participant_id)
+            .bind(lang)
+            .bind(&draft.subject)
+            .fetch_optional(pool)
+            .await
+            {
+                Ok(c) => c,
+                Err(e) => {
+                    tracing::error!("webinar_emails claim failed for {}: {e}", t.participant_id);
+                    lang_failed += 1;
+                    continue;
+                }
+            };
+            let Some((email_row_id,)) = claimed else {
+                lang_skipped += 1;
+                continue; // already sent to this participant
+            };
+
+            let outbound = crate::email::OutboundEmail {
+                to: vec![t.email.clone()],
+                cc: vec![],
+                subject: draft.subject.clone(),
+                html: html.clone(),
+                text: text.clone(),
+            };
+            match resend.send(&outbound).await {
+                Ok(resend_id) => {
+                    let _ = sqlx::query("UPDATE webinar_emails SET resend_id = $2 WHERE id = $1")
+                        .bind(email_row_id)
+                        .bind(&resend_id)
+                        .execute(pool)
+                        .await;
+                    // Charge the host org per delivered email.
+                    if per_email_cost > 0 {
+                        let desc = format!("webinar AI recap email ({lang}) — {}", w.id);
+                        if let Err(e) = crate::business::credits::deduct_org_credits(
+                            pool,
+                            w.org_id,
+                            per_email_cost,
+                            "webinar_ai_email",
+                            None,
+                            Some(host_user_id),
+                            &desc,
+                        )
+                        .await
+                        {
+                            tracing::error!("webinar recap email org charge failed: {e}");
+                        }
+                    }
+                    lang_sent += 1;
+                }
+                Err(e) => {
+                    tracing::error!(
+                        "webinar recap email send failed for {}: {e}",
+                        t.participant_id
+                    );
+                    // Flip the claimed row to failed so a later re-run retries it
+                    // (the UNIQUE row otherwise blocks a retry forever).
+                    let _ = sqlx::query(
+                        "UPDATE webinar_emails SET status = 'failed', error = $2 WHERE id = $1",
+                    )
+                    .bind(email_row_id)
+                    .bind(e.chars().take(500).collect::<String>())
+                    .execute(pool)
+                    .await;
+                    lang_failed += 1;
+                }
+            }
+        }
+
+        sent += lang_sent;
+        skipped += lang_skipped;
+        failed += lang_failed;
+        per_lang.insert(
+            lang.clone(),
+            json!({ "sent": lang_sent, "skipped": lang_skipped, "failed": lang_failed }),
+        );
+    }
+
+    Ok(json!({
+        "sent": sent,
+        "skipped": skipped,
+        "failed": failed,
+        "languages": Value::Object(per_lang),
+    }))
 }
 
 /// Map a Google OAuth error to a client response (409 tells the client to connect

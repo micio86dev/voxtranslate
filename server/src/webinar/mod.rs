@@ -15,10 +15,12 @@ use uuid::Uuid;
 use crate::config::WebinarConfig;
 use crate::db::Pool;
 
+pub mod ai;
 pub mod chat;
 pub mod files;
 pub mod guest;
 pub mod media;
+pub mod metrics;
 pub mod presence;
 pub mod routes;
 pub mod stt;
