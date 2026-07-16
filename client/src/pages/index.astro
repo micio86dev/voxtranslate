@@ -1052,27 +1052,45 @@ const jsonLd = {
                 <option value="standard" data-i18n="webinarTierStandard">{T('webinarTierStandard')}</option>
               </select>
             </label>
-            <!-- Optional schedule (spec: calendar wiring). Leave both empty for an
-                 immediate webinar; a start enables "Add to Google Calendar" on the card. -->
-            <div class="webinar-schedule-row">
-              <label class="ws-field grow">
-                <span class="ws-field-label" data-i18n="webinarScheduleStart">{T('webinarScheduleStart')}</span>
-                <input id="webinar-start" class="ws-select" type="datetime-local" autocomplete="off" />
-              </label>
-              <label class="ws-field grow">
-                <span class="ws-field-label" data-i18n="webinarScheduleEnd">{T('webinarScheduleEnd')}</span>
-                <input id="webinar-end" class="ws-select" type="datetime-local" autocomplete="off" />
-              </label>
+            <!-- Start mode: "Start now" (default, immediate) vs "Schedule" (pick a time).
+                 Schedule fields are hidden in "Start now" mode and revealed on toggle. -->
+            <div class="ws-field">
+              <span class="ws-field-label" data-i18n="webinarStartNow">{T('webinarStartNow')}</span>
+              <div id="webinar-mode-seg" class="seg" role="group" aria-label={T('webinarStartNow')}>
+                <button type="button" class="seg-btn active" id="webinar-mode-now" data-mode="now" data-i18n="webinarStartNow">{T('webinarStartNow')}</button>
+                <button type="button" class="seg-btn" id="webinar-mode-schedule" data-mode="schedule" data-i18n="webinarSchedule">{T('webinarSchedule')}</button>
+              </div>
             </div>
-            <p class="webinar-schedule-hint" data-i18n="webinarScheduleHint">{T('webinarScheduleHint')}</p>
-            <!-- Friend-reminder lead time. Only relevant for a PUBLIC scheduled webinar:
-                 the host's friends get a "starting soon" alert this many minutes before
-                 the start. Unscheduled public webinars alert their friends at go-live. -->
-            <label class="ws-field">
-              <span class="ws-field-label" data-i18n="webinarReminderLabel">{T('webinarReminderLabel')}</span>
-              <input id="webinar-reminder" class="ws-select" type="number" min="0" max="1440" step="1" value="10" autocomplete="off" />
-              <span class="webinar-schedule-hint" data-i18n="webinarReminderHint">{T('webinarReminderHint')}</span>
-            </label>
+            <!-- Schedule fields: revealed only when "Programma" is chosen. -->
+            <div id="webinar-schedule-fields" class="hidden">
+              <!-- Optional schedule (spec: calendar wiring). Leave both empty for an
+                   immediate webinar; a start enables "Add to Google Calendar" on the card. -->
+              <div class="webinar-schedule-row">
+                <label class="ws-field grow">
+                  <span class="ws-field-label" data-i18n="webinarScheduleStart">{T('webinarScheduleStart')}</span>
+                  <input id="webinar-start" class="ws-select" type="datetime-local" autocomplete="off" />
+                </label>
+                <label class="ws-field grow">
+                  <span class="ws-field-label" data-i18n="webinarScheduleEnd">{T('webinarScheduleEnd')}</span>
+                  <input id="webinar-end" class="ws-select" type="datetime-local" autocomplete="off" disabled />
+                </label>
+              </div>
+              <p class="webinar-schedule-hint" data-i18n="webinarScheduleHint">{T('webinarScheduleHint')}</p>
+              <!-- Friend-reminder lead time. Only relevant for a PUBLIC scheduled webinar:
+                   the host's friends get a "starting soon" alert this many minutes before
+                   the start. Unscheduled public webinars alert their friends at go-live. -->
+              <label class="ws-field">
+                <span class="ws-field-label" data-i18n="webinarReminderLabel">{T('webinarReminderLabel')}</span>
+                <input id="webinar-reminder" class="ws-select" type="number" min="0" max="1440" step="1" value="10" autocomplete="off" />
+                <span class="webinar-schedule-hint" data-i18n="webinarReminderHint">{T('webinarReminderHint')}</span>
+              </label>
+              <!-- notify_friends toggle: visible only for public scheduled webinars.
+                   Mirrors the existing webinar-toggle-row pattern. Default ON. -->
+              <div class="webinar-toggle-row hidden" id="webinar-notify-friends-row">
+                <span class="webinar-toggle-label" id="webinar-notify-friends-label" data-i18n="webinarNotifyFriends">{T('webinarNotifyFriends')}</span>
+                <button id="webinar-notify-friends" class="ws-switch" type="button" role="switch" aria-checked="true" aria-labelledby="webinar-notify-friends-label"><span class="ws-switch-knob" aria-hidden="true"></span></button>
+              </div>
+            </div>
             <!-- Accessible toggle switches (role=switch + aria-checked), wired in app.ts.
                  Label + switch sit on one row; keyboard-operable (Space/Enter). -->
             <div class="webinar-toggles">
@@ -1178,6 +1196,9 @@ const jsonLd = {
             <span class="studio-onair-badge" id="webinar-onair-badge" role="status">
               <span class="onair-dot" aria-hidden="true"></span><span id="webinar-onair-text" data-i18n="webinarOnAir">{T('webinarOnAir')}</span>
             </span>
+            <!-- REC badge: shown iff activeWebinar.record_video is true (D8).
+                 Hidden by default; app.ts openWebinarStudio shows/hides it. -->
+            <span class="studio-rec-badge hidden" id="webinar-rec-badge" role="status" aria-live="off" data-i18n="webinarRecBadge">{T('webinarRecBadge')}</span>
             <span class="studio-count-badge" id="webinar-count-badge" data-i18n-title="webinarParticipants" title={T('webinarParticipants')}>
               <span class="studio-count-ico" id="webinar-count-ico" aria-hidden="true"></span><span id="webinar-count-n">0</span>
             </span>
@@ -2765,6 +2786,9 @@ const jsonLd = {
     .studio-timer-badge:hover { border-color: color-mix(in srgb, var(--accent, #3b82f6) 70%, transparent); }
     .studio-timer-badge:focus-visible { outline: 2px solid var(--accent, #3b82f6); outline-offset: 1px; }
     .studio-timer-badge.hidden { display: none; }
+    /* REC badge (D8): Meet-style recording indicator, sibling to the ON AIR badge. */
+    .studio-rec-badge { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); display: inline-flex; align-items: center; gap: 5px; font-size: 0.72rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; padding: 4px 10px; border-radius: 999px; background: var(--danger, #ef4444); color: #fff; }
+    .studio-rec-badge.hidden { display: none; }
     .studio-panel { display: flex; flex-direction: column; gap: 12px; }
     .studio-panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
     .webinar-studio-code { font-size: 0.9rem; color: var(--muted); }

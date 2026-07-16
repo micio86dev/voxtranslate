@@ -15,6 +15,7 @@ import {
   buildPublishConstraints,
   cancelWebinar,
   canHostWebinar,
+  clampReminder,
   createWebinar,
   formatScheduledStart,
   formatWebinarClock,
@@ -29,6 +30,7 @@ import {
   publishStarted,
   publishStopped,
   qrDownloadFilename,
+  resetEndIfStartPassed,
   showVoiceCloneToggle,
   showWebinarCloneAction,
   toDatetimeLocalValue,
@@ -782,5 +784,72 @@ describe('formatWebinarClock', () => {
 
   it('pads hours beyond 9 without truncation', () => {
     expect(formatWebinarClock(10 * 3600 + 7 * 60)).toBe('10:07');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// clampReminder (D6 — PR2)
+// ---------------------------------------------------------------------------
+describe('clampReminder', () => {
+  it('returns the reminder value unchanged when it fits within the time to start', () => {
+    // 10 minutes reminder, 30 minutes to start → 10 is fine
+    expect(clampReminder(10, 30)).toBe(10);
+  });
+
+  it('clamps down to minutesUntilStart when the reminder exceeds it', () => {
+    // 60 minutes reminder, 30 minutes to start → clamped to 30
+    expect(clampReminder(60, 30)).toBe(30);
+  });
+
+  it('returns 0 when minutesUntilStart is 0 (webinar starts right now)', () => {
+    expect(clampReminder(10, 0)).toBe(0);
+  });
+
+  it('clamps reminder to 0 when minutesUntilStart is negative (already past)', () => {
+    // Past start → clamp both to 0
+    expect(clampReminder(10, -5)).toBe(0);
+  });
+
+  it('returns 0 for a reminder of 0 regardless of time to start', () => {
+    expect(clampReminder(0, 120)).toBe(0);
+  });
+
+  it('returns the exact minutesUntilStart when reminder equals it', () => {
+    expect(clampReminder(45, 45)).toBe(45);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resetEndIfStartPassed (D6 — PR2)
+// ---------------------------------------------------------------------------
+describe('resetEndIfStartPassed', () => {
+  const iso = (ms: number) => new Date(ms).toISOString();
+  const T1 = 1_700_000_000_000; // arbitrary past reference
+  const HOUR = 3_600_000;
+
+  it('returns false when end is strictly after the new start (no reset needed)', () => {
+    // start = T1, end = T1 + 1h → end > start → keep
+    expect(resetEndIfStartPassed(iso(T1), iso(T1 + HOUR))).toBe(false);
+  });
+
+  it('returns true when end equals start (end must be strictly after)', () => {
+    expect(resetEndIfStartPassed(iso(T1), iso(T1))).toBe(true);
+  });
+
+  it('returns true when end is before start (start moved forward past end)', () => {
+    // start = T1 + 2h, end = T1 + 1h → end <= start → reset
+    expect(resetEndIfStartPassed(iso(T1 + 2 * HOUR), iso(T1 + HOUR))).toBe(true);
+  });
+
+  it('returns false when end is null (no end to reset)', () => {
+    expect(resetEndIfStartPassed(iso(T1), null)).toBe(false);
+  });
+
+  it('returns false when start is null (nothing to compare)', () => {
+    expect(resetEndIfStartPassed(null, iso(T1))).toBe(false);
+  });
+
+  it('returns false when both are null', () => {
+    expect(resetEndIfStartPassed(null, null)).toBe(false);
   });
 });

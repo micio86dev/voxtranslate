@@ -87,6 +87,7 @@ import {
   canHostWebinar,
   createWebinar,
   formatScheduledStart,
+  clampReminder,
   formatWebinarClock,
   fromDatetimeLocalValue,
   isWebinarLive,
@@ -94,6 +95,7 @@ import {
   listWebinars,
   type PublicWebinarListItem,
   qrDownloadFilename,
+  resetEndIfStartPassed,
   showVoiceCloneToggle,
   showWebinarCloneAction,
   unarchiveWebinar,
@@ -5008,6 +5010,15 @@ const webinarMembersOnlySw = $<HTMLButtonElement>('webinar-members-only');
 const webinarVoiceCloneSw = $<HTMLButtonElement>('webinar-voice-clone');
 const webinarVoiceCloneRow = $('webinar-voice-clone-row');
 const webinarVoiceClonedHint = $('webinar-voice-cloned-hint');
+// PR2: Start-mode segmented control + schedule fields wrapper.
+const webinarModeNowBtn = $<HTMLButtonElement>('webinar-mode-now');
+const webinarModeScheduleBtn = $<HTMLButtonElement>('webinar-mode-schedule');
+const webinarScheduleFields = $('webinar-schedule-fields');
+// PR2: notify_friends toggle (visible only for public + scheduled webinars).
+const webinarNotifyFriendsSw = $<HTMLButtonElement>('webinar-notify-friends');
+const webinarNotifyFriendsRow = $('webinar-notify-friends-row');
+// PR2: Studio REC badge (D8).
+const webinarRecBadge = $('webinar-rec-badge');
 // Fullscreen QR zoom overlay.
 const webinarQrModal = $('webinar-qr-modal');
 const webinarQrModalImg = $<HTMLImageElement>('webinar-qr-modal-img');
@@ -5107,6 +5118,43 @@ function fillWebinarLangs(): void {
 function collapseWebinarForm(): void {
   show(webinarForm, false);
   show(webinarCreateToggle, true);
+  // Reset mode to "Start now" so the form is clean on next open.
+  setWebinarModeNow();
+}
+
+/** Set the create form to "Start now" mode: hide schedule fields, mark Now active. */
+function setWebinarModeNow(): void {
+  webinarModeNowBtn.classList.add('active');
+  webinarModeScheduleBtn.classList.remove('active');
+  show(webinarScheduleFields, false);
+  // Clear schedule inputs so an immediate webinar sends null start/end.
+  webinarStartInput.value = '';
+  webinarEndInput.value = '';
+  webinarEndInput.disabled = true;
+  webinarReminderInput.value = '10';
+}
+
+/** Set the create form to "Schedule" mode: reveal schedule fields, mark Schedule active. */
+function setWebinarModeSchedule(): void {
+  webinarModeScheduleBtn.classList.add('active');
+  webinarModeNowBtn.classList.remove('active');
+  show(webinarScheduleFields, true);
+}
+
+/** Sync the notify_friends toggle visibility: visible iff mode=schedule AND visibility=public. */
+function syncNotifyFriendsVisibility(): void {
+  const isSchedule = webinarModeScheduleBtn.classList.contains('active');
+  const isPublic = switchOn(webinarVisibilitySw);
+  show(webinarNotifyFriendsRow, isSchedule && isPublic);
+}
+
+/** Sync the scheduled_end disabled state: enabled only when start has a valid value. */
+function syncWebinarEndEnabled(): void {
+  const startVal = fromDatetimeLocalValue(webinarStartInput.value);
+  webinarEndInput.disabled = !startVal;
+  if (!startVal) {
+    webinarEndInput.value = '';
+  }
 }
 
 /** Reveal the create form and hide the toggle button (focus the first field). */
@@ -6064,6 +6112,8 @@ function openWebinarStudio(w: WebinarView): void {
   show(wsScreen, true);
   wsTitle.textContent = w.title;
   wsCode.textContent = w.code;
+  // D8: REC badge — visible iff record_video is true (read synchronously from WebinarView).
+  show(webinarRecBadge, w.record_video);
   wsCountIco.innerHTML = icon('users', 14);
   startWebinarTimer(w);
   openWebinarPresence(w);
@@ -6522,9 +6572,15 @@ async function submitWebinar(): Promise<void> {
     setWebinarStatus(t('webinarErrTitle'), 'err');
     return;
   }
-  // Optional schedule: empty inputs → immediate webinar (null start/end).
-  const scheduledStart = fromDatetimeLocalValue(webinarStartInput.value);
-  const scheduledEnd = fromDatetimeLocalValue(webinarEndInput.value);
+  // PR2: "Start now" mode always sends null start/end (immediate webinar).
+  const isScheduleMode = webinarModeScheduleBtn.classList.contains('active');
+  // Optional schedule: empty inputs or "Start now" mode → immediate webinar (null start/end).
+  const scheduledStart = isScheduleMode
+    ? fromDatetimeLocalValue(webinarStartInput.value)
+    : null;
+  const scheduledEnd = isScheduleMode
+    ? fromDatetimeLocalValue(webinarEndInput.value)
+    : null;
   // Friendly inline validation before the API call (server re-checks, 400).
   const schedule = validateSchedule(scheduledStart, scheduledEnd, Date.now());
   if (schedule === 'startPast') {
@@ -6543,13 +6599,20 @@ async function submitWebinar(): Promise<void> {
     const cloneOffered = showVoiceCloneToggle(webinarTierSel.value, hasVoiceClone());
     // Optional project: the "No project" default has an empty value → omit project_id.
     const projectId = webinarProjectSel.value || undefined;
-    // Friend-reminder lead time — only meaningful for a scheduled webinar. Parse +
-    // clamp 0..=1440 (server re-clamps); omit when unscheduled so the default stands.
-    const reminderRaw = Number.parseInt(webinarReminderInput.value, 10);
-    const reminderMinutes =
-      scheduledStart && Number.isFinite(reminderRaw)
-        ? Math.min(1440, Math.max(0, reminderRaw))
-        : undefined;
+    // PR2: Friend-reminder lead time — clamp so it never exceeds time-to-start.
+    // Only meaningful for a scheduled webinar; omit when unscheduled.
+    let reminderMinutes: number | undefined;
+    if (isScheduleMode && scheduledStart) {
+      const reminderRaw = Number.parseInt(webinarReminderInput.value, 10);
+      if (Number.isFinite(reminderRaw)) {
+        const minutesUntilStart = Math.floor((new Date(scheduledStart).getTime() - Date.now()) / 60_000);
+        reminderMinutes = clampReminder(Math.min(1440, Math.max(0, reminderRaw)), minutesUntilStart);
+      }
+    }
+    // PR2: notify_friends — only include for public + scheduled webinars.
+    const isPublic = switchOn(webinarVisibilitySw);
+    const notifyFriends =
+      isScheduleMode && isPublic ? switchOn(webinarNotifyFriendsSw) : undefined;
     await createWebinar({
       org_id: orgId,
       title,
@@ -6559,20 +6622,18 @@ async function submitWebinar(): Promise<void> {
       record_video: switchOn(webinarRecordVideoSw),
       record_transcript: switchOn(webinarRecordTranscriptSw),
       chat_enabled: switchOn(webinarChatEnabledSw),
-      visibility: switchOn(webinarVisibilitySw) ? 'public' : 'private',
+      visibility: isPublic ? 'public' : 'private',
       members_only: switchOn(webinarMembersOnlySw),
       voice_clone: cloneOffered && switchOn(webinarVoiceCloneSw),
       scheduled_start: scheduledStart,
       scheduled_end: scheduledEnd,
       ...(reminderMinutes !== undefined ? { reminder_minutes_before: reminderMinutes } : {}),
+      ...(notifyFriends !== undefined ? { notify_friends: notifyFriends } : {}),
     });
     webinarTitleInput.value = '';
-    webinarStartInput.value = '';
-    webinarEndInput.value = '';
-    webinarReminderInput.value = '10';
     webinarProjectSel.value = ''; // reset to "No project" for the next create
     setWebinarStatus(t('webinarCreated'), 'ok');
-    collapseWebinarForm(); // tidy back to the button; the new webinar shows in the list
+    collapseWebinarForm(); // tidy back to the button; resets mode to "Start now"
     await loadWebinars();
   } catch (err) {
     setWebinarStatus(webinarErrorMessage(err), 'err');
@@ -6590,6 +6651,32 @@ webinarCreateCancel.addEventListener('click', () => collapseWebinarForm());
 webinarOrgSel.addEventListener('change', () => {
   void loadWebinarProjects();
   void loadWebinars();
+});
+// PR2: Avvia ora / Programma segmented control.
+webinarModeNowBtn.addEventListener('click', () => {
+  setWebinarModeNow();
+  syncNotifyFriendsVisibility();
+});
+webinarModeScheduleBtn.addEventListener('click', () => {
+  setWebinarModeSchedule();
+  syncNotifyFriendsVisibility();
+});
+// PR2: Enable/disable scheduled_end based on whether start has a valid value.
+webinarStartInput.addEventListener('input', () => {
+  syncWebinarEndEnabled();
+  // If start moved past current end, clear end (spec: Start change resets end).
+  const startISO = fromDatetimeLocalValue(webinarStartInput.value);
+  const endISO = fromDatetimeLocalValue(webinarEndInput.value);
+  if (resetEndIfStartPassed(startISO, endISO)) {
+    webinarEndInput.value = '';
+  }
+});
+// PR2: notify_friends row tracks visibility toggle changes.
+webinarVisibilitySw.addEventListener('click', () => {
+  // The visibility switch toggles aria-checked on click (wired in the generic
+  // ws-switch handler below) — read the NEW state after the event propagates.
+  // Use setTimeout(0) to let the switch handler update aria-checked first.
+  setTimeout(() => syncNotifyFriendsVisibility(), 0);
 });
 // Active | Archived segmented control: switch the shown list on click.
 webinarTabs.addEventListener('click', (e) => {

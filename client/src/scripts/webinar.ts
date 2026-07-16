@@ -122,6 +122,9 @@ export interface CreateWebinarBody {
   /** Lead time (minutes) for the "starting soon" alert sent to the host's friends
    * when the webinar is public + scheduled. Default 10, clamped 0..=1440 server-side. */
   reminder_minutes_before?: number;
+  /** When false, friends are NOT notified (neither timed reminder nor go-live alert).
+   *  Default true. Only meaningful for public scheduled webinars. */
+  notify_friends?: boolean;
 }
 
 /** Body for `PATCH /api/webinars/{id}` — every field optional. */
@@ -146,6 +149,8 @@ export interface PatchWebinarBody {
   scheduled_end?: string | null;
   /** Change the friend-reminder lead time (minutes). Clamped 0..=1440 server-side. */
   reminder_minutes_before?: number;
+  /** Opt-in/out of friend notifications for this webinar. */
+  notify_friends?: boolean;
 }
 
 /** A failed host request. `status` is the HTTP status (0 on a network error) so
@@ -534,6 +539,41 @@ export function fromDatetimeLocalValue(value: string): string | null {
   const d = new Date(v);
   if (Number.isNaN(d.getTime())) return null;
   return d.toISOString();
+}
+
+// ---------------------------------------------------------------------------
+// PR2 — Scheduling validation helpers (D6)
+// ---------------------------------------------------------------------------
+
+/** Clamp a reminder lead time (minutes) so it never exceeds the whole minutes
+ *  remaining until the webinar starts — and never goes negative.
+ *
+ *  - `reminderMinutes`: the value the host typed into the reminder field.
+ *  - `minutesUntilStart`: whole minutes from now until the scheduled start
+ *    (positive → future, 0 → now, negative → already past).
+ *
+ *  Returns a value in [0, min(reminderMinutes, minutesUntilStart)].
+ *  Pure + input-driven (no `Date.now()`) so the UI can unit-test it directly. */
+export function clampReminder(reminderMinutes: number, minutesUntilStart: number): number {
+  const ceiling = Math.max(0, minutesUntilStart);
+  return Math.min(reminderMinutes, ceiling);
+}
+
+/** Determine whether `scheduled_end` must be cleared because the host moved
+ *  `scheduled_start` forward past it (spec: "Start change resets end").
+ *
+ *  Returns `true` when both start and end are non-null ISO strings AND
+ *  `endISO <= startISO` (i.e. end is no longer strictly after start).
+ *  Returns `false` in all other cases (null inputs, end still valid). Pure. */
+export function resetEndIfStartPassed(
+  startISO: string | null,
+  endISO: string | null,
+): boolean {
+  if (!startISO || !endISO) return false;
+  const start = new Date(startISO).getTime();
+  const end = new Date(endISO).getTime();
+  if (Number.isNaN(start) || Number.isNaN(end)) return false;
+  return end <= start;
 }
 
 /** Outcome of validating an optional webinar schedule client-side, mirroring the
