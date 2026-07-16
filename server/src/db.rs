@@ -3,7 +3,9 @@
 //! We use **runtime** SQLx (`sqlx::query`/`query_as`) rather than the
 //! compile-time `query!` macros, so the crate builds with no live database and
 //! CI stays simple. Migrations in `migrations/` are embedded at compile time and
-//! run on startup via [`migrate`].
+//! run on startup via [`migrate`]. Adding a migration (e.g. 051 webinar
+//! notify_friends) requires re-touching this file so `sqlx::migrate!` re-embeds
+//! the new SQL — this note records that dependency for the v1.27.0 release.
 
 use std::time::Duration;
 
