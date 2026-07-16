@@ -105,29 +105,38 @@ test('a host creates a webinar and sees the join link + a QR of the join_url', a
   await t.page.selectOption('#webinar-tier', 'enhanced');
   await t.page.click('#webinar-create-btn');
 
-  // A card appears with the exact join link and a Cancel action (still scheduled).
+  // The card is now a SUMMARY (title + status/tier + a "View details" CTA). The join
+  // link, QR and the Cancel action moved into the detail modal (PR3/PR4 redesign).
   const card = t.page.locator('.webinar-card');
   await expect(card).toHaveCount(1);
   await expect(card.locator('.webinar-card-title')).toHaveText('Product launch');
-  await expect(card.locator('.webinar-link-input')).toHaveValue(JOIN_URL);
-  await expect(card.locator('.webinar-cancel-btn')).toBeVisible();
+  await card.locator('.webinar-view-details-btn').click();
+
+  // The detail modal opens with the exact join link and — since the webinar is scheduled —
+  // the edit section carrying the Cancel action.
+  const modal = t.page.locator('#webinar-detail-modal');
+  await expect(modal).toBeVisible();
+  await expect(modal.locator('#wdm-join-url')).toHaveValue(JOIN_URL);
+  await expect(modal.locator('#wde-cancel-btn')).toBeVisible();
 
   // The QR renders as a data-URL image and encodes EXACTLY the API's join_url.
-  const qr = card.locator('.webinar-qr');
+  const qr = modal.locator('#wdm-qr');
   await expect(qr).toBeVisible();
+  await expect.poll(async () => await qr.getAttribute('src')).toMatch(/^data:image\/png/);
   const qrSrc = await qr.getAttribute('src');
-  expect(qrSrc).toMatch(/^data:image\/png/);
   const decoded = await decodeQr(t.page, qrSrc);
   expect(decoded).toBe(JOIN_URL);
 
   // Copy writes the join link to the clipboard and flips the button label to "Copied".
   await t.page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
-  await card.locator('.webinar-copy-btn').click();
-  await expect(card.locator('.webinar-copy-btn')).not.toHaveText(/^Copy$/);
+  await modal.locator('#wdm-copy-btn').click();
+  await expect(modal.locator('#wdm-copy-btn')).not.toHaveText(/^Copy$/);
   const clip = await t.page.evaluate(() => navigator.clipboard.readText().catch(() => ''));
   expect(clip).toBe(JOIN_URL);
 
-  // Back returns to home. Clean console throughout (standing E2E rule).
+  // Close the modal, then Back returns to home. Clean console throughout (standing rule).
+  await modal.locator('#wdm-close').click();
+  await expect(modal).toBeHidden();
   await t.page.click('#webinars-back');
   await expect(t.page.locator('#home')).toBeVisible();
   expect(errors).toEqual([]);

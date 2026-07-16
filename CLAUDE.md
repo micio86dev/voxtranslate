@@ -31,6 +31,7 @@ Next step: add P2P video calling (WebRTC mesh, max 4) + auto-translated text cha
 - JSON over WS text frames for messages, binary frames for audio
 - Environment variables via dotenvy
 - Emoji reactions and hand-raise are relayed without translation
+- SQL migrations MUST be idempotent: `CREATE TABLE/INDEX IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`, `DROP … IF EXISTS`. A non-idempotent `ADD COLUMN` (e.g. migration 044) fails and locks a DB whose schema has drifted ahead of the `_sqlx_migrations` ledger. NEVER edit an already-applied migration — `sqlx::migrate!` checksums them, so a content change breaks server boot.
 
 ## Branching & releases (Git Flow)
 

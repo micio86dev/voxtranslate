@@ -106,7 +106,8 @@ impl SubtitleEvent {
 /// ```json
 /// {"type":"chat","id":"<uuid>","sender_kind":"host|guest","display_name":"<cosmetic>",
 ///  "original":"<text>","lang":"<original_lang>","translations":{"en":"...","es":"..."},
-///  "created_at":"<rfc3339>"}
+///  "created_at":"<rfc3339>","avatar_url":"<url|null>",
+///  "attachment":{"url":"..","name":"..","content_type":"..","size":123}|null}
 /// ```
 ///
 /// Each recipient renders `translations[my_lang]`, falling back to `original`.

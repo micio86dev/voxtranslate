@@ -8,6 +8,9 @@ export default defineConfig({
   test: {
     include: ['src/scripts/**/*.test.ts'],
     environment: 'node',
+    // Fail CI if a stray `.only` slips in (which would silently skip the rest of the suite
+    // and let coverage gates pass on a fraction of the tests). No effect on local runs.
+    forbidOnly: !!process.env.CI,
     coverage: {
       provider: 'v8',
       // Every module under src/scripts is unit-tested EXCEPT app.ts — the ~6.3k-line

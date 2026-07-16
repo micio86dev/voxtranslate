@@ -13,8 +13,11 @@ import {
   addToCalendar,
   archiveWebinar,
   buildPublishConstraints,
+  buildCardTimeline,
+  buildDetailInfo,
   cancelWebinar,
   canHostWebinar,
+  clampReminder,
   createWebinar,
   formatScheduledStart,
   formatWebinarClock,
@@ -23,19 +26,25 @@ import {
   getWebinar,
   goLive,
   isWebinarLive,
+  isWebinarRestorable,
   listPublicWebinars,
   listWebinars,
   patchWebinar,
   publishStarted,
   publishStopped,
   qrDownloadFilename,
+  resetEndIfStartPassed,
   showVoiceCloneToggle,
   showWebinarCloneAction,
   toDatetimeLocalValue,
+  transcriptRowsToSrt,
+  transcriptRowsToTxt,
   unarchiveWebinar,
   validateSchedule,
   type PublicWebinar,
   type PublicWebinarListItem,
+  type TranscriptRow,
+  type WebinarSessionStats,
   type WebinarView,
 } from './webinar';
 import type { BusinessOrg } from './business';
@@ -430,14 +439,23 @@ describe('getPublicWebinar', () => {
     ...over,
   });
 
-  it('GETs the public endpoint by code with NO auth headers', async () => {
+  it('GETs the public endpoint by code, forwarding auth for host detection', async () => {
     fetchMock.mockResolvedValue(okJson(pub()));
     const out = await getPublicWebinar('ab12cd');
     expect(out).toEqual(pub());
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe('http://test/api/w/ab12cd');
-    // Public endpoint — no Authorization header (init is undefined → no headers).
-    expect(init).toBeUndefined();
+    // Optional auth: a logged-in caller forwards the Bearer so the server can flag
+    // is_host (a host opening their own /w link is sent to the studio). authHeaders()
+    // is empty for guests, who then send no Authorization at all.
+    expect(init?.headers).toEqual({ Authorization: 'Bearer tok' });
+  });
+
+  it('surfaces the host-only is_host + id fields when the server returns them', async () => {
+    fetchMock.mockResolvedValue(okJson(pub({ is_host: true, id: 'w-123' })));
+    const out = await getPublicWebinar('ab12cd');
+    expect(out.is_host).toBe(true);
+    expect(out.id).toBe('w-123');
   });
 
   it('encodes the code and throws 404 for an unknown/cancelled webinar', async () => {
@@ -782,5 +800,374 @@ describe('formatWebinarClock', () => {
 
   it('pads hours beyond 9 without truncation', () => {
     expect(formatWebinarClock(10 * 3600 + 7 * 60)).toBe('10:07');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// clampReminder (D6 — PR2)
+// ---------------------------------------------------------------------------
+describe('clampReminder', () => {
+  it('returns the reminder value unchanged when it fits within the time to start', () => {
+    // 10 minutes reminder, 30 minutes to start → 10 is fine
+    expect(clampReminder(10, 30)).toBe(10);
+  });
+
+  it('clamps down to minutesUntilStart when the reminder exceeds it', () => {
+    // 60 minutes reminder, 30 minutes to start → clamped to 30
+    expect(clampReminder(60, 30)).toBe(30);
+  });
+
+  it('returns 0 when minutesUntilStart is 0 (webinar starts right now)', () => {
+    expect(clampReminder(10, 0)).toBe(0);
+  });
+
+  it('clamps reminder to 0 when minutesUntilStart is negative (already past)', () => {
+    // Past start → clamp both to 0
+    expect(clampReminder(10, -5)).toBe(0);
+  });
+
+  it('returns 0 for a reminder of 0 regardless of time to start', () => {
+    expect(clampReminder(0, 120)).toBe(0);
+  });
+
+  it('returns the exact minutesUntilStart when reminder equals it', () => {
+    expect(clampReminder(45, 45)).toBe(45);
+  });
+
+  it('collapses a non-finite reminder (empty field → NaN) to 0 instead of propagating NaN', () => {
+    expect(clampReminder(Number.NaN, 30)).toBe(0);
+  });
+
+  it('falls back to the reminder value when minutesUntilStart is non-finite', () => {
+    expect(clampReminder(10, Number.NaN)).toBe(10);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resetEndIfStartPassed (D6 — PR2)
+// ---------------------------------------------------------------------------
+describe('resetEndIfStartPassed', () => {
+  const iso = (ms: number) => new Date(ms).toISOString();
+  const T1 = 1_700_000_000_000; // arbitrary past reference
+  const HOUR = 3_600_000;
+
+  it('returns false when end is strictly after the new start (no reset needed)', () => {
+    // start = T1, end = T1 + 1h → end > start → keep
+    expect(resetEndIfStartPassed(iso(T1), iso(T1 + HOUR))).toBe(false);
+  });
+
+  it('returns true when end equals start (end must be strictly after)', () => {
+    expect(resetEndIfStartPassed(iso(T1), iso(T1))).toBe(true);
+  });
+
+  it('returns true when end is before start (start moved forward past end)', () => {
+    // start = T1 + 2h, end = T1 + 1h → end <= start → reset
+    expect(resetEndIfStartPassed(iso(T1 + 2 * HOUR), iso(T1 + HOUR))).toBe(true);
+  });
+
+  it('returns false when end is null (no end to reset)', () => {
+    expect(resetEndIfStartPassed(iso(T1), null)).toBe(false);
+  });
+
+  it('returns false when start is null (nothing to compare)', () => {
+    expect(resetEndIfStartPassed(null, iso(T1))).toBe(false);
+  });
+
+  it('returns false when both are null', () => {
+    expect(resetEndIfStartPassed(null, null)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildCardTimeline (D7 — PR3)
+// Returns a compact time string for the card summary line.
+// ---------------------------------------------------------------------------
+describe('buildCardTimeline', () => {
+  const ISO_START = '2026-08-01T14:00:00Z';
+  const ISO_END   = '2026-08-01T15:30:00Z';
+  const ISO_ACT_START = '2026-08-01T14:05:00Z';
+  const ISO_ACT_END   = '2026-08-01T15:35:00Z';
+
+  it('returns empty string when all time fields are null (immediate/no-time webinar)', () => {
+    expect(buildCardTimeline(webinar())).toBe('');
+  });
+
+  it('returns scheduled_start formatted when only scheduled_start is set', () => {
+    const w = webinar({ scheduled_start: ISO_START });
+    const result = buildCardTimeline(w);
+    // Must be non-empty and include the formatted start
+    expect(result).not.toBe('');
+    expect(result).toBe(formatScheduledStart(ISO_START));
+  });
+
+  it('appends scheduled_end when both scheduled_start and scheduled_end are set', () => {
+    const w = webinar({ scheduled_start: ISO_START, scheduled_end: ISO_END });
+    const result = buildCardTimeline(w);
+    expect(result).toContain(formatScheduledStart(ISO_START));
+    expect(result).toContain('–'); // em-dash separator between start and end
+  });
+
+  it('uses actual_start when actual_end is also present (ended webinar)', () => {
+    const w = webinar({
+      status: 'ended',
+      actual_start: ISO_ACT_START,
+      actual_end: ISO_ACT_END,
+    });
+    const result = buildCardTimeline(w);
+    expect(result).toContain(formatScheduledStart(ISO_ACT_START));
+    expect(result).toContain('–');
+  });
+
+  it('returns scheduled_start for a live webinar that has not yet set actual fields', () => {
+    const w = webinar({ status: 'live', scheduled_start: ISO_START });
+    const result = buildCardTimeline(w);
+    expect(result).toBe(formatScheduledStart(ISO_START));
+  });
+
+  it('shows actual_start alone for a live webinar mid-broadcast (actual_start set, no end)', () => {
+    // actual_start takes priority over scheduled_start; with no end it stands alone
+    // (the previously-untested live-with-actual_start branch).
+    const w = webinar({ status: 'live', actual_start: ISO_ACT_START, scheduled_start: ISO_START });
+    expect(buildCardTimeline(w)).toBe(formatScheduledStart(ISO_ACT_START));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildDetailInfo (D5/D7 — PR3)
+// Returns structured data for populating the detail modal.
+// ---------------------------------------------------------------------------
+describe('buildDetailInfo', () => {
+  const ISO_START = '2026-08-15T10:00:00Z';
+  const ISO_END   = '2026-08-15T11:00:00Z';
+
+  it('returns the webinar id, title, code, status, tier, visibility, and source_language', () => {
+    const w = webinar({
+      status: 'scheduled',
+      source_language: 'fr',
+      tier: 'standard',
+      visibility: 'public',
+    });
+    const info = buildDetailInfo(w);
+    expect(info.id).toBe('w1');
+    expect(info.title).toBe('Launch');
+    expect(info.code).toBe('ab12cd');
+    expect(info.status).toBe('scheduled');
+    expect(info.tier).toBe('standard');
+    expect(info.visibility).toBe('public');
+    expect(info.source_language).toBe('fr');
+  });
+
+  it('includes description, project_id, join_url, and created_at', () => {
+    const w = webinar({ description: 'A great talk', project_id: 'p42' });
+    const info = buildDetailInfo(w);
+    expect(info.description).toBe('A great talk');
+    expect(info.project_id).toBe('p42');
+    expect(info.join_url).toBe('https://voxtranslate.app/w/ab12cd');
+    expect(info.created_at).toBe('2026-07-11T00:00:00Z');
+  });
+
+  it('includes scheduling fields when present', () => {
+    const w = webinar({ scheduled_start: ISO_START, scheduled_end: ISO_END });
+    const info = buildDetailInfo(w);
+    expect(info.scheduled_start).toBe(ISO_START);
+    expect(info.scheduled_end).toBe(ISO_END);
+  });
+
+  it('includes actual_start and actual_end for an ended webinar', () => {
+    const w = webinar({ status: 'ended', actual_start: ISO_START, actual_end: ISO_END });
+    const info = buildDetailInfo(w);
+    expect(info.actual_start).toBe(ISO_START);
+    expect(info.actual_end).toBe(ISO_END);
+  });
+
+  it('includes record_video, record_transcript, chat_enabled flags', () => {
+    const w = webinar({ record_video: true, record_transcript: true, chat_enabled: true });
+    const info = buildDetailInfo(w);
+    expect(info.record_video).toBe(true);
+    expect(info.record_transcript).toBe(true);
+    expect(info.chat_enabled).toBe(true);
+  });
+
+  it('includes notify_friends and reminder_minutes_before when present', () => {
+    const w = webinar({ notify_friends: false, reminder_minutes_before: 30 });
+    const info = buildDetailInfo(w);
+    expect(info.notify_friends).toBe(false);
+    expect(info.reminder_minutes_before).toBe(30);
+  });
+
+  it('returns null description and project_id when webinar has none', () => {
+    const w = webinar(); // defaults: description: null, project_id: null
+    const info = buildDetailInfo(w);
+    expect(info.description).toBeNull();
+    expect(info.project_id).toBeNull();
+  });
+});
+
+// isWebinarRestorable (Area E — PR4)
+// Mirrors the server's unarchive time-guard (D3): effective time =
+// scheduled_end ?? scheduled_start ?? actual_end; restorable iff absent OR in future.
+describe('isWebinarRestorable', () => {
+  const FUTURE = new Date(Date.now() + 60 * 60 * 1000).toISOString(); // +1 h
+  const PAST   = new Date(Date.now() - 60 * 60 * 1000).toISOString(); // -1 h
+
+  it('returns true when all time fields are null (never scheduled/aired — always restorable)', () => {
+    const w = webinar({ scheduled_start: null, scheduled_end: null, actual_end: null });
+    expect(isWebinarRestorable(w, Date.now())).toBe(true);
+  });
+
+  it('returns true when scheduled_end is in the future (primary key)', () => {
+    const w = webinar({ scheduled_end: FUTURE });
+    expect(isWebinarRestorable(w, Date.now())).toBe(true);
+  });
+
+  it('returns false when scheduled_end is in the past (primary key — blocks restore)', () => {
+    const w = webinar({ scheduled_end: PAST });
+    expect(isWebinarRestorable(w, Date.now())).toBe(false);
+  });
+
+  it('uses scheduled_start as fallback when scheduled_end is null — future → true', () => {
+    const w = webinar({ scheduled_end: null, scheduled_start: FUTURE });
+    expect(isWebinarRestorable(w, Date.now())).toBe(true);
+  });
+
+  it('uses scheduled_start as fallback when scheduled_end is null — past → false', () => {
+    const w = webinar({ scheduled_end: null, scheduled_start: PAST });
+    expect(isWebinarRestorable(w, Date.now())).toBe(false);
+  });
+
+  it('uses actual_end as last fallback when both scheduled fields are null — future → true', () => {
+    const w = webinar({ scheduled_end: null, scheduled_start: null, actual_end: FUTURE });
+    expect(isWebinarRestorable(w, Date.now())).toBe(true);
+  });
+
+  it('uses actual_end as last fallback when both scheduled fields are null — past → false', () => {
+    const w = webinar({ scheduled_end: null, scheduled_start: null, actual_end: PAST });
+    expect(isWebinarRestorable(w, Date.now())).toBe(false);
+  });
+
+  it('scheduled_end takes priority over scheduled_start even if start is in the future', () => {
+    // end is past → not restorable, even though start is future
+    const w = webinar({ scheduled_end: PAST, scheduled_start: FUTURE });
+    expect(isWebinarRestorable(w, Date.now())).toBe(false);
+  });
+
+  it('scheduled_start takes priority over actual_end even if actual_end is in the future', () => {
+    // scheduled_start is past → not restorable, even though actual_end is future
+    const w = webinar({ scheduled_end: null, scheduled_start: PAST, actual_end: FUTURE });
+    expect(isWebinarRestorable(w, Date.now())).toBe(false);
+  });
+
+  it('accepts a custom nowMs so the helper is fully deterministic (no Date.now() inside)', () => {
+    const fixedNow = new Date('2026-08-01T00:00:00Z').getTime();
+    const futureFromFixed = new Date('2026-08-02T00:00:00Z').toISOString();
+    const pastFromFixed   = new Date('2026-07-31T00:00:00Z').toISOString();
+    expect(isWebinarRestorable(webinar({ scheduled_end: futureFromFixed }), fixedNow)).toBe(true);
+    expect(isWebinarRestorable(webinar({ scheduled_end: pastFromFixed }),   fixedNow)).toBe(false);
+  });
+
+  it('returns true for a live webinar with no effective end time (status=live, no end set)', () => {
+    const w = webinar({ status: 'live', scheduled_end: null, scheduled_start: null, actual_end: null });
+    expect(isWebinarRestorable(w, Date.now())).toBe(true);
+  });
+});
+
+// ---- PR6: Transcript download format helpers ---------------------------------
+
+/** A minimal TranscriptRow fixture for format tests. */
+function row(over: Partial<TranscriptRow> = {}): TranscriptRow {
+  return {
+    original_text: 'Hello world',
+    original_lang: 'en',
+    translations: {},
+    spoken_at: '2026-07-16T10:00:00.000Z',
+    ...over,
+  };
+}
+
+describe('transcriptRowsToTxt', () => {
+  it('returns an empty string when rows is empty', () => {
+    expect(transcriptRowsToTxt([], 'en')).toBe('');
+  });
+
+  it('formats a single row with its original text when no translation for lang', () => {
+    const result = transcriptRowsToTxt([row()], 'en');
+    expect(result).toContain('Hello world');
+    expect(result).toContain('[');   // timestamp present
+  });
+
+  it('uses the translation for lang when available', () => {
+    const r = row({ translations: { fr: 'Bonjour le monde' } });
+    const result = transcriptRowsToTxt([r], 'fr');
+    expect(result).toContain('Bonjour le monde');
+    expect(result).not.toContain('Hello world');
+  });
+
+  it('falls back to original_text when lang translation is missing', () => {
+    const r = row({ translations: { fr: 'Bonjour' } });
+    expect(transcriptRowsToTxt([r], 'de')).toContain('Hello world');
+  });
+
+  it('separates multiple rows with newlines', () => {
+    const rows = [
+      row({ original_text: 'First' }),
+      row({ original_text: 'Second', spoken_at: '2026-07-16T10:01:00.000Z' }),
+    ];
+    const result = transcriptRowsToTxt(rows, 'en');
+    expect(result).toContain('First');
+    expect(result).toContain('Second');
+    const lines = result.split('\n').filter(Boolean);
+    expect(lines.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe('transcriptRowsToSrt', () => {
+  it('returns an empty string when rows is empty', () => {
+    expect(transcriptRowsToSrt([], 'en')).toBe('');
+  });
+
+  it('formats a single row as SRT block (sequence + timestamps + text)', () => {
+    const result = transcriptRowsToSrt([row()], 'en');
+    // SRT: sequence number
+    expect(result).toMatch(/^1\n/);
+    // SRT: timestamp line with --> separator
+    expect(result).toContain('-->');
+    // SRT: text
+    expect(result).toContain('Hello world');
+  });
+
+  it('uses the translation for lang when available', () => {
+    const r = row({ translations: { fr: 'Bonjour' } });
+    expect(transcriptRowsToSrt([r], 'fr')).toContain('Bonjour');
+  });
+
+  it('falls back to original_text when translation is missing', () => {
+    expect(transcriptRowsToSrt([row()], 'de')).toContain('Hello world');
+  });
+
+  it('numbers multiple rows sequentially and uses blank-line separators', () => {
+    const rows = [
+      row({ original_text: 'One' }),
+      row({ original_text: 'Two', spoken_at: '2026-07-16T10:00:05.000Z' }),
+    ];
+    const result = transcriptRowsToSrt(rows, 'en');
+    expect(result).toContain('1\n');
+    expect(result).toContain('2\n');
+    expect(result).toContain('One');
+    expect(result).toContain('Two');
+    // Blank-line separator between blocks
+    expect(result).toContain('\n\n');
+  });
+});
+
+describe('WebinarSessionStats type', () => {
+  it('is structurally compatible with the expected shape', () => {
+    const stats: WebinarSessionStats = {
+      peak_viewers: 42,
+      unique_attendees: 100,
+      duration_seconds: 3600,
+    };
+    expect(stats.peak_viewers).toBe(42);
+    expect(stats.unique_attendees).toBe(100);
+    expect(stats.duration_seconds).toBe(3600);
   });
 });

@@ -77,6 +77,8 @@ pub fn routes() -> Router<AppState> {
         .route("/api/webinars/{id}/unarchive", post(unarchive))
         // Transcript history for a completed webinar (recap screen).
         .route("/api/webinars/{id}/transcripts", get(get_transcripts))
+        // Session stats (PR6 — Riepilogo): peak viewers, unique attendees, duration.
+        .route("/api/webinars/{id}/session-stats", get(session_stats))
         // AI recap (Phase B) — HOST-ONLY. Report (any language) + multilingual
         // participant recap emails, both async (client polls the job endpoint).
         .route(
@@ -142,6 +144,10 @@ pub struct CreateWebinar {
     /// scheduled webinar. Default 10, clamped 0..=1440 (mirrors scheduled meetings).
     #[serde(default)]
     pub reminder_minutes_before: Option<i32>,
+    /// When false, no friend-reminder notifications are sent for this webinar. Default true
+    /// preserves the prior always-notify behavior (migration 051).
+    #[serde(default = "default_notify_friends")]
+    pub notify_friends: bool,
 }
 
 #[derive(Deserialize)]
@@ -180,6 +186,17 @@ pub struct PatchWebinar {
     pub members_only: Option<bool>,
     #[serde(default)]
     pub reminder_minutes_before: Option<i32>,
+    /// Patch the source language for the webinar (validated via `valid_lang`).
+    #[serde(default)]
+    pub source_language: Option<String>,
+    /// Opt-out of friend-reminder notifications. `None` = leave existing value unchanged.
+    #[serde(default)]
+    pub notify_friends: Option<bool>,
+}
+
+/// Serde default for `notify_friends` — true preserves the prior always-notify behavior.
+fn default_notify_friends() -> bool {
+    true
 }
 
 /// Default reminder lead time (minutes) when the host doesn't specify one; matches
@@ -296,6 +313,7 @@ fn host_view(w: &Webinar, app_base_url: &str, cfg: &WebinarConfig) -> Value {
         "visibility": w.visibility,
         "project_id": w.project_id,
         "reminder_minutes_before": w.reminder_minutes_before,
+        "notify_friends": w.notify_friends,
         "join_url": join_url(app_base_url, &w.code),
         "playback_url": playback_url(cfg, &w.code),
         "created_at": w.created_at,
@@ -429,6 +447,7 @@ pub async fn create(
             .reminder_minutes_before
             .unwrap_or(DEFAULT_REMINDER_MINUTES)
             .clamp(0, MAX_REMINDER_MINUTES),
+        notify_friends: body.notify_friends,
     };
     let w = create_webinar(pool, &new, cfg.code_len)
         .await
@@ -509,6 +528,10 @@ pub async fn patch(
         Some(_) => Some(valid_visibility(&body.visibility)?),
         None => None,
     };
+    let source_language = match &body.source_language {
+        Some(l) => Some(valid_lang(l)?),
+        None => None,
+    };
     if let Some(pid) = body.project_id {
         validate_project(pool, w.org_id, pid).await?;
     }
@@ -548,6 +571,8 @@ pub async fn patch(
             visibility              = COALESCE($12, visibility),
             members_only            = COALESCE($13, members_only),
             reminder_minutes_before = COALESCE($14, reminder_minutes_before),
+            source_language         = COALESCE($15, source_language),
+            notify_friends          = COALESCE($16, notify_friends),
             updated_at              = now()
          WHERE id = $1
          RETURNING *",
@@ -566,6 +591,8 @@ pub async fn patch(
     .bind(visibility)
     .bind(body.members_only)
     .bind(reminder)
+    .bind(source_language)
+    .bind(body.notify_friends)
     .fetch_one(pool)
     .await
     .map_err(db_err)?;
@@ -654,9 +681,11 @@ pub async fn publish_started(
     // Go-live hook: an UNSCHEDULED public webinar has no lead time for the timed
     // scheduler to fire on, so we alert the host's friends at the actual live start.
     // Fire-and-forget + dedup (reminder_sent_at claimed atomically), so it runs once.
+    // The `notify_friends` flag gates the hook (D4): false = no notification.
     if updated.visibility == "public"
         && updated.scheduled_start.is_none()
         && updated.reminder_sent_at.is_none()
+        && updated.notify_friends
     {
         if let Some(host_id) = updated.host_user_id {
             tokio::spawn(crate::notifications::notify_webinar_friends(
@@ -945,6 +974,12 @@ pub async fn archive(
 }
 
 /// `POST /api/webinars/{id}/unarchive` — restore an archived webinar. Member only.
+///
+/// Time-guard (D3): the effective time of the webinar is
+/// `scheduled_end ?? scheduled_start ?? actual_end`. If that time is in the past,
+/// the restore is refused (409) — a past webinar cannot be reactivated.
+/// When all three fields are NULL (never scheduled / never aired), the restore is
+/// always allowed.
 pub async fn unarchive(
     State(state): State<AppState>,
     user: AuthUser,
@@ -952,7 +987,17 @@ pub async fn unarchive(
 ) -> Result<Response, Response> {
     let pool = require_pool(&state)?;
     let cfg = require_cfg(&state)?;
-    require_webinar_role(pool, id, user.user_id, MEMBER).await?;
+    let w = require_webinar_role(pool, id, user.user_id, MEMBER).await?;
+
+    // Compute effective time: scheduled_end takes priority, then scheduled_start,
+    // then actual_end. None means the webinar was never scheduled or aired → allow.
+    let effective_time = w.scheduled_end.or(w.scheduled_start).or(w.actual_end);
+    if let Some(t) = effective_time {
+        if t < Utc::now() {
+            return Err((StatusCode::CONFLICT, "cannot restore a past webinar").into_response());
+        }
+    }
+
     let updated: Webinar = sqlx::query_as(
         "UPDATE webinars SET archived_at = NULL, updated_at = now() WHERE id = $1 RETURNING *",
     )
@@ -1056,6 +1101,60 @@ pub async fn get_transcripts(
     })
     .collect();
     Ok(Json(rows).into_response())
+}
+
+// ---- PR6: Session stats (Riepilogo enhancement) ----------------------------
+
+/// `GET /api/webinars/{id}/session-stats` — returns peak concurrent viewers,
+/// unique attendees (counted from `webinar_participants`), and broadcast
+/// duration in seconds. Requires org membership.
+///
+/// Returns `null` (JSON null body) when the webinar has no finalized session
+/// record yet (i.e. `webinar_sessions` has no row for this webinar — it went
+/// live but `publish-stopped` was never processed, or it never went live).
+///
+/// This endpoint is safe to call on any webinar the caller is a member of; the
+/// stats are not host-only (dashboard / team recap use case).
+pub async fn session_stats(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+) -> Result<Response, Response> {
+    let pool = require_pool(&state)?;
+    // Any org member can view stats, not just the host.
+    require_webinar_role(pool, id, user.user_id, MEMBER).await?;
+
+    // Fetch peak_viewers + duration_seconds from the finalized session record.
+    let session_row: Option<(i32, i32)> = sqlx::query_as(
+        "SELECT peak_viewers, duration_seconds
+           FROM webinar_sessions
+          WHERE webinar_id = $1",
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await
+    .map_err(db_err)?;
+
+    let Some((peak_viewers, duration_seconds)) = session_row else {
+        // No finalized session — return JSON null so the client can omit the stats row.
+        return Ok(Json(serde_json::Value::Null).into_response());
+    };
+
+    // Count unique attendees from webinar_participants (separate from peak_viewers
+    // which is the largest concurrent count; this is the cumulative unique total).
+    let unique_attendees: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM webinar_participants WHERE webinar_id = $1")
+            .bind(id)
+            .fetch_one(pool)
+            .await
+            .map_err(db_err)?;
+
+    Ok(Json(serde_json::json!({
+        "peak_viewers": peak_viewers,
+        "unique_attendees": unique_attendees,
+        "duration_seconds": duration_seconds,
+    }))
+    .into_response())
 }
 
 // ---- AI recap: report + multilingual participant emails (Phase B) ----------
@@ -1816,6 +1915,7 @@ pub async fn add_to_calendar(
 pub async fn public_get(
     State(state): State<AppState>,
     Extension(guest): Extension<GuestId>,
+    headers: HeaderMap,
     Path(code): Path<String>,
 ) -> Result<Response, Response> {
     let pool = require_pool(&state)?;
@@ -1828,9 +1928,27 @@ pub async fn public_get(
     if w.status == "cancelled" {
         return Err(not_found("webinar not found"));
     }
+    // Optional auth (mirrors `public_list`): when a valid JWT belongs to THIS webinar's
+    // host, tell the /w client so it can send the host to their studio instead of joining
+    // as a viewer of their own webinar. Only a boolean + the webinar id are revealed, and
+    // only to the host — a guest or any non-host caller gets `is_host:false` and no id.
+    let caller_id: Option<Uuid> = state.config.billing.as_ref().and_then(|b| {
+        headers
+            .get(AUTHORIZATION)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.strip_prefix("Bearer "))
+            .and_then(|tok| crate::auth::verify_jwt(&b.jwt_secret, tok).ok())
+            .and_then(|c| Uuid::parse_str(&c.sub).ok())
+    });
+    let is_host = caller_id.is_some() && caller_id == w.host_user_id;
     let mut body = public_view(&w, &state.config.app_base_url, cfg);
     if let Some(obj) = body.as_object_mut() {
         obj.insert("guest_id".into(), json!(guest.0));
+        obj.insert("is_host".into(), json!(is_host));
+        // The host needs the id to deep-link into the studio; never exposed to non-hosts.
+        if is_host {
+            obj.insert("id".into(), json!(w.id));
+        }
     }
     Ok(Json(body).into_response())
 }
