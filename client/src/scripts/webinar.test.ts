@@ -37,10 +37,14 @@ import {
   showVoiceCloneToggle,
   showWebinarCloneAction,
   toDatetimeLocalValue,
+  transcriptRowsToSrt,
+  transcriptRowsToTxt,
   unarchiveWebinar,
   validateSchedule,
   type PublicWebinar,
   type PublicWebinarListItem,
+  type TranscriptRow,
+  type WebinarSessionStats,
   type WebinarView,
 } from './webinar';
 import type { BusinessOrg } from './business';
@@ -1040,5 +1044,106 @@ describe('isWebinarRestorable', () => {
   it('returns true for a live webinar with no effective end time (status=live, no end set)', () => {
     const w = webinar({ status: 'live', scheduled_end: null, scheduled_start: null, actual_end: null });
     expect(isWebinarRestorable(w, Date.now())).toBe(true);
+  });
+});
+
+// ---- PR6: Transcript download format helpers ---------------------------------
+
+/** A minimal TranscriptRow fixture for format tests. */
+function row(over: Partial<TranscriptRow> = {}): TranscriptRow {
+  return {
+    original_text: 'Hello world',
+    original_lang: 'en',
+    translations: {},
+    spoken_at: '2026-07-16T10:00:00.000Z',
+    ...over,
+  };
+}
+
+describe('transcriptRowsToTxt', () => {
+  it('returns an empty string when rows is empty', () => {
+    expect(transcriptRowsToTxt([], 'en')).toBe('');
+  });
+
+  it('formats a single row with its original text when no translation for lang', () => {
+    const result = transcriptRowsToTxt([row()], 'en');
+    expect(result).toContain('Hello world');
+    expect(result).toContain('[');   // timestamp present
+  });
+
+  it('uses the translation for lang when available', () => {
+    const r = row({ translations: { fr: 'Bonjour le monde' } });
+    const result = transcriptRowsToTxt([r], 'fr');
+    expect(result).toContain('Bonjour le monde');
+    expect(result).not.toContain('Hello world');
+  });
+
+  it('falls back to original_text when lang translation is missing', () => {
+    const r = row({ translations: { fr: 'Bonjour' } });
+    expect(transcriptRowsToTxt([r], 'de')).toContain('Hello world');
+  });
+
+  it('separates multiple rows with newlines', () => {
+    const rows = [
+      row({ original_text: 'First' }),
+      row({ original_text: 'Second', spoken_at: '2026-07-16T10:01:00.000Z' }),
+    ];
+    const result = transcriptRowsToTxt(rows, 'en');
+    expect(result).toContain('First');
+    expect(result).toContain('Second');
+    const lines = result.split('\n').filter(Boolean);
+    expect(lines.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe('transcriptRowsToSrt', () => {
+  it('returns an empty string when rows is empty', () => {
+    expect(transcriptRowsToSrt([], 'en')).toBe('');
+  });
+
+  it('formats a single row as SRT block (sequence + timestamps + text)', () => {
+    const result = transcriptRowsToSrt([row()], 'en');
+    // SRT: sequence number
+    expect(result).toMatch(/^1\n/);
+    // SRT: timestamp line with --> separator
+    expect(result).toContain('-->');
+    // SRT: text
+    expect(result).toContain('Hello world');
+  });
+
+  it('uses the translation for lang when available', () => {
+    const r = row({ translations: { fr: 'Bonjour' } });
+    expect(transcriptRowsToSrt([r], 'fr')).toContain('Bonjour');
+  });
+
+  it('falls back to original_text when translation is missing', () => {
+    expect(transcriptRowsToSrt([row()], 'de')).toContain('Hello world');
+  });
+
+  it('numbers multiple rows sequentially and uses blank-line separators', () => {
+    const rows = [
+      row({ original_text: 'One' }),
+      row({ original_text: 'Two', spoken_at: '2026-07-16T10:00:05.000Z' }),
+    ];
+    const result = transcriptRowsToSrt(rows, 'en');
+    expect(result).toContain('1\n');
+    expect(result).toContain('2\n');
+    expect(result).toContain('One');
+    expect(result).toContain('Two');
+    // Blank-line separator between blocks
+    expect(result).toContain('\n\n');
+  });
+});
+
+describe('WebinarSessionStats type', () => {
+  it('is structurally compatible with the expected shape', () => {
+    const stats: WebinarSessionStats = {
+      peak_viewers: 42,
+      unique_attendees: 100,
+      duration_seconds: 3600,
+    };
+    expect(stats.peak_viewers).toBe(42);
+    expect(stats.unique_attendees).toBe(100);
+    expect(stats.duration_seconds).toBe(3600);
   });
 });

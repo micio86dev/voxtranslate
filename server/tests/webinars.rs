@@ -3138,6 +3138,145 @@ async fn patch_without_source_language_leaves_it_unchanged() {
 /// This exercises the `IF NOT EXISTS` guard at the SQL engine level.
 /// sqlx::migrate! enforces idempotency via checksums, so the only way to verify
 /// the SQL itself handles re-runs is to run it directly.
+// ---- PR6: session-stats endpoint -------------------------------------------
+
+/// Seed a minimal `webinar_sessions` row directly to avoid needing a full
+/// publish flow. Returns the inserted row's `id`.
+async fn seed_session(
+    srv: &Server,
+    webinar_id: Uuid,
+    org_id: Uuid,
+    host_user_id: Uuid,
+    peak_viewers: i32,
+    unique_attendees: i32,
+    duration_seconds: i32,
+) -> Uuid {
+    // Insert a session row.
+    let session_id: Uuid = sqlx::query_scalar(
+        "INSERT INTO webinar_sessions
+             (webinar_id, org_id, host_user_id, actual_start, actual_end,
+              duration_seconds, peak_viewers, cost_credits)
+         VALUES ($1, $2, $3, now() - interval '1 hour', now(),
+                 $4, $5, 0)
+         ON CONFLICT (webinar_id) DO UPDATE
+             SET peak_viewers = EXCLUDED.peak_viewers,
+                 duration_seconds = EXCLUDED.duration_seconds
+         RETURNING id",
+    )
+    .bind(webinar_id)
+    .bind(org_id)
+    .bind(host_user_id)
+    .bind(duration_seconds)
+    .bind(peak_viewers)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
+
+    // Seed `unique_attendees` participant rows.
+    for _ in 0..unique_attendees {
+        let guest_id = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO webinar_participants (webinar_id, guest_id)
+             VALUES ($1, $2)
+             ON CONFLICT (webinar_id, guest_id) DO NOTHING",
+        )
+        .bind(webinar_id)
+        .bind(guest_id)
+        .execute(&srv.pool)
+        .await
+        .unwrap();
+    }
+
+    session_id
+}
+
+#[tokio::test]
+async fn session_stats_returns_peak_viewers_and_attendees() {
+    let Some(srv) = setup().await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    let http = Client::new();
+    let (owner, jwt) = user(&srv).await;
+    let org_id = org(&srv, owner, true).await;
+    let created = create_webinar(&http, &srv, &jwt, org_id).await;
+    let webinar_id = Uuid::parse_str(created["id"].as_str().unwrap()).unwrap();
+
+    // Seed session + participants.
+    seed_session(&srv, webinar_id, org_id, owner, 7, 3, 1800).await;
+
+    let r = http
+        .get(format!(
+            "{}/api/webinars/{webinar_id}/session-stats",
+            base(&srv)
+        ))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(r.status(), 200, "session-stats for existing session");
+    let body: Value = r.json().await.unwrap();
+    assert_eq!(body["peak_viewers"].as_i64(), Some(7));
+    assert_eq!(body["duration_seconds"].as_i64(), Some(1800));
+    // unique_attendees is counted from webinar_participants
+    assert_eq!(body["unique_attendees"].as_i64(), Some(3));
+}
+
+#[tokio::test]
+async fn session_stats_returns_null_when_no_session() {
+    let Some(srv) = setup().await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    let http = Client::new();
+    let (owner, jwt) = user(&srv).await;
+    let org_id = org(&srv, owner, true).await;
+    let created = create_webinar(&http, &srv, &jwt, org_id).await;
+    let webinar_id = created["id"].as_str().unwrap();
+
+    let r = http
+        .get(format!(
+            "{}/api/webinars/{webinar_id}/session-stats",
+            base(&srv)
+        ))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(
+        r.status(),
+        200,
+        "session-stats with no session returns 200 + null body"
+    );
+    let body: Value = r.json().await.unwrap();
+    // When no session exists, stats fields are null or absent.
+    assert!(
+        body.is_null() || body["peak_viewers"].is_null(),
+        "expected null stats for webinar with no session, got {body}"
+    );
+}
+
+#[tokio::test]
+async fn session_stats_requires_auth() {
+    let Some(srv) = setup().await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    let http = Client::new();
+    let r = http
+        .get(format!(
+            "{}/api/webinars/{}/session-stats",
+            base(&srv),
+            Uuid::new_v4()
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 401, "no auth → 401");
+}
+
 #[tokio::test]
 async fn migration_051_raw_alter_table_is_idempotent() {
     let Some(srv) = setup().await else {

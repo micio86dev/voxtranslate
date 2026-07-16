@@ -103,14 +103,18 @@ import {
   showVoiceCloneToggle,
   showWebinarCloneAction,
   toDatetimeLocalValue,
+  transcriptRowsToSrt,
+  transcriptRowsToTxt,
   unarchiveWebinar,
   validateSchedule,
   WebinarError,
+  type TranscriptRow,
   type WebinarDetailInfo,
+  type WebinarSessionStats,
   type WebinarView,
 } from './webinar';
-import { PresenceClient, type ChatEvent } from './webinar-presence';
-import { ChatPanel, uploadWebinarFile } from './webinar-chat';
+import { PresenceClient } from './webinar-presence';
+import { buildChatRow, ChatPanel, uploadWebinarFile, type ChatEvent } from './webinar-chat';
 import { WhipPublisher, type WhipState } from './whip-publisher';
 import { WebinarSttClient } from './webinar-stt';
 import { AudioCapture as WebinarAudioCapture } from './audio-capture';
@@ -4567,14 +4571,6 @@ function overlayKeydown(e: KeyboardEvent): void {
   }
 }
 
-function escHtml(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-
 function show(el: HTMLElement, visible: boolean): void {
   el.classList.toggle('hidden', !visible);
   if (!el.classList.contains('modal-overlay')) return;
@@ -5785,12 +5781,31 @@ const recapScreen = $('webinar-recap');
 const recapCloseBtn = $<HTMLButtonElement>('recap-close');
 const recapTabTranscript = $<HTMLButtonElement>('recap-tab-transcript');
 const recapTabChat = $<HTMLButtonElement>('recap-tab-chat');
+const recapTabAi = $<HTMLButtonElement>('recap-tab-ai');
 const recapTranscriptPanel = $('recap-transcript-panel');
 const recapChatPanel = $('recap-chat-panel');
+const recapAiPanel = $('recap-ai-panel');
 const recapTranscriptList = $('recap-transcript-list');
 const recapTranscriptEmpty = $('recap-transcript-empty');
 const recapChatList = $('recap-chat-list');
 const recapChatEmpty = $('recap-chat-empty');
+// PR6 meta / stats
+const recapMeta = $('recap-meta');
+const recapActualStart = $('recap-actual-start');
+const recapActualEnd = $('recap-actual-end');
+const recapStatsRow = $('recap-stats');
+const recapPeakViewers = $('recap-peak-viewers');
+const recapUniqueAttendees = $('recap-unique-attendees');
+const recapDuration = $('recap-duration');
+// PR6 download bar
+const recapDownloadBar = $('recap-download-bar');
+const recapDlLang = $<HTMLSelectElement>('recap-dl-lang');
+const recapDlTxt = $<HTMLButtonElement>('recap-dl-txt');
+const recapDlSrt = $<HTMLButtonElement>('recap-dl-srt');
+// PR6 AI report
+const recapAiGenerate = $<HTMLButtonElement>('recap-ai-generate');
+const recapAiStatus = $('recap-ai-status');
+const recapAiReport = $('recap-ai-report');
 
 /** The host studio's live-presence connection (opened while the studio is on screen,
  *  closed when it leaves). The host watches the audience count but is NOT counted. */
@@ -6180,50 +6195,187 @@ async function startWebinarBroadcast(
   }
 }
 
-/** Open the post-webinar recap screen: fetch transcripts immediately, lazy-load
+/** Activate one recap tab and hide all others. */
+function setRecapTab(active: HTMLButtonElement): void {
+  for (const [btn, p] of [
+    [recapTabTranscript, recapTranscriptPanel],
+    [recapTabChat, recapChatPanel],
+    [recapTabAi, recapAiPanel],
+  ] as [HTMLButtonElement, HTMLElement][]) {
+    const isActive = btn === active;
+    btn.classList.toggle('active', isActive);
+    btn.setAttribute('aria-selected', String(isActive));
+    show(p, isActive);
+  }
+}
+
+/** Format seconds as "Xh Ym" or "Xm Ys". */
+function formatDuration(seconds: number): string {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+}
+
+/** Format an ISO datetime string as a locale-aware date+time string for the recap meta row. */
+function formatRecapDatetime(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  try {
+    return new Date(iso).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+  } catch {
+    return iso;
+  }
+}
+
+/** Build a ChatEvent-compatible object from a transcript row so `buildChatRow` renders it. */
+function transcriptRowToChatEvent(row: TranscriptRow, index: number): ChatEvent {
+  return {
+    id: `tr-${index}`,
+    sender_kind: 'host',
+    display_name: 'Host',
+    original: row.original_text,
+    lang: row.original_lang,
+    translations: row.translations,
+    created_at: row.spoken_at,
+    avatar_url: null,
+    attachment: null,
+  };
+}
+
+/** Trigger a client-side blob download of `content` as a file named `filename`. */
+function downloadBlob(content: string, filename: string, mime: string): void {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+/** Open the post-webinar recap screen: fetch transcripts + stats immediately, lazy-load
  *  the chat tab on first click. Called after `endWebinarBroadcast` cleans up state. */
-async function openWebinarRecap(webinarId: string, webinarCode: string): Promise<void> {
+async function openWebinarRecap(
+  webinarId: string,
+  webinarCode: string,
+  webinarView?: WebinarView | null,
+): Promise<void> {
   // Switch to the recap screen immediately.
   show(wsScreen, false);
   show(recapScreen, true);
-  // Active tab = transcript by default.
-  recapTabTranscript.classList.add('active');
-  recapTabTranscript.setAttribute('aria-selected', 'true');
-  recapTabChat.classList.remove('active');
-  recapTabChat.setAttribute('aria-selected', 'false');
-  show(recapTranscriptPanel, true);
-  show(recapChatPanel, false);
+
+  // Reset all panels to initial state.
+  setRecapTab(recapTabTranscript);
   recapTranscriptList.innerHTML = '';
   recapChatList.innerHTML = '';
+  recapAiReport.innerHTML = '';
   show(recapTranscriptEmpty, false);
   show(recapChatEmpty, false);
+  show(recapMeta, false);
+  show(recapStatsRow, false);
+  show(recapDownloadBar, false);
+  show(recapAiStatus, false);
+  show(recapAiReport, false);
+  recapAiStatus.textContent = '';
+  recapAiStatus.classList.remove('error');
+  recapAiGenerate.disabled = false;
 
   const myLang = getUiLang();
 
-  // Fetch transcripts (authenticated — host must be an org member).
-  try {
-    const res = await fetch(`${auth.HTTP_BASE}/api/webinars/${encodeURIComponent(webinarId)}/transcripts`, {
+  // Show actual start/end from the webinar view (captured before state is cleared).
+  if (webinarView?.actual_start || webinarView?.actual_end) {
+    recapActualStart.textContent = formatRecapDatetime(webinarView.actual_start);
+    recapActualEnd.textContent = formatRecapDatetime(webinarView.actual_end);
+    show(recapMeta, true);
+  }
+
+  // Stored transcript rows — shared between transcript rendering + download.
+  let transcriptRows: TranscriptRow[] = [];
+
+  // Fetch transcripts in parallel with stats (both authenticated).
+  const [transcriptRes, statsRes] = await Promise.allSettled([
+    fetch(`${auth.HTTP_BASE}/api/webinars/${encodeURIComponent(webinarId)}/transcripts`, {
       headers: auth.authHeaders(),
-    });
-    if (res.ok) {
-      const rows: Array<{ original_text: string; original_lang: string; translations: Record<string, string>; spoken_at: string }> = await res.json() as Array<{ original_text: string; original_lang: string; translations: Record<string, string>; spoken_at: string }>;
-      if (rows.length === 0) {
-        show(recapTranscriptEmpty, true);
-      } else {
-        recapTranscriptList.innerHTML = rows
-          .map((r) => {
-            const d = new Date(r.spoken_at);
-            const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-            return `<div class="recap-utterance"><time>${escHtml(timeStr)}</time>${escHtml(r.original_text)}</div>`;
-          })
-          .join('');
-      }
-    } else {
-      show(recapTranscriptEmpty, true);
+    }),
+    fetch(`${auth.HTTP_BASE}/api/webinars/${encodeURIComponent(webinarId)}/session-stats`, {
+      headers: auth.authHeaders(),
+    }),
+  ]);
+
+  // --- Render transcript with buildChatRow ---
+  if (transcriptRes.status === 'fulfilled' && transcriptRes.value.ok) {
+    try {
+      transcriptRows = (await transcriptRes.value.json()) as TranscriptRow[];
+    } catch {
+      transcriptRows = [];
     }
-  } catch {
+    if (transcriptRows.length === 0) {
+      show(recapTranscriptEmpty, true);
+    } else {
+      const frag = document.createDocumentFragment();
+      transcriptRows.forEach((row, i) => {
+        const event = transcriptRowToChatEvent(row, i);
+        frag.appendChild(buildChatRow(document, event, myLang, t('wvRecapHostTag'), null));
+      });
+      recapTranscriptList.appendChild(frag);
+
+      // Populate the language selector for downloads.
+      const langs = new Set<string>([transcriptRows[0]?.original_lang ?? 'en']);
+      for (const row of transcriptRows) {
+        Object.keys(row.translations).forEach((l) => langs.add(l));
+      }
+      recapDlLang.innerHTML = '';
+      for (const lang of langs) {
+        const opt = document.createElement('option');
+        opt.value = lang;
+        opt.textContent = lang.toUpperCase();
+        if (lang === myLang) opt.selected = true;
+        recapDlLang.appendChild(opt);
+      }
+      show(recapDownloadBar, true);
+    }
+  } else {
     show(recapTranscriptEmpty, true);
   }
+
+  // --- Render session stats ---
+  if (statsRes.status === 'fulfilled' && statsRes.value.ok) {
+    try {
+      const stats = (await statsRes.value.json()) as WebinarSessionStats | null;
+      if (stats && stats.peak_viewers !== undefined && stats.peak_viewers !== null) {
+        recapPeakViewers.textContent = String(stats.peak_viewers);
+        recapUniqueAttendees.textContent = String(stats.unique_attendees);
+        recapDuration.textContent = formatDuration(stats.duration_seconds);
+        show(recapMeta, true);
+        show(recapStatsRow, true);
+      }
+    } catch {
+      // Stats are non-critical — recap still works without them.
+    }
+  }
+
+  // Download buttons wire-up.
+  recapDlTxt.addEventListener('click', () => {
+    const lang = recapDlLang.value || myLang;
+    downloadBlob(
+      transcriptRowsToTxt(transcriptRows, lang),
+      `transcript-${webinarCode}.txt`,
+      'text/plain',
+    );
+  });
+
+  recapDlSrt.addEventListener('click', () => {
+    const lang = recapDlLang.value || myLang;
+    downloadBlob(
+      transcriptRowsToSrt(transcriptRows, lang),
+      `transcript-${webinarCode}.srt`,
+      'text/plain',
+    );
+  });
 
   // Lazy-load chat tab on first click.
   let chatLoaded = false;
@@ -6236,16 +6388,37 @@ async function openWebinarRecap(webinarId: string, webinarCode: string): Promise
         `${auth.HTTP_BASE}/api/w/${encodeURIComponent(webinarCode)}/chat?limit=500`,
       );
       if (res.ok) {
-        const msgs: Array<{ text: string; display_name: string; sender_lang: string; translations: Record<string, string>; created_at: string }> = await res.json() as Array<{ text: string; display_name: string; sender_lang: string; translations: Record<string, string>; created_at: string }>;
-        if (msgs.length === 0) {
+        const rawMsgs = (await res.json()) as Array<{
+          id?: string;
+          text: string;
+          original?: string;
+          display_name: string;
+          sender_kind?: 'host' | 'guest';
+          sender_lang?: string;
+          lang?: string;
+          translations: Record<string, string>;
+          created_at: string;
+          avatar_url?: string | null;
+        }>;
+        if (rawMsgs.length === 0) {
           show(recapChatEmpty, true);
         } else {
-          recapChatList.innerHTML = msgs
-            .map((m) => {
-              const text = m.translations?.[myLang] ?? m.text;
-              return `<div class="recap-chat-msg"><div class="recap-sender">${escHtml(m.display_name ?? '')}</div>${escHtml(text)}</div>`;
-            })
-            .join('');
+          const frag = document.createDocumentFragment();
+          rawMsgs.forEach((m, i) => {
+            const event: ChatEvent = {
+              id: m.id ?? `chat-${i}`,
+              sender_kind: m.sender_kind ?? 'guest',
+              display_name: m.display_name ?? '',
+              original: m.original ?? m.text,
+              lang: m.lang ?? m.sender_lang ?? 'en',
+              translations: m.translations ?? {},
+              created_at: m.created_at,
+              avatar_url: m.avatar_url ?? null,
+              attachment: null,
+            };
+            frag.appendChild(buildChatRow(document, event, myLang, t('wvRecapHostTag'), null));
+          });
+          recapChatList.appendChild(frag);
         }
       } else {
         show(recapChatEmpty, true);
@@ -6255,23 +6428,89 @@ async function openWebinarRecap(webinarId: string, webinarCode: string): Promise
     }
   }
 
+  // AI Report: poll the webinar ai/job endpoint (mirrors the meets generateReport pattern).
+  let aiJobId: string | null = null;
+  recapAiGenerate.addEventListener('click', async () => {
+    recapAiGenerate.disabled = true;
+    show(recapAiStatus, true);
+    recapAiStatus.classList.remove('error');
+    recapAiStatus.textContent = t('wvRecapAiPending');
+    show(recapAiReport, false);
+    try {
+      const res = await fetch(
+        `${auth.HTTP_BASE}/api/webinars/${encodeURIComponent(webinarId)}/ai/report`,
+        {
+          method: 'POST',
+          headers: { ...auth.authHeaders(), 'Content-Type': 'application/json' },
+          body: JSON.stringify({ lang: myLang }),
+        },
+      );
+      if (res.status === 202) {
+        const { job_id: jobId } = (await res.json()) as { job_id: string };
+        aiJobId = jobId;
+        // Poll until done or failed.
+        let attempts = 0;
+        const MAX_ATTEMPTS = 60;
+        const poll = async (): Promise<void> => {
+          if (attempts++ >= MAX_ATTEMPTS) {
+            recapAiStatus.textContent = t('wvRecapAiError');
+            recapAiStatus.classList.add('error');
+            recapAiGenerate.disabled = false;
+            return;
+          }
+          const jobRes = await fetch(
+            `${auth.HTTP_BASE}/api/webinars/${encodeURIComponent(webinarId)}/ai/job/${encodeURIComponent(aiJobId!)}`,
+            { headers: auth.authHeaders() },
+          );
+          if (!jobRes.ok) {
+            recapAiStatus.textContent = t('wvRecapAiError');
+            recapAiStatus.classList.add('error');
+            recapAiGenerate.disabled = false;
+            return;
+          }
+          const job = (await jobRes.json()) as { status: string; result?: { markdown?: string } };
+          if (job.status === 'done' && job.result?.markdown) {
+            show(recapAiStatus, false);
+            recapAiReport.textContent = job.result.markdown;
+            show(recapAiReport, true);
+            recapAiGenerate.disabled = false;
+          } else if (job.status === 'failed') {
+            recapAiStatus.textContent = t('wvRecapAiError');
+            recapAiStatus.classList.add('error');
+            recapAiGenerate.disabled = false;
+          } else {
+            // Still running — poll again.
+            setTimeout(() => void poll(), 2000);
+          }
+        };
+        void poll();
+      } else if (res.status === 422) {
+        recapAiStatus.textContent = t('wvRecapAiNoTranscript');
+        recapAiStatus.classList.add('error');
+        recapAiGenerate.disabled = false;
+      } else if (!res.ok) {
+        recapAiStatus.textContent = t('wvRecapAiError');
+        recapAiStatus.classList.add('error');
+        recapAiGenerate.disabled = false;
+      }
+    } catch {
+      recapAiStatus.textContent = t('wvRecapAiError');
+      recapAiStatus.classList.add('error');
+      recapAiGenerate.disabled = false;
+    }
+  });
+
   recapTabTranscript.addEventListener('click', () => {
-    recapTabTranscript.classList.add('active');
-    recapTabTranscript.setAttribute('aria-selected', 'true');
-    recapTabChat.classList.remove('active');
-    recapTabChat.setAttribute('aria-selected', 'false');
-    show(recapTranscriptPanel, true);
-    show(recapChatPanel, false);
+    setRecapTab(recapTabTranscript);
   });
 
   recapTabChat.addEventListener('click', () => {
-    recapTabChat.classList.add('active');
-    recapTabChat.setAttribute('aria-selected', 'true');
-    recapTabTranscript.classList.remove('active');
-    recapTabTranscript.setAttribute('aria-selected', 'false');
-    show(recapChatPanel, true);
-    show(recapTranscriptPanel, false);
+    setRecapTab(recapTabChat);
     void loadChatTab();
+  });
+
+  recapTabAi.addEventListener('click', () => {
+    setRecapTab(recapTabAi);
   });
 }
 
@@ -6280,6 +6519,9 @@ async function endWebinarBroadcast(): Promise<void> {
   // Capture webinar info BEFORE clearing state — needed for the recap screen.
   const recapId = activeWebinar?.id ?? null;
   const recapCode = activeWebinar?.code ?? null;
+  // Snapshot the view so the recap can show actual_start / actual_end even after
+  // activeWebinar is cleared (the server stamps actual_end on the end call).
+  const recapView = activeWebinar ? { ...activeWebinar } : null;
   // Close the STT bridge FIRST: closing the ingest socket flushes pending finals before we
   // stop capturing, so the last words still reach viewers as a subtitle.
   closeWebinarStt();
@@ -6297,7 +6539,7 @@ async function endWebinarBroadcast(): Promise<void> {
   wsVideo.srcObject = null;
 
   if (recapId && recapCode) {
-    await openWebinarRecap(recapId, recapCode);
+    await openWebinarRecap(recapId, recapCode, recapView);
   } else {
     show(wsScreen, false);
     void openWebinars();

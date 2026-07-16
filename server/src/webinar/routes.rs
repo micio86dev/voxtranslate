@@ -77,6 +77,8 @@ pub fn routes() -> Router<AppState> {
         .route("/api/webinars/{id}/unarchive", post(unarchive))
         // Transcript history for a completed webinar (recap screen).
         .route("/api/webinars/{id}/transcripts", get(get_transcripts))
+        // Session stats (PR6 — Riepilogo): peak viewers, unique attendees, duration.
+        .route("/api/webinars/{id}/session-stats", get(session_stats))
         // AI recap (Phase B) — HOST-ONLY. Report (any language) + multilingual
         // participant recap emails, both async (client polls the job endpoint).
         .route(
@@ -1099,6 +1101,60 @@ pub async fn get_transcripts(
     })
     .collect();
     Ok(Json(rows).into_response())
+}
+
+// ---- PR6: Session stats (Riepilogo enhancement) ----------------------------
+
+/// `GET /api/webinars/{id}/session-stats` — returns peak concurrent viewers,
+/// unique attendees (counted from `webinar_participants`), and broadcast
+/// duration in seconds. Requires org membership.
+///
+/// Returns `null` (JSON null body) when the webinar has no finalized session
+/// record yet (i.e. `webinar_sessions` has no row for this webinar — it went
+/// live but `publish-stopped` was never processed, or it never went live).
+///
+/// This endpoint is safe to call on any webinar the caller is a member of; the
+/// stats are not host-only (dashboard / team recap use case).
+pub async fn session_stats(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+) -> Result<Response, Response> {
+    let pool = require_pool(&state)?;
+    // Any org member can view stats, not just the host.
+    require_webinar_role(pool, id, user.user_id, MEMBER).await?;
+
+    // Fetch peak_viewers + duration_seconds from the finalized session record.
+    let session_row: Option<(i32, i32)> = sqlx::query_as(
+        "SELECT peak_viewers, duration_seconds
+           FROM webinar_sessions
+          WHERE webinar_id = $1",
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await
+    .map_err(db_err)?;
+
+    let Some((peak_viewers, duration_seconds)) = session_row else {
+        // No finalized session — return JSON null so the client can omit the stats row.
+        return Ok(Json(serde_json::Value::Null).into_response());
+    };
+
+    // Count unique attendees from webinar_participants (separate from peak_viewers
+    // which is the largest concurrent count; this is the cumulative unique total).
+    let unique_attendees: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM webinar_participants WHERE webinar_id = $1")
+            .bind(id)
+            .fetch_one(pool)
+            .await
+            .map_err(db_err)?;
+
+    Ok(Json(serde_json::json!({
+        "peak_viewers": peak_viewers,
+        "unique_attendees": unique_attendees,
+        "duration_seconds": duration_seconds,
+    }))
+    .into_response())
 }
 
 // ---- AI recap: report + multilingual participant emails (Phase B) ----------

@@ -1271,17 +1271,65 @@ const jsonLd = {
           <h2 data-i18n="wvRecapTitle">{T('wvRecapTitle')}</h2>
           <button id="recap-close" class="btn-ghost" type="button" data-i18n="wvRecapClose">{T('wvRecapClose')}</button>
         </div>
+
+        <!-- Session datetime + stats row (PR6) -->
+        <div id="recap-meta" class="recap-meta hidden">
+          <div class="recap-meta-times">
+            <span class="recap-meta-label" data-i18n="wvRecapStarted">{T('wvRecapStarted')}</span>
+            <span id="recap-actual-start" class="recap-meta-value">—</span>
+            <span class="recap-meta-sep">→</span>
+            <span id="recap-actual-end" class="recap-meta-value">—</span>
+          </div>
+          <div id="recap-stats" class="recap-stats hidden">
+            <div class="recap-stat">
+              <span class="recap-stat-value" id="recap-peak-viewers">—</span>
+              <span class="recap-stat-label" data-i18n="wvRecapPeakViewers">{T('wvRecapPeakViewers')}</span>
+            </div>
+            <div class="recap-stat">
+              <span class="recap-stat-value" id="recap-unique-attendees">—</span>
+              <span class="recap-stat-label" data-i18n="wvRecapUniqueAttendees">{T('wvRecapUniqueAttendees')}</span>
+            </div>
+            <div class="recap-stat">
+              <span class="recap-stat-value" id="recap-duration">—</span>
+              <span class="recap-stat-label" data-i18n="wvRecapDuration">{T('wvRecapDuration')}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab bar -->
         <div class="recap-tabs" role="tablist">
           <button id="recap-tab-transcript" class="recap-tab active" role="tab" aria-selected="true" data-i18n="wvRecapTabTranscript">{T('wvRecapTabTranscript')}</button>
           <button id="recap-tab-chat" class="recap-tab" role="tab" aria-selected="false" data-i18n="wvRecapTabChat">{T('wvRecapTabChat')}</button>
+          <button id="recap-tab-ai" class="recap-tab" role="tab" aria-selected="false" data-i18n="wvRecapTabAiReport">{T('wvRecapTabAiReport')}</button>
         </div>
+
+        <!-- Transcript panel -->
         <div id="recap-transcript-panel" class="recap-panel">
+          <!-- Download controls -->
+          <div id="recap-download-bar" class="recap-download-bar hidden">
+            <select id="recap-dl-lang" class="recap-dl-select" aria-label="Language"></select>
+            <div class="recap-dl-btns">
+              <button id="recap-dl-txt" class="btn-ghost recap-dl-btn" type="button" data-i18n="wvRecapDlTxt">{T('wvRecapDlTxt')}</button>
+              <button id="recap-dl-srt" class="btn-ghost recap-dl-btn" type="button" data-i18n="wvRecapDlSrt">{T('wvRecapDlSrt')}</button>
+            </div>
+          </div>
           <p id="recap-transcript-empty" class="recap-empty hidden" data-i18n="wvRecapTranscriptEmpty">{T('wvRecapTranscriptEmpty')}</p>
           <div id="recap-transcript-list" class="recap-list"></div>
         </div>
+
+        <!-- Chat panel -->
         <div id="recap-chat-panel" class="recap-panel hidden">
           <p id="recap-chat-empty" class="recap-empty hidden" data-i18n="wvRecapChatEmpty">{T('wvRecapChatEmpty')}</p>
           <div id="recap-chat-list" class="recap-list"></div>
+        </div>
+
+        <!-- AI Report panel (PR6) -->
+        <div id="recap-ai-panel" class="recap-panel hidden">
+          <div id="recap-ai-controls" class="recap-ai-controls">
+            <button id="recap-ai-generate" class="btn-primary" type="button" data-i18n="wvRecapAiGenerate">{T('wvRecapAiGenerate')}</button>
+            <p id="recap-ai-status" class="recap-ai-status hidden"></p>
+          </div>
+          <div id="recap-ai-report" class="recap-ai-report hidden"></div>
         </div>
       </div>
     </section>
@@ -3110,16 +3158,53 @@ const jsonLd = {
     .recap-wrap { max-width: 720px; margin: 0 auto; padding: 24px 16px 48px; }
     .recap-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
     .recap-header h2 { font-size: 1.1rem; font-weight: 600; }
+
+    /* Meta / stats row */
+    .recap-meta { display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px; padding: 14px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; }
+    .recap-meta-times { display: flex; align-items: center; gap: 8px; font-size: 0.875rem; flex-wrap: wrap; }
+    .recap-meta-label { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600; }
+    .recap-meta-value { color: var(--fg); font-variant-numeric: tabular-nums; }
+    .recap-meta-sep { color: var(--muted); }
+    .recap-stats { display: flex; gap: 24px; flex-wrap: wrap; padding-top: 10px; border-top: 1px solid var(--border); }
+    .recap-stat { display: flex; flex-direction: column; gap: 2px; }
+    .recap-stat-value { font-size: 1.35rem; font-weight: 700; color: var(--fg); font-variant-numeric: tabular-nums; line-height: 1; }
+    .recap-stat-label { font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+
+    /* Tab bar */
     .recap-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
     .recap-tab { background: none; border: none; padding: 8px 16px; font-size: 0.875rem; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
     .recap-tab.active { color: var(--fg); border-bottom-color: var(--accent, #3b82f6); font-weight: 500; }
     .recap-panel { display: flex; flex-direction: column; gap: 10px; }
     .recap-list { display: flex; flex-direction: column; gap: 10px; }
+
+    /* Transcript utterance (prettified via buildChatRow — shares wv-chat-msg) */
+    .recap-panel :global(.wv-chat-msg) { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; }
+    .recap-panel :global(.wv-chat-msg.is-host) { background: color-mix(in srgb, var(--accent) 6%, var(--surface)); border-color: color-mix(in srgb, var(--accent) 20%, var(--border)); }
+    .recap-panel :global(.wv-chat-avatar) { width: 28px; height: 28px; border-radius: 50%; overflow: hidden; flex: 0 0 auto; font-size: 0.72rem; font-weight: 700; color: #fff; display: flex; align-items: center; justify-content: center; }
+    .recap-panel :global(.wv-chat-name-line) { font-size: 0.78rem; font-weight: 600; color: var(--muted); }
+    .recap-panel :global(.wv-chat-msg.is-host .wv-chat-name-line) { color: var(--accent); }
+    .recap-panel :global(.wv-chat-body) { font-size: 0.9rem; color: var(--fg); }
+    .recap-panel :global(.wv-chat-host-tag) { font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; margin-left: 6px; padding: 1px 6px; border-radius: 999px; background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent); }
+    .recap-panel :global(.wv-chat-att-img) { max-width: 100%; border-radius: 6px; display: block; }
+    .recap-panel :global(.wv-chat-attachment) { margin-top: 6px; }
+    .recap-panel :global(.wv-chat-att-file) { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 0.82rem; background: var(--bg); }
+
+    /* Download bar */
+    .recap-download-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 0 6px; }
+    .recap-dl-select { height: 34px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--fg); font-size: 0.875rem; padding: 0 10px; cursor: pointer; }
+    .recap-dl-btns { display: flex; gap: 8px; }
+    .recap-dl-btn { height: 34px; padding: 0 14px; font-size: 0.82rem; }
+
+    /* Legacy utterance style (fallback if transcript rows are plain) */
     .recap-utterance { font-size: 0.9rem; line-height: 1.5; padding: 10px 12px; background: var(--surface, rgba(0,0,0,0.03)); border-radius: 6px; }
     .recap-utterance time { display: block; font-size: 0.75rem; color: var(--muted); margin-bottom: 4px; }
-    .recap-chat-msg { font-size: 0.875rem; padding: 8px 12px; background: var(--surface, rgba(0,0,0,0.03)); border-radius: 6px; }
-    .recap-chat-msg .recap-sender { font-weight: 500; font-size: 0.8rem; margin-bottom: 2px; }
     .recap-empty { color: var(--muted); font-size: 0.875rem; }
+
+    /* AI Report panel */
+    .recap-ai-controls { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding-bottom: 4px; }
+    .recap-ai-status { font-size: 0.875rem; color: var(--muted); margin: 0; }
+    .recap-ai-status.error { color: var(--danger); }
+    .recap-ai-report { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; font-size: 0.9rem; line-height: 1.65; white-space: pre-wrap; word-break: break-word; }
 
     /* Billing section: balance + a quick path back to checkout, above the history tabs. */
     .billing-balance-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; }

@@ -701,3 +701,74 @@ export function isWebinarRestorable(w: WebinarView, nowMs: number): boolean {
   if (Number.isNaN(t)) return true; // unparseable → don't block; server decides
   return t > nowMs;
 }
+
+// ---- PR6: Session summary helpers -------------------------------------------
+
+/** A single utterance row from `GET /api/webinars/{id}/transcripts`. */
+export interface TranscriptRow {
+  original_text: string;
+  original_lang: string;
+  /** Per-language translation map (JSONB from DB; may be empty). */
+  translations: Record<string, string>;
+  /** ISO 8601 timestamp when the utterance was spoken. */
+  spoken_at: string;
+}
+
+/** Stats returned by `GET /api/webinars/{id}/session-stats`. */
+export interface WebinarSessionStats {
+  peak_viewers: number;
+  unique_attendees: number;
+  duration_seconds: number;
+}
+
+/** Pick the best text for a transcript row in the requested language.
+ *  Falls back to `original_text` when a translation is absent/empty. Pure. */
+function pickText(row: TranscriptRow, lang: string): string {
+  const t = row.translations[lang];
+  return t && t.trim() ? t : row.original_text;
+}
+
+/** Format a UTC ISO timestamp as an HH:MM:SS string for display/export. */
+function isoToHhMmSs(iso: string): string {
+  const d = new Date(iso);
+  const h = String(d.getUTCHours()).padStart(2, '0');
+  const m = String(d.getUTCMinutes()).padStart(2, '0');
+  const s = String(d.getUTCSeconds()).padStart(2, '0');
+  return `${h}:${m}:${s}`;
+}
+
+/** Format a UTC ISO timestamp as SRT-style `HH:MM:SS,mmm`. */
+function isoToSrtTime(iso: string): string {
+  const d = new Date(iso);
+  const h = String(d.getUTCHours()).padStart(2, '0');
+  const m = String(d.getUTCMinutes()).padStart(2, '0');
+  const s = String(d.getUTCSeconds()).padStart(2, '0');
+  const ms = String(d.getUTCMilliseconds()).padStart(3, '0');
+  return `${h}:${m}:${s},${ms}`;
+}
+
+/** Convert webinar transcript rows to plain-text format.
+ *  Each line: `[HH:MM:SS] <text>`. Returns empty string for empty input. Pure. */
+export function transcriptRowsToTxt(rows: TranscriptRow[], lang: string): string {
+  if (rows.length === 0) return '';
+  return rows
+    .map((r) => `[${isoToHhMmSs(r.spoken_at)}] ${pickText(r, lang)}`)
+    .join('\n');
+}
+
+/** Convert webinar transcript rows to SRT subtitle format.
+ *  End time for each block is 5 seconds after the start (pragmatic default;
+ *  webinar transcripts have no per-utterance duration). Pure. */
+export function transcriptRowsToSrt(rows: TranscriptRow[], lang: string): string {
+  if (rows.length === 0) return '';
+  return rows
+    .map((r, i) => {
+      const startMs = new Date(r.spoken_at).getTime();
+      const endMs = startMs + 5_000;
+      const endIso = new Date(endMs).toISOString();
+      const start = isoToSrtTime(r.spoken_at);
+      const end = isoToSrtTime(endIso);
+      return `${i + 1}\n${start} --> ${end}\n${pickText(r, lang)}`;
+    })
+    .join('\n\n');
+}
