@@ -50,6 +50,10 @@ export interface WebinarView {
   created_at: string;
   /** ISO timestamp the webinar was soft-archived, or null while it's active. */
   archived_at: string | null;
+  /** Whether to notify friends when the host goes live (default true). Added in migration 051. */
+  notify_friends?: boolean;
+  /** Reminder lead time in minutes before scheduled_start (optional, scheduler-driven). */
+  reminder_minutes_before?: number | null;
 }
 
 /** The public (no-auth) view of a webinar for a participant landing on `/w/{code}`.
@@ -460,6 +464,70 @@ export function formatScheduledStart(iso: string | null | undefined): string {
     hour: "numeric",
     minute: "2-digit",
   });
+}
+
+/** Compact time string for the card summary line (D7 — PR3).
+ *  Priority: actual_start/actual_end (for ended webinars) > scheduled_start/scheduled_end.
+ *  Format: "Start" or "Start – End". Returns "" for immediate/unscheduled webinars. Pure. */
+export function buildCardTimeline(w: WebinarView): string {
+  // Prefer actual times for webinars that already ran (ended).
+  const start = w.actual_start ?? w.scheduled_start;
+  const end   = w.actual_end   ?? w.scheduled_end;
+  const startFmt = formatScheduledStart(start);
+  if (!startFmt) return "";
+  const endFmt = formatScheduledStart(end);
+  if (!endFmt) return startFmt;
+  return `${startFmt} – ${endFmt}`;
+}
+
+/** Structured data for populating the detail modal (D5/D7 — PR3).
+ *  Extracts all fields needed by the detail sheet. Pure — no DOM access. */
+export interface WebinarDetailInfo {
+  id: string;
+  title: string;
+  code: string;
+  status: WebinarStatus;
+  tier: WebinarTier;
+  visibility: WebinarVisibility;
+  source_language: string;
+  description: string | null;
+  project_id: string | null;
+  join_url: string;
+  created_at: string;
+  scheduled_start: string | null;
+  scheduled_end: string | null;
+  actual_start: string | null;
+  actual_end: string | null;
+  record_video: boolean;
+  record_transcript: boolean;
+  chat_enabled: boolean;
+  notify_friends: boolean | undefined;
+  reminder_minutes_before: number | null | undefined;
+}
+
+export function buildDetailInfo(w: WebinarView): WebinarDetailInfo {
+  return {
+    id: w.id,
+    title: w.title,
+    code: w.code,
+    status: w.status,
+    tier: w.tier,
+    visibility: w.visibility,
+    source_language: w.source_language,
+    description: w.description,
+    project_id: w.project_id,
+    join_url: w.join_url,
+    created_at: w.created_at,
+    scheduled_start: w.scheduled_start,
+    scheduled_end: w.scheduled_end,
+    actual_start: w.actual_start,
+    actual_end: w.actual_end,
+    record_video: w.record_video,
+    record_transcript: w.record_transcript,
+    chat_enabled: w.chat_enabled,
+    notify_friends: w.notify_friends,
+    reminder_minutes_before: w.reminder_minutes_before,
+  };
 }
 
 /** Fetch the public webinar list for the home page. Unauthenticated GET; best-effort

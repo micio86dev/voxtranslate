@@ -83,6 +83,8 @@ import {
 import {
   addToCalendar,
   archiveWebinar,
+  buildCardTimeline,
+  buildDetailInfo,
   cancelWebinar,
   canHostWebinar,
   createWebinar,
@@ -101,6 +103,7 @@ import {
   unarchiveWebinar,
   validateSchedule,
   WebinarError,
+  type WebinarDetailInfo,
   type WebinarView,
 } from './webinar';
 import { PresenceClient, type ChatEvent } from './webinar-presence';
@@ -5024,6 +5027,31 @@ const webinarQrModal = $('webinar-qr-modal');
 const webinarQrModalImg = $<HTMLImageElement>('webinar-qr-modal-img');
 const webinarQrModalTitle = $('webinar-qr-modal-title');
 const webinarQrModalUrl = $('webinar-qr-modal-url');
+// PR3: Detail modal (D5/D7).
+const webinarDetailModal = $('webinar-detail-modal');
+const wdmTitle = $('wdm-title');
+const wdmStatus = $('wdm-status');
+const wdmTier = $('wdm-tier');
+const wdmVisibility = $('wdm-visibility');
+const wdmSourceLang = $('wdm-source-lang');
+const wdmScheduledRow = $('wdm-scheduled-row');
+const wdmScheduled = $('wdm-scheduled');
+const wdmActualRow = $('wdm-actual-row');
+const wdmActual = $('wdm-actual');
+const wdmReminderRow = $('wdm-reminder-row');
+const wdmReminder = $('wdm-reminder');
+const wdmDescriptionSection = $('wdm-description-section');
+const wdmDescription = $('wdm-description');
+const wdmJoinUrl = $<HTMLInputElement>('wdm-join-url');
+const wdmCopyBtn = $<HTMLButtonElement>('wdm-copy-btn');
+const wdmCode = $('wdm-code');
+const wdmFlags = $('wdm-flags');
+const wdmCreatedAt = $('wdm-created-at');
+const wdmQr = $<HTMLImageElement>('wdm-qr');
+const wdmQrDownload = $<HTMLButtonElement>('wdm-qr-download');
+const wdmQrPrint = $<HTMLButtonElement>('wdm-qr-print');
+const wdmLifecycleActions = $('wdm-lifecycle-actions');
+const wdmCalendarRow = $('wdm-calendar-row');
 $('webinars-back').innerHTML = icon('chevron-left', 18);
 
 let webinarOrgsLoaded = false;
@@ -5270,9 +5298,11 @@ async function selectWebinarTab(archived: boolean): Promise<void> {
   await loadWebinars();
 }
 
-/** One webinar card: title/status, the copyable join link, a QR of that link, and
- *  a Cancel/Archive action while it's active. Archived webinars render a slimmed-down
- *  historical card (title, code, created date, Restore) via `renderArchivedWebinarCard`. */
+/** Polished summary card for an active webinar (D7 — PR3):
+ *  title, status pill, tier badge, source language, timeline, feature-flag
+ *  indicator chips, and a single "View details" CTA that opens the detail sheet.
+ *  "Go live" is kept on the card face for quick access while the webinar can
+ *  still be broadcast. Cancel / Archive have moved into the detail modal (spec Area D). */
 function renderWebinarCard(w: WebinarView): void {
   if (w.archived_at) {
     renderArchivedWebinarCard(w);
@@ -5283,131 +5313,53 @@ function renderWebinarCard(w: WebinarView): void {
   card.className = 'webinar-card';
   card.dataset.webinarId = w.id;
 
+  // -- Head: title + status pill --
   const head = document.createElement('div');
   head.className = 'webinar-card-head';
-  const title = document.createElement('span');
-  title.className = 'webinar-card-title';
-  title.textContent = w.title;
-  const status = document.createElement('span');
-  status.className = `webinar-status webinar-status-${w.status}`;
-  status.textContent = t(`webinarStatus_${w.status}`) || w.status;
-  head.append(title, status);
+  const titleEl = document.createElement('span');
+  titleEl.className = 'webinar-card-title';
+  titleEl.textContent = w.title;
+  const statusEl = document.createElement('span');
+  statusEl.className = `webinar-status webinar-status-${w.status}`;
+  statusEl.textContent = t(`webinarStatus_${w.status}`) || w.status;
+  head.append(titleEl, statusEl);
   card.appendChild(head);
 
+  // -- Meta: tier badge + source language --
   const meta = document.createElement('span');
   meta.className = 'webinar-card-meta';
-  meta.textContent = `${(langMeta(w.source_language)?.native ?? w.source_language)} · ${t(`webinarTier_${w.tier}`) || w.tier}`;
+  const tierLabel = t(`webinarTier_${w.tier}`) || w.tier;
+  const langLabel = langMeta(w.source_language)?.native ?? w.source_language;
+  meta.textContent = `${langLabel} · ${tierLabel}`;
   card.appendChild(meta);
 
-  const isOver = w.status === 'ended' || w.status === 'cancelled';
-
-  if (!isOver) {
-    // Copyable join link. The button briefly swaps to "Copied" (room-code pattern).
-    const linkRow = document.createElement('div');
-    linkRow.className = 'webinar-link-row';
-    const linkInput = document.createElement('input');
-    linkInput.className = 'webinar-link-input';
-    linkInput.readOnly = true;
-    linkInput.value = w.join_url;
-    linkInput.setAttribute('aria-label', t('webinarJoinLink'));
-    const copyBtn = document.createElement('button');
-    copyBtn.type = 'button';
-    copyBtn.className = 'btn-ghost webinar-copy-btn';
-    copyBtn.textContent = t('copy');
-    copyBtn.addEventListener('click', async () => {
-      try {
-        await navigator.clipboard.writeText(w.join_url);
-        copyBtn.textContent = t('copied');
-        setTimeout(() => (copyBtn.textContent = t('copy')), 1200);
-      } catch {
-        linkInput.select(); // fallback: select for a manual copy
-        toast(t('copyFailed'), 'err');
-      }
-    });
-    linkRow.append(linkInput, copyBtn);
-
-    // QR of the EXACT join_url from the API (never rebuilt). Lazy-imported chunk.
-    // Tappable (mouse + keyboard) → fullscreen zoom overlay.
-    const qr = document.createElement('img');
-    qr.className = 'webinar-qr';
-    qr.alt = t('webinarQrAlt');
-    qr.width = 120;
-    qr.height = 120;
-    qr.tabIndex = 0;
-    qr.setAttribute('role', 'button');
-    qr.setAttribute('aria-label', t('webinarQrZoom'));
-    qr.title = t('webinarQrZoom');
-    qr.addEventListener('click', () => openQrModal(w, qr.src));
-    qr.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
-        openQrModal(w, qr.src);
-      }
-    });
-    void renderQr(qr, w.join_url);
-
-    // QR actions: download the QR as a PNG, or print just the QR + join URL.
-    const qrActions = document.createElement('div');
-    qrActions.className = 'webinar-qr-actions';
-    const dlBtn = document.createElement('button');
-    dlBtn.type = 'button';
-    dlBtn.className = 'btn-ghost';
-    dlBtn.textContent = t('webinarQrDownload');
-    dlBtn.addEventListener('click', async () => {
-      dlBtn.disabled = true;
-      try {
-        downloadQr(await qrDataUrl(w.join_url, qr.src), w.code);
-      } finally {
-        dlBtn.disabled = false;
-      }
-    });
-    const printBtn = document.createElement('button');
-    printBtn.type = 'button';
-    printBtn.className = 'btn-ghost';
-    printBtn.textContent = t('webinarQrPrint');
-    printBtn.addEventListener('click', async () => {
-      printBtn.disabled = true;
-      try {
-        printQr(await qrDataUrl(w.join_url, qr.src), w.title, w.join_url);
-      } finally {
-        printBtn.disabled = false;
-      }
-    });
-    qrActions.append(dlBtn, printBtn);
-
-    // Share section: QR on the left, join link + actions on the right.
-    // On narrow viewports the row wraps so QR sits above the info block.
-    const shareInfo = document.createElement('div');
-    shareInfo.className = 'webinar-share-info';
-    shareInfo.append(linkRow, qrActions);
-    const shareSection = document.createElement('div');
-    shareSection.className = 'webinar-share';
-    shareSection.append(qr, shareInfo);
-    card.appendChild(shareSection);
-  } else {
-    // Ended/cancelled: show a compact session summary instead of the join link + QR.
-    const summary = document.createElement('div');
-    summary.className = 'webinar-ended-summary';
-    const parts: string[] = [];
-    if (w.status === 'ended' && w.actual_start) {
-      const dateStr = new Date(w.actual_start).toLocaleDateString(undefined, { dateStyle: 'medium' });
-      parts.push(`${t('webinarBroadcastOn')}: ${dateStr}`);
-      if (w.actual_end) {
-        const ms = new Date(w.actual_end).getTime() - new Date(w.actual_start).getTime();
-        const totalMins = Math.round(ms / 60000);
-        const h = Math.floor(totalMins / 60);
-        const m = totalMins % 60;
-        const durStr = h > 0 ? `${h}h ${m}m` : `${m}m`;
-        parts.push(`${t('webinarDuration')}: ${durStr}`);
-      }
-    }
-    summary.textContent = parts.join(' · ');
-    card.appendChild(summary);
+  // -- Timeline: scheduled or actual start/end --
+  const timeline = buildCardTimeline(w);
+  if (timeline) {
+    const timelineEl = document.createElement('span');
+    timelineEl.className = 'webinar-card-timeline';
+    timelineEl.textContent = timeline;
+    card.appendChild(timelineEl);
   }
 
-  // Pre-live "Clone your voice" (webinar-ui-fixes #5): only for Enhanced webinars whose
-  // host hasn't cloned yet, and only while it can still be broadcast. Reuses the exact
-  // capture + clone flow from the call pre-join.
+  // -- Feature indicator chips: REC, Chat --
+  const iconsRow = document.createElement('div');
+  iconsRow.className = 'webinar-card-icons';
+  if (w.record_video) {
+    const recChip = document.createElement('span');
+    recChip.className = 'webinar-card-icon rec';
+    recChip.textContent = t('webinarDetailRecChip');
+    iconsRow.appendChild(recChip);
+  }
+  if (w.chat_enabled) {
+    const chatChip = document.createElement('span');
+    chatChip.className = 'webinar-card-icon chat';
+    chatChip.textContent = t('webinarDetailChatChip');
+    iconsRow.appendChild(chatChip);
+  }
+  if (iconsRow.childElementCount > 0) card.appendChild(iconsRow);
+
+  // -- Pre-live voice clone (webinar-ui-fixes #5) --
   if (
     (w.status === 'scheduled' || w.status === 'live') &&
     showWebinarCloneAction(w.tier, hasVoiceClone())
@@ -5415,102 +5367,77 @@ function renderWebinarCard(w: WebinarView): void {
     card.appendChild(buildWebinarCloneRow());
   }
 
-  // Go-live / publish control (webinar phase 1): capture mic (+ optional cam) and
-  // publish to the media server over WHIP. Offered while the webinar can still be
-  // broadcast (scheduled → live). `ended` webinars can't be re-broadcast. The
-  // control now opens a Meet-style pre-live step (device pickers) before publishing —
-  // device selection lives there, so the old standalone "activate webcam" button is gone.
+  // -- Go-live / publish control: kept on card face for quick access --
   if (w.status === 'scheduled' || w.status === 'live') {
     card.appendChild(buildGoLiveControl(w));
   }
 
-  // "Add to Google Calendar" — only for a scheduled webinar that has a start time.
-  // On 409 (calendar not connected) it routes the host into the connect-calendar flow
-  // and retries; on 400 (unscheduled) it explains a start time is required.
-  if (w.status === 'scheduled' && w.scheduled_start) {
-    card.appendChild(buildAddCalendarRow(w));
-  }
-
-  // Cancel — only while the webinar is still scheduled.
-  if (w.status === 'scheduled') {
-    const cancelBtn = document.createElement('button');
-    cancelBtn.type = 'button';
-    cancelBtn.className = 'btn-ghost webinar-cancel-btn danger';
-    cancelBtn.textContent = t('webinarCancel');
-    cancelBtn.addEventListener('click', async () => {
-      if (!confirm(t('webinarCancelConfirm'))) return;
-      cancelBtn.disabled = true;
-      try {
-        await cancelWebinar(w.id);
-        toast(t('webinarCancelled'), 'ok');
-        await loadWebinars();
-      } catch (err) {
-        cancelBtn.disabled = false;
-        toast(webinarErrorMessage(err), 'err');
-      }
-    });
-    card.appendChild(cancelBtn);
-  }
-
-  // Archive — move any active webinar into the historical (Archived) list. Available
-  // regardless of status; a soft-archive that can be undone from the Archived tab.
-  const archiveBtn = document.createElement('button');
-  archiveBtn.type = 'button';
-  archiveBtn.className = 'btn-ghost webinar-archive-btn';
-  archiveBtn.textContent = t('webinarArchive');
-  archiveBtn.addEventListener('click', async () => {
-    archiveBtn.disabled = true;
-    try {
-      await archiveWebinar(w.id);
-      toast(t('webinarArchived'), 'ok');
-      await loadWebinars();
-    } catch (err) {
-      archiveBtn.disabled = false;
-      toast(webinarErrorMessage(err), 'err');
-    }
-  });
-  card.appendChild(archiveBtn);
+  // -- Action row: "View details" CTA --
+  const actionsRow = document.createElement('div');
+  actionsRow.className = 'webinar-card-actions';
+  const detailBtn = document.createElement('button');
+  detailBtn.type = 'button';
+  detailBtn.className = 'btn-ghost webinar-view-details-btn';
+  detailBtn.setAttribute('data-i18n', 'webinarViewDetails');
+  detailBtn.textContent = t('webinarViewDetails');
+  detailBtn.addEventListener('click', () => openWebinarDetailModal(w));
+  actionsRow.appendChild(detailBtn);
+  card.appendChild(actionsRow);
 
   webinarList.appendChild(card);
 }
 
-/** A slimmed-down historical card for an archived webinar: title, short code, created
- *  date, and a Restore action. No go-live / QR / calendar actions — archived webinars
- *  are read-only history until restored back into the active list. */
+/** Polished summary card for an archived webinar (D7 — PR3):
+ *  title, status, language, timeline, and "View details" CTA.
+ *  Restore has moved into the detail modal action area. */
 function renderArchivedWebinarCard(w: WebinarView): void {
   const card = document.createElement('div');
   card.className = 'webinar-card webinar-card-archived';
   card.dataset.webinarId = w.id;
 
+  // -- Head: title --
   const head = document.createElement('div');
   head.className = 'webinar-card-head';
-  const title = document.createElement('span');
-  title.className = 'webinar-card-title';
-  title.textContent = w.title;
-  head.appendChild(title);
+  const titleEl = document.createElement('span');
+  titleEl.className = 'webinar-card-title';
+  titleEl.textContent = w.title;
+  const statusEl = document.createElement('span');
+  statusEl.className = `webinar-status webinar-status-${w.status}`;
+  statusEl.textContent = t(`webinarStatus_${w.status}`) || w.status;
+  head.append(titleEl, statusEl);
   card.appendChild(head);
 
+  // -- Meta: language + code --
   const meta = document.createElement('span');
   meta.className = 'webinar-card-meta';
-  meta.textContent = `${t('webinarCode')}: ${w.code} · ${t('webinarCreatedOn')} ${new Date(w.created_at).toLocaleDateString()}`;
+  const langLabel = langMeta(w.source_language)?.native ?? w.source_language;
+  const tierLabel = t(`webinarTier_${w.tier}`) || w.tier;
+  meta.textContent = `${langLabel} · ${tierLabel} · ${t('webinarCode')}: ${w.code}`;
   card.appendChild(meta);
 
-  const restoreBtn = document.createElement('button');
-  restoreBtn.type = 'button';
-  restoreBtn.className = 'btn-ghost webinar-restore-btn';
-  restoreBtn.textContent = t('webinarRestore');
-  restoreBtn.addEventListener('click', async () => {
-    restoreBtn.disabled = true;
-    try {
-      await unarchiveWebinar(w.id);
-      toast(t('webinarRestored'), 'ok');
-      await loadWebinars();
-    } catch (err) {
-      restoreBtn.disabled = false;
-      toast(webinarErrorMessage(err), 'err');
-    }
-  });
-  card.appendChild(restoreBtn);
+  // -- Timeline: scheduled or actual times --
+  const timeline = buildCardTimeline(w);
+  if (timeline) {
+    const timelineEl = document.createElement('span');
+    timelineEl.className = 'webinar-card-timeline';
+    timelineEl.textContent = timeline;
+    card.appendChild(timelineEl);
+  } else {
+    // Fallback: show created date when no time data
+    const createdEl = document.createElement('span');
+    createdEl.className = 'webinar-card-timeline';
+    createdEl.textContent = `${t('webinarCreatedOn')} ${new Date(w.created_at).toLocaleDateString()}`;
+    card.appendChild(createdEl);
+  }
+
+  // -- View details CTA --
+  const detailBtn = document.createElement('button');
+  detailBtn.type = 'button';
+  detailBtn.className = 'btn-ghost webinar-view-details-btn';
+  detailBtn.setAttribute('data-i18n', 'webinarViewDetails');
+  detailBtn.textContent = t('webinarViewDetails');
+  detailBtn.addEventListener('click', () => openWebinarDetailModal(w));
+  card.appendChild(detailBtn);
 
   webinarList.appendChild(card);
 }
@@ -6485,6 +6412,193 @@ webinarQrModal.addEventListener('click', (e) => {
   if (e.target === webinarQrModal) show(webinarQrModal, false); // click-outside to close
 });
 $('webinar-qr-close').addEventListener('click', () => show(webinarQrModal, false));
+
+// ---- Detail modal (D5/D7 — PR3) -----------------------------------------
+
+/** Populate the shared #webinar-detail-modal with the given webinar's data
+ *  and open it. One modal element is re-used and re-populated per open. */
+function openWebinarDetailModal(w: WebinarView): void {
+  const info: WebinarDetailInfo = buildDetailInfo(w);
+
+  // Stamp the webinar id so event handlers (calendar, etc.) can read it.
+  webinarDetailModal.dataset.webinarId = w.id;
+
+  // Header
+  wdmTitle.textContent = info.title;
+
+  // Status badge: reuse existing .webinar-status-* classes
+  wdmStatus.textContent = t(`webinarStatus_${info.status}`) || info.status;
+  wdmStatus.className = `webinar-status webinar-status-${info.status}`;
+
+  // Tier + visibility badges
+  wdmTier.textContent = t(`webinarTier_${info.tier}`) || info.tier;
+  wdmVisibility.textContent = info.visibility === 'public' ? t('webinarDetailPublic') : t('webinarDetailPrivate');
+
+  // Source language
+  wdmSourceLang.textContent = langMeta(info.source_language)?.native ?? info.source_language;
+
+  // Scheduled time
+  const scheduledStr = buildCardTimeline(w);
+  if (scheduledStr && !info.actual_start) {
+    wdmScheduled.textContent = scheduledStr;
+    show(wdmScheduledRow, true);
+  } else {
+    show(wdmScheduledRow, false);
+  }
+
+  // Actual time (for ended webinars)
+  if (info.actual_start) {
+    const actStart = formatScheduledStart(info.actual_start);
+    const actEnd   = formatScheduledStart(info.actual_end);
+    wdmActual.textContent = actEnd ? `${actStart} – ${actEnd}` : actStart;
+    show(wdmActualRow, true);
+  } else {
+    show(wdmActualRow, false);
+  }
+
+  // Reminder lead
+  if (info.reminder_minutes_before != null) {
+    wdmReminder.textContent = `${info.reminder_minutes_before} min`;
+    show(wdmReminderRow, true);
+  } else {
+    show(wdmReminderRow, false);
+  }
+
+  // Description
+  if (info.description) {
+    wdmDescription.textContent = info.description;
+    show(wdmDescriptionSection, true);
+  } else {
+    show(wdmDescriptionSection, false);
+  }
+
+  // Join link + QR
+  wdmJoinUrl.value = info.join_url;
+  wdmCode.textContent = info.code;
+  wdmQr.alt = t('webinarQrAlt');
+  void renderQr(wdmQr, info.join_url);
+  wdmQr.onclick = () => openQrModal(w, wdmQr.src);
+  wdmQr.onkeydown = (e) => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openQrModal(w, wdmQr.src); }
+  };
+  wdmQrDownload.onclick = async () => {
+    wdmQrDownload.disabled = true;
+    try { downloadQr(await qrDataUrl(info.join_url, wdmQr.src), info.code); }
+    finally { wdmQrDownload.disabled = false; }
+  };
+  wdmQrPrint.onclick = async () => {
+    wdmQrPrint.disabled = true;
+    try { printQr(await qrDataUrl(info.join_url, wdmQr.src), info.title, info.join_url); }
+    finally { wdmQrPrint.disabled = false; }
+  };
+
+  // Copy button (re-bind each open so the closure captures the latest join_url)
+  wdmCopyBtn.onclick = async () => {
+    try {
+      await navigator.clipboard.writeText(info.join_url);
+      wdmCopyBtn.textContent = t('copied');
+      setTimeout(() => (wdmCopyBtn.textContent = t('copy')), 1200);
+    } catch {
+      wdmJoinUrl.select();
+      toast(t('copyFailed'), 'err');
+    }
+  };
+
+  // Feature flags chips
+  wdmFlags.innerHTML = '';
+  const flags: Array<{ key: string; active: boolean; label: string }> = [
+    { key: 'rec',       active: info.record_video,     label: t('webinarRecordVideo') },
+    { key: 'transcript',active: info.record_transcript, label: t('webinarRecordTranscript') },
+    { key: 'chat',      active: info.chat_enabled,      label: t('webinarDetailChat') },
+    { key: 'notify',    active: info.notify_friends !== false, label: t('webinarNotifyFriends') },
+  ];
+  for (const f of flags) {
+    const chip = document.createElement('span');
+    chip.className = `wdm-flag-chip${f.active ? '' : ' muted'}`;
+    chip.textContent = f.label;
+    wdmFlags.appendChild(chip);
+  }
+
+  // Created date
+  wdmCreatedAt.textContent = new Date(info.created_at).toLocaleDateString(undefined, { dateStyle: 'medium' });
+
+  // Lifecycle actions (Cancel + Archive for scheduled; Restore for archived)
+  wdmLifecycleActions.innerHTML = '';
+
+  if (w.archived_at) {
+    // Archived webinar: Restore action
+    const restoreBtn = document.createElement('button');
+    restoreBtn.type = 'button';
+    restoreBtn.className = 'btn-ghost';
+    restoreBtn.textContent = t('webinarRestore');
+    restoreBtn.addEventListener('click', async () => {
+      restoreBtn.disabled = true;
+      try {
+        await unarchiveWebinar(w.id);
+        toast(t('webinarRestored'), 'ok');
+        show(webinarDetailModal, false);
+        await loadWebinars();
+      } catch (err) {
+        restoreBtn.disabled = false;
+        toast(webinarErrorMessage(err), 'err');
+      }
+    });
+    wdmLifecycleActions.appendChild(restoreBtn);
+  } else {
+    // Active webinar: Cancel (scheduled only) + Archive
+    if (info.status === 'scheduled') {
+      const cancelBtn = document.createElement('button');
+      cancelBtn.type = 'button';
+      cancelBtn.className = 'btn-ghost danger';
+      cancelBtn.textContent = t('webinarCancel');
+      cancelBtn.addEventListener('click', async () => {
+        if (!confirm(t('webinarCancelConfirm'))) return;
+        cancelBtn.disabled = true;
+        try {
+          await cancelWebinar(w.id);
+          toast(t('webinarCancelled'), 'ok');
+          show(webinarDetailModal, false);
+          await loadWebinars();
+        } catch (err) {
+          cancelBtn.disabled = false;
+          toast(webinarErrorMessage(err), 'err');
+        }
+      });
+      wdmLifecycleActions.appendChild(cancelBtn);
+    }
+
+    const archiveBtn = document.createElement('button');
+    archiveBtn.type = 'button';
+    archiveBtn.className = 'btn-ghost';
+    archiveBtn.textContent = t('webinarArchive');
+    archiveBtn.addEventListener('click', async () => {
+      archiveBtn.disabled = true;
+      try {
+        await archiveWebinar(w.id);
+        toast(t('webinarArchived'), 'ok');
+        show(webinarDetailModal, false);
+        await loadWebinars();
+      } catch (err) {
+        archiveBtn.disabled = false;
+        toast(webinarErrorMessage(err), 'err');
+      }
+    });
+    wdmLifecycleActions.appendChild(archiveBtn);
+  }
+
+  // Google Calendar row: inject the rich row (with OAuth retry) for scheduled webinars.
+  wdmCalendarRow.innerHTML = '';
+  if (!w.archived_at && info.status === 'scheduled' && !!info.scheduled_start) {
+    wdmCalendarRow.appendChild(buildAddCalendarRow(w));
+  }
+
+  show(webinarDetailModal, true);
+}
+
+$('wdm-close').addEventListener('click', () => show(webinarDetailModal, false));
+webinarDetailModal.addEventListener('click', (e) => {
+  if (e.target === webinarDetailModal) show(webinarDetailModal, false);
+});
 
 /** Pre-live voice clone from a webinar card (webinar-ui-fixes #5). Reuses the exact
  *  capture + clone flow the call pre-join uses (`recordVoiceSample` → `cloneVoice`):

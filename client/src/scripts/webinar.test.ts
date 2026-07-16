@@ -13,6 +13,8 @@ import {
   addToCalendar,
   archiveWebinar,
   buildPublishConstraints,
+  buildCardTimeline,
+  buildDetailInfo,
   cancelWebinar,
   canHostWebinar,
   clampReminder,
@@ -851,5 +853,123 @@ describe('resetEndIfStartPassed', () => {
 
   it('returns false when both are null', () => {
     expect(resetEndIfStartPassed(null, null)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildCardTimeline (D7 — PR3)
+// Returns a compact time string for the card summary line.
+// ---------------------------------------------------------------------------
+describe('buildCardTimeline', () => {
+  const ISO_START = '2026-08-01T14:00:00Z';
+  const ISO_END   = '2026-08-01T15:30:00Z';
+  const ISO_ACT_START = '2026-08-01T14:05:00Z';
+  const ISO_ACT_END   = '2026-08-01T15:35:00Z';
+
+  it('returns empty string when all time fields are null (immediate/no-time webinar)', () => {
+    expect(buildCardTimeline(webinar())).toBe('');
+  });
+
+  it('returns scheduled_start formatted when only scheduled_start is set', () => {
+    const w = webinar({ scheduled_start: ISO_START });
+    const result = buildCardTimeline(w);
+    // Must be non-empty and include the formatted start
+    expect(result).not.toBe('');
+    expect(result).toBe(formatScheduledStart(ISO_START));
+  });
+
+  it('appends scheduled_end when both scheduled_start and scheduled_end are set', () => {
+    const w = webinar({ scheduled_start: ISO_START, scheduled_end: ISO_END });
+    const result = buildCardTimeline(w);
+    expect(result).toContain(formatScheduledStart(ISO_START));
+    expect(result).toContain('–'); // em-dash separator between start and end
+  });
+
+  it('uses actual_start when actual_end is also present (ended webinar)', () => {
+    const w = webinar({
+      status: 'ended',
+      actual_start: ISO_ACT_START,
+      actual_end: ISO_ACT_END,
+    });
+    const result = buildCardTimeline(w);
+    expect(result).toContain(formatScheduledStart(ISO_ACT_START));
+    expect(result).toContain('–');
+  });
+
+  it('returns scheduled_start for a live webinar that has not yet set actual fields', () => {
+    const w = webinar({ status: 'live', scheduled_start: ISO_START });
+    const result = buildCardTimeline(w);
+    expect(result).toBe(formatScheduledStart(ISO_START));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildDetailInfo (D5/D7 — PR3)
+// Returns structured data for populating the detail modal.
+// ---------------------------------------------------------------------------
+describe('buildDetailInfo', () => {
+  const ISO_START = '2026-08-15T10:00:00Z';
+  const ISO_END   = '2026-08-15T11:00:00Z';
+
+  it('returns the webinar id, title, code, status, tier, visibility, and source_language', () => {
+    const w = webinar({
+      status: 'scheduled',
+      source_language: 'fr',
+      tier: 'standard',
+      visibility: 'public',
+    });
+    const info = buildDetailInfo(w);
+    expect(info.id).toBe('w1');
+    expect(info.title).toBe('Launch');
+    expect(info.code).toBe('ab12cd');
+    expect(info.status).toBe('scheduled');
+    expect(info.tier).toBe('standard');
+    expect(info.visibility).toBe('public');
+    expect(info.source_language).toBe('fr');
+  });
+
+  it('includes description, project_id, join_url, and created_at', () => {
+    const w = webinar({ description: 'A great talk', project_id: 'p42' });
+    const info = buildDetailInfo(w);
+    expect(info.description).toBe('A great talk');
+    expect(info.project_id).toBe('p42');
+    expect(info.join_url).toBe('https://voxtranslate.app/w/ab12cd');
+    expect(info.created_at).toBe('2026-07-11T00:00:00Z');
+  });
+
+  it('includes scheduling fields when present', () => {
+    const w = webinar({ scheduled_start: ISO_START, scheduled_end: ISO_END });
+    const info = buildDetailInfo(w);
+    expect(info.scheduled_start).toBe(ISO_START);
+    expect(info.scheduled_end).toBe(ISO_END);
+  });
+
+  it('includes actual_start and actual_end for an ended webinar', () => {
+    const w = webinar({ status: 'ended', actual_start: ISO_START, actual_end: ISO_END });
+    const info = buildDetailInfo(w);
+    expect(info.actual_start).toBe(ISO_START);
+    expect(info.actual_end).toBe(ISO_END);
+  });
+
+  it('includes record_video, record_transcript, chat_enabled flags', () => {
+    const w = webinar({ record_video: true, record_transcript: true, chat_enabled: true });
+    const info = buildDetailInfo(w);
+    expect(info.record_video).toBe(true);
+    expect(info.record_transcript).toBe(true);
+    expect(info.chat_enabled).toBe(true);
+  });
+
+  it('includes notify_friends and reminder_minutes_before when present', () => {
+    const w = webinar({ notify_friends: false, reminder_minutes_before: 30 });
+    const info = buildDetailInfo(w);
+    expect(info.notify_friends).toBe(false);
+    expect(info.reminder_minutes_before).toBe(30);
+  });
+
+  it('returns null description and project_id when webinar has none', () => {
+    const w = webinar(); // defaults: description: null, project_id: null
+    const info = buildDetailInfo(w);
+    expect(info.description).toBeNull();
+    expect(info.project_id).toBeNull();
   });
 });
