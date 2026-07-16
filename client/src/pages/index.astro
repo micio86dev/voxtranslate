@@ -1448,8 +1448,6 @@ const jsonLd = {
             <span id="wdm-created-at"></span>
           </p>
 
-        </div><!-- /.wdm-body -->
-
         <!-- Edit form: rendered only when status === 'scheduled' (PR4 / D5-edit / D6-edit).
              All editable fields + destructive Cancel/Archive actions live here (req #6).
              app.ts populates + shows this section when openWebinarDetailModal runs. -->
@@ -1552,6 +1550,7 @@ const jsonLd = {
           <div id="wdm-lifecycle-actions" class="wdm-lifecycle-actions"></div>
           <div id="wdm-calendar-row"></div>
         </div>
+        </div><!-- /.wdm-body -->
 
       </div>
     </div>
@@ -3021,14 +3020,21 @@ const jsonLd = {
     .webinar-prelive-actions .btn-primary,
     .webinar-prelive-actions .btn-ghost { flex: none; padding: 0 18px; min-height: 42px; width: auto; }
     /* Webinar detail modal (D5/D7 — PR3). Shares .modal-overlay focus-trap infrastructure. */
-    .webinar-detail-modal { max-width: 520px; width: 100%; display: flex; flex-direction: column; max-height: 90dvh; padding: 0; }
+    /* Single, simple scroll container: block flow + overflow-y:auto + max-height. (The base
+       .modal rule is flex-column; we override to block here so the tall detail+edit content
+       scrolls reliably instead of a flex child being clipped — see e2e click intercepts.) */
+    .webinar-detail-modal { max-width: 520px; width: 100%; display: block; overflow-y: auto; max-height: 90dvh; padding: 0; }
     .wdm-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 20px 20px 12px; }
     .wdm-title { font-size: 1.1rem; font-weight: 700; margin: 0; line-height: 1.3; color: var(--text); }
     .wdm-badges { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 20px 14px; }
     .wdm-badge { flex: none; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; padding: 3px 9px; border-radius: 999px; background: var(--border); color: var(--muted); }
     .wdm-tier-badge { background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); }
     .wdm-visibility-badge { background: var(--surface-2, var(--border)); color: var(--muted); }
-    .wdm-body { flex: 1 1 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 20px; display: flex; flex-direction: column; gap: 0; }
+    /* The modal itself scrolls (.modal → overflow-y:auto + max-height). Do NOT make this a
+       second, nested scroll container: a flex child with its own overflow fought the modal's
+       scroll and left the share/edit controls clipped outside the viewport (e2e copy/save
+       click intercepts). Plain block flow here → the whole modal scrolls as one. */
+    .wdm-body { padding: 0 20px; display: flex; flex-direction: column; gap: 0; }
     .wdm-section { padding: 12px 0; border-top: 1px solid var(--border); }
     .wdm-section:first-child { border-top: none; }
     .wdm-section-label { margin: 0 0 8px; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }

@@ -824,6 +824,14 @@ describe('clampReminder', () => {
   it('returns the exact minutesUntilStart when reminder equals it', () => {
     expect(clampReminder(45, 45)).toBe(45);
   });
+
+  it('collapses a non-finite reminder (empty field → NaN) to 0 instead of propagating NaN', () => {
+    expect(clampReminder(Number.NaN, 30)).toBe(0);
+  });
+
+  it('falls back to the reminder value when minutesUntilStart is non-finite', () => {
+    expect(clampReminder(10, Number.NaN)).toBe(10);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -905,6 +913,13 @@ describe('buildCardTimeline', () => {
     const w = webinar({ status: 'live', scheduled_start: ISO_START });
     const result = buildCardTimeline(w);
     expect(result).toBe(formatScheduledStart(ISO_START));
+  });
+
+  it('shows actual_start alone for a live webinar mid-broadcast (actual_start set, no end)', () => {
+    // actual_start takes priority over scheduled_start; with no end it stands alone
+    // (the previously-untested live-with-actual_start branch).
+    const w = webinar({ status: 'live', actual_start: ISO_ACT_START, scheduled_start: ISO_START });
+    expect(buildCardTimeline(w)).toBe(formatScheduledStart(ISO_ACT_START));
   });
 });
 

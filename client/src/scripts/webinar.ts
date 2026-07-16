@@ -627,8 +627,11 @@ export function fromDatetimeLocalValue(value: string): string | null {
  *  Returns a value in [0, min(reminderMinutes, minutesUntilStart)].
  *  Pure + input-driven (no `Date.now()`) so the UI can unit-test it directly. */
 export function clampReminder(reminderMinutes: number, minutesUntilStart: number): number {
-  const ceiling = Math.max(0, minutesUntilStart);
-  return Math.min(reminderMinutes, ceiling);
+  // Defensive: a non-finite input (empty field → NaN) collapses to 0 rather than
+  // propagating NaN, so callers that skip their own guard still get a sane number.
+  if (!Number.isFinite(reminderMinutes)) return 0;
+  const ceiling = Number.isFinite(minutesUntilStart) ? Math.max(0, minutesUntilStart) : reminderMinutes;
+  return Math.max(0, Math.min(reminderMinutes, ceiling));
 }
 
 /** Determine whether `scheduled_end` must be cleared because the host moved

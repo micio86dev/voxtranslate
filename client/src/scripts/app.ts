@@ -6259,11 +6259,16 @@ function downloadBlob(content: string, filename: string, mime: string): void {
 
 /** Open the post-webinar recap screen: fetch transcripts + stats immediately, lazy-load
  *  the chat tab on first click. Called after `endWebinarBroadcast` cleans up state. */
+// Bumped on every recap open so a stale AI-report poll from a previous session abandons
+// itself instead of writing into the (now different) shared recap DOM.
+let recapGeneration = 0;
+
 async function openWebinarRecap(
   webinarId: string,
   webinarCode: string,
   webinarView?: WebinarView | null,
 ): Promise<void> {
+  const gen = ++recapGeneration;
   // Switch to the recap screen immediately.
   show(wsScreen, false);
   show(recapScreen, true);
@@ -6358,24 +6363,26 @@ async function openWebinarRecap(
     }
   }
 
-  // Download buttons wire-up.
-  recapDlTxt.addEventListener('click', () => {
+  // Download buttons wire-up. Use onclick (not addEventListener) so re-opening the recap
+  // for another session REPLACES the handler instead of stacking a second one (which would
+  // fire duplicate downloads with a stale transcriptRows/webinarCode closure).
+  recapDlTxt.onclick = () => {
     const lang = recapDlLang.value || myLang;
     downloadBlob(
       transcriptRowsToTxt(transcriptRows, lang),
       `transcript-${webinarCode}.txt`,
       'text/plain',
     );
-  });
+  };
 
-  recapDlSrt.addEventListener('click', () => {
+  recapDlSrt.onclick = () => {
     const lang = recapDlLang.value || myLang;
     downloadBlob(
       transcriptRowsToSrt(transcriptRows, lang),
       `transcript-${webinarCode}.srt`,
       'text/plain',
     );
-  });
+  };
 
   // Lazy-load chat tab on first click.
   let chatLoaded = false;
@@ -6430,7 +6437,7 @@ async function openWebinarRecap(
 
   // AI Report: poll the webinar ai/job endpoint (mirrors the meets generateReport pattern).
   let aiJobId: string | null = null;
-  recapAiGenerate.addEventListener('click', async () => {
+  recapAiGenerate.onclick = async () => {
     recapAiGenerate.disabled = true;
     show(recapAiStatus, true);
     recapAiStatus.classList.remove('error');
@@ -6452,6 +6459,7 @@ async function openWebinarRecap(
         let attempts = 0;
         const MAX_ATTEMPTS = 60;
         const poll = async (): Promise<void> => {
+          if (gen !== recapGeneration) return; // recap re-opened/closed → abandon stale poll
           if (attempts++ >= MAX_ATTEMPTS) {
             recapAiStatus.textContent = t('wvRecapAiError');
             recapAiStatus.classList.add('error');
@@ -6498,20 +6506,22 @@ async function openWebinarRecap(
       recapAiStatus.classList.add('error');
       recapAiGenerate.disabled = false;
     }
-  });
+  };
 
-  recapTabTranscript.addEventListener('click', () => {
+  // Tabs use onclick (not addEventListener) so re-opening the recap replaces the handlers
+  // rather than stacking duplicates that fire setRecapTab/loadChatTab multiple times.
+  recapTabTranscript.onclick = () => {
     setRecapTab(recapTabTranscript);
-  });
+  };
 
-  recapTabChat.addEventListener('click', () => {
+  recapTabChat.onclick = () => {
     setRecapTab(recapTabChat);
     void loadChatTab();
-  });
+  };
 
-  recapTabAi.addEventListener('click', () => {
+  recapTabAi.onclick = () => {
     setRecapTab(recapTabAi);
-  });
+  };
 }
 
 /** Stop the active broadcast (host confirmed End), then return to the Webinars list. */
@@ -6520,8 +6530,11 @@ async function endWebinarBroadcast(): Promise<void> {
   const recapId = activeWebinar?.id ?? null;
   const recapCode = activeWebinar?.code ?? null;
   // Snapshot the view so the recap can show actual_start / actual_end even after
-  // activeWebinar is cleared (the server stamps actual_end on the end call).
+  // activeWebinar is cleared. The server stamps actual_end on the end call, but this
+  // snapshot predates that response — the broadcast is ending right now, so fill it in
+  // locally (otherwise the recap "ended at" line would always show a dash).
   const recapView = activeWebinar ? { ...activeWebinar } : null;
+  if (recapView && !recapView.actual_end) recapView.actual_end = new Date().toISOString();
   // Close the STT bridge FIRST: closing the ingest socket flushes pending finals before we
   // stop capturing, so the last words still reach viewers as a subtitle.
   closeWebinarStt();
@@ -6909,20 +6922,23 @@ function openWebinarDetailModal(w: WebinarView): void {
         return;
       }
 
-      // Clamp reminder to time-until-start
+      // Clamp reminder: first to the server's 0..=1440 range (mirrors the create path so
+      // the client never accepts a value the server would silently truncate), then to the
+      // time remaining until start. Surface any adjustment as an inline error.
       let reminderVal: number | undefined;
       const rawReminder = parseInt(wdeReminderInput.value, 10);
       if (!Number.isNaN(rawReminder)) {
+        const cappedReminder = Math.min(1440, Math.max(0, rawReminder));
         if (startISO) {
           const minutesUntilStart = Math.floor((new Date(startISO).getTime() - Date.now()) / 60000);
-          reminderVal = clampReminder(rawReminder, minutesUntilStart);
-          if (reminderVal !== rawReminder) {
-            wdeReminderInput.value = String(reminderVal);
-            setWdeStatus(t('webinarErrReminderTooLong'), 'err');
-            return;
-          }
+          reminderVal = clampReminder(cappedReminder, minutesUntilStart);
         } else {
-          reminderVal = rawReminder;
+          reminderVal = cappedReminder;
+        }
+        if (reminderVal !== rawReminder) {
+          wdeReminderInput.value = String(reminderVal);
+          setWdeStatus(t('webinarErrReminderTooLong'), 'err');
+          return;
         }
       }
 
