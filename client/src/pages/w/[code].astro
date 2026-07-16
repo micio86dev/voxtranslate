@@ -198,6 +198,7 @@ const pageDesc = webinar
             <button id="wv-chat-toggle" type="button" class="wv-ctl hidden" aria-pressed="false" aria-controls="wv-chat">
               <span class="wv-ctl-ico" aria-hidden="true">💬</span>
               <span class="wv-ctl-label" data-i18n="wvChatShow">Show chat</span>
+              <span id="wv-chat-badge" class="chat-unread-badge hidden" aria-hidden="true"></span>
             </button>
           </div>
 
@@ -585,6 +586,16 @@ const pageDesc = webinar
       border: 1px solid currentColor;
       border-radius: 4px;
     }
+    /* Unread-message count badge on the "Show chat" toggle — a small red pill that
+       appears while the chat panel is closed and clears on open. Decorative
+       (aria-hidden); screen readers hear new messages via the chat log's aria-live. */
+    .chat-unread-badge {
+      min-width: 18px; height: 18px; padding: 0 5px; box-sizing: border-box;
+      display: inline-flex; align-items: center; justify-content: center;
+      border-radius: 999px; background: #ef4444; color: #fff;
+      font-size: 0.7rem; font-weight: 700; line-height: 1;
+    }
+    .chat-unread-badge.hidden { display: none; }
     /* Pressed state (audio on / captions on) — a subtle accent tint. */
     .wv-ctl[aria-pressed='true'] {
       background: rgba(59, 130, 246, 0.15);

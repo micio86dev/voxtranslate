@@ -156,6 +156,23 @@ describe('parseChatFrame', () => {
       created_at: '2026-07-12T10:00:00Z',
     });
   });
+  it('parses the avatar_url and file attachment carried on the frame', () => {
+    const frame =
+      '{"type":"chat","id":"m3","sender_kind":"guest","display_name":"Ada","original":"see file","lang":"es","translations":{"es":"see file"},"created_at":"t","avatar_url":"https://cdn/x=s96","attachment":{"url":"https://files/x.pdf","name":"x.pdf","content_type":"application/pdf","size":2048}}';
+    const ev = parseChatFrame(frame);
+    expect(ev?.avatar_url).toBe('https://cdn/x=s96');
+    expect(ev?.attachment).toEqual({
+      url: 'https://files/x.pdf',
+      name: 'x.pdf',
+      content_type: 'application/pdf',
+      size: 2048,
+    });
+  });
+  it('leaves attachment undefined when the frame carries a malformed one', () => {
+    const frame =
+      '{"type":"chat","id":"m4","sender_kind":"guest","display_name":"A","original":"x","lang":"en","translations":{},"created_at":"t","attachment":{"url":"u"}}';
+    expect(parseChatFrame(frame)?.attachment).toBeUndefined();
+  });
   it('accepts the host sender_kind and drops non-string translation values', () => {
     const ev = parseChatFrame(
       '{"type":"chat","id":"m2","sender_kind":"host","display_name":"H","original":"hi","lang":"en","translations":{"en":"hi","xx":5},"created_at":"t"}',

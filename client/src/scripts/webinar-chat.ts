@@ -317,9 +317,12 @@ export class ChatPanel {
     this.empty = p;
   }
 
-  /** Append one message to the list (idempotent by id) and scroll to the newest. */
-  append(event: ChatEvent): void {
-    if (this.seen.has(event.id)) return; // already rendered (e.g. our optimistic send)
+  /** Append one message to the list (idempotent by id) and scroll to the newest. Returns
+   *  true when a NEW row was rendered, false when the id was already seen (our optimistic
+   *  send echoed back, or a history/dedup replay) — callers use this to drive an unread
+   *  badge, counting only genuinely-new live messages. */
+  append(event: ChatEvent): boolean {
+    if (this.seen.has(event.id)) return false; // already rendered (e.g. our optimistic send)
     this.seen.add(event.id);
     if (this.empty) {
       this.empty.remove();
@@ -337,6 +340,7 @@ export class ChatPanel {
     this.opts.list.appendChild(row);
     // Scroll to the bottom so the newest message is visible.
     this.opts.list.scrollTop = this.opts.list.scrollHeight;
+    return true;
   }
 
   /** Load recent history so a late joiner sees prior context in their language. */

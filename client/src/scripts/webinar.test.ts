@@ -430,14 +430,23 @@ describe('getPublicWebinar', () => {
     ...over,
   });
 
-  it('GETs the public endpoint by code with NO auth headers', async () => {
+  it('GETs the public endpoint by code, forwarding auth for host detection', async () => {
     fetchMock.mockResolvedValue(okJson(pub()));
     const out = await getPublicWebinar('ab12cd');
     expect(out).toEqual(pub());
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe('http://test/api/w/ab12cd');
-    // Public endpoint — no Authorization header (init is undefined → no headers).
-    expect(init).toBeUndefined();
+    // Optional auth: a logged-in caller forwards the Bearer so the server can flag
+    // is_host (a host opening their own /w link is sent to the studio). authHeaders()
+    // is empty for guests, who then send no Authorization at all.
+    expect(init?.headers).toEqual({ Authorization: 'Bearer tok' });
+  });
+
+  it('surfaces the host-only is_host + id fields when the server returns them', async () => {
+    fetchMock.mockResolvedValue(okJson(pub({ is_host: true, id: 'w-123' })));
+    const out = await getPublicWebinar('ab12cd');
+    expect(out.is_host).toBe(true);
+    expect(out.id).toBe('w-123');
   });
 
   it('encodes the code and throws 404 for an unknown/cancelled webinar', async () => {

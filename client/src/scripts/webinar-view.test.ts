@@ -41,6 +41,19 @@ vi.mock('./i18n', () => ({
   SUPPORTED: ['en', 'es', 'it', 'fr', 'de', 'pt', 'zh', 'ja', 'ko', 'ar', 'ru'],
 }));
 
+// WebinarTts is constructed in onInfo when host/viewer languages differ; mock it so the
+// viewer wiring can toggle the translated-audio track without real speechSynthesis.
+const ttsSetEnabled = vi.fn();
+const ttsStop = vi.fn();
+const ttsSpeak = vi.fn();
+vi.mock('./webinar-tts', () => ({
+  WebinarTts: vi.fn(function (this: any) {
+    this.setEnabled = ttsSetEnabled;
+    this.stop = ttsStop;
+    this.speak = ttsSpeak;
+  }),
+}));
+
 import { mountWebinarPlayer, renderSubtitle } from './webinar-view';
 import type { SubtitleEvent } from './webinar-presence';
 
@@ -62,6 +75,10 @@ function buildDom(code = 'ab12cd', notfound = '0'): void {
         <span class="wv-ctl-ico" aria-hidden="true">🔊</span>
         <span class="wv-ctl-label">Mute audio</span>
       </button>
+      <button id="wv-listen" class="wv-ctl hidden" aria-pressed="false">
+        <span class="wv-ctl-ico" aria-hidden="true">🌐</span>
+        <span class="wv-ctl-label">Listen translated</span>
+      </button>
       <button id="wv-cc" class="wv-ctl" aria-pressed="true">
         <span class="wv-ctl-ico wv-cc-badge" aria-hidden="true">CC</span>
         <span class="wv-ctl-label">Subtitles on</span>
@@ -78,6 +95,9 @@ beforeEach(() => {
   destroy.mockClear();
   muteAudio.mockClear();
   isMuted.mockClear();
+  ttsSetEnabled.mockClear();
+  ttsStop.mockClear();
+  ttsSpeak.mockClear();
   setUiLangMock.mockClear();
   mutedState = true; // reset the fake player's mute flag between tests
   localStorage.clear(); // start each test without a stored language preference
@@ -182,6 +202,90 @@ describe('mountWebinarPlayer', () => {
     (el('wv-mute') as HTMLButtonElement).click();
     expect(muteAudio).toHaveBeenLastCalledWith(true);
     expect(el('wv-mute').getAttribute('aria-pressed')).toBe('false');
+  });
+
+  it('switching to translated audio does NOT flip the mute toggle', () => {
+    buildDom();
+    mountWebinarPlayer();
+    muteAudio.mockImplementation((m: boolean) => (mutedState = m));
+    // Host speaks a different language than the viewer (en) → the listen toggle appears.
+    lastOpts.onInfo?.({ source_language: 'it', code: 'x', title: 'T', status: 'live',
+      tier: 'standard', join_url: '', chat_enabled: false, playback_url: null, guest_id: 'g',
+      host_avatar_url: null });
+    expect(el('wv-listen').classList.contains('hidden')).toBe(false);
+    // Turn audio ON so the mute control is in its "active" state.
+    (el('wv-mute') as HTMLButtonElement).click();
+    expect(el('wv-mute').getAttribute('aria-pressed')).toBe('true');
+    const labelBefore = el('wv-mute').querySelector('.wv-ctl-label')?.textContent;
+    // Choosing translated audio must re-route the SOURCE only, never touch the mute control.
+    (el('wv-listen') as HTMLButtonElement).click();
+    expect(el('wv-mute').getAttribute('aria-pressed')).toBe('true');
+    expect(el('wv-mute').querySelector('.wv-ctl-label')?.textContent).toBe(labelBefore);
+    // The listen toggle itself flips to translated and enables the TTS track.
+    expect(el('wv-listen').getAttribute('aria-pressed')).toBe('true');
+    expect(ttsSetEnabled).toHaveBeenLastCalledWith(true);
+  });
+
+  it('muting silences the translated TTS track, not just the original HLS', () => {
+    buildDom();
+    mountWebinarPlayer();
+    muteAudio.mockImplementation((m: boolean) => (mutedState = m));
+    lastOpts.onInfo?.({ source_language: 'it', code: 'x', title: 'T', status: 'live',
+      tier: 'standard', join_url: '', chat_enabled: false, playback_url: null, guest_id: 'g',
+      host_avatar_url: null });
+    (el('wv-mute') as HTMLButtonElement).click(); // audio on (original)
+    (el('wv-listen') as HTMLButtonElement).click(); // switch to translated (TTS on)
+    expect(ttsSetEnabled).toHaveBeenLastCalledWith(true);
+    (el('wv-mute') as HTMLButtonElement).click(); // mute → TTS must go silent too
+    expect(el('wv-mute').getAttribute('aria-pressed')).toBe('false');
+    expect(ttsSetEnabled).toHaveBeenLastCalledWith(false);
+    expect(ttsStop).toHaveBeenCalled();
+  });
+
+  it('hides the listen toggle when the participant speaks the webinar language', () => {
+    buildDom();
+    mountWebinarPlayer(); // mocked viewer language is 'en'
+    lastOpts.onInfo?.({ source_language: 'en', code: 'x', title: 'T', status: 'live',
+      tier: 'standard', join_url: '', chat_enabled: false, playback_url: null, guest_id: 'g',
+      host_avatar_url: null });
+    expect(el('wv-listen').classList.contains('hidden')).toBe(true);
+  });
+
+  it('hides the listen toggle regardless of language case/region', () => {
+    buildDom();
+    mountWebinarPlayer(); // viewer 'en' vs webinar 'EN' / 'en-US' is still the same language
+    lastOpts.onInfo?.({ source_language: 'EN', code: 'x', title: 'T', status: 'live',
+      tier: 'standard', join_url: '', chat_enabled: false, playback_url: null, guest_id: 'g',
+      host_avatar_url: null });
+    expect(el('wv-listen').classList.contains('hidden')).toBe(true);
+  });
+
+  it('a different-language viewer defaults to the translated track on start', () => {
+    buildDom();
+    mountWebinarPlayer();
+    muteAudio.mockImplementation((m: boolean) => (mutedState = m));
+    lastOpts.onInfo?.({ source_language: 'it', code: 'x', title: 'T', status: 'live',
+      tier: 'standard', join_url: '', chat_enabled: false, playback_url: null, guest_id: 'g',
+      host_avatar_url: null });
+    (el('wv-tap') as HTMLButtonElement).click(); // start via the autoplay-unblock gesture
+    expect(el('wv-mute').getAttribute('aria-pressed')).toBe('true'); // audio active
+    expect(el('wv-listen').getAttribute('aria-pressed')).toBe('true'); // translated (default)
+    expect(ttsSetEnabled).toHaveBeenLastCalledWith(true); // TTS track carries the sound
+    expect(muteAudio).toHaveBeenLastCalledWith(true); // original HLS silenced
+  });
+
+  it('a same-language viewer hears the original on start (no translation)', () => {
+    buildDom();
+    mountWebinarPlayer();
+    muteAudio.mockImplementation((m: boolean) => (mutedState = m));
+    lastOpts.onInfo?.({ source_language: 'en', code: 'x', title: 'T', status: 'live',
+      tier: 'standard', join_url: '', chat_enabled: false, playback_url: null, guest_id: 'g',
+      host_avatar_url: null });
+    (el('wv-tap') as HTMLButtonElement).click();
+    expect(el('wv-listen').classList.contains('hidden')).toBe(true); // no listen toggle
+    expect(el('wv-mute').getAttribute('aria-pressed')).toBe('true'); // audio active
+    expect(muteAudio).toHaveBeenLastCalledWith(false); // original HLS audible
+    expect(ttsSetEnabled).not.toHaveBeenCalled(); // TTS never even constructed/enabled
   });
 
   it('shows the host avatar and hides the spinner when host_avatar_url is set', () => {

@@ -80,6 +80,13 @@ export interface PublicWebinar {
   /** ISO-8601 scheduled end, or null when the webinar was created without an end.
    *  When present, the live timer can toggle to a countdown to this instant. */
   scheduled_end?: string | null;
+  /** True ONLY when the caller's auth token belongs to this webinar's host (the server
+   *  detects it from the optional Bearer). Lets the /w page send the host to their studio
+   *  instead of joining as a viewer of their own webinar. Absent/false for guests. */
+  is_host?: boolean;
+  /** The webinar's id — returned ONLY to the host (alongside `is_host`), so the /w page
+   *  can deep-link into the studio. Never exposed to guests. */
+  id?: string;
 }
 
 /** Response of `POST /api/webinars/{id}/go-live`: a short-lived tokenized WHIP
@@ -395,7 +402,12 @@ export async function addToCalendar(id: string): Promise<CalendarEventResponse> 
 export async function getPublicWebinar(code: string): Promise<PublicWebinar> {
   let res: Response;
   try {
-    res = await fetch(`${HTTP_BASE}/api/w/${encodeURIComponent(code)}`);
+    // Send the Bearer when the caller is logged in (authHeaders() is empty otherwise) so
+    // the server can flag `is_host` — a host opening their own /w link is routed to the
+    // studio instead of joining as a viewer. Guests send no auth and get is_host:false.
+    res = await fetch(`${HTTP_BASE}/api/w/${encodeURIComponent(code)}`, {
+      headers: authHeaders(),
+    });
   } catch {
     netError();
   }
