@@ -276,6 +276,11 @@ export function mountWebinarPlayer(): void {
   });
 
   let listenMode: 'original' | 'translated' = 'original';
+  // The listener's logical audio state — true = they are hearing audio (original HLS OR
+  // the translated TTS track), false = muted. Deliberately independent of WHICH source
+  // is playing, so switching the listen mode re-routes audio without ever flipping the
+  // mute control. Starts false: the video is muted until the user's first gesture.
+  let audioActive = false;
   let webinarTts: WebinarTts | null = null;
   // Whether a listener-language translation is available (host speaks a different
   // language). Captured from onInfo and read by the CTA to decide the audio path.
@@ -283,6 +288,9 @@ export function mountWebinarPlayer(): void {
   // Whether the viewer has taken the start gesture (via the CTA). Once started, the
   // CTA no longer reappears on later `live` state polls.
   let viewerStarted = false;
+  // Latches once the host has been redirected off their own /w link into the studio, so
+  // the repeated onInfo polls don't fire navigation more than once.
+  let hostRedirected = false;
 
   const player = new HlsPlayer({
     code,
@@ -299,6 +307,14 @@ export function mountWebinarPlayer(): void {
     },
     onTapToStart: (needsTap) => show(tapBtn, needsTap),
     onInfo: (info) => {
+      // A host opening their OWN /w link is sent to the studio (via the app deep-link)
+      // instead of joining as a viewer of their own webinar. The server sets is_host +
+      // id from the optional Bearer; latch so the polling onInfo redirects only once.
+      if (info.is_host && info.id && !hostRedirected) {
+        hostRedirected = true;
+        location.assign(`/?webinar=${encodeURIComponent(info.id)}`);
+        return;
+      }
       // Capture the timer anchors. `actual_start` sets the elapsed origin; `scheduled_end`
       // (when present) unlocks the click-to-countdown toggle. Parse defensively — a bad
       // ISO yields NaN which we treat as "absent".
@@ -324,7 +340,12 @@ export function mountWebinarPlayer(): void {
           show(spinner, false);
         }
       }
-      if (info.source_language && info.source_language !== lang) {
+      // Only offer the listen toggle when the host speaks a DIFFERENT language than the
+      // viewer — a participant who speaks the webinar's language has nothing to translate.
+      // Compare on the base language, case-insensitively, so 'EN' / 'pt-BR' never falsely
+      // reveal the toggle against a viewer's plain 'en' / 'pt'.
+      const baseLang = (code2: string): string => code2.toLowerCase().split('-')[0];
+      if (info.source_language && baseLang(info.source_language) !== baseLang(lang)) {
         translationAvailable = true;
         show(listenBtn, true);
         webinarTts = new WebinarTts({
@@ -337,39 +358,60 @@ export function mountWebinarPlayer(): void {
     },
   });
 
-  tapBtn?.addEventListener('click', () => {
-    void player.userStart();
-  });
-
-  // Primary start CTA: the reliable gesture that starts playback (autoplay is blocked
-  // until the user acts). Starts the video unmuted, then — when a translation is
-  // available — switches the audio to the translated TTS track (silencing the original
-  // HLS audio) so the listener hears the webinar in their own language from the first tap.
-  ctaBtn?.addEventListener('click', () => {
+  // Begin playback from a user gesture (autoplay is blocked until the user acts). Marks
+  // audio active and — for a viewer whose language differs from the host's — defaults to
+  // the translated TTS track (button 2's default), so they hear the webinar in their own
+  // language from the first tap. Same-language viewers have no translation, so they stay
+  // on the original. Both the tap-to-start fallback and the primary CTA route through this
+  // so the "translated is the default" rule can't diverge between the two entry points.
+  function startPlayback(): void {
     viewerStarted = true;
     void player.userStart();
-    if (translationAvailable) {
-      listenMode = 'translated';
-      // userStart() unmuted the original HLS audio; mute it so the TTS is the only
-      // audio, then enable the translated speech and repaint the listen toggle.
-      player.muteAudio(true);
-      paintAudio();
-      webinarTts?.setEnabled(true);
-      paintListen();
-    }
+    audioActive = true;
+    if (translationAvailable) listenMode = 'translated';
+    applyAudioRouting();
+    paintAudio();
+    paintListen();
+  }
+  tapBtn?.addEventListener('click', startPlayback);
+  ctaBtn?.addEventListener('click', () => {
+    startPlayback();
     show(ctaBtn, false);
   });
 
-  // Audio mute toggle (wv-mute): aria-pressed=true when audio is ACTIVE (playing).
-  function paintAudio(): void {
-    const muted = player.isMuted();
-    if (muteBtn) {
-      setCtl(muteBtn, muted ? 'wvUnmuteAudio' : 'wvMuteAudio', muted ? '🔇' : '🔊');
-      muteBtn.setAttribute('aria-pressed', muted ? 'false' : 'true');
+  // Single source of truth for audio routing given (audioActive, listenMode):
+  //  - muted        → original HLS silenced + TTS off (nothing plays);
+  //  - translated   → original HLS silenced, the TTS track carries the sound;
+  //  - original     → original HLS audible, TTS off.
+  // Every control that changes either input calls this, which is what keeps the mute
+  // and listen toggles independent: choosing a source never alters audioActive.
+  function applyAudioRouting(): void {
+    if (!audioActive) {
+      player.muteAudio(true);
+      webinarTts?.setEnabled(false);
+      webinarTts?.stop();
+    } else if (listenMode === 'translated') {
+      player.muteAudio(true);
+      webinarTts?.setEnabled(true);
+    } else {
+      player.muteAudio(false);
+      webinarTts?.setEnabled(false);
+      webinarTts?.stop();
     }
   }
+
+  // Audio mute toggle (wv-mute): reflects audioActive (aria-pressed=true when the
+  // listener is hearing audio). NOT player.isMuted() — the original HLS is muted by
+  // design in translated mode even while the listener hears the TTS track, so keying
+  // the button off isMuted() made choosing "translated" wrongly show "audio off".
+  function paintAudio(): void {
+    if (!muteBtn) return;
+    setCtl(muteBtn, audioActive ? 'wvMuteAudio' : 'wvUnmuteAudio', audioActive ? '🔊' : '🔇');
+    muteBtn.setAttribute('aria-pressed', audioActive ? 'true' : 'false');
+  }
   muteBtn?.addEventListener('click', () => {
-    player.muteAudio(!player.isMuted());
+    audioActive = !audioActive;
+    applyAudioRouting();
     paintAudio();
   });
   paintAudio();
@@ -383,18 +425,10 @@ export function mountWebinarPlayer(): void {
     listenBtn.setAttribute('aria-pressed', listenMode === 'translated' ? 'true' : 'false');
   }
   listenBtn?.addEventListener('click', () => {
-    if (listenMode === 'original') {
-      listenMode = 'translated';
-      player.muteAudio(true);
-      paintAudio();
-      webinarTts?.setEnabled(true);
-    } else {
-      listenMode = 'original';
-      player.muteAudio(false);
-      paintAudio();
-      webinarTts?.setEnabled(false);
-      webinarTts?.stop();
-    }
+    // Switch the audio SOURCE only. audioActive is untouched, so the mute control never
+    // moves as a side effect of choosing original vs translated (was the reported bug).
+    listenMode = listenMode === 'original' ? 'translated' : 'original';
+    applyAudioRouting();
     paintListen();
   });
   paintListen();
@@ -637,6 +671,16 @@ async function setupChat(
 
   let historyLoaded = false;
   let open = false;
+  // Unread-count badge: bumps for each live message that arrives while the panel is
+  // closed, clears when it opens. Decorative (aria-hidden); SR users hear new messages
+  // via the chat log's aria-live.
+  const chatBadge = document.getElementById('wv-chat-badge');
+  let unread = 0;
+  function paintChatBadge(): void {
+    if (!chatBadge) return;
+    chatBadge.textContent = unread > 99 ? '99+' : String(unread);
+    show(chatBadge, unread > 0);
+  }
   function paintToggle(): void {
     if (!toggleBtn) return;
     setCtl(toggleBtn, open ? 'wvChatHide' : 'wvChatShow');
@@ -647,6 +691,8 @@ async function setupChat(
     show(panel, open);
     paintToggle();
     if (open) {
+      unread = 0; // catching up — clear the unread badge
+      paintChatBadge();
       maybePromptName();
       if (!historyLoaded) {
         historyLoaded = true;
@@ -762,5 +808,13 @@ async function setupChat(
     }
   });
 
-  return (event) => panelCtl.append(event);
+  // Live WS messages: append, and — when a genuinely new message lands while the panel
+  // is closed — bump the unread badge (append returns false for our own echoed send).
+  return (event) => {
+    const added = panelCtl.append(event);
+    if (added && !open) {
+      unread += 1;
+      paintChatBadge();
+    }
+  };
 }

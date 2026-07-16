@@ -1816,6 +1816,7 @@ pub async fn add_to_calendar(
 pub async fn public_get(
     State(state): State<AppState>,
     Extension(guest): Extension<GuestId>,
+    headers: HeaderMap,
     Path(code): Path<String>,
 ) -> Result<Response, Response> {
     let pool = require_pool(&state)?;
@@ -1828,9 +1829,27 @@ pub async fn public_get(
     if w.status == "cancelled" {
         return Err(not_found("webinar not found"));
     }
+    // Optional auth (mirrors `public_list`): when a valid JWT belongs to THIS webinar's
+    // host, tell the /w client so it can send the host to their studio instead of joining
+    // as a viewer of their own webinar. Only a boolean + the webinar id are revealed, and
+    // only to the host — a guest or any non-host caller gets `is_host:false` and no id.
+    let caller_id: Option<Uuid> = state.config.billing.as_ref().and_then(|b| {
+        headers
+            .get(AUTHORIZATION)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.strip_prefix("Bearer "))
+            .and_then(|tok| crate::auth::verify_jwt(&b.jwt_secret, tok).ok())
+            .and_then(|c| Uuid::parse_str(&c.sub).ok())
+    });
+    let is_host = caller_id.is_some() && caller_id == w.host_user_id;
     let mut body = public_view(&w, &state.config.app_base_url, cfg);
     if let Some(obj) = body.as_object_mut() {
         obj.insert("guest_id".into(), json!(guest.0));
+        obj.insert("is_host".into(), json!(is_host));
+        // The host needs the id to deep-link into the studio; never exposed to non-hosts.
+        if is_host {
+            obj.insert("id".into(), json!(w.id));
+        }
     }
     Ok(Json(body).into_response())
 }

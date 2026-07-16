@@ -260,8 +260,10 @@ describe('ChatPanel', () => {
       token: () => null,
       strings,
     });
-    panel.append(ev({ id: 'x' }));
-    panel.append(ev({ id: 'x' })); // duplicate id — ignored
+    // append returns true for a genuinely new row, false for a dedup'd id — the unread
+    // badge relies on this to count only new live messages (never the echoed own send).
+    expect(panel.append(ev({ id: 'x' }))).toBe(true);
+    expect(panel.append(ev({ id: 'x' }))).toBe(false); // duplicate id — ignored
     expect(d.list.querySelectorAll('.wv-chat-msg')).toHaveLength(1);
   });
 

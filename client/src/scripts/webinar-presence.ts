@@ -12,6 +12,10 @@
 // The WebSocket ctor is injectable so the parsing + reconnect logic unit-tests with a
 // fake socket (mirroring hls-player.test.ts / webrtc.test.ts).
 
+// Type-only import (erased at build → no runtime cycle): the chat panel owns the
+// canonical ChatAttachment shape; a live frame carries the same one.
+import type { ChatAttachment } from './webinar-chat';
+
 /** Parse a server presence frame. Returns the count for a well-formed
  *  `{type:"count",count:N}` text frame (N a finite number), else null — used to
  *  ignore malformed JSON, other frame types, or a non-numeric count. Pure. */
@@ -119,12 +123,28 @@ export interface ChatEvent {
   translations: Record<string, string>;
   /** RFC3339 timestamp the server stamped on the message. */
   created_at: string;
+  /** Sender's avatar URL when the server carries one (host + logged-in members). */
+  avatar_url?: string | null;
+  /** File attachment (image or document) carried by the message, when present. */
+  attachment?: ChatAttachment | null;
+}
+
+/** Parse the optional file attachment on a chat frame. Returns the well-formed
+ *  `{url,name,content_type,size}` (mirrors the server `WvAttachment`), else undefined —
+ *  a missing or malformed attachment simply yields a text-only message. Pure. */
+function parseChatAttachment(raw: unknown): ChatAttachment | undefined {
+  if (typeof raw !== "object" || raw === null) return undefined;
+  const a = raw as { url?: unknown; name?: unknown; content_type?: unknown; size?: unknown };
+  if (typeof a.url !== "string" || typeof a.name !== "string") return undefined;
+  if (typeof a.content_type !== "string" || typeof a.size !== "number") return undefined;
+  return { url: a.url, name: a.name, content_type: a.content_type, size: a.size };
 }
 
 /** Parse a server chat frame. Returns a well-typed `ChatEvent` for a valid
  *  `{type:"chat",id,sender_kind,display_name,original,lang,translations,created_at}` text
- *  frame, else null — so malformed JSON, other frame types (`count`/`subtitle`), or a shape
- *  mismatch are ignored. Pure, mirroring `parseSubtitleFrame`. */
+ *  frame (optionally carrying `avatar_url` + `attachment`), else null — so malformed JSON,
+ *  other frame types (`count`/`subtitle`), or a shape mismatch are ignored. Pure, mirroring
+ *  `parseSubtitleFrame`. */
 export function parseChatFrame(data: string): ChatEvent | null {
   let msg: unknown;
   try {
@@ -142,6 +162,8 @@ export function parseChatFrame(data: string): ChatEvent | null {
     lang?: unknown;
     translations?: unknown;
     created_at?: unknown;
+    avatar_url?: unknown;
+    attachment?: unknown;
   };
   if (frame.type !== "chat") return null; // not a chat frame
   if (typeof frame.id !== "string") return null;
@@ -165,6 +187,9 @@ export function parseChatFrame(data: string): ChatEvent | null {
     lang: frame.lang,
     translations,
     created_at: frame.created_at,
+    // undefined (not null) when absent, so `toEqual` on a text-only frame ignores them.
+    avatar_url: typeof frame.avatar_url === "string" ? frame.avatar_url : undefined,
+    attachment: parseChatAttachment(frame.attachment),
   };
 }
 

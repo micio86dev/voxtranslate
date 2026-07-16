@@ -89,6 +89,7 @@ import {
   formatScheduledStart,
   formatWebinarClock,
   fromDatetimeLocalValue,
+  getWebinar,
   isWebinarLive,
   listPublicWebinars,
   listWebinars,
@@ -4613,6 +4614,40 @@ async function boot(): Promise<void> {
     renderAccount();
     history.replaceState(null, '', location.pathname);
   }
+  // Deep-link `?webinar={id}`: a host who opened their own /w/{code} link was bounced here
+  // by the participant page (server-detected is_host). Enter the Webinars hub focused on
+  // that webinar so they land as host, not as a viewer of their own webinar.
+  if (auth.isLoggedIn()) {
+    const webinarId = new URLSearchParams(location.search).get('webinar');
+    if (webinarId) {
+      history.replaceState(null, '', location.pathname); // tidy the URL before we route
+      void enterWebinarAsHost(webinarId);
+    }
+  }
+}
+
+/** Open the Webinars hub focused on `id` (from the host-link deep-link): fetch the host
+ *  view (403 → not this user's webinar, stay home), open the hub, select the webinar's
+ *  org so its card is listed, then scroll to and briefly highlight it. */
+async function enterWebinarAsHost(id: string): Promise<void> {
+  let w: WebinarView;
+  try {
+    w = await getWebinar(id);
+  } catch {
+    return; // not authorized / not found — silently remain on the home screen
+  }
+  await openWebinars();
+  if (webinarOrgSel.value !== w.org_id) {
+    webinarOrgSel.value = w.org_id;
+    await loadWebinarProjects();
+    await loadWebinars();
+  }
+  const card = webinarList.querySelector<HTMLElement>(`[data-webinar-id="${w.id}"]`);
+  if (card) {
+    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    card.classList.add('webinar-card-highlight');
+    setTimeout(() => card.classList.remove('webinar-card-highlight'), 2200);
+  }
 }
 
 function showLogin(): void {
@@ -5718,6 +5753,19 @@ const wsEndCancel = $<HTMLButtonElement>('webinar-end-cancel');
 // active webinar has chat enabled.
 const wsChat = $('webinar-studio-chat');
 const wsChatToggle = $<HTMLButtonElement>('webinar-studio-chat-toggle');
+const wsChatToggleLabel = wsChatToggle.querySelector<HTMLElement>('.ws-chat-toggle-label');
+const wsChatBadge = $('webinar-studio-chat-badge');
+// Unread count on the host's collapsed chat toggle; bumps on live messages while the
+// panel is collapsed, clears on expand. Decorative (aria-hidden), like the viewer badge.
+let wsChatUnread = 0;
+function setWsChatToggleLabel(key: 'wvChatShow' | 'wvChatHide'): void {
+  if (wsChatToggleLabel) wsChatToggleLabel.textContent = t(key);
+  else wsChatToggle.textContent = t(key); // fallback if the label span is missing
+}
+function paintWsChatBadge(): void {
+  wsChatBadge.textContent = wsChatUnread > 99 ? '99+' : String(wsChatUnread);
+  show(wsChatBadge, wsChatUnread > 0);
+}
 const wsChatList = $('webinar-studio-chat-list');
 const wsChatInput = $<HTMLTextAreaElement>('webinar-studio-chat-input');
 const wsChatSend = $<HTMLButtonElement>('webinar-studio-chat-send');
@@ -5841,7 +5889,9 @@ function openWebinarChat(w: WebinarView): ((event: ChatEvent) => void) | null {
   wsChatList.innerHTML = '';
   wsChat.classList.remove('is-collapsed');
   wsChatToggle.setAttribute('aria-pressed', 'true');
-  wsChatToggle.textContent = t('wvChatHide');
+  setWsChatToggleLabel('wvChatHide');
+  wsChatUnread = 0; // fresh studio open → no unread
+  paintWsChatBadge();
   const panel = new ChatPanel({
     list: wsChatList,
     input: wsChatInput,
@@ -5861,7 +5911,15 @@ function openWebinarChat(w: WebinarView): ((event: ChatEvent) => void) | null {
   });
   webinarChat = panel;
   void panel.loadHistory();
-  return (event) => panel.append(event);
+  // Live WS messages: append, and bump the unread badge when a genuinely new message
+  // lands while the panel is collapsed (append returns false for the host's own echo).
+  return (event) => {
+    const added = panel.append(event);
+    if (added && wsChat.classList.contains('is-collapsed')) {
+      wsChatUnread += 1;
+      paintWsChatBadge();
+    }
+  };
 }
 
 /** Open the host presence WS for a webinar and stream its count into the studio badge.
@@ -5898,8 +5956,12 @@ wsChatForm.addEventListener('submit', (e) => {
 wsChatToggle.addEventListener('click', () => {
   const collapsed = wsChat.classList.toggle('is-collapsed');
   wsChatToggle.setAttribute('aria-pressed', collapsed ? 'false' : 'true');
-  wsChatToggle.textContent = t(collapsed ? 'wvChatShow' : 'wvChatHide');
-  if (!collapsed) wsChatInput.focus();
+  setWsChatToggleLabel(collapsed ? 'wvChatShow' : 'wvChatHide');
+  if (!collapsed) {
+    wsChatUnread = 0; // expanded → caught up
+    paintWsChatBadge();
+    wsChatInput.focus();
+  }
 });
 
 // Host studio chat: textarea auto-resize.

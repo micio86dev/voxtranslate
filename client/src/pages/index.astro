@@ -1204,7 +1204,10 @@ const jsonLd = {
         <section id="webinar-studio-chat" class="studio-chat card hidden" aria-label={T('webinarChatEnabled')}>
           <div class="studio-chat-head">
             <span class="card-title" data-i18n="webinarChatEnabled">{T('webinarChatEnabled')}</span>
-            <button id="webinar-studio-chat-toggle" class="btn-ghost webinar-copy-btn" type="button" aria-pressed="true" aria-controls="webinar-studio-chat-body" data-i18n="wvChatHide">{T('wvChatHide')}</button>
+            <button id="webinar-studio-chat-toggle" class="btn-ghost webinar-copy-btn" type="button" aria-pressed="true" aria-controls="webinar-studio-chat-body">
+              <span class="ws-chat-toggle-label" data-i18n="wvChatHide">{T('wvChatHide')}</span>
+              <span id="webinar-studio-chat-badge" class="chat-unread-badge hidden" aria-hidden="true"></span>
+            </button>
           </div>
           <div id="webinar-studio-chat-body" class="studio-chat-body">
             <div id="webinar-studio-chat-list" class="wv-chat-list" role="log" aria-live="polite" aria-relevant="additions"></div>
@@ -2683,6 +2686,13 @@ const jsonLd = {
       display: flex; flex-direction: column; gap: 10px; padding: 14px;
       border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface);
     }
+    /* Transient highlight when a host deep-links onto their own webinar (host-link route). */
+    .webinar-list :global(.webinar-card-highlight) { animation: webinar-card-pulse 2.2s ease-out; }
+    @keyframes webinar-card-pulse {
+      0%, 15% { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent); }
+      100% { border-color: var(--border); box-shadow: 0 0 0 0 transparent; }
+    }
+    @media (prefers-reduced-motion: reduce) { .webinar-list :global(.webinar-card-highlight) { animation: none; } }
     .webinar-list :global(.webinar-card-head) { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
     .webinar-list :global(.webinar-card-title) { font-weight: 700; font-size: 1rem; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
     .webinar-list :global(.webinar-status) { flex: none; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; padding: 2px 8px; border-radius: 999px; background: var(--border); color: var(--muted); }
@@ -2791,6 +2801,22 @@ const jsonLd = {
     .studio-chat :global(.wv-chat-msg.is-host .wv-chat-name-line) { color: var(--accent); }
     .studio-chat :global(.wv-chat-host-tag) { font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; margin-left: 6px; padding: 1px 6px; border-radius: 999px; background: color-mix(in srgb, var(--accent) 25%, transparent); color: var(--accent); }
     .studio-chat :global(.wv-chat-body) { font-size: 0.95rem; color: var(--text); }
+    /* Chat attachment bubble (image preview or file chip) — mirrors the participant view
+       ([code].astro); without these the host studio rendered attachments unstyled. */
+    .studio-chat :global(.wv-chat-attachment) { margin-top: 4px; max-width: 100%; min-width: 0; }
+    .studio-chat :global(.wv-chat-att-img) { max-width: 100%; max-height: 200px; height: auto; border-radius: 6px; margin-top: 4px; display: block; }
+    .studio-chat :global(.wv-chat-att-file) { display: flex; align-items: center; gap: 8px; margin-top: 4px; padding: 6px 10px; border-radius: 10px; background: var(--surface, #1e2535); border: 1px solid var(--border, rgba(148, 163, 184, 0.2)); color: var(--text, #e5e7eb); font-size: 0.85rem; max-width: 100%; box-sizing: border-box; }
+    .studio-chat :global(.wv-chat-att-file-icon) { flex: none; }
+    .studio-chat :global(.wv-chat-att-file-meta) { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+    .studio-chat :global(.wv-chat-att-file-name) { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .studio-chat :global(.wv-chat-att-file-size) { font-size: 0.72rem; color: var(--muted, #94a3b8); }
+    .studio-chat :global(.wv-chat-att-dl) { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; border-radius: 999px; background: var(--surface, #1e2535); border: 1px solid var(--border, rgba(148, 163, 184, 0.2)); color: var(--accent, #3b82f6); font-size: 0.9rem; cursor: pointer; touch-action: manipulation; transition: border-color 0.12s, background 0.12s; }
+    .studio-chat :global(.wv-chat-att-dl:hover) { border-color: var(--accent, #3b82f6); }
+    .studio-chat :global(.wv-chat-att-dl:disabled) { opacity: 0.5; cursor: default; }
+    /* Unread-count badge on the host's "Show chat" toggle (red pill; clears on expand). */
+    .studio-chat :global(#webinar-studio-chat-toggle) { display: inline-flex; align-items: center; gap: 6px; }
+    .studio-chat :global(.chat-unread-badge) { min-width: 18px; height: 18px; padding: 0 5px; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; border-radius: 999px; background: #ef4444; color: #fff; font-size: 0.7rem; font-weight: 700; line-height: 1; }
+    .studio-chat :global(.chat-unread-badge.hidden) { display: none; }
     .studio-chat :global(.wv-chat-empty) { margin: auto; padding: 20px; text-align: center; font-size: 0.85rem; color: var(--muted); }
     .studio-chat :global(.wv-chat-form) { padding-bottom: env(safe-area-inset-bottom, 0); }
     .studio-chat :global(.wv-chat-input) { width: 100%; box-sizing: border-box; min-height: 44px; max-height: 120px; padding: 11px 12px; font: inherit; font-size: 1rem; border-radius: 10px; background: var(--bg); border: 1px solid var(--border); color: var(--text); resize: none; overflow-y: hidden; }
