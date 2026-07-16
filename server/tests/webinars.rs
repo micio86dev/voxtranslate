@@ -3133,11 +3133,12 @@ async fn patch_without_source_language_leaves_it_unchanged() {
 
 // ---- W2: real migration idempotency — raw ALTER TABLE IF NOT EXISTS ----------
 
-/// W2 — Executes the raw `ALTER TABLE webinars ADD COLUMN IF NOT EXISTS notify_friends …`
-/// a second time directly against the pool, bypassing sqlx's checksum tracker.
-/// This exercises the `IF NOT EXISTS` guard at the SQL engine level.
-/// sqlx::migrate! enforces idempotency via checksums, so the only way to verify
-/// the SQL itself handles re-runs is to run it directly.
+// W2 — Executes the raw `ALTER TABLE webinars ADD COLUMN IF NOT EXISTS notify_friends …`
+// a second time directly against the pool, bypassing sqlx's checksum tracker.
+// This exercises the `IF NOT EXISTS` guard at the SQL engine level.
+// sqlx::migrate! enforces idempotency via checksums, so the only way to verify
+// the SQL itself handles re-runs is to run it directly.
+
 // ---- PR6: session-stats endpoint -------------------------------------------
 
 /// Seed a minimal `webinar_sessions` row directly to avoid needing a full
