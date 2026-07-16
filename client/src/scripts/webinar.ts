@@ -54,6 +54,8 @@ export interface WebinarView {
   notify_friends?: boolean;
   /** Reminder lead time in minutes before scheduled_start (optional, scheduler-driven). */
   reminder_minutes_before?: number | null;
+  /** When true, only authenticated users can join the presence WebSocket. */
+  members_only?: boolean;
 }
 
 /** The public (no-auth) view of a webinar for a participant landing on `/w/{code}`.
@@ -135,6 +137,8 @@ export interface CreateWebinarBody {
 export interface PatchWebinarBody {
   title?: string;
   description?: string | null;
+  /** Change the host's speaking language for the webinar (validated server-side). */
+  source_language?: string;
   /** Reassign the business project the webinar is filed under. Server-side is
    * COALESCE-based: sending a project id reassigns; null/omit leaves it unchanged
    * (there is no unlink today). */
@@ -676,4 +680,24 @@ export function validateSchedule(
     return "endBeforeStart";
   }
   return "ok";
+}
+
+/** Client-side mirror of the server's unarchive time-guard (Area E / D3).
+ *
+ *  Computes the webinar's "effective time" using the same precedence as the server:
+ *    `scheduled_end ?? scheduled_start ?? actual_end`
+ *
+ *  Returns `true` (restorable) when the effective time is absent (never scheduled
+ *  or aired) OR is still in the future relative to `nowMs`. Returns `false` when
+ *  the effective time is in the past.
+ *
+ *  The server guard is authoritative — this is UX-only (disables the Restore button
+ *  so the host sees a hint before attempting the doomed request). Pure + `nowMs`-injected
+ *  so tests are fully deterministic without mocking `Date.now()`. */
+export function isWebinarRestorable(w: WebinarView, nowMs: number): boolean {
+  const effectiveISO = w.scheduled_end ?? w.scheduled_start ?? w.actual_end ?? null;
+  if (!effectiveISO) return true;
+  const t = new Date(effectiveISO).getTime();
+  if (Number.isNaN(t)) return true; // unparseable → don't block; server decides
+  return t > nowMs;
 }

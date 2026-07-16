@@ -87,19 +87,22 @@ import {
   buildDetailInfo,
   cancelWebinar,
   canHostWebinar,
+  clampReminder,
   createWebinar,
   formatScheduledStart,
-  clampReminder,
   formatWebinarClock,
   fromDatetimeLocalValue,
   isWebinarLive,
+  isWebinarRestorable,
   listPublicWebinars,
   listWebinars,
+  patchWebinar,
   type PublicWebinarListItem,
   qrDownloadFilename,
   resetEndIfStartPassed,
   showVoiceCloneToggle,
   showWebinarCloneAction,
+  toDatetimeLocalValue,
   unarchiveWebinar,
   validateSchedule,
   WebinarError,
@@ -5052,6 +5055,27 @@ const wdmQrDownload = $<HTMLButtonElement>('wdm-qr-download');
 const wdmQrPrint = $<HTMLButtonElement>('wdm-qr-print');
 const wdmLifecycleActions = $('wdm-lifecycle-actions');
 const wdmCalendarRow = $('wdm-calendar-row');
+// PR4: Edit form (D5-edit / D6-edit / req #6).
+const wdmEditSection = $('wdm-edit-section');
+const wdeForm = $<HTMLFormElement>('wdm-edit-form');
+const wdeTitleInput = $<HTMLInputElement>('wde-title');
+const wdeDescriptionInput = $<HTMLTextAreaElement>('wde-description');
+const wdeLangSel = $<HTMLSelectElement>('wde-lang');
+const wdeTierSel = $<HTMLSelectElement>('wde-tier');
+const wdeStartInput = $<HTMLInputElement>('wde-start');
+const wdeEndInput = $<HTMLInputElement>('wde-end');
+const wdeReminderInput = $<HTMLInputElement>('wde-reminder');
+const wdeRecordVideoSw = $<HTMLButtonElement>('wde-record-video');
+const wdeRecordTranscriptSw = $<HTMLButtonElement>('wde-record-transcript');
+const wdeChatEnabledSw = $<HTMLButtonElement>('wde-chat-enabled');
+const wdeVisibilitySw = $<HTMLButtonElement>('wde-visibility');
+const wdeMembersOnlySw = $<HTMLButtonElement>('wde-members-only');
+const wdeNotifyFriendsSw = $<HTMLButtonElement>('wde-notify-friends');
+const wdeNotifyFriendsRow = $('wde-notify-friends-row');
+const wdeSaveBtn = $<HTMLButtonElement>('wde-save-btn');
+const wdeStatus = $('wde-status');
+const wdeCancelBtn = $<HTMLButtonElement>('wde-cancel-btn');
+const wdeArchiveBtn = $<HTMLButtonElement>('wde-archive-btn');
 $('webinars-back').innerHTML = icon('chevron-left', 18);
 
 let webinarOrgsLoaded = false;
@@ -5084,6 +5108,13 @@ wireSwitch(webinarChatEnabledSw);
 wireSwitch(webinarVisibilitySw);
 wireSwitch(webinarMembersOnlySw);
 wireSwitch(webinarVoiceCloneSw);
+// PR4: wire edit-form switches (same pattern).
+wireSwitch(wdeRecordVideoSw);
+wireSwitch(wdeRecordTranscriptSw);
+wireSwitch(wdeChatEnabledSw);
+wireSwitch(wdeVisibilitySw);
+wireSwitch(wdeMembersOnlySw);
+wireSwitch(wdeNotifyFriendsSw);
 
 /** Show the voice-clone toggle only for Enhanced when the host hasn't cloned yet;
  *  otherwise show the "already cloned" hint (cloned) or nothing (Standard). Called on
@@ -5137,6 +5168,43 @@ function fillWebinarLangs(): void {
   // Default to the host's UI language when it's in the union, else English.
   const ui = getUiLang();
   webinarLangSel.value = LANGUAGES.some((l) => l.code === ui) ? ui : 'en';
+}
+
+/** Populate the edit-form source-language select (once, then set value). */
+function fillWdeLangs(currentCode: string): void {
+  if (!wdeLangSel.options.length) {
+    for (const l of LANGUAGES) {
+      const opt = document.createElement('option');
+      opt.value = l.code;
+      opt.textContent = `${l.native} (${l.english})`;
+      wdeLangSel.appendChild(opt);
+    }
+  }
+  wdeLangSel.value = LANGUAGES.some((l) => l.code === currentCode) ? currentCode : 'en';
+}
+
+/** Show/hide the notify_friends row in the edit form based on visibility + schedule. */
+function syncWdeNotifyFriendsVisibility(): void {
+  const isPublic = switchOn(wdeVisibilitySw);
+  const hasStart = !!wdeStartInput.value;
+  show(wdeNotifyFriendsRow, isPublic && hasStart);
+}
+
+/** Enable/disable the edit-form end field based on whether start is valid. */
+function syncWdeEndEnabled(): void {
+  const startISO = fromDatetimeLocalValue(wdeStartInput.value);
+  wdeEndInput.disabled = !startISO;
+  if (!startISO) {
+    wdeEndInput.value = '';
+  }
+}
+
+/** Set the edit-form status line. */
+function setWdeStatus(msg: string, kind: 'ok' | 'err' | ''): void {
+  wdeStatus.textContent = msg;
+  wdeStatus.classList.toggle('ok', kind === 'ok');
+  wdeStatus.classList.toggle('err', kind === 'err');
+  show(wdeStatus, !!msg);
 }
 
 /** Open the Webinars screen: load the host's active-sub orgs on first entry, then
@@ -6522,15 +6590,144 @@ function openWebinarDetailModal(w: WebinarView): void {
   // Created date
   wdmCreatedAt.textContent = new Date(info.created_at).toLocaleDateString(undefined, { dateStyle: 'medium' });
 
-  // Lifecycle actions (Cancel + Archive for scheduled; Restore for archived)
+  // Edit form (PR4 / D5-edit): shown only for scheduled webinars.
+  // Cancel + Archive destructive actions live INSIDE the edit form (req #6).
   wdmLifecycleActions.innerHTML = '';
+  setWdeStatus('', '');
 
-  if (w.archived_at) {
-    // Archived webinar: Restore action
+  if (!w.archived_at && info.status === 'scheduled') {
+    // ---- Scheduled webinar: show the edit form section ----
+    // Populate all fields from the current WebinarView.
+    fillWdeLangs(w.source_language);
+    wdeTitleInput.value = w.title;
+    wdeDescriptionInput.value = w.description ?? '';
+    wdeTierSel.value = w.tier;
+    wdeStartInput.value = toDatetimeLocalValue(w.scheduled_start);
+    wdeEndInput.disabled = !w.scheduled_start;
+    wdeEndInput.value = toDatetimeLocalValue(w.scheduled_end);
+    wdeReminderInput.value = w.reminder_minutes_before != null ? String(w.reminder_minutes_before) : '';
+    wdeRecordVideoSw.setAttribute('aria-checked', String(w.record_video));
+    wdeRecordTranscriptSw.setAttribute('aria-checked', String(w.record_transcript));
+    wdeChatEnabledSw.setAttribute('aria-checked', String(w.chat_enabled));
+    wdeVisibilitySw.setAttribute('aria-checked', String(w.visibility === 'public'));
+    wdeMembersOnlySw.setAttribute('aria-checked', String(w.members_only ?? false));
+    wdeNotifyFriendsSw.setAttribute('aria-checked', String(w.notify_friends !== false));
+    syncWdeNotifyFriendsVisibility();
+
+    // Wire Cancel (inside edit section)
+    wdeCancelBtn.onclick = async () => {
+      if (!confirm(t('webinarCancelConfirm'))) return;
+      wdeCancelBtn.disabled = true;
+      try {
+        await cancelWebinar(w.id);
+        toast(t('webinarCancelled'), 'ok');
+        show(webinarDetailModal, false);
+        await loadWebinars();
+      } catch (err) {
+        wdeCancelBtn.disabled = false;
+        toast(webinarErrorMessage(err), 'err');
+      }
+    };
+
+    // Wire Archive (inside edit section)
+    wdeArchiveBtn.onclick = async () => {
+      wdeArchiveBtn.disabled = true;
+      try {
+        await archiveWebinar(w.id);
+        toast(t('webinarArchived'), 'ok');
+        show(webinarDetailModal, false);
+        await loadWebinars();
+      } catch (err) {
+        wdeArchiveBtn.disabled = false;
+        toast(webinarErrorMessage(err), 'err');
+      }
+    };
+
+    // Wire edit form submit
+    wdeForm.onsubmit = async (e) => {
+      e.preventDefault();
+      setWdeStatus('', '');
+
+      const startISO = fromDatetimeLocalValue(wdeStartInput.value);
+      const endISO   = fromDatetimeLocalValue(wdeEndInput.value);
+
+      // Client-side schedule validation (D6)
+      const validity = validateSchedule(startISO, endISO, Date.now());
+      if (validity === 'startPast') {
+        setWdeStatus(t('webinarErrStartPast'), 'err');
+        return;
+      }
+      if (validity === 'endBeforeStart') {
+        setWdeStatus(t('webinarErrEndBeforeStart'), 'err');
+        return;
+      }
+
+      // Clamp reminder to time-until-start
+      let reminderVal: number | undefined;
+      const rawReminder = parseInt(wdeReminderInput.value, 10);
+      if (!Number.isNaN(rawReminder)) {
+        if (startISO) {
+          const minutesUntilStart = Math.floor((new Date(startISO).getTime() - Date.now()) / 60000);
+          reminderVal = clampReminder(rawReminder, minutesUntilStart);
+          if (reminderVal !== rawReminder) {
+            wdeReminderInput.value = String(reminderVal);
+            setWdeStatus(t('webinarErrReminderTooLong'), 'err');
+            return;
+          }
+        } else {
+          reminderVal = rawReminder;
+        }
+      }
+
+      wdeSaveBtn.disabled = true;
+      try {
+        await patchWebinar(w.id, {
+          title: wdeTitleInput.value.trim() || undefined,
+          description: wdeDescriptionInput.value.trim() || null,
+          source_language: wdeLangSel.value,
+          tier: wdeTierSel.value as import('./webinar').WebinarTier,
+          record_video: switchOn(wdeRecordVideoSw),
+          record_transcript: switchOn(wdeRecordTranscriptSw),
+          chat_enabled: switchOn(wdeChatEnabledSw),
+          visibility: switchOn(wdeVisibilitySw) ? 'public' : 'private',
+          members_only: switchOn(wdeMembersOnlySw),
+          notify_friends: switchOn(wdeNotifyFriendsSw),
+          scheduled_start: startISO,
+          scheduled_end: endISO,
+          reminder_minutes_before: reminderVal,
+        });
+        setWdeStatus(t('webinarEditSaved'), 'ok');
+        await loadWebinars();
+      } catch (err) {
+        setWdeStatus(webinarErrorMessage(err), 'err');
+      } finally {
+        wdeSaveBtn.disabled = false;
+      }
+    };
+
+    show(wdmEditSection, true);
+  } else if (w.archived_at) {
+    // ---- Archived webinar: Restore action in lifecycle area ----
+    show(wdmEditSection, false);
+    const restorable = isWebinarRestorable(w, Date.now());
     const restoreBtn = document.createElement('button');
     restoreBtn.type = 'button';
     restoreBtn.className = 'btn-ghost';
     restoreBtn.textContent = t('webinarRestore');
+    restoreBtn.disabled = !restorable;
+    if (!restorable) {
+      restoreBtn.title = t('webinarRestorePastHint');
+    }
+    wdmLifecycleActions.appendChild(restoreBtn);
+
+    // Hint text when restore is blocked (Area E)
+    if (!restorable) {
+      const hint = document.createElement('p');
+      hint.className = 'wde-restore-hint';
+      hint.textContent = t('webinarRestorePastHint');
+      wdmLifecycleActions.appendChild(hint);
+    }
+
     restoreBtn.addEventListener('click', async () => {
       restoreBtn.disabled = true;
       try {
@@ -6543,30 +6740,9 @@ function openWebinarDetailModal(w: WebinarView): void {
         toast(webinarErrorMessage(err), 'err');
       }
     });
-    wdmLifecycleActions.appendChild(restoreBtn);
   } else {
-    // Active webinar: Cancel (scheduled only) + Archive
-    if (info.status === 'scheduled') {
-      const cancelBtn = document.createElement('button');
-      cancelBtn.type = 'button';
-      cancelBtn.className = 'btn-ghost danger';
-      cancelBtn.textContent = t('webinarCancel');
-      cancelBtn.addEventListener('click', async () => {
-        if (!confirm(t('webinarCancelConfirm'))) return;
-        cancelBtn.disabled = true;
-        try {
-          await cancelWebinar(w.id);
-          toast(t('webinarCancelled'), 'ok');
-          show(webinarDetailModal, false);
-          await loadWebinars();
-        } catch (err) {
-          cancelBtn.disabled = false;
-          toast(webinarErrorMessage(err), 'err');
-        }
-      });
-      wdmLifecycleActions.appendChild(cancelBtn);
-    }
-
+    // ---- Active non-scheduled webinar: Archive only ----
+    show(wdmEditSection, false);
     const archiveBtn = document.createElement('button');
     archiveBtn.type = 'button';
     archiveBtn.className = 'btn-ghost';
@@ -6792,6 +6968,21 @@ webinarVisibilitySw.addEventListener('click', () => {
   // Use setTimeout(0) to let the switch handler update aria-checked first.
   setTimeout(() => syncNotifyFriendsVisibility(), 0);
 });
+// PR4: Edit form start/end/visibility interactions (mirrors create form, D6-edit).
+wdeStartInput.addEventListener('input', () => {
+  syncWdeEndEnabled();
+  const startISO = fromDatetimeLocalValue(wdeStartInput.value);
+  const endISO   = fromDatetimeLocalValue(wdeEndInput.value);
+  if (resetEndIfStartPassed(startISO, endISO)) {
+    wdeEndInput.value = '';
+  }
+  syncWdeNotifyFriendsVisibility();
+});
+wdeVisibilitySw.addEventListener('click', () => {
+  setTimeout(() => syncWdeNotifyFriendsVisibility(), 0);
+});
+// Wire the edit-form switch buttons (same generic ws-switch handler applies via
+// delegation, but they also need the ws-switch class which they already have).
 // Active | Archived segmented control: switch the shown list on click.
 webinarTabs.addEventListener('click', (e) => {
   const btn = (e.target as HTMLElement).closest('.seg-btn') as HTMLElement | null;

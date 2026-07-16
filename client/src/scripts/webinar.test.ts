@@ -26,6 +26,7 @@ import {
   getWebinar,
   goLive,
   isWebinarLive,
+  isWebinarRestorable,
   listPublicWebinars,
   listWebinars,
   patchWebinar,
@@ -971,5 +972,73 @@ describe('buildDetailInfo', () => {
     const info = buildDetailInfo(w);
     expect(info.description).toBeNull();
     expect(info.project_id).toBeNull();
+  });
+});
+
+// isWebinarRestorable (Area E — PR4)
+// Mirrors the server's unarchive time-guard (D3): effective time =
+// scheduled_end ?? scheduled_start ?? actual_end; restorable iff absent OR in future.
+describe('isWebinarRestorable', () => {
+  const FUTURE = new Date(Date.now() + 60 * 60 * 1000).toISOString(); // +1 h
+  const PAST   = new Date(Date.now() - 60 * 60 * 1000).toISOString(); // -1 h
+
+  it('returns true when all time fields are null (never scheduled/aired — always restorable)', () => {
+    const w = webinar({ scheduled_start: null, scheduled_end: null, actual_end: null });
+    expect(isWebinarRestorable(w, Date.now())).toBe(true);
+  });
+
+  it('returns true when scheduled_end is in the future (primary key)', () => {
+    const w = webinar({ scheduled_end: FUTURE });
+    expect(isWebinarRestorable(w, Date.now())).toBe(true);
+  });
+
+  it('returns false when scheduled_end is in the past (primary key — blocks restore)', () => {
+    const w = webinar({ scheduled_end: PAST });
+    expect(isWebinarRestorable(w, Date.now())).toBe(false);
+  });
+
+  it('uses scheduled_start as fallback when scheduled_end is null — future → true', () => {
+    const w = webinar({ scheduled_end: null, scheduled_start: FUTURE });
+    expect(isWebinarRestorable(w, Date.now())).toBe(true);
+  });
+
+  it('uses scheduled_start as fallback when scheduled_end is null — past → false', () => {
+    const w = webinar({ scheduled_end: null, scheduled_start: PAST });
+    expect(isWebinarRestorable(w, Date.now())).toBe(false);
+  });
+
+  it('uses actual_end as last fallback when both scheduled fields are null — future → true', () => {
+    const w = webinar({ scheduled_end: null, scheduled_start: null, actual_end: FUTURE });
+    expect(isWebinarRestorable(w, Date.now())).toBe(true);
+  });
+
+  it('uses actual_end as last fallback when both scheduled fields are null — past → false', () => {
+    const w = webinar({ scheduled_end: null, scheduled_start: null, actual_end: PAST });
+    expect(isWebinarRestorable(w, Date.now())).toBe(false);
+  });
+
+  it('scheduled_end takes priority over scheduled_start even if start is in the future', () => {
+    // end is past → not restorable, even though start is future
+    const w = webinar({ scheduled_end: PAST, scheduled_start: FUTURE });
+    expect(isWebinarRestorable(w, Date.now())).toBe(false);
+  });
+
+  it('scheduled_start takes priority over actual_end even if actual_end is in the future', () => {
+    // scheduled_start is past → not restorable, even though actual_end is future
+    const w = webinar({ scheduled_end: null, scheduled_start: PAST, actual_end: FUTURE });
+    expect(isWebinarRestorable(w, Date.now())).toBe(false);
+  });
+
+  it('accepts a custom nowMs so the helper is fully deterministic (no Date.now() inside)', () => {
+    const fixedNow = new Date('2026-08-01T00:00:00Z').getTime();
+    const futureFromFixed = new Date('2026-08-02T00:00:00Z').toISOString();
+    const pastFromFixed   = new Date('2026-07-31T00:00:00Z').toISOString();
+    expect(isWebinarRestorable(webinar({ scheduled_end: futureFromFixed }), fixedNow)).toBe(true);
+    expect(isWebinarRestorable(webinar({ scheduled_end: pastFromFixed }),   fixedNow)).toBe(false);
+  });
+
+  it('returns true for a live webinar with no effective end time (status=live, no end set)', () => {
+    const w = webinar({ status: 'live', scheduled_end: null, scheduled_start: null, actual_end: null });
+    expect(isWebinarRestorable(w, Date.now())).toBe(true);
   });
 });

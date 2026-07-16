@@ -1391,12 +1391,104 @@ const jsonLd = {
 
         </div><!-- /.wdm-body -->
 
-        <!-- PR4 seam: edit form for scheduled webinars (filled by PR4, empty here) -->
-        <div id="wdm-edit-section" class="hidden"></div>
+        <!-- Edit form: rendered only when status === 'scheduled' (PR4 / D5-edit / D6-edit).
+             All editable fields + destructive Cancel/Archive actions live here (req #6).
+             app.ts populates + shows this section when openWebinarDetailModal runs. -->
+        <div id="wdm-edit-section" class="hidden">
+          <div class="wdm-edit-divider"></div>
+          <form id="wdm-edit-form" class="wdm-edit-form" novalidate>
+            <h3 class="wdm-section-label" data-i18n="webinarEditTitle">{T('webinarEditTitle')}</h3>
 
-        <!-- Action area: secondary lifecycle actions moved off the card face (spec Area D).
-             PR4 will add Cancel + Archive buttons here for scheduled webinars.
-             Calendar row is injected dynamically by app.ts via buildAddCalendarRow. -->
+            <!-- Title -->
+            <label class="ws-field">
+              <span class="ws-field-label" data-i18n="webinarTitleLabel">{T('webinarTitleLabel')}</span>
+              <input id="wde-title" class="ws-select" type="text" maxlength="200" autocomplete="off" />
+            </label>
+
+            <!-- Description -->
+            <label class="ws-field">
+              <span class="ws-field-label" data-i18n="webinarDetailDescription">{T('webinarDetailDescription')}</span>
+              <textarea id="wde-description" class="ws-select wde-description" rows="3" autocomplete="off"></textarea>
+            </label>
+
+            <!-- Source language -->
+            <label class="ws-field">
+              <span class="ws-field-label" data-i18n="webinarDetailSourceLang">{T('webinarDetailSourceLang')}</span>
+              <select id="wde-lang" class="ws-select"></select>
+            </label>
+
+            <!-- Tier -->
+            <label class="ws-field">
+              <span class="ws-field-label" data-i18n="webinarTier">{T('webinarTier')}</span>
+              <select id="wde-tier" class="ws-select">
+                <option value="enhanced" data-i18n="webinarTierEnhanced">{T('webinarTierEnhanced')}</option>
+                <option value="standard" data-i18n="webinarTierStandard">{T('webinarTierStandard')}</option>
+              </select>
+            </label>
+
+            <!-- Schedule: start + end -->
+            <div class="webinar-schedule-row">
+              <label class="ws-field grow">
+                <span class="ws-field-label" data-i18n="webinarScheduleStart">{T('webinarScheduleStart')}</span>
+                <input id="wde-start" class="ws-select" type="datetime-local" autocomplete="off" />
+              </label>
+              <label class="ws-field grow">
+                <span class="ws-field-label" data-i18n="webinarScheduleEnd">{T('webinarScheduleEnd')}</span>
+                <input id="wde-end" class="ws-select" type="datetime-local" autocomplete="off" disabled />
+              </label>
+            </div>
+
+            <!-- Reminder lead time -->
+            <label class="ws-field">
+              <span class="ws-field-label" data-i18n="webinarReminderLabel">{T('webinarReminderLabel')}</span>
+              <input id="wde-reminder" class="ws-select" type="number" min="0" max="1440" step="1" autocomplete="off" />
+            </label>
+
+            <!-- Toggle switches: record_video, record_transcript, chat_enabled, visibility, members_only -->
+            <div class="webinar-toggles">
+              <div class="webinar-toggle-row">
+                <span class="webinar-toggle-label" id="wde-record-video-label" data-i18n="webinarRecordVideo">{T('webinarRecordVideo')}</span>
+                <button id="wde-record-video" class="ws-switch" type="button" role="switch" aria-checked="false" aria-labelledby="wde-record-video-label"><span class="ws-switch-knob" aria-hidden="true"></span></button>
+              </div>
+              <div class="webinar-toggle-row">
+                <span class="webinar-toggle-label" id="wde-record-transcript-label" data-i18n="webinarRecordTranscript">{T('webinarRecordTranscript')}</span>
+                <button id="wde-record-transcript" class="ws-switch" type="button" role="switch" aria-checked="false" aria-labelledby="wde-record-transcript-label"><span class="ws-switch-knob" aria-hidden="true"></span></button>
+              </div>
+              <div class="webinar-toggle-row">
+                <span class="webinar-toggle-label" id="wde-chat-enabled-label" data-i18n="webinarChatEnabled">{T('webinarChatEnabled')}</span>
+                <button id="wde-chat-enabled" class="ws-switch" type="button" role="switch" aria-checked="false" aria-labelledby="wde-chat-enabled-label"><span class="ws-switch-knob" aria-hidden="true"></span></button>
+              </div>
+              <div class="webinar-toggle-row">
+                <span class="webinar-toggle-label" id="wde-visibility-label" data-i18n="webinarVisibilityPublic">{T('webinarVisibilityPublic')}</span>
+                <button id="wde-visibility" class="ws-switch" type="button" role="switch" aria-checked="false" aria-labelledby="wde-visibility-label"><span class="ws-switch-knob" aria-hidden="true"></span></button>
+              </div>
+              <div class="webinar-toggle-row">
+                <span class="webinar-toggle-label" id="wde-members-only-label" data-i18n="webinarMembersOnly">{T('webinarMembersOnly')}</span>
+                <button id="wde-members-only" class="ws-switch" type="button" role="switch" aria-checked="false" aria-labelledby="wde-members-only-label"><span class="ws-switch-knob" aria-hidden="true"></span></button>
+              </div>
+              <!-- notify_friends: only visible for public scheduled webinars (mirroring create form) -->
+              <div class="webinar-toggle-row hidden" id="wde-notify-friends-row">
+                <span class="webinar-toggle-label" id="wde-notify-friends-label" data-i18n="webinarNotifyFriends">{T('webinarNotifyFriends')}</span>
+                <button id="wde-notify-friends" class="ws-switch" type="button" role="switch" aria-checked="true" aria-labelledby="wde-notify-friends-label"><span class="ws-switch-knob" aria-hidden="true"></span></button>
+              </div>
+            </div>
+
+            <!-- Save + status -->
+            <div class="webinar-create-actions">
+              <button id="wde-save-btn" type="submit" class="btn-primary webinar-create-btn" data-i18n="webinarSaveChanges">{T('webinarSaveChanges')}</button>
+            </div>
+            <p id="wde-status" class="status-line hidden" role="status"></p>
+
+            <!-- Destructive actions: Cancel webinar + Archive (req #6 — moved from card into edit section) -->
+            <div class="wde-destructive-actions">
+              <button id="wde-cancel-btn" type="button" class="btn-ghost danger wde-destructive-btn" data-i18n="webinarCancel">{T('webinarCancel')}</button>
+              <button id="wde-archive-btn" type="button" class="btn-ghost wde-destructive-btn" data-i18n="webinarArchive">{T('webinarArchive')}</button>
+            </div>
+          </form>
+        </div>
+
+        <!-- Action area: lifecycle actions for non-scheduled webinars (Archive for active
+             non-scheduled; Restore for archived). Calendar row injected by app.ts. -->
         <div class="wdm-actions" id="wdm-actions">
           <div id="wdm-lifecycle-actions" class="wdm-lifecycle-actions"></div>
           <div id="wdm-calendar-row"></div>
@@ -2897,6 +2989,15 @@ const jsonLd = {
     .wdm-lifecycle-actions .btn-primary { flex: none; padding: 0 16px; min-height: 38px; }
     #wdm-calendar-row .webinar-calendar-row { flex-wrap: wrap; }
     #wdm-calendar-row .webinar-calendar-btn { flex: none; padding: 0 16px; min-height: 38px; }
+    /* Edit form (D5-edit / PR4): fills #wdm-edit-section for scheduled webinars. */
+    .wdm-edit-divider { height: 1px; background: var(--border); margin: 0 20px; }
+    .wdm-edit-form { display: flex; flex-direction: column; gap: 12px; padding: 16px 20px; }
+    .wdm-edit-form .wdm-section-label { margin-bottom: 4px; }
+    .wde-description { resize: vertical; min-height: 70px; font-family: inherit; }
+    .wde-destructive-actions { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 10px; border-top: 1px solid var(--border); margin-top: 4px; }
+    .wde-destructive-btn { flex: none; padding: 0 16px; min-height: 38px; }
+    /* Restore-past hint (Area E). */
+    .wde-restore-hint { font-size: 0.8rem; color: var(--muted); margin: 0; }
     /* Card summary redesign (D7 — PR3): compact cards with icon indicators. */
     .webinar-list :global(.webinar-card-icons) { display: flex; align-items: center; gap: 8px; }
     .webinar-list :global(.webinar-card-icon) { flex: none; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; padding: 2px 7px; border-radius: 999px; background: var(--border); color: var(--muted); line-height: 1.4; }
