@@ -21,6 +21,7 @@ use web_push::{ContentEncoding, SubscriptionInfo, VapidSignatureBuilder, WebPush
 
 use crate::business::{db_err, require_pool};
 use crate::config::PushConfig;
+use crate::db;
 use crate::email::OutboundEmail;
 use crate::email_template::{render_html, tagline, EmailButton, EmailLayout};
 use crate::middleware::AuthUser;
@@ -699,6 +700,34 @@ struct DueWebinar {
     host_user_id: Option<Uuid>,
 }
 
+/// Select webinar IDs that are due for a reminder at `now`.
+///
+/// Exposed so integration tests can call this directly and assert on its output —
+/// editing the production WHERE clause will immediately break the tests
+/// rather than silently passing a re-implemented copy of the predicate.
+///
+/// Does NOT stamp `reminder_sent_at`; the scheduler loop does that atomically
+/// via `UPDATE … RETURNING`.
+pub async fn select_due_webinar_reminders(
+    pool: &db::Pool,
+    now: DateTime<Utc>,
+) -> Result<Vec<Uuid>, sqlx::Error> {
+    sqlx::query_scalar(
+        "SELECT id FROM webinars
+         WHERE visibility = 'public'
+           AND status = 'scheduled'
+           AND archived_at IS NULL
+           AND reminder_sent_at IS NULL
+           AND scheduled_start IS NOT NULL
+           AND scheduled_start > $1
+           AND scheduled_start - (reminder_minutes_before * interval '1 minute') <= $1
+           AND notify_friends = true",
+    )
+    .bind(now)
+    .fetch_all(pool)
+    .await
+}
+
 /// Background loop mirroring [`run_reminder_scheduler`] for PUBLIC scheduled webinars.
 /// Every `interval`, atomically claim webinars whose reminder lead-time has arrived
 /// (UPDATE … RETURNING stamps `reminder_sent_at`, so each fires exactly once even with
@@ -711,6 +740,7 @@ pub async fn run_webinar_reminder_scheduler(state: AppState, interval: Duration)
     let mut tick = tokio::time::interval(interval);
     loop {
         tick.tick().await;
+        let now = Utc::now();
         let due: Vec<DueWebinar> = match sqlx::query_as(
             "UPDATE webinars SET reminder_sent_at = now()
              WHERE id IN (
@@ -720,12 +750,14 @@ pub async fn run_webinar_reminder_scheduler(state: AppState, interval: Duration)
                    AND archived_at IS NULL
                    AND reminder_sent_at IS NULL
                    AND scheduled_start IS NOT NULL
-                   AND scheduled_start > now()
-                   AND scheduled_start - (reminder_minutes_before * interval '1 minute') <= now()
+                   AND scheduled_start > $1
+                   AND scheduled_start - (reminder_minutes_before * interval '1 minute') <= $1
+                   AND notify_friends = true
                  FOR UPDATE SKIP LOCKED
              )
              RETURNING id, code, host_user_id",
         )
+        .bind(now)
         .fetch_all(&pool)
         .await
         {

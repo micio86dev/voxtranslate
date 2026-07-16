@@ -142,6 +142,10 @@ pub struct CreateWebinar {
     /// scheduled webinar. Default 10, clamped 0..=1440 (mirrors scheduled meetings).
     #[serde(default)]
     pub reminder_minutes_before: Option<i32>,
+    /// When false, no friend-reminder notifications are sent for this webinar. Default true
+    /// preserves the prior always-notify behavior (migration 051).
+    #[serde(default = "default_notify_friends")]
+    pub notify_friends: bool,
 }
 
 #[derive(Deserialize)]
@@ -180,6 +184,17 @@ pub struct PatchWebinar {
     pub members_only: Option<bool>,
     #[serde(default)]
     pub reminder_minutes_before: Option<i32>,
+    /// Patch the source language for the webinar (validated via `valid_lang`).
+    #[serde(default)]
+    pub source_language: Option<String>,
+    /// Opt-out of friend-reminder notifications. `None` = leave existing value unchanged.
+    #[serde(default)]
+    pub notify_friends: Option<bool>,
+}
+
+/// Serde default for `notify_friends` — true preserves the prior always-notify behavior.
+fn default_notify_friends() -> bool {
+    true
 }
 
 /// Default reminder lead time (minutes) when the host doesn't specify one; matches
@@ -296,6 +311,7 @@ fn host_view(w: &Webinar, app_base_url: &str, cfg: &WebinarConfig) -> Value {
         "visibility": w.visibility,
         "project_id": w.project_id,
         "reminder_minutes_before": w.reminder_minutes_before,
+        "notify_friends": w.notify_friends,
         "join_url": join_url(app_base_url, &w.code),
         "playback_url": playback_url(cfg, &w.code),
         "created_at": w.created_at,
@@ -429,6 +445,7 @@ pub async fn create(
             .reminder_minutes_before
             .unwrap_or(DEFAULT_REMINDER_MINUTES)
             .clamp(0, MAX_REMINDER_MINUTES),
+        notify_friends: body.notify_friends,
     };
     let w = create_webinar(pool, &new, cfg.code_len)
         .await
@@ -509,6 +526,10 @@ pub async fn patch(
         Some(_) => Some(valid_visibility(&body.visibility)?),
         None => None,
     };
+    let source_language = match &body.source_language {
+        Some(l) => Some(valid_lang(l)?),
+        None => None,
+    };
     if let Some(pid) = body.project_id {
         validate_project(pool, w.org_id, pid).await?;
     }
@@ -548,6 +569,8 @@ pub async fn patch(
             visibility              = COALESCE($12, visibility),
             members_only            = COALESCE($13, members_only),
             reminder_minutes_before = COALESCE($14, reminder_minutes_before),
+            source_language         = COALESCE($15, source_language),
+            notify_friends          = COALESCE($16, notify_friends),
             updated_at              = now()
          WHERE id = $1
          RETURNING *",
@@ -566,6 +589,8 @@ pub async fn patch(
     .bind(visibility)
     .bind(body.members_only)
     .bind(reminder)
+    .bind(source_language)
+    .bind(body.notify_friends)
     .fetch_one(pool)
     .await
     .map_err(db_err)?;
@@ -654,9 +679,11 @@ pub async fn publish_started(
     // Go-live hook: an UNSCHEDULED public webinar has no lead time for the timed
     // scheduler to fire on, so we alert the host's friends at the actual live start.
     // Fire-and-forget + dedup (reminder_sent_at claimed atomically), so it runs once.
+    // The `notify_friends` flag gates the hook (D4): false = no notification.
     if updated.visibility == "public"
         && updated.scheduled_start.is_none()
         && updated.reminder_sent_at.is_none()
+        && updated.notify_friends
     {
         if let Some(host_id) = updated.host_user_id {
             tokio::spawn(crate::notifications::notify_webinar_friends(
@@ -945,6 +972,12 @@ pub async fn archive(
 }
 
 /// `POST /api/webinars/{id}/unarchive` — restore an archived webinar. Member only.
+///
+/// Time-guard (D3): the effective time of the webinar is
+/// `scheduled_end ?? scheduled_start ?? actual_end`. If that time is in the past,
+/// the restore is refused (409) — a past webinar cannot be reactivated.
+/// When all three fields are NULL (never scheduled / never aired), the restore is
+/// always allowed.
 pub async fn unarchive(
     State(state): State<AppState>,
     user: AuthUser,
@@ -952,7 +985,17 @@ pub async fn unarchive(
 ) -> Result<Response, Response> {
     let pool = require_pool(&state)?;
     let cfg = require_cfg(&state)?;
-    require_webinar_role(pool, id, user.user_id, MEMBER).await?;
+    let w = require_webinar_role(pool, id, user.user_id, MEMBER).await?;
+
+    // Compute effective time: scheduled_end takes priority, then scheduled_start,
+    // then actual_end. None means the webinar was never scheduled or aired → allow.
+    let effective_time = w.scheduled_end.or(w.scheduled_start).or(w.actual_end);
+    if let Some(t) = effective_time {
+        if t < Utc::now() {
+            return Err((StatusCode::CONFLICT, "cannot restore a past webinar").into_response());
+        }
+    }
+
     let updated: Webinar = sqlx::query_as(
         "UPDATE webinars SET archived_at = NULL, updated_at = now() WHERE id = $1 RETURNING *",
     )

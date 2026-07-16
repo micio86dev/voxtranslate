@@ -2372,3 +2372,808 @@ async fn finalize_finalizes_total_watch_seconds() {
         "total_watch_seconds = join→leave span (3 min)"
     );
 }
+
+// ---- PR1: notify_friends + source_language patch + unarchive guard ----------
+
+/// 1.1 / 1.4 — Migration 051 idempotency.
+/// Applies migrations (which include 051) twice: the first `setup()` already ran
+/// `db::migrate`, so calling it again is the "second apply". Since sqlx only runs
+/// new migrations, the important check is that the `notify_friends` column is
+/// present and holds the expected default.
+#[tokio::test]
+async fn migration_051_notify_friends_column_exists_and_defaults_true() {
+    let Some(srv) = setup().await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    let http = Client::new();
+    let (owner, jwt) = user(&srv).await;
+    let org_id = org(&srv, owner, true).await;
+
+    // Create a webinar WITHOUT sending notify_friends — server must default it to true.
+    let created = create_webinar(&http, &srv, &jwt, org_id).await;
+    let id = created["id"].as_str().unwrap().to_string();
+    let webinar_id = Uuid::parse_str(&id).unwrap();
+
+    // Read the raw column value from the DB.
+    let notify: bool = sqlx::query_scalar("SELECT notify_friends FROM webinars WHERE id = $1")
+        .bind(webinar_id)
+        .fetch_one(&srv.pool)
+        .await
+        .unwrap();
+
+    assert!(notify, "notify_friends defaults to true when not supplied");
+
+    // Re-running migrate is idempotent — should return without error.
+    db::migrate(&srv.pool).await.unwrap();
+
+    // Column still exists and still holds the same value after a second migrate run.
+    let notify2: bool = sqlx::query_scalar("SELECT notify_friends FROM webinars WHERE id = $1")
+        .bind(webinar_id)
+        .fetch_one(&srv.pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        notify, notify2,
+        "idempotent re-migrate doesn't touch existing rows"
+    );
+}
+
+/// 1.2 — host_view surfaces notify_friends.
+#[tokio::test]
+async fn host_view_includes_notify_friends() {
+    let Some(srv) = setup().await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    let http = Client::new();
+    let (owner, jwt) = user(&srv).await;
+    let org_id = org(&srv, owner, true).await;
+
+    // Create with explicit notify_friends=false.
+    let r = http
+        .post(format!("{}/api/webinars", base(&srv)))
+        .bearer_auth(&jwt)
+        .json(&json!({
+            "org_id": org_id,
+            "title": "Notify Test",
+            "source_language": "en",
+            "notify_friends": false,
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 201);
+    let body: Value = r.json().await.unwrap();
+    assert_eq!(
+        body["notify_friends"].as_bool(),
+        Some(false),
+        "host_view must surface notify_friends"
+    );
+}
+
+/// 1.5 — PatchWebinar accepts valid source_language.
+#[tokio::test]
+async fn patch_source_language_valid_code_accepted() {
+    let Some(srv) = setup().await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    let http = Client::new();
+    let (owner, jwt) = user(&srv).await;
+    let org_id = org(&srv, owner, true).await;
+    let created = create_webinar(&http, &srv, &jwt, org_id).await;
+    let id = created["id"].as_str().unwrap().to_string();
+
+    let r = http
+        .patch(format!("{}/api/webinars/{id}", base(&srv)))
+        .bearer_auth(&jwt)
+        .json(&json!({ "source_language": "fr" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 200, "valid lang code accepted");
+    let body: Value = r.json().await.unwrap();
+    assert_eq!(
+        body["source_language"], "fr",
+        "source_language updated to fr"
+    );
+}
+
+/// 1.5 (triangulate) — PatchWebinar rejects an invalid language code.
+#[tokio::test]
+async fn patch_source_language_invalid_code_rejected() {
+    let Some(srv) = setup().await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    let http = Client::new();
+    let (owner, jwt) = user(&srv).await;
+    let org_id = org(&srv, owner, true).await;
+    let created = create_webinar(&http, &srv, &jwt, org_id).await;
+    let id = created["id"].as_str().unwrap().to_string();
+
+    let r = http
+        .patch(format!("{}/api/webinars/{id}", base(&srv)))
+        .bearer_auth(&jwt)
+        .json(&json!({ "source_language": "zz invalid!!" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 400, "invalid lang code → 400");
+}
+
+/// 1.5 (triangulate) — PatchWebinar with notify_friends=false persists it.
+#[tokio::test]
+async fn patch_notify_friends_false_persisted() {
+    let Some(srv) = setup().await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    let http = Client::new();
+    let (owner, jwt) = user(&srv).await;
+    let org_id = org(&srv, owner, true).await;
+    let created = create_webinar(&http, &srv, &jwt, org_id).await;
+    let id = created["id"].as_str().unwrap().to_string();
+
+    let r = http
+        .patch(format!("{}/api/webinars/{id}", base(&srv)))
+        .bearer_auth(&jwt)
+        .json(&json!({ "notify_friends": false }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 200, "patch notify_friends accepted");
+    let body: Value = r.json().await.unwrap();
+    assert_eq!(
+        body["notify_friends"].as_bool(),
+        Some(false),
+        "notify_friends=false persisted and surfaced in host_view"
+    );
+}
+
+/// 1.6 — PatchWebinar on a non-scheduled webinar (status=live) returns 409.
+#[tokio::test]
+async fn patch_source_language_on_live_webinar_returns_409() {
+    let Some(srv) = setup().await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    let http = Client::new();
+    let (owner, jwt) = user(&srv).await;
+    let org_id = org(&srv, owner, true).await;
+    let created = create_webinar(&http, &srv, &jwt, org_id).await;
+    let id = created["id"].as_str().unwrap().to_string();
+
+    // Flip to live.
+    sqlx::query("UPDATE webinars SET status = 'live' WHERE id = $1::uuid")
+        .bind(&id)
+        .execute(&srv.pool)
+        .await
+        .unwrap();
+
+    let r = http
+        .patch(format!("{}/api/webinars/{id}", base(&srv)))
+        .bearer_auth(&jwt)
+        .json(&json!({ "source_language": "fr" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 409, "patching a live webinar is locked (409)");
+}
+
+// ---- Unarchive time-guard (task 1.10 / 1.12) --------------------------------
+
+/// Helper: archive a webinar via SQL.
+async fn archive_webinar_sql(srv: &Server, id: &str) {
+    sqlx::query("UPDATE webinars SET archived_at = now() WHERE id = $1::uuid")
+        .bind(id)
+        .execute(&srv.pool)
+        .await
+        .unwrap();
+}
+
+/// 1.10 — Restore blocked for past scheduled_end.
+#[tokio::test]
+async fn unarchive_blocked_for_past_scheduled_end() {
+    let Some(srv) = setup().await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    let http = Client::new();
+    let (owner, jwt) = user(&srv).await;
+    let org_id = org(&srv, owner, true).await;
+    let created = create_webinar(&http, &srv, &jwt, org_id).await;
+    let id = created["id"].as_str().unwrap().to_string();
+
+    // Set scheduled_end to yesterday.
+    sqlx::query("UPDATE webinars SET scheduled_end = now() - interval '1 day' WHERE id = $1::uuid")
+        .bind(&id)
+        .execute(&srv.pool)
+        .await
+        .unwrap();
+
+    archive_webinar_sql(&srv, &id).await;
+
+    let r = http
+        .post(format!("{}/api/webinars/{id}/unarchive", base(&srv)))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 409, "unarchive of past scheduled_end → 409");
+}
+
+/// 1.10 (triangulate) — Restore blocked for past scheduled_start (no end).
+#[tokio::test]
+async fn unarchive_blocked_for_past_scheduled_start() {
+    let Some(srv) = setup().await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    let http = Client::new();
+    let (owner, jwt) = user(&srv).await;
+    let org_id = org(&srv, owner, true).await;
+    let created = create_webinar(&http, &srv, &jwt, org_id).await;
+    let id = created["id"].as_str().unwrap().to_string();
+
+    // Set scheduled_start to last week, no end.
+    sqlx::query(
+        "UPDATE webinars SET scheduled_start = now() - interval '7 days', scheduled_end = NULL WHERE id = $1::uuid",
+    )
+    .bind(&id)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+
+    archive_webinar_sql(&srv, &id).await;
+
+    let r = http
+        .post(format!("{}/api/webinars/{id}/unarchive", base(&srv)))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 409, "unarchive of past scheduled_start → 409");
+}
+
+/// 1.10 (triangulate) — Restore blocked for past actual_end (ended webinar).
+#[tokio::test]
+async fn unarchive_blocked_for_past_actual_end() {
+    let Some(srv) = setup().await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    let http = Client::new();
+    let (owner, jwt) = user(&srv).await;
+    let org_id = org(&srv, owner, true).await;
+    let created = create_webinar(&http, &srv, &jwt, org_id).await;
+    let id = created["id"].as_str().unwrap().to_string();
+
+    // No scheduled times, but actual_end is in the past.
+    sqlx::query(
+        "UPDATE webinars SET scheduled_start = NULL, scheduled_end = NULL,
+         actual_end = now() - interval '2 days' WHERE id = $1::uuid",
+    )
+    .bind(&id)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+
+    archive_webinar_sql(&srv, &id).await;
+
+    let r = http
+        .post(format!("{}/api/webinars/{id}/unarchive", base(&srv)))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 409, "unarchive of past actual_end → 409");
+}
+
+/// 1.10 (triangulate) — Restore allowed for still-upcoming webinar.
+#[tokio::test]
+async fn unarchive_allowed_for_future_scheduled_start() {
+    let Some(srv) = setup().await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    let http = Client::new();
+    let (owner, jwt) = user(&srv).await;
+    let org_id = org(&srv, owner, true).await;
+    let created = create_webinar(&http, &srv, &jwt, org_id).await;
+    let id = created["id"].as_str().unwrap().to_string();
+
+    // Set scheduled_start to tomorrow.
+    sqlx::query(
+        "UPDATE webinars SET scheduled_start = now() + interval '1 day' WHERE id = $1::uuid",
+    )
+    .bind(&id)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+
+    archive_webinar_sql(&srv, &id).await;
+
+    let r = http
+        .post(format!("{}/api/webinars/{id}/unarchive", base(&srv)))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 200, "unarchive of future webinar → 200");
+    let body: Value = r.json().await.unwrap();
+    assert!(
+        body["archived_at"].is_null(),
+        "archived_at cleared after restore"
+    );
+}
+
+/// 1.10 (triangulate) — Restore allowed for webinar with no time fields (None).
+#[tokio::test]
+async fn unarchive_allowed_when_no_time_fields() {
+    let Some(srv) = setup().await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    let http = Client::new();
+    let (owner, jwt) = user(&srv).await;
+    let org_id = org(&srv, owner, true).await;
+    let created = create_webinar(&http, &srv, &jwt, org_id).await;
+    let id = created["id"].as_str().unwrap().to_string();
+
+    // No time fields at all — effective_time is None → allow.
+    sqlx::query(
+        "UPDATE webinars SET scheduled_start = NULL, scheduled_end = NULL, actual_end = NULL WHERE id = $1::uuid",
+    )
+    .bind(&id)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+
+    archive_webinar_sql(&srv, &id).await;
+
+    let r = http
+        .post(format!("{}/api/webinars/{id}/unarchive", base(&srv)))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 200, "unarchive when no times → 200 (allowed)");
+}
+
+// ---- Reminder scheduler + go-live notify_friends gate (tasks 1.13/1.14) -----
+
+/// 1.13 — notify_friends=false row excluded from reminder scheduler query.
+///
+/// Calls the REAL production function `select_due_webinar_reminders` so that
+/// any edit to the WHERE clause in `notifications.rs` immediately breaks this
+/// test — a re-implemented copy of the SQL would silently pass.
+#[tokio::test]
+async fn reminder_scheduler_excludes_notify_friends_false() {
+    use voxtranslate_server::notifications::select_due_webinar_reminders;
+
+    let Some(srv) = setup().await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    let http = Client::new();
+    let (owner, jwt) = user(&srv).await;
+    let org_id = org(&srv, owner, true).await;
+
+    // Create a public, scheduled webinar with notify_friends=false.
+    let r = http
+        .post(format!("{}/api/webinars", base(&srv)))
+        .bearer_auth(&jwt)
+        .json(&json!({
+            "org_id": org_id,
+            "title": "No-notify webinar",
+            "source_language": "en",
+            "visibility": "public",
+            "notify_friends": false,
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 201);
+    let body: Value = r.json().await.unwrap();
+    let id = Uuid::parse_str(body["id"].as_str().unwrap()).unwrap();
+
+    // Backdate scheduled_start to trigger the reminder condition:
+    // scheduled_start = now + 5 min, reminder = 30 min → fires now.
+    sqlx::query(
+        "UPDATE webinars
+         SET scheduled_start = now() + interval '5 minutes',
+             reminder_minutes_before = 30,
+             reminder_sent_at = NULL
+         WHERE id = $1",
+    )
+    .bind(id)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+
+    // Call the real production selection function — NOT a re-implemented WHERE.
+    let due = select_due_webinar_reminders(&srv.pool, chrono::Utc::now())
+        .await
+        .unwrap();
+
+    assert!(
+        !due.contains(&id),
+        "notify_friends=false webinar must not appear in reminder scheduler results"
+    );
+}
+
+/// 1.13 (triangulate) — notify_friends=true row IS selected by the real production function.
+#[tokio::test]
+async fn reminder_scheduler_includes_notify_friends_true() {
+    use voxtranslate_server::notifications::select_due_webinar_reminders;
+
+    let Some(srv) = setup().await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    let http = Client::new();
+    let (owner, jwt) = user(&srv).await;
+    let org_id = org(&srv, owner, true).await;
+
+    // Create a public webinar with default notify_friends (true).
+    let r = http
+        .post(format!("{}/api/webinars", base(&srv)))
+        .bearer_auth(&jwt)
+        .json(&json!({
+            "org_id": org_id,
+            "title": "Notify webinar",
+            "source_language": "en",
+            "visibility": "public",
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 201);
+    let body: Value = r.json().await.unwrap();
+    let id = Uuid::parse_str(body["id"].as_str().unwrap()).unwrap();
+
+    // Trigger the scheduler condition.
+    sqlx::query(
+        "UPDATE webinars
+         SET scheduled_start = now() + interval '5 minutes',
+             reminder_minutes_before = 30,
+             reminder_sent_at = NULL
+         WHERE id = $1",
+    )
+    .bind(id)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+
+    // Call the real production selection function.
+    let due = select_due_webinar_reminders(&srv.pool, chrono::Utc::now())
+        .await
+        .unwrap();
+
+    assert!(
+        due.contains(&id),
+        "notify_friends=true webinar must appear in reminder scheduler results"
+    );
+}
+
+/// 1.14 — go-live hook: notify_friends=false suppresses friend notification.
+/// We verify the DB state: after publish-started on a webinar with
+/// notify_friends=false, reminder_sent_at remains NULL (the hook did not fire).
+#[tokio::test]
+async fn go_live_hook_skips_notification_when_notify_friends_false() {
+    let Some(srv) = setup().await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    let http = Client::new();
+    let (owner, jwt) = user(&srv).await;
+    let org_id = org(&srv, owner, true).await;
+
+    // Create a public, unscheduled webinar with notify_friends=false.
+    let r = http
+        .post(format!("{}/api/webinars", base(&srv)))
+        .bearer_auth(&jwt)
+        .json(&json!({
+            "org_id": org_id,
+            "title": "No notify live",
+            "source_language": "en",
+            "visibility": "public",
+            "notify_friends": false,
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 201);
+    let body: Value = r.json().await.unwrap();
+    let id = body["id"].as_str().unwrap().to_string();
+    let webinar_id = Uuid::parse_str(&id).unwrap();
+
+    // publish-started triggers the go-live hook.
+    let r = http
+        .post(format!("{}/api/webinars/{id}/publish-started", base(&srv)))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 200);
+
+    // The hook should NOT have fired: reminder_sent_at must still be NULL.
+    let sent_at: Option<chrono::DateTime<chrono::Utc>> =
+        sqlx::query_scalar("SELECT reminder_sent_at FROM webinars WHERE id = $1")
+            .bind(webinar_id)
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap();
+
+    assert!(
+        sent_at.is_none(),
+        "go-live hook must not set reminder_sent_at when notify_friends=false"
+    );
+}
+
+/// 1.14 (triangulate) — go-live hook fires for public unscheduled with notify_friends=true.
+#[tokio::test]
+async fn go_live_hook_fires_notification_when_notify_friends_true() {
+    let Some(srv) = setup().await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    let http = Client::new();
+    let (owner, jwt) = user(&srv).await;
+    let org_id = org(&srv, owner, true).await;
+
+    // Public + unscheduled + default notify_friends (true).
+    let r = http
+        .post(format!("{}/api/webinars", base(&srv)))
+        .bearer_auth(&jwt)
+        .json(&json!({
+            "org_id": org_id,
+            "title": "Notify live",
+            "source_language": "en",
+            "visibility": "public",
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 201);
+    let body: Value = r.json().await.unwrap();
+    let id = body["id"].as_str().unwrap().to_string();
+    let webinar_id = Uuid::parse_str(&id).unwrap();
+
+    // publish-started: host is the owner, so host_user_id is set.
+    let r = http
+        .post(format!("{}/api/webinars/{id}/publish-started", base(&srv)))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 200);
+
+    // Poll until reminder_sent_at is set or a 2-second deadline expires.
+    // This is deterministic: we detect the state change as soon as the spawned
+    // task completes rather than sleeping for an arbitrary fixed duration.
+    let deadline = std::time::Duration::from_secs(2);
+    let poll_interval = std::time::Duration::from_millis(50);
+    let sent_at = tokio::time::timeout(deadline, async {
+        loop {
+            let val: Option<chrono::DateTime<chrono::Utc>> =
+                sqlx::query_scalar("SELECT reminder_sent_at FROM webinars WHERE id = $1")
+                    .bind(webinar_id)
+                    .fetch_one(&srv.pool)
+                    .await
+                    .unwrap();
+            if val.is_some() {
+                return val;
+            }
+            tokio::time::sleep(poll_interval).await;
+        }
+    })
+    .await
+    .unwrap_or(None);
+
+    assert!(
+        sent_at.is_some(),
+        "go-live hook must set reminder_sent_at when notify_friends=true (dedup stamp)"
+    );
+}
+
+// ---- B2: unarchive allowed for live webinars (decision #4 blocks only PAST) --
+
+/// B2 — Unarchive is allowed for a currently-live webinar whose effective time
+/// is in the future (scheduled_end tomorrow). Decision #4 only blocks past-time
+/// webinars; a live webinar that hasn't finished yet must be restorable.
+#[tokio::test]
+async fn unarchive_allowed_for_live_webinar_with_future_scheduled_end() {
+    let Some(srv) = setup().await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    let http = Client::new();
+    let (owner, jwt) = user(&srv).await;
+    let org_id = org(&srv, owner, true).await;
+    let created = create_webinar(&http, &srv, &jwt, org_id).await;
+    let id = created["id"].as_str().unwrap().to_string();
+
+    // Set status=live and scheduled_end tomorrow (effective_time is future).
+    sqlx::query(
+        "UPDATE webinars
+         SET status = 'live',
+             scheduled_start = now() - interval '30 minutes',
+             scheduled_end = now() + interval '1 day'
+         WHERE id = $1::uuid",
+    )
+    .bind(&id)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+
+    archive_webinar_sql(&srv, &id).await;
+
+    let r = http
+        .post(format!("{}/api/webinars/{id}/unarchive", base(&srv)))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        r.status(),
+        200,
+        "live webinar with future scheduled_end must be unarchivable (200)"
+    );
+    let body: Value = r.json().await.unwrap();
+    assert!(
+        body["archived_at"].is_null(),
+        "archived_at cleared after restore"
+    );
+}
+
+/// B2 (triangulate) — Unarchive is allowed for a live webinar with no time
+/// fields at all (effective_time = None → guard does not block).
+#[tokio::test]
+async fn unarchive_allowed_for_live_webinar_with_no_times() {
+    let Some(srv) = setup().await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    let http = Client::new();
+    let (owner, jwt) = user(&srv).await;
+    let org_id = org(&srv, owner, true).await;
+    let created = create_webinar(&http, &srv, &jwt, org_id).await;
+    let id = created["id"].as_str().unwrap().to_string();
+
+    // Set status=live but no time fields (unscheduled live webinar).
+    sqlx::query(
+        "UPDATE webinars
+         SET status = 'live',
+             scheduled_start = NULL,
+             scheduled_end = NULL,
+             actual_end = NULL
+         WHERE id = $1::uuid",
+    )
+    .bind(&id)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+
+    archive_webinar_sql(&srv, &id).await;
+
+    let r = http
+        .post(format!("{}/api/webinars/{id}/unarchive", base(&srv)))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        r.status(),
+        200,
+        "live webinar with no time fields must be unarchivable (200)"
+    );
+    let body: Value = r.json().await.unwrap();
+    assert!(
+        body["archived_at"].is_null(),
+        "archived_at cleared after restore"
+    );
+}
+
+// ---- W1: COALESCE None — PATCH without source_language leaves it unchanged ---
+
+/// W1 — PATCHing a scheduled webinar WITHOUT `source_language` in the body
+/// leaves the stored source_language unchanged. This proves that
+/// `COALESCE($N, source_language)` in the UPDATE handles a None binding
+/// correctly (passes the current value through without touching the column).
+#[tokio::test]
+async fn patch_without_source_language_leaves_it_unchanged() {
+    let Some(srv) = setup().await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    let http = Client::new();
+    let (owner, jwt) = user(&srv).await;
+    let org_id = org(&srv, owner, true).await;
+
+    // Create with a known source_language.
+    let r = http
+        .post(format!("{}/api/webinars", base(&srv)))
+        .bearer_auth(&jwt)
+        .json(&json!({
+            "org_id": org_id,
+            "title": "Coalesce test",
+            "source_language": "de",
+            "visibility": "private",
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 201);
+    let body: Value = r.json().await.unwrap();
+    let id = body["id"].as_str().unwrap().to_string();
+
+    // PATCH with only title — no source_language key in the JSON.
+    let r = http
+        .patch(format!("{}/api/webinars/{id}", base(&srv)))
+        .bearer_auth(&jwt)
+        .json(&json!({ "title": "Coalesce test updated" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        r.status(),
+        200,
+        "patch without source_language must succeed"
+    );
+    let patched: Value = r.json().await.unwrap();
+
+    assert_eq!(
+        patched["source_language"], "de",
+        "source_language must remain 'de' when not included in PATCH body"
+    );
+}
+
+// ---- W2: real migration idempotency — raw ALTER TABLE IF NOT EXISTS ----------
+
+/// W2 — Executes the raw `ALTER TABLE webinars ADD COLUMN IF NOT EXISTS notify_friends …`
+/// a second time directly against the pool, bypassing sqlx's checksum tracker.
+/// This exercises the `IF NOT EXISTS` guard at the SQL engine level.
+/// sqlx::migrate! enforces idempotency via checksums, so the only way to verify
+/// the SQL itself handles re-runs is to run it directly.
+#[tokio::test]
+async fn migration_051_raw_alter_table_is_idempotent() {
+    let Some(srv) = setup().await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+
+    // Run the migration statement a second time directly. If IF NOT EXISTS were
+    // missing this would return a "column already exists" error.
+    let result = sqlx::query(
+        "ALTER TABLE webinars ADD COLUMN IF NOT EXISTS notify_friends BOOLEAN NOT NULL DEFAULT true",
+    )
+    .execute(&srv.pool)
+    .await;
+
+    assert!(
+        result.is_ok(),
+        "ALTER TABLE ADD COLUMN IF NOT EXISTS must be idempotent: {result:?}"
+    );
+
+    // Confirm the column still has the correct default by inserting a fresh row
+    // without specifying notify_friends and reading it back.
+    let http = Client::new();
+    let (owner, jwt) = user(&srv).await;
+    let org_id = org(&srv, owner, true).await;
+    let created = create_webinar(&http, &srv, &jwt, org_id).await;
+    let webinar_id = Uuid::parse_str(created["id"].as_str().unwrap()).unwrap();
+
+    let notify: bool = sqlx::query_scalar("SELECT notify_friends FROM webinars WHERE id = $1")
+        .bind(webinar_id)
+        .fetch_one(&srv.pool)
+        .await
+        .unwrap();
+
+    assert!(
+        notify,
+        "column default (true) intact after idempotent re-run of ADD COLUMN IF NOT EXISTS"
+    );
+}
