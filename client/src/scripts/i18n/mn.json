@@ -702,5 +702,8 @@
   "wvRecapTabTranscript": "Транскрипцүүд",
   "wvRecapTabChat": "Орчуулсан чат",
   "wvRecapTranscriptEmpty": "Энэ сесийн хувьд транскрипц бичигдээгүй байна.",
-  "wvRecapChatEmpty": "Энэ сесийн хувьд чат мессеж байхгүй байна."
+  "wvRecapChatEmpty": "Энэ сесийн хувьд чат мессеж байхгүй байна.",
+  "homeHostWebinarTitle": "Host a webinar",
+  "homeHostWebinarDesc": "Broadcast live to an audience with real-time translation and subtitles.",
+  "homeHostWebinarCta": "Go to Webinars"
 }

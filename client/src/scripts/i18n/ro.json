@@ -702,5 +702,8 @@
   "wvRecapTabTranscript": "Transcrieri",
   "wvRecapTabChat": "Chat tradus",
   "wvRecapTranscriptEmpty": "Nu au fost înregistrate transcrieri pentru această sesiune.",
-  "wvRecapChatEmpty": "Nu există mesaje de chat pentru această sesiune."
+  "wvRecapChatEmpty": "Nu există mesaje de chat pentru această sesiune.",
+  "homeHostWebinarTitle": "Host a webinar",
+  "homeHostWebinarDesc": "Broadcast live to an audience with real-time translation and subtitles.",
+  "homeHostWebinarCta": "Go to Webinars"
 }

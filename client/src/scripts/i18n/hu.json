@@ -702,5 +702,8 @@
   "wvRecapTabTranscript": "Átiratok",
   "wvRecapTabChat": "Lefordított csevegés",
   "wvRecapTranscriptEmpty": "Ehhez a munkamenethez nem rögzítettünk átiratokat.",
-  "wvRecapChatEmpty": "Ehhez a munkamenethez nincsenek csevegőüzenetek."
+  "wvRecapChatEmpty": "Ehhez a munkamenethez nincsenek csevegőüzenetek.",
+  "homeHostWebinarTitle": "Host a webinar",
+  "homeHostWebinarDesc": "Broadcast live to an audience with real-time translation and subtitles.",
+  "homeHostWebinarCta": "Go to Webinars"
 }

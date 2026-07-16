@@ -702,5 +702,8 @@
   "wvRecapTabTranscript": "படியெடுப்புகள்",
   "wvRecapTabChat": "மொழிபெயர்க்கப்பட்ட அரட்டை",
   "wvRecapTranscriptEmpty": "இந்த அமர்வுக்கு எந்த படியெடுப்பும் பதிவு செய்யப்படவில்லை.",
-  "wvRecapChatEmpty": "இந்த அமர்வுக்கு அரட்டை செய்திகள் எதுவும் இல்லை."
+  "wvRecapChatEmpty": "இந்த அமர்வுக்கு அரட்டை செய்திகள் எதுவும் இல்லை.",
+  "homeHostWebinarTitle": "Host a webinar",
+  "homeHostWebinarDesc": "Broadcast live to an audience with real-time translation and subtitles.",
+  "homeHostWebinarCta": "Go to Webinars"
 }

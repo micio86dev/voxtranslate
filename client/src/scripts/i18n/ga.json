@@ -702,5 +702,8 @@
   "wvRecapTabTranscript": "Tras-scríbhinní",
   "wvRecapTabChat": "Comhrá aistrithe",
   "wvRecapTranscriptEmpty": "Níor taifeadadh aon tras-scríbhinní don seisiún seo.",
-  "wvRecapChatEmpty": "Níl aon teachtaireachtaí comhrá don seisiún seo."
+  "wvRecapChatEmpty": "Níl aon teachtaireachtaí comhrá don seisiún seo.",
+  "homeHostWebinarTitle": "Host a webinar",
+  "homeHostWebinarDesc": "Broadcast live to an audience with real-time translation and subtitles.",
+  "homeHostWebinarCta": "Go to Webinars"
 }

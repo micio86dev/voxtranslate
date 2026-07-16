@@ -702,5 +702,8 @@
   "wvRecapTabTranscript": "Transkripsyon",
   "wvRecapTabChat": "Chat tradui",
   "wvRecapTranscriptEmpty": "Pa gen okenn transkripsyon anrejistre pou sesyon sa a.",
-  "wvRecapChatEmpty": "Pa gen okenn mesaj chat pou sesyon sa a."
+  "wvRecapChatEmpty": "Pa gen okenn mesaj chat pou sesyon sa a.",
+  "homeHostWebinarTitle": "Host a webinar",
+  "homeHostWebinarDesc": "Broadcast live to an audience with real-time translation and subtitles.",
+  "homeHostWebinarCta": "Go to Webinars"
 }

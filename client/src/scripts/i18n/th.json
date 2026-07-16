@@ -702,5 +702,8 @@
   "wvRecapTabTranscript": "การถอดความ",
   "wvRecapTabChat": "แชทที่แปลแล้ว",
   "wvRecapTranscriptEmpty": "ไม่มีการบันทึกการถอดความสำหรับเซสชันนี้",
-  "wvRecapChatEmpty": "ไม่มีข้อความแชทสำหรับเซสชันนี้"
+  "wvRecapChatEmpty": "ไม่มีข้อความแชทสำหรับเซสชันนี้",
+  "homeHostWebinarTitle": "Host a webinar",
+  "homeHostWebinarDesc": "Broadcast live to an audience with real-time translation and subtitles.",
+  "homeHostWebinarCta": "Go to Webinars"
 }

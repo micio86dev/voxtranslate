@@ -702,5 +702,8 @@
   "wvRecapTabTranscript": "النصوص المكتوبة",
   "wvRecapTabChat": "المحادثة المترجمة",
   "wvRecapTranscriptEmpty": "لم يتم تسجيل أي نصوص لهذه الجلسة.",
-  "wvRecapChatEmpty": "لا توجد رسائل دردشة لهذه الجلسة."
+  "wvRecapChatEmpty": "لا توجد رسائل دردشة لهذه الجلسة.",
+  "homeHostWebinarTitle": "Host a webinar",
+  "homeHostWebinarDesc": "Broadcast live to an audience with real-time translation and subtitles.",
+  "homeHostWebinarCta": "Go to Webinars"
 }

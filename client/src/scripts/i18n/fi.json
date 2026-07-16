@@ -702,5 +702,8 @@
   "wvRecapTabTranscript": "Transkriptiot",
   "wvRecapTabChat": "Käännetty chat",
   "wvRecapTranscriptEmpty": "Tälle istunnolle ei tallennettu transkriptioita.",
-  "wvRecapChatEmpty": "Tälle istunnolle ei ole chat-viestejä."
+  "wvRecapChatEmpty": "Tälle istunnolle ei ole chat-viestejä.",
+  "homeHostWebinarTitle": "Host a webinar",
+  "homeHostWebinarDesc": "Broadcast live to an audience with real-time translation and subtitles.",
+  "homeHostWebinarCta": "Go to Webinars"
 }

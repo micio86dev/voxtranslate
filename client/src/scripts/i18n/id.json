@@ -702,5 +702,8 @@
   "wvRecapTabTranscript": "Transkripsi",
   "wvRecapTabChat": "Obrolan terjemahan",
   "wvRecapTranscriptEmpty": "Tidak ada transkripsi yang direkam untuk sesi ini.",
-  "wvRecapChatEmpty": "Tidak ada pesan obrolan untuk sesi ini."
+  "wvRecapChatEmpty": "Tidak ada pesan obrolan untuk sesi ini.",
+  "homeHostWebinarTitle": "Host a webinar",
+  "homeHostWebinarDesc": "Broadcast live to an audience with real-time translation and subtitles.",
+  "homeHostWebinarCta": "Go to Webinars"
 }

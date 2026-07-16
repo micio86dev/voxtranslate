@@ -702,5 +702,8 @@
   "wvRecapTabTranscript": "Qoraalada",
   "wvRecapTabChat": "Sheekada la turjumay",
   "wvRecapTranscriptEmpty": "Fadhigan kuma qormin qoraal.",
-  "wvRecapChatEmpty": "Ma jiraan farriimaha sheekada fadhigan."
+  "wvRecapChatEmpty": "Ma jiraan farriimaha sheekada fadhigan.",
+  "homeHostWebinarTitle": "Host a webinar",
+  "homeHostWebinarDesc": "Broadcast live to an audience with real-time translation and subtitles.",
+  "homeHostWebinarCta": "Go to Webinars"
 }

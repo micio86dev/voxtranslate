@@ -702,5 +702,8 @@
   "wvRecapTabTranscript": "లిప్యంతరీకరణలు",
   "wvRecapTabChat": "అనువదించిన చాట్",
   "wvRecapTranscriptEmpty": "ఈ సెషన్‌కు ఎటువంటి లిప్యంతరీకరణలు నమోదు కాలేదు.",
-  "wvRecapChatEmpty": "ఈ సెషన్‌కు చాట్ సందేశాలు లేవు."
+  "wvRecapChatEmpty": "ఈ సెషన్‌కు చాట్ సందేశాలు లేవు.",
+  "homeHostWebinarTitle": "Host a webinar",
+  "homeHostWebinarDesc": "Broadcast live to an audience with real-time translation and subtitles.",
+  "homeHostWebinarCta": "Go to Webinars"
 }

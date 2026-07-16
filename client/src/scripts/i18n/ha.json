@@ -702,5 +702,8 @@
   "wvRecapTabTranscript": "Rubuce-rubuce",
   "wvRecapTabChat": "Tattaunawa da aka fassara",
   "wvRecapTranscriptEmpty": "Ba a yi rikodin rubuce-rubuce ga wannan taro ba.",
-  "wvRecapChatEmpty": "Babu saƙonnin hira ga wannan taro."
+  "wvRecapChatEmpty": "Babu saƙonnin hira ga wannan taro.",
+  "homeHostWebinarTitle": "Host a webinar",
+  "homeHostWebinarDesc": "Broadcast live to an audience with real-time translation and subtitles.",
+  "homeHostWebinarCta": "Go to Webinars"
 }

@@ -702,5 +702,8 @@
   "wvRecapTabTranscript": "文字起こし",
   "wvRecapTabChat": "翻訳済みチャット",
   "wvRecapTranscriptEmpty": "このセッションの文字起こしは記録されていません。",
-  "wvRecapChatEmpty": "このセッションのチャットメッセージはありません。"
+  "wvRecapChatEmpty": "このセッションのチャットメッセージはありません。",
+  "homeHostWebinarTitle": "Host a webinar",
+  "homeHostWebinarDesc": "Broadcast live to an audience with real-time translation and subtitles.",
+  "homeHostWebinarCta": "Go to Webinars"
 }

@@ -702,5 +702,8 @@
   "wvRecapTabTranscript": "Mga transkripsiyon",
   "wvRecapTabChat": "Isinalin na chat",
   "wvRecapTranscriptEmpty": "Walang naitala na transkripsiyon para sa sesyong ito.",
-  "wvRecapChatEmpty": "Walang mga mensahe sa chat para sa sesyong ito."
+  "wvRecapChatEmpty": "Walang mga mensahe sa chat para sa sesyong ito.",
+  "homeHostWebinarTitle": "Host a webinar",
+  "homeHostWebinarDesc": "Broadcast live to an audience with real-time translation and subtitles.",
+  "homeHostWebinarCta": "Go to Webinars"
 }

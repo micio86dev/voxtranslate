@@ -702,5 +702,8 @@
   "wvRecapTabTranscript": "Транскрипции",
   "wvRecapTabChat": "Преведен чат",
   "wvRecapTranscriptEmpty": "За оваа сесија не се снимени транскрипции.",
-  "wvRecapChatEmpty": "Нема пораки во чат за оваа сесија."
+  "wvRecapChatEmpty": "Нема пораки во чат за оваа сесија.",
+  "homeHostWebinarTitle": "Host a webinar",
+  "homeHostWebinarDesc": "Broadcast live to an audience with real-time translation and subtitles.",
+  "homeHostWebinarCta": "Go to Webinars"
 }

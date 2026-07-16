@@ -702,5 +702,8 @@
   "wvRecapTabTranscript": "ကြာကြာ မှတ်တမ်းများ",
   "wvRecapTabChat": "ဘာသာပြန် ချတ်",
   "wvRecapTranscriptEmpty": "ဤအစည်းအဝေးအတွက် မှတ်တမ်းများ မတင်ထားပါ။",
-  "wvRecapChatEmpty": "ဤအစည်းအဝေးအတွက် ချတ်မှတ်တမ်းများ မရှိပါ။"
+  "wvRecapChatEmpty": "ဤအစည်းအဝေးအတွက် ချတ်မှတ်တမ်းများ မရှိပါ။",
+  "homeHostWebinarTitle": "Host a webinar",
+  "homeHostWebinarDesc": "Broadcast live to an audience with real-time translation and subtitles.",
+  "homeHostWebinarCta": "Go to Webinars"
 }

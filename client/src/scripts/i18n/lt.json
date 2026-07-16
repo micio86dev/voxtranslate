@@ -702,5 +702,8 @@
   "wvRecapTabTranscript": "Transkripcijos",
   "wvRecapTabChat": "Išverstas pokalbis",
   "wvRecapTranscriptEmpty": "Šiai sesijai neįrašyta jokių transkripcijų.",
-  "wvRecapChatEmpty": "Šiai sesijai nėra pokalbių žinučių."
+  "wvRecapChatEmpty": "Šiai sesijai nėra pokalbių žinučių.",
+  "homeHostWebinarTitle": "Host a webinar",
+  "homeHostWebinarDesc": "Broadcast live to an audience with real-time translation and subtitles.",
+  "homeHostWebinarCta": "Go to Webinars"
 }

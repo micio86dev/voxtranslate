@@ -702,5 +702,8 @@
   "wvRecapTabTranscript": "Maandishi",
   "wvRecapTabChat": "Mazungumzo yaliyotafsiriwa",
   "wvRecapTranscriptEmpty": "Hakuna maandishi yaliyorekodiwa kwa kipindi hiki.",
-  "wvRecapChatEmpty": "Hakuna ujumbe wa mazungumzo kwa kipindi hiki."
+  "wvRecapChatEmpty": "Hakuna ujumbe wa mazungumzo kwa kipindi hiki.",
+  "homeHostWebinarTitle": "Host a webinar",
+  "homeHostWebinarDesc": "Broadcast live to an audience with real-time translation and subtitles.",
+  "homeHostWebinarCta": "Go to Webinars"
 }

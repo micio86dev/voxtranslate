@@ -702,5 +702,8 @@
   "wvRecapTabTranscript": "نقل حرفی",
   "wvRecapTabChat": "ترجمہ شدہ چیٹ",
   "wvRecapTranscriptEmpty": "اس سیشن کے لیے کوئی نقل حرفی ریکارڈ نہیں کی گئی۔",
-  "wvRecapChatEmpty": "اس سیشن کے لیے کوئی چیٹ پیغام نہیں ہے۔"
+  "wvRecapChatEmpty": "اس سیشن کے لیے کوئی چیٹ پیغام نہیں ہے۔",
+  "homeHostWebinarTitle": "Host a webinar",
+  "homeHostWebinarDesc": "Broadcast live to an audience with real-time translation and subtitles.",
+  "homeHostWebinarCta": "Go to Webinars"
 }

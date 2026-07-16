@@ -702,5 +702,8 @@
   "wvRecapTabTranscript": "පිටසටහන්",
   "wvRecapTabChat": "පරිවර්තනය කළ කතාබස",
   "wvRecapTranscriptEmpty": "මෙම සැසිය සඳහා කිසිදු පිටසටහනක් පටිගත කර නැත.",
-  "wvRecapChatEmpty": "මෙම සැසිය සඳහා කතාබස් පණිවිඩ නොමැත."
+  "wvRecapChatEmpty": "මෙම සැසිය සඳහා කතාබස් පණිවිඩ නොමැත.",
+  "homeHostWebinarTitle": "Host a webinar",
+  "homeHostWebinarDesc": "Broadcast live to an audience with real-time translation and subtitles.",
+  "homeHostWebinarCta": "Go to Webinars"
 }

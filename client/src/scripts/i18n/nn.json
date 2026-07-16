@@ -702,5 +702,8 @@
   "wvRecapTabTranscript": "Transkripsjonar",
   "wvRecapTabChat": "Omsett chat",
   "wvRecapTranscriptEmpty": "Ingen transkripsjonar vart registrerte for denne økta.",
-  "wvRecapChatEmpty": "Ingen chat-meldingar for denne økta."
+  "wvRecapChatEmpty": "Ingen chat-meldingar for denne økta.",
+  "homeHostWebinarTitle": "Host a webinar",
+  "homeHostWebinarDesc": "Broadcast live to an audience with real-time translation and subtitles.",
+  "homeHostWebinarCta": "Go to Webinars"
 }

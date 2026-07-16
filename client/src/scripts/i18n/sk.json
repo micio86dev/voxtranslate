@@ -702,5 +702,8 @@
   "wvRecapTabTranscript": "Prepisy",
   "wvRecapTabChat": "Preložený chat",
   "wvRecapTranscriptEmpty": "Pre túto reláciu neboli zaznamenané žiadne prepisy.",
-  "wvRecapChatEmpty": "Pre túto reláciu nie sú žiadne správy z chatu."
+  "wvRecapChatEmpty": "Pre túto reláciu nie sú žiadne správy z chatu.",
+  "homeHostWebinarTitle": "Host a webinar",
+  "homeHostWebinarDesc": "Broadcast live to an audience with real-time translation and subtitles.",
+  "homeHostWebinarCta": "Go to Webinars"
 }

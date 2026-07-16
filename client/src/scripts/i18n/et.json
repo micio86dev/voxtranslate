@@ -702,5 +702,8 @@
   "wvRecapTabTranscript": "Transkriptsioonid",
   "wvRecapTabChat": "Tõlgitud vestlus",
   "wvRecapTranscriptEmpty": "Selle seansi jaoks ei salvestatud ühtegi transkriptsiooni.",
-  "wvRecapChatEmpty": "Selle seansi jaoks pole vestlussõnumeid."
+  "wvRecapChatEmpty": "Selle seansi jaoks pole vestlussõnumeid.",
+  "homeHostWebinarTitle": "Host a webinar",
+  "homeHostWebinarDesc": "Broadcast live to an audience with real-time translation and subtitles.",
+  "homeHostWebinarCta": "Go to Webinars"
 }

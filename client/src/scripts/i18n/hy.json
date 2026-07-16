@@ -702,5 +702,8 @@
   "wvRecapTabTranscript": "Արտագրություններ",
   "wvRecapTabChat": "Թարգմանված զրույց",
   "wvRecapTranscriptEmpty": "Այս նստաշրջանի համար արտագրություններ չեն գրանցվել։",
-  "wvRecapChatEmpty": "Այս նստաշրջանի համար չկան զրույցի հաղորդագրություններ։"
+  "wvRecapChatEmpty": "Այս նստաշրջանի համար չկան զրույցի հաղորդագրություններ։",
+  "homeHostWebinarTitle": "Host a webinar",
+  "homeHostWebinarDesc": "Broadcast live to an audience with real-time translation and subtitles.",
+  "homeHostWebinarCta": "Go to Webinars"
 }

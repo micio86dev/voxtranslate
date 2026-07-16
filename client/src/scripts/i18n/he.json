@@ -702,5 +702,8 @@
   "wvRecapTabTranscript": "תמלולים",
   "wvRecapTabChat": "צ'אט מתורגם",
   "wvRecapTranscriptEmpty": "לא הוקלטו תמלולים עבור סשן זה.",
-  "wvRecapChatEmpty": "אין הודעות צ'אט עבור סשן זה."
+  "wvRecapChatEmpty": "אין הודעות צ'אט עבור סשן זה.",
+  "homeHostWebinarTitle": "Host a webinar",
+  "homeHostWebinarDesc": "Broadcast live to an audience with real-time translation and subtitles.",
+  "homeHostWebinarCta": "Go to Webinars"
 }

@@ -364,6 +364,8 @@ const roomsList = $('rooms-list');
 // Public webinars lobby section (sibling of the rooms list); the card is hidden when empty.
 const publicWebinarsCard = $('public-webinars-card');
 const publicWebinarsList = $('public-webinars');
+// Host-a-webinar CTA card (D9, PR5): shown only for B2B users with host-capable orgs.
+const hostWebinarCtaCard = $('host-webinar-cta');
 
 // ---- Pre-join refs ---------------------------------------------------------
 const previewVideo = $<HTMLVideoElement>('preview');
@@ -4764,7 +4766,10 @@ async function updateWorkspaceLink(): Promise<void> {
   // Project voice notes are gated on an active subscription (same as cloud recording).
   if (orgs.some((o) => canCloudRecord(o))) show($('acct-tab-workspace'), true);
   // Hosting webinars is gated on an active subscription too (webinar phase 0).
-  if (orgs.some((o) => canHostWebinar(o))) show($('webinars-btn'), true);
+  const anyHostEligible = orgs.some((o) => canHostWebinar(o));
+  if (anyHostEligible) show($('webinars-btn'), true);
+  // Homepage host CTA card toggles with the same gate (D9, PR5).
+  show(hostWebinarCtaCard, anyHostEligible);
 }
 
 // ---- Workspace: project voice notes (spec: B2B project voice notes) --------
@@ -6991,6 +6996,11 @@ webinarTabs.addEventListener('click', (e) => {
 });
 $('webinars-back').addEventListener('click', closeWebinars);
 $('webinars-btn').addEventListener('click', () => {
+  closeAccountMenu();
+  void openWebinars();
+});
+// Homepage host CTA button (D9, PR5): same action as #webinars-btn.
+$('home-host-webinar-btn').addEventListener('click', () => {
   closeAccountMenu();
   void openWebinars();
 });

@@ -702,5 +702,8 @@
   "wvRecapTabTranscript": "ጽሑፍ ምዝገባዎች",
   "wvRecapTabChat": "የተተረጎመ ውይይት",
   "wvRecapTranscriptEmpty": "ለዚህ ክፍለ ጊዜ ምንም ጽሑፍ አልተመዘገበም።",
-  "wvRecapChatEmpty": "ለዚህ ክፍለ ጊዜ ምንም የውይይት መልዕክቶች የሉም።"
+  "wvRecapChatEmpty": "ለዚህ ክፍለ ጊዜ ምንም የውይይት መልዕክቶች የሉም።",
+  "homeHostWebinarTitle": "Host a webinar",
+  "homeHostWebinarDesc": "Broadcast live to an audience with real-time translation and subtitles.",
+  "homeHostWebinarCta": "Go to Webinars"
 }

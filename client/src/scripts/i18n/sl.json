@@ -702,5 +702,8 @@
   "wvRecapTabTranscript": "Prepisi",
   "wvRecapTabChat": "Preveden pogovor",
   "wvRecapTranscriptEmpty": "Za to sejo ni bila posneta nobena transkripcija.",
-  "wvRecapChatEmpty": "Za to sejo ni sporočil klepeta."
+  "wvRecapChatEmpty": "Za to sejo ni sporočil klepeta.",
+  "homeHostWebinarTitle": "Host a webinar",
+  "homeHostWebinarDesc": "Broadcast live to an audience with real-time translation and subtitles.",
+  "homeHostWebinarCta": "Go to Webinars"
 }

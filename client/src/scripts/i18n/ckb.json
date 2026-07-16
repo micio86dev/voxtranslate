@@ -702,5 +702,8 @@
   "wvRecapTabTranscript": "نووسینەوەکان",
   "wvRecapTabChat": "چاتی وەرگێڕدراو",
   "wvRecapTranscriptEmpty": "هیچ نووسینەوەیەک بۆ ئەم دانیشتنە تۆمار نەکراوە.",
-  "wvRecapChatEmpty": "هیچ نامەی چاتێک بۆ ئەم دانیشتنە نییە."
+  "wvRecapChatEmpty": "هیچ نامەی چاتێک بۆ ئەم دانیشتنە نییە.",
+  "homeHostWebinarTitle": "Host a webinar",
+  "homeHostWebinarDesc": "Broadcast live to an audience with real-time translation and subtitles.",
+  "homeHostWebinarCta": "Go to Webinars"
 }

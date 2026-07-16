@@ -702,5 +702,8 @@
   "wvRecapTabTranscript": "ტრანსკრიპციები",
   "wvRecapTabChat": "თარგმნილი ჩატი",
   "wvRecapTranscriptEmpty": "ამ სესიისათვის ტრანსკრიპციები არ ჩაწერილა.",
-  "wvRecapChatEmpty": "ამ სესიისათვის ჩატის შეტყობინებები არ არის."
+  "wvRecapChatEmpty": "ამ სესიისათვის ჩატის შეტყობინებები არ არის.",
+  "homeHostWebinarTitle": "Host a webinar",
+  "homeHostWebinarDesc": "Broadcast live to an audience with real-time translation and subtitles.",
+  "homeHostWebinarCta": "Go to Webinars"
 }

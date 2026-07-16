@@ -702,5 +702,8 @@
   "wvRecapTabTranscript": "لیکنې",
   "wvRecapTabChat": "ژباړل شوی خبرې اترې",
   "wvRecapTranscriptEmpty": "د دې ناستې لپاره هیڅ لیکنه نه ده ثبت شوې.",
-  "wvRecapChatEmpty": "د دې ناستې لپاره هیڅ د خبرو اترو پیغام نشته."
+  "wvRecapChatEmpty": "د دې ناستې لپاره هیڅ د خبرو اترو پیغام نشته.",
+  "homeHostWebinarTitle": "Host a webinar",
+  "homeHostWebinarDesc": "Broadcast live to an audience with real-time translation and subtitles.",
+  "homeHostWebinarCta": "Go to Webinars"
 }

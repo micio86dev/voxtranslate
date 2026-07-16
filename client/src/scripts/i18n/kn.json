@@ -702,5 +702,8 @@
   "wvRecapTabTranscript": "ಲಿಪ್ಯಂತರಗಳು",
   "wvRecapTabChat": "ಅನುವಾದಿತ ಚಾಟ್",
   "wvRecapTranscriptEmpty": "ಈ ಅಧಿವೇಶನಕ್ಕಾಗಿ ಯಾವುದೇ ಲಿಪ್ಯಂತರ ದಾಖಲಿಸಲಾಗಿಲ್ಲ.",
-  "wvRecapChatEmpty": "ಈ ಅಧಿವೇಶನಕ್ಕಾಗಿ ಯಾವುದೇ ಚಾಟ್ ಸಂದೇಶಗಳಿಲ್ಲ."
+  "wvRecapChatEmpty": "ಈ ಅಧಿವೇಶನಕ್ಕಾಗಿ ಯಾವುದೇ ಚಾಟ್ ಸಂದೇಶಗಳಿಲ್ಲ.",
+  "homeHostWebinarTitle": "Host a webinar",
+  "homeHostWebinarDesc": "Broadcast live to an audience with real-time translation and subtitles.",
+  "homeHostWebinarCta": "Go to Webinars"
 }

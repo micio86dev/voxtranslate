@@ -702,5 +702,8 @@
   "wvRecapTabTranscript": "Транскрипциялар",
   "wvRecapTabChat": "Аударылған чат",
   "wvRecapTranscriptEmpty": "Бұл сессия үшін транскрипциялар жазылмаған.",
-  "wvRecapChatEmpty": "Бұл сессия үшін чат хабарлары жоқ."
+  "wvRecapChatEmpty": "Бұл сессия үшін чат хабарлары жоқ.",
+  "homeHostWebinarTitle": "Host a webinar",
+  "homeHostWebinarDesc": "Broadcast live to an audience with real-time translation and subtitles.",
+  "homeHostWebinarCta": "Go to Webinars"
 }

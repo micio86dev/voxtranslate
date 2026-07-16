@@ -702,5 +702,8 @@
   "wvRecapTabTranscript": "Transkripzioak",
   "wvRecapTabChat": "Itzulitako txata",
   "wvRecapTranscriptEmpty": "Ez da transkripziorik grabatu saio honetarako.",
-  "wvRecapChatEmpty": "Ez dago txat mezurik saio honetarako."
+  "wvRecapChatEmpty": "Ez dago txat mezurik saio honetarako.",
+  "homeHostWebinarTitle": "Host a webinar",
+  "homeHostWebinarDesc": "Broadcast live to an audience with real-time translation and subtitles.",
+  "homeHostWebinarCta": "Go to Webinars"
 }

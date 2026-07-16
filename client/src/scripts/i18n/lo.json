@@ -702,5 +702,8 @@
   "wvRecapTabTranscript": "ການຖ່າຍຂໍ້ຄວາມ",
   "wvRecapTabChat": "ການສົນທະນາທີ່ແປ",
   "wvRecapTranscriptEmpty": "ບໍ່ມີການຖ່າຍຂໍ້ຄວາມທີ່ບັນທຶກໄວ້ສໍາລັບກອງປະຊຸມນີ້.",
-  "wvRecapChatEmpty": "ບໍ່ມີຂໍ້ຄວາມສົນທະນາສໍາລັບກອງປະຊຸມນີ້."
+  "wvRecapChatEmpty": "ບໍ່ມີຂໍ້ຄວາມສົນທະນາສໍາລັບກອງປະຊຸມນີ້.",
+  "homeHostWebinarTitle": "Host a webinar",
+  "homeHostWebinarDesc": "Broadcast live to an audience with real-time translation and subtitles.",
+  "homeHostWebinarCta": "Go to Webinars"
 }

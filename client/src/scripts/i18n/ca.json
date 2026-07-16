@@ -702,5 +702,8 @@
   "wvRecapTabTranscript": "Transcripcions",
   "wvRecapTabChat": "Xat traduït",
   "wvRecapTranscriptEmpty": "No s'han enregistrat transcripcions per a aquesta sessió.",
-  "wvRecapChatEmpty": "No hi ha missatges de xat per a aquesta sessió."
+  "wvRecapChatEmpty": "No hi ha missatges de xat per a aquesta sessió.",
+  "homeHostWebinarTitle": "Host a webinar",
+  "homeHostWebinarDesc": "Broadcast live to an audience with real-time translation and subtitles.",
+  "homeHostWebinarCta": "Go to Webinars"
 }

@@ -702,5 +702,8 @@
   "wvRecapTabTranscript": "Transkripsiyalar",
   "wvRecapTabChat": "Tərcümə edilmiş söhbət",
   "wvRecapTranscriptEmpty": "Bu sessiya üçün heç bir transkripsiya qeydə alınmayıb.",
-  "wvRecapChatEmpty": "Bu sessiya üçün söhbət mesajı yoxdur."
+  "wvRecapChatEmpty": "Bu sessiya üçün söhbət mesajı yoxdur.",
+  "homeHostWebinarTitle": "Host a webinar",
+  "homeHostWebinarDesc": "Broadcast live to an audience with real-time translation and subtitles.",
+  "homeHostWebinarCta": "Go to Webinars"
 }

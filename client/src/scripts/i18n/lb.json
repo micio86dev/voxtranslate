@@ -702,5 +702,8 @@
   "wvRecapTabTranscript": "Transkriptiounen",
   "wvRecapTabChat": "Iwwersate Chat",
   "wvRecapTranscriptEmpty": "Fir dës Sessioun goufen keng Transkriptiounen opgeholl.",
-  "wvRecapChatEmpty": "Fir dës Sessioun gëtt et keng Chat-Messagen."
+  "wvRecapChatEmpty": "Fir dës Sessioun gëtt et keng Chat-Messagen.",
+  "homeHostWebinarTitle": "Host a webinar",
+  "homeHostWebinarDesc": "Broadcast live to an audience with real-time translation and subtitles.",
+  "homeHostWebinarCta": "Go to Webinars"
 }

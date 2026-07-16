@@ -702,5 +702,8 @@
   "wvRecapTabTranscript": "Transkriptsiyalar",
   "wvRecapTabChat": "Tarjima qilingan chat",
   "wvRecapTranscriptEmpty": "Bu sessiya uchun hech qanday transkriptsiya yozilmagan.",
-  "wvRecapChatEmpty": "Bu sessiya uchun chat xabarlari mavjud emas."
+  "wvRecapChatEmpty": "Bu sessiya uchun chat xabarlari mavjud emas.",
+  "homeHostWebinarTitle": "Host a webinar",
+  "homeHostWebinarDesc": "Broadcast live to an audience with real-time translation and subtitles.",
+  "homeHostWebinarCta": "Go to Webinars"
 }

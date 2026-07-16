@@ -702,5 +702,8 @@
   "wvRecapTabTranscript": "Μεταγραφές",
   "wvRecapTabChat": "Μεταφρασμένη συνομιλία",
   "wvRecapTranscriptEmpty": "Δεν καταγράφηκαν μεταγραφές για αυτή τη συνεδρία.",
-  "wvRecapChatEmpty": "Δεν υπάρχουν μηνύματα συνομιλίας για αυτή τη συνεδρία."
+  "wvRecapChatEmpty": "Δεν υπάρχουν μηνύματα συνομιλίας για αυτή τη συνεδρία.",
+  "homeHostWebinarTitle": "Host a webinar",
+  "homeHostWebinarDesc": "Broadcast live to an audience with real-time translation and subtitles.",
+  "homeHostWebinarCta": "Go to Webinars"
 }

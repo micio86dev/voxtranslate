@@ -218,6 +218,17 @@ const jsonLd = {
           <div id="rooms-list" class="rooms-list"></div>
         </div>
 
+        <!-- Host a webinar CTA (D9, PR5). Shown only for signed-in B2B users with at
+             least one host-capable org. Visibility toggled in updateWorkspaceLink()
+             alongside #webinars-btn, via the same canHostWebinar(org) gate. -->
+        <div class="card hidden host-webinar-cta" id="host-webinar-cta">
+          <div class="card-title-row">
+            <span class="card-title" data-i18n="homeHostWebinarTitle">{T('homeHostWebinarTitle')}</span>
+          </div>
+          <p class="host-cta-desc" data-i18n="homeHostWebinarDesc">{T('homeHostWebinarDesc')}</p>
+          <button id="home-host-webinar-btn" class="btn-primary" data-i18n="homeHostWebinarCta">{T('homeHostWebinarCta')}</button>
+        </div>
+
         <!-- Public webinars discovery (sibling of the public rooms list). Hidden while
              the list is empty; populated from GET /api/webinars/public in app.ts.
              Clicking a card navigates to the participant page /w/{code}. -->
@@ -1842,6 +1853,11 @@ const jsonLd = {
       width: 100%; max-width: 600px; margin: 0 auto; padding: 14px 16px 28px;
       display: flex; flex-direction: column; gap: 14px;
     }
+    /* Host-a-webinar CTA card (D9, PR5) — prominent but matches card language. */
+    .host-webinar-cta { border-color: var(--accent); }
+    .host-cta-desc { margin: 6px 0 14px; font-size: 0.88rem; color: var(--muted); line-height: 1.45; }
+    .host-webinar-cta .btn-primary { width: 100%; }
+
     .rooms-list { display: flex; flex-direction: column; gap: 10px; }
     .schedule-list { display: flex; flex-direction: column; gap: 8px; }
     .schedule-list :global(.schedule-item) { display: flex; align-items: center; gap: 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }

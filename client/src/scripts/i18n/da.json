@@ -702,5 +702,8 @@
   "wvRecapTabTranscript": "Transskriptioner",
   "wvRecapTabChat": "Oversat chat",
   "wvRecapTranscriptEmpty": "Ingen transskriptioner optaget for denne session.",
-  "wvRecapChatEmpty": "Ingen chatbeskeder for denne session."
+  "wvRecapChatEmpty": "Ingen chatbeskeder for denne session.",
+  "homeHostWebinarTitle": "Host a webinar",
+  "homeHostWebinarDesc": "Broadcast live to an audience with real-time translation and subtitles.",
+  "homeHostWebinarCta": "Go to Webinars"
 }

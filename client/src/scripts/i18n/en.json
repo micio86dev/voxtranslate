@@ -702,5 +702,8 @@
   "wvRecapTabTranscript": "Transcriptions",
   "wvRecapTabChat": "Translated chat",
   "wvRecapTranscriptEmpty": "No transcriptions recorded for this session.",
-  "wvRecapChatEmpty": "No chat messages for this session."
+  "wvRecapChatEmpty": "No chat messages for this session.",
+  "homeHostWebinarTitle": "Host a webinar",
+  "homeHostWebinarDesc": "Broadcast live to an audience with real-time translation and subtitles.",
+  "homeHostWebinarCta": "Go to Webinars"
 }

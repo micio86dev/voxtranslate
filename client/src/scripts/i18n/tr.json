@@ -702,5 +702,8 @@
   "wvRecapTabTranscript": "Transkriptler",
   "wvRecapTabChat": "Çevrilmiş sohbet",
   "wvRecapTranscriptEmpty": "Bu oturum için hiçbir transkript kaydedilmedi.",
-  "wvRecapChatEmpty": "Bu oturum için sohbet mesajı bulunmuyor."
+  "wvRecapChatEmpty": "Bu oturum için sohbet mesajı bulunmuyor.",
+  "homeHostWebinarTitle": "Host a webinar",
+  "homeHostWebinarDesc": "Broadcast live to an audience with real-time translation and subtitles.",
+  "homeHostWebinarCta": "Go to Webinars"
 }

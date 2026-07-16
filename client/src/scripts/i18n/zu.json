@@ -702,5 +702,8 @@
   "wvRecapTabTranscript": "Izingxoxo ezibhaliwe",
   "wvRecapTabChat": "Ingxoxo ehunyushiwe",
   "wvRecapTranscriptEmpty": "Awekho amazwi abhaliwe arekodiwe kulesi seshini.",
-  "wvRecapChatEmpty": "Awekho imilayezo yengxoxo kulesi seshini."
+  "wvRecapChatEmpty": "Awekho imilayezo yengxoxo kulesi seshini.",
+  "homeHostWebinarTitle": "Host a webinar",
+  "homeHostWebinarDesc": "Broadcast live to an audience with real-time translation and subtitles.",
+  "homeHostWebinarCta": "Go to Webinars"
 }

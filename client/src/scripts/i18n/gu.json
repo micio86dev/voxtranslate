@@ -702,5 +702,8 @@
   "wvRecapTabTranscript": "ટ્રાન્સક્રિપ્શન",
   "wvRecapTabChat": "અનુવાદિત ચેટ",
   "wvRecapTranscriptEmpty": "આ સત્ર માટે કોઈ ટ્રાન્સક્રિપ્શન રેકોર્ડ થઈ નથી.",
-  "wvRecapChatEmpty": "આ સત્ર માટે કોઈ ચેટ સંદેશ નથી."
+  "wvRecapChatEmpty": "આ સત્ર માટે કોઈ ચેટ સંદેશ નથી.",
+  "homeHostWebinarTitle": "Host a webinar",
+  "homeHostWebinarDesc": "Broadcast live to an audience with real-time translation and subtitles.",
+  "homeHostWebinarCta": "Go to Webinars"
 }

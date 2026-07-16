@@ -702,5 +702,8 @@
   "wvRecapTabTranscript": "رونوشت‌ها",
   "wvRecapTabChat": "چت ترجمه‌شده",
   "wvRecapTranscriptEmpty": "هیچ رونوشتی برای این جلسه ثبت نشده است.",
-  "wvRecapChatEmpty": "هیچ پیام چتی برای این جلسه وجود ندارد."
+  "wvRecapChatEmpty": "هیچ پیام چتی برای این جلسه وجود ندارد.",
+  "homeHostWebinarTitle": "Host a webinar",
+  "homeHostWebinarDesc": "Broadcast live to an audience with real-time translation and subtitles.",
+  "homeHostWebinarCta": "Go to Webinars"
 }

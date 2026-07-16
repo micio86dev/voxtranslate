@@ -702,5 +702,8 @@
   "wvRecapTabTranscript": "Trawsgrifiadau",
   "wvRecapTabChat": "Sgwrs wedi'i chyfieithu",
   "wvRecapTranscriptEmpty": "Nid oes unrhyw drawsgrifiadau wedi'u cofnodi ar gyfer y sesiwn hon.",
-  "wvRecapChatEmpty": "Nid oes unrhyw negeseuon sgwrs ar gyfer y sesiwn hon."
+  "wvRecapChatEmpty": "Nid oes unrhyw negeseuon sgwrs ar gyfer y sesiwn hon.",
+  "homeHostWebinarTitle": "Host a webinar",
+  "homeHostWebinarDesc": "Broadcast live to an audience with real-time translation and subtitles.",
+  "homeHostWebinarCta": "Go to Webinars"
 }

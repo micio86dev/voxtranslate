@@ -702,5 +702,8 @@
   "wvRecapTabTranscript": "Transkriptime",
   "wvRecapTabChat": "Bisedë e përkthyer",
   "wvRecapTranscriptEmpty": "Nuk u regjistruan transkriptime për këtë sesion.",
-  "wvRecapChatEmpty": "Nuk ka mesazhe bisede për këtë sesion."
+  "wvRecapChatEmpty": "Nuk ka mesazhe bisede për këtë sesion.",
+  "homeHostWebinarTitle": "Host a webinar",
+  "homeHostWebinarDesc": "Broadcast live to an audience with real-time translation and subtitles.",
+  "homeHostWebinarCta": "Go to Webinars"
 }

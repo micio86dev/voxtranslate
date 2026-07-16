@@ -702,5 +702,8 @@
   "wvRecapTabTranscript": "Nsụpụta",
   "wvRecapTabChat": "Mkparịta ụka etinyere",
   "wvRecapTranscriptEmpty": "Enweghị nsụpụta edekọtara maka oge a.",
-  "wvRecapChatEmpty": "Enweghị ozi mkparịta ụka maka oge a."
+  "wvRecapChatEmpty": "Enweghị ozi mkparịta ụka maka oge a.",
+  "homeHostWebinarTitle": "Host a webinar",
+  "homeHostWebinarDesc": "Broadcast live to an audience with real-time translation and subtitles.",
+  "homeHostWebinarCta": "Go to Webinars"
 }

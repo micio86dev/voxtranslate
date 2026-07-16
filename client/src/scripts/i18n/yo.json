@@ -702,5 +702,8 @@
   "wvRecapTabTranscript": "Awọn ipilẹ ọrọ",
   "wvRecapTabChat": "Ibaraẹnisọrọ ti a tumọ",
   "wvRecapTranscriptEmpty": "Ko si awọn ipilẹ ọrọ ti a gbasilẹ fun igba yii.",
-  "wvRecapChatEmpty": "Ko si awọn ifiranṣẹ ibaraẹnisọrọ fun igba yii."
+  "wvRecapChatEmpty": "Ko si awọn ifiranṣẹ ibaraẹnisọrọ fun igba yii.",
+  "homeHostWebinarTitle": "Host a webinar",
+  "homeHostWebinarDesc": "Broadcast live to an audience with real-time translation and subtitles.",
+  "homeHostWebinarCta": "Go to Webinars"
 }

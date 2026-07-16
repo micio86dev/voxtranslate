@@ -702,5 +702,8 @@
   "wvRecapTabTranscript": "Transkripcijas",
   "wvRecapTabChat": "Tulkots tērzēšanas logs",
   "wvRecapTranscriptEmpty": "Šai sesijai nav ierakstītu transkripciju.",
-  "wvRecapChatEmpty": "Šai sesijai nav tērzēšanas ziņojumu."
+  "wvRecapChatEmpty": "Šai sesijai nav tērzēšanas ziņojumu.",
+  "homeHostWebinarTitle": "Host a webinar",
+  "homeHostWebinarDesc": "Broadcast live to an audience with real-time translation and subtitles.",
+  "homeHostWebinarCta": "Go to Webinars"
 }

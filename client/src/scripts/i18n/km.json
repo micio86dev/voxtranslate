@@ -702,5 +702,8 @@
   "wvRecapTabTranscript": "ការចម្លង",
   "wvRecapTabChat": "ជជែកដែលបានបកប្រែ",
   "wvRecapTranscriptEmpty": "គ្មានការចម្លងត្រូវបានកត់ត្រាសម្រាប់វគ្គនេះទេ។",
-  "wvRecapChatEmpty": "គ្មានសារជជែកសម្រាប់វគ្គនេះទេ។"
+  "wvRecapChatEmpty": "គ្មានសារជជែកសម្រាប់វគ្គនេះទេ។",
+  "homeHostWebinarTitle": "Host a webinar",
+  "homeHostWebinarDesc": "Broadcast live to an audience with real-time translation and subtitles.",
+  "homeHostWebinarCta": "Go to Webinars"
 }

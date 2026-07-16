@@ -702,5 +702,8 @@
   "wvRecapTabTranscript": "Traskrizzjonijiet",
   "wvRecapTabChat": "Chat tradotta",
   "wvRecapTranscriptEmpty": "Ma ġiet irrekordjata l-ebda traskrizzjoni għal din is-sessjoni.",
-  "wvRecapChatEmpty": "Ma hemm l-ebda messaġġi ta' chat għal din is-sessjoni."
+  "wvRecapChatEmpty": "Ma hemm l-ebda messaġġi ta' chat għal din is-sessjoni.",
+  "homeHostWebinarTitle": "Host a webinar",
+  "homeHostWebinarDesc": "Broadcast live to an audience with real-time translation and subtitles.",
+  "homeHostWebinarCta": "Go to Webinars"
 }
