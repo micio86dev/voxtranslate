@@ -2,6 +2,8 @@ import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
   testDir: './e2e',
+  // Fail CI on a stray `.only` (which would silently skip every other e2e spec).
+  forbidOnly: !!process.env.CI,
   timeout: 90_000,
   fullyParallel: false,
   workers: 1,

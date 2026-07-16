@@ -50,6 +50,12 @@ export interface WebinarView {
   created_at: string;
   /** ISO timestamp the webinar was soft-archived, or null while it's active. */
   archived_at: string | null;
+  /** Whether to notify friends when the host goes live (default true). Added in migration 051. */
+  notify_friends?: boolean;
+  /** Reminder lead time in minutes before scheduled_start (optional, scheduler-driven). */
+  reminder_minutes_before?: number | null;
+  /** When true, only authenticated users can join the presence WebSocket. */
+  members_only?: boolean;
 }
 
 /** The public (no-auth) view of a webinar for a participant landing on `/w/{code}`.
@@ -129,12 +135,17 @@ export interface CreateWebinarBody {
   /** Lead time (minutes) for the "starting soon" alert sent to the host's friends
    * when the webinar is public + scheduled. Default 10, clamped 0..=1440 server-side. */
   reminder_minutes_before?: number;
+  /** When false, friends are NOT notified (neither timed reminder nor go-live alert).
+   *  Default true. Only meaningful for public scheduled webinars. */
+  notify_friends?: boolean;
 }
 
 /** Body for `PATCH /api/webinars/{id}` — every field optional. */
 export interface PatchWebinarBody {
   title?: string;
   description?: string | null;
+  /** Change the host's speaking language for the webinar (validated server-side). */
+  source_language?: string;
   /** Reassign the business project the webinar is filed under. Server-side is
    * COALESCE-based: sending a project id reassigns; null/omit leaves it unchanged
    * (there is no unlink today). */
@@ -153,6 +164,8 @@ export interface PatchWebinarBody {
   scheduled_end?: string | null;
   /** Change the friend-reminder lead time (minutes). Clamped 0..=1440 server-side. */
   reminder_minutes_before?: number;
+  /** Opt-in/out of friend notifications for this webinar. */
+  notify_friends?: boolean;
 }
 
 /** A failed host request. `status` is the HTTP status (0 on a network error) so
@@ -469,6 +482,70 @@ export function formatScheduledStart(iso: string | null | undefined): string {
   });
 }
 
+/** Compact time string for the card summary line (D7 — PR3).
+ *  Priority: actual_start/actual_end (for ended webinars) > scheduled_start/scheduled_end.
+ *  Format: "Start" or "Start – End". Returns "" for immediate/unscheduled webinars. Pure. */
+export function buildCardTimeline(w: WebinarView): string {
+  // Prefer actual times for webinars that already ran (ended).
+  const start = w.actual_start ?? w.scheduled_start;
+  const end   = w.actual_end   ?? w.scheduled_end;
+  const startFmt = formatScheduledStart(start);
+  if (!startFmt) return "";
+  const endFmt = formatScheduledStart(end);
+  if (!endFmt) return startFmt;
+  return `${startFmt} – ${endFmt}`;
+}
+
+/** Structured data for populating the detail modal (D5/D7 — PR3).
+ *  Extracts all fields needed by the detail sheet. Pure — no DOM access. */
+export interface WebinarDetailInfo {
+  id: string;
+  title: string;
+  code: string;
+  status: WebinarStatus;
+  tier: WebinarTier;
+  visibility: WebinarVisibility;
+  source_language: string;
+  description: string | null;
+  project_id: string | null;
+  join_url: string;
+  created_at: string;
+  scheduled_start: string | null;
+  scheduled_end: string | null;
+  actual_start: string | null;
+  actual_end: string | null;
+  record_video: boolean;
+  record_transcript: boolean;
+  chat_enabled: boolean;
+  notify_friends: boolean | undefined;
+  reminder_minutes_before: number | null | undefined;
+}
+
+export function buildDetailInfo(w: WebinarView): WebinarDetailInfo {
+  return {
+    id: w.id,
+    title: w.title,
+    code: w.code,
+    status: w.status,
+    tier: w.tier,
+    visibility: w.visibility,
+    source_language: w.source_language,
+    description: w.description,
+    project_id: w.project_id,
+    join_url: w.join_url,
+    created_at: w.created_at,
+    scheduled_start: w.scheduled_start,
+    scheduled_end: w.scheduled_end,
+    actual_start: w.actual_start,
+    actual_end: w.actual_end,
+    record_video: w.record_video,
+    record_transcript: w.record_transcript,
+    chat_enabled: w.chat_enabled,
+    notify_friends: w.notify_friends,
+    reminder_minutes_before: w.reminder_minutes_before,
+  };
+}
+
 /** Fetch the public webinar list for the home page. Unauthenticated GET; best-effort
  *  — any failure (network, non-2xx, malformed body) resolves to `[]` so the home lobby
  *  never breaks over an optional discovery section. Returns `json.webinars` unwrapped. */
@@ -548,6 +625,44 @@ export function fromDatetimeLocalValue(value: string): string | null {
   return d.toISOString();
 }
 
+// ---------------------------------------------------------------------------
+// PR2 — Scheduling validation helpers (D6)
+// ---------------------------------------------------------------------------
+
+/** Clamp a reminder lead time (minutes) so it never exceeds the whole minutes
+ *  remaining until the webinar starts — and never goes negative.
+ *
+ *  - `reminderMinutes`: the value the host typed into the reminder field.
+ *  - `minutesUntilStart`: whole minutes from now until the scheduled start
+ *    (positive → future, 0 → now, negative → already past).
+ *
+ *  Returns a value in [0, min(reminderMinutes, minutesUntilStart)].
+ *  Pure + input-driven (no `Date.now()`) so the UI can unit-test it directly. */
+export function clampReminder(reminderMinutes: number, minutesUntilStart: number): number {
+  // Defensive: a non-finite input (empty field → NaN) collapses to 0 rather than
+  // propagating NaN, so callers that skip their own guard still get a sane number.
+  if (!Number.isFinite(reminderMinutes)) return 0;
+  const ceiling = Number.isFinite(minutesUntilStart) ? Math.max(0, minutesUntilStart) : reminderMinutes;
+  return Math.max(0, Math.min(reminderMinutes, ceiling));
+}
+
+/** Determine whether `scheduled_end` must be cleared because the host moved
+ *  `scheduled_start` forward past it (spec: "Start change resets end").
+ *
+ *  Returns `true` when both start and end are non-null ISO strings AND
+ *  `endISO <= startISO` (i.e. end is no longer strictly after start).
+ *  Returns `false` in all other cases (null inputs, end still valid). Pure. */
+export function resetEndIfStartPassed(
+  startISO: string | null,
+  endISO: string | null,
+): boolean {
+  if (!startISO || !endISO) return false;
+  const start = new Date(startISO).getTime();
+  const end = new Date(endISO).getTime();
+  if (Number.isNaN(start) || Number.isNaN(end)) return false;
+  return end <= start;
+}
+
 /** Outcome of validating an optional webinar schedule client-side, mirroring the
  *  server's 400 rules so the UI can flag it inline before the API call. `ok` means
  *  the (possibly partial) schedule is valid to submit. */
@@ -580,4 +695,95 @@ export function validateSchedule(
     return "endBeforeStart";
   }
   return "ok";
+}
+
+/** Client-side mirror of the server's unarchive time-guard (Area E / D3).
+ *
+ *  Computes the webinar's "effective time" using the same precedence as the server:
+ *    `scheduled_end ?? scheduled_start ?? actual_end`
+ *
+ *  Returns `true` (restorable) when the effective time is absent (never scheduled
+ *  or aired) OR is still in the future relative to `nowMs`. Returns `false` when
+ *  the effective time is in the past.
+ *
+ *  The server guard is authoritative — this is UX-only (disables the Restore button
+ *  so the host sees a hint before attempting the doomed request). Pure + `nowMs`-injected
+ *  so tests are fully deterministic without mocking `Date.now()`. */
+export function isWebinarRestorable(w: WebinarView, nowMs: number): boolean {
+  const effectiveISO = w.scheduled_end ?? w.scheduled_start ?? w.actual_end ?? null;
+  if (!effectiveISO) return true;
+  const t = new Date(effectiveISO).getTime();
+  if (Number.isNaN(t)) return true; // unparseable → don't block; server decides
+  return t > nowMs;
+}
+
+// ---- PR6: Session summary helpers -------------------------------------------
+
+/** A single utterance row from `GET /api/webinars/{id}/transcripts`. */
+export interface TranscriptRow {
+  original_text: string;
+  original_lang: string;
+  /** Per-language translation map (JSONB from DB; may be empty). */
+  translations: Record<string, string>;
+  /** ISO 8601 timestamp when the utterance was spoken. */
+  spoken_at: string;
+}
+
+/** Stats returned by `GET /api/webinars/{id}/session-stats`. */
+export interface WebinarSessionStats {
+  peak_viewers: number;
+  unique_attendees: number;
+  duration_seconds: number;
+}
+
+/** Pick the best text for a transcript row in the requested language.
+ *  Falls back to `original_text` when a translation is absent/empty. Pure. */
+function pickText(row: TranscriptRow, lang: string): string {
+  const t = row.translations[lang];
+  return t && t.trim() ? t : row.original_text;
+}
+
+/** Format a UTC ISO timestamp as an HH:MM:SS string for display/export. */
+function isoToHhMmSs(iso: string): string {
+  const d = new Date(iso);
+  const h = String(d.getUTCHours()).padStart(2, '0');
+  const m = String(d.getUTCMinutes()).padStart(2, '0');
+  const s = String(d.getUTCSeconds()).padStart(2, '0');
+  return `${h}:${m}:${s}`;
+}
+
+/** Format a UTC ISO timestamp as SRT-style `HH:MM:SS,mmm`. */
+function isoToSrtTime(iso: string): string {
+  const d = new Date(iso);
+  const h = String(d.getUTCHours()).padStart(2, '0');
+  const m = String(d.getUTCMinutes()).padStart(2, '0');
+  const s = String(d.getUTCSeconds()).padStart(2, '0');
+  const ms = String(d.getUTCMilliseconds()).padStart(3, '0');
+  return `${h}:${m}:${s},${ms}`;
+}
+
+/** Convert webinar transcript rows to plain-text format.
+ *  Each line: `[HH:MM:SS] <text>`. Returns empty string for empty input. Pure. */
+export function transcriptRowsToTxt(rows: TranscriptRow[], lang: string): string {
+  if (rows.length === 0) return '';
+  return rows
+    .map((r) => `[${isoToHhMmSs(r.spoken_at)}] ${pickText(r, lang)}`)
+    .join('\n');
+}
+
+/** Convert webinar transcript rows to SRT subtitle format.
+ *  End time for each block is 5 seconds after the start (pragmatic default;
+ *  webinar transcripts have no per-utterance duration). Pure. */
+export function transcriptRowsToSrt(rows: TranscriptRow[], lang: string): string {
+  if (rows.length === 0) return '';
+  return rows
+    .map((r, i) => {
+      const startMs = new Date(r.spoken_at).getTime();
+      const endMs = startMs + 5_000;
+      const endIso = new Date(endMs).toISOString();
+      const start = isoToSrtTime(r.spoken_at);
+      const end = isoToSrtTime(endIso);
+      return `${i + 1}\n${start} --> ${end}\n${pickText(r, lang)}`;
+    })
+    .join('\n\n');
 }

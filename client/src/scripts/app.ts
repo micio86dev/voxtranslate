@@ -83,27 +83,39 @@ import {
 import {
   addToCalendar,
   archiveWebinar,
+  buildCardTimeline,
+  buildDetailInfo,
   cancelWebinar,
   canHostWebinar,
+  clampReminder,
   createWebinar,
   formatScheduledStart,
   formatWebinarClock,
   fromDatetimeLocalValue,
   getWebinar,
   isWebinarLive,
+  isWebinarRestorable,
   listPublicWebinars,
   listWebinars,
+  patchWebinar,
   type PublicWebinarListItem,
   qrDownloadFilename,
+  resetEndIfStartPassed,
   showVoiceCloneToggle,
   showWebinarCloneAction,
+  toDatetimeLocalValue,
+  transcriptRowsToSrt,
+  transcriptRowsToTxt,
   unarchiveWebinar,
   validateSchedule,
   WebinarError,
+  type TranscriptRow,
+  type WebinarDetailInfo,
+  type WebinarSessionStats,
   type WebinarView,
 } from './webinar';
-import { PresenceClient, type ChatEvent } from './webinar-presence';
-import { ChatPanel, uploadWebinarFile } from './webinar-chat';
+import { PresenceClient } from './webinar-presence';
+import { buildChatRow, ChatPanel, uploadWebinarFile, type ChatEvent } from './webinar-chat';
 import { WhipPublisher, type WhipState } from './whip-publisher';
 import { WebinarSttClient } from './webinar-stt';
 import { AudioCapture as WebinarAudioCapture } from './audio-capture';
@@ -357,6 +369,8 @@ const roomsList = $('rooms-list');
 // Public webinars lobby section (sibling of the rooms list); the card is hidden when empty.
 const publicWebinarsCard = $('public-webinars-card');
 const publicWebinarsList = $('public-webinars');
+// Host-a-webinar CTA card (D9, PR5): shown only for B2B users with host-capable orgs.
+const hostWebinarCtaCard = $('host-webinar-cta');
 
 // ---- Pre-join refs ---------------------------------------------------------
 const previewVideo = $<HTMLVideoElement>('preview');
@@ -4558,14 +4572,6 @@ function overlayKeydown(e: KeyboardEvent): void {
   }
 }
 
-function escHtml(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-
 function show(el: HTMLElement, visible: boolean): void {
   el.classList.toggle('hidden', !visible);
   if (!el.classList.contains('modal-overlay')) return;
@@ -4791,7 +4797,10 @@ async function updateWorkspaceLink(): Promise<void> {
   // Project voice notes are gated on an active subscription (same as cloud recording).
   if (orgs.some((o) => canCloudRecord(o))) show($('acct-tab-workspace'), true);
   // Hosting webinars is gated on an active subscription too (webinar phase 0).
-  if (orgs.some((o) => canHostWebinar(o))) show($('webinars-btn'), true);
+  const anyHostEligible = orgs.some((o) => canHostWebinar(o));
+  if (anyHostEligible) show($('webinars-btn'), true);
+  // Homepage host CTA card toggles with the same gate (D9, PR5).
+  show(hostWebinarCtaCard, anyHostEligible);
 }
 
 // ---- Workspace: project voice notes (spec: B2B project voice notes) --------
@@ -5043,11 +5052,66 @@ const webinarMembersOnlySw = $<HTMLButtonElement>('webinar-members-only');
 const webinarVoiceCloneSw = $<HTMLButtonElement>('webinar-voice-clone');
 const webinarVoiceCloneRow = $('webinar-voice-clone-row');
 const webinarVoiceClonedHint = $('webinar-voice-cloned-hint');
+// PR2: Start-mode segmented control + schedule fields wrapper.
+const webinarModeNowBtn = $<HTMLButtonElement>('webinar-mode-now');
+const webinarModeScheduleBtn = $<HTMLButtonElement>('webinar-mode-schedule');
+const webinarScheduleFields = $('webinar-schedule-fields');
+// PR2: notify_friends toggle (visible only for public + scheduled webinars).
+const webinarNotifyFriendsSw = $<HTMLButtonElement>('webinar-notify-friends');
+const webinarNotifyFriendsRow = $('webinar-notify-friends-row');
+// PR2: Studio REC badge (D8).
+const webinarRecBadge = $('webinar-rec-badge');
 // Fullscreen QR zoom overlay.
 const webinarQrModal = $('webinar-qr-modal');
 const webinarQrModalImg = $<HTMLImageElement>('webinar-qr-modal-img');
 const webinarQrModalTitle = $('webinar-qr-modal-title');
 const webinarQrModalUrl = $('webinar-qr-modal-url');
+// PR3: Detail modal (D5/D7).
+const webinarDetailModal = $('webinar-detail-modal');
+const wdmTitle = $('wdm-title');
+const wdmStatus = $('wdm-status');
+const wdmTier = $('wdm-tier');
+const wdmVisibility = $('wdm-visibility');
+const wdmSourceLang = $('wdm-source-lang');
+const wdmScheduledRow = $('wdm-scheduled-row');
+const wdmScheduled = $('wdm-scheduled');
+const wdmActualRow = $('wdm-actual-row');
+const wdmActual = $('wdm-actual');
+const wdmReminderRow = $('wdm-reminder-row');
+const wdmReminder = $('wdm-reminder');
+const wdmDescriptionSection = $('wdm-description-section');
+const wdmDescription = $('wdm-description');
+const wdmJoinUrl = $<HTMLInputElement>('wdm-join-url');
+const wdmCopyBtn = $<HTMLButtonElement>('wdm-copy-btn');
+const wdmCode = $('wdm-code');
+const wdmFlags = $('wdm-flags');
+const wdmCreatedAt = $('wdm-created-at');
+const wdmQr = $<HTMLImageElement>('wdm-qr');
+const wdmQrDownload = $<HTMLButtonElement>('wdm-qr-download');
+const wdmQrPrint = $<HTMLButtonElement>('wdm-qr-print');
+const wdmLifecycleActions = $('wdm-lifecycle-actions');
+const wdmCalendarRow = $('wdm-calendar-row');
+// PR4: Edit form (D5-edit / D6-edit / req #6).
+const wdmEditSection = $('wdm-edit-section');
+const wdeForm = $<HTMLFormElement>('wdm-edit-form');
+const wdeTitleInput = $<HTMLInputElement>('wde-title');
+const wdeDescriptionInput = $<HTMLTextAreaElement>('wde-description');
+const wdeLangSel = $<HTMLSelectElement>('wde-lang');
+const wdeTierSel = $<HTMLSelectElement>('wde-tier');
+const wdeStartInput = $<HTMLInputElement>('wde-start');
+const wdeEndInput = $<HTMLInputElement>('wde-end');
+const wdeReminderInput = $<HTMLInputElement>('wde-reminder');
+const wdeRecordVideoSw = $<HTMLButtonElement>('wde-record-video');
+const wdeRecordTranscriptSw = $<HTMLButtonElement>('wde-record-transcript');
+const wdeChatEnabledSw = $<HTMLButtonElement>('wde-chat-enabled');
+const wdeVisibilitySw = $<HTMLButtonElement>('wde-visibility');
+const wdeMembersOnlySw = $<HTMLButtonElement>('wde-members-only');
+const wdeNotifyFriendsSw = $<HTMLButtonElement>('wde-notify-friends');
+const wdeNotifyFriendsRow = $('wde-notify-friends-row');
+const wdeSaveBtn = $<HTMLButtonElement>('wde-save-btn');
+const wdeStatus = $('wde-status');
+const wdeCancelBtn = $<HTMLButtonElement>('wde-cancel-btn');
+const wdeArchiveBtn = $<HTMLButtonElement>('wde-archive-btn');
 $('webinars-back').innerHTML = icon('chevron-left', 18);
 
 let webinarOrgsLoaded = false;
@@ -5080,6 +5144,13 @@ wireSwitch(webinarChatEnabledSw);
 wireSwitch(webinarVisibilitySw);
 wireSwitch(webinarMembersOnlySw);
 wireSwitch(webinarVoiceCloneSw);
+// PR4: wire edit-form switches (same pattern).
+wireSwitch(wdeRecordVideoSw);
+wireSwitch(wdeRecordTranscriptSw);
+wireSwitch(wdeChatEnabledSw);
+wireSwitch(wdeVisibilitySw);
+wireSwitch(wdeMembersOnlySw);
+wireSwitch(wdeNotifyFriendsSw);
 
 /** Show the voice-clone toggle only for Enhanced when the host hasn't cloned yet;
  *  otherwise show the "already cloned" hint (cloned) or nothing (Standard). Called on
@@ -5135,6 +5206,43 @@ function fillWebinarLangs(): void {
   webinarLangSel.value = LANGUAGES.some((l) => l.code === ui) ? ui : 'en';
 }
 
+/** Populate the edit-form source-language select (once, then set value). */
+function fillWdeLangs(currentCode: string): void {
+  if (!wdeLangSel.options.length) {
+    for (const l of LANGUAGES) {
+      const opt = document.createElement('option');
+      opt.value = l.code;
+      opt.textContent = `${l.native} (${l.english})`;
+      wdeLangSel.appendChild(opt);
+    }
+  }
+  wdeLangSel.value = LANGUAGES.some((l) => l.code === currentCode) ? currentCode : 'en';
+}
+
+/** Show/hide the notify_friends row in the edit form based on visibility + schedule. */
+function syncWdeNotifyFriendsVisibility(): void {
+  const isPublic = switchOn(wdeVisibilitySw);
+  const hasStart = !!wdeStartInput.value;
+  show(wdeNotifyFriendsRow, isPublic && hasStart);
+}
+
+/** Enable/disable the edit-form end field based on whether start is valid. */
+function syncWdeEndEnabled(): void {
+  const startISO = fromDatetimeLocalValue(wdeStartInput.value);
+  wdeEndInput.disabled = !startISO;
+  if (!startISO) {
+    wdeEndInput.value = '';
+  }
+}
+
+/** Set the edit-form status line. */
+function setWdeStatus(msg: string, kind: 'ok' | 'err' | ''): void {
+  wdeStatus.textContent = msg;
+  wdeStatus.classList.toggle('ok', kind === 'ok');
+  wdeStatus.classList.toggle('err', kind === 'err');
+  show(wdeStatus, !!msg);
+}
+
 /** Open the Webinars screen: load the host's active-sub orgs on first entry, then
  *  render that org's webinars. */
 /** Collapse the create form behind the "Create a webinar" button — the default state
@@ -5142,6 +5250,43 @@ function fillWebinarLangs(): void {
 function collapseWebinarForm(): void {
   show(webinarForm, false);
   show(webinarCreateToggle, true);
+  // Reset mode to "Start now" so the form is clean on next open.
+  setWebinarModeNow();
+}
+
+/** Set the create form to "Start now" mode: hide schedule fields, mark Now active. */
+function setWebinarModeNow(): void {
+  webinarModeNowBtn.classList.add('active');
+  webinarModeScheduleBtn.classList.remove('active');
+  show(webinarScheduleFields, false);
+  // Clear schedule inputs so an immediate webinar sends null start/end.
+  webinarStartInput.value = '';
+  webinarEndInput.value = '';
+  webinarEndInput.disabled = true;
+  webinarReminderInput.value = '10';
+}
+
+/** Set the create form to "Schedule" mode: reveal schedule fields, mark Schedule active. */
+function setWebinarModeSchedule(): void {
+  webinarModeScheduleBtn.classList.add('active');
+  webinarModeNowBtn.classList.remove('active');
+  show(webinarScheduleFields, true);
+}
+
+/** Sync the notify_friends toggle visibility: visible iff mode=schedule AND visibility=public. */
+function syncNotifyFriendsVisibility(): void {
+  const isSchedule = webinarModeScheduleBtn.classList.contains('active');
+  const isPublic = switchOn(webinarVisibilitySw);
+  show(webinarNotifyFriendsRow, isSchedule && isPublic);
+}
+
+/** Sync the scheduled_end disabled state: enabled only when start has a valid value. */
+function syncWebinarEndEnabled(): void {
+  const startVal = fromDatetimeLocalValue(webinarStartInput.value);
+  webinarEndInput.disabled = !startVal;
+  if (!startVal) {
+    webinarEndInput.value = '';
+  }
 }
 
 /** Reveal the create form and hide the toggle button (focus the first field). */
@@ -5257,9 +5402,11 @@ async function selectWebinarTab(archived: boolean): Promise<void> {
   await loadWebinars();
 }
 
-/** One webinar card: title/status, the copyable join link, a QR of that link, and
- *  a Cancel/Archive action while it's active. Archived webinars render a slimmed-down
- *  historical card (title, code, created date, Restore) via `renderArchivedWebinarCard`. */
+/** Polished summary card for an active webinar (D7 — PR3):
+ *  title, status pill, tier badge, source language, timeline, feature-flag
+ *  indicator chips, and a single "View details" CTA that opens the detail sheet.
+ *  "Go live" is kept on the card face for quick access while the webinar can
+ *  still be broadcast. Cancel / Archive have moved into the detail modal (spec Area D). */
 function renderWebinarCard(w: WebinarView): void {
   if (w.archived_at) {
     renderArchivedWebinarCard(w);
@@ -5270,131 +5417,53 @@ function renderWebinarCard(w: WebinarView): void {
   card.className = 'webinar-card';
   card.dataset.webinarId = w.id;
 
+  // -- Head: title + status pill --
   const head = document.createElement('div');
   head.className = 'webinar-card-head';
-  const title = document.createElement('span');
-  title.className = 'webinar-card-title';
-  title.textContent = w.title;
-  const status = document.createElement('span');
-  status.className = `webinar-status webinar-status-${w.status}`;
-  status.textContent = t(`webinarStatus_${w.status}`) || w.status;
-  head.append(title, status);
+  const titleEl = document.createElement('span');
+  titleEl.className = 'webinar-card-title';
+  titleEl.textContent = w.title;
+  const statusEl = document.createElement('span');
+  statusEl.className = `webinar-status webinar-status-${w.status}`;
+  statusEl.textContent = t(`webinarStatus_${w.status}`) || w.status;
+  head.append(titleEl, statusEl);
   card.appendChild(head);
 
+  // -- Meta: tier badge + source language --
   const meta = document.createElement('span');
   meta.className = 'webinar-card-meta';
-  meta.textContent = `${(langMeta(w.source_language)?.native ?? w.source_language)} · ${t(`webinarTier_${w.tier}`) || w.tier}`;
+  const tierLabel = t(`webinarTier_${w.tier}`) || w.tier;
+  const langLabel = langMeta(w.source_language)?.native ?? w.source_language;
+  meta.textContent = `${langLabel} · ${tierLabel}`;
   card.appendChild(meta);
 
-  const isOver = w.status === 'ended' || w.status === 'cancelled';
-
-  if (!isOver) {
-    // Copyable join link. The button briefly swaps to "Copied" (room-code pattern).
-    const linkRow = document.createElement('div');
-    linkRow.className = 'webinar-link-row';
-    const linkInput = document.createElement('input');
-    linkInput.className = 'webinar-link-input';
-    linkInput.readOnly = true;
-    linkInput.value = w.join_url;
-    linkInput.setAttribute('aria-label', t('webinarJoinLink'));
-    const copyBtn = document.createElement('button');
-    copyBtn.type = 'button';
-    copyBtn.className = 'btn-ghost webinar-copy-btn';
-    copyBtn.textContent = t('copy');
-    copyBtn.addEventListener('click', async () => {
-      try {
-        await navigator.clipboard.writeText(w.join_url);
-        copyBtn.textContent = t('copied');
-        setTimeout(() => (copyBtn.textContent = t('copy')), 1200);
-      } catch {
-        linkInput.select(); // fallback: select for a manual copy
-        toast(t('copyFailed'), 'err');
-      }
-    });
-    linkRow.append(linkInput, copyBtn);
-
-    // QR of the EXACT join_url from the API (never rebuilt). Lazy-imported chunk.
-    // Tappable (mouse + keyboard) → fullscreen zoom overlay.
-    const qr = document.createElement('img');
-    qr.className = 'webinar-qr';
-    qr.alt = t('webinarQrAlt');
-    qr.width = 120;
-    qr.height = 120;
-    qr.tabIndex = 0;
-    qr.setAttribute('role', 'button');
-    qr.setAttribute('aria-label', t('webinarQrZoom'));
-    qr.title = t('webinarQrZoom');
-    qr.addEventListener('click', () => openQrModal(w, qr.src));
-    qr.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
-        openQrModal(w, qr.src);
-      }
-    });
-    void renderQr(qr, w.join_url);
-
-    // QR actions: download the QR as a PNG, or print just the QR + join URL.
-    const qrActions = document.createElement('div');
-    qrActions.className = 'webinar-qr-actions';
-    const dlBtn = document.createElement('button');
-    dlBtn.type = 'button';
-    dlBtn.className = 'btn-ghost';
-    dlBtn.textContent = t('webinarQrDownload');
-    dlBtn.addEventListener('click', async () => {
-      dlBtn.disabled = true;
-      try {
-        downloadQr(await qrDataUrl(w.join_url, qr.src), w.code);
-      } finally {
-        dlBtn.disabled = false;
-      }
-    });
-    const printBtn = document.createElement('button');
-    printBtn.type = 'button';
-    printBtn.className = 'btn-ghost';
-    printBtn.textContent = t('webinarQrPrint');
-    printBtn.addEventListener('click', async () => {
-      printBtn.disabled = true;
-      try {
-        printQr(await qrDataUrl(w.join_url, qr.src), w.title, w.join_url);
-      } finally {
-        printBtn.disabled = false;
-      }
-    });
-    qrActions.append(dlBtn, printBtn);
-
-    // Share section: QR on the left, join link + actions on the right.
-    // On narrow viewports the row wraps so QR sits above the info block.
-    const shareInfo = document.createElement('div');
-    shareInfo.className = 'webinar-share-info';
-    shareInfo.append(linkRow, qrActions);
-    const shareSection = document.createElement('div');
-    shareSection.className = 'webinar-share';
-    shareSection.append(qr, shareInfo);
-    card.appendChild(shareSection);
-  } else {
-    // Ended/cancelled: show a compact session summary instead of the join link + QR.
-    const summary = document.createElement('div');
-    summary.className = 'webinar-ended-summary';
-    const parts: string[] = [];
-    if (w.status === 'ended' && w.actual_start) {
-      const dateStr = new Date(w.actual_start).toLocaleDateString(undefined, { dateStyle: 'medium' });
-      parts.push(`${t('webinarBroadcastOn')}: ${dateStr}`);
-      if (w.actual_end) {
-        const ms = new Date(w.actual_end).getTime() - new Date(w.actual_start).getTime();
-        const totalMins = Math.round(ms / 60000);
-        const h = Math.floor(totalMins / 60);
-        const m = totalMins % 60;
-        const durStr = h > 0 ? `${h}h ${m}m` : `${m}m`;
-        parts.push(`${t('webinarDuration')}: ${durStr}`);
-      }
-    }
-    summary.textContent = parts.join(' · ');
-    card.appendChild(summary);
+  // -- Timeline: scheduled or actual start/end --
+  const timeline = buildCardTimeline(w);
+  if (timeline) {
+    const timelineEl = document.createElement('span');
+    timelineEl.className = 'webinar-card-timeline';
+    timelineEl.textContent = timeline;
+    card.appendChild(timelineEl);
   }
 
-  // Pre-live "Clone your voice" (webinar-ui-fixes #5): only for Enhanced webinars whose
-  // host hasn't cloned yet, and only while it can still be broadcast. Reuses the exact
-  // capture + clone flow from the call pre-join.
+  // -- Feature indicator chips: REC, Chat --
+  const iconsRow = document.createElement('div');
+  iconsRow.className = 'webinar-card-icons';
+  if (w.record_video) {
+    const recChip = document.createElement('span');
+    recChip.className = 'webinar-card-icon rec';
+    recChip.textContent = t('webinarDetailRecChip');
+    iconsRow.appendChild(recChip);
+  }
+  if (w.chat_enabled) {
+    const chatChip = document.createElement('span');
+    chatChip.className = 'webinar-card-icon chat';
+    chatChip.textContent = t('webinarDetailChatChip');
+    iconsRow.appendChild(chatChip);
+  }
+  if (iconsRow.childElementCount > 0) card.appendChild(iconsRow);
+
+  // -- Pre-live voice clone (webinar-ui-fixes #5) --
   if (
     (w.status === 'scheduled' || w.status === 'live') &&
     showWebinarCloneAction(w.tier, hasVoiceClone())
@@ -5402,102 +5471,77 @@ function renderWebinarCard(w: WebinarView): void {
     card.appendChild(buildWebinarCloneRow());
   }
 
-  // Go-live / publish control (webinar phase 1): capture mic (+ optional cam) and
-  // publish to the media server over WHIP. Offered while the webinar can still be
-  // broadcast (scheduled → live). `ended` webinars can't be re-broadcast. The
-  // control now opens a Meet-style pre-live step (device pickers) before publishing —
-  // device selection lives there, so the old standalone "activate webcam" button is gone.
+  // -- Go-live / publish control: kept on card face for quick access --
   if (w.status === 'scheduled' || w.status === 'live') {
     card.appendChild(buildGoLiveControl(w));
   }
 
-  // "Add to Google Calendar" — only for a scheduled webinar that has a start time.
-  // On 409 (calendar not connected) it routes the host into the connect-calendar flow
-  // and retries; on 400 (unscheduled) it explains a start time is required.
-  if (w.status === 'scheduled' && w.scheduled_start) {
-    card.appendChild(buildAddCalendarRow(w));
-  }
-
-  // Cancel — only while the webinar is still scheduled.
-  if (w.status === 'scheduled') {
-    const cancelBtn = document.createElement('button');
-    cancelBtn.type = 'button';
-    cancelBtn.className = 'btn-ghost webinar-cancel-btn danger';
-    cancelBtn.textContent = t('webinarCancel');
-    cancelBtn.addEventListener('click', async () => {
-      if (!confirm(t('webinarCancelConfirm'))) return;
-      cancelBtn.disabled = true;
-      try {
-        await cancelWebinar(w.id);
-        toast(t('webinarCancelled'), 'ok');
-        await loadWebinars();
-      } catch (err) {
-        cancelBtn.disabled = false;
-        toast(webinarErrorMessage(err), 'err');
-      }
-    });
-    card.appendChild(cancelBtn);
-  }
-
-  // Archive — move any active webinar into the historical (Archived) list. Available
-  // regardless of status; a soft-archive that can be undone from the Archived tab.
-  const archiveBtn = document.createElement('button');
-  archiveBtn.type = 'button';
-  archiveBtn.className = 'btn-ghost webinar-archive-btn';
-  archiveBtn.textContent = t('webinarArchive');
-  archiveBtn.addEventListener('click', async () => {
-    archiveBtn.disabled = true;
-    try {
-      await archiveWebinar(w.id);
-      toast(t('webinarArchived'), 'ok');
-      await loadWebinars();
-    } catch (err) {
-      archiveBtn.disabled = false;
-      toast(webinarErrorMessage(err), 'err');
-    }
-  });
-  card.appendChild(archiveBtn);
+  // -- Action row: "View details" CTA --
+  const actionsRow = document.createElement('div');
+  actionsRow.className = 'webinar-card-actions';
+  const detailBtn = document.createElement('button');
+  detailBtn.type = 'button';
+  detailBtn.className = 'btn-ghost webinar-view-details-btn';
+  detailBtn.setAttribute('data-i18n', 'webinarViewDetails');
+  detailBtn.textContent = t('webinarViewDetails');
+  detailBtn.addEventListener('click', () => openWebinarDetailModal(w));
+  actionsRow.appendChild(detailBtn);
+  card.appendChild(actionsRow);
 
   webinarList.appendChild(card);
 }
 
-/** A slimmed-down historical card for an archived webinar: title, short code, created
- *  date, and a Restore action. No go-live / QR / calendar actions — archived webinars
- *  are read-only history until restored back into the active list. */
+/** Polished summary card for an archived webinar (D7 — PR3):
+ *  title, status, language, timeline, and "View details" CTA.
+ *  Restore has moved into the detail modal action area. */
 function renderArchivedWebinarCard(w: WebinarView): void {
   const card = document.createElement('div');
   card.className = 'webinar-card webinar-card-archived';
   card.dataset.webinarId = w.id;
 
+  // -- Head: title --
   const head = document.createElement('div');
   head.className = 'webinar-card-head';
-  const title = document.createElement('span');
-  title.className = 'webinar-card-title';
-  title.textContent = w.title;
-  head.appendChild(title);
+  const titleEl = document.createElement('span');
+  titleEl.className = 'webinar-card-title';
+  titleEl.textContent = w.title;
+  const statusEl = document.createElement('span');
+  statusEl.className = `webinar-status webinar-status-${w.status}`;
+  statusEl.textContent = t(`webinarStatus_${w.status}`) || w.status;
+  head.append(titleEl, statusEl);
   card.appendChild(head);
 
+  // -- Meta: language + code --
   const meta = document.createElement('span');
   meta.className = 'webinar-card-meta';
-  meta.textContent = `${t('webinarCode')}: ${w.code} · ${t('webinarCreatedOn')} ${new Date(w.created_at).toLocaleDateString()}`;
+  const langLabel = langMeta(w.source_language)?.native ?? w.source_language;
+  const tierLabel = t(`webinarTier_${w.tier}`) || w.tier;
+  meta.textContent = `${langLabel} · ${tierLabel} · ${t('webinarCode')}: ${w.code}`;
   card.appendChild(meta);
 
-  const restoreBtn = document.createElement('button');
-  restoreBtn.type = 'button';
-  restoreBtn.className = 'btn-ghost webinar-restore-btn';
-  restoreBtn.textContent = t('webinarRestore');
-  restoreBtn.addEventListener('click', async () => {
-    restoreBtn.disabled = true;
-    try {
-      await unarchiveWebinar(w.id);
-      toast(t('webinarRestored'), 'ok');
-      await loadWebinars();
-    } catch (err) {
-      restoreBtn.disabled = false;
-      toast(webinarErrorMessage(err), 'err');
-    }
-  });
-  card.appendChild(restoreBtn);
+  // -- Timeline: scheduled or actual times --
+  const timeline = buildCardTimeline(w);
+  if (timeline) {
+    const timelineEl = document.createElement('span');
+    timelineEl.className = 'webinar-card-timeline';
+    timelineEl.textContent = timeline;
+    card.appendChild(timelineEl);
+  } else {
+    // Fallback: show created date when no time data
+    const createdEl = document.createElement('span');
+    createdEl.className = 'webinar-card-timeline';
+    createdEl.textContent = `${t('webinarCreatedOn')} ${new Date(w.created_at).toLocaleDateString()}`;
+    card.appendChild(createdEl);
+  }
+
+  // -- View details CTA --
+  const detailBtn = document.createElement('button');
+  detailBtn.type = 'button';
+  detailBtn.className = 'btn-ghost webinar-view-details-btn';
+  detailBtn.setAttribute('data-i18n', 'webinarViewDetails');
+  detailBtn.textContent = t('webinarViewDetails');
+  detailBtn.addEventListener('click', () => openWebinarDetailModal(w));
+  card.appendChild(detailBtn);
 
   webinarList.appendChild(card);
 }
@@ -5785,12 +5829,31 @@ const recapScreen = $('webinar-recap');
 const recapCloseBtn = $<HTMLButtonElement>('recap-close');
 const recapTabTranscript = $<HTMLButtonElement>('recap-tab-transcript');
 const recapTabChat = $<HTMLButtonElement>('recap-tab-chat');
+const recapTabAi = $<HTMLButtonElement>('recap-tab-ai');
 const recapTranscriptPanel = $('recap-transcript-panel');
 const recapChatPanel = $('recap-chat-panel');
+const recapAiPanel = $('recap-ai-panel');
 const recapTranscriptList = $('recap-transcript-list');
 const recapTranscriptEmpty = $('recap-transcript-empty');
 const recapChatList = $('recap-chat-list');
 const recapChatEmpty = $('recap-chat-empty');
+// PR6 meta / stats
+const recapMeta = $('recap-meta');
+const recapActualStart = $('recap-actual-start');
+const recapActualEnd = $('recap-actual-end');
+const recapStatsRow = $('recap-stats');
+const recapPeakViewers = $('recap-peak-viewers');
+const recapUniqueAttendees = $('recap-unique-attendees');
+const recapDuration = $('recap-duration');
+// PR6 download bar
+const recapDownloadBar = $('recap-download-bar');
+const recapDlLang = $<HTMLSelectElement>('recap-dl-lang');
+const recapDlTxt = $<HTMLButtonElement>('recap-dl-txt');
+const recapDlSrt = $<HTMLButtonElement>('recap-dl-srt');
+// PR6 AI report
+const recapAiGenerate = $<HTMLButtonElement>('recap-ai-generate');
+const recapAiStatus = $('recap-ai-status');
+const recapAiReport = $('recap-ai-report');
 
 /** The host studio's live-presence connection (opened while the studio is on screen,
  *  closed when it leaves). The host watches the audience count but is NOT counted. */
@@ -6126,6 +6189,8 @@ function openWebinarStudio(w: WebinarView): void {
   show(wsScreen, true);
   wsTitle.textContent = w.title;
   wsCode.textContent = w.code;
+  // D8: REC badge — visible iff record_video is true (read synchronously from WebinarView).
+  show(webinarRecBadge, w.record_video);
   wsCountIco.innerHTML = icon('users', 14);
   startWebinarTimer(w);
   openWebinarPresence(w);
@@ -6192,50 +6257,194 @@ async function startWebinarBroadcast(
   }
 }
 
-/** Open the post-webinar recap screen: fetch transcripts immediately, lazy-load
+/** Activate one recap tab and hide all others. */
+function setRecapTab(active: HTMLButtonElement): void {
+  for (const [btn, p] of [
+    [recapTabTranscript, recapTranscriptPanel],
+    [recapTabChat, recapChatPanel],
+    [recapTabAi, recapAiPanel],
+  ] as [HTMLButtonElement, HTMLElement][]) {
+    const isActive = btn === active;
+    btn.classList.toggle('active', isActive);
+    btn.setAttribute('aria-selected', String(isActive));
+    show(p, isActive);
+  }
+}
+
+/** Format seconds as "Xh Ym" or "Xm Ys". */
+function formatDuration(seconds: number): string {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+}
+
+/** Format an ISO datetime string as a locale-aware date+time string for the recap meta row. */
+function formatRecapDatetime(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  try {
+    return new Date(iso).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+  } catch {
+    return iso;
+  }
+}
+
+/** Build a ChatEvent-compatible object from a transcript row so `buildChatRow` renders it. */
+function transcriptRowToChatEvent(row: TranscriptRow, index: number): ChatEvent {
+  return {
+    id: `tr-${index}`,
+    sender_kind: 'host',
+    display_name: 'Host',
+    original: row.original_text,
+    lang: row.original_lang,
+    translations: row.translations,
+    created_at: row.spoken_at,
+    avatar_url: null,
+    attachment: null,
+  };
+}
+
+/** Trigger a client-side blob download of `content` as a file named `filename`. */
+function downloadBlob(content: string, filename: string, mime: string): void {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+/** Open the post-webinar recap screen: fetch transcripts + stats immediately, lazy-load
  *  the chat tab on first click. Called after `endWebinarBroadcast` cleans up state. */
-async function openWebinarRecap(webinarId: string, webinarCode: string): Promise<void> {
+// Bumped on every recap open so a stale AI-report poll from a previous session abandons
+// itself instead of writing into the (now different) shared recap DOM.
+let recapGeneration = 0;
+
+async function openWebinarRecap(
+  webinarId: string,
+  webinarCode: string,
+  webinarView?: WebinarView | null,
+): Promise<void> {
+  const gen = ++recapGeneration;
   // Switch to the recap screen immediately.
   show(wsScreen, false);
   show(recapScreen, true);
-  // Active tab = transcript by default.
-  recapTabTranscript.classList.add('active');
-  recapTabTranscript.setAttribute('aria-selected', 'true');
-  recapTabChat.classList.remove('active');
-  recapTabChat.setAttribute('aria-selected', 'false');
-  show(recapTranscriptPanel, true);
-  show(recapChatPanel, false);
+
+  // Reset all panels to initial state.
+  setRecapTab(recapTabTranscript);
   recapTranscriptList.innerHTML = '';
   recapChatList.innerHTML = '';
+  recapAiReport.innerHTML = '';
   show(recapTranscriptEmpty, false);
   show(recapChatEmpty, false);
+  show(recapMeta, false);
+  show(recapStatsRow, false);
+  show(recapDownloadBar, false);
+  show(recapAiStatus, false);
+  show(recapAiReport, false);
+  recapAiStatus.textContent = '';
+  recapAiStatus.classList.remove('error');
+  recapAiGenerate.disabled = false;
 
   const myLang = getUiLang();
 
-  // Fetch transcripts (authenticated — host must be an org member).
-  try {
-    const res = await fetch(`${auth.HTTP_BASE}/api/webinars/${encodeURIComponent(webinarId)}/transcripts`, {
+  // Show actual start/end from the webinar view (captured before state is cleared).
+  if (webinarView?.actual_start || webinarView?.actual_end) {
+    recapActualStart.textContent = formatRecapDatetime(webinarView.actual_start);
+    recapActualEnd.textContent = formatRecapDatetime(webinarView.actual_end);
+    show(recapMeta, true);
+  }
+
+  // Stored transcript rows — shared between transcript rendering + download.
+  let transcriptRows: TranscriptRow[] = [];
+
+  // Fetch transcripts in parallel with stats (both authenticated).
+  const [transcriptRes, statsRes] = await Promise.allSettled([
+    fetch(`${auth.HTTP_BASE}/api/webinars/${encodeURIComponent(webinarId)}/transcripts`, {
       headers: auth.authHeaders(),
-    });
-    if (res.ok) {
-      const rows: Array<{ original_text: string; original_lang: string; translations: Record<string, string>; spoken_at: string }> = await res.json() as Array<{ original_text: string; original_lang: string; translations: Record<string, string>; spoken_at: string }>;
-      if (rows.length === 0) {
-        show(recapTranscriptEmpty, true);
-      } else {
-        recapTranscriptList.innerHTML = rows
-          .map((r) => {
-            const d = new Date(r.spoken_at);
-            const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-            return `<div class="recap-utterance"><time>${escHtml(timeStr)}</time>${escHtml(r.original_text)}</div>`;
-          })
-          .join('');
-      }
-    } else {
-      show(recapTranscriptEmpty, true);
+    }),
+    fetch(`${auth.HTTP_BASE}/api/webinars/${encodeURIComponent(webinarId)}/session-stats`, {
+      headers: auth.authHeaders(),
+    }),
+  ]);
+
+  // --- Render transcript with buildChatRow ---
+  if (transcriptRes.status === 'fulfilled' && transcriptRes.value.ok) {
+    try {
+      transcriptRows = (await transcriptRes.value.json()) as TranscriptRow[];
+    } catch {
+      transcriptRows = [];
     }
-  } catch {
+    if (transcriptRows.length === 0) {
+      show(recapTranscriptEmpty, true);
+    } else {
+      const frag = document.createDocumentFragment();
+      transcriptRows.forEach((row, i) => {
+        const event = transcriptRowToChatEvent(row, i);
+        frag.appendChild(buildChatRow(document, event, myLang, t('wvRecapHostTag'), null));
+      });
+      recapTranscriptList.appendChild(frag);
+
+      // Populate the language selector for downloads.
+      const langs = new Set<string>([transcriptRows[0]?.original_lang ?? 'en']);
+      for (const row of transcriptRows) {
+        Object.keys(row.translations).forEach((l) => langs.add(l));
+      }
+      recapDlLang.innerHTML = '';
+      for (const lang of langs) {
+        const opt = document.createElement('option');
+        opt.value = lang;
+        opt.textContent = lang.toUpperCase();
+        if (lang === myLang) opt.selected = true;
+        recapDlLang.appendChild(opt);
+      }
+      show(recapDownloadBar, true);
+    }
+  } else {
     show(recapTranscriptEmpty, true);
   }
+
+  // --- Render session stats ---
+  if (statsRes.status === 'fulfilled' && statsRes.value.ok) {
+    try {
+      const stats = (await statsRes.value.json()) as WebinarSessionStats | null;
+      if (stats && stats.peak_viewers !== undefined && stats.peak_viewers !== null) {
+        recapPeakViewers.textContent = String(stats.peak_viewers);
+        recapUniqueAttendees.textContent = String(stats.unique_attendees);
+        recapDuration.textContent = formatDuration(stats.duration_seconds);
+        show(recapMeta, true);
+        show(recapStatsRow, true);
+      }
+    } catch {
+      // Stats are non-critical — recap still works without them.
+    }
+  }
+
+  // Download buttons wire-up. Use onclick (not addEventListener) so re-opening the recap
+  // for another session REPLACES the handler instead of stacking a second one (which would
+  // fire duplicate downloads with a stale transcriptRows/webinarCode closure).
+  recapDlTxt.onclick = () => {
+    const lang = recapDlLang.value || myLang;
+    downloadBlob(
+      transcriptRowsToTxt(transcriptRows, lang),
+      `transcript-${webinarCode}.txt`,
+      'text/plain',
+    );
+  };
+
+  recapDlSrt.onclick = () => {
+    const lang = recapDlLang.value || myLang;
+    downloadBlob(
+      transcriptRowsToSrt(transcriptRows, lang),
+      `transcript-${webinarCode}.srt`,
+      'text/plain',
+    );
+  };
 
   // Lazy-load chat tab on first click.
   let chatLoaded = false;
@@ -6248,16 +6457,37 @@ async function openWebinarRecap(webinarId: string, webinarCode: string): Promise
         `${auth.HTTP_BASE}/api/w/${encodeURIComponent(webinarCode)}/chat?limit=500`,
       );
       if (res.ok) {
-        const msgs: Array<{ text: string; display_name: string; sender_lang: string; translations: Record<string, string>; created_at: string }> = await res.json() as Array<{ text: string; display_name: string; sender_lang: string; translations: Record<string, string>; created_at: string }>;
-        if (msgs.length === 0) {
+        const rawMsgs = (await res.json()) as Array<{
+          id?: string;
+          text: string;
+          original?: string;
+          display_name: string;
+          sender_kind?: 'host' | 'guest';
+          sender_lang?: string;
+          lang?: string;
+          translations: Record<string, string>;
+          created_at: string;
+          avatar_url?: string | null;
+        }>;
+        if (rawMsgs.length === 0) {
           show(recapChatEmpty, true);
         } else {
-          recapChatList.innerHTML = msgs
-            .map((m) => {
-              const text = m.translations?.[myLang] ?? m.text;
-              return `<div class="recap-chat-msg"><div class="recap-sender">${escHtml(m.display_name ?? '')}</div>${escHtml(text)}</div>`;
-            })
-            .join('');
+          const frag = document.createDocumentFragment();
+          rawMsgs.forEach((m, i) => {
+            const event: ChatEvent = {
+              id: m.id ?? `chat-${i}`,
+              sender_kind: m.sender_kind ?? 'guest',
+              display_name: m.display_name ?? '',
+              original: m.original ?? m.text,
+              lang: m.lang ?? m.sender_lang ?? 'en',
+              translations: m.translations ?? {},
+              created_at: m.created_at,
+              avatar_url: m.avatar_url ?? null,
+              attachment: null,
+            };
+            frag.appendChild(buildChatRow(document, event, myLang, t('wvRecapHostTag'), null));
+          });
+          recapChatList.appendChild(frag);
         }
       } else {
         show(recapChatEmpty, true);
@@ -6267,24 +6497,93 @@ async function openWebinarRecap(webinarId: string, webinarCode: string): Promise
     }
   }
 
-  recapTabTranscript.addEventListener('click', () => {
-    recapTabTranscript.classList.add('active');
-    recapTabTranscript.setAttribute('aria-selected', 'true');
-    recapTabChat.classList.remove('active');
-    recapTabChat.setAttribute('aria-selected', 'false');
-    show(recapTranscriptPanel, true);
-    show(recapChatPanel, false);
-  });
+  // AI Report: poll the webinar ai/job endpoint (mirrors the meets generateReport pattern).
+  let aiJobId: string | null = null;
+  recapAiGenerate.onclick = async () => {
+    recapAiGenerate.disabled = true;
+    show(recapAiStatus, true);
+    recapAiStatus.classList.remove('error');
+    recapAiStatus.textContent = t('wvRecapAiPending');
+    show(recapAiReport, false);
+    try {
+      const res = await fetch(
+        `${auth.HTTP_BASE}/api/webinars/${encodeURIComponent(webinarId)}/ai/report`,
+        {
+          method: 'POST',
+          headers: { ...auth.authHeaders(), 'Content-Type': 'application/json' },
+          body: JSON.stringify({ lang: myLang }),
+        },
+      );
+      if (res.status === 202) {
+        const { job_id: jobId } = (await res.json()) as { job_id: string };
+        aiJobId = jobId;
+        // Poll until done or failed.
+        let attempts = 0;
+        const MAX_ATTEMPTS = 60;
+        const poll = async (): Promise<void> => {
+          if (gen !== recapGeneration) return; // recap re-opened/closed → abandon stale poll
+          if (attempts++ >= MAX_ATTEMPTS) {
+            recapAiStatus.textContent = t('wvRecapAiError');
+            recapAiStatus.classList.add('error');
+            recapAiGenerate.disabled = false;
+            return;
+          }
+          const jobRes = await fetch(
+            `${auth.HTTP_BASE}/api/webinars/${encodeURIComponent(webinarId)}/ai/job/${encodeURIComponent(aiJobId!)}`,
+            { headers: auth.authHeaders() },
+          );
+          if (!jobRes.ok) {
+            recapAiStatus.textContent = t('wvRecapAiError');
+            recapAiStatus.classList.add('error');
+            recapAiGenerate.disabled = false;
+            return;
+          }
+          const job = (await jobRes.json()) as { status: string; result?: { markdown?: string } };
+          if (job.status === 'done' && job.result?.markdown) {
+            show(recapAiStatus, false);
+            recapAiReport.textContent = job.result.markdown;
+            show(recapAiReport, true);
+            recapAiGenerate.disabled = false;
+          } else if (job.status === 'failed') {
+            recapAiStatus.textContent = t('wvRecapAiError');
+            recapAiStatus.classList.add('error');
+            recapAiGenerate.disabled = false;
+          } else {
+            // Still running — poll again.
+            setTimeout(() => void poll(), 2000);
+          }
+        };
+        void poll();
+      } else if (res.status === 422) {
+        recapAiStatus.textContent = t('wvRecapAiNoTranscript');
+        recapAiStatus.classList.add('error');
+        recapAiGenerate.disabled = false;
+      } else if (!res.ok) {
+        recapAiStatus.textContent = t('wvRecapAiError');
+        recapAiStatus.classList.add('error');
+        recapAiGenerate.disabled = false;
+      }
+    } catch {
+      recapAiStatus.textContent = t('wvRecapAiError');
+      recapAiStatus.classList.add('error');
+      recapAiGenerate.disabled = false;
+    }
+  };
 
-  recapTabChat.addEventListener('click', () => {
-    recapTabChat.classList.add('active');
-    recapTabChat.setAttribute('aria-selected', 'true');
-    recapTabTranscript.classList.remove('active');
-    recapTabTranscript.setAttribute('aria-selected', 'false');
-    show(recapChatPanel, true);
-    show(recapTranscriptPanel, false);
+  // Tabs use onclick (not addEventListener) so re-opening the recap replaces the handlers
+  // rather than stacking duplicates that fire setRecapTab/loadChatTab multiple times.
+  recapTabTranscript.onclick = () => {
+    setRecapTab(recapTabTranscript);
+  };
+
+  recapTabChat.onclick = () => {
+    setRecapTab(recapTabChat);
     void loadChatTab();
-  });
+  };
+
+  recapTabAi.onclick = () => {
+    setRecapTab(recapTabAi);
+  };
 }
 
 /** Stop the active broadcast (host confirmed End), then return to the Webinars list. */
@@ -6292,6 +6591,12 @@ async function endWebinarBroadcast(): Promise<void> {
   // Capture webinar info BEFORE clearing state — needed for the recap screen.
   const recapId = activeWebinar?.id ?? null;
   const recapCode = activeWebinar?.code ?? null;
+  // Snapshot the view so the recap can show actual_start / actual_end even after
+  // activeWebinar is cleared. The server stamps actual_end on the end call, but this
+  // snapshot predates that response — the broadcast is ending right now, so fill it in
+  // locally (otherwise the recap "ended at" line would always show a dash).
+  const recapView = activeWebinar ? { ...activeWebinar } : null;
+  if (recapView && !recapView.actual_end) recapView.actual_end = new Date().toISOString();
   // Close the STT bridge FIRST: closing the ingest socket flushes pending finals before we
   // stop capturing, so the last words still reach viewers as a subtitle.
   closeWebinarStt();
@@ -6309,7 +6614,7 @@ async function endWebinarBroadcast(): Promise<void> {
   wsVideo.srcObject = null;
 
   if (recapId && recapCode) {
-    await openWebinarRecap(recapId, recapCode);
+    await openWebinarRecap(recapId, recapCode, recapView);
   } else {
     show(wsScreen, false);
     void openWebinars();
@@ -6498,6 +6803,304 @@ webinarQrModal.addEventListener('click', (e) => {
 });
 $('webinar-qr-close').addEventListener('click', () => show(webinarQrModal, false));
 
+// ---- Detail modal (D5/D7 — PR3) -----------------------------------------
+
+/** Populate the shared #webinar-detail-modal with the given webinar's data
+ *  and open it. One modal element is re-used and re-populated per open. */
+function openWebinarDetailModal(w: WebinarView): void {
+  const info: WebinarDetailInfo = buildDetailInfo(w);
+
+  // Stamp the webinar id so event handlers (calendar, etc.) can read it.
+  webinarDetailModal.dataset.webinarId = w.id;
+
+  // Header
+  wdmTitle.textContent = info.title;
+
+  // Status badge: reuse existing .webinar-status-* classes
+  wdmStatus.textContent = t(`webinarStatus_${info.status}`) || info.status;
+  wdmStatus.className = `webinar-status webinar-status-${info.status}`;
+
+  // Tier + visibility badges
+  wdmTier.textContent = t(`webinarTier_${info.tier}`) || info.tier;
+  wdmVisibility.textContent = info.visibility === 'public' ? t('webinarDetailPublic') : t('webinarDetailPrivate');
+
+  // Source language
+  wdmSourceLang.textContent = langMeta(info.source_language)?.native ?? info.source_language;
+
+  // Scheduled time
+  const scheduledStr = buildCardTimeline(w);
+  if (scheduledStr && !info.actual_start) {
+    wdmScheduled.textContent = scheduledStr;
+    show(wdmScheduledRow, true);
+  } else {
+    show(wdmScheduledRow, false);
+  }
+
+  // Actual time (for ended webinars)
+  if (info.actual_start) {
+    const actStart = formatScheduledStart(info.actual_start);
+    const actEnd   = formatScheduledStart(info.actual_end);
+    wdmActual.textContent = actEnd ? `${actStart} – ${actEnd}` : actStart;
+    show(wdmActualRow, true);
+  } else {
+    show(wdmActualRow, false);
+  }
+
+  // Reminder lead
+  if (info.reminder_minutes_before != null) {
+    wdmReminder.textContent = `${info.reminder_minutes_before} min`;
+    show(wdmReminderRow, true);
+  } else {
+    show(wdmReminderRow, false);
+  }
+
+  // Description
+  if (info.description) {
+    wdmDescription.textContent = info.description;
+    show(wdmDescriptionSection, true);
+  } else {
+    show(wdmDescriptionSection, false);
+  }
+
+  // Join link + QR
+  wdmJoinUrl.value = info.join_url;
+  wdmCode.textContent = info.code;
+  wdmQr.alt = t('webinarQrAlt');
+  void renderQr(wdmQr, info.join_url);
+  wdmQr.onclick = () => openQrModal(w, wdmQr.src);
+  wdmQr.onkeydown = (e) => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openQrModal(w, wdmQr.src); }
+  };
+  wdmQrDownload.onclick = async () => {
+    wdmQrDownload.disabled = true;
+    try { downloadQr(await qrDataUrl(info.join_url, wdmQr.src), info.code); }
+    finally { wdmQrDownload.disabled = false; }
+  };
+  wdmQrPrint.onclick = async () => {
+    wdmQrPrint.disabled = true;
+    try { printQr(await qrDataUrl(info.join_url, wdmQr.src), info.title, info.join_url); }
+    finally { wdmQrPrint.disabled = false; }
+  };
+
+  // Copy button (re-bind each open so the closure captures the latest join_url)
+  wdmCopyBtn.onclick = async () => {
+    try {
+      await navigator.clipboard.writeText(info.join_url);
+      wdmCopyBtn.textContent = t('copied');
+      setTimeout(() => (wdmCopyBtn.textContent = t('copy')), 1200);
+    } catch {
+      wdmJoinUrl.select();
+      toast(t('copyFailed'), 'err');
+    }
+  };
+
+  // Feature flags chips
+  wdmFlags.innerHTML = '';
+  const flags: Array<{ key: string; active: boolean; label: string }> = [
+    { key: 'rec',       active: info.record_video,     label: t('webinarRecordVideo') },
+    { key: 'transcript',active: info.record_transcript, label: t('webinarRecordTranscript') },
+    { key: 'chat',      active: info.chat_enabled,      label: t('webinarDetailChat') },
+    { key: 'notify',    active: info.notify_friends !== false, label: t('webinarNotifyFriends') },
+  ];
+  for (const f of flags) {
+    const chip = document.createElement('span');
+    chip.className = `wdm-flag-chip${f.active ? '' : ' muted'}`;
+    chip.textContent = f.label;
+    wdmFlags.appendChild(chip);
+  }
+
+  // Created date
+  wdmCreatedAt.textContent = new Date(info.created_at).toLocaleDateString(undefined, { dateStyle: 'medium' });
+
+  // Edit form (PR4 / D5-edit): shown only for scheduled webinars.
+  // Cancel + Archive destructive actions live INSIDE the edit form (req #6).
+  wdmLifecycleActions.innerHTML = '';
+  setWdeStatus('', '');
+
+  if (!w.archived_at && info.status === 'scheduled') {
+    // ---- Scheduled webinar: show the edit form section ----
+    // Populate all fields from the current WebinarView.
+    fillWdeLangs(w.source_language);
+    wdeTitleInput.value = w.title;
+    wdeDescriptionInput.value = w.description ?? '';
+    wdeTierSel.value = w.tier;
+    wdeStartInput.value = toDatetimeLocalValue(w.scheduled_start);
+    wdeEndInput.disabled = !w.scheduled_start;
+    wdeEndInput.value = toDatetimeLocalValue(w.scheduled_end);
+    wdeReminderInput.value = w.reminder_minutes_before != null ? String(w.reminder_minutes_before) : '';
+    wdeRecordVideoSw.setAttribute('aria-checked', String(w.record_video));
+    wdeRecordTranscriptSw.setAttribute('aria-checked', String(w.record_transcript));
+    wdeChatEnabledSw.setAttribute('aria-checked', String(w.chat_enabled));
+    wdeVisibilitySw.setAttribute('aria-checked', String(w.visibility === 'public'));
+    wdeMembersOnlySw.setAttribute('aria-checked', String(w.members_only ?? false));
+    wdeNotifyFriendsSw.setAttribute('aria-checked', String(w.notify_friends !== false));
+    syncWdeNotifyFriendsVisibility();
+
+    // Wire Cancel (inside edit section)
+    wdeCancelBtn.onclick = async () => {
+      if (!confirm(t('webinarCancelConfirm'))) return;
+      wdeCancelBtn.disabled = true;
+      try {
+        await cancelWebinar(w.id);
+        toast(t('webinarCancelled'), 'ok');
+        show(webinarDetailModal, false);
+        await loadWebinars();
+      } catch (err) {
+        wdeCancelBtn.disabled = false;
+        toast(webinarErrorMessage(err), 'err');
+      }
+    };
+
+    // Wire Archive (inside edit section)
+    wdeArchiveBtn.onclick = async () => {
+      wdeArchiveBtn.disabled = true;
+      try {
+        await archiveWebinar(w.id);
+        toast(t('webinarArchived'), 'ok');
+        show(webinarDetailModal, false);
+        await loadWebinars();
+      } catch (err) {
+        wdeArchiveBtn.disabled = false;
+        toast(webinarErrorMessage(err), 'err');
+      }
+    };
+
+    // Wire edit form submit
+    wdeForm.onsubmit = async (e) => {
+      e.preventDefault();
+      setWdeStatus('', '');
+
+      const startISO = fromDatetimeLocalValue(wdeStartInput.value);
+      const endISO   = fromDatetimeLocalValue(wdeEndInput.value);
+
+      // Client-side schedule validation (D6)
+      const validity = validateSchedule(startISO, endISO, Date.now());
+      if (validity === 'startPast') {
+        setWdeStatus(t('webinarErrStartPast'), 'err');
+        return;
+      }
+      if (validity === 'endBeforeStart') {
+        setWdeStatus(t('webinarErrEndBeforeStart'), 'err');
+        return;
+      }
+
+      // Clamp reminder: first to the server's 0..=1440 range (mirrors the create path so
+      // the client never accepts a value the server would silently truncate), then to the
+      // time remaining until start. Surface any adjustment as an inline error.
+      let reminderVal: number | undefined;
+      const rawReminder = parseInt(wdeReminderInput.value, 10);
+      if (!Number.isNaN(rawReminder)) {
+        const cappedReminder = Math.min(1440, Math.max(0, rawReminder));
+        if (startISO) {
+          const minutesUntilStart = Math.floor((new Date(startISO).getTime() - Date.now()) / 60000);
+          reminderVal = clampReminder(cappedReminder, minutesUntilStart);
+        } else {
+          reminderVal = cappedReminder;
+        }
+        if (reminderVal !== rawReminder) {
+          wdeReminderInput.value = String(reminderVal);
+          setWdeStatus(t('webinarErrReminderTooLong'), 'err');
+          return;
+        }
+      }
+
+      wdeSaveBtn.disabled = true;
+      try {
+        await patchWebinar(w.id, {
+          title: wdeTitleInput.value.trim() || undefined,
+          description: wdeDescriptionInput.value.trim() || null,
+          source_language: wdeLangSel.value,
+          tier: wdeTierSel.value as import('./webinar').WebinarTier,
+          record_video: switchOn(wdeRecordVideoSw),
+          record_transcript: switchOn(wdeRecordTranscriptSw),
+          chat_enabled: switchOn(wdeChatEnabledSw),
+          visibility: switchOn(wdeVisibilitySw) ? 'public' : 'private',
+          members_only: switchOn(wdeMembersOnlySw),
+          notify_friends: switchOn(wdeNotifyFriendsSw),
+          scheduled_start: startISO,
+          scheduled_end: endISO,
+          reminder_minutes_before: reminderVal,
+        });
+        setWdeStatus(t('webinarEditSaved'), 'ok');
+        await loadWebinars();
+      } catch (err) {
+        setWdeStatus(webinarErrorMessage(err), 'err');
+      } finally {
+        wdeSaveBtn.disabled = false;
+      }
+    };
+
+    show(wdmEditSection, true);
+  } else if (w.archived_at) {
+    // ---- Archived webinar: Restore action in lifecycle area ----
+    show(wdmEditSection, false);
+    const restorable = isWebinarRestorable(w, Date.now());
+    const restoreBtn = document.createElement('button');
+    restoreBtn.type = 'button';
+    restoreBtn.className = 'btn-ghost';
+    restoreBtn.textContent = t('webinarRestore');
+    restoreBtn.disabled = !restorable;
+    if (!restorable) {
+      restoreBtn.title = t('webinarRestorePastHint');
+    }
+    wdmLifecycleActions.appendChild(restoreBtn);
+
+    // Hint text when restore is blocked (Area E)
+    if (!restorable) {
+      const hint = document.createElement('p');
+      hint.className = 'wde-restore-hint';
+      hint.textContent = t('webinarRestorePastHint');
+      wdmLifecycleActions.appendChild(hint);
+    }
+
+    restoreBtn.addEventListener('click', async () => {
+      restoreBtn.disabled = true;
+      try {
+        await unarchiveWebinar(w.id);
+        toast(t('webinarRestored'), 'ok');
+        show(webinarDetailModal, false);
+        await loadWebinars();
+      } catch (err) {
+        restoreBtn.disabled = false;
+        toast(webinarErrorMessage(err), 'err');
+      }
+    });
+  } else {
+    // ---- Active non-scheduled webinar: Archive only ----
+    show(wdmEditSection, false);
+    const archiveBtn = document.createElement('button');
+    archiveBtn.type = 'button';
+    archiveBtn.className = 'btn-ghost';
+    archiveBtn.textContent = t('webinarArchive');
+    archiveBtn.addEventListener('click', async () => {
+      archiveBtn.disabled = true;
+      try {
+        await archiveWebinar(w.id);
+        toast(t('webinarArchived'), 'ok');
+        show(webinarDetailModal, false);
+        await loadWebinars();
+      } catch (err) {
+        archiveBtn.disabled = false;
+        toast(webinarErrorMessage(err), 'err');
+      }
+    });
+    wdmLifecycleActions.appendChild(archiveBtn);
+  }
+
+  // Google Calendar row: inject the rich row (with OAuth retry) for scheduled webinars.
+  wdmCalendarRow.innerHTML = '';
+  if (!w.archived_at && info.status === 'scheduled' && !!info.scheduled_start) {
+    wdmCalendarRow.appendChild(buildAddCalendarRow(w));
+  }
+
+  show(webinarDetailModal, true);
+}
+
+$('wdm-close').addEventListener('click', () => show(webinarDetailModal, false));
+webinarDetailModal.addEventListener('click', (e) => {
+  if (e.target === webinarDetailModal) show(webinarDetailModal, false);
+});
+
 /** Pre-live voice clone from a webinar card (webinar-ui-fixes #5). Reuses the exact
  *  capture + clone flow the call pre-join uses (`recordVoiceSample` → `cloneVoice`):
  *  grab the mic, record ≥3 s of speech, clone it, and mark the account cloned so the
@@ -6584,9 +7187,15 @@ async function submitWebinar(): Promise<void> {
     setWebinarStatus(t('webinarErrTitle'), 'err');
     return;
   }
-  // Optional schedule: empty inputs → immediate webinar (null start/end).
-  const scheduledStart = fromDatetimeLocalValue(webinarStartInput.value);
-  const scheduledEnd = fromDatetimeLocalValue(webinarEndInput.value);
+  // PR2: "Start now" mode always sends null start/end (immediate webinar).
+  const isScheduleMode = webinarModeScheduleBtn.classList.contains('active');
+  // Optional schedule: empty inputs or "Start now" mode → immediate webinar (null start/end).
+  const scheduledStart = isScheduleMode
+    ? fromDatetimeLocalValue(webinarStartInput.value)
+    : null;
+  const scheduledEnd = isScheduleMode
+    ? fromDatetimeLocalValue(webinarEndInput.value)
+    : null;
   // Friendly inline validation before the API call (server re-checks, 400).
   const schedule = validateSchedule(scheduledStart, scheduledEnd, Date.now());
   if (schedule === 'startPast') {
@@ -6605,13 +7214,20 @@ async function submitWebinar(): Promise<void> {
     const cloneOffered = showVoiceCloneToggle(webinarTierSel.value, hasVoiceClone());
     // Optional project: the "No project" default has an empty value → omit project_id.
     const projectId = webinarProjectSel.value || undefined;
-    // Friend-reminder lead time — only meaningful for a scheduled webinar. Parse +
-    // clamp 0..=1440 (server re-clamps); omit when unscheduled so the default stands.
-    const reminderRaw = Number.parseInt(webinarReminderInput.value, 10);
-    const reminderMinutes =
-      scheduledStart && Number.isFinite(reminderRaw)
-        ? Math.min(1440, Math.max(0, reminderRaw))
-        : undefined;
+    // PR2: Friend-reminder lead time — clamp so it never exceeds time-to-start.
+    // Only meaningful for a scheduled webinar; omit when unscheduled.
+    let reminderMinutes: number | undefined;
+    if (isScheduleMode && scheduledStart) {
+      const reminderRaw = Number.parseInt(webinarReminderInput.value, 10);
+      if (Number.isFinite(reminderRaw)) {
+        const minutesUntilStart = Math.floor((new Date(scheduledStart).getTime() - Date.now()) / 60_000);
+        reminderMinutes = clampReminder(Math.min(1440, Math.max(0, reminderRaw)), minutesUntilStart);
+      }
+    }
+    // PR2: notify_friends — only include for public + scheduled webinars.
+    const isPublic = switchOn(webinarVisibilitySw);
+    const notifyFriends =
+      isScheduleMode && isPublic ? switchOn(webinarNotifyFriendsSw) : undefined;
     await createWebinar({
       org_id: orgId,
       title,
@@ -6621,20 +7237,18 @@ async function submitWebinar(): Promise<void> {
       record_video: switchOn(webinarRecordVideoSw),
       record_transcript: switchOn(webinarRecordTranscriptSw),
       chat_enabled: switchOn(webinarChatEnabledSw),
-      visibility: switchOn(webinarVisibilitySw) ? 'public' : 'private',
+      visibility: isPublic ? 'public' : 'private',
       members_only: switchOn(webinarMembersOnlySw),
       voice_clone: cloneOffered && switchOn(webinarVoiceCloneSw),
       scheduled_start: scheduledStart,
       scheduled_end: scheduledEnd,
       ...(reminderMinutes !== undefined ? { reminder_minutes_before: reminderMinutes } : {}),
+      ...(notifyFriends !== undefined ? { notify_friends: notifyFriends } : {}),
     });
     webinarTitleInput.value = '';
-    webinarStartInput.value = '';
-    webinarEndInput.value = '';
-    webinarReminderInput.value = '10';
     webinarProjectSel.value = ''; // reset to "No project" for the next create
     setWebinarStatus(t('webinarCreated'), 'ok');
-    collapseWebinarForm(); // tidy back to the button; the new webinar shows in the list
+    collapseWebinarForm(); // tidy back to the button; resets mode to "Start now"
     await loadWebinars();
   } catch (err) {
     setWebinarStatus(webinarErrorMessage(err), 'err');
@@ -6653,6 +7267,47 @@ webinarOrgSel.addEventListener('change', () => {
   void loadWebinarProjects();
   void loadWebinars();
 });
+// PR2: Avvia ora / Programma segmented control.
+webinarModeNowBtn.addEventListener('click', () => {
+  setWebinarModeNow();
+  syncNotifyFriendsVisibility();
+});
+webinarModeScheduleBtn.addEventListener('click', () => {
+  setWebinarModeSchedule();
+  syncNotifyFriendsVisibility();
+});
+// PR2: Enable/disable scheduled_end based on whether start has a valid value.
+webinarStartInput.addEventListener('input', () => {
+  syncWebinarEndEnabled();
+  // If start moved past current end, clear end (spec: Start change resets end).
+  const startISO = fromDatetimeLocalValue(webinarStartInput.value);
+  const endISO = fromDatetimeLocalValue(webinarEndInput.value);
+  if (resetEndIfStartPassed(startISO, endISO)) {
+    webinarEndInput.value = '';
+  }
+});
+// PR2: notify_friends row tracks visibility toggle changes.
+webinarVisibilitySw.addEventListener('click', () => {
+  // The visibility switch toggles aria-checked on click (wired in the generic
+  // ws-switch handler below) — read the NEW state after the event propagates.
+  // Use setTimeout(0) to let the switch handler update aria-checked first.
+  setTimeout(() => syncNotifyFriendsVisibility(), 0);
+});
+// PR4: Edit form start/end/visibility interactions (mirrors create form, D6-edit).
+wdeStartInput.addEventListener('input', () => {
+  syncWdeEndEnabled();
+  const startISO = fromDatetimeLocalValue(wdeStartInput.value);
+  const endISO   = fromDatetimeLocalValue(wdeEndInput.value);
+  if (resetEndIfStartPassed(startISO, endISO)) {
+    wdeEndInput.value = '';
+  }
+  syncWdeNotifyFriendsVisibility();
+});
+wdeVisibilitySw.addEventListener('click', () => {
+  setTimeout(() => syncWdeNotifyFriendsVisibility(), 0);
+});
+// Wire the edit-form switch buttons (same generic ws-switch handler applies via
+// delegation, but they also need the ws-switch class which they already have).
 // Active | Archived segmented control: switch the shown list on click.
 webinarTabs.addEventListener('click', (e) => {
   const btn = (e.target as HTMLElement).closest('.seg-btn') as HTMLElement | null;
@@ -6661,6 +7316,11 @@ webinarTabs.addEventListener('click', (e) => {
 });
 $('webinars-back').addEventListener('click', closeWebinars);
 $('webinars-btn').addEventListener('click', () => {
+  closeAccountMenu();
+  void openWebinars();
+});
+// Homepage host CTA button (D9, PR5): same action as #webinars-btn.
+$('home-host-webinar-btn').addEventListener('click', () => {
   closeAccountMenu();
   void openWebinars();
 });

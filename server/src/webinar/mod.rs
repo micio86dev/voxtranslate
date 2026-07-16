@@ -120,6 +120,10 @@ pub struct Webinar {
     /// Dedup marker for the friend reminder: NULL = not yet notified, set = fired once
     /// (either the time-based "soon" reminder or the go-live "live now" hook). Migration 047.
     pub reminder_sent_at: Option<DateTime<Utc>>,
+    /// When false, no friend-reminder notifications are sent for this webinar — neither
+    /// from the timed scheduler nor from the go-live hook (migration 051). Default true
+    /// preserves the prior always-notify behavior.
+    pub notify_friends: bool,
 }
 
 /// Fields for creating a webinar (F0-3); the `code` is generated server-side.
@@ -141,6 +145,8 @@ pub struct NewWebinar<'a> {
     pub members_only: bool,
     /// Reminder lead time in minutes (already clamped 0..=1440 by the caller).
     pub reminder_minutes_before: i32,
+    /// Whether to notify the host's accepted friends about this webinar (migration 051).
+    pub notify_friends: bool,
 }
 
 /// Insert a webinar, generating a fresh code and retrying the rare UNIQUE(code)
@@ -167,9 +173,9 @@ async fn insert_webinar(
             (org_id, host_user_id, code, title, description, source_language, tier,
              record_video, record_transcript, voice_clone, chat_enabled, visibility,
              scheduled_start, scheduled_end, project_id, host_avatar_url, members_only,
-             reminder_minutes_before)
+             reminder_minutes_before, notify_friends)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-             (SELECT avatar_url FROM users WHERE id = $2), $16, $17)
+             (SELECT avatar_url FROM users WHERE id = $2), $16, $17, $18)
          RETURNING *",
     )
     .bind(new.org_id)
@@ -189,6 +195,7 @@ async fn insert_webinar(
     .bind(new.project_id)
     .bind(new.members_only)
     .bind(new.reminder_minutes_before)
+    .bind(new.notify_friends)
     .fetch_one(pool)
     .await
 }
