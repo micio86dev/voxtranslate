@@ -3017,6 +3017,9 @@ const jsonLd = {
     .webinar-schedule-row .ws-field.grow { flex: 1 1 160px; }
     .webinar-schedule-hint { margin: 0; font-size: 0.8rem; color: var(--muted); }
     /* Fullscreen QR zoom overlay (webinar-ui-fixes #9). */
+    /* The QR zoom opens on top of the already-open detail modal (both are .modal-overlay
+       at z-index 50). Lift the QR overlay above it so the zoom lands in front, not behind. */
+    #webinar-qr-modal { z-index: 60; }
     .webinar-qr-modal { max-width: 420px; align-items: center; text-align: center; }
     /* The card centers its body (QR + URL), but the head must span the full width so
        space-between pushes the title to the left and the close button to the right. */
@@ -3072,7 +3075,19 @@ const jsonLd = {
     /* Edit form (D5-edit / PR4): fills #wdm-edit-section for scheduled webinars. */
     .wdm-edit-divider { height: 1px; background: var(--border); margin: 0 20px; }
     .wdm-edit-form { display: flex; flex-direction: column; gap: 12px; padding: 16px 20px; }
+    /* Fields stack full-width in the modal — the create form does the same via
+       `.webinar-form .ws-field`. Without this the fields inherit the global
+       `flex: 1 1 180px` and stretch/misalign in the flex column (badly on mobile). */
+    .wdm-edit-form .ws-field { flex: none; }
     .wdm-edit-form .wdm-section-label { margin-bottom: 4px; }
+    /* The description is a `<textarea class="ws-select">`; the global `input, select`
+       rule doesn't cover textareas, so it rendered as a bare control. Match the input
+       styling here. */
+    textarea.ws-select {
+      width: 100%; box-sizing: border-box; background: var(--bg); border: 1px solid var(--border);
+      color: var(--text); border-radius: 10px; padding: 12px; font-size: 16px; transition: border-color 0.15s;
+    }
+    textarea.ws-select:focus { border-color: var(--accent); outline: none; }
     .wde-description { resize: vertical; min-height: 70px; font-family: inherit; }
     .wde-destructive-actions { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 10px; border-top: 1px solid var(--border); margin-top: 4px; }
     .wde-destructive-btn { flex: none; padding: 0 16px; min-height: 38px; }
