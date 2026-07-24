@@ -458,6 +458,38 @@ pub struct ListNotifQuery {
     limit: Option<i64>,
 }
 
+/// Split unread notifications into the ones to keep and the stale `friend_active` alert
+/// ids to retract. A "friend is in a public room" alert is only meaningful while that
+/// friend is actually online — once they leave the room / close the app, the alert is a
+/// phantom. Such rows are dropped from the response and their ids returned so the caller
+/// can mark them read (they must never resurface). Pure over `is_online` so it unit-tests
+/// without a DB or live rooms.
+fn filter_live_friend_alerts(
+    rows: Vec<NotificationRow>,
+    is_online: impl Fn(Uuid) -> bool,
+) -> (Vec<NotificationRow>, Vec<Uuid>) {
+    let mut stale = Vec::new();
+    let kept = rows
+        .into_iter()
+        .filter(|r| {
+            if r.r#type != "friend_active" {
+                return true;
+            }
+            let joiner_online = r
+                .data
+                .get("from_user_id")
+                .and_then(Value::as_str)
+                .and_then(|s| Uuid::parse_str(s).ok())
+                .is_some_and(&is_online);
+            if !joiner_online {
+                stale.push(r.id);
+            }
+            joiner_online
+        })
+        .collect();
+    (kept, stale)
+}
+
 /// `GET /api/notifications?unread=&limit=`
 pub async fn list(
     State(state): State<AppState>,
@@ -466,7 +498,8 @@ pub async fn list(
 ) -> Result<Response, Response> {
     let pool = require_pool(&state)?;
     let limit = q.limit.unwrap_or(50).clamp(1, 200);
-    let rows: Vec<NotificationRow> = if q.unread.unwrap_or(false) {
+    let unread_view = q.unread.unwrap_or(false);
+    let mut rows: Vec<NotificationRow> = if unread_view {
         sqlx::query_as(
             "SELECT id, type, title, body, data, read_at, created_at FROM notifications
              WHERE user_id = $1 AND read_at IS NULL ORDER BY created_at DESC LIMIT $2",
@@ -486,6 +519,26 @@ pub async fn list(
         .await
     }
     .map_err(db_err)?;
+
+    // Retract phantom "friend is in a public room" alerts whose subject has since left /
+    // gone offline, so the live banner never fires for an absent user. Only the unread
+    // (banner) view is filtered — history keeps the record. Best-effort: a failed retract
+    // just leaves the row unread for the next poll to re-evaluate.
+    if unread_view {
+        let (kept, stale) = filter_live_friend_alerts(rows, |uid| state.rooms.is_user_online(uid));
+        rows = kept;
+        if !stale.is_empty() {
+            if let Err(e) =
+                sqlx::query("UPDATE notifications SET read_at = now() WHERE id = ANY($1)")
+                    .bind(&stale)
+                    .execute(pool)
+                    .await
+            {
+                tracing::warn!("retract stale friend_active alerts failed: {e}");
+            }
+        }
+    }
+
     let unread: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM notifications WHERE user_id = $1 AND read_at IS NULL",
     )
@@ -774,5 +827,74 @@ pub async fn run_webinar_reminder_scheduler(state: AppState, interval: Duration)
             };
             notify_webinar_friends(state.clone(), w.id, host_id, w.code, "webinar_soon").await;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn row(id: Uuid, kind: &str, data: Value) -> NotificationRow {
+        NotificationRow {
+            id,
+            r#type: kind.to_string(),
+            title: String::new(),
+            body: String::new(),
+            data,
+            read_at: None,
+            created_at: DateTime::<Utc>::from_timestamp(0, 0).unwrap(),
+        }
+    }
+
+    #[test]
+    fn keeps_live_alerts_and_non_friend_rows_retracts_offline_ones() {
+        let online = Uuid::from_u128(1);
+        let offline = Uuid::from_u128(2);
+        let other = Uuid::from_u128(10);
+        let live = Uuid::from_u128(11);
+        let stale = Uuid::from_u128(12);
+
+        let rows = vec![
+            // Non-friend_active rows are always kept, regardless of presence.
+            row(
+                other,
+                "call_invite",
+                json!({ "from_user_id": offline.to_string() }),
+            ),
+            // friend_active whose joiner is still online → kept.
+            row(
+                live,
+                "friend_active",
+                json!({ "from_user_id": online.to_string() }),
+            ),
+            // friend_active whose joiner is gone → retracted.
+            row(
+                stale,
+                "friend_active",
+                json!({ "from_user_id": offline.to_string() }),
+            ),
+        ];
+
+        let (kept, retracted) = filter_live_friend_alerts(rows, |uid| uid == online);
+
+        assert_eq!(
+            kept.iter().map(|r| r.id).collect::<Vec<_>>(),
+            vec![other, live]
+        );
+        assert_eq!(retracted, vec![stale]);
+    }
+
+    #[test]
+    fn retracts_friend_alert_with_missing_or_unparseable_from_user_id() {
+        let a = Uuid::from_u128(1);
+        let b = Uuid::from_u128(2);
+        let rows = vec![
+            row(a, "friend_active", json!({})),
+            row(b, "friend_active", json!({ "from_user_id": "not-a-uuid" })),
+        ];
+        // Even with "everyone online", a row we can't resolve to a user is treated as stale.
+        let (kept, retracted) = filter_live_friend_alerts(rows, |_| true);
+        assert!(kept.is_empty());
+        assert_eq!(retracted, vec![a, b]);
     }
 }
