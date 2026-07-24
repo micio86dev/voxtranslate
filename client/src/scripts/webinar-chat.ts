@@ -52,6 +52,26 @@ export function renderChatText(event: ChatEvent, myLang: string): string {
   return event.translations[myLang] ?? event.original;
 }
 
+/** Download a chat attachment. The signed URL is cross-origin, so the `<a download>`
+ *  attribute is ignored — fetch the bytes and save via an object URL, falling back to
+ *  opening the file in a new tab. Shared by image and file attachments so every
+ *  attachment is downloadable. */
+export async function downloadAttachment(doc: Document, url: string, name: string): Promise<void> {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`download failed: ${res.status}`);
+    const blob = await res.blob();
+    const objUrl = URL.createObjectURL(blob);
+    const a = doc.createElement('a');
+    a.href = objUrl;
+    a.download = name;
+    a.click();
+    URL.revokeObjectURL(objUrl);
+  } catch {
+    (doc.defaultView ?? window).open(url, '_blank', 'noopener');
+  }
+}
+
 /** Where the guest's chosen cosmetic display name is persisted (survives reloads so a
  *  returning viewer keeps their name), mirroring the guest_id key in hls-player.ts. */
 export const DISPLAY_NAME_KEY = 'vox.display_name';
@@ -526,13 +546,27 @@ export function buildChatRow(
 
   const nameLine = doc.createElement('div');
   nameLine.className = 'wv-chat-name-line';
-  nameLine.textContent = event.display_name;
+  // Name in its own span so it can ellipsis (never wrap under the avatar) while the
+  // host tag + send time sit beside it on one line.
+  const nameEl = doc.createElement('span');
+  nameEl.className = 'wv-chat-name';
+  nameEl.textContent = event.display_name;
+  nameLine.appendChild(nameEl);
   if (event.sender_kind === 'host') {
     const tag = doc.createElement('span');
     tag.className = 'wv-chat-host-tag';
     tag.textContent = hostTag;
     nameLine.appendChild(tag);
   }
+  // Per-message send time (RFC3339 → HH:MM), right-aligned. Empty when unparseable.
+  const time = doc.createElement('time');
+  time.className = 'wv-chat-time';
+  const stamped = new Date(event.created_at);
+  if (!Number.isNaN(stamped.getTime())) {
+    time.dateTime = event.created_at;
+    time.textContent = stamped.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+  nameLine.appendChild(time);
 
   const body = doc.createElement('div');
   body.className = 'wv-chat-body';
@@ -541,19 +575,49 @@ export function buildChatRow(
 
   content.append(nameLine, body);
 
-  // Attachment bubble (image preview or file link).
+  // Attachment bubble (image preview or file chip) — both downloadable.
   if (event.attachment) {
     const att = event.attachment;
+    // A download button that fetches the (cross-origin, signed) bytes and saves them,
+    // disabling itself while in flight. Reused by both attachment kinds.
+    const makeDownloadButton = (): HTMLButtonElement => {
+      const dl = doc.createElement('button');
+      dl.type = 'button';
+      dl.className = 'wv-chat-att-dl';
+      dl.textContent = '⬇';
+      dl.title = downloadLabel;
+      dl.setAttribute('aria-label', downloadLabel);
+      dl.addEventListener('click', async () => {
+        dl.disabled = true;
+        try {
+          await downloadAttachment(doc, att.url, att.name);
+        } finally {
+          dl.disabled = false;
+        }
+      });
+      return dl;
+    };
+
     const attEl = doc.createElement('div');
     attEl.className = 'wv-chat-attachment';
     if (att.content_type.startsWith('image/')) {
+      // Image preview + a download button overlaid top-right. Positioning is inline so it
+      // works across the meet / webinar / recap style scopes without duplicated CSS; the
+      // image size is bounded by the .wv-chat-att-img rule in each scope.
+      attEl.style.position = 'relative';
+      attEl.style.display = 'inline-block';
+      attEl.style.maxWidth = '100%';
       const img = doc.createElement('img');
       img.src = att.url;
       img.alt = att.name;
       img.className = 'wv-chat-att-img';
       img.loading = 'lazy';
       img.referrerPolicy = 'no-referrer';
-      attEl.appendChild(img);
+      const dl = makeDownloadButton();
+      dl.style.position = 'absolute';
+      dl.style.top = '6px';
+      dl.style.right = '6px';
+      attEl.append(img, dl);
     } else {
       // Document: a compact, width-constrained chip — file icon, a truncated name,
       // the size, and a clear download button. No preview, no text content.
@@ -573,36 +637,7 @@ export function buildChatRow(
       sizeEl.className = 'wv-chat-att-file-size';
       sizeEl.textContent = formatFileSize(att.size);
       meta.append(nameEl, sizeEl);
-
-      // Download button: the signed URL is cross-origin, so the <a download>
-      // attribute is ignored — fetch the bytes and save via an object URL; fall
-      // back to opening the file in a new tab.
-      const dl = doc.createElement('button');
-      dl.type = 'button';
-      dl.className = 'wv-chat-att-dl';
-      dl.textContent = '⬇';
-      dl.title = downloadLabel;
-      dl.setAttribute('aria-label', downloadLabel);
-      dl.addEventListener('click', async () => {
-        dl.disabled = true;
-        try {
-          const res = await fetch(att.url);
-          if (!res.ok) throw new Error(`download failed: ${res.status}`);
-          const blob = await res.blob();
-          const objUrl = URL.createObjectURL(blob);
-          const a = doc.createElement('a');
-          a.href = objUrl;
-          a.download = att.name;
-          a.click();
-          URL.revokeObjectURL(objUrl);
-        } catch {
-          (doc.defaultView ?? window).open(att.url, '_blank', 'noopener');
-        } finally {
-          dl.disabled = false;
-        }
-      });
-
-      chip.append(iconEl, meta, dl);
+      chip.append(iconEl, meta, makeDownloadButton());
       attEl.appendChild(chip);
     }
     content.appendChild(attEl);

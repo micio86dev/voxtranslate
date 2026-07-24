@@ -62,6 +62,21 @@ describe('buildChatRow', () => {
     expect(host.querySelector('.wv-chat-body')!.textContent).toBe('hola');
   });
 
+  it('renders the send time (HH:MM) from created_at, with the name in its own span', () => {
+    const row = buildChatRow(document, ev({ created_at: '2026-07-24T14:32:00Z' }), 'en', 'HOST');
+    const time = row.querySelector('.wv-chat-time') as HTMLTimeElement;
+    expect(time).not.toBeNull();
+    expect(time.getAttribute('datetime')).toBe('2026-07-24T14:32:00Z');
+    expect(time.textContent).toMatch(/\d{1,2}:\d{2}/); // locale-formatted HH:MM
+    // Name lives in its own span so it can ellipsis instead of wrapping under the avatar.
+    expect(row.querySelector('.wv-chat-name')!.textContent).toBe('Ada');
+  });
+
+  it('leaves the time empty when created_at is unparseable', () => {
+    const row = buildChatRow(document, ev({ created_at: 'not-a-date' }), 'en', 'HOST');
+    expect(row.querySelector('.wv-chat-time')!.textContent).toBe('');
+  });
+
   it('guest always shows initials, never an <img>', () => {
     const row = buildChatRow(document, ev(), 'en', 'HOST', 'https://example.com/avatar.png');
     const avatar = row.querySelector('.wv-chat-avatar') as HTMLElement;
@@ -129,6 +144,8 @@ describe('buildChatRow', () => {
     expect(img).not.toBeNull();
     expect(img.getAttribute('src')).toBe('https://files.example.com/pic.png');
     expect(row.querySelector('.wv-chat-att-file')).toBeNull();
+    // Images are downloadable too (overlaid download button), not just file chips.
+    expect(row.querySelector('button.wv-chat-att-dl')).not.toBeNull();
   });
 
   it('renders a document attachment as a compact chip with a truncated name, size and download button', () => {

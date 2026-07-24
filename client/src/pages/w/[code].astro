@@ -750,9 +750,26 @@ const pageDesc = webinar
       gap: 3px;
     }
     :global(.wv-chat-name-line) {
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
       font-size: 0.78rem;
       font-weight: 700;
       color: var(--text-muted, #9aa4b2);
+    }
+    :global(.wv-chat-name) {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    :global(.wv-chat-time) {
+      flex: 0 0 auto;
+      margin-left: auto;
+      font-size: 0.7rem;
+      font-weight: 400;
+      color: var(--text-muted, #9aa4b2);
+      font-variant-numeric: tabular-nums;
     }
     :global(.wv-chat-msg.is-host .wv-chat-name-line) {
       color: #93c5fd;
