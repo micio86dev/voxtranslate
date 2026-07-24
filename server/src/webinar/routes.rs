@@ -1256,12 +1256,13 @@ pub async fn webinar_stats(
         .collect();
 
     // Chat volume for this webinar.
-    let chat_messages: i64 =
-        sqlx::query_scalar("SELECT COUNT(*)::bigint FROM webinar_chat_messages WHERE webinar_id = $1")
-            .bind(id)
-            .fetch_one(pool)
-            .await
-            .map_err(db_err)?;
+    let chat_messages: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*)::bigint FROM webinar_chat_messages WHERE webinar_id = $1",
+    )
+    .bind(id)
+    .fetch_one(pool)
+    .await
+    .map_err(db_err)?;
 
     // Recap cost adds to the session cost (both charged to the host's org). SUM over
     // 0 rows is NULL → coalesced to 0.
