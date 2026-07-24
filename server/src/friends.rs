@@ -362,6 +362,22 @@ pub async fn notify_friends_of_public_join(
     let Some(pool) = state.pool.as_ref() else {
         return;
     };
+    // A user who is live-hosting a webinar isn't "hanging out in a public room" — don't
+    // nudge their friends to jump into a meet room during their broadcast. The
+    // friend_active banner is only ever produced by a public MEET-room join, but a host
+    // who opens a public room around their webinar would otherwise ping friends as if
+    // they were free to chat. Best-effort: on a DB error, fall through to normal behaviour.
+    match sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(SELECT 1 FROM webinars WHERE host_user_id = $1 AND status = 'live')",
+    )
+    .bind(joiner_id)
+    .fetch_one(pool)
+    .await
+    {
+        Ok(true) => return,
+        Ok(false) => {}
+        Err(e) => tracing::warn!("friend alert: live-webinar host check failed: {e}"),
+    }
     // Drop stale dedupe entries so the map can't grow unbounded.
     FRIEND_ALERT_SEEN.retain(|_, t| t.elapsed() < FRIEND_ALERT_COOLDOWN);
 
