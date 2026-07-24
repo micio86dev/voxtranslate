@@ -729,6 +729,8 @@
   "wvRecapStatEngagement": "Engagement",
   "wvRecapStatChatMessages": "Chat messages",
   "wvRecapStatCost": "Cost",
+  "wvRecapStatAudioCost": "Traducción de audio",
+  "wvRecapStatReportCost": "Informe IA",
   "homeHostWebinarTitle": "Organizar un webinar",
   "homeHostWebinarDesc": "Emite en directo para una audiencia con traducción y subtítulos en tiempo real.",
   "homeHostWebinarCta": "Ir a Webinars"

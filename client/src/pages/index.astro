@@ -3299,19 +3299,25 @@ const jsonLd = {
     .recap-ai-report code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.85em; background: color-mix(in srgb, var(--fg) 8%, transparent); padding: 1px 5px; border-radius: 5px; }
     .recap-ai-report strong { font-weight: 700; }
 
-    /* Statistics panel */
-    .recap-stats-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 14px; }
-    .recap-stat-card { display: flex; flex-direction: column; gap: 6px; padding: 18px 20px; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; }
-    .recap-stat-card-value { font-size: 1.6rem; font-weight: 700; color: var(--fg); font-variant-numeric: tabular-nums; line-height: 1.1; }
-    .recap-stat-card-label { font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600; }
+    /* Statistics panel. The stat cards + language rows are built in JS, so their
+       selectors MUST be :global — Astro's scoped-style hash only reaches template
+       markup, never runtime-created nodes. Without :global the stats render unstyled
+       (values jammed against labels, no cards). Only the template containers
+       (#recap-stats-cards / #recap-stats-langs*) keep plain scoped rules. */
+    .recap-stats-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
+    .recap-panel :global(.recap-stat-card) { display: flex; flex-direction: column; gap: 4px; padding: 16px 18px; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; }
+    .recap-panel :global(.recap-stat-card-value) { font-size: 1.7rem; font-weight: 700; color: var(--fg); font-variant-numeric: tabular-nums; line-height: 1.05; }
+    .recap-panel :global(.recap-stat-card-label) { margin-top: 2px; font-size: 0.7rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
+    .recap-panel :global(.recap-stat-bar) { margin-top: 10px; height: 6px; border-radius: 999px; background: color-mix(in srgb, var(--border) 60%, transparent); overflow: hidden; }
+    .recap-panel :global(.recap-stat-bar > span) { display: block; height: 100%; background: var(--accent); border-radius: 999px; }
     .recap-stats-langs { margin-top: 22px; }
     .recap-stats-langs-title { font-size: 0.95rem; font-weight: 700; margin-bottom: 12px; }
     .recap-stats-langs-list { display: flex; flex-direction: column; gap: 8px; }
-    .recap-stats-lang-row { display: grid; grid-template-columns: 3.5rem 1fr auto; align-items: center; gap: 12px; }
-    .recap-stats-lang-code { font-size: 0.82rem; font-weight: 700; text-transform: uppercase; color: var(--fg); }
-    .recap-stats-lang-bar { height: 8px; border-radius: 999px; background: color-mix(in srgb, var(--border) 60%, transparent); overflow: hidden; }
-    .recap-stats-lang-bar > span { display: block; height: 100%; background: var(--accent, #3b82f6); border-radius: 999px; }
-    .recap-stats-lang-count { font-size: 0.82rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .recap-panel :global(.recap-stats-lang-row) { display: grid; grid-template-columns: 4.75rem 1fr auto; align-items: center; gap: 12px; }
+    .recap-panel :global(.recap-stats-lang-code) { font-size: 0.85rem; font-weight: 700; color: var(--fg); white-space: nowrap; }
+    .recap-panel :global(.recap-stats-lang-bar) { height: 8px; border-radius: 999px; background: color-mix(in srgb, var(--border) 60%, transparent); overflow: hidden; }
+    .recap-panel :global(.recap-stats-lang-bar > span) { display: block; height: 100%; background: var(--accent); border-radius: 999px; }
+    .recap-panel :global(.recap-stats-lang-count) { font-size: 0.82rem; color: var(--muted); font-variant-numeric: tabular-nums; }
 
     /* Billing section: balance + a quick path back to checkout, above the history tabs. */
     .billing-balance-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; }
