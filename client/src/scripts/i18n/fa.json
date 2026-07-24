@@ -731,5 +731,8 @@
   "wvRecapStatCost": "Cost",
   "homeHostWebinarTitle": "میزبانی وبینار",
   "homeHostWebinarDesc": "زنده برای مخاطبان پخش کنید با ترجمه و زیرنویس هم‌زمان.",
-  "homeHostWebinarCta": "رفتن به وبینارها"
+  "homeHostWebinarCta": "رفتن به وبینارها",
+  "wvRecapStatAudioCost": "Audio translation",
+  "wvRecapStatReportCost": "AI report",
+  "wvRecapAiCost": "Generation cost"
 }

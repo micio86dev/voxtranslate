@@ -731,5 +731,8 @@
   "wvRecapStatCost": "Cost",
   "homeHostWebinarTitle": "រៀបចំវេបប៊ីណា",
   "homeHostWebinarDesc": "ផ្សាយផ្ទាល់ទៅកាន់ទស្សនិកជនជាមួយការបកប្រែ និងអក្សររត់ក្នុងពេលវេលាជាក់ស្ដែង។",
-  "homeHostWebinarCta": "ទៅកាន់វេបប៊ីណា"
+  "homeHostWebinarCta": "ទៅកាន់វេបប៊ីណា",
+  "wvRecapStatAudioCost": "Audio translation",
+  "wvRecapStatReportCost": "AI report",
+  "wvRecapAiCost": "Generation cost"
 }

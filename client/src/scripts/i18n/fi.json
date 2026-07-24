@@ -731,5 +731,8 @@
   "wvRecapStatCost": "Cost",
   "homeHostWebinarTitle": "Isännöi webinaaria",
   "homeHostWebinarDesc": "Lähetä suoraa yleisölle reaaliaikaisella käännöksellä ja tekstityksellä.",
-  "homeHostWebinarCta": "Siirry webinaareihin"
+  "homeHostWebinarCta": "Siirry webinaareihin",
+  "wvRecapStatAudioCost": "Audio translation",
+  "wvRecapStatReportCost": "AI report",
+  "wvRecapAiCost": "Generation cost"
 }

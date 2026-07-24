@@ -731,5 +731,8 @@
   "wvRecapStatCost": "Cost",
   "homeHostWebinarTitle": "ウェビナーを開催",
   "homeHostWebinarDesc": "リアルタイム翻訳と字幕付きで視聴者にライブ配信。",
-  "homeHostWebinarCta": "ウェビナーへ"
+  "homeHostWebinarCta": "ウェビナーへ",
+  "wvRecapStatAudioCost": "Audio translation",
+  "wvRecapStatReportCost": "AI report",
+  "wvRecapAiCost": "Generation cost"
 }

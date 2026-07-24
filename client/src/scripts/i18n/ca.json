@@ -731,5 +731,8 @@
   "wvRecapStatCost": "Cost",
   "homeHostWebinarTitle": "Organitza un webinar",
   "homeHostWebinarDesc": "Emet en directe a una audiència amb traducció i subtítols en temps real.",
-  "homeHostWebinarCta": "Ves als webinars"
+  "homeHostWebinarCta": "Ves als webinars",
+  "wvRecapStatAudioCost": "Audio translation",
+  "wvRecapStatReportCost": "AI report",
+  "wvRecapAiCost": "Generation cost"
 }

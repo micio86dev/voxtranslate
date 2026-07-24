@@ -731,5 +731,8 @@
   "wvRecapStatCost": "Cost",
   "homeHostWebinarTitle": "Mag-host ng webinar",
   "homeHostWebinarDesc": "Mag-broadcast nang live sa audience gamit ang real-time na pagsasalin at subtitle.",
-  "homeHostWebinarCta": "Pumunta sa Webinars"
+  "homeHostWebinarCta": "Pumunta sa Webinars",
+  "wvRecapStatAudioCost": "Audio translation",
+  "wvRecapStatReportCost": "AI report",
+  "wvRecapAiCost": "Generation cost"
 }

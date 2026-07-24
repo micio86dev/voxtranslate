@@ -731,5 +731,8 @@
   "wvRecapStatCost": "Cost",
   "homeHostWebinarTitle": "Vadīt vebināru",
   "homeHostWebinarDesc": "Pārraidiet tiešraidē auditorijai ar reāllaika tulkošanu un subtitriem.",
-  "homeHostWebinarCta": "Uz vebināriem"
+  "homeHostWebinarCta": "Uz vebināriem",
+  "wvRecapStatAudioCost": "Audio translation",
+  "wvRecapStatReportCost": "AI report",
+  "wvRecapAiCost": "Generation cost"
 }

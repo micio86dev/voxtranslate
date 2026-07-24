@@ -731,5 +731,8 @@
   "wvRecapStatCost": "Cost",
   "homeHostWebinarTitle": "Gbàlejò wẹ́bínà",
   "homeHostWebinarDesc": "Gbé àsè sáfẹ́fẹ́ tààrà sí àwùjọ pẹ̀lú ìtumọ̀ àti àkọlé-àbájáde lẹ́sẹ̀kẹsẹ̀.",
-  "homeHostWebinarCta": "Lọ sí Wẹ́bínà"
+  "homeHostWebinarCta": "Lọ sí Wẹ́bínà",
+  "wvRecapStatAudioCost": "Audio translation",
+  "wvRecapStatReportCost": "AI report",
+  "wvRecapAiCost": "Generation cost"
 }

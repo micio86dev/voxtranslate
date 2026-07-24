@@ -731,5 +731,8 @@
   "wvRecapStatCost": "Cost",
   "homeHostWebinarTitle": "Òganize yon webinè",
   "homeHostWebinarDesc": "Difize an dirèk pou yon odyans ak tradiksyon ak soutit an tan reyèl.",
-  "homeHostWebinarCta": "Ale nan Webinè yo"
+  "homeHostWebinarCta": "Ale nan Webinè yo",
+  "wvRecapStatAudioCost": "Audio translation",
+  "wvRecapStatReportCost": "AI report",
+  "wvRecapAiCost": "Generation cost"
 }

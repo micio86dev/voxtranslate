@@ -731,5 +731,8 @@
   "wvRecapStatCost": "Cost",
   "homeHostWebinarTitle": "Găzduiește un webinar",
   "homeHostWebinarDesc": "Transmite live către un public cu traducere și subtitrări în timp real.",
-  "homeHostWebinarCta": "Mergi la webinare"
+  "homeHostWebinarCta": "Mergi la webinare",
+  "wvRecapStatAudioCost": "Audio translation",
+  "wvRecapStatReportCost": "AI report",
+  "wvRecapAiCost": "Generation cost"
 }

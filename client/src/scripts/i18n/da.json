@@ -731,5 +731,8 @@
   "wvRecapStatCost": "Cost",
   "homeHostWebinarTitle": "Vær vært for et webinar",
   "homeHostWebinarDesc": "Send live til et publikum med oversættelse og undertekster i realtid.",
-  "homeHostWebinarCta": "Gå til webinarer"
+  "homeHostWebinarCta": "Gå til webinarer",
+  "wvRecapStatAudioCost": "Audio translation",
+  "wvRecapStatReportCost": "AI report",
+  "wvRecapAiCost": "Generation cost"
 }

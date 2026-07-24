@@ -731,5 +731,8 @@
   "wvRecapStatCost": "Cost",
   "homeHostWebinarTitle": "Διοργάνωση webinar",
   "homeHostWebinarDesc": "Μεταδώστε ζωντανά σε κοινό με μετάφραση και υπότιτλους σε πραγματικό χρόνο.",
-  "homeHostWebinarCta": "Μετάβαση στα Webinars"
+  "homeHostWebinarCta": "Μετάβαση στα Webinars",
+  "wvRecapStatAudioCost": "Audio translation",
+  "wvRecapStatReportCost": "AI report",
+  "wvRecapAiCost": "Generation cost"
 }

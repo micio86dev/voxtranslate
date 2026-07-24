@@ -731,5 +731,8 @@
   "wvRecapStatCost": "Cost",
   "homeHostWebinarTitle": "Karɓi bakuncin webinar",
   "homeHostWebinarDesc": "Yi watsa kai tsaye ga masu sauraro tare da fassara da fassarar rubutu na ainihin lokaci.",
-  "homeHostWebinarCta": "Je zuwa Webinars"
+  "homeHostWebinarCta": "Je zuwa Webinars",
+  "wvRecapStatAudioCost": "Audio translation",
+  "wvRecapStatReportCost": "AI report",
+  "wvRecapAiCost": "Generation cost"
 }

@@ -731,5 +731,8 @@
   "wvRecapStatCost": "Cost",
   "homeHostWebinarTitle": "Gostuj webinar",
   "homeHostWebinarDesc": "Predvajajte v živo občinstvu s prevajanjem in podnapisi v realnem času.",
-  "homeHostWebinarCta": "Pojdi na webinarje"
+  "homeHostWebinarCta": "Pojdi na webinarje",
+  "wvRecapStatAudioCost": "Audio translation",
+  "wvRecapStatReportCost": "AI report",
+  "wvRecapAiCost": "Generation cost"
 }

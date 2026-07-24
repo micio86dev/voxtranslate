@@ -731,5 +731,8 @@
   "wvRecapStatCost": "Cost",
   "homeHostWebinarTitle": "Andaa webina",
   "homeHostWebinarDesc": "Tangaza moja kwa moja kwa hadhira ukiwa na tafsiri na manukuu ya wakati halisi.",
-  "homeHostWebinarCta": "Nenda kwenye Webina"
+  "homeHostWebinarCta": "Nenda kwenye Webina",
+  "wvRecapStatAudioCost": "Audio translation",
+  "wvRecapStatReportCost": "AI report",
+  "wvRecapAiCost": "Generation cost"
 }

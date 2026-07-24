@@ -731,5 +731,8 @@
   "wvRecapStatCost": "Cost",
   "homeHostWebinarTitle": "Вебинар зохион байгуулах",
   "homeHostWebinarDesc": "Бодит цагийн орчуулга, хадмал хамт үзэгчдэд шууд дамжуулаарай.",
-  "homeHostWebinarCta": "Вебинар руу очих"
+  "homeHostWebinarCta": "Вебинар руу очих",
+  "wvRecapStatAudioCost": "Audio translation",
+  "wvRecapStatReportCost": "AI report",
+  "wvRecapAiCost": "Generation cost"
 }

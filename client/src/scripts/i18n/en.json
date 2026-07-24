@@ -729,7 +729,10 @@
   "wvRecapStatEngagement": "Engagement",
   "wvRecapStatChatMessages": "Chat messages",
   "wvRecapStatCost": "Cost",
+  "wvRecapStatAudioCost": "Audio translation",
+  "wvRecapStatReportCost": "AI report",
   "homeHostWebinarTitle": "Host a webinar",
   "homeHostWebinarDesc": "Broadcast live to an audience with real-time translation and subtitles.",
-  "homeHostWebinarCta": "Go to Webinars"
+  "homeHostWebinarCta": "Go to Webinars",
+  "wvRecapAiCost": "Generation cost"
 }
