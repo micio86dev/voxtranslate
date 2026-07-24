@@ -528,10 +528,11 @@ pub async fn list(
         let (kept, stale) = filter_live_friend_alerts(rows, |uid| state.rooms.is_user_online(uid));
         rows = kept;
         if !stale.is_empty() {
-            if let Err(e) = sqlx::query("UPDATE notifications SET read_at = now() WHERE id = ANY($1)")
-                .bind(&stale)
-                .execute(pool)
-                .await
+            if let Err(e) =
+                sqlx::query("UPDATE notifications SET read_at = now() WHERE id = ANY($1)")
+                    .bind(&stale)
+                    .execute(pool)
+                    .await
             {
                 tracing::warn!("retract stale friend_active alerts failed: {e}");
             }
@@ -855,16 +856,31 @@ mod tests {
 
         let rows = vec![
             // Non-friend_active rows are always kept, regardless of presence.
-            row(other, "call_invite", json!({ "from_user_id": offline.to_string() })),
+            row(
+                other,
+                "call_invite",
+                json!({ "from_user_id": offline.to_string() }),
+            ),
             // friend_active whose joiner is still online → kept.
-            row(live, "friend_active", json!({ "from_user_id": online.to_string() })),
+            row(
+                live,
+                "friend_active",
+                json!({ "from_user_id": online.to_string() }),
+            ),
             // friend_active whose joiner is gone → retracted.
-            row(stale, "friend_active", json!({ "from_user_id": offline.to_string() })),
+            row(
+                stale,
+                "friend_active",
+                json!({ "from_user_id": offline.to_string() }),
+            ),
         ];
 
         let (kept, retracted) = filter_live_friend_alerts(rows, |uid| uid == online);
 
-        assert_eq!(kept.iter().map(|r| r.id).collect::<Vec<_>>(), vec![other, live]);
+        assert_eq!(
+            kept.iter().map(|r| r.id).collect::<Vec<_>>(),
+            vec![other, live]
+        );
         assert_eq!(retracted, vec![stale]);
     }
 
