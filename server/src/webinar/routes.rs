@@ -79,6 +79,8 @@ pub fn routes() -> Router<AppState> {
         .route("/api/webinars/{id}/transcripts", get(get_transcripts))
         // Session stats (PR6 — Riepilogo): peak viewers, unique attendees, duration.
         .route("/api/webinars/{id}/session-stats", get(session_stats))
+        // Full aggregate analytics for the recap screen — HOST-ONLY.
+        .route("/api/webinars/{id}/stats", get(webinar_stats))
         // AI recap (Phase B) — HOST-ONLY. Report (any language) + multilingual
         // participant recap emails, both async (client polls the job endpoint).
         .route(
@@ -1153,6 +1155,143 @@ pub async fn session_stats(
         "peak_viewers": peak_viewers,
         "unique_attendees": unique_attendees,
         "duration_seconds": duration_seconds,
+    }))
+    .into_response())
+}
+
+/// `GET /api/webinars/{id}/stats` — HOST-ONLY aggregate analytics for a finished
+/// (or live) webinar, computed on the fly from the existing tables (no dedicated
+/// instrumentation): `webinar_sessions` (peak/duration/cost), `webinar_participants`
+/// (attendees, watch time, per-language breakdown, completion), `webinar_reports`
+/// (recap cost) and `webinar_chat_messages` (message count).
+///
+/// Mirrors the recap endpoints' guard ([`require_webinar_host`]): 404 when the
+/// webinar doesn't exist, 403 when the caller isn't its `host_user_id`.
+///
+/// When no `webinar_sessions` row exists yet (never finalized), duration is
+/// unknown: `duration_seconds` is 0 and the duration-relative metrics
+/// (`completion_rate`, `engagement_pct`) are returned as `null`.
+pub async fn webinar_stats(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+) -> Result<Response, Response> {
+    let pool = require_pool(&state)?;
+    // HOST-ONLY: aggregate analytics are the host's alone (same guard as the recap).
+    require_webinar_host(pool, id, user.user_id).await?;
+
+    // Session record (0/1 row): peak concurrent viewers, billed duration + cost.
+    // `duration_seconds` falls back to (actual_end − actual_start) if it was left
+    // at 0. `None` ⇒ the run was never finalized.
+    let session_row: Option<(i32, i32, i32)> = sqlx::query_as(
+        "SELECT peak_viewers,
+                GREATEST(
+                    duration_seconds,
+                    COALESCE(EXTRACT(EPOCH FROM (actual_end - actual_start))::int, 0)
+                ) AS duration_seconds,
+                cost_credits
+           FROM webinar_sessions
+          WHERE webinar_id = $1",
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await
+    .map_err(db_err)?;
+
+    let (peak_viewers, duration_seconds, session_cost) = session_row.unwrap_or((0, 0, 0));
+    // A duration of 0 (or no session) means the duration-relative metrics can't be
+    // computed — they are reported as JSON null, not a misleading 0.0.
+    let known_duration: Option<i64> = (duration_seconds > 0).then_some(duration_seconds as i64);
+
+    // Participant aggregates in one pass: distinct attendees + average watch time.
+    // AVG over an INTEGER column comes back as NUMERIC → read it as f64.
+    let (unique_attendees, avg_watch): (i64, Option<f64>) = sqlx::query_as(
+        "SELECT COUNT(*)::bigint,
+                AVG(total_watch_seconds)::float8
+           FROM webinar_participants
+          WHERE webinar_id = $1",
+    )
+    .bind(id)
+    .fetch_one(pool)
+    .await
+    .map_err(db_err)?;
+    let avg_watch_seconds = avg_watch.unwrap_or(0.0).round() as i64;
+
+    // Completion: fraction of attendees who watched ≥ 90% of the broadcast.
+    // Only meaningful with a known duration and at least one attendee.
+    let completion_rate: Option<f64> = match known_duration {
+        Some(dur) if unique_attendees > 0 => {
+            let threshold = (0.9 * dur as f64).ceil() as i64;
+            let completed: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*)::bigint
+                   FROM webinar_participants
+                  WHERE webinar_id = $1 AND total_watch_seconds >= $2",
+            )
+            .bind(id)
+            .bind(threshold)
+            .fetch_one(pool)
+            .await
+            .map_err(db_err)?;
+            Some(completed as f64 / unique_attendees as f64)
+        }
+        _ => None,
+    };
+
+    // Per-language attendee breakdown (NULL language_code bucketed as "unknown").
+    let lang_rows: Vec<(String, i64)> = sqlx::query_as(
+        "SELECT COALESCE(language_code, 'unknown') AS lang,
+                COUNT(*)::bigint
+           FROM webinar_participants
+          WHERE webinar_id = $1
+          GROUP BY COALESCE(language_code, 'unknown')
+          ORDER BY COUNT(*) DESC, lang ASC",
+    )
+    .bind(id)
+    .fetch_all(pool)
+    .await
+    .map_err(db_err)?;
+    let languages: Vec<Value> = lang_rows
+        .into_iter()
+        .map(|(lang, count)| json!({ "lang": lang, "count": count }))
+        .collect();
+
+    // Chat volume for this webinar.
+    let chat_messages: i64 =
+        sqlx::query_scalar("SELECT COUNT(*)::bigint FROM webinar_chat_messages WHERE webinar_id = $1")
+            .bind(id)
+            .fetch_one(pool)
+            .await
+            .map_err(db_err)?;
+
+    // Recap cost adds to the session cost (both charged to the host's org). SUM over
+    // 0 rows is NULL → coalesced to 0.
+    let report_cost: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(SUM(cost_credits), 0)::bigint
+           FROM webinar_reports
+          WHERE webinar_id = $1",
+    )
+    .bind(id)
+    .fetch_one(pool)
+    .await
+    .map_err(db_err)?;
+    let cost_credits = session_cost as i64 + report_cost;
+
+    // Engagement: avg watch fraction of the run, clamped to [0, 1]. Null when the
+    // duration is unknown (can't derive a fraction).
+    let engagement_pct: Option<f64> =
+        known_duration.map(|dur| (avg_watch.unwrap_or(0.0) / dur as f64).clamp(0.0, 1.0));
+
+    Ok(Json(json!({
+        "unique_attendees": unique_attendees,
+        "peak_viewers": peak_viewers as i64,
+        "avg_watch_seconds": avg_watch_seconds,
+        "duration_seconds": duration_seconds as i64,
+        "completion_rate": completion_rate,
+        "languages": languages,
+        "chat_messages": chat_messages,
+        "cost_credits": cost_credits,
+        "cost_usd": cost_credits as f64 / 100.0,
+        "engagement_pct": engagement_pct,
     }))
     .into_response())
 }
