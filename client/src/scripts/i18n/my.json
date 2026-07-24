@@ -731,5 +731,8 @@
   "wvRecapStatCost": "Cost",
   "homeHostWebinarTitle": "ဝဘ်ဆီနာ တစ်ခု စီစဉ်ရန်",
   "homeHostWebinarDesc": "အချိန်နှင့်တစ်ပြေးညီ ဘာသာပြန်ခြင်းနှင့် စာတန်းထိုးများဖြင့် ပရိသတ်ထံသို့ တိုက်ရိုက်ထုတ်လွှင့်ပါ။",
-  "homeHostWebinarCta": "ဝဘ်ဆီနာများသို့ သွားရန်"
+  "homeHostWebinarCta": "ဝဘ်ဆီနာများသို့ သွားရန်",
+  "wvRecapStatAudioCost": "Audio translation",
+  "wvRecapStatReportCost": "AI report",
+  "wvRecapAiCost": "Generation cost"
 }

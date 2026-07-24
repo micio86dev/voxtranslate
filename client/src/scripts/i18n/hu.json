@@ -731,5 +731,8 @@
   "wvRecapStatCost": "Cost",
   "homeHostWebinarTitle": "Webinárium tartása",
   "homeHostWebinarDesc": "Közvetítsen élőben a közönségnek valós idejű fordítással és feliratokkal.",
-  "homeHostWebinarCta": "Ugrás a webináriumokhoz"
+  "homeHostWebinarCta": "Ugrás a webináriumokhoz",
+  "wvRecapStatAudioCost": "Audio translation",
+  "wvRecapStatReportCost": "AI report",
+  "wvRecapAiCost": "Generation cost"
 }

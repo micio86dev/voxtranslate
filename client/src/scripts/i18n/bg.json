@@ -731,5 +731,8 @@
   "wvRecapStatCost": "Cost",
   "homeHostWebinarTitle": "Води уебинар",
   "homeHostWebinarDesc": "Излъчвайте на живо пред публика с превод и субтитри в реално време.",
-  "homeHostWebinarCta": "Към уебинарите"
+  "homeHostWebinarCta": "Към уебинарите",
+  "wvRecapStatAudioCost": "Audio translation",
+  "wvRecapStatReportCost": "AI report",
+  "wvRecapAiCost": "Generation cost"
 }

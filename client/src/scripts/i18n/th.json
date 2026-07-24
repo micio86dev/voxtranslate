@@ -731,5 +731,8 @@
   "wvRecapStatCost": "Cost",
   "homeHostWebinarTitle": "จัดเว็บบินาร์",
   "homeHostWebinarDesc": "ถ่ายทอดสดสู่ผู้ชมพร้อมการแปลและคำบรรยายแบบเรียลไทม์",
-  "homeHostWebinarCta": "ไปที่เว็บบินาร์"
+  "homeHostWebinarCta": "ไปที่เว็บบินาร์",
+  "wvRecapStatAudioCost": "Audio translation",
+  "wvRecapStatReportCost": "AI report",
+  "wvRecapAiCost": "Generation cost"
 }

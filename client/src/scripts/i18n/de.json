@@ -731,5 +731,8 @@
   "wvRecapStatCost": "Cost",
   "homeHostWebinarTitle": "Webinar veranstalten",
   "homeHostWebinarDesc": "Übertrage live an ein Publikum mit Echtzeit-Übersetzung und Untertiteln.",
-  "homeHostWebinarCta": "Zu Webinaren"
+  "homeHostWebinarCta": "Zu Webinaren",
+  "wvRecapStatAudioCost": "Audio translation",
+  "wvRecapStatReportCost": "AI report",
+  "wvRecapAiCost": "Generation cost"
 }

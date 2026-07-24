@@ -731,5 +731,8 @@
   "wvRecapStatCost": "Cost",
   "homeHostWebinarTitle": "Vebinar keçir",
   "homeHostWebinarDesc": "Real vaxtda tərcümə və altyazı ilə auditoriyaya canlı yayım edin.",
-  "homeHostWebinarCta": "Vebinarlara keç"
+  "homeHostWebinarCta": "Vebinarlara keç",
+  "wvRecapStatAudioCost": "Audio translation",
+  "wvRecapStatReportCost": "AI report",
+  "wvRecapAiCost": "Generation cost"
 }

@@ -731,5 +731,8 @@
   "wvRecapStatCost": "Cost",
   "homeHostWebinarTitle": "Ospita webinar",
   "homeHostWebinarDesc": "Xandar dirett lil udjenza b'traduzzjoni u sottotitli f'ħin reali.",
-  "homeHostWebinarCta": "Mur għall-Webinars"
+  "homeHostWebinarCta": "Mur għall-Webinars",
+  "wvRecapStatAudioCost": "Audio translation",
+  "wvRecapStatReportCost": "AI report",
+  "wvRecapAiCost": "Generation cost"
 }

@@ -731,5 +731,8 @@
   "wvRecapStatCost": "Cost",
   "homeHostWebinarTitle": "ዌብናር አስተናግድ",
   "homeHostWebinarDesc": "ለተመልካቾች በቀጥታ ስርጭት ከቅጽበታዊ ትርጉም እና ንኡስ ጽሑፎች ጋር።",
-  "homeHostWebinarCta": "ወደ ዌብናሮች ሂድ"
+  "homeHostWebinarCta": "ወደ ዌብናሮች ሂድ",
+  "wvRecapStatAudioCost": "Audio translation",
+  "wvRecapStatReportCost": "AI report",
+  "wvRecapAiCost": "Generation cost"
 }

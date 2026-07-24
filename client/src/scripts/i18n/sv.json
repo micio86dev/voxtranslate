@@ -731,5 +731,8 @@
   "wvRecapStatCost": "Cost",
   "homeHostWebinarTitle": "Håll ett webbinarium",
   "homeHostWebinarDesc": "Sänd live till en publik med översättning och undertexter i realtid.",
-  "homeHostWebinarCta": "Gå till webbinarier"
+  "homeHostWebinarCta": "Gå till webbinarier",
+  "wvRecapStatAudioCost": "Audio translation",
+  "wvRecapStatReportCost": "AI report",
+  "wvRecapAiCost": "Generation cost"
 }

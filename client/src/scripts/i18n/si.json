@@ -731,5 +731,8 @@
   "wvRecapStatCost": "Cost",
   "homeHostWebinarTitle": "වෙබිනාරයක් සත්කාරකත්වය දරන්න",
   "homeHostWebinarDesc": "තත්‍ය කාලීන පරිවර්තනය සහ උපසිරැසි සමඟ ප්‍රේක්ෂකයන්ට සජීවීව විකාශනය කරන්න.",
-  "homeHostWebinarCta": "වෙබිනාර වෙත යන්න"
+  "homeHostWebinarCta": "වෙබිනාර වෙත යන්න",
+  "wvRecapStatAudioCost": "Audio translation",
+  "wvRecapStatReportCost": "AI report",
+  "wvRecapAiCost": "Generation cost"
 }

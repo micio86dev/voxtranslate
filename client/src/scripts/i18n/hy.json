@@ -731,5 +731,8 @@
   "wvRecapStatCost": "Cost",
   "homeHostWebinarTitle": "Անցկացնել վեբինար",
   "homeHostWebinarDesc": "Հեռարձակեք ուղիղ եթերում լսարանի համար՝ իրական ժամանակի թարգմանությամբ և ենթագրերով։",
-  "homeHostWebinarCta": "Անցնել վեբինարներ"
+  "homeHostWebinarCta": "Անցնել վեբինարներ",
+  "wvRecapStatAudioCost": "Audio translation",
+  "wvRecapStatReportCost": "AI report",
+  "wvRecapAiCost": "Generation cost"
 }

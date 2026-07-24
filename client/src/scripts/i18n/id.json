@@ -731,5 +731,8 @@
   "wvRecapStatCost": "Cost",
   "homeHostWebinarTitle": "Selenggarakan webinar",
   "homeHostWebinarDesc": "Siarkan langsung ke audiens dengan terjemahan dan subtitle real-time.",
-  "homeHostWebinarCta": "Buka Webinar"
+  "homeHostWebinarCta": "Buka Webinar",
+  "wvRecapStatAudioCost": "Audio translation",
+  "wvRecapStatReportCost": "AI report",
+  "wvRecapAiCost": "Generation cost"
 }

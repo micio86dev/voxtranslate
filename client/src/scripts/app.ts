@@ -6698,9 +6698,16 @@ async function openWebinarRecap(
             recapAiGenerate.disabled = false;
             return;
           }
-          const job = (await jobRes.json()) as { status: string; result?: { markdown?: string } };
+          const job = (await jobRes.json()) as {
+            status: string;
+            result?: { markdown?: string; cost_credits?: number };
+          };
           if (job.status === 'done' && job.result?.markdown) {
-            show(recapAiStatus, false);
+            // Surface the generation spend (credits → USD, matching the stats tab).
+            const cost = job.result.cost_credits ?? 0;
+            recapAiStatus.textContent = `${t('wvRecapAiCost')}: $${(cost / 100).toFixed(2)}`;
+            recapAiStatus.classList.remove('error');
+            show(recapAiStatus, true);
             recapAiReport.innerHTML = mdToHtml(job.result.markdown);
             show(recapAiReport, true);
             recapAiGenerate.disabled = false;

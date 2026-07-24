@@ -731,5 +731,8 @@
   "wvRecapStatCost": "Cost",
   "homeHostWebinarTitle": "ຈັດເວັບບີນາ",
   "homeHostWebinarDesc": "ອອກອາກາດສົດໃຫ້ຜູ້ຊົມພ້ອມການແປ ແລະ ຄຳບັນຍາຍແບບສົດ.",
-  "homeHostWebinarCta": "ໄປທີ່ເວັບບີນາ"
+  "homeHostWebinarCta": "ໄປທີ່ເວັບບີນາ",
+  "wvRecapStatAudioCost": "Audio translation",
+  "wvRecapStatReportCost": "AI report",
+  "wvRecapAiCost": "Generation cost"
 }

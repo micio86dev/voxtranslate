@@ -731,5 +731,8 @@
   "wvRecapStatCost": "Cost",
   "homeHostWebinarTitle": "Óstáil webinar",
   "homeHostWebinarDesc": "Craol beo do lucht féachana le haistriúchán agus fotheidil fíor-ama.",
-  "homeHostWebinarCta": "Chuig na Webinars"
+  "homeHostWebinarCta": "Chuig na Webinars",
+  "wvRecapStatAudioCost": "Audio translation",
+  "wvRecapStatReportCost": "AI report",
+  "wvRecapAiCost": "Generation cost"
 }

@@ -733,5 +733,6 @@
   "wvRecapStatReportCost": "Informe IA",
   "homeHostWebinarTitle": "Organizar un webinar",
   "homeHostWebinarDesc": "Emite en directo para una audiencia con traducción y subtítulos en tiempo real.",
-  "homeHostWebinarCta": "Ir a Webinars"
+  "homeHostWebinarCta": "Ir a Webinars",
+  "wvRecapAiCost": "Coste de generación"
 }

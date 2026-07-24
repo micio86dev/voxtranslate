@@ -731,5 +731,8 @@
   "wvRecapStatCost": "Cost",
   "homeHostWebinarTitle": "웨비나 개최",
   "homeHostWebinarDesc": "실시간 번역과 자막으로 청중에게 라이브 방송하세요.",
-  "homeHostWebinarCta": "웨비나로 이동"
+  "homeHostWebinarCta": "웨비나로 이동",
+  "wvRecapStatAudioCost": "Audio translation",
+  "wvRecapStatReportCost": "AI report",
+  "wvRecapAiCost": "Generation cost"
 }
