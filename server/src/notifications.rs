@@ -480,7 +480,7 @@ fn filter_live_friend_alerts(
                 .get("from_user_id")
                 .and_then(Value::as_str)
                 .and_then(|s| Uuid::parse_str(s).ok())
-                .is_some_and(|uid| is_online(uid));
+                .is_some_and(&is_online);
             if !joiner_online {
                 stale.push(r.id);
             }
