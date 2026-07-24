@@ -21,6 +21,13 @@ hlsVariant: lowLatency
 hlsAlwaysRemux: yes
 hlsSegmentDuration: 1s
 hlsPartDuration: 200ms
+# CORS: MediaMTX defaults hlsAllowOrigin to "*". The guest player fetches HLS with
+# credentials (hls.js xhrSetup sets withCredentials=true to carry the hlsSession cookie
+# on LL-HLS blocking playlist reloads). Browsers REJECT "Access-Control-Allow-Origin: *"
+# together with "Access-Control-Allow-Credentials: true", so every credentialed reload
+# is blocked and LL-HLS silently degrades to full-segment latency (~6 s). Pin the guest
+# origin so the credentialed requests are valid CORS.
+hlsAllowOrigin: https://voxtranslate.app
 
 # --- External auth (F1-2) --------------------------------------------------
 # PUBLISH is authorized by the Axum control plane: MediaMTX POSTs each attempt to

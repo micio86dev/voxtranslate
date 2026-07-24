@@ -14,6 +14,7 @@ import {
   persistGuestId,
   getStoredGuestId,
   selectFormat,
+  shouldRetryForVideo,
   stateFromStatus,
   tryAutoplay,
   type PlayerState,
@@ -142,6 +143,14 @@ describe('tryAutoplay', () => {
   });
 });
 
+describe('shouldRetryForVideo', () => {
+  it('retries only while audio-only and the budget remains', () => {
+    expect(shouldRetryForVideo(0, 0, 3)).toBe(true); // audio-only, budget left → re-attach
+    expect(shouldRetryForVideo(640, 0, 3)).toBe(false); // video present → stop retrying
+    expect(shouldRetryForVideo(0, 3, 3)).toBe(false); // budget spent → accept audio-only
+  });
+});
+
 describe('HlsPlayer state machine', () => {
   it('starts waiting, then polls to live and attaches via hls.js', async () => {
     vi.useFakeTimers();
@@ -179,6 +188,61 @@ describe('HlsPlayer state machine', () => {
     expect(p.getState()).toBe('ended');
     p.destroy();
     expect(instances[0].destroy).toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  it('re-attaches when a guest joins during the audio-only startup window', async () => {
+    vi.useFakeTimers();
+    const { Hls, instances } = fakeHls(true);
+    const video = fakeVideo({ canNative: false }) as any;
+    video.videoWidth = 0; // data flows but MediaMTX hasn't added the H264 rendition yet
+    const p = new HlsPlayer({
+      code: 'ab12cd',
+      video,
+      loadHls: async () => ({ Hls }),
+      fetchWebinar: vi.fn().mockResolvedValue(webinar({ status: 'live' })),
+      firstFrameTimeoutMs: 0,
+    });
+
+    await p.start();
+    // First attach saw audio-only → tore down; the guest stays on the waiting overlay
+    // instead of being shown a live-but-black canvas.
+    expect(p.getState()).toBe('waiting');
+    expect(instances[0].destroy).toHaveBeenCalled();
+
+    // The host's video rendition appears; the next poll re-attaches and goes live.
+    video.videoWidth = 640;
+    await vi.advanceTimersByTimeAsync(5_000);
+    await Promise.resolve();
+    expect(p.getState()).toBe('live');
+    expect(instances[1].attachMedia).toHaveBeenCalledWith(video);
+    p.destroy();
+    vi.useRealTimers();
+  });
+
+  it('stops retrying and accepts a mic-only (audio-only) broadcast after the budget', async () => {
+    vi.useFakeTimers();
+    const { Hls } = fakeHls(true);
+    const video = fakeVideo({ canNative: false }) as any;
+    video.videoWidth = 0; // stays 0 forever — the host never turns the camera on
+    const p = new HlsPlayer({
+      code: 'ab12cd',
+      video,
+      loadHls: async () => ({ Hls }),
+      fetchWebinar: vi.fn().mockResolvedValue(webinar({ status: 'live' })),
+      firstFrameTimeoutMs: 0,
+    });
+
+    await p.start(); // attempt 1 → still audio-only, retry
+    // Three polls exhaust MAX_VIDEO_RETRIES; the stream is then accepted as-is → live.
+    await vi.advanceTimersByTimeAsync(5_000);
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(5_000);
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(5_000);
+    await Promise.resolve();
+    expect(p.getState()).toBe('live');
+    p.destroy();
     vi.useRealTimers();
   });
 
