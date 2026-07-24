@@ -36,7 +36,7 @@ sha2 = "0.11"
 # signatures, stripe_handler.rs) to compile. Bump all three together.
 sha1 = "0.11"
 hex = "0.4"
-base64 = "0.22"
+base64 = "0.23"
 # Constant-time secret comparison for the MediaMTX publish-auth caller secret
 # (F1-2, /internal/media-auth). HMAC sig verification uses hmac's own verify_slice.
 subtle = "2"
