@@ -116,6 +116,7 @@ import {
 } from './webinar';
 import { PresenceClient } from './webinar-presence';
 import { buildChatRow, ChatPanel, uploadWebinarFile, type ChatEvent } from './webinar-chat';
+import { mdToHtml } from './report-md';
 import { WhipPublisher, type WhipState } from './whip-publisher';
 import { WebinarSttClient } from './webinar-stt';
 import { AudioCapture as WebinarAudioCapture } from './audio-capture';
@@ -5830,9 +5831,11 @@ const recapCloseBtn = $<HTMLButtonElement>('recap-close');
 const recapTabTranscript = $<HTMLButtonElement>('recap-tab-transcript');
 const recapTabChat = $<HTMLButtonElement>('recap-tab-chat');
 const recapTabAi = $<HTMLButtonElement>('recap-tab-ai');
+const recapTabStats = $<HTMLButtonElement>('recap-tab-stats');
 const recapTranscriptPanel = $('recap-transcript-panel');
 const recapChatPanel = $('recap-chat-panel');
 const recapAiPanel = $('recap-ai-panel');
+const recapStatsPanel = $('recap-stats-panel');
 const recapTranscriptList = $('recap-transcript-list');
 const recapTranscriptEmpty = $('recap-transcript-empty');
 const recapChatList = $('recap-chat-list');
@@ -5848,12 +5851,20 @@ const recapDuration = $('recap-duration');
 // PR6 download bar
 const recapDownloadBar = $('recap-download-bar');
 const recapDlLang = $<HTMLSelectElement>('recap-dl-lang');
+const recapDisplayLang = $<HTMLSelectElement>('recap-display-lang');
 const recapDlTxt = $<HTMLButtonElement>('recap-dl-txt');
 const recapDlSrt = $<HTMLButtonElement>('recap-dl-srt');
 // PR6 AI report
 const recapAiGenerate = $<HTMLButtonElement>('recap-ai-generate');
+const recapAiEmail = $<HTMLButtonElement>('recap-ai-email');
 const recapAiStatus = $('recap-ai-status');
+const recapAiEmailStatus = $('recap-ai-email-status');
 const recapAiReport = $('recap-ai-report');
+// Statistics panel
+const recapStatsCards = $('recap-stats-cards');
+const recapStatsLangs = $('recap-stats-langs');
+const recapStatsLangsList = $('recap-stats-langs-list');
+const recapStatsEmpty = $('recap-stats-empty');
 
 /** The host studio's live-presence connection (opened while the studio is on screen,
  *  closed when it leaves). The host watches the audience count but is NOT counted. */
@@ -6263,6 +6274,7 @@ function setRecapTab(active: HTMLButtonElement): void {
     [recapTabTranscript, recapTranscriptPanel],
     [recapTabChat, recapChatPanel],
     [recapTabAi, recapAiPanel],
+    [recapTabStats, recapStatsPanel],
   ] as [HTMLButtonElement, HTMLElement][]) {
     const isActive = btn === active;
     btn.classList.toggle('active', isActive);
@@ -6281,6 +6293,88 @@ function formatDuration(seconds: number): string {
   return `${s}s`;
 }
 
+/** Shape of `GET /api/webinars/{id}/stats` — richer than session-stats (which feeds the meta row). */
+interface WebinarStats {
+  unique_attendees: number;
+  peak_viewers: number;
+  avg_watch_seconds: number;
+  duration_seconds: number;
+  completion_rate: number | null;
+  languages: Array<{ lang: string; count: number }>;
+  chat_messages: number;
+  cost_credits: number;
+  cost_usd: number;
+  engagement_pct: number | null;
+}
+
+/** Format seconds as mm:ss (zero-padded). Used for watch/duration stat cards. */
+function formatMmSs(seconds: number): string {
+  const total = Math.max(0, Math.round(seconds));
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+/** Format a 0..1 fraction as a whole-number percentage, or "—" when null/undefined. */
+function formatPct(fraction: number | null | undefined): string {
+  if (fraction === null || fraction === undefined) return '—';
+  return `${Math.round(fraction * 100)}%`;
+}
+
+/** Render the statistics tab: a grid of stat cards + a languages breakdown with mini bars. */
+function renderRecapStats(stats: WebinarStats): void {
+  recapStatsCards.innerHTML = '';
+  recapStatsLangsList.innerHTML = '';
+
+  const card = (value: string, label: string): void => {
+    const el = document.createElement('div');
+    el.className = 'recap-stat-card';
+    const v = document.createElement('span');
+    v.className = 'recap-stat-card-value';
+    v.textContent = value;
+    const l = document.createElement('span');
+    l.className = 'recap-stat-card-label';
+    l.textContent = label;
+    el.append(v, l);
+    recapStatsCards.appendChild(el);
+  };
+
+  card(String(stats.unique_attendees ?? '—'), t('wvRecapUniqueAttendees'));
+  card(String(stats.peak_viewers ?? '—'), t('wvRecapPeakViewers'));
+  card(formatMmSs(stats.avg_watch_seconds), t('wvRecapStatAvgWatch'));
+  card(formatDuration(stats.duration_seconds), t('wvRecapDuration'));
+  card(formatPct(stats.completion_rate), t('wvRecapStatCompletion'));
+  card(formatPct(stats.engagement_pct), t('wvRecapStatEngagement'));
+  card(String(stats.chat_messages ?? '—'), t('wvRecapStatChatMessages'));
+  card(`$${(stats.cost_usd ?? 0).toFixed(2)}`, t('wvRecapStatCost'));
+
+  // Languages breakdown — mini bars sized relative to the top language's count.
+  const langs = stats.languages ?? [];
+  if (langs.length > 0) {
+    const max = Math.max(...langs.map((l) => l.count), 1);
+    for (const l of langs) {
+      const row = document.createElement('div');
+      row.className = 'recap-stats-lang-row';
+      const code = document.createElement('span');
+      code.className = 'recap-stats-lang-code';
+      code.textContent = l.lang.toUpperCase();
+      const bar = document.createElement('div');
+      bar.className = 'recap-stats-lang-bar';
+      const fill = document.createElement('span');
+      fill.style.width = `${Math.round((l.count / max) * 100)}%`;
+      bar.appendChild(fill);
+      const count = document.createElement('span');
+      count.className = 'recap-stats-lang-count';
+      count.textContent = String(l.count);
+      row.append(code, bar, count);
+      recapStatsLangsList.appendChild(row);
+    }
+    show(recapStatsLangs, true);
+  } else {
+    show(recapStatsLangs, false);
+  }
+}
+
 /** Format an ISO datetime string as a locale-aware date+time string for the recap meta row. */
 function formatRecapDatetime(iso: string | null | undefined): string {
   if (!iso) return '—';
@@ -6291,19 +6385,39 @@ function formatRecapDatetime(iso: string | null | undefined): string {
   }
 }
 
-/** Build a ChatEvent-compatible object from a transcript row so `buildChatRow` renders it. */
-function transcriptRowToChatEvent(row: TranscriptRow, index: number): ChatEvent {
-  return {
-    id: `tr-${index}`,
-    sender_kind: 'host',
-    display_name: 'Host',
-    original: row.original_text,
-    lang: row.original_lang,
-    translations: row.translations,
-    created_at: row.spoken_at,
-    avatar_url: null,
-    attachment: null,
-  };
+/** Build a lightweight transcript row: timestamp + (optional original) + translated body.
+ *  Unlike chat rows, transcripts carry no avatar/name/host-tag — only the host speaks, so
+ *  that identity is redundant. Renders `translations[lang] ?? original_text`; shows the
+ *  original above the translation only when a translation actually replaced it. */
+function buildTranscriptRow(row: TranscriptRow, lang: string): HTMLElement {
+  const el = document.createElement('div');
+  el.className = 'recap-transcript-row';
+
+  const time = document.createElement('time');
+  try {
+    time.dateTime = row.spoken_at;
+    time.textContent = new Date(row.spoken_at).toLocaleTimeString([], { timeStyle: 'short' });
+  } catch {
+    time.textContent = row.spoken_at;
+  }
+  el.appendChild(time);
+
+  const translated = row.translations[lang];
+  const showTranslated = translated && translated.trim() ? translated : row.original_text;
+  // Only surface the original when the translated body actually differs from it.
+  if (translated && translated.trim() && translated !== row.original_text) {
+    const orig = document.createElement('div');
+    orig.className = 'recap-transcript-orig';
+    orig.textContent = row.original_text;
+    el.appendChild(orig);
+  }
+
+  const body = document.createElement('div');
+  body.className = 'recap-transcript-body';
+  body.textContent = showTranslated;
+  el.appendChild(body);
+
+  return el;
 }
 
 /** Trigger a client-side blob download of `content` as a file named `filename`. */
@@ -6346,10 +6460,18 @@ async function openWebinarRecap(
   show(recapStatsRow, false);
   show(recapDownloadBar, false);
   show(recapAiStatus, false);
+  show(recapAiEmailStatus, false);
   show(recapAiReport, false);
   recapAiStatus.textContent = '';
   recapAiStatus.classList.remove('error');
+  recapAiEmailStatus.textContent = '';
+  recapAiEmailStatus.classList.remove('error', 'success');
   recapAiGenerate.disabled = false;
+  recapAiEmail.disabled = false;
+  recapStatsCards.innerHTML = '';
+  recapStatsLangsList.innerHTML = '';
+  show(recapStatsLangs, false);
+  show(recapStatsEmpty, false);
 
   const myLang = getUiLang();
 
@@ -6383,26 +6505,40 @@ async function openWebinarRecap(
     if (transcriptRows.length === 0) {
       show(recapTranscriptEmpty, true);
     } else {
-      const frag = document.createDocumentFragment();
-      transcriptRows.forEach((row, i) => {
-        const event = transcriptRowToChatEvent(row, i);
-        frag.appendChild(buildChatRow(document, event, myLang, t('wvRecapHostTag'), null));
-      });
-      recapTranscriptList.appendChild(frag);
+      // Render the on-screen transcript in `lang`, replacing any prior rows. Lightweight rows
+      // (timestamp + optional original + translated body) — no avatar/name/tag, since only
+      // the host speaks. Re-runnable so the display-language selector can re-render live.
+      const renderTranscript = (lang: string): void => {
+        recapTranscriptList.innerHTML = '';
+        const frag = document.createDocumentFragment();
+        transcriptRows.forEach((row) => frag.appendChild(buildTranscriptRow(row, lang)));
+        recapTranscriptList.appendChild(frag);
+      };
+      renderTranscript(myLang);
 
-      // Populate the language selector for downloads.
+      // Populate both language selectors (display + download) from the available languages.
       const langs = new Set<string>([transcriptRows[0]?.original_lang ?? 'en']);
       for (const row of transcriptRows) {
         Object.keys(row.translations).forEach((l) => langs.add(l));
       }
-      recapDlLang.innerHTML = '';
-      for (const lang of langs) {
-        const opt = document.createElement('option');
-        opt.value = lang;
-        opt.textContent = lang.toUpperCase();
-        if (lang === myLang) opt.selected = true;
-        recapDlLang.appendChild(opt);
-      }
+      const fillSelect = (sel: HTMLSelectElement): void => {
+        sel.innerHTML = '';
+        for (const lang of langs) {
+          const opt = document.createElement('option');
+          opt.value = lang;
+          opt.textContent = lang.toUpperCase();
+          if (lang === myLang) opt.selected = true;
+          sel.appendChild(opt);
+        }
+      };
+      fillSelect(recapDlLang);
+      fillSelect(recapDisplayLang);
+
+      // Re-render the on-screen transcript when the display language changes (real fix:
+      // previously the transcript was rendered once and never updated). No refetch — the
+      // cached rows already carry every translation.
+      recapDisplayLang.onchange = () => renderTranscript(recapDisplayLang.value || myLang);
+
       show(recapDownloadBar, true);
     }
   } else {
@@ -6468,6 +6604,12 @@ async function openWebinarRecap(
           translations: Record<string, string>;
           created_at: string;
           avatar_url?: string | null;
+          attachment?: {
+            url: string;
+            name: string;
+            content_type: string;
+            size: number;
+          } | null;
         }>;
         if (rawMsgs.length === 0) {
           show(recapChatEmpty, true);
@@ -6483,7 +6625,7 @@ async function openWebinarRecap(
               translations: m.translations ?? {},
               created_at: m.created_at,
               avatar_url: m.avatar_url ?? null,
-              attachment: null,
+              attachment: m.attachment ?? null,
             };
             frag.appendChild(buildChatRow(document, event, myLang, t('wvRecapHostTag'), null));
           });
@@ -6541,7 +6683,7 @@ async function openWebinarRecap(
           const job = (await jobRes.json()) as { status: string; result?: { markdown?: string } };
           if (job.status === 'done' && job.result?.markdown) {
             show(recapAiStatus, false);
-            recapAiReport.textContent = job.result.markdown;
+            recapAiReport.innerHTML = mdToHtml(job.result.markdown);
             show(recapAiReport, true);
             recapAiGenerate.disabled = false;
           } else if (job.status === 'failed') {
@@ -6570,6 +6712,83 @@ async function openWebinarRecap(
     }
   };
 
+  // Email the AI report to every participant in their own language. The server generates a
+  // per-language report, dedups recipients, charges credits, and skips guests without an email.
+  // The response may be a job (202 {job_id}) that we poll, or an immediate success.
+  recapAiEmail.onclick = async () => {
+    recapAiEmail.disabled = true;
+    show(recapAiEmailStatus, true);
+    recapAiEmailStatus.classList.remove('error', 'success');
+    recapAiEmailStatus.textContent = t('wvRecapEmailPending');
+    const finishOk = (): void => {
+      recapAiEmailStatus.textContent = t('wvRecapEmailSuccess');
+      recapAiEmailStatus.classList.add('success');
+      recapAiEmail.disabled = false;
+    };
+    const finishErr = (): void => {
+      recapAiEmailStatus.textContent = t('wvRecapEmailError');
+      recapAiEmailStatus.classList.add('error');
+      recapAiEmail.disabled = false;
+    };
+    try {
+      const res = await fetch(
+        `${auth.HTTP_BASE}/api/webinars/${encodeURIComponent(webinarId)}/ai/email`,
+        {
+          method: 'POST',
+          headers: { ...auth.authHeaders(), 'Content-Type': 'application/json' },
+        },
+      );
+      if (res.status === 202) {
+        // Job — poll the same ai/job endpoint the report generation uses.
+        const { job_id: emailJobId } = (await res.json()) as { job_id: string };
+        let attempts = 0;
+        const MAX_ATTEMPTS = 60;
+        const pollEmail = async (): Promise<void> => {
+          if (gen !== recapGeneration) return; // recap re-opened/closed → abandon stale poll
+          if (attempts++ >= MAX_ATTEMPTS) return finishErr();
+          const jobRes = await fetch(
+            `${auth.HTTP_BASE}/api/webinars/${encodeURIComponent(webinarId)}/ai/job/${encodeURIComponent(emailJobId)}`,
+            { headers: auth.authHeaders() },
+          );
+          if (!jobRes.ok) return finishErr();
+          const job = (await jobRes.json()) as { status: string };
+          if (job.status === 'done') finishOk();
+          else if (job.status === 'failed') finishErr();
+          else setTimeout(() => void pollEmail(), 2000);
+        };
+        void pollEmail();
+      } else if (res.ok) {
+        finishOk();
+      } else {
+        finishErr();
+      }
+    } catch {
+      finishErr();
+    }
+  };
+
+  // Lazy-load the statistics tab on first click (mirrors loadChatTab). Fetches the richer
+  // `/stats` endpoint (separate from `/session-stats` that feeds the meta row).
+  let statsLoaded = false;
+  async function loadStatsTab(): Promise<void> {
+    if (statsLoaded) return;
+    statsLoaded = true;
+    try {
+      const res = await fetch(
+        `${auth.HTTP_BASE}/api/webinars/${encodeURIComponent(webinarId)}/stats`,
+        { headers: auth.authHeaders() },
+      );
+      if (!res.ok) {
+        show(recapStatsEmpty, true);
+        return;
+      }
+      const stats = (await res.json()) as WebinarStats;
+      renderRecapStats(stats);
+    } catch {
+      show(recapStatsEmpty, true);
+    }
+  }
+
   // Tabs use onclick (not addEventListener) so re-opening the recap replaces the handlers
   // rather than stacking duplicates that fire setRecapTab/loadChatTab multiple times.
   recapTabTranscript.onclick = () => {
@@ -6579,6 +6798,11 @@ async function openWebinarRecap(
   recapTabChat.onclick = () => {
     setRecapTab(recapTabChat);
     void loadChatTab();
+  };
+
+  recapTabStats.onclick = () => {
+    setRecapTab(recapTabStats);
+    void loadStatsTab();
   };
 
   recapTabAi.onclick = () => {
