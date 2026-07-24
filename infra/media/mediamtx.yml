@@ -4,8 +4,10 @@
 # Host publishes to  https://ingest.voxtranslate.app/webinar/{code}/whip
 # Guests read        https://ingest.voxtranslate.app/webinar/{code}/index.m3u8
 #
-# Deploy: see /DEPLOY-HETZNER.md. REPLACE_CALLER_SECRET is injected from env at
-# deploy time — NEVER commit the real value.
+# Deploy: CI auto-ships this to the Hetzner box (ci.yml `deploy-media`, on every push
+# to main that touches infra/). REPLACE_CALLER_SECRET is re-injected ON THE BOX from the
+# already-deployed config (or /root/media/.env) — the real value is NEVER committed or
+# put in CI. See /DEPLOY-HETZNER.md for the manual fallback.
 ###############################################################################
 
 # --- WebRTC (WHIP ingest) --------------------------------------------------
