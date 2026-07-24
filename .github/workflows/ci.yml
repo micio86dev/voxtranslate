@@ -217,19 +217,25 @@ jobs:
           ssh -i ~/.ssh/id_ed25519 root@${{ secrets.HETZNER_HOST }} 'bash -s' <<'REMOTE'
           set -euo pipefail
           cd /root/media
-          if [ -f .env ]; then
-            # Inject the caller secret from the box-local .env (stays on the box), then
-            # apply: `up -d` picks up image/compose changes; `restart` reloads the
-            # (volume-mounted) mediamtx.yml, which `up -d` alone would not.
-            set -a; . ./.env; set +a
-            sed "s|REPLACE_CALLER_SECRET|${MEDIA_CALLER_SECRET}|" mediamtx.yml.new > mediamtx.yml
+          # SELF-SUFFICIENT secret: reuse the caller secret already injected in the running
+          # mediamtx.yml (the tail of the authHTTPAddress path) so NO secret lives in CI and
+          # NO manual box setup is needed. Falls back to a box-local /root/media/.env. If
+          # neither yields a secret, the MediaMTX config is left untouched (Caddy still
+          # deploys) so we never ship the raw REPLACE_CALLER_SECRET placeholder.
+          SECRET="$(sed -n 's|.*/internal/media-auth/\([^[:space:]/]*\).*|\1|p' mediamtx.yml 2>/dev/null | head -n1 || true)"
+          if [ -z "${SECRET:-}" ] || [ "$SECRET" = "REPLACE_CALLER_SECRET" ]; then
+            [ -f .env ] && { set -a; . ./.env; set +a; SECRET="${MEDIA_CALLER_SECRET:-}"; }
+          fi
+          if [ -n "${SECRET:-}" ] && [ "$SECRET" != "REPLACE_CALLER_SECRET" ]; then
+            # `up -d` applies image/compose changes; `restart` reloads the volume-mounted
+            # mediamtx.yml (which `up -d` alone would not pick up).
+            sed "s|REPLACE_CALLER_SECRET|$SECRET|" mediamtx.yml.new > mediamtx.yml
             rm -f mediamtx.yml.new
             docker compose up -d
             docker compose restart mediamtx
           else
             rm -f mediamtx.yml.new
-            echo "WARNING: /root/media/.env missing — MediaMTX config NOT updated (Caddy only)."
-            echo "One-time setup: create /root/media/.env with MEDIA_CALLER_SECRET=<secret>."
+            echo "WARNING: no caller secret in existing mediamtx.yml or .env — MediaMTX NOT updated (Caddy only)."
           fi
           docker exec media-caddy-1 caddy reload --config /etc/caddy/Caddyfile
           REMOTE
