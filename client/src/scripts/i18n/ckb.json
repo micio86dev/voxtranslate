@@ -731,5 +731,8 @@
   "wvRecapStatCost": "Cost",
   "homeHostWebinarTitle": "ڕێکخستنی وێبینار",
   "homeHostWebinarDesc": "بە ڕاستەوخۆ بۆ بینەران پەخش بکە بە وەرگێڕان و ژێرنووسی هاوکات.",
-  "homeHostWebinarCta": "بڕۆ بۆ وێبینارەکان"
+  "homeHostWebinarCta": "بڕۆ بۆ وێبینارەکان",
+  "wvRecapStatAudioCost": "Audio translation",
+  "wvRecapStatReportCost": "AI report",
+  "wvRecapAiCost": "Generation cost"
 }

@@ -731,5 +731,8 @@
   "wvRecapStatCost": "Cost",
   "homeHostWebinarTitle": "Usporiadať webinár",
   "homeHostWebinarDesc": "Vysielajte naživo pre publikum s prekladom a titulkami v reálnom čase.",
-  "homeHostWebinarCta": "Prejsť na webináre"
+  "homeHostWebinarCta": "Prejsť na webináre",
+  "wvRecapStatAudioCost": "Audio translation",
+  "wvRecapStatReportCost": "AI report",
+  "wvRecapAiCost": "Generation cost"
 }

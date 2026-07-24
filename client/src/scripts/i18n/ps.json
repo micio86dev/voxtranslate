@@ -731,5 +731,8 @@
   "wvRecapStatCost": "Cost",
   "homeHostWebinarTitle": "ویبینار کوربه توب وکړئ",
   "homeHostWebinarDesc": "د ریښتیني وخت ژباړې او فرعي سرلیکونو سره لیدونکو ته ژوندۍ خپرونه وکړئ.",
-  "homeHostWebinarCta": "ویبینارونو ته ورشئ"
+  "homeHostWebinarCta": "ویبینارونو ته ورشئ",
+  "wvRecapStatAudioCost": "Audio translation",
+  "wvRecapStatReportCost": "AI report",
+  "wvRecapAiCost": "Generation cost"
 }

@@ -731,5 +731,8 @@
   "wvRecapStatCost": "Cost",
   "homeHostWebinarTitle": "Singatha iwebhinari",
   "homeHostWebinarDesc": "Sakaza bukhoma kubalaleli ngokuhumusha kanye nemibhalo engezansi ngesikhathi sangempela.",
-  "homeHostWebinarCta": "Iya kuma-Webinar"
+  "homeHostWebinarCta": "Iya kuma-Webinar",
+  "wvRecapStatAudioCost": "Audio translation",
+  "wvRecapStatReportCost": "AI report",
+  "wvRecapAiCost": "Generation cost"
 }

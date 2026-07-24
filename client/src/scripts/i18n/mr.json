@@ -731,5 +731,8 @@
   "wvRecapStatCost": "Cost",
   "homeHostWebinarTitle": "वेबिनार होस्ट करा",
   "homeHostWebinarDesc": "रिअल-टाइम भाषांतर आणि उपशीर्षकांसह प्रेक्षकांना थेट प्रसारण करा.",
-  "homeHostWebinarCta": "वेबिनारकडे जा"
+  "homeHostWebinarCta": "वेबिनारकडे जा",
+  "wvRecapStatAudioCost": "Audio translation",
+  "wvRecapStatReportCost": "AI report",
+  "wvRecapAiCost": "Generation cost"
 }

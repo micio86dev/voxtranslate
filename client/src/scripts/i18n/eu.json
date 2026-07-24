@@ -731,5 +731,8 @@
   "wvRecapStatCost": "Cost",
   "homeHostWebinarTitle": "Antolatu webinar bat",
   "homeHostWebinarDesc": "Egin zuzeneko emisioa ikusleentzat, denbora errealeko itzulpen eta azpitituluekin.",
-  "homeHostWebinarCta": "Joan Webinarretara"
+  "homeHostWebinarCta": "Joan Webinarretara",
+  "wvRecapStatAudioCost": "Audio translation",
+  "wvRecapStatReportCost": "AI report",
+  "wvRecapAiCost": "Generation cost"
 }

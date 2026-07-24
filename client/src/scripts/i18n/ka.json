@@ -731,5 +731,8 @@
   "wvRecapStatCost": "Cost",
   "homeHostWebinarTitle": "ვებინარის მასპინძლობა",
   "homeHostWebinarDesc": "მაუწყებლობა პირდაპირ აუდიტორიისთვის რეალურ დროში თარგმანითა და სუბტიტრებით.",
-  "homeHostWebinarCta": "ვებინარებზე გადასვლა"
+  "homeHostWebinarCta": "ვებინარებზე გადასვლა",
+  "wvRecapStatAudioCost": "Audio translation",
+  "wvRecapStatReportCost": "AI report",
+  "wvRecapAiCost": "Generation cost"
 }

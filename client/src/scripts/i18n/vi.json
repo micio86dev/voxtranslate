@@ -731,5 +731,8 @@
   "wvRecapStatCost": "Cost",
   "homeHostWebinarTitle": "Tổ chức webinar",
   "homeHostWebinarDesc": "Phát trực tiếp đến khán giả với dịch thuật và phụ đề theo thời gian thực.",
-  "homeHostWebinarCta": "Đến Webinar"
+  "homeHostWebinarCta": "Đến Webinar",
+  "wvRecapStatAudioCost": "Audio translation",
+  "wvRecapStatReportCost": "AI report",
+  "wvRecapAiCost": "Generation cost"
 }

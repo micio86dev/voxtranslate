@@ -731,5 +731,8 @@
   "wvRecapStatCost": "Cost",
   "homeHostWebinarTitle": "Martigeli webinaar",
   "homeHostWebinarDesc": "Si toos ah ugu baahi dhagaystayaal leh turjumaad iyo qoraal-hoosaad wakhti-dhab ah.",
-  "homeHostWebinarCta": "Aad Webinaarrada"
+  "homeHostWebinarCta": "Aad Webinaarrada",
+  "wvRecapStatAudioCost": "Audio translation",
+  "wvRecapStatReportCost": "AI report",
+  "wvRecapAiCost": "Generation cost"
 }

@@ -731,5 +731,8 @@
   "wvRecapStatCost": "Cost",
   "homeHostWebinarTitle": "వెబినార్‌ను హోస్ట్ చేయండి",
   "homeHostWebinarDesc": "నిజ-సమయ అనువాదం మరియు సబ్‌టైటిల్స్‌తో ప్రేక్షకులకు ప్రత్యక్ష ప్రసారం చేయండి.",
-  "homeHostWebinarCta": "వెబినార్‌లకు వెళ్లండి"
+  "homeHostWebinarCta": "వెబినార్‌లకు వెళ్లండి",
+  "wvRecapStatAudioCost": "Audio translation",
+  "wvRecapStatReportCost": "AI report",
+  "wvRecapAiCost": "Generation cost"
 }

@@ -731,5 +731,8 @@
   "wvRecapStatCost": "Cost",
   "homeHostWebinarTitle": "Animer un webinaire",
   "homeHostWebinarDesc": "Diffusez en direct à une audience avec traduction et sous-titres en temps réel.",
-  "homeHostWebinarCta": "Aller aux webinaires"
+  "homeHostWebinarCta": "Aller aux webinaires",
+  "wvRecapStatAudioCost": "Audio translation",
+  "wvRecapStatReportCost": "AI report",
+  "wvRecapAiCost": "Generation cost"
 }

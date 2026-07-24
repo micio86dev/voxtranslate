@@ -731,5 +731,8 @@
   "wvRecapStatCost": "Cost",
   "homeHostWebinarTitle": "Nweta webinar",
   "homeHostWebinarDesc": "Gbasaa na-ebipụta nye ndị na-ege ntị site na ntụgharị na okwu ederede n'oge n'ezie.",
-  "homeHostWebinarCta": "Gaa na Webinar"
+  "homeHostWebinarCta": "Gaa na Webinar",
+  "wvRecapStatAudioCost": "Audio translation",
+  "wvRecapStatReportCost": "AI report",
+  "wvRecapAiCost": "Generation cost"
 }

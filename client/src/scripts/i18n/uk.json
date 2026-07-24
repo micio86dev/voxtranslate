@@ -731,5 +731,8 @@
   "wvRecapStatCost": "Cost",
   "homeHostWebinarTitle": "Провести вебінар",
   "homeHostWebinarDesc": "Транслюйте наживо для аудиторії з перекладом і субтитрами в реальному часі.",
-  "homeHostWebinarCta": "Перейти до вебінарів"
+  "homeHostWebinarCta": "Перейти до вебінарів",
+  "wvRecapStatAudioCost": "Audio translation",
+  "wvRecapStatReportCost": "AI report",
+  "wvRecapAiCost": "Generation cost"
 }

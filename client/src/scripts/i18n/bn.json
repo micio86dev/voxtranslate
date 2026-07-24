@@ -731,5 +731,8 @@
   "wvRecapStatCost": "Cost",
   "homeHostWebinarTitle": "একটি ওয়েবিনার হোস্ট করুন",
   "homeHostWebinarDesc": "রিয়েল-টাইম অনুবাদ ও সাবটাইটেলসহ দর্শকদের কাছে সরাসরি সম্প্রচার করুন।",
-  "homeHostWebinarCta": "ওয়েবিনারে যান"
+  "homeHostWebinarCta": "ওয়েবিনারে যান",
+  "wvRecapStatAudioCost": "Audio translation",
+  "wvRecapStatReportCost": "AI report",
+  "wvRecapAiCost": "Generation cost"
 }

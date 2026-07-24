@@ -731,5 +731,8 @@
   "wvRecapStatCost": "Cost",
   "homeHostWebinarTitle": "ഒരു വെബിനാർ ഹോസ്റ്റ് ചെയ്യുക",
   "homeHostWebinarDesc": "തത്സമയ വിവർത്തനവും സബ്‌ടൈറ്റിലുകളും സഹിതം ഒരു സദസ്സിലേക്ക് തത്സമയം പ്രക്ഷേപണം ചെയ്യുക.",
-  "homeHostWebinarCta": "വെബിനാറുകളിലേക്ക് പോകുക"
+  "homeHostWebinarCta": "വെബിനാറുകളിലേക്ക് പോകുക",
+  "wvRecapStatAudioCost": "Audio translation",
+  "wvRecapStatReportCost": "AI report",
+  "wvRecapAiCost": "Generation cost"
 }

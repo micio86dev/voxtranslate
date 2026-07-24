@@ -1295,6 +1295,10 @@ pub async fn webinar_stats(
         "chat_messages": chat_messages,
         "cost_credits": cost_credits,
         "cost_usd": cost_credits as f64 / 100.0,
+        // Broken out so the recap can show the spoken-audio translation bill (STT +
+        // translate + TTS of the broadcast) apart from the one-off AI recap cost.
+        "audio_cost_usd": session_cost as f64 / 100.0,
+        "report_cost_usd": report_cost as f64 / 100.0,
         "engagement_pct": engagement_pct,
     }))
     .into_response())

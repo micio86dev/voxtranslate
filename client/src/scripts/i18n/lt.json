@@ -731,5 +731,8 @@
   "wvRecapStatCost": "Cost",
   "homeHostWebinarTitle": "Vesti internetinį seminarą",
   "homeHostWebinarDesc": "Transliuokite tiesiogiai auditorijai su vertimu ir subtitrais realiuoju laiku.",
-  "homeHostWebinarCta": "Eiti į internetinius seminarus"
+  "homeHostWebinarCta": "Eiti į internetinius seminarus",
+  "wvRecapStatAudioCost": "Audio translation",
+  "wvRecapStatReportCost": "AI report",
+  "wvRecapAiCost": "Generation cost"
 }

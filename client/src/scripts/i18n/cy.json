@@ -731,5 +731,8 @@
   "wvRecapStatCost": "Cost",
   "homeHostWebinarTitle": "Cynnal gweminar",
   "homeHostWebinarDesc": "Darlledwch yn fyw i gynulleidfa gyda chyfieithu ac isdeitlau amser real.",
-  "homeHostWebinarCta": "Mynd i Weminarau"
+  "homeHostWebinarCta": "Mynd i Weminarau",
+  "wvRecapStatAudioCost": "Audio translation",
+  "wvRecapStatReportCost": "AI report",
+  "wvRecapAiCost": "Generation cost"
 }

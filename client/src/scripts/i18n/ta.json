@@ -731,5 +731,8 @@
   "wvRecapStatCost": "Cost",
   "homeHostWebinarTitle": "வெபினார் நடத்து",
   "homeHostWebinarDesc": "நிகழ்நேர மொழிபெயர்ப்பு மற்றும் வசன வரிகளுடன் பார்வையாளர்களுக்கு நேரலையில் ஒளிபரப்பு.",
-  "homeHostWebinarCta": "வெபினார்களுக்குச் செல்"
+  "homeHostWebinarCta": "வெபினார்களுக்குச் செல்",
+  "wvRecapStatAudioCost": "Audio translation",
+  "wvRecapStatReportCost": "AI report",
+  "wvRecapAiCost": "Generation cost"
 }

@@ -731,5 +731,8 @@
   "wvRecapStatCost": "Cost",
   "homeHostWebinarTitle": "استضف ندوة",
   "homeHostWebinarDesc": "بث مباشر إلى جمهورك مع ترجمة وترجمات فورية.",
-  "homeHostWebinarCta": "الانتقال إلى الندوات"
+  "homeHostWebinarCta": "الانتقال إلى الندوات",
+  "wvRecapStatAudioCost": "Audio translation",
+  "wvRecapStatReportCost": "AI report",
+  "wvRecapAiCost": "Generation cost"
 }

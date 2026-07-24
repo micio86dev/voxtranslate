@@ -731,5 +731,8 @@
   "wvRecapStatCost": "Cost",
   "homeHostWebinarTitle": "Mbaj një webinar",
   "homeHostWebinarDesc": "Transmeto drejtpërdrejt për një audiencë me përkthim dhe titra në kohë reale.",
-  "homeHostWebinarCta": "Shko te Webinaret"
+  "homeHostWebinarCta": "Shko te Webinaret",
+  "wvRecapStatAudioCost": "Audio translation",
+  "wvRecapStatReportCost": "AI report",
+  "wvRecapAiCost": "Generation cost"
 }

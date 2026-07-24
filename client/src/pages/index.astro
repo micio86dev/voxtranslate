@@ -1314,10 +1314,9 @@ const jsonLd = {
           <div id="recap-download-bar" class="recap-download-bar hidden">
             <label class="recap-dl-field">
               <span class="recap-dl-field-label" data-i18n="wvRecapDisplayLang">{T('wvRecapDisplayLang')}</span>
-              <select id="recap-display-lang" class="recap-dl-select" aria-label="Display language"></select>
+              <select id="recap-display-lang" class="recap-dl-select" aria-label="Transcript language"></select>
             </label>
             <div class="recap-dl-btns">
-              <select id="recap-dl-lang" class="recap-dl-select" aria-label="Download language"></select>
               <button id="recap-dl-txt" class="btn-ghost recap-dl-btn" type="button" data-i18n="wvRecapDlTxt">{T('wvRecapDlTxt')}</button>
               <button id="recap-dl-srt" class="btn-ghost recap-dl-btn" type="button" data-i18n="wvRecapDlSrt">{T('wvRecapDlSrt')}</button>
             </div>
@@ -3167,7 +3166,9 @@ const jsonLd = {
     .studio-chat :global(.wv-chat-msg.is-host) { background: color-mix(in srgb, var(--accent) 10%, transparent); border-color: color-mix(in srgb, var(--accent) 30%, transparent); }
     .studio-chat :global(.wv-chat-avatar) { flex: 0 0 auto; width: 28px; height: 28px; border-radius: 50%; overflow: hidden; font-size: 0.72rem; font-weight: 700; color: #fff; display: flex; align-items: center; justify-content: center; margin-top: 1px; user-select: none; }
     .studio-chat :global(.wv-chat-content) { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
-    .studio-chat :global(.wv-chat-name-line) { font-size: 0.78rem; font-weight: 700; color: var(--muted); }
+    .studio-chat :global(.wv-chat-name-line) { display: flex; align-items: baseline; gap: 6px; font-size: 0.78rem; font-weight: 700; color: var(--muted); }
+    .studio-chat :global(.wv-chat-name) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .studio-chat :global(.wv-chat-time) { flex: 0 0 auto; margin-left: auto; font-size: 0.7rem; font-weight: 400; color: var(--muted); font-variant-numeric: tabular-nums; }
     .studio-chat :global(.wv-chat-msg.is-host .wv-chat-name-line) { color: var(--accent); }
     .studio-chat :global(.wv-chat-host-tag) { font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; margin-left: 6px; padding: 1px 6px; border-radius: 999px; background: color-mix(in srgb, var(--accent) 25%, transparent); color: var(--accent); }
     .studio-chat :global(.wv-chat-body) { font-size: 0.95rem; color: var(--text); }
@@ -3243,22 +3244,32 @@ const jsonLd = {
     .recap-list { display: flex; flex-direction: column; gap: 10px; }
 
     /* Transcript utterance (prettified via buildChatRow — shares wv-chat-msg) */
-    .recap-panel :global(.wv-chat-msg) { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+    .recap-panel :global(.wv-chat-msg) { display: flex; flex-direction: row; align-items: flex-start; gap: 10px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
     .recap-panel :global(.wv-chat-msg.is-host) { background: color-mix(in srgb, var(--accent) 6%, var(--surface)); border-color: color-mix(in srgb, var(--accent) 20%, var(--border)); }
-    .recap-panel :global(.wv-chat-avatar) { width: 28px; height: 28px; border-radius: 50%; overflow: hidden; flex: 0 0 auto; font-size: 0.72rem; font-weight: 700; color: #fff; display: flex; align-items: center; justify-content: center; }
-    .recap-panel :global(.wv-chat-name-line) { font-size: 0.78rem; font-weight: 600; color: var(--muted); }
+    .recap-panel :global(.wv-chat-avatar) { width: 28px; height: 28px; border-radius: 50%; overflow: hidden; flex: 0 0 auto; font-size: 0.72rem; font-weight: 700; color: #fff; display: flex; align-items: center; justify-content: center; margin-top: 1px; }
+    .recap-panel :global(.wv-chat-content) { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+    .recap-panel :global(.wv-chat-name-line) { display: flex; align-items: baseline; gap: 6px; font-size: 0.78rem; font-weight: 600; color: var(--muted); }
+    .recap-panel :global(.wv-chat-name) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .recap-panel :global(.wv-chat-time) { flex: 0 0 auto; margin-left: auto; font-size: 0.7rem; font-weight: 400; color: var(--muted); font-variant-numeric: tabular-nums; }
     .recap-panel :global(.wv-chat-msg.is-host .wv-chat-name-line) { color: var(--accent); }
-    .recap-panel :global(.wv-chat-body) { font-size: 0.9rem; color: var(--fg); }
-    .recap-panel :global(.wv-chat-host-tag) { font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; margin-left: 6px; padding: 1px 6px; border-radius: 999px; background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent); }
-    .recap-panel :global(.wv-chat-att-img) { max-width: 100%; border-radius: 6px; display: block; }
+    .recap-panel :global(.wv-chat-body) { font-size: 0.9rem; color: var(--fg); overflow-wrap: anywhere; }
+    .recap-panel :global(.wv-chat-host-tag) { font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; padding: 1px 6px; border-radius: 999px; background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent); }
+    .recap-panel :global(.wv-chat-att-img) { max-width: 100%; max-height: 240px; height: auto; border-radius: 6px; display: block; }
     .recap-panel :global(.wv-chat-attachment) { margin-top: 6px; }
     .recap-panel :global(.wv-chat-att-file) { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 0.82rem; background: var(--bg); }
+    .recap-panel :global(.wv-chat-att-file-meta) { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+    .recap-panel :global(.wv-chat-att-file-name) { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .recap-panel :global(.wv-chat-att-file-size) { font-size: 0.72rem; color: var(--muted); }
+    .recap-panel :global(.wv-chat-att-dl) { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; border-radius: 999px; background: var(--surface); border: 1px solid var(--border); color: var(--accent); font-size: 0.9rem; cursor: pointer; }
+    .recap-panel :global(.wv-chat-att-dl:hover) { border-color: var(--accent); }
+    .recap-panel :global(.wv-chat-att-dl:disabled) { opacity: 0.5; cursor: default; }
 
-    /* Lightweight transcript row (no avatar/name/tag — only the host speaks) */
-    .recap-transcript-row { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px; }
-    .recap-transcript-row time { font-size: 0.72rem; color: var(--muted); font-variant-numeric: tabular-nums; }
-    .recap-transcript-orig { font-size: 0.82rem; color: var(--muted); }
-    .recap-transcript-body { font-size: 0.92rem; line-height: 1.5; color: var(--fg); }
+    /* Compact transcript row: time + text inline on one line (no avatar/name/tag —
+       only the host speaks, and only the selected language is shown) */
+    .recap-transcript-row { display: flex; flex-direction: row; align-items: baseline; gap: 10px; padding: 5px 4px; border-bottom: 1px solid var(--border); }
+    .recap-transcript-row:last-child { border-bottom: none; }
+    .recap-transcript-row time { flex-shrink: 0; font-size: 0.72rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .recap-transcript-body { font-size: 0.9rem; line-height: 1.4; color: var(--fg); }
 
     /* Download bar */
     .recap-download-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 12px 0 8px; }
@@ -3288,19 +3299,25 @@ const jsonLd = {
     .recap-ai-report code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.85em; background: color-mix(in srgb, var(--fg) 8%, transparent); padding: 1px 5px; border-radius: 5px; }
     .recap-ai-report strong { font-weight: 700; }
 
-    /* Statistics panel */
-    .recap-stats-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 14px; }
-    .recap-stat-card { display: flex; flex-direction: column; gap: 6px; padding: 18px 20px; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; }
-    .recap-stat-card-value { font-size: 1.6rem; font-weight: 700; color: var(--fg); font-variant-numeric: tabular-nums; line-height: 1.1; }
-    .recap-stat-card-label { font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600; }
+    /* Statistics panel. The stat cards + language rows are built in JS, so their
+       selectors MUST be :global — Astro's scoped-style hash only reaches template
+       markup, never runtime-created nodes. Without :global the stats render unstyled
+       (values jammed against labels, no cards). Only the template containers
+       (#recap-stats-cards / #recap-stats-langs*) keep plain scoped rules. */
+    .recap-stats-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
+    .recap-panel :global(.recap-stat-card) { display: flex; flex-direction: column; gap: 4px; padding: 16px 18px; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; }
+    .recap-panel :global(.recap-stat-card-value) { font-size: 1.7rem; font-weight: 700; color: var(--fg); font-variant-numeric: tabular-nums; line-height: 1.05; }
+    .recap-panel :global(.recap-stat-card-label) { margin-top: 2px; font-size: 0.7rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
+    .recap-panel :global(.recap-stat-bar) { margin-top: 10px; height: 6px; border-radius: 999px; background: color-mix(in srgb, var(--border) 60%, transparent); overflow: hidden; }
+    .recap-panel :global(.recap-stat-bar > span) { display: block; height: 100%; background: var(--accent); border-radius: 999px; }
     .recap-stats-langs { margin-top: 22px; }
     .recap-stats-langs-title { font-size: 0.95rem; font-weight: 700; margin-bottom: 12px; }
     .recap-stats-langs-list { display: flex; flex-direction: column; gap: 8px; }
-    .recap-stats-lang-row { display: grid; grid-template-columns: 3.5rem 1fr auto; align-items: center; gap: 12px; }
-    .recap-stats-lang-code { font-size: 0.82rem; font-weight: 700; text-transform: uppercase; color: var(--fg); }
-    .recap-stats-lang-bar { height: 8px; border-radius: 999px; background: color-mix(in srgb, var(--border) 60%, transparent); overflow: hidden; }
-    .recap-stats-lang-bar > span { display: block; height: 100%; background: var(--accent, #3b82f6); border-radius: 999px; }
-    .recap-stats-lang-count { font-size: 0.82rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .recap-panel :global(.recap-stats-lang-row) { display: grid; grid-template-columns: 4.75rem 1fr auto; align-items: center; gap: 12px; }
+    .recap-panel :global(.recap-stats-lang-code) { font-size: 0.85rem; font-weight: 700; color: var(--fg); white-space: nowrap; }
+    .recap-panel :global(.recap-stats-lang-bar) { height: 8px; border-radius: 999px; background: color-mix(in srgb, var(--border) 60%, transparent); overflow: hidden; }
+    .recap-panel :global(.recap-stats-lang-bar > span) { display: block; height: 100%; background: var(--accent); border-radius: 999px; }
+    .recap-panel :global(.recap-stats-lang-count) { font-size: 0.82rem; color: var(--muted); font-variant-numeric: tabular-nums; }
 
     /* Billing section: balance + a quick path back to checkout, above the history tabs. */
     .billing-balance-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; }

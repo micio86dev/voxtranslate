@@ -28,6 +28,13 @@ export type PlaybackFormat = "native" | "hlsjs" | "unsupported";
 /** How often we re-poll the public webinar endpoint to detect live/ended transitions. */
 const POLL_INTERVAL_MS = 5_000;
 
+/** How many times to re-attach when the stream is still audio-only. A guest who joins in
+ *  the brief window right after the host goes live — before MediaMTX has remuxed the first
+ *  H264 keyframe into an HLS video rendition — otherwise attaches to an audio-only master
+ *  and shows a black canvas until a manual refresh. After this many tries we accept the
+ *  stream as-is, so a genuinely mic-only broadcast plays its audio instead of looping. */
+const MAX_VIDEO_RETRIES = 3;
+
 /** localStorage may be blocked (private mode, tests) — fall back to an in-memory map,
  *  mirroring auth.ts so guest_id persistence never throws. */
 const mem = new Map<string, string>();
@@ -104,6 +111,20 @@ export async function tryAutoplay(
   }
 }
 
+/** Whether to re-attach because the stream still looks audio-only: playable data is
+ *  flowing (readyState ≥ HAVE_CURRENT_DATA, checked by the caller) but the `<video>` has
+ *  no video track yet (`videoWidth === 0`), and the retry budget isn't spent. This is the
+ *  guest who joined during the post-go-live window before MediaMTX remuxed the first H264
+ *  keyframe into a video rendition — re-attaching re-reads the master, which lists the
+ *  video rendition by then. Pure, so it is unit-testable. */
+export function shouldRetryForVideo(
+  videoWidth: number,
+  retries: number,
+  maxRetries: number,
+): boolean {
+  return videoWidth === 0 && retries < maxRetries;
+}
+
 /** Minimal shape of the hls.js instance we drive (subset, so tests can fake it). */
 interface HlsLike {
   loadSource(url: string): void;
@@ -166,6 +187,8 @@ export class HlsPlayer {
   private attached = false;
   private pollTimer: ReturnType<typeof setInterval> | null = null;
   private destroyed = false;
+  /** Counts re-attaches triggered by an audio-only stream (see MAX_VIDEO_RETRIES). */
+  private videoRetries = 0;
   private readonly firstFrameTimeoutMs: number;
 
   constructor(opts: HlsPlayerOptions) {
@@ -320,6 +343,22 @@ export class HlsPlayer {
     // Chrome, producing a black-silent canvas. Instead, tear down and let the poll retry
     // so the waiting overlay stays visible rather than showing a black screen.
     if (this.video.readyState < 2 /* HAVE_CURRENT_DATA */) {
+      if (this.hls) {
+        this.hls.destroy();
+        this.hls = null;
+      } else {
+        try { this.video.removeAttribute('src'); } catch { /* best-effort */ }
+      }
+      this.attached = false;
+      return false;
+    }
+    // Data is flowing but there's no video track yet (videoWidth 0) — the guest joined
+    // during the audio-only window right after go-live, before MediaMTX remuxed the first
+    // H264 keyframe into a video rendition. Tear down and let the poll re-attach (the
+    // master lists the video rendition by then), which is what a manual refresh does.
+    // Bounded by MAX_VIDEO_RETRIES so a genuinely mic-only broadcast plays its audio.
+    if (shouldRetryForVideo(this.video.videoWidth, this.videoRetries, MAX_VIDEO_RETRIES)) {
+      this.videoRetries++;
       if (this.hls) {
         this.hls.destroy();
         this.hls = null;

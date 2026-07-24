@@ -731,5 +731,8 @@
   "wvRecapStatCost": "Cost",
   "homeHostWebinarTitle": "主持網絡研討會",
   "homeHostWebinarDesc": "透過即時翻譯同字幕向觀眾直播。",
-  "homeHostWebinarCta": "前往網絡研討會"
+  "homeHostWebinarCta": "前往網絡研討會",
+  "wvRecapStatAudioCost": "Audio translation",
+  "wvRecapStatReportCost": "AI report",
+  "wvRecapAiCost": "Generation cost"
 }

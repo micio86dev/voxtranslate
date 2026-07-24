@@ -731,5 +731,8 @@
   "wvRecapStatCost": "Cost",
   "homeHostWebinarTitle": "ವೆಬಿನಾರ್ ಆಯೋಜಿಸಿ",
   "homeHostWebinarDesc": "ನೈಜ-ಸಮಯದ ಅನುವಾದ ಮತ್ತು ಉಪಶೀರ್ಷಿಕೆಗಳೊಂದಿಗೆ ಪ್ರೇಕ್ಷಕರಿಗೆ ನೇರ ಪ್ರಸಾರ ಮಾಡಿ.",
-  "homeHostWebinarCta": "ವೆಬಿನಾರ್‌ಗಳಿಗೆ ಹೋಗಿ"
+  "homeHostWebinarCta": "ವೆಬಿನಾರ್‌ಗಳಿಗೆ ಹೋಗಿ",
+  "wvRecapStatAudioCost": "Audio translation",
+  "wvRecapStatReportCost": "AI report",
+  "wvRecapAiCost": "Generation cost"
 }

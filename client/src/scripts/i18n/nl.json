@@ -731,5 +731,8 @@
   "wvRecapStatCost": "Cost",
   "homeHostWebinarTitle": "Een webinar hosten",
   "homeHostWebinarDesc": "Zend live uit naar een publiek met realtime vertaling en ondertiteling.",
-  "homeHostWebinarCta": "Naar webinars"
+  "homeHostWebinarCta": "Naar webinars",
+  "wvRecapStatAudioCost": "Audio translation",
+  "wvRecapStatReportCost": "AI report",
+  "wvRecapAiCost": "Generation cost"
 }

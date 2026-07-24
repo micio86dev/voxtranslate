@@ -731,5 +731,8 @@
   "wvRecapStatCost": "Cost",
   "homeHostWebinarTitle": "אירוח וובינר",
   "homeHostWebinarDesc": "שדר בשידור חי לקהל עם תרגום וכתוביות בזמן אמת.",
-  "homeHostWebinarCta": "עבור לוובינרים"
+  "homeHostWebinarCta": "עבור לוובינרים",
+  "wvRecapStatAudioCost": "Audio translation",
+  "wvRecapStatReportCost": "AI report",
+  "wvRecapAiCost": "Generation cost"
 }

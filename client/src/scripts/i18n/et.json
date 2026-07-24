@@ -731,5 +731,8 @@
   "wvRecapStatCost": "Cost",
   "homeHostWebinarTitle": "Korralda veebinar",
   "homeHostWebinarDesc": "Edasta otse publikule reaalajas tõlke ja subtiitritega.",
-  "homeHostWebinarCta": "Ava veebinarid"
+  "homeHostWebinarCta": "Ava veebinarid",
+  "wvRecapStatAudioCost": "Audio translation",
+  "wvRecapStatReportCost": "AI report",
+  "wvRecapAiCost": "Generation cost"
 }

@@ -731,5 +731,8 @@
   "wvRecapStatCost": "Cost",
   "homeHostWebinarTitle": "Vebinar o‘tkazish",
   "homeHostWebinarDesc": "Real vaqtdagi tarjima va subtitrlar bilan auditoriyaga jonli efir uzating.",
-  "homeHostWebinarCta": "Vebinarlarga o‘tish"
+  "homeHostWebinarCta": "Vebinarlarga o‘tish",
+  "wvRecapStatAudioCost": "Audio translation",
+  "wvRecapStatReportCost": "AI report",
+  "wvRecapAiCost": "Generation cost"
 }

@@ -731,5 +731,8 @@
   "wvRecapStatCost": "Cost",
   "homeHostWebinarTitle": "Halda vefnámskeið",
   "homeHostWebinarDesc": "Sendu út í beinni til áhorfenda með rauntímaþýðingu og skjátextum.",
-  "homeHostWebinarCta": "Fara á vefnámskeið"
+  "homeHostWebinarCta": "Fara á vefnámskeið",
+  "wvRecapStatAudioCost": "Audio translation",
+  "wvRecapStatReportCost": "AI report",
+  "wvRecapAiCost": "Generation cost"
 }
