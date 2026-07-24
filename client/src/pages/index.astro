@@ -1314,10 +1314,9 @@ const jsonLd = {
           <div id="recap-download-bar" class="recap-download-bar hidden">
             <label class="recap-dl-field">
               <span class="recap-dl-field-label" data-i18n="wvRecapDisplayLang">{T('wvRecapDisplayLang')}</span>
-              <select id="recap-display-lang" class="recap-dl-select" aria-label="Display language"></select>
+              <select id="recap-display-lang" class="recap-dl-select" aria-label="Transcript language"></select>
             </label>
             <div class="recap-dl-btns">
-              <select id="recap-dl-lang" class="recap-dl-select" aria-label="Download language"></select>
               <button id="recap-dl-txt" class="btn-ghost recap-dl-btn" type="button" data-i18n="wvRecapDlTxt">{T('wvRecapDlTxt')}</button>
               <button id="recap-dl-srt" class="btn-ghost recap-dl-btn" type="button" data-i18n="wvRecapDlSrt">{T('wvRecapDlSrt')}</button>
             </div>
@@ -3254,11 +3253,12 @@ const jsonLd = {
     .recap-panel :global(.wv-chat-attachment) { margin-top: 6px; }
     .recap-panel :global(.wv-chat-att-file) { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 0.82rem; background: var(--bg); }
 
-    /* Lightweight transcript row (no avatar/name/tag — only the host speaks) */
-    .recap-transcript-row { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px; }
-    .recap-transcript-row time { font-size: 0.72rem; color: var(--muted); font-variant-numeric: tabular-nums; }
-    .recap-transcript-orig { font-size: 0.82rem; color: var(--muted); }
-    .recap-transcript-body { font-size: 0.92rem; line-height: 1.5; color: var(--fg); }
+    /* Compact transcript row: time + text inline on one line (no avatar/name/tag —
+       only the host speaks, and only the selected language is shown) */
+    .recap-transcript-row { display: flex; flex-direction: row; align-items: baseline; gap: 10px; padding: 5px 4px; border-bottom: 1px solid var(--border); }
+    .recap-transcript-row:last-child { border-bottom: none; }
+    .recap-transcript-row time { flex-shrink: 0; font-size: 0.72rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .recap-transcript-body { font-size: 0.9rem; line-height: 1.4; color: var(--fg); }
 
     /* Download bar */
     .recap-download-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 12px 0 8px; }

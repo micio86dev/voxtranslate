@@ -5850,7 +5850,6 @@ const recapUniqueAttendees = $('recap-unique-attendees');
 const recapDuration = $('recap-duration');
 // PR6 download bar
 const recapDownloadBar = $('recap-download-bar');
-const recapDlLang = $<HTMLSelectElement>('recap-dl-lang');
 const recapDisplayLang = $<HTMLSelectElement>('recap-display-lang');
 const recapDlTxt = $<HTMLButtonElement>('recap-dl-txt');
 const recapDlSrt = $<HTMLButtonElement>('recap-dl-srt');
@@ -6385,10 +6384,11 @@ function formatRecapDatetime(iso: string | null | undefined): string {
   }
 }
 
-/** Build a lightweight transcript row: timestamp + (optional original) + translated body.
+/** Build a compact transcript row: timestamp + text in the selected language only.
  *  Unlike chat rows, transcripts carry no avatar/name/host-tag — only the host speaks, so
- *  that identity is redundant. Renders `translations[lang] ?? original_text`; shows the
- *  original above the translation only when a translation actually replaced it. */
+ *  that identity is redundant. Shows a single language (`translations[lang]`, falling back
+ *  to `original_text` when that language has no translation) — never the original AND the
+ *  translation together. */
 function buildTranscriptRow(row: TranscriptRow, lang: string): HTMLElement {
   const el = document.createElement('div');
   el.className = 'recap-transcript-row';
@@ -6403,18 +6403,9 @@ function buildTranscriptRow(row: TranscriptRow, lang: string): HTMLElement {
   el.appendChild(time);
 
   const translated = row.translations[lang];
-  const showTranslated = translated && translated.trim() ? translated : row.original_text;
-  // Only surface the original when the translated body actually differs from it.
-  if (translated && translated.trim() && translated !== row.original_text) {
-    const orig = document.createElement('div');
-    orig.className = 'recap-transcript-orig';
-    orig.textContent = row.original_text;
-    el.appendChild(orig);
-  }
-
   const body = document.createElement('div');
   body.className = 'recap-transcript-body';
-  body.textContent = showTranslated;
+  body.textContent = translated && translated.trim() ? translated : row.original_text;
   el.appendChild(body);
 
   return el;
@@ -6516,27 +6507,24 @@ async function openWebinarRecap(
       };
       renderTranscript(myLang);
 
-      // Populate both language selectors (display + download) from the available languages.
+      // Populate the single language selector from the available languages. One selector
+      // now drives BOTH the on-screen transcript AND the TXT/SRT downloads.
       const langs = new Set<string>([transcriptRows[0]?.original_lang ?? 'en']);
       for (const row of transcriptRows) {
         Object.keys(row.translations).forEach((l) => langs.add(l));
       }
-      const fillSelect = (sel: HTMLSelectElement): void => {
-        sel.innerHTML = '';
-        for (const lang of langs) {
-          const opt = document.createElement('option');
-          opt.value = lang;
-          opt.textContent = lang.toUpperCase();
-          if (lang === myLang) opt.selected = true;
-          sel.appendChild(opt);
-        }
-      };
-      fillSelect(recapDlLang);
-      fillSelect(recapDisplayLang);
+      recapDisplayLang.innerHTML = '';
+      for (const lang of langs) {
+        const opt = document.createElement('option');
+        opt.value = lang;
+        opt.textContent = lang.toUpperCase();
+        if (lang === myLang) opt.selected = true;
+        recapDisplayLang.appendChild(opt);
+      }
 
-      // Re-render the on-screen transcript when the display language changes (real fix:
-      // previously the transcript was rendered once and never updated). No refetch — the
-      // cached rows already carry every translation.
+      // Re-render the on-screen transcript when the language changes (real fix: previously
+      // the transcript was rendered once and never updated). No refetch — the cached rows
+      // already carry every translation.
       recapDisplayLang.onchange = () => renderTranscript(recapDisplayLang.value || myLang);
 
       show(recapDownloadBar, true);
@@ -6565,7 +6553,7 @@ async function openWebinarRecap(
   // for another session REPLACES the handler instead of stacking a second one (which would
   // fire duplicate downloads with a stale transcriptRows/webinarCode closure).
   recapDlTxt.onclick = () => {
-    const lang = recapDlLang.value || myLang;
+    const lang = recapDisplayLang.value || myLang;
     downloadBlob(
       transcriptRowsToTxt(transcriptRows, lang),
       `transcript-${webinarCode}.txt`,
@@ -6574,7 +6562,7 @@ async function openWebinarRecap(
   };
 
   recapDlSrt.onclick = () => {
-    const lang = recapDlLang.value || myLang;
+    const lang = recapDisplayLang.value || myLang;
     downloadBlob(
       transcriptRowsToSrt(transcriptRows, lang),
       `transcript-${webinarCode}.srt`,
