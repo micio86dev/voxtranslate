@@ -1185,9 +1185,12 @@ pub async fn webinar_stats(
     // at 0. `None` ⇒ the run was never finalized.
     let session_row: Option<(i32, i32, i32)> = sqlx::query_as(
         "SELECT peak_viewers,
-                GREATEST(
-                    duration_seconds,
-                    COALESCE(EXTRACT(EPOCH FROM (actual_end - actual_start))::int, 0)
+                -- The materialized duration_seconds is authoritative; the wall-clock
+                -- (actual_end - actual_start) is only a fallback when it's absent/0.
+                COALESCE(
+                    NULLIF(duration_seconds, 0),
+                    EXTRACT(EPOCH FROM (actual_end - actual_start))::int,
+                    0
                 ) AS duration_seconds,
                 cost_credits
            FROM webinar_sessions
