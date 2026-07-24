@@ -53,7 +53,7 @@ chrono-tz = "0.10"
 typst = "=0.15.0"
 typst-pdf = "=0.15.0"
 typst-as-lib = "=0.16.0"
-typst-layout = "=0.15.0"
+typst-layout = "=0.15.1"
 
 # Chat file upload (spec 0018): extract text from uploaded text-layer PDFs.
 # Pinned to 0.12: pulls a fixed lopdf (>= 0.42) that closed the deeply-nested-PDF
