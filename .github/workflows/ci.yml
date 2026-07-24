@@ -174,11 +174,20 @@ jobs:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
         run: railway up --ci --service voxtranslate-server
 
-  # Deploy the Caddy reverse-proxy config to the Hetzner media box on every push
-  # to main that touches infra/. Copies infra/media/Caddyfile via SCP then reloads
-  # Caddy inside its Docker container. Requires HETZNER_SSH_KEY (private key) and
-  # HETZNER_HOST (server IP/hostname) secrets. Gated on tests passing.
-  deploy-caddy:
+  # Deploy the FULL media stack (MediaMTX + Caddy) to the Hetzner box on every push to
+  # main that touches infra/. Previously this only shipped the Caddyfile, so mediamtx.yml
+  # changes (e.g. the LL-HLS hlsAllowOrigin CORS fix) never reached the box — that config
+  # drift is what let the ~6s LL-HLS latency regression keep coming back. Now it ships all
+  # three configs and applies them.
+  #
+  # SECRET HANDLING: mediamtx.yml ships with a REPLACE_CALLER_SECRET placeholder. The real
+  # secret is re-injected ON THE BOX from a box-local /root/media/.env (MEDIA_CALLER_SECRET=…)
+  # — it is NEVER stored in CI or GitHub. If that .env is missing, the MediaMTX config is
+  # left untouched (Caddy still deploys) so a not-yet-seeded box can't be shipped a broken
+  # placeholder. One-time box setup: create /root/media/.env with the caller secret.
+  #
+  # Requires HETZNER_SSH_KEY (private key) + HETZNER_HOST (IP/host) secrets. Gated on tests.
+  deploy-media:
     needs: [test, check-secrets]
     if: |
       github.event_name == 'push' &&
@@ -194,14 +203,36 @@ jobs:
           echo "${{ secrets.HETZNER_SSH_KEY }}" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -H "${{ secrets.HETZNER_HOST }}" >> ~/.ssh/known_hosts
-      - name: Copy Caddyfile
+      - name: Copy media configs
         run: |
           scp -i ~/.ssh/id_ed25519 infra/media/Caddyfile \
             root@${{ secrets.HETZNER_HOST }}:/root/media/Caddyfile
-      - name: Reload Caddy
+          scp -i ~/.ssh/id_ed25519 infra/media/docker-compose.yml \
+            root@${{ secrets.HETZNER_HOST }}:/root/media/docker-compose.yml
+          # Staged name — only promoted to mediamtx.yml once the secret is injected.
+          scp -i ~/.ssh/id_ed25519 infra/media/mediamtx.yml \
+            root@${{ secrets.HETZNER_HOST }}:/root/media/mediamtx.yml.new
+      - name: Apply MediaMTX config + reload Caddy
         run: |
-          ssh -i ~/.ssh/id_ed25519 root@${{ secrets.HETZNER_HOST }} \
-            "docker exec media-caddy-1 caddy reload --config /etc/caddy/Caddyfile"
+          ssh -i ~/.ssh/id_ed25519 root@${{ secrets.HETZNER_HOST }} 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          cd /root/media
+          if [ -f .env ]; then
+            # Inject the caller secret from the box-local .env (stays on the box), then
+            # apply: `up -d` picks up image/compose changes; `restart` reloads the
+            # (volume-mounted) mediamtx.yml, which `up -d` alone would not.
+            set -a; . ./.env; set +a
+            sed "s|REPLACE_CALLER_SECRET|${MEDIA_CALLER_SECRET}|" mediamtx.yml.new > mediamtx.yml
+            rm -f mediamtx.yml.new
+            docker compose up -d
+            docker compose restart mediamtx
+          else
+            rm -f mediamtx.yml.new
+            echo "WARNING: /root/media/.env missing — MediaMTX config NOT updated (Caddy only)."
+            echo "One-time setup: create /root/media/.env with MEDIA_CALLER_SECRET=<secret>."
+          fi
+          docker exec media-caddy-1 caddy reload --config /etc/caddy/Caddyfile
+          REMOTE
 
   # Full server coverage + browser e2e — only when secrets are present.
   e2e:
