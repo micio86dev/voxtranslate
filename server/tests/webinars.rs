@@ -3278,6 +3278,151 @@ async fn session_stats_requires_auth() {
     assert_eq!(r.status(), 401, "no auth → 401");
 }
 
+// ---- aggregate analytics: GET /api/webinars/{id}/stats (host-only) ----------
+
+#[tokio::test]
+async fn webinar_stats_aggregates_from_existing_tables() {
+    let Some(srv) = setup().await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    let http = Client::new();
+    let (owner, jwt) = user(&srv).await;
+    let org_id = org(&srv, owner, true).await;
+    let created = create_webinar(&http, &srv, &jwt, org_id).await;
+    let webinar_id = Uuid::parse_str(created["id"].as_str().unwrap()).unwrap();
+
+    // Session: 5 peak viewers, 1000s duration, 250 credits cost.
+    sqlx::query(
+        "INSERT INTO webinar_sessions
+             (webinar_id, org_id, host_user_id, actual_start, actual_end,
+              duration_seconds, peak_viewers, cost_credits)
+         VALUES ($1, $2, $3, now() - interval '1 hour', now(), 1000, 5, 250)",
+    )
+    .bind(webinar_id)
+    .bind(org_id)
+    .bind(owner)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+
+    // Three participants: two 'en' (one completed ≥90% → 950s, one partial → 100s),
+    // one 'es' (completed → 1000s). avg = (950+100+1000)/3 = 683.33.
+    for (lang, watch) in [("en", 950), ("en", 100), ("es", 1000)] {
+        sqlx::query(
+            "INSERT INTO webinar_participants
+                 (webinar_id, guest_id, language_code, total_watch_seconds)
+             VALUES ($1, $2, $3, $4)",
+        )
+        .bind(webinar_id)
+        .bind(Uuid::new_v4())
+        .bind(lang)
+        .bind(watch)
+        .execute(&srv.pool)
+        .await
+        .unwrap();
+    }
+
+    let r = http
+        .get(format!("{}/api/webinars/{webinar_id}/stats", base(&srv)))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 200, "stats for a host on their webinar");
+    let body: Value = r.json().await.unwrap();
+
+    assert_eq!(body["unique_attendees"].as_i64(), Some(3));
+    assert_eq!(body["peak_viewers"].as_i64(), Some(5));
+    assert_eq!(body["duration_seconds"].as_i64(), Some(1000));
+    assert_eq!(body["avg_watch_seconds"].as_i64(), Some(683)); // rounded
+    assert_eq!(body["cost_credits"].as_i64(), Some(250));
+    assert_eq!(body["cost_usd"].as_f64(), Some(2.5));
+    // 2 of 3 attendees watched ≥ 900s (0.9 * 1000).
+    assert!((body["completion_rate"].as_f64().unwrap() - (2.0 / 3.0)).abs() < 1e-9);
+    // engagement = 683.33 / 1000 ≈ 0.683.
+    assert!((body["engagement_pct"].as_f64().unwrap() - 0.6833333333).abs() < 1e-6);
+
+    // Languages: en=2, es=1 (ordered by count desc).
+    let langs = body["languages"].as_array().unwrap();
+    assert_eq!(langs.len(), 2);
+    assert_eq!(langs[0]["lang"].as_str(), Some("en"));
+    assert_eq!(langs[0]["count"].as_i64(), Some(2));
+    assert_eq!(langs[1]["lang"].as_str(), Some("es"));
+    assert_eq!(langs[1]["count"].as_i64(), Some(1));
+
+    assert_eq!(body["chat_messages"].as_i64(), Some(0));
+}
+
+#[tokio::test]
+async fn webinar_stats_null_metrics_when_no_session() {
+    let Some(srv) = setup().await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    let http = Client::new();
+    let (owner, jwt) = user(&srv).await;
+    let org_id = org(&srv, owner, true).await;
+    let created = create_webinar(&http, &srv, &jwt, org_id).await;
+    let webinar_id = created["id"].as_str().unwrap();
+
+    let r = http
+        .get(format!("{}/api/webinars/{webinar_id}/stats", base(&srv)))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 200, "stats before any session finalizes");
+    let body: Value = r.json().await.unwrap();
+    // No session ⇒ duration unknown ⇒ duration-relative metrics are null.
+    assert_eq!(body["duration_seconds"].as_i64(), Some(0));
+    assert!(body["completion_rate"].is_null());
+    assert!(body["engagement_pct"].is_null());
+    assert_eq!(body["cost_credits"].as_i64(), Some(0));
+}
+
+#[tokio::test]
+async fn webinar_stats_is_host_only() {
+    let Some(srv) = setup().await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    let http = Client::new();
+    let (owner, jwt) = user(&srv).await;
+    let org_id = org(&srv, owner, true).await;
+    let created = create_webinar(&http, &srv, &jwt, org_id).await;
+    let webinar_id = created["id"].as_str().unwrap();
+
+    // A different user who is NOT the host → 403 (mirrors the recap guard).
+    let (_other, other_jwt) = user(&srv).await;
+    let r = http
+        .get(format!("{}/api/webinars/{webinar_id}/stats", base(&srv)))
+        .bearer_auth(&other_jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 403, "non-host → 403");
+}
+
+#[tokio::test]
+async fn webinar_stats_requires_auth() {
+    let Some(srv) = setup().await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    let http = Client::new();
+    let r = http
+        .get(format!(
+            "{}/api/webinars/{}/stats",
+            base(&srv),
+            Uuid::new_v4()
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 401, "no auth → 401");
+}
+
 #[tokio::test]
 async fn migration_051_raw_alter_table_is_idempotent() {
     let Some(srv) = setup().await else {

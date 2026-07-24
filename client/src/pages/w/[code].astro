@@ -116,12 +116,16 @@ const pageDesc = webinar
             <!-- `playsinline` is required for iOS to play inline (not fullscreen).
                  No `muted` — tryAutoplay() attempts unmuted first; it falls back to
                  muted + tap-to-unmute overlay when the browser blocks unmuted autoplay.
-                 No `controls` — we render our own control bar below. -->
+                 No `controls` — we render our own control bar below.
+                 preload="auto" (not "none"): the src is only set once the webinar is
+                 live (in attach()), and on iOS/Safari native HLS preload="none" defers
+                 loading until a play() gesture — so canplay never fires, autoplay is
+                 gated, and viewers get a stuck/black player. Auto lets it buffer + play. -->
             <video
               id="wv-video"
               class="wv-video"
               playsinline
-              preload="none"
+              preload="auto"
             ></video>
 
             <!-- Live subtitles overlay (Fase 2): the host's speech transcribed +
@@ -259,7 +263,13 @@ const pageDesc = webinar
     .wv {
       min-height: 100dvh;
       display: grid;
-      place-items: center;
+      /* Center horizontally, but top-align vertically: when the stacked content
+         (video + transcript + chat) grows taller than the viewport — e.g. on
+         mobile with both panels open — the document extends downward and scrolls
+         in Y, instead of centering the overflow and clipping the chat input off
+         the bottom edge. */
+      justify-items: center;
+      align-items: start;
       padding: 16px;
       background:
         radial-gradient(1200px 600px at 50% -10%, rgba(59, 130, 246, 0.18), transparent 60%),
