@@ -30,6 +30,7 @@ async fn make_user(pool: &db::Pool) -> Uuid {
     upsert_google_user(pool, &identity, Decimal::ZERO, None, None)
         .await
         .unwrap()
+        .0
         .id
 }
 

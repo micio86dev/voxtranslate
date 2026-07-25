@@ -59,7 +59,7 @@ async fn login(srv: &Server, name: &str) -> (Uuid, String) {
         name: name.into(),
         avatar_url: None,
     };
-    let user = upsert_google_user(
+    let (user, _) = upsert_google_user(
         &srv.pool,
         &identity,
         rust_decimal::Decimal::new(200, 2),

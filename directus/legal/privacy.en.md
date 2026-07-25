@@ -7,14 +7,15 @@ The Service is operated by **Alessandro Micelli**, Puerto del Rosario, Spain ("V
 ## 2. What data we process
 
 - **Account data** — when you sign in with Google, we receive your name, email address, and profile picture URL.
-- **Audio (transient)** — while you speak, your microphone audio is streamed to our speech-to-text provider and, on the Premium plan, our real-time translation provider, to generate live captions and translations. We do not store raw audio.
+- **Audio (transient)** — while you speak, your microphone audio is streamed to the providers that power the engine chosen for that call: a speech-to-text provider on the Standard tier, and an end-to-end speech-translation provider on the Pro and Premium tiers. On the **Enhanced** tier your browser streams the audio **directly** to the provider using a short-lived access token, so it does not pass through our servers at all. We do not store raw audio.
+- **Voice sample (optional)** — on the Enhanced tier you may record a short clip so your translated speech can be spoken in a voice resembling your own. The clip is sent to our voice provider, which creates the synthetic voice and returns an identifier that we store on your account. The feature is optional and can be used without it.
 - **Transcripts & translations** — the text of speech and chat together with its translations. When a signed-in user takes part in a call, these are **stored** so participants can review, export (PDF/JSON), and AI-correct the transcript afterwards. Calls in which no signed-in user took part are not stored. Stored transcripts are deleted when you delete your account — your utterances are removed with it.
 - **Chat messages & files** — chat is relayed and translated between participants. Files you attach are stored privately and shared with the call's participants through short-lived links.
 - **Usage, analytics & billing data** — credit balance, transactions, per-session speaking time, and product-usage events (which features and plan tier you use, and for how long) used to meter, bill, secure, and improve the Service. Analytics are aggregated for reporting.
 - **Safety data** — abuse reports you submit or that are submitted about you (which may include a short transcript excerpt), and moderation/ban records.
 - **Technical data** — connection metadata needed to operate the real-time service, route media, ship operational logs, and keep the Service secure.
 
-Video and audio between participants are sent peer-to-peer (WebRTC) and are not routed through or recorded by our servers. When a direct connection cannot be established, media is relayed through a TURN server in encrypted form that the relay cannot read. Our server handles sign-in, signaling, the live speech-to-text stream, translation, chat relay, and — where enabled — transcript storage.
+Video and audio between participants are sent peer-to-peer (WebRTC) and are not routed through or recorded by our servers. When a direct connection cannot be established, media is relayed through a TURN server in encrypted form that the relay cannot read. Our server handles sign-in, signaling, the live speech-to-text stream, translation, chat relay, and — where enabled — transcript storage. On the Enhanced tier even the speech audio bypasses our server, travelling directly from your browser to the speech provider. On the Enhanced tier even the speech audio bypasses our server, travelling directly from your browser to the speech provider.
 
 ## 3. Why we process it and our legal bases
 
@@ -32,10 +33,11 @@ Transcription and translation are automated (AI-based) and may be inaccurate; AI
 
 We share personal data with the providers below strictly to operate the Service. Some are located outside the EEA; where that is the case we rely on appropriate safeguards such as the EU Standard Contractual Clauses.
 
-- **Google** — sign-in (OAuth): name, email, profile picture.
-- **Deepgram** — speech-to-text: streamed audio (transient).
-- **Groq** — machine translation (Standard plan): transcript text (transient).
-- **OpenAI** — real-time translation (Premium plan): streamed audio and transcript text (transient).
+- **Google** — sign-in (OAuth): name, email, profile picture; and, as Google Gemini, real-time speech translation on the **Premium** tier: streamed audio and transcript text (transient).
+- **Deepgram** — speech-to-text (Standard tier): streamed audio (transient).
+- **Groq** — machine translation (Standard and Enhanced tiers): transcript text (transient).
+- **OpenAI** — real-time speech translation (**Pro** tier): streamed audio and transcript text (transient).
+- **Cartesia** — speech-to-text and speech synthesis on the **Enhanced** tier: audio streamed directly from your browser (transient, not routed through our servers) and, if you use voice cloning, the voice clip you record plus the resulting synthetic voice.
 - **Stripe** — payment processing: billing details and payment data.
 - **Supabase** — database and file storage: account, usage, billing and safety data, stored transcripts, and chat file attachments.
 - **Cloudflare** — edge delivery and TURN media relay: connection metadata; relayed media stays encrypted and is not readable by the relay.
@@ -47,6 +49,8 @@ We share personal data with the providers below strictly to operate the Service.
 ## 5. How long we keep data
 
 - **Audio:** processed in real time and not stored.
+- **Voice sample (if you use voice cloning):** the synthetic voice is held by our voice provider and its identifier is stored on your account until you delete your account.
+- **Voice sample (if you use voice cloning):** the synthetic voice is held by our voice provider and its identifier is stored on your account until you delete your account.
 - **Transcripts & translations:** for calls with a signed-in participant, kept until you delete the call or your account; calls with only guests are not stored.
 - **Account data:** kept while your account exists; deleted when you delete your account.
 - **Chat file attachments:** kept while the related call/account exists and served through short-lived private links.

@@ -4,7 +4,16 @@
 // Railway API/WebSocket) are left untouched.
 
 const CACHE = 'voxtranslate-v3';
-const SHELL = ['/', '/manifest.webmanifest', '/icon.png', '/icon-maskable.png'];
+const SHELL = [
+  '/',
+  '/manifest.webmanifest',
+  '/icon.png',
+  '/icon-maskable.png',
+  // Notification assets: precached so a push rendered on a flaky connection (or
+  // with the app closed) still shows our artwork instead of a generic glyph.
+  '/icon-192.png',
+  '/badge-96.png',
+];
 
 // `respondWith` THROWS "Failed to convert value to 'Response'" if its promise
 // resolves to `undefined` — which a `fetch().catch(() => caches.match(req))` does
@@ -150,8 +159,14 @@ self.addEventListener('push', (event) => {
   event.waitUntil(
     self.registration.showNotification(payload.title || 'VoxTranslate', {
       body: payload.body || '',
-      icon: '/icon.png',
-      badge: '/icon.png',
+      // `icon` is the full-colour image (~64dp): the 512x512 app icon is 238 KB and
+      // too heavy to fetch reliably on mobile, so we ship a 192px copy.
+      icon: '/icon-192.png',
+      // `badge` is NOT drawn as a picture — Android uses its ALPHA channel as a
+      // stencil, tints it, and puts it in circular chrome. An opaque image (like
+      // icon.png) therefore renders as a solid square. Must stay a transparent,
+      // monochrome glyph: see public/badge.svg for the source art.
+      badge: '/badge-96.png',
       data,
     }),
   );

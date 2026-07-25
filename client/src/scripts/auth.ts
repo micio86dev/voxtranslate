@@ -220,10 +220,26 @@ export function isListenerPays(): boolean {
   return listenerPays;
 }
 
+/** Outcome of a successful Google auth. `isNew` distinguishes a registration from
+ *  a returning sign-in — the same endpoint serves both, so only the server knows.
+ *  Callers use it to fire a GA4 `sign_up` conversion instead of `login`. */
+export interface LoginResult {
+  user: User;
+  isNew: boolean;
+}
+
+/** Store the session from an auth response and report whether it registered a new
+ *  account. A payload without `is_new` (older server) counts as a returning login,
+ *  so a deploy skew can never invent signup conversions. */
+function completeLogin(data: { token: string; user: User; is_new?: boolean }): LoginResult {
+  saveSession(data.token, data.user);
+  return { user: data.user, isNew: !!data.is_new };
+}
+
 /** Exchange a Google credential for a session; stores token + user on success.
  * Includes the captured acquisition source so the server can attribute a new
  * account to the campaign the user arrived from (first login only). */
-export async function loginWithGoogle(credential: string): Promise<User> {
+export async function loginWithGoogle(credential: string): Promise<LoginResult> {
   const source = getAcquisitionSource() || undefined;
   const res = await fetch(`${HTTP_BASE}/api/auth/google`, {
     method: 'POST',
@@ -231,15 +247,13 @@ export async function loginWithGoogle(credential: string): Promise<User> {
     body: JSON.stringify({ credential, source, locale: getUiLang() }),
   });
   if (!res.ok) throw new Error(`login failed (${res.status})`);
-  const data = (await res.json()) as { token: string; user: User };
-  saveSession(data.token, data.user);
-  return data.user;
+  return completeLogin((await res.json()) as { token: string; user: User; is_new?: boolean });
 }
 
 /** Exchange an OAuth authorization code (popup code flow, `redirect_uri:'postmessage'`)
  * for a session; stores token + user. The code flow lets the server obtain a refresh
  * token for the Calendar scope (scheduled meetings). Carries the acquisition source. */
-export async function exchangeGoogleCode(code: string): Promise<User> {
+export async function exchangeGoogleCode(code: string): Promise<LoginResult> {
   const source = getAcquisitionSource() || undefined;
   const res = await fetch(`${HTTP_BASE}/api/auth/google`, {
     method: 'POST',
@@ -247,9 +261,7 @@ export async function exchangeGoogleCode(code: string): Promise<User> {
     body: JSON.stringify({ code, redirect_uri: 'postmessage', source, locale: getUiLang() }),
   });
   if (!res.ok) throw new Error(`login failed (${res.status})`);
-  const data = (await res.json()) as { token: string; user: User };
-  saveSession(data.token, data.user);
-  return data.user;
+  return completeLogin((await res.json()) as { token: string; user: User; is_new?: boolean });
 }
 
 /** Re-fetch the current user (balance) from the server. */

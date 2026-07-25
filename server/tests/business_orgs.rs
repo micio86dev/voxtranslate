@@ -52,7 +52,7 @@ async fn user(srv: &Server) -> (Uuid, String) {
         name: "Biz Tester".into(),
         avatar_url: None,
     };
-    let u = upsert_google_user(
+    let (u, _) = upsert_google_user(
         &srv.pool,
         &identity,
         rust_decimal::Decimal::ZERO,
@@ -74,7 +74,7 @@ async fn user_with_email(srv: &Server, email: &str) -> (Uuid, String) {
         name: "Biz Tester".into(),
         avatar_url: None,
     };
-    let u = upsert_google_user(
+    let (u, _) = upsert_google_user(
         &srv.pool,
         &identity,
         rust_decimal::Decimal::ZERO,

@@ -175,6 +175,53 @@ describe('analytics (behaviour)', () => {
     expect(all.filter((e) => e[0] === 'event' && e[1] === 'page_view')).toHaveLength(2);
   });
 
+  // Acquisition attribution: GA4 only understands `utm_*`, so a visitor arriving
+  // with our own `?source` / `?ref` looks organic to GA. The signup event has to
+  // carry the first-touch source itself, otherwise "registrations by campaign"
+  // is unanswerable in GA4.
+  it('reports a new account as a sign_up carrying the acquisition source', async () => {
+    const { mod, win } = await loadAnalytics();
+    mod.initAnalytics();
+    mod.trackAuthSuccess({ isNew: true, source: 'reddit' });
+
+    expect(entries(win)).toContainEqual([
+      'event',
+      'sign_up',
+      { method: 'google', acquisition_source: 'reddit' },
+    ]);
+    // A signup must NOT also count as a login, or both metrics are inflated.
+    expect(entries(win).filter((e) => e[1] === 'login')).toHaveLength(0);
+  });
+
+  it('labels a missing source as organic instead of dropping the param', async () => {
+    const { mod, win } = await loadAnalytics();
+    mod.initAnalytics();
+    mod.trackAuthSuccess({ isNew: true, source: null });
+
+    expect(entries(win)).toContainEqual([
+      'event',
+      'sign_up',
+      { method: 'google', acquisition_source: 'organic' },
+    ]);
+  });
+
+  it('reports a returning user as login, with no source noise', async () => {
+    const { mod, win } = await loadAnalytics();
+    mod.initAnalytics();
+    mod.trackAuthSuccess({ isNew: false, source: 'reddit' });
+
+    expect(entries(win)).toContainEqual(['event', 'login', { method: 'google' }]);
+    expect(entries(win).filter((e) => e[1] === 'sign_up')).toHaveLength(0);
+  });
+
+  it('honours a non-google auth method', async () => {
+    const { mod, win } = await loadAnalytics();
+    mod.initAnalytics();
+    mod.trackAuthSuccess({ isNew: false, source: null, method: 'email' });
+
+    expect(entries(win)).toContainEqual(['event', 'login', { method: 'email' }]);
+  });
+
   it('track forwards events with params (and no-ops pre-init without crashing)', async () => {
     const first = await loadAnalytics();
     expect(() => first.mod.track('too_early')).not.toThrow(); // enabled but gtag not stubbed yet

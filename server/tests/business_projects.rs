@@ -47,7 +47,7 @@ async fn user(srv: &Server) -> String {
         name: "Proj Owner".into(),
         avatar_url: None,
     };
-    let u = upsert_google_user(
+    let (u, _) = upsert_google_user(
         &srv.pool,
         &identity,
         rust_decimal::Decimal::ZERO,
