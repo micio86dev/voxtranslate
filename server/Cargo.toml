@@ -25,7 +25,7 @@ sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio",
 # Semantic transcript search: binds Postgres `vector(1536)` (pgvector) through sqlx
 # so transcript-chunk embeddings round-trip as a typed column.
 pgvector = { version = "0.4", features = ["sqlx"] }
-jsonwebtoken = "9"
+jsonwebtoken = { version = "11", features = ["rust_crypto"] }
 chrono = { version = "0.4", features = ["serde"] }
 rust_decimal = { version = "1", features = ["serde"] }
 hmac = "0.13"
