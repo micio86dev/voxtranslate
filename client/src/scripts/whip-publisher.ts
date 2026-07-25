@@ -185,6 +185,10 @@ export class WhipPublisher {
   private cameraTrack: MediaStreamTrack | null = null;
   private audioTrack: MediaStreamTrack | null = null;
   private videoSender: RTCRtpSender | null = null;
+  /** Whether the CURRENT publish session offered a real video track. The media server
+   *  fixes its HLS renditions from the tracks present when the session starts, so a
+   *  camera swapped in later is invisible to viewers unless we republish. */
+  private publishedWithVideo = false;
 
   private state: WhipState = "idle";
   /** Guards the single automatic reconnect so a flapping connection can't loop. */
@@ -295,8 +299,11 @@ export class WhipPublisher {
       const sender = pc.addTrack(track, this.stream!);
       if (track.kind === "video") this.videoSender = sender;
     }
+    this.publishedWithVideo = !!this.videoSender;
     // Guarantee a video m-line even when starting mic-only, so turning the camera on
-    // later is a replaceTrack (no renegotiation — WHIP has no re-offer channel).
+    // later is a replaceTrack (no renegotiation — WHIP has no re-offer channel). NOTE:
+    // an empty m-line is enough for WebRTC but NOT for the server's HLS output, which
+    // fixes its renditions per publish session — see toggleCamera().
     if (!this.videoSender) {
       const tx = pc.addTransceiver?.("video", { direction: "sendonly" });
       this.videoSender = tx?.sender ?? null;
@@ -334,6 +341,22 @@ export class WhipPublisher {
     }
   }
 
+  /** Start a NEW publish session with the media captured right now — used when the track
+   *  set changed in a way the server only honours at session start (see toggleCamera).
+   *  Deliberate, so it does NOT spend the automatic-reconnect budget; a failure surfaces
+   *  as `error` exactly like a failed reconnect. */
+  private async republish(): Promise<void> {
+    if (this.stopped) return;
+    if (this.resourceUrl) void whipDelete(this.resourceUrl);
+    this.resourceUrl = null;
+    this.closePc();
+    try {
+      await this.connect(true);
+    } catch {
+      this.setState("error");
+    }
+  }
+
   /** One automatic reconnect: DELETE the dead resource, tear the pc down, and
    *  re-run the WHIP exchange with the same captured media. Falls to `error` if the
    *  reconnect itself fails or the budget is already spent. */
@@ -356,10 +379,17 @@ export class WhipPublisher {
   }
 
   /**
-   * Toggle the webcam at runtime. Turning it on captures a camera track and swaps it
-   * onto the existing video sender (replaceTrack — no renegotiation, mirroring
-   * webrtc.ts); turning it off stops the track and clears the sender. Returns the new
-   * on/off state. No-op (returns false) before `start()`.
+   * Toggle the webcam at runtime. Turning it on captures a camera track and swaps it onto
+   * the existing video sender (replaceTrack — no renegotiation, mirroring webrtc.ts);
+   * turning it off stops the track and clears the sender. Returns the new on/off state.
+   * No-op (returns false) before `start()`.
+   *
+   * Exception — the FIRST camera-on after a mic-only go-live triggers a full republish.
+   * replaceTrack is enough for WebRTC, but the media server decides which renditions the
+   * HLS master playlist carries when the publish session starts: a video track that
+   * arrives later is never remuxed, so every guest sees a black screen for the rest of
+   * the broadcast (refreshing doesn't help — only a new publish session does). Once the
+   * session carries video, later toggles are plain swaps again.
    */
   async toggleCamera(on: boolean): Promise<boolean> {
     if (!this.pc || !this.stream) return false;
@@ -380,7 +410,11 @@ export class WhipPublisher {
       if (!track) return false;
       this.cameraTrack = track;
       this.stream.addTrack(track);
-      await this.videoSender?.replaceTrack(track);
+      if (this.publishedWithVideo) {
+        await this.videoSender?.replaceTrack(track);
+      } else {
+        await this.republish();
+      }
       return true;
     }
     // Turning off: stop capture and clear the outgoing video track.

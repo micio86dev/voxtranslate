@@ -35,6 +35,11 @@ const POLL_INTERVAL_MS = 5_000;
  *  stream as-is, so a genuinely mic-only broadcast plays its audio instead of looping. */
 const MAX_VIDEO_RETRIES = 3;
 
+/** Consecutive health checks (one per poll) with a frozen playhead before we rebuild the
+ *  pipeline. 1 ⇒ react after ~POLL_INTERVAL_MS of no progress: long enough not to trip on
+ *  a brief buffering hiccup, short enough that a host reload doesn't leave guests frozen. */
+const STALL_CHECKS = 1;
+
 /** localStorage may be blocked (private mode, tests) — fall back to an in-memory map,
  *  mirroring auth.ts so guest_id persistence never throws. */
 const mem = new Map<string, string>();
@@ -134,7 +139,19 @@ interface HlsLike {
   startLoad(): void;
   /** Attempt in-place codec recovery (hls.js recovery for media decode errors). */
   recoverMediaError(): void;
-  on(event: string, cb: (event: string, data: { fatal: boolean; type?: string }) => void): void;
+  /** `data` is per-event, so handlers narrow it themselves (hlsError vs hlsManifestParsed). */
+  on(event: string, cb: (event: string, data: unknown) => void): void;
+}
+
+/** The `hlsError` payload we act on. */
+interface HlsErrorData {
+  fatal: boolean;
+  type?: string;
+}
+
+/** The `hlsManifestParsed` payload: one entry per rendition in the master playlist. */
+interface HlsManifestParsedData {
+  levels?: { videoCodec?: string }[];
 }
 
 /** Options for the player. `code` is the webinar's public code; the callbacks surface
@@ -190,6 +207,13 @@ export class HlsPlayer {
   /** Counts re-attaches triggered by an audio-only stream (see MAX_VIDEO_RETRIES). */
   private videoRetries = 0;
   private readonly firstFrameTimeoutMs: number;
+  /** Whether the attached master playlist advertises a video rendition. `null` until a
+   *  manifest is parsed (and on Safari's native path, where we can't inspect it). */
+  private manifestHasVideo: boolean | null = null;
+  /** `currentTime` at the previous health check, to detect a frozen playhead. -1 = none yet. */
+  private lastCurrentTime = -1;
+  /** Consecutive health checks that saw no playback progress. */
+  private stalledChecks = 0;
 
   constructor(opts: HlsPlayerOptions) {
     this.code = opts.code;
@@ -287,8 +311,22 @@ export class HlsPlayer {
         xhrSetup: (xhr: XMLHttpRequest) => {
           xhr.withCredentials = true;
         },
+        // hls.js loads low-latency PARTS through fetch, not XHR — `xhrSetup` never runs
+        // for them. Without credentials there, the blocking playlist reloads are
+        // rejected, hls.js abandons LL-HLS, and latency degrades to full-segment
+        // (~6-7 s) with the cookie-gated requests silently failing.
+        fetchSetup: (context: { url: string }, initParams: RequestInit) =>
+          new Request(context.url, { ...initParams, credentials: 'include' }),
       });
       this.hls = hls;
+      // Learn whether the master playlist actually offers a video rendition. That tells a
+      // genuinely mic-only broadcast (nothing to wait for) apart from a broken one where
+      // video is advertised but never decodes — the two need opposite recovery policies.
+      hls.on('hlsManifestParsed', (_evt: string, data: unknown) => {
+        if (this.hls !== hls) return;
+        const levels = (data as HlsManifestParsedData).levels ?? [];
+        this.manifestHasVideo = levels.some((l) => !!l.videoCodec);
+      });
       // hls.js error recovery (recommended pattern from the hls.js docs):
       //   - Network errors: call startLoad() to re-issue the manifest/segment
       //     request. This recovers in seconds when the host stream is just
@@ -302,7 +340,8 @@ export class HlsPlayer {
       const MAX_NETWORK_RETRIES = 3;
       let networkRetries = 0;
       let mediaErrorRecovered = false;
-      hls.on('hlsError', (_evt: string, data: { fatal: boolean; type?: string }) => {
+      hls.on('hlsError', (_evt: string, raw: unknown) => {
+        const data = raw as HlsErrorData;
         if (!data.fatal || this.hls !== hls) return;
         if (data.type === 'networkError' && networkRetries < MAX_NETWORK_RETRIES) {
           networkRetries++;
@@ -479,17 +518,82 @@ export class HlsPlayer {
     }
   }
 
-  /** One poll: re-fetch the public webinar and apply any status change. A transient
-   *  fetch failure is ignored — we keep polling. */
+  /** One poll: re-fetch the public webinar, apply any status change, then make sure what
+   *  we are showing is actually alive. A transient fetch failure is ignored — we keep
+   *  polling (and still run the health check, since a dead playlist is the more likely
+   *  reason a poll failed mid-broadcast). */
   private async poll(): Promise<void> {
     if (this.destroyed) return;
-    let info: PublicWebinar;
+    let info: PublicWebinar | null = null;
     try {
       info = await this.fetchWebinar(this.code);
     } catch {
-      return; // transient — try again on the next tick
+      /* transient — try again on the next tick */
     }
-    await this.applyStatus(info);
+    if (info) await this.applyStatus(info);
+    if (!this.destroyed && this.state === 'live' && this.attached) {
+      await this.checkPlaybackHealth();
+    }
+  }
+
+  /**
+   * Watchdog for a stream that is "live" but not actually playing. Two failures happen in
+   * the field, neither of which raises a fatal hls.js error, so nothing else recovers them:
+   *
+   *  - **Frozen playhead.** The host reloads the studio page, so MediaMTX ends that publish
+   *    session and starts a new muxer. The guest keeps polling a playlist that will never
+   *    advance again and sits on a frozen frame until they refresh by hand.
+   *  - **Advertised-but-absent video.** The master lists a video rendition yet no frame ever
+   *    decodes (`videoWidth === 0`). The initial attach budget (MAX_VIDEO_RETRIES) gives up
+   *    and leaves a black canvas labelled "live", permanently.
+   *
+   * A mic-only broadcast (`manifestHasVideo === false`) is NOT a fault: its audio plays and
+   * we leave it alone rather than restarting the pipeline every few seconds. When the
+   * manifest can't be inspected (Safari's native player) we only act on a frozen playhead.
+   */
+  private async checkPlaybackHealth(): Promise<void> {
+    const t = this.video.currentTime ?? 0;
+    const progressed = this.lastCurrentTime < 0 || t > this.lastCurrentTime;
+    this.lastCurrentTime = t;
+    // A viewer who deliberately paused is not stalled.
+    const frozen = !progressed && !this.video.paused;
+    this.stalledChecks = frozen ? this.stalledChecks + 1 : 0;
+
+    const videoMissing = this.manifestHasVideo === true && this.video.videoWidth === 0;
+    if (this.stalledChecks >= STALL_CHECKS || videoMissing) {
+      await this.rebuildPlayback();
+    }
+  }
+
+  /** Tear the playback pipeline down and immediately rebuild it from the manifest —
+   *  what a manual page refresh does, minus the refresh. */
+  private async rebuildPlayback(): Promise<void> {
+    this.teardownPlayback();
+    if (this.destroyed || !this.playbackUrl) return;
+    // A rebuild is a fresh chance at the video rendition, so the audio-only budget resets
+    // too — otherwise one bad startup window poisons the rest of the broadcast.
+    this.videoRetries = 0;
+    const ok = await this.attach(this.playbackUrl);
+    if (this.destroyed) return;
+    this.setState(ok ? 'live' : 'waiting');
+  }
+
+  /** Detach whichever engine is attached and reset the per-attachment health state. */
+  private teardownPlayback(): void {
+    if (this.hls) {
+      this.hls.destroy();
+      this.hls = null;
+    } else {
+      try {
+        this.video.removeAttribute?.('src');
+      } catch {
+        /* detaching src is best-effort */
+      }
+    }
+    this.attached = false;
+    this.manifestHasVideo = null;
+    this.lastCurrentTime = -1;
+    this.stalledChecks = 0;
   }
 
   /** Stop polling, tear down hls.js, and detach the media. Idempotent. */

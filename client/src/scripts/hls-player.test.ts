@@ -54,14 +54,16 @@ function fakeVideo(opts: { canNative?: boolean } = {}) {
 // A fake hls.js default export.
 function fakeHls(supported = true) {
   const instances: any[] = [];
-  const Hls: any = function () {
+  const Hls: any = function (cfg: any) {
     const inst = {
+      /** The config the player passed in — credentials wiring is asserted on it. */
+      cfg,
       loadSource: vi.fn(),
       attachMedia: vi.fn(),
       destroy: vi.fn(),
       startLoad: vi.fn(),
       recoverMediaError: vi.fn(),
-      on: vi.fn(), // hlsError recovery handler
+      on: vi.fn(), // hlsError recovery + manifest inspection handlers
     };
     instances.push(inst);
     return inst;
@@ -74,6 +76,12 @@ function fakeHls(supported = true) {
 function fireHlsError(inst: any, type: string, fatal: boolean): void {
   const handler = inst.on.mock.calls.find((c: any[]) => c[0] === 'hlsError')?.[1];
   handler?.('hlsError', { fatal, type });
+}
+
+/** Fire any hls.js event the player subscribed to, with an arbitrary payload. */
+function fireHlsEvent(inst: any, event: string, data: unknown): void {
+  const handler = inst.on.mock.calls.find((c: any[]) => c[0] === event)?.[1];
+  handler?.(event, data);
 }
 
 beforeEach(() => {
@@ -483,6 +491,156 @@ describe('HlsPlayer state machine', () => {
 
     expect(p.getState()).toBe('waiting'); // overlay must stay up, not go live
     expect(instances[0]?.destroy).toHaveBeenCalled(); // stale hls.js torn down
+    p.destroy();
+    vi.useRealTimers();
+  });
+});
+
+// ---- live-stream recovery (webinar black screen / freeze) --------------------
+//
+// Three field failures this pins against, all reported together:
+//   1. The host reloads the studio page → MediaMTX starts a NEW publish session and
+//      a new HLS muxer. hls.js sees no *fatal* error, so nothing recovers: the guest
+//      stares at a frozen frame until they manually refresh.
+//   2. The manifest advertises a video rendition but no frames ever decode
+//      (videoWidth stays 0) — the guest gets a black canvas labelled "live". The
+//      initial 3-strike budget gives up and leaves it black forever.
+//   3. LL-HLS latency degraded to full-segment (~6 s) because the credentialed
+//      playlist reloads were rejected — hls.js uses fetch (not XHR) for low-latency
+//      part loading, so wiring credentials into `xhrSetup` alone is not enough.
+describe('HlsPlayer live recovery', () => {
+  /** Drive the player to `live` with a decodable video track. */
+  async function livePlayer(over: { videoWidth?: number } = {}) {
+    const { Hls, instances } = fakeHls(true);
+    const video = fakeVideo({ canNative: false }) as any;
+    video.videoWidth = over.videoWidth ?? 640;
+    video.currentTime = 10;
+    video.paused = false;
+    const p = new HlsPlayer({
+      code: 'ab12cd',
+      video,
+      loadHls: async () => ({ Hls }),
+      fetchWebinar: vi.fn().mockResolvedValue(webinar({ status: 'live' })),
+      firstFrameTimeoutMs: 0,
+    });
+    await p.start();
+    return { p, video, instances };
+  }
+
+  it('sends credentials on the fetch loader, not just XHR (LL-HLS latency)', async () => {
+    vi.useFakeTimers();
+    const { p, instances } = await livePlayer();
+    const cfg = instances[0].cfg;
+
+    // XHR path (kept for the non-low-latency loader).
+    const xhr: any = {};
+    cfg.xhrSetup(xhr);
+    expect(xhr.withCredentials).toBe(true);
+
+    // Fetch path — the one LL-HLS part loading actually uses.
+    expect(typeof cfg.fetchSetup).toBe('function');
+    const req = cfg.fetchSetup({ url: 'https://hls.example/index.m3u8' }, { method: 'GET' });
+    expect(req.credentials).toBe('include');
+
+    p.destroy();
+    vi.useRealTimers();
+  });
+
+  it('re-attaches when playback freezes (the host republished)', async () => {
+    vi.useFakeTimers();
+    const { p, video, instances } = await livePlayer();
+    expect(p.getState()).toBe('live');
+
+    // currentTime never advances again: the muxer the guest is reading is dead.
+    await vi.advanceTimersByTimeAsync(5_000); // poll 1 — notices the freeze
+    await vi.advanceTimersByTimeAsync(5_000); // poll 2 — still frozen → recover
+    await Promise.resolve();
+
+    expect(instances[0].destroy).toHaveBeenCalled();
+    expect(instances.length).toBeGreaterThan(1);
+    expect(instances[1].attachMedia).toHaveBeenCalledWith(video);
+
+    p.destroy();
+    vi.useRealTimers();
+  });
+
+  it('leaves healthy playback alone', async () => {
+    vi.useFakeTimers();
+    const { p, video, instances } = await livePlayer();
+
+    for (let i = 0; i < 4; i++) {
+      video.currentTime += 5; // playhead keeps moving
+      await vi.advanceTimersByTimeAsync(5_000);
+    }
+    await Promise.resolve();
+
+    expect(instances[0].destroy).not.toHaveBeenCalled();
+    expect(instances).toHaveLength(1);
+    expect(p.getState()).toBe('live');
+
+    p.destroy();
+    vi.useRealTimers();
+  });
+
+  /** Poll until the initial audio-only attach budget is spent and the player has settled
+   *  into `live` (so later assertions measure the watchdog, not the startup retries). */
+  async function settleAudioOnly(p: HlsPlayer, video: any): Promise<void> {
+    for (let i = 0; i < 6 && p.getState() !== 'live'; i++) {
+      video.currentTime += 5;
+      await vi.advanceTimersByTimeAsync(5_000);
+      await Promise.resolve();
+    }
+    expect(p.getState()).toBe('live'); // settled with audio, no picture
+  }
+
+  it('keeps recovering while the manifest promises video that never decodes', async () => {
+    vi.useFakeTimers();
+    // Data flows (audio plays, playhead advances) but the picture never appears.
+    const { p, video, instances } = await livePlayer({ videoWidth: 0 });
+    await settleAudioOnly(p, video);
+
+    // The master lists an H264 rendition — a black canvas is a FAULT here, not a
+    // mic-only broadcast, so giving up permanently is wrong.
+    const announceVideo = () =>
+      fireHlsEvent(instances[instances.length - 1], 'hlsManifestParsed', {
+        levels: [{ videoCodec: 'avc1.42e01e' }],
+      });
+    announceVideo();
+
+    const before = instances.length;
+    for (let i = 0; i < 4; i++) {
+      video.currentTime += 5;
+      await vi.advanceTimersByTimeAsync(5_000);
+      await Promise.resolve();
+      announceVideo(); // each fresh attachment parses the same master
+    }
+
+    // Still rebuilding on every poll, long past the 3-strike startup budget.
+    expect(instances.length).toBeGreaterThanOrEqual(before + 4);
+
+    p.destroy();
+    vi.useRealTimers();
+  });
+
+  it('settles on an audio-only manifest instead of looping forever', async () => {
+    vi.useFakeTimers();
+    const { p, video, instances } = await livePlayer({ videoWidth: 0 });
+    await settleAudioOnly(p, video);
+
+    // A genuinely mic-only webinar: no video rendition in the master at all.
+    fireHlsEvent(instances[instances.length - 1], 'hlsManifestParsed', {
+      levels: [{ videoCodec: undefined }],
+    });
+
+    const before = instances.length;
+    for (let i = 0; i < 5; i++) {
+      video.currentTime += 5;
+      await vi.advanceTimersByTimeAsync(5_000);
+      await Promise.resolve();
+    }
+
+    expect(instances.length).toBe(before); // no churn — the audio just plays
+
     p.destroy();
     vi.useRealTimers();
   });

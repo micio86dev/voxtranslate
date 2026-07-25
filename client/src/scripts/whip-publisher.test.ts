@@ -365,27 +365,61 @@ describe('WhipPublisher.start', () => {
 });
 
 describe('WhipPublisher.toggleCamera', () => {
-  it('captures + replaceTracks the camera on, stops + clears it off', async () => {
+  // Turning the camera on AFTER a mic-only publish cannot be a plain replaceTrack: the
+  // media server derives the HLS renditions from the tracks present when the publish
+  // session starts. A video track swapped in later never appears in the master playlist,
+  // so every guest keeps seeing a black screen — for the whole broadcast, no matter how
+  // often they refresh — until the host republishes. So we republish for them.
+  it('republishes when the camera turns on after a mic-only publish', async () => {
     fetchMock.mockResolvedValue(whipAnswer());
-    const audio = fakeTrack('audio');
     const getUserMedia = vi
       .fn()
-      .mockResolvedValueOnce(fakeStream([audio])) // start: mic-only
+      .mockResolvedValueOnce(fakeStream([fakeTrack('audio')])) // start: mic-only
       .mockResolvedValueOnce(fakeStream([fakeTrack('video')])); // toggleCamera(true)
     const p = new WhipPublisher({ webinarId: 'w1', getUserMedia });
     await p.start();
-    // The up-front video transceiver's sender is where the camera track lands.
-    const videoSender = pcs[0].transceivers[0].sender;
+    expect(pcs).toHaveLength(1);
+    expect(pcs[0].senders.map((s: any) => s.track?.kind)).toEqual(['audio']);
 
     const on = await p.toggleCamera(true);
+    await flush();
     expect(on).toBe(true);
     expect(p.isCameraOn()).toBe(true);
-    expect(videoSender.replaceTrack).toHaveBeenCalledWith(expect.objectContaining({ kind: 'video' }));
+
+    // A brand-new publish session whose OFFER carries the camera, so the server builds a
+    // video rendition from the first segment.
+    expect(pcs).toHaveLength(2);
+    expect(pcs[0].close).toHaveBeenCalled();
+    expect(pcs[1].senders.map((s: any) => s.track?.kind).sort()).toEqual(['audio', 'video']);
+    // The stale server-side resource is released, not leaked.
+    expect(
+      fetchMock.mock.calls.some(([, init]) => (init as RequestInit | undefined)?.method === 'DELETE'),
+    ).toBe(true);
+  });
+
+  it('swaps the track without republishing once the session already carries video', async () => {
+    fetchMock.mockResolvedValue(whipAnswer());
+    const getUserMedia = vi
+      .fn()
+      .mockResolvedValueOnce(fakeStream([fakeTrack('audio'), fakeTrack('video')])) // start with camera
+      .mockResolvedValueOnce(fakeStream([fakeTrack('video')])); // toggle back on
+    const p = new WhipPublisher({ webinarId: 'w1', withCamera: true, getUserMedia });
+    await p.start();
+    const videoSender = pcs[0].senders.find((s: any) => s.track?.kind === 'video');
 
     const off = await p.toggleCamera(false);
     expect(off).toBe(false);
-    expect(p.isCameraOn()).toBe(false);
     expect(videoSender.replaceTrack).toHaveBeenLastCalledWith(null);
+
+    const on = await p.toggleCamera(true);
+    await flush();
+    expect(on).toBe(true);
+    // The rendition already exists for this session — a swap is enough, and republishing
+    // would needlessly interrupt every viewer.
+    expect(pcs).toHaveLength(1);
+    expect(videoSender.replaceTrack).toHaveBeenLastCalledWith(
+      expect.objectContaining({ kind: 'video' }),
+    );
   });
 
   it('stays audio-only when the camera is denied', async () => {
