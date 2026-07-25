@@ -1,6 +1,7 @@
 // Unit tests for the Web Push opt-in (spec: scheduled meetings, Phase 1e).
 // navigator.serviceWorker / PushManager / Notification are minimal fakes; the
 // module is best-effort and non-throwing, so every branch resolves quietly.
+import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 
 const authState = vi.hoisted(() => ({ loggedIn: true }));
@@ -242,5 +243,65 @@ describe('enablePush', () => {
     installBrowser();
     stubApi({ subscribeStatus: 500 });
     expect(await enablePush()).toBe(false);
+  });
+});
+
+// ---- notification assets (Android silhouette regression) --------------------
+//
+// Symptom this pins against: on Android the push notification showed an empty
+// square inside a circle instead of the VoxTranslate mark.
+//
+// Root cause: `badge` pointed at /icon.png, a 512x512 PNG with NO alpha channel
+// (colour type 2 = RGB). Android does not draw the badge as an image — it uses
+// the ALPHA channel as a stencil and tints it. A fully opaque image is a stencil
+// covering the whole canvas, so the system renders a solid square inside its
+// circular chrome. A badge MUST therefore be a small, transparent, monochrome
+// glyph. `icon` (the big colour image) is unaffected by this rule.
+
+describe('notification assets', () => {
+  /** IHDR colour type: 4 (gray+alpha) and 6 (RGBA) are the ones carrying alpha. */
+  function pngColourType(publicPath: string): number {
+    const buf = readFileSync(new URL(`../../public${publicPath}`, import.meta.url));
+    expect(buf.subarray(12, 16).toString('ascii')).toBe('IHDR'); // sanity: real PNG
+    return buf.readUInt8(25);
+  }
+
+  function pngSize(publicPath: string): { w: number; h: number } {
+    const buf = readFileSync(new URL(`../../public${publicPath}`, import.meta.url));
+    return { w: buf.readUInt32BE(16), h: buf.readUInt32BE(20) };
+  }
+
+  const sw = readFileSync(new URL('../../public/sw.js', import.meta.url), 'utf8');
+  const badge = /badge:\s*'([^']+)'/.exec(sw)?.[1];
+  const icon = /icon:\s*'([^']+)'/.exec(sw)?.[1];
+
+  it('declares both a badge and an icon for the push notification', () => {
+    expect(badge).toBeTruthy();
+    expect(icon).toBeTruthy();
+  });
+
+  it('never uses the opaque app icon as the badge (the original bug)', () => {
+    expect(badge).not.toBe('/icon.png');
+    expect(badge).not.toBe(icon);
+  });
+
+  it('ships a badge with an alpha channel Android can use as a stencil', () => {
+    expect([4, 6]).toContain(pngColourType(badge!));
+  });
+
+  it('keeps the badge small — Android renders it at ~24dp', () => {
+    const { w, h } = pngSize(badge!);
+    expect(w).toBe(h); // square, or the system crops it
+    expect(w).toBeLessThanOrEqual(96);
+  });
+
+  // The notification icon is fetched by the phone at display time, often on a
+  // flaky mobile connection: a heavyweight file silently fails to load and the
+  // notification falls back to a generic glyph. The 512x512 app icon (238 KB) is
+  // far too big for that job — Android renders this at ~64dp.
+  it('serves a lightweight notification icon', () => {
+    const bytes = readFileSync(new URL(`../../public${icon}`, import.meta.url)).byteLength;
+    expect(bytes).toBeLessThan(60_000);
+    expect(pngSize(icon!).w).toBeLessThanOrEqual(192);
   });
 });

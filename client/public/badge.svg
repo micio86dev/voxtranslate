@@ -1,0 +1,30 @@
+<!--
+  Source art for the Android notification badge (`badge-96.png`).
+
+  Android does NOT draw the badge as a picture: it takes the image's ALPHA
+  channel as a stencil and tints it, then places it in circular system chrome.
+  So this must be a SOLID WHITE glyph on a FULLY TRANSPARENT background, kept
+  simple enough to stay legible at ~24dp — the full-colour app icon is useless
+  here (opaque = a solid square).
+
+  Regenerate with:
+    rsvg-convert -w 96 -h 96 client/public/badge.svg -o client/public/badge-96.png
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96" role="img" aria-label="VoxTranslate">
+  <!-- The bars are punched OUT of the bubble so both read at small sizes. -->
+  <mask id="glyph">
+    <rect width="96" height="96" fill="#000" />
+    <path
+      fill="#fff"
+      d="M22 16h52a12 12 0 0 1 12 12v30a12 12 0 0 1-12 12H44l-16 14a2.5 2.5 0 0 1-4.2-1.9V70h-1.8A12 12 0 0 1 10 58V28a12 12 0 0 1 12-12z"
+    />
+    <g fill="#000">
+      <rect x="27" y="35" width="6" height="16" rx="3" />
+      <rect x="38" y="29" width="6" height="28" rx="3" />
+      <rect x="49" y="24" width="6" height="38" rx="3" />
+      <rect x="60" y="31" width="6" height="24" rx="3" />
+      <rect x="71" y="37" width="6" height="12" rx="3" />
+    </g>
+  </mask>
+  <rect width="96" height="96" fill="#ffffff" mask="url(#glyph)" />
+</svg>
