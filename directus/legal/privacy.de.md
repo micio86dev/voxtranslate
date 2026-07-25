@@ -7,14 +7,15 @@ Der Dienst wird betrieben von **Alessandro Micelli**, Puerto del Rosario, Spain 
 ## 2. Welche Daten wir verarbeiten
 
 - **Kontodaten** — wenn Sie sich mit Google anmelden, erhalten wir Ihren Namen, Ihre E-Mail-Adresse und die URL Ihres Profilbilds.
-- **Audio (flüchtig)** — während Sie sprechen, wird Ihr Mikrofon-Audio an unseren Speech-to-Text-Anbieter und, im Premium-Tarif, an unseren Echtzeit-Übersetzungsanbieter gestreamt, um Live-Untertitel und -Übersetzungen zu erzeugen. Rohes Audio speichern wir nicht.
+- **Audio (flüchtig)** — während Sie sprechen, wird Ihr Mikrofon-Audio an die Anbieter gestreamt, die die für diesen Call gewählte Engine betreiben: einen Speech-to-Text-Anbieter im Standard-Tarif und einen Anbieter für Ende-zu-Ende-Sprachübersetzung in den Tarifen Pro und Premium. Im Tarif **Enhanced** streamt Ihr Browser das Audio **direkt** an den Anbieter, mit einem kurzlebigen Zugriffstoken — es passiert unsere Server also überhaupt nicht. Rohes Audio speichern wir nicht.
+- **Stimmprobe (optional)** — im Tarif Enhanced können Sie einen kurzen Clip aufnehmen, damit Ihre übersetzte Sprache in einer Ihrer eigenen ähnlichen Stimme gesprochen wird. Der Clip wird an unseren Sprachanbieter gesendet, der die synthetische Stimme erzeugt und eine Kennung zurückgibt, die wir in Ihrem Konto speichern. Die Funktion ist optional; der Tarif ist auch ohne sie nutzbar.
 - **Transkripte und Übersetzungen** — der Text von Sprache und Chat zusammen mit seinen Übersetzungen. Wenn ein angemeldeter Nutzer an einem Anruf teilnimmt, werden diese **gespeichert**, damit die Teilnehmer das Transkript anschließend durchsehen, exportieren (PDF/JSON) und per KI korrigieren können. Anrufe, an denen kein angemeldeter Nutzer teilgenommen hat, werden nicht gespeichert. Gespeicherte Transkripte werden gelöscht, wenn Sie Ihr Konto löschen — Ihre Äußerungen werden damit entfernt.
 - **Chat-Nachrichten und Dateien** — der Chat wird zwischen den Teilnehmern weitergeleitet und übersetzt. Von Ihnen angehängte Dateien werden privat gespeichert und über kurzlebige Links mit den Teilnehmern des Anrufs geteilt.
 - **Nutzungs-, Analyse- und Abrechnungsdaten** — Guthabenstand, Transaktionen, Sprechzeit pro Sitzung und Produktnutzungsereignisse (welche Funktionen und welche Tarifstufe Sie nutzen und wie lange), die zur Messung, Abrechnung, Absicherung und Verbesserung des Dienstes verwendet werden. Analysedaten werden für die Berichterstattung aggregiert.
 - **Sicherheitsdaten** — Missbrauchsmeldungen, die Sie einreichen oder die über Sie eingereicht werden (ggf. mit einem kurzen Transkriptauszug), sowie Moderations-/Sperrdatensätze.
 - **Technische Daten** — Verbindungsmetadaten, die erforderlich sind, um den Echtzeitdienst zu betreiben, Medien zu routen, Betriebsprotokolle zu übermitteln und den Dienst sicher zu halten.
 
-Video und Audio zwischen den Teilnehmern werden Peer-to-Peer (WebRTC) übertragen und weder über unsere Server geleitet noch von ihnen aufgezeichnet. Wenn keine direkte Verbindung hergestellt werden kann, werden Medien in verschlüsselter Form über einen TURN-Server weitergeleitet, die das Relay nicht lesen kann. Unser Server übernimmt die Anmeldung, das Signaling, den Live-Speech-to-Text-Stream, die Übersetzung, die Chat-Weiterleitung und — wo aktiviert — die Speicherung von Transkripten.
+Video und Audio zwischen den Teilnehmern werden Peer-to-Peer (WebRTC) übertragen und weder über unsere Server geleitet noch von ihnen aufgezeichnet. Wenn keine direkte Verbindung hergestellt werden kann, werden Medien in verschlüsselter Form über einen TURN-Server weitergeleitet, die das Relay nicht lesen kann. Unser Server übernimmt die Anmeldung, das Signaling, den Live-Speech-to-Text-Stream, die Übersetzung, die Chat-Weiterleitung und — wo aktiviert — die Speicherung von Transkripten. Im Tarif Enhanced umgeht selbst das Sprach-Audio unseren Server und läuft direkt von Ihrem Browser zum Sprachanbieter.
 
 ## 3. Warum wir sie verarbeiten und unsere Rechtsgrundlagen
 
@@ -32,10 +33,11 @@ Transkription und Übersetzung erfolgen automatisiert (KI-basiert) und können f
 
 Wir geben personenbezogene Daten ausschließlich zum Betrieb des Dienstes an die unten genannten Anbieter weiter. Einige befinden sich außerhalb des EWR; in diesem Fall stützen wir uns auf geeignete Garantien wie die EU-Standardvertragsklauseln.
 
-- **Google** — Anmeldung (OAuth): Name, E-Mail, Profilbild.
-- **Deepgram** — Speech-to-Text: gestreamtes Audio (flüchtig).
-- **Groq** — maschinelle Übersetzung (Standard-Tarif): Transkripttext (flüchtig).
-- **OpenAI** — Echtzeit-Übersetzung (Premium-Tarif): gestreamtes Audio und Transkripttext (flüchtig).
+- **Google** — Anmeldung (OAuth): Name, E-Mail, Profilbild; sowie, als Google Gemini, Echtzeit-Sprachübersetzung im Tarif **Premium**: gestreamtes Audio und Transkripttext (flüchtig).
+- **Deepgram** — Speech-to-Text (Standard-Tarif): gestreamtes Audio (flüchtig).
+- **Groq** — maschinelle Übersetzung (Tarife Standard und Enhanced): Transkripttext (flüchtig).
+- **OpenAI** — Echtzeit-Sprachübersetzung (Tarif **Pro**): gestreamtes Audio und Transkripttext (flüchtig).
+- **Cartesia** — Speech-to-Text und Sprachsynthese im Tarif **Enhanced**: Audio, das direkt aus Ihrem Browser gestreamt wird (flüchtig, nicht über unsere Server geleitet), und — falls Sie Voice-Cloning nutzen — der von Ihnen aufgenommene Clip sowie die daraus erzeugte synthetische Stimme.
 - **Stripe** — Zahlungsabwicklung: Rechnungs- und Zahlungsdaten.
 - **Supabase** — Datenbank und Dateispeicherung: Konto-, Nutzungs-, Abrechnungs- und Sicherheitsdaten, gespeicherte Transkripte und Chat-Dateianhänge.
 - **Cloudflare** — Edge-Auslieferung und TURN-Medien-Relay: Verbindungsmetadaten; weitergeleitete Medien bleiben verschlüsselt und sind für das Relay nicht lesbar.
@@ -47,6 +49,7 @@ Wir geben personenbezogene Daten ausschließlich zum Betrieb des Dienstes an die
 ## 5. Wie lange wir Daten aufbewahren
 
 - **Audio:** in Echtzeit verarbeitet und nicht gespeichert.
+- **Stimmprobe (bei Nutzung von Voice-Cloning):** die synthetische Stimme liegt bei unserem Sprachanbieter, ihre Kennung wird in Ihrem Konto gespeichert, bis Sie Ihr Konto löschen.
 - **Transkripte und Übersetzungen:** bei Anrufen mit einem angemeldeten Teilnehmer aufbewahrt, bis Sie den Anruf oder Ihr Konto löschen; Anrufe nur mit Gästen werden nicht gespeichert.
 - **Kontodaten:** aufbewahrt, solange Ihr Konto besteht; gelöscht, wenn Sie Ihr Konto löschen.
 - **Chat-Dateianhänge:** aufbewahrt, solange der zugehörige Anruf bzw. das Konto besteht, und über kurzlebige private Links bereitgestellt.

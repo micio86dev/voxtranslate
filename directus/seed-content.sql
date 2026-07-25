@@ -497,14 +497,15 @@ Il Servizio è gestito da **Alessandro Micelli**, Puerto del Rosario, Spain ("Vo
 ## 2. Quali dati trattiamo
 
 - **Dati dell''account** — accedendo con Google riceviamo nome, indirizzo email e URL dell''immagine del profilo.
-- **Audio (transitorio)** — mentre parli, l''audio del microfono è inviato in streaming al nostro fornitore di speech-to-text e, nel piano Premium, al nostro fornitore di traduzione in tempo reale, per generare sottotitoli e traduzioni dal vivo. Non conserviamo l''audio grezzo.
+- **Audio (transitorio)** — mentre parli, l''audio del microfono è inviato in streaming ai fornitori che alimentano il motore scelto per quella chiamata: un fornitore di speech-to-text nel tier Standard e un fornitore di traduzione vocale end-to-end nei tier Pro e Premium. Nel tier **Enhanced** il tuo browser invia l''audio **direttamente** al fornitore tramite un token di accesso di breve durata, quindi non passa affatto dai nostri server. Non conserviamo l''audio grezzo.
+- **Campione vocale (facoltativo)** — nel tier Enhanced puoi registrare un breve clip perché la tua voce tradotta sia pronunciata con un timbro simile al tuo. Il clip è inviato al nostro fornitore vocale, che crea la voce sintetica e restituisce un identificativo che conserviamo sul tuo account. La funzione è facoltativa e il tier si può usare senza di essa.
 - **Trascrizioni e traduzioni** — il testo del parlato e della chat insieme alle relative traduzioni. Quando un utente registrato partecipa a una chiamata, questi vengono **conservati** affinché i partecipanti possano successivamente rivedere, esportare (PDF/JSON) e correggere con l''IA la trascrizione. Le chiamate a cui non ha partecipato alcun utente registrato non vengono conservate. Le trascrizioni conservate vengono eliminate quando elimini il tuo account: i tuoi interventi vengono rimossi insieme ad esso.
 - **Messaggi di chat e file** — la chat è trasmessa e tradotta tra i partecipanti. I file che alleghi sono archiviati in modo privato e condivisi con i partecipanti alla chiamata tramite link di breve durata.
 - **Dati di utilizzo, analitici e di fatturazione** — saldo crediti, transazioni, tempo di conversazione per sessione ed eventi di utilizzo del prodotto (quali funzioni e quale livello di piano utilizzi, e per quanto tempo) usati per conteggiare, fatturare, proteggere e migliorare il Servizio. I dati analitici sono aggregati a fini di reportistica.
 - **Dati di sicurezza** — segnalazioni di abuso inviate da te o riguardanti te (che possono includere un breve estratto della trascrizione) e i record di moderazione/ban.
 - **Dati tecnici** — metadati di connessione necessari per far funzionare il servizio in tempo reale, instradare i media, inviare i log operativi e mantenere il Servizio sicuro.
 
-Il video e l''audio tra i partecipanti viaggiano peer-to-peer (WebRTC) e non transitano né vengono registrati dai nostri server. Quando non è possibile stabilire una connessione diretta, i media vengono inoltrati tramite un server TURN in forma cifrata che il relay non è in grado di leggere. Il nostro server gestisce l''accesso, il signaling, lo stream di speech-to-text dal vivo, la traduzione, il relay della chat e — dove abilitata — la conservazione delle trascrizioni.
+Il video e l''audio tra i partecipanti viaggiano peer-to-peer (WebRTC) e non transitano né vengono registrati dai nostri server. Quando non è possibile stabilire una connessione diretta, i media vengono inoltrati tramite un server TURN in forma cifrata che il relay non è in grado di leggere. Il nostro server gestisce l''accesso, il signaling, lo stream di speech-to-text dal vivo, la traduzione, il relay della chat e — dove abilitata — la conservazione delle trascrizioni. Nel tier Enhanced anche l''audio del parlato non passa dal nostro server: viaggia direttamente dal tuo browser al fornitore vocale.
 
 ## 3. Perché li trattiamo e basi giuridiche
 
@@ -522,10 +523,11 @@ La trascrizione e la traduzione sono automatizzate (basate sull''IA) e possono e
 
 Condividiamo i dati personali con i fornitori indicati di seguito esclusivamente per far funzionare il Servizio. Alcuni si trovano fuori dallo SEE; in tal caso ci basiamo su garanzie adeguate come le Clausole contrattuali standard dell''UE.
 
-- **Google** — accesso (OAuth): nome, email, immagine del profilo.
-- **Deepgram** — speech-to-text: audio in streaming (transitorio).
-- **Groq** — traduzione automatica (piano Standard): testo della trascrizione (transitorio).
-- **OpenAI** — traduzione in tempo reale (piano Premium): audio in streaming e testo della trascrizione (transitori).
+- **Google** — accesso (OAuth): nome, email, immagine del profilo; e, in quanto Google Gemini, traduzione vocale in tempo reale nel tier **Premium**: audio in streaming e testo della trascrizione (transitori).
+- **Deepgram** — speech-to-text (tier Standard): audio in streaming (transitorio).
+- **Groq** — traduzione automatica (tier Standard ed Enhanced): testo della trascrizione (transitorio).
+- **OpenAI** — traduzione vocale in tempo reale (tier **Pro**): audio in streaming e testo della trascrizione (transitori).
+- **Cartesia** — speech-to-text e sintesi vocale nel tier **Enhanced**: audio inviato in streaming direttamente dal tuo browser (transitorio, non instradato dai nostri server) e, se usi la clonazione vocale, il clip che registri e la voce sintetica risultante.
 - **Stripe** — elaborazione dei pagamenti: dati di fatturazione e di pagamento.
 - **Supabase** — database e archiviazione file: dati di account, utilizzo, fatturazione e sicurezza, trascrizioni conservate e file allegati alla chat.
 - **Cloudflare** — distribuzione edge e relay media TURN: metadati di connessione; i media inoltrati restano cifrati e non sono leggibili dal relay.
@@ -537,6 +539,7 @@ Condividiamo i dati personali con i fornitori indicati di seguito esclusivamente
 ## 5. Per quanto tempo conserviamo i dati
 
 - **Audio:** trattato in tempo reale e non conservato.
+- **Campione vocale (se usi la clonazione vocale):** la voce sintetica è detenuta dal nostro fornitore vocale e il suo identificativo è conservato sul tuo account fino a quando elimini l’account.
 - **Trascrizioni e traduzioni:** per le chiamate con un partecipante registrato, conservate finché non elimini la chiamata o il tuo account; le chiamate con soli ospiti non vengono conservate.
 - **Dati dell''account:** conservati finché l''account esiste; eliminati quando elimini l''account.
 - **File allegati alla chat:** conservati finché esiste la chiamata/l''account correlato e serviti tramite link privati di breve durata.
@@ -586,14 +589,15 @@ The Service is operated by **Alessandro Micelli**, Puerto del Rosario, Spain ("V
 ## 2. What data we process
 
 - **Account data** — when you sign in with Google, we receive your name, email address, and profile picture URL.
-- **Audio (transient)** — while you speak, your microphone audio is streamed to our speech-to-text provider and, on the Premium plan, our real-time translation provider, to generate live captions and translations. We do not store raw audio.
+- **Audio (transient)** — while you speak, your microphone audio is streamed to the providers that power the engine chosen for that call: a speech-to-text provider on the Standard tier, and an end-to-end speech-translation provider on the Pro and Premium tiers. On the **Enhanced** tier your browser streams the audio **directly** to the provider using a short-lived access token, so it does not pass through our servers at all. We do not store raw audio.
+- **Voice sample (optional)** — on the Enhanced tier you may record a short clip so your translated speech can be spoken in a voice resembling your own. The clip is sent to our voice provider, which creates the synthetic voice and returns an identifier that we store on your account. The feature is optional and can be used without it.
 - **Transcripts & translations** — the text of speech and chat together with its translations. When a signed-in user takes part in a call, these are **stored** so participants can review, export (PDF/JSON), and AI-correct the transcript afterwards. Calls in which no signed-in user took part are not stored. Stored transcripts are deleted when you delete your account — your utterances are removed with it.
 - **Chat messages & files** — chat is relayed and translated between participants. Files you attach are stored privately and shared with the call''s participants through short-lived links.
 - **Usage, analytics & billing data** — credit balance, transactions, per-session speaking time, and product-usage events (which features and plan tier you use, and for how long) used to meter, bill, secure, and improve the Service. Analytics are aggregated for reporting.
 - **Safety data** — abuse reports you submit or that are submitted about you (which may include a short transcript excerpt), and moderation/ban records.
 - **Technical data** — connection metadata needed to operate the real-time service, route media, ship operational logs, and keep the Service secure.
 
-Video and audio between participants are sent peer-to-peer (WebRTC) and are not routed through or recorded by our servers. When a direct connection cannot be established, media is relayed through a TURN server in encrypted form that the relay cannot read. Our server handles sign-in, signaling, the live speech-to-text stream, translation, chat relay, and — where enabled — transcript storage.
+Video and audio between participants are sent peer-to-peer (WebRTC) and are not routed through or recorded by our servers. When a direct connection cannot be established, media is relayed through a TURN server in encrypted form that the relay cannot read. Our server handles sign-in, signaling, the live speech-to-text stream, translation, chat relay, and — where enabled — transcript storage. On the Enhanced tier even the speech audio bypasses our server, travelling directly from your browser to the speech provider. On the Enhanced tier even the speech audio bypasses our server, travelling directly from your browser to the speech provider.
 
 ## 3. Why we process it and our legal bases
 
@@ -611,10 +615,11 @@ Transcription and translation are automated (AI-based) and may be inaccurate; AI
 
 We share personal data with the providers below strictly to operate the Service. Some are located outside the EEA; where that is the case we rely on appropriate safeguards such as the EU Standard Contractual Clauses.
 
-- **Google** — sign-in (OAuth): name, email, profile picture.
-- **Deepgram** — speech-to-text: streamed audio (transient).
-- **Groq** — machine translation (Standard plan): transcript text (transient).
-- **OpenAI** — real-time translation (Premium plan): streamed audio and transcript text (transient).
+- **Google** — sign-in (OAuth): name, email, profile picture; and, as Google Gemini, real-time speech translation on the **Premium** tier: streamed audio and transcript text (transient).
+- **Deepgram** — speech-to-text (Standard tier): streamed audio (transient).
+- **Groq** — machine translation (Standard and Enhanced tiers): transcript text (transient).
+- **OpenAI** — real-time speech translation (**Pro** tier): streamed audio and transcript text (transient).
+- **Cartesia** — speech-to-text and speech synthesis on the **Enhanced** tier: audio streamed directly from your browser (transient, not routed through our servers) and, if you use voice cloning, the voice clip you record plus the resulting synthetic voice.
 - **Stripe** — payment processing: billing details and payment data.
 - **Supabase** — database and file storage: account, usage, billing and safety data, stored transcripts, and chat file attachments.
 - **Cloudflare** — edge delivery and TURN media relay: connection metadata; relayed media stays encrypted and is not readable by the relay.
@@ -626,6 +631,8 @@ We share personal data with the providers below strictly to operate the Service.
 ## 5. How long we keep data
 
 - **Audio:** processed in real time and not stored.
+- **Voice sample (if you use voice cloning):** the synthetic voice is held by our voice provider and its identifier is stored on your account until you delete your account.
+- **Voice sample (if you use voice cloning):** the synthetic voice is held by our voice provider and its identifier is stored on your account until you delete your account.
 - **Transcripts & translations:** for calls with a signed-in participant, kept until you delete the call or your account; calls with only guests are not stored.
 - **Account data:** kept while your account exists; deleted when you delete your account.
 - **Chat file attachments:** kept while the related call/account exists and served through short-lived private links.
@@ -675,14 +682,15 @@ El Servicio es operado por **Alessandro Micelli**, Puerto del Rosario, Spain ("V
 ## 2. Qué datos tratamos
 
 - **Datos de la cuenta** — cuando inicias sesión con Google, recibimos tu nombre, correo electrónico y la URL de la foto de perfil.
-- **Audio (transitorio)** — mientras hablas, el audio de tu micrófono se transmite a nuestro proveedor de voz a texto y, en el plan Premium, a nuestro proveedor de traducción en tiempo real, para generar subtítulos y traducciones en directo. No almacenamos el audio en bruto.
+- **Audio (transitorio)** — mientras hablas, el audio de tu micrófono se transmite a los proveedores que sustentan el motor elegido para esa llamada: un proveedor de voz a texto en el tier Standard, y un proveedor de traducción de voz de extremo a extremo en los tiers Pro y Premium. En el tier **Enhanced** tu navegador transmite el audio **directamente** al proveedor mediante un token de acceso de corta duración, por lo que no pasa por nuestros servidores. No almacenamos el audio en bruto.
+- **Muestra de voz (opcional)** — en el tier Enhanced puedes grabar un clip breve para que tu voz traducida suene con un timbre parecido al tuyo. El clip se envía a nuestro proveedor de voz, que crea la voz sintética y devuelve un identificador que almacenamos en tu cuenta. Es opcional y el tier puede usarse sin ello.
 - **Transcripciones y traducciones** — el texto del habla y del chat junto con sus traducciones. Cuando un usuario con sesión iniciada participa en una llamada, estos se **almacenan** para que los participantes puedan revisar, exportar (PDF/JSON) y corregir con IA la transcripción posteriormente. Las llamadas en las que no participó ningún usuario con sesión iniciada no se almacenan. Las transcripciones almacenadas se eliminan cuando eliminas tu cuenta: tus intervenciones se borran con ella.
 - **Mensajes de chat y archivos** — el chat se transmite y traduce entre los participantes. Los archivos que adjuntas se almacenan de forma privada y se comparten con los participantes de la llamada mediante enlaces de corta duración.
 - **Datos de uso, analítica y facturación** — saldo de créditos, transacciones, tiempo de conversación por sesión y eventos de uso del producto (qué funciones y nivel de plan usas, y durante cuánto tiempo) utilizados para medir, facturar, proteger y mejorar el Servicio. La analítica se agrega con fines de elaboración de informes.
 - **Datos de seguridad** — denuncias de abuso que envías o que se presentan sobre ti (que pueden incluir un breve extracto de la transcripción) y los registros de moderación/bloqueo.
 - **Datos técnicos** — metadatos de conexión necesarios para operar el servicio en tiempo real, enrutar los medios, enviar registros operativos y mantener el Servicio seguro.
 
-El vídeo y el audio entre participantes viajan de igual a igual (WebRTC) y no pasan por nuestros servidores ni se graban. Cuando no es posible establecer una conexión directa, los medios se retransmiten a través de un servidor TURN de forma cifrada que el relay no puede leer. Nuestro servidor gestiona el inicio de sesión, la señalización, el flujo de voz a texto en directo, la traducción, el relay del chat y —cuando está habilitado— el almacenamiento de la transcripción.
+El vídeo y el audio entre participantes viajan de igual a igual (WebRTC) y no pasan por nuestros servidores ni se graban. Cuando no es posible establecer una conexión directa, los medios se retransmiten a través de un servidor TURN de forma cifrada que el relay no puede leer. Nuestro servidor gestiona el inicio de sesión, la señalización, el flujo de voz a texto en directo, la traducción, el relay del chat y —cuando está habilitado— el almacenamiento de la transcripción. En el tier Enhanced incluso el audio del habla evita nuestro servidor: viaja directamente de tu navegador al proveedor de voz.
 
 ## 3. Por qué los tratamos y nuestras bases jurídicas
 
@@ -700,10 +708,11 @@ La transcripción y la traducción son automatizadas (basadas en IA) y pueden se
 
 Compartimos datos personales con los proveedores indicados a continuación estrictamente para operar el Servicio. Algunos están ubicados fuera del EEE; en ese caso nos basamos en garantías adecuadas como las Cláusulas Contractuales Tipo de la UE.
 
-- **Google** — inicio de sesión (OAuth): nombre, correo, foto de perfil.
-- **Deepgram** — voz a texto: audio transmitido (transitorio).
-- **Groq** — traducción automática (plan Standard): texto de la transcripción (transitorio).
-- **OpenAI** — traducción en tiempo real (plan Premium): audio transmitido y texto de la transcripción (transitorios).
+- **Google** — inicio de sesión (OAuth): nombre, correo, foto de perfil; y, como Google Gemini, traducción de voz en tiempo real en el tier **Premium**: audio transmitido y texto de la transcripción (transitorios).
+- **Deepgram** — voz a texto (tier Standard): audio transmitido (transitorio).
+- **Groq** — traducción automática (tiers Standard y Enhanced): texto de la transcripción (transitorio).
+- **OpenAI** — traducción de voz en tiempo real (tier **Pro**): audio transmitido y texto de la transcripción (transitorios).
+- **Cartesia** — voz a texto y síntesis de voz en el tier **Enhanced**: audio transmitido directamente desde tu navegador (transitorio, sin pasar por nuestros servidores) y, si usas la clonación de voz, el clip que grabas y la voz sintética resultante.
 - **Stripe** — procesamiento de pagos: datos de facturación y de pago.
 - **Supabase** — base de datos y almacenamiento de archivos: datos de cuenta, uso, facturación y seguridad, transcripciones almacenadas y archivos adjuntos del chat.
 - **Cloudflare** — entrega en el edge y relay de medios TURN: metadatos de conexión; los medios retransmitidos permanecen cifrados y el relay no puede leerlos.
@@ -715,6 +724,7 @@ Compartimos datos personales con los proveedores indicados a continuación estri
 ## 5. Cuánto tiempo conservamos los datos
 
 - **Audio:** tratado en tiempo real y no almacenado.
+- **Muestra de voz (si usas la clonación de voz):** la voz sintética la conserva nuestro proveedor de voz y su identificador se almacena en tu cuenta hasta que elimines la cuenta.
 - **Transcripciones y traducciones:** en las llamadas con un participante con sesión iniciada, se conservan hasta que eliminas la llamada o tu cuenta; las llamadas con solo invitados no se almacenan.
 - **Datos de la cuenta:** conservados mientras exista tu cuenta; eliminados cuando la eliminas.
 - **Archivos adjuntos del chat:** conservados mientras exista la llamada/cuenta relacionada y servidos mediante enlaces privados de corta duración.
@@ -764,14 +774,15 @@ Le Service est exploité par **Alessandro Micelli**, Puerto del Rosario, Spain (
 ## 2. Quelles données nous traitons
 
 - **Données de compte** — lorsque vous vous connectez avec Google, nous recevons votre nom, votre adresse e-mail et l''URL de votre photo de profil.
-- **Audio (transitoire)** — pendant que vous parlez, l''audio de votre micro est transmis en streaming à notre fournisseur de reconnaissance vocale et, dans le cadre de l''offre Premium, à notre fournisseur de traduction en temps réel, afin de générer des sous-titres et des traductions en direct. Nous ne conservons pas l''audio brut.
+- **Audio (transitoire)** — pendant que vous parlez, l''audio de votre micro est transmis en streaming aux fournisseurs qui alimentent le moteur choisi pour cet appel : un fournisseur de reconnaissance vocale sur l''offre Standard, et un fournisseur de traduction vocale de bout en bout sur les offres Pro et Premium. Sur l''offre **Enhanced**, votre navigateur transmet l''audio **directement** au fournisseur au moyen d''un jeton d''accès de courte durée : il ne passe donc pas par nos serveurs. Nous ne conservons pas l''audio brut.
+- **Échantillon de voix (facultatif)** — sur l''offre Enhanced, vous pouvez enregistrer un court extrait pour que votre parole traduite soit prononcée dans une voix proche de la vôtre. L''extrait est envoyé à notre fournisseur vocal, qui crée la voix synthétique et renvoie un identifiant que nous conservons sur votre compte. La fonction est facultative et l''offre s''utilise sans elle.
 - **Transcriptions et traductions** — le texte de la parole et du chat ainsi que ses traductions. Lorsqu''un utilisateur connecté participe à un appel, ceux-ci sont **conservés** afin que les participants puissent ensuite consulter, exporter (PDF/JSON) et corriger par IA la transcription. Les appels auxquels aucun utilisateur connecté n''a participé ne sont pas conservés. Les transcriptions conservées sont supprimées lorsque vous supprimez votre compte — vos prises de parole sont effacées avec lui.
 - **Messages de chat et fichiers** — le chat est relayé et traduit entre les participants. Les fichiers que vous joignez sont stockés de manière privée et partagés avec les participants à l''appel via des liens à durée de vie limitée.
 - **Données d''utilisation, d''analyse et de facturation** — solde de crédits, transactions, temps de parole par session et événements d''utilisation du produit (quelles fonctionnalités et quel niveau d''offre vous utilisez, et pendant combien de temps) servant à mesurer, facturer, sécuriser et améliorer le Service. Les données d''analyse sont agrégées à des fins de reporting.
 - **Données de sécurité** — signalements d''abus que vous soumettez ou qui vous concernent (pouvant inclure un court extrait de transcription) et les enregistrements de modération/bannissement.
 - **Données techniques** — métadonnées de connexion nécessaires au fonctionnement du service en temps réel, à l''acheminement des médias, à la transmission des journaux d''exploitation et au maintien de la sécurité du Service.
 
-La vidéo et l''audio entre participants sont transmis en pair-à-pair (WebRTC) et ne passent pas par nos serveurs ni n''y sont enregistrés. Lorsqu''une connexion directe ne peut être établie, les médias sont relayés via un serveur TURN sous une forme chiffrée que le relais ne peut pas lire. Notre serveur gère la connexion, la signalisation, le flux de reconnaissance vocale en direct, la traduction, le relais du chat et — lorsqu''elle est activée — la conservation des transcriptions.
+La vidéo et l''audio entre participants sont transmis en pair-à-pair (WebRTC) et ne passent pas par nos serveurs ni n''y sont enregistrés. Lorsqu''une connexion directe ne peut être établie, les médias sont relayés via un serveur TURN sous une forme chiffrée que le relais ne peut pas lire. Notre serveur gère la connexion, la signalisation, le flux de reconnaissance vocale en direct, la traduction, le relais du chat et — lorsqu''elle est activée — la conservation des transcriptions. Sur l''offre Enhanced, même l''audio de la parole contourne notre serveur : il va directement de votre navigateur au fournisseur vocal.
 
 ## 3. Pourquoi nous les traitons et nos bases juridiques
 
@@ -789,10 +800,11 @@ La transcription et la traduction sont automatisées (basées sur l''IA) et peuv
 
 Nous partageons des données personnelles avec les prestataires ci-dessous, strictement pour faire fonctionner le Service. Certains sont situés en dehors de l''EEE ; dans ce cas, nous nous appuyons sur des garanties appropriées telles que les Clauses contractuelles types de l''UE.
 
-- **Google** — connexion (OAuth) : nom, e-mail, photo de profil.
-- **Deepgram** — reconnaissance vocale : audio en streaming (transitoire).
-- **Groq** — traduction automatique (offre Standard) : texte de la transcription (transitoire).
-- **OpenAI** — traduction en temps réel (offre Premium) : audio en streaming et texte de la transcription (transitoire).
+- **Google** — connexion (OAuth) : nom, e-mail, photo de profil ; et, en tant que Google Gemini, traduction vocale en temps réel sur l''offre **Premium** : audio en streaming et texte de la transcription (transitoire).
+- **Deepgram** — reconnaissance vocale (offre Standard) : audio en streaming (transitoire).
+- **Groq** — traduction automatique (offres Standard et Enhanced) : texte de la transcription (transitoire).
+- **OpenAI** — traduction vocale en temps réel (offre **Pro**) : audio en streaming et texte de la transcription (transitoire).
+- **Cartesia** — reconnaissance vocale et synthèse vocale sur l''offre **Enhanced** : audio transmis directement depuis votre navigateur (transitoire, sans passer par nos serveurs) et, si vous utilisez le clonage vocal, l''extrait que vous enregistrez ainsi que la voix synthétique obtenue.
 - **Stripe** — traitement des paiements : informations de facturation et données de paiement.
 - **Supabase** — base de données et stockage de fichiers : données de compte, d''utilisation, de facturation et de sécurité, transcriptions conservées et fichiers joints au chat.
 - **Cloudflare** — diffusion en périphérie et relais de médias TURN : métadonnées de connexion ; les médias relayés restent chiffrés et ne sont pas lisibles par le relais.
@@ -804,6 +816,7 @@ Nous partageons des données personnelles avec les prestataires ci-dessous, stri
 ## 5. Durée de conservation des données
 
 - **Audio :** traité en temps réel et non conservé.
+- **Échantillon de voix (si vous utilisez le clonage vocal) :** la voix synthétique est détenue par notre fournisseur vocal et son identifiant est conservé sur votre compte jusqu''à la suppression de celui-ci.
 - **Transcriptions et traductions :** pour les appels comportant un participant connecté, conservées jusqu''à ce que vous supprimiez l''appel ou votre compte ; les appels comportant uniquement des invités ne sont pas conservés.
 - **Données de compte :** conservées tant que votre compte existe ; supprimées lorsque vous supprimez votre compte.
 - **Fichiers joints au chat :** conservés tant que l''appel/le compte associé existe et servis via des liens privés à durée de vie limitée.
@@ -853,14 +866,15 @@ Der Dienst wird betrieben von **Alessandro Micelli**, Puerto del Rosario, Spain 
 ## 2. Welche Daten wir verarbeiten
 
 - **Kontodaten** — wenn Sie sich mit Google anmelden, erhalten wir Ihren Namen, Ihre E-Mail-Adresse und die URL Ihres Profilbilds.
-- **Audio (flüchtig)** — während Sie sprechen, wird Ihr Mikrofon-Audio an unseren Speech-to-Text-Anbieter und, im Premium-Tarif, an unseren Echtzeit-Übersetzungsanbieter gestreamt, um Live-Untertitel und -Übersetzungen zu erzeugen. Rohes Audio speichern wir nicht.
+- **Audio (flüchtig)** — während Sie sprechen, wird Ihr Mikrofon-Audio an die Anbieter gestreamt, die die für diesen Call gewählte Engine betreiben: einen Speech-to-Text-Anbieter im Standard-Tarif und einen Anbieter für Ende-zu-Ende-Sprachübersetzung in den Tarifen Pro und Premium. Im Tarif **Enhanced** streamt Ihr Browser das Audio **direkt** an den Anbieter, mit einem kurzlebigen Zugriffstoken — es passiert unsere Server also überhaupt nicht. Rohes Audio speichern wir nicht.
+- **Stimmprobe (optional)** — im Tarif Enhanced können Sie einen kurzen Clip aufnehmen, damit Ihre übersetzte Sprache in einer Ihrer eigenen ähnlichen Stimme gesprochen wird. Der Clip wird an unseren Sprachanbieter gesendet, der die synthetische Stimme erzeugt und eine Kennung zurückgibt, die wir in Ihrem Konto speichern. Die Funktion ist optional; der Tarif ist auch ohne sie nutzbar.
 - **Transkripte und Übersetzungen** — der Text von Sprache und Chat zusammen mit seinen Übersetzungen. Wenn ein angemeldeter Nutzer an einem Anruf teilnimmt, werden diese **gespeichert**, damit die Teilnehmer das Transkript anschließend durchsehen, exportieren (PDF/JSON) und per KI korrigieren können. Anrufe, an denen kein angemeldeter Nutzer teilgenommen hat, werden nicht gespeichert. Gespeicherte Transkripte werden gelöscht, wenn Sie Ihr Konto löschen — Ihre Äußerungen werden damit entfernt.
 - **Chat-Nachrichten und Dateien** — der Chat wird zwischen den Teilnehmern weitergeleitet und übersetzt. Von Ihnen angehängte Dateien werden privat gespeichert und über kurzlebige Links mit den Teilnehmern des Anrufs geteilt.
 - **Nutzungs-, Analyse- und Abrechnungsdaten** — Guthabenstand, Transaktionen, Sprechzeit pro Sitzung und Produktnutzungsereignisse (welche Funktionen und welche Tarifstufe Sie nutzen und wie lange), die zur Messung, Abrechnung, Absicherung und Verbesserung des Dienstes verwendet werden. Analysedaten werden für die Berichterstattung aggregiert.
 - **Sicherheitsdaten** — Missbrauchsmeldungen, die Sie einreichen oder die über Sie eingereicht werden (ggf. mit einem kurzen Transkriptauszug), sowie Moderations-/Sperrdatensätze.
 - **Technische Daten** — Verbindungsmetadaten, die erforderlich sind, um den Echtzeitdienst zu betreiben, Medien zu routen, Betriebsprotokolle zu übermitteln und den Dienst sicher zu halten.
 
-Video und Audio zwischen den Teilnehmern werden Peer-to-Peer (WebRTC) übertragen und weder über unsere Server geleitet noch von ihnen aufgezeichnet. Wenn keine direkte Verbindung hergestellt werden kann, werden Medien in verschlüsselter Form über einen TURN-Server weitergeleitet, die das Relay nicht lesen kann. Unser Server übernimmt die Anmeldung, das Signaling, den Live-Speech-to-Text-Stream, die Übersetzung, die Chat-Weiterleitung und — wo aktiviert — die Speicherung von Transkripten.
+Video und Audio zwischen den Teilnehmern werden Peer-to-Peer (WebRTC) übertragen und weder über unsere Server geleitet noch von ihnen aufgezeichnet. Wenn keine direkte Verbindung hergestellt werden kann, werden Medien in verschlüsselter Form über einen TURN-Server weitergeleitet, die das Relay nicht lesen kann. Unser Server übernimmt die Anmeldung, das Signaling, den Live-Speech-to-Text-Stream, die Übersetzung, die Chat-Weiterleitung und — wo aktiviert — die Speicherung von Transkripten. Im Tarif Enhanced umgeht selbst das Sprach-Audio unseren Server und läuft direkt von Ihrem Browser zum Sprachanbieter.
 
 ## 3. Warum wir sie verarbeiten und unsere Rechtsgrundlagen
 
@@ -878,10 +892,11 @@ Transkription und Übersetzung erfolgen automatisiert (KI-basiert) und können f
 
 Wir geben personenbezogene Daten ausschließlich zum Betrieb des Dienstes an die unten genannten Anbieter weiter. Einige befinden sich außerhalb des EWR; in diesem Fall stützen wir uns auf geeignete Garantien wie die EU-Standardvertragsklauseln.
 
-- **Google** — Anmeldung (OAuth): Name, E-Mail, Profilbild.
-- **Deepgram** — Speech-to-Text: gestreamtes Audio (flüchtig).
-- **Groq** — maschinelle Übersetzung (Standard-Tarif): Transkripttext (flüchtig).
-- **OpenAI** — Echtzeit-Übersetzung (Premium-Tarif): gestreamtes Audio und Transkripttext (flüchtig).
+- **Google** — Anmeldung (OAuth): Name, E-Mail, Profilbild; sowie, als Google Gemini, Echtzeit-Sprachübersetzung im Tarif **Premium**: gestreamtes Audio und Transkripttext (flüchtig).
+- **Deepgram** — Speech-to-Text (Standard-Tarif): gestreamtes Audio (flüchtig).
+- **Groq** — maschinelle Übersetzung (Tarife Standard und Enhanced): Transkripttext (flüchtig).
+- **OpenAI** — Echtzeit-Sprachübersetzung (Tarif **Pro**): gestreamtes Audio und Transkripttext (flüchtig).
+- **Cartesia** — Speech-to-Text und Sprachsynthese im Tarif **Enhanced**: Audio, das direkt aus Ihrem Browser gestreamt wird (flüchtig, nicht über unsere Server geleitet), und — falls Sie Voice-Cloning nutzen — der von Ihnen aufgenommene Clip sowie die daraus erzeugte synthetische Stimme.
 - **Stripe** — Zahlungsabwicklung: Rechnungs- und Zahlungsdaten.
 - **Supabase** — Datenbank und Dateispeicherung: Konto-, Nutzungs-, Abrechnungs- und Sicherheitsdaten, gespeicherte Transkripte und Chat-Dateianhänge.
 - **Cloudflare** — Edge-Auslieferung und TURN-Medien-Relay: Verbindungsmetadaten; weitergeleitete Medien bleiben verschlüsselt und sind für das Relay nicht lesbar.
@@ -893,6 +908,7 @@ Wir geben personenbezogene Daten ausschließlich zum Betrieb des Dienstes an die
 ## 5. Wie lange wir Daten aufbewahren
 
 - **Audio:** in Echtzeit verarbeitet und nicht gespeichert.
+- **Stimmprobe (bei Nutzung von Voice-Cloning):** die synthetische Stimme liegt bei unserem Sprachanbieter, ihre Kennung wird in Ihrem Konto gespeichert, bis Sie Ihr Konto löschen.
 - **Transkripte und Übersetzungen:** bei Anrufen mit einem angemeldeten Teilnehmer aufbewahrt, bis Sie den Anruf oder Ihr Konto löschen; Anrufe nur mit Gästen werden nicht gespeichert.
 - **Kontodaten:** aufbewahrt, solange Ihr Konto besteht; gelöscht, wenn Sie Ihr Konto löschen.
 - **Chat-Dateianhänge:** aufbewahrt, solange der zugehörige Anruf bzw. das Konto besteht, und über kurzlebige private Links bereitgestellt.
@@ -942,14 +958,15 @@ O Serviço é operado por **Alessandro Micelli**, Puerto del Rosario, Spain ("Vo
 ## 2. Que dados tratamos
 
 - **Dados da conta** — ao iniciar sessão com o Google, recebemos o seu nome, endereço de e-mail e o URL da foto de perfil.
-- **Áudio (transitório)** — enquanto você fala, o áudio do microfone é transmitido ao nosso fornecedor de speech-to-text e, no plano Premium, ao nosso fornecedor de tradução em tempo real, para gerar legendas e traduções ao vivo. Não armazenamos o áudio bruto.
+- **Áudio (transitório)** — enquanto você fala, o áudio do microfone é transmitido aos fornecedores que sustentam o motor escolhido para aquela chamada: um fornecedor de speech-to-text no nível Standard e um fornecedor de tradução de voz ponta a ponta nos níveis Pro e Premium. No nível **Enhanced**, o seu navegador transmite o áudio **diretamente** ao fornecedor com um token de acesso de curta duração, portanto ele não passa pelos nossos servidores. Não armazenamos o áudio bruto.
+- **Amostra de voz (opcional)** — no nível Enhanced você pode gravar um clipe curto para que a sua fala traduzida seja pronunciada com um timbre semelhante ao seu. O clipe é enviado ao nosso fornecedor de voz, que cria a voz sintética e devolve um identificador que armazenamos na sua conta. O recurso é opcional e o nível pode ser usado sem ele.
 - **Transcrições e traduções** — o texto da fala e do chat juntamente com as suas traduções. Quando um utilizador com sessão iniciada participa numa chamada, estes são **armazenados** para que os participantes possam rever, exportar (PDF/JSON) e corrigir com IA a transcrição posteriormente. As chamadas em que nenhum utilizador com sessão iniciada participou não são armazenadas. As transcrições armazenadas são eliminadas quando você elimina a sua conta — as suas intervenções são removidas com ela.
 - **Mensagens de chat e ficheiros** — o chat é transmitido e traduzido entre os participantes. Os ficheiros que você anexa são armazenados de forma privada e partilhados com os participantes da chamada através de ligações de curta duração.
 - **Dados de uso, análise e faturação** — saldo de créditos, transações, tempo de fala por sessão e eventos de uso do produto (que funcionalidades e nível de plano você usa, e durante quanto tempo), usados para medir, faturar, proteger e melhorar o Serviço. As análises são agregadas para efeitos de relatório.
 - **Dados de segurança** — denúncias de abuso que você envia ou que são enviadas sobre você (podendo incluir um breve excerto da transcrição) e registos de moderação/banimento.
 - **Dados técnicos** — metadados de ligação necessários para operar o serviço em tempo real, encaminhar a mídia, enviar registos operacionais e manter o Serviço seguro.
 
-O vídeo e o áudio entre participantes são enviados ponto a ponto (WebRTC) e não passam pelos nossos servidores nem são gravados por eles. Quando não é possível estabelecer uma ligação direta, a mídia é retransmitida através de um servidor TURN de forma encriptada que o relay não consegue ler. O nosso servidor trata do início de sessão, da sinalização, do fluxo de speech-to-text ao vivo, da tradução, do relay do chat e — quando ativado — do armazenamento das transcrições.
+O vídeo e o áudio entre participantes são enviados ponto a ponto (WebRTC) e não passam pelos nossos servidores nem são gravados por eles. Quando não é possível estabelecer uma ligação direta, a mídia é retransmitida através de um servidor TURN de forma encriptada que o relay não consegue ler. O nosso servidor trata do início de sessão, da sinalização, do fluxo de speech-to-text ao vivo, da tradução, do relay do chat e — quando ativado — do armazenamento das transcrições. No nível Enhanced, mesmo o áudio da fala não passa pelo nosso servidor: vai diretamente do seu navegador ao fornecedor de voz.
 
 ## 3. Por que os tratamos e as nossas bases jurídicas
 
@@ -967,10 +984,11 @@ A transcrição e a tradução são automatizadas (baseadas em IA) e podem ser i
 
 Partilhamos dados pessoais com os fornecedores abaixo estritamente para operar o Serviço. Alguns estão localizados fora do EEE; nesse caso, baseamo-nos em garantias adequadas, como as Cláusulas Contratuais-Tipo da UE.
 
-- **Google** — início de sessão (OAuth): nome, e-mail, foto de perfil.
-- **Deepgram** — speech-to-text: áudio transmitido (transitório).
-- **Groq** — tradução automática (plano Standard): texto da transcrição (transitório).
-- **OpenAI** — tradução em tempo real (plano Premium): áudio transmitido e texto da transcrição (transitório).
+- **Google** — início de sessão (OAuth): nome, e-mail, foto de perfil; e, como Google Gemini, tradução de voz em tempo real no nível **Premium**: áudio transmitido e texto da transcrição (transitório).
+- **Deepgram** — speech-to-text (nível Standard): áudio transmitido (transitório).
+- **Groq** — tradução automática (níveis Standard e Enhanced): texto da transcrição (transitório).
+- **OpenAI** — tradução de voz em tempo real (nível **Pro**): áudio transmitido e texto da transcrição (transitório).
+- **Cartesia** — speech-to-text e síntese de voz no nível **Enhanced**: áudio transmitido diretamente do seu navegador (transitório, sem passar pelos nossos servidores) e, caso use clonagem de voz, o clipe que você grava e a voz sintética resultante.
 - **Stripe** — processamento de pagamentos: dados de faturação e de pagamento.
 - **Supabase** — base de dados e armazenamento de ficheiros: dados de conta, uso, faturação e segurança, transcrições armazenadas e anexos de ficheiros do chat.
 - **Cloudflare** — entrega na edge e relay de mídia TURN: metadados de ligação; a mídia retransmitida permanece encriptada e não é legível pelo relay.
@@ -982,6 +1000,7 @@ Partilhamos dados pessoais com os fornecedores abaixo estritamente para operar o
 ## 5. Por quanto tempo conservamos os dados
 
 - **Áudio:** processado em tempo real e não armazenado.
+- **Amostra de voz (se você usar clonagem de voz):** a voz sintética fica com o nosso fornecedor de voz e o seu identificador é armazenado na sua conta até você excluir a conta.
 - **Transcrições e traduções:** para chamadas com um participante com sessão iniciada, conservadas até você eliminar a chamada ou a sua conta; as chamadas apenas com convidados não são armazenadas.
 - **Dados da conta:** mantidos enquanto a sua conta existir; eliminados quando você elimina a conta.
 - **Anexos de ficheiros do chat:** mantidos enquanto a chamada/conta relacionada existir e disponibilizados através de ligações privadas de curta duração.
@@ -1031,14 +1050,15 @@ INSERT INTO legal_translations (page_id, language, title, body)
 ## 2. 処理するデータ
 
 - **アカウントデータ** — Googleでサインインすると、お名前、メールアドレス、プロフィール画像のURLを受け取ります。
-- **音声（一時的）** — 発話中、マイクの音声は、ライブ字幕と翻訳を生成するために、当社の音声認識プロバイダー、そしてプレミアムプランの場合は当社のリアルタイム翻訳プロバイダーへストリーミングされます。生の音声は保存しません。
+- **音声（一時的）** — 発話中、マイクの音声は、その通話で選択されたエンジンを支えるプロバイダーへストリーミングされます。スタンダードでは音声認識プロバイダー、ProおよびPremiumではエンドツーエンドの音声翻訳プロバイダーです。**Enhanced**では、ブラウザーが短期有効のアクセストークンを用いてプロバイダーへ音声を**直接**送信するため、当社のサーバーを一切経由しません。生の音声は保存しません。
+- **音声サンプル（任意）** — Enhancedでは、翻訳後の発話をご自身に近い声で読み上げるために、短いクリップを録音できます。クリップは当社の音声プロバイダーへ送信され、合成音声が作成され、返却された識別子をアカウントに保存します。この機能は任意で、利用しなくてもEnhancedは使用できます。
 - **文字起こしと翻訳** — 発話およびチャットのテキストと、その翻訳です。サインイン済みのユーザーが通話に参加している場合、参加者が後から文字起こしを確認、エクスポート（PDF/JSON）、AIによる修正を行えるよう、これらは**保存**されます。サインイン済みユーザーが誰も参加していない通話は保存されません。保存された文字起こしは、お客様がアカウントを削除すると削除され、お客様の発話内容もそれとともに削除されます。
 - **チャットメッセージとファイル** — チャットは参加者間で中継・翻訳されます。お客様が添付したファイルは非公開で保存され、短期間有効なリンクを通じて通話の参加者と共有されます。
 - **利用・分析・課金データ** — クレジット残高、取引、セッションごとの発話時間、および製品利用イベント（どの機能やプランの階層を、どのくらいの時間利用したか）であり、本サービスの計測、請求、保護、改善のために使用されます。分析データはレポート作成のために集計されます。
 - **安全データ** — お客様が送信した、またはお客様について送信された不正利用の通報（短い文字起こしの抜粋を含む場合があります）、およびモデレーション/BAN記録。
 - **技術データ** — リアルタイムサービスの運用、メディアのルーティング、運用ログの送信、および本サービスの安全確保に必要な接続メタデータ。
 
-参加者間の映像と音声はピアツーピア（WebRTC）で送信され、当社のサーバーを経由せず、記録もされません。直接接続が確立できない場合、メディアは、中継サーバーが読み取れない暗号化された形式でTURNサーバーを経由して中継されます。当社のサーバーは、サインイン、シグナリング、ライブ音声認識ストリーム、翻訳、チャット中継、および有効な場合には文字起こしの保存を担当します。
+参加者間の映像と音声はピアツーピア（WebRTC）で送信され、当社のサーバーを経由せず、記録もされません。直接接続が確立できない場合、メディアは、中継サーバーが読み取れない暗号化された形式でTURNサーバーを経由して中継されます。当社のサーバーは、サインイン、シグナリング、ライブ音声認識ストリーム、翻訳、チャット中継、および有効な場合には文字起こしの保存を担当します。Enhancedでは発話音声も当社のサーバーを経由せず、ブラウザーから音声プロバイダーへ直接送信されます。
 
 ## 3. 処理の目的と法的根拠
 
@@ -1056,10 +1076,11 @@ INSERT INTO legal_translations (page_id, language, title, body)
 
 当社は、本サービスの運用のためにのみ、以下のプロバイダーと個人データを共有します。一部はEEA域外に所在しており、その場合はEU標準契約条項などの適切な保護措置に依拠します。
 
-- **Google** — サインイン（OAuth）：氏名、メール、プロフィール画像。
-- **Deepgram** — 音声認識：ストリーミング音声（一時的）。
-- **Groq** — 機械翻訳（スタンダードプラン）：文字起こしテキスト（一時的）。
-- **OpenAI** — リアルタイム翻訳（プレミアムプラン）：ストリーミング音声と文字起こしテキスト（一時的）。
+- **Google** — サインイン（OAuth）：氏名、メール、プロフィール画像。また Google Gemini として、**Premium**のリアルタイム音声翻訳：ストリーミング音声と文字起こしテキスト（一時的）。
+- **Deepgram** — 音声認識（スタンダード）：ストリーミング音声（一時的）。
+- **Groq** — 機械翻訳（スタンダードおよびEnhanced）：文字起こしテキスト（一時的）。
+- **OpenAI** — リアルタイム音声翻訳（**Pro**）：ストリーミング音声と文字起こしテキスト（一時的）。
+- **Cartesia** — **Enhanced**の音声認識および音声合成：ブラウザーから直接送信される音声（一時的、当社サーバーを経由しません）。音声クローンを利用する場合は、録音したクリップおよび生成された合成音声。
 - **Stripe** — 決済処理：請求情報、決済データ。
 - **Supabase** — データベースおよびファイルストレージ：アカウント、利用、課金、安全データ、保存された文字起こし、チャットの添付ファイル。
 - **Cloudflare** — エッジ配信およびTURNメディア中継：接続メタデータ。中継されるメディアは暗号化されたままで、中継側が読み取ることはできません。
@@ -1071,6 +1092,7 @@ INSERT INTO legal_translations (page_id, language, title, body)
 ## 5. データの保持期間
 
 - **音声：** リアルタイムで処理され、保存されません。
+- **音声サンプル（音声クローンを利用する場合）：** 合成音声は当社の音声プロバイダーが保持し、その識別子はアカウントを削除するまでアカウントに保存されます。
 - **文字起こしと翻訳：** サインイン済みの参加者がいる通話については、お客様が通話またはアカウントを削除するまで保持されます。ゲストのみの通話は保存されません。
 - **アカウントデータ：** アカウントが存在する間保持され、アカウントを削除すると削除されます。
 - **チャットの添付ファイル：** 関連する通話/アカウントが存在する間保持され、短期間有効な非公開リンクを通じて提供されます。
@@ -1120,14 +1142,15 @@ INSERT INTO legal_translations (page_id, language, title, body)
 ## 2. 我们处理哪些数据
 
 - **账户数据** — 当您使用 Google 登录时，我们会收到您的姓名、电子邮件地址和头像 URL。
-- **音频（瞬时）** — 您说话时，麦克风音频会流式传输到我们的语音转文字服务商，以及在高级套餐下传输到我们的实时翻译服务商，用于生成实时字幕和翻译。我们不存储原始音频。
+- **音频（瞬时）** — 您说话时，麦克风音频会流式传输给支撑该次通话所选引擎的服务商：标准套餐使用语音转文字服务商，Pro 与 Premium 使用端到端语音翻译服务商。在 **Enhanced** 套餐下，您的浏览器使用短期有效的访问令牌将音频**直接**传输给服务商，因此完全不经过我们的服务器。我们不存储原始音频。
+- **语音样本（可选）** — 在 Enhanced 套餐下，您可以录制一段简短音频，让翻译后的语音以接近您本人的声音朗读。该音频会发送给我们的语音服务商，由其创建合成语音并返回一个标识符，我们将其保存在您的账户中。此功能为可选，不使用也可正常使用该套餐。
 - **转写与翻译** — 语音和聊天的文本及其翻译。当已登录用户参与通话时，这些内容会被**存储**，以便参与者随后查看、导出（PDF/JSON）并对转写进行 AI 校正。没有已登录用户参与的通话不会被存储。当您删除账户时，已存储的转写会被删除——您的发言内容会随之一并移除。
 - **聊天消息与文件** — 聊天内容在参与者之间转发和翻译。您附加的文件会被私密存储，并通过短时有效的链接与该通话的参与者共享。
 - **使用、分析与计费数据** — 积分余额、交易记录、每次会话的发言时长，以及产品使用事件（您使用了哪些功能和套餐级别、使用了多长时间），用于对本服务计量、计费、保障安全和改进。分析数据会进行汇总以用于报告。
 - **安全数据** — 您提交的或针对您提交的滥用举报（可能包含简短的转写摘录），以及审核/封禁记录。
 - **技术数据** — 运行实时服务、路由媒体、传输运行日志以及保障本服务安全所需的连接元数据。
 
-参与者之间的视频和音频通过点对点（WebRTC）传输，不经过我们的服务器，也不会被我们记录。当无法建立直接连接时，媒体会以加密形式通过 TURN 服务器中转，中转方无法读取其内容。我们的服务器负责登录、信令、实时语音转文字流、翻译、聊天转发，以及在已启用的情况下负责转写存储。
+参与者之间的视频和音频通过点对点（WebRTC）传输，不经过我们的服务器，也不会被我们记录。当无法建立直接连接时，媒体会以加密形式通过 TURN 服务器中转，中转方无法读取其内容。我们的服务器负责登录、信令、实时语音转文字流、翻译、聊天转发，以及在已启用的情况下负责转写存储。在 Enhanced 套餐下，连语音音频也不经过我们的服务器，而是从您的浏览器直接发送给语音服务商。
 
 ## 3. 处理原因与法律依据
 
@@ -1145,10 +1168,11 @@ INSERT INTO legal_translations (page_id, language, title, body)
 
 我们仅为运营本服务而严格地与以下提供商共享个人数据。其中一些位于欧洲经济区之外；在这种情况下，我们依赖欧盟标准合同条款等适当保障措施。
 
-- **Google** — 登录（OAuth）：姓名、邮箱、头像。
-- **Deepgram** — 语音转文字：流式音频（瞬时）。
-- **Groq** — 机器翻译（标准套餐）：转写文本（瞬时）。
-- **OpenAI** — 实时翻译（高级套餐）：流式音频和转写文本（瞬时）。
+- **Google** — 登录（OAuth）：姓名、邮箱、头像；以及作为 Google Gemini，提供 **Premium** 套餐的实时语音翻译：流式音频和转写文本（瞬时）。
+- **Deepgram** — 语音转文字（标准套餐）：流式音频（瞬时）。
+- **Groq** — 机器翻译（标准与 Enhanced 套餐）：转写文本（瞬时）。
+- **OpenAI** — 实时语音翻译（**Pro** 套餐）：流式音频和转写文本（瞬时）。
+- **Cartesia** — **Enhanced** 套餐的语音转文字与语音合成：直接从您的浏览器流式传输的音频（瞬时，不经过我们的服务器）；如使用语音克隆，还包括您录制的音频片段及由此生成的合成语音。
 - **Stripe** — 支付处理：账单信息和支付数据。
 - **Supabase** — 数据库和文件存储：账户、使用、计费和安全数据，已存储的转写，以及聊天文件附件。
 - **Cloudflare** — 边缘分发和 TURN 媒体中转：连接元数据；中转的媒体保持加密，中转方无法读取。
@@ -1160,6 +1184,7 @@ INSERT INTO legal_translations (page_id, language, title, body)
 ## 5. 数据保留期限
 
 - **音频：** 实时处理，不存储。
+- **语音样本（如使用语音克隆）：** 合成语音由我们的语音服务商保存，其标识符保存在您的账户中，直至您删除账户。
 - **转写与翻译：** 对于有已登录参与者的通话，保留至您删除该通话或您的账户为止；仅有访客的通话不会被存储。
 - **账户数据：** 在您的账户存续期间保留；删除账户时即被删除。
 - **聊天文件附件：** 在相关通话/账户存续期间保留，并通过短时有效的私密链接提供。
