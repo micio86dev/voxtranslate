@@ -1441,11 +1441,11 @@ const jsonLd = {
               <!-- QR: tappable → fullscreen zoom overlay (same pattern as the card QR) -->
               <img id="wdm-qr" class="webinar-qr wdm-qr" width="100" height="100" alt="" tabindex="0" role="button" aria-label={T('webinarQrZoom')} title={T('webinarQrZoom')} />
               <div class="wdm-share-info">
-                <div class="webinar-link-row">
-                  <input id="wdm-join-url" class="webinar-link-input" type="text" readonly aria-label={T('webinarJoinLink')} />
-                  <button id="wdm-copy-btn" type="button" class="btn-ghost webinar-copy-btn" data-i18n="copy">{T('copy')}</button>
-                </div>
-                <div class="webinar-qr-actions">
+                <input id="wdm-join-url" class="webinar-link-input wdm-join-url" type="text" readonly aria-label={T('webinarJoinLink')} />
+                <!-- The three share actions share one row on desktop and stack on mobile
+                     (wdm-share-actions), so none of them is cramped against the others. -->
+                <div class="wdm-share-actions">
+                  <button id="wdm-copy-btn" type="button" class="btn-ghost" data-i18n="copy">{T('copy')}</button>
                   <button id="wdm-qr-download" type="button" class="btn-ghost" data-i18n="webinarQrDownload">{T('webinarQrDownload')}</button>
                   <button id="wdm-qr-print" type="button" class="btn-ghost" data-i18n="webinarQrPrint">{T('webinarQrPrint')}</button>
                 </div>
@@ -3076,6 +3076,16 @@ const jsonLd = {
     .wdm-share-row { display: flex; gap: 12px; align-items: flex-start; flex-wrap: wrap; }
     .wdm-share-info { flex: 1 1 180px; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
     .wdm-qr { flex: none; width: 100px; height: 100px; border-radius: 8px; background: #fff; padding: 4px; cursor: zoom-in; }
+    /* The join-link field owns its row: the actions below it are wide enough to read
+       ("Download QR", "Print QR") without squeezing the URL. */
+    .wdm-join-url { width: 100%; }
+    /* Share actions: equal columns on desktop so Copy / Download QR / Print QR are evenly
+       distributed, one full-width button per row on narrow screens. */
+    .wdm-share-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+    .wdm-share-actions .btn-ghost { min-height: 38px; padding: 0 12px; white-space: nowrap; }
+    @media (max-width: 560px) {
+      .wdm-share-actions { grid-template-columns: 1fr; }
+    }
     .wdm-qr:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     .wdm-code-hint { margin: 0; font-size: 0.78rem; color: var(--muted); }
     .wdm-code-hint code { font-family: ui-monospace, monospace; letter-spacing: 0.02em; }
@@ -3462,7 +3472,13 @@ const jsonLd = {
     :global(.vox-toast.show) { opacity: 1; transform: translate(-50%, 0); }
     /* Outcome variants for async actions (session-detail AI tools, etc.): a
        colored accent border so success/failure reads at a glance. */
-    :global(.vox-toast.ok) { border-color: var(--success, #22c55e); }
+    :global(.vox-toast.ok) {
+      border-color: var(--success, #22c55e);
+      background: color-mix(in srgb, var(--success, #22c55e) 14%, var(--surface));
+      display: flex; align-items: center; gap: 8px;
+    }
+    /* Success check: sits before the message (added by toast(), aria-hidden). */
+    :global(.vox-toast .vox-toast-ico) { color: var(--success, #22c55e); font-weight: 800; line-height: 1; }
     :global(.vox-toast.err) { border-color: var(--danger, #ef4444); }
 
     /* Detected-language toast (spec 0012, created in JS). Interactive — it

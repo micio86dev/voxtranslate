@@ -51,6 +51,23 @@ describe('toast', () => {
     expect(el.getAttribute('role')).toBe('status');
   });
 
+  it('marks a success toast with a check glyph, hidden from screen readers', () => {
+    toast('Link copied', 'ok');
+    const el = document.querySelector('.vox-toast')!;
+    const ico = el.querySelector('.vox-toast-ico')!;
+    expect(ico).not.toBeNull();
+    expect(ico.textContent).toBe('✓');
+    // The glyph is decoration: the announced text must stay just the message.
+    expect(ico.getAttribute('aria-hidden')).toBe('true');
+    expect(el.querySelector('.vox-toast-msg')!.textContent).toBe('Link copied');
+  });
+
+  it('leaves info and error toasts glyph-free', () => {
+    toast('saved');
+    toast('boom', 'err');
+    expect(document.querySelectorAll('.vox-toast-ico')).toHaveLength(0);
+  });
+
   it('can stack several toasts independently', () => {
     toast('one');
     toast('two', 'ok');
