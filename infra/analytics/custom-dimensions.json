@@ -1,0 +1,55 @@
+{
+  "$comment": [
+    "GA4 event-scoped custom dimensions, one per event parameter the apps send.",
+    "GA4 COLLECTS unregistered parameters but cannot REPORT on them: until a",
+    "parameter is registered here it is invisible in explorations and audiences.",
+    "parameterName must match the event param in the code EXACTLY, and both it and",
+    "`scope` are immutable once created — only displayName/description can change.",
+    "GA4 allows 50 event-scoped custom dimensions per property.",
+    "Numeric params (duration_seconds, count) belong in custom METRICS, not here."
+  ],
+  "dimensions": [
+    {
+      "parameterName": "acquisition_source",
+      "displayName": "Acquisition source",
+      "description": "First-touch source the visitor arrived with (?source / ?utm_source / ?ref), sent on sign_up. GA4's own attribution only understands utm_*, so a bare ?source=reddit visit looks organic to it — this parameter is the only way to attribute registrations to those campaigns. 'organic' when the visitor arrived with none. See client/src/scripts/analytics.ts (trackAuthSuccess).",
+      "scope": "EVENT"
+    },
+    {
+      "parameterName": "method",
+      "displayName": "Auth method",
+      "description": "Authentication provider on sign_up and login (currently always 'google'), and the join path on room_joined.",
+      "scope": "EVENT"
+    },
+    {
+      "parameterName": "visibility",
+      "displayName": "Room visibility",
+      "description": "Whether a started call was created public (listed on the home) or private (link only). Sent on start_call.",
+      "scope": "EVENT"
+    },
+    {
+      "parameterName": "is_returning_user",
+      "displayName": "Returning user",
+      "description": "Whether the person joining a room was already a signed-in account holder. Sent on room_joined.",
+      "scope": "EVENT"
+    },
+    {
+      "parameterName": "reason",
+      "displayName": "Failure reason",
+      "description": "Why a call could not start — room_full, banned, credits_exhausted. Sent on call_failed and limit_reached; the funnel drop-off is unreadable without it.",
+      "scope": "EVENT"
+    },
+    {
+      "parameterName": "button",
+      "displayName": "CTA button",
+      "description": "Which call-to-action was clicked on the marketing site. Sent on cta_clicked (website).",
+      "scope": "EVENT"
+    },
+    {
+      "parameterName": "location",
+      "displayName": "CTA location",
+      "description": "Where on the page the clicked call-to-action sits (hero, pricing, footer…). Sent on cta_clicked (website).",
+      "scope": "EVENT"
+    }
+  ]
+}
