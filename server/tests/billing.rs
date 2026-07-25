@@ -318,7 +318,7 @@ mod ws_metering {
             name: "Billed".into(),
             avatar_url: Some("https://img/billed=s96".into()),
         };
-        let user = upsert_google_user(
+        let (user, _) = upsert_google_user(
             &srv.pool,
             &identity,
             rust_decimal::Decimal::new(200, 2),
@@ -452,7 +452,7 @@ mod ws_metering {
             name: "Enh".into(),
             avatar_url: None,
         };
-        let user = upsert_google_user(
+        let (user, _) = upsert_google_user(
             &srv.pool,
             &identity,
             rust_decimal::Decimal::new(500, 2),
@@ -844,7 +844,7 @@ mod account_api {
             name: "Acct".into(),
             avatar_url: None,
         };
-        let user = upsert_google_user(
+        let (user, _) = upsert_google_user(
             &srv.pool,
             &identity,
             rust_decimal::Decimal::new(200, 2),
@@ -937,7 +937,7 @@ mod safety_http {
             name: "Sam".into(),
             avatar_url: None,
         };
-        let user = upsert_google_user(
+        let (user, _) = upsert_google_user(
             &srv.pool,
             &identity,
             rust_decimal::Decimal::new(200, 2),
@@ -1110,7 +1110,7 @@ mod safety_ws {
             name: "Bad".into(),
             avatar_url: None,
         };
-        let user = upsert_google_user(
+        let (user, _) = upsert_google_user(
             &srv.pool,
             &identity,
             rust_decimal::Decimal::new(200, 2),
@@ -1170,7 +1170,7 @@ mod safety_ws {
             name: "Host".into(),
             avatar_url: None,
         };
-        let user = upsert_google_user(
+        let (user, _) = upsert_google_user(
             &srv.pool,
             &identity,
             rust_decimal::Decimal::new(500, 2),
@@ -1252,6 +1252,7 @@ mod admin_api {
         )
         .await
         .unwrap()
+        .0
         .id
     }
 

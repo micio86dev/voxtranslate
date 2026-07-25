@@ -29,7 +29,7 @@ import type { CartesiaManager, CartesiaSession } from './cartesia';
 import { type CallModules, loadCallModules } from './call-modules';
 import { loadRemoteI18n } from './content';
 import { setupScheduling } from './meetings';
-import { initAnalytics, grantAnalyticsConsent, track } from './analytics';
+import { initAnalytics, grantAnalyticsConsent, track, trackAuthSuccess } from './analytics';
 import { setupGeoOptIn } from './geo';
 import { enablePush, maybeSubscribePush } from './push';
 import {
@@ -7137,6 +7137,9 @@ function openWebinarDetailModal(w: WebinarView): void {
       await navigator.clipboard.writeText(info.join_url);
       wdmCopyBtn.textContent = t('copied');
       setTimeout(() => (wdmCopyBtn.textContent = t('copy')), 1200);
+      // Confirm outside the button too: the label flip alone is easy to miss on a phone,
+      // where the tap target is under the thumb.
+      toast(t('inviteCopied'), 'ok');
     } catch {
       wdmJoinUrl.select();
       toast(t('copyFailed'), 'err');
@@ -7704,7 +7707,7 @@ function loadGsi(): Promise<void> {
 async function onGoogleCode(resp: { code?: string; error?: string }): Promise<void> {
   if (!resp.code) return;
   try {
-    await auth.exchangeGoogleCode(resp.code);
+    const { isNew } = await auth.exchangeGoogleCode(resp.code);
     // A pending "Add to Google Calendar" retry (re-consent path): the server now holds a
     // fresh refresh token with the Calendar scope, so retry the calendar add in place —
     // don't navigate away from the Webinars screen the host is on.
@@ -7720,7 +7723,9 @@ async function onGoogleCode(resp: { code?: string; error?: string }): Promise<vo
       }
       return;
     }
-    track('login', { method: 'google' });
+    // A first sign-in IS the registration (accounts are created on demand), so a
+    // brand-new account reports `sign_up` with the campaign it came from.
+    trackAuthSuccess({ isNew, source: auth.getAcquisitionSource() });
     enterHome();
   } catch {
     /* stay on the current screen; the user can retry */

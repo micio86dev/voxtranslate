@@ -108,9 +108,24 @@ describe('login + me', () => {
     const auth = await fresh();
     const user = { id: 'u1', email: 'a@b.com', name: 'Al', balance: 2 };
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(okJson({ token: 'jwt', user })));
-    const u = await auth.loginWithGoogle('cred');
+    const { user: u, isNew } = await auth.loginWithGoogle('cred');
     expect(u.name).toBe('Al');
     expect(auth.getToken()).toBe('jwt');
+    // No `is_new` in the payload (older server) ⇒ treated as a returning login,
+    // so we never report a bogus `sign_up` conversion.
+    expect(isNew).toBe(false);
+  });
+
+  it('flags a brand-new account from the server`s is_new', async () => {
+    const auth = await fresh();
+    const user = { id: 'u2', email: 'n@b.com', name: 'New', balance: 2 };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(okJson({ token: 'jwt', user, is_new: true })),
+    );
+    const res = await auth.loginWithGoogle('cred');
+    expect(res.isNew).toBe(true);
+    expect(res.user.name).toBe('New');
   });
 
   it('throws on login failure', async () => {
@@ -452,12 +467,24 @@ describe('exchangeGoogleCode (popup code flow)', () => {
     const fetchMock = vi.fn().mockResolvedValue(okJson({ token: 'jwt9', user }));
     vi.stubGlobal('fetch', fetchMock);
 
-    const u = await auth.exchangeGoogleCode('4/0Acode');
+    const { user: u, isNew } = await auth.exchangeGoogleCode('4/0Acode');
     expect(u.name).toBe('Co');
+    expect(isNew).toBe(false);
     expect(auth.getToken()).toBe('jwt9');
     expect(auth.getUser()?.balance).toBe(4);
     const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
     expect(body).toMatchObject({ code: '4/0Acode', redirect_uri: 'postmessage', source: 'blog' });
+  });
+
+  it('flags a brand-new account on the code flow too', async () => {
+    const auth = await fresh();
+    const user = { id: 'u10', email: 'e@f.com', name: 'Fresh', balance: 4 };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(okJson({ token: 'jwtA', user, is_new: true })),
+    );
+    const res = await auth.exchangeGoogleCode('4/0Anew');
+    expect(res.isNew).toBe(true);
   });
 
   it('throws on a rejected code exchange', async () => {

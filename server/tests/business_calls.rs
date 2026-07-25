@@ -60,7 +60,7 @@ async fn user(srv: &Server) -> (Uuid, String) {
         name: "Caller".into(),
         avatar_url: None,
     };
-    let u = upsert_google_user(
+    let (u, _) = upsert_google_user(
         &srv.pool,
         &identity,
         rust_decimal::Decimal::ZERO,

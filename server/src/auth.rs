@@ -181,19 +181,26 @@ pub fn verify_jwt(secret: &str, token: &str) -> Result<Claims, AuthError> {
 /// user is granted `free_credits` (recorded as a `free_credit` ledger row) and
 /// stamped with the acquisition `source` (first-touch attribution); returning
 /// users only get their profile refreshed — balance and source are untouched.
+///
+/// Returns `(user, is_new)`; `is_new` is true only when this call CREATED the
+/// account, which is what the client needs to fire a `sign_up` conversion (with
+/// the acquisition source) instead of a plain `login`. It is derived from the
+/// same transaction as the insert, so it can never disagree with the free-credit
+/// grant — the two must stay in lockstep.
 pub async fn upsert_google_user(
     pool: &Pool,
     identity: &GoogleIdentity,
     free_credits: Decimal,
     source: Option<&str>,
     locale: Option<&str>,
-) -> Result<User, sqlx::Error> {
+) -> Result<(User, bool), sqlx::Error> {
     let mut tx = pool.begin().await?;
 
     let existing: Option<User> = sqlx::query_as("SELECT * FROM users WHERE google_id = $1")
         .bind(&identity.google_id)
         .fetch_optional(&mut *tx)
         .await?;
+    let is_new = existing.is_none();
 
     let user = match existing {
         Some(_) => {
@@ -240,7 +247,7 @@ pub async fn upsert_google_user(
     };
 
     tx.commit().await?;
-    Ok(user)
+    Ok((user, is_new))
 }
 
 /// Public-facing user profile. Balance is the only monetary value sent to the
@@ -339,6 +346,11 @@ pub struct AuthResponse {
     /// refresh token). The frontends gate meeting-scheduling on this and otherwise
     /// prompt a re-consent sign-in.
     pub calendar_connected: bool,
+    /// True when this request CREATED the account. The client turns it into a GA4
+    /// `sign_up` conversion carrying the acquisition source (a returning login
+    /// fires `login` instead) — only the server can tell the two apart, since the
+    /// same endpoint serves both.
+    pub is_new: bool,
 }
 
 /// `POST /api/auth/google` — verify a Google credential, upsert the user
@@ -410,7 +422,7 @@ pub async fn auth_google(
         .round_dp(6);
     let source = clean_source(body.source.as_deref());
     let locale = clean_locale(body.locale.as_deref());
-    let user = match upsert_google_user(
+    let (user, is_new) = match upsert_google_user(
         pool,
         &identity,
         free_credits,
@@ -468,6 +480,7 @@ pub async fn auth_google(
         token,
         user: UserProfile::from(user),
         calendar_connected,
+        is_new,
     })
     .into_response()
 }
@@ -630,9 +643,13 @@ mod tests {
         };
         let free = Decimal::new(200, 2); // 2.00
 
-        let u1 = upsert_google_user(&pool, &identity, free, Some("reddit-launch"), Some("it"))
-            .await
-            .unwrap();
+        let (u1, is_new) =
+            upsert_google_user(&pool, &identity, free, Some("reddit-launch"), Some("it"))
+                .await
+                .unwrap();
+        // The account was created by THIS login — the client turns this into a
+        // `sign_up` conversion (with the acquisition source) instead of `login`.
+        assert!(is_new);
         assert_eq!(u1.balance, free);
         assert_eq!(u1.name, "First");
         assert_eq!(u1.source.as_deref(), Some("reddit-launch"));
@@ -646,9 +663,10 @@ mod tests {
         // Second login with a *different* source: profile refreshes, but the
         // first-touch source (and balance) is preserved.
         // ...and a login that omits the locale must not wipe the stored one (COALESCE).
-        let u2 = upsert_google_user(&pool, &identity2, free, Some("twitter-ad"), None)
+        let (u2, is_new2) = upsert_google_user(&pool, &identity2, free, Some("twitter-ad"), None)
             .await
             .unwrap();
+        assert!(!is_new2); // returning login — must never be reported as a signup
         assert_eq!(u2.id, u1.id);
         assert_eq!(u2.name, "Renamed");
         assert_eq!(u2.locale.as_deref(), Some("it"));

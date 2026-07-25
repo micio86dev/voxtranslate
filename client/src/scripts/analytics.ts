@@ -102,3 +102,33 @@ export function track(event: string, params: Record<string, unknown> = {}): void
   if (!analyticsEnabled()) return;
   window.gtag?.('event', event, params);
 }
+
+/**
+ * Report a successful authentication, split by what actually happened: a new
+ * account fires GA4's recommended `sign_up` conversion, a returning user fires
+ * `login`. Never both — one auth is one event, or signups and logins both
+ * double-count.
+ *
+ * `sign_up` carries the first-touch acquisition source (`?source` / `?utm_source`
+ * / `?ref`, see `auth.captureAcquisitionSource`). GA4's own attribution only
+ * understands `utm_*`, so a visitor arriving with our bare `?source=reddit` looks
+ * organic to GA — sending it as an event param is the only way "registrations by
+ * campaign" is answerable in GA4. Register `acquisition_source` as a custom
+ * dimension in GA4, otherwise it is collected but not reportable.
+ *
+ * An absent source is sent as `organic` rather than omitted, so the dimension is
+ * never empty and organic signups stay countable.
+ */
+export function trackAuthSuccess(opts: {
+  isNew: boolean;
+  source?: string | null;
+  /** Auth provider, GA4's recommended `method` param. */
+  method?: string;
+}): void {
+  const method = opts.method ?? 'google';
+  if (opts.isNew) {
+    track('sign_up', { method, acquisition_source: opts.source || 'organic' });
+  } else {
+    track('login', { method });
+  }
+}
