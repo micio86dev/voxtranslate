@@ -100,7 +100,21 @@ async function tokenFromServiceAccount(keyPath) {
 }
 
 async function resolveToken() {
-  if (process.env.GA4_ACCESS_TOKEN) return process.env.GA4_ACCESS_TOKEN;
+  if (process.env.GA4_ACCESS_TOKEN) {
+    // A trailing newline (GA4_ACCESS_TOKEN=$(cat token.txt), a copy-paste out of an
+    // editor) makes the Authorization header invalid and Google answers a bare 401 —
+    // indistinguishable from an expired token unless you know to look for it.
+    const token = process.env.GA4_ACCESS_TOKEN.trim();
+    if (!token) fail('GA4_ACCESS_TOKEN is set but empty.');
+    if (!token.startsWith('ya29.')) {
+      console.warn(
+        'warning: GA4_ACCESS_TOKEN does not start with "ya29." — OAuth access tokens do.\n' +
+          '         An API key, an OAuth client id/secret, or a Measurement Protocol\n' +
+          '         api_secret will all fail with 401. Continuing anyway.\n',
+      );
+    }
+    return token;
+  }
   const keyPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
   if (keyPath) return tokenFromServiceAccount(keyPath);
   fail(
