@@ -106,7 +106,8 @@ function credentialKind(value) {
   if (value.startsWith('AIza')) return 'an API key (identifies a project, authenticates nobody)';
   if (value.startsWith('GOCSPX-')) return 'an OAuth client secret';
   if (value.startsWith('1//')) return 'a refresh token (exchange it for an access token first)';
-  if (value.startsWith('eyJ')) return 'an id_token / JWT — the Playground shows it next to access_token';
+  if (value.startsWith('eyJ'))
+    return 'an id_token / JWT — the Playground shows it next to access_token';
   if (value.endsWith('.apps.googleusercontent.com')) return 'an OAuth client id';
   if (/^G-[A-Z0-9]+$/.test(value)) return 'a GA4 measurement id';
   return 'not an OAuth access token (those start with "ya29.")';
@@ -267,6 +268,29 @@ async function checkToken(token) {
 const config = JSON.parse(readFileSync(configPath, 'utf8'));
 const wanted = config.dimensions ?? [];
 if (!wanted.length) fail(`${configPath} declares no dimensions.`);
+
+// GA4's own field limits. Checked here so --dry-run catches an over-long description
+// instead of the API rejecting the first POST halfway through a run.
+const LIMITS = { parameterName: 40, displayName: 82, description: 150 };
+const violations = [];
+for (const d of wanted) {
+  for (const [field, max] of Object.entries(LIMITS)) {
+    const len = (d[field] ?? '').length;
+    if (len > max) {
+      violations.push(`${d.parameterName}.${field}: ${len} chars, GA4 allows ${max}`);
+    }
+  }
+  if (!['EVENT', 'USER', 'ITEM'].includes(d.scope)) {
+    violations.push(`${d.parameterName}.scope: "${d.scope}" (expected EVENT, USER or ITEM)`);
+  }
+}
+if (violations.length) {
+  fail(
+    `${configPath} violates GA4's limits:\n  ${violations.join('\n  ')}\n\n` +
+      'Keep the long reasoning in the `rationale` field — it stays in the repo and is\n' +
+      'never sent to GA4.',
+  );
+}
 
 TOKEN = await resolveToken();
 
