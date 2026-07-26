@@ -33,7 +33,8 @@ La transcription et la traduction sont automatisées (basées sur l'IA) et peuve
 
 Nous partageons des données personnelles avec les prestataires ci-dessous, strictement pour faire fonctionner le Service. Certains sont situés en dehors de l'EEE ; dans ce cas, nous nous appuyons sur des garanties appropriées telles que les Clauses contractuelles types de l'UE.
 
-- **Google** — connexion (OAuth) : nom, e-mail, photo de profil ; et, en tant que Google Gemini, traduction vocale en temps réel sur l'offre **Premium** : audio en streaming et texte de la transcription (transitoire).
+- **Google** — connexion (OAuth) : nom, e-mail, photo de profil ; en tant que Google Gemini, traduction vocale en temps réel sur l'offre **Premium** (audio en streaming et texte de la transcription, transitoire) ; et, uniquement avec votre consentement, Google Analytics 4 et Google Ads : événements d'usage et de conversion.
+- **Meta** — uniquement avec votre consentement, le Meta Pixel : événements de page et de conversion servant à mesurer et cibler la publicité.
 - **Deepgram** — reconnaissance vocale (offre Standard) : audio en streaming (transitoire).
 - **Groq** — traduction automatique (offres Standard et Enhanced) : texte de la transcription (transitoire).
 - **OpenAI** — traduction vocale en temps réel (offre **Pro**) : audio en streaming et texte de la transcription (transitoire).
@@ -59,13 +60,21 @@ Nous partageons des données personnelles avec les prestataires ci-dessous, stri
 
 ## 6. Cookies et stockage local
 
-Nous utilisons uniquement un stockage de navigateur strictement nécessaire — **aucun** cookie publicitaire tiers ni de suivi intersites, et aucun cookie publicitaire ou d'analyse :
+Une partie du stockage du navigateur est strictement nécessaire au fonctionnement du Service. La mesure d'audience et la publicité sont facultatives : elles ne se chargent **qu'après votre acceptation** sur la bannière de cookies, jamais avant, et vous pouvez changer d'avis à tout moment depuis **Paramètres des cookies**.
+
+**Strictement nécessaires** — sans consentement requis au titre des règles ePrivacy, car ils fournissent un service que vous avez demandé :
 
 - un **jeton de session** conservé dans votre navigateur pour vous maintenir connecté ;
-- une **préférence de consentement aux cookies** mémorisant votre choix sur la bannière de cookies ;
-- de petits **indicateurs d'interface** (par exemple, mémoriser que vous avez déjà vu une astuce de fonctionnalité).
+- une **préférence de consentement aux cookies** mémorisant votre choix sur la bannière ;
+- de petits **indicateurs d'interface** (par exemple, mémoriser que vous avez déjà vu une astuce).
 
-Comme ils sont strictement nécessaires pour fournir un service que vous avez demandé, ils ne requièrent pas de consentement au titre des règles ePrivacy.
+**Mesure d'audience et publicité** — chargées uniquement avec votre consentement :
+
+- **Google Analytics 4** — mesure agrégée des fonctionnalités utilisées et de leur durée d'usage ;
+- **Google Ads** — mesure des conversions, lorsqu'elle est activée ;
+- **Meta Pixel** — mesure l'effet de notre publicité et peut servir à constituer des audiences publicitaires.
+
+En cas de refus, seul le stockage strictement nécessaire ci-dessus subsiste et le Service fonctionne à l'identique. Retirer un consentement déjà donné met fin aux collectes suivantes, et recharger la page supprime les traceurs déjà chargés.
 
 ## 7. Vos droits
 

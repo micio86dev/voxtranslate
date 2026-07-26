@@ -33,7 +33,8 @@ La trascrizione e la traduzione sono automatizzate (basate sull'IA) e possono es
 
 Condividiamo i dati personali con i fornitori indicati di seguito esclusivamente per far funzionare il Servizio. Alcuni si trovano fuori dallo SEE; in tal caso ci basiamo su garanzie adeguate come le Clausole contrattuali standard dell'UE.
 
-- **Google** — accesso (OAuth): nome, email, immagine del profilo; e, in quanto Google Gemini, traduzione vocale in tempo reale nel tier **Premium**: audio in streaming e testo della trascrizione (transitori).
+- **Google** — accesso (OAuth): nome, email, immagine del profilo; in quanto Google Gemini, traduzione vocale in tempo reale nel tier **Premium** (audio in streaming e testo della trascrizione, transitori); e, solo con il tuo consenso, Google Analytics 4 e Google Ads: eventi di utilizzo e di conversione.
+- **Meta** — solo con il tuo consenso, il Meta Pixel: eventi di pagina e di conversione usati per misurare e indirizzare la pubblicità.
 - **Deepgram** — speech-to-text (tier Standard): audio in streaming (transitorio).
 - **Groq** — traduzione automatica (tier Standard ed Enhanced): testo della trascrizione (transitorio).
 - **OpenAI** — traduzione vocale in tempo reale (tier **Pro**): audio in streaming e testo della trascrizione (transitori).
@@ -59,13 +60,21 @@ Condividiamo i dati personali con i fornitori indicati di seguito esclusivamente
 
 ## 6. Cookie e archiviazione locale
 
-Utilizziamo solo l'archiviazione del browser strettamente necessaria — **nessun** cookie pubblicitario di terze parti o di tracciamento cross-site, e nessun cookie pubblicitario o analitico:
+Una parte dell'archiviazione del browser è strettamente necessaria per far funzionare il Servizio. Analytics e pubblicità sono facoltativi: si caricano **solo dopo che li hai accettati** sul banner dei cookie, mai prima, e puoi cambiare idea in qualsiasi momento da **Impostazioni cookie**.
+
+**Strettamente necessari** — non richiedono consenso ai sensi delle norme ePrivacy, perché forniscono un servizio da te richiesto:
 
 - un **token di sessione** conservato nel tuo browser per mantenerti connesso;
-- una **preferenza di consenso ai cookie** che ricorda la tua scelta sul banner dei cookie;
+- una **preferenza di consenso ai cookie** che ricorda la tua scelta sul banner;
 - piccoli **flag di interfaccia** (ad esempio, ricordare che hai già visto un suggerimento su una funzione).
 
-Poiché sono strettamente necessari a fornire un servizio da te richiesto, non richiedono il consenso ai sensi delle norme ePrivacy.
+**Analytics e pubblicità** — caricati solo con il tuo consenso:
+
+- **Google Analytics 4** — misurazione aggregata di quali funzioni vengono usate e per quanto tempo;
+- **Google Ads** — misurazione delle conversioni, dove attivata;
+- **Meta Pixel** — misura l'effetto della nostra pubblicità e può essere usato per creare pubblici pubblicitari.
+
+Se rifiuti resta solo l'archiviazione strettamente necessaria elencata sopra, e il Servizio funziona esattamente allo stesso modo. Revocare un consenso già dato interrompe le raccolte successive, e ricaricando la pagina i tracker già caricati vengono rimossi.
 
 ## 7. I tuoi diritti
 

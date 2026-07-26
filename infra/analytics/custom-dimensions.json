@@ -1,0 +1,64 @@
+{
+  "$comment": [
+    "GA4 event-scoped custom dimensions, one per event parameter the apps send.",
+    "GA4 COLLECTS unregistered parameters but cannot REPORT on them: until a",
+    "parameter is registered here it is invisible in explorations and audiences.",
+    "parameterName must match the event param in the code EXACTLY, and both it and",
+    "`scope` are immutable once created — only displayName/description can change.",
+    "GA4 limits: parameterName 40 chars, displayName 82, description 150. The long",
+    "reasoning lives in `rationale`, which stays in the repo and is never sent.",
+    "GA4 allows 50 event-scoped custom dimensions per property.",
+    "Numeric params (duration_seconds, count) belong in custom METRICS, not here."
+  ],
+  "dimensions": [
+    {
+      "parameterName": "acquisition_source",
+      "displayName": "Acquisition source",
+      "description": "First-touch source on sign_up (?source / ?utm_source / ?ref), or 'organic'. Attributes registrations to campaigns.",
+      "rationale": "GA4's own attribution only understands utm_*, so a visitor arriving with a bare ?source=reddit looks organic to it. Sending the captured first-touch value as an event parameter is the only way 'registrations by campaign' is answerable. Set in client/src/scripts/analytics.ts (trackAuthSuccess), captured by auth.captureAcquisitionSource().",
+      "scope": "EVENT"
+    },
+    {
+      "parameterName": "method",
+      "displayName": "Auth method",
+      "description": "Auth provider on sign_up and login (currently always 'google'), and the join path on room_joined.",
+      "rationale": "GA4 treats `method` as a recommended parameter for sign_up/login but still will not report on it until it is registered.",
+      "scope": "EVENT"
+    },
+    {
+      "parameterName": "visibility",
+      "displayName": "Room visibility",
+      "description": "Whether a started call was created public (listed on the home) or private (link only). Sent on start_call.",
+      "rationale": "Separates the growth loop (public rooms, discoverable) from private usage — they convert differently and should never be read as one number.",
+      "scope": "EVENT"
+    },
+    {
+      "parameterName": "is_returning_user",
+      "displayName": "Returning user",
+      "description": "Whether the person joining a room was already a signed-in account holder. Sent on room_joined.",
+      "rationale": "Distinguishes first-time guests from account holders in the same funnel step, which is what makes room_joined interpretable.",
+      "scope": "EVENT"
+    },
+    {
+      "parameterName": "reason",
+      "displayName": "Failure reason",
+      "description": "Why a call could not start — room_full, banned, credits_exhausted. Sent on call_failed and limit_reached.",
+      "rationale": "Without it the funnel drop-off is a single unexplained number; with it, credits_exhausted (a pricing signal) is separable from room_full (a capacity signal).",
+      "scope": "EVENT"
+    },
+    {
+      "parameterName": "button",
+      "displayName": "CTA button",
+      "description": "Which call-to-action was clicked on the marketing site. Sent on cta_clicked (website).",
+      "rationale": "Pairs with `location` to tell which CTA copy works, independently of where it sits on the page.",
+      "scope": "EVENT"
+    },
+    {
+      "parameterName": "location",
+      "displayName": "CTA location",
+      "description": "Where on the page the clicked call-to-action sits (hero, pricing, footer…). Sent on cta_clicked (website).",
+      "rationale": "Pairs with `button`: the same label converts very differently in the hero and in the footer.",
+      "scope": "EVENT"
+    }
+  ]
+}

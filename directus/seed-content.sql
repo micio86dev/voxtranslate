@@ -523,7 +523,8 @@ La trascrizione e la traduzione sono automatizzate (basate sull''IA) e possono e
 
 Condividiamo i dati personali con i fornitori indicati di seguito esclusivamente per far funzionare il Servizio. Alcuni si trovano fuori dallo SEE; in tal caso ci basiamo su garanzie adeguate come le Clausole contrattuali standard dell''UE.
 
-- **Google** — accesso (OAuth): nome, email, immagine del profilo; e, in quanto Google Gemini, traduzione vocale in tempo reale nel tier **Premium**: audio in streaming e testo della trascrizione (transitori).
+- **Google** — accesso (OAuth): nome, email, immagine del profilo; in quanto Google Gemini, traduzione vocale in tempo reale nel tier **Premium** (audio in streaming e testo della trascrizione, transitori); e, solo con il tuo consenso, Google Analytics 4 e Google Ads: eventi di utilizzo e di conversione.
+- **Meta** — solo con il tuo consenso, il Meta Pixel: eventi di pagina e di conversione usati per misurare e indirizzare la pubblicità.
 - **Deepgram** — speech-to-text (tier Standard): audio in streaming (transitorio).
 - **Groq** — traduzione automatica (tier Standard ed Enhanced): testo della trascrizione (transitorio).
 - **OpenAI** — traduzione vocale in tempo reale (tier **Pro**): audio in streaming e testo della trascrizione (transitori).
@@ -549,13 +550,21 @@ Condividiamo i dati personali con i fornitori indicati di seguito esclusivamente
 
 ## 6. Cookie e archiviazione locale
 
-Utilizziamo solo l''archiviazione del browser strettamente necessaria — **nessun** cookie pubblicitario di terze parti o di tracciamento cross-site, e nessun cookie pubblicitario o analitico:
+Una parte dell''archiviazione del browser è strettamente necessaria per far funzionare il Servizio. Analytics e pubblicità sono facoltativi: si caricano **solo dopo che li hai accettati** sul banner dei cookie, mai prima, e puoi cambiare idea in qualsiasi momento da **Impostazioni cookie**.
+
+**Strettamente necessari** — non richiedono consenso ai sensi delle norme ePrivacy, perché forniscono un servizio da te richiesto:
 
 - un **token di sessione** conservato nel tuo browser per mantenerti connesso;
-- una **preferenza di consenso ai cookie** che ricorda la tua scelta sul banner dei cookie;
+- una **preferenza di consenso ai cookie** che ricorda la tua scelta sul banner;
 - piccoli **flag di interfaccia** (ad esempio, ricordare che hai già visto un suggerimento su una funzione).
 
-Poiché sono strettamente necessari a fornire un servizio da te richiesto, non richiedono il consenso ai sensi delle norme ePrivacy.
+**Analytics e pubblicità** — caricati solo con il tuo consenso:
+
+- **Google Analytics 4** — misurazione aggregata di quali funzioni vengono usate e per quanto tempo;
+- **Google Ads** — misurazione delle conversioni, dove attivata;
+- **Meta Pixel** — misura l''effetto della nostra pubblicità e può essere usato per creare pubblici pubblicitari.
+
+Se rifiuti resta solo l''archiviazione strettamente necessaria elencata sopra, e il Servizio funziona esattamente allo stesso modo. Revocare un consenso già dato interrompe le raccolte successive, e ricaricando la pagina i tracker già caricati vengono rimossi.
 
 ## 7. I tuoi diritti
 
@@ -615,7 +624,8 @@ Transcription and translation are automated (AI-based) and may be inaccurate; AI
 
 We share personal data with the providers below strictly to operate the Service. Some are located outside the EEA; where that is the case we rely on appropriate safeguards such as the EU Standard Contractual Clauses.
 
-- **Google** — sign-in (OAuth): name, email, profile picture; and, as Google Gemini, real-time speech translation on the **Premium** tier: streamed audio and transcript text (transient).
+- **Google** — sign-in (OAuth): name, email, profile picture; as Google Gemini, real-time speech translation on the **Premium** tier (streamed audio and transcript text, transient); and, with your consent only, Google Analytics 4 and Google Ads: usage and conversion events.
+- **Meta** — with your consent only, the Meta Pixel: page and conversion events used to measure and target advertising.
 - **Deepgram** — speech-to-text (Standard tier): streamed audio (transient).
 - **Groq** — machine translation (Standard and Enhanced tiers): transcript text (transient).
 - **OpenAI** — real-time speech translation (**Pro** tier): streamed audio and transcript text (transient).
@@ -642,13 +652,21 @@ We share personal data with the providers below strictly to operate the Service.
 
 ## 6. Cookies and local storage
 
-We use only strictly necessary browser storage — **no** third-party advertising or cross-site tracking cookies, and no advertising or analytics cookies:
+Some browser storage is strictly necessary to run the Service. Analytics and advertising are optional: they load **only after you accept them** on the cookie banner, never before, and you can change your mind at any time from **Cookie settings**.
+
+**Strictly necessary** — no consent required under the ePrivacy rules, because they provide a service you asked for:
 
 - a **session token** kept in your browser so you stay signed in;
 - a **cookie-consent preference** remembering your choice on the cookie banner;
 - minor **interface flags** (for example, remembering that you have already seen a feature hint).
 
-Because these are strictly necessary to provide a service you have requested, they do not require consent under the ePrivacy rules.
+**Analytics and advertising** — loaded only with your consent:
+
+- **Google Analytics 4** — aggregated measurement of which features are used and for how long;
+- **Google Ads** — conversion measurement, where enabled;
+- **Meta Pixel** — measures the effect of our advertising and may be used to build advertising audiences.
+
+Declining leaves only the strictly necessary storage listed above; the Service works exactly the same. Withdrawing a consent you had given stops further collection, and reloading the page drops the trackers already loaded into it.
 
 ## 7. Your rights
 
@@ -708,7 +726,8 @@ La transcripción y la traducción son automatizadas (basadas en IA) y pueden se
 
 Compartimos datos personales con los proveedores indicados a continuación estrictamente para operar el Servicio. Algunos están ubicados fuera del EEE; en ese caso nos basamos en garantías adecuadas como las Cláusulas Contractuales Tipo de la UE.
 
-- **Google** — inicio de sesión (OAuth): nombre, correo, foto de perfil; y, como Google Gemini, traducción de voz en tiempo real en el tier **Premium**: audio transmitido y texto de la transcripción (transitorios).
+- **Google** — inicio de sesión (OAuth): nombre, correo, foto de perfil; como Google Gemini, traducción de voz en tiempo real en el tier **Premium** (audio transmitido y texto de la transcripción, transitorios); y, solo con tu consentimiento, Google Analytics 4 y Google Ads: eventos de uso y de conversión.
+- **Meta** — solo con tu consentimiento, el Meta Pixel: eventos de página y de conversión usados para medir y segmentar la publicidad.
 - **Deepgram** — voz a texto (tier Standard): audio transmitido (transitorio).
 - **Groq** — traducción automática (tiers Standard y Enhanced): texto de la transcripción (transitorio).
 - **OpenAI** — traducción de voz en tiempo real (tier **Pro**): audio transmitido y texto de la transcripción (transitorios).
@@ -734,13 +753,21 @@ Compartimos datos personales con los proveedores indicados a continuación estri
 
 ## 6. Cookies y almacenamiento local
 
-Usamos únicamente almacenamiento del navegador estrictamente necesario — **sin** cookies de publicidad de terceros ni de seguimiento entre sitios, y sin cookies de publicidad o analítica:
+Parte del almacenamiento del navegador es estrictamente necesario para que el Servicio funcione. La analítica y la publicidad son opcionales: se cargan **solo después de que las aceptes** en el banner de cookies, nunca antes, y puedes cambiar de opinión en cualquier momento desde **Configuración de cookies**.
+
+**Estrictamente necesarios** — no requieren consentimiento según las normas ePrivacy, porque prestan un servicio que has solicitado:
 
 - un **token de sesión** guardado en tu navegador para que sigas con la sesión iniciada;
-- una **preferencia de consentimiento de cookies** que recuerda tu elección en el banner de cookies;
+- una **preferencia de consentimiento de cookies** que recuerda tu elección en el banner;
 - **indicadores de interfaz** menores (por ejemplo, recordar que ya has visto una sugerencia sobre una función).
 
-Como son estrictamente necesarios para prestar un servicio que has solicitado, no requieren consentimiento según las normas de ePrivacy.
+**Analítica y publicidad** — se cargan solo con tu consentimiento:
+
+- **Google Analytics 4** — medición agregada de qué funciones se usan y durante cuánto tiempo;
+- **Google Ads** — medición de conversiones, donde esté activada;
+- **Meta Pixel** — mide el efecto de nuestra publicidad y puede usarse para crear públicos publicitarios.
+
+Si rechazas, queda solo el almacenamiento estrictamente necesario indicado arriba y el Servicio funciona igual. Retirar un consentimiento ya dado detiene las recogidas posteriores, y al recargar la página los rastreadores ya cargados desaparecen.
 
 ## 7. Tus derechos
 
@@ -800,7 +827,8 @@ La transcription et la traduction sont automatisées (basées sur l''IA) et peuv
 
 Nous partageons des données personnelles avec les prestataires ci-dessous, strictement pour faire fonctionner le Service. Certains sont situés en dehors de l''EEE ; dans ce cas, nous nous appuyons sur des garanties appropriées telles que les Clauses contractuelles types de l''UE.
 
-- **Google** — connexion (OAuth) : nom, e-mail, photo de profil ; et, en tant que Google Gemini, traduction vocale en temps réel sur l''offre **Premium** : audio en streaming et texte de la transcription (transitoire).
+- **Google** — connexion (OAuth) : nom, e-mail, photo de profil ; en tant que Google Gemini, traduction vocale en temps réel sur l''offre **Premium** (audio en streaming et texte de la transcription, transitoire) ; et, uniquement avec votre consentement, Google Analytics 4 et Google Ads : événements d''usage et de conversion.
+- **Meta** — uniquement avec votre consentement, le Meta Pixel : événements de page et de conversion servant à mesurer et cibler la publicité.
 - **Deepgram** — reconnaissance vocale (offre Standard) : audio en streaming (transitoire).
 - **Groq** — traduction automatique (offres Standard et Enhanced) : texte de la transcription (transitoire).
 - **OpenAI** — traduction vocale en temps réel (offre **Pro**) : audio en streaming et texte de la transcription (transitoire).
@@ -826,13 +854,21 @@ Nous partageons des données personnelles avec les prestataires ci-dessous, stri
 
 ## 6. Cookies et stockage local
 
-Nous utilisons uniquement un stockage de navigateur strictement nécessaire — **aucun** cookie publicitaire tiers ni de suivi intersites, et aucun cookie publicitaire ou d''analyse :
+Une partie du stockage du navigateur est strictement nécessaire au fonctionnement du Service. La mesure d''audience et la publicité sont facultatives : elles ne se chargent **qu''après votre acceptation** sur la bannière de cookies, jamais avant, et vous pouvez changer d''avis à tout moment depuis **Paramètres des cookies**.
+
+**Strictement nécessaires** — sans consentement requis au titre des règles ePrivacy, car ils fournissent un service que vous avez demandé :
 
 - un **jeton de session** conservé dans votre navigateur pour vous maintenir connecté ;
-- une **préférence de consentement aux cookies** mémorisant votre choix sur la bannière de cookies ;
-- de petits **indicateurs d''interface** (par exemple, mémoriser que vous avez déjà vu une astuce de fonctionnalité).
+- une **préférence de consentement aux cookies** mémorisant votre choix sur la bannière ;
+- de petits **indicateurs d''interface** (par exemple, mémoriser que vous avez déjà vu une astuce).
 
-Comme ils sont strictement nécessaires pour fournir un service que vous avez demandé, ils ne requièrent pas de consentement au titre des règles ePrivacy.
+**Mesure d''audience et publicité** — chargées uniquement avec votre consentement :
+
+- **Google Analytics 4** — mesure agrégée des fonctionnalités utilisées et de leur durée d''usage ;
+- **Google Ads** — mesure des conversions, lorsqu''elle est activée ;
+- **Meta Pixel** — mesure l''effet de notre publicité et peut servir à constituer des audiences publicitaires.
+
+En cas de refus, seul le stockage strictement nécessaire ci-dessus subsiste et le Service fonctionne à l''identique. Retirer un consentement déjà donné met fin aux collectes suivantes, et recharger la page supprime les traceurs déjà chargés.
 
 ## 7. Vos droits
 
@@ -892,7 +928,8 @@ Transkription und Übersetzung erfolgen automatisiert (KI-basiert) und können f
 
 Wir geben personenbezogene Daten ausschließlich zum Betrieb des Dienstes an die unten genannten Anbieter weiter. Einige befinden sich außerhalb des EWR; in diesem Fall stützen wir uns auf geeignete Garantien wie die EU-Standardvertragsklauseln.
 
-- **Google** — Anmeldung (OAuth): Name, E-Mail, Profilbild; sowie, als Google Gemini, Echtzeit-Sprachübersetzung im Tarif **Premium**: gestreamtes Audio und Transkripttext (flüchtig).
+- **Google** — Anmeldung (OAuth): Name, E-Mail, Profilbild; als Google Gemini Echtzeit-Sprachübersetzung im Tarif **Premium** (gestreamtes Audio und Transkripttext, flüchtig); und, nur mit Ihrer Einwilligung, Google Analytics 4 und Google Ads: Nutzungs- und Conversion-Ereignisse.
+- **Meta** — nur mit Ihrer Einwilligung das Meta Pixel: Seiten- und Conversion-Ereignisse zur Messung und Ausrichtung von Werbung.
 - **Deepgram** — Speech-to-Text (Standard-Tarif): gestreamtes Audio (flüchtig).
 - **Groq** — maschinelle Übersetzung (Tarife Standard und Enhanced): Transkripttext (flüchtig).
 - **OpenAI** — Echtzeit-Sprachübersetzung (Tarif **Pro**): gestreamtes Audio und Transkripttext (flüchtig).
@@ -918,13 +955,21 @@ Wir geben personenbezogene Daten ausschließlich zum Betrieb des Dienstes an die
 
 ## 6. Cookies und lokaler Speicher
 
-Wir verwenden ausschließlich unbedingt erforderlichen Browser-Speicher — **keine** Cookies von Drittanbietern für Werbung oder seitenübergreifendes Tracking und keine Werbe- oder Analyse-Cookies:
+Ein Teil des Browser-Speichers ist unbedingt erforderlich, um den Dienst zu betreiben. Analyse und Werbung sind optional: sie werden **erst geladen, nachdem Sie zugestimmt haben**, nie vorher, und Sie können Ihre Entscheidung jederzeit unter **Cookie-Einstellungen** ändern.
+
+**Unbedingt erforderlich** — nach den ePrivacy-Regeln einwilligungsfrei, weil sie einen von Ihnen angeforderten Dienst erbringen:
 
 - ein **Sitzungs-Token**, das in Ihrem Browser gespeichert wird, damit Sie angemeldet bleiben;
-- eine **Cookie-Einwilligungseinstellung**, die Ihre Wahl im Cookie-Banner speichert;
-- geringfügige **Oberflächen-Flags** (zum Beispiel das Speichern, dass Sie einen Funktionshinweis bereits gesehen haben).
+- eine **Cookie-Einwilligungseinstellung**, die Ihre Wahl im Banner speichert;
+- geringfügige **Oberflächen-Flags** (zum Beispiel, dass Sie einen Funktionshinweis bereits gesehen haben).
 
-Da diese unbedingt erforderlich sind, um einen von Ihnen angeforderten Dienst bereitzustellen, bedürfen sie nach den ePrivacy-Vorschriften keiner Einwilligung.
+**Analyse und Werbung** — nur mit Ihrer Einwilligung geladen:
+
+- **Google Analytics 4** — aggregierte Messung, welche Funktionen wie lange genutzt werden;
+- **Google Ads** — Conversion-Messung, wo aktiviert;
+- **Meta Pixel** — misst die Wirkung unserer Werbung und kann zur Bildung von Werbe-Zielgruppen genutzt werden.
+
+Bei Ablehnung bleibt nur der oben genannte unbedingt erforderliche Speicher; der Dienst funktioniert genauso. Der Widerruf einer erteilten Einwilligung beendet die weitere Erhebung, und ein Neuladen der Seite entfernt die bereits geladenen Tracker.
 
 ## 7. Ihre Rechte
 
@@ -984,7 +1029,8 @@ A transcrição e a tradução são automatizadas (baseadas em IA) e podem ser i
 
 Partilhamos dados pessoais com os fornecedores abaixo estritamente para operar o Serviço. Alguns estão localizados fora do EEE; nesse caso, baseamo-nos em garantias adequadas, como as Cláusulas Contratuais-Tipo da UE.
 
-- **Google** — início de sessão (OAuth): nome, e-mail, foto de perfil; e, como Google Gemini, tradução de voz em tempo real no nível **Premium**: áudio transmitido e texto da transcrição (transitório).
+- **Google** — início de sessão (OAuth): nome, e-mail, foto de perfil; como Google Gemini, tradução de voz em tempo real no nível **Premium** (áudio transmitido e texto da transcrição, transitório); e, apenas com o seu consentimento, Google Analytics 4 e Google Ads: eventos de uso e de conversão.
+- **Meta** — apenas com o seu consentimento, o Meta Pixel: eventos de página e de conversão usados para medir e segmentar publicidade.
 - **Deepgram** — speech-to-text (nível Standard): áudio transmitido (transitório).
 - **Groq** — tradução automática (níveis Standard e Enhanced): texto da transcrição (transitório).
 - **OpenAI** — tradução de voz em tempo real (nível **Pro**): áudio transmitido e texto da transcrição (transitório).
@@ -1010,13 +1056,21 @@ Partilhamos dados pessoais com os fornecedores abaixo estritamente para operar o
 
 ## 6. Cookies e armazenamento local
 
-Usamos apenas armazenamento do navegador estritamente necessário — **nenhum** cookie de publicidade de terceiros ou de rastreio entre sites, e nenhum cookie de publicidade ou de análise:
+Parte do armazenamento do navegador é estritamente necessária para o funcionamento do Serviço. A análise e a publicidade são opcionais: só são carregadas **depois de você as aceitar** no banner de cookies, nunca antes, e você pode mudar de ideia a qualquer momento em **Configurações de cookies**.
+
+**Estritamente necessários** — não exigem consentimento nos termos das regras ePrivacy, pois prestam um serviço que você solicitou:
 
 - um **token de sessão** mantido no seu navegador para você permanecer com sessão iniciada;
-- uma **preferência de consentimento de cookies** que recorda a sua escolha no banner de cookies;
+- uma **preferência de consentimento de cookies** que recorda a sua escolha no banner;
 - pequenas **flags de interface** (por exemplo, recordar que você já viu uma dica de funcionalidade).
 
-Por serem estritamente necessários para fornecer um serviço que você solicitou, não exigem consentimento ao abrigo das regras ePrivacy.
+**Análise e publicidade** — carregadas apenas com o seu consentimento:
+
+- **Google Analytics 4** — medição agregada de quais funcionalidades são usadas e por quanto tempo;
+- **Google Ads** — medição de conversões, onde ativada;
+- **Meta Pixel** — mede o efeito da nossa publicidade e pode ser usado para criar públicos publicitários.
+
+Se recusar, permanece apenas o armazenamento estritamente necessário indicado acima e o Serviço funciona da mesma forma. Retirar um consentimento já dado interrompe as recolhas seguintes, e recarregar a página remove os rastreadores já carregados.
 
 ## 7. Os seus direitos
 
@@ -1076,7 +1130,8 @@ INSERT INTO legal_translations (page_id, language, title, body)
 
 当社は、本サービスの運用のためにのみ、以下のプロバイダーと個人データを共有します。一部はEEA域外に所在しており、その場合はEU標準契約条項などの適切な保護措置に依拠します。
 
-- **Google** — サインイン（OAuth）：氏名、メール、プロフィール画像。また Google Gemini として、**Premium**のリアルタイム音声翻訳：ストリーミング音声と文字起こしテキスト（一時的）。
+- **Google** — サインイン（OAuth）：氏名、メール、プロフィール画像。Google Gemini として**Premium**のリアルタイム音声翻訳（ストリーミング音声と文字起こしテキスト、一時的）。さらに、お客様の同意がある場合にのみ Google Analytics 4 および Google Ads：利用イベントとコンバージョンイベント。
+- **Meta** — お客様の同意がある場合にのみ Meta Pixel：広告の測定とターゲティングに用いるページイベントおよびコンバージョンイベント。
 - **Deepgram** — 音声認識（スタンダード）：ストリーミング音声（一時的）。
 - **Groq** — 機械翻訳（スタンダードおよびEnhanced）：文字起こしテキスト（一時的）。
 - **OpenAI** — リアルタイム音声翻訳（**Pro**）：ストリーミング音声と文字起こしテキスト（一時的）。
@@ -1102,13 +1157,21 @@ INSERT INTO legal_translations (page_id, language, title, body)
 
 ## 6. クッキーとローカルストレージ
 
-当社は、厳密に必要なブラウザストレージのみを使用します。第三者の広告やサイトをまたぐトラッキングのためのクッキーは**一切使用せず**、広告や分析のためのクッキーも使用しません：
+ブラウザストレージの一部は、本サービスの提供に厳密に必要です。分析と広告は任意であり、クッキーバナーで**お客様が同意した後にのみ**読み込まれます。同意前に読み込まれることはなく、**クッキー設定**からいつでも変更できます。
+
+**厳密に必要なもの** — お客様が求めたサービスを提供するため、ePrivacy規則上、同意は不要です：
 
 - サインイン状態を維持するためにブラウザに保存される**セッショントークン**；
-- クッキーバナーでのお客様の選択を記憶する**クッキー同意設定**；
-- ささいな**インターフェースのフラグ**（たとえば、機能のヒントを既に表示したことを記憶するなど）。
+- バナーでのお客様の選択を記憶する**クッキー同意設定**；
+- ささいな**インターフェースのフラグ**（たとえば、機能のヒントを既に表示したことの記憶）。
 
-これらはお客様が要求したサービスを提供するために厳密に必要なものであるため、eプライバシー規則の下で同意を必要としません。
+**分析と広告** — お客様の同意がある場合にのみ読み込まれます：
+
+- **Google Analytics 4** — どの機能がどれだけ使われたかの集計的な測定；
+- **Google Ads** — 有効な場合のコンバージョン測定；
+- **Meta Pixel** — 当社の広告の効果を測定し、広告オーディエンスの作成に利用される場合があります。
+
+拒否した場合、上記の厳密に必要なストレージのみが残り、サービスは同じように動作します。与えた同意を撤回すると以降の収集は停止し、ページを再読み込みすると既に読み込まれたトラッカーは解除されます。
 
 ## 7. お客様の権利
 
@@ -1168,7 +1231,8 @@ INSERT INTO legal_translations (page_id, language, title, body)
 
 我们仅为运营本服务而严格地与以下提供商共享个人数据。其中一些位于欧洲经济区之外；在这种情况下，我们依赖欧盟标准合同条款等适当保障措施。
 
-- **Google** — 登录（OAuth）：姓名、邮箱、头像；以及作为 Google Gemini，提供 **Premium** 套餐的实时语音翻译：流式音频和转写文本（瞬时）。
+- **Google** — 登录（OAuth）：姓名、邮箱、头像；作为 Google Gemini 提供 **Premium** 套餐的实时语音翻译（流式音频和转写文本，瞬时）；以及仅在获得您同意的情况下，Google Analytics 4 与 Google Ads：使用事件与转化事件。
+- **Meta** — 仅在获得您同意的情况下使用 Meta Pixel：用于衡量和定向广告的页面事件与转化事件。
 - **Deepgram** — 语音转文字（标准套餐）：流式音频（瞬时）。
 - **Groq** — 机器翻译（标准与 Enhanced 套餐）：转写文本（瞬时）。
 - **OpenAI** — 实时语音翻译（**Pro** 套餐）：流式音频和转写文本（瞬时）。
@@ -1194,13 +1258,21 @@ INSERT INTO legal_translations (page_id, language, title, body)
 
 ## 6. Cookie 与本地存储
 
-我们仅使用严格必要的浏览器存储——**不**使用任何第三方广告或跨站跟踪 Cookie，也不使用任何广告或分析 Cookie：
+部分浏览器存储是运行本服务所严格必需的。分析与广告是可选的：它们**仅在您于 Cookie 横幅上同意之后**才会加载，绝不会在同意之前加载，并且您可以随时通过 **Cookie 设置**更改选择。
+
+**严格必需** — 依据 ePrivacy 规则无需同意，因为它们提供的是您主动请求的服务：
 
 - 保存在您浏览器中以使您保持登录状态的**会话令牌**；
-- 记住您在 Cookie 横幅上所做选择的 **Cookie 同意偏好**；
+- 记住您在横幅上所做选择的 **Cookie 同意偏好**；
 - 次要的**界面标记**（例如，记住您已经看过某项功能提示）。
 
-由于这些对于提供您所请求的服务而言是严格必要的，因此根据 ePrivacy 规则无需征得同意。
+**分析与广告** — 仅在获得您的同意后加载：
+
+- **Google Analytics 4** — 对哪些功能被使用及使用时长的汇总测量；
+- **Google Ads** — 在启用的情况下进行转化测量；
+- **Meta Pixel** — 衡量我们广告的效果，并可能用于构建广告受众。
+
+如果您拒绝，则仅保留上述严格必需的存储，服务功能完全不变。撤回已给出的同意会停止后续收集，重新加载页面即可移除已加载的跟踪器。
 
 ## 7. 您的权利
 

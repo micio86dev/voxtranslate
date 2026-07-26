@@ -33,7 +33,8 @@ Transcription and translation are automated (AI-based) and may be inaccurate; AI
 
 We share personal data with the providers below strictly to operate the Service. Some are located outside the EEA; where that is the case we rely on appropriate safeguards such as the EU Standard Contractual Clauses.
 
-- **Google** — sign-in (OAuth): name, email, profile picture; and, as Google Gemini, real-time speech translation on the **Premium** tier: streamed audio and transcript text (transient).
+- **Google** — sign-in (OAuth): name, email, profile picture; as Google Gemini, real-time speech translation on the **Premium** tier (streamed audio and transcript text, transient); and, with your consent only, Google Analytics 4 and Google Ads: usage and conversion events.
+- **Meta** — with your consent only, the Meta Pixel: page and conversion events used to measure and target advertising.
 - **Deepgram** — speech-to-text (Standard tier): streamed audio (transient).
 - **Groq** — machine translation (Standard and Enhanced tiers): transcript text (transient).
 - **OpenAI** — real-time speech translation (**Pro** tier): streamed audio and transcript text (transient).
@@ -60,13 +61,21 @@ We share personal data with the providers below strictly to operate the Service.
 
 ## 6. Cookies and local storage
 
-We use only strictly necessary browser storage — **no** third-party advertising or cross-site tracking cookies, and no advertising or analytics cookies:
+Some browser storage is strictly necessary to run the Service. Analytics and advertising are optional: they load **only after you accept them** on the cookie banner, never before, and you can change your mind at any time from **Cookie settings**.
+
+**Strictly necessary** — no consent required under the ePrivacy rules, because they provide a service you asked for:
 
 - a **session token** kept in your browser so you stay signed in;
 - a **cookie-consent preference** remembering your choice on the cookie banner;
 - minor **interface flags** (for example, remembering that you have already seen a feature hint).
 
-Because these are strictly necessary to provide a service you have requested, they do not require consent under the ePrivacy rules.
+**Analytics and advertising** — loaded only with your consent:
+
+- **Google Analytics 4** — aggregated measurement of which features are used and for how long;
+- **Google Ads** — conversion measurement, where enabled;
+- **Meta Pixel** — measures the effect of our advertising and may be used to build advertising audiences.
+
+Declining leaves only the strictly necessary storage listed above; the Service works exactly the same. Withdrawing a consent you had given stops further collection, and reloading the page drops the trackers already loaded into it.
 
 ## 7. Your rights
 

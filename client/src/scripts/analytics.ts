@@ -10,6 +10,9 @@
 // localhost, and a no-op until PUBLIC_GA_ID is configured at build time.
 
 const GA_ID = (import.meta.env.PUBLIC_GA_ID as string | undefined) || '';
+/** Meta pixel id. Advertising, so it loads ONLY on an explicit accept — never at boot,
+ *  unlike gtag, which relies on Consent Mode to withhold hits. Empty ⇒ no pixel. */
+const FB_PIXEL_ID = (import.meta.env.PUBLIC_FB_PIXEL_ID as string | undefined) || '';
 const IS_STAGING =
   import.meta.env.PUBLIC_STAGING === 'true' ||
   (import.meta.env.PUBLIC_STAGING as unknown) === true;
@@ -18,7 +21,19 @@ declare global {
   interface Window {
     dataLayer?: unknown[];
     gtag?: (...args: unknown[]) => void;
+    fbq?: FbqFn;
+    _fbq?: FbqFn;
   }
+}
+
+/** The pixel stub Meta's snippet installs: callable, with a queue until fbevents loads. */
+interface FbqFn {
+  (...args: unknown[]): void;
+  callMethod?: (...args: unknown[]) => void;
+  queue: unknown[][];
+  push?: unknown;
+  loaded?: boolean;
+  version?: string;
 }
 
 /** GA runs only in real production: needs an ID, not staging, not localhost. */
@@ -128,7 +143,60 @@ export function trackAuthSuccess(opts: {
   const method = opts.method ?? 'google';
   if (opts.isNew) {
     track('sign_up', { method, acquisition_source: opts.source || 'organic' });
+    // Meta's standard registration conversion — the event campaign optimisation bids on.
+    // No-op unless the pixel was loaded, i.e. unless advertising consent was given.
+    trackFbEvent('CompleteRegistration');
   } else {
     track('login', { method });
   }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Meta pixel. Advertising, so the rules differ from gtag: nothing is loaded until
+// `loadMetaPixel()` is called from the consent handler, and there is no <noscript>
+// fallback anywhere — that would fire the pixel regardless of consent.
+// ──────────────────────────────────────────────────────────────────────────────
+
+/** Whether the pixel may run at all: needs an id, and the same not-staging/not-local
+ *  rule as GA so development traffic never reaches an ad account. */
+function pixelEnabled(): boolean {
+  return !!FB_PIXEL_ID && analyticsEnabled();
+}
+
+/**
+ * Install the pixel and send its PageView. Call ONLY from an explicit accept.
+ * Idempotent: a second call neither re-injects the script nor re-counts the view.
+ */
+export function loadMetaPixel(): void {
+  if (!pixelEnabled() || typeof document === 'undefined' || window.fbq) return;
+  const fbq: FbqFn = function (...args: unknown[]) {
+    if (fbq.callMethod) fbq.callMethod(...args);
+    else fbq.queue.push(args);
+  } as FbqFn;
+  fbq.queue = [];
+  fbq.loaded = true;
+  fbq.version = '2.0';
+  fbq.push = fbq;
+  window.fbq = fbq;
+  if (!window._fbq) window._fbq = fbq;
+  const s = document.createElement('script');
+  s.async = true;
+  s.src = 'https://connect.facebook.net/en_US/fbevents.js';
+  document.head.appendChild(s);
+  window.fbq('init', FB_PIXEL_ID);
+  window.fbq('track', 'PageView');
+}
+
+/** Fire a Meta event. Returns whether it was sent — false means no consent (or no id),
+ *  which callers can treat as "not measurable" rather than an error. */
+export function trackFbEvent(event: string, params?: Record<string, unknown>): boolean {
+  if (!window.fbq) return false;
+  if (params) window.fbq('track', event, params);
+  else window.fbq('track', event);
+  return true;
+}
+
+/** The queued fbq calls, for tests: the stub records everything until fbevents loads. */
+export function fbqCalls(win: { fbq?: FbqFn } = window): unknown[][] {
+  return (win.fbq?.queue ?? []).map((a) => Array.from(a as ArrayLike<unknown>));
 }

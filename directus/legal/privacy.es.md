@@ -33,7 +33,8 @@ La transcripción y la traducción son automatizadas (basadas en IA) y pueden se
 
 Compartimos datos personales con los proveedores indicados a continuación estrictamente para operar el Servicio. Algunos están ubicados fuera del EEE; en ese caso nos basamos en garantías adecuadas como las Cláusulas Contractuales Tipo de la UE.
 
-- **Google** — inicio de sesión (OAuth): nombre, correo, foto de perfil; y, como Google Gemini, traducción de voz en tiempo real en el tier **Premium**: audio transmitido y texto de la transcripción (transitorios).
+- **Google** — inicio de sesión (OAuth): nombre, correo, foto de perfil; como Google Gemini, traducción de voz en tiempo real en el tier **Premium** (audio transmitido y texto de la transcripción, transitorios); y, solo con tu consentimiento, Google Analytics 4 y Google Ads: eventos de uso y de conversión.
+- **Meta** — solo con tu consentimiento, el Meta Pixel: eventos de página y de conversión usados para medir y segmentar la publicidad.
 - **Deepgram** — voz a texto (tier Standard): audio transmitido (transitorio).
 - **Groq** — traducción automática (tiers Standard y Enhanced): texto de la transcripción (transitorio).
 - **OpenAI** — traducción de voz en tiempo real (tier **Pro**): audio transmitido y texto de la transcripción (transitorios).
@@ -59,13 +60,21 @@ Compartimos datos personales con los proveedores indicados a continuación estri
 
 ## 6. Cookies y almacenamiento local
 
-Usamos únicamente almacenamiento del navegador estrictamente necesario — **sin** cookies de publicidad de terceros ni de seguimiento entre sitios, y sin cookies de publicidad o analítica:
+Parte del almacenamiento del navegador es estrictamente necesario para que el Servicio funcione. La analítica y la publicidad son opcionales: se cargan **solo después de que las aceptes** en el banner de cookies, nunca antes, y puedes cambiar de opinión en cualquier momento desde **Configuración de cookies**.
+
+**Estrictamente necesarios** — no requieren consentimiento según las normas ePrivacy, porque prestan un servicio que has solicitado:
 
 - un **token de sesión** guardado en tu navegador para que sigas con la sesión iniciada;
-- una **preferencia de consentimiento de cookies** que recuerda tu elección en el banner de cookies;
+- una **preferencia de consentimiento de cookies** que recuerda tu elección en el banner;
 - **indicadores de interfaz** menores (por ejemplo, recordar que ya has visto una sugerencia sobre una función).
 
-Como son estrictamente necesarios para prestar un servicio que has solicitado, no requieren consentimiento según las normas de ePrivacy.
+**Analítica y publicidad** — se cargan solo con tu consentimiento:
+
+- **Google Analytics 4** — medición agregada de qué funciones se usan y durante cuánto tiempo;
+- **Google Ads** — medición de conversiones, donde esté activada;
+- **Meta Pixel** — mide el efecto de nuestra publicidad y puede usarse para crear públicos publicitarios.
+
+Si rechazas, queda solo el almacenamiento estrictamente necesario indicado arriba y el Servicio funciona igual. Retirar un consentimiento ya dado detiene las recogidas posteriores, y al recargar la página los rastreadores ya cargados desaparecen.
 
 ## 7. Tus derechos
 

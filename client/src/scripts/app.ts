@@ -29,7 +29,14 @@ import type { CartesiaManager, CartesiaSession } from './cartesia';
 import { type CallModules, loadCallModules } from './call-modules';
 import { loadRemoteI18n } from './content';
 import { setupScheduling } from './meetings';
-import { initAnalytics, grantAnalyticsConsent, track, trackAuthSuccess } from './analytics';
+import {
+  initAnalytics,
+  grantAnalyticsConsent,
+  denyAnalyticsConsent,
+  loadMetaPixel,
+  track,
+  trackAuthSuccess,
+} from './analytics';
 import { setupGeoOptIn } from './geo';
 import { enablePush, maybeSubscribePush } from './push';
 import {
@@ -8711,26 +8718,67 @@ function applyBlocked(peerId: string): void {
 }
 
 // --- Cookie / processing banner ---
-function initCookieBanner(): void {
-  let accepted = false;
+//
+// Consent covers analytics AND advertising, so it needs a refusal that is as easy as
+// acceptance — previously the banner offered only "Got it" while that click granted
+// analytics, which is not a choice. Three states are persisted, and the difference
+// between "denied" and "never asked" matters: only the latter shows the banner again.
+type CookieChoice = 'granted' | 'denied' | null;
+
+function readCookieChoice(): CookieChoice {
   try {
-    accepted = localStorage.getItem('vox.cookie') === '1';
+    const raw = localStorage.getItem('vox.cookie');
+    if (raw === '1' || raw === 'granted') return 'granted'; // '1' = pre-existing accepts
+    if (raw === 'denied') return 'denied';
   } catch {
     /* storage blocked */
   }
+  return null;
+}
+
+function storeCookieChoice(choice: Exclude<CookieChoice, null>): void {
+  try {
+    localStorage.setItem('vox.cookie', choice);
+  } catch {
+    /* storage blocked — the banner will ask again next visit */
+  }
+}
+
+function initCookieBanner(): void {
+  const choice = readCookieChoice();
   // Consent Mode v2: load the tag immediately (consent denied by default) so it's
-  // detectable + GDPR-safe; grant analytics consent only once the user accepts.
+  // detectable + GDPR-safe; grant consent only once the user accepts.
   initAnalytics();
-  if (accepted) grantAnalyticsConsent();
-  else show(cookieBanner, true);
+  if (choice === 'granted') grantConsentedTrackers();
+  else if (choice === null) show(cookieBanner, true);
+
   $('cookie-accept').addEventListener('click', () => {
-    try {
-      localStorage.setItem('vox.cookie', '1');
-    } catch {
-      /* ignore */
-    }
+    storeCookieChoice('granted');
     show(cookieBanner, false);
-    grantAnalyticsConsent();
+    grantConsentedTrackers();
+  });
+  $('cookie-decline').addEventListener('click', () => {
+    storeCookieChoice('denied');
+    show(cookieBanner, false);
+    denyAnalyticsConsent();
+  });
+}
+
+/** Everything that may only run with consent, in one place so the banner and the
+ *  stored-choice path cannot drift apart. */
+function grantConsentedTrackers(): void {
+  grantAnalyticsConsent();
+  loadMetaPixel();
+}
+
+/** Re-open the banner so a previous choice can be changed — a consent that cannot be
+ *  withdrawn is not valid, and the privacy policy points at this control. Withdrawing
+ *  stops further collection; already-loaded tags go away on the next page load, which
+ *  is what the policy says. */
+function initCookieSettingsButton(): void {
+  $('cookie-settings').addEventListener('click', () => {
+    closeAccount(); // step out of the account panel so the banner is not behind it
+    show(cookieBanner, true);
   });
 }
 
@@ -9119,6 +9167,7 @@ function insertEmoji(emoji: string): void {
 }
 
 initCookieBanner();
+initCookieSettingsButton();
 initBugReport(); // always-available "report a problem" button (spec 0071)
 // Onboarding "?" launchers + home wizard wiring (spec onboarding). forceMore drives the ⋯ menu
 // for the tour's share/invite steps without stealing focus, so it doesn't fight driver.js.
