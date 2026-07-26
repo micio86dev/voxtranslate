@@ -33,7 +33,8 @@ A transcrição e a tradução são automatizadas (baseadas em IA) e podem ser i
 
 Partilhamos dados pessoais com os fornecedores abaixo estritamente para operar o Serviço. Alguns estão localizados fora do EEE; nesse caso, baseamo-nos em garantias adequadas, como as Cláusulas Contratuais-Tipo da UE.
 
-- **Google** — início de sessão (OAuth): nome, e-mail, foto de perfil; e, como Google Gemini, tradução de voz em tempo real no nível **Premium**: áudio transmitido e texto da transcrição (transitório).
+- **Google** — início de sessão (OAuth): nome, e-mail, foto de perfil; como Google Gemini, tradução de voz em tempo real no nível **Premium** (áudio transmitido e texto da transcrição, transitório); e, apenas com o seu consentimento, Google Analytics 4 e Google Ads: eventos de uso e de conversão.
+- **Meta** — apenas com o seu consentimento, o Meta Pixel: eventos de página e de conversão usados para medir e segmentar publicidade.
 - **Deepgram** — speech-to-text (nível Standard): áudio transmitido (transitório).
 - **Groq** — tradução automática (níveis Standard e Enhanced): texto da transcrição (transitório).
 - **OpenAI** — tradução de voz em tempo real (nível **Pro**): áudio transmitido e texto da transcrição (transitório).
@@ -59,13 +60,21 @@ Partilhamos dados pessoais com os fornecedores abaixo estritamente para operar o
 
 ## 6. Cookies e armazenamento local
 
-Usamos apenas armazenamento do navegador estritamente necessário — **nenhum** cookie de publicidade de terceiros ou de rastreio entre sites, e nenhum cookie de publicidade ou de análise:
+Parte do armazenamento do navegador é estritamente necessária para o funcionamento do Serviço. A análise e a publicidade são opcionais: só são carregadas **depois de você as aceitar** no banner de cookies, nunca antes, e você pode mudar de ideia a qualquer momento em **Configurações de cookies**.
+
+**Estritamente necessários** — não exigem consentimento nos termos das regras ePrivacy, pois prestam um serviço que você solicitou:
 
 - um **token de sessão** mantido no seu navegador para você permanecer com sessão iniciada;
-- uma **preferência de consentimento de cookies** que recorda a sua escolha no banner de cookies;
+- uma **preferência de consentimento de cookies** que recorda a sua escolha no banner;
 - pequenas **flags de interface** (por exemplo, recordar que você já viu uma dica de funcionalidade).
 
-Por serem estritamente necessários para fornecer um serviço que você solicitou, não exigem consentimento ao abrigo das regras ePrivacy.
+**Análise e publicidade** — carregadas apenas com o seu consentimento:
+
+- **Google Analytics 4** — medição agregada de quais funcionalidades são usadas e por quanto tempo;
+- **Google Ads** — medição de conversões, onde ativada;
+- **Meta Pixel** — mede o efeito da nossa publicidade e pode ser usado para criar públicos publicitários.
+
+Se recusar, permanece apenas o armazenamento estritamente necessário indicado acima e o Serviço funciona da mesma forma. Retirar um consentimento já dado interrompe as recolhas seguintes, e recarregar a página remove os rastreadores já carregados.
 
 ## 7. Os seus direitos
 

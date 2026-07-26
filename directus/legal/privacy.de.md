@@ -33,7 +33,8 @@ Transkription und Übersetzung erfolgen automatisiert (KI-basiert) und können f
 
 Wir geben personenbezogene Daten ausschließlich zum Betrieb des Dienstes an die unten genannten Anbieter weiter. Einige befinden sich außerhalb des EWR; in diesem Fall stützen wir uns auf geeignete Garantien wie die EU-Standardvertragsklauseln.
 
-- **Google** — Anmeldung (OAuth): Name, E-Mail, Profilbild; sowie, als Google Gemini, Echtzeit-Sprachübersetzung im Tarif **Premium**: gestreamtes Audio und Transkripttext (flüchtig).
+- **Google** — Anmeldung (OAuth): Name, E-Mail, Profilbild; als Google Gemini Echtzeit-Sprachübersetzung im Tarif **Premium** (gestreamtes Audio und Transkripttext, flüchtig); und, nur mit Ihrer Einwilligung, Google Analytics 4 und Google Ads: Nutzungs- und Conversion-Ereignisse.
+- **Meta** — nur mit Ihrer Einwilligung das Meta Pixel: Seiten- und Conversion-Ereignisse zur Messung und Ausrichtung von Werbung.
 - **Deepgram** — Speech-to-Text (Standard-Tarif): gestreamtes Audio (flüchtig).
 - **Groq** — maschinelle Übersetzung (Tarife Standard und Enhanced): Transkripttext (flüchtig).
 - **OpenAI** — Echtzeit-Sprachübersetzung (Tarif **Pro**): gestreamtes Audio und Transkripttext (flüchtig).
@@ -59,13 +60,21 @@ Wir geben personenbezogene Daten ausschließlich zum Betrieb des Dienstes an die
 
 ## 6. Cookies und lokaler Speicher
 
-Wir verwenden ausschließlich unbedingt erforderlichen Browser-Speicher — **keine** Cookies von Drittanbietern für Werbung oder seitenübergreifendes Tracking und keine Werbe- oder Analyse-Cookies:
+Ein Teil des Browser-Speichers ist unbedingt erforderlich, um den Dienst zu betreiben. Analyse und Werbung sind optional: sie werden **erst geladen, nachdem Sie zugestimmt haben**, nie vorher, und Sie können Ihre Entscheidung jederzeit unter **Cookie-Einstellungen** ändern.
+
+**Unbedingt erforderlich** — nach den ePrivacy-Regeln einwilligungsfrei, weil sie einen von Ihnen angeforderten Dienst erbringen:
 
 - ein **Sitzungs-Token**, das in Ihrem Browser gespeichert wird, damit Sie angemeldet bleiben;
-- eine **Cookie-Einwilligungseinstellung**, die Ihre Wahl im Cookie-Banner speichert;
-- geringfügige **Oberflächen-Flags** (zum Beispiel das Speichern, dass Sie einen Funktionshinweis bereits gesehen haben).
+- eine **Cookie-Einwilligungseinstellung**, die Ihre Wahl im Banner speichert;
+- geringfügige **Oberflächen-Flags** (zum Beispiel, dass Sie einen Funktionshinweis bereits gesehen haben).
 
-Da diese unbedingt erforderlich sind, um einen von Ihnen angeforderten Dienst bereitzustellen, bedürfen sie nach den ePrivacy-Vorschriften keiner Einwilligung.
+**Analyse und Werbung** — nur mit Ihrer Einwilligung geladen:
+
+- **Google Analytics 4** — aggregierte Messung, welche Funktionen wie lange genutzt werden;
+- **Google Ads** — Conversion-Messung, wo aktiviert;
+- **Meta Pixel** — misst die Wirkung unserer Werbung und kann zur Bildung von Werbe-Zielgruppen genutzt werden.
+
+Bei Ablehnung bleibt nur der oben genannte unbedingt erforderliche Speicher; der Dienst funktioniert genauso. Der Widerruf einer erteilten Einwilligung beendet die weitere Erhebung, und ein Neuladen der Seite entfernt die bereits geladenen Tracker.
 
 ## 7. Ihre Rechte
 

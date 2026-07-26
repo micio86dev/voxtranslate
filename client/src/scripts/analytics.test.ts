@@ -49,6 +49,8 @@ type GtagWindow = { dataLayer?: unknown[]; gtag?: (...args: unknown[]) => void }
 type Analytics = typeof import('./analytics');
 
 interface LoadOpts {
+  /** PUBLIC_FB_PIXEL_ID for this scenario; '' disables the pixel. */
+  pixelId?: string;
   gaId?: string;
   staging?: string;
   /** hostname for the stubbed `location`; null ⇒ leave `location` undefined. */
@@ -64,6 +66,7 @@ async function loadAnalytics(opts: LoadOpts = {}): Promise<{
   vi.resetModules();
   vi.stubEnv('PUBLIC_GA_ID', opts.gaId ?? 'G-TEST123');
   vi.stubEnv('PUBLIC_STAGING', opts.staging ?? '');
+  vi.stubEnv('PUBLIC_FB_PIXEL_ID', opts.pixelId ?? '');
   const win: GtagWindow = {};
   vi.stubGlobal('window', win);
   if (opts.hostname !== null) {
@@ -230,5 +233,67 @@ describe('analytics (behaviour)', () => {
     mod.initAnalytics();
     mod.track('call_start', { tier: 'pro' });
     expect(entries(win)).toContainEqual(['event', 'call_start', { tier: 'pro' }]);
+  });
+});
+
+// ---- Meta pixel (consent-gated advertising) ---------------------------------
+//
+// The pixel is an advertising tracker: it may load ONLY after the visitor accepts, and
+// the registration conversion must reach Meta as the standard `CompleteRegistration`
+// (standard events are what campaign optimisation can bid on). These tests pin the gate
+// itself, because a pixel that loads before consent is the failure that matters.
+describe('Meta pixel', () => {
+  it('does not touch fbq before consent is granted', async () => {
+    const { mod, win } = await loadAnalytics({ pixelId: '111' });
+    mod.initAnalytics();
+    expect((win as { fbq?: unknown }).fbq).toBeUndefined();
+    expect(mod.trackFbEvent('CompleteRegistration')).toBe(false);
+  });
+
+  it('loads the pixel and sends PageView once consent is granted', async () => {
+    const { mod, win, scripts } = await loadAnalytics({ pixelId: '111' });
+    mod.initAnalytics();
+    mod.loadMetaPixel();
+
+    const fbq = (win as { fbq?: (...a: unknown[]) => void }).fbq;
+    expect(typeof fbq).toBe('function');
+    expect(scripts.some((s) => s.src.includes('connect.facebook.net'))).toBe(true);
+    expect(mod.fbqCalls(win)).toEqual([
+      ['init', '111'],
+      ['track', 'PageView'],
+    ]);
+  });
+
+  it('is idempotent — a second grant does not double-load or double-count', async () => {
+    const { mod, win, scripts } = await loadAnalytics({ pixelId: '111' });
+    mod.initAnalytics();
+    mod.loadMetaPixel();
+    mod.loadMetaPixel();
+    expect(scripts.filter((s) => s.src.includes('connect.facebook.net'))).toHaveLength(1);
+    expect(mod.fbqCalls(win).filter((c) => c[1] === 'PageView')).toHaveLength(1);
+  });
+
+  it('stays dormant with no pixel id configured', async () => {
+    const { mod, win, scripts } = await loadAnalytics({ pixelId: '' });
+    mod.initAnalytics();
+    mod.loadMetaPixel();
+    expect((win as { fbq?: unknown }).fbq).toBeUndefined();
+    expect(scripts.some((s) => s.src.includes('connect.facebook.net'))).toBe(false);
+  });
+
+  it('reports a registration as CompleteRegistration', async () => {
+    const { mod, win } = await loadAnalytics({ pixelId: '111' });
+    mod.initAnalytics();
+    mod.loadMetaPixel();
+    mod.trackAuthSuccess({ isNew: true, source: 'reddit' });
+    expect(mod.fbqCalls(win)).toContainEqual(['track', 'CompleteRegistration']);
+  });
+
+  it('does not report a returning login as a registration', async () => {
+    const { mod, win } = await loadAnalytics({ pixelId: '111' });
+    mod.initAnalytics();
+    mod.loadMetaPixel();
+    mod.trackAuthSuccess({ isNew: false, source: null });
+    expect(mod.fbqCalls(win).some((c) => c[1] === 'CompleteRegistration')).toBe(false);
   });
 });

@@ -972,6 +972,10 @@ const jsonLd = {
             <!-- Privacy & data (was the privacy modal). -->
             <section id="acct-privacy" class="acct-section hidden" role="tabpanel" data-section="privacy" data-i18n-label="privacyData" aria-label={T('privacyData')}>
               <button id="export-data" class="btn-ghost privacy-btn" data-i18n="exportData">{T('exportData')}</button>
+              <!-- Withdrawal path: re-opens the cookie banner so an accept can become a
+                   decline. A consent that cannot be withdrawn is not valid consent, and
+                   the privacy policy points here. -->
+              <button id="cookie-settings" class="btn-ghost privacy-btn" data-i18n="cookieSettings">{T('cookieSettings')}</button>
               <button id="delete-account" class="btn-ghost privacy-btn danger" data-i18n="deleteAccount">{T('deleteAccount')}</button>
               <p class="status-line voice-clone-line"><strong data-i18n="voiceCloneTitle">{T('voiceCloneTitle')}</strong> — <span id="voice-clone-state"></span></p>
               <p id="privacy-status" class="status-line" role="status"></p>
@@ -1664,7 +1668,10 @@ const jsonLd = {
       <span id="cookie-text" class="cookie-text" data-i18n="cookieText">{T('cookieText')}</span>
       <div class="cookie-actions">
         <a href="/privacy" target="_blank" rel="noopener" class="cookie-link" data-i18n="privacy">{T('privacy')}</a>
-        <button id="cookie-accept" class="btn-primary cookie-btn" data-i18n="gotIt">{T('gotIt')}</button>
+        <!-- Decline is a real, equally reachable choice: consent that cannot be refused
+             as easily as it is given is not consent. Same button size as Accept. -->
+        <button id="cookie-decline" class="btn-ghost cookie-btn" data-i18n="decline">{T('decline')}</button>
+        <button id="cookie-accept" class="btn-primary cookie-btn" data-i18n="cookieAccept">{T('cookieAccept')}</button>
       </div>
     </div>
 
