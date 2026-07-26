@@ -22,6 +22,17 @@ GA4_ACCESS_TOKEN=… GA4_PROPERTY_ID=123456789 \
 The script creates what is missing, updates a label or description that has drifted, and
 leaves everything else alone. Re-running is safe.
 
+When a credential misbehaves, ask Google what it is before blaming the Analytics API:
+
+```bash
+GA4_ACCESS_TOKEN=… node infra/analytics/setup-ga4-dimensions.mjs --check-token
+```
+
+That hits the `tokeninfo` endpoint and prints validity, remaining lifetime, the
+authorising account and the exact scope list — which separates an expired token from a
+missing scope from a credential of the wrong type entirely. A 401 from the Admin API
+cannot tell those apart; this can.
+
 ## Finding the property id
 
 `GA4_PROPERTY_ID` is the **numeric** id in GA4 → Admin → Property details — not the
@@ -71,6 +82,19 @@ this is ever wired into a workflow.
   listed. Deleting reporting history should never be a side effect of running a script.
 
 ## Limits and what belongs elsewhere
+
+GA4 enforces field limits that the API only reveals when it rejects a write, so the
+script checks them locally and `--dry-run` fails on a violation:
+
+| Field | Limit |
+|---|---|
+| `parameterName` | 40 chars |
+| `displayName` | 82 chars |
+| `description` | 150 chars |
+
+That last one is tight. The full reasoning for each dimension therefore lives in a
+`rationale` field in `custom-dimensions.json`, which stays in the repo and is never sent
+to GA4 — keep `description` to what is useful inside the GA4 UI.
 
 GA4 allows 50 event-scoped custom dimensions per property, so the declared set stays
 deliberately small. Numeric parameters the apps send — `duration_seconds` on
