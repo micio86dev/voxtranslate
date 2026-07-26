@@ -114,3 +114,32 @@ describe('call CSP (issue #237 regression guard)', () => {
     expect(directive('img-src')).toContain('https://www.google-analytics.com');
   });
 });
+
+// ---- Meta pixel origins ------------------------------------------------------
+//
+// Symptom this pins against: the pixel shipped, installed its stub, queued
+// ["init", <id>] and ["track","PageView"] — and sent nothing. `fbevents.js` was
+// never fetched because `script-src` did not list connect.facebook.net, so the
+// browser blocked it and the queue was never drained. Everything looked correct
+// from the code's side, which is exactly why it needs a test.
+describe('CSP allows the Meta pixel it ships', () => {
+  const pixelShipped = readFileSync(
+    new URL('./analytics.ts', import.meta.url),
+    'utf8',
+  ).includes('connect.facebook.net');
+
+  it('ships a pixel loader at all (guards the assumption below)', () => {
+    expect(pixelShipped).toBe(true);
+  });
+
+  it('allows the pixel script origin', () => {
+    expect(directive('script-src')).toContain('https://connect.facebook.net');
+  });
+
+  it('allows the beacon origin the pixel posts events to', () => {
+    // fbevents sends via fetch/sendBeacon (connect-src) and falls back to an
+    // image beacon (img-src) — both to www.facebook.com.
+    expect(directive('connect-src')).toContain('https://www.facebook.com');
+    expect(directive('img-src')).toContain('https://www.facebook.com');
+  });
+});
