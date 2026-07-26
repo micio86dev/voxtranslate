@@ -100,23 +100,43 @@ async function tokenFromServiceAccount(keyPath) {
   return body.access_token;
 }
 
+/** Name a Google credential from its prefix, so a wrong paste identifies itself. */
+function credentialKind(value) {
+  if (value.startsWith('ya29.')) return null; // the one we want
+  if (value.startsWith('AIza')) return 'an API key (identifies a project, authenticates nobody)';
+  if (value.startsWith('GOCSPX-')) return 'an OAuth client secret';
+  if (value.startsWith('1//')) return 'a refresh token (exchange it for an access token first)';
+  if (value.startsWith('eyJ')) return 'an id_token / JWT — the Playground shows it next to access_token';
+  if (value.endsWith('.apps.googleusercontent.com')) return 'an OAuth client id';
+  if (/^G-[A-Z0-9]+$/.test(value)) return 'a GA4 measurement id';
+  return 'not an OAuth access token (those start with "ya29.")';
+}
+
 async function resolveToken() {
+  const keyPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+
   if (process.env.GA4_ACCESS_TOKEN) {
     // A trailing newline (GA4_ACCESS_TOKEN=$(cat token.txt), a copy-paste out of an
     // editor) makes the Authorization header invalid and Google answers a bare 401 —
     // indistinguishable from an expired token unless you know to look for it.
     const token = process.env.GA4_ACCESS_TOKEN.trim();
     if (!token) fail('GA4_ACCESS_TOKEN is set but empty.');
-    if (!token.startsWith('ya29.')) {
+    // Both set is the trap worth shouting about: you configure a service account, the
+    // token still wins, and the same 401 keeps coming back looking like the SA's fault.
+    if (keyPath) {
       console.warn(
-        'warning: GA4_ACCESS_TOKEN does not start with "ya29." — OAuth access tokens do.\n' +
-          '         An API key, an OAuth client id/secret, or a Measurement Protocol\n' +
-          '         api_secret will all fail with 401. Continuing anyway.\n',
+        'warning: GA4_ACCESS_TOKEN *and* GOOGLE_APPLICATION_CREDENTIALS are both set.\n' +
+          '         The token wins and the service account is IGNORED. Run\n' +
+          '         `unset GA4_ACCESS_TOKEN` to use the service account instead.\n',
       );
+    }
+    const kind = credentialKind(token);
+    if (kind) {
+      console.warn(`warning: GA4_ACCESS_TOKEN looks like ${kind}.\n`);
     }
     return token;
   }
-  const keyPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+
   if (keyPath) return tokenFromServiceAccount(keyPath);
   fail(
     'No credentials. Provide ONE of:\n' +
