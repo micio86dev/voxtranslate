@@ -13,7 +13,7 @@ INSERT INTO languages (code, name, sort) VALUES ('ja', '日本語', 6) ON CONFLI
 INSERT INTO languages (code, name, sort) VALUES ('zh', '中文', 7) ON CONFLICT (code) DO UPDATE SET name = EXCLUDED.name, sort = EXCLUDED.sort;
 
 -- Legal pages + per-language body (markdown), one row per <slug>.<lang>.md.
-INSERT INTO legal_pages (slug, version) VALUES ('terms', '2026-06-17') ON CONFLICT (slug) DO UPDATE SET version = EXCLUDED.version;
+INSERT INTO legal_pages (slug, version) VALUES ('terms', '2026-07-26') ON CONFLICT (slug) DO UPDATE SET version = EXCLUDED.version;
 INSERT INTO legal_translations (page_id, language, title, body)
   SELECT id, 'it', 'Termini di servizio', 'Benvenuto su VoxTranslate ("il Servizio"), un''applicazione di videochiamate tradotte in tempo reale gestita da Alessandro Micelli ("VoxTranslate", "noi"). I presenti Termini di servizio ("Termini") regolano l''accesso e l''uso del Servizio. Creando un account, accedendo o utilizzando in altro modo il Servizio, accetti questi Termini. Se non li accetti, non utilizzare il Servizio.
 
@@ -486,7 +486,7 @@ INSERT INTO legal_translations (page_id, language, title, body)
 
 对本条款有疑问？请联系我们：support@voxtranslate.app。' FROM legal_pages WHERE slug = 'terms'
   ON CONFLICT (page_id, language) DO UPDATE SET title = EXCLUDED.title, body = EXCLUDED.body;
-INSERT INTO legal_pages (slug, version) VALUES ('privacy', '2026-06-17') ON CONFLICT (slug) DO UPDATE SET version = EXCLUDED.version;
+INSERT INTO legal_pages (slug, version) VALUES ('privacy', '2026-07-26') ON CONFLICT (slug) DO UPDATE SET version = EXCLUDED.version;
 INSERT INTO legal_translations (page_id, language, title, body)
   SELECT id, 'it', 'Informativa sulla privacy', 'La presente Informativa sulla privacy spiega quali dati personali tratta VoxTranslate quando utilizzi il nostro servizio di videochiamate tradotte in tempo reale, perché li trattiamo e quali diritti hai. È redatta per conformarsi al Regolamento generale sulla protezione dei dati (GDPR) dell''UE e a leggi analoghe.
 
@@ -1296,7 +1296,7 @@ VoxTranslate 对从 Google API 收到的信息的使用和向任何其他应用�
 
 我们可能会更新本政策；届时将修订版本和日期，对于重大变更，将在法律要求时采取额外措施。' FROM legal_pages WHERE slug = 'privacy'
   ON CONFLICT (page_id, language) DO UPDATE SET title = EXCLUDED.title, body = EXCLUDED.body;
-INSERT INTO legal_pages (slug, version) VALUES ('acceptable-use', '2026-06-17') ON CONFLICT (slug) DO UPDATE SET version = EXCLUDED.version;
+INSERT INTO legal_pages (slug, version) VALUES ('acceptable-use', '2026-07-26') ON CONFLICT (slug) DO UPDATE SET version = EXCLUDED.version;
 INSERT INTO legal_translations (page_id, language, title, body)
   SELECT id, 'it', 'Politica di uso consentito', 'La presente Politica di uso consentito ("AUP") stabilisce le regole per l''utilizzo di VoxTranslate. Fa parte dei nostri Termini di servizio. Utilizzando il Servizio accetti di rispettare questa AUP. In caso di violazioni possiamo sospendere o chiudere gli account, rimuovere contenuti o limitare l''accesso.
 

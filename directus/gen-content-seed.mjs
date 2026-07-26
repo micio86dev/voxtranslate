@@ -13,7 +13,7 @@ import { dirname, join } from 'node:path';
 const here = dirname(fileURLToPath(import.meta.url));
 const q = (s) => `'${String(s).replace(/'/g, "''")}'`;
 
-const VERSION = '2026-06-17';
+const VERSION = '2026-07-26';
 const LANGUAGES = [
   ['it', 'Italiano'],
   ['en', 'English'],
