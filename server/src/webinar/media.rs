@@ -97,21 +97,53 @@ pub async fn media_auth(
     Path(caller_secret): Path<String>,
     Json(req): Json<MediaAuthReq>,
 ) -> StatusCode {
+    // Every branch below logs WHY it denied. A silent 401 here surfaces to the host as a
+    // bare "authentication error" from MediaMTX, with nothing on either side saying which
+    // of the four independent causes fired — the reason a mangled caller secret once took
+    // a Railway HTTP-log excavation to find.
     let Some(cfg) = state.config.webinar.as_ref() else {
+        tracing::warn!("media-auth denied: webinar config absent (check MEDIA_* env vars)");
         return StatusCode::NOT_FOUND;
     };
     // 1) Authenticate the caller (MediaMTX) via the secret in the path.
     if !ct_eq(&caller_secret, &cfg.caller_secret) {
+        // NEVER log either secret. The lengths alone separate the two causes that look
+        // identical from outside: a genuinely rotated secret (both plausible lengths) vs.
+        // a deploy that injected a placeholder or garbage into mediamtx.yml (tiny length).
+        tracing::warn!(
+            got_len = caller_secret.len(),
+            want_len = cfg.caller_secret.len(),
+            path = %req.path,
+            "media-auth denied: caller secret mismatch — mediamtx.yml authHTTPAddress does \
+             not match MEDIA_CALLER_SECRET"
+        );
         return StatusCode::UNAUTHORIZED;
     }
     // 2) Defense in depth: only publish is auth'd here.
     if req.action != "publish" {
+        tracing::warn!(
+            action = %req.action,
+            "media-auth denied: unexpected action (read/playback must be excluded at MediaMTX)"
+        );
         return StatusCode::UNAUTHORIZED;
     }
     // 3) Verify the host's token from the WHIP query string.
     match parse_query_token(&req.query) {
         Some(tok) if verify_publish_token(&cfg.auth_secret, &req.path, &tok) => StatusCode::OK,
-        _ => StatusCode::UNAUTHORIZED,
+        Some(_) => {
+            tracing::warn!(
+                path = %req.path,
+                "media-auth denied: publish token invalid, expired, or minted for another path"
+            );
+            StatusCode::UNAUTHORIZED
+        }
+        None => {
+            tracing::warn!(
+                path = %req.path,
+                "media-auth denied: no token in the WHIP query string"
+            );
+            StatusCode::UNAUTHORIZED
+        }
     }
 }
 
