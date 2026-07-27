@@ -16,9 +16,25 @@
 # the wrong address and WebRTC never connects (DEPLOY-HETZNER.md §"DNS").
 webrtcAdditionalHosts: [ingest.voxtranslate.app]
 webrtcLocalUDPAddress: :8189
+# WHIP *signaling* is HTTP and Caddy reverse-proxies it from :443, so bind it to
+# loopback. The default ":8889" answers the whole internet directly, side-stepping
+# the CORS headers Caddy adds and strips. This is ONLY the HTTP port — ICE media
+# still needs the public UDP :8189 above, which is a different setting entirely.
+webrtcAddress: 127.0.0.1:8889
+
+# --- Media over QUIC ---------------------------------------------------------
+# Defaults to ENABLED, binding :8892 on both TCP/HTTP2 and UDP/HTTP3. Nothing in
+# this stack speaks MoQ and no browser can play it, so it is purely one more
+# unauthenticated way to read every live webinar. Off.
+moq: no
 
 # --- LL-HLS (participant playback) -----------------------------------------
 hls: yes
+# Bind to LOOPBACK, not the default ":8888" (all interfaces). Caddy is the only
+# thing that should reach MediaMTX. Left on the default, this box answered
+# plaintext HLS on :8888 to the entire internet — no TLS, and none of the CORS or
+# session-cookie gating that :443 enforces. Verified exposed on 2026-07-27.
+hlsAddress: 127.0.0.1:8888
 hlsVariant: lowLatency
 hlsAlwaysRemux: yes
 hlsSegmentDuration: 1s
@@ -29,7 +45,9 @@ hlsPartDuration: 200ms
 # together with "Access-Control-Allow-Credentials: true", so every credentialed reload
 # is blocked and LL-HLS silently degrades to full-segment latency (~6 s). Pin the guest
 # origin so the credentialed requests are valid CORS.
-hlsAllowOrigin: https://voxtranslate.app
+# PLURAL: 1.19.2 still accepts the singular `hlsAllowOrigin` but logs it as deprecated,
+# so it will not survive a future image bump.
+hlsAllowOrigins: [https://voxtranslate.app]
 
 # --- External auth (F1-2) --------------------------------------------------
 # PUBLISH is authorized by the Axum control plane: MediaMTX POSTs each attempt to
@@ -56,6 +74,18 @@ authHTTPExclude:
 api: no
 metrics: no
 playback: no
+
+# --- RTSP (read replicas only) ----------------------------------------------
+# The RTSP server stays ENABLED and on a public port: it is how read replicas pull
+# each webinar (see replica/mediamtx.yml). It cannot bind loopback — the replica is
+# a different machine.
+#
+# It is also UNAUTHENTICATED, because authHTTPExclude above drops the `read` action.
+# The Hetzner firewall is therefore the ONLY thing standing between :8554 and anyone
+# who wants to read every live webinar. `vox-media-fw` must be ATTACHED to this box
+# with 8554/tcp restricted to the replica IPs — a firewall that exists but is
+# attached to nothing protects nothing (that was the state on 2026-07-27).
+rtsp: yes
 
 paths:
   # Any path under webinar/ is publisher-sourced (the host's WHIP stream).
