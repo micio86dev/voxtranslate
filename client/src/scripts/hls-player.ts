@@ -78,15 +78,28 @@ const LIVE_TUNING = {
   backBufferLength: 10,
 } as const;
 
+/** The end of `video`'s live window, preferring the seekable range and falling back to the
+ *  buffered one. The fallback matters: a browser's NATIVE HLS player exposes no seekable
+ *  range on a live stream (Chrome, observed with readyState 4 and playback running), so
+ *  without it every drift measurement there silently reads zero. */
+function liveEdge(
+  video: { seekable?: TimeRanges; buffered?: TimeRanges },
+): number | null {
+  for (const range of [video.seekable, video.buffered]) {
+    if (!range || range.length === 0) continue;
+    const end = range.end(range.length - 1);
+    if (Number.isFinite(end)) return end;
+  }
+  return null;
+}
+
 /** Seconds `video` is behind the live edge, or 0 when nothing is buffered yet. Pure over
  *  a video-like object so it is unit-testable. */
 export function liveEdgeDrift(
-  video: Pick<HTMLVideoElement, "currentTime"> & { seekable?: TimeRanges },
+  video: Pick<HTMLVideoElement, "currentTime"> & { seekable?: TimeRanges; buffered?: TimeRanges },
 ): number {
-  const seekable = video.seekable;
-  if (!seekable || seekable.length === 0) return 0;
-  const edge = seekable.end(seekable.length - 1);
-  if (!Number.isFinite(edge)) return 0;
+  const edge = liveEdge(video);
+  if (edge === null) return 0;
   return Math.max(0, edge - video.currentTime);
 }
 
@@ -94,12 +107,11 @@ export function liveEdgeDrift(
  *  Returns the resulting `currentTime` (unchanged when there is nothing to correct).
  *  Pure over a video-like object, so it is unit-testable. */
 export function seekToLiveEdge(
-  video: Pick<HTMLVideoElement, "currentTime"> & { seekable?: TimeRanges },
+  video: Pick<HTMLVideoElement, "currentTime"> & { seekable?: TimeRanges; buffered?: TimeRanges },
   maxDriftS = MAX_RESUME_DRIFT_S,
 ): number {
   if (liveEdgeDrift(video) <= maxDriftS) return video.currentTime;
-  const seekable = video.seekable!;
-  const edge = seekable.end(seekable.length - 1);
+  const edge = liveEdge(video)!;
   try {
     video.currentTime = edge - LIVE_EDGE_GUARD_S;
   } catch {
@@ -138,16 +150,28 @@ export function getStoredGuestId(): string | null {
   return store().getItem(GUEST_ID_KEY);
 }
 
-/** Pick the playback engine for a `<video>` element: prefer NATIVE HLS when the browser
- *  can play `application/vnd.apple.mpegurl` (Safari/iOS), else hls.js if MediaSource is
- *  supported, else `unsupported`. Pure — takes the video + an hls.js-supported flag so
- *  it is unit-testable with fakes. */
+/**
+ * Pick the playback engine for a `<video>` element: prefer hls.js wherever it runs, and
+ * fall back to the browser's own HLS player only when it does not (iOS Safari, where
+ * MediaSource/Managed MediaSource is unavailable).
+ *
+ * This order used to be reversed — native first, whenever `canPlayType` said yes. That
+ * was written when Safari was the only browser answering. Chrome 150 answers `"maybe"`
+ * too, which silently moved every Chrome guest onto the browser's player: no
+ * `lowLatencyMode`, no credentialed fetch loader for the session-cookie gate, no error
+ * recovery, and no catch-up policy. Measured in the field, that path sits at plain-HLS
+ * hold-back — 3 x the 2 s segment duration, oscillating between 5.8 s and 6.9 s with
+ * `playbackRate` pinned at 1.00 — while the server was serving LL-HLS parts the whole
+ * time with a PART-HOLD-BACK of 0.59 s.
+ *
+ * Pure — takes the video + an hls.js-supported flag so it is unit-testable with fakes.
+ */
 export function selectFormat(
   video: Pick<HTMLVideoElement, "canPlayType">,
   hlsjsSupported: boolean,
 ): PlaybackFormat {
-  if (video.canPlayType("application/vnd.apple.mpegurl")) return "native";
   if (hlsjsSupported) return "hlsjs";
+  if (video.canPlayType("application/vnd.apple.mpegurl")) return "native";
   return "unsupported";
 }
 
@@ -501,12 +525,12 @@ export class HlsPlayer {
     });
   }
 
-  /** Whether hls.js reports MediaSource support in this browser (loads the chunk to
-   *  ask). Safari answers `native` before this is ever called, so the chunk only loads
-   *  where it is actually needed. */
+  /** Whether hls.js reports MediaSource support in this browser (loads the chunk to ask).
+   *  Answering this costs one lazy chunk on iOS, where the answer is always false — worth
+   *  it, because the previous fast path ("native HLS available ⇒ we never need hls.js")
+   *  short-circuited to `false` on every Chrome guest and forced `selectFormat` down the
+   *  native path regardless of what it preferred. */
   private async hlsjsSupported(): Promise<boolean> {
-    // Fast path: if the video can play HLS natively we never need hls.js at all.
-    if (this.video.canPlayType("application/vnd.apple.mpegurl")) return false;
     try {
       const { Hls } = await this.loadHls();
       return Hls.isSupported();

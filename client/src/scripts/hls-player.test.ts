@@ -13,6 +13,7 @@ import {
   GUEST_ID_KEY,
   persistGuestId,
   getStoredGuestId,
+  liveEdgeDrift,
   seekToLiveEdge,
   selectFormat,
   shouldRetryForVideo,
@@ -101,11 +102,18 @@ afterEach(() => {
 });
 
 describe('selectFormat', () => {
-  it('prefers native HLS on Safari (canPlayType hls)', () => {
-    expect(selectFormat({ canPlayType: () => 'maybe' } as any, true)).toBe('native');
+  it('prefers hls.js even when the browser also plays HLS natively', () => {
+    // Regression: this used to return 'native' whenever canPlayType said so. Chrome now
+    // reports native HLS support, so EVERY Chrome guest was silently routed to the
+    // browser's own player — which ignores lowLatencyMode, the credentialed fetch loader
+    // and the catch-up policy, pinning latency at plain-HLS hold-back (~6 s).
+    expect(selectFormat({ canPlayType: () => 'maybe' } as any, true)).toBe('hlsjs');
   });
   it('uses hls.js when native HLS is unavailable but MediaSource is supported', () => {
     expect(selectFormat({ canPlayType: () => '' } as any, true)).toBe('hlsjs');
+  });
+  it('falls back to native HLS where hls.js cannot run (iOS Safari)', () => {
+    expect(selectFormat({ canPlayType: () => 'maybe' } as any, false)).toBe('native');
   });
   it('is unsupported when neither works', () => {
     expect(selectFormat({ canPlayType: () => '' } as any, false)).toBe('unsupported');
@@ -255,9 +263,11 @@ describe('HlsPlayer state machine', () => {
     vi.useRealTimers();
   });
 
-  it('attaches natively on Safari (no hls.js chunk loaded)', async () => {
+  it('attaches natively only where hls.js cannot run (iOS Safari)', async () => {
     const video = fakeVideo({ canNative: true });
-    const loadHls = vi.fn();
+    // loadHls rejects — hls.js is unavailable here, exactly like iOS Safari without
+    // (Managed) MediaSource. Native HLS is then the right and only engine.
+    const loadHls = vi.fn().mockRejectedValue(new Error('no MediaSource'));
     const p = new HlsPlayer({
       code: 'ab12cd',
       video,
@@ -268,7 +278,9 @@ describe('HlsPlayer state machine', () => {
     await p.start();
     expect(p.getState()).toBe('live');
     expect(video.src).toBe('https://hls.example/webinar/ab12cd/index.m3u8');
-    expect(loadHls).not.toHaveBeenCalled(); // native path never loads the chunk
+    // The chunk IS probed now, even here. Deliberate: the old "native available ⇒ skip
+    // hls.js" shortcut is precisely what forced Chrome onto the native player.
+    expect(loadHls).toHaveBeenCalled();
   });
 
   it('reports tap-to-start when autoplay is fully blocked', async () => {
@@ -781,5 +793,32 @@ describe('HlsPlayer live-edge recovery', () => {
 
     expect(p.getLiveLatency()).toBeCloseTo(1.5, 1);
     p.destroy();
+  });
+});
+
+describe('liveEdgeDrift on the native path', () => {
+  // Chrome's native HLS player exposes NO seekable range on a live stream (observed in
+  // the field: readyState 4, playing, buffered.length 1, seekable.length 0). Falling back
+  // to the buffered range keeps drift measurable — and seekToLiveEdge correctable — there.
+  it('uses the buffered range when there is no seekable range', () => {
+    const v = {
+      currentTime: 184.5,
+      seekable: { length: 0, end: () => 0 },
+      buffered: { length: 1, end: () => 190.5 },
+    };
+    expect(liveEdgeDrift(v as never)).toBeCloseTo(6, 5);
+  });
+
+  it('prefers the seekable range when both are present', () => {
+    const v = {
+      currentTime: 50,
+      seekable: { length: 1, end: () => 60 },
+      buffered: { length: 1, end: () => 55 },
+    };
+    expect(liveEdgeDrift(v as never)).toBeCloseTo(10, 5);
+  });
+
+  it('reports no drift when neither range exists', () => {
+    expect(liveEdgeDrift({ currentTime: 5 } as never)).toBe(0);
   });
 });
