@@ -22,11 +22,15 @@ webrtcLocalUDPAddress: :8189
 # still needs the public UDP :8189 above, which is a different setting entirely.
 webrtcAddress: 127.0.0.1:8889
 
-# --- Media over QUIC ---------------------------------------------------------
-# Defaults to ENABLED, binding :8892 on both TCP/HTTP2 and UDP/HTTP3. Nothing in
-# this stack speaks MoQ and no browser can play it, so it is purely one more
-# unauthenticated way to read every live webinar. Off.
+# --- Protocols this box does not speak ---------------------------------------
+# All three default to ENABLED and were found listening on the public interface:
+# MoQ on :8892 (TCP/HTTP2 + UDP/HTTP3), RTMP on :1935, SRT on :8890/udp. Hosts
+# publish over WHIP and guests read over HLS — nothing here uses any of them, so
+# each is only another way in. The firewall blocks them too; this stops them
+# listening at all.
 moq: no
+rtmp: no
+srt: no
 
 # --- LL-HLS (participant playback) -----------------------------------------
 hls: yes

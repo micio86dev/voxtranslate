@@ -39,17 +39,44 @@ CDN path requires disabling the low-latency variant, which puts playback back at
 CDN on Free/Pro/Business plans — so the playback hostname stays **grey-cloud**.
 See <https://mediamtx.org/docs/features/scaling>.
 
-### ⚠️ Do not `terraform apply` yet
+### ⚠️ Do not `terraform apply` — there is no state
 
 There is **no Terraform state** for this project — not on disk, not in git history.
-Terraform therefore believes the origin does not exist and an `apply` would try to
-create `vox-media` (SSH key), `vox-media-fw` (firewall) and `vox-media-01` (server)
-from scratch, against names that are already taken, on the box that is currently
-publishing webinars.
+Terraform therefore believes nothing exists and an `apply` would try to create
+`vox-media` (SSH key), `vox-media-fw` (firewall) and `vox-media-01` (server) from
+scratch, against names that are already taken, on the box that serves live
+webinars. Both boxes were built by hand; `main.tf` currently describes them
+rather than managing them.
 
-Treat `main.tf` as the documented target state. Build the first replica by hand,
-then reconcile with `terraform import` when the origin can take a maintenance
-window.
+#### Reconstructing the state (`terraform import`)
+
+Import is read-only against the infrastructure — it only writes local state — so
+it is safe to run at any time. What is NOT safe is the `apply` afterwards: check
+its plan reads **"No changes"** before letting it touch anything.
+
+```sh
+export HCLOUD_TOKEN=…                       # Hetzner → Security → API Tokens
+hcloud ssh-key list && hcloud firewall list && hcloud server list   # collect IDs
+
+terraform init
+terraform import -var="hcloud_token=$HCLOUD_TOKEN" -var="admin_ip=$(curl -s ifconfig.me)/32" \
+  hcloud_ssh_key.media       <ssh-key-id>
+terraform import … hcloud_firewall.media     <vox-media-fw-id>
+terraform import … hcloud_server.media       <vox-media-01-id>
+terraform import … 'hcloud_firewall.replica[0]' <vox-media-replica-fw-id>
+terraform import … 'hcloud_server.replica[0]'   <vox-media-replica-01-id>
+
+terraform plan -var=…       # MUST say "No changes" — investigate anything else
+```
+
+Expect the plan to differ at first: `main.tf` defaults to `location = "nbg1"`
+while the live origin is in `hel1`, and `var.replica_ips` must be set to
+`["<replica-ip>/32"]` or the plan will propose deleting the origin's 8554 rule.
+Fix the variables to match reality — never let the plan "fix" reality.
+
+State holds provisioned attributes verbatim, so it is gitignored. Keep it
+somewhere durable (a remote backend, or at minimum a backup) or the next person
+inherits this same problem.
 
 ### Bring one up by hand
 
