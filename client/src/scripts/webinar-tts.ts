@@ -9,7 +9,17 @@ export interface WebinarTtsSession {
   expires_at: number; // Unix seconds
   cartesia_version: string;
   tts: { endpoint: string; model: string };
-  default_voice_id: string;
+  /** Instance-wide fallback voice (CARTESIA_DEFAULT_VOICE_ID); null when unset. */
+  default_voice_id: string | null;
+  /** The host's cloned voice (spec 0108); null when the host never cloned one. */
+  host_voice_id?: string | null;
+}
+
+/** Voice a participant hears for the translated audio: the host's clone when they have
+ *  one, the configured default otherwise. Mirrors the call path (cartesia.ts), where a
+ *  peer's own cloned voice wins over the default. Null = no voice at all → subtitles only. */
+export function resolveWebinarVoiceId(session: WebinarTtsSession): string | null {
+  return session.host_voice_id || session.default_voice_id || null;
 }
 
 export class WebinarTts {
@@ -83,6 +93,9 @@ export class WebinarTts {
     const session = await this.ensureSession();
     if (!session || !this.enabled) return;
 
+    const voiceId = resolveWebinarVoiceId(session);
+    if (!voiceId) return; // no host clone and no default → subtitles only
+
     const ws = await this.ensureWs(session);
     if (!ws || ws.readyState !== WebSocket.OPEN || !this.enabled) return;
 
@@ -93,7 +106,7 @@ export class WebinarTts {
       ws.send(JSON.stringify({
         model_id: session.tts.model,
         transcript: text,
-        voice: { mode: 'id', id: session.default_voice_id },
+        voice: { mode: 'id', id: voiceId },
         output_format: { container: 'raw', encoding: 'pcm_s16le', sample_rate: 24000 },
         language: this.lang,
         context_id: contextId,
