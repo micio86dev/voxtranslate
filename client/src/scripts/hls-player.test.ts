@@ -13,6 +13,8 @@ import {
   GUEST_ID_KEY,
   persistGuestId,
   getStoredGuestId,
+  liveEdgeDrift,
+  seekToLiveEdge,
   selectFormat,
   shouldRetryForVideo,
   stateFromStatus,
@@ -100,11 +102,18 @@ afterEach(() => {
 });
 
 describe('selectFormat', () => {
-  it('prefers native HLS on Safari (canPlayType hls)', () => {
-    expect(selectFormat({ canPlayType: () => 'maybe' } as any, true)).toBe('native');
+  it('prefers hls.js even when the browser also plays HLS natively', () => {
+    // Regression: this used to return 'native' whenever canPlayType said so. Chrome now
+    // reports native HLS support, so EVERY Chrome guest was silently routed to the
+    // browser's own player — which ignores lowLatencyMode, the credentialed fetch loader
+    // and the catch-up policy, pinning latency at plain-HLS hold-back (~6 s).
+    expect(selectFormat({ canPlayType: () => 'maybe' } as any, true)).toBe('hlsjs');
   });
   it('uses hls.js when native HLS is unavailable but MediaSource is supported', () => {
     expect(selectFormat({ canPlayType: () => '' } as any, true)).toBe('hlsjs');
+  });
+  it('falls back to native HLS where hls.js cannot run (iOS Safari)', () => {
+    expect(selectFormat({ canPlayType: () => 'maybe' } as any, false)).toBe('native');
   });
   it('is unsupported when neither works', () => {
     expect(selectFormat({ canPlayType: () => '' } as any, false)).toBe('unsupported');
@@ -254,9 +263,11 @@ describe('HlsPlayer state machine', () => {
     vi.useRealTimers();
   });
 
-  it('attaches natively on Safari (no hls.js chunk loaded)', async () => {
+  it('attaches natively only where hls.js cannot run (iOS Safari)', async () => {
     const video = fakeVideo({ canNative: true });
-    const loadHls = vi.fn();
+    // loadHls rejects — hls.js is unavailable here, exactly like iOS Safari without
+    // (Managed) MediaSource. Native HLS is then the right and only engine.
+    const loadHls = vi.fn().mockRejectedValue(new Error('no MediaSource'));
     const p = new HlsPlayer({
       code: 'ab12cd',
       video,
@@ -267,7 +278,9 @@ describe('HlsPlayer state machine', () => {
     await p.start();
     expect(p.getState()).toBe('live');
     expect(video.src).toBe('https://hls.example/webinar/ab12cd/index.m3u8');
-    expect(loadHls).not.toHaveBeenCalled(); // native path never loads the chunk
+    // The chunk IS probed now, even here. Deliberate: the old "native available ⇒ skip
+    // hls.js" shortcut is precisely what forced Chrome onto the native player.
+    expect(loadHls).toHaveBeenCalled();
   });
 
   it('reports tap-to-start when autoplay is fully blocked', async () => {
@@ -546,6 +559,27 @@ describe('HlsPlayer live recovery', () => {
     vi.useRealTimers();
   });
 
+  it('gives hls.js a catch-up policy so drift never becomes permanent latency', async () => {
+    // Regression: with hls.js defaults (`maxLiveSyncPlaybackRate: 1`) the player NEVER
+    // recovers latency it lost at startup — the first-frame wait, a tap-to-start, or one
+    // rebuffer permanently offsets the playhead from the live edge, which is why a
+    // correctly-configured LL-HLS stream still measured ~6 s of delay.
+    vi.useFakeTimers();
+    const { p, instances } = await livePlayer();
+    const cfg = instances[0].cfg;
+
+    expect(cfg.lowLatencyMode).toBe(true);
+    // Must be able to play slightly fast to close the gap (1 = never catches up).
+    expect(cfg.maxLiveSyncPlaybackRate).toBeGreaterThan(1);
+    // Hard cap so an unrecoverable drift jumps instead of grinding forever.
+    expect(cfg.liveMaxLatencyDurationCount).toBeGreaterThan(0);
+    // Non-LL fallback: hls.js holds back 3 target durations by default (~6 s here).
+    expect(cfg.liveSyncDurationCount).toBeLessThan(3);
+
+    p.destroy();
+    vi.useRealTimers();
+  });
+
   it('re-attaches when playback freezes (the host republished)', async () => {
     vi.useFakeTimers();
     const { p, video, instances } = await livePlayer();
@@ -643,5 +677,148 @@ describe('HlsPlayer live recovery', () => {
 
     p.destroy();
     vi.useRealTimers();
+  });
+});
+
+// ---- live-edge latency ------------------------------------------------------
+//
+// A live webinar has no value in stale buffer. Every moment the playhead spends
+// behind the live edge (the first-frame wait, a tap-to-start overlay the guest
+// answers late, an unmute after a pause) is latency that hls.js's default
+// configuration never gives back. These pin the recovery.
+describe('seekToLiveEdge', () => {
+  /** A video-like object with one seekable range ending at `end`. */
+  const vid = (currentTime: number, end?: number) => ({
+    currentTime,
+    seekable:
+      end === undefined
+        ? { length: 0, end: () => 0 }
+        : { length: 1, end: () => end },
+  });
+
+  it('leaves the playhead alone when it is already near the live edge', () => {
+    const v = vid(58, 60);
+    expect(seekToLiveEdge(v as never, 3)).toBe(58);
+    expect(v.currentTime).toBe(58);
+  });
+
+  it('jumps forward when the playhead drifted behind the live edge', () => {
+    const v = vid(50, 60);
+    const at = seekToLiveEdge(v as never, 3);
+    // Lands just short of the edge — seeking exactly onto it stalls the decoder.
+    expect(at).toBeGreaterThan(59);
+    expect(at).toBeLessThan(60);
+    expect(v.currentTime).toBe(at);
+  });
+
+  it('does nothing without a seekable range (nothing buffered yet)', () => {
+    const v = vid(5);
+    expect(seekToLiveEdge(v as never, 3)).toBe(5);
+    expect(v.currentTime).toBe(5);
+  });
+
+  it('ignores a non-finite live edge', () => {
+    const v = vid(5, Infinity);
+    expect(seekToLiveEdge(v as never, 3)).toBe(5);
+  });
+});
+
+describe('HlsPlayer live-edge recovery', () => {
+  /** A paused fake <video> sitting 20 s behind a live edge at t=60. */
+  function staleVideo() {
+    const v: Record<string, unknown> = {
+      src: '',
+      muted: true,
+      paused: true,
+      currentTime: 40,
+      readyState: 4,
+      videoWidth: 640,
+      seekable: { length: 1, end: () => 60 },
+      canPlayType: vi.fn(() => 'maybe'),
+      play: vi.fn(async () => {
+        v.paused = false;
+      }),
+      removeAttribute: vi.fn(),
+      addEventListener: vi.fn(),
+    };
+    return v as unknown as HTMLVideoElement & { currentTime: number };
+  }
+
+  it('jumps to the live edge when the guest taps to start', async () => {
+    const video = staleVideo();
+    const p = new HlsPlayer({
+      code: 'ab12cd',
+      video,
+      fetchWebinar: vi.fn().mockResolvedValue(webinar({ status: 'live' })),
+      firstFrameTimeoutMs: 0,
+    });
+    await p.start();
+    // The guest let the tap-to-start overlay sit: playback is paused 20 s behind live.
+    video.currentTime = 40;
+    (video as unknown as { paused: boolean }).paused = true;
+
+    await p.userStart();
+    // Without this the guest watches the whole webinar 20 s behind.
+    expect(video.currentTime).toBeGreaterThan(59);
+    p.destroy();
+  });
+
+  it('jumps to the live edge when the guest unmutes a paused stream', async () => {
+    const video = staleVideo();
+    const p = new HlsPlayer({
+      code: 'ab12cd',
+      video,
+      fetchWebinar: vi.fn().mockResolvedValue(webinar({ status: 'live' })),
+      firstFrameTimeoutMs: 0,
+    });
+    await p.start();
+    video.currentTime = 40;
+    (video as unknown as { paused: boolean }).paused = true;
+
+    p.muteAudio(false);
+    expect(video.currentTime).toBeGreaterThan(59);
+    p.destroy();
+  });
+
+  it('reports how far behind the live edge playback is', async () => {
+    const video = staleVideo();
+    const p = new HlsPlayer({
+      code: 'ab12cd',
+      video,
+      fetchWebinar: vi.fn().mockResolvedValue(webinar({ status: 'live' })),
+      firstFrameTimeoutMs: 0,
+    });
+    await p.start();
+    video.currentTime = 58.5;
+
+    expect(p.getLiveLatency()).toBeCloseTo(1.5, 1);
+    p.destroy();
+  });
+});
+
+describe('liveEdgeDrift on the native path', () => {
+  // Chrome's native HLS player exposes NO seekable range on a live stream (observed in
+  // the field: readyState 4, playing, buffered.length 1, seekable.length 0). Falling back
+  // to the buffered range keeps drift measurable — and seekToLiveEdge correctable — there.
+  it('uses the buffered range when there is no seekable range', () => {
+    const v = {
+      currentTime: 184.5,
+      seekable: { length: 0, end: () => 0 },
+      buffered: { length: 1, end: () => 190.5 },
+    };
+    expect(liveEdgeDrift(v as never)).toBeCloseTo(6, 5);
+  });
+
+  it('prefers the seekable range when both are present', () => {
+    const v = {
+      currentTime: 50,
+      seekable: { length: 1, end: () => 60 },
+      buffered: { length: 1, end: () => 55 },
+    };
+    expect(liveEdgeDrift(v as never)).toBeCloseTo(10, 5);
+  });
+
+  it('reports no drift when neither range exists', () => {
+    expect(liveEdgeDrift({ currentTime: 5 } as never)).toBe(0);
   });
 });
