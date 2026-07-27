@@ -142,6 +142,12 @@ variable "replica_count" {
   default     = 1
 }
 
+variable "replica_location" {
+  description = "Where replicas run. Deliberately separate from var.location: the live origin is in hel1 (Helsinki) and cx33 was not available there when the first replica was built, so it went to fsn1. Replicas do not have to share the origin's site — they only pull RTSP from it — but the further apart they are, the more RTT the pull adds."
+  type        = string
+  default     = "fsn1"
+}
+
 variable "replica_ips" {
   description = "Replica public IPs in CIDR form (e.g. [\"203.0.113.9/32\"]) — the ONLY sources allowed to pull RTSP from the origin. The origin's RTSP is unauthenticated (authHTTPExclude drops the `read` action), so this list is the whole access control: keep it exact, never widen it."
   type        = list(string)
@@ -153,12 +159,21 @@ variable "replica_ips" {
 # public port at all — but attaching one to the live origin adds a NIC that
 # Ubuntu often will not bring up without manual netplan work or a reboot, on the
 # box that is publishing webinars. A firewall rule is instant, reversible, and
-# touches nothing inside the OS. Between two boxes in the same Hetzner
-# datacenter the traffic stays on their network, and it is 2.5 Mbps per active
-# webinar.
+# touches nothing inside the OS.
+#
+# The first replica sits in a DIFFERENT location from the origin (fsn1 vs hel1 —
+# cx33 was unavailable in Helsinki), so this hop crosses the public internet and
+# IS billed as ordinary egress. That costs 2.5 Mbps per ACTIVE webinar, about
+# 1.1 GB per webinar-hour: immaterial against the 20 TB included per server, but
+# it is no longer free the way a same-zone private hop would be. The added RTT
+# (~20-30 ms between German and Finnish Hetzner sites) is immaterial against a
+# playback budget measured in seconds — measure it with `ping` from the origin
+# rather than trusting that figure.
 #
 # Revisit once the Terraform state is reconstructed (terraform import) and the
-# origin can take a maintenance window.
+# origin can take a maintenance window. hel1 and fsn1 are both in the eu-central
+# network zone, so a private network can still span them later — confirm against
+# Hetzner's current zone map before relying on it.
 
 # No 8189/udp here: a replica serves HLS only and never terminates WebRTC.
 resource "hcloud_firewall" "replica" {
@@ -192,7 +207,7 @@ resource "hcloud_server" "replica" {
   name         = "vox-media-replica-${format("%02d", count.index + 1)}"
   image        = "ubuntu-24.04"
   server_type  = var.server_type
-  location     = var.location
+  location     = var.replica_location
   ssh_keys     = [hcloud_ssh_key.media.id]
   firewall_ids = [hcloud_firewall.replica[0].id]
 
