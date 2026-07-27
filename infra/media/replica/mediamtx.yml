@@ -1,0 +1,93 @@
+###############################################################################
+# MediaMTX — VoxTranslate webinar READ REPLICA
+#
+# Pulls each webinar from the origin over RTSP (private network, on demand) and
+# serves LL-HLS to guests at https://hls.voxtranslate.app/webinar/{code}/index.m3u8
+#
+# The replica NEVER accepts a publish: hosts always WHIP to the origin. Guest
+# bandwidth therefore stops competing with the host's ingest, and the origin's
+# outbound load becomes one stream copy per REPLICA instead of one per viewer.
+#
+# See ../main.tf for why this is a replica and not a CDN (short version:
+# LL-HLS blocking playlist reloads are long-polls that no CDN can cache).
+###############################################################################
+
+# --- Nothing to ingest here -------------------------------------------------
+# A replica speaks exactly one protocol outward: HLS. Everything else is off so
+# there is no second door to secure.
+rtmp: no
+srt: no
+webrtc: no
+# The RTSP SERVER is off too. `rtsp` gates the server only — a path whose `source`
+# is an rtsp:// URL keeps working, because that is the RTSP *client*. Leaving the
+# server on would have published every replicated webinar on :8554 to anyone who
+# looked, since rtspAddress defaults to all interfaces. (The first boot of this
+# replica did exactly that: "[RTSP] started with listeners on :8554".)
+rtsp: no
+# MoQ (Media over QUIC) defaults to ENABLED and binds :8892 on TCP/HTTP2 and
+# UDP/HTTP3. Nothing here speaks it and no browser can play it yet, so it is one
+# more unauthenticated way to read every replicated webinar. Off.
+moq: no
+
+# --- LL-HLS (guest playback) ------------------------------------------------
+# These MUST mirror the origin's values: they decide the part cadence the guest
+# player negotiates, and a mismatch between replicas would make latency depend
+# on which box a viewer landed on.
+hls: yes
+# Bind to LOOPBACK, not the default ":8888" (all interfaces). Caddy is the only
+# thing that should reach MediaMTX: left on the default, the box answers HLS in
+# plaintext HTTP on :8888 to the whole internet, bypassing TLS and every rule in
+# the Caddyfile. The firewall should block it as well — this is the belt to that
+# pair of braces, and it survives a firewall being detached by mistake.
+hlsAddress: 127.0.0.1:8888
+hlsVariant: lowLatency
+hlsSegmentDuration: 1s
+hlsPartDuration: 200ms
+# The guest player fetches playlists WITH credentials (MediaMTX gates HLS behind
+# a session cookie). Browsers reject "Access-Control-Allow-Origin: *" together
+# with credentials, so the guest origin must be pinned exactly as on the origin
+# box — otherwise every blocking reload fails and LL-HLS silently degrades.
+#
+# PLURAL, a list. 1.19.2 still accepts the singular `hlsAllowOrigin` but logs
+# "parameter 'hlsAllowOrigin' is deprecated" on boot; the origin box is still on
+# the old spelling and should be moved too.
+hlsAllowOrigins: [https://voxtranslate.app]
+# NOT set: hlsAlwaysRemux. The origin remuxes eagerly so the first guest never
+# waits; a replica instead follows sourceOnDemand below and only pulls a webinar
+# while someone is actually watching it. An idle replica costs the origin nothing.
+
+# --- No control surface -----------------------------------------------------
+api: no
+metrics: no
+playback: no
+
+# --- Read-only ---------------------------------------------------------------
+# MediaMTX's default internal user grants every permission. Narrow it to `read`
+# so a replica cannot be published to even if one were reachable: the only way a
+# stream enters this box is the RTSP pull configured below.
+authInternalUsers:
+  - user: any
+    ips: []
+    permissions:
+      - action: read
+
+paths:
+  # Every webinar path mirrors the origin's namespace. $G1 is the first regex
+  # capture — the webinar code — so a guest asking this replica for
+  # `webinar/AbC123` makes it pull `rtsp://ingest.voxtranslate.app:8554/webinar/AbC123`
+  # from the origin.
+  #
+  # The origin is addressed BY HOSTNAME, not by IP, so replacing the origin box
+  # is a DNS change and this file never moves. It resolves to the real address
+  # because ingest.voxtranslate.app is DNS-only (grey cloud) — the same property
+  # WebRTC ICE already depends on.
+  #
+  # Reachability is a firewall rule on the origin: 8554/tcp open ONLY to this
+  # replica's IP (var.replica_ips in ../main.tf). The origin's RTSP is
+  # unauthenticated, so that rule is the entire access control.
+  "~^webinar/(.+)$":
+    source: rtsp://ingest.voxtranslate.app:8554/webinar/$G1
+    # Connect only while at least one guest is watching, and drop the pull when
+    # the last one leaves. With hundreds of scheduled-but-idle webinars this is
+    # the difference between a handful of RTSP sessions and one per path.
+    sourceOnDemand: yes

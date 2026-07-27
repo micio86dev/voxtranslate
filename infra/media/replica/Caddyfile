@@ -1,0 +1,34 @@
+# TLS termination for the webinar PLAYBACK host (read replica).
+#
+# Guests read https://hls.voxtranslate.app/webinar/{code}/index.m3u8 — nothing
+# else is served here. WHIP ingest stays on ingest.voxtranslate.app (the origin);
+# a replica never accepts a publish.
+#
+# DNS-only (grey cloud), same as the origin. Not because of WebRTC — this box has
+# none — but because Cloudflare does not permit third-party live video through
+# the CDN on Free/Pro/Business plans. Orange here would risk having the content
+# redirected. See ../main.tf.
+hls.voxtranslate.app {
+	# `handle` blocks, NOT a bare reverse_proxy + respond pair. Caddy SORTS
+	# directives rather than running them top to bottom, and `respond` sorts
+	# BEFORE `reverse_proxy` — so an unmatched `respond 404` written underneath
+	# still swallows every request, /webinar/* included, and the proxy never
+	# runs. (That is exactly what happened on the first deploy: the replica
+	# answered 404 to a live webinar while MediaMTX logged nothing at all,
+	# because no request ever reached it.) `handle` blocks are mutually
+	# exclusive and evaluated in the order written, so the intent survives.
+	handle /webinar/* {
+		# LL-HLS delivery. flush_interval -1 enables streaming pass-through so
+		# each partial segment chunk is forwarded the instant MediaMTX emits it.
+		# Without it Caddy buffers whole responses and low-latency collapses to
+		# full-segment latency — the same trap as on the origin.
+		reverse_proxy localhost:8888 {
+			flush_interval -1
+		}
+	}
+
+	# Anything else on this host is not part of the playback surface.
+	handle {
+		respond 404
+	}
+}

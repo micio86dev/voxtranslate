@@ -64,3 +64,11 @@
 
 # Codex CLI local config (contains local MCP api keys — never commit)
 /.codex/
+
+# Terraform state — contains provisioned resource attributes and any value the
+# provider stored verbatim, including tokens passed as variables. Never commit it.
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+*.tfvars
