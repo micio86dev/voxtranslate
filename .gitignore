@@ -72,3 +72,6 @@
 .terraform/
 .terraform.lock.hcl
 *.tfvars
+
+# Terraform backend config: holds the Cloudflare account ID and R2 credentials.
+backend.hcl

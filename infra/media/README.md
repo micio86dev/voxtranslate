@@ -6,7 +6,10 @@ This folder holds the deployable configs.
 
 | File | Role |
 |---|---|
-| `main.tf` | Terraform: Hetzner box (cx32/cax21) + firewall (22, 80, 443, 8189/udp) |
+| `main.tf` | Terraform: origin + replica boxes and their firewalls (describes them; see the import note) |
+| `tf-import.sh` | Adopts the hand-built boxes into Terraform state |
+| `backend.tf` + `backend.hcl.example` | Remote state on Cloudflare R2, with locking |
+| `terraform.tfvars.example` | The values that describe the live boxes — copy and add your token |
 | `mediamtx.yml` | WHIP ingest + LL-HLS + the F1-2 external-auth hook |
 | `Caddyfile` | Automatic TLS; reverse-proxies WHIP (:8889) + HLS (:8888) behind :443 |
 | `docker-compose.yml` | Runs MediaMTX + Caddy (host networking) |
@@ -48,35 +51,72 @@ scratch, against names that are already taken, on the box that serves live
 webinars. Both boxes were built by hand; `main.tf` currently describes them
 rather than managing them.
 
-#### Reconstructing the state (`terraform import`)
-
-Import is read-only against the infrastructure — it only writes local state — so
-it is safe to run at any time. What is NOT safe is the `apply` afterwards: check
-its plan reads **"No changes"** before letting it touch anything.
+#### Reconstructing the state — `./tf-import.sh`
 
 ```sh
-export HCLOUD_TOKEN=…                       # Hetzner → Security → API Tokens
-hcloud ssh-key list && hcloud firewall list && hcloud server list   # collect IDs
-
-terraform init
-terraform import -var="hcloud_token=$HCLOUD_TOKEN" -var="admin_ip=$(curl -s ifconfig.me)/32" \
-  hcloud_ssh_key.media       <ssh-key-id>
-terraform import … hcloud_firewall.media     <vox-media-fw-id>
-terraform import … hcloud_server.media       <vox-media-01-id>
-terraform import … 'hcloud_firewall.replica[0]' <vox-media-replica-fw-id>
-terraform import … 'hcloud_server.replica[0]'   <vox-media-replica-01-id>
-
-terraform plan -var=…       # MUST say "No changes" — investigate anything else
+cp terraform.tfvars.example terraform.tfvars    # paste your Hetzner token
+./tf-import.sh
 ```
 
-Expect the plan to differ at first: `main.tf` defaults to `location = "nbg1"`
-while the live origin is in `hel1`, and `var.replica_ips` must be set to
-`["<replica-ip>/32"]` or the plan will propose deleting the origin's 8554 rule.
-Fix the variables to match reality — never let the plan "fix" reality.
+That is the whole procedure. The script resolves each resource's ID from the
+Hetzner REST API by name, imports the five of them, and finishes with a plan.
+It is re-runnable: anything already in state is skipped, so fix an error and run
+it again.
 
-State holds provisioned attributes verbatim, so it is gitignored. Keep it
-somewhere durable (a remote backend, or at minimum a backup) or the next person
-inherits this same problem.
+**`terraform import` cannot damage anything** — it only writes local state, and
+never creates, changes or destroys a resource at Hetzner. The dangerous command
+is the `apply` afterwards, which is why the script ends by checking the plan and
+tells you plainly when the plan is dirty.
+
+A dirty plan means `main.tf` and reality disagree. Fix `main.tf` or
+`terraform.tfvars` — **never let the plan "fix" reality**, because the fix it
+proposes is usually destroying the box that is serving your webinars. The values
+in `terraform.tfvars.example` already describe the live boxes; the ones that bite
+are `location = "hel1"` (changing a server's location replaces it),
+`replica_ips` (empty deletes the origin's 8554 rule and kills guest playback) and
+`ssh_public_key_path` (a mismatch replaces the SSH key).
+
+**What the import turned up**, all now reflected in `main.tf`:
+
+- The origin is named **`vox-media`** at Hetzner, not `vox-media-01`. Terraform was
+  going to create a second, duplicate server.
+- No SSH key named `vox-media` exists (the account has `micio86dev@gmail.com`).
+  `ssh_keys` is create-time only, so the resource was dropped and the argument
+  ignored — declaring it made Terraform want to REPLACE the running replica.
+- The origin runs **ubuntu-26.04** while the replica runs 24.04. `image` is also
+  create-time only and is ignored for the same reason.
+- **`vox-media-fw` has no 8189/udp rule.** WebRTC ICE still connects because
+  Hetzner's firewall is stateful and MediaMTX sends the connectivity checks
+  outbound first — but that is luck, not design. Add the rule (`udp 8189`,
+  `0.0.0.0/0` + `::/0`) in the console; it is additive and MediaMTX already
+  listens there.
+
+Converging to "No changes" needs ONE apply: import does not populate the
+provider-side defaults (`keep_disk`, `shutdown_before_deletion`,
+`ignore_remote_firewall_ids`, the `public_net` block), so they show as a diff
+forever until written once. Add the 8189 rule by hand FIRST, so that first apply
+carries nothing but bookkeeping.
+
+#### Where the state lives
+
+On **Cloudflare R2**, bucket `vox-terraform-state`, key `media/terraform.tfstate`
+— configured in `backend.tf`. R2 rather than S3 because this account already runs
+R2 and R2 charges no egress.
+
+The bucket, endpoint and credentials are NOT in this repository: the endpoint
+embeds the Cloudflare account ID and this repo is public. They go in
+`backend.hcl`, gitignored, created from `backend.hcl.example` which explains
+where each value comes from. `./tf-import.sh` passes it to `init` for you.
+
+Concurrent applies are prevented by `use_lockfile = true`: Terraform writes a
+`.tflock` object beside the state with an If-None-Match conditional PUT, which R2
+supports. No DynamoDB table, no second service.
+
+Anyone picking this up on a new machine needs `terraform.tfvars` (Hetzner token)
+and `backend.hcl` (R2) — everything else comes down with the repo.
+
+State stores provisioned attributes verbatim, which is the other reason it is
+gitignored.
 
 ### Bring one up by hand
 

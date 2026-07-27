@@ -2209,6 +2209,22 @@ pub async fn tts_session(
         return Err((StatusCode::GONE, "webinar is not active").into_response());
     }
 
+    // Participants must hear the translation in the HOST's cloned voice (spec 0108) —
+    // the instance default voice is only the fallback for a host without a clone. An
+    // existing clone is reused regardless of the webinar's `voice_clone` flag, which
+    // only drives the "clone my voice now" step at creation time.
+    let host_voice_id: Option<String> = match webinar.host_user_id {
+        Some(uid) => sqlx::query_scalar::<_, Option<String>>(
+            "SELECT cartesia_voice_id FROM users WHERE id = $1",
+        )
+        .bind(uid)
+        .fetch_optional(pool)
+        .await
+        .map_err(db_err)?
+        .flatten(),
+        None => None,
+    };
+
     let (token, expires_at) = crate::api::mint_cartesia_token_tts_only(&state.http, cartesia)
         .await
         .map_err(|e| {
@@ -2225,6 +2241,7 @@ pub async fn tts_session(
             "model": cartesia.tts_model,
         },
         "default_voice_id": cartesia.default_voice_id,
+        "host_voice_id": host_voice_id,
     }))
     .into_response())
 }

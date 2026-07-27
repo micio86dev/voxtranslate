@@ -1,0 +1,24 @@
+# Copy to `terraform.tfvars` (gitignored) and fill in the token.
+#
+# These values DESCRIBE THE LIVE BOXES. They are not preferences — if one of them
+# stops matching reality, `terraform plan` proposes destroying and recreating the
+# server that serves your webinars. Change them only when the infrastructure has
+# actually changed.
+
+# Hetzner Cloud → Security → API Tokens (Read & Write).
+hcloud_token = "PASTE_TOKEN_HERE"
+
+# The origin lives in Helsinki. Terraform REPLACES a server when its location
+# changes, so this must stay hel1 while vox-media-01 is there.
+location = "hel1"
+
+# The first replica went to Falkenstein: cx33 was unavailable in hel1.
+replica_location = "fsn1"
+replica_count    = 1
+
+# The replica's public IP. This list is the ENTIRE access control on the origin's
+# RTSP port — 8554 is unauthenticated because authHTTPExclude drops the `read`
+# action. Leaving it empty removes the rule and breaks guest playback; widening it
+# publishes every live webinar to whoever finds the port.
+replica_ips = ["49.13.60.183/32"]
+
