@@ -15,10 +15,15 @@ This folder holds the deployable configs.
 
 ## Read replicas (guest playback scaling)
 
-Guests do NOT have to read from the origin. A replica pulls each webinar over
-RTSP on the private network and serves LL-HLS itself, so guest bandwidth stops
-competing with the host's WHIP ingest and the origin's egress becomes one stream
-copy **per replica** instead of one per viewer.
+Guests do NOT have to read from the origin. A replica pulls each webinar from the
+origin over RTSP — on demand, so idle webinars cost nothing — and serves LL-HLS
+itself, so guest bandwidth stops competing with the host's WHIP ingest and the
+origin's egress becomes one stream copy **per replica** instead of one per viewer.
+
+The pull uses the origin's public address, restricted by firewall to the replica
+IPs alone. That hop is 2.5 Mbps per ACTIVE webinar (~1.1 GB per webinar-hour) and,
+when origin and replica sit in different locations, it is billed as ordinary
+egress — immaterial against the 20 TB included per server.
 
 | File | Role |
 |---|---|
@@ -49,7 +54,9 @@ window.
 ### Bring one up by hand
 
 1. **Create the box.** Hetzner console → new server, **cx33**, Ubuntu 24.04, same
-   location as the origin (`nbg1`), same SSH key. Note its public IP.
+   SSH key as the origin. It does NOT have to share the origin's location — the
+   live origin runs in `hel1` and the first replica went to `fsn1` because cx33
+   was unavailable in Helsinki. Note its public IP.
 2. **Let the replica reach the origin's RTSP.** On the origin's firewall
    (`vox-media-fw`) add one inbound rule: **TCP 8554**, source **only** the
    replica IP as `/32`.
@@ -59,18 +66,24 @@ window.
 3. **DNS**: `hls.voxtranslate.app` → the replica IP, **DNS-only (grey cloud)**.
    Wait for it to resolve before the next step — Caddy needs it for the ACME
    HTTP-01 challenge, and a cert issued against a stale record fails.
-4. **Ship the configs** and start it:
+4. **Install Docker.** The Hetzner Ubuntu image ships without it — same one-liner
+   the origin was built with (see `/DEPLOY-HETZNER.md`):
+   ```sh
+   ssh root@<replica-ip> 'curl -fsSL https://get.docker.com | sh'
+   ```
+5. **Ship the configs** and start it. Run this from the REPO ROOT — the paths
+   below are repo-relative:
    ```sh
    ssh root@<replica-ip> 'mkdir -p /root/media'
-   scp replica/{mediamtx.yml,Caddyfile,docker-compose.yml} root@<replica-ip>:/root/media/
-   ssh root@<replica-ip> 'cd /root/media && docker compose up -d && docker compose logs --tail 30'
+   scp infra/media/replica/{mediamtx.yml,Caddyfile,docker-compose.yml} root@<replica-ip>:/root/media/
+   ssh root@<replica-ip> 'cd /root/media && docker compose up -d && docker compose logs --tail 40'
    ```
    Nothing to substitute: the replica holds no secret. It pulls the origin by
    hostname and serves reads only.
-5. **Point the control plane at it**: set `MEDIA_HLS_HOST=hls.voxtranslate.app`
+6. **Point the control plane at it**: set `MEDIA_HLS_HOST=hls.voxtranslate.app`
    on Railway. `MEDIA_INGEST_HOST` stays on the origin — hosts always publish
    there. The two are separate env vars precisely for this split.
-6. **Verify** against a live webinar, from the origin first and then the replica:
+7. **Verify** against a live webinar, from the origin first and then the replica:
    ```sh
    ./ll-hls-probe.sh <code>                                        # origin
    MEDIA_HLS_HOST=hls.voxtranslate.app ./ll-hls-probe.sh <code>    # replica
