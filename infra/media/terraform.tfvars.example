@@ -22,6 +22,3 @@ replica_count    = 1
 # publishes every live webinar to whoever finds the port.
 replica_ips = ["49.13.60.183/32"]
 
-# Must match the public key Hetzner already stores under the name `vox-media`,
-# or Terraform proposes replacing the key.
-ssh_public_key_path = "~/.ssh/id_ed25519.pub"

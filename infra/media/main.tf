@@ -37,19 +37,8 @@ variable "location" {
   default     = "hel1"
 }
 
-variable "ssh_public_key_path" {
-  description = "Public key of the `vox-media` Hetzner SSH key. Must match what Hetzner already stores, or Terraform will propose replacing the key."
-  type        = string
-  default     = "~/.ssh/id_ed25519.pub"
-}
-
 provider "hcloud" {
   token = var.hcloud_token
-}
-
-resource "hcloud_ssh_key" "media" {
-  name       = "vox-media"
-  public_key = file(var.ssh_public_key_path)
 }
 
 resource "hcloud_firewall" "media" {
@@ -103,16 +92,26 @@ resource "hcloud_firewall" "media" {
 }
 
 resource "hcloud_server" "media" {
-  name         = "vox-media-01"
+  name         = "vox-media"
   image        = "ubuntu-24.04"
   server_type  = var.server_type
   location     = var.location
-  ssh_keys     = [hcloud_ssh_key.media.id]
   firewall_ids = [hcloud_firewall.media.id]
 
   public_net {
     ipv4_enabled = true
     ipv6_enabled = true
+  }
+
+  # ssh_keys and image are CREATE-TIME arguments. Hetzner injects the key into the
+  # image and then forgets it, and the image only ever describes what the disk was
+  # built from — so declaring either on an ADOPTED server makes Terraform want to
+  # REPLACE the running box. It proposed exactly that twice: once for the replica's
+  # ssh_keys, and once for the origin, which actually runs ubuntu-26.04 while this
+  # file asks for 24.04. The values below are what a NEW box gets; existing boxes
+  # keep whatever they were built with, and authorized keys live on the box.
+  lifecycle {
+    ignore_changes = [ssh_keys, image]
   }
 }
 
@@ -213,12 +212,22 @@ resource "hcloud_server" "replica" {
   image        = "ubuntu-24.04"
   server_type  = var.server_type
   location     = var.replica_location
-  ssh_keys     = [hcloud_ssh_key.media.id]
   firewall_ids = [hcloud_firewall.replica[0].id]
 
   public_net {
     ipv4_enabled = true
     ipv6_enabled = true
+  }
+
+  # ssh_keys and image are CREATE-TIME arguments. Hetzner injects the key into the
+  # image and then forgets it, and the image only ever describes what the disk was
+  # built from — so declaring either on an ADOPTED server makes Terraform want to
+  # REPLACE the running box. It proposed exactly that twice: once for the replica's
+  # ssh_keys, and once for the origin, which actually runs ubuntu-26.04 while this
+  # file asks for 24.04. The values below are what a NEW box gets; existing boxes
+  # keep whatever they were built with, and authorized keys live on the box.
+  lifecycle {
+    ignore_changes = [ssh_keys, image]
   }
 }
 

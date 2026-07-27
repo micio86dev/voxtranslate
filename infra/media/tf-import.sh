@@ -70,9 +70,12 @@ echo "==> terraform init"
 terraform init -input=false >/dev/null
 
 echo "==> import (sola scrittura di state locale, nessuna modifica su Hetzner)"
-import_one 'hcloud_ssh_key.media'        'ssh_keys'  'ssh_keys'  'vox-media'
+# NOTE: the origin server is called `vox-media` at Hetzner — NOT `vox-media-01`,
+# which is what main.tf originally guessed. There is also no SSH key named
+# `vox-media` (the account has one, `micio86dev@gmail.com`), so no key is imported:
+# ssh_keys is create-time only and main.tf ignores it.
 import_one 'hcloud_firewall.media'       'firewalls' 'firewalls' 'vox-media-fw'
-import_one 'hcloud_server.media'         'servers'   'servers'   'vox-media-01'
+import_one 'hcloud_server.media'         'servers'   'servers'   'vox-media'
 import_one 'hcloud_firewall.replica[0]'  'firewalls' 'firewalls' 'vox-media-replica-fw'
 import_one 'hcloud_server.replica[0]'    'servers'   'servers'   'vox-media-replica-01'
 

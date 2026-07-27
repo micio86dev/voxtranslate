@@ -75,6 +75,27 @@ are `location = "hel1"` (changing a server's location replaces it),
 `replica_ips` (empty deletes the origin's 8554 rule and kills guest playback) and
 `ssh_public_key_path` (a mismatch replaces the SSH key).
 
+**What the import turned up**, all now reflected in `main.tf`:
+
+- The origin is named **`vox-media`** at Hetzner, not `vox-media-01`. Terraform was
+  going to create a second, duplicate server.
+- No SSH key named `vox-media` exists (the account has `micio86dev@gmail.com`).
+  `ssh_keys` is create-time only, so the resource was dropped and the argument
+  ignored — declaring it made Terraform want to REPLACE the running replica.
+- The origin runs **ubuntu-26.04** while the replica runs 24.04. `image` is also
+  create-time only and is ignored for the same reason.
+- **`vox-media-fw` has no 8189/udp rule.** WebRTC ICE still connects because
+  Hetzner's firewall is stateful and MediaMTX sends the connectivity checks
+  outbound first — but that is luck, not design. Add the rule (`udp 8189`,
+  `0.0.0.0/0` + `::/0`) in the console; it is additive and MediaMTX already
+  listens there.
+
+Converging to "No changes" needs ONE apply: import does not populate the
+provider-side defaults (`keep_disk`, `shutdown_before_deletion`,
+`ignore_remote_firewall_ids`, the `public_net` block), so they show as a diff
+forever until written once. Add the 8189 rule by hand FIRST, so that first apply
+carries nothing but bookkeeping.
+
 State stores provisioned attributes verbatim, so it is gitignored. Put it
 somewhere durable — a remote backend, or at minimum a backup — or the next person
 inherits exactly this problem.
