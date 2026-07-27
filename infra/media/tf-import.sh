@@ -24,6 +24,14 @@ cd "$(dirname "$0")"
 TFVARS="terraform.tfvars"
 [ -f "$TFVARS" ] || { echo "manca $TFVARS — copialo da terraform.tfvars.example e inserisci il token" >&2; exit 1; }
 
+# State lives on Cloudflare R2 (see backend.tf). Its bucket, endpoint and keys are
+# gitignored because this repo is public, so init needs them passed in explicitly.
+BACKEND="backend.hcl"
+[ -f "$BACKEND" ] || { echo "manca $BACKEND — copialo da backend.hcl.example (istruzioni dentro)" >&2; exit 1; }
+if grep -q 'ACCOUNT_ID_HERE\|ACCESS_KEY_ID_HERE\|SECRET_ACCESS_KEY_HERE' "$BACKEND"; then
+  echo "$BACKEND contiene ancora dei segnaposto — completalo prima di continuare" >&2; exit 1
+fi
+
 # Read the token out of tfvars rather than asking for it twice. Never echoed.
 TOKEN="$(python3 - "$TFVARS" <<'PY'
 import re, sys
@@ -66,8 +74,8 @@ import_one() { # addr, endpoint, json-key, hetzner-name
   terraform import -input=false -var-file="$TFVARS" "$addr" "$id" >/dev/null
 }
 
-echo "==> terraform init"
-terraform init -input=false >/dev/null
+echo "==> terraform init (state remoto su R2)"
+terraform init -input=false -backend-config="$BACKEND" >/dev/null
 
 echo "==> import (sola scrittura di state locale, nessuna modifica su Hetzner)"
 # NOTE: the origin server is called `vox-media` at Hetzner — NOT `vox-media-01`,

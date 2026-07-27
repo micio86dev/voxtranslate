@@ -1,0 +1,27 @@
+# Copy to `backend.hcl` (gitignored) and fill in. This holds the parts of the R2
+# backend that must not land in a PUBLIC repository: the endpoint embeds the
+# Cloudflare account ID, and the keys are credentials.
+#
+# Where each value comes from — Cloudflare dashboard → R2:
+#
+#   endpoints  The bucket's page shows "S3 API" as
+#              https://<ACCOUNT_ID>.r2.cloudflarestorage.com/vox-terraform-state
+#              Take everything up to and including .com — drop the bucket name.
+#
+#   access_key / secret_key
+#              R2 → "API" → "Manage API tokens" → "Create API token".
+#              Permission: "Object Read & Write". Scope it to the
+#              vox-terraform-state bucket ONLY — this token has no business
+#              reaching vox-web-assets or vox-voices.
+#              Cloudflare shows the secret ONCE. Copy it now.
+#
+# Then:  terraform init -backend-config=backend.hcl -migrate-state
+
+bucket = "vox-terraform-state"
+
+endpoints = {
+  s3 = "https://ACCOUNT_ID_HERE.r2.cloudflarestorage.com"
+}
+
+access_key = "ACCESS_KEY_ID_HERE"
+secret_key = "SECRET_ACCESS_KEY_HERE"

@@ -8,6 +8,7 @@ This folder holds the deployable configs.
 |---|---|
 | `main.tf` | Terraform: origin + replica boxes and their firewalls (describes them; see the import note) |
 | `tf-import.sh` | Adopts the hand-built boxes into Terraform state |
+| `backend.tf` + `backend.hcl.example` | Remote state on Cloudflare R2, with locking |
 | `terraform.tfvars.example` | The values that describe the live boxes — copy and add your token |
 | `mediamtx.yml` | WHIP ingest + LL-HLS + the F1-2 external-auth hook |
 | `Caddyfile` | Automatic TLS; reverse-proxies WHIP (:8889) + HLS (:8888) behind :443 |
@@ -96,9 +97,26 @@ provider-side defaults (`keep_disk`, `shutdown_before_deletion`,
 forever until written once. Add the 8189 rule by hand FIRST, so that first apply
 carries nothing but bookkeeping.
 
-State stores provisioned attributes verbatim, so it is gitignored. Put it
-somewhere durable — a remote backend, or at minimum a backup — or the next person
-inherits exactly this problem.
+#### Where the state lives
+
+On **Cloudflare R2**, bucket `vox-terraform-state`, key `media/terraform.tfstate`
+— configured in `backend.tf`. R2 rather than S3 because this account already runs
+R2 and R2 charges no egress.
+
+The bucket, endpoint and credentials are NOT in this repository: the endpoint
+embeds the Cloudflare account ID and this repo is public. They go in
+`backend.hcl`, gitignored, created from `backend.hcl.example` which explains
+where each value comes from. `./tf-import.sh` passes it to `init` for you.
+
+Concurrent applies are prevented by `use_lockfile = true`: Terraform writes a
+`.tflock` object beside the state with an If-None-Match conditional PUT, which R2
+supports. No DynamoDB table, no second service.
+
+Anyone picking this up on a new machine needs `terraform.tfvars` (Hetzner token)
+and `backend.hcl` (R2) — everything else comes down with the repo.
+
+State stores provisioned attributes verbatim, which is the other reason it is
+gitignored.
 
 ### Bring one up by hand
 
