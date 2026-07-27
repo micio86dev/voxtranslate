@@ -60,14 +60,20 @@ authInternalUsers:
 
 paths:
   # Every webinar path mirrors the origin's namespace. $G1 is the first regex
-  # capture — the webinar code — so `webinar/AbC123` here pulls
-  # `rtsp://10.10.1.10:8554/webinar/AbC123` from the origin.
+  # capture — the webinar code — so a guest asking this replica for
+  # `webinar/AbC123` makes it pull `rtsp://ingest.voxtranslate.app:8554/webinar/AbC123`
+  # from the origin.
   #
-  # 10.10.1.10 is the origin's PINNED private address (hcloud_server_network
-  # "origin" in ../main.tf). Private, so RTSP never crosses the public internet
-  # and never counts against egress.
+  # The origin is addressed BY HOSTNAME, not by IP, so replacing the origin box
+  # is a DNS change and this file never moves. It resolves to the real address
+  # because ingest.voxtranslate.app is DNS-only (grey cloud) — the same property
+  # WebRTC ICE already depends on.
+  #
+  # Reachability is a firewall rule on the origin: 8554/tcp open ONLY to this
+  # replica's IP (var.replica_ips in ../main.tf). The origin's RTSP is
+  # unauthenticated, so that rule is the entire access control.
   "~^webinar/(.+)$":
-    source: rtsp://10.10.1.10:8554/webinar/$G1
+    source: rtsp://ingest.voxtranslate.app:8554/webinar/$G1
     # Connect only while at least one guest is watching, and drop the pull when
     # the last one leaves. With hundreds of scheduled-but-idle webinars this is
     # the difference between a handful of RTSP sessions and one per path.

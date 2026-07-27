@@ -83,6 +83,19 @@ resource "hcloud_firewall" "media" {
     port       = "8189"
     source_ips = ["0.0.0.0/0", "::/0"]
   }
+  # RTSP — read replicas pulling streams, and NOTHING else. Emitted only when
+  # var.replica_ips is non-empty, so a replica-less deployment never exposes 8554.
+  # The origin's RTSP is unauthenticated (authHTTPExclude drops the `read`
+  # action), which makes this source list the entire access control.
+  dynamic "rule" {
+    for_each = length(var.replica_ips) > 0 ? [1] : []
+    content {
+      direction  = "in"
+      protocol   = "tcp"
+      port       = "8554"
+      source_ips = var.replica_ips
+    }
+  }
 }
 
 resource "hcloud_server" "media" {
@@ -129,37 +142,23 @@ variable "replica_count" {
   default     = 1
 }
 
-# RTSP between origin and replicas rides a private network: no public exposure
-# (8554 is never opened in either firewall), no egress billing, and no TLS to
-# manage on an internal hop.
-resource "hcloud_network" "media" {
-  count    = var.replica_count > 0 ? 1 : 0
-  name     = "vox-media-net"
-  ip_range = "10.10.0.0/16"
+variable "replica_ips" {
+  description = "Replica public IPs in CIDR form (e.g. [\"203.0.113.9/32\"]) — the ONLY sources allowed to pull RTSP from the origin. The origin's RTSP is unauthenticated (authHTTPExclude drops the `read` action), so this list is the whole access control: keep it exact, never widen it."
+  type        = list(string)
+  default     = []
 }
 
-resource "hcloud_network_subnet" "media" {
-  count        = var.replica_count > 0 ? 1 : 0
-  network_id   = hcloud_network.media[0].id
-  type         = "cloud"
-  network_zone = "eu-central"
-  ip_range     = "10.10.1.0/24"
-}
-
-# Pinned private IPs so the replica config can hardcode the origin's RTSP address.
-resource "hcloud_server_network" "origin" {
-  count     = var.replica_count > 0 ? 1 : 0
-  server_id = hcloud_server.media.id
-  subnet_id = hcloud_network_subnet.media[0].id
-  ip        = "10.10.1.10"
-}
-
-resource "hcloud_server_network" "replica" {
-  count     = var.replica_count
-  server_id = hcloud_server.replica[count.index].id
-  subnet_id = hcloud_network_subnet.media[0].id
-  ip        = "10.10.1.${20 + count.index}"
-}
+# RTSP origin -> replica rides the PUBLIC address (see the 8554 rule on
+# hcloud_firewall.media above). A Hetzner private network would be tidier — no
+# public port at all — but attaching one to the live origin adds a NIC that
+# Ubuntu often will not bring up without manual netplan work or a reboot, on the
+# box that is publishing webinars. A firewall rule is instant, reversible, and
+# touches nothing inside the OS. Between two boxes in the same Hetzner
+# datacenter the traffic stays on their network, and it is 2.5 Mbps per active
+# webinar.
+#
+# Revisit once the Terraform state is reconstructed (terraform import) and the
+# origin can take a maintenance window.
 
 # No 8189/udp here: a replica serves HLS only and never terminates WebRTC.
 resource "hcloud_firewall" "replica" {
@@ -205,10 +204,5 @@ resource "hcloud_server" "replica" {
 
 output "replica_ipv4" {
   value       = hcloud_server.replica[*].ipv4_address
-  description = "Point hls.voxtranslate.app at these IPs as DNS-only (grey-cloud) A records, then set MEDIA_HLS_HOST=hls.voxtranslate.app on the control plane. Grey, not orange: Cloudflare does not permit third-party live video through the CDN on Free/Pro/Business."
-}
-
-output "origin_private_ip" {
-  value       = var.replica_count > 0 ? "10.10.1.10" : null
-  description = "The origin's private address — what each replica's mediamtx.yml pulls RTSP from."
+  description = "Point hls.voxtranslate.app at these IPs as DNS-only (grey-cloud) A records, then set MEDIA_HLS_HOST=hls.voxtranslate.app on the control plane. Grey, not orange: Cloudflare does not permit third-party live video through the CDN on Free/Pro/Business. Feed these same IPs back into var.replica_ips so the origin accepts their RTSP pull."
 }
