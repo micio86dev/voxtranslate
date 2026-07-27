@@ -1,9 +1,14 @@
-# Hetzner Cloud media server for VoxTranslate webinars (F1-0).
-# Provisions a small shared-vCPU box + a firewall (SSH, HTTP/S, WebRTC UDP). The
-# box then runs MediaMTX + Caddy via docker compose — see /DEPLOY-HETZNER.md.
+# Hetzner Cloud media servers for VoxTranslate webinars: the WHIP-ingest origin and
+# the read replicas that serve guest playback. Both run MediaMTX + Caddy via docker
+# compose — see ./README.md and /DEPLOY-HETZNER.md.
 #
-#   terraform init
-#   terraform apply -var="admin_ip=$(curl -s ifconfig.me)/32" -var="hcloud_token=..."
+# BOTH BOXES WERE BUILT BY HAND and this file was written to describe them
+# afterwards. Until `./tf-import.sh` has run and `terraform plan` reports
+# "No changes", an `apply` would try to CREATE the live infrastructure a second
+# time. Read README.md § "Do not terraform apply" before running anything.
+#
+#   ./tf-import.sh            # adopt the existing boxes into fresh state
+#   terraform plan -var-file=terraform.tfvars    # must say: No changes
 
 terraform {
   required_providers {
@@ -27,20 +32,15 @@ variable "server_type" {
 }
 
 variable "location" {
-  description = "nbg1 / fsn1 (Germany) or hel1 (Finland) — central for EU hosts. The CDN handles guest delivery; this only affects the presenter's ingest latency."
+  description = "Where the ORIGIN runs. hel1 (Finland) is where the live box actually is — do NOT change this without meaning it: Terraform replaces a server when its location changes."
   type        = string
-  default     = "nbg1"
+  default     = "hel1"
 }
 
 variable "ssh_public_key_path" {
-  description = "SSH public key installed on the box (ssh-keygen -t ed25519 -f ~/.ssh/vox_media)."
+  description = "Public key of the `vox-media` Hetzner SSH key. Must match what Hetzner already stores, or Terraform will propose replacing the key."
   type        = string
-  default     = "~/.ssh/vox_media.pub"
-}
-
-variable "admin_ip" {
-  description = "Your public IP in CIDR form (e.g. 203.0.113.7/32) — the only source allowed to SSH."
-  type        = string
+  default     = "~/.ssh/id_ed25519.pub"
 }
 
 provider "hcloud" {
@@ -55,12 +55,16 @@ resource "hcloud_ssh_key" "media" {
 resource "hcloud_firewall" "media" {
   name = "vox-media-fw"
 
-  # SSH — your IP only.
+  # SSH — open, and deliberately so: the CI deploy job runs from GitHub Actions
+  # runners whose IPs are dynamic, and pinning a home IP locked both CI and the
+  # developer out. Defensible ONLY because sshd is key-only —
+  # /etc/ssh/sshd_config.d/00-hardening.conf sets PasswordAuthentication no and
+  # PermitRootLogin prohibit-password. If that file is ever removed, close this.
   rule {
     direction  = "in"
     protocol   = "tcp"
     port       = "22"
-    source_ips = [var.admin_ip]
+    source_ips = ["0.0.0.0/0", "::/0"]
   }
   # HTTP — Let's Encrypt HTTP-01 challenge (Caddy).
   rule {
@@ -180,11 +184,12 @@ resource "hcloud_firewall" "replica" {
   count = var.replica_count > 0 ? 1 : 0
   name  = "vox-media-replica-fw"
 
+  # SSH — open, same reasoning and same key-only precondition as the origin.
   rule {
     direction  = "in"
     protocol   = "tcp"
     port       = "22"
-    source_ips = [var.admin_ip]
+    source_ips = ["0.0.0.0/0", "::/0"]
   }
   # HTTP — Let's Encrypt HTTP-01 challenge (Caddy).
   rule {

@@ -6,7 +6,9 @@ This folder holds the deployable configs.
 
 | File | Role |
 |---|---|
-| `main.tf` | Terraform: Hetzner box (cx32/cax21) + firewall (22, 80, 443, 8189/udp) |
+| `main.tf` | Terraform: origin + replica boxes and their firewalls (describes them; see the import note) |
+| `tf-import.sh` | Adopts the hand-built boxes into Terraform state |
+| `terraform.tfvars.example` | The values that describe the live boxes — copy and add your token |
 | `mediamtx.yml` | WHIP ingest + LL-HLS + the F1-2 external-auth hook |
 | `Caddyfile` | Automatic TLS; reverse-proxies WHIP (:8889) + HLS (:8888) behind :443 |
 | `docker-compose.yml` | Runs MediaMTX + Caddy (host networking) |
@@ -48,35 +50,34 @@ scratch, against names that are already taken, on the box that serves live
 webinars. Both boxes were built by hand; `main.tf` currently describes them
 rather than managing them.
 
-#### Reconstructing the state (`terraform import`)
-
-Import is read-only against the infrastructure — it only writes local state — so
-it is safe to run at any time. What is NOT safe is the `apply` afterwards: check
-its plan reads **"No changes"** before letting it touch anything.
+#### Reconstructing the state — `./tf-import.sh`
 
 ```sh
-export HCLOUD_TOKEN=…                       # Hetzner → Security → API Tokens
-hcloud ssh-key list && hcloud firewall list && hcloud server list   # collect IDs
-
-terraform init
-terraform import -var="hcloud_token=$HCLOUD_TOKEN" -var="admin_ip=$(curl -s ifconfig.me)/32" \
-  hcloud_ssh_key.media       <ssh-key-id>
-terraform import … hcloud_firewall.media     <vox-media-fw-id>
-terraform import … hcloud_server.media       <vox-media-01-id>
-terraform import … 'hcloud_firewall.replica[0]' <vox-media-replica-fw-id>
-terraform import … 'hcloud_server.replica[0]'   <vox-media-replica-01-id>
-
-terraform plan -var=…       # MUST say "No changes" — investigate anything else
+cp terraform.tfvars.example terraform.tfvars    # paste your Hetzner token
+./tf-import.sh
 ```
 
-Expect the plan to differ at first: `main.tf` defaults to `location = "nbg1"`
-while the live origin is in `hel1`, and `var.replica_ips` must be set to
-`["<replica-ip>/32"]` or the plan will propose deleting the origin's 8554 rule.
-Fix the variables to match reality — never let the plan "fix" reality.
+That is the whole procedure. The script resolves each resource's ID from the
+Hetzner REST API by name, imports the five of them, and finishes with a plan.
+It is re-runnable: anything already in state is skipped, so fix an error and run
+it again.
 
-State holds provisioned attributes verbatim, so it is gitignored. Keep it
-somewhere durable (a remote backend, or at minimum a backup) or the next person
-inherits this same problem.
+**`terraform import` cannot damage anything** — it only writes local state, and
+never creates, changes or destroys a resource at Hetzner. The dangerous command
+is the `apply` afterwards, which is why the script ends by checking the plan and
+tells you plainly when the plan is dirty.
+
+A dirty plan means `main.tf` and reality disagree. Fix `main.tf` or
+`terraform.tfvars` — **never let the plan "fix" reality**, because the fix it
+proposes is usually destroying the box that is serving your webinars. The values
+in `terraform.tfvars.example` already describe the live boxes; the ones that bite
+are `location = "hel1"` (changing a server's location replaces it),
+`replica_ips` (empty deletes the origin's 8554 rule and kills guest playback) and
+`ssh_public_key_path` (a mismatch replaces the SSH key).
+
+State stores provisioned attributes verbatim, so it is gitignored. Put it
+somewhere durable — a remote backend, or at minimum a backup — or the next person
+inherits exactly this problem.
 
 ### Bring one up by hand
 
