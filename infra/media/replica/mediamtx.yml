@@ -18,14 +18,28 @@
 rtmp: no
 srt: no
 webrtc: no
-# RTSP stays ENABLED but is only reachable on the private network — it is the
-# client side of the pull below, and MediaMTX needs the stack loaded to use it.
+# The RTSP SERVER is off too. `rtsp` gates the server only — a path whose `source`
+# is an rtsp:// URL keeps working, because that is the RTSP *client*. Leaving the
+# server on would have published every replicated webinar on :8554 to anyone who
+# looked, since rtspAddress defaults to all interfaces. (The first boot of this
+# replica did exactly that: "[RTSP] started with listeners on :8554".)
+rtsp: no
+# MoQ (Media over QUIC) defaults to ENABLED and binds :8892 on TCP/HTTP2 and
+# UDP/HTTP3. Nothing here speaks it and no browser can play it yet, so it is one
+# more unauthenticated way to read every replicated webinar. Off.
+moq: no
 
 # --- LL-HLS (guest playback) ------------------------------------------------
 # These MUST mirror the origin's values: they decide the part cadence the guest
 # player negotiates, and a mismatch between replicas would make latency depend
 # on which box a viewer landed on.
 hls: yes
+# Bind to LOOPBACK, not the default ":8888" (all interfaces). Caddy is the only
+# thing that should reach MediaMTX: left on the default, the box answers HLS in
+# plaintext HTTP on :8888 to the whole internet, bypassing TLS and every rule in
+# the Caddyfile. The firewall should block it as well — this is the belt to that
+# pair of braces, and it survives a firewall being detached by mistake.
+hlsAddress: 127.0.0.1:8888
 hlsVariant: lowLatency
 hlsSegmentDuration: 1s
 hlsPartDuration: 200ms
@@ -34,11 +48,10 @@ hlsPartDuration: 200ms
 # with credentials, so the guest origin must be pinned exactly as on the origin
 # box — otherwise every blocking reload fails and LL-HLS silently degrades.
 #
-# SINGULAR on purpose. The current docs document `hlsAllowOrigins` (plural, a
-# list), but 1.19.2 takes the singular string: MediaMTX aborts on unknown config
-# keys, and the origin boots on this exact key while serving the correct
-# per-origin header. Re-check this line when bumping the pinned image.
-hlsAllowOrigin: https://voxtranslate.app
+# PLURAL, a list. 1.19.2 still accepts the singular `hlsAllowOrigin` but logs
+# "parameter 'hlsAllowOrigin' is deprecated" on boot; the origin box is still on
+# the old spelling and should be moved too.
+hlsAllowOrigins: [https://voxtranslate.app]
 # NOT set: hlsAlwaysRemux. The origin remuxes eagerly so the first guest never
 # waits; a replica instead follows sourceOnDemand below and only pulls a webinar
 # while someone is actually watching it. An idle replica costs the origin nothing.
