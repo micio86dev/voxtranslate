@@ -40,6 +40,74 @@ const MAX_VIDEO_RETRIES = 3;
  *  a brief buffering hiccup, short enough that a host reload doesn't leave guests frozen. */
 const STALL_CHECKS = 1;
 
+/** How far behind the live edge playback may drift before a resume JUMPS forward instead
+ *  of draining the stale buffer. A live webinar has no value in old frames, and a guest
+ *  who resumes 20 s back keeps that 20 s for the rest of the broadcast. */
+const MAX_RESUME_DRIFT_S = 2;
+
+/** Landing exactly on `seekable.end` re-stalls the decoder (the edge moves while the seek
+ *  is in flight), so aim just short of it. One LL-HLS part is ~200 ms; half a second is a
+ *  safe cushion that is still well inside the low-latency budget. */
+const LIVE_EDGE_GUARD_S = 0.5;
+
+/**
+ * hls.js live-latency policy. `lowLatencyMode` alone is NOT enough: it makes hls.js honour
+ * the playlist's PART-HOLD-BACK on the FIRST load, but hls.js's defaults then let the
+ * playhead drift away from the live edge and never bring it back.
+ *
+ * The drift is unavoidable in this player: `waitForFirstFrame()` blocks up to 10 s before
+ * play(), the autoplay policy can park the guest on a tap-to-start overlay, and any
+ * rebuffer costs its own duration. With `maxLiveSyncPlaybackRate` at its default of 1,
+ * every second lost that way is latency for the WHOLE webinar — which is how a properly
+ * configured LL-HLS pipeline still measures ~6 s end to end.
+ */
+const LIVE_TUNING = {
+  lowLatencyMode: true,
+  /** Play up to 50% fast while behind the live edge, until the gap is closed. Imper-
+   *  ceptible on speech (the browser pitch-corrects) and the single biggest win here. */
+  maxLiveSyncPlaybackRate: 1.5,
+  /** Beyond this many target durations behind, stop trying to play the gap away and
+   *  seek to the edge instead. */
+  liveMaxLatencyDurationCount: 10,
+  /** Only used when LL-HLS is NOT available (no EXT-X-PART, or the blocking reloads
+   *  fail): plain HLS holds back 3 target durations. With MediaMTX's segments driven by
+   *  the publisher's keyframe interval (~2 s), that default IS the ~6 s floor. */
+  liveSyncDurationCount: 1,
+  /** A webinar guest never seeks backwards; retaining played segments only grows memory
+   *  over a long broadcast. */
+  backBufferLength: 10,
+} as const;
+
+/** Seconds `video` is behind the live edge, or 0 when nothing is buffered yet. Pure over
+ *  a video-like object so it is unit-testable. */
+export function liveEdgeDrift(
+  video: Pick<HTMLVideoElement, "currentTime"> & { seekable?: TimeRanges },
+): number {
+  const seekable = video.seekable;
+  if (!seekable || seekable.length === 0) return 0;
+  const edge = seekable.end(seekable.length - 1);
+  if (!Number.isFinite(edge)) return 0;
+  return Math.max(0, edge - video.currentTime);
+}
+
+/** Snap `video` to the live edge when it has drifted more than `maxDriftS` behind it.
+ *  Returns the resulting `currentTime` (unchanged when there is nothing to correct).
+ *  Pure over a video-like object, so it is unit-testable. */
+export function seekToLiveEdge(
+  video: Pick<HTMLVideoElement, "currentTime"> & { seekable?: TimeRanges },
+  maxDriftS = MAX_RESUME_DRIFT_S,
+): number {
+  if (liveEdgeDrift(video) <= maxDriftS) return video.currentTime;
+  const seekable = video.seekable!;
+  const edge = seekable.end(seekable.length - 1);
+  try {
+    video.currentTime = edge - LIVE_EDGE_GUARD_S;
+  } catch {
+    /* seeking can throw while the media element is detaching — leave it be */
+  }
+  return video.currentTime;
+}
+
 /** localStorage may be blocked (private mode, tests) — fall back to an in-memory map,
  *  mirroring auth.ts so guest_id persistence never throws. */
 const mem = new Map<string, string>();
@@ -307,7 +375,7 @@ export class HlsPlayer {
       // degrades from ~1-2 s to full-segment (~6-7 s). CORS returns a per-origin
       // ACAO + allow-credentials:true, so credentialed requests are valid.
       const hls = new Hls({
-        lowLatencyMode: true,
+        ...LIVE_TUNING,
         xhrSetup: (xhr: XMLHttpRequest) => {
           xhr.withCredentials = true;
         },
@@ -407,6 +475,10 @@ export class HlsPlayer {
       this.attached = false;
       return false;
     }
+    // The first-frame wait above can have cost up to `firstFrameTimeoutMs` while the live
+    // edge kept moving. Start AT the edge instead of wherever the buffer happens to begin,
+    // or that startup cost becomes the guest's permanent latency.
+    seekToLiveEdge(this.video);
     const { needsTap } = await tryAutoplay(this.video);
     this.onTapToStart(needsTap);
     return true;
@@ -454,6 +526,9 @@ export class HlsPlayer {
   muteAudio(muted: boolean): boolean {
     this.video.muted = muted;
     if (!muted && this.video.paused) {
+      // Resume at the live edge, not where the pause left off — the buffered gap is
+      // stale in a live webinar and would otherwise be carried for the rest of it.
+      seekToLiveEdge(this.video);
       // A user gesture is driving this — try to (re)start playback with sound.
       void this.video.play?.().catch(() => {
         /* still blocked (rare) — the tap-to-start overlay remains the fallback */
@@ -465,6 +540,12 @@ export class HlsPlayer {
   /** Whether the HLS audio is currently muted. */
   isMuted(): boolean {
     return this.video.muted;
+  }
+
+  /** Seconds the guest is behind the live edge (0 when nothing is buffered). Exposed so
+   *  the studio/QA can measure the real end-to-end delay instead of eyeballing it. */
+  getLiveLatency(): number {
+    return liveEdgeDrift(this.video);
   }
 
   /** User tapped the start overlay: unmute and/or play (a user gesture always allows
@@ -483,6 +564,9 @@ export class HlsPlayer {
       return true;
     }
     try {
+      // The overlay may have sat there for a while — start at the live edge, not at the
+      // frame that was buffered when the tap prompt appeared.
+      seekToLiveEdge(this.video);
       await this.video.play();
       this.onTapToStart(false);
       return true;
