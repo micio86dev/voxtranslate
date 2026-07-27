@@ -217,16 +217,33 @@ jobs:
           ssh -i ~/.ssh/id_ed25519 root@${{ secrets.HETZNER_HOST }} 'bash -s' <<'REMOTE'
           set -euo pipefail
           cd /root/media
+          # A caller secret must look like one: >=16 chars from the hex/base64url alphabet,
+          # and never the placeholder. An INVALID value is worse than none — it 401s every
+          # single publish attempt ("authentication error" at the host, nothing logged
+          # server-side), so refuse to inject it and say so loudly.
+          valid_secret() {
+            case "${1:-}" in
+              ''|REPLACE_CALLER_SECRET) return 1 ;;
+              *[!A-Za-z0-9_-]*) return 1 ;;
+            esac
+            [ "${#1}" -ge 16 ]
+          }
           # SELF-SUFFICIENT secret: reuse the caller secret already injected in the running
           # mediamtx.yml (the tail of the authHTTPAddress path) so NO secret lives in CI and
           # NO manual box setup is needed. Falls back to a box-local /root/media/.env. If
           # neither yields a secret, the MediaMTX config is left untouched (Caddy still
           # deploys) so we never ship the raw REPLACE_CALLER_SECRET placeholder.
-          SECRET="$(sed -n 's|.*/internal/media-auth/\([^[:space:]/]*\).*|\1|p' mediamtx.yml 2>/dev/null | head -n1 || true)"
-          if [ -z "${SECRET:-}" ] || [ "$SECRET" = "REPLACE_CALLER_SECRET" ]; then
+          #
+          # ANCHORED to `^authHTTPAddress:` on purpose. The previous pattern matched ANY line
+          # containing the auth path — including the COMMENT above it, which mentions
+          # `/internal/media-auth/*` — and `head -n1` picked the comment, injecting the
+          # literal `*` + backtick as the caller secret. Every publish then 401'd, and the
+          # corruption was self-perpetuating: each deploy re-read the same comment first.
+          SECRET="$(sed -n 's|^authHTTPAddress:.*/internal/media-auth/\([^[:space:]/]*\)[[:space:]]*$|\1|p' mediamtx.yml 2>/dev/null | head -n1 || true)"
+          if ! valid_secret "${SECRET:-}"; then
             [ -f .env ] && { set -a; . ./.env; set +a; SECRET="${MEDIA_CALLER_SECRET:-}"; }
           fi
-          if [ -n "${SECRET:-}" ] && [ "$SECRET" != "REPLACE_CALLER_SECRET" ]; then
+          if valid_secret "${SECRET:-}"; then
             # `up -d` applies image/compose changes; `restart` reloads the volume-mounted
             # mediamtx.yml (which `up -d` alone would not pick up).
             sed "s|REPLACE_CALLER_SECRET|$SECRET|" mediamtx.yml.new > mediamtx.yml
@@ -235,7 +252,9 @@ jobs:
             docker compose restart mediamtx
           else
             rm -f mediamtx.yml.new
-            echo "WARNING: no caller secret in existing mediamtx.yml or .env — MediaMTX NOT updated (Caddy only)."
+            echo "WARNING: no VALID caller secret in mediamtx.yml or .env — MediaMTX NOT updated (Caddy only)."
+            echo "         Recover on the box: write MEDIA_CALLER_SECRET=<value> to /root/media/.env"
+            echo "         (same value as MEDIA_CALLER_SECRET on Railway), then re-run this job."
           fi
           docker exec media-caddy-1 caddy reload --config /etc/caddy/Caddyfile
           REMOTE
