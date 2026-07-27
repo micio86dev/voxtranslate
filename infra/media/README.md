@@ -13,6 +13,53 @@ This folder holds the deployable configs.
 | `ll-hls-probe.sh` | Diagnoses whether a live webinar is really serving LL-HLS |
 | `guest-latency.js` | Console snippet: measures a guest's drift behind the live edge |
 
+## Read replicas (guest playback scaling)
+
+Guests do NOT have to read from the origin. A replica pulls each webinar over
+RTSP on the private network and serves LL-HLS itself, so guest bandwidth stops
+competing with the host's WHIP ingest and the origin's egress becomes one stream
+copy **per replica** instead of one per viewer.
+
+| File | Role |
+|---|---|
+| `replica/mediamtx.yml` | RTSP pull from the origin + LL-HLS out; read-only, no ingest |
+| `replica/Caddyfile` | TLS for `hls.voxtranslate.app`, playback routes only |
+| `replica/docker-compose.yml` | MediaMTX + Caddy, same pinned tags as the origin |
+
+**Why not a CDN.** Low-Latency HLS playlists cannot be cached — the blocking
+reload is a long-poll that no major CDN can cache or coalesce, so every playlist
+request reaches the origin whatever the cache rules say. MediaMTX's documented
+CDN path requires disabling the low-latency variant, which puts playback back at
+~6 s. Separately, Cloudflare does not permit third-party live video through the
+CDN on Free/Pro/Business plans — so the playback hostname stays **grey-cloud**.
+See <https://mediamtx.org/docs/features/scaling>.
+
+### Bring one up
+
+```sh
+terraform apply -var="hcloud_token=…" -var="admin_ip=$(curl -s ifconfig.me)/32"
+# → replica_ipv4, origin_private_ip
+```
+
+1. **DNS**: `hls.voxtranslate.app` → the replica IP, **DNS-only (grey cloud)**.
+2. **Ship the configs** to `/root/media/` on the replica and start it:
+   ```sh
+   scp replica/{mediamtx.yml,Caddyfile,docker-compose.yml} root@<replica-ip>:/root/media/
+   ssh root@<replica-ip> 'cd /root/media && docker compose up -d'
+   ```
+3. **Point the control plane at it**: set `MEDIA_HLS_HOST=hls.voxtranslate.app`
+   on Railway. `MEDIA_INGEST_HOST` stays on the origin — hosts always publish
+   there. The two are separate env vars precisely for this split.
+4. **Verify** with a live webinar:
+   ```sh
+   MEDIA_HLS_HOST=hls.voxtranslate.app ./ll-hls-probe.sh <code>
+   ```
+   `EXT-X-PART` must be present on the replica too. If it is missing, the RTSP
+   pull is up but the low-latency variant is not — check `hlsVariant` on both boxes.
+
+The origin keeps serving HLS on `ingest.voxtranslate.app`; nothing breaks if you
+roll `MEDIA_HLS_HOST` back. That is the rollback.
+
 ## Host gets `401 "authentication error"` on WHIP publish
 
 MediaMTX denies the publish when the control plane rejects its auth callback. Since

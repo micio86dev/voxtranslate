@@ -1,0 +1,74 @@
+###############################################################################
+# MediaMTX — VoxTranslate webinar READ REPLICA
+#
+# Pulls each webinar from the origin over RTSP (private network, on demand) and
+# serves LL-HLS to guests at https://hls.voxtranslate.app/webinar/{code}/index.m3u8
+#
+# The replica NEVER accepts a publish: hosts always WHIP to the origin. Guest
+# bandwidth therefore stops competing with the host's ingest, and the origin's
+# outbound load becomes one stream copy per REPLICA instead of one per viewer.
+#
+# See ../main.tf for why this is a replica and not a CDN (short version:
+# LL-HLS blocking playlist reloads are long-polls that no CDN can cache).
+###############################################################################
+
+# --- Nothing to ingest here -------------------------------------------------
+# A replica speaks exactly one protocol outward: HLS. Everything else is off so
+# there is no second door to secure.
+rtmp: no
+srt: no
+webrtc: no
+# RTSP stays ENABLED but is only reachable on the private network — it is the
+# client side of the pull below, and MediaMTX needs the stack loaded to use it.
+
+# --- LL-HLS (guest playback) ------------------------------------------------
+# These MUST mirror the origin's values: they decide the part cadence the guest
+# player negotiates, and a mismatch between replicas would make latency depend
+# on which box a viewer landed on.
+hls: yes
+hlsVariant: lowLatency
+hlsSegmentDuration: 1s
+hlsPartDuration: 200ms
+# The guest player fetches playlists WITH credentials (MediaMTX gates HLS behind
+# a session cookie). Browsers reject "Access-Control-Allow-Origin: *" together
+# with credentials, so the guest origin must be pinned exactly as on the origin
+# box — otherwise every blocking reload fails and LL-HLS silently degrades.
+#
+# SINGULAR on purpose. The current docs document `hlsAllowOrigins` (plural, a
+# list), but 1.19.2 takes the singular string: MediaMTX aborts on unknown config
+# keys, and the origin boots on this exact key while serving the correct
+# per-origin header. Re-check this line when bumping the pinned image.
+hlsAllowOrigin: https://voxtranslate.app
+# NOT set: hlsAlwaysRemux. The origin remuxes eagerly so the first guest never
+# waits; a replica instead follows sourceOnDemand below and only pulls a webinar
+# while someone is actually watching it. An idle replica costs the origin nothing.
+
+# --- No control surface -----------------------------------------------------
+api: no
+metrics: no
+playback: no
+
+# --- Read-only ---------------------------------------------------------------
+# MediaMTX's default internal user grants every permission. Narrow it to `read`
+# so a replica cannot be published to even if one were reachable: the only way a
+# stream enters this box is the RTSP pull configured below.
+authInternalUsers:
+  - user: any
+    ips: []
+    permissions:
+      - action: read
+
+paths:
+  # Every webinar path mirrors the origin's namespace. $G1 is the first regex
+  # capture — the webinar code — so `webinar/AbC123` here pulls
+  # `rtsp://10.10.1.10:8554/webinar/AbC123` from the origin.
+  #
+  # 10.10.1.10 is the origin's PINNED private address (hcloud_server_network
+  # "origin" in ../main.tf). Private, so RTSP never crosses the public internet
+  # and never counts against egress.
+  "~^webinar/(.+)$":
+    source: rtsp://10.10.1.10:8554/webinar/$G1
+    # Connect only while at least one guest is watching, and drop the pull when
+    # the last one leaves. With hundreds of scheduled-but-idle webinars this is
+    # the difference between a handful of RTSP sessions and one per path.
+    sourceOnDemand: yes

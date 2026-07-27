@@ -1,0 +1,35 @@
+# MediaMTX read replica + Caddy for VoxTranslate webinar PLAYBACK.
+#
+# Deploy target: vox-media-replica-NN (see ../main.tf). The origin box runs the
+# sibling compose file one directory up — do not mix them on one host.
+#
+# Both use host networking: Caddy binds :80/:443 and MediaMTX needs its private
+# interface to reach the origin's RTSP. MediaMTX's HTTP port (8888 HLS) stays on
+# localhost and is reverse-proxied by Caddy; it is NOT opened in the firewall.
+services:
+  mediamtx:
+    # PINNED to the same tag as the origin. A replica running a different HLS
+    # implementation than the origin is a latency bug waiting to happen, and an
+    # unpinned tag drifts on every `docker compose pull` — which is exactly how
+    # a MediaMTX update once changed HLS behaviour underneath this stack.
+    image: bluenviron/mediamtx:1.19.2
+    network_mode: host
+    restart: unless-stopped
+    volumes:
+      - ./mediamtx.yml:/mediamtx.yml:ro
+    # No CA bundle mount here: unlike the origin, a replica makes no outbound
+    # HTTPS call (there is no external-auth hook — it only ever reads).
+
+  caddy:
+    # PINNED (not the floating :2 major tag) so the reverse proxy can't drift.
+    image: caddy:2.11.4
+    network_mode: host
+    restart: unless-stopped
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:
