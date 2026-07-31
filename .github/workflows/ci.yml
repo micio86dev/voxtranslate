@@ -44,7 +44,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: server
-      - uses: taiki-e/install-action@v2
+      - uses: taiki-e/install-action@v2.85.3
         with:
           tool: cargo-llvm-cov
       - name: Rustfmt
@@ -296,7 +296,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: server
-      - uses: taiki-e/install-action@v2
+      - uses: taiki-e/install-action@v2.85.3
         with:
           tool: cargo-llvm-cov
 
@@ -352,7 +352,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
-      - uses: taiki-e/install-action@v2
+      - uses: taiki-e/install-action@v2.85.3
         with:
           tool: cargo-audit
       - name: cargo audit (server) — HARD GATE (triage via server/.cargo/audit.toml)
