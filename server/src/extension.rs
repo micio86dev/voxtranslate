@@ -334,14 +334,13 @@ struct SessionGuard {
     conn: Uuid,
     billing: Option<crate::billing::BillingService>,
     usage_session: Option<Uuid>,
-    meter_cancel: Option<oneshot::Sender<()>>,
 }
 
 impl SessionGuard {
-    /// Release the room slots, stop the meter, and close the usage session. Called on
-    /// every exit path — a leaked peer would keep billing a user who has gone.
-    async fn finish(mut self) {
-        if let Some(cancel) = self.meter_cancel.take() {
+    /// Release the room slots, stop any live meter, and close the usage session. Called
+    /// on every exit path — a leaked peer would keep billing a user who has gone.
+    async fn finish(self, meter_cancel: Option<oneshot::Sender<()>>) {
+        if let Some(cancel) = meter_cancel {
             let _ = cancel.send(());
         }
         self.rooms.remove(&self.room, &self.listener_id, self.conn);
@@ -471,15 +470,23 @@ async fn handle_extension_session(socket: WebSocket, params: ExtParams, state: A
     };
 
     let (exhaust_tx, mut exhaust_rx) = mpsc::unbounded_channel::<()>();
-    let mut meter_cancel: Option<oneshot::Sender<()>> = None;
-    if let (Some(svc), Some(sid), Some(cfg)) = (
-        state.billing.as_ref(),
-        usage_session,
-        state.config.billing.as_ref(),
-    ) {
+
+    // The meter is started PER STREAMING SESSION, not per connection — mirroring the
+    // room path (`lib::spawn_meter` is called only once a session actually opens). A
+    // connection-long meter would charge a user who opened the panel and never pressed
+    // Start, and would keep charging after Stop until they closed the tab.
+    let start_meter = || -> Option<oneshot::Sender<()>> {
+        let (svc, sid, cfg) = match (
+            state.billing.as_ref(),
+            usage_session,
+            state.config.billing.as_ref(),
+        ) {
+            (Some(svc), Some(sid), Some(cfg)) => (svc, sid, cfg),
+            _ => return None,
+        };
         let (cancel_tx, cancel_rx) = oneshot::channel();
-        // Speaker scope on the SOURCE peer: the billable stream count is derived from
-        // the other languages in the room, which is exactly the listener's target — and
+        // Speaker scope on the SOURCE peer: the billable stream count comes from the
+        // other languages in the room, which is exactly the listener's target — and
         // becomes zero (skipped tick, no charge) the moment detection resolves the
         // source language to the listener's own.
         let meter_cfg = MeterConfig {
@@ -503,8 +510,8 @@ async fn handle_extension_session(socket: WebSocket, params: ExtParams, state: A
             exhaust_tx.clone(),
             cancel_rx,
         ));
-        meter_cancel = Some(cancel_tx);
-    }
+        Some(cancel_tx)
+    };
 
     let guard = SessionGuard {
         rooms: state.rooms.clone(),
@@ -514,7 +521,6 @@ async fn handle_extension_session(socket: WebSocket, params: ExtParams, state: A
         conn,
         billing: state.billing.clone(),
         usage_session,
-        meter_cancel,
     };
 
     // Tell the client it is live. Reuses `room_joined` so the extension shares the
@@ -533,6 +539,7 @@ async fn handle_extension_session(socket: WebSocket, params: ExtParams, state: A
 
     // --- the session loop --------------------------------------------------
     let mut audio_tx: Option<mpsc::Sender<Vec<u8>>> = None;
+    let mut meter_cancel: Option<oneshot::Sender<()>> = None;
     // Once credits run out the meter task exits for good. Without this flag a client
     // could simply send `start` again and get an UNMETERED translation session, because
     // nothing would be left charging for it.
@@ -545,6 +552,9 @@ async fn handle_extension_session(socket: WebSocket, params: ExtParams, state: A
             _ = exhaust_rx.recv() => {
                 exhausted = true;
                 audio_tx = None;
+                // The meter task has already exited; drop the handle so teardown does
+                // not try to cancel a channel nobody is listening on.
+                meter_cancel = None;
             }
             incoming = ws_rx.next() => {
                 let Some(Ok(message)) = incoming else { break };
@@ -601,7 +611,11 @@ async fn handle_extension_session(socket: WebSocket, params: ExtParams, state: A
                                     translator: state.translator.clone(),
                                 };
                                 match engine.start_session(ctx, deps).await {
-                                    SessionOutcome::Started(tx) => audio_tx = Some(tx),
+                                    SessionOutcome::Started(tx) => {
+                                        audio_tx = Some(tx);
+                                        // Charge only while a session is really open.
+                                        meter_cancel = start_meter();
+                                    }
                                     SessionOutcome::AtCapacity | SessionOutcome::Failed => {
                                         let _ = out_tx.send(
                                             ServerMessage::Error {
@@ -614,8 +628,13 @@ async fn handle_extension_session(socket: WebSocket, params: ExtParams, state: A
                                 }
                             }
                             Ok(crate::protocol::ClientMessage::Stop) => {
-                                // Dropping the sender flushes and closes the STT session.
+                                // Dropping the sender flushes and closes the STT session,
+                                // and the meter stops with it — billing must not outlive
+                                // the audio.
                                 audio_tx = None;
+                                if let Some(cancel) = meter_cancel.take() {
+                                    let _ = cancel.send(());
+                                }
                             }
                             Ok(crate::protocol::ClientMessage::SetLang { lang }) => {
                                 // Changes the TARGET language mid-session. `auto` is
@@ -640,7 +659,7 @@ async fn handle_extension_session(socket: WebSocket, params: ExtParams, state: A
 
     drop(audio_tx);
     send_task.abort();
-    guard.finish().await;
+    guard.finish(meter_cancel).await;
 }
 
 #[cfg(test)]
