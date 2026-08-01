@@ -1,0 +1,216 @@
+---
+import Base from '../../layouts/Base.astro';
+---
+
+<Base
+  title="Connect VoxTranslate for Chrome"
+  description="Authorise the VoxTranslate Chrome extension to use your account."
+  noindex={true}
+>
+  <main class="connect">
+    <h1>Connect VoxTranslate for Chrome</h1>
+
+    <div id="state-loading" class="panel">
+      <p>Checking your session…</p>
+    </div>
+
+    <div id="state-signin" class="panel" hidden>
+      <p>
+        You need to be signed in to VoxTranslate before you can connect the extension.
+      </p>
+      <a class="btn" href="/">Open VoxTranslate and sign in</a>
+      <p class="fine">
+        Once you are signed in, return to this page from the extension and press
+        “Log in with VoxTranslate” again.
+      </p>
+    </div>
+
+    <div id="state-confirm" class="panel" hidden>
+      <p>
+        <strong id="who"></strong> — the VoxTranslate extension is asking to use this
+        account.
+      </p>
+      <p class="fine">
+        It will be able to translate audio from tabs you explicitly start it on, and to
+        read your balance and preferences. It never receives your password, and audio is
+        only captured while you run a session.
+      </p>
+      <button id="allow" class="btn" type="button">Allow</button>
+      <button id="deny" class="btn ghost" type="button">Cancel</button>
+    </div>
+
+    <div id="state-done" class="panel" hidden>
+      <p>Connected. You can close this tab and return to the extension.</p>
+    </div>
+
+    <p id="error" class="error" hidden></p>
+  </main>
+</Base>
+
+<style>
+  .connect {
+    max-width: 34rem;
+    margin: 0 auto;
+    padding: 3rem 1.25rem;
+  }
+  .panel {
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+    align-items: flex-start;
+  }
+  .btn {
+    display: inline-block;
+    padding: 0.65rem 1.1rem;
+    border-radius: 8px;
+    border: 0;
+    background: #4f46e5;
+    color: #fff;
+    font-weight: 600;
+    cursor: pointer;
+    text-decoration: none;
+  }
+  .btn.ghost {
+    background: transparent;
+    color: inherit;
+    border: 1px solid currentColor;
+    opacity: 0.7;
+  }
+  .fine {
+    font-size: 0.85rem;
+    opacity: 0.75;
+  }
+  .error {
+    color: #dc2626;
+    font-size: 0.9rem;
+  }
+</style>
+
+<script>
+  import { HTTP_BASE } from '../../scripts/auth';
+
+  /**
+   * Extension login handoff.
+   *
+   * The extension opens this page through `chrome.identity.launchWebAuthFlow` with a
+   * PKCE challenge. Using the session the user already has here, we ask the backend for
+   * a short-lived code and hand it back on the redirect. The access token itself is
+   * NEVER put in the URL — the extension exchanges the code for it over POST.
+   */
+  const params = new URLSearchParams(location.search);
+  const challenge = params.get('code_challenge') ?? '';
+  const method = params.get('code_challenge_method') ?? '';
+  const state = params.get('state') ?? '';
+  const redirectUri = params.get('redirect_uri') ?? '';
+
+  const show = (id: string) => {
+    for (const el of document.querySelectorAll<HTMLElement>('.panel')) el.hidden = true;
+    const target = document.getElementById(id);
+    if (target) target.hidden = false;
+  };
+  const fail = (message: string) => {
+    const el = document.getElementById('error');
+    if (el) {
+      el.textContent = message;
+      el.hidden = false;
+    }
+  };
+
+  /**
+   * Only ever redirect back to the extension's own callback origin. Without this check
+   * a crafted link could send a valid code to an attacker-controlled URL.
+   */
+  function redirectAllowed(uri: string): boolean {
+    try {
+      const url = new URL(uri);
+      return url.protocol === 'https:' && url.hostname.endsWith('.chromiumapp.org');
+    } catch {
+      return false;
+    }
+  }
+
+  function token(): string | null {
+    try {
+      return localStorage.getItem('vox.token');
+    } catch {
+      return null;
+    }
+  }
+
+  async function main() {
+    if (!challenge || method !== 'S256' || !state || !redirectUri) {
+      show('state-loading');
+      fail('This link is missing required parameters. Start again from the extension.');
+      return;
+    }
+    if (!redirectAllowed(redirectUri)) {
+      show('state-loading');
+      fail('This link points somewhere unexpected and was blocked.');
+      return;
+    }
+
+    const session = token();
+    if (!session) {
+      show('state-signin');
+      return;
+    }
+
+    // Confirm the session is still valid, and show WHO is being connected — consent
+    // without knowing which account is not consent.
+    try {
+      const res = await fetch(`${HTTP_BASE}/api/user/me`, {
+        headers: { Authorization: `Bearer ${session}` },
+        cache: 'no-store',
+      });
+      if (!res.ok) {
+        show('state-signin');
+        return;
+      }
+      const me = (await res.json()) as { email?: string; name?: string };
+      const who = document.getElementById('who');
+      if (who) who.textContent = me.name || me.email || 'Your account';
+    } catch {
+      show('state-loading');
+      fail('Could not reach VoxTranslate. Check your connection and try again.');
+      return;
+    }
+
+    show('state-confirm');
+
+    document.getElementById('deny')?.addEventListener('click', () => {
+      location.replace(`${redirectUri}?error=access_denied&state=${encodeURIComponent(state)}`);
+    });
+
+    document.getElementById('allow')?.addEventListener('click', () => {
+      void (async () => {
+        try {
+          const res = await fetch(`${HTTP_BASE}/api/extension/code`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${session}`,
+            },
+            body: JSON.stringify({
+              code_challenge: challenge,
+              code_challenge_method: 'S256',
+            }),
+          });
+          if (!res.ok) {
+            fail('VoxTranslate refused the request. Please try again.');
+            return;
+          }
+          const { code } = (await res.json()) as { code: string };
+          show('state-done');
+          const target = new URL(redirectUri);
+          target.searchParams.set('code', code);
+          target.searchParams.set('state', state);
+          location.replace(target.toString());
+        } catch {
+          fail('Could not reach VoxTranslate. Check your connection and try again.');
+        }
+      })();
+    });
+  }
+
+  void main();
+</script>
