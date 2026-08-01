@@ -533,12 +533,17 @@ async fn handle_extension_session(socket: WebSocket, params: ExtParams, state: A
 
     // --- the session loop --------------------------------------------------
     let mut audio_tx: Option<mpsc::Sender<Vec<u8>>> = None;
+    // Once credits run out the meter task exits for good. Without this flag a client
+    // could simply send `start` again and get an UNMETERED translation session, because
+    // nothing would be left charging for it.
+    let mut exhausted = false;
 
     loop {
         tokio::select! {
             // Credits ran out: stop feeding the STT session but leave the socket up so
             // the client can show the purchase prompt rather than just dropping.
             _ = exhaust_rx.recv() => {
+                exhausted = true;
                 audio_tx = None;
             }
             incoming = ws_rx.next() => {
@@ -558,6 +563,18 @@ async fn handle_extension_session(socket: WebSocket, params: ExtParams, state: A
                             Ok(crate::protocol::ClientMessage::Start) => {
                                 if audio_tx.is_some() {
                                     continue; // already streaming; a second start is a no-op
+                                }
+                                if exhausted {
+                                    // The meter is gone; restarting here would translate
+                                    // for free. Tell the client to buy credit instead.
+                                    let _ = out_tx.send(
+                                        ServerMessage::Error {
+                                            message: "out of credit".to_string(),
+                                            code: Some("insufficient_balance".to_string()),
+                                        }
+                                        .to_json(),
+                                    );
+                                    continue;
                                 }
                                 let ctx = SpeakerCtx {
                                     room: room.clone(),
