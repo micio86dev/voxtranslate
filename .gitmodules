@@ -10,3 +10,7 @@
 	path = n8n
 	url = git@github.com:micio86dev/voxtranslate-n8n.git
 	branch = main
+[submodule "voxtranslate-chrome-extension"]
+	path = voxtranslate-chrome-extension
+	url = git@github.com:micio86dev/voxtranslate-chrome-extension.git
+	branch = main
