@@ -25,18 +25,40 @@ Verified with `gh`:
 
 Tooling present: `bun 1.3.0`, `node v24.18.0`, `rustc 1.89.0`.
 
-### 1.1 Build verification constraint (blocking, verified)
+### 1.1 Build verification constraint — CORRECTED 2026-08-02
 
-`cargo check` in `server/` **fails to build at all** on this machine:
+> **This finding was wrong, and the error message is why.** The server DOES build and
+> test locally. `/opt/homebrew/bin/rustc` (1.89) precedes `~/.cargo/bin` on PATH and
+> shadows the installed rustup toolchains — which include 1.93, 1.97 and stable. Cargo
+> then reports an MSRV failure that reads like a missing toolchain.
+>
+> What works (note that `rustup run stable cargo` is NOT enough — Homebrew's `cargo`
+> still wins; the toolchain paths must be explicit):
+>
+> ```bash
+> TC="$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin"
+> export PATH="$TC:$PATH" RUSTC="$TC/rustc" CARGO_INCREMENTAL=0
+> "$TC/cargo" clippy --all-targets -- -D warnings
+> "$TC/cargo" test --lib
+> ```
+>
+> `CARGO_INCREMENTAL=0` avoids an rustc 1.97 ICE on `crossbeam_utils::CachePadded` while
+> compiling the test profile. The Astro client builds too, under node v24.18.0.
+>
+> The original observation is kept below because the misleading error is worth
+> recognising, not because the conclusion held.
+
+`cargo check` in `server/` fails on a PATH where Homebrew's rustc wins:
 
 ```
 error: rustc 1.89.0 is not supported by the following packages:
   typst@0.15.1 requires rustc 1.92   (+ krilla, hayro, 20 more — the PDF stack)
 ```
 
-**Consequence: no backend Rust change can be compiled or tested locally.** Any server-side work
-in this project is verifiable only through GitHub CI. This is the single biggest constraint on
-scoping the backend half of this feature, and it is why the plan pushes to minimise backend churn.
+~~**Consequence: no backend Rust change can be compiled or tested locally.**~~ Superseded by the
+correction above. The backend work for this feature *was* compiled, linted and tested locally
+before being pushed — and doing so caught four defects CI would not have, three of them
+billing-related.
 
 The client is Astro 5 + vanilla TS under `client/src/{layouts,pages,scripts}`.
 
@@ -72,8 +94,8 @@ This matters enormously for the task brief, which assumes an OAuth authorization
 
 VoxTranslate is an **OAuth client** (to Google). It is **not an OAuth authorization server**.
 Building `/authorize` + PKCE + code exchange + refresh rotation + revocation means writing an AS
-from scratch, including a new token/session table and migration — on a production service that I
-cannot compile locally.
+from scratch, including a new token/session table and migration. (What shipped instead: a signed,
+PKCE-bound 60-second code — no table, no migration. See ADR 0005 in the extension repo.)
 
 `chrome.identity.launchWebAuthFlow` itself is fine and is the right API; the question is only what
 it talks to on our side.
@@ -317,8 +339,10 @@ Every one of these is unverifiable locally (§1.1).
 
 ## 10. Risks and unknowns
 
-1. **Backend cannot be compiled or tested on this machine.** Rust changes go in blind, CI-only.
-   Verified, not speculative.
+1. ~~**Backend cannot be compiled or tested on this machine.**~~ **Wrong — see §1.1.** A
+   shadowed toolchain produced a convincing error message and I accepted it. The lesson:
+   "verified" means the conclusion was tested, not that an error message was read
+   carefully.
 2. **The room model does not fit the product.** §6. No amount of extension-side cleverness avoids
    a backend decision here.
 3. **The brief's commercial model does not exist.** Credits, EUR, plans, allowed tiers, default tier
