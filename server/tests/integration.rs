@@ -30,6 +30,7 @@ fn make_state() -> (AppState, bool) {
                 translation_model: "openai/gpt-oss-20b".into(),
                 port: 0,
                 allowed_origins: vec![],
+                extension_origins: vec![],
                 auto_detect_buffer_ms: 3000,
                 billing: None,
                 resend: None,
@@ -76,6 +77,7 @@ fn make_minimal_state() -> AppState {
         translation_model: "openai/gpt-oss-20b".into(),
         port: 0,
         allowed_origins: vec![],
+        extension_origins: vec![],
         auto_detect_buffer_ms: 3000,
         billing: None,
         resend: None,
@@ -497,6 +499,7 @@ async fn deepgram_unavailable_sends_error() {
         translation_model: "openai/gpt-oss-20b".into(),
         port: 0,
         allowed_origins: vec![],
+        extension_origins: vec![],
         auto_detect_buffer_ms: 3000,
         billing: None,
         resend: None,
@@ -582,6 +585,7 @@ fn guest_config() -> Config {
         translation_model: "openai/gpt-oss-20b".into(),
         port: 0,
         allowed_origins: vec![],
+        extension_origins: vec![],
         auto_detect_buffer_ms: 3000,
         billing: None,
         resend: None,
@@ -901,5 +905,102 @@ async fn rooms_endpoint_is_rate_limited() {
     assert!(
         got_429,
         "expected a 429 once the per-IP /rooms budget was exhausted"
+    );
+}
+
+// --- VoxTranslate for Chrome (server/src/extension.rs) ----------------------
+//
+// Deterministic, provider-free coverage of the rejection paths. The happy path needs
+// Deepgram and a billed account, so it lives in docs/manual-testing.md in the extension
+// repo — but these guards are exactly the ones that must never silently regress.
+
+/// Attempt a `/ws/extension` upgrade and return the HTTP status the server answered with.
+async fn ext_ws_status(addr: SocketAddr, query: &str) -> u16 {
+    let url = format!("ws://{addr}/ws/extension?{query}");
+    match connect_async(url).await {
+        // An accepted upgrade is 101.
+        Ok(_) => 101,
+        Err(tokio_tungstenite::tungstenite::Error::Http(resp)) => resp.status().as_u16(),
+        Err(e) => panic!("unexpected ws error: {e}"),
+    }
+}
+
+#[tokio::test]
+async fn extension_ws_rejects_an_auto_target_language() {
+    let addr = spawn_minimal().await;
+    // `auto` is only meaningful as a SOURCE. An `auto` listener is skipped by the room
+    // fan-out, so the session would connect and then silently produce nothing.
+    assert_eq!(ext_ws_status(addr, "lang=auto").await, 400);
+}
+
+#[tokio::test]
+async fn extension_ws_rejects_a_malformed_language() {
+    let addr = spawn_minimal().await;
+    // The language is interpolated into the Deepgram streaming URL, so a loose rule here
+    // would reopen query smuggling (`?lang=en&redact=pci`).
+    assert_eq!(ext_ws_status(addr, "lang=en%26redact%3Dpci").await, 400);
+    assert_eq!(ext_ws_status(addr, "lang=toolonglang").await, 400);
+    assert_eq!(ext_ws_status(addr, "lang=").await, 400);
+}
+
+#[tokio::test]
+async fn extension_ws_rejects_a_missing_language() {
+    let addr = spawn_minimal().await;
+    // Axum's Query extractor rejects the missing required field before the handler runs.
+    assert!(ext_ws_status(addr, "source=auto").await >= 400);
+}
+
+#[tokio::test]
+async fn extension_token_exchange_rejects_a_bogus_code() {
+    let addr = spawn_minimal().await;
+    let client = reqwest::Client::new();
+    let res = client
+        .post(format!("http://{addr}/api/extension/token"))
+        .json(&serde_json::json!({
+            "code": "not-a-jwt",
+            "code_verifier": "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk",
+        }))
+        .send()
+        .await
+        .expect("request");
+    // Billing is absent in the minimal state, so this is 503; with billing it would be
+    // 401. Either way it must never mint a token for an unverifiable code.
+    assert!(
+        res.status().as_u16() >= 400,
+        "a bogus code must never be redeemed, got {}",
+        res.status()
+    );
+}
+
+#[tokio::test]
+async fn extension_token_exchange_rejects_an_out_of_range_verifier() {
+    let addr = spawn_minimal().await;
+    let client = reqwest::Client::new();
+    // RFC 7636 §4.1 bounds the verifier at 43..=128 chars.
+    let res = client
+        .post(format!("http://{addr}/api/extension/token"))
+        .json(&serde_json::json!({ "code": "x", "code_verifier": "tooshort" }))
+        .send()
+        .await
+        .expect("request");
+    assert!(res.status().as_u16() >= 400);
+}
+
+#[tokio::test]
+async fn extension_code_requires_authentication() {
+    let addr = spawn_minimal().await;
+    let client = reqwest::Client::new();
+    let res = client
+        .post(format!("http://{addr}/api/extension/code"))
+        .json(&serde_json::json!({ "code_challenge": "x".repeat(43) }))
+        .send()
+        .await
+        .expect("request");
+    // No Authorization header: this endpoint speaks for a signed-in user and must never
+    // issue a code without one.
+    assert!(
+        res.status().as_u16() >= 400,
+        "unauthenticated code issue must fail, got {}",
+        res.status()
     );
 }
