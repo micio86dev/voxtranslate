@@ -29,6 +29,11 @@ pub struct Config {
     pub port: u16,
     /// Allowed CORS origins; empty means permissive (dev).
     pub allowed_origins: Vec<String>,
+    /// `chrome-extension://<id>` origins allowed to call the API (`EXTENSION_ORIGINS`,
+    /// comma-separated). An extension id is only known after packaging, so it cannot be
+    /// derived like `app_base_url` — and allowing every `chrome-extension://` origin by
+    /// pattern would let any installed extension reach the API from a browser.
+    pub extension_origins: Vec<String>,
     /// How much speech (ms) to buffer before the language-detect REST probe
     /// when a peer joins with `lang=auto` (spec 0012).
     pub auto_detect_buffer_ms: u64,
@@ -944,6 +949,13 @@ impl Config {
             .filter(|s| !s.trim().is_empty())
             .unwrap_or_else(|| "openai/gpt-oss-20b".into());
         let port = parse_or("PORT", 3001u16);
+        let extension_origins: Vec<String> = env::var("EXTENSION_ORIGINS")
+            .unwrap_or_default()
+            .split(',')
+            .map(str::trim)
+            .filter(|o| o.starts_with("chrome-extension://"))
+            .map(str::to_string)
+            .collect();
         let allowed_origins = env::var("ALLOWED_ORIGINS")
             .ok()
             .map(|s| {
@@ -1078,6 +1090,7 @@ impl Config {
             translation_model,
             port,
             allowed_origins,
+            extension_origins,
             auto_detect_buffer_ms: parse_or("AUTO_DETECT_BUFFER_MS", 3000u64),
             billing,
             resend,
@@ -1430,6 +1443,7 @@ impl Config {
             translation_model: "openai/gpt-oss-20b".into(),
             port: 0,
             allowed_origins: vec![],
+            extension_origins: vec![],
             auto_detect_buffer_ms: 3000,
             billing: Some(BillingConfig {
                 database_url: database_url.into(),
@@ -1505,6 +1519,7 @@ impl std::fmt::Debug for Config {
             .field("port", &self.port)
             .field("translation_model", &self.translation_model)
             .field("allowed_origins", &self.allowed_origins)
+            .field("extension_origins", &self.extension_origins)
             .field("app_base_url", &self.app_base_url)
             .field("billing", &self.billing.is_some())
             .field("resend", &self.resend.is_some())

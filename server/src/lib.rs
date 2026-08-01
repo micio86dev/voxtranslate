@@ -23,6 +23,7 @@ pub mod email;
 pub mod email_template;
 pub mod embeddings;
 pub mod engine;
+pub mod extension;
 pub mod files;
 pub mod friends;
 pub mod glossary;
@@ -537,6 +538,11 @@ pub fn app(state: AppState) -> Router {
              app_base_url + dashboard_base_url instead of permissive (M8)"
         );
     }
+    // Chrome extensions call the API from a `chrome-extension://<id>` origin, which is
+    // not a URL an operator can guess before publishing — so it is configured explicitly
+    // (`EXTENSION_ORIGINS`) rather than allowing every extension by pattern.
+    allowed.extend(state.config.extension_origins.iter().cloned());
+
     let cors = if allowed.is_empty() {
         CorsLayer::permissive()
     } else {
@@ -565,6 +571,11 @@ pub fn app(state: AppState) -> Router {
     };
     Router::new()
         .route("/ws", get(ws_handler))
+        // VoxTranslate for Chrome. Additive and isolated: a fault here cannot affect
+        // calls, webinars, or the room path.
+        .route("/ws/extension", get(extension::ws_extension))
+        .route("/api/extension/code", post(extension::issue_code))
+        .route("/api/extension/token", post(extension::exchange_token))
         .route("/rooms", get(rooms_handler))
         .route("/health", get(|| async { "ok" }))
         .route("/version", get(version_handler))
@@ -1099,18 +1110,19 @@ pub(crate) fn now_unix() -> u64 {
 
 /// An authenticated, billable peer: their user id, Google avatar, and cloned voice.
 #[derive(Clone)]
-struct AuthedPeer {
-    user_id: Uuid,
-    avatar_url: Option<String>,
+pub(crate) struct AuthedPeer {
+    pub(crate) user_id: Uuid,
+    pub(crate) avatar_url: Option<String>,
     /// Cartesia cloned-voice id (spec 0108), if the user has completed voice prep.
-    cartesia_voice_id: Option<String>,
+    #[allow(dead_code)]
+    pub(crate) cartesia_voice_id: Option<String>,
 }
 
 /// Resolve the (optional) billed user for a WS connection from its token:
 /// - `Ok(None)`       — guest (no token, or billing not configured here);
 /// - `Ok(Some(peer))` — authenticated user with enough balance to join;
 /// - `Err(msg)`       — reject the connection with this error frame.
-async fn authorize(
+pub(crate) async fn authorize(
     state: &AppState,
     token: Option<&str>,
 ) -> Result<Option<AuthedPeer>, ServerMessage> {
@@ -2436,7 +2448,7 @@ fn handle_chat(
 
 /// Forward queued JSON strings to a WebSocket as text frames until the channel
 /// closes or the socket errors.
-async fn pump_to_ws(mut rx: Receiver<String>, mut ws_tx: SplitSink<WebSocket, Message>) {
+pub(crate) async fn pump_to_ws(mut rx: Receiver<String>, mut ws_tx: SplitSink<WebSocket, Message>) {
     // Keepalive: Ping on a fixed cadence between queued messages. Healthy browsers
     // auto-reply with a Pong (seen by the reader as activity); a frozen client
     // stops responding and the reader's idle timeout closes it. The first interval
