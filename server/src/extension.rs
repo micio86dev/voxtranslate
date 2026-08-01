@@ -431,16 +431,25 @@ async fn handle_extension_session(socket: WebSocket, params: ExtParams, state: A
         speaking: Arc::new(AtomicBool::new(true)),
     };
 
-    let joined = match state
-        .rooms
-        .join(&room, listener, Visibility::Private)
-        .and_then(|j| {
-            state
+    let joined = match state.rooms.join(&room, listener, Visibility::Private) {
+        Ok(j) => {
+            // The second join cannot realistically fail — the room is brand new and holds
+            // one peer against a cap of four — but if it ever did, the listener would sit
+            // in the room forever with nothing driving or ending it. Remove it explicitly
+            // rather than rely on that reasoning staying true.
+            if state
                 .rooms
                 .join(&room, source, Visibility::Private)
-                .map(|_| j)
-        }) {
-        Ok(j) => j,
+                .is_err()
+            {
+                state.rooms.remove(&room, &listener_id, conn);
+                let _ = ws_tx
+                    .send(Message::Text(ServerMessage::RoomFull.to_json().into()))
+                    .await;
+                return;
+            }
+            j
+        }
         Err(()) => {
             let _ = ws_tx
                 .send(Message::Text(ServerMessage::RoomFull.to_json().into()))
