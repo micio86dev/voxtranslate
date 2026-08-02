@@ -4628,6 +4628,15 @@ async function boot(): Promise<void> {
     renderAccount();
     history.replaceState(null, '', location.pathname);
   }
+  // Deep-link `?buy=1`: the Chrome extension's "Buy more credit" action. It cannot open
+  // the purchase modal itself (that lives in this app), and there is no standalone
+  // billing page — so it links here and we open the modal. A logged-out visitor lands on
+  // the login screen above and the param is simply dropped, which is the right outcome:
+  // there is nothing to top up until they sign in.
+  if (billing && auth.isLoggedIn() && new URLSearchParams(location.search).has('buy')) {
+    history.replaceState(null, '', location.pathname); // tidy before opening
+    openBuyModal();
+  }
   // Deep-link `?webinar={id}`: a host who opened their own /w/{code} link was bounced here
   // by the participant page (server-detected is_host). Enter the Webinars hub focused on
   // that webinar so they land as host, not as a viewer of their own webinar.
