@@ -3,26 +3,36 @@
 ## Project
 
 Real-time voice translation app evolving into a video meeting with live translation.
-Current state: working audio-only pipeline (Deepgram STT + Groq translation + TTS).
+Current state: working pipeline with video calls, webinars and a Chrome widget.
 Next step: add P2P video calling (WebRTC mesh, max 4) + auto-translated text chat.
 
 ## Stack
 
 - Backend: Rust (Axum 0.8 + Tokio)
 - Frontend: Astro 5 (vanilla TypeScript)
-- STT: Deepgram Nova-2 streaming WebSocket
-- Translation: Groq `openai/gpt-oss-20b` (env-configurable via `GROQ_TRANSLATION_MODEL`)
-- TTS: Browser SpeechSynthesis API
+- Live translation (Standard tier): Qwen realtime on Alibaba Model Studio —
+  `qwen3-livetranslate-flash-realtime`, speech in, translated speech + subtitles out
+- Text translation (chat, webinar subtitles, transcripts): Groq `openai/gpt-oss-20b`
+  (env-configurable via `GROQ_TRANSLATION_MODEL`)
+- Batch transcription (uploads, recordings, voice messages): Deepgram REST — the only
+  thing left on Deepgram; no live tier uses it
+- TTS: server-streamed translated audio; browser SpeechSynthesis only as a fallback
 - Video/Audio P2P: WebRTC mesh topology
 - Audio codec: Opus/WebM, 32kbps mono, 100ms chunks (low-latency capture, spec 0043)
 
 ## Architecture
 
-- Server: room management, WebRTC signaling relay, Deepgram streaming STT, Groq translation fan-out, chat relay
+- Server: room management, WebRTC signaling relay, Qwen realtime translation sessions, Groq text fan-out, chat relay
 - Server does NOT touch video/audio streams (P2P via WebRTC)
-- Each peer gets a dedicated Deepgram WS for streaming STT
-- Audio dual path: WebRTC (peers hear you P2P) + MediaRecorder (server gets audio for STT)
-- Translations fan out in parallel to all unique target languages in the room
+- Each speaker gets one upstream session PER TARGET LANGUAGE (deduped, semaphore-capped)
+- Audio dual path: WebRTC (peers hear you P2P) + PCM16 capture (server gets audio for
+  translation). PCM16 @ 24 kHz is the universal capture format — driven by the engine's
+  `translated_audio` capability, never a hardcoded engine id
+- Standard is the default AND capacity-fallback engine, so it never rejects a session:
+  at capacity it starts the languages it can and recovers the rest on reconcile
+- Webinars deliberately do NOT use the per-language shape: one transcribe-only session
+  plus a Groq text fan-out, because a broadcast has many viewer languages and text-only
+  subtitles
 
 ## Conventions
 
@@ -45,5 +55,13 @@ Project-wide rule — applies to this repo and every submodule (`dashboard/`, `w
 
 ## API Keys
 
-- DEEPGRAM_API_KEY — Nova-2 streaming STT
-- GROQ_API_KEY — Groq translation (default `openai/gpt-oss-20b`)
+- DASHSCOPE_API_KEY (alias QWEN_API_KEY) — **required**, the server refuses to boot
+  without it. Must come from a Model Studio region that actually carries realtime models:
+  Beijing or Singapore. US (Virginia) authenticates fine and then has no realtime model
+  to open.
+- GROQ_API_KEY — **required**, text translation + every `ai/` feature
+- DEEPGRAM_API_KEY — optional, batch transcription only; unset it and those features
+  degrade while every live tier keeps working
+
+Pricing note: the Standard tier bills PER TARGET LANGUAGE, not flat. See
+`docs/pricing-standard-qwen.md` before changing `max_room_size` or the rate.

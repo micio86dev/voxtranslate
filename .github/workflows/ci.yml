@@ -114,14 +114,19 @@ jobs:
     outputs:
       has_keys: ${{ steps.c.outputs.has_keys }}
       has_railway: ${{ steps.c.outputs.has_railway }}
+      has_railway_staging: ${{ steps.c.outputs.has_railway_staging }}
       has_hetzner: ${{ steps.c.outputs.has_hetzner }}
       server_changed: ${{ steps.paths.outputs.server_changed }}
       infra_changed: ${{ steps.paths.outputs.infra_changed }}
     steps:
       - id: c
         run: |
-          echo "has_keys=${{ secrets.GROQ_API_KEY != '' && secrets.DEEPGRAM_API_KEY != '' }}" >> "$GITHUB_OUTPUT"
+          # Qwen, not Deepgram: the Standard tier's live path runs on Model Studio now,
+          # and `Config::from_env` FAILS without it — which would make the e2e job fall
+          # back to a dummy state and silently skip the audio coverage it exists for.
+          echo "has_keys=${{ secrets.GROQ_API_KEY != '' && secrets.QWEN_API_KEY != '' }}" >> "$GITHUB_OUTPUT"
           echo "has_railway=${{ secrets.RAILWAY_TOKEN != '' }}" >> "$GITHUB_OUTPUT"
+          echo "has_railway_staging=${{ secrets.RAILWAY_STAGING_TOKEN != '' }}" >> "$GITHUB_OUTPUT"
           echo "has_hetzner=${{ secrets.HETZNER_SSH_KEY != '' }}" >> "$GITHUB_OUTPUT"
       # Did this push touch the server or infra? Gates redeploys so unrelated merges
       # don't trigger unnecessary rebuilds. Defaults to "true" on shallow-history edge
@@ -172,6 +177,33 @@ jobs:
         working-directory: server
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: railway up --ci --service voxtranslate-server
+
+  # Deploy the Rust backend to Railway STAGING on every push to develop. Git Flow says
+  # develop → staging and main → production, but only the production half was ever
+  # implemented: the staging environment has no GitHub source attached, so it moved only
+  # when someone ran `railway up` by hand — which meant a change could reach production
+  # having never run anywhere else. It did, for v1.32.0.
+  #
+  # Needs a RAILWAY_STAGING_TOKEN secret: Railway tokens are environment-scoped, so the
+  # existing RAILWAY_TOKEN points at production and cannot be reused here. Until that
+  # secret exists this job is skipped, exactly like the other secret-gated deploys —
+  # never a red build.
+  deploy-staging:
+    needs: [test, check-secrets, security-audit]
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/develop' && needs.check-secrets.outputs.has_railway_staging == 'true' && needs.check-secrets.outputs.server_changed == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: Install Railway CLI
+        run: npm i -g @railway/cli
+      - name: Deploy server to Railway (staging)
+        working-directory: server
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_STAGING_TOKEN }}
         run: railway up --ci --service voxtranslate-server
 
   # Deploy the FULL media stack (MediaMTX + Caddy) to the Hetzner box on every push to
@@ -265,8 +297,11 @@ jobs:
     if: ${{ needs.check-secrets.outputs.has_keys == 'true' }}
     runs-on: ubuntu-latest
     env:
-      DEEPGRAM_API_KEY: ${{ secrets.DEEPGRAM_API_KEY }}
+      # Standard (live speech-to-speech) — required, or `Config::from_env` errors.
+      QWEN_API_KEY: ${{ secrets.QWEN_API_KEY }}
       GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      # Optional: batch transcription of uploads/recordings/voice messages only.
+      DEEPGRAM_API_KEY: ${{ secrets.DEEPGRAM_API_KEY }}
       # Postgres for the auth/billing coverage; the running server stays guest-only
       # (no GOOGLE_CLIENT_ID/JWT_SECRET), so the Playwright e2e flows are unchanged.
       DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/voxtest
