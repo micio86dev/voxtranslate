@@ -388,6 +388,11 @@ async fn handle_extension_session(socket: WebSocket, params: ExtParams, state: A
     };
     let engine_id = engine.metadata().id.clone();
     let rate_per_second = engine.metadata().user_rate_per_second();
+    // Speech-to-speech engines consume PCM16/24k; Standard consumes WebM/Opus. Feeding an
+    // engine the wrong container is not a degradation — it reads the bytes as samples and
+    // produces nothing at all, silently. The capability is the single source of truth for
+    // both sides of that contract.
+    let needs_pcm = engine.metadata().capabilities.translated_audio;
 
     // --- build the two-peer private room -----------------------------------
     let session_uuid = Uuid::new_v4();
@@ -399,11 +404,24 @@ async fn handle_extension_session(socket: WebSocket, params: ExtParams, state: A
     let source_lang = params.source.clone().unwrap_or_else(|| "auto".to_string());
 
     let (out_tx, out_rx, _out_overflow) = PeerTx::channel(OUT_CHANNEL_CAP);
-    // The source peer never receives anything meaningful; its channel exists only to
-    // satisfy the Peer contract. Draining it keeps the sender from filling and blocking
-    // a broadcast to the whole room.
+    // The source peer's channel must be drained or a full sender would block broadcasts
+    // to the whole room. But it must NOT be discarded: the engines address their
+    // failures to the SPEAKER — "speech service unavailable", "language detection
+    // failed" — and the speaker here is this pseudo-peer. Throwing those away is how a
+    // broken session looks like a silent one. Forward the diagnostics, drop the rest
+    // (room broadcasts already reach the listener directly, so relaying them too would
+    // duplicate every subtitle).
     let (src_tx, mut src_rx, _src_overflow) = PeerTx::channel(OUT_CHANNEL_CAP);
-    tokio::spawn(async move { while src_rx.recv().await.is_some() {} });
+    let diag_tx = out_tx.clone();
+    tokio::spawn(async move {
+        while let Some(frame) = src_rx.recv().await {
+            if frame.contains(r#""type":"error""#)
+                || frame.contains(r#""type":"moderation_warning""#)
+            {
+                let _ = diag_tx.send(frame);
+            }
+        }
+    });
 
     let listener = Peer {
         id: listener_id.clone(),
@@ -535,6 +553,11 @@ async fn handle_extension_session(socket: WebSocket, params: ExtParams, state: A
         .to_json(),
     );
 
+    // State the capture contract explicitly. The client already picks its encoder from
+    // the tier, so this is belt-and-braces — but it means a client that got it wrong
+    // self-corrects instead of streaming silence.
+    let _ = out_tx.send(ServerMessage::CaptureFormat { pcm: needs_pcm }.to_json());
+
     let send_task = tokio::spawn(crate::pump_to_ws(out_rx, ws_tx));
 
     // --- the session loop --------------------------------------------------
@@ -607,7 +630,7 @@ async fn handle_extension_session(socket: WebSocket, params: ExtParams, state: A
                                     transcripts: None,
                                     participant_row: None,
                                     listener_pays: false,
-                                    pcm_input: false,
+                                    pcm_input: needs_pcm,
                                     translator: state.translator.clone(),
                                 };
                                 match engine.start_session(ctx, deps).await {
