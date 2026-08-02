@@ -66,6 +66,9 @@ const OPTIONAL_VARS: &[&str] = &[
 ];
 
 fn base_env() {
+    // Qwen powers the Standard tier and is what `from_env` requires; Deepgram is now
+    // optional (batch transcription only) but harmless to set.
+    std::env::set_var("QWEN_API_KEY", "sk-test");
     std::env::set_var("DEEPGRAM_API_KEY", "dk");
     std::env::set_var("GROQ_API_KEY", "gk");
     for k in OPTIONAL_VARS {
