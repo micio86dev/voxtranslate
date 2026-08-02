@@ -15,6 +15,7 @@ pub mod metadata;
 pub mod openai;
 pub mod premium;
 pub mod pro;
+pub mod qwen;
 pub mod standard;
 pub mod voice_assistant;
 pub mod voice_assistant_client;
@@ -74,12 +75,6 @@ pub struct SessionDeps {
     /// and delivers only to those listeners — instead of all room languages /
     /// everyone. `false` = the legacy speaker-pays behaviour (default; flag off).
     pub listener_pays: bool,
-    /// The speaker is sending PCM16 audio, not WebM/Opus (spec 0099 surgical audio).
-    /// `true` only in listener-pays rooms that contain ≥1 Premium listener, where
-    /// the one captured stream must feed both OpenAI (PCM) and Deepgram — so the
-    /// Standard engine opens Deepgram in `linear16` mode. `false` = WebM/Opus
-    /// (spec 0043, the universal default).
-    pub pcm_input: bool,
     /// Reliable text translator (Groq), the same one the Standard tier uses. The Pro
     /// engine falls back to it for the SUBTITLE text when OpenAI's gpt-realtime-translate
     /// ships an EMPTY output transcript for a segment (it does this intermittently — the
@@ -205,7 +200,7 @@ mod tests {
     use super::*;
 
     /// Minimal engine that only carries metadata — enough to exercise the
-    /// registry without the Standard engine's Deepgram/Groq dependencies.
+    /// registry without the Standard engine's Qwen dependency.
     struct Mock(EngineMetadata);
 
     #[async_trait]

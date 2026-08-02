@@ -7,7 +7,10 @@ use voxtranslate_server::config::Config;
 
 #[test]
 fn from_env_detects_guest_and_billing_modes() {
-    std::env::set_var("DEEPGRAM_API_KEY", "dk");
+    // Qwen powers the Standard tier and is the key the server cannot boot without;
+    // Deepgram is now OPTIONAL (batch transcription only), so it is deliberately NOT set
+    // here — guest mode must come up without it.
+    std::env::set_var("QWEN_API_KEY", "sk-test");
     std::env::set_var("GROQ_API_KEY", "gk");
     for k in ["DATABASE_URL", "GOOGLE_CLIENT_ID", "JWT_SECRET", "PORT"] {
         std::env::remove_var(k);
@@ -57,7 +60,6 @@ fn from_env_detects_guest_and_billing_modes() {
     assert_eq!(b.glossary_max_entries, 50);
 
     // Chat file upload storage (spec 0018): disabled until BOTH URL + key set.
-    std::env::set_var("DEEPGRAM_API_KEY", "dk"); // restore (overwritten below)
     assert!(Config::from_env().unwrap().storage.is_none());
     std::env::set_var("SUPABASE_URL", "https://ref.supabase.co/");
     assert!(
@@ -84,12 +86,34 @@ fn from_env_detects_guest_and_billing_modes() {
     assert_eq!(s2.max_bytes, 1_048_576);
     assert_eq!(s2.signed_ttl_secs, 3600);
 
-    // A missing required key still fails.
-    std::env::set_var("DEEPGRAM_API_KEY", "  ");
+    // Deepgram is OPTIONAL now: unset it entirely and the server still boots — only the
+    // batch transcription features degrade.
+    std::env::remove_var("DEEPGRAM_API_KEY");
+    assert!(
+        Config::from_env().is_ok(),
+        "DEEPGRAM_API_KEY must not be required"
+    );
+
+    // The Qwen key, by contrast, IS required — blank is as good as missing.
+    std::env::set_var("QWEN_API_KEY", "  ");
     assert!(Config::from_env().is_err());
+
+    // And a key carrying whitespace INSIDE it is rejected at boot rather than failing
+    // later on every speaker: that shape comes from a value wrapped across two lines in
+    // .env, and it cannot be sent as an HTTP header.
+    std::env::set_var("QWEN_API_KEY", "sk-abc\ndef");
+    let err = Config::from_env().expect_err("wrapped key must be rejected");
+    assert!(err.contains("whitespace"), "unhelpful error: {err}");
+
+    // DASHSCOPE_API_KEY is the vendor's own name for it and takes precedence.
+    std::env::remove_var("QWEN_API_KEY");
+    std::env::set_var("DASHSCOPE_API_KEY", "sk-test");
+    assert!(Config::from_env().is_ok());
 
     for k in [
         "DEEPGRAM_API_KEY",
+        "QWEN_API_KEY",
+        "DASHSCOPE_API_KEY",
         "GROQ_API_KEY",
         "DATABASE_URL",
         "GOOGLE_CLIENT_ID",

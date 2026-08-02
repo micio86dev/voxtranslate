@@ -186,6 +186,7 @@ mod guest_mode {
             openai: None,
             google: None,
             cartesia: None,
+            qwen: Default::default(),
             standard_enabled: true,
             listener_pays: false,
             language_first_ux: false,

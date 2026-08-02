@@ -94,9 +94,11 @@ CALL HISTORY & TRANSCRIPTS\n\
 CREDITS & BILLING\n\
 - View the org credit balance on the Billing page (owner access).\n\
 - Purchase additional credits in the dashboard (one-off top-up).\n\
-- Understand what costs credits: live calls (per minute per participant), AI insights \
-  (per request), voice notes (transcription time), and the Voice/Help assistants \
-  (per minute at 25% markup).\n\
+- Understand what costs credits: live calls (per minute, per translation language), \
+  AI insights (per request), voice notes (transcription time), and the Voice/Help \
+  assistants (per minute). The per-minute rate shown in the app is the final price a \
+  customer pays; how that rate is set internally is out of scope — say so rather than \
+  guessing.\n\
 - Manage subscription plan (Business or Enterprise) and see renewal date.\n\
 \n\
 SETTINGS\n\
@@ -193,6 +195,23 @@ mod tests {
     #[test]
     fn help_instructions_non_empty() {
         assert!(!build_help_instructions().is_empty());
+    }
+
+    /// The assistant talks to CUSTOMERS, so its system prompt is a disclosure surface:
+    /// anything in here can be repeated on request. Our margin is not a customer-facing
+    /// number — the prompt used to state "25% markup" verbatim, which a single "how is
+    /// pricing calculated?" would have surfaced.
+    #[test]
+    fn help_instructions_never_disclose_our_margin() {
+        let instr = build_help_instructions().to_ascii_lowercase();
+        for forbidden in ["markup", "margin", "our cost", "cost price", "wholesale"] {
+            assert!(
+                !instr.contains(forbidden),
+                "help prompt must not mention {forbidden:?} — it is customer-visible"
+            );
+        }
+        // It should still explain the part users DO need: pricing scales per language.
+        assert!(instr.contains("per translation language"));
     }
 
     #[test]

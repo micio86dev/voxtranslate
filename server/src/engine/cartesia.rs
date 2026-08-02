@@ -140,7 +140,6 @@ mod tests {
             transcripts: None,
             participant_row: None,
             listener_pays: true,
-            pcm_input: false,
             translator: crate::translator::Translator::new(crate::groq::Groq::new(
                 "k".into(),
                 "openai/gpt-oss-20b".into(),

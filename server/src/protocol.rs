@@ -1,5 +1,5 @@
 //! Shared message types for client <-> server communication and for parsing
-//! Deepgram streaming responses.
+//! upstream engine events.
 //!
 //! V2: video-meeting model. Every peer speaks, listens, and connects P2P via
 //! WebRTC; the server relays signaling, fans out translations, and relays chat.
@@ -31,9 +31,9 @@ pub enum WhiteboardOp {
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ClientMessage {
-    /// Begin a speaking session (opens a fresh Deepgram connection).
+    /// Begin a speaking session (opens a fresh upstream engine session).
     Start,
-    /// End the speaking session (flush + close Deepgram).
+    /// End the speaking session (flush + close the upstream session).
     Stop,
     /// WebRTC signaling, relayed verbatim to peer `to` (server adds `from`).
     Offer {
@@ -79,7 +79,7 @@ pub enum ClientMessage {
         audio: bool,
     },
     /// Manual language correction (spec 0012): overrides a wrong auto-detect
-    /// result. The client restarts capture so the next Deepgram stream opens
+    /// result. The client restarts capture so the next upstream session opens
     /// with the new language.
     SetLang {
         lang: String,
@@ -275,7 +275,7 @@ pub enum ServerMessage {
     },
 
     /// A peer's language was resolved (spec 0012): auto-detect completed
-    /// (`confidence` from Deepgram) or a manual `set_lang` correction
+    /// (`confidence` from the detector) or a manual `set_lang` correction
     /// (`confidence` omitted). Broadcast so peers update language badges.
     LanguageDetected {
         peer_id: String,
@@ -347,7 +347,7 @@ pub enum ServerMessage {
 
     /// Listener-pays (spec 0099): tells THIS peer which audio format to capture in
     /// when they speak. `pcm = true` → PCM16/24k (a Premium listener is present, so
-    /// the one captured stream must feed OpenAI + Deepgram); `false` → WebM/Opus
+    /// every live tier is speech-to-speech now); `false` → WebM/Opus
     /// (spec 0043, the default). Pushed on join and whenever the room's Premium
     /// composition changes. Only sent when the listener-pays model is active, so its
     /// presence also signals the client to follow server-driven capture.
@@ -425,50 +425,6 @@ pub struct PublicRoom {
 #[derive(Debug, Clone, Serialize)]
 pub struct RoomsResponse {
     pub rooms: Vec<PublicRoom>,
-}
-
-// --- Deepgram streaming response parsing -----------------------------------
-
-/// A Deepgram streaming message. We only model the fields we use; everything
-/// else (Metadata, UtteranceEnd, SpeechStarted, ...) deserializes with defaults.
-#[derive(Debug, Deserialize)]
-pub struct DeepgramResponse {
-    #[serde(rename = "type", default)]
-    pub msg_type: String,
-    #[serde(default)]
-    pub is_final: bool,
-    #[serde(default)]
-    pub channel: Option<DeepgramChannel>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct DeepgramChannel {
-    #[serde(default)]
-    pub alternatives: Vec<DeepgramAlternative>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct DeepgramAlternative {
-    #[serde(default)]
-    pub transcript: String,
-    #[serde(default)]
-    pub confidence: f32,
-}
-
-impl DeepgramResponse {
-    /// Returns the best (first) alternative's transcript + confidence if this is
-    /// a non-empty `Results` message, else `None`.
-    pub fn best_alternative(&self) -> Option<(&str, f32)> {
-        if self.msg_type != "Results" {
-            return None;
-        }
-        let alt = self.channel.as_ref()?.alternatives.first()?;
-        let text = alt.transcript.trim();
-        if text.is_empty() {
-            return None;
-        }
-        Some((text, alt.confidence))
-    }
 }
 
 #[cfg(test)]
@@ -736,33 +692,6 @@ mod tests {
                 if request_id == "r1" && source == "it" && target == "en"
         ));
         assert!(serde_json::from_str::<ClientMessage>(r#"{"type":"bogus"}"#).is_err());
-    }
-
-    #[test]
-    fn deepgram_best_alternative() {
-        let ok = r#"{"type":"Results","is_final":true,"channel":{"alternatives":[{"transcript":"ciao","confidence":0.9}]}}"#;
-        let parsed = serde_json::from_str::<DeepgramResponse>(ok).unwrap();
-        let (t, c) = parsed.best_alternative().unwrap();
-        assert_eq!(t, "ciao");
-        assert!((c - 0.9).abs() < 1e-3);
-
-        let empty = r#"{"type":"Results","channel":{"alternatives":[{"transcript":"  ","confidence":0.4}]}}"#;
-        assert!(serde_json::from_str::<DeepgramResponse>(empty)
-            .unwrap()
-            .best_alternative()
-            .is_none());
-
-        let meta = r#"{"type":"Metadata"}"#;
-        assert!(serde_json::from_str::<DeepgramResponse>(meta)
-            .unwrap()
-            .best_alternative()
-            .is_none());
-
-        let no_alt = r#"{"type":"Results","channel":{"alternatives":[]}}"#;
-        assert!(serde_json::from_str::<DeepgramResponse>(no_alt)
-            .unwrap()
-            .best_alternative()
-            .is_none());
     }
 
     #[test]

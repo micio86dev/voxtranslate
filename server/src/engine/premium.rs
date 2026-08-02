@@ -560,7 +560,7 @@ impl SessionReader {
     /// not translated), so without this they'd see nothing while the speaker uses Premium —
     /// unlike Standard, which captions everyone. The speaker is excluded (they get their
     /// own via `emit_interim_to_speaker`); in listener-pays only same-language Premium
-    /// listeners are targeted, so a Standard listener's Deepgram captions aren't doubled.
+    /// listeners are targeted, so a Standard listener's own captions aren't doubled.
     fn deliver_source(&self, message: &str) {
         if self.listener_pays {
             self.rooms.broadcast_to_lang_engine_except(
@@ -697,7 +697,6 @@ mod tests {
             transcripts: None,
             participant_row: None,
             listener_pays: false,
-            pcm_input: false,
             translator: crate::translator::Translator::new(crate::groq::Groq::new(
                 "k".into(),
                 "openai/gpt-oss-20b".into(),

@@ -19,7 +19,7 @@ fn lock() -> std::sync::MutexGuard<'static, ()> {
 }
 
 /// Every optional env var any test here touches — cleared before each test so
-/// leftovers from a prior test can't bleed in. The two required provider keys are
+/// leftovers from a prior test can't bleed in. The required provider keys are
 /// (re)set by `base_env`.
 const OPTIONAL_VARS: &[&str] = &[
     // voice assistant
@@ -118,8 +118,11 @@ const OPTIONAL_VARS: &[&str] = &[
     "BENCH_SECRET",
 ];
 
-/// Set the two required provider keys and clear every optional var.
+/// Set the required provider keys and clear every optional var.
 fn base_env() {
+    // Qwen powers the Standard tier and is what `from_env` requires; Deepgram is now
+    // optional (batch transcription only) but harmless to set.
+    std::env::set_var("QWEN_API_KEY", "sk-test");
     std::env::set_var("DEEPGRAM_API_KEY", "dk");
     std::env::set_var("GROQ_API_KEY", "gk");
     for k in OPTIONAL_VARS {

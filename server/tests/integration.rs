@@ -47,6 +47,7 @@ fn make_state() -> (AppState, bool) {
                 openai: None,
                 google: None,
                 cartesia: None,
+                qwen: Default::default(),
                 standard_enabled: true,
                 listener_pays: false,
                 language_first_ux: false,
@@ -94,6 +95,7 @@ fn make_minimal_state() -> AppState {
         openai: None,
         google: None,
         cartesia: None,
+        qwen: Default::default(),
         standard_enabled: true,
         listener_pays: false,
         language_first_ux: false,
@@ -303,9 +305,17 @@ async fn engines_endpoint_lists_standard_without_leaking_cost() {
         .as_array()
         .unwrap()
         .contains(&Value::from("en")));
+    // Standard became speech-to-speech when it moved to Qwen realtime: the server
+    // streams translated audio instead of leaving the browser to synthesize it. This
+    // capability is also what makes the client capture PCM16 and the picker show the
+    // per-language price note, so it is a contract, not a label.
     assert_eq!(
         standard["capabilities"]["translated_audio"],
-        Value::from(false)
+        Value::from(true)
+    );
+    assert_eq!(
+        standard["capabilities"]["cost_scales_per_language"],
+        Value::from(true)
     );
     // The billing-internal raw cost and markup must never be serialized.
     assert!(!body.contains("cost_per_minute"), "raw cost leaked: {body}");
@@ -457,44 +467,64 @@ async fn audio_produces_subtitles() {
         eprintln!("skipping audio test — no API keys");
         return;
     }
-    let audio = std::fs::read("tests/fixtures/sample.webm").expect("fixture");
+    // PCM16 mono @ 24 kHz — the capture format every speech-to-speech tier takes, and
+    // what the client now produces for Standard too. The old WebM/Opus fixture fed the
+    // engine bytes it read as raw samples: no transcript, no subtitle, no error.
+    let audio = std::fs::read("tests/fixtures/sample_24k.pcm").expect("fixture");
 
     // Listener (en) in the room receives the translated subtitle.
     let mut listener = connect(addr, "room=aud&lang=en&id=l&name=Listener").await;
     let _ = next_json(&mut listener, 1000).await;
 
-    // Speaker (it) streams the webm.
+    // Speaker (it) streams the PCM.
     let mut speaker = connect(addr, "room=aud&lang=it&id=s&name=Speaker").await;
     let _ = next_json(&mut speaker, 1000).await;
 
     send_text(&mut speaker, r#"{"type":"start"}"#).await;
     tokio::time::sleep(Duration::from_millis(150)).await;
-    for chunk in audio.chunks(1024) {
+    // 100 ms per chunk, paced in real time: turn detection keys off silence, so blasting
+    // the whole clip at once would look like one impossibly fast utterance.
+    const BYTES_PER_CHUNK: usize = 24_000 * 2 * 100 / 1000;
+    for chunk in audio.chunks(BYTES_PER_CHUNK) {
         speaker.send(Message::binary(chunk.to_vec())).await.unwrap();
-        tokio::time::sleep(Duration::from_millis(120)).await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
     }
-    tokio::time::sleep(Duration::from_millis(2000)).await;
+    tokio::time::sleep(Duration::from_millis(1500)).await;
     send_text(&mut speaker, r#"{"type":"stop"}"#).await;
 
-    let sub = wait_for(&mut listener, "subtitle_final", 15000)
+    let sub = wait_for(&mut listener, "subtitle_final", 20000)
         .await
         .expect("subtitle_final");
     assert_eq!(sub["speaker_id"], "s");
+    // `lang` is the SOURCE language; the translation is keyed by the listener's.
     assert_eq!(sub["lang"], "it");
     assert!(!sub["original"].as_str().unwrap().is_empty());
-    assert!(sub["translations"]["it"].is_string());
-    assert!(sub["translations"]["en"].is_string());
+    // Per-language targeting: this listener's frame carries THEIR language only, so the
+    // text on screen can never disagree with the audio they hear. The old flat fan-out
+    // shipped every room language in one frame.
+    assert!(
+        sub["translations"]["en"].is_string(),
+        "listener's own language must be present: {sub}"
+    );
 }
 
 #[tokio::test]
-async fn deepgram_unavailable_sends_error() {
-    // A bad Deepgram key makes the speaking session fail to open -> the speaker
-    // receives an Error (covers the open-failure branch).
+async fn lone_speaker_opens_no_upstream_session() {
+    // Standard used to open a Deepgram connection the moment a speaker pressed start,
+    // so a bad key produced an immediate "speech service unavailable" — even for someone
+    // ALONE in a room, who had nobody to be translated for. Qwen is per-target-language
+    // and lazy: with no other language present it opens nothing, costs nothing, and must
+    // NOT surface an error. That is what this now guards.
+    //
+    // The genuine unavailable path (a real target language plus an exhausted reconnect
+    // budget) is deliberately NOT exercised here: MAX_OPEN_FAILURES with capped backoff
+    // takes ~23 s to give up, which would make this suite slow and flaky. The credential
+    // shape that actually causes it is covered at boot in tests/config_env.rs.
     let _ = dotenvy::dotenv();
     let groq = std::env::var("GROQ_API_KEY").unwrap_or_else(|_| "dummy".into());
     let state = AppState::new(Config {
         push: None,
-        deepgram_key: "bad-deepgram-key".into(),
+        deepgram_key: String::new(), // optional now: batch transcription only
         groq_key: groq,
         translation_model: "openai/gpt-oss-20b".into(),
         port: 0,
@@ -516,6 +546,7 @@ async fn deepgram_unavailable_sends_error() {
         openai: None,
         google: None,
         cartesia: None,
+        qwen: Default::default(),
         standard_enabled: true,
         listener_pays: false,
         language_first_ux: false,
@@ -539,8 +570,12 @@ async fn deepgram_unavailable_sends_error() {
     let mut s = connect(addr, "room=x&lang=it&id=s").await;
     let _ = next_json(&mut s, 1000).await; // room_joined
     send_text(&mut s, r#"{"type":"start"}"#).await;
-    let err = wait_for(&mut s, "error", 8000).await.expect("error frame");
-    assert_eq!(err["message"], "speech service unavailable");
+    // No target language → no upstream session → nothing can fail. A short window is
+    // enough: the old behaviour errored on the very first connect attempt.
+    assert!(
+        wait_for(&mut s, "error", 2000).await.is_none(),
+        "a speaker alone in a room must not open — or fail — an upstream session"
+    );
 }
 
 // ---- Chat file upload (spec 0018) ------------------------------------------
@@ -602,6 +637,7 @@ fn guest_config() -> Config {
         openai: None,
         google: None,
         cartesia: None,
+        qwen: Default::default(),
         standard_enabled: true,
         listener_pays: false,
         language_first_ux: false,

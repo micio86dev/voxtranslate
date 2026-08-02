@@ -16,10 +16,16 @@ pub struct EngineCapabilities {
     /// `false` means subtitles only and the client synthesizes voice via TTS.
     pub translated_audio: bool,
     /// Cost scales with the number of distinct target languages in the room
-    /// (spec 0093): Premium opens one paid OpenAI session per language, so the
-    /// speaker is billed per translation stream. Standard fans out cheaply and
-    /// bills a flat rate. Drives the meter multiplier AND the pre-join price note,
-    /// so the user is told up front that a group call costs more.
+    /// (spec 0093): the engine opens one paid upstream session per language, so the
+    /// speaker is billed per translation stream rather than a flat rate. Now true of
+    /// EVERY server-side tier including Standard, which stopped being flat-rate when it
+    /// moved from Deepgram+Groq to Qwen realtime.
+    ///
+    /// Drives the meter multiplier AND — in both the engine selector and the
+    /// language-first tier picker — the pre-join price note, so the user is told up front
+    /// that the displayed per-minute rate is charged once PER TRANSLATION LANGUAGE and a
+    /// group call therefore costs more. Leaving that note off a per-language tier is a
+    /// pricing-transparency bug, not a cosmetic one.
     pub cost_scales_per_language: bool,
     /// The browser connects DIRECTLY to the provider (spec 0108, Cartesia "Enhanced"):
     /// the server mints a scoped access token and never proxies the audio. Such an engine

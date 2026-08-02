@@ -407,7 +407,7 @@ impl RoomManager {
     /// Listener-pays variant of [`broadcast_to_lang_except`](Self::broadcast_to_lang_except):
     /// same-language listeners who ALSO chose `engine`, excluding `except_id`. Keeps the
     /// original caption from leaking to a same-language listener served by another engine
-    /// (e.g. their own Standard/Deepgram captions).
+    /// (e.g. their own Standard-tier captions).
     pub fn broadcast_to_lang_engine_except(
         &self,
         room_id: &str,
@@ -884,7 +884,7 @@ mod tests {
     #[test]
     fn broadcast_to_lang_engine_except_scopes_by_engine_and_skips_speaker() {
         // Listener-pays: only same-language listeners on the SAME engine get the original,
-        // so a same-language Standard listener (served by their own Deepgram captions) is
+        // so a same-language Standard listener (served by their own captions) is
         // not doubled. The speaker is excluded.
         let rm = RoomManager::new();
         let (spk, mut r_spk) = peer("spk", "it");

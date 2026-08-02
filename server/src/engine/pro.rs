@@ -43,7 +43,7 @@ const PER_SESSION_AUDIO_CAP: usize = 128;
 
 /// Idle gap (ms) after which the accumulated transcript is flushed as a final
 /// caption — OpenAI sends no segment/`done` boundary, so a pause delimits a
-/// sentence (cf. Deepgram's `utterance_end_ms`).
+/// sentence (an idle-gap boundary, like a streaming ASR's utterance-end signal).
 const SEGMENT_IDLE_MS: u64 = 900;
 
 /// Reconnect backoff bounds (ms) and the cap on *consecutive* failed re-opens
@@ -500,7 +500,7 @@ impl SessionReader {
     /// not translated), so without this they'd see nothing while the speaker uses Pro —
     /// unlike Standard, which captions everyone. The speaker is excluded (they get their
     /// own via `emit_interim_to_speaker`); in listener-pays only same-language Pro
-    /// listeners are targeted, so a Standard listener's Deepgram captions aren't doubled.
+    /// listeners are targeted, so a Standard listener's own captions aren't doubled.
     fn deliver_source(&self, message: &str) {
         if self.listener_pays {
             self.rooms.broadcast_to_lang_engine_except(
@@ -677,7 +677,6 @@ mod tests {
             transcripts: None,
             participant_row: None,
             listener_pays: false,
-            pcm_input: false,
             translator: Translator::new(crate::groq::Groq::new(
                 "k".into(),
                 "openai/gpt-oss-20b".into(),
@@ -840,7 +839,6 @@ mod tests {
             transcripts: None,
             participant_row: None,
             listener_pays: false,
-            pcm_input: true,
             translator: Translator::new(crate::groq::Groq::new(
                 std::env::var("GROQ_API_KEY").expect("GROQ_API_KEY"),
                 std::env::var("GROQ_TRANSLATION_MODEL")

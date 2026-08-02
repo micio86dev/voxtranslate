@@ -1,6 +1,6 @@
 //! Real-time usage metering for a single speaking session.
 //!
-//! While a user is actively speaking (a Deepgram session is open), the meter
+//! While a user is actively speaking (an upstream engine session is open), the meter
 //! deducts credits every `interval_secs`. It pushes a `balance_update` to the
 //! speaker after each charge, warns once with `low_balance` when crossing the
 //! threshold, and on exhaustion emits `balance_exhausted` and signals the caller
