@@ -388,6 +388,11 @@ async fn handle_extension_session(socket: WebSocket, params: ExtParams, state: A
     };
     let engine_id = engine.metadata().id.clone();
     let rate_per_second = engine.metadata().user_rate_per_second();
+    // Speech-to-speech engines consume PCM16/24k; Standard consumes WebM/Opus. Feeding an
+    // engine the wrong container is not a degradation — it reads the bytes as samples and
+    // produces nothing at all, silently. The capability is the single source of truth for
+    // both sides of that contract.
+    let needs_pcm = engine.metadata().capabilities.translated_audio;
 
     // --- build the two-peer private room -----------------------------------
     let session_uuid = Uuid::new_v4();
@@ -548,6 +553,11 @@ async fn handle_extension_session(socket: WebSocket, params: ExtParams, state: A
         .to_json(),
     );
 
+    // State the capture contract explicitly. The client already picks its encoder from
+    // the tier, so this is belt-and-braces — but it means a client that got it wrong
+    // self-corrects instead of streaming silence.
+    let _ = out_tx.send(ServerMessage::CaptureFormat { pcm: needs_pcm }.to_json());
+
     let send_task = tokio::spawn(crate::pump_to_ws(out_rx, ws_tx));
 
     // --- the session loop --------------------------------------------------
@@ -620,7 +630,7 @@ async fn handle_extension_session(socket: WebSocket, params: ExtParams, state: A
                                     transcripts: None,
                                     participant_row: None,
                                     listener_pays: false,
-                                    pcm_input: false,
+                                    pcm_input: needs_pcm,
                                     translator: state.translator.clone(),
                                 };
                                 match engine.start_session(ctx, deps).await {
