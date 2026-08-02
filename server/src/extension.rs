@@ -399,11 +399,24 @@ async fn handle_extension_session(socket: WebSocket, params: ExtParams, state: A
     let source_lang = params.source.clone().unwrap_or_else(|| "auto".to_string());
 
     let (out_tx, out_rx, _out_overflow) = PeerTx::channel(OUT_CHANNEL_CAP);
-    // The source peer never receives anything meaningful; its channel exists only to
-    // satisfy the Peer contract. Draining it keeps the sender from filling and blocking
-    // a broadcast to the whole room.
+    // The source peer's channel must be drained or a full sender would block broadcasts
+    // to the whole room. But it must NOT be discarded: the engines address their
+    // failures to the SPEAKER — "speech service unavailable", "language detection
+    // failed" — and the speaker here is this pseudo-peer. Throwing those away is how a
+    // broken session looks like a silent one. Forward the diagnostics, drop the rest
+    // (room broadcasts already reach the listener directly, so relaying them too would
+    // duplicate every subtitle).
     let (src_tx, mut src_rx, _src_overflow) = PeerTx::channel(OUT_CHANNEL_CAP);
-    tokio::spawn(async move { while src_rx.recv().await.is_some() {} });
+    let diag_tx = out_tx.clone();
+    tokio::spawn(async move {
+        while let Some(frame) = src_rx.recv().await {
+            if frame.contains(r#""type":"error""#)
+                || frame.contains(r#""type":"moderation_warning""#)
+            {
+                let _ = diag_tx.send(frame);
+            }
+        }
+    });
 
     let listener = Peer {
         id: listener_id.clone(),
