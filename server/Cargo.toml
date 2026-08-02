@@ -1,6 +1,6 @@
 [package]
 name = "voxtranslate-server"
-version = "1.30.2"
+version = "1.31.0"
 edition = "2021"
 license = "LicenseRef-PolyForm-Shield-1.0.0"
 
