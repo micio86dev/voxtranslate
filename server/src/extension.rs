@@ -74,6 +74,10 @@ const CODE_TTL_SECONDS: i64 = 60;
 /// could be redeemed as a code (and vice versa) — the classic token-confusion bug.
 const CODE_KIND: &str = "vox_ext_code";
 
+/// Longest segment accepted on the Enhanced translate hop. Bounds what one session can
+/// push through Groq — an extension socket must not double as a free translation API.
+const MAX_TRANSLATE_CHARS: usize = 2_000;
+
 // ---------------------------------------------------------------------------
 // Login handoff
 // ---------------------------------------------------------------------------
@@ -379,13 +383,10 @@ async fn handle_extension_session(socket: WebSocket, params: ExtParams, state: A
     };
 
     let engine = state.engines.resolve(params.engine.as_deref());
-    // A client-direct engine (Cartesia "Enhanced") never runs on the server path, so it
-    // would produce silence here. Fall back to the default rather than pretend.
-    let engine = if engine.metadata().capabilities.client_direct {
-        state.engines.default()
-    } else {
-        engine
-    };
+    // A client-direct engine (Cartesia "Enhanced") runs the provider in the BROWSER: the
+    // server opens no upstream session and proxies no audio. It still bills, and it still
+    // serves the translation hop below — Cartesia does STT and TTS but not translation.
+    let client_direct = engine.metadata().capabilities.client_direct;
     let engine_id = engine.metadata().id.clone();
     let rate_per_second = engine.metadata().user_rate_per_second();
     // Speech-to-speech engines consume PCM16/24k; Standard consumes WebM/Opus. Feeding an
@@ -594,7 +595,7 @@ async fn handle_extension_session(socket: WebSocket, params: ExtParams, state: A
                     Message::Text(text) => {
                         match serde_json::from_str::<crate::protocol::ClientMessage>(&text) {
                             Ok(crate::protocol::ClientMessage::Start) => {
-                                if audio_tx.is_some() {
+                                if audio_tx.is_some() || (client_direct && meter_cancel.is_some()) {
                                     continue; // already streaming; a second start is a no-op
                                 }
                                 if exhausted {
@@ -633,6 +634,14 @@ async fn handle_extension_session(socket: WebSocket, params: ExtParams, state: A
                                     pcm_input: needs_pcm,
                                     translator: state.translator.clone(),
                                 };
+                                // A client-direct tier has nothing to open here — the
+                                // browser is already talking to the provider. Start the
+                                // meter and let the translate hop below do the rest.
+                                if client_direct {
+                                    meter_cancel = start_meter();
+                                    continue;
+                                }
+
                                 match engine.start_session(ctx, deps).await {
                                     SessionOutcome::Started(tx) => {
                                         audio_tx = Some(tx);
@@ -666,6 +675,39 @@ async fn handle_extension_session(socket: WebSocket, params: ExtParams, state: A
                                 if valid_lang(&lang) && lang != "auto" {
                                     state.rooms.set_peer_lang(&room, &listener_id, &lang);
                                 }
+                            }
+                            Ok(crate::protocol::ClientMessage::TranslateText {
+                                request_id,
+                                text,
+                                source,
+                                target,
+                            }) => {
+                                // The Enhanced translate hop (spec 0108). Cartesia does STT
+                                // and TTS but NOT translation, so the browser sends each
+                                // finalized segment here and gets the Groq translation back.
+                                // Text only — no audio crosses the server on this tier.
+                                //
+                                // Spawned so a per-utterance round-trip never blocks this
+                                // socket's receive loop, and bounded so a client cannot use
+                                // an extension session as a free translation endpoint.
+                                if text.len() > MAX_TRANSLATE_CHARS {
+                                    continue;
+                                }
+                                let groq = state.groq.clone();
+                                let reply_tx = out_tx.clone();
+                                tokio::spawn(async move {
+                                    let translated = groq
+                                        .translate(&text, &source, &target, &[])
+                                        .await
+                                        .unwrap_or(text);
+                                    let _ = reply_tx.send(
+                                        ServerMessage::TranslatedText {
+                                            request_id,
+                                            text: translated,
+                                        }
+                                        .to_json(),
+                                    );
+                                });
                             }
                             // Every other client message belongs to the call protocol and
                             // is meaningless here; ignoring it is not an error.
