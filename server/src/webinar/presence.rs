@@ -162,7 +162,7 @@ pub struct PresenceRegistry {
     rooms: DashMap<String, HashMap<u64, Conn>>,
     next: AtomicU64,
     /// Single-flight guard: at most one active host STT stream per webinar code.
-    /// A second concurrent STT socket would open its own Deepgram connection and
+    /// A second concurrent STT socket would open its own upstream connection and
     /// re-run the Groq fan-out for every utterance — multiplying cost AND
     /// duplicating subtitles for viewers. One entry per code while a stream holds
     /// the slot; freed by [`SttGuard`] on drop.

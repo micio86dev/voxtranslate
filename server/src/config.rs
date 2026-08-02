@@ -103,8 +103,13 @@ pub struct Config {
     /// engine is registered (and shown in the selector) iff this is `Some`, so the tier
     /// ships dark behind the flag (rollback = unset it).
     pub cartesia: Option<CartesiaConfig>,
-    /// Whether the Standard (Deepgram + Groq) base tier is enabled (spec 0101 rollout
-    /// flag `DEEPGRAM_STANDARD`, default ON). Standard is the registry's default and
+    /// Qwen-Omni Realtime credentials for the **Standard** base tier. Unlike the
+    /// optional tiers this is NOT a dark launch: Standard is the registry's default and
+    /// capacity-fallback engine, so `Config::from_env` requires `DASHSCOPE_API_KEY` and
+    /// this is always `Some` on a booted server.
+    pub qwen: QwenConfig,
+    /// Whether the Standard (Qwen-Omni Realtime) base tier is enabled (rollout flag
+    /// `QWEN_STANDARD`, default ON). Standard is the registry's default and
     /// capacity-fallback engine, so it is force-registered even when this is `false`
     /// (with a warning) — the flag exists for symmetry with the optional tiers, not as a
     /// true kill switch.
@@ -388,6 +393,148 @@ impl EmbeddingsConfig {
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty())
                 .unwrap_or_else(|| "text-embedding-3-small".to_string()),
+        }
+    }
+}
+
+/// Default Qwen-Omni Realtime endpoint — Alibaba Cloud Model Studio's **international**
+/// (Singapore) gateway. Accounts that route per workspace can point
+/// `QWEN_REALTIME_ENDPOINT` at the regional host template
+/// `wss://{workspace}.ap-southeast-1.maas.aliyuncs.com/api-ws/v1/realtime`, whose
+/// `{workspace}` placeholder is filled from `QWEN_WORKSPACE_ID`.
+const QWEN_DEFAULT_ENDPOINT: &str = "wss://dashscope-intl.aliyuncs.com/api-ws/v1/realtime";
+
+/// The Standard tier's DashScope credential, under either accepted name.
+///
+/// `DASHSCOPE_API_KEY` is what Alibaba calls it, so it wins; `QWEN_API_KEY` is accepted
+/// because the model — not the platform — is what operators actually think they're
+/// configuring, and silently ignoring a key that IS set is a miserable way to spend an
+/// afternoon. Returns `None` when neither is set or both are blank.
+fn qwen_api_key() -> Option<String> {
+    ["DASHSCOPE_API_KEY", "QWEN_API_KEY"]
+        .into_iter()
+        .find_map(|k| {
+            env::var(k)
+                .ok()
+                .map(|v| v.trim().to_string())
+                .filter(|v| !v.is_empty())
+        })
+}
+
+/// Qwen-Omni Realtime credentials + pricing — the **Standard** tier's speech-to-speech
+/// engine. Required (not optional like the premium tiers): Standard is the default and
+/// capacity-fallback engine, so a server without `DASHSCOPE_API_KEY` has no base tier
+/// and refuses to boot.
+#[derive(Clone)]
+pub struct QwenConfig {
+    /// Server-only DashScope API key, sent as `Authorization: Bearer …`. Never
+    /// serialized to clients and never logged. Read from `DASHSCOPE_API_KEY` (Alibaba's
+    /// own name for it) or `QWEN_API_KEY`, whichever is set — see [`qwen_api_key`].
+    pub api_key: String,
+    /// Realtime model id (`QWEN_REALTIME_MODEL`). Read from env because Model Studio
+    /// revises the id across releases. Its FAMILY also selects the wire dialect — see
+    /// [`crate::engine::qwen::QwenDialect`] — so changing this to an omni model changes
+    /// the session shape and event names, not just the id.
+    pub model: String,
+    /// WebSocket endpoint template (`QWEN_REALTIME_ENDPOINT`). May contain the literal
+    /// `{workspace}` placeholder — see [`QWEN_DEFAULT_ENDPOINT`].
+    pub endpoint: String,
+    /// Model Studio workspace id (`QWEN_WORKSPACE_ID`). Substituted into `endpoint` when
+    /// it carries the placeholder, otherwise sent as `X-DashScope-WorkSpace`.
+    pub workspace_id: Option<String>,
+    /// Optional fixed output voice (`QWEN_VOICE`, e.g. `Ethan`). `None` (default) lets
+    /// the model pick the natural voice for the target language.
+    pub voice: Option<String>,
+    /// Turn-detection mode (`QWEN_TURN_DETECTION`). `semantic_vad` is Alibaba's
+    /// recommendation for the 3.5-Omni realtime models; `server_vad` is the alternative.
+    pub turn_detection: String,
+    /// Silence (ms) that ends a turn (`QWEN_SILENCE_MS`). Lower = snappier captions,
+    /// higher = fewer mid-sentence splits.
+    pub silence_duration_ms: u64,
+    /// Raw server cost per minute PER TARGET-LANGUAGE SESSION, USD
+    /// (`QWEN_COST_PER_MINUTE`). The default is derived in `docs/` from Model Studio's
+    /// audio token rates; operators MUST confirm the live number for their region.
+    pub cost_per_minute: f64,
+    /// Markup as a FRACTION (0.25 = 25%). From `QWEN_COST_MARKUP_PERCENT`, falling back
+    /// to `ENGINE_DEFAULT_MARKUP_PERCENT`, divided by 100.
+    pub markup: f64,
+    /// Hard cap on concurrent Qwen sessions across the process
+    /// (`QWEN_REALTIME_MAX_SESSIONS`). One session per speaker per target language.
+    pub max_sessions: usize,
+}
+
+/// The shipped defaults — every field except the key matches what [`QwenConfig::from_env`]
+/// falls back to when the corresponding variable is unset. Exists so config fixtures (and
+/// any caller that only wants to override one field) don't have to restate the whole
+/// struct and drift from the real defaults.
+impl Default for QwenConfig {
+    fn default() -> Self {
+        Self {
+            api_key: String::new(),
+            // The DEDICATED simultaneous-interpreter model, not the general omni one.
+            // It takes the target language as a field instead of needing a prompt that
+            // begs it not to behave like a chatbot — the same reason the Premium tier
+            // uses `gemini-*-live-translate` rather than a plain Gemini. Switching model
+            // is just an env change; `engine::qwen::QwenDialect` adapts the session shape
+            // and turn control automatically.
+            //
+            // Pinned to **v3**, not 3.5: as of Aug 2026 every attempt at
+            // `qwen3.5-livetranslate-flash-realtime` on the Singapore deployment closes
+            // with `thread pool exausted max_workers 100` (their spelling) — an upstream
+            // capacity limit, not a client error. v3 answers in ~3.0 s to first audio and
+            // is measurably FASTER than the omni models (~5.4 s). Re-test 3.5 before
+            // promoting it; the probe in `engine::qwen::tests` does exactly that.
+            model: "qwen3-livetranslate-flash-realtime".into(),
+            endpoint: QWEN_DEFAULT_ENDPOINT.into(),
+            workspace_id: None,
+            voice: None,
+            turn_detection: "semantic_vad".into(),
+            silence_duration_ms: 500,
+            cost_per_minute: 0.0036,
+            markup: 0.25,
+            max_sessions: 32,
+        }
+    }
+}
+
+impl QwenConfig {
+    /// Build from the environment. `pub(crate)` so the live protocol probe in
+    /// `engine::qwen` can construct the real config from `.env` rather than duplicating
+    /// the variable names (and drifting from them).
+    pub(crate) fn from_env() -> Self {
+        // Markup is configured in PERCENT (e.g. 25); store it as a fraction. Prefer the
+        // engine-specific override, then the global engine default, then 25% — Standard
+        // keeps the base tier's historical markup, not the premium tiers' 50%.
+        let percent = env::var("QWEN_COST_MARKUP_PERCENT")
+            .ok()
+            .and_then(|v| v.trim().parse::<f64>().ok())
+            .or_else(|| {
+                env::var("ENGINE_DEFAULT_MARKUP_PERCENT")
+                    .ok()
+                    .and_then(|v| v.trim().parse::<f64>().ok())
+            })
+            .unwrap_or(25.0);
+        let non_empty = |key: &str| {
+            env::var(key)
+                .ok()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+        };
+        // Every fallback comes from `Default` so the shipped values live in exactly one
+        // place; the pricing rationale for `cost_per_minute` is in
+        // docs/pricing-standard-qwen.md.
+        let d = Self::default();
+        Self {
+            api_key: qwen_api_key().unwrap_or_default(),
+            model: non_empty("QWEN_REALTIME_MODEL").unwrap_or(d.model),
+            endpoint: non_empty("QWEN_REALTIME_ENDPOINT").unwrap_or(d.endpoint),
+            workspace_id: non_empty("QWEN_WORKSPACE_ID"),
+            voice: non_empty("QWEN_VOICE"),
+            turn_detection: non_empty("QWEN_TURN_DETECTION").unwrap_or(d.turn_detection),
+            silence_duration_ms: parse_or("QWEN_SILENCE_MS", d.silence_duration_ms),
+            cost_per_minute: parse_or("QWEN_COST_PER_MINUTE", d.cost_per_minute),
+            markup: percent / 100.0,
+            max_sessions: parse_or("QWEN_REALTIME_MAX_SESSIONS", d.max_sessions),
         }
     }
 }
@@ -942,7 +1089,29 @@ pub struct CreditPackage {
 impl Config {
     /// Load configuration from the process environment.
     pub fn from_env() -> Result<Self, String> {
-        let deepgram_key = require("DEEPGRAM_API_KEY")?;
+        // Standard is the default + capacity-fallback engine and now runs on Qwen-Omni
+        // Realtime, so DashScope is the key the server cannot boot without.
+        match qwen_api_key() {
+            None => return Err("missing DASHSCOPE_API_KEY (or QWEN_API_KEY)".into()),
+            // A key with whitespace INSIDE it is always a broken paste — most often a
+            // value wrapped across two lines in .env. It cannot be sent as an HTTP header,
+            // so catch it at boot: the alternative is a socket that fails to open for
+            // every speaker with a far less obvious error.
+            Some(k) if k.bytes().any(|b| !b.is_ascii_graphic()) => {
+                let at = k.bytes().position(|b| !b.is_ascii_graphic()).unwrap_or(0);
+                return Err(format!(
+                    "DASHSCOPE_API_KEY/QWEN_API_KEY contains whitespace at position {at} \
+                     of {} — it is probably split across two lines in .env. \
+                     Put the whole key on ONE line.",
+                    k.len()
+                ));
+            }
+            Some(_) => {}
+        }
+        // Deepgram no longer serves any live tier — it remains only for the BATCH
+        // (prerecorded) transcription of uploaded files, recordings, and voice messages,
+        // which degrade gracefully when unset. Optional, never `require`d.
+        let deepgram_key = env::var("DEEPGRAM_API_KEY").unwrap_or_default();
         let groq_key = require("GROQ_API_KEY")?;
         let translation_model = env::var("GROQ_TRANSLATION_MODEL")
             .ok()
@@ -1078,11 +1247,13 @@ impl Config {
             None
         };
 
-        // Standard engine — Deepgram + Groq (the base tier). Same flag pattern for
+        // Standard engine — Qwen-Omni Realtime (the base tier). Same flag pattern for
         // symmetry, but defaults ON when unset: Standard is the registry's default /
         // capacity-fallback engine, so the server force-registers it even when this is
         // off (with a warning) — you can't actually leave the app without a default.
-        let standard_enabled = env_flag_or("DEEPGRAM_STANDARD", true);
+        // Which is also why its key is `require`d above rather than gating an `Option`.
+        let standard_enabled = env_flag_or("QWEN_STANDARD", true);
+        let qwen = QwenConfig::from_env();
 
         Ok(Self {
             deepgram_key,
@@ -1119,6 +1290,7 @@ impl Config {
             openai,
             google,
             cartesia,
+            qwen,
             standard_enabled,
             listener_pays: env_flag("LISTENER_PAYS"),
             language_first_ux: env_flag("LANGUAGE_FIRST_UX"),
@@ -1490,6 +1662,10 @@ impl Config {
             openai: None,
             google: None,
             cartesia: None,
+            qwen: QwenConfig {
+                api_key: "dummy".into(),
+                ..Default::default()
+            },
             standard_enabled: true,
             listener_pays: false,
             language_first_ux: false,
@@ -1528,6 +1704,8 @@ impl std::fmt::Debug for Config {
             .field("openai", &self.openai.is_some())
             .field("google", &self.google.is_some())
             .field("cartesia", &self.cartesia.is_some())
+            // Standard's engine: the model id is innocuous, the key is not — never add it.
+            .field("qwen_model", &self.qwen.model)
             .field("push", &self.push.is_some())
             .field("voice_assistant", &self.voice_assistant.is_some())
             .field("help_assistant", &self.help_assistant.is_some())
@@ -1591,6 +1769,17 @@ impl std::fmt::Debug for GeminiConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("GeminiConfig")
             .field("model", &self.model)
+            .field("max_sessions", &self.max_sessions)
+            .finish_non_exhaustive()
+    }
+}
+
+impl std::fmt::Debug for QwenConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("QwenConfig")
+            .field("model", &self.model)
+            .field("endpoint", &self.endpoint)
+            .field("turn_detection", &self.turn_detection)
             .field("max_sessions", &self.max_sessions)
             .finish_non_exhaustive()
     }

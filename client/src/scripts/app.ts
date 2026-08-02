@@ -126,7 +126,9 @@ import { buildChatRow, ChatPanel, uploadWebinarFile, type ChatEvent } from './we
 import { mdToHtml } from './report-md';
 import { WhipPublisher, type WhipState } from './whip-publisher';
 import { WebinarSttClient } from './webinar-stt';
-import { AudioCapture as WebinarAudioCapture } from './audio-capture';
+// The webinar STT ingest takes PCM16 @ 24 kHz (Qwen-Omni Realtime), the same capture the
+// Standard tier produces — not the MediaRecorder WebM/Opus the Deepgram ingest used to.
+import { PcmCapture as WebinarAudioCapture } from './pcm-capture';
 import { initBookmarks, setBookmarkSession } from './bookmarks';
 import { initBugReport } from './bug-report';
 import * as onboarding from './onboarding';
@@ -1381,6 +1383,19 @@ function renderTierCards(): void {
     const descKey = engineDescKey(e.tier);
     desc.textContent = descKey ? t(descKey) : e.description;
     btn.append(head, desc);
+    // Transparency: the displayed rate is PER TRANSLATION LANGUAGE on every
+    // speech-to-speech tier — including Standard since it moved to Qwen — so a group call
+    // with three languages costs three times what this number suggests. The engine
+    // selector has always said so; this picker (spec 0102) showed a bare per-minute price,
+    // which reads as the whole cost of the call. Same key, so all 84 locales already
+    // carry it. Must stay directly above the balance estimate below, which divides by
+    // this same single-language rate.
+    if (e.capabilities.cost_scales_per_language) {
+      const note = document.createElement('span');
+      note.className = 'engine-opt-note';
+      note.textContent = t(auth.isListenerPays() ? 'engineCostPerSource' : 'engineCostPerLanguage');
+      btn.append(note);
+    }
     // Estimated minutes at this tier from the user's balance (1 credit = $1; spec 0102).
     const bal = auth.getUser()?.balance;
     if (billing && typeof bal === 'number' && e.rate_per_minute > 0) {
@@ -6135,9 +6150,9 @@ function openWebinarStt(webinarId: string, publisher: WhipPublisher): void {
     wsBase: WS_BASE,
     webinarId,
     token,
-    // A fresh AudioCapture per (re)connect: a new MediaRecorder emits a header-bearing
-    // first WebM chunk, which each new Deepgram stream requires. It sends binary chunks;
-    // its harmless start/stop text frames are ignored by the ingest server.
+    // A fresh capture per (re)connect, so a reconnect starts a clean PCM stream against
+    // the new Qwen session. It sends binary chunks; its harmless start/stop text frames
+    // are ignored by the ingest server.
     makeCapture: (socket) => new WebinarAudioCapture(stream, socket as unknown as WebSocket),
   });
   activeWebinarStt.start();

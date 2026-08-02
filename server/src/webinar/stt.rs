@@ -3,11 +3,19 @@
 //!
 //! In a webinar the broadcast media travels host → WHIP → LL-HLS, which the server
 //! never touches. For subtitles the host client opens a SECOND, audio-only path to
-//! this WebSocket (mirroring the P2P call's MediaRecorder → server bridge): it
-//! streams WebM/Opus chunks here, the server runs Deepgram streaming STT on them,
-//! translates each finalized utterance into every viewer language currently
-//! present, and pushes subtitle frames to viewers over the EXISTING presence WS
+//! this WebSocket (mirroring the P2P call's capture → server bridge): it streams
+//! PCM16 chunks here, the server runs Qwen-Omni Realtime STT on them, translates each
+//! finalized utterance into every viewer language currently present, and pushes
+//! subtitle frames to viewers over the EXISTING presence WS
 //! ([`crate::webinar::presence::broadcast_subtitle`]).
+//!
+//! # Why transcribe-only, not the Standard tier's speech-to-speech shape
+//!
+//! A call has ≤4 peers, so the Standard engine can afford one Qwen session per target
+//! language. A webinar fans ONE host out to arbitrarily many viewer languages and
+//! renders **text subtitles only** — so it opens a single
+//! [`crate::engine::qwen::open_transcribe_session`] and translates the finals with Groq.
+//! Ten viewer languages cost one upstream session here, not ten.
 //!
 //! Fase 3 (translated TTS audio) is out of scope here — subtitles only.
 //!
@@ -23,12 +31,12 @@
 //!
 //! # Control protocol (what the host client sends)
 //!
-//! This reuses the P2P call's [`crate::deepgram::forward_audio`] pump verbatim:
-//! the host sends **binary WebSocket frames**, each a WebM/Opus chunk (spec 0043,
-//! 100 ms). There are NO `start`/`stop` JSON control frames — the STREAM ITSELF is
-//! the signal: the first binary chunk starts STT, and CLOSING the socket flushes
-//! pending finals (`forward_audio` emits Deepgram's `CloseStream` when its audio
-//! channel drops). Inbound text frames are ignored.
+//! The host sends **binary WebSocket frames**, each a PCM16 mono chunk at
+//! [`crate::engine::qwen::CAPTURE_HZ`] (24 kHz, 100 ms — the same capture the Standard
+//! tier produces; the server resamples to the 16 kHz Qwen wants). There are NO
+//! `start`/`stop` JSON control frames — the STREAM ITSELF is the signal: the first
+//! binary chunk starts STT, and CLOSING the socket commits the buffered tail so the last
+//! utterance is still transcribed. Inbound text frames are ignored.
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, Query, State};
@@ -41,8 +49,8 @@ use uuid::Uuid;
 
 use crate::auth::verify_jwt;
 use crate::business::{db_err, not_found, require_pool, require_role, MEMBER};
-use crate::deepgram::{forward_audio, open_deepgram_ws, AudioFormat};
-use crate::protocol::DeepgramResponse;
+use crate::engine::gemini::resample_pcm16_mono;
+use crate::engine::qwen::{self, QwenEvent, QwenSink, QwenSource};
 use crate::webinar::find_by_id;
 use crate::webinar::presence::SubtitleEvent;
 use crate::AppState;
@@ -61,41 +69,62 @@ pub struct SttParams {
     token: Option<String>,
 }
 
-/// The confidence floor for accepting a Deepgram transcript. Below this we drop
-/// the frame (garbage/near-silence) — same gate as the P2P `process_transcripts`.
-const MIN_CONFIDENCE: f32 = 0.4;
+/// Capacity of the host→Qwen audio channel. 100 ms PCM16 chunks at 24 kHz are ~4.8 KiB,
+/// so 64 chunks (~6 s) absorbs a hiccup while bounding a stalled session's memory.
+const AUDIO_CHANNEL_CAP: usize = 64;
 
-/// The subtitle decision for one parsed Deepgram frame: broadcast an interim, a
+/// The subtitle decision for one Qwen transcription event: broadcast an interim, a
 /// final (which the caller then translates), or drop it. Pure + unit-testable —
-/// exactly the classification `process_webinar_transcripts` applies per frame.
+/// exactly the classification `process_webinar_transcripts` applies per event.
 #[derive(Debug, Clone, PartialEq)]
 pub enum TranscriptDecision {
     /// A live partial (interim) in the source language — broadcast untranslated.
     Interim(String),
     /// A finalized utterance — the caller fans out a translation and broadcasts.
     Final(String),
-    /// Nothing to do (not a transcript, empty text, or below the confidence gate).
+    /// Nothing to do (not a transcription event, or empty/whitespace text).
     Drop,
 }
 
-/// Classify one raw Deepgram text frame into a [`TranscriptDecision`]. Pure, so
-/// the confidence gate + interim/final split + empty-text drop are unit-tested
-/// without a live Deepgram (models `deepgram.rs`'s parse tests).
-pub fn classify_transcript(raw: &str) -> TranscriptDecision {
-    let Ok(parsed) = serde_json::from_str::<DeepgramResponse>(raw) else {
-        return TranscriptDecision::Drop; // a non-Results frame we don't model
-    };
-    // `best_alternative` already trims + drops empty transcripts and non-Results.
-    let Some((text, confidence)) = parsed.best_alternative() else {
-        return TranscriptDecision::Drop;
-    };
-    if confidence < MIN_CONFIDENCE {
-        return TranscriptDecision::Drop;
-    }
-    if parsed.is_final {
-        TranscriptDecision::Final(text.to_string())
-    } else {
-        TranscriptDecision::Interim(text.to_string())
+/// Fold one Qwen event into the running interim `buffer` and return what to broadcast.
+///
+/// Qwen streams the host's words as [`QwenEvent::InputTranscript`] fragments — which may
+/// be appends OR full snapshots, hence [`crate::engine::qwen::TextUpdate`] — and then
+/// repeats the whole utterance as [`QwenEvent::InputTranscriptDone`]. So the interim is
+/// the folded buffer (a growing partial, matching what viewers used to see) while the
+/// final comes from the `Done` payload, which also resets the buffer for the next
+/// utterance.
+///
+/// Pure (the buffer is the caller's), so the interim/final split, the accumulation, and
+/// the empty-text drop are unit-tested without a live Qwen connection.
+pub fn fold_event(buffer: &mut String, event: &QwenEvent) -> TranscriptDecision {
+    match event {
+        QwenEvent::InputTranscript(update) => {
+            // Delta appends, Snapshot replaces. Blindly appending would repeat the
+            // sentence on every frame from a `*.text` event — the duplication observed
+            // against the live API.
+            update.apply(buffer);
+            let text = buffer.trim();
+            if text.is_empty() {
+                TranscriptDecision::Drop
+            } else {
+                TranscriptDecision::Interim(text.to_string())
+            }
+        }
+        QwenEvent::InputTranscriptDone(whole) => {
+            // Reset regardless: the next utterance must not inherit this one's partial,
+            // even when the final itself is dropped as empty.
+            buffer.clear();
+            let text = whole.trim();
+            if text.is_empty() {
+                TranscriptDecision::Drop
+            } else {
+                TranscriptDecision::Final(text.to_string())
+            }
+        }
+        // The transcribe-only session generates no speech and no translation, so every
+        // other event (session.updated, response.done, errors) is inert here.
+        _ => TranscriptDecision::Drop,
     }
 }
 
@@ -138,7 +167,7 @@ pub async fn stt_ws(
 
     // Single-flight: refuse a second concurrent STT stream for this webinar so a
     // reconnect race (or an abusive/buggy client opening many sockets) can't
-    // multiply Deepgram+Groq cost or double up subtitles. Acquire BEFORE the
+    // multiply Qwen+Groq cost or double up subtitles. Acquire BEFORE the
     // upgrade so the caller gets a clean 409, and hold the guard for the socket's
     // whole life (it frees the slot on drop).
     let stt_guard = state
@@ -177,8 +206,8 @@ impl Drop for AbortOnDrop {
     }
 }
 
-/// On upgrade: bridge the host's audio into Deepgram and drive the subtitle
-/// fan-out. Binary frames → Deepgram; Deepgram finals → translate → broadcast.
+/// On upgrade: bridge the host's audio into Qwen and drive the subtitle fan-out.
+/// Binary frames → Qwen; transcription finals → translate → broadcast.
 async fn handle_stt(
     socket: WebSocket,
     state: AppState,
@@ -190,24 +219,22 @@ async fn handle_stt(
     // (normal close OR the whole future being dropped on shutdown).
     _stt_guard: crate::webinar::presence::SttGuard,
 ) {
-    // Open the per-host Deepgram streaming connection (WebM/Opus, spec 0043 —
-    // same as the P2P call's MediaRecorder path). On failure we just close: no
+    // Open the per-host Qwen TRANSCRIBE-only connection. On failure we just close: no
     // subtitles, but the webinar (WHIP media) is unaffected.
-    let (dg_sink, dg_source) =
-        match open_deepgram_ws(&source_language, &state.config, AudioFormat::WebmOpus).await {
-            Ok(pair) => pair,
-            Err(e) => {
-                tracing::warn!(%code, "webinar STT: deepgram connect failed: {e}");
-                return;
-            }
-        };
+    let (qwen_sink, qwen_source) = match qwen::open_transcribe_session(&state.config.qwen).await {
+        Ok(pair) => pair,
+        Err(e) => {
+            tracing::warn!(%code, "webinar STT: qwen connect failed: {e}");
+            return;
+        }
+    };
 
     let (mut ws_tx, mut ws_rx) = socket.split();
-    // Audio bridge: host binary frames → Deepgram (reuses the call's pump).
-    let (audio_tx, audio_rx) = mpsc::channel::<Vec<u8>>(64);
-    let forward = tokio::spawn(forward_audio(audio_rx, dg_sink));
+    // Audio bridge: host binary frames → Qwen.
+    let (audio_tx, audio_rx) = mpsc::channel::<Vec<u8>>(AUDIO_CHANNEL_CAP);
+    let forward = tokio::spawn(forward_audio_to_qwen(audio_rx, qwen_sink));
     let process = tokio::spawn(process_webinar_transcripts(
-        dg_source,
+        qwen_source,
         state.clone(),
         code.clone(),
         source_language.clone(),
@@ -216,7 +243,7 @@ async fn handle_stt(
     ));
     // Abort-on-drop: if this future is dropped before the clean teardown below
     // (e.g. runtime shutdown, or the read loop never returning on a half-open
-    // socket), both tasks are cancelled so the Deepgram connection can't leak and
+    // socket), both tasks are cancelled so the Qwen connection can't leak and
     // keep billing. On the normal path the awaits below finish first, making these
     // no-ops.
     let _abort = (
@@ -231,7 +258,7 @@ async fn handle_stt(
     while let Some(Ok(msg)) = ws_rx.next().await {
         match msg {
             Message::Binary(chunk) => {
-                // A full audio channel means Deepgram is behind; drop the chunk
+                // A full audio channel means Qwen is behind; drop the chunk
                 // rather than block the socket read (best-effort live captions).
                 if audio_tx.try_send(chunk.to_vec()).is_err() {
                     tracing::debug!(%code, "webinar STT: audio buffer full, dropping chunk");
@@ -244,110 +271,144 @@ async fn handle_stt(
         }
     }
 
-    // Host disconnected: drop the audio channel so `forward_audio` flushes finals
-    // via CloseStream, then let the processor drain.
+    // Host disconnected: drop the audio channel so the pump commits the buffered
+    // tail, then let the processor drain.
     drop(audio_tx);
     let _ = forward.await;
     let _ = process.await;
 }
 
-/// Read Deepgram transcripts for the host and drive viewer subtitles: interims
+/// Pump host audio into the Qwen session: resample each 24 kHz capture chunk to the
+/// 16 kHz the API wants and append it. When the channel closes (host disconnected) the
+/// buffered tail is COMMITTED before the socket closes — otherwise turn detection would
+/// wait for a silence that never arrives and the last utterance would never be
+/// transcribed.
+async fn forward_audio_to_qwen(mut audio_rx: mpsc::Receiver<Vec<u8>>, mut sink: QwenSink) {
+    use futures::SinkExt as _;
+    use tokio_tungstenite::tungstenite::Message as QwenMessage;
+
+    while let Some(chunk) = audio_rx.recv().await {
+        let chunk16 = resample_pcm16_mono(&chunk, qwen::CAPTURE_HZ, qwen::QWEN_INPUT_HZ);
+        if sink
+            .send(QwenMessage::text(qwen::audio_append_json(&chunk16)))
+            .await
+            .is_err()
+        {
+            return; // upstream gone; the processor sees the closed stream next
+        }
+    }
+    let _ = sink
+        .send(QwenMessage::text(qwen::audio_commit_json()))
+        .await;
+    let _ = sink.close().await;
+}
+
+/// Read Qwen transcription events for the host and drive viewer subtitles: interims
 /// broadcast untranslated; finals fan out a translation into every viewer
 /// language present RIGHT NOW (late joiners covered) and, when the webinar records
-/// its transcript, persist a row best-effort. Modeled on the P2P
-/// `deepgram::process_transcripts` (confidence gate + dup-final window) but wired
-/// to the presence registry instead of `RoomManager`.
+/// its transcript, persist a row best-effort. Wired to the presence registry instead
+/// of `RoomManager`.
 async fn process_webinar_transcripts(
-    mut source: crate::deepgram::DgSource,
+    mut source: QwenSource,
     state: AppState,
     code: String,
     source_language: String,
     webinar_id: Uuid,
     record_transcript: bool,
 ) {
-    // Guard against Deepgram occasionally re-emitting a byte-identical final for
-    // the same utterance (the "repeats the same phrase" glitch) — same window as
-    // the P2P path.
+    // Guard against a byte-identical final arriving twice for the same utterance
+    // (e.g. a reconnect replaying the tail).
     const DUP_FINAL_WINDOW: std::time::Duration = std::time::Duration::from_secs(8);
     let mut last_final: Option<(String, std::time::Instant)> = None;
+    // The running partial the interim frames are built from — owned here, folded by
+    // the pure `fold_event`.
+    let mut partial = String::new();
 
-    // Deepgram is a tokio-tungstenite client, so its frames are tungstenite's
+    // Qwen is a tokio-tungstenite client, so its frames are tungstenite's
     // `Message` — a DISTINCT type from axum's `Message` used for the host socket.
-    use tokio_tungstenite::tungstenite::Message as DgMessage;
+    use tokio_tungstenite::tungstenite::Message as QwenMessage;
     while let Some(msg) = source.next().await {
         let raw = match msg {
-            Ok(DgMessage::Text(t)) => t,
-            Ok(DgMessage::Close(_)) => break,
-            Ok(_) => continue, // ping/pong/binary — ignore
+            Ok(QwenMessage::Text(t)) => t.to_string(),
+            Ok(QwenMessage::Binary(b)) => match String::from_utf8(b.to_vec()) {
+                Ok(s) => s,
+                Err(_) => continue,
+            },
+            Ok(QwenMessage::Close(_)) => break,
+            Ok(_) => continue, // ping/pong — ignore
             Err(e) => {
-                tracing::warn!(%code, "webinar STT: deepgram stream error: {e}");
+                tracing::warn!(%code, "webinar STT: qwen stream error: {e}");
                 break;
             }
         };
 
-        match classify_transcript(raw.as_str()) {
-            TranscriptDecision::Drop => {}
-            TranscriptDecision::Interim(text) => {
-                state.webinar_presence.broadcast_subtitle(
-                    &code,
-                    &SubtitleEvent::Interim {
-                        text,
-                        lang: source_language.clone(),
-                    },
-                );
+        for event in qwen::parse_server_message(&raw) {
+            if let QwenEvent::Error(e) = &event {
+                tracing::warn!(%code, "webinar STT: qwen session error: {e}");
             }
-            TranscriptDecision::Final(text) => {
-                // Drop a final that exactly repeats the previous one within the
-                // window — kills the duplicate-final glitch without affecting
-                // genuinely distinct (or later-repeated) speech.
-                let now = std::time::Instant::now();
-                if let Some((prev, when)) = &last_final {
-                    if prev == &text && now.duration_since(*when) < DUP_FINAL_WINDOW {
-                        continue;
-                    }
-                }
-                last_final = Some((text.clone(), now));
-
-                // Spawn the translate → broadcast → persist work so a slow/stalled
-                // Groq call never head-of-line-blocks subsequent finals & interims
-                // (mirrors the P2P path in `deepgram::process_transcripts`, which
-                // also spawns per final). The dup-final guard above stays in the
-                // loop, so ordering of the dedup decision is preserved.
-                let state = state.clone();
-                let code = code.clone();
-                let source_language = source_language.clone();
-                tokio::spawn(async move {
-                    // Fan out per distinct viewer language read LIVE from the
-                    // registry (P2: late joiners covered — we read on every final).
-                    let targets = state.webinar_presence.target_languages(&code);
-                    let translations = state
-                        .translator
-                        .translate_fanout(&text, &source_language, &targets, None)
-                        .await;
-
+            match fold_event(&mut partial, &event) {
+                TranscriptDecision::Drop => {}
+                TranscriptDecision::Interim(text) => {
                     state.webinar_presence.broadcast_subtitle(
                         &code,
-                        &SubtitleEvent::Final {
-                            original: text.clone(),
+                        &SubtitleEvent::Interim {
+                            text,
                             lang: source_language.clone(),
-                            translations: translations.clone(),
                         },
                     );
-
-                    // P4: persist best-effort only when recording is on — same
-                    // posture as `presence::record_join` (`let _ = ...`).
-                    if let Some(pool) = state.pool.clone() {
-                        persist_final(
-                            record_transcript,
-                            &pool,
-                            webinar_id,
-                            &text,
-                            &source_language,
-                            &translations,
-                        )
-                        .await;
+                }
+                TranscriptDecision::Final(text) => {
+                    // Drop a final that exactly repeats the previous one within the
+                    // window — kills the duplicate-final glitch without affecting
+                    // genuinely distinct (or later-repeated) speech.
+                    let now = std::time::Instant::now();
+                    if let Some((prev, when)) = &last_final {
+                        if prev == &text && now.duration_since(*when) < DUP_FINAL_WINDOW {
+                            continue;
+                        }
                     }
-                });
+                    last_final = Some((text.clone(), now));
+
+                    // Spawn the translate → broadcast → persist work so a slow/stalled
+                    // Groq call never head-of-line-blocks subsequent finals & interims.
+                    // The dup-final guard above stays in the loop, so ordering of the
+                    // dedup decision is preserved.
+                    let state = state.clone();
+                    let code = code.clone();
+                    let source_language = source_language.clone();
+                    tokio::spawn(async move {
+                        // Fan out per distinct viewer language read LIVE from the
+                        // registry (P2: late joiners covered — we read on every final).
+                        let targets = state.webinar_presence.target_languages(&code);
+                        let translations = state
+                            .translator
+                            .translate_fanout(&text, &source_language, &targets, None)
+                            .await;
+
+                        state.webinar_presence.broadcast_subtitle(
+                            &code,
+                            &SubtitleEvent::Final {
+                                original: text.clone(),
+                                lang: source_language.clone(),
+                                translations: translations.clone(),
+                            },
+                        );
+
+                        // P4: persist best-effort only when recording is on — same
+                        // posture as `presence::record_join` (`let _ = ...`).
+                        if let Some(pool) = state.pool.clone() {
+                            persist_final(
+                                record_transcript,
+                                &pool,
+                                webinar_id,
+                                &text,
+                                &source_language,
+                                &translations,
+                            )
+                            .await;
+                        }
+                    });
+                }
             }
         }
     }
@@ -355,7 +416,7 @@ async fn process_webinar_transcripts(
 
 /// Persist a finalized utterance IFF the webinar records its transcript (P4).
 /// Returns whether an insert was attempted, so the gate is unit-testable without
-/// a live Deepgram. When `record` is false this is a no-op (privacy default:
+/// a live Qwen connection. When `record` is false this is a no-op (privacy default:
 /// nothing is written unless the host explicitly opted in).
 pub(crate) async fn persist_final(
     record: bool,
@@ -403,77 +464,113 @@ async fn record_transcript_row(
 mod tests {
     use super::*;
 
-    fn dg_frame(is_final: bool, transcript: &str, confidence: f32) -> String {
-        serde_json::json!({
-            "type": "Results",
-            "is_final": is_final,
-            "channel": { "alternatives": [
-                { "transcript": transcript, "confidence": confidence }
-            ]}
-        })
-        .to_string()
+    use crate::engine::qwen::TextUpdate;
+
+    fn delta(text: &str) -> QwenEvent {
+        QwenEvent::InputTranscript(TextUpdate::Delta(text.to_string()))
+    }
+
+    /// A `*.text` frame: the whole utterance so far, which must REPLACE the buffer.
+    fn snapshot(text: &str) -> QwenEvent {
+        QwenEvent::InputTranscript(TextUpdate::Snapshot(text.to_string()))
+    }
+
+    fn done(text: &str) -> QwenEvent {
+        QwenEvent::InputTranscriptDone(text.to_string())
     }
 
     #[test]
-    fn classifies_final_above_confidence() {
-        let d = classify_transcript(&dg_frame(true, "ciao a tutti", 0.95));
-        assert_eq!(d, TranscriptDecision::Final("ciao a tutti".to_string()));
-    }
-
-    #[test]
-    fn classifies_interim_above_confidence() {
-        let d = classify_transcript(&dg_frame(false, "ciao a", 0.9));
-        assert_eq!(d, TranscriptDecision::Interim("ciao a".to_string()));
-    }
-
-    #[test]
-    fn drops_below_confidence_gate() {
-        // A final AND an interim below the floor are both dropped.
+    fn interims_accumulate_the_running_partial() {
+        // Qwen streams fragments; viewers must see the sentence GROW, not each fragment
+        // on its own.
+        let mut buf = String::new();
         assert_eq!(
-            classify_transcript(&dg_frame(true, "garbage", 0.2)),
-            TranscriptDecision::Drop
+            fold_event(&mut buf, &delta("ciao ")),
+            TranscriptDecision::Interim("ciao".to_string())
         );
         assert_eq!(
-            classify_transcript(&dg_frame(false, "garbage", 0.39)),
-            TranscriptDecision::Drop
+            fold_event(&mut buf, &delta("a ")),
+            TranscriptDecision::Interim("ciao a".to_string())
         );
-        // Exactly at the floor is accepted.
         assert_eq!(
-            classify_transcript(&dg_frame(true, "ok", MIN_CONFIDENCE)),
-            TranscriptDecision::Final("ok".to_string())
+            fold_event(&mut buf, &delta("tutti")),
+            TranscriptDecision::Interim("ciao a tutti".to_string())
+        );
+    }
+
+    #[test]
+    fn snapshots_replace_instead_of_appending() {
+        // The livetranslate family re-sends the WHOLE utterance every frame. Appending
+        // them produced "ciaociao aciao a tutti" against the live API; the buffer must
+        // track the latest snapshot instead.
+        let mut buf = String::new();
+        assert_eq!(
+            fold_event(&mut buf, &snapshot("ciao")),
+            TranscriptDecision::Interim("ciao".to_string())
+        );
+        assert_eq!(
+            fold_event(&mut buf, &snapshot("ciao a")),
+            TranscriptDecision::Interim("ciao a".to_string())
+        );
+        assert_eq!(
+            fold_event(&mut buf, &snapshot("ciao a tutti")),
+            TranscriptDecision::Interim("ciao a tutti".to_string())
+        );
+        assert_eq!(buf, "ciao a tutti");
+    }
+
+    #[test]
+    fn completed_becomes_the_final_and_resets_the_partial() {
+        let mut buf = String::new();
+        fold_event(&mut buf, &delta("ciao a"));
+        assert_eq!(
+            fold_event(&mut buf, &done("ciao a tutti")),
+            TranscriptDecision::Final("ciao a tutti".to_string())
+        );
+        // The next utterance starts clean — otherwise it would inherit "ciao a".
+        assert!(buf.is_empty());
+        assert_eq!(
+            fold_event(&mut buf, &delta("benvenuti")),
+            TranscriptDecision::Interim("benvenuti".to_string())
         );
     }
 
     #[test]
     fn drops_empty_and_whitespace_text() {
+        let mut buf = String::new();
         assert_eq!(
-            classify_transcript(&dg_frame(true, "", 0.99)),
+            fold_event(&mut buf, &delta("   ")),
             TranscriptDecision::Drop
         );
-        assert_eq!(
-            classify_transcript(&dg_frame(false, "   ", 0.99)),
-            TranscriptDecision::Drop
-        );
+        assert_eq!(fold_event(&mut buf, &done("")), TranscriptDecision::Drop);
+        // An empty final still resets, so the whitespace partial can't leak forward.
+        assert!(buf.is_empty());
     }
 
     #[test]
     fn trims_transcript_text() {
+        let mut buf = String::new();
         assert_eq!(
-            classify_transcript(&dg_frame(true, "  hola  ", 0.9)),
+            fold_event(&mut buf, &done("  hola  ")),
             TranscriptDecision::Final("hola".to_string())
         );
     }
 
     #[test]
-    fn drops_non_results_and_garbage_frames() {
-        // Metadata / SpeechStarted etc. are not `Results`.
-        let meta = serde_json::json!({ "type": "Metadata" }).to_string();
-        assert_eq!(classify_transcript(&meta), TranscriptDecision::Drop);
-        // Not even JSON.
-        assert_eq!(classify_transcript("not json"), TranscriptDecision::Drop);
-        // Results with no alternatives.
-        let empty = serde_json::json!({ "type": "Results", "is_final": true, "channel": { "alternatives": [] }}).to_string();
-        assert_eq!(classify_transcript(&empty), TranscriptDecision::Drop);
+    fn ignores_events_the_transcribe_session_does_not_produce() {
+        // The transcribe-only session generates no speech and no translation; those
+        // events must be inert rather than leaking into subtitles.
+        let mut buf = String::new();
+        for event in [
+            QwenEvent::SessionReady,
+            QwenEvent::TurnComplete,
+            QwenEvent::OutputTranscript(TextUpdate::Delta("should not appear".into())),
+            QwenEvent::OutputAudio(vec![1, 2, 3]),
+            QwenEvent::Error("boom".into()),
+        ] {
+            assert_eq!(fold_event(&mut buf, &event), TranscriptDecision::Drop);
+        }
+        assert!(buf.is_empty());
     }
 
     #[test]

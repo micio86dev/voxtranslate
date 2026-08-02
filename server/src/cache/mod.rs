@@ -1,5 +1,5 @@
 //! Translation cache (spec 0107): an opt-in, fail-open DragonflyDB cache for the
-//! Standard tier (Deepgram + Groq). Short, frequently-repeated phrases ("ciao",
+//! text-translation path (Groq). Short, frequently-repeated phrases ("ciao",
 //! "grazie", "ok perfetto") are returned from DragonflyDB in <1 ms instead of
 //! paying the full Groq round-trip again.
 //!

@@ -34,6 +34,12 @@ static GEM_TTFA_BUCKETS: [AtomicU64; 11] = [const { AtomicU64::new(0) }; 11];
 static GEM_CONNECT_SUM: AtomicU64 = AtomicU64::new(0);
 static GEM_CONNECT_COUNT: AtomicU64 = AtomicU64::new(0);
 static GEM_CONNECT_BUCKETS: [AtomicU64; 11] = [const { AtomicU64::new(0) }; 11];
+static QWEN_TTFA_SUM: AtomicU64 = AtomicU64::new(0);
+static QWEN_TTFA_COUNT: AtomicU64 = AtomicU64::new(0);
+static QWEN_TTFA_BUCKETS: [AtomicU64; 11] = [const { AtomicU64::new(0) }; 11];
+static QWEN_CONNECT_SUM: AtomicU64 = AtomicU64::new(0);
+static QWEN_CONNECT_COUNT: AtomicU64 = AtomicU64::new(0);
+static QWEN_CONNECT_BUCKETS: [AtomicU64; 11] = [const { AtomicU64::new(0) }; 11];
 
 /// Add one observation (ms) to a cumulative-bucket histogram.
 fn observe(sum: &AtomicU64, count: &AtomicU64, buckets: &[AtomicU64; 11], ms: u64) {
@@ -57,6 +63,23 @@ pub fn record_gemini_connect(ms: u64) {
         &GEM_CONNECT_SUM,
         &GEM_CONNECT_COUNT,
         &GEM_CONNECT_BUCKETS,
+        ms,
+    );
+}
+
+/// Record one Standard segment's time-to-first-translated-audio (ms). Standard is the
+/// default tier, so this histogram — not the Gemini one — is the app's headline
+/// ear-voice-span SLI.
+pub fn record_qwen_ttfa(ms: u64) {
+    observe(&QWEN_TTFA_SUM, &QWEN_TTFA_COUNT, &QWEN_TTFA_BUCKETS, ms);
+}
+
+/// Record one Qwen realtime session connect+`session.update` duration (ms).
+pub fn record_qwen_connect(ms: u64) {
+    observe(
+        &QWEN_CONNECT_SUM,
+        &QWEN_CONNECT_COUNT,
+        &QWEN_CONNECT_BUCKETS,
         ms,
     );
 }
@@ -100,6 +123,12 @@ struct Snapshot {
     gem_connect_sum: u64,
     gem_connect_count: u64,
     gem_connect_buckets: [u64; 11],
+    qwen_ttfa_sum: u64,
+    qwen_ttfa_count: u64,
+    qwen_ttfa_buckets: [u64; 11],
+    qwen_connect_sum: u64,
+    qwen_connect_count: u64,
+    qwen_connect_buckets: [u64; 11],
 }
 
 fn snapshot() -> Snapshot {
@@ -120,6 +149,14 @@ fn snapshot() -> Snapshot {
         gem_connect_count: GEM_CONNECT_COUNT.load(Ordering::Relaxed),
         gem_connect_buckets: std::array::from_fn(|i| {
             GEM_CONNECT_BUCKETS[i].load(Ordering::Relaxed)
+        }),
+        qwen_ttfa_sum: QWEN_TTFA_SUM.load(Ordering::Relaxed),
+        qwen_ttfa_count: QWEN_TTFA_COUNT.load(Ordering::Relaxed),
+        qwen_ttfa_buckets: std::array::from_fn(|i| QWEN_TTFA_BUCKETS[i].load(Ordering::Relaxed)),
+        qwen_connect_sum: QWEN_CONNECT_SUM.load(Ordering::Relaxed),
+        qwen_connect_count: QWEN_CONNECT_COUNT.load(Ordering::Relaxed),
+        qwen_connect_buckets: std::array::from_fn(|i| {
+            QWEN_CONNECT_BUCKETS[i].load(Ordering::Relaxed)
         }),
     }
 }
@@ -222,6 +259,22 @@ fn render_from(s: &Snapshot, active_rooms: u64, active_peers: u64) -> String {
         s.gem_connect_count,
         &s.gem_connect_buckets,
     );
+    write_histogram(
+        &mut o,
+        "voxtranslate_qwen_ttfa_ms",
+        "Standard per-segment time-to-first-translated-audio (Qwen ear-voice span), ms.",
+        s.qwen_ttfa_sum,
+        s.qwen_ttfa_count,
+        &s.qwen_ttfa_buckets,
+    );
+    write_histogram(
+        &mut o,
+        "voxtranslate_qwen_connect_ms",
+        "Qwen realtime session connect+session.update duration, ms.",
+        s.qwen_connect_sum,
+        s.qwen_connect_count,
+        &s.qwen_connect_buckets,
+    );
 
     o
 }
@@ -245,6 +298,13 @@ mod tests {
             gem_connect_sum: 180,
             gem_connect_count: 2,
             gem_connect_buckets: [0, 0, 0, 0, 1, 2, 2, 2, 2, 2, 2],
+            // Standard/Qwen: 3 segments, all warm.
+            qwen_ttfa_sum: 900,
+            qwen_ttfa_count: 3,
+            qwen_ttfa_buckets: [0, 0, 1, 2, 3, 3, 3, 3, 3, 3, 3],
+            qwen_connect_sum: 240,
+            qwen_connect_count: 2,
+            qwen_connect_buckets: [0, 0, 0, 0, 0, 2, 2, 2, 2, 2, 2],
         };
         let out = render_from(&snap, 2, 5);
 
@@ -265,8 +325,13 @@ mod tests {
         assert!(out.contains("voxtranslate_gemini_ttfa_ms_count 4"));
         assert!(out.contains("voxtranslate_gemini_connect_ms_bucket{le=\"100\"} 1"));
         assert!(out.contains("voxtranslate_gemini_connect_ms_count 2"));
+        // Qwen (Standard tier) latency histograms — the default-tier SLI.
+        assert!(out.contains("voxtranslate_qwen_ttfa_ms_bucket{le=\"+Inf\"} 3"));
+        assert!(out.contains("voxtranslate_qwen_ttfa_ms_sum 900"));
+        assert!(out.contains("voxtranslate_qwen_ttfa_ms_count 3"));
+        assert!(out.contains("voxtranslate_qwen_connect_ms_count 2"));
         // Every metric is preceded by a TYPE line (Prometheus exposition hygiene).
-        assert_eq!(out.matches("# TYPE ").count(), 6);
+        assert_eq!(out.matches("# TYPE ").count(), 8);
     }
 
     #[test]

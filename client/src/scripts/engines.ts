@@ -108,12 +108,15 @@ export function formatRate(ratePerMinute: number): string {
 }
 
 /** Whether a speaker on `engineId` must capture raw PCM16 @ 24 kHz (the server-side
- *  speech-to-speech engines — OpenAI, Gemini) rather than WebM/Opus (Standard, which
- *  streams to Deepgram). Keyed on the `translated_audio` capability, NOT a hardcoded
- *  id: the Gemini engine's id is `gemini_live_translate`, so an `id === 'premium'`
- *  check silently sent it WebM/Opus, which its PCM-expecting session decoded as noise
- *  → no transcript, no translated voice. Unknown/absent engine → false (safe WebM
- *  default, used by Standard). */
+ *  speech-to-speech engines) rather than WebM/Opus. Keyed on the `translated_audio`
+ *  capability, NOT a hardcoded id: the Gemini engine's id is `gemini_live_translate`, so
+ *  an `id === 'premium'` check silently sent it WebM/Opus, which its PCM-expecting
+ *  session decoded as noise → no transcript, no translated voice.
+ *
+ *  Since Standard moved to Qwen-Omni Realtime it is speech-to-speech too, so in a live
+ *  deployment this is now true for every tier except the client-direct one — the
+ *  capability check needed no change, which is the point of keying on it. Unknown/absent
+ *  engine → false (safe WebM default). */
 export function engineNeedsPcm(engineId: string | undefined, engines: EngineInfo[]): boolean {
   return engines.find((e) => e.id === engineId)?.capabilities.translated_audio ?? false;
 }

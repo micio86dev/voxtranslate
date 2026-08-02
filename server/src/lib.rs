@@ -352,22 +352,18 @@ impl AppState {
             let ttl = env_u64("SUPABASE_RECORDINGS_TTL_SECS", 3600);
             storage::SupabaseStorage::for_bucket(http.clone(), c, bucket, ttl)
         });
-        // Engine registry (spec 0093): Standard wraps the Deepgram+Groq pipeline
+        // Engine registry (spec 0093): Standard wraps the Qwen-Omni Realtime pipeline
         // and is always available; Premium (OpenAI) is registered separately when
         // its key is configured. Per-session services (rooms, moderator,
         // transcripts) are passed at speak time, not captured here, so the
         // registry can be built before `init` connects the database.
         let mut registry = EngineRegistry::new(crate::engine::STANDARD_ID);
-        // Standard (Deepgram + Groq) is the base tier and the registry's default. Gated by
-        // `DEEPGRAM_STANDARD` (default ON) for symmetry with the optional tiers; a
+        // Standard (Qwen-Omni Realtime) is the base tier and the registry's default. Gated
+        // by `QWEN_STANDARD` (default ON) for symmetry with the optional tiers; a
         // fail-safe below force-registers it if the flag left it off, so the app always
         // has a default/capacity-fallback engine (spec 0101).
         if config.standard_enabled {
-            registry.register(Arc::new(StandardEngine::new(
-                config.clone(),
-                http.clone(),
-                translator.clone(),
-            )));
+            registry.register(Arc::new(StandardEngine::new(&config.qwen)));
         }
         // Registration order = display order: Standard, Enhanced, Pro, Premium. Enhanced
         // (Cartesia, spec 0108) is the client-direct tier between Standard and Pro; it ships
@@ -386,18 +382,14 @@ impl AppState {
             registry.register(Arc::new(PremiumEngine::new(g)));
         }
         // Fail-safe (spec 0101): the registry's default engine (Standard) must exist, or
-        // `resolve()`/`default()` panic and the whole call path breaks. If `DEEPGRAM_STANDARD`
+        // `resolve()`/`default()` panic and the whole call path breaks. If `QWEN_STANDARD`
         // was set to 0, force-register Standard now (it lands last in display order, but the
         // app stays up). Standard is a base tier, not a real kill switch.
         if registry.get(crate::engine::STANDARD_ID).is_none() {
             tracing::warn!(
-                "DEEPGRAM_STANDARD is off but Standard is the mandatory default engine — force-registering it"
+                "QWEN_STANDARD is off but Standard is the mandatory default engine — force-registering it"
             );
-            registry.register(Arc::new(StandardEngine::new(
-                config.clone(),
-                http.clone(),
-                translator.clone(),
-            )));
+            registry.register(Arc::new(StandardEngine::new(&config.qwen)));
         }
         let engines = Arc::new(registry);
         // Client-direct engines (spec 0101): tell the room manager which engine ids
@@ -1271,11 +1263,11 @@ fn spawn_meter(
 }
 
 /// Push each peer the audio CAPTURE FORMAT the room demands (spec 0099, listener-pays):
-/// PCM16 iff a listener of a speech-to-speech (`translated_audio`) engine — OpenAI or
-/// Gemini — is present (they read raw PCM; Standard takes WebM/Opus, or `linear16` when a
-/// premium listener is present). No-op unless listener-pays is active. Capability-driven
-/// (NOT a hardcoded id) and the SAME condition the core loop uses for `pcm_input`, so the
-/// wire format always agrees server↔client.
+/// PCM16 iff a listener of a speech-to-speech (`translated_audio`) engine is present —
+/// those engines read raw PCM and produce silence from anything else. No-op unless
+/// listener-pays is active. Capability-driven (NOT a hardcoded id), which is why
+/// Standard's move to Qwen-Omni Realtime needed no edit here: it simply became one of the
+/// `translated_audio` engines, so PCM is now the format in essentially every room.
 fn notify_capture_formats(state: &AppState, room: &str) {
     if !state.config.listener_pays {
         return;
@@ -1759,18 +1751,17 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState, clien
                                         .unwrap_or_else(|| lang.clone());
                                     let routes =
                                         state.rooms.translation_routes(&room, &id, &live_lang);
-                                    // PCM-input engines = the speech-to-speech tiers.
-                                    // Surgical capture: PCM iff such a listener is present
-                                    // (room-level; the SAME condition as CaptureFormat).
+                                    // The speech-to-speech tiers, used below to pick which
+                                    // engines a cross-language listener can demand. Every
+                                    // one of them takes PCM16 — which the client already
+                                    // knows from `notify_capture_formats`, so nothing here
+                                    // has to tell the engine the input format any more.
                                     let pcm_engines: Vec<String> = state
                                         .engines
                                         .list()
                                         .filter(|e| e.metadata().capabilities.translated_audio)
                                         .map(|e| e.metadata().id.clone())
                                         .collect();
-                                    let pcm = pcm_engines
-                                        .iter()
-                                        .any(|eid| state.rooms.has_engine_listener(&room, &id, eid));
                                     let build_ctx = || deepgram::SpeakerCtx {
                                         room: room.clone(),
                                         speaker_id: id.clone(),
@@ -1786,7 +1777,6 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState, clien
                                         transcripts: state.transcripts.clone(),
                                         participant_row,
                                         listener_pays: lp,
-                                        pcm_input: pcm,
                                         translator: state.translator.clone(),
                                     };
                                     let mut feeds: Vec<mpsc::Sender<Vec<u8>>> = Vec::new();
@@ -1893,7 +1883,6 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState, clien
                                     // Speaker-pays path: engines use their legacy
                                     // per-lang fan-out + WebM/Opus capture.
                                     listener_pays: false,
-                                    pcm_input: false,
                                     translator: state.translator.clone(),
                                 };
                                 // Engine routing (spec 0093): the engine owns the

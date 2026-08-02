@@ -1,12 +1,12 @@
 // Host STT bridge (webinar Fase 2 translation). While the host is broadcasting over
 // WHIP (video/audio go P2P to the media server), the SAME mic track is ALSO streamed
-// to the API's Deepgram ingest for streaming STT → translation, whose subtitle frames
+// to the API's Qwen-Omni Realtime ingest for streaming STT → translation, whose subtitle frames
 // fan back out to every viewer over the presence WS.
 //
 // Contract (server-defined):
 //   GET /api/webinars/{id}/stt?token=<host JWT>   (query param — browsers can't set WS
 //   headers, same as the presence WS). The host sends BINARY WebSocket frames, each a
-//   WebM/Opus chunk (spec 0043, 100ms). There are NO start/stop control frames — the
+//   PCM16 mono chunk @ 24 kHz (100ms). There are NO start/stop control frames — the
 //   stream itself is the signal and CLOSING the socket flushes pending finals. Inbound
 //   text frames are ignored by the server (AudioCapture's harmless start/stop text
 //   frames included).
@@ -14,8 +14,8 @@
 // Reliability: the reviewer flagged that a SILENT STT drop stops subtitles while the
 // video keeps flowing. So if the socket drops while the broadcast is still live we
 // reconnect with capped exponential backoff (mirroring PresenceClient) and re-bridge a
-// fresh AudioCapture — a new MediaRecorder emits a header-bearing first WebM chunk, which
-// a fresh Deepgram stream requires. `stop()` tears everything down and stops reconnects.
+// fresh capture, so the new Qwen session starts on a clean PCM stream. `stop()` tears
+// everything down and stops reconnects.
 //
 // The WebSocket ctor + the AudioCapture ctor are injectable so the open→bridge→reconnect
 // logic unit-tests with fakes (mirroring webinar-presence.test.ts / audio-capture.test.ts).
@@ -57,7 +57,7 @@ export interface WebinarSttOptions {
   /** The host's session JWT (carried in the `token` query param). */
   token: string;
   /** Build the AudioCapture that bridges the mic track into a socket. Called once per
-   *  (re)connect so each fresh Deepgram stream gets a header-bearing first WebM chunk. */
+   *  (re)connect so each fresh Qwen session starts on a clean PCM stream. */
   makeCapture: (socket: SttSocket) => SttCapture;
   /** Injectable WebSocket ctor for tests. Defaults to the global `WebSocket`. */
   socketFactory?: SttSocketFactory;
@@ -125,7 +125,7 @@ export class WebinarSttClient {
     this.socket = sock;
 
     // Bridge the mic through a FRESH AudioCapture. A new MediaRecorder emits a
-    // header-bearing first WebM chunk, which a new Deepgram stream requires.
+    // clean PCM stream for the new Qwen session.
     const cap = this.opts.makeCapture(sock);
     this.capture = cap;
 

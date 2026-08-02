@@ -389,10 +389,11 @@ async fn handle_extension_session(socket: WebSocket, params: ExtParams, state: A
     let client_direct = engine.metadata().capabilities.client_direct;
     let engine_id = engine.metadata().id.clone();
     let rate_per_second = engine.metadata().user_rate_per_second();
-    // Speech-to-speech engines consume PCM16/24k; Standard consumes WebM/Opus. Feeding an
-    // engine the wrong container is not a degradation — it reads the bytes as samples and
-    // produces nothing at all, silently. The capability is the single source of truth for
-    // both sides of that contract.
+    // Speech-to-speech engines consume PCM16/24k. Feeding an engine the wrong container is
+    // not a degradation — it reads the bytes as samples and produces nothing at all,
+    // silently. The capability is the single source of truth for both sides of that
+    // contract, which is why Standard's move to Qwen-Omni Realtime (speech-to-speech, so
+    // `translated_audio` is now true) flipped the widget to PCM with no change here.
     let needs_pcm = engine.metadata().capabilities.translated_audio;
 
     // --- build the two-peer private room -----------------------------------
@@ -631,7 +632,6 @@ async fn handle_extension_session(socket: WebSocket, params: ExtParams, state: A
                                     transcripts: None,
                                     participant_row: None,
                                     listener_pays: false,
-                                    pcm_input: needs_pcm,
                                     translator: state.translator.clone(),
                                 };
                                 // A client-direct tier has nothing to open here — the
