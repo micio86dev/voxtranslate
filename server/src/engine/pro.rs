@@ -382,7 +382,7 @@ async fn run_connection(
                     OpenAiEvent::OutputTranscriptDelta(d) => {
                         translated.push_str(&d);
                         dirty = true;
-                        reader.emit_interim_to_lang(&translated);
+                        reader.emit_interim_to_lang(&translated, &original);
                         idle.as_mut().reset(Instant::now() + Duration::from_millis(SEGMENT_IDLE_MS));
                     }
                     OpenAiEvent::OutputAudioDelta(pcm) => {
@@ -452,13 +452,17 @@ impl SessionReader {
     }
 
     /// Live translated caption to the listeners of this session's language.
-    fn emit_interim_to_lang(&self, translated: &str) {
+    fn emit_interim_to_lang(&self, translated: &str, original: &str) {
         self.deliver(
             &ServerMessage::SubtitleInterim {
                 speaker_id: self.speaker_id.clone(),
                 speaker_name: self.speaker_name.clone(),
                 text: translated.to_string(),
                 lang: self.source_lang.clone(),
+                // `text` is a translation here, so the ORIGINAL rides along and a
+                // dual-language client can stream both lines instead of waiting a
+                // whole idle gap for the final.
+                original: (!original.trim().is_empty()).then(|| original.trim().to_string()),
             }
             .to_json(),
         );
@@ -490,6 +494,7 @@ impl SessionReader {
                 speaker_name: self.speaker_name.clone(),
                 text: original.to_string(),
                 lang: self.source_lang.clone(),
+                original: None,
             }
             .to_json(),
         );
@@ -528,6 +533,7 @@ impl SessionReader {
                 speaker_name: self.speaker_name.clone(),
                 text: original.to_string(),
                 lang: self.source_lang.clone(),
+                original: None,
             }
             .to_json(),
         );
