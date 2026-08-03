@@ -70,6 +70,35 @@ pub enum SubtitleEvent {
     },
 }
 
+/// One chunk of translated speech for a single viewer language.
+///
+/// The presence socket used to carry text only: the webinar's translated voice was
+/// synthesised on each viewer's device. With the Standard tier running Qwen realtime
+/// speech-to-speech, the voice is produced upstream, so it has to reach the viewer
+/// somehow — and this socket is the one already open, already scoped to the room, and
+/// already trusted for subtitles.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AudioEvent {
+    /// The target language this audio speaks. Delivery is scoped to its listeners.
+    pub lang: String,
+    /// Ordering within one speaker turn; the client's playback queue reorders on it.
+    pub seq: u64,
+    /// PCM16 @ 24 kHz, base64. Same shape the call path uses (`translated_audio`).
+    pub pcm16_b64: String,
+}
+
+impl AudioEvent {
+    pub fn to_json(&self) -> String {
+        json!({
+            "type": "translated_audio",
+            "lang": self.lang,
+            "seq": self.seq,
+            "pcm16_b64": self.pcm16_b64,
+        })
+        .to_string()
+    }
+}
+
 impl SubtitleEvent {
     /// Serialize to the exact JSON wire contract documented on [`SubtitleEvent`].
     pub fn to_json(&self) -> String {
@@ -272,6 +301,23 @@ impl PresenceRegistry {
             let payload = event.to_json();
             for c in room.values().filter(|c| !c.is_host) {
                 let _ = c.tx.send(Message::Text(payload.clone().into()));
+            }
+        }
+    }
+
+    /// Deliver a frame only to the viewers whose language is `lang`.
+    ///
+    /// Per-language sessions produce per-language output: a viewer must never receive
+    /// audio in a language they did not ask for, and with one upstream session per
+    /// language the old "broadcast to every viewer" would do exactly that.
+    pub fn broadcast_to_lang(&self, code: &str, lang: &str, payload: &str) {
+        if let Some(room) = self.rooms.get(code) {
+            for c in room
+                .values()
+                .filter(|c| !c.is_host)
+                .filter(|c| c.lang.as_deref() == Some(lang))
+            {
+                let _ = c.tx.send(Message::Text(payload.to_string().into()));
             }
         }
     }

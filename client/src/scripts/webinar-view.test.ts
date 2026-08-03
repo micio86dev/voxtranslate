@@ -46,6 +46,31 @@ vi.mock('./i18n', () => ({
 const ttsSetEnabled = vi.fn();
 const ttsStop = vi.fn();
 const ttsSpeak = vi.fn();
+// The presence client owns the subtitle and audio callbacks, so capture its options the
+// same way the player's are captured.
+let presenceOpts: any = null;
+vi.mock('./webinar-presence', () => ({
+  PresenceClient: class {
+    constructor(opts: any) {
+      presenceOpts = opts;
+    }
+    start() {}
+    stop() {}
+    close() {}
+  },
+}));
+
+const pcmStop = vi.fn();
+const pcmUnlock = vi.fn();
+const pcmEnqueue = vi.fn();
+vi.mock('./pcm-playback', () => ({
+  pcmPlayback: {
+    stop: (...a: unknown[]) => pcmStop(...a),
+    unlock: (...a: unknown[]) => pcmUnlock(...a),
+    enqueue: (...a: unknown[]) => pcmEnqueue(...a),
+  },
+}));
+
 vi.mock('./webinar-tts', () => ({
   WebinarTts: vi.fn(function (this: any) {
     this.setEnabled = ttsSetEnabled;
@@ -54,7 +79,7 @@ vi.mock('./webinar-tts', () => ({
   }),
 }));
 
-import { mountWebinarPlayer, renderSubtitle } from './webinar-view';
+import { shouldPlayServerAudio, mountWebinarPlayer, renderSubtitle } from './webinar-view';
 import type { SubtitleEvent } from './webinar-presence';
 
 function buildDom(code = 'ab12cd', notfound = '0'): void {
@@ -90,6 +115,7 @@ const el = (id: string) => document.getElementById(id)!;
 
 beforeEach(() => {
   lastOpts = null;
+  presenceOpts = null;
   start.mockClear();
   userStart.mockClear();
   destroy.mockClear();
@@ -204,13 +230,16 @@ describe('mountWebinarPlayer', () => {
     expect(el('wv-mute').getAttribute('aria-pressed')).toBe('false');
   });
 
+  // Enhanced: the voice is synthesised on this device, so the TTS track is what the
+  // listen and mute controls must drive. Standard's server-streamed audio is covered
+  // separately below.
   it('switching to translated audio does NOT flip the mute toggle', () => {
     buildDom();
     mountWebinarPlayer();
     muteAudio.mockImplementation((m: boolean) => (mutedState = m));
     // Host speaks a different language than the viewer (en) → the listen toggle appears.
     lastOpts.onInfo?.({ source_language: 'it', code: 'x', title: 'T', status: 'live',
-      tier: 'standard', join_url: '', chat_enabled: false, playback_url: null, guest_id: 'g',
+      tier: 'enhanced', join_url: '', chat_enabled: false, playback_url: null, guest_id: 'g',
       host_avatar_url: null });
     expect(el('wv-listen').classList.contains('hidden')).toBe(false);
     // Turn audio ON so the mute control is in its "active" state.
@@ -226,12 +255,46 @@ describe('mountWebinarPlayer', () => {
     expect(ttsSetEnabled).toHaveBeenLastCalledWith(true);
   });
 
+  // --- Standard tier: the translated voice arrives from the server ---------------
+
+  it('plays a server chunk only for this tier, this mode and this language', () => {
+    const base = {
+      serverSpeaks: true,
+      listenMode: 'translated' as const,
+      frameLang: 'en',
+      myLang: 'en',
+    };
+    expect(shouldPlayServerAudio(base)).toBe(true);
+    // Enhanced synthesises on the device; playing server audio too would double the voice.
+    expect(shouldPlayServerAudio({ ...base, serverSpeaks: false })).toBe(false);
+    // The listener asked for the original track.
+    expect(shouldPlayServerAudio({ ...base, listenMode: 'original' })).toBe(false);
+    // Someone else's language. The server scopes delivery, but a reconnect racing a
+    // language change is exactly how that guarantee gets broken.
+    expect(shouldPlayServerAudio({ ...base, frameLang: 'fr' })).toBe(false);
+  });
+
+  it('muting stops the server audio, not just the original HLS', () => {
+    buildDom();
+    mountWebinarPlayer();
+    lastOpts.onInfo?.({ source_language: 'it', code: 'x', title: 'T', status: 'live',
+      tier: 'standard', join_url: '', chat_enabled: false, playback_url: null, guest_id: 'g',
+      host_avatar_url: null });
+    (el('wv-mute') as HTMLButtonElement).click();
+    pcmStop.mockClear();
+    pcmEnqueue.mockClear();
+    // Mute must silence whichever source is carrying the voice. Routing only the TTS —
+    // which this tier does not use — is how a mute button stops muting.
+    (el('wv-mute') as HTMLButtonElement).click();
+    expect(pcmStop).toHaveBeenCalled();
+  });
+
   it('muting silences the translated TTS track, not just the original HLS', () => {
     buildDom();
     mountWebinarPlayer();
     muteAudio.mockImplementation((m: boolean) => (mutedState = m));
     lastOpts.onInfo?.({ source_language: 'it', code: 'x', title: 'T', status: 'live',
-      tier: 'standard', join_url: '', chat_enabled: false, playback_url: null, guest_id: 'g',
+      tier: 'enhanced', join_url: '', chat_enabled: false, playback_url: null, guest_id: 'g',
       host_avatar_url: null });
     (el('wv-mute') as HTMLButtonElement).click(); // audio on (original)
     (el('wv-listen') as HTMLButtonElement).click(); // switch to translated (TTS on)
@@ -265,7 +328,7 @@ describe('mountWebinarPlayer', () => {
     mountWebinarPlayer();
     muteAudio.mockImplementation((m: boolean) => (mutedState = m));
     lastOpts.onInfo?.({ source_language: 'it', code: 'x', title: 'T', status: 'live',
-      tier: 'standard', join_url: '', chat_enabled: false, playback_url: null, guest_id: 'g',
+      tier: 'enhanced', join_url: '', chat_enabled: false, playback_url: null, guest_id: 'g',
       host_avatar_url: null });
     (el('wv-tap') as HTMLButtonElement).click(); // start via the autoplay-unblock gesture
     expect(el('wv-mute').getAttribute('aria-pressed')).toBe('true'); // audio active

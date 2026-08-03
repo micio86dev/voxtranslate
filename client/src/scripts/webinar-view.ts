@@ -9,6 +9,7 @@ import { applyI18n, detectLang, getUiLang, loadLocale, setUiLang, SUPPORTED, t }
 import { PresenceClient, type SubtitleEvent } from './webinar-presence';
 import { renderSubtitleInto } from './subtitle-render';
 import { formatWebinarClock, getPublicWebinar } from './webinar';
+import { pcmPlayback } from './pcm-playback';
 import { WebinarTts } from './webinar-tts';
 import {
   ChatPanel,
@@ -127,6 +128,27 @@ let subtitleClearTimer: ReturnType<typeof setTimeout> | null = null;
  * Final subtitles also schedule an auto-clear of the overlay after 5 seconds so the
  * caption doesn't linger on screen between phrases.
  */
+/**
+ * Whether one server-streamed audio chunk should reach this viewer's speakers.
+ *
+ * Three conditions, and each has bitten something already: the tier must be the one whose
+ * voice comes from the server (otherwise we double a voice the device is also making),
+ * the listener must have asked to hear the translation, and the chunk must be in THEIR
+ * language. The server does scope delivery by language, but a client that trusts that
+ * blindly will one day play French to an English viewer after a reconnect races a
+ * language change.
+ */
+export function shouldPlayServerAudio(input: {
+  serverSpeaks: boolean;
+  listenMode: 'original' | 'translated';
+  frameLang: string;
+  myLang: string;
+}): boolean {
+  return (
+    input.serverSpeaks && input.listenMode === 'translated' && input.frameLang === input.myLang
+  );
+}
+
 export function renderSubtitle(overlay: HTMLElement, event: SubtitleEvent): void {
   if (!subtitlesOn) return;
   const myLang = getUiLang();
@@ -282,6 +304,8 @@ export function mountWebinarPlayer(): void {
   // mute control. Starts false: the video is muted until the user's first gesture.
   let audioActive = false;
   let webinarTts: WebinarTts | null = null;
+  // True when the tier's audio comes from the server rather than this device.
+  let serverSpeaks = false;
   // Whether a listener-language translation is available (host speaks a different
   // language). Captured from onInfo and read by the CTA to decide the audio path.
   let translationAvailable = false;
@@ -348,12 +372,14 @@ export function mountWebinarPlayer(): void {
       if (info.source_language && baseLang(info.source_language) !== baseLang(lang)) {
         translationAvailable = true;
         show(listenBtn, true);
-        webinarTts = new WebinarTts({
-          code,
-          tier: info.tier,
-          lang,
-          httpBase: HTTP_BASE,
-        });
+        // Standard streams its translated voice from the server now (Qwen realtime
+        // speech-to-speech), so synthesising here as well would lay a second voice over
+        // the first. Enhanced still speaks in the browser, via Cartesia with the host's
+        // cloned voice, so it keeps its TTS.
+        serverSpeaks = info.tier === 'standard';
+        webinarTts = serverSpeaks
+          ? null
+          : new WebinarTts({ code, tier: info.tier, lang, httpBase: HTTP_BASE });
       }
     },
   });
@@ -386,18 +412,20 @@ export function mountWebinarPlayer(): void {
   // Every control that changes either input calls this, which is what keeps the mute
   // and listen toggles independent: choosing a source never alters audioActive.
   function applyAudioRouting(): void {
-    if (!audioActive) {
-      player.muteAudio(true);
-      webinarTts?.setEnabled(false);
-      webinarTts?.stop();
-    } else if (listenMode === 'translated') {
-      player.muteAudio(true);
-      webinarTts?.setEnabled(true);
+    // The translated voice comes from ONE of two places depending on the tier — the
+    // server's PCM stream (Standard) or this device's TTS (Enhanced) — and both have to
+    // obey the same two switches. Routing only the one the tier does not use is how a
+    // mute button stops muting.
+    const translatedOn = audioActive && listenMode === 'translated';
+    if (serverSpeaks) {
+      if (!translatedOn) pcmPlayback.stop();
     } else {
-      player.muteAudio(false);
-      webinarTts?.setEnabled(false);
-      webinarTts?.stop();
+      webinarTts?.setEnabled(translatedOn);
+      if (!translatedOn) webinarTts?.stop();
     }
+    // The original HLS is silenced whenever the listener is on the translated track, and
+    // whenever audio is off entirely.
+    player.muteAudio(!audioActive || listenMode === 'translated');
   }
 
   // Audio mute toggle (wv-mute): reflects audioActive (aria-pressed=true when the
@@ -428,6 +456,11 @@ export function mountWebinarPlayer(): void {
     // Switch the audio SOURCE only. audioActive is untouched, so the mute control never
     // moves as a side effect of choosing original vs translated (was the reported bug).
     listenMode = listenMode === 'original' ? 'translated' : 'original';
+    // Unlock the PCM graph from inside the gesture: iOS and Safari refuse to start an
+    // AudioContext outside one, and the server's translated speech would arrive to a
+    // context that never resumes — silence with no error to explain it.
+    if (serverSpeaks && listenMode === 'translated') pcmPlayback.unlock();
+    if (listenMode !== 'translated') pcmPlayback.stop();
     applyAudioRouting();
     paintListen();
   });
@@ -576,6 +609,19 @@ export function mountWebinarPlayer(): void {
       token: (() => { try { return localStorage.getItem('vox.token'); } catch { return null; } })(),
       lang: getUiLang(),
       onCount: renderWatching,
+      onAudio: (frame) => {
+        if (
+          !shouldPlayServerAudio({
+            serverSpeaks,
+            listenMode,
+            frameLang: frame.lang,
+            myLang: getUiLang(),
+          })
+        ) {
+          return;
+        }
+        pcmPlayback.enqueue('host', frame.seq, frame.pcm16_b64);
+      },
       onSubtitle: subtitleOverlay
         ? (event) => {
             renderSubtitle(subtitleOverlay, event);

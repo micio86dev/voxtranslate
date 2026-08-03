@@ -63,6 +63,29 @@ export type SubtitleEvent =
  *  `{type:"subtitle",kind:"final"|"interim",…}` text frame, else null — so malformed
  *  JSON, other frame types (e.g. `count`), or a shape mismatch are ignored. Pure,
  *  mirroring `parsePresenceCount`. */
+/** One chunk of server-streamed translated speech, scoped to a viewer language. */
+export interface AudioFrame {
+  lang: string;
+  seq: number;
+  pcm16_b64: string;
+}
+
+/** Parse a `{type:"translated_audio",lang,seq,pcm16_b64}` frame, else null. */
+export function parseAudioFrame(data: string): AudioFrame | null {
+  let msg: unknown;
+  try {
+    msg = JSON.parse(data);
+  } catch {
+    return null;
+  }
+  if (typeof msg !== 'object' || msg === null) return null;
+  const f = msg as { type?: unknown; lang?: unknown; seq?: unknown; pcm16_b64?: unknown };
+  if (f.type !== 'translated_audio') return null;
+  if (typeof f.lang !== 'string' || typeof f.pcm16_b64 !== 'string') return null;
+  if (typeof f.seq !== 'number' || !Number.isFinite(f.seq)) return null;
+  return { lang: f.lang, seq: f.seq, pcm16_b64: f.pcm16_b64 };
+}
+
 export function parseSubtitleFrame(data: string): SubtitleEvent | null {
   let msg: unknown;
   try {
@@ -224,6 +247,9 @@ export interface PresenceClientOptions {
   /** Called with each live-subtitle event (webinar Fase 2 translation) that arrives
    *  on the same presence WS. Optional — the host studio doesn't render captions. */
   onSubtitle?: (event: SubtitleEvent) => void;
+  /** Called with each chunk of server-streamed translated speech. Only the Standard tier
+   *  produces these; Enhanced synthesises in the browser instead. */
+  onAudio?: (frame: AudioFrame) => void;
   /** Called with each auto-translated chat message (webinar Feature ⑤) that arrives on
    *  the same presence WS. Optional — only wired when the webinar has chat enabled. */
   onChat?: (event: ChatEvent) => void;
@@ -319,6 +345,11 @@ export class PresenceClient {
         return; // a count frame is never also a subtitle frame
       }
       // Not a count frame — try the subtitle path (same WS carries both).
+      const audio = this.opts.onAudio ? parseAudioFrame(ev.data) : null;
+      if (audio) {
+        this.opts.onAudio!(audio);
+        return;
+      }
       const sub = this.opts.onSubtitle ? parseSubtitleFrame(ev.data) : null;
       if (sub) {
         this.opts.onSubtitle!(sub);
