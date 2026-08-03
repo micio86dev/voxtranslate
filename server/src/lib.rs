@@ -616,6 +616,7 @@ pub fn app(state: AppState) -> Router {
             post(notifications::mark_all_read),
         )
         .route("/api/engines", get(api::engines))
+        .route("/api/languages", get(api::languages))
         .route(
             "/api/sessions/enhanced/session",
             post(api::enhanced_session),

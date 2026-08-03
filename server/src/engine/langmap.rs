@@ -20,12 +20,12 @@
 use std::collections::HashMap;
 use std::sync::LazyLock;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// One language in the union, mirroring the JSON entries. The backend only needs the tier
 /// lists today; the metadata fields are parsed (and exposed) so tests can assert integrity
 /// and a future endpoint could serve them.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Language {
     pub code: String,
     pub native: String,
@@ -55,6 +55,13 @@ static MAP: LazyLock<LanguageMap> = LazyLock::new(|| {
 /// in the JSON's declared order. Empty for an unknown tier (caller decides the fallback).
 pub fn tier_output_langs(tier: &str) -> Vec<String> {
     MAP.tiers.get(tier).cloned().unwrap_or_default()
+}
+
+/// The whole tier → output-languages map, for serving the catalogue to clients that
+/// cannot import this file at build time (the Chrome extension lives in its own repo).
+/// Handing out the map beats letting each client keep a synced copy that drifts.
+pub fn tiers() -> &'static HashMap<String, Vec<String>> {
+    &MAP.tiers
 }
 
 /// Every language code in the union (the master set the picker offers).
