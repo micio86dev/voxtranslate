@@ -47,12 +47,20 @@ use serde::Deserialize;
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
+use std::collections::{HashMap, HashSet};
+use std::time::Duration;
+
+use base64::engine::general_purpose::STANDARD as BASE64;
+use base64::Engine as _;
+use tokio::time::{interval, MissedTickBehavior};
+
 use crate::auth::verify_jwt;
 use crate::business::{db_err, not_found, require_pool, require_role, MEMBER};
+use crate::config::QwenConfig;
 use crate::engine::gemini::resample_pcm16_mono;
 use crate::engine::qwen::{self, QwenEvent, QwenSink, QwenSource};
 use crate::webinar::find_by_id;
-use crate::webinar::presence::SubtitleEvent;
+use crate::webinar::presence::{AudioEvent, SubtitleEvent};
 use crate::AppState;
 
 /// Handlers return `Result<Response, Response>` so `?` short-circuits with a
@@ -73,6 +81,21 @@ pub struct SttParams {
 /// so 64 chunks (~6 s) absorbs a hiccup while bounding a stalled session's memory.
 const AUDIO_CHANNEL_CAP: usize = 64;
 
+/// Per-language audio buffer. Each language drains its own copy; if one stalls its buffer
+/// fills and drops chunks rather than back-pressuring the others or the host.
+const PER_SESSION_AUDIO_CAP: usize = 128;
+
+/// How often the language set is re-checked against who is actually watching. A viewer
+/// who joins mid-talk starts being translated within this window; a language nobody is
+/// left watching stops costing money within it.
+const RECONCILE_MS: u64 = 1000;
+
+/// Reconnect backoff bounds (ms) and the cap on CONSECUTIVE failed re-opens before one
+/// language gives up (a persistent failure, e.g. a bad key).
+const RECONNECT_BASE_MS: u64 = 500;
+const RECONNECT_MAX_MS: u64 = 8000;
+const MAX_OPEN_FAILURES: u32 = 6;
+
 // The idle gap that closes a segment lives in `QwenConfig::segment_idle_ms`
 // (`QWEN_SEGMENT_IDLE_MS`), shared with the Standard tier in calls so both Qwen surfaces
 // draw the sentence boundary alike.
@@ -82,61 +105,6 @@ const AUDIO_CHANNEL_CAP: usize = 64;
 // live API, including with three seconds of trailing silence — NEVER sends `.completed`.
 // Waiting for one leaves viewers with interims that are never translated, persisted, or
 // finalised: subtitles that flicker and vanish, and a viewer TTS with nothing to speak.
-
-/// The subtitle decision for one Qwen transcription event: broadcast an interim, a
-/// final (which the caller then translates), or drop it. Pure + unit-testable —
-/// exactly the classification `process_webinar_transcripts` applies per event.
-#[derive(Debug, Clone, PartialEq)]
-pub enum TranscriptDecision {
-    /// A live partial (interim) in the source language — broadcast untranslated.
-    Interim(String),
-    /// A finalized utterance — the caller fans out a translation and broadcasts.
-    Final(String),
-    /// Nothing to do (not a transcription event, or empty/whitespace text).
-    Drop,
-}
-
-/// Fold one Qwen event into the running interim `buffer` and return what to broadcast.
-///
-/// Qwen streams the host's words as [`QwenEvent::InputTranscript`] fragments — which may
-/// be appends OR full snapshots, hence [`crate::engine::qwen::TextUpdate`] — and then
-/// repeats the whole utterance as [`QwenEvent::InputTranscriptDone`]. So the interim is
-/// the folded buffer (a growing partial, matching what viewers used to see) while the
-/// final comes from the `Done` payload, which also resets the buffer for the next
-/// utterance.
-///
-/// Pure (the buffer is the caller's), so the interim/final split, the accumulation, and
-/// the empty-text drop are unit-tested without a live Qwen connection.
-pub fn fold_event(buffer: &mut String, event: &QwenEvent) -> TranscriptDecision {
-    match event {
-        QwenEvent::InputTranscript(update) => {
-            // Delta appends, Snapshot replaces. Blindly appending would repeat the
-            // sentence on every frame from a `*.text` event — the duplication observed
-            // against the live API.
-            update.apply(buffer);
-            let text = buffer.trim();
-            if text.is_empty() {
-                TranscriptDecision::Drop
-            } else {
-                TranscriptDecision::Interim(text.to_string())
-            }
-        }
-        QwenEvent::InputTranscriptDone(whole) => {
-            // Reset regardless: the next utterance must not inherit this one's partial,
-            // even when the final itself is dropped as empty.
-            buffer.clear();
-            let text = whole.trim();
-            if text.is_empty() {
-                TranscriptDecision::Drop
-            } else {
-                TranscriptDecision::Final(text.to_string())
-            }
-        }
-        // The transcribe-only session generates no speech and no translation, so every
-        // other event (session.updated, response.done, errors) is inert here.
-        _ => TranscriptDecision::Drop,
-    }
-}
 
 /// Whether a webinar in `status` may open an STT stream. `live` is the normal
 /// case; `scheduled` is allowed so the host can warm the mic just before going on
@@ -229,49 +197,30 @@ async fn handle_stt(
     // (normal close OR the whole future being dropped on shutdown).
     _stt_guard: crate::webinar::presence::SttGuard,
 ) {
-    // Open the per-host Qwen TRANSCRIBE-only connection. On failure we just close: no
-    // subtitles, but the webinar (WHIP media) is unaffected.
-    // The host's language MUST be passed: the ASR defaults to English server-side, so an
-    // Italian webinar would otherwise be transcribed as though it were English.
-    let (qwen_sink, qwen_source) =
-        match qwen::open_transcribe_session(&state.config.qwen, &source_language).await {
-            Ok(pair) => pair,
-            Err(e) => {
-                tracing::warn!(%code, "webinar STT: qwen connect failed: {e}");
-                return;
-            }
-        };
-
     let (mut ws_tx, mut ws_rx) = socket.split();
-    // Audio bridge: host binary frames → Qwen.
+    // Audio bridge: host binary frames → the per-language coordinator.
     let (audio_tx, audio_rx) = mpsc::channel::<Vec<u8>>(AUDIO_CHANNEL_CAP);
-    let forward = tokio::spawn(forward_audio_to_qwen(audio_rx, qwen_sink));
-    let process = tokio::spawn(process_webinar_transcripts(
-        qwen_source,
+    let session = tokio::spawn(run_webinar_session(
+        state.config.qwen.clone(),
         state.clone(),
         code.clone(),
         source_language.clone(),
         webinar_id,
         record_transcript,
+        audio_rx,
     ));
-    // Abort-on-drop: if this future is dropped before the clean teardown below
-    // (e.g. runtime shutdown, or the read loop never returning on a half-open
-    // socket), both tasks are cancelled so the Qwen connection can't leak and
-    // keep billing. On the normal path the awaits below finish first, making these
-    // no-ops.
-    let _abort = (
-        AbortOnDrop(forward.abort_handle()),
-        AbortOnDrop(process.abort_handle()),
-    );
-    // The presence WS pushes count/subtitle frames; the STT socket is audio-in
-    // only, so there's nothing to send back on it. Keep the sink alive to close
-    // it cleanly at the end.
+    // Abort-on-drop: if this future is dropped before the clean teardown below (runtime
+    // shutdown, or a read loop that never returns on a half-open socket), the coordinator
+    // is cancelled so its upstream sessions cannot leak and keep billing.
+    let _abort = AbortOnDrop(session.abort_handle());
+    // The presence WS pushes count/subtitle/audio frames; the STT socket is audio-in
+    // only, so there is nothing to send back on it. Keep the sink alive to close cleanly.
     let _ = &mut ws_tx;
 
     while let Some(Ok(msg)) = ws_rx.next().await {
         match msg {
             Message::Binary(chunk) => {
-                // A full audio channel means Qwen is behind; drop the chunk
+                // A full audio channel means the coordinator is behind; drop the chunk
                 // rather than block the socket read (best-effort live captions).
                 if audio_tx.try_send(chunk.to_vec()).is_err() {
                     tracing::debug!(%code, "webinar STT: audio buffer full, dropping chunk");
@@ -284,211 +233,340 @@ async fn handle_stt(
         }
     }
 
-    // Host disconnected: drop the audio channel so the pump commits the buffered
-    // tail, then let the processor drain.
+    // Host disconnected: dropping the channel closes every language feed, so each session
+    // flushes its tail and exits.
     drop(audio_tx);
-    let _ = forward.await;
-    let _ = process.await;
+    let _ = session.await;
 }
 
-/// Pump host audio into the Qwen session: resample each 24 kHz capture chunk to the
-/// 16 kHz the API wants and append it. When the channel closes (host disconnected) the
-/// buffered tail is COMMITTED before the socket closes — otherwise turn detection would
-/// wait for a silence that never arrives and the last utterance would never be
-/// transcribed.
-async fn forward_audio_to_qwen(mut audio_rx: mpsc::Receiver<Vec<u8>>, mut sink: QwenSink) {
-    use futures::SinkExt as _;
-    use tokio_tungstenite::tungstenite::Message as QwenMessage;
-
-    while let Some(chunk) = audio_rx.recv().await {
-        let chunk16 = resample_pcm16_mono(&chunk, qwen::CAPTURE_HZ, qwen::QWEN_INPUT_HZ);
-        if sink
-            .send(QwenMessage::text(qwen::audio_append_json(&chunk16)))
-            .await
-            .is_err()
-        {
-            return; // upstream gone; the processor sees the closed stream next
-        }
-    }
-    let _ = sink
-        .send(QwenMessage::text(qwen::audio_commit_json()))
-        .await;
-    let _ = sink.close().await;
-}
-
-/// Read Qwen transcription events for the host and drive viewer subtitles: interims
-/// broadcast untranslated; finals fan out a translation into every viewer
-/// language present RIGHT NOW (late joiners covered) and, when the webinar records
-/// its transcript, persist a row best-effort. Wired to the presence registry instead
-/// of `RoomManager`.
-async fn process_webinar_transcripts(
-    mut source: QwenSource,
+/// One Qwen session per distinct viewer language, fed from the host's single stream.
+///
+/// This mirrors the call path's Standard engine ([`crate::engine::standard`]) rather than
+/// the transcribe-and-translate-with-Groq shape a webinar used to have. The trade is
+/// deliberate and it is not small: a webinar with ten viewer languages now opens ten
+/// upstream sessions instead of one, and pays accordingly. What it buys is that a webinar
+/// and a call are the same product — same engine, same 29 spoken languages, same voice —
+/// instead of two systems that merely look alike.
+///
+/// Languages are reconciled every [`RECONCILE_MS`] against who is actually watching, so a
+/// viewer who joins mid-talk starts being translated for without disturbing the sessions
+/// already running, and a language nobody is left watching stops costing money.
+async fn run_webinar_session(
+    config: QwenConfig,
     state: AppState,
     code: String,
     source_language: String,
     webinar_id: Uuid,
     record_transcript: bool,
+    mut audio_rx: mpsc::Receiver<Vec<u8>>,
 ) {
-    // Guard against a byte-identical final arriving twice for the same utterance
-    // (e.g. a reconnect replaying the tail).
-    const DUP_FINAL_WINDOW: std::time::Duration = std::time::Duration::from_secs(8);
-    let mut last_final: Option<(String, std::time::Instant)> = None;
-    // The running partial the interim frames are built from — owned here, folded by
-    // the pure `fold_event`.
-    let mut partial = String::new();
+    let mut active: HashMap<String, mpsc::Sender<Vec<u8>>> = HashMap::new();
+    // The primary session is the one that persists the transcript, so an utterance is
+    // stored once rather than once per language.
+    let mut primary: Option<String> = None;
+    let mut reconcile = interval(Duration::from_millis(RECONCILE_MS));
+    reconcile.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
-    // Qwen is a tokio-tungstenite client, so its frames are tungstenite's
-    // `Message` — a DISTINCT type from axum's `Message` used for the host socket.
-    use tokio_tungstenite::tungstenite::Message as QwenMessage;
-    let segment_idle_ms = state.config.qwen.segment_idle_ms;
-    let idle = tokio::time::sleep(std::time::Duration::from_millis(segment_idle_ms));
-    tokio::pin!(idle);
     loop {
-        let raw = tokio::select! {
-            // The partial stopped growing: draw the segment boundary ourselves.
-            _ = &mut idle => {
-                let text = partial.trim().to_string();
-                partial.clear();
-                idle.as_mut().reset(tokio::time::Instant::now() + std::time::Duration::from_secs(3600));
-                if !text.is_empty() {
-                    finalize(&state, &code, &source_language, webinar_id, record_transcript,
-                             &mut last_final, DUP_FINAL_WINDOW, text);
+        tokio::select! {
+            chunk = audio_rx.recv() => match chunk {
+                Some(chunk) => {
+                    // Resample to 16 kHz ONCE, then fan out. `try_send` so one stalled or
+                    // reconnecting language never back-pressures the others or the host.
+                    let chunk16 = resample_pcm16_mono(&chunk, qwen::CAPTURE_HZ, qwen::QWEN_INPUT_HZ);
+                    for feed in active.values() {
+                        let _ = feed.try_send(chunk16.clone());
+                    }
                 }
-                continue;
-            }
-            msg = source.next() => match msg {
-                Some(Ok(QwenMessage::Text(t))) => t.to_string(),
-                Some(Ok(QwenMessage::Binary(b))) => match String::from_utf8(b.to_vec()) {
-                    Ok(s) => s,
-                    Err(_) => continue,
-                },
-                Some(Ok(QwenMessage::Close(_))) | None => break,
-                Some(Ok(_)) => continue, // ping/pong — ignore
-                Some(Err(e)) => {
-                    tracing::warn!(%code, "webinar STT: qwen stream error: {e}");
-                    break;
-                }
+                // Host stopped: dropping `active` ends every language task.
+                None => return,
             },
-        };
-
-        for event in qwen::parse_server_message(&raw) {
-            if let QwenEvent::Error(e) = &event {
-                tracing::warn!(%code, "webinar STT: qwen session error: {e}");
-            }
-            match fold_event(&mut partial, &event) {
-                TranscriptDecision::Drop => {}
-                TranscriptDecision::Interim(text) => {
-                    // The partial grew: push the boundary out again.
-                    idle.as_mut().reset(
-                        tokio::time::Instant::now()
-                            + std::time::Duration::from_millis(segment_idle_ms),
-                    );
-                    state.webinar_presence.broadcast_subtitle(
-                        &code,
-                        &SubtitleEvent::Interim {
-                            text,
-                            lang: source_language.clone(),
-                        },
-                    );
+            _ = reconcile.tick() => {
+                let mut want = state.webinar_presence.target_languages(&code);
+                // A viewer already watching in the host's language needs no translation.
+                want.retain(|l| l != &source_language);
+                let have: HashSet<String> = active.keys().cloned().collect();
+                let (drop_langs, add_langs) = crate::engine::reconcile_langs(&have, &want);
+                for lang in &drop_langs {
+                    active.remove(lang);
+                    if primary.as_ref() == Some(lang) {
+                        primary = None; // re-elected on the next add
+                    }
                 }
-                // Only reachable if the ASR ever starts sending `.completed`; it does
-                // not today, so the idle branch above is what normally finalises.
-                TranscriptDecision::Final(text) => {
-                    idle.as_mut()
-                        .reset(tokio::time::Instant::now() + std::time::Duration::from_secs(3600));
-                    finalize(
-                        &state,
-                        &code,
-                        &source_language,
+                for lang in add_langs {
+                    let is_primary = primary.is_none();
+                    let (feed_tx, feed_rx) = mpsc::channel::<Vec<u8>>(PER_SESSION_AUDIO_CAP);
+                    tokio::spawn(lang_session(
+                        config.clone(),
+                        state.clone(),
+                        code.clone(),
+                        source_language.clone(),
+                        lang.clone(),
                         webinar_id,
                         record_transcript,
-                        &mut last_final,
-                        DUP_FINAL_WINDOW,
-                        text,
-                    );
+                        is_primary,
+                        feed_rx,
+                    ));
+                    if is_primary {
+                        primary = Some(lang.clone());
+                    }
+                    active.insert(lang, feed_tx);
                 }
             }
         }
-    }
-
-    // Socket closed mid-utterance: flush what we have rather than dropping the tail.
-    let tail = partial.trim().to_string();
-    if !tail.is_empty() {
-        finalize(
-            &state,
-            &code,
-            &source_language,
-            webinar_id,
-            record_transcript,
-            &mut last_final,
-            DUP_FINAL_WINDOW,
-            tail,
-        );
     }
 }
 
-/// Finalize one utterance: dedupe, then translate → broadcast → persist off-thread.
-///
-/// Spawned rather than awaited so a slow Groq call never head-of-line-blocks the
-/// subsequent interims; the dedup decision stays on the caller's thread so its ordering
-/// is preserved. Extracted because two call sites need it — the idle boundary and, if the
-/// ASR ever sends one, a real `.completed`.
+/// Keep one target language translating across transient drops, with capped backoff.
 #[allow(clippy::too_many_arguments)]
-fn finalize(
-    state: &AppState,
-    code: &str,
-    source_language: &str,
+async fn lang_session(
+    config: QwenConfig,
+    state: AppState,
+    code: String,
+    source_language: String,
+    target: String,
     webinar_id: Uuid,
     record_transcript: bool,
-    last_final: &mut Option<(String, std::time::Instant)>,
-    dup_window: std::time::Duration,
-    text: String,
+    is_primary: bool,
+    mut feed_rx: mpsc::Receiver<Vec<u8>>,
 ) {
-    // Drop a final that exactly repeats the previous one within the window — kills the
-    // duplicate-final glitch without affecting genuinely distinct (or later-repeated)
-    // speech.
-    let now = std::time::Instant::now();
-    if let Some((prev, when)) = last_final.as_ref() {
-        if prev == &text && now.duration_since(*when) < dup_window {
+    let mut failures: u32 = 0;
+    loop {
+        match qwen::open_session(&config, &source_language, &target).await {
+            Ok((sink, source)) => {
+                failures = 0;
+                let ended = run_lang_connection(
+                    sink,
+                    source,
+                    &mut feed_rx,
+                    &state,
+                    &code,
+                    &source_language,
+                    &target,
+                    webinar_id,
+                    record_transcript,
+                    is_primary,
+                    config.segment_idle_ms,
+                )
+                .await;
+                if ended {
+                    return; // host stopped
+                }
+                tracing::warn!(%code, %target, "webinar: qwen session dropped — reconnecting");
+            }
+            Err(e) => {
+                failures += 1;
+                tracing::warn!(%code, %target, failures, "webinar: qwen open failed: {e}");
+                if failures >= MAX_OPEN_FAILURES {
+                    tracing::error!(%code, %target, "webinar: giving up on this language");
+                    return;
+                }
+            }
+        }
+        let backoff = (RECONNECT_BASE_MS << failures.min(4)).min(RECONNECT_MAX_MS);
+        tokio::time::sleep(Duration::from_millis(backoff)).await;
+        if feed_rx.is_closed() {
             return;
         }
     }
-    *last_final = Some((text.clone(), now));
+}
 
-    let state = state.clone();
-    let code = code.to_string();
+/// Drive one live connection for one language. Returns `true` when the host stopped
+/// (the feed closed), `false` when the connection dropped and should be retried.
+// `flush!` resets the segment state, which is dead on the two paths that flush and then
+// return — but correct on the loop paths, and duplicating the macro to avoid it would be
+// worse than the warning it silences.
+#[allow(unused_assignments)]
+#[allow(clippy::too_many_arguments)]
+async fn run_lang_connection(
+    mut sink: QwenSink,
+    mut source: QwenSource,
+    feed_rx: &mut mpsc::Receiver<Vec<u8>>,
+    state: &AppState,
+    code: &str,
+    source_language: &str,
+    target: &str,
+    webinar_id: Uuid,
+    record_transcript: bool,
+    is_primary: bool,
+    segment_idle_ms: u64,
+) -> bool {
+    use futures::SinkExt as _;
+    use tokio_tungstenite::tungstenite::Message as QwenMessage;
+
+    let mut original = String::new();
+    let mut translated = String::new();
+    let mut dirty = false;
+    let mut audio_seq: u64 = 0;
+    let mut last_final: Option<(String, std::time::Instant)> = None;
+    let idle = tokio::time::sleep(Duration::from_millis(segment_idle_ms));
+    tokio::pin!(idle);
+
+    // Closing a segment: the viewers of THIS language get the final, and only the primary
+    // session writes the transcript row so an utterance is stored once.
+    macro_rules! flush {
+        () => {
+            if dirty {
+                let text = translated.trim().to_string();
+                if !text.is_empty() {
+                    let mut translations = HashMap::new();
+                    translations.insert(target.to_string(), text.clone());
+                    state.webinar_presence.broadcast_to_lang(
+                        code,
+                        target,
+                        &SubtitleEvent::Final {
+                            original: original.trim().to_string(),
+                            lang: source_language.to_string(),
+                            translations: translations.clone(),
+                        }
+                        .to_json(),
+                    );
+                    if is_primary {
+                        finalize_record(
+                            state,
+                            webinar_id,
+                            record_transcript,
+                            &mut last_final,
+                            original.trim().to_string(),
+                            source_language,
+                            translations,
+                        );
+                    }
+                }
+                original.clear();
+                translated.clear();
+                dirty = false;
+            }
+            idle.as_mut()
+                .reset(tokio::time::Instant::now() + Duration::from_secs(3600));
+        };
+    }
+
+    loop {
+        tokio::select! {
+            chunk = feed_rx.recv() => match chunk {
+                Some(c) => {
+                    let _ = sink.send(QwenMessage::text(qwen::audio_append_json(&c))).await;
+                }
+                None => {
+                    flush!();
+                    let _ = sink.close().await;
+                    return true;
+                }
+            },
+            msg = source.next() => {
+                let raw = match msg {
+                    Some(Ok(QwenMessage::Text(t))) => t.to_string(),
+                    Some(Ok(QwenMessage::Binary(b))) => match String::from_utf8(b.to_vec()) {
+                        Ok(s) => s,
+                        Err(_) => continue,
+                    },
+                    Some(Ok(QwenMessage::Close(_))) | None => { flush!(); return false }
+                    Some(Ok(_)) => continue,
+                    Some(Err(e)) => {
+                        tracing::warn!(%code, %target, "webinar: qwen stream error: {e}");
+                        flush!();
+                        return false;
+                    }
+                };
+                for event in qwen::parse_server_message(&raw) {
+                    match event {
+                        QwenEvent::InputTranscript(u) => {
+                            u.apply(&mut original);
+                            dirty = true;
+                            idle.as_mut().reset(
+                                tokio::time::Instant::now() + Duration::from_millis(segment_idle_ms),
+                            );
+                        }
+                        QwenEvent::OutputTranscript(u) => {
+                            u.apply(&mut translated);
+                            dirty = true;
+                            // A live partial, already in the viewer's language.
+                            state.webinar_presence.broadcast_to_lang(
+                                code,
+                                target,
+                                &SubtitleEvent::Interim {
+                                    text: translated.trim().to_string(),
+                                    lang: source_language.to_string(),
+                                }
+                                .to_json(),
+                            );
+                            idle.as_mut().reset(
+                                tokio::time::Instant::now() + Duration::from_millis(segment_idle_ms),
+                            );
+                        }
+                        QwenEvent::OutputAudio(pcm) => {
+                            state.webinar_presence.broadcast_to_lang(
+                                code,
+                                target,
+                                &AudioEvent {
+                                    lang: target.to_string(),
+                                    seq: audio_seq,
+                                    pcm16_b64: BASE64.encode(&pcm),
+                                }
+                                .to_json(),
+                            );
+                            audio_seq += 1;
+                        }
+                        QwenEvent::TurnComplete => { flush!(); }
+                        QwenEvent::Error(e) => {
+                            tracing::warn!(%code, %target, "webinar: qwen session error: {e}");
+                        }
+                        // Session lifecycle and the whole-utterance echo are inert here: the
+                        // segment boundary is TurnComplete or the idle gap.
+                        QwenEvent::SessionReady | QwenEvent::InputTranscriptDone(_) => {}
+                    }
+                }
+            }
+            _ = &mut idle => { flush!(); }
+        }
+    }
+}
+
+/// Persist one finalized utterance, off-thread and de-duplicated.
+///
+/// Only the PRIMARY language session calls this, so an utterance is stored once rather
+/// than once per language. The stored `translations` map therefore carries the primary
+/// language rather than every language present — a real narrowing versus the old Groq
+/// fan-out, which produced all of them in a single call. Recovering the full map would
+/// need the per-language sessions to agree on an utterance identity they do not share.
+fn finalize_record(
+    state: &AppState,
+    webinar_id: Uuid,
+    record_transcript: bool,
+    last_final: &mut Option<(String, std::time::Instant)>,
+    original: String,
+    source_language: &str,
+    translations: HashMap<String, String>,
+) {
+    if original.is_empty() || !record_transcript {
+        return;
+    }
+    // Drop a final that exactly repeats the previous one within the window — kills the
+    // duplicate-final glitch without affecting genuinely distinct speech.
+    const DUP_FINAL_WINDOW: Duration = Duration::from_secs(8);
+    let now = std::time::Instant::now();
+    if let Some((prev, when)) = last_final.as_ref() {
+        if prev == &original && now.duration_since(*when) < DUP_FINAL_WINDOW {
+            return;
+        }
+    }
+    *last_final = Some((original.clone(), now));
+
+    let Some(pool) = state.pool.clone() else {
+        return;
+    };
     let source_language = source_language.to_string();
     tokio::spawn(async move {
-        // Fan out per distinct viewer language read LIVE from the registry (P2: late
-        // joiners covered — we read on every final).
-        let targets = state.webinar_presence.target_languages(&code);
-        let translations = state
-            .translator
-            .translate_fanout(&text, &source_language, &targets, None)
-            .await;
-
-        state.webinar_presence.broadcast_subtitle(
-            &code,
-            &SubtitleEvent::Final {
-                original: text.clone(),
-                lang: source_language.clone(),
-                translations: translations.clone(),
-            },
-        );
-
-        // P4: persist best-effort only when recording is on — same posture as
-        // `presence::record_join` (`let _ = ...`).
-        if let Some(pool) = state.pool.clone() {
-            persist_final(
-                record_transcript,
-                &pool,
-                webinar_id,
-                &text,
-                &source_language,
-                &translations,
-            )
-            .await;
-        }
+        persist_final(
+            true,
+            &pool,
+            webinar_id,
+            &original,
+            &source_language,
+            &translations,
+        )
+        .await;
     });
 }
 
@@ -541,115 +619,6 @@ async fn record_transcript_row(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    use crate::engine::qwen::TextUpdate;
-
-    fn delta(text: &str) -> QwenEvent {
-        QwenEvent::InputTranscript(TextUpdate::Delta(text.to_string()))
-    }
-
-    /// A `*.text` frame: the whole utterance so far, which must REPLACE the buffer.
-    fn snapshot(text: &str) -> QwenEvent {
-        QwenEvent::InputTranscript(TextUpdate::Snapshot(text.to_string()))
-    }
-
-    fn done(text: &str) -> QwenEvent {
-        QwenEvent::InputTranscriptDone(text.to_string())
-    }
-
-    #[test]
-    fn interims_accumulate_the_running_partial() {
-        // Qwen streams fragments; viewers must see the sentence GROW, not each fragment
-        // on its own.
-        let mut buf = String::new();
-        assert_eq!(
-            fold_event(&mut buf, &delta("ciao ")),
-            TranscriptDecision::Interim("ciao".to_string())
-        );
-        assert_eq!(
-            fold_event(&mut buf, &delta("a ")),
-            TranscriptDecision::Interim("ciao a".to_string())
-        );
-        assert_eq!(
-            fold_event(&mut buf, &delta("tutti")),
-            TranscriptDecision::Interim("ciao a tutti".to_string())
-        );
-    }
-
-    #[test]
-    fn snapshots_replace_instead_of_appending() {
-        // The livetranslate family re-sends the WHOLE utterance every frame. Appending
-        // them produced "ciaociao aciao a tutti" against the live API; the buffer must
-        // track the latest snapshot instead.
-        let mut buf = String::new();
-        assert_eq!(
-            fold_event(&mut buf, &snapshot("ciao")),
-            TranscriptDecision::Interim("ciao".to_string())
-        );
-        assert_eq!(
-            fold_event(&mut buf, &snapshot("ciao a")),
-            TranscriptDecision::Interim("ciao a".to_string())
-        );
-        assert_eq!(
-            fold_event(&mut buf, &snapshot("ciao a tutti")),
-            TranscriptDecision::Interim("ciao a tutti".to_string())
-        );
-        assert_eq!(buf, "ciao a tutti");
-    }
-
-    #[test]
-    fn completed_becomes_the_final_and_resets_the_partial() {
-        let mut buf = String::new();
-        fold_event(&mut buf, &delta("ciao a"));
-        assert_eq!(
-            fold_event(&mut buf, &done("ciao a tutti")),
-            TranscriptDecision::Final("ciao a tutti".to_string())
-        );
-        // The next utterance starts clean — otherwise it would inherit "ciao a".
-        assert!(buf.is_empty());
-        assert_eq!(
-            fold_event(&mut buf, &delta("benvenuti")),
-            TranscriptDecision::Interim("benvenuti".to_string())
-        );
-    }
-
-    #[test]
-    fn drops_empty_and_whitespace_text() {
-        let mut buf = String::new();
-        assert_eq!(
-            fold_event(&mut buf, &delta("   ")),
-            TranscriptDecision::Drop
-        );
-        assert_eq!(fold_event(&mut buf, &done("")), TranscriptDecision::Drop);
-        // An empty final still resets, so the whitespace partial can't leak forward.
-        assert!(buf.is_empty());
-    }
-
-    #[test]
-    fn trims_transcript_text() {
-        let mut buf = String::new();
-        assert_eq!(
-            fold_event(&mut buf, &done("  hola  ")),
-            TranscriptDecision::Final("hola".to_string())
-        );
-    }
-
-    #[test]
-    fn ignores_events_the_transcribe_session_does_not_produce() {
-        // The transcribe-only session generates no speech and no translation; those
-        // events must be inert rather than leaking into subtitles.
-        let mut buf = String::new();
-        for event in [
-            QwenEvent::SessionReady,
-            QwenEvent::TurnComplete,
-            QwenEvent::OutputTranscript(TextUpdate::Delta("should not appear".into())),
-            QwenEvent::OutputAudio(vec![1, 2, 3]),
-            QwenEvent::Error("boom".into()),
-        ] {
-            assert_eq!(fold_event(&mut buf, &event), TranscriptDecision::Drop);
-        }
-        assert!(buf.is_empty());
-    }
 
     #[test]
     fn stt_allowed_only_for_live_or_scheduled() {
