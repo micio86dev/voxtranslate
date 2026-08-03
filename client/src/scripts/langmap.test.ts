@@ -72,15 +72,27 @@ describe('tierOutputLangs', () => {
     }
   });
 
-  it('tiers grow monotonically from standard to premium', () => {
-    expect(tierOutputLangs('standard').length).toBeLessThanOrEqual(
-      tierOutputLangs('pro').length,
-    );
-    expect(tierOutputLangs('pro').length).toBeLessThanOrEqual(
-      tierOutputLangs('enhanced').length,
-    );
-    // Premium (Gemini) covers the whole union.
+  // Coverage does NOT follow price. This used to assert standard <= pro <= enhanced,
+  // which encoded a pricing ladder rather than a fact about the providers: the tiers are
+  // different vendors, and a cheaper one can reach further. Standard (Qwen 3.5
+  // LiveTranslate, 29 languages it can speak) now covers more than Pro (OpenAI
+  // GPT-Realtime-Translate, 13). What actually has to hold is the floor and the ceiling.
+  it('every tier carries the legacy 8, and premium covers the whole union', () => {
+    const LEGACY_8 = ['it', 'en', 'es', 'fr', 'de', 'pt', 'ja', 'zh'];
+    for (const tier of ['standard', 'pro', 'enhanced', 'premium']) {
+      const langs = tierOutputLangs(tier);
+      for (const code of LEGACY_8) expect(langs, `${tier}:${code}`).toContain(code);
+    }
+    // Premium (Gemini) is the universal fallback, so it must reach everything.
     expect(tierOutputLangs('premium').length).toBe(LANGUAGES.length);
+  });
+
+  it('standard offers only languages its engine can SPEAK', () => {
+    // Qwen 3.5 LiveTranslate reaches 60 target languages but speaks 29; the rest are
+    // text only. On a speech-to-speech tier a text-only target is subtitles and silence,
+    // so the list is the audio-capable set — no wider, and no narrower than the model
+    // actually supports, or we throw away reach we are already paying for.
+    expect(tierOutputLangs('standard')).toHaveLength(29);
   });
 
   it('is [] for an unknown tier', () => {

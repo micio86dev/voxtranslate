@@ -489,13 +489,13 @@ impl Default for QwenConfig {
             // is just an env change; `engine::qwen::QwenDialect` adapts the session shape
             // and turn control automatically.
             //
-            // Pinned to **v3**, not 3.5: as of Aug 2026 every attempt at
-            // `qwen3.5-livetranslate-flash-realtime` on the Singapore deployment closes
-            // with `thread pool exausted max_workers 100` (their spelling) — an upstream
-            // capacity limit, not a client error. v3 answers in ~3.0 s to first audio and
-            // is measurably FASTER than the omni models (~5.4 s). Re-test 3.5 before
-            // promoting it; the probe in `engine::qwen::tests` does exactly that.
-            model: "qwen3-livetranslate-flash-realtime".into(),
+            // Pinned to the 3.5 REALTIME livetranslate model. An earlier revision fell
+            // back to v3 after 3.5 closed every session with `thread pool exausted
+            // max_workers 100` — an upstream capacity condition, not a client error, and
+            // it cleared. 3.5 is both faster (first audio ~1.3 s vs ~2.8 s on the same
+            // clip) and far wider: 29 languages it can SPEAK, against v3's 18. Do not
+            // "fix" a transient capacity error by downgrading this again; retry it.
+            model: "qwen3.5-livetranslate-flash-realtime".into(),
             endpoint: QWEN_DEFAULT_ENDPOINT.into(),
             workspace_id: None,
             voice: None,

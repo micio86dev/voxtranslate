@@ -6,6 +6,12 @@
 //! means the picker's per-tier language filtering and each engine's advertised
 //! `output_languages` can never drift.
 //!
+//! A tier lists exactly the languages its engine can SPEAK. Qwen 3.5 LiveTranslate
+//! reaches 60 target languages but only 29 of them with AUDIO; the other 31 are text
+//! only. Offering a text-only language on a speech-to-speech tier hands the user
+//! subtitles and silence, so `standard` carries the audio-capable set rather than the
+//! model's full reach.
+//!
 //! Invariant (asserted in tests): every tier list is a **superset of the legacy 8**
 //! (`it,en,es,fr,de,pt,ja,zh`) so the flag-off `commonLangs` intersection (spec 0094) never
 //! shrinks, and `premium` is the full union (the universal-fallback tier). Provider language
@@ -14,12 +20,12 @@
 use std::collections::HashMap;
 use std::sync::LazyLock;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// One language in the union, mirroring the JSON entries. The backend only needs the tier
 /// lists today; the metadata fields are parsed (and exposed) so tests can assert integrity
 /// and a future endpoint could serve them.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Language {
     pub code: String,
     pub native: String,
@@ -49,6 +55,13 @@ static MAP: LazyLock<LanguageMap> = LazyLock::new(|| {
 /// in the JSON's declared order. Empty for an unknown tier (caller decides the fallback).
 pub fn tier_output_langs(tier: &str) -> Vec<String> {
     MAP.tiers.get(tier).cloned().unwrap_or_default()
+}
+
+/// The whole tier → output-languages map, for serving the catalogue to clients that
+/// cannot import this file at build time (the Chrome extension lives in its own repo).
+/// Handing out the map beats letting each client keep a synced copy that drifts.
+pub fn tiers() -> &'static HashMap<String, Vec<String>> {
+    &MAP.tiers
 }
 
 /// Every language code in the union (the master set the picker offers).

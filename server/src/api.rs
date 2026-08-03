@@ -71,6 +71,32 @@ pub async fn engines(State(state): State<AppState>) -> Response {
     .into_response()
 }
 
+/// `GET /api/languages` — the shared language catalogue: every language with its
+/// metadata, the region order the picker groups by, and the tier → output-languages map.
+///
+/// This exists so no client has to carry its own copy. The web client imports
+/// `languages.json` at build time (same repo, so it IS the single source), but the Chrome
+/// extension lives in a separate repo and used to bundle a hand-synced duplicate kept in
+/// step by a `sync:langs` script. A copy maintained by ritual drifts the moment someone
+/// forgets, and the tier lists decide which languages a user is offered — so a stale copy
+/// offers languages the engine cannot speak, or hides ones it can.
+///
+/// Guest-safe and static: cacheable, no auth, no per-user content.
+pub async fn languages() -> Response {
+    (
+        [(
+            axum::http::header::CACHE_CONTROL,
+            "public, max-age=3600, stale-while-revalidate=86400",
+        )],
+        Json(serde_json::json!({
+            "languages": crate::engine::langmap::languages(),
+            "regions": crate::engine::langmap::regions(),
+            "tiers": crate::engine::langmap::tiers(),
+        })),
+    )
+        .into_response()
+}
+
 // ---- Cartesia "Enhanced" client-direct session + voice cloning (spec 0108) --
 
 /// Mint one short-lived Cartesia access token (server→Cartesia, Bearer = the raw API key).
