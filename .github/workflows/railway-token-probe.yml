@@ -1,0 +1,47 @@
+# TEMPORARY diagnostic — delete once it has answered its question.
+#
+# Can the existing RAILWAY_TOKEN reach the STAGING environment, or is it scoped to
+# production? Railway has two token kinds: a *project* token carries a fixed
+# project+environment binding, an *account* token does not and accepts --environment.
+# `deploy-server` runs `railway up` with no `railway link` and no --environment yet
+# reliably ships production, which implies a project token — but that is a deduction,
+# and the answer decides whether staging needs a second secret at all.
+#
+# READ-ONLY BY CONSTRUCTION: only `whoami` and `status` run here. Nothing deploys,
+# nothing is written. Manual trigger only, so it can never fire on a push.
+name: Railway token probe
+
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: Install Railway CLI
+        run: npm i -g @railway/cli
+      - name: What can this token see?
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        # `|| true` on every call: a scoped token ERRORS on the commands it may not
+        # answer, and that error is itself the result we are after — it must not fail
+        # the job before the later probes run.
+        run: |
+          echo "::group::whoami"
+          railway whoami || true
+          echo "::endgroup::"
+
+          echo "::group::status (token default environment)"
+          railway status || true
+          echo "::endgroup::"
+
+          echo "::group::status --environment staging"
+          railway status --environment staging || true
+          echo "::endgroup::"
+
+          echo "::group::status --environment production"
+          railway status --environment production || true
+          echo "::endgroup::"
