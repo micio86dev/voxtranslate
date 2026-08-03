@@ -128,6 +128,24 @@ jobs:
           echo "has_railway=${{ secrets.RAILWAY_TOKEN != '' }}" >> "$GITHUB_OUTPUT"
           echo "has_railway_staging=${{ secrets.RAILWAY_STAGING_TOKEN != '' }}" >> "$GITHUB_OUTPUT"
           echo "has_hetzner=${{ secrets.HETZNER_SSH_KEY != '' }}" >> "$GITHUB_OUTPUT"
+      # TEMPORARY read-only probe — remove once answered. Does the existing
+      # RAILWAY_TOKEN reach STAGING, or is it bound to production? Railway project
+      # tokens carry a fixed project+environment; account tokens accept --environment.
+      # The answer decides whether staging needs a second secret at all. Only `whoami`
+      # and `status` run: nothing is written, nothing is deployed.
+      - name: Probe Railway token scope (read-only, temporary)
+        if: ${{ github.ref == 'refs/heads/develop' }}
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          if [ -z "$RAILWAY_TOKEN" ]; then echo "no RAILWAY_TOKEN secret"; exit 0; fi
+          npm i -g @railway/cli >/dev/null 2>&1
+          # A scoped token ERRORS on what it may not answer, and that error IS the
+          # result — never let it fail the job before the later probes run.
+          echo "--- whoami ---";                  railway whoami                        2>&1 | head -5 || true
+          echo "--- status (token default) ---";  railway status                        2>&1 | head -8 || true
+          echo "--- status --environment staging ---"; railway status --environment staging 2>&1 | head -8 || true
+
       # Did this push touch the server or infra? Gates redeploys so unrelated merges
       # don't trigger unnecessary rebuilds. Defaults to "true" on shallow-history edge
       # cases → never miss a deploy.
