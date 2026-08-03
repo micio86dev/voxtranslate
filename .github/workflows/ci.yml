@@ -128,24 +128,6 @@ jobs:
           echo "has_railway=${{ secrets.RAILWAY_TOKEN != '' }}" >> "$GITHUB_OUTPUT"
           echo "has_railway_staging=${{ secrets.RAILWAY_STAGING_TOKEN != '' }}" >> "$GITHUB_OUTPUT"
           echo "has_hetzner=${{ secrets.HETZNER_SSH_KEY != '' }}" >> "$GITHUB_OUTPUT"
-      # TEMPORARY read-only probe — remove once answered. Does the existing
-      # RAILWAY_TOKEN reach STAGING, or is it bound to production? Railway project
-      # tokens carry a fixed project+environment; account tokens accept --environment.
-      # The answer decides whether staging needs a second secret at all. Only `whoami`
-      # and `status` run: nothing is written, nothing is deployed.
-      - name: Probe Railway token scope (read-only, temporary)
-        if: ${{ github.ref == 'refs/heads/develop' }}
-        env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-        run: |
-          if [ -z "$RAILWAY_TOKEN" ]; then echo "no RAILWAY_TOKEN secret"; exit 0; fi
-          npm i -g @railway/cli >/dev/null 2>&1
-          # A scoped token ERRORS on what it may not answer, and that error IS the
-          # result — never let it fail the job before the later probes run.
-          echo "--- whoami ---";                  railway whoami                        2>&1 | head -5 || true
-          echo "--- status (token default) ---";  railway status                        2>&1 | head -8 || true
-          echo "--- status --environment staging ---"; railway status --environment staging 2>&1 | head -8 || true
-
       # Did this push touch the server or infra? Gates redeploys so unrelated merges
       # don't trigger unnecessary rebuilds. Defaults to "true" on shallow-history edge
       # cases → never miss a deploy.
@@ -210,10 +192,17 @@ jobs:
   # looks Git-connected and silently keeps redeploying its cached image. Verified the
   # hard way; don't re-attempt it.
   #
-  # Needs a RAILWAY_STAGING_TOKEN secret: Railway tokens are environment-scoped, so the
-  # existing RAILWAY_TOKEN targets production and cannot be reused. Until that secret
-  # exists this job skips, like every other secret-gated deploy here, and never reds a
-  # build.
+  # Needs a RAILWAY_STAGING_TOKEN secret. This is measured, not assumed: a read-only
+  # probe of the existing RAILWAY_TOKEN in this job's environment returned
+  #
+  #     railway whoami                      -> Unauthorized        (a PROJECT token has
+  #                                                                 no user identity)
+  #     railway status                      -> Environment: production
+  #     railway status --environment staging -> (nothing)
+  #
+  # so it is a project token bound to production and cannot reach staging under any
+  # flag. Until the second secret exists this job skips, like every other secret-gated
+  # deploy here, and never reds a build.
   deploy-staging:
     needs: [test, check-secrets, security-audit]
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/develop' && needs.check-secrets.outputs.has_railway_staging == 'true' && needs.check-secrets.outputs.server_changed == 'true' }}
