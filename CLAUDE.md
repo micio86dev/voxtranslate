@@ -49,6 +49,10 @@ Project-wide rule — applies to this repo and every submodule (`dashboard/`, `w
 
 - `feature/<name>` off `develop`; `release/<X.Y.Z>` (three-number version); `hotfix/<name>` off `main`.
 - `develop` → **staging** deploy; `main` → **production** deploy (on release/hotfix close).
+  Staging deploys via Railway's own GitHub integration (service source: this repo,
+  branch `develop`, root directory `server`) — NOT via CI. Production deploys from the
+  CI `deploy-server` job, which runs `railway up` on pushes to `main`; production has no
+  GitHub source attached, deliberately, so `develop` can never reach it.
 - Merge with `--no-ff`; tag releases `vX.Y.Z`; merge a release into both `main` and `develop`.
 - After every merge, prune the closed branch locally **and** on the remote.
 - Each submodule is its own repo + deploy target; bump the parent's submodule pointer after a release.
