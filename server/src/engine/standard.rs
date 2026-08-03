@@ -58,10 +58,6 @@ const AUDIO_CHANNEL_CAP: usize = 256;
 /// back-pressuring the other sessions or the speaker.
 const PER_SESSION_AUDIO_CAP: usize = 128;
 
-/// Idle gap (ms) after which the accumulated transcript is flushed as a final caption —
-/// a fallback for when `response.done` is sparse.
-const SEGMENT_IDLE_MS: u64 = 900;
-
 /// Reconnect backoff bounds (ms) and the cap on *consecutive* failed re-opens before a
 /// language session gives up (a persistent failure, e.g. a bad key).
 const RECONNECT_BASE_MS: u64 = 500;
@@ -299,6 +295,7 @@ fn spawn_lang_session(
     let reader = SessionReader {
         lang: lang.clone(),
         is_primary,
+        segment_idle_ms: config.segment_idle_ms,
         dialect: qwen::QwenDialect::from_model(&config.model),
         rooms: deps.rooms.clone(),
         transcripts: deps.transcripts.clone(),
@@ -384,7 +381,7 @@ async fn run_connection(
                                 // next turn boundary so every segment is measured.
     let mut seg_first_in: Option<Instant> = None;
     let mut seg_ttfa_logged = false;
-    let idle = sleep(Duration::from_millis(SEGMENT_IDLE_MS));
+    let idle = sleep(Duration::from_millis(reader.segment_idle_ms));
     tokio::pin!(idle);
 
     loop {
@@ -447,7 +444,7 @@ async fn run_connection(
                                 reader.emit_interim_to_speaker(&original);
                                 reader.emit_interim_to_source_listeners(&original);
                             }
-                            idle.as_mut().reset(Instant::now() + Duration::from_millis(SEGMENT_IDLE_MS));
+                            idle.as_mut().reset(Instant::now() + Duration::from_millis(reader.segment_idle_ms));
                         }
                         // Ignored on purpose: it repeats the words the deltas above already
                         // appended to `original`, so consuming it too would double every
@@ -457,7 +454,7 @@ async fn run_connection(
                             u.apply(&mut translated);
                             dirty = true;
                             reader.emit_interim_to_lang(&translated);
-                            idle.as_mut().reset(Instant::now() + Duration::from_millis(SEGMENT_IDLE_MS));
+                            idle.as_mut().reset(Instant::now() + Duration::from_millis(reader.segment_idle_ms));
                         }
                         QwenEvent::OutputAudio(pcm) => {
                             if !seg_ttfa_logged {
@@ -515,6 +512,9 @@ async fn run_connection(
 struct SessionReader {
     lang: String,
     is_primary: bool,
+    /// Idle gap (ms) that closes a caption segment — `QwenConfig::segment_idle_ms`,
+    /// shared with the webinar ingest so both Qwen surfaces draw the boundary alike.
+    segment_idle_ms: u64,
     /// Which wire dialect this session's model speaks — decides whether the teardown may
     /// send `input_audio_buffer.commit` / `response.create`.
     dialect: qwen::QwenDialect,
@@ -717,6 +717,7 @@ mod tests {
             voice: None,
             turn_detection: "semantic_vad".into(),
             silence_duration_ms: 500,
+            segment_idle_ms: 900,
             cost_per_minute: 0.0036,
             markup: 0.25,
             max_sessions,

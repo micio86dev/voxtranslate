@@ -171,7 +171,7 @@ pub enum QwenEvent {
 
 /// Build the Qwen Realtime WebSocket URL for `config`. Unlike Gemini the key is NOT in
 /// the URL (it's a header), so this string is safe to log.
-pub fn session_url(config: &QwenConfig) -> String {
+pub fn session_url(config: &QwenConfig, model: &str) -> String {
     let base = if config.endpoint.contains(WORKSPACE_PLACEHOLDER) {
         config.endpoint.replace(
             WORKSPACE_PLACEHOLDER,
@@ -181,7 +181,7 @@ pub fn session_url(config: &QwenConfig) -> String {
         config.endpoint.clone()
     };
     let sep = if base.contains('?') { '&' } else { '?' };
-    format!("{base}{sep}model={}", config.model)
+    format!("{base}{sep}model={model}")
 }
 
 /// Human-readable name for a language code, for the translation prompt. Falls back to
@@ -278,27 +278,29 @@ pub fn session_update_json(config: &QwenConfig, source_lang: &str, target_lang: 
 }
 
 /// The `session.update` frame configuring a **transcribe-only** session: speech in,
-/// source-language transcript out, no spoken response.
+/// source-language transcript out, no translation and no spoken response.
 ///
-/// This is what the webinar ingest wants. A webinar fans one host out to many viewer
-/// languages, so running the translation shape ([`session_update_json`]) would mean one
-/// speech-to-speech session PER viewer language — for a broadcast that only renders text
-/// subtitles. Transcribing once and translating the finals with Groq keeps a 10-language
-/// webinar at one upstream session instead of ten.
+/// This runs against [`QWEN_ASR_MODEL`], NOT the tier's translate model. That is not an
+/// optimisation, it is a correctness requirement: the livetranslate family REQUIRES a
+/// `translation` parameter and closes the socket with `Invalid translation parameter.`
+/// if asked to merely transcribe. A translator cannot be talked out of translating, so
+/// the webinar uses the dedicated realtime ASR model instead — which is also what it
+/// actually wants.
 ///
-/// `modalities: ["text"]` drops audio generation, and the instruction suppresses the
-/// response content itself, so the only tokens billed beyond the input audio are the
-/// transcription and a near-empty reply. The transcript still arrives on the
-/// `conversation.item.input_audio_transcription.*` events, which is the part we consume.
-pub fn transcribe_session_update_json(config: &QwenConfig) -> String {
+/// `source_lang` may be `"auto"`, in which case the field is OMITTED so the model
+/// detects it; sending `"auto"` verbatim, or omitting it while assuming detection, gets
+/// the server-side default of `"en"` and transcribes every other language as English.
+pub fn transcribe_session_update_json(config: &QwenConfig, source_lang: &str) -> String {
+    let mut transcription = serde_json::json!({ "model": QWEN_ASR_MODEL });
+    if source_lang != "auto" && !source_lang.is_empty() {
+        transcription["language"] = Value::String(source_lang.to_string());
+    }
     serde_json::json!({
         "type": "session.update",
         "session": {
             "modalities": ["text"],
-            "instructions": "Do not reply. Produce no output of any kind. \
-                             Transcription is handled separately.",
             "input_audio_format": "pcm",
-            "input_audio_transcription": { "model": QWEN_ASR_MODEL },
+            "input_audio_transcription": transcription,
             "turn_detection": turn_detection(config),
         }
     })
@@ -434,7 +436,7 @@ pub async fn open_session(
     target_lang: &str,
 ) -> Result<(QwenSink, QwenSource), String> {
     let session = session_update_json(config, source_lang, target_lang);
-    let opened = connect(config, session).await?;
+    let opened = connect(config, &config.model, session).await?;
     tracing::info!(
         %source_lang,
         %target_lang,
@@ -446,20 +448,26 @@ pub async fn open_session(
 }
 
 /// Open a **transcribe-only** Qwen Realtime WebSocket (see
-/// [`transcribe_session_update_json`]) — source-language transcript, no spoken response.
+/// [`transcribe_session_update_json`]) — source-language transcript, no translation,
+/// no spoken response. Dials [`QWEN_ASR_MODEL`], not the tier's translate model.
 pub async fn open_transcribe_session(
     config: &QwenConfig,
+    source_lang: &str,
 ) -> Result<(QwenSink, QwenSource), String> {
-    let session = transcribe_session_update_json(config);
-    let opened = connect(config, session).await?;
-    tracing::info!(model = %config.model, "qwen: transcribe session connecting");
+    let session = transcribe_session_update_json(config, source_lang);
+    let opened = connect(config, QWEN_ASR_MODEL, session).await?;
+    tracing::info!(%source_lang, model = %QWEN_ASR_MODEL, "qwen: transcribe session connecting");
     Ok(opened)
 }
 
 /// Dial the endpoint, authenticate, and send `session` as the opening frame. Shared by
 /// both session shapes so the auth/workspace/header handling exists once.
-async fn connect(config: &QwenConfig, session: String) -> Result<(QwenSink, QwenSource), String> {
-    let url = session_url(config);
+async fn connect(
+    config: &QwenConfig,
+    model: &str,
+    session: String,
+) -> Result<(QwenSink, QwenSource), String> {
+    let url = session_url(config, model);
     let mut request = url
         .as_str()
         .into_client_request()
@@ -519,6 +527,7 @@ mod tests {
             voice: None,
             turn_detection: "semantic_vad".into(),
             silence_duration_ms: 500,
+            segment_idle_ms: 900,
             cost_per_minute: 0.0036,
             markup: 0.25,
             max_sessions: 32,
@@ -581,7 +590,7 @@ mod tests {
             bad,
             k.split_whitespace().map(str::len).collect::<Vec<_>>()
         );
-        println!("  endpoint : {}", session_url(&key));
+        println!("  endpoint : {}", session_url(&key, &key.model));
         println!("  target   : {target}");
         println!("  audio    : {:.2}s", pcm.len() as f64 / 2.0 / 24000.0);
 
@@ -729,9 +738,135 @@ mod tests {
         );
     }
 
+    /// LIVE probe of the TRANSCRIBE-ONLY session — the shape the webinar ingest uses.
+    /// Same harness as `qwen_live_protocol_probe`, but exercising
+    /// [`open_transcribe_session`] and printing what the webinar consumer would fold.
+    ///
+    /// `#[ignore]`: needs a real key + network.
+    #[tokio::test]
+    #[ignore]
+    async fn qwen_live_transcribe_probe() {
+        use futures::{SinkExt as _, StreamExt as _};
+        use std::collections::BTreeSet;
+        use tokio::time::{sleep, timeout, Duration, Instant};
+
+        let _ = dotenvy::dotenv();
+        let cfg = crate::config::QwenConfig::from_env();
+        if cfg.api_key.trim().is_empty() {
+            eprintln!("skip: set DASHSCOPE_API_KEY (or QWEN_API_KEY)");
+            return;
+        }
+        let Ok(pcm_path) = std::env::var("QWEN_PROBE_PCM") else {
+            eprintln!("skip: set QWEN_PROBE_PCM");
+            return;
+        };
+        let pcm = std::fs::read(&pcm_path).expect("read PCM sample");
+        // The bundled sample is Italian; the webinar passes its host's source language.
+        let source_lang = std::env::var("QWEN_PROBE_SOURCE").unwrap_or_else(|_| "it".into());
+
+        println!("\n=== Qwen TRANSCRIBE-only probe (webinar shape) ===");
+        println!("  model    : {}", cfg.model);
+        println!(
+            "  session  : {}",
+            transcribe_session_update_json(&cfg, &source_lang)
+        );
+
+        let (mut sink, mut source) = match open_transcribe_session(&cfg, &source_lang).await {
+            Ok(p) => p,
+            Err(e) => panic!("CONNECT FAILED: {e}"),
+        };
+        println!("  connect  : OK\n");
+
+        const BYTES_PER_CHUNK: usize = 24000 * 2 * 100 / 1000;
+        let feeder = tokio::spawn(async move {
+            for ch in pcm.chunks(BYTES_PER_CHUNK) {
+                let c16 = super::super::gemini::resample_pcm16_mono(ch, CAPTURE_HZ, QWEN_INPUT_HZ);
+                if sink
+                    .send(Message::text(audio_append_json(&c16)))
+                    .await
+                    .is_err()
+                {
+                    return;
+                }
+                sleep(Duration::from_millis(100)).await;
+            }
+            // Keep streaming SILENCE, as a live host's mic does between sentences. Turn
+            // detection keys off silence in the AUDIO, not off the socket going quiet, so
+            // without this the utterance is never finalised.
+            let silence = vec![0u8; BYTES_PER_CHUNK];
+            for _ in 0..30 {
+                let c16 =
+                    super::super::gemini::resample_pcm16_mono(&silence, CAPTURE_HZ, QWEN_INPUT_HZ);
+                if sink
+                    .send(Message::text(audio_append_json(&c16)))
+                    .await
+                    .is_err()
+                {
+                    return;
+                }
+                sleep(Duration::from_millis(100)).await;
+            }
+        });
+
+        // Exactly what webinar::stt::fold_event does with the stream.
+        let mut buf = String::new();
+        let mut interims = 0usize;
+        let mut finals: Vec<String> = Vec::new();
+        let mut seen: BTreeSet<String> = BTreeSet::new();
+        let mut errors: Vec<String> = Vec::new();
+        let deadline = Instant::now() + Duration::from_secs(35);
+        loop {
+            let left = deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                break;
+            }
+            let Ok(Some(Ok(msg))) = timeout(left, source.next()).await else {
+                break;
+            };
+            let text = match msg {
+                Message::Text(t) => t.to_string(),
+                Message::Binary(b) => String::from_utf8_lossy(&b).to_string(),
+                Message::Close(c) => {
+                    println!("  << CLOSE {c:?}");
+                    break;
+                }
+                _ => continue,
+            };
+            if let Ok(v) = serde_json::from_str::<Value>(&text) {
+                if let Some(k) = v.get("type").and_then(|t| t.as_str()) {
+                    seen.insert(k.to_string());
+                }
+            }
+            for ev in parse_server_message(&text) {
+                if let QwenEvent::Error(e) = &ev {
+                    errors.push(e.clone());
+                }
+                match ev {
+                    QwenEvent::InputTranscript(u) => {
+                        u.apply(&mut buf);
+                        interims += 1;
+                    }
+                    QwenEvent::InputTranscriptDone(t) => {
+                        finals.push(t);
+                        buf.clear();
+                    }
+                    _ => {}
+                }
+            }
+        }
+        feeder.abort();
+
+        println!("\n--- results ---");
+        println!("  interim frames : {interims}");
+        println!("  last partial   : {buf:?}");
+        println!("  FINALS         : {finals:?}");
+        println!("  event types    : {seen:?}");
+        println!("  errors         : {errors:?}");
+    }
+
     #[test]
     fn url_carries_the_model_and_never_the_key() {
-        let url = session_url(&cfg());
+        let url = session_url(&cfg(), &cfg().model);
         assert_eq!(
             url,
             "wss://dashscope-intl.aliyuncs.com/api-ws/v1/realtime?model=qwen3-livetranslate-flash-realtime"
@@ -747,7 +882,7 @@ mod tests {
         c.endpoint = "wss://{workspace}.ap-southeast-1.maas.aliyuncs.com/api-ws/v1/realtime".into();
         c.workspace_id = Some("llm-abc123".into());
         assert_eq!(
-            session_url(&c),
+            session_url(&c, &c.model),
             "wss://llm-abc123.ap-southeast-1.maas.aliyuncs.com/api-ws/v1/realtime?model=qwen3-livetranslate-flash-realtime"
         );
     }
@@ -756,7 +891,8 @@ mod tests {
     fn url_appends_model_with_ampersand_when_query_present() {
         let mut c = cfg();
         c.endpoint = "wss://example.test/realtime?region=intl".into();
-        assert!(session_url(&c).ends_with("?region=intl&model=qwen3-livetranslate-flash-realtime"));
+        assert!(session_url(&c, &c.model)
+            .ends_with("?region=intl&model=qwen3-livetranslate-flash-realtime"));
     }
 
     #[test]
@@ -1001,20 +1137,33 @@ mod tests {
     }
 
     #[test]
-    fn transcribe_session_asks_for_text_only_and_no_reply() {
-        let v: Value = serde_json::from_str(&transcribe_session_update_json(&cfg())).unwrap();
+    fn transcribe_session_is_asr_shaped_not_translator_shaped() {
+        let v: Value = serde_json::from_str(&transcribe_session_update_json(&cfg(), "it")).unwrap();
         let s = &v["session"];
-        // Text-only: no audio generation → the webinar pays for transcription, not for a
-        // spoken reply nobody plays.
+        // Text only: the webinar renders subtitles, and paying for a spoken reply nobody
+        // plays would be pure waste.
         assert_eq!(s["modalities"][0], "text");
         assert_eq!(s["modalities"].as_array().unwrap().len(), 1);
         assert!(s.get("output_audio_format").is_none());
-        // The transcript itself still has to be switched on.
+        // Transcription on, and pinned to the HOST's language — the server-side default
+        // is "en", which would transcribe an Italian webinar as English.
         assert_eq!(s["input_audio_transcription"]["model"], QWEN_ASR_MODEL);
-        // And the model is told to stay quiet.
-        assert!(s["instructions"].as_str().unwrap().contains("Do not reply"));
-        // Turn detection still segments the utterances.
+        assert_eq!(s["input_audio_transcription"]["language"], "it");
+        // NO `instructions` and NO `translation`. Sending either to the ASR model, or
+        // asking the livetranslate model to merely transcribe, closes the socket with
+        // `Invalid translation parameter.` — observed against the live API.
+        assert!(s.get("instructions").is_none());
+        assert!(s.get("translation").is_none());
         assert_eq!(s["turn_detection"]["type"], "semantic_vad");
+    }
+
+    #[test]
+    fn transcribe_session_omits_an_auto_source_language() {
+        let v: Value =
+            serde_json::from_str(&transcribe_session_update_json(&cfg(), "auto")).unwrap();
+        let tr = &v["session"]["input_audio_transcription"];
+        assert!(tr.get("language").is_none(), "auto must omit the language");
+        assert_eq!(tr["model"], QWEN_ASR_MODEL);
     }
 
     #[test]
@@ -1023,7 +1172,7 @@ mod tests {
         let translate: Value =
             serde_json::from_str(&session_update_json(&cfg(), "it", "en")).unwrap();
         let transcribe: Value =
-            serde_json::from_str(&transcribe_session_update_json(&cfg())).unwrap();
+            serde_json::from_str(&transcribe_session_update_json(&cfg(), "it")).unwrap();
         assert_eq!(
             translate["session"]["input_audio_transcription"]["model"],
             transcribe["session"]["input_audio_transcription"]["model"]
