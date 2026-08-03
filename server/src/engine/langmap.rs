@@ -6,6 +6,12 @@
 //! means the picker's per-tier language filtering and each engine's advertised
 //! `output_languages` can never drift.
 //!
+//! A tier lists exactly the languages its engine can SPEAK. Qwen 3.5 LiveTranslate
+//! reaches 60 target languages but only 29 of them with AUDIO; the other 31 are text
+//! only. Offering a text-only language on a speech-to-speech tier hands the user
+//! subtitles and silence, so `standard` carries the audio-capable set rather than the
+//! model's full reach.
+//!
 //! Invariant (asserted in tests): every tier list is a **superset of the legacy 8**
 //! (`it,en,es,fr,de,pt,ja,zh`) so the flag-off `commonLangs` intersection (spec 0094) never
 //! shrinks, and `premium` is the full union (the universal-fallback tier). Provider language
