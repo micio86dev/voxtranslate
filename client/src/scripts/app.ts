@@ -2292,9 +2292,17 @@ async function handleServer(msg: any): Promise<void> {
       break;
     }
     case 'subtitle_interim':
-      // Interim transcript is in the speaker's original language (translation lands
-      // on the final frame), so feed it as `original`.
-      showSubtitle(msg.speaker_id, { original: msg.text, interim: true });
+      // Which language `text` is in depends on the engine, and the frame alone cannot
+      // say: a speech-to-speech tier sends an already-TRANSLATED partial to listeners of
+      // the target language, while a same-language listener gets the raw transcript.
+      // The server now marks the difference by attaching `original` only in the first
+      // case, so both lines can stream instead of the original waiting for the final.
+      showSubtitle(
+        msg.speaker_id,
+        msg.original
+          ? { translation: msg.text, original: msg.original, interim: true }
+          : { original: msg.text, interim: true },
+      );
       break;
     case 'translated_audio': {
       // Premium engine (spec 0093): real translated speech from the server. The

@@ -291,6 +291,18 @@ pub enum ServerMessage {
         speaker_name: String,
         text: String,
         lang: String,
+        /// The speaker's ORIGINAL words for this partial, when `text` is a translation.
+        ///
+        /// A cross-language listener used to receive only the translated partial: the
+        /// live caption streamed, but the dual-language ORIGINAL line could not appear
+        /// until `subtitle_final`, a full idle-gap later. Clients showing both languages
+        /// looked like the original was lagging seconds behind the translation, because
+        /// it was — nothing carried it.
+        ///
+        /// `None` when `text` IS the original (a same-language listener, or a tier whose
+        /// partials are raw transcript), so a client can always tell the two apart.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        original: Option<String>,
     },
     /// Finalized transcript + translations into every language in the room.
     /// Each client renders `translations[my_lang]` (falling back to `original`).
@@ -692,6 +704,35 @@ mod tests {
                 if request_id == "r1" && source == "it" && target == "en"
         ));
         assert!(serde_json::from_str::<ClientMessage>(r#"{"type":"bogus"}"#).is_err());
+    }
+
+    #[test]
+    fn subtitle_interim_carries_the_original_only_when_text_is_a_translation() {
+        // A cross-language listener gets an already-translated partial. Without the
+        // speaker's original riding along, a dual-language client cannot show the source
+        // line until `subtitle_final` — a whole idle gap later, which read as the
+        // original lagging seconds behind its own translation.
+        let translated = ServerMessage::SubtitleInterim {
+            speaker_id: "s".into(),
+            speaker_name: "Speaker".into(),
+            text: "hello everyone".into(),
+            lang: "it".into(),
+            original: Some("ciao a tutti".into()),
+        }
+        .to_json();
+        assert!(translated.contains("\"original\":\"ciao a tutti\""));
+
+        // A same-language listener's partial IS the original, so the field is OMITTED
+        // rather than duplicating `text` — that is how a client tells the two apart.
+        let raw = ServerMessage::SubtitleInterim {
+            speaker_id: "s".into(),
+            speaker_name: "Speaker".into(),
+            text: "ciao a tutti".into(),
+            lang: "it".into(),
+            original: None,
+        }
+        .to_json();
+        assert!(!raw.contains("original"), "absent, not null: {raw}");
     }
 
     #[test]
