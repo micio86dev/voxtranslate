@@ -451,6 +451,17 @@ pub struct QwenConfig {
     /// Silence (ms) that ends a turn (`QWEN_SILENCE_MS`). Lower = snappier captions,
     /// higher = fewer mid-sentence splits.
     pub silence_duration_ms: u64,
+    /// Idle gap (ms) after which an accumulated transcript is flushed as a FINAL caption
+    /// (`QWEN_SEGMENT_IDLE_MS`).
+    ///
+    /// Shared by both Qwen-backed surfaces — the Standard tier in calls and the webinar
+    /// ingest — because it is the same judgement in both: how long a pause has to be
+    /// before it counts as the end of a sentence rather than a breath. Too low chops
+    /// sentences at natural pauses; too high delays every subtitle by that much. The
+    /// premium engines keep their own constants: they talk to different providers, whose
+    /// models segment differently, so one number across all four would be a false
+    /// uniformity.
+    pub segment_idle_ms: u64,
     /// Raw server cost per minute PER TARGET-LANGUAGE SESSION, USD
     /// (`QWEN_COST_PER_MINUTE`). The default is derived in `docs/` from Model Studio's
     /// audio token rates; operators MUST confirm the live number for their region.
@@ -490,6 +501,7 @@ impl Default for QwenConfig {
             voice: None,
             turn_detection: "semantic_vad".into(),
             silence_duration_ms: 500,
+            segment_idle_ms: 900,
             cost_per_minute: 0.0036,
             markup: 0.25,
             max_sessions: 32,
@@ -532,6 +544,7 @@ impl QwenConfig {
             voice: non_empty("QWEN_VOICE"),
             turn_detection: non_empty("QWEN_TURN_DETECTION").unwrap_or(d.turn_detection),
             silence_duration_ms: parse_or("QWEN_SILENCE_MS", d.silence_duration_ms),
+            segment_idle_ms: parse_or("QWEN_SEGMENT_IDLE_MS", d.segment_idle_ms),
             cost_per_minute: parse_or("QWEN_COST_PER_MINUTE", d.cost_per_minute),
             markup: percent / 100.0,
             max_sessions: parse_or("QWEN_REALTIME_MAX_SESSIONS", d.max_sessions),

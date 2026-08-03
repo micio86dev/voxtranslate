@@ -527,6 +527,7 @@ mod tests {
             voice: None,
             turn_detection: "semantic_vad".into(),
             silence_duration_ms: 500,
+            segment_idle_ms: 900,
             cost_per_minute: 0.0036,
             markup: 0.25,
             max_sessions: 32,

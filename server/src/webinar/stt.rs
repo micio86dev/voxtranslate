@@ -73,14 +73,15 @@ pub struct SttParams {
 /// so 64 chunks (~6 s) absorbs a hiccup while bounding a stalled session's memory.
 const AUDIO_CHANNEL_CAP: usize = 64;
 
-/// Idle gap (ms) after which the running partial is finalised as a subtitle.
-///
-/// The realtime ASR streams `conversation.item.input_audio_transcription.text` snapshots
-/// and — verified against the live API, including with three seconds of trailing silence
-/// — NEVER sends a `.completed` event. Waiting for one means viewers see interims that
-/// are never translated, persisted, or finalised: subtitles that flicker and vanish.
-/// So the boundary is drawn here instead, matching the Meet path's own debounce.
-const SEGMENT_IDLE_MS: u64 = 900;
+// The idle gap that closes a segment lives in `QwenConfig::segment_idle_ms`
+// (`QWEN_SEGMENT_IDLE_MS`), shared with the Standard tier in calls so both Qwen surfaces
+// draw the sentence boundary alike.
+//
+// It is load-bearing here, not a nicety: the realtime ASR streams
+// `conversation.item.input_audio_transcription.text` snapshots and — verified against the
+// live API, including with three seconds of trailing silence — NEVER sends `.completed`.
+// Waiting for one leaves viewers with interims that are never translated, persisted, or
+// finalised: subtitles that flicker and vanish, and a viewer TTS with nothing to speak.
 
 /// The subtitle decision for one Qwen transcription event: broadcast an interim, a
 /// final (which the caller then translates), or drop it. Pure + unit-testable —
@@ -339,7 +340,8 @@ async fn process_webinar_transcripts(
     // Qwen is a tokio-tungstenite client, so its frames are tungstenite's
     // `Message` — a DISTINCT type from axum's `Message` used for the host socket.
     use tokio_tungstenite::tungstenite::Message as QwenMessage;
-    let idle = tokio::time::sleep(std::time::Duration::from_millis(SEGMENT_IDLE_MS));
+    let segment_idle_ms = state.config.qwen.segment_idle_ms;
+    let idle = tokio::time::sleep(std::time::Duration::from_millis(segment_idle_ms));
     tokio::pin!(idle);
     loop {
         let raw = tokio::select! {
@@ -379,7 +381,7 @@ async fn process_webinar_transcripts(
                     // The partial grew: push the boundary out again.
                     idle.as_mut().reset(
                         tokio::time::Instant::now()
-                            + std::time::Duration::from_millis(SEGMENT_IDLE_MS),
+                            + std::time::Duration::from_millis(segment_idle_ms),
                     );
                     state.webinar_presence.broadcast_subtitle(
                         &code,
