@@ -203,9 +203,15 @@ jobs:
   # so it is a project token bound to production and cannot reach staging under any
   # flag. Until the second secret exists this job skips, like every other secret-gated
   # deploy here, and never reds a build.
+  #
+  # Deliberately NOT gated on `server_changed`, unlike deploy-server. That gate saves
+  # redeploys on a production box where churn costs something; on staging the failure it
+  # allows is worse than the churn it prevents. Staging sat on a build from v1.27 while
+  # develop was at v1.32 — nobody noticed, because nothing said so. Staging exists to
+  # mirror develop; if it can silently drift, it stops being evidence of anything.
   deploy-staging:
     needs: [test, check-secrets, security-audit]
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/develop' && needs.check-secrets.outputs.has_railway_staging == 'true' && needs.check-secrets.outputs.server_changed == 'true' }}
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/develop' && needs.check-secrets.outputs.has_railway_staging == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
