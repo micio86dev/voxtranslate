@@ -372,9 +372,15 @@ impl AppState {
             registry.register(Arc::new(crate::engine::CartesiaEngine::new(ca)));
         }
         // The OpenAI engine is the "Pro" tier (its stable id is still `premium`); register
-        // it BEFORE Gemini so Pro shows above Premium. Ships dark until its key is set.
-        if let Some(oa) = config.openai.as_ref() {
-            registry.register(Arc::new(ProEngine::new(oa)));
+        // it BEFORE Gemini so Pro shows above Premium. Ships dark until its key is set —
+        // and, since PRO_TIER_ENABLED defaults off, stays dark even once the key IS set.
+        // Withdrawn on price/quality, not deleted: flip the flag to bring it back.
+        if config.pro_enabled {
+            if let Some(oa) = config.openai.as_ref() {
+                registry.register(Arc::new(ProEngine::new(oa)));
+            }
+        } else if config.openai.is_some() {
+            tracing::info!("Pro tier is configured but withheld (PRO_TIER_ENABLED is off)");
         }
         // Gemini Live Translate is the "Premium" tier (spec 0100), shown last. Like the
         // others it ships dark until its key is provisioned.

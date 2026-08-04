@@ -41,6 +41,40 @@ static QWEN_CONNECT_SUM: AtomicU64 = AtomicU64::new(0);
 static QWEN_CONNECT_COUNT: AtomicU64 = AtomicU64::new(0);
 static QWEN_CONNECT_BUCKETS: [AtomicU64; 11] = [const { AtomicU64::new(0) }; 11];
 
+// Webinar host-audio accounting. The host's PCM crosses two bounded channels on its way
+// to Qwen, and BOTH drop rather than back-pressure — deliberately, so one stalled
+// language can't stall the host or the other languages. That choice is right; making the
+// drops invisible was not. A hole here reaches the viewer as chopped subtitles AND
+// chopped translated speech, because both are outputs of the same session, so these
+// counters are the first thing to read when either is reported.
+static WBR_CHUNKS: AtomicU64 = AtomicU64::new(0);
+static WBR_DROPPED_INGEST: AtomicU64 = AtomicU64::new(0);
+static WBR_DROPPED_FANOUT: AtomicU64 = AtomicU64::new(0);
+
+/// Which bounded hop discarded a chunk. They fail for different reasons, so they are
+/// counted separately: `Ingest` means the host outran the coordinator, `Fanout` means one
+/// language's upstream session is stalled or reconnecting.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WebinarHop {
+    /// Host socket → coordinator (`AUDIO_CHANNEL_CAP`).
+    Ingest,
+    /// Coordinator → one language's Qwen feed (`PER_SESSION_AUDIO_CAP`).
+    Fanout,
+}
+
+/// Count one chunk accepted from the host — the denominator the drop counters need.
+pub fn record_webinar_chunk() {
+    WBR_CHUNKS.fetch_add(1, Ordering::Relaxed);
+}
+
+/// Count one discarded chunk on `hop`.
+pub fn record_webinar_drop(hop: WebinarHop) {
+    match hop {
+        WebinarHop::Ingest => WBR_DROPPED_INGEST.fetch_add(1, Ordering::Relaxed),
+        WebinarHop::Fanout => WBR_DROPPED_FANOUT.fetch_add(1, Ordering::Relaxed),
+    };
+}
+
 /// Add one observation (ms) to a cumulative-bucket histogram.
 fn observe(sum: &AtomicU64, count: &AtomicU64, buckets: &[AtomicU64; 11], ms: u64) {
     sum.fetch_add(ms, Ordering::Relaxed);
@@ -129,6 +163,9 @@ struct Snapshot {
     qwen_connect_sum: u64,
     qwen_connect_count: u64,
     qwen_connect_buckets: [u64; 11],
+    webinar_chunks: u64,
+    webinar_dropped_ingest: u64,
+    webinar_dropped_fanout: u64,
 }
 
 fn snapshot() -> Snapshot {
@@ -158,6 +195,9 @@ fn snapshot() -> Snapshot {
         qwen_connect_buckets: std::array::from_fn(|i| {
             QWEN_CONNECT_BUCKETS[i].load(Ordering::Relaxed)
         }),
+        webinar_chunks: WBR_CHUNKS.load(Ordering::Relaxed),
+        webinar_dropped_ingest: WBR_DROPPED_INGEST.load(Ordering::Relaxed),
+        webinar_dropped_fanout: WBR_DROPPED_FANOUT.load(Ordering::Relaxed),
     }
 }
 
@@ -276,6 +316,33 @@ fn render_from(s: &Snapshot, active_rooms: u64, active_peers: u64) -> String {
         &s.qwen_connect_buckets,
     );
 
+    let _ = writeln!(
+        o,
+        "# HELP voxtranslate_webinar_audio_chunks_total Host PCM chunks accepted for webinar translation."
+    );
+    let _ = writeln!(o, "# TYPE voxtranslate_webinar_audio_chunks_total counter");
+    let _ = writeln!(
+        o,
+        "voxtranslate_webinar_audio_chunks_total {}",
+        s.webinar_chunks
+    );
+
+    let _ = writeln!(
+        o,
+        "# HELP voxtranslate_webinar_audio_dropped_total Host PCM chunks discarded by a full bounded channel, by hop."
+    );
+    let _ = writeln!(o, "# TYPE voxtranslate_webinar_audio_dropped_total counter");
+    let _ = writeln!(
+        o,
+        "voxtranslate_webinar_audio_dropped_total{{hop=\"ingest\"}} {}",
+        s.webinar_dropped_ingest
+    );
+    let _ = writeln!(
+        o,
+        "voxtranslate_webinar_audio_dropped_total{{hop=\"fanout\"}} {}",
+        s.webinar_dropped_fanout
+    );
+
     o
 }
 
@@ -305,6 +372,9 @@ mod tests {
             qwen_connect_sum: 240,
             qwen_connect_count: 2,
             qwen_connect_buckets: [0, 0, 0, 0, 0, 2, 2, 2, 2, 2, 2],
+            webinar_chunks: 1000,
+            webinar_dropped_ingest: 12,
+            webinar_dropped_fanout: 7,
         };
         let out = render_from(&snap, 2, 5);
 
@@ -330,8 +400,37 @@ mod tests {
         assert!(out.contains("voxtranslate_qwen_ttfa_ms_sum 900"));
         assert!(out.contains("voxtranslate_qwen_ttfa_ms_count 3"));
         assert!(out.contains("voxtranslate_qwen_connect_ms_count 2"));
+        // Webinar audio-chunk accounting: the denominator plus a drop counter per hop.
+        // Without the total, a drop count answers "how many" but never "how bad".
+        assert!(out.contains("voxtranslate_webinar_audio_chunks_total 1000"));
+        assert!(out.contains("voxtranslate_webinar_audio_dropped_total{hop=\"ingest\"} 12"));
+        assert!(out.contains("voxtranslate_webinar_audio_dropped_total{hop=\"fanout\"} 7"));
         // Every metric is preceded by a TYPE line (Prometheus exposition hygiene).
-        assert_eq!(out.matches("# TYPE ").count(), 8);
+        assert_eq!(out.matches("# TYPE ").count(), 10);
+    }
+
+    #[test]
+    fn webinar_drop_helpers_count_each_hop_separately() {
+        // The two hops fail for DIFFERENT reasons — the ingest hop means the host
+        // outruns the coordinator, the fanout hop means one language's Qwen session is
+        // stalled or reconnecting. Conflating them would hide which one is happening.
+        let before = snapshot();
+        record_webinar_chunk();
+        record_webinar_chunk();
+        record_webinar_drop(WebinarHop::Ingest);
+        record_webinar_drop(WebinarHop::Fanout);
+        record_webinar_drop(WebinarHop::Fanout);
+        let after = snapshot();
+
+        assert_eq!(after.webinar_chunks - before.webinar_chunks, 2);
+        assert_eq!(
+            after.webinar_dropped_ingest - before.webinar_dropped_ingest,
+            1
+        );
+        assert_eq!(
+            after.webinar_dropped_fanout - before.webinar_dropped_fanout,
+            2
+        );
     }
 
     #[test]

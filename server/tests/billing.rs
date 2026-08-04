@@ -188,6 +188,7 @@ mod guest_mode {
             cartesia: None,
             qwen: Default::default(),
             standard_enabled: true,
+            pro_enabled: false,
             listener_pays: false,
             language_first_ux: false,
             cache_enabled: false,
