@@ -225,8 +225,14 @@ pub fn build_srt(cues: &[Cue]) -> String {
 }
 
 /// Render cues as WebVTT with `<v Speaker>` voice tags.
+///
+/// The `NOTE` block is the AI Act Art. 50(2) marking for the downloaded file: a standard
+/// WebVTT comment, ignored by every player, readable by anything that parses the file.
+/// SRT deliberately gets no equivalent — the format has no comment syntax, and inventing
+/// one breaks strict parsers for a marking the standard-editing carve-out likely does not
+/// even require. See `docs/eu-ai-act-compliance.md`.
 pub fn build_vtt(cues: &[Cue]) -> String {
-    let mut out = String::from("WEBVTT\n\n");
+    let mut out = String::from("WEBVTT\n\nNOTE AI-generated: transcribed and translated by AI (VoxTranslate); may contain errors.\n\n");
     for c in cues {
         out.push_str(&format!(
             "{} --> {}\n",
@@ -439,6 +445,12 @@ mod tests {
         e.speaker_name = "A<l>ice & Bob".into();
         let vtt = build_vtt(&compute_cues(&[e], t0(), LangMode::Original, "it"));
         assert!(vtt.starts_with("WEBVTT\n\n"), "{vtt}");
+        // AI Act Art. 50(2) marking: a NOTE block before the first cue.
+        assert!(vtt.contains("\nNOTE AI-generated:"), "{vtt}");
+        assert!(
+            vtt.find("NOTE AI-generated:") < vtt.find("00:00:00.000 -->"),
+            "the marking must precede the first cue: {vtt}"
+        );
         assert!(vtt.contains("00:00:00.000 --> 00:00:01.500"), "{vtt}");
         assert!(
             vtt.contains("<v A&lt;l&gt;ice &amp; Bob>Tags &lt;b&gt; &amp; such."),
