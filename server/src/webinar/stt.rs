@@ -85,6 +85,30 @@ const AUDIO_CHANNEL_CAP: usize = 64;
 /// fills and drops chunks rather than back-pressuring the others or the host.
 const PER_SESSION_AUDIO_CAP: usize = 128;
 
+/// Minimum gap between two "dropping audio" log lines from the same site. The COUNTER
+/// (`voxtranslate_webinar_audio_dropped_total`) carries the volume; the log only has to
+/// mark when an incident starts and that it is still going.
+const DROP_LOG_EVERY: Duration = Duration::from_secs(1);
+
+/// Rate-limits the drop log without hiding the start of an incident: the first drop after
+/// a quiet period always logs, then at most one line per [`DROP_LOG_EVERY`].
+#[derive(Default)]
+struct DropLog {
+    last: Option<std::time::Instant>,
+}
+
+impl DropLog {
+    fn should_log(&mut self, now: std::time::Instant) -> bool {
+        let due = self
+            .last
+            .is_none_or(|prev| now.duration_since(prev) >= DROP_LOG_EVERY);
+        if due {
+            self.last = Some(now);
+        }
+        due
+    }
+}
+
 /// How often the language set is re-checked against who is actually watching. A viewer
 /// who joins mid-talk starts being translated within this window; a language nobody is
 /// left watching stops costing money within it.
@@ -217,13 +241,23 @@ async fn handle_stt(
     // only, so there is nothing to send back on it. Keep the sink alive to close cleanly.
     let _ = &mut ws_tx;
 
+    let mut drop_log = DropLog::default();
     while let Some(Ok(msg)) = ws_rx.next().await {
         match msg {
             Message::Binary(chunk) => {
                 // A full audio channel means the coordinator is behind; drop the chunk
                 // rather than block the socket read (best-effort live captions).
+                crate::metrics::record_webinar_chunk();
                 if audio_tx.try_send(chunk.to_vec()).is_err() {
-                    tracing::debug!(%code, "webinar STT: audio buffer full, dropping chunk");
+                    // Counted, not just logged: a dropped chunk is a hole in what Qwen
+                    // hears, and it surfaces to viewers as chopped subtitles AND chopped
+                    // translated speech. At `debug` this was invisible in production,
+                    // which is how it stayed a mystery. `warn` is the right level — this
+                    // is silent output degradation, not a routine event.
+                    crate::metrics::record_webinar_drop(crate::metrics::WebinarHop::Ingest);
+                    if drop_log.should_log(std::time::Instant::now()) {
+                        tracing::warn!(%code, "webinar STT: ingest buffer full, dropping host audio");
+                    }
                 }
             }
             // No `start`/`stop` control protocol: the stream itself is the signal.
@@ -266,6 +300,7 @@ async fn run_webinar_session(
     let mut primary: Option<String> = None;
     let mut reconcile = interval(Duration::from_millis(RECONCILE_MS));
     reconcile.set_missed_tick_behavior(MissedTickBehavior::Delay);
+    let mut fanout_drop_log = DropLog::default();
 
     loop {
         tokio::select! {
@@ -274,8 +309,17 @@ async fn run_webinar_session(
                     // Resample to 16 kHz ONCE, then fan out. `try_send` so one stalled or
                     // reconnecting language never back-pressures the others or the host.
                     let chunk16 = resample_pcm16_mono(&chunk, qwen::CAPTURE_HZ, qwen::QWEN_INPUT_HZ);
-                    for feed in active.values() {
-                        let _ = feed.try_send(chunk16.clone());
+                    for (lang, feed) in active.iter() {
+                        // Was `let _ = feed.try_send(...)` — a discarded Result, so a
+                        // language whose upstream stalled lost audio with no log, no
+                        // counter and no trace. That silence is why chopped subtitles and
+                        // chopped voice had nothing to point at.
+                        if feed.try_send(chunk16.clone()).is_err() {
+                            crate::metrics::record_webinar_drop(crate::metrics::WebinarHop::Fanout);
+                            if fanout_drop_log.should_log(std::time::Instant::now()) {
+                                tracing::warn!(%code, %lang, "webinar STT: language feed full, dropping audio for this language");
+                            }
+                        }
                     }
                 }
                 // Host stopped: dropping `active` ends every language task.
@@ -619,6 +663,39 @@ async fn record_transcript_row(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ---- drop-log throttling ----
+
+    #[test]
+    fn first_drop_logs_immediately() {
+        // An operator needs to know the INSTANT audio starts being discarded — a drop
+        // that waits for the throttle window would hide the start of the incident.
+        let mut t = DropLog::default();
+        let t0 = std::time::Instant::now();
+        assert!(t.should_log(t0));
+    }
+
+    #[test]
+    fn a_burst_of_drops_logs_once_per_window() {
+        let mut t = DropLog::default();
+        let t0 = std::time::Instant::now();
+        assert!(t.should_log(t0));
+        // A sustained stall drops ~10 chunks/s per language; logging each would bury the
+        // rest of the log and tell the operator nothing the counter doesn't.
+        assert!(!t.should_log(t0 + Duration::from_millis(100)));
+        assert!(!t.should_log(t0 + Duration::from_millis(900)));
+        assert!(t.should_log(t0 + DROP_LOG_EVERY));
+    }
+
+    #[test]
+    fn a_new_incident_after_quiet_logs_again() {
+        // Edge-triggered on purpose: two separate stalls must produce two log lines, not
+        // one, or a recurring fault reads as a single old event.
+        let mut t = DropLog::default();
+        let t0 = std::time::Instant::now();
+        assert!(t.should_log(t0));
+        assert!(t.should_log(t0 + DROP_LOG_EVERY * 2));
+    }
 
     #[test]
     fn stt_allowed_only_for_live_or_scheduled() {

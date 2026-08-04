@@ -281,4 +281,21 @@ mod tests {
         assert_eq!(r.infos().len(), 2);
         assert_eq!(r.list().count(), 2);
     }
+
+    #[test]
+    fn an_unregistered_tier_is_neither_listed_nor_selectable() {
+        // How the Pro kill switch (`PRO_TIER_ENABLED`) enforces itself: the tier is not
+        // REGISTERED, so it is absent from `/api/engines` AND a request naming it — a
+        // stale saved preference, or a hand-crafted one — resolves to the default instead
+        // of starting it. Filtering only the listing would hide it from the picker while
+        // leaving it reachable.
+        let mut r = EngineRegistry::new(STANDARD_ID);
+        r.register(Arc::new(Mock(meta(STANDARD_ID))));
+
+        assert!(!r.infos().iter().any(|i| i.id == OPENAI_ID));
+        assert_eq!(r.resolve(Some(OPENAI_ID)).metadata().id, STANDARD_ID);
+        assert!(r.get(OPENAI_ID).is_none());
+        assert_eq!(r.infos().len(), 1);
+        assert_eq!(r.list().count(), 1);
+    }
 }
