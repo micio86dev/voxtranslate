@@ -152,7 +152,7 @@ Independent of the AI Act: scoring named participants' sentiment is profiling.
 succeeded. `railway up --ci` dies with `Failed to stream build logs` after ~70s and exits
 1; the build carries on server-side and reaches SUCCESS.
 - [x] **DONE** — both jobs now call `.github/scripts/railway-deploy.sh`, which starts the deploy with `--detach` and polls `railway deployment list --json` until the deployment reaches a terminal state. Fail-closed: no new deployment, an unreadable status, a terminal failure or the 25-minute timeout all exit non-zero.
-- [ ] **Verify on the next real deploy.** The read-only queries were validated against the live API with a user session, but CI uses a *project* token and `railway deployment list` was never exercised with one. If it is not permitted there the job goes red — the same symptom as before, no worse — and the fix is to read the status via `railway api` instead.
+- [x] **VERIFIED on a real deploy** (run 30953792901, 2026-08-04): `deploy-staging` went green for the first time, having polled `INITIALIZING → BUILDING ×5 → SUCCESS`. `railway deployment list` does work with a project token, which was the one unproven assumption.
 > A CI that is red when everything works is a CI you stop reading. The one thing this
 > script must never do is go green when it lost track of the deploy.
 
@@ -229,7 +229,7 @@ design.
 ---
 
 ### Quick "this week" shortlist — updated 2026-08-04
-1. [x] **Railway CLI flake fixed in CI** (step 20) — needs one real deploy to confirm the project token can read deployment status.
+1. [x] **Railway CLI flake fixed in CI** (step 20) — verified green on run 30953792901.
 2. [x] **Dead `RAILWAY_API_TOKEN`** (step 21) — already commented out in `~/.zshrc`; only a stale inherited shell still carries it.
 3. [x] **PocketBase deploy path documented** (step 22).
 4. [x] **`develop` added to the dashboard CI triggers** (step 23).
