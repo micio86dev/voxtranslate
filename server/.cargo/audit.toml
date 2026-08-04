@@ -33,6 +33,24 @@ ignore = [
     # 0.38.4 / 0.39.4 are typst-locked and only parse our own templates.
     "RUSTSEC-2026-0195",
 
+    # rkyv 0.7.46 — out-of-bounds read validating archives containing Rc/Arc.
+    # Fixed in rkyv >= 0.8.17, which we cannot reach: rust_decimal 1.42.1 (the latest
+    # 1.x, and a DIRECT dependency) requires `rkyv = "^0.7"`, so `cargo update -p rkyv
+    # --precise 0.8.17` fails to resolve.
+    #
+    # It is ignorable on a stronger basis than the entries above: rkyv is not merely
+    # unreachable, it is NOT COMPILED. rust_decimal's rkyv support is an optional
+    # feature and nothing in this graph enables it — we ask for `["serde"]` only.
+    # Verified, not assumed — across every target and edge kind, not just the host:
+    #   cargo tree -e features -p rust_decimal                     # active: default, maths
+    #   cargo tree --target all -e all --prefix none | rg -c '^rkyv'  # 0
+    # (`maths` comes from typst-library; neither it nor `default` enables rkyv.)
+    # It appears in Cargo.lock because Cargo records a resolved package's optional
+    # dependencies regardless of activation, and cargo-audit scans the lockfile.
+    #
+    # Drop this the moment rust_decimal 2.x (or a 1.x backport) moves to rkyv 0.8.
+    "RUSTSEC-2026-0235",
+
     # bincode 1.3.3 — UNMAINTAINED (informational, not a vulnerability). Transitive
     # only; no direct use. No security impact; kept until an upstream drops it.
     "RUSTSEC-2025-0141",
