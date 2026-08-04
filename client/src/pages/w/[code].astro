@@ -209,6 +209,15 @@ const pageDesc = webinar
           <!-- Transcript history panel: shows final subtitle lines with timestamps.
                Open by default; the toggle button hides/reveals it. -->
           <section id="wv-transcript" class="wv-transcript" aria-label="Transcript">
+            <!--
+              AI Act Art. 50(1)+(5): viewers are exposed to AI-generated subtitles and, with
+              audio on, to a synthesized translated voice. The notice is static markup so it
+              is on screen from first paint — before any subtitle arrives — and it reuses the
+              in-call `aiGeneratedNotice` key, which is already translated into all 84 locales.
+            -->
+            <p class="wv-ai-notice" data-i18n="aiGeneratedNotice">
+              Translations, captions and any translated voice are AI-generated and may contain errors.
+            </p>
             <div id="wv-transcript-list" class="wv-tr-list" role="log" aria-live="polite" aria-relevant="additions"></div>
             <p id="wv-transcript-empty" class="wv-tr-empty" data-i18n="wvTranscriptEmpty">No subtitles yet.</p>
           </section>
@@ -645,6 +654,16 @@ const pageDesc = webinar
     }
     .wv-tr-list:empty + .wv-tr-empty {
       display: block;
+    }
+    /* Sits ABOVE the list so the `.wv-tr-list:empty + .wv-tr-empty` adjacency below
+       keeps working — inserting it between the two would kill the empty state. */
+    .wv-ai-notice {
+      margin: 0;
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--line, #26303d);
+      font-size: 0.72rem;
+      line-height: 1.35;
+      color: var(--text-muted, #9aa4b2);
     }
     .wv-tr-empty {
       display: none;
