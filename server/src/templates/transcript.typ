@@ -14,7 +14,9 @@
 )
 #let speaker-color(i) = palette.at(calc.rem(i, palette.len()))
 
-#set document(title: data.title + " - " + data.room)
+// `keywords` reaches the PDF metadata, which is what makes the AI Act Art. 50(2)
+// marking machine-readable — the visible note further down is for the reader.
+#set document(title: data.title + " - " + data.room, keywords: data.ai_keywords)
 #set page(
   paper: "a4",
   margin: (x: 2cm, top: 2cm, bottom: 2.4cm),
@@ -47,6 +49,9 @@
   }
 }
 
+#v(0.4em)
+// AI Act Art. 50(2)/(5): visible, on the first page, above the content it qualifies.
+#block(text(size: 8.5pt, style: "italic", fill: rgb("#777777"), data.ai_notice))
 #v(0.4em)
 #line(length: 100%, stroke: 0.5pt + rgb("#dddddd"))
 #v(0.4em)
