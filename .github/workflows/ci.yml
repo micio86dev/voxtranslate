@@ -177,7 +177,7 @@ jobs:
         working-directory: server
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-        run: railway up --ci --service voxtranslate-server
+        run: ../.github/scripts/railway-deploy.sh voxtranslate-server
 
   # Deploy the Rust backend to Railway STAGING on every push to develop.
   #
@@ -224,7 +224,7 @@ jobs:
         working-directory: server
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_STAGING_TOKEN }}
-        run: railway up --ci --service voxtranslate-server
+        run: ../.github/scripts/railway-deploy.sh voxtranslate-server
 
   # Deploy the FULL media stack (MediaMTX + Caddy) to the Hetzner box on every push to
   # main that touches infra/. Previously this only shipped the Caddyfile, so mediamtx.yml

@@ -151,28 +151,35 @@ Independent of the AI Act: scoring named participants' sentiment is profiling.
 `deploy-staging` and `deploy-server` both reported **failure** while the deploys actually
 succeeded. `railway up --ci` dies with `Failed to stream build logs` after ~70s and exits
 1; the build carries on server-side and reaches SUCCESS.
-- [ ] Switch both jobs to `railway up --detach` and poll the deployment status via the API instead of trusting the CLI's exit code.
-- [ ] Until then, **never judge a Railway deploy by the GitHub job** — check the deployment status.
-> A CI that is red when everything works is a CI you stop reading. This is the most
-> valuable item in this section.
+- [x] **DONE** — both jobs now call `.github/scripts/railway-deploy.sh`, which starts the deploy with `--detach` and polls `railway deployment list --json` until the deployment reaches a terminal state. Fail-closed: no new deployment, an unreadable status, a terminal failure or the 25-minute timeout all exit non-zero.
+- [ ] **Verify on the next real deploy.** The read-only queries were validated against the live API with a user session, but CI uses a *project* token and `railway deployment list` was never exercised with one. If it is not permitted there the job goes red — the same symptom as before, no worse — and the fix is to read the status via `railway api` instead.
+> A CI that is red when everything works is a CI you stop reading. The one thing this
+> script must never do is go green when it lost track of the deploy.
 
 ### 21. Dead `RAILWAY_API_TOKEN` in the shell environment
 It is set, Railway rejects it, and it **shadows** the working browser session — so every
 `railway` command fails with `Unauthorized` until you strip it.
-- [ ] Remove it from the shell profile (or replace it with a valid one). Workaround meanwhile: `env -u RAILWAY_API_TOKEN railway …`.
+- [x] **Already fixed on disk** — `~/.zshrc:134` has the export commented out, and the value still in the environment is byte-identical to it: it is inherited from a shell started before that edit. A fresh shell clears it; nothing to change.
+- [ ] If it ever comes back, the workaround is `env -u RAILWAY_API_TOKEN railway …`.
 > Same shape as Homebrew's rustc shadowing rustup and breaking `cargo` — see the
 > toolchain note. Two instances of the same trap is a pattern worth watching for.
 
 ### 22. PocketBase deploys are directory uploads, not git
 The `voxtranslate-pocketbase` service has **no source configured**, so a UI "Redeploy"
 republishes the old snapshot and silently ignores new migrations.
-- [ ] Document this in `website/CLAUDE.md`: shipping a CMS migration means `railway up` from `website/docker/pocketbase`, followed by `gh workflow run deploy.yml --ref main` to rebuild the static site against the migrated content.
+- [x] **DONE** — documented in `website/CLAUDE.md` under "PocketBase (Railway)": the `railway link` → `railway up --detach` → `gh workflow run deploy.yml` sequence, plus the `RAILWAY_API_TOKEN` shadowing, the Cloudflare stale-page trap and the backup command.
 - [ ] Consider attaching a GitHub source so this stops being tribal knowledge.
 
 ### 23. Dashboard CI never runs on `develop`
 Its `ci.yml` triggers on push to `main` and on pull_request only, so merging to `develop`
 gets no gate at all before the staging deploy.
-- [ ] Add `develop` to the push triggers.
+- [x] **DONE** — `develop` added to the push triggers.
+
+> **Do NOT add the `server_changed` gate to `deploy-staging`.** Its absence is deliberate
+> and the reasoning is in the comment above that job: staging once sat on a v1.27 build
+> while develop was at v1.32 and nobody noticed. On staging, silent drift is worse than
+> the wasted rebuild. (Noted here because it looks like an obvious optimisation, and it
+> was proposed and withdrawn on 2026-08-04.)
 
 ### 24. Retire the pre-migration CMS backup
 `/Volumes/Scheda SSD/VoxTranslate/backups/pocketbase-posts-pre-migration-006-2026-08-04.json`
@@ -222,11 +229,12 @@ design.
 ---
 
 ### Quick "this week" shortlist — updated 2026-08-04
-1. [ ] **Fix the Railway CLI flake in CI** (step 20) — cheapest fix here, and it stops two jobs from crying wolf on every deploy.
-2. [ ] **Strip the dead `RAILWAY_API_TOKEN`** from the shell profile (step 21) — two minutes, removes a trap that already cost time twice.
-3. [ ] **Document the PocketBase deploy path** in `website/CLAUDE.md` (step 22) — the next CMS migration will silently do nothing without it.
-4. [ ] **Add `develop` to the dashboard CI triggers** (step 23).
+1. [x] **Railway CLI flake fixed in CI** (step 20) — needs one real deploy to confirm the project token can read deployment status.
+2. [x] **Dead `RAILWAY_API_TOKEN`** (step 21) — already commented out in `~/.zshrc`; only a stale inherited shell still carries it.
+3. [x] **PocketBase deploy path documented** (step 22).
+4. [x] **`develop` added to the dashboard CI triggers** (step 23).
 5. [ ] Add the AI Act items (14-19) to whatever the lawyer engagement ends up covering.
+6. [ ] Bump the deprecated Node 20 actions in the website deploy workflow (step 25) — left alone deliberately: `wrangler-action` and `pnpm/action-setup` majors change inputs, and that is not a change to make without watching a deploy.
 
 ### Earlier shortlist (done)
 1. [x] Gemini Cloud Billing enabled — new GCP project, paid tier, €10 prepaid, €25/month cap, new API key deployed to Railway.
