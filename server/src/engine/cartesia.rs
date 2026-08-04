@@ -41,9 +41,12 @@ impl CartesiaEngine {
             id: CARTESIA_ID.to_string(),
             display_name: "Enhanced".to_string(),
             tier: "enhanced".to_string(),
-            description: "Real-time translation with Cartesia — natural Sonic voice, \
-                          sub-100 ms speech, and voice cloning so everyone is heard in \
-                          their own voice, streamed straight to your browser."
+            // No latency figure here, deliberately. It was wrong (Enhanced is not the
+            // fastest tier), and a number in shipped copy becomes a promise the product
+            // has to keep on every network. No other tier quotes one either.
+            description: "Real-time translation with Cartesia — natural Sonic voice and \
+                          voice cloning so everyone is heard in their own voice, \
+                          streamed straight to your browser."
                 .to_string(),
             cost_per_minute: config.cost_per_minute,
             markup: config.markup,

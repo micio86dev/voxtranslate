@@ -114,6 +114,16 @@ pub struct Config {
     /// (with a warning) — the flag exists for symmetry with the optional tiers, not as a
     /// true kill switch.
     pub standard_enabled: bool,
+    /// Pro tier (OpenAI) kill switch, `PRO_TIER_ENABLED`. **OFF by default**, even when
+    /// `OPENAI_API_KEY` is set: at its current price the tier does not earn its cost, so
+    /// it is withdrawn rather than deleted — if the model improves, set this and it comes
+    /// back with no code change.
+    ///
+    /// It gates REGISTRATION, not just the listing. An unregistered engine is absent from
+    /// `GET /api/engines` (so every client — web, extension, dashboard — hides it) and
+    /// `EngineRegistry::resolve` falls back to the default for its id, so a stale saved
+    /// preference or a hand-crafted request cannot start it either.
+    pub pro_enabled: bool,
     /// Listener-pays rollout flag (spec 0099). OFF by default: the live model is
     /// speaker-pays (spec 0093). When `LISTENER_PAYS` is truthy, each participant
     /// receives — and is billed for — the engine quality THEY chose, and the core
@@ -1305,6 +1315,7 @@ impl Config {
             cartesia,
             qwen,
             standard_enabled,
+            pro_enabled: env_flag("PRO_TIER_ENABLED"),
             listener_pays: env_flag("LISTENER_PAYS"),
             language_first_ux: env_flag("LANGUAGE_FIRST_UX"),
             // Translation cache (spec 0107) — opt-in, fail-open. The flag only arms the
@@ -1680,6 +1691,7 @@ impl Config {
                 ..Default::default()
             },
             standard_enabled: true,
+            pro_enabled: false,
             listener_pays: false,
             language_first_ux: false,
             cache_enabled: false,

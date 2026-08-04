@@ -1068,14 +1068,10 @@ function renderEngineSelector(): void {
     name.className = 'engine-opt-name';
     name.textContent = e.display_name;
     head.append(name);
-    // "Fastest" chip on the client-direct (Enhanced) tier — browser ↔ provider with
-    // no server relay hop, so it's the lowest-latency option (spec 0101).
-    if (e.capabilities.client_direct) {
-      const badge = document.createElement('span');
-      badge.className = 'engine-opt-badge';
-      badge.textContent = t('engineBadgeEnhanced');
-      head.append(badge);
-    }
+    // No "Fastest" chip. Skipping the server relay hop is a shorter PATH, which is not
+    // the same as a shorter latency — the provider's own response time dominates, and
+    // Enhanced is not in fact the quickest tier. Ranking tiers by speed in the picker
+    // is a promise measured on someone else's network, so we don't make it.
     const rate = document.createElement('span');
     rate.className = 'engine-opt-rate';
     rate.textContent = formatRate(e.rate_per_minute);
@@ -1368,12 +1364,7 @@ function renderTierCards(): void {
     name.className = 'engine-opt-name';
     name.textContent = e.display_name;
     head.append(name);
-    if (e.capabilities.client_direct) {
-      const badge = document.createElement('span');
-      badge.className = 'engine-opt-badge';
-      badge.textContent = t('engineBadgeEnhanced');
-      head.append(badge);
-    }
+    // No speed chip here either — see the engine picker above.
     const rate = document.createElement('span');
     rate.className = 'engine-opt-rate';
     rate.textContent = formatRate(e.rate_per_minute);
