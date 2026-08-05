@@ -1299,7 +1299,7 @@ impl Config {
                 .ok()
                 .map(|s| s.trim().trim_end_matches('/').to_string())
                 .filter(|s| !s.is_empty())
-                .unwrap_or_else(|| "https://voxtranslate.app".into()),
+                .unwrap_or_else(|| "https://app.voxtranslate.app".into()),
             dashboard_base_url: env::var("DASHBOARD_BASE_URL")
                 .ok()
                 .map(|s| s.trim().trim_end_matches('/').to_string())
@@ -1676,7 +1676,7 @@ impl Config {
             turn: None,
             turn_restricted: None,
             bug_report_to: "test@example.com".into(),
-            app_base_url: "https://voxtranslate.app".into(),
+            app_base_url: "https://app.voxtranslate.app".into(),
             dashboard_base_url: "https://dashboard.voxtranslate.app".into(),
             push: None,
             business_member_limit: 20,

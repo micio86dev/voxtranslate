@@ -88,7 +88,7 @@ export function initAnalytics(): void {
     // from grantAnalyticsConsent() instead, the moment storage is actually allowed.
     send_page_view: false,
     linker: {
-      domains: ['voxtranslate.app', 'website.voxtranslate.app', 'dashboard.voxtranslate.app']
+      domains: ['voxtranslate.app', 'app.voxtranslate.app', 'dashboard.voxtranslate.app']
     }
   });
 }
