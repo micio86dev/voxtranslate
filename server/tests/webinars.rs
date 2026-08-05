@@ -221,9 +221,12 @@ async fn create_get_and_public_lookup_without_pii() {
     assert!(!code.is_empty(), "create returns a code");
     assert_eq!(created["tier"], "enhanced", "default tier");
     assert_eq!(created["status"], "scheduled");
+    // Follows `Config::test_with_billing`'s `app_base_url`, which moved to the app
+    // subdomain with the apex cutover (runbook 121). The join link is the thing that
+    // gets emailed and printed as a QR code, so it must track the real app origin.
     assert_eq!(
         created["join_url"],
-        format!("https://voxtranslate.app/w/{code}")
+        format!("https://app.voxtranslate.app/w/{code}")
     );
     assert_eq!(
         created["playback_url"],
