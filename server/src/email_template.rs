@@ -232,7 +232,7 @@ mod tests {
 
     fn layout<'a>(button: Option<EmailButton<'a>>) -> EmailLayout<'a> {
         EmailLayout {
-            app_base_url: "https://voxtranslate.app/",
+            app_base_url: "https://app.voxtranslate.app/",
             preheader: "You're invited to a call",
             heading: Some("Join the call"),
             body_html: "<p>Anna invited you.</p>",
@@ -246,8 +246,10 @@ mod tests {
         let html = render_html(&layout(None));
         // Live-text wordmark survives image blocking.
         assert!(html.contains(">VoxTranslate<"), "wordmark text present");
-        // Logo image points at the app origin, trailing slash trimmed.
-        assert!(html.contains("src=\"https://voxtranslate.app/icon.png\""));
+        // Logo image points at the app origin, trailing slash trimmed. The app moved to
+        // app.voxtranslate.app when the marketing site took the apex; `icon.png` ships
+        // from `client/public/`, so it follows the app rather than staying on the apex.
+        assert!(html.contains("src=\"https://app.voxtranslate.app/icon.png\""));
         assert!(!html.contains("app//icon.png"), "double slash trimmed");
         // Preheader text is present and hidden.
         assert!(html.contains("You're invited to a call"));

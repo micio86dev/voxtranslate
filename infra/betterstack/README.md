@@ -20,7 +20,7 @@ Endpoints monitored:
 | Monitor | URL | Expect |
 |---|---|---|
 | Server `/health` | `https://voxtranslate-server-production.up.railway.app/health` | `200` |
-| Client | `https://voxtranslate.app/` | `200` |
+| Client | `https://app.voxtranslate.app/` | `200` |
 | Server `/metrics` (optional liveness) | `…up.railway.app/metrics` | `200` |
 
 ### Get an API token
