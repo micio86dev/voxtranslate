@@ -3,7 +3,27 @@
 Growth blockers, in the order they must be executed. The order is not cosmetic: two of
 these steps invalidate each other if swapped (see §0).
 
-Status: **not started**. Written 2026-08-05.
+Status: **§1 not started · §2 ready to submit · §3 not started**. Written 2026-08-05.
+
+## Access needed (checked 2026-08-05)
+
+The domain cutover cannot be driven from this workspace. Verified, not assumed:
+
+- The Cloudflare **account** is reachable (R2 lists `vox-web-assets`, `vox-voices`,
+  `vox-terraform-state`), but the exposed toolset is R2 / KV / D1 / Hyperdrive / Workers
+  only — there is **no DNS, Rulesets/Origin Rules, or Pages custom-domain surface**.
+- The `oauth_token` in `~/Library/Preferences/.wrangler/config/default.toml` is rejected by
+  the DNS API (`Authentication error`), so the REST route is closed too.
+
+§1 therefore needs a human in the Cloudflare dashboard, or an API token scoped to
+`Zone:DNS:Edit` + `Zone:Config:Edit`.
+
+**It should not be done unattended in any case.** §1 is not a config-only change: the call
+app and the marketing site are both Astro and both emit `/_astro/*`, so putting them on one
+origin collides on asset paths unless the client is rebuilt under a `/app/` base. That is a
+code change in `client/` plus a Vercel deploy that has to land in the same window as the
+routing change, and the verification list in §1 includes a real Google sign-in and a real
+paid call — neither of which can be exercised without a live account.
 
 ---
 
@@ -165,7 +185,22 @@ surface is contested by VoxTranslate yet.
 - **Currency mismatch.** Consumer billing is USD (`server/src/stripe_handler.rs` →
   `currency: "usd"`), but `/business` quotes €49 / €199. Either the Business Stripe prices
   really are EUR — in which case the site should say which is which — or one of the two is
-  wrong. Worth confirming before the pricing page gets traffic.
+  wrong. The new `/pricing` page quotes USD throughout, so the two pages now disagree in
+  plain sight. Worth confirming before either gets traffic.
+
+- **The WAF blocks CI from the API.** `GET /api/engines` returns **403** to a GitHub Actions
+  runner (Cloudflare WAF + Bot Fight Mode, runbook 111) while answering any client from a
+  normal network, including plain `curl` and `undici` user agents — so it is the origin ASN
+  being filtered, not the agent string.
+
+  This surfaced when the pricing page fetched the catalogue at build time and every
+  production locale shipped an "indicative prices" banner. Fixed by committing the catalogue
+  (`website/src/data/engines.json` + `scripts/refresh-engines.mjs`) rather than opening the
+  WAF: a static marketing build that cannot succeed without the production API is a
+  liability, and weakening the origin's protection for it is the wrong trade.
+
+  Worth knowing generally — **any** CI job that expects to reach `api.voxtranslate.app` will
+  get a 403 and, unless it checks, will do so silently.
 - **`traduzione-simultanea-videochiamate.astro`** exists in `website/src/pages/` but is not
   in the sitemap. Either it is a deliberate orphan landing page or it is an SEO asset that
   nothing links to. Decide which.
