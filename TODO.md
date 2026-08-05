@@ -21,6 +21,8 @@
 - [x] **Cartesia access tokens hardened** — short-lived (`expires_in: 3600`, ≤1 h), scoped to STT+TTS grants, minted server-side; the raw `CARTESIA_API_KEY` never reaches the browser (`server/src/api.rs` `mint_cartesia_token`).
 - [x] **AI icons** (ChatGPT) — usable commercially (OpenAI assigns output rights). Protect via trademark (logo), not copyright — see P2.
 - [x] **Terms/Privacy pages exist**, GDPR-aligned, 18+, with a sub-processor table.
+- [x] **EU AI Act Art. 50 transparency implemented** (2026-08-04, released as v1.36.3) — AI disclosure on the dashboard assistants, the webinar viewer and the Chrome extension; machine-readable marking on transcript PDFs (metadata keywords) and WebVTT exports. Role, classification and the exemptions relied on are recorded in `docs/eu-ai-act-compliance.md`. Remaining work in the AI Act section below.
+- [x] **Pro tier removed from all public copy** (site + blog, 5 languages, CMS migrated in production).
 
 ---
 
@@ -105,6 +107,92 @@ The Gemini **free / AI-Studio-unpaid tier trains on your users' audio and humans
 
 ---
 
+## 🔴 P0 — EU AI Act (Art. 50 applicable since 2 August 2026)
+
+> Implementation is done and live; what is left is judgement, paperwork and the things
+> that must be re-checked when the product changes. Full reasoning:
+> `docs/eu-ai-act-compliance.md`. Legal basis: Regulation (EU) 2024/1689 as amended by
+> Regulation (EU) 2026/1744 (Digital Omnibus, in force 27 July 2026).
+
+### 14. Lawyer review of the compliance record ⚠️
+The two load-bearing judgement calls were made by an engineer, not a lawyer, and both
+carry the Art. 99(3) penalty band if wrong.
+- [ ] **§5 — reliance on the real-time ephemeral exemption** for unmarked live synthetic audio. This is the one that saves the watermarking work; if it does not hold, marking was due by 2 December 2026.
+- [ ] **§4 — why text-only sentiment analysis sits outside the Art. 5(1)(f) prohibition.** Sound per the Commission guidelines, but it is the difference between a normal feature and a prohibited practice in a workplace context.
+- [ ] Fold this into the same engagement as the Terms/Privacy review already noted at the top of this file — one lawyer, one sitting. *(trigger: same as the existing legal review budget)*
+
+### 15. Tell Business customers the deepfake disclosure duty is theirs
+Under Art. 50(4) the duty sits with the **deployer** — the organisation running the
+meeting — not with us. We provide the means; they owe the disclosure.
+- [ ] Add a line to Business onboarding / the org admin docs, specifically for orgs that enable Enhanced voice cloning. *(trigger: next Business customer)*
+
+### 16. Re-check the exemption before shipping anything that STORES audio ⚠️
+The unmarked live audio depends on three conditions (compliance record §5). Two of them
+break the moment recording ships:
+- [ ] Call recording of translated audio → the recording is a stored artifact and **must** be marked.
+- [ ] Stored voice messages / stored cloned voice → a stored cloned voice is a deepfake under Art. 3(60), with a marking duty on us.
+- [ ] Any new surface that plays synthesized audio must carry a session-level notice, or it removes the exemption's basis for itself. *(trigger: before merging either feature)*
+
+### 17. Code of Practice on Transparency of AI-Generated Content
+- [ ] Watch for the final text and decide whether to sign. Voluntary, but it is the cheapest available evidence of good faith if a regulator ever asks.
+
+### 18. GDPR — DPIA for per-speaker sentiment analysis
+Independent of the AI Act: scoring named participants' sentiment is profiling.
+- [ ] Required if it is ever sold as an employee-facing feature to employers. *(trigger: before marketing sentiment analysis to Business)*
+
+### 19. AI literacy record (Art. 4, in force since Feb 2025)
+- [ ] Record the date each person working on the translation / assistant / `ai/` code paths read `docs/eu-ai-act-compliance.md`. The record IS the evidence; for a team this size that is the whole obligation.
+
+---
+
+## 🟡 P1 — Infrastructure & DX (found during the 2026-08-04 release)
+
+### 20. The Railway CLI makes CI lie about deploys ⚠️
+`deploy-staging` and `deploy-server` both reported **failure** while the deploys actually
+succeeded. `railway up --ci` dies with `Failed to stream build logs` after ~70s and exits
+1; the build carries on server-side and reaches SUCCESS.
+- [x] **DONE** — both jobs now call `.github/scripts/railway-deploy.sh`, which starts the deploy with `--detach` and polls `railway deployment list --json` until the deployment reaches a terminal state. Fail-closed: no new deployment, an unreadable status, a terminal failure or the 25-minute timeout all exit non-zero.
+- [x] **VERIFIED on a real deploy** (run 30953792901, 2026-08-04): `deploy-staging` went green for the first time, having polled `INITIALIZING → BUILDING ×5 → SUCCESS`. `railway deployment list` does work with a project token, which was the one unproven assumption.
+> A CI that is red when everything works is a CI you stop reading. The one thing this
+> script must never do is go green when it lost track of the deploy.
+
+### 21. Dead `RAILWAY_API_TOKEN` in the shell environment
+It is set, Railway rejects it, and it **shadows** the working browser session — so every
+`railway` command fails with `Unauthorized` until you strip it.
+- [x] **Already fixed on disk** — `~/.zshrc:134` has the export commented out, and the value still in the environment is byte-identical to it: it is inherited from a shell started before that edit. A fresh shell clears it; nothing to change.
+- [ ] If it ever comes back, the workaround is `env -u RAILWAY_API_TOKEN railway …`.
+> Same shape as Homebrew's rustc shadowing rustup and breaking `cargo` — see the
+> toolchain note. Two instances of the same trap is a pattern worth watching for.
+
+### 22. PocketBase deploys are directory uploads, not git
+The `voxtranslate-pocketbase` service has **no source configured**, so a UI "Redeploy"
+republishes the old snapshot and silently ignores new migrations.
+- [x] **DONE** — documented in `website/CLAUDE.md` under "PocketBase (Railway)": the `railway link` → `railway up --detach` → `gh workflow run deploy.yml` sequence, plus the `RAILWAY_API_TOKEN` shadowing, the Cloudflare stale-page trap and the backup command.
+- [ ] Consider attaching a GitHub source so this stops being tribal knowledge.
+
+### 23. Dashboard CI never runs on `develop`
+Its `ci.yml` triggers on push to `main` and on pull_request only, so merging to `develop`
+gets no gate at all before the staging deploy.
+- [x] **DONE** — `develop` added to the push triggers.
+
+> **Do NOT add the `server_changed` gate to `deploy-staging`.** Its absence is deliberate
+> and the reasoning is in the comment above that job: staging once sat on a v1.27 build
+> while develop was at v1.32 and nobody noticed. On staging, silent drift is worse than
+> the wasted rebuild. (Noted here because it looks like an obvious optimisation, and it
+> was proposed and withdrawn on 2026-08-04.)
+
+### 24. Retire the pre-migration CMS backup
+`/Volumes/Scheda SSD/VoxTranslate/backups/pocketbase-posts-pre-migration-006-2026-08-04.json`
+— 17 records with i18n, taken before migration 006, whose down-migration is a no-op by
+design.
+- [ ] Delete once the migrated blog has been live for a while without complaints.
+
+### 25. Housekeeping
+- [ ] `website/.github/workflows/deploy.yml` — actions still target Node 20 (forced onto 24 with a deprecation warning): bump `actions/checkout`, `actions/setup-node`, `pnpm/action-setup`, `cloudflare/wrangler-action`.
+- [ ] `pnpm install` failed to fetch one tarball from the npm registry (`undici-types`, repeated ENOENT) during the release; builds were verified with the local `astro` binary instead. Confirm it is not systemic.
+
+---
+
 ## 🟢 P2 — Trademark "VoxTranslate" (before public launch — EU is **first-to-file**)
 
 > The EU/Spain protect whoever **files first**, not who used it first. Register before you publicise the name, or someone can file ahead of you and block you.
@@ -140,7 +228,15 @@ The Gemini **free / AI-Studio-unpaid tier trains on your users' audio and humans
 
 ---
 
-### Quick "this week" shortlist
+### Quick "this week" shortlist — updated 2026-08-04
+1. [x] **Railway CLI flake fixed in CI** (step 20) — verified green on run 30953792901.
+2. [x] **Dead `RAILWAY_API_TOKEN`** (step 21) — already commented out in `~/.zshrc`; only a stale inherited shell still carries it.
+3. [x] **PocketBase deploy path documented** (step 22).
+4. [x] **`develop` added to the dashboard CI triggers** (step 23).
+5. [ ] Add the AI Act items (14-19) to whatever the lawyer engagement ends up covering.
+6. [ ] Bump the deprecated Node 20 actions in the website deploy workflow (step 25) — left alone deliberately: `wrangler-action` and `pnpm/action-setup` majors change inputs, and that is not a change to make without watching a deploy.
+
+### Earlier shortlist (done)
 1. [x] Gemini Cloud Billing enabled — new GCP project, paid tier, €10 prepaid, €25/month cap, new API key deployed to Railway.
 2. [x] ZDR enabled on Groq (Global ZDR toggle); OpenAI API call logging set to Disabled; Gemini paid tier (no training by default). Deepgram MSA version — email sent to support, awaiting reply.
 3. [x] Trademark searches done — TMview, EUIPO eSearch, OEPM all clear. Logo mark strategy confirmed (step 11).
