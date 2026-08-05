@@ -19,11 +19,11 @@
 //!
 //! Every 10 seconds the server emits:
 //! ```json
-//! { "type": "cost_tick", "duration_s": 10, "credits_so_far": 38, "cost_display": "€0.38" }
+//! { "type": "cost_tick", "duration_s": 10, "credits_so_far": 38, "cost_display": "$0.38" }
 //! ```
 //! On session close:
 //! ```json
-//! { "type": "session_end", "duration_s": 72, "credits_used": 76, "cost_display": "€0.76" }
+//! { "type": "session_end", "duration_s": 72, "credits_used": 76, "cost_display": "$0.76" }
 //! ```
 //!
 //! If credits run out mid-session, the relay closes with:
