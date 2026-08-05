@@ -51,7 +51,7 @@ hlsPartDuration: 200ms
 # origin so the credentialed requests are valid CORS.
 # PLURAL: 1.19.2 still accepts the singular `hlsAllowOrigin` but logs it as deprecated,
 # so it will not survive a future image bump.
-hlsAllowOrigins: [https://voxtranslate.app]
+hlsAllowOrigins: [https://app.voxtranslate.app, https://voxtranslate.app]
 
 # --- External auth (F1-2) --------------------------------------------------
 # PUBLISH is authorized by the Axum control plane: MediaMTX POSTs each attempt to

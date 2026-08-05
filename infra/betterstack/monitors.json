@@ -1,10 +1,15 @@
 {
   "defaults": {
     "monitor_type": "expected_status_code",
-    "expected_status_codes": [200],
+    "expected_status_codes": [
+      200
+    ],
     "check_frequency": 180,
     "request_timeout": 15,
-    "regions": ["us", "eu"],
+    "regions": [
+      "us",
+      "eu"
+    ],
     "confirmation_period": 180,
     "recovery_period": 60,
     "verify_ssl": true,
@@ -20,14 +25,24 @@
     },
     {
       "pronounceable_name": "VoxTranslate client",
-      "url": "https://voxtranslate.app/",
+      "url": "https://app.voxtranslate.app/",
+      "follow_redirects": true
+    },
+    {
+      "pronounceable_name": "VoxTranslate marketing site",
+      "url": "https://voxtranslate.app/en/",
       "follow_redirects": true
     },
     {
       "pronounceable_name": "VoxTranslate server /metrics (optional liveness)",
       "url": "https://voxtranslate-server-production.up.railway.app/metrics",
       "push": false,
-      "request_headers": [{ "name": "x-origin-verify", "value": "$CF_ORIGIN_SECRET" }]
+      "request_headers": [
+        {
+          "name": "x-origin-verify",
+          "value": "$CF_ORIGIN_SECRET"
+        }
+      ]
     }
   ]
 }

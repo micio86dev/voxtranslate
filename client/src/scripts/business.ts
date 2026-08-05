@@ -7,7 +7,11 @@
 import { authHeaders, HTTP_BASE } from "./auth";
 
 /** Where the standalone Business dashboard lives (separate origin). */
-export const DASHBOARD_URL = "https://dashboard.voxtranslate.app";
+// Overridable at build time; the default is production, never localhost, so a
+// missing variable cannot bake a dead URL into the shipped bundle.
+export const DASHBOARD_URL = (
+  import.meta.env.PUBLIC_DASHBOARD_URL || "https://dashboard.voxtranslate.app"
+).replace(/\/$/, "");
 
 export interface BusinessOrg {
   id: string;

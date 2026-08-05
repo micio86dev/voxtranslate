@@ -1,6 +1,6 @@
 // guest-latency.js — measure how far a webinar guest actually is behind the live edge.
 //
-// Paste this whole file into the DevTools console on https://voxtranslate.app/w/<code>
+// Paste this whole file into the DevTools console on https://app.voxtranslate.app/w/<code>
 // while the webinar is live. It samples the <video> element directly, so it works on the
 // CURRENTLY DEPLOYED build — that is the point: run it once before shipping a player
 // change to get an honest "before", then again after to prove the delta.

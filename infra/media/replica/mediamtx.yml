@@ -51,7 +51,7 @@ hlsPartDuration: 200ms
 # PLURAL, a list. 1.19.2 still accepts the singular `hlsAllowOrigin` but logs
 # "parameter 'hlsAllowOrigin' is deprecated" on boot; the origin box is still on
 # the old spelling and should be moved too.
-hlsAllowOrigins: [https://voxtranslate.app]
+hlsAllowOrigins: [https://app.voxtranslate.app, https://voxtranslate.app]
 # NOT set: hlsAlwaysRemux. The origin remuxes eagerly so the first guest never
 # waits; a replica instead follows sourceOnDemand below and only pulls a webinar
 # while someone is actually watching it. An idle replica costs the origin nothing.
