@@ -169,3 +169,15 @@ surface is contested by VoxTranslate yet.
 - **`traduzione-simultanea-videochiamate.astro`** exists in `website/src/pages/` but is not
   in the sitemap. Either it is a deliberate orphan landing page or it is an SEO asset that
   nothing links to. Decide which.
+
+- **Pin a single Vite in `website/`.** `node_modules/vite` is 8.1.5 (hoisted, pulled in for
+  `@tailwindcss/vite`) while Astro 5 bundles `astro/node_modules/vite` 6.4.3, and
+  `astro check` rejects the Tailwind plugin on nominal type identity alone. It is currently
+  worked around with an `any` cast at the single call site in `astro.config.mjs`.
+
+  The real fix is a `vite` devDependency (or a `pnpm.overrides` entry) pinned to the version
+  Astro uses — `@tailwindcss/vite`'s peer range is `^5.2.0 || ^6 || ^7 || ^8`, so 6.4.3
+  satisfies it. It needs a regenerated lockfile, which is why it was not done inline:
+  `pnpm-lock.yaml` contains only `vite@6.4.3` today, so package.json and the lockfile agree,
+  and adding a dependency without updating the lockfile would break CI's
+  `--frozen-lockfile` install. Do it in a commit that runs `pnpm install` for real.
