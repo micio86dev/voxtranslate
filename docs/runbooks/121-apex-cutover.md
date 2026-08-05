@@ -71,13 +71,19 @@ These reject unknown origins, so they must accept the new one while the old one 
   - `Caddyfile`: the WHIP `Access-Control-Allow-Origin` for the broadcaster. These are
     credentialed requests, so the header is single-valued and cannot be a wildcard — it moves
     to the app origin and must be deployed **in the cutover window**, not before.
-- **Railway** (server service, production **and** staging):
+- **Railway** (server service, **production only**). Staging is unaffected: it runs on
+  `voxtranslate-staging.vercel.app` and never referenced the apex — verified, not assumed.
   - `ALLOWED_ORIGINS` — add `https://app.voxtranslate.app`, keep the apex for now.
-  - `APP_BASE_URL` — **currently unset**, so the code default applies. The branch changes
-    that default, but set it explicitly to `https://app.voxtranslate.app` so the value is
-    visible rather than implied.
-  - `STRIPE_SUCCESS_URL` / `STRIPE_CANCEL_URL` — repoint to the app host.
-- **Stripe**: nothing to change if the URLs come from those env vars. Confirm.
+  - `APP_BASE_URL` — was **unset**, so the code default applied. Set explicitly so the
+    value that builds `/w/<code>` email links is visible rather than implied.
+  - `STRIPE_SUCCESS_URL` / `STRIPE_CANCEL_URL` — these pointed at `voxtranslate.app/?checkout=…`.
+    After the swap the apex is the marketing home and the middleware only rescues `?room=`,
+    so a returning payer would have landed on marketing. They move to the app host.
+  - `ORG_STRIPE_*` all point at `dashboard.voxtranslate.app` — unaffected.
+  - Set with **skipDeploys**: the values are all valid the moment `app.` is live, and the
+    step-3 release applies them without an extra restart that would drop live calls.
+
+  **DONE 2026-08-05** — all four set on production, verified.
 
 ### 2b. Optional — set the origin variables explicitly
 
