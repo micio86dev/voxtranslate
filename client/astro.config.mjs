@@ -27,7 +27,8 @@ export default defineConfig({
   adapter: coverage ? node({ mode: 'standalone' }) : vercel(),
   // Canonical origin for SEO: powers Astro.site so the layout emits absolute
   // canonical / Open Graph / sitemap URLs. Production domain (see CORS allowlist).
-  site: 'https://app.voxtranslate.app',
+  // `import.meta.env` does not exist in the Astro config, so read process.env here.
+  site: (process.env.PUBLIC_SITE_ORIGIN || 'https://app.voxtranslate.app').replace(/\/$/, ''),
   server: {
     port: 4321,
     host: true,
