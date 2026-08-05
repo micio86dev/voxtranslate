@@ -108,7 +108,7 @@ pub fn va_audio_append_json(pcm16: &[u8]) -> String {
 ///
 /// Schema:
 /// ```json
-/// { "type": "cost_tick", "duration_s": 42, "credits_so_far": 15, "cost_display": "€0.03" }
+/// { "type": "cost_tick", "duration_s": 42, "credits_so_far": 15, "cost_display": "$0.03" }
 /// ```
 pub fn build_cost_tick_json(duration_s: u64, credits_so_far: i32, cost_display: &str) -> String {
     serde_json::json!({
@@ -124,7 +124,7 @@ pub fn build_cost_tick_json(duration_s: u64, credits_so_far: i32, cost_display: 
 ///
 /// Schema:
 /// ```json
-/// { "type": "session_end", "duration_s": 72, "credits_used": 25, "cost_display": "€0.05" }
+/// { "type": "session_end", "duration_s": 72, "credits_used": 25, "cost_display": "$0.05" }
 /// ```
 pub fn build_session_end_json(duration_s: u64, credits_used: i32, cost_display: &str) -> String {
     serde_json::json!({
@@ -254,13 +254,15 @@ pub async fn open_va_session(config: &VoiceAssistantConfig) -> Result<(VaSink, V
     Ok((sink, source))
 }
 
-/// Format a credit cost as a euro display string (e.g. `"€0.03"`).
+/// Format a credit cost as a USD display string (e.g. `"$0.03"`).
 ///
-/// Assumes 100 credits = €1 (the org credit unit rate). This is the same
+/// Assumes 100 credits = $1 (the org credit unit rate, `ORG_CREDIT_UNIT_CENTS`).
+/// Billing is USD end to end — `stripe_handler` opens Checkout with
+/// `currency: "usd"` — so the symbol must be `$`. This is the same
 /// conversion used by the billing dashboard.
 pub fn format_cost_display(credits: i32) -> String {
-    let euros = credits as f64 / 100.0;
-    format!("€{:.2}", euros)
+    let usd = credits as f64 / 100.0;
+    format!("${usd:.2}")
 }
 
 #[cfg(test)]
@@ -376,22 +378,22 @@ mod tests {
 
     #[test]
     fn cost_tick_structure() {
-        let tick = build_cost_tick_json(30, 12, "€0.12");
+        let tick = build_cost_tick_json(30, 12, "$0.12");
         let v: Value = serde_json::from_str(&tick).unwrap();
         assert_eq!(v["type"], "cost_tick");
         assert_eq!(v["duration_s"], 30);
         assert_eq!(v["credits_so_far"], 12);
-        assert_eq!(v["cost_display"], "€0.12");
+        assert_eq!(v["cost_display"], "$0.12");
     }
 
     #[test]
     fn session_end_structure() {
-        let end = build_session_end_json(120, 50, "€0.50");
+        let end = build_session_end_json(120, 50, "$0.50");
         let v: Value = serde_json::from_str(&end).unwrap();
         assert_eq!(v["type"], "session_end");
         assert_eq!(v["duration_s"], 120);
         assert_eq!(v["credits_used"], 50);
-        assert_eq!(v["cost_display"], "€0.50");
+        assert_eq!(v["cost_display"], "$0.50");
     }
 
     #[test]
@@ -413,8 +415,8 @@ mod tests {
 
     #[test]
     fn format_cost_display_rounding() {
-        assert_eq!(format_cost_display(0), "€0.00");
-        assert_eq!(format_cost_display(100), "€1.00");
-        assert_eq!(format_cost_display(38), "€0.38");
+        assert_eq!(format_cost_display(0), "$0.00");
+        assert_eq!(format_cost_display(100), "$1.00");
+        assert_eq!(format_cost_display(38), "$0.38");
     }
 }
