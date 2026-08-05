@@ -79,6 +79,21 @@ These reject unknown origins, so they must accept the new one while the old one 
   - `STRIPE_SUCCESS_URL` / `STRIPE_CANCEL_URL` — repoint to the app host.
 - **Stripe**: nothing to change if the URLs come from those env vars. Confirm.
 
+### 2b. Optional — set the origin variables explicitly
+
+Every origin now reads from the environment and **defaults to production**, so the
+cutover works with nothing set. Setting them makes the value visible rather than implied,
+which is worth doing on the hosts:
+
+| Where | Variables |
+|---|---|
+| Cloudflare Pages (`voxtranslate-website`) | `PUBLIC_SITE_ORIGIN`, `PUBLIC_APP_URL`, `PUBLIC_DASHBOARD_URL`, `PUBLIC_API_BASE` — plus the Function vars `APP_HOST` and `LEGACY_MARKETING_HOST` if they ever differ from the defaults |
+| Vercel (client) | `PUBLIC_SITE_ORIGIN=https://app.voxtranslate.app`, `PUBLIC_DASHBOARD_URL` |
+| dashboard | already in the committed `.env.production` (`PUBLIC_APP_URL` added) |
+
+Defaults are production, never localhost: these are static builds on the host, and a
+missing variable must not bake a dead URL into the shipped HTML.
+
 ### 3. Ship the code
 
 Merge and release, in this order:
