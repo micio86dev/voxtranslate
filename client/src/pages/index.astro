@@ -23,7 +23,9 @@ const jsonLd = {
   '@type': 'WebApplication',
   name: 'VoxTranslate',
   alternateName: 'VoxTranslate AI Voice Translator',
-  url: 'https://app.voxtranslate.app',
+  // From Astro.site (astro.config, PUBLIC_SITE_ORIGIN) rather than a literal, so the
+  // schema url cannot disagree with the canonical tags on the same page.
+  url: Astro.site?.origin ?? 'https://app.voxtranslate.app',
   applicationCategory: 'CommunicationApplication',
   operatingSystem: 'Any (web browser)',
   description:
