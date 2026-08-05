@@ -10,7 +10,7 @@ ingest.voxtranslate.app {
 		path /webinar/*/whip /webinar/*/whip/*
 	}
 	handle @whip_preflight {
-		header Access-Control-Allow-Origin "https://voxtranslate.app"
+		header Access-Control-Allow-Origin "https://app.voxtranslate.app"
 		header Access-Control-Allow-Methods "POST, DELETE, OPTIONS"
 		header Access-Control-Allow-Headers "Content-Type, Authorization, Link, Location"
 		header Access-Control-Max-Age "86400"
@@ -19,7 +19,7 @@ ingest.voxtranslate.app {
 
 	# Inject CORS response headers on real WHIP calls (POST + DELETE).
 	@whip_path path /webinar/*/whip /webinar/*/whip/*
-	header @whip_path Access-Control-Allow-Origin "https://voxtranslate.app"
+	header @whip_path Access-Control-Allow-Origin "https://app.voxtranslate.app"
 	header @whip_path Access-Control-Allow-Methods "POST, DELETE, OPTIONS"
 
 	# WHIP/WHEP signaling → MediaMTX WebRTC HTTP port.

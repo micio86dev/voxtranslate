@@ -15,15 +15,15 @@
 # lift. Run this BEFORE blaming (or tuning) the client.
 #
 # Env overrides: MEDIA_HLS_HOST (default ingest.voxtranslate.app),
-#                GUEST_ORIGIN   (default https://voxtranslate.app)
+#                GUEST_ORIGIN   (default https://app.voxtranslate.app)
 set -euo pipefail
 
 HOST="${MEDIA_HLS_HOST:-ingest.voxtranslate.app}"
-ORIGIN="${GUEST_ORIGIN:-https://voxtranslate.app}"
+ORIGIN="${GUEST_ORIGIN:-https://app.voxtranslate.app}"
 CODE="${1:-}"
 
 if [[ -z "$CODE" ]]; then
-  echo "usage: $0 <webinar-code>   (the code from https://voxtranslate.app/w/<code>)" >&2
+  echo "usage: $0 <webinar-code>   (the code from https://app.voxtranslate.app/w/<code>)" >&2
   exit 2
 fi
 

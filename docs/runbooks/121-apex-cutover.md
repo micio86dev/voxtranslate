@@ -49,8 +49,28 @@ This step is reversible and invisible to users.
 
 These reject unknown origins, so they must accept the new one while the old one still works:
 
-- **Google OAuth** (console): add `https://app.voxtranslate.app` to Authorised JavaScript
-  origins and the redirect URIs. Leave the apex entries in place until step 6.
+- **Google OAuth** (console): add `https://app.voxtranslate.app` to **Authorised JavaScript
+  origins** only. Leave the apex entry in place until step 6.
+
+  **No redirect URI change is needed.** Sign-in uses `google.accounts.oauth2.initCodeClient`
+  with `ux_mode: 'popup'` (`client/src/scripts/app.ts`), and the server exchanges the code
+  with `redirect_uri: 'postmessage'` (`client/src/scripts/auth.ts`). The popup code flow is
+  validated against the JavaScript origin; `postmessage` is not a URI that gets registered.
+
+  The dashboard already runs on `dashboard.voxtranslate.app` with the same client id and is
+  unaffected. The extension is unaffected too: it authenticates through
+  `chrome.identity.launchWebAuthFlow` against `chrome.identity.getRedirectURL()`
+  (`https://<extension-id>.chromiumapp.org/`), which has nothing to do with the app origin —
+  what moves is the `/extension/connect` handoff page, already covered by the `appOrigin`
+  change.
+
+- **Media servers (Hetzner)** — `infra/media/`. Easy to miss and it breaks webinars outright:
+  - `mediamtx.yml` + `replica/mediamtx.yml`: `hlsAllowOrigins` gates HLS playback for webinar
+    viewers. Now lists **both** origins so a webinar in progress does not lose playback the
+    moment DNS flips.
+  - `Caddyfile`: the WHIP `Access-Control-Allow-Origin` for the broadcaster. These are
+    credentialed requests, so the header is single-valued and cannot be a wildcard — it moves
+    to the app origin and must be deployed **in the cutover window**, not before.
 - **Railway** (server service, production **and** staging):
   - `ALLOWED_ORIGINS` — add `https://app.voxtranslate.app`, keep the apex for now.
   - `APP_BASE_URL` — **currently unset**, so the code default applies. The branch changes
@@ -90,6 +110,9 @@ Every one of these, not a sample:
 - [ ] Google sign-in completes on `app.voxtranslate.app`
 - [ ] A real call connects and translates (WebSocket to `api.voxtranslate.app` passes CORS)
 - [ ] A Stripe top-up returns to the right URL
+- [ ] **A webinar plays** — start one, join as a viewer from `app.voxtranslate.app/w/<code>`,
+      confirm video and translated audio. This exercises the WHIP publish CORS and the HLS
+      playback CORS, the two things the media-server config change covers.
 - [ ] Betterstack: both monitors green
 
 The OAuth and paid-call checks cannot be done from CI. They need a person with an account.

@@ -1,6 +1,6 @@
 //! Webinar host helpers (webinar phase 0). A signed-in B2B host can create and
 //! manage webinars for an org with an active subscription. Each webinar carries a
-//! public join link (`join_url`, e.g. https://voxtranslate.app/w/{code}) that the
+//! public join link (`join_url`, e.g. https://app.voxtranslate.app/w/{code}) that the
 //! screen renders as a copyable link + QR code.
 //!
 //! Pure fetch glue over the host endpoints under `/api/webinars`. All calls carry
