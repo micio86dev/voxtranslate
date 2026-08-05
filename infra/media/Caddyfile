@@ -2,25 +2,57 @@
 # WHIP signaling and HLS both ride 443; MediaMTX's internal 8888/8889 stay closed
 # at the firewall. Caddy fetches a Let's Encrypt cert automatically (needs :80).
 ingest.voxtranslate.app {
-	# CORS preflight (OPTIONS) for WHIP endpoints — browsers send this before
-	# both POST (publish start) and DELETE (publish stop). Respond inline so the
-	# request never reaches MediaMTX, which doesn't emit the required headers.
-	@whip_preflight {
+	# CORS for WHIP endpoints. These are CREDENTIALED requests, so
+	# Access-Control-Allow-Origin must be an exact origin — never `*`, and it cannot
+	# list two values. The broadcaster moved from the apex to app.voxtranslate.app
+	# (runbook 121), so the allowed origin is matched per request and echoed back.
+	#
+	# Matching BOTH removes an ordering constraint that would otherwise be a trap:
+	# this config deploys from CI whenever infra/ changes, which is not necessarily
+	# the same moment DNS moves. Pinning a single origin means whichever side deploys
+	# first breaks live broadcasts. Accepting both makes the deploy order irrelevant.
+	#
+	# Drop the apex arm once the cutover has settled and no client loads from it.
+	@whip_preflight_app {
 		method OPTIONS
 		path /webinar/*/whip /webinar/*/whip/*
+		header Origin https://app.voxtranslate.app
 	}
-	handle @whip_preflight {
+	handle @whip_preflight_app {
 		header Access-Control-Allow-Origin "https://app.voxtranslate.app"
 		header Access-Control-Allow-Methods "POST, DELETE, OPTIONS"
 		header Access-Control-Allow-Headers "Content-Type, Authorization, Link, Location"
 		header Access-Control-Max-Age "86400"
 		respond 204
 	}
+	@whip_preflight_apex {
+		method OPTIONS
+		path /webinar/*/whip /webinar/*/whip/*
+		header Origin https://voxtranslate.app
+	}
+	handle @whip_preflight_apex {
+		header Access-Control-Allow-Origin "https://voxtranslate.app"
+		header Access-Control-Allow-Methods "POST, DELETE, OPTIONS"
+		header Access-Control-Allow-Headers "Content-Type, Authorization, Link, Location"
+		header Access-Control-Max-Age "86400"
+		respond 204
+	}
 
-	# Inject CORS response headers on real WHIP calls (POST + DELETE).
-	@whip_path path /webinar/*/whip /webinar/*/whip/*
-	header @whip_path Access-Control-Allow-Origin "https://app.voxtranslate.app"
-	header @whip_path Access-Control-Allow-Methods "POST, DELETE, OPTIONS"
+	# Inject CORS response headers on real WHIP calls (POST + DELETE), echoing
+	# whichever of the two allowed origins the request actually came from.
+	@whip_app {
+		path /webinar/*/whip /webinar/*/whip/*
+		header Origin https://app.voxtranslate.app
+	}
+	header @whip_app Access-Control-Allow-Origin "https://app.voxtranslate.app"
+	header @whip_app Access-Control-Allow-Methods "POST, DELETE, OPTIONS"
+
+	@whip_apex {
+		path /webinar/*/whip /webinar/*/whip/*
+		header Origin https://voxtranslate.app
+	}
+	header @whip_apex Access-Control-Allow-Origin "https://voxtranslate.app"
+	header @whip_apex Access-Control-Allow-Methods "POST, DELETE, OPTIONS"
 
 	# WHIP/WHEP signaling → MediaMTX WebRTC HTTP port.
 	# Strip CORS headers from the upstream response: MediaMTX reflects the Origin header
