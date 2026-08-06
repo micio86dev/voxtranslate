@@ -112,7 +112,17 @@ After the client deploys, `app.voxtranslate.app` is fully correct and the apex s
 
 ### 4. Swap the apex
 
-- Vercel: remove `voxtranslate.app` from the client project.
+> **DO NOT run `vercel domains rm voxtranslate.app`.** It removes the domain from the
+> whole Vercel account, not from one project, and takes **every subdomain registered
+> under it** with it. Running it here 404'd `app.voxtranslate.app` AND
+> `dashboard.voxtranslate.app` simultaneously — a live outage on both, recovered by
+> re-adding each subdomain to its project (`vercel domains add <sub> <project>`).
+> The CLI does warn ("This domain's 3 aliases will be removed") — read it.
+>
+> Detaching the apex from Vercel is **not required**: once DNS points at Pages, Vercel
+> simply stops receiving that traffic. Leave it alone.
+
+- Vercel: nothing to remove. (See the warning above.)
 - Cloudflare: point `voxtranslate.app` at the Pages project `voxtranslate-website`.
 - Cloudflare Pages: add `voxtranslate.app` as a custom domain on that project.
 - Keep `website.voxtranslate.app` attached to the same project — the middleware needs it
