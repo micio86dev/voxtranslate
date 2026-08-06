@@ -1,5 +1,23 @@
-# VoxTranslate — allow all crawlers, point them at the sitemap.
+# VoxTranslate app — app.voxtranslate.app
+#
+# This subdomain is EXCLUDED FROM SEARCH. All content authority belongs to the apex,
+# voxtranslate.app; the app competing for the same queries only splits it.
+# Exclusion is enforced by `X-Robots-Tag: noindex` on every response (see vercel.json).
+#
+# Crawling is deliberately still ALLOWED, and that is not a contradiction — it is the
+# only combination that works.
+#
+# `Disallow: /` would block crawlers from FETCHING these pages, which means they would
+# never see the noindex header. A URL linked from somewhere else (the marketing site
+# links to /privacy and /terms) can then still be indexed as a bare URL with no
+# content. Blocking the crawl protects the page from being read, not from being listed.
+#
+# So: let them in, and let the header tell them not to index. Do not "tighten" this to
+# a Disallow — it would weaken it.
+#
+# No Sitemap directive. A sitemap exists to submit URLs for indexing, and there are no
+# URLs here we want indexed. The previous public/sitemap.xml advertised the app root
+# plus the three legal pages, which is precisely the competing surface this removes.
+
 User-agent: *
 Allow: /
-
-Sitemap: https://app.voxtranslate.app/sitemap.xml
