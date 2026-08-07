@@ -31,6 +31,7 @@ pub mod google_calendar;
 pub mod google_oauth;
 pub mod groq;
 pub mod invite;
+pub mod invoices;
 pub mod location;
 pub mod log_shipping;
 pub mod meetings;
@@ -632,6 +633,11 @@ pub fn app(state: AppState) -> Router {
         .route("/api/billing/checkout", post(api::billing_checkout))
         .route("/api/billing/webhook", post(api::billing_webhook))
         .route("/api/billing/history", get(api::billing_history))
+        .route("/api/billing/invoices", get(api::billing_invoices))
+        .route(
+            "/api/billing/invoices/{invoice_id}/pdf",
+            get(api::billing_invoice_pdf),
+        )
         .route("/api/billing/ai-pricing", get(api::ai_pricing))
         .route("/api/usage/sessions", get(api::usage_sessions))
         .route("/api/sessions", get(api::sessions_list))
