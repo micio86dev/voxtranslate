@@ -936,6 +936,7 @@ const jsonLd = {
                 <button id="tab-history" class="seg-btn active" role="tab" aria-selected="true" data-i18n="history">{T('history')}</button>
                 <button id="tab-usage" class="seg-btn" role="tab" aria-selected="false" data-i18n="usageHistory">{T('usageHistory')}</button>
                 <button id="tab-transcripts" class="seg-btn" role="tab" aria-selected="false" data-i18n="transcripts">{T('transcripts')}</button>
+                <button id="tab-invoices" class="seg-btn" role="tab" aria-selected="false" data-i18n="invoicesTitle">{T('invoicesTitle')}</button>
               </div>
               <div id="ledger-list" class="ledger-list"></div>
             </section>
@@ -3385,6 +3386,13 @@ const jsonLd = {
     .ledger-list :global(.ledger-amount.pos) { color: var(--success); }
     .ledger-list :global(.ledger-amount.neg) { color: var(--danger); }
     .ledger-list :global(.ledger-empty) { color: var(--muted); text-align: center; padding: 12px 0; font-size: 0.85rem; }
+    /* Invoices tab: a month heading above each group (spec 0109). */
+    .ledger-list :global(.ledger-group) {
+      color: var(--text); font-size: 0.74rem; font-weight: 700; letter-spacing: 0.06em;
+      text-transform: uppercase; padding: 12px 2px 4px; border-bottom: 1px solid var(--border);
+    }
+    .ledger-list :global(.ledger-group:first-child) { padding-top: 2px; }
+    .ledger-list :global(.ledger-actions) { align-items: baseline; }
     /* Transcripts tab: compact per-row PDF/JSON download buttons (JS-created). */
     .ledger-list :global(.ledger-actions) { display: flex; gap: 6px; flex: none; }
     .ledger-list :global(.ledger-dl) {
