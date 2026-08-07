@@ -186,6 +186,14 @@ pub fn routes() -> Router<AppState> {
             "/api/business/organizations/{org_id}/credits",
             get(billing::credits),
         )
+        .route(
+            "/api/business/organizations/{org_id}/invoices",
+            get(billing::invoices),
+        )
+        .route(
+            "/api/business/organizations/{org_id}/invoices/{invoice_id}/pdf",
+            get(billing::invoice_pdf),
+        )
         .route("/api/business/stripe/webhook", post(billing::webhook))
 }
 

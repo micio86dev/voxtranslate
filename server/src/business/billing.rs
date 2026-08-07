@@ -222,12 +222,23 @@ pub async fn purchase(
         ));
     }
 
+    // Bill the top-up to the org's existing Stripe customer when there is one, so
+    // subscription invoices and top-up invoices accumulate under one customer
+    // instead of a trail of guests.
+    let customer: Option<String> =
+        sqlx::query_scalar("SELECT stripe_customer_id FROM organizations WHERE id = $1")
+            .bind(org_id)
+            .fetch_one(pool)
+            .await
+            .map_err(db_err)?;
+
     let url = stripe_handler::create_org_purchase_checkout(
         &state.http,
         billing,
         org_cfg,
         &org_id,
         body.credits_amount,
+        customer.as_deref(),
     )
     .await
     .map_err(|e| {
@@ -264,6 +275,40 @@ pub async fn credits(
     .map_err(db_err)?;
 
     Ok(Json(json!({ "balance": balance, "transactions": txns })).into_response())
+}
+
+/// `GET /api/business/organizations/{org_id}/invoices` — the org's invoices,
+/// grouped by calendar month, newest first (owner/admin — spec 0109 R3).
+///
+/// Subscription renewals and credit top-ups land in the same list: from the
+/// buyer's side they are all just documents for a month.
+pub async fn invoices(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(org_id): Path<Uuid>,
+) -> Result<Response, Response> {
+    let pool = require_pool(&state)?;
+    require_role(pool, org_id, user.user_id, ADMIN).await?;
+
+    let rows = crate::invoices::list(pool, crate::invoices::Owner::Org(org_id))
+        .await
+        .map_err(db_err)?;
+    Ok(Json(json!({ "months": crate::invoices::group_by_month(rows) })).into_response())
+}
+
+/// `GET /api/business/organizations/{org_id}/invoices/{invoice_id}/pdf` —
+/// resolve the invoice's current download URL (owner/admin). The role check
+/// happens before the ownership check, so a member of another org cannot even
+/// probe ids.
+pub async fn invoice_pdf(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path((org_id, invoice_id)): Path<(Uuid, Uuid)>,
+) -> Result<Response, Response> {
+    let pool = require_pool(&state)?;
+    require_role(pool, org_id, user.user_id, ADMIN).await?;
+
+    Ok(crate::api::invoice_pdf_url(&state, crate::invoices::Owner::Org(org_id), invoice_id).await)
 }
 
 /// `POST /api/business/stripe/webhook` — Stripe events for org billing. Verified
@@ -357,17 +402,33 @@ async fn handle_event(
                         .as_str()
                         .and_then(|s| s.parse::<i32>().ok())
                         .unwrap_or(0);
-                    if let (Some(org_id), true) = (obj_org_id(obj), credits > 0) {
-                        grant(
-                            pool, event_id, event_type, org_id, credits, "purchase", None, None,
-                        )
-                        .await?;
+                    if let Some(org_id) = obj_org_id(obj) {
+                        // An org that tops up before ever subscribing has no
+                        // customer yet. Claim the one Checkout just created, so
+                        // the invoice this session produced can be resolved back
+                        // to the org and the next top-up reuses it.
+                        if let Some(customer) = obj["customer"].as_str() {
+                            sqlx::query(
+                                "UPDATE organizations SET stripe_customer_id = $2, updated_at = now()
+                                 WHERE id = $1 AND stripe_customer_id IS NULL",
+                            )
+                            .bind(org_id)
+                            .bind(customer)
+                            .execute(pool)
+                            .await?;
+                        }
+                        if credits > 0 {
+                            grant(
+                                pool, event_id, event_type, org_id, credits, "purchase", None, None,
+                            )
+                            .await?;
+                        }
                     }
                 }
                 _ => {}
             }
         }
-        "invoice.payment_succeeded" => {
+        "invoice.payment_succeeded" | "invoice.finalized" => {
             if let Some(customer) = obj["customer"].as_str() {
                 let org: Option<(Uuid, String)> = sqlx::query_as(
                     "SELECT id, plan FROM organizations WHERE stripe_customer_id = $1",
@@ -376,12 +437,43 @@ async fn handle_event(
                 .fetch_optional(pool)
                 .await?;
                 if let Some((org_id, org_plan)) = org {
+                    // Record the document first — it is worth keeping whether or
+                    // not this invoice carries a credit grant (spec 0109 R3).
+                    record_org_invoice(pool, org_id, obj).await;
+
+                    if event_type != "invoice.payment_succeeded" {
+                        return Ok(());
+                    }
+
+                    // Only a recognised PLAN price grants the monthly credit
+                    // allowance. This used to fall back to "assume the org's
+                    // current plan, monthly" for any unrecognised price — which
+                    // was harmless while top-ups produced no invoice at all, but
+                    // spec 0109 turned on `invoice_creation`, so a top-up now
+                    // also lands here. Its inline `price_data` carries no price
+                    // id, so the fallback would have handed out a full month of
+                    // subscription credits on top of the credits just bought.
+                    //
+                    // Matching on the configured price ids — rather than on
+                    // Stripe's `subscription` link, whose location has moved
+                    // between API versions — keeps this decision on data we own.
                     let price_id = obj
                         .pointer("/lines/data/0/price/id")
                         .and_then(|v| v.as_str());
-                    let (plan, interval) = price_id
-                        .and_then(|p| org_cfg.plan_interval_for_price(p))
-                        .unwrap_or((leak_plan(&org_plan), "month"));
+                    let Some((plan, interval)) =
+                        price_id.and_then(|p| org_cfg.plan_interval_for_price(p))
+                    else {
+                        if is_subscription_invoice(obj) {
+                            // A real renewal we cannot price: the org is owed
+                            // credits and will not get them. Loud on purpose —
+                            // it means the configured price ids drifted.
+                            tracing::error!(
+                                %org_id, %event_id, ?price_id, org_plan = %org_plan,
+                                "subscription invoice has no configured price — no credits granted"
+                            );
+                        }
+                        return Ok(());
+                    };
                     let credits = org_cfg.grant_credits(plan, interval);
                     let period_end = obj
                         .pointer("/lines/data/0/period/end")
@@ -518,6 +610,37 @@ async fn grant(
     Ok(())
 }
 
+/// Does this invoice belong to a subscription?
+///
+/// Stripe moved the link from the top-level `subscription` field to
+/// `parent.subscription_details.subscription`, and the line item carries it too.
+/// All three are checked so the answer does not depend on the pinned API version
+/// — getting this wrong means either a missed monthly grant or a double one.
+fn is_subscription_invoice(obj: &Value) -> bool {
+    obj.get("subscription").is_some_and(|v| !v.is_null())
+        || obj
+            .pointer("/parent/subscription_details/subscription")
+            .is_some_and(|v| !v.is_null())
+        || obj
+            .pointer("/lines/data/0/subscription")
+            .is_some_and(|v| !v.is_null())
+        || obj
+            .pointer("/lines/data/0/parent/subscription_item_details/subscription")
+            .is_some_and(|v| !v.is_null())
+}
+
+/// Best-effort invoice persistence. A failure here must never fail the webhook:
+/// Stripe would retry an event whose credit grant already committed, and the
+/// document can always be re-recorded from a later event.
+async fn record_org_invoice(pool: &Pool, org_id: Uuid, obj: &Value) {
+    let Some(inv) = crate::invoices::parse_stripe_invoice(obj) else {
+        return;
+    };
+    if let Err(e) = crate::invoices::upsert(pool, crate::invoices::Owner::Org(org_id), &inv).await {
+        tracing::error!(%org_id, "org invoice upsert failed: {e}");
+    }
+}
+
 /// `org_id` from a Checkout Session object: metadata first, then client_reference_id.
 fn obj_org_id(obj: &Value) -> Option<Uuid> {
     obj["metadata"]["org_id"]
@@ -533,14 +656,5 @@ fn map_status(status: Option<&str>) -> &'static str {
         Some("past_due") | Some("unpaid") => "past_due",
         Some("canceled") | Some("incomplete_expired") => "canceled",
         _ => "active",
-    }
-}
-
-/// Coerce a stored plan string to a static fallback for credit lookup.
-fn leak_plan(plan: &str) -> &'static str {
-    if plan == "enterprise" {
-        "enterprise"
-    } else {
-        "business"
     }
 }

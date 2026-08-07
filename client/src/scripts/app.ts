@@ -7849,20 +7849,97 @@ async function checkout(pkgId: string, btn: HTMLButtonElement): Promise<void> {
   }
 }
 
-type LedgerTab = 'history' | 'usage' | 'transcripts';
+type LedgerTab = 'history' | 'usage' | 'transcripts' | 'invoices';
 
 function selectTab(which: LedgerTab): void {
-  for (const [id, tab] of [['tab-history', 'history'], ['tab-usage', 'usage'], ['tab-transcripts', 'transcripts']] as const) {
+  for (const [id, tab] of [['tab-history', 'history'], ['tab-usage', 'usage'], ['tab-transcripts', 'transcripts'], ['tab-invoices', 'invoices']] as const) {
     $(id).classList.toggle('active', which === tab);
     $(id).setAttribute('aria-selected', String(which === tab));
   }
   void loadLedger(which);
 }
 
+/**
+ * Invoice rows, grouped by the month heading the server already computed.
+ *
+ * The PDF link is resolved on click rather than baked into an href: the issuer's
+ * download URLs expire, so a link rendered at page load would rot while the tab
+ * sits open.
+ */
+async function renderInvoiceRows(): Promise<void> {
+  const months = await auth.fetchInvoices();
+  if (!months.length) {
+    const empty = document.createElement('div');
+    empty.className = 'ledger-empty';
+    empty.textContent = t('noInvoices');
+    ledgerList.appendChild(empty);
+    return;
+  }
+
+  // Parsed as UTC — the server groups in UTC, so a negative-offset locale must
+  // not shift the label back into the previous month.
+  const monthLabel = (ym: string): string => {
+    const [y, m] = ym.split('-').map(Number);
+    return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString(undefined, {
+      year: 'numeric',
+      month: 'long',
+      timeZone: 'UTC',
+    });
+  };
+  const money = (cents: number, currency: string): string =>
+    (cents / 100).toLocaleString(undefined, {
+      style: 'currency',
+      currency: currency.toUpperCase(),
+    });
+
+  for (const group of months) {
+    const heading = document.createElement('div');
+    heading.className = 'ledger-group';
+    heading.textContent = monthLabel(group.month);
+    ledgerList.appendChild(heading);
+
+    for (const inv of group.invoices) {
+      const row = document.createElement('div');
+      row.className = 'ledger-row';
+
+      const desc = document.createElement('span');
+      desc.className = 'ledger-desc';
+      desc.textContent = `${inv.number ?? '—'} · ${new Date(inv.issued_at).toLocaleDateString()}`;
+
+      const actions = document.createElement('span');
+      actions.className = 'ledger-actions';
+
+      const total = document.createElement('span');
+      total.className = 'ledger-amount';
+      total.textContent = money(inv.total_cents, inv.currency);
+
+      const dl = document.createElement('button');
+      dl.type = 'button';
+      dl.className = 'ledger-dl';
+      dl.textContent = t('downloadInvoice');
+      dl.addEventListener('click', async () => {
+        dl.disabled = true;
+        const url = await auth.fetchInvoicePdfUrl(inv.id);
+        dl.disabled = false;
+        if (url) window.open(url, '_blank', 'noopener');
+        else alert(t('invoiceDownloadFailed'));
+      });
+
+      actions.append(total, dl);
+      row.append(desc, actions);
+      ledgerList.appendChild(row);
+    }
+  }
+}
+
 async function loadLedger(which: LedgerTab): Promise<void> {
   ledgerList.innerHTML = '';
   if (which === 'transcripts') {
     await renderTranscriptRows();
+    return;
+  }
+  if (which === 'invoices') {
+    await renderInvoiceRows();
     return;
   }
   let rows: any[] = which === 'history' ? await auth.fetchHistory() : await auth.fetchUsage();
@@ -8620,6 +8697,7 @@ $('low-banner-buy').addEventListener('click', openBuyModal);
 $('tab-history').addEventListener('click', () => selectTab('history'));
 $('tab-usage').addEventListener('click', () => selectTab('usage'));
 $('tab-transcripts').addEventListener('click', () => selectTab('transcripts'));
+$('tab-invoices').addEventListener('click', () => selectTab('invoices'));
 $('exhausted-dismiss').addEventListener('click', () => show(exhaustedModal, false));
 $('exhausted-buy').addEventListener('click', () => {
   show(exhaustedModal, false);
