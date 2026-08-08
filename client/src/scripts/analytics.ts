@@ -151,6 +151,39 @@ export function trackAuthSuccess(opts: {
   }
 }
 
+/**
+ * Report a completed purchase to BOTH platforms in one call, so GA4 and Meta can never
+ * drift on what a payment was worth.
+ *
+ * `value` + `currency` are the whole point: without them Meta can only bid on purchase
+ * COUNT and no ROAS is computable. They stay OPTIONAL because the Stripe return lands on
+ * a fresh page load that carries no amount — when the caller cannot produce the real
+ * price we still report the conversion, just unvalued. Never substitute a guessed
+ * amount: a wrong value poisons bidding worse than a missing one does.
+ *
+ * The GA4 event keeps its existing `payment_completed` name (renaming it to GA's
+ * recommended `purchase` would orphan the conversion already configured in GA4); Meta
+ * gets its standard `Purchase`, which is the event campaign optimisation bids on. The
+ * Meta call is a no-op unless the pixel was loaded, i.e. unless advertising consent was
+ * given. Currency defaults to USD — the only currency credit packages are priced in.
+ */
+export function trackPurchase(opts: { value?: number | null; currency?: string } = {}): void {
+  const value =
+    typeof opts.value === 'number' && Number.isFinite(opts.value) && opts.value > 0
+      ? opts.value
+      : null;
+  const currency = (opts.currency || 'USD').toUpperCase();
+  const params = value === null ? undefined : { value, currency };
+  // Analytics must never break the post-payment flow (balance refresh, URL tidy), so a
+  // throwing tag is swallowed here rather than surfacing to the caller.
+  try {
+    track('payment_completed', params ?? {});
+    trackFbEvent('Purchase', params);
+  } catch {
+    /* tag unavailable / blocked — the payment itself is unaffected */
+  }
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 // Meta pixel. Advertising, so the rules differ from gtag: nothing is loaded until
 // `loadMetaPixel()` is called from the consent handler, and there is no <noscript>

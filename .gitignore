@@ -76,3 +76,7 @@
 # Terraform backend config: holds the Cloudflare account ID and R2 credentials.
 backend.hcl
 /server/target-rebuild
+
+# Marketing audit deliverables (generated reports: HTML/PDF + raw scrape artifacts).
+# Regenerate with the agent team in .claude/skills/ — not source, and large binaries.
+/marketing-audit/
