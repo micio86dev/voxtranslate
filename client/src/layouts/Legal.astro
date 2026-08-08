@@ -50,9 +50,21 @@ const {
           if (!doc) return;
           const h1 = document.querySelector('.legal-header h1');
           const body = document.querySelector('.legal-body');
+          const meta = document.querySelector('.legal-meta');
           if (h1 && doc.title) {
             h1.textContent = doc.title;
             document.title = `${doc.title} · VoxTranslate`;
+          }
+          // The managed version is the single source of truth for the date too, so a
+          // published edit can never leave the header claiming an older policy than the
+          // body below it. Rendered in the reader's language; a version string that
+          // isn't a date just shows as-is.
+          if (meta && doc.version) {
+            const d = new Date(doc.version);
+            const stamp = Number.isNaN(d.getTime())
+              ? doc.version
+              : d.toLocaleDateString(lang, { day: 'numeric', month: 'long', year: 'numeric' });
+            meta.textContent = `Last updated: ${stamp} · Version ${doc.version}`;
           }
           if (body && doc.body) body.innerHTML = renderMarkdown(doc.body);
         })

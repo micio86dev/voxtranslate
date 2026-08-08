@@ -27,8 +27,15 @@ jobs:
           [ "$code" = "200" ] || { echo "::error title=Server DOWN::/health returned $code"; exit 1; }
       - name: Client homepage
         run: |
+          # The app lives on `app.voxtranslate.app` (Vercel, NOT proxied by Cloudflare).
+          # The apex `voxtranslate.app` is now the marketing site instead, and checking it
+          # from here fails twice over: it 302s `/` → `/en/` (this check wants a literal
+          # 200), and it sits behind the zone's Bot Fight Mode (issue #111), which blocks
+          # datacenter callers like an Actions runner with a 403. The marketing site is
+          # monitored by Better Stack instead (`infra/betterstack/monitors.json` already
+          # points at `/en/`), whose probes aren't bot-blocked.
           code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 --retry 3 --retry-delay 5 \
-            https://voxtranslate.app/ || echo 000)
+            https://app.voxtranslate.app/ || echo 000)
           echo "client / → $code"
           [ "$code" = "200" ] || { echo "::error title=Client DOWN::/ returned $code"; exit 1; }
       - name: Server error rate & p95 latency (from /metrics, spec 0058)

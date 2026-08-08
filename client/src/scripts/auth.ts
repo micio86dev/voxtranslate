@@ -296,6 +296,50 @@ export async function fetchUsage(): Promise<UsageSession[]> {
   return (await res.json()) as UsageSession[];
 }
 
+/** One billing document. Amounts are integer minor units (cents). */
+export interface Invoice {
+  id: string;
+  number: string | null;
+  /** ISO-8601 issue date — what the monthly grouping is keyed on. */
+  issued_at: string;
+  period_start: string | null;
+  period_end: string | null;
+  subtotal_cents: number;
+  tax_cents: number;
+  total_cents: number;
+  currency: string;
+  /** Issuer status: 'paid' | 'open' | 'void' | 'uncollectible'. */
+  status: string;
+  hosted_invoice_url: string | null;
+}
+
+/** Invoices for one calendar month (`YYYY-MM`, UTC), newest month first. */
+export interface InvoiceMonth {
+  month: string;
+  invoices: Invoice[];
+}
+
+export async function fetchInvoices(): Promise<InvoiceMonth[]> {
+  const res = await fetch(`${HTTP_BASE}/api/billing/invoices`, { headers: authHeaders() });
+  if (!res.ok) return [];
+  const body = (await res.json()) as { months?: InvoiceMonth[] };
+  return body.months ?? [];
+}
+
+/**
+ * Resolve an invoice's download URL. The server re-fetches it from the issuer
+ * on every call because those links expire — never cache the result, open it
+ * straight away. Returns null when it cannot be resolved.
+ */
+export async function fetchInvoicePdfUrl(invoiceId: string): Promise<string | null> {
+  const res = await fetch(`${HTTP_BASE}/api/billing/invoices/${invoiceId}/pdf`, {
+    headers: authHeaders(),
+  });
+  if (!res.ok) return null;
+  const body = (await res.json()) as { url?: string };
+  return body.url ?? null;
+}
+
 /** Recorded call sessions (transcripts) the user took part in, newest first. */
 export async function fetchSessions(): Promise<CallSession[]> {
   const res = await fetch(`${HTTP_BASE}/api/sessions`, { headers: authHeaders() });

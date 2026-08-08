@@ -36,6 +36,7 @@ import {
   loadMetaPixel,
   track,
   trackAuthSuccess,
+  trackPurchase,
 } from './analytics';
 import { setupGeoOptIn } from './geo';
 import { enablePush, maybeSubscribePush } from './push';
@@ -287,6 +288,13 @@ function readCache(key: string): string | null {
 function writeCache(key: string, value: string): void {
   try {
     localStorage.setItem(key, value);
+  } catch {
+    /* private mode / storage blocked */
+  }
+}
+function clearCache(key: string): void {
+  try {
+    localStorage.removeItem(key);
   } catch {
     /* private mode / storage blocked */
   }
@@ -4636,8 +4644,10 @@ async function boot(): Promise<void> {
   }
   // Returned from a Stripe checkout → refresh balance + tidy the URL.
   if (billing && auth.isLoggedIn() && location.search.includes('checkout=success')) {
-    // Track successful payment
-    track('payment_completed');
+    // Track successful payment — GA4 `payment_completed` + Meta `Purchase`, both carrying
+    // the amount parked at checkout so paid campaigns can optimise on revenue (ROAS).
+    const paid = takePendingPurchase();
+    trackPurchase({ value: paid?.value, currency: paid?.currency });
     await auth.refreshMe();
     renderAccount();
     history.replaceState(null, '', location.pathname);
@@ -7823,6 +7833,56 @@ async function renderPackages(): Promise<void> {
   }
 }
 
+// Purchase-value hand-off across the Stripe redirect. Stripe sends the buyer back to a
+// FRESH page load carrying only `?checkout=success` — no amount, no package — so the
+// picked package's real price (`price_usd`, the very figure shown on the button and the
+// one the Stripe price is configured from) is parked here before leaving and consumed
+// once on return. Best-effort: blocked/cleared storage just means the conversion is
+// reported without a value, never with a made-up one.
+const PENDING_PURCHASE_KEY = 'voxtranslate_pending_purchase';
+/** A checkout parked longer ago than this is not the one we just came back from. */
+const PENDING_PURCHASE_TTL_MS = 6 * 60 * 60 * 1000;
+
+interface PendingPurchase {
+  package_id: string;
+  value: number;
+  currency: string;
+  at: number;
+}
+
+/** Park the picked package's price before handing the tab to Stripe. */
+function rememberPendingPurchase(pkg: auth.CreditPackage): void {
+  const pending: PendingPurchase = {
+    package_id: pkg.id,
+    value: pkg.price_usd,
+    currency: 'USD', // packages are priced in USD (`price_usd`, rendered as `$x.xx`)
+    at: Date.now(),
+  };
+  writeCache(PENDING_PURCHASE_KEY, JSON.stringify(pending));
+}
+
+/** Read back the parked purchase and drop it, so one payment is valued exactly once.
+ *  Returns null when it is missing, unreadable, malformed or stale — the caller then
+ *  reports the conversion unvalued rather than inventing an amount. */
+function takePendingPurchase(): PendingPurchase | null {
+  const raw = readCache(PENDING_PURCHASE_KEY);
+  clearCache(PENDING_PURCHASE_KEY);
+  if (!raw) return null;
+  try {
+    const p = JSON.parse(raw) as Partial<PendingPurchase>;
+    if (typeof p.value !== 'number' || !Number.isFinite(p.value) || p.value <= 0) return null;
+    if (typeof p.at !== 'number' || Date.now() - p.at > PENDING_PURCHASE_TTL_MS) return null;
+    return {
+      package_id: typeof p.package_id === 'string' ? p.package_id : '',
+      value: p.value,
+      currency: typeof p.currency === 'string' && p.currency ? p.currency : 'USD',
+      at: p.at,
+    };
+  } catch {
+    return null; // corrupt entry — treat as no known value
+  }
+}
+
 async function checkout(pkgId: string, btn: HTMLButtonElement): Promise<void> {
   btn.disabled = true;
   buyStatus.textContent = '';
@@ -7836,6 +7896,7 @@ async function checkout(pkgId: string, btn: HTMLButtonElement): Promise<void> {
       amount_cents: Math.round(pkg.price_usd * 100),
       location: 'buy_modal',
     });
+    rememberPendingPurchase(pkg);
   }
   try {
     location.href = await auth.startCheckout(pkgId);
@@ -7849,20 +7910,97 @@ async function checkout(pkgId: string, btn: HTMLButtonElement): Promise<void> {
   }
 }
 
-type LedgerTab = 'history' | 'usage' | 'transcripts';
+type LedgerTab = 'history' | 'usage' | 'transcripts' | 'invoices';
 
 function selectTab(which: LedgerTab): void {
-  for (const [id, tab] of [['tab-history', 'history'], ['tab-usage', 'usage'], ['tab-transcripts', 'transcripts']] as const) {
+  for (const [id, tab] of [['tab-history', 'history'], ['tab-usage', 'usage'], ['tab-transcripts', 'transcripts'], ['tab-invoices', 'invoices']] as const) {
     $(id).classList.toggle('active', which === tab);
     $(id).setAttribute('aria-selected', String(which === tab));
   }
   void loadLedger(which);
 }
 
+/**
+ * Invoice rows, grouped by the month heading the server already computed.
+ *
+ * The PDF link is resolved on click rather than baked into an href: the issuer's
+ * download URLs expire, so a link rendered at page load would rot while the tab
+ * sits open.
+ */
+async function renderInvoiceRows(): Promise<void> {
+  const months = await auth.fetchInvoices();
+  if (!months.length) {
+    const empty = document.createElement('div');
+    empty.className = 'ledger-empty';
+    empty.textContent = t('noInvoices');
+    ledgerList.appendChild(empty);
+    return;
+  }
+
+  // Parsed as UTC — the server groups in UTC, so a negative-offset locale must
+  // not shift the label back into the previous month.
+  const monthLabel = (ym: string): string => {
+    const [y, m] = ym.split('-').map(Number);
+    return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString(undefined, {
+      year: 'numeric',
+      month: 'long',
+      timeZone: 'UTC',
+    });
+  };
+  const money = (cents: number, currency: string): string =>
+    (cents / 100).toLocaleString(undefined, {
+      style: 'currency',
+      currency: currency.toUpperCase(),
+    });
+
+  for (const group of months) {
+    const heading = document.createElement('div');
+    heading.className = 'ledger-group';
+    heading.textContent = monthLabel(group.month);
+    ledgerList.appendChild(heading);
+
+    for (const inv of group.invoices) {
+      const row = document.createElement('div');
+      row.className = 'ledger-row';
+
+      const desc = document.createElement('span');
+      desc.className = 'ledger-desc';
+      desc.textContent = `${inv.number ?? '—'} · ${new Date(inv.issued_at).toLocaleDateString()}`;
+
+      const actions = document.createElement('span');
+      actions.className = 'ledger-actions';
+
+      const total = document.createElement('span');
+      total.className = 'ledger-amount';
+      total.textContent = money(inv.total_cents, inv.currency);
+
+      const dl = document.createElement('button');
+      dl.type = 'button';
+      dl.className = 'ledger-dl';
+      dl.textContent = t('downloadInvoice');
+      dl.addEventListener('click', async () => {
+        dl.disabled = true;
+        const url = await auth.fetchInvoicePdfUrl(inv.id);
+        dl.disabled = false;
+        if (url) window.open(url, '_blank', 'noopener');
+        else alert(t('invoiceDownloadFailed'));
+      });
+
+      actions.append(total, dl);
+      row.append(desc, actions);
+      ledgerList.appendChild(row);
+    }
+  }
+}
+
 async function loadLedger(which: LedgerTab): Promise<void> {
   ledgerList.innerHTML = '';
   if (which === 'transcripts') {
     await renderTranscriptRows();
+    return;
+  }
+  if (which === 'invoices') {
+    await renderInvoiceRows();
     return;
   }
   let rows: any[] = which === 'history' ? await auth.fetchHistory() : await auth.fetchUsage();
@@ -8620,6 +8758,7 @@ $('low-banner-buy').addEventListener('click', openBuyModal);
 $('tab-history').addEventListener('click', () => selectTab('history'));
 $('tab-usage').addEventListener('click', () => selectTab('usage'));
 $('tab-transcripts').addEventListener('click', () => selectTab('transcripts'));
+$('tab-invoices').addEventListener('click', () => selectTab('invoices'));
 $('exhausted-dismiss').addEventListener('click', () => show(exhaustedModal, false));
 $('exhausted-buy').addEventListener('click', () => {
   show(exhaustedModal, false);

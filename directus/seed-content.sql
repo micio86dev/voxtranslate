@@ -13,7 +13,7 @@ INSERT INTO languages (code, name, sort) VALUES ('ja', '日本語', 6) ON CONFLI
 INSERT INTO languages (code, name, sort) VALUES ('zh', '中文', 7) ON CONFLICT (code) DO UPDATE SET name = EXCLUDED.name, sort = EXCLUDED.sort;
 
 -- Legal pages + per-language body (markdown), one row per <slug>.<lang>.md.
-INSERT INTO legal_pages (slug, version) VALUES ('terms', '2026-07-26') ON CONFLICT (slug) DO UPDATE SET version = EXCLUDED.version;
+INSERT INTO legal_pages (slug, version) VALUES ('terms', '2026-08-08') ON CONFLICT (slug) DO UPDATE SET version = EXCLUDED.version;
 INSERT INTO legal_translations (page_id, language, title, body)
   SELECT id, 'it', 'Termini di servizio', 'Benvenuto su VoxTranslate ("il Servizio"), un''applicazione di videochiamate tradotte in tempo reale gestita da Alessandro Micelli ("VoxTranslate", "noi"). I presenti Termini di servizio ("Termini") regolano l''accesso e l''uso del Servizio. Creando un account, accedendo o utilizzando in altro modo il Servizio, accetti questi Termini. Se non li accetti, non utilizzare il Servizio.
 
@@ -486,7 +486,7 @@ INSERT INTO legal_translations (page_id, language, title, body)
 
 对本条款有疑问？请联系我们：support@voxtranslate.app。' FROM legal_pages WHERE slug = 'terms'
   ON CONFLICT (page_id, language) DO UPDATE SET title = EXCLUDED.title, body = EXCLUDED.body;
-INSERT INTO legal_pages (slug, version) VALUES ('privacy', '2026-07-26') ON CONFLICT (slug) DO UPDATE SET version = EXCLUDED.version;
+INSERT INTO legal_pages (slug, version) VALUES ('privacy', '2026-08-08') ON CONFLICT (slug) DO UPDATE SET version = EXCLUDED.version;
 INSERT INTO legal_translations (page_id, language, title, body)
   SELECT id, 'it', 'Informativa sulla privacy', 'La presente Informativa sulla privacy spiega quali dati personali tratta VoxTranslate quando utilizzi il nostro servizio di videochiamate tradotte in tempo reale, perché li trattiamo e quali diritti hai. È redatta per conformarsi al Regolamento generale sulla protezione dei dati (GDPR) dell''UE e a leggi analoghe.
 
@@ -497,7 +497,8 @@ Il Servizio è gestito da **Alessandro Micelli**, Puerto del Rosario, Spain ("Vo
 ## 2. Quali dati trattiamo
 
 - **Dati dell''account** — accedendo con Google riceviamo nome, indirizzo email e URL dell''immagine del profilo.
-- **Audio (transitorio)** — mentre parli, l''audio del microfono è inviato in streaming ai fornitori che alimentano il motore scelto per quella chiamata: un fornitore di speech-to-text nel tier Standard e un fornitore di traduzione vocale end-to-end nei tier Pro e Premium. Nel tier **Enhanced** il tuo browser invia l''audio **direttamente** al fornitore tramite un token di accesso di breve durata, quindi non passa affatto dai nostri server. Non conserviamo l''audio grezzo.
+- **Audio (transitorio)** — mentre parli, l''audio del microfono è inviato in streaming al fornitore che alimenta il motore scelto per quella chiamata: un fornitore di traduzione vocale end-to-end nei tier **Standard** e **Premium**. Nel tier **Enhanced** il tuo browser invia l''audio **direttamente** al fornitore tramite un token di accesso di breve durata, quindi non passa affatto dai nostri server. Non conserviamo l''audio grezzo.
+- **Audio della scheda del browser (estensione Chrome, transitorio)** — la nostra estensione Chrome cattura l''audio riprodotto in una scheda che **scegli tu**, non soltanto il microfono, così puoi seguire un video, un webinar o una chiamata ospitati su un altro sito. La cattura è attiva solo mentre una sessione è in corso e solo sulla scheda selezionata. Quell''audio viene trascritto e tradotto mentre scorre e ti viene restituito come sottotitoli dal vivo; non viene registrato e una sessione dell''estensione non conserva nulla sui nostri server. Le impostazioni dell''estensione restano nel tuo browser.
 - **Campione vocale (facoltativo)** — nel tier Enhanced puoi registrare un breve clip perché la tua voce tradotta sia pronunciata con un timbro simile al tuo. Il clip è inviato al nostro fornitore vocale, che crea la voce sintetica e restituisce un identificativo che conserviamo sul tuo account. La funzione è facoltativa e il tier si può usare senza di essa.
 - **Trascrizioni e traduzioni** — il testo del parlato e della chat insieme alle relative traduzioni. Quando un utente registrato partecipa a una chiamata, questi vengono **conservati** affinché i partecipanti possano successivamente rivedere, esportare (PDF/JSON) e correggere con l''IA la trascrizione. Le chiamate a cui non ha partecipato alcun utente registrato non vengono conservate. Le trascrizioni conservate vengono eliminate quando elimini il tuo account: i tuoi interventi vengono rimossi insieme ad esso.
 - **Messaggi di chat e file** — la chat è trasmessa e tradotta tra i partecipanti. I file che alleghi sono archiviati in modo privato e condivisi con i partecipanti alla chiamata tramite link di breve durata.
@@ -525,9 +526,9 @@ Condividiamo i dati personali con i fornitori indicati di seguito esclusivamente
 
 - **Google** — accesso (OAuth): nome, email, immagine del profilo; in quanto Google Gemini, traduzione vocale in tempo reale nel tier **Premium** (audio in streaming e testo della trascrizione, transitori); e, solo con il tuo consenso, Google Analytics 4 e Google Ads: eventi di utilizzo e di conversione.
 - **Meta** — solo con il tuo consenso, il Meta Pixel: eventi di pagina e di conversione usati per misurare e indirizzare la pubblicità.
-- **Deepgram** — speech-to-text (tier Standard): audio in streaming (transitorio).
-- **Groq** — traduzione automatica (tier Standard ed Enhanced): testo della trascrizione (transitorio).
-- **OpenAI** — traduzione vocale in tempo reale (tier **Pro**): audio in streaming e testo della trascrizione (transitori).
+- **Alibaba Cloud (Qwen)** — traduzione vocale in tempo reale e sintesi vocale nel tier **Standard**: audio in streaming e testo della trascrizione (transitori).
+- **Groq** — traduzione automatica del testo — sottotitoli, chat e trascrizioni — su tutti i tier: testo della trascrizione e della chat (transitorio).
+- **Deepgram** — trascrizione del solo audio caricato o registrato, mai delle chiamate dal vivo e mai traduzione: l''audio che carichi o registri (transitorio).
 - **Cartesia** — speech-to-text e sintesi vocale nel tier **Enhanced**: audio inviato in streaming direttamente dal tuo browser (transitorio, non instradato dai nostri server) e, se usi la clonazione vocale, il clip che registri e la voce sintetica risultante.
 - **Stripe** — elaborazione dei pagamenti: dati di fatturazione e di pagamento.
 - **Supabase** — database e archiviazione file: dati di account, utilizzo, fatturazione e sicurezza, trascrizioni conservate e file allegati alla chat.
@@ -598,7 +599,8 @@ The Service is operated by **Alessandro Micelli**, Puerto del Rosario, Spain ("V
 ## 2. What data we process
 
 - **Account data** — when you sign in with Google, we receive your name, email address, and profile picture URL.
-- **Audio (transient)** — while you speak, your microphone audio is streamed to the providers that power the engine chosen for that call: a speech-to-text provider on the Standard tier, and an end-to-end speech-translation provider on the Pro and Premium tiers. On the **Enhanced** tier your browser streams the audio **directly** to the provider using a short-lived access token, so it does not pass through our servers at all. We do not store raw audio.
+- **Audio (transient)** — while you speak, your microphone audio is streamed to the provider that powers the engine chosen for that call: an end-to-end speech-translation provider on the **Standard** and **Premium** tiers. On the **Enhanced** tier your browser streams the audio **directly** to the provider using a short-lived access token, so it does not pass through our servers at all. We do not store raw audio.
+- **Browser-tab audio (Chrome extension, transient)** — our Chrome extension captures the audio playing in a tab **you** choose, rather than only your microphone, so you can follow a video, webinar, or call hosted on another site. Capture runs only while a session is active and only on the tab you selected. That audio is transcribed and translated as it streams and returned to you as live subtitles; it is not recorded, and an extension session stores nothing on our servers. Your extension settings stay in your browser.
 - **Voice sample (optional)** — on the Enhanced tier you may record a short clip so your translated speech can be spoken in a voice resembling your own. The clip is sent to our voice provider, which creates the synthetic voice and returns an identifier that we store on your account. The feature is optional and can be used without it.
 - **Transcripts & translations** — the text of speech and chat together with its translations. When a signed-in user takes part in a call, these are **stored** so participants can review, export (PDF/JSON), and AI-correct the transcript afterwards. Calls in which no signed-in user took part are not stored. Stored transcripts are deleted when you delete your account — your utterances are removed with it.
 - **Chat messages & files** — chat is relayed and translated between participants. Files you attach are stored privately and shared with the call''s participants through short-lived links.
@@ -606,7 +608,7 @@ The Service is operated by **Alessandro Micelli**, Puerto del Rosario, Spain ("V
 - **Safety data** — abuse reports you submit or that are submitted about you (which may include a short transcript excerpt), and moderation/ban records.
 - **Technical data** — connection metadata needed to operate the real-time service, route media, ship operational logs, and keep the Service secure.
 
-Video and audio between participants are sent peer-to-peer (WebRTC) and are not routed through or recorded by our servers. When a direct connection cannot be established, media is relayed through a TURN server in encrypted form that the relay cannot read. Our server handles sign-in, signaling, the live speech-to-text stream, translation, chat relay, and — where enabled — transcript storage. On the Enhanced tier even the speech audio bypasses our server, travelling directly from your browser to the speech provider. On the Enhanced tier even the speech audio bypasses our server, travelling directly from your browser to the speech provider.
+Video and audio between participants are sent peer-to-peer (WebRTC) and are not routed through or recorded by our servers. When a direct connection cannot be established, media is relayed through a TURN server in encrypted form that the relay cannot read. Our server handles sign-in, signaling, the live speech-to-text stream, translation, chat relay, and — where enabled — transcript storage. On the Enhanced tier even the speech audio bypasses our server, travelling directly from your browser to the speech provider.
 
 ## 3. Why we process it and our legal bases
 
@@ -626,9 +628,9 @@ We share personal data with the providers below strictly to operate the Service.
 
 - **Google** — sign-in (OAuth): name, email, profile picture; as Google Gemini, real-time speech translation on the **Premium** tier (streamed audio and transcript text, transient); and, with your consent only, Google Analytics 4 and Google Ads: usage and conversion events.
 - **Meta** — with your consent only, the Meta Pixel: page and conversion events used to measure and target advertising.
-- **Deepgram** — speech-to-text (Standard tier): streamed audio (transient).
-- **Groq** — machine translation (Standard and Enhanced tiers): transcript text (transient).
-- **OpenAI** — real-time speech translation (**Pro** tier): streamed audio and transcript text (transient).
+- **Alibaba Cloud (Qwen)** — real-time speech translation and synthesized speech on the **Standard** tier: streamed audio and transcript text (transient).
+- **Groq** — machine translation of text — subtitles, chat and transcripts — on every tier: transcript and chat text (transient).
+- **Deepgram** — transcription of uploaded and recorded audio only, never live calls and never translation: the audio you upload or record (transient).
 - **Cartesia** — speech-to-text and speech synthesis on the **Enhanced** tier: audio streamed directly from your browser (transient, not routed through our servers) and, if you use voice cloning, the voice clip you record plus the resulting synthetic voice.
 - **Stripe** — payment processing: billing details and payment data.
 - **Supabase** — database and file storage: account, usage, billing and safety data, stored transcripts, and chat file attachments.
@@ -700,7 +702,8 @@ El Servicio es operado por **Alessandro Micelli**, Puerto del Rosario, Spain ("V
 ## 2. Qué datos tratamos
 
 - **Datos de la cuenta** — cuando inicias sesión con Google, recibimos tu nombre, correo electrónico y la URL de la foto de perfil.
-- **Audio (transitorio)** — mientras hablas, el audio de tu micrófono se transmite a los proveedores que sustentan el motor elegido para esa llamada: un proveedor de voz a texto en el tier Standard, y un proveedor de traducción de voz de extremo a extremo en los tiers Pro y Premium. En el tier **Enhanced** tu navegador transmite el audio **directamente** al proveedor mediante un token de acceso de corta duración, por lo que no pasa por nuestros servidores. No almacenamos el audio en bruto.
+- **Audio (transitorio)** — mientras hablas, el audio de tu micrófono se transmite al proveedor que sustenta el motor elegido para esa llamada: un proveedor de traducción de voz de extremo a extremo en los tiers **Standard** y **Premium**. En el tier **Enhanced** tu navegador transmite el audio **directamente** al proveedor mediante un token de acceso de corta duración, por lo que no pasa por nuestros servidores. No almacenamos el audio en bruto.
+- **Audio de la pestaña del navegador (extensión de Chrome, transitorio)** — nuestra extensión de Chrome captura el audio que se reproduce en una pestaña que **tú** eliges, y no solo tu micrófono, para que puedas seguir un vídeo, un seminario web o una llamada alojados en otro sitio. La captura solo se activa mientras hay una sesión en curso y únicamente en la pestaña que seleccionaste. Ese audio se transcribe y se traduce sobre la marcha y se te devuelve como subtítulos en directo; no se graba, y una sesión de la extensión no almacena nada en nuestros servidores. Los ajustes de la extensión permanecen en tu navegador.
 - **Muestra de voz (opcional)** — en el tier Enhanced puedes grabar un clip breve para que tu voz traducida suene con un timbre parecido al tuyo. El clip se envía a nuestro proveedor de voz, que crea la voz sintética y devuelve un identificador que almacenamos en tu cuenta. Es opcional y el tier puede usarse sin ello.
 - **Transcripciones y traducciones** — el texto del habla y del chat junto con sus traducciones. Cuando un usuario con sesión iniciada participa en una llamada, estos se **almacenan** para que los participantes puedan revisar, exportar (PDF/JSON) y corregir con IA la transcripción posteriormente. Las llamadas en las que no participó ningún usuario con sesión iniciada no se almacenan. Las transcripciones almacenadas se eliminan cuando eliminas tu cuenta: tus intervenciones se borran con ella.
 - **Mensajes de chat y archivos** — el chat se transmite y traduce entre los participantes. Los archivos que adjuntas se almacenan de forma privada y se comparten con los participantes de la llamada mediante enlaces de corta duración.
@@ -728,9 +731,9 @@ Compartimos datos personales con los proveedores indicados a continuación estri
 
 - **Google** — inicio de sesión (OAuth): nombre, correo, foto de perfil; como Google Gemini, traducción de voz en tiempo real en el tier **Premium** (audio transmitido y texto de la transcripción, transitorios); y, solo con tu consentimiento, Google Analytics 4 y Google Ads: eventos de uso y de conversión.
 - **Meta** — solo con tu consentimiento, el Meta Pixel: eventos de página y de conversión usados para medir y segmentar la publicidad.
-- **Deepgram** — voz a texto (tier Standard): audio transmitido (transitorio).
-- **Groq** — traducción automática (tiers Standard y Enhanced): texto de la transcripción (transitorio).
-- **OpenAI** — traducción de voz en tiempo real (tier **Pro**): audio transmitido y texto de la transcripción (transitorios).
+- **Alibaba Cloud (Qwen)** — traducción de voz en tiempo real y voz sintetizada en el tier **Standard**: audio transmitido y texto de la transcripción (transitorios).
+- **Groq** — traducción automática de texto — subtítulos, chat y transcripciones — en todos los tiers: texto de la transcripción y del chat (transitorio).
+- **Deepgram** — transcripción únicamente de audio subido o grabado, nunca de llamadas en directo y nunca traducción: el audio que subes o grabas (transitorio).
 - **Cartesia** — voz a texto y síntesis de voz en el tier **Enhanced**: audio transmitido directamente desde tu navegador (transitorio, sin pasar por nuestros servidores) y, si usas la clonación de voz, el clip que grabas y la voz sintética resultante.
 - **Stripe** — procesamiento de pagos: datos de facturación y de pago.
 - **Supabase** — base de datos y almacenamiento de archivos: datos de cuenta, uso, facturación y seguridad, transcripciones almacenadas y archivos adjuntos del chat.
@@ -801,7 +804,8 @@ Le Service est exploité par **Alessandro Micelli**, Puerto del Rosario, Spain (
 ## 2. Quelles données nous traitons
 
 - **Données de compte** — lorsque vous vous connectez avec Google, nous recevons votre nom, votre adresse e-mail et l''URL de votre photo de profil.
-- **Audio (transitoire)** — pendant que vous parlez, l''audio de votre micro est transmis en streaming aux fournisseurs qui alimentent le moteur choisi pour cet appel : un fournisseur de reconnaissance vocale sur l''offre Standard, et un fournisseur de traduction vocale de bout en bout sur les offres Pro et Premium. Sur l''offre **Enhanced**, votre navigateur transmet l''audio **directement** au fournisseur au moyen d''un jeton d''accès de courte durée : il ne passe donc pas par nos serveurs. Nous ne conservons pas l''audio brut.
+- **Audio (transitoire)** — pendant que vous parlez, l''audio de votre micro est transmis en streaming au fournisseur qui alimente le moteur choisi pour cet appel : un fournisseur de traduction vocale de bout en bout sur les offres **Standard** et **Premium**. Sur l''offre **Enhanced**, votre navigateur transmet l''audio **directement** au fournisseur au moyen d''un jeton d''accès de courte durée : il ne passe donc pas par nos serveurs. Nous ne conservons pas l''audio brut.
+- **Audio de l''onglet du navigateur (extension Chrome, transitoire)** — notre extension Chrome capte l''audio diffusé dans un onglet que **vous** choisissez, et non votre seul micro, afin que vous puissiez suivre une vidéo, un webinaire ou un appel hébergés sur un autre site. La capture ne s''exécute que pendant une session active et uniquement sur l''onglet sélectionné. Cet audio est transcrit et traduit au fil du flux, puis vous est renvoyé sous forme de sous-titres en direct ; il n''est pas enregistré, et une session de l''extension ne conserve rien sur nos serveurs. Les réglages de l''extension restent dans votre navigateur.
 - **Échantillon de voix (facultatif)** — sur l''offre Enhanced, vous pouvez enregistrer un court extrait pour que votre parole traduite soit prononcée dans une voix proche de la vôtre. L''extrait est envoyé à notre fournisseur vocal, qui crée la voix synthétique et renvoie un identifiant que nous conservons sur votre compte. La fonction est facultative et l''offre s''utilise sans elle.
 - **Transcriptions et traductions** — le texte de la parole et du chat ainsi que ses traductions. Lorsqu''un utilisateur connecté participe à un appel, ceux-ci sont **conservés** afin que les participants puissent ensuite consulter, exporter (PDF/JSON) et corriger par IA la transcription. Les appels auxquels aucun utilisateur connecté n''a participé ne sont pas conservés. Les transcriptions conservées sont supprimées lorsque vous supprimez votre compte — vos prises de parole sont effacées avec lui.
 - **Messages de chat et fichiers** — le chat est relayé et traduit entre les participants. Les fichiers que vous joignez sont stockés de manière privée et partagés avec les participants à l''appel via des liens à durée de vie limitée.
@@ -829,9 +833,9 @@ Nous partageons des données personnelles avec les prestataires ci-dessous, stri
 
 - **Google** — connexion (OAuth) : nom, e-mail, photo de profil ; en tant que Google Gemini, traduction vocale en temps réel sur l''offre **Premium** (audio en streaming et texte de la transcription, transitoire) ; et, uniquement avec votre consentement, Google Analytics 4 et Google Ads : événements d''usage et de conversion.
 - **Meta** — uniquement avec votre consentement, le Meta Pixel : événements de page et de conversion servant à mesurer et cibler la publicité.
-- **Deepgram** — reconnaissance vocale (offre Standard) : audio en streaming (transitoire).
-- **Groq** — traduction automatique (offres Standard et Enhanced) : texte de la transcription (transitoire).
-- **OpenAI** — traduction vocale en temps réel (offre **Pro**) : audio en streaming et texte de la transcription (transitoire).
+- **Alibaba Cloud (Qwen)** — traduction vocale en temps réel et voix de synthèse sur l''offre **Standard** : audio en streaming et texte de la transcription (transitoire).
+- **Groq** — traduction automatique du texte — sous-titres, chat et transcriptions — sur toutes les offres : texte de la transcription et du chat (transitoire).
+- **Deepgram** — transcription des seuls fichiers audio importés ou enregistrés, jamais des appels en direct et jamais de traduction : l''audio que vous importez ou enregistrez (transitoire).
 - **Cartesia** — reconnaissance vocale et synthèse vocale sur l''offre **Enhanced** : audio transmis directement depuis votre navigateur (transitoire, sans passer par nos serveurs) et, si vous utilisez le clonage vocal, l''extrait que vous enregistrez ainsi que la voix synthétique obtenue.
 - **Stripe** — traitement des paiements : informations de facturation et données de paiement.
 - **Supabase** — base de données et stockage de fichiers : données de compte, d''utilisation, de facturation et de sécurité, transcriptions conservées et fichiers joints au chat.
@@ -902,7 +906,8 @@ Der Dienst wird betrieben von **Alessandro Micelli**, Puerto del Rosario, Spain 
 ## 2. Welche Daten wir verarbeiten
 
 - **Kontodaten** — wenn Sie sich mit Google anmelden, erhalten wir Ihren Namen, Ihre E-Mail-Adresse und die URL Ihres Profilbilds.
-- **Audio (flüchtig)** — während Sie sprechen, wird Ihr Mikrofon-Audio an die Anbieter gestreamt, die die für diesen Call gewählte Engine betreiben: einen Speech-to-Text-Anbieter im Standard-Tarif und einen Anbieter für Ende-zu-Ende-Sprachübersetzung in den Tarifen Pro und Premium. Im Tarif **Enhanced** streamt Ihr Browser das Audio **direkt** an den Anbieter, mit einem kurzlebigen Zugriffstoken — es passiert unsere Server also überhaupt nicht. Rohes Audio speichern wir nicht.
+- **Audio (flüchtig)** — während Sie sprechen, wird Ihr Mikrofon-Audio an den Anbieter gestreamt, der die für diesen Call gewählte Engine betreibt: einen Anbieter für Ende-zu-Ende-Sprachübersetzung in den Tarifen **Standard** und **Premium**. Im Tarif **Enhanced** streamt Ihr Browser das Audio **direkt** an den Anbieter, mit einem kurzlebigen Zugriffstoken — es passiert unsere Server also überhaupt nicht. Rohes Audio speichern wir nicht.
+- **Browser-Tab-Audio (Chrome-Erweiterung, flüchtig)** — unsere Chrome-Erweiterung erfasst den Ton, der in einem von **Ihnen** gewählten Tab läuft, und nicht nur Ihr Mikrofon, damit Sie einem Video, Webinar oder Call auf einer anderen Website folgen können. Die Erfassung läuft nur während einer aktiven Sitzung und ausschließlich im ausgewählten Tab. Dieses Audio wird im Stream transkribiert und übersetzt und Ihnen als Live-Untertitel zurückgegeben; es wird nicht aufgezeichnet, und eine Sitzung der Erweiterung speichert nichts auf unseren Servern. Ihre Einstellungen der Erweiterung bleiben in Ihrem Browser.
 - **Stimmprobe (optional)** — im Tarif Enhanced können Sie einen kurzen Clip aufnehmen, damit Ihre übersetzte Sprache in einer Ihrer eigenen ähnlichen Stimme gesprochen wird. Der Clip wird an unseren Sprachanbieter gesendet, der die synthetische Stimme erzeugt und eine Kennung zurückgibt, die wir in Ihrem Konto speichern. Die Funktion ist optional; der Tarif ist auch ohne sie nutzbar.
 - **Transkripte und Übersetzungen** — der Text von Sprache und Chat zusammen mit seinen Übersetzungen. Wenn ein angemeldeter Nutzer an einem Anruf teilnimmt, werden diese **gespeichert**, damit die Teilnehmer das Transkript anschließend durchsehen, exportieren (PDF/JSON) und per KI korrigieren können. Anrufe, an denen kein angemeldeter Nutzer teilgenommen hat, werden nicht gespeichert. Gespeicherte Transkripte werden gelöscht, wenn Sie Ihr Konto löschen — Ihre Äußerungen werden damit entfernt.
 - **Chat-Nachrichten und Dateien** — der Chat wird zwischen den Teilnehmern weitergeleitet und übersetzt. Von Ihnen angehängte Dateien werden privat gespeichert und über kurzlebige Links mit den Teilnehmern des Anrufs geteilt.
@@ -930,9 +935,9 @@ Wir geben personenbezogene Daten ausschließlich zum Betrieb des Dienstes an die
 
 - **Google** — Anmeldung (OAuth): Name, E-Mail, Profilbild; als Google Gemini Echtzeit-Sprachübersetzung im Tarif **Premium** (gestreamtes Audio und Transkripttext, flüchtig); und, nur mit Ihrer Einwilligung, Google Analytics 4 und Google Ads: Nutzungs- und Conversion-Ereignisse.
 - **Meta** — nur mit Ihrer Einwilligung das Meta Pixel: Seiten- und Conversion-Ereignisse zur Messung und Ausrichtung von Werbung.
-- **Deepgram** — Speech-to-Text (Standard-Tarif): gestreamtes Audio (flüchtig).
-- **Groq** — maschinelle Übersetzung (Tarife Standard und Enhanced): Transkripttext (flüchtig).
-- **OpenAI** — Echtzeit-Sprachübersetzung (Tarif **Pro**): gestreamtes Audio und Transkripttext (flüchtig).
+- **Alibaba Cloud (Qwen)** — Echtzeit-Sprachübersetzung und synthetische Stimme im Tarif **Standard**: gestreamtes Audio und Transkripttext (flüchtig).
+- **Groq** — maschinelle Übersetzung von Text — Untertitel, Chat und Transkripte — in allen Tarifen: Transkript- und Chattext (flüchtig).
+- **Deepgram** — Transkription ausschließlich hochgeladener oder aufgezeichneter Audiodateien, nie von Live-Calls und nie Übersetzung: das Audio, das Sie hochladen oder aufzeichnen (flüchtig).
 - **Cartesia** — Speech-to-Text und Sprachsynthese im Tarif **Enhanced**: Audio, das direkt aus Ihrem Browser gestreamt wird (flüchtig, nicht über unsere Server geleitet), und — falls Sie Voice-Cloning nutzen — der von Ihnen aufgenommene Clip sowie die daraus erzeugte synthetische Stimme.
 - **Stripe** — Zahlungsabwicklung: Rechnungs- und Zahlungsdaten.
 - **Supabase** — Datenbank und Dateispeicherung: Konto-, Nutzungs-, Abrechnungs- und Sicherheitsdaten, gespeicherte Transkripte und Chat-Dateianhänge.
@@ -1003,7 +1008,8 @@ O Serviço é operado por **Alessandro Micelli**, Puerto del Rosario, Spain ("Vo
 ## 2. Que dados tratamos
 
 - **Dados da conta** — ao iniciar sessão com o Google, recebemos o seu nome, endereço de e-mail e o URL da foto de perfil.
-- **Áudio (transitório)** — enquanto você fala, o áudio do microfone é transmitido aos fornecedores que sustentam o motor escolhido para aquela chamada: um fornecedor de speech-to-text no nível Standard e um fornecedor de tradução de voz ponta a ponta nos níveis Pro e Premium. No nível **Enhanced**, o seu navegador transmite o áudio **diretamente** ao fornecedor com um token de acesso de curta duração, portanto ele não passa pelos nossos servidores. Não armazenamos o áudio bruto.
+- **Áudio (transitório)** — enquanto você fala, o áudio do microfone é transmitido ao fornecedor que sustenta o motor escolhido para aquela chamada: um fornecedor de tradução de voz ponta a ponta nos níveis **Standard** e **Premium**. No nível **Enhanced**, o seu navegador transmite o áudio **diretamente** ao fornecedor com um token de acesso de curta duração, portanto ele não passa pelos nossos servidores. Não armazenamos o áudio bruto.
+- **Áudio da aba do navegador (extensão do Chrome, transitório)** — a nossa extensão do Chrome captura o áudio reproduzido em uma aba que **você** escolhe, e não apenas o seu microfone, para que possa acompanhar um vídeo, webinar ou chamada hospedados em outro site. A captura ocorre somente enquanto há uma sessão ativa e apenas na aba selecionada. Esse áudio é transcrito e traduzido durante a transmissão e devolvido a você como legendas ao vivo; não é gravado, e uma sessão da extensão não armazena nada nos nossos servidores. As configurações da extensão permanecem no seu navegador.
 - **Amostra de voz (opcional)** — no nível Enhanced você pode gravar um clipe curto para que a sua fala traduzida seja pronunciada com um timbre semelhante ao seu. O clipe é enviado ao nosso fornecedor de voz, que cria a voz sintética e devolve um identificador que armazenamos na sua conta. O recurso é opcional e o nível pode ser usado sem ele.
 - **Transcrições e traduções** — o texto da fala e do chat juntamente com as suas traduções. Quando um utilizador com sessão iniciada participa numa chamada, estes são **armazenados** para que os participantes possam rever, exportar (PDF/JSON) e corrigir com IA a transcrição posteriormente. As chamadas em que nenhum utilizador com sessão iniciada participou não são armazenadas. As transcrições armazenadas são eliminadas quando você elimina a sua conta — as suas intervenções são removidas com ela.
 - **Mensagens de chat e ficheiros** — o chat é transmitido e traduzido entre os participantes. Os ficheiros que você anexa são armazenados de forma privada e partilhados com os participantes da chamada através de ligações de curta duração.
@@ -1031,9 +1037,9 @@ Partilhamos dados pessoais com os fornecedores abaixo estritamente para operar o
 
 - **Google** — início de sessão (OAuth): nome, e-mail, foto de perfil; como Google Gemini, tradução de voz em tempo real no nível **Premium** (áudio transmitido e texto da transcrição, transitório); e, apenas com o seu consentimento, Google Analytics 4 e Google Ads: eventos de uso e de conversão.
 - **Meta** — apenas com o seu consentimento, o Meta Pixel: eventos de página e de conversão usados para medir e segmentar publicidade.
-- **Deepgram** — speech-to-text (nível Standard): áudio transmitido (transitório).
-- **Groq** — tradução automática (níveis Standard e Enhanced): texto da transcrição (transitório).
-- **OpenAI** — tradução de voz em tempo real (nível **Pro**): áudio transmitido e texto da transcrição (transitório).
+- **Alibaba Cloud (Qwen)** — tradução de voz em tempo real e voz sintetizada no nível **Standard**: áudio transmitido e texto da transcrição (transitório).
+- **Groq** — tradução automática de texto — legendas, chat e transcrições — em todos os níveis: texto da transcrição e do chat (transitório).
+- **Deepgram** — transcrição apenas de áudio enviado ou gravado, nunca de chamadas ao vivo e nunca tradução: o áudio que você envia ou grava (transitório).
 - **Cartesia** — speech-to-text e síntese de voz no nível **Enhanced**: áudio transmitido diretamente do seu navegador (transitório, sem passar pelos nossos servidores) e, caso use clonagem de voz, o clipe que você grava e a voz sintética resultante.
 - **Stripe** — processamento de pagamentos: dados de faturação e de pagamento.
 - **Supabase** — base de dados e armazenamento de ficheiros: dados de conta, uso, faturação e segurança, transcrições armazenadas e anexos de ficheiros do chat.
@@ -1104,7 +1110,8 @@ INSERT INTO legal_translations (page_id, language, title, body)
 ## 2. 処理するデータ
 
 - **アカウントデータ** — Googleでサインインすると、お名前、メールアドレス、プロフィール画像のURLを受け取ります。
-- **音声（一時的）** — 発話中、マイクの音声は、その通話で選択されたエンジンを支えるプロバイダーへストリーミングされます。スタンダードでは音声認識プロバイダー、ProおよびPremiumではエンドツーエンドの音声翻訳プロバイダーです。**Enhanced**では、ブラウザーが短期有効のアクセストークンを用いてプロバイダーへ音声を**直接**送信するため、当社のサーバーを一切経由しません。生の音声は保存しません。
+- **音声（一時的）** — 発話中、マイクの音声は、その通話で選択されたエンジンを支えるプロバイダーへストリーミングされます。**スタンダード**および**Premium**では、エンドツーエンドの音声翻訳プロバイダーです。**Enhanced**では、ブラウザーが短期有効のアクセストークンを用いてプロバイダーへ音声を**直接**送信するため、当社のサーバーを一切経由しません。生の音声は保存しません。
+- **ブラウザータブの音声（Chrome拡張機能、一時的）** — 当社のChrome拡張機能は、マイクだけでなく、**お客様が選択した**タブで再生されている音声を取り込みます。これにより、他サイト上の動画・ウェビナー・通話を追うことができます。取り込みはセッション実行中のみ、かつ選択されたタブに限って行われます。その音声はストリーミングのまま文字起こしと翻訳が行われ、ライブ字幕として返されます。録音は行わず、拡張機能のセッションは当社サーバーに何も保存しません。拡張機能の設定はお客様のブラウザー内に留まります。
 - **音声サンプル（任意）** — Enhancedでは、翻訳後の発話をご自身に近い声で読み上げるために、短いクリップを録音できます。クリップは当社の音声プロバイダーへ送信され、合成音声が作成され、返却された識別子をアカウントに保存します。この機能は任意で、利用しなくてもEnhancedは使用できます。
 - **文字起こしと翻訳** — 発話およびチャットのテキストと、その翻訳です。サインイン済みのユーザーが通話に参加している場合、参加者が後から文字起こしを確認、エクスポート（PDF/JSON）、AIによる修正を行えるよう、これらは**保存**されます。サインイン済みユーザーが誰も参加していない通話は保存されません。保存された文字起こしは、お客様がアカウントを削除すると削除され、お客様の発話内容もそれとともに削除されます。
 - **チャットメッセージとファイル** — チャットは参加者間で中継・翻訳されます。お客様が添付したファイルは非公開で保存され、短期間有効なリンクを通じて通話の参加者と共有されます。
@@ -1132,9 +1139,9 @@ INSERT INTO legal_translations (page_id, language, title, body)
 
 - **Google** — サインイン（OAuth）：氏名、メール、プロフィール画像。Google Gemini として**Premium**のリアルタイム音声翻訳（ストリーミング音声と文字起こしテキスト、一時的）。さらに、お客様の同意がある場合にのみ Google Analytics 4 および Google Ads：利用イベントとコンバージョンイベント。
 - **Meta** — お客様の同意がある場合にのみ Meta Pixel：広告の測定とターゲティングに用いるページイベントおよびコンバージョンイベント。
-- **Deepgram** — 音声認識（スタンダード）：ストリーミング音声（一時的）。
-- **Groq** — 機械翻訳（スタンダードおよびEnhanced）：文字起こしテキスト（一時的）。
-- **OpenAI** — リアルタイム音声翻訳（**Pro**）：ストリーミング音声と文字起こしテキスト（一時的）。
+- **Alibaba Cloud（Qwen）** — **スタンダード**でのリアルタイム音声翻訳および合成音声：ストリーミング音声と文字起こしテキスト（一時的）。
+- **Groq** — テキストの機械翻訳（字幕・チャット・文字起こし、全プラン共通）：文字起こしおよびチャットのテキスト（一時的）。
+- **Deepgram** — アップロードまたは録音された音声の文字起こしのみ。ライブ通話には使用せず、翻訳も行いません：お客様がアップロードまたは録音した音声（一時的）。
 - **Cartesia** — **Enhanced**の音声認識および音声合成：ブラウザーから直接送信される音声（一時的、当社サーバーを経由しません）。音声クローンを利用する場合は、録音したクリップおよび生成された合成音声。
 - **Stripe** — 決済処理：請求情報、決済データ。
 - **Supabase** — データベースおよびファイルストレージ：アカウント、利用、課金、安全データ、保存された文字起こし、チャットの添付ファイル。
@@ -1205,7 +1212,8 @@ INSERT INTO legal_translations (page_id, language, title, body)
 ## 2. 我们处理哪些数据
 
 - **账户数据** — 当您使用 Google 登录时，我们会收到您的姓名、电子邮件地址和头像 URL。
-- **音频（瞬时）** — 您说话时，麦克风音频会流式传输给支撑该次通话所选引擎的服务商：标准套餐使用语音转文字服务商，Pro 与 Premium 使用端到端语音翻译服务商。在 **Enhanced** 套餐下，您的浏览器使用短期有效的访问令牌将音频**直接**传输给服务商，因此完全不经过我们的服务器。我们不存储原始音频。
+- **音频（瞬时）** — 您说话时，麦克风音频会流式传输给支撑该次通话所选引擎的服务商：**标准**与 **Premium** 套餐使用端到端语音翻译服务商。在 **Enhanced** 套餐下，您的浏览器使用短期有效的访问令牌将音频**直接**传输给服务商，因此完全不经过我们的服务器。我们不存储原始音频。
+- **浏览器标签页音频（Chrome 扩展，瞬时）** — 我们的 Chrome 扩展会采集**您所选择**的标签页中正在播放的音频，而不仅仅是麦克风，让您能够跟上托管在其他网站上的视频、网络研讨会或通话。仅在会话进行期间、且仅对您所选的标签页进行采集。该音频在流式传输过程中被转写并翻译，以实时字幕的形式返回给您；不会被录制，扩展会话也不会在我们的服务器上存储任何内容。扩展的设置仅保留在您的浏览器中。
 - **语音样本（可选）** — 在 Enhanced 套餐下，您可以录制一段简短音频，让翻译后的语音以接近您本人的声音朗读。该音频会发送给我们的语音服务商，由其创建合成语音并返回一个标识符，我们将其保存在您的账户中。此功能为可选，不使用也可正常使用该套餐。
 - **转写与翻译** — 语音和聊天的文本及其翻译。当已登录用户参与通话时，这些内容会被**存储**，以便参与者随后查看、导出（PDF/JSON）并对转写进行 AI 校正。没有已登录用户参与的通话不会被存储。当您删除账户时，已存储的转写会被删除——您的发言内容会随之一并移除。
 - **聊天消息与文件** — 聊天内容在参与者之间转发和翻译。您附加的文件会被私密存储，并通过短时有效的链接与该通话的参与者共享。
@@ -1233,9 +1241,9 @@ INSERT INTO legal_translations (page_id, language, title, body)
 
 - **Google** — 登录（OAuth）：姓名、邮箱、头像；作为 Google Gemini 提供 **Premium** 套餐的实时语音翻译（流式音频和转写文本，瞬时）；以及仅在获得您同意的情况下，Google Analytics 4 与 Google Ads：使用事件与转化事件。
 - **Meta** — 仅在获得您同意的情况下使用 Meta Pixel：用于衡量和定向广告的页面事件与转化事件。
-- **Deepgram** — 语音转文字（标准套餐）：流式音频（瞬时）。
-- **Groq** — 机器翻译（标准与 Enhanced 套餐）：转写文本（瞬时）。
-- **OpenAI** — 实时语音翻译（**Pro** 套餐）：流式音频和转写文本（瞬时）。
+- **阿里云（Qwen）** — **标准**套餐的实时语音翻译与合成语音：流式音频和转写文本（瞬时）。
+- **Groq** — 文本机器翻译（字幕、聊天与转写，适用于所有套餐）：转写文本与聊天文本（瞬时）。
+- **Deepgram** — 仅转写上传或录制的音频，绝不用于实时通话，也绝不用于翻译：您上传或录制的音频（瞬时）。
 - **Cartesia** — **Enhanced** 套餐的语音转文字与语音合成：直接从您的浏览器流式传输的音频（瞬时，不经过我们的服务器）；如使用语音克隆，还包括您录制的音频片段及由此生成的合成语音。
 - **Stripe** — 支付处理：账单信息和支付数据。
 - **Supabase** — 数据库和文件存储：账户、使用、计费和安全数据，已存储的转写，以及聊天文件附件。
@@ -1296,7 +1304,7 @@ VoxTranslate 对从 Google API 收到的信息的使用和向任何其他应用�
 
 我们可能会更新本政策；届时将修订版本和日期，对于重大变更，将在法律要求时采取额外措施。' FROM legal_pages WHERE slug = 'privacy'
   ON CONFLICT (page_id, language) DO UPDATE SET title = EXCLUDED.title, body = EXCLUDED.body;
-INSERT INTO legal_pages (slug, version) VALUES ('acceptable-use', '2026-07-26') ON CONFLICT (slug) DO UPDATE SET version = EXCLUDED.version;
+INSERT INTO legal_pages (slug, version) VALUES ('acceptable-use', '2026-08-08') ON CONFLICT (slug) DO UPDATE SET version = EXCLUDED.version;
 INSERT INTO legal_translations (page_id, language, title, body)
   SELECT id, 'it', 'Politica di uso consentito', 'La presente Politica di uso consentito ("AUP") stabilisce le regole per l''utilizzo di VoxTranslate. Fa parte dei nostri Termini di servizio. Utilizzando il Servizio accetti di rispettare questa AUP. In caso di violazioni possiamo sospendere o chiudere gli account, rimuovere contenuti o limitare l''accesso.
 

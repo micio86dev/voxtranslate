@@ -33,6 +33,7 @@ use crate::ai::sentiment as ai_sentiment;
 use crate::billing::{usd, BillingError};
 use crate::email::OutboundEmail;
 use crate::glossary::{import_csv, normalize_entries, NewEntry, RoomGlossary};
+use crate::invoices;
 use crate::middleware::AuthUser;
 use crate::moderation::Severity;
 use crate::protocol::ServerMessage;
@@ -798,7 +799,29 @@ pub async fn billing_checkout(
         return (StatusCode::SERVICE_UNAVAILABLE, "payments not configured").into_response();
     }
 
-    match stripe_handler::create_checkout_session(&state.http, cfg, pkg, &user.user_id).await {
+    // Reuse the buyer's Stripe customer when we already know it, so every invoice
+    // they ever get hangs off one customer instead of a fresh guest each time.
+    // A lookup failure is not worth failing a purchase over — fall back to
+    // letting Stripe create one.
+    let existing_customer: Option<String> = match state.pool.as_ref() {
+        Some(pool) => sqlx::query_scalar("SELECT stripe_customer_id FROM users WHERE id = $1")
+            .bind(user.user_id)
+            .fetch_optional(pool)
+            .await
+            .unwrap_or(None)
+            .flatten(),
+        None => None,
+    };
+
+    match stripe_handler::create_checkout_session(
+        &state.http,
+        cfg,
+        pkg,
+        &user.user_id,
+        existing_customer.as_deref(),
+    )
+    .await
+    {
         Ok(url) => Json(serde_json::json!({ "url": url })).into_response(),
         Err(e) => {
             tracing::error!("stripe checkout failed: {e}");
@@ -888,9 +911,180 @@ pub async fn billing_webhook(
             }
             _ => tracing::warn!(%event_id, "checkout.session.completed missing metadata"),
         }
+
+        // Invoicing runs AFTER crediting and can never fail the webhook (R6): a
+        // Stripe hiccup here must not cost a paying user their credits, and
+        // returning non-200 would make Stripe retry a purchase we already
+        // credited. The gap is logged instead, and the invoice can be recovered
+        // from `invoice.payment_succeeded` or a backfill.
+        record_checkout_invoice(&state, obj, user_id, event_id).await;
+    }
+
+    // Subscription renewals and any invoice finalised outside a Checkout Session
+    // arrive here. Consumer purchases only ever have one line, so this is mostly
+    // the repair path for a `completed` event whose invoice was not ready yet.
+    if event_type == "invoice.payment_succeeded" || event_type == "invoice.finalized" {
+        record_user_invoice_object(&state, &event["data"]["object"], event_id).await;
     }
 
     (StatusCode::OK, "ok").into_response()
+}
+
+/// Persist the invoice a completed Checkout Session produced, and remember the
+/// Stripe customer it created for this user. Best-effort throughout — every
+/// failure path logs and returns.
+async fn record_checkout_invoice(
+    state: &AppState,
+    session: &serde_json::Value,
+    user_id: Option<Uuid>,
+    event_id: &str,
+) {
+    let (Some(pool), Some(cfg), Some(uid)) =
+        (state.pool.as_ref(), state.config.billing.as_ref(), user_id)
+    else {
+        return;
+    };
+
+    // Stash the customer first: it is useful even if the invoice lookup fails,
+    // because the next checkout can then reuse it.
+    if let Some(customer) = session["customer"].as_str() {
+        if let Err(e) = sqlx::query(
+            "UPDATE users SET stripe_customer_id = $2
+             WHERE id = $1 AND stripe_customer_id IS DISTINCT FROM $2",
+        )
+        .bind(uid)
+        .bind(customer)
+        .execute(pool)
+        .await
+        {
+            tracing::warn!(%event_id, "storing stripe customer failed: {e}");
+        }
+    }
+
+    let Some(invoice_id) = session["invoice"].as_str() else {
+        tracing::error!(
+            %event_id,
+            "paid checkout produced no invoice — is invoice_creation enabled on the session?"
+        );
+        return;
+    };
+
+    match stripe_handler::get_invoice(&state.http, cfg, invoice_id).await {
+        Ok(raw) => match invoices::parse_stripe_invoice(&raw) {
+            Some(inv) => {
+                if let Err(e) = invoices::upsert(pool, invoices::Owner::User(uid), &inv).await {
+                    tracing::error!(%event_id, %invoice_id, "invoice upsert failed: {e}");
+                }
+            }
+            None => tracing::error!(%event_id, %invoice_id, "stripe invoice had no id"),
+        },
+        Err(e) => tracing::error!(%event_id, %invoice_id, "fetching stripe invoice failed: {e}"),
+    }
+}
+
+/// Persist an invoice delivered as the event object itself, resolving the owner
+/// through the Stripe customer we stored at checkout time.
+async fn record_user_invoice_object(state: &AppState, obj: &serde_json::Value, event_id: &str) {
+    let Some(pool) = state.pool.as_ref() else {
+        return;
+    };
+    let Some(customer) = obj["customer"].as_str() else {
+        return;
+    };
+    let user_id: Option<Uuid> =
+        match sqlx::query_scalar("SELECT id FROM users WHERE stripe_customer_id = $1")
+            .bind(customer)
+            .fetch_optional(pool)
+            .await
+        {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::warn!(%event_id, "resolving invoice owner failed: {e}");
+                return;
+            }
+        };
+    // No match means this customer is an organization, whose invoices the org
+    // webhook records — not an error.
+    let Some(uid) = user_id else {
+        return;
+    };
+    let Some(inv) = invoices::parse_stripe_invoice(obj) else {
+        return;
+    };
+    if let Err(e) = invoices::upsert(pool, invoices::Owner::User(uid), &inv).await {
+        tracing::error!(%event_id, "invoice upsert failed: {e}");
+    }
+}
+
+/// `GET /api/billing/invoices` — the authenticated user's invoices, grouped by
+/// calendar month, newest first (spec 0109 R2/R5).
+pub async fn billing_invoices(State(state): State<AppState>, user: AuthUser) -> Response {
+    let Some(pool) = state.pool.as_ref() else {
+        return service_unavailable();
+    };
+    match invoices::list(pool, invoices::Owner::User(user.user_id)).await {
+        Ok(rows) => {
+            Json(serde_json::json!({ "months": invoices::group_by_month(rows) })).into_response()
+        }
+        Err(e) => {
+            tracing::error!("invoice list failed: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response()
+        }
+    }
+}
+
+/// `GET /api/billing/invoices/{invoice_id}/pdf` — resolve the invoice's current
+/// download URL.
+///
+/// The stored URL is never served: Stripe's PDF links expire, so the current one
+/// is re-resolved on every download. An invoice belonging to someone else is
+/// indistinguishable from one that does not exist (both 404), so ids cannot be
+/// probed.
+pub async fn billing_invoice_pdf(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(invoice_id): Path<Uuid>,
+) -> Response {
+    invoice_pdf_url(&state, invoices::Owner::User(user.user_id), invoice_id).await
+}
+
+/// Shared PDF-resolution body for the consumer and organization endpoints: both
+/// authorise by owner, then ask the provider for a fresh URL.
+///
+/// Returns `{ "url": … }` rather than a 302 because these endpoints are called
+/// with a bearer token from a different origin: a redirect would either drop the
+/// Authorization header or land on a Stripe URL the browser cannot read
+/// cross-origin. Same shape as the checkout and portal endpoints.
+pub async fn invoice_pdf_url(
+    state: &AppState,
+    owner: invoices::Owner,
+    invoice_id: Uuid,
+) -> Response {
+    let (Some(pool), Some(cfg)) = (state.pool.as_ref(), state.config.billing.as_ref()) else {
+        return service_unavailable();
+    };
+
+    let stripe_id = match invoices::stripe_id_for_owner(pool, owner, invoice_id).await {
+        Ok(Some(id)) => id,
+        Ok(None) => return (StatusCode::NOT_FOUND, "invoice not found").into_response(),
+        Err(e) => {
+            tracing::error!("invoice lookup failed: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response();
+        }
+    };
+
+    let provider = invoices::StripeInvoices {
+        http: &state.http,
+        cfg,
+    };
+    match invoices::InvoiceProvider::pdf_url(&provider, &stripe_id).await {
+        Ok(Some(url)) => Json(serde_json::json!({ "url": url })).into_response(),
+        Ok(None) => (StatusCode::CONFLICT, "invoice has no document yet").into_response(),
+        Err(e) => {
+            tracing::error!("resolving invoice pdf failed: {e}");
+            (StatusCode::BAD_GATEWAY, "invoice provider error").into_response()
+        }
+    }
 }
 
 /// `GET /api/billing/history` — the authenticated user's recent ledger entries.
