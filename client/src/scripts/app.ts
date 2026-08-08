@@ -36,6 +36,7 @@ import {
   loadMetaPixel,
   track,
   trackAuthSuccess,
+  trackPurchase,
 } from './analytics';
 import { setupGeoOptIn } from './geo';
 import { enablePush, maybeSubscribePush } from './push';
@@ -287,6 +288,13 @@ function readCache(key: string): string | null {
 function writeCache(key: string, value: string): void {
   try {
     localStorage.setItem(key, value);
+  } catch {
+    /* private mode / storage blocked */
+  }
+}
+function clearCache(key: string): void {
+  try {
+    localStorage.removeItem(key);
   } catch {
     /* private mode / storage blocked */
   }
@@ -4636,8 +4644,10 @@ async function boot(): Promise<void> {
   }
   // Returned from a Stripe checkout → refresh balance + tidy the URL.
   if (billing && auth.isLoggedIn() && location.search.includes('checkout=success')) {
-    // Track successful payment
-    track('payment_completed');
+    // Track successful payment — GA4 `payment_completed` + Meta `Purchase`, both carrying
+    // the amount parked at checkout so paid campaigns can optimise on revenue (ROAS).
+    const paid = takePendingPurchase();
+    trackPurchase({ value: paid?.value, currency: paid?.currency });
     await auth.refreshMe();
     renderAccount();
     history.replaceState(null, '', location.pathname);
@@ -7823,6 +7833,56 @@ async function renderPackages(): Promise<void> {
   }
 }
 
+// Purchase-value hand-off across the Stripe redirect. Stripe sends the buyer back to a
+// FRESH page load carrying only `?checkout=success` — no amount, no package — so the
+// picked package's real price (`price_usd`, the very figure shown on the button and the
+// one the Stripe price is configured from) is parked here before leaving and consumed
+// once on return. Best-effort: blocked/cleared storage just means the conversion is
+// reported without a value, never with a made-up one.
+const PENDING_PURCHASE_KEY = 'voxtranslate_pending_purchase';
+/** A checkout parked longer ago than this is not the one we just came back from. */
+const PENDING_PURCHASE_TTL_MS = 6 * 60 * 60 * 1000;
+
+interface PendingPurchase {
+  package_id: string;
+  value: number;
+  currency: string;
+  at: number;
+}
+
+/** Park the picked package's price before handing the tab to Stripe. */
+function rememberPendingPurchase(pkg: auth.CreditPackage): void {
+  const pending: PendingPurchase = {
+    package_id: pkg.id,
+    value: pkg.price_usd,
+    currency: 'USD', // packages are priced in USD (`price_usd`, rendered as `$x.xx`)
+    at: Date.now(),
+  };
+  writeCache(PENDING_PURCHASE_KEY, JSON.stringify(pending));
+}
+
+/** Read back the parked purchase and drop it, so one payment is valued exactly once.
+ *  Returns null when it is missing, unreadable, malformed or stale — the caller then
+ *  reports the conversion unvalued rather than inventing an amount. */
+function takePendingPurchase(): PendingPurchase | null {
+  const raw = readCache(PENDING_PURCHASE_KEY);
+  clearCache(PENDING_PURCHASE_KEY);
+  if (!raw) return null;
+  try {
+    const p = JSON.parse(raw) as Partial<PendingPurchase>;
+    if (typeof p.value !== 'number' || !Number.isFinite(p.value) || p.value <= 0) return null;
+    if (typeof p.at !== 'number' || Date.now() - p.at > PENDING_PURCHASE_TTL_MS) return null;
+    return {
+      package_id: typeof p.package_id === 'string' ? p.package_id : '',
+      value: p.value,
+      currency: typeof p.currency === 'string' && p.currency ? p.currency : 'USD',
+      at: p.at,
+    };
+  } catch {
+    return null; // corrupt entry — treat as no known value
+  }
+}
+
 async function checkout(pkgId: string, btn: HTMLButtonElement): Promise<void> {
   btn.disabled = true;
   buyStatus.textContent = '';
@@ -7836,6 +7896,7 @@ async function checkout(pkgId: string, btn: HTMLButtonElement): Promise<void> {
       amount_cents: Math.round(pkg.price_usd * 100),
       location: 'buy_modal',
     });
+    rememberPendingPurchase(pkg);
   }
   try {
     location.href = await auth.startCheckout(pkgId);

@@ -296,4 +296,45 @@ describe('Meta pixel', () => {
     mod.trackAuthSuccess({ isNew: false, source: null });
     expect(mod.fbqCalls(win).some((c) => c[1] === 'CompleteRegistration')).toBe(false);
   });
+
+  it('reports a payment as a valued Purchase on both platforms', async () => {
+    const { mod, win } = await loadAnalytics({ pixelId: '111' });
+    mod.initAnalytics();
+    mod.loadMetaPixel();
+    mod.trackPurchase({ value: 15, currency: 'usd' });
+
+    // Meta bids on `Purchase`; value + currency are what makes it ROAS-optimisable.
+    expect(mod.fbqCalls(win)).toContainEqual(['track', 'Purchase', { value: 15, currency: 'USD' }]);
+    // GA4 keeps the established event name and must agree on the amount.
+    expect(entries(win)).toContainEqual([
+      'event',
+      'payment_completed',
+      { value: 15, currency: 'USD' },
+    ]);
+  });
+
+  it('never invents an amount when the price is unknown', async () => {
+    const { mod, win } = await loadAnalytics({ pixelId: '111' });
+    mod.initAnalytics();
+    mod.loadMetaPixel();
+    mod.trackPurchase();
+    mod.trackPurchase({ value: 0 });
+
+    // Still counted as a conversion, but unvalued — a guessed value would poison bidding.
+    expect(mod.fbqCalls(win).filter((c) => c[1] === 'Purchase')).toEqual([
+      ['track', 'Purchase'],
+      ['track', 'Purchase'],
+    ]);
+    expect(entries(win).filter((e) => e[1] === 'payment_completed')).toEqual([
+      ['event', 'payment_completed', {}],
+      ['event', 'payment_completed', {}],
+    ]);
+  });
+
+  it('does not touch the pixel for a purchase made without consent', async () => {
+    const { mod, win } = await loadAnalytics({ pixelId: '111' });
+    mod.initAnalytics(); // no loadMetaPixel() — the visitor never accepted
+    mod.trackPurchase({ value: 15 });
+    expect((win as { fbq?: unknown }).fbq).toBeUndefined();
+  });
 });
