@@ -7,7 +7,8 @@ The Service is operated by **Alessandro Micelli**, Puerto del Rosario, Spain ("V
 ## 2. What data we process
 
 - **Account data** — when you sign in with Google, we receive your name, email address, and profile picture URL.
-- **Audio (transient)** — while you speak, your microphone audio is streamed to the providers that power the engine chosen for that call: a speech-to-text provider on the Standard tier, and an end-to-end speech-translation provider on the Pro and Premium tiers. On the **Enhanced** tier your browser streams the audio **directly** to the provider using a short-lived access token, so it does not pass through our servers at all. We do not store raw audio.
+- **Audio (transient)** — while you speak, your microphone audio is streamed to the provider that powers the engine chosen for that call: an end-to-end speech-translation provider on the **Standard** and **Premium** tiers. On the **Enhanced** tier your browser streams the audio **directly** to the provider using a short-lived access token, so it does not pass through our servers at all. We do not store raw audio.
+- **Browser-tab audio (Chrome extension, transient)** — our Chrome extension captures the audio playing in a tab **you** choose, rather than only your microphone, so you can follow a video, webinar, or call hosted on another site. Capture runs only while a session is active and only on the tab you selected. That audio is transcribed and translated as it streams and returned to you as live subtitles; it is not recorded, and an extension session stores nothing on our servers. Your extension settings stay in your browser.
 - **Voice sample (optional)** — on the Enhanced tier you may record a short clip so your translated speech can be spoken in a voice resembling your own. The clip is sent to our voice provider, which creates the synthetic voice and returns an identifier that we store on your account. The feature is optional and can be used without it.
 - **Transcripts & translations** — the text of speech and chat together with its translations. When a signed-in user takes part in a call, these are **stored** so participants can review, export (PDF/JSON), and AI-correct the transcript afterwards. Calls in which no signed-in user took part are not stored. Stored transcripts are deleted when you delete your account — your utterances are removed with it.
 - **Chat messages & files** — chat is relayed and translated between participants. Files you attach are stored privately and shared with the call's participants through short-lived links.
@@ -15,7 +16,7 @@ The Service is operated by **Alessandro Micelli**, Puerto del Rosario, Spain ("V
 - **Safety data** — abuse reports you submit or that are submitted about you (which may include a short transcript excerpt), and moderation/ban records.
 - **Technical data** — connection metadata needed to operate the real-time service, route media, ship operational logs, and keep the Service secure.
 
-Video and audio between participants are sent peer-to-peer (WebRTC) and are not routed through or recorded by our servers. When a direct connection cannot be established, media is relayed through a TURN server in encrypted form that the relay cannot read. Our server handles sign-in, signaling, the live speech-to-text stream, translation, chat relay, and — where enabled — transcript storage. On the Enhanced tier even the speech audio bypasses our server, travelling directly from your browser to the speech provider. On the Enhanced tier even the speech audio bypasses our server, travelling directly from your browser to the speech provider.
+Video and audio between participants are sent peer-to-peer (WebRTC) and are not routed through or recorded by our servers. When a direct connection cannot be established, media is relayed through a TURN server in encrypted form that the relay cannot read. Our server handles sign-in, signaling, the live speech-to-text stream, translation, chat relay, and — where enabled — transcript storage. On the Enhanced tier even the speech audio bypasses our server, travelling directly from your browser to the speech provider.
 
 ## 3. Why we process it and our legal bases
 
@@ -35,9 +36,9 @@ We share personal data with the providers below strictly to operate the Service.
 
 - **Google** — sign-in (OAuth): name, email, profile picture; as Google Gemini, real-time speech translation on the **Premium** tier (streamed audio and transcript text, transient); and, with your consent only, Google Analytics 4 and Google Ads: usage and conversion events.
 - **Meta** — with your consent only, the Meta Pixel: page and conversion events used to measure and target advertising.
-- **Deepgram** — speech-to-text (Standard tier): streamed audio (transient).
-- **Groq** — machine translation (Standard and Enhanced tiers): transcript text (transient).
-- **OpenAI** — real-time speech translation (**Pro** tier): streamed audio and transcript text (transient).
+- **Alibaba Cloud (Qwen)** — real-time speech translation and synthesized speech on the **Standard** tier: streamed audio and transcript text (transient).
+- **Groq** — machine translation of text — subtitles, chat and transcripts — on every tier: transcript and chat text (transient).
+- **Deepgram** — transcription of uploaded and recorded audio only, never live calls and never translation: the audio you upload or record (transient).
 - **Cartesia** — speech-to-text and speech synthesis on the **Enhanced** tier: audio streamed directly from your browser (transient, not routed through our servers) and, if you use voice cloning, the voice clip you record plus the resulting synthetic voice.
 - **Stripe** — payment processing: billing details and payment data.
 - **Supabase** — database and file storage: account, usage, billing and safety data, stored transcripts, and chat file attachments.
