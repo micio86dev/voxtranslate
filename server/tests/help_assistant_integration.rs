@@ -50,16 +50,16 @@ fn any_role_rank_satisfies_help_assistant_gate() {
     assert!(role_rank("guest") < MEMBER);
 }
 
-/// Semaphore full → try_acquire returns Err.
+/// Semaphore full → try_acquire returns None.
 #[tokio::test]
-async fn semaphore_full_try_acquire_returns_err() {
+async fn semaphore_full_try_acquire_returns_none() {
     let sem = Arc::new(Semaphore::new(1));
     // Acquire the only permit so the semaphore is exhausted.
     let _permit = sem.clone().try_acquire_owned().unwrap();
     let result = try_acquire(&sem).await;
     assert!(
-        result.is_err(),
-        "try_acquire on a full semaphore must return Err"
+        result.is_none(),
+        "try_acquire on a full semaphore must return None"
     );
 }
 
@@ -82,9 +82,9 @@ async fn semaphore_cap_is_enforced() {
     let p1 = try_acquire(&sem).await;
     let p2 = try_acquire(&sem).await;
     let p3 = try_acquire(&sem).await;
-    assert!(p1.is_ok(), "first acquire should succeed");
-    assert!(p2.is_ok(), "second acquire should succeed");
-    assert!(p3.is_err(), "third acquire on cap=2 semaphore should fail");
+    assert!(p1.is_some(), "first acquire should succeed");
+    assert!(p2.is_some(), "second acquire should succeed");
+    assert!(p3.is_none(), "third acquire on cap=2 semaphore should fail");
 }
 
 /// credits_formula: cost_per_minute × (1 + markup) × 100 ceiling.

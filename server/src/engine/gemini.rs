@@ -424,8 +424,8 @@ mod tests {
         }
         let out = resample_pcm16_mono(&input, CAPTURE_HZ, GEMINI_INPUT_HZ);
         assert_eq!(out.len(), 40);
-        for s in out.chunks_exact(2) {
-            let v = i16::from_le_bytes([s[0], s[1]]);
+        for s in out.as_chunks::<2>().0 {
+            let v = i16::from_le_bytes(*s);
             assert_eq!(v, 1000, "constant signal must be preserved exactly");
         }
     }
