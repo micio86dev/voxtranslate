@@ -141,6 +141,7 @@ fn stt_allowed(status: &str) -> bool {
 ///
 /// Authenticates + authorizes BEFORE the upgrade so a guest/non-member/bad-state
 /// gets a clean HTTP status, never a half-open socket.
+#[allow(clippy::result_large_err)] // the Err IS the handler's HTTP response
 pub async fn stt_ws(
     ws: WebSocketUpgrade,
     State(state): State<AppState>,

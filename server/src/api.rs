@@ -1245,6 +1245,7 @@ fn wants_corrected(v: &Option<String>) -> bool {
 /// before it is rendered. `lang` is normalized by the caller ("" for
 /// `Original`). Returns `Err(response)` when billing is off (503) or no
 /// correction has been generated yet (409 — the client POSTs first).
+#[allow(clippy::result_large_err)] // the Err IS the handler's HTTP response
 async fn overlay_correction(
     state: &AppState,
     session_id: Uuid,
@@ -1634,6 +1635,7 @@ fn clean_label(label: Option<String>) -> Result<Option<String>, Response> {
 }
 
 /// Shared 404/403 access gate for session-scoped endpoints.
+#[allow(clippy::result_large_err)] // the Err IS the handler's HTTP response
 async fn session_gate(
     svc: &TranscriptService,
     session_id: Uuid,
@@ -2562,6 +2564,7 @@ pub struct CorrectionQuery {
 /// Resolve `(mode, normalized lang)` from the query. `Original` forces lang to
 /// "" (its cache key); `translated`/`both` resolve an explicit param, else the
 /// requester's participant language, else `en`.
+#[allow(clippy::result_large_err)] // the Err IS the handler's HTTP response
 async fn resolve_correction_params(
     svc: &TranscriptService,
     session_id: Uuid,
