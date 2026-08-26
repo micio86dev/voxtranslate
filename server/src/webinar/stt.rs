@@ -17,7 +17,15 @@
 //! [`crate::engine::qwen::open_transcribe_session`] and translates the finals with Groq.
 //! Ten viewer languages cost one upstream session here, not ten.
 //!
-//! Fase 3 (translated TTS audio) is out of scope here — subtitles only.
+//! Translated TTS audio is out of scope **for this module**, not for webinars. The
+//! Enhanced tier speaks the translation through a separate path: the viewer's browser
+//! mints a TTS-only Cartesia token from `GET /api/w/{code}/tts-session`
+//! ([`crate::webinar::routes::tts_session`]) and synthesises client-side, in the host's
+//! cloned voice where one is set. This file only ever produces subtitle frames.
+//!
+//! The line this replaces said webinars were "subtitles only", full stop. That was true
+//! when it was written and stopped being true when the Enhanced TTS path shipped — it
+//! then spent months telling every reader of this file the wrong thing about the product.
 //!
 //! # WebSocket: `GET /api/webinars/{id}/stt?token=<JWT>`
 //!
