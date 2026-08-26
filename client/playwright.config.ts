@@ -25,7 +25,10 @@ export default defineConfig({
     // on the Vercel adapter and failing to start.
     command: 'npm run build && npx astro preview --port 4321',
     env: { COVERAGE: '1', PUBLIC_WS_HOST: 'localhost:3001' },
-    url: 'http://localhost:4321',
+    // 127.0.0.1, not localhost: on a machine where another project holds ::1:4321,
+    // `localhost` resolves to IPv6 first and the readiness probe reads THAT server —
+    // so Playwright decides ours never came up and tries to start a second one.
+    url: 'http://127.0.0.1:4321',
     reuseExistingServer: true,
     timeout: 180_000,
   },

@@ -758,5 +758,18 @@
   "extConnectErrParams": "Ennek a linknek hiányoznak a szükséges paraméterek. Kezdje újra a bővítményből.",
   "extConnectErrRedirect": "Ez a link valahova váratlan helyre mutat, ezért blokkolták.",
   "extConnectErrNetwork": "Nem sikerült elérni a VoxTranslate-et. Ellenőrizze az internetkapcsolatot, és próbálja újra.",
-  "extConnectErrRefused": "A VoxTranslate visszautasította a kérelmet. Kérjük, próbálja újra."
+  "extConnectErrRefused": "A VoxTranslate visszautasította a kérelmet. Kérjük, próbálja újra.",
+  "heroTitle": "Beszélj bárkivel, bármilyen nyelven.",
+  "heroSub": "Te a saját nyelveden beszélsz. Ők az övékén. A VoxTranslate valós időben fordítja a beszélgetést.",
+  "talkToWorld": "Beszélj a világgal",
+  "createPrivateRoom": "Privát szoba létrehozása",
+  "worldSub": "Csatlakozz egy beszélgetéshez, és ismerj meg embereket a világ minden tájáról. Nem kell ugyanazt a nyelvet beszélnetek.",
+  "worldPeopleTalking": "{n} ember beszélget",
+  "worldOnePersonTalking": "1 ember beszél",
+  "worldJoin": "Csatlakozás a beszélgetéshez",
+  "worldShowMore": "Mutass más beszélgetéseket",
+  "worldStartPublic": "Nyilvános beszélgetés indítása",
+  "worldEmpty": "Jelenleg nincs nyitott beszélgetés. Indíts egyet, és hagyd, hogy a világ csatlakozzon hozzád.",
+  "worldCreateNudge": "Nem találod a keresett beszélgetést? Indíts egyet, és hagyd, hogy valaki a világból csatlakozzon.",
+  "worldWaiting": "Várakozás valakire a világból…"
 }

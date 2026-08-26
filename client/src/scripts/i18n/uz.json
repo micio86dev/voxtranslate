@@ -758,5 +758,18 @@
   "extConnectErrParams": "Ushbu havolada kerakli parametrlar yo'q. Kengaytmadan qayta boshlang.",
   "extConnectErrRedirect": "Ushbu havola kutilmagan joyga yo'naltirilgan va bloklangan.",
   "extConnectErrNetwork": "VoxTranslate ga ulanish amalga oshmadi. Ulanishingizni tekshiring va qaytadan urinib ko'ring.",
-  "extConnectErrRefused": "VoxTranslate so'rovni rad etdi. Iltimos, qayta urinib ko'ring."
+  "extConnectErrRefused": "VoxTranslate so'rovni rad etdi. Iltimos, qayta urinib ko'ring.",
+  "heroTitle": "Istalgan odam bilan, istalgan tilda gaplashing.",
+  "heroSub": "Siz o'z tilingizda gapirasiz. Ular o'zlarinikida. VoxTranslate suhbatni real vaqtda tarjima qiladi.",
+  "talkToWorld": "Dunyo bilan gaplashing",
+  "createPrivateRoom": "Shaxsiy xona yaratish",
+  "worldSub": "Suhbatga qo'shiling va dunyoning istalgan burchagidan odamlar bilan tanishing. Bir xil tilda gapirish shart emas.",
+  "worldPeopleTalking": "{n} kishi suhbatlashmoqda",
+  "worldOnePersonTalking": "1 kishi gapirmoqda",
+  "worldJoin": "Suhbatga qo'shilish",
+  "worldShowMore": "Menga boshqa suhbatlarni ko'rsat",
+  "worldStartPublic": "Ochiq suhbat boshlash",
+  "worldEmpty": "Hozir ochiq suhbat yo'q. Bittasini boshlang va dunyo sizga qo'shilsin.",
+  "worldCreateNudge": "Qidirayotgan suhbatingizni topmadingizmi? Bittasini boshlang va dunyodan kimdir sizga qo'shilsin.",
+  "worldWaiting": "Dunyodan kimdir kutilmoqda…"
 }

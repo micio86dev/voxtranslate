@@ -51,6 +51,7 @@ import {
   savePreferences,
 } from './notifications';
 import { icon } from './icons';
+import { avatarGradient, fillAvatar } from './avatar';
 import type { MeshManager } from './webrtc';
 import { resolvePeerId } from './peer-id';
 import type { AudioCapture } from './audio-capture';
@@ -383,7 +384,6 @@ const enterBtn = $<HTMLButtonElement>('enter');
 const homeStatus = $('home-status');
 const visGroup = $('vis-group');
 const visHint = $('vis-hint');
-const roomsList = $('rooms-list');
 // Public webinars lobby section (sibling of the rooms list); the card is hidden when empty.
 const publicWebinarsCard = $('public-webinars-card');
 const publicWebinarsList = $('public-webinars');
@@ -404,6 +404,8 @@ const prejoinStatus = $('prejoin-status');
 
 // ---- Call refs -------------------------------------------------------------
 const videoGrid = $('video-grid');
+const waitAlone = $('wait-alone');
+const waitAloneCopy = $('wait-alone-copy');
 const callRoom = $('call-room');
 const callVis = $('call-vis');
 // Self identity folded into the meta row (replaces the self tile's .video-overlay).
@@ -1480,27 +1482,51 @@ function randomRoom(): string {
 // enterHome), so they just confirm name + camera and join — no extra home-screen tap.
 // Otherwise start from a fresh random room.
 let pendingInviteRoom = parseRoomParam(location.search);
+// `?public=1` (spec: Talk to the World): /world's "Start a public conversation" CTA
+// reuses the home create flow rather than shipping a second one. Read at load,
+// consumed once in enterHome.
+let pendingPublicIntent = new URLSearchParams(location.search).has('public');
 // Entry URL captured at load (before any client-side nav) so join analytics can tell how the
 // user arrived: `&src=meeting` (scheduled), `?room=` (shared invite link), or direct.
 const entrySearch = location.search;
 roomInput.value = pendingInviteRoom ?? randomRoom();
 $('dice').addEventListener('click', () => (roomInput.value = randomRoom()));
 
+/** Move the segmented control to public/private and sync `visibilityPublic`.
+ *  Shared by the control itself, the guest gate and the hero's private-room CTA,
+ *  so the three cannot drift out of step. */
+function selectVisibility(isPublic: boolean): void {
+  visibilityPublic = isPublic;
+  visGroup.querySelectorAll('.seg-btn').forEach((b) => {
+    const active = ((b as HTMLElement).dataset.vis === 'public') === isPublic;
+    b.classList.toggle('active', active);
+    b.setAttribute('aria-pressed', String(active));
+  });
+  updateVisHint();
+}
+
 visGroup.addEventListener('click', (e) => {
   const btn = (e.target as HTMLElement).closest('.seg-btn') as HTMLElement | null;
   if (!btn) return;
   // Public rooms need an account: a guest tapping "public" gets the benefits modal
   // (→ sign in), not a silent switch (spec 0022 / 0036).
-  if (btn.dataset.vis === 'public' && billing && !auth.isLoggedIn()) {
+  const wantsPublic = btn.dataset.vis === 'public';
+  if (wantsPublic && billing && !auth.isLoggedIn()) {
     openSigninGate();
     return;
   }
-  visibilityPublic = btn.dataset.vis === 'public';
-  visGroup.querySelectorAll('.seg-btn').forEach((b) => {
-    b.classList.toggle('active', b === btn);
-    b.setAttribute('aria-pressed', String(b === btn));
-  });
-  updateVisHint();
+  selectVisibility(wantsPublic);
+});
+
+// Hero CTAs (spec: Talk to the World). The primary one is a plain <a href="/world">
+// so it keeps link semantics (middle-click, open in new tab); we only instrument it.
+$('hero-world').addEventListener('click', () => track('talk_to_world_clicked'));
+// The secondary CTA does not add a route — it points the existing create flow at a
+// private room and puts the cursor where the user has to type next.
+$('hero-private').addEventListener('click', () => {
+  selectVisibility(false);
+  roomInput.focus();
+  roomInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
 });
 
 function homeStatusMsg(msg: string, isError = false): void {
@@ -1516,77 +1542,6 @@ enterBtn.addEventListener('click', () => {
   track('start_call', { visibility: visibilityPublic ? 'public' : 'private' });
   goPrejoin(room, visibilityPublic);
 });
-
-async function fetchRooms(): Promise<void> {
-  try {
-    const res = await fetch(`${HTTP_BASE}/rooms`, { cache: 'no-store' });
-    const data = await res.json();
-    renderRooms(data.rooms || []);
-  } catch {
-    /* keep last render */
-  }
-}
-
-function renderRooms(
-  rooms: Array<{
-    room: string;
-    count: number;
-    participants: Array<{ name: string; lang: string; avatar?: string | null }>;
-  }>,
-): void {
-  // Hide full rooms: a 4/4 mesh is at capacity (server rooms::MAX_PEERS), so
-  // tapping one would just bounce with room_full — never list a room the user
-  // can't actually join.
-  const joinable = rooms.filter((r) => r.count < 4);
-  roomsList.innerHTML = '';
-  if (!joinable.length) {
-    const empty = document.createElement('div');
-    empty.className = 'lobby-empty';
-    empty.textContent = t('noPublicRooms');
-    roomsList.appendChild(empty);
-    return;
-  }
-  for (const r of joinable) {
-    const item = document.createElement('button');
-    item.className = 'room-item';
-    item.type = 'button';
-    const main = document.createElement('div');
-    main.className = 'room-item-main';
-    const code = document.createElement('span');
-    code.className = 'room-item-code';
-    code.textContent = r.room;
-    const count = document.createElement('span');
-    count.className = 'room-item-count';
-    count.innerHTML = `${icon('users', 13)} ${r.count}/4`;
-    main.append(code, count);
-    // Overlapping avatar stack — a social-style "who's here" glance (spec 0072).
-    const avatars = document.createElement('div');
-    avatars.className = 'room-item-avatars';
-    for (const m of r.participants) {
-      const av = document.createElement('span');
-      av.className = 'ri-av';
-      av.title = m.name;
-      fillAvatar(av, m.name, m.avatar, 56, 1);
-      avatars.appendChild(av);
-    }
-    const members = document.createElement('div');
-    members.className = 'room-item-members';
-    for (const m of r.participants) {
-      const chip = document.createElement('span');
-      chip.className = 'chip';
-      chip.textContent = `${FLAG[m.lang] || ''} ${m.name}`.trim();
-      members.appendChild(chip);
-    }
-    item.append(main, avatars, members);
-    item.addEventListener('click', () => {
-      // Guests can't join public rooms (spec 0022): explain why + the perks of an
-      // account instead of sending them to pre-join.
-      if (billing && !auth.isLoggedIn()) return openSigninGate();
-      goPrejoin(r.room, true);
-    });
-    roomsList.appendChild(item);
-  }
-}
 
 // Public webinars discovery on the home page (spec: webinar visibility). Best-effort:
 // listPublicWebinars() swallows failures to [], and an empty list hides the whole
@@ -1654,11 +1609,9 @@ function renderPublicWebinars(webinars: PublicWebinarListItem[]): void {
 }
 
 function startLobby(): void {
-  fetchRooms();
   void fetchPublicWebinars();
   if (!lobbyTimer) {
     lobbyTimer = window.setInterval(() => {
-      fetchRooms();
       void fetchPublicWebinars();
     }, 3000);
   }
@@ -1671,11 +1624,6 @@ function stopLobby(): void {
   }
   stopNotifPolling(); // no alerts while in pre-join / a call
 }
-$('refresh').addEventListener('click', () => {
-  fetchRooms();
-  void fetchPublicWebinars();
-});
-
 // Guest sign-in gate (spec 0022): a guest clicking an online public room is shown
 // why an account is needed and what they gain, instead of reaching pre-join.
 const signinGateModal = $('signin-gate-modal');
@@ -2640,8 +2588,23 @@ function removeCell(id: string): void {
 }
 
 function updateGridCount(): void {
-  videoGrid.dataset.peers = String(videoGrid.querySelectorAll('.video-cell').length);
+  const cells = videoGrid.querySelectorAll('.video-cell').length;
+  videoGrid.dataset.peers = String(cells);
+  updateWaitingState(cells);
   layoutVideos();
+}
+
+/** Show "waiting for someone" while you are the only cell on the stage. The copy
+ *  differs by visibility: a public room is open to the world, a private one to the
+ *  people you invited. Setting `data-i18n` (not just textContent) keeps the line
+ *  correct across a language switch, since applyI18n() repaints from that key. */
+function updateWaitingState(cells: number): void {
+  const alone = cells <= 1;
+  waitAlone.hidden = !alone;
+  if (!alone) return;
+  const key = session?.isPublic ? 'worldWaiting' : 'waitingPeers';
+  waitAloneCopy.dataset.i18n = key;
+  waitAloneCopy.textContent = t(key);
 }
 
 // ---- Screen share / focus-cell pan (mobile) ---------------------------------
@@ -4474,45 +4437,6 @@ function leaveCall(): void {
 }
 
 // ---- Helpers ---------------------------------------------------------------
-function avatarGradient(name: string): string {
-  let hash = 0;
-  for (const ch of name) hash = ch.charCodeAt(0) + ((hash << 5) - hash);
-  const hue = Math.abs(hash) % 360;
-  return `linear-gradient(135deg, hsl(${hue},60%,25%), hsl(${(hue + 40) % 360},60%,15%))`;
-}
-
-/**
- * Fill a circular avatar element with the user's picture, falling back to a
- * gradient + initials when no URL exists or the image fails to load (spec 0070
- * R2.3). Mirrors the in-cell avatar so the participant badge + roster show real
- * faces instead of a single letter.
- */
-function fillAvatar(
-  el: HTMLElement,
-  name: string,
-  avatarSrc: string | null | undefined,
-  sizePx: number,
-  initialsLen = 2,
-): void {
-  const initials = name.slice(0, initialsLen).toUpperCase();
-  el.textContent = '';
-  el.style.background = avatarGradient(name);
-  const av = auth.avatarUrl(avatarSrc, sizePx);
-  if (!av) {
-    el.textContent = initials;
-    return;
-  }
-  const img = document.createElement('img');
-  img.referrerPolicy = 'no-referrer';
-  img.alt = '';
-  img.src = av;
-  // Keep the gradient + initials if a (Google) avatar 404s or is blocked.
-  img.addEventListener('error', () => {
-    img.remove();
-    el.textContent = initials;
-  });
-  el.appendChild(img);
-}
 
 function cssEsc(s: string): string {
   return (window.CSS && CSS.escape ? CSS.escape(s) : s.replace(/["\\]/g, '\\$&'));
@@ -4727,6 +4651,15 @@ function enterHome(): void {
     ensureConsent();
   }
   updatePublicGate();
+  // Consume `?public=1` from /world: preselect public and put the cursor in the room
+  // field. A guest was just forced back to private by updatePublicGate(), so they get
+  // the sign-in gate on Enter — the same outcome as tapping "Public" by hand.
+  if (pendingPublicIntent) {
+    pendingPublicIntent = false;
+    if (!(billing && !auth.isLoggedIn())) selectVisibility(true);
+    history.replaceState(null, '', location.pathname);
+    roomInput.focus();
+  }
   // Scheduled-meetings card: shows when signed in, hides for guests (idempotent).
   setupScheduling(t);
   setupGeoOptIn(); // optional location opt-in (signed-in, once)
@@ -4772,16 +4705,8 @@ function updatePublicGate(): void {
   // a guest tapping it gets the sign-in benefits modal instead of dead silence.
   pubBtn.disabled = false;
   pubBtn.classList.toggle('locked', !!guest);
-  if (guest && visibilityPublic) {
-    // Force private for guests.
-    visibilityPublic = false;
-    visGroup.querySelectorAll('.seg-btn').forEach((b) => {
-      const isPrivate = (b as HTMLElement).dataset.vis === 'private';
-      b.classList.toggle('active', isPrivate);
-      b.setAttribute('aria-pressed', String(isPrivate));
-    });
-    updateVisHint();
-  }
+  // Force private for guests.
+  if (guest && visibilityPublic) selectVisibility(false);
   visHint.textContent = guest ? t('publicNeedsLogin') : visibilityPublic ? '' : t('privateHint');
 }
 

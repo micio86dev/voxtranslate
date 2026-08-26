@@ -68,6 +68,25 @@ export function detectLang(): string {
   return SUPPORTED.includes(nav) ? nav : 'en';
 }
 
+/**
+ * The UI language a standalone page (webinar view, /world) should start in: the
+ * `vt_lang` preference cached by a previous app session, else browser detection.
+ * A stored choice must win, or a returning visitor who picked a language in the
+ * app gets English again the moment they open a page outside the SPA.
+ */
+export function resolveStoredLang(): string {
+  try {
+    const m = document.cookie.match(/(?:^|;\s*)vt_lang=([^;]+)/);
+    if (m) {
+      const fromCookie = decodeURIComponent(m[1]);
+      if (SUPPORTED.includes(fromCookie)) return fromCookie;
+    }
+  } catch {
+    /* cookies blocked — fall through to detection */
+  }
+  return detectLang();
+}
+
 let uiLang = detectLang();
 export const getUiLang = (): string => uiLang;
 export function setUiLang(l: string): void {

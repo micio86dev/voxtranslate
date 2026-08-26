@@ -758,5 +758,18 @@
   "extConnectErrParams": "Bu bağlantıda tələb olunan parametrlər çatışmır. Uzantıdan yenidən başlayın.",
   "extConnectErrRedirect": "Bu keçid gözlənilməz bir yerə yönəlir və bloklandı.",
   "extConnectErrNetwork": "VoxTranslate-ə çatmaq mümkün olmadı. Əlaqənizi yoxlayın və yenidən cəhd edin.",
-  "extConnectErrRefused": "VoxTranslate istəyi rədd etdi. Zəhmət olmasa, yenidən cəhd edin."
+  "extConnectErrRefused": "VoxTranslate istəyi rədd etdi. Zəhmət olmasa, yenidən cəhd edin.",
+  "heroTitle": "İstənilən dildə, istənilən adamla danış.",
+  "heroSub": "Sən öz dilində danışırsan. Onlar öz dilində. VoxTranslate söhbəti real vaxtda tərcümə edir.",
+  "talkToWorld": "Dünya ilə danış",
+  "createPrivateRoom": "Şəxsi otaq yarat",
+  "worldSub": "Söhbətə qoşul və dünyanın hər yerindən insanlarla tanış ol. Eyni dildə danışmağınıza ehtiyac yoxdur.",
+  "worldPeopleTalking": "{n} nəfər danışır",
+  "worldOnePersonTalking": "1 nəfər danışır",
+  "worldJoin": "Söhbətə qoşul",
+  "worldShowMore": "Mənə başqa söhbətlər göstər",
+  "worldStartPublic": "İctimai söhbət başlat",
+  "worldEmpty": "Hazırda açıq söhbət yoxdur. Birini başlat və qoy dünya sənə qoşulsun.",
+  "worldCreateNudge": "Axtardığın söhbəti tapmırsan? Birini başlat və qoy dünyadan kimsə sənə qoşulsun.",
+  "worldWaiting": "Dünyadan kimsə gözlənilir…"
 }

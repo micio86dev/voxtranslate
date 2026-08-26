@@ -758,5 +758,18 @@
   "extConnectErrParams": "Pautan ini tiada parameter yang diperlukan. Mulakan semula dari pemalam.",
   "extConnectErrRedirect": "Pautan ini menghala ke tempat yang tidak dijangka dan telah disekat.",
   "extConnectErrNetwork": "Tidak dapat menghubungi VoxTranslate. Semak sambungan anda dan cuba lagi.",
-  "extConnectErrRefused": "VoxTranslate menolak permintaan tersebut. Sila cuba lagi."
+  "extConnectErrRefused": "VoxTranslate menolak permintaan tersebut. Sila cuba lagi.",
+  "heroTitle": "Bercakap dengan sesiapa sahaja, dalam apa-apa bahasa.",
+  "heroSub": "Anda bercakap bahasa anda. Mereka bahasa mereka. VoxTranslate menterjemah perbualan secara masa nyata.",
+  "talkToWorld": "Bercakap dengan Dunia",
+  "createPrivateRoom": "Cipta bilik peribadi",
+  "worldSub": "Sertai satu perbualan dan temui orang dari seluruh dunia. Anda tidak perlu bercakap bahasa yang sama.",
+  "worldPeopleTalking": "{n} orang sedang berbual",
+  "worldOnePersonTalking": "1 orang sedang bercakap",
+  "worldJoin": "Sertai perbualan",
+  "worldShowMore": "Tunjukkan saya perbualan lain",
+  "worldStartPublic": "Mulakan perbualan awam",
+  "worldEmpty": "Tiada perbualan dibuka buat masa ini. Mulakan satu dan biar dunia menyertai anda.",
+  "worldCreateNudge": "Tidak jumpa perbualan yang anda cari? Mulakan satu dan biar seseorang dari dunia menyertai anda.",
+  "worldWaiting": "Menunggu seseorang dari dunia…"
 }

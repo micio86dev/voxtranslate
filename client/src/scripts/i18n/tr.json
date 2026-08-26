@@ -758,5 +758,18 @@
   "extConnectDoneTitle": "Bağlandı",
   "extConnectDoneBody": "Bu sekmeyi kapatabilir ve eklentiye geri dönebilirsiniz.",
   "extConnectYourAccount": "Hesabınız",
-  "extConnectErrParams": "Bu bağlantıda gerekli parametreler eksik. Eklentiden tekrar başlayın."
+  "extConnectErrParams": "Bu bağlantıda gerekli parametreler eksik. Eklentiden tekrar başlayın.",
+  "heroTitle": "Herkesle, her dilde konuş.",
+  "heroSub": "Sen kendi dilinde konuşursun. Onlar kendi dillerinde. VoxTranslate konuşmayı gerçek zamanlı çevirir.",
+  "talkToWorld": "Dünyayla konuş",
+  "createPrivateRoom": "Özel oda oluştur",
+  "worldSub": "Bir sohbete katıl ve dünyanın her yerinden insanlarla tanış. Aynı dili konuşmanıza gerek yok.",
+  "worldPeopleTalking": "{n} kişi konuşuyor",
+  "worldOnePersonTalking": "1 kişi konuşuyor",
+  "worldJoin": "Sohbete katıl",
+  "worldShowMore": "Bana başka sohbetler göster",
+  "worldStartPublic": "Herkese açık sohbet başlat",
+  "worldEmpty": "Şu anda açık sohbet yok. Bir tane başlat, bırak dünya sana katılsın.",
+  "worldCreateNudge": "Aradığın sohbeti bulamadın mı? Bir tane başlat, bırak dünyadan biri sana katılsın.",
+  "worldWaiting": "Dünyadan biri bekleniyor…"
 }

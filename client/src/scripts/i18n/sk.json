@@ -758,5 +758,18 @@
   "extConnectErrParams": "Na tomto odkaze chýbajú požadované parametre. Začnite znova z rozšírenia.",
   "extConnectErrRedirect": "Tento odkaz smeruje niekam neočakávanému miestu a bol zablokovaný.",
   "extConnectErrNetwork": "Nepodarilo sa dosiahnuť VoxTranslate. Skontrolujte svoje pripojenie a skúste to znova.",
-  "extConnectErrRefused": "VoxTranslate odmietol žiadosť. Skúste to prosím znova."
+  "extConnectErrRefused": "VoxTranslate odmietol žiadosť. Skúste to prosím znova.",
+  "heroTitle": "Hovor s kýmkoľvek, v akomkoľvek jazyku.",
+  "heroSub": "Ty hovoríš svojím jazykom. Oni svojím. VoxTranslate prekladá konverzáciu v reálnom čase.",
+  "talkToWorld": "Hovor so svetom",
+  "createPrivateRoom": "Vytvoriť súkromnú miestnosť",
+  "worldSub": "Pridaj sa ku konverzácii a spoznaj ľudí z celého sveta. Nemusíte hovoriť rovnakým jazykom.",
+  "worldPeopleTalking": "{n} ľudí sa rozpráva",
+  "worldOnePersonTalking": "1 človek hovorí",
+  "worldJoin": "Pridať sa ku konverzácii",
+  "worldShowMore": "Ukáž mi iné konverzácie",
+  "worldStartPublic": "Začať verejnú konverzáciu",
+  "worldEmpty": "Práve teraz nie je otvorená žiadna konverzácia. Začni jednu a nechaj svet, nech sa pridá.",
+  "worldCreateNudge": "Nenašiel si konverzáciu, ktorú hľadáš? Začni jednu a nechaj niekoho zo sveta, nech sa pridá.",
+  "worldWaiting": "Čakáme na niekoho zo sveta…"
 }

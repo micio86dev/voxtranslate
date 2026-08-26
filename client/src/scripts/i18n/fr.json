@@ -758,5 +758,18 @@
   "extConnectDoneBody": "Vous pouvez fermer cet onglet et revenir à l’extension.",
   "extConnectYourAccount": "Votre compte",
   "extConnectErrParams": "Ce lien manque des paramètres requis. Recommencez depuis l’extension.",
-  "extConnectErrRedirect": "Ce lien pointe vers un endroit inattendu et a été bloqué."
+  "extConnectErrRedirect": "Ce lien pointe vers un endroit inattendu et a été bloqué.",
+  "heroTitle": "Parlez avec n'importe qui, dans n'importe quelle langue.",
+  "heroSub": "Vous parlez votre langue. Eux la leur. VoxTranslate traduit la conversation en temps réel.",
+  "talkToWorld": "Parler au monde",
+  "createPrivateRoom": "Créer un salon privé",
+  "worldSub": "Rejoignez une conversation et rencontrez des gens du monde entier. Pas besoin de parler la même langue.",
+  "worldPeopleTalking": "{n} personnes discutent",
+  "worldOnePersonTalking": "1 personne discute",
+  "worldJoin": "Rejoindre la conversation",
+  "worldShowMore": "Montrez-moi d'autres conversations",
+  "worldStartPublic": "Démarrer une conversation publique",
+  "worldEmpty": "Aucune conversation n'est ouverte pour le moment. Lancez-en une et laissez le monde vous rejoindre.",
+  "worldCreateNudge": "Vous ne trouvez pas la conversation que vous cherchez ? Lancez-en une et laissez quelqu'un du monde vous rejoindre.",
+  "worldWaiting": "En attente de quelqu'un dans le monde…"
 }

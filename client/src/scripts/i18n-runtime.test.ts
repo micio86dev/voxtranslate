@@ -14,6 +14,8 @@ import {
   t,
   applyI18n,
   isRtl,
+  detectLang,
+  resolveStoredLang,
 } from './i18n';
 
 const FIRST_KEY = Object.keys(en)[0];
@@ -108,5 +110,25 @@ describe('applyI18n', () => {
     applyI18n();
     expect(document.documentElement.dir).toBe('rtl');
     expect(document.documentElement.lang).toBe('ar');
+  });
+});
+
+describe('resolveStoredLang', () => {
+  afterEach(() => {
+    document.cookie = 'vt_lang=; max-age=0';
+  });
+
+  it('prefers a stored vt_lang preference over browser detection', () => {
+    document.cookie = 'vt_lang=es';
+    expect(resolveStoredLang()).toBe('es');
+  });
+
+  it('ignores a stored language we ship no UI translation for', () => {
+    document.cookie = 'vt_lang=zzz';
+    expect(resolveStoredLang()).toBe(detectLang());
+  });
+
+  it('falls back to browser detection when nothing is stored', () => {
+    expect(resolveStoredLang()).toBe(detectLang());
   });
 });

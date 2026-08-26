@@ -758,5 +758,18 @@
   "extConnectYourAccount": "Reikningurinn þinn",
   "extConnectErrParams": "Þessi hlekkur skortir nauðsynlegar breytur. Byrjaðu aftur frá VoxTranslate viðbótinni í Chrome.",
   "extConnectErrRedirect": "Þessi hlekkur vísar á óvæntan stað og var lokað fyrir.",
-  "extConnectErrNetwork": "Ekki tókst að ná í VoxTranslate. Skoðaðu tenginguna þína og reyndu aftur."
+  "extConnectErrNetwork": "Ekki tókst að ná í VoxTranslate. Skoðaðu tenginguna þína og reyndu aftur.",
+  "heroTitle": "Talaðu við hvern sem er, á hvaða tungumáli sem er.",
+  "heroSub": "Þú talar þitt tungumál. Þau tala sitt. VoxTranslate þýðir samtalið í rauntíma.",
+  "talkToWorld": "Talaðu við heiminn",
+  "createPrivateRoom": "Búa til einkaherbergi",
+  "worldSub": "Taktu þátt í samtali og kynnstu fólki hvaðanæva að úr heiminum. Þið þurfið ekki að tala sama tungumál.",
+  "worldPeopleTalking": "{n} manns eru að tala saman",
+  "worldOnePersonTalking": "1 manneskja er að tala",
+  "worldJoin": "Taka þátt í samtalinu",
+  "worldShowMore": "Sýndu mér önnur samtöl",
+  "worldStartPublic": "Hefja opinbert samtal",
+  "worldEmpty": "Engin samtöl eru opin núna. Byrjaðu eitt og leyfðu heiminum að slást í hópinn.",
+  "worldCreateNudge": "Finnurðu ekki samtalið sem þú leitar að? Byrjaðu eitt og leyfðu einhverjum úr heiminum að slást í hópinn.",
+  "worldWaiting": "Bíð eftir einhverjum úr heiminum…"
 }

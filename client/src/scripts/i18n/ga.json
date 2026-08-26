@@ -758,5 +758,18 @@
   "extConnectDoneTitle": "Ceangailte",
   "extConnectDoneBody": "Féadfaidh tú an t-abhas seo a dhúnadh agus filleadh ar an síneadh.",
   "extConnectYourAccount": "Do chuntas",
-  "extConnectErrParams": "Tá paraiméadair riachtanacha in easnamh ar an nasc seo. Tosaigh arís ón síneadh."
+  "extConnectErrParams": "Tá paraiméadair riachtanacha in easnamh ar an nasc seo. Tosaigh arís ón síneadh.",
+  "heroTitle": "Labhair le duine ar bith, i dteanga ar bith.",
+  "heroSub": "Labhraíonn tusa do theanga féin. Labhraíonn siadsan a gceann féin. Aistríonn VoxTranslate an comhrá beo.",
+  "talkToWorld": "Labhair leis an Domhan",
+  "createPrivateRoom": "Cruthaigh seomra príobháideach",
+  "worldSub": "Bí páirteach i gcomhrá agus buail le daoine ó gach cearn den domhan. Ní gá daoibh an teanga chéanna a labhairt.",
+  "worldPeopleTalking": "Tá {n} duine ag caint",
+  "worldOnePersonTalking": "Tá 1 duine ag caint",
+  "worldJoin": "Bí páirteach sa chomhrá",
+  "worldShowMore": "Taispeáin comhráite eile dom",
+  "worldStartPublic": "Tosaigh comhrá poiblí",
+  "worldEmpty": "Níl aon chomhrá ar oscailt faoi láthair. Tosaigh ceann agus lig don domhan teacht chugat.",
+  "worldCreateNudge": "Nach bhfeiceann tú an comhrá atá uait? Tosaigh ceann agus lig do dhuine ón domhan teacht chugat.",
+  "worldWaiting": "Ag fanacht le duine ón domhan…"
 }

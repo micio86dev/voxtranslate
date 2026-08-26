@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
-import { openPage, closePage, NodePeer } from './helpers';
+import { openPage, closePage } from './helpers';
 
-test('home: i18n switching, lobby tap-to-join, PWA tags', async ({ browser }) => {
+test('home: i18n switching, hero CTAs, PWA tags', async ({ browser }) => {
   const t = await openPage(browser, { width: 440, height: 900 });
   const { page } = t;
   await page.goto('/', { waitUntil: 'networkidle' });
@@ -34,14 +34,18 @@ test('home: i18n switching, lobby tap-to-join, PWA tags', async ({ browser }) =>
   expect(pwa.theme).toBe('#0871ab');
   expect(pwa.name).toBe('VoxTranslate');
 
-  // Lobby lists a seeded public room; tapping it opens pre-join.
-  const seed = new NodePeer('lobby' + Math.floor(Math.random() * 1e6), 'it', 'Marco');
-  await seed.ready;
-  await page.click('#refresh');
-  await page.waitForSelector('.room-item', { timeout: 8000 });
-  await page.click('.room-item');
-  await page.waitForSelector('#prejoin:not(.hidden)', { timeout: 8000 });
-  seed.close();
+  // Hero: discovery is the dominant CTA and it routes to /world. (Public-room
+  // discovery itself is covered by world.spec.ts, where it now lives.)
+  await expect(page.locator('#hero-world')).toHaveAttribute('href', '/world');
+  await expect(page.locator('h1.hero-title')).toBeVisible();
+
+  // The secondary CTA reuses the create flow: private preselected, cursor in the field.
+  await page.click('#hero-private');
+  await expect(page.locator('.seg-btn[data-vis="private"]')).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(page.locator('#room')).toBeFocused();
 
   await closePage(t);
 });

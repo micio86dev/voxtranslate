@@ -758,5 +758,18 @@
   "extConnectErrParams": "이 링크에는 필수 파라미터가 누락되어 있습니다. 확장 프로그램에서 다시 시작해 주세요.",
   "extConnectErrRedirect": "이 링크는 예상치 못한 곳을 가리키고 있으며 차단되었습니다.",
   "extConnectErrNetwork": "VoxTranslate에 연결할 수 없습니다. 네트워크 상태를 확인하고 다시 시도해 주세요.",
-  "extConnectErrRefused": "VoxTranslate에서 요청을 거절했습니다. 다시 시도해 주세요."
+  "extConnectErrRefused": "VoxTranslate에서 요청을 거절했습니다. 다시 시도해 주세요.",
+  "heroTitle": "누구와도, 어떤 언어로든 대화하세요.",
+  "heroSub": "당신은 당신의 언어로. 상대는 상대의 언어로. VoxTranslate가 대화를 실시간으로 번역합니다.",
+  "talkToWorld": "세계와 대화하기",
+  "createPrivateRoom": "비공개 방 만들기",
+  "worldSub": "대화에 참여해 세계 각지의 사람들을 만나보세요. 같은 언어를 쓸 필요는 없습니다.",
+  "worldPeopleTalking": "{n}명이 대화 중입니다",
+  "worldOnePersonTalking": "1명이 이야기하고 있습니다",
+  "worldJoin": "대화 참여하기",
+  "worldShowMore": "다른 대화 보여주기",
+  "worldStartPublic": "공개 대화 시작하기",
+  "worldEmpty": "지금은 열려 있는 대화가 없습니다. 하나 시작하면 세계가 찾아옵니다.",
+  "worldCreateNudge": "찾던 대화가 없나요? 하나 시작하면 세계의 누군가가 찾아옵니다.",
+  "worldWaiting": "세계의 누군가를 기다리는 중…"
 }

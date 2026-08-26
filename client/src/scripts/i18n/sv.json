@@ -758,5 +758,18 @@
   "extConnectErrParams": "Denna länk saknar nödvändiga parametrar. Starta om från tillägget.",
   "extConnectErrRedirect": "Denna länk pekar någonstans oväntat och blockerades.",
   "extConnectErrNetwork": "Kunde inte nå VoxTranslate. Kontrollera din anslutning och försök igen.",
-  "extConnectErrRefused": "VoxTranslate vägrade begäran. Vänligen försök igen."
+  "extConnectErrRefused": "VoxTranslate vägrade begäran. Vänligen försök igen.",
+  "heroTitle": "Prata med vem som helst, på vilket språk som helst.",
+  "heroSub": "Du talar ditt språk. De talar sitt. VoxTranslate översätter samtalet i realtid.",
+  "talkToWorld": "Prata med världen",
+  "createPrivateRoom": "Skapa ett privat rum",
+  "worldSub": "Gå med i ett samtal och möt människor från hela världen. Ni behöver inte tala samma språk.",
+  "worldPeopleTalking": "{n} personer pratar",
+  "worldOnePersonTalking": "1 person pratar",
+  "worldJoin": "Gå med i samtalet",
+  "worldShowMore": "Visa mig andra samtal",
+  "worldStartPublic": "Starta ett offentligt samtal",
+  "worldEmpty": "Inga samtal är öppna just nu. Starta ett och låt världen komma till dig.",
+  "worldCreateNudge": "Hittar du inte samtalet du söker? Starta ett och låt någon från världen komma till dig.",
+  "worldWaiting": "Väntar på någon från världen…"
 }

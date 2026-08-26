@@ -758,5 +758,18 @@
   "extConnectErrParams": "呢個連結缺少必要嘅參數。請由外掛程式重新開始。",
   "extConnectErrRedirect": "呢個連結指向咗一個預期之外嘅地方，所以被攔截咗。",
   "extConnectErrNetwork": "未能連接到VoxTranslate。請檢查你的網絡連線，然後再試一次。",
-  "extConnectErrRefused": "VoxTranslate拒絕咗呢個請求。請再試一次。"
+  "extConnectErrRefused": "VoxTranslate拒絕咗呢個請求。請再試一次。",
+  "heroTitle": "同任何人傾偈，用任何語言。",
+  "heroSub": "你講你嘅語言，佢哋講佢哋嘅。VoxTranslate 即時翻譯成段對話。",
+  "talkToWorld": "同世界傾偈",
+  "createPrivateRoom": "開個私人房間",
+  "worldSub": "加入一場對話，識下世界各地嘅人。你哋唔使講同一種語言。",
+  "worldPeopleTalking": "{n} 個人喺度傾緊",
+  "worldOnePersonTalking": "1 個人喺度講緊嘢",
+  "worldJoin": "加入對話",
+  "worldShowMore": "睇下其他對話",
+  "worldStartPublic": "開始一場公開對話",
+  "worldEmpty": "而家未有進行緊嘅對話。開一場啦，等世界嚟搵你。",
+  "worldCreateNudge": "搵唔到你想要嘅對話？開一場啦，等世界上某個人嚟搵你。",
+  "worldWaiting": "等緊世界上某個人…"
 }

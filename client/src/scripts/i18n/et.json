@@ -758,5 +758,18 @@
   "extConnectErrParams": "Sellel lingil puuduvad vajalikud parameetrid. Alustage uuesti laiendusest.",
   "extConnectErrRedirect": "See link viib kuhugi ootamatutesse kohtadesse ja see blokeeriti.",
   "extConnectErrNetwork": "VoxTranslate’iga ei õnnestunud ühendust saada. Kontrollige oma ühendust ja proovige uuesti.",
-  "extConnectErrRefused": "VoxTranslate keeldus taotlusest. Proovige uuesti."
+  "extConnectErrRefused": "VoxTranslate keeldus taotlusest. Proovige uuesti.",
+  "heroTitle": "Räägi kellega tahes, mis tahes keeles.",
+  "heroSub": "Sina räägid oma keelt. Nemad enda oma. VoxTranslate tõlgib vestluse reaalajas.",
+  "talkToWorld": "Räägi maailmaga",
+  "createPrivateRoom": "Loo privaatne ruum",
+  "worldSub": "Liitu vestlusega ja kohtu inimestega üle kogu maailma. Te ei pea rääkima sama keelt.",
+  "worldPeopleTalking": "{n} inimest vestlevad",
+  "worldOnePersonTalking": "1 inimene räägib",
+  "worldJoin": "Liitu vestlusega",
+  "worldShowMore": "Näita mulle teisi vestlusi",
+  "worldStartPublic": "Alusta avalikku vestlust",
+  "worldEmpty": "Praegu pole ühtegi vestlust avatud. Alusta üht ja lase maailmal sinuga liituda.",
+  "worldCreateNudge": "Ei leia otsitavat vestlust? Alusta üht ja lase kellelgi maailmast sinuga liituda.",
+  "worldWaiting": "Ootan kedagi maailmast…"
 }

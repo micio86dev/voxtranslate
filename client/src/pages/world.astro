@@ -1,0 +1,303 @@
+---
+// "Talk to the World" — public conversation discovery.
+//
+// A standalone route rather than another `.screen` inside index.astro: this page
+// needs none of the call machinery, so keeping it separate means a visitor who just
+// wants to look around never downloads app.ts. Joining navigates back to `/?room=`,
+// which the SPA already understands (see `invite.ts` / `enterHome`).
+import Base from '../layouts/Base.astro';
+import en from '../scripts/i18n/en.json';
+// Server-render the English default into every data-i18n slot so the page paints real
+// text at FCP; applyI18n() localizes on the client when the active locale differs.
+// Single source of truth: en.json (no drift). Same pattern as index.astro.
+const T = (k: string): string => (en as Record<string, string>)[k] ?? '';
+---
+
+<Base
+  title="Talk to the World — VoxTranslate"
+  description="Join a live conversation and meet people from anywhere in the world. You speak your language, they speak theirs, and VoxTranslate translates in real time."
+>
+  <main class="world">
+    <header class="wr-top">
+      <a class="wr-back" href="/" data-i18n="back">{T('back')}</a>
+      <img class="wr-logo" src="/logo-88.png" alt="VoxTranslate" width="32" height="32" decoding="async" />
+    </header>
+
+    <div class="wr-hero">
+      <h1 class="wr-title">
+        <span class="wr-globe" aria-hidden="true">🌍</span>
+        <span data-i18n="talkToWorld">{T('talkToWorld')}</span>
+      </h1>
+      <p class="wr-sub" data-i18n="worldSub">{T('worldSub')}</p>
+    </div>
+
+    <!-- Loading: skeleton cards, so the page never blanks while a batch loads. -->
+    <div id="wr-skeleton" class="wr-skeleton" aria-hidden="true">
+      <div class="wr-sk-card"><span class="sk sk-a"></span><span class="sk sk-b"></span><span class="sk sk-c"></span></div>
+      <div class="wr-sk-card"><span class="sk sk-a"></span><span class="sk sk-b"></span><span class="sk sk-c"></span></div>
+      <div class="wr-sk-card"><span class="sk sk-a"></span><span class="sk sk-b"></span><span class="sk sk-c"></span></div>
+    </div>
+
+    <!-- Cards are built in world.ts; announced politely as the batch changes. -->
+    <div id="wr-list" class="wr-list" aria-live="polite" hidden></div>
+
+    <button id="wr-more" type="button" class="btn-ghost wr-more" data-i18n="worldShowMore" hidden>
+      {T('worldShowMore')}
+    </button>
+
+    <!-- Empty state: an invitation, never "no rooms found". -->
+    <section id="wr-empty" class="wr-empty" hidden>
+      <p class="wr-empty-copy" data-i18n="worldEmpty">{T('worldEmpty')}</p>
+      <button type="button" class="btn-primary wr-start" data-world-create data-i18n="worldStartPublic">
+        {T('worldStartPublic')}
+      </button>
+    </section>
+
+    <!-- Always reachable, even when conversations are listed above. -->
+    <section id="wr-nudge" class="wr-nudge" hidden>
+      <p class="wr-nudge-copy" data-i18n="worldCreateNudge">{T('worldCreateNudge')}</p>
+      <button type="button" class="btn-primary wr-start" data-world-create data-i18n="worldStartPublic">
+        {T('worldStartPublic')}
+      </button>
+    </section>
+  </main>
+
+  <style>
+    .world {
+      max-width: 620px;
+      margin: 0 auto;
+      padding: 1rem 1rem 3rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+    }
+
+    .wr-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+    }
+    .wr-back {
+      display: inline-flex;
+      align-items: center;
+      min-height: var(--tap-target);
+      padding: 0 0.4rem;
+      color: var(--muted);
+      text-decoration: none;
+      font-size: var(--font-sm);
+    }
+    .wr-back::before {
+      content: '←';
+      margin-right: 0.45rem;
+    }
+    .wr-back:hover {
+      color: var(--text);
+    }
+    .wr-logo {
+      border-radius: 9px;
+      opacity: 0.9;
+    }
+
+    .wr-hero {
+      text-align: center;
+      padding: 0.5rem 0 0.25rem;
+    }
+    .wr-title {
+      margin: 0 0 0.6rem;
+      font-size: clamp(1.75rem, 7vw, 2.4rem);
+      line-height: 1.15;
+      font-weight: var(--font-weight-bold);
+      letter-spacing: -0.02em;
+    }
+    .wr-globe {
+      /* Decorative, and it must not inherit the gradient text clip. */
+      display: inline-block;
+      margin-right: 0.35rem;
+    }
+    .wr-sub {
+      margin: 0 auto;
+      max-width: 34rem;
+      color: var(--muted);
+      font-size: var(--font-md);
+      line-height: 1.55;
+    }
+
+    .wr-list,
+    .wr-skeleton {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    /* Cards are created in JS, so they are styled through :global() under a scoped
+       parent — the same convention index.astro uses for the lobby list. */
+    .wr-list :global(.wr-card) {
+      display: flex;
+      flex-direction: column;
+      gap: 0.6rem;
+      width: 100%;
+      min-height: var(--tap-target);
+      padding: 1rem;
+      text-align: left;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      color: var(--text);
+      transition:
+        border-color var(--transition-fast),
+        transform var(--transition-fast);
+    }
+    .wr-list :global(.wr-card:hover:not(:disabled)) {
+      border-color: var(--accent);
+      transform: translateY(-1px);
+    }
+    .wr-list :global(.wr-card:disabled) {
+      cursor: not-allowed;
+      opacity: 0.55;
+    }
+
+    .wr-list :global(.wr-head) {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+    }
+    .wr-list :global(.wr-people) {
+      font-size: var(--font-base);
+      font-weight: var(--font-weight-semibold);
+    }
+    .wr-list :global(.wr-count) {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      flex: none;
+      color: var(--muted);
+      font-size: var(--font-sm);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .wr-list :global(.wr-avatars) {
+      display: flex;
+      align-items: center;
+    }
+    .wr-list :global(.wr-av) {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      border: 2px solid var(--surface);
+      margin-right: -8px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      font-size: 0.7rem;
+      font-weight: var(--font-weight-bold);
+      color: #fff;
+    }
+    .wr-list :global(.wr-av img) {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .wr-list :global(.wr-langs) {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+    }
+    .wr-list :global(.chip) {
+      padding: 0.18rem 0.55rem;
+      border-radius: 999px;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      font-size: var(--font-xs);
+      white-space: nowrap;
+    }
+
+    .wr-list :global(.wr-cta) {
+      color: var(--accent);
+      font-size: var(--font-sm);
+      font-weight: var(--font-weight-semibold);
+    }
+    .wr-list :global(.wr-card:not(.wr-full) .wr-cta::after) {
+      content: ' →';
+    }
+    .wr-list :global(.wr-full .wr-cta) {
+      color: var(--muted);
+    }
+
+    .wr-more {
+      align-self: center;
+      width: auto;
+      min-height: var(--tap-target);
+      padding: 0 1.4rem;
+    }
+
+    .wr-sk-card {
+      display: flex;
+      flex-direction: column;
+      gap: 0.55rem;
+      padding: 1rem;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      background: var(--surface);
+    }
+    .sk {
+      height: 0.85rem;
+      border-radius: 999px;
+      background: var(--surface-elevated);
+      animation: pulse 1.4s ease-in-out infinite;
+    }
+    .sk-a { width: 55%; }
+    .sk-b { width: 85%; animation-delay: 0.12s; }
+    .sk-c { width: 40%; animation-delay: 0.24s; }
+    @keyframes pulse {
+      0%, 100% { opacity: 0.45; }
+      50% { opacity: 0.85; }
+    }
+
+    .wr-empty,
+    .wr-nudge {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.9rem;
+      padding: 1.5rem 1rem;
+      text-align: center;
+      border: 1px dashed var(--border);
+      border-radius: var(--radius-lg);
+    }
+    .wr-empty-copy,
+    .wr-nudge-copy {
+      margin: 0;
+      max-width: 32rem;
+      color: var(--muted);
+      font-size: var(--font-md);
+      line-height: 1.55;
+    }
+    .wr-start {
+      width: auto;
+      min-width: 15rem;
+      padding-inline: 1.4rem;
+    }
+
+    :where(.world) :focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .sk { animation: none; }
+      .wr-list :global(.wr-card) { transition: none; }
+      .wr-list :global(.wr-card:hover:not(:disabled)) { transform: none; }
+    }
+  </style>
+
+  <script>
+    import { mountWorld } from '../scripts/world';
+
+    mountWorld();
+  </script>
+</Base>

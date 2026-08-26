@@ -758,5 +758,18 @@
   "extConnectCancel": "Annulla",
   "extConnectDoneTitle": "Connesso",
   "extConnectDoneBody": "Puoi chiudere questa scheda e tornare all'estensione.",
-  "extConnectYourAccount": "Il tuo account"
+  "extConnectYourAccount": "Il tuo account",
+  "heroTitle": "Parla con chiunque, in qualsiasi lingua.",
+  "heroSub": "Tu parli la tua lingua. Loro la loro. VoxTranslate traduce la conversazione in tempo reale.",
+  "talkToWorld": "Parla con il mondo",
+  "createPrivateRoom": "Crea una stanza privata",
+  "worldSub": "Entra in una conversazione e incontra persone da ogni parte del mondo. Non serve parlare la stessa lingua.",
+  "worldPeopleTalking": "{n} persone stanno parlando",
+  "worldOnePersonTalking": "1 persona sta parlando",
+  "worldJoin": "Entra nella conversazione",
+  "worldShowMore": "Mostrami altre conversazioni",
+  "worldStartPublic": "Avvia una conversazione pubblica",
+  "worldEmpty": "Non c'è nessuna conversazione aperta in questo momento. Avviane una e lascia che il mondo ti raggiunga.",
+  "worldCreateNudge": "Non trovi la conversazione che cerchi? Avviane una e lascia che qualcuno dal mondo ti raggiunga.",
+  "worldWaiting": "In attesa di qualcuno dal mondo…"
 }

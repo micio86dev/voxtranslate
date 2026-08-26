@@ -758,5 +758,18 @@
   "extConnectErrParams": "Denne lenken mangler nødvendige parametre. Start på nytt fra utvidelsen.",
   "extConnectErrRedirect": "Denne lenken peker til et uventet sted og ble blokkert.",
   "extConnectErrNetwork": "Kunne ikke nå VoxTranslate. Sjekk nettforbindelsen og prøv igjen.",
-  "extConnectErrRefused": "VoxTranslate avviste forespørselen. Prøv igjen."
+  "extConnectErrRefused": "VoxTranslate avviste forespørselen. Prøv igjen.",
+  "heroTitle": "Snakk med hvem som helst, på hvilket som helst språk.",
+  "heroSub": "Du snakker ditt språk. De snakker sitt. VoxTranslate oversetter samtalen i sanntid.",
+  "talkToWorld": "Snakk med verden",
+  "createPrivateRoom": "Opprett et privat rom",
+  "worldSub": "Bli med i en samtale og møt folk fra hele verden. Dere trenger ikke snakke samme språk.",
+  "worldPeopleTalking": "{n} personer snakker sammen",
+  "worldOnePersonTalking": "1 person snakker",
+  "worldJoin": "Bli med i samtalen",
+  "worldShowMore": "Vis meg andre samtaler",
+  "worldStartPublic": "Start en offentlig samtale",
+  "worldEmpty": "Ingen samtaler er åpne akkurat nå. Start en, og la verden bli med deg.",
+  "worldCreateNudge": "Finner du ikke samtalen du leter etter? Start en, og la noen fra verden bli med.",
+  "worldWaiting": "Venter på noen fra verden…"
 }

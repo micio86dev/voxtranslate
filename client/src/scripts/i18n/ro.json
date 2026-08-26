@@ -758,5 +758,18 @@
   "extConnectErrParams": "Acest link lipsește parametrii necesari. Începeți din nou de la extensie.",
   "extConnectErrRedirect": "Acest link duce undeva neașteptat și a fost blocat.",
   "extConnectErrNetwork": "Nu s-a putut accesa VoxTranslate. Verificați conexiunea și încercați din nou.",
-  "extConnectErrRefused": "VoxTranslate a refuzat cererea. Vă rugăm să încercați din nou."
+  "extConnectErrRefused": "VoxTranslate a refuzat cererea. Vă rugăm să încercați din nou.",
+  "heroTitle": "Vorbește cu oricine, în orice limbă.",
+  "heroSub": "Tu vorbești limba ta. Ei pe a lor. VoxTranslate traduce conversația în timp real.",
+  "talkToWorld": "Vorbește cu lumea",
+  "createPrivateRoom": "Creează o cameră privată",
+  "worldSub": "Alătură-te unei conversații și cunoaște oameni din întreaga lume. Nu trebuie să vorbiți aceeași limbă.",
+  "worldPeopleTalking": "{n} persoane vorbesc",
+  "worldOnePersonTalking": "1 persoană vorbește",
+  "worldJoin": "Intră în conversație",
+  "worldShowMore": "Arată-mi alte conversații",
+  "worldStartPublic": "Începe o conversație publică",
+  "worldEmpty": "Momentan nu este deschisă nicio conversație. Începe una și lasă lumea să ți se alăture.",
+  "worldCreateNudge": "Nu găsești conversația pe care o cauți? Începe una și lasă pe cineva din lume să ți se alăture.",
+  "worldWaiting": "Se așteaptă cineva din lume…"
 }

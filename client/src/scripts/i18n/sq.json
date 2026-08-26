@@ -758,5 +758,18 @@
   "extConnectErrParams": "Kjo lidhje i mungojnë parametrat e kërkuar. Rinisni nga shtesa.",
   "extConnectErrRedirect": "Kjo lidhje drejton diku të papritur dhe është bllokuar.",
   "extConnectErrNetwork": "Nuk arriti të lidhet me VoxTranslate. Kontrolloni lidhjen dhe riprovoni.",
-  "extConnectErrRefused": "VoxTranslate e refuzoi kërkesën. Ju lutemi, provoni përsëri."
+  "extConnectErrRefused": "VoxTranslate e refuzoi kërkesën. Ju lutemi, provoni përsëri.",
+  "heroTitle": "Fol me këdo, në çdo gjuhë.",
+  "heroSub": "Ti flet gjuhën tënde. Ata të tyren. VoxTranslate e përkthen bisedën në kohë reale.",
+  "talkToWorld": "Fol me botën",
+  "createPrivateRoom": "Krijo një dhomë private",
+  "worldSub": "Bashkohu në një bisedë dhe njih njerëz nga çdo cep i botës. Nuk keni nevojë të flisni të njëjtën gjuhë.",
+  "worldPeopleTalking": "{n} persona po bisedojnë",
+  "worldOnePersonTalking": "1 person po flet",
+  "worldJoin": "Bashkohu në bisedë",
+  "worldShowMore": "Më trego biseda të tjera",
+  "worldStartPublic": "Nis një bisedë publike",
+  "worldEmpty": "Për momentin nuk ka asnjë bisedë të hapur. Nis një dhe lëre botën të të bashkohet.",
+  "worldCreateNudge": "Nuk e gjen bisedën që kërkon? Nis një dhe lër dikë nga bota të të bashkohet.",
+  "worldWaiting": "Në pritje të dikujt nga bota…"
 }

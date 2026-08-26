@@ -758,5 +758,18 @@
   "extConnectErrParams": "Likhankaso loku kungabonakala iziqhingasu ezikufunekayo. Qaphela ngokungeneyo ukusuka kwi-extension.",
   "extConnectErrRedirect": "Lelinyawo libe ngaphandle kwezinto ezinokuba njengaloku, futhi liphazamiseka.",
   "extConnectErrNetwork": "Kanikwe ukufikelela kwi-VoxTranslate. Xinisekile ukuze ungabonakale futhi ngqoza kwenzeka kwesibonelo.",
-  "extConnectErrRefused": "I-VoxTranslate yavulwa isicelo. Siphumelelisa ngokuqinisekileyo."
+  "extConnectErrRefused": "I-VoxTranslate yavulwa isicelo. Siphumelelisa ngokuqinisekileyo.",
+  "heroTitle": "Khuluma nanoma ubani, nganoma yiluphi ulimi.",
+  "heroSub": "Wena ukhuluma ulimi lwakho. Bona olwabo. I-VoxTranslate ihumusha ingxoxo ngesikhathi sangempela.",
+  "talkToWorld": "Khuluma Nomhlaba",
+  "createPrivateRoom": "Dala igumbi langasese",
+  "worldSub": "Joyina ingxoxo bese uhlangana nabantu abavela kuyo yonke indawo emhlabeni. Akudingeki nikhulume ulimi olufanayo.",
+  "worldPeopleTalking": "Abantu abangu-{n} bayaxoxa",
+  "worldOnePersonTalking": "Umuntu ongu-1 uyakhuluma",
+  "worldJoin": "Joyina ingxoxo",
+  "worldShowMore": "Ngikhombise ezinye izingxoxo",
+  "worldStartPublic": "Qala ingxoxo yomphakathi",
+  "worldEmpty": "Azikho izingxoxo ezivulekile njengamanje. Qala eyodwa bese uvumela umhlaba ukuthi uze kuwe.",
+  "worldCreateNudge": "Awuyiboni ingxoxo oyifunayo? Qala eyodwa bese uvumela othile emhlabeni ukuthi eze kuwe.",
+  "worldWaiting": "Kulindwe othile emhlabeni…"
 }

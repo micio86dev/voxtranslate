@@ -758,5 +758,18 @@
   "extConnectErrParams": "Mae'r ddolen hon yn colli paramedrau angenrheidiol. Dechreuwch eto o'r estyniad.",
   "extConnectErrRedirect": "Mae'r ddolen hon yn pwyntio rhywle annisgwyl ac fe'i rhwystrwyd.",
   "extConnectErrNetwork": "Ni ellid cyrraedd VoxTranslate. Gwiriwch eich cysylltiad a cheisiwch eto.",
-  "extConnectErrRefused": "Gwrthododd VoxTranslate y cais. Ceisiwch eto."
+  "extConnectErrRefused": "Gwrthododd VoxTranslate y cais. Ceisiwch eto.",
+  "heroTitle": "Siarad ag unrhyw un, mewn unrhyw iaith.",
+  "heroSub": "Rwyt ti'n siarad dy iaith di. Maen nhw'n siarad eu hiaith nhw. Mae VoxTranslate yn cyfieithu'r sgwrs yn syth.",
+  "talkToWorld": "Siarad â'r Byd",
+  "createPrivateRoom": "Creu ystafell breifat",
+  "worldSub": "Ymuna â sgwrs a chwrdd â phobl o bob cwr o'r byd. Does dim rhaid i chi siarad yr un iaith.",
+  "worldPeopleTalking": "Mae {n} o bobl yn sgwrsio",
+  "worldOnePersonTalking": "Mae 1 person yn siarad",
+  "worldJoin": "Ymuno â'r sgwrs",
+  "worldShowMore": "Dangos sgyrsiau eraill i mi",
+  "worldStartPublic": "Dechrau sgwrs gyhoeddus",
+  "worldEmpty": "Does dim sgwrs ar agor ar hyn o bryd. Dechrau un a gadael i'r byd ymuno â ti.",
+  "worldCreateNudge": "Ddim yn gweld y sgwrs rwyt ti'n chwilio amdani? Dechrau un a gadael i rywun o'r byd ymuno.",
+  "worldWaiting": "Yn aros am rywun o'r byd…"
 }

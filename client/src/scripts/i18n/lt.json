@@ -758,5 +758,18 @@
   "extConnectErrParams": "Šioje nuorodoje trūksta reikiamų parametrų. Vėl pradėkite iš plėtinio.",
   "extConnectErrRedirect": "Ši nuoroda nukreipia į netikėtą vietą ir buvo blokuota.",
   "extConnectErrNetwork": "Negalima pasiekti VoxTranslate. Patikrinkite ryšį ir bandykite dar kartą.",
-  "extConnectErrRefused": "VoxTranslate atsisakė patenkinti prašymą. Prašome bandyti dar kartą."
+  "extConnectErrRefused": "VoxTranslate atsisakė patenkinti prašymą. Prašome bandyti dar kartą.",
+  "heroTitle": "Kalbėk su bet kuo, bet kuria kalba.",
+  "heroSub": "Tu kalbi savo kalba. Jie – savo. VoxTranslate verčia pokalbį realiuoju laiku.",
+  "talkToWorld": "Kalbėk su pasauliu",
+  "createPrivateRoom": "Sukurti privatų kambarį",
+  "worldSub": "Prisijunk prie pokalbio ir susipažink su žmonėmis iš viso pasaulio. Jums nereikia kalbėti ta pačia kalba.",
+  "worldPeopleTalking": "{n} žmonės kalbasi",
+  "worldOnePersonTalking": "1 žmogus kalba",
+  "worldJoin": "Prisijungti prie pokalbio",
+  "worldShowMore": "Parodyk kitus pokalbius",
+  "worldStartPublic": "Pradėti viešą pokalbį",
+  "worldEmpty": "Šiuo metu nėra atvirų pokalbių. Pradėk vieną ir leisk pasauliui prisijungti.",
+  "worldCreateNudge": "Nerandi ieškomo pokalbio? Pradėk vieną ir leisk kam nors iš pasaulio prisijungti.",
+  "worldWaiting": "Laukiame ko nors iš pasaulio…"
 }
