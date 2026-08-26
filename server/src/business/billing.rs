@@ -17,6 +17,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::FromRow;
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 use uuid::Uuid;
 
 use crate::business::{bad_request, db_err, not_found, require_pool, require_role, ADMIN, OWNER};
@@ -69,6 +71,85 @@ fn billing_and_org(state: &AppState) -> Result<(&BillingConfig, &OrgBillingConfi
         .as_ref()
         .ok_or_else(|| svc_unavailable("org billing not configured"))?;
     Ok((billing, org))
+}
+
+/// How long a fetched plan catalogue is served before Stripe is asked again.
+///
+/// This endpoint is public and unauthenticated, so without a cache anyone could turn
+/// page views into Stripe API calls. Prices change roughly never; an hour of staleness
+/// on a marketing page costs nothing, and a Stripe outage degrades to a slightly old
+/// answer rather than a broken pricing page.
+const PLANS_CACHE_TTL: Duration = Duration::from_secs(3600);
+
+/// Cached `GET /api/business/plans` payload. `OnceLock` over the mutex rather than a
+/// field on `AppState`: this is a leaf concern of one handler, and threading it through
+/// the shared state would put a Stripe-shaped detail in front of every other module.
+static PLANS_CACHE: OnceLock<Mutex<Option<(Instant, Value)>>> = OnceLock::new();
+
+fn plans_cache() -> &'static Mutex<Option<(Instant, Value)>> {
+    PLANS_CACHE.get_or_init(|| Mutex::new(None))
+}
+
+/// The four org plans, in the order a pricing page shows them.
+const ORG_PLANS: [(&str, &str); 4] = [
+    ("business", "month"),
+    ("business", "year"),
+    ("enterprise", "month"),
+    ("enterprise", "year"),
+];
+
+/// `GET /api/business/plans` — the org plan catalogue, priced by Stripe.
+///
+/// PUBLIC and unauthenticated on purpose: this is the price list, and the marketing
+/// site has to be able to read it without credentials. It exposes nothing that is not
+/// already on the pricing page — amount, currency, interval — and never the price ids,
+/// which are configuration rather than public facts.
+///
+/// It exists because the alternative was retyping the figures. `voxtranslate.app`
+/// carried `$49` and `$199` in five `i18n/*.json` files while these Price objects were
+/// denominated in EUR, and nothing could detect the divergence because nothing compared
+/// them. Five hand-maintained copies of a number whose truth lives in Stripe is not a
+/// content problem, it is a missing endpoint — this is the endpoint.
+pub async fn plans(State(state): State<AppState>) -> Result<Response, Response> {
+    if let Some((at, cached)) = plans_cache().lock().ok().and_then(|g| g.clone()) {
+        if at.elapsed() < PLANS_CACHE_TTL {
+            return Ok(Json(cached).into_response());
+        }
+    }
+
+    let (billing, org) = billing_and_org(&state)?;
+
+    let mut out = Vec::with_capacity(ORG_PLANS.len());
+    for (plan, interval) in ORG_PLANS {
+        let Some(price_id) = org.price_id(plan, interval) else {
+            continue;
+        };
+        if price_id.is_empty() {
+            continue;
+        }
+        match stripe_handler::get_price(&state.http, billing, price_id).await {
+            Ok(price) => out.push(json!({
+                "plan": plan,
+                "interval": interval,
+                "unit_amount": price["unit_amount"],
+                "currency": price["currency"],
+                "active": price["active"],
+            })),
+            // One unreachable price must not blank the whole catalogue: a partial list
+            // is still true, and the caller can see what is missing.
+            Err(e) => tracing::warn!("stripe get_price({plan}/{interval}) failed: {e}"),
+        }
+    }
+
+    if out.is_empty() {
+        return Err(svc_unavailable("no org prices resolvable"));
+    }
+
+    let body = json!({ "plans": out });
+    if let Ok(mut guard) = plans_cache().lock() {
+        *guard = Some((Instant::now(), body.clone()));
+    }
+    Ok(Json(body).into_response())
 }
 
 /// `POST /api/business/organizations/{org_id}/subscription` — start an
