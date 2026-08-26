@@ -170,6 +170,9 @@ pub fn routes() -> Router<AppState> {
             get(transcripts::export),
         )
         // ---- Org billing: subscriptions, portal, top-up, webhook (PR-C) ----
+        // Public and unauthenticated, unlike everything else in this router: it is the
+        // price list, and the marketing site reads it without credentials.
+        .route("/api/business/plans", get(billing::plans))
         .route(
             "/api/business/organizations/{org_id}/subscription",
             post(billing::subscribe).get(billing::subscription),

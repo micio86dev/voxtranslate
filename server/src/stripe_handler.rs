@@ -264,6 +264,45 @@ pub async fn get_subscription(
     }))
 }
 
+/// Retrieve a single Stripe Price — amount, currency and billing interval.
+///
+/// The amount and the CURRENCY live on the Price object and nowhere else. A Price is
+/// immutable, so changing either means creating a new one and repointing the
+/// `ORG_PRICE_*` env var; nothing in this codebase can tell you what a customer will
+/// actually be charged except Stripe itself.
+///
+/// That distinction is not academic. The marketing site advertised $49/$199 for months
+/// while these Price objects were denominated in EUR — the copy was changed to USD
+/// before the prices were, so the site quoted a number Stripe was not charging. This
+/// endpoint exists so the site can stop retyping the figure and read it instead.
+pub async fn get_price(
+    http: &reqwest::Client,
+    cfg: &BillingConfig,
+    price_id: &str,
+) -> Result<serde_json::Value, String> {
+    let resp = http
+        .get(format!("{STRIPE_API_BASE}/v1/prices/{price_id}"))
+        .bearer_auth(&cfg.stripe_secret_key)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !resp.status().is_success() {
+        return Err(format!("stripe returned {}", resp.status()));
+    }
+    let p: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+
+    Ok(serde_json::json!({
+        // Minor units, as Stripe stores them. Formatting is the caller's job: the
+        // number of decimal places is currency-dependent and this is not the layer
+        // that knows the locale.
+        "unit_amount": p["unit_amount"].as_i64(),
+        "currency": p["currency"].as_str(),
+        "interval": p.pointer("/recurring/interval").and_then(|v| v.as_str()),
+        "interval_count": p.pointer("/recurring/interval_count").and_then(|v| v.as_i64()),
+        "active": p["active"].as_bool(),
+    }))
+}
+
 /// Retrieve a single Stripe Invoice. Used at download time: the `invoice_pdf`
 /// URL Stripe hands out is short-lived, so we never serve the stored copy — we
 /// re-resolve it and redirect to whatever is current.
