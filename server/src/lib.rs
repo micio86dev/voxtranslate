@@ -1127,6 +1127,10 @@ pub(crate) struct AuthedPeer {
 /// - `Ok(None)`       — guest (no token, or billing not configured here);
 /// - `Ok(Some(peer))` — authenticated user with enough balance to join;
 /// - `Err(msg)`       — reject the connection with this error frame.
+// The Err IS the frame sent to the client to reject the connection, as the doc
+// comment above states — not an error travelling up a call stack. Boxing it would
+// add an allocation on the rejection path and nothing else.
+#[allow(clippy::result_large_err)]
 pub(crate) async fn authorize(
     state: &AppState,
     token: Option<&str>,

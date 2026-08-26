@@ -10,6 +10,17 @@
 //! The full request → accept → unfriend cycle, mutual-request auto-accept, the
 //! error paths, and call invites are covered end-to-end in `tests/friends.rs`.
 
+#![allow(clippy::result_large_err)]
+// Every `Err` in this module IS the handler's HTTP response, the same reasoning
+// already recorded at `api.rs:1626` and applied module-wide in `business/mod.rs`,
+// `webinar/routes.rs` and `webinar/chat.rs`. Rust 1.98 widened `result_large_err`
+// so it now reaches these files; the code did not change.
+//
+// The lint is about paying to move a large error up a call stack. There is no call
+// stack here: an axum handler is the top of one, the `Response` is constructed once
+// at the error site and handed straight to the framework. Boxing it would add an
+// allocation and an indirection to every error path and buy nothing.
+
 use std::sync::LazyLock;
 use std::time::{Duration, Instant};
 

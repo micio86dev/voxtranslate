@@ -96,10 +96,14 @@ pub struct RelayDeps {
 
 /// Try to acquire a semaphore permit for a new voice-assistant session.
 ///
-/// Returns `Ok(permit)` if capacity is available, or `Err(())` when the cap
-/// is reached. The `Err` path sends a `capacity_full` error to the client.
-pub async fn try_acquire(semaphore: &Arc<Semaphore>) -> Result<OwnedSemaphorePermit, ()> {
-    semaphore.clone().try_acquire_owned().map_err(|_| ())
+/// Returns `Some(permit)` if capacity is available, `None` when the cap is
+/// reached — the caller then sends a `capacity_full` error to the client.
+///
+/// `Option`, not `Result<_, ()>`: there is exactly one way this fails and it
+/// carries no information, which is what an `Option` says and a unit error only
+/// implies. Callers already matched on it as presence/absence.
+pub async fn try_acquire(semaphore: &Arc<Semaphore>) -> Option<OwnedSemaphorePermit> {
+    semaphore.clone().try_acquire_owned().ok()
 }
 
 /// Run the full relay for one voice-assistant session over an Axum WebSocket.
@@ -110,8 +114,8 @@ pub async fn try_acquire(semaphore: &Arc<Semaphore>) -> Result<OwnedSemaphorePer
 pub async fn run_relay(mut browser_ws: WebSocket, deps: RelayDeps) {
     // 1. Semaphore — must acquire before contacting OpenAI.
     let permit = match try_acquire(&deps.semaphore).await {
-        Ok(p) => p,
-        Err(()) => {
+        Some(p) => p,
+        None => {
             let _ = browser_ws
                 .send(WsMessage::Text(capacity_full_error().into()))
                 .await;

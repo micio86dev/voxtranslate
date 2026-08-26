@@ -331,6 +331,7 @@ struct Upload {
 }
 
 /// Read the `peer_id` text field and the `file` part from the multipart body.
+#[allow(clippy::result_large_err)] // the Err IS the handler's HTTP response
 async fn parse_upload(mut multipart: Multipart) -> Result<Upload, Response> {
     let mut peer_id: Option<String> = None;
     let mut file_name: Option<String> = None;
