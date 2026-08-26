@@ -7,7 +7,7 @@
 //! PCM16 chunks here, the server runs Qwen-Omni Realtime STT on them, translates each
 //! finalized utterance into every viewer language currently present, and pushes
 //! subtitle frames to viewers over the EXISTING presence WS
-//! ([`crate::webinar::presence::broadcast_subtitle`]).
+//! ([`crate::webinar::presence::PresenceRegistry::broadcast_subtitle`]).
 //!
 //! # Why transcribe-only, not the Standard tier's speech-to-speech shape
 //!
