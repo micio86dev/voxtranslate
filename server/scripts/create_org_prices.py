@@ -44,16 +44,32 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-# env var suffix, product name, interval, amount the customer pays (USD).
+# The EXISTING live products, reused rather than recreated.
+#
+# This script used to POST /v1/products unconditionally, under names
+# ("VoxTranslate Business") that do not match what is actually in the account
+# ("VoxTranslate for Business"). Running it would have produced four products where
+# there should be two — including a second "VoxTranslate Enterprise" identical in
+# name to the first — with the customer-facing descriptions lost on the new ones and
+# the Billing Portal showing duplicates. A Price can move to USD; a Product should not
+# be cloned to get there.
+#
+# Verified against the account's product export, 2026-08-26.
+PRODUCTS = {
+    "business": "prod_UlRXoGG7kG6x03",    # VoxTranslate for Business
+    "enterprise": "prod_UlRXfgHs51ODQ6",  # VoxTranslate Enterprise
+}
+
+# env var suffix, product key, interval, amount the customer pays (USD).
 # Annual is 10x monthly — the "2 months free" the pricing page advertises.
 PLANS = [
-    {"var": "ORG_PRICE_BUSINESS_MONTHLY", "product": "VoxTranslate Business",
+    {"var": "ORG_PRICE_BUSINESS_MONTHLY", "product": "business",
      "interval": "month", "price_usd": 49.00},
-    {"var": "ORG_PRICE_BUSINESS_ANNUAL", "product": "VoxTranslate Business",
+    {"var": "ORG_PRICE_BUSINESS_ANNUAL", "product": "business",
      "interval": "year", "price_usd": 490.00},
-    {"var": "ORG_PRICE_ENTERPRISE_MONTHLY", "product": "VoxTranslate Enterprise",
+    {"var": "ORG_PRICE_ENTERPRISE_MONTHLY", "product": "enterprise",
      "interval": "month", "price_usd": 199.00},
-    {"var": "ORG_PRICE_ENTERPRISE_ANNUAL", "product": "VoxTranslate Enterprise",
+    {"var": "ORG_PRICE_ENTERPRISE_ANNUAL", "product": "enterprise",
      "interval": "year", "price_usd": 1990.00},
 ]
 
@@ -62,6 +78,18 @@ if not sk.startswith("sk_"):
     sys.exit("Set STRIPE_SECRET_KEY to a secret key (sk_test_… or sk_live_…).")
 mode = "LIVE" if sk.startswith("sk_live_") else "TEST"
 print(f"# Creating org subscription prices in Stripe {mode} mode (USD)\n", file=sys.stderr)
+
+
+def stripe_get(path):
+    req = urllib.request.Request(
+        "https://api.stripe.com/v1/" + path,
+        headers={"Authorization": "Bearer " + sk},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        sys.exit(f"Stripe error on {path}: {e.code} {e.read().decode()[:300]}")
 
 
 def stripe_post(path, data):
@@ -80,14 +108,17 @@ def stripe_post(path, data):
 # One Product per plan, reused across its monthly and annual Price — that is how
 # Stripe models a plan with two billing intervals, and it keeps the Billing Portal
 # able to offer an interval switch rather than a plan change.
-products = {}
+#
+# Confirm the products exist before creating anything: a typo'd id would otherwise
+# surface as four orphaned prices attached to nothing.
+for key, pid in PRODUCTS.items():
+    got = stripe_get("products/" + pid)
+    print(f"  reusing {key:11} {pid}  ({got.get('name')})", file=sys.stderr)
+
 for plan in PLANS:
-    name = plan["product"]
-    if name not in products:
-        products[name] = stripe_post("products", {"name": name})["id"]
     cents = int(round(float(plan["price_usd"]) * 100))
     price = stripe_post("prices", {
-        "product": products[name],
+        "product": PRODUCTS[plan["product"]],
         "unit_amount": cents,
         "currency": "usd",
         "recurring[interval]": plan["interval"],
