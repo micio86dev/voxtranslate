@@ -758,5 +758,18 @@
   "extConnectErrParams": "Na tej povezavi manjkajo potrebni parametri. Začnite znova iz razširitve.",
   "extConnectErrRedirect": "Ta povezava kaže nekam nepričakovano in je bila blokirana.",
   "extConnectErrNetwork": "Ni mogoče doseči VoxTranslate. Preverite svojo povezavo in poskusite znova.",
-  "extConnectErrRefused": "VoxTranslate je zavrnil zahtevo. Prosimo, poskusite znova."
+  "extConnectErrRefused": "VoxTranslate je zavrnil zahtevo. Prosimo, poskusite znova.",
+  "heroTitle": "Pogovarjaj se s komer koli, v katerem koli jeziku.",
+  "heroSub": "Ti govoriš svoj jezik. Oni svojega. VoxTranslate prevaja pogovor v realnem času.",
+  "talkToWorld": "Pogovori se s svetom",
+  "createPrivateRoom": "Ustvari zasebno sobo",
+  "worldSub": "Pridruži se pogovoru in spoznaj ljudi z vsega sveta. Ni vam treba govoriti istega jezika.",
+  "worldPeopleTalking": "{n} ljudi se pogovarja",
+  "worldOnePersonTalking": "1 oseba govori",
+  "worldJoin": "Pridruži se pogovoru",
+  "worldShowMore": "Pokaži mi druge pogovore",
+  "worldStartPublic": "Začni javni pogovor",
+  "worldEmpty": "Trenutno ni odprtega nobenega pogovora. Začni ga in pusti, da se ti svet pridruži.",
+  "worldCreateNudge": "Ne najdeš pogovora, ki ga iščeš? Začni ga in pusti, da se ti pridruži nekdo s sveta.",
+  "worldWaiting": "Čakamo nekoga s sveta…"
 }

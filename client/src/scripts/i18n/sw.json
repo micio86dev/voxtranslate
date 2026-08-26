@@ -758,5 +758,18 @@
   "extConnectErrParams": "Hiki kiungo kimepoteza vigeuzi vinavyohitajika. Anza tena kutoka kwa programu pamoja.",
   "extConnectErrRedirect": "Hiki kiungo kinaelekeza mahali ambapo haingekarara na kimezuiliwa.",
   "extConnectErrNetwork": "Haiwezi kufikia VoxTranslate. Angalia uunganisho wako na jaribu tena.",
-  "extConnectErrRefused": "VoxTranslate imekataa ombi. Jaribu tena."
+  "extConnectErrRefused": "VoxTranslate imekataa ombi. Jaribu tena.",
+  "heroTitle": "Zungumza na mtu yeyote, kwa lugha yoyote.",
+  "heroSub": "Wewe unazungumza lugha yako. Wao lugha yao. VoxTranslate hutafsiri mazungumzo papo hapo.",
+  "talkToWorld": "Zungumza na Dunia",
+  "createPrivateRoom": "Fungua chumba cha faragha",
+  "worldSub": "Jiunge na mazungumzo na ukutane na watu kutoka kila pembe ya dunia. Si lazima mzungumze lugha moja.",
+  "worldPeopleTalking": "Watu {n} wanazungumza",
+  "worldOnePersonTalking": "Mtu 1 anazungumza",
+  "worldJoin": "Jiunge na mazungumzo",
+  "worldShowMore": "Nionyeshe mazungumzo mengine",
+  "worldStartPublic": "Anzisha mazungumzo ya wazi",
+  "worldEmpty": "Hakuna mazungumzo yaliyo wazi kwa sasa. Anzisha moja na uache dunia ije kwako.",
+  "worldCreateNudge": "Huoni mazungumzo unayotafuta? Anzisha moja na uache mtu kutoka duniani ajiunge nawe.",
+  "worldWaiting": "Tunamsubiri mtu kutoka duniani…"
 }

@@ -758,5 +758,18 @@
   "extConnectErrParams": "Njikọ a enweghị ihe achọrọ. Malitegharịa site na ngwa mgbakwunye.",
   "extConnectErrRedirect": "Njikọ a na-aga n'ebe a na-atụghị anya ya ma a gbochiri ya.",
   "extConnectErrNetwork": "Enweghị ike ịrụọ VoxTranslate. Lelee njikọ gị ma gbalịa ọzọ.",
-  "extConnectErrRefused": "VoxTranslate jụrụ nchọrọ ahụ. Biko gbalịa ọzọ."
+  "extConnectErrRefused": "VoxTranslate jụrụ nchọrọ ahụ. Biko gbalịa ọzọ.",
+  "heroTitle": "Kwuo okwu na onye ọbụla, n'asụsụ ọbụla.",
+  "heroSub": "Ị na-asụ asụsụ gị. Ha na-asụ nke ha. VoxTranslate na-atụgharị mkparịta ụka ahụ ozugbo.",
+  "talkToWorld": "Kwuo okwu na Ụwa",
+  "createPrivateRoom": "Mepụta ọnụ ụlọ nzuzo",
+  "worldSub": "Sonye na mkparịta ụka ma zute ndị mmadụ site n'akụkụ ụwa niile. Ọ dịghị mkpa ka unu sụọ otu asụsụ.",
+  "worldPeopleTalking": "Mmadụ {n} na-akparịta ụka",
+  "worldOnePersonTalking": "Mmadụ 1 na-ekwu okwu",
+  "worldJoin": "Sonye na mkparịta ụka",
+  "worldShowMore": "Gosi m mkparịta ụka ndị ọzọ",
+  "worldStartPublic": "Malite mkparịta ụka ọha",
+  "worldEmpty": "Enweghị mkparịta ụka mepere emepe ugbu a. Malite otu ma hapụ ụwa ka ọ bịakwute gị.",
+  "worldCreateNudge": "Ị hụghị mkparịta ụka ị na-achọ? Malite otu ma hapụ onye si n'ụwa ka ọ bịakwute gị.",
+  "worldWaiting": "Na-echere onye si n'ụwa…"
 }

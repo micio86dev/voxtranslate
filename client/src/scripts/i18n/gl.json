@@ -758,5 +758,18 @@
   "extConnectChecking": "Comprobando a túa sesión",
   "extConnectErrRedirect": "Esta ligazón redirixe a algún lugar inesperado e foi bloqueada.",
   "extConnectErrNetwork": "Non se puido acceder a VoxTranslate. Comprobe a súa conexión e inténeo de novo.",
-  "extConnectErrRefused": "VoxTranslate rexeitou a solicitude. Por favor, inténtao de novo."
+  "extConnectErrRefused": "VoxTranslate rexeitou a solicitude. Por favor, inténtao de novo.",
+  "heroTitle": "Fala con calquera, en calquera idioma.",
+  "heroSub": "Ti falas o teu idioma. Eles o seu. VoxTranslate traduce a conversa en tempo real.",
+  "talkToWorld": "Fala co mundo",
+  "createPrivateRoom": "Crear unha sala privada",
+  "worldSub": "Únete a unha conversa e coñece xente de calquera parte do mundo. Non fai falta falar o mesmo idioma.",
+  "worldPeopleTalking": "{n} persoas están a falar",
+  "worldOnePersonTalking": "1 persoa está a falar",
+  "worldJoin": "Unirse á conversa",
+  "worldShowMore": "Amósame outras conversas",
+  "worldStartPublic": "Iniciar unha conversa pública",
+  "worldEmpty": "Agora mesmo non hai ningunha conversa aberta. Inicia unha e deixa que o mundo se una.",
+  "worldCreateNudge": "Non atopas a conversa que buscas? Inicia unha e deixa que alguén do mundo se una.",
+  "worldWaiting": "Agardando por alguén do mundo…"
 }

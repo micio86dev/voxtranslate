@@ -758,5 +758,18 @@
   "extConnectCan2": "残高と設定を読む",
   "extConnectCant1": "それはあなたのパスワードを決して受け取ることはありません",
   "extConnectCant2": "オーディオはセッション実行中だけ録音されます",
-  "extConnectAllow": "許可する"
+  "extConnectAllow": "許可する",
+  "heroTitle": "誰とでも、どんな言語でも話せる。",
+  "heroSub": "あなたはあなたの言葉で。相手は相手の言葉で。VoxTranslate が会話をリアルタイムで翻訳します。",
+  "talkToWorld": "世界と話そう",
+  "createPrivateRoom": "プライベートルームを作成",
+  "worldSub": "会話に参加して、世界中の人と出会おう。同じ言語を話す必要はありません。",
+  "worldPeopleTalking": "{n} 人が話しています",
+  "worldOnePersonTalking": "1 人が話しています",
+  "worldJoin": "会話に参加",
+  "worldShowMore": "ほかの会話を見る",
+  "worldStartPublic": "公開の会話を始める",
+  "worldEmpty": "いま開いている会話はありません。あなたが始めれば、世界のほうから来てくれます。",
+  "worldCreateNudge": "お探しの会話が見つかりませんか？あなたが始めれば、世界の誰かが来てくれます。",
+  "worldWaiting": "世界の誰かを待っています…"
 }

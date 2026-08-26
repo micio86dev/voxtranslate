@@ -758,5 +758,18 @@
   "extConnectErrParams": "Bei dësem Link feelen déi néideg Parameteren. Start nees vun der Extensioun aus.",
   "extConnectErrRedirect": "Dëse Link weist op eng onerwaarte Plaz a gouf blockéiert.",
   "extConnectErrNetwork": "Konnt VoxTranslate net erreechen. Kontrolléiert Är Verbindung a probéiert et nach eng Kéier.",
-  "extConnectErrRefused": "VoxTranslate huet d'Ufro refuséiert. Probéiert et w.e.g. nach eng Kéier."
+  "extConnectErrRefused": "VoxTranslate huet d'Ufro refuséiert. Probéiert et w.e.g. nach eng Kéier.",
+  "heroTitle": "Schwätz mat jidderengem, an all Sprooch.",
+  "heroSub": "Du schwätz deng Sprooch. Si hir. VoxTranslate iwwersetzt d'Gespréich a Realzäit.",
+  "talkToWorld": "Schwätz mat der Welt",
+  "createPrivateRoom": "E private Raum uleeën",
+  "worldSub": "Maach bei engem Gespréich mat a léier Leit aus der ganzer Welt kennen. Dir musst net déiselwecht Sprooch schwätzen.",
+  "worldPeopleTalking": "{n} Leit schwätzen",
+  "worldOnePersonTalking": "1 Persoun schwätzt",
+  "worldJoin": "Um Gespréich deelhuelen",
+  "worldShowMore": "Weis mer aner Gespréicher",
+  "worldStartPublic": "E ëffentlecht Gespréich ufänken",
+  "worldEmpty": "Am Moment ass kee Gespréich op. Fänk eent un a looss d'Welt bei dech kommen.",
+  "worldCreateNudge": "Fënns du d'Gespréich net, no deems du sichs? Fänk eent un a looss een aus der Welt bei dech kommen.",
+  "worldWaiting": "Waarden op een aus der Welt…"
 }

@@ -758,5 +758,18 @@
   "extConnectErrParams": "Hierdie skakel het vereiste parameters mis. Begin weer vanaf die uitbreiding.",
   "extConnectErrRedirect": "Hierdie skakel wys na 'n onverwagte plek en is geblokkeer.",
   "extConnectErrNetwork": "Kon nie by VoxTranslate uitkom nie. Kontroleer u verbinding en probeer weer.",
-  "extConnectErrRefused": "VoxTranslate het die versoek geweier. Probeer asseblief weer."
+  "extConnectErrRefused": "VoxTranslate het die versoek geweier. Probeer asseblief weer.",
+  "heroTitle": "Gesels met enigiemand, in enige taal.",
+  "heroSub": "Jy praat jou taal. Hulle hulle s'n. VoxTranslate vertaal die gesprek intyds.",
+  "talkToWorld": "Gesels met die Wêreld",
+  "createPrivateRoom": "Skep 'n privaat kamer",
+  "worldSub": "Sluit by 'n gesprek aan en ontmoet mense van oral in die wêreld. Julle hoef nie dieselfde taal te praat nie.",
+  "worldPeopleTalking": "{n} mense gesels",
+  "worldOnePersonTalking": "1 persoon praat",
+  "worldJoin": "Sluit by gesprek aan",
+  "worldShowMore": "Wys my ander gesprekke",
+  "worldStartPublic": "Begin 'n openbare gesprek",
+  "worldEmpty": "Daar is tans geen oop gesprekke nie. Begin een en laat die wêreld by jou aansluit.",
+  "worldCreateNudge": "Sien jy nie die gesprek wat jy soek nie? Begin een en laat iemand uit die wêreld aansluit.",
+  "worldWaiting": "Wag vir iemand uit die wêreld…"
 }

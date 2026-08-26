@@ -758,5 +758,18 @@
   "extConnectErrParams": "May kulang na kinakailangang parameter ang link na ito. Muling simulan mula sa extension.",
   "extConnectErrRedirect": "Ang link na ito ay patungo sa hindi inaasahang lugar at na-block.",
   "extConnectErrNetwork": "Hindi nakarating sa VoxTranslate. Suriin ang iyong koneksyon at subukang muli.",
-  "extConnectErrRefused": "Tinanggihan ng VoxTranslate ang kahilingan. Pakisubukang muli."
+  "extConnectErrRefused": "Tinanggihan ng VoxTranslate ang kahilingan. Pakisubukang muli.",
+  "heroTitle": "Makipag-usap kahit kanino, sa kahit anong wika.",
+  "heroSub": "Ikaw ang iyong wika. Sila ang sa kanila. Isinasalin ng VoxTranslate ang usapan nang real time.",
+  "talkToWorld": "Makipag-usap sa Mundo",
+  "createPrivateRoom": "Gumawa ng pribadong room",
+  "worldSub": "Sumali sa isang usapan at makilala ang mga tao mula sa kahit saang panig ng mundo. Hindi kailangang iisa ang wika ninyo.",
+  "worldPeopleTalking": "{n} katao ang nag-uusap",
+  "worldOnePersonTalking": "1 katao ang nagsasalita",
+  "worldJoin": "Sumali sa usapan",
+  "worldShowMore": "Ipakita sa akin ang ibang usapan",
+  "worldStartPublic": "Magsimula ng pampublikong usapan",
+  "worldEmpty": "Walang bukas na usapan ngayon. Magsimula ka at hayaang sumali ang mundo sa iyo.",
+  "worldCreateNudge": "Hindi mo makita ang usapang hinahanap mo? Magsimula ka at hayaang sumali ang isang tao mula sa mundo.",
+  "worldWaiting": "Naghihintay ng isang tao mula sa mundo…"
 }

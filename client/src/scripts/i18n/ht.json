@@ -758,5 +758,18 @@
   "extConnectErrParams": "Lyen sa a manke paramèt ki nesesè yo. Kòmanse ankò nan ekstansyon an.",
   "extConnectErrRedirect": "Lyen sa a mennen nan yon kote ki pa atann e li bloke.",
   "extConnectErrNetwork": "Pa ka rive jwenn VoxTranslate. Verifye koneksyon w epi eseye ankò.",
-  "extConnectErrRefused": "VoxTranslate refize demann lan. Tanpri eseye ankò."
+  "extConnectErrRefused": "VoxTranslate refize demann lan. Tanpri eseye ankò.",
+  "heroTitle": "Pale ak nenpòt moun, nan nenpòt lang.",
+  "heroSub": "Ou pale lang pa w. Yo pale pa yo. VoxTranslate tradui konvèsasyon an an tan reyèl.",
+  "talkToWorld": "Pale ak Lemond",
+  "createPrivateRoom": "Kreye yon sal prive",
+  "worldSub": "Antre nan yon konvèsasyon epi rankontre moun ki soti toupatou nan lemond. Nou pa bezwen pale menm lang lan.",
+  "worldPeopleTalking": "{n} moun ap pale",
+  "worldOnePersonTalking": "1 moun ap pale",
+  "worldJoin": "Antre nan konvèsasyon an",
+  "worldShowMore": "Montre m lòt konvèsasyon",
+  "worldStartPublic": "Kòmanse yon konvèsasyon piblik",
+  "worldEmpty": "Pa gen okenn konvèsasyon ouvè kounye a. Kòmanse youn epi kite lemond vin jwenn ou.",
+  "worldCreateNudge": "Ou pa wè konvèsasyon w ap chèche a? Kòmanse youn epi kite yon moun nan lemond vin jwenn ou.",
+  "worldWaiting": "N ap tann yon moun nan lemond…"
 }

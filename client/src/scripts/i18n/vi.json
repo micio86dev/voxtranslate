@@ -758,5 +758,18 @@
   "extConnectErrParams": "Liên kết này thiếu các tham số bắt buộc. Hãy bắt đầu lại từ tiện ích mở rộng.",
   "extConnectErrRedirect": "Liên kết này trỏ đến một nơi không mong muốn và đã bị chặn.",
   "extConnectErrNetwork": "Không thể kết nối với VoxTranslate. Vui lòng kiểm tra kết nối của bạn và thử lại.",
-  "extConnectErrRefused": "VoxTranslate đã từ chối yêu cầu. Vui lòng thử lại."
+  "extConnectErrRefused": "VoxTranslate đã từ chối yêu cầu. Vui lòng thử lại.",
+  "heroTitle": "Nói chuyện với bất kỳ ai, bằng bất kỳ ngôn ngữ nào.",
+  "heroSub": "Bạn nói tiếng của bạn. Họ nói tiếng của họ. VoxTranslate dịch cuộc trò chuyện theo thời gian thực.",
+  "talkToWorld": "Trò chuyện với thế giới",
+  "createPrivateRoom": "Tạo phòng riêng tư",
+  "worldSub": "Tham gia một cuộc trò chuyện và gặp gỡ mọi người từ khắp nơi trên thế giới. Bạn không cần nói cùng một ngôn ngữ.",
+  "worldPeopleTalking": "{n} người đang trò chuyện",
+  "worldOnePersonTalking": "1 người đang nói",
+  "worldJoin": "Tham gia trò chuyện",
+  "worldShowMore": "Cho tôi xem cuộc trò chuyện khác",
+  "worldStartPublic": "Bắt đầu một cuộc trò chuyện công khai",
+  "worldEmpty": "Hiện chưa có cuộc trò chuyện nào đang mở. Hãy bắt đầu một cuộc và để thế giới đến với bạn.",
+  "worldCreateNudge": "Không thấy cuộc trò chuyện bạn tìm? Hãy bắt đầu một cuộc và để ai đó từ thế giới đến với bạn.",
+  "worldWaiting": "Đang chờ ai đó từ thế giới…"
 }

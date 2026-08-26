@@ -758,5 +758,18 @@
   "extConnectErrParams": "Tautan ini kehilangan parameter wajib. Mulai lagi dari ekstensi.",
   "extConnectErrRedirect": "Tautan ini mengarah ke tempat yang tidak diinginkan dan telah diblokir.",
   "extConnectErrNetwork": "Tidak dapat menghubungi VoxTranslate. Periksa koneksi Anda dan coba lagi.",
-  "extConnectErrRefused": "VoxTranslate menolak permintaan tersebut. Silakan coba lagi."
+  "extConnectErrRefused": "VoxTranslate menolak permintaan tersebut. Silakan coba lagi.",
+  "heroTitle": "Bicara dengan siapa saja, dalam bahasa apa saja.",
+  "heroSub": "Kamu bicara dengan bahasamu. Mereka dengan bahasa mereka. VoxTranslate menerjemahkan percakapan secara real-time.",
+  "talkToWorld": "Bicara dengan Dunia",
+  "createPrivateRoom": "Buat ruang pribadi",
+  "worldSub": "Bergabunglah ke sebuah percakapan dan temui orang-orang dari seluruh dunia. Kalian tidak perlu berbicara bahasa yang sama.",
+  "worldPeopleTalking": "{n} orang sedang mengobrol",
+  "worldOnePersonTalking": "1 orang sedang berbicara",
+  "worldJoin": "Gabung percakapan",
+  "worldShowMore": "Tunjukkan percakapan lain",
+  "worldStartPublic": "Mulai percakapan publik",
+  "worldEmpty": "Belum ada percakapan yang terbuka saat ini. Mulai satu dan biarkan dunia bergabung denganmu.",
+  "worldCreateNudge": "Tidak menemukan percakapan yang kamu cari? Mulai satu dan biarkan seseorang dari dunia bergabung.",
+  "worldWaiting": "Menunggu seseorang dari dunia…"
 }

@@ -758,5 +758,18 @@
   "extConnectErrParams": "בקישור זה חסרים פרמטרים נדרשים. התחילו שוב מההרחבה.",
   "extConnectErrRedirect": "קישור זה מצביע למקום לא צפוי ונחסם.",
   "extConnectErrNetwork": "לא ניתן היה להגיע ל-VoxTranslate. בדקו את החיבור שלכם ונסו שוב.",
-  "extConnectErrRefused": "VoxTranslate סירב לבקשה. נא לנסות שוב."
+  "extConnectErrRefused": "VoxTranslate סירב לבקשה. נא לנסות שוב.",
+  "heroTitle": "דברו עם כל אחד, בכל שפה.",
+  "heroSub": "אתם מדברים בשפה שלכם. הם בשלהם. VoxTranslate מתרגם את השיחה בזמן אמת.",
+  "talkToWorld": "דברו עם העולם",
+  "createPrivateRoom": "יצירת חדר פרטי",
+  "worldSub": "הצטרפו לשיחה והכירו אנשים מכל רחבי העולם. אתם לא צריכים לדבר באותה שפה.",
+  "worldPeopleTalking": "{n} אנשים משוחחים",
+  "worldOnePersonTalking": "אדם אחד מדבר",
+  "worldJoin": "הצטרפו לשיחה",
+  "worldShowMore": "הראו לי שיחות אחרות",
+  "worldStartPublic": "התחילו שיחה ציבורית",
+  "worldEmpty": "אין כרגע שיחות פתוחות. התחילו אחת ותנו לעולם להצטרף אליכם.",
+  "worldCreateNudge": "לא מוצאים את השיחה שחיפשתם? התחילו אחת ותנו למישהו מהעולם להצטרף.",
+  "worldWaiting": "ממתינים למישהו מהעולם…"
 }

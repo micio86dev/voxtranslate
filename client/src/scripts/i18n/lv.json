@@ -758,5 +758,18 @@
   "extConnectErrParams": "Šajā saitē trūkst nepieciešamo parametru. Sāciet no jauna no paplašinājuma.",
   "extConnectErrRedirect": "Šī saite norāda uz kādu negaidītu vietu un ir bloķēta.",
   "extConnectErrNetwork": "Neizdevās sazināties ar VoxTranslate. Pārbaudiet savu savienojumu un mēģiniet vēlreiz.",
-  "extConnectErrRefused": "VoxTranslate atteicās izpildīt pieprasījumu. Lūdzu, mēģiniet vēlreiz."
+  "extConnectErrRefused": "VoxTranslate atteicās izpildīt pieprasījumu. Lūdzu, mēģiniet vēlreiz.",
+  "heroTitle": "Runā ar jebkuru, jebkurā valodā.",
+  "heroSub": "Tu runā savā valodā. Viņi — savā. VoxTranslate tulko sarunu reāllaikā.",
+  "talkToWorld": "Runā ar pasauli",
+  "createPrivateRoom": "Izveidot privātu istabu",
+  "worldSub": "Pievienojies sarunai un iepazīsti cilvēkus no visas pasaules. Jums nav jārunā vienā valodā.",
+  "worldPeopleTalking": "{n} cilvēki sarunājas",
+  "worldOnePersonTalking": "1 cilvēks runā",
+  "worldJoin": "Pievienoties sarunai",
+  "worldShowMore": "Parādi man citas sarunas",
+  "worldStartPublic": "Sākt publisku sarunu",
+  "worldEmpty": "Šobrīd nav atvērta neviena saruna. Sāc vienu un ļauj pasaulei tev pievienoties.",
+  "worldCreateNudge": "Neatrodi meklēto sarunu? Sāc vienu un ļauj kādam no pasaules tev pievienoties.",
+  "worldWaiting": "Gaidām kādu no pasaules…"
 }

@@ -758,5 +758,18 @@
   "extConnectErrParams": "Ọna asopọ yii ko ni awọn paramita ti o nilo. Bẹrẹ lẹẹkansi lati inu iṣẹ afikun.",
   "extConnectErrRedirect": "Ọna yii tọka si ibi ti a ko nireti, a sì díná án.",
   "extConnectErrNetwork": "Ko le de VoxTranslate. Ṣayẹwo ibasepo rẹ ki o si gbiyanju lẹẹkansi.",
-  "extConnectErrRefused": "VoxTranslate kọ ibeere naa. Jọwọ gbiyanju lẹẹkansi."
+  "extConnectErrRefused": "VoxTranslate kọ ibeere naa. Jọwọ gbiyanju lẹẹkansi.",
+  "heroTitle": "Bá ẹnikẹ́ni sọ̀rọ̀, ní èdè yòówù.",
+  "heroSub": "Ìwọ ń sọ èdè rẹ. Àwọn ń sọ tiwọn. VoxTranslate ń túmọ̀ ìjíròrò náà lẹ́sẹ̀kẹsẹ̀.",
+  "talkToWorld": "Bá Ayé Sọ̀rọ̀",
+  "createPrivateRoom": "Ṣẹ̀dá yàrá àdáni",
+  "worldSub": "Darapọ̀ mọ́ ìjíròrò kí o sì pàdé àwọn ènìyàn láti gbogbo igun ayé. Kò pọn dandan kí ẹ sọ èdè kan náà.",
+  "worldPeopleTalking": "Ènìyàn {n} ń sọ̀rọ̀",
+  "worldOnePersonTalking": "Ènìyàn 1 ń sọ̀rọ̀",
+  "worldJoin": "Darapọ̀ mọ́ ìjíròrò",
+  "worldShowMore": "Fi àwọn ìjíròrò mìíràn hàn mí",
+  "worldStartPublic": "Bẹ̀rẹ̀ ìjíròrò gbangba",
+  "worldEmpty": "Kò sí ìjíròrò tí ó ṣí sílẹ̀ lọ́wọ́lọ́wọ́. Bẹ̀rẹ̀ ọ̀kan kí o sì jẹ́ kí ayé wá bá ọ.",
+  "worldCreateNudge": "O kò rí ìjíròrò tí ò ń wá? Bẹ̀rẹ̀ ọ̀kan kí o sì jẹ́ kí ẹnìkan láti ayé wá bá ọ.",
+  "worldWaiting": "Ń dúró de ẹnìkan láti ayé…"
 }

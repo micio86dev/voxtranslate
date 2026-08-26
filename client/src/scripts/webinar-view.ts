@@ -5,7 +5,7 @@
 // intentionally DOM-only and runs solely in the browser.
 
 import { HlsPlayer, getStoredGuestId, type PlayerState } from './hls-player';
-import { applyI18n, detectLang, getUiLang, loadLocale, setUiLang, SUPPORTED, t } from './i18n';
+import { applyI18n, getUiLang, loadLocale, resolveStoredLang, setUiLang, t } from './i18n';
 import { PresenceClient, type SubtitleEvent } from './webinar-presence';
 import { renderSubtitleInto } from './subtitle-render';
 import { formatWebinarClock, getPublicWebinar } from './webinar';
@@ -30,18 +30,7 @@ const HTTP_BASE = WS_BASE.replace(/^ws/, 'http');
 
 /** Resolve the viewer's preferred subtitle language.
  *  Priority: vt_lang cookie → browser language → 'en'. */
-function resolveViewerLang(): string {
-  try {
-    const m = document.cookie.match(/(?:^|;\s*)vt_lang=([^;]+)/);
-    if (m) {
-      const fromCookie = decodeURIComponent(m[1]);
-      if (SUPPORTED.includes(fromCookie)) return fromCookie;
-    }
-  } catch {
-    /* blocked */
-  }
-  return detectLang();
-}
+
 
 /** The localized strings the chat panel needs, read from the current locale. */
 function chatStrings(): ChatPanelStrings {
@@ -189,7 +178,7 @@ export function mountWebinarPlayer(): void {
   // Resolve the viewer's language: stored preference (from a prior app session) takes
   // priority over the browser default so subtitles arrive in the right language even
   // for first-time visitors on the /w/ page who haven't explicitly chosen a language here.
-  const lang = resolveViewerLang();
+  const lang = resolveStoredLang();
   setUiLang(lang);
   applyI18n();
   void loadLocale(lang).then(applyI18n);

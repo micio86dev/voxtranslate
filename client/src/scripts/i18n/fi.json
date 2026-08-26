@@ -758,5 +758,18 @@
   "extConnectErrParams": "Tästä linkistä puuttuvat tarvittavat parametrit. Aloita uudelleen laajennuksesta.",
   "extConnectErrRedirect": "Tämä linkki vie jonnekin odottamattomaan paikkaan ja se on estetty.",
   "extConnectErrNetwork": "VoxTranslateen ei pystytä yhteyttä. Tarkista yhteys ja yritä uudelleen.",
-  "extConnectErrRefused": "VoxTranslate kielsi pyynnön. Yritäthän uudelleen."
+  "extConnectErrRefused": "VoxTranslate kielsi pyynnön. Yritäthän uudelleen.",
+  "heroTitle": "Puhu kenen tahansa kanssa, millä tahansa kielellä.",
+  "heroSub": "Sinä puhut omaa kieltäsi. He omaansa. VoxTranslate kääntää keskustelun reaaliajassa.",
+  "talkToWorld": "Puhu maailmalle",
+  "createPrivateRoom": "Luo yksityinen huone",
+  "worldSub": "Liity keskusteluun ja tapaa ihmisiä ympäri maailmaa. Teidän ei tarvitse puhua samaa kieltä.",
+  "worldPeopleTalking": "{n} henkilöä keskustelee",
+  "worldOnePersonTalking": "1 henkilö puhuu",
+  "worldJoin": "Liity keskusteluun",
+  "worldShowMore": "Näytä muita keskusteluja",
+  "worldStartPublic": "Aloita julkinen keskustelu",
+  "worldEmpty": "Yhtään keskustelua ei ole nyt auki. Aloita sellainen ja anna maailman liittyä seuraan.",
+  "worldCreateNudge": "Etkö löydä etsimääsi keskustelua? Aloita sellainen ja anna jonkun maailmalta liittyä seuraan.",
+  "worldWaiting": "Odotetaan jotakuta maailmalta…"
 }

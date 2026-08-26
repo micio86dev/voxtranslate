@@ -758,5 +758,18 @@
   "extConnectErrParams": "This link is missing required parameters. Start again from the extension.",
   "extConnectErrRedirect": "This link points somewhere unexpected and was blocked.",
   "extConnectErrNetwork": "Could not reach VoxTranslate. Check your connection and try again.",
-  "extConnectErrRefused": "VoxTranslate refused the request. Please try again."
+  "extConnectErrRefused": "VoxTranslate refused the request. Please try again.",
+  "heroTitle": "Speak with anyone, in any language.",
+  "heroSub": "You speak your language. They speak theirs. VoxTranslate translates the conversation in real time.",
+  "talkToWorld": "Talk to the World",
+  "createPrivateRoom": "Create a private room",
+  "worldSub": "Join a conversation and meet people from anywhere in the world. You don't need to speak the same language.",
+  "worldPeopleTalking": "{n} people are talking",
+  "worldOnePersonTalking": "1 person is talking",
+  "worldJoin": "Join conversation",
+  "worldShowMore": "Show me other conversations",
+  "worldStartPublic": "Start a public conversation",
+  "worldEmpty": "No conversations are open right now. Start one and let the world join you.",
+  "worldCreateNudge": "Don't see the conversation you're looking for? Start one and let someone from the world join you.",
+  "worldWaiting": "Waiting for someone from the world…"
 }

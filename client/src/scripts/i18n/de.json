@@ -758,5 +758,18 @@
   "extConnectErrParams": "Diesem Link fehlen erforderliche Parameter. Starten Sie erneut über die Erweiterung.",
   "extConnectErrRedirect": "Dieser Link führt an einen unerwarteten Ort und wurde blockiert.",
   "extConnectErrNetwork": "VoxTranslate konnte nicht erreicht werden. Überprüfen Sie Ihre Verbindung und versuchen Sie es erneut.",
-  "extConnectErrRefused": "VoxTranslate hat die Anfrage abgelehnt. Bitte versuchen Sie es erneut."
+  "extConnectErrRefused": "VoxTranslate hat die Anfrage abgelehnt. Bitte versuchen Sie es erneut.",
+  "heroTitle": "Sprich mit jedem, in jeder Sprache.",
+  "heroSub": "Du sprichst deine Sprache. Sie ihre. VoxTranslate übersetzt das Gespräch in Echtzeit.",
+  "talkToWorld": "Sprich mit der Welt",
+  "createPrivateRoom": "Privaten Raum erstellen",
+  "worldSub": "Tritt einem Gespräch bei und triff Menschen aus aller Welt. Ihr müsst nicht dieselbe Sprache sprechen.",
+  "worldPeopleTalking": "{n} Personen unterhalten sich",
+  "worldOnePersonTalking": "1 Person spricht gerade",
+  "worldJoin": "Gespräch beitreten",
+  "worldShowMore": "Zeig mir andere Gespräche",
+  "worldStartPublic": "Öffentliches Gespräch starten",
+  "worldEmpty": "Gerade ist kein Gespräch offen. Starte eins und lass die Welt dazukommen.",
+  "worldCreateNudge": "Nicht das passende Gespräch dabei? Starte eins und lass jemanden aus der Welt dazukommen.",
+  "worldWaiting": "Warten auf jemanden aus der Welt…"
 }

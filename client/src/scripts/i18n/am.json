@@ -758,5 +758,18 @@
   "extConnectErrParams": "ይህ አገናኝ የሚያስፈልጉትን መረጃዎች አይይዝም። ከተጨማሪው እንደገና ይጀምሩ።",
   "extConnectErrRedirect": "ይህ ሊንክ ወደ ያልተጠበቀ ቦታ ይመራል እና ተከለከለ።",
   "extConnectErrNetwork": "VoxTranslate ላይ መድረስ አልተቻለም። የኢንተርኔት ግንኙነትዎን ያረጋግጡ እና እንደገና ይሞክሩ።",
-  "extConnectErrRefused": "VoxTranslate ጥያቄውን አላፈቀደም። እባክዎ እንደገና ይሞክሩ።"
+  "extConnectErrRefused": "VoxTranslate ጥያቄውን አላፈቀደም። እባክዎ እንደገና ይሞክሩ።",
+  "heroTitle": "ከማንኛውም ሰው ጋር፣ በማንኛውም ቋንቋ ተነጋገሩ።",
+  "heroSub": "እርስዎ በቋንቋዎ ይናገራሉ። እነሱ በእነሱ። VoxTranslate ንግግሩን በቅጽበት ይተረጉማል።",
+  "talkToWorld": "ከዓለም ጋር ተነጋገሩ",
+  "createPrivateRoom": "የግል ክፍል ፍጠር",
+  "worldSub": "ወደ ውይይት ይቀላቀሉና ከዓለም ማንኛውም ጥግ ሰዎችን ይተዋወቁ። አንድ ዓይነት ቋንቋ መናገር አያስፈልግም።",
+  "worldPeopleTalking": "{n} ሰዎች እያወሩ ናቸው",
+  "worldOnePersonTalking": "1 ሰው እያወራ ነው",
+  "worldJoin": "ወደ ውይይቱ ይቀላቀሉ",
+  "worldShowMore": "ሌሎች ውይይቶችን አሳየኝ",
+  "worldStartPublic": "ይፋዊ ውይይት ጀምር",
+  "worldEmpty": "አሁን ክፍት ውይይት የለም። አንዱን ይጀምሩና ዓለም ወደ እርስዎ ይምጣ።",
+  "worldCreateNudge": "የሚፈልጉትን ውይይት አላገኙም? አንዱን ይጀምሩና ከዓለም አንድ ሰው ወደ እርስዎ ይምጣ።",
+  "worldWaiting": "ከዓለም አንድ ሰው በመጠበቅ ላይ…"
 }

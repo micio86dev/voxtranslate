@@ -758,5 +758,18 @@
   "extConnectErrParams": "此链接缺少必要参数。请从VoxTranslate扩展程序重新开始。",
   "extConnectErrRedirect": "此链接指向了非预期的地址，并已被拦截。",
   "extConnectErrNetwork": "无法连接到VoxTranslate。请检查您的网络连接并重试。",
-  "extConnectErrRefused": "VoxTranslate 拒绝了该请求。请重试。"
+  "extConnectErrRefused": "VoxTranslate 拒绝了该请求。请重试。",
+  "heroTitle": "和任何人交谈，用任何语言。",
+  "heroSub": "你说你的语言，他们说他们的。VoxTranslate 实时翻译整段对话。",
+  "talkToWorld": "和世界对话",
+  "createPrivateRoom": "创建私密房间",
+  "worldSub": "加入一场对话，认识来自世界各地的人。你们不需要说同一种语言。",
+  "worldPeopleTalking": "{n} 人正在交谈",
+  "worldOnePersonTalking": "1 人正在讲话",
+  "worldJoin": "加入对话",
+  "worldShowMore": "换一批对话",
+  "worldStartPublic": "发起一场公开对话",
+  "worldEmpty": "现在还没有进行中的对话。发起一场，让世界来找你。",
+  "worldCreateNudge": "没找到想要的对话？发起一场，让世界上的某个人来找你。",
+  "worldWaiting": "正在等待世界上的某个人…"
 }

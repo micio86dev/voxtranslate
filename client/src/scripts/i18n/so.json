@@ -758,5 +758,18 @@
   "extConnectErrParams": "Linkaan waxa uu ku jiray qiimooyinka lagu saaray. Bilaabeeyo sida addoon.",
   "extConnectErrRedirect": "Linkaan waxa uu ku soo jeeda meel aan la tiriyo oo loo gudbiyay.",
   "extConnectErrNetwork": "Waxa maqalay ina helay VoxTranslate. Qariya isku xirtaadaada iyo cabdilkiisa iyo dib uga soo celcelisno.",
-  "extConnectErrRefused": "VoxTranslate ayaa saaray shuruudo. Tabaacayn dib uga soo celcelisno."
+  "extConnectErrRefused": "VoxTranslate ayaa saaray shuruudo. Tabaacayn dib uga soo celcelisno.",
+  "heroTitle": "La hadal qof kasta, luqad kasta.",
+  "heroSub": "Adigu waxaad ku hadlaysaa luqaddaada. Iyaguna tooda. VoxTranslate wuxuu wadahadalka u turjumaa isla markiiba.",
+  "talkToWorld": "La hadal Adduunka",
+  "createPrivateRoom": "Samee qol gaar ah",
+  "worldSub": "Ku biir wadahadal oo la kulan dad ka kala yimid meel kasta oo adduunka ah. Looma baahna inaad isku luqad ku hadashaan.",
+  "worldPeopleTalking": "{n} qof ayaa wadahadlaya",
+  "worldOnePersonTalking": "1 qof ayaa hadlaya",
+  "worldJoin": "Ku biir wadahadalka",
+  "worldShowMore": "I tus wadahadallo kale",
+  "worldStartPublic": "Bilow wadahadal dadweyne",
+  "worldEmpty": "Hadda ma jiro wadahadal furan. Mid bilow oo u ogolow adduunka inuu kuu yimaado.",
+  "worldCreateNudge": "Ma helin wadahadalkii aad raadinaysay? Mid bilow oo u ogolow qof adduunka ka socda inuu kuu yimaado.",
+  "worldWaiting": "La sugayo qof adduunka ka socda…"
 }

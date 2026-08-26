@@ -758,5 +758,18 @@
   "extConnectErrParams": "Esteka honi beharrezko parametro batzuk falta zaizkio. Berriz hasi luzapenetik.",
   "extConnectErrRedirect": "Esteka honek espero ez den norabide batera apuntatzen du eta blokeatu egin da.",
   "extConnectErrNetwork": "Ezin izan da VoxTranslate-ra iritsi. Egiaztatu zure konexioa eta saiatu berriro.",
-  "extConnectErrRefused": "VoxTranslate-k eskaera ukatu du. Mesedez, saiatu berriro."
+  "extConnectErrRefused": "VoxTranslate-k eskaera ukatu du. Mesedez, saiatu berriro.",
+  "heroTitle": "Hitz egin edonorekin, edozein hizkuntzatan.",
+  "heroSub": "Zuk zure hizkuntzan hitz egiten duzu. Haiek berean. VoxTranslate-k elkarrizketa denbora errealean itzultzen du.",
+  "talkToWorld": "Hitz egin munduarekin",
+  "createPrivateRoom": "Sortu gela pribatua",
+  "worldSub": "Sartu elkarrizketa batean eta ezagutu munduko edozein lekutako jendea. Ez duzue hizkuntza bera hitz egin behar.",
+  "worldPeopleTalking": "{n} lagun ari dira hizketan",
+  "worldOnePersonTalking": "1 lagun ari da hizketan",
+  "worldJoin": "Sartu elkarrizketan",
+  "worldShowMore": "Erakutsi beste elkarrizketa batzuk",
+  "worldStartPublic": "Hasi elkarrizketa publiko bat",
+  "worldEmpty": "Une honetan ez dago elkarrizketarik zabalik. Hasi bat eta utzi munduari zuregana etortzen.",
+  "worldCreateNudge": "Ez duzu bilatzen ari zaren elkarrizketa aurkitzen? Hasi bat eta utzi munduko norbaiti zuregana etortzen.",
+  "worldWaiting": "Munduko norbaiten zain…"
 }
