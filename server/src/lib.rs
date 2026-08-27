@@ -1009,6 +1009,46 @@ pub async fn serve() {
 const MAX_ROOM_LEN: usize = 128;
 const MAX_NAME_LEN: usize = 100;
 
+/// Largest `translate_text` payload we will send to Groq, matching the chat cap
+/// (`8 KB`) because both frames end at the same paid sink. The 64 KiB
+/// [`MAX_FRAME_BYTES`] guard is a transport bound on every frame; this is the
+/// semantic bound on the one frame that spends money.
+const MAX_TRANSLATE_TEXT_BYTES: usize = 8 * 1024;
+
+/// Whether an inbound `translate_text` frame may be translated, and why not.
+///
+/// The Enhanced (Cartesia) listener path is the only legitimate sender: it is a
+/// paid, client-direct tier whose browser does STT and TTS locally and asks the
+/// server only for the translation in between. A guest, or a peer on a
+/// server-side engine, has no reason to send this frame — the server is already
+/// translating for them — so such a frame is a protocol violation, not a use case.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TranslateTextVerdict {
+    Allow,
+    /// Not an authenticated peer on a client-direct engine.
+    NotEntitled,
+    /// Past [`MAX_TRANSLATE_TEXT_BYTES`].
+    TooLong,
+}
+
+/// Decide a `translate_text` frame's fate. Pure (no state, no I/O) so the policy
+/// is unit-testable without a socket, a room, or a Groq key.
+fn translate_text_verdict(
+    billed_user: Option<Uuid>,
+    on_client_direct: bool,
+    text_len: usize,
+) -> TranslateTextVerdict {
+    // Entitlement first: it is the cheaper check, and the length of a frame we
+    // were never going to translate is not interesting.
+    if billed_user.is_none() || !on_client_direct {
+        return TranslateTextVerdict::NotEntitled;
+    }
+    if text_len > MAX_TRANSLATE_TEXT_BYTES {
+        return TranslateTextVerdict::TooLong;
+    }
+    TranslateTextVerdict::Allow
+}
+
 async fn ws_handler(
     ws: WebSocketUpgrade,
     Query(mut params): Query<WsParams>,
@@ -2237,26 +2277,62 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState, clien
                             // Enhanced translate hop (spec 0108): Cartesia does STT + TTS but
                             // not translation, so the client-direct listener sends each
                             // finalized source segment here and we reply with the Groq
-                            // translation. Text only — no audio. Spawn so the per-utterance
-                            // Groq round-trip never blocks this peer's WS receive loop, and
-                            // route the reply back over the same `out_tx` channel. The
-                            // DragonflyDB cache stays Standard-only (spec 0107), so call the
-                            // raw Groq client here rather than the cached `translator`.
-                            let groq = state.groq.clone();
-                            let reply_tx = out_tx.clone();
-                            tokio::spawn(async move {
-                                let translated = groq
-                                    .translate(&text, &source, &target, &[])
-                                    .await
-                                    .unwrap_or(text);
-                                let _ = reply_tx.send(
-                                    ServerMessage::TranslatedText {
-                                        request_id,
-                                        text: translated,
-                                    }
-                                    .to_json(),
-                                );
-                            });
+                            // translation. Text only — no audio.
+                            //
+                            // This frame spends third-party money, so it is gated before
+                            // anything is spawned. Entitlement is the same signal the
+                            // `EnhancedFallback` arm above reads: only a peer currently on a
+                            // client-direct engine has a browser doing its own STT/TTS and
+                            // therefore any reason to ask for a bare translation.
+                            let on_client_direct = state
+                                .rooms
+                                .peer_engine(&room, &id)
+                                .and_then(|eid| state.engines.get(&eid))
+                                .map(|e| e.metadata().capabilities.client_direct)
+                                .unwrap_or(false);
+                            match translate_text_verdict(billed_user, on_client_direct, text.len())
+                            {
+                                TranslateTextVerdict::NotEntitled => {
+                                    // A real Enhanced client never gets here. Log at debug —
+                                    // this is either an abusive peer or a client bug, and in
+                                    // neither case should it be able to fill the log.
+                                    tracing::debug!(
+                                        %id, %on_client_direct,
+                                        billed = billed_user.is_some(),
+                                        "dropped translate_text from an unentitled peer"
+                                    );
+                                }
+                                TranslateTextVerdict::TooLong => {
+                                    tracing::debug!(
+                                        %id, len = text.len(),
+                                        "dropped oversized translate_text"
+                                    );
+                                }
+                                TranslateTextVerdict::Allow => {
+                                    // Spawn so the per-utterance round-trip never blocks this
+                                    // peer's WS receive loop, and route the reply back over
+                                    // the same `out_tx` channel. `translate_uncached` keeps
+                                    // the Standard-only cache rule (spec 0107) while still
+                                    // taking an admission permit (spec 0069) — without one,
+                                    // this path could open unbounded concurrent Groq calls
+                                    // and starve the fan-out that every other peer depends on.
+                                    let translator = state.translator.clone();
+                                    let reply_tx = out_tx.clone();
+                                    tokio::spawn(async move {
+                                        let translated = translator
+                                            .translate_uncached(&text, &source, &target)
+                                            .await
+                                            .unwrap_or(text);
+                                        let _ = reply_tx.send(
+                                            ServerMessage::TranslatedText {
+                                                request_id,
+                                                text: translated,
+                                            }
+                                            .to_json(),
+                                        );
+                                    });
+                                }
+                            }
                         }
                         Err(_) => {} // unknown / malformed control frame
                     },
@@ -2514,8 +2590,66 @@ async fn shutdown_signal() {
 
 #[cfg(test)]
 mod tests {
-    use super::{origin_header_ok, version_handler};
+    use super::{
+        origin_header_ok, translate_text_verdict, version_handler, TranslateTextVerdict,
+        MAX_TRANSLATE_TEXT_BYTES,
+    };
     use axum::http::HeaderMap;
+    use uuid::Uuid;
+
+    // `translate_text` is the Enhanced (client-direct) listener's translation hop.
+    // It spends Groq money, so entitlement is checked before anything is spawned.
+
+    #[test]
+    fn translate_text_rejects_a_guest_even_on_a_client_direct_engine() {
+        assert_eq!(
+            translate_text_verdict(None, true, 10),
+            TranslateTextVerdict::NotEntitled,
+            "a guest has no billing account; this frame is never legitimate from one"
+        );
+    }
+
+    #[test]
+    fn translate_text_rejects_an_authenticated_peer_not_on_a_client_direct_engine() {
+        assert_eq!(
+            translate_text_verdict(Some(Uuid::new_v4()), false, 10),
+            TranslateTextVerdict::NotEntitled,
+            "a Standard/Premium peer is translated server-side and never sends this"
+        );
+    }
+
+    #[test]
+    fn translate_text_allows_an_entitled_peer() {
+        assert_eq!(
+            translate_text_verdict(Some(Uuid::new_v4()), true, 10),
+            TranslateTextVerdict::Allow
+        );
+    }
+
+    #[test]
+    fn translate_text_bounds_the_payload_at_the_chat_precedent() {
+        let uid = Some(Uuid::new_v4());
+        assert_eq!(
+            translate_text_verdict(uid, true, MAX_TRANSLATE_TEXT_BYTES),
+            TranslateTextVerdict::Allow,
+            "exactly at the cap is still a legitimate utterance"
+        );
+        assert_eq!(
+            translate_text_verdict(uid, true, MAX_TRANSLATE_TEXT_BYTES + 1),
+            TranslateTextVerdict::TooLong
+        );
+    }
+
+    #[test]
+    fn translate_text_checks_entitlement_before_length() {
+        // An oversized frame from an unentitled peer is reported as unentitled:
+        // the cheaper, more fundamental rejection wins, and the length of a frame
+        // we were never going to translate is not interesting.
+        assert_eq!(
+            translate_text_verdict(None, false, MAX_TRANSLATE_TEXT_BYTES * 100),
+            TranslateTextVerdict::NotEntitled
+        );
+    }
 
     #[tokio::test]
     async fn version_handler_reports_the_crate_version() {
