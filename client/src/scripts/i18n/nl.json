@@ -808,5 +808,7 @@
   "talkErrorConnection": "De verbinding hield het niet. Controleer je netwerk en begin opnieuw.",
   "talkErrorProvider": "Vertalen lukt nu even niet — zeg het nog eens.",
   "talkErrorCredits": "Je tegoed is op.",
-  "talkErrorGeneric": "Er ging iets mis. Start het gesprek opnieuw."
+  "talkErrorGeneric": "Er ging iets mis. Start het gesprek opnieuw.",
+  "talkCreditsUsed": "Gebruikt",
+  "talkCreditsLeft": "Resterend"
 }

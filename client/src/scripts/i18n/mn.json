@@ -808,5 +808,7 @@
   "talkErrorConnection": "Холболтыг барьж чадсангүй. Сүлжээгээ шалгаад дахин эхлүүлнэ үү.",
   "talkErrorProvider": "Орчуулга одоогоор боломжгүй байна — дахин хэлж үзнэ үү.",
   "talkErrorCredits": "Таны кредит дууслаа.",
-  "talkErrorGeneric": "Алдаа гарлаа. Яриаг дахин эхлүүлнэ үү."
+  "talkErrorGeneric": "Алдаа гарлаа. Яриаг дахин эхлүүлнэ үү.",
+  "talkCreditsUsed": "Зарцуулсан",
+  "talkCreditsLeft": "Үлдсэн"
 }

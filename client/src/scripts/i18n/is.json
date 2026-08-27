@@ -808,5 +808,7 @@
   "talkErrorConnection": "Okkur tókst ekki að halda tengingunni. Athugaðu netið og byrjaðu upp á nýtt.",
   "talkErrorProvider": "Þýðing er ekki í boði núna – prófaðu að segja það aftur.",
   "talkErrorCredits": "Inneignin þín er búin.",
-  "talkErrorGeneric": "Eitthvað fór úrskeiðis. Byrjaðu samtalið upp á nýtt."
+  "talkErrorGeneric": "Eitthvað fór úrskeiðis. Byrjaðu samtalið upp á nýtt.",
+  "talkCreditsUsed": "Notað",
+  "talkCreditsLeft": "Eftir"
 }

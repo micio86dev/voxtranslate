@@ -6,7 +6,7 @@
 // browser.
 
 import { initAnalytics, track } from '../analytics';
-import { HTTP_BASE, getUser, isLoggedIn } from '../auth';
+import { HTTP_BASE, getUser, isLoggedIn, refreshMe, setBalance } from '../auth';
 import {
   engineNeedsPcm,
   formatRate,
@@ -22,6 +22,7 @@ import { TalkConversation, browserSupported, type Exchange, type LiveExchange } 
 import type { SessionContext } from './session-machine';
 import {
   buildExchangeCard,
+  creditMeter,
   failureKey,
   fill,
   langLabel,
@@ -42,6 +43,8 @@ let convo: TalkConversation | null = null;
 let live: LiveExchange = { spokenLang: null, targetLang: null, originalText: '', translatedText: '', settled: false };
 let muted = false;
 let startedAt = 0;
+/** Balance when Start was pressed, so the meter can show what THIS conversation cost. */
+let startBalance: number | null = null;
 
 function els(): TalkElements {
   return {
@@ -53,6 +56,20 @@ function els(): TalkElements {
     history: $('tk-history'),
     pair: $('tk-pair'),
   };
+}
+
+/** Paint the live credit meter. Hidden entirely when the backend runs without billing. */
+function renderCredits(balance: number | null, low = false): void {
+  const el = $('tk-credits');
+  if (!el) return;
+  const m = creditMeter(startBalance, balance);
+  if (!m) {
+    el.hidden = true;
+    return;
+  }
+  el.hidden = false;
+  el.textContent = `${t('talkCreditsUsed')} ${m.used} · ${t('talkCreditsLeft')} ${m.left}`;
+  el.dataset.low = String(low);
 }
 
 function show(id: string, visible: boolean): void {
@@ -213,6 +230,12 @@ function onState(ctx: SessionContext): void {
       copy.textContent = t(failureKey(ctx.failure));
       copy.removeAttribute('data-i18n');
     }
+    // Running out of credits is the one failure the user cannot fix by retrying, so it
+    // gets the top-up link instead of a dead end. The session is already stopped by then:
+    // `balance_exhausted` tears the pipeline down rather than just warning.
+    show('tk-buy', ctx.failure === 'credits');
+    const icon = $('tk-problem-icon');
+    if (icon) icon.textContent = ctx.failure === 'credits' ? '💳' : '🎤';
     track('talk_to_anyone_error', { error_code: ctx.failure ?? 'unknown', tier: tierId ?? '' });
   }
 
@@ -246,6 +269,10 @@ async function start(): Promise<void> {
   const engineId = tierId ?? loadEnginePref() ?? 'standard';
   startedAt = Date.now();
   muted = false;
+  // The cached balance can be stale; ask the server so "used" starts from the truth.
+  // Best-effort: a failure just means the meter waits for the first `balance_update`.
+  startBalance = (await refreshMe().catch(() => null))?.balance ?? getUser()?.balance ?? null;
+  renderCredits(startBalance);
   convo = new TalkConversation({
     userLang,
     otherLang,
@@ -261,6 +288,16 @@ async function start(): Promise<void> {
       }
     },
     onExchange,
+    onBalance: (balance) => {
+      // Keep the cached profile in step too, so leaving /talk shows the real balance
+      // rather than the one from before the conversation.
+      setBalance(balance);
+      renderCredits(balance);
+    },
+    onLowBalance: (balance) => {
+      setBalance(balance);
+      renderCredits(balance, true);
+    },
     onNotice: (code) => {
       const el = $('tk-status-text');
       // Recoverable: say what happened in plain language and keep listening. Never a

@@ -808,5 +808,7 @@
   "talkErrorConnection": "Ons kon nie die verbinding behou nie. Kontroleer die netwerk en begin oor.",
   "talkErrorProvider": "Vertaling is nou nie beskikbaar nie — probeer weer praat.",
   "talkErrorCredits": "Jou krediete is op.",
-  "talkErrorGeneric": "Iets het verkeerd geloop. Begin die gesprek oor."
+  "talkErrorGeneric": "Iets het verkeerd geloop. Begin die gesprek oor.",
+  "talkCreditsUsed": "Gebruik",
+  "talkCreditsLeft": "Oor"
 }

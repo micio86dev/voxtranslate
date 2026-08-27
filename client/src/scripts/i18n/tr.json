@@ -808,5 +808,7 @@
   "talkErrorConnection": "Bağlantı korunamadı. Ağınızı kontrol edip yeniden başlayın.",
   "talkErrorProvider": "Çeviri şu anda kullanılamıyor — tekrar söylemeyi deneyin.",
   "talkErrorCredits": "Krediniz bitti.",
-  "talkErrorGeneric": "Bir şeyler ters gitti. Konuşmayı yeniden başlatın."
+  "talkErrorGeneric": "Bir şeyler ters gitti. Konuşmayı yeniden başlatın.",
+  "talkCreditsUsed": "Kullanılan",
+  "talkCreditsLeft": "Kalan"
 }

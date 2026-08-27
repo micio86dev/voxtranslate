@@ -808,5 +808,7 @@
   "talkErrorConnection": "接続を維持できませんでした。通信状況を確認して、もう一度始めてください。",
   "talkErrorProvider": "現在翻訳を利用できません — もう一度話してみてください。",
   "talkErrorCredits": "クレジットがなくなりました。",
-  "talkErrorGeneric": "問題が発生しました。会話をもう一度始めてください。"
+  "talkErrorGeneric": "問題が発生しました。会話をもう一度始めてください。",
+  "talkCreditsUsed": "使用",
+  "talkCreditsLeft": "残り"
 }

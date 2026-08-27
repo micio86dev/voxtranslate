@@ -808,5 +808,7 @@
   "talkErrorConnection": "Nu am reușit să menținem conexiunea. Verifică rețeaua și începe din nou.",
   "talkErrorProvider": "Traducerea nu este disponibilă acum — încearcă să vorbești din nou.",
   "talkErrorCredits": "Ai rămas fără credite.",
-  "talkErrorGeneric": "Ceva nu a mers bine. Începe conversația din nou."
+  "talkErrorGeneric": "Ceva nu a mers bine. Începe conversația din nou.",
+  "talkCreditsUsed": "Folosite",
+  "talkCreditsLeft": "Rămase"
 }

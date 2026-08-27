@@ -808,5 +808,7 @@
   "talkErrorConnection": "Hindi namin napanatili ang koneksyon. Tingnan ang network at magsimula ulit.",
   "talkErrorProvider": "Hindi available ngayon ang pagsasalin — subukang magsalita ulit.",
   "talkErrorCredits": "Naubos na ang credits mo.",
-  "talkErrorGeneric": "May nangyaring mali. Simulan ulit ang usapan."
+  "talkErrorGeneric": "May nangyaring mali. Simulan ulit ang usapan.",
+  "talkCreditsUsed": "Nagamit",
+  "talkCreditsLeft": "Natitira"
 }

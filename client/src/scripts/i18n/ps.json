@@ -808,5 +808,7 @@
   "talkErrorConnection": "موږ اړیکه ونه ساتلی شوه. شبکه وګورئ او بیا پیل وکړئ.",
   "talkErrorProvider": "ژباړه اوس مهال شتون نلري — بیا خبرې وکړئ.",
   "talkErrorCredits": "ستاسو کریډیټونه پای ته ورسېدل.",
-  "talkErrorGeneric": "یو څه ناسم شو. خبرې بیا پیل کړئ."
+  "talkErrorGeneric": "یو څه ناسم شو. خبرې بیا پیل کړئ.",
+  "talkCreditsUsed": "کارول شوي",
+  "talkCreditsLeft": "پاتې"
 }

@@ -808,5 +808,7 @@
   "talkErrorConnection": "No pudimos mantener la conexión. Revisa tu señal y empieza de nuevo.",
   "talkErrorProvider": "La traducción no está disponible ahora mismo — intenta hablar otra vez.",
   "talkErrorCredits": "Te has quedado sin créditos.",
-  "talkErrorGeneric": "Algo salió mal. Vuelve a iniciar la conversación."
+  "talkErrorGeneric": "Algo salió mal. Vuelve a iniciar la conversación.",
+  "talkCreditsUsed": "Usados",
+  "talkCreditsLeft": "Restantes"
 }

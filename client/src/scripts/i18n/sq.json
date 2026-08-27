@@ -808,5 +808,7 @@
   "talkErrorConnection": "Nuk arritëm ta mbanim lidhjen. Kontrollo rrjetin dhe fillo nga e para.",
   "talkErrorProvider": "Përkthimi nuk ofrohet për momentin – provo të flasësh sërish.",
   "talkErrorCredits": "Të mbaruan kreditet.",
-  "talkErrorGeneric": "Diçka shkoi keq. Fillo bisedën nga e para."
+  "talkErrorGeneric": "Diçka shkoi keq. Fillo bisedën nga e para.",
+  "talkCreditsUsed": "Përdorur",
+  "talkCreditsLeft": "Mbetur"
 }

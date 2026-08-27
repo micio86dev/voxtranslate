@@ -808,5 +808,7 @@
   "talkErrorConnection": "Aloqani ushlab tura olmadik. Tarmoqni tekshiring va qaytadan boshlang.",
   "talkErrorProvider": "Tarjima hozircha mavjud emas — qayta aytib ko'ring.",
   "talkErrorCredits": "Kreditlaringiz tugadi.",
-  "talkErrorGeneric": "Nimadir xato ketdi. Suhbatni qaytadan boshlang."
+  "talkErrorGeneric": "Nimadir xato ketdi. Suhbatni qaytadan boshlang.",
+  "talkCreditsUsed": "Sarflandi",
+  "talkCreditsLeft": "Qoldi"
 }

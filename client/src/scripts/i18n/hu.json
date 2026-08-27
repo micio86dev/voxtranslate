@@ -808,5 +808,7 @@
   "talkErrorConnection": "Nem sikerült fenntartani a kapcsolatot. Ellenőrizd a hálózatot, és kezdd újra.",
   "talkErrorProvider": "A fordítás most nem érhető el – mondd el újra.",
   "talkErrorCredits": "Elfogytak a kreditjeid.",
-  "talkErrorGeneric": "Valami hiba történt. Indítsd újra a beszélgetést."
+  "talkErrorGeneric": "Valami hiba történt. Indítsd újra a beszélgetést.",
+  "talkCreditsUsed": "Elhasznált",
+  "talkCreditsLeft": "Maradt"
 }

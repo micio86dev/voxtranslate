@@ -808,5 +808,7 @@
   "talkErrorConnection": "Vi klarte ikkje å halde tilkoplinga. Sjekk nettverket og start på nytt.",
   "talkErrorProvider": "Omsetjing er ikkje tilgjengeleg akkurat no – prøv å seie det att.",
   "talkErrorCredits": "Du er tom for kredittar.",
-  "talkErrorGeneric": "Noko gjekk gale. Start samtalen på nytt."
+  "talkErrorGeneric": "Noko gjekk gale. Start samtalen på nytt.",
+  "talkCreditsUsed": "Brukt",
+  "talkCreditsLeft": "Att"
 }

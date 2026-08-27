@@ -142,6 +142,11 @@ const T = (k: string): string => (en as Record<string, string>)[k] ?? '';
            list would flood a screen reader that already heard the live region above. -->
       <div class="tk-history" id="tk-history" aria-live="off"></div>
 
+      <!-- Live credit meter. The server already sends a `balance_update` on every meter
+           tick; before this the client threw them away. Two numbers only: what this
+           conversation has cost so far, and what is left. -->
+      <p class="tk-credits" id="tk-credits" role="status" aria-live="polite" hidden></p>
+
       <div class="tk-controls">
         <button id="tk-mute" class="btn-ghost tk-ctl" type="button" data-i18n="talkMute">{T('talkMute')}</button>
         <button id="tk-pause" class="btn-ghost tk-ctl" type="button" data-i18n="talkPause">{T('talkPause')}</button>
@@ -151,9 +156,12 @@ const T = (k: string): string => (en as Record<string, string>)[k] ?? '';
 
     <!-- Permission / failure. One sentence of plain language and one way forward. -->
     <section class="tk-problem" id="tk-problem" hidden>
-      <p class="tk-problem-icon" aria-hidden="true">🎤</p>
+      <p class="tk-problem-icon" id="tk-problem-icon" aria-hidden="true">🎤</p>
       <p class="tk-problem-copy" id="tk-problem-copy" data-i18n="talkMicWhy">{T('talkMicWhy')}</p>
       <button id="tk-retry" class="btn-primary" type="button" data-i18n="talkRetry">{T('talkRetry')}</button>
+      <!-- Shown only when the failure is "out of credits": an error with no way forward
+           is a dead end. `?buy=1` is the deep link the SPA already understands. -->
+      <a id="tk-buy" class="btn-ghost" href="/?buy=1" hidden data-i18n="buyCredits">{T('buyCredits')}</a>
     </section>
   </main>
 
@@ -553,6 +561,18 @@ const T = (k: string): string => (en as Record<string, string>)[k] ?? '';
     }
     .tk-history :global(.tk-text) {
       min-width: 0;
+    }
+
+    .tk-credits {
+      margin: 0;
+      text-align: center;
+      color: var(--muted);
+      font-size: var(--font-xs);
+      font-variant-numeric: tabular-nums;
+    }
+    /* Low balance: warn without shouting. The conversation is still running. */
+    .tk-credits[data-low='true'] {
+      color: var(--warning);
     }
 
     .tk-controls {

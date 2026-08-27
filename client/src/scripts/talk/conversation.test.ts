@@ -88,6 +88,8 @@ function harness(over: Record<string, unknown> = {}) {
   const lives: LiveExchange[] = [];
   const exchanges: Exchange[] = [];
   const notices: string[] = [];
+  const balances: number[] = [];
+  const lowBalances: number[] = [];
   const ttts: number[] = [];
   const playback = new FakePlayback();
   const wakeLock = { request: vi.fn(async () => {}), release: vi.fn(async () => {}) };
@@ -100,6 +102,8 @@ function harness(over: Record<string, unknown> = {}) {
     onLive: (l) => lives.push(l),
     onExchange: (e) => exchanges.push(e),
     onNotice: (c) => notices.push(c),
+    onBalance: (b) => balances.push(b),
+    onLowBalance: (b) => lowBalances.push(b),
     onTimeToTranslatedSpeech: (ms) => ttts.push(ms),
     createSocket: (url) => new FakeSocket(url),
     getMedia: async () => fakeStream(),
@@ -114,7 +118,10 @@ function harness(over: Record<string, unknown> = {}) {
     wakeLock,
     ...over,
   });
-  return { convo, states, lives, exchanges, notices, ttts, playback, wakeLock };
+  return {
+    convo, states, lives, exchanges, notices, ttts, playback, wakeLock,
+    balances, lowBalances,
+  };
 }
 
 /** Start and open the socket, leaving the conversation live. */
@@ -387,11 +394,34 @@ describe('frames', () => {
     expect(h.convo.state().phase).toBe('live');
   });
 
-  it('ends the session when credits run out', async () => {
+  it('reports the balance on every meter tick', async () => {
+    // The server was already sending these; the client threw them away, so nothing on
+    // screen moved while credits drained.
     const h = await live();
-    sockets[0].deliver({ type: 'balance_exhausted' });
+    sockets[0].deliver({ type: 'balance_update', balance: 12.5099 });
+    sockets[0].deliver({ type: 'balance_update', balance: 12.5091 });
+    expect(h.balances).toEqual([12.5099, 12.5091]);
+  });
+
+  it('flags a low balance separately from a routine tick', async () => {
+    const h = await live();
+    sockets[0].deliver({ type: 'low_balance', balance: 0.42 });
+    expect(h.lowBalances).toEqual([0.42]);
+    expect(h.convo.state().phase).toBe('live');
+  });
+
+  it('stops the conversation when credits run out, and says why', async () => {
+    // Not just a banner: the server has already stopped billing and translating, so the
+    // pipeline comes down and the state carries the reason the UI needs to offer a top-up.
+    const h = await live();
+    const sock = sockets[0];
+    sock.deliver({ type: 'balance_exhausted' });
     expect(h.convo.state().failure).toBe('credits');
     expect(h.convo.state().phase).toBe('error');
+    // Everything released — no microphone left live, no socket left open.
+    expect(sock.closed).toEqual([1000]);
+    expect(h.playback.stops).toBe(1);
+    expect(h.wakeLock.release).toHaveBeenCalled();
   });
 
   it('ignores malformed and unknown frames', async () => {

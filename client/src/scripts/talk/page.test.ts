@@ -38,10 +38,15 @@ let loggedIn = true;
 let supported = true;
 
 vi.mock('../analytics', () => ({ initAnalytics: vi.fn(), track: (...a: unknown[]) => track(...a) }));
+let balance: number | null = 12.5;
 vi.mock('../auth', () => ({
   HTTP_BASE: 'http://test',
-  getUser: () => ({ language: 'it' }),
+  getUser: () => ({ language: 'it', balance }),
   isLoggedIn: () => loggedIn,
+  refreshMe: async () => ({ language: 'it', balance }),
+  setBalance: (b: number) => {
+    balance = b;
+  },
 }));
 vi.mock('./conversation', async (orig) => {
   const actual = (await orig()) as Record<string, unknown>;
@@ -106,6 +111,7 @@ const DOM = `
       <p id="tk-setup-status"></p>
     </section>
     <section id="tk-live" hidden>
+      <p id="tk-credits" hidden></p>
       <div id="tk-pair"></div>
       <span id="tk-status-text"></span>
       <p id="tk-detected" hidden></p>
@@ -117,7 +123,7 @@ const DOM = `
       <button id="tk-pause"></button>
       <button id="tk-end"></button>
     </section>
-    <section id="tk-problem" hidden><p id="tk-problem-copy"></p><button id="tk-retry"></button></section>
+    <section id="tk-problem" hidden><p id="tk-problem-icon"></p><p id="tk-problem-copy"></p><button id="tk-retry"></button><a id="tk-buy" hidden></a></section>
   </main>`;
 
 const $ = (id: string): HTMLElement => document.getElementById(id)!;
@@ -137,6 +143,7 @@ beforeEach(() => {
   instances.length = 0;
   loggedIn = true;
   supported = true;
+  balance = 12.5;
   localStorage.clear();
   vi.stubGlobal(
     'fetch',
@@ -325,6 +332,38 @@ describe('live rendering', () => {
       'talk_to_anyone_translation_completed',
       expect.objectContaining({ language_pair: 'it-es' }),
     );
+  });
+
+  it('shows credits draining in real time', async () => {
+    const opts = await running();
+    (opts.onBalance as unknown as (b: number) => void)(12.4991);
+    const el = $('tk-credits');
+    expect(el.hidden).toBe(false);
+    // Four decimals on the spend: at two it would read $0.00 for half a minute and the
+    // meter would look broken.
+    expect(el.textContent).toContain('$0.0009');
+    expect(el.textContent).toContain('$12.50');
+  });
+
+  it('marks a low balance without stopping the conversation', async () => {
+    const opts = await running();
+    (opts.onLowBalance as unknown as (b: number) => void)(0.42);
+    expect($('tk-credits').dataset.low).toBe('true');
+    // A warning, not a stop: no failure screen, and the meter is still showing numbers.
+    expect($('tk-problem').hidden).toBe(true);
+    expect($('tk-credits').textContent).toContain('$0.42');
+  });
+
+  it('offers a top-up when credits run out, and only then', async () => {
+    // Every other failure is fixed by retrying; this one is not, so a bare error screen
+    // would be a dead end.
+    const opts = await running();
+    opts.onState({ phase: 'error', activity: 'listening', sessionId: null, failure: 'credits' });
+    expect($('tk-buy').hidden).toBe(false);
+    expect($('tk-problem-copy').textContent).toContain('credits');
+
+    opts.onState({ phase: 'error', activity: 'listening', sessionId: null, failure: 'mic_denied' });
+    expect($('tk-buy').hidden).toBe(true);
   });
 
   it('shows failure copy on the problem screen and lets the user retry', async () => {

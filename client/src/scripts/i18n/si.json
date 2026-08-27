@@ -808,5 +808,7 @@
   "talkErrorConnection": "සම්බන්ධතාවය පවත්වා ගැනීමට නොහැකි විය. ජාලය පරීක්ෂා කර නැවත අරඹන්න.",
   "talkErrorProvider": "දැනට පරිවර්තනය නොමැත — නැවත කතා කර බලන්න.",
   "talkErrorCredits": "ඔබේ ක්‍රෙඩිට් අවසන් වී ඇත.",
-  "talkErrorGeneric": "යමක් වැරදී ඇත. සංවාදය නැවත අරඹන්න."
+  "talkErrorGeneric": "යමක් වැරදී ඇත. සංවාදය නැවත අරඹන්න.",
+  "talkCreditsUsed": "භාවිත",
+  "talkCreditsLeft": "ඉතිරි"
 }

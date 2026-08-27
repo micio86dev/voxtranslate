@@ -808,5 +808,7 @@
   "talkErrorConnection": "Povezave nismo mogli ohraniti. Preverite omrežje in začnite znova.",
   "talkErrorProvider": "Prevajanje trenutno ni na voljo – poskusite povedati znova.",
   "talkErrorCredits": "Zmanjkalo vam je dobroimetja.",
-  "talkErrorGeneric": "Nekaj je šlo narobe. Znova začnite pogovor."
+  "talkErrorGeneric": "Nekaj je šlo narobe. Znova začnite pogovor.",
+  "talkCreditsUsed": "Porabljeno",
+  "talkCreditsLeft": "Ostane"
 }

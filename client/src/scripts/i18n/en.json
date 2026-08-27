@@ -808,5 +808,7 @@
   "talkErrorConnection": "We couldn't stay connected. Check your signal and start again.",
   "talkErrorProvider": "Translation is unavailable right now — try speaking again.",
   "talkErrorCredits": "You're out of credits.",
-  "talkErrorGeneric": "Something went wrong. Start the conversation again."
+  "talkErrorGeneric": "Something went wrong. Start the conversation again.",
+  "talkCreditsUsed": "Used",
+  "talkCreditsLeft": "Left"
 }
