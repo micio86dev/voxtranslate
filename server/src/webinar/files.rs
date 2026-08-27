@@ -53,6 +53,12 @@ pub async fn upload_webinar_file(
         Err(e) => return db_err(e),
     };
 
+    // Uploading attaches content to the webinar's chat and consumes its storage —
+    // participation on both counts, so a members-only webinar requires a sign-in.
+    if let Err(resp) = crate::webinar::require_member_access(&w, &state, &headers) {
+        return resp;
+    }
+
     if !w.chat_enabled {
         return (
             StatusCode::FORBIDDEN,

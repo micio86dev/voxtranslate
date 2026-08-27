@@ -134,7 +134,10 @@ pub async fn post_chat(
         .map_err(db_err)?
         .ok_or_else(|| not_found("webinar not found"))?;
 
-    // (2) Chat must be enabled for this webinar.
+    // (2) Members-only gate — posting IS participation, the thing the flag blocks.
+    crate::webinar::require_member_access(&w, &state, &headers)?;
+
+    // (3) Chat must be enabled for this webinar.
     if !w.chat_enabled {
         return Err((
             StatusCode::FORBIDDEN,
@@ -143,7 +146,7 @@ pub async fn post_chat(
             .into_response());
     }
 
-    // (3) Validate the message + normalize the cosmetic display name.
+    // (4) Validate the message + normalize the cosmetic display name.
     let avatar_url = body.avatar_url.as_deref().and_then(|u| {
         if u.starts_with("https://") {
             Some(u.to_string())
@@ -169,11 +172,11 @@ pub async fn post_chat(
         .unwrap_or("auto")
         .to_string();
 
-    // (4) Identity: a valid JWT whose user is a MEMBER of the webinar's org is the
+    // (5) Identity: a valid JWT whose user is a MEMBER of the webinar's org is the
     // host; anyone else (no/invalid token, or a non-member) is the guest.
     let (sender_kind, sender_id) = resolve_sender(&state, pool, &w, &headers, guest).await;
 
-    // (5) Rate-limit. Two gates:
+    // (6) Rate-limit. Two gates:
     //   (a) a webinar-wide cap keyed WITHOUT the sender — the real cost backstop,
     //       un-bypassable by cookie rotation (a cookieless guest is minted a fresh
     //       id per request, so a per-sender key alone would never collide);
@@ -190,13 +193,13 @@ pub async fn post_chat(
         return Err((StatusCode::TOO_MANY_REQUESTS, "slow down").into_response());
     }
 
-    // (6) Moderation: a severe message is refused (422) and NEVER persisted or
+    // (7) Moderation: a severe message is refused (422) and NEVER persisted or
     // broadcast — same posture as the P2P chat path.
     if state.moderator.severity(&text) == Severity::Severe {
         return Err((StatusCode::UNPROCESSABLE_ENTITY, "message blocked").into_response());
     }
 
-    // (7) Translate: "auto" lets Groq detect the source and translate into every
+    // (8) Translate: "auto" lets Groq detect the source and translate into every
     // live viewer language. Always include the webinar's source_language so the
     // host sees participant messages translated into their language regardless of
     // whether any viewer happens to share it.
@@ -213,7 +216,7 @@ pub async fn post_chat(
             .await
     };
 
-    // (8) Persist — always, since chat is enabled (the gate is `chat_enabled`).
+    // (9) Persist — always, since chat is enabled (the gate is `chat_enabled`).
     let (id, created_at) = insert_chat_message(
         pool,
         w.id,
@@ -229,7 +232,7 @@ pub async fn post_chat(
     .await
     .map_err(db_err)?;
 
-    // (9) Broadcast to everyone (host + viewers + this sender's echo).
+    // (10) Broadcast to everyone (host + viewers + this sender's echo).
     state.webinar_presence.broadcast_chat(
         &code,
         &ChatEvent {
@@ -327,6 +330,7 @@ fn history_view(r: &ChatRow) -> serde_json::Value {
 pub async fn list_chat(
     State(state): State<AppState>,
     Path(code): Path<String>,
+    headers: HeaderMap,
     axum::extract::Query(q): axum::extract::Query<HistoryQuery>,
 ) -> Result<Response, Response> {
     let pool = require_pool(&state)?;
@@ -334,6 +338,9 @@ pub async fn list_chat(
         .await
         .map_err(db_err)?
         .ok_or_else(|| not_found("webinar not found"))?;
+
+    // Chat history is participant content — same bar as taking part in it.
+    crate::webinar::require_member_access(&w, &state, &headers)?;
 
     // Chat disabled → nothing to show; an empty list keeps the client simple.
     if !w.chat_enabled {
