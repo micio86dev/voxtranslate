@@ -112,6 +112,7 @@ const jsonLd = {
               <button class="acct-item" type="button" role="menuitem" data-acct-nav="billing"><span class="acct-item-ico" data-ico="wallet" aria-hidden="true"></span><span class="acct-item-label" data-i18n="billingTitle">{T('billingTitle')}</span></button>
               <button class="acct-item" type="button" role="menuitem" data-acct-nav="friends"><span class="acct-item-ico" data-ico="users" aria-hidden="true"></span><span class="acct-item-label" data-i18n="friendsTitle">{T('friendsTitle')}</span><span id="friends-menu-badge" class="chat-badge acct-item-badge hidden">0</span></button>
               <a class="acct-item" role="menuitem" href="/world"><span class="acct-item-ico" aria-hidden="true">🌍</span><span class="acct-item-label" data-i18n="talkToWorld">{T('talkToWorld')}</span></a>
+              <a class="acct-item" role="menuitem" href="/talk"><span class="acct-item-ico" aria-hidden="true">💬</span><span class="acct-item-label" data-i18n="talkToAnyone">{T('talkToAnyone')}</span></a>
               <button class="acct-item" type="button" role="menuitem" data-acct-nav="notifications"><span class="acct-item-ico" data-ico="bell" aria-hidden="true"></span><span class="acct-item-label" data-i18n="notifTitle">{T('notifTitle')}</span></button>
               <button class="acct-item" type="button" role="menuitem" data-acct-nav="privacy"><span class="acct-item-ico" data-ico="shield" aria-hidden="true"></span><span class="acct-item-label" data-i18n="privacyData">{T('privacyData')}</span></button>
               <a id="workspace-btn" class="acct-item workspace-btn hidden" role="menuitem" data-i18n-title="workspace" title={T('workspace')} target="_blank" rel="noopener"><span class="acct-item-ico" data-ico="grid" aria-hidden="true"></span><span class="acct-item-label" data-i18n="workspace">{T('workspace')}</span></a>
@@ -143,6 +144,12 @@ const jsonLd = {
           <a id="hero-world" class="btn-primary hero-primary" href="/world">
             <span class="hero-globe" aria-hidden="true">🌍</span>
             <span data-i18n="talkToWorld">{T('talkToWorld')}</span>
+          </a>
+          <!-- Face-to-face on one device (spec 0110). A sibling of discovery rather than
+               a third form: it needs no room code, no invite and no second device. -->
+          <a id="hero-talk" class="btn-ghost hero-secondary" href="/talk">
+            <span class="hero-globe" aria-hidden="true">💬</span>
+            <span data-i18n="talkToAnyone">{T('talkToAnyone')}</span>
           </a>
           <button id="hero-private" type="button" class="btn-ghost hero-secondary" data-i18n="createPrivateRoom">{T('createPrivateRoom')}</button>
         </div>

@@ -1044,3 +1044,75 @@ async fn extension_code_requires_authentication() {
         res.status()
     );
 }
+
+// ---------------------------------------------------------------------------
+// Talk to Anyone (spec 0110)
+// ---------------------------------------------------------------------------
+
+/// Attempt a `/ws/talk` upgrade. Returns `Err` when the route rejects the parameters —
+/// the handshake never reaches 101, which is exactly how a bad language pair should fail.
+async fn talk_connect(addr: SocketAddr, params: &str) -> Result<Ws, ()> {
+    let url = format!("ws://{addr}/ws/talk?{params}");
+    connect_async(url).await.map(|(ws, _)| ws).map_err(|_| ())
+}
+
+#[tokio::test]
+async fn talk_rejects_a_language_pair_that_cannot_be_a_conversation() {
+    let addr = spawn_minimal().await;
+
+    // Same language on both sides: the room would hold ONE target, every utterance would
+    // be an echo, and the user would sit in silence wondering what broke.
+    assert!(
+        talk_connect(addr, "lang=it&other=it").await.is_err(),
+        "identical languages are not a conversation"
+    );
+
+    // `auto` belongs to the source pseudo-peer only. As a LISTENER language it makes the
+    // fan-out skip that side entirely, so half the conversation silently vanishes.
+    assert!(talk_connect(addr, "lang=auto&other=es").await.is_err());
+    assert!(talk_connect(addr, "lang=it&other=auto").await.is_err());
+
+    // Same charset rule as `/ws` and `/ws/extension` — these values reach provider
+    // prompts and URLs.
+    assert!(talk_connect(addr, "lang=it&other=es%26redact%3Dpci")
+        .await
+        .is_err());
+    assert!(talk_connect(addr, "lang=it&other=toolonglang")
+        .await
+        .is_err());
+    assert!(talk_connect(addr, "lang=it&other=").await.is_err());
+
+    // A missing parameter is a bad request, not a default.
+    assert!(talk_connect(addr, "lang=it").await.is_err());
+}
+
+#[tokio::test]
+async fn talk_refuses_to_start_without_a_signed_in_user() {
+    let addr = spawn_minimal().await;
+
+    // A valid pair upgrades — authentication is checked after the socket is open so the
+    // client can render a real message instead of a bare handshake failure.
+    let mut ws = talk_connect(addr, "lang=it&other=es")
+        .await
+        .expect("a valid language pair must upgrade");
+
+    // ...and the very first frame refuses it. This is a billed feature with no guest
+    // tier, exactly like the extension: no token, no conversation, no room, no meter.
+    let err = wait_for(&mut ws, "error", 2000)
+        .await
+        .expect("an unauthenticated talk session must be refused");
+    assert_eq!(err["code"], "invalid_token");
+
+    // Nothing was left behind: no room was created for a session that never authenticated.
+    let http = reqwest::Client::new();
+    let rooms: Value = http
+        .get(format!("http://{addr}/rooms"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let listed = rooms.as_array().map(|a| a.len()).unwrap_or(0);
+    assert_eq!(listed, 0, "a refused session must not leave a room behind");
+}
