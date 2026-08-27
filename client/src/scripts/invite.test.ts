@@ -22,6 +22,17 @@ describe('parseRoomParam', () => {
 });
 
 describe('buildInviteLink', () => {
+  it('marks where the link came from, so a guest can be gated on one and not the other', () => {
+    // A private invite is a link a guest is welcome to walk straight through; a room
+    // browsed on /world is one they must sign in to join (spec 0022). The home screen
+    // cannot tell them apart from the room code alone, so the origin travels in the URL.
+    expect(buildInviteLink('https://voxtranslate.app', 'blue-fox', 'world')).toBe(
+      'https://voxtranslate.app/?room=blue-fox&from=world',
+    );
+    // Absent by default: every existing caller keeps the plain invite link.
+    expect(buildInviteLink('https://voxtranslate.app', 'blue-fox')).not.toContain('from=');
+  });
+
   it('joins origin and room into a deep link', () => {
     expect(buildInviteLink('https://voxtranslate.app', 'blue-fox')).toBe(
       'https://voxtranslate.app/?room=blue-fox',
