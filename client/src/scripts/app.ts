@@ -231,6 +231,7 @@ const callScreen = $('call');
 // ---- Auth / billing refs ---------------------------------------------------
 const accountBar = $('account-bar');
 const guestBar = $('guest-bar');
+const heroWorld = $('hero-world');
 const accountAvatar = $<HTMLImageElement>('account-avatar');
 const accountName = $('account-name');
 const accountBalance = $('account-balance');
@@ -4699,6 +4700,13 @@ function updatePublicGate(): void {
   // The guest gets the sign-in bar (their only route back to login); a signed-in
   // user gets the account bar instead. `billing` off → neither (no accounts).
   guestBar.classList.toggle('hidden', !guest);
+  // Talk to the World is public-room discovery, and public rooms need an account — so a
+  // guest was being shown the front door to a room they would be bounced out of. Hidden
+  // outright rather than locked like the visibility toggle below: that toggle sits inside
+  // a form the guest is still using, where an explanation helps, while this is a
+  // standalone CTA to a place they cannot go. The account-menu entry needs no handling —
+  // it lives inside #account-bar, which `renderAccount` already hides for guests.
+  heroWorld.classList.toggle('hidden', !!guest);
   const pubBtn = visGroup.querySelector('.seg-btn[data-vis="public"]') as HTMLButtonElement | null;
   if (!pubBtn) return;
   // Keep it clickable (a native `disabled` swallows clicks) but mark it locked, so
