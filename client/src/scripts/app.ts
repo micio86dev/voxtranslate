@@ -231,7 +231,6 @@ const callScreen = $('call');
 // ---- Auth / billing refs ---------------------------------------------------
 const accountBar = $('account-bar');
 const guestBar = $('guest-bar');
-const heroWorld = $('hero-world');
 const accountAvatar = $<HTMLImageElement>('account-avatar');
 const accountName = $('account-name');
 const accountBalance = $('account-balance');
@@ -1487,6 +1486,10 @@ let pendingInviteRoom = parseRoomParam(location.search);
 // reuses the home create flow rather than shipping a second one. Read at load,
 // consumed once in enterHome.
 let pendingPublicIntent = new URLSearchParams(location.search).has('public');
+// `&from=world` marks a join link built by public discovery, as opposed to a private
+// invite (spec 0082) that a guest is welcome to walk straight into. Read at load, before
+// any client-side navigation rewrites the URL.
+const pendingFromWorld = new URLSearchParams(location.search).get('from') === 'world';
 // Entry URL captured at load (before any client-side nav) so join analytics can tell how the
 // user arrived: `&src=meeting` (scheduled), `?room=` (shared invite link), or direct.
 const entrySearch = location.search;
@@ -4674,7 +4677,19 @@ function enterHome(): void {
   if (pendingInviteRoom) {
     const room = pendingInviteRoom;
     pendingInviteRoom = null;
-    void goPrejoin(room, false);
+    // A room reached from public discovery is the one deep link a guest must not walk
+    // straight through. Browsing /world is the whole point — seeing real conversations is
+    // what makes someone sign up — but joining a PUBLIC room needs an account (spec 0022),
+    // and this path skipped the gate that `enterBtn` applies, dropping a guest into
+    // pre-join and then into a room where they burn GUEST_MAX_MINUTES of paid translation
+    // with no account and no charge. The room code stays in the field, so signing in
+    // leaves them one tap from where they were going.
+    if (pendingFromWorld && billing && !auth.isLoggedIn()) {
+      roomInput.value = room;
+      openSigninGate();
+    } else {
+      void goPrejoin(room, false);
+    }
   } else {
     // First-visit home wizard — skipped while the blocking 18+/ToS consent gate is up (the
     // consent-accept handler re-runs this once it closes) or when home isn't the visible screen.
@@ -4700,13 +4715,6 @@ function updatePublicGate(): void {
   // The guest gets the sign-in bar (their only route back to login); a signed-in
   // user gets the account bar instead. `billing` off → neither (no accounts).
   guestBar.classList.toggle('hidden', !guest);
-  // Talk to the World is public-room discovery, and public rooms need an account — so a
-  // guest was being shown the front door to a room they would be bounced out of. Hidden
-  // outright rather than locked like the visibility toggle below: that toggle sits inside
-  // a form the guest is still using, where an explanation helps, while this is a
-  // standalone CTA to a place they cannot go. The account-menu entry needs no handling —
-  // it lives inside #account-bar, which `renderAccount` already hides for guests.
-  heroWorld.classList.toggle('hidden', !!guest);
   const pubBtn = visGroup.querySelector('.seg-btn[data-vis="public"]') as HTMLButtonElement | null;
   if (!pubBtn) return;
   // Keep it clickable (a native `disabled` swallows clicks) but mark it locked, so

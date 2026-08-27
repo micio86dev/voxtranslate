@@ -20,8 +20,12 @@ export function parseRoomParam(search: string): string | null {
 
 /** Build the shareable join link for a room from the current origin. The room
  *  is encoded defensively even though codes are already a safe charset. */
-export function buildInviteLink(origin: string, room: string): string {
-  return `${origin.replace(/\/+$/, '')}/?room=${encodeURIComponent(room)}`;
+export function buildInviteLink(origin: string, room: string, from?: string): string {
+  const base = `${origin.replace(/\/+$/, '')}/?room=${encodeURIComponent(room)}`;
+  // `from` marks where the link was built. Public discovery passes `world`, so the home
+  // screen can tell a browsed public room from a private invite and push a guest to sign
+  // in for the first while letting them straight into the second.
+  return from ? `${base}&from=${encodeURIComponent(from)}` : base;
 }
 
 /** Split a free-text field into individual addresses (comma / semicolon /

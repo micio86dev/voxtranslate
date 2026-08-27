@@ -226,7 +226,10 @@ describe('mountWorld', () => {
 
     cards()[0].click();
     expect(track).toHaveBeenCalledWith('public_room_join_clicked', { occupancy: 2 });
-    expect(assign).toHaveBeenCalledWith('https://app.test/?room=plaza');
+    // `from=world` travels with the link so the home screen can tell a browsed public
+    // room from a private invite: a guest is pushed to sign in for the first, and let
+    // straight through on the second (spec 0022).
+    expect(assign).toHaveBeenCalledWith('https://app.test/?room=plaza&from=world');
   });
 
   it('routes "start a public conversation" through the existing create flow', async () => {
