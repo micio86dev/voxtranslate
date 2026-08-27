@@ -52,6 +52,23 @@ pub const MIN_CONFIDENCE: f32 = 0.6;
 /// and latency on a long monologue.
 pub const MAX_CLASSIFY_CHARS: usize = 400;
 
+/// Token budget for one classification.
+///
+/// This is NOT a cost knob, it is a correctness one. `GROQ_TRANSLATION_MODEL` is a
+/// gpt-oss **reasoning** model: it spends tokens thinking before it emits anything, so a
+/// budget sized for the ~15-token answer is consumed entirely by reasoning and the
+/// completion comes back EMPTY — which `response_format: json_object` then rejects with
+/// `400 json_validate_failed`. That shipped: at 40 tokens every single classification
+/// failed in production, no direction was ever committed, and because an unresolved
+/// utterance is held by design the feature looked like it was permanently "Listening…".
+///
+/// Measured: 40 → always fails. 128 → correct. 256 gives margin for a longer clause.
+/// `Groq::chat` documents the same hazard at its empty-completion retry.
+pub const CLASSIFY_MAX_TOKENS: u32 = 256;
+
+/// Floor the regression test holds the budget above.
+pub const MIN_CLASSIFY_TOKENS: u32 = 128;
+
 /// How sure [`script_hint`] must be before it decides alone: the winning script must
 /// carry this share of the strongly-scripted characters.
 const SCRIPT_MARGIN: f32 = 0.8;
@@ -301,54 +318,68 @@ impl Resolver {
         script_hint(text, &self.user_lang, &self.other_lang)
     }
 
-    /// Full resolution: local first, model second. Any transport or parse failure is
-    /// [`Direction::Unknown`] — a classifier outage degrades to "keep listening", never
-    /// to a coin flip.
-    pub async fn resolve(&self, text: &str) -> Direction {
+    /// Full resolution: local first, model second.
+    ///
+    /// `Err` is a provider failure, which the caller must surface rather than absorb —
+    /// holding every utterance behind a dead classifier is indistinguishable from the
+    /// app being broken, because it is.
+    pub async fn resolve(&self, text: &str) -> Result<Direction, String> {
         let local = self.resolve_local(text);
         if local != Direction::Unknown {
-            return local;
+            return Ok(local);
         }
         if text.trim().chars().count() < MIN_RESOLVE_CHARS {
-            return Direction::Unknown;
+            return Ok(Direction::Unknown);
         }
         self.classify(text).await
     }
 
-    async fn classify(&self, text: &str) -> Direction {
+    /// Build the classification request. Separated from the HTTP call so the token
+    /// budget is unit-testable — see [`MIN_CLASSIFY_TOKENS`].
+    fn classify_request(&self, text: &str) -> ChatRequest {
         let clipped: String = text.trim().chars().take(MAX_CLASSIFY_CHARS).collect();
         let mut req = ChatRequest::new(
             self.model.clone(),
             classify_prompt(&self.user_lang, &self.other_lang),
             clipped,
         );
-        // Deterministic, tiny, and fast: this call sits directly in the path between a
-        // person finishing a clause and hearing the translation.
         req.temperature = 0.0;
-        req.max_tokens = 40;
-        req.timeout = std::time::Duration::from_secs(4);
-        req.max_retries = 0;
+        req.max_tokens = CLASSIFY_MAX_TOKENS;
+        // Measured at ~240 ms against gpt-oss-20b; 6 s is generous headroom for a bad
+        // network without stalling a conversation.
+        req.timeout = std::time::Duration::from_secs(6);
+        // One retry, deliberately. `Groq::chat` treats an empty completion as transient
+        // and retries it — that is the whole reason the retry budget exists, and setting
+        // it to zero threw the protection away.
+        req.max_retries = 1;
+        req
+    }
 
-        let value = match self.groq.chat_json(req).await {
-            Ok(v) => v,
-            Err(e) => {
+    /// Ask the model. `Err` means the PROVIDER failed (network, 4xx, unparseable) as
+    /// opposed to the model legitimately abstaining, which is `Ok(Unknown)`.
+    ///
+    /// The distinction is not academic: an abstention is normal and silent, while a
+    /// provider failure means every utterance will keep being held with the UI saying
+    /// "Listening…" forever. The caller needs to be able to tell the user.
+    async fn classify(&self, text: &str) -> Result<Direction, String> {
+        let value = self
+            .groq
+            .chat_json(self.classify_request(text))
+            .await
+            .map_err(|e| {
                 tracing::warn!("talk: direction classify failed: {e}");
-                return Direction::Unknown;
-            }
-        };
-        let verdict: Verdict = match serde_json::from_value(value) {
-            Ok(v) => v,
-            Err(e) => {
-                tracing::warn!("talk: direction verdict unparseable: {e}");
-                return Direction::Unknown;
-            }
-        };
-        interpret(
+                e
+            })?;
+        let verdict: Verdict = serde_json::from_value(value).map_err(|e| {
+            tracing::warn!("talk: direction verdict unparseable: {e}");
+            e.to_string()
+        })?;
+        Ok(interpret(
             &verdict.lang,
             verdict.confidence,
             &self.user_lang,
             &self.other_lang,
-        )
+        ))
     }
 }
 
@@ -546,6 +577,48 @@ mod tests {
         // to one end by unwrapping.
         assert_eq!(Direction::Unknown.target(u, o), None);
         assert_eq!(Direction::Unknown.source(u, o), None);
+    }
+
+    /// The regression that took the feature down in production the day it shipped.
+    #[test]
+    fn the_token_budget_leaves_room_for_a_reasoning_model_to_answer() {
+        // gpt-oss reasons before it writes. A budget sized for the ~15-token answer is
+        // eaten entirely by that reasoning, the completion comes back empty, and JSON
+        // mode turns it into a 400 — so EVERY classification fails, no direction is ever
+        // committed, and the UI sits on "Listening…" forever. Measured against the live
+        // model: 40 tokens always fails, 128 always succeeds.
+        let r = Resolver::new(
+            Groq::new("k".into(), "m".into()),
+            "m".into(),
+            "it".into(),
+            "es".into(),
+        );
+        let req = r.classify_request("Vorrei andare alla stazione");
+        assert!(
+            req.max_tokens >= MIN_CLASSIFY_TOKENS,
+            "a reasoning model needs headroom BEYOND the answer it must write; {} is \
+             below the measured floor of {MIN_CLASSIFY_TOKENS}",
+            req.max_tokens
+        );
+        // Deterministic, and retried once: `Groq::chat` absorbs a transient empty
+        // completion only if it has a retry left to spend.
+        assert_eq!(req.temperature, 0.0);
+        assert!(
+            req.max_retries >= 1,
+            "the empty-completion retry must stay available"
+        );
+    }
+
+    #[test]
+    fn a_long_utterance_is_clipped_before_it_is_sent() {
+        let r = Resolver::new(
+            Groq::new("k".into(), "m".into()),
+            "m".into(),
+            "it".into(),
+            "es".into(),
+        );
+        let req = r.classify_request(&"a".repeat(MAX_CLASSIFY_CHARS * 3));
+        assert_eq!(req.user.chars().count(), MAX_CLASSIFY_CHARS);
     }
 
     #[test]
