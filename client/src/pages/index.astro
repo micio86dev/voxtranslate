@@ -1,6 +1,12 @@
 ---
 import Base from '../layouts/Base.astro';
 import en from '../scripts/i18n/en.json';
+// The same inline stroke icons the rest of the app uses (`icon()` renders SVG drawn in
+// `currentColor`, so it takes the button's colour rather than carrying its own). Imported
+// here so the hero markup is server-rendered with real icons instead of emoji: an emoji is
+// a font glyph — it changes shape per platform, ignores the button's colour, and is read
+// aloud by a screen reader as its name.
+import { icon } from '../scripts/icons';
 // Server-render the English default for every data-i18n* slot so the page paints real text at
 // FCP (no empty placeholders → better LCP/CLS, spec 0104). applyI18n() still localizes on the
 // client when the active locale differs. Single source of truth: en.json (no drift).
@@ -140,18 +146,24 @@ const jsonLd = {
       <section class="home-hero">
         <h1 class="hero-title" data-i18n="heroTitle">{T('heroTitle')}</h1>
         <p class="hero-sub" data-i18n="heroSub">{T('heroSub')}</p>
+        <!-- Three peer entry points, one shape. They were three different things before:
+             a styled primary anchor, a bare anchor that the browser underlined, and a
+             button with no icon at all. Same class, same icon slot, same weight. -->
         <div class="hero-cta">
-          <a id="hero-world" class="btn-primary hero-primary" href="/world">
-            <span class="hero-globe" aria-hidden="true">🌍</span>
+          <a id="hero-world" class="btn-primary hero-cta-btn" href="/world">
+            <Fragment set:html={icon('users', 20)} />
             <span data-i18n="talkToWorld">{T('talkToWorld')}</span>
           </a>
           <!-- Face-to-face on one device (spec 0110). A sibling of discovery rather than
                a third form: it needs no room code, no invite and no second device. -->
-          <a id="hero-talk" class="btn-ghost hero-secondary" href="/talk">
-            <span class="hero-globe" aria-hidden="true">💬</span>
+          <a id="hero-talk" class="btn-primary hero-cta-btn" href="/talk">
+            <Fragment set:html={icon('chat', 20)} />
             <span data-i18n="talkToAnyone">{T('talkToAnyone')}</span>
           </a>
-          <button id="hero-private" type="button" class="btn-ghost hero-secondary" data-i18n="createPrivateRoom">{T('createPrivateRoom')}</button>
+          <button id="hero-private" type="button" class="btn-primary hero-cta-btn">
+            <Fragment set:html={icon('shield', 20)} />
+            <span data-i18n="createPrivateRoom">{T('createPrivateRoom')}</span>
+          </button>
         </div>
       </section>
       <div class="home-body">
@@ -1965,21 +1977,56 @@ const jsonLd = {
       gap: 10px;
       margin-top: 18px;
     }
-    .hero-primary {
+    /* One CTA shape for all three hero actions. They are peers — three ways to start
+       talking — so they carry equal weight rather than a primary and two leftovers.
+       `text-decoration: none` sits HERE, on the shared class, because two of the three
+       are anchors: it lived only on the old primary, which is why the middle button
+       shipped underlined. */
+    .hero-cta-btn {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      gap: 8px;
+      gap: 0.55rem;
       width: 100%;
       max-width: 22rem;
       text-decoration: none;
       font-size: 1.05rem;
+      /* An <a> and a <button> do not agree on line-height by default: the UA gives the
+         button `normal`, which made it render 5px shorter than its two neighbours — the
+         exact "these are not the same button" the redesign is fixing. Pin it so all three
+         compute to the same box. No `min-height` here on purpose: `.btn-primary` already
+         guarantees 48px, and repeating a smaller value silently overrode it. */
+      line-height: 1.2;
     }
-    .hero-secondary { width: 100%; max-width: 22rem; min-height: var(--tap-target); }
-    .hero-globe { font-size: 1.15em; line-height: 1; }
+    .hero-cta-btn:hover,
+    .hero-cta-btn:focus-visible {
+      text-decoration: none;
+    }
+    /* The icon inherits the button's colour via `currentColor`, so it is white on the
+       accent fill without a hard-coded value — and stays correct if the fill ever
+       changes. `flex: none` keeps it from being squeezed by a long translated label,
+       which is a real risk across 83 locales. */
+    /* `:global()` because the SVG arrives through `set:html` and therefore carries no
+       `data-astro-cid` attribute — a scoped `.ico` compiles to `.ico[data-astro-cid-…]`
+       and silently matches nothing. Same convention this file already uses for every
+       other JS-built node. */
+    .hero-cta-btn :global(.ico) {
+      flex: none;
+      width: 20px;
+      height: 20px;
+    }
+    /* Stacked full-width on a phone, one row once there is room. Three equal buttons in a
+       row need each to size to its own label, so the width cap is dropped here. */
     @media (min-width: 640px) {
-      .hero-cta { flex-direction: row; justify-content: center; }
-      .hero-primary, .hero-secondary { width: auto; padding-inline: 1.6rem; }
+      .hero-cta {
+        flex-direction: row;
+        justify-content: center;
+        flex-wrap: wrap;
+      }
+      .hero-cta-btn {
+        width: auto;
+        padding-inline: 1.4rem;
+      }
     }
     .home-body {
       width: 100%; max-width: 600px; margin: 0 auto; padding: 14px 16px 28px;
