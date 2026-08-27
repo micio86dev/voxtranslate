@@ -1,0 +1,452 @@
+---
+// "Talk to Anyone" — two people, one device, one microphone (spec 0110).
+//
+// A standalone route rather than another `.screen` inside index.astro, for the same
+// reason `/world` is: this page needs none of the call machinery (no WebRTC, no mesh, no
+// chat), so a traveller who opens it never downloads app.ts. It talks to `/ws/talk`,
+// which registers its own private room server-side.
+//
+// The design target is someone standing in a taxi holding a phone: the TRANSLATION is
+// the largest thing on screen, the original sits smaller beneath it, and there are three
+// controls. No provider names, no model names, no waveforms, no settings.
+import Base from '../layouts/Base.astro';
+import en from '../scripts/i18n/en.json';
+// Server-render the English default into every data-i18n slot so the page paints real
+// text at FCP; applyI18n() localizes on the client when the active locale differs.
+// Single source of truth: en.json (no drift). Same pattern as index.astro and world.astro.
+const T = (k: string): string => (en as Record<string, string>)[k] ?? '';
+---
+
+<Base
+  title="Talk to Anyone — VoxTranslate"
+  description="Put your phone between you and talk. VoxTranslate hears which language is being spoken and translates the conversation both ways, out loud."
+>
+  <main class="talk" id="tk-root" data-phase="idle" data-activity="listening">
+    <header class="tk-top">
+      <a class="tk-back" href="/" data-i18n="back">{T('back')}</a>
+      <span class="tk-tier" id="tk-tier" hidden></span>
+    </header>
+
+    <!-- SETUP. The user's own language is already known from their account, so there is
+         exactly one thing to choose. -->
+    <section class="tk-setup" id="tk-setup">
+      <div class="tk-hero">
+        <h1 class="tk-title">
+          <span class="tk-hero-icon" aria-hidden="true">💬</span>
+          <span data-i18n="talkToAnyone">{T('talkToAnyone')}</span>
+        </h1>
+        <p class="tk-sub" data-i18n="talkSub">{T('talkSub')}</p>
+      </div>
+
+      <div class="card tk-card-setup">
+        <p class="tk-mine">
+          <span class="field-label" data-i18n="talkYourLangLabel">{T('talkYourLangLabel')}</span>
+          <span class="tk-mine-value" id="tk-my-lang"></span>
+        </p>
+
+        <div class="field">
+          <span class="field-label" data-i18n="talkOtherLangLabel">{T('talkOtherLangLabel')}</span>
+          <!-- Same picker shape as the language-first selector in index.astro: a
+               listbox trigger, a search box, region groups. Built in talk.ts from the
+               shared languages.json so this page and the call can never disagree. -->
+          <button
+            id="tk-lang-trigger"
+            type="button"
+            class="lang-trigger"
+            aria-haspopup="listbox"
+            aria-expanded="false"
+            data-i18n-label="talkOtherLangLabel"
+            aria-label={T('talkOtherLangLabel')}
+          >
+            <span class="lang-trigger-flag" id="tk-lang-flag" aria-hidden="true"></span>
+            <span class="lang-trigger-text" id="tk-lang-text" data-i18n="talkOtherLangPick">{T('talkOtherLangPick')}</span>
+            <span class="lang-trigger-chevron" aria-hidden="true">▾</span>
+          </button>
+          <div id="tk-lang-panel" class="lang-panel" role="listbox" hidden>
+            <div class="lang-panel-search">
+              <input
+                id="tk-lang-search"
+                type="text"
+                autocomplete="off"
+                spellcheck="false"
+                data-i18n-ph="langSearchPlaceholder"
+                placeholder={T('langSearchPlaceholder')}
+                data-i18n-label="langSearchPlaceholder"
+                aria-label={T('langSearchPlaceholder')}
+              />
+            </div>
+            <div id="tk-lang-list" class="lang-panel-list"></div>
+            <p id="tk-lang-empty" class="lang-panel-empty" data-i18n="langSearchEmpty" hidden>
+              {T('langSearchEmpty')}
+            </p>
+          </div>
+        </div>
+
+        <!-- Tier cards for the chosen language, cheapest pre-selected. Rendered by
+             talk.ts from /api/engines — the same data the call picker uses. -->
+        <div class="field" id="tk-tier-field" hidden>
+          <span class="field-label" data-i18n="engineLabel">{T('engineLabel')}</span>
+          <div
+            id="tk-tier-options"
+            class="engine-options"
+            role="radiogroup"
+            data-i18n-label="engineLabel"
+            aria-label={T('engineLabel')}
+          ></div>
+          <p id="tk-tier-note" class="tier-note" hidden></p>
+        </div>
+
+        <button id="tk-start" class="btn-primary tk-start" type="button" disabled data-i18n="talkStart">
+          {T('talkStart')}
+        </button>
+        <p class="hint tk-cost" data-i18n="talkCostNote">{T('talkCostNote')}</p>
+        <p id="tk-setup-status" class="status-line" role="status"></p>
+      </div>
+
+      <p class="tk-how" data-i18n="talkHowItWorks">{T('talkHowItWorks')}</p>
+    </section>
+
+    <!-- CONVERSATION. Hidden until Start; this is what people actually look at. -->
+    <section class="tk-live" id="tk-live" hidden>
+      <div class="tk-pair" id="tk-pair"></div>
+
+      <!-- One status line, announced politely. Never an error while the direction is
+           merely undecided — that reads as breakage when it is normal. -->
+      <p class="tk-status" id="tk-status" role="status" aria-live="polite">
+        <span class="tk-pulse" aria-hidden="true"></span>
+        <span id="tk-status-text" data-i18n="talkStatusListening">{T('talkStatusListening')}</span>
+      </p>
+      <p class="tk-detected" id="tk-detected" hidden></p>
+
+      <!-- The translation is the dominant element. The original is support. -->
+      <div class="tk-stage" aria-live="polite">
+        <p class="tk-translation" id="tk-translation"></p>
+        <p class="tk-original" id="tk-original"></p>
+      </div>
+
+      <h2 class="tk-history-title" id="tk-history-title" data-i18n="talkHistoryTitle" hidden>
+        {T('talkHistoryTitle')}
+      </h2>
+      <!-- aria-live is deliberately OFF here: every finished sentence landing in this
+           list would flood a screen reader that already heard the live region above. -->
+      <div class="tk-history" id="tk-history" aria-live="off"></div>
+
+      <div class="tk-controls">
+        <button id="tk-mute" class="btn-ghost tk-ctl" type="button" data-i18n="talkMute">{T('talkMute')}</button>
+        <button id="tk-pause" class="btn-ghost tk-ctl" type="button" data-i18n="talkPause">{T('talkPause')}</button>
+        <button id="tk-end" class="btn-primary tk-ctl tk-ctl-end" type="button" data-i18n="talkEnd">{T('talkEnd')}</button>
+      </div>
+    </section>
+
+    <!-- Permission / failure. One sentence of plain language and one way forward. -->
+    <section class="tk-problem" id="tk-problem" hidden>
+      <p class="tk-problem-icon" aria-hidden="true">🎤</p>
+      <p class="tk-problem-copy" id="tk-problem-copy" data-i18n="talkMicWhy">{T('talkMicWhy')}</p>
+      <button id="tk-retry" class="btn-primary" type="button" data-i18n="talkRetry">{T('talkRetry')}</button>
+    </section>
+  </main>
+
+  <style>
+    .talk {
+      max-width: 640px;
+      margin: 0 auto;
+      padding: 1rem 1rem 2rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1.1rem;
+    }
+
+    .tk-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+    }
+    .tk-back {
+      display: inline-flex;
+      align-items: center;
+      min-height: var(--tap-target);
+      padding: 0 0.4rem;
+      color: var(--muted);
+      text-decoration: none;
+      font-size: var(--font-sm);
+    }
+    .tk-back::before {
+      content: '←';
+      margin-right: 0.45rem;
+    }
+    .tk-back:hover {
+      color: var(--text);
+    }
+    /* The tier is a whisper, not a pricing page (brief §17). */
+    .tk-tier {
+      color: var(--muted);
+      font-size: var(--font-xs);
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .tk-hero {
+      text-align: center;
+      padding: 0.25rem 0;
+    }
+    .tk-title {
+      margin: 0 0 0.6rem;
+      font-size: clamp(1.75rem, 7vw, 2.4rem);
+      line-height: 1.15;
+      font-weight: var(--font-weight-bold);
+      letter-spacing: -0.02em;
+    }
+    .tk-hero-icon {
+      display: inline-block;
+      margin-right: 0.35rem;
+    }
+    .tk-sub {
+      margin: 0 auto;
+      max-width: 34rem;
+      color: var(--muted);
+      font-size: var(--font-md);
+      line-height: 1.55;
+    }
+
+    .tk-setup,
+    .tk-live {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+    .tk-card-setup {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+    .tk-mine {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 1rem;
+      margin: 0;
+    }
+    .tk-mine-value {
+      font-size: var(--font-base);
+      font-weight: var(--font-weight-semibold);
+    }
+    .tk-start {
+      width: 100%;
+    }
+    .tk-cost,
+    .tk-how {
+      margin: 0;
+      color: var(--muted);
+      font-size: var(--font-sm);
+      line-height: 1.5;
+      text-align: center;
+    }
+
+    /* --- conversation ----------------------------------------------------- */
+
+    .tk-pair {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+      font-size: var(--font-base);
+    }
+    .tk-pair :global(.tk-pair-side) {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+    .tk-pair :global(.tk-flag) {
+      font-size: 1.25em;
+    }
+    .tk-pair :global(.tk-pair-swap) {
+      color: var(--muted);
+    }
+
+    .tk-status {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      margin: 0;
+      color: var(--muted);
+      font-size: var(--font-md);
+    }
+    .tk-pulse {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--muted);
+      flex: none;
+    }
+    /* The listening state has to be unmistakable from arm's length across a table. */
+    [data-phase='live'] .tk-pulse {
+      background: var(--success);
+      animation: tk-pulse 1.6s ease-in-out infinite;
+    }
+    [data-activity='speaking'] .tk-pulse,
+    [data-activity='translating'] .tk-pulse {
+      background: var(--accent);
+    }
+    @keyframes tk-pulse {
+      0%,
+      100% {
+        opacity: 1;
+        transform: scale(1);
+      }
+      50% {
+        opacity: 0.45;
+        transform: scale(0.82);
+      }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      [data-phase='live'] .tk-pulse {
+        animation: none;
+      }
+    }
+
+    .tk-detected {
+      margin: 0;
+      text-align: center;
+      color: var(--text);
+      font-size: var(--font-sm);
+      font-weight: var(--font-weight-medium);
+    }
+
+    .tk-stage {
+      display: flex;
+      flex-direction: column;
+      gap: 0.65rem;
+      min-height: 8.5rem;
+      padding: 1.25rem 1rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      justify-content: center;
+      text-align: center;
+    }
+    /* The translated sentence is the whole product. Nothing on this page is bigger. */
+    .tk-translation {
+      margin: 0;
+      font-size: clamp(1.5rem, 6vw, 2.1rem);
+      line-height: 1.25;
+      font-weight: var(--font-weight-semibold);
+      letter-spacing: -0.01em;
+      text-wrap: balance;
+    }
+    .tk-original {
+      margin: 0;
+      color: var(--muted);
+      font-size: var(--font-sm);
+      line-height: 1.45;
+    }
+
+    .tk-history-title {
+      margin: 0.25rem 0 0;
+      color: var(--muted);
+      font-size: var(--font-xs);
+      font-weight: var(--font-weight-medium);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    .tk-history {
+      display: flex;
+      flex-direction: column;
+      gap: 0.6rem;
+    }
+    /* Cards are built in view.ts, so they are styled through :global() under a scoped
+       parent — the same convention world.astro and index.astro use. */
+    .tk-history :global(.tk-card) {
+      display: flex;
+      flex-direction: column;
+      gap: 0.3rem;
+      padding: 0.8rem 0.9rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+    }
+    .tk-history :global(.tk-card-source),
+    .tk-history :global(.tk-card-target) {
+      display: flex;
+      align-items: baseline;
+      gap: 0.45rem;
+      margin: 0;
+      line-height: 1.4;
+    }
+    .tk-history :global(.tk-card-source) {
+      color: var(--muted);
+      font-size: var(--font-sm);
+    }
+    .tk-history :global(.tk-card-target) {
+      color: var(--text);
+      font-size: var(--font-base);
+      font-weight: var(--font-weight-medium);
+    }
+    .tk-history :global(.tk-lang) {
+      flex: none;
+      color: var(--muted);
+      font-size: var(--font-xs);
+    }
+    .tk-history :global(.tk-text) {
+      min-width: 0;
+    }
+
+    .tk-controls {
+      position: sticky;
+      bottom: 0;
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 0.5rem;
+      padding: 0.75rem 0 0;
+      background: linear-gradient(to top, var(--bg) 70%, transparent);
+    }
+    .tk-ctl {
+      min-height: var(--tap-target);
+      width: 100%;
+    }
+    .tk-ctl-end {
+      background: var(--danger);
+    }
+
+    .tk-problem {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1rem;
+      padding: 2rem 1rem;
+      text-align: center;
+    }
+    .tk-problem-icon {
+      margin: 0;
+      font-size: 2.5rem;
+    }
+    .tk-problem-copy {
+      margin: 0;
+      max-width: 30rem;
+      font-size: var(--font-md);
+      line-height: 1.55;
+    }
+
+    @media (min-width: 768px) {
+      .tk-stage {
+        min-height: 10rem;
+        padding: 2rem 1.5rem;
+      }
+      .tk-controls {
+        position: static;
+        background: none;
+        justify-self: center;
+        max-width: 30rem;
+        margin: 0 auto;
+      }
+    }
+  </style>
+
+  <script>
+    import { mountTalk } from '../scripts/talk/page';
+
+    mountTalk();
+  </script>
+</Base>

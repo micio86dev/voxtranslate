@@ -263,4 +263,55 @@ describe('PcmCapture', () => {
     expect(ctxs.length).toBe(1);
     expect(ws.sent).toEqual([START]);
   });
+
+  // Talk to Anyone (spec 0110): the phone's own speaker feeds its own microphone, so
+  // frames must stop WHILE a translation plays — without tearing capture down.
+  describe('setGated', () => {
+    it('drops frames while gated and resumes on the very next chunk', async () => {
+      const ws = fakeWs();
+      const cap = new PcmCapture(fakeStream(), ws);
+      cap.start();
+      await tick();
+      const chunk = (): void =>
+        nodes[0].port.onmessage?.({ data: new ArrayBuffer(4) });
+
+      chunk();
+      expect(ws.sent.length).toBe(2); // start frame + one audio chunk
+
+      cap.setGated(true);
+      expect(cap.isGated()).toBe(true);
+      chunk();
+      chunk();
+      expect(ws.sent.length).toBe(2); // both swallowed
+
+      cap.setGated(false);
+      chunk();
+      expect(ws.sent.length).toBe(3); // flowing again, no restart needed
+    });
+
+    it('keeps the graph and the upstream session alive', async () => {
+      // This is the whole reason the gate exists rather than reusing setMuted: a stop
+      // closes the AudioContext, reloads the worklet, and sends a `stop` control frame
+      // that ends the translation session — hundreds of milliseconds per sentence.
+      const ws = fakeWs();
+      const cap = new PcmCapture(fakeStream(), ws);
+      cap.start();
+      await tick();
+      cap.setGated(true);
+      cap.setGated(false);
+      expect(ws.sent).toEqual([START]); // no stop/start churn on the wire
+      expect(ctxs.length).toBe(1); // one AudioContext for the whole conversation
+      expect(ctxs[0].close).not.toHaveBeenCalled();
+    });
+
+    it('is closed by default so existing call paths are untouched', async () => {
+      const ws = fakeWs();
+      const cap = new PcmCapture(fakeStream(), ws);
+      expect(cap.isGated()).toBe(false);
+      cap.start();
+      await tick();
+      nodes[0].port.onmessage?.({ data: new ArrayBuffer(4) });
+      expect(ws.sent.length).toBe(2);
+    });
+  });
 });
