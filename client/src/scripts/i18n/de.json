@@ -808,5 +808,7 @@
   "talkErrorConnection": "Die Verbindung hat nicht gehalten. Prüfe dein Netz und starte neu.",
   "talkErrorProvider": "Die Übersetzung ist gerade nicht verfügbar — sprich es noch einmal.",
   "talkErrorCredits": "Dein Guthaben ist aufgebraucht.",
-  "talkErrorGeneric": "Etwas ist schiefgelaufen. Starte das Gespräch neu."
+  "talkErrorGeneric": "Etwas ist schiefgelaufen. Starte das Gespräch neu.",
+  "talkCreditsUsed": "Verbraucht",
+  "talkCreditsLeft": "Übrig"
 }

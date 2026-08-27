@@ -808,5 +808,7 @@
   "talkErrorConnection": "Ma aanan hayn karin xidhiidhka. Hubi shabakadda kadibna dib u bilow.",
   "talkErrorProvider": "Turjumaadda hadda lama heli karo — isku day inaad mar kale hadasho.",
   "talkErrorCredits": "Krediitkaagii wuu dhammaaday.",
-  "talkErrorGeneric": "Wax baa qaldamay. Wada-hadalka dib u bilow."
+  "talkErrorGeneric": "Wax baa qaldamay. Wada-hadalka dib u bilow.",
+  "talkCreditsUsed": "La isticmaalay",
+  "talkCreditsLeft": "Hadhay"
 }

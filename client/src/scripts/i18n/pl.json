@@ -808,5 +808,7 @@
   "talkErrorConnection": "Nie udało się utrzymać połączenia. Sprawdź sieć i zacznij od nowa.",
   "talkErrorProvider": "Tłumaczenie jest chwilowo niedostępne — powiedz to jeszcze raz.",
   "talkErrorCredits": "Skończyły Ci się środki.",
-  "talkErrorGeneric": "Coś poszło nie tak. Rozpocznij rozmowę od nowa."
+  "talkErrorGeneric": "Coś poszło nie tak. Rozpocznij rozmowę od nowa.",
+  "talkCreditsUsed": "Zużyto",
+  "talkCreditsLeft": "Pozostało"
 }

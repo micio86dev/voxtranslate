@@ -808,5 +808,7 @@
   "talkErrorConnection": "Mir konnten d'Verbindung net halen. Iwwerpréift d'Netz a fänkt nei un.",
   "talkErrorProvider": "Iwwersetzung ass am Moment net verfügbar — probéiert et nach eng Kéier ze soen.",
   "talkErrorCredits": "Är Credite si opgebraucht.",
-  "talkErrorGeneric": "Eppes ass schif gaangen. Fänkt d'Gespréich nei un."
+  "talkErrorGeneric": "Eppes ass schif gaangen. Fänkt d'Gespréich nei un.",
+  "talkCreditsUsed": "Verbraucht",
+  "talkCreditsLeft": "Iwwreg"
 }

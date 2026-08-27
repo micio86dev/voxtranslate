@@ -115,6 +115,28 @@ export function fill(template: string, vars: Record<string, string>): string {
   );
 }
 
+/**
+ * Format the live credit meter: what this conversation has cost, and what is left.
+ *
+ * The two numbers deliberately carry different precision. A Standard conversation burns
+ * about $0.0009 every five seconds, so the app's usual two decimals would sit at "$0.00"
+ * for the first half-minute and the meter would look broken — the spend needs four to
+ * visibly move. The remaining balance keeps two, matching every other place the balance
+ * is shown, because a fourth decimal on twelve dollars is noise.
+ *
+ * `startBalance` is what the account held when Start was pressed. A null balance (the
+ * backend running without billing) yields null: no meter rather than "$0.0000".
+ */
+export function creditMeter(
+  startBalance: number | null,
+  currentBalance: number | null,
+): { used: string; left: string } | null {
+  if (currentBalance === null) return null;
+  // Clamp: a top-up mid-conversation would otherwise render a negative spend.
+  const used = Math.max(0, (startBalance ?? currentBalance) - currentBalance);
+  return { used: `$${used.toFixed(4)}`, left: `$${currentBalance.toFixed(2)}` };
+}
+
 /** The elements the view drives. Missing ones are tolerated so partial mounts work. */
 export interface TalkElements {
   status?: HTMLElement | null;

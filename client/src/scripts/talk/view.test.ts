@@ -2,6 +2,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
   buildExchangeCard,
+  creditMeter,
   failureKey,
   fill,
   HISTORY_LIMIT,
@@ -253,6 +254,41 @@ describe('language pair header', () => {
     renderPair(els, 'it', 'fr');
     expect(els.pair!.textContent).not.toContain('Español');
     expect(els.pair!.textContent).toContain('Français');
+  });
+});
+
+describe('credit meter', () => {
+  it('shows the spend with enough precision to visibly move', () => {
+    // A Standard conversation burns ~$0.0009 every five seconds. At the app's usual two
+    // decimals the spend would read "$0.00" for the first half-minute and the meter would
+    // look broken, which is the opposite of showing credits draining in real time.
+    const m = creditMeter(12.5108, 12.5099)!;
+    expect(m.used).toBe('$0.0009');
+    // The remaining balance keeps two decimals, matching everywhere else it is shown.
+    expect(m.left).toBe('$12.51');
+  });
+
+  it('tracks a whole conversation', () => {
+    expect(creditMeter(12.535, 12.511)!.used).toBe('$0.0240');
+  });
+
+  it('never renders a negative spend', () => {
+    // Topping up mid-conversation raises the balance above where it started.
+    expect(creditMeter(10, 25)!.used).toBe('$0.0000');
+  });
+
+  it('starts from zero when the opening balance is unknown', () => {
+    // The profile refresh failed; the first `balance_update` is all we have. Better a
+    // meter that starts at zero than one that invents a spend.
+    const m = creditMeter(null, 8.25)!;
+    expect(m.used).toBe('$0.0000');
+    expect(m.left).toBe('$8.25');
+  });
+
+  it('renders nothing when billing is off', () => {
+    // A backend in guest-only mode sends no balance at all; a "$0.0000" meter would be
+    // a lie about a system that is not counting.
+    expect(creditMeter(12, null)).toBeNull();
   });
 });
 

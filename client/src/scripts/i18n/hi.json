@@ -808,5 +808,7 @@
   "talkErrorConnection": "कनेक्शन बना नहीं रह सका। नेटवर्क जाँचें और दोबारा शुरू करें।",
   "talkErrorProvider": "अभी अनुवाद उपलब्ध नहीं है — दोबारा बोलकर देखें।",
   "talkErrorCredits": "आपके क्रेडिट ख़त्म हो गए हैं।",
-  "talkErrorGeneric": "कुछ ग़लत हो गया। बातचीत दोबारा शुरू करें।"
+  "talkErrorGeneric": "कुछ ग़लत हो गया। बातचीत दोबारा शुरू करें।",
+  "talkCreditsUsed": "उपयोग",
+  "talkCreditsLeft": "शेष"
 }

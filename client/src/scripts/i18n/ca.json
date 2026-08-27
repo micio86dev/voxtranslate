@@ -808,5 +808,7 @@
   "talkErrorConnection": "No hem pogut mantenir la connexió. Comprova la xarxa i torna a començar.",
   "talkErrorProvider": "Ara mateix la traducció no està disponible: torna a parlar.",
   "talkErrorCredits": "T'has quedat sense crèdits.",
-  "talkErrorGeneric": "Alguna cosa ha anat malament. Torna a iniciar la conversa."
+  "talkErrorGeneric": "Alguna cosa ha anat malament. Torna a iniciar la conversa.",
+  "talkCreditsUsed": "Usats",
+  "talkCreditsLeft": "Restants"
 }

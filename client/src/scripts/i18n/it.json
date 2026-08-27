@@ -808,5 +808,7 @@
   "talkErrorConnection": "Non siamo riusciti a mantenere la connessione. Controlla la rete e ricomincia.",
   "talkErrorProvider": "La traduzione non è disponibile in questo momento — prova a ripetere.",
   "talkErrorCredits": "Hai esaurito i crediti.",
-  "talkErrorGeneric": "Qualcosa è andato storto. Riavvia la conversazione."
+  "talkErrorGeneric": "Qualcosa è andato storto. Riavvia la conversazione.",
+  "talkCreditsUsed": "Usati",
+  "talkCreditsLeft": "Rimasti"
 }

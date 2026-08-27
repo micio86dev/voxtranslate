@@ -808,5 +808,7 @@
   "talkErrorConnection": "અમે જોડાણ જાળવી શક્યા નહીં. નેટવર્ક તપાસો અને ફરી શરૂ કરો.",
   "talkErrorProvider": "અત્યારે અનુવાદ ઉપલબ્ધ નથી — ફરી બોલી જુઓ.",
   "talkErrorCredits": "તમારી ક્રેડિટ પૂરી થઈ ગઈ છે.",
-  "talkErrorGeneric": "કંઈક ખોટું થયું. વાતચીત ફરી શરૂ કરો."
+  "talkErrorGeneric": "કંઈક ખોટું થયું. વાતચીત ફરી શરૂ કરો.",
+  "talkCreditsUsed": "વપરાયેલ",
+  "talkCreditsLeft": "બાકી"
 }

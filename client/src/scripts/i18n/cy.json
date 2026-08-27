@@ -808,5 +808,7 @@
   "talkErrorConnection": "Ni allem gadw'r cysylltiad. Gwiriwch y rhwydwaith a dechreuwch eto.",
   "talkErrorProvider": "Nid yw cyfieithu ar gael ar hyn o bryd — rhowch gynnig ar siarad eto.",
   "talkErrorCredits": "Mae eich credydau wedi dod i ben.",
-  "talkErrorGeneric": "Aeth rhywbeth o'i le. Dechreuwch y sgwrs eto."
+  "talkErrorGeneric": "Aeth rhywbeth o'i le. Dechreuwch y sgwrs eto.",
+  "talkCreditsUsed": "Defnyddiwyd",
+  "talkCreditsLeft": "Ar ôl"
 }

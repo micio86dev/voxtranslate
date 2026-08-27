@@ -808,5 +808,7 @@
   "talkErrorConnection": "连接未能保持。请检查网络后重新开始。",
   "talkErrorProvider": "翻译暂时不可用 — 请再说一次。",
   "talkErrorCredits": "你的额度已用完。",
-  "talkErrorGeneric": "出了点问题。请重新开始对话。"
+  "talkErrorGeneric": "出了点问题。请重新开始对话。",
+  "talkCreditsUsed": "已用",
+  "talkCreditsLeft": "剩余"
 }

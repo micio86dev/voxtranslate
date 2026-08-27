@@ -808,5 +808,7 @@
   "talkErrorConnection": "Ma stajniex inżommu l-konnessjoni. Iċċekkja n-netwerk u erġa' ibda.",
   "talkErrorProvider": "It-traduzzjoni mhijiex disponibbli bħalissa – ipprova għid mill-ġdid.",
   "talkErrorCredits": "Spiċċawlek il-krediti.",
-  "talkErrorGeneric": "Xi ħaġa marret ħażin. Erġa' ibda l-konverżazzjoni."
+  "talkErrorGeneric": "Xi ħaġa marret ħażin. Erġa' ibda l-konverżazzjoni.",
+  "talkCreditsUsed": "Użati",
+  "talkCreditsLeft": "Jifdal"
 }

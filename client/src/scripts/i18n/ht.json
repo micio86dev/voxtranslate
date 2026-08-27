@@ -808,5 +808,7 @@
   "talkErrorConnection": "Nou pa t ka kenbe koneksyon an. Tcheke rezo a epi rekòmanse.",
   "talkErrorProvider": "Tradiksyon pa disponib kounye a — eseye pale ankò.",
   "talkErrorCredits": "Kredi ou fini.",
-  "talkErrorGeneric": "Gen yon bagay ki pa mache. Rekòmanse konvèsasyon an."
+  "talkErrorGeneric": "Gen yon bagay ki pa mache. Rekòmanse konvèsasyon an.",
+  "talkCreditsUsed": "Itilize",
+  "talkCreditsLeft": "Rete"
 }

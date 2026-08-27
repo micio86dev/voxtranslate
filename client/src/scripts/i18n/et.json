@@ -808,5 +808,7 @@
   "talkErrorConnection": "Ühendust ei õnnestunud hoida. Kontrolli võrku ja alusta uuesti.",
   "talkErrorProvider": "Tõlge pole praegu saadaval – proovi uuesti öelda.",
   "talkErrorCredits": "Krediit sai otsa.",
-  "talkErrorGeneric": "Midagi läks valesti. Alusta vestlust uuesti."
+  "talkErrorGeneric": "Midagi läks valesti. Alusta vestlust uuesti.",
+  "talkCreditsUsed": "Kasutatud",
+  "talkCreditsLeft": "Jäänud"
 }

@@ -808,5 +808,7 @@
   "talkErrorConnection": "Hatukuweza kudumisha muunganisho. Angalia mtandao kisha uanze upya.",
   "talkErrorProvider": "Tafsiri haipatikani kwa sasa — jaribu kuongea tena.",
   "talkErrorCredits": "Salio lako limeisha.",
-  "talkErrorGeneric": "Hitilafu imetokea. Anza mazungumzo upya."
+  "talkErrorGeneric": "Hitilafu imetokea. Anza mazungumzo upya.",
+  "talkCreditsUsed": "Imetumika",
+  "talkCreditsLeft": "Imebaki"
 }

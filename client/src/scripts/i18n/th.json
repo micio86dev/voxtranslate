@@ -808,5 +808,7 @@
   "talkErrorConnection": "เรารักษาการเชื่อมต่อไว้ไม่ได้ โปรดตรวจสอบเครือข่ายแล้วเริ่มใหม่",
   "talkErrorProvider": "ตอนนี้แปลไม่ได้ — ลองพูดอีกครั้ง",
   "talkErrorCredits": "เครดิตของคุณหมดแล้ว",
-  "talkErrorGeneric": "เกิดข้อผิดพลาด โปรดเริ่มการสนทนาใหม่"
+  "talkErrorGeneric": "เกิดข้อผิดพลาด โปรดเริ่มการสนทนาใหม่",
+  "talkCreditsUsed": "ใช้ไป",
+  "talkCreditsLeft": "คงเหลือ"
 }

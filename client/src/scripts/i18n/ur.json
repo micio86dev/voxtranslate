@@ -808,5 +808,7 @@
   "talkErrorConnection": "ہم کنکشن برقرار نہ رکھ سکے۔ اپنا نیٹ ورک دیکھیں اور دوبارہ شروع کریں۔",
   "talkErrorProvider": "ترجمہ اس وقت دستیاب نہیں — دوبارہ بولنے کی کوشش کریں۔",
   "talkErrorCredits": "آپ کے کریڈٹس ختم ہو گئے ہیں۔",
-  "talkErrorGeneric": "کچھ غلط ہو گیا۔ گفتگو دوبارہ شروع کریں۔"
+  "talkErrorGeneric": "کچھ غلط ہو گیا۔ گفتگو دوبارہ شروع کریں۔",
+  "talkCreditsUsed": "استعمال شدہ",
+  "talkCreditsLeft": "باقی"
 }

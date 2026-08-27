@@ -808,5 +808,7 @@
   "talkErrorConnection": "Neizdevās noturēt savienojumu. Pārbaudi tīklu un sāc no jauna.",
   "talkErrorProvider": "Tulkošana šobrīd nav pieejama – pamēģini pateikt vēlreiz.",
   "talkErrorCredits": "Tavi krediti ir beigušies.",
-  "talkErrorGeneric": "Kaut kas nogāja greizi. Sāc sarunu no jauna."
+  "talkErrorGeneric": "Kaut kas nogāja greizi. Sāc sarunu no jauna.",
+  "talkCreditsUsed": "Izmantoti",
+  "talkCreditsLeft": "Atlikuši"
 }

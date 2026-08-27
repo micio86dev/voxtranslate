@@ -808,5 +808,7 @@
   "talkErrorConnection": "Nepavyko išlaikyti ryšio. Patikrinkite tinklą ir pradėkite iš naujo.",
   "talkErrorProvider": "Vertimas šiuo metu nepasiekiamas – pabandykite pasakyti dar kartą.",
   "talkErrorCredits": "Baigėsi kreditai.",
-  "talkErrorGeneric": "Kažkas nepavyko. Pradėkite pokalbį iš naujo."
+  "talkErrorGeneric": "Kažkas nepavyko. Pradėkite pokalbį iš naujo.",
+  "talkCreditsUsed": "Panaudota",
+  "talkCreditsLeft": "Liko"
 }

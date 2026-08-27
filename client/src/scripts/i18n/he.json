@@ -808,5 +808,7 @@
   "talkErrorConnection": "לא הצלחנו לשמור על החיבור. בדקו את הרשת והתחילו מחדש.",
   "talkErrorProvider": "התרגום אינו זמין כרגע — נסו לומר שוב.",
   "talkErrorCredits": "נגמרו לך הקרדיטים.",
-  "talkErrorGeneric": "משהו השתבש. התחילו את השיחה מחדש."
+  "talkErrorGeneric": "משהו השתבש. התחילו את השיחה מחדש.",
+  "talkCreditsUsed": "נוצלו",
+  "talkCreditsLeft": "נותרו"
 }

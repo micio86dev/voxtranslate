@@ -808,5 +808,7 @@
   "talkErrorConnection": "Vezu nije bilo moguće održati. Provjerite mrežu i počnite ponovo.",
   "talkErrorProvider": "Prijevod trenutno nije dostupan – pokušajte reći ponovo.",
   "talkErrorCredits": "Ostali ste bez kredita.",
-  "talkErrorGeneric": "Nešto je pošlo po zlu. Pokrenite razgovor ponovo."
+  "talkErrorGeneric": "Nešto je pošlo po zlu. Pokrenite razgovor ponovo.",
+  "talkCreditsUsed": "Potrošeno",
+  "talkCreditsLeft": "Preostalo"
 }

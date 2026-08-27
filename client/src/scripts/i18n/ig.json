@@ -808,5 +808,7 @@
   "talkErrorConnection": "Anyị enweghị ike ijigide njikọ ahụ. Lelee netwọk wee malite ọzọ.",
   "talkErrorProvider": "Nsụgharị adịghị ugbu a — nwaa ikwu ya ọzọ.",
   "talkErrorCredits": "Kredit gị agwụla.",
-  "talkErrorGeneric": "Ihe adịghị mma mere. Malite mkparịta ụka ahụ ọzọ."
+  "talkErrorGeneric": "Ihe adịghị mma mere. Malite mkparịta ụka ahụ ọzọ.",
+  "talkCreditsUsed": "Ejiri",
+  "talkCreditsLeft": "Fọdụrụ"
 }

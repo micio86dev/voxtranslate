@@ -808,5 +808,7 @@
   "talkErrorConnection": "Spojenie sa nepodarilo udržať. Skontrolujte sieť a začnite znova.",
   "talkErrorProvider": "Preklad teraz nie je dostupný – skúste to povedať znova.",
   "talkErrorCredits": "Minuli sa vám kredity.",
-  "talkErrorGeneric": "Niečo sa pokazilo. Začnite konverzáciu znova."
+  "talkErrorGeneric": "Niečo sa pokazilo. Začnite konverzáciu znova.",
+  "talkCreditsUsed": "Využité",
+  "talkCreditsLeft": "Zostáva"
 }

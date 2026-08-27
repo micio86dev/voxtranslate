@@ -808,5 +808,7 @@
   "talkErrorConnection": "Yhteyttä ei saatu pidettyä. Tarkista verkko ja aloita alusta.",
   "talkErrorProvider": "Kääntäminen ei ole juuri nyt käytettävissä – yritä sanoa uudelleen.",
   "talkErrorCredits": "Krediittisi loppuivat.",
-  "talkErrorGeneric": "Jokin meni pieleen. Aloita keskustelu uudelleen."
+  "talkErrorGeneric": "Jokin meni pieleen. Aloita keskustelu uudelleen.",
+  "talkCreditsUsed": "Käytetty",
+  "talkCreditsLeft": "Jäljellä"
 }
