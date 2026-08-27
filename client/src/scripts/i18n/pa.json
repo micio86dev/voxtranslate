@@ -808,5 +808,7 @@
   "talkErrorConnection": "ਅਸੀਂ ਕਨੈਕਸ਼ਨ ਬਰਕਰਾਰ ਨਹੀਂ ਰੱਖ ਸਕੇ। ਨੈੱਟਵਰਕ ਜਾਂਚੋ ਅਤੇ ਦੁਬਾਰਾ ਸ਼ੁਰੂ ਕਰੋ।",
   "talkErrorProvider": "ਹੁਣੇ ਅਨੁਵਾਦ ਉਪਲਬਧ ਨਹੀਂ — ਦੁਬਾਰਾ ਬੋਲ ਕੇ ਵੇਖੋ।",
   "talkErrorCredits": "ਤੁਹਾਡੇ ਕ੍ਰੈਡਿਟ ਖ਼ਤਮ ਹੋ ਗਏ ਹਨ।",
-  "talkErrorGeneric": "ਕੁਝ ਗਲਤ ਹੋ ਗਿਆ। ਗੱਲਬਾਤ ਦੁਬਾਰਾ ਸ਼ੁਰੂ ਕਰੋ।"
+  "talkErrorGeneric": "ਕੁਝ ਗਲਤ ਹੋ ਗਿਆ। ਗੱਲਬਾਤ ਦੁਬਾਰਾ ਸ਼ੁਰੂ ਕਰੋ।",
+  "talkCreditsUsed": "ਵਰਤੇ",
+  "talkCreditsLeft": "ਬਾਕੀ"
 }

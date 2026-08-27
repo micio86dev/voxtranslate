@@ -808,5 +808,7 @@
   "talkErrorConnection": "Vi kunde inte hålla anslutningen. Kontrollera nätverket och börja om.",
   "talkErrorProvider": "Översättning är inte tillgänglig just nu – prova att säga det igen.",
   "talkErrorCredits": "Dina krediter är slut.",
-  "talkErrorGeneric": "Något gick fel. Starta samtalet igen."
+  "talkErrorGeneric": "Något gick fel. Starta samtalet igen.",
+  "talkCreditsUsed": "Använt",
+  "talkCreditsLeft": "Kvar"
 }

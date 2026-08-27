@@ -808,5 +808,7 @@
   "talkErrorConnection": "تعذّر الحفاظ على الاتصال. تحقق من الشبكة وابدأ من جديد.",
   "talkErrorProvider": "الترجمة غير متاحة حاليًا — حاول التحدث مرة أخرى.",
   "talkErrorCredits": "لقد نفد رصيدك.",
-  "talkErrorGeneric": "حدث خطأ ما. ابدأ المحادثة من جديد."
+  "talkErrorGeneric": "حدث خطأ ما. ابدأ المحادثة من جديد.",
+  "talkCreditsUsed": "مُستخدَم",
+  "talkCreditsLeft": "المتبقي"
 }

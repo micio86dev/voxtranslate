@@ -808,5 +808,7 @@
   "talkErrorConnection": "A kò lè mú ìsopọ̀ dúró. Ṣàyẹ̀wò nẹ́tíwọ́kì rẹ kí o sì bẹ̀rẹ̀ láti ìbẹ̀rẹ̀.",
   "talkErrorProvider": "Ìtumọ̀ kò sí ní báyìí — gbìyànjú láti sọ̀rọ̀ lẹ́ẹ̀kansí.",
   "talkErrorCredits": "Kírẹ́dítì rẹ ti tán.",
-  "talkErrorGeneric": "Ohun kan ṣàṣìṣe. Bẹ̀rẹ̀ ìjíròrò náà lẹ́ẹ̀kansí."
+  "talkErrorGeneric": "Ohun kan ṣàṣìṣe. Bẹ̀rẹ̀ ìjíròrò náà lẹ́ẹ̀kansí.",
+  "talkCreditsUsed": "Tí a lò",
+  "talkCreditsLeft": "Tó kù"
 }

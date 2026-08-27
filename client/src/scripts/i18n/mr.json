@@ -808,5 +808,7 @@
   "talkErrorConnection": "आम्ही कनेक्शन टिकवू शकलो नाही. नेटवर्क तपासा आणि पुन्हा सुरू करा.",
   "talkErrorProvider": "सध्या भाषांतर उपलब्ध नाही — पुन्हा बोलून पहा.",
   "talkErrorCredits": "तुमची क्रेडिट्स संपली आहेत.",
-  "talkErrorGeneric": "काहीतरी चूक झाली. संभाषण पुन्हा सुरू करा."
+  "talkErrorGeneric": "काहीतरी चूक झाली. संभाषण पुन्हा सुरू करा.",
+  "talkCreditsUsed": "वापरले",
+  "talkCreditsLeft": "शिल्लक"
 }

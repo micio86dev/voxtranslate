@@ -808,5 +808,7 @@
   "talkErrorConnection": "Kami tidak dapat mengekalkan sambungan. Semak rangkaian dan mulakan semula.",
   "talkErrorProvider": "Terjemahan tidak tersedia sekarang — cuba bercakap sekali lagi.",
   "talkErrorCredits": "Kredit anda telah habis.",
-  "talkErrorGeneric": "Ada sesuatu yang tidak kena. Mulakan perbualan semula."
+  "talkErrorGeneric": "Ada sesuatu yang tidak kena. Mulakan perbualan semula.",
+  "talkCreditsUsed": "Digunakan",
+  "talkCreditsLeft": "Baki"
 }

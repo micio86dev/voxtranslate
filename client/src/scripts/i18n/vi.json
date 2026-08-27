@@ -808,5 +808,7 @@
   "talkErrorConnection": "Chúng tôi không giữ được kết nối. Hãy kiểm tra mạng rồi bắt đầu lại.",
   "talkErrorProvider": "Hiện chưa dịch được — hãy thử nói lại.",
   "talkErrorCredits": "Bạn đã hết tín dụng.",
-  "talkErrorGeneric": "Đã xảy ra lỗi. Hãy bắt đầu lại cuộc trò chuyện."
+  "talkErrorGeneric": "Đã xảy ra lỗi. Hãy bắt đầu lại cuộc trò chuyện.",
+  "talkCreditsUsed": "Đã dùng",
+  "talkCreditsLeft": "Còn lại"
 }

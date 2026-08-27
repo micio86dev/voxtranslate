@@ -808,5 +808,7 @@
   "talkErrorConnection": "Bağlantını saxlaya bilmədik. Şəbəkəni yoxlayın və yenidən başlayın.",
   "talkErrorProvider": "Tərcümə hazırda əlçatan deyil — yenidən danışmağa cəhd edin.",
   "talkErrorCredits": "Kreditləriniz bitdi.",
-  "talkErrorGeneric": "Nəsə səhv getdi. Söhbətə yenidən başlayın."
+  "talkErrorGeneric": "Nəsə səhv getdi. Söhbətə yenidən başlayın.",
+  "talkCreditsUsed": "İstifadə olunub",
+  "talkCreditsLeft": "Qalıb"
 }

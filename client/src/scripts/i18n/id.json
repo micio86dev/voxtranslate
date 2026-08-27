@@ -808,5 +808,7 @@
   "talkErrorConnection": "Kami tidak bisa mempertahankan koneksi. Periksa jaringan lalu mulai lagi.",
   "talkErrorProvider": "Terjemahan sedang tidak tersedia — coba bicara lagi.",
   "talkErrorCredits": "Kredit Anda habis.",
-  "talkErrorGeneric": "Terjadi kesalahan. Mulai percakapan lagi."
+  "talkErrorGeneric": "Terjadi kesalahan. Mulai percakapan lagi.",
+  "talkCreditsUsed": "Terpakai",
+  "talkCreditsLeft": "Sisa"
 }

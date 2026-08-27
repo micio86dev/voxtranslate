@@ -808,5 +808,7 @@
   "talkErrorConnection": "ግንኙነቱን ማቆየት አልቻልንም። አውታረ መረቡን አረጋግጡና እንደገና ጀምሩ።",
   "talkErrorProvider": "ትርጉም አሁን አይገኝም — እንደገና ለመናገር ይሞክሩ።",
   "talkErrorCredits": "ክሬዲቶችዎ አልቀዋል።",
-  "talkErrorGeneric": "የሆነ ችግር ተፈጥሯል። ውይይቱን እንደገና ይጀምሩ።"
+  "talkErrorGeneric": "የሆነ ችግር ተፈጥሯል። ውይይቱን እንደገና ይጀምሩ።",
+  "talkCreditsUsed": "ጥቅም ላይ የዋለ",
+  "talkCreditsLeft": "የቀረ"
 }

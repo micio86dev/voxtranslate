@@ -808,5 +808,7 @@
   "talkErrorConnection": "Níorbh fhéidir linn an nasc a choinneáil. Seiceáil an líonra agus tosaigh arís.",
   "talkErrorProvider": "Níl aistriúchán ar fáil faoi láthair — bain triail as labhairt arís.",
   "talkErrorCredits": "Tá do chreidmheasanna imithe.",
-  "talkErrorGeneric": "Chuaigh rud éigin mícheart. Tosaigh an comhrá arís."
+  "talkErrorGeneric": "Chuaigh rud éigin mícheart. Tosaigh an comhrá arís.",
+  "talkCreditsUsed": "Úsáidte",
+  "talkCreditsLeft": "Fágtha"
 }

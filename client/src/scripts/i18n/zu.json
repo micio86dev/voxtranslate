@@ -808,5 +808,7 @@
   "talkErrorConnection": "Asikwazanga ukugcina uxhumano. Hlola inethiwekhi bese uqala kabusha.",
   "talkErrorProvider": "Ukuhumusha akutholakali okwamanje — zama ukukhuluma futhi.",
   "talkErrorCredits": "Amakhredithi akho aphelile.",
-  "talkErrorGeneric": "Kukhona okungahambanga kahle. Qala ingxoxo kabusha."
+  "talkErrorGeneric": "Kukhona okungahambanga kahle. Qala ingxoxo kabusha.",
+  "talkCreditsUsed": "Kusetshenzisiwe",
+  "talkCreditsLeft": "Okusele"
 }

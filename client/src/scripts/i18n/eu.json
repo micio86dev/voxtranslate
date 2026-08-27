@@ -808,5 +808,7 @@
   "talkErrorConnection": "Ezin izan dugu konexioa mantendu. Egiaztatu sarea eta hasi berriro.",
   "talkErrorProvider": "Itzulpena ez dago erabilgarri orain: saiatu berriro hitz egiten.",
   "talkErrorCredits": "Kredituak agortu zaizkizu.",
-  "talkErrorGeneric": "Zerbait gaizki joan da. Hasi elkarrizketa berriro."
+  "talkErrorGeneric": "Zerbait gaizki joan da. Hasi elkarrizketa berriro.",
+  "talkCreditsUsed": "Erabilita",
+  "talkCreditsLeft": "Geratzen da"
 }

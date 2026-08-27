@@ -808,5 +808,7 @@
   "talkErrorConnection": "Ba mu iya riƙe haɗin ba. Duba hanyar sadarwa sannan ka fara daga farko.",
   "talkErrorProvider": "Fassara ba ta samuwa yanzu — gwada ka sake magana.",
   "talkErrorCredits": "Kuɗin ka ya ƙare.",
-  "talkErrorGeneric": "Wani abu ya faskara. Fara tattaunawar daga farko."
+  "talkErrorGeneric": "Wani abu ya faskara. Fara tattaunawar daga farko.",
+  "talkCreditsUsed": "An yi amfani",
+  "talkCreditsLeft": "Saura"
 }

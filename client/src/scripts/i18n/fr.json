@@ -808,5 +808,7 @@
   "talkErrorConnection": "La connexion n'a pas tenu. Vérifiez votre réseau et recommencez.",
   "talkErrorProvider": "La traduction est indisponible pour le moment — réessayez de parler.",
   "talkErrorCredits": "Vous n'avez plus de crédits.",
-  "talkErrorGeneric": "Un problème est survenu. Relancez la conversation."
+  "talkErrorGeneric": "Un problème est survenu. Relancez la conversation.",
+  "talkCreditsUsed": "Utilisés",
+  "talkCreditsLeft": "Restants"
 }

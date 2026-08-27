@@ -808,5 +808,7 @@
   "talkErrorConnection": "保持唔到連線。檢查下網絡再重新開始。",
   "talkErrorProvider": "而家譯唔到 — 試下再講一次。",
   "talkErrorCredits": "你嘅點數用晒喇。",
-  "talkErrorGeneric": "出咗啲問題。請重新開始對話。"
+  "talkErrorGeneric": "出咗啲問題。請重新開始對話。",
+  "talkCreditsUsed": "用咗",
+  "talkCreditsLeft": "剩返"
 }
