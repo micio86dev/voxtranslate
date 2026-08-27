@@ -164,8 +164,15 @@ impl SessionGuard {
 /// sentence ended — `generation` is what stops it being applied to the next one.
 struct Verdict {
     generation: u64,
-    direction: Direction,
+    /// `Err` = the classifier itself failed, as opposed to abstaining.
+    outcome: Result<Direction, String>,
 }
+
+/// Consecutive classifier failures before the client is told. One is a hiccup; three in
+/// a row means the provider is down and the user is staring at "Listening…" wondering
+/// why nothing happens. Silence is the worst way for this feature to fail — it is
+/// indistinguishable from it working.
+const MAX_SILENT_CLASSIFY_FAILURES: u32 = 3;
 
 /// Pull the ORIGINAL transcript out of a subtitle frame.
 ///
@@ -394,6 +401,8 @@ async fn handle_talk_session(socket: WebSocket, params: TalkParams, state: AppSt
     // Bounded to one in-flight classification: partials arrive faster than the model
     // answers, and a queue of stale questions helps nobody.
     let mut resolving = false;
+    // Reset by any success; drives the "provider unavailable" notice.
+    let mut classify_failures: u32 = 0;
 
     // --- session loop ------------------------------------------------------
     let mut audio_tx: Option<mpsc::Sender<Vec<u8>>> = None;
@@ -412,17 +421,40 @@ async fn handle_talk_session(socket: WebSocket, params: TalkParams, state: AppSt
 
             Some(v) = verdict_rx.recv() => {
                 resolving = false;
-                if v.generation != generation || v.direction == Direction::Unknown {
+                let direction = match v.outcome {
+                    Ok(d) => {
+                        classify_failures = 0;
+                        d
+                    }
+                    Err(_) => {
+                        // Every utterance is held until a direction is committed, so a
+                        // dead classifier means permanent silence. Say so, rather than
+                        // let the UI keep claiming it is listening.
+                        classify_failures += 1;
+                        if classify_failures == MAX_SILENT_CLASSIFY_FAILURES {
+                            let _ = out_tx.send(
+                                ServerMessage::Error {
+                                    message: "translation is unavailable right now"
+                                        .to_string(),
+                                    code: Some("provider_unavailable".to_string()),
+                                }
+                                .to_json(),
+                            );
+                        }
+                        continue;
+                    }
+                };
+                if v.generation != generation || direction == Direction::Unknown {
                     continue;
                 }
                 // `Some` means THIS verdict latched. A late second verdict — the free
                 // script path having already decided — returns `None` and is silent, so
                 // the direction is announced exactly once per utterance and the resolved
                 // counter stays honest.
-                let Some(flushed) = utterance.commit(v.direction) else {
+                let Some(flushed) = utterance.commit(direction) else {
                     continue;
                 };
-                emit_direction(v.direction, &resolver, &out_tx);
+                emit_direction(direction, &resolver, &out_tx);
                 for frame in flushed {
                     let _ = out_tx.send(frame);
                 }
@@ -598,11 +630,11 @@ fn route_frame(
                 let tx = verdict_tx.clone();
                 tokio::spawn(async move {
                     let started = std::time::Instant::now();
-                    let direction = resolver.resolve(&text).await;
+                    let outcome = resolver.resolve(&text).await;
                     crate::metrics::record_talk_direction_ms(started.elapsed().as_millis() as u64);
                     let _ = tx.send(Verdict {
                         generation: gen,
-                        direction,
+                        outcome,
                     });
                 });
             }
