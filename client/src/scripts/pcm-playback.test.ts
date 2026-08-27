@@ -10,10 +10,14 @@ class FakeWorkletNode {
   name: string;
   ctorOpts: unknown;
   posted: unknown[] = [];
-  port = {
+  port: {
+    postMessage: (msg: unknown, _transfer?: unknown) => void;
+    onmessage: ((e: { data: unknown }) => void) | null;
+  } = {
     postMessage: (msg: unknown, _transfer?: unknown): void => {
       this.posted.push(msg);
     },
+    onmessage: null,
   };
   connect = vi.fn((n: unknown) => n);
   disconnect = vi.fn();
@@ -206,5 +210,79 @@ describe('PcmPlayback', () => {
 
   it('exports one shared playback instance for the whole call', () => {
     expect(pcmPlayback).toBeInstanceOf(PcmPlayback);
+  });
+
+  // Talk to Anyone (spec 0110) gates the microphone on these edges, because on one
+  // device the speaker feeds the mic. A missed edge is either a feedback loop or a
+  // microphone that stays deaf after the translation finished.
+  describe('playing edges', () => {
+    it('reports each edge once and tracks the current state', async () => {
+      const p = new PcmPlayback();
+      const seen: boolean[] = [];
+      p.setPlayingListener((playing) => seen.push(playing));
+      p.enqueue('a', 0, HALF);
+      await tick();
+
+      const post = (playing: boolean): void =>
+        nodes[0].port.onmessage?.({ data: { playing } });
+
+      expect(p.isPlaying()).toBe(false);
+      post(true);
+      expect(p.isPlaying()).toBe(true);
+      // A repeat of the same edge is not a transition and must not fire again.
+      post(true);
+      post(false);
+      post(false);
+      expect(seen).toEqual([true, false]);
+      expect(p.isPlaying()).toBe(false);
+    });
+
+    it('ignores worklet messages that carry no edge', async () => {
+      const p = new PcmPlayback();
+      const seen: boolean[] = [];
+      p.setPlayingListener((playing) => seen.push(playing));
+      p.enqueue('a', 0, HALF);
+      await tick();
+      nodes[0].port.onmessage?.({ data: undefined });
+      nodes[0].port.onmessage?.({ data: {} });
+      nodes[0].port.onmessage?.({ data: { playing: 'yes' } });
+      expect(seen).toEqual([]);
+    });
+
+    it('reports the falling edge when the graph is torn down mid-speech', async () => {
+      // Otherwise ending a conversation while a translation is still speaking leaves
+      // the listener believing audio plays forever — and the microphone gated shut.
+      const p = new PcmPlayback();
+      const seen: boolean[] = [];
+      p.setPlayingListener((playing) => seen.push(playing));
+      p.enqueue('a', 0, HALF);
+      await tick();
+      nodes[0].port.onmessage?.({ data: { playing: true } });
+      p.stop();
+      expect(seen).toEqual([true, false]);
+      expect(p.isPlaying()).toBe(false);
+    });
+
+    it('reports the falling edge on reset even with no graph to answer', () => {
+      // A barge-in can land before the graph is ever built. The gate must still open.
+      const p = new PcmPlayback();
+      const seen: boolean[] = [];
+      p.setPlayingListener((playing) => seen.push(playing));
+      // Force the "playing with no node" shape the real worklet cannot produce.
+      (p as unknown as { playing: boolean }).playing = true;
+      p.reset();
+      expect(seen).toEqual([false]);
+    });
+
+    it('stops notifying once the listener is cleared', async () => {
+      const p = new PcmPlayback();
+      const seen: boolean[] = [];
+      p.setPlayingListener((playing) => seen.push(playing));
+      p.enqueue('a', 0, HALF);
+      await tick();
+      p.setPlayingListener(null);
+      nodes[0].port.onmessage?.({ data: { playing: true } });
+      expect(seen).toEqual([]);
+    });
   });
 });

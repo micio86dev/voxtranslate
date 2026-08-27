@@ -122,6 +122,22 @@ Each spec follows the same skeleton:
 | [0092](0092-ios-pwa-splash/spec.md) | iOS PWA splash screens | ✅ Shipped | 2026-06-17 | `bc59546` |
 | [0093](0093-premium-translation-engine/spec.md) | Premium translation engine (OpenAI GPT-Realtime-Translate) + N-engine registry | ✅ Shipped | 2026-06-17 | `167820a` |
 | [0094](0094-premium-capacity-fallback/spec.md) | Premium capacity fallback to Standard (no silent queue at the session cap) | ✅ Shipped | 2026-06-17 | `<sha>` |
+| [0095](0095-recording-screen-audio-whiteboard/spec.md) | Recording: shared-screen audio + whiteboard capture | 🚧 In progress | — | — |
+| [0096](0096-supabase-rls-lockdown/spec.md) | Supabase RLS lockdown + security audit | ✅ Applied to prod | — | — |
+| [0097](0097-analytics-standard-vs-premium/spec.md) | Usage analytics: Standard vs Premium | 🚧 Pipeline done, not live | — | — |
+| [0098](0098-quiz-history/spec.md) | Quiz history + per-session analytics | 🚧 Schema only | — | — |
+| [0099](0099-premium-listener-pays/spec.md) | Premium = listener-pays (you pay for the quality YOU receive) | 📐 Design only | — | — |
+| [0100](0100-pro-gemini-live-translate/spec.md) | Pro translation engine (Gemini 3.5 Live Translate) | ✅ Shipped | 2026-06-17 | — |
+| [0101](0101-soniox-enhanced-tier/spec.md) | Enhanced tier (Soniox, client-direct) — superseded by [0108](0108-cartesia-enhanced-tier/spec.md) | 🚧 Superseded | — | — |
+| [0102](0102-language-first-ux/spec.md) | Language-first UX, full language union & i18n (flag `LANGUAGE_FIRST_UX`) | 🚧 In progress | — | — |
+| [0103](0103-safari-webkit-voice-translation/spec.md) | Safari/WebKit voice-translation support (capture fix; PCM STT deferred) | ✅ Phase 1 · Phase 2 deferred | 2026-06-19 | — |
+| [0104](0104-mobile-performance-lazy-i18n/spec.md) | Mobile performance: lazy i18n + server-rendered text (PSI 71 → 90+) | ✅ Shipped | 2026-06-19 | — |
+| [0105](0105-code-split-call-modules/spec.md) | Code-split in-call modules out of the landing entry chunk | ✅ Shipped | 2026-06-19 | — |
+| [0106](0106-voxtranslate-for-business/spec.md) | VoxTranslate for Business (org workspace, projects, cloud recording, transcripts) | 🚧 Phase 1 (schema) | — | — |
+| [0107](0107-translation-cache-dragonflydb/spec.md) | Translation cache (DragonflyDB, Standard tier) | 🚧 In progress | — | — |
+| [0108](0108-cartesia-enhanced-tier/spec.md) | Enhanced tier (Cartesia: client-direct STT + TTS + voice cloning) | 🚧 In progress | — | — |
+| [0109](0109-invoices-and-e-invoicing/spec.md) | Downloadable invoices (B2C + B2B) and electronic invoicing | 🚧 Phase 1 · Phase 2 parked | — | — |
+| [0110](0110-talk-to-anyone/spec.md) | Talk to Anyone — face-to-face translation on one device (one mic, both directions) | 🚧 Implemented, pending live verification | — | `6953d0b5` |
 
 > Numbers 0011–0015 were claimed by commit messages while the AI bundle shipped
 > without spec docs (and 0011/0012 were each reused twice); the assignments

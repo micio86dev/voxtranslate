@@ -21,6 +21,12 @@ export class PcmCapture {
   private src: MediaStreamAudioSourceNode | null = null;
   private active = false;
   private starting = false;
+  // Talk to Anyone (spec 0110): drop frames without tearing capture down. On one device
+  // the speaker feeds the microphone, so audio must stop flowing WHILE translated speech
+  // plays. `stop()` would work, but it closes the AudioContext and reloads the worklet on
+  // every sentence — hundreds of milliseconds, and the head of the next utterance lost.
+  // Default false, so every existing call path behaves exactly as before.
+  private gated = false;
 
   constructor(stream: MediaStream, ws: WebSocket) {
     this.stream = stream;
@@ -57,6 +63,7 @@ export class PcmCapture {
       this.src = this.ctx.createMediaStreamSource(new MediaStream([live]));
       this.node = new AudioWorkletNode(this.ctx, 'pcm-capture-processor');
       this.node.port.onmessage = (e: MessageEvent<ArrayBuffer>) => {
+        if (this.gated) return;
         if (this.ws.readyState === WebSocket.OPEN) this.ws.send(e.data);
       };
       // A node only runs when it's pulled by the graph; route it to a muted sink.
@@ -102,6 +109,20 @@ export class PcmCapture {
   setMuted(muted: boolean): void {
     if (muted) this.stop();
     else this.start();
+  }
+
+  /**
+   * Hold frames back without releasing the microphone. Unlike `setMuted` this keeps the
+   * AudioContext, the worklet and the upstream session alive, so releasing the gate
+   * resumes on the very next 100 ms chunk.
+   */
+  setGated(gated: boolean): void {
+    this.gated = gated;
+  }
+
+  /** True while frames are being dropped by the gate. */
+  isGated(): boolean {
+    return this.gated;
   }
 
   private sendControl(type: 'start' | 'stop'): void {

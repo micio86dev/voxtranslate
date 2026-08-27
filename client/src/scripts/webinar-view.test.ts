@@ -31,14 +31,16 @@ vi.mock('./hls-player', () => ({
 // SUPPORTED is exported and used by resolveViewerLang to validate a stored language.
 // setUiLangMock is hoisted so the vi.mock factory (which is hoisted) can reference it.
 const { setUiLangMock } = vi.hoisted(() => ({ setUiLangMock: vi.fn() }));
-vi.mock('./i18n', () => ({
+// Partial mock: the DOM/locale side effects are stubbed, but `resolveStoredLang`
+// runs for real so the vt_lang cookie test below still exercises the actual rule.
+vi.mock('./i18n', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./i18n')>()),
   t: (k: string) => k,
   detectLang: () => 'en',
   getUiLang: () => 'en',
   setUiLang: setUiLangMock,
   applyI18n: vi.fn(),
   loadLocale: vi.fn(async () => {}),
-  SUPPORTED: ['en', 'es', 'it', 'fr', 'de', 'pt', 'zh', 'ja', 'ko', 'ar', 'ru'],
 }));
 
 // WebinarTts is constructed in onInfo when host/viewer languages differ; mock it so the

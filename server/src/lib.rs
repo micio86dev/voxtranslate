@@ -50,6 +50,7 @@ pub mod safety;
 pub mod storage;
 pub mod stripe_handler;
 pub mod subtitles;
+pub mod talk;
 pub mod transcripts;
 pub mod translator;
 pub mod usage;
@@ -575,6 +576,9 @@ pub fn app(state: AppState) -> Router {
         .route("/ws/extension", get(extension::ws_extension))
         .route("/api/extension/code", post(extension::issue_code))
         .route("/api/extension/token", post(extension::exchange_token))
+        // Talk to Anyone (spec 0110). Same isolation rule as the extension route: a
+        // fault here cannot reach calls, webinars, or the room path.
+        .route("/ws/talk", get(talk::ws_talk))
         .route("/rooms", get(rooms_handler))
         .route("/health", get(|| async { "ok" }))
         .route("/version", get(version_handler))

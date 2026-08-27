@@ -47,6 +47,19 @@ static QWEN_CONNECT_BUCKETS: [AtomicU64; 11] = [const { AtomicU64::new(0) }; 11]
 // drops invisible was not. A hole here reaches the viewer as chopped subtitles AND
 // chopped translated speech, because both are outputs of the same session, so these
 // counters are the first thing to read when either is reported.
+// Talk to Anyone direction resolution (spec 0110). Two people share one microphone, so
+// every utterance has to be attributed to one of the two configured languages before a
+// word can be spoken aloud. `direction_ms` is how long that took (the free script path
+// records ~0; the Groq classifier is the tail), `resolved` and `unknown` are the outcome
+// split. A rising `unknown` share is the signal that a language pair is too close to
+// separate, or that utterances are arriving too short to classify — it means people are
+// hearing silence, which is invisible in every other metric.
+static TALK_DIR_SUM: AtomicU64 = AtomicU64::new(0);
+static TALK_DIR_COUNT: AtomicU64 = AtomicU64::new(0);
+static TALK_DIR_BUCKETS: [AtomicU64; 11] = [const { AtomicU64::new(0) }; 11];
+static TALK_DIR_RESOLVED: AtomicU64 = AtomicU64::new(0);
+static TALK_DIR_UNKNOWN: AtomicU64 = AtomicU64::new(0);
+
 static WBR_CHUNKS: AtomicU64 = AtomicU64::new(0);
 static WBR_DROPPED_INGEST: AtomicU64 = AtomicU64::new(0);
 static WBR_DROPPED_FANOUT: AtomicU64 = AtomicU64::new(0);
@@ -118,6 +131,22 @@ pub fn record_qwen_connect(ms: u64) {
     );
 }
 
+/// Record how long one direction resolution took (ms).
+pub fn record_talk_direction_ms(ms: u64) {
+    observe(&TALK_DIR_SUM, &TALK_DIR_COUNT, &TALK_DIR_BUCKETS, ms);
+}
+
+/// Count one utterance whose direction was committed and therefore spoken aloud.
+pub fn record_talk_direction_resolved() {
+    TALK_DIR_RESOLVED.fetch_add(1, Ordering::Relaxed);
+}
+
+/// Count one utterance that ended without a direction — too short, too ambiguous, or a
+/// third language. Nothing was spoken for it, by design (brief §6/§16).
+pub fn record_talk_direction_unknown() {
+    TALK_DIR_UNKNOWN.fetch_add(1, Ordering::Relaxed);
+}
+
 /// Record one completed request. Called from the canonical-log middleware, which
 /// already has the final status + wall latency, so there's no extra timing cost.
 pub fn record_request(status: u16, latency_ms: u64) {
@@ -166,6 +195,11 @@ struct Snapshot {
     webinar_chunks: u64,
     webinar_dropped_ingest: u64,
     webinar_dropped_fanout: u64,
+    talk_dir_sum: u64,
+    talk_dir_count: u64,
+    talk_dir_buckets: [u64; 11],
+    talk_dir_resolved: u64,
+    talk_dir_unknown: u64,
 }
 
 fn snapshot() -> Snapshot {
@@ -198,6 +232,11 @@ fn snapshot() -> Snapshot {
         webinar_chunks: WBR_CHUNKS.load(Ordering::Relaxed),
         webinar_dropped_ingest: WBR_DROPPED_INGEST.load(Ordering::Relaxed),
         webinar_dropped_fanout: WBR_DROPPED_FANOUT.load(Ordering::Relaxed),
+        talk_dir_sum: TALK_DIR_SUM.load(Ordering::Relaxed),
+        talk_dir_count: TALK_DIR_COUNT.load(Ordering::Relaxed),
+        talk_dir_buckets: std::array::from_fn(|i| TALK_DIR_BUCKETS[i].load(Ordering::Relaxed)),
+        talk_dir_resolved: TALK_DIR_RESOLVED.load(Ordering::Relaxed),
+        talk_dir_unknown: TALK_DIR_UNKNOWN.load(Ordering::Relaxed),
     }
 }
 
@@ -343,6 +382,31 @@ fn render_from(s: &Snapshot, active_rooms: u64, active_peers: u64) -> String {
         s.webinar_dropped_fanout
     );
 
+    write_histogram(
+        &mut o,
+        "voxtranslate_talk_direction_ms",
+        "Talk to Anyone: time to attribute one utterance to one of the two languages, ms.",
+        s.talk_dir_sum,
+        s.talk_dir_count,
+        &s.talk_dir_buckets,
+    );
+
+    let _ = writeln!(
+        o,
+        "# HELP voxtranslate_talk_direction_total Talk to Anyone utterances by resolution outcome."
+    );
+    let _ = writeln!(o, "# TYPE voxtranslate_talk_direction_total counter");
+    let _ = writeln!(
+        o,
+        "voxtranslate_talk_direction_total{{outcome=\"resolved\"}} {}",
+        s.talk_dir_resolved
+    );
+    let _ = writeln!(
+        o,
+        "voxtranslate_talk_direction_total{{outcome=\"unknown\"}} {}",
+        s.talk_dir_unknown
+    );
+
     o
 }
 
@@ -375,6 +439,11 @@ mod tests {
             webinar_chunks: 1000,
             webinar_dropped_ingest: 12,
             webinar_dropped_fanout: 7,
+            talk_dir_sum: 900,
+            talk_dir_count: 6,
+            talk_dir_buckets: [0, 0, 1, 1, 2, 4, 6, 6, 6, 6, 6],
+            talk_dir_resolved: 5,
+            talk_dir_unknown: 1,
         };
         let out = render_from(&snap, 2, 5);
 
@@ -405,8 +474,16 @@ mod tests {
         assert!(out.contains("voxtranslate_webinar_audio_chunks_total 1000"));
         assert!(out.contains("voxtranslate_webinar_audio_dropped_total{hop=\"ingest\"} 12"));
         assert!(out.contains("voxtranslate_webinar_audio_dropped_total{hop=\"fanout\"} 7"));
+
+        // Talk to Anyone direction resolution: the histogram and the outcome split. The
+        // `unknown` counter is the one that matters operationally — it is how often a
+        // conversation went silent on purpose, which no other metric shows.
+        assert!(out.contains("voxtranslate_talk_direction_ms_count 6"));
+        assert!(out.contains("voxtranslate_talk_direction_ms_sum 900"));
+        assert!(out.contains("voxtranslate_talk_direction_total{outcome=\"resolved\"} 5"));
+        assert!(out.contains("voxtranslate_talk_direction_total{outcome=\"unknown\"} 1"));
         // Every metric is preceded by a TYPE line (Prometheus exposition hygiene).
-        assert_eq!(out.matches("# TYPE ").count(), 10);
+        assert_eq!(out.matches("# TYPE ").count(), 12);
     }
 
     #[test]

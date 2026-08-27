@@ -87,9 +87,8 @@ const jsonLd = {
       <header class="home-header">
         <div class="brand-row">
           <img class="brand-logo" src="/logo-88.png" alt="" width="44" height="44" decoding="async" fetchpriority="high" />
-          <h1 class="brand">Vox<span>Translate</span></h1>
+          <p class="brand">Vox<span>Translate</span></p>
         </div>
-        <p class="tagline" data-i18n="tagline">{T('tagline')}</p>
         <!-- Signed-in nav (spec: account hub): a balance pill, the one-tap Buy CTA, and a
              single avatar menu that holds every secondary account destination. Replaces the
              old row of six competing buttons. -->
@@ -112,6 +111,8 @@ const jsonLd = {
               <button class="acct-item" type="button" role="menuitem" data-acct-nav="profile"><span class="acct-item-ico" data-ico="user" aria-hidden="true"></span><span class="acct-item-label" data-i18n="profileTitle">{T('profileTitle')}</span></button>
               <button class="acct-item" type="button" role="menuitem" data-acct-nav="billing"><span class="acct-item-ico" data-ico="wallet" aria-hidden="true"></span><span class="acct-item-label" data-i18n="billingTitle">{T('billingTitle')}</span></button>
               <button class="acct-item" type="button" role="menuitem" data-acct-nav="friends"><span class="acct-item-ico" data-ico="users" aria-hidden="true"></span><span class="acct-item-label" data-i18n="friendsTitle">{T('friendsTitle')}</span><span id="friends-menu-badge" class="chat-badge acct-item-badge hidden">0</span></button>
+              <a class="acct-item" role="menuitem" href="/world"><span class="acct-item-ico" aria-hidden="true">🌍</span><span class="acct-item-label" data-i18n="talkToWorld">{T('talkToWorld')}</span></a>
+              <a class="acct-item" role="menuitem" href="/talk"><span class="acct-item-ico" aria-hidden="true">💬</span><span class="acct-item-label" data-i18n="talkToAnyone">{T('talkToAnyone')}</span></a>
               <button class="acct-item" type="button" role="menuitem" data-acct-nav="notifications"><span class="acct-item-ico" data-ico="bell" aria-hidden="true"></span><span class="acct-item-label" data-i18n="notifTitle">{T('notifTitle')}</span></button>
               <button class="acct-item" type="button" role="menuitem" data-acct-nav="privacy"><span class="acct-item-ico" data-ico="shield" aria-hidden="true"></span><span class="acct-item-label" data-i18n="privacyData">{T('privacyData')}</span></button>
               <a id="workspace-btn" class="acct-item workspace-btn hidden" role="menuitem" data-i18n-title="workspace" title={T('workspace')} target="_blank" rel="noopener"><span class="acct-item-ico" data-ico="grid" aria-hidden="true"></span><span class="acct-item-label" data-i18n="workspace">{T('workspace')}</span></a>
@@ -132,6 +133,27 @@ const jsonLd = {
           <button id="guest-signin-btn" class="guest-signin" data-i18n="signIn">{T('signIn')}</button>
         </div>
       </header>
+      <!-- Hero (spec: Talk to the World). The value proposition leads, the forms
+           follow. Discovery is the dominant CTA because a first-time visitor has to
+           understand they can meet someone who speaks another language BEFORE they
+           are asked to fill in a room code. No STT/TTS/WebRTC vocabulary here. -->
+      <section class="home-hero">
+        <h1 class="hero-title" data-i18n="heroTitle">{T('heroTitle')}</h1>
+        <p class="hero-sub" data-i18n="heroSub">{T('heroSub')}</p>
+        <div class="hero-cta">
+          <a id="hero-world" class="btn-primary hero-primary" href="/world">
+            <span class="hero-globe" aria-hidden="true">🌍</span>
+            <span data-i18n="talkToWorld">{T('talkToWorld')}</span>
+          </a>
+          <!-- Face-to-face on one device (spec 0110). A sibling of discovery rather than
+               a third form: it needs no room code, no invite and no second device. -->
+          <a id="hero-talk" class="btn-ghost hero-secondary" href="/talk">
+            <span class="hero-globe" aria-hidden="true">💬</span>
+            <span data-i18n="talkToAnyone">{T('talkToAnyone')}</span>
+          </a>
+          <button id="hero-private" type="button" class="btn-ghost hero-secondary" data-i18n="createPrivateRoom">{T('createPrivateRoom')}</button>
+        </div>
+      </section>
       <div class="home-body">
         <div class="card">
           <div class="field-row">
@@ -210,14 +232,6 @@ const jsonLd = {
             <button id="schedule-open" class="btn-ghost" data-i18n="scheduleNew">{T('scheduleNew')}</button>
           </div>
           <div id="schedule-list" class="schedule-list"></div>
-        </div>
-
-        <div class="card">
-          <div class="card-title-row">
-            <span class="card-title" data-i18n="publicRooms">{T('publicRooms')}</span>
-            <button id="refresh" class="btn-ghost" data-i18n="refresh">{T('refresh')}</button>
-          </div>
-          <div id="rooms-list" class="rooms-list"></div>
         </div>
 
         <!-- Host a webinar CTA (D9, PR5). Shown only for signed-in B2B users with at
@@ -411,6 +425,14 @@ const jsonLd = {
         </div>
         <div class="video-stage">
           <div id="video-grid" class="video-grid" data-peers="1"></div>
+          <!-- Alone on the stage: say what is being waited for instead of leaving an
+               empty grid. A public room is waiting for a stranger from anywhere; a
+               private one is waiting for the people you invited. world.ts's page has
+               the same promise, so the two states read as one product. The data-i18n
+               key is swapped at runtime so a language switch repaints the right copy. -->
+          <p id="wait-alone" class="wait-alone" role="status" hidden>
+            <span id="wait-alone-copy" data-i18n="waitingPeers">{T('waitingPeers')}</span>
+          </p>
           <!-- On-video meta cluster, top-left (spec 0061 / #98): HH:MM | ROOM over a
                subtle dark backdrop — replaces the separate header row, Meet-style. -->
           <div class="stage-meta-wrap">
@@ -1917,45 +1939,80 @@ const jsonLd = {
     .brand { margin: 0; font-size: 1.9rem; font-weight: 700; letter-spacing: -0.02em; }
     .brand span { color: var(--accent); }
     .tagline { margin: 4px 0 0; color: var(--muted); font-size: 0.92rem; }
+
+    /* Hero — the first screen sells the promise, not the plumbing. The discovery
+       CTA is deliberately the heaviest element on the page; the private-room CTA
+       stays clearly available but visually second. */
+    .home-hero { text-align: center; padding: 18px 0 6px; }
+    .hero-title {
+      margin: 0 0 10px;
+      font-size: clamp(1.7rem, 6.5vw, 2.35rem);
+      line-height: 1.15;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+    .hero-sub {
+      margin: 0 auto;
+      max-width: 34rem;
+      color: var(--muted);
+      font-size: var(--font-md);
+      line-height: 1.55;
+    }
+    .hero-cta {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      margin-top: 18px;
+    }
+    .hero-primary {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      width: 100%;
+      max-width: 22rem;
+      text-decoration: none;
+      font-size: 1.05rem;
+    }
+    .hero-secondary { width: 100%; max-width: 22rem; min-height: var(--tap-target); }
+    .hero-globe { font-size: 1.15em; line-height: 1; }
+    @media (min-width: 640px) {
+      .hero-cta { flex-direction: row; justify-content: center; }
+      .hero-primary, .hero-secondary { width: auto; padding-inline: 1.6rem; }
+    }
     .home-body {
       width: 100%; max-width: 600px; margin: 0 auto; padding: 14px 16px 28px;
       display: flex; flex-direction: column; gap: 14px;
     }
+    /* Waiting-for-someone line, centred over the empty stage. Pointer-events off so
+       it never intercepts a tap meant for the video controls beneath it. */
+    .wait-alone {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      margin: 0;
+      max-width: 20rem;
+      padding: 0 1rem;
+      text-align: center;
+      color: var(--muted);
+      font-size: var(--font-md);
+      line-height: 1.5;
+      pointer-events: none;
+    }
+
     /* Host-a-webinar CTA card (D9, PR5) — prominent but matches card language. */
     .host-webinar-cta { border-color: var(--accent); }
     .host-cta-desc { margin: 6px 0 14px; font-size: 0.88rem; color: var(--muted); line-height: 1.45; }
     .host-webinar-cta .btn-primary { width: 100%; }
 
-    .rooms-list { display: flex; flex-direction: column; gap: 10px; }
     .schedule-list { display: flex; flex-direction: column; gap: 8px; }
     .schedule-list :global(.schedule-item) { display: flex; align-items: center; gap: 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
     .schedule-list :global(.schedule-item-main) { display: flex; flex-direction: column; flex: 1; min-width: 0; }
     .schedule-list :global(.schedule-item-title) { font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .schedule-list :global(.schedule-item-when) { font-size: 0.82rem; color: var(--muted); }
     .schedule-list :global(.schedule-empty) { color: var(--muted); font-size: var(--font-sm); margin: 0; }
-    /* Lobby items are created in JS — style via :global() under .rooms-list. */
-    .rooms-list :global(.room-item) {
-      width: 100%; text-align: start; background: var(--bg); border: 1px solid var(--border);
-      border-radius: 10px; padding: 12px 14px; transition: all 0.15s;
-    }
-    .rooms-list :global(.room-item:hover) { border-color: var(--accent); }
-    .rooms-list :global(.room-item:active) { transform: translateY(1px); }
-    .rooms-list :global(.room-item-main) { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-    .rooms-list :global(.room-item-code) { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text); }
-    .rooms-list :global(.room-item-count) { font-size: 0.82rem; color: var(--muted); flex: none; display: inline-flex; align-items: center; gap: 5px; }
-    .rooms-list :global(.room-item-members) { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-    .rooms-list :global(.chip) { font-size: 0.78rem; color: var(--text); background: var(--surface-2); border: 1px solid var(--border); border-radius: 999px; padding: 3px 9px; }
-    /* Overlapping avatar stack of who's in the room (social style, spec 0072). The
-       --bg ring matches the card so the circles read as separated when they overlap. */
-    .rooms-list :global(.room-item-avatars) { display: flex; align-items: center; margin-top: 8px; }
-    .rooms-list :global(.ri-av) {
-      width: 28px; height: 28px; border-radius: 50%; border: 2px solid var(--bg); margin-inline-start: -9px;
-      overflow: hidden; display: grid; place-items: center; font-size: 0.64rem; font-weight: 700;
-      color: #fff; flex: none;
-    }
-    .rooms-list :global(.ri-av:first-child) { margin-inline-start: 0; }
-    .rooms-list :global(.ri-av img) { width: 100%; height: 100%; object-fit: cover; display: block; }
-    .rooms-list :global(.lobby-empty) { color: var(--muted); text-align: center; font-size: 0.88rem; padding: 14px 0; }
 
     /* Public webinars list — mirrors the room-item visual language but is its own
        card class (a webinar card is a full navigation to /w/{code}, not a prejoin). */

@@ -80,3 +80,7 @@ backend.hcl
 # Marketing audit deliverables (generated reports: HTML/PDF + raw scrape artifacts).
 # Regenerate with the agent team in .claude/skills/ — not source, and large binaries.
 /marketing-audit/
+
+# Translator partials for the i18n merge scripts (client/scripts/merge-*-i18n.mjs).
+# Scratch input, not source: the merged strings live in client/src/scripts/i18n/*.json.
+client/.talk-i18n/

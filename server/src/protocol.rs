@@ -325,6 +325,20 @@ pub enum ServerMessage {
         pcm16_b64: String,
     },
 
+    /// Talk to Anyone (spec 0110): the conversation's direction has been resolved for
+    /// the current utterance. `spoken` is the language just heard, `target` the one the
+    /// translation comes out in.
+    ///
+    /// Purely a UI signal — the gating it reports has already happened server-side. It is
+    /// what turns the status line into "🇮🇹 Italian detected", and it is deliberately
+    /// sent only once a direction is COMMITTED: while the resolver is still undecided the
+    /// client shows "Listening…" rather than a guess it may have to retract (brief §16).
+    /// No confidence value is exposed — that is a diagnostic, not user-facing.
+    TalkDirection {
+        spoken: String,
+        target: String,
+    },
+
     /// Live credit balance after a usage deduction (sent only to the speaker).
     BalanceUpdate {
         balance: f64,

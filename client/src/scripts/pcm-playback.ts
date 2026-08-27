@@ -19,6 +19,30 @@ export class PcmPlayback {
   private ready: Promise<void> | null = null;
   // Per-speaker last-played sequence, to drop out-of-order/duplicate frames.
   private lastSeq = new Map<string, number>();
+  // Notified on the edges of speech (spec 0110). Talk to Anyone gates the microphone
+  // while this graph is audible, because on one device the speaker feeds the mic.
+  private onPlayingChange: ((playing: boolean) => void) | null = null;
+  private playing = false;
+
+  /**
+   * Listen for the start and end of translated speech. Set before the first `enqueue`
+   * so no edge is missed; pass `null` to stop listening.
+   */
+  setPlayingListener(fn: ((playing: boolean) => void) | null): void {
+    this.onPlayingChange = fn;
+  }
+
+  /** True while translated audio is actually leaving the graph. */
+  isPlaying(): boolean {
+    return this.playing;
+  }
+
+  private handleWorkletMessage = (e: MessageEvent<{ playing?: boolean }>): void => {
+    const playing = e.data?.playing;
+    if (typeof playing !== 'boolean' || playing === this.playing) return;
+    this.playing = playing;
+    this.onPlayingChange?.(playing);
+  };
 
   private ensure(): Promise<void> {
     if (this.ready) return this.ready;
@@ -33,6 +57,7 @@ export class PcmPlayback {
         numberOfOutputs: 1,
         outputChannelCount: [1],
       });
+      this.node.port.onmessage = this.handleWorkletMessage;
       this.node.connect(this.ctx.destination);
     })();
     return this.ready;
@@ -62,18 +87,33 @@ export class PcmPlayback {
       .catch(() => {});
   }
 
-  /** Flush queued audio + reset ordering (leave a call / engine downgrade). */
+  /**
+   * Flush queued audio + reset ordering (leave a call, engine downgrade, or a barge-in
+   * that cancels a translation mid-sentence). The worklet answers with a `playing:false`
+   * edge, so a gated microphone reopens without waiting for anything.
+   */
   reset(): void {
     this.lastSeq.clear();
     this.node?.port.postMessage('flush');
+    if (!this.node && this.playing) {
+      // No graph to answer us — report the edge ourselves rather than leave a listener
+      // believing audio is still playing (and, in Talk to Anyone, the microphone shut).
+      this.playing = false;
+      this.onPlayingChange?.(false);
+    }
   }
 
   /** Tear everything down (on leaving the call). */
   stop(): void {
     this.reset();
     if (this.node) {
+      this.node.port.onmessage = null;
       this.node.disconnect();
       this.node = null;
+    }
+    if (this.playing) {
+      this.playing = false;
+      this.onPlayingChange?.(false);
     }
     if (this.ctx) {
       void this.ctx.close().catch(() => {});

@@ -18,6 +18,13 @@
 // the CSP `worker-src 'self'` allows it. Kept byte-identical between the web client
 // (`client/public/`) and the Chrome extension (`voxtranslate-chrome-extension/public/`)
 // so both drain audio the same way — change one, change the other.
+//
+// It also posts `{ playing }` on the edges of speech (spec 0110). Only this processor
+// knows when translated audio is actually leaving the graph, and Talk to Anyone needs
+// that edge exactly: the device's own speaker is feeding its own microphone, so capture
+// is gated WHILE audio plays and released the moment it stops. That has to be an event —
+// a timer would either clip the start of the next sentence or leave the microphone deaf
+// after the voice finished. Nothing listens by default, so this is inert everywhere else.
 
 /** Cushion built before playback starts, and rebuilt after every underrun. */
 const PREBUFFER_MS = 250;
@@ -46,6 +53,8 @@ class PcmPlaybackProcessor extends AudioWorkletProcessor {
     this._quiet = 0;
     /** Last sample played, decayed toward zero whenever the audio stops. */
     this._tail = 0;
+    /** Last `playing` edge reported to the main thread, so each is posted once. */
+    this._reported = false;
 
     this.port.onmessage = (e) => {
       if (e.data === 'flush') {
@@ -54,6 +63,10 @@ class PcmPlaybackProcessor extends AudioWorkletProcessor {
         this._pos = 0;
         this._queued = 0;
         this._playing = false;
+        // A flush is a cancellation — barge-in, or the session ending. Report the edge
+        // immediately rather than after the end-of-speech hold: whoever interrupted is
+        // talking RIGHT NOW and the microphone has to be listening.
+        this._report(false);
       } else {
         this._queue.push(e.data);
         this._queued += e.data.length;
@@ -63,6 +76,13 @@ class PcmPlaybackProcessor extends AudioWorkletProcessor {
         this._quiet = 0;
       }
     };
+  }
+
+  /** Post a `playing` edge once per transition. */
+  _report(playing) {
+    if (this._reported === playing) return;
+    this._reported = playing;
+    this.port.postMessage({ playing });
   }
 
   /** Fill `out` from `start` with the decaying remains of the last sample played. */
@@ -88,10 +108,16 @@ class PcmPlaybackProcessor extends AudioWorkletProcessor {
         this._queued >= PREBUFFER_SAMPLES ||
         (this._queued > 0 && this._quiet >= TAIL_TIMEOUT_SAMPLES);
       if (!ready) {
+        // Distinguish the end of an utterance from an underrun mid-word. Both leave
+        // `_playing` false, but only one means the voice is finished — and un-gating the
+        // microphone during a rebuffer would let the phone hear its own translation.
+        // Reuse the tail timeout: it is already this file's "nothing is arriving" mark.
+        if (this._queued === 0 && this._quiet >= TAIL_TIMEOUT_SAMPLES) this._report(false);
         this._silence(out, 0);
         return true;
       }
       this._playing = true;
+      this._report(true);
     }
 
     for (let i = 0; i < out.length; i++) {
