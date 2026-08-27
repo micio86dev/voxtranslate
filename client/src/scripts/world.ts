@@ -195,7 +195,7 @@ async function poll(): Promise<void> {
 /** Hand the room to the SPA, which owns pre-join, the guest sign-in gate and the call. */
 function join(room: string, occupancy?: string): void {
   track('public_room_join_clicked', { occupancy: Number(occupancy) || 0 });
-  location.href = buildInviteLink(location.origin, room);
+  location.href = buildInviteLink(location.origin, room, 'world');
 }
 
 function startPublic(): void {

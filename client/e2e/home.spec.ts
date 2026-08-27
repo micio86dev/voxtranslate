@@ -39,20 +39,9 @@ test('home: i18n switching, hero CTAs, PWA tags', async ({ browser }) => {
   await expect(page.locator('#hero-world')).toHaveAttribute('href', '/world');
   await expect(page.locator('h1.hero-title')).toBeVisible();
 
-  // ...but only for someone who can actually use it. Talk to the World is public-room
-  // discovery, and public rooms require an account, so showing a guest the front door to
-  // a room they get bounced out of is a dead end. The other two CTAs stay: a private room
-  // and a face-to-face conversation are both reachable without one (Talk to Anyone
-  // explains the sign-in on its own screen rather than vanishing from the home).
-  const guest = await page.evaluate(() => !localStorage.getItem('vox.token'));
-  const worldHidden = await page
-    .locator('#hero-world')
-    .evaluate((el) => el.classList.contains('hidden'));
-  if (guest) {
-    expect(worldHidden, 'Talk to the World must be hidden from a guest').toBe(true);
-    await expect(page.locator('#hero-talk')).toBeVisible();
-    await expect(page.locator('#hero-private')).toBeVisible();
-  }
+  // Guests see it on purpose: browsing real conversations is what makes someone sign
+  // up. The account is required to JOIN, and that push lives on the join path — see
+  // world.spec.ts and the `from=world` gate in app.ts.
 
   // The secondary CTA reuses the create flow: private preselected, cursor in the field.
   await page.click('#hero-private');
