@@ -418,6 +418,8 @@ export class TalkConversation {
         // A direction belongs to a NEW sentence, so the settled one has had its run.
         const base = this.live.settled ? blankLive() : this.live;
         this.live = { ...base, spokenLang: spoken, targetLang: target };
+        // A direction means somebody is mid-sentence: hold the microphone open.
+        this.guard.setSpeechActive(true);
         this.dispatch({ type: 'DIRECTION_RESOLVED' });
         this.opts.onLive(this.live);
         break;
@@ -434,6 +436,7 @@ export class TalkConversation {
           translatedText: text,
           originalText: original || base.originalText,
         };
+        this.guard.setSpeechActive(true);
         this.dispatch({ type: 'SPEECH_DETECTED' });
         this.opts.onLive(this.live);
         break;
@@ -492,6 +495,9 @@ export class TalkConversation {
       ''
     ).trim();
 
+    // The sentence is over: from here the only voice that could reach the microphone is
+    // our own translation, so normal echo protection resumes.
+    this.guard.setSpeechActive(false);
     this.dispatch({ type: 'UTTERANCE_ENDED' });
     if (translated || original) {
       this.exchangeId += 1;

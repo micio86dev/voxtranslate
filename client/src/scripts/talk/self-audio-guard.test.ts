@@ -5,6 +5,7 @@ import {
   BARGE_IN_MS,
   BARGE_IN_RMS,
   LEVEL_SAMPLE_MS,
+  SPEECH_ACTIVE_TTL_MS,
   type LevelSource,
 } from './self-audio-guard';
 
@@ -141,6 +142,69 @@ describe('barge-in', () => {
     h.guard.onLevel(BARGE_IN_RMS + 0.2);
     h.advance(LEVEL_SAMPLE_MS);
     expect(h.cancelPlayback).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('speech in progress', () => {
+  it('keeps the microphone open while someone is mid-sentence', () => {
+    // The long-sentence bug. VoxTranslate is a SIMULTANEOUS interpreter: it starts
+    // speaking while the person is still talking. Gating on "audio is playing" shut the
+    // microphone in the middle of the speaker's own sentence and dropped the rest — the
+    // longer the sentence, the more was lost.
+    const h = makeGuard();
+    h.guard.setSpeechActive(true);
+    h.guard.onPlaybackChange(true);
+    expect(h.guard.isGated()).toBe(false);
+    expect(h.gates).toEqual([]);
+  });
+
+  it('reopens a gate that was already shut when speech starts', () => {
+    // The translation began during a silence, then the person started talking over it.
+    const h = makeGuard();
+    h.guard.onPlaybackChange(true);
+    expect(h.guard.isGated()).toBe(true);
+    h.guard.setSpeechActive(true);
+    expect(h.guard.isGated()).toBe(false);
+    expect(h.gates).toEqual([true, false]);
+  });
+
+  it('restores echo protection once the sentence ends', () => {
+    // Between utterances nobody is speaking, so the only voice that can reach the
+    // microphone is our own translation — which is exactly when a loop could start.
+    const h = makeGuard();
+    h.guard.setSpeechActive(true);
+    h.guard.onPlaybackChange(true);
+    expect(h.guard.isGated()).toBe(false);
+
+    h.guard.setSpeechActive(false);
+    expect(h.guard.isGated()).toBe(true);
+  });
+
+  it('does not gate on a final when nothing is playing', () => {
+    const h = makeGuard();
+    h.guard.setSpeechActive(true);
+    h.guard.setSpeechActive(false);
+    expect(h.gates).toEqual([]);
+  });
+
+  it('expires on its own if the final never arrives', () => {
+    // A dropped frame or a reconnect must not pin the microphone open forever, which
+    // would leave the feedback loop unguarded for the rest of the session.
+    const h = makeGuard();
+    h.guard.setSpeechActive(true);
+    expect(h.guard.isSpeechActive()).toBe(true);
+    h.advance(SPEECH_ACTIVE_TTL_MS + 1);
+    expect(h.guard.isSpeechActive()).toBe(false);
+
+    h.guard.onPlaybackChange(true);
+    expect(h.guard.isGated()).toBe(true);
+  });
+
+  it('is cleared by reset', () => {
+    const h = makeGuard();
+    h.guard.setSpeechActive(true);
+    h.guard.reset();
+    expect(h.guard.isSpeechActive()).toBe(false);
   });
 });
 
