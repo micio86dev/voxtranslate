@@ -53,6 +53,16 @@ export const BARGE_IN_MS = 150;
 export const LEVEL_SAMPLE_MS = 50;
 
 /**
+ * How long a speech signal keeps the microphone open with no further news.
+ *
+ * The gate must not close while someone is still mid-sentence, but it also cannot depend
+ * on a `subtitle_final` that may never arrive (a dropped frame, a reconnect). Each piece
+ * of speech news extends the window; silence past it means the sentence is over whatever
+ * the server did or did not say. Self-healing, and needs no timer.
+ */
+export const SPEECH_ACTIVE_TTL_MS = 2_500;
+
+/**
  * `'gate'` holds microphone frames while translated audio plays (the default, and what
  * today's echo cancellation actually supports). `'open'` never gates — full duplex,
  * trusting AEC.
@@ -74,6 +84,8 @@ export class SelfAudioGuard {
   private mode: GuardMode = 'gate';
   private playing = false;
   private gated = false;
+  /** `now()` past which the current utterance is assumed finished. */
+  private speechActiveUntil = 0;
   /** When the current run of loud-enough input began, or null if it is not loud. */
   private loudSince: number | null = null;
   private readonly now: () => number;
@@ -101,6 +113,36 @@ export class SelfAudioGuard {
     return this.gated;
   }
 
+  /** True while someone is believed to be mid-sentence. */
+  isSpeechActive(): boolean {
+    return this.now() < this.speechActiveUntil;
+  }
+
+  /**
+   * Tell the guard that speech is in progress, or has finished.
+   *
+   * This is the fix for long sentences being cut off. VoxTranslate is a SIMULTANEOUS
+   * interpreter: it starts speaking the translation while the person is still talking.
+   * Gating on "translated audio is playing" therefore shut the microphone in the middle
+   * of the speaker's own sentence and dropped the rest of it — the longer the sentence,
+   * the more was lost.
+   *
+   * While an utterance is in flight the microphone stays open: the only voice that
+   * matters is the one already being transcribed, and cutting it is a guaranteed loss
+   * against a hypothetical echo. Between utterances — when nobody is speaking and a loop
+   * could actually start — the gate behaves exactly as before.
+   */
+  setSpeechActive(active: boolean): void {
+    if (!active) {
+      this.speechActiveUntil = 0;
+      // The sentence is over. If audio is still playing, protect against the loop again.
+      if (this.playing && this.mode === 'gate') this.close();
+      return;
+    }
+    this.speechActiveUntil = this.now() + SPEECH_ACTIVE_TTL_MS;
+    this.release();
+  }
+
   /** Feed the playback edges from `PcmPlayback.setPlayingListener`. */
   onPlaybackChange(playing: boolean): void {
     this.playing = playing;
@@ -110,7 +152,8 @@ export class SelfAudioGuard {
       this.release();
       return;
     }
-    if (this.mode === 'gate') this.close();
+    // Someone is mid-sentence: their voice outranks the echo risk.
+    if (this.mode === 'gate' && !this.isSpeechActive()) this.close();
   }
 
   /**
@@ -148,6 +191,7 @@ export class SelfAudioGuard {
   reset(): void {
     this.playing = false;
     this.loudSince = null;
+    this.speechActiveUntil = 0;
     this.release();
   }
 
