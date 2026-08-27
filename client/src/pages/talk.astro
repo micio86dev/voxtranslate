@@ -55,6 +55,7 @@ const T = (k: string): string => (en as Record<string, string>)[k] ?? '';
             class="lang-trigger"
             aria-haspopup="listbox"
             aria-expanded="false"
+            aria-controls="tk-lang-list"
             data-i18n-label="talkOtherLangLabel"
             aria-label={T('talkOtherLangLabel')}
           >
@@ -62,7 +63,11 @@ const T = (k: string): string => (en as Record<string, string>)[k] ?? '';
             <span class="lang-trigger-text" id="tk-lang-text" data-i18n="talkOtherLangPick">{T('talkOtherLangPick')}</span>
             <span class="lang-trigger-chevron" aria-hidden="true">▾</span>
           </button>
-          <div id="tk-lang-panel" class="lang-panel" role="listbox" hidden>
+          <!-- The listbox role belongs on the element that DIRECTLY contains the options,
+               not on this wrapper: a role="listbox" whose children are a search box and a
+               div fails aria-required-children (axe, critical) and has no accessible name.
+               The panel is just a container. -->
+          <div id="tk-lang-panel" class="lang-panel" hidden>
             <div class="lang-panel-search">
               <input
                 id="tk-lang-search"
@@ -75,7 +80,13 @@ const T = (k: string): string => (en as Record<string, string>)[k] ?? '';
                 aria-label={T('langSearchPlaceholder')}
               />
             </div>
-            <div id="tk-lang-list" class="lang-panel-list"></div>
+            <div
+              id="tk-lang-list"
+              class="lang-panel-list"
+              role="listbox"
+              data-i18n-label="talkOtherLangLabel"
+              aria-label={T('talkOtherLangLabel')}
+            ></div>
             <p id="tk-lang-empty" class="lang-panel-empty" data-i18n="langSearchEmpty" hidden>
               {T('langSearchEmpty')}
             </p>
@@ -241,6 +252,157 @@ const T = (k: string): string => (en as Record<string, string>)[k] ?? '';
       font-size: var(--font-sm);
       line-height: 1.5;
       text-align: center;
+    }
+
+    /* The language picker and the tier cards reuse the class names index.astro uses,
+       but Astro scopes a page's <style> to that page — so those rules do NOT reach here
+       and every control rendered as an unstyled button. Caught by the e2e tap-target
+       assertion (22px against the 44px WCAG 2.5.5 floor), which is exactly the failure a
+       unit test cannot see. Ported rather than made global: index.astro's block also
+       styles the in-call UI, and widening its scope to reach this page would put the
+       whole call surface at risk for a cosmetic win. */
+    .lang-trigger {
+      width: 100%;
+      min-height: var(--tap-target);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 14px;
+      cursor: pointer;
+      color: var(--text);
+      text-align: start;
+      transition: border-color var(--transition-fast);
+    }
+    .lang-trigger:hover,
+    .lang-trigger[aria-expanded='true'] {
+      border-color: var(--accent);
+    }
+    .lang-trigger-flag {
+      font-size: 1.2rem;
+      line-height: 1;
+      flex: none;
+    }
+    .lang-trigger-text {
+      flex: 1;
+      font-size: 0.95rem;
+    }
+    .lang-trigger-chevron {
+      color: var(--muted);
+      flex: none;
+      transition: transform var(--transition-fast);
+    }
+    .lang-trigger[aria-expanded='true'] .lang-trigger-chevron {
+      transform: rotate(180deg);
+    }
+
+    .lang-panel {
+      margin-top: 8px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--bg);
+      overflow: hidden;
+    }
+    .lang-panel-search {
+      padding: 8px;
+      border-bottom: 1px solid var(--border);
+    }
+    .lang-panel-search input {
+      width: 100%;
+      min-height: var(--tap-target);
+    }
+    .lang-panel-list {
+      max-height: 320px;
+      overflow-y: auto;
+      padding: 4px;
+    }
+    .lang-panel-empty {
+      padding: 14px;
+      margin: 0;
+      color: var(--muted);
+      font-size: var(--font-sm);
+      text-align: center;
+    }
+    /* Options are built in page.ts, so they are styled through :global() under a scoped
+       parent — the same convention the rest of this file uses. */
+    .lang-panel :global(.lang-opt) {
+      width: 100%;
+      min-height: var(--tap-target);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      text-align: start;
+      background: transparent;
+      border: none;
+      border-radius: 8px;
+      padding: 8px 10px;
+      cursor: pointer;
+      color: var(--text);
+      font-size: 0.9rem;
+    }
+    .lang-panel :global(.lang-opt:hover),
+    .lang-panel :global(.lang-opt[aria-selected='true']) {
+      background: var(--accent-dim);
+    }
+    .lang-panel :global(.lang-opt-flag) {
+      font-size: 1.15rem;
+      line-height: 1;
+      flex: none;
+    }
+    .lang-panel :global(.lang-opt-native) {
+      font-weight: var(--font-weight-semibold);
+    }
+    .lang-panel :global(.lang-opt-en) {
+      color: var(--muted);
+      font-size: 0.8rem;
+    }
+
+    .engine-options {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .engine-options :global(.engine-opt) {
+      width: 100%;
+      min-height: var(--tap-target);
+      text-align: start;
+      cursor: pointer;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      transition: border-color var(--transition-fast);
+    }
+    .engine-options :global(.engine-opt:hover) {
+      border-color: var(--accent);
+    }
+    .engine-options :global(.engine-opt.active) {
+      border-color: var(--accent);
+      background: var(--accent-dim);
+    }
+    .engine-options :global(.engine-opt-head) {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 10px;
+      font-weight: var(--font-weight-semibold);
+      font-size: 0.95rem;
+    }
+    .engine-options :global(.engine-opt-desc) {
+      font-size: 0.8rem;
+      color: var(--muted);
+      line-height: 1.3;
+    }
+    .tier-note {
+      margin: 8px 0 0;
+      font-size: 0.74rem;
+      line-height: 1.4;
+      color: var(--muted);
     }
 
     /* --- conversation ----------------------------------------------------- */

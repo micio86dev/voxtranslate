@@ -133,8 +133,12 @@ function selectOther(code: string): void {
   closePanel();
   renderTiers();
   track('talk_to_anyone_language_selected', { language_pair: `${userLang}-${code}` });
+  // Enabled as soon as the one required choice is made, signed in or not. `start()`
+  // owns the sign-in refusal and says so in words; disabling the button here as well
+  // left a signed-out visitor with a dead control and no way to find out why — and made
+  // the refusal itself unreachable, since a disabled button cannot be clicked.
   const start = $('tk-start') as HTMLButtonElement | null;
-  if (start) start.disabled = !isLoggedIn();
+  if (start) start.disabled = false;
 }
 
 function openPanel(): void {
