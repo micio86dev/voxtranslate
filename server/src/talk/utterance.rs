@@ -16,10 +16,12 @@
 use super::direction::Direction;
 
 /// Largest number of translated-audio frames held per language while the direction is
-/// still unknown. ~100 ms of PCM each, so this is a couple of seconds of headroom.
-/// Overflow drops the OLDEST frame: a late translation is worse than a clipped one
-/// (brief §27 — realtime relevance beats delivery of every historical segment).
-pub const MAX_HELD_FRAMES: usize = 24;
+/// still unknown. ~100 ms of PCM each, so this covers roughly ten seconds — enough for a
+/// whole sentence, because the direction is now often only settled by the FINAL
+/// transcript. At the old 24 (~2.4 s) the head of every late-resolved translation was
+/// silently clipped. Overflow still drops the OLDEST frame: a late translation is worse
+/// than a clipped one (brief §27).
+pub const MAX_HELD_FRAMES: usize = 100;
 
 /// How many more characters must arrive before we pay for another classification. Every
 /// partial would otherwise fire a Groq call several times a second.
@@ -91,6 +93,11 @@ pub struct Utterance {
     held_other: Vec<String>,
     /// The last final we forwarded, to swallow provider-side repeats.
     last_final: Option<String>,
+    /// A final that arrived before the direction was known, kept so a late verdict can
+    /// still release it. Dropping it — which is what this did — threw away the single
+    /// best piece of evidence about the utterance AND the sentence itself: in production
+    /// 12 of 17 utterances ended here and were never spoken.
+    pending_final: Option<(String, String)>,
 }
 
 impl Utterance {
@@ -104,6 +111,7 @@ impl Utterance {
             held_user: Vec::new(),
             held_other: Vec::new(),
             last_final: None,
+            pending_final: None,
         }
     }
 
@@ -227,9 +235,14 @@ impl Utterance {
 
     fn on_final(&mut self, lang: &str, frame: String) -> Outcome {
         if self.direction == Direction::Unknown {
-            // No direction was ever established for this utterance — too short, or a
-            // third language. Say nothing (brief §6/§16) and start clean.
-            self.reset();
+            // The direction is not known YET. Park this — the final carries the complete
+            // transcript, which is the best evidence we will ever get about what was
+            // spoken, so the caller classifies it and releases the sentence if a verdict
+            // arrives. Resetting here instead is what made most sentences vanish.
+            // Keep the first side to arrive; the other is the echo.
+            if self.pending_final.is_none() {
+                self.pending_final = Some((lang.to_string(), frame));
+            }
             return Outcome::Hold;
         }
         if !self.is_target(lang) {
@@ -246,6 +259,23 @@ impl Utterance {
         Outcome::one(frame)
     }
 
+    /// A final is parked waiting for a direction.
+    pub fn has_pending_final(&self) -> bool {
+        self.pending_final.is_some()
+    }
+
+    /// Release a parked final now that a direction exists — `Some` only if the side it
+    /// arrived on turned out to be the one worth speaking. Either way the park is
+    /// cleared, so a stale final can never leak into the next sentence.
+    pub fn take_pending_final(&mut self) -> Option<String> {
+        let (lang, frame) = self.pending_final.take()?;
+        if !self.is_target(&lang) || self.last_final.as_deref() == Some(frame.as_str()) {
+            return None;
+        }
+        self.last_final = Some(frame.clone());
+        Some(frame)
+    }
+
     /// Start the next utterance. The duplicate-final guard is cleared too: a genuinely
     /// repeated sentence, spoken twice, must be translated twice.
     pub fn reset(&mut self) {
@@ -254,6 +284,7 @@ impl Utterance {
     }
 
     fn reset_keeping_last_final(&mut self) {
+        self.pending_final = None;
         self.direction = Direction::Unknown;
         self.original.clear();
         self.resolved_at_len = 0;
@@ -396,9 +427,11 @@ mod tests {
     }
 
     #[test]
-    fn an_unresolved_utterance_says_nothing_and_resets() {
-        // Two words in a third language: no direction, no speech, and the next utterance
-        // starts clean rather than inheriting held audio.
+    fn an_unresolved_utterance_says_nothing_until_it_is_closed_out() {
+        // Two words in a third language. Nothing may be SPOKEN (brief §6) — but the
+        // sentence is parked rather than dropped, because at this point we do not yet
+        // know it is a third language; only the classifier can say so. The caller closes
+        // it out when the verdict comes back Unknown, which is what `reset` models here.
         let mut u = Utterance::new("it", "es");
         assert_eq!(u.on_frame("es", audio("es", 0)), Outcome::Hold);
         assert_eq!(
@@ -406,9 +439,99 @@ mod tests {
             Outcome::Hold
         );
         assert_eq!(u.direction(), Direction::Unknown);
-        assert_eq!(u.original(), "");
-        // Nothing was retained to leak into the next sentence.
+        assert!(u.has_pending_final(), "the sentence waits for a verdict");
+
+        // Verdict: Unknown. Nothing is spoken and the slate is wiped.
+        u.reset();
+        assert!(!u.has_pending_final());
         assert_eq!(u.commit(Direction::UserToOther), Some(Vec::new()));
+        assert_eq!(u.take_pending_final(), None);
+    }
+
+    #[test]
+    fn a_final_that_arrives_before_the_direction_is_parked_not_discarded() {
+        let mut u = Utterance::new("it", "es");
+        assert_eq!(u.on_frame("es", audio("es", 0)), Outcome::Hold);
+
+        let f = final_msg(
+            "Vorrei andare alla stazione",
+            "es",
+            "Quiero ir a la estación",
+        );
+        // Unresolved: held, but NOT thrown away — the complete sentence is the best
+        // evidence we will ever get about what was spoken.
+        assert_eq!(u.on_frame("es", f.clone()), Outcome::Hold);
+        assert!(u.has_pending_final());
+        assert_eq!(u.original(), "");
+
+        // A late verdict arrives. The held audio flushes and the sentence is released.
+        let flushed = u.commit(Direction::UserToOther).expect("latches");
+        assert_eq!(flushed, vec![audio("es", 0)]);
+        assert_eq!(u.take_pending_final().as_deref(), Some(f.as_str()));
+        // Taken exactly once — a second release would speak it twice.
+        assert_eq!(u.take_pending_final(), None);
+    }
+
+    #[test]
+    fn a_parked_final_from_the_echo_side_is_not_spoken() {
+        // Italian was spoken, so the `it` session's final is the echo. Releasing it would
+        // read the speaker their own words back.
+        let mut u = Utterance::new("it", "es");
+        let echo = final_msg("Vorrei andare", "it", "Vorrei andare");
+        assert_eq!(u.on_frame("it", echo), Outcome::Hold);
+        assert!(u.has_pending_final());
+
+        u.commit(Direction::UserToOther);
+        assert_eq!(
+            u.take_pending_final(),
+            None,
+            "the echo side is never released"
+        );
+    }
+
+    #[test]
+    fn only_the_first_final_is_parked() {
+        // Both sessions finalize. The second to arrive is the echo; parking it would
+        // overwrite the real one.
+        let mut u = Utterance::new("it", "es");
+        let real = final_msg("Vorrei andare", "es", "Quiero ir");
+        let echo = final_msg("Vorrei andare", "it", "Vorrei andare");
+        u.on_frame("es", real.clone());
+        u.on_frame("it", echo);
+        u.commit(Direction::UserToOther);
+        assert_eq!(u.take_pending_final().as_deref(), Some(real.as_str()));
+    }
+
+    #[test]
+    fn a_parked_final_never_leaks_into_the_next_sentence() {
+        let mut u = Utterance::new("it", "es");
+        u.on_frame("es", final_msg("Vorrei andare", "es", "Quiero ir"));
+        assert!(u.has_pending_final());
+        u.reset();
+        assert!(!u.has_pending_final());
+        u.commit(Direction::UserToOther);
+        assert_eq!(u.take_pending_final(), None);
+    }
+
+    #[test]
+    fn the_hold_buffer_covers_a_whole_sentence() {
+        // The direction is now often only settled by the FINAL transcript, so the buffer
+        // has to outlast a full sentence of translated audio. At the old 24 frames
+        // (~2.4 s at ~100 ms each) the head of every late-resolved translation was
+        // clipped away. Exercised through the real buffer rather than by comparing two
+        // constants, so it fails if the retention behaviour changes for any reason.
+        const SIX_SECONDS_OF_FRAMES: u64 = 60;
+        let mut u = Utterance::new("it", "es");
+        for seq in 0..SIX_SECONDS_OF_FRAMES {
+            assert_eq!(u.on_frame("es", audio("es", seq)), Outcome::Hold);
+        }
+        let flushed = u.commit(Direction::UserToOther).expect("latches");
+        assert_eq!(
+            flushed.len(),
+            SIX_SECONDS_OF_FRAMES as usize,
+            "six seconds of translated audio must survive the wait for a direction"
+        );
+        assert_eq!(flushed[0], audio("es", 0), "the head must not be clipped");
     }
 
     #[test]

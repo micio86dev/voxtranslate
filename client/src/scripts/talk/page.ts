@@ -39,7 +39,7 @@ let userLang = 'en';
 let otherLang: string | null = null;
 let tierId: string | null = null;
 let convo: TalkConversation | null = null;
-let live: LiveExchange = { spokenLang: null, targetLang: null, originalText: '', translatedText: '' };
+let live: LiveExchange = { spokenLang: null, targetLang: null, originalText: '', translatedText: '', settled: false };
 let muted = false;
 let startedAt = 0;
 
@@ -300,7 +300,7 @@ function end(): void {
   const history = $('tk-history');
   if (history) history.textContent = '';
   show('tk-history-title', false);
-  live = { spokenLang: null, targetLang: null, originalText: '', translatedText: '' };
+  live = { spokenLang: null, targetLang: null, originalText: '', translatedText: '', settled: false };
   renderLive(els(), live);
 }
 
