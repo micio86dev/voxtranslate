@@ -329,8 +329,18 @@ describe('frames', () => {
       originalText: 'Vorrei andare alla stazione',
       translatedText: 'Quiero ir a la estación',
     });
-    // The live card is cleared so the next sentence starts from nothing.
-    expect(h.lives[h.lives.length - 1].translatedText).toBe('');
+    // The finished translation STAYS in the big area, marked settled. Clearing it here
+    // is what made it flash past before anyone could read it — the opposite of "the
+    // newest translation remains prominent" (brief §12).
+    const last = h.lives[h.lives.length - 1];
+    expect(last.translatedText).toBe('Quiero ir a la estación');
+    expect(last.settled).toBe(true);
+
+    // ...and the NEXT sentence replaces it rather than appending to it.
+    sock.deliver({ type: 'subtitle_interim', text: 'Está a cinco', original: 'Está a cinco' });
+    const next = h.lives[h.lives.length - 1];
+    expect(next.translatedText).toBe('Está a cinco');
+    expect(next.settled).toBe(false);
   });
 
   it('falls back to the only translation when the direction arrived late', async () => {

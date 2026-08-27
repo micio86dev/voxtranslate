@@ -39,6 +39,12 @@ use crate::groq::{ChatRequest, Groq};
 /// letters are not.
 pub const MIN_RESOLVE_CHARS: usize = 12;
 
+/// Floor for a FINAL transcript. Much lower, because a final is the complete sentence:
+/// there is no more evidence coming, so abstaining wastes the whole utterance instead of
+/// waiting for a better one. "Sì, grazie" is ten characters and perfectly classifiable;
+/// under the partial floor it was thrown away.
+pub const MIN_FINAL_RESOLVE_CHARS: usize = 4;
+
 /// Discriminating characters [`script_hint`] needs before it will decide. Low, because a
 /// character that belongs to exactly one of the two candidates is strong evidence — but
 /// not one or two, which a single loanword or place name could supply.
@@ -324,11 +330,22 @@ impl Resolver {
     /// holding every utterance behind a dead classifier is indistinguishable from the
     /// app being broken, because it is.
     pub async fn resolve(&self, text: &str) -> Result<Direction, String> {
+        self.resolve_with_floor(text, MIN_RESOLVE_CHARS).await
+    }
+
+    /// Resolve a COMPLETE utterance. Same path, lower floor
+    /// ([`MIN_FINAL_RESOLVE_CHARS`]): no further text is coming, so the choice is between
+    /// classifying what we have and discarding the sentence outright.
+    pub async fn resolve_final(&self, text: &str) -> Result<Direction, String> {
+        self.resolve_with_floor(text, MIN_FINAL_RESOLVE_CHARS).await
+    }
+
+    async fn resolve_with_floor(&self, text: &str, floor: usize) -> Result<Direction, String> {
         let local = self.resolve_local(text);
         if local != Direction::Unknown {
             return Ok(local);
         }
-        if text.trim().chars().count() < MIN_RESOLVE_CHARS {
+        if text.trim().chars().count() < floor {
             return Ok(Direction::Unknown);
         }
         self.classify(text).await

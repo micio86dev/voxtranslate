@@ -49,6 +49,13 @@ export interface LiveExchange {
   targetLang: string | null;
   originalText: string;
   translatedText: string;
+  /**
+   * The sentence is finished and this is the LAST thing said, not something still
+   * forming. It stays on screen until the next utterance produces text — blanking it at
+   * the final made the big translation flash past before anyone could read it, which is
+   * the opposite of "the newest translation remains prominent" (brief §12).
+   */
+  settled: boolean;
 }
 
 /** The minimum socket surface, so tests can supply a fake. */
@@ -408,7 +415,9 @@ export class TalkConversation {
       case 'talk_direction': {
         const spoken = String(msg.spoken ?? '');
         const target = String(msg.target ?? '');
-        this.live = { ...this.live, spokenLang: spoken, targetLang: target };
+        // A direction belongs to a NEW sentence, so the settled one has had its run.
+        const base = this.live.settled ? blankLive() : this.live;
+        this.live = { ...base, spokenLang: spoken, targetLang: target };
         this.dispatch({ type: 'DIRECTION_RESOLVED' });
         this.opts.onLive(this.live);
         break;
@@ -419,10 +428,11 @@ export class TalkConversation {
         const text = typeof msg.text === 'string' ? msg.text : '';
         // The server gates by direction, so an interim that reaches us is always the
         // real translation — `original` alongside it, when the engine sent one.
+        const base = this.live.settled ? blankLive() : this.live;
         this.live = {
-          ...this.live,
+          ...base,
           translatedText: text,
-          originalText: original || this.live.originalText,
+          originalText: original || base.originalText,
         };
         this.dispatch({ type: 'SPEECH_DETECTED' });
         this.opts.onLive(this.live);
@@ -493,7 +503,16 @@ export class TalkConversation {
         translatedText: translated,
       });
     }
-    this.live = blankLive();
+    // Keep it on screen, marked settled. The next utterance's first text replaces it;
+    // until then the person opposite can still read what was just said — which on a
+    // phone held at arm's length is the whole point of the big line.
+    this.live = {
+      spokenLang: this.live.spokenLang,
+      targetLang: target,
+      originalText: original,
+      translatedText: translated,
+      settled: true,
+    };
     this.utteranceStartedAt = null;
     this.ttsReported = false;
     this.opts.onLive(this.live);
@@ -550,7 +569,13 @@ export class TalkConversation {
 }
 
 function blankLive(): LiveExchange {
-  return { spokenLang: null, targetLang: null, originalText: '', translatedText: '' };
+  return {
+    spokenLang: null,
+    targetLang: null,
+    originalText: '',
+    translatedText: '',
+    settled: false,
+  };
 }
 
 function defaultSocket(url: string): TalkSocket {
