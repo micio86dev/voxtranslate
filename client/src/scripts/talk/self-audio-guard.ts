@@ -29,11 +29,25 @@
 
 import { rmsLevel } from '../mic-meter';
 
-/** RMS above which we believe a human, not echo residue, is speaking. */
-export const BARGE_IN_RMS = 0.08;
+/**
+ * RMS above which we believe a human, not echo residue, is speaking.
+ *
+ * Normal speech sits around 0.05–0.3 (see `mic-meter.ts`), and `echoCancellation` is on,
+ * so what is left of our own playback in the captured signal is far below this. Lowered
+ * from 0.08: while the gate is shut the microphone is DROPPING frames, so every
+ * millisecond spent deciding is speech nobody gets back.
+ */
+export const BARGE_IN_RMS = 0.06;
 
-/** How long that energy must persist before it counts. A cough is not an interruption. */
-export const BARGE_IN_MS = 250;
+/**
+ * How long that energy must persist before it counts. A cough is not an interruption.
+ *
+ * Halved from 250 ms for the same reason: at a 50 ms sample interval the old window cost
+ * up to 300 ms — reliably the first word of whoever cut in. 150 ms is still three
+ * consecutive samples, which rhythmic playback peaks do not produce (they dip between
+ * syllables and the run resets).
+ */
+export const BARGE_IN_MS = 150;
 
 /** How often the level is sampled while gated. */
 export const LEVEL_SAMPLE_MS = 50;

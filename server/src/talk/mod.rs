@@ -441,10 +441,28 @@ async fn handle_talk_session(socket: WebSocket, params: TalkParams, state: AppSt
                                 .to_json(),
                             );
                         }
+                        // A parked sentence whose verdict just failed will never be
+                        // released. Close it out now, or it holds the next one hostage.
+                        if utterance.has_pending_final() {
+                            crate::metrics::record_talk_direction_unknown();
+                            generation = generation.wrapping_add(1);
+                            utterance.reset();
+                        }
                         continue;
                     }
                 };
-                if v.generation != generation || direction == Direction::Unknown {
+                if v.generation != generation {
+                    continue;
+                }
+                if direction == Direction::Unknown {
+                    // The model saw the whole sentence and still could not place it — a
+                    // third language, or genuinely ambiguous. Nothing is spoken (brief
+                    // §6), but the utterance must still be closed out.
+                    if utterance.has_pending_final() {
+                        crate::metrics::record_talk_direction_unknown();
+                        generation = generation.wrapping_add(1);
+                        utterance.reset();
+                    }
                     continue;
                 }
                 // `Some` means THIS verdict latched. A late second verdict — the free
@@ -457,6 +475,12 @@ async fn handle_talk_session(socket: WebSocket, params: TalkParams, state: AppSt
                 emit_direction(direction, &resolver, &out_tx);
                 for frame in flushed {
                     let _ = out_tx.send(frame);
+                }
+                // A sentence that finished before its direction did: release it now.
+                if let Some(pending) = utterance.take_pending_final() {
+                    let _ = out_tx.send(pending);
+                    generation = generation.wrapping_add(1);
+                    utterance.reset();
                 }
             }
 
@@ -648,18 +672,45 @@ fn route_frame(
                 let _ = out_tx.send(f);
             }
         }
-        Outcome::Hold => {
-            if final_frame && utterance.direction() == Direction::Unknown {
-                crate::metrics::record_talk_direction_unknown();
-            }
-        }
+        Outcome::Hold => {}
     }
 
-    // A final ends the utterance either way — forwarded or dropped — so any verdict still
-    // in flight is about a sentence that is over.
-    if final_frame {
-        *generation = generation.wrapping_add(1);
+    if !final_frame {
+        return;
     }
+
+    // The utterance is over. If the direction is settled, so is the sentence — bump the
+    // generation so a verdict still in flight cannot steer the NEXT one.
+    if utterance.direction() != Direction::Unknown || !utterance.has_pending_final() {
+        *generation = generation.wrapping_add(1);
+        return;
+    }
+
+    // Unresolved, with the complete sentence parked. This is the last chance to say
+    // anything at all about it, so classify the FULL text — ignoring both the growth
+    // throttle and the in-flight guard, which exist to avoid paying for every partial and
+    // have no business suppressing the one question that matters. The generation is
+    // deliberately NOT bumped: the answer is about THIS sentence, and bumping is exactly
+    // what used to discard it.
+    let gen = *generation;
+    let text = utterance.original().to_string();
+    if text.trim().is_empty() {
+        *generation = generation.wrapping_add(1);
+        crate::metrics::record_talk_direction_unknown();
+        return;
+    }
+    *resolving = true;
+    let resolver = resolver.clone();
+    let tx = verdict_tx.clone();
+    tokio::spawn(async move {
+        let started = std::time::Instant::now();
+        let outcome = resolver.resolve_final(&text).await;
+        crate::metrics::record_talk_direction_ms(started.elapsed().as_millis() as u64);
+        let _ = tx.send(Verdict {
+            generation: gen,
+            outcome,
+        });
+    });
 }
 
 fn emit_direction(direction: Direction, resolver: &Resolver, out_tx: &PeerTx) {
