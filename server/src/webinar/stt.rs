@@ -62,7 +62,6 @@ use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine as _;
 use tokio::time::{interval, MissedTickBehavior};
 
-use crate::auth::verify_jwt;
 use crate::business::{db_err, not_found, require_pool, require_role, MEMBER};
 use crate::config::QwenConfig;
 use crate::engine::gemini::resample_pcm16_mono;
@@ -157,12 +156,14 @@ pub async fn stt_ws(
     Query(params): Query<SttParams>,
 ) -> HandlerResult {
     let pool = require_pool(&state)?;
-    let billing = state.config.billing.as_ref().ok_or_else(unauthorized)?;
 
-    // Query-param JWT (browsers can't set WS headers) → user id.
+    // Query-param JWT (browsers can't set WS headers) → user id. `authed_user`
+    // also rejects a banned account, which a bare `verify_jwt` here did not:
+    // a banned host could keep broadcasting subtitles until their token expired.
     let token = params.token.as_deref().ok_or_else(unauthorized)?;
-    let claims = verify_jwt(&billing.jwt_secret, token).map_err(|_| unauthorized())?;
-    let user_id = Uuid::parse_str(&claims.sub).map_err(|_| unauthorized())?;
+    let user_id = crate::webinar::authed_user(&state, token)
+        .await
+        .ok_or_else(unauthorized)?;
 
     // Must be a member of the webinar's org — cross-tenant is a 404, exactly like
     // the REST host API's `require_webinar_role`.

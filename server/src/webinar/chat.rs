@@ -29,7 +29,6 @@
 use std::time::Duration;
 
 use axum::extract::{Path, State};
-use axum::http::header::AUTHORIZATION;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::{Extension, Json};
@@ -111,6 +110,36 @@ fn clamp_chars(s: &str, max: usize) -> String {
     s.chars().take(max).collect()
 }
 
+/// Hosts a chat avatar may be served from: Google account pictures and our own
+/// Supabase storage. Kept in step with the `img-src` allow-list in the client's
+/// CSP — the two describe the same trust decision from opposite ends.
+const AVATAR_HOSTS: &[&str] = &["googleusercontent.com", "supabase.co"];
+
+/// Whether a chat avatar URL points somewhere we are willing to make every
+/// viewer's browser fetch.
+///
+/// The avatar is client-supplied, persisted, and broadcast to the whole webinar,
+/// so an arbitrary URL turns every participant into a beacon for whoever chose
+/// it — their IP, user-agent and presence, handed to a third party. The previous
+/// check was `starts_with("https://")`, which establishes the scheme and nothing
+/// about trust. Pure, so the boundary cases below are unit-tested.
+pub(crate) fn safe_avatar_url(raw: &str) -> bool {
+    let Ok(url) = url::Url::parse(raw) else {
+        return false;
+    };
+    if url.scheme() != "https" {
+        return false;
+    }
+    let Some(host) = url.host_str() else {
+        return false;
+    };
+    // Match on a dot boundary so `notgoogleusercontent.com` and
+    // `googleusercontent.com.evil.tld` are both rejected.
+    AVATAR_HOSTS
+        .iter()
+        .any(|allowed| host == *allowed || host.ends_with(&format!(".{allowed}")))
+}
+
 /// `POST /api/w/{code}/chat` — send one chat message (host or guest).
 ///
 /// Steps (each a hard gate): resolve the webinar (404) → chat must be enabled
@@ -135,7 +164,7 @@ pub async fn post_chat(
         .ok_or_else(|| not_found("webinar not found"))?;
 
     // (2) Members-only gate — posting IS participation, the thing the flag blocks.
-    crate::webinar::require_member_access(&w, &state, &headers)?;
+    crate::webinar::require_member_access(&w, &state, &headers).await?;
 
     // (3) Chat must be enabled for this webinar.
     if !w.chat_enabled {
@@ -147,13 +176,11 @@ pub async fn post_chat(
     }
 
     // (4) Validate the message + normalize the cosmetic display name.
-    let avatar_url = body.avatar_url.as_deref().and_then(|u| {
-        if u.starts_with("https://") {
-            Some(u.to_string())
-        } else {
-            None
-        }
-    });
+    let avatar_url = body
+        .avatar_url
+        .as_deref()
+        .filter(|u| safe_avatar_url(u))
+        .map(str::to_string);
     let text = if body.attachment.is_some() && body.text.trim().is_empty() {
         String::new()
     } else {
@@ -340,7 +367,7 @@ pub async fn list_chat(
         .ok_or_else(|| not_found("webinar not found"))?;
 
     // Chat history is participant content — same bar as taking part in it.
-    crate::webinar::require_member_access(&w, &state, &headers)?;
+    crate::webinar::require_member_access(&w, &state, &headers).await?;
 
     // Chat disabled → nothing to show; an empty list keeps the client simple.
     if !w.chat_enabled {
@@ -387,23 +414,17 @@ async fn resolve_sender(
     ("guest".to_string(), guest.0)
 }
 
-/// The host's user id IFF the request carries a valid `Bearer` JWT AND that user
-/// is a member of the webinar's org. `None` on any failure (optional auth). The
-/// inline Bearer read + `verify_jwt` mirrors `stt.rs`; `require_role`'s member
-/// gate reuses the REST authz.
+/// The host's user id IFF the request carries a valid `Bearer` JWT for an
+/// account in good standing AND that user is a member of the webinar's org.
+/// `None` on any failure (optional auth). `caller_id` carries the ban check;
+/// `require_role`'s member gate reuses the REST authz.
 async fn host_user_id(
     state: &AppState,
     pool: &Pool,
     w: &Webinar,
     headers: &HeaderMap,
 ) -> Option<Uuid> {
-    let billing = state.config.billing.as_ref()?;
-    let token = headers
-        .get(AUTHORIZATION)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.strip_prefix("Bearer "))?;
-    let claims = crate::auth::verify_jwt(&billing.jwt_secret, token).ok()?;
-    let user_id = Uuid::parse_str(&claims.sub).ok()?;
+    let user_id = crate::webinar::caller_id(state, headers).await?;
     // Member of the webinar's org? A non-member (or DB error) → not a host.
     match require_role(pool, w.org_id, user_id, MEMBER).await {
         Ok(_) => Some(user_id),
@@ -466,6 +487,32 @@ mod tests {
 
     fn status(r: &Response) -> StatusCode {
         r.status()
+    }
+
+    #[test]
+    fn avatar_url_accepts_only_hosts_we_are_willing_to_make_viewers_fetch() {
+        // A chat avatar is broadcast to every viewer, whose browser then fetches
+        // it — so an arbitrary `https://` URL hands a third party the IP, the
+        // user-agent and the timing of everyone in the room. The old check was
+        // `starts_with("https://")`, which tests the scheme, not the trust.
+        assert!(safe_avatar_url(
+            "https://lh3.googleusercontent.com/a/abc123"
+        ));
+        assert!(safe_avatar_url(
+            "https://xyz.supabase.co/storage/v1/object/a.png"
+        ));
+
+        assert!(!safe_avatar_url("https://evil.example.com/track.gif"));
+        assert!(!safe_avatar_url("http://lh3.googleusercontent.com/a/abc"));
+        assert!(
+            !safe_avatar_url("https://googleusercontent.com.evil.tld/x"),
+            "the allowed host must be the suffix, not merely present"
+        );
+        assert!(
+            !safe_avatar_url("https://notgoogleusercontent.com/x"),
+            "suffix matching must be on a dot boundary, not a substring"
+        );
+        assert!(!safe_avatar_url("not a url"));
     }
 
     #[test]

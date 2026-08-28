@@ -15,19 +15,41 @@ use uuid::Uuid;
 use crate::config::WebinarConfig;
 use crate::db::Pool;
 
-/// The authenticated caller, when the request carries a valid session JWT.
+/// Resolve a session token to a user, rejecting a banned account.
+///
+/// **The only place in this module allowed to call `verify_jwt`.** A ban is
+/// enforced at the `/ws` join, at the extension token exchange, and on every REST
+/// request through the `AuthUser` extractor; the webinar handlers each hand-rolled
+/// their own Bearer read instead and so skipped it, leaving a banned org member
+/// full host access until their (up to 7-day) token expired. Routing every one of
+/// them through here makes a ban mean one thing everywhere.
+///
+/// Fails open on a database error, matching `AuthUser` and the `/ws` join — a
+/// blip must not lock out every host at once.
+pub async fn authed_user(state: &crate::AppState, token: &str) -> Option<Uuid> {
+    let billing = state.config.billing.as_ref()?;
+    let claims = crate::auth::verify_jwt(&billing.jwt_secret, token).ok()?;
+    let user_id = Uuid::parse_str(&claims.sub).ok()?;
+    if let Some(safety) = state.safety.as_ref() {
+        if let Ok(Some(_)) = safety.is_banned(user_id).await {
+            return None;
+        }
+    }
+    Some(user_id)
+}
+
+/// The authenticated caller, when the request carries a valid session JWT for an
+/// account in good standing.
 ///
 /// `{code}`-addressed webinar endpoints are reachable by guests, so auth here is
 /// optional and advisory rather than an extractor that rejects. Centralised
 /// because three call sites had grown byte-identical copies of this chain.
-pub fn caller_id(state: &crate::AppState, headers: &axum::http::HeaderMap) -> Option<Uuid> {
-    let billing = state.config.billing.as_ref()?;
-    headers
+pub async fn caller_id(state: &crate::AppState, headers: &axum::http::HeaderMap) -> Option<Uuid> {
+    let token = headers
         .get(axum::http::header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.strip_prefix("Bearer "))
-        .and_then(|tok| crate::auth::verify_jwt(&billing.jwt_secret, tok).ok())
-        .and_then(|c| Uuid::parse_str(&c.sub).ok())
+        .and_then(|v| v.strip_prefix("Bearer "))?;
+    authed_user(state, token).await
 }
 
 /// Enforce a webinar's `members_only` flag on an endpoint that serves its
@@ -44,13 +66,13 @@ pub fn caller_id(state: &crate::AppState, headers: &axum::http::HeaderMap) -> Op
 // `Response` as the Err variant is intentionally large — the same convention the
 // handler modules that call this declare crate-wide.
 #[allow(clippy::result_large_err)]
-pub fn require_member_access(
+pub async fn require_member_access(
     w: &Webinar,
     state: &crate::AppState,
     headers: &axum::http::HeaderMap,
 ) -> Result<(), axum::response::Response> {
     use axum::response::IntoResponse as _;
-    if w.members_only && caller_id(state, headers).is_none() {
+    if w.members_only && caller_id(state, headers).await.is_none() {
         return Err((
             axum::http::StatusCode::UNAUTHORIZED,
             "this webinar is open to signed-in members only",
@@ -293,6 +315,22 @@ mod coverage {
     //! tests assert the *call sites* instead, and they fail when the next
     //! `{code}` endpoint is added without the guard.
 
+    /// Source with `//` line comments removed, so a rule about CALLS is not
+    /// tripped by prose that merely names the function it forbids. (It was: the
+    /// comment explaining why `stt.rs` stopped calling `verify_jwt` failed the
+    /// test that made it stop.) Crude but adequate — these files have no `//`
+    /// inside a string literal, and a false PASS here is impossible: stripping
+    /// only ever removes text, never adds a call.
+    fn code_only(src: &str) -> String {
+        src.lines()
+            .map(|l| match l.find("//") {
+                Some(i) => &l[..i],
+                None => l,
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
     /// Extract a top-level `fn` body from source text. Relies on rustfmt putting
     /// the closing brace of a top-level item in column 0, which is true for every
     /// handler here and is checked by `cargo fmt` in CI.
@@ -364,6 +402,31 @@ mod coverage {
             "public_get must stay open — a guest needs the metadata to be shown the \
              sign-in gate for a members-only webinar"
         );
+    }
+
+    #[test]
+    fn no_webinar_handler_verifies_a_jwt_without_the_ban_check() {
+        // A ban is enforced at the `/ws` join, at the extension token exchange, and
+        // on every REST request via the `AuthUser` extractor — but the webinar
+        // module reached for `verify_jwt` directly in four places, so a banned org
+        // member kept full host access here until their token expired (up to 7d).
+        //
+        // A ban should mean one thing everywhere, so `authed_user` in this module
+        // is the only place allowed to call `verify_jwt`. This test is what keeps
+        // the next hand-rolled Bearer read from quietly reopening the gap.
+        for (file, src) in [
+            ("routes.rs", include_str!("routes.rs")),
+            ("chat.rs", include_str!("chat.rs")),
+            ("files.rs", include_str!("files.rs")),
+            ("stt.rs", include_str!("stt.rs")),
+            ("presence.rs", include_str!("presence.rs")),
+        ] {
+            assert!(
+                !code_only(src).contains("verify_jwt("),
+                "{file} calls verify_jwt directly — use webinar::authed_user, which \
+                 also rejects a banned account"
+            );
+        }
     }
 
     #[test]

@@ -1031,7 +1031,7 @@ pub async fn list_public_transcript(
 
     // A members-only webinar's transcript is exactly the content the flag exists
     // to protect — it is everything that was said.
-    crate::webinar::require_member_access(&w, &state, &headers)?;
+    crate::webinar::require_member_access(&w, &state, &headers).await?;
 
     // Privacy gate: transcript not recorded → nothing to serve.
     if !w.record_transcript {
@@ -2083,7 +2083,7 @@ pub async fn public_get(
     // host, tell the /w client so it can send the host to their studio instead of joining
     // as a viewer of their own webinar. Only a boolean + the webinar id are revealed, and
     // only to the host — a guest or any non-host caller gets `is_host:false` and no id.
-    let caller_id = crate::webinar::caller_id(&state, &headers);
+    let caller_id = crate::webinar::caller_id(&state, &headers).await;
     let is_host = caller_id.is_some() && caller_id == w.host_user_id;
     let mut body = public_view(&w, &state.config.app_base_url, cfg);
     if let Some(obj) = body.as_object_mut() {
@@ -2115,7 +2115,7 @@ pub async fn public_list(
 
     // Optional auth: extract caller_id when a valid JWT is present so we can
     // exclude their own orgs' webinars from the discovery list.
-    let caller_id = crate::webinar::caller_id(&state, &headers);
+    let caller_id = crate::webinar::caller_id(&state, &headers).await;
 
     let rows: Vec<Webinar> = if let Some(uid) = caller_id {
         sqlx::query_as(
@@ -2206,7 +2206,7 @@ pub async fn tts_session(
 
     // Minting spends the host's Cartesia budget, so a members-only webinar must
     // not do it for a guest.
-    crate::webinar::require_member_access(&webinar, &state, &headers)?;
+    crate::webinar::require_member_access(&webinar, &state, &headers).await?;
 
     if webinar.tier != "enhanced" {
         return Err((
