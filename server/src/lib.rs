@@ -867,6 +867,49 @@ fn ct_eq(a: &[u8], b: &[u8]) -> bool {
     diff == 0
 }
 
+/// How much the configured client-IP source can be trusted — the joint meaning of
+/// `CLIENT_IP_HEADER` and `CF_ORIGIN_SECRET`, which are only correct together.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum IpTrust {
+    /// Both set and agreeing, or neither set. Per-IP limits key on something the
+    /// caller cannot choose.
+    Sound,
+    /// Locked to Cloudflare but still reading the last `X-Forwarded-For` hop —
+    /// which IS Cloudflare's edge, so every caller shares one bucket and per-IP
+    /// limiting silently becomes global.
+    EdgeIpCollapse,
+    /// We trust a header, but nothing proves Cloudflare wrote it. Anyone reaching
+    /// the origin directly forges it and bypasses every per-IP limit in the app.
+    ForgeableHeader,
+}
+
+/// Classify the `(CLIENT_IP_HEADER, CF_ORIGIN_SECRET)` pairing.
+///
+/// `cf-connecting-ip` is unforgeable *only while the request actually came through
+/// Cloudflare*, and the origin lock is the thing that guarantees that. Configure
+/// one without the other and a control that looks present does nothing — the
+/// failure mode that motivates a startup check rather than a doc note.
+///
+/// Pure so both directions are unit-tested; the caller decides how loudly to
+/// complain. Neither case aborts the boot: the server cannot tell a genuinely
+/// network-isolated origin from an exposed one, and refusing to start on a
+/// configuration that may be perfectly sound is a worse outage than the risk.
+fn ip_trust(client_ip_header: &str, cf_origin_secret_set: bool) -> IpTrust {
+    let header = client_ip_header.trim().to_ascii_lowercase();
+    match (header.is_empty(), cf_origin_secret_set) {
+        (true, true) => IpTrust::EdgeIpCollapse,
+        (false, false) => IpTrust::ForgeableHeader,
+        (true, false) => IpTrust::Sound,
+        (false, true) => {
+            if header == "cf-connecting-ip" {
+                IpTrust::Sound
+            } else {
+                IpTrust::EdgeIpCollapse
+            }
+        }
+    }
+}
+
 /// Binary entry point: load config, build state, bind, and serve.
 pub async fn serve() {
     dotenvy::dotenv().ok();
@@ -880,24 +923,28 @@ pub async fn serve() {
         }
     };
 
-    // M7 — behind Cloudflare (CF_ORIGIN_SECRET set) the app sees Cloudflare's edge IP
-    // as the last X-Forwarded-For hop, so unless CLIENT_IP_HEADER=cf-connecting-ip is
-    // set every per-IP bucket keys on ONE shared IP and per-IP throttling becomes
-    // global/meaningless. Warn loudly rather than silently degrade.
-    let cf_deployment = std::env::var("CF_ORIGIN_SECRET")
-        .ok()
-        .filter(|s| !s.trim().is_empty())
-        .is_some();
-    if cf_deployment {
-        let ip_header = std::env::var("CLIENT_IP_HEADER")
-            .unwrap_or_default()
-            .trim()
-            .to_ascii_lowercase();
-        if ip_header != "cf-connecting-ip" {
+    // M7 — `CLIENT_IP_HEADER` and `CF_ORIGIN_SECRET` only make sense together; each
+    // without the other breaks per-IP rate limiting in its own way. See [`ip_trust`].
+    match ip_trust(
+        &std::env::var("CLIENT_IP_HEADER").unwrap_or_default(),
+        std::env::var("CF_ORIGIN_SECRET")
+            .ok()
+            .is_some_and(|s| !s.trim().is_empty()),
+    ) {
+        IpTrust::Sound => {}
+        IpTrust::EdgeIpCollapse => {
             tracing::warn!(
                 "CF_ORIGIN_SECRET is set (Cloudflare deployment) but CLIENT_IP_HEADER \
                  is not 'cf-connecting-ip' — per-IP rate limits will collapse onto \
                  Cloudflare's edge IP. Set CLIENT_IP_HEADER=cf-connecting-ip."
+            );
+        }
+        IpTrust::ForgeableHeader => {
+            tracing::error!(
+                "CLIENT_IP_HEADER is set but CF_ORIGIN_SECRET is not — the client IP \
+                 is read from a header we cannot prove Cloudflare wrote. Anyone who \
+                 reaches the origin directly can forge it and bypass EVERY per-IP \
+                 rate limit. Set CF_ORIGIN_SECRET, or unset CLIENT_IP_HEADER."
             );
         }
     }
@@ -2649,6 +2696,37 @@ mod tests {
             translate_text_verdict(None, false, MAX_TRANSLATE_TEXT_BYTES * 100),
             TranslateTextVerdict::NotEntitled
         );
+    }
+
+    #[test]
+    fn ip_trust_flags_a_forgeable_client_ip_header() {
+        use super::{ip_trust, IpTrust};
+
+        // The dangerous pairing, and the one nothing warned about: we TRUST
+        // `cf-connecting-ip`, but the origin lock is off — so anyone who finds the
+        // direct origin sets that header to whatever they like and every per-IP
+        // limit in the app (ICE credentials, extension codes, WS connects, uploads)
+        // becomes decorative. `/health` and `/version` stay reachable by design,
+        // which is enough to confirm you have found the origin.
+        assert_eq!(
+            ip_trust("cf-connecting-ip", false),
+            IpTrust::ForgeableHeader
+        );
+
+        // The direction that was already handled: locked to Cloudflare but reading
+        // the last XFF hop, which is Cloudflare's own edge — so every caller shares
+        // one bucket and per-IP limiting collapses into a global one.
+        assert_eq!(ip_trust("", true), IpTrust::EdgeIpCollapse);
+        assert_eq!(ip_trust("x-real-ip", true), IpTrust::EdgeIpCollapse);
+
+        // Both set, agreeing — the intended production shape.
+        assert_eq!(ip_trust("cf-connecting-ip", true), IpTrust::Sound);
+        // Neither set — plain proxy, last XFF hop, also sound.
+        assert_eq!(ip_trust("", false), IpTrust::Sound);
+
+        // Case and whitespace are normalised, so a stray space in a Railway
+        // variable can't quietly turn a sound config into a broken one.
+        assert_eq!(ip_trust("  CF-Connecting-IP  ", true), IpTrust::Sound);
     }
 
     #[tokio::test]
