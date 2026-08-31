@@ -198,6 +198,32 @@ impl Translator {
         )
         .await
     }
+
+    /// Translate one phrase through the shared admission semaphore but **without**
+    /// the cache — the Enhanced (client-direct) listener hop.
+    ///
+    /// Skipping the cache is deliberate: spec 0107 keeps the translation cache
+    /// Standard-only. Skipping the *semaphore* was not. Until this existed the
+    /// Enhanced hop reached for the raw `Groq` client, so a single WebSocket peer
+    /// could open unbounded concurrent Groq requests — spending money that was
+    /// never metered and starving the Standard fan-out of the very admission
+    /// permits spec 0069 introduced to protect it.
+    ///
+    /// The two concerns are separable, and this is where they separate: same
+    /// uncached Groq call as before, now admitted through the process-wide bound.
+    pub async fn translate_uncached(
+        &self,
+        text: &str,
+        src: &str,
+        tgt: &str,
+    ) -> Result<String, String> {
+        let _permit = self
+            .sem
+            .acquire()
+            .await
+            .map_err(|_| "translator semaphore closed".to_string())?;
+        self.groq.translate(text, src, tgt, &[]).await
+    }
 }
 
 /// Translate one `(text, src, tgt)` through the cache when one is present,
@@ -321,6 +347,28 @@ mod tests {
         );
         // Close the semaphore so the parked task ends with an error instead of
         // ever making a (dummy-key) network call as the runtime tears down.
+        tr.sem.close();
+    }
+
+    #[tokio::test]
+    async fn translate_uncached_parks_on_admission_semaphore_when_full() {
+        let tr = Translator::with_max_inflight(
+            Groq::new("dummy-key".into(), "openai/gpt-oss-20b".into()),
+            1,
+        );
+        let _held = tr.sem.clone().acquire_owned().await.unwrap();
+        assert_eq!(tr.sem.available_permits(), 0);
+
+        // The Enhanced hop skips the CACHE by design (spec 0107 keeps the cache
+        // Standard-only) but must still take an admission permit — otherwise one
+        // WS peer opens unbounded concurrent Groq calls and starves the fan-out.
+        let mut fut = Box::pin(tr.translate_uncached("ciao", "it", "en"));
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(50), &mut fut)
+                .await
+                .is_err(),
+            "the uncached hop must wait for an admission permit before calling Groq"
+        );
         tr.sem.close();
     }
 }
