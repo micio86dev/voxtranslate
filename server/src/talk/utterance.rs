@@ -93,11 +93,19 @@ pub struct Utterance {
     held_other: Vec<String>,
     /// The last final we forwarded, to swallow provider-side repeats.
     last_final: Option<String>,
+    /// The ORIGINAL text of the last sentence forwarded, so the losing session's copy of
+    /// it can be recognised when it lands afterwards. See [`Self::is_trailing_echo`].
+    spoken_original: Option<String>,
     /// A final that arrived before the direction was known, kept so a late verdict can
     /// still release it. Dropping it — which is what this did — threw away the single
     /// best piece of evidence about the utterance AND the sentence itself: in production
     /// 12 of 17 utterances ended here and were never spoken.
-    pending_final: Option<(String, String)>,
+    ///
+    /// One slot PER SIDE, not one in total. Both sessions finalize every sentence over
+    /// independent sockets, so which copy arrives first is a race — and keeping only the
+    /// winner of that race lost the sentence outright whenever the echo won it.
+    pending_user: Option<String>,
+    pending_other: Option<String>,
 }
 
 impl Utterance {
@@ -111,7 +119,9 @@ impl Utterance {
             held_user: Vec::new(),
             held_other: Vec::new(),
             last_final: None,
-            pending_final: None,
+            spoken_original: None,
+            pending_user: None,
+            pending_other: None,
         }
     }
 
@@ -239,9 +249,17 @@ impl Utterance {
             // transcript, which is the best evidence we will ever get about what was
             // spoken, so the caller classifies it and releases the sentence if a verdict
             // arrives. Resetting here instead is what made most sentences vanish.
-            // Keep the first side to arrive; the other is the echo.
-            if self.pending_final.is_none() {
-                self.pending_final = Some((lang.to_string(), frame));
+            // Park it on ITS OWN side: the other side is not the echo, it is the same
+            // sentence from the other session, and only the verdict can say which is
+            // which. Within one side the FIRST copy wins — a provider repeat must not
+            // displace the sentence we already have.
+            let slot = if lang == self.user_lang {
+                &mut self.pending_user
+            } else {
+                &mut self.pending_other
+            };
+            if slot.is_none() {
+                *slot = Some(frame);
             }
             return Outcome::Hold;
         }
@@ -255,21 +273,50 @@ impl Utterance {
             return Outcome::Hold;
         }
         self.last_final = Some(frame.clone());
+        let spoken = std::mem::take(&mut self.original);
         self.reset_keeping_last_final();
+        self.spoken_original = (!spoken.is_empty()).then_some(spoken);
         Outcome::one(frame)
     }
 
-    /// A final is parked waiting for a direction.
+    /// Is `text` the losing session's copy of the sentence we have just forwarded?
+    ///
+    /// Both sessions finalize every sentence, and the loser's copy always lands AFTER the
+    /// winner's — by which point this utterance has reset. Fed through the normal path
+    /// that tail re-opened the sentence: it re-latched a direction from the echo's own
+    /// text, and `note_original` then refuses to re-classify a latched utterance, so the
+    /// NEXT sentence was routed by the previous one's direction. One trailing frame
+    /// inverted a whole conversational turn.
+    ///
+    /// Deliberately narrow: it only holds while the utterance has heard nothing since the
+    /// reset. A genuine repeat ("Sì." twice) arrives with its own partials, and those are
+    /// exactly the evidence that clears this.
+    pub fn is_trailing_echo(&self, text: &str) -> bool {
+        self.direction == Direction::Unknown
+            && self.original.is_empty()
+            && self.spoken_original.as_deref() == Some(text.trim())
+    }
+
+    /// A final is parked waiting for a direction, on either side.
     pub fn has_pending_final(&self) -> bool {
-        self.pending_final.is_some()
+        self.pending_user.is_some() || self.pending_other.is_some()
     }
 
     /// Release a parked final now that a direction exists — `Some` only if the side it
     /// arrived on turned out to be the one worth speaking. Either way the park is
     /// cleared, so a stale final can never leak into the next sentence.
     pub fn take_pending_final(&mut self) -> Option<String> {
-        let (lang, frame) = self.pending_final.take()?;
-        if !self.is_target(&lang) || self.last_final.as_deref() == Some(frame.as_str()) {
+        // Both parks are cleared whatever the verdict: the losing side's copy has served
+        // its only purpose, and a survivor would leak into the next sentence.
+        let user = self.pending_user.take();
+        let other = self.pending_other.take();
+        let target = self.direction.target(&self.user_lang, &self.other_lang)?;
+        let frame = if target == self.user_lang {
+            user
+        } else {
+            other
+        }?;
+        if self.last_final.as_deref() == Some(frame.as_str()) {
             return None;
         }
         self.last_final = Some(frame.clone());
@@ -281,10 +328,12 @@ impl Utterance {
     pub fn reset(&mut self) {
         self.reset_keeping_last_final();
         self.last_final = None;
+        self.spoken_original = None;
     }
 
     fn reset_keeping_last_final(&mut self) {
-        self.pending_final = None;
+        self.pending_user = None;
+        self.pending_other = None;
         self.direction = Direction::Unknown;
         self.original.clear();
         self.resolved_at_len = 0;
@@ -490,16 +539,92 @@ mod tests {
     }
 
     #[test]
-    fn only_the_first_final_is_parked() {
-        // Both sessions finalize. The second to arrive is the echo; parking it would
-        // overwrite the real one.
-        let mut u = Utterance::new("it", "es");
+    fn each_side_parks_its_own_final_so_arrival_order_cannot_lose_the_sentence() {
+        // The two upstream sessions are independent sockets and nothing orders their
+        // finals. Parking only the FIRST to arrive threw the sentence away every time the
+        // echo won that race — a coin flip on every utterance whose direction lands late.
         let real = final_msg("Vorrei andare", "es", "Quiero ir");
         let echo = final_msg("Vorrei andare", "it", "Vorrei andare");
-        u.on_frame("es", real.clone());
-        u.on_frame("it", echo);
+
+        for order in [
+            [("it", &echo), ("es", &real)],
+            [("es", &real), ("it", &echo)],
+        ] {
+            let mut u = Utterance::new("it", "es");
+            for (lang, frame) in order {
+                assert_eq!(u.on_frame(lang, frame.clone()), Outcome::Hold);
+            }
+            u.commit(Direction::UserToOther);
+            assert_eq!(
+                u.take_pending_final().as_deref(),
+                Some(real.as_str()),
+                "the winning side is released whichever side finalized first"
+            );
+            assert_eq!(u.take_pending_final(), None, "released exactly once");
+        }
+    }
+
+    #[test]
+    fn a_repeat_from_one_side_does_not_displace_that_sides_first_final() {
+        // Providers repeat a final. The first one is the sentence; a repeat must not
+        // overwrite it with a later revision that the utterance has no way to prefer.
+        let mut u = Utterance::new("it", "es");
+        let first = final_msg("Vorrei andare", "es", "Quiero ir");
+        let repeat = final_msg("Vorrei andare alla", "es", "Quiero ir a la");
+        u.on_frame("es", first.clone());
+        u.on_frame("es", repeat);
         u.commit(Direction::UserToOther);
-        assert_eq!(u.take_pending_final().as_deref(), Some(real.as_str()));
+        assert_eq!(u.take_pending_final().as_deref(), Some(first.as_str()));
+    }
+
+    #[test]
+    fn the_losing_sessions_trailing_final_does_not_reopen_a_spoken_sentence() {
+        // Both sessions finalize the same sentence, and the loser's copy always lands
+        // AFTER the winner's — by which point the utterance has reset. Left alone, that
+        // tail re-latched a direction from the echo's OWN text and carried it into the
+        // next sentence, which `note_original` then refuses to re-classify because it is
+        // latched. One trailing frame inverted a whole conversational turn.
+        let mut u = Utterance::new("it", "es");
+        u.note_original("Vorrei andare");
+        u.commit(Direction::UserToOther);
+        let real = final_msg("Vorrei andare", "es", "Quiero ir");
+        assert_eq!(u.on_frame("es", real.clone()), Outcome::one(real));
+
+        // The `it` session's copy of the SAME sentence, arriving into a freshly reset
+        // utterance that has heard nothing new yet.
+        assert!(u.is_trailing_echo("Vorrei andare"));
+
+        // The next sentence is not a tail: it is new evidence, even when the speaker
+        // happens to repeat themselves after something else was said.
+        u.note_original("Dove siamo");
+        assert!(!u.is_trailing_echo("Vorrei andare"));
+    }
+
+    #[test]
+    fn a_genuinely_repeated_sentence_is_not_mistaken_for_a_tail() {
+        // "Sì." twice in a row is two sentences. The guard only covers a final landing
+        // into an utterance that has heard nothing since the reset — an interim for the
+        // new sentence is exactly that evidence.
+        let mut u = Utterance::new("it", "es");
+        u.note_original("Sì");
+        u.commit(Direction::UserToOther);
+        let f = final_msg("Sì", "es", "Sí");
+        assert_eq!(u.on_frame("es", f.clone()), Outcome::one(f));
+        u.note_original("Sì");
+        assert!(!u.is_trailing_echo("Sì"));
+    }
+
+    #[test]
+    fn a_closed_out_utterance_forgets_the_sentence_it_spoke() {
+        // `reset` is the full boundary — Stop, or a verdict that closed the sentence out.
+        // Carrying the tail guard across it would swallow a legitimate repeat.
+        let mut u = Utterance::new("it", "es");
+        u.note_original("Sì");
+        u.commit(Direction::UserToOther);
+        u.on_frame("es", final_msg("Sì", "es", "Sí"));
+        assert!(u.is_trailing_echo("Sì"));
+        u.reset();
+        assert!(!u.is_trailing_echo("Sì"));
     }
 
     #[test]

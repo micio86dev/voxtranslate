@@ -75,6 +75,15 @@ without touching any of them.
 - **R2 — Automatic direction.** *Given* a conversation configured `it ↔ es`, *when*
   Italian is spoken, *then* the Spanish translation is spoken aloud and the Italian echo
   is discarded; *when* Spanish is spoken, the reverse — with no user action between turns.
+  - *Given* a short reply the classifier can only lean towards, *then* it is spoken when
+    that lean AGREES with the direction the conversation last settled on — and stays
+    silent when it contradicts it, or when the model named a third language, or when the
+    text was too short to ask at all. A prior confirms a lean; it never replaces one.
+  - *Given* a direction that only survived because the prior agreed, *then* it does NOT
+    become the next sentence's prior. Only evidence anchors the conversation, so one weak
+    read cannot ratchet a whole conversation the wrong way.
+  - *Given* the conversation is stopped or runs out of credit, *then* the prior is
+    forgotten: after a pause the next speaker is anyone's guess.
 
 - **R3 — Only the two configured languages.** *Given* German is spoken into an `it ↔ es`
   conversation, *then* nothing is spoken and nothing is captioned. Same for an utterance
@@ -89,6 +98,14 @@ without touching any of them.
 - **R5 — Partials without duplicates.** *Given* a stream of interim transcripts, *then* a
   revision replaces rather than appends, a repeated final speaks once, and translated
   audio for an unresolved utterance is held (bounded) rather than played on a guess.
+  - *Given* both sessions finalize the same sentence over independent sockets, *then*
+    each side's final is parked on its own slot and the verdict picks the winner — the
+    order they arrive in can never decide which copy survives.
+  - *Given* a verdict arrives for a parked sentence, *then* the utterance is closed out
+    whether or not anything is released: a sentence whose only parked copy was the echo
+    is still over, and a direction must never outlive the sentence it was resolved for.
+  - *Given* the losing session's copy of an already-forwarded sentence lands afterwards,
+    *then* it is swallowed rather than treated as a new utterance.
 
 - **R6 — Honest billing.** *Given* both directions are held open, *then* the meter bills
   two translation streams for the whole conversation, using the existing
