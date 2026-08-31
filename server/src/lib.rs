@@ -867,6 +867,49 @@ fn ct_eq(a: &[u8], b: &[u8]) -> bool {
     diff == 0
 }
 
+/// How much the configured client-IP source can be trusted — the joint meaning of
+/// `CLIENT_IP_HEADER` and `CF_ORIGIN_SECRET`, which are only correct together.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum IpTrust {
+    /// Both set and agreeing, or neither set. Per-IP limits key on something the
+    /// caller cannot choose.
+    Sound,
+    /// Locked to Cloudflare but still reading the last `X-Forwarded-For` hop —
+    /// which IS Cloudflare's edge, so every caller shares one bucket and per-IP
+    /// limiting silently becomes global.
+    EdgeIpCollapse,
+    /// We trust a header, but nothing proves Cloudflare wrote it. Anyone reaching
+    /// the origin directly forges it and bypasses every per-IP limit in the app.
+    ForgeableHeader,
+}
+
+/// Classify the `(CLIENT_IP_HEADER, CF_ORIGIN_SECRET)` pairing.
+///
+/// `cf-connecting-ip` is unforgeable *only while the request actually came through
+/// Cloudflare*, and the origin lock is the thing that guarantees that. Configure
+/// one without the other and a control that looks present does nothing — the
+/// failure mode that motivates a startup check rather than a doc note.
+///
+/// Pure so both directions are unit-tested; the caller decides how loudly to
+/// complain. Neither case aborts the boot: the server cannot tell a genuinely
+/// network-isolated origin from an exposed one, and refusing to start on a
+/// configuration that may be perfectly sound is a worse outage than the risk.
+fn ip_trust(client_ip_header: &str, cf_origin_secret_set: bool) -> IpTrust {
+    let header = client_ip_header.trim().to_ascii_lowercase();
+    match (header.is_empty(), cf_origin_secret_set) {
+        (true, true) => IpTrust::EdgeIpCollapse,
+        (false, false) => IpTrust::ForgeableHeader,
+        (true, false) => IpTrust::Sound,
+        (false, true) => {
+            if header == "cf-connecting-ip" {
+                IpTrust::Sound
+            } else {
+                IpTrust::EdgeIpCollapse
+            }
+        }
+    }
+}
+
 /// Binary entry point: load config, build state, bind, and serve.
 pub async fn serve() {
     dotenvy::dotenv().ok();
@@ -880,24 +923,28 @@ pub async fn serve() {
         }
     };
 
-    // M7 — behind Cloudflare (CF_ORIGIN_SECRET set) the app sees Cloudflare's edge IP
-    // as the last X-Forwarded-For hop, so unless CLIENT_IP_HEADER=cf-connecting-ip is
-    // set every per-IP bucket keys on ONE shared IP and per-IP throttling becomes
-    // global/meaningless. Warn loudly rather than silently degrade.
-    let cf_deployment = std::env::var("CF_ORIGIN_SECRET")
-        .ok()
-        .filter(|s| !s.trim().is_empty())
-        .is_some();
-    if cf_deployment {
-        let ip_header = std::env::var("CLIENT_IP_HEADER")
-            .unwrap_or_default()
-            .trim()
-            .to_ascii_lowercase();
-        if ip_header != "cf-connecting-ip" {
+    // M7 — `CLIENT_IP_HEADER` and `CF_ORIGIN_SECRET` only make sense together; each
+    // without the other breaks per-IP rate limiting in its own way. See [`ip_trust`].
+    match ip_trust(
+        &std::env::var("CLIENT_IP_HEADER").unwrap_or_default(),
+        std::env::var("CF_ORIGIN_SECRET")
+            .ok()
+            .is_some_and(|s| !s.trim().is_empty()),
+    ) {
+        IpTrust::Sound => {}
+        IpTrust::EdgeIpCollapse => {
             tracing::warn!(
                 "CF_ORIGIN_SECRET is set (Cloudflare deployment) but CLIENT_IP_HEADER \
                  is not 'cf-connecting-ip' — per-IP rate limits will collapse onto \
                  Cloudflare's edge IP. Set CLIENT_IP_HEADER=cf-connecting-ip."
+            );
+        }
+        IpTrust::ForgeableHeader => {
+            tracing::error!(
+                "CLIENT_IP_HEADER is set but CF_ORIGIN_SECRET is not — the client IP \
+                 is read from a header we cannot prove Cloudflare wrote. Anyone who \
+                 reaches the origin directly can forge it and bypass EVERY per-IP \
+                 rate limit. Set CF_ORIGIN_SECRET, or unset CLIENT_IP_HEADER."
             );
         }
     }
@@ -1008,6 +1055,46 @@ pub async fn serve() {
 /// well under this). Cosmetic/DoS-adjacent hardening, not an exploit fix on its own.
 const MAX_ROOM_LEN: usize = 128;
 const MAX_NAME_LEN: usize = 100;
+
+/// Largest `translate_text` payload we will send to Groq, matching the chat cap
+/// (`8 KB`) because both frames end at the same paid sink. The 64 KiB
+/// [`MAX_FRAME_BYTES`] guard is a transport bound on every frame; this is the
+/// semantic bound on the one frame that spends money.
+const MAX_TRANSLATE_TEXT_BYTES: usize = 8 * 1024;
+
+/// Whether an inbound `translate_text` frame may be translated, and why not.
+///
+/// The Enhanced (Cartesia) listener path is the only legitimate sender: it is a
+/// paid, client-direct tier whose browser does STT and TTS locally and asks the
+/// server only for the translation in between. A guest, or a peer on a
+/// server-side engine, has no reason to send this frame — the server is already
+/// translating for them — so such a frame is a protocol violation, not a use case.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TranslateTextVerdict {
+    Allow,
+    /// Not an authenticated peer on a client-direct engine.
+    NotEntitled,
+    /// Past [`MAX_TRANSLATE_TEXT_BYTES`].
+    TooLong,
+}
+
+/// Decide a `translate_text` frame's fate. Pure (no state, no I/O) so the policy
+/// is unit-testable without a socket, a room, or a Groq key.
+fn translate_text_verdict(
+    billed_user: Option<Uuid>,
+    on_client_direct: bool,
+    text_len: usize,
+) -> TranslateTextVerdict {
+    // Entitlement first: it is the cheaper check, and the length of a frame we
+    // were never going to translate is not interesting.
+    if billed_user.is_none() || !on_client_direct {
+        return TranslateTextVerdict::NotEntitled;
+    }
+    if text_len > MAX_TRANSLATE_TEXT_BYTES {
+        return TranslateTextVerdict::TooLong;
+    }
+    TranslateTextVerdict::Allow
+}
 
 async fn ws_handler(
     ws: WebSocketUpgrade,
@@ -2237,26 +2324,62 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState, clien
                             // Enhanced translate hop (spec 0108): Cartesia does STT + TTS but
                             // not translation, so the client-direct listener sends each
                             // finalized source segment here and we reply with the Groq
-                            // translation. Text only — no audio. Spawn so the per-utterance
-                            // Groq round-trip never blocks this peer's WS receive loop, and
-                            // route the reply back over the same `out_tx` channel. The
-                            // DragonflyDB cache stays Standard-only (spec 0107), so call the
-                            // raw Groq client here rather than the cached `translator`.
-                            let groq = state.groq.clone();
-                            let reply_tx = out_tx.clone();
-                            tokio::spawn(async move {
-                                let translated = groq
-                                    .translate(&text, &source, &target, &[])
-                                    .await
-                                    .unwrap_or(text);
-                                let _ = reply_tx.send(
-                                    ServerMessage::TranslatedText {
-                                        request_id,
-                                        text: translated,
-                                    }
-                                    .to_json(),
-                                );
-                            });
+                            // translation. Text only — no audio.
+                            //
+                            // This frame spends third-party money, so it is gated before
+                            // anything is spawned. Entitlement is the same signal the
+                            // `EnhancedFallback` arm above reads: only a peer currently on a
+                            // client-direct engine has a browser doing its own STT/TTS and
+                            // therefore any reason to ask for a bare translation.
+                            let on_client_direct = state
+                                .rooms
+                                .peer_engine(&room, &id)
+                                .and_then(|eid| state.engines.get(&eid))
+                                .map(|e| e.metadata().capabilities.client_direct)
+                                .unwrap_or(false);
+                            match translate_text_verdict(billed_user, on_client_direct, text.len())
+                            {
+                                TranslateTextVerdict::NotEntitled => {
+                                    // A real Enhanced client never gets here. Log at debug —
+                                    // this is either an abusive peer or a client bug, and in
+                                    // neither case should it be able to fill the log.
+                                    tracing::debug!(
+                                        %id, %on_client_direct,
+                                        billed = billed_user.is_some(),
+                                        "dropped translate_text from an unentitled peer"
+                                    );
+                                }
+                                TranslateTextVerdict::TooLong => {
+                                    tracing::debug!(
+                                        %id, len = text.len(),
+                                        "dropped oversized translate_text"
+                                    );
+                                }
+                                TranslateTextVerdict::Allow => {
+                                    // Spawn so the per-utterance round-trip never blocks this
+                                    // peer's WS receive loop, and route the reply back over
+                                    // the same `out_tx` channel. `translate_uncached` keeps
+                                    // the Standard-only cache rule (spec 0107) while still
+                                    // taking an admission permit (spec 0069) — without one,
+                                    // this path could open unbounded concurrent Groq calls
+                                    // and starve the fan-out that every other peer depends on.
+                                    let translator = state.translator.clone();
+                                    let reply_tx = out_tx.clone();
+                                    tokio::spawn(async move {
+                                        let translated = translator
+                                            .translate_uncached(&text, &source, &target)
+                                            .await
+                                            .unwrap_or(text);
+                                        let _ = reply_tx.send(
+                                            ServerMessage::TranslatedText {
+                                                request_id,
+                                                text: translated,
+                                            }
+                                            .to_json(),
+                                        );
+                                    });
+                                }
+                            }
                         }
                         Err(_) => {} // unknown / malformed control frame
                     },
@@ -2514,8 +2637,97 @@ async fn shutdown_signal() {
 
 #[cfg(test)]
 mod tests {
-    use super::{origin_header_ok, version_handler};
+    use super::{
+        origin_header_ok, translate_text_verdict, version_handler, TranslateTextVerdict,
+        MAX_TRANSLATE_TEXT_BYTES,
+    };
     use axum::http::HeaderMap;
+    use uuid::Uuid;
+
+    // `translate_text` is the Enhanced (client-direct) listener's translation hop.
+    // It spends Groq money, so entitlement is checked before anything is spawned.
+
+    #[test]
+    fn translate_text_rejects_a_guest_even_on_a_client_direct_engine() {
+        assert_eq!(
+            translate_text_verdict(None, true, 10),
+            TranslateTextVerdict::NotEntitled,
+            "a guest has no billing account; this frame is never legitimate from one"
+        );
+    }
+
+    #[test]
+    fn translate_text_rejects_an_authenticated_peer_not_on_a_client_direct_engine() {
+        assert_eq!(
+            translate_text_verdict(Some(Uuid::new_v4()), false, 10),
+            TranslateTextVerdict::NotEntitled,
+            "a Standard/Premium peer is translated server-side and never sends this"
+        );
+    }
+
+    #[test]
+    fn translate_text_allows_an_entitled_peer() {
+        assert_eq!(
+            translate_text_verdict(Some(Uuid::new_v4()), true, 10),
+            TranslateTextVerdict::Allow
+        );
+    }
+
+    #[test]
+    fn translate_text_bounds_the_payload_at_the_chat_precedent() {
+        let uid = Some(Uuid::new_v4());
+        assert_eq!(
+            translate_text_verdict(uid, true, MAX_TRANSLATE_TEXT_BYTES),
+            TranslateTextVerdict::Allow,
+            "exactly at the cap is still a legitimate utterance"
+        );
+        assert_eq!(
+            translate_text_verdict(uid, true, MAX_TRANSLATE_TEXT_BYTES + 1),
+            TranslateTextVerdict::TooLong
+        );
+    }
+
+    #[test]
+    fn translate_text_checks_entitlement_before_length() {
+        // An oversized frame from an unentitled peer is reported as unentitled:
+        // the cheaper, more fundamental rejection wins, and the length of a frame
+        // we were never going to translate is not interesting.
+        assert_eq!(
+            translate_text_verdict(None, false, MAX_TRANSLATE_TEXT_BYTES * 100),
+            TranslateTextVerdict::NotEntitled
+        );
+    }
+
+    #[test]
+    fn ip_trust_flags_a_forgeable_client_ip_header() {
+        use super::{ip_trust, IpTrust};
+
+        // The dangerous pairing, and the one nothing warned about: we TRUST
+        // `cf-connecting-ip`, but the origin lock is off — so anyone who finds the
+        // direct origin sets that header to whatever they like and every per-IP
+        // limit in the app (ICE credentials, extension codes, WS connects, uploads)
+        // becomes decorative. `/health` and `/version` stay reachable by design,
+        // which is enough to confirm you have found the origin.
+        assert_eq!(
+            ip_trust("cf-connecting-ip", false),
+            IpTrust::ForgeableHeader
+        );
+
+        // The direction that was already handled: locked to Cloudflare but reading
+        // the last XFF hop, which is Cloudflare's own edge — so every caller shares
+        // one bucket and per-IP limiting collapses into a global one.
+        assert_eq!(ip_trust("", true), IpTrust::EdgeIpCollapse);
+        assert_eq!(ip_trust("x-real-ip", true), IpTrust::EdgeIpCollapse);
+
+        // Both set, agreeing — the intended production shape.
+        assert_eq!(ip_trust("cf-connecting-ip", true), IpTrust::Sound);
+        // Neither set — plain proxy, last XFF hop, also sound.
+        assert_eq!(ip_trust("", false), IpTrust::Sound);
+
+        // Case and whitespace are normalised, so a stray space in a Railway
+        // variable can't quietly turn a sound config into a broken one.
+        assert_eq!(ip_trust("  CF-Connecting-IP  ", true), IpTrust::Sound);
+    }
 
     #[tokio::test]
     async fn version_handler_reports_the_crate_version() {

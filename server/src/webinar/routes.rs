@@ -11,7 +11,6 @@
 #![allow(clippy::result_large_err)]
 
 use axum::extract::{Path, Query, State};
-use axum::http::header::AUTHORIZATION;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -1018,6 +1017,7 @@ pub async fn unarchive(
 pub async fn list_public_transcript(
     State(state): State<AppState>,
     Path(code): Path<String>,
+    headers: HeaderMap,
     axum::extract::Query(q): axum::extract::Query<crate::webinar::chat::HistoryQuery>,
     // Extension<GuestId> from the guest-session middleware (unused here, but the
     // middleware runs for the whole public sub-router).
@@ -1028,6 +1028,10 @@ pub async fn list_public_transcript(
         .await
         .map_err(db_err)?
         .ok_or_else(|| not_found("webinar not found"))?;
+
+    // A members-only webinar's transcript is exactly the content the flag exists
+    // to protect — it is everything that was said.
+    crate::webinar::require_member_access(&w, &state, &headers).await?;
 
     // Privacy gate: transcript not recorded → nothing to serve.
     if !w.record_transcript {
@@ -2079,14 +2083,7 @@ pub async fn public_get(
     // host, tell the /w client so it can send the host to their studio instead of joining
     // as a viewer of their own webinar. Only a boolean + the webinar id are revealed, and
     // only to the host — a guest or any non-host caller gets `is_host:false` and no id.
-    let caller_id: Option<Uuid> = state.config.billing.as_ref().and_then(|b| {
-        headers
-            .get(AUTHORIZATION)
-            .and_then(|v| v.to_str().ok())
-            .and_then(|v| v.strip_prefix("Bearer "))
-            .and_then(|tok| crate::auth::verify_jwt(&b.jwt_secret, tok).ok())
-            .and_then(|c| Uuid::parse_str(&c.sub).ok())
-    });
+    let caller_id = crate::webinar::caller_id(&state, &headers).await;
     let is_host = caller_id.is_some() && caller_id == w.host_user_id;
     let mut body = public_view(&w, &state.config.app_base_url, cfg);
     if let Some(obj) = body.as_object_mut() {
@@ -2118,14 +2115,7 @@ pub async fn public_list(
 
     // Optional auth: extract caller_id when a valid JWT is present so we can
     // exclude their own orgs' webinars from the discovery list.
-    let caller_id: Option<Uuid> = state.config.billing.as_ref().and_then(|b| {
-        headers
-            .get(AUTHORIZATION)
-            .and_then(|v| v.to_str().ok())
-            .and_then(|v| v.strip_prefix("Bearer "))
-            .and_then(|tok| crate::auth::verify_jwt(&b.jwt_secret, tok).ok())
-            .and_then(|c| Uuid::parse_str(&c.sub).ok())
-    });
+    let caller_id = crate::webinar::caller_id(&state, &headers).await;
 
     let rows: Vec<Webinar> = if let Some(uid) = caller_id {
         sqlx::query_as(
@@ -2173,13 +2163,30 @@ pub async fn public_list(
 pub async fn tts_session(
     State(state): State<AppState>,
     Path(code): Path<String>,
+    headers: HeaderMap,
 ) -> Result<Response, Response> {
     let pool = require_pool(&state)?;
     let cartesia = state.config.cartesia.as_ref().ok_or_else(|| {
         (StatusCode::SERVICE_UNAVAILABLE, "cartesia not configured").into_response()
     })?;
 
-    // Rate-limit: 20 mints per code per minute to prevent token farming.
+    // Two rate limits, because they stop different things.
+    //
+    // Per CALLER: this mints a real, hour-long Cartesia credential to an
+    // anonymous caller, so the cost ceiling has to follow the caller. Without
+    // this the per-code limit below was the only one, which farmed tokens
+    // happily — 20/min forever from a single client.
+    let ip = crate::observability::client_ip(&headers);
+    if !state
+        .rate_limiter
+        .allow(&format!("wbr-tts-ip:{ip}"), 10, Duration::from_secs(60))
+    {
+        return Err((StatusCode::TOO_MANY_REQUESTS, "too many requests").into_response());
+    }
+    // Per WEBINAR: a backstop on total mints for one broadcast. On its own this
+    // was also a denial-of-service on the webinar's own viewers — one abuser
+    // drained the shared bucket and everyone else lost translated audio — which
+    // is why the per-caller limit has to come first and be the tighter of the two.
     if !state
         .rate_limiter
         .allow(&format!("wbr-tts:{code}"), 20, Duration::from_secs(60))
@@ -2196,6 +2203,10 @@ pub async fn tts_session(
 
     let webinar =
         webinar.ok_or_else(|| (StatusCode::NOT_FOUND, "webinar not found").into_response())?;
+
+    // Minting spends the host's Cartesia budget, so a members-only webinar must
+    // not do it for a guest.
+    crate::webinar::require_member_access(&webinar, &state, &headers).await?;
 
     if webinar.tier != "enhanced" {
         return Err((

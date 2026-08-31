@@ -54,6 +54,26 @@ describe('call CSP (issue #237 regression guard)', () => {
     expect(directive('worker-src')).not.toContain('blob:');
   });
 
+  it('scopes jsdelivr to the MediaPipe package, not the whole CDN', () => {
+    // jsDelivr serves EVERY npm and GitHub package. Allow-listing the bare host
+    // in script-src therefore means "any script on npm may run in this origin" —
+    // which hands back most of what the CSP is for, since an injection can just
+    // point at a package of its choosing. The origin holds the session JWT in
+    // localStorage, so that is the whole prize.
+    //
+    // CSP host-sources match a path by prefix, so scoping costs nothing: the one
+    // thing we actually load still loads.
+    const MEDIAPIPE = 'https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation';
+    for (const name of ['script-src', 'connect-src']) {
+      const d = directive(name);
+      expect(d).toContain(MEDIAPIPE);
+      expect(
+        d.split(/\s+/).includes('https://cdn.jsdelivr.net'),
+        `${name} allows the whole of jsdelivr — scope it to ${MEDIAPIPE}`,
+      ).toBe(false);
+    }
+  });
+
   it('keeps the directives the call features depend on', () => {
     // MediaPipe Selfie Segmentation (background blur): UMD from jsdelivr +
     // WebAssembly compilation + asset fetches.

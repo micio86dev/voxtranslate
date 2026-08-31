@@ -449,7 +449,14 @@ export class TalkConversation {
         const seq = Number(msg.seq ?? 0);
         const b64 = typeof msg.pcm16_b64 === 'string' ? msg.pcm16_b64 : '';
         const speaker = String(msg.speaker_id ?? 'talk');
-        if (b64) this.playback.enqueue(speaker, seq, b64);
+        // Keyed by speaker AND language, because here the speaker is NOT the stream: both
+        // upstream sessions tag their audio with the same source peer id while each keeps
+        // its own per-connection `seq`. Those counters drift — a Spanish translation and
+        // an Italian one are never the same length — so under one key the playback
+        // buffer's monotonic-seq guard silently drops whichever session fell behind, and
+        // a whole sentence arrives as subtitles with no voice.
+        const lang = String(msg.lang ?? '');
+        if (b64) this.playback.enqueue(`${speaker}:${lang}`, seq, b64);
         break;
       }
       case 'balance_update':

@@ -22,7 +22,6 @@ use serde_json::json;
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
-use crate::auth::verify_jwt;
 use crate::business::{require_role, MEMBER};
 use crate::db::Pool;
 use crate::AppState;
@@ -359,13 +358,7 @@ pub struct PresenceParams {
 /// gate for honoring a `host=true` presence claim. Anyone can send `?host=true`, so
 /// without this an audience count could be skewed by a guest self-marking as host.
 async fn verify_host_member(state: &AppState, pool: &Pool, org_id: Uuid, token: &str) -> bool {
-    let Some(billing) = state.config.billing.as_ref() else {
-        return false;
-    };
-    let Ok(claims) = verify_jwt(&billing.jwt_secret, token) else {
-        return false;
-    };
-    let Ok(user_id) = Uuid::parse_str(&claims.sub) else {
+    let Some(user_id) = crate::webinar::authed_user(state, token).await else {
         return false;
     };
     require_role(pool, org_id, user_id, MEMBER).await.is_ok()
@@ -426,18 +419,10 @@ async fn handle_presence(socket: WebSocket, state: AppState, code: String, param
     if !is_host {
         if let Some(w) = webinar.as_ref() {
             if w.members_only {
-                let authed = params
-                    .token
-                    .as_deref()
-                    .and_then(|tok| {
-                        state
-                            .config
-                            .billing
-                            .as_ref()
-                            .and_then(|b| verify_jwt(&b.jwt_secret, tok).ok())
-                    })
-                    .and_then(|c| Uuid::parse_str(&c.sub).ok())
-                    .is_some();
+                let authed = match params.token.as_deref() {
+                    Some(tok) => crate::webinar::authed_user(&state, tok).await.is_some(),
+                    None => false,
+                };
                 if !authed {
                     // Close the WS with a policy-violation code (1008) — the client
                     // sees the close and can show the login gate.

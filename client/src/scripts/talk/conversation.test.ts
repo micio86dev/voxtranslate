@@ -370,11 +370,35 @@ describe('frames', () => {
 
   it('queues translated audio for playback', async () => {
     const h = await live();
-    sockets[0].deliver({ type: 'translated_audio', speaker_id: 'src', seq: 3, pcm16_b64: 'AAA' });
-    expect(h.playback.enqueued).toEqual([['src', 3, 'AAA']]);
+    sockets[0].deliver({
+      type: 'translated_audio', speaker_id: 'src', lang: 'es', seq: 3, pcm16_b64: 'AAA',
+    });
+    expect(h.playback.enqueued).toEqual([['src:es', 3, 'AAA']]);
     // A frame with no payload is not queued as silence.
-    sockets[0].deliver({ type: 'translated_audio', speaker_id: 'src', seq: 4, pcm16_b64: '' });
+    sockets[0].deliver({
+      type: 'translated_audio', speaker_id: 'src', lang: 'es', seq: 4, pcm16_b64: '',
+    });
     expect(h.playback.enqueued).toHaveLength(1);
+  });
+
+  it('keeps each language a stream of its own', async () => {
+    // Both upstream sessions tag their audio with the SAME source speaker_id, but each
+    // carries its own per-connection `seq` counter — and they drift apart, because a
+    // Spanish translation and an Italian one are never the same length. Keyed by speaker
+    // alone the playback buffer treats them as one stream, so whichever session is behind
+    // is silently dropped by its monotonic-seq guard: subtitles arrive, the voice does
+    // not. That is a whole sentence lost, and it alternates with the direction.
+    const h = await live();
+    sockets[0].deliver({
+      type: 'translated_audio', speaker_id: 'src', lang: 'es', seq: 40, pcm16_b64: 'AAA',
+    });
+    sockets[0].deliver({
+      type: 'translated_audio', speaker_id: 'src', lang: 'it', seq: 12, pcm16_b64: 'BBB',
+    });
+    expect(h.playback.enqueued).toEqual([
+      ['src:es', 40, 'AAA'],
+      ['src:it', 12, 'BBB'],
+    ]);
   });
 
   it('measures speech seen → translated speech audible, once per utterance', async () => {

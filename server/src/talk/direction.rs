@@ -50,9 +50,24 @@ pub const MIN_FINAL_RESOLVE_CHARS: usize = 4;
 /// not one or two, which a single loanword or place name could supply.
 pub const MIN_SCRIPT_EVIDENCE: usize = 4;
 
-/// Minimum model confidence that commits a direction. Below it we abstain and wait for
-/// more speech rather than guess. Deliberately not user-visible (brief §16).
+/// Minimum model confidence that commits a direction ON ITS OWN. Below it we abstain and
+/// wait for more speech rather than guess. Deliberately not user-visible (brief §16).
 pub const MIN_CONFIDENCE: f32 = 0.6;
+
+/// Minimum confidence that commits a direction when it AGREES with the direction the
+/// conversation last settled on.
+///
+/// The short replies that carry a conversation — "Ok", "No", "Due", a place name — are
+/// exactly the ones the classifier cannot place, so a cold read discards precisely the
+/// turns that matter most. But an utterance does not arrive out of nowhere: an engine
+/// segment is usually a fragment of a turn already in progress, so the previous direction
+/// is real, if weak, information.
+///
+/// It is a PRIOR, never a substitute for evidence. It only ever confirms a lean the model
+/// already has: a verdict below this floor, one naming a third language, and one pointing
+/// AGAINST the prior all still abstain. Speaking the wrong language at a stranger is
+/// ranked below a beat of silence, and a turn change on thin evidence is how that happens.
+pub const WEAK_CONFIDENCE: f32 = 0.35;
 
 /// Longest transcript sent to the classifier. A clause is plenty and it bounds both cost
 /// and latency on a long monologue.
@@ -78,6 +93,43 @@ pub const MIN_CLASSIFY_TOKENS: u32 = 128;
 /// How sure [`script_hint`] must be before it decides alone: the winning script must
 /// carry this share of the strongly-scripted characters.
 const SCRIPT_MARGIN: f32 = 0.8;
+
+/// A direction plus the one thing the caller cannot infer from it: whether real evidence
+/// chose it, or whether it was only borrowed from the conversation's prior.
+///
+/// The distinction is what stops a ratchet. A borrowed direction that became the next
+/// sentence's prior would let one shrug carry a whole conversation the wrong way, each
+/// sentence borrowing its confidence from the last one that had none either.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Resolution {
+    pub direction: Direction,
+    /// `true` when this direction may become the next sentence's prior.
+    pub anchored: bool,
+}
+
+impl Resolution {
+    /// Nothing was decided. Never a prior, by construction.
+    pub const UNKNOWN: Self = Self {
+        direction: Direction::Unknown,
+        anchored: false,
+    };
+
+    /// Chosen by evidence — a confident verdict, or the free script path.
+    pub fn anchored(direction: Direction) -> Self {
+        Self {
+            direction,
+            anchored: direction != Direction::Unknown,
+        }
+    }
+
+    /// Chosen by a weak verdict that the prior agreed with.
+    pub fn corroborated(direction: Direction) -> Self {
+        Self {
+            direction,
+            anchored: false,
+        }
+    }
+}
 
 /// Which way one utterance is going, in room terms.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -329,26 +381,36 @@ impl Resolver {
     /// `Err` is a provider failure, which the caller must surface rather than absorb —
     /// holding every utterance behind a dead classifier is indistinguishable from the
     /// app being broken, because it is.
-    pub async fn resolve(&self, text: &str) -> Result<Direction, String> {
-        self.resolve_with_floor(text, MIN_RESOLVE_CHARS).await
+    pub async fn resolve(&self, text: &str, prior: Direction) -> Result<Resolution, String> {
+        self.resolve_with_floor(text, MIN_RESOLVE_CHARS, prior)
+            .await
     }
 
     /// Resolve a COMPLETE utterance. Same path, lower floor
     /// ([`MIN_FINAL_RESOLVE_CHARS`]): no further text is coming, so the choice is between
     /// classifying what we have and discarding the sentence outright.
-    pub async fn resolve_final(&self, text: &str) -> Result<Direction, String> {
-        self.resolve_with_floor(text, MIN_FINAL_RESOLVE_CHARS).await
+    pub async fn resolve_final(&self, text: &str, prior: Direction) -> Result<Resolution, String> {
+        self.resolve_with_floor(text, MIN_FINAL_RESOLVE_CHARS, prior)
+            .await
     }
 
-    async fn resolve_with_floor(&self, text: &str, floor: usize) -> Result<Direction, String> {
+    async fn resolve_with_floor(
+        &self,
+        text: &str,
+        floor: usize,
+        prior: Direction,
+    ) -> Result<Resolution, String> {
         let local = self.resolve_local(text);
         if local != Direction::Unknown {
-            return Ok(local);
+            return Ok(Resolution::anchored(local));
         }
         if text.trim().chars().count() < floor {
-            return Ok(Direction::Unknown);
+            // Too short to ask. The prior is deliberately NOT applied here: with no
+            // verdict at all there is nothing for it to corroborate, and turning "I never
+            // looked" into speech is the guess this whole module exists to avoid.
+            return Ok(Resolution::UNKNOWN);
         }
-        self.classify(text).await
+        self.classify(text, prior).await
     }
 
     /// Build the classification request. Separated from the HTTP call so the token
@@ -378,7 +440,7 @@ impl Resolver {
     /// The distinction is not academic: an abstention is normal and silent, while a
     /// provider failure means every utterance will keep being held with the UI saying
     /// "Listening…" forever. The caller needs to be able to tell the user.
-    async fn classify(&self, text: &str) -> Result<Direction, String> {
+    async fn classify(&self, text: &str, prior: Direction) -> Result<Resolution, String> {
         let value = self
             .groq
             .chat_json(self.classify_request(text))
@@ -396,37 +458,148 @@ impl Resolver {
             verdict.confidence,
             &self.user_lang,
             &self.other_lang,
+            prior,
         ))
     }
 }
 
 /// Turn a raw verdict into a direction, applying the confidence floor and the
 /// third-language rule. Pure, so both are tested without a network.
-fn interpret(lang: &str, confidence: f32, user_lang: &str, other_lang: &str) -> Direction {
+fn interpret(
+    lang: &str,
+    confidence: f32,
+    user_lang: &str,
+    other_lang: &str,
+    prior: Direction,
+) -> Resolution {
     let lang = lang.trim().to_lowercase();
     if lang.is_empty() || lang == "other" {
-        return Direction::Unknown;
+        return Resolution::UNKNOWN;
     }
-    if !(MIN_CONFIDENCE..=1.0).contains(&confidence) {
-        // Below the floor, or a nonsense value (negative, >1, NaN): abstain. A model that
-        // cannot express calibrated doubt is not evidence.
-        tracing::debug!(%lang, confidence, "talk: direction below confidence floor");
-        return Direction::Unknown;
+    let direction = Direction::from_spoken(&lang, user_lang, other_lang);
+    if direction == Direction::Unknown {
+        // A third language. No prior makes it one of the two (brief §6).
+        return Resolution::UNKNOWN;
     }
-    Direction::from_spoken(&lang, user_lang, other_lang)
+    if (MIN_CONFIDENCE..=1.0).contains(&confidence) {
+        return Resolution::anchored(direction);
+    }
+    if (WEAK_CONFIDENCE..MIN_CONFIDENCE).contains(&confidence) && direction == prior {
+        // The model leans this way and the conversation was already going this way. Two
+        // weak signals agreeing is what carries the short replies; it is NOT evidence, so
+        // the result cannot become the next sentence's prior.
+        tracing::debug!(%lang, confidence, "talk: direction carried by the prior");
+        return Resolution::corroborated(direction);
+    }
+    // Below the floor, contradicting the prior, or a nonsense value (negative, >1, NaN):
+    // abstain. A model that cannot express calibrated doubt is not evidence.
+    tracing::debug!(%lang, confidence, "talk: direction below confidence floor");
+    Resolution::UNKNOWN
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// A verdict read with no conversation behind it — the state every utterance was in
+    /// before the prior existed.
+    fn cold(lang: &str, confidence: f32) -> Resolution {
+        interpret(lang, confidence, "it", "es", Direction::Unknown)
+    }
+
+    /// The same verdict, in a conversation whose last settled direction was `prior`.
+    fn after(prior: Direction, lang: &str, confidence: f32) -> Resolution {
+        interpret(lang, confidence, "it", "es", prior)
+    }
+
     #[test]
     fn a_third_language_is_never_translated() {
         // The brief's hardest rule (§6): only the two configured languages may be
         // spoken aloud. German in an it/es conversation must be silence, not a guess.
         assert_eq!(Direction::from_spoken("de", "it", "es"), Direction::Unknown);
-        assert_eq!(interpret("other", 0.99, "it", "es"), Direction::Unknown);
-        assert_eq!(interpret("de", 0.99, "it", "es"), Direction::Unknown);
+        assert_eq!(cold("other", 0.99).direction, Direction::Unknown);
+        assert_eq!(cold("de", 0.99).direction, Direction::Unknown);
+    }
+
+    #[test]
+    fn a_prior_never_rescues_a_third_language() {
+        // "other" means the model looked and saw neither candidate. A prior is a hint
+        // about WHOSE TURN it is, never evidence that a third language was one of them.
+        assert_eq!(
+            after(Direction::UserToOther, "other", 0.5).direction,
+            Direction::Unknown
+        );
+        assert_eq!(
+            after(Direction::UserToOther, "de", 0.5).direction,
+            Direction::Unknown
+        );
+        assert_eq!(
+            after(Direction::UserToOther, "", 0.5).direction,
+            Direction::Unknown
+        );
+    }
+
+    #[test]
+    fn a_weak_verdict_that_agrees_with_the_prior_is_spoken() {
+        // "Ok", "No", a place name: the model leans the right way but will not commit,
+        // and a cold read throws the reply away. Two weak signals pointing the same way
+        // are enough — the speaker was mid-turn a second ago.
+        assert_eq!(cold("it", 0.45).direction, Direction::Unknown);
+        assert_eq!(
+            after(Direction::UserToOther, "it", 0.45).direction,
+            Direction::UserToOther
+        );
+    }
+
+    #[test]
+    fn a_weak_verdict_that_contradicts_the_prior_still_says_nothing() {
+        // A turn change on thin evidence. Guessing here speaks the WRONG language at a
+        // stranger, which the brief ranks below a beat of silence.
+        assert_eq!(
+            after(Direction::UserToOther, "es", 0.45).direction,
+            Direction::Unknown
+        );
+    }
+
+    #[test]
+    fn the_weak_floor_is_not_a_licence_to_guess() {
+        // Below it the model is not leaning, it is shrugging. A prior must not turn a
+        // shrug into speech.
+        const {
+            assert!(
+                WEAK_CONFIDENCE < MIN_CONFIDENCE,
+                "a floor, not a replacement"
+            )
+        };
+        assert_eq!(
+            after(Direction::UserToOther, "it", WEAK_CONFIDENCE - 0.01).direction,
+            Direction::Unknown
+        );
+        assert_eq!(
+            after(Direction::UserToOther, "it", WEAK_CONFIDENCE).direction,
+            Direction::UserToOther
+        );
+        // Nonsense confidences stay nonsense, prior or not.
+        assert_eq!(
+            after(Direction::UserToOther, "it", f32::NAN).direction,
+            Direction::Unknown
+        );
+        assert_eq!(
+            after(Direction::UserToOther, "it", -1.0).direction,
+            Direction::Unknown
+        );
+    }
+
+    #[test]
+    fn only_evidence_anchors_the_next_sentences_prior() {
+        // The ratchet this guards against: a weak commit becoming the prior lets one
+        // shrug carry a whole conversation into the wrong direction, each sentence
+        // borrowing its confidence from the last one that had none either.
+        assert!(cold("it", 0.9).anchored, "a confident read is evidence");
+        assert!(
+            !after(Direction::UserToOther, "it", 0.45).anchored,
+            "a borrowed direction must not become the next loan"
+        );
     }
 
     #[test]
@@ -444,13 +617,13 @@ mod tests {
 
     #[test]
     fn confidence_floor_abstains_instead_of_guessing() {
-        assert_eq!(interpret("it", 0.59, "it", "es"), Direction::Unknown);
-        assert_eq!(interpret("it", 0.60, "it", "es"), Direction::UserToOther);
+        assert_eq!(cold("it", 0.59).direction, Direction::Unknown);
+        assert_eq!(cold("it", 0.60).direction, Direction::UserToOther);
         // Nonsense confidences are treated as no evidence, not as certainty.
-        assert_eq!(interpret("it", -1.0, "it", "es"), Direction::Unknown);
-        assert_eq!(interpret("it", 2.0, "it", "es"), Direction::Unknown);
-        assert_eq!(interpret("it", f32::NAN, "it", "es"), Direction::Unknown);
-        assert_eq!(interpret("", 0.99, "it", "es"), Direction::Unknown);
+        assert_eq!(cold("it", -1.0).direction, Direction::Unknown);
+        assert_eq!(cold("it", 2.0).direction, Direction::Unknown);
+        assert_eq!(cold("it", f32::NAN).direction, Direction::Unknown);
+        assert_eq!(cold("", 0.99).direction, Direction::Unknown);
     }
 
     #[test]

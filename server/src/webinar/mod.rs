@@ -15,6 +15,73 @@ use uuid::Uuid;
 use crate::config::WebinarConfig;
 use crate::db::Pool;
 
+/// Resolve a session token to a user, rejecting a banned account.
+///
+/// **The only place in this module allowed to call `verify_jwt`.** A ban is
+/// enforced at the `/ws` join, at the extension token exchange, and on every REST
+/// request through the `AuthUser` extractor; the webinar handlers each hand-rolled
+/// their own Bearer read instead and so skipped it, leaving a banned org member
+/// full host access until their (up to 7-day) token expired. Routing every one of
+/// them through here makes a ban mean one thing everywhere.
+///
+/// Fails open on a database error, matching `AuthUser` and the `/ws` join — a
+/// blip must not lock out every host at once.
+pub async fn authed_user(state: &crate::AppState, token: &str) -> Option<Uuid> {
+    let billing = state.config.billing.as_ref()?;
+    let claims = crate::auth::verify_jwt(&billing.jwt_secret, token).ok()?;
+    let user_id = Uuid::parse_str(&claims.sub).ok()?;
+    if let Some(safety) = state.safety.as_ref() {
+        if let Ok(Some(_)) = safety.is_banned(user_id).await {
+            return None;
+        }
+    }
+    Some(user_id)
+}
+
+/// The authenticated caller, when the request carries a valid session JWT for an
+/// account in good standing.
+///
+/// `{code}`-addressed webinar endpoints are reachable by guests, so auth here is
+/// optional and advisory rather than an extractor that rejects. Centralised
+/// because three call sites had grown byte-identical copies of this chain.
+pub async fn caller_id(state: &crate::AppState, headers: &axum::http::HeaderMap) -> Option<Uuid> {
+    let token = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))?;
+    authed_user(state, token).await
+}
+
+/// Enforce a webinar's `members_only` flag on an endpoint that serves its
+/// CONTENT, accepts PARTICIPATION, or spends its budget.
+///
+/// What the flag means, precisely (migration 044): an unauthenticated guest may
+/// still see that the webinar EXISTS — title, schedule, host — so the client can
+/// render a sign-in gate. They may not read what was said in it, take part in
+/// it, or cause it to spend money. `public_get` is therefore deliberately NOT a
+/// caller of this; everything else keyed by `{code}` is.
+///
+/// Being logged in is the whole bar, matching the presence WebSocket's gate:
+/// this is "members only" in the sign-up sense, not org membership.
+// `Response` as the Err variant is intentionally large — the same convention the
+// handler modules that call this declare crate-wide.
+#[allow(clippy::result_large_err)]
+pub async fn require_member_access(
+    w: &Webinar,
+    state: &crate::AppState,
+    headers: &axum::http::HeaderMap,
+) -> Result<(), axum::response::Response> {
+    use axum::response::IntoResponse as _;
+    if w.members_only && caller_id(state, headers).await.is_none() {
+        return Err((
+            axum::http::StatusCode::UNAUTHORIZED,
+            "this webinar is open to signed-in members only",
+        )
+            .into_response());
+    }
+    Ok(())
+}
+
 pub mod ai;
 pub mod chat;
 pub mod files;
@@ -109,9 +176,13 @@ pub struct Webinar {
     /// Snapshot of the host's avatar URL at webinar creation time (043). NULL for
     /// webinars created before the migration or when the host has no avatar.
     pub host_avatar_url: Option<String>,
-    /// When true, only authenticated (logged-in) users may join the presence WebSocket;
-    /// unauthenticated guests can still view metadata but are blocked from participating
-    /// (migration 044).
+    /// When true, only authenticated (logged-in) users may reach this webinar's
+    /// content, take part in it, or cause it to spend money: the presence WebSocket,
+    /// the transcript, chat (read and write), file upload, and TTS-token minting.
+    /// Unauthenticated guests can still read its METADATA — that is deliberate, so
+    /// the client can render a sign-in gate rather than a dead end (migration 044).
+    /// Enforced through [`require_member_access`]; see the `coverage` tests for why
+    /// the enforcement lives in one helper instead of at each call site.
     pub members_only: bool,
     /// Lead time, in minutes, for the "starting soon" reminder sent to the host's
     /// accepted friends when this is a PUBLIC scheduled webinar (default 10, clamped
@@ -226,6 +297,151 @@ pub fn join_url(app_base_url: &str, code: &str) -> String {
 /// Public LL-HLS playback URL for a code (served from the HLS host).
 pub fn playback_url(cfg: &WebinarConfig, code: &str) -> String {
     format!("https://{}/webinar/{}/index.m3u8", cfg.hls_host, code)
+}
+
+#[cfg(test)]
+mod coverage {
+    //! Coverage guards for `members_only`.
+    //!
+    //! The audit finding these exist for: `members_only` was enforced in exactly
+    //! ONE place — the presence WebSocket — while five other `{code}`-addressed
+    //! endpoints ignored it, so a guest with the link could still read the
+    //! transcript, read and post chat, upload files, and mint a TTS token. The
+    //! flag did not mean what its name promised.
+    //!
+    //! That was a coverage defect, not a logic defect: each handler was
+    //! individually reasonable and collectively they left the door open. A unit
+    //! test of the policy function would have passed the whole time. So these
+    //! tests assert the *call sites* instead, and they fail when the next
+    //! `{code}` endpoint is added without the guard.
+
+    /// Source with `//` line comments removed, so a rule about CALLS is not
+    /// tripped by prose that merely names the function it forbids. (It was: the
+    /// comment explaining why `stt.rs` stopped calling `verify_jwt` failed the
+    /// test that made it stop.) Crude but adequate — these files have no `//`
+    /// inside a string literal, and a false PASS here is impossible: stripping
+    /// only ever removes text, never adds a call.
+    fn code_only(src: &str) -> String {
+        src.lines()
+            .map(|l| match l.find("//") {
+                Some(i) => &l[..i],
+                None => l,
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    /// Extract a top-level `fn` body from source text. Relies on rustfmt putting
+    /// the closing brace of a top-level item in column 0, which is true for every
+    /// handler here and is checked by `cargo fmt` in CI.
+    fn body_of<'a>(src: &'a str, signature: &str) -> &'a str {
+        let start = src
+            .find(signature)
+            .unwrap_or_else(|| panic!("handler not found — did it get renamed? {signature}"));
+        let rest = &src[start..];
+        let end = rest.find("\n}").map(|i| i + 2).unwrap_or(rest.len());
+        &rest[..end]
+    }
+
+    /// Every `{code}`-addressed endpoint that serves webinar CONTENT, accepts
+    /// PARTICIPATION, or spends the host's budget.
+    ///
+    /// Deliberately absent: `public_get`, which serves only metadata. Migration
+    /// 044's documented intent is that a guest may still see a members-only
+    /// webinar EXISTS so the client can render a sign-in gate — gating it would
+    /// break the very flow the flag is for. `presence_ws` is also absent: it
+    /// carries its own inline gate because it must close the socket with a
+    /// policy-violation frame rather than return a status code.
+    const GATED: &[(&str, &str, &str)] = &[
+        (
+            "routes.rs",
+            include_str!("routes.rs"),
+            "pub async fn list_public_transcript(",
+        ),
+        (
+            "routes.rs",
+            include_str!("routes.rs"),
+            "pub async fn tts_session(",
+        ),
+        (
+            "chat.rs",
+            include_str!("chat.rs"),
+            "pub async fn post_chat(",
+        ),
+        (
+            "chat.rs",
+            include_str!("chat.rs"),
+            "pub async fn list_chat(",
+        ),
+        (
+            "files.rs",
+            include_str!("files.rs"),
+            "pub async fn upload_webinar_file(",
+        ),
+    ];
+
+    #[test]
+    fn every_code_addressed_content_endpoint_enforces_members_only() {
+        for (file, src, signature) in GATED {
+            let body = body_of(src, signature);
+            assert!(
+                body.contains("require_member_access"),
+                "{file} :: {signature} does not call require_member_access — a guest \
+                 with the link can reach a members-only webinar's content through it"
+            );
+        }
+    }
+
+    #[test]
+    fn public_get_stays_open_so_the_sign_in_gate_can_render() {
+        // The inverse guard: gating metadata would break migration 044's intent.
+        // If someone "fixes" this by adding the guard here, that is a regression.
+        let body = body_of(include_str!("routes.rs"), "pub async fn public_get(");
+        assert!(
+            !body.contains("require_member_access"),
+            "public_get must stay open — a guest needs the metadata to be shown the \
+             sign-in gate for a members-only webinar"
+        );
+    }
+
+    #[test]
+    fn no_webinar_handler_verifies_a_jwt_without_the_ban_check() {
+        // A ban is enforced at the `/ws` join, at the extension token exchange, and
+        // on every REST request via the `AuthUser` extractor — but the webinar
+        // module reached for `verify_jwt` directly in four places, so a banned org
+        // member kept full host access here until their token expired (up to 7d).
+        //
+        // A ban should mean one thing everywhere, so `authed_user` in this module
+        // is the only place allowed to call `verify_jwt`. This test is what keeps
+        // the next hand-rolled Bearer read from quietly reopening the gap.
+        for (file, src) in [
+            ("routes.rs", include_str!("routes.rs")),
+            ("chat.rs", include_str!("chat.rs")),
+            ("files.rs", include_str!("files.rs")),
+            ("stt.rs", include_str!("stt.rs")),
+            ("presence.rs", include_str!("presence.rs")),
+        ] {
+            assert!(
+                !code_only(src).contains("verify_jwt("),
+                "{file} calls verify_jwt directly — use webinar::authed_user, which \
+                 also rejects a banned account"
+            );
+        }
+    }
+
+    #[test]
+    fn anonymous_money_spending_endpoints_rate_limit_per_ip() {
+        // The second audit finding in this module: `tts_session` mints a real,
+        // hour-long Cartesia token to anonymous callers but keyed its rate limit
+        // on the WEBINAR CODE, not the caller. That let one attacker both farm
+        // tokens and exhaust the shared bucket, denying TTS to the webinar's
+        // legitimate viewers. Every other anonymous endpoint here keys on the IP.
+        let body = body_of(include_str!("routes.rs"), "pub async fn tts_session(");
+        assert!(
+            body.contains("client_ip"),
+            "tts_session must rate-limit per caller IP, not only per webinar code"
+        );
+    }
 }
 
 #[cfg(test)]
