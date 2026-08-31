@@ -36,6 +36,25 @@ pub struct SpeakerCtx {
     /// resolved per utterance via the synchronous cache, so mid-call edits
     /// apply to the very next sentence.
     pub glossary: Option<GlossaryService>,
+    /// Per-session override of how speech is cut into segments; `None` keeps the
+    /// engine's configured defaults. See [`Segmentation`].
+    pub segmentation: Option<Segmentation>,
+}
+
+/// How aggressively one session cuts speech into segments.
+///
+/// A global default cannot serve both shapes of conversation. A call wants captions to
+/// land fast, and a clipped sentence is a caption problem. Talk to Anyone is two people
+/// speaking through one device: there, a cut costs a beat of silence while the direction
+/// of the NEXT fragment is worked out, so cutting often makes speech feel chopped. This
+/// lets that one mode trade latency for whole sentences without moving the number under
+/// every call and webinar in the product.
+#[derive(Debug, Clone, Copy)]
+pub struct Segmentation {
+    /// Silence the provider's VAD needs before it calls a turn over.
+    pub silence_duration_ms: u64,
+    /// Gap with nothing arriving before we close a caption segment ourselves.
+    pub segment_idle_ms: u64,
 }
 
 /// Transcribe a prerecorded audio file (spec 0018 chat upload). Asks the REST

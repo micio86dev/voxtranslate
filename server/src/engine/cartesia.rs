@@ -134,6 +134,7 @@ mod tests {
             session_id: uuid::Uuid::new_v4(),
             speaker_user_id: None,
             glossary: None,
+            segmentation: None,
         };
         let deps = SessionDeps {
             rooms: std::sync::Arc::new(crate::rooms::RoomManager::new()),

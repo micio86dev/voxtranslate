@@ -65,6 +65,20 @@ use utterance::{FrameKind, Outcome, Utterance};
 /// omit the source field instead of defaulting it to English.
 const SOURCE_LANG: &str = "auto";
 
+/// How this mode cuts speech into segments, overriding the engine defaults
+/// (500 ms / 900 ms) for talk sessions ONLY.
+///
+/// Everywhere else a short gap is cheap: the caption lands sooner and nothing else
+/// changes. Here every cut ends an utterance, and the next fragment cannot be spoken
+/// until its direction is worked out again — so cutting often is exactly what makes a
+/// conversation feel chopped into pieces. Roughly a second of silence before a turn is
+/// called over buys whole sentences at a cost this mode can afford, and calls and
+/// webinars keep the fast numbers they were tuned with.
+const TALK_SEGMENTATION: crate::deepgram::Segmentation = crate::deepgram::Segmentation {
+    silence_duration_ms: 1000,
+    segment_idle_ms: 1500,
+};
+
 /// Query parameters for `GET /ws/talk`.
 #[derive(Debug, Clone, Deserialize)]
 pub struct TalkParams {
@@ -185,16 +199,50 @@ struct Gate {
     /// short replies the classifier cannot place on their own — see
     /// [`direction::WEAK_CONFIDENCE`].
     last_direction: Direction,
+    /// The source peer, for the original-only captions this gate emits itself.
+    source_id: String,
+    /// Last original forwarded ahead of a direction, so the two sessions reporting the
+    /// same words do not caption them twice.
+    previewed: String,
 }
 
 impl Gate {
-    fn new(user_lang: &str, other_lang: &str) -> Self {
+    fn new(user_lang: &str, other_lang: &str, source_id: &str) -> Self {
         Self {
             utterance: Utterance::new(user_lang, other_lang),
             generation: 0,
             resolving: false,
             last_direction: Direction::Unknown,
+            source_id: source_id.to_string(),
+            previewed: String::new(),
         }
+    }
+
+    /// A caption carrying ONLY the words that were spoken, emitted while the direction is
+    /// still unknown.
+    ///
+    /// The translation has to wait — picking a side before we know which one is real is
+    /// the whole hazard this module exists for. The ORIGINAL does not: both sessions
+    /// transcribe the same speech, so those words are the same whichever side turns out
+    /// to be the echo. Holding them back left the screen blank for the length of a
+    /// classification and, when the direction only landed at the final, for the whole
+    /// sentence — which is why one language kept going missing.
+    fn preview(&mut self, text: &str) -> Option<String> {
+        if text.is_empty() || text == self.previewed {
+            return None;
+        }
+        self.previewed = text.to_string();
+        Some(
+            ServerMessage::SubtitleInterim {
+                speaker_id: self.source_id.clone(),
+                speaker_name: "Microphone".to_string(),
+                // No translation yet, and an invented one would be a guess.
+                text: String::new(),
+                lang: SOURCE_LANG.to_string(),
+                original: Some(text.to_string()),
+            }
+            .to_json(),
+        )
     }
 
     /// Latch a resolved direction, handing back the audio it releases. `None` when
@@ -213,6 +261,7 @@ impl Gate {
     /// End the current sentence and let the next one start from a clean slate.
     fn end_utterance(&mut self) {
         self.generation = self.generation.wrapping_add(1);
+        self.previewed.clear();
         self.utterance.reset();
     }
 
@@ -451,7 +500,7 @@ async fn handle_talk_session(socket: WebSocket, params: TalkParams, state: AppSt
         other_lang.clone(),
     );
     let (verdict_tx, mut verdict_rx) = mpsc::unbounded_channel::<Verdict>();
-    let mut gate = Gate::new(&user_lang, &other_lang);
+    let mut gate = Gate::new(&user_lang, &other_lang, &source_id);
     // Reset by any success; drives the "provider unavailable" notice.
     let mut classify_failures: u32 = 0;
 
@@ -597,6 +646,7 @@ async fn handle_talk_session(socket: WebSocket, params: TalkParams, state: AppSt
                                     session_id: joined.session_id,
                                     speaker_user_id: Some(authed.user_id),
                                     glossary: None,
+                                    segmentation: Some(TALK_SEGMENTATION),
                                 };
                                 let deps = SessionDeps {
                                     rooms: state.rooms.clone(),
@@ -677,10 +727,10 @@ fn route_frame(
             // The losing session's copy of the sentence we have just forwarded. Feeding
             // it through re-opened a finished utterance and latched its direction onto
             // the NEXT sentence — see [`Utterance::is_trailing_echo`].
-            if kind == FrameKind::SubtitleFinal && gate.utterance.is_trailing_echo(&text) {
+            if kind == FrameKind::SubtitleFinal && gate.utterance.is_trailing_echo(lang, &text) {
                 return;
             }
-            let wants_resolve = gate.utterance.note_original(&text);
+            let wants_resolve = gate.utterance.note_original(lang, &text);
             // The free path first: a disjoint-script pair needs no model call at all, and
             // most travel pairs are disjoint. Skipped once latched — re-scoring every
             // partial buys nothing.
@@ -694,9 +744,18 @@ fn route_frame(
                 for f in flushed {
                     let _ = out_tx.send(f);
                 }
-            } else if wants_resolve && !gate.resolving {
-                gate.resolving = true;
-                spawn_resolve(gate, resolver, verdict_tx, Stage::Partial);
+            } else {
+                if gate.utterance.direction() == Direction::Unknown {
+                    // Show the words while the side is still being worked out.
+                    let words = gate.utterance.original().to_string();
+                    if let Some(preview) = gate.preview(&words) {
+                        let _ = out_tx.send(preview);
+                    }
+                }
+                if wants_resolve && !gate.resolving {
+                    gate.resolving = true;
+                    spawn_resolve(gate, resolver, verdict_tx, Stage::Partial);
+                }
             }
         }
     }
@@ -936,8 +995,43 @@ mod tests {
     }
 
     #[test]
+    fn the_spoken_words_are_captioned_before_the_direction_is_known() {
+        // Both sessions transcribe the same speech, so the ORIGINAL is safe to show
+        // immediately — only the translation has to wait for a side. Without this the
+        // screen stayed blank for a whole classification, and for a whole sentence
+        // whenever the direction only landed at the final.
+        let mut gate = Gate::new("it", "es", "src");
+        let first = gate.preview("Vorrei").expect("new words are captioned");
+        assert!(first.contains("\"original\":\"Vorrei\""));
+        assert!(
+            first.contains("\"text\":\"\""),
+            "no translation is claimed while the side is unknown"
+        );
+        // The other session reports the same words; captioning them twice would stutter.
+        assert_eq!(gate.preview("Vorrei"), None);
+        assert!(
+            gate.preview("Vorrei andare").is_some(),
+            "growth still shows"
+        );
+        assert_eq!(gate.preview(""), None);
+    }
+
+    #[test]
+    fn a_new_utterance_may_caption_the_same_words_again() {
+        // Someone repeating themselves must not be silenced by the previous sentence's
+        // de-duplication.
+        let mut gate = Gate::new("it", "es", "src");
+        assert!(gate.preview("S\u{ec}").is_some());
+        gate.end_utterance();
+        assert!(
+            gate.preview("S\u{ec}").is_some(),
+            "a new sentence starts clean"
+        );
+    }
+
+    #[test]
     fn a_confident_direction_becomes_the_next_sentences_prior() {
-        let mut gate = Gate::new("it", "es");
+        let mut gate = Gate::new("it", "es", "src");
         assert_eq!(
             gate.last_direction,
             Direction::Unknown,
@@ -951,7 +1045,7 @@ mod tests {
     fn a_borrowed_direction_does_not_become_the_next_sentences_prior() {
         // Otherwise one weak read ratchets: every following sentence borrows its
         // confidence from a sentence that had none either.
-        let mut gate = Gate::new("it", "es");
+        let mut gate = Gate::new("it", "es", "src");
         gate.commit(Resolution::anchored(Direction::UserToOther));
         gate.utterance.reset();
         gate.commit(Resolution::corroborated(Direction::UserToOther));
@@ -966,7 +1060,7 @@ mod tests {
     fn ending_the_conversation_forgets_the_prior() {
         // After Stop the next speaker is anyone's guess, and a stale prior would let a
         // weak read speak the wrong language on the first sentence back.
-        let mut gate = Gate::new("it", "es");
+        let mut gate = Gate::new("it", "es", "src");
         gate.commit(Resolution::anchored(Direction::UserToOther));
         gate.close();
         assert_eq!(gate.last_direction, Direction::Unknown);
@@ -977,7 +1071,7 @@ mod tests {
         // The direction resolved from a PARTIAL: the sentence is still being spoken, and
         // resetting here would throw away the utterance mid-word.
         let mut u = Utterance::new("it", "es");
-        u.note_original("Vorrei andare");
+        u.note_original("es", "Vorrei andare");
         u.commit(Direction::UserToOther);
 
         let (frame, closed) = release_pending(&mut u);

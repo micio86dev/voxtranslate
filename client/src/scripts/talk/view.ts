@@ -203,10 +203,19 @@ export function buildExchangeCard(exchange: Exchange, doc: Document): HTMLElemen
   card.className = 'tk-card';
   card.dataset.exchange = String(exchange.id);
 
-  card.appendChild(line(doc, 'tk-card-source', spoken, exchange.originalText, exchange.spokenLang));
-  card.appendChild(
-    line(doc, 'tk-card-target', target, exchange.translatedText, exchange.targetLang),
-  );
+  // A card carries BOTH languages. An empty side would render as a labelled blank row,
+  // which reads as "the translation is missing" rather than "the engine sent nothing" —
+  // so a side with no text is left out entirely instead of shown hollow.
+  if (exchange.originalText) {
+    card.appendChild(
+      line(doc, 'tk-card-source', spoken, exchange.originalText, exchange.spokenLang),
+    );
+  }
+  if (exchange.translatedText) {
+    card.appendChild(
+      line(doc, 'tk-card-target', target, exchange.translatedText, exchange.targetLang),
+    );
+  }
   return card;
 }
 

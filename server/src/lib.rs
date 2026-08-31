@@ -1878,6 +1878,7 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState, clien
                                         session_id,
                                         speaker_user_id: billed_user,
                                         glossary: state.glossary.clone(),
+                                        segmentation: None,
                                     };
                                     let build_deps = |lp: bool| engine::SessionDeps {
                                         rooms: state.rooms.clone(),
@@ -1982,6 +1983,7 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState, clien
                                     session_id,
                                     speaker_user_id: billed_user,
                                     glossary: state.glossary.clone(),
+                                    segmentation: None,
                                 };
                                 let build_deps = || engine::SessionDeps {
                                     rooms: state.rooms.clone(),
@@ -2115,6 +2117,7 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState, clien
                                         session_id,
                                         speaker_user_id: billed_user,
                                         glossary: state.glossary.clone(),
+                                        segmentation: None,
                                     },
                                     &avatar_url,
                                     text,

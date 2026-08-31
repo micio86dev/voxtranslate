@@ -699,6 +699,7 @@ mod tests {
             session_id: Uuid::new_v4(),
             speaker_user_id: None,
             glossary: None,
+            segmentation: None,
         }
     }
 
