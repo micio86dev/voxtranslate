@@ -57,7 +57,7 @@ use crate::rooms::{Peer, PeerTx, Visibility, OUT_CHANNEL_CAP};
 use crate::usage::{run_usage_meter, MeterConfig, MeterScope};
 use crate::AppState;
 
-use direction::{Direction, Resolver};
+use direction::{Direction, Resolution, Resolver};
 use utterance::{FrameKind, Outcome, Utterance};
 
 /// The source peer's language. Never a real code: the engine must identify each
@@ -165,7 +165,64 @@ impl SessionGuard {
 struct Verdict {
     generation: u64,
     /// `Err` = the classifier itself failed, as opposed to abstaining.
-    outcome: Result<Direction, String>,
+    outcome: Result<Resolution, String>,
+}
+
+/// The state the frame gate carries from one frame to the next.
+///
+/// Bundled rather than passed as five `&mut` arguments: the two listener arms both drive
+/// it, and threading them separately is exactly how one side of a conversation ends up
+/// behaving differently from the other.
+struct Gate {
+    utterance: Utterance,
+    /// Bumped at every utterance boundary so a verdict that arrives after its sentence
+    /// ended is discarded instead of steering the next one.
+    generation: u64,
+    /// Bounded to one in-flight classification: partials arrive faster than the model
+    /// answers, and a queue of stale questions helps nobody.
+    resolving: bool,
+    /// The direction the conversation last settled on WITH EVIDENCE. A weak prior for the
+    /// short replies the classifier cannot place on their own — see
+    /// [`direction::WEAK_CONFIDENCE`].
+    last_direction: Direction,
+}
+
+impl Gate {
+    fn new(user_lang: &str, other_lang: &str) -> Self {
+        Self {
+            utterance: Utterance::new(user_lang, other_lang),
+            generation: 0,
+            resolving: false,
+            last_direction: Direction::Unknown,
+        }
+    }
+
+    /// Latch a resolved direction, handing back the audio it releases. `None` when
+    /// nothing latched — see [`Utterance::commit`].
+    ///
+    /// Only an ANCHORED resolution updates the prior. A borrowed one becoming the next
+    /// sentence's prior is the ratchet [`Resolution`] exists to prevent.
+    fn commit(&mut self, resolution: Resolution) -> Option<Vec<String>> {
+        let flushed = self.utterance.commit(resolution.direction)?;
+        if resolution.anchored {
+            self.last_direction = resolution.direction;
+        }
+        Some(flushed)
+    }
+
+    /// End the current sentence and let the next one start from a clean slate.
+    fn end_utterance(&mut self) {
+        self.generation = self.generation.wrapping_add(1);
+        self.utterance.reset();
+    }
+
+    /// End the CONVERSATION: Stop, or credit exhaustion. The prior goes with it — after a
+    /// pause the next speaker is anyone's guess, and a stale prior would let a weak read
+    /// speak the wrong language on the first sentence back.
+    fn close(&mut self) {
+        self.end_utterance();
+        self.last_direction = Direction::Unknown;
+    }
 }
 
 /// Consecutive classifier failures before the client is told. One is a hiccup; three in
@@ -394,13 +451,7 @@ async fn handle_talk_session(socket: WebSocket, params: TalkParams, state: AppSt
         other_lang.clone(),
     );
     let (verdict_tx, mut verdict_rx) = mpsc::unbounded_channel::<Verdict>();
-    let mut utterance = Utterance::new(user_lang.clone(), other_lang.clone());
-    // Bumped at every utterance boundary so a verdict that arrives after its sentence
-    // ended is discarded instead of steering the next one.
-    let mut generation: u64 = 0;
-    // Bounded to one in-flight classification: partials arrive faster than the model
-    // answers, and a queue of stale questions helps nobody.
-    let mut resolving = false;
+    let mut gate = Gate::new(&user_lang, &other_lang);
     // Reset by any success; drives the "provider unavailable" notice.
     let mut classify_failures: u32 = 0;
 
@@ -417,14 +468,15 @@ async fn handle_talk_session(socket: WebSocket, params: TalkParams, state: AppSt
                 exhausted = true;
                 audio_tx = None;
                 meter_cancel = None;
+                gate.close();
             }
 
             Some(v) = verdict_rx.recv() => {
-                resolving = false;
-                let direction = match v.outcome {
-                    Ok(d) => {
+                gate.resolving = false;
+                let resolution = match v.outcome {
+                    Ok(r) => {
                         classify_failures = 0;
-                        d
+                        r
                     }
                     Err(_) => {
                         // Every utterance is held until a direction is committed, so a
@@ -443,25 +495,23 @@ async fn handle_talk_session(socket: WebSocket, params: TalkParams, state: AppSt
                         }
                         // A parked sentence whose verdict just failed will never be
                         // released. Close it out now, or it holds the next one hostage.
-                        if utterance.has_pending_final() {
+                        if gate.utterance.has_pending_final() {
                             crate::metrics::record_talk_direction_unknown();
-                            generation = generation.wrapping_add(1);
-                            utterance.reset();
+                            gate.end_utterance();
                         }
                         continue;
                     }
                 };
-                if v.generation != generation {
+                if v.generation != gate.generation {
                     continue;
                 }
-                if direction == Direction::Unknown {
+                if resolution.direction == Direction::Unknown {
                     // The model saw the whole sentence and still could not place it — a
                     // third language, or genuinely ambiguous. Nothing is spoken (brief
                     // §6), but the utterance must still be closed out.
-                    if utterance.has_pending_final() {
+                    if gate.utterance.has_pending_final() {
                         crate::metrics::record_talk_direction_unknown();
-                        generation = generation.wrapping_add(1);
-                        utterance.reset();
+                        gate.end_utterance();
                     }
                     continue;
                 }
@@ -469,18 +519,20 @@ async fn handle_talk_session(socket: WebSocket, params: TalkParams, state: AppSt
                 // script path having already decided — returns `None` and is silent, so
                 // the direction is announced exactly once per utterance and the resolved
                 // counter stays honest.
-                let Some(flushed) = utterance.commit(direction) else {
+                let Some(flushed) = gate.commit(resolution) else {
                     continue;
                 };
-                emit_direction(direction, &resolver, &out_tx);
+                emit_direction(resolution.direction, &resolver, &out_tx);
                 for frame in flushed {
                     let _ = out_tx.send(frame);
                 }
                 // A sentence that finished before its direction did: release it now.
-                if let Some(pending) = utterance.take_pending_final() {
-                    let _ = out_tx.send(pending);
-                    generation = generation.wrapping_add(1);
-                    utterance.reset();
+                let (pending, closed) = release_pending(&mut gate.utterance);
+                if let Some(frame) = pending {
+                    let _ = out_tx.send(frame);
+                }
+                if closed {
+                    gate.generation = gate.generation.wrapping_add(1);
                 }
             }
 
@@ -488,16 +540,10 @@ async fn handle_talk_session(socket: WebSocket, params: TalkParams, state: AppSt
             // to is known from the channel it arrived on, so nothing has to be parsed to
             // route it.
             Some(frame) = user_rx.recv() => {
-                route_frame(
-                    &user_lang, frame, &mut utterance, &out_tx, &mut generation,
-                    &mut resolving, &resolver, &verdict_tx,
-                );
+                route_frame(&user_lang, frame, &mut gate, &out_tx, &resolver, &verdict_tx);
             }
             Some(frame) = other_rx.recv() => {
-                route_frame(
-                    &other_lang, frame, &mut utterance, &out_tx, &mut generation,
-                    &mut resolving, &resolver, &verdict_tx,
-                );
+                route_frame(&other_lang, frame, &mut gate, &out_tx, &resolver, &verdict_tx);
             }
 
             // The source pseudo-peer's channel. Engines address their failures to the
@@ -589,8 +635,7 @@ async fn handle_talk_session(socket: WebSocket, params: TalkParams, state: AppSt
                                 }
                                 // Whatever was half-said is void, and any verdict still
                                 // in flight belongs to a sentence nobody will finish.
-                                generation = generation.wrapping_add(1);
-                                utterance.reset();
+                                gate.close();
                             }
                             // Every other client message belongs to the call protocol and
                             // is meaningless here; ignoring it is not an error.
@@ -615,14 +660,11 @@ async fn handle_talk_session(socket: WebSocket, params: TalkParams, state: AppSt
 /// Split out of the `select!` arm so both listener channels share one implementation —
 /// two copies of this is exactly how one side of a conversation ends up behaving
 /// differently from the other.
-#[allow(clippy::too_many_arguments)]
 fn route_frame(
     lang: &str,
     frame: String,
-    utterance: &mut Utterance,
+    gate: &mut Gate,
     out_tx: &PeerTx,
-    generation: &mut u64,
-    resolving: &mut bool,
     resolver: &Resolver,
     verdict_tx: &mpsc::UnboundedSender<Verdict>,
 ) {
@@ -632,41 +674,35 @@ fn route_frame(
     // was just spoken. Read it BEFORE routing, because a final resets the utterance.
     if matches!(kind, FrameKind::SubtitleInterim | FrameKind::SubtitleFinal) {
         if let Some(text) = original_text(&frame) {
-            let wants_resolve = utterance.note_original(&text);
+            // The losing session's copy of the sentence we have just forwarded. Feeding
+            // it through re-opened a finished utterance and latched its direction onto
+            // the NEXT sentence — see [`Utterance::is_trailing_echo`].
+            if kind == FrameKind::SubtitleFinal && gate.utterance.is_trailing_echo(&text) {
+                return;
+            }
+            let wants_resolve = gate.utterance.note_original(&text);
             // The free path first: a disjoint-script pair needs no model call at all, and
             // most travel pairs are disjoint. Skipped once latched — re-scoring every
             // partial buys nothing.
-            let local = if utterance.direction() == Direction::Unknown {
-                resolver.resolve_local(utterance.original())
+            let local = if gate.utterance.direction() == Direction::Unknown {
+                resolver.resolve_local(gate.utterance.original())
             } else {
                 Direction::Unknown
             };
-            if let Some(flushed) = utterance.commit(local) {
+            if let Some(flushed) = gate.commit(Resolution::anchored(local)) {
                 emit_direction(local, resolver, out_tx);
                 for f in flushed {
                     let _ = out_tx.send(f);
                 }
-            } else if wants_resolve && !*resolving {
-                *resolving = true;
-                let gen = *generation;
-                let text = utterance.original().to_string();
-                let resolver = resolver.clone();
-                let tx = verdict_tx.clone();
-                tokio::spawn(async move {
-                    let started = std::time::Instant::now();
-                    let outcome = resolver.resolve(&text).await;
-                    crate::metrics::record_talk_direction_ms(started.elapsed().as_millis() as u64);
-                    let _ = tx.send(Verdict {
-                        generation: gen,
-                        outcome,
-                    });
-                });
+            } else if wants_resolve && !gate.resolving {
+                gate.resolving = true;
+                spawn_resolve(gate, resolver, verdict_tx, Stage::Partial);
             }
         }
     }
 
     let final_frame = kind == FrameKind::SubtitleFinal;
-    match utterance.on_frame(lang, frame) {
+    match gate.utterance.on_frame(lang, frame) {
         Outcome::Send(frames) => {
             for f in frames {
                 let _ = out_tx.send(f);
@@ -681,8 +717,8 @@ fn route_frame(
 
     // The utterance is over. If the direction is settled, so is the sentence — bump the
     // generation so a verdict still in flight cannot steer the NEXT one.
-    if utterance.direction() != Direction::Unknown || !utterance.has_pending_final() {
-        *generation = generation.wrapping_add(1);
+    if gate.utterance.direction() != Direction::Unknown || !gate.utterance.has_pending_final() {
+        gate.generation = gate.generation.wrapping_add(1);
         return;
     }
 
@@ -692,25 +728,69 @@ fn route_frame(
     // have no business suppressing the one question that matters. The generation is
     // deliberately NOT bumped: the answer is about THIS sentence, and bumping is exactly
     // what used to discard it.
-    let gen = *generation;
-    let text = utterance.original().to_string();
-    if text.trim().is_empty() {
-        *generation = generation.wrapping_add(1);
+    if gate.utterance.original().trim().is_empty() {
+        gate.generation = gate.generation.wrapping_add(1);
         crate::metrics::record_talk_direction_unknown();
         return;
     }
-    *resolving = true;
+    gate.resolving = true;
+    spawn_resolve(gate, resolver, verdict_tx, Stage::Final);
+}
+
+/// Which floor a classification runs against. A final gets the lower one: no further text
+/// is coming, so abstaining discards the sentence instead of waiting for a better one.
+#[derive(Clone, Copy)]
+enum Stage {
+    Partial,
+    Final,
+}
+
+/// Ask the classifier about the utterance as it currently stands.
+///
+/// The conversation's prior travels with the question, so a short reply the model can
+/// only lean towards is still spoken when it leans the way the conversation was already
+/// going (see [`direction::WEAK_CONFIDENCE`]).
+fn spawn_resolve(
+    gate: &Gate,
+    resolver: &Resolver,
+    verdict_tx: &mpsc::UnboundedSender<Verdict>,
+    stage: Stage,
+) {
+    let generation = gate.generation;
+    let prior = gate.last_direction;
+    let text = gate.utterance.original().to_string();
     let resolver = resolver.clone();
     let tx = verdict_tx.clone();
     tokio::spawn(async move {
         let started = std::time::Instant::now();
-        let outcome = resolver.resolve_final(&text).await;
+        let outcome = match stage {
+            Stage::Partial => resolver.resolve(&text, prior).await,
+            Stage::Final => resolver.resolve_final(&text, prior).await,
+        };
         crate::metrics::record_talk_direction_ms(started.elapsed().as_millis() as u64);
         let _ = tx.send(Verdict {
-            generation: gen,
+            generation,
             outcome,
         });
     });
+}
+
+/// Hand back the sentence a verdict just unblocked, and say whether the utterance is
+/// over.
+///
+/// Those two answers are NOT the same, and conflating them is what let a stale direction
+/// leak. A final parked by the ECHO side releases nothing — but the sentence is finished
+/// all the same, and leaving the utterance latched routed the NEXT one by the previous
+/// one's direction, which [`Utterance::note_original`] then refuses to re-classify
+/// precisely because it is latched.
+fn release_pending(utterance: &mut Utterance) -> (Option<String>, bool) {
+    if !utterance.has_pending_final() {
+        // The direction resolved from a PARTIAL: the sentence is still being spoken.
+        return (None, false);
+    }
+    let frame = utterance.take_pending_final();
+    utterance.reset();
+    (frame, true)
 }
 
 fn emit_direction(direction: Direction, resolver: &Resolver, out_tx: &PeerTx) {
@@ -807,5 +887,102 @@ mod tests {
             original_text(&ServerMessage::BalanceExhausted.to_json()),
             None
         );
+    }
+
+    fn final_frame(lang: &str, original: &str, translated: &str) -> String {
+        let mut translations = std::collections::HashMap::new();
+        translations.insert(lang.to_string(), translated.to_string());
+        ServerMessage::SubtitleFinal {
+            speaker_id: "s".into(),
+            speaker_name: "s".into(),
+            original: original.into(),
+            lang: "auto".into(),
+            translations,
+        }
+        .to_json()
+    }
+
+    #[test]
+    fn a_verdict_closes_the_sentence_even_when_nothing_is_spoken() {
+        // Only the ECHO session finalized before the verdict landed, so there is nothing
+        // to release — but the sentence is over all the same. Leaving the utterance
+        // LATCHED here is what let one sentence's direction steer the next one, which
+        // `note_original` then refuses to re-classify.
+        let mut u = Utterance::new("it", "es");
+        u.on_frame("it", final_frame("it", "Vorrei andare", "Vorrei andare"));
+        u.commit(Direction::UserToOther);
+
+        let (frame, closed) = release_pending(&mut u);
+        assert_eq!(frame, None, "the echo side is never spoken");
+        assert!(closed, "the utterance is finished regardless");
+        assert_eq!(
+            u.direction(),
+            Direction::Unknown,
+            "the next sentence starts from a clean slate"
+        );
+    }
+
+    #[test]
+    fn a_verdict_releases_the_winning_sides_parked_sentence() {
+        let mut u = Utterance::new("it", "es");
+        let real = final_frame("es", "Vorrei andare", "Quiero ir");
+        u.on_frame("es", real.clone());
+        u.commit(Direction::UserToOther);
+
+        let (frame, closed) = release_pending(&mut u);
+        assert_eq!(frame.as_deref(), Some(real.as_str()));
+        assert!(closed);
+        assert_eq!(u.direction(), Direction::Unknown);
+    }
+
+    #[test]
+    fn a_confident_direction_becomes_the_next_sentences_prior() {
+        let mut gate = Gate::new("it", "es");
+        assert_eq!(
+            gate.last_direction,
+            Direction::Unknown,
+            "a cold conversation"
+        );
+        gate.commit(Resolution::anchored(Direction::UserToOther));
+        assert_eq!(gate.last_direction, Direction::UserToOther);
+    }
+
+    #[test]
+    fn a_borrowed_direction_does_not_become_the_next_sentences_prior() {
+        // Otherwise one weak read ratchets: every following sentence borrows its
+        // confidence from a sentence that had none either.
+        let mut gate = Gate::new("it", "es");
+        gate.commit(Resolution::anchored(Direction::UserToOther));
+        gate.utterance.reset();
+        gate.commit(Resolution::corroborated(Direction::UserToOther));
+        assert_eq!(
+            gate.last_direction,
+            Direction::UserToOther,
+            "still the last direction actual evidence chose"
+        );
+    }
+
+    #[test]
+    fn ending_the_conversation_forgets_the_prior() {
+        // After Stop the next speaker is anyone's guess, and a stale prior would let a
+        // weak read speak the wrong language on the first sentence back.
+        let mut gate = Gate::new("it", "es");
+        gate.commit(Resolution::anchored(Direction::UserToOther));
+        gate.close();
+        assert_eq!(gate.last_direction, Direction::Unknown);
+    }
+
+    #[test]
+    fn a_verdict_with_no_parked_sentence_leaves_the_utterance_running() {
+        // The direction resolved from a PARTIAL: the sentence is still being spoken, and
+        // resetting here would throw away the utterance mid-word.
+        let mut u = Utterance::new("it", "es");
+        u.note_original("Vorrei andare");
+        u.commit(Direction::UserToOther);
+
+        let (frame, closed) = release_pending(&mut u);
+        assert_eq!(frame, None);
+        assert!(!closed, "nothing was parked, so nothing is over");
+        assert_eq!(u.direction(), Direction::UserToOther, "still latched");
     }
 }
