@@ -106,6 +106,10 @@ without touching any of them.
     is still over, and a direction must never outlive the sentence it was resolved for.
   - *Given* the losing session's copy of an already-forwarded sentence lands afterwards,
     *then* it is swallowed rather than treated as a new utterance.
+  - *Given* both sessions tag their audio with the same source peer id while each keeps
+    its own `seq`, *then* the client orders playback per `(speaker, language)`. The
+    speaker is not the stream here, and one shared counter let the monotonic-seq guard
+    drop every chunk from whichever session had fallen behind — subtitles with no voice.
 
 - **R6 — Honest billing.** *Given* both directions are held open, *then* the meter bills
   two translation streams for the whole conversation, using the existing
