@@ -623,6 +623,7 @@ async fn handle_extension_session(socket: WebSocket, params: ExtParams, state: A
                                     speaker_user_id: Some(authed.user_id),
                                     // No room glossary for an extension session.
                                     glossary: None,
+                                    segmentation: None,
                                 };
                                 let deps = SessionDeps {
                                     rooms: state.rooms.clone(),

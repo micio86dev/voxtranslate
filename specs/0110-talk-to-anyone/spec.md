@@ -110,6 +110,28 @@ without touching any of them.
     its own `seq`, *then* the client orders playback per `(speaker, language)`. The
     speaker is not the stream here, and one shared counter let the monotonic-seq guard
     drop every chunk from whichever session had fallen behind — subtitles with no voice.
+  - *Given* a segment is finalized while its own translated speech is still streaming,
+    *then* the direction stays live to route the rest of it and is dropped only when NEW
+    speech arrives. A direction may outlive its sentence; it may never outlive its
+    speaker. Clearing it at the final orphaned every frame that came after — which is
+    what "it only says half the sentence" was.
+  - *Given* translated audio is still arriving, *then* the segment is not idle and the
+    gap timer does not close it.
+
+- **R8 — Both languages, always, and each sentence in one place.** *Given* any caption,
+  *then* the original and its translation are shown together — never a labelled blank row.
+  - *Given* the direction is not yet known, *then* the spoken words are captioned
+    immediately anyway. Both sessions transcribe the same speech, so the ORIGINAL is the
+    same whichever side turns out to be the echo; only the TRANSLATION has to wait.
+  - *Given* a sentence is finished, *then* it is on the live line OR in the history,
+    never both at once — one sentence in two places at the same moment reads as a
+    duplicated subtitle, because it is one.
+
+- **R9 — Continuous speech.** *Given* a speaker pauses for breath, *then* the sentence is
+  not cut. Talk sessions carry their own segmentation (`TALK_SEGMENTATION`: 1000 ms VAD
+  silence, 1500 ms idle) instead of the engine defaults tuned for calls, because here a
+  cut costs a beat of silence while the next fragment's direction is worked out. Calls
+  and webinars keep the faster numbers.
 
 - **R6 — Honest billing.** *Given* both directions are held open, *then* the meter bills
   two translation streams for the whole conversation, using the existing

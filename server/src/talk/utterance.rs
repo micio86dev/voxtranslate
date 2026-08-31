@@ -96,6 +96,17 @@ pub struct Utterance {
     /// The ORIGINAL text of the last sentence forwarded, so the losing session's copy of
     /// it can be recognised when it lands afterwards. See [`Self::is_trailing_echo`].
     spoken_original: Option<String>,
+    /// The sentence has been forwarded but its translated speech is still arriving.
+    ///
+    /// The engine closes a segment on an idle gap in the TRANSCRIPT, and text finishes
+    /// long before the audio it describes — so a final routinely lands while seconds of
+    /// its own translation are still streaming. Clearing the direction there orphaned all
+    /// of it: held with no direction, then dropped when the next sentence resolved the
+    /// other way. That is what "it only says half the sentence" was.
+    ///
+    /// While draining, the direction still routes audio; it is dropped the moment new
+    /// speech arrives, because a direction may outlive its sentence but never its speaker.
+    draining: bool,
     /// A final that arrived before the direction was known, kept so a late verdict can
     /// still release it. Dropping it — which is what this did — threw away the single
     /// best piece of evidence about the utterance AND the sentence itself: in production
@@ -120,6 +131,7 @@ impl Utterance {
             held_other: Vec::new(),
             last_final: None,
             spoken_original: None,
+            draining: false,
             pending_user: None,
             pending_other: None,
         }
@@ -145,10 +157,25 @@ impl Utterance {
     /// `qwen::TextUpdate`). So this replaces rather than appends; appending would double
     /// every caption. Returns `true` when the text has moved enough to be worth another
     /// classification.
-    pub fn note_original(&mut self, text: &str) -> bool {
+    pub fn note_original(&mut self, lang: &str, text: &str) -> bool {
         let text = text.trim();
         if text.is_empty() || text == self.original {
             return false;
+        }
+        // The losing session's copy of the sentence we just forwarded. Not new speech, so
+        // it must not end the drain — doing so would strand the audio it was protecting.
+        // The SIDE is what separates it from someone genuinely saying "Sì." twice: the
+        // tail can only come from the session we did not speak.
+        if self.is_trailing_echo(lang, text) {
+            return false;
+        }
+        if self.draining {
+            // Genuinely new words: the previous sentence's direction stops being current
+            // HERE, not at its final.
+            self.draining = false;
+            self.direction = Direction::Unknown;
+            self.held_user.clear();
+            self.held_other.clear();
         }
         let revised = !text.starts_with(self.original.as_str());
         self.original = text.to_string();
@@ -273,10 +300,21 @@ impl Utterance {
             return Outcome::Hold;
         }
         self.last_final = Some(frame.clone());
-        let spoken = std::mem::take(&mut self.original);
-        self.reset_keeping_last_final();
-        self.spoken_original = (!spoken.is_empty()).then_some(spoken);
+        self.finish_sentence();
         Outcome::one(frame)
+    }
+
+    /// The sentence has been forwarded. Clear everything about it EXCEPT the direction,
+    /// which stays live to route the translated speech still on its way.
+    fn finish_sentence(&mut self) {
+        let spoken = std::mem::take(&mut self.original);
+        self.spoken_original = (!spoken.is_empty()).then_some(spoken);
+        self.pending_user = None;
+        self.pending_other = None;
+        self.resolved_at_len = 0;
+        self.held_user.clear();
+        self.held_other.clear();
+        self.draining = self.direction != Direction::Unknown;
     }
 
     /// Is `text` the losing session's copy of the sentence we have just forwarded?
@@ -291,10 +329,10 @@ impl Utterance {
     /// Deliberately narrow: it only holds while the utterance has heard nothing since the
     /// reset. A genuine repeat ("Sì." twice) arrives with its own partials, and those are
     /// exactly the evidence that clears this.
-    pub fn is_trailing_echo(&self, text: &str) -> bool {
-        self.direction == Direction::Unknown
-            && self.original.is_empty()
+    pub fn is_trailing_echo(&self, lang: &str, text: &str) -> bool {
+        self.original.is_empty()
             && self.spoken_original.as_deref() == Some(text.trim())
+            && !self.is_target(lang)
     }
 
     /// A final is parked waiting for a direction, on either side.
@@ -331,7 +369,13 @@ impl Utterance {
         self.spoken_original = None;
     }
 
+    /// Is the current sentence finished, with only its audio still draining?
+    pub fn is_draining(&self) -> bool {
+        self.draining
+    }
+
     fn reset_keeping_last_final(&mut self) {
+        self.draining = false;
         self.pending_user = None;
         self.pending_other = None;
         self.direction = Direction::Unknown;
@@ -585,19 +629,98 @@ mod tests {
         // next sentence, which `note_original` then refuses to re-classify because it is
         // latched. One trailing frame inverted a whole conversational turn.
         let mut u = Utterance::new("it", "es");
-        u.note_original("Vorrei andare");
+        u.note_original("es", "Vorrei andare");
         u.commit(Direction::UserToOther);
         let real = final_msg("Vorrei andare", "es", "Quiero ir");
         assert_eq!(u.on_frame("es", real.clone()), Outcome::one(real));
 
         // The `it` session's copy of the SAME sentence, arriving into a freshly reset
         // utterance that has heard nothing new yet.
-        assert!(u.is_trailing_echo("Vorrei andare"));
+        assert!(u.is_trailing_echo("it", "Vorrei andare"));
 
         // The next sentence is not a tail: it is new evidence, even when the speaker
         // happens to repeat themselves after something else was said.
-        u.note_original("Dove siamo");
-        assert!(!u.is_trailing_echo("Vorrei andare"));
+        u.note_original("es", "Dove siamo");
+        assert!(!u.is_trailing_echo("it", "Vorrei andare"));
+    }
+
+    #[test]
+    fn the_direction_outlives_the_final_so_trailing_audio_still_plays() {
+        // The engine closes a segment after an idle GAP IN THE TRANSCRIPT, but the
+        // translated speech for that segment is still streaming — text finishes long
+        // before audio does. Clearing the direction at the final therefore orphaned the
+        // rest of the sentence: it arrived with no direction, was held, and was dropped
+        // when the next sentence resolved the other way. That is "it says half a
+        // sentence".
+        let mut u = Utterance::new("it", "es");
+        u.note_original("es", "Vorrei andare alla stazione");
+        u.commit(Direction::UserToOther);
+        let f = final_msg(
+            "Vorrei andare alla stazione",
+            "es",
+            "Quiero ir a la estación",
+        );
+        assert_eq!(u.on_frame("es", f.clone()), Outcome::one(f));
+
+        // The tail of the SAME sentence, arriving after its own final.
+        assert_eq!(
+            u.direction(),
+            Direction::UserToOther,
+            "still routing this sentence"
+        );
+        assert_eq!(
+            u.on_frame("es", audio("es", 7)),
+            Outcome::one(audio("es", 7)),
+            "the rest of the sentence must still be spoken"
+        );
+        // The echo side's tail is still suppressed — draining is not a free-for-all.
+        assert_eq!(u.on_frame("it", audio("it", 7)), Outcome::Hold);
+    }
+
+    #[test]
+    fn new_speech_ends_the_drain_and_starts_a_fresh_utterance() {
+        // The direction may outlive the sentence, never the SPEAKER. The moment new words
+        // arrive the slate is clean again, or a turn change would be routed by the
+        // previous speaker's direction.
+        let mut u = Utterance::new("it", "es");
+        u.note_original("es", "Vorrei andare");
+        u.commit(Direction::UserToOther);
+        u.on_frame("es", final_msg("Vorrei andare", "es", "Quiero ir"));
+        assert_eq!(u.direction(), Direction::UserToOther);
+
+        assert!(
+            u.note_original("es", "¿Dónde está la estación?"),
+            "new speech asks again"
+        );
+        assert_eq!(
+            u.direction(),
+            Direction::Unknown,
+            "a new sentence is not steered by the previous one"
+        );
+        assert_eq!(
+            u.on_frame("es", audio("es", 0)),
+            Outcome::Hold,
+            "held again"
+        );
+    }
+
+    #[test]
+    fn the_tail_of_a_spoken_sentence_does_not_end_the_drain() {
+        // The losing session repeats the same text after the winner's final. Treating
+        // that as new speech would clear the direction and strand the audio all over
+        // again — the very bug this drain exists to close.
+        let mut u = Utterance::new("it", "es");
+        u.note_original("es", "Vorrei andare");
+        u.commit(Direction::UserToOther);
+        u.on_frame("es", final_msg("Vorrei andare", "es", "Quiero ir"));
+
+        // The tail arrives on the side we did NOT speak — that is what identifies it.
+        assert!(
+            !u.note_original("it", "Vorrei andare"),
+            "the tail is not new evidence"
+        );
+        assert_eq!(u.direction(), Direction::UserToOther, "still draining");
+        assert!(u.is_trailing_echo("it", "Vorrei andare"));
     }
 
     #[test]
@@ -606,12 +729,12 @@ mod tests {
         // into an utterance that has heard nothing since the reset — an interim for the
         // new sentence is exactly that evidence.
         let mut u = Utterance::new("it", "es");
-        u.note_original("Sì");
+        u.note_original("es", "Sì");
         u.commit(Direction::UserToOther);
         let f = final_msg("Sì", "es", "Sí");
         assert_eq!(u.on_frame("es", f.clone()), Outcome::one(f));
-        u.note_original("Sì");
-        assert!(!u.is_trailing_echo("Sì"));
+        u.note_original("es", "Sì");
+        assert!(!u.is_trailing_echo("it", "Sì"));
     }
 
     #[test]
@@ -619,12 +742,12 @@ mod tests {
         // `reset` is the full boundary — Stop, or a verdict that closed the sentence out.
         // Carrying the tail guard across it would swallow a legitimate repeat.
         let mut u = Utterance::new("it", "es");
-        u.note_original("Sì");
+        u.note_original("es", "Sì");
         u.commit(Direction::UserToOther);
         u.on_frame("es", final_msg("Sì", "es", "Sí"));
-        assert!(u.is_trailing_echo("Sì"));
+        assert!(u.is_trailing_echo("it", "Sì"));
         u.reset();
-        assert!(!u.is_trailing_echo("Sì"));
+        assert!(!u.is_trailing_echo("it", "Sì"));
     }
 
     #[test]
@@ -662,11 +785,11 @@ mod tests {
     #[test]
     fn partials_replace_rather_than_append() {
         let mut u = Utterance::new("it", "es");
-        u.note_original("Vorrei andare");
-        u.note_original("Vorrei andare alla stazione");
+        u.note_original("es", "Vorrei andare");
+        u.note_original("es", "Vorrei andare alla stazione");
         assert_eq!(u.original(), "Vorrei andare alla stazione");
         // A revision that shortens the text must not leave the old tail behind.
-        u.note_original("Vorrei un caffè");
+        u.note_original("es", "Vorrei un caffè");
         assert_eq!(u.original(), "Vorrei un caffè");
     }
 
@@ -674,23 +797,23 @@ mod tests {
     fn reclassification_is_throttled_but_a_revision_forces_one() {
         let mut u = Utterance::new("it", "es");
         // First real text asks for a verdict.
-        assert!(u.note_original("Vorrei andare"));
+        assert!(u.note_original("es", "Vorrei andare"));
         // A one-character growth is not worth another model call.
-        assert!(!u.note_original("Vorrei andare "));
-        assert!(!u.note_original("Vorrei andare a"));
+        assert!(!u.note_original("es", "Vorrei andare "));
+        assert!(!u.note_original("es", "Vorrei andare a"));
         // Enough new evidence — ask again.
-        assert!(u.note_original("Vorrei andare alla stazione"));
+        assert!(u.note_original("es", "Vorrei andare alla stazione"));
         // A rewrite invalidates the previous conclusion regardless of length.
-        assert!(u.note_original("Quiero ir a la"));
+        assert!(u.note_original("es", "Quiero ir a la"));
     }
 
     #[test]
     fn a_committed_utterance_stops_paying_for_classification() {
         let mut u = Utterance::new("it", "es");
-        u.note_original("Vorrei andare");
+        u.note_original("es", "Vorrei andare");
         u.commit(Direction::UserToOther);
         // The text keeps flowing for the caption, but never triggers another call.
-        assert!(!u.note_original("Vorrei andare alla stazione centrale"));
+        assert!(!u.note_original("es", "Vorrei andare alla stazione centrale"));
         assert_eq!(u.original(), "Vorrei andare alla stazione centrale");
     }
 
