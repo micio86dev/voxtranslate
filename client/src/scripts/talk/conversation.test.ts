@@ -329,13 +329,6 @@ describe('frames', () => {
       translations: { es: 'Quiero ir a la estación' },
     });
 
-    expect(h.exchanges).toHaveLength(1);
-    expect(h.exchanges[0]).toMatchObject({
-      spokenLang: 'it',
-      targetLang: 'es',
-      originalText: 'Vorrei andare alla stazione',
-      translatedText: 'Quiero ir a la estación',
-    });
     // The finished translation STAYS in the big area, marked settled. Clearing it here
     // is what made it flash past before anyone could read it — the opposite of "the
     // newest translation remains prominent" (brief §12).
@@ -343,8 +336,20 @@ describe('frames', () => {
     expect(last.translatedText).toBe('Quiero ir a la estación');
     expect(last.settled).toBe(true);
 
-    // ...and the NEXT sentence replaces it rather than appending to it.
+    // And it is NOT in the history yet. On the big line and in a card at the same moment
+    // is one sentence in two places, which is what read as a duplicated subtitle.
+    expect(h.exchanges).toHaveLength(0);
+
+    // The NEXT sentence starting is what moves it back — and replaces the big line
+    // rather than appending to it.
     sock.deliver({ type: 'subtitle_interim', text: 'Está a cinco', original: 'Está a cinco' });
+    expect(h.exchanges).toHaveLength(1);
+    expect(h.exchanges[0]).toMatchObject({
+      spokenLang: 'it',
+      targetLang: 'es',
+      originalText: 'Vorrei andare alla stazione',
+      translatedText: 'Quiero ir a la estación',
+    });
     const next = h.lives[h.lives.length - 1];
     expect(next.translatedText).toBe('Está a cinco');
     expect(next.settled).toBe(false);
@@ -359,6 +364,8 @@ describe('frames', () => {
       original: 'Está a cinco minutos',
       translations: { it: 'È a cinque minuti' },
     });
+    // Ending the conversation must not swallow the last thing said.
+    h.convo.end();
     expect(h.exchanges[0].translatedText).toBe('È a cinque minuti');
   });
 

@@ -179,6 +179,16 @@ export class TalkConversation {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private attempt = 0;
   private exchangeId = 0;
+  /**
+   * The last finished sentence, held back from the history until the NEXT one begins.
+   *
+   * The big live line keeps a settled sentence on screen so the person opposite can still
+   * read it. Pushing the same words into the history at the same moment put them in two
+   * places at once, which reads as a duplicate — because it is one. Exactly one surface
+   * shows a given sentence at a time now: the live line while it is the latest thing
+   * said, the history once something newer replaces it.
+   */
+  private pendingExchange: Exchange | null = null;
   private live: LiveExchange = blankLive();
   /** When the current utterance was first seen, for `timeToTranslatedSpeech`. */
   private utteranceStartedAt: number | null = null;
@@ -268,6 +278,9 @@ export class TalkConversation {
    * they are done, which is a trust problem before it is a bug.
    */
   end(): void {
+    // The last thing said must still reach the history, or ending the conversation
+    // quietly deletes it.
+    this.flushPending();
     this.dispatch({ type: 'STOP_REQUESTED' });
     this.clearReconnect();
 
@@ -416,6 +429,7 @@ export class TalkConversation {
         const spoken = String(msg.spoken ?? '');
         const target = String(msg.target ?? '');
         // A direction belongs to a NEW sentence, so the settled one has had its run.
+        if (this.live.settled) this.flushPending();
         const base = this.live.settled ? blankLive() : this.live;
         this.live = { ...base, spokenLang: spoken, targetLang: target };
         // A direction means somebody is mid-sentence: hold the microphone open.
@@ -430,6 +444,7 @@ export class TalkConversation {
         const text = typeof msg.text === 'string' ? msg.text : '';
         // The server gates by direction, so an interim that reaches us is always the
         // real translation — `original` alongside it, when the engine sent one.
+        if (this.live.settled) this.flushPending();
         const base = this.live.settled ? blankLive() : this.live;
         this.live = {
           ...base,
@@ -507,14 +522,16 @@ export class TalkConversation {
     this.guard.setSpeechActive(false);
     this.dispatch({ type: 'UTTERANCE_ENDED' });
     if (translated || original) {
+      // Anything still waiting belongs further back than this one, so it goes first.
+      this.flushPending();
       this.exchangeId += 1;
-      this.opts.onExchange({
+      this.pendingExchange = {
         id: this.exchangeId,
         spokenLang: this.live.spokenLang ?? '',
         originalText: original,
         targetLang: target ?? '',
         translatedText: translated,
-      });
+      };
     }
     // Keep it on screen, marked settled. The next utterance's first text replaces it;
     // until then the person opposite can still read what was just said — which on a
@@ -529,6 +546,14 @@ export class TalkConversation {
     this.utteranceStartedAt = null;
     this.ttsReported = false;
     this.opts.onLive(this.live);
+  }
+
+  /** Move the held sentence into the history. Idempotent. */
+  private flushPending(): void {
+    const pending = this.pendingExchange;
+    if (!pending) return;
+    this.pendingExchange = null;
+    this.opts.onExchange(pending);
   }
 
   private noteUtteranceStart(): void {

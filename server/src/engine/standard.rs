@@ -281,6 +281,25 @@ async fn run_session(
 /// Spawn the reconnecting upstream task for one target `lang`, register its audio feed in
 /// `active`, and make it `primary` (the session that echoes the speaker's own words) when
 /// no active session currently is.
+/// A copy of `config` with the caller's segmentation override applied, or the original
+/// when there is none.
+///
+/// Kept as a pure function so the override is testable without opening a socket, and so
+/// there is exactly ONE place where "which numbers does this session use" is decided.
+fn apply_segmentation(
+    config: &QwenConfig,
+    over: Option<crate::deepgram::Segmentation>,
+) -> QwenConfig {
+    let Some(over) = over else {
+        return config.clone();
+    };
+    QwenConfig {
+        silence_duration_ms: over.silence_duration_ms,
+        segment_idle_ms: over.segment_idle_ms,
+        ..config.clone()
+    }
+}
+
 fn spawn_lang_session(
     config: &QwenConfig,
     deps: &SessionDeps,
@@ -291,6 +310,10 @@ fn spawn_lang_session(
     primary: &mut Option<String>,
 ) {
     let is_primary = primary.is_none();
+    // Apply the caller's segmentation override once, here, so everything downstream —
+    // the idle timer AND the provider's own VAD in `session_update_json` — sees one
+    // consistent pair of numbers instead of each reaching for the global default.
+    let config = &apply_segmentation(config, ctx.segmentation);
     let (feed_tx, feed_rx) = mpsc::channel::<Vec<u8>>(PER_SESSION_AUDIO_CAP);
     let reader = SessionReader {
         lang: lang.clone(),
@@ -470,6 +493,13 @@ async fn run_connection(
                             }
                             reader.emit_audio(audio_seq, &pcm);
                             audio_seq += 1;
+                            // A segment that is still SPEAKING is not idle. Text finishes
+                            // long before the audio describing it, so without this the
+                            // gap timer fired mid-sentence and closed the segment while
+                            // seconds of its own translation were still streaming. In
+                            // Talk to Anyone that final also cleared the direction, and
+                            // the rest of the sentence was never spoken at all.
+                            idle.as_mut().reset(Instant::now() + Duration::from_millis(reader.segment_idle_ms));
                         }
                         // An explicit turn boundary: finalize the segment now.
                         QwenEvent::TurnComplete => {
@@ -771,6 +801,7 @@ mod tests {
             session_id: Uuid::new_v4(),
             speaker_user_id: None,
             glossary: None,
+            segmentation: None,
         }
     }
 
