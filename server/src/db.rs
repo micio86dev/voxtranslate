@@ -73,6 +73,10 @@ pub struct ChatFile {
 }
 
 /// Persist a chat-file upload's metadata, returning the inserted row.
+///
+/// `user_id` is the signed-in uploader (`None` for a guest) and `object_path` the
+/// durable storage key. Both were added by migration 053 so GDPR erasure can find
+/// and delete the bytes: `file_url` is an EXPIRING SIGNED URL, not a usable handle.
 #[allow(clippy::too_many_arguments)]
 pub async fn insert_chat_file(
     pool: &Pool,
@@ -84,12 +88,14 @@ pub async fn insert_chat_file(
     file_name: &str,
     file_type: &str,
     size_bytes: i64,
+    user_id: Option<Uuid>,
+    object_path: &str,
 ) -> Result<ChatFile, sqlx::Error> {
     sqlx::query_as(
         "INSERT INTO chat_files
             (session_id, room, sender_peer_id, sender_name,
-             file_url, file_name, file_type, size_bytes)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+             file_url, file_name, file_type, size_bytes, user_id, object_path)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
          RETURNING *",
     )
     .bind(session_id)
@@ -100,6 +106,8 @@ pub async fn insert_chat_file(
     .bind(file_name)
     .bind(file_type)
     .bind(size_bytes)
+    .bind(user_id)
+    .bind(object_path)
     .fetch_one(pool)
     .await
 }
@@ -253,6 +261,8 @@ mod tests {
             "memo.mp3",
             "audio/mpeg",
             12_345,
+            None,
+            "s/f.mp3",
         )
         .await
         .expect("insert chat_file");

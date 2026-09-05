@@ -5,6 +5,7 @@ use chrono::{DateTime, Duration, Utc};
 use uuid::Uuid;
 
 use crate::db::Pool;
+use crate::storage::SupabaseStorage;
 
 /// One JSON document with everything we hold on a user (GDPR data portability).
 /// Built entirely in Postgres (`json_build_object`) and returned as text so we
@@ -36,15 +37,65 @@ SELECT json_build_object(
       WHERE te.speaker_user_id = $1 ORDER BY te.ts) e)
 )::text";
 
+/// Why an erasure could not be completed. Erasure spans two systems (Postgres and
+/// Supabase Storage), so it needs an error that can name either — the previous
+/// `sqlx::Error` return could only describe half of the operation.
+#[derive(Debug)]
+pub enum EraseError {
+    /// A database statement failed. Nothing was committed.
+    Db(sqlx::Error),
+    /// An object could not be deleted from storage. The account is untouched.
+    Storage(String),
+    /// The user has storage objects but no storage client is configured, so the
+    /// bytes cannot be reached. Refusing beats deleting the rows that point at
+    /// them — see [`SafetyService::delete_user`].
+    StorageUnavailable,
+}
+
+impl std::fmt::Display for EraseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Db(e) => write!(f, "erasure database step failed: {e}"),
+            Self::Storage(e) => write!(f, "erasure storage step failed: {e}"),
+            Self::StorageUnavailable => write!(
+                f,
+                "erasure aborted: user has storage objects but storage is not configured"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for EraseError {}
+
+impl From<sqlx::Error> for EraseError {
+    fn from(e: sqlx::Error) -> Self {
+        Self::Db(e)
+    }
+}
+
 /// Database operations for moderation + GDPR. Cheap to clone.
 #[derive(Clone)]
 pub struct SafetyService {
     pool: Pool,
+    /// The `chat-files` bucket client, when Supabase Storage is configured.
+    /// `None` on a deploy without `SUPABASE_*`, where uploads are disabled and a
+    /// user therefore cannot have objects.
+    files_storage: Option<SupabaseStorage>,
 }
 
 impl SafetyService {
     pub fn new(pool: Pool) -> Self {
-        Self { pool }
+        Self {
+            pool,
+            files_storage: None,
+        }
+    }
+
+    /// Attach the chat-files bucket so [`Self::delete_user`] can erase the bytes a
+    /// user uploaded, not just the rows pointing at them.
+    pub fn with_files_storage(mut self, storage: Option<SupabaseStorage>) -> Self {
+        self.files_storage = storage;
+        self
     }
 
     /// File an abuse report against a peer in a room.
@@ -150,12 +201,72 @@ impl SafetyService {
         Ok(serde_json::from_str(&json).unwrap_or(serde_json::Value::Null))
     }
 
-    /// Erase the user and all linked rows (FKs cascade). GDPR right to erasure.
-    pub async fn delete_user(&self, user_id: Uuid) -> Result<(), sqlx::Error> {
+    /// Erase the user: their Supabase Storage objects first, then the account and
+    /// every linked row (FKs cascade). GDPR right to erasure.
+    ///
+    /// **Ordering — storage before database, deliberately.** The row is the only
+    /// durable handle on the object (`file_url` is an expiring signed URL, not a
+    /// path), so deleting the row first would strand bytes nothing could ever find
+    /// again. Clearing storage first means a failure anywhere leaves the account
+    /// fully intact and the caller can simply retry: `SupabaseStorage::delete`
+    /// treats a 404 as success, so repeating a partially-completed erasure is
+    /// safe. This is the same rationale as the retention sweep
+    /// (`business::retention::sweep_once`), which deletes the object before
+    /// clearing its pointer for exactly this reason.
+    ///
+    /// **Scope.** Only artifacts authored by this user and sharing the lifecycle of
+    /// their utterances are erased — today that is `chat_files`, whose rows cascade
+    /// like `transcript_events.speaker_user_id` (migration 004). Org-owned
+    /// artifacts are deliberately excluded: cloud recordings are multi-party, and
+    /// `project_voice_messages` follows the rule migration 016 states for
+    /// projects — "keep the project if the creator's personal account is deleted".
+    /// For those the organisation is the controller, and erasure belongs to a
+    /// tenant-admin path, not to an individual's account deletion.
+    pub async fn delete_user(&self, user_id: Uuid) -> Result<(), EraseError> {
+        // (1) Collect the object paths while the rows still link them to the user.
+        //     Pre-053 uploads carry a NULL path: they are unattributable, so they
+        //     are skipped rather than guessed at.
+        let object_paths: Vec<String> = sqlx::query_scalar(
+            "SELECT object_path FROM chat_files
+             WHERE user_id = $1 AND object_path IS NOT NULL AND object_path <> ''",
+        )
+        .bind(user_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        // (2) Bytes exist but nothing can reach them — refuse. Deleting the rows
+        //     here would destroy the only pointer and guarantee a permanent leak.
+        if !object_paths.is_empty() {
+            let Some(storage) = self.files_storage.as_ref() else {
+                tracing::error!(
+                    %user_id,
+                    objects = object_paths.len(),
+                    "erasure aborted: storage objects present but no storage client configured"
+                );
+                return Err(EraseError::StorageUnavailable);
+            };
+
+            // (3) Clear storage. The first failure aborts with the database
+            //     untouched, so the operation stays retryable as a whole.
+            for path in &object_paths {
+                storage.delete(path).await.map_err(|e| {
+                    tracing::error!(%user_id, path, "erasure storage delete failed: {e}");
+                    EraseError::Storage(e)
+                })?;
+            }
+        }
+
+        // (4) Only now drop the account. The cascade takes chat_files with it.
         sqlx::query("DELETE FROM users WHERE id = $1")
             .bind(user_id)
             .execute(&self.pool)
             .await?;
+
+        tracing::info!(
+            %user_id,
+            objects_deleted = object_paths.len(),
+            "erased account and its storage objects"
+        );
         Ok(())
     }
 }

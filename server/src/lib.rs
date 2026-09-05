@@ -490,7 +490,10 @@ impl AppState {
             location::ensure_geometry(&pool).await;
             let min_join = usd(billing.pricing.min_balance_to_join);
             state.billing = Some(BillingService::new(pool.clone(), min_join));
-            state.safety = Some(SafetyService::new(pool.clone()));
+            // The chat-files bucket goes in so GDPR erasure can delete the objects a
+            // user uploaded, not just the rows pointing at them (migration 053).
+            state.safety =
+                Some(SafetyService::new(pool.clone()).with_files_storage(state.storage.clone()));
             state.transcripts = Some(TranscriptService::new(pool.clone()));
             state.glossary = Some(GlossaryService::new(
                 pool.clone(),
