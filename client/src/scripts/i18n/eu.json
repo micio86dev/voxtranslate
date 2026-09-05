@@ -810,5 +810,7 @@
   "talkErrorCredits": "Kredituak agortu zaizkizu.",
   "talkErrorGeneric": "Zerbait gaizki joan da. Hasi elkarrizketa berriro.",
   "talkCreditsUsed": "Erabilita",
-  "talkCreditsLeft": "Geratzen da"
+  "talkCreditsLeft": "Geratzen da",
+  "noisyEnv": "Ingurune zaratatsua",
+  "noisyEnvHint": "Atzeko planoko zarata iragazten du, hala nola trafikoa edo jendetza. Itzali zure ahotsa moztuta entzuten bada."
 }

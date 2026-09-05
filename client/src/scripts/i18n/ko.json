@@ -810,5 +810,7 @@
   "talkErrorCredits": "크레딧을 모두 사용했습니다.",
   "talkErrorGeneric": "문제가 발생했습니다. 대화를 다시 시작하세요.",
   "talkCreditsUsed": "사용",
-  "talkCreditsLeft": "남음"
+  "talkCreditsLeft": "남음",
+  "noisyEnv": "시끄러운 환경",
+  "noisyEnvHint": "교통 소음이나 인파 같은 배경 소음을 걸러냅니다. 목소리가 끊겨 들리면 끄세요."
 }

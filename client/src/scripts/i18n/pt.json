@@ -810,5 +810,7 @@
   "talkErrorCredits": "Ficou sem créditos.",
   "talkErrorGeneric": "Algo correu mal. Volte a iniciar a conversa.",
   "talkCreditsUsed": "Usados",
-  "talkCreditsLeft": "Restantes"
+  "talkCreditsLeft": "Restantes",
+  "noisyEnv": "Ambiente barulhento",
+  "noisyEnvHint": "Filtra ruídos de fundo como trânsito ou multidões. Desative se a sua voz soar cortada."
 }

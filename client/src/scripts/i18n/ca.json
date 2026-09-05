@@ -810,5 +810,7 @@
   "talkErrorCredits": "T'has quedat sense crèdits.",
   "talkErrorGeneric": "Alguna cosa ha anat malament. Torna a iniciar la conversa.",
   "talkCreditsUsed": "Usats",
-  "talkCreditsLeft": "Restants"
+  "talkCreditsLeft": "Restants",
+  "noisyEnv": "Entorn sorollós",
+  "noisyEnvHint": "Filtra el soroll de fons com el trànsit o la gent. Desactiva-ho si la teva veu sona tallada."
 }

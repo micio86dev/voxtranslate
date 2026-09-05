@@ -1,6 +1,6 @@
 [package]
 name = "voxtranslate-server"
-version = "1.43.0"
+version = "1.44.0"
 edition = "2021"
 license = "LicenseRef-PolyForm-Shield-1.0.0"
 
@@ -62,7 +62,7 @@ pdf-extract = "0.12"
 # Chat-file text extraction for .docx (a zip of XML): read word/document.xml and
 # pull the <w:t> runs. deflate-only keeps the zip backend lean.
 zip = { version = "8", default-features = false, features = ["deflate"] }
-quick-xml = "0.41"
+quick-xml = "0.42"
 chacha20poly1305 = "0.11"
 rand = "0.10"
 web-push = { version = "0.11.0", default-features = false }
@@ -70,3 +70,9 @@ web-push = { version = "0.11.0", default-features = false }
 [profile.release]
 opt-level = 3
 lto = "thin"
+
+# Dependencies are never stepped through in a debugger, so their debug symbols are
+# pure disk cost: they were the bulk of a 43 GB target/debug/deps directory.
+# Our own crate keeps full debug info.
+[profile.dev.package."*"]
+debug = false

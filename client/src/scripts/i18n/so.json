@@ -810,5 +810,7 @@
   "talkErrorCredits": "Krediitkaagii wuu dhammaaday.",
   "talkErrorGeneric": "Wax baa qaldamay. Wada-hadalka dib u bilow.",
   "talkCreditsUsed": "La isticmaalay",
-  "talkCreditsLeft": "Hadhay"
+  "talkCreditsLeft": "Hadhay",
+  "noisyEnv": "Deegaan buuq badan",
+  "noisyEnvHint": "Wuxuu shaandheeyaa buuqa gadaasha sida taraafikada ama dadka badan. Dami haddii codkaagu u muuqdo mid go'ay."
 }

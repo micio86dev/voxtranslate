@@ -810,5 +810,7 @@
   "talkErrorCredits": "Du er tom for kredittar.",
   "talkErrorGeneric": "Noko gjekk gale. Start samtalen på nytt.",
   "talkCreditsUsed": "Brukt",
-  "talkCreditsLeft": "Att"
+  "talkCreditsLeft": "Att",
+  "noisyEnv": "Støyande omgjevnader",
+  "noisyEnvHint": "Filtrerer bakgrunnsstøy som trafikk eller folkemengder. Slå av dersom stemma di høyrest hakkete ut."
 }

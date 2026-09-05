@@ -810,5 +810,7 @@
   "talkErrorCredits": "クレジットがなくなりました。",
   "talkErrorGeneric": "問題が発生しました。会話をもう一度始めてください。",
   "talkCreditsUsed": "使用",
-  "talkCreditsLeft": "残り"
+  "talkCreditsLeft": "残り",
+  "noisyEnv": "騒がしい環境",
+  "noisyEnvHint": "交通音や人混みなどの背景ノイズを除去します。声が途切れる場合はオフにしてください。"
 }

@@ -810,5 +810,7 @@
   "talkErrorCredits": "لقد نفد رصيدك.",
   "talkErrorGeneric": "حدث خطأ ما. ابدأ المحادثة من جديد.",
   "talkCreditsUsed": "مُستخدَم",
-  "talkCreditsLeft": "المتبقي"
+  "talkCreditsLeft": "المتبقي",
+  "noisyEnv": "محيط صاخب",
+  "noisyEnvHint": "يزيل ضجيج الخلفية مثل حركة المرور أو الزحام. أوقفه إذا بدا صوتك مقطوعًا."
 }

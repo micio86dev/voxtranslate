@@ -810,5 +810,7 @@
   "talkErrorCredits": "ඔබේ ක්‍රෙඩිට් අවසන් වී ඇත.",
   "talkErrorGeneric": "යමක් වැරදී ඇත. සංවාදය නැවත අරඹන්න.",
   "talkCreditsUsed": "භාවිත",
-  "talkCreditsLeft": "ඉතිරි"
+  "talkCreditsLeft": "ඉතිරි",
+  "noisyEnv": "ඝෝෂාකාරී පරිසරය",
+  "noisyEnvHint": "ගමනාගමනය හෝ ජනාකීර්ණත්වය වැනි පසුබිම් ශබ්ද පෙරයි. ඔබේ හඬ කැඩී ඇසේ නම් අක්‍රිය කරන්න."
 }

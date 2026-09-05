@@ -810,5 +810,7 @@
   "talkErrorCredits": "Kuɗin ka ya ƙare.",
   "talkErrorGeneric": "Wani abu ya faskara. Fara tattaunawar daga farko.",
   "talkCreditsUsed": "An yi amfani",
-  "talkCreditsLeft": "Saura"
+  "talkCreditsLeft": "Saura",
+  "noisyEnv": "Wuri mai hayaniya",
+  "noisyEnvHint": "Yana tace hayaniyar baya kamar zirga-zirga ko taron jama'a. Kashe idan muryarka na yankewa."
 }

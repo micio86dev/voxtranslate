@@ -810,5 +810,7 @@
   "talkErrorCredits": "เครดิตของคุณหมดแล้ว",
   "talkErrorGeneric": "เกิดข้อผิดพลาด โปรดเริ่มการสนทนาใหม่",
   "talkCreditsUsed": "ใช้ไป",
-  "talkCreditsLeft": "คงเหลือ"
+  "talkCreditsLeft": "คงเหลือ",
+  "noisyEnv": "สภาพแวดล้อมที่มีเสียงดัง",
+  "noisyEnvHint": "กรองเสียงรบกวนรอบข้าง เช่น การจราจรหรือฝูงชน ปิดหากเสียงของคุณขาดหาย"
 }

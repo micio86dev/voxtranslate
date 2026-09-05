@@ -18,6 +18,8 @@
 // The pure logic (URL/SDP handling, the state machine) is kept independent of a real
 // RTCPeerConnection so it can be unit-tested with a fake ctor (like webrtc.test.ts).
 
+import { createDenoiser, type Denoiser } from "./denoise";
+import { loadNoisyEnv } from "./mic-constraints";
 import {
   buildPublishConstraints,
   goLive,
@@ -175,6 +177,10 @@ export class WhipPublisher {
   private id: string;
   private wantCamera: boolean;
   private audioDeviceId?: string;
+  /** Live RNNoise stage, when noisy-environment mode is on. */
+  private denoiser: Denoiser | null = null;
+  /** The raw device stream behind `denoiser` — the thing that actually holds the mic. */
+  private rawStream: MediaStream | null = null;
   private videoDeviceId?: string;
   private onState: (s: WhipState) => void;
   private getMedia: (c: MediaStreamConstraints) => Promise<MediaStream>;
@@ -263,6 +269,16 @@ export class WhipPublisher {
       // distinctly so the UI can prompt the host to allow the mic.
       this.setState("mic-denied");
       throw new Error("microphone permission denied");
+    }
+    // Noisy-environment mode: `buildPublishConstraints` has already turned the browser
+    // filter OFF, so RNNoise has to take its place HERE — otherwise the host would go on
+    // air with no filtering at all, which is worse than either option alone. The raw
+    // device stream is kept separately: the denoised track comes out of an AudioContext,
+    // and stopping that would leave the microphone open.
+    if (loadNoisyEnv()) {
+      this.rawStream = this.stream;
+      this.denoiser = await createDenoiser(this.stream);
+      this.stream = this.denoiser.stream;
     }
     this.cameraTrack = this.stream.getVideoTracks()[0] ?? null;
     // Keep a handle on the captured mic track so it can be muted at runtime. The SAME
@@ -473,6 +489,12 @@ export class WhipPublisher {
   /** Stop + drop every captured track. */
   private teardownMedia(): void {
     this.stream?.getTracks().forEach((t) => t.stop());
+    // Stopping the denoised tracks does not release the device — that lives on the raw
+    // stream, and its AudioContext has to be closed explicitly.
+    this.rawStream?.getTracks().forEach((t) => t.stop());
+    this.rawStream = null;
+    void this.denoiser?.stop();
+    this.denoiser = null;
     this.stream = null;
     this.cameraTrack = null;
     this.audioTrack = null;

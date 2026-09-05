@@ -810,5 +810,7 @@
   "talkErrorCredits": "Zmanjkalo vam je dobroimetja.",
   "talkErrorGeneric": "Nekaj je šlo narobe. Znova začnite pogovor.",
   "talkCreditsUsed": "Porabljeno",
-  "talkCreditsLeft": "Ostane"
+  "talkCreditsLeft": "Ostane",
+  "noisyEnv": "Hrupno okolje",
+  "noisyEnvHint": "Filtrira hrup v ozadju, na primer promet ali množico. Izklopite, če vaš glas zveni odrezano."
 }

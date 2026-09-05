@@ -810,5 +810,7 @@
   "talkErrorCredits": "You're out of credits.",
   "talkErrorGeneric": "Something went wrong. Start the conversation again.",
   "talkCreditsUsed": "Used",
-  "talkCreditsLeft": "Left"
+  "talkCreditsLeft": "Left",
+  "noisyEnv": "Noisy surroundings",
+  "noisyEnvHint": "Filters background noise like traffic or crowds. Turn off if your voice sounds clipped."
 }

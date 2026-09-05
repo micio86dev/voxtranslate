@@ -810,5 +810,7 @@
   "talkErrorCredits": "Kredit anda telah habis.",
   "talkErrorGeneric": "Ada sesuatu yang tidak kena. Mulakan perbualan semula.",
   "talkCreditsUsed": "Digunakan",
-  "talkCreditsLeft": "Baki"
+  "talkCreditsLeft": "Baki",
+  "noisyEnv": "Persekitaran bising",
+  "noisyEnvHint": "Menapis bunyi latar seperti lalu lintas atau orang ramai. Matikan jika suara anda kedengaran terputus."
 }

@@ -810,5 +810,7 @@
   "talkErrorCredits": "你的额度已用完。",
   "talkErrorGeneric": "出了点问题。请重新开始对话。",
   "talkCreditsUsed": "已用",
-  "talkCreditsLeft": "剩余"
+  "talkCreditsLeft": "剩余",
+  "noisyEnv": "嘈杂环境",
+  "noisyEnvHint": "过滤交通或人群等背景噪音。如果你的声音听起来断断续续，请关闭。"
 }

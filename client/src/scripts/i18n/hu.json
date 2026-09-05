@@ -810,5 +810,7 @@
   "talkErrorCredits": "Elfogytak a kreditjeid.",
   "talkErrorGeneric": "Valami hiba történt. Indítsd újra a beszélgetést.",
   "talkCreditsUsed": "Elhasznált",
-  "talkCreditsLeft": "Maradt"
+  "talkCreditsLeft": "Maradt",
+  "noisyEnv": "Zajos környezet",
+  "noisyEnvHint": "Kiszűri a háttérzajt, például a forgalmat vagy a tömeget. Kapcsold ki, ha a hangod szaggatottnak hallatszik."
 }

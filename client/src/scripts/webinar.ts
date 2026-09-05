@@ -7,6 +7,7 @@
 //! the Bearer JWT (`authHeaders()`); on a non-2xx the request-returning helpers
 //! throw a typed `WebinarError` so the UI can map the HTTP status to a message.
 
+import { buildAudioConstraints } from './mic-constraints';
 import { authHeaders, HTTP_BASE } from "./auth";
 import type { BusinessOrg } from "./business";
 
@@ -582,9 +583,14 @@ export interface WebinarDeviceChoice {
 export function buildPublishConstraints(
   choice: WebinarDeviceChoice = {},
 ): MediaStreamConstraints {
-  const audio: MediaTrackConstraints | boolean = choice.audioDeviceId
-    ? { deviceId: { exact: choice.audioDeviceId } }
-    : true;
+  // Through the shared builder, NOT `audio: true`. This path used to request the
+  // microphone raw while the pre-live preview (`wpAcquireMedia`) applied filtering, so
+  // a host checked their setup filtered and then went on air unfiltered — and that same
+  // track is what `openWebinarStt` feeds to the transcribe session, which put room
+  // noise into the translated subtitles of every viewer language.
+  const audio: MediaTrackConstraints = buildAudioConstraints({
+    deviceId: choice.audioDeviceId,
+  });
   let video: MediaTrackConstraints | boolean = false;
   if (choice.withCamera) {
     // Request a 16:9 resolution so cameras don't default to 4:3 (640x480). The

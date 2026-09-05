@@ -810,5 +810,7 @@
   "talkErrorCredits": "Spiċċawlek il-krediti.",
   "talkErrorGeneric": "Xi ħaġa marret ħażin. Erġa' ibda l-konverżazzjoni.",
   "talkCreditsUsed": "Użati",
-  "talkCreditsLeft": "Jifdal"
+  "talkCreditsLeft": "Jifdal",
+  "noisyEnv": "Ambjent storbjuż",
+  "noisyEnvHint": "Jiffiltra l-istorbju tal-isfond bħat-traffiku jew il-folla. Itfi jekk leħnek jinstema' maqtugħ."
 }

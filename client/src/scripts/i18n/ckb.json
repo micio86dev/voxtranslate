@@ -810,5 +810,7 @@
   "talkErrorCredits": "کرێدیتەکانت تەواو بوون.",
   "talkErrorGeneric": "شتێک هەڵە بوو. گفتوگۆکە لە نوێوە دەست پێبکە.",
   "talkCreditsUsed": "بەکارهاتوو",
-  "talkCreditsLeft": "ماوە"
+  "talkCreditsLeft": "ماوە",
+  "noisyEnv": "ژینگەی دەنگەدەنگ",
+  "noisyEnvHint": "دەنگی پاشبنەما وەک هاتوچۆ یان قەرەباڵغی دەپاڵێوێت. بیکوژێنەوە ئەگەر دەنگت پچڕاو بوو."
 }

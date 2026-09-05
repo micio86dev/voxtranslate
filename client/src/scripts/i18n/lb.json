@@ -810,5 +810,7 @@
   "talkErrorCredits": "Är Credite si opgebraucht.",
   "talkErrorGeneric": "Eppes ass schif gaangen. Fänkt d'Gespréich nei un.",
   "talkCreditsUsed": "Verbraucht",
-  "talkCreditsLeft": "Iwwreg"
+  "talkCreditsLeft": "Iwwreg",
+  "noisyEnv": "Kaméidesch Ëmgéigend",
+  "noisyEnvHint": "Filtert Hannergrondkaméidi wéi Verkéier oder Leit. Ausschalten, wann Är Stëmm ofgehaakt kléngt."
 }

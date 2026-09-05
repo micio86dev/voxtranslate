@@ -810,5 +810,7 @@
   "talkErrorCredits": "Tavi krediti ir beigušies.",
   "talkErrorGeneric": "Kaut kas nogāja greizi. Sāc sarunu no jauna.",
   "talkCreditsUsed": "Izmantoti",
-  "talkCreditsLeft": "Atlikuši"
+  "talkCreditsLeft": "Atlikuši",
+  "noisyEnv": "Trokšņaina vide",
+  "noisyEnvHint": "Filtrē fona troksni, piemēram, satiksmi vai pūli. Izslēdziet, ja balss skan pārrauta."
 }
