@@ -414,6 +414,43 @@ impl EmbeddingsConfig {
 /// `{workspace}` placeholder is filled from `QWEN_WORKSPACE_ID`.
 const QWEN_DEFAULT_ENDPOINT: &str = "wss://dashscope-intl.aliyuncs.com/api-ws/v1/realtime";
 
+/// Default realtime ASR model backing `input_audio_transcription` — what turns the
+/// speaker's own audio into the ORIGINAL-language transcript.
+///
+/// Overridable through `QWEN_ASR_MODEL` because it is a SECOND catalogue entry the
+/// region has to carry: a Model Studio region can serve the livetranslate model and
+/// still not serve this one, in which case translation works while original captions
+/// and every webinar die. Being able to rename it is what makes that recoverable
+/// without a rebuild.
+const QWEN_DEFAULT_ASR_MODEL: &str = "qwen3-asr-flash-realtime";
+
+/// A SECOND Model Studio route for the Standard tier — same models and pricing, a
+/// different region.
+///
+/// Standard is the default AND the capacity-fallback engine, and by design it never
+/// reports [`crate::engine::SessionOutcome::AtCapacity`], so there is nothing beneath it
+/// to catch a failure. That is fine while one region is healthy and catastrophic during
+/// a region migration: a Frankfurt key whose catalogue is missing a model makes Pro and
+/// Premium overflow land on a dead engine and the room goes silent. This slot is the
+/// net — configured, it lets a session that cannot open on the primary route retry once
+/// somewhere that still works.
+///
+/// Only the three ROUTING values differ. Model ids, VAD, segmentation and pricing are
+/// tier-wide judgements, not regional ones, so they are inherited from the primary
+/// config — see [`QwenConfig::fallback_config`].
+#[derive(Clone)]
+pub struct QwenFallback {
+    /// Credential for the fallback region (`QWEN_FALLBACK_API_KEY`). Defaults to the
+    /// primary key when only an endpoint is given. Server-only, never logged.
+    pub api_key: String,
+    /// WebSocket endpoint for the fallback region (`QWEN_FALLBACK_ENDPOINT`). Accepts
+    /// the same `{workspace}` template as the primary endpoint.
+    pub endpoint: String,
+    /// Workspace id for the fallback region (`QWEN_FALLBACK_WORKSPACE_ID`). Falls back
+    /// to the primary workspace when unset.
+    pub workspace_id: Option<String>,
+}
+
 /// The Standard tier's DashScope credential, under either accepted name.
 ///
 /// `DASHSCOPE_API_KEY` is what Alibaba calls it, so it wins; `QWEN_API_KEY` is accepted
@@ -431,6 +468,41 @@ fn qwen_api_key() -> Option<String> {
         })
 }
 
+/// The optional second Model Studio route, assembled from `QWEN_FALLBACK_*`.
+///
+/// Armed by EITHER `QWEN_FALLBACK_ENDPOINT` or `QWEN_FALLBACK_API_KEY`, with the missing
+/// half inherited from the primary. Both directions are real configurations — a second
+/// region with its own key, and the same account reached through a different host
+/// template — and requiring the pair would mean an operator who set one and not the
+/// other gets silence instead of a fallback. That is the same trap [`qwen_api_key`]
+/// exists to avoid.
+///
+/// Returns `None` when neither is set, which is the shipped default: no second route,
+/// and the single-route behaviour is bit-for-bit what it was before.
+fn qwen_fallback(
+    primary_key: &str,
+    primary_endpoint: &str,
+    primary_workspace: Option<&str>,
+) -> Option<QwenFallback> {
+    let non_empty = |key: &str| {
+        env::var(key)
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+    };
+    let endpoint = non_empty("QWEN_FALLBACK_ENDPOINT");
+    let api_key = non_empty("QWEN_FALLBACK_API_KEY");
+    if endpoint.is_none() && api_key.is_none() {
+        return None;
+    }
+    Some(QwenFallback {
+        api_key: api_key.unwrap_or_else(|| primary_key.to_string()),
+        endpoint: endpoint.unwrap_or_else(|| primary_endpoint.to_string()),
+        workspace_id: non_empty("QWEN_FALLBACK_WORKSPACE_ID")
+            .or_else(|| primary_workspace.map(str::to_string)),
+    })
+}
+
 /// Qwen-Omni Realtime credentials + pricing — the **Standard** tier's speech-to-speech
 /// engine. Required (not optional like the premium tiers): Standard is the default and
 /// capacity-fallback engine, so a server without `DASHSCOPE_API_KEY` has no base tier
@@ -446,9 +518,17 @@ pub struct QwenConfig {
     /// [`crate::engine::qwen::QwenDialect`] — so changing this to an omni model changes
     /// the session shape and event names, not just the id.
     pub model: String,
+    /// Realtime ASR model id (`QWEN_ASR_MODEL`) used for `input_audio_transcription` in
+    /// BOTH session shapes, and dialled directly by the webinar's transcribe-only
+    /// session — see [`QWEN_DEFAULT_ASR_MODEL`].
+    pub asr_model: String,
     /// WebSocket endpoint template (`QWEN_REALTIME_ENDPOINT`). May contain the literal
     /// `{workspace}` placeholder — see [`QWEN_DEFAULT_ENDPOINT`].
     pub endpoint: String,
+    /// Optional second region to retry a failed session on (`QWEN_FALLBACK_*`). `None`
+    /// — the default — leaves the single-route behaviour exactly as it was. See
+    /// [`QwenFallback`].
+    pub fallback: Option<QwenFallback>,
     /// Model Studio workspace id (`QWEN_WORKSPACE_ID`). Substituted into `endpoint` when
     /// it carries the placeholder, otherwise sent as `X-DashScope-WorkSpace`.
     pub workspace_id: Option<String>,
@@ -506,7 +586,9 @@ impl Default for QwenConfig {
             // clip) and far wider: 29 languages it can SPEAK, against v3's 18. Do not
             // "fix" a transient capacity error by downgrading this again; retry it.
             model: "qwen3.5-livetranslate-flash-realtime".into(),
+            asr_model: QWEN_DEFAULT_ASR_MODEL.into(),
             endpoint: QWEN_DEFAULT_ENDPOINT.into(),
+            fallback: None,
             workspace_id: None,
             voice: None,
             turn_detection: "semantic_vad".into(),
@@ -520,10 +602,28 @@ impl Default for QwenConfig {
 }
 
 impl QwenConfig {
-    /// Build from the environment. `pub(crate)` so the live protocol probe in
-    /// `engine::qwen` can construct the real config from `.env` rather than duplicating
-    /// the variable names (and drifting from them).
-    pub(crate) fn from_env() -> Self {
+    /// The config that dials the [`fallback`](Self::fallback) route, or `None` when no
+    /// second route is configured.
+    ///
+    /// Everything except the three routing values is inherited, so the fallback session
+    /// is the SAME session in another region — same models, same VAD, same billing.
+    /// Its own `fallback` is cleared: the result is a leaf, which is what stops a retry
+    /// loop from recursing through a chain of regions.
+    pub fn fallback_config(&self) -> Option<Self> {
+        let fb = self.fallback.as_ref()?;
+        Some(Self {
+            api_key: fb.api_key.clone(),
+            endpoint: fb.endpoint.clone(),
+            workspace_id: fb.workspace_id.clone(),
+            fallback: None,
+            ..self.clone()
+        })
+    }
+
+    /// Build from the environment. `pub` so the live protocol probe in `engine::qwen`
+    /// and the `qwen-catalogue` binary can construct the real config from `.env` rather
+    /// than duplicating the variable names (and drifting from them).
+    pub fn from_env() -> Self {
         // Markup is configured in PERCENT (e.g. 25); store it as a fraction. Prefer the
         // engine-specific override, then the global engine default, then 25% — Standard
         // keeps the base tier's historical markup, not the premium tiers' 50%.
@@ -546,11 +646,18 @@ impl QwenConfig {
         // place; the pricing rationale for `cost_per_minute` is in
         // docs/pricing-standard-qwen.md.
         let d = Self::default();
+        // Bound before the literal: the fallback route inherits whichever of these the
+        // operator left out, so they have to exist as values first.
+        let api_key = qwen_api_key().unwrap_or_default();
+        let endpoint = non_empty("QWEN_REALTIME_ENDPOINT").unwrap_or(d.endpoint);
+        let workspace_id = non_empty("QWEN_WORKSPACE_ID");
         Self {
-            api_key: qwen_api_key().unwrap_or_default(),
+            api_key: api_key.clone(),
             model: non_empty("QWEN_REALTIME_MODEL").unwrap_or(d.model),
-            endpoint: non_empty("QWEN_REALTIME_ENDPOINT").unwrap_or(d.endpoint),
-            workspace_id: non_empty("QWEN_WORKSPACE_ID"),
+            asr_model: non_empty("QWEN_ASR_MODEL").unwrap_or(d.asr_model),
+            endpoint: endpoint.clone(),
+            fallback: qwen_fallback(&api_key, &endpoint, workspace_id.as_deref()),
+            workspace_id,
             voice: non_empty("QWEN_VOICE"),
             turn_detection: non_empty("QWEN_TURN_DETECTION").unwrap_or(d.turn_detection),
             silence_duration_ms: parse_or("QWEN_SILENCE_MS", d.silence_duration_ms),
@@ -1803,7 +1910,14 @@ impl std::fmt::Debug for QwenConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("QwenConfig")
             .field("model", &self.model)
+            .field("asr_model", &self.asr_model)
             .field("endpoint", &self.endpoint)
+            // Endpoint only, never the key. Which REGION we ended up on is precisely
+            // what an operator needs to read out of a log line.
+            .field(
+                "fallback_endpoint",
+                &self.fallback.as_ref().map(|f| f.endpoint.as_str()),
+            )
             .field("turn_detection", &self.turn_detection)
             .field("max_sessions", &self.max_sessions)
             .finish_non_exhaustive()

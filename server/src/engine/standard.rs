@@ -748,7 +748,9 @@ mod tests {
         QwenConfig {
             api_key: "k".into(),
             model: "qwen3.5-omni-flash-realtime".into(),
+            asr_model: "qwen3-asr-flash-realtime".into(),
             endpoint: "wss://dashscope-intl.aliyuncs.com/api-ws/v1/realtime".into(),
+            fallback: None,
             workspace_id: None,
             voice: None,
             turn_detection: "semantic_vad".into(),

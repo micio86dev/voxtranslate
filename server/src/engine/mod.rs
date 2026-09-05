@@ -16,6 +16,7 @@ pub mod openai;
 pub mod premium;
 pub mod pro;
 pub mod qwen;
+pub mod qwen_catalogue;
 pub mod standard;
 pub mod voice_assistant;
 pub mod voice_assistant_client;

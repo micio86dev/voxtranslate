@@ -99,4 +99,16 @@ Realtime models are **not offered in every Model Studio region**. Verified again
 | US (Virginia) | `{workspace}.us-east-1.maas.aliyuncs.com` | ❌ **none** — 89 models, batch ASR + text MT only |
 
 A key issued in a region without realtime authenticates perfectly and then fails at
-`session.update` with *"Access to model denied"*. Check the catalogue, not just the key.
+`session.update` with *"Access to model denied"*. Check the catalogue, not just the key:
+
+```text
+cargo run -p voxtranslate-server --bin qwen-catalogue            # primary route
+cargo run -p voxtranslate-server --bin qwen-catalogue -- --fallback
+```
+
+It queries that region's `/compatible-mode/v1/models` and requires BOTH entries we dial —
+the translate model (`QWEN_REALTIME_MODEL`) and the realtime ASR model (`QWEN_ASR_MODEL`),
+which backs the original-language transcript in calls and is the *only* model the webinar
+path uses. A region carrying just the first gives translated audio with no original
+captions and no webinars at all. Exit code 0 = usable, 1 = missing a model, 2 = the check
+could not run.

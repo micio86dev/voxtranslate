@@ -52,10 +52,11 @@ pub const QWEN_OUTPUT_HZ: u32 = 24_000;
 /// workspace travels in the `X-DashScope-WorkSpace` header instead.
 const WORKSPACE_PLACEHOLDER: &str = "{workspace}";
 
-/// ASR model backing `input_audio_transcription` — what turns the speaker's own audio
-/// into the ORIGINAL-language transcript. Model Studio's realtime ASR; override-free
-/// because both session shapes must agree on it.
-const QWEN_ASR_MODEL: &str = "qwen3-asr-flash-realtime";
+// The ASR model backing `input_audio_transcription` now lives on the config as
+// `QwenConfig::asr_model` (`QWEN_ASR_MODEL`) rather than as a constant here. Both
+// session shapes read the SAME field, which is the property that used to be enforced by
+// it being a constant — a translate session whose transcription model disagreed with the
+// webinar's would transcribe the two surfaces with different engines.
 
 /// Which wire dialect a model speaks.
 ///
@@ -253,7 +254,7 @@ pub fn session_update_json(config: &QwenConfig, source_lang: &str, target_lang: 
         "output_audio_format": "pcm",
     });
 
-    let mut transcription = serde_json::json!({ "model": QWEN_ASR_MODEL });
+    let mut transcription = serde_json::json!({ "model": config.asr_model });
     if source_lang != "auto" && !source_lang.is_empty() {
         transcription["language"] = Value::String(source_lang.to_string());
     }
@@ -280,7 +281,7 @@ pub fn session_update_json(config: &QwenConfig, source_lang: &str, target_lang: 
 /// The `session.update` frame configuring a **transcribe-only** session: speech in,
 /// source-language transcript out, no translation and no spoken response.
 ///
-/// This runs against [`QWEN_ASR_MODEL`], NOT the tier's translate model. That is not an
+/// This runs against [`QwenConfig::asr_model`], NOT the tier's translate model. That is not an
 /// optimisation, it is a correctness requirement: the livetranslate family REQUIRES a
 /// `translation` parameter and closes the socket with `Invalid translation parameter.`
 /// if asked to merely transcribe. A translator cannot be talked out of translating, so
@@ -291,7 +292,7 @@ pub fn session_update_json(config: &QwenConfig, source_lang: &str, target_lang: 
 /// detects it; sending `"auto"` verbatim, or omitting it while assuming detection, gets
 /// the server-side default of `"en"` and transcribes every other language as English.
 pub fn transcribe_session_update_json(config: &QwenConfig, source_lang: &str) -> String {
-    let mut transcription = serde_json::json!({ "model": QWEN_ASR_MODEL });
+    let mut transcription = serde_json::json!({ "model": config.asr_model });
     if source_lang != "auto" && !source_lang.is_empty() {
         transcription["language"] = Value::String(source_lang.to_string());
     }
@@ -436,7 +437,6 @@ pub async fn open_session(
     target_lang: &str,
 ) -> Result<(QwenSink, QwenSource), String> {
     let session = session_update_json(config, source_lang, target_lang);
-    let opened = connect(config, &config.model, session).await?;
     tracing::info!(
         %source_lang,
         %target_lang,
@@ -444,20 +444,94 @@ pub async fn open_session(
         dialect = ?QwenDialect::from_model(&config.model),
         "qwen: translate session connecting"
     );
-    Ok(opened)
+    dial_with_fallback(config, "translate", |c| {
+        let session = session.clone();
+        async move { connect(&c, &c.model, session).await }
+    })
+    .await
 }
 
 /// Open a **transcribe-only** Qwen Realtime WebSocket (see
 /// [`transcribe_session_update_json`]) — source-language transcript, no translation,
-/// no spoken response. Dials [`QWEN_ASR_MODEL`], not the tier's translate model.
+/// no spoken response. Dials [`QwenConfig::asr_model`], not the tier's translate model.
 pub async fn open_transcribe_session(
     config: &QwenConfig,
     source_lang: &str,
 ) -> Result<(QwenSink, QwenSource), String> {
     let session = transcribe_session_update_json(config, source_lang);
-    let opened = connect(config, QWEN_ASR_MODEL, session).await?;
-    tracing::info!(%source_lang, model = %QWEN_ASR_MODEL, "qwen: transcribe session connecting");
-    Ok(opened)
+    tracing::info!(
+        %source_lang,
+        model = %config.asr_model,
+        "qwen: transcribe session connecting"
+    );
+    dial_with_fallback(config, "transcribe", |c| {
+        let session = session.clone();
+        async move { connect(&c, &c.asr_model, session).await }
+    })
+    .await
+}
+
+/// Run `dial` against the primary route and, if it fails and a second route is
+/// configured, ONCE more against that one.
+///
+/// Generic over what a dial returns so the branching is testable without a socket — the
+/// decision being made here is "which region are we talking to", and that decision is
+/// worth more test coverage than the WebSocket handshake underneath it.
+///
+/// Scope is deliberate: this catches a session that will not OPEN — auth rejected, model
+/// denied, region unreachable — not one that opens and later drops. A dropped session is
+/// already handled by the per-language reconnect loops in
+/// [`crate::engine::standard`] and [`crate::webinar::stt`], which call back in here and
+/// so get the fallback for free on their next attempt.
+///
+/// Every fallback use is logged at WARN, twice: once for the failure that caused it and
+/// once for the fact that a session is now being served from the other region. A silent
+/// degradation that survives a migration is the failure mode this whole slot exists to
+/// prevent — if we are quietly running on the old region, the log has to say so.
+async fn dial_with_fallback<T, F, Fut>(
+    config: &QwenConfig,
+    shape: &'static str,
+    mut dial: F,
+) -> Result<T, String>
+where
+    F: FnMut(QwenConfig) -> Fut,
+    Fut: std::future::Future<Output = Result<T, String>>,
+{
+    let primary_err = match dial(config.clone()).await {
+        Ok(opened) => return Ok(opened),
+        Err(e) => e,
+    };
+
+    let Some(fallback) = config.fallback_config() else {
+        // No second route configured: surface the real cause unwrapped, because it is
+        // the whole diagnosis ("Access to model denied" names the problem exactly).
+        return Err(primary_err);
+    };
+
+    tracing::warn!(
+        shape,
+        primary_endpoint = %config.endpoint,
+        fallback_endpoint = %fallback.endpoint,
+        error = %primary_err,
+        "qwen: PRIMARY region refused the session — retrying on the fallback region"
+    );
+
+    match dial(fallback.clone()).await {
+        Ok(opened) => {
+            tracing::warn!(
+                shape,
+                fallback_endpoint = %fallback.endpoint,
+                "qwen: session is being served by the FALLBACK region — the primary is not \
+                 serving traffic, investigate before this becomes permanent"
+            );
+            Ok(opened)
+        }
+        Err(fallback_err) => Err(format!(
+            "qwen: both regions refused the session — primary ({}): {primary_err}; \
+             fallback ({}): {fallback_err}",
+            config.endpoint, fallback.endpoint
+        )),
+    }
 }
 
 /// Dial the endpoint, authenticate, and send `session` as the opening frame. Shared by
@@ -522,7 +596,9 @@ mod tests {
         QwenConfig {
             api_key: "SECRET_KEY".into(),
             model: "qwen3.5-omni-flash-realtime".into(),
+            asr_model: "qwen3-asr-flash-realtime".into(),
             endpoint: "wss://dashscope-intl.aliyuncs.com/api-ws/v1/realtime".into(),
+            fallback: None,
             workspace_id: None,
             voice: None,
             turn_detection: "semantic_vad".into(),
@@ -928,7 +1004,7 @@ mod tests {
         // Target and source are FIELDS on this family, not prose.
         assert_eq!(s["translation"]["language"], "pl");
         assert_eq!(s["input_audio_transcription"]["language"], "it");
-        assert_eq!(s["input_audio_transcription"]["model"], QWEN_ASR_MODEL);
+        assert_eq!(s["input_audio_transcription"]["model"], cfg().asr_model);
         // A dedicated interpreter needs neither a prompt nor explicit turn detection.
         assert!(s.get("instructions").is_none());
         assert!(s.get("turn_detection").is_none());
@@ -947,7 +1023,7 @@ mod tests {
             t.get("language").is_none(),
             "auto must omit the source language"
         );
-        assert_eq!(t["model"], QWEN_ASR_MODEL); // transcription itself stays enabled
+        assert_eq!(t["model"], cfg().asr_model); // transcription itself stays enabled
         assert_eq!(v["session"]["translation"]["language"], "en");
     }
 
@@ -1147,7 +1223,7 @@ mod tests {
         assert!(s.get("output_audio_format").is_none());
         // Transcription on, and pinned to the HOST's language — the server-side default
         // is "en", which would transcribe an Italian webinar as English.
-        assert_eq!(s["input_audio_transcription"]["model"], QWEN_ASR_MODEL);
+        assert_eq!(s["input_audio_transcription"]["model"], cfg().asr_model);
         assert_eq!(s["input_audio_transcription"]["language"], "it");
         // NO `instructions` and NO `translation`. Sending either to the ASR model, or
         // asking the livetranslate model to merely transcribe, closes the socket with
@@ -1163,7 +1239,7 @@ mod tests {
             serde_json::from_str(&transcribe_session_update_json(&cfg(), "auto")).unwrap();
         let tr = &v["session"]["input_audio_transcription"];
         assert!(tr.get("language").is_none(), "auto must omit the language");
-        assert_eq!(tr["model"], QWEN_ASR_MODEL);
+        assert_eq!(tr["model"], cfg().asr_model);
     }
 
     #[test]
@@ -1205,5 +1281,163 @@ mod tests {
         assert!(parse_server_message(r#"{"no_type":1}"#).is_empty());
         // An unmodelled frame must be inert, not fatal.
         assert!(parse_server_message(r#"{"type":"input_audio_buffer.speech_started"}"#).is_empty());
+    }
+
+    // ── Region migration: overridable ASR model + the optional second route ──────────
+
+    #[test]
+    fn asr_model_comes_from_config_in_both_session_shapes() {
+        // It used to be a private constant, so a region whose catalogue names it
+        // differently was unreachable without a rebuild. Both shapes must read the SAME
+        // configured value — a translate session whose transcription model disagrees
+        // with the webinar's would transcribe the two surfaces with different engines.
+        let mut c = cfg();
+        c.asr_model = "qwen4-asr-flash-realtime".into();
+
+        let translate = session_update_json(&c, "it", "en");
+        assert!(
+            translate.contains("qwen4-asr-flash-realtime"),
+            "translate session ignored the configured ASR model: {translate}"
+        );
+        assert!(!translate.contains("qwen3-asr-flash-realtime"));
+
+        let transcribe = transcribe_session_update_json(&c, "it");
+        assert!(
+            transcribe.contains("qwen4-asr-flash-realtime"),
+            "transcribe session ignored the configured ASR model: {transcribe}"
+        );
+    }
+
+    /// A config with a second route armed, pointing somewhere obviously different.
+    fn cfg_with_fallback() -> QwenConfig {
+        QwenConfig {
+            fallback: Some(crate::config::QwenFallback {
+                api_key: "sk-fallback".into(),
+                endpoint: "wss://sg.example/api-ws/v1/realtime".into(),
+                workspace_id: Some("llm-sg".into()),
+            }),
+            ..cfg()
+        }
+    }
+
+    /// Records every endpoint the orchestrator dialled, in order.
+    fn recorder() -> std::sync::Mutex<Vec<String>> {
+        std::sync::Mutex::new(Vec::new())
+    }
+
+    #[tokio::test]
+    async fn a_healthy_primary_never_touches_the_fallback() {
+        let c = cfg_with_fallback();
+        let seen = recorder();
+
+        let out: Result<&str, String> = dial_with_fallback(&c, "translate", |cc| {
+            seen.lock().unwrap().push(cc.endpoint.clone());
+            async move { Ok("session") }
+        })
+        .await;
+
+        assert_eq!(out.unwrap(), "session");
+        assert_eq!(
+            *seen.lock().unwrap(),
+            vec![c.endpoint.clone()],
+            "the fallback route must stay cold while the primary works"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_failed_primary_retries_once_on_the_fallback() {
+        let c = cfg_with_fallback();
+        let seen = recorder();
+
+        // Fail the primary the way a wrong region actually fails: not a timeout, a
+        // server-side refusal of the model.
+        let out: Result<&str, String> = dial_with_fallback(&c, "translate", |cc| {
+            seen.lock().unwrap().push(cc.endpoint.clone());
+            let primary = cc.endpoint.contains("sg.example");
+            async move {
+                if primary {
+                    Ok("session")
+                } else {
+                    Err("Access to model denied".into())
+                }
+            }
+        })
+        .await;
+
+        assert_eq!(out.unwrap(), "session");
+        assert_eq!(
+            *seen.lock().unwrap(),
+            vec![
+                c.endpoint.clone(),
+                "wss://sg.example/api-ws/v1/realtime".to_string()
+            ],
+            "expected primary first, then exactly one fallback attempt"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_fallback_is_dialled_with_its_own_credentials() {
+        let c = cfg_with_fallback();
+        let creds = std::sync::Mutex::new(Vec::new());
+
+        let _: Result<&str, String> = dial_with_fallback(&c, "translate", |cc| {
+            creds.lock().unwrap().push((
+                cc.api_key.clone(),
+                cc.workspace_id.clone(),
+                cc.model.clone(),
+            ));
+            async move { Err("nope".into()) }
+        })
+        .await;
+
+        let creds = creds.lock().unwrap();
+        assert_eq!(creds[0].0, "SECRET_KEY", "primary keeps its own key");
+        assert_eq!(creds[1].0, "sk-fallback", "fallback must use its own key");
+        assert_eq!(creds[1].1.as_deref(), Some("llm-sg"));
+        assert_eq!(
+            creds[1].2, creds[0].2,
+            "the model is tier-wide, not regional — it must carry over unchanged"
+        );
+    }
+
+    #[tokio::test]
+    async fn both_routes_failing_reports_both_causes_and_stops() {
+        let c = cfg_with_fallback();
+        let attempts = std::sync::Mutex::new(0usize);
+
+        let out: Result<&str, String> = dial_with_fallback(&c, "translate", |_| {
+            *attempts.lock().unwrap() += 1;
+            let n = *attempts.lock().unwrap();
+            async move { Err(format!("boom-{n}")) }
+        })
+        .await;
+
+        let err = out.expect_err("both routes down must be an error, not a hang");
+        assert!(err.contains("boom-1"), "lost the primary cause: {err}");
+        assert!(err.contains("boom-2"), "lost the fallback cause: {err}");
+        assert_eq!(
+            *attempts.lock().unwrap(),
+            2,
+            "exactly two attempts — retrying forever would wedge the reconnect loop"
+        );
+    }
+
+    #[tokio::test]
+    async fn with_no_fallback_configured_the_primary_error_passes_straight_through() {
+        let c = cfg(); // no fallback armed
+        let attempts = std::sync::Mutex::new(0usize);
+
+        let out: Result<&str, String> = dial_with_fallback(&c, "translate", |_| {
+            *attempts.lock().unwrap() += 1;
+            async move { Err("Access to model denied".into()) }
+        })
+        .await;
+
+        assert_eq!(
+            out.expect_err("must surface the real cause"),
+            "Access to model denied",
+            "an unconfigured fallback must not wrap or mask the primary error"
+        );
+        assert_eq!(*attempts.lock().unwrap(), 1);
     }
 }

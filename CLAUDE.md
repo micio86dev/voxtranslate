@@ -11,7 +11,9 @@ Next step: add P2P video calling (WebRTC mesh, max 4) + auto-translated text cha
 - Backend: Rust (Axum 0.8 + Tokio)
 - Frontend: Astro 5 (vanilla TypeScript)
 - Live translation (Standard tier): Qwen realtime on Alibaba Model Studio —
-  `qwen3-livetranslate-flash-realtime`, speech in, translated speech + subtitles out
+  `qwen3.5-livetranslate-flash-realtime` (env `QWEN_REALTIME_MODEL`), speech in,
+  translated speech + subtitles out. The realtime ASR model backing the original-language
+  transcript is a SECOND catalogue entry, `qwen3-asr-flash-realtime` (env `QWEN_ASR_MODEL`)
 - Text translation (chat, webinar subtitles, transcripts): Groq `openai/gpt-oss-20b`
   (env-configurable via `GROQ_TRANSLATION_MODEL`)
 - Batch transcription (uploads, recordings, voice messages): Deepgram REST — the only
@@ -63,7 +65,15 @@ Project-wide rule — applies to this repo and every submodule (`dashboard/`, `w
 - DASHSCOPE_API_KEY (alias QWEN_API_KEY) — **required**, the server refuses to boot
   without it. Must come from a Model Studio region that actually carries realtime models:
   Beijing or Singapore. US (Virginia) authenticates fine and then has no realtime model
-  to open.
+  to open. Verify a region before pointing production at it:
+  `cargo run -p voxtranslate-server --bin qwen-catalogue` (add `-- --fallback` for the
+  second route). It checks BOTH models — the translate model and the realtime ASR one.
+- QWEN_FALLBACK_ENDPOINT / QWEN_FALLBACK_API_KEY / QWEN_FALLBACK_WORKSPACE_ID —
+  optional second Model Studio region. Unset (the default) = single route, unchanged
+  behaviour. Set, and a session that cannot OPEN on the primary retries once there,
+  logging at WARN both times. This exists because Standard never reports `AtCapacity`,
+  so without it a broken primary region means Pro/Premium overflow lands on a dead
+  engine and the room goes silent.
 - GROQ_API_KEY — **required**, text translation + every `ai/` feature
 - DEEPGRAM_API_KEY — optional, batch transcription only; unset it and those features
   degrade while every live tier keeps working
