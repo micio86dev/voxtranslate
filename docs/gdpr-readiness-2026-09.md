@@ -153,10 +153,23 @@ history."
 - `retention_days` is an org setting, defaulting to **90** (`migrations/016_business_workspace.sql:40`).
 - Enforcement is the background sweep in `business/retention.rs`, which **ships dormant** — it only
   runs when `RETENTION_SWEEP_ENABLED` is truthy.
-- `RETENTION_SWEEP_ENABLED` **is present** in production. Its value came back redacted through the
-  connected Railway integration, so **verify it in the dashboard before Tuesday.** If it is not
-  truthy, the configured retention window is documentation, not enforcement. This is the single
-  highest-value five-minute check in this report.
+- `RETENTION_SWEEP_ENABLED` is **`true` in production — CONFIRMED, and confirmed at runtime rather
+  than inferred from configuration.** `env_flag` accepts `1`/`true`/`yes`/`on`, and the production
+  boot log carries the proof:
+
+  ```
+  2026-09-01T16:57:34Z  info  Enterprise data-retention sweep enabled (every 21600s, batch 200)
+  ```
+
+  So the sweep runs every 6 hours, up to 200 sessions per pass.
+
+  **Two caveats to state precisely if asked, because "retention is enforced" alone would overstate
+  it.** First, the sweep query filters `o.plan = 'enterprise'`: a **Business-plan org gets no
+  retention enforcement at all**, and `retention_days` must be a positive integer (`0` means "keep
+  forever" and is excluded by the guard regex). Second, the logs show **no purge has ever run** —
+  the code only logs when it deletes something (`Ok(0) => {}`), and there is no such line. That is
+  consistent with no Enterprise org having data past its window yet. The mechanism is armed and
+  proven to start; it is not yet proven to have deleted anything in production.
 - The sweep is correctly built: bounded batches, storage object deleted **before** the DB pointer is
   cleared (so a failure retries rather than orphaning), transcript rows and recording deleted in one
   transaction, session marked `transcript_status = 'expired'`.
@@ -285,8 +298,9 @@ hand this document over; it reads well and the finding is closed.
 
 ### 🟡 Fast fixes before Tuesday (config, doc, or verification only)
 
-1. **Verify `RETENTION_SWEEP_ENABLED` is truthy in the Railway production environment.** Five
-   minutes. Without it, the 90-day default retention is not enforced. Highest value item here.
+1. ~~Verify `RETENTION_SWEEP_ENABLED`~~ — **DONE.** It is `true`, and the production boot log
+   confirms the sweep started (every 6h, batch 200). Note the Enterprise-only scope in §3 before
+   describing retention as universally enforced.
 2. **Verify `BETTERSTACK_INGEST_URL`** points at the EU ingest endpoint, and get the log retention
    period in days from the Better Stack plan.
 3. **Fix `docs/runbooks/113-railway-region.md`** — it still recommends `us-east` and contradicts the
