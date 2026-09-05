@@ -464,3 +464,90 @@ describe('frames', () => {
     expect(h.exchanges).toHaveLength(0);
   });
 });
+
+// ── Noisy-environment mode ────────────────────────────────────────────────────────
+//
+// Regression: `micConstraints()` turns the BROWSER filter off when the toggle is on,
+// because RNNoise is meant to replace it. If the RNNoise stage is not actually
+// inserted here, the toggle leaves the microphone completely UNFILTERED — worse than
+// either setting alone, and worst of all on the surface people use outdoors. These
+// tests exist so that gap cannot come back unnoticed.
+describe('noisy-environment mode', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it('inserts the denoiser, and hands it the raw stream', async () => {
+    localStorage.setItem('vox.noisyEnv', '1');
+    const raw = fakeStream();
+    const denoised = fakeStream();
+    let sawRaw: MediaStream | null = null;
+    let asked: MediaTrackConstraints | null = null;
+
+    const h = harness({
+      getMedia: async (c: MediaStreamConstraints) => {
+        asked = c.audio as MediaTrackConstraints;
+        return raw;
+      },
+      makeDenoiser: async (st: MediaStream) => {
+        sawRaw = st;
+        return { stream: denoised, active: true, stop: async () => {} };
+      },
+    });
+    await h.convo.start();
+
+    expect(sawRaw).toBe(raw);
+    // The browser filter must be OFF here — RNNoise is standing in for it. If this
+    // ever reads true, two suppressors are running in series.
+    expect(asked!.noiseSuppression).toBe(false);
+  });
+
+  it('does NOT build a denoiser when the toggle is off, and keeps the browser filter', async () => {
+    let built = 0;
+    let asked: MediaTrackConstraints | null = null;
+    const h = harness({
+      getMedia: async (c: MediaStreamConstraints) => {
+        asked = c.audio as MediaTrackConstraints;
+        return fakeStream();
+      },
+      makeDenoiser: async (st: MediaStream) => {
+        built++;
+        return { stream: st, active: true, stop: async () => {} };
+      },
+    });
+    await h.convo.start();
+
+    expect(built).toBe(0);
+    expect(asked!.noiseSuppression).toBe(true);
+  });
+
+  it('releases the RAW device and closes the graph on end()', async () => {
+    // Stopping only the denoised tracks would leave the microphone light on: those
+    // tracks come out of an AudioContext, not the device.
+    localStorage.setItem('vox.noisyEnv', '1');
+    let rawStopped = 0;
+    const rawTrack = { kind: 'audio', stop: () => { rawStopped++; } };
+    const raw = {
+      getTracks: () => [rawTrack],
+      getAudioTracks: () => [rawTrack],
+      getVideoTracks: () => [],
+    } as unknown as MediaStream;
+    let closed = false;
+
+    const h = harness({
+      getMedia: async () => raw,
+      makeDenoiser: async () => ({
+        stream: fakeStream(),
+        active: true,
+        stop: async () => {
+          closed = true;
+        },
+      }),
+    });
+    await h.convo.start();
+    h.convo.end();
+
+    expect(rawStopped).toBeGreaterThan(0);
+    expect(closed).toBe(true);
+  });
+});
