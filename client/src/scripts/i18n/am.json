@@ -810,5 +810,7 @@
   "talkErrorCredits": "ክሬዲቶችዎ አልቀዋል።",
   "talkErrorGeneric": "የሆነ ችግር ተፈጥሯል። ውይይቱን እንደገና ይጀምሩ።",
   "talkCreditsUsed": "ጥቅም ላይ የዋለ",
-  "talkCreditsLeft": "የቀረ"
+  "talkCreditsLeft": "የቀረ",
+  "noisyEnv": "ጫጫታ ያለበት አካባቢ",
+  "noisyEnvHint": "እንደ ትራፊክ ወይም ሕዝብ ያሉ የበስተጀርባ ድምፆችን ያጣራል። ድምፅዎ ከተቆረጠ ያጥፉት።"
 }

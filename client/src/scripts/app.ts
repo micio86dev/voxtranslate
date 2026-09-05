@@ -2,6 +2,8 @@
 // → WebRTC video call with translated subtitles + chat.
 
 import { applyI18n, detectLang, ENDONYM, FLAG, getUiLang, loadLocale, setUiLang, SUPPORTED, t } from './i18n';
+import { createDenoiser, type Denoiser } from './denoise';
+import { buildAudioConstraints, loadNoisyEnv, saveNoisyEnv } from './mic-constraints';
 import {
   type EngineInfo,
   DEFAULT_ENGINE_ID,
@@ -470,6 +472,26 @@ const myId = resolvePeerId();
 let session: { room: string; lang: string; name: string; isPublic: boolean; engine: string } | null =
   null;
 let localStream: MediaStream | null = null;
+// Noisy-environment mode: `localStream` is then the DENOISED stream, whose audio track
+// comes out of an AudioContext. Stopping that track does not release the microphone, so
+// the raw device stream is kept alongside it and stopped explicitly.
+let rawMeetStream: MediaStream | null = null;
+let meetDenoiser: Denoiser | null = null;
+
+/** Tear down the meet denoiser, if any. Safe to call when there isn't one. */
+async function stopMeetDenoiser(): Promise<void> {
+  const d = meetDenoiser;
+  meetDenoiser = null;
+  await d?.stop();
+}
+
+/** Stop the microphone/camera for real: the denoised tracks AND the device behind them. */
+function stopMeetCapture(): void {
+  localStream?.getTracks().forEach((tr) => tr.stop());
+  rawMeetStream?.getTracks().forEach((tr) => tr.stop());
+  rawMeetStream = null;
+  void stopMeetDenoiser();
+}
 let ws: WebSocket | null = null;
 let mesh: MeshManager | null = null;
 
@@ -1775,24 +1797,21 @@ async function acquireVideoTrack(): Promise<MediaStreamTrack | null> {
 }
 
 async function acquireMedia(): Promise<void> {
-  const micId = micSelect.value;
-  const audio: MediaTrackConstraints = {
-    channelCount: 1,
-    echoCancellation: true,
-    noiseSuppression: true,
-    autoGainControl: true,
-    ...(micId ? { deviceId: { exact: micId } } : {}),
-  };
+  const audio = buildAudioConstraints({ deviceId: micSelect.value });
   if (localStream) localStream.getTracks().forEach((t2) => t2.stop());
+  // Release the previous denoiser BEFORE opening a new device, or its AudioContext
+  // outlives the track it was reading and leaks for the rest of the session.
+  await stopMeetDenoiser();
+  let raw: MediaStream;
   try {
-    localStream = await navigator.mediaDevices.getUserMedia({ audio, video: videoConstraints() });
+    raw = await navigator.mediaDevices.getUserMedia({ audio, video: videoConstraints() });
   } catch (e) {
     // Fall back to audio-only (no camera available / denied video).
     if (e instanceof Error && e.name === 'NotAllowedError') {
       track('camera_permission_denied');
     }
     try {
-      localStream = await navigator.mediaDevices.getUserMedia({ audio });
+      raw = await navigator.mediaDevices.getUserMedia({ audio });
     } catch (audioErr) {
       if (audioErr instanceof Error && audioErr.name === 'NotAllowedError') {
         track('mic_permission_denied');
@@ -1800,6 +1819,14 @@ async function acquireMedia(): Promise<void> {
       throw audioErr;
     }
   }
+  // In noisy-environment mode the browser filter is off (see buildAudioConstraints) and
+  // RNNoise takes its place. `rawMeetStream` is kept so the DEVICE can still be stopped:
+  // the denoised stream's tracks come from an AudioContext and stopping them would not
+  // release the microphone.
+  rawMeetStream = raw;
+  const denoiser = loadNoisyEnv() ? await createDenoiser(raw) : null;
+  meetDenoiser = denoiser;
+  localStream = denoiser?.stream ?? raw;
   // applyPreToggles releases the camera again if it's currently toggled off.
   previewVideo.srcObject = localStream;
   void previewVideo.play().catch(() => {});
@@ -1832,8 +1859,19 @@ function fillDeviceSelect(sel: HTMLSelectElement, devices: MediaDeviceInfo[], cu
 camSelect.addEventListener('change', () => acquireMedia());
 micSelect.addEventListener('change', () => acquireMedia());
 
+// Noisy-environment toggle. One preference, shared by the meet, the webinar pre-live and
+// Talk to Anyone — it describes the user's surroundings, not the room they are joining.
+// Flipping it re-acquires: the browser filter has to be turned off in `getUserMedia`
+// before RNNoise can take over, and that is decided when the track is opened.
+const noisyEnvChk = $<HTMLInputElement>('noisy-env');
+noisyEnvChk.checked = loadNoisyEnv();
+noisyEnvChk.addEventListener('change', () => {
+  saveNoisyEnv(noisyEnvChk.checked);
+  void acquireMedia();
+});
+
 $('back-btn').addEventListener('click', () => {
-  if (localStream) localStream.getTracks().forEach((tr) => tr.stop());
+  stopMeetCapture();
   localStream = null;
   prejoinScreen.classList.add('hidden');
   homeScreen.classList.remove('hidden');
@@ -4403,7 +4441,7 @@ function leaveCall(): void {
   if (vbg) { vbg.source?.stop(); vbg.stop(); vbg = null; }
   bgMode = 'none';
   if (localStream) {
-    localStream.getTracks().forEach((tr) => tr.stop());
+    stopMeetCapture();
     localStream = null;
   }
   stopTts();
@@ -5605,13 +5643,9 @@ function wpVideoConstraints(): MediaTrackConstraints {
 
 /** (Re)acquire the preview stream for the selected mic/camera devices. */
 async function wpAcquireMedia(): Promise<void> {
-  const micId = wpMicSelect.value;
-  const audio: MediaTrackConstraints = {
-    echoCancellation: true,
-    noiseSuppression: true,
-    autoGainControl: true,
-    ...(micId ? { deviceId: { exact: micId } } : {}),
-  };
+  // The SAME builder the publish path uses (`buildPublishConstraints`), so what the
+  // host hears in this preview is what actually goes on air.
+  const audio = buildAudioConstraints({ deviceId: wpMicSelect.value });
   if (wpStream) wpStream.getTracks().forEach((tr) => tr.stop());
   try {
     wpStream = await navigator.mediaDevices.getUserMedia({ audio, video: wpVideoConstraints() });
@@ -5719,6 +5753,7 @@ async function openWebinarPrelive(w: WebinarView): Promise<void> {
   show(webinarsScreen, false); // leave the list; do NOT re-show #home under the pre-live
   show(wpScreen, true);
   try {
+    wpNoisyEnvChk.checked = loadNoisyEnv();
     await wpAcquireMedia();
     await wpPopulateDevices();
   } catch {
@@ -5742,6 +5777,14 @@ wpPreMic.addEventListener('click', () => {
 wpPreCam.addEventListener('click', () => void wpTogglePreCam());
 wpCamSelect.addEventListener('change', () => void wpAcquireMedia());
 wpMicSelect.addEventListener('change', () => void wpAcquireMedia());
+
+// Same preference as the meet — the two checkboxes are two views of one setting.
+const wpNoisyEnvChk = $<HTMLInputElement>('webinar-noisy-env');
+wpNoisyEnvChk.addEventListener('change', () => {
+  saveNoisyEnv(wpNoisyEnvChk.checked);
+  noisyEnvChk.checked = wpNoisyEnvChk.checked;
+  void wpAcquireMedia();
+});
 wpCancelBtn.addEventListener('click', closeWebinarPrelive);
 
 wpGoBtn.addEventListener('click', () => {

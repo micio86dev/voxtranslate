@@ -810,5 +810,7 @@
   "talkErrorCredits": "Tá do chreidmheasanna imithe.",
   "talkErrorGeneric": "Chuaigh rud éigin mícheart. Tosaigh an comhrá arís.",
   "talkCreditsUsed": "Úsáidte",
-  "talkCreditsLeft": "Fágtha"
+  "talkCreditsLeft": "Fágtha",
+  "noisyEnv": "Timpeallacht challánach",
+  "noisyEnvHint": "Scagann torann cúlra ar nós tráchta nó sluaite. Múch é má tá do ghuth briste."
 }

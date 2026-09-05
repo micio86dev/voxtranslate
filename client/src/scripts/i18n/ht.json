@@ -810,5 +810,7 @@
   "talkErrorCredits": "Kredi ou fini.",
   "talkErrorGeneric": "Gen yon bagay ki pa mache. Rekòmanse konvèsasyon an.",
   "talkCreditsUsed": "Itilize",
-  "talkCreditsLeft": "Rete"
+  "talkCreditsLeft": "Rete",
+  "noisyEnv": "Anviwònman ki gen bri",
+  "noisyEnvHint": "Li filtre bri anvironnman tankou trafik oswa foul moun. Etenn li si vwa w sanble koupe."
 }

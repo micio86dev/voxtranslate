@@ -810,5 +810,7 @@
   "talkErrorCredits": "ਤੁਹਾਡੇ ਕ੍ਰੈਡਿਟ ਖ਼ਤਮ ਹੋ ਗਏ ਹਨ।",
   "talkErrorGeneric": "ਕੁਝ ਗਲਤ ਹੋ ਗਿਆ। ਗੱਲਬਾਤ ਦੁਬਾਰਾ ਸ਼ੁਰੂ ਕਰੋ।",
   "talkCreditsUsed": "ਵਰਤੇ",
-  "talkCreditsLeft": "ਬਾਕੀ"
+  "talkCreditsLeft": "ਬਾਕੀ",
+  "noisyEnv": "ਰੌਲੇ ਵਾਲਾ ਮਾਹੌਲ",
+  "noisyEnvHint": "ਟ੍ਰੈਫਿਕ ਜਾਂ ਭੀੜ ਵਰਗਾ ਪਿਛੋਕੜ ਸ਼ੋਰ ਛਾਣਦਾ ਹੈ। ਜੇ ਤੁਹਾਡੀ ਆਵਾਜ਼ ਕੱਟੀ ਲੱਗੇ ਤਾਂ ਬੰਦ ਕਰੋ।"
 }

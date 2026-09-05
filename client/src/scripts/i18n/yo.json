@@ -810,5 +810,7 @@
   "talkErrorCredits": "Kírẹ́dítì rẹ ti tán.",
   "talkErrorGeneric": "Ohun kan ṣàṣìṣe. Bẹ̀rẹ̀ ìjíròrò náà lẹ́ẹ̀kansí.",
   "talkCreditsUsed": "Tí a lò",
-  "talkCreditsLeft": "Tó kù"
+  "talkCreditsLeft": "Tó kù",
+  "noisyEnv": "Àyíká aláriwo",
+  "noisyEnvHint": "Ó ń sẹ́ ariwo ẹ̀yìn bí ọkọ̀ tàbí ìjọ ènìyàn. Pa á bí ohùn rẹ bá dún gé."
 }

@@ -810,5 +810,7 @@
   "talkErrorCredits": "Je tegoed is op.",
   "talkErrorGeneric": "Er ging iets mis. Start het gesprek opnieuw.",
   "talkCreditsUsed": "Gebruikt",
-  "talkCreditsLeft": "Resterend"
+  "talkCreditsLeft": "Resterend",
+  "noisyEnv": "Rumoerige omgeving",
+  "noisyEnvHint": "Filtert achtergrondgeluid zoals verkeer of drukte. Zet uit als je stem afgekapt klinkt."
 }

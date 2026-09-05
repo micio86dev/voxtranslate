@@ -810,5 +810,7 @@
   "talkErrorCredits": "Minuli sa vám kredity.",
   "talkErrorGeneric": "Niečo sa pokazilo. Začnite konverzáciu znova.",
   "talkCreditsUsed": "Využité",
-  "talkCreditsLeft": "Zostáva"
+  "talkCreditsLeft": "Zostáva",
+  "noisyEnv": "Hlučné prostredie",
+  "noisyEnvHint": "Odfiltruje hluk pozadia, ako je doprava či dav. Vypnite, ak váš hlas znie useknuto."
 }

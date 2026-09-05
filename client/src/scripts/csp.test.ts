@@ -80,6 +80,13 @@ describe('call CSP (issue #237 regression guard)', () => {
     expect(directive('script-src')).toContain('https://cdn.jsdelivr.net');
     expect(directive('script-src')).toContain("'wasm-unsafe-eval'");
     expect(directive('connect-src')).toContain('https://cdn.jsdelivr.net');
+    // Noisy-environment capture: the RNNoise worklet is a same-origin static file
+    // (`worker-src 'self'`, asserted above) and it instantiates `/rnnoise.wasm`, which
+    // the main thread fetches same-origin. Dropping 'wasm-unsafe-eval' would leave the
+    // worklet permanently in passthrough — filtering silently off, nothing in the
+    // console to say why.
+    expect(directive('worker-src')).toContain("'self'");
+    expect(directive('connect-src')).toContain("'self'");
     // WebRTC signalling + STT/translation stream to our API over WS.
     expect(directive('connect-src')).toContain('wss://api.voxtranslate.app');
     expect(directive('connect-src')).toContain('https://api.voxtranslate.app');

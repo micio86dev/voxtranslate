@@ -810,5 +810,7 @@
   "talkErrorCredits": "আপনার ক্রেডিট শেষ হয়ে গেছে।",
   "talkErrorGeneric": "কিছু একটা ভুল হয়েছে। কথোপকথন আবার শুরু করুন।",
   "talkCreditsUsed": "ব্যবহৃত",
-  "talkCreditsLeft": "বাকি"
+  "talkCreditsLeft": "বাকি",
+  "noisyEnv": "কোলাহলপূর্ণ পরিবেশ",
+  "noisyEnvHint": "যানজট বা ভিড়ের মতো পটভূমির শব্দ ছেঁকে দেয়। আপনার কণ্ঠ কেটে গেলে বন্ধ করুন।"
 }

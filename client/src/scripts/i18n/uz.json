@@ -810,5 +810,7 @@
   "talkErrorCredits": "Kreditlaringiz tugadi.",
   "talkErrorGeneric": "Nimadir xato ketdi. Suhbatni qaytadan boshlang.",
   "talkCreditsUsed": "Sarflandi",
-  "talkCreditsLeft": "Qoldi"
+  "talkCreditsLeft": "Qoldi",
+  "noisyEnv": "Shovqinli muhit",
+  "noisyEnvHint": "Transport yoki olomon kabi fon shovqinini filtrlaydi. Ovozingiz uzilib eshitilsa, o'chiring."
 }

@@ -810,5 +810,7 @@
   "talkErrorCredits": "Ai rămas fără credite.",
   "talkErrorGeneric": "Ceva nu a mers bine. Începe conversația din nou.",
   "talkCreditsUsed": "Folosite",
-  "talkCreditsLeft": "Rămase"
+  "talkCreditsLeft": "Rămase",
+  "noisyEnv": "Mediu zgomotos",
+  "noisyEnvHint": "Filtrează zgomotul de fundal, precum traficul sau mulțimea. Dezactivează dacă vocea sună tăiată."
 }

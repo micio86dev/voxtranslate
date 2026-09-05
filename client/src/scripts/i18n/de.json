@@ -810,5 +810,7 @@
   "talkErrorCredits": "Dein Guthaben ist aufgebraucht.",
   "talkErrorGeneric": "Etwas ist schiefgelaufen. Starte das Gespräch neu.",
   "talkCreditsUsed": "Verbraucht",
-  "talkCreditsLeft": "Übrig"
+  "talkCreditsLeft": "Übrig",
+  "noisyEnv": "Laute Umgebung",
+  "noisyEnvHint": "Filtert Hintergrundgeräusche wie Verkehr oder Menschenmengen. Ausschalten, wenn deine Stimme abgehackt klingt."
 }

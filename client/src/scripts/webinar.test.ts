@@ -645,28 +645,45 @@ describe('addToCalendar', () => {
   });
 });
 
+/** What the shared builder produces for an unfiltered-device-free request. */
+const BASE_AUDIO = {
+  channelCount: 1,
+  echoCancellation: true,
+  autoGainControl: true,
+  noiseSuppression: true,
+};
+
 describe('buildPublishConstraints', () => {
   it('always requests the mic; camera off by default (mic-only)', () => {
-    expect(buildPublishConstraints()).toEqual({ audio: true, video: false });
-    expect(buildPublishConstraints({})).toEqual({ audio: true, video: false });
+    expect(buildPublishConstraints()).toEqual({ audio: BASE_AUDIO, video: false });
+    expect(buildPublishConstraints({})).toEqual({ audio: BASE_AUDIO, video: false });
+  });
+
+  it('filters the PUBLISHED mic, not just the pre-live preview', () => {
+    // Regression: this path used to send `audio: true`, so the host went on air raw
+    // while the preview was filtered — and the same raw track reached the transcribe
+    // session behind the translated subtitles.
+    const audio = buildPublishConstraints().audio as MediaTrackConstraints;
+    expect(audio.noiseSuppression).toBe(true);
+    expect(audio.echoCancellation).toBe(true);
   });
 
   it('pins the chosen mic device with deviceId: { exact }', () => {
     expect(buildPublishConstraints({ audioDeviceId: 'mic-2' })).toEqual({
-      audio: { deviceId: { exact: 'mic-2' } },
+      audio: { ...BASE_AUDIO, deviceId: { exact: 'mic-2' } },
       video: false,
     });
   });
 
   it('requests the camera only when withCamera is set, honoring the device id', () => {
     expect(buildPublishConstraints({ withCamera: true })).toEqual({
-      audio: true,
+      audio: BASE_AUDIO,
       video: { width: { ideal: 1280 }, height: { ideal: 720 } },
     });
     expect(
       buildPublishConstraints({ withCamera: true, videoDeviceId: 'cam-2' }),
     ).toEqual({
-      audio: true,
+      audio: BASE_AUDIO,
       video: {
         deviceId: { exact: 'cam-2' },
         width: { ideal: 1280 },
@@ -677,7 +694,7 @@ describe('buildPublishConstraints', () => {
 
   it('ignores the video device id when the camera is off', () => {
     expect(buildPublishConstraints({ videoDeviceId: 'cam-9' })).toEqual({
-      audio: true,
+      audio: BASE_AUDIO,
       video: false,
     });
   });
@@ -690,7 +707,7 @@ describe('buildPublishConstraints', () => {
         withCamera: true,
       }),
     ).toEqual({
-      audio: { deviceId: { exact: 'mic-1' } },
+      audio: { ...BASE_AUDIO, deviceId: { exact: 'mic-1' } },
       video: {
         deviceId: { exact: 'cam-1' },
         width: { ideal: 1280 },

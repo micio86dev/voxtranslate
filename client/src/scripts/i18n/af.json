@@ -810,5 +810,7 @@
   "talkErrorCredits": "Jou krediete is op.",
   "talkErrorGeneric": "Iets het verkeerd geloop. Begin die gesprek oor.",
   "talkCreditsUsed": "Gebruik",
-  "talkCreditsLeft": "Oor"
+  "talkCreditsLeft": "Oor",
+  "noisyEnv": "Raserige omgewing",
+  "noisyEnvHint": "Filtreer agtergrondgeraas soos verkeer of skare. Skakel af as jou stem afgekap klink."
 }

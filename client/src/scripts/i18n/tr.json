@@ -810,5 +810,7 @@
   "talkErrorCredits": "Krediniz bitti.",
   "talkErrorGeneric": "Bir şeyler ters gitti. Konuşmayı yeniden başlatın.",
   "talkCreditsUsed": "Kullanılan",
-  "talkCreditsLeft": "Kalan"
+  "talkCreditsLeft": "Kalan",
+  "noisyEnv": "Gürültülü ortam",
+  "noisyEnvHint": "Trafik veya kalabalık gibi arka plan gürültüsünü süzer. Sesiniz kesik duyuluyorsa kapatın."
 }

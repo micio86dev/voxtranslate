@@ -810,5 +810,7 @@
   "talkErrorCredits": "Hai esaurito i crediti.",
   "talkErrorGeneric": "Qualcosa è andato storto. Riavvia la conversazione.",
   "talkCreditsUsed": "Usati",
-  "talkCreditsLeft": "Rimasti"
+  "talkCreditsLeft": "Rimasti",
+  "noisyEnv": "Ambiente rumoroso",
+  "noisyEnvHint": "Filtra i rumori di fondo come traffico o folla. Disattivalo se la tua voce risulta tagliata."
 }

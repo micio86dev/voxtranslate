@@ -810,5 +810,7 @@
   "talkErrorCredits": "Du er løbet tør for kreditter.",
   "talkErrorGeneric": "Noget gik galt. Start samtalen igen.",
   "talkCreditsUsed": "Brugt",
-  "talkCreditsLeft": "Tilbage"
+  "talkCreditsLeft": "Tilbage",
+  "noisyEnv": "Støjende omgivelser",
+  "noisyEnvHint": "Filtrerer baggrundsstøj som trafik eller folkemængder. Slå fra, hvis din stemme lyder hakket."
 }
