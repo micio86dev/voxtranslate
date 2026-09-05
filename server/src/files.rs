@@ -151,6 +151,20 @@ pub async fn upload_file(
     // The room's call-session id ties the file to the call lifetime.
     let session_id = state.rooms.session_id(&room).unwrap_or_else(Uuid::nil);
 
+    // Resolve the signed-in uploader once, up front. It is recorded on the row so
+    // GDPR erasure can find this upload later (migration 053) and reused by the
+    // translation-billing branch below. `None` for a guest, or on an unmonetized
+    // deploy where there is no JWT secret to verify against — such an upload is
+    // unattributable and therefore out of reach of account erasure.
+    let uploader_id: Option<Uuid> = state.config.billing.as_ref().and_then(|bcfg| {
+        headers
+            .get(header::AUTHORIZATION)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.strip_prefix("Bearer "))
+            .and_then(|tok| crate::auth::verify_jwt(&bcfg.jwt_secret, tok).ok())
+            .and_then(|c| Uuid::parse_str(&c.sub).ok())
+    });
+
     // ---- Upload to Supabase Storage (must succeed) -------------------------
     let object = storage::object_path(&session_id.to_string(), &Uuid::new_v4().to_string(), &ext);
     if let Err(e) = storage_client
@@ -181,6 +195,8 @@ pub async fn upload_file(
             &file_name,
             content_type,
             size as i64,
+            uploader_id,
+            &object,
         )
         .await
         {
@@ -217,14 +233,8 @@ pub async fn upload_file(
     } else if let (Some(bcfg), Some(billing)) =
         (state.config.billing.as_ref(), state.billing.as_ref())
     {
-        // Resolve the signed-in uploader from an optional bearer token.
-        let user_id = headers
-            .get(header::AUTHORIZATION)
-            .and_then(|v| v.to_str().ok())
-            .and_then(|v| v.strip_prefix("Bearer "))
-            .and_then(|tok| crate::auth::verify_jwt(&bcfg.jwt_secret, tok).ok())
-            .and_then(|c| Uuid::parse_str(&c.sub).ok());
-        match user_id {
+        // The signed-in uploader was already resolved above (`uploader_id`).
+        match uploader_id {
             None => {
                 blocked = Some("signin");
                 false
