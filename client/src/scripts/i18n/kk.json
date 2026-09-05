@@ -810,5 +810,7 @@
   "talkErrorCredits": "Кредиттеріңіз бітті.",
   "talkErrorGeneric": "Бірдеңе дұрыс болмады. Әңгімені қайта бастаңыз.",
   "talkCreditsUsed": "Жұмсалды",
-  "talkCreditsLeft": "Қалды"
+  "talkCreditsLeft": "Қалды",
+  "noisyEnv": "Шулы орта",
+  "noisyEnvHint": "Көлік немесе тобыр сияқты фондық шуды сүзеді. Дауысыңыз үзіліп естілсе, өшіріңіз."
 }

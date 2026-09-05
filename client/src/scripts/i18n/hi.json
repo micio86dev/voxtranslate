@@ -810,5 +810,7 @@
   "talkErrorCredits": "आपके क्रेडिट ख़त्म हो गए हैं।",
   "talkErrorGeneric": "कुछ ग़लत हो गया। बातचीत दोबारा शुरू करें।",
   "talkCreditsUsed": "उपयोग",
-  "talkCreditsLeft": "शेष"
+  "talkCreditsLeft": "शेष",
+  "noisyEnv": "शोरगुल वाला माहौल",
+  "noisyEnvHint": "ट्रैफ़िक या भीड़ जैसा पृष्ठभूमि शोर हटाता है। आवाज़ कटी लगे तो बंद करें।"
 }

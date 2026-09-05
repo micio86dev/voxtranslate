@@ -810,5 +810,7 @@
   "talkErrorCredits": "נגמרו לך הקרדיטים.",
   "talkErrorGeneric": "משהו השתבש. התחילו את השיחה מחדש.",
   "talkCreditsUsed": "נוצלו",
-  "talkCreditsLeft": "נותרו"
+  "talkCreditsLeft": "נותרו",
+  "noisyEnv": "סביבה רועשת",
+  "noisyEnvHint": "מסנן רעשי רקע כמו תנועה או קהל. כבה אם הקול שלך נשמע קטוע."
 }

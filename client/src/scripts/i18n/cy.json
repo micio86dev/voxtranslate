@@ -810,5 +810,7 @@
   "talkErrorCredits": "Mae eich credydau wedi dod i ben.",
   "talkErrorGeneric": "Aeth rhywbeth o'i le. Dechreuwch y sgwrs eto.",
   "talkCreditsUsed": "Defnyddiwyd",
-  "talkCreditsLeft": "Ar ôl"
+  "talkCreditsLeft": "Ar ôl",
+  "noisyEnv": "Amgylchedd swnllyd",
+  "noisyEnvHint": "Yn hidlo sŵn cefndir fel traffig neu dorf. Diffoddwch os yw eich llais yn swnio wedi'i dorri."
 }

@@ -810,5 +810,7 @@
   "talkErrorCredits": "તમારી ક્રેડિટ પૂરી થઈ ગઈ છે.",
   "talkErrorGeneric": "કંઈક ખોટું થયું. વાતચીત ફરી શરૂ કરો.",
   "talkCreditsUsed": "વપરાયેલ",
-  "talkCreditsLeft": "બાકી"
+  "talkCreditsLeft": "બાકી",
+  "noisyEnv": "ઘોંઘાટભર્યું વાતાવરણ",
+  "noisyEnvHint": "ટ્રાફિક કે ભીડ જેવો પૃષ્ઠભૂમિનો અવાજ ગાળે છે. તમારો અવાજ કપાયેલો લાગે તો બંધ કરો."
 }

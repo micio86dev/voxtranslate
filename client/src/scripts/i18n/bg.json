@@ -810,5 +810,7 @@
   "talkErrorCredits": "Кредитите ви свършиха.",
   "talkErrorGeneric": "Нещо се обърка. Започнете разговора отново.",
   "talkCreditsUsed": "Използвани",
-  "talkCreditsLeft": "Оставащи"
+  "talkCreditsLeft": "Оставащи",
+  "noisyEnv": "Шумна среда",
+  "noisyEnvHint": "Филтрира фонов шум като трафик или тълпа. Изключете, ако гласът ви звучи накъсано."
 }

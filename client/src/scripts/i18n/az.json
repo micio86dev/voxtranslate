@@ -810,5 +810,7 @@
   "talkErrorCredits": "Kreditləriniz bitdi.",
   "talkErrorGeneric": "Nəsə səhv getdi. Söhbətə yenidən başlayın.",
   "talkCreditsUsed": "İstifadə olunub",
-  "talkCreditsLeft": "Qalıb"
+  "talkCreditsLeft": "Qalıb",
+  "noisyEnv": "Səs-küylü mühit",
+  "noisyEnvHint": "Nəqliyyat və ya izdiham kimi fon səslərini süzür. Səsiniz kəsilirsə, söndürün."
 }

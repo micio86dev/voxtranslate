@@ -810,5 +810,7 @@
   "talkErrorCredits": "Naubos na ang credits mo.",
   "talkErrorGeneric": "May nangyaring mali. Simulan ulit ang usapan.",
   "talkCreditsUsed": "Nagamit",
-  "talkCreditsLeft": "Natitira"
+  "talkCreditsLeft": "Natitira",
+  "noisyEnv": "Maingay na paligid",
+  "noisyEnvHint": "Sinasala ang ingay sa paligid gaya ng trapiko o tao. I-off kung parang naputol ang boses mo."
 }

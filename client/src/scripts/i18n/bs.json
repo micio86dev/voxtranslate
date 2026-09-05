@@ -810,5 +810,7 @@
   "talkErrorCredits": "Ostali ste bez kredita.",
   "talkErrorGeneric": "Nešto je pošlo po zlu. Pokrenite razgovor ponovo.",
   "talkCreditsUsed": "Potrošeno",
-  "talkCreditsLeft": "Preostalo"
+  "talkCreditsLeft": "Preostalo",
+  "noisyEnv": "Bučno okruženje",
+  "noisyEnvHint": "Filtrira pozadinsku buku poput saobraćaja ili gužve. Isključite ako vam glas zvuči isprekidano."
 }

@@ -810,5 +810,7 @@
   "talkErrorCredits": "آپ کے کریڈٹس ختم ہو گئے ہیں۔",
   "talkErrorGeneric": "کچھ غلط ہو گیا۔ گفتگو دوبارہ شروع کریں۔",
   "talkCreditsUsed": "استعمال شدہ",
-  "talkCreditsLeft": "باقی"
+  "talkCreditsLeft": "باقی",
+  "noisyEnv": "شور والا ماحول",
+  "noisyEnvHint": "ٹریفک یا ہجوم جیسے پس منظر کے شور کو چھانتا ہے۔ اگر آپ کی آواز کٹی ہوئی لگے تو بند کر دیں۔"
 }

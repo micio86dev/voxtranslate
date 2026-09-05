@@ -810,5 +810,7 @@
   "talkErrorCredits": "Skończyły Ci się środki.",
   "talkErrorGeneric": "Coś poszło nie tak. Rozpocznij rozmowę od nowa.",
   "talkCreditsUsed": "Zużyto",
-  "talkCreditsLeft": "Pozostało"
+  "talkCreditsLeft": "Pozostało",
+  "noisyEnv": "Głośne otoczenie",
+  "noisyEnvHint": "Filtruje szum tła, np. ruch uliczny lub tłum. Wyłącz, jeśli Twój głos brzmi urywanie."
 }

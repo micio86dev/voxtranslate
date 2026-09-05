@@ -384,6 +384,13 @@ const jsonLd = {
             <select id="mic-select"></select>
           </label>
         </div>
+        <label class="field-check">
+          <input type="checkbox" id="noisy-env" />
+          <span>
+            <span data-i18n="noisyEnv">{T('noisyEnv')}</span>
+            <small class="field-hint" data-i18n="noisyEnvHint">{T('noisyEnvHint')}</small>
+          </span>
+        </label>
         <p id="prejoin-status" class="status-line" role="status"></p>
         <!-- Enhanced voice preparation (spec 0108): clones the user's voice so others hear
              them translated in their own voice. Shown for Enhanced-tier users with cloning
@@ -1225,6 +1232,13 @@ const jsonLd = {
             <select id="webinar-mic-select"></select>
           </label>
         </div>
+        <label class="field-check">
+          <input type="checkbox" id="webinar-noisy-env" />
+          <span>
+            <span data-i18n="noisyEnv">{T('noisyEnv')}</span>
+            <small class="field-hint" data-i18n="noisyEnvHint">{T('noisyEnvHint')}</small>
+          </span>
+        </label>
         <p id="webinar-prelive-status" class="status-line" role="status"></p>
         <div class="webinar-prelive-actions">
           <button id="webinar-prelive-cancel" class="btn-ghost" type="button" data-i18n="cancel">{T('cancel')}</button>
@@ -3510,6 +3524,11 @@ const jsonLd = {
     /* ---------- Consent / report / privacy / cookie ---------- */
     .consent-check { display: flex; align-items: flex-start; gap: 9px; text-align: start; font-size: 0.88rem; color: var(--text); cursor: pointer; }
     .consent-check input { width: auto; margin-top: 2px; flex: none; }
+    /* Noisy-environment toggle: sits under the device pickers in both the meet
+       pre-join and the webinar pre-live, so it reads as part of the mic choice. */
+    .field-check { display: flex; align-items: flex-start; gap: 9px; text-align: start; font-size: 0.88rem; color: var(--text); cursor: pointer; margin-top: 4px; }
+    .field-check input { width: auto; margin-top: 2px; flex: none; }
+    .field-check .field-hint { display: block; color: var(--muted); font-size: 0.78rem; margin-top: 2px; }
     .report-reasons { display: flex; flex-direction: column; gap: 8px; }
     .report-reasons :global(.report-reason) { width: 100%; text-align: start; background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 10px; padding: 12px 14px; transition: border-color 0.15s; }
     .report-reasons :global(.report-reason:hover) { border-color: var(--danger); }

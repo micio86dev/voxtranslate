@@ -810,5 +810,7 @@
   "talkErrorCredits": "Salio lako limeisha.",
   "talkErrorGeneric": "Hitilafu imetokea. Anza mazungumzo upya.",
   "talkCreditsUsed": "Imetumika",
-  "talkCreditsLeft": "Imebaki"
+  "talkCreditsLeft": "Imebaki",
+  "noisyEnv": "Mazingira yenye kelele",
+  "noisyEnvHint": "Huchuja kelele za mandharinyuma kama magari au umati. Zima ikiwa sauti yako inasikika ikikatika."
 }

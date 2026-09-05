@@ -810,5 +810,7 @@
   "talkErrorCredits": "Krediit sai otsa.",
   "talkErrorGeneric": "Midagi läks valesti. Alusta vestlust uuesti.",
   "talkCreditsUsed": "Kasutatud",
-  "talkCreditsLeft": "Jäänud"
+  "talkCreditsLeft": "Jäänud",
+  "noisyEnv": "Mürarikas keskkond",
+  "noisyEnvHint": "Filtreerib taustamüra, näiteks liiklust või rahvahulka. Lülita välja, kui hääl kõlab katkendlikult."
 }

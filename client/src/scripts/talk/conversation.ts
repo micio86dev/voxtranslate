@@ -9,6 +9,7 @@
 // `webinar-presence.ts` — explicitly not the fixed 2 s retry in `app.ts`, which
 // thunders when a server restarts.
 
+import { buildAudioConstraints } from '../mic-constraints';
 import { buildWsUrl, getToken } from '../auth';
 import { pcmPlayback } from '../pcm-playback';
 import { PcmCapture } from '../pcm-capture';
@@ -109,14 +110,16 @@ export interface ConversationOptions extends ConversationCallbacks {
  * a downmix we do not control.
  */
 export const MIC_CONSTRAINTS: MediaStreamConstraints = {
-  audio: {
-    channelCount: 1,
-    echoCancellation: true,
-    noiseSuppression: true,
-    autoGainControl: true,
-  },
+  audio: buildAudioConstraints(),
   video: false,
 };
+
+/** Constraints resolved at call time, so the noisy-environment toggle is picked up on
+ *  the NEXT conversation rather than only after a page reload. `MIC_CONSTRAINTS` stays
+ *  exported for callers (and tests) that want the shape without the live preference. */
+export function micConstraints(): MediaStreamConstraints {
+  return { audio: buildAudioConstraints(), video: false };
+}
 
 /** Map a getUserMedia rejection onto the copy the user should actually see. */
 export function classifyMediaError(err: unknown): FailureKind {
@@ -236,7 +239,7 @@ export class TalkConversation {
       this.opts.getMedia ??
       ((c: MediaStreamConstraints) => navigator.mediaDevices.getUserMedia(c));
     try {
-      this.stream = await getMedia(MIC_CONSTRAINTS);
+      this.stream = await getMedia(micConstraints());
     } catch (err) {
       this.dispatch({ type: 'MIC_DENIED', kind: classifyMediaError(err) });
       return;

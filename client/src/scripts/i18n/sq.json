@@ -810,5 +810,7 @@
   "talkErrorCredits": "Të mbaruan kreditet.",
   "talkErrorGeneric": "Diçka shkoi keq. Fillo bisedën nga e para.",
   "talkCreditsUsed": "Përdorur",
-  "talkCreditsLeft": "Mbetur"
+  "talkCreditsLeft": "Mbetur",
+  "noisyEnv": "Mjedis i zhurmshëm",
+  "noisyEnvHint": "Filtron zhurmën e sfondit si trafiku ose turma. Çaktivizoje nëse zëri yt dëgjohet i prerë."
 }

@@ -810,5 +810,7 @@
   "talkErrorCredits": "Amakhredithi akho aphelile.",
   "talkErrorGeneric": "Kukhona okungahambanga kahle. Qala ingxoxo kabusha.",
   "talkCreditsUsed": "Kusetshenzisiwe",
-  "talkCreditsLeft": "Okusele"
+  "talkCreditsLeft": "Okusele",
+  "noisyEnv": "Indawo enomsindo",
+  "noisyEnvHint": "Ihlunga umsindo wangemuva njengethrafikhi noma isixuku. Vala uma izwi lakho lizwakala linqamukile."
 }

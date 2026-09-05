@@ -810,5 +810,7 @@
   "talkErrorCredits": "Kredit gị agwụla.",
   "talkErrorGeneric": "Ihe adịghị mma mere. Malite mkparịta ụka ahụ ọzọ.",
   "talkCreditsUsed": "Ejiri",
-  "talkCreditsLeft": "Fọdụrụ"
+  "talkCreditsLeft": "Fọdụrụ",
+  "noisyEnv": "Gburugburu na-eme mkpọtụ",
+  "noisyEnvHint": "Ọ na-ezochapụ mkpọtụ azụ dị ka okporo ụzọ ma ọ bụ ìgwè mmadụ. Gbanyụọ ma ọ bụrụ na olu gị na-abipụ."
 }

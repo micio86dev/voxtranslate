@@ -810,5 +810,7 @@
   "talkErrorCredits": "Inneignin þín er búin.",
   "talkErrorGeneric": "Eitthvað fór úrskeiðis. Byrjaðu samtalið upp á nýtt.",
   "talkCreditsUsed": "Notað",
-  "talkCreditsLeft": "Eftir"
+  "talkCreditsLeft": "Eftir",
+  "noisyEnv": "Hávaðasamt umhverfi",
+  "noisyEnvHint": "Síar bakgrunnshljóð eins og umferð eða mannfjölda. Slökktu ef röddin hljómar slitrótt."
 }

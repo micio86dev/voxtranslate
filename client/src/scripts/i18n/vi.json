@@ -810,5 +810,7 @@
   "talkErrorCredits": "Bạn đã hết tín dụng.",
   "talkErrorGeneric": "Đã xảy ra lỗi. Hãy bắt đầu lại cuộc trò chuyện.",
   "talkCreditsUsed": "Đã dùng",
-  "talkCreditsLeft": "Còn lại"
+  "talkCreditsLeft": "Còn lại",
+  "noisyEnv": "Môi trường ồn ào",
+  "noisyEnvHint": "Lọc tiếng ồn nền như xe cộ hoặc đám đông. Tắt nếu giọng bạn nghe bị ngắt quãng."
 }

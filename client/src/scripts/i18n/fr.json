@@ -810,5 +810,7 @@
   "talkErrorCredits": "Vous n'avez plus de crédits.",
   "talkErrorGeneric": "Un problème est survenu. Relancez la conversation.",
   "talkCreditsUsed": "Utilisés",
-  "talkCreditsLeft": "Restants"
+  "talkCreditsLeft": "Restants",
+  "noisyEnv": "Environnement bruyant",
+  "noisyEnvHint": "Filtre les bruits de fond comme la circulation ou la foule. Désactivez si votre voix semble coupée."
 }

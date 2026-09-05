@@ -810,5 +810,7 @@
   "talkErrorCredits": "你嘅點數用晒喇。",
   "talkErrorGeneric": "出咗啲問題。請重新開始對話。",
   "talkCreditsUsed": "用咗",
-  "talkCreditsLeft": "剩返"
+  "talkCreditsLeft": "剩返",
+  "noisyEnv": "嘈吵環境",
+  "noisyEnvHint": "隔走交通或者人多嘅背景雜音。如果把聲聽落斷斷續續，就熄咗佢。"
 }
