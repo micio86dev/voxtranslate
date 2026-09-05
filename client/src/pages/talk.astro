@@ -107,6 +107,17 @@ const T = (k: string): string => (en as Record<string, string>)[k] ?? '';
           <p id="tk-tier-note" class="tier-note" hidden></p>
         </div>
 
+        <!-- Talk to Anyone is the surface most used outdoors, so the noisy-environment
+             toggle belongs here and not only in the meet pre-join. Same stored
+             preference (`vox.noisyEnv`) as the call and webinar checkboxes. -->
+        <label class="field-check tk-noisy">
+          <input type="checkbox" id="tk-noisy-env" />
+          <span>
+            <span data-i18n="noisyEnv">{T('noisyEnv')}</span>
+            <small class="field-hint" data-i18n="noisyEnvHint">{T('noisyEnvHint')}</small>
+          </span>
+        </label>
+
         <button id="tk-start" class="btn-primary tk-start" type="button" disabled data-i18n="talkStart">
           {T('talkStart')}
         </button>
@@ -250,6 +261,12 @@ const T = (k: string): string => (en as Record<string, string>)[k] ?? '';
       font-size: var(--font-base);
       font-weight: var(--font-weight-semibold);
     }
+    /* Mirrors the .field-check rules in index.astro — this page has its own scoped
+       styles, so the class has to be defined here too. */
+    .field-check { display: flex; align-items: flex-start; gap: 9px; text-align: start; font-size: 0.88rem; color: var(--text); cursor: pointer; }
+    .field-check input { width: auto; margin-top: 2px; flex: none; }
+    .field-check .field-hint { display: block; color: var(--muted); font-size: 0.78rem; margin-top: 2px; }
+    .tk-noisy { margin: 4px 0 2px; }
     .tk-start {
       width: 100%;
     }

@@ -9,7 +9,8 @@
 // `webinar-presence.ts` — explicitly not the fixed 2 s retry in `app.ts`, which
 // thunders when a server restarts.
 
-import { buildAudioConstraints } from '../mic-constraints';
+import { createDenoiser, type Denoiser } from '../denoise';
+import { buildAudioConstraints, loadNoisyEnv } from '../mic-constraints';
 import { buildWsUrl, getToken } from '../auth';
 import { pcmPlayback } from '../pcm-playback';
 import { PcmCapture } from '../pcm-capture';
@@ -95,6 +96,8 @@ export interface ConversationOptions extends ConversationCallbacks {
   // --- injectable seams, all defaulted -------------------------------------
   createSocket?: (url: string) => TalkSocket;
   getMedia?: (constraints: MediaStreamConstraints) => Promise<MediaStream>;
+  /** Injectable RNNoise stage; defaults to the real one. Tests pass a stub. */
+  makeDenoiser?: (stream: MediaStream) => Promise<Denoiser>;
   now?: () => number;
   random?: () => number;
   setTimeoutImpl?: typeof setTimeout;
@@ -175,6 +178,10 @@ export class TalkConversation {
   private ctx: SessionContext = initialContext();
   private socket: TalkSocket | null = null;
   private stream: MediaStream | null = null;
+  /** The RAW device stream, when RNNoise is inserted in front of it. Stopping the
+   *  denoised tracks does not release the microphone — that handle lives here. */
+  private rawStream: MediaStream | null = null;
+  private denoiser: Denoiser | null = null;
   private capture: Capture | null = null;
   private guard: SelfAudioGuard;
   private stopLevelMonitor: (() => void) | null = null;
@@ -238,11 +245,24 @@ export class TalkConversation {
     const getMedia =
       this.opts.getMedia ??
       ((c: MediaStreamConstraints) => navigator.mediaDevices.getUserMedia(c));
+    let raw: MediaStream;
     try {
-      this.stream = await getMedia(micConstraints());
+      raw = await getMedia(micConstraints());
     } catch (err) {
       this.dispatch({ type: 'MIC_DENIED', kind: classifyMediaError(err) });
       return;
+    }
+    // Noisy-environment mode turned the BROWSER filter off in `micConstraints()`, so
+    // RNNoise has to take its place here. Without this the toggle would leave the
+    // microphone completely unfiltered — worse than either setting on its own, and
+    // worst of all on the surface most used outdoors.
+    this.rawStream = raw;
+    if (loadNoisyEnv()) {
+      const make = this.opts.makeDenoiser ?? ((st: MediaStream) => createDenoiser(st));
+      this.denoiser = await make(raw);
+      this.stream = this.denoiser.stream;
+    } else {
+      this.stream = raw;
     }
     // The user may have hit End while the permission prompt was up.
     if (this.ctx.phase !== 'requesting_mic') {
@@ -604,6 +624,12 @@ export class TalkConversation {
 
   private releaseStream(): void {
     this.stream?.getTracks().forEach((t) => t.stop());
+    // The denoised tracks come out of an AudioContext; stopping them leaves the device
+    // open. Release the raw stream too, and close the graph behind it.
+    this.rawStream?.getTracks().forEach((t) => t.stop());
+    this.rawStream = null;
+    void this.denoiser?.stop();
+    this.denoiser = null;
     this.stream = null;
   }
 

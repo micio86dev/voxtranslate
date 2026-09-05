@@ -5,6 +5,7 @@
 // logic and no audio logic — those live in `conversation.ts` and are tested without a
 // browser.
 
+import { loadNoisyEnv, saveNoisyEnv } from '../mic-constraints';
 import { initAnalytics, track } from '../analytics';
 import { HTTP_BASE, getUser, isLoggedIn, refreshMe, setBalance } from '../auth';
 import {
@@ -364,6 +365,16 @@ export function mountTalk(): void {
   if (start$ && !isLoggedIn()) {
     const status = $('tk-setup-status');
     if (status) status.textContent = t('talkSignInRequired');
+  }
+
+  // Noisy-environment toggle. One preference shared with the call and webinar
+  // checkboxes — it describes where the user is standing, not which surface they opened.
+  // Read at `start()`, so flipping it applies to the NEXT conversation; a live one keeps
+  // the microphone it was granted.
+  const noisy$ = $('tk-noisy-env') as HTMLInputElement | null;
+  if (noisy$) {
+    noisy$.checked = loadNoisyEnv();
+    noisy$.addEventListener('change', () => saveNoisyEnv(noisy$.checked));
   }
 
   $('tk-lang-trigger')?.addEventListener('click', () => {
