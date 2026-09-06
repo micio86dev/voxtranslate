@@ -16,6 +16,9 @@ const API_BASE: &str = "https://www.googleapis.com/calendar/v3";
 pub struct EventInput {
     pub summary: String,
     pub description: Option<String>,
+    /// Event location. We put the room join URL here so Calendar renders it as a
+    /// clickable link on the event itself, not only buried in the description.
+    pub location: Option<String>,
     pub start_rfc3339: String,
     pub end_rfc3339: String,
     pub timezone: String,
@@ -51,6 +54,8 @@ struct EventBody {
     summary: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    location: Option<String>,
     start: EventTime,
     end: EventTime,
     attendees: Vec<Attendee>,
@@ -68,11 +73,21 @@ pub struct CalendarEvent {
     pub html_link: Option<String>,
 }
 
+/// Build an event description that always carries the room join link. An empty or
+/// whitespace-only description yields the bare join line, so the link is never lost.
+pub fn description_with_join_link(description: Option<&str>, join_url: &str) -> String {
+    match description.map(str::trim).filter(|d| !d.is_empty()) {
+        Some(d) => format!("{d}\n\nJoin: {join_url}"),
+        None => format!("Join: {join_url}"),
+    }
+}
+
 impl EventInput {
     fn to_body(&self) -> EventBody {
         EventBody {
             summary: self.summary.clone(),
             description: self.description.clone(),
+            location: self.location.clone(),
             start: EventTime {
                 date_time: self.start_rfc3339.clone(),
                 time_zone: self.timezone.clone(),
@@ -227,4 +242,52 @@ pub async fn list_events(
     }
     let list: EventsList = serde_json::from_str(&body).map_err(|e| e.to_string())?;
     Ok(list.items)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn input() -> EventInput {
+        EventInput {
+            summary: "Sync".into(),
+            description: None,
+            location: None,
+            start_rfc3339: "2026-01-01T10:00:00Z".into(),
+            end_rfc3339: "2026-01-01T10:30:00Z".into(),
+            timezone: "UTC".into(),
+            attendee_emails: vec![],
+            private_props: HashMap::new(),
+            recurrence: None,
+        }
+    }
+
+    #[test]
+    fn join_link_is_appended_to_an_existing_description() {
+        let out = description_with_join_link(Some("Agenda: roadmap"), "https://vox.app/?room=abc");
+        assert_eq!(out, "Agenda: roadmap\n\nJoin: https://vox.app/?room=abc");
+    }
+
+    #[test]
+    fn join_link_stands_alone_when_there_is_no_description() {
+        assert_eq!(
+            description_with_join_link(None, "https://vox.app/?room=abc"),
+            "Join: https://vox.app/?room=abc"
+        );
+        assert_eq!(
+            description_with_join_link(Some("   \n "), "https://vox.app/?room=abc"),
+            "Join: https://vox.app/?room=abc"
+        );
+    }
+
+    #[test]
+    fn location_is_serialized_when_set_and_omitted_when_not() {
+        let body = serde_json::to_value(input().to_body()).unwrap();
+        assert!(body.get("location").is_none());
+
+        let mut with_location = input();
+        with_location.location = Some("https://vox.app/?room=abc".into());
+        let body = serde_json::to_value(with_location.to_body()).unwrap();
+        assert_eq!(body["location"], "https://vox.app/?room=abc");
+    }
 }

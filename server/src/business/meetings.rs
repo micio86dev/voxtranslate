@@ -315,7 +315,11 @@ pub async fn create(
         "primary",
         &EventInput {
             summary: title.clone(),
-            description: body.description.clone(),
+            description: Some(google_calendar::description_with_join_link(
+                body.description.as_deref(),
+                &join_url,
+            )),
+            location: Some(join_url.clone()),
             start_rfc3339: body.scheduled_at.to_rfc3339(),
             end_rfc3339: end_at.to_rfc3339(),
             timezone: timezone.clone(),
@@ -559,7 +563,11 @@ pub async fn update(
             &event_id,
             &EventInput {
                 summary: title.clone(),
-                description: body.description.clone(),
+                description: Some(google_calendar::description_with_join_link(
+                    body.description.as_deref(),
+                    &existing.meeting.join_url,
+                )),
+                location: Some(existing.meeting.join_url.clone()),
                 start_rfc3339: body.scheduled_at.to_rfc3339(),
                 end_rfc3339: end_at.to_rfc3339(),
                 timezone: timezone.clone(),
