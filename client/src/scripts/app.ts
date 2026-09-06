@@ -1508,10 +1508,6 @@ let pendingInviteRoom = parseRoomParam(location.search);
 // reuses the home create flow rather than shipping a second one. Read at load,
 // consumed once in enterHome.
 let pendingPublicIntent = new URLSearchParams(location.search).has('public');
-// `&from=world` marks a join link built by public discovery, as opposed to a private
-// invite (spec 0082) that a guest is welcome to walk straight into. Read at load, before
-// any client-side navigation rewrites the URL.
-const pendingFromWorld = new URLSearchParams(location.search).get('from') === 'world';
 // Entry URL captured at load (before any client-side nav) so join analytics can tell how the
 // user arrived: `&src=meeting` (scheduled), `?room=` (shared invite link), or direct.
 const entrySearch = location.search;
@@ -4710,24 +4706,16 @@ function enterHome(): void {
   // Invite deep-link (spec 0082): the FIRST time we reach home carrying an invite
   // code, go straight to the pre-join preview. Consumed once, so leaving a call back
   // to home — or a guest who had to sign in first — doesn't loop back into pre-join.
-  // Private by default: a guest can join a private invited room, and the server's
-  // canonical visibility (RoomJoined.public) corrects the label on join.
+  // Private by default: a guest can join a private invited room OR a live public one
+  // browsed from /world, and the server's canonical visibility (RoomJoined.public)
+  // corrects the label on join. Public discovery is walk-in — seeing real conversations
+  // is what makes someone sign up, so the guest reaches pre-join like anyone else and
+  // is capped by GUEST_MAX_MINUTES. OPENING a public room still needs an account, which
+  // `enterBtn` and the visibility toggle gate; the server is the enforcement.
   if (pendingInviteRoom) {
     const room = pendingInviteRoom;
     pendingInviteRoom = null;
-    // A room reached from public discovery is the one deep link a guest must not walk
-    // straight through. Browsing /world is the whole point — seeing real conversations is
-    // what makes someone sign up — but joining a PUBLIC room needs an account (spec 0022),
-    // and this path skipped the gate that `enterBtn` applies, dropping a guest into
-    // pre-join and then into a room where they burn GUEST_MAX_MINUTES of paid translation
-    // with no account and no charge. The room code stays in the field, so signing in
-    // leaves them one tap from where they were going.
-    if (pendingFromWorld && billing && !auth.isLoggedIn()) {
-      roomInput.value = room;
-      openSigninGate();
-    } else {
-      void goPrejoin(room, false);
-    }
+    void goPrejoin(room, false);
   } else {
     // First-visit home wizard — skipped while the blocking 18+/ToS consent gate is up (the
     // consent-accept handler re-runs this once it closes) or when home isn't the visible screen.
