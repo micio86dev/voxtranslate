@@ -233,10 +233,19 @@ async fn relay_loop(
     let start = Instant::now();
     let mut total_credits: i32 = 0;
 
-    let credits_per_tick =
-        credits::voice_assistant_minute_credits(&deps.config) * (TICK_SECS as i32) / 60;
-    // At minimum 1 credit per tick to avoid charging 0 due to integer truncation.
-    let credits_per_tick = credits_per_tick.max(1);
+    // Bill the real price per tick, carrying the sub-credit remainder.
+    //
+    // This used to be `ceil_minute_credits * TICK_SECS / 60` in INTEGER
+    // arithmetic, floored at 1 to stop it reaching zero — which treated the
+    // symptom. The truncation threw away the ceiling and then some: a 10s tick
+    // charged `38 * 10 / 60 = 6` credits, i.e. 36 a minute against the 37.5 the
+    // session costs. Neither rounding a whole minute up nor truncating a tick
+    // down is right — accumulate and hand over whole credits as they accrue
+    // (see `CreditAccumulator`).
+    let usd_per_tick = credits::minute_price_usd(deps.config.cost_per_minute, deps.config.markup)
+        * rust_decimal::Decimal::from(TICK_SECS)
+        / rust_decimal::Decimal::from(60u64);
+    let mut credit_meter = credits::CreditAccumulator::default();
 
     let mut tick = interval(Duration::from_secs(TICK_SECS));
     tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
@@ -348,6 +357,10 @@ async fn relay_loop(
             // ---- Credit tick ------------------------------------------------
             _ = tick.tick() => {
                 let elapsed_s = start.elapsed().as_secs();
+                let credits_per_tick = credit_meter.take(usd_per_tick);
+                if credits_per_tick == 0 {
+                    continue; // still under a cent; it rolls into the next tick
+                }
                 total_credits += credits_per_tick;
 
                 // Deduct from org pool.
