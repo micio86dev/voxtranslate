@@ -2007,10 +2007,7 @@ pub async fn add_to_calendar(
     };
     let end = w.scheduled_end.unwrap_or(start + ChronoDuration::hours(1));
     let join = join_url(&state.config.app_base_url, &w.code);
-    let description = match w.description.as_deref() {
-        Some(d) if !d.trim().is_empty() => format!("{d}\n\nJoin: {join}"),
-        _ => format!("Join: {join}"),
-    };
+    let description = google_calendar::description_with_join_link(w.description.as_deref(), &join);
 
     let access = google_oauth::valid_access_token(&state, user.user_id)
         .await
@@ -2022,6 +2019,7 @@ pub async fn add_to_calendar(
     let input = EventInput {
         summary: w.title.clone(),
         description: Some(description),
+        location: Some(join.clone()),
         start_rfc3339: start.to_rfc3339(),
         end_rfc3339: end.to_rfc3339(),
         timezone: "UTC".to_string(),
