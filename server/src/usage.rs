@@ -46,6 +46,24 @@ pub enum MeterScope {
     Listener { listener_id: String },
 }
 
+/// Who a metered tick is charged to.
+///
+/// Two ledgers that never mix: a person's balance is `DECIMAL` USD, an
+/// organization's pool is `INTEGER` credits at 100 = $1. The tick computes one
+/// cost either way; only the account it lands on differs.
+#[derive(Clone)]
+pub enum Payer {
+    /// The participant themselves, against their own USD balance.
+    User { user_id: Uuid, session_id: Uuid },
+    /// The organization sponsoring this room, against its credit pool. Nobody
+    /// in the room is charged — a B2B host pays for everyone they invited,
+    /// guests included, which is exactly why those guests have no time cap.
+    Org {
+        org_id: Uuid,
+        session_id: Option<Uuid>,
+    },
+}
+
 /// Per-session metering parameters.
 #[derive(Clone)]
 pub struct MeterConfig {
@@ -81,12 +99,30 @@ pub fn billable_streams(
     Some(if scale_per_language { distinct } else { 1 })
 }
 
-/// Charge a billed user for one speaking session. Runs until `cancel` resolves
-/// (Stop / disconnect) or credits run out.
+/// The cumulative speaking cap that applies to this peer, in seconds.
+///
+/// The cap exists so anonymous use cannot run up an unbounded bill that nobody
+/// owns. Two things therefore lift it, for the same reason: being signed in (the
+/// bill has an owner), or being in a room an organization is sponsoring (the
+/// customer booked the meeting, invited these people, and is paying for them —
+/// capping their guests would be capping the customer's own meeting).
+pub fn guest_cap_secs(
+    guest_max_minutes: Option<u64>,
+    is_guest: bool,
+    sponsored: bool,
+) -> Option<u64> {
+    if !is_guest || sponsored {
+        return None;
+    }
+    guest_max_minutes.map(|m| m.saturating_mul(60))
+}
+
+/// Charge whoever is paying for one session. Runs until `cancel` resolves
+/// (Stop / disconnect) or the account runs out.
+#[allow(clippy::too_many_arguments)] // cohesive per-session metering context
 pub async fn run_usage_meter(
     billing: BillingService,
-    user_id: Uuid,
-    session_id: Uuid,
+    payer: Payer,
     cfg: MeterConfig,
     out_tx: PeerTx,
     exhaust_tx: UnboundedSender<()>,
@@ -96,6 +132,8 @@ pub async fn run_usage_meter(
     let mut ticker = tokio::time::interval(Duration::from_secs(interval));
     ticker.tick().await; // consume the immediate first tick (charge in arrears)
     let mut warned_low = false;
+    // Org billing only: the sub-cent tail between ticks. See `CreditAccumulator`.
+    let mut org_credits = crate::business::credits::CreditAccumulator::default();
 
     loop {
         tokio::select! {
@@ -135,27 +173,69 @@ pub async fn run_usage_meter(
                     None => 1,
                 };
                 let amount = usd(cfg.rate_per_second * interval as f64 * streams as f64);
-                match billing
-                    .deduct_usage(user_id, Some(session_id), interval as i32, amount)
-                    .await
-                {
-                    Ok(balance) => {
-                        let bal = balance.to_f64().unwrap_or(0.0);
-                        let _ = out_tx.send(ServerMessage::BalanceUpdate { balance: bal }.to_json());
-                        if !warned_low && bal < cfg.low_balance_threshold {
-                            warned_low = true;
-                            let _ = out_tx
-                                .send(ServerMessage::LowBalance { balance: bal }.to_json());
+                match &payer {
+                    Payer::User {
+                        user_id,
+                        session_id,
+                    } => match billing
+                        .deduct_usage(*user_id, Some(*session_id), interval as i32, amount)
+                        .await
+                    {
+                        Ok(balance) => {
+                            let bal = balance.to_f64().unwrap_or(0.0);
+                            let _ =
+                                out_tx.send(ServerMessage::BalanceUpdate { balance: bal }.to_json());
+                            if !warned_low && bal < cfg.low_balance_threshold {
+                                warned_low = true;
+                                let _ =
+                                    out_tx.send(ServerMessage::LowBalance { balance: bal }.to_json());
+                            }
                         }
-                    }
-                    Err(BillingError::InsufficientFunds) => {
-                        let _ = out_tx.send(ServerMessage::BalanceExhausted.to_json());
-                        let _ = exhaust_tx.send(());
-                        break;
-                    }
-                    Err(e) => {
-                        tracing::error!("usage deduct failed: {e}");
-                        break;
+                        Err(BillingError::InsufficientFunds) => {
+                            let _ = out_tx.send(ServerMessage::BalanceExhausted.to_json());
+                            let _ = exhaust_tx.send(());
+                            break;
+                        }
+                        Err(e) => {
+                            tracing::error!("usage deduct failed: {e}");
+                            break;
+                        }
+                    },
+                    // Sponsored room: the org pays. The participant gets no
+                    // balance push — it is not their money and not their number
+                    // to act on — but the audio still has to stop if the pool
+                    // empties, so exhaustion is signalled the same way.
+                    Payer::Org {
+                        org_id,
+                        session_id,
+                    } => {
+                        let credits = org_credits.take(amount);
+                        if credits == 0 {
+                            continue; // still under a cent; charge it next tick
+                        }
+                        match crate::business::credits::deduct_org_credits(
+                            billing.pool(),
+                            *org_id,
+                            credits,
+                            "call_translation",
+                            *session_id,
+                            None,
+                            "Sponsored call translation",
+                        )
+                        .await
+                        {
+                            Ok(crate::business::credits::OrgCharge::Charged { .. }) => {}
+                            Ok(crate::business::credits::OrgCharge::Insufficient { .. }) => {
+                                tracing::info!(%org_id, "sponsored room: org credits exhausted");
+                                let _ = out_tx.send(ServerMessage::BalanceExhausted.to_json());
+                                let _ = exhaust_tx.send(());
+                                break;
+                            }
+                            Err(e) => {
+                                tracing::error!("org usage deduct failed: {e}");
+                                break;
+                            }
+                        }
                     }
                 }
             }
@@ -235,6 +315,128 @@ mod tests {
         assert!(spent.load(Ordering::SeqCst) >= 2);
     }
 
+    #[test]
+    fn only_an_unsponsored_guest_is_capped() {
+        // A guest in an ordinary room: capped, because nobody owns their bill.
+        assert_eq!(guest_cap_secs(Some(10), true, false), Some(600));
+        // The same guest in a room a B2B customer is paying for: no cap. Capping
+        // them would be capping the customer's own meeting.
+        assert_eq!(guest_cap_secs(Some(10), true, true), None);
+        // Signed-in users are never capped — they are billed instead.
+        assert_eq!(guest_cap_secs(Some(10), false, false), None);
+        assert_eq!(guest_cap_secs(Some(10), false, true), None);
+        // No cap configured means no cap, sponsored or not.
+        assert_eq!(guest_cap_secs(None, true, false), None);
+    }
+
+    /// DB-gated: a SPONSORED room charges the organization, not the participant,
+    /// and nobody in the room is told a balance — it is not their money. When the
+    /// pool runs dry the audio still has to stop, so exhaustion is signalled the
+    /// same way it is for a person.
+    #[tokio::test]
+    async fn org_sponsored_meter_charges_the_pool_and_stops_when_it_empties() {
+        use rust_decimal::Decimal;
+        let Ok(url) = std::env::var("DATABASE_URL") else {
+            eprintln!("skipping — no DATABASE_URL");
+            return;
+        };
+        let pool = crate::db::connect(&url).await.unwrap();
+        crate::db::migrate(&pool).await.unwrap();
+        let svc = BillingService::new(pool.clone(), Decimal::ZERO);
+
+        let owner: Uuid = sqlx::query_scalar(
+            "INSERT INTO users (google_id, email, name, balance)
+             VALUES ($1, $2, 'O', 0) RETURNING id",
+        )
+        .bind(format!("g-{}", Uuid::new_v4()))
+        .bind(format!("{}@x.com", Uuid::new_v4()))
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        // 3 credits = $0.03 in the pool.
+        let org: Uuid = sqlx::query_scalar(
+            "INSERT INTO organizations (name, slug, owner_id, credits_balance)
+             VALUES ('Sponsor Co', $1, $2, 3) RETURNING id",
+        )
+        .bind(format!("spon-{}", Uuid::new_v4().simple()))
+        .bind(owner)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        let (out_tx, mut out_rx, _out_overflow) = PeerTx::channel(crate::rooms::OUT_CHANNEL_CAP);
+        let (exhaust_tx, mut exhaust_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (_cancel_tx, cancel_rx) = oneshot::channel();
+        let cfg = MeterConfig {
+            interval_secs: 1,
+            // $0.02 per 1s tick = 2 credits: the 3-credit pool covers one tick,
+            // then cannot cover the next.
+            rate_per_second: 0.02,
+            low_balance_threshold: 1.0,
+            rooms: None,
+            room: String::new(),
+            scope: MeterScope::Speaker {
+                speaker_id: String::new(),
+                speaker_lang: String::new(),
+                scale_by_target_count: false,
+            },
+        };
+
+        tokio::time::timeout(
+            Duration::from_secs(10),
+            run_usage_meter(
+                svc,
+                Payer::Org {
+                    org_id: org,
+                    session_id: None,
+                },
+                cfg,
+                out_tx,
+                exhaust_tx,
+                cancel_rx,
+            ),
+        )
+        .await
+        .expect("meter finishes when the pool empties");
+
+        let mut msgs = Vec::new();
+        while let Ok(m) = out_rx.try_recv() {
+            msgs.push(m);
+        }
+        assert!(
+            !msgs.iter().any(|m| m.contains("balance_update")),
+            "a participant in a sponsored room is never shown the org's balance"
+        );
+        assert!(
+            msgs.iter().any(|m| m.contains("balance_exhausted")),
+            "the audio still has to stop when the sponsor runs out"
+        );
+        assert!(exhaust_rx.try_recv().is_ok(), "exhaust signalled");
+
+        let left: i32 =
+            sqlx::query_scalar("SELECT credits_balance FROM organizations WHERE id = $1")
+                .bind(org)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(left, 1, "one 2-credit tick charged, the second refused");
+
+        // The charge lands on the ORG ledger under its own type, so a sponsored
+        // call is distinguishable from a recording or a transcript on the invoice.
+        let rows: Vec<(String, i32)> = sqlx::query_as(
+            "SELECT type, amount FROM organization_credits_transactions WHERE org_id = $1",
+        )
+        .bind(org)
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            rows,
+            vec![("call_translation".to_string(), -2)],
+            "one signed ledger row for the one tick that was affordable"
+        );
+    }
+
     /// DB-gated: a billed meter deducts each interval, pushes `balance_update`,
     /// warns once with `low_balance`, and finally `balance_exhausted` + signals.
     /// Uses real 1s intervals (≈3s) with an aggressive rate so the balance drains
@@ -281,7 +483,17 @@ mod tests {
 
         tokio::time::timeout(
             Duration::from_secs(10),
-            run_usage_meter(svc, uid, sid, cfg, out_tx, exhaust_tx, cancel_rx),
+            run_usage_meter(
+                svc,
+                Payer::User {
+                    user_id: uid,
+                    session_id: sid,
+                },
+                cfg,
+                out_tx,
+                exhaust_tx,
+                cancel_rx,
+            ),
         )
         .await
         .expect("meter finishes on exhaust");
@@ -404,7 +616,15 @@ mod tests {
             },
         };
         let h = tokio::spawn(run_usage_meter(
-            svc, uid, sid, cfg, out_tx, exhaust_tx, cancel_rx,
+            svc,
+            Payer::User {
+                user_id: uid,
+                session_id: sid,
+            },
+            cfg,
+            out_tx,
+            exhaust_tx,
+            cancel_rx,
         ));
 
         // One it source speaking for ~1 tick → ~0.10. Let the second speaker join in.

@@ -448,8 +448,10 @@ async fn handle_talk_session(socket: WebSocket, params: TalkParams, state: AppSt
         };
         tokio::spawn(run_usage_meter(
             svc.clone(),
-            authed.user_id,
-            sid,
+            crate::usage::Payer::User {
+                user_id: authed.user_id,
+                session_id: sid,
+            },
             meter_cfg,
             out_tx.clone(),
             exhaust_tx.clone(),
