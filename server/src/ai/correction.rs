@@ -105,21 +105,32 @@ struct Line {
 }
 
 /// System prompt: a strict editor that fixes errors using the dialogue context
-/// and speaker names, never translating or rephrasing. The transcript lines
-/// arrive as data (JSON); the context is reference, not an instruction.
+/// and the names that occur in it, never translating or rephrasing. The transcript
+/// lines arrive as data (JSON); the context is reference, not an instruction.
+///
+/// Privacy note. Lines carry a pseudonymous `speaker` label ("Speaker 1"), never the
+/// participant's name: the attribution — WHO said WHAT — is the part worth protecting,
+/// and the model does not need an identity to use the dialogue's turn structure.
+///
+/// `names` is a different thing and is deliberately kept: it is the spelling reference
+/// for names that occur INSIDE the speech ("ciao Alessandro" misheard as "Alessandra"),
+/// which is one of the errors this pass exists to fix. Those names are already present
+/// in the transcript text itself, so withholding the list would degrade the correction
+/// without actually removing anything from the payload.
 fn correction_prompt(context: &str, names: &str) -> String {
     format!(
         "You are a meticulous transcript editor. You receive meeting-transcript lines as a \
          JSON object {{\"lines\":[{{\"i\":<int>,\"speaker\":<name>,\"lang\":<code>,\"text\":<string>}}]}}. \
          Correct each line's `text`: fix speech-to-text and translation errors — misheard or \
          wrong words, missing or wrong punctuation and capitalization, obvious typos, and \
-         inconsistent spelling of names — using the DIALOGUE CONTEXT and SPEAKER NAMES below to \
-         disambiguate. Do NOT translate, rephrase, summarize, censor, add, or remove content, and \
+         inconsistent spelling of names — using the DIALOGUE CONTEXT and the NAMES OCCURRING \
+         below to disambiguate. `speaker` is an opaque label that only distinguishes who is \
+         talking; do not treat it as anyone's name and never write it into the corrected text. Do NOT translate, rephrase, summarize, censor, add, or remove content, and \
          do NOT change the meaning, tone, or language of any line — only fix errors. Keep every \
          line in its own original language. If a line is already correct, return it unchanged. \
          Respond with a single JSON object {{\"lines\":[{{\"i\":<the same i>,\"text\":<corrected text>}}]}} \
          containing exactly the input lines, same `i` values.\n\n\
-         SPEAKER NAMES: {names}\n\n\
+         NAMES OCCURRING IN THE DIALOGUE (spelling reference): {names}\n\n\
          DIALOGUE CONTEXT (for reference only — do not correct or echo this):\n{context}"
     )
 }
@@ -254,6 +265,11 @@ pub async fn generate_correction(
 ) -> Result<(Vec<CorrectedLine>, String), String> {
     let context = condense_transcript(groq, ai, transcript_to_text(export)).await?;
     let names = participant_names(export);
+    // Pseudonymises the per-line attribution; see `correction_prompt` for why the name
+    // LIST stays while the per-line `speaker` does not.
+    let aliases = crate::ai::pseudonym::SpeakerAliases::from_names(
+        export.events.iter().map(|e| e.speaker_name.clone()),
+    );
     let system = correction_prompt(&context, &names);
 
     let mut model = ai.report_model.clone();
@@ -267,7 +283,7 @@ pub async fn generate_correction(
             .filter(|(_, e)| !e.original.trim().is_empty())
             .map(|(i, e)| Line {
                 i,
-                speaker: e.speaker_name.clone(),
+                speaker: aliases.alias(&e.speaker_name).to_string(),
                 lang: e.lang.clone(),
                 text: e.original.clone(),
             })
@@ -296,7 +312,7 @@ pub async fn generate_correction(
                     .filter(|t| !t.trim().is_empty())
                     .map(|t| Line {
                         i,
-                        speaker: e.speaker_name.clone(),
+                        speaker: aliases.alias(&e.speaker_name).to_string(),
                         lang: lang.to_string(),
                         text: t.clone(),
                     })
