@@ -265,6 +265,33 @@ async fn validate_project(pool: &Pool, org_id: Uuid, project_id: Uuid) -> Result
     Ok(())
 }
 
+/// The organization paying for a room, if any.
+///
+/// A room opened for a B2B meeting is sponsored by the org that scheduled it:
+/// the org pool covers every participant's translation, guests included. This is
+/// the ONLY link between a live room and an organization — `rooms.rs` holds
+/// nothing but visibility and peers, so the call path resolves it here, once per
+/// join, off `scheduled_meetings`.
+///
+/// Only a `scheduled` meeting sponsors: a cancelled one must not keep spending
+/// the customer's credits if someone dials its old code. A room code is expected
+/// to be unique, but `LIMIT 1` keeps a stray duplicate from failing the join —
+/// billing to one of two orgs beats dropping the call.
+pub async fn sponsoring_org(
+    pool: &crate::db::Pool,
+    room_code: &str,
+) -> Result<Option<Uuid>, sqlx::Error> {
+    sqlx::query_scalar(
+        "SELECT org_id FROM scheduled_meetings
+         WHERE room_code = $1 AND org_id IS NOT NULL AND status = 'scheduled'
+         LIMIT 1",
+    )
+    .bind(room_code)
+    .fetch_optional(pool)
+    .await
+    .map(Option::flatten)
+}
+
 /// `POST /api/business/organizations/{org_id}/meetings`
 pub async fn create(
     State(state): State<AppState>,

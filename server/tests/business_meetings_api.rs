@@ -321,3 +321,84 @@ async fn meetings_require_auth() {
         .unwrap();
     assert_eq!(r.status(), 401);
 }
+
+// ---------------------------------------------------------------------------
+// Room sponsorship
+// ---------------------------------------------------------------------------
+
+/// Which org, if any, pays for a room. This is the only link between a live room
+/// and an organization — `rooms.rs` knows nothing about orgs — so the rules it
+/// encodes decide whose credits a call spends.
+#[tokio::test]
+async fn only_a_live_business_meeting_sponsors_its_room() {
+    let Some(srv) = setup().await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    use voxtranslate_server::business::meetings::sponsoring_org;
+
+    let (uid, _jwt) = user(&srv).await;
+    let org: Uuid = sqlx::query_scalar(
+        "INSERT INTO organizations (name, slug, owner_id) VALUES ('Spon', $1, $2) RETURNING id",
+    )
+    .bind(format!("spon-{}", Uuid::new_v4().simple()))
+    .bind(uid)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
+
+    let insert = |room: &str, org_id: Option<Uuid>, status: &str| {
+        let room = room.to_string();
+        let status = status.to_string();
+        let pool = srv.pool.clone();
+        async move {
+            sqlx::query(
+                "INSERT INTO scheduled_meetings
+                    (creator_user_id, org_id, title, scheduled_at, end_at, room_code, join_url, status)
+                 VALUES ($1, $2, 'M', now(), now() + interval '1 hour', $3, 'u', $4)",
+            )
+            .bind(uid)
+            .bind(org_id)
+            .bind(&room)
+            .bind(&status)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+    };
+
+    // Unique per run: the test database persists, and a fixed code would leave a
+    // row behind that the next run's `LIMIT 1` could pick over its own.
+    let tag = Uuid::new_v4().simple().to_string();
+    let biz = format!("biz-{tag}");
+    let personal = format!("personal-{tag}");
+    let dead = format!("dead-{tag}");
+
+    insert(&biz, Some(org), "scheduled").await;
+    insert(&personal, None, "scheduled").await;
+    insert(&dead, Some(org), "cancelled").await;
+
+    assert_eq!(
+        sponsoring_org(&srv.pool, &biz).await.unwrap(),
+        Some(org),
+        "a live business meeting puts the bill on its org"
+    );
+    assert_eq!(
+        sponsoring_org(&srv.pool, &personal).await.unwrap(),
+        None,
+        "a personal meeting has no org to charge — the participants pay"
+    );
+    assert_eq!(
+        sponsoring_org(&srv.pool, &dead).await.unwrap(),
+        None,
+        "a cancelled meeting must not keep spending the customer's credits if \
+         somebody dials its old code"
+    );
+    assert_eq!(
+        sponsoring_org(&srv.pool, &format!("never-booked-{tag}"))
+            .await
+            .unwrap(),
+        None,
+        "an ad-hoc room nobody scheduled is nobody's bill"
+    );
+}

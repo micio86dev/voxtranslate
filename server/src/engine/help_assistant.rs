@@ -198,9 +198,18 @@ async fn relay_loop(
     let start = Instant::now();
     let mut total_credits: i32 = 0;
 
-    let credits_per_tick =
-        credits::help_assistant_minute_credits(&deps.config) * (TICK_SECS as i32) / 60;
-    let credits_per_tick = credits_per_tick.max(1);
+    // Bill the real price per tick, carrying the sub-credit remainder.
+    //
+    // This used to be `ceil_minute_credits * TICK_SECS / 60` in INTEGER
+    // arithmetic, which truncated the ceiling away and then some: a 10s tick
+    // charged `23 * 10 / 60 = 3` credits, i.e. 18 a minute against the 22.5 the
+    // session actually costs. Neither rounding a whole minute up nor truncating
+    // a tick down is right — accumulate and hand over whole credits as they
+    // accrue (see `CreditAccumulator`).
+    let usd_per_tick = credits::minute_price_usd(deps.config.cost_per_minute, deps.config.markup)
+        * rust_decimal::Decimal::from(TICK_SECS)
+        / rust_decimal::Decimal::from(60u64);
+    let mut credit_meter = credits::CreditAccumulator::default();
 
     let mut tick = interval(Duration::from_secs(TICK_SECS));
     tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
@@ -307,6 +316,10 @@ async fn relay_loop(
             // ---- Credit tick ------------------------------------------------
             _ = tick.tick() => {
                 let elapsed_s = start.elapsed().as_secs();
+                let credits_per_tick = credit_meter.take(usd_per_tick);
+                if credits_per_tick == 0 {
+                    continue; // still under a cent; it rolls into the next tick
+                }
                 total_credits += credits_per_tick;
 
                 match credits::deduct_org_credits(

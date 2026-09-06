@@ -1320,8 +1320,7 @@ pub(crate) async fn authorize(
 #[allow(clippy::too_many_arguments)] // cohesive per-session metering context
 fn spawn_meter(
     state: &AppState,
-    billed_user: Option<Uuid>,
-    usage_session_id: Option<Uuid>,
+    payer: Option<crate::usage::Payer>,
     guest_cap_secs: Option<u64>,
     guest_spent: &Option<Arc<AtomicU64>>,
     out_tx: &PeerTx,
@@ -1335,10 +1334,8 @@ fn spawn_meter(
     let billing_cfg = state.config.billing.as_ref()?;
     let interval = billing_cfg.pricing.usage_update_interval;
 
-    // Billed user: charge credits per interval.
-    if let (Some(uid), Some(sid), Some(svc)) =
-        (billed_user, usage_session_id, state.billing.as_ref())
-    {
+    // Somebody is paying — the speaker themselves, or the org sponsoring the room.
+    if let (Some(payer), Some(svc)) = (payer, state.billing.as_ref()) {
         let (cancel_tx, cancel_rx) = oneshot::channel();
         let cfg = MeterConfig {
             interval_secs: interval,
@@ -1357,8 +1354,7 @@ fn spawn_meter(
         };
         tokio::spawn(run_usage_meter(
             svc.clone(),
-            uid,
-            sid,
+            payer,
             cfg,
             out_tx.clone(),
             exhaust_tx.clone(),
@@ -1410,15 +1406,15 @@ fn notify_capture_formats(state: &AppState, room: &str) {
     }
 }
 
-/// Spawn the LISTENER meter (spec 0099): bill `listener_id` for the cross-language
-/// sources they receive, at their own receive-engine rate, for the WHOLE connection
-/// (they pay for what they RECEIVE, not for speaking). `None` without a DB / for a guest.
-/// Mirror of [`spawn_meter`]'s billed branch with a `MeterScope::Listener`.
+/// Spawn the LISTENER meter (spec 0099): bill for the cross-language sources
+/// `listener_id` receives, at their own receive-engine rate, for the WHOLE
+/// connection (they pay for what they RECEIVE, not for speaking). `None` without
+/// a DB, or when nobody is paying (an unsponsored guest). Mirror of
+/// [`spawn_meter`]'s billed branch with a `MeterScope::Listener`.
 #[allow(clippy::too_many_arguments)]
 fn spawn_listener_meter(
     state: &AppState,
-    billed_user: Option<Uuid>,
-    usage_session_id: Option<Uuid>,
+    payer: Option<crate::usage::Payer>,
     out_tx: &PeerTx,
     exhaust_tx: &UnboundedSender<()>,
     room: &str,
@@ -1426,8 +1422,8 @@ fn spawn_listener_meter(
     rate_per_second: f64,
 ) -> Option<oneshot::Sender<()>> {
     let billing_cfg = state.config.billing.as_ref()?;
-    let (uid, sid, svc) = match (billed_user, usage_session_id, state.billing.as_ref()) {
-        (Some(uid), Some(sid), Some(svc)) => (uid, sid, svc),
+    let (payer, svc) = match (payer, state.billing.as_ref()) {
+        (Some(p), Some(svc)) => (p, svc),
         _ => return None,
     };
     let (cancel_tx, cancel_rx) = oneshot::channel();
@@ -1443,8 +1439,7 @@ fn spawn_listener_meter(
     };
     tokio::spawn(run_usage_meter(
         svc.clone(),
-        uid,
-        sid,
+        payer,
         cfg,
         out_tx.clone(),
         exhaust_tx.clone(),
@@ -1703,6 +1698,25 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState, clien
 
     let send_task = tokio::spawn(pump_to_ws(out_rx, ws_tx));
 
+    // Is this room paid for by an organization? `scheduled_meetings` carries both
+    // the room code and the org that booked it; nothing else in the call path
+    // knows about orgs, so the link is resolved once, here.
+    let sponsor_org = match state.pool.as_ref() {
+        Some(pool) => crate::business::meetings::sponsoring_org(pool, &room)
+            .await
+            .unwrap_or_else(|e| {
+                // A lookup failure must not silently move the bill onto the
+                // participants; it also must not drop the call. Log and fall back
+                // to per-participant billing, which is the pre-existing behaviour.
+                tracing::error!(%room, "sponsoring org lookup failed: {e}");
+                None
+            }),
+        None => None,
+    };
+    if let Some(org_id) = sponsor_org {
+        tracing::info!(%room, %org_id, "room is org-sponsored — the org pays for every participant");
+    }
+
     // One usage session per call for billed users (cost accrues while speaking).
     let usage_session_id = match (billed_user, state.billing.as_ref()) {
         (Some(uid), Some(svc)) => match svc
@@ -1736,17 +1750,35 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState, clien
         );
     }
 
+    // Who pays for translation in this room. A room opened for a B2B meeting is
+    // sponsored by the organization that scheduled it: the org pool covers
+    // EVERY participant, guests included, because the customer booked the
+    // meeting and invited them. Otherwise each participant pays for themselves,
+    // exactly as before.
+    let payer = match sponsor_org {
+        Some(org_id) => Some(crate::usage::Payer::Org {
+            org_id,
+            session_id: usage_session_id,
+        }),
+        None => match (billed_user, usage_session_id) {
+            (Some(user_id), Some(session_id)) => Some(crate::usage::Payer::User {
+                user_id,
+                session_id,
+            }),
+            _ => None,
+        },
+    };
+
     // Guest speaking-time cap (cumulative across bursts), if configured.
-    let guest_cap_secs = if billed_user.is_none() {
+    let guest_cap_secs = crate::usage::guest_cap_secs(
         state
             .config
             .billing
             .as_ref()
-            .and_then(|b| b.guest_max_minutes)
-            .map(|m| m.saturating_mul(60))
-    } else {
-        None
-    };
+            .and_then(|b| b.guest_max_minutes),
+        billed_user.is_none(),
+        sponsor_org.is_some(),
+    );
     // Cumulative per-IP counter (H1): shared across this IP's connections within the
     // rolling window, so reconnecting no longer resets the guest cap.
     let guest_spent = guest_cap_secs.map(|_| state.guest_usage.counter(&client_ip));
@@ -1767,12 +1799,11 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState, clien
     // pay for what they RECEIVE), so the meter starts at JOIN — speaker activity drives
     // the per-tick scale. Guests are pinned to the default engine and use the speaking-
     // side cap instead. Speaker-pays keeps its per-`Start` meter below.
-    if state.config.listener_pays && billed_user.is_some() {
+    if state.config.listener_pays && payer.is_some() {
         let rate = active_engine.metadata().user_rate_per_second();
         meter_cancel = spawn_listener_meter(
             &state,
-            billed_user,
-            usage_session_id,
+            payer.clone(),
             &out_tx,
             &exhaust_tx,
             &room,
@@ -1947,13 +1978,16 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState, clien
                                     audio_feeds = feeds;
                                     if !audio_feeds.is_empty() {
                                         state.rooms.set_speaking(&room, &id, true);
-                                        // Guests aren't billed for receiving; cap their speaking
-                                        // time (billed listeners are metered from join).
-                                        if billed_user.is_none() && meter_cancel.is_none() {
+                                        // A guest nobody is paying for: no meter, just the
+                                        // speaking cap. Anyone WITH a payer — a billed user, or
+                                        // a guest in an org-sponsored room — was already metered
+                                        // from join by the listener meter, at a real rate. Guard
+                                        // on the payer, not on `billed_user`: the `0.0` rate
+                                        // below is only ever right for the cap-only branch.
+                                        if payer.is_none() && meter_cancel.is_none() {
                                             meter_cancel = spawn_meter(
                                                 &state,
-                                                billed_user,
-                                                usage_session_id,
+                                                None,
                                                 guest_cap_secs,
                                                 &guest_spent,
                                                 &out_tx,
@@ -2032,8 +2066,7 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState, clien
                                 if audio_tx.is_some() {
                                     meter_cancel = spawn_meter(
                                         &state,
-                                        billed_user,
-                                        usage_session_id,
+                                        payer.clone(),
                                         guest_cap_secs,
                                         &guest_spent,
                                         &out_tx,
@@ -2293,11 +2326,10 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState, clien
                                 // Re-bill at the Standard rate from here on: reassigning drops
                                 // the Enhanced-rate meter handle (cancelling it) and starts a
                                 // Standard-rate meter for the same usage session.
-                                if state.config.listener_pays && billed_user.is_some() {
+                                if state.config.listener_pays && payer.is_some() {
                                     meter_cancel = spawn_listener_meter(
                                         &state,
-                                        billed_user,
-                                        usage_session_id,
+                                        payer.clone(),
                                         &out_tx,
                                         &exhaust_tx,
                                         &room,

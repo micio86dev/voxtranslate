@@ -31,6 +31,14 @@ impl BillingService {
         }
     }
 
+    /// The connection pool behind this service. Org credits live in the same
+    /// database but a different ledger (`business::credits`), so the meter needs
+    /// the pool to charge a sponsoring organization — no reason to thread a
+    /// second copy of it through every caller.
+    pub fn pool(&self) -> &Pool {
+        &self.pool
+    }
+
     /// Current balance for a user.
     pub async fn get_balance(&self, user_id: Uuid) -> Result<Decimal, sqlx::Error> {
         sqlx::query_scalar("SELECT balance FROM users WHERE id = $1")
