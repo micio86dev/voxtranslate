@@ -1230,8 +1230,14 @@ pub(crate) struct AuthedPeer {
 
 /// Resolve the (optional) billed user for a WS connection from its token:
 /// - `Ok(None)`       — guest (no token, or billing not configured here);
-/// - `Ok(Some(peer))` — authenticated user with enough balance to join;
+/// - `Ok(Some(peer))` — authenticated user allowed to join;
 /// - `Err(msg)`       — reject the connection with this error frame.
+///
+/// `sponsored` means an organization is paying for this room. The personal
+/// minimum-balance check is then skipped: the participant is not the one being
+/// billed, and turning away a colleague invited to a meeting their company has
+/// already paid for — because their own wallet is empty — would be absurd.
+/// Consent and the ban check still apply; neither is about money.
 // The Err IS the frame sent to the client to reject the connection, as the doc
 // comment above states — not an error travelling up a call stack. Boxing it would
 // add an allocation on the rejection path and nothing else.
@@ -1239,6 +1245,7 @@ pub(crate) struct AuthedPeer {
 pub(crate) async fn authorize(
     state: &AppState,
     token: Option<&str>,
+    sponsored: bool,
 ) -> Result<Option<AuthedPeer>, ServerMessage> {
     let Some(token) = token.map(str::trim).filter(|t| !t.is_empty()) else {
         return Ok(None); // no token -> guest
@@ -1287,6 +1294,18 @@ pub(crate) async fn authorize(
                 });
             }
         }
+    }
+
+    // Somebody else is paying — the balance that matters is theirs, checked by
+    // the meter, not this one.
+    if sponsored {
+        let avatar_url = svc.get_avatar(uid).await.unwrap_or_default();
+        let cartesia_voice_id = svc.get_cartesia_voice_id(uid).await.unwrap_or_default();
+        return Ok(Some(AuthedPeer {
+            user_id: uid,
+            avatar_url,
+            cartesia_voice_id,
+        }));
     }
 
     match svc.can_join(uid).await {
@@ -1497,8 +1516,29 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState, clien
         return;
     }
 
+    // Is this room paid for by an organization? `scheduled_meetings` carries both
+    // the room code and the org that booked it; nothing else in the call path
+    // knows about orgs, so the link is resolved once, here. It has to happen
+    // BEFORE the auth gate: a sponsored room must not turn away a participant
+    // whose personal balance is empty.
+    let sponsor_org = match state.pool.as_ref() {
+        Some(pool) => crate::business::meetings::sponsoring_org(pool, &room)
+            .await
+            .unwrap_or_else(|e| {
+                // A lookup failure must not silently move the bill onto the
+                // participants; it also must not drop the call. Log and fall back
+                // to per-participant billing, which is the pre-existing behaviour.
+                tracing::error!(%room, "sponsoring org lookup failed: {e}");
+                None
+            }),
+        None => None,
+    };
+    if let Some(org_id) = sponsor_org {
+        tracing::info!(%room, %org_id, "room is org-sponsored — the org pays for every participant");
+    }
+
     // Auth / billing gate: resolve the (optional) billed user before joining.
-    let authed = match authorize(&state, token.as_deref()).await {
+    let authed = match authorize(&state, token.as_deref(), sponsor_org.is_some()).await {
         Ok(u) => u,
         Err(err) => {
             let _ = ws_tx.send(Message::Text(err.to_json().into())).await;
@@ -1618,12 +1658,22 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState, clien
         }
     }
 
+    // Whether the `call_sessions` row for this call is known to exist. The org
+    // ledger's `session_id` is a foreign key into that table, so a sponsored
+    // charge may claim the link only when the row is really there: a failed
+    // insert would otherwise turn every credit tick into a constraint violation
+    // and stop billing the sponsor without a word.
+    let mut call_session_row = false;
+
     // Transcript persistence: ensure the session row exists (first joiner wins)
     // and record this participant. `participant_row` is kept for `left_at`.
     let participant_row = match state.transcripts.as_ref() {
         Some(svc) => {
-            if let Err(e) = svc.session_started(session_id, &room).await {
-                tracing::error!("transcript session_started failed: {e}");
+            match svc.session_started(session_id, &room).await {
+                // `ON CONFLICT (id) DO NOTHING` — Ok whether we inserted it or a
+                // peer already had.
+                Ok(()) => call_session_row = true,
+                Err(e) => tracing::error!("transcript session_started failed: {e}"),
             }
             match svc
                 .participant_joined(session_id, &id, billed_user, &name, &lang)
@@ -1698,25 +1748,6 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState, clien
 
     let send_task = tokio::spawn(pump_to_ws(out_rx, ws_tx));
 
-    // Is this room paid for by an organization? `scheduled_meetings` carries both
-    // the room code and the org that booked it; nothing else in the call path
-    // knows about orgs, so the link is resolved once, here.
-    let sponsor_org = match state.pool.as_ref() {
-        Some(pool) => crate::business::meetings::sponsoring_org(pool, &room)
-            .await
-            .unwrap_or_else(|e| {
-                // A lookup failure must not silently move the bill onto the
-                // participants; it also must not drop the call. Log and fall back
-                // to per-participant billing, which is the pre-existing behaviour.
-                tracing::error!(%room, "sponsoring org lookup failed: {e}");
-                None
-            }),
-        None => None,
-    };
-    if let Some(org_id) = sponsor_org {
-        tracing::info!(%room, %org_id, "room is org-sponsored — the org pays for every participant");
-    }
-
     // One usage session per call for billed users (cost accrues while speaking).
     let usage_session_id = match (billed_user, state.billing.as_ref()) {
         (Some(uid), Some(svc)) => match svc
@@ -1758,7 +1789,14 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState, clien
     let payer = match sponsor_org {
         Some(org_id) => Some(crate::usage::Payer::Org {
             org_id,
-            session_id: usage_session_id,
+            // The org ledger links to `call_sessions` — the room-lifetime id —
+            // NOT to `usage_sessions`, which is the personal-billing table and
+            // exists only for signed-in peers. They are different tables with
+            // different uuids, so the wrong one does not mislabel the row: it
+            // violates the foreign key and the charge fails outright. An
+            // unattributed charge is bad; a charge that never lands is worse, so
+            // link only when the row is confirmed present.
+            session_id: call_session_row.then_some(session_id),
         }),
         None => match (billed_user, usage_session_id) {
             (Some(user_id), Some(session_id)) => Some(crate::usage::Payer::User {
