@@ -364,6 +364,16 @@ mod tests {
         .await
         .unwrap();
 
+        // The org ledger's `session_id` is a FOREIGN KEY into `call_sessions` —
+        // the room-lifetime id — NOT `usage_sessions`. Passing the wrong one does
+        // not mislabel the row, it violates the constraint and the charge fails.
+        let call_session = Uuid::new_v4();
+        sqlx::query("INSERT INTO call_sessions (id, room) VALUES ($1, 'sponsored-room')")
+            .bind(call_session)
+            .execute(&pool)
+            .await
+            .unwrap();
+
         let (out_tx, mut out_rx, _out_overflow) = PeerTx::channel(crate::rooms::OUT_CHANNEL_CAP);
         let (exhaust_tx, mut exhaust_rx) = tokio::sync::mpsc::unbounded_channel();
         let (_cancel_tx, cancel_rx) = oneshot::channel();
@@ -388,7 +398,7 @@ mod tests {
                 svc,
                 Payer::Org {
                     org_id: org,
-                    session_id: None,
+                    session_id: Some(call_session),
                 },
                 cfg,
                 out_tx,
@@ -421,10 +431,12 @@ mod tests {
                 .unwrap();
         assert_eq!(left, 1, "one 2-credit tick charged, the second refused");
 
-        // The charge lands on the ORG ledger under its own type, so a sponsored
-        // call is distinguishable from a recording or a transcript on the invoice.
-        let rows: Vec<(String, i32)> = sqlx::query_as(
-            "SELECT type, amount FROM organization_credits_transactions WHERE org_id = $1",
+        // The charge lands on the ORG ledger under its own type and points at the
+        // call it paid for, so a sponsored meeting is attributable on the invoice
+        // rather than an anonymous debit.
+        let rows: Vec<(String, i32, Option<Uuid>)> = sqlx::query_as(
+            "SELECT type, amount, session_id FROM organization_credits_transactions
+             WHERE org_id = $1",
         )
         .bind(org)
         .fetch_all(&pool)
@@ -432,8 +444,74 @@ mod tests {
         .unwrap();
         assert_eq!(
             rows,
-            vec![("call_translation".to_string(), -2)],
-            "one signed ledger row for the one tick that was affordable"
+            vec![("call_translation".to_string(), -2, Some(call_session))],
+            "one signed ledger row for the one affordable tick, linked to the call"
+        );
+    }
+
+    /// DB-gated regression: the org ledger's `session_id` is a FOREIGN KEY into
+    /// `call_sessions`, the room-lifetime id. Handing it a `usage_sessions` id —
+    /// a different table, a different uuid — does not mislabel the row, it
+    /// violates the constraint, and every tick then fails: the sponsor is charged
+    /// NOTHING and the meter gives up. Shipped exactly that way for an hour.
+    #[tokio::test]
+    async fn a_usage_session_id_is_not_a_call_session_id() {
+        use rust_decimal::Decimal;
+        let Ok(url) = std::env::var("DATABASE_URL") else {
+            eprintln!("skipping — no DATABASE_URL");
+            return;
+        };
+        let pool = crate::db::connect(&url).await.unwrap();
+        crate::db::migrate(&pool).await.unwrap();
+        let svc = BillingService::new(pool.clone(), Decimal::ZERO);
+
+        let owner: Uuid = sqlx::query_scalar(
+            "INSERT INTO users (google_id, email, name, balance)
+             VALUES ($1, $2, 'O', 0) RETURNING id",
+        )
+        .bind(format!("g-{}", Uuid::new_v4()))
+        .bind(format!("{}@x.com", Uuid::new_v4()))
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let org: Uuid = sqlx::query_scalar(
+            "INSERT INTO organizations (name, slug, owner_id, credits_balance)
+             VALUES ('Wrong Id Co', $1, $2, 500) RETURNING id",
+        )
+        .bind(format!("wrong-{}", Uuid::new_v4().simple()))
+        .bind(owner)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        // A perfectly valid usage_sessions row — and a perfectly wrong reference.
+        let usage_session = svc.create_session(owner, "r", "standard").await.unwrap();
+
+        let charged = crate::business::credits::deduct_org_credits(
+            &pool,
+            org,
+            2,
+            "call_translation",
+            Some(usage_session),
+            None,
+            "should not be accepted",
+        )
+        .await;
+        assert!(
+            charged.is_err(),
+            "a usage_sessions id must be rejected by the call_sessions FK, not \
+             silently stored"
+        );
+
+        let left: i32 =
+            sqlx::query_scalar("SELECT credits_balance FROM organizations WHERE id = $1")
+                .bind(org)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(
+            left, 500,
+            "and nothing is deducted when the link is invalid"
         );
     }
 

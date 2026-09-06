@@ -296,7 +296,7 @@ async fn handle_talk_session(socket: WebSocket, params: TalkParams, state: AppSt
     let (mut ws_tx, mut ws_rx) = socket.split();
 
     // --- authenticate ------------------------------------------------------
-    let authed = match crate::authorize(&state, params.token.as_deref()).await {
+    let authed = match crate::authorize(&state, params.token.as_deref(), false).await {
         Ok(Some(peer)) => peer,
         Ok(None) => {
             let _ = ws_tx
