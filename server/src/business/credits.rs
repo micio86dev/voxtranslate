@@ -139,6 +139,17 @@ pub async fn add_org_credits(
     Ok(new_balance)
 }
 
+/// The single definition of "this org's subscription is live right now".
+///
+/// A gifted subscription has no Stripe behind it, so nothing ever flips its
+/// `subscription_status` to 'canceled' when the paid period runs out — the row
+/// says 'active' forever and only the date tells the truth. Every place that
+/// gates on a subscription, and every payload that reports one, must apply the
+/// same rule, so it is written once here. Column names are unqualified so the
+/// fragment drops into a join as-is (`organization_members` has neither column).
+pub const SUBSCRIPTION_ACTIVE_SQL: &str = "(subscription_status = 'active' \
+     AND (current_period_end IS NULL OR current_period_end > now()))";
+
 /// True when the org has a live, unlapsed subscription: status `active` AND its
 /// period hasn't ended. A NULL `current_period_end` counts as active — a
 /// freshly-checked-out Stripe sub has no period end until its first invoice
@@ -146,11 +157,9 @@ pub async fn add_org_credits(
 /// what makes a gift auto-expire (there is no background scheduler to flip the
 /// status). Missing org → not active.
 pub async fn org_subscription_active(pool: &Pool, org_id: Uuid) -> Result<bool, sqlx::Error> {
-    let active: Option<bool> = sqlx::query_scalar(
-        "SELECT subscription_status = 'active'
-                AND (current_period_end IS NULL OR current_period_end > now())
-         FROM organizations WHERE id = $1",
-    )
+    let active: Option<bool> = sqlx::query_scalar(&format!(
+        "SELECT {SUBSCRIPTION_ACTIVE_SQL} FROM organizations WHERE id = $1"
+    ))
     .bind(org_id)
     .fetch_optional(pool)
     .await?;

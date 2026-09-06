@@ -201,6 +201,72 @@ async fn org_create_list_get_patch() {
     assert_eq!(patched["name"], "Acme Renamed");
 }
 
+/// A subscription can go inactive by DATE alone, with nothing to update the row:
+/// an admin-gifted subscription has no Stripe behind it, so no webhook ever flips
+/// `subscription_status` to 'canceled' when its period runs out. The row keeps
+/// saying 'active' forever. The org list must therefore report the DERIVED truth,
+/// or the dashboard shows a live plan and never nudges anyone to renew — which is
+/// exactly what it did.
+#[tokio::test]
+async fn org_list_reports_a_lapsed_subscription_as_inactive() {
+    let Some(srv) = setup().await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    let http = Client::new();
+    let (_uid, jwt) = user(&srv).await;
+    let org = create_org(&http, &srv, &jwt, "Lapsed Co").await;
+
+    let status_of = |org: Uuid, jwt: String, http: Client, addr: String| async move {
+        let v: Value = http
+            .get(format!("{addr}/api/business/organizations"))
+            .bearer_auth(&jwt)
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        v.as_array()
+            .unwrap()
+            .iter()
+            .find(|o| o["id"] == org.to_string())
+            .cloned()
+            .expect("org present in the caller's list")
+    };
+
+    // Live period → active.
+    sqlx::query(
+        "UPDATE organizations SET subscription_status = 'active',
+                current_period_end = now() + interval '30 days' WHERE id = $1",
+    )
+    .bind(org)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+    let o = status_of(org, jwt.clone(), http.clone(), base(&srv)).await;
+    assert_eq!(o["subscription_status"], "active");
+    assert_eq!(o["subscription_active"], true);
+
+    // Same row, period expired → the raw status is unchanged, the truth is not.
+    sqlx::query(
+        "UPDATE organizations SET current_period_end = now() - interval '8 days' WHERE id = $1",
+    )
+    .bind(org)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+    let o = status_of(org, jwt, http, base(&srv)).await;
+    assert_eq!(
+        o["subscription_status"], "active",
+        "the stored status is reported verbatim — clients that need it still see it"
+    );
+    assert_eq!(
+        o["subscription_active"], false,
+        "but eligibility follows the date, matching the server-side gate"
+    );
+}
+
 #[tokio::test]
 async fn cross_tenant_isolation() {
     let Some(srv) = setup().await else {
