@@ -6,6 +6,8 @@
 //! DECIMAL credits never mix.
 
 use chrono::{DateTime, Utc};
+use rust_decimal::prelude::ToPrimitive;
+use rust_decimal::Decimal;
 use uuid::Uuid;
 
 use crate::db::Pool;
@@ -307,9 +309,151 @@ pub fn help_assistant_minute_credits(cfg: &crate::config::HelpAssistantConfig) -
     raw.ceil() as i32
 }
 
+/// What one minute of a per-minute feature costs the customer, in USD:
+/// `cost × (1 + markup)`. The price the credit math starts from.
+pub fn minute_price_usd(cost_per_minute: f64, markup: f64) -> Decimal {
+    Decimal::from_f64_retain(cost_per_minute * (1.0 + markup))
+        .unwrap_or(Decimal::ZERO)
+        .round_dp(6)
+}
+
+/// Turns a stream of fractional USD charges into whole org credits.
+///
+/// The org pool is `INTEGER` at **100 credits = $1**, so a per-second charge
+/// worth a fraction of a cent cannot be handed to it as it happens. The
+/// established alternative — `ceil` a whole minute, as the assistants do —
+/// over-charges every single minute rather than occasionally: with the default
+/// rates it lands exactly on a half credit (`0.30 × 1.25 × 100 = 37.5`,
+/// `0.18 × 1.25 × 100 = 22.5`), so it rounds up 0.5 credits every minute of
+/// every session. Over half an hour that is 15 credits the customer never owed.
+///
+/// So accumulate instead: hand over whole credits as they actually accrue and
+/// keep the remainder for the next tick. The error never exceeds one credit and
+/// never compounds, and the customer is never charged for time they did not use.
+///
+/// The running total is a [`Decimal`], not an `f64`. A rate like $0.225/min has
+/// no exact binary representation, and thirty additions of it drift far enough
+/// to swallow a whole credit — which is the kind of bug that only shows up on
+/// the invoice.
+#[derive(Debug, Default)]
+pub struct CreditAccumulator {
+    /// Cost incurred but not yet charged, in USD. Always under one credit after
+    /// a call to [`take`](Self::take).
+    owed_usd: Decimal,
+}
+
+impl CreditAccumulator {
+    /// One org credit is one US cent.
+    fn usd_per_credit() -> Decimal {
+        Decimal::new(1, 2)
+    }
+
+    /// Record `usd` of cost and return the whole credits now due (0 while the
+    /// running total is still under a cent). A non-positive charge is ignored.
+    pub fn take(&mut self, usd: Decimal) -> i32 {
+        if usd > Decimal::ZERO {
+            self.owed_usd += usd;
+        }
+        let credits = (self.owed_usd / Self::usd_per_credit()).floor();
+        if credits < Decimal::ONE {
+            return 0;
+        }
+        self.owed_usd -= credits * Self::usd_per_credit();
+        credits.to_i32().unwrap_or(i32::MAX)
+    }
+
+    /// Cost carried over, in USD — under one credit by construction. The tail a
+    /// session ends on: too small to charge, deliberately given away rather than
+    /// rounded up.
+    pub fn carried_usd(&self) -> Decimal {
+        self.owed_usd
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn usd(cents: i64) -> Decimal {
+        Decimal::new(cents, 4) // e.g. usd(40) = $0.0040
+    }
+
+    /// Regression: the assistants used to derive a per-tick charge as
+    /// `ceil_minute_credits * TICK / 60` in INTEGER arithmetic. The division
+    /// truncated the ceiling away and then some — a 10s tick of the help
+    /// assistant charged `23 * 10 / 60 = 3` credits, i.e. 18/minute against
+    /// 22.5 owed, a fifth of the revenue silently gone. Ticking the accumulator
+    /// bills the real price instead.
+    #[test]
+    fn per_tick_billing_matches_the_minute_price_it_is_derived_from() {
+        let price = minute_price_usd(0.18, 0.25); // $0.225/min = 22.5 credits
+        let per_tick = price * Decimal::from(10) / Decimal::from(60);
+        let mut acc = CreditAccumulator::default();
+        let charged: i32 = (0..6).map(|_| acc.take(per_tick)).sum();
+        assert_eq!(charged, 22, "a minute of six 10s ticks");
+        // The half credit is carried, not dropped and not rounded up.
+        assert_eq!(acc.carried_usd(), Decimal::new(50, 4));
+        // The old integer path charged 18 for the same minute.
+        assert_eq!(
+            help_assistant_minute_credits(&test_ha_cfg()) * 10 / 60 * 6,
+            18
+        );
+    }
+
+    #[test]
+    fn accumulator_charges_only_whole_credits_and_keeps_the_rest() {
+        let mut acc = CreditAccumulator::default();
+        // Under a cent → nothing is due yet.
+        assert_eq!(acc.take(usd(40)), 0);
+        assert_eq!(acc.take(usd(40)), 0);
+        // Crossing the cent charges exactly one credit, not the ceiling of three.
+        assert_eq!(acc.take(usd(40)), 1);
+        assert_eq!(acc.carried_usd(), Decimal::new(20, 4));
+    }
+
+    #[test]
+    fn accumulator_hands_over_several_credits_at_once() {
+        let mut acc = CreditAccumulator::default();
+        assert_eq!(acc.take(Decimal::new(750, 4)), 7);
+        assert_eq!(acc.carried_usd(), Decimal::new(50, 4));
+    }
+
+    /// The point of the whole thing: over a long session the accumulator bills
+    /// what was used, while a per-minute ceiling bills measurably more.
+    #[test]
+    fn accumulator_does_not_over_charge_the_way_a_per_minute_ceiling_does() {
+        // The help assistant's default rate: $0.225/min → 22.5 credits/min.
+        let per_minute = Decimal::new(2250, 4);
+        let mut acc = CreditAccumulator::default();
+        let mut charged = 0;
+        for _ in 0..30 {
+            charged += acc.take(per_minute);
+        }
+        // 30 min × 22.5 = 675 credits owed, and every one of them is charged —
+        // no drift, nothing carried.
+        assert_eq!(charged, 675);
+        assert_eq!(acc.carried_usd(), Decimal::ZERO);
+        // The same half hour under the per-minute ceiling: 15 credits more.
+        assert_eq!(help_assistant_minute_credits(&test_ha_cfg()) * 30, 690);
+    }
+
+    fn test_ha_cfg() -> crate::config::HelpAssistantConfig {
+        crate::config::HelpAssistantConfig {
+            api_key: String::new(),
+            model: String::new(),
+            cost_per_minute: 0.18,
+            markup: 0.25,
+            max_sessions: 1,
+        }
+    }
+
+    #[test]
+    fn accumulator_ignores_a_non_positive_charge() {
+        let mut acc = CreditAccumulator::default();
+        assert_eq!(acc.take(Decimal::ZERO), 0);
+        assert_eq!(acc.take(Decimal::new(-100, 2)), 0);
+        assert_eq!(acc.carried_usd(), Decimal::ZERO);
+    }
 
     #[test]
     fn credit_rates_round_up() {
