@@ -1013,6 +1013,17 @@ pub async fn serve() {
         ));
     }
 
+    // Expiring-subscription warning. A plan used to just stop working one morning
+    // — and a gifted one, which no Stripe webhook ever cancels, stopped with the
+    // org row still reading 'active', so nothing said a word. Hourly is plenty
+    // for a 7-day lead; the claim is idempotent per period.
+    if state.pool.is_some() {
+        tokio::spawn(crate::notifications::run_subscription_expiry_scheduler(
+            state.clone(),
+            Duration::from_secs(3600),
+        ));
+    }
+
     // Enterprise data-retention sweep (spec 0106): delete recordings + transcripts
     // past each org's retention window. Ships dormant — only runs when
     // RETENTION_SWEEP_ENABLED is set AND a DB is present. Recordings storage is

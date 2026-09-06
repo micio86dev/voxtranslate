@@ -674,6 +674,119 @@ pub async fn run_reminder_scheduler(state: AppState, interval: Duration) {
     }
 }
 
+// --- Expiring subscriptions ----------------------------------------------------
+
+/// How far ahead of the period end the warning goes out.
+///
+/// Long enough to renew without rushing, short enough that the warning is still
+/// about something imminent. One notice per period — see
+/// `subscription_expiry_notified_for`.
+pub const SUBSCRIPTION_EXPIRY_LEAD_DAYS: i64 = 7;
+
+/// An org whose subscription is inside the warning window and hasn't been told.
+#[derive(sqlx::FromRow)]
+pub struct ExpiringSubscription {
+    pub id: Uuid,
+    pub name: String,
+    pub current_period_end: DateTime<Utc>,
+}
+
+/// Claim the orgs due an expiry warning, marking each with the period it was
+/// warned about. Atomic `UPDATE … RETURNING` with `SKIP LOCKED`, so overlapping
+/// sweeps (or two instances) cannot double-send.
+///
+/// The marker stores the PERIOD, not a boolean: a renewal moves
+/// `current_period_end` forward, the stored value stops matching, and the new
+/// period is warned about on its own. Nothing has to remember to clear a flag —
+/// which matters, because the period is written from three different places
+/// (two Stripe webhooks and the admin gift).
+pub async fn claim_expiring_subscriptions(
+    pool: &crate::db::Pool,
+    lead_days: i64,
+) -> Result<Vec<ExpiringSubscription>, sqlx::Error> {
+    sqlx::query_as(
+        "UPDATE organizations SET subscription_expiry_notified_for = current_period_end
+         WHERE id IN (
+             SELECT id FROM organizations
+             WHERE subscription_status = 'active'
+               AND current_period_end IS NOT NULL
+               AND current_period_end > now()
+               AND current_period_end <= now() + ($1 * interval '1 day')
+               AND subscription_expiry_notified_for IS DISTINCT FROM current_period_end
+             FOR UPDATE SKIP LOCKED
+         )
+         RETURNING id, name, current_period_end",
+    )
+    .bind(lead_days as f64)
+    .fetch_all(pool)
+    .await
+}
+
+/// Who to tell: the people who can actually renew. A plain member cannot buy a
+/// plan, so warning them is noise they can do nothing about.
+async fn subscription_notice_recipients(
+    pool: &crate::db::Pool,
+    org_id: Uuid,
+) -> Result<Vec<Uuid>, sqlx::Error> {
+    sqlx::query_scalar(
+        "SELECT user_id FROM organization_members
+         WHERE org_id = $1 AND role IN ('owner', 'admin')",
+    )
+    .bind(org_id)
+    .fetch_all(pool)
+    .await
+}
+
+/// Background loop: warn owners/admins that their subscription is about to end.
+///
+/// Until this existed a subscription simply stopped working one morning — and a
+/// gifted one, which no Stripe webhook ever cancels, stopped with the org row
+/// still reading 'active', so nothing anywhere said a word. Mirrors
+/// [`run_reminder_scheduler`]: claim atomically, then fan out per recipient in
+/// their own language.
+pub async fn run_subscription_expiry_scheduler(state: AppState, interval: Duration) {
+    let Some(pool) = state.pool.clone() else {
+        return;
+    };
+    let mut tick = tokio::time::interval(interval);
+    loop {
+        tick.tick().await;
+        let due = match claim_expiring_subscriptions(&pool, SUBSCRIPTION_EXPIRY_LEAD_DAYS).await {
+            Ok(rows) => rows,
+            Err(e) => {
+                tracing::error!("subscription expiry sweep failed: {e}");
+                continue;
+            }
+        };
+        for org in due {
+            let days_left = (org.current_period_end - Utc::now()).num_days().max(0);
+            let recipients = subscription_notice_recipients(&pool, org.id)
+                .await
+                .unwrap_or_default();
+            let data = json!({
+                "org_id": org.id,
+                "org_name": org.name,
+                "current_period_end": org.current_period_end,
+                "days_left": days_left,
+            });
+            for uid in recipients {
+                let lang = crate::notify_copy::user_locale(&pool, uid).await;
+                let (title, body) = crate::notify_copy::subscription_copy(&lang, days_left);
+                notify(
+                    &state,
+                    uid,
+                    "subscription_expiring",
+                    &lang,
+                    &title,
+                    &body,
+                    data.clone(),
+                )
+                .await;
+            }
+        }
+    }
+}
+
 // --- Webinar friend alerts -----------------------------------------------------
 
 /// Notify a webinar HOST's accepted friends that the webinar is starting soon
