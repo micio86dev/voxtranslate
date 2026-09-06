@@ -18,15 +18,16 @@
 //! `HelpAssistantConfig::max_sessions`. If all slots are taken, the handler
 //! sends a `capacity_full` error JSON and closes the WS before any OpenAI call.
 
-use axum::extract::ws::WebSocketUpgrade;
+use axum::extract::ws::{Message as WsMessage, WebSocketUpgrade};
 use axum::extract::{Path, Query, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
+use futures::SinkExt as _;
 use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::auth::verify_jwt;
-use crate::business::{credits, db_err, require_pool, require_role, MEMBER};
+use crate::business::{db_err, require_pool, require_role, ws_gate, MEMBER};
 use crate::engine::help_assistant::{run_relay, RelayDeps};
 use crate::middleware::AuthUser;
 use crate::AppState;
@@ -119,33 +120,19 @@ pub async fn ws_handler(
         })?
         .clone();
 
-    // 3. Subscription check — active Business/Enterprise only (402 if not).
-    let sub_active = credits::org_subscription_active(pool, org_id)
-        .await
-        .map_err(db_err)?;
-    if !sub_active {
-        return Err((
-            StatusCode::PAYMENT_REQUIRED,
-            "active Business/Enterprise subscription required",
-        )
-            .into_response());
-    }
-
-    // 4. Credit pre-check — reject if balance is dangerously low (< 10 credits)
-    //    to avoid starting a session that would be immediately terminated.
-    let balance: Option<i32> =
-        sqlx::query_scalar("SELECT credits_balance FROM organizations WHERE id = $1")
-            .bind(org_id)
-            .fetch_optional(pool)
-            .await
-            .map_err(db_err)?;
-    let balance = balance.unwrap_or(0);
-    if balance < 10 {
-        return Err((
-            StatusCode::PAYMENT_REQUIRED,
-            "insufficient credits to start a help assistant session (minimum 10 required)",
-        )
-            .into_response());
+    // 3. Eligibility — active Business/Enterprise subscription, then enough credits
+    //    to be worth starting. Both used to be a pre-upgrade 402, which the browser
+    //    throws away (see `ws_gate`): the dashboard saw a bare `error` event and
+    //    could only say "connection error" for a lapsed subscription. Report it
+    //    in-band instead, the way `capacity_full` already does.
+    let ineligible = ws_gate::check(pool, org_id).await.map_err(db_err)?;
+    if let Some(reason) = ineligible {
+        tracing::info!(%org_id, code = reason.code(), "help_assistant: session refused");
+        let frame = reason.to_json();
+        return Ok(ws.on_upgrade(move |mut socket| async move {
+            let _ = socket.send(WsMessage::Text(frame.into())).await;
+            let _ = socket.close().await;
+        }));
     }
 
     // 5. Semaphore handle — process-wide cap from AppState.
