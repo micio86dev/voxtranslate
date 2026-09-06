@@ -3,6 +3,7 @@
 //! per-speaker breakdown. Results are cached per session (UNIQUE(session_id))
 //! so only the first request is billed.
 
+use super::pseudonym::SpeakerAliases;
 use std::collections::BTreeMap;
 use std::time::Duration;
 
@@ -52,16 +53,27 @@ pub struct SentimentChunk {
 
 /// Group events into `window_secs` slices by speaker line. Empty windows
 /// (silence) produce no chunk — the timeline simply has no point there.
-pub fn chunk_transcript(export: &TranscriptExport, window_secs: i64) -> Vec<SentimentChunk> {
+pub fn chunk_transcript(
+    export: &TranscriptExport,
+    window_secs: i64,
+    aliases: &SpeakerAliases,
+) -> Vec<SentimentChunk> {
     let start = export.session.started_at;
     let mut windows: BTreeMap<i64, String> = BTreeMap::new();
     for ev in &export.events {
         let secs = (ev.ts - start).num_seconds().max(0);
         let chat = if ev.kind == "chat" { " [chat]" } else { "" };
+        // The LABEL, never the name. The model only has to tell participants apart;
+        // their identities are mapped back in `restore_speakers` once the answer is in.
         windows
             .entry(secs / window_secs)
             .or_default()
-            .push_str(&format!("{}{}: {}\n", ev.speaker_name, chat, ev.original));
+            .push_str(&format!(
+                "{}{}: {}\n",
+                aliases.alias(&ev.speaker_name),
+                chat,
+                ev.original
+            ));
     }
     windows
         .into_iter()
@@ -101,6 +113,35 @@ pub fn talk_share(export: &TranscriptExport) -> Vec<(String, f64)> {
         .collect();
     shares.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
     shares
+}
+
+/// Speaker labels for this transcript, in order of first appearance.
+pub fn aliases_for(export: &TranscriptExport) -> SpeakerAliases {
+    // Participants first so the roster order is stable even when someone never speaks,
+    // then the events themselves for anyone who spoke without being listed.
+    SpeakerAliases::from_names(
+        export
+            .session
+            .participants
+            .iter()
+            .map(|p| p.name.clone())
+            .chain(export.events.iter().map(|e| e.speaker_name.clone())),
+    )
+}
+
+/// Map a chunk answer's per-speaker keys back to real names.
+///
+/// The model was given labels, so it answers in labels. `aggregate` folds these into
+/// `talk_share`, which is keyed by real names — without this step the two sides never
+/// line up and every speaker score is silently dropped.
+pub fn restore_speakers(
+    mut chunk: serde_json::Value,
+    aliases: &SpeakerAliases,
+) -> serde_json::Value {
+    if let Some(speakers) = chunk.get("speakers") {
+        chunk["speakers"] = aliases.restore_keys(speakers);
+    }
+    chunk
 }
 
 fn chunk_prompt() -> String {
@@ -255,7 +296,10 @@ pub async fn analyze(
     export: &TranscriptExport,
 ) -> Result<(serde_json::Value, String), String> {
     let window = effective_window(export.session.duration_seconds);
-    let chunks = chunk_transcript(export, window);
+    // Built once and shared by every chunk, so "Speaker 2" means the same person all
+    // the way through the analysis.
+    let aliases = aliases_for(export);
+    let chunks = chunk_transcript(export, window, &aliases);
     let Some((first, rest)) = chunks.split_first() else {
         return Err("transcript has no events".to_string());
     };
@@ -263,14 +307,14 @@ pub async fn analyze(
     let mut model = ai.report_model.clone();
     let mut points: Vec<(i64, serde_json::Value)> = Vec::with_capacity(chunks.len());
     match analyze_chunk(groq.clone(), model.clone(), first.text.clone()).await {
-        Ok(v) => points.push((first.start_secs, v)),
+        Ok(v) => points.push((first.start_secs, restore_speakers(v, &aliases))),
         // Decommissioned model id (4xx): switch the whole run to the fallback and
         // re-probe — but a failure there is dropped too, not fatal.
         Err(e) if e.contains("groq returned 4") && ai.fallback_model != model => {
             tracing::warn!("sentiment model failed ({e}); retrying on fallback model");
             model = ai.fallback_model.clone();
             match analyze_chunk(groq.clone(), model.clone(), first.text.clone()).await {
-                Ok(v) => points.push((first.start_secs, v)),
+                Ok(v) => points.push((first.start_secs, restore_speakers(v, &aliases))),
                 Err(e) => tracing::warn!("sentiment first chunk failed on fallback (dropped): {e}"),
             }
         }
@@ -294,7 +338,7 @@ pub async fn analyze(
         .await;
     for (t, res) in rest_results {
         match res {
-            Ok(v) => points.push((t, v)),
+            Ok(v) => points.push((t, restore_speakers(v, &aliases))),
             Err(e) => tracing::warn!("sentiment chunk at {t}s failed (dropped): {e}"),
         }
     }
@@ -438,14 +482,16 @@ mod tests {
             // 240–359 silent -> no chunk
             ("Anna", "speech", 360, "window three"),
         ]);
-        let chunks = chunk_transcript(&export, 120);
+        let chunks = chunk_transcript(&export, 120, &aliases_for(&export));
         assert_eq!(chunks.len(), 3);
         assert_eq!(chunks[0].start_secs, 0);
-        assert!(chunks[0].text.contains("Anna: hello"));
-        assert!(chunks[0].text.contains("Anna: still window zero"));
+        // Labels, not names — speakers are pseudonymised before the text leaves for Groq
+        // (see `aliases_for`). Anna speaks first, so she is Speaker 1.
+        assert!(chunks[0].text.contains("Speaker 1: hello"));
+        assert!(chunks[0].text.contains("Speaker 1: still window zero"));
         assert_eq!(chunks[1].start_secs, 120);
-        assert!(chunks[1].text.contains("Bob: window one starts here"));
-        assert!(chunks[1].text.contains("Bob [chat]: a link"));
+        assert!(chunks[1].text.contains("Speaker 2: window one starts here"));
+        assert!(chunks[1].text.contains("Speaker 2 [chat]: a link"));
         assert_eq!(chunks[2].start_secs, 360);
     }
 
@@ -558,5 +604,62 @@ mod tests {
         assert_eq!(moments[7]["label"], "moment 11");
         let ts: Vec<i64> = moments.iter().map(|m| m["t"].as_i64().unwrap()).collect();
         assert!(ts.windows(2).all(|w| w[0] < w[1]), "chronological: {ts:?}");
+    }
+
+    #[test]
+    fn chunks_carry_labels_not_names() {
+        // The whole point of the change: what leaves for Groq must not identify anyone.
+        let export = export_with(vec![
+            ("Anna", "speech", 0, "buongiorno a tutti"),
+            ("Bruno", "speech", 10, "ciao Anna"),
+        ]);
+        let aliases = aliases_for(&export);
+        let text = chunk_transcript(&export, 120, &aliases)
+            .into_iter()
+            .map(|c| c.text)
+            .collect::<String>();
+
+        assert!(text.contains("Speaker 1: buongiorno a tutti"));
+        assert!(text.contains("Speaker 2: ciao Anna"));
+        // The transcript CONTENT may still mention a name — that is the user's own
+        // speech and cannot be removed without breaking the translation. What must not
+        // appear is the speaker attribution.
+        assert!(
+            !text.contains("Anna: "),
+            "speaker label leaked a real name: {text}"
+        );
+        assert!(
+            !text.contains("Bruno: "),
+            "speaker label leaked a real name: {text}"
+        );
+    }
+
+    #[test]
+    fn restore_speakers_maps_the_answer_back_to_real_names() {
+        let export = export_with(vec![
+            ("Anna", "speech", 0, "ciao"),
+            ("Bruno", "speech", 5, "ehi"),
+        ]);
+        let aliases = aliases_for(&export);
+        let answer = serde_json::json!({
+            "score": 0.3,
+            "speakers": { "Speaker 1": 0.5, "Speaker 2": 0.1 },
+            "moment": null
+        });
+        let restored = restore_speakers(answer, &aliases);
+        assert_eq!(restored["speakers"]["Anna"], 0.5);
+        assert_eq!(restored["speakers"]["Bruno"], 0.1);
+        assert_eq!(
+            restored["score"], 0.3,
+            "non-speaker fields must be untouched"
+        );
+    }
+
+    #[test]
+    fn an_answer_without_speakers_survives_restore() {
+        let export = export_with(vec![("Anna", "speech", 0, "ciao")]);
+        let aliases = aliases_for(&export);
+        let answer = serde_json::json!({ "score": 0.0, "moment": null });
+        assert_eq!(restore_speakers(answer.clone(), &aliases), answer);
     }
 }
