@@ -1152,6 +1152,81 @@ mod safety_ws {
             .unwrap();
     }
 
+    /// A colleague invited to a meeting their company booked must get in even
+    /// with an empty personal wallet — the company is paying. The join gate used
+    /// to check only the participant's own balance, so the very people a B2B
+    /// customer invites would have been turned away with `insufficient_balance`.
+    #[tokio::test]
+    async fn a_sponsored_room_admits_a_participant_with_no_personal_credit() {
+        let Some(srv) = setup().await else {
+            eprintln!("skipping — no DATABASE_URL");
+            return;
+        };
+        let addr = srv.addr;
+
+        // A user with nothing in their own account.
+        let identity = GoogleIdentity {
+            google_id: format!("g-{}", Uuid::new_v4()),
+            email: format!("{}@x.com", Uuid::new_v4()),
+            name: "Broke".into(),
+            avatar_url: None,
+        };
+        let (user, _) = upsert_google_user(
+            &srv.pool,
+            &identity,
+            rust_decimal::Decimal::ZERO,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+        consent(&srv.pool, user.id).await;
+        let jwt = issue_jwt(&srv.secret, &user.id, &user.email, &user.name, 168).unwrap();
+
+        // An ordinary room still turns them away: nobody is covering the cost.
+        let unsponsored = format!("plain-{}", Uuid::new_v4().simple());
+        let denied = first_frame(
+            addr,
+            &format!("room={unsponsored}&lang=en&id=b1&public=false&token={jwt}"),
+        )
+        .await;
+        assert_eq!(denied["type"], "error");
+        assert_eq!(denied["code"], "insufficient_balance");
+
+        // Now the same user, invited to a meeting an organization booked.
+        let org: Uuid = sqlx::query_scalar(
+            "INSERT INTO organizations (name, slug, owner_id, credits_balance)
+             VALUES ('Host Co', $1, $2, 1000) RETURNING id",
+        )
+        .bind(format!("host-{}", Uuid::new_v4().simple()))
+        .bind(user.id)
+        .fetch_one(&srv.pool)
+        .await
+        .unwrap();
+        let sponsored = format!("biz-{}", Uuid::new_v4().simple());
+        sqlx::query(
+            "INSERT INTO scheduled_meetings
+                (creator_user_id, org_id, title, scheduled_at, end_at, room_code, join_url)
+             VALUES ($1, $2, 'Kickoff', now(), now() + interval '1 hour', $3, 'u')",
+        )
+        .bind(user.id)
+        .bind(org)
+        .bind(&sponsored)
+        .execute(&srv.pool)
+        .await
+        .unwrap();
+
+        let joined = first_frame(
+            addr,
+            &format!("room={sponsored}&lang=en&id=b2&public=false&token={jwt}"),
+        )
+        .await;
+        assert_eq!(
+            joined["type"], "room_joined",
+            "the company is paying — an empty personal wallet is irrelevant"
+        );
+    }
+
     #[tokio::test]
     async fn guest_may_join_a_live_public_room_but_not_open_one() {
         // Talk to the World is meant to be walk-in: a guest joins a LIVE public room
