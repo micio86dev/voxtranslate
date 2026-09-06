@@ -126,6 +126,41 @@ Confirm each one before Tuesday, and if a signature is missing, say "in progress
 
 ---
 
+### What is pseudonymised in the payloads (v1.44.2)
+
+The table above is about *where* data goes. This is about *what is inside* it — asked
+separately, and answered from the code.
+
+| Payload | Identifiers before | Identifiers now |
+|---|---|---|
+| Groq translation / chat / subtitles (`groq.rs:48`) | none — body is `model`, `messages`, `temperature`, `max_tokens`; the OpenAI-compatible `"user"` field is deliberately unused | unchanged |
+| Realtime engines (Qwen, OpenAI, Gemini, Cartesia) | none — `session.update` carries languages, model, VAD, voice; auth is a Bearer header | unchanged |
+| **Groq sentiment** (`ai/sentiment.rs`) | **real participant name on every line** (`Anna: text`) | `Speaker 1: text`; the per-speaker answer is mapped back server-side (`pseudonym::restore_keys`) |
+| **Groq correction** (`ai/correction.rs`) | **real name in each line's `speaker` field** | opaque label; see the caveat below |
+| **Logs shipped to Better Stack** (`log_shipping.rs`) | **full client IP** | IPv4 truncated to /24, IPv6 to /48, unparseable values replaced with `redacted` |
+| Translation cache | MD5 of a short phrase — **not** defensible pseudonymisation | unchanged, and still disabled in production |
+
+**Two honest caveats.**
+
+The correction pass still receives the participant name *list*, under the label
+`NAMES OCCURRING IN THE DIALOGUE`. Those names are the spelling reference for names
+spoken inside the transcript ("ciao Alessandro" misheard as "Alessandra"), which is one
+of the errors the pass exists to fix — and they already appear in the transcript text
+being sent, so withholding the list would degrade the correction without removing
+anything from the payload. What was removed is the **attribution**: which utterance
+belongs to which named person.
+
+And the content itself — the speech, the text to translate — cannot be anonymised. It is
+the service. Only the accessory identifiers could be removed, and they have been.
+
+**The client IP is still complete everywhere else**, deliberately: rate limiting, guest
+quotas and admin auth all key on it (`observability::client_ip`, 12 call sites).
+Truncating at the source would silently widen those buckets to whole subnets. The
+redaction happens on the way out of our infrastructure, which is where the third-party
+transfer actually occurs.
+
+---
+
 ## 3. Retention and the existing "compliance mode"
 
 ### What compliance mode actually does — this is the section to read twice
