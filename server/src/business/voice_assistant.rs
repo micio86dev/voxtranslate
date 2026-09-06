@@ -18,15 +18,16 @@
 //! [`VoiceAssistantConfig::max_sessions`]. If all slots are taken, the handler
 //! sends a `capacity_full` error and closes the WS before any OpenAI call.
 
-use axum::extract::ws::WebSocketUpgrade;
+use axum::extract::ws::{Message as WsMessage, WebSocketUpgrade};
 use axum::extract::{Path, Query, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
+use futures::SinkExt as _;
 use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::auth::verify_jwt;
-use crate::business::{credits, db_err, forbidden, require_pool, require_role, role_rank};
+use crate::business::{db_err, forbidden, require_pool, require_role, role_rank, ws_gate};
 use crate::engine::voice_assistant::{run_relay, RelayDeps};
 use crate::middleware::AuthUser;
 use crate::AppState;
@@ -152,16 +153,18 @@ pub async fn ws_handler(
             .into_response()
     })?;
 
-    // 4. Subscription check — Business/Enterprise with active sub only.
-    let sub_active = credits::org_subscription_active(pool, org_id)
-        .await
-        .map_err(db_err)?;
-    if !sub_active {
-        return Err((
-            StatusCode::PAYMENT_REQUIRED,
-            "active Business/Enterprise subscription required",
-        )
-            .into_response());
+    // 4. Eligibility — active Business/Enterprise subscription, then enough credits.
+    //    Reported in-band after the upgrade rather than as a 402: a browser cannot
+    //    read the status of a failed WebSocket handshake, so a pre-upgrade rejection
+    //    reaches the dashboard as an unexplained "connection error" (see `ws_gate`).
+    let ineligible = ws_gate::check(pool, org_id).await.map_err(db_err)?;
+    if let Some(reason) = ineligible {
+        tracing::info!(%org_id, code = reason.code(), "voice_assistant: session refused");
+        let frame = reason.to_json();
+        return Ok(ws.on_upgrade(move |mut socket| async move {
+            let _ = socket.send(WsMessage::Text(frame.into())).await;
+            let _ = socket.close().await;
+        }));
     }
 
     // 5. Retrieve org name (for RAG instructions).

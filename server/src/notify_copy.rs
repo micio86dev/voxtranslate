@@ -276,6 +276,54 @@ pub fn webinar_copy(kind: &str, lang: &str, host: &str) -> (String, String) {
     (title.to_string(), body.replace("{n}", host))
 }
 
+/// `(title, body)` for the expiring-subscription warning, localized to `lang`,
+/// with the number of days left interpolated where `{n}` appears.
+///
+/// Same language bar as [`webinar_copy`]; English fallback for the rest. The
+/// body deliberately names the consequence rather than the plan: what the
+/// recipient needs to know is that features stop, and features stopping without
+/// warning is exactly what this exists to prevent.
+pub fn subscription_copy(lang: &str, days_left: i64) -> (String, String) {
+    let (title, body): (&str, &str) = match lang {
+        "it" => (
+            "Abbonamento in scadenza",
+            "Il tuo abbonamento scade tra {n} giorni. Rinnovalo per non perdere registrazioni, trascrizioni e assistente vocale.",
+        ),
+        "es" => (
+            "Tu suscripción caduca pronto",
+            "Tu suscripción caduca en {n} días. Renuévala para no perder grabaciones, transcripciones y el asistente de voz.",
+        ),
+        "fr" => (
+            "Abonnement bientôt expiré",
+            "Votre abonnement expire dans {n} jours. Renouvelez-le pour conserver enregistrements, transcriptions et assistant vocal.",
+        ),
+        "de" => (
+            "Abonnement läuft bald ab",
+            "Ihr Abonnement läuft in {n} Tagen ab. Verlängern Sie es, um Aufzeichnungen, Transkripte und Sprachassistent zu behalten.",
+        ),
+        "pt" => (
+            "Assinatura a expirar",
+            "A sua assinatura expira em {n} dias. Renove-a para não perder gravações, transcrições e assistente de voz.",
+        ),
+        "ja" => (
+            "サブスクリプションの有効期限が近づいています",
+            "サブスクリプションはあと{n}日で終了します。録画・文字起こし・音声アシスタントを継続するには更新してください。",
+        ),
+        "zh" => (
+            "订阅即将到期",
+            "您的订阅将在 {n} 天后到期。请续订以继续使用录制、转写和语音助手。",
+        ),
+        _ => (
+            "Your subscription is about to expire",
+            "Your subscription ends in {n} days. Renew it to keep recordings, transcripts and the voice assistant.",
+        ),
+    };
+    (
+        title.to_string(),
+        body.replace("{n}", &days_left.to_string()),
+    )
+}
+
 /// The recipient's stored UI locale, or `"en"` when unknown. Used to pick
 /// [`meeting_copy`] / `invite::build_invite_email` language for that user.
 pub async fn user_locale(pool: &Pool, user_id: Uuid) -> String {
@@ -292,6 +340,19 @@ pub async fn user_locale(pool: &Pool, user_id: Uuid) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn subscription_warning_names_the_days_and_falls_back_to_english() {
+        let (t, b) = subscription_copy("it", 7);
+        assert_eq!(t, "Abbonamento in scadenza");
+        assert!(b.starts_with("Il tuo abbonamento scade tra 7 giorni"));
+
+        // An unshipped language must still say something useful, not a placeholder.
+        let (t, b) = subscription_copy("sw", 3);
+        assert_eq!(t, "Your subscription is about to expire");
+        assert!(b.contains("in 3 days"), "got: {b}");
+        assert!(!b.contains("{n}"), "the placeholder must be substituted");
+    }
 
     #[test]
     fn localizes_title_and_body() {

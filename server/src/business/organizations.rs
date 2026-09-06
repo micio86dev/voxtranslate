@@ -37,9 +37,19 @@ struct OrgSummary {
     name: String,
     slug: String,
     plan: String,
-    /// 'none' | 'active' | 'past_due' | 'canceled' — gates paid features like
-    /// cloud recording on the client and server.
+    /// 'none' | 'active' | 'past_due' | 'canceled', exactly as stored. Reported
+    /// verbatim: it is what Stripe last told us, and clients that show lifecycle
+    /// copy still need it.
     subscription_status: String,
+    /// Whether the subscription is live RIGHT NOW — the stored status AND an
+    /// unexpired period, the same rule the server gates on
+    /// ([`crate::business::credits::SUBSCRIPTION_ACTIVE_SQL`]). Gate on this, not
+    /// on `subscription_status`: a gifted subscription lapses by date with no
+    /// webhook to change its status, so the two disagree and only this one is
+    /// true.
+    subscription_active: bool,
+    /// End of the paid period, so the UI can say *when* it lapsed or renews.
+    current_period_end: Option<chrono::DateTime<chrono::Utc>>,
     credits_balance: i32,
     role: String,
 }
@@ -124,13 +134,16 @@ pub async fn list_mine(
     user: AuthUser,
 ) -> Result<Response, Response> {
     let pool = require_pool(&state)?;
-    let rows: Vec<OrgSummary> = sqlx::query_as(
-        "SELECT o.id, o.name, o.slug, o.plan, o.subscription_status, o.credits_balance, m.role
+    let rows: Vec<OrgSummary> = sqlx::query_as(&format!(
+        "SELECT o.id, o.name, o.slug, o.plan, o.subscription_status,
+                {active} AS subscription_active, o.current_period_end,
+                o.credits_balance, m.role
          FROM organizations o
          JOIN organization_members m ON m.org_id = o.id
          WHERE m.user_id = $1
          ORDER BY o.created_at",
-    )
+        active = crate::business::credits::SUBSCRIPTION_ACTIVE_SQL,
+    ))
     .bind(user.user_id)
     .fetch_all(pool)
     .await

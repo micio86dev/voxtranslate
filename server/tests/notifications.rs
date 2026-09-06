@@ -319,3 +319,122 @@ async fn endpoints_require_auth() {
         .unwrap();
     assert_eq!(r.status(), 401);
 }
+
+// ---------------------------------------------------------------------------
+// Expiring-subscription sweep
+// ---------------------------------------------------------------------------
+
+/// Create an org owned by a fresh user, with the given subscription period end.
+async fn org_ending_in(srv: &Server, days: i64) -> (Uuid, Uuid) {
+    let identity = GoogleIdentity {
+        google_id: format!("g-{}", Uuid::new_v4()),
+        email: format!("{}@x.com", Uuid::new_v4()),
+        name: "Owner".into(),
+        avatar_url: None,
+    };
+    let (u, _) = upsert_google_user(
+        &srv.pool,
+        &identity,
+        rust_decimal::Decimal::ZERO,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+    let org: Uuid = sqlx::query_scalar(
+        "INSERT INTO organizations (name, slug, owner_id, subscription_status, current_period_end)
+         VALUES ('Expiry Co', $1, $2, 'active', now() + ($3 * interval '1 day'))
+         RETURNING id",
+    )
+    .bind(format!("exp-{}", Uuid::new_v4().simple()))
+    .bind(u.id)
+    .bind(days as f64)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO organization_members (org_id, user_id, role) VALUES ($1, $2, 'owner')",
+    )
+    .bind(org)
+    .bind(u.id)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+    (org, u.id)
+}
+
+/// The sweep is deliberately GLOBAL — one pass claims every org that is due, which
+/// is what a background loop wants. That makes these two tests mutually
+/// destructive if they overlap: whichever calls first carries off the other's
+/// rows. Serialize them rather than weaken the assertions.
+static SWEEP: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+async fn claim(srv: &Server) -> Vec<Uuid> {
+    voxtranslate_server::notifications::claim_expiring_subscriptions(
+        &srv.pool,
+        voxtranslate_server::notifications::SUBSCRIPTION_EXPIRY_LEAD_DAYS,
+    )
+    .await
+    .unwrap()
+    .into_iter()
+    .map(|o| o.id)
+    .collect()
+}
+
+#[tokio::test]
+async fn expiring_subscriptions_are_claimed_once_per_period() {
+    let _serial = SWEEP.lock().await;
+    let Some(srv) = setup(false).await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+
+    let (soon, _) = org_ending_in(&srv, 3).await; // inside the 7-day lead
+    let (later, _) = org_ending_in(&srv, 40).await; // nothing to warn about yet
+    let (gone, _) = org_ending_in(&srv, -2).await; // already lapsed — too late to warn
+
+    let first = claim(&srv).await;
+    assert!(
+        first.contains(&soon),
+        "an org inside the lead window is warned"
+    );
+    assert!(
+        !first.contains(&later),
+        "an org far from renewal must not be warned"
+    );
+    assert!(
+        !first.contains(&gone),
+        "this warns about an ending subscription, not a dead one"
+    );
+
+    // The claim is the dedup: a second sweep the same period says nothing, so an
+    // hourly loop doesn't mail the owner every hour for a week.
+    let second = claim(&srv).await;
+    assert!(!second.contains(&soon), "one notice per period");
+}
+
+#[tokio::test]
+async fn renewing_rearms_the_warning_without_anyone_clearing_a_flag() {
+    let _serial = SWEEP.lock().await;
+    let Some(srv) = setup(false).await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    let (org, _) = org_ending_in(&srv, 3).await;
+    assert!(claim(&srv).await.contains(&org));
+    assert!(!claim(&srv).await.contains(&org));
+
+    // Renewal: the period moves forward. The marker stores the period it warned
+    // about, so it simply stops matching — no write site has to reset anything.
+    sqlx::query(
+        "UPDATE organizations SET current_period_end = now() + interval '4 days' WHERE id = $1",
+    )
+    .bind(org)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+    assert!(
+        claim(&srv).await.contains(&org),
+        "the next period gets its own warning"
+    );
+}

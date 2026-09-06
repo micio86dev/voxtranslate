@@ -186,6 +186,10 @@ pub struct Joined {
     /// `public` query param doesn't change it, so the client must display this,
     /// not its own toggle (#50: public/private mismatch).
     pub public: bool,
+    /// True when THIS join brought the room into existence (it had no entry yet).
+    /// Joining an existing room is not creating one — the distinction is what lets
+    /// a guest walk into a live public room without being able to open one.
+    pub created: bool,
 }
 
 /// Outcome of removing a connection from a room on teardown.
@@ -253,16 +257,17 @@ impl RoomManager {
     /// room's session id + the peers already present, or `Err(())` if full.
     #[allow(clippy::result_unit_err)] // `()` = "room full"; a richer error isn't needed
     pub fn join(&self, room_id: &str, peer: Peer, visibility: Visibility) -> Result<Joined, ()> {
-        let mut room = self
-            .rooms
-            .entry(room_id.to_string())
-            .or_insert_with(|| Room {
+        let mut created = false;
+        let mut room = self.rooms.entry(room_id.to_string()).or_insert_with(|| {
+            created = true;
+            Room {
                 visibility,
                 session_id: Uuid::new_v4(),
                 peers: Vec::new(),
                 whiteboard: Vec::new(),
                 game: None,
-            });
+            }
+        });
         // A reconnect reuses its peer id (the client keeps the same id across
         // socket drops). Evict any stale entry for that id BEFORE the capacity
         // check and push, so: relays reach the live socket (not a dead one),
@@ -299,6 +304,7 @@ impl RoomManager {
             session_id: room.session_id,
             existing,
             public: room.visibility == Visibility::Public,
+            created,
         })
     }
 
@@ -1025,6 +1031,28 @@ mod tests {
         // Non-member and unknown room both yield None (the 403 gate).
         assert!(rm.peer_snapshot("r", "ghost").is_none());
         assert!(rm.peer_snapshot("nope", "a").is_none());
+    }
+
+    #[test]
+    fn join_reports_whether_it_created_the_room() {
+        let rm = RoomManager::new();
+        let (a, _ra) = peer("a", "it");
+        // First peer in brings the room into existence.
+        assert!(rm.join("plaza", a, Visibility::Public).unwrap().created);
+        // Everyone after that joins an existing room.
+        let (b, _rb) = peer("b", "en");
+        let joined = rm.join("plaza", b, Visibility::Public).unwrap();
+        assert!(!joined.created);
+        // A reconnect of a peer already present is not a creation either.
+        let (b2, _rb2) = peer("b", "en");
+        assert!(!rm.join("plaza", b2, Visibility::Public).unwrap().created);
+        // Once the room empties, the next join creates it afresh.
+        let (c, _rc) = peer("c", "es");
+        assert!(
+            rm.join("empty-room", c, Visibility::Private)
+                .unwrap()
+                .created
+        );
     }
 
     #[test]
