@@ -166,7 +166,11 @@ async fn process(
     }
 
     // Charge transcription credits (best-effort; the transcript is already saved).
-    let cost = credits::transcription_credits(duration);
+    let cost = credits::transcription_credits(
+        duration,
+        state.config.deepgram_cost_per_minute,
+        state.config.deepgram_markup,
+    );
     if cost > 0 {
         let _ = credits::deduct_org_credits(
             pool,

@@ -268,9 +268,26 @@ pub fn recording_credits(duration_seconds: i64) -> i32 {
     ceil_div(duration_seconds, 60) as i32
 }
 
-/// Credits to charge for transcription: 5 per hour of audio, rounded up.
-pub fn transcription_credits(duration_seconds: i64) -> i32 {
-    (ceil_div(duration_seconds, 3600) * 5) as i32
+/// Credits to charge for batch transcription, derived from what it costs us.
+///
+/// This was a flat `5` credits an hour — $0.05 — with no cost written down
+/// anywhere behind it. Deepgram bills Nova-2 pre-recorded at **$0.258 an hour**
+/// (the org's own console, confirmed 2026-09-07), so every transcribed hour lost
+/// roughly $0.21: we recovered under a fifth of the bill. The giveaway was
+/// internal, and visible without knowing Deepgram's price at all — recording an
+/// hour cost 60 credits while transcribing that same hour cost 5.
+///
+/// Now it follows the same rule as every metered rate: `cost × (1 + markup)`,
+/// at 100 credits = $1, from `DEEPGRAM_COST_PER_MINUTE` and
+/// `DEEPGRAM_MARKUP_PERCENT`. Rounded UP, because this is one discrete job
+/// rather than a stream with a next tick to carry a remainder into.
+pub fn transcription_credits(duration_seconds: i64, cost_per_minute: f64, markup: f64) -> i32 {
+    let minutes = Decimal::from(duration_seconds.max(0)) / Decimal::from(60u64);
+    let price = minute_price_usd(cost_per_minute, markup) * minutes;
+    (price * Decimal::from(100u64))
+        .ceil()
+        .to_i32()
+        .unwrap_or(i32::MAX)
 }
 
 /// Credits to charge for a transcript translation: 2 per 1000 words, rounded up.
@@ -503,16 +520,41 @@ mod tests {
         assert_eq!(acc.carried_usd(), Decimal::ZERO);
     }
 
+    /// Deepgram's own rate for what we actually call: Nova-2 pre-recorded at
+    /// $0.258/hour. With the standard 25% markup an hour costs the customer
+    /// $0.3225 — 33 credits, against the flat 5 this used to charge.
+    #[test]
+    fn transcription_is_priced_off_the_real_deepgram_rate() {
+        const COST_PER_MIN: f64 = 0.0043; // $0.258/hour
+        assert_eq!(transcription_credits(3600, COST_PER_MIN, 0.25), 33);
+        assert_eq!(
+            transcription_credits(1800, COST_PER_MIN, 0.25),
+            17,
+            "half an hour"
+        );
+        assert_eq!(transcription_credits(0, COST_PER_MIN, 0.25), 0);
+        // A few seconds still costs a credit — rounded up, never given away.
+        assert_eq!(transcription_credits(5, COST_PER_MIN, 0.25), 1);
+        // The old flat rate recovered under a fifth of the bill.
+        assert!(transcription_credits(3600, COST_PER_MIN, 0.25) > 5 * 6);
+    }
+
+    /// A different contracted rate flows straight through — the number lives in
+    /// config, not in this function.
+    #[test]
+    fn transcription_follows_whatever_rate_is_configured() {
+        // Nova-3 multilingual list price, $0.0052/min = $0.312/hour.
+        assert_eq!(transcription_credits(3600, 0.0052, 0.25), 39);
+        // No markup: the customer pays exactly what we do.
+        assert_eq!(transcription_credits(3600, 0.0043, 0.0), 26);
+    }
+
     #[test]
     fn credit_rates_round_up() {
         assert_eq!(recording_credits(0), 0);
         assert_eq!(recording_credits(1), 1);
         assert_eq!(recording_credits(60), 1);
         assert_eq!(recording_credits(61), 2);
-
-        assert_eq!(transcription_credits(0), 0);
-        assert_eq!(transcription_credits(3600), 5);
-        assert_eq!(transcription_credits(3601), 10);
 
         assert_eq!(translation_credits(0), 0);
         assert_eq!(translation_credits(1000), 2);
