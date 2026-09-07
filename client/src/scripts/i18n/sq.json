@@ -54,6 +54,8 @@
   "tierBalance": "Bilanci: {balance}",
   "tierEstMinutes": "≈ {min} min",
   "tierTopUp": "Rimbush kreditet",
+  "guestLangLocked": "VoxTranslate gjithashtu flet {lang} — një llogari e zbllokon atë.",
+  "guestLangMore": "Nuk e gjeni gjuhën tuaj? Një llogari e zbllokon {count} më tepër.",
   "camMicDenied": "Qasja te kamera/mikrofoni u refuzua",
   "webrtcUnsupported": "Ky shfletues nuk mund të bëjë thirrje me video. Ju lutemi, hapeni lidhjen drejtpërdrejt në Chrome ose Safari.",
   "connecting": "Po lidhet…",

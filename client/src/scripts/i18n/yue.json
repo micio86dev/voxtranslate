@@ -54,6 +54,8 @@
   "tierBalance": "餘額：{balance}",
   "tierEstMinutes": "≈ {min} 分鐘",
   "tierTopUp": "增值積分",
+  "guestLangLocked": "VoxTranslate 仲支援 {lang} — 需要帳戶先可解鎖。",
+  "guestLangMore": "搵唔到你想講嘅語言？帳戶可以解鎖多 {count} 個。",
   "camMicDenied": "相機／麥克風存取被拒",
   "webrtcUnsupported": "呢個瀏覽器冇辦法打視像電話。請直接喺 Chrome 或者 Safari 打開個連結。",
   "connecting": "連接緊…",

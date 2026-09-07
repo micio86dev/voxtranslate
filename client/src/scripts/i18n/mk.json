@@ -54,6 +54,8 @@
   "tierBalance": "Состојба: {balance}",
   "tierEstMinutes": "≈ {min} мин",
   "tierTopUp": "Дополни кредити",
+  "guestLangLocked": "VoxTranslate исто така зборува {lang} — сметка го отклучува.",
+  "guestLangMore": "Не го најдете вашиот јазик? Сметка отклучува {count} повеќе.",
   "camMicDenied": "Пристапот до камера/микрофон е одбиен",
   "webrtcUnsupported": "Овој прелистувач не може да упатува видео повици. Ве молиме отворете ја врската директно во Chrome или Safari.",
   "connecting": "Се поврзува…",

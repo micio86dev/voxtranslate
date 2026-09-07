@@ -54,6 +54,8 @@
   "tierBalance": "Saldo: {balance}",
   "tierEstMinutes": "≈ {min} min",
   "tierTopUp": "Recargar créditos",
+  "guestLangLocked": "VoxTranslate también habla {lang} — una cuenta lo desbloquea.",
+  "guestLangMore": "¿No encuentras tu idioma? Una cuenta desbloquea {count} más.",
   "camMicDenied": "Acceso a cámara/micrófono denegado",
   "webrtcUnsupported": "Este navegador no puede hacer videollamadas. Abre el enlace directamente en Chrome o Safari.",
   "connecting": "Conectando…",

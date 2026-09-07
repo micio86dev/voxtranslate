@@ -54,6 +54,8 @@
   "tierBalance": "Sold: {balance}",
   "tierEstMinutes": "≈ {min} min",
   "tierTopUp": "Adaugă credite",
+  "guestLangLocked": "VoxTranslate vorbește și {lang} — un cont îl deblochează.",
+  "guestLangMore": "Nu găsiți limba? Un cont deblochează încă {count}.",
   "camMicDenied": "Acces la cameră/microfon refuzat",
   "webrtcUnsupported": "Acest browser nu poate efectua apeluri video. Deschide linkul direct în Chrome sau Safari.",
   "connecting": "Se conectează…",

@@ -54,6 +54,8 @@
   "tierBalance": "残高：{balance}",
   "tierEstMinutes": "約 {min} 分",
   "tierTopUp": "クレジットを補充",
+  "guestLangLocked": "VoxTranslateも{lang}を話します — アカウントで解除できます。",
+  "guestLangMore": "言語が見つからない？ アカウントで{count}個追加できます。",
   "camMicDenied": "カメラ／マイクへのアクセスが拒否されました",
   "webrtcUnsupported": "このブラウザではビデオ通話ができません。リンクを Chrome または Safari で直接開いてください。",
   "connecting": "接続中…",

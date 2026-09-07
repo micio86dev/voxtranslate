@@ -164,6 +164,31 @@ export function offeredLanguageCodes(engines: EngineInfo[]): Set<string> {
   return codes;
 }
 
+/** The browser language a guest is missing out on: the first entry of `browserLangs`
+ *  that some tier CAN output (`allSupported`) but their current pool cannot
+ *  (`unlocked`). Returns `null` when nothing is missing — every browser language is
+ *  already available, or none is supported at all — in which case the caller shows the
+ *  generic "more languages behind sign-in" note instead of naming one.
+ *
+ *  Locales arrive as BCP-47 tags (`uk-UA`, `yue-Hant-HK`); the catalogue's codes carry no
+ *  region, so the PRIMARY SUBTAG is the key. Split on `-` rather than `slice(0, 2)`: three
+ *  codes are longer than two letters (`yue` Cantonese, `fil` Filipino, `ckb` Sorani) and a
+ *  fixed-width truncation would silently drop exactly the rare languages this note exists
+ *  to advertise. */
+export function lockedBrowserLang(
+  browserLangs: readonly string[],
+  unlocked: readonly string[],
+  allSupported: readonly string[],
+): string | null {
+  const have = new Set(unlocked);
+  const supported = new Set(allSupported);
+  for (const tag of browserLangs) {
+    const code = tag.toLowerCase().split('-')[0];
+    if (supported.has(code) && !have.has(code)) return code;
+  }
+  return null;
+}
+
 /** A region heading plus its offered languages, for the grouped picker. */
 export interface RegionGroup {
   region: string;

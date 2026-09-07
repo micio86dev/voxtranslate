@@ -54,6 +54,8 @@
   "tierBalance": "Balanse: {balance}",
   "tierEstMinutes": "≈ {min} min",
   "tierTopUp": "Mag-top up ng credits",
+  "guestLangLocked": "VoxTranslate ay nagsasalita rin ng {lang} — ang account ay magbubukas nito.",
+  "guestLangMore": "Hindi mo makita ang iyong wika? Ang account ay magbubukas ng {count} pa.",
   "camMicDenied": "Tinanggihan ang access sa camera/mikropono",
   "webrtcUnsupported": "Hindi makakagawa ng video call ang browser na ito. Pakibuksan ang link nang direkta sa Chrome o Safari.",
   "connecting": "Kumokonekta…",

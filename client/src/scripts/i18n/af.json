@@ -54,6 +54,8 @@
   "tierBalance": "Saldo: {balance}",
   "tierEstMinutes": "≈ {min} min",
   "tierTopUp": "Vul krediete aan",
+  "guestLangLocked": "VoxTranslate spreek ook {lang} — 'n rekening ontsluit dit.",
+  "guestLangMore": "Kan jy jou taal nie vind nie? 'n Rekening ontsluit {count} meer.",
   "camMicDenied": "Toegang tot kamera/mikrofoon geweier",
   "webrtcUnsupported": "Hierdie blaaier kan nie video-oproepe maak nie. Maak die skakel asseblief direk in Chrome of Safari oop.",
   "connecting": "Verbind tans…",

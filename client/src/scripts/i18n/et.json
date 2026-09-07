@@ -54,6 +54,8 @@
   "tierBalance": "Saldo: {balance}",
   "tierEstMinutes": "≈ {min} min",
   "tierTopUp": "Lisa krediiti",
+  "guestLangLocked": "VoxTranslate räägib ka {lang} — konto avab selle.",
+  "guestLangMore": "Ei leia oma keelt? Konto avab {count} veel.",
   "camMicDenied": "Kaamera/mikrofoni juurdepääs keelatud",
   "webrtcUnsupported": "See brauser ei saa videokõnesid teha. Palun ava link otse Chrome'is või Safaris.",
   "connecting": "Ühendamine…",

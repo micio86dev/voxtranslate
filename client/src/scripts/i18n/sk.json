@@ -54,6 +54,8 @@
   "tierBalance": "Zostatok: {balance}",
   "tierEstMinutes": "≈ {min} min",
   "tierTopUp": "Doplniť kredity",
+  "guestLangLocked": "VoxTranslate tiež hovorí {lang} — účet to odomkne.",
+  "guestLangMore": "Nenašli ste svoj jazyk? Účet odomkne {count} ďalších.",
   "camMicDenied": "Prístup ku kamere/mikrofónu bol zamietnutý",
   "webrtcUnsupported": "Tento prehliadač nedokáže uskutočňovať videohovory. Otvorte odkaz priamo v prehliadači Chrome alebo Safari.",
   "connecting": "Pripája sa…",

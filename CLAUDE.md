@@ -69,6 +69,12 @@ Next step: add P2P video calling (WebRTC mesh, max 4) + auto-translated text cha
 - JSON over WS text frames for messages, binary frames for audio
 - Environment variables via dotenvy
 - Emoji reactions and hand-raise are relayed without translation
+- **i18n is all-or-nothing: every new user-facing string MUST ship in all 84 locales**
+  under `client/src/scripts/i18n/`. No English-only placeholders, no "main languages
+  first, the rest later" — a partial rollout leaves most users staring at a key name or
+  at English in an app whose entire promise is that it speaks their language. There is no
+  translation script in the repo; generate the missing locales (Groq) as part of the same
+  change and verify every file parses and carries the key.
 - SQL migrations MUST be idempotent: `CREATE TABLE/INDEX IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`, `DROP … IF EXISTS`. A non-idempotent `ADD COLUMN` (e.g. migration 044) fails and locks a DB whose schema has drifted ahead of the `_sqlx_migrations` ledger. NEVER edit an already-applied migration — `sqlx::migrate!` checksums them, so a content change breaks server boot.
 
 ## Branching & releases (Git Flow)

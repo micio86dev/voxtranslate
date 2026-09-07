@@ -54,6 +54,8 @@
   "tierBalance": "Staða: {balance}",
   "tierEstMinutes": "≈ {min} mín.",
   "tierTopUp": "Hlaða inneign",
+  "guestLangLocked": "VoxTranslate tala einnig {lang} — reikningur opnar það.",
+  "guestLangMore": "Finnur þú ekki þitt tungumál? Reikningur opnar {count} fleiri.",
   "camMicDenied": "Aðgangi að myndavél/hljóðnema hafnað",
   "webrtcUnsupported": "Þessi vafri getur ekki hringt myndsímtöl. Vinsamlegast opnaðu tengilinn beint í Chrome eða Safari.",
   "connecting": "Tengist…",

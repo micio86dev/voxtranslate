@@ -54,6 +54,8 @@
   "tierBalance": "Hadhaaga: {balance}",
   "tierEstMinutes": "≈ {min} daq",
   "tierTopUp": "Buuxi krediidh",
+  "guestLangLocked": "VoxTranslate sidoo kale waxay ku hadashaa {lang} — koonto ayaa furanaysa.",
+  "guestLangMore": "Ma helin luqaddaada? Koonto ayaa furanaysa {count} kale.",
   "camMicDenied": "Gelitaanka kamarada/makarafoonka waa la diiday",
   "webrtcUnsupported": "Browserkani ma samayn karo wicitaanno fiidiyow ah. Fadlan toos ugu fur xiriiriyaha Chrome ama Safari.",
   "connecting": "Waa la xidhiidhinayaa…",

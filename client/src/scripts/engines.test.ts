@@ -15,6 +15,7 @@ import {
   formatRate,
   getAvailableTiers,
   languagesByRegion,
+  lockedBrowserLang,
   loadEnginePref,
   offeredLanguageCodes,
   resolveEnginePref,
@@ -303,5 +304,35 @@ describe('preference persistence', () => {
     expect(engineDescKey('pro')).toBe('engineDescPro'); // OpenAI = the "Pro" tier
     expect(engineDescKey('premium')).toBe('engineDescPremium'); // Gemini = the "Premium" tier
     expect(engineDescKey('enterprise')).toBeNull(); // unknown → caller falls back to server desc
+  });
+});
+
+describe('lockedBrowserLang', () => {
+  const ALL = ['en', 'it', 'uk', 'el', 'yue'];
+  const UNLOCKED = ['en', 'it'];
+
+  it('names the browser language a signed-in user could have but a guest cannot', () => {
+    expect(lockedBrowserLang(['uk-UA', 'en-GB'], UNLOCKED, ALL)).toBe('uk');
+  });
+
+  it('matches a full multi-letter code before falling back to its two-letter prefix', () => {
+    // `yue` (Cantonese) must not be truncated to `yu` and lost.
+    expect(lockedBrowserLang(['yue-Hant-HK'], UNLOCKED, ALL)).toBe('yue');
+  });
+
+  it('returns null when every browser language is already available', () => {
+    expect(lockedBrowserLang(['it-IT', 'en-US'], UNLOCKED, ALL)).toBeNull();
+  });
+
+  it('returns null when the browser language is supported by no tier at all', () => {
+    expect(lockedBrowserLang(['xx-XX'], UNLOCKED, ALL)).toBeNull();
+  });
+
+  it('prefers the first locked language in browser-preference order', () => {
+    expect(lockedBrowserLang(['el-GR', 'uk-UA'], UNLOCKED, ALL)).toBe('el');
+  });
+
+  it('is null with no browser languages', () => {
+    expect(lockedBrowserLang([], UNLOCKED, ALL)).toBeNull();
   });
 });

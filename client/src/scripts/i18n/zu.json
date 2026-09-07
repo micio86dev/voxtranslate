@@ -54,6 +54,8 @@
   "tierBalance": "Ibhalansi: {balance}",
   "tierEstMinutes": "≈ imizuzu engu-{min}",
   "tierTopUp": "Faka amakhredithi",
+  "guestLangLocked": "VoxTranslate futhi lukhuluma {lang} — i-akhawunti ivula.",
+  "guestLangMore": "Ayikho ulimi lwakho? I-akhawunti ivula {count} eyengeziwe.",
   "camMicDenied": "Ukufinyelela kwekhamera/imakrofoni kunqatshiwe",
   "webrtcUnsupported": "Lesi siphequluli asikwazi ukwenza amakholi evidiyo. Sicela uvule isixhumanisi ngqo ku-Chrome noma i-Safari.",
   "connecting": "Kuyaxhumana…",

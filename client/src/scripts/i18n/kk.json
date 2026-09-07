@@ -54,6 +54,8 @@
   "tierBalance": "Баланс: {balance}",
   "tierEstMinutes": "≈ {min} мин",
   "tierTopUp": "Несие толтыру",
+  "guestLangLocked": "VoxTranslate {lang} тілін де сөйлейді — есептік жазба оны ашады.",
+  "guestLangMore": "Тілін таба алмайсыз ба? Есептік жазба {count} қосымша тіл ашады.",
   "camMicDenied": "Камера/микрофонға қол жеткізу қабылданбады",
   "webrtcUnsupported": "Бұл браузер бейне қоңырау шала алмайды. Сілтемені тікелей Chrome немесе Safari-де ашыңыз.",
   "connecting": "Қосылуда…",

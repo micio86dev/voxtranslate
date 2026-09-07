@@ -54,6 +54,8 @@
   "tierBalance": "Guthaben: {balance}",
   "tierEstMinutes": "≈ {min} Min.",
   "tierTopUp": "Guthaben aufladen",
+  "guestLangLocked": "VoxTranslate spricht auch {lang} — ein Konto schaltet es frei.",
+  "guestLangMore": "Sprache nicht gefunden? Ein Konto schaltet {count} weitere frei.",
   "camMicDenied": "Kamera-/Mikrofonzugriff verweigert",
   "webrtcUnsupported": "Dieser Browser kann keine Videoanrufe tätigen. Bitte öffne den Link direkt in Chrome oder Safari.",
   "connecting": "Verbinden…",

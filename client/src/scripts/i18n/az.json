@@ -54,6 +54,8 @@
   "tierBalance": "Balans: {balance}",
   "tierEstMinutes": "≈ {min} dəq",
   "tierTopUp": "Kredit yüklə",
+  "guestLangLocked": "VoxTranslate həmçinin {lang} dilində danışır — hesab açmaqla açılır.",
+  "guestLangMore": "Dilini tapa bilmirsən? Hesab {count} əlavə dil açır.",
   "camMicDenied": "Kamera/mikrofon girişi rədd edildi",
   "webrtcUnsupported": "Bu brauzer video zəng edə bilmir. Zəhmət olmasa, linki birbaşa Chrome və ya Safari-də açın.",
   "connecting": "Qoşulur…",

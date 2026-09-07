@@ -54,6 +54,8 @@
   "tierBalance": "બાકી રકમ: {balance}",
   "tierEstMinutes": "≈ {min} મિનિટ",
   "tierTopUp": "ક્રેડિટ ઉમેરો",
+  "guestLangLocked": "VoxTranslate પણ {lang} બોલે છે — એક ખાતું તેને અનલોક કરે છે.",
+  "guestLangMore": "તમારી ભાષા મળી નથી? એક ખાતું {count} વધુ અનલોક કરે છે.",
   "camMicDenied": "કૅમેરા/માઇક્રોફોન ઍક્સેસ નકારી",
   "webrtcUnsupported": "આ બ્રાઉઝર વિડિઓ કૉલ કરી શકતું નથી. કૃપા કરીને લિંકને સીધી Chrome અથવા Safari માં ખોલો.",
   "connecting": "કનેક્ટ થઈ રહ્યું છે…",

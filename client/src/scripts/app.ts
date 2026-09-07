@@ -16,6 +16,7 @@ import {
   formatRate,
   getAvailableTiers,
   languagesByRegion,
+  lockedBrowserLang,
   loadEnginePref,
   offeredLanguageCodes,
   resolveEnginePref,
@@ -1482,12 +1483,49 @@ function renderTierNote(tiers: EngineInfo[]): void {
     }
   }
 
+  appendGuestLanguageCta(parts);
+
   if (parts.length === 0) {
     tierNote.hidden = true;
     return;
   }
   tierNote.append(...parts);
   tierNote.hidden = false;
+}
+
+/** Tell a guest that the languages they can't see exist (spec 0102 + the guest rules in
+ *  CLAUDE.md). Guests are pinned to Standard, so `enginePool()` hides the other tiers AND
+ *  every language only those tiers speak — 55 of the 84 today. Without this note the
+ *  picker simply has no Ukrainian, no Greek, no Cantonese, and no explanation: the guest
+ *  concludes the product doesn't speak their language and leaves. Naming the language
+ *  their own browser is set to turns a dead end into the reason to sign up.
+ *
+ *  No-op for signed-in users (they already see everything their pool offers) and when
+ *  accounts are off entirely (`billing` false — there is nothing to sign in to). */
+function appendGuestLanguageCta(parts: Node[]): void {
+  if (!billing || auth.isLoggedIn()) return;
+  const unlocked = [...offeredLanguageCodes(enginePool())];
+  const all = [...offeredLanguageCodes(availableEngines)];
+  const behindSignIn = all.length - unlocked.length;
+  if (behindSignIn <= 0) return; // single-tier deployment: nothing is gated
+
+  const locked = lockedBrowserLang(navigator.languages ?? [], unlocked, all);
+  const line = document.createElement('span');
+  line.textContent = locked
+    ? t('guestLangLocked').replace('{lang}', langMeta(locked)?.native ?? locked)
+    : t('guestLangMore').replace('{count}', String(behindSignIn));
+
+  const link = document.createElement('a');
+  link.href = '#';
+  link.textContent = t('signIn');
+  link.addEventListener('click', (e) => {
+    e.preventDefault();
+    track('guest_lang_cta_clicked', { lang: locked ?? 'none' });
+    openSigninGate();
+  });
+
+  if (parts.length) parts.push(document.createElement('br'));
+  parts.push(line, document.createTextNode(' '), link);
 }
 
 // ============================================================================
