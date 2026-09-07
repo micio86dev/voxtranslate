@@ -20,6 +20,14 @@ const DEFAULT_GUEST_MAX_MINUTES: u64 = 10;
 #[derive(Clone)]
 pub struct Config {
     pub deepgram_key: String,
+    /// What Deepgram bills us per minute of batch transcription
+    /// (`DEEPGRAM_COST_PER_MINUTE`). The default is Nova-2 pre-recorded at
+    /// $0.258/hour — the rate on the org's own Deepgram console, not a list
+    /// price. Read the effective figure from Billing → Spend before changing it.
+    pub deepgram_cost_per_minute: f64,
+    /// Markup as a FRACTION (0.25 = 25%), from `DEEPGRAM_MARKUP_PERCENT`.
+    /// Same convention as the engine rates.
+    pub deepgram_markup: f64,
     pub groq_key: String,
     /// Real-time translation model (Groq), env-driven via `GROQ_TRANSLATION_MODEL`.
     /// Core pipeline setting that must work in guest mode too, so it lives here
@@ -1242,6 +1250,12 @@ impl Config {
         // (prerecorded) transcription of uploaded files, recordings, and voice messages,
         // which degrade gracefully when unset. Optional, never `require`d.
         let deepgram_key = env::var("DEEPGRAM_API_KEY").unwrap_or_default();
+        let deepgram_cost_per_minute = parse_or("DEEPGRAM_COST_PER_MINUTE", 0.0043f64);
+        let deepgram_markup = env::var("DEEPGRAM_MARKUP_PERCENT")
+            .ok()
+            .and_then(|v| v.trim().parse::<f64>().ok())
+            .unwrap_or(25.0)
+            / 100.0;
         let groq_key = require("GROQ_API_KEY")?;
         let translation_model = env::var("GROQ_TRANSLATION_MODEL")
             .ok()
@@ -1387,6 +1401,8 @@ impl Config {
 
         Ok(Self {
             deepgram_key,
+            deepgram_cost_per_minute,
+            deepgram_markup,
             groq_key,
             translation_model,
             port,
@@ -1742,6 +1758,8 @@ impl Config {
         let (user_rate_per_minute, user_rate_per_second) = compute_rate(0.008, 0.25);
         Self {
             deepgram_key: "dummy".into(),
+            deepgram_cost_per_minute: 0.0043,
+            deepgram_markup: 0.25,
             groq_key: "dummy".into(),
             translation_model: "openai/gpt-oss-20b".into(),
             port: 0,

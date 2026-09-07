@@ -165,6 +165,8 @@ mod guest_mode {
         let config = Config {
             push: None,
             deepgram_key: "d".into(),
+            deepgram_cost_per_minute: 0.0043,
+            deepgram_markup: 0.25,
             groq_key: "g".into(),
             translation_model: "openai/gpt-oss-20b".into(),
             port: 0,

@@ -134,6 +134,12 @@ pub async fn plans(State(state): State<AppState>) -> Result<Response, Response> 
                 "unit_amount": price["unit_amount"],
                 "currency": price["currency"],
                 "active": price["active"],
+                // The credit allowance each paid invoice grants, straight from
+                // `ORG_CREDITS_*`. Published here so the dashboard and the
+                // marketing site can show what a plan includes without either of
+                // them keeping its own copy of the number — the price list is
+                // already the one place both of them read.
+                "credits": org.grant_credits(plan, interval),
             })),
             // One unreachable price must not blank the whole catalogue: a partial list
             // is still true, and the caller can see what is missing.
@@ -163,6 +169,25 @@ pub async fn subscribe(
     let pool = require_pool(&state)?;
     require_role(pool, org_id, user.user_id, OWNER).await?;
     let (billing, org_cfg) = billing_and_org(&state)?;
+
+    // One live subscription at a time. A second checkout creates a second Stripe
+    // subscription whose paid period overlaps the first, so the customer is
+    // billed twice for the same days and the org gets two credit grants a month.
+    // Switching or cancelling a plan is the Billing Portal's job, and anyone with
+    // a subscription has a customer to open it with.
+    //
+    // The client hides the buttons too, but this is where it has to be true: the
+    // endpoint is reachable regardless of what the page decided to render.
+    if crate::business::credits::org_subscription_active(pool, org_id)
+        .await
+        .map_err(db_err)?
+    {
+        return Err((
+            StatusCode::CONFLICT,
+            "this organization already has an active subscription —              manage or change it from the billing portal",
+        )
+            .into_response());
+    }
 
     let plan = match body.plan.as_str() {
         p @ ("business" | "enterprise") => p,
@@ -538,9 +563,7 @@ async fn handle_event(
                     // Matching on the configured price ids — rather than on
                     // Stripe's `subscription` link, whose location has moved
                     // between API versions — keeps this decision on data we own.
-                    let price_id = obj
-                        .pointer("/lines/data/0/price/id")
-                        .and_then(|v| v.as_str());
+                    let price_id = invoice_line_price_id(obj);
                     let Some((plan, interval)) =
                         price_id.and_then(|p| org_cfg.plan_interval_for_price(p))
                     else {
@@ -691,6 +714,31 @@ async fn grant(
     Ok(())
 }
 
+/// The price id on an invoice's first line, wherever Stripe is putting it today.
+///
+/// Stripe has moved this field across API versions exactly as it moved the
+/// subscription link (see [`is_subscription_invoice`], which already checks
+/// every known location). The lesson was not applied here, and the cost was
+/// total: reading only the legacy `price.id` yielded `None` on a current API
+/// version, the grant was skipped, and **no subscription ever handed out its
+/// credits**. A customer paid for Enterprise and received nothing.
+///
+/// Newest first, so a current payload costs one lookup.
+fn invoice_line_price_id(obj: &Value) -> Option<&str> {
+    const PATHS: [&str; 3] = [
+        // 2025+ API versions.
+        "/lines/data/0/pricing/price_details/price",
+        // The shape this code was written against.
+        "/lines/data/0/price/id",
+        // Pre-Prices API, still emitted for very old subscriptions.
+        "/lines/data/0/plan/id",
+    ];
+    PATHS
+        .iter()
+        .find_map(|path| obj.pointer(path).and_then(|v| v.as_str()))
+        .filter(|id| !id.is_empty())
+}
+
 /// Does this invoice belong to a subscription?
 ///
 /// Stripe moved the link from the top-level `subscription` field to
@@ -737,5 +785,91 @@ fn map_status(status: Option<&str>) -> &'static str {
         Some("past_due") | Some("unpaid") => "past_due",
         Some("canceled") | Some("incomplete_expired") => "canceled",
         _ => "active",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    /// The payload that cost a customer their credits: a current-API invoice,
+    /// where the price lives under `pricing.price_details` and the legacy
+    /// `price.id` this code used to read simply is not there.
+    #[test]
+    fn reads_the_price_from_a_current_api_invoice() {
+        let inv = json!({
+            "lines": { "data": [ {
+                "pricing": { "price_details": { "price": "price_ent_monthly" } }
+            } ] }
+        });
+        assert_eq!(invoice_line_price_id(&inv), Some("price_ent_monthly"));
+    }
+
+    #[test]
+    fn still_reads_the_legacy_and_pre_prices_shapes() {
+        let legacy = json!({ "lines": { "data": [ { "price": { "id": "price_biz" } } ] } });
+        assert_eq!(invoice_line_price_id(&legacy), Some("price_biz"));
+
+        let ancient = json!({ "lines": { "data": [ { "plan": { "id": "plan_old" } } ] } });
+        assert_eq!(invoice_line_price_id(&ancient), Some("plan_old"));
+    }
+
+    /// A top-up invoice carries inline `price_data` and no price id at all. It
+    /// must stay unpriced: matching it to a plan would hand out a month of
+    /// subscription credits on top of the credits just bought.
+    #[test]
+    fn a_top_up_invoice_has_no_plan_price() {
+        let topup = json!({
+            "lines": { "data": [ { "price_data": { "unit_amount": 100 } } ] }
+        });
+        assert_eq!(invoice_line_price_id(&topup), None);
+        assert_eq!(invoice_line_price_id(&json!({})), None);
+        assert_eq!(
+            invoice_line_price_id(&json!({ "lines": { "data": [ { "price": { "id": "" } } ] } })),
+            None,
+            "an empty id is not an id"
+        );
+    }
+
+    /// The credit allowance published with each plan comes from `ORG_CREDITS_*`,
+    /// so the dashboard and the marketing site never keep their own copy of a
+    /// number that lives in config. An annual invoice grants twelve months at
+    /// once.
+    #[test]
+    fn published_plan_credits_come_from_config() {
+        let cfg = crate::config::OrgBillingConfig {
+            webhook_secret: String::new(),
+            success_url: String::new(),
+            cancel_url: String::new(),
+            portal_return_url: String::new(),
+            credit_unit_amount_cents: 100,
+            business_monthly_price_id: "p_bm".into(),
+            business_annual_price_id: "p_ba".into(),
+            enterprise_monthly_price_id: "p_em".into(),
+            enterprise_annual_price_id: "p_ea".into(),
+            business_monthly_credits: 1000,
+            enterprise_monthly_credits: 5000,
+        };
+        assert_eq!(cfg.grant_credits("business", "month"), 1000);
+        assert_eq!(cfg.grant_credits("enterprise", "month"), 5000);
+        assert_eq!(cfg.grant_credits("business", "year"), 12_000);
+        assert_eq!(cfg.grant_credits("enterprise", "year"), 60_000);
+        // An unknown plan falls back to the cheaper allowance rather than the
+        // richer one — a misconfiguration must not give credits away.
+        assert_eq!(cfg.grant_credits("platinum", "month"), 1000);
+    }
+
+    /// The current shape wins when several are present, so an API version that
+    /// emits both cannot resolve to a stale price.
+    #[test]
+    fn the_newest_shape_wins() {
+        let both = json!({
+            "lines": { "data": [ {
+                "pricing": { "price_details": { "price": "price_new" } },
+                "price": { "id": "price_old" }
+            } ] }
+        });
+        assert_eq!(invoice_line_price_id(&both), Some("price_new"));
     }
 }

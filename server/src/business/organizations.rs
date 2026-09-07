@@ -50,6 +50,13 @@ struct OrgSummary {
     subscription_active: bool,
     /// End of the paid period, so the UI can say *when* it lapsed or renews.
     current_period_end: Option<chrono::DateTime<chrono::Utc>>,
+    /// Whether Stripe knows this org. The Billing Portal exists only for a
+    /// customer and 409s without one, so the dashboard needs this to choose
+    /// between "manage your subscription" and "start one". An admin-gifted
+    /// subscription has no customer, which is precisely the case where offering
+    /// the portal strands the user: the button fails and the one that would let
+    /// them subscribe is hidden behind the same wrong signal.
+    has_stripe_customer: bool,
     credits_balance: i32,
     role: String,
 }
@@ -137,6 +144,7 @@ pub async fn list_mine(
     let rows: Vec<OrgSummary> = sqlx::query_as(&format!(
         "SELECT o.id, o.name, o.slug, o.plan, o.subscription_status,
                 {active} AS subscription_active, o.current_period_end,
+                (o.stripe_customer_id IS NOT NULL) AS has_stripe_customer,
                 o.credits_balance, m.role
          FROM organizations o
          JOIN organization_members m ON m.org_id = o.id

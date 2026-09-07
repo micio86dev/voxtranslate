@@ -256,7 +256,7 @@ async fn org_list_reports_a_lapsed_subscription_as_inactive() {
     .execute(&srv.pool)
     .await
     .unwrap();
-    let o = status_of(org, jwt, http, base(&srv)).await;
+    let o = status_of(org, jwt.clone(), http.clone(), base(&srv)).await;
     assert_eq!(
         o["subscription_status"], "active",
         "the stored status is reported verbatim — clients that need it still see it"
@@ -264,6 +264,25 @@ async fn org_list_reports_a_lapsed_subscription_as_inactive() {
     assert_eq!(
         o["subscription_active"], false,
         "but eligibility follows the date, matching the server-side gate"
+    );
+
+    // A gifted subscription has no Stripe behind it. The dashboard must be able
+    // to tell, or it offers the Billing Portal — which 409s without a customer —
+    // and hides the one button that would actually let the user subscribe.
+    assert_eq!(
+        o["has_stripe_customer"], false,
+        "no Stripe customer: this org must be routed to checkout, not the portal"
+    );
+
+    sqlx::query("UPDATE organizations SET stripe_customer_id = 'cus_test' WHERE id = $1")
+        .bind(org)
+        .execute(&srv.pool)
+        .await
+        .unwrap();
+    let o = status_of(org, jwt, http, base(&srv)).await;
+    assert_eq!(
+        o["has_stripe_customer"], true,
+        "once Stripe knows them, the portal is the right route"
     );
 }
 

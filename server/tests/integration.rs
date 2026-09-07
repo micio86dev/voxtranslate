@@ -26,6 +26,8 @@ fn make_state() -> (AppState, bool) {
             AppState::new(Config {
                 push: None,
                 deepgram_key: "dummy".into(),
+                deepgram_cost_per_minute: 0.0043,
+                deepgram_markup: 0.25,
                 groq_key: "dummy".into(),
                 translation_model: "openai/gpt-oss-20b".into(),
                 port: 0,
@@ -75,6 +77,8 @@ fn make_minimal_state() -> AppState {
     AppState::new(Config {
         push: None,
         deepgram_key: "dummy".into(),
+        deepgram_cost_per_minute: 0.0043,
+        deepgram_markup: 0.25,
         groq_key: "dummy".into(),
         translation_model: "openai/gpt-oss-20b".into(),
         port: 0,
@@ -527,6 +531,8 @@ async fn lone_speaker_opens_no_upstream_session() {
     let state = AppState::new(Config {
         push: None,
         deepgram_key: String::new(), // optional now: batch transcription only
+        deepgram_cost_per_minute: 0.0043,
+        deepgram_markup: 0.25,
         groq_key: groq,
         translation_model: "openai/gpt-oss-20b".into(),
         port: 0,
@@ -619,6 +625,8 @@ fn guest_config() -> Config {
     Config {
         push: None,
         deepgram_key: "dummy".into(),
+        deepgram_cost_per_minute: 0.0043,
+        deepgram_markup: 0.25,
         groq_key: "dummy".into(),
         translation_model: "openai/gpt-oss-20b".into(),
         port: 0,

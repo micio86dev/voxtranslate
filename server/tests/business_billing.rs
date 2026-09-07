@@ -334,6 +334,57 @@ async fn billing_endpoint_guards() {
         .unwrap();
     assert_eq!(bad_plan.status(), 400);
 
+    // A live subscription must not be able to buy a second one — the two paid
+    // periods would overlap and the customer would be billed twice for the same
+    // days. Changing or cancelling a plan is the Billing Portal's job.
+    sqlx::query(
+        "UPDATE organizations SET subscription_status = 'active',
+                current_period_end = now() + interval '30 days' WHERE id = $1",
+    )
+    .bind(org)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+    let duplicate = http
+        .post(format!(
+            "{}/api/business/organizations/{org}/subscription",
+            base(&srv)
+        ))
+        .bearer_auth(&jwt)
+        .json(&json!({ "plan": "enterprise", "interval": "month" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        duplicate.status(),
+        409,
+        "a second checkout while one plan is live must be refused"
+    );
+
+    // Once it lapses, subscribing again is exactly what the customer needs.
+    sqlx::query(
+        "UPDATE organizations SET current_period_end = now() - interval '1 day' WHERE id = $1",
+    )
+    .bind(org)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+    let after_lapse = http
+        .post(format!(
+            "{}/api/business/organizations/{org}/subscription",
+            base(&srv)
+        ))
+        .bearer_auth(&jwt)
+        .json(&json!({ "plan": "business", "interval": "month" }))
+        .send()
+        .await
+        .unwrap();
+    assert_ne!(
+        after_lapse.status(),
+        409,
+        "a lapsed org must be able to subscribe again"
+    );
+
     // Portal before any subscription → 409 (no Stripe customer yet).
     let portal = http
         .post(format!(
