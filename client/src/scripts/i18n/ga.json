@@ -54,6 +54,8 @@
   "tierBalance": "Iarmhéid: {balance}",
   "tierEstMinutes": "≈ {min} nóim",
   "tierTopUp": "Cuir creidmheasanna leis",
+  "guestLangLocked": "Bíonn VoxTranslate ag caint freisin {lang} — is féidir le cuntas é a oscailt.",
+  "guestLangMore": "Ní féidir leat do theanga a aimsiú? Is féidir le cuntas {count} eile a oscailt.",
   "camMicDenied": "Diúltaíodh rochtain ar an gceamara/mhicreafón",
   "webrtcUnsupported": "Ní féidir leis an mbrabhsálaí seo glaonna físe a dhéanamh. Oscail an nasc go díreach i Chrome nó Safari, le do thoil.",
   "connecting": "Á cheangal…",

@@ -54,6 +54,8 @@
   "tierBalance": "Saldoa: {balance}",
   "tierEstMinutes": "≈ {min} min",
   "tierTopUp": "Kargatu kredituak",
+  "guestLangLocked": "VoxTranslate-ek ere {lang} hitz egiten du — kontu batek desblokeatzen du.",
+  "guestLangMore": "Ez duzu zure hizkuntza aurkitu? Kontu batek {count} gehiago desblokeatzen du.",
   "camMicDenied": "Kamerarako/mikrofonorako sarbidea ukatu da",
   "webrtcUnsupported": "Nabigatzaile honek ezin du bideo-deirik egin. Mesedez, ireki esteka zuzenean Chrome edo Safari nabigatzailean.",
   "connecting": "Konektatzen…",

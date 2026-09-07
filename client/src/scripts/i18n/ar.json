@@ -54,6 +54,8 @@
   "tierBalance": "الرصيد: {balance}",
   "tierEstMinutes": "≈ {min} دقيقة",
   "tierTopUp": "شحن الرصيد",
+  "guestLangLocked": "VoxTranslate يتحدث أيضًا {lang} — يفتح الحساب ذلك.",
+  "guestLangMore": "لا تجد لغتك؟ يفتح الحساب {count} أخرى.",
   "camMicDenied": "تم رفض الوصول إلى الكاميرا/الميكروفون",
   "webrtcUnsupported": "لا يمكن لهذا المتصفح إجراء مكالمات فيديو. يُرجى فتح الرابط مباشرةً في Chrome أو Safari.",
   "connecting": "جارٍ الاتصال…",

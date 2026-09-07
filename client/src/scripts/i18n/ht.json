@@ -54,6 +54,8 @@
   "tierBalance": "Balans: {balance}",
   "tierEstMinutes": "≈ {min} min",
   "tierTopUp": "Ajoute kredi",
+  "guestLangLocked": "VoxTranslate pale {lang} tou — yon kont debloke li.",
+  "guestLangMore": "Pa jwenn lang ou? Yon kont debloke {count} plis.",
   "camMicDenied": "Aksè kamera/mikwofòn refize",
   "webrtcUnsupported": "Navigatè sa a pa ka fè apèl videyo. Tanpri ouvri lyen an dirèkteman nan Chrome oswa Safari.",
   "connecting": "K ap konekte…",

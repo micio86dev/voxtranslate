@@ -54,6 +54,8 @@
   "tierBalance": "Saldo: {balance}",
   "tierEstMinutes": "≈ {min} min",
   "tierTopUp": "Tegoed bijvullen",
+  "guestLangLocked": "VoxTranslate spreekt ook {lang} — een account ontsluit het.",
+  "guestLangMore": "Kun je je taal niet vinden? Een account ontsluit {count} meer.",
   "camMicDenied": "Toegang tot camera/microfoon geweigerd",
   "webrtcUnsupported": "Deze browser kan geen videogesprekken voeren. Open de link rechtstreeks in Chrome of Safari.",
   "connecting": "Verbinden…",

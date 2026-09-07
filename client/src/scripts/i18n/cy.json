@@ -54,6 +54,8 @@
   "tierBalance": "Balans: {balance}",
   "tierEstMinutes": "≈ {min} mun",
   "tierTopUp": "Ychwanegu credydau",
+  "guestLangLocked": "Mae VoxTranslate hefyd yn siarad {lang} — mae cyfrif yn ei ryddhau.",
+  "guestLangMore": "Nid ydych yn gallu dod o hyd i'ch iaith? Mae cyfrif yn ryddhau {count} mwy.",
   "camMicDenied": "Gwrthodwyd mynediad i'r camera/meicroffon",
   "webrtcUnsupported": "Ni all y porwr hwn wneud galwadau fideo. Agorwch y ddolen yn uniongyrchol yn Chrome neu Safari.",
   "connecting": "Yn cysylltu…",

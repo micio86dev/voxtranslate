@@ -54,6 +54,8 @@
   "tierBalance": "余额：{balance}",
   "tierEstMinutes": "约 {min} 分钟",
   "tierTopUp": "充值积分",
+  "guestLangLocked": "VoxTranslate 也能说 {lang} — 需要账号解锁。",
+  "guestLangMore": "找不到你的语言？账号可解锁多 {count} 种。",
   "camMicDenied": "摄像头/麦克风访问被拒绝",
   "webrtcUnsupported": "此浏览器无法进行视频通话。请直接在 Chrome 或 Safari 中打开链接。",
   "connecting": "连接中…",

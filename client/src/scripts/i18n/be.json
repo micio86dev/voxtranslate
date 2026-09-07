@@ -54,6 +54,8 @@
   "tierBalance": "Баланс: {balance}",
   "tierEstMinutes": "≈ {min} хв",
   "tierTopUp": "Папоўніць крэдыты",
+  "guestLangLocked": "VoxTranslate таксама гаварыць {lang} — аккаунт разблакуе яго.",
+  "guestLangMore": "Не можаце знайсці сваю мову? Аккаунт разблакуе яшчэ {count}.",
   "camMicDenied": "Доступ да камеры/мікрафона адхілены",
   "webrtcUnsupported": "Гэты браўзер не можа здзяйсняць відэазванкі. Калі ласка, адкрыйце спасылку напрамую ў Chrome або Safari.",
   "connecting": "Падключэнне…",

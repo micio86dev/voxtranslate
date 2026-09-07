@@ -54,6 +54,8 @@
   "tierBalance": "بیلانس: {balance}",
   "tierEstMinutes": "≈ {min} دقیقې",
   "tierTopUp": "د کرېډېټ ډکول",
+  "guestLangLocked": "VoxTranslate هم {lang} خبرې کوي — یو حساب یې خلاصوي.",
+  "guestLangMore": "ستاسو ژبه نه موندلای؟ یو حساب {count} نور خلاصوي.",
   "camMicDenied": "کامرې/مایکروفون ته لاسرسی رد شو",
   "webrtcUnsupported": "دا براوزر نشي کولی ویډیو کالونه وکړي. مهرباني وکړئ لینک مستقیم په Chrome یا Safari کې پرانیزئ.",
   "connecting": "نښلول کېږي…",

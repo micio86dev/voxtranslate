@@ -54,6 +54,8 @@
   "tierBalance": "Số dư: {balance}",
   "tierEstMinutes": "≈ {min} phút",
   "tierTopUp": "Nạp thêm tín dụng",
+  "guestLangLocked": "VoxTranslate cũng nói {lang} — một tài khoản mở khóa nó.",
+  "guestLangMore": "Không tìm thấy ngôn ngữ của bạn? Một tài khoản mở khóa {count} ngôn ngữ nữa.",
   "camMicDenied": "Quyền truy cập camera/micrô bị từ chối",
   "webrtcUnsupported": "Trình duyệt này không thể thực hiện cuộc gọi video. Vui lòng mở liên kết trực tiếp trong Chrome hoặc Safari.",
   "connecting": "Đang kết nối…",

@@ -54,6 +54,8 @@
   "tierBalance": "ቀሪ ሂሳብ፦ {balance}",
   "tierEstMinutes": "≈ {min} ደቂቃ",
   "tierTopUp": "ክሬዲት ይሙሉ",
+  "guestLangLocked": "VoxTranslate ይህን ቋንቋ {lang} እንደሚናገር ይወዳድር — አካውንት ይክፈት ይሆናል.",
+  "guestLangMore": "ቋንቋዎን አልተገኘም? አካውንት {count} ተጨማሪ ይክፈት ይሆናል.",
   "camMicDenied": "የካሜራ/ማይክሮፎን መዳረሻ ተከልክሏል",
   "webrtcUnsupported": "ይህ አሳሽ የቪዲዮ ጥሪ ማድረግ አይችልም። እባክዎ አገናኙን በቀጥታ በChrome ወይም Safari ይክፈቱት።",
   "connecting": "በማገናኘት ላይ…",

@@ -54,6 +54,8 @@
   "tierBalance": "Үлдэгдэл: {balance}",
   "tierEstMinutes": "≈ {min} мин",
   "tierTopUp": "Кредит цэнэглэх",
+  "guestLangLocked": "VoxTranslate мөн {lang} хэлээр ярьдаг — дансаар нээж чадна.",
+  "guestLangMore": "Хэлээ олохгүй байна уу? Данс нь {count} илүү хэл нээж өгнө.",
   "camMicDenied": "Камер/микрофоны хандалт татгалзлаа",
   "webrtcUnsupported": "Энэ хөтөч видео дуудлага хийж чадахгүй. Холбоосыг Chrome эсвэл Safari дээр шууд нээнэ үү.",
   "connecting": "Холбогдож байна…",

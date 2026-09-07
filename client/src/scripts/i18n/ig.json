@@ -54,6 +54,8 @@
   "tierBalance": "Ihe fọdụrụ: {balance}",
   "tierEstMinutes": "≈ {min} nkeji",
   "tierTopUp": "Tinyekwuo kredit",
+  "guestLangLocked": "VoxTranslate nwekwara asụsụ {lang} — akaụntụ nwere ike mepee ya.",
+  "guestLangMore": "Ị naghị achọta asụsụ gị? Akaụntụ nwere ike mepee {count} ọzọ.",
   "camMicDenied": "Ajụrụ ohere igwefoto/maịkrofoonu",
   "webrtcUnsupported": "Ihe nchọgharị a enweghị ike ịkpọ oku vidiyo. Biko mepee njikọ ahụ ozugbo na Chrome maọbụ Safari.",
   "connecting": "Na-ejikọ…",

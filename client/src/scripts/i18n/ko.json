@@ -54,6 +54,8 @@
   "tierBalance": "잔액: {balance}",
   "tierEstMinutes": "≈ {min}분",
   "tierTopUp": "크레딧 충전",
+  "guestLangLocked": "VoxTranslate도 {lang}을 말합니다 — 계정이 잠금을 해제합니다.",
+  "guestLangMore": "언어를 찾지 못하셨나요? 계정이 {count}개를 더 잠금 해제합니다.",
   "camMicDenied": "카메라/마이크 접근이 거부되었습니다",
   "webrtcUnsupported": "이 브라우저에서는 영상 통화를 할 수 없습니다. Chrome 또는 Safari에서 링크를 직접 열어 주세요.",
   "connecting": "연결 중…",

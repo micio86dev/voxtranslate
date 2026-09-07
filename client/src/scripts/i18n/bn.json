@@ -54,6 +54,8 @@
   "tierBalance": "ব্যালেন্স: {balance}",
   "tierEstMinutes": "≈ {min} মিনিট",
   "tierTopUp": "ক্রেডিট যোগ করুন",
+  "guestLangLocked": "VoxTranslate এছাড়াও {lang} ভাষায় কথা বলে — একটি অ্যাকাউন্ট এটি আনলক করে।",
+  "guestLangMore": "আপনার ভাষা খুঁজে পাচ্ছেন না? একটি অ্যাকাউন্ট {count}টি আরও আনলক করে।",
   "camMicDenied": "ক্যামেরা/মাইক্রোফোন অ্যাক্সেস প্রত্যাখ্যাত",
   "webrtcUnsupported": "এই ব্রাউজারটি ভিডিও কল করতে পারে না। অনুগ্রহ করে লিঙ্কটি সরাসরি Chrome বা Safari-তে খুলুন।",
   "connecting": "সংযোগ করা হচ্ছে…",

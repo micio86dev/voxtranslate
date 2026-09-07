@@ -54,6 +54,8 @@
   "tierBalance": "بیلنس: {balance}",
   "tierEstMinutes": "≈ {min} منٹ",
   "tierTopUp": "کریڈٹ بھریں",
+  "guestLangLocked": "VoxTranslate بھی {lang} بولتا ہے — ایک اکاؤنٹ اسے کھولتا ہے۔",
+  "guestLangMore": "کیا آپ اپنی زبان نہیں ڈھونڈ سکتے؟ ایک اکاؤنٹ {count} مزید کھولتا ہے۔",
   "camMicDenied": "کیمرہ/مائیکروفون تک رسائی مسترد",
   "webrtcUnsupported": "یہ براؤزر ویڈیو کالز نہیں کر سکتا۔ براہ کرم لنک کو براہ راست Chrome یا Safari میں کھولیں۔",
   "connecting": "جوڑا جا رہا ہے…",

@@ -54,6 +54,8 @@
   "tierBalance": "Atlikums: {balance}",
   "tierEstMinutes": "≈ {min} min",
   "tierTopUp": "Papildināt kredītus",
+  "guestLangLocked": "VoxTranslate arī runā {lang} — konts to atbloķē.",
+  "guestLangMore": "Nevarat atrast savu valodu? Konts atbloķē vēl {count}.",
   "camMicDenied": "Piekļuve kamerai/mikrofonam liegta",
   "webrtcUnsupported": "Šī pārlūkprogramma nevar veikt videozvanus. Lūdzu, atveriet saiti tieši pārlūkā Chrome vai Safari.",
   "connecting": "Savieno…",

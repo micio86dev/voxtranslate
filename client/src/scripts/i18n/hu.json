@@ -54,6 +54,8 @@
   "tierBalance": "Egyenleg: {balance}",
   "tierEstMinutes": "≈ {min} perc",
   "tierTopUp": "Kredit feltöltése",
+  "guestLangLocked": "A VoxTranslate szintén beszél {lang} — egy fiók feloldja.",
+  "guestLangMore": "Nem találod a nyelved? Egy fiók felold {count} további nyelvet.",
   "camMicDenied": "A kamera/mikrofon hozzáférése megtagadva",
   "webrtcUnsupported": "Ez a böngésző nem tud videohívásokat kezdeményezni. Kérjük, nyissa meg a hivatkozást közvetlenül a Chrome vagy a Safari böngészőben.",
   "connecting": "Csatlakozás…",

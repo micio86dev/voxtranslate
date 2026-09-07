@@ -54,6 +54,8 @@
   "tierBalance": "Saldo: {balance}",
   "tierEstMinutes": "≈ {min} min.",
   "tierTopUp": "Fyld kreditter op",
+  "guestLangLocked": "VoxTranslate taler også {lang} — en konto låser den op.",
+  "guestLangMore": "Kan du ikke finde dit sprog? En konto låser {count} mere op.",
   "camMicDenied": "Adgang til kamera/mikrofon nægtet",
   "webrtcUnsupported": "Denne browser kan ikke foretage videoopkald. Åbn linket direkte i Chrome eller Safari.",
   "connecting": "Opretter forbindelse…",

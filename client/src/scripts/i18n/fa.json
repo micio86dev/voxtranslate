@@ -54,6 +54,8 @@
   "tierBalance": "موجودی: {balance}",
   "tierEstMinutes": "≈ {min} دقیقه",
   "tierTopUp": "افزایش اعتبار",
+  "guestLangLocked": "VoxTranslate همچنین به {lang} صحبت می‌کند — حساب کاربری آن را باز می‌کند.",
+  "guestLangMore": "زبانتان را پیدا نکردید؟ حساب کاربری {count} زبان دیگر را باز می‌کند.",
   "camMicDenied": "دسترسی به دوربین/میکروفون رد شد",
   "webrtcUnsupported": "این مرورگر نمی‌تواند تماس تصویری برقرار کند. لطفاً پیوند را مستقیماً در Chrome یا Safari باز کنید.",
   "connecting": "در حال اتصال…",

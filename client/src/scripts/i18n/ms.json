@@ -54,6 +54,8 @@
   "tierBalance": "Baki: {balance}",
   "tierEstMinutes": "≈ {min} min",
   "tierTopUp": "Tambah kredit",
+  "guestLangLocked": "VoxTranslate juga bercakap {lang} — akaun membuka kunci.",
+  "guestLangMore": "Tak dapat cari bahasa anda? Akaun membuka {count} lagi.",
   "camMicDenied": "Akses kamera/mikrofon dinafikan",
   "webrtcUnsupported": "Pelayar ini tidak dapat membuat panggilan video. Sila buka pautan terus dalam Chrome atau Safari.",
   "connecting": "Menyambung…",

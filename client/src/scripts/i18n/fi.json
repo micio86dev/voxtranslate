@@ -54,6 +54,8 @@
   "tierBalance": "Saldo: {balance}",
   "tierEstMinutes": "≈ {min} min",
   "tierTopUp": "Lisää krediittejä",
+  "guestLangLocked": "VoxTranslate puhuu myös {lang} — tili avaa sen.",
+  "guestLangMore": "Et löydä kieltäsi? Tili avaa {count} muuta.",
   "camMicDenied": "Kameran/mikrofonin käyttö evätty",
   "webrtcUnsupported": "Tämä selain ei voi soittaa videopuheluita. Avaa linkki suoraan Chromessa tai Safarissa.",
   "connecting": "Yhdistetään…",

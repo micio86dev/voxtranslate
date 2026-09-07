@@ -54,6 +54,8 @@
   "tierBalance": "יתרה: {balance}",
   "tierEstMinutes": "≈ {min} דק׳",
   "tierTopUp": "טעינת קרדיטים",
+  "guestLangLocked": "VoxTranslate גם מדבר {lang} — חשבון פותח את זה.",
+  "guestLangMore": "לא מצאת את השפה שלך? חשבון פותח {count} עוד.",
   "camMicDenied": "הגישה למצלמה/מיקרופון נדחתה",
   "webrtcUnsupported": "דפדפן זה אינו יכול לבצע שיחות וידאו. אנא פתח את הקישור ישירות ב-Chrome או ב-Safari.",
   "connecting": "מתחבר…",

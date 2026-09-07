@@ -54,6 +54,8 @@
   "tierBalance": "ยอดคงเหลือ: {balance}",
   "tierEstMinutes": "≈ {min} นาที",
   "tierTopUp": "เติมเครดิต",
+  "guestLangLocked": "VoxTranslate ยังพูด {lang} — บัญชีจะปลดล็อคได้",
+  "guestLangMore": "ไม่พบภาษาของคุณ? บัญชีจะปลดล็อค {count} เพิ่ม",
   "camMicDenied": "ถูกปฏิเสธสิทธิ์การเข้าถึงกล้อง/ไมโครโฟน",
   "webrtcUnsupported": "เบราว์เซอร์นี้ไม่สามารถโทรวิดีโอได้ โปรดเปิดลิงก์โดยตรงใน Chrome หรือ Safari",
   "connecting": "กำลังเชื่อมต่อ…",

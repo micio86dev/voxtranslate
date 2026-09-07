@@ -54,6 +54,8 @@
   "tierBalance": "ຍອດເຫຼືອ: {balance}",
   "tierEstMinutes": "≈ {min} ນາທີ",
   "tierTopUp": "ເຕີມເຄຣດິດ",
+  "guestLangLocked": "VoxTranslate ຍັງເວົ້າ {lang} — ບັນຊີເປີດໃຊ້.",
+  "guestLangMore": "ບໍ່ພົບພາສາຂອງທ່ານ? ບັນຊີເປີດໃຊ້ {count} ພາສາອື່ນເພີ່ມເຕີມ.",
   "camMicDenied": "ການເຂົ້າໃຊ້ກ້ອງ/ໄມໂຄຣໂຟນຖືກປະຕິເສດ",
   "webrtcUnsupported": "ໂປຣແກຣມທ່ອງເວັບນີ້ບໍ່ສາມາດໂທວິດີໂອໄດ້. ກະລຸນາເປີດລິ້ງໂດຍກົງໃນ Chrome ຫຼື Safari.",
   "connecting": "ກຳລັງເຊື່ອມຕໍ່…",

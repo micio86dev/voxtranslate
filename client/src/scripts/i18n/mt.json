@@ -54,6 +54,8 @@
   "tierBalance": "Bilanċ: {balance}",
   "tierEstMinutes": "≈ {min} min",
   "tierTopUp": "Żid krediti",
+  "guestLangLocked": "VoxTranslate tgħid ukoll {lang} — kont jiftahha.",
+  "guestLangMore": "Ma tistax tfinda l-lingwa tiegħek? Kont jiftah {count} aktar.",
   "camMicDenied": "L-aċċess għall-kamera/mikrofonu ġie miċħud",
   "webrtcUnsupported": "Dan il-browser ma jistax jagħmel sejħiet bil-vidjo. Jekk jogħġbok iftaħ il-link direttament fi Chrome jew Safari.",
   "connecting": "Qed jgħaqqad…",

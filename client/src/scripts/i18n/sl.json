@@ -54,6 +54,8 @@
   "tierBalance": "Dobroimetje: {balance}",
   "tierEstMinutes": "≈ {min} min",
   "tierTopUp": "Dopolni dobroimetje",
+  "guestLangLocked": "VoxTranslate tudi govori {lang} — račun ga odklepa.",
+  "guestLangMore": "Ne najdete svojega jezika? Račun odklepa še {count}.",
   "camMicDenied": "Dostop do kamere/mikrofona je zavrnjen",
   "webrtcUnsupported": "Ta brskalnik ne more opravljati videoklicev. Povezavo odprite neposredno v brskalniku Chrome ali Safari.",
   "connecting": "Povezovanje …",

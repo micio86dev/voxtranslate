@@ -54,6 +54,8 @@
   "tierBalance": "Likutis: {balance}",
   "tierEstMinutes": "≈ {min} min.",
   "tierTopUp": "Papildyti kreditus",
+  "guestLangLocked": "VoxTranslate taip pat kalba {lang} — paskyra jį atveria.",
+  "guestLangMore": "Nėra savo kalbos? Paskyra atveria {count} daugiau.",
   "camMicDenied": "Prieiga prie kameros/mikrofono uždrausta",
   "webrtcUnsupported": "Ši naršyklė negali atlikti vaizdo skambučių. Atidarykite nuorodą tiesiogiai naršyklėje Chrome arba Safari.",
   "connecting": "Jungiamasi…",

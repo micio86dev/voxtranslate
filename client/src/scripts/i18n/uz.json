@@ -54,6 +54,8 @@
   "tierBalance": "Balans: {balance}",
   "tierEstMinutes": "≈ {min} daq",
   "tierTopUp": "Kredit to'ldirish",
+  "guestLangLocked": "VoxTranslate ham {lang} tilini so‘zlaydi — hisob ochish bilan bu imkoniyatni qo‘lga kiritasiz.",
+  "guestLangMore": "Tilni topa olmaysizmi? Hisob ochish bilan {count} ta boshqa til qo‘shasiz.",
   "camMicDenied": "Kamera/mikrofonga ruxsat berilmadi",
   "webrtcUnsupported": "Bu brauzer video qoʻngʻiroqlar qila olmaydi. Iltimos, havolani toʻgʻridan-toʻgʻri Chrome yoki Safari'da oching.",
   "connecting": "Ulanmoqda…",

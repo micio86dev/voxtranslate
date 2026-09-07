@@ -36,6 +36,32 @@ Next step: add P2P video calling (WebRTC mesh, max 4) + auto-translated text cha
   plus a Groq text fan-out, because a broadcast has many viewer languages and text-only
   subtitles
 
+## Guests (unauthenticated peers)
+
+- **Public rooms are account-only — to OPEN and to JOIN.** A room advertised to
+  everybody must not admit anonymous strangers: moderation needs an identity it can
+  report, ban and audit, and the Google account is that identity. Walk-in discovery was
+  shipped and withdrawn in 1.46.2; don't reintroduce it.
+- The gate keys off the room's **canonical visibility**, never off the client's
+  `?public=` query param, which is spoofable (#232). A guest claiming `public=false` on
+  a live public room is still refused with `login_required`. Enforcement is server-side
+  in `handle_peer`; the client gates are UX, not security.
+- **Private rooms are untouched**: a guest opens and joins them with no account. That is
+  the whole point of the split — keep it working when you touch the gate.
+- **Discovery stays open on purpose.** `GET /rooms` is unauthenticated and `/world`
+  lists live rooms to anyone; seeing real conversations is what prompts the sign-up.
+  Clicking one raises the sign-in gate via `&from=world`. That deep-link param must NOT
+  consume the pending room: signing in re-enters `enterHome()` in the same document, and
+  the pending room is what carries the new account into the room they clicked.
+- Guests are pinned server-side to the **default (Standard) engine**, org-sponsored
+  rooms included, so a crafted `?engine=premium` can't open a paid session nobody pays
+  for. There is no "guest picks a tier".
+- `GUEST_MAX_MINUTES` (default 10) caps **speaking time only** — cumulative per IP over
+  a 1h rolling window, so reconnecting does not reset it. Lifted when signed in OR when
+  the room is org-sponsored (the customer booked the meeting and pays for its guests).
+  A guest who only listens is never capped; that is a deliberate, quantified loss
+  leader, not an oversight.
+
 ## Conventions
 
 - Rust: idiomatic async, no unwrap in production paths, tracing for logs
@@ -43,6 +69,12 @@ Next step: add P2P video calling (WebRTC mesh, max 4) + auto-translated text cha
 - JSON over WS text frames for messages, binary frames for audio
 - Environment variables via dotenvy
 - Emoji reactions and hand-raise are relayed without translation
+- **i18n is all-or-nothing: every new user-facing string MUST ship in all 84 locales**
+  under `client/src/scripts/i18n/`. No English-only placeholders, no "main languages
+  first, the rest later" — a partial rollout leaves most users staring at a key name or
+  at English in an app whose entire promise is that it speaks their language. There is no
+  translation script in the repo; generate the missing locales (Groq) as part of the same
+  change and verify every file parses and carries the key.
 - SQL migrations MUST be idempotent: `CREATE TABLE/INDEX IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`, `DROP … IF EXISTS`. A non-idempotent `ADD COLUMN` (e.g. migration 044) fails and locks a DB whose schema has drifted ahead of the `_sqlx_migrations` ledger. NEVER edit an already-applied migration — `sqlx::migrate!` checksums them, so a content change breaks server boot.
 
 ## Branching & releases (Git Flow)
@@ -57,6 +89,14 @@ Project-wide rule — applies to this repo and every submodule (`dashboard/`, `w
   the Railway GitHub App installed for the workspace; without that consent the API
   records an inert source and the service just redeploys its cached image.
 - Merge with `--no-ff`; tag releases `vX.Y.Z`; merge a release into both `main` and `develop`.
+- **Merge order is `main` first, then back-merge into `develop`** — for releases and
+  hotfixes alike. Tag `main` at the merge, so the tag always names the exact tree that
+  shipped to production. Deploying staging first and production second is tempting (it
+  reads as safer) but it inverts the flow and leaves `main` briefly behind the code that
+  was already validated; verify on staging BEFORE opening the release/hotfix instead.
+- Before cutting anything, decide whether the work is a **hotfix** (off `main`, patch
+  bump) or a **release** (off `develop`, minor/major bump) — the branch it comes from is
+  what makes it one or the other.
 - After every merge, prune the closed branch locally **and** on the remote.
 - Each submodule is its own repo + deploy target; bump the parent's submodule pointer after a release.
 

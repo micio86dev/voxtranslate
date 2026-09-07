@@ -54,6 +54,8 @@
   "tierBalance": "សមតុល្យ៖ {balance}",
   "tierEstMinutes": "≈ {min} នាទី",
   "tierTopUp": "បញ្ចូលឥណទាន",
+  "guestLangLocked": "VoxTranslate ក៏និយាយ {lang} — គណនីមួយអាចបើកវា។",
+  "guestLangMore": "មិនអាចរកបានភាសារបស់អ្នកទេ? គណនីមួយអាចបើក {count} បន្ថែម។",
   "camMicDenied": "ការចូលប្រើកាមេរ៉ា/មីក្រូហ្វូនត្រូវបានបដិសេធ",
   "webrtcUnsupported": "កម្មវិធីរុករកនេះមិនអាចហៅជាវីដេអូបានទេ។ សូមបើកតំណភ្ជាប់ដោយផ្ទាល់នៅក្នុង Chrome ឬ Safari។",
   "connecting": "កំពុងភ្ជាប់…",

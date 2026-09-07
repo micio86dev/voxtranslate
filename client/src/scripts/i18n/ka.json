@@ -54,6 +54,8 @@
   "tierBalance": "ბალანსი: {balance}",
   "tierEstMinutes": "≈ {min} წთ",
   "tierTopUp": "კრედიტის შევსება",
+  "guestLangLocked": "VoxTranslate ასევე საუბარს {lang} — ანგარიში მას განბლოკავს.",
+  "guestLangMore": "ვერ იპოვეთ თქვენი ენა? ანგარიში განბლოკავს {count} დამატებით.",
   "camMicDenied": "კამერაზე/მიკროფონზე წვდომა უარყოფილია",
   "webrtcUnsupported": "ამ ბრაუზერს ვიდეოზარების განხორციელება არ შეუძლია. გთხოვთ, გახსენით ბმული პირდაპირ Chrome-ში ან Safari-ში.",
   "connecting": "მიმდინარეობს დაკავშირება…",

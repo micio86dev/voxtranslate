@@ -54,6 +54,8 @@
   "tierBalance": "Guthaben: {balance}",
   "tierEstMinutes": "≈ {min} Min",
   "tierTopUp": "Guthaben oplueden",
+  "guestLangLocked": "VoxTranslate sprecht och {lang} — e Kontounter schalt et op.",
+  "guestLangMore": "Keng Sprooch fonnt? E Kontounter schalt {count} méi op.",
   "camMicDenied": "Zougrëff op Kamera/Mikro verweigert",
   "webrtcUnsupported": "Dëse Browser kann keng Videoappeller maachen. Maach de Link wann ech gelift direkt am Chrome oder Safari op.",
   "connecting": "Verbannen…",

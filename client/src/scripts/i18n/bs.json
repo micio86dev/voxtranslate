@@ -54,6 +54,8 @@
   "tierBalance": "Stanje: {balance}",
   "tierEstMinutes": "≈ {min} min",
   "tierTopUp": "Dopuni kredite",
+  "guestLangLocked": "VoxTranslate također govori {lang} — račun ga otključava.",
+  "guestLangMore": "Ne možete pronaći svoj jezik? Račun otključava još {count}.",
   "camMicDenied": "Pristup kameri/mikrofonu odbijen",
   "webrtcUnsupported": "Ovaj preglednik ne može uspostavljati video pozive. Molimo otvorite link direktno u Chromeu ili Safariju.",
   "connecting": "Povezivanje…",
