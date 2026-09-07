@@ -285,36 +285,63 @@ pub fn insight_credits() -> i32 {
     3
 }
 
-/// Credits to deduct for one minute of a voice-assistant session.
-///
-/// Formula: `ceil(cost_per_minute × (1 + markup) × 100)` where 100 credits = $1.
-/// The markup is stored as a fraction (e.g. 0.25 = 25%). The ceiling ensures we
-/// never under-charge for fractional cents.
-///
-/// Example (default config): `ceil(0.30 × 1.25 × 100) = ceil(37.5) = 38`.
-pub fn voice_assistant_minute_credits(cfg: &crate::config::VoiceAssistantConfig) -> i32 {
-    let raw = cfg.cost_per_minute * (1.0 + cfg.markup) * 100.0;
-    raw.ceil() as i32
-}
-
-/// Credits charged per minute of a Dashboard Help Assistant session.
-///
-/// Formula: `ceil(cost_per_minute × (1 + markup) × 100)` where 100 credits = $1.
-/// Mirrors `voice_assistant_minute_credits` exactly — different default cost (0.18
-/// vs 0.30), same ceiling math.
-///
-/// Example (default config): `ceil(0.18 × 1.25 × 100) = ceil(22.5) = 23`.
-pub fn help_assistant_minute_credits(cfg: &crate::config::HelpAssistantConfig) -> i32 {
-    let raw = cfg.cost_per_minute * (1.0 + cfg.markup) * 100.0;
-    raw.ceil() as i32
-}
-
 /// What one minute of a per-minute feature costs the customer, in USD:
 /// `cost × (1 + markup)`. The price the credit math starts from.
 pub fn minute_price_usd(cost_per_minute: f64, markup: f64) -> Decimal {
     Decimal::from_f64_retain(cost_per_minute * (1.0 + markup))
         .unwrap_or(Decimal::ZERO)
         .round_dp(6)
+}
+
+/// Bills a CONSTANT per-minute price against a clock, in whole org credits.
+///
+/// Each call recomputes what the whole session owes from the elapsed time and
+/// subtracts what has already been charged. That is the point: nothing
+/// accumulates, so nothing drifts. Deriving a fixed per-tick amount by dividing
+/// the minute price first looks equivalent and is not — `$0.26 / 6` has no exact
+/// decimal form, so six of those ticks sum to just under $0.26 and the minute
+/// silently bills 25 credits instead of 26. Multiplying by the elapsed seconds
+/// before dividing keeps every whole minute exact and lets the intermediate
+/// ticks self-correct.
+///
+/// Use this where the rate is fixed and the clock is authoritative (the
+/// assistants). Where each tick's cost genuinely differs — a call meter scaling
+/// with who is speaking — use [`CreditAccumulator`] instead.
+#[derive(Debug)]
+pub struct MinuteRateMeter {
+    price_per_minute_usd: Decimal,
+    charged: i32,
+}
+
+impl MinuteRateMeter {
+    pub fn new(cost_per_minute: f64, markup: f64) -> Self {
+        Self {
+            price_per_minute_usd: minute_price_usd(cost_per_minute, markup),
+            charged: 0,
+        }
+    }
+
+    /// Credits now due, given the session's total elapsed seconds. Returns 0
+    /// while the next whole credit has not been earned yet.
+    pub fn due(&mut self, elapsed_secs: u64) -> i32 {
+        let owed_usd =
+            self.price_per_minute_usd * Decimal::from(elapsed_secs) / Decimal::from(60u64);
+        let owed_credits = (owed_usd * Decimal::from(100u64))
+            .floor()
+            .to_i32()
+            .unwrap_or(i32::MAX);
+        let due = owed_credits - self.charged;
+        if due <= 0 {
+            return 0;
+        }
+        self.charged = owed_credits;
+        due
+    }
+
+    /// Credits charged so far.
+    pub fn charged(&self) -> i32 {
+        self.charged
+    }
 }
 
 /// Turns a stream of fractional USD charges into whole org credits.
@@ -378,12 +405,11 @@ mod tests {
         Decimal::new(cents, 4) // e.g. usd(40) = $0.0040
     }
 
-    /// Regression: the assistants used to derive a per-tick charge as
-    /// `ceil_minute_credits * TICK / 60` in INTEGER arithmetic. The division
-    /// truncated the ceiling away and then some — a 10s tick of the help
-    /// assistant charged `23 * 10 / 60 = 3` credits, i.e. 18/minute against
-    /// 22.5 owed, a fifth of the revenue silently gone. Ticking the accumulator
-    /// bills the real price instead.
+    /// Regression: the assistants used to round a whole minute UP to an integer
+    /// number of credits and then divide that integer by the ticks in a minute.
+    /// Both steps lose money the same way — `ceil(22.5) = 23`, then
+    /// `23 * 10 / 60 = 3` credits a tick, i.e. 18 a minute against the 22.5
+    /// actually owed. A fifth of the revenue, gone quietly.
     #[test]
     fn per_tick_billing_matches_the_minute_price_it_is_derived_from() {
         let price = minute_price_usd(0.18, 0.25); // $0.225/min = 22.5 credits
@@ -393,11 +419,43 @@ mod tests {
         assert_eq!(charged, 22, "a minute of six 10s ticks");
         // The half credit is carried, not dropped and not rounded up.
         assert_eq!(acc.carried_usd(), Decimal::new(50, 4));
-        // The old integer path charged 18 for the same minute.
-        assert_eq!(
-            help_assistant_minute_credits(&test_ha_cfg()) * 10 / 60 * 6,
-            18
-        );
+
+        // The old arithmetic, spelled out here rather than kept alive as a
+        // production function nothing calls any more.
+        let old_ceiled_minute = (0.18f64 * 1.25 * 100.0).ceil() as i32; // 23
+        let old_per_minute = old_ceiled_minute * 10 / 60 * 6; // 18
+        assert_eq!(old_per_minute, 18, "the leak this test exists to prevent");
+        assert!(charged > old_per_minute);
+    }
+
+    #[test]
+    fn minute_rate_meter_bills_a_whole_minute_exactly() {
+        // $0.26/min = exactly 26 credits. Pre-dividing into six ticks loses one:
+        // 0.26/6 has no exact decimal form. Billing off the clock does not.
+        let mut m = MinuteRateMeter::new(0.20, 0.30);
+        let charged: i32 = (1..=6).map(|t| m.due(t * 10)).sum();
+        assert_eq!(charged, 26);
+        assert_eq!(m.charged(), 26);
+    }
+
+    #[test]
+    fn minute_rate_meter_carries_a_half_credit_into_the_next_minute() {
+        // $0.225/min = 22.5 credits.
+        let mut m = MinuteRateMeter::new(0.18, 0.25);
+        let first: i32 = (1..=6).map(|t| m.due(t * 10)).sum();
+        assert_eq!(first, 22, "the half credit is not charged early");
+        let second: i32 = (7..=12).map(|t| m.due(t * 10)).sum();
+        assert_eq!(first + second, 45, "and it arrives with the second minute");
+    }
+
+    #[test]
+    fn minute_rate_meter_never_bills_the_same_second_twice() {
+        let mut m = MinuteRateMeter::new(0.18, 0.25);
+        assert_eq!(m.due(60), 22);
+        // A repeated or out-of-order tick owes nothing more.
+        assert_eq!(m.due(60), 0);
+        assert_eq!(m.due(30), 0);
+        assert_eq!(m.charged(), 22);
     }
 
     #[test]
@@ -418,10 +476,11 @@ mod tests {
         assert_eq!(acc.carried_usd(), Decimal::new(50, 4));
     }
 
-    /// The point of the whole thing: over a long session the accumulator bills
-    /// what was used, while a per-minute ceiling bills measurably more.
+    /// Over a long session the accumulator bills exactly what was used — no
+    /// drift from repeated fractional additions, which is why it holds a
+    /// `Decimal` and not an `f64`.
     #[test]
-    fn accumulator_does_not_over_charge_the_way_a_per_minute_ceiling_does() {
+    fn accumulator_bills_a_long_session_exactly() {
         // The help assistant's default rate: $0.225/min → 22.5 credits/min.
         let per_minute = Decimal::new(2250, 4);
         let mut acc = CreditAccumulator::default();
@@ -429,22 +488,11 @@ mod tests {
         for _ in 0..30 {
             charged += acc.take(per_minute);
         }
-        // 30 min × 22.5 = 675 credits owed, and every one of them is charged —
-        // no drift, nothing carried.
+        // 30 min × 22.5 = 675 credits owed, and every one of them is charged.
         assert_eq!(charged, 675);
         assert_eq!(acc.carried_usd(), Decimal::ZERO);
-        // The same half hour under the per-minute ceiling: 15 credits more.
-        assert_eq!(help_assistant_minute_credits(&test_ha_cfg()) * 30, 690);
-    }
-
-    fn test_ha_cfg() -> crate::config::HelpAssistantConfig {
-        crate::config::HelpAssistantConfig {
-            api_key: String::new(),
-            model: String::new(),
-            cost_per_minute: 0.18,
-            markup: 0.25,
-            max_sessions: 1,
-        }
+        // Rounding each minute up instead would have taken 690.
+        assert_eq!((0.18f64 * 1.25 * 100.0).ceil() as i32 * 30, 690);
     }
 
     #[test]

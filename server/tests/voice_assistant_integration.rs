@@ -167,43 +167,58 @@ fn parse_realtime_event_known_types() {
 // Task 2.5 — Credit math tests (RED → GREEN)
 // ---------------------------------------------------------------------------
 
-/// 25% markup: cost_per_minute=0.30, markup=0.25 → 0.30 * 1.25 = 0.375 per minute.
-/// Credits formula: ceil(elapsed_minutes * cost_per_minute * (1 + markup) * credits_per_unit)
-/// where credits_per_unit is defined as 100 credits = $1 (i.e. credits/USD = 100).
-/// So per minute: ceil(0.375 * 100) = ceil(37.5) = 38 credits.
+/// What a minute costs the org, straight from `VOICE_ASSISTANT_COST_PER_MINUTE`
+/// and `VOICE_ASSISTANT_MARKUP_PERCENT`. 100 credits = $1.
+///
+/// Default: $0.30 × 1.25 = $0.375 a minute = 37.5 credits. The 37 whole credits
+/// earned are charged and the half is carried, so it lands with the next minute
+/// instead of being rounded up front.
 #[test]
-fn voice_assistant_credits_formula_25pct_markup() {
+fn a_minute_costs_what_the_config_says() {
     let cfg = test_cfg(0.30, 0.25, 10);
-    let credits = credits::voice_assistant_minute_credits(&cfg);
-    // 0.30 * 1.25 * 100 = 37.5 → ceil = 38
-    assert_eq!(credits, 38);
+    let mut m = credits::MinuteRateMeter::new(cfg.cost_per_minute, cfg.markup);
+    assert_eq!(m.due(60), 37);
+    assert_eq!(m.due(120), 38, "2 × 37.5 = 75 credits over two minutes");
+    assert_eq!(m.charged(), 75);
 }
 
-/// 0% markup: cost_per_minute=0.10 → 0.10 * 1.0 * 100 = 10.0 → ceil = 10
+/// No markup: $0.10 a minute = exactly 10 credits, nothing carried.
 #[test]
-fn voice_assistant_credits_formula_zero_markup() {
+fn a_zero_markup_price_bills_exactly() {
     let cfg = test_cfg(0.10, 0.0, 10);
-    let credits = credits::voice_assistant_minute_credits(&cfg);
-    assert_eq!(credits, 10);
+    let mut m = credits::MinuteRateMeter::new(cfg.cost_per_minute, cfg.markup);
+    assert_eq!(m.due(60), 10);
+    assert_eq!(m.due(120), 10);
 }
 
-/// 50% markup: cost_per_minute=0.20 → 0.20 * 1.5 * 100 = ~30.0.
-/// Due to IEEE 754, 0.20 * 1.5 = 0.30000000000000004 → * 100 = 30.000000000000004
-/// → ceil = 31. The formula uses f64 ceil so this is the correct result.
+/// Regression: `0.20 × 1.5` is `0.30000000000000004` in IEEE 754, and the old
+/// formula ceiled that to 31 credits for a $0.30 minute — a whole credit of
+/// float noise, billed to the customer every minute. The test that lived here
+/// asserted 31 and called it correct. Rounding the price to cents before
+/// converting is what makes it 30.
 #[test]
-fn voice_assistant_credits_formula_50pct_markup() {
+fn float_noise_in_the_markup_does_not_reach_the_invoice() {
     let cfg = test_cfg(0.20, 0.50, 10);
-    let credits = credits::voice_assistant_minute_credits(&cfg);
-    // ceil(0.20 * 1.50 * 100) in f64 = ceil(30.000000000000004) = 31
-    assert_eq!(credits, 31);
+    let mut m = credits::MinuteRateMeter::new(cfg.cost_per_minute, cfg.markup);
+    assert_eq!(m.due(60), 30, "$0.30 a minute is 30 credits, not 31");
+
+    let old_ceiled = (cfg.cost_per_minute * (1.0 + cfg.markup) * 100.0).ceil() as i32;
+    assert_eq!(old_ceiled, 31, "what the old formula produced");
 }
 
-/// Default config: cost=0.30, markup=0.25 → same as first test.
+/// A session is billed off its clock, so a partial minute costs a partial
+/// minute — no rounding a barely-started session up to a whole one.
 #[test]
-fn voice_assistant_credits_formula_default_config() {
-    // This mirrors the default VoiceAssistantConfig values shipped with the server.
+fn a_partial_minute_costs_a_partial_minute() {
     let cfg = test_cfg(0.30, 0.25, 10);
-    assert_eq!(credits::voice_assistant_minute_credits(&cfg), 38);
+    let mut m = credits::MinuteRateMeter::new(cfg.cost_per_minute, cfg.markup);
+    assert_eq!(
+        m.due(10),
+        6,
+        "10s of a 37.5-credit minute = 6.25 → 6 charged"
+    );
+    assert_eq!(m.due(20), 6, "20s = 12.5 → 12 total, 6 more");
+    assert_eq!(m.charged(), 12);
 }
 
 // ---------------------------------------------------------------------------
@@ -396,16 +411,23 @@ fn missing_token_produces_unauthorized_status() {
     assert_eq!(StatusCode::UNAUTHORIZED.as_u16(), 401);
 }
 
-/// Subscription check: `org_subscription_active` returns Ok(false) on an unknown
-/// org (no DB row) → handler returns 402.
-/// Ignored: requires a live database.
+/// An org with no row at all has no subscription — the gate fails closed.
+///
+/// The handler no longer answers this with a 402: a browser cannot read the
+/// status of a failed WebSocket upgrade, so the refusal travels in-band (see
+/// `business::ws_gate` and the help-assistant integration tests). What is
+/// asserted here is the predicate underneath, which both paths share.
+///
+/// DB-gated by the same skip-if-absent pattern as the rest of the suite rather
+/// than `#[ignore]`d, so it actually runs wherever a database exists.
 #[tokio::test]
-#[ignore = "requires live DATABASE_URL pointing to a local test DB"]
-async fn inactive_subscription_returns_402() {
-    let url = std::env::var("DATABASE_URL").expect("DATABASE_URL");
+async fn an_unknown_org_has_no_active_subscription() {
+    let Ok(url) = std::env::var("DATABASE_URL") else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
     let pool = voxtranslate_server::db::connect(&url).await.unwrap();
     let unknown_org = uuid::Uuid::new_v4();
-    // No org row → subscription_active returns false.
     let active = credits::org_subscription_active(&pool, unknown_org)
         .await
         .unwrap();
