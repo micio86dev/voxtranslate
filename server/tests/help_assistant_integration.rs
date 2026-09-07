@@ -8,7 +8,7 @@
 //! implemented in task 1.10. Until then some tests here compile but the handler
 //! ones are exercised only through the Axum test client.
 
-use voxtranslate_server::business::credits::help_assistant_minute_credits;
+use voxtranslate_server::business::credits::MinuteRateMeter;
 use voxtranslate_server::config::HelpAssistantConfig;
 use voxtranslate_server::engine::help_assistant::{capacity_full_error, try_acquire};
 
@@ -87,19 +87,26 @@ async fn semaphore_cap_is_enforced() {
     assert!(p3.is_none(), "third acquire on cap=2 semaphore should fail");
 }
 
-/// credits_formula: cost_per_minute × (1 + markup) × 100 ceiling.
-/// Default params: ceil(0.18 × 1.25 × 100) = ceil(22.5) = 23.
+/// A minute costs `cost_per_minute × (1 + markup)`, at 100 credits = $1.
+/// Default params: $0.18 × 1.25 = $0.225 = 22.5 credits, so 22 are charged and
+/// the half is carried rather than rounded up.
 #[test]
 fn credits_formula_default() {
     let cfg = test_cfg(0.18, 0.25, 10);
-    assert_eq!(help_assistant_minute_credits(&cfg), 23);
+    let mut m = MinuteRateMeter::new(cfg.cost_per_minute, cfg.markup);
+    assert_eq!(m.due(60), 22);
+    assert_eq!(m.due(120), 23, "the carried half arrives with minute two");
+    assert_eq!(m.charged(), 45);
 }
 
-/// Triangulation: ceil(0.15 × 1.25 × 100) = ceil(18.75) = 19.
+/// Triangulation: $0.15 × 1.25 = $0.1875 = 18.75 credits a minute.
 #[test]
 fn credits_formula_triangulation() {
     let cfg = test_cfg(0.15, 0.25, 10);
-    assert_eq!(help_assistant_minute_credits(&cfg), 19);
+    let mut m = MinuteRateMeter::new(cfg.cost_per_minute, cfg.markup);
+    assert_eq!(m.due(60), 18);
+    assert_eq!(m.due(240), 57, "4 × 18.75 = 75 credits over four minutes");
+    assert_eq!(m.charged(), 75);
 }
 
 // ---------------------------------------------------------------------------

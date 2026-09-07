@@ -233,19 +233,17 @@ async fn relay_loop(
     let start = Instant::now();
     let mut total_credits: i32 = 0;
 
-    // Bill the real price per tick, carrying the sub-credit remainder.
+    // Bill the session's constant per-minute price against its own clock.
     //
-    // This used to be `ceil_minute_credits * TICK_SECS / 60` in INTEGER
-    // arithmetic, floored at 1 to stop it reaching zero — which treated the
-    // symptom. The truncation threw away the ceiling and then some: a 10s tick
-    // charged `38 * 10 / 60 = 6` credits, i.e. 36 a minute against the 37.5 the
-    // session costs. Neither rounding a whole minute up nor truncating a tick
-    // down is right — accumulate and hand over whole credits as they accrue
-    // (see `CreditAccumulator`).
-    let usd_per_tick = credits::minute_price_usd(deps.config.cost_per_minute, deps.config.markup)
-        * rust_decimal::Decimal::from(TICK_SECS)
-        / rust_decimal::Decimal::from(60u64);
-    let mut credit_meter = credits::CreditAccumulator::default();
+    // This used to `ceil` a whole minute into credits and then integer-divide by
+    // the ticks in a minute — both steps rounded the customer's way, charging 18
+    // credits for a minute worth 22.5. Deriving a fixed per-tick amount instead
+    // is no better: `$0.26 / 6` has no exact decimal form, so six ticks sum to
+    // just under the minute and quietly drop a credit. `MinuteRateMeter` asks
+    // what the elapsed time owes and subtracts what it has already taken, so
+    // nothing accumulates and nothing drifts.
+    let mut credit_meter =
+        credits::MinuteRateMeter::new(deps.config.cost_per_minute, deps.config.markup);
 
     let mut tick = interval(Duration::from_secs(TICK_SECS));
     tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
@@ -357,11 +355,13 @@ async fn relay_loop(
             // ---- Credit tick ------------------------------------------------
             _ = tick.tick() => {
                 let elapsed_s = start.elapsed().as_secs();
-                let credits_per_tick = credit_meter.take(usd_per_tick);
-                if credits_per_tick == 0 {
-                    continue; // still under a cent; it rolls into the next tick
-                }
+                // Charge only once a whole credit has accrued; below that the
+                // cost rolls into the next tick. The client still gets its cost
+                // tick either way — the session is running, and a panel that
+                // stops updating reads as a hang.
+                let credits_per_tick = credit_meter.due(elapsed_s);
                 total_credits += credits_per_tick;
+                if credits_per_tick > 0 {
 
                 // Deduct from org pool.
                 match credits::deduct_org_credits(
@@ -388,17 +388,12 @@ async fn relay_loop(
                         break;
                     }
                     Ok(credits::OrgCharge::Charged { balance_after }) => {
-                        // Emit cost_tick to browser.
-                        let cost_display = format_cost_display(total_credits);
-                        let tick_msg =
-                            build_cost_tick_json(elapsed_s, total_credits, &cost_display);
-                        let _ = browser.send(WsMessage::Text(tick_msg.into())).await;
                         tracing::debug!(
                             org_id = %deps.org_id,
                             elapsed_s,
                             total_credits,
                             balance_after,
-                            "voice_assistant: cost_tick"
+                            "voice_assistant: charged"
                         );
                     }
                     Err(e) => {
@@ -406,6 +401,11 @@ async fn relay_loop(
                         // Fail-open: log and continue rather than killing the session on a db hiccup.
                     }
                 }
+                }
+
+                let cost_display = format_cost_display(total_credits);
+                let tick_msg = build_cost_tick_json(elapsed_s, total_credits, &cost_display);
+                let _ = browser.send(WsMessage::Text(tick_msg.into())).await;
             }
         }
     }
