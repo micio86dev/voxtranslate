@@ -54,7 +54,12 @@ test('world: lists joinable rooms, caps the batch, and joins', async ({ browser 
   );
   expect(overflow, 'page must not scroll horizontally at 440px').toBe(true);
 
-  // Tapping a card hands the room to the SPA, which opens pre-join.
+  // Tapping a card hands the room to the SPA, which opens pre-join. This backend is
+  // guest-only (no GOOGLE_CLIENT_ID/JWT_SECRET → `config.billing` is None), so accounts
+  // are off and there is nobody to sign in as. With billing ON — production — a public
+  // room is account-only and this same tap raises the sign-in gate instead; the server
+  // refuses the join with `login_required` either way (see billing.rs
+  // `guest_is_refused_from_every_public_room`).
   await cards.first().click();
   await page.waitForURL(/\/\?room=/);
   await page.waitForSelector('#prejoin:not(.hidden)', { timeout: 8000 });

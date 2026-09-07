@@ -1133,8 +1133,9 @@ mod safety_ws {
         assert_eq!(f["type"], "error");
         assert_eq!(f["code"], "banned");
 
-        // A guest can't OPEN a public room — `pubr` doesn't exist yet, so this join
-        // would create it, and creating public rooms stays account-only.
+        // A guest can't reach a public room at all — opening or joining. `pubr` doesn't
+        // exist yet, so this one would create it; the walk-in case is covered by
+        // `guest_is_refused_from_every_public_room`.
         let pub_guest = first_frame(addr, "room=pubr&lang=en&id=g1&public=true").await;
         assert_eq!(pub_guest["type"], "error");
         assert_eq!(pub_guest["code"], "login_required");
@@ -1230,11 +1231,12 @@ mod safety_ws {
     }
 
     #[tokio::test]
-    async fn guest_may_join_a_live_public_room_but_not_open_one() {
-        // Talk to the World is meant to be walk-in: a guest joins a LIVE public room
-        // (the room already exists, an account created it) and the canonical-visibility
-        // check from #232 no longer bounces them. Opening a public room is still
-        // account-only, so the same guest creating one by code is rejected.
+    async fn guest_is_refused_from_every_public_room() {
+        // Public rooms are account-only, end to end: a guest may neither OPEN one nor
+        // WALK INTO a live one. Anonymous strangers in a room advertised to everybody is
+        // a safety and privacy problem, so the price of entry is a Google account — an
+        // identity that can be reported, banned and audited. Private rooms are
+        // unaffected: an invited guest still joins those without an account.
         let Some(srv) = setup().await else {
             eprintln!("skipping — no DATABASE_URL");
             return;
@@ -1280,18 +1282,28 @@ mod safety_ws {
             }
         }
 
-        // The guest walks into the live public room — by code, whichever `public`
-        // param they send (the room's canonical visibility is what counts).
-        let joined = first_frame(addr, "room=spoofr&lang=en&id=walkin&public=false").await;
-        assert_eq!(joined["type"], "room_joined");
-        assert_eq!(joined["public"], true, "canonical visibility is reported");
-        let joined2 = first_frame(addr, "room=spoofr&lang=en&id=walkin2&public=true").await;
-        assert_eq!(joined2["type"], "room_joined");
+        // A guest cannot walk into the live public room. The room's CANONICAL
+        // visibility decides (#232), so claiming `public=false` on a public room does
+        // not sneak them past the gate.
+        let spoofed = first_frame(addr, "room=spoofr&lang=en&id=walkin&public=false").await;
+        assert_eq!(spoofed["type"], "error");
+        assert_eq!(
+            spoofed["code"], "login_required",
+            "a public room's canonical visibility gates the join, not the client's param"
+        );
+        let honest = first_frame(addr, "room=spoofr&lang=en&id=walkin2&public=true").await;
+        assert_eq!(honest["type"], "error");
+        assert_eq!(honest["code"], "login_required");
 
-        // Opening one is still account-only: a room code nobody is in yet.
+        // Opening one is account-only too: a room code nobody is in yet.
         let opened = first_frame(addr, "room=guestmade&lang=en&id=g3&public=true").await;
         assert_eq!(opened["type"], "error");
         assert_eq!(opened["code"], "login_required");
+
+        // The guest is turned away from the PUBLIC room, not from guest access as such:
+        // a private room still lets them straight in.
+        let private = first_frame(addr, "room=guestprivate&lang=en&id=g4&public=false").await;
+        assert_eq!(private["type"], "room_joined");
 
         drop(host_ws);
     }
