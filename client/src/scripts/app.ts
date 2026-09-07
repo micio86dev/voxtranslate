@@ -1508,6 +1508,12 @@ let pendingInviteRoom = parseRoomParam(location.search);
 // reuses the home create flow rather than shipping a second one. Read at load,
 // consumed once in enterHome.
 let pendingPublicIntent = new URLSearchParams(location.search).has('public');
+// `&from=world` marks a room browsed on the public-discovery page, so the home screen
+// can tell a PUBLIC room from a private invite before it knows the room's real
+// visibility. Public rooms are account-only, so a guest arriving this way gets the
+// sign-in gate instead of pre-join — the server refuses the join either way, but
+// bouncing them here spares them the camera preview first.
+const pendingInviteFromWorld = new URLSearchParams(location.search).get('from') === 'world';
 // Entry URL captured at load (before any client-side nav) so join analytics can tell how the
 // user arrived: `&src=meeting` (scheduled), `?room=` (shared invite link), or direct.
 const entrySearch = location.search;
@@ -4706,16 +4712,24 @@ function enterHome(): void {
   // Invite deep-link (spec 0082): the FIRST time we reach home carrying an invite
   // code, go straight to the pre-join preview. Consumed once, so leaving a call back
   // to home — or a guest who had to sign in first — doesn't loop back into pre-join.
-  // Private by default: a guest can join a private invited room OR a live public one
-  // browsed from /world, and the server's canonical visibility (RoomJoined.public)
-  // corrects the label on join. Public discovery is walk-in — seeing real conversations
-  // is what makes someone sign up, so the guest reaches pre-join like anyone else and
-  // is capped by GUEST_MAX_MINUTES. OPENING a public room still needs an account, which
-  // `enterBtn` and the visibility toggle gate; the server is the enforcement.
+  // Private by default: a guest can join a private invited room, and the server's
+  // canonical visibility (RoomJoined.public) corrects the label on join. A room browsed
+  // from /world is public by construction and public rooms are account-only, so a guest
+  // arriving with `from=world` is sent to the sign-in gate instead. The server is the
+  // enforcement (it refuses the join with `login_required`); this only saves the guest a
+  // pointless trip through the camera preview.
   if (pendingInviteRoom) {
-    const room = pendingInviteRoom;
-    pendingInviteRoom = null;
-    void goPrejoin(room, false);
+    if (pendingInviteFromWorld && billing && !auth.isLoggedIn()) {
+      // Deliberately NOT consumed: signing in calls `enterHome()` again in the same
+      // document (no reload, see `onGoogleCode`), so keeping the room pending is what
+      // carries the guest into it once they have an account. Consuming it here would
+      // land them on a bare home screen having forgotten what they clicked.
+      openSigninGate();
+    } else {
+      const room = pendingInviteRoom;
+      pendingInviteRoom = null;
+      void goPrejoin(room, false);
+    }
   } else {
     // First-visit home wizard — skipped while the blocking 18+/ToS consent gate is up (the
     // consent-accept handler re-runs this once it closes) or when home isn't the visible screen.
