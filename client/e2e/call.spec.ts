@@ -3,7 +3,11 @@ import { resolve } from 'node:path';
 import { openPage, closePage, joinCall, NodePeer, sleep } from './helpers';
 
 // Playwright runs with cwd = client/.
-const SAMPLE = resolve(process.cwd(), '../server/tests/fixtures/sample.webm');
+// PCM16 @ 24 kHz, not WebM: `speak()` streams the file as raw binary frames and the live
+// tiers read PCM (CLAUDE.md — the universal capture format). The WebM fixture went away
+// with the Deepgram-era cases in fb7f337d and this reference was left behind, which the
+// suite never caught because e2e is secret-gated and has not run in CI.
+const SAMPLE = resolve(process.cwd(), '../server/tests/fixtures/sample_24k.pcm');
 
 test('call: WebRTC video, translated chat, subtitles, controls, leave', async ({ browser }) => {
   const room = 'call' + Math.floor(Math.random() * 1e6);

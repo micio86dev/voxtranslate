@@ -17,14 +17,18 @@ export default defineConfig({
   globalTeardown: './e2e/global-teardown.ts',
   // Build a coverage-instrumented bundle and serve it. (The Rust backend on
   // :3001 must be running separately — it needs DEEPGRAM/GROQ keys.)
-  webServer: {
+  // Skipped when E2E_BASE points at a server you started yourself. `astro preview`
+  // daemonizes in this version: the command returns immediately, which Playwright reads as
+  // "the web server exited early" and aborts the run — so a local run must serve the build
+  // itself. CI sets no E2E_BASE and keeps the managed server.
+  webServer: process.env.E2E_BASE ? undefined : {
     // COVERAGE/PUBLIC_WS_HOST go in `env` (not a shell prefix) so they reach BOTH
     // `npm run build` AND `astro preview`. `astro preview` re-reads astro.config, and
     // COVERAGE=1 there selects the Node standalone adapter — the Vercel adapter cannot
     // serve `astro preview`. A shell prefix would only apply to the build, leaving preview
     // on the Vercel adapter and failing to start.
     command: 'npm run build && npx astro preview --port 4321',
-    env: { COVERAGE: '1', PUBLIC_WS_HOST: 'localhost:3001' },
+    env: { COVERAGE: '1', PUBLIC_WS_HOST: process.env.E2E_WS_HOST || 'localhost:3001' },
     // 127.0.0.1, not localhost: on a machine where another project holds ::1:4321,
     // `localhost` resolves to IPv6 first and the readiness probe reads THAT server —
     // so Playwright decides ours never came up and tries to start a second one.

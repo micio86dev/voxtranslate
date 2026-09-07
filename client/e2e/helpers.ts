@@ -4,7 +4,10 @@ import { readFileSync } from 'node:fs';
 import type { Browser, BrowserContext, Page } from '@playwright/test';
 import { startCoverage, collectCoverage } from './cov';
 
-export const WS_HOST = 'localhost:3001';
+// The Rust backend's host. Overridable because :3001 is a popular default and is
+// routinely already taken on a developer machine — a hardcoded port is the difference
+// between "run the e2e suite locally" and "don't". CI leaves it unset and gets :3001.
+export const WS_HOST = process.env.E2E_WS_HOST || 'localhost:3001';
 
 export type Tracked = { page: Page; ctx: BrowserContext };
 
