@@ -4733,6 +4733,13 @@ function enterHome(): void {
     ensureConsent();
   }
   updatePublicGate();
+  // Re-render the picker now that auth AND `billing` are settled. `initEngines()` fires at
+  // module load and paints the tier cards before `boot()` has awaited `billingEnabled()`,
+  // so anything in the picker that keys off `billing` — the guest language CTA — computes
+  // against `false` on that first pass. Signed-in users were covered incidentally, because
+  // `renderAccount()` re-renders; guests reached home through the branch above, which does
+  // not, and the CTA therefore never appeared for exactly the people it is written for.
+  renderEngineSelector();
   // Consume `?public=1` from /world: preselect public and put the cursor in the room
   // field. A guest was just forced back to private by updatePublicGate(), so they get
   // the sign-in gate on Enter — the same outcome as tapping "Public" by hand.
