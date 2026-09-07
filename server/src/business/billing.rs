@@ -670,6 +670,10 @@ async fn grant(
     .await?;
     if inserted.rows_affected() == 0 {
         tx.rollback().await?; // already processed
+                              // Not an error — a Stripe retry or a manual resend of an event we have
+                              // already honoured. Logged so a replay that grants nothing is
+                              // distinguishable from one that was never processed at all.
+        tracing::info!(%org_id, %event_id, %event_type, "stripe event already granted — skipped");
         return Ok(());
     }
     if credits > 0 {
@@ -711,6 +715,24 @@ async fn grant(
         .await?;
     }
     tx.commit().await?;
+
+    // Say so, out loud.
+    //
+    // Only the FAILURE to price an invoice was ever logged, so a grant that never
+    // happened looked exactly like one that happened quietly — which is how a
+    // broken price lookup went unnoticed until a customer paid for Enterprise and
+    // received nothing. A successful grant is the event worth seeing: it says the
+    // money arrived AND the credits followed.
+    tracing::info!(
+        %org_id,
+        %event_id,
+        %event_type,
+        kind,
+        credits,
+        plan = plan_interval.map(|(p, _)| p).unwrap_or("-"),
+        interval = plan_interval.map(|(_, i)| i).unwrap_or("-"),
+        "org credits granted"
+    );
     Ok(())
 }
 
