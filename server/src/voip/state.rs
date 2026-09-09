@@ -268,9 +268,7 @@ mod tests {
     /// Drive a sequence and return where it lands, ignoring no-op events the way the
     /// webhook handler does.
     fn run(start: CallState, events: &[CallEvent]) -> CallState {
-        events
-            .iter()
-            .fold(start, |s, e| next(s, *e).unwrap_or(s))
+        events.iter().fold(start, |s, e| next(s, *e).unwrap_or(s))
     }
 
     const ORDER: [CallState; 8] = [
@@ -413,7 +411,10 @@ mod tests {
     #[test]
     fn hanging_up_after_answer_completes_the_call() {
         for from in [Answered, Bridged, Ending] {
-            assert_eq!(next(from, CallEvent::Hangup { reason: None }), Some(Completed));
+            assert_eq!(
+                next(from, CallEvent::Hangup { reason: None }),
+                Some(Completed)
+            );
         }
     }
 

@@ -244,10 +244,7 @@ pub fn credits_ceil(usd: Usd) -> i32 {
     if usd <= Decimal::ZERO {
         return 0;
     }
-    (usd / usd_per_credit())
-        .ceil()
-        .to_i32()
-        .unwrap_or(i32::MAX)
+    (usd / usd_per_credit()).ceil().to_i32().unwrap_or(i32::MAX)
 }
 
 /// Whole credits → USD.
@@ -392,9 +389,15 @@ mod tests {
         // error the requirement calls out by name.
         let cost = d("1.00");
         let naive = cost * d("1.20");
-        assert_eq!(realised_margin(naive, cost).unwrap().round_dp(4), d("0.1667"));
+        assert_eq!(
+            realised_margin(naive, cost).unwrap().round_dp(4),
+            d("0.1667")
+        );
         // The correct price for a 20% margin is 1.25, not 1.20.
-        assert_eq!(policy("0.20", "0").price_per_minute(cost).unwrap(), d("1.25"));
+        assert_eq!(
+            policy("0.20", "0").price_per_minute(cost).unwrap(),
+            d("1.25")
+        );
     }
 
     // ---- the invariant, as a property (R7) ------------------------------------
@@ -475,9 +478,14 @@ mod tests {
         assert!(p.is_respected(charged, owed_usd(cost_per_minute, 60)));
 
         // Explicitly: flooring instead would have breached it.
-        let floored = credits_to_usd((owed_usd(price, 60) / usd_per_credit()).floor().to_i32().unwrap());
+        let floored = credits_to_usd(
+            (owed_usd(price, 60) / usd_per_credit())
+                .floor()
+                .to_i32()
+                .unwrap(),
+        );
         let _ = floored; // 0.05 lands exactly on a credit here…
-        // …so take a rate that does not: $0.0333/min cost.
+                         // …so take a rate that does not: $0.0333/min cost.
         let cost2 = d("0.0333");
         let price2 = p.price_per_minute(cost2).unwrap();
         let owed2 = owed_usd(price2, 37);
@@ -535,9 +543,7 @@ mod tests {
         assert_eq!(cost.total(), d("0.021"));
         let p = policy("0.20", "0");
         let priced_both = p.price_per_minute(cost.total()).unwrap();
-        let priced_one = p
-            .price_per_minute(d("0.012") + one_way)
-            .unwrap();
+        let priced_one = p.price_per_minute(d("0.012") + one_way).unwrap();
         assert!(
             priced_both > priced_one,
             "pricing one direction undercharges every call"
@@ -601,7 +607,10 @@ mod tests {
         assert_eq!(owed_usd(price, 60), d("0.26"));
         let naive_tick = (price / Decimal::from(6u64)).round_dp(6);
         let summed = naive_tick * Decimal::from(6u64);
-        assert!(summed < d("0.26"), "the naive derivation really does lose money");
+        assert!(
+            summed < d("0.26"),
+            "the naive derivation really does lose money"
+        );
         // Intermediate ticks are monotonic and land exactly on the minute.
         let mut last = Decimal::ZERO;
         for s in 1..=60u64 {
@@ -670,15 +679,21 @@ mod tests {
         ]);
         let now = Utc::now();
         assert_eq!(
-            deck.lookup(&n("+8613800138000"), now, None).unwrap().cost_per_minute,
+            deck.lookup(&n("+8613800138000"), now, None)
+                .unwrap()
+                .cost_per_minute,
             d("0.060")
         );
         assert_eq!(
-            deck.lookup(&n("+8613911112222"), now, None).unwrap().cost_per_minute,
+            deck.lookup(&n("+8613911112222"), now, None)
+                .unwrap()
+                .cost_per_minute,
             d("0.045")
         );
         assert_eq!(
-            deck.lookup(&n("+862112345678"), now, None).unwrap().cost_per_minute,
+            deck.lookup(&n("+862112345678"), now, None)
+                .unwrap()
+                .cost_per_minute,
             d("0.020")
         );
     }
@@ -687,7 +702,8 @@ mod tests {
     fn an_unknown_destination_refuses_the_call_it_does_not_guess() {
         let deck = RateDeck::new(vec![rate("39", "0.010", 1)]);
         assert_eq!(
-            deck.lookup(&n("+8613800138000"), Utc::now(), None).unwrap_err(),
+            deck.lookup(&n("+8613800138000"), Utc::now(), None)
+                .unwrap_err(),
             FailureReason::RateUnavailable
         );
     }
@@ -699,7 +715,8 @@ mod tests {
         let deck = RateDeck::default();
         assert!(deck.is_empty());
         assert_eq!(
-            deck.lookup(&n("+393201234567"), Utc::now(), None).unwrap_err(),
+            deck.lookup(&n("+393201234567"), Utc::now(), None)
+                .unwrap_err(),
             FailureReason::RateUnavailable
         );
     }
