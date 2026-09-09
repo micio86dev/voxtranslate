@@ -13,6 +13,7 @@
 
 pub mod e164;
 pub mod mock;
+pub mod telnyx;
 
 use std::fmt;
 

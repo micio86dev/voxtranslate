@@ -187,6 +187,280 @@ pub struct Config {
     /// Present only when `MEDIA_INGEST_HOST` is set; `None` ⇒ the `/api/webinars`
     /// and `/api/w/{code}` routes are not registered (feature ships dark).
     pub webinar: Option<WebinarConfig>,
+    /// Translated telephone calls (spec 0111). Present only when `VOIP_ENABLED` is truthy;
+    /// `None` ⇒ the `/api/business/…/voip/…` routes are not registered and no dial can
+    /// happen, which is the rollback path (unset it).
+    pub voip: Option<VoipConfig>,
+    /// Telnyx telephony adapter. Present only when `TELNYX_API_KEY` is set. Separate from
+    /// [`VoipConfig`] because the feature and its provider are independently switchable:
+    /// VoIP can run on the mock provider in staging with no Telnyx account at all.
+    pub telnyx: Option<TelnyxConfig>,
+}
+
+/// Commercial and safety parameters for translated telephone calls (spec 0111 §7).
+///
+/// Every one of these is a limit that costs money when it is wrong, so none of them has a
+/// permissive default: concurrency, spend and duration all start conservative and are
+/// raised deliberately.
+#[derive(Debug, Clone)]
+pub struct VoipConfig {
+    /// Provider id to route through (`VOIP_PROVIDER`). `"mock"` is a legitimate production
+    /// value for a staging deployment that must exercise the whole flow without a telco.
+    pub provider: String,
+    /// Rollout stage (`VOIP_ROLLOUT_STAGE`): `disabled` | `internal` | `beta` | `business`
+    /// | `ga`. Reversible at every step.
+    pub rollout_stage: String,
+    /// Org ids allowed in during the `beta` stage (`VOIP_BETA_ORG_IDS`, comma-separated).
+    pub beta_org_ids: Vec<String>,
+    /// Refuse any call whose translation tier cannot guarantee EU-only processing
+    /// (`VOIP_REQUIRE_EU_PROCESSING`, spec 0111 R22).
+    ///
+    /// **Defaults to false, and turning it on today refuses every call**, because no tier
+    /// can satisfy it: Standard reaches Alibaba in Singapore and Groq handles subtitle and
+    /// transcript text in the US on *every* tier. See `docs/voip-data-flow.md`. That is the
+    /// honest behaviour — the alternative is a flag that claims a guarantee it cannot keep.
+    pub require_eu_processing: bool,
+    /// Provider region / anchorsite to request (`VOIP_DEFAULT_REGION`).
+    pub default_region: String,
+    /// Public base for the media WebSocket the provider connects back to
+    /// (`VOIP_MEDIA_WS_BASE`, e.g. `wss://api.voxtranslate.app`). Built server-side and
+    /// never taken from a request — an attacker-chosen stream URL would make the provider
+    /// a confused deputy.
+    pub media_ws_base: String,
+    /// Minimum gross margin as a FRACTION (`VOIP_MIN_GROSS_MARGIN_PERCENT` / 100).
+    pub min_gross_margin: f64,
+    /// Cost safety buffer as a FRACTION (`VOIP_COST_SAFETY_BUFFER_PERCENT` / 100).
+    pub cost_safety_buffer: f64,
+    /// Refuse a destination whose provider cost per minute exceeds this, in USD
+    /// (`VOIP_MAX_DESTINATION_RATE`). The single most effective anti-toll-fraud control.
+    pub max_destination_rate: f64,
+    /// Stop dialing once this much provider cost has been incurred today, in USD
+    /// (`VOIP_DAILY_PROVIDER_SPEND_LIMIT`).
+    pub daily_provider_spend_limit: f64,
+    pub max_call_minutes: i32,
+    pub max_concurrent_global: i32,
+    pub max_concurrent_per_org: i32,
+    pub max_concurrent_per_user: i32,
+    pub allow_international: bool,
+    /// ISO 3166-1 alpha-2, uppercase. Empty = no allow-list (not "no countries").
+    pub allowed_countries: Vec<String>,
+    pub blocked_countries: Vec<String>,
+    /// Master switch for dialing `+86` (`VOIP_CHINA_ENABLED`). Off until validated.
+    pub china_enabled: bool,
+    /// Require a recorded, physically-in-country route validation before dialing China
+    /// (`VOIP_CHINA_REQUIRE_VALIDATED_ROUTE`). Defaults ON.
+    pub china_require_validated_route: bool,
+    pub recording_enabled: bool,
+    pub transcription_enabled: bool,
+    pub video_enabled: bool,
+    /// A rate older than this is stale, and a stale rate refuses the call rather than
+    /// pricing it (`VOIP_RATE_MAX_AGE_SECS`, spec 0111 R5).
+    pub rate_max_age_secs: i64,
+    /// Webhook timestamp tolerance, seconds (`VOIP_WEBHOOK_TOLERANCE_SECS`).
+    pub webhook_tolerance_secs: i64,
+    /// HMAC key for pseudonymising phone numbers in logs, metrics and analytics
+    /// (`VOIP_PSEUDONYM_KEY`). Server-only, never serialized. Falls back to the
+    /// deployment's JWT secret so a missing value cannot silently disable pseudonymisation
+    /// and start writing real numbers into logs.
+    pub pseudonym_key: Vec<u8>,
+}
+
+impl VoipConfig {
+    fn from_env(fallback_secret: &[u8]) -> Option<Self> {
+        if !env_flag("VOIP_ENABLED") {
+            return None;
+        }
+        let csv = |name: &str| -> Vec<String> {
+            env::var(name)
+                .unwrap_or_default()
+                .split(',')
+                .map(|s| s.trim().to_uppercase())
+                .filter(|s| !s.is_empty())
+                .collect()
+        };
+        let key = env::var("VOIP_PSEUDONYM_KEY")
+            .ok()
+            .map(|s| s.trim().as_bytes().to_vec())
+            .filter(|b| !b.is_empty())
+            .unwrap_or_else(|| fallback_secret.to_vec());
+        Some(Self {
+            provider: env::var("VOIP_PROVIDER")
+                .ok()
+                .map(|s| s.trim().to_lowercase())
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "telnyx".into()),
+            rollout_stage: env::var("VOIP_ROLLOUT_STAGE")
+                .ok()
+                .map(|s| s.trim().to_lowercase())
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "disabled".into()),
+            beta_org_ids: env::var("VOIP_BETA_ORG_IDS")
+                .unwrap_or_default()
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect(),
+            require_eu_processing: env_flag("VOIP_REQUIRE_EU_PROCESSING"),
+            default_region: env::var("VOIP_DEFAULT_REGION")
+                .ok()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "Frankfurt, Germany".into()),
+            media_ws_base: env::var("VOIP_MEDIA_WS_BASE")
+                .unwrap_or_default()
+                .trim()
+                .trim_end_matches('/')
+                .to_string(),
+            min_gross_margin: parse_or("VOIP_MIN_GROSS_MARGIN_PERCENT", 20.0f64) / 100.0,
+            cost_safety_buffer: parse_or("VOIP_COST_SAFETY_BUFFER_PERCENT", 10.0f64) / 100.0,
+            max_destination_rate: parse_or("VOIP_MAX_DESTINATION_RATE", 1.0f64),
+            daily_provider_spend_limit: parse_or("VOIP_DAILY_PROVIDER_SPEND_LIMIT", 50.0f64),
+            max_call_minutes: parse_or("VOIP_MAX_CALL_DURATION_MINUTES", 60i32),
+            max_concurrent_global: parse_or("VOIP_MAX_CONCURRENT_CALLS_GLOBAL", 50i32),
+            max_concurrent_per_org: parse_or("VOIP_MAX_CONCURRENT_CALLS_PER_ORG", 10i32),
+            max_concurrent_per_user: parse_or("VOIP_MAX_CONCURRENT_CALLS_PER_USER", 2i32),
+            allow_international: env_flag_or("VOIP_ALLOW_INTERNATIONAL", true),
+            allowed_countries: csv("VOIP_ALLOWED_COUNTRIES"),
+            blocked_countries: csv("VOIP_BLOCKED_COUNTRIES"),
+            china_enabled: env_flag("VOIP_CHINA_ENABLED"),
+            china_require_validated_route: env_flag_or("VOIP_CHINA_REQUIRE_VALIDATED_ROUTE", true),
+            recording_enabled: env_flag("VOIP_RECORDING_ENABLED"),
+            transcription_enabled: env_flag_or("VOIP_TRANSCRIPTION_ENABLED", true),
+            video_enabled: env_flag("VOIP_VIDEO_ENABLED"),
+            rate_max_age_secs: parse_or("VOIP_RATE_MAX_AGE_SECS", 86_400i64),
+            webhook_tolerance_secs: parse_or("VOIP_WEBHOOK_TOLERANCE_SECS", 300i64),
+            pseudonym_key: key,
+        })
+    }
+
+    /// Defaults for tests (no env reads).
+    #[doc(hidden)]
+    pub fn test_default() -> Self {
+        Self {
+            provider: "mock".into(),
+            rollout_stage: "ga".into(),
+            beta_org_ids: Vec::new(),
+            require_eu_processing: false,
+            default_region: "Frankfurt, Germany".into(),
+            media_ws_base: "wss://media.test".into(),
+            min_gross_margin: 0.20,
+            cost_safety_buffer: 0.10,
+            max_destination_rate: 1.0,
+            daily_provider_spend_limit: 50.0,
+            max_call_minutes: 60,
+            max_concurrent_global: 50,
+            max_concurrent_per_org: 10,
+            max_concurrent_per_user: 2,
+            allow_international: true,
+            allowed_countries: Vec::new(),
+            blocked_countries: Vec::new(),
+            china_enabled: false,
+            china_require_validated_route: true,
+            recording_enabled: false,
+            transcription_enabled: true,
+            video_enabled: false,
+            rate_max_age_secs: 86_400,
+            webhook_tolerance_secs: 300,
+            pseudonym_key: b"test-pseudonym-key".to_vec(),
+        }
+    }
+}
+
+/// Telnyx Call Control credentials and routing.
+///
+/// `Debug` is hand-written so a config dump cannot print the API key.
+#[derive(Clone)]
+pub struct TelnyxConfig {
+    /// `TELNYX_API_KEY`. Server-only, never serialized, never sent to a browser.
+    pub api_key: String,
+    /// REST base (`TELNYX_API_BASE`). Defaults to the **EU** endpoint: calls, recordings
+    /// and related services are then processed in Frankfurt. Pointing this at the global
+    /// endpoint silently moves telephony out of the EU, so the default is the careful one.
+    pub api_base: String,
+    /// Call Control application / connection id (`TELNYX_CONNECTION_ID`).
+    pub connection_id: String,
+    /// Outbound voice profile (`TELNYX_OUTBOUND_VOICE_PROFILE_ID`) — where the provider's
+    /// own channel and spend limits are configured.
+    pub outbound_voice_profile_id: Option<String>,
+    /// Base64 Ed25519 public key for webhook verification (`TELNYX_PUBLIC_KEY`). Without
+    /// it, webhooks cannot be verified and are therefore all rejected — fail closed.
+    pub public_key_b64: String,
+    /// Default presented caller id (`TELNYX_DEFAULT_CALLER_ID`), E.164.
+    pub default_caller_id: Option<String>,
+    /// Media anchorsite (`TELNYX_MEDIA_ANCHOR`), e.g. `Frankfurt, Germany`.
+    pub media_anchor: String,
+}
+
+impl std::fmt::Debug for TelnyxConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TelnyxConfig")
+            .field("api_key", &"<redacted>")
+            .field("api_base", &self.api_base)
+            .field("connection_id", &self.connection_id)
+            .field("outbound_voice_profile_id", &self.outbound_voice_profile_id)
+            .field("public_key_b64", &"<redacted>")
+            .field("default_caller_id", &self.default_caller_id)
+            .field("media_anchor", &self.media_anchor)
+            .finish()
+    }
+}
+
+/// The EU endpoint. Calls, recordings and related Voice API services are processed in
+/// Frankfurt when this base is used.
+pub const TELNYX_DEFAULT_API_BASE: &str = "https://api.telnyx.eu";
+
+impl TelnyxConfig {
+    fn from_env() -> Option<Self> {
+        let api_key = env::var("TELNYX_API_KEY")
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        if api_key.is_empty() {
+            return None;
+        }
+        let str_or = |key: &str, default: &str| {
+            env::var(key)
+                .ok()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| default.to_string())
+        };
+        let opt = |key: &str| {
+            env::var(key)
+                .ok()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+        };
+        Some(Self {
+            api_key,
+            api_base: str_or("TELNYX_API_BASE", TELNYX_DEFAULT_API_BASE)
+                .trim_end_matches('/')
+                .to_string(),
+            connection_id: env::var("TELNYX_CONNECTION_ID")
+                .unwrap_or_default()
+                .trim()
+                .to_string(),
+            outbound_voice_profile_id: opt("TELNYX_OUTBOUND_VOICE_PROFILE_ID"),
+            public_key_b64: env::var("TELNYX_PUBLIC_KEY")
+                .unwrap_or_default()
+                .trim()
+                .to_string(),
+            default_caller_id: opt("TELNYX_DEFAULT_CALLER_ID"),
+            media_anchor: str_or("TELNYX_MEDIA_ANCHOR", "Frankfurt, Germany"),
+        })
+    }
+
+    /// Whether this configuration keeps telephony and media inside the EU.
+    ///
+    /// Only about the telephony leg. Says nothing about where translation happens — the
+    /// EU gate must check the tier too (spec 0111 R22).
+    pub fn is_eu(&self) -> bool {
+        self.api_base.contains("api.telnyx.eu")
+            && matches!(
+                self.media_anchor.split(',').next().map(str::trim),
+                Some("Frankfurt") | Some("Amsterdam") | Some("London")
+            )
+    }
 }
 
 /// Webinar Mode config: the off-box media server hosts, join-code length, and the
@@ -1463,6 +1737,12 @@ impl Config {
             voice_assistant,
             help_assistant,
             webinar,
+            // The pseudonym key falls back to JWT_SECRET so a deployment that forgets
+            // VOIP_PSEUDONYM_KEY still pseudonymises. Falling back to an empty key would
+            // start writing real phone numbers into logs, which is the one outcome this
+            // must never have.
+            voip: VoipConfig::from_env(env::var("JWT_SECRET").unwrap_or_default().as_bytes()),
+            telnyx: TelnyxConfig::from_env(),
         })
     }
 
@@ -1829,6 +2109,8 @@ impl Config {
             voice_assistant: None,
             help_assistant: None,
             webinar: None,
+            voip: None,
+            telnyx: None,
         }
     }
 }

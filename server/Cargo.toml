@@ -66,6 +66,7 @@ quick-xml = "0.42"
 chacha20poly1305 = "0.11"
 rand = "0.10"
 web-push = { version = "0.11.0", default-features = false }
+ed25519-dalek = "3.0.0"
 
 [dev-dependencies]
 # Money invariants (spec 0111 R7) are stated as properties, not examples: the margin
