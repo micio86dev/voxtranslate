@@ -22,7 +22,8 @@ pub mod voice_assistant;
 pub mod voice_assistant_client;
 
 use std::collections::HashSet;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use tokio::sync::mpsc;
@@ -82,7 +83,89 @@ pub struct SessionDeps {
     /// translated audio still plays, but the caption would otherwise carry no translated
     /// text, so the client shows the untranslated original). Cheap to clone (Arc-backed).
     pub translator: crate::translator::Translator,
+    /// Who persists this speaking turn's segments. Built ONCE per `Start` and cloned into
+    /// every engine so the whole fan-out — all languages, all engines — writes each
+    /// utterance exactly once. See [`TranscriptWriter`].
+    pub transcript_writer: TranscriptWriter,
 }
+
+/// A role that exactly one of a speaking turn's sessions may hold at a time, and that
+/// is **re-elected live** when its holder lets go.
+///
+/// A speaker's audio fans out to one upstream session per target language (and, under
+/// listener-pays, one such set per engine). Some jobs must happen once per utterance no
+/// matter how many sessions are running. Pinning such a job to a flag decided at spawn
+/// looks equivalent and is not: the holder's language can leave the room mid-call, and a
+/// frozen flag leaves the job stranded on a session that no longer exists while every
+/// survivor sits there believing someone else has it.
+///
+/// So the claim is asked, not assigned: a session that finds it vacant takes it. `K` is
+/// whatever identifies a session within the claim's scope — a language for a role scoped
+/// to one engine, a process-unique id for one shared across engines.
+pub struct SessionClaim<K>(Arc<Mutex<Option<K>>>);
+
+// Hand-written: `derive` would demand `K: Clone`/`K: Default` from the *key*, which has
+// nothing to do with cloning a handle or starting out vacant.
+impl<K> Clone for SessionClaim<K> {
+    fn clone(&self) -> Self {
+        Self(Arc::clone(&self.0))
+    }
+}
+
+impl<K> Default for SessionClaim<K> {
+    fn default() -> Self {
+        Self(Arc::new(Mutex::new(None)))
+    }
+}
+
+impl<K: PartialEq> SessionClaim<K> {
+    /// Whether `key` holds the role — taking it when it is vacant, so the role heals
+    /// itself the moment the previous holder lets go instead of waiting for a reconcile
+    /// tick that may never come.
+    pub fn owns(&self, key: &K) -> bool
+    where
+        K: Clone,
+    {
+        let mut held = self.0.lock().expect("session claim poisoned");
+        match held.as_ref() {
+            Some(h) => h == key,
+            None => {
+                *held = Some(key.clone());
+                true
+            }
+        }
+    }
+
+    /// Give the role back if `key` held it. A no-op otherwise, so a session can call this
+    /// unconditionally on the way out without knowing whether it was the holder.
+    pub fn release(&self, key: &K) {
+        let mut held = self.0.lock().expect("session claim poisoned");
+        if held.as_ref() == Some(key) {
+            *held = None;
+        }
+    }
+}
+
+impl SessionClaim<u64> {
+    /// A process-unique session id, for claims whose scope spans more than one engine and
+    /// so cannot key on something as local as a target language.
+    pub fn next_id() -> u64 {
+        static NEXT: AtomicU64 = AtomicU64::new(1);
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    }
+}
+
+/// Who persists a speaking turn's segments. Scoped to the whole turn — **across engines**,
+/// because listener-pays runs Standard alongside a premium engine on the same captured
+/// stream and a per-engine claim would elect one writer each, storing every line twice.
+/// Keyed by session id for exactly that reason: two engines can serve the same language.
+pub type TranscriptWriter = SessionClaim<u64>;
+
+/// Who echoes the speaker's own words back to them and captions the listeners who share
+/// the speaker's language. Scoped to ONE engine and keyed by target language: delivery to
+/// same-language listeners is engine-scoped under listener-pays, so each engine owes its
+/// own listeners this caption and must elect its own holder.
+pub type PrimaryClaim = SessionClaim<String>;
 
 /// Outcome of opening a speaking session.
 pub enum SessionOutcome {
@@ -199,6 +282,127 @@ impl EngineRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ---- TranscriptWriter -----------------------------------------------------
+    //
+    // The regression these guard: a speaker's audio fans out to one session per target
+    // language (and per engine under listener-pays), each of which finalizes the SAME
+    // utterance. Every one of them used to persist it, so the dashboard showed each line
+    // repeated once per session.
+
+    #[test]
+    fn only_one_session_of_a_turn_may_write() {
+        let w = TranscriptWriter::default();
+        let (a, b, c) = (
+            TranscriptWriter::next_id(),
+            TranscriptWriter::next_id(),
+            TranscriptWriter::next_id(),
+        );
+        assert!(
+            w.owns(&a),
+            "the first session to ask takes the vacant claim"
+        );
+        assert!(!w.owns(&b));
+        assert!(!w.owns(&c));
+        // Asking twice must not flip the answer — `owns` is a question, not a toggle.
+        assert!(w.owns(&a));
+        assert!(!w.owns(&b));
+    }
+
+    #[test]
+    fn the_claim_is_shared_across_engines_not_just_languages() {
+        // Listener-pays runs Standard AND a premium engine on the same captured stream.
+        // A per-engine claim would elect one writer each and still write two rows.
+        let deps_wide = TranscriptWriter::default();
+        let standard_en = TranscriptWriter::next_id();
+        let premium_es = TranscriptWriter::next_id();
+        assert!(deps_wide.owns(&standard_en));
+        assert!(!deps_wide.owns(&premium_es));
+    }
+
+    #[test]
+    fn a_departing_writer_hands_the_claim_on() {
+        // `is_primary` is frozen at spawn, so when its language left the room nobody was
+        // primary any more and the transcript would simply stop. Releasing re-opens the
+        // election instead.
+        let w = TranscriptWriter::default();
+        let first = TranscriptWriter::next_id();
+        let second = TranscriptWriter::next_id();
+        assert!(w.owns(&first));
+        assert!(!w.owns(&second));
+        w.release(&first);
+        assert!(w.owns(&second), "the next session re-elects itself");
+        assert!(
+            !w.owns(&first),
+            "the departed session does not take it back"
+        );
+    }
+
+    #[test]
+    fn releasing_a_claim_you_never_held_changes_nothing() {
+        // Every session calls `release` on the way out, holder or not.
+        let w = TranscriptWriter::default();
+        let holder = TranscriptWriter::next_id();
+        let other = TranscriptWriter::next_id();
+        assert!(w.owns(&holder));
+        w.release(&other);
+        assert!(w.owns(&holder), "the real holder keeps writing");
+    }
+
+    // ---- PrimaryClaim ---------------------------------------------------------
+    //
+    // The regression these guard: `is_primary` used to be decided at spawn and frozen
+    // there, so when the holder's language left the room nobody was primary any more —
+    // the speaker stopped seeing their own words for the rest of the call.
+
+    #[test]
+    fn the_speaker_echo_moves_on_when_its_language_leaves_the_room() {
+        let primary: PrimaryClaim = Default::default();
+        let (en, es) = ("en".to_string(), "es".to_string());
+        assert!(primary.owns(&en));
+        assert!(!primary.owns(&es));
+        // Every English listener leaves: that session ends and hands the role back.
+        primary.release(&en);
+        assert!(primary.owns(&es), "the surviving session re-elects itself");
+    }
+
+    #[test]
+    fn only_one_language_echoes_the_speaker_at_a_time() {
+        // Two sessions both echoing would show the speaker their own words twice.
+        let primary: PrimaryClaim = Default::default();
+        let (en, es, de) = ("en".to_string(), "es".to_string(), "de".to_string());
+        assert!(primary.owns(&en));
+        assert!(!primary.owns(&es));
+        assert!(!primary.owns(&de));
+        assert!(primary.owns(&en), "asking again does not rotate the role");
+    }
+
+    #[test]
+    fn a_language_that_never_held_the_echo_cannot_release_it() {
+        let primary: PrimaryClaim = Default::default();
+        let (en, es) = ("en".to_string(), "es".to_string());
+        assert!(primary.owns(&en));
+        primary.release(&es);
+        assert!(primary.owns(&en), "the real holder keeps the echo");
+    }
+
+    #[test]
+    fn a_reconnecting_session_hands_the_echo_to_a_healthy_one() {
+        // On an upstream drop the holder releases, so the echo follows a session that is
+        // actually delivering rather than waiting out someone else's backoff.
+        let primary: PrimaryClaim = Default::default();
+        let (en, es) = ("en".to_string(), "es".to_string());
+        assert!(primary.owns(&en));
+        primary.release(&en); // en's socket dropped
+        assert!(primary.owns(&es));
+        assert!(!primary.owns(&en), "en does not take it back on reconnect");
+    }
+
+    #[test]
+    fn ids_are_unique_so_two_sessions_never_share_a_claim() {
+        let ids: HashSet<u64> = (0..64).map(|_| TranscriptWriter::next_id()).collect();
+        assert_eq!(ids.len(), 64);
+    }
 
     /// Minimal engine that only carries metadata — enough to exercise the
     /// registry without the Standard engine's Qwen dependency.

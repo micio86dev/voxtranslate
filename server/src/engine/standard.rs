@@ -42,13 +42,18 @@ use uuid::Uuid;
 
 use crate::config::QwenConfig;
 use crate::deepgram::SpeakerCtx;
+use crate::glossary::GlossaryService;
 use crate::protocol::ServerMessage;
 use crate::rooms::RoomManager;
 use crate::transcripts::{EventKind, TranscriptEvent, TranscriptService};
+use crate::translator::Translator;
 
 use super::metadata::{EngineCapabilities, EngineMetadata};
 use super::qwen::{self, QwenEvent, QwenSink, QwenSource};
-use super::{reconcile_langs, SessionDeps, SessionOutcome, TranslationEngine, STANDARD_ID};
+use super::{
+    reconcile_langs, PrimaryClaim, SessionDeps, SessionOutcome, TranscriptWriter,
+    TranslationEngine, STANDARD_ID,
+};
 
 /// Capacity of the speaker's bounded audio channel (mirrors the other engines).
 const AUDIO_CHANNEL_CAP: usize = 256;
@@ -204,20 +209,13 @@ async fn run_session(
 ) {
     // lang → its audio feed. A language session self-exits (flush, close the Qwen stream,
     // release its permit) when its feed sender is dropped, so removing a language is just
-    // a map removal. `primary` names the one session that echoes the speaker's own words
-    // back to them, so the echo isn't duplicated across languages.
+    // a map removal. `primary` is the role of echoing the speaker's own words back to
+    // them — held by one language session at a time so the echo isn't duplicated, and
+    // handed on rather than stranded when that session ends (see [`PrimaryClaim`]).
     let mut active: HashMap<String, mpsc::Sender<Vec<u8>>> = HashMap::new();
-    let mut primary: Option<String> = None;
+    let primary = PrimaryClaim::default();
     for (lang, permit) in initial {
-        spawn_lang_session(
-            &config,
-            &deps,
-            &ctx,
-            lang,
-            permit,
-            &mut active,
-            &mut primary,
-        );
+        spawn_lang_session(&config, &deps, &ctx, lang, permit, &mut active, &primary);
     }
 
     let mut reconcile = interval(Duration::from_millis(RECONCILE_MS));
@@ -258,9 +256,9 @@ async fn run_session(
                 // feed sender ends that task and frees its permit.
                 for lang in &to_drop {
                     active.remove(lang);
-                    if primary.as_ref() == Some(lang) {
-                        primary = None; // the primary's listeners left; re-elect on next add
-                    }
+                    // Hand the speaker-echo role back now: this session is going away,
+                    // and a survivor re-elects itself the moment it next needs it.
+                    primary.release(lang);
                 }
                 // Add newly-present languages (and retry any skipped at start),
                 // best-effort: if the engine is at capacity right now, stop and retry next
@@ -268,7 +266,7 @@ async fn run_session(
                 for lang in to_add {
                     match sessions.clone().try_acquire_owned() {
                         Ok(permit) => {
-                            spawn_lang_session(&config, &deps, &ctx, lang, permit, &mut active, &mut primary);
+                            spawn_lang_session(&config, &deps, &ctx, lang, permit, &mut active, &primary);
                         }
                         Err(_) => break,
                     }
@@ -279,8 +277,8 @@ async fn run_session(
 }
 
 /// Spawn the reconnecting upstream task for one target `lang`, register its audio feed in
-/// `active`, and make it `primary` (the session that echoes the speaker's own words) when
-/// no active session currently is.
+/// `active`, and hand it the engine's `primary` claim — the session that echoes the
+/// speaker's own words takes that role on demand rather than being told at spawn.
 /// A copy of `config` with the caller's segmentation override applied, or the original
 /// when there is none.
 ///
@@ -307,9 +305,8 @@ fn spawn_lang_session(
     lang: String,
     permit: OwnedSemaphorePermit,
     active: &mut HashMap<String, mpsc::Sender<Vec<u8>>>,
-    primary: &mut Option<String>,
+    primary: &PrimaryClaim,
 ) {
-    let is_primary = primary.is_none();
     // Apply the caller's segmentation override once, here, so everything downstream —
     // the idle timer AND the provider's own VAD in `session_update_json` — sees one
     // consistent pair of numbers instead of each reaching for the global default.
@@ -317,7 +314,7 @@ fn spawn_lang_session(
     let (feed_tx, feed_rx) = mpsc::channel::<Vec<u8>>(PER_SESSION_AUDIO_CAP);
     let reader = SessionReader {
         lang: lang.clone(),
-        is_primary,
+        primary: primary.clone(),
         segment_idle_ms: config.segment_idle_ms,
         dialect: qwen::QwenDialect::from_model(&config.model),
         rooms: deps.rooms.clone(),
@@ -329,11 +326,12 @@ fn spawn_lang_session(
         session_id: ctx.session_id,
         speaker_user_id: ctx.speaker_user_id,
         listener_pays: deps.listener_pays,
+        translator: deps.translator.clone(),
+        glossary: ctx.glossary.clone(),
+        writer: deps.transcript_writer.clone(),
+        writer_id: TranscriptWriter::next_id(),
     };
     tokio::spawn(session_task(config.clone(), reader, feed_rx, permit));
-    if is_primary {
-        *primary = Some(lang.clone());
-    }
     active.insert(lang, feed_tx);
 }
 
@@ -341,6 +339,27 @@ fn spawn_lang_session(
 /// with capped exponential backoff. Exits when the speaker stops or after too many
 /// consecutive failed re-opens.
 async fn session_task(
+    config: QwenConfig,
+    reader: SessionReader,
+    feed_rx: mpsc::Receiver<Vec<u8>>,
+    permit: OwnedSemaphorePermit,
+) {
+    let (writer, writer_id) = (reader.writer.clone(), reader.writer_id);
+    let (primary, lang) = (reader.primary.clone(), reader.lang.clone());
+    reconnect_loop(config, reader, feed_rx, permit).await;
+    // Give the speaker-echo role back. Keyed by language, so a language dropped and
+    // re-added inside one teardown could see this release free the NEW session's hold —
+    // harmless, because the claim is then simply vacant and the next session to emit
+    // takes it. Two sessions can never hold it at once, which is the property that
+    // matters.
+    primary.release(&lang);
+    // However this session ended — speaker stopped, language left the room, upstream gave
+    // up — hand the transcript claim back. Holding it past the exit would leave the turn
+    // with a writer that no longer receives audio, and the rest of the call unrecorded.
+    writer.release(&writer_id);
+}
+
+async fn reconnect_loop(
     config: QwenConfig,
     reader: SessionReader,
     mut feed_rx: mpsc::Receiver<Vec<u8>>,
@@ -361,6 +380,7 @@ async fn session_task(
                     ConnOutcome::AudioClosed => return,
                     ConnOutcome::Dropped => {
                         tracing::warn!(lang = %reader.lang, "qwen session dropped — reconnecting");
+                        reader.primary.release(&reader.lang);
                     }
                 }
             }
@@ -394,9 +414,12 @@ async fn run_connection(
     feed_rx: &mut mpsc::Receiver<Vec<u8>>,
     reader: &SessionReader,
 ) -> ConnOutcome {
-    let mut original = String::new(); // speaker's words (input transcript)
-    let mut translated = String::new(); // this session's output language
-    let mut dirty = false;
+    // Not plain strings, and no `dirty` flag: the ASR re-sends the whole utterance so far
+    // and never says when it is done, so what is left to finalize is "whatever has not
+    // been committed yet" rather than "everything since the last boundary". See
+    // [`qwen::SegmentBuffer`].
+    let mut original = qwen::SegmentBuffer::default(); // speaker's words (input transcript)
+    let mut translated = qwen::SegmentBuffer::default(); // this session's output language
     let mut audio_seq: u64 = 0; // orders translated-audio chunks for the client
                                 // latency: per-segment time-to-first-audio. `seg_first_in` marks when this
                                 // segment's first audio chunk was forwarded; on the first translated audio back
@@ -426,9 +449,7 @@ async fn run_connection(
                         let _ = sink.send(Message::text(qwen::audio_commit_json())).await;
                         let _ = sink.send(Message::text(qwen::response_create_json())).await;
                     }
-                    if dirty {
-                        reader.flush_final(&original, &translated);
-                    }
+                    reader.flush_final(original.pending(), translated.pending());
                     let _ = sink.close().await;
                     return ConnOutcome::AudioClosed;
                 }
@@ -443,13 +464,13 @@ async fn run_connection(
                         Err(_) => continue,
                     },
                     Some(Ok(Message::Close(_))) | None => {
-                        if dirty { reader.flush_final(&original, &translated); }
+                        reader.flush_final(original.pending(), translated.pending());
                         return ConnOutcome::Dropped;
                     }
                     Some(Ok(_)) => continue, // ping/pong
                     Some(Err(e)) => {
                         tracing::warn!("qwen stream error: {e}");
-                        if dirty { reader.flush_final(&original, &translated); }
+                        reader.flush_final(original.pending(), translated.pending());
                         return ConnOutcome::Dropped;
                     }
                 };
@@ -460,12 +481,14 @@ async fn run_connection(
                         }
                         QwenEvent::InputTranscript(u) => {
                             // Delta appends, Snapshot replaces — conflating them repeats
-                            // every caption (`"CiaoCiao aCiao a tutti…"`).
-                            u.apply(&mut original);
-                            dirty = true;
-                            if reader.is_primary {
-                                reader.emit_interim_to_speaker(&original);
-                                reader.emit_interim_to_source_listeners(&original);
+                            // every caption (`"CiaoCiao aCiao a tutti…"`). `pending` then
+                            // drops whatever earlier boundaries already finalized, so an
+                            // interim shows the sentence being spoken and not every
+                            // sentence since the speaker took the floor.
+                            original.apply(&u);
+                            if reader.is_primary() {
+                                reader.emit_interim_to_speaker(original.pending());
+                                reader.emit_interim_to_source_listeners(original.pending());
                             }
                             idle.as_mut().reset(Instant::now() + Duration::from_millis(reader.segment_idle_ms));
                         }
@@ -474,9 +497,8 @@ async fn run_connection(
                         // caption. This path segments on `TurnComplete` instead.
                         QwenEvent::InputTranscriptDone(_) => {}
                         QwenEvent::OutputTranscript(u) => {
-                            u.apply(&mut translated);
-                            dirty = true;
-                            reader.emit_interim_to_lang(&translated, &original);
+                            translated.apply(&u);
+                            reader.emit_interim_to_lang(translated.pending(), original.pending());
                             idle.as_mut().reset(Instant::now() + Duration::from_millis(reader.segment_idle_ms));
                         }
                         QwenEvent::OutputAudio(pcm) => {
@@ -503,12 +525,13 @@ async fn run_connection(
                         }
                         // An explicit turn boundary: finalize the segment now.
                         QwenEvent::TurnComplete => {
-                            if dirty {
-                                reader.flush_final(&original, &translated);
-                                original.clear();
-                                translated.clear();
-                                dirty = false;
-                            }
+                            // Commit, never clear: the model's own accumulation does not
+                            // reset here, so a cleared buffer is refilled with everything
+                            // again by the next snapshot. `flush_final` is a no-op when
+                            // nothing is pending, which is what a repeated boundary sees.
+                            reader.flush_final(original.pending(), translated.pending());
+                            original.commit();
+                            translated.commit();
                             // New segment starts on the next audio: re-arm the TTFA probe.
                             seg_first_in = None;
                             seg_ttfa_logged = false;
@@ -523,12 +546,11 @@ async fn run_connection(
                 }
             }
             _ = &mut idle => {
-                if dirty {
-                    reader.flush_final(&original, &translated);
-                    original.clear();
-                    translated.clear();
-                    dirty = false;
-                }
+                // The ASR never sends `.completed`, so this gap is the only boundary some
+                // segments ever get. Same rule as `TurnComplete`: commit, never clear.
+                reader.flush_final(original.pending(), translated.pending());
+                original.commit();
+                translated.commit();
                 seg_first_in = None;
                 seg_ttfa_logged = false;
                 idle.as_mut().reset(Instant::now() + Duration::from_secs(3600));
@@ -541,7 +563,10 @@ async fn run_connection(
 /// Routing is engine-agnostic (the same broadcast surface the premium engines use).
 struct SessionReader {
     lang: String,
-    is_primary: bool,
+    /// The speaker-echo role for THIS engine, shared with its sibling language
+    /// sessions. Asked per event via [`Self::is_primary`] — never cached, because the
+    /// holder changes when a language leaves the room or an upstream drops.
+    primary: PrimaryClaim,
     /// Idle gap (ms) that closes a caption segment — `QwenConfig::segment_idle_ms`,
     /// shared with the webinar ingest so both Qwen surfaces draw the boundary alike.
     segment_idle_ms: u64,
@@ -559,9 +584,32 @@ struct SessionReader {
     /// Listener-pays (spec 0099): deliver this output only to the listeners who chose
     /// Standard, not every listener of the language.
     listener_pays: bool,
+    /// Groq text translator — fills the stored segment's translation map (see
+    /// [`Self::record_segment`]). Not used for the live captions, which come from the
+    /// realtime model.
+    translator: Translator,
+    /// Room glossary, applied to the stored translations exactly as `handle_chat`
+    /// applies it to chat, so a term reads the same everywhere it is written down.
+    glossary: Option<GlossaryService>,
+    /// Who persists this turn's segments, shared with every other language session AND
+    /// every other engine running on the same speaker. See [`TranscriptWriter`].
+    writer: TranscriptWriter,
+    /// This session's identity within that claim.
+    writer_id: u64,
 }
 
 impl SessionReader {
+    /// Whether this session currently owes the speaker their own words back (and owes a
+    /// source-language caption to the listeners who share the speaker's language).
+    ///
+    /// Asked per event rather than decided once at spawn: the holder is whichever sibling
+    /// session took the role, and it moves when a language leaves the room or an upstream
+    /// connection drops. A vacant role is taken here, so the job never goes unowned while
+    /// sessions are still running.
+    fn is_primary(&self) -> bool {
+        self.primary.owns(&self.lang)
+    }
+
     /// Deliver one output frame to this language's listeners. In listener-pays mode
     /// that's the `(lang, Standard)` subset; otherwise every listener of the language.
     fn deliver(&self, message: &str) {
@@ -699,6 +747,58 @@ impl SessionReader {
         );
     }
 
+    /// Persist this utterance to the transcript — from the ONE session of the turn that
+    /// holds the writer claim, so a room with N target languages (or two engines under
+    /// listener-pays) stores one row per utterance instead of N identical ones.
+    ///
+    /// The stored translations come from the Groq text translator, not from this
+    /// session's realtime output. That is the point: this session only ever knows its own
+    /// target language, so persisting what it has would store a map with a single key and
+    /// silently lose every other language in the room — leaving the dashboard nothing to
+    /// resolve a viewer's language against. `translate_fanout` also seeds the map with
+    /// the source language, so a viewer who shares the speaker's language reads the
+    /// original words rather than a round-trip translation of them.
+    ///
+    /// Fire-and-forget: the Groq round-trip must never sit on the caption path. `ts` is
+    /// stamped HERE, before the await, so transcript order follows when words were
+    /// spoken and not when their translation came back.
+    fn record_segment(&self, original: &str) {
+        let original = original.trim().to_string();
+        if original.is_empty() {
+            return;
+        }
+        let Some(svc) = self.transcripts.clone() else {
+            return;
+        };
+        if !self.writer.owns(&self.writer_id) {
+            return;
+        }
+        let ts = Utc::now();
+        let targets = self.rooms.get_room_languages(&self.room, &self.speaker_id);
+        let glossary = self.glossary.as_ref().and_then(|g| g.cached(&self.room));
+        let translator = self.translator.clone();
+        let (source_lang, room) = (self.source_lang.clone(), self.room.clone());
+        let (speaker_id, speaker_name) = (self.speaker_id.clone(), self.speaker_name.clone());
+        let (session_id, speaker_user_id) = (self.session_id, self.speaker_user_id);
+        tokio::spawn(async move {
+            let translations = translator
+                .translate_fanout(&original, &source_lang, &targets, glossary.as_deref())
+                .await;
+            tracing::trace!(%room, langs = translations.len(), "standard: transcript segment stored");
+            svc.record(TranscriptEvent {
+                session_id,
+                kind: EventKind::Speech,
+                speaker_peer_id: speaker_id,
+                speaker_user_id,
+                speaker_name,
+                original_text: original,
+                original_lang: source_lang,
+                translations,
+                ts,
+            });
+        });
+    }
+
     /// Finalize a segment: record it (once) and broadcast a `subtitle_final` to the
     /// listeners of this language. Each language's listeners get their own targeted
     /// message — so a listener never sees text that differs from the audio they hear.
@@ -708,19 +808,7 @@ impl SessionReader {
         }
         let mut translations = HashMap::new();
         translations.insert(self.lang.clone(), translated.trim().to_string());
-        if let Some(svc) = self.transcripts.as_ref() {
-            svc.record(TranscriptEvent {
-                session_id: self.session_id,
-                kind: EventKind::Speech,
-                speaker_peer_id: self.speaker_id.clone(),
-                speaker_user_id: self.speaker_user_id,
-                speaker_name: self.speaker_name.clone(),
-                original_text: original.trim().to_string(),
-                original_lang: self.source_lang.clone(),
-                translations: translations.clone(),
-                ts: Utc::now(),
-            });
-        }
+        self.record_segment(original);
         self.deliver(
             &ServerMessage::SubtitleFinal {
                 speaker_id: self.speaker_id.clone(),
@@ -732,7 +820,7 @@ impl SessionReader {
             .to_json(),
         );
         // The primary session also captions same-language listeners in the original.
-        if self.is_primary {
+        if self.is_primary() {
             self.flush_final_to_source_listeners(original);
         }
     }
@@ -791,6 +879,7 @@ mod tests {
                 "k".into(),
                 "openai/gpt-oss-20b".into(),
             )),
+            transcript_writer: Default::default(),
         }
     }
 

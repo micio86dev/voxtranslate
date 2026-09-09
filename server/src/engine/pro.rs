@@ -24,6 +24,7 @@ use uuid::Uuid;
 
 use crate::config::OpenAiConfig;
 use crate::deepgram::SpeakerCtx;
+use crate::glossary::GlossaryService;
 use crate::protocol::ServerMessage;
 use crate::rooms::RoomManager;
 use crate::transcripts::{EventKind, TranscriptEvent, TranscriptService};
@@ -31,7 +32,10 @@ use crate::translator::Translator;
 
 use super::metadata::{EngineCapabilities, EngineMetadata};
 use super::openai::{self, OaSink, OaSource, OpenAiEvent};
-use super::{reconcile_langs, SessionDeps, SessionOutcome, TranslationEngine, OPENAI_ID};
+use super::{
+    reconcile_langs, PrimaryClaim, SessionDeps, SessionOutcome, TranscriptWriter,
+    TranslationEngine, OPENAI_ID,
+};
 
 /// Capacity of the speaker's bounded audio channel (mirrors the Standard path).
 const AUDIO_CHANNEL_CAP: usize = 256;
@@ -179,20 +183,13 @@ async fn run_session(
 ) {
     // lang → its audio feed. A language session self-exits (flush, close the OpenAI
     // session, release its permit) when its feed sender is dropped, so removing a
-    // language is just a map removal. `primary` names the one session that echoes the
-    // speaker's own words back to them, so the echo isn't duplicated across languages.
+    // language is just a map removal. `primary` is the role of echoing the speaker's own
+    // words back to them — held by one language session at a time so the echo isn't
+    // duplicated, and handed on rather than stranded when that session ends.
     let mut active: HashMap<String, mpsc::Sender<Vec<u8>>> = HashMap::new();
-    let mut primary: Option<String> = None;
+    let primary = PrimaryClaim::default();
     for (lang, permit) in initial {
-        spawn_lang_session(
-            &config,
-            &deps,
-            &ctx,
-            lang,
-            permit,
-            &mut active,
-            &mut primary,
-        );
+        spawn_lang_session(&config, &deps, &ctx, lang, permit, &mut active, &primary);
     }
 
     let mut reconcile = interval(Duration::from_millis(RECONCILE_MS));
@@ -227,9 +224,9 @@ async fn run_session(
                 // feed sender ends that task and frees its permit.
                 for lang in &to_drop {
                     active.remove(lang);
-                    if primary.as_ref() == Some(lang) {
-                        primary = None; // the primary's listeners left; re-elect on next add
-                    }
+                    // Hand the speaker-echo role back now: this session is going away,
+                    // and a survivor re-elects itself the moment it next needs it.
+                    primary.release(lang);
                 }
                 // Add newly-present languages, best-effort: if the engine is at capacity
                 // right now, skip and retry next tick when a permit frees (never tear
@@ -237,7 +234,7 @@ async fn run_session(
                 for lang in to_add {
                     match sessions.clone().try_acquire_owned() {
                         Ok(permit) => {
-                            spawn_lang_session(&config, &deps, &ctx, lang, permit, &mut active, &mut primary);
+                            spawn_lang_session(&config, &deps, &ctx, lang, permit, &mut active, &primary);
                         }
                         Err(_) => break,
                     }
@@ -248,8 +245,8 @@ async fn run_session(
 }
 
 /// Spawn the reconnecting upstream task for one target `lang`, register its audio
-/// feed in `active`, and make it `primary` (the session that echoes the speaker's own
-/// words) when no active session currently is.
+/// feed in `active`, and hand it the engine's `primary` claim — the session that echoes
+/// the speaker's own words takes that role on demand rather than being told at spawn.
 fn spawn_lang_session(
     config: &OpenAiConfig,
     deps: &SessionDeps,
@@ -257,13 +254,12 @@ fn spawn_lang_session(
     lang: String,
     permit: OwnedSemaphorePermit,
     active: &mut HashMap<String, mpsc::Sender<Vec<u8>>>,
-    primary: &mut Option<String>,
+    primary: &PrimaryClaim,
 ) {
-    let is_primary = primary.is_none();
     let (feed_tx, feed_rx) = mpsc::channel::<Vec<u8>>(PER_SESSION_AUDIO_CAP);
     let reader = SessionReader {
         lang: lang.clone(),
-        is_primary,
+        primary: primary.clone(),
         rooms: deps.rooms.clone(),
         transcripts: deps.transcripts.clone(),
         room: ctx.room.clone(),
@@ -274,11 +270,11 @@ fn spawn_lang_session(
         speaker_user_id: ctx.speaker_user_id,
         listener_pays: deps.listener_pays,
         translator: deps.translator.clone(),
+        glossary: ctx.glossary.clone(),
+        writer: deps.transcript_writer.clone(),
+        writer_id: TranscriptWriter::next_id(),
     };
     tokio::spawn(session_task(config.clone(), reader, feed_rx, permit));
-    if is_primary {
-        *primary = Some(lang.clone());
-    }
     active.insert(lang, feed_tx);
 }
 
@@ -286,6 +282,26 @@ fn spawn_lang_session(
 /// reconnecting with capped exponential backoff. Exits when the speaker stops or
 /// after too many consecutive failed re-opens.
 async fn session_task(
+    config: OpenAiConfig,
+    reader: SessionReader,
+    feed_rx: mpsc::Receiver<Vec<u8>>,
+    permit: OwnedSemaphorePermit,
+) {
+    let (writer, writer_id) = (reader.writer.clone(), reader.writer_id);
+    let (primary, lang) = (reader.primary.clone(), reader.lang.clone());
+    reconnect_loop(config, reader, feed_rx, permit).await;
+    // Give the speaker-echo role back. Keyed by language, so a language dropped and
+    // re-added inside one teardown could see this release free the NEW session's hold —
+    // harmless, because the claim is then simply vacant and the next session to emit
+    // takes it. Two sessions can never hold it at once, which is the property that
+    // matters.
+    primary.release(&lang);
+    // Hand the transcript claim back however this session ended, so the turn's remaining
+    // sessions re-elect a writer instead of going unrecorded.
+    writer.release(&writer_id);
+}
+
+async fn reconnect_loop(
     config: OpenAiConfig,
     reader: SessionReader,
     mut feed_rx: mpsc::Receiver<Vec<u8>>,
@@ -300,6 +316,7 @@ async fn session_task(
                     ConnOutcome::AudioClosed => return,
                     ConnOutcome::Dropped => {
                         tracing::warn!(lang = %reader.lang, "openai session dropped — reconnecting");
+                        reader.primary.release(&reader.lang);
                     }
                 }
             }
@@ -373,7 +390,7 @@ async fn run_connection(
                     OpenAiEvent::InputTranscriptDelta(d) => {
                         original.push_str(&d);
                         dirty = true;
-                        if reader.is_primary {
+                        if reader.is_primary() {
                             reader.emit_interim_to_speaker(&original);
                             reader.emit_interim_to_source_listeners(&original);
                         }
@@ -420,7 +437,10 @@ async fn run_connection(
 #[derive(Clone)]
 struct SessionReader {
     lang: String,
-    is_primary: bool,
+    /// The speaker-echo role for THIS engine, shared with its sibling language
+    /// sessions. Asked per event via [`Self::is_primary`] — never cached, because the
+    /// holder changes when a language leaves the room or an upstream drops.
+    primary: PrimaryClaim,
     rooms: Arc<RoomManager>,
     transcripts: Option<TranscriptService>,
     room: String,
@@ -434,11 +454,30 @@ struct SessionReader {
     /// Gemini listener of the same language is served by their own engine).
     listener_pays: bool,
     /// Groq fallback for the subtitle TEXT when OpenAI ships an empty output
-    /// transcript for a segment (see [`Self::flush_final`]).
+    /// transcript for a segment (see [`Self::flush_final`]), and the source of the
+    /// stored segment's translation map (see [`Self::record_segment`]).
     translator: Translator,
+    /// Room glossary, applied to the stored translations as `handle_chat` does for chat.
+    glossary: Option<GlossaryService>,
+    /// Who persists this turn's segments, shared with every other language session AND
+    /// every other engine running on the same speaker. See [`TranscriptWriter`].
+    writer: TranscriptWriter,
+    /// This session's identity within that claim.
+    writer_id: u64,
 }
 
 impl SessionReader {
+    /// Whether this session currently owes the speaker their own words back (and owes a
+    /// source-language caption to the listeners who share the speaker's language).
+    ///
+    /// Asked per event rather than decided once at spawn: the holder is whichever sibling
+    /// session took the role, and it moves when a language leaves the room or an upstream
+    /// connection drops. A vacant role is taken here, so the job never goes unowned while
+    /// sessions are still running.
+    fn is_primary(&self) -> bool {
+        self.primary.owns(&self.lang)
+    }
+
     /// Deliver one output frame to this language's listeners. In listener-pays mode
     /// that's the `(lang, OpenAI)` subset; otherwise every listener of the language.
     fn deliver(&self, message: &str) {
@@ -584,7 +623,7 @@ impl SessionReader {
         // Same-language listeners are captioned in the original immediately (they hear
         // the speaker's real voice — no translation involved), regardless of whether
         // the translated text below needs recovering.
-        if self.is_primary {
+        if self.is_primary() {
             self.flush_final_to_source_listeners(&original);
         }
         // Timestamp the segment now (when spoken), not after any Groq round-trip, so
@@ -608,6 +647,53 @@ impl SessionReader {
         });
     }
 
+    /// Persist this utterance to the transcript — from the ONE session of the turn that
+    /// holds the writer claim, so a room with N target languages (or two engines under
+    /// listener-pays) stores one row per utterance instead of N identical ones.
+    ///
+    /// The stored translations come from Groq rather than from this session's realtime
+    /// output: this session only knows its own target language, so persisting what it has
+    /// would store a single-key map and lose every other language in the room.
+    /// `translate_fanout` seeds the map with the source language too, so a viewer who
+    /// shares the speaker's language reads the original words.
+    ///
+    /// Fire-and-forget — the Groq round-trip never sits on the caption path. `ts` is the
+    /// caller's spoken-at stamp, so transcript order survives the await.
+    fn record_segment(&self, original: &str, ts: DateTime<Utc>) {
+        let original = original.trim().to_string();
+        if original.is_empty() {
+            return;
+        }
+        let Some(svc) = self.transcripts.clone() else {
+            return;
+        };
+        if !self.writer.owns(&self.writer_id) {
+            return;
+        }
+        let targets = self.rooms.get_room_languages(&self.room, &self.speaker_id);
+        let glossary = self.glossary.as_ref().and_then(|g| g.cached(&self.room));
+        let translator = self.translator.clone();
+        let source_lang = self.source_lang.clone();
+        let (speaker_id, speaker_name) = (self.speaker_id.clone(), self.speaker_name.clone());
+        let (session_id, speaker_user_id) = (self.session_id, self.speaker_user_id);
+        tokio::spawn(async move {
+            let translations = translator
+                .translate_fanout(&original, &source_lang, &targets, glossary.as_deref())
+                .await;
+            svc.record(TranscriptEvent {
+                session_id,
+                kind: EventKind::Speech,
+                speaker_peer_id: speaker_id,
+                speaker_user_id,
+                speaker_name,
+                original_text: original,
+                original_lang: source_lang,
+                translations,
+                ts,
+            });
+        });
+    }
+
     /// Record the segment (once) and deliver the translated `subtitle_final` to this
     /// language's listeners. `translated` may be empty (upstream AND the Groq fallback
     /// both blank) — the client then shows the original source line. Shared by the
@@ -615,19 +701,7 @@ impl SessionReader {
     fn emit_translated(&self, original: &str, translated: &str, ts: DateTime<Utc>) {
         let mut translations = HashMap::new();
         translations.insert(self.lang.clone(), translated.to_string());
-        if let Some(svc) = self.transcripts.as_ref() {
-            svc.record(TranscriptEvent {
-                session_id: self.session_id,
-                kind: EventKind::Speech,
-                speaker_peer_id: self.speaker_id.clone(),
-                speaker_user_id: self.speaker_user_id,
-                speaker_name: self.speaker_name.clone(),
-                original_text: original.to_string(),
-                original_lang: self.source_lang.clone(),
-                translations: translations.clone(),
-                ts,
-            });
-        }
+        self.record_segment(original, ts);
         self.deliver(
             &ServerMessage::SubtitleFinal {
                 speaker_id: self.speaker_id.clone(),
@@ -687,6 +761,7 @@ mod tests {
                 "k".into(),
                 "openai/gpt-oss-20b".into(),
             )),
+            transcript_writer: Default::default(),
         }
     }
 
@@ -763,7 +838,7 @@ mod tests {
     fn reader(rm: Arc<RoomManager>, target_lang: &str) -> SessionReader {
         SessionReader {
             lang: target_lang.into(),
-            is_primary: true,
+            primary: Default::default(),
             rooms: rm,
             transcripts: None,
             room: "r".into(),
@@ -777,6 +852,9 @@ mod tests {
                 "k".into(),
                 "openai/gpt-oss-20b".into(),
             )),
+            glossary: None,
+            writer: Default::default(),
+            writer_id: TranscriptWriter::next_id(),
         }
     }
 
@@ -851,6 +929,7 @@ mod tests {
                 std::env::var("GROQ_TRANSLATION_MODEL")
                     .unwrap_or_else(|_| "openai/gpt-oss-20b".into()),
             )),
+            transcript_writer: Default::default(),
         };
 
         let engine = ProEngine::new(&config);
