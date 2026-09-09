@@ -704,3 +704,93 @@ async fn storyboard_guards_and_preconditions() {
         .unwrap();
     assert_eq!(ghost.status(), 404);
 }
+
+/// A call with no cloud recording still has the transcript captured live during it, and
+/// the dashboard reads it. Every line is resolved into the reader's language: the
+/// speaker's own words where they already spoke it, their translation where they did not.
+///
+/// Guards the live path end to end — `live_transcript` + `text_for_viewer` + the reading
+/// language fallback chain — which is the path that produced the duplicated, half-foreign
+/// transcript users saw in production (2026-09-08).
+#[tokio::test]
+async fn live_transcript_is_resolved_into_the_readers_language() {
+    let Some(srv) = setup().await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    let http = Client::new();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner).await;
+    // No `transcripts` row on purpose: this is the never-recorded call.
+    let sid = make_call(&srv, org, "none").await;
+
+    // An Italian and a Spanish speaker, one utterance each, translated for the other.
+    sqlx::query(
+        "INSERT INTO session_participants (session_id, peer_id, user_id, name, lang)
+         VALUES ($1, 'peer-it', $2, 'Ale', 'it'), ($1, 'peer-es', NULL, 'Sofia', 'es')",
+    )
+    .bind(sid)
+    .bind(owner)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO transcript_events
+             (session_id, event_type, speaker_peer_id, speaker_name,
+              original_text, original_lang, translations, ts)
+         VALUES
+             ($1, 'speech', 'peer-it', 'Ale',   'ciao a tutti', 'it',
+              '{\"es\":\"hola a todos\"}'::jsonb, now()),
+             ($1, 'speech', 'peer-es', 'Sofia', 'hola que tal', 'es',
+              '{\"it\":\"ciao come va\"}'::jsonb, now() + interval '1 second'),
+             ($1, 'chat',   'peer-it', 'Ale',   'non in trascrizione', 'it',
+              '{}'::jsonb, now() + interval '2 seconds')",
+    )
+    .bind(sid)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+
+    let read = |lang: Option<&str>| {
+        let q = lang.map(|l| format!("?lang={l}")).unwrap_or_default();
+        let url = format!("{}/api/business/rooms/{sid}/transcript{q}", base(&srv));
+        let http = http.clone();
+        let jwt = jwt.clone();
+        async move { http.get(url).bearer_auth(jwt).send().await.unwrap() }
+    };
+
+    // Reading in Italian: my own line verbatim, the Spanish one translated for me.
+    let got: Value = read(Some("it")).await.json().await.unwrap();
+    assert_eq!(got["source"], "live", "no recording exists for this call");
+    assert_eq!(got["status"], "ready");
+    assert_eq!(got["reading_language"], "it");
+    assert_eq!(
+        got["segments"].as_array().unwrap().len(),
+        2,
+        "chat is not part of the spoken transcript"
+    );
+    assert_eq!(got["segments"][0]["text"], "ciao a tutti");
+    assert_eq!(got["segments"][0]["speaker_name"], "Ale");
+    assert_eq!(got["segments"][1]["text"], "ciao come va");
+
+    // Reading in Spanish: the mirror image, from the very same rows.
+    let got: Value = read(Some("es")).await.json().await.unwrap();
+    assert_eq!(got["reading_language"], "es");
+    assert_eq!(got["segments"][0]["text"], "hola a todos");
+    assert_eq!(got["segments"][1]["text"], "hola que tal");
+
+    // A language nobody translated into falls back to the words as spoken, rather than
+    // rendering the call as a column of blanks.
+    let got: Value = read(Some("de")).await.json().await.unwrap();
+    assert_eq!(got["segments"][0]["text"], "ciao a tutti");
+    assert_eq!(got["segments"][1]["text"], "hola que tal");
+
+    // No `lang`: the reader attended this call in Italian, so that is what they get —
+    // regardless of the locale their dashboard happens to be in.
+    let got: Value = read(None).await.json().await.unwrap();
+    assert_eq!(got["reading_language"], "it");
+    assert_eq!(got["segments"][1]["text"], "ciao come va");
+
+    // A malformed locale is a clear 400, not a silent fallback hiding a client bug.
+    assert_eq!(read(Some("../../etc/passwd")).await.status(), 400);
+}

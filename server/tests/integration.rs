@@ -1124,3 +1124,37 @@ async fn talk_refuses_to_start_without_a_signed_in_user() {
     let listed = rooms.as_array().map(|a| a.len()).unwrap_or(0);
     assert_eq!(listed, 0, "a refused session must not leave a room behind");
 }
+
+/// The API host answers crawlers instead of 404-ing them.
+///
+/// Googlebot finds the hostname, asks for `/robots.txt`, and a 404 lands in the metrics
+/// alerting as if the service were broken (observed in production, 2026-09-08). The
+/// truthful answer for an API host is "index nothing", and it also stops the asking.
+#[tokio::test]
+async fn robots_txt_tells_crawlers_to_index_nothing() {
+    let addr = spawn_minimal().await;
+    let res = reqwest::Client::new()
+        .get(format!("http://{addr}/robots.txt"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(res.status(), 200, "a 404 here is what set the alert off");
+    let ctype = res
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default()
+        .to_string();
+    assert!(
+        ctype.starts_with("text/plain"),
+        "crawlers need text/plain, got {ctype}"
+    );
+
+    let body = res.text().await.unwrap();
+    assert!(body.contains("User-agent: *"), "body was: {body}");
+    assert!(
+        body.contains("Disallow: /"),
+        "the whole host is off limits; body was: {body}"
+    );
+}

@@ -148,6 +148,7 @@ mod tests {
                 "k".into(),
                 "openai/gpt-oss-20b".into(),
             )),
+            transcript_writer: Default::default(),
         };
         assert!(matches!(
             e.start_session(ctx, deps).await,

@@ -660,6 +660,7 @@ async fn handle_talk_session(socket: WebSocket, params: TalkParams, state: AppSt
                                     participant_row: None,
                                     listener_pays: false,
                                     translator: state.translator.clone(),
+                                    transcript_writer: Default::default(),
                                 };
                                 match engine.start_session(ctx, deps).await {
                                     SessionOutcome::Started(tx) => {
