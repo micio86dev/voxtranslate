@@ -144,6 +144,74 @@ impl TextUpdate {
     }
 }
 
+/// A transcript that outlives the caption boundaries drawn through it.
+///
+/// The realtime ASR re-sends the **whole utterance so far** in every snapshot and never
+/// announces that it is finished (see [`TextUpdate`], and `.completed` is never sent). We
+/// meanwhile close a caption on the model's `response.done`. Clearing our buffer at that
+/// boundary looks symmetric and is not: the model's accumulation does not reset with
+/// ours, so the next snapshot arrives carrying everything again. Observed in production —
+/// every boundary re-emitted the previous sentence plus whatever was new, so both the
+/// live `subtitle_final` and the stored transcript grew by prefix
+/// (`"Allora, cominciamo…"` → `"Allora, cominciamo… C'è il microfono…"`), and a snapshot
+/// landing a few milliseconds after a boundary re-emitted that sentence verbatim.
+///
+/// So this never clears. It tracks how much of the running text has already been handed
+/// out and yields only the rest. One instance lives for one upstream connection, so its
+/// size is bounded by how long a speaker holds the floor without a reconnect.
+#[derive(Debug, Default)]
+pub struct SegmentBuffer {
+    /// Everything the model has said so far in this stretch of speech.
+    text: String,
+    /// The prefix of `text` already emitted as a final caption and persisted.
+    committed: String,
+}
+
+impl SegmentBuffer {
+    /// Fold one update in, then re-anchor the commit mark.
+    ///
+    /// A snapshot may *revise* what it already sent — the confirmed prefix is stable but
+    /// the tail is still being recognised — and the ASR may also start a genuinely new
+    /// stretch of speech, replacing the text outright. Either way the mark is pulled back
+    /// to however much the two still agree on, so the divergent part is treated as new
+    /// rather than silently swallowed.
+    pub fn apply(&mut self, update: &TextUpdate) {
+        update.apply(&mut self.text);
+        if !self.text.starts_with(&self.committed) {
+            self.committed
+                .truncate(common_prefix_len(&self.committed, &self.text));
+        }
+    }
+
+    /// Everything accumulated so far, committed or not.
+    pub fn full(&self) -> &str {
+        &self.text
+    }
+
+    /// The part not yet handed out — what the next final caption should carry.
+    pub fn pending(&self) -> &str {
+        &self.text[self.committed.len()..]
+    }
+
+    /// Mark everything accumulated so far as handed out.
+    pub fn commit(&mut self) {
+        self.committed.clear();
+        self.committed.push_str(&self.text);
+    }
+}
+
+/// Length in bytes of the longest prefix `a` and `b` share, always on a char boundary.
+fn common_prefix_len(a: &str, b: &str) -> usize {
+    let mut len = 0;
+    for (ca, cb) in a.chars().zip(b.chars()) {
+        if ca != cb {
+            break;
+        }
+        len += ca.len_utf8();
+    }
+    len
+}
+
 /// A parsed Qwen Realtime server event. Only the frames we act on are modelled;
 /// everything else yields nothing, so a stray frame never kills the session.
 #[derive(Debug, Clone, PartialEq)]
@@ -582,6 +650,128 @@ async fn connect(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ---- SegmentBuffer --------------------------------------------------------
+    //
+    // The regression these guard was found in production (session ff9212cb, 141 stored
+    // events for 74 distinct sentences): the ASR keeps re-sending the whole utterance so
+    // far, so clearing our buffer at a caption boundary made the next snapshot re-deliver
+    // everything we had already emitted.
+
+    fn snap(t: &str) -> TextUpdate {
+        TextUpdate::Snapshot(t.into())
+    }
+
+    #[test]
+    fn a_cumulative_snapshot_only_yields_what_is_new() {
+        // The exact shape seen in production, one sentence growing across three turns.
+        let mut b = SegmentBuffer::default();
+        b.apply(&snap("Allora, cominciamo."));
+        assert_eq!(b.pending(), "Allora, cominciamo.");
+        b.commit();
+
+        b.apply(&snap("Allora, cominciamo. C'è il microfono."));
+        assert_eq!(b.pending(), " C'è il microfono.");
+        b.commit();
+
+        b.apply(&snap(
+            "Allora, cominciamo. C'è il microfono. E i sottotitoli.",
+        ));
+        assert_eq!(b.pending(), " E i sottotitoli.");
+    }
+
+    #[test]
+    fn a_snapshot_repeated_after_a_boundary_yields_nothing() {
+        // The other half of the bug: a snapshot landing milliseconds after the boundary
+        // re-delivered the sentence that had just been finalized.
+        let mut b = SegmentBuffer::default();
+        b.apply(&snap("Posso cambiare la visualizzazione."));
+        b.commit();
+        b.apply(&snap("Posso cambiare la visualizzazione."));
+        assert_eq!(
+            b.pending(),
+            "",
+            "the finished sentence must not be emitted twice"
+        );
+    }
+
+    #[test]
+    fn deltas_accumulate_and_commit_the_same_way() {
+        let mut b = SegmentBuffer::default();
+        b.apply(&TextUpdate::Delta("ciao ".into()));
+        b.apply(&TextUpdate::Delta("a tutti".into()));
+        assert_eq!(b.pending(), "ciao a tutti");
+        b.commit();
+        b.apply(&TextUpdate::Delta(" quanti siete".into()));
+        assert_eq!(b.pending(), " quanti siete");
+    }
+
+    #[test]
+    fn a_revised_tail_is_re_emitted_from_the_point_it_diverges() {
+        // `text` is the confirmed prefix and `stash` the tail still being recognised, so
+        // a snapshot can revise words we already committed.
+        let mut b = SegmentBuffer::default();
+        b.apply(&snap("ciao a tutti quanti"));
+        b.commit();
+        b.apply(&snap("ciao a tutti quanto siete"));
+        // The mark falls back to the last character the two still agree on — mid-word
+        // here, since "quanti" became "quanto". Re-emitting from there is the honest
+        // answer: the alternative is dropping the revision on the floor.
+        assert_eq!(b.pending(), "o siete");
+    }
+
+    #[test]
+    fn a_brand_new_utterance_replaces_everything() {
+        // When the ASR starts a genuinely new stretch of speech the snapshot shares no
+        // prefix, and the whole thing is new material.
+        let mut b = SegmentBuffer::default();
+        b.apply(&snap("ciao a tutti"));
+        b.commit();
+        b.apply(&snap("buonasera"));
+        assert_eq!(b.pending(), "buonasera");
+    }
+
+    #[test]
+    fn committing_twice_without_new_words_yields_nothing() {
+        let mut b = SegmentBuffer::default();
+        b.apply(&snap("ciao"));
+        b.commit();
+        b.commit();
+        assert_eq!(b.pending(), "");
+    }
+
+    #[test]
+    fn full_keeps_the_whole_utterance_while_pending_moves() {
+        let mut b = SegmentBuffer::default();
+        b.apply(&snap("ciao a tutti"));
+        b.commit();
+        b.apply(&snap("ciao a tutti quanti"));
+        assert_eq!(b.full(), "ciao a tutti quanti");
+        assert_eq!(b.pending(), " quanti");
+    }
+
+    #[test]
+    fn multibyte_text_never_splits_a_char() {
+        // Slicing `pending` on a byte index would panic mid-character.
+        let mut b = SegmentBuffer::default();
+        b.apply(&snap("però"));
+        b.commit();
+        b.apply(&snap("però è così 日本語"));
+        assert_eq!(b.pending(), " è così 日本語");
+        // And a divergence inside a multi-byte run.
+        let mut c = SegmentBuffer::default();
+        c.apply(&snap("caffè"));
+        c.commit();
+        c.apply(&snap("caffé"));
+        assert_eq!(c.pending(), "é");
+    }
+
+    #[test]
+    fn an_empty_buffer_has_nothing_pending() {
+        let b = SegmentBuffer::default();
+        assert_eq!(b.pending(), "");
+        assert_eq!(b.full(), "");
+    }
 
     /// LiveTranslate config — the shipped default.
     fn cfg() -> QwenConfig {

@@ -193,6 +193,7 @@ pub async fn get_transcript(
     State(state): State<AppState>,
     user: AuthUser,
     Path(session_id): Path<Uuid>,
+    Query(q): Query<TranscriptQuery>,
 ) -> Result<Response, Response> {
     let pool = require_pool(&state)?;
     let (org_id, _) = require_call_role(pool, session_id, user.user_id, MEMBER).await?;
@@ -248,7 +249,12 @@ pub async fn get_transcript(
         // it here. `source: "live"` tells the UI to hide the recording-only tools
         // (translate/export/playback all read the `transcripts` row, which is absent).
         None => {
-            let live = live_transcript(pool, session_id).await?;
+            // Validated like every other language the API takes, so a malformed locale
+            // is a clear 400 rather than a silent fallback that hides a client bug.
+            let requested = q.lang.as_deref().map(valid_lang).transpose()?;
+            let viewer_lang =
+                viewer_lang(pool, session_id, user.user_id, requested.as_deref()).await;
+            let live = live_transcript(pool, session_id, &viewer_lang).await?;
             if live.segments.is_empty() {
                 Ok(
                     Json(json!({ "status": status, "source": "live", "segments": [] }))
@@ -258,6 +264,7 @@ pub async fn get_transcript(
                 Ok(Json(json!({
                     "status": "ready",
                     "source": "live",
+                    "reading_language": viewer_lang,
                     "source_language": live.source_language,
                     "segments": live.segments,
                     "duration_seconds": live.duration_seconds,
@@ -268,6 +275,97 @@ pub async fn get_transcript(
             }
         }
     }
+}
+
+/// Query for `GET …/transcript`. `lang` is the language the reader wants the call in;
+/// the dashboard sends its current UI locale.
+#[derive(serde::Deserialize)]
+pub struct TranscriptQuery {
+    pub lang: Option<String>,
+}
+
+/// Which language to render a live transcript in: what the caller asked for, else the
+/// language they themselves used in that call, else the call's source language.
+///
+/// The middle step matters — someone opening a call they attended should get it back in
+/// the language they took part in, even from a dashboard they happen to be browsing in
+/// another locale.
+async fn viewer_lang(
+    pool: &crate::db::Pool,
+    session_id: Uuid,
+    user_id: Uuid,
+    requested: Option<&str>,
+) -> String {
+    let mine: Option<String> = sqlx::query_scalar(
+        "SELECT lang FROM session_participants
+         WHERE session_id = $1 AND user_id = $2
+         ORDER BY joined_at LIMIT 1",
+    )
+    .bind(session_id)
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten();
+    let call_source: Option<String> = sqlx::query_scalar(
+        "SELECT lang FROM session_participants WHERE session_id = $1 ORDER BY joined_at LIMIT 1",
+    )
+    .bind(session_id)
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten();
+    resolve_viewer_lang(requested, mine.as_deref(), call_source.as_deref())
+}
+
+/// Pick the reading language from what we know, most specific first.
+///
+/// Falling straight back to English would be wrong for the commonest case there is: an
+/// Italian manager opening an Italian call they did not attend would have every line
+/// machine-translated into English. When we cannot tell what the reader wants, showing
+/// the call in the language it was held in leaves the words as spoken.
+///
+/// `"auto"` is a capture-time placeholder, not a language, so it never wins.
+fn resolve_viewer_lang(
+    requested: Option<&str>,
+    mine: Option<&str>,
+    call_source: Option<&str>,
+) -> String {
+    [requested, mine, call_source]
+        .into_iter()
+        .flatten()
+        .map(str::trim)
+        .find(|l| !l.is_empty() && *l != "auto")
+        .unwrap_or("en")
+        .to_lowercase()
+}
+
+/// The text one viewer should read for one captured utterance.
+///
+/// A call transcript is multilingual by nature: some of it was spoken in the reader's
+/// language and some was not. Showing the raw `original_text` for everything left half
+/// the transcript unreadable to whoever opened it, which is the opposite of the promise
+/// the product makes during the call itself.
+///
+/// So: the speaker's own words when they already spoke `viewer_lang`, their translation
+/// into `viewer_lang` otherwise — and the original as the last resort, because a line the
+/// fan-out never covered (a language that joined after the words were spoken, a Groq
+/// failure) is still worth more on screen than an empty row.
+fn text_for_viewer(
+    original_text: &str,
+    original_lang: &str,
+    translations: &Value,
+    viewer_lang: &str,
+) -> String {
+    if original_lang.eq_ignore_ascii_case(viewer_lang) {
+        return original_text.to_string();
+    }
+    translations
+        .get(viewer_lang)
+        .and_then(Value::as_str)
+        .filter(|t| !t.trim().is_empty())
+        .unwrap_or(original_text)
+        .to_string()
 }
 
 /// A transcript reconstructed from the realtime `transcript_events` of a call —
@@ -283,6 +381,7 @@ struct LiveTranscript {
 async fn live_transcript(
     pool: &crate::db::Pool,
     session_id: Uuid,
+    viewer_lang: &str,
 ) -> Result<LiveTranscript, Response> {
     let times: Option<(DateTime<Utc>, Option<DateTime<Utc>>)> =
         sqlx::query_as("SELECT started_at, ended_at FROM call_sessions WHERE id = $1")
@@ -292,8 +391,8 @@ async fn live_transcript(
             .map_err(db_err)?;
     let (started_at, ended_at) = times.unwrap_or_else(|| (Utc::now(), None));
 
-    let rows: Vec<(String, String, String, DateTime<Utc>)> = sqlx::query_as(
-        "SELECT speaker_peer_id, speaker_name, original_text, ts
+    let rows: Vec<(String, String, String, String, Value, DateTime<Utc>)> = sqlx::query_as(
+        "SELECT speaker_peer_id, speaker_name, original_text, original_lang, translations, ts
          FROM transcript_events
          WHERE session_id = $1 AND event_type = 'speech'
          ORDER BY ts",
@@ -314,16 +413,18 @@ async fn live_transcript(
 
     let segments: Vec<Segment> = rows
         .into_iter()
-        .map(|(speaker_id, speaker_name, text, ts)| {
-            let start_ms = (ts - started_at).num_milliseconds().max(0);
-            Segment {
-                speaker_id,
-                speaker_name,
-                text,
-                start_ms,
-                end_ms: start_ms,
-            }
-        })
+        .map(
+            |(speaker_id, speaker_name, text, original_lang, translations, ts)| {
+                let start_ms = (ts - started_at).num_milliseconds().max(0);
+                Segment {
+                    speaker_id,
+                    speaker_name,
+                    text: text_for_viewer(&text, &original_lang, &translations, viewer_lang),
+                    start_ms,
+                    end_ms: start_ms,
+                }
+            },
+        )
         .collect();
     let word_count: i32 = segments
         .iter()
@@ -1096,5 +1197,103 @@ mod naming_tests {
     fn empty_realtime_maps_nothing() {
         let segments = vec![seg("0", "some words here", 0, 2000)];
         assert!(map_clusters_to_names(&segments, &[]).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tr(pairs: &[(&str, &str)]) -> Value {
+        Value::Object(
+            pairs
+                .iter()
+                .map(|(k, v)| ((*k).to_string(), Value::String((*v).to_string())))
+                .collect(),
+        )
+    }
+
+    #[test]
+    fn the_reader_asking_for_a_language_wins() {
+        assert_eq!(
+            resolve_viewer_lang(Some("it"), Some("en"), Some("es")),
+            "it"
+        );
+    }
+
+    #[test]
+    fn without_a_request_the_language_i_used_in_that_call_wins() {
+        assert_eq!(resolve_viewer_lang(None, Some("en"), Some("es")), "en");
+    }
+
+    #[test]
+    fn a_reader_who_never_attended_gets_the_call_as_it_was_held() {
+        // The alternative — defaulting to English — would machine-translate an Italian
+        // call for an Italian reader who simply was not in the room.
+        assert_eq!(resolve_viewer_lang(None, None, Some("it")), "it");
+    }
+
+    #[test]
+    fn auto_is_a_placeholder_and_never_wins() {
+        // `auto` means "detect it", so it is not a language anyone can read in.
+        assert_eq!(resolve_viewer_lang(None, Some("auto"), Some("it")), "it");
+        assert_eq!(resolve_viewer_lang(None, Some("auto"), Some("auto")), "en");
+    }
+
+    #[test]
+    fn blank_candidates_are_skipped_not_used() {
+        assert_eq!(resolve_viewer_lang(Some("  "), Some("it"), None), "it");
+        assert_eq!(resolve_viewer_lang(None, None, None), "en");
+    }
+
+    #[test]
+    fn the_reading_language_is_normalised() {
+        assert_eq!(resolve_viewer_lang(Some(" IT "), None, None), "it");
+    }
+
+    #[test]
+    fn my_own_language_is_shown_as_spoken() {
+        // Never round-trip a line back through a translation of itself.
+        let t = tr(&[("it", "tradotto male"), ("en", "hello")]);
+        assert_eq!(
+            text_for_viewer("ciao a tutti", "it", &t, "it"),
+            "ciao a tutti"
+        );
+    }
+
+    #[test]
+    fn another_language_is_shown_translated_into_mine() {
+        let t = tr(&[("it", "ciao a tutti"), ("es", "hola a todos")]);
+        assert_eq!(
+            text_for_viewer("hello everyone", "en", &t, "it"),
+            "ciao a tutti"
+        );
+    }
+
+    #[test]
+    fn a_language_the_fanout_never_covered_falls_back_to_the_original() {
+        // A peer who joined after these words were spoken has no translation for them.
+        // An empty row would be strictly worse than the speaker's own sentence.
+        let t = tr(&[("es", "hola")]);
+        assert_eq!(text_for_viewer("hello", "en", &t, "de"), "hello");
+    }
+
+    #[test]
+    fn a_blank_translation_falls_back_to_the_original() {
+        // Groq can return an empty completion; storing "" must not blank the transcript.
+        let t = tr(&[("it", "   ")]);
+        assert_eq!(text_for_viewer("hello", "en", &t, "it"), "hello");
+    }
+
+    #[test]
+    fn an_empty_map_still_renders_the_line() {
+        assert_eq!(text_for_viewer("hello", "en", &json!({}), "it"), "hello");
+    }
+
+    #[test]
+    fn language_match_ignores_case() {
+        // `original_lang` comes from the wire; the viewer's locale from a URL.
+        let t = tr(&[("it", "ciao")]);
+        assert_eq!(text_for_viewer("hello", "EN", &t, "en"), "hello");
     }
 }

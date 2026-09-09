@@ -636,6 +636,7 @@ async fn handle_extension_session(socket: WebSocket, params: ExtParams, state: A
                                     participant_row: None,
                                     listener_pays: false,
                                     translator: state.translator.clone(),
+                                    transcript_writer: Default::default(),
                                 };
                                 // A client-direct tier has nothing to open here — the
                                 // browser is already talking to the provider. Start the

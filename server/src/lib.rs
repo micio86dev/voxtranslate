@@ -62,7 +62,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{DefaultBodyLimit, Query, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -584,6 +584,11 @@ pub fn app(state: AppState) -> Router {
         .route("/ws/talk", get(talk::ws_talk))
         .route("/rooms", get(rooms_handler))
         .route("/health", get(|| async { "ok" }))
+        // This host serves an API, not pages. Without this, every crawler that finds the
+        // hostname asks for /robots.txt, gets a 404, and the 404 shows up in the metrics
+        // alerting as if something were broken. Answering "crawl nothing" is both the
+        // truthful reply and the one that makes them stop asking.
+        .route("/robots.txt", get(robots_handler))
         .route("/version", get(version_handler))
         .route("/metrics", get(metrics_handler))
         .route("/api/auth/config", get(auth::auth_config))
@@ -834,6 +839,14 @@ async fn origin_lock(
 /// every release, so it authoritatively identifies the shipped build. `commit` is
 /// best-effort: the git SHA when the build or runtime environment supplies one
 /// (`GIT_SHA`, or Railway's `RAILWAY_GIT_COMMIT_SHA`), otherwise `"unknown"`.
+/// `GET /robots.txt` — tell crawlers there is nothing to index on the API host.
+async fn robots_handler() -> impl IntoResponse {
+    (
+        [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
+        "User-agent: *\nDisallow: /\n",
+    )
+}
+
 async fn version_handler() -> Json<serde_json::Value> {
     let commit = option_env!("GIT_SHA")
         .map(str::to_string)
@@ -1953,6 +1966,11 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState, clien
                                         glossary: state.glossary.clone(),
                                         segmentation: None,
                                     };
+                                    // ONE writer claim for the whole turn, cloned into
+                                    // every engine below: Standard and the premium engines
+                                    // all finalize the same utterance, so without a shared
+                                    // claim each would persist its own copy of every line.
+                                    let transcript_writer = engine::TranscriptWriter::default();
                                     let build_deps = |lp: bool| engine::SessionDeps {
                                         rooms: state.rooms.clone(),
                                         moderator: state.moderator.clone(),
@@ -1960,6 +1978,7 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState, clien
                                         participant_row,
                                         listener_pays: lp,
                                         translator: state.translator.clone(),
+                                        transcript_writer: transcript_writer.clone(),
                                     };
                                     let mut feeds: Vec<mpsc::Sender<Vec<u8>>> = Vec::new();
                                     let mut any_premium_ok = false;
@@ -2061,6 +2080,10 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState, clien
                                     glossary: state.glossary.clone(),
                                     segmentation: None,
                                 };
+                                // Shared by the first engine and any capacity fallback
+                                // that replaces it — the outgoing session releases the
+                                // claim on exit, so the replacement re-elects itself.
+                                let transcript_writer = engine::TranscriptWriter::default();
                                 let build_deps = || engine::SessionDeps {
                                     rooms: state.rooms.clone(),
                                     moderator: state.moderator.clone(),
@@ -2070,6 +2093,7 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState, clien
                                     // per-lang fan-out + WebM/Opus capture.
                                     listener_pays: false,
                                     translator: state.translator.clone(),
+                                    transcript_writer: transcript_writer.clone(),
                                 };
                                 // Engine routing (spec 0093): the engine owns the
                                 // STT/translation pipeline incl. the `auto` detect
