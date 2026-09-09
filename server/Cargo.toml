@@ -67,6 +67,12 @@ chacha20poly1305 = "0.11"
 rand = "0.10"
 web-push = { version = "0.11.0", default-features = false }
 
+[dev-dependencies]
+# Money invariants (spec 0111 R7) are stated as properties, not examples: the margin
+# floor must hold for EVERY cost/margin/buffer, and shrinking a counterexample to its
+# minimal form is the difference between a fix and a guess. Dev-only, never shipped.
+proptest = "1"
+
 [profile.release]
 opt-level = 3
 lto = "thin"
