@@ -51,6 +51,7 @@ pub mod storage;
 pub mod stripe_handler;
 pub mod subtitles;
 pub mod talk;
+pub mod telephony;
 pub mod transcripts;
 pub mod translator;
 pub mod usage;
