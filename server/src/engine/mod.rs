@@ -208,6 +208,30 @@ pub(crate) fn reconcile_langs(
     (drop, add)
 }
 
+/// The engines to open **alongside** Standard for one speaking turn: the distinct
+/// speech-to-speech engines a cross-language listener actually chose, minus Standard.
+///
+/// Standard is excluded even when listeners chose it, because the caller starts it
+/// unconditionally afterwards — it is the tier that must never be missing. Letting it in
+/// here started it TWICE for the same speaker, which cost real money: the Standard tier
+/// bills per target language, so a room with one English listener opened two upstream
+/// sessions and paid for both. It also fed the same listeners two audio streams, and
+/// wrote every utterance to the transcript twice.
+///
+/// The list was always described in the caller as the "premium engines a listener chose";
+/// the filter said "anything that speaks", and Standard speaks (`translated_audio`).
+/// Naming the exclusion here keeps the two from drifting apart again.
+pub fn extra_engines_for_turn(chosen: &[String], speech_engines: &[String]) -> Vec<String> {
+    let mut wanted: Vec<String> = chosen
+        .iter()
+        .filter(|id| id.as_str() != STANDARD_ID && speech_engines.contains(id))
+        .cloned()
+        .collect();
+    wanted.sort();
+    wanted.dedup();
+    wanted
+}
+
 /// A translation engine: turns one speaker's captured audio into room subtitles
 /// (and, for premium engines, translated audio).
 #[async_trait]
@@ -396,6 +420,59 @@ mod tests {
         primary.release(&en); // en's socket dropped
         assert!(primary.owns(&es));
         assert!(!primary.owns(&en), "en does not take it back on reconnect");
+    }
+
+    // ---- extra_engines_for_turn ----------------------------------------------
+
+    fn speech() -> Vec<String> {
+        vec![
+            STANDARD_ID.to_string(),
+            OPENAI_ID.to_string(),
+            GEMINI_ID.to_string(),
+        ]
+    }
+
+    #[test]
+    fn standard_is_never_started_twice_for_one_speaker() {
+        // The regression: Standard has `translated_audio`, so a listener choosing it put
+        // it in this list — and the caller starts Standard unconditionally anyway. Two
+        // upstream sessions per target language, on the tier billed per target language.
+        let chosen = vec![STANDARD_ID.to_string()];
+        assert!(extra_engines_for_turn(&chosen, &speech()).is_empty());
+    }
+
+    #[test]
+    fn premium_engines_a_listener_chose_are_kept() {
+        let chosen = vec![GEMINI_ID.to_string(), OPENAI_ID.to_string()];
+        let got = extra_engines_for_turn(&chosen, &speech());
+        assert_eq!(got.len(), 2);
+        assert!(got.contains(&GEMINI_ID.to_string()));
+        assert!(got.contains(&OPENAI_ID.to_string()));
+    }
+
+    #[test]
+    fn a_mixed_room_opens_the_premium_engine_and_leaves_standard_to_the_caller() {
+        let chosen = vec![STANDARD_ID.to_string(), GEMINI_ID.to_string()];
+        assert_eq!(extra_engines_for_turn(&chosen, &speech()), vec![GEMINI_ID]);
+    }
+
+    #[test]
+    fn two_listeners_on_one_engine_open_one_session() {
+        let chosen = vec![GEMINI_ID.to_string(), GEMINI_ID.to_string()];
+        assert_eq!(extra_engines_for_turn(&chosen, &speech()), vec![GEMINI_ID]);
+    }
+
+    #[test]
+    fn an_engine_that_cannot_speak_is_not_opened_here() {
+        // A client-direct tier (Cartesia) never opens a server session; the browser talks
+        // to the provider itself.
+        let chosen = vec![CARTESIA_ID.to_string(), GEMINI_ID.to_string()];
+        assert_eq!(extra_engines_for_turn(&chosen, &speech()), vec![GEMINI_ID]);
+    }
+
+    #[test]
+    fn nobody_cross_language_means_nothing_extra_to_open() {
+        assert!(extra_engines_for_turn(&[], &speech()).is_empty());
     }
 
     #[test]
