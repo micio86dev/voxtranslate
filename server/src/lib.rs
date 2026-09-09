@@ -55,6 +55,7 @@ pub mod telephony;
 pub mod transcripts;
 pub mod translator;
 pub mod usage;
+pub mod voip;
 pub mod webinar;
 
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
