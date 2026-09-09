@@ -1982,14 +1982,14 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState, clien
                                     };
                                     let mut feeds: Vec<mpsc::Sender<Vec<u8>>> = Vec::new();
                                     let mut any_premium_ok = false;
-                                    // Distinct premium engines a CROSS-LANGUAGE listener chose.
-                                    let mut wanted: Vec<String> = routes
-                                        .iter()
-                                        .map(|r| r.engine.clone())
-                                        .filter(|eid| pcm_engines.contains(eid))
-                                        .collect();
-                                    wanted.sort();
-                                    wanted.dedup();
+                                    // Distinct premium engines a CROSS-LANGUAGE listener
+                                    // chose. Standard is deliberately NOT among them — it
+                                    // is started unconditionally below, and including it
+                                    // here opened it twice for the same speaker.
+                                    let chosen: Vec<String> =
+                                        routes.iter().map(|r| r.engine.clone()).collect();
+                                    let wanted =
+                                        engine::extra_engines_for_turn(&chosen, &pcm_engines);
                                     for eid in &wanted {
                                         if let Some(eng) = state.engines.get(eid) {
                                             match eng
