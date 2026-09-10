@@ -298,8 +298,10 @@ impl Leg {
             return Err(MediaError::Malformed("odd-length PCM16 buffer".into()));
         }
         let samples: Vec<i16> = pcm16_le
-            .chunks_exact(2)
-            .map(|p| i16::from_le_bytes([p[0], p[1]]))
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|p| i16::from_le_bytes(*p))
             .collect();
         let resampled = self.down.process(&samples);
         let wire = codec::encode(self.codec, &resampled)
@@ -845,8 +847,10 @@ mod tests {
             .expect("channel open");
 
         let peak = pcm
-            .chunks_exact(2)
-            .map(|c| i16::from_le_bytes([c[0], c[1]]).unsigned_abs())
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|c| i16::from_le_bytes(*c).unsigned_abs())
             .max()
             .unwrap_or(0);
         assert!(

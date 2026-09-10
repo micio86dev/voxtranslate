@@ -100,8 +100,10 @@ pub fn decode(codec: MediaCodec, payload: &[u8]) -> Result<Vec<i16>, CodecError>
                 return Err(CodecError::TruncatedFrame);
             }
             payload
-                .chunks_exact(2)
-                .map(|p| i16::from_be_bytes([p[0], p[1]]))
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|p| i16::from_be_bytes(*p))
                 .collect()
         }
         MediaCodec::Pcmu => payload.iter().copied().map(ulaw_to_pcm16).collect(),
