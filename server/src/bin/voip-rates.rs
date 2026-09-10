@@ -167,7 +167,11 @@ fn redacted_target(url: &str) -> String {
     let after_scheme = url.split("://").nth(1).unwrap_or(url);
     // Credentials, if present, end at the last '@' before the host.
     let host_and_path = after_scheme.rsplit('@').next().unwrap_or(after_scheme);
-    host_and_path.split('?').next().unwrap_or(host_and_path).to_string()
+    host_and_path
+        .split('?')
+        .next()
+        .unwrap_or(host_and_path)
+        .to_string()
 }
 
 fn fail(msg: &str) -> ExitCode {
@@ -534,16 +538,24 @@ mod tests {
     fn the_target_line_names_the_database_without_leaking_the_password() {
         // Printed on the path that is about to DELETE, so it has to be readable AND safe
         // to paste into a chat or an issue.
-        let t = redacted_target("postgresql://user:s3cret@aws-1-eu-central-1.pooler.supabase.com:5432/postgres");
+        let t = redacted_target(
+            "postgresql://user:s3cret@aws-1-eu-central-1.pooler.supabase.com:5432/postgres",
+        );
         assert_eq!(t, "aws-1-eu-central-1.pooler.supabase.com:5432/postgres");
-        assert!(!t.contains("s3cret"), "the password must never be printed: {t}");
+        assert!(
+            !t.contains("s3cret"),
+            "the password must never be printed: {t}"
+        );
         assert!(!t.contains("user"), "nor the username: {t}");
     }
 
     #[test]
     fn the_target_line_survives_a_url_it_cannot_understand() {
         // It must not panic here of all places. Something recognisable beats an abort.
-        assert_eq!(redacted_target("localhost/voxtranslate_voip_test"), "localhost/voxtranslate_voip_test");
+        assert_eq!(
+            redacted_target("localhost/voxtranslate_voip_test"),
+            "localhost/voxtranslate_voip_test"
+        );
         assert_eq!(redacted_target(""), "");
         assert_eq!(
             redacted_target("postgres://h/db?sslmode=require"),
