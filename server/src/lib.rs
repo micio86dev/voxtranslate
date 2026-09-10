@@ -248,6 +248,15 @@ pub struct AppState {
     /// In-memory realtime webinar presence (SPEC Fase 4): live audience count per
     /// webinar code, backing the `/api/w/{code}/presence` WebSocket.
     pub webinar_presence: Arc<crate::webinar::presence::PresenceRegistry>,
+    /// Telephony provider for translated phone calls (spec 0111).
+    ///
+    /// `Some` only when `VOIP_ENABLED` is truthy AND a provider could be built — the
+    /// `/api/…/voip/…` routes are not registered otherwise, so turning the feature off is
+    /// a genuine kill switch rather than a flag some handler might forget to read.
+    ///
+    /// `VOIP_PROVIDER=mock` is a legitimate production value: it exercises the whole
+    /// flow, including billing and consent, without a telco and without charges.
+    pub telephony: Option<Arc<dyn crate::telephony::TelephonyProvider>>,
 }
 
 /// Read a positive `u32` from `var`, falling back to `default`.
@@ -430,6 +439,28 @@ impl AppState {
             .help_assistant
             .as_ref()
             .map(|ha| Arc::new(tokio::sync::Semaphore::new(ha.max_sessions.max(1))));
+        // Telephony provider (spec 0111). Absent unless VOIP is enabled AND the named
+        // provider can actually be built — a configured-but-unbuildable provider leaves
+        // the routes unregistered rather than registering handlers that always 503.
+        let telephony: Option<Arc<dyn crate::telephony::TelephonyProvider>> = config
+            .voip
+            .as_ref()
+            .and_then(|v| match v.provider.as_str() {
+                "mock" => Some(
+                    Arc::new(crate::telephony::mock::MockTelephonyProvider::default())
+                        as Arc<dyn crate::telephony::TelephonyProvider>,
+                ),
+                "telnyx" => config.telnyx.as_ref().map(|t| {
+                    Arc::new(crate::telephony::telnyx::TelnyxProvider::new(
+                        t.clone(),
+                        v.webhook_tolerance_secs,
+                    )) as Arc<dyn crate::telephony::TelephonyProvider>
+                }),
+                other => {
+                    tracing::warn!(provider = other, "unknown VOIP_PROVIDER; VoIP stays off");
+                    None
+                }
+            });
         Self {
             config,
             rooms,
@@ -470,6 +501,7 @@ impl AppState {
             voice_assistant_semaphore,
             help_assistant_semaphore,
             webinar_presence: Arc::new(crate::webinar::presence::PresenceRegistry::new()),
+            telephony,
         }
     }
 
@@ -764,6 +796,13 @@ pub fn app(state: AppState) -> Router {
         )
         // VoxTranslate for Business — org workspace API (spec 0106).
         .merge(business::routes::routes())
+        // Registered only when VoIP is enabled AND a provider was built, so turning the
+        // feature off is a real kill switch: the routes are absent and a request 404s.
+        .merge(if state.telephony.is_some() {
+            voip::routes::routes()
+        } else {
+            Router::new()
+        })
         // B2B Voice Assistant — registered only when config is present (ships dark).
         .merge(if state.config.voice_assistant.is_some() {
             business::routes::voice_assistant_routes()

@@ -5,6 +5,7 @@ pub mod consent;
 pub mod policy;
 pub mod pricing;
 pub mod reservation;
+pub mod routes;
 pub mod service;
 pub mod state;
 pub mod webhook;
