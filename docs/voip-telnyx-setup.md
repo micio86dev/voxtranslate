@@ -76,6 +76,7 @@ VOIP_VIDEO_ENABLED=false
 # Privacy
 VOIP_PSEUDONYM_KEY=<32+ random bytes>     # falls back to JWT_SECRET if unset
 VOIP_MEDIA_TICKET_KEY=<32+ random bytes>  # signs media-socket tickets; see below
+VOIP_VIDEO_INVITE_KEY=<32+ random bytes>  # signs video-upgrade invitations
 VOIP_WEBHOOK_TOLERANCE_SECS=300
 
 # Provider
@@ -88,19 +89,20 @@ TELNYX_DEFAULT_CALLER_ID=+39...
 TELNYX_MEDIA_ANCHOR="Frankfurt, Germany"
 ```
 
-### The two keys are deliberately not one
+### The three keys are deliberately not one
 
-`VOIP_PSEUDONYM_KEY` and `VOIP_MEDIA_TICKET_KEY` do very different jobs with very different
-exposure: a pseudonym is written into logs and rows by the thousand and must stay stable
-for the life of the data, while a ticket is signed once and lives sixty seconds. Reusing
-one key for both would make a weakness in either use a weakness in both.
+`VOIP_PSEUDONYM_KEY`, `VOIP_MEDIA_TICKET_KEY` and `VOIP_VIDEO_INVITE_KEY` do very different
+jobs with very different exposure. A pseudonym is written into logs and rows by the
+thousand and must stay stable for the life of the data. A media ticket is signed once and
+lives sixty seconds, machine to machine. A video invitation is handed to a *person* and may
+sit in a chat log for fifteen minutes. Reusing one key across them would make a weakness in
+any one of them a weakness in all three.
 
-Neither is required. When `VOIP_MEDIA_TICKET_KEY` is unset the ticket key is **derived**
-from the shared fallback secret through a domain separator rather than being the same
-bytes — so the separation holds even in a deployment that configures neither. Set a
-dedicated one in production anyway: rotating the ticket key is harmless (in-flight tickets
-expire in a minute), while rotating the pseudonym key changes every pseudonym you have
-already written.
+None is required. When a specific key is unset it is **derived** from the shared fallback
+secret through a domain separator rather than being the same bytes — so the separation
+holds even in a deployment that configures none of them. Set dedicated ones in production
+anyway: rotating either ticket key is harmless (in-flight tickets expire in minutes), while
+rotating the pseudonym key changes every pseudonym you have already written.
 
 ### The `speak` command
 
@@ -118,6 +120,22 @@ outside the list is disclosed in English and the row records that
 If the Call Control application has speech synthesis disabled, set `speech_synthesis:
 false` on the provider's capabilities. Capture will then not start at all rather than
 starting without a disclosure.
+
+### The video upgrade needs no carrier feature
+
+`VOIP_VIDEO_ENABLED=true` is the only switch. The upgrade is an invitation into the
+VoxTranslate room the call is already happening in — nothing is asked of Telnyx, and
+nothing in that path can disturb the telephone call.
+
+The link is `{api}/api/voip/video/{ticket}`, built from `VOIP_MEDIA_WS_BASE` (which already
+names this API's host, so there is no second origin to keep in step). Redemption verifies
+the signature and the 15-minute expiry, checks the call is still live, and only then
+redirects to the room. **The room code never appears in the link the caller shares**, so a
+forwarded invitation that has expired yields nothing.
+
+There is deliberately no channel from here to the recipient's telephone. The caller is
+already talking to them and passes the link on; an SMS integration would be a second
+provider surface and a per-message charge, and nothing depends on one.
 
 `TELNYX_API_BASE` and `TELNYX_MEDIA_ANCHOR` both default to the EU values, and
 `TelnyxConfig::is_eu()` requires **both**. Changing either one silently moves telephony out

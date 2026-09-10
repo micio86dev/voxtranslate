@@ -12,6 +12,7 @@ pub mod service;
 pub mod session;
 pub mod state;
 pub mod token;
+pub mod video;
 pub mod webhook;
 
 pub use pricing::{MarginPolicy, ProviderCost, Quote, RateDeck};

@@ -52,12 +52,20 @@ pub fn routes() -> Router<AppState> {
             post(hangup),
         )
         .route(
+            "/api/business/organizations/{org_id}/voip/calls/{call_id}/video-invite",
+            post(video_invite),
+        )
+        .route(
             "/api/business/organizations/{org_id}/voip/settings",
             get(get_settings).put(put_settings),
         )
         // Unauthenticated by design: the provider cannot present a session. The Ed25519
         // signature IS the authentication, and it is verified before anything is read.
         .route("/api/voip/webhooks/{provider}", post(inbound_webhook))
+        // Unauthenticated because the person redeeming it has no account and is not meant
+        // to need one — a telephone recipient invited into a browser room. The signed,
+        // short-lived ticket in the path is the whole of the authorisation.
+        .route("/api/voip/video/{ticket}", get(redeem_video_invite))
         // Also unauthenticated by design, and for the same reason: the connection comes
         // from the carrier's media plane, which carries no session of ours. The ticket in
         // the path IS the authentication — signed by us, single-use, valid for sixty
@@ -959,6 +967,115 @@ pub async fn inbound_webhook(
             Err((StatusCode::UNAUTHORIZED, Json(json!({ "error": e.code() }))).into_response())
         }
     }
+}
+
+/// `POST …/voip/calls/{id}/video-invite` — offer the recipient a browser room.
+///
+/// Returns a link the caller passes on however they like. There is no channel from here to
+/// a telephone: they are already talking to the person, so reading it out or sending it
+/// through whatever they already use is the delivery mechanism. An SMS integration would
+/// be a second provider surface and a per-message charge, and is not required for this to
+/// work.
+///
+/// **Nothing here touches the call.** No carrier command, no media change, no billing
+/// row — an upgrade that fails leaves two people on the telephone exactly as they were,
+/// which is what D9 requires.
+pub async fn video_invite(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path((org_id, call_id)): Path<(Uuid, Uuid)>,
+) -> Result<Response, Response> {
+    let pool = require_pool(&state)?;
+    let cfg = cfg(&state)?;
+    let role = require_role(pool, org_id, user.user_id, MEMBER).await?;
+    let is_admin = matches!(role.as_str(), "admin" | "owner");
+
+    if !cfg.video_enabled {
+        // Off is off: 404, the same answer the whole feature gives when it is disabled,
+        // rather than a refusal that confirms the call exists.
+        return Err(not_found("video is not enabled"));
+    }
+
+    // Tenancy in the WHERE clause, and the room only while the call is live: inviting
+    // someone into a room whose call is over puts them alone in an empty conversation.
+    let room: Option<Option<String>> = sqlx::query_scalar(
+        "SELECT CASE WHEN c.status NOT IN ('completed', 'failed') THEN s.room END
+         FROM voip_calls c
+         JOIN call_sessions s ON s.id = c.session_id
+         WHERE c.id = $1 AND c.org_id = $2 AND ($3 OR c.user_id = $4)",
+    )
+    .bind(call_id)
+    .bind(org_id)
+    .bind(is_admin)
+    .bind(user.user_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(db_err)?;
+
+    let Some(Some(room)) = room else {
+        // One 404 for "no such call", "not yours" and "already over". A different answer
+        // for each would tell an unauthorised caller which of the three it was.
+        return Err(not_found("call not found"));
+    };
+
+    let (ticket, expires) =
+        crate::voip::video::issue(&cfg.video_invite_key, call_id, &room, chrono::Utc::now());
+    let api_base = crate::voip::video::api_base_from_ws(&cfg.media_ws_base);
+    let url = crate::voip::video::invite_url(&api_base, &ticket);
+
+    // Audited: someone was invited into a conversation, and who offered is a fact worth
+    // keeping. The URL is NOT recorded — it is a live capability, and an audit log is read
+    // by more people than the call was.
+    crate::business::audit::log_audit_event(
+        pool,
+        org_id,
+        user.user_id,
+        "voip.video_invite",
+        "voip_call",
+        call_id,
+        json!({ "expires_at": expires }),
+    );
+
+    Ok(Json(json!({ "url": url, "expires_at": expires })).into_response())
+}
+
+/// `GET /api/voip/video/{ticket}` — redeem an invitation and go to the room.
+///
+/// A redirect rather than a JSON body, because the person opening it is a human with a
+/// link, not a client with a parser.
+pub async fn redeem_video_invite(
+    State(state): State<AppState>,
+    Path(ticket): Path<String>,
+) -> Result<Response, Response> {
+    let pool = require_pool(&state)?;
+    let cfg = cfg(&state)?;
+
+    let invite = crate::voip::video::verify(
+        &cfg.video_invite_key,
+        &ticket,
+        chrono::Utc::now().timestamp(),
+    )
+    .map_err(|e| {
+        tracing::warn!(reason = e.code(), "video invite refused");
+        not_found("this invitation is no longer valid")
+    })?;
+
+    // The signature proves the room was ours to give. Whether it is still worth giving is
+    // a separate question, and only the database can answer it.
+    let live: Option<bool> = sqlx::query_scalar(
+        "SELECT status NOT IN ('completed', 'failed') FROM voip_calls WHERE id = $1",
+    )
+    .bind(invite.call_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(db_err)?;
+
+    if live != Some(true) {
+        return Err(not_found("this invitation is no longer valid"));
+    }
+
+    let to = crate::voip::video::join_url(&state.config.app_base_url, &invite.room);
+    Ok((StatusCode::SEE_OTHER, [(axum::http::header::LOCATION, to)]).into_response())
 }
 
 /// Serve one phone leg's media socket.

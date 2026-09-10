@@ -554,9 +554,10 @@ pub async fn dial(
              caller_e164, recipient_e164, recipient_pseudonym, recipient_country,
              source_language, target_language, engine_id, eu_processing_required,
              status, consent_policy, consent_status, estimated_cost_usd,
-             quoted_price_per_min, recording_status, transcription_status)
+             quoted_price_per_min, recording_status, transcription_status,
+             ai_analysis_requested)
          VALUES ($1, $2, $3, $4, $5, $6, 'outbound', $7, $8, $9, $10, $11, $12, $13, $14,
-                 'created', $15, $16, $17, $18, $19, $20)
+                 'created', $15, $16, $17, $18, $19, $20, $21)
          RETURNING id",
     )
     .bind(session_id)
@@ -579,6 +580,9 @@ pub async fn dial(
     .bind(quote.price_per_minute)
     .bind(if intent.recording { "pending" } else { "none" })
     .bind(if intent.transcription { "live" } else { "none" })
+    // Remembered, because the analysis can only happen once the call is over and the
+    // transcript is finished — long after this request is gone.
+    .bind(intent.ai_analysis)
     .fetch_one(&mut *tx)
     .await?;
 

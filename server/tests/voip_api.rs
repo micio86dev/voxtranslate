@@ -953,8 +953,8 @@ async fn enable_dialing_with_capture(srv: &Server, org: Uuid, jwt: &str) {
     enable_dialing(srv, org, jwt, 5).await;
     sqlx::query(
         "UPDATE voip_org_settings
-         SET transcription_enabled = TRUE, consent_policy = 'press_key',
-             consent_refused_action = 'continue_unrecorded'
+         SET transcription_enabled = TRUE, ai_analysis_enabled = TRUE,
+             consent_policy = 'press_key', consent_refused_action = 'continue_unrecorded'
          WHERE org_id = $1",
     )
     .bind(org)
@@ -1340,6 +1340,386 @@ async fn two_digits_arriving_together_cannot_both_decide() {
         "the gate must settle on exactly one answer, got {status}"
     );
     assert!(received.is_some(), "and it must record when it settled");
+}
+
+#[tokio::test]
+async fn an_analysis_the_caller_asked_for_is_queued_once_and_only_once() {
+    // R23. The tick at dial time is the consent to charge, so the analysis must actually
+    // happen — and must happen exactly once, because every enqueue spends credits and the
+    // sweep runs every minute for ever.
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    enable_dialing_with_capture(&srv, org, &jwt).await;
+
+    let res = client()
+        .post(format!(
+            "{}/api/business/organizations/{org}/voip/calls",
+            base(&srv)
+        ))
+        .bearer_auth(&jwt)
+        .json(&json!({
+            "destination": "+393201234567",
+            "source_language": "it",
+            "target_language": "en",
+            "transcribe": true,
+            "ai_analysis": true,
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::CREATED);
+    let body: Value = res.json().await.unwrap();
+    let call_id = Uuid::parse_str(body["call_id"].as_str().unwrap()).unwrap();
+    let session_id = Uuid::parse_str(body["session_id"].as_str().unwrap()).unwrap();
+
+    let requested: bool =
+        sqlx::query_scalar("SELECT ai_analysis_requested FROM voip_calls WHERE id = $1")
+            .bind(call_id)
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap();
+    assert!(
+        requested,
+        "the request was collected from the dialer and then dropped — nothing could act \
+         on it once the call ended, which is the only moment it can happen"
+    );
+
+    let mut state = AppState::new(Config::test_with_billing(
+        &std::env::var("DATABASE_URL").unwrap(),
+        SECRET,
+        0.0,
+    ));
+    state.pool = Some(srv.pool.clone());
+    // The sweep reads the finished transcript, so it needs the service that owns it.
+    state.transcripts = Some(voxtranslate_server::transcripts::TranscriptService::new(
+        srv.pool.clone(),
+    ));
+
+    // Not finished, and no transcript: nothing may be queued yet.
+    voxtranslate_server::voip::webhook::enqueue_ai_analysis(&state, 50)
+        .await
+        .unwrap();
+    let stamp: Option<chrono::DateTime<chrono::Utc>> =
+        sqlx::query_scalar("SELECT ai_analysis_enqueued_at FROM voip_calls WHERE id = $1")
+            .bind(call_id)
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap();
+    assert!(
+        stamp.is_none(),
+        "a call that is still running has no finished transcript to summarise"
+    );
+
+    // Now end it, close the session, and give it something to say.
+    sqlx::query("UPDATE voip_calls SET status = 'completed', ended_at = now() WHERE id = $1")
+        .bind(call_id)
+        .execute(&srv.pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE call_sessions SET ended_at = now() WHERE id = $1")
+        .bind(session_id)
+        .execute(&srv.pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO transcript_events (session_id, event_type, speaker_peer_id, speaker_name,
+                                        original_text, original_lang, translations, ts)
+         VALUES ($1, 'speech', 'p1', 'Caller', 'ciao', 'it', '{}'::jsonb, now())",
+    )
+    .bind(session_id)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+
+    voxtranslate_server::voip::webhook::enqueue_ai_analysis(&state, 50)
+        .await
+        .unwrap();
+
+    let stamp: Option<chrono::DateTime<chrono::Utc>> =
+        sqlx::query_scalar("SELECT ai_analysis_enqueued_at FROM voip_calls WHERE id = $1")
+            .bind(call_id)
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap();
+    let first = stamp.expect("a finished call with a transcript must be queued");
+
+    // The sweep runs every minute for ever. A second pass must find nothing to do.
+    voxtranslate_server::voip::webhook::enqueue_ai_analysis(&state, 50)
+        .await
+        .unwrap();
+    let stamp: Option<chrono::DateTime<chrono::Utc>> =
+        sqlx::query_scalar("SELECT ai_analysis_enqueued_at FROM voip_calls WHERE id = $1")
+            .bind(call_id)
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        stamp,
+        Some(first),
+        "the call was reconsidered — every extra pass is another charge to the customer"
+    );
+}
+
+#[tokio::test]
+async fn a_call_nobody_asked_to_analyse_is_left_alone() {
+    // The default. Charging for a report the caller did not tick is the failure this
+    // column exists to make impossible.
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    enable_dialing_with_capture(&srv, org, &jwt).await;
+    let (call_id, _leg) = dial_and_answer(&srv, org, &jwt, "en").await;
+
+    let requested: bool =
+        sqlx::query_scalar("SELECT ai_analysis_requested FROM voip_calls WHERE id = $1")
+            .bind(call_id)
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap();
+    assert!(!requested);
+}
+
+/// A server with video switched on. The default is off, so most tests never see it.
+async fn setup_with_video() -> Option<Server> {
+    let mut voip = VoipConfig::test_default();
+    voip.video_enabled = true;
+    setup_with_voip(Some(voip)).await
+}
+
+#[tokio::test]
+async fn a_video_invite_never_carries_the_room_in_the_clear() {
+    // D9. The recipient is on a telephone, so the upgrade is a link into the room the call
+    // is already happening in. The link must be a signed, short-lived ticket rather than
+    // the room code, because an invitation gets forwarded and a room code has no expiry.
+    let Some(srv) = setup_with_video().await else {
+        eprintln!("skipping: no DATABASE_URL");
+        return;
+    };
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    enable_dialing(&srv, org, &jwt, 5).await;
+
+    let res = client()
+        .post(format!(
+            "{}/api/business/organizations/{org}/voip/calls",
+            base(&srv)
+        ))
+        .bearer_auth(&jwt)
+        .json(&json!({
+            "destination": "+393201234567",
+            "source_language": "it",
+            "target_language": "en",
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::CREATED);
+    let body: Value = res.json().await.unwrap();
+    let call_id = body["call_id"].as_str().unwrap().to_string();
+    let room = body["room"].as_str().unwrap().to_string();
+
+    let res = client()
+        .post(format!(
+            "{}/api/business/organizations/{org}/voip/calls/{call_id}/video-invite",
+            base(&srv)
+        ))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let invite: Value = res.json().await.unwrap();
+    let url = invite["url"].as_str().expect("an invitation url");
+
+    assert!(
+        !url.contains(&room),
+        "the room leaked into a link meant to be forwarded: {url}"
+    );
+    assert!(url.contains("/api/voip/video/"));
+    assert!(
+        invite["expires_at"].is_string(),
+        "an invitation with no stated expiry is one nobody can reason about"
+    );
+
+    // Redeeming it sends the recipient to the room — and only then. Redirects are not
+    // followed here: the point of the assertion is WHERE it sends them, and a client that
+    // follows the hop reports only that the app answered.
+    let ticket = url.rsplit('/').next().unwrap();
+    let res = Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .unwrap()
+        .get(format!("{}/api/voip/video/{ticket}", base(&srv)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    let location = res
+        .headers()
+        .get("location")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default()
+        .to_string();
+    assert!(
+        location.ends_with(&format!("/?room={room}")),
+        "expected the ordinary room deep link, got {location}"
+    );
+
+    // Audited: someone was invited into a conversation.
+    let audited: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM audit_logs
+         WHERE org_id = $1 AND action = 'voip.video_invite'",
+    )
+    .bind(org)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
+    assert!(audited >= 1);
+}
+
+#[tokio::test]
+async fn a_forged_or_finished_invite_yields_nothing() {
+    let Some(srv) = setup_with_video().await else {
+        eprintln!("skipping: no DATABASE_URL");
+        return;
+    };
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    enable_dialing(&srv, org, &jwt, 5).await;
+
+    // Garbage: refused, and with a 404 rather than anything that confirms a call exists.
+    for ticket in ["nonsense", "a.b", "..."] {
+        let res = client()
+            .get(format!("{}/api/voip/video/{ticket}", base(&srv)))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::NOT_FOUND, "accepted {ticket:?}");
+    }
+
+    // A genuine invitation for a call that has since ended.
+    let res = client()
+        .post(format!(
+            "{}/api/business/organizations/{org}/voip/calls",
+            base(&srv)
+        ))
+        .bearer_auth(&jwt)
+        .json(&json!({
+            "destination": "+393201234567",
+            "source_language": "it",
+            "target_language": "en",
+        }))
+        .send()
+        .await
+        .unwrap();
+    let body: Value = res.json().await.unwrap();
+    let call_id = body["call_id"].as_str().unwrap().to_string();
+
+    let invite: Value = client()
+        .post(format!(
+            "{}/api/business/organizations/{org}/voip/calls/{call_id}/video-invite",
+            base(&srv)
+        ))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let ticket = invite["url"]
+        .as_str()
+        .unwrap()
+        .rsplit('/')
+        .next()
+        .unwrap()
+        .to_string();
+
+    sqlx::query("UPDATE voip_calls SET status = 'completed', ended_at = now() WHERE id = $1")
+        .bind(Uuid::parse_str(&call_id).unwrap())
+        .execute(&srv.pool)
+        .await
+        .unwrap();
+
+    // The signature is still perfectly good. What has changed is that there is nothing
+    // worth joining — an invitation into a finished call puts someone alone in a room.
+    let res = client()
+        .get(format!("{}/api/voip/video/{ticket}", base(&srv)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn video_stays_off_unless_it_is_switched_on() {
+    // `VOIP_VIDEO_ENABLED` defaults to false, and off must mean 404 rather than a refusal
+    // that confirms which calls exist.
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    enable_dialing(&srv, org, &jwt, 5).await;
+    let (call_id, _leg) = dial_and_answer(&srv, org, &jwt, "en").await;
+
+    let res = client()
+        .post(format!(
+            "{}/api/business/organizations/{org}/voip/calls/{call_id}/video-invite",
+            base(&srv)
+        ))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn another_orgs_call_cannot_be_invited_into() {
+    // Tenancy, asserted on this route like every other: it leaks route by route.
+    let Some(srv) = setup_with_video().await else {
+        eprintln!("skipping: no DATABASE_URL");
+        return;
+    };
+    let (owner_a, jwt_a) = user(&srv).await;
+    let org_a = make_org(&srv, owner_a, "owner").await;
+    enable_dialing(&srv, org_a, &jwt_a, 5).await;
+    let body: Value = client()
+        .post(format!(
+            "{}/api/business/organizations/{org_a}/voip/calls",
+            base(&srv)
+        ))
+        .bearer_auth(&jwt_a)
+        .json(&json!({
+            "destination": "+393201234567",
+            "source_language": "it",
+            "target_language": "en",
+        }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let call_id = body["call_id"].as_str().unwrap().to_string();
+
+    let (owner_b, jwt_b) = user(&srv).await;
+    let org_b = make_org(&srv, owner_b, "owner").await;
+
+    let res = client()
+        .post(format!(
+            "{}/api/business/organizations/{org_b}/voip/calls/{call_id}/video-invite",
+            base(&srv)
+        ))
+        .bearer_auth(&jwt_b)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        res.status(),
+        StatusCode::NOT_FOUND,
+        "a call from another org must be invisible, not merely forbidden"
+    );
 }
 
 #[tokio::test]

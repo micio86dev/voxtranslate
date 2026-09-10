@@ -302,6 +302,12 @@ pub struct VoipConfig {
     /// sixty seconds. When no dedicated key is configured, this one is *derived* from the
     /// shared secret through a domain separator rather than being the same bytes.
     pub media_ticket_key: Vec<u8>,
+    /// Signing key for video-upgrade invitations (`voip::video`).
+    ///
+    /// Its own key for the same reason as the media ticket: three uses with three very
+    /// different exposures should not share one secret. This one is handed to a person and
+    /// may sit in a chat log for fifteen minutes.
+    pub video_invite_key: Vec<u8>,
 }
 
 impl std::fmt::Debug for VoipConfig {
@@ -346,6 +352,7 @@ impl std::fmt::Debug for VoipConfig {
             // Never the key itself — see the struct's own note.
             .field("pseudonym_key", &"<redacted>")
             .field("media_ticket_key", &"<redacted>")
+            .field("video_invite_key", &"<redacted>")
             .finish()
     }
 }
@@ -373,6 +380,11 @@ impl VoipConfig {
             .map(|s| s.trim().as_bytes().to_vec())
             .filter(|b| !b.is_empty())
             .unwrap_or_else(|| derive_subkey(fallback_secret, b"voip-media-ticket"));
+        let video_key = env::var("VOIP_VIDEO_INVITE_KEY")
+            .ok()
+            .map(|s| s.trim().as_bytes().to_vec())
+            .filter(|b| !b.is_empty())
+            .unwrap_or_else(|| derive_subkey(fallback_secret, b"voip-video-invite"));
         Some(Self {
             provider: env::var("VOIP_PROVIDER")
                 .ok()
@@ -427,6 +439,7 @@ impl VoipConfig {
             webhook_tolerance_secs: parse_or("VOIP_WEBHOOK_TOLERANCE_SECS", 300i64),
             pseudonym_key: key,
             media_ticket_key: ticket_key,
+            video_invite_key: video_key,
         })
     }
 
@@ -443,9 +456,19 @@ impl VoipConfig {
             min_gross_margin: 0.20,
             cost_safety_buffer: 0.10,
             max_destination_rate: 1.0,
-            daily_provider_spend_limit: 50.0,
+            // Same reasoning as the global cap below: this is a deployment-wide
+            // accumulator over a shared test database, so what trips it is a day of other
+            // people's test runs rather than anything the test under way did. The gate
+            // itself is asserted in `voip::policy::the_daily_spend_limit_stops_dialing_once_reached`.
+            daily_provider_spend_limit: 1_000_000.0,
             max_call_minutes: 60,
-            max_concurrent_global: 50,
+            // Deliberately far above the production default here. The deployment-wide cap
+            // counts EVERY live call in the database, so on a shared test database it is
+            // not a property of the test that trips it — it is every other test in the
+            // file, plus whatever the previous run left behind. The cap's own behaviour is
+            // asserted in `voip::policy`'s unit tests, where the count is an input rather
+            // than a shared resource.
+            max_concurrent_global: 100_000,
             max_concurrent_per_org: 10,
             max_concurrent_per_user: 2,
             allow_international: true,
@@ -463,6 +486,7 @@ impl VoipConfig {
             webhook_tolerance_secs: 300,
             pseudonym_key: b"test-pseudonym-key".to_vec(),
             media_ticket_key: b"test-media-ticket-key".to_vec(),
+            video_invite_key: b"test-video-invite-key".to_vec(),
         }
     }
 }

@@ -456,6 +456,12 @@ pub async fn run_sweep(state: crate::AppState, interval: std::time::Duration, ba
             Err(e) => tracing::error!(error = %e, "voip settlement sweep failed"),
         }
 
+        match enqueue_ai_analysis(&state, batch).await {
+            Ok(0) => {}
+            Ok(n) => tracing::info!(count = n, "queued AI analysis for finished calls"),
+            Err(e) => tracing::error!(error = %e, "voip ai analysis sweep failed"),
+        }
+
         if let Some(provider) = state.telephony.as_deref() {
             match reconcile_costs(pool, provider, &state.config, batch).await {
                 Ok(0) => {}
@@ -464,6 +470,123 @@ pub async fn run_sweep(state: crate::AppState, interval: std::time::Duration, ba
             }
         }
     }
+}
+
+/// Enqueue the AI analysis for finished calls whose caller asked for one (spec 0111, R23).
+///
+/// A sweep rather than a webhook side effect, and that is not a shortcut. The analysis
+/// reads the *finished* transcript, and a transcript is finished when the room closes —
+/// which happens on a timer (`RoomManager::prune`), not on the carrier's hangup event.
+/// Enqueueing from the hangup webhook would routinely summarise a transcript that is still
+/// being written.
+///
+/// It **spends the customer's credits**, so two things are load-bearing. The consent is
+/// the tick the caller made at dial time with the price in front of them — there is no
+/// second confirmation, because a report nobody asked for twice is worse than one they
+/// asked for once. And `ai_analysis_enqueued_at` is stamped when the job is claimed, so a
+/// call is considered exactly once even though the sweep runs every minute forever.
+pub async fn enqueue_ai_analysis(
+    state: &crate::AppState,
+    batch: i64,
+) -> Result<usize, sqlx::Error> {
+    let (Some(pool), Some(svc)) = (state.pool.as_ref(), state.transcripts.as_ref()) else {
+        return Ok(0);
+    };
+    let Some(cfg) = state.config.billing.as_ref() else {
+        // No billing configured means no way to charge for it, and generating it free is
+        // not a decision a sweep gets to make.
+        return Ok(0);
+    };
+
+    // `ended_at` on the SESSION, not the call: the call ends when the carrier says so, the
+    // transcript ends when the room does. Waiting for the later of the two is what stops
+    // this summarising half a conversation.
+    let rows: Vec<(Uuid, Uuid, Option<Uuid>, String)> = sqlx::query_as(
+        "SELECT c.id, c.session_id, c.user_id, c.source_language
+         FROM voip_calls c
+         JOIN call_sessions s ON s.id = c.session_id
+         WHERE c.ai_analysis_requested
+           AND c.ai_analysis_enqueued_at IS NULL
+           AND c.status IN ('completed', 'failed')
+           AND s.ended_at IS NOT NULL
+           AND EXISTS (SELECT 1 FROM transcript_events te
+                       WHERE te.session_id = c.session_id AND te.event_type = 'speech')
+         ORDER BY s.ended_at
+         LIMIT $1",
+    )
+    .bind(batch.clamp(1, 100))
+    .fetch_all(pool)
+    .await?;
+
+    let mut enqueued = 0usize;
+    for (call_id, session_id, user_id, lang) in rows {
+        // No account means nobody to charge and nobody to deliver it to. Stamped anyway so
+        // the sweep stops reconsidering a row it can never act on.
+        let Some(user_id) = user_id else {
+            mark_ai_enqueued(pool, call_id).await?;
+            continue;
+        };
+
+        let export = match svc.export(session_id).await {
+            Ok(Some(doc)) if !doc.events.is_empty() => doc,
+            // Purged by retention, or empty after all. Either way there is nothing to
+            // summarise and nothing to wait for.
+            Ok(_) => {
+                mark_ai_enqueued(pool, call_id).await?;
+                continue;
+            }
+            Err(e) => {
+                tracing::error!(%call_id, error = %e, "transcript export failed; will retry");
+                continue;
+            }
+        };
+
+        let cost = crate::ai::report::report_cost(&cfg.ai, export.session.duration_seconds);
+        let params_key = format!("md\u{1f}{lang}\u{1f}");
+
+        // Stamped BEFORE the claim. A crash between the two costs the customer a report
+        // they paid nothing for; the other order costs them a second charge on every sweep
+        // until the process stops crashing.
+        mark_ai_enqueued(pool, call_id).await?;
+
+        match crate::ai::jobs::claim(pool, session_id, user_id, "report", &params_key).await {
+            Ok(crate::ai::jobs::Claim::Owned(job_id)) => {
+                let st = state.clone();
+                let p = pool.clone();
+                let lang = lang.clone();
+                tokio::spawn(crate::ai::jobs::run(p.clone(), job_id, async move {
+                    crate::api::run_report_inner(
+                        st,
+                        session_id,
+                        user_id,
+                        export,
+                        cost,
+                        "md".to_string(),
+                        lang,
+                        None,
+                    )
+                    .await
+                }));
+                enqueued += 1;
+            }
+            // Someone opened the call and pressed the button first. Theirs is the same
+            // report; charging for a second one would be charging twice for one thing.
+            Ok(crate::ai::jobs::Claim::AlreadyRunning(_)) => {}
+            Err(e) => tracing::error!(%call_id, error = %e, "ai analysis claim failed"),
+        }
+    }
+    Ok(enqueued)
+}
+
+async fn mark_ai_enqueued(pool: &Pool, call_id: Uuid) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "UPDATE voip_calls SET ai_analysis_enqueued_at = now(), updated_at = now()
+         WHERE id = $1 AND ai_analysis_enqueued_at IS NULL",
+    )
+    .bind(call_id)
+    .execute(pool)
+    .await?;
+    Ok(())
 }
 
 /// Record what a finished call actually cost us, and shout if we sold it below the floor.

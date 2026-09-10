@@ -244,6 +244,43 @@ a multi-party, org-owned artifact — the same scope rule `SafetyService::delete
 already applies to cloud meeting recordings. A data-subject request for one goes through
 the tenant admin, not the individual's account deletion.
 
+### The AI analysis nobody sees
+
+The analysis a caller ticked at dial time is enqueued by the sweep, not by the hangup
+webhook — the transcript is finished when the **room** closes, which is a 30-second timer,
+not the carrier's event. So a report appears a minute or two after the call, not instantly.
+
+```sql
+-- Asked for, not yet queued. Rows here for more than a few minutes mean the sweep is not
+-- running, or the call has no transcript to summarise.
+SELECT c.id, c.ended_at, s.ended_at AS room_ended
+FROM voip_calls c JOIN call_sessions s ON s.id = c.session_id
+WHERE c.ai_analysis_requested AND c.ai_analysis_enqueued_at IS NULL
+  AND c.status IN ('completed', 'failed');
+```
+
+A call is stamped and skipped — never retried — when it has no `user_id` (nobody to charge
+or deliver to) or its transcript was purged by retention. `ai_analysis_enqueued_at` is
+written **before** the job is claimed, so a crash between the two costs a report rather than
+charging the customer again on every subsequent pass.
+
+### Video upgrades
+
+`VOIP_VIDEO_ENABLED` is the only switch, and it needs a restart like every other env flag.
+The upgrade asks nothing of the carrier: it is an invitation into the room the call is
+already in, so a failure there cannot disturb the telephone call.
+
+A recipient reporting "the link does not work" is one of three things, in order of
+likelihood: the invitation is older than 15 minutes; the call has already ended (redemption
+refuses a finished call deliberately — the alternative is putting someone alone in an empty
+room); or `VOIP_VIDEO_INVITE_KEY` was rotated while invitations were outstanding, which
+invalidates every one of them. The first two are the design. The third is worth knowing
+before you rotate.
+
+Audit trail: `action = 'voip.video_invite'` on `audit_logs`. The URL is deliberately **not**
+recorded — it is a live capability, and an audit log is read by more people than the call
+was.
+
 ## 4. Rolling out
 
 `VOIP_ROLLOUT_STAGE` walks `disabled → internal → beta → business → ga`, and every step is

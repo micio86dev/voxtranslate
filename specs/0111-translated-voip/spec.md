@@ -338,13 +338,13 @@ WS     {VOIP_MEDIA_WS_BASE}/voip/media/{leg_token}       → provider media stre
 | S6a | Consent policy + the spoken disclosure in all 84 languages | ✅ | `voip/consent.rs`, `assets/voip-disclosure.json` |
 | S6b | Consent **execution** (speak, gather, resolve, timeout) + recording start | ✅ | `voip/disclosure.rs` |
 | S6c | Recording handle + retention deletion at the carrier | ✅ | `migrations/057_*.sql`, `business/retention.rs` |
-| S6d | AI-analysis auto-enqueue on call end | ⛔ **not built** — the manual report route already works | — |
+| S6d | AI-analysis auto-enqueue on call end | ✅ | `migrations/058_*.sql`, `voip/webhook.rs` |
 | S12 | Caller join hand-off (dashboard → app room) | ✅ | `dashboard/src/scripts/phone-dialer.ts` (`joinUrl`), `voip/routes.rs` |
 | S7 | Dashboard dialer, history, i18n, browser e2e | ✅ | `dashboard/src/{pages/[lang]/phone.astro,scripts/phone-dialer.ts}` |
 | S8 | Website page, FAQ from capability data, SEO | ✅ | `website/src/pages/phone-call-translation.astro` |
 | S9 | Metrics, k6 load suite, China gate, runbook | ✅ | `metrics.rs`, `loadtest/voip-*.js`, `docs/runbooks/122-voip-operations.md` |
 | S10 | Media socket **route**, call session assembly | ✅ | `voip/session.rs`, `voip/routes.rs` |
-| S11 | Video upgrade | ⛔ architecture only (D9) | — |
+| S11 | Video upgrade — signed short-lived invite into the call's own room | ✅ | `voip/video.rs`, `voip/routes.rs` |
 
 ### Where the call stands
 
@@ -383,10 +383,21 @@ without *some* join path the call is a telephone talking to an empty room, becau
 engine translates a speaker into the room's **other** languages and a room holding only the
 phone has none.
 
-What is left is S6d — enqueueing the AI analysis automatically when a call ends. The
-manual route (`POST …/report`) already accepts a phone session today, so this is a
-convenience rather than a gap in capability. That is the honest state, stated here rather
-than in a status update nobody will re-read.
+S6d closed the last slice of the call's lifecycle: the analysis the caller ticked at dial
+time is now enqueued when the call ends, by a sweep rather than a webhook side effect —
+the transcript is finished when the *room* closes, which is a timer, not the carrier's
+hangup event. Enqueueing from the webhook would routinely summarise a transcript still
+being written. It spends the customer's credits, so `ai_analysis_enqueued_at` is stamped
+before the claim: a call is considered exactly once even though the sweep runs for ever.
+
+S11 built the video upgrade D9 describes. The recipient is on a telephone, so the upgrade
+is an invitation into the room the call is already happening in. **The link carries a
+signed, short-lived ticket rather than the room code**, because a room code has no expiry
+and an invitation gets forwarded — the room is handed back only on redemption, in date and
+for a call that is still live. There is no channel from us to a telephone, so the caller
+passes the link on themselves; they are already talking to the person. Nothing in that path
+touches the carrier, the media socket or the billing row, so a failed upgrade leaves two
+people on the phone exactly as they were.
 
 ## 6. Testing & Verification
 
@@ -497,12 +508,18 @@ staging verified green, then release with `main` first and a back-merge into `de
     `voip_calls.user_id` is ON DELETE SET NULL by design, so individual account erasure
     does **not** reach these — matching the scope rule `SafetyService::delete_user` already
     documents for multi-party, org-owned artifacts. Deletion belongs to the tenant.
-12. **Video upgrade is architecture only** (D9). No signed guest link is minted and no room
-    is joined.
-13. **A gated call is silent while the gate is open.** Deliberate, and the alternative is
+12. **Video has no delivery channel to a telephone.** The invitation is shown to the
+    caller to pass on; an SMS integration would be a second provider surface and a
+    per-message charge, and nothing here depends on one. `VOIP_VIDEO_ENABLED` defaults to
+    off, and off means 404 rather than a refusal that confirms a call exists.
+13. **The AI analysis charges without a second confirmation.** The tick at dial time, with
+    the price shown, is the consent — asking again after the call would mean a report the
+    customer already paid attention to once. A call with no account on it, or whose
+    transcript was purged by retention, is stamped and skipped rather than retried.
+14. **A gated call is silent while the gate is open.** Deliberate, and the alternative is
     worse — see the ordering note in §5. Typical exposure is the announcement plus the
     10-second gather window.
-14. **The env kill switches need a restart, and a restart ends live calls.** `VoipConfig`
+15. **The env kill switches need a restart, and a restart ends live calls.** `VoipConfig`
     is read once at boot. The per-organisation `enabled` flag and the carrier's Outbound
     Voice Profile are the two controls that take effect immediately; the runbook says so
     rather than implying `VOIP_ROLLOUT_STAGE=disabled` spares calls in progress.
