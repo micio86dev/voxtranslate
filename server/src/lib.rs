@@ -868,15 +868,7 @@ async fn origin_lock(
         // healthcheck (hits the origin directly), the latter must stay curl-able for
         // deploy verification even when the origin lock is armed.
         //
-        // `/internal/media-auth/*` is also exempt: the off-box MediaMTX calls it
-        // server-to-server via the direct Railway origin (bypassing Cloudflare, whose
-        // bot challenge a headless Go client can't solve), so it never carries the
-        // CF-injected header. It's independently protected by the caller secret in the
-        // path + the HMAC publish-token check, so skipping the origin lock is safe.
-        let path = req.uri().path();
-        let exempt =
-            matches!(path, "/health" | "/version") || path.starts_with("/internal/media-auth/");
-        if !exempt && !origin_header_ok(req.headers(), secret) {
+        if !origin_lock_exempt(req.uri().path()) && !origin_header_ok(req.headers(), secret) {
             return StatusCode::FORBIDDEN.into_response();
         }
     }
@@ -913,6 +905,35 @@ async fn version_handler() -> Json<serde_json::Value> {
 /// Whether the request carries the expected Cloudflare-injected origin secret.
 /// Pure (no state) so it's unit-testable. Compared in constant time so a wrong
 /// header can't recover the secret byte-by-byte via response timing.
+/// Paths the origin lock lets through.
+///
+/// Each entry is here because something that is **not a browser behind Cloudflare** has to
+/// reach it, and each carries its own authentication so the lock is not what was protecting
+/// it:
+///
+/// * `/health` — Railway's platform healthcheck hits the origin directly, bypassing
+///   Cloudflare entirely. Blocking it fails every deploy.
+/// * `/version` — must stay curl-able for deploy verification even with the lock armed.
+/// * `/internal/media-auth/*` — the off-box MediaMTX calls it server-to-server via the
+///   direct origin; Cloudflare's bot challenge is not something a headless Go client can
+///   solve. Protected by the caller secret in the path plus the HMAC publish token.
+/// * `/api/voip/webhooks/*` — a carrier's webhook is a server-to-server POST from a fleet
+///   we do not control, which is precisely the traffic shape Cloudflare's bot management
+///   challenges. The provider's **failover URL points at the direct origin** for exactly
+///   that case, and a failover that returns 403 is worse than none: the provider records a
+///   failed delivery and the lifecycle event is lost, leaving a call that rings, bills and
+///   never settles. Protected by an Ed25519 signature over `{timestamp}|{body}` with a
+///   5-minute tolerance, verified before the payload is read, and failing closed when no
+///   public key is configured.
+///
+/// Prefixes are matched with a trailing slash so a path that merely *starts with* an
+/// exempt name — `/api/voip/webhooks-evil` — is not admitted by accident.
+fn origin_lock_exempt(path: &str) -> bool {
+    matches!(path, "/health" | "/version")
+        || path.starts_with("/internal/media-auth/")
+        || path.starts_with("/api/voip/webhooks/")
+}
+
 fn origin_header_ok(headers: &HeaderMap, secret: &str) -> bool {
     match headers.get("x-origin-verify").and_then(|v| v.to_str().ok()) {
         Some(presented) => ct_eq(presented.as_bytes(), secret.as_bytes()),
@@ -2802,8 +2823,8 @@ async fn shutdown_signal() {
 #[cfg(test)]
 mod tests {
     use super::{
-        origin_header_ok, translate_text_verdict, version_handler, TranslateTextVerdict,
-        MAX_TRANSLATE_TEXT_BYTES,
+        origin_header_ok, origin_lock_exempt, translate_text_verdict, version_handler,
+        TranslateTextVerdict, MAX_TRANSLATE_TEXT_BYTES,
     };
     use axum::http::HeaderMap;
     use uuid::Uuid;
@@ -2908,6 +2929,38 @@ mod tests {
             value.parse().unwrap(),
         );
         h
+    }
+
+    #[test]
+    fn the_origin_lock_exempts_only_what_authenticates_itself() {
+        // Every exemption is a path something outside Cloudflare must reach, and every one
+        // carries its own authentication. Adding to this list without the second half is
+        // how a lock becomes decoration.
+        assert!(origin_lock_exempt("/health"));
+        assert!(origin_lock_exempt("/version"));
+        assert!(origin_lock_exempt("/internal/media-auth/abc"));
+        assert!(origin_lock_exempt("/api/voip/webhooks/telnyx"));
+        assert!(origin_lock_exempt("/api/voip/webhooks/mock"));
+
+        // Everything else stays behind it — including the rest of the VoIP surface, which
+        // is session-authenticated and has no reason to be reachable off-Cloudflare.
+        assert!(!origin_lock_exempt("/api/voip/video/tok.sig"));
+        assert!(!origin_lock_exempt("/voip/media/tok.sig"));
+        assert!(!origin_lock_exempt(
+            "/api/business/organizations/x/voip/calls"
+        ));
+        assert!(!origin_lock_exempt("/"));
+    }
+
+    #[test]
+    fn a_lookalike_path_is_not_exempt() {
+        // The reason the prefixes carry a trailing slash. Without it, anything merely
+        // BEGINNING with an exempt name would walk straight through the lock.
+        assert!(!origin_lock_exempt("/api/voip/webhooks-evil"));
+        assert!(!origin_lock_exempt("/api/voip/webhooksomething"));
+        assert!(!origin_lock_exempt("/internal/media-authorise"));
+        assert!(!origin_lock_exempt("/healthz"));
+        assert!(!origin_lock_exempt("/versions"));
     }
 
     #[test]

@@ -32,8 +32,22 @@ fn provider() -> Option<TelnyxProvider> {
     // (`lib::serve`). Without this a developer who put the key exactly where the setup
     // guide says would watch every test print `ok` while asserting nothing — the worst
     // possible outcome for a suite whose entire job is to confirm an account works.
-    // Matches what `engine::qwen`'s live tests already do.
-    let _ = dotenvy::dotenv();
+    //
+    // The error is REPORTED, not swallowed. dotenvy stops at the first line it cannot
+    // parse and returns an error for the whole file, so one malformed entry anywhere above
+    // `TELNYX_API_KEY` silently drops it and everything after it. Discarding that error
+    // turns a one-line fix into an afternoon.
+    match dotenvy::dotenv() {
+        Ok(path) => eprintln!("loaded {}", path.display()),
+        Err(e) if e.not_found() => {
+            eprintln!("no .env found (fine if the credentials are already in the environment)")
+        }
+        Err(e) => eprintln!(
+            "WARNING: .env could not be parsed and was IGNORED: {e}\n\
+             dotenvy stops at the first bad line, so anything below it never loaded. \
+             Look for a line without `=`, spaces around `=`, or an unclosed quote."
+        ),
+    }
 
     if std::env::var("VOIP_LIVE_TESTS").as_deref() != Ok("true") {
         eprintln!("skipping — set VOIP_LIVE_TESTS=true to run live provider tests");
@@ -44,9 +58,7 @@ fn provider() -> Option<TelnyxProvider> {
         .filter(|k| !k.is_empty())
     else {
         // Say so. A silent skip here is indistinguishable from a pass.
-        eprintln!(
-            "skipping — TELNYX_API_KEY is not set (checked the environment and server/.env)"
-        );
+        eprintln!("skipping — TELNYX_API_KEY is not set (checked the environment and server/.env)");
         return None;
     };
     let cfg = TelnyxConfig {
@@ -145,10 +157,16 @@ async fn an_unsigned_webhook_is_rejected_by_the_configured_key() {
     // A genuine end-to-end signature check needs Telnyx to sign something, which only a
     // real event can do. That half is covered by `place_one_real_call` below, whose
     // webhooks arrive at the configured URL and either verify or do not.
-    println!(
-        "signature verification is armed (public key is {} bytes)",
-        std::env::var("TELNYX_PUBLIC_KEY").unwrap_or_default().len()
+    // Both refusals above also happen with NO key configured, because the adapter fails
+    // closed — so they prove nothing about the key on their own. Say which it was.
+    let key_len = std::env::var("TELNYX_PUBLIC_KEY").unwrap_or_default().len();
+    assert!(
+        key_len > 0,
+        "TELNYX_PUBLIC_KEY is not set. Every webhook will be rejected — calls will ring, \
+         bill, and never settle, because the lifecycle events never arrive. Mission \
+         Control → Account Settings → Keys & Credentials → Public Key."
     );
+    println!("signature verification is armed (public key is {key_len} bytes)");
 }
 
 /// **This one spends money and rings a real telephone.**

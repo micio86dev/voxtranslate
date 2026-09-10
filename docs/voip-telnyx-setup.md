@@ -32,10 +32,26 @@ in-process provider, with no telco and no charges. Staging can run that way inde
 |---|---|---|
 | Webhook URL | `https://<api-host>/api/voip/webhooks/telnyx` | |
 | Webhook API version | v2 | The adapter parses the v2 envelope (`data.event_type`, `data.payload`) |
-| Webhook failover URL | set one | Telnyx retries; a failover reduces lost lifecycle events |
+| Webhook failover URL | the **direct Railway origin**, same path | Telnyx retries here after two consecutive failures to the primary. The primary goes through Cloudflare, whose bot management challenges exactly this shape of traffic; the failover deliberately bypasses it. `/api/voip/webhooks/*` is exempt from the origin lock for this reason — see below. |
 | **Anchorsite** | **Frankfurt, Germany** | This is what actually decides where media is handled — and where webhooks are sent *from*, so it is also what an IP allow-list has to match |
 | Media encryption | SRTP | |
 | DTMF type | RFC 2833 | The consent gate depends on DTMF arriving |
+
+### Why the failover bypasses Cloudflare, and why that is safe
+
+A carrier's webhook is a server-to-server POST from a fleet we do not control — the traffic
+shape Cloudflare's bot management is built to challenge. It has already happened in this
+project once, with MediaMTX, and the exemption in `origin_lock` still says so.
+
+So the failover URL points at the direct Railway origin, and `/api/voip/webhooks/*` is
+exempt from the origin lock. A failover that returns 403 is **worse than none**: Telnyx
+records a failed delivery, the lifecycle event is lost, and the call rings, bills and never
+settles — with nothing anywhere reporting an error.
+
+Skipping the lock costs nothing here because the endpoint never trusted the network. It is
+authenticated by an Ed25519 signature over `{timestamp}|{body}` with a 5-minute tolerance,
+checked before the payload is read, and it fails closed when no public key is configured.
+An unsigned request from anywhere gets exactly one outcome: 401.
 
 Then copy the account's **public key** — Mission Control → *Account Settings* → **Keys &
 Credentials** → **Public Key** tab — into `TELNYX_PUBLIC_KEY`. Without it every webhook is rejected — the adapter fails closed on
@@ -87,7 +103,7 @@ VOIP_WEBHOOK_TOLERANCE_SECS=300
 # Provider
 TELNYX_API_KEY=<secret>
 TELNYX_API_BASE=https://api.telnyx.eu    # the DEFAULT; the .com base leaves the EU
-TELNYX_CONNECTION_ID=<call control app id>
+TELNYX_CONNECTION_ID=<the Voice App's "Application ID">
 TELNYX_OUTBOUND_VOICE_PROFILE_ID=<ovp id>
 TELNYX_PUBLIC_KEY=<base64 ed25519 public key>
 TELNYX_DEFAULT_CALLER_ID=+39...
