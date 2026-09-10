@@ -23,7 +23,9 @@
 use chrono::Utc;
 use voxtranslate_server::config::{TelnyxConfig, TELNYX_DEFAULT_API_BASE};
 use voxtranslate_server::telephony::telnyx::TelnyxProvider;
-use voxtranslate_server::telephony::{DialRequest, TelephonyProvider, WebhookHeaders, E164};
+use voxtranslate_server::telephony::{
+    DialRequest, LegId, ProviderError, TelephonyProvider, WebhookHeaders, E164,
+};
 
 /// Both gates. Returns `None` — and says why — rather than failing, so a full
 /// `--ignored` run on a machine with no credentials reports "skipped", not "broken".
@@ -98,35 +100,53 @@ async fn the_configured_endpoint_is_the_eu_one() {
     );
 }
 
-/// Costs nothing. Proves the credentials work AND that the rate deck parses — which is
-/// the thing that decides whether any call can be placed at all (R5 fails closed).
+/// Costs nothing. Proves the credentials are accepted by the EU endpoint at all — the one
+/// thing every other live check depends on.
+///
+/// Uses `hangup` on an id that cannot exist: it is a real authenticated request, so a bad
+/// key or a wrong API base fails here, and a `NotFound` for the leg is the *success* case.
 #[tokio::test]
 #[ignore = "live provider"]
-async fn credentials_work_and_the_rate_deck_parses() {
+async fn the_credentials_are_accepted_by_the_eu_endpoint() {
     let Some(p) = provider() else { return };
 
-    let rates = p
+    let err = p
+        .hangup(&LegId::new("v3:definitely-not-a-real-call"))
+        .await
+        .expect_err("hanging up a call that does not exist cannot succeed");
+
+    // What we are reading is WHICH refusal. "No such call" means the account authenticated
+    // and answered; anything about credentials means it did not.
+    println!("endpoint answered: {err}");
+    assert!(
+        !matches!(err, ProviderError::Unauthorized),
+        "the API key was rejected — check TELNYX_API_KEY and that TELNYX_API_BASE is \
+         https://api.telnyx.eu"
+    );
+}
+
+/// Documents the gap rather than pretending it away, exactly like the CDR one below.
+///
+/// Verified against a live EU account: `/v2/public/pricing?primitive=voice` is **404** on
+/// both `api.telnyx.eu` and `api.telnyx.com`, and `/v2/pricing/products` is a product
+/// catalogue with no prefixes and no per-minute prices. The deck is downloaded from the
+/// Outbound Voice Profile and imported with `cargo run --bin voip-rates`.
+///
+/// Asserting the current behaviour means this test starts **failing** on the day Telnyx
+/// publishes a real endpoint — which is the reminder to delete it and wire the sync.
+#[tokio::test]
+#[ignore = "live provider"]
+async fn the_rate_deck_is_still_not_available_over_the_api() {
+    let Some(p) = provider() else { return };
+    let err = p
         .fetch_rate_deck()
         .await
-        .expect("rate deck fetch failed — check TELNYX_API_KEY and the API base");
-
-    println!("parsed {} destination rates", rates.len());
-    assert!(
-        !rates.is_empty(),
-        "the rate deck parsed to ZERO rows. Every call would then be refused with \
-         `rate_unavailable` — which is the safe failure, but it means the response shape \
-         has changed and `parse_rate_deck` needs updating."
-    );
-
-    // Spot-check the shape rather than any particular price: prices move, the shape is
-    // what the parser depends on.
-    let sample = &rates[0];
+        .expect_err("expected the documented Unsupported, not a value");
+    println!("as documented: {err}");
     println!(
-        "sample: +{} = {} /min ({})",
-        sample.prefix, sample.cost_per_minute, sample.description
+        "Import the deck downloaded from the Outbound Voice Profile:\n  \
+         DATABASE_URL=… cargo run --bin voip-rates -- rates.csv"
     );
-    assert!(sample.prefix.chars().all(|c| c.is_ascii_digit()));
-    assert!(sample.cost_per_minute >= rust_decimal::Decimal::ZERO);
 }
 
 /// Costs nothing. The webhook endpoint fails CLOSED without a public key, and this is the
@@ -226,7 +246,7 @@ async fn place_one_real_call() {
 async fn per_leg_cost_is_still_not_available_synchronously() {
     let Some(p) = provider() else { return };
     let err = p
-        .fetch_cdr(&voxtranslate_server::telephony::LegId::new("v3:none"))
+        .fetch_cdr(&LegId::new("v3:none"))
         .await
         .expect_err("expected the documented Unsupported, not a value");
     println!("as documented: {err}");

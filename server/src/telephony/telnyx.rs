@@ -417,63 +417,18 @@ fn normalise(body: &[u8]) -> Result<ProviderEvent, WebhookError> {
 // ---------------------------------------------------------------------------
 // Rate deck
 // ---------------------------------------------------------------------------
-
-/// Parse the public pricing response into rate rows.
-///
-/// Written defensively on purpose. The response shape is not something to guess at, and
-/// the consequence of getting it wrong is the safe one: rows we cannot read simply do not
-/// become rates, an unknown destination has no rate, and a call with no rate is **refused**
-/// rather than dialed at a made-up price (R5). A sync that produces nothing is visible
-/// immediately — every call stops — instead of quietly mispricing.
-fn parse_rate_deck(body: &Value, fetched_at: DateTime<Utc>) -> Vec<Rate> {
-    let rows = match body.get("data") {
-        Some(Value::Array(rows)) => rows,
-        _ => return Vec::new(),
-    };
-    let mut out = Vec::new();
-    for row in rows {
-        let Some(prefix) = row
-            .get("prefix")
-            .or_else(|| row.get("destination_prefix"))
-            .and_then(Value::as_str)
-            .map(|s| s.trim().trim_start_matches('+').to_string())
-            .filter(|s| !s.is_empty() && s.chars().all(|c| c.is_ascii_digit()))
-        else {
-            continue;
-        };
-        let Some(cost) = row
-            .get("cost_per_minute")
-            .or_else(|| row.get("rate"))
-            .or_else(|| row.get("price"))
-            .and_then(numeric)
-        else {
-            continue;
-        };
-        out.push(Rate {
-            prefix,
-            cost_per_minute: cost,
-            description: row
-                .get("description")
-                .or_else(|| row.get("destination"))
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_string(),
-            fetched_at,
-        });
-    }
-    out
-}
-
-/// A money value that may arrive as a JSON number or as a string. Parsed through `Decimal`
-/// in both cases — never through `f64` — so a rate deck cannot be the place binary error
-/// enters the billing path.
-fn numeric(v: &Value) -> Option<rust_decimal::Decimal> {
-    match v {
-        Value::String(s) => s.trim().parse().ok(),
-        Value::Number(n) => n.to_string().parse().ok(),
-        _ => None,
-    }
-}
+//
+// There is no parser here, deliberately. `fetch_rate_deck` reports `Unsupported` because
+// the endpoint it was written against returns 404 on both the EU and the global base, and
+// the one public pricing endpoint that does answer is a product catalogue with no prefixes
+// and no per-minute prices — all verified against a live EU account.
+//
+// The parser that used to live here read a response shape nobody has ever seen, and its
+// tests asserted against an invented fixture. That is worse than nothing: it reads as a
+// verified capability. The deck is downloaded from the Outbound Voice Profile and imported
+// by `src/bin/voip-rates.rs`, which is tested against the shapes real exports actually
+// take. When Telnyx publishes a real endpoint, `the_rate_deck_is_still_not_available_over_the_api`
+// starts failing and says so.
 
 #[async_trait]
 impl TelephonyProvider for TelnyxProvider {
@@ -642,24 +597,27 @@ impl TelephonyProvider for TelnyxProvider {
         })
     }
 
+    /// **Not available from the API.** Verified against a live EU account:
+    ///
+    /// | Endpoint | Result |
+    /// |---|---|
+    /// | `api.telnyx.eu/v2/public/pricing?primitive=voice` | 404 |
+    /// | `api.telnyx.com/v2/public/pricing?primitive=voice` | 404 |
+    /// | `api.telnyx.com/v2/pricing/products` | 200, but a product catalogue — no prefixes, no per-minute prices |
+    ///
+    /// What Telnyx offers is a rate deck **downloaded** from the Outbound Voice Profile.
+    /// `src/bin/voip-rates.rs` imports it into `voip_rates`.
+    ///
+    /// Reported as unsupported rather than left pointing at an endpoint that does not
+    /// exist, for the same reason [`Self::fetch_cdr`] is: a sync that always fails makes
+    /// every call refuse with `rate_unavailable` for a reason no log explains. This way
+    /// the failure names itself, and the day Telnyx publishes a real endpoint the live
+    /// test starts failing and says so.
     async fn fetch_rate_deck(&self) -> Result<Vec<Rate>, ProviderError> {
-        let res = self
-            .http
-            .get(self.url("/v2/public/pricing"))
-            .query(&[("primitive", "voice")])
-            .bearer_auth(&self.cfg.api_key)
-            .send()
-            .await
-            .map_err(|e| ProviderError::Unavailable {
-                detail: e.to_string(),
-            })?;
-        if let Some(err) = classify(res.status()) {
-            return Err(err);
-        }
-        let body: Value = res.json().await.map_err(|e| ProviderError::Malformed {
-            detail: e.to_string(),
-        })?;
-        Ok(parse_rate_deck(&body, Utc::now()))
+        Err(ProviderError::Unsupported {
+            operation: "fetch a rate deck over the API — import the downloaded deck with \
+                        `cargo run --bin voip-rates`",
+        })
     }
 
     fn verify_webhook(
@@ -1196,48 +1154,6 @@ mod tests {
         assert!(!ProviderError::Unauthorized.is_transient());
         assert!(!ProviderError::AccountBlocked.is_transient());
         assert!(ProviderError::RateLimited.is_transient());
-    }
-
-    // ---- rate deck ------------------------------------------------------------
-
-    #[test]
-    fn rate_rows_parse_through_decimal_never_through_a_float() {
-        let now = Utc::now();
-        let body = json!({ "data": [
-            { "prefix": "+39", "cost_per_minute": "0.0123", "description": "Italy" },
-            { "destination_prefix": "8613", "rate": 0.045, "destination": "China Mobile" },
-        ]});
-        let rates = parse_rate_deck(&body, now);
-        assert_eq!(rates.len(), 2);
-        assert_eq!(
-            rates[0].prefix, "39",
-            "the leading + is stripped for matching"
-        );
-        assert_eq!(rates[0].cost_per_minute, "0.0123".parse().unwrap());
-        assert_eq!(rates[1].prefix, "8613");
-        assert_eq!(rates[1].cost_per_minute, "0.045".parse().unwrap());
-        assert_eq!(rates[1].description, "China Mobile");
-    }
-
-    #[test]
-    fn unreadable_rows_are_dropped_and_that_fails_the_call_not_the_price() {
-        // The safe direction: a row we cannot read does not become a rate, an unknown
-        // destination has no rate, and a call with no rate is REFUSED. A sync that yields
-        // nothing stops every call immediately instead of quietly mispricing them.
-        let now = Utc::now();
-        let body = json!({ "data": [
-            { "prefix": "39" },                                  // no price
-            { "cost_per_minute": "0.01" },                        // no prefix
-            { "prefix": "not-digits", "cost_per_minute": "0.01" },
-            { "prefix": "", "cost_per_minute": "0.01" },
-            { "prefix": "44", "cost_per_minute": "nonsense" },
-        ]});
-        assert!(parse_rate_deck(&body, now).is_empty());
-
-        // A response shaped nothing like the expected one yields nothing, rather than
-        // panicking or inventing rows.
-        assert!(parse_rate_deck(&json!({"error": "nope"}), now).is_empty());
-        assert!(parse_rate_deck(&json!([]), now).is_empty());
     }
 
     #[tokio::test]

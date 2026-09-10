@@ -188,7 +188,7 @@ VOIP_LIVE_TESTS=true cargo test --test telnyx_live -- --ignored --nocapture
 |---|---|
 | Credentials accepted by the EU endpoint | no |
 | Call Control application resolves | no |
-| Rate deck fetches and parses | no |
+| Rate deck is (still) not available over the API — see §6 | no |
 | Webhook signature round-trip against the real public key | no |
 | **One controlled call to a number you own** | **yes** |
 | Recording start/stop and retrieval | **yes** |
@@ -197,7 +197,60 @@ VOIP_LIVE_TESTS=true cargo test --test telnyx_live -- --ignored --nocapture
 Set `TELNYX_LIVE_TEST_TO` to a number **you own**. Never a customer's, never a real
 person's who has not agreed, never one in a fixture.
 
-## 6. Known gap: per-leg cost reconciliation
+## 6. The rate deck is imported, not fetched
+
+**Verified against a live EU account**, not assumed:
+
+| Endpoint | Result |
+|---|---|
+| `api.telnyx.eu/v2/public/pricing?primitive=voice` | **404** |
+| `api.telnyx.com/v2/public/pricing?primitive=voice` | **404** |
+| `api.telnyx.com/v2/pricing/products` | 200, but a product catalogue — no prefixes, no per-minute prices |
+
+There is no documented public REST endpoint for per-destination voice rates. What Telnyx
+offers is a rate deck you **download** from the Outbound Voice Profile. So `fetch_rate_deck`
+reports `Unsupported` — the same treatment as `fetch_cdr` — rather than staying pointed at
+an endpoint that does not exist, which would refuse every call with `rate_unavailable` for
+a reason no log explains.
+
+Import the downloaded file:
+
+```sh
+# Look before you write: parses, reports, touches nothing.
+cargo run --bin voip-rates -- --dry-run rates.csv
+
+DATABASE_URL=… cargo run --bin voip-rates -- rates.csv
+```
+
+**Pass `DATABASE_URL` explicitly, and read the `target:` line before you let it run.** The
+importer loads `server/.env` like every other binary here, so an omitted `DATABASE_URL` is
+filled in silently — and on a developer machine that file points at a *deployed* database.
+The write opens with `DELETE FROM voip_rates WHERE provider = …`, so the wrong URL does not
+fail, it replaces the live deck. The importer therefore prints where it is about to write,
+host and database only:
+
+```
+target: aws-1-eu-central-1.pooler.supabase.com:5432/postgres
+```
+
+It reads comma, semicolon and tab exports, strips `+` and currency symbols, tolerates
+blank and totals rows, and **refuses to guess**: an unrecognised column stops the import
+and prints the headers it actually saw. A deck read with the wrong mapping does not fail —
+it prices every call wrongly, and the first anyone hears of it is the invoice. If your
+export uses a header the importer does not know, add it to the `*_KEYS` lists in
+`src/bin/voip-rates.rs`.
+
+**Put it on a schedule.** `voip_rates.fetched_at` is what `VOIP_RATE_MAX_AGE_SECS` measures
+(24 h by default), and a deck past that age refuses calls rather than pricing them from
+stale numbers. A rate deck imported once is a rate deck that expires. Do **not** widen the
+staleness window to make the symptom go away — that trades a loud failure for a silent
+mispricing.
+
+The import replaces the whole deck for the provider in one transaction: a prefix Telnyx
+*removed* must disappear, and an upsert would keep pricing it from the last deck that
+mentioned it for ever.
+
+## 7. Known gap: per-leg cost reconciliation
 
 Telnyx rates calls asynchronously and exposes the result through batched usage reports,
 not on the hangup webhook. The adapter therefore reports `fetch_cdr` as **unsupported**
@@ -209,7 +262,7 @@ which is worse than admitting the number is not in yet. Closing it requires a li
 to confirm the usage-report endpoint's shape, and is the main credential-dependent item
 outstanding.
 
-## 7. Rollback
+## 8. Rollback
 
 1. **Immediate, and does not touch live calls:** set `enabled = false` on the
    organisation's `voip_org_settings` row, or disable the **Outbound Voice Profile** in
