@@ -17,23 +17,28 @@ in-process provider, with no telco and no charges. Staging can run that way inde
 | Level 2 verification | Required before outbound international is enabled | free |
 | Execute a **DPA** | Telnyx becomes a processor for call audio and phone numbers | free, needs legal |
 | Add balance | Every dial spends it | **paid** |
-| Create a **Call Control application** (connection) | Gives `TELNYX_CONNECTION_ID` | free |
+| Create a **Voice App** (*Voice → Voice API/Programmable Voice → Create Voice App*) | Gives `TELNYX_CONNECTION_ID` | free |
 | Create an **Outbound Voice Profile** | Where provider-side channel and spend limits live | free |
 | Buy at least one number | Caller ID; unverified numbers may not be presented | **paid, recurring** |
 
-## 2. Call Control application settings
+## 2. Voice App settings
+
+> **Naming.** Telnyx renamed *Call Control application* to **Voice App**. The API is
+> unchanged — the id still goes in `TELNYX_CONNECTION_ID` and the adapter still posts to
+> `/v2/calls/{id}/actions/*` — but the portal button says "Create Voice App", so looking
+> for the old name wastes a quarter of an hour.
 
 | Setting | Value | Why |
 |---|---|---|
 | Webhook URL | `https://<api-host>/api/voip/webhooks/telnyx` | |
 | Webhook API version | v2 | The adapter parses the v2 envelope (`data.event_type`, `data.payload`) |
 | Webhook failover URL | set one | Telnyx retries; a failover reduces lost lifecycle events |
-| **Anchorsite** | **Frankfurt, Germany** | This is what actually decides where media is handled |
+| **Anchorsite** | **Frankfurt, Germany** | This is what actually decides where media is handled — and where webhooks are sent *from*, so it is also what an IP allow-list has to match |
 | Media encryption | SRTP | |
 | DTMF type | RFC 2833 | The consent gate depends on DTMF arriving |
 
-Then copy the account's **public key** (Mission Control → account settings) into
-`TELNYX_PUBLIC_KEY`. Without it every webhook is rejected — the adapter fails closed on
+Then copy the account's **public key** — Mission Control → *Account Settings* → **Keys &
+Credentials** → **Public Key** tab — into `TELNYX_PUBLIC_KEY`. Without it every webhook is rejected — the adapter fails closed on
 purpose, because a deployment that forgot the key would otherwise take call-control
 instructions from anyone who can reach the endpoint.
 
