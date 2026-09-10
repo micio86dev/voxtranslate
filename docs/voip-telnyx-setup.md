@@ -190,11 +190,16 @@ outstanding.
 
 ## 7. Rollback
 
-1. `VOIP_ROLLOUT_STAGE=disabled` — no new calls, existing ones finish cleanly.
-2. `VOIP_ENABLED=false` — the routes are not registered at all.
-3. Neither touches data. Reservations already open settle normally on their hangup
-   webhooks; if the process is gone, the reconcile sweep closes them and refunds.
-4. Provider-side, disable the Outbound Voice Profile to stop dialing at the source.
+1. **Immediate, and does not touch live calls:** set `enabled = false` on the
+   organisation's `voip_org_settings` row, or disable the **Outbound Voice Profile** in
+   the Telnyx portal. Both take effect on the next dial with no restart.
+2. `VOIP_ROLLOUT_STAGE=disabled` — refuses every new dial deployment-wide, **after a
+   restart**. `VoipConfig` is read once at boot, and the restart that applies the change
+   drops every media socket in flight. So this stops new calls only in the sense that it
+   cuts off the current ones first.
+3. `VOIP_ENABLED=false` — the routes are not registered at all. Same restart caveat.
+4. None of them touches data. Reservations already open settle normally on their hangup
+   webhooks; if the process is gone, the recovery sweep closes them and refunds.
 
 Nothing here needs a migration to be reverted. `056_voip.sql` only adds tables and one
 partial index; leaving it applied with the feature off is inert.
