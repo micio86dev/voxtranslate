@@ -37,6 +37,11 @@ CREATE TABLE IF NOT EXISTS voip_org_settings (
     allowed_countries       TEXT[] NOT NULL DEFAULT '{}',
     blocked_countries       TEXT[] NOT NULL DEFAULT '{}',
     allow_international     BOOLEAN NOT NULL DEFAULT TRUE,
+    -- ISO 3166-1 alpha-2. What "international" is measured against. NULL means we cannot
+    -- tell, and `allow_international` then simply does not apply — the country lists cover
+    -- that case. Lives here rather than on `organizations` because it is a telephony
+    -- policy input, not a fact about the company.
+    home_country            TEXT,
     -- 'notice_only' | 'press_key' | 'verbal' | 'disabled' (spec 0111 R20). The default is
     -- the conservative one: if this org records or transcribes, the telephone participant
     -- is asked, not merely told.
