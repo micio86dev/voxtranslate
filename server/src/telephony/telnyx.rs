@@ -46,6 +46,17 @@ pub const TELNYX_ID: &str = "telnyx";
 const B64: base64::engine::general_purpose::GeneralPurpose =
     base64::engine::general_purpose::STANDARD;
 
+/// Ceiling on any single Call Control request.
+///
+/// Generous next to a healthy API (tens of milliseconds) and far below the 60-second sweep
+/// interval, so a stuck request cannot make one tick overlap the next.
+const HTTP_TIMEOUT_SECS: u64 = 15;
+
+/// Separate and shorter: a TCP connect that has not completed in five seconds is a
+/// reachability problem, and waiting the full request budget for it only delays the
+/// failover the caller is going to do anyway.
+const HTTP_CONNECT_TIMEOUT_SECS: u64 = 5;
+
 pub struct TelnyxProvider {
     cfg: TelnyxConfig,
     http: reqwest::Client,
@@ -76,7 +87,17 @@ impl TelnyxProvider {
         };
         Self {
             cfg,
-            http: reqwest::Client::new(),
+            // A timeout, because every caller of this client is on a path where hanging is
+            // worse than failing. A dial sits in front of a customer's request; the
+            // background sweep runs its four jobs sequentially, so one hung carrier call
+            // stalls the credit-hold recovery and the consent-gate timeout behind it for
+            // as long as the socket stays open. `ProviderError::Unavailable` is a result
+            // the callers already know how to handle; an indefinite wait is not.
+            http: reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(HTTP_TIMEOUT_SECS))
+                .connect_timeout(std::time::Duration::from_secs(HTTP_CONNECT_TIMEOUT_SECS))
+                .build()
+                .unwrap_or_else(|_| reqwest::Client::new()),
             metadata,
             tolerance: Duration::seconds(webhook_tolerance_secs.max(1)),
         }

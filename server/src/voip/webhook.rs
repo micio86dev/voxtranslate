@@ -412,6 +412,7 @@ pub async fn run_sweep(state: crate::AppState, interval: std::time::Duration, ba
             // A grace of twice the gather window absorbs a slow carrier without leaving a
             // call waiting on a key that is never coming.
             match crate::voip::disclosure::time_out_pending_consent(
+                &state,
                 pool,
                 provider,
                 (crate::voip::disclosure::GATHER_TIMEOUT_SECS as i64) * 2,
@@ -432,8 +433,20 @@ pub async fn run_sweep(state: crate::AppState, interval: std::time::Duration, ba
         }
 
         match fail_stalled_calls(pool, batch).await {
-            Ok(0) => {}
-            Ok(n) => tracing::warn!(count = n, "failed calls that never left the dialling state"),
+            Ok(ids) if ids.is_empty() => {}
+            Ok(ids) => {
+                tracing::warn!(
+                    count = ids.len(),
+                    "failed calls that never left the dialling state"
+                );
+                // The in-memory half. A parked leg holds the phone peer's room channel, so
+                // until it is taken the room cannot be pruned either — one silent provider
+                // would otherwise cost a leg, a peer and a room for the life of the
+                // process.
+                for id in ids {
+                    crate::voip::session::reclaim(&state, id);
+                }
+            }
             Err(e) => tracing::error!(error = %e, "voip stall reaper failed"),
         }
 
@@ -611,7 +624,11 @@ const STALL_GRACE_SECS: i64 = 600;
 ///
 /// Marking them failed also releases their credit hold on the next pass of the settlement
 /// sweep, so the customer's money does not sit stranded behind a provider's silence.
-pub async fn fail_stalled_calls(pool: &Pool, limit: i64) -> Result<usize, sqlx::Error> {
+///
+/// Returns the ids it failed, because the row is only half the cleanup: a call that never
+/// answered still has a phone leg parked in `LiveCalls` and a peer sitting in a room, and
+/// neither can be reclaimed from a pool alone.
+pub async fn fail_stalled_calls(pool: &Pool, limit: i64) -> Result<Vec<Uuid>, sqlx::Error> {
     let ids: Vec<Uuid> = sqlx::query_scalar(
         "UPDATE voip_calls
          SET status = 'failed',
@@ -632,7 +649,7 @@ pub async fn fail_stalled_calls(pool: &Pool, limit: i64) -> Result<usize, sqlx::
     .bind(limit.clamp(1, 500))
     .fetch_all(pool)
     .await?;
-    Ok(ids.len())
+    Ok(ids)
 }
 
 /// Close any hold left open on a call that has already finished.

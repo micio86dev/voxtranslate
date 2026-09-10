@@ -144,6 +144,13 @@ pub enum FailureReason {
     MediaLost,
     /// The provider itself failed — outage, auth, balance, rate limit.
     ProviderUnavailable,
+    /// **Our** side failed: no translation session could be opened for the telephone.
+    ///
+    /// Kept apart from `ProviderUnavailable` because the two send an operator to opposite
+    /// places. A carrier problem is a carrier problem; this one is our engine capacity or
+    /// our upstream translation vendor, and a call ended for it is a call we could not
+    /// serve rather than one the telco refused.
+    EngineUnavailable,
     /// The recipient declined the recording/transcription consent gate and org policy
     /// says such a call ends.
     ConsentDeclined,
@@ -172,6 +179,7 @@ impl FailureReason {
             Self::MaxDurationReached => "max_duration_reached",
             Self::MediaLost => "media_lost",
             Self::ProviderUnavailable => "provider_unavailable",
+            Self::EngineUnavailable => "engine_unavailable",
             Self::ConsentDeclined => "consent_declined",
             Self::Unmapped => "unmapped",
         }

@@ -339,6 +339,7 @@ WS     {VOIP_MEDIA_WS_BASE}/voip/media/{leg_token}       → provider media stre
 | S6b | Consent **execution** (speak, gather, resolve, timeout) + recording start | ✅ | `voip/disclosure.rs` |
 | S6c | Recording handle + retention deletion at the carrier | ✅ | `migrations/057_*.sql`, `business/retention.rs` |
 | S6d | AI-analysis auto-enqueue on call end | ⛔ **not built** — the manual report route already works | — |
+| S12 | Caller join hand-off (dashboard → app room) | ✅ | `dashboard/src/scripts/phone-dialer.ts` (`joinUrl`), `voip/routes.rs` |
 | S7 | Dashboard dialer, history, i18n, browser e2e | ✅ | `dashboard/src/{pages/[lang]/phone.astro,scripts/phone-dialer.ts}` |
 | S8 | Website page, FAQ from capability data, SEO | ✅ | `website/src/pages/phone-call-translation.astro` |
 | S9 | Metrics, k6 load suite, China gate, runbook | ✅ | `metrics.rs`, `loadtest/voip-*.js`, `docs/runbooks/122-voip-operations.md` |
@@ -358,6 +359,14 @@ downstream knows one of its peers is a telephone.
 S6b closed the second gap: the recipient now hears the disclosure, in their own language,
 before anything is kept, and a press-key gate is genuinely open and genuinely resolved.
 
+**Disclosure runs before the media socket is armed, and that ordering is load-bearing.**
+The engine session is handed a transcript service only if the row already says
+transcription is permitted, and it cannot be given one afterwards — so a call whose gate is
+still open must not open its engine session yet, or granting consent a second later would
+produce no transcript at all. The price is a few seconds of silence for the caller at the
+start of a gated call, during which the recipient is listening to the announcement rather
+than talking.
+
 S6c closed the third: a recording now carries a **durable handle** on the carrier's copy,
 and the retention sweep deletes the bytes there before forgetting where they were.
 
@@ -365,6 +374,14 @@ The transcript and the project needed no hookup at all, and finding that out was
 of S10's session-id decision: the phone peer writes into the same `call_sessions` row as
 the browser caller, so `transcript_events`, the project link and the existing AI-report
 route already work on a phone call exactly as they do on a meeting.
+
+The caller joins from the dashboard's **Join the call** action, which opens the room in the
+app (`/?room=<code>`). The dashboard places the call and shows what it costs; the app
+carries the audio, as it has for every other kind of call. A second implementation of
+microphone capture, translated playback and subtitles was not worth saving one tab — and
+without *some* join path the call is a telephone talking to an empty room, because the
+engine translates a speaker into the room's **other** languages and a room holding only the
+phone has none.
 
 What is left is S6d — enqueueing the AI analysis automatically when a call ends. The
 manual route (`POST …/report`) already accepts a phone session today, so this is a
@@ -482,6 +499,13 @@ staging verified green, then release with `main` first and a back-merge into `de
     documents for multi-party, org-owned artifacts. Deletion belongs to the tenant.
 12. **Video upgrade is architecture only** (D9). No signed guest link is minted and no room
     is joined.
+13. **A gated call is silent while the gate is open.** Deliberate, and the alternative is
+    worse — see the ordering note in §5. Typical exposure is the announcement plus the
+    10-second gather window.
+14. **The env kill switches need a restart, and a restart ends live calls.** `VoipConfig`
+    is read once at boot. The per-organisation `enabled` flag and the carrier's Outbound
+    Voice Profile are the two controls that take effect immediately; the runbook says so
+    rather than implying `VOIP_ROLLOUT_STAGE=disabled` spares calls in progress.
 
 ## 9. References
 

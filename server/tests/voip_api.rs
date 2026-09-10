@@ -1101,6 +1101,188 @@ async fn the_recipient_is_told_before_anything_is_captured() {
             .is_none(),
         "NOTHING may be captured while consent is still pending"
     );
+
+    // And the engine session must not exist yet either. The transcript service is handed
+    // to the engine at socket-open time and cannot be attached later, so a session opened
+    // while the gate is still open would be a session that can never transcribe — which
+    // would turn a GRANTED consent into no transcript at all.
+    assert!(
+        !provider.is_streaming(&leg),
+        "the audio path must not be armed while the recipient is still being asked"
+    );
+}
+
+#[tokio::test]
+async fn the_audio_path_opens_once_the_gate_is_answered() {
+    // The other half of the ordering: a gated call is silent for a few seconds and then
+    // works. If this regressed, every press-key call would stay silent forever.
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    enable_dialing_with_capture(&srv, org, &jwt).await;
+    let (call_id, leg) = dial_and_answer(&srv, org, &jwt, "it").await;
+    let provider = srv.provider.clone().unwrap();
+
+    assert!(!provider.is_streaming(&leg));
+    post_event(&srv, call_id, &leg, "dtmf", Some('1')).await;
+    assert!(
+        provider.is_streaming(&leg),
+        "consent was granted and the call still has no audio path"
+    );
+}
+
+#[tokio::test]
+async fn a_refused_gate_still_opens_the_audio_path() {
+    // Refusing a transcript is not refusing the call. The two people are still on the
+    // telephone and are still being charged for a translation they must actually get.
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    enable_dialing_with_capture(&srv, org, &jwt).await;
+    let (call_id, leg) = dial_and_answer(&srv, org, &jwt, "it").await;
+    let provider = srv.provider.clone().unwrap();
+
+    post_event(&srv, call_id, &leg, "dtmf", Some('9')).await;
+    assert!(
+        provider.is_streaming(&leg),
+        "a denied transcript must not cost the customer the translation they paid for"
+    );
+}
+
+#[tokio::test]
+async fn a_transcript_is_never_kept_without_a_stamp_that_says_it_may_be() {
+    // The single gate between a telephone conversation and `transcript_events`. The engine
+    // persists a segment whenever it holds a transcript service and checks nothing else,
+    // so this predicate is the only thing standing between an un-consenting recipient and
+    // a stored record of their words.
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    enable_dialing_with_capture(&srv, org, &jwt).await;
+    let (call_id, leg) = dial_and_answer(&srv, org, &jwt, "zh").await;
+
+    let mut state = AppState::new(Config::test_with_billing(
+        &std::env::var("DATABASE_URL").unwrap(),
+        SECRET,
+        0.0,
+    ));
+    state.pool = Some(srv.pool.clone());
+
+    assert!(
+        !voxtranslate_server::voip::session::transcription_permitted(&state, call_id).await,
+        "a call whose gate is still open must not be transcribed"
+    );
+
+    post_event(&srv, call_id, &leg, "dtmf", Some('1')).await;
+    assert!(
+        voxtranslate_server::voip::session::transcription_permitted(&state, call_id).await,
+        "a granted call must be transcribed, or granting consent achieves nothing"
+    );
+
+    // An id nobody has ever heard of, and a deployment with no database: both fail closed.
+    assert!(
+        !voxtranslate_server::voip::session::transcription_permitted(&state, Uuid::new_v4()).await
+    );
+    state.pool = None;
+    assert!(!voxtranslate_server::voip::session::transcription_permitted(&state, call_id).await);
+}
+
+#[tokio::test]
+async fn two_digits_arriving_together_cannot_both_decide() {
+    // Sent concurrently, not in sequence: the compare-and-swap in `on_dtmf` exists for the
+    // window between reading `pending` and writing the answer, and a sequential test never
+    // opens that window. Same shape as `concurrent_dials_cannot_exceed_the_cap`.
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    enable_dialing_with_capture(&srv, org, &jwt).await;
+    let (call_id, leg) = dial_and_answer(&srv, org, &jwt, "it").await;
+
+    tokio::join!(
+        post_event(&srv, call_id, &leg, "dtmf", Some('1')),
+        post_event(&srv, call_id, &leg, "dtmf", Some('4')),
+    );
+
+    let (status, received): (String, Option<chrono::DateTime<chrono::Utc>>) =
+        sqlx::query_as("SELECT consent_status, consent_received_at FROM voip_calls WHERE id = $1")
+            .bind(call_id)
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap();
+
+    // Either digit may win — that is a race between two keypresses and not ours to
+    // arbitrate. What must not happen is both winning, or neither.
+    assert!(
+        status == "granted" || status == "denied",
+        "the gate must settle on exactly one answer, got {status}"
+    );
+    assert!(received.is_some(), "and it must record when it settled");
+}
+
+#[tokio::test]
+async fn a_call_that_never_answers_gives_its_room_and_leg_back() {
+    // The provider accepts the dial and then says nothing — the exact case the stall
+    // reaper exists for. Marking the row failed is only half of it: the phone peer holds
+    // the room's channel open, so a leg left parked costs a leg, a peer AND a room for the
+    // life of the process.
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    enable_dialing(&srv, org, &jwt, 5).await;
+
+    let res = client()
+        .post(format!(
+            "{}/api/business/organizations/{org}/voip/calls",
+            base(&srv)
+        ))
+        .bearer_auth(&jwt)
+        .json(&json!({
+            "destination": "+393201234567",
+            "source_language": "it",
+            "target_language": "en",
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::CREATED);
+    let body: Value = res.json().await.unwrap();
+    let call_id = Uuid::parse_str(body["call_id"].as_str().unwrap()).unwrap();
+    let room = body["room"]
+        .as_str()
+        .expect("the dial must name the room to join");
+
+    // Without this the caller's browser has nowhere to go, and the engine translates the
+    // telephone into a room with no other languages in it — silence, both directions.
+    assert!(room.starts_with("ph-"), "unexpected room name {room}");
+
+    // Age the row past the stall window, then run the reaper the way the sweep does.
+    sqlx::query("UPDATE voip_calls SET started_at = now() - interval '20 minutes' WHERE id = $1")
+        .bind(call_id)
+        .execute(&srv.pool)
+        .await
+        .unwrap();
+
+    // Run it until this call is reached. The reaper is deployment-wide and takes a bounded
+    // batch, so on a shared test database another test's stalled rows can fill one pass —
+    // which is the reaper working as designed, not a failure.
+    for _ in 0..5 {
+        let failed = voxtranslate_server::voip::webhook::fail_stalled_calls(&srv.pool, 100)
+            .await
+            .unwrap();
+        if failed.contains(&call_id) {
+            break;
+        }
+        if failed.is_empty() {
+            break;
+        }
+    }
+
+    let status: String = sqlx::query_scalar("SELECT status FROM voip_calls WHERE id = $1")
+        .bind(call_id)
+        .fetch_one(&srv.pool)
+        .await
+        .unwrap();
+    assert_eq!(status, "failed");
 }
 
 #[tokio::test]

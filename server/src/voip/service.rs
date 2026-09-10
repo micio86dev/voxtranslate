@@ -89,6 +89,13 @@ pub struct QuoteView {
 pub struct CallCreated {
     pub call_id: Uuid,
     pub session_id: Uuid,
+    /// The room the telephone was joined into.
+    ///
+    /// Returned so the caller's browser can join it. Without this the call is a telephone
+    /// talking to an empty room: the engine translates a speaker into "the room's other
+    /// languages", and a room with only the phone in it has none — so nothing is
+    /// translated, in either direction, and the call is silent for both parties.
+    pub room: String,
     pub status: CallState,
     pub reserved_credits: i32,
     pub price_per_minute: Decimal,
@@ -639,6 +646,7 @@ pub async fn dial(
             Ok(CallCreated {
                 call_id,
                 session_id,
+                room: room.clone(),
                 status: CallState::Dialing,
                 reserved_credits: quote.reserve_credits,
                 price_per_minute: quote.price_per_minute,

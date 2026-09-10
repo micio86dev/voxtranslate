@@ -37,6 +37,7 @@ use crate::engine::{SessionDeps, SessionOutcome};
 use crate::rooms::{Peer, PeerTx, Visibility, OUT_CHANNEL_CAP};
 use crate::telephony::MediaCodec;
 use crate::voip::media::{self, BridgeHandles, Leg};
+use crate::voip::state::FailureReason;
 
 /// The name shown for the telephone participant in the room and the transcript.
 ///
@@ -182,15 +183,6 @@ pub fn create_phone_peer(
     })
 }
 
-/// Remove a phone peer whose call never got created.
-///
-/// A dial that is refused after the peer exists — the concurrency re-check inside the
-/// admission lock is the one that actually happens — would otherwise leave a room holding
-/// a participant that no call will ever reach.
-pub fn abandon(rooms: &crate::rooms::RoomManager, peer: &PhonePeer) {
-    rooms.remove(&peer.room, &peer.peer_id, peer.conn);
-}
-
 /// Removes a phone peer unless the call it belongs to actually got off the ground.
 ///
 /// `dial` fails in a dozen places — a database error, the concurrency re-check inside the
@@ -289,10 +281,29 @@ where
         segmentation: None,
     };
 
+    // **The transcript service is withheld unless this call may keep words.**
+    //
+    // The engine persists a segment whenever it holds a transcript service — see
+    // `engine::standard::record_segment`, which gates on `transcripts.is_some()` and
+    // nothing else. Handing it one unconditionally would write every syllable of a
+    // telephone conversation into `transcript_events` from the first word: before the
+    // disclosure has been spoken, before a press-key gate could be answered, and even for
+    // an org that never asked for transcription at all. The consent machinery stamps
+    // columns and gates the carrier's recorder; it has no reach into this pipeline, so
+    // the gate has to be here, at the only place that decides what the engine is given.
+    //
+    // `transcription_started_at` is the authority, not the request: it is written by
+    // `voip::disclosure::start_capture` only after the disclosure is on the record and,
+    // where a gate applies, granted.
+    let may_transcribe = transcription_permitted(state, leg.call_id).await;
     let deps = SessionDeps {
         rooms: state.rooms.clone(),
         moderator: state.moderator.clone(),
-        transcripts: state.transcripts.clone(),
+        transcripts: if may_transcribe {
+            state.transcripts.clone()
+        } else {
+            None
+        },
         participant_row: None,
         listener_pays: state.config.listener_pays,
         translator: state.translator.clone(),
@@ -308,6 +319,11 @@ where
             crate::metrics::record_voip_provider_error();
             tracing::error!(call_id = %leg.call_id, "could not open a translation session for the phone leg");
             state.rooms.remove(&leg.room, &leg.peer_id, leg.conn);
+            // Ending the call is not optional here. Removing the peer alone would leave a
+            // row that still reads as live: it keeps consuming a concurrency slot, keeps
+            // the customer's credits held, and keeps the carrier billing us — until the
+            // maximum-duration reaper notices, up to an hour later.
+            end_call(state, leg.call_id, FailureReason::EngineUnavailable).await;
             return Err(media::MediaError::Malformed(
                 "translation session unavailable".into(),
             ));
@@ -334,18 +350,141 @@ where
     // with a participant nobody can hear.
     state.rooms.remove(&leg.room, &leg.peer_id, leg.conn);
     crate::metrics::record_voip_media_disconnect();
+
+    // End the call. Without the bridge the two parties cannot understand each other, and
+    // the carrier does not re-open a stream on its own — so the alternative is a call that
+    // keeps billing, on both sides, until the maximum-duration reaper notices up to an
+    // hour later. `end_call` is a no-op on a call that is already terminal, which is the
+    // ordinary case: a normal hangup closes this socket too.
+    end_call(state, leg.call_id, FailureReason::MediaLost).await;
     result
 }
 
-/// Drain DTMF until the socket closes.
+/// End a call from the media side: hang the carrier's leg up, mark the row terminal, and
+/// release the credit hold.
 ///
-/// A placeholder shape on purpose: the consent gate is what will read these, and until it
-/// exists the digits must still be consumed or `try_send` starts failing and the media
-/// pump logs a full channel on every keypress. Recording rather than acting on them keeps
-/// the eventual gate's input visible in the meantime.
+/// All three, or none of them is worth doing. A row left non-terminal keeps a concurrency
+/// slot and a credit hold; a carrier leg left up keeps billing; and doing only the
+/// database half would tell the customer their money was returned while the call was
+/// still running.
+///
+/// Every step is idempotent and none is fatal: the ordinary path through here is a call
+/// that has *already* ended, whose hangup webhook closed everything a moment earlier.
+async fn end_call(state: &crate::AppState, call_id: Uuid, reason: FailureReason) {
+    let Some(pool) = state.pool.as_ref() else {
+        return;
+    };
+
+    if let (Some(provider), Some(pid)) = (
+        state.telephony.as_deref(),
+        provider_leg(state, call_id).await,
+    ) {
+        if let Err(e) = provider.hangup(&crate::telephony::LegId::new(pid)).await {
+            tracing::debug!(%call_id, error = %e, "hangup while ending a call from the bridge failed");
+        }
+    }
+
+    let row: Option<(Uuid,)> = sqlx::query_as(
+        "UPDATE voip_calls
+         SET status = 'failed',
+             failure_reason = COALESCE(failure_reason, $2),
+             ended_at = COALESCE(ended_at, now()),
+             updated_at = now()
+         WHERE id = $1 AND status NOT IN ('completed', 'failed')
+         RETURNING session_id",
+    )
+    .bind(call_id)
+    .bind(reason.as_str())
+    .fetch_optional(pool)
+    .await
+    .unwrap_or_else(|e| {
+        tracing::error!(%call_id, error = %e, "could not mark a call failed from the bridge");
+        None
+    });
+
+    // Only when THIS call actually moved the row. Releasing a hold on a call someone else
+    // just settled would give the credits back twice.
+    if let Some((session_id,)) = row {
+        if let Err(e) = crate::voip::reservation::release(pool, call_id, session_id).await {
+            tracing::error!(%call_id, error = %e, "could not release the credit hold");
+        }
+    }
+}
+
+/// The carrier's leg id for a call, so the bridge can end it without holding one.
+async fn provider_leg(state: &crate::AppState, call_id: Uuid) -> Option<String> {
+    let pool = state.pool.as_ref()?;
+    sqlx::query_scalar::<_, Option<String>>(
+        "SELECT provider_leg_ids[array_upper(provider_leg_ids, 1)]
+         FROM voip_calls WHERE id = $1 AND status NOT IN ('completed', 'failed')",
+    )
+    .bind(call_id)
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten()
+    .flatten()
+}
+
+/// Whether this call has actually been permitted to keep a transcript.
+///
+/// Public so the invariant can be asserted directly: it is the single gate between a
+/// telephone conversation and `transcript_events`, and it is worth a test of its own.
+///
+/// Fails closed on every uncertainty — no database, an unreadable row, a query error. A
+/// call that transcribes nothing is a lost feature; a call that transcribes someone who
+/// was never asked is the thing this whole module exists to prevent.
+pub async fn transcription_permitted(state: &crate::AppState, call_id: Uuid) -> bool {
+    let Some(pool) = state.pool.as_ref() else {
+        return false;
+    };
+    match sqlx::query_scalar::<_, Option<chrono::DateTime<chrono::Utc>>>(
+        "SELECT transcription_started_at FROM voip_calls WHERE id = $1",
+    )
+    .bind(call_id)
+    .fetch_optional(pool)
+    .await
+    {
+        Ok(Some(stamp)) => stamp.is_some(),
+        Ok(None) => false,
+        Err(e) => {
+            tracing::error!(%call_id, error = %e, "could not read consent state; not transcribing");
+            false
+        }
+    }
+}
+
+/// Drain DTMF arriving on the MEDIA socket.
+///
+/// Not the consent gate. The gate is driven by `call.dtmf.received` **webhooks** — see
+/// `telephony::TelephonyProvider::gather`, whose contract says digits arrive that way, and
+/// `voip::routes::inbound_webhook`, which is what calls `disclosure::on_dtmf`. Digits that
+/// appear in-band on the media stream are a second, redundant copy of the same keypresses
+/// and are deliberately not acted on: two sources resolving one gate is how a decision
+/// gets made twice.
+///
+/// They are still drained, because an unread channel makes `try_send` fail on every
+/// keypress and the media pump would log a full channel for something nobody wants.
 async fn consume_digits(mut rx: tokio::sync::mpsc::Receiver<char>) {
     while let Some(d) = rx.recv().await {
         tracing::debug!(digit = %d, "voip dtmf");
+    }
+}
+
+/// Take a leg out of the registry and its peer out of the room, for a call that is over.
+///
+/// The registry is not self-cleaning and cannot be. A parked leg holds the phone peer's
+/// room `Receiver`, so `RoomManager::prune` — which reclaims a room once its peers'
+/// channels close — can never reclaim a room whose leg is still parked. A call that is
+/// dialled and then never answered (the provider accepts and goes quiet, which is the
+/// exact case `webhook::fail_stalled_calls` exists for) would otherwise hold a leg, a
+/// peer and a room for the life of the process.
+///
+/// Safe to call for a call that was never parked, or whose socket already claimed it.
+pub fn reclaim(state: &crate::AppState, call_id: Uuid) {
+    if let Some(leg) = state.voip_calls.take(call_id) {
+        state.rooms.remove(&leg.room, &leg.peer_id, leg.conn);
+        tracing::debug!(%call_id, "reclaimed a phone leg whose call ended before its media socket");
     }
 }
 
@@ -604,13 +743,33 @@ mod tests {
 
     #[test]
     fn a_refused_dial_leaves_no_peer_behind() {
-        // The concurrency re-check inside the admission lock rejects AFTER the peer exists.
-        // Without `abandon` the room keeps a participant no call will ever reach.
+        // `dial` fails in a dozen places after the peer exists — a database error, the
+        // concurrency re-check inside the admission lock, an empty credit pool, a provider
+        // refusal — and the guard is what covers all of them, including the one nobody
+        // remembered. Dropping it must take the peer, and with it the room.
         let rooms = RoomManager::new();
         let peer = create_phone_peer(&rooms, "ph-test-4", "standard", "it").unwrap();
-        abandon(&rooms, &peer);
+        assert_eq!(rooms.active_peers(), 1);
+
+        drop(PeerGuard::new(&rooms, &peer));
+
         assert_eq!(rooms.active_peers(), 0);
         assert_eq!(rooms.active_rooms(), 0);
+    }
+
+    #[test]
+    fn a_dial_that_succeeds_keeps_its_peer() {
+        // The other half: disarming is what hands the room's lifetime over to the call.
+        let rooms = RoomManager::new();
+        let peer = create_phone_peer(&rooms, "ph-test-4b", "standard", "it").unwrap();
+
+        PeerGuard::new(&rooms, &peer).disarm();
+
+        assert_eq!(
+            rooms.active_peers(),
+            1,
+            "a live call must keep its telephone"
+        );
     }
 
     #[test]

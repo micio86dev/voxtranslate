@@ -205,14 +205,21 @@ pub async fn announce_on_answer(
         Delivery::NotAnnounced { reason } => {
             crate::metrics::record_voip_disclosure_failure();
             tracing::error!(%call_id, reason, "capture disabled: the recipient was never told");
+            stop_wanting_capture(pool, call_id).await?;
+
+            // And settle the gate, because nothing else can. `time_out_pending_consent`
+            // only looks at rows with a `disclosure_played_at`, and by definition this call
+            // has none — so left `pending` it would stay pending for ever, and a status
+            // that never resolves is one an operator eventually learns to ignore.
+            //
+            // `not_required` is the honest value: consent is required *for capture*, and
+            // this call captures nothing. What was attempted and failed is on the row
+            // (`disclosure_played_at IS NULL` beside `recording_status = 'none'`), in the
+            // log line above, and in `disclosure_failures_total`.
             sqlx::query(
                 "UPDATE voip_calls
-                 SET recording_status = CASE WHEN recording_status = 'pending' THEN 'none'
-                                             ELSE recording_status END,
-                     transcription_status = CASE WHEN transcription_status = 'live' THEN 'none'
-                                                 ELSE transcription_status END,
-                     updated_at = now()
-                 WHERE id = $1",
+                 SET consent_status = 'not_required', updated_at = now()
+                 WHERE id = $1 AND consent_status = 'pending'",
             )
             .bind(call_id)
             .execute(pool)
@@ -269,6 +276,7 @@ pub async fn on_dtmf(
 /// on others, and either way the process that opened the gate may be gone. So the timeout
 /// is enforced from the row, by the same sweep that reaps stalled calls.
 pub async fn time_out_pending_consent(
+    state: &crate::AppState,
     pool: &Pool,
     provider: &dyn TelephonyProvider,
     grace_secs: i64,
@@ -318,10 +326,42 @@ pub async fn time_out_pending_consent(
             .map(LegId::new);
         if let Some(leg) = leg {
             act(pool, provider, call_id, &leg, action, &row).await?;
+
+            // The gate is settled, so the audio path can finally be armed. Nobody answered
+            // and nothing will be captured, but the two people are still on the telephone
+            // and are entitled to the translation they are being charged for.
+            if action != AfterConsent::EndCall {
+                if let Some(cfg) = state.config.voip.as_ref() {
+                    crate::voip::session::arm_media(state, cfg, provider, call_id, &leg).await;
+                }
+            }
         }
         closed += 1;
     }
     Ok(closed)
+}
+
+/// Move the capture columns off their "wanted" values, so nothing reconsiders them.
+///
+/// `none` rather than a dedicated `declined` status: the reason is already on the row and
+/// it is the authoritative one. `consent_status = 'denied'` beside `recording_status =
+/// 'none'` reads unambiguously as "we asked, they said no, nothing was kept" — the exact
+/// sentence an auditor needs. A second column saying the same thing is a second column
+/// that can disagree with the first.
+async fn stop_wanting_capture(pool: &Pool, call_id: Uuid) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "UPDATE voip_calls
+         SET recording_status = CASE WHEN recording_status = 'pending' THEN 'none'
+                                     ELSE recording_status END,
+             transcription_status = CASE WHEN transcription_status = 'live' THEN 'none'
+                                         ELSE transcription_status END,
+             updated_at = now()
+         WHERE id = $1",
+    )
+    .bind(call_id)
+    .execute(pool)
+    .await?;
+    Ok(())
 }
 
 /// Carry out what the resolved consent implies.
@@ -336,26 +376,8 @@ async fn act(
     match action {
         AfterConsent::StartCapture => start_capture(pool, provider, call_id, leg, row).await,
         AfterConsent::ContinueWithoutCapture => {
-            // The call is fine; only the recorder is off. Moving the columns off their
-            // "wanted" values stops the sweep from ever reconsidering them.
-            //
-            // `none` rather than a dedicated `declined`: the reason is already on the row,
-            // and it is the authoritative one. `consent_status = 'denied'` next to
-            // `recording_status = 'none'` reads unambiguously as "we asked, they said no,
-            // nothing was kept" — which is exactly the sentence an auditor needs. A second
-            // column saying the same thing is a second column that can disagree.
-            sqlx::query(
-                "UPDATE voip_calls
-                 SET recording_status = CASE WHEN recording_status = 'pending' THEN 'none'
-                                             ELSE recording_status END,
-                     transcription_status = CASE WHEN transcription_status = 'live' THEN 'none'
-                                                 ELSE transcription_status END,
-                     updated_at = now()
-                 WHERE id = $1",
-            )
-            .bind(call_id)
-            .execute(pool)
-            .await?;
+            // The call is fine; only the recorder is off.
+            stop_wanting_capture(pool, call_id).await?;
             Ok(())
         }
         AfterConsent::EndCall => {

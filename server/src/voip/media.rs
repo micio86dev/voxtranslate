@@ -217,6 +217,13 @@ impl std::fmt::Display for MediaError {
 /// boundary.
 pub struct Leg {
     codec: MediaCodec,
+    /// Whether the provider has ever told us what it is actually sending.
+    ///
+    /// Tracked because "confirmed correct" and "never confirmed" look identical from the
+    /// outside: both leave `codec_renegotiations_total` flat. A carrier that sends media
+    /// without a `start` frame leaves the leg decoding a guess, and a wrong guess is
+    /// noise in both directions with nothing anywhere reporting an error.
+    confirmed: bool,
     /// Phone → engine.
     up: Resampler,
     /// Engine → phone.
@@ -231,6 +238,7 @@ impl Leg {
         let wire = codec.sample_rate();
         Self {
             codec,
+            confirmed: false,
             up: Resampler::new(wire, ENGINE_RATE_HZ),
             down: Resampler::new(ENGINE_RATE_HZ, wire),
             gate: PlaybackGate::new(),
@@ -254,6 +262,7 @@ impl Leg {
     /// further on. A no-op when the codec is already right, so a provider that repeats
     /// `start` does not clear the filter state mid-utterance.
     pub fn renegotiate(&mut self, codec: MediaCodec) -> bool {
+        self.confirmed = true;
         if codec == self.codec {
             return false;
         }
@@ -317,6 +326,18 @@ impl Leg {
     pub fn far_speaking(&self) -> bool {
         self.far_speaking.load(Ordering::Relaxed)
     }
+
+    /// True the first time audio arrives on a leg whose format was never announced.
+    ///
+    /// Called once per leg, not per frame: the point is a single line in the log saying
+    /// "this call is decoding a guess", not a stream of them.
+    fn note_unconfirmed(&mut self) -> bool {
+        if self.confirmed {
+            return false;
+        }
+        self.confirmed = true;
+        true
+    }
 }
 
 /// Everything a live media socket needs.
@@ -371,6 +392,15 @@ where
                 let Some(Ok(raw)) = incoming else { break };
                 match parse_inbound(&raw)? {
                     Inbound::Media { payload_b64, .. } => {
+                        if leg.note_unconfirmed() {
+                            // Not fatal, and possibly fine — but it is the difference
+                            // between "we know the format" and "we assumed it", and the
+                            // wrong assumption is silent corruption rather than an error.
+                            tracing::warn!(
+                                assumed = ?leg.codec(),
+                                "phone media arrived with no start frame; decoding an assumed codec"
+                            );
+                        }
                         // Speaking again mid-playback: drop what is queued for them AND
                         // tell the provider to drop what it already buffered. Without the
                         // second half the caller hears the sentence they interrupted

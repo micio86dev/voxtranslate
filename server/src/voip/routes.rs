@@ -361,6 +361,9 @@ pub async fn dial(
         Json(json!({
             "call_id": created.call_id,
             "session_id": created.session_id,
+            // The room to join. A phone call is a room with a telephone in it; the caller
+            // is an ordinary browser peer and joins it the ordinary way.
+            "room": created.room,
             "status": created.status.as_str(),
             "reserved_credits": created.reserved_credits,
             "price_per_minute": created.price_per_minute,
@@ -502,6 +505,8 @@ pub async fn history(
 struct CallDetailRow {
     id: Uuid,
     session_id: Uuid,
+    /// So a caller who reloaded the page can get back into a call that is still live.
+    room: Option<String>,
     status: String,
     failure_reason: Option<String>,
     direction: String,
@@ -537,12 +542,18 @@ pub async fn detail(
     // `org_id` in the WHERE clause is the tenancy boundary: a call id from another org
     // returns 404, not the row.
     let row: Option<CallDetailRow> = sqlx::query_as(
-        "SELECT id, session_id, status, failure_reason, direction, recipient_e164,
-                recipient_country, source_language, target_language, engine_id, started_at,
-                ended_at, duration_seconds, credits_consumed, quoted_price_per_min,
-                actual_provider_cost_usd, gross_margin, recording_status,
-                transcription_status, consent_status, project_id
-         FROM voip_calls WHERE id = $1 AND org_id = $2 AND ($3 OR user_id = $4)",
+        // `room` only while the call is live: it is a join handle, and handing one out
+        // for a call that is over invites someone into a room nobody is in.
+        "SELECT c.id, c.session_id,
+                CASE WHEN c.status NOT IN ('completed', 'failed') THEN s.room END AS room,
+                c.status, c.failure_reason, c.direction, c.recipient_e164,
+                c.recipient_country, c.source_language, c.target_language, c.engine_id,
+                c.started_at, c.ended_at, c.duration_seconds, c.credits_consumed,
+                c.quoted_price_per_min, c.actual_provider_cost_usd, c.gross_margin,
+                c.recording_status, c.transcription_status, c.consent_status, c.project_id
+         FROM voip_calls c
+         JOIN call_sessions s ON s.id = c.session_id
+         WHERE c.id = $1 AND c.org_id = $2 AND ($3 OR c.user_id = $4)",
     )
     .bind(call_id)
     .bind(org_id)
@@ -827,16 +838,20 @@ pub async fn inbound_webhook(
                 ..
             } = outcome
             {
-                if let Ok(vcfg) = cfg(&state) {
-                    // Media first, disclosure second. The stream carries the conversation;
-                    // the announcement is spoken by the carrier on its own leg and does
-                    // not travel through it. Arming first means no word of the answer is
-                    // lost, and the recipient is not speaking during an announcement they
-                    // are listening to.
-                    crate::voip::session::arm_media(&state, vcfg, provider, call_id, &event.leg_id)
-                        .await;
-                }
-                if let Err(e) = crate::voip::disclosure::announce_on_answer(
+                // **Disclosure first, media second.** Not a preference — an ordering the
+                // audio path depends on.
+                //
+                // The engine session is handed a transcript service only if the row
+                // already says transcription is permitted (`session::run_leg`), and it
+                // cannot be given one afterwards. So a call whose gate is still open must
+                // not open its engine session yet: it would be created un-permitted, and
+                // the recipient pressing 1 a second later could not change that — a
+                // granted call would produce no transcript at all.
+                //
+                // The cost is a few seconds of silence for the caller at the start of a
+                // gated call. During those seconds the recipient is listening to the
+                // announcement rather than talking, so there is nothing to translate.
+                let delivery = match crate::voip::disclosure::announce_on_answer(
                     pool,
                     provider,
                     call_id,
@@ -844,20 +859,54 @@ pub async fn inbound_webhook(
                 )
                 .await
                 {
-                    // The call is up and nothing was captured, which is the safe side of
-                    // this failure. Logged rather than returned: a 5xx would make the
-                    // provider redeliver the answer event, and the second delivery is a
-                    // duplicate that changes nothing.
-                    tracing::error!(%call_id, error = %e, "consent announcement step failed");
+                    Ok(d) => d,
+                    Err(e) => {
+                        // The call is up and nothing was captured, which is the safe side
+                        // of this failure. Logged rather than returned: a 5xx would make
+                        // the provider redeliver the answer event, and the second delivery
+                        // is a duplicate that changes nothing.
+                        crate::metrics::record_voip_disclosure_failure();
+                        tracing::error!(%call_id, error = %e, "consent announcement step failed");
+                        crate::voip::disclosure::Delivery::NotAnnounced {
+                            reason: "disclosure_write_failed",
+                        }
+                    }
+                };
+
+                // Everything except an open gate arms now. An open gate arms when the
+                // digit lands, or when the sweep gives up waiting for it.
+                if !matches!(
+                    delivery,
+                    crate::voip::disclosure::Delivery::AwaitingConsent { .. }
+                ) {
+                    if let Ok(vcfg) = cfg(&state) {
+                        crate::voip::session::arm_media(
+                            &state,
+                            vcfg,
+                            provider,
+                            call_id,
+                            &event.leg_id,
+                        )
+                        .await;
+                    }
                 }
             }
+            // A call that is over releases its phone leg. The common case is not a crash:
+            // it is a recipient who was busy, rejected the call, or never picked up — all
+            // of which end the call before any media socket exists to claim the leg.
+            if let webhook::Ingest::Applied { call_id, after, .. } = &outcome {
+                if after.is_terminal() {
+                    crate::voip::session::reclaim(&state, *call_id);
+                }
+            }
+
             // A keypad digit while a consent gate is open is the recipient answering.
             if let (
                 webhook::Ingest::Recorded { call_id, .. },
                 crate::telephony::ProviderEventKind::Dtmf { digit },
             ) = (&outcome, &event.kind)
             {
-                if let Err(e) = crate::voip::disclosure::on_dtmf(
+                match crate::voip::disclosure::on_dtmf(
                     pool,
                     provider,
                     *call_id,
@@ -866,7 +915,26 @@ pub async fn inbound_webhook(
                 )
                 .await
                 {
-                    tracing::error!(%call_id, error = %e, "could not resolve the consent gate");
+                    // The gate is settled, so the engine session can finally be opened —
+                    // knowing whether it may keep words. `EndCall` is the one outcome that
+                    // arms nothing: the recipient refused and org policy says the call ends.
+                    Ok(Some(crate::voip::consent::AfterConsent::StartCapture))
+                    | Ok(Some(crate::voip::consent::AfterConsent::ContinueWithoutCapture)) => {
+                        if let Ok(vcfg) = cfg(&state) {
+                            crate::voip::session::arm_media(
+                                &state,
+                                vcfg,
+                                provider,
+                                *call_id,
+                                &event.leg_id,
+                            )
+                            .await;
+                        }
+                    }
+                    Ok(_) => {}
+                    Err(e) => {
+                        tracing::error!(%call_id, error = %e, "could not resolve the consent gate")
+                    }
                 }
             }
             Ok(StatusCode::OK.into_response())
@@ -925,6 +993,19 @@ pub async fn media_socket(
         tracing::warn!(call_id = %t.call_id, "media socket for a call with no parked leg");
         return not_found("no such media session");
     };
+
+    // The ticket names a room and a peer as well as a call, and `token.rs` documents that
+    // binding as a security property. Checking it is what makes the claim true rather than
+    // aspirational: today one call has one leg, but modes 2 and 3 in the spec put two legs
+    // on one call, and a ticket minted for one of them must not be able to claim the other.
+    if t.room != leg.room || t.peer_id != leg.peer_id {
+        tracing::error!(
+            call_id = %t.call_id,
+            "media ticket does not match the parked leg it claimed"
+        );
+        crate::voip::session::reclaim(&state, t.call_id);
+        return not_found("no such media session");
+    }
 
     ws.on_upgrade(move |socket| async move {
         let call_id = leg.call_id;

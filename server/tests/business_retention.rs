@@ -206,6 +206,21 @@ async fn make_phone_call_with_recording(
     .unwrap()
 }
 
+/// The VoIP retention tests take this in turn.
+///
+/// `sweep_voip_recordings_once` is deployment-wide by design — production runs exactly one
+/// of them, in one background task. Two tests driving it concurrently against one database
+/// process each other's rows: one test's working provider deletes the recording another
+/// test expected to survive, and a row can be picked up by both passes before either
+/// writes, producing two audit entries for one deletion. Neither is reachable in
+/// production; both are guaranteed here without a guard.
+/// Async-aware, because a turn is held across the awaits that do the work.
+static VOIP_SWEEP: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+async fn sweep_turn() -> tokio::sync::MutexGuard<'static, ()> {
+    VOIP_SWEEP.lock().await
+}
+
 async fn voip_settings(pool: &db::Pool, org: Uuid, retention_days: Option<i32>) {
     sqlx::query(
         "INSERT INTO voip_org_settings (org_id, enabled, recording_enabled, recording_retention_days)
@@ -221,6 +236,7 @@ async fn voip_settings(pool: &db::Pool, org: Uuid, retention_days: Option<i32>) 
 
 #[tokio::test]
 async fn expired_phone_recordings_are_deleted_at_the_carrier_and_forgotten_here() {
+    let _turn = sweep_turn().await;
     // R21. A phone recording is NOT in our object storage — it is on the carrier's, and
     // `provider_recording_id` is the only durable handle on it. Two things must both be
     // true: the bytes are deleted at the provider, and only then is the handle cleared.
@@ -280,10 +296,25 @@ async fn expired_phone_recordings_are_deleted_at_the_carrier_and_forgotten_here(
     .unwrap();
     assert_eq!(fresh_status, "saved");
     assert_eq!(fresh_handle.as_deref(), Some(rec_fresh.as_str()));
+
+    // Compliance-mode orgs keep a trail. Deleting a customer's recording without a record
+    // that it happened is the kind of gap that only surfaces when someone asks.
+    let audited: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM audit_logs
+         WHERE org_id = $1 AND action = 'retention.purge'
+           AND resource_type = 'voip_call' AND resource_id = $2",
+    )
+    .bind(org)
+    .bind(expired)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(audited, 1, "expected one retention.purge audit row");
 }
 
 #[tokio::test]
 async fn a_failed_carrier_delete_leaves_the_handle_for_the_next_pass() {
+    let _turn = sweep_turn().await;
     // The ordering rule, asserted from the failing side. Clearing the handle after a failed
     // delete would strand the audio on the carrier's disk with nothing able to name it —
     // the exact permanent leak migration 053 was written to prevent for uploads.
@@ -331,6 +362,7 @@ async fn a_failed_carrier_delete_leaves_the_handle_for_the_next_pass() {
 
 #[tokio::test]
 async fn without_a_configured_provider_nothing_is_touched() {
+    let _turn = sweep_turn().await;
     // No provider means no way to reach the bytes. Doing nothing keeps the handles intact
     // for a deployment that has one, instead of marking recordings deleted that are not.
     let Some(pool) = pool_or_skip().await else {
@@ -364,6 +396,7 @@ async fn without_a_configured_provider_nothing_is_touched() {
 
 #[tokio::test]
 async fn an_org_with_no_voip_retention_window_keeps_its_recordings() {
+    let _turn = sweep_turn().await;
     // NULL means "follow no VoIP-specific rule", and the safe reading of that is keep.
     // Inventing a default here would delete a customer's recordings on a schedule they
     // never set.

@@ -15,9 +15,19 @@ Three levels, cheapest first. **None of them touches data.**
 
 | What | How | Effect |
 |---|---|---|
-| Stop new calls, let current ones finish | `VOIP_ROLLOUT_STAGE=disabled` | The policy gate refuses every dial. Calls in progress run to a clean end and settle normally. |
-| Remove the feature entirely | `VOIP_ENABLED=false` | The routes are **not registered** — every VoIP request 404s. |
+| Stop new calls, let current ones finish | `VOIP_ROLLOUT_STAGE=disabled` **+ restart** | The policy gate refuses every dial. See the note below: the restart is not optional, and it ends the calls it was meant to spare. |
+| Remove the feature entirely | `VOIP_ENABLED=false` **+ restart** | The routes are **not registered** — every VoIP request 404s. |
 | Stop it at the source | Disable the Outbound Voice Profile in the Telnyx portal | The carrier refuses the dial even if something in our stack tries. |
+
+**The env switches need a restart, and a restart ends live calls.** `VoipConfig` is read
+once at boot, so changing `VOIP_ROLLOUT_STAGE` has no effect until the process restarts —
+and a restart drops every media socket in flight, because a socket cannot outlive its
+process on any architecture. So the first row above is "stop new calls" only in the sense
+that it takes effect after the current ones have been cut off.
+
+If the goal really is to stop new calls while letting the current ones finish, use the
+per-organisation switch (below) or the carrier-side control (last row), both of which take
+effect immediately and touch nothing that is already connected.
 
 For one organisation rather than the whole deployment, set `enabled = false` in its
 `voip_org_settings` row (or through the dashboard's phone settings, which writes an audit
@@ -167,14 +177,25 @@ silent. In order:
    the decode path on both directions.
 2. `media_disconnects_total` around the call's window — the socket closed and the room lost
    its phone peer.
-3. The logs for `call answered with no phone leg parked` — the leg was never parked or was
+3. **Is the caller actually in the room?** The dashboard places the call; the app carries
+   the audio. A caller who never used **Join the call** is not in their own call, and the
+   engine has no other language to translate into — so both parties hear silence and
+   nothing anywhere reports an error. This is the most common cause by a wide margin.
+4. The logs for `call answered with no phone leg parked` — the leg was never parked or was
    already claimed, which means no ticket could be issued and the carrier was never asked
    to stream.
-4. The logs for `could not start the media stream` — the carrier refused. The call is up
-   and both parties hear silence; this is the one failure mode that is invisible from
-   every other signal.
-5. **Whether the legs were ever bridged. They must not be.** A bridged pair is how each
+5. The logs for `phone media arrived with no start frame` — the carrier never announced the
+   audio format, so the leg is decoding an assumption. If the assumption is wrong the audio
+   is noise in both directions, and `codec_renegotiations_total` stays flat either way.
+6. The logs for `could not start the media stream` — the carrier refused. The call is up
+   and both parties hear silence.
+7. **Whether the legs were ever bridged. They must not be.** A bridged pair is how each
    party ends up hearing the other's untranslated voice.
+
+**A press-key call is silent on purpose while the gate is open.** The audio path is armed
+only once the recipient answers the gate (or the sweep gives up waiting). A report of "the
+first few seconds are dead" on an org with `consent_policy = 'press_key'` is the design,
+not a fault.
 
 ### A recording exists that the customer says nobody agreed to
 
