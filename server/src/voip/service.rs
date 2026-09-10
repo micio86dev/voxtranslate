@@ -28,6 +28,7 @@ use crate::voip::consent::{self, CaptureIntent, ConsentPolicy, RefusedAction};
 use crate::voip::policy::{self, DialContext, GlobalPolicy, OrgPolicy, RolloutStage};
 use crate::voip::pricing::{self, MarginPolicy, ProviderCost, Quote, Rate};
 use crate::voip::reservation::{self, ReserveOutcome};
+use crate::voip::session;
 use crate::voip::state::{CallState, FailureReason};
 
 /// Why a request was refused, in a form a route handler can turn into a status code.
@@ -480,9 +481,22 @@ pub async fn dial(
     quote: &Quote,
     intent: CaptureIntent,
     pseudonym: &str,
+    rooms: &crate::rooms::RoomManager,
+    live: &session::LiveCalls,
 ) -> Result<CallCreated, VoipError> {
+    // The room exists BEFORE the call rows, and its session id becomes the call's. See
+    // `session::PhonePeer::session_id` — the browser caller joins this same room by the
+    // ordinary path and files its transcript under the room's id, so a call session with
+    // an id of its own would split the conversation in half.
     let room = format!("ph-{}", Uuid::new_v4().simple());
-    let session_id = Uuid::new_v4();
+    let peer = session::create_phone_peer(rooms, &room, &opts.engine_id, &opts.target_language)
+        // A brand-new room name cannot be full; `Err` here means the room map is exhausted,
+        // which is a capacity condition and reads as one.
+        .map_err(|_| VoipError::Refused(FailureReason::ConcurrencyLimit))?;
+    let session_id = peer.session_id;
+    // Armed until the call is actually dialing. Every failure below — including the ones
+    // that leave through `?` — takes the telephone back out of the room.
+    let guard = session::PeerGuard::new(rooms, &peer);
 
     // Admission and creation happen in ONE transaction, under an advisory lock.
     //
@@ -498,14 +512,14 @@ pub async fn dial(
         .execute(&mut *tx)
         .await?;
 
-    let live: (i64, i64, i64) = sqlx::query_as(LIVE_COUNTS_SQL)
+    let counts: (i64, i64, i64) = sqlx::query_as(LIVE_COUNTS_SQL)
         .bind(org_id)
         .bind(user_id)
         .fetch_one(&mut *tx)
         .await?;
-    if live.0 as i32 >= world.org.policy.max_concurrent_per_user
-        || live.1 as i32 >= world.org.policy.max_concurrent_per_org
-        || live.2 as i32 >= world.global.max_concurrent_global
+    if counts.0 as i32 >= world.org.policy.max_concurrent_per_user
+        || counts.1 as i32 >= world.org.policy.max_concurrent_per_org
+        || counts.2 as i32 >= world.global.max_concurrent_global
     {
         return Err(VoipError::Refused(FailureReason::ConcurrencyLimit));
     }
@@ -584,6 +598,18 @@ pub async fn dial(
         }
     }
 
+    // Parked before the dial, not after: on a fast answer the provider's `call.answered`
+    // webhook can land while `dial` is still returning, and that webhook is what issues the
+    // media ticket. A leg that is not yet parked would have nothing to issue it against.
+    live.park_peer(
+        peer,
+        call_id,
+        org_id,
+        Some(user_id),
+        &opts.engine_id,
+        &opts.target_language,
+    );
+
     // `client_state` is the call id: our own correlation id, echoed back on every webhook,
     // and it survives a leg being replaced in a way the provider's leg id does not.
     let req = DialRequest {
@@ -609,6 +635,7 @@ pub async fn dial(
             .await?;
 
             crate::metrics::record_voip_started();
+            guard.disarm();
             Ok(CallCreated {
                 call_id,
                 session_id,
@@ -624,6 +651,9 @@ pub async fn dial(
             let reason = e.as_failure_reason();
             fail(pool, call_id, reason).await?;
             reservation::release(pool, call_id, session_id).await?;
+            // The leg was parked a moment ago and no socket will ever claim it; the guard
+            // takes the peer out of the room as this returns.
+            live.discard(call_id);
             Err(VoipError::Refused(reason))
         }
     }

@@ -58,6 +58,11 @@ pub fn routes() -> Router<AppState> {
         // Unauthenticated by design: the provider cannot present a session. The Ed25519
         // signature IS the authentication, and it is verified before anything is read.
         .route("/api/voip/webhooks/{provider}", post(inbound_webhook))
+        // Also unauthenticated by design, and for the same reason: the connection comes
+        // from the carrier's media plane, which carries no session of ours. The ticket in
+        // the path IS the authentication — signed by us, single-use, valid for sixty
+        // seconds, and bound to one call, one leg and one peer.
+        .route("/voip/media/{ticket}", get(media_socket))
 }
 
 fn err_response(e: VoipError) -> Response {
@@ -327,6 +332,8 @@ pub async fn dial(
         &q,
         intent,
         &dest.pseudonym(&cfg.pseudonym_key),
+        &state.rooms,
+        &state.voip_calls,
     )
     .await
     .map_err(err_response)?;
@@ -809,8 +816,59 @@ pub async fn inbound_webhook(
     };
 
     match webhook::ingest(pool, provider, &h, &body).await {
-        Ok(outcome) => {
+        Ok((outcome, event)) => {
             tracing::debug!(?outcome, "voip webhook");
+            // The far end just picked up. Everything else about the call already worked
+            // without this line — it rang, it billed, it settled, it appeared in history —
+            // and it did all of that in silence. This is the audio path.
+            if let webhook::Ingest::Applied {
+                call_id,
+                after: crate::voip::state::CallState::Answered,
+                ..
+            } = outcome
+            {
+                if let Ok(vcfg) = cfg(&state) {
+                    // Media first, disclosure second. The stream carries the conversation;
+                    // the announcement is spoken by the carrier on its own leg and does
+                    // not travel through it. Arming first means no word of the answer is
+                    // lost, and the recipient is not speaking during an announcement they
+                    // are listening to.
+                    crate::voip::session::arm_media(&state, vcfg, provider, call_id, &event.leg_id)
+                        .await;
+                }
+                if let Err(e) = crate::voip::disclosure::announce_on_answer(
+                    pool,
+                    provider,
+                    call_id,
+                    &event.leg_id,
+                )
+                .await
+                {
+                    // The call is up and nothing was captured, which is the safe side of
+                    // this failure. Logged rather than returned: a 5xx would make the
+                    // provider redeliver the answer event, and the second delivery is a
+                    // duplicate that changes nothing.
+                    tracing::error!(%call_id, error = %e, "consent announcement step failed");
+                }
+            }
+            // A keypad digit while a consent gate is open is the recipient answering.
+            if let (
+                webhook::Ingest::Recorded { call_id, .. },
+                crate::telephony::ProviderEventKind::Dtmf { digit },
+            ) = (&outcome, &event.kind)
+            {
+                if let Err(e) = crate::voip::disclosure::on_dtmf(
+                    pool,
+                    provider,
+                    *call_id,
+                    &event.leg_id,
+                    *digit,
+                )
+                .await
+                {
+                    tracing::error!(%call_id, error = %e, "could not resolve the consent gate");
+                }
+            }
             Ok(StatusCode::OK.into_response())
         }
         Err(e) if e.is_retryable() => {
@@ -833,6 +891,54 @@ pub async fn inbound_webhook(
             Err((StatusCode::UNAUTHORIZED, Json(json!({ "error": e.code() }))).into_response())
         }
     }
+}
+
+/// Serve one phone leg's media socket.
+///
+/// Everything that authorises this connection is in the ticket, which is why the handler
+/// can be this short: redeem it, claim the leg it names, and hand the socket to the bridge.
+/// A ticket that is forged, expired, or already spent gets a 404 rather than a 401 — the
+/// endpoint should not confirm to an unauthenticated caller that a call exists at all.
+pub async fn media_socket(
+    State(state): State<AppState>,
+    Path(ticket): Path<String>,
+    ws: axum::extract::WebSocketUpgrade,
+) -> Response {
+    let Some(cfg) = state.config.voip.as_ref() else {
+        return not_found("voip is not configured");
+    };
+
+    let redeemed = state.voip_tickets.redeem(
+        &cfg.media_ticket_key,
+        &ticket,
+        chrono::Utc::now().timestamp(),
+    );
+    let Ok(t) = redeemed else {
+        crate::metrics::record_voip_webhook_rejected();
+        tracing::warn!("media socket presented an unusable ticket");
+        return not_found("no such media session");
+    };
+
+    let Some(leg) = state.voip_calls.take(t.call_id) else {
+        // Redeemed but unclaimable: the call failed between the answer and the connection,
+        // or a socket already has it. Either way there is nothing to bridge.
+        tracing::warn!(call_id = %t.call_id, "media socket for a call with no parked leg");
+        return not_found("no such media session");
+    };
+
+    ws.on_upgrade(move |socket| async move {
+        let call_id = leg.call_id;
+        if let Err(e) = crate::voip::session::run_leg(
+            &state,
+            leg,
+            crate::telephony::MediaCodec::L16,
+            crate::voip::session::TextSocket(socket),
+        )
+        .await
+        {
+            tracing::warn!(%call_id, error = ?e, "phone media bridge ended with an error");
+        }
+    })
 }
 
 fn header(headers: &HeaderMap, name: &str) -> Option<String> {

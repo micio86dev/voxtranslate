@@ -52,18 +52,23 @@ pub enum Ingest {
 }
 
 /// Verify, record and apply one webhook.
+///
+/// Returns the verified event alongside the outcome. The caller needs it — the answer
+/// event is what starts the media stream — and handing it back is what keeps the signature
+/// from being checked twice for one delivery.
 pub async fn ingest(
     pool: &Pool,
     provider: &dyn TelephonyProvider,
     headers: &WebhookHeaders,
     body: &[u8],
-) -> Result<Ingest, WebhookError> {
+) -> Result<(Ingest, ProviderEvent), WebhookError> {
     let event = provider.verify_webhook(headers, body, Utc::now())?;
-    apply(pool, &event)
+    let outcome = apply(pool, &event)
         .await
         .map_err(|e| WebhookError::Malformed {
             detail: e.to_string(),
-        })
+        })?;
+    Ok((outcome, event))
 }
 
 /// The database half, split out so tests can drive it with a constructed event and
@@ -309,17 +314,36 @@ async fn apply_side_effects(
         }
         // A recording that lands after hangup is the normal case, not an anomaly: the
         // provider finishes writing the file once the call is over.
-        ProviderEventKind::RecordingSaved { url, .. } => {
+        ProviderEventKind::RecordingSaved {
+            url, recording_id, ..
+        } => {
+            // The handle is the point. A phone recording lives on the CARRIER's disk, not
+            // in our object storage, and `voip_calls.user_id` is ON DELETE SET NULL — so
+            // erasing the caller's account does not cascade this row away. Without an id
+            // recorded here, the erased person's recorded voice would outlive them with
+            // nothing able to name it. Same failure migration 053 fixed for uploads.
             sqlx::query(
                 "UPDATE voip_calls
                  SET recording_status = 'saved',
+                     provider_recording_url = NULLIF($2, ''),
+                     provider_recording_id = COALESCE($3, provider_recording_id),
                      updated_at = now()
                  WHERE id = $1",
             )
             .bind(call_id)
+            .bind(url)
+            .bind(recording_id.as_deref())
             .execute(&mut **tx)
             .await?;
-            let _ = url; // stored by the recording service, which owns object storage
+
+            if recording_id.is_none() {
+                // Loud on purpose: a recording exists and erasure cannot reach it.
+                tracing::error!(
+                    %call_id,
+                    "recording saved with no provider id — it cannot be deleted by erasure"
+                );
+                crate::metrics::record_voip_unerasable_recording();
+            }
         }
         _ => {}
     }
@@ -382,6 +406,24 @@ pub async fn run_sweep(state: crate::AppState, interval: std::time::Duration, ba
         };
 
         if let Some(provider) = state.telephony.as_deref() {
+            // A consent gate nobody answered. The carrier's own gather timeout produces an
+            // event on some routes and nothing at all on others, and either way the task
+            // that opened the gate may be gone — so the deadline is enforced from the row.
+            // A grace of twice the gather window absorbs a slow carrier without leaving a
+            // call waiting on a key that is never coming.
+            match crate::voip::disclosure::time_out_pending_consent(
+                pool,
+                provider,
+                (crate::voip::disclosure::GATHER_TIMEOUT_SECS as i64) * 2,
+                batch,
+            )
+            .await
+            {
+                Ok(0) => {}
+                Ok(n) => tracing::info!(count = n, "closed consent gates nobody answered"),
+                Err(e) => tracing::error!(error = %e, "voip consent timeout sweep failed"),
+            }
+
             match reap_overrunning_calls(pool, provider, batch).await {
                 Ok(0) => {}
                 Ok(n) => tracing::warn!(count = n, "ended calls past their maximum duration"),
@@ -897,6 +939,7 @@ mod tests {
                 "r",
                 ProviderEventKind::RecordingSaved {
                     url: "https://x/rec.mp3".into(),
+                    recording_id: Some("rec-abc".into()),
                     duration_secs: 42,
                 },
             ),
@@ -904,6 +947,16 @@ mod tests {
         .await
         .unwrap();
         assert!(matches!(out, Ingest::Recorded { .. }), "{out:?}");
+        // The durable handle is the whole reason this event is stored at all: without it
+        // the recording outlives every pointer to it and no retention pass can delete it.
+        let handle: Option<String> =
+            sqlx::query_scalar("SELECT provider_recording_id FROM voip_calls WHERE id = $1")
+                .bind(f.call)
+                .fetch_one(&f.pool)
+                .await
+                .unwrap();
+        assert_eq!(handle.as_deref(), Some("rec-abc"));
+
         let rec: String =
             sqlx::query_scalar("SELECT recording_status FROM voip_calls WHERE id = $1")
                 .bind(f.call)

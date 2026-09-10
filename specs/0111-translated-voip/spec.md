@@ -336,25 +336,40 @@ WS     {VOIP_MEDIA_WS_BASE}/voip/media/{leg_token}       → provider media stre
 | S4 | Codec, stateful resampling, barge-in, media bridge, media ticket | ✅ | `voip/{codec,media,token}.rs` |
 | S5 | Pre-dial gate, dial orchestration, HTTP surface, tenancy | ✅ | `voip/{policy,service,routes}.rs` |
 | S6a | Consent policy + the spoken disclosure in all 84 languages | ✅ | `voip/consent.rs`, `assets/voip-disclosure.json` |
-| S6b | Consent **execution** (play, gather), recording/transcript/project/AI hookups | ⛔ **not built** | — |
+| S6b | Consent **execution** (speak, gather, resolve, timeout) + recording start | ✅ | `voip/disclosure.rs` |
+| S6c | Recording handle + retention deletion at the carrier | ✅ | `migrations/057_*.sql`, `business/retention.rs` |
+| S6d | AI-analysis auto-enqueue on call end | ⛔ **not built** — the manual report route already works | — |
 | S7 | Dashboard dialer, history, i18n, browser e2e | ✅ | `dashboard/src/{pages/[lang]/phone.astro,scripts/phone-dialer.ts}` |
 | S8 | Website page, FAQ from capability data, SEO | ✅ | `website/src/pages/phone-call-translation.astro` |
 | S9 | Metrics, k6 load suite, China gate, runbook | ✅ | `metrics.rs`, `loadtest/voip-*.js`, `docs/runbooks/122-voip-operations.md` |
-| S10 | Media socket **route**, call session assembly | ⛔ **not built** | — |
+| S10 | Media socket **route**, call session assembly | ✅ | `voip/session.rs`, `voip/routes.rs` |
 | S11 | Video upgrade | ⛔ architecture only (D9) | — |
 
-### What "not built" means here
+### Where the call stands
 
-Everything marked ⛔ is a gap with no code, not a gap with untested code. The pieces those
-slices would compose — the media pump, the codec, the consent planner, the disclosure copy,
-the ticket — exist and are tested in isolation. What is missing is the orchestration that
-opens an engine session for the phone peer, mounts the socket, plays the announcement and
-attaches the results to a project.
+A call placed today reaches the carrier, rings, is billed correctly, settles correctly,
+appears in history — **and carries translated audio in both directions.** S10 closed that:
+the dial creates a private room with a synthetic phone peer, the answer webhook mints a
+single-use ticket and asks the carrier to open a media stream against it, and the socket
+that arrives claims the parked leg, opens an engine session for the telephone as a speaker
+and runs the pump. From there the room's ordinary fan-out does the rest — nothing
+downstream knows one of its peers is a telephone.
 
-A call placed today reaches the carrier, rings, is billed correctly, settles correctly and
-appears in history. **It does not yet carry audio**, because S10 is what connects the pump
-to a room. That is the honest state, and it is stated here rather than in a status update
-nobody will re-read.
+S6b closed the second gap: the recipient now hears the disclosure, in their own language,
+before anything is kept, and a press-key gate is genuinely open and genuinely resolved.
+
+S6c closed the third: a recording now carries a **durable handle** on the carrier's copy,
+and the retention sweep deletes the bytes there before forgetting where they were.
+
+The transcript and the project needed no hookup at all, and finding that out was the point
+of S10's session-id decision: the phone peer writes into the same `call_sessions` row as
+the browser caller, so `transcript_events`, the project link and the existing AI-report
+route already work on a phone call exactly as they do on a meeting.
+
+What is left is S6d — enqueueing the AI analysis automatically when a call ends. The
+manual route (`POST …/report`) already accepts a phone session today, so this is a
+convenience rather than a gap in capability. That is the honest state, stated here rather
+than in a status update nobody will re-read.
 
 ## 6. Testing & Verification
 
@@ -444,19 +459,27 @@ staging verified green, then release with `main` first and a back-merge into `de
 7. **Provider account limits** (concurrency, verification level, caller-ID rules) are a
    human/commercial dependency, not a code one.
 8. **Legal text requires human review.** Drafted, flagged, never published autonomously.
-9. **The call does not carry audio yet.** S10 — mounting the media socket and assembling
-   the room around a phone peer — is not built. Every piece it composes is (the pump, the
-   codec, the ticket, the consent planner, the disclosure copy), and each is tested in
-   isolation, but nothing joins them. A call today rings, bills, settles and appears in
-   history **in silence**.
-10. **Nothing plays the announcement.** The consent planner decides what should be said and
-    the copy exists in all 84 languages, but no code calls `play`/`gather`. Recording and
-    transcription must therefore stay OFF until S6b lands — with them on, capture would
-    start without the disclosure that R19 makes mandatory. The `voip_org_settings` defaults
-    already have recording off; **do not turn it on before S6b**.
-11. **Recording, transcript, project and AI results are not attached.** The columns and the
-    status vocabulary exist; the hookups to `TranscriptService`, `business::recording` and
-    `ai::` do not.
+9. **The media plane is single-instance.** Rooms are in-memory per instance across the
+   whole product, so the media socket must reach the instance holding the call's room.
+   Today's deployment is single-replica, which is why this works. State and money survive a
+   restart (Postgres, idempotent webhooks); a *live socket* cannot, on any architecture.
+   When rooms become distributed, `voip::session::LiveCalls` moves with them — and the
+   coupling is written down in that module rather than left to be found by an outage.
+10. **The announcement is spoken by the carrier**, via a new `PlayRequest::Speak` and the
+    `speech_synthesis` capability. A provider that cannot speak means capture does not
+    start — every branch in `voip::disclosure` fails towards *not capturing*. The cost is
+    the carrier's voice quality and its language list, which is narrower than our 84; the
+    text already falls back to English and records that it did.
+11. **A phone recording lives on the carrier's storage, not ours.** `provider_recording_id`
+    is the durable handle and `business::retention::sweep_voip_recordings_once` deletes
+    through it, bytes first and pointer second. Two consequences are deliberate: a
+    provider that saves a recording without giving us an id produces an **un-erasable**
+    recording, counted by `voip_unerasable_recordings_total` and logged at ERROR; and an
+    org with no `recording_retention_days` keeps its recordings forever, because inventing
+    a default would delete a customer's data on a schedule they never set.
+    `voip_calls.user_id` is ON DELETE SET NULL by design, so individual account erasure
+    does **not** reach these — matching the scope rule `SafetyService::delete_user` already
+    documents for multi-party, org-owned artifacts. Deletion belongs to the tenant.
 12. **Video upgrade is architecture only** (D9). No signed guest link is minted and no room
     is joined.
 

@@ -284,8 +284,19 @@ impl TranscriptService {
             .execute(&self.pool)
             .await?;
         sqlx::query(
+            // `kind <> 'phone'` is load-bearing, not defensive. A telephone peer has no
+            // account by construction, so a phone room whose browser caller never managed
+            // to connect has no authenticated participant at all — and this DELETE would
+            // fire. `voip_calls.session_id` is ON DELETE CASCADE, so it would take the
+            // billing record, the credit reservation and the consent evidence with it, for
+            // a call the customer was charged for and a recipient we made promises to.
+            //
+            // The guest purge exists because a guest can never download their words, so
+            // keeping them is pure liability. A phone call is the opposite case: there is a
+            // paying customer, an invoice trail and an audit obligation.
             "DELETE FROM call_sessions cs
              WHERE cs.id = $1
+               AND cs.kind <> 'phone'
                AND NOT EXISTS (
                    SELECT 1 FROM session_participants sp
                    WHERE sp.session_id = cs.id AND sp.user_id IS NOT NULL
@@ -859,6 +870,51 @@ mod tests {
         assert_eq!(doc.events[0].original, "ciao");
         assert_eq!(doc.events[0].translations["en"], "ciao (en)");
         assert!(svc.export(Uuid::new_v4()).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn a_phone_call_is_never_purged_as_guest_only() {
+        // The telephone peer has no account — it cannot have one. So a phone room whose
+        // browser caller never connected (a dropped WebSocket, a closed tab) contains no
+        // authenticated participant, and the guest purge would delete the session.
+        //
+        // `voip_calls.session_id` is ON DELETE CASCADE. That delete would erase the
+        // billing record, the credit reservation and the consent evidence for a call that
+        // rang, connected and was charged. This is the guard against that.
+        let Some(svc) = test_service().await else {
+            return;
+        };
+        let sid = Uuid::new_v4();
+        sqlx::query("INSERT INTO call_sessions (id, room, kind) VALUES ($1, $2, 'phone')")
+            .bind(sid)
+            .bind(format!("ph-{sid}"))
+            .execute(&svc.pool)
+            .await
+            .unwrap();
+        svc.participant_joined(sid, "phone-1", None, "Phone", "zh")
+            .await
+            .unwrap();
+
+        svc.finalize_session(sid).await.unwrap();
+
+        let alive: Option<Uuid> = sqlx::query_scalar("SELECT id FROM call_sessions WHERE id = $1")
+            .bind(sid)
+            .fetch_optional(&svc.pool)
+            .await
+            .unwrap();
+        assert!(
+            alive.is_some(),
+            "a phone call's session was purged as guest-only — the CASCADE has just taken \
+             its billing record and consent evidence with it"
+        );
+
+        let ended: Option<chrono::DateTime<chrono::Utc>> =
+            sqlx::query_scalar("SELECT ended_at FROM call_sessions WHERE id = $1")
+                .bind(sid)
+                .fetch_one(&svc.pool)
+                .await
+                .unwrap();
+        assert!(ended.is_some(), "it must still be closed, just not deleted");
     }
 
     #[tokio::test]

@@ -52,6 +52,7 @@ pub enum MockCommand {
     Gather(LegId, GatherConfig),
     StartRecording(LegId, RecordingConfig),
     StopRecording(LegId),
+    DeleteRecording(String),
 }
 
 #[derive(Debug, Default)]
@@ -66,6 +67,8 @@ struct MockState {
     cdrs: HashMap<String, Cdr>,
     rate_deck: Vec<Rate>,
     rate_deck_error: Option<ProviderError>,
+    deleted_recordings: Vec<String>,
+    delete_recording_error: Option<ProviderError>,
     seq: u64,
 }
 
@@ -101,6 +104,7 @@ impl MockTelephonyProvider {
                     // The constraint the architecture depends on, reproduced faithfully.
                     max_streams_per_leg: 1,
                     recording: true,
+                    speech_synthesis: true,
                     dtmf_gather: true,
                     inbound: true,
                     rate_deck: true,
@@ -153,6 +157,19 @@ impl MockTelephonyProvider {
 
     pub fn is_live(&self, leg: &LegId) -> bool {
         self.lock().live_legs.contains(leg)
+    }
+
+    /// Whether a recording has been permanently deleted at the provider.
+    pub fn recording_deleted(&self, recording_id: &str) -> bool {
+        self.lock()
+            .deleted_recordings
+            .iter()
+            .any(|r| r == recording_id)
+    }
+
+    /// Make the next delete fail, so erasure's abort-and-stay-retryable path is testable.
+    pub fn fail_recording_deletes(&self, err: ProviderError) {
+        self.lock().delete_recording_error = Some(err);
     }
 
     pub fn is_streaming(&self, leg: &LegId) -> bool {
@@ -209,6 +226,8 @@ pub struct MockWebhookBody {
     #[serde(default)]
     pub recording_url: Option<String>,
     #[serde(default)]
+    pub recording_id: Option<String>,
+    #[serde(default)]
     pub duration_secs: Option<u64>,
 }
 
@@ -224,6 +243,7 @@ impl MockWebhookBody {
             cause: None,
             digit: None,
             recording_url: None,
+            recording_id: None,
             duration_secs: None,
         }
     }
@@ -356,6 +376,17 @@ impl TelephonyProvider for MockTelephonyProvider {
         Ok(())
     }
 
+    async fn delete_recording(&self, recording_id: &str) -> Result<(), ProviderError> {
+        let mut st = self.lock();
+        if let Some(err) = st.delete_recording_error.clone() {
+            return Err(err);
+        }
+        st.commands
+            .push(MockCommand::DeleteRecording(recording_id.to_string()));
+        st.deleted_recordings.push(recording_id.to_string());
+        Ok(())
+    }
+
     async fn stop_recording(&self, leg: &LegId) -> Result<(), ProviderError> {
         let mut st = self.lock();
         st.commands.push(MockCommand::StopRecording(leg.clone()));
@@ -418,6 +449,7 @@ impl TelephonyProvider for MockTelephonyProvider {
             "recording_started" => ProviderEventKind::RecordingStarted,
             "recording_saved" => ProviderEventKind::RecordingSaved {
                 url: parsed.recording_url.clone().unwrap_or_default(),
+                recording_id: parsed.recording_id.clone().filter(|id| !id.is_empty()),
                 duration_secs: parsed.duration_secs.unwrap_or_default(),
             },
             "dtmf" => match parsed.digit {

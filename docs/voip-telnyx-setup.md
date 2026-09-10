@@ -44,7 +44,7 @@ instructions from anyone who can reach the endpoint.
 VOIP_ENABLED=true
 VOIP_PROVIDER=telnyx                 # or `mock` — a legitimate staging value
 VOIP_ROLLOUT_STAGE=internal          # disabled | internal | beta | business | ga
-VOIP_MEDIA_WS_BASE=wss://api.voxtranslate.app
+VOIP_MEDIA_WS_BASE=wss://api.voxtranslate.app   # where the carrier opens the media socket
 
 # Residency
 VOIP_REQUIRE_EU_PROCESSING=false     # see docs/voip-data-flow.md before changing
@@ -74,7 +74,8 @@ VOIP_TRANSCRIPTION_ENABLED=true
 VOIP_VIDEO_ENABLED=false
 
 # Privacy
-VOIP_PSEUDONYM_KEY=<32+ random bytes>   # falls back to JWT_SECRET if unset
+VOIP_PSEUDONYM_KEY=<32+ random bytes>     # falls back to JWT_SECRET if unset
+VOIP_MEDIA_TICKET_KEY=<32+ random bytes>  # signs media-socket tickets; see below
 VOIP_WEBHOOK_TOLERANCE_SECS=300
 
 # Provider
@@ -86,6 +87,37 @@ TELNYX_PUBLIC_KEY=<base64 ed25519 public key>
 TELNYX_DEFAULT_CALLER_ID=+39...
 TELNYX_MEDIA_ANCHOR="Frankfurt, Germany"
 ```
+
+### The two keys are deliberately not one
+
+`VOIP_PSEUDONYM_KEY` and `VOIP_MEDIA_TICKET_KEY` do very different jobs with very different
+exposure: a pseudonym is written into logs and rows by the thousand and must stay stable
+for the life of the data, while a ticket is signed once and lives sixty seconds. Reusing
+one key for both would make a weakness in either use a weakness in both.
+
+Neither is required. When `VOIP_MEDIA_TICKET_KEY` is unset the ticket key is **derived**
+from the shared fallback secret through a domain separator rather than being the same
+bytes — so the separation holds even in a deployment that configures neither. Set a
+dedicated one in production anyway: rotating the ticket key is harmless (in-flight tickets
+expire in a minute), while rotating the pseudonym key changes every pseudonym you have
+already written.
+
+### The `speak` command
+
+The consent announcement is spoken by Telnyx, not synthesised by us: `PlayRequest::Speak`
+maps to the Call Control `speak` command with a BCP-47 locale. This needs no second vendor
+and no audio cache, and the announcement is a fixed sentence rather than a conversation.
+
+The trade is Telnyx's language list, which is narrower than our 84. `telephony::telnyx::
+speak_language` maps what it covers and falls back to `en-US` for the rest — and
+`voip::consent::announcement` has already fallen back to English *text* in the same cases,
+so the voice and the words stay in the same language. A call whose recipient language is
+outside the list is disclosed in English and the row records that
+(`disclosure_language = 'en'`).
+
+If the Call Control application has speech synthesis disabled, set `speech_synthesis:
+false` on the provider's capabilities. Capture will then not start at all rather than
+starting without a disclosure.
 
 `TELNYX_API_BASE` and `TELNYX_MEDIA_ANCHOR` both default to the EU values, and
 `TelnyxConfig::is_eu()` requires **both**. Changing either one silently moves telephony out

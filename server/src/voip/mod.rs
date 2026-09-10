@@ -2,12 +2,14 @@
 
 pub mod codec;
 pub mod consent;
+pub mod disclosure;
 pub mod media;
 pub mod policy;
 pub mod pricing;
 pub mod reservation;
 pub mod routes;
 pub mod service;
+pub mod session;
 pub mod state;
 pub mod token;
 pub mod webhook;

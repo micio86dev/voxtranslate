@@ -62,6 +62,7 @@ impl TelnyxProvider {
             eu_telephony: cfg.is_eu(),
             default_caller_id: cfg.default_caller_id.clone(),
             capabilities: ProviderCapabilities {
+                speech_synthesis: true,
                 bidirectional_media: true,
                 // Documented provider limit: one streaming operation and one bidirectional
                 // RTP stream per call. The entire un-bridged two-leg design (D2) follows
@@ -288,6 +289,8 @@ struct TelnyxPayload {
     public_recording_urls: Option<Value>,
     #[serde(default)]
     duration_millis: Option<u64>,
+    #[serde(default)]
+    recording_id: Option<String>,
 }
 
 /// First playable URL out of Telnyx's recording URL maps (`{mp3, wav}`).
@@ -340,6 +343,12 @@ fn normalise(body: &[u8]) -> Result<ProviderEvent, WebhookError> {
         "streaming.stopped" | "streaming.failed" => ProviderEventKind::MediaStopped,
         "call.recording.saved" => ProviderEventKind::RecordingSaved {
             url: first_recording_url(&env.data.payload),
+            recording_id: env
+                .data
+                .payload
+                .recording_id
+                .clone()
+                .filter(|id| !id.is_empty()),
             duration_secs: env
                 .data
                 .payload
@@ -518,6 +527,26 @@ impl TelephonyProvider for TelnyxProvider {
         let body = match req {
             PlayRequest::Url { url } => json!({ "audio_url": url }),
             PlayRequest::Audio { payload_b64 } => json!({ "playback_content": payload_b64 }),
+            // A different Call Control command, not a different body: `speak` synthesises
+            // on the carrier side, so nothing about it goes through `playback_start`.
+            PlayRequest::Speak {
+                text,
+                language,
+                voice,
+            } => {
+                return self
+                    .action(
+                        leg,
+                        "speak",
+                        json!({
+                            "payload": text,
+                            "payload_type": "text",
+                            "language": speak_language(&language),
+                            "voice": voice.unwrap_or_else(|| "female".to_string()),
+                        }),
+                    )
+                    .await
+            }
         };
         self.action(leg, "playback_start", body).await
     }
@@ -550,6 +579,27 @@ impl TelephonyProvider for TelnyxProvider {
             }),
         )
         .await
+    }
+
+    async fn delete_recording(&self, recording_id: &str) -> Result<(), ProviderError> {
+        // Not an `action`: a recording outlives its call, so it is addressed as a resource
+        // in its own right rather than as a command on a leg.
+        let res = self
+            .http
+            .delete(self.url(&format!("/v2/recordings/{recording_id}")))
+            .bearer_auth(&self.cfg.api_key)
+            .send()
+            .await
+            .map_err(|e| ProviderError::Unavailable {
+                detail: e.to_string(),
+            })?;
+        // 404 is success for a delete: the bytes are not there, which is the outcome
+        // asked for. Treating it as failure would make erasure un-retryable after the
+        // first partial run.
+        if res.status() == reqwest::StatusCode::NOT_FOUND {
+            return Ok(());
+        }
+        classify(res.status()).map_or(Ok(()), Err)
     }
 
     async fn stop_recording(&self, leg: &LegId) -> Result<(), ProviderError> {
@@ -600,6 +650,59 @@ impl TelephonyProvider for TelnyxProvider {
         verify_signature(&self.cfg.public_key_b64, headers, body, now, self.tolerance)?;
         normalise(body)
     }
+}
+
+/// Map our language code to the provider's `speak` locale.
+///
+/// Telnyx wants a BCP-47 tag with a region (`it-IT`), while the rest of the product speaks
+/// bare ISO-639-1 (`it`). Anything already regioned is passed through, and anything with no
+/// known region falls back to English — which is exactly what
+/// [`crate::voip::consent::announcement`] already did to the TEXT, so the voice and the
+/// words stay in the same language instead of speaking Italian words with a Chinese voice.
+pub fn speak_language(lang: &str) -> String {
+    let l = lang.trim();
+    if l.contains('-') {
+        return l.to_string();
+    }
+    match l.to_lowercase().as_str() {
+        "ar" => "ar-SA",
+        "bg" => "bg-BG",
+        "ca" => "ca-ES",
+        "cs" => "cs-CZ",
+        "da" => "da-DK",
+        "de" => "de-DE",
+        "el" => "el-GR",
+        "en" => "en-US",
+        "es" => "es-ES",
+        "fi" => "fi-FI",
+        "fr" => "fr-FR",
+        "he" => "he-IL",
+        "hi" => "hi-IN",
+        "hr" => "hr-HR",
+        "hu" => "hu-HU",
+        "id" => "id-ID",
+        "it" => "it-IT",
+        "ja" => "ja-JP",
+        "ko" => "ko-KR",
+        "ms" => "ms-MY",
+        "nb" | "no" => "nb-NO",
+        "nl" => "nl-NL",
+        "pl" => "pl-PL",
+        "pt" => "pt-PT",
+        "ro" => "ro-RO",
+        "ru" => "ru-RU",
+        "sk" => "sk-SK",
+        "sl" => "sl-SI",
+        "sv" => "sv-SE",
+        "ta" => "ta-IN",
+        "th" => "th-TH",
+        "tr" => "tr-TR",
+        "uk" => "uk-UA",
+        "vi" => "vi-VN",
+        "zh" => "zh-CN",
+        _ => "en-US",
+    }
+    .to_string()
 }
 
 #[cfg(test)]
@@ -894,6 +997,7 @@ mod tests {
             normalise(&body).unwrap().kind,
             ProviderEventKind::RecordingSaved {
                 url: "https://example/rec.mp3".into(),
+                recording_id: None,
                 duration_secs: 91
             }
         );

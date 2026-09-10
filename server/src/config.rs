@@ -197,6 +197,19 @@ pub struct Config {
     pub telnyx: Option<TelnyxConfig>,
 }
 
+/// Derive a purpose-specific key from a shared secret.
+///
+/// So that one leaked or weak secret does not become the same key everywhere: each use
+/// gets its own bytes, and the label is what separates them.
+fn derive_subkey(secret: &[u8], label: &[u8]) -> Vec<u8> {
+    use hmac::{Hmac, KeyInit, Mac};
+    use sha2::Sha256;
+    let mut mac =
+        <Hmac<Sha256> as KeyInit>::new_from_slice(secret).expect("HMAC accepts any key length");
+    mac.update(label);
+    mac.finalize().into_bytes().to_vec()
+}
+
 /// Commercial and safety parameters for translated telephone calls (spec 0111 §7).
 ///
 /// Every one of these is a limit that costs money when it is wrong, so none of them has a
@@ -281,6 +294,14 @@ pub struct VoipConfig {
     /// deployment's JWT secret so a missing value cannot silently disable pseudonymisation
     /// and start writing real numbers into logs.
     pub pseudonym_key: Vec<u8>,
+    /// Signing key for media-socket tickets (`voip::token`).
+    ///
+    /// Deliberately NOT `pseudonym_key`. One key with two jobs means a weakness in either
+    /// use is a weakness in both, and these two have very different exposure: a pseudonym
+    /// is written to logs and rows by the thousand, a ticket is signed once and lives
+    /// sixty seconds. When no dedicated key is configured, this one is *derived* from the
+    /// shared secret through a domain separator rather than being the same bytes.
+    pub media_ticket_key: Vec<u8>,
 }
 
 impl std::fmt::Debug for VoipConfig {
@@ -324,6 +345,7 @@ impl std::fmt::Debug for VoipConfig {
             .field("webhook_tolerance_secs", &self.webhook_tolerance_secs)
             // Never the key itself — see the struct's own note.
             .field("pseudonym_key", &"<redacted>")
+            .field("media_ticket_key", &"<redacted>")
             .finish()
     }
 }
@@ -346,6 +368,11 @@ impl VoipConfig {
             .map(|s| s.trim().as_bytes().to_vec())
             .filter(|b| !b.is_empty())
             .unwrap_or_else(|| fallback_secret.to_vec());
+        let ticket_key = env::var("VOIP_MEDIA_TICKET_KEY")
+            .ok()
+            .map(|s| s.trim().as_bytes().to_vec())
+            .filter(|b| !b.is_empty())
+            .unwrap_or_else(|| derive_subkey(fallback_secret, b"voip-media-ticket"));
         Some(Self {
             provider: env::var("VOIP_PROVIDER")
                 .ok()
@@ -399,6 +426,7 @@ impl VoipConfig {
             rate_max_age_secs: parse_or("VOIP_RATE_MAX_AGE_SECS", 86_400i64),
             webhook_tolerance_secs: parse_or("VOIP_WEBHOOK_TOLERANCE_SECS", 300i64),
             pseudonym_key: key,
+            media_ticket_key: ticket_key,
         })
     }
 
@@ -434,6 +462,7 @@ impl VoipConfig {
             rate_max_age_secs: 86_400,
             webhook_tolerance_secs: 300,
             pseudonym_key: b"test-pseudonym-key".to_vec(),
+            media_ticket_key: b"test-media-ticket-key".to_vec(),
         }
     }
 }

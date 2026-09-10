@@ -18,11 +18,13 @@ use std::sync::Arc;
 
 use reqwest::{Client, StatusCode};
 use serde_json::{json, Value};
+use sqlx::Row;
 use uuid::Uuid;
 use voxtranslate_server::auth::{issue_jwt, upsert_google_user, FakeVerifier, GoogleIdentity};
 use voxtranslate_server::billing::{usd, BillingService};
 use voxtranslate_server::config::{Config, VoipConfig};
-use voxtranslate_server::telephony::mock::MockTelephonyProvider;
+use voxtranslate_server::telephony::mock::{MockCommand, MockTelephonyProvider, MockWebhookBody};
+use voxtranslate_server::telephony::{LegId, MediaTrack, PlayRequest};
 use voxtranslate_server::{app, db, AppState};
 
 const SECRET: &str = "voip-api-secret";
@@ -30,6 +32,9 @@ const SECRET: &str = "voip-api-secret";
 struct Server {
     addr: SocketAddr,
     pool: db::Pool,
+    /// The same provider the server is using, so a test can sign a webhook the way the
+    /// carrier would and then ask the provider what it was actually told to do.
+    provider: Option<Arc<MockTelephonyProvider>>,
 }
 
 /// Stand up the API with VoIP enabled and the **mock** provider — the whole flow, no telco.
@@ -64,8 +69,9 @@ async fn setup_with_voip(voip: Option<VoipConfig>) -> Option<Server> {
     state.verifier = Arc::new(FakeVerifier);
     // `AppState::new` builds the provider from config; the test config path does not go
     // through `from_env`, so wire it here to match what a real deployment gets.
-    if enabled {
-        state.telephony = Some(Arc::new(MockTelephonyProvider::default()));
+    let provider = enabled.then(|| Arc::new(MockTelephonyProvider::default()));
+    if let Some(p) = provider.clone() {
+        state.telephony = Some(p);
     }
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -73,7 +79,11 @@ async fn setup_with_voip(voip: Option<VoipConfig>) -> Option<Server> {
     tokio::spawn(async move {
         let _ = axum::serve(listener, app(state)).await;
     });
-    Some(Server { addr, pool })
+    Some(Server {
+        addr,
+        pool,
+        provider,
+    })
 }
 
 async fn setup() -> Option<Server> {
@@ -816,4 +826,386 @@ async fn the_webhook_endpoint_needs_no_session() {
     // Rejected on the SIGNATURE, not by the auth middleware — the distinction is the
     // whole point: no bearer token was sent and none was wanted.
     assert_eq!(body["error"], json!("missing_signature"));
+}
+
+#[tokio::test]
+async fn answering_a_call_starts_a_media_stream_on_a_ticketed_url() {
+    // The gap this closes. Everything else about a call already worked without it — the
+    // dial, the credit hold, the state machine, the settlement, the history row — and it
+    // all worked in silence, because nothing ever asked the carrier to send us audio.
+    //
+    // R14/R16: on answer, and only on answer, the provider is told to open a bidirectional
+    // media stream against a URL we built, carrying a single-use ticket.
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    enable_dialing(&srv, org, &jwt, 5).await;
+
+    let res = client()
+        .post(format!(
+            "{}/api/business/organizations/{org}/voip/calls",
+            base(&srv)
+        ))
+        .bearer_auth(&jwt)
+        .json(&json!({
+            "destination": "+393201234567",
+            "source_language": "it",
+            "target_language": "zh",
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::CREATED);
+    let body: Value = res.json().await.unwrap();
+    let call_id = Uuid::parse_str(body["call_id"].as_str().unwrap()).unwrap();
+
+    let legs: Vec<String> =
+        sqlx::query_scalar("SELECT unnest(provider_leg_ids) FROM voip_calls WHERE id = $1")
+            .bind(call_id)
+            .fetch_all(&srv.pool)
+            .await
+            .unwrap();
+    let leg = LegId::new(legs.first().expect("the dial recorded a leg").clone());
+
+    let provider = srv.provider.clone().expect("voip is enabled");
+    assert!(
+        !provider.is_streaming(&leg),
+        "nothing may stream while the phone is still ringing — that would carry ringback \
+         and start the provider's streaming charge early"
+    );
+
+    // Exactly the webhook a carrier sends when the far end picks up.
+    let event = MockWebhookBody {
+        client_state: Some(call_id.to_string()),
+        ..MockWebhookBody::new(
+            &format!("ev-{}", Uuid::new_v4()),
+            &leg,
+            "answered",
+            chrono::Utc::now(),
+        )
+    };
+    let raw = serde_json::to_vec(&event).unwrap();
+    let h = provider.sign(&raw, chrono::Utc::now());
+
+    let res = client()
+        .post(format!("{}/api/voip/webhooks/mock", base(&srv)))
+        .header("x-signature", h.signature.unwrap())
+        .header("x-timestamp", h.timestamp.unwrap())
+        .header("content-type", "application/json")
+        .body(raw)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+
+    assert!(
+        provider.is_streaming(&leg),
+        "the answered call has no audio path: the provider was never told to stream"
+    );
+
+    let cfg = provider
+        .commands()
+        .into_iter()
+        .find_map(|c| match c {
+            MockCommand::StartMedia(l, cfg) if l == leg => Some(*cfg),
+            _ => None,
+        })
+        .expect("a StartMedia command for this leg");
+
+    assert!(
+        cfg.bidirectional,
+        "a translated call must be able to send audio back; inbound-only is a monitor, \
+         not a conversation"
+    );
+    assert_eq!(
+        cfg.track,
+        MediaTrack::Inbound,
+        "streaming both tracks would send us the translated audio we just played, and the \
+         engine would translate its own output"
+    );
+
+    let expected_prefix = format!("{}/voip/media/", VoipConfig::test_default().media_ws_base);
+    assert!(
+        cfg.url.starts_with(&expected_prefix),
+        "the stream URL must be built from VOIP_MEDIA_WS_BASE and nothing else — an \
+         attacker-chosen host here makes the carrier a confused deputy. Got: {}",
+        cfg.url
+    );
+
+    let ticket = cfg.url.strip_prefix(&expected_prefix).unwrap();
+    assert!(
+        !ticket.is_empty() && ticket.contains('.'),
+        "the URL must carry a signed ticket, got {ticket:?}"
+    );
+    assert!(
+        !ticket.contains(&call_id.to_string()),
+        "the ticket must not put the call id in the URL in the clear — it is signed, not \
+         guessable"
+    );
+}
+
+/// Dial with transcription on, so the consent gate actually applies.
+///
+/// `enable_dialing` deliberately turns capture off — most tests are about money and
+/// tenancy and would otherwise pay for an announcement they do not assert on. These ones
+/// are about the announcement.
+async fn enable_dialing_with_capture(srv: &Server, org: Uuid, jwt: &str) {
+    enable_dialing(srv, org, jwt, 5).await;
+    sqlx::query(
+        "UPDATE voip_org_settings
+         SET transcription_enabled = TRUE, consent_policy = 'press_key',
+             consent_refused_action = 'continue_unrecorded'
+         WHERE org_id = $1",
+    )
+    .bind(org)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+}
+
+/// Place a call and answer it, returning `(call_id, leg)`.
+async fn dial_and_answer(
+    srv: &Server,
+    org: Uuid,
+    jwt: &str,
+    target_language: &str,
+) -> (Uuid, LegId) {
+    let res = client()
+        .post(format!(
+            "{}/api/business/organizations/{org}/voip/calls",
+            base(srv)
+        ))
+        .bearer_auth(jwt)
+        .json(&json!({
+            "destination": "+393201234567",
+            "source_language": "it",
+            "target_language": target_language,
+            "transcribe": true,
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::CREATED);
+    let body: Value = res.json().await.unwrap();
+    let call_id = Uuid::parse_str(body["call_id"].as_str().unwrap()).unwrap();
+
+    let legs: Vec<String> =
+        sqlx::query_scalar("SELECT unnest(provider_leg_ids) FROM voip_calls WHERE id = $1")
+            .bind(call_id)
+            .fetch_all(&srv.pool)
+            .await
+            .unwrap();
+    let leg = LegId::new(legs.first().expect("a leg").clone());
+    post_event(srv, call_id, &leg, "answered", None).await;
+    (call_id, leg)
+}
+
+/// Post one signed provider webhook, exactly as the carrier would.
+async fn post_event(srv: &Server, call_id: Uuid, leg: &LegId, kind: &str, digit: Option<char>) {
+    let provider = srv.provider.clone().expect("voip is enabled");
+    let event = MockWebhookBody {
+        client_state: Some(call_id.to_string()),
+        digit,
+        ..MockWebhookBody::new(
+            &format!("ev-{}", Uuid::new_v4()),
+            leg,
+            kind,
+            chrono::Utc::now(),
+        )
+    };
+    let raw = serde_json::to_vec(&event).unwrap();
+    let h = provider.sign(&raw, chrono::Utc::now());
+    let res = client()
+        .post(format!("{}/api/voip/webhooks/mock", base(srv)))
+        .header("x-signature", h.signature.unwrap())
+        .header("x-timestamp", h.timestamp.unwrap())
+        .header("content-type", "application/json")
+        .body(raw)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        res.status(),
+        StatusCode::OK,
+        "webhook {kind} was not accepted"
+    );
+}
+
+#[tokio::test]
+async fn the_recipient_is_told_before_anything_is_captured() {
+    // R19/R20. The person on the telephone has no screen to consent on, so the disclosure
+    // is the whole of their protection. It must be spoken in THEIR language, before a
+    // single word is kept, and the gate must actually be open.
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    enable_dialing_with_capture(&srv, org, &jwt).await;
+
+    let (call_id, leg) = dial_and_answer(&srv, org, &jwt, "zh").await;
+    let provider = srv.provider.clone().unwrap();
+
+    let spoken = provider
+        .commands()
+        .into_iter()
+        .find_map(|c| match c {
+            MockCommand::Play(l, PlayRequest::Speak { text, language, .. }) if l == leg => {
+                Some((text, language))
+            }
+            _ => None,
+        })
+        .expect("the disclosure must be spoken on answer");
+    assert_eq!(
+        spoken.1, "zh",
+        "the announcement goes in the RECIPIENT's language, not the caller's — they are \
+         the one being asked"
+    );
+    assert!(
+        !spoken.0.trim().is_empty(),
+        "an empty announcement is not a disclosure"
+    );
+
+    assert!(
+        provider
+            .commands()
+            .iter()
+            .any(|c| matches!(c, MockCommand::Gather(l, _) if *l == leg)),
+        "press-key policy without a gather is a notice pretending to be consent"
+    );
+
+    let row = sqlx::query(
+        "SELECT consent_status, disclosure_language, disclosure_played_at,
+                transcription_started_at
+         FROM voip_calls WHERE id = $1",
+    )
+    .bind(call_id)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
+
+    assert_eq!(
+        row.get::<String, _>("consent_status"),
+        "pending",
+        "the gate is open; nobody has answered yet"
+    );
+    assert_eq!(
+        row.get::<Option<String>, _>("disclosure_language"),
+        Some("zh".into())
+    );
+    assert!(
+        row.get::<Option<chrono::DateTime<chrono::Utc>>, _>("disclosure_played_at")
+            .is_some(),
+        "the stamp is the audit evidence; without it there is no proof anyone was told"
+    );
+    assert!(
+        row.get::<Option<chrono::DateTime<chrono::Utc>>, _>("transcription_started_at")
+            .is_none(),
+        "NOTHING may be captured while consent is still pending"
+    );
+}
+
+#[tokio::test]
+async fn pressing_one_grants_and_only_then_does_capture_start() {
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    enable_dialing_with_capture(&srv, org, &jwt).await;
+    let (call_id, leg) = dial_and_answer(&srv, org, &jwt, "it").await;
+
+    post_event(&srv, call_id, &leg, "dtmf", Some('1')).await;
+
+    let row = sqlx::query(
+        "SELECT consent_status, consent_received_at, disclosure_played_at,
+                transcription_started_at
+         FROM voip_calls WHERE id = $1",
+    )
+    .bind(call_id)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
+
+    assert_eq!(row.get::<String, _>("consent_status"), "granted");
+    assert!(row
+        .get::<Option<chrono::DateTime<chrono::Utc>>, _>("consent_received_at")
+        .is_some());
+
+    let played: chrono::DateTime<chrono::Utc> = row.get("disclosure_played_at");
+    let started: chrono::DateTime<chrono::Utc> = row
+        .get::<Option<_>, _>("transcription_started_at")
+        .expect("capture must start once consent is granted");
+    assert!(
+        started >= played,
+        "capture started BEFORE the disclosure was played — this is the one ordering that \
+         cannot be wrong, because it is what an auditor reads off the row"
+    );
+}
+
+#[tokio::test]
+async fn any_other_key_denies_and_the_call_continues_unrecorded() {
+    // A wrong key is not an ambiguous signal to be resolved in our favour. And denial ends
+    // the CAPTURE, not the call — the two people were talking, and cutting them off
+    // because they did not want a transcript would be its own kind of rude.
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    enable_dialing_with_capture(&srv, org, &jwt).await;
+    let (call_id, leg) = dial_and_answer(&srv, org, &jwt, "it").await;
+
+    post_event(&srv, call_id, &leg, "dtmf", Some('7')).await;
+
+    let row = sqlx::query(
+        "SELECT consent_status, transcription_status, transcription_started_at, status
+         FROM voip_calls WHERE id = $1",
+    )
+    .bind(call_id)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
+
+    assert_eq!(row.get::<String, _>("consent_status"), "denied");
+    assert_eq!(
+        row.get::<String, _>("transcription_status"),
+        "none",
+        "a denied gate must leave nothing marked as wanted, or the sweep reconsiders it"
+    );
+    assert!(row
+        .get::<Option<chrono::DateTime<chrono::Utc>>, _>("transcription_started_at")
+        .is_none());
+    assert_eq!(
+        row.get::<String, _>("status"),
+        "answered",
+        "the CALL continues; only the recorder stopped"
+    );
+
+    let provider = srv.provider.clone().unwrap();
+    assert!(
+        !provider
+            .commands()
+            .iter()
+            .any(|c| matches!(c, MockCommand::Hangup(l) if *l == leg)),
+        "continue_unrecorded must not hang up on the recipient"
+    );
+}
+
+#[tokio::test]
+async fn a_second_digit_cannot_overturn_a_decision() {
+    // Webhooks are redelivered, and a keypad keeps working after the gate closes. Neither
+    // may turn a denial into a grant.
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    enable_dialing_with_capture(&srv, org, &jwt).await;
+    let (call_id, leg) = dial_and_answer(&srv, org, &jwt, "it").await;
+
+    post_event(&srv, call_id, &leg, "dtmf", Some('7')).await;
+    post_event(&srv, call_id, &leg, "dtmf", Some('1')).await;
+
+    let status: String = sqlx::query_scalar("SELECT consent_status FROM voip_calls WHERE id = $1")
+        .bind(call_id)
+        .fetch_one(&srv.pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        status, "denied",
+        "the first answer stands; a later key must not grant what was refused"
+    );
 }

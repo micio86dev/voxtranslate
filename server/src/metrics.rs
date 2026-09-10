@@ -77,6 +77,9 @@ static VOIP_FAILED: AtomicU64 = AtomicU64::new(0);
 static VOIP_REFUSED: AtomicU64 = AtomicU64::new(0);
 static VOIP_PROVIDER_ERRORS: AtomicU64 = AtomicU64::new(0);
 static VOIP_MEDIA_DISCONNECTS: AtomicU64 = AtomicU64::new(0);
+static VOIP_CODEC_RENEGOTIATIONS: AtomicU64 = AtomicU64::new(0);
+static VOIP_DISCLOSURE_FAILURES: AtomicU64 = AtomicU64::new(0);
+static VOIP_UNERASABLE_RECORDINGS: AtomicU64 = AtomicU64::new(0);
 static VOIP_WS_RECONNECTS: AtomicU64 = AtomicU64::new(0);
 static VOIP_RESERVATION_FAILURES: AtomicU64 = AtomicU64::new(0);
 static VOIP_MARGIN_BREACHES: AtomicU64 = AtomicU64::new(0);
@@ -147,6 +150,31 @@ pub fn record_voip_provider_error() {
 
 pub fn record_voip_media_disconnect() {
     VOIP_MEDIA_DISCONNECTS.fetch_add(1, Ordering::Relaxed);
+}
+
+/// A leg whose negotiated codec was not the one requested.
+///
+/// Worth counting on its own: the call still works, so nothing else reports it, but a
+/// destination that always downgrades to µ-law is losing audio bandwidth before the
+/// translation ever sees it — which shows up as worse STT, not as an error.
+pub fn record_voip_codec_renegotiation() {
+    VOIP_CODEC_RENEGOTIATIONS.fetch_add(1, Ordering::Relaxed);
+}
+
+/// A call whose consent announcement could not be delivered, so capture was switched off.
+///
+/// Worth an alert rather than a dashboard: every one of these is a customer who asked for
+/// a recording and did not get one, and the reason is on our side of the call.
+pub fn record_voip_disclosure_failure() {
+    VOIP_DISCLOSURE_FAILURES.fetch_add(1, Ordering::Relaxed);
+}
+
+/// A recording the provider saved without giving us a handle on it.
+///
+/// Non-zero means GDPR erasure cannot reach those bytes. That is a compliance defect, not
+/// a degraded feature, so it gets its own counter rather than hiding inside an error rate.
+pub fn record_voip_unerasable_recording() {
+    VOIP_UNERASABLE_RECORDINGS.fetch_add(1, Ordering::Relaxed);
 }
 
 pub fn record_voip_ws_reconnect() {
@@ -313,6 +341,9 @@ struct Snapshot {
     voip_refused: u64,
     voip_provider_errors: u64,
     voip_media_disconnects: u64,
+    voip_codec_renegotiations: u64,
+    voip_disclosure_failures: u64,
+    voip_unerasable_recordings: u64,
     voip_ws_reconnects: u64,
     voip_reservation_failures: u64,
     voip_margin_breaches: u64,
@@ -367,6 +398,9 @@ fn snapshot() -> Snapshot {
         voip_refused: VOIP_REFUSED.load(Ordering::Relaxed),
         voip_provider_errors: VOIP_PROVIDER_ERRORS.load(Ordering::Relaxed),
         voip_media_disconnects: VOIP_MEDIA_DISCONNECTS.load(Ordering::Relaxed),
+        voip_codec_renegotiations: VOIP_CODEC_RENEGOTIATIONS.load(Ordering::Relaxed),
+        voip_disclosure_failures: VOIP_DISCLOSURE_FAILURES.load(Ordering::Relaxed),
+        voip_unerasable_recordings: VOIP_UNERASABLE_RECORDINGS.load(Ordering::Relaxed),
         voip_ws_reconnects: VOIP_WS_RECONNECTS.load(Ordering::Relaxed),
         voip_reservation_failures: VOIP_RESERVATION_FAILURES.load(Ordering::Relaxed),
         voip_margin_breaches: VOIP_MARGIN_BREACHES.load(Ordering::Relaxed),
@@ -545,6 +579,21 @@ fn render_from(s: &Snapshot, active_rooms: u64, active_peers: u64) -> String {
             s.voip_media_disconnects,
         ),
         (
+            "voxtranslate_voip_codec_renegotiations_total",
+            "Phone legs whose negotiated codec differed from the one requested.",
+            s.voip_codec_renegotiations,
+        ),
+        (
+            "voxtranslate_voip_disclosure_failures_total",
+            "Calls whose consent announcement could not be delivered, so capture was disabled.",
+            s.voip_disclosure_failures,
+        ),
+        (
+            "voxtranslate_voip_unerasable_recordings_total",
+            "Recordings saved with no provider handle, so erasure cannot delete them.",
+            s.voip_unerasable_recordings,
+        ),
+        (
             "voxtranslate_voip_websocket_reconnects_total",
             "Media WebSocket reconnects.",
             s.voip_ws_reconnects,
@@ -672,6 +721,9 @@ mod tests {
             voip_refused: 1,
             voip_provider_errors: 2,
             voip_media_disconnects: 3,
+            voip_codec_renegotiations: 1,
+            voip_disclosure_failures: 0,
+            voip_unerasable_recordings: 0,
             voip_ws_reconnects: 4,
             voip_reservation_failures: 5,
             voip_margin_breaches: 0,
@@ -746,7 +798,7 @@ mod tests {
         // without its TYPE line fails here — a scrape silently drops an untyped series.
         let typed = out.matches("# TYPE ").count();
         let helped = out.matches("# HELP ").count();
-        assert_eq!(typed, 25, "one TYPE line per exported metric");
+        assert_eq!(typed, 28, "one TYPE line per exported metric");
         assert_eq!(helped, typed, "every metric also carries a HELP line");
     }
 

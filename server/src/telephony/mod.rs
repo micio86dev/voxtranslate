@@ -63,6 +63,13 @@ pub struct ProviderCapabilities {
     /// startup instead of at 3 a.m.
     pub max_streams_per_leg: u8,
     pub recording: bool,
+    /// The provider can speak a sentence in a given language on a leg.
+    ///
+    /// This is what the consent announcement is played with. It is a capability rather
+    /// than an assumption because the disclosure is a legal obligation: a provider that
+    /// cannot speak means capture must not start, and that decision has to be made from a
+    /// fact rather than from an API call that quietly fails.
+    pub speech_synthesis: bool,
     pub dtmf_gather: bool,
     pub inbound: bool,
     /// The provider exposes a machine-readable rate deck (R5 depends on one existing).
@@ -199,6 +206,19 @@ pub enum PlayRequest {
     Audio { payload_b64: String },
     /// A provider-hosted or publicly reachable media URL.
     Url { url: String },
+    /// Have the provider speak this sentence.
+    ///
+    /// Used for the consent announcement. The provider's own synthesis is preferred over
+    /// rendering audio ourselves because it needs no second vendor, no audio format
+    /// negotiation and no cache to go stale — and the announcement is a fixed sentence,
+    /// not a conversation, so the quality bar is "intelligible in the right language".
+    Speak {
+        text: String,
+        /// The RECIPIENT's language, not the caller's.
+        language: String,
+        /// Provider voice id. `None` lets the provider pick for the language.
+        voice: Option<String>,
+    },
 }
 
 /// Collect DTMF from the far party — the consent gate (R20).
@@ -262,7 +282,17 @@ pub enum ProviderEventKind {
     MediaStopped,
     RecordingStarted,
     RecordingSaved {
+        /// Where the carrier put it. Operational and reconciliation value only — never
+        /// served to a client, because on some carriers this URL is publicly fetchable.
         url: String,
+        /// The carrier's **durable** handle on the bytes.
+        ///
+        /// This is what deletion uses. A URL is not a handle: it expires on some
+        /// providers and is guessable on others, and neither property belongs in an
+        /// erasure path. `None` when the provider does not give us one, which is a fact
+        /// worth carrying rather than papering over — an un-deletable recording must be
+        /// visible as such.
+        recording_id: Option<String>,
         duration_secs: u64,
     },
     Dtmf {
@@ -420,6 +450,15 @@ pub trait TelephonyProvider: Send + Sync {
         -> Result<(), ProviderError>;
 
     async fn stop_recording(&self, leg: &LegId) -> Result<(), ProviderError>;
+
+    /// Delete a recording from the provider's storage, permanently.
+    ///
+    /// Called by GDPR erasure, which is why it takes the recording id rather than the leg:
+    /// by the time erasure runs the call is long over, and the leg id names a call, not a
+    /// file. A provider that cannot delete must return an error rather than `Ok(())` —
+    /// erasure aborts on failure and stays retryable, and a silent success would leave the
+    /// bytes in place while telling the person they were erased.
+    async fn delete_recording(&self, recording_id: &str) -> Result<(), ProviderError>;
 
     /// Authoritative cost for a finished leg (R12). `None` while the provider has not
     /// rated it yet — which is normal for a minute or two after hangup.

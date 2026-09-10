@@ -40,6 +40,9 @@ Everything is on `/metrics`, prefixed `voxtranslate_voip_`.
 | `webhooks_duplicate_total` spiking | The provider believes we are not acknowledging. Look at webhook latency and 5xx rates before anything else. |
 | `voip_setup_ms` p95 climbing | Post-dial delay. Usually a route problem for one destination — segment by country using `voip_calls`, not by metric label (there isn't one, on purpose). |
 | `voip_translation_ms` p95 > 2500 | The headline. This is what a customer describes as "it feels laggy". |
+| `codec_renegotiations_total` rising | A route is downgrading L16 to µ-law. The call still works; it works on narrower audio, so STT quality drops before anything reports an error. Segment by destination in `voip_call_quality.codec`. |
+| `disclosure_failures_total` non-zero | **Alert on this.** Each one is a customer who asked for a recording and did not get one, because we could not tell the recipient. Capture is switched off deliberately — see §3. |
+| `unerasable_recordings_total` non-zero | **Alert on this too, and treat it as a compliance defect.** The carrier saved a recording and gave us no id for it, so nothing can delete those bytes. Chase the provider's `call.recording.saved` payload shape before anything else. |
 
 There are deliberately **no destination, organisation or phone-number labels** on any of
 these. A metric label is exported to whoever scrapes us, and a country on
@@ -58,6 +61,11 @@ all three are about calls nobody is watching any more:
 2. **Fails calls stuck before answer** for ten minutes — a provider that accepted a dial and
    then said nothing leaves a row consuming a concurrency slot forever.
 3. **Closes credit holds** left open by a crash or a hangup webhook that never arrived.
+4. **Closes consent gates nobody answered**, twenty seconds after the announcement. The
+   carrier's own gather timeout fires on some routes and not others, and either way the
+   task that opened the gate may be gone — so the deadline is enforced from the row. A
+   timeout is **not** consent: it resolves to `timeout` and then follows the org's
+   `consent_refused_action`.
 
 ## 3. Common situations
 
@@ -133,6 +141,41 @@ Check, in order:
    independent and cross-wires them through the translation; a bridged pair is how each
    party ends up hearing the other's untranslated voice.
 
+### The customer asked for recordings and none are being made
+
+Look at `consent_status` first, then at `disclosure_failures_total`.
+
+```sql
+SELECT consent_status, recording_status, disclosure_language, count(*)
+FROM voip_calls
+WHERE org_id = '…' AND started_at > now() - interval '24 hours'
+GROUP BY 1, 2, 3 ORDER BY 4 DESC;
+```
+
+| What you see | What it means |
+|---|---|
+| `consent_status = 'denied'` / `'timeout'` | The recipients said no, or said nothing. Working as designed. If it is *every* call, check `disclosure_language` — an announcement nobody understood is an announcement nobody answers. |
+| `consent_status = 'pending'` and rows are old | The sweep is not running. Check that `VOIP_PROVIDER` resolves and the database is reachable; `run_sweep` is only spawned when both are true. |
+| `recording_status = 'none'` with `disclosure_played_at IS NULL` | We could not speak to the recipient at all. `disclosure_failures_total` will be non-zero and the log carries the reason: `provider_cannot_speak`, `announcement_failed` or `gather_failed`. Capture was disabled **on purpose** — recording someone who was never told is the incident this prevents. |
+
+### A call connects but nobody hears anything
+
+The audio path is separate from the call path, so a call can be perfectly healthy and
+silent. In order:
+
+1. `codec_renegotiations_total` and `voip_call_quality.codec` — a forced downgrade changes
+   the decode path on both directions.
+2. `media_disconnects_total` around the call's window — the socket closed and the room lost
+   its phone peer.
+3. The logs for `call answered with no phone leg parked` — the leg was never parked or was
+   already claimed, which means no ticket could be issued and the carrier was never asked
+   to stream.
+4. The logs for `could not start the media stream` — the carrier refused. The call is up
+   and both parties hear silence; this is the one failure mode that is invisible from
+   every other signal.
+5. **Whether the legs were ever bridged. They must not be.** A bridged pair is how each
+   party ends up hearing the other's untranslated voice.
+
 ### A recording exists that the customer says nobody agreed to
 
 Do not speculate — the evidence is on the row:
@@ -146,6 +189,39 @@ FROM voip_calls WHERE id = '…';
 `recording_started_at` must be **after** `disclosure_played_at`, and `consent_status` must
 be `granted` or `not_required`. If it is not, that is a real incident: stop recording for
 that organisation, preserve the rows, and escalate.
+
+### Recordings and retention
+
+A phone recording is **not** in our object storage. It is on the carrier's, and
+`voip_calls.provider_recording_id` is the only durable handle on it — the URL beside it is
+kept for operations and is deliberately never served to a client, because on some carriers
+it is publicly fetchable.
+
+`business::retention::sweep_voip_recordings_once` runs alongside the meeting retention
+sweep (same `RETENTION_SWEEP_ENABLED` switch) and deletes at the provider **before**
+clearing the handle. A failed delete leaves the row untouched so the next pass retries;
+that is why a stuck carrier shows as recordings that stay `saved` rather than as recordings
+marked `deleted` that still exist.
+
+The window comes from `voip_org_settings.recording_retention_days`. **NULL means keep** —
+there is no fallback to the org's general `retention_days`, because deleting a customer's
+recordings on a schedule they never set is worse than keeping them one pass too long.
+
+```sql
+-- Recordings past their window that the sweep has not managed to delete.
+SELECT c.id, c.ended_at, s.recording_retention_days
+FROM voip_calls c JOIN voip_org_settings s ON s.org_id = c.org_id
+WHERE c.provider_recording_id IS NOT NULL AND c.recording_status = 'saved'
+  AND s.recording_retention_days > 0
+  AND COALESCE(c.ended_at, c.started_at)
+      < now() - make_interval(days => s.recording_retention_days);
+```
+
+Individual account deletion does **not** remove these. `voip_calls.user_id` is ON DELETE
+SET NULL so an org's billing history survives an employee leaving, and a phone recording is
+a multi-party, org-owned artifact — the same scope rule `SafetyService::delete_user`
+already applies to cloud meeting recordings. A data-subject request for one goes through
+the tenant admin, not the individual's account deletion.
 
 ## 4. Rolling out
 

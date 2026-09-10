@@ -257,6 +257,13 @@ pub struct AppState {
     /// `VOIP_PROVIDER=mock` is a legitimate production value: it exercises the whole
     /// flow, including billing and consent, without a telco and without charges.
     pub telephony: Option<Arc<dyn crate::telephony::TelephonyProvider>>,
+    /// Phone legs waiting for their media socket, and the tickets that admit them.
+    ///
+    /// In memory because a media socket is a stream, not a record: it cannot outlive the
+    /// process on any architecture. What must survive a restart — the call's state and its
+    /// money — is in Postgres. See `voip::session` for the one coupling this does create.
+    pub voip_calls: Arc<crate::voip::session::LiveCalls>,
+    pub voip_tickets: Arc<crate::voip::token::TicketRegistry>,
 }
 
 /// Read a positive `u32` from `var`, falling back to `default`.
@@ -502,6 +509,8 @@ impl AppState {
             help_assistant_semaphore,
             webinar_presence: Arc::new(crate::webinar::presence::PresenceRegistry::new()),
             telephony,
+            voip_calls: Arc::new(crate::voip::session::LiveCalls::new()),
+            voip_tickets: Arc::new(crate::voip::token::TicketRegistry::new()),
         }
     }
 

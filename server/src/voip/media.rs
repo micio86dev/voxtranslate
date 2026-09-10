@@ -242,6 +242,33 @@ impl Leg {
         self.codec
     }
 
+    /// Adopt the codec the provider actually negotiated.
+    ///
+    /// We ask for L16; the route decides. A carrier that forces µ-law does not fail the
+    /// call — it just sends different bytes, and a leg still decoding as L16 reads them as
+    /// noise in both directions with nothing anywhere reporting an error. So the `start`
+    /// frame is authoritative, not the request.
+    ///
+    /// Rebuilding the resamplers is the point: their rates come from the codec, and a
+    /// resampler configured for the wrong rate is the same silent corruption one step
+    /// further on. A no-op when the codec is already right, so a provider that repeats
+    /// `start` does not clear the filter state mid-utterance.
+    pub fn renegotiate(&mut self, codec: MediaCodec) -> bool {
+        if codec == self.codec {
+            return false;
+        }
+        tracing::info!(
+            requested = ?self.codec,
+            negotiated = ?codec,
+            "phone leg negotiated a different codec"
+        );
+        let wire = codec.sample_rate();
+        self.codec = codec;
+        self.up = Resampler::new(wire, ENGINE_RATE_HZ);
+        self.down = Resampler::new(ENGINE_RATE_HZ, wire);
+        true
+    }
+
     /// Wire audio from the phone → PCM16 at the engine's rate.
     pub fn decode_up(&mut self, payload_b64: &str) -> Result<Vec<u8>, MediaError> {
         let bytes = B64
@@ -361,7 +388,12 @@ where
                         let _ = handles.digits.try_send(digit);
                     }
                     Inbound::Stop => break,
-                    Inbound::Start { .. } | Inbound::Connected | Inbound::Other { .. } => {}
+                    Inbound::Start { codec, .. } => {
+                        if leg.renegotiate(codec) {
+                            crate::metrics::record_voip_codec_renegotiation();
+                        }
+                    }
+                    Inbound::Connected | Inbound::Other { .. } => {}
                 }
             }
 
@@ -736,6 +768,66 @@ mod tests {
         ) -> std::task::Poll<Result<(), ()>> {
             std::task::Poll::Ready(Ok(()))
         }
+    }
+
+    #[tokio::test]
+    async fn a_leg_adopts_the_codec_the_provider_actually_negotiated() {
+        // We ASK for L16, but the route decides. If a carrier forces µ-law and the leg
+        // keeps decoding as L16, every byte is misread: the far party hears noise and the
+        // engine is fed noise. Nothing in the call errors — it just does not work, which
+        // is why this has to be asserted rather than assumed.
+        let (in_tx, in_rx) = mpsc::channel(16);
+        let (out_tx, mut out_rx) = mpsc::channel(16);
+        let (engine_tx, mut engine_rx) = mpsc::channel(16);
+        let (_room_tx, room_rx) = mpsc::channel(16);
+        let (digit_tx, _digit_rx) = mpsc::channel(4);
+
+        let socket = FakeSocket {
+            incoming: in_rx,
+            outgoing: out_tx,
+        };
+        let handles = BridgeHandles {
+            to_engine: engine_tx,
+            from_room: room_rx,
+            digits: digit_tx,
+        };
+        let task = tokio::spawn(pump(socket, Leg::new(MediaCodec::L16), handles));
+
+        in_tx
+            .send(Ok(r#"{"event":"start","start":{"media_format":{"encoding":"PCMU","sample_rate":8000}}}"#.into()))
+            .await
+            .unwrap();
+
+        // 160 µ-law bytes = one 20 ms frame at 8 kHz. `0x00` is chosen because the two
+        // readings could not be further apart: as µ-law it is near full-scale negative,
+        // as linear PCM it is digital silence.
+        let ulaw = B64.encode(vec![0x00u8; 160]);
+        in_tx
+            .send(Ok(format!(
+                r#"{{"event":"media","media":{{"payload":"{ulaw}","track":"inbound"}}}}"#
+            )))
+            .await
+            .unwrap();
+
+        let pcm = tokio::time::timeout(std::time::Duration::from_secs(2), engine_rx.recv())
+            .await
+            .expect("the engine should receive the frame")
+            .expect("channel open");
+
+        let peak = pcm
+            .chunks_exact(2)
+            .map(|c| i16::from_le_bytes([c[0], c[1]]).unsigned_abs())
+            .max()
+            .unwrap_or(0);
+        assert!(
+            peak > 10_000,
+            "peak {peak} is silence — the µ-law bytes were read as linear PCM, which means \
+             the leg ignored the codec the provider negotiated"
+        );
+
+        drop(in_tx);
+        let _ = task.await;
+        let _ = out_rx.try_recv();
     }
 
     #[tokio::test]
