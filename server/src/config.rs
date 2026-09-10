@@ -202,7 +202,13 @@ pub struct Config {
 /// Every one of these is a limit that costs money when it is wrong, so none of them has a
 /// permissive default: concurrency, spend and duration all start conservative and are
 /// raised deliberately.
-#[derive(Debug, Clone)]
+///
+/// `Debug` is hand-written, like [`TelnyxConfig`]'s, because this struct carries
+/// `pseudonym_key`. That key is what makes a phone number in a log a pseudonym rather than
+/// a phone number: anyone holding it can recompute the pseudonym for any candidate number
+/// and undo R23 entirely. A derived `Debug` would put it one `tracing::debug!(?cfg)` away
+/// from the logs it exists to protect.
+#[derive(Clone)]
 pub struct VoipConfig {
     /// Provider id to route through (`VOIP_PROVIDER`). `"mock"` is a legitimate production
     /// value for a staging deployment that must exercise the whole flow without a telco.
@@ -263,6 +269,39 @@ pub struct VoipConfig {
     /// deployment's JWT secret so a missing value cannot silently disable pseudonymisation
     /// and start writing real numbers into logs.
     pub pseudonym_key: Vec<u8>,
+}
+
+impl std::fmt::Debug for VoipConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("VoipConfig")
+            .field("provider", &self.provider)
+            .field("rollout_stage", &self.rollout_stage)
+            .field("beta_org_ids", &self.beta_org_ids)
+            .field("require_eu_processing", &self.require_eu_processing)
+            .field("default_region", &self.default_region)
+            .field("media_ws_base", &self.media_ws_base)
+            .field("min_gross_margin", &self.min_gross_margin)
+            .field("cost_safety_buffer", &self.cost_safety_buffer)
+            .field("max_destination_rate", &self.max_destination_rate)
+            .field("daily_provider_spend_limit", &self.daily_provider_spend_limit)
+            .field("max_call_minutes", &self.max_call_minutes)
+            .field("max_concurrent_global", &self.max_concurrent_global)
+            .field("max_concurrent_per_org", &self.max_concurrent_per_org)
+            .field("max_concurrent_per_user", &self.max_concurrent_per_user)
+            .field("allow_international", &self.allow_international)
+            .field("allowed_countries", &self.allowed_countries)
+            .field("blocked_countries", &self.blocked_countries)
+            .field("china_enabled", &self.china_enabled)
+            .field("china_require_validated_route", &self.china_require_validated_route)
+            .field("recording_enabled", &self.recording_enabled)
+            .field("transcription_enabled", &self.transcription_enabled)
+            .field("video_enabled", &self.video_enabled)
+            .field("rate_max_age_secs", &self.rate_max_age_secs)
+            .field("webhook_tolerance_secs", &self.webhook_tolerance_secs)
+            // Never the key itself — see the struct's own note.
+            .field("pseudonym_key", &"<redacted>")
+            .finish()
+    }
 }
 
 impl VoipConfig {
@@ -2381,6 +2420,39 @@ mod tests {
         assert!(TurnConfig::restricted(vec![], "", "user", "pass", 3600).is_none());
         // URLs but no usable credential → no profile.
         assert!(TurnConfig::restricted(urls, "", "user", "", 3600).is_none());
+    }
+
+    #[test]
+    fn neither_provider_config_can_print_its_secret() {
+        // Both structs carry something that undoes a security property if it reaches a
+        // log: Telnyx's API key, and the key that turns a phone number into a pseudonym.
+        // A derived `Debug` on either is one `tracing::debug!(?cfg)` away from a leak.
+        let voip = VoipConfig {
+            pseudonym_key: b"super-secret-pseudonym-key".to_vec(),
+            ..VoipConfig::test_default()
+        };
+        let dump = format!("{voip:?}");
+        assert!(
+            !dump.contains("super-secret-pseudonym-key"),
+            "the pseudonym key must never be printable: {dump}"
+        );
+        assert!(dump.contains("redacted"));
+        // The harmless fields are still there — a Debug that shows nothing is useless.
+        assert!(dump.contains("min_gross_margin"));
+        assert!(dump.contains("rollout_stage"));
+
+        let telnyx = TelnyxConfig {
+            api_key: "KEY-abc123".into(),
+            api_base: TELNYX_DEFAULT_API_BASE.into(),
+            connection_id: "conn".into(),
+            outbound_voice_profile_id: None,
+            public_key_b64: "PUBKEY-xyz".into(),
+            default_caller_id: None,
+            media_anchor: "Frankfurt, Germany".into(),
+        };
+        let dump = format!("{telnyx:?}");
+        assert!(!dump.contains("KEY-abc123"), "{dump}");
+        assert!(!dump.contains("PUBKEY-xyz"), "{dump}");
     }
 
     #[test]
