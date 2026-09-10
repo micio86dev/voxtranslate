@@ -518,6 +518,7 @@ pub async fn dial(
     {
         ReserveOutcome::Held(_) => {}
         ReserveOutcome::Insufficient { .. } => {
+            crate::metrics::record_voip_reservation_failure();
             fail(pool, call_id, FailureReason::InsufficientCredits).await?;
             return Err(VoipError::Refused(FailureReason::InsufficientCredits));
         }
@@ -547,6 +548,7 @@ pub async fn dial(
             .execute(pool)
             .await?;
 
+            crate::metrics::record_voip_started();
             Ok(CallCreated {
                 call_id,
                 session_id,
@@ -558,6 +560,7 @@ pub async fn dial(
         Err(e) => {
             // The provider refused. Give the credits back immediately rather than leaving
             // them held until a sweep runs — the customer can see their balance.
+            crate::metrics::record_voip_provider_error();
             let reason = e.as_failure_reason();
             fail(pool, call_id, reason).await?;
             reservation::release(pool, call_id, session_id).await?;

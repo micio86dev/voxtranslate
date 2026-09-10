@@ -1,0 +1,150 @@
+# VoIP — Telnyx account setup and live verification
+
+Everything in this document costs money or changes a production account, so **none of it
+is done automatically**. It is the human half of shipping spec 0111.
+
+The code is complete and testable without any of it: `VOIP_PROVIDER=mock` runs the entire
+flow — dial, answer, media, consent, recording, billing, settlement — against the
+in-process provider, with no telco and no charges. Staging can run that way indefinitely.
+
+---
+
+## 1. Account prerequisites
+
+| Step | Why | Cost |
+|---|---|---|
+| Telnyx account, **EU billing entity** | The EU endpoint and Frankfurt anchoring are the whole residency story | free |
+| Level 2 verification | Required before outbound international is enabled | free |
+| Execute a **DPA** | Telnyx becomes a processor for call audio and phone numbers | free, needs legal |
+| Add balance | Every dial spends it | **paid** |
+| Create a **Call Control application** (connection) | Gives `TELNYX_CONNECTION_ID` | free |
+| Create an **Outbound Voice Profile** | Where provider-side channel and spend limits live | free |
+| Buy at least one number | Caller ID; unverified numbers may not be presented | **paid, recurring** |
+
+## 2. Call Control application settings
+
+| Setting | Value | Why |
+|---|---|---|
+| Webhook URL | `https://<api-host>/api/voip/webhooks/telnyx` | |
+| Webhook API version | v2 | The adapter parses the v2 envelope (`data.event_type`, `data.payload`) |
+| Webhook failover URL | set one | Telnyx retries; a failover reduces lost lifecycle events |
+| **Anchorsite** | **Frankfurt, Germany** | This is what actually decides where media is handled |
+| Media encryption | SRTP | |
+| DTMF type | RFC 2833 | The consent gate depends on DTMF arriving |
+
+Then copy the account's **public key** (Mission Control → account settings) into
+`TELNYX_PUBLIC_KEY`. Without it every webhook is rejected — the adapter fails closed on
+purpose, because a deployment that forgot the key would otherwise take call-control
+instructions from anyone who can reach the endpoint.
+
+## 3. Environment
+
+```sh
+# Feature
+VOIP_ENABLED=true
+VOIP_PROVIDER=telnyx                 # or `mock` — a legitimate staging value
+VOIP_ROLLOUT_STAGE=internal          # disabled | internal | beta | business | ga
+VOIP_MEDIA_WS_BASE=wss://api.voxtranslate.app
+
+# Residency
+VOIP_REQUIRE_EU_PROCESSING=false     # see docs/voip-data-flow.md before changing
+VOIP_DEFAULT_REGION="Frankfurt, Germany"
+
+# Commercials
+VOIP_MIN_GROSS_MARGIN_PERCENT=20
+VOIP_COST_SAFETY_BUFFER_PERCENT=10
+VOIP_MAX_DESTINATION_RATE=1.00
+VOIP_DAILY_PROVIDER_SPEND_LIMIT=50
+VOIP_MAX_CALL_DURATION_MINUTES=60
+VOIP_MAX_CONCURRENT_CALLS_GLOBAL=50
+VOIP_MAX_CONCURRENT_CALLS_PER_ORG=10
+VOIP_MAX_CONCURRENT_CALLS_PER_USER=2
+VOIP_RATE_MAX_AGE_SECS=86400
+
+# Destinations
+VOIP_ALLOW_INTERNATIONAL=true
+VOIP_ALLOWED_COUNTRIES=              # empty = no allow-list
+VOIP_BLOCKED_COUNTRIES=
+VOIP_CHINA_ENABLED=false             # docs/voip-china-validation.md
+VOIP_CHINA_REQUIRE_VALIDATED_ROUTE=true
+
+# Features
+VOIP_RECORDING_ENABLED=false
+VOIP_TRANSCRIPTION_ENABLED=true
+VOIP_VIDEO_ENABLED=false
+
+# Privacy
+VOIP_PSEUDONYM_KEY=<32+ random bytes>   # falls back to JWT_SECRET if unset
+VOIP_WEBHOOK_TOLERANCE_SECS=300
+
+# Provider
+TELNYX_API_KEY=<secret>
+TELNYX_API_BASE=https://api.telnyx.eu    # the DEFAULT; the .com base leaves the EU
+TELNYX_CONNECTION_ID=<call control app id>
+TELNYX_OUTBOUND_VOICE_PROFILE_ID=<ovp id>
+TELNYX_PUBLIC_KEY=<base64 ed25519 public key>
+TELNYX_DEFAULT_CALLER_ID=+39...
+TELNYX_MEDIA_ANCHOR="Frankfurt, Germany"
+```
+
+`TELNYX_API_BASE` and `TELNYX_MEDIA_ANCHOR` both default to the EU values, and
+`TelnyxConfig::is_eu()` requires **both**. Changing either one silently moves telephony out
+of the EU with no other visible symptom, which is why there is a test for it.
+
+## 4. Provider-side limits to record before load testing
+
+Application-side concurrency and Telnyx-side capacity are separate concerns, and the
+second one is not ours to raise. Record, don't assume:
+
+- Current account concurrent-call limit
+- Outbound Voice Profile channel limit
+- API rate limits
+- Daily spend limit configured provider-side
+- Verification level and what it gates
+
+A load test that proves our control plane handles 1,000 calls proves nothing about whether
+the account may place them.
+
+## 5. Live smoke tests
+
+Gated, never in CI, never automatic:
+
+```sh
+VOIP_LIVE_TESTS=true cargo test --test telnyx_live -- --ignored --nocapture
+```
+
+| Check | Spends money |
+|---|---|
+| Credentials accepted by the EU endpoint | no |
+| Call Control application resolves | no |
+| Rate deck fetches and parses | no |
+| Webhook signature round-trip against the real public key | no |
+| **One controlled call to a number you own** | **yes** |
+| Recording start/stop and retrieval | **yes** |
+| Cost appears in the provider's usage report | no |
+
+Set `TELNYX_LIVE_TEST_TO` to a number **you own**. Never a customer's, never a real
+person's who has not agreed, never one in a fixture.
+
+## 6. Known gap: per-leg cost reconciliation
+
+Telnyx rates calls asynchronously and exposes the result through batched usage reports,
+not on the hangup webhook. The adapter therefore reports `fetch_cdr` as **unsupported**
+rather than returning a fabricated zero, and affected calls show as **unreconciled**:
+`voip_calls.actual_provider_cost_usd IS NULL`.
+
+That is a visible gap by design — a made-up zero would show every call at 100% margin,
+which is worse than admitting the number is not in yet. Closing it requires a live account
+to confirm the usage-report endpoint's shape, and is the main credential-dependent item
+outstanding.
+
+## 7. Rollback
+
+1. `VOIP_ROLLOUT_STAGE=disabled` — no new calls, existing ones finish cleanly.
+2. `VOIP_ENABLED=false` — the routes are not registered at all.
+3. Neither touches data. Reservations already open settle normally on their hangup
+   webhooks; if the process is gone, the reconcile sweep closes them and refunds.
+4. Provider-side, disable the Outbound Voice Profile to stop dialing at the source.
+
+Nothing here needs a migration to be reverted. `056_voip.sql` only adds tables and one
+partial index; leaving it applied with the feature off is inert.

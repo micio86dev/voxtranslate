@@ -100,6 +100,9 @@ pub async fn apply(pool: &Pool, event: &ProviderEvent) -> Result<Ingest, sqlx::E
     .await?;
 
     let Some(row) = inserted else {
+        // Normal, and its RATIO to accepted events is the signal: a spike means the
+        // provider believes we are not acknowledging.
+        crate::metrics::record_voip_webhook_duplicate();
         tx.commit().await?;
         return Ok(Ingest::Duplicate {
             call_id: Some(call_id),
@@ -152,6 +155,29 @@ pub async fn apply(pool: &Pool, event: &ProviderEvent) -> Result<Ingest, sqlx::E
             .bind(now)
             .execute(&mut *tx)
             .await?;
+
+            match new_state {
+                CallState::Answered => {
+                    crate::metrics::record_voip_connected();
+                    // Post-dial delay: the first thing a recipient notices, and the first
+                    // thing a bad international route degrades.
+                    if let Some(a) = answered {
+                        let started: Option<chrono::DateTime<Utc>> =
+                            sqlx::query_scalar("SELECT started_at FROM voip_calls WHERE id = $1")
+                                .bind(call_id)
+                                .fetch_optional(&mut *tx)
+                                .await?
+                                .flatten();
+                        if let Some(st) = started {
+                            let ms = (a - st).num_milliseconds().max(0) as u64;
+                            crate::metrics::record_voip_setup_ms(ms);
+                        }
+                    }
+                }
+                CallState::Failed => crate::metrics::record_voip_failed(),
+                CallState::Bridged => {}
+                _ => {}
+            }
 
             if new_state.is_terminal() {
                 settle(

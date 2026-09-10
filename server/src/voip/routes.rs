@@ -61,6 +61,11 @@ pub fn routes() -> Router<AppState> {
 }
 
 fn err_response(e: VoipError) -> Response {
+    if matches!(e, VoipError::Refused(_)) {
+        // Counted apart from `failed`: a rising refusal rate is usually a customer hitting
+        // a limit they set, while a rising failure rate is usually us or the carrier.
+        crate::metrics::record_voip_refused();
+    }
     let status = match &e {
         VoipError::BadNumber(_) => StatusCode::BAD_REQUEST,
         VoipError::Refused(_) => StatusCode::PAYMENT_REQUIRED,
@@ -802,6 +807,9 @@ pub async fn inbound_webhook(
         // A rejected webhook is a 401, not a 500: the provider must not retry something
         // that will never verify, and a 5xx would make it try for hours.
         Err(e) => {
+            // A sustained non-zero rate here means someone who cannot sign is posting to
+            // the endpoint, which is worth an alert on its own.
+            crate::metrics::record_voip_webhook_rejected();
             Err((StatusCode::UNAUTHORIZED, Json(json!({ "error": e.code() }))).into_response())
         }
     }
