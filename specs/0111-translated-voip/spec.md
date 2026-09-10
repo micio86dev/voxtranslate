@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | 🚧 In progress |
+| **Status** | 🚧 In progress — see §5 for what is built and §8 for what is not |
 | **Owner** | Alessandro Micelli |
 | **Created** | 2026-09-09 |
 | **Shipped** | — |
@@ -327,18 +327,34 @@ WS     {VOIP_MEDIA_WS_BASE}/voip/media/{leg_token}       → provider media stre
 
 ## 5. Implementation
 
-| Slice | What | Key files |
-|-------|------|-----------|
-| S0 | Spec, config surface, migration `056` | this file, `config.rs`, `migrations/056_voip.sql` |
-| S1 | `TelephonyProvider`, `MockTelephonyProvider`, E.164, state machine (pure) | `telephony/`, `voip/state.rs` |
-| S2 | Pricing, rate deck, margin guard, reservations, meter | `voip/pricing.rs`, `voip/reservation.rs` |
-| S3 | Telnyx adapter, webhook signature + idempotency, CDR reconcile | `telephony/telnyx.rs`, `voip/webhook.rs` |
-| S4 | Media bridge, codec/resample, barge-in, DTMF, reconnect | `voip/media.rs`, `voip/codec.rs` |
-| S5 | Orchestration, entitlements, caps, failure modes, routes | `voip/mod.rs`, `voip/routes.rs` |
-| S6 | Consent, recording, transcripts, project, AI analysis | `voip/consent.rs` + existing services |
-| S7 | Dashboard dialer, history, detail, admin, numbers, i18n | `dashboard/src/pages/[lang]/phone/` |
-| S8 | Website page, FAQ from capability data, SEO, legal drafts | `website/`, `docs/` |
-| S9 | Observability, load tests, China framework, video upgrade | `metrics.rs`, `loadtest/` |
+| Slice | What | Status | Key files |
+|-------|------|--------|-----------|
+| S0 | Spec, config surface, migration `056` | ✅ | this file, `config.rs`, `migrations/056_voip.sql` |
+| S1 | `TelephonyProvider`, `MockTelephonyProvider`, E.164, state machine | ✅ | `telephony/`, `voip/state.rs` |
+| S2 | Pricing, rate deck, margin guard, reservations | ✅ | `voip/pricing.rs`, `voip/reservation.rs` |
+| S3 | Telnyx adapter, webhook signature + idempotency, settlement | ✅ | `telephony/telnyx.rs`, `voip/webhook.rs` |
+| S4 | Codec, stateful resampling, barge-in, media bridge, media ticket | ✅ | `voip/{codec,media,token}.rs` |
+| S5 | Pre-dial gate, dial orchestration, HTTP surface, tenancy | ✅ | `voip/{policy,service,routes}.rs` |
+| S6a | Consent policy + the spoken disclosure in all 84 languages | ✅ | `voip/consent.rs`, `assets/voip-disclosure.json` |
+| S6b | Consent **execution** (play, gather), recording/transcript/project/AI hookups | ⛔ **not built** | — |
+| S7 | Dashboard dialer, history, i18n, browser e2e | ✅ | `dashboard/src/{pages/[lang]/phone.astro,scripts/phone-dialer.ts}` |
+| S8 | Website page, FAQ from capability data, SEO | ✅ | `website/src/pages/phone-call-translation.astro` |
+| S9 | Metrics, k6 load suite, China gate, runbook | ✅ | `metrics.rs`, `loadtest/voip-*.js`, `docs/runbooks/122-voip-operations.md` |
+| S10 | Media socket **route**, call session assembly | ⛔ **not built** | — |
+| S11 | Video upgrade | ⛔ architecture only (D9) | — |
+
+### What "not built" means here
+
+Everything marked ⛔ is a gap with no code, not a gap with untested code. The pieces those
+slices would compose — the media pump, the codec, the consent planner, the disclosure copy,
+the ticket — exist and are tested in isolation. What is missing is the orchestration that
+opens an engine session for the phone peer, mounts the socket, plays the announcement and
+attaches the results to a project.
+
+A call placed today reaches the carrier, rings, is billed correctly, settles correctly and
+appears in history. **It does not yet carry audio**, because S10 is what connects the pump
+to a room. That is the honest state, and it is stated here rather than in a status update
+nobody will re-read.
 
 ## 6. Testing & Verification
 
@@ -428,6 +444,21 @@ staging verified green, then release with `main` first and a back-merge into `de
 7. **Provider account limits** (concurrency, verification level, caller-ID rules) are a
    human/commercial dependency, not a code one.
 8. **Legal text requires human review.** Drafted, flagged, never published autonomously.
+9. **The call does not carry audio yet.** S10 — mounting the media socket and assembling
+   the room around a phone peer — is not built. Every piece it composes is (the pump, the
+   codec, the ticket, the consent planner, the disclosure copy), and each is tested in
+   isolation, but nothing joins them. A call today rings, bills, settles and appears in
+   history **in silence**.
+10. **Nothing plays the announcement.** The consent planner decides what should be said and
+    the copy exists in all 84 languages, but no code calls `play`/`gather`. Recording and
+    transcription must therefore stay OFF until S6b lands — with them on, capture would
+    start without the disclosure that R19 makes mandatory. The `voip_org_settings` defaults
+    already have recording off; **do not turn it on before S6b**.
+11. **Recording, transcript, project and AI results are not attached.** The columns and the
+    status vocabulary exist; the hookups to `TranscriptService`, `business::recording` and
+    `ai::` do not.
+12. **Video upgrade is architecture only** (D9). No signed guest link is minted and no room
+    is joined.
 
 ## 9. References
 
