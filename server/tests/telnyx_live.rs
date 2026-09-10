@@ -28,13 +28,27 @@ use voxtranslate_server::telephony::{DialRequest, TelephonyProvider, WebhookHead
 /// Both gates. Returns `None` — and says why — rather than failing, so a full
 /// `--ignored` run on a machine with no credentials reports "skipped", not "broken".
 fn provider() -> Option<TelnyxProvider> {
+    // The credentials normally live in `server/.env`, which only the binary loads
+    // (`lib::serve`). Without this a developer who put the key exactly where the setup
+    // guide says would watch every test print `ok` while asserting nothing — the worst
+    // possible outcome for a suite whose entire job is to confirm an account works.
+    // Matches what `engine::qwen`'s live tests already do.
+    let _ = dotenvy::dotenv();
+
     if std::env::var("VOIP_LIVE_TESTS").as_deref() != Ok("true") {
         eprintln!("skipping — set VOIP_LIVE_TESTS=true to run live provider tests");
         return None;
     }
-    let api_key = std::env::var("TELNYX_API_KEY")
+    let Some(api_key) = std::env::var("TELNYX_API_KEY")
         .ok()
-        .filter(|k| !k.is_empty())?;
+        .filter(|k| !k.is_empty())
+    else {
+        // Say so. A silent skip here is indistinguishable from a pass.
+        eprintln!(
+            "skipping — TELNYX_API_KEY is not set (checked the environment and server/.env)"
+        );
+        return None;
+    };
     let cfg = TelnyxConfig {
         api_key,
         api_base: std::env::var("TELNYX_API_BASE")
