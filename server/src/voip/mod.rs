@@ -9,6 +9,7 @@ pub mod reservation;
 pub mod routes;
 pub mod service;
 pub mod state;
+pub mod token;
 pub mod webhook;
 
 pub use pricing::{MarginPolicy, ProviderCost, Quote, RateDeck};

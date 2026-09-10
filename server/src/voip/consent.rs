@@ -20,7 +20,9 @@
 //! one-party versus all-party consent, and this module deliberately expresses *policy
 //! mechanics* rather than legal conclusions.
 
+use std::collections::HashMap;
 use std::fmt;
+use std::sync::OnceLock;
 
 /// How consent is obtained, per organization, with optional per-country override.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -277,6 +279,105 @@ pub fn plan(
         capture_after_announcement: !intent.captures_nothing() && gate.is_none(),
         policy_escalated: escalated,
     }
+}
+
+// ---------------------------------------------------------------------------
+// The spoken copy
+// ---------------------------------------------------------------------------
+
+/// The reviewed disclosure sentences, one set per language.
+///
+/// Compiled in rather than fetched or generated, for the reason in the module docs: this
+/// is the one string in the product a lawyer will actually read, and a notice invented at
+/// call time is not a notice anyone can review. It covers **every** language the product
+/// speaks — an English announcement to someone who does not speak English discloses
+/// nothing, which is worse than the notification fallback the rest of the server uses.
+static DISCLOSURE_JSON: &str = include_str!("../../assets/voip-disclosure.json");
+
+fn table() -> &'static HashMap<String, HashMap<String, String>> {
+    static TABLE: OnceLock<HashMap<String, HashMap<String, String>>> = OnceLock::new();
+    TABLE.get_or_init(|| {
+        serde_json::from_str(DISCLOSURE_JSON).expect("voip-disclosure.json is valid and complete")
+    })
+}
+
+/// Every language the announcement exists in.
+pub fn languages() -> Vec<&'static str> {
+    let mut v: Vec<&str> = table().keys().map(String::as_str).collect();
+    v.sort_unstable();
+    v
+}
+
+/// Whether we can speak to someone in this language.
+pub fn speaks(language: &str) -> bool {
+    table().contains_key(&base_language(language))
+}
+
+/// `pt-BR` → `pt`. The table is keyed by base language, matching the rest of the product.
+fn base_language(language: &str) -> String {
+    language
+        .trim()
+        .to_lowercase()
+        .split(['-', '_'])
+        .next()
+        .unwrap_or("")
+        .to_string()
+}
+
+fn lookup(language: &str, key: &str) -> Option<&'static str> {
+    table()
+        .get(&base_language(language))
+        .and_then(|m| m.get(key))
+        .map(String::as_str)
+}
+
+/// The exact words the recipient hears, assembled from whole reviewed sentences.
+///
+/// Returns `None` when there is nothing to say — which is a real outcome, not an error:
+/// an announcement that claims nothing wastes the first seconds of the call and teaches
+/// people to ignore the one that matters.
+///
+/// An unknown language falls back to English **and says so** in the returned
+/// [`Announcement::fell_back`], because "we spoke English at someone who does not read it"
+/// is a compliance fact, not a cosmetic one. It must reach the audit log.
+pub fn announcement(disclosure: &Disclosure, refused: RefusedAction) -> Option<Announcement> {
+    let body_key = disclosure.body?.key();
+    let lang = base_language(&disclosure.language);
+    let fell_back = !speaks(&lang);
+    let pick = |key: &str| -> String {
+        lookup(&lang, key)
+            .or_else(|| lookup("en", key))
+            .unwrap_or_default()
+            .to_string()
+    };
+
+    let mut text = pick(body_key);
+    if let Some(gate) = disclosure.gate {
+        text.push(' ');
+        text.push_str(&pick(gate.key()));
+        text.push(' ');
+        text.push_str(&pick(match refused {
+            RefusedAction::ContinueUnrecorded => "refuse_continue",
+            RefusedAction::End => "refuse_end",
+        }));
+    }
+
+    Some(Announcement {
+        language: if fell_back { "en".to_string() } else { lang },
+        text: text.trim().to_string(),
+        fell_back,
+    })
+}
+
+/// What to speak, and in which language it actually ended up.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Announcement {
+    /// The language actually spoken — English when the requested one is missing.
+    pub language: String,
+    pub text: String,
+    /// True when the requested language had no copy. A compliance fact: the recipient was
+    /// addressed in a language they may not read. Belongs in the audit log.
+    pub fell_back: bool,
 }
 
 /// Interpret a DTMF digit against the gate.
@@ -582,6 +683,146 @@ mod tests {
             RefusedAction::parse("anything else"),
             RefusedAction::ContinueUnrecorded
         );
+    }
+
+    // ---- the spoken copy ------------------------------------------------------
+
+    #[test]
+    fn the_announcement_exists_in_every_language_the_product_speaks() {
+        // An English notice to someone who does not read English discloses nothing, which
+        // is why this table does NOT use the English fallback the rest of the server's
+        // copy does. 84 languages, the same set the product ships.
+        let langs = languages();
+        assert_eq!(langs.len(), 84, "got {}", langs.len());
+        for expected in ["en", "it", "zh", "yue", "ar", "hi", "sw", "cy", "ckb", "my"] {
+            assert!(speaks(expected), "missing {expected}");
+        }
+    }
+
+    #[test]
+    fn every_language_carries_every_sentence() {
+        // A half-translated table is worse than none: the announcement would be assembled
+        // out of two languages mid-sentence.
+        let required = [
+            "translation_only",
+            "transcription",
+            "recording",
+            "recording_and_transcription",
+            "gate_press_key",
+            "gate_verbal",
+            "refuse_continue",
+            "refuse_end",
+        ];
+        for lang in languages() {
+            for key in required {
+                let text = lookup(lang, key).unwrap_or("");
+                assert!(!text.trim().is_empty(), "{lang} is missing {key}");
+            }
+        }
+    }
+
+    #[test]
+    fn the_recipient_hears_their_own_language() {
+        let d = plan(ConsentPolicy::NoticeOnly, intent(true, true), false, "zh");
+        let a = announcement(&d, RefusedAction::ContinueUnrecorded).unwrap();
+        assert_eq!(a.language, "zh");
+        assert!(!a.fell_back);
+        assert!(a.text.contains("录音"), "{}", a.text);
+    }
+
+    #[test]
+    fn a_regional_tag_resolves_to_its_base_language() {
+        // `pt-BR` must not fall back to English just because the tag carries a region.
+        for tag in ["pt-BR", "pt_PT", "PT", " pt "] {
+            let d = plan(ConsentPolicy::NoticeOnly, intent(true, false), false, tag);
+            let a = announcement(&d, RefusedAction::ContinueUnrecorded).unwrap();
+            assert_eq!(a.language, "pt", "tag {tag}");
+            assert!(!a.fell_back, "tag {tag}");
+        }
+    }
+
+    #[test]
+    fn a_language_we_cannot_speak_falls_back_to_english_and_says_so() {
+        // The call must not be silent — but "we addressed them in a language they may not
+        // read" is a compliance fact, not a cosmetic one, and it has to reach the audit log.
+        let d = plan(ConsentPolicy::NoticeOnly, intent(true, true), false, "xx");
+        let a = announcement(&d, RefusedAction::ContinueUnrecorded).unwrap();
+        assert_eq!(a.language, "en");
+        assert!(a.fell_back, "the fallback must be reported, not silent");
+        assert!(a.text.contains("recorded"));
+    }
+
+    #[test]
+    fn the_announcement_names_exactly_what_will_happen() {
+        let english = |rec: bool, tra: bool| {
+            let d = plan(ConsentPolicy::NoticeOnly, intent(rec, tra), true, "en");
+            announcement(&d, RefusedAction::ContinueUnrecorded).map(|a| a.text)
+        };
+        assert!(english(true, true)
+            .unwrap()
+            .contains("recorded and transcribed"));
+        let rec = english(true, false).unwrap();
+        assert!(rec.contains("recorded") && !rec.contains("transcribed"));
+        let tra = english(false, true).unwrap();
+        assert!(tra.contains("transcribed") && !tra.contains("recorded"));
+        // Nothing kept: it talks about the synthesized voice and claims no recording.
+        let none = english(false, false).unwrap();
+        assert!(!none.contains("recorded") && !none.contains("transcribed"));
+        assert!(none.contains("generated"));
+    }
+
+    #[test]
+    fn nothing_is_spoken_when_there_is_nothing_to_disclose() {
+        let d = plan(ConsentPolicy::NoticeOnly, intent(false, false), false, "en");
+        assert_eq!(announcement(&d, RefusedAction::ContinueUnrecorded), None);
+    }
+
+    #[test]
+    fn the_gate_tells_them_what_happens_if_they_decline() {
+        // "Press 1 to agree" without saying what happens otherwise is a dark pattern.
+        let d = plan(ConsentPolicy::PressKey, intent(true, false), false, "en");
+
+        let cont = announcement(&d, RefusedAction::ContinueUnrecorded).unwrap();
+        assert!(cont.text.contains("press 1"), "{}", cont.text);
+        assert!(cont.text.contains("continues without it"), "{}", cont.text);
+
+        let end = announcement(&d, RefusedAction::End).unwrap();
+        assert!(end.text.contains("the call will end"), "{}", end.text);
+        assert!(!end.text.contains("continues without it"));
+    }
+
+    #[test]
+    fn a_notice_only_announcement_asks_for_nothing() {
+        let d = plan(ConsentPolicy::NoticeOnly, intent(true, false), false, "en");
+        let a = announcement(&d, RefusedAction::End).unwrap();
+        assert!(!a.text.contains("press 1"), "{}", a.text);
+        assert!(!a.text.contains("will end"), "{}", a.text);
+    }
+
+    #[test]
+    fn the_verbal_gate_asks_out_loud_rather_than_for_a_keypress() {
+        let d = plan(ConsentPolicy::Verbal, intent(false, true), false, "en");
+        let a = announcement(&d, RefusedAction::ContinueUnrecorded).unwrap();
+        assert!(a.text.contains("say yes"), "{}", a.text);
+        assert!(!a.text.contains("press 1"), "{}", a.text);
+    }
+
+    #[test]
+    fn no_announcement_is_absurdly_long_to_sit_through() {
+        // It plays at the start of a call, before the conversation. Every extra second is
+        // a second the recipient spends wondering what is happening.
+        for lang in languages() {
+            let d = plan(ConsentPolicy::PressKey, intent(true, true), false, lang);
+            let a = announcement(&d, RefusedAction::End).unwrap();
+            let words = a.text.split_whitespace().count();
+            assert!(
+                a.text.chars().count() < 400,
+                "{lang} announcement is {} chars: {}",
+                a.text.chars().count(),
+                a.text
+            );
+            let _ = words;
+        }
     }
 
     #[test]
