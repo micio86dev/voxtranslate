@@ -148,7 +148,10 @@ pub async fn settle(
     session_id: Uuid,
     actual_credits: i32,
 ) -> Result<Option<Settlement>, sqlx::Error> {
-    close(pool, call_id, session_id, actual_credits.max(0), "settled").await
+    let mut tx = pool.begin().await?;
+    let out = settle_tx(&mut tx, call_id, session_id, actual_credits).await?;
+    tx.commit().await?;
+    Ok(out)
 }
 
 /// Give the whole hold back — the call never connected, so it owes nothing (R10).
@@ -157,18 +160,41 @@ pub async fn release(
     call_id: Uuid,
     session_id: Uuid,
 ) -> Result<Option<Settlement>, sqlx::Error> {
-    close(pool, call_id, session_id, 0, "released").await
+    let mut tx = pool.begin().await?;
+    let out = release_tx(&mut tx, call_id, session_id).await?;
+    tx.commit().await?;
+    Ok(out)
+}
+
+/// [`settle`] inside a caller-provided transaction, so a call's final state and its
+/// settlement commit together. A crash between the two would otherwise leave a finished
+/// call still holding credits — recoverable by the sweep, but only after a delay the
+/// customer can see in their balance.
+pub async fn settle_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    call_id: Uuid,
+    session_id: Uuid,
+    actual_credits: i32,
+) -> Result<Option<Settlement>, sqlx::Error> {
+    close(tx, call_id, session_id, actual_credits.max(0), "settled").await
+}
+
+/// [`release`] inside a caller-provided transaction.
+pub async fn release_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    call_id: Uuid,
+    session_id: Uuid,
+) -> Result<Option<Settlement>, sqlx::Error> {
+    close(tx, call_id, session_id, 0, "released").await
 }
 
 async fn close(
-    pool: &Pool,
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     call_id: Uuid,
     session_id: Uuid,
     actual: i32,
     final_state: &str,
 ) -> Result<Option<Settlement>, sqlx::Error> {
-    let mut tx = pool.begin().await?;
-
     // Lock the reservation itself, not the org row: two settlements for the SAME call are
     // the race here (redelivered hangup + reconcile job), and the org lock would not stop
     // them from both refunding.
@@ -182,17 +208,15 @@ async fn close(
          FOR UPDATE",
     )
     .bind(call_id)
-    .fetch_optional(&mut *tx)
+    .fetch_optional(&mut **tx)
     .await?;
 
     let Some(res) = existing else {
-        tx.commit().await?;
         return Ok(None);
     };
 
     if res.state != "held" {
         // Already closed. Report what happened, change nothing.
-        tx.commit().await?;
         return Ok(Some(Settlement {
             held: res.held_credits,
             settled: res.settled_credits,
@@ -209,7 +233,7 @@ async fn close(
 
     if released > 0 {
         add_org_credits_tx(
-            &mut tx,
+            tx,
             res.org_id,
             released,
             KIND_RELEASE,
@@ -227,7 +251,7 @@ async fn close(
     let extra = actual - covered;
     if extra > 0 {
         match deduct_org_credits_tx(
-            &mut tx,
+            tx,
             res.org_id,
             extra,
             KIND_EXTRA,
@@ -242,7 +266,7 @@ async fn close(
                 let partial = balance.max(0);
                 if partial > 0 {
                     deduct_org_credits_tx(
-                        &mut tx,
+                        tx,
                         res.org_id,
                         partial,
                         KIND_EXTRA,
@@ -269,10 +293,8 @@ async fn close(
     .bind(settled)
     .bind(released)
     .bind(shortfall)
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await?;
-
-    tx.commit().await?;
 
     Ok(Some(Settlement {
         held,
