@@ -203,6 +203,8 @@ mod guest_mode {
             voice_assistant: None,
             help_assistant: None,
             webinar: None,
+            voip: None,
+            telnyx: None,
         };
         let state = AppState::new(config);
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

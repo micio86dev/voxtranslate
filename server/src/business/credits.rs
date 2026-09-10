@@ -105,6 +105,10 @@ pub async fn deduct_org_credits_tx(
 
 /// Add `amount` (≥ 0) credits to the org pool (purchase / subscription grant),
 /// writing a signed (positive) ledger row, atomically. Returns the new balance.
+///
+/// Opens and commits its own transaction; use [`add_org_credits_tx`] to fold the grant
+/// into a caller-provided one (e.g. so releasing a VoIP credit hold and closing its
+/// reservation row commit or roll back together).
 pub async fn add_org_credits(
     pool: &Pool,
     org_id: Uuid,
@@ -114,30 +118,61 @@ pub async fn add_org_credits(
     stripe_payment_intent_id: Option<&str>,
 ) -> Result<i32, sqlx::Error> {
     let mut tx = pool.begin().await?;
+    let new_balance = add_org_credits_tx(
+        &mut tx,
+        org_id,
+        amount,
+        kind,
+        description,
+        stripe_payment_intent_id,
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(new_balance)
+}
+
+/// Same balance-lock + UPDATE + ledger-INSERT as [`add_org_credits`], inside a
+/// caller-provided transaction. The caller owns commit/rollback.
+///
+/// `session_id` attributes the grant to a call — a refund of an unused credit hold belongs
+/// against the call it was held for, not floating loose in the ledger. It is a FOREIGN KEY
+/// into `call_sessions`, so passing a `usage_sessions` id does not mislabel the row, it
+/// violates the constraint and the whole transaction fails.
+#[allow(clippy::too_many_arguments)]
+pub async fn add_org_credits_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    org_id: Uuid,
+    amount: i32,
+    kind: &str,
+    description: &str,
+    stripe_payment_intent_id: Option<&str>,
+    session_id: Option<Uuid>,
+) -> Result<i32, sqlx::Error> {
     let balance: i32 =
         sqlx::query_scalar("SELECT credits_balance FROM organizations WHERE id = $1 FOR UPDATE")
             .bind(org_id)
-            .fetch_one(&mut *tx)
+            .fetch_one(&mut **tx)
             .await?;
     let new_balance = balance + amount;
     sqlx::query("UPDATE organizations SET credits_balance = $2, updated_at = now() WHERE id = $1")
         .bind(org_id)
         .bind(new_balance)
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await?;
     sqlx::query(
         "INSERT INTO organization_credits_transactions
-            (org_id, amount, type, description, stripe_payment_intent_id)
-         VALUES ($1, $2, $3, $4, $5)",
+            (org_id, amount, type, description, stripe_payment_intent_id, session_id)
+         VALUES ($1, $2, $3, $4, $5, $6)",
     )
     .bind(org_id)
     .bind(amount)
     .bind(kind)
     .bind(description)
     .bind(stripe_payment_intent_id)
-    .execute(&mut *tx)
+    .bind(session_id)
+    .execute(&mut **tx)
     .await?;
-    tx.commit().await?;
     Ok(new_balance)
 }
 

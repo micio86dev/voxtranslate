@@ -2164,7 +2164,7 @@ pub async fn report_generate(
 /// `InsufficientFunds` at deduct withholds the report (and carries the 402 body);
 /// our own deduct/insert errors deliver the report free.
 #[allow(clippy::too_many_arguments)]
-async fn run_report_inner(
+pub(crate) async fn run_report_inner(
     state: AppState,
     session_id: Uuid,
     user_id: Uuid,

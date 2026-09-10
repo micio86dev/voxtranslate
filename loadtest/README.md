@@ -102,6 +102,78 @@ setInterval(() => {}, 1 << 30); // keep the process (and the stalled sockets) al
 
 Run a talker flood (`slow-consumer.js` above) into `room=load-0` at the same time.
 
+## VoIP — translated telephone calls (spec 0111)
+
+Three scripts, deliberately separated by how dangerous they are.
+
+| Script | Creates calls? | Moves credits? | Needs auth? |
+|---|---|---|---|
+| `voip-webhooks.js` | no | no | no |
+| `voip-control.js` | no | no | yes (degrades to the auth-reject path without) |
+| `voip-ledger.js` | **yes** | **yes** | yes, plus an explicit opt-in |
+
+### `voip-webhooks.js` — the redelivery storm
+
+The realistic worst case for a webhook endpoint is not many calls, it is **the same events
+arriving many times, out of order, all at once**, which is what a provider does when it
+recovers from a blip.
+
+```bash
+k6 run -e BASE_URL=http://localhost:3001 loadtest/voip-webhooks.js
+```
+
+It sends **unsigned** bodies on purpose, and every one must come back 401. What is being
+measured is how cheaply the server says no: signature verification is the first thing a
+flood hits, so if rejecting is expensive an attacker never needs a valid signature. A run
+that reports any 2xx is a **security finding**, not a failing test.
+
+### `voip-control.js` — the dialer's hot path
+
+Quoting runs the whole policy gate plus a rate-deck lookup, and the dashboard fires one on
+every pause in typing. It never places a call.
+
+```bash
+k6 run -e BASE_URL=… -e JWT=… -e ORG_ID=… loadtest/voip-control.js
+```
+
+402 is a **passing** response here: it is the policy gate refusing, which is the work being
+measured. Thresholds follow spec 0111 §"PERFORMANCE TARGETS" — quote p95 < 500 ms,
+history p95 < 300 ms.
+
+### `voip-ledger.js` — one hot organisation
+
+The only script that creates rows and moves credits, so it refuses to start without
+`ALLOW_DIALING=true`. Run it against **staging with `VOIP_PROVIDER=mock`**, on a throwaway
+organisation with a small balance.
+
+```bash
+k6 run -e BASE_URL=… -e JWT=… -e ORG_ID=… -e ALLOW_DIALING=true loadtest/voip-ledger.js
+```
+
+Note what it does and does not prove. The *correctness* of the credit reservation under
+contention is proven deterministically by `two_concurrent_holds_cannot_both_take_the_last_credits`
+in `server/src/voip/reservation.rs`. A load test cannot prove a race is absent — it can only
+fail to trigger one, and treating that as evidence is how races reach production. This
+measures **throughput** of `SELECT … FOR UPDATE` on one hot organisation row, and whether
+the ledger stays coherent while contended. It deliberately does not clean up: the rows it
+leaves are the evidence to inspect afterwards (see the script's `teardown`).
+
+### What is NOT load-tested, and why
+
+- **Media.** The audio path is a provider WebSocket carrying real RTP. Synthesising it at
+  scale measures our socket handling, which is worth knowing, but doing it against a live
+  provider costs money per stream. A synthetic media harness needs the mock provider's
+  socket end, and is the next piece of work here.
+- **Anything that dials a real carrier.** The 1,000-concurrent-call figure in the spec is a
+  **planning scenario**. It is not, and must not become, a thing to reproduce with paid
+  PSTN calls.
+- **Provider-side capacity.** Our control plane handling N calls says nothing about whether
+  the Telnyx account may place them. Record the account's concurrency and channel limits
+  separately — see `docs/voip-telnyx-setup.md` §4.
+
+> **Never state "this deployment supports N calls" without a recorded run behind it.**
+> That sentence is a commitment, and the numbers here are the only thing that can back it.
+
 ## Notes
 
 - Run against a **local** instance (or a dedicated staging box) — never prod: the
