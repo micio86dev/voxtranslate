@@ -38,6 +38,21 @@ async fn setup_with_voip(voip: Option<VoipConfig>) -> Option<Server> {
     let pool = db::connect(&url).await.ok()?;
     db::migrate(&pool).await.ok()?;
 
+    // The global concurrency cap counts EVERY live call in the database, so rows left
+    // behind by earlier runs would make unrelated tests fail with `concurrency_limit`.
+    // Production has the stall reaper for this (webhook::fail_stalled_calls); a shared
+    // test database needs the same tidy-up done up front.
+    sqlx::query(
+        "UPDATE voip_calls SET status = 'failed',
+             failure_reason = COALESCE(failure_reason, 'provider_unavailable'),
+             ended_at = COALESCE(ended_at, now())
+         WHERE status IN ('created','dialing','ringing','answered','bridged','ending')
+           AND started_at < now() - interval '1 minute'",
+    )
+    .execute(&pool)
+    .await
+    .ok();
+
     let mut config = Config::test_with_billing(&url, SECRET, 0.0);
     let min_join = usd(config.billing.as_ref().unwrap().pricing.min_balance_to_join);
     let enabled = voip.is_some();
@@ -538,8 +553,9 @@ async fn a_number_that_is_not_e164_is_refused_before_anything_else() {
 
 #[tokio::test]
 async fn a_destination_with_no_rate_is_refused_rather_than_priced() {
-    // R5, end to end: the rate deck is empty in a fresh database, so every destination is
-    // unpriced and every call stops. Failing this way is loud, which is the point.
+    // R5, end to end. The destination is deliberately one no other test seeds a rate for —
+    // the suite shares a database, and `enable_dialing` seeds prefix 39, so asking about
+    // Italy here would pass for a reason that has nothing to do with this assertion.
     let srv = srv!();
     let (owner, jwt) = user(&srv).await;
     let org = make_org(&srv, owner, "owner").await;
@@ -561,13 +577,184 @@ async fn a_destination_with_no_rate_is_refused_rather_than_priced() {
             base(&srv)
         ))
         .bearer_auth(&jwt)
-        .json(&json!({ "destination": "+393201234567" }))
+        .json(&json!({ "destination": "+263771234567" }))
         .send()
         .await
         .unwrap();
     assert_eq!(res.status(), StatusCode::PAYMENT_REQUIRED);
     let body: Value = res.json().await.unwrap();
     assert_eq!(body["error"], json!("rate_unavailable"));
+}
+
+// ---- concurrency caps (R6) ------------------------------------------------
+
+/// Turn the feature on for an org and give it a working rate deck, so a dial can actually
+/// get past the policy gate.
+async fn enable_dialing(srv: &Server, org: Uuid, jwt: &str, max_per_user: i64) {
+    client()
+        .put(format!(
+            "{}/api/business/organizations/{org}/voip/settings",
+            base(srv)
+        ))
+        .bearer_auth(jwt)
+        .json(&json!({
+            "enabled": true,
+            "home_country": "IT",
+            "max_concurrent_per_user": max_per_user,
+            "max_concurrent_per_org": max_per_user,
+            "transcription_enabled": false,
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    sqlx::query(
+        "INSERT INTO voip_rates (provider, prefix, description, cost_per_minute, fetched_at)
+         VALUES ('mock', '39', 'Italy', 0.010, now())
+         ON CONFLICT (provider, prefix) DO UPDATE SET fetched_at = now()",
+    )
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+
+    // A verified outbound number, so caller-id resolution succeeds. Without one the dial
+    // is refused before the cap is ever consulted.
+    sqlx::query(
+        "INSERT INTO voip_numbers (org_id, provider, e164, country, outbound_enabled,
+                                   is_default, verification_status)
+         VALUES ($1, 'mock', $2, 'IT', TRUE, TRUE, 'verified')",
+    )
+    .bind(org)
+    .bind(format!("+39021{:07}", rand_suffix()))
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+}
+
+fn rand_suffix() -> u32 {
+    // Numbers are UNIQUE across the install; the suffix keeps parallel tests apart.
+    (Uuid::new_v4().as_u128() % 9_000_000) as u32 + 1_000_000
+}
+
+#[tokio::test]
+async fn concurrent_dials_cannot_exceed_the_cap() {
+    // R6 says the caps are "enforced atomically". They were not: the count was read in one
+    // unlocked statement and the row inserted in another, so two requests that both saw
+    // one-below-the-limit both got through. Same shape as the credit race the reservation
+    // module closes with FOR UPDATE, and it needed the same treatment.
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    enable_dialing(&srv, org, &jwt, 1).await;
+
+    let body = json!({
+        "destination": "+393201234567",
+        "source_language": "en",
+        "target_language": "it",
+    });
+    let url = format!("{}/api/business/organizations/{org}/voip/calls", base(&srv));
+
+    // Fired together, deliberately: the race only exists in the window between the count
+    // and the insert.
+    let (a, b) = tokio::join!(
+        client().post(&url).bearer_auth(&jwt).json(&body).send(),
+        client().post(&url).bearer_auth(&jwt).json(&body).send(),
+    );
+    let statuses = [a.unwrap().status(), b.unwrap().status()];
+
+    let created = statuses
+        .iter()
+        .filter(|s| **s == StatusCode::CREATED)
+        .count();
+    assert_eq!(
+        created, 1,
+        "exactly one dial may pass a cap of 1, got {statuses:?}"
+    );
+    assert!(
+        statuses.contains(&StatusCode::PAYMENT_REQUIRED),
+        "the loser must be refused, got {statuses:?}"
+    );
+
+    let live: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM voip_calls WHERE org_id = $1
+         AND status IN ('created','dialing','ringing','answered','bridged','ending')",
+    )
+    .bind(org)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        live, 1,
+        "the cap must hold in the database, not just in the reply"
+    );
+}
+
+#[tokio::test]
+async fn a_dial_that_gets_through_the_gate_holds_credits_and_appears_in_history() {
+    // The happy path, end to end over HTTP against the mock provider: no telco, no
+    // charges, but the real policy gate, the real ledger and the real history query.
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    enable_dialing(&srv, org, &jwt, 5).await;
+
+    let before: i32 = sqlx::query_scalar("SELECT credits_balance FROM organizations WHERE id = $1")
+        .bind(org)
+        .fetch_one(&srv.pool)
+        .await
+        .unwrap();
+
+    let res = client()
+        .post(format!(
+            "{}/api/business/organizations/{org}/voip/calls",
+            base(&srv)
+        ))
+        .bearer_auth(&jwt)
+        .json(&json!({
+            "destination": "+393201234567",
+            "source_language": "en",
+            "target_language": "it",
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::CREATED);
+    let created: Value = res.json().await.unwrap();
+    assert_eq!(created["status"], json!("dialing"));
+    let reserved = created["reserved_credits"].as_i64().unwrap();
+    assert!(
+        reserved > 0,
+        "a hold must be taken before the provider is called"
+    );
+
+    let after: i32 = sqlx::query_scalar("SELECT credits_balance FROM organizations WHERE id = $1")
+        .bind(org)
+        .fetch_one(&srv.pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        after,
+        before - reserved as i32,
+        "the hold is a real deduction, which is what makes concurrent dials safe"
+    );
+
+    // …and it is visible in history, masked.
+    let history: Value = client()
+        .get(format!(
+            "{}/api/business/organizations/{org}/voip/calls",
+            base(&srv)
+        ))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let calls = history["calls"].as_array().unwrap();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0]["id"], created["call_id"]);
+    assert!(!history.to_string().contains("3201234567"));
 }
 
 // ---- webhook (R24) --------------------------------------------------------

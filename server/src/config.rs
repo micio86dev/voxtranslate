@@ -259,6 +259,18 @@ pub struct VoipConfig {
     pub recording_enabled: bool,
     pub transcription_enabled: bool,
     pub video_enabled: bool,
+    /// What the PROVIDER charges us, per minute, for the pieces the rate deck does not
+    /// cover (`VOIP_RECORDING_COST_PER_MINUTE`, `VOIP_STORAGE_COST_PER_MINUTE`,
+    /// `VOIP_MEDIA_STREAMING_COST_PER_MINUTE`).
+    ///
+    /// They default to 0 because we cannot invent a provider's price list — but a zero
+    /// here is a real commercial statement, not a neutral one: it prices that component as
+    /// free and the margin floor is then computed against a cost that is too low.
+    /// `Config::from_env` warns at boot when recording is enabled and its cost is still 0,
+    /// because that combination silently sells recorded calls below the floor.
+    pub recording_cost_per_minute: f64,
+    pub storage_cost_per_minute: f64,
+    pub media_streaming_cost_per_minute: f64,
     /// A rate older than this is stale, and a stale rate refuses the call rather than
     /// pricing it (`VOIP_RATE_MAX_AGE_SECS`, spec 0111 R5).
     pub rate_max_age_secs: i64,
@@ -283,7 +295,10 @@ impl std::fmt::Debug for VoipConfig {
             .field("min_gross_margin", &self.min_gross_margin)
             .field("cost_safety_buffer", &self.cost_safety_buffer)
             .field("max_destination_rate", &self.max_destination_rate)
-            .field("daily_provider_spend_limit", &self.daily_provider_spend_limit)
+            .field(
+                "daily_provider_spend_limit",
+                &self.daily_provider_spend_limit,
+            )
             .field("max_call_minutes", &self.max_call_minutes)
             .field("max_concurrent_global", &self.max_concurrent_global)
             .field("max_concurrent_per_org", &self.max_concurrent_per_org)
@@ -292,10 +307,19 @@ impl std::fmt::Debug for VoipConfig {
             .field("allowed_countries", &self.allowed_countries)
             .field("blocked_countries", &self.blocked_countries)
             .field("china_enabled", &self.china_enabled)
-            .field("china_require_validated_route", &self.china_require_validated_route)
+            .field(
+                "china_require_validated_route",
+                &self.china_require_validated_route,
+            )
             .field("recording_enabled", &self.recording_enabled)
             .field("transcription_enabled", &self.transcription_enabled)
             .field("video_enabled", &self.video_enabled)
+            .field("recording_cost_per_minute", &self.recording_cost_per_minute)
+            .field("storage_cost_per_minute", &self.storage_cost_per_minute)
+            .field(
+                "media_streaming_cost_per_minute",
+                &self.media_streaming_cost_per_minute,
+            )
             .field("rate_max_age_secs", &self.rate_max_age_secs)
             .field("webhook_tolerance_secs", &self.webhook_tolerance_secs)
             // Never the key itself — see the struct's own note.
@@ -366,6 +390,12 @@ impl VoipConfig {
             recording_enabled: env_flag("VOIP_RECORDING_ENABLED"),
             transcription_enabled: env_flag_or("VOIP_TRANSCRIPTION_ENABLED", true),
             video_enabled: env_flag("VOIP_VIDEO_ENABLED"),
+            recording_cost_per_minute: parse_or("VOIP_RECORDING_COST_PER_MINUTE", 0.0f64),
+            storage_cost_per_minute: parse_or("VOIP_STORAGE_COST_PER_MINUTE", 0.0f64),
+            media_streaming_cost_per_minute: parse_or(
+                "VOIP_MEDIA_STREAMING_COST_PER_MINUTE",
+                0.0f64,
+            ),
             rate_max_age_secs: parse_or("VOIP_RATE_MAX_AGE_SECS", 86_400i64),
             webhook_tolerance_secs: parse_or("VOIP_WEBHOOK_TOLERANCE_SECS", 300i64),
             pseudonym_key: key,
@@ -398,6 +428,9 @@ impl VoipConfig {
             recording_enabled: false,
             transcription_enabled: true,
             video_enabled: false,
+            recording_cost_per_minute: 0.0,
+            storage_cost_per_minute: 0.0,
+            media_streaming_cost_per_minute: 0.0,
             rate_max_age_secs: 86_400,
             webhook_tolerance_secs: 300,
             pseudonym_key: b"test-pseudonym-key".to_vec(),
@@ -1780,7 +1813,22 @@ impl Config {
             // VOIP_PSEUDONYM_KEY still pseudonymises. Falling back to an empty key would
             // start writing real phone numbers into logs, which is the one outcome this
             // must never have.
-            voip: VoipConfig::from_env(env::var("JWT_SECRET").unwrap_or_default().as_bytes()),
+            voip: {
+                let v = VoipConfig::from_env(env::var("JWT_SECRET").unwrap_or_default().as_bytes());
+                if let Some(cfg) = &v {
+                    // A zero cost is not neutral: it prices the component as free and the
+                    // margin floor is then computed against a cost that is too low. Loud
+                    // at boot rather than discoverable on an invoice.
+                    if cfg.recording_enabled && cfg.recording_cost_per_minute <= 0.0 {
+                        tracing::warn!(
+                            "VOIP_RECORDING_ENABLED is on but VOIP_RECORDING_COST_PER_MINUTE \
+                             is 0 — recorded calls are being priced as if recording were \
+                             free, so their real gross margin is below VOIP_MIN_GROSS_MARGIN"
+                        );
+                    }
+                }
+                v
+            },
             telnyx: TelnyxConfig::from_env(),
         })
     }

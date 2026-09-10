@@ -366,6 +366,233 @@ async fn settle(
     Ok(())
 }
 
+/// The VoIP housekeeping loop: end overrunning calls, then close orphaned holds.
+///
+/// Both jobs exist because a webhook is not a guarantee. A provider that never sends the
+/// hangup — or a process that died mid-transaction — leaves a call that is live in our
+/// records forever, holding the customer's credits and, worse, still being charged for by
+/// the carrier. Nothing in the request path can notice that; only a clock can.
+pub async fn run_sweep(state: crate::AppState, interval: std::time::Duration, batch: i64) {
+    let mut ticker = tokio::time::interval(interval);
+    ticker.tick().await;
+    loop {
+        ticker.tick().await;
+        let Some(pool) = state.pool.as_ref() else {
+            continue;
+        };
+
+        if let Some(provider) = state.telephony.as_deref() {
+            match reap_overrunning_calls(pool, provider, batch).await {
+                Ok(0) => {}
+                Ok(n) => tracing::warn!(count = n, "ended calls past their maximum duration"),
+                Err(e) => tracing::error!(error = %e, "voip duration reaper failed"),
+            }
+        }
+
+        match fail_stalled_calls(pool, batch).await {
+            Ok(0) => {}
+            Ok(n) => tracing::warn!(count = n, "failed calls that never left the dialling state"),
+            Err(e) => tracing::error!(error = %e, "voip stall reaper failed"),
+        }
+
+        match settle_finished_calls(pool, batch).await {
+            Ok(0) => {}
+            Ok(n) => tracing::warn!(count = n, "settled credit holds a webhook had left open"),
+            Err(e) => tracing::error!(error = %e, "voip settlement sweep failed"),
+        }
+
+        if let Some(provider) = state.telephony.as_deref() {
+            match reconcile_costs(pool, provider, &state.config, batch).await {
+                Ok(0) => {}
+                Ok(n) => tracing::info!(count = n, "reconciled calls against provider cost"),
+                Err(e) => tracing::error!(error = %e, "voip cost reconcile failed"),
+            }
+        }
+    }
+}
+
+/// Record what a finished call actually cost us, and shout if we sold it below the floor.
+///
+/// R12. The margin guard is only worth anything if somebody checks the *realised* number:
+/// pricing proves the quote respects the floor, but the quote is built from the rate deck,
+/// and the invoice is built from what the carrier actually did.
+///
+/// **This is a no-op with Telnyx today.** That provider rates asynchronously through batched
+/// usage reports and its adapter reports per-leg CDR as `Unsupported` rather than inventing
+/// a zero — so affected calls stay `actual_provider_cost_usd IS NULL`, which reads as
+/// *unreconciled* rather than as profitable. The path is wired and tested against the mock
+/// so that the day the usage report lands, the alarm already exists.
+pub async fn reconcile_costs(
+    pool: &Pool,
+    provider: &dyn crate::telephony::TelephonyProvider,
+    config: &crate::config::Config,
+    limit: i64,
+) -> Result<usize, sqlx::Error> {
+    let Some(voip) = config.voip.as_ref() else {
+        return Ok(0);
+    };
+    let Ok(margin) = pricing::MarginPolicy::new(
+        pricing::usd_from_config(voip.min_gross_margin),
+        pricing::usd_from_config(voip.cost_safety_buffer),
+    ) else {
+        return Ok(0);
+    };
+
+    let rows: Vec<(Uuid, Vec<String>, Option<Decimal>)> = sqlx::query_as(
+        "SELECT id, provider_leg_ids, customer_charge_usd
+         FROM voip_calls
+         WHERE status = 'completed'
+           AND actual_provider_cost_usd IS NULL
+           AND ended_at IS NOT NULL
+           AND ended_at > now() - interval '7 days'
+         ORDER BY ended_at DESC
+         LIMIT $1",
+    )
+    .bind(limit.clamp(1, 200))
+    .fetch_all(pool)
+    .await?;
+
+    let mut done = 0;
+    for (call_id, legs, charged) in rows {
+        let mut cost = Decimal::ZERO;
+        let mut any = false;
+        for leg in &legs {
+            match provider.fetch_cdr(&LegId::new(leg.clone())).await {
+                Ok(Some(cdr)) => {
+                    cost += cdr.cost;
+                    any = true;
+                }
+                // Not rated yet is the normal state for a minute or two after hangup.
+                Ok(None) => {}
+                // The provider cannot tell us at all. Leave the row unreconciled rather
+                // than writing a zero that would read as "this call was free".
+                Err(_) => return Ok(done),
+            }
+        }
+        if !any {
+            continue;
+        }
+
+        let charge = charged.unwrap_or(Decimal::ZERO);
+        let realised = pricing::realised_margin(charge, cost);
+        sqlx::query(
+            "UPDATE voip_calls
+             SET actual_provider_cost_usd = $2, gross_margin = $3, updated_at = now()
+             WHERE id = $1",
+        )
+        .bind(call_id)
+        .bind(cost)
+        .bind(realised)
+        .execute(pool)
+        .await?;
+
+        if !margin.is_respected(charge, cost) {
+            // Never absorbed quietly: a call sold below the floor is a pricing fact
+            // somebody has to see. The call id is safe to log; the number is not, and is
+            // not here.
+            crate::metrics::record_voip_margin_breach();
+            tracing::error!(
+                %call_id,
+                charged = %charge,
+                cost = %cost,
+                realised = ?realised,
+                floor = %margin.min_gross_margin(),
+                "translated call settled BELOW the configured gross-margin floor"
+            );
+        }
+        done += 1;
+    }
+    Ok(done)
+}
+
+/// End calls that have run past the shorter of the org's and the deployment's limit.
+///
+/// The cap is enforced here rather than on a timer per call: a timer lives in the process
+/// that placed the call and dies with it, which is precisely the case the cap exists for.
+/// Hanging up is best-effort per leg — the far party may already have gone — and the
+/// authoritative state change still arrives as the resulting hangup webhook, so this never
+/// races the provider into an inconsistent record.
+pub async fn reap_overrunning_calls(
+    pool: &Pool,
+    provider: &dyn crate::telephony::TelephonyProvider,
+    limit: i64,
+) -> Result<usize, sqlx::Error> {
+    let rows: Vec<(Uuid, Vec<String>)> = sqlx::query_as(
+        "SELECT c.id, c.provider_leg_ids
+         FROM voip_calls c
+         LEFT JOIN voip_org_settings s ON s.org_id = c.org_id
+         WHERE c.status IN ('answered', 'bridged', 'ending')
+           AND c.answered_at IS NOT NULL
+           AND c.answered_at < now() - make_interval(mins => COALESCE(s.max_call_minutes, 60))
+         ORDER BY c.answered_at
+         LIMIT $1",
+    )
+    .bind(limit.clamp(1, 200))
+    .fetch_all(pool)
+    .await?;
+
+    let mut ended = 0;
+    for (call_id, legs) in rows {
+        for leg in legs {
+            let _ = provider.hangup(&LegId::new(leg)).await;
+        }
+        // Recorded now so a provider that never sends the hangup still leaves an honest
+        // reason on the row; the state itself moves when the webhook lands.
+        sqlx::query(
+            "UPDATE voip_calls
+             SET status = 'ending',
+                 failure_reason = COALESCE(failure_reason, 'max_duration_reached'),
+                 updated_at = now()
+             WHERE id = $1 AND status IN ('answered', 'bridged')",
+        )
+        .bind(call_id)
+        .execute(pool)
+        .await?;
+        ended += 1;
+    }
+    Ok(ended)
+}
+
+/// How long a call may sit un-answered before we give up on it.
+///
+/// Generously longer than any dial timeout: the point is not to race the provider, it is
+/// to catch a call the provider never spoke about again.
+const STALL_GRACE_SECS: i64 = 600;
+
+/// Fail calls that never got past dialling.
+///
+/// The failure mode this exists for is quiet and expensive: the provider accepts a dial and
+/// then says nothing — no answer, no hangup, no error. The row sits in `dialing` forever.
+/// Nothing in the request path can notice, and because a non-terminal call counts towards
+/// **every** concurrency cap, one such row permanently consumes a slot. Enough of them and
+/// the deployment stops dialling altogether, with no error anywhere that explains why.
+///
+/// Marking them failed also releases their credit hold on the next pass of the settlement
+/// sweep, so the customer's money does not sit stranded behind a provider's silence.
+pub async fn fail_stalled_calls(pool: &Pool, limit: i64) -> Result<usize, sqlx::Error> {
+    let ids: Vec<Uuid> = sqlx::query_scalar(
+        "UPDATE voip_calls
+         SET status = 'failed',
+             failure_reason = COALESCE(failure_reason, 'provider_unavailable'),
+             ended_at = COALESCE(ended_at, now()),
+             updated_at = now()
+         WHERE id IN (
+            SELECT id FROM voip_calls
+            WHERE status IN ('created', 'dialing', 'ringing')
+              AND answered_at IS NULL
+              AND started_at < now() - make_interval(secs => $1)
+            ORDER BY started_at
+            LIMIT $2
+         )
+         RETURNING id",
+    )
+    .bind(STALL_GRACE_SECS as f64)
+    .bind(limit.clamp(1, 500))
+    .fetch_all(pool)
+    .await?;
+    Ok(ids.len())
+}
+
 /// Close any hold left open on a call that has already finished.
 ///
 /// A recovery sweep, not the happy path — [`apply`] settles atomically. This exists for
@@ -910,6 +1137,111 @@ mod tests {
         // And it does not charge this call again.
         settle_finished_calls(&f.pool, 200).await.unwrap();
         assert_eq!(balance(&f.pool, f.org).await, 960);
+    }
+
+    /// A config with VoIP on and the default 20% floor.
+    fn reconcile_config() -> crate::config::Config {
+        let url = std::env::var("DATABASE_URL").unwrap_or_default();
+        let mut c = crate::config::Config::test_with_billing(&url, "reconcile-secret", 0.0);
+        c.voip = Some(crate::config::VoipConfig::test_default());
+        c
+    }
+
+    #[tokio::test]
+    async fn a_call_sold_below_the_floor_is_recorded_and_shouted_about() {
+        // R12. The quote is priced from the rate deck; the invoice is priced by what the
+        // carrier actually did. The guard is only worth something if somebody compares them.
+        let Some(f) = setup(1000, "0.60").await else {
+            eprintln!("skipping — no DATABASE_URL");
+            return;
+        };
+        let leg = f.leg();
+        sqlx::query(
+            "UPDATE voip_calls SET status = 'completed', ended_at = now(),
+                 customer_charge_usd = 0.10, credits_consumed = 10 WHERE id = $1",
+        )
+        .bind(f.call)
+        .execute(&f.pool)
+        .await
+        .unwrap();
+
+        let p = crate::telephony::mock::MockTelephonyProvider::default();
+        // Cost 0.09 against a charge of 0.10 → 10% margin, under the 20% floor.
+        p.set_cdr(
+            &leg,
+            crate::telephony::Cdr {
+                leg_id: leg.clone(),
+                billed_seconds: 60,
+                cost: "0.09".parse().unwrap(),
+                codec: None,
+                hangup_cause: None,
+            },
+        );
+
+        let before = margin_breaches();
+        let done = reconcile_costs(&f.pool, &p, &reconcile_config(), 50)
+            .await
+            .unwrap();
+        assert!(done >= 1);
+
+        let (cost, margin): (Option<Decimal>, Option<Decimal>) = sqlx::query_as(
+            "SELECT actual_provider_cost_usd, gross_margin FROM voip_calls WHERE id = $1",
+        )
+        .bind(f.call)
+        .fetch_one(&f.pool)
+        .await
+        .unwrap();
+        assert_eq!(cost, Some("0.09".parse().unwrap()));
+        assert_eq!(margin, Some("0.100000".parse().unwrap()));
+
+        // The breach is counted, not just logged — it is money.
+        assert!(
+            margin_breaches() > before,
+            "a below-floor settlement must move voip_margin_breaches_total"
+        );
+    }
+
+    /// Read one counter out of the exposition, so the assertion is about THIS counter
+    /// rather than about the whole payload differing (which parallel tests would also
+    /// cause, passing for the wrong reason).
+    fn margin_breaches() -> u64 {
+        crate::metrics::render(0, 0)
+            .lines()
+            .find_map(|l| l.strip_prefix("voxtranslate_voip_margin_breaches_total "))
+            .and_then(|v| v.trim().parse().ok())
+            .unwrap_or(0)
+    }
+
+    #[tokio::test]
+    async fn a_provider_that_cannot_report_cost_leaves_the_call_unreconciled() {
+        // Never a zero: a zero would show the call at 100% margin, which is a far more
+        // confident claim than "we do not know yet".
+        let Some(f) = setup(1000, "0.60").await else {
+            eprintln!("skipping — no DATABASE_URL");
+            return;
+        };
+        sqlx::query(
+            "UPDATE voip_calls SET status = 'completed', ended_at = now(),
+                 customer_charge_usd = 0.10 WHERE id = $1",
+        )
+        .bind(f.call)
+        .execute(&f.pool)
+        .await
+        .unwrap();
+
+        // The mock returns None for a leg with no CDR set — "not rated yet".
+        let p = crate::telephony::mock::MockTelephonyProvider::default();
+        reconcile_costs(&f.pool, &p, &reconcile_config(), 50)
+            .await
+            .unwrap();
+
+        let cost: Option<Decimal> =
+            sqlx::query_scalar("SELECT actual_provider_cost_usd FROM voip_calls WHERE id = $1")
+                .bind(f.call)
+                .fetch_one(&f.pool)
+                .await
+                .unwrap();
+        assert_eq!(cost, None, "unreconciled, not free");
     }
 
     #[tokio::test]

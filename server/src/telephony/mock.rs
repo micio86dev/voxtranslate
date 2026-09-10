@@ -92,6 +92,10 @@ impl MockTelephonyProvider {
                 // A mock keeps nothing anywhere, so claiming EU telephony would let an
                 // EU-gate test pass for the wrong reason.
                 eu_telephony: false,
+                // A mock owns no number. A call with no org-owned verified number is then
+                // refused rather than placed anonymously, which is the behaviour the
+                // tenancy tests want to see.
+                default_caller_id: None,
                 capabilities: ProviderCapabilities {
                     bidirectional_media: true,
                     // The constraint the architecture depends on, reproduced faithfully.

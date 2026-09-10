@@ -60,6 +60,7 @@ impl TelnyxProvider {
             display_name: "Telnyx",
             region: cfg.media_anchor.clone(),
             eu_telephony: cfg.is_eu(),
+            default_caller_id: cfg.default_caller_id.clone(),
             capabilities: ProviderCapabilities {
                 bidirectional_media: true,
                 // Documented provider limit: one streaming operation and one bidirectional

@@ -35,7 +35,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 
 use crate::telephony::MediaCodec;
-use crate::voip::codec::{self, PlaybackQueue, Resampler};
+use crate::voip::codec::{self, PlaybackGate, Resampler};
 
 /// What the engines speak (spec 0043). Everything on the wire is resampled to this.
 pub const ENGINE_RATE_HZ: u32 = 24_000;
@@ -221,7 +221,7 @@ pub struct Leg {
     up: Resampler,
     /// Engine → phone.
     down: Resampler,
-    queue: PlaybackQueue,
+    gate: PlaybackGate,
     /// Whether the far party is currently speaking, for barge-in.
     far_speaking: Arc<AtomicBool>,
 }
@@ -233,7 +233,7 @@ impl Leg {
             codec,
             up: Resampler::new(wire, ENGINE_RATE_HZ),
             down: Resampler::new(ENGINE_RATE_HZ, wire),
-            queue: PlaybackQueue::new(),
+            gate: PlaybackGate::new(),
             far_speaking: Arc::new(AtomicBool::new(false)),
         }
     }
@@ -271,8 +271,8 @@ impl Leg {
         Ok(B64.encode(wire))
     }
 
-    pub fn queue(&mut self) -> &mut PlaybackQueue {
-        &mut self.queue
+    pub fn gate(&mut self) -> &mut PlaybackGate {
+        &mut self.gate
     }
 
     /// The far party started talking. Returns whether anything had to be discarded, so the
@@ -280,7 +280,7 @@ impl Leg {
     /// command on a silent leg is a wasted round trip on the latency path.
     pub fn barge_in(&mut self) -> bool {
         self.far_speaking.store(true, Ordering::Relaxed);
-        self.queue.barge_in()
+        self.gate.barge_in()
     }
 
     pub fn far_stopped(&self) {
@@ -372,8 +372,12 @@ where
                     leg.far_stopped();
                     let Ok(pcm) = B64.decode(&pcm_b64) else { continue };
                     let payload = leg.encode_down(&pcm)?;
-                    let gen = leg.queue().generation();
-                    if leg.queue().push(gen, payload.clone().into_bytes()) {
+                    // The gate holds nothing: it decides whether this chunk still belongs
+                    // to the current utterance and accounts for what the provider now has
+                    // buffered. The audio itself goes straight to the wire.
+                    let gen = leg.gate().generation();
+                    let bytes = payload.len();
+                    if leg.gate().accept(gen, bytes) {
                         let _ = socket.send(json(&Outbound::media(payload))).await;
                     }
                 }
@@ -639,36 +643,36 @@ mod tests {
     // ---- barge-in -------------------------------------------------------------
 
     #[test]
-    fn the_far_party_speaking_clears_what_was_queued_for_them() {
+    fn the_far_party_speaking_clears_what_was_sent_to_them() {
         let mut leg = Leg::new(MediaCodec::L16);
-        let gen = leg.queue().generation();
-        leg.queue().push(gen, b"queued".to_vec());
+        let gen = leg.gate().generation();
+        leg.gate().accept(gen, 640);
         assert!(!leg.far_speaking());
 
-        assert!(leg.barge_in(), "there was audio to discard");
+        assert!(leg.barge_in(), "there was audio out there to discard");
         assert!(leg.far_speaking());
-        assert!(leg.queue().is_empty());
+        assert!(leg.gate().is_idle());
 
-        // A second barge-in with nothing queued reports nothing to clear, so the caller
+        // A second barge-in with nothing in flight reports nothing to clear, so the caller
         // can skip the provider round trip.
         assert!(!leg.barge_in());
     }
 
     #[test]
-    fn audio_from_the_interrupted_sentence_cannot_refill_the_queue() {
+    fn audio_from_the_interrupted_sentence_never_reaches_the_wire() {
         let mut leg = Leg::new(MediaCodec::L16);
-        let stale = leg.queue().generation();
-        leg.queue().push(stale, b"first".to_vec());
+        let stale = leg.gate().generation();
+        leg.gate().accept(stale, 640);
         leg.barge_in();
 
         assert!(
-            !leg.queue().push(stale, b"late chunk".to_vec()),
-            "a chunk produced before the interruption must be discarded"
+            !leg.gate().accept(stale, 640),
+            "a chunk produced before the interruption must be refused"
         );
-        assert!(leg.queue().is_empty());
+        assert!(leg.gate().is_idle());
 
-        let fresh = leg.queue().generation();
-        assert!(leg.queue().push(fresh, b"new sentence".to_vec()));
+        let fresh = leg.gate().generation();
+        assert!(leg.gate().accept(fresh, 640));
     }
 
     #[test]

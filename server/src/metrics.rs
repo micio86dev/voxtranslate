@@ -79,6 +79,7 @@ static VOIP_PROVIDER_ERRORS: AtomicU64 = AtomicU64::new(0);
 static VOIP_MEDIA_DISCONNECTS: AtomicU64 = AtomicU64::new(0);
 static VOIP_WS_RECONNECTS: AtomicU64 = AtomicU64::new(0);
 static VOIP_RESERVATION_FAILURES: AtomicU64 = AtomicU64::new(0);
+static VOIP_MARGIN_BREACHES: AtomicU64 = AtomicU64::new(0);
 static VOIP_WEBHOOK_REJECTED: AtomicU64 = AtomicU64::new(0);
 static VOIP_WEBHOOK_DUPLICATE: AtomicU64 = AtomicU64::new(0);
 static VOIP_SETUP_SUM: AtomicU64 = AtomicU64::new(0);
@@ -155,6 +156,15 @@ pub fn record_voip_ws_reconnect() {
 /// A hold that could not be taken — almost always an empty credit pool.
 pub fn record_voip_reservation_failure() {
     VOIP_RESERVATION_FAILURES.fetch_add(1, Ordering::Relaxed);
+}
+
+/// A completed call whose REALISED gross margin came in below the configured floor.
+///
+/// Any sustained value here means the rate deck and the invoice disagree, which is a
+/// pricing problem rather than an incident — but it is money, so it is a counter and not
+/// only a log line.
+pub fn record_voip_margin_breach() {
+    VOIP_MARGIN_BREACHES.fetch_add(1, Ordering::Relaxed);
 }
 
 /// A webhook refused at the signature or timestamp check.
@@ -305,6 +315,7 @@ struct Snapshot {
     voip_media_disconnects: u64,
     voip_ws_reconnects: u64,
     voip_reservation_failures: u64,
+    voip_margin_breaches: u64,
     voip_webhook_rejected: u64,
     voip_webhook_duplicate: u64,
     voip_setup_sum: u64,
@@ -358,6 +369,7 @@ fn snapshot() -> Snapshot {
         voip_media_disconnects: VOIP_MEDIA_DISCONNECTS.load(Ordering::Relaxed),
         voip_ws_reconnects: VOIP_WS_RECONNECTS.load(Ordering::Relaxed),
         voip_reservation_failures: VOIP_RESERVATION_FAILURES.load(Ordering::Relaxed),
+        voip_margin_breaches: VOIP_MARGIN_BREACHES.load(Ordering::Relaxed),
         voip_webhook_rejected: VOIP_WEBHOOK_REJECTED.load(Ordering::Relaxed),
         voip_webhook_duplicate: VOIP_WEBHOOK_DUPLICATE.load(Ordering::Relaxed),
         voip_setup_sum: VOIP_SETUP_SUM.load(Ordering::Relaxed),
@@ -543,6 +555,11 @@ fn render_from(s: &Snapshot, active_rooms: u64, active_peers: u64) -> String {
             s.voip_reservation_failures,
         ),
         (
+            "voxtranslate_voip_margin_breaches_total",
+            "Completed calls whose realised gross margin came in below the configured floor.",
+            s.voip_margin_breaches,
+        ),
+        (
             "voxtranslate_voip_webhooks_rejected_total",
             "Webhooks refused at the signature or timestamp check.",
             s.voip_webhook_rejected,
@@ -657,6 +674,7 @@ mod tests {
             voip_media_disconnects: 3,
             voip_ws_reconnects: 4,
             voip_reservation_failures: 5,
+            voip_margin_breaches: 0,
             voip_webhook_rejected: 6,
             voip_webhook_duplicate: 11,
             voip_setup_sum: 14_000,
@@ -687,6 +705,7 @@ mod tests {
         assert!(out.contains("voxtranslate_voip_calls_refused_total 1"));
         assert!(out.contains("voxtranslate_voip_credit_reservation_failures_total 5"));
         assert!(out.contains("voxtranslate_voip_webhooks_rejected_total 6"));
+        assert!(out.contains("voxtranslate_voip_margin_breaches_total 0"));
         assert!(out.contains("voxtranslate_voip_webhooks_duplicate_total 11"));
         assert!(out.contains("voxtranslate_voip_translation_ms_bucket{le=\"+Inf\"} 7"));
         assert!(out.contains("voxtranslate_voip_translation_ms_sum 9100"));
@@ -727,7 +746,7 @@ mod tests {
         // without its TYPE line fails here — a scrape silently drops an untyped series.
         let typed = out.matches("# TYPE ").count();
         let helped = out.matches("# HELP ").count();
-        assert_eq!(typed, 24, "one TYPE line per exported metric");
+        assert_eq!(typed, 25, "one TYPE line per exported metric");
         assert_eq!(helped, typed, "every metric also carries a HELP line");
     }
 

@@ -23,7 +23,7 @@
 use chrono::Utc;
 use voxtranslate_server::config::{TelnyxConfig, TELNYX_DEFAULT_API_BASE};
 use voxtranslate_server::telephony::telnyx::TelnyxProvider;
-use voxtranslate_server::telephony::{DialRequest, E164, TelephonyProvider, WebhookHeaders};
+use voxtranslate_server::telephony::{DialRequest, TelephonyProvider, WebhookHeaders, E164};
 
 /// Both gates. Returns `None` — and says why — rather than failing, so a full
 /// `--ignored` run on a machine with no credentials reports "skipped", not "broken".
@@ -32,7 +32,9 @@ fn provider() -> Option<TelnyxProvider> {
         eprintln!("skipping — set VOIP_LIVE_TESTS=true to run live provider tests");
         return None;
     }
-    let api_key = std::env::var("TELNYX_API_KEY").ok().filter(|k| !k.is_empty())?;
+    let api_key = std::env::var("TELNYX_API_KEY")
+        .ok()
+        .filter(|k| !k.is_empty())?;
     let cfg = TelnyxConfig {
         api_key,
         api_base: std::env::var("TELNYX_API_BASE")
@@ -54,7 +56,10 @@ fn provider() -> Option<TelnyxProvider> {
 async fn the_configured_endpoint_is_the_eu_one() {
     let Some(p) = provider() else { return };
     let meta = p.metadata();
-    println!("region: {} · eu_telephony: {}", meta.region, meta.eu_telephony);
+    println!(
+        "region: {} · eu_telephony: {}",
+        meta.region, meta.eu_telephony
+    );
     assert!(
         meta.eu_telephony,
         "this deployment is NOT configured for EU telephony — check TELNYX_API_BASE and \
@@ -90,7 +95,10 @@ async fn credentials_work_and_the_rate_deck_parses() {
     // Spot-check the shape rather than any particular price: prices move, the shape is
     // what the parser depends on.
     let sample = &rates[0];
-    println!("sample: +{} = {} /min ({})", sample.prefix, sample.cost_per_minute, sample.description);
+    println!(
+        "sample: +{} = {} /min ({})",
+        sample.prefix, sample.cost_per_minute, sample.description
+    );
     assert!(sample.prefix.chars().all(|c| c.is_ascii_digit()));
     assert!(sample.cost_per_minute >= rust_decimal::Decimal::ZERO);
 }
@@ -123,8 +131,10 @@ async fn an_unsigned_webhook_is_rejected_by_the_configured_key() {
     // A genuine end-to-end signature check needs Telnyx to sign something, which only a
     // real event can do. That half is covered by `place_one_real_call` below, whose
     // webhooks arrive at the configured URL and either verify or do not.
-    println!("signature verification is armed (public key is {} bytes)",
-             std::env::var("TELNYX_PUBLIC_KEY").unwrap_or_default().len());
+    println!(
+        "signature verification is armed (public key is {} bytes)",
+        std::env::var("TELNYX_PUBLIC_KEY").unwrap_or_default().len()
+    );
 }
 
 /// **This one spends money and rings a real telephone.**

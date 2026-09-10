@@ -317,25 +317,32 @@ fn build_phases(l: usize, m: usize) -> Vec<Vec<f32>> {
 // Barge-in
 // ---------------------------------------------------------------------------
 
-/// Queued synthesized audio for one direction, with a generation counter.
+/// The barge-in gate for one direction's synthesized audio.
+///
+/// It is a **gate, not a buffer**: nothing here ever holds audio. The provider owns the
+/// playback buffer once a chunk is handed to the wire, so keeping a copy would be a
+/// per-call memory leak growing for the whole conversation and buying nothing. It tracks
+/// two things instead — which utterance we are on, and how much of it is still out there.
 ///
 /// Barge-in (R15) is not just "stop playing". Translated speech is produced
 /// asynchronously: when the far party interrupts, TTS chunks for the *previous* utterance
 /// are still in flight and will arrive after the clear. Dropping the queue without a
-/// generation counter lets those late chunks refill it, and the caller hears the sentence
-/// they just interrupted resume a beat later — which is worse than not supporting
-/// barge-in at all, because it sounds like the system ignored them.
+/// generation counter lets those late chunks reach the wire, and the caller hears the
+/// sentence they just interrupted resume a beat later — which is worse than not supporting
+/// barge-in at all, because it reads as the system ignoring them.
 ///
 /// So every chunk is tagged with the generation it was produced for, and a chunk from a
-/// superseded generation is discarded on arrival.
+/// superseded utterance is refused on arrival.
 #[derive(Debug, Default)]
-pub struct PlaybackQueue {
-    chunks: VecDeque<Vec<u8>>,
+pub struct PlaybackGate {
     generation: u64,
-    queued_bytes: usize,
+    /// Bytes handed to the wire since the last barge-in — i.e. roughly what the provider
+    /// still has buffered. Reset by [`barge_in`](Self::barge_in), which is also what tells
+    /// the caller whether sending the provider a `clear` is worth the round trip.
+    in_flight_bytes: usize,
 }
 
-impl PlaybackQueue {
+impl PlaybackGate {
     pub fn new() -> Self {
         Self::default()
     }
@@ -345,42 +352,38 @@ impl PlaybackQueue {
         self.generation
     }
 
-    /// Enqueue a chunk. Returns `false` — and drops it — when it belongs to a superseded
+    /// Whether a chunk may go to the wire, and account for it if so.
+    ///
+    /// Returns `false` — and the caller drops it — when it belongs to a superseded
     /// utterance.
-    pub fn push(&mut self, generation: u64, chunk: Vec<u8>) -> bool {
+    pub fn accept(&mut self, generation: u64, bytes: usize) -> bool {
         if generation != self.generation {
             return false;
         }
-        self.queued_bytes += chunk.len();
-        self.chunks.push_back(chunk);
+        self.in_flight_bytes = self.in_flight_bytes.saturating_add(bytes);
         true
     }
 
-    pub fn pop(&mut self) -> Option<Vec<u8>> {
-        let c = self.chunks.pop_front()?;
-        self.queued_bytes -= c.len();
-        Some(c)
-    }
-
-    /// Abandon everything queued and everything still in flight.
+    /// Abandon the current utterance: everything already sent and everything still coming.
     ///
-    /// Returns whether anything was actually discarded, so the caller only sends the
-    /// provider a `clear` when there was something to clear — an unnecessary clear on a
+    /// Returns whether anything was actually in flight, so the caller only sends the
+    /// provider a `clear` when there is something to clear — an unnecessary command on a
     /// silent leg is a wasted round trip on the latency path.
     pub fn barge_in(&mut self) -> bool {
-        let had = !self.chunks.is_empty();
-        self.chunks.clear();
-        self.queued_bytes = 0;
+        let had = self.in_flight_bytes > 0;
+        self.in_flight_bytes = 0;
         self.generation += 1;
         had
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.chunks.is_empty()
+    /// Roughly what the provider still has buffered for this leg. Diagnostics, and the
+    /// basis for the `clear`-is-worth-it decision.
+    pub fn in_flight_bytes(&self) -> usize {
+        self.in_flight_bytes
     }
 
-    pub fn queued_bytes(&self) -> usize {
-        self.queued_bytes
+    pub fn is_idle(&self) -> bool {
+        self.in_flight_bytes == 0
     }
 }
 
@@ -666,76 +669,86 @@ mod tests {
     // ---- barge-in -------------------------------------------------------------
 
     #[test]
-    fn barge_in_drops_the_queue_and_reports_that_it_did() {
-        let mut q = PlaybackQueue::new();
-        let g = q.generation();
-        assert!(q.push(g, vec![1, 2, 3]));
-        assert!(q.push(g, vec![4]));
-        assert_eq!(q.queued_bytes(), 4);
-
-        assert!(q.barge_in(), "there was audio to discard");
-        assert!(q.is_empty());
-        assert_eq!(q.queued_bytes(), 0);
-        assert_eq!(q.pop(), None);
+    fn the_gate_holds_no_audio() {
+        // THE regression: the previous shape kept every chunk it had already handed to the
+        // wire, so a call that ran without interruption grew a copy of the whole
+        // conversation in memory. The provider owns the playback buffer; we own the
+        // decision about which utterance is current.
+        let mut g = PlaybackGate::new();
+        let gen = g.generation();
+        for _ in 0..10_000 {
+            assert!(g.accept(gen, 640));
+        }
+        assert_eq!(g.in_flight_bytes(), 10_000 * 640);
+        assert_eq!(
+            std::mem::size_of_val(&g),
+            std::mem::size_of::<PlaybackGate>(),
+            "the gate's size cannot depend on how much audio passed through it"
+        );
+        g.barge_in();
+        assert!(g.is_idle());
     }
 
     #[test]
-    fn barge_in_on_a_silent_leg_reports_nothing_to_clear() {
-        // So the caller can skip the provider round trip. On the latency path, a
-        // needless command is not free.
-        let mut q = PlaybackQueue::new();
-        assert!(!q.barge_in());
+    fn barge_in_reports_whether_there_was_anything_to_clear() {
+        let mut g = PlaybackGate::new();
+        // Nothing in flight: the caller skips the provider round trip.
+        assert!(!g.barge_in());
+
+        let gen = g.generation();
+        assert!(g.accept(gen, 320));
+        assert!(g.barge_in(), "there was audio out there to discard");
+        assert!(g.is_idle());
     }
 
     #[test]
-    fn audio_still_in_flight_when_the_interruption_happened_is_discarded() {
-        // THE bug this exists for. TTS runs asynchronously: chunks for the interrupted
-        // sentence arrive AFTER the clear. Without the generation counter they refill the
-        // queue and the caller hears the sentence they just interrupted resume — which
-        // reads as "the system ignored me", worse than having no barge-in at all.
-        let mut q = PlaybackQueue::new();
-        let old = q.generation();
-        q.push(old, vec![1]);
+    fn audio_still_in_flight_when_the_interruption_happened_is_refused() {
+        // TTS runs asynchronously: chunks for the interrupted sentence arrive AFTER the
+        // clear. Letting them through means the caller hears the sentence they just
+        // interrupted resume — which reads as "the system ignored me".
+        let mut g = PlaybackGate::new();
+        let old = g.generation();
+        g.accept(old, 320);
 
-        q.barge_in();
-        let new = q.generation();
+        g.barge_in();
+        let new = g.generation();
         assert_ne!(old, new);
 
-        assert!(!q.push(old, vec![2]), "a late chunk from the old utterance");
-        assert!(q.is_empty(), "and it did not refill the queue");
+        assert!(!g.accept(old, 320), "a late chunk from the old utterance");
+        assert!(g.is_idle(), "and it was not accounted for either");
 
-        assert!(q.push(new, vec![3]), "the new utterance plays normally");
-        assert_eq!(q.pop(), Some(vec![3]));
-    }
-
-    #[test]
-    fn the_queue_is_fifo_so_speech_does_not_come_out_backwards() {
-        let mut q = PlaybackQueue::new();
-        let g = q.generation();
-        for i in 0..5u8 {
-            q.push(g, vec![i]);
-        }
-        for i in 0..5u8 {
-            assert_eq!(q.pop(), Some(vec![i]));
-        }
-        assert_eq!(q.pop(), None);
+        assert!(g.accept(new, 320), "the new utterance plays normally");
     }
 
     #[test]
     fn repeated_barge_ins_keep_advancing_the_generation() {
         // Two interruptions in quick succession must not let the FIRST utterance's
         // in-flight audio through on the second clear.
-        let mut q = PlaybackQueue::new();
-        let g0 = q.generation();
-        q.push(g0, vec![1]);
-        q.barge_in();
-        let g1 = q.generation();
-        q.push(g1, vec![2]);
-        q.barge_in();
-        let g2 = q.generation();
+        let mut g = PlaybackGate::new();
+        let g0 = g.generation();
+        g.accept(g0, 1);
+        g.barge_in();
+        let g1 = g.generation();
+        g.accept(g1, 1);
+        g.barge_in();
+        let g2 = g.generation();
+
         assert!(g2 > g1 && g1 > g0);
-        assert!(!q.push(g0, vec![9]));
-        assert!(!q.push(g1, vec![9]));
-        assert!(q.push(g2, vec![9]));
+        assert!(!g.accept(g0, 1));
+        assert!(!g.accept(g1, 1));
+        assert!(g.accept(g2, 1));
+    }
+
+    #[test]
+    fn the_byte_counter_cannot_overflow_on_a_very_long_call() {
+        let mut g = PlaybackGate::new();
+        let gen = g.generation();
+        g.accept(gen, usize::MAX);
+        g.accept(gen, 1024);
+        assert_eq!(
+            g.in_flight_bytes(),
+            usize::MAX,
+            "saturates rather than wrapping"
+        );
     }
 }

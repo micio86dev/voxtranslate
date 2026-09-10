@@ -87,6 +87,13 @@ pub struct ProviderMetadata {
     /// `docs/voip-data-flow.md`. Conflating the two is exactly the mistake the GDPR
     /// readiness review found already being made about the product as a whole.
     pub eu_telephony: bool,
+    /// The number this account presents when the organization has none of its own.
+    ///
+    /// Lives here rather than being read from a provider-specific env var deeper in the
+    /// stack: `TELNYX_DEFAULT_CALLER_ID` is a Telnyx name, and provider names stop at this
+    /// boundary. `None` means the deployment configured none, and a call without an
+    /// org-owned verified number is then refused rather than placed anonymously.
+    pub default_caller_id: Option<String>,
     pub capabilities: ProviderCapabilities,
 }
 
@@ -325,7 +332,16 @@ impl fmt::Display for ProviderError {
     }
 }
 
-/// Why a webhook was refused. Every variant means **no state changed** (R24).
+/// Why a webhook was not applied.
+///
+/// The first four mean the webhook was **refused** and no state changed (R24). [`Internal`]
+/// is different in kind and the distinction is load-bearing: it means we could not process
+/// a webhook that may well be valid, so the provider must be told to **retry**. Collapsing
+/// it into a refusal tells the provider "this will never verify", and a transient database
+/// blip during a hangup webhook then loses that event permanently — leaving a call stuck
+/// non-terminal with the customer's credits held.
+///
+/// [`Internal`]: WebhookError::Internal
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WebhookError {
     /// No signature header at all.
@@ -337,6 +353,8 @@ pub enum WebhookError {
     StaleTimestamp,
     /// Body is not the shape we expect.
     Malformed { detail: String },
+    /// We failed to process it — storage, not signature. **Retryable.**
+    Internal { detail: String },
 }
 
 impl WebhookError {
@@ -346,7 +364,16 @@ impl WebhookError {
             Self::BadSignature => "bad_signature",
             Self::StaleTimestamp => "stale_timestamp",
             Self::Malformed { .. } => "malformed",
+            Self::Internal { .. } => "internal_error",
         }
+    }
+
+    /// Whether the provider should try again.
+    ///
+    /// Only an internal failure is retryable. A bad signature never becomes a good one,
+    /// and telling the provider to retry it burns their queue and our rate limit for hours.
+    pub fn is_retryable(&self) -> bool {
+        matches!(self, Self::Internal { .. })
     }
 }
 

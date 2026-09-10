@@ -176,15 +176,6 @@ impl FailureReason {
             Self::Unmapped => "unmapped",
         }
     }
-
-    /// Whether a *refused or failed* call should have already been paid for. Used by
-    /// settlement to assert that nothing was charged for a call that never connected.
-    pub fn is_pre_answer(self) -> bool {
-        !matches!(
-            self,
-            Self::CreditsExhausted | Self::MaxDurationReached | Self::MediaLost
-        )
-    }
 }
 
 /// A lifecycle-relevant thing that happened, already normalised out of provider vocabulary.

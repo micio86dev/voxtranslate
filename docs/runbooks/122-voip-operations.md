@@ -46,6 +46,19 @@ these. A metric label is exported to whoever scrapes us, and a country on
 `calls_failed_total` would put a customer's calling pattern into a third-party system. The
 per-call detail lives in `voip_calls`, behind authorisation.
 
+### The background sweep
+
+`webhook::run_sweep` runs every 60 seconds whenever a provider is configured and the
+database is reachable. It does three things a request path structurally cannot, because
+all three are about calls nobody is watching any more:
+
+1. **Ends calls past their maximum duration** — the cap cannot be a per-call timer, because
+   that timer lives in the process that placed the call and dies with it, which is exactly
+   the case the cap exists for.
+2. **Fails calls stuck before answer** for ten minutes — a provider that accepted a dial and
+   then said nothing leaves a row consuming a concurrency slot forever.
+3. **Closes credit holds** left open by a crash or a hangup webhook that never arrived.
+
 ## 3. Common situations
 
 ### Every call is refused with `rate_unavailable`
@@ -80,8 +93,26 @@ JOIN voip_credit_reservations r ON r.call_id = c.id AND r.state = 'held'
 WHERE c.status IN ('completed', 'failed');
 ```
 
-`webhook::settle_finished_calls` runs over exactly this set and is idempotent. If rows
-persist after it has run, the calls are not terminal — look for a missing hangup webhook.
+`webhook::settle_finished_calls` runs over exactly this set every 60 seconds
+(`webhook::run_sweep`, spawned in `lib.rs` when a provider is configured) and is
+idempotent. If rows persist, the calls are not terminal — look for a missing hangup
+webhook, which the stall reaper below handles.
+
+### Dialling stops with `concurrency_limit` and nobody is on a call
+
+Almost certainly stuck rows, not real traffic. A non-terminal call counts towards **every**
+cap, so a provider that accepted a dial and then went silent leaves a row in `dialing`
+consuming a slot indefinitely.
+
+```sql
+SELECT status, count(*) FROM voip_calls
+WHERE status NOT IN ('completed','failed') GROUP BY 1;
+```
+
+`webhook::fail_stalled_calls` clears these automatically ten minutes after the dial, and
+releases their credit holds on the next settlement pass. Seeing a backlog means the sweep
+is not running — check that `VOIP_PROVIDER` resolves and the database is reachable, because
+`run_sweep` is only spawned when both are true.
 
 ### `actual_provider_cost_usd` is NULL on every call
 

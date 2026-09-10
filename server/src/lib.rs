@@ -1100,6 +1100,19 @@ pub async fn serve() {
         }
     }
 
+    // VoIP housekeeping (spec 0111 §7). Two jobs a request path structurally cannot do:
+    // end a call that has run past its cap, and close a credit hold whose hangup webhook
+    // never arrived. Both are about calls nobody is watching any more.
+    if state.telephony.is_some() && state.pool.is_some() {
+        let interval = Duration::from_secs(60);
+        tracing::info!("VoIP duration reaper + settlement sweep enabled (every 60s)");
+        tokio::spawn(crate::voip::webhook::run_sweep(
+            state.clone(),
+            interval,
+            100,
+        ));
+    }
+
     let addr = format!("0.0.0.0:{port}");
     let listener = match tokio::net::TcpListener::bind(&addr).await {
         Ok(l) => l,

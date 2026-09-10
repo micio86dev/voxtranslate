@@ -273,7 +273,13 @@ pub async fn dial(
     // Caller id must be a number this org owns and that the provider has verified.
     // Anything else would be caller-id spoofing, which is illegal in most of our markets
     // — so it is resolved from the database, never taken from the request body as-is.
-    let caller_id = resolve_caller_id(pool, org_id, body.caller_id.as_deref(), cfg).await?;
+    let caller_id = resolve_caller_id(
+        pool,
+        org_id,
+        body.caller_id.as_deref(),
+        provider.metadata().default_caller_id.as_deref(),
+    )
+    .await?;
 
     let opts = DialOptions {
         destination: body.destination.clone(),
@@ -361,7 +367,7 @@ async fn resolve_caller_id(
     pool: &crate::db::Pool,
     org_id: Uuid,
     requested: Option<&str>,
-    cfg: &crate::config::VoipConfig,
+    provider_default: Option<&str>,
 ) -> Result<E164, Response> {
     let row: Option<String> = match requested {
         Some(want) => sqlx::query_scalar(
@@ -386,9 +392,14 @@ async fn resolve_caller_id(
         .map_err(db_err)?,
     };
 
-    // Falling back to the deployment default is deliberate and narrow: it is a number the
-    // operator owns, so it cannot be used to impersonate anyone. A number the CALLER
-    // named that we cannot verify is refused outright.
+    // Falling back to the deployment's own number is deliberate and narrow: it belongs to
+    // the operator, so it cannot impersonate anyone. A number the CALLER named that we
+    // cannot verify is refused outright — arbitrary caller-id spoofing is illegal in most
+    // of our markets.
+    //
+    // The fallback comes from the PROVIDER's metadata rather than from a provider-specific
+    // environment variable: `TELNYX_DEFAULT_CALLER_ID` is a Telnyx name, and provider names
+    // stop at the `telephony::` boundary.
     let raw = match (row, requested) {
         (Some(n), _) => n,
         (None, Some(_)) => {
@@ -396,12 +407,10 @@ async fn resolve_caller_id(
                 "caller id is not a verified outbound number for this organization",
             ))
         }
-        (None, None) => cfg
-            .provider
-            .is_empty()
-            .then_some(String::new())
-            .or_else(|| std::env::var("TELNYX_DEFAULT_CALLER_ID").ok())
-            .filter(|s| !s.trim().is_empty())
+        (None, None) => provider_default
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
             .ok_or_else(|| bad_request("no caller id is configured for this organization"))?,
     };
 
@@ -804,7 +813,18 @@ pub async fn inbound_webhook(
             tracing::debug!(?outcome, "voip webhook");
             Ok(StatusCode::OK.into_response())
         }
-        // A rejected webhook is a 401, not a 500: the provider must not retry something
+        Err(e) if e.is_retryable() => {
+            // We could not process a webhook that may well be valid. 503 so the provider
+            // redelivers — a 401 here would tell it "this will never verify" and the event
+            // would be lost, leaving the call non-terminal with credits held.
+            tracing::warn!(error = e.code(), "voip webhook could not be processed");
+            Err((
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(json!({ "error": e.code() })),
+            )
+                .into_response())
+        }
+        // A REFUSED webhook is a 401, not a 5xx: the provider must not retry something
         // that will never verify, and a 5xx would make it try for hours.
         Err(e) => {
             // A sustained non-zero rate here means someone who cannot sign is posting to

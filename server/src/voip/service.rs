@@ -222,29 +222,42 @@ pub fn global_policy(cfg: &VoipConfig) -> GlobalPolicy {
     }
 }
 
+/// Advisory-lock key for call admission.
+///
+/// One constant key, so the count-then-insert that enforces the concurrency caps is
+/// serialised across the whole deployment. That sounds heavy and is not: dials are a few
+/// per second at most, and the lock is held for one COUNT and one INSERT. A per-org key
+/// would be cheaper and would leave `max_concurrent_global` racy, which is exactly the
+/// hole R6 says must not exist.
+const ADMISSION_LOCK: i64 = 0x0111_0000_0001;
+
 /// Live call counts: `(user, org, global)`.
 ///
 /// One statement, so the three numbers describe the same instant. Three separate queries
 /// could each be true and jointly wrong.
+///
+/// Reading them is still only a **snapshot**: it is what the dialer's quote is priced
+/// against, and it is deliberately unlocked there because a quote makes no commitment.
+/// The enforcement copy lives inside [`dial`]'s transaction, under [`ADMISSION_LOCK`].
 pub async fn live_counts(
     pool: &Pool,
     org_id: Uuid,
     user_id: Uuid,
 ) -> Result<(i32, i32, i32), sqlx::Error> {
-    let row: (i64, i64, i64) = sqlx::query_as(
-        "SELECT
+    let row: (i64, i64, i64) = sqlx::query_as(LIVE_COUNTS_SQL)
+        .bind(org_id)
+        .bind(user_id)
+        .fetch_one(pool)
+        .await?;
+    Ok((row.0 as i32, row.1 as i32, row.2 as i32))
+}
+
+const LIVE_COUNTS_SQL: &str = "SELECT
             count(*) FILTER (WHERE user_id = $2)::bigint,
             count(*) FILTER (WHERE org_id = $1)::bigint,
             count(*)::bigint
          FROM voip_calls
-         WHERE status IN ('created','dialing','ringing','answered','bridged','ending')",
-    )
-    .bind(org_id)
-    .bind(user_id)
-    .fetch_one(pool)
-    .await?;
-    Ok((row.0 as i32, row.1 as i32, row.2 as i32))
-}
+         WHERE status IN ('created','dialing','ringing','answered','bridged','ending')";
 
 /// Provider cost incurred today, USD. Falls back to the estimate for calls the provider
 /// has not rated yet, so an unreconciled backlog cannot hide a spend spike.
@@ -320,16 +333,33 @@ pub async fn route_validated(
 /// Translation is counted **twice** (R13): both directions run for the whole call, the
 /// same shape as Talk to Anyone and for the same reason — closing the idle direction would
 /// lose the first clause of every turn.
-pub fn provider_cost(rate: &Rate, engine: &EngineMetadata, recording: bool) -> ProviderCost {
+///
+/// Recording and its storage are only charged when recording is actually on, and they come
+/// from configuration rather than from a literal. An earlier version wrote
+/// `if recording { usd_from_config(0.0) } else { ZERO }` — both branches were zero, so a
+/// recorded call was priced exactly like an unrecorded one and the margin floor was proven
+/// against a cost that was too low. The floor is only as good as the cost fed to it.
+pub fn provider_cost(
+    cfg: &VoipConfig,
+    rate: &Rate,
+    engine: &EngineMetadata,
+    recording: bool,
+) -> ProviderCost {
     ProviderCost {
         telephony: rate.cost_per_minute,
         translation: pricing::usd_from_config(engine.cost_per_minute) * Decimal::TWO,
+        media_streaming: pricing::usd_from_config(cfg.media_streaming_cost_per_minute),
         recording: if recording {
-            pricing::usd_from_config(0.0)
+            pricing::usd_from_config(cfg.recording_cost_per_minute)
         } else {
             Decimal::ZERO
         },
-        ..Default::default()
+        storage: if recording {
+            pricing::usd_from_config(cfg.storage_cost_per_minute)
+        } else {
+            Decimal::ZERO
+        },
+        ancillary: Decimal::ZERO,
     }
 }
 
@@ -429,7 +459,7 @@ pub fn build_quote(
     )
     .map_err(|_| VoipError::Misconfigured("VOIP_MIN_GROSS_MARGIN / VOIP_COST_SAFETY_BUFFER"))?;
 
-    let cost = provider_cost(rate, engine, intent.recording);
+    let cost = provider_cost(cfg, rate, engine, intent.recording);
     pricing::quote(&margin, cost, estimated_minutes)
         .map_err(|_| VoipError::Misconfigured("VOIP pricing configuration"))
 }
@@ -454,12 +484,38 @@ pub async fn dial(
     let room = format!("ph-{}", Uuid::new_v4().simple());
     let session_id = Uuid::new_v4();
 
+    // Admission and creation happen in ONE transaction, under an advisory lock.
+    //
+    // The counts in `world` were read without a lock — fine for pricing a quote, useless
+    // for enforcing a cap. Two dials that both saw "one below the limit" would both pass
+    // `policy::check` and both create a call. `reservation.rs` says it in its own words:
+    // any check-then-act is racy no matter how carefully it is written. So the cap is
+    // re-checked here, against counts read inside the lock, immediately before the INSERT
+    // that would break it.
+    let mut tx = pool.begin().await?;
+    sqlx::query("SELECT pg_advisory_xact_lock($1)")
+        .bind(ADMISSION_LOCK)
+        .execute(&mut *tx)
+        .await?;
+
+    let live: (i64, i64, i64) = sqlx::query_as(LIVE_COUNTS_SQL)
+        .bind(org_id)
+        .bind(user_id)
+        .fetch_one(&mut *tx)
+        .await?;
+    if live.0 as i32 >= world.org.policy.max_concurrent_per_user
+        || live.1 as i32 >= world.org.policy.max_concurrent_per_org
+        || live.2 as i32 >= world.global.max_concurrent_global
+    {
+        return Err(VoipError::Refused(FailureReason::ConcurrencyLimit));
+    }
+
     sqlx::query("INSERT INTO call_sessions (id, room, org_id, project_id, kind) VALUES ($1, $2, $3, $4, 'phone')")
         .bind(session_id)
         .bind(&room)
         .bind(org_id)
         .bind(opts.project_id)
-        .execute(pool)
+        .execute(&mut *tx)
         .await?;
 
     let disclosure = consent::plan(
@@ -502,8 +558,12 @@ pub async fn dial(
     .bind(quote.price_per_minute)
     .bind(if intent.recording { "pending" } else { "none" })
     .bind(if intent.transcription { "live" } else { "none" })
-    .fetch_one(pool)
+    .fetch_one(&mut *tx)
     .await?;
+
+    // Committing releases the admission lock. The row now exists and counts towards the
+    // caps, so the next dial sees it — which is the whole point of doing it here.
+    tx.commit().await?;
 
     // The last point at which "no" is free.
     match reservation::reserve(
@@ -660,7 +720,7 @@ mod tests {
     #[test]
     fn translation_is_costed_in_both_directions() {
         // R13. One direction would look profitable and bill half the truth.
-        let c = provider_cost(&rate("0.025"), &engine(0.0036), false);
+        let c = provider_cost(&cfg(), &rate("0.025"), &engine(0.0036), false);
         assert_eq!(c.telephony, "0.025".parse::<Decimal>().unwrap());
         assert_eq!(c.translation, "0.0072".parse::<Decimal>().unwrap());
         assert_eq!(c.total(), "0.0322".parse::<Decimal>().unwrap());
@@ -671,12 +731,62 @@ mod tests {
         // Using the customer-facing rate as our cost would compound the markup and price
         // the call far above what the margin floor actually requires.
         let e = engine(0.0036);
-        let c = provider_cost(&rate("0"), &e, false);
+        let c = provider_cost(&cfg(), &rate("0"), &e, false);
         assert_eq!(c.translation, "0.0072".parse::<Decimal>().unwrap());
         assert_ne!(
             c.translation,
             pricing::usd_from_config(e.user_rate_per_minute()) * Decimal::TWO
         );
+    }
+
+    #[test]
+    fn a_recorded_call_costs_more_than_an_unrecorded_one() {
+        // The regression two independent reviews found: the recording branch used a literal
+        // 0.0, so both arms were zero and a recorded call was priced as if recording were
+        // free — the margin floor then held against a cost that was not the real one.
+        let mut c = cfg();
+        c.recording_cost_per_minute = 0.0025;
+        c.storage_cost_per_minute = 0.0005;
+        c.media_streaming_cost_per_minute = 0.001;
+
+        let off = provider_cost(&c, &rate("0.020"), &engine(0.0036), false);
+        let on = provider_cost(&c, &rate("0.020"), &engine(0.0036), true);
+
+        assert!(
+            on.total() > off.total(),
+            "{} vs {}",
+            on.total(),
+            off.total()
+        );
+        assert_eq!(on.recording, "0.0025".parse::<Decimal>().unwrap());
+        assert_eq!(on.storage, "0.0005".parse::<Decimal>().unwrap());
+        // Media streaming is charged whether or not the call is recorded.
+        assert_eq!(off.media_streaming, "0.001".parse::<Decimal>().unwrap());
+        assert_eq!(off.recording, Decimal::ZERO);
+        assert_eq!(off.storage, Decimal::ZERO);
+
+        // …and the difference reaches the customer's price, which is the whole point.
+        let margin = MarginPolicy::new(
+            pricing::usd_from_config(c.min_gross_margin),
+            pricing::usd_from_config(c.cost_safety_buffer),
+        )
+        .unwrap();
+        assert!(
+            margin.price_per_minute(on.total()).unwrap()
+                > margin.price_per_minute(off.total()).unwrap()
+        );
+    }
+
+    #[test]
+    fn a_zero_recording_cost_still_prices_recording_as_free_and_that_is_configuration() {
+        // Left at the default, a recorded call is priced identically. That is a
+        // COMMERCIAL statement, not a bug — and `Config::from_env` warns loudly at boot
+        // when recording is enabled with the cost still at zero.
+        let c = cfg();
+        assert_eq!(c.recording_cost_per_minute, 0.0);
+        let off = provider_cost(&c, &rate("0.020"), &engine(0.0036), false);
+        let on = provider_cost(&c, &rate("0.020"), &engine(0.0036), true);
+        assert_eq!(on.total(), off.total());
     }
 
     #[test]
