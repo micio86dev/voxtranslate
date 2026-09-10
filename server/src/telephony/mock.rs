@@ -67,6 +67,7 @@ struct MockState {
     cdrs: HashMap<String, Cdr>,
     rate_deck: Vec<Rate>,
     rate_deck_error: Option<ProviderError>,
+    play_error: Option<ProviderError>,
     deleted_recordings: Vec<String>,
     delete_recording_error: Option<ProviderError>,
     seq: u64,
@@ -134,6 +135,12 @@ impl MockTelephonyProvider {
     /// Make the next dial fail. Queued, so several can be lined up in order.
     pub fn fail_next_dial(&self, err: ProviderError) {
         self.lock().dial_outcomes.push(Err(err));
+    }
+
+    /// Make every `play` fail, so the branch where the recipient is never told — and
+    /// capture is therefore switched off — can be driven from a test.
+    pub fn fail_plays(&self, err: ProviderError) {
+        self.lock().play_error = Some(err);
     }
 
     pub fn set_cdr(&self, leg: &LegId, cdr: Cdr) {
@@ -351,9 +358,11 @@ impl TelephonyProvider for MockTelephonyProvider {
     }
 
     async fn play(&self, leg: &LegId, req: PlayRequest) -> Result<(), ProviderError> {
-        self.lock()
-            .commands
-            .push(MockCommand::Play(leg.clone(), req));
+        let mut st = self.lock();
+        if let Some(err) = st.play_error.clone() {
+            return Err(err);
+        }
+        st.commands.push(MockCommand::Play(leg.clone(), req));
         Ok(())
     }
 

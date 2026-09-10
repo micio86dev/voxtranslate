@@ -24,7 +24,7 @@ use voxtranslate_server::auth::{issue_jwt, upsert_google_user, FakeVerifier, Goo
 use voxtranslate_server::billing::{usd, BillingService};
 use voxtranslate_server::config::{Config, VoipConfig};
 use voxtranslate_server::telephony::mock::{MockCommand, MockTelephonyProvider, MockWebhookBody};
-use voxtranslate_server::telephony::{LegId, MediaTrack, PlayRequest};
+use voxtranslate_server::telephony::{LegId, MediaTrack, PlayRequest, ProviderError};
 use voxtranslate_server::{app, db, AppState};
 
 const SECRET: &str = "voip-api-secret";
@@ -1185,6 +1185,129 @@ async fn a_transcript_is_never_kept_without_a_stamp_that_says_it_may_be() {
     );
     state.pool = None;
     assert!(!voxtranslate_server::voip::session::transcription_permitted(&state, call_id).await);
+}
+
+#[tokio::test]
+async fn a_recipient_who_could_not_be_told_is_never_captured() {
+    // The compliance branch. If the announcement cannot be delivered — the carrier refuses
+    // the `speak`, or cannot speak at all — the call carries on and capture does NOT start.
+    // Recording someone who was never told is the incident this whole module exists to
+    // prevent, so this path has to fail towards silence on our side, not theirs.
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    enable_dialing_with_capture(&srv, org, &jwt).await;
+
+    let provider = srv.provider.clone().unwrap();
+    provider.fail_plays(ProviderError::Unavailable {
+        detail: "carrier refused the announcement".into(),
+    });
+
+    let (call_id, leg) = dial_and_answer(&srv, org, &jwt, "it").await;
+
+    let row = sqlx::query(
+        "SELECT consent_status, transcription_status, disclosure_played_at,
+                transcription_started_at
+         FROM voip_calls WHERE id = $1",
+    )
+    .bind(call_id)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
+
+    assert!(
+        row.get::<Option<chrono::DateTime<chrono::Utc>>, _>("disclosure_played_at")
+            .is_none(),
+        "nothing was spoken, so nothing may be stamped as spoken"
+    );
+    assert_eq!(
+        row.get::<String, _>("transcription_status"),
+        "none",
+        "capture must be switched OFF, not left wanting"
+    );
+    assert!(row
+        .get::<Option<chrono::DateTime<chrono::Utc>>, _>("transcription_started_at")
+        .is_none());
+    assert_eq!(
+        row.get::<String, _>("consent_status"),
+        "not_required",
+        "and the gate must settle: `pending` here is unreachable by the timeout sweep, \
+         which only looks at rows that have a disclosure stamp"
+    );
+
+    // The two people are still on the telephone and still paying for a translation.
+    assert!(
+        provider.is_streaming(&leg),
+        "a failed announcement must not also cost them the call"
+    );
+}
+
+#[tokio::test]
+async fn a_gate_nobody_answers_times_out_and_keeps_nothing() {
+    // The carrier's own gather timeout fires on some routes and not others, and the task
+    // that opened the gate may be gone. So the deadline is enforced from the row — and a
+    // timeout is NOT consent.
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    enable_dialing_with_capture(&srv, org, &jwt).await;
+    let (call_id, leg) = dial_and_answer(&srv, org, &jwt, "it").await;
+    let provider = srv.provider.clone().unwrap();
+
+    assert!(!provider.is_streaming(&leg), "the gate is open");
+
+    // Age the disclosure past the grace window rather than waiting for it.
+    sqlx::query(
+        "UPDATE voip_calls SET disclosure_played_at = now() - interval '5 minutes',
+                               status = 'answered'
+         WHERE id = $1",
+    )
+    .bind(call_id)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+
+    let mut state = AppState::new(Config::test_with_billing(
+        &std::env::var("DATABASE_URL").unwrap(),
+        SECRET,
+        0.0,
+    ));
+    state.pool = Some(srv.pool.clone());
+    state.telephony = Some(provider.clone());
+
+    voxtranslate_server::voip::disclosure::time_out_pending_consent(
+        &state,
+        &srv.pool,
+        provider.as_ref(),
+        20,
+        100,
+    )
+    .await
+    .unwrap();
+
+    let row = sqlx::query(
+        "SELECT consent_status, transcription_status, transcription_started_at, status
+         FROM voip_calls WHERE id = $1",
+    )
+    .bind(call_id)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
+
+    assert_eq!(
+        row.get::<String, _>("consent_status"),
+        "timeout",
+        "silence is recorded as silence, never as agreement"
+    );
+    assert_eq!(row.get::<String, _>("transcription_status"), "none");
+    assert!(row
+        .get::<Option<chrono::DateTime<chrono::Utc>>, _>("transcription_started_at")
+        .is_none());
+    assert_eq!(
+        row.get::<String, _>("status"),
+        "answered",
+        "the org's policy here is continue_unrecorded: the call goes on"
+    );
 }
 
 #[tokio::test]
