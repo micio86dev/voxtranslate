@@ -2,6 +2,7 @@
 
 pub mod codec;
 pub mod consent;
+pub mod media;
 pub mod policy;
 pub mod pricing;
 pub mod reservation;
