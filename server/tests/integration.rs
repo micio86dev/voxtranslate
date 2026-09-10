@@ -64,6 +64,8 @@ fn make_state() -> (AppState, bool) {
                 voice_assistant: None,
                 help_assistant: None,
                 webinar: None,
+                voip: None,
+                telnyx: None,
             }),
             false,
         ),
@@ -115,6 +117,8 @@ fn make_minimal_state() -> AppState {
         voice_assistant: None,
         help_assistant: None,
         webinar: None,
+        voip: None,
+        telnyx: None,
     })
 }
 
@@ -569,6 +573,8 @@ async fn lone_speaker_opens_no_upstream_session() {
         voice_assistant: None,
         help_assistant: None,
         webinar: None,
+        voip: None,
+        telnyx: None,
     });
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -663,6 +669,8 @@ fn guest_config() -> Config {
         voice_assistant: None,
         help_assistant: None,
         webinar: None,
+        voip: None,
+        telnyx: None,
     }
 }
 

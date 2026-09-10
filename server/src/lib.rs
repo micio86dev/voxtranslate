@@ -51,9 +51,11 @@ pub mod storage;
 pub mod stripe_handler;
 pub mod subtitles;
 pub mod talk;
+pub mod telephony;
 pub mod transcripts;
 pub mod translator;
 pub mod usage;
+pub mod voip;
 pub mod webinar;
 
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
@@ -246,6 +248,22 @@ pub struct AppState {
     /// In-memory realtime webinar presence (SPEC Fase 4): live audience count per
     /// webinar code, backing the `/api/w/{code}/presence` WebSocket.
     pub webinar_presence: Arc<crate::webinar::presence::PresenceRegistry>,
+    /// Telephony provider for translated phone calls (spec 0111).
+    ///
+    /// `Some` only when `VOIP_ENABLED` is truthy AND a provider could be built — the
+    /// `/api/…/voip/…` routes are not registered otherwise, so turning the feature off is
+    /// a genuine kill switch rather than a flag some handler might forget to read.
+    ///
+    /// `VOIP_PROVIDER=mock` is a legitimate production value: it exercises the whole
+    /// flow, including billing and consent, without a telco and without charges.
+    pub telephony: Option<Arc<dyn crate::telephony::TelephonyProvider>>,
+    /// Phone legs waiting for their media socket, and the tickets that admit them.
+    ///
+    /// In memory because a media socket is a stream, not a record: it cannot outlive the
+    /// process on any architecture. What must survive a restart — the call's state and its
+    /// money — is in Postgres. See `voip::session` for the one coupling this does create.
+    pub voip_calls: Arc<crate::voip::session::LiveCalls>,
+    pub voip_tickets: Arc<crate::voip::token::TicketRegistry>,
 }
 
 /// Read a positive `u32` from `var`, falling back to `default`.
@@ -428,6 +446,28 @@ impl AppState {
             .help_assistant
             .as_ref()
             .map(|ha| Arc::new(tokio::sync::Semaphore::new(ha.max_sessions.max(1))));
+        // Telephony provider (spec 0111). Absent unless VOIP is enabled AND the named
+        // provider can actually be built — a configured-but-unbuildable provider leaves
+        // the routes unregistered rather than registering handlers that always 503.
+        let telephony: Option<Arc<dyn crate::telephony::TelephonyProvider>> = config
+            .voip
+            .as_ref()
+            .and_then(|v| match v.provider.as_str() {
+                "mock" => Some(
+                    Arc::new(crate::telephony::mock::MockTelephonyProvider::default())
+                        as Arc<dyn crate::telephony::TelephonyProvider>,
+                ),
+                "telnyx" => config.telnyx.as_ref().map(|t| {
+                    Arc::new(crate::telephony::telnyx::TelnyxProvider::new(
+                        t.clone(),
+                        v.webhook_tolerance_secs,
+                    )) as Arc<dyn crate::telephony::TelephonyProvider>
+                }),
+                other => {
+                    tracing::warn!(provider = other, "unknown VOIP_PROVIDER; VoIP stays off");
+                    None
+                }
+            });
         Self {
             config,
             rooms,
@@ -468,6 +508,9 @@ impl AppState {
             voice_assistant_semaphore,
             help_assistant_semaphore,
             webinar_presence: Arc::new(crate::webinar::presence::PresenceRegistry::new()),
+            telephony,
+            voip_calls: Arc::new(crate::voip::session::LiveCalls::new()),
+            voip_tickets: Arc::new(crate::voip::token::TicketRegistry::new()),
         }
     }
 
@@ -762,6 +805,13 @@ pub fn app(state: AppState) -> Router {
         )
         // VoxTranslate for Business — org workspace API (spec 0106).
         .merge(business::routes::routes())
+        // Registered only when VoIP is enabled AND a provider was built, so turning the
+        // feature off is a real kill switch: the routes are absent and a request 404s.
+        .merge(if state.telephony.is_some() {
+            voip::routes::routes()
+        } else {
+            Router::new()
+        })
         // B2B Voice Assistant — registered only when config is present (ships dark).
         .merge(if state.config.voice_assistant.is_some() {
             business::routes::voice_assistant_routes()
@@ -818,15 +868,7 @@ async fn origin_lock(
         // healthcheck (hits the origin directly), the latter must stay curl-able for
         // deploy verification even when the origin lock is armed.
         //
-        // `/internal/media-auth/*` is also exempt: the off-box MediaMTX calls it
-        // server-to-server via the direct Railway origin (bypassing Cloudflare, whose
-        // bot challenge a headless Go client can't solve), so it never carries the
-        // CF-injected header. It's independently protected by the caller secret in the
-        // path + the HMAC publish-token check, so skipping the origin lock is safe.
-        let path = req.uri().path();
-        let exempt =
-            matches!(path, "/health" | "/version") || path.starts_with("/internal/media-auth/");
-        if !exempt && !origin_header_ok(req.headers(), secret) {
+        if !origin_lock_exempt(req.uri().path()) && !origin_header_ok(req.headers(), secret) {
             return StatusCode::FORBIDDEN.into_response();
         }
     }
@@ -863,6 +905,35 @@ async fn version_handler() -> Json<serde_json::Value> {
 /// Whether the request carries the expected Cloudflare-injected origin secret.
 /// Pure (no state) so it's unit-testable. Compared in constant time so a wrong
 /// header can't recover the secret byte-by-byte via response timing.
+/// Paths the origin lock lets through.
+///
+/// Each entry is here because something that is **not a browser behind Cloudflare** has to
+/// reach it, and each carries its own authentication so the lock is not what was protecting
+/// it:
+///
+/// * `/health` — Railway's platform healthcheck hits the origin directly, bypassing
+///   Cloudflare entirely. Blocking it fails every deploy.
+/// * `/version` — must stay curl-able for deploy verification even with the lock armed.
+/// * `/internal/media-auth/*` — the off-box MediaMTX calls it server-to-server via the
+///   direct origin; Cloudflare's bot challenge is not something a headless Go client can
+///   solve. Protected by the caller secret in the path plus the HMAC publish token.
+/// * `/api/voip/webhooks/*` — a carrier's webhook is a server-to-server POST from a fleet
+///   we do not control, which is precisely the traffic shape Cloudflare's bot management
+///   challenges. The provider's **failover URL points at the direct origin** for exactly
+///   that case, and a failover that returns 403 is worse than none: the provider records a
+///   failed delivery and the lifecycle event is lost, leaving a call that rings, bills and
+///   never settles. Protected by an Ed25519 signature over `{timestamp}|{body}` with a
+///   5-minute tolerance, verified before the payload is read, and failing closed when no
+///   public key is configured.
+///
+/// Prefixes are matched with a trailing slash so a path that merely *starts with* an
+/// exempt name — `/api/voip/webhooks-evil` — is not admitted by accident.
+fn origin_lock_exempt(path: &str) -> bool {
+    matches!(path, "/health" | "/version")
+        || path.starts_with("/internal/media-auth/")
+        || path.starts_with("/api/voip/webhooks/")
+}
+
 fn origin_header_ok(headers: &HeaderMap, secret: &str) -> bool {
     match headers.get("x-origin-verify").and_then(|v| v.to_str().ok()) {
         Some(presented) => ct_eq(presented.as_bytes(), secret.as_bytes()),
@@ -1057,6 +1128,19 @@ pub async fn serve() {
         } else {
             tracing::warn!("RETENTION_SWEEP_ENABLED set but no database — sweep not started");
         }
+    }
+
+    // VoIP housekeeping (spec 0111 §7). Two jobs a request path structurally cannot do:
+    // end a call that has run past its cap, and close a credit hold whose hangup webhook
+    // never arrived. Both are about calls nobody is watching any more.
+    if state.telephony.is_some() && state.pool.is_some() {
+        let interval = Duration::from_secs(60);
+        tracing::info!("VoIP duration reaper + settlement sweep enabled (every 60s)");
+        tokio::spawn(crate::voip::webhook::run_sweep(
+            state.clone(),
+            interval,
+            100,
+        ));
     }
 
     let addr = format!("0.0.0.0:{port}");
@@ -2739,8 +2823,8 @@ async fn shutdown_signal() {
 #[cfg(test)]
 mod tests {
     use super::{
-        origin_header_ok, translate_text_verdict, version_handler, TranslateTextVerdict,
-        MAX_TRANSLATE_TEXT_BYTES,
+        origin_header_ok, origin_lock_exempt, translate_text_verdict, version_handler,
+        TranslateTextVerdict, MAX_TRANSLATE_TEXT_BYTES,
     };
     use axum::http::HeaderMap;
     use uuid::Uuid;
@@ -2845,6 +2929,38 @@ mod tests {
             value.parse().unwrap(),
         );
         h
+    }
+
+    #[test]
+    fn the_origin_lock_exempts_only_what_authenticates_itself() {
+        // Every exemption is a path something outside Cloudflare must reach, and every one
+        // carries its own authentication. Adding to this list without the second half is
+        // how a lock becomes decoration.
+        assert!(origin_lock_exempt("/health"));
+        assert!(origin_lock_exempt("/version"));
+        assert!(origin_lock_exempt("/internal/media-auth/abc"));
+        assert!(origin_lock_exempt("/api/voip/webhooks/telnyx"));
+        assert!(origin_lock_exempt("/api/voip/webhooks/mock"));
+
+        // Everything else stays behind it — including the rest of the VoIP surface, which
+        // is session-authenticated and has no reason to be reachable off-Cloudflare.
+        assert!(!origin_lock_exempt("/api/voip/video/tok.sig"));
+        assert!(!origin_lock_exempt("/voip/media/tok.sig"));
+        assert!(!origin_lock_exempt(
+            "/api/business/organizations/x/voip/calls"
+        ));
+        assert!(!origin_lock_exempt("/"));
+    }
+
+    #[test]
+    fn a_lookalike_path_is_not_exempt() {
+        // The reason the prefixes carry a trailing slash. Without it, anything merely
+        // BEGINNING with an exempt name would walk straight through the lock.
+        assert!(!origin_lock_exempt("/api/voip/webhooks-evil"));
+        assert!(!origin_lock_exempt("/api/voip/webhooksomething"));
+        assert!(!origin_lock_exempt("/internal/media-authorise"));
+        assert!(!origin_lock_exempt("/healthz"));
+        assert!(!origin_lock_exempt("/versions"));
     }
 
     #[test]

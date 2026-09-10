@@ -31,6 +31,11 @@ pub async fn run_sweep(state: AppState, interval: Duration, batch: i64) {
             Ok(n) => tracing::info!("retention sweep purged {n} expired session(s)"),
             Err(e) => tracing::warn!("retention sweep failed (non-fatal): {e}"),
         }
+        match sweep_voip_recordings_once(&state, batch).await {
+            Ok(0) => {}
+            Ok(n) => tracing::info!("retention sweep deleted {n} expired phone recording(s)"),
+            Err(e) => tracing::warn!("voip retention sweep failed (non-fatal): {e}"),
+        }
     }
 }
 
@@ -122,6 +127,102 @@ pub async fn sweep_once(state: &AppState, batch: i64) -> Result<u64, sqlx::Error
             .await
             {
                 tracing::error!("retention audit insert failed: {e}");
+            }
+        }
+
+        purged += 1;
+    }
+    Ok(purged)
+}
+
+/// Delete telephone recordings past their retention window (spec 0111, R21).
+///
+/// A separate pass rather than a branch inside [`sweep_once`], for three reasons that all
+/// point the same way: the bytes live on the **carrier's** storage and are deleted through
+/// the provider API, not the object store; the window comes from
+/// `voip_org_settings.recording_retention_days`, which is a per-feature setting an admin
+/// sets alongside the recording switch itself; and the meeting sweep is shipped, working
+/// and matched to `plan = 'enterprise'` — widening its query to reach a different kind of
+/// artifact is how a working sweep starts deleting something nobody asked it to.
+///
+/// Same ordering rule as everywhere else here: **bytes first, pointer second.** The
+/// `provider_recording_id` is the only durable handle on the recording, so clearing it
+/// before the delete succeeds would strand the audio on the carrier's disk with nothing
+/// able to name it again.
+pub async fn sweep_voip_recordings_once(state: &AppState, batch: i64) -> Result<u64, sqlx::Error> {
+    let Some(pool) = state.pool.as_ref() else {
+        return Ok(0);
+    };
+    let Some(provider) = state.telephony.as_deref() else {
+        // No provider configured means no way to reach the bytes. Doing nothing is right:
+        // the rows keep their handles and the next pass, on a deployment that has one,
+        // finds them.
+        return Ok(0);
+    };
+
+    let rows: Vec<(Uuid, Uuid, String, i32, bool)> = sqlx::query_as(
+        "SELECT c.id, c.org_id, c.provider_recording_id, s.recording_retention_days,
+                COALESCE((o.settings->>'compliance_mode')::boolean, false) AS compliance
+         FROM voip_calls c
+         JOIN voip_org_settings s ON s.org_id = c.org_id
+         JOIN organizations o ON o.id = c.org_id
+         WHERE c.provider_recording_id IS NOT NULL
+           AND c.recording_status = 'saved'
+           AND s.recording_retention_days IS NOT NULL
+           AND s.recording_retention_days > 0
+           AND COALESCE(c.ended_at, c.started_at)
+               < now() - make_interval(days => s.recording_retention_days)
+         ORDER BY COALESCE(c.ended_at, c.started_at) ASC
+         LIMIT $1",
+    )
+    .bind(batch)
+    .fetch_all(pool)
+    .await?;
+
+    let mut purged = 0u64;
+    for (call_id, org_id, recording_id, retention_days, compliance) in rows {
+        // 1) The carrier's copy, first. A failure skips this call entirely and leaves the
+        //    handle in place, so the next pass retries — never a cleared pointer over
+        //    audio that still exists.
+        if let Err(e) = provider.delete_recording(&recording_id).await {
+            tracing::warn!(
+                %call_id,
+                error = %e,
+                "voip retention: provider recording delete failed — leaving the handle for the next pass"
+            );
+            continue;
+        }
+
+        // 2) Only now forget where it was.
+        sqlx::query(
+            "UPDATE voip_calls
+             SET recording_status = 'deleted',
+                 provider_recording_id = NULL,
+                 provider_recording_url = NULL,
+                 updated_at = now()
+             WHERE id = $1",
+        )
+        .bind(call_id)
+        .execute(pool)
+        .await?;
+
+        if compliance {
+            let meta = serde_json::json!({
+                "retention_days": retention_days,
+                "deleted_recording": true,
+                "storage": "provider",
+            });
+            if let Err(e) = sqlx::query(
+                "INSERT INTO audit_logs (org_id, actor_id, action, resource_type, resource_id, metadata)
+                 VALUES ($1, NULL, 'retention.purge', 'voip_call', $2, $3)",
+            )
+            .bind(org_id)
+            .bind(call_id)
+            .bind(meta)
+            .execute(pool)
+            .await
+            {
+                tracing::error!("voip retention audit insert failed: {e}");
             }
         }
 

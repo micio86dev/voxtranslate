@@ -60,6 +60,38 @@ static TALK_DIR_BUCKETS: [AtomicU64; 11] = [const { AtomicU64::new(0) }; 11];
 static TALK_DIR_RESOLVED: AtomicU64 = AtomicU64::new(0);
 static TALK_DIR_UNKNOWN: AtomicU64 = AtomicU64::new(0);
 
+// Translated telephone calls (spec 0111 §P).
+//
+// Deliberately NOT labelled by destination, organisation or number: a metric label is a
+// low-cardinality dimension AND it is exported to whoever scrapes us, so putting a country
+// on `voip_calls_failed_total` would both explode the series count and put a customer's
+// calling pattern in a third-party system. The per-call detail lives in `voip_calls`,
+// behind authorisation, where it belongs.
+//
+// `voip_translation_latency_ms` is the headline. It is the ear-voice span on a telephone
+// call — the number the whole product is judged on, and the one a customer describes as
+// "it feels laggy" long before any other metric moves.
+static VOIP_STARTED: AtomicU64 = AtomicU64::new(0);
+static VOIP_CONNECTED: AtomicU64 = AtomicU64::new(0);
+static VOIP_FAILED: AtomicU64 = AtomicU64::new(0);
+static VOIP_REFUSED: AtomicU64 = AtomicU64::new(0);
+static VOIP_PROVIDER_ERRORS: AtomicU64 = AtomicU64::new(0);
+static VOIP_MEDIA_DISCONNECTS: AtomicU64 = AtomicU64::new(0);
+static VOIP_CODEC_RENEGOTIATIONS: AtomicU64 = AtomicU64::new(0);
+static VOIP_DISCLOSURE_FAILURES: AtomicU64 = AtomicU64::new(0);
+static VOIP_UNERASABLE_RECORDINGS: AtomicU64 = AtomicU64::new(0);
+static VOIP_WS_RECONNECTS: AtomicU64 = AtomicU64::new(0);
+static VOIP_RESERVATION_FAILURES: AtomicU64 = AtomicU64::new(0);
+static VOIP_MARGIN_BREACHES: AtomicU64 = AtomicU64::new(0);
+static VOIP_WEBHOOK_REJECTED: AtomicU64 = AtomicU64::new(0);
+static VOIP_WEBHOOK_DUPLICATE: AtomicU64 = AtomicU64::new(0);
+static VOIP_SETUP_SUM: AtomicU64 = AtomicU64::new(0);
+static VOIP_SETUP_COUNT: AtomicU64 = AtomicU64::new(0);
+static VOIP_SETUP_BUCKETS: [AtomicU64; 11] = [const { AtomicU64::new(0) }; 11];
+static VOIP_XLAT_SUM: AtomicU64 = AtomicU64::new(0);
+static VOIP_XLAT_COUNT: AtomicU64 = AtomicU64::new(0);
+static VOIP_XLAT_BUCKETS: [AtomicU64; 11] = [const { AtomicU64::new(0) }; 11];
+
 static WBR_CHUNKS: AtomicU64 = AtomicU64::new(0);
 static WBR_DROPPED_INGEST: AtomicU64 = AtomicU64::new(0);
 static WBR_DROPPED_FANOUT: AtomicU64 = AtomicU64::new(0);
@@ -86,6 +118,109 @@ pub fn record_webinar_drop(hop: WebinarHop) {
         WebinarHop::Ingest => WBR_DROPPED_INGEST.fetch_add(1, Ordering::Relaxed),
         WebinarHop::Fanout => WBR_DROPPED_FANOUT.fetch_add(1, Ordering::Relaxed),
     };
+}
+
+/// One dial handed to the provider.
+pub fn record_voip_started() {
+    VOIP_STARTED.fetch_add(1, Ordering::Relaxed);
+}
+
+/// One call the far end answered.
+pub fn record_voip_connected() {
+    VOIP_CONNECTED.fetch_add(1, Ordering::Relaxed);
+}
+
+/// One call that was dialed and did not connect.
+pub fn record_voip_failed() {
+    VOIP_FAILED.fetch_add(1, Ordering::Relaxed);
+}
+
+/// One call refused by the policy gate, before the provider was contacted.
+///
+/// Counted separately from `failed` because the two mean opposite things operationally: a
+/// rising `refused` is usually a customer hitting a limit they set, while a rising `failed`
+/// is usually us or the carrier.
+pub fn record_voip_refused() {
+    VOIP_REFUSED.fetch_add(1, Ordering::Relaxed);
+}
+
+pub fn record_voip_provider_error() {
+    VOIP_PROVIDER_ERRORS.fetch_add(1, Ordering::Relaxed);
+}
+
+pub fn record_voip_media_disconnect() {
+    VOIP_MEDIA_DISCONNECTS.fetch_add(1, Ordering::Relaxed);
+}
+
+/// A leg whose negotiated codec was not the one requested.
+///
+/// Worth counting on its own: the call still works, so nothing else reports it, but a
+/// destination that always downgrades to µ-law is losing audio bandwidth before the
+/// translation ever sees it — which shows up as worse STT, not as an error.
+pub fn record_voip_codec_renegotiation() {
+    VOIP_CODEC_RENEGOTIATIONS.fetch_add(1, Ordering::Relaxed);
+}
+
+/// A call whose consent announcement could not be delivered, so capture was switched off.
+///
+/// Worth an alert rather than a dashboard: every one of these is a customer who asked for
+/// a recording and did not get one, and the reason is on our side of the call.
+pub fn record_voip_disclosure_failure() {
+    VOIP_DISCLOSURE_FAILURES.fetch_add(1, Ordering::Relaxed);
+}
+
+/// A recording the provider saved without giving us a handle on it.
+///
+/// Non-zero means GDPR erasure cannot reach those bytes. That is a compliance defect, not
+/// a degraded feature, so it gets its own counter rather than hiding inside an error rate.
+pub fn record_voip_unerasable_recording() {
+    VOIP_UNERASABLE_RECORDINGS.fetch_add(1, Ordering::Relaxed);
+}
+
+pub fn record_voip_ws_reconnect() {
+    VOIP_WS_RECONNECTS.fetch_add(1, Ordering::Relaxed);
+}
+
+/// A hold that could not be taken — almost always an empty credit pool.
+pub fn record_voip_reservation_failure() {
+    VOIP_RESERVATION_FAILURES.fetch_add(1, Ordering::Relaxed);
+}
+
+/// A completed call whose REALISED gross margin came in below the configured floor.
+///
+/// Any sustained value here means the rate deck and the invoice disagree, which is a
+/// pricing problem rather than an incident — but it is money, so it is a counter and not
+/// only a log line.
+pub fn record_voip_margin_breach() {
+    VOIP_MARGIN_BREACHES.fetch_add(1, Ordering::Relaxed);
+}
+
+/// A webhook refused at the signature or timestamp check.
+///
+/// A sustained non-zero rate here means someone is posting to the endpoint who cannot
+/// sign, which is worth an alert on its own.
+pub fn record_voip_webhook_rejected() {
+    VOIP_WEBHOOK_REJECTED.fetch_add(1, Ordering::Relaxed);
+}
+
+/// A redelivery the idempotency ledger absorbed. Normal, and its RATIO to accepted events
+/// is the useful signal: a spike means the provider thinks we are not acknowledging.
+pub fn record_voip_webhook_duplicate() {
+    VOIP_WEBHOOK_DUPLICATE.fetch_add(1, Ordering::Relaxed);
+}
+
+/// Dial → answered, ms. Post-dial delay is the first thing a recipient notices and the
+/// first thing a bad international route degrades.
+pub fn record_voip_setup_ms(ms: u64) {
+    observe(&VOIP_SETUP_SUM, &VOIP_SETUP_COUNT, &VOIP_SETUP_BUCKETS, ms);
+}
+
+/// End of speech → first translated audio played to the other party, ms.
+///
+/// The headline number for this product, measured rather than estimated: stamped from the
+/// pipeline events, not inferred from a request duration.
+pub fn record_voip_translation_ms(ms: u64) {
+    observe(&VOIP_XLAT_SUM, &VOIP_XLAT_COUNT, &VOIP_XLAT_BUCKETS, ms);
 }
 
 /// Add one observation (ms) to a cumulative-bucket histogram.
@@ -200,6 +335,26 @@ struct Snapshot {
     talk_dir_buckets: [u64; 11],
     talk_dir_resolved: u64,
     talk_dir_unknown: u64,
+    voip_started: u64,
+    voip_connected: u64,
+    voip_failed: u64,
+    voip_refused: u64,
+    voip_provider_errors: u64,
+    voip_media_disconnects: u64,
+    voip_codec_renegotiations: u64,
+    voip_disclosure_failures: u64,
+    voip_unerasable_recordings: u64,
+    voip_ws_reconnects: u64,
+    voip_reservation_failures: u64,
+    voip_margin_breaches: u64,
+    voip_webhook_rejected: u64,
+    voip_webhook_duplicate: u64,
+    voip_setup_sum: u64,
+    voip_setup_count: u64,
+    voip_setup_buckets: [u64; 11],
+    voip_xlat_sum: u64,
+    voip_xlat_count: u64,
+    voip_xlat_buckets: [u64; 11],
 }
 
 fn snapshot() -> Snapshot {
@@ -237,6 +392,26 @@ fn snapshot() -> Snapshot {
         talk_dir_buckets: std::array::from_fn(|i| TALK_DIR_BUCKETS[i].load(Ordering::Relaxed)),
         talk_dir_resolved: TALK_DIR_RESOLVED.load(Ordering::Relaxed),
         talk_dir_unknown: TALK_DIR_UNKNOWN.load(Ordering::Relaxed),
+        voip_started: VOIP_STARTED.load(Ordering::Relaxed),
+        voip_connected: VOIP_CONNECTED.load(Ordering::Relaxed),
+        voip_failed: VOIP_FAILED.load(Ordering::Relaxed),
+        voip_refused: VOIP_REFUSED.load(Ordering::Relaxed),
+        voip_provider_errors: VOIP_PROVIDER_ERRORS.load(Ordering::Relaxed),
+        voip_media_disconnects: VOIP_MEDIA_DISCONNECTS.load(Ordering::Relaxed),
+        voip_codec_renegotiations: VOIP_CODEC_RENEGOTIATIONS.load(Ordering::Relaxed),
+        voip_disclosure_failures: VOIP_DISCLOSURE_FAILURES.load(Ordering::Relaxed),
+        voip_unerasable_recordings: VOIP_UNERASABLE_RECORDINGS.load(Ordering::Relaxed),
+        voip_ws_reconnects: VOIP_WS_RECONNECTS.load(Ordering::Relaxed),
+        voip_reservation_failures: VOIP_RESERVATION_FAILURES.load(Ordering::Relaxed),
+        voip_margin_breaches: VOIP_MARGIN_BREACHES.load(Ordering::Relaxed),
+        voip_webhook_rejected: VOIP_WEBHOOK_REJECTED.load(Ordering::Relaxed),
+        voip_webhook_duplicate: VOIP_WEBHOOK_DUPLICATE.load(Ordering::Relaxed),
+        voip_setup_sum: VOIP_SETUP_SUM.load(Ordering::Relaxed),
+        voip_setup_count: VOIP_SETUP_COUNT.load(Ordering::Relaxed),
+        voip_setup_buckets: std::array::from_fn(|i| VOIP_SETUP_BUCKETS[i].load(Ordering::Relaxed)),
+        voip_xlat_sum: VOIP_XLAT_SUM.load(Ordering::Relaxed),
+        voip_xlat_count: VOIP_XLAT_COUNT.load(Ordering::Relaxed),
+        voip_xlat_buckets: std::array::from_fn(|i| VOIP_XLAT_BUCKETS[i].load(Ordering::Relaxed)),
     }
 }
 
@@ -355,6 +530,100 @@ fn render_from(s: &Snapshot, active_rooms: u64, active_peers: u64) -> String {
         &s.qwen_connect_buckets,
     );
 
+    write_histogram(
+        &mut o,
+        "voxtranslate_voip_setup_ms",
+        "Translated phone call dial-to-answered duration (post-dial delay), ms.",
+        s.voip_setup_sum,
+        s.voip_setup_count,
+        &s.voip_setup_buckets,
+    );
+    write_histogram(
+        &mut o,
+        "voxtranslate_voip_translation_ms",
+        "Translated phone call end-of-speech to first translated audio at the far end, ms.",
+        s.voip_xlat_sum,
+        s.voip_xlat_count,
+        &s.voip_xlat_buckets,
+    );
+
+    for (name, help, value) in [
+        (
+            "voxtranslate_voip_calls_started_total",
+            "Translated phone calls handed to the provider.",
+            s.voip_started,
+        ),
+        (
+            "voxtranslate_voip_calls_connected_total",
+            "Translated phone calls the far end answered.",
+            s.voip_connected,
+        ),
+        (
+            "voxtranslate_voip_calls_failed_total",
+            "Translated phone calls that were dialed and did not connect.",
+            s.voip_failed,
+        ),
+        (
+            "voxtranslate_voip_calls_refused_total",
+            "Calls refused by the policy gate before the provider was contacted.",
+            s.voip_refused,
+        ),
+        (
+            "voxtranslate_voip_provider_errors_total",
+            "Telephony provider API failures.",
+            s.voip_provider_errors,
+        ),
+        (
+            "voxtranslate_voip_media_disconnects_total",
+            "Media streams that dropped mid-call.",
+            s.voip_media_disconnects,
+        ),
+        (
+            "voxtranslate_voip_codec_renegotiations_total",
+            "Phone legs whose negotiated codec differed from the one requested.",
+            s.voip_codec_renegotiations,
+        ),
+        (
+            "voxtranslate_voip_disclosure_failures_total",
+            "Calls whose consent announcement could not be delivered, so capture was disabled.",
+            s.voip_disclosure_failures,
+        ),
+        (
+            "voxtranslate_voip_unerasable_recordings_total",
+            "Recordings saved with no provider handle, so erasure cannot delete them.",
+            s.voip_unerasable_recordings,
+        ),
+        (
+            "voxtranslate_voip_websocket_reconnects_total",
+            "Media WebSocket reconnects.",
+            s.voip_ws_reconnects,
+        ),
+        (
+            "voxtranslate_voip_credit_reservation_failures_total",
+            "Credit holds that could not be taken, almost always an empty pool.",
+            s.voip_reservation_failures,
+        ),
+        (
+            "voxtranslate_voip_margin_breaches_total",
+            "Completed calls whose realised gross margin came in below the configured floor.",
+            s.voip_margin_breaches,
+        ),
+        (
+            "voxtranslate_voip_webhooks_rejected_total",
+            "Webhooks refused at the signature or timestamp check.",
+            s.voip_webhook_rejected,
+        ),
+        (
+            "voxtranslate_voip_webhooks_duplicate_total",
+            "Redelivered webhooks absorbed by the idempotency ledger.",
+            s.voip_webhook_duplicate,
+        ),
+    ] {
+        let _ = writeln!(o, "# HELP {name} {help}");
+        let _ = writeln!(o, "# TYPE {name} counter");
+        let _ = writeln!(o, "{name} {value}");
+    }
+
     let _ = writeln!(
         o,
         "# HELP voxtranslate_webinar_audio_chunks_total Host PCM chunks accepted for webinar translation."
@@ -444,6 +713,28 @@ mod tests {
             talk_dir_buckets: [0, 0, 1, 1, 2, 4, 6, 6, 6, 6, 6],
             talk_dir_resolved: 5,
             talk_dir_unknown: 1,
+            // Translated phone calls: 9 dialed, 7 answered, 1 failed, 1 refused before
+            // the provider was contacted.
+            voip_started: 9,
+            voip_connected: 7,
+            voip_failed: 1,
+            voip_refused: 1,
+            voip_provider_errors: 2,
+            voip_media_disconnects: 3,
+            voip_codec_renegotiations: 1,
+            voip_disclosure_failures: 0,
+            voip_unerasable_recordings: 0,
+            voip_ws_reconnects: 4,
+            voip_reservation_failures: 5,
+            voip_margin_breaches: 0,
+            voip_webhook_rejected: 6,
+            voip_webhook_duplicate: 11,
+            voip_setup_sum: 14_000,
+            voip_setup_count: 7,
+            voip_setup_buckets: [0, 0, 0, 0, 0, 0, 2, 5, 7, 7, 7],
+            voip_xlat_sum: 9_100,
+            voip_xlat_count: 7,
+            voip_xlat_buckets: [0, 0, 0, 0, 0, 1, 4, 7, 7, 7, 7],
         };
         let out = render_from(&snap, 2, 5);
 
@@ -455,6 +746,26 @@ mod tests {
         assert!(out.contains("voxtranslate_http_request_duration_ms_bucket{le=\"+Inf\"} 14"));
         assert!(out.contains("voxtranslate_http_request_duration_ms_sum 420"));
         assert!(out.contains("voxtranslate_http_request_duration_ms_count 14"));
+
+        // Translated phone calls. The counters are exported WITHOUT destination,
+        // organisation or number labels — a metric label reaches whoever scrapes us, and a
+        // country on `calls_failed_total` would put a customer's calling pattern into a
+        // third-party system.
+        assert!(out.contains("voxtranslate_voip_calls_started_total 9"));
+        assert!(out.contains("voxtranslate_voip_calls_connected_total 7"));
+        assert!(out.contains("voxtranslate_voip_calls_failed_total 1"));
+        assert!(out.contains("voxtranslate_voip_calls_refused_total 1"));
+        assert!(out.contains("voxtranslate_voip_credit_reservation_failures_total 5"));
+        assert!(out.contains("voxtranslate_voip_webhooks_rejected_total 6"));
+        assert!(out.contains("voxtranslate_voip_margin_breaches_total 0"));
+        assert!(out.contains("voxtranslate_voip_webhooks_duplicate_total 11"));
+        assert!(out.contains("voxtranslate_voip_translation_ms_bucket{le=\"+Inf\"} 7"));
+        assert!(out.contains("voxtranslate_voip_translation_ms_sum 9100"));
+        assert!(out.contains("voxtranslate_voip_setup_ms_count 7"));
+        assert!(
+            !out.contains("voip_calls_failed_total{"),
+            "VoIP counters must carry no labels — see the note in metrics.rs"
+        );
         // Gauges.
         assert!(out.contains("voxtranslate_active_rooms 2"));
         assert!(out.contains("voxtranslate_active_peers 5"));
@@ -482,8 +793,13 @@ mod tests {
         assert!(out.contains("voxtranslate_talk_direction_ms_sum 900"));
         assert!(out.contains("voxtranslate_talk_direction_total{outcome=\"resolved\"} 5"));
         assert!(out.contains("voxtranslate_talk_direction_total{outcome=\"unknown\"} 1"));
-        // Every metric is preceded by a TYPE line (Prometheus exposition hygiene).
-        assert_eq!(out.matches("# TYPE ").count(), 12);
+        // Every metric is preceded by a TYPE line (Prometheus exposition hygiene). The
+        // count is asserted rather than merely "at least one" so that adding a metric
+        // without its TYPE line fails here — a scrape silently drops an untyped series.
+        let typed = out.matches("# TYPE ").count();
+        let helped = out.matches("# HELP ").count();
+        assert_eq!(typed, 28, "one TYPE line per exported metric");
+        assert_eq!(helped, typed, "every metric also carries a HELP line");
     }
 
     #[test]

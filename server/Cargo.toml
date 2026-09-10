@@ -1,6 +1,6 @@
 [package]
 name = "voxtranslate-server"
-version = "1.48.0"
+version = "1.49.0"
 edition = "2021"
 license = "LicenseRef-PolyForm-Shield-1.0.0"
 
@@ -66,6 +66,13 @@ quick-xml = "0.42"
 chacha20poly1305 = "0.11"
 rand = "0.10"
 web-push = { version = "0.11.0", default-features = false }
+ed25519-dalek = "3.0.0"
+
+[dev-dependencies]
+# Money invariants (spec 0111 R7) are stated as properties, not examples: the margin
+# floor must hold for EVERY cost/margin/buffer, and shrinking a counterexample to its
+# minimal form is the difference between a fix and a guess. Dev-only, never shipped.
+proptest = "1"
 
 [profile.release]
 opt-level = 3
