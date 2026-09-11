@@ -24,9 +24,7 @@ use serde_json::json;
 use sqlx::FromRow;
 use uuid::Uuid;
 
-use crate::business::{
-    bad_request, db_err, forbidden, not_found, require_pool, require_role, ADMIN, MEMBER,
-};
+use crate::business::{db_err, not_found, require_pool, require_role, ADMIN, MEMBER};
 use crate::middleware::AuthUser;
 use crate::telephony::{WebhookHeaders, E164};
 use crate::voip::service::{self, DialOptions, VoipError};
@@ -77,6 +75,50 @@ pub fn routes() -> Router<AppState> {
         .route("/voip/media/{ticket}", get(media_socket))
 }
 
+/// A refusal carrying a **stable machine-readable code**, never prose.
+///
+/// `err_response` below already states the rule and the reason: a policy refusal's prose
+/// would be untranslatable, so only the code crosses the boundary. The handlers in this
+/// file used the shared `bad_request`/`forbidden` helpers instead, which emit raw English
+/// as `text/plain` — untranslatable by definition, and unparseable by the dashboard, which
+/// reads `{ error }` and therefore rendered every one of them as the generic message.
+///
+/// Codes added here must also gain copy in the dashboard's five locales; the client keeps
+/// its list in `phone-dialer.ts`'s `KNOWN_REASONS`, so an unrecognised code degrades to
+/// the generic string rather than printing itself at a customer.
+fn refuse(status: StatusCode, code: &str) -> Response {
+    (status, Json(json!({ "error": code }))).into_response()
+}
+
+/// `require_project` and project tenancy, checked identically wherever a call is priced
+/// or placed.
+///
+/// Extracted because `quote` promised "the same gate as dial" and did not run this one:
+/// an organisation with `require_project` got a cheerful price and then a refusal.
+async fn check_project(
+    pool: &crate::db::Pool,
+    org_id: Uuid,
+    require_project: bool,
+    project_id: Option<Uuid>,
+) -> Result<(), Response> {
+    if require_project && project_id.is_none() {
+        return Err(refuse(StatusCode::BAD_REQUEST, "project_required"));
+    }
+    if let Some(project_id) = project_id {
+        let ok: Option<bool> =
+            sqlx::query_scalar("SELECT true FROM projects WHERE id = $1 AND org_id = $2")
+                .bind(project_id)
+                .bind(org_id)
+                .fetch_optional(pool)
+                .await
+                .map_err(db_err)?;
+        if ok.is_none() {
+            return Err(refuse(StatusCode::BAD_REQUEST, "project_not_in_org"));
+        }
+    }
+    Ok(())
+}
+
 fn err_response(e: VoipError) -> Response {
     if matches!(e, VoipError::Refused(_)) {
         // Counted apart from `failed`: a rising refusal rate is usually a customer hitting
@@ -117,6 +159,14 @@ pub struct QuoteBody {
     engine_id: Option<String>,
     #[serde(default)]
     target_language: Option<String>,
+    // A gate cannot check inputs it was not given. These two are what made `quote`'s
+    // promise of "the same gate as dial" untrue: without them it could not run
+    // `require_project` or resolve a caller id, so both refusals waited until the
+    // customer had read a price and pressed Call.
+    #[serde(default)]
+    project_id: Option<Uuid>,
+    #[serde(default)]
+    caller_id: Option<String>,
     #[serde(default)]
     record: bool,
     #[serde(default)]
@@ -132,6 +182,10 @@ pub struct QuoteBody {
 /// Runs the **same** gate as [`dial`], so the dialer cannot show a price for a call that
 /// would then be refused. A quote that is cheerful about a call the policy forbids is
 /// worse than no quote.
+///
+/// That means all three of them, not just the policy gate: `policy::check` via
+/// `check_and_quote`, `check_project`, and caller-id resolution. The last two were
+/// dial-only until spec 0112, which made this comment a claim the code did not keep.
 pub async fn quote(
     State(state): State<AppState>,
     user: AuthUser,
@@ -189,6 +243,30 @@ pub async fn quote(
         minutes,
     )
     .map_err(err_response)?;
+
+    // AFTER the policy gate, never before it. `policy::check` puts entitlement first so a
+    // prober learns their organisation is not entitled before they learn anything else;
+    // running these ahead of it would tell an unentitled caller which of our settings they
+    // had got wrong. Proven by `an_org_without_a_live_subscription_still_cannot_dial`.
+    check_project(pool, org_id, world.org.require_project, body.project_id).await?;
+
+    // Only a caller id the requester actually NAMED. Presenting a number you cannot prove
+    // you own is the refusal with a regulator behind it, and quoting it as fine and then
+    // refusing the dial is exactly the mismatch this gate exists to remove.
+    //
+    // Deliberately NOT the "this org owns no number yet" case: that is a setup state, and
+    // refusing to show a price to a paying customer who has not bought a number is hostile
+    // — see `a_subscribed_org_can_quote_without_anyone_writing_a_settings_row`. `dial`
+    // still refuses it, at the point where it actually matters.
+    if body.caller_id.is_some() {
+        resolve_caller_id(
+            pool,
+            org_id,
+            body.caller_id.as_deref(),
+            provider.metadata().default_caller_id.as_deref(),
+        )
+        .await?;
+    }
 
     let balance: i32 =
         sqlx::query_scalar("SELECT credits_balance FROM organizations WHERE id = $1")
@@ -262,23 +340,7 @@ pub async fn dial(
         .await
         .map_err(db_err)?;
 
-    if world.org.require_project && body.project_id.is_none() {
-        return Err(bad_request(
-            "this organization requires a project on every call",
-        ));
-    }
-    if let Some(project_id) = body.project_id {
-        let ok: Option<bool> =
-            sqlx::query_scalar("SELECT true FROM projects WHERE id = $1 AND org_id = $2")
-                .bind(project_id)
-                .bind(org_id)
-                .fetch_optional(pool)
-                .await
-                .map_err(db_err)?;
-        if ok.is_none() {
-            return Err(bad_request("project does not belong to this organization"));
-        }
-    }
+    check_project(pool, org_id, world.org.require_project, body.project_id).await?;
 
     let engine_id = body
         .engine_id
@@ -425,15 +487,13 @@ async fn resolve_caller_id(
     let raw = match (row, requested) {
         (Some(n), _) => n,
         (None, Some(_)) => {
-            return Err(forbidden(
-                "caller id is not a verified outbound number for this organization",
-            ))
+            return Err(refuse(StatusCode::FORBIDDEN, "caller_id_unverified"));
         }
         (None, None) => provider_default
             .map(str::trim)
             .filter(|s| !s.is_empty())
             .map(str::to_string)
-            .ok_or_else(|| bad_request("no caller id is configured for this organization"))?,
+            .ok_or_else(|| refuse(StatusCode::BAD_REQUEST, "caller_id_missing"))?,
     };
 
     E164::parse(&raw).map_err(|e| err_response(VoipError::BadNumber(e)))
@@ -735,7 +795,10 @@ pub struct SettingsBody {
     consent_refused_action: Option<String>,
     #[serde(default)]
     recording_enabled: bool,
-    #[serde(default = "yes")]
+    // NOT `default = "yes"`. An admin who omits this field has said nothing about
+    // transcription, and `OrgSettings::default_for_new_org` is explicit that capture stays
+    // off until somebody asks for it. Migration 059 brings the column default into line.
+    #[serde(default)]
     transcription_enabled: bool,
     #[serde(default)]
     ai_analysis_enabled: bool,
@@ -771,8 +834,9 @@ pub async fn put_settings(
     if policy == consent::ConsentPolicy::Disabled
         && (body.recording_enabled || body.transcription_enabled)
     {
-        return Err(bad_request(
-            "consent cannot be disabled while recording or transcription is enabled",
+        return Err(refuse(
+            StatusCode::BAD_REQUEST,
+            "consent_required_for_capture",
         ));
     }
 
@@ -781,13 +845,11 @@ pub async fn put_settings(
             .all(|c| c.len() == 2 && c.chars().all(|ch| ch.is_ascii_alphabetic()))
     };
     if !countries_ok(&body.allowed_countries) || !countries_ok(&body.blocked_countries) {
-        return Err(bad_request("countries must be ISO 3166-1 alpha-2 codes"));
+        return Err(refuse(StatusCode::BAD_REQUEST, "invalid_country_code"));
     }
     if let Some(home) = &body.home_country {
         if !countries_ok(std::slice::from_ref(home)) {
-            return Err(bad_request(
-                "home_country must be an ISO 3166-1 alpha-2 code",
-            ));
+            return Err(refuse(StatusCode::BAD_REQUEST, "invalid_country_code"));
         }
     }
 

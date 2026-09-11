@@ -2150,3 +2150,227 @@ async fn a_second_digit_cannot_overturn_a_decision() {
         "the first answer stands; a later key must not grant what was refused"
     );
 }
+
+// ---- the 0111 findings, closed ---------------------------------------------
+
+#[tokio::test]
+async fn a_partial_settings_write_cannot_switch_capture_on() {
+    // An admin who sends `{"enabled": true}` has said nothing about transcription. The
+    // canonical default is written into `OrgSettings::default_for_new_org` in the team's
+    // own words: recording, transcription and AI analysis stay OFF, because "a default
+    // that captures someone nobody asked is a different kind of mistake from a default
+    // that refuses a call".
+    //
+    // Three places disagreed about it. The read path returned `false` (and
+    // `an_org_with_no_settings_row_reads_as_ready_to_dial` asserts it), while
+    // `#[serde(default = "yes")]` and the column default both said `TRUE`. The passing
+    // test made the property look held when the write path contradicted it.
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+
+    let res = client()
+        .put(format!(
+            "{}/api/business/organizations/{org}/voip/settings",
+            base(&srv)
+        ))
+        .bearer_auth(&jwt)
+        .json(&json!({ "enabled": true }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let body: Value = res.json().await.unwrap();
+
+    assert_eq!(body["transcription_enabled"], json!(false), "{body}");
+    assert_eq!(body["recording_enabled"], json!(false), "{body}");
+    assert_eq!(body["ai_analysis_enabled"], json!(false), "{body}");
+
+    // The column default must not contradict the API either. A row created by any other
+    // path — a support script, a backfill — must not arrive with capture switched on.
+    let (other, _) = user(&srv).await;
+    let other_org = make_org(&srv, other, "owner").await;
+    sqlx::query("INSERT INTO voip_org_settings (org_id) VALUES ($1)")
+        .bind(other_org)
+        .execute(&srv.pool)
+        .await
+        .unwrap();
+    let stored: bool =
+        sqlx::query_scalar("SELECT transcription_enabled FROM voip_org_settings WHERE org_id = $1")
+            .bind(other_org)
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap();
+    assert!(!stored, "the column default still switches capture on");
+}
+
+#[tokio::test]
+async fn a_caller_id_the_org_cannot_prove_it_owns_is_refused() {
+    // The highest-stakes branch in this file, and it had no test. `resolve_caller_id`
+    // says why in the code: presenting a number you cannot prove you own is illegal in
+    // most of our markets. Tenancy is asserted per route because it leaks per route —
+    // this is the same argument with a regulator behind it.
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    enable_dialing(&srv, org, &jwt, 5).await;
+
+    let (other_owner, other_jwt) = user(&srv).await;
+    let other_org = make_org(&srv, other_owner, "owner").await;
+    enable_dialing(&srv, other_org, &other_jwt, 5).await;
+
+    // A number that belongs to the OTHER organisation, verified and outbound-enabled
+    // there. Owning it somewhere is not owning it here.
+    let theirs: String =
+        sqlx::query_scalar("SELECT e164 FROM voip_numbers WHERE org_id = $1 LIMIT 1")
+            .bind(other_org)
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap();
+
+    // One of ours, but still awaiting verification.
+    let pending = format!("+39022{:07}", rand_suffix());
+    sqlx::query(
+        "INSERT INTO voip_numbers (org_id, provider, e164, country, outbound_enabled,
+                                   verification_status)
+         VALUES ($1, 'mock', $2, 'IT', TRUE, 'pending')",
+    )
+    .bind(org)
+    .bind(&pending)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+
+    for (caller_id, why) in [
+        (theirs.as_str(), "another org's verified number"),
+        (pending.as_str(), "our own number, still pending"),
+    ] {
+        let res = client()
+            .post(format!(
+                "{}/api/business/organizations/{org}/voip/calls",
+                base(&srv)
+            ))
+            .bearer_auth(&jwt)
+            .json(&json!({
+                "destination": "+390212345678",
+                "source_language": "it",
+                "target_language": "en",
+                "caller_id": caller_id,
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            res.status(),
+            StatusCode::FORBIDDEN,
+            "presenting {why} should be refused"
+        );
+        let body: Value = res.json().await.unwrap();
+        assert_eq!(body["error"], json!("caller_id_unverified"), "{body}");
+    }
+}
+
+#[tokio::test]
+async fn a_quote_refuses_what_a_dial_would_refuse() {
+    // `quote`'s doc comment promises "the same gate as dial, so the dialer cannot show a
+    // price for a call that would then be refused". Two of dial's checks were missing
+    // here, so the exact failure the comment rules out was reachable on two paths: an org
+    // with `require_project`, and an org with no verified number to present.
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    enable_dialing(&srv, org, &jwt, 5).await;
+
+    let quote = |body: Value| {
+        let jwt = jwt.clone();
+        let url = format!("{}/api/business/organizations/{org}/voip/quote", base(&srv));
+        async move {
+            client()
+                .post(url)
+                .bearer_auth(&jwt)
+                .json(&body)
+                .send()
+                .await
+                .unwrap()
+        }
+    };
+
+    // Baseline: with a project not required and a verified number seeded, it prices.
+    let res = quote(json!({ "destination": "+390212345678" })).await;
+    assert_eq!(res.status(), StatusCode::OK, "baseline quote should price");
+
+    // (1) The org now requires a project, and none was named.
+    sqlx::query("UPDATE voip_org_settings SET require_project = TRUE WHERE org_id = $1")
+        .bind(org)
+        .execute(&srv.pool)
+        .await
+        .unwrap();
+    let res = quote(json!({ "destination": "+390212345678" })).await;
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    let body: Value = res.json().await.unwrap();
+    assert_eq!(body["error"], json!("project_required"), "{body}");
+
+    sqlx::query("UPDATE voip_org_settings SET require_project = FALSE WHERE org_id = $1")
+        .bind(org)
+        .execute(&srv.pool)
+        .await
+        .unwrap();
+
+    // (2) A caller id the org cannot prove it owns — refused at quote time, not after the
+    // customer has read a price and pressed Call.
+    let res = quote(json!({
+        "destination": "+390212345678",
+        "caller_id": "+390299999999",
+    }))
+    .await;
+    assert_eq!(res.status(), StatusCode::FORBIDDEN);
+    let body: Value = res.json().await.unwrap();
+    assert_eq!(body["error"], json!("caller_id_unverified"), "{body}");
+}
+
+#[tokio::test]
+async fn a_policy_refusal_carries_a_code_the_client_can_translate() {
+    // `err_response` already states the rule: only the stable machine-readable code
+    // crosses the boundary, because a refusal's prose would be untranslatable. These
+    // paths shipped raw English as a `text/plain` body instead — which the dashboard
+    // cannot even parse, so every one of them surfaced as the generic message.
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+
+    let res = client()
+        .put(format!(
+            "{}/api/business/organizations/{org}/voip/settings",
+            base(&srv)
+        ))
+        .bearer_auth(&jwt)
+        .json(&json!({ "enabled": true, "allowed_countries": ["ITALY"] }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    let body: Value = res.json().await.unwrap();
+    assert_eq!(body["error"], json!("invalid_country_code"), "{body}");
+
+    let res = client()
+        .put(format!(
+            "{}/api/business/organizations/{org}/voip/settings",
+            base(&srv)
+        ))
+        .bearer_auth(&jwt)
+        .json(&json!({
+            "enabled": true,
+            "consent_policy": "disabled",
+            "transcription_enabled": true,
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    let body: Value = res.json().await.unwrap();
+    assert_eq!(
+        body["error"],
+        json!("consent_required_for_capture"),
+        "{body}"
+    );
+}
