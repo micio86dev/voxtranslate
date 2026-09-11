@@ -1,0 +1,107 @@
+# Regenerate the Playwright visual baselines ON THE RUNNER, then upload them.
+#
+# Why this exists as its own manual workflow rather than a flag on `ci.yml`:
+# `toHaveScreenshot` compares against a PNG committed to the repo, and those PNGs are
+# only meaningful if they were rendered by the same browser on the same OS with the same
+# fonts as the job that will compare them. Generating them anywhere else is guesswork
+# dressed as a baseline.
+#
+# That guesswork was measured. Baselines produced in
+# `mcr.microsoft.com/playwright:v1.62.1-noble` under `--platform linux/amd64` — same
+# Chromium, x86_64, Ubuntu 24.04, i.e. everything `ubuntu-latest` is — still differed from
+# the runner by 34 475 pixels (ratio 0.03) against a 0.01 tolerance. Matching the
+# architecture and the distro is not enough; the installed font set is not the same.
+#
+# The alternative would have been to widen `maxDiffPixelRatio` until the mismatch fitted
+# under it. That does not make the baseline correct, it makes the test blind — and a visual
+# regression test that cannot fail is worse than no visual regression test, because it
+# reports a pass.
+#
+# Run it from the Actions tab, download the `visual-baselines` artifact, and commit the
+# PNGs. Deliberately manual: a workflow that rewrites its own expectations on every push
+# can never fail.
+name: Visual baselines
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  baselines:
+    runs-on: ubuntu-latest
+    env:
+      # Mirrors the `e2e` job in ci.yml. The server must boot, and it refuses to without
+      # these; the visual specs themselves are backend-independent, but the home page they
+      # photograph is not rendered in isolation.
+      QWEN_API_KEY: ${{ secrets.QWEN_API_KEY }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      DEEPGRAM_API_KEY: ${{ secrets.DEEPGRAM_API_KEY }}
+      # Guest-only, exactly as in `e2e`: no GOOGLE_CLIENT_ID/JWT_SECRET, so the flows the
+      # screenshots capture are the ones CI will compare against.
+      DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/voxtest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: voxtest
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: server
+
+      - name: Build backend
+        working-directory: server
+        run: cargo build --release --locked
+
+      # Same shape as ci.yml: fail here rather than let the specs time out and blame the UI.
+      - name: Run backend
+        working-directory: server
+        run: |
+          ./target/release/voxtranslate-server &
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:3001/health >/dev/null; then
+              echo "backend answered /health after $((i * 2))s"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::the backend never answered /health in 120s"
+          exit 1
+
+      - name: Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      - name: Client install
+        working-directory: client
+        run: npm ci
+      - name: Playwright browser
+        working-directory: client
+        run: npx playwright install --with-deps chromium
+
+      - name: Regenerate the visual baselines
+        working-directory: client
+        run: npx playwright test visual.spec.ts --update-snapshots
+
+      - name: Upload
+        uses: actions/upload-artifact@v7
+        with:
+          name: visual-baselines
+          path: client/e2e/visual.spec.ts-snapshots/*-linux.png
+          if-no-files-found: error
