@@ -149,9 +149,17 @@ top of a dialer that sends an empty language.
   - *Given* the dashboard's coverage run, *then* `phone-dialer.ts` and
     `phone-catalogue.ts` are inside the allowlist, so the existing 85/85 thresholds apply
     to the dialer's logic instead of skipping it.
-  - *Given* the server's coverage run, *then* a gate scoped to `src/voip/` and
-    `src/telephony/` fails below 85% lines, alongside the unchanged global floor of 66%.
+  - *Given* the server's coverage run, *then* a step scoped to `src/voip/` and
+    `src/telephony/` measures and prints their line coverage, alongside the unchanged
+    global floor of 66%.
   - *Given* the global floor, *then* it is **not** lowered.
+  - *Note:* the scoped step **reports** before it gates. This repo sets a floor to a
+    number it has measured — "Ratchet the floor up as coverage grows", "Lowered from
+    69→66" — and the figure could not be measured on the author's machine: the
+    `-C instrument-coverage` build crashes rustc on the typst dependency tree. Landing an
+    85% gate on a guess would either pass by luck or turn the branch red for a reason
+    nobody had checked. The first CI run prints the figure; the floor is then set from it
+    and the `exit(1)` turned on, in a follow-up that can say what the number is.
 
 ## 4. Design & Architecture
 
@@ -282,7 +290,10 @@ is repurposed for the status line.
    measured denominator. Both are near 100% today, so the gate has headroom; the module
    that sits closest to the floor is `api.ts`, and it is the one to watch as the client
    grows.
-5. **Call history cannot be filtered by date.** `GET …/voip/calls` accepts only
+5. **The scoped VoIP coverage gate reports but does not yet block.** See R11: the number
+   has not been measured, and this repo does not set unmeasured floors. The follow-up is
+   one line in `ci.yml` once the first run prints it.
+6. **Call history cannot be filtered by date.** `GET …/voip/calls` accepts only
    `project_id`, `page` and `limit`. The meeting history has date filters because its
    endpoint supports them; matching that here needs a server change and belongs with the
    analytics work in 0117, where date ranges are the whole point.

@@ -502,11 +502,19 @@ async fn the_numbers_list_is_scoped_to_the_org_and_carries_its_verification_stat
     let (other_owner, _) = user(&srv).await;
     let other_org = make_org(&srv, other_owner, "owner").await;
 
+    // `voip_numbers.e164` is UNIQUE across the install and nothing sweeps this table, so
+    // hardcoded fixtures pass once and then fail for ever on a shared test database.
+    // Same reason `enable_dialing` uses a suffix; the country prefix still carries meaning.
+    let milan = format!("+39{}", rand_suffix());
+    let spain = format!("+34{}", rand_suffix());
+    let fax = format!("+39{}", rand_suffix());
+    let theirs = format!("+49{}", rand_suffix());
+
     for (e164, label, verified, outbound, target) in [
-        ("+390212345678", "Milan Office", "verified", true, org),
-        ("+34911234567", "Sales Spain", "pending", true, org),
-        ("+390687654321", "Fax", "verified", false, org),
-        ("+4930123456", "Someone Else", "verified", true, other_org),
+        (milan.as_str(), "Milan Office", "verified", true, org),
+        (spain.as_str(), "Sales Spain", "pending", true, org),
+        (fax.as_str(), "Fax", "verified", false, org),
+        (theirs.as_str(), "Someone Else", "verified", true, other_org),
     ] {
         sqlx::query(
             "INSERT INTO voip_numbers (org_id, provider, e164, country, label,
@@ -545,25 +553,28 @@ async fn the_numbers_list_is_scoped_to_the_org_and_carries_its_verification_stat
 
     let raw = body.to_string();
     assert!(
-        !raw.contains("4930123456"),
+        !raw.contains(theirs.trim_start_matches('+')),
         "another org's number crossed the tenancy boundary: {raw}"
     );
 
-    let milan = numbers
+    let row = numbers
         .iter()
-        .find(|n| n["e164"] == "+390212345678")
+        .find(|n| n["e164"] == milan.as_str())
         .expect("Milan Office missing");
-    assert_eq!(milan["label"], "Milan Office");
-    assert_eq!(milan["verification_status"], "verified");
-    assert_eq!(milan["outbound_enabled"], serde_json::json!(true));
+    assert_eq!(row["label"], "Milan Office");
+    assert_eq!(row["verification_status"], "verified");
+    assert_eq!(row["outbound_enabled"], serde_json::json!(true));
 
     // The unusable ones are present with the state that says so, rather than hidden —
     // an admin has to be able to see that "Sales Spain" is still pending.
-    let spain = numbers
+    let row = numbers
         .iter()
-        .find(|n| n["e164"] == "+34911234567")
+        .find(|n| n["e164"] == spain.as_str())
         .expect("Sales Spain missing");
-    assert_eq!(spain["verification_status"], "pending");
+    assert_eq!(row["verification_status"], "pending");
+    // And the one that is verified but not outbound-enabled is listed too; deciding which
+    // may be PRESENTED is `resolve_caller_id`'s job, not this endpoint's.
+    assert!(numbers.iter().any(|n| n["e164"] == fax.as_str()));
 }
 
 #[tokio::test]
