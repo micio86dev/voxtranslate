@@ -404,6 +404,194 @@ async fn the_history_list_never_carries_the_full_number() {
     assert!(raw.contains("••••"), "…and it should carry the masked form");
 }
 
+#[tokio::test]
+async fn the_detail_endpoint_never_carries_our_cost_or_our_margin() {
+    // Spec 0112 R6. `engine/metadata.rs` proves the same property for the engine
+    // catalogue with `engine_info_never_leaks_cost_or_markup`; this is its mirror for
+    // the call record. What the customer agreed to (`quoted_price_per_min`) and what they
+    // paid (`credits_consumed`) are theirs. What the leg cost us, and the margin we made
+    // on it, are not — and a member of any role could read both.
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    let call = make_call(&srv, org, owner).await;
+
+    // Rate the call, so the numbers are present in the row and their absence from the
+    // response cannot be mistaken for "there was nothing to leak".
+    sqlx::query(
+        "UPDATE voip_calls
+            SET actual_provider_cost_usd = 0.0340, gross_margin = 0.274,
+                quoted_price_per_min = 0.0468, credits_consumed = 5
+          WHERE id = $1",
+    )
+    .bind(call)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+
+    let body: Value = client()
+        .get(format!(
+            "{}/api/business/organizations/{org}/voip/calls/{call}",
+            base(&srv)
+        ))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+
+    let raw = body.to_string();
+    assert!(
+        !raw.contains("gross_margin"),
+        "the detail payload leaked our margin: {raw}"
+    );
+    assert!(
+        !raw.contains("actual_provider_cost"),
+        "the detail payload leaked our provider cost: {raw}"
+    );
+    assert!(
+        !raw.contains("0.274"),
+        "the margin value leaked under another name: {raw}"
+    );
+    // What the customer is entitled to is still there.
+    assert_eq!(body["credits_consumed"], serde_json::json!(5));
+    assert!(raw.contains("quoted_price_per_min"));
+    // A rated call reports its reconciliation as settled, without the number.
+    assert_eq!(body["cost_status"], serde_json::json!("final"));
+}
+
+#[tokio::test]
+async fn an_unrated_call_says_pending_rather_than_zero() {
+    // Spec 0112 R6. Telnyx rates calls asynchronously (docs/voip-telnyx-setup.md §7), so
+    // `actual_provider_cost_usd` is NULL for a while. Reporting that as 0 would read as
+    // "this call was free", which is a very different claim from "we do not know yet".
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    let call = make_call(&srv, org, owner).await;
+
+    let body: Value = client()
+        .get(format!(
+            "{}/api/business/organizations/{org}/voip/calls/{call}",
+            base(&srv)
+        ))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+
+    assert_eq!(body["cost_status"], serde_json::json!("pending"));
+}
+
+#[tokio::test]
+async fn the_numbers_list_is_scoped_to_the_org_and_carries_its_verification_state() {
+    // Spec 0112 R3. The dialer's caller-id select shipped with a single hardcoded
+    // "default" option because nothing served the org's own numbers. This lists the
+    // inventory — every row, with the state that decides whether it may be presented —
+    // and leaves the "which of these are usable" filter to the client, where it is a pure
+    // function with a test. `resolve_caller_id` remains the authority.
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+
+    let (other_owner, _) = user(&srv).await;
+    let other_org = make_org(&srv, other_owner, "owner").await;
+
+    for (e164, label, verified, outbound, target) in [
+        ("+390212345678", "Milan Office", "verified", true, org),
+        ("+34911234567", "Sales Spain", "pending", true, org),
+        ("+390687654321", "Fax", "verified", false, org),
+        ("+4930123456", "Someone Else", "verified", true, other_org),
+    ] {
+        sqlx::query(
+            "INSERT INTO voip_numbers (org_id, provider, e164, country, label,
+                                       outbound_enabled, verification_status)
+             VALUES ($1, 'mock', $2, 'IT', $3, $4, $5)",
+        )
+        .bind(target)
+        .bind(e164)
+        .bind(label)
+        .bind(outbound)
+        .bind(verified)
+        .execute(&srv.pool)
+        .await
+        .unwrap();
+    }
+
+    let body: Value = client()
+        .get(format!(
+            "{}/api/business/organizations/{org}/voip/numbers",
+            base(&srv)
+        ))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+
+    let numbers = body["numbers"].as_array().unwrap();
+    assert_eq!(
+        numbers.len(),
+        3,
+        "expected this org's three numbers: {body}"
+    );
+
+    let raw = body.to_string();
+    assert!(
+        !raw.contains("4930123456"),
+        "another org's number crossed the tenancy boundary: {raw}"
+    );
+
+    let milan = numbers
+        .iter()
+        .find(|n| n["e164"] == "+390212345678")
+        .expect("Milan Office missing");
+    assert_eq!(milan["label"], "Milan Office");
+    assert_eq!(milan["verification_status"], "verified");
+    assert_eq!(milan["outbound_enabled"], serde_json::json!(true));
+
+    // The unusable ones are present with the state that says so, rather than hidden —
+    // an admin has to be able to see that "Sales Spain" is still pending.
+    let spain = numbers
+        .iter()
+        .find(|n| n["e164"] == "+34911234567")
+        .expect("Sales Spain missing");
+    assert_eq!(spain["verification_status"], "pending");
+}
+
+#[tokio::test]
+async fn a_non_member_cannot_list_an_orgs_numbers() {
+    // A company's phone numbers are its own. Tenancy is asserted per route because it
+    // leaks per route.
+    let srv = srv!();
+    let (owner, _) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    let (_outsider, outsider_jwt) = user(&srv).await;
+
+    let res = client()
+        .get(format!(
+            "{}/api/business/organizations/{org}/voip/numbers",
+            base(&srv)
+        ))
+        .bearer_auth(&outsider_jwt)
+        .send()
+        .await
+        .unwrap();
+
+    assert!(
+        res.status() == StatusCode::FORBIDDEN || res.status() == StatusCode::NOT_FOUND,
+        "an outsider got {} from the numbers list",
+        res.status()
+    );
+}
+
 // ---- roles ----------------------------------------------------------------
 
 #[tokio::test]

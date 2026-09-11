@@ -59,6 +59,10 @@ pub fn routes() -> Router<AppState> {
             "/api/business/organizations/{org_id}/voip/settings",
             get(get_settings).put(put_settings),
         )
+        .route(
+            "/api/business/organizations/{org_id}/voip/numbers",
+            get(numbers),
+        )
         // Unauthenticated by design: the provider cannot present a session. The Ed25519
         // signature IS the authentication, and it is verified before anything is read.
         .route("/api/voip/webhooks/{provider}", post(inbound_webhook))
@@ -529,8 +533,15 @@ struct CallDetailRow {
     duration_seconds: Option<i32>,
     credits_consumed: i32,
     quoted_price_per_min: Option<Decimal>,
-    actual_provider_cost_usd: Option<Decimal>,
-    gross_margin: Option<Decimal>,
+    /// `"pending"` until the provider rates the leg, then `"final"`.
+    ///
+    /// Deliberately a **status and not a number**. What the leg cost us
+    /// (`actual_provider_cost_usd`) and the margin we made on it (`gross_margin`) are
+    /// business-internal and stay on the server — the same rule `engine/metadata.rs`
+    /// enforces for the engine catalogue with `engine_info_never_leaks_cost_or_markup`.
+    /// What the customer agreed to (`quoted_price_per_min`) and what they paid
+    /// (`credits_consumed`) are theirs, and both are still here. Spec 0112 R6.
+    cost_status: String,
     recording_status: String,
     transcription_status: String,
     consent_status: String,
@@ -557,7 +568,9 @@ pub async fn detail(
                 c.status, c.failure_reason, c.direction, c.recipient_e164,
                 c.recipient_country, c.source_language, c.target_language, c.engine_id,
                 c.started_at, c.ended_at, c.duration_seconds, c.credits_consumed,
-                c.quoted_price_per_min, c.actual_provider_cost_usd, c.gross_margin,
+                c.quoted_price_per_min,
+                CASE WHEN c.actual_provider_cost_usd IS NULL THEN 'pending' ELSE 'final' END
+                    AS cost_status,
                 c.recording_status, c.transcription_status, c.consent_status, c.project_id
          FROM voip_calls c
          JOIN call_sessions s ON s.id = c.session_id
@@ -579,10 +592,61 @@ pub async fn detail(
     // customer paid for, and a sales rep has to be able to see who they called. The list
     // view and every log carry the masked or pseudonymous form instead.
     //
-    // `actual_provider_cost_usd` is null until the provider rates the call, and is
-    // surfaced as null rather than as zero — a zero would read as "free", which is a very
-    // different claim from "not yet known". See docs/voip-telnyx-setup.md §6.
+    // Our provider cost and our margin are NOT returned, to anyone, at any role — see
+    // `CallDetailRow::cost_status`. Reconciliation is reported as `pending` rather than as
+    // a zero, because a zero reads as "this call was free", which is a very different
+    // claim from "the provider has not rated it yet". See docs/voip-telnyx-setup.md §7.
     Ok(Json(r).into_response())
+}
+
+#[derive(Debug, Serialize, FromRow)]
+struct NumberRow {
+    id: Uuid,
+    e164: String,
+    country: String,
+    label: Option<String>,
+    is_default: bool,
+    inbound_enabled: bool,
+    outbound_enabled: bool,
+    verification_status: String,
+}
+
+/// `GET …/voip/numbers` — the organisation's own telephone numbers (spec 0112 R3).
+///
+/// Read-only. Searching, buying, verifying and releasing numbers are spec 0115; this
+/// exists because without it the dialer's caller-id select had exactly one hardcoded
+/// option and could not name a number the organisation actually owns.
+///
+/// Every row is returned, including the ones that may not be presented as caller id yet,
+/// each carrying the state that says so. Filtering them out here would hide a number stuck
+/// in `pending` from the admin who needs to chase it. Which rows are *usable* is decided
+/// by `resolve_caller_id` on the way out, and mirrored in the client as a pure function —
+/// this endpoint reports, it does not adjudicate.
+///
+/// The numbers are returned in full. R23's masking rule is about the **recipient's**
+/// number in logs and lists; these belong to the organisation asking for them, and a
+/// caller id you cannot read is not a caller id you can choose.
+pub async fn numbers(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(org_id): Path<Uuid>,
+) -> Result<Response, Response> {
+    let pool = require_pool(&state)?;
+    require_role(pool, org_id, user.user_id, MEMBER).await?;
+
+    let rows: Vec<NumberRow> = sqlx::query_as(
+        "SELECT id, e164, country, label, is_default, inbound_enabled, outbound_enabled,
+                verification_status
+         FROM voip_numbers
+         WHERE org_id = $1
+         ORDER BY is_default DESC, created_at",
+    )
+    .bind(org_id)
+    .fetch_all(pool)
+    .await
+    .map_err(db_err)?;
+
+    Ok(Json(json!({ "numbers": rows })).into_response())
 }
 
 /// `POST …/voip/calls/{id}/hangup`.
