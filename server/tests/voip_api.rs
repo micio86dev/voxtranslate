@@ -2374,3 +2374,446 @@ async fn a_policy_refusal_carries_a_code_the_client_can_translate() {
         "{body}"
     );
 }
+
+// ---- contacts (spec 0114) --------------------------------------------------
+
+/// Create a contact through the API and return its id.
+async fn make_contact(srv: &Server, org: Uuid, jwt: &str, body: Value) -> (StatusCode, Value) {
+    let res = client()
+        .post(format!(
+            "{}/api/business/organizations/{org}/voip/contacts",
+            base(srv)
+        ))
+        .bearer_auth(jwt)
+        .json(&body)
+        .send()
+        .await
+        .unwrap();
+    let status = res.status();
+    (status, res.json().await.unwrap_or(Value::Null))
+}
+
+#[tokio::test]
+async fn a_contact_carries_its_numbers_and_each_number_its_own_language() {
+    // The language lives on the NUMBER. A colleague who takes work calls in English on the
+    // office line and Catalan on their mobile is one person, not two.
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+
+    let office = format!("+3493{:07}", rand_suffix());
+    let mobile = format!("+3462{:07}", rand_suffix());
+    let (status, body) = make_contact(
+        &srv,
+        org,
+        &jwt,
+        json!({
+            "name": "Marta Roig",
+            "company": "Roig Import",
+            "tags": ["supplier"],
+            "numbers": [
+                { "e164": office, "label": "Office", "language": "en", "is_primary": true },
+                { "e164": mobile, "label": "Mobile", "language": "ca" },
+            ],
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+
+    let id = body["id"].as_str().expect("id").to_string();
+    let detail: Value = client()
+        .get(format!(
+            "{}/api/business/organizations/{org}/voip/contacts/{id}",
+            base(&srv)
+        ))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+
+    let numbers = detail["numbers"].as_array().unwrap();
+    assert_eq!(numbers.len(), 2, "{detail}");
+    let by_label = |l: &str| {
+        numbers
+            .iter()
+            .find(|n| n["label"] == l)
+            .unwrap_or_else(|| panic!("{l} missing: {detail}"))
+    };
+    assert_eq!(by_label("Office")["language"], json!("en"));
+    assert_eq!(by_label("Mobile")["language"], json!("ca"));
+    assert_eq!(by_label("Office")["is_primary"], json!(true));
+    assert_eq!(by_label("Mobile")["is_primary"], json!(false));
+}
+
+#[tokio::test]
+async fn one_number_belongs_to_one_person_per_organisation() {
+    // Inbound must never have to CHOOSE whose call this is (spec 0116), so the constraint
+    // lives in the database rather than in a handler that could forget.
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    let shared = format!("+3902{:07}", rand_suffix());
+
+    let (first, _) = make_contact(
+        &srv,
+        org,
+        &jwt,
+        json!({ "name": "First", "numbers": [{ "e164": shared }] }),
+    )
+    .await;
+    assert_eq!(first, StatusCode::CREATED);
+
+    let (second, body) = make_contact(
+        &srv,
+        org,
+        &jwt,
+        json!({ "name": "Second", "numbers": [{ "e164": shared }] }),
+    )
+    .await;
+    assert_eq!(second, StatusCode::CONFLICT, "{body}");
+    assert_eq!(body["error"], json!("number_already_known"), "{body}");
+
+    // Another organisation may legitimately know the same supplier.
+    let (other_owner, other_jwt) = user(&srv).await;
+    let other_org = make_org(&srv, other_owner, "owner").await;
+    let (elsewhere, body) = make_contact(
+        &srv,
+        other_org,
+        &other_jwt,
+        json!({ "name": "Same supplier", "numbers": [{ "e164": shared }] }),
+    )
+    .await;
+    assert_eq!(elsewhere, StatusCode::CREATED, "{body}");
+}
+
+#[tokio::test]
+async fn a_contact_reaches_many_projects_and_appears_once_in_each() {
+    // The first many-to-many involving `projects` in this schema.
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+
+    let mut projects = Vec::new();
+    for name in ["Alpha", "Beta"] {
+        let id: Uuid = sqlx::query_scalar(
+            "INSERT INTO projects (org_id, name, created_by) VALUES ($1, $2, $3) RETURNING id",
+        )
+        .bind(org)
+        .bind(name)
+        .bind(owner)
+        .fetch_one(&srv.pool)
+        .await
+        .unwrap();
+        projects.push(id);
+    }
+
+    let (status, body) = make_contact(
+        &srv,
+        org,
+        &jwt,
+        json!({
+            "name": "Shared",
+            "numbers": [{ "e164": format!("+3902{:07}", rand_suffix()) }],
+            // Linked twice on purpose: linking is idempotent (R3).
+            "project_ids": [projects[0], projects[1], projects[0]],
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    let id = body["id"].as_str().unwrap().to_string();
+
+    for project in &projects {
+        let list: Value = client()
+            .get(format!(
+                "{}/api/business/organizations/{org}/voip/contacts?project_id={project}",
+                base(&srv)
+            ))
+            .bearer_auth(&jwt)
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        let rows = list["contacts"].as_array().unwrap();
+        assert_eq!(
+            rows.len(),
+            1,
+            "one row per project, not one per link: {list}"
+        );
+        assert_eq!(rows[0]["id"], json!(id));
+    }
+
+    // Deleting a project leaves the person, with one link fewer.
+    sqlx::query("DELETE FROM projects WHERE id = $1")
+        .bind(projects[0])
+        .execute(&srv.pool)
+        .await
+        .unwrap();
+    let detail: Value = client()
+        .get(format!(
+            "{}/api/business/organizations/{org}/voip/contacts/{id}",
+            base(&srv)
+        ))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(detail["projects"].as_array().unwrap().len(), 1, "{detail}");
+}
+
+#[tokio::test]
+async fn contacts_are_searchable_by_the_things_people_remember() {
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    let number = format!("+8613{:07}", rand_suffix());
+
+    make_contact(
+        &srv,
+        org,
+        &jwt,
+        json!({
+            "name": "Wei Zhang",
+            "company": "Shenzhen Optics",
+            "tags": ["supplier", "hardware"],
+            "numbers": [{ "e164": number, "language": "zh" }],
+        }),
+    )
+    .await;
+    make_contact(
+        &srv,
+        org,
+        &jwt,
+        json!({ "name": "Someone Else", "numbers": [{ "e164": format!("+3902{:07}", rand_suffix()) }] }),
+    )
+    .await;
+
+    let find = |query: String| {
+        let jwt = jwt.clone();
+        let url = format!(
+            "{}/api/business/organizations/{org}/voip/contacts?{query}",
+            base(&srv)
+        );
+        async move {
+            let body: Value = client()
+                .get(url)
+                .bearer_auth(&jwt)
+                .send()
+                .await
+                .unwrap()
+                .json()
+                .await
+                .unwrap();
+            body["contacts"].as_array().unwrap().len()
+        }
+    };
+
+    assert_eq!(
+        find("q=zhang".into()).await,
+        1,
+        "by name, case-insensitively"
+    );
+    assert_eq!(find("q=shenzhen".into()).await, 1, "by company");
+    assert_eq!(
+        find(format!("q={}", &number[4..10])).await,
+        1,
+        "by part of a number"
+    );
+    assert_eq!(find("tag=supplier".into()).await, 1, "by tag");
+    assert_eq!(
+        find("language=zh".into()).await,
+        1,
+        "by the language they speak"
+    );
+    assert_eq!(
+        find("q=nobody".into()).await,
+        0,
+        "and nothing when nothing matches"
+    );
+}
+
+#[tokio::test]
+async fn a_number_can_be_looked_up_by_whoever_is_calling() {
+    // The reverse index, made addressable. Spec 0116 answers "who is ringing?" with it,
+    // and the dashboard uses it to decide whether to offer to save a number.
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    let known = format!("+3902{:07}", rand_suffix());
+    make_contact(
+        &srv,
+        org,
+        &jwt,
+        json!({ "name": "Known", "numbers": [{ "e164": known, "language": "it" }] }),
+    )
+    .await;
+
+    let lookup = |e164: String| {
+        let jwt = jwt.clone();
+        let url = format!(
+            "{}/api/business/organizations/{org}/voip/contacts/lookup?e164={e164}",
+            base(&srv)
+        );
+        async move { client().get(url).bearer_auth(&jwt).send().await.unwrap() }
+    };
+
+    let res = lookup(known.clone()).await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let body: Value = res.json().await.unwrap();
+    assert_eq!(body["name"], json!("Known"));
+    assert_eq!(
+        body["language"],
+        json!("it"),
+        "the language of THAT number: {body}"
+    );
+
+    let res = lookup(format!("+3902{:07}", rand_suffix())).await;
+    assert_eq!(
+        res.status(),
+        StatusCode::NOT_FOUND,
+        "an unknown number is not an error"
+    );
+}
+
+#[tokio::test]
+async fn deleting_a_contact_leaves_the_calls_that_were_made_to_them() {
+    // A call that happened cannot un-happen, and the financial record must outlive the
+    // convenience data that described it — the rule the credits ledger already follows.
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    let (_, body) = make_contact(
+        &srv,
+        org,
+        &jwt,
+        json!({ "name": "Gone", "numbers": [{ "e164": format!("+3902{:07}", rand_suffix()) }] }),
+    )
+    .await;
+    let contact = Uuid::parse_str(body["id"].as_str().unwrap()).unwrap();
+
+    let call = make_call(&srv, org, owner).await;
+    sqlx::query("UPDATE voip_calls SET contact_id = $1 WHERE id = $2")
+        .bind(contact)
+        .bind(call)
+        .execute(&srv.pool)
+        .await
+        .unwrap();
+
+    let res = client()
+        .delete(format!(
+            "{}/api/business/organizations/{org}/voip/contacts/{contact}",
+            base(&srv)
+        ))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+
+    let still_there: Option<Option<Uuid>> =
+        sqlx::query_scalar("SELECT contact_id FROM voip_calls WHERE id = $1")
+            .bind(call)
+            .fetch_optional(&srv.pool)
+            .await
+            .unwrap();
+    let contact_id = still_there.expect("the call was deleted along with the contact");
+    assert!(
+        contact_id.is_none(),
+        "the call still names a contact that is gone"
+    );
+}
+
+#[tokio::test]
+async fn a_non_member_cannot_read_or_write_an_orgs_address_book() {
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    make_contact(
+        &srv,
+        org,
+        &jwt,
+        json!({ "name": "Private", "numbers": [{ "e164": format!("+3902{:07}", rand_suffix()) }] }),
+    )
+    .await;
+
+    let (_outsider, outsider_jwt) = user(&srv).await;
+    for path in [
+        "/voip/contacts",
+        "/voip/contacts/lookup?e164=%2B390212345678",
+    ] {
+        let res = client()
+            .get(format!(
+                "{}/api/business/organizations/{org}{path}",
+                base(&srv)
+            ))
+            .bearer_auth(&outsider_jwt)
+            .send()
+            .await
+            .unwrap();
+        assert!(
+            res.status() == StatusCode::FORBIDDEN || res.status() == StatusCode::NOT_FOUND,
+            "an outsider got {} from {path}",
+            res.status()
+        );
+    }
+}
+
+#[tokio::test]
+async fn dialling_a_known_number_files_the_call_against_the_person() {
+    // Resolved from the destination rather than asked of the caller: the number is what
+    // was dialled, and who it belongs to is a fact about it.
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    enable_dialing(&srv, org, &jwt, 5).await;
+
+    let number = format!("+3902{:07}", rand_suffix());
+    let (_, contact) = make_contact(
+        &srv,
+        org,
+        &jwt,
+        json!({ "name": "Known Supplier", "numbers": [{ "e164": number, "language": "it" }] }),
+    )
+    .await;
+    let contact_id = contact["id"].as_str().unwrap().to_string();
+
+    let res = client()
+        .post(format!(
+            "{}/api/business/organizations/{org}/voip/calls",
+            base(&srv)
+        ))
+        .bearer_auth(&jwt)
+        .json(&json!({
+            "destination": number,
+            "source_language": "en",
+            "target_language": "it",
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::CREATED);
+    let created: Value = res.json().await.unwrap();
+    let call_id = created["call_id"].as_str().unwrap();
+
+    let detail: Value = client()
+        .get(format!(
+            "{}/api/business/organizations/{org}/voip/calls/{call_id}",
+            base(&srv)
+        ))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(detail["contact_id"], json!(contact_id), "{detail}");
+    assert_eq!(detail["contact_name"], json!("Known Supplier"), "{detail}");
+}

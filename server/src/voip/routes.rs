@@ -28,7 +28,7 @@ use crate::business::{db_err, not_found, require_pool, require_role, ADMIN, MEMB
 use crate::middleware::AuthUser;
 use crate::telephony::{WebhookHeaders, E164};
 use crate::voip::service::{self, DialOptions, VoipError};
-use crate::voip::{consent, webhook};
+use crate::voip::{consent, contacts, webhook};
 use crate::AppState;
 
 pub fn routes() -> Router<AppState> {
@@ -61,6 +61,22 @@ pub fn routes() -> Router<AppState> {
             "/api/business/organizations/{org_id}/voip/numbers",
             get(numbers),
         )
+        // The address book (spec 0114). `lookup` is registered BEFORE the `{contact_id}`
+        // route, or axum reads "lookup" as an id and answers 400 for a path that exists.
+        .route(
+            "/api/business/organizations/{org_id}/voip/contacts",
+            get(contacts::list).post(contacts::create),
+        )
+        .route(
+            "/api/business/organizations/{org_id}/voip/contacts/lookup",
+            get(contacts::lookup),
+        )
+        .route(
+            "/api/business/organizations/{org_id}/voip/contacts/{contact_id}",
+            get(contacts::detail)
+                .patch(contacts::update)
+                .delete(contacts::remove),
+        )
         // Unauthenticated by design: the provider cannot present a session. The Ed25519
         // signature IS the authentication, and it is verified before anything is read.
         .route("/api/voip/webhooks/{provider}", post(inbound_webhook))
@@ -86,7 +102,7 @@ pub fn routes() -> Router<AppState> {
 /// Codes added here must also gain copy in the dashboard's five locales; the client keeps
 /// its list in `phone-dialer.ts`'s `KNOWN_REASONS`, so an unrecognised code degrades to
 /// the generic string rather than printing itself at a customer.
-fn refuse(status: StatusCode, code: &str) -> Response {
+pub(crate) fn refuse(status: StatusCode, code: &str) -> Response {
     (status, Json(json!({ "error": code }))).into_response()
 }
 
@@ -606,6 +622,10 @@ struct CallDetailRow {
     transcription_status: String,
     consent_status: String,
     project_id: Option<Uuid>,
+    /// Who was called, when the address book knew (spec 0114). Null after the contact is
+    /// deleted — the call outlives the convenience data that described it.
+    contact_id: Option<Uuid>,
+    contact_name: Option<String>,
 }
 
 /// `GET …/voip/calls/{id}` — one call, with the money detail.
@@ -631,9 +651,11 @@ pub async fn detail(
                 c.quoted_price_per_min,
                 CASE WHEN c.actual_provider_cost_usd IS NULL THEN 'pending' ELSE 'final' END
                     AS cost_status,
-                c.recording_status, c.transcription_status, c.consent_status, c.project_id
+                c.recording_status, c.transcription_status, c.consent_status, c.project_id,
+                c.contact_id, ct.name AS contact_name
          FROM voip_calls c
          JOIN call_sessions s ON s.id = c.session_id
+         LEFT JOIN voip_contacts ct ON ct.id = c.contact_id
          WHERE c.id = $1 AND c.org_id = $2 AND ($3 OR c.user_id = $4)",
     )
     .bind(call_id)
