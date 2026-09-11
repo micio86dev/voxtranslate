@@ -1,0 +1,90 @@
+# Gentleman Guardian Angel Configuration
+# https://github.com/your-org/gga
+
+# AI Provider (required)
+# Options: claude, gemini, codex, opencode, cursor[:model], kilo[:model], kiro, ollama:<model>, lmstudio[:model], github:<model>, minimax[:model]
+# Examples:
+#   PROVIDER="claude"
+#   PROVIDER="gemini"
+#   PROVIDER="codex"
+#   PROVIDER="opencode"
+#   PROVIDER="opencode:anthropic/claude-opus-4-5"
+#   PROVIDER="cursor"
+#   PROVIDER="cursor:composer-2"
+#   PROVIDER="kilo"
+#   PROVIDER="kilo:anthropic/claude-sonnet-4-5"
+#   PROVIDER="kiro"
+#   PROVIDER="ollama:llama3.2"
+#   PROVIDER="ollama:codellama"
+#   PROVIDER="lmstudio"
+#   PROVIDER="lmstudio:qwen2.5-coder-7b-instruct"
+#   PROVIDER="github:gpt-4o"
+#   PROVIDER="github:deepseek-r1"
+#   PROVIDER="minimax"
+#   PROVIDER="minimax:MiniMax-M3"
+PROVIDER="claude"
+
+# File patterns to include in review (comma-separated)
+# Default: * (all files)
+# Examples:
+#   FILE_PATTERNS="*.ts,*.tsx"
+#   FILE_PATTERNS="*.py"
+#   FILE_PATTERNS="*.go,*.mod"
+# Every language this repository actually contains, counted rather than assumed:
+#   332 .ts   161 .rs   86 .astro   62 .sql   24 .js   4 .py   3 .sh
+# The global config shipped `*.ts,*.tsx,*.js,*.jsx,*.py,*.go` — no `.rs` at all, on a
+# project whose entire backend is Rust. `gga run` answered "No matching files staged",
+# which reads like approval and is not: it means nothing was looked at.
+FILE_PATTERNS="*.rs,*.ts,*.tsx,*.js,*.jsx,*.astro,*.sql,*.py,*.sh"
+
+# File patterns to exclude from review (comma-separated)
+# Default: none
+# Examples:
+#   EXCLUDE_PATTERNS="*.test.ts,*.spec.ts"
+#   EXCLUDE_PATTERNS="*_test.go,*.mock.ts"
+# Deliberately NOT excluding Rust tests. In TypeScript a test lives in its own
+# `*.test.ts`, so excluding that name skips tests and keeps production code. In Rust the
+# tests live INSIDE the file they test, in `mod tests` — there is no filename to exclude,
+# and excluding the file would drop the production code with them. So Rust tests get
+# reviewed alongside the code, which is the right outcome anyway: a wrong assertion is a
+# bug that reports success.
+EXCLUDE_PATTERNS="*.test.ts,*.spec.ts,*.test.tsx,*.spec.tsx,*.d.ts"
+
+# File containing code review rules
+# Default: AGENTS.md
+#
+# CLAUDE.md is the document this project actually maintains, and `AGENTS.md` is now a
+# symlink to it — so a tool reaching for either name gets the same bytes.
+#
+# It used to be a real file holding its own copy, and by the time a review tripped over it
+# the copy was two rewrites old: Deepgram streaming STT, browser SpeechSynthesis, "working
+# audio-only pipeline", on a project that had moved to Qwen realtime, server-streamed TTS
+# and shipped video. It also lacked the i18n all-or-nothing rule and the guest /
+# public-room gate. Reviews measured against it produced confident, wrong objections —
+# worse than no review, because it looks like one.
+#
+# Refreshing the copy would have fixed today and kept the mechanism: two files describing
+# one project drift again the moment someone edits whichever they have open. A symlink
+# cannot drift.
+RULES_FILE="CLAUDE.md"
+
+# Strict mode: fail if AI response is ambiguous
+# Default: true
+STRICT_MODE="true"
+
+# Timeout in seconds for AI provider response
+# Default: 300 (5 minutes)
+# Increase for large changesets or slow connections
+TIMEOUT="300"
+
+# OpenCode provider: optional reasoning effort / variant
+# Examples: minimal, low, medium, high, max
+# OPENCODE_VARIANT="high"
+
+# OpenCode provider: optional agent profile
+# Keep this lightweight. Agent prompts can add significant token overhead.
+# OPENCODE_AGENT="gga-reviewer"
+
+# Base branch for --pr-mode (auto-detects main/master/develop if empty)
+# Default: auto-detect
+# PR_BASE_BRANCH="main"
