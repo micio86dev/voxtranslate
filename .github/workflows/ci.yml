@@ -362,11 +362,32 @@ jobs:
         working-directory: server
         run: cargo llvm-cov test --locked
 
+      # Built in its own step so the readiness window below measures STARTUP, not
+      # compilation. `cargo run --release` compiles this dependency tree for far longer
+      # than any sane health-check timeout, so folding the two together means the probe
+      # expires while rustc is still working and the job blames the server for it.
+      - name: Build backend
+        working-directory: server
+        run: cargo build --release --locked
+
+      # Fails the job when the backend does not come up. The previous version looped
+      # sixty times and then fell through regardless, so a server that never started
+      # left every backend-dependent spec to die on its own 90 s timeout — which reads
+      # as "the UI is broken", not as "there is no server". That is how a `cargo run`
+      # that could not choose a binary went unnoticed for five days.
       - name: Run backend
         working-directory: server
         run: |
-          cargo run --release --locked &
-          for i in $(seq 1 60); do curl -sf http://localhost:3001/health && break; sleep 2; done
+          ./target/release/voxtranslate-server &
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:3001/health >/dev/null; then
+              echo "backend answered /health after $((i * 2))s"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::the backend never answered /health in 120s — failing here rather than letting every e2e spec time out and blame the UI"
+          exit 1
 
       - name: Node
         uses: actions/setup-node@v7

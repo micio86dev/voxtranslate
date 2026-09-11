@@ -51,6 +51,16 @@ async function joinAudioOnly(page: Page, room: string): Promise<void> {
 }
 
 test('screen share works without a camera (issue #4)', async ({ browser }) => {
+  // Two browsers, a full WebRTC mesh, and a renegotiation that has to invent an outgoing
+  // video track for a peer that never had one. Measured on CI, the setup alone ate roughly
+  // 70 of the shared 90 s budget, so the share assertion died on the TEST timeout rather
+  // than its own — reporting a broken UI when nothing was broken.
+  //
+  // The fixed `sleep(5000)` below looks like the thing to remove, and is not: replacing it
+  // with `toHaveCount(2)` was tried and fails. Two cells render BEFORE the peer connection
+  // is usable, so the share started too early and the renegotiation never delivered the
+  // screen. That delay is settling time for ICE, not a guess about rendering.
+  test.slow();
   const room = 'share' + Math.floor(Math.random() * 1e6);
   const a = await openPage(browser); // the sharer — no camera
   const b = await openPage(browser); // a normal viewer with a camera

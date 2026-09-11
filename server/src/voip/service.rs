@@ -157,11 +157,29 @@ pub struct OrgSettings {
 }
 
 impl OrgSettings {
-    /// An organization with no settings row has VoIP **off**. Enabling it is always an
-    /// explicit administrative act, which is what makes the audit trail meaningful.
-    fn disabled() -> Self {
+    /// What an organization gets before anybody opens its VoIP settings: **able to dial,
+    /// recording nothing**.
+    ///
+    /// This used to be off entirely, on the reasoning that enabling VoIP should be an
+    /// explicit administrative act with an audit trail behind it. That reasoning belonged
+    /// to a closed beta. In general availability it means every new customer meets
+    /// `DestinationNotAllowed` until somebody remembers to write a row — a silent refusal
+    /// that reads as a broken product, for a feature they are already paying for.
+    ///
+    /// The row was never what kept the spend honest anyway: `policy::entitlement` refuses
+    /// any organization without a live Business/Enterprise subscription, in every rollout
+    /// stage, whatever this says. That check is the one holding the money.
+    ///
+    /// Recording, transcription and AI analysis stay **off**, and the consent policy stays
+    /// `PressKey`. Those are not convenience switches — they decide whether a person on
+    /// the other end of a phone line is recorded. A default that captures someone nobody
+    /// asked is a different kind of mistake from a default that refuses a call.
+    fn default_for_new_org() -> Self {
         Self {
-            policy: OrgPolicy::default(),
+            policy: OrgPolicy {
+                enabled: true,
+                ..OrgPolicy::default()
+            },
             home_country: None,
             consent_policy: ConsentPolicy::PressKey,
             consent_refused_action: RefusedAction::ContinueUnrecorded,
@@ -175,7 +193,7 @@ impl OrgSettings {
     }
 }
 
-/// Load an org's VoIP settings. Absent ⇒ disabled.
+/// Load an org's VoIP settings. Absent ⇒ [`OrgSettings::default_for_new_org`].
 pub async fn load_org_settings(pool: &Pool, org_id: Uuid) -> Result<OrgSettings, sqlx::Error> {
     let row: Option<OrgSettingsRow> = sqlx::query_as(
         "SELECT enabled, allowed_countries, blocked_countries, allow_international,
@@ -190,7 +208,7 @@ pub async fn load_org_settings(pool: &Pool, org_id: Uuid) -> Result<OrgSettings,
     .await?;
 
     Ok(match row {
-        None => OrgSettings::disabled(),
+        None => OrgSettings::default_for_new_org(),
         Some(r) => OrgSettings {
             policy: OrgPolicy {
                 enabled: r.enabled,
@@ -832,22 +850,30 @@ mod tests {
     }
 
     #[test]
-    fn an_org_with_no_settings_row_has_voip_switched_off() {
-        // Enabling is always an explicit administrative act; that is what makes the audit
-        // trail worth reading.
-        let s = OrgSettings::disabled();
-        assert!(!s.policy.enabled);
-        assert!(!s.recording_enabled);
+    fn an_org_with_no_settings_row_can_dial_but_captures_nothing() {
+        // A paying customer must not have to discover that a row exists somewhere before
+        // the feature they bought will answer. Dialling is on.
+        let s = OrgSettings::default_for_new_org();
+        assert!(s.policy.enabled, "a new org can place a call");
+
+        // Everything that captures a human being stays off, and stays off for a different
+        // reason than caution: consent. `policy::entitlement` still refuses an org with no
+        // live subscription, so this default cannot spend money on its own — but nothing
+        // downstream would stop it from recording a stranger, so nothing here turns that on.
+        assert!(!s.recording_enabled, "nobody is recorded by default");
         assert!(!s.transcription_enabled);
-        // …and the conservative consent policy, so a misconfiguration cannot mean
-        // "capture silently".
-        assert_eq!(s.consent_policy, ConsentPolicy::PressKey);
+        assert!(!s.ai_analysis_enabled);
+        assert_eq!(
+            s.consent_policy,
+            ConsentPolicy::PressKey,
+            "a default must never mean capture silently"
+        );
     }
 
     #[test]
     fn capture_intent_is_an_intersection_never_a_union() {
         let mut c = cfg();
-        let mut org = OrgSettings::disabled();
+        let mut org = OrgSettings::default_for_new_org();
         let opts = DialOptions {
             destination: "+8613800138000".into(),
             source_language: "it".into(),
@@ -902,7 +928,7 @@ mod tests {
             recording_enabled: true,
             transcription_enabled: false,
             ai_analysis_enabled: true,
-            ..OrgSettings::disabled()
+            ..OrgSettings::default_for_new_org()
         };
         let opts = DialOptions {
             destination: "+8613800138000".into(),
@@ -928,7 +954,7 @@ mod tests {
         c.max_call_minutes = 30;
         let org = OrgSettings {
             max_call_minutes: 20,
-            ..OrgSettings::disabled()
+            ..OrgSettings::default_for_new_org()
         };
         // Asking for an hour on a 20-minute cap holds 20 minutes, not 60.
         assert_eq!(hold_minutes(60, &org, &c), 20);
@@ -946,7 +972,7 @@ mod tests {
         let mut c = cfg();
         c.min_gross_margin = 1.5;
         let world = DialWorld {
-            org: OrgSettings::disabled(),
+            org: OrgSettings::default_for_new_org(),
             global: global_policy(&c),
             rate: Some(rate("0.02")),
             route_validated: false,
@@ -967,7 +993,7 @@ mod tests {
     fn no_rate_refuses_the_quote_rather_than_pricing_at_zero() {
         let c = cfg();
         let world = DialWorld {
-            org: OrgSettings::disabled(),
+            org: OrgSettings::default_for_new_org(),
             global: global_policy(&c),
             rate: None,
             route_validated: false,

@@ -136,6 +136,31 @@ async fn make_org(srv: &Server, owner: Uuid, role: &str) -> Uuid {
     id
 }
 
+/// An organization whose subscription has lapsed. Everything else matches [`make_org`],
+/// including a healthy credit balance — the refusal must come from the subscription, not
+/// from an empty wallet, or the test would prove the wrong thing.
+async fn make_org_without_subscription(srv: &Server, owner: Uuid) -> Uuid {
+    let id: Uuid = sqlx::query_scalar(
+        "INSERT INTO organizations (name, slug, owner_id, credits_balance,
+                                    subscription_status, current_period_end)
+         VALUES ('Lapsed Co', $1, $2, 5000, 'canceled', now() - interval '1 day')
+         RETURNING id",
+    )
+    .bind(format!("voip-{}", Uuid::new_v4().simple()))
+    .bind(owner)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO organization_members (org_id, user_id, role) VALUES ($1, $2, $3)")
+        .bind(id)
+        .bind(owner)
+        .bind("owner")
+        .execute(&srv.pool)
+        .await
+        .unwrap();
+    id
+}
+
 async fn add_member(srv: &Server, org: Uuid, user_id: Uuid, role: &str) {
     sqlx::query("INSERT INTO organization_members (org_id, user_id, role) VALUES ($1, $2, $3)")
         .bind(org)
@@ -413,7 +438,7 @@ async fn reading_settings_is_a_member_action_and_changing_them_is_an_admin_one()
 }
 
 #[tokio::test]
-async fn an_org_with_no_settings_row_reads_as_disabled() {
+async fn an_org_with_no_settings_row_reads_as_ready_to_dial() {
     let srv = srv!();
     let (owner, jwt) = user(&srv).await;
     let org = make_org(&srv, owner, "owner").await;
@@ -430,9 +455,13 @@ async fn an_org_with_no_settings_row_reads_as_disabled() {
         .json()
         .await
         .unwrap();
-    assert_eq!(body["enabled"], json!(false));
-    // …and with the conservative consent policy, so a misconfiguration cannot mean
-    // "capture silently".
+    // A customer who is already paying should not have to find a settings row before the
+    // feature answers. What guards the spend is the subscription check, not this flag.
+    assert_eq!(body["enabled"], json!(true));
+    // Capture, however, is still off, and consent still conservative: a default may refuse
+    // a call, but it must never mean "record whoever picks up".
+    assert_eq!(body["recording_enabled"], json!(false));
+    assert_eq!(body["transcription_enabled"], json!(false));
     assert_eq!(body["consent_policy"], json!("press_key"));
 }
 
@@ -513,7 +542,9 @@ async fn settings_round_trip_and_normalise_country_codes() {
 // ---- dialing gate ---------------------------------------------------------
 
 #[tokio::test]
-async fn an_org_that_has_not_enabled_voip_cannot_dial() {
+async fn a_subscribed_org_can_quote_without_anyone_writing_a_settings_row() {
+    // The whole point of the default: a paying customer's first call is not gated behind
+    // an administrative act nobody told them about.
     let srv = srv!();
     let (owner, jwt) = user(&srv).await;
     let org = make_org(&srv, owner, "owner").await;
@@ -528,7 +559,33 @@ async fn an_org_that_has_not_enabled_voip_cannot_dial() {
         .send()
         .await
         .unwrap();
-    assert_eq!(res.status(), StatusCode::PAYMENT_REQUIRED);
+    assert_eq!(res.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn an_org_without_a_live_subscription_still_cannot_dial() {
+    // This is now the ONLY thing standing between an arbitrary organization and real
+    // Telnyx spend. It used to have `enabled = false` in front of it as a second belt;
+    // that belt is gone on purpose, so this gate has to be proven rather than assumed.
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org_without_subscription(&srv, owner).await;
+
+    let res = client()
+        .post(format!(
+            "{}/api/business/organizations/{org}/voip/quote",
+            base(&srv)
+        ))
+        .bearer_auth(&jwt)
+        .json(&json!({ "destination": "+393201234567" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        res.status(),
+        StatusCode::PAYMENT_REQUIRED,
+        "a lapsed subscription must refuse the call, with credits in the wallet or not"
+    );
     let body: Value = res.json().await.unwrap();
     assert_eq!(body["error"], json!("destination_not_allowed"));
 }

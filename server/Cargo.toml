@@ -1,8 +1,14 @@
 [package]
 name = "voxtranslate-server"
-version = "1.49.0"
+version = "1.50.0"
 edition = "2021"
 license = "LicenseRef-PolyForm-Shield-1.0.0"
+# The server, not one of the operator tools next to it. Without this, every bare
+# `cargo run` fails with "could not determine which binary to run" the moment a second
+# binary exists — which is exactly how the e2e backend silently stopped starting when
+# `qwen-catalogue` landed. Naming the default here fixes it for CI, the docs and local
+# runs at once, instead of one `--bin` flag per call site.
+default-run = "voxtranslate-server"
 
 [dependencies]
 axum = { version = "0.8", features = ["ws", "multipart"] }

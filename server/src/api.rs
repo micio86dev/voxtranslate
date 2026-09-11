@@ -459,8 +459,16 @@ pub async fn ice(
                     .map(|d| d.as_secs())
                     .unwrap_or(0);
                 let username = format!("{}:vox", now + ttl_secs);
-                let mut mac = Hmac::<Sha1>::new_from_slice(secret.as_bytes())
-                    .expect("HMAC accepts a key of any length");
+                // No `expect` on a request path, even one that cannot fire today: HMAC
+                // takes a key of any length, so this is unreachable — but "unreachable"
+                // is a property of the current crate, not of the handler, and `/api/ice`
+                // is unauthenticated. Degrade the way the Cloudflare arm below already
+                // does: no relay entry, STUN only, a call that still connects whenever
+                // direct P2P works.
+                let Ok(mut mac) = Hmac::<Sha1>::new_from_slice(secret.as_bytes()) else {
+                    tracing::error!("TURN shared secret rejected by HMAC — serving STUN only");
+                    return Json(serde_json::json!({ "iceServers": servers })).into_response();
+                };
                 mac.update(username.as_bytes());
                 let credential =
                     base64::engine::general_purpose::STANDARD.encode(mac.finalize().into_bytes());
@@ -3712,6 +3720,300 @@ pub const CURRENT_TOS_VERSION: &str = "2026-06-10";
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Build just enough state to call a handler: no database, no network.
+    fn state_with_turn(turn: Option<crate::config::TurnConfig>) -> AppState {
+        let mut cfg = crate::config::Config::test_with_billing("", "x".repeat(32).as_str(), 0.0);
+        cfg.turn = turn;
+        cfg.turn_restricted = None;
+        AppState::new(cfg)
+    }
+
+    async fn body_json(res: Response) -> serde_json::Value {
+        let bytes = axum::body::to_bytes(res.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        serde_json::from_slice(&bytes).unwrap()
+    }
+
+    #[tokio::test]
+    async fn ice_always_offers_stun_even_with_no_relay_configured() {
+        // A call between two peers that can reach each other directly needs no relay, and
+        // must not be refused just because TURN is unconfigured. STUN is unconditional.
+        let res = ice(
+            State(state_with_turn(None)),
+            Query(IceQuery::default()),
+            HeaderMap::new(),
+        )
+        .await;
+        let body = body_json(res).await;
+        let servers = body["iceServers"].as_array().unwrap();
+        assert_eq!(servers.len(), 1, "STUN only, and STUN present: {body}");
+        assert!(servers[0]["urls"][0].as_str().unwrap().starts_with("stun:"));
+    }
+
+    #[tokio::test]
+    async fn a_self_hosted_relay_never_ships_its_shared_secret() {
+        // The whole point of the coturn REST convention: the client gets a credential that
+        // expires, the server keeps the secret. If the secret itself ever appeared in this
+        // response, a single scrape would mint relay credentials for ever.
+        const SECRET: &str = "super-secret-static-auth-value";
+        let res = ice(
+            State(state_with_turn(Some(crate::config::TurnConfig {
+                urls: vec!["turn:relay.example.com:3478".into()],
+                cred: crate::config::TurnCred::Secret {
+                    secret: SECRET.into(),
+                    ttl_secs: 600,
+                },
+            }))),
+            Query(IceQuery::default()),
+            HeaderMap::new(),
+        )
+        .await;
+        let body = body_json(res).await;
+        assert!(
+            !body.to_string().contains(SECRET),
+            "the shared secret must never reach the client: {body}"
+        );
+
+        let relay = &body["iceServers"][1];
+        let username = relay["username"].as_str().unwrap();
+        let (expiry, tag) = username
+            .split_once(':')
+            .expect("username is `<expiry>:vox`");
+        assert_eq!(tag, "vox");
+        let expiry: u64 = expiry.parse().expect("the expiry is a unix timestamp");
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        assert!(
+            expiry > now && expiry <= now + 600,
+            "the credential expires, and inside its own TTL: {expiry} vs {now}"
+        );
+        assert!(
+            base64::engine::general_purpose::STANDARD
+                .decode(relay["credential"].as_str().unwrap())
+                .is_ok(),
+            "the credential is base64 of the HMAC, not the raw digest"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_managed_relay_passes_its_own_credentials_through() {
+        // The zero-deploy fallback. These DO reach the client by design, which is exactly
+        // why the config doc says to use a relay-scoped account.
+        let res = ice(
+            State(state_with_turn(Some(crate::config::TurnConfig {
+                urls: vec!["turn:managed.example.com:3478".into()],
+                cred: crate::config::TurnCred::Static {
+                    username: "relay-user".into(),
+                    password: "relay-pass".into(),
+                },
+            }))),
+            Query(IceQuery::default()),
+            HeaderMap::new(),
+        )
+        .await;
+        let body = body_json(res).await;
+        assert_eq!(body["iceServers"][1]["username"], "relay-user");
+        assert_eq!(body["iceServers"][1]["credential"], "relay-pass");
+    }
+
+    #[tokio::test]
+    async fn ice_throttles_a_single_ip_rather_than_minting_forever() {
+        // `/api/ice` mints TURN credentials for ANONYMOUS callers, so an unthrottled
+        // endpoint is a free credential fountain. Thirty a minute, then refuse.
+        let state = state_with_turn(None);
+        for i in 0..30 {
+            let res = ice(
+                State(state.clone()),
+                Query(IceQuery::default()),
+                HeaderMap::new(),
+            )
+            .await;
+            assert_eq!(
+                res.status(),
+                StatusCode::OK,
+                "request {i} should be allowed"
+            );
+        }
+        let res = ice(
+            State(state.clone()),
+            Query(IceQuery::default()),
+            HeaderMap::new(),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::TOO_MANY_REQUESTS);
+    }
+
+    fn report(message: &str) -> BugReportRequest {
+        BugReportRequest {
+            message: message.into(),
+            page_url: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn an_empty_report_is_refused_before_the_database_is_even_consulted() {
+        // The validation ladder runs ahead of the pool check on purpose: a blank report is
+        // a bad request whether or not the database is up, and answering 503 for it would
+        // send the user to look for an outage that does not exist.
+        let state = state_with_turn(None);
+        assert!(state.pool.is_none(), "no database in this state");
+
+        for blank in ["", "   ", "\n\t "] {
+            let res = bug_report(State(state.clone()), HeaderMap::new(), Json(report(blank))).await;
+            assert_eq!(
+                res.status(),
+                StatusCode::BAD_REQUEST,
+                "{blank:?} is not a report"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn a_report_is_capped_in_characters_not_in_bytes() {
+        // `chars().count()`, not `len()`. Capping bytes would quietly allow a third as much
+        // text in English as in Japanese — the same limit meaning different things to
+        // different users, which is the kind of unfairness nobody reports as a bug.
+        let state = state_with_turn(None);
+        let long = "\u{1f600}".repeat(BUG_REPORT_MAX_LEN + 1); // 4 bytes each, 1 char each
+        let res = bug_report(State(state.clone()), HeaderMap::new(), Json(report(&long))).await;
+        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+
+        // Exactly at the cap is allowed through validation; it stops at the missing pool,
+        // which proves the length check passed rather than the request dying earlier.
+        let at_cap = "\u{1f600}".repeat(BUG_REPORT_MAX_LEN);
+        let res = bug_report(State(state), HeaderMap::new(), Json(report(&at_cap))).await;
+        assert_eq!(
+            res.status(),
+            StatusCode::SERVICE_UNAVAILABLE,
+            "the cap is inclusive, so this got past validation"
+        );
+    }
+
+    #[tokio::test]
+    async fn without_a_database_reporting_is_unavailable_rather_than_silently_dropped() {
+        // The report exists to reach triage. Answering 200 with nowhere to store it would
+        // tell the user they were heard when nobody was listening.
+        let res = bug_report(
+            State(state_with_turn(None)),
+            HeaderMap::new(),
+            Json(report("the subtitles stopped after ten minutes")),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::SERVICE_UNAVAILABLE);
+    }
+
+    #[tokio::test]
+    async fn reporting_is_throttled_per_ip() {
+        let state = state_with_turn(None);
+        for _ in 0..5 {
+            let res = bug_report(State(state.clone()), HeaderMap::new(), Json(report("x"))).await;
+            assert_ne!(res.status(), StatusCode::TOO_MANY_REQUESTS);
+        }
+        let res = bug_report(State(state), HeaderMap::new(), Json(report("x"))).await;
+        assert_eq!(res.status(), StatusCode::TOO_MANY_REQUESTS);
+    }
+
+    fn enquiry(name: &str, email: &str, message: &str) -> ContactRequest {
+        ContactRequest {
+            name: name.into(),
+            email: email.into(),
+            message: message.into(),
+            company: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn an_enquiry_needs_a_name_a_message_and_a_reachable_address() {
+        // Without a usable address the enquiry is unanswerable, so it is refused at the
+        // door rather than delivered into an inbox nobody can reply from.
+        let state = state_with_turn(None);
+        let cases = [
+            ("", "a@b.com", "hello", "no name"),
+            ("Ada", "a@b.com", "   ", "no message"),
+            ("Ada", "not-an-address", "hello", "no usable address"),
+            ("Ada", "", "hello", "no address at all"),
+        ];
+        for (name, email, message, why) in cases {
+            let res = contact(
+                State(state.clone()),
+                HeaderMap::new(),
+                Json(enquiry(name, email, message)),
+            )
+            .await;
+            assert_eq!(res.status(), StatusCode::BAD_REQUEST, "{why}");
+        }
+    }
+
+    #[tokio::test]
+    async fn an_enquiry_caps_the_name_as_well_as_the_message() {
+        // The name is interpolated into the subject line. Capping only the body would
+        // leave a field that reaches a mail server unbounded.
+        let state = state_with_turn(None);
+        let long_message = "a".repeat(CONTACT_MAX_LEN + 1);
+        let res = contact(
+            State(state.clone()),
+            HeaderMap::new(),
+            Json(enquiry("Ada", "ada@example.com", &long_message)),
+        )
+        .await;
+        assert_eq!(
+            res.status(),
+            StatusCode::BAD_REQUEST,
+            "message over the cap"
+        );
+
+        let long_name = "a".repeat(201);
+        let res = contact(
+            State(state),
+            HeaderMap::new(),
+            Json(enquiry(&long_name, "ada@example.com", "hello")),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::BAD_REQUEST, "name over the cap");
+    }
+
+    #[tokio::test]
+    async fn an_enquiry_is_refused_when_there_is_no_way_to_send_it() {
+        // Deliberately NOT the same answer as a bug report with no database behind it.
+        // For an enquiry the email IS the delivery: with no mailer there is nothing else
+        // holding the message, so answering anything but "unavailable" would lose it
+        // silently. A bug report, by contrast, is already stored before the mail goes out,
+        // which is why a send failure there does not fail the request.
+        let state = state_with_turn(None);
+        assert!(state.resend.is_none(), "no mailer in this state");
+        let res = contact(
+            State(state),
+            HeaderMap::new(),
+            Json(enquiry("Ada", "ada@example.com", "we need 400 seats")),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::SERVICE_UNAVAILABLE);
+    }
+
+    #[tokio::test]
+    async fn enquiries_are_throttled_per_ip() {
+        let state = state_with_turn(None);
+        for _ in 0..5 {
+            let res = contact(
+                State(state.clone()),
+                HeaderMap::new(),
+                Json(enquiry("Ada", "ada@example.com", "hello")),
+            )
+            .await;
+            assert_ne!(res.status(), StatusCode::TOO_MANY_REQUESTS);
+        }
+        let res = contact(
+            State(state),
+            HeaderMap::new(),
+            Json(enquiry("Ada", "ada@example.com", "hello")),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::TOO_MANY_REQUESTS);
+    }
 
     #[test]
     fn cf_turn_url_targets_the_key() {
