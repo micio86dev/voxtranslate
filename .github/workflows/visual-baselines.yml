@@ -23,7 +23,13 @@
 name: Visual baselines
 
 on:
+  # `workflow_dispatch` only becomes clickable once this file is on the DEFAULT branch, so
+  # it is useless until a release carries it to `main`. The push trigger below is how it
+  # runs before then: push any ref to `ci/visual-baselines`, collect the artifact, delete
+  # the branch. Scoped to that one name so no ordinary branch can trigger a regeneration.
   workflow_dispatch:
+  push:
+    branches: ['ci/visual-baselines']
 
 permissions:
   contents: read
