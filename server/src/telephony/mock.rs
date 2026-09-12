@@ -87,6 +87,15 @@ pub struct MockTelephonyProvider {
     metadata: ProviderMetadata,
     secret: Vec<u8>,
     tolerance: Duration,
+    /// Makes this instance's offered numbers distinct from every other instance's.
+    ///
+    /// `voip_numbers.e164` is UNIQUE across the whole install — deliberately, so inbound
+    /// routing is never ambiguous about whose number was called. A mock that offered the
+    /// same numbers every time would therefore pass once against a shared test database
+    /// and collide for ever after, and collide with tests running beside it. Stable within
+    /// one provider, different between providers: the prices stay assertable and the rows
+    /// stay insertable.
+    number_seed: u32,
     state: Mutex<MockState>,
 }
 
@@ -135,6 +144,7 @@ impl MockTelephonyProvider {
             },
             secret: secret.to_vec(),
             tolerance,
+            number_seed: (uuid::Uuid::new_v4().as_u128() % 900_000) as u32 + 100_000,
             state: Mutex::new(MockState::default()),
         }
     }
@@ -448,7 +458,7 @@ impl TelephonyProvider for MockTelephonyProvider {
         let count = q.limit.clamp(1, 10) as usize;
         Ok((0..count)
             .map(|i| NumberOffer {
-                e164: format!("+39{area}{:07}", 1_000_000 + i as u32),
+                e164: format!("+39{area}{}{:02}", self.number_seed, i),
                 country: country.clone(),
                 kind,
                 monthly_cost: Decimal::new(135, 2),

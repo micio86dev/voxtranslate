@@ -16,7 +16,9 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 
+use chrono::{DateTime, Utc};
 use reqwest::{Client, StatusCode};
+use rust_decimal::Decimal;
 use serde_json::{json, Value};
 use sqlx::Row;
 use uuid::Uuid;
@@ -2816,4 +2818,431 @@ async fn dialling_a_known_number_files_the_call_against_the_person() {
         .unwrap();
     assert_eq!(detail["contact_id"], json!(contact_id), "{detail}");
     assert_eq!(detail["contact_name"], json!("Known Supplier"), "{detail}");
+}
+
+// ---- numbers (spec 0115) ---------------------------------------------------
+
+/// Search, then buy the first offer. The realistic flow, and the one that keeps each run's
+/// numbers distinct: `voip_numbers.e164` is UNIQUE across the install, so a test that
+/// hardcodes a number passes once and collides for ever after.
+async fn first_offer(srv: &Server, org: Uuid, jwt: &str) -> Value {
+    let body: Value = client()
+        .get(format!(
+            "{}/api/business/organizations/{org}/voip/numbers/search?country=IT&area_code=02&limit=3",
+            base(srv)
+        ))
+        .bearer_auth(jwt)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    body["offers"][0].clone()
+}
+
+#[tokio::test]
+async fn searching_for_a_number_shows_what_the_customer_would_pay() {
+    // Never the provider's cost. The markup is applied once, at the edge, by
+    // `NumberMarkupPolicy` — a provider adapter that applied it would be a second place
+    // for the policy to live.
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+
+    let body: Value = client()
+        .get(format!(
+            "{}/api/business/organizations/{org}/voip/numbers/search?country=IT&area_code=02&limit=3",
+            base(&srv)
+        ))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+
+    let offers = body["offers"].as_array().expect("offers");
+    assert_eq!(offers.len(), 3, "{body}");
+
+    // The mock sells at 1.35/month and 1.00 setup; the default markup is 20%.
+    // 1.35 and 1.00 at the mock, 20% markup: the value, not a particular way of
+    // spelling it.
+    let money = |v: &Value| Decimal::from_str_exact(v.as_str().unwrap()).unwrap();
+    assert_eq!(
+        money(&offers[0]["monthly"]),
+        Decimal::from_str_exact("1.62").unwrap(),
+        "{body}"
+    );
+    assert_eq!(
+        money(&offers[0]["setup"]),
+        Decimal::from_str_exact("1.20").unwrap(),
+        "{body}"
+    );
+
+    let raw = body.to_string();
+    assert!(
+        !raw.contains("1.35") && !raw.contains("provider_cost"),
+        "the provider's own cost reached the client: {raw}"
+    );
+
+    // One of the offers needs paperwork, and says so rather than being quietly omitted.
+    assert!(
+        offers
+            .iter()
+            .any(|o| !o["regulatory_requirement"].is_null()),
+        "no offer reported a regulatory requirement: {body}"
+    );
+}
+
+#[tokio::test]
+async fn the_same_purchase_key_buys_one_number_and_charges_once() {
+    // The retry this protects against is not hypothetical: a timeout after the order was
+    // accepted, retried by a client, buys a number the customer then pays for monthly.
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    let key = format!("key-{}", Uuid::new_v4());
+    let e164 = first_offer(&srv, org, &jwt).await["e164"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let buy = |key: String| {
+        let e164 = e164.clone();
+        let jwt = jwt.clone();
+        let url = format!(
+            "{}/api/business/organizations/{org}/voip/numbers",
+            base(&srv)
+        );
+        async move {
+            client()
+                .post(url)
+                .bearer_auth(&jwt)
+                .json(&json!({
+                    "e164": e164,
+                    "country": "IT",
+                    "area_code": "02",
+                    "purchase_key": key,
+                }))
+                .send()
+                .await
+                .unwrap()
+        }
+    };
+
+    let first = buy(key.clone()).await;
+    let status = first.status();
+    let created: Value = first.json().await.unwrap_or(Value::Null);
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    assert_eq!(created["status"], json!("active"), "{created}");
+
+    let second = buy(key.clone()).await;
+    assert_eq!(
+        second.status(),
+        StatusCode::OK,
+        "a repeat of the same key should return the number, not buy another"
+    );
+
+    let (rows, charges): (i64, i64) = sqlx::query_as(
+        "SELECT (SELECT count(*) FROM voip_numbers WHERE org_id = $1),
+                (SELECT count(*) FROM organization_credits_transactions
+                  WHERE org_id = $1 AND type = 'voip_number_purchase')",
+    )
+    .bind(org)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
+    assert_eq!(rows, 1, "two numbers were bought");
+    assert_eq!(charges, 1, "the customer was charged twice");
+}
+
+#[tokio::test]
+async fn a_purchase_that_fails_at_the_carrier_charges_nothing() {
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    let before: i32 = sqlx::query_scalar("SELECT credits_balance FROM organizations WHERE id = $1")
+        .bind(org)
+        .fetch_one(&srv.pool)
+        .await
+        .unwrap();
+
+    srv.provider
+        .as_ref()
+        .expect("mock")
+        .fail_next_purchase(ProviderError::Unavailable {
+            detail: "carrier said no".into(),
+        });
+
+    let res = client()
+        .post(format!(
+            "{}/api/business/organizations/{org}/voip/numbers",
+            base(&srv)
+        ))
+        .bearer_auth(&jwt)
+        .json(&json!({
+            "e164": first_offer(&srv, org, &jwt).await["e164"],
+            "country": "IT",
+            "area_code": "02",
+            "purchase_key": format!("key-{}", Uuid::new_v4()),
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert!(res.status().is_server_error() || res.status().is_client_error());
+
+    let after: i32 = sqlx::query_scalar("SELECT credits_balance FROM organizations WHERE id = $1")
+        .bind(org)
+        .fetch_one(&srv.pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        after, before,
+        "credits moved for a number that was never bought"
+    );
+    let rows: i64 = sqlx::query_scalar("SELECT count(*) FROM voip_numbers WHERE org_id = $1")
+        .bind(org)
+        .fetch_one(&srv.pool)
+        .await
+        .unwrap();
+    assert_eq!(rows, 0, "a row survived a failed purchase");
+}
+
+#[tokio::test]
+async fn a_bought_number_remembers_what_it_cost_and_what_we_charged() {
+    // Spec 0111 R27, and a number renews for years: an invoice from eighteen months ago
+    // must never be recomputed at today's markup.
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+
+    client()
+        .post(format!(
+            "{}/api/business/organizations/{org}/voip/numbers",
+            base(&srv)
+        ))
+        .bearer_auth(&jwt)
+        .json(&json!({
+            "e164": first_offer(&srv, org, &jwt).await["e164"],
+            "country": "IT",
+            "area_code": "02",
+            "purchase_key": format!("key-{}", Uuid::new_v4()),
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    let row: (
+        Option<Decimal>,
+        Option<Decimal>,
+        Option<Decimal>,
+        Option<DateTime<Utc>>,
+    ) = sqlx::query_as(
+        "SELECT provider_monthly_usd, markup_rate, customer_monthly_usd, next_renewal_at
+             FROM voip_numbers WHERE org_id = $1",
+    )
+    .bind(org)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
+
+    assert_eq!(row.0, Some(Decimal::from_str_exact("1.350000").unwrap()));
+    assert_eq!(row.1, Some(Decimal::from_str_exact("0.2000").unwrap()));
+    assert_eq!(row.2, Some(Decimal::from_str_exact("1.620000").unwrap()));
+    assert!(
+        row.3.is_some(),
+        "a number with no renewal date never renews"
+    );
+}
+
+#[tokio::test]
+async fn buying_verifying_and_releasing_are_admin_actions() {
+    // R7. A plain member may look; spending the organisation's money is not looking.
+    let srv = srv!();
+    let (owner, _) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    let (member, member_jwt) = user(&srv).await;
+    add_member(&srv, org, member, "member").await;
+
+    let search = client()
+        .get(format!(
+            "{}/api/business/organizations/{org}/voip/numbers/search?country=IT",
+            base(&srv)
+        ))
+        .bearer_auth(&member_jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(search.status(), StatusCode::OK, "a member may look");
+
+    let buy = client()
+        .post(format!(
+            "{}/api/business/organizations/{org}/voip/numbers",
+            base(&srv)
+        ))
+        .bearer_auth(&member_jwt)
+        .json(&json!({
+            "e164": first_offer(&srv, org, &member_jwt).await["e164"],
+            "country": "IT",
+            "purchase_key": format!("key-{}", Uuid::new_v4()),
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        buy.status(),
+        StatusCode::FORBIDDEN,
+        "a member bought a number"
+    );
+}
+
+#[tokio::test]
+async fn a_verification_starts_pending_and_no_number_is_presentable_until_it_passes() {
+    // The rule with a regulator behind it: presenting a number you cannot prove you own is
+    // illegal in most of our markets.
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+
+    let e164 = format!("+3902{:07}", rand_suffix());
+    sqlx::query(
+        "INSERT INTO voip_numbers (org_id, provider, e164, country, outbound_enabled,
+                                   verification_status, status)
+         VALUES ($1, 'mock', $2, 'IT', TRUE, 'pending', 'active')",
+    )
+    .bind(org)
+    .bind(&e164)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+
+    let id: Uuid = sqlx::query_scalar("SELECT id FROM voip_numbers WHERE e164 = $1")
+        .bind(&e164)
+        .fetch_one(&srv.pool)
+        .await
+        .unwrap();
+
+    let res = client()
+        .post(format!(
+            "{}/api/business/organizations/{org}/voip/numbers/{id}/verify",
+            base(&srv)
+        ))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::ACCEPTED);
+    let body: Value = res.json().await.unwrap();
+    assert_eq!(body["verification_status"], json!("pending"), "{body}");
+
+    // Still unverified, so still not presentable — the gate 0112 tests already pin.
+    let status: String =
+        sqlx::query_scalar("SELECT verification_status FROM voip_numbers WHERE id = $1")
+            .bind(id)
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap();
+    assert_eq!(status, "pending");
+}
+
+#[tokio::test]
+async fn a_renewal_the_wallet_cannot_cover_suspends_the_number_it_does_not_release_it() {
+    // The only irreversible act in a number's life is release, and the sweep may not
+    // perform it. A business losing its telephone number over a card that expired is a
+    // failure nobody recovers from by writing an apology.
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+
+    let e164 = first_offer(&srv, org, &jwt).await["e164"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    client()
+        .post(format!(
+            "{}/api/business/organizations/{org}/voip/numbers",
+            base(&srv)
+        ))
+        .bearer_auth(&jwt)
+        .json(&json!({
+            "e164": e164,
+            "country": "IT",
+            "area_code": "02",
+            "purchase_key": format!("key-{}", Uuid::new_v4()),
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    // Due now, and a wallet that cannot pay.
+    sqlx::query(
+        "UPDATE voip_numbers SET next_renewal_at = now() - interval '1 hour' WHERE org_id = $1",
+    )
+    .bind(org)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE organizations SET credits_balance = 0 WHERE id = $1")
+        .bind(org)
+        .execute(&srv.pool)
+        .await
+        .unwrap();
+
+    let (renewed, suspended) = voxtranslate_server::voip::numbers::renew_due(&srv.pool, 7, 50)
+        .await
+        .unwrap();
+    assert_eq!(renewed, 0);
+    assert!(suspended >= 1, "nothing was suspended");
+
+    let (status, outbound): (String, bool) =
+        sqlx::query_as("SELECT status, outbound_enabled FROM voip_numbers WHERE org_id = $1")
+            .bind(org)
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap();
+    assert_eq!(status, "suspended", "the number was not kept");
+    assert!(
+        !outbound,
+        "an unpaid number may still be presented as caller id"
+    );
+
+    // Money arrives; the next sweep renews it at the price on the row, not today's.
+    sqlx::query("UPDATE organizations SET credits_balance = 5000 WHERE id = $1")
+        .bind(org)
+        .execute(&srv.pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE voip_numbers SET next_renewal_at = now() - interval '1 hour' WHERE org_id = $1",
+    )
+    .bind(org)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+
+    let (renewed, _) = voxtranslate_server::voip::numbers::renew_due(&srv.pool, 7, 50)
+        .await
+        .unwrap();
+    assert_eq!(renewed, 1);
+
+    let (status, outbound): (String, bool) =
+        sqlx::query_as("SELECT status, outbound_enabled FROM voip_numbers WHERE org_id = $1")
+            .bind(org)
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap();
+    assert_eq!(status, "active", "a paid number stayed suspended");
+    assert!(outbound, "a paid number is still not presentable");
+
+    let charges: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM organization_credits_transactions
+          WHERE org_id = $1 AND type = 'voip_number_renewal'",
+    )
+    .bind(org)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
+    assert_eq!(charges, 1, "the suspended month was charged for as well");
 }

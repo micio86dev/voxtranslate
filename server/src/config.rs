@@ -248,6 +248,17 @@ pub struct VoipConfig {
     pub media_ws_base: String,
     /// Minimum gross margin as a FRACTION (`VOIP_MIN_GROSS_MARGIN_PERCENT` / 100).
     pub min_gross_margin: f64,
+    /// Markup on things we BUY for a customer — a telephone number's one-off and monthly
+    /// carrier cost — as a FRACTION (`VOIP_NUMBER_MARKUP_PERCENT` / 100).
+    ///
+    /// A MARKUP, not a margin, and deliberately a different policy from the per-minute
+    /// floor above: a number is a bill we receive and pass on, with nothing metered and
+    /// nothing estimated. See `voip::pricing::NumberMarkupPolicy` and
+    /// `docs/voip-billing.md` §1 for why keeping the two apart matters.
+    pub number_markup: f64,
+    /// How long a number whose renewal could not be paid survives before a human decides
+    /// (`VOIP_NUMBER_GRACE_DAYS`). Suspension is reversible; release is not.
+    pub number_grace_days: i64,
     /// Cost safety buffer as a FRACTION (`VOIP_COST_SAFETY_BUFFER_PERCENT` / 100).
     pub cost_safety_buffer: f64,
     /// Refuse a destination whose provider cost per minute exceeds this, in USD
@@ -415,6 +426,8 @@ impl VoipConfig {
                 .to_string(),
             min_gross_margin: parse_or("VOIP_MIN_GROSS_MARGIN_PERCENT", 20.0f64) / 100.0,
             cost_safety_buffer: parse_or("VOIP_COST_SAFETY_BUFFER_PERCENT", 10.0f64) / 100.0,
+            number_markup: parse_or("VOIP_NUMBER_MARKUP_PERCENT", 20.0f64) / 100.0,
+            number_grace_days: parse_or("VOIP_NUMBER_GRACE_DAYS", 7i64),
             max_destination_rate: parse_or("VOIP_MAX_DESTINATION_RATE", 1.0f64),
             daily_provider_spend_limit: parse_or("VOIP_DAILY_PROVIDER_SPEND_LIMIT", 50.0f64),
             max_call_minutes: parse_or("VOIP_MAX_CALL_DURATION_MINUTES", 60i32),
@@ -455,6 +468,10 @@ impl VoipConfig {
             media_ws_base: "wss://media.test".into(),
             min_gross_margin: 0.20,
             cost_safety_buffer: 0.10,
+            // The production default, so a test asserting a number's price is asserting
+            // the policy customers get rather than a fixture invented for the test.
+            number_markup: 0.20,
+            number_grace_days: 7,
             max_destination_rate: 1.0,
             // Same reasoning as the global cap below: this is a deployment-wide
             // accumulator over a shared test database, so what trips it is a day of other

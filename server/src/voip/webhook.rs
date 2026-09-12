@@ -405,6 +405,19 @@ pub async fn run_sweep(state: crate::AppState, interval: std::time::Duration, ba
             continue;
         };
 
+        // Numbers whose month is up (spec 0115 R6). Deliberately outside the
+        // `telephony` guard: a renewal is a charge against our own ledger and must keep
+        // happening even if the provider is momentarily unbuildable.
+        if let Some(cfg) = state.config.voip.as_ref() {
+            match crate::voip::numbers::renew_due(pool, cfg.number_grace_days, batch).await {
+                Ok((0, 0)) => {}
+                Ok((renewed, suspended)) => {
+                    tracing::info!(renewed, suspended, "voip number renewals processed")
+                }
+                Err(e) => tracing::error!("voip number renewal sweep failed: {e}"),
+            }
+        }
+
         if let Some(provider) = state.telephony.as_deref() {
             // A consent gate nobody answered. The carrier's own gather timeout produces an
             // event on some routes and nothing at all on others, and either way the task

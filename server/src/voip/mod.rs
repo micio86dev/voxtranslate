@@ -5,6 +5,7 @@ pub mod consent;
 pub mod contacts;
 pub mod disclosure;
 pub mod media;
+pub mod numbers;
 pub mod policy;
 pub mod pricing;
 pub mod reservation;

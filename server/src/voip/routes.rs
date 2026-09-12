@@ -28,7 +28,7 @@ use crate::business::{db_err, not_found, require_pool, require_role, ADMIN, MEMB
 use crate::middleware::AuthUser;
 use crate::telephony::{WebhookHeaders, E164};
 use crate::voip::service::{self, DialOptions, VoipError};
-use crate::voip::{consent, contacts, webhook};
+use crate::voip::{consent, contacts, numbers as number_mgmt, webhook};
 use crate::AppState;
 
 pub fn routes() -> Router<AppState> {
@@ -59,10 +59,29 @@ pub fn routes() -> Router<AppState> {
         )
         .route(
             "/api/business/organizations/{org_id}/voip/numbers",
-            get(numbers),
+            get(numbers).post(number_mgmt::buy),
         )
         // The address book (spec 0114). `lookup` is registered BEFORE the `{contact_id}`
         // route, or axum reads "lookup" as an id and answers 400 for a path that exists.
+        // Buying, verifying and keeping numbers (spec 0115). `search` is registered before
+        // `{number_id}` for the same reason `lookup` is: otherwise axum reads the word as
+        // an id.
+        .route(
+            "/api/business/organizations/{org_id}/voip/numbers/search",
+            get(number_mgmt::search),
+        )
+        .route(
+            "/api/business/organizations/{org_id}/voip/numbers/{number_id}",
+            axum::routing::delete(number_mgmt::release),
+        )
+        .route(
+            "/api/business/organizations/{org_id}/voip/numbers/{number_id}/verify",
+            post(number_mgmt::verify),
+        )
+        .route(
+            "/api/business/organizations/{org_id}/voip/numbers/{number_id}/verify/check",
+            post(number_mgmt::verify_check),
+        )
         .route(
             "/api/business/organizations/{org_id}/voip/contacts",
             get(contacts::list).post(contacts::create),
