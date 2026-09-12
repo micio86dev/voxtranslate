@@ -138,6 +138,14 @@ Each spec follows the same skeleton:
 | [0108](0108-cartesia-enhanced-tier/spec.md) | Enhanced tier (Cartesia: client-direct STT + TTS + voice cloning) | 🚧 In progress | — | — |
 | [0109](0109-invoices-and-e-invoicing/spec.md) | Downloadable invoices (B2C + B2B) and electronic invoicing | 🚧 Phase 1 · Phase 2 parked | — | — |
 | [0110](0110-talk-to-anyone/spec.md) | Talk to Anyone — face-to-face translation on one device (one mic, both directions) | 🚧 Implemented, pending live verification | — | `6953d0b5` |
+| [0111](0111-translated-voip/spec.md) | Real-time translated telephone calls (outbound, Telnyx) | 🚧 Shipped 1.50.0 · amended | 2026-09-10 | `92f7ceab` |
+| [0112](0112-business-phone-dashboard/spec.md) | Business Phone dashboard — the pages 0111 planned and did not build | 🚧 In progress | — | — |
+| [0113](0113-phone-website-seo/spec.md) | Business Phone on the public website (reachable, priced, localised) | 🚧 In progress | — | — |
+| [0114](0114-voip-contacts/spec.md) | Company contacts — a language that belongs to a number | 🚧 In progress | — | — |
+| [0115](0115-voip-numbers/spec.md) | Buying, verifying and keeping telephone numbers | 🚧 In progress | — | — |
+| [0116](0116-voip-inbound/spec.md) | Receiving translated calls — routing, ringing, voicemail | 🚧 In progress | — | — |
+| [0117](0117-voip-analytics/spec.md) | What the telephone is costing and doing | 🚧 In progress | — | — |
+| [0118](0118-voip-enterprise/spec.md) | Enterprise: office hours, menus, and the honest edge of SIP | 🚧 In progress | — | — |
 
 > Numbers 0011–0015 were claimed by commit messages while the AI bundle shipped
 > without spec docs (and 0011/0012 were each reused twice); the assignments
