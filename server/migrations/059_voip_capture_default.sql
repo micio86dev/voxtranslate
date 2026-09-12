@@ -17,5 +17,16 @@
 -- `recording_enabled` already defaults to FALSE and is untouched. `allow_international`
 -- defaults to TRUE in all three places and is therefore consistent, not a defect —
 -- omitting it on a PUT restores the same value a new organisation gets.
-ALTER TABLE voip_org_settings
-    ALTER COLUMN transcription_enabled SET DEFAULT FALSE;
+-- Guarded, not bare. `sqlx::migrate!` runs in order, so 056 has created this table in
+-- every database that reaches here honestly — but migration 044 taught this repo what an
+-- unguarded ALTER does to a schema that has drifted ahead of the `_sqlx_migrations`
+-- ledger: the server stops booting, and the fix needs a human with psql. A default is not
+-- worth that, so a missing table is skipped rather than fatal.
+DO $$
+BEGIN
+    IF to_regclass('public.voip_org_settings') IS NOT NULL THEN
+        ALTER TABLE voip_org_settings
+            ALTER COLUMN transcription_enabled SET DEFAULT FALSE;
+    END IF;
+END
+$$;

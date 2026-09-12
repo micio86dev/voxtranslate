@@ -8,9 +8,11 @@ ALTER TABLE voip_numbers
     -- Where the number is in its life, in the terms a customer needs rather than a
     -- carrier's internal vocabulary. `pending_regulatory` is its own state because saying
     -- "active" while a regulator is the blocker is a lie with a fine attached.
-    ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active'
-        CHECK (status IN ('ordering', 'pending_regulatory', 'active', 'suspended',
-                          'releasing', 'released', 'failed')),
+    -- The CHECK is added separately, below. An inline one rides on `IF NOT EXISTS`: if
+    -- the column is already there the whole clause is a no-op, the constraint is never
+    -- created, and the column is left accepting anything — silently, which is the worst
+    -- way for a constraint to be missing.
+    ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active',
     -- Why, in the provider's words, when the status alone does not explain itself.
     ADD COLUMN IF NOT EXISTS status_reason TEXT,
 
@@ -38,6 +40,32 @@ ALTER TABLE voip_numbers
     -- The provider's handle on an in-flight caller-id verification.
     ADD COLUMN IF NOT EXISTS verification_id TEXT,
     ADD COLUMN IF NOT EXISTS regulatory_requirement TEXT;
+
+-- The status vocabulary, added on its own so it exists whether or not the column did.
+-- `pending_regulatory` is its own state because saying "active" while a regulator is the
+-- blocker is a lie with a fine attached.
+--
+-- NOT VALID on purpose: it applies to every INSERT and UPDATE from this moment, which is
+-- the protection that matters, while a row that drifted in before this migration cannot
+-- fail the ALTER and take the server's boot down with it. Guarding the constraint against
+-- an unbootable database, then leaving it able to cause one, would be a wasted guard.
+DO $$
+BEGIN
+    -- `to_regclass`, not `::regclass`: the cast RAISES on a missing table, which would
+    -- reintroduce inside the guard exactly the unbootable-database failure the guard is
+    -- here to prevent.
+    IF to_regclass('public.voip_numbers') IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+         WHERE conname = 'voip_numbers_status_check'
+           AND conrelid = to_regclass('public.voip_numbers')
+    ) THEN
+        ALTER TABLE voip_numbers
+            ADD CONSTRAINT voip_numbers_status_check
+            CHECK (status IN ('ordering', 'pending_regulatory', 'active', 'suspended',
+                              'releasing', 'released', 'failed')) NOT VALID;
+    END IF;
+END
+$$;
 
 -- Scoped to the org: two organisations generating the same key is a coincidence, not a
 -- duplicate purchase. Partial, because rows inserted before this migration have none.
