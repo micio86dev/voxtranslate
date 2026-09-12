@@ -523,6 +523,40 @@ mod voip_copy_tests {
         assert!(body.starts_with("Someone is calling"), "{body}");
     }
 
+    /// CLAUDE.md sets this file's bar at 8 and says to raise it for the whole file or not
+    /// at all. Asserting the fallback alone would have let a function quietly ship fewer
+    /// languages than its neighbours and still look correct — English is a plausible
+    /// answer for a language nobody wrote, and for one somebody forgot.
+    #[test]
+    fn voip_copy_holds_the_same_bar_as_every_other_function_in_this_file() {
+        const BAR: [&str; 7] = ["de", "es", "fr", "it", "ja", "pt", "zh"];
+        // The BODY, not the title: `meeting_copy` puts the meeting's own name in the
+        // title, so titles match across languages for a reason that has nothing to do
+        // with translation. The sentence is where the language lives.
+        let en_voip = voip_copy("en", "Caller", "+390212345678").1;
+        let en_meeting = meeting_copy("meeting_invited", "en", "Room").1;
+        let en_subscription = subscription_copy("en", 3).1;
+        for lang in BAR {
+            assert_ne!(
+                voip_copy(lang, "Caller", "+390212345678").1,
+                en_voip,
+                "{lang} is on this file's bar but voip_copy fell through to English"
+            );
+            // The siblings must cover the same language, so the file cannot drift into a
+            // different bar per function — which is the state CLAUDE.md forbids.
+            assert_ne!(
+                meeting_copy("meeting_invited", lang, "Room").1,
+                en_meeting,
+                "meeting_copy lost {lang}"
+            );
+            assert_ne!(
+                subscription_copy(lang, 3).1,
+                en_subscription,
+                "subscription_copy lost {lang}"
+            );
+        }
+    }
+
     #[test]
     fn both_placeholders_are_always_filled() {
         // A notification that says "{n} is calling {m}" is worse than no notification.
