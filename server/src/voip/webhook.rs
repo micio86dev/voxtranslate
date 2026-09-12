@@ -419,6 +419,14 @@ pub async fn run_sweep(state: crate::AppState, interval: std::time::Duration, ba
         }
 
         if let Some(provider) = state.telephony.as_deref() {
+            // Inbound calls nobody came to (spec 0116 R4). Only a clock can notice an
+            // absence, which is the same reason `fail_stalled_calls` exists.
+            match crate::voip::inbound::sweep_unanswered(&state, pool, provider, batch).await {
+                Ok(0) => {}
+                Ok(n) => tracing::info!(missed = n, "inbound calls nobody answered"),
+                Err(e) => tracing::error!("inbound ring sweep failed: {e}"),
+            }
+
             // A consent gate nobody answered. The carrier's own gather timeout produces an
             // event on some routes and nothing at all on others, and either way the task
             // that opened the gate may be gone — so the deadline is enforced from the row.
@@ -836,6 +844,9 @@ fn lifecycle_event(kind: &ProviderEventKind) -> Option<CallEvent> {
         | ProviderEventKind::RecordingSaved { .. }
         | ProviderEventKind::Dtmf { .. }
         | ProviderEventKind::Unhandled { .. } => return None,
+        // An incoming call has no lifecycle to move: there is no call row yet. Admission
+        // creates one (`inbound::admit`), and the events that follow drive it from there.
+        ProviderEventKind::Incoming { .. } => return None,
     })
 }
 
@@ -857,6 +868,7 @@ fn event_type_name(kind: &ProviderEventKind) -> String {
         ProviderEventKind::RecordingStarted => "recording_started".into(),
         ProviderEventKind::RecordingSaved { .. } => "recording_saved".into(),
         ProviderEventKind::Dtmf { .. } => "dtmf".into(),
+        ProviderEventKind::Incoming { .. } => "incoming".into(),
         // Kept verbatim so a renamed provider event shows up in analytics as itself.
         ProviderEventKind::Unhandled { raw_type } => format!("unhandled:{raw_type}"),
     }

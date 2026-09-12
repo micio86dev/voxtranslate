@@ -248,6 +248,15 @@ pub struct VoipConfig {
     pub media_ws_base: String,
     /// Minimum gross margin as a FRACTION (`VOIP_MIN_GROSS_MARGIN_PERCENT` / 100).
     pub min_gross_margin: f64,
+    /// Whether this deployment answers calls to its numbers (`VOIP_INBOUND_ENABLED`).
+    ///
+    /// Off by default: inbound changes what a telephone number DOES, and a deployment
+    /// should opt into that deliberately rather than discover it when one rings.
+    pub inbound_enabled: bool,
+    /// How long to ring before nobody answering becomes a decision
+    /// (`VOIP_RING_SECONDS_DEFAULT`). Long enough not to clip somebody walking to their
+    /// desk, short enough not to feel broken.
+    pub ring_seconds_default: i32,
     /// Markup on things we BUY for a customer — a telephone number's one-off and monthly
     /// carrier cost — as a FRACTION (`VOIP_NUMBER_MARKUP_PERCENT` / 100).
     ///
@@ -426,6 +435,8 @@ impl VoipConfig {
                 .to_string(),
             min_gross_margin: parse_or("VOIP_MIN_GROSS_MARGIN_PERCENT", 20.0f64) / 100.0,
             cost_safety_buffer: parse_or("VOIP_COST_SAFETY_BUFFER_PERCENT", 10.0f64) / 100.0,
+            inbound_enabled: env_flag("VOIP_INBOUND_ENABLED"),
+            ring_seconds_default: parse_or("VOIP_RING_SECONDS_DEFAULT", 25i32),
             number_markup: parse_or("VOIP_NUMBER_MARKUP_PERCENT", 20.0f64) / 100.0,
             number_grace_days: parse_or("VOIP_NUMBER_GRACE_DAYS", 7i64),
             max_destination_rate: parse_or("VOIP_MAX_DESTINATION_RATE", 1.0f64),
@@ -470,6 +481,11 @@ impl VoipConfig {
             cost_safety_buffer: 0.10,
             // The production default, so a test asserting a number's price is asserting
             // the policy customers get rather than a fixture invented for the test.
+            // On in tests: the inbound path is the thing under test, and a default that
+            // refused every call would make every one of those tests pass for the wrong
+            // reason.
+            inbound_enabled: true,
+            ring_seconds_default: 25,
             number_markup: 0.20,
             number_grace_days: 7,
             max_destination_rate: 1.0,

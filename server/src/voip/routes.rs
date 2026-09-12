@@ -46,6 +46,10 @@ pub fn routes() -> Router<AppState> {
             get(detail),
         )
         .route(
+            "/api/business/organizations/{org_id}/voip/calls/{call_id}/answer",
+            post(answer_inbound),
+        )
+        .route(
             "/api/business/organizations/{org_id}/voip/calls/{call_id}/hangup",
             post(hangup),
         )
@@ -710,6 +714,15 @@ struct NumberRow {
     inbound_enabled: bool,
     outbound_enabled: bool,
     verification_status: String,
+    /// The lifecycle (spec 0115). `pending_regulatory` is its own state because saying
+    /// "active" while a regulator is the blocker is a lie with a fine attached.
+    status: String,
+    status_reason: Option<String>,
+    regulatory_requirement: Option<String>,
+    /// What the customer pays each month — the price recorded when the number was bought,
+    /// never today's. Our own cost and the markup stay on the server.
+    customer_monthly_usd: Option<Decimal>,
+    next_renewal_at: Option<DateTime<Utc>>,
 }
 
 /// `GET …/voip/numbers` — the organisation's own telephone numbers (spec 0112 R3).
@@ -737,7 +750,8 @@ pub async fn numbers(
 
     let rows: Vec<NumberRow> = sqlx::query_as(
         "SELECT id, e164, country, label, is_default, inbound_enabled, outbound_enabled,
-                verification_status
+                verification_status, status, status_reason, regulatory_requirement,
+                customer_monthly_usd, next_renewal_at
          FROM voip_numbers
          WHERE org_id = $1
          ORDER BY is_default DESC, created_at",
@@ -748,6 +762,43 @@ pub async fn numbers(
     .map_err(db_err)?;
 
     Ok(Json(json!({ "numbers": rows })).into_response())
+}
+
+/// `POST …/voip/calls/{id}/answer` — I am taking this call (spec 0116 R3).
+///
+/// Records WHO picked up, which is what makes a missed call a fact rather than an
+/// inference: `answered_by IS NULL` past the ring deadline is the definition the sweep
+/// uses. First to claim it wins — the `answered_by IS NULL` in the WHERE is the race
+/// guard, so two people pressing at once cannot both be the answerer.
+pub async fn answer_inbound(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path((org_id, call_id)): Path<(Uuid, Uuid)>,
+) -> Result<Response, Response> {
+    let pool = require_pool(&state)?;
+    require_role(pool, org_id, user.user_id, MEMBER).await?;
+
+    let room: Option<Option<String>> = sqlx::query_scalar(
+        "UPDATE voip_calls c
+            SET answered_by = $3, ring_deadline_at = NULL, user_id = $3, updated_at = now()
+          FROM call_sessions s
+          WHERE c.id = $1 AND c.org_id = $2 AND c.session_id = s.id
+            AND c.direction = 'inbound' AND c.answered_by IS NULL
+          RETURNING s.room",
+    )
+    .bind(call_id)
+    .bind(org_id)
+    .bind(user.user_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(db_err)?;
+
+    match room {
+        // Somebody else already took it, or it is over. Not an error — two colleagues
+        // reaching for the same ringing call is the normal case, not a fault.
+        None => Err(refuse(StatusCode::CONFLICT, "already_answered")),
+        Some(room) => Ok(Json(json!({ "room": room })).into_response()),
+    }
 }
 
 /// `POST …/voip/calls/{id}/hangup`.
@@ -1004,6 +1055,25 @@ pub async fn inbound_webhook(
     match webhook::ingest(pool, provider, &h, &body).await {
         Ok((outcome, event)) => {
             tracing::debug!(?outcome, "voip webhook");
+
+            // Somebody is calling US (spec 0116). There is no call row yet, so `apply`
+            // above answered `Unknown` — admission is what creates one. Done here rather
+            // than inside `apply` because it needs the room map, the engine registry and
+            // the provider, none of which a database-only function has.
+            if let crate::telephony::ProviderEventKind::Incoming { from, to } = &event.kind {
+                match crate::voip::inbound::admit(&state, pool, provider, &event.leg_id, from, to)
+                    .await
+                {
+                    Ok(call_id) => tracing::info!(call = %call_id, "inbound call admitted"),
+                    Err(reason) => {
+                        // Hung up, and nothing written. A stranger who dialled a wrong
+                        // number is owed a normal busy tone, not a row in somebody's
+                        // history — and not an explanation of our schema either.
+                        tracing::info!(reason = reason.as_str(), "inbound call refused");
+                        let _ = provider.hangup(&event.leg_id).await;
+                    }
+                }
+            }
             // The far end just picked up. Everything else about the call already worked
             // without this line — it rang, it billed, it settled, it appeared in history —
             // and it did all of that in silence. This is the audio path.

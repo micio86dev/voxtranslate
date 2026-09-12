@@ -268,6 +268,12 @@ pub struct MockWebhookBody {
     pub recording_id: Option<String>,
     #[serde(default)]
     pub duration_secs: Option<u64>,
+    /// Who is calling and which of our numbers they rang (spec 0116). Present only on an
+    /// `incoming` event; a dial we started has neither.
+    #[serde(default)]
+    pub from: Option<String>,
+    #[serde(default)]
+    pub to: Option<String>,
 }
 
 impl MockWebhookBody {
@@ -279,6 +285,8 @@ impl MockWebhookBody {
             client_state: None,
             occurred_at: at,
             event_type: event_type.into(),
+            from: None,
+            to: None,
             cause: None,
             digit: None,
             recording_url: None,
@@ -581,6 +589,13 @@ impl TelephonyProvider for MockTelephonyProvider {
             })?;
 
         let kind = match parsed.event_type.as_str() {
+            // An incoming call carries the two numbers; our own dial starting does not.
+            // Distinguished by the fields rather than by a second event name, so a body
+            // that forgot them cannot be read as somebody ringing us.
+            "incoming" => ProviderEventKind::Incoming {
+                from: parsed.from.clone().unwrap_or_default(),
+                to: parsed.to.clone().unwrap_or_default(),
+            },
             "initiated" => ProviderEventKind::Initiated,
             "ringing" => ProviderEventKind::Ringing,
             "answered" => ProviderEventKind::Answered,

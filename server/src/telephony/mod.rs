@@ -273,6 +273,17 @@ pub struct ProviderEvent {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProviderEventKind {
     Initiated,
+    /// Somebody is calling US (spec 0116).
+    ///
+    /// Deliberately NOT `Initiated`. That one means "the dial we asked for has started",
+    /// and overloading one kind for both directions would make every branch downstream ask
+    /// "but which way round?" — which is exactly the question a type should answer.
+    Incoming {
+        /// The caller, as the carrier reports it.
+        from: String,
+        /// The number of ours that was rung.
+        to: String,
+    },
     Ringing,
     Answered,
     Hangup {

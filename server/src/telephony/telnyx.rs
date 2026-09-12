@@ -397,6 +397,14 @@ struct TelnyxPayload {
     duration_millis: Option<u64>,
     #[serde(default)]
     recording_id: Option<String>,
+    /// "incoming" or "outgoing" (spec 0116). Telnyx reports both directions as
+    /// `call.initiated` and distinguishes them only here.
+    #[serde(default)]
+    direction: Option<String>,
+    #[serde(default)]
+    from: Option<String>,
+    #[serde(default)]
+    to: Option<String>,
 }
 
 /// First playable URL out of Telnyx's recording URL maps (`{mp3, wav}`).
@@ -432,7 +440,19 @@ fn normalise(body: &[u8]) -> Result<ProviderEvent, WebhookError> {
         })?;
 
     let kind = match env.data.event_type.as_str() {
-        "call.initiated" => ProviderEventKind::Initiated,
+        // Telnyx reports both directions as `call.initiated` and distinguishes them with
+        // `direction`. "incoming" is somebody ringing one of our numbers; anything else is
+        // the dial we asked for.
+        "call.initiated" => {
+            if env.data.payload.direction.as_deref() == Some("incoming") {
+                ProviderEventKind::Incoming {
+                    from: env.data.payload.from.clone().unwrap_or_default(),
+                    to: env.data.payload.to.clone().unwrap_or_default(),
+                }
+            } else {
+                ProviderEventKind::Initiated
+            }
+        }
         // Telnyx does not emit a distinct "ringing"; early media / ringing is reported as
         // `call.initiated` on the outbound leg. Modelling one anyway would invent a state.
         "call.answered" => ProviderEventKind::Answered,

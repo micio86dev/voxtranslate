@@ -4,6 +4,7 @@ pub mod codec;
 pub mod consent;
 pub mod contacts;
 pub mod disclosure;
+pub mod inbound;
 pub mod media;
 pub mod numbers;
 pub mod policy;

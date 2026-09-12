@@ -34,6 +34,9 @@ const SECRET: &str = "voip-api-secret";
 struct Server {
     addr: SocketAddr,
     pool: db::Pool,
+    /// The same state the server runs on, so a test can drive a sweep directly instead of
+    /// waiting for the background ticker.
+    state: AppState,
     /// The same provider the server is using, so a test can sign a webhook the way the
     /// carrier would and then ask the provider what it was actually told to do.
     provider: Option<Arc<MockTelephonyProvider>>,
@@ -76,6 +79,10 @@ async fn setup_with_voip(voip: Option<VoipConfig>) -> Option<Server> {
         state.telephony = Some(p);
     }
 
+    // Cloned before `app()` consumes it, so a test can reach the same room map and config
+    // the running server uses.
+    let state_for_tests = state.clone();
+
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move {
@@ -84,6 +91,7 @@ async fn setup_with_voip(voip: Option<VoipConfig>) -> Option<Server> {
     Some(Server {
         addr,
         pool,
+        state: state_for_tests,
         provider,
     })
 }
@@ -3245,4 +3253,316 @@ async fn a_renewal_the_wallet_cannot_cover_suspends_the_number_it_does_not_relea
     .await
     .unwrap();
     assert_eq!(charges, 1, "the suspended month was charged for as well");
+}
+
+// ---- inbound (spec 0116) ---------------------------------------------------
+
+/// Give an org a number that takes calls, and return it.
+async fn inbound_number(srv: &Server, org: Uuid) -> String {
+    let e164 = format!("+3906{:07}", rand_suffix());
+    sqlx::query(
+        "INSERT INTO voip_numbers (org_id, provider, e164, country, inbound_enabled,
+                                   outbound_enabled, verification_status, status)
+         VALUES ($1, 'mock', $2, 'IT', TRUE, TRUE, 'verified', 'active')",
+    )
+    .bind(org)
+    .bind(&e164)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+    e164
+}
+
+/// Post a signed "somebody is calling" webhook, the way a carrier would.
+async fn ring_us(srv: &Server, leg: &str, from: &str, to: &str) -> StatusCode {
+    let provider = srv.provider.as_ref().expect("mock");
+    let mut body = MockWebhookBody::new(
+        &format!("ev-{}", Uuid::new_v4()),
+        &LegId::new(leg.to_string()),
+        "incoming",
+        chrono::Utc::now(),
+    );
+    body.from = Some(from.to_string());
+    body.to = Some(to.to_string());
+    let raw = serde_json::to_vec(&body).unwrap();
+    // Signed the way the provider would, so an invalid case elsewhere is a real deviation
+    // from this rather than a made-up string.
+    let headers = provider.sign(&raw, chrono::Utc::now());
+
+    client()
+        .post(format!("{}/api/voip/webhooks/mock", base(srv)))
+        .header("x-signature", headers.signature.unwrap())
+        .header("x-timestamp", headers.timestamp.unwrap())
+        .body(raw)
+        .send()
+        .await
+        .unwrap()
+        .status()
+}
+
+#[tokio::test]
+async fn a_call_to_a_number_we_do_not_own_creates_nothing() {
+    // A stranger dialling a wrong number is owed a normal busy tone, not a row in
+    // somebody's history — and not an explanation of our schema either.
+    let srv = srv!();
+    let before: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM voip_calls WHERE direction = 'inbound'")
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap();
+
+    let status = ring_us(
+        &srv,
+        &format!("leg-{}", Uuid::new_v4()),
+        "+393201234567",
+        &format!("+3906{:07}", rand_suffix()),
+    )
+    .await;
+    assert!(
+        status.is_success(),
+        "the carrier should not be made to retry"
+    );
+
+    let after: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM voip_calls WHERE direction = 'inbound'")
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        after, before,
+        "a call was created for a number we do not own"
+    );
+}
+
+#[tokio::test]
+async fn a_call_to_a_number_with_inbound_off_is_refused() {
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    enable_dialing(&srv, org, &jwt, 5).await;
+
+    let e164 = format!("+3906{:07}", rand_suffix());
+    sqlx::query(
+        "INSERT INTO voip_numbers (org_id, provider, e164, country, inbound_enabled,
+                                   verification_status, status)
+         VALUES ($1, 'mock', $2, 'IT', FALSE, 'verified', 'active')",
+    )
+    .bind(org)
+    .bind(&e164)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+
+    ring_us(
+        &srv,
+        &format!("leg-{}", Uuid::new_v4()),
+        "+393201234567",
+        &e164,
+    )
+    .await;
+
+    let created: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM voip_calls WHERE org_id = $1 AND direction = 'inbound'",
+    )
+    .bind(org)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
+    assert_eq!(created, 0, "a number with inbound off took a call");
+}
+
+#[tokio::test]
+async fn a_known_caller_is_named_and_answered_in_their_own_language() {
+    // Spec 0116 R2. The address book's answer wins: a contact's number carries its own
+    // language, which is a fact about the person rather than a guess about their country.
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    enable_dialing(&srv, org, &jwt, 5).await;
+    let ours = inbound_number(&srv, org).await;
+
+    let caller = format!("+8613{:07}", rand_suffix());
+    let (_, contact) = make_contact(
+        &srv,
+        org,
+        &jwt,
+        json!({ "name": "Wei Zhang", "numbers": [{ "e164": caller, "language": "zh" }] }),
+    )
+    .await;
+    let contact_id = contact["id"].as_str().unwrap().to_string();
+
+    ring_us(&srv, &format!("leg-{}", Uuid::new_v4()), &caller, &ours).await;
+
+    let row: (Option<Uuid>, String, String, Vec<Uuid>) = sqlx::query_as(
+        "SELECT contact_id, target_language, status, rang_user_ids
+           FROM voip_calls WHERE org_id = $1 AND direction = 'inbound'",
+    )
+    .bind(org)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
+
+    assert_eq!(
+        row.0.map(|c| c.to_string()),
+        Some(contact_id),
+        "the caller was not identified"
+    );
+    assert_eq!(row.1, "zh", "answered in the wrong language");
+    assert_eq!(row.2, "ringing");
+    // No routing configured, so the owners are rung: a call nobody is told about is worse
+    // than a call the wrong person takes.
+    assert!(
+        row.3.contains(&owner),
+        "the owner was not rung: {:?}",
+        row.3
+    );
+}
+
+#[tokio::test]
+async fn an_unknown_caller_gets_the_organisations_default_language() {
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    enable_dialing(&srv, org, &jwt, 5).await;
+    let ours = inbound_number(&srv, org).await;
+
+    let number_id: Uuid = sqlx::query_scalar("SELECT id FROM voip_numbers WHERE e164 = $1")
+        .bind(&ours)
+        .fetch_one(&srv.pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO voip_number_routing (number_id, org_id, stranger_language)
+         VALUES ($1, $2, 'es')",
+    )
+    .bind(number_id)
+    .bind(org)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+
+    ring_us(
+        &srv,
+        &format!("leg-{}", Uuid::new_v4()),
+        &format!("+3491{:07}", rand_suffix()),
+        &ours,
+    )
+    .await;
+
+    let (contact, language): (Option<Uuid>, String) = sqlx::query_as(
+        "SELECT contact_id, target_language FROM voip_calls
+          WHERE org_id = $1 AND direction = 'inbound'",
+    )
+    .bind(org)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
+    assert!(contact.is_none(), "a stranger was matched to somebody");
+    assert_eq!(language, "es");
+}
+
+#[tokio::test]
+async fn the_first_person_to_answer_gets_the_call_and_the_rest_are_told_so() {
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    enable_dialing(&srv, org, &jwt, 5).await;
+    let ours = inbound_number(&srv, org).await;
+
+    let (second, second_jwt) = user(&srv).await;
+    add_member(&srv, org, second, "admin").await;
+
+    ring_us(
+        &srv,
+        &format!("leg-{}", Uuid::new_v4()),
+        &format!("+3932{:07}", rand_suffix()),
+        &ours,
+    )
+    .await;
+
+    let call_id: Uuid =
+        sqlx::query_scalar("SELECT id FROM voip_calls WHERE org_id = $1 AND direction = 'inbound'")
+            .bind(org)
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap();
+
+    let answer = |jwt: String| {
+        let url = format!(
+            "{}/api/business/organizations/{org}/voip/calls/{call_id}/answer",
+            base(&srv)
+        );
+        async move { client().post(url).bearer_auth(&jwt).send().await.unwrap() }
+    };
+
+    let first = answer(jwt.clone()).await;
+    assert_eq!(first.status(), StatusCode::OK);
+    let body: Value = first.json().await.unwrap();
+    assert!(body["room"].as_str().is_some(), "no room to join: {body}");
+
+    // Two colleagues reaching for the same ringing call is the normal case, not a fault.
+    let late = answer(second_jwt).await;
+    assert_eq!(late.status(), StatusCode::CONFLICT);
+    let body: Value = late.json().await.unwrap();
+    assert_eq!(body["error"], json!("already_answered"));
+
+    let answered_by: Option<Uuid> =
+        sqlx::query_scalar("SELECT answered_by FROM voip_calls WHERE id = $1")
+            .bind(call_id)
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap();
+    assert_eq!(answered_by, Some(owner));
+}
+
+#[tokio::test]
+async fn a_call_nobody_answers_becomes_a_missed_call_rather_than_ringing_for_ever() {
+    // Only a clock can notice an absence — the same reasoning `fail_stalled_calls` is
+    // built on.
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    enable_dialing(&srv, org, &jwt, 5).await;
+    let ours = inbound_number(&srv, org).await;
+
+    ring_us(
+        &srv,
+        &format!("leg-{}", Uuid::new_v4()),
+        &format!("+3932{:07}", rand_suffix()),
+        &ours,
+    )
+    .await;
+
+    sqlx::query(
+        "UPDATE voip_calls SET ring_deadline_at = now() - interval '1 minute'
+          WHERE org_id = $1 AND direction = 'inbound'",
+    )
+    .bind(org)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+
+    let closed = voxtranslate_server::voip::inbound::sweep_unanswered(
+        &srv.state,
+        &srv.pool,
+        srv.provider.as_ref().expect("mock").as_ref(),
+        50,
+    )
+    .await
+    .unwrap();
+    assert!(closed >= 1);
+
+    let (missed, status, reason, answered_by): (bool, String, Option<String>, Option<Uuid>) =
+        sqlx::query_as(
+            "SELECT missed, status, failure_reason, answered_by FROM voip_calls
+              WHERE org_id = $1 AND direction = 'inbound'",
+        )
+        .bind(org)
+        .fetch_one(&srv.pool)
+        .await
+        .unwrap();
+    assert!(missed, "the call was not recorded as missed");
+    assert_eq!(status, "completed");
+    assert_eq!(reason.as_deref(), Some("no_answer"));
+    assert!(answered_by.is_none(), "a missed call has an answerer");
 }
