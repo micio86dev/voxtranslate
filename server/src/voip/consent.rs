@@ -297,6 +297,16 @@ static DISCLOSURE_JSON: &str = include_str!("../../assets/voip-disclosure.json")
 fn table() -> &'static HashMap<String, HashMap<String, String>> {
     static TABLE: OnceLock<HashMap<String, HashMap<String, String>>> = OnceLock::new();
     TABLE.get_or_init(|| {
+        // A panic, deliberately, and not a silent empty table. The alternative —
+        // `unwrap_or_default()` — would start every call with no notice to read and no
+        // error anywhere, which is the compliance failure this whole module exists to
+        // prevent. Loud beats quiet when the quiet answer is "record them anyway".
+        //
+        // It is also unreachable in a shipped binary twice over: the file is
+        // `include_str!`-ed, so it is fixed at build time, and `every_language_carries_
+        // every_sentence` plus `the_table_speaks_every_language_the_product_does` parse
+        // it on every CI run. `lib.rs` calls `languages()` while mounting the VoIP routes
+        // so that if it ever did fail, it fails during boot rather than during a call.
         serde_json::from_str(DISCLOSURE_JSON).expect("voip-disclosure.json is valid and complete")
     })
 }
@@ -329,6 +339,27 @@ fn lookup(language: &str, key: &str) -> Option<&'static str> {
         .get(&base_language(language))
         .and_then(|m| m.get(key))
         .map(String::as_str)
+}
+
+/// What a caller hears before the tone, in their own language (spec 0118).
+///
+/// The same table, the same fallback and the same `fell_back` signal as
+/// [`announcement`] — because it is the same person, on the same call, a minute later.
+/// Without this a Mandarin-speaking caller heard the consent announcement in Mandarin and
+/// was then told in English to leave a message: exactly the split the i18n rule exists to
+/// prevent, in an app whose whole promise is that it speaks their language.
+///
+/// The language is known: `identify_caller` resolved it at admission and wrote it to
+/// `voip_calls.target_language`. A missed call is one nobody PICKED UP, which is a
+/// different thing from one where nobody was identified.
+pub fn voicemail_prompt(language: &str) -> (String, bool) {
+    let lang = base_language(language);
+    let fell_back = !speaks(&lang);
+    let text = lookup(&lang, "voicemail")
+        .or_else(|| lookup("en", "voicemail"))
+        .unwrap_or_default()
+        .to_string();
+    (text, fell_back)
 }
 
 /// The exact words the recipient hears, assembled from whole reviewed sentences.
@@ -837,5 +868,51 @@ mod tests {
         ];
         let unique: std::collections::HashSet<&str> = keys.iter().copied().collect();
         assert_eq!(unique.len(), keys.len());
+    }
+}
+
+#[cfg(test)]
+mod voicemail_tests {
+    use super::*;
+
+    #[test]
+    fn a_caller_hears_the_message_prompt_in_the_language_they_were_answered_in() {
+        // The split this exists to close: the consent announcement in Mandarin, then
+        // "leave a message" in English, to the same person on the same call.
+        let (zh, fell_back) = voicemail_prompt("zh");
+        assert!(!fell_back);
+        assert!(zh.contains('留'), "not Chinese: {zh}");
+
+        let (it, fell_back) = voicemail_prompt("it");
+        assert!(!fell_back);
+        assert!(it.to_lowercase().contains("messaggio"), "not Italian: {it}");
+    }
+
+    #[test]
+    fn a_regional_tag_resolves_to_its_base_language() {
+        let (a, _) = voicemail_prompt("pt-BR");
+        let (b, _) = voicemail_prompt("pt");
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn a_language_the_table_does_not_carry_falls_back_and_says_so() {
+        // `fell_back` is a compliance fact, not a cosmetic one — the same reasoning
+        // `announcement` states for itself.
+        let (text, fell_back) = voicemail_prompt("kl");
+        assert!(fell_back, "a fallback that does not admit to being one");
+        assert_eq!(text, voicemail_prompt("en").0);
+        assert!(!text.is_empty());
+    }
+
+    #[test]
+    fn every_language_the_disclosure_speaks_can_also_take_a_message() {
+        // The all-or-nothing rule, asserted rather than trusted: a language that can be
+        // told it is being recorded must also be able to be asked for a message.
+        for lang in table().keys() {
+            let (text, fell_back) = voicemail_prompt(lang);
+            assert!(!fell_back, "{lang} fell back");
+            assert!(!text.trim().is_empty(), "{lang} is blank");
+        }
     }
 }

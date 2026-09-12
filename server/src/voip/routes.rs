@@ -24,13 +24,13 @@ use serde_json::json;
 use sqlx::FromRow;
 use uuid::Uuid;
 
-use crate::business::{
-    bad_request, db_err, forbidden, not_found, require_pool, require_role, ADMIN, MEMBER,
-};
+use crate::business::{db_err, not_found, require_pool, require_role, ADMIN, MEMBER};
 use crate::middleware::AuthUser;
 use crate::telephony::{WebhookHeaders, E164};
 use crate::voip::service::{self, DialOptions, VoipError};
-use crate::voip::{consent, webhook};
+use crate::voip::{
+    analytics as voip_analytics, consent, contacts, numbers as number_mgmt, webhook,
+};
 use crate::AppState;
 
 pub fn routes() -> Router<AppState> {
@@ -48,6 +48,10 @@ pub fn routes() -> Router<AppState> {
             get(detail),
         )
         .route(
+            "/api/business/organizations/{org_id}/voip/calls/{call_id}/answer",
+            post(answer_inbound),
+        )
+        .route(
             "/api/business/organizations/{org_id}/voip/calls/{call_id}/hangup",
             post(hangup),
         )
@@ -56,8 +60,61 @@ pub fn routes() -> Router<AppState> {
             post(video_invite),
         )
         .route(
+            "/api/business/organizations/{org_id}/voip/analytics",
+            get(voip_analytics::summary),
+        )
+        .route(
             "/api/business/organizations/{org_id}/voip/settings",
             get(get_settings).put(put_settings),
+        )
+        .route(
+            "/api/business/organizations/{org_id}/voip/numbers",
+            get(numbers).post(number_mgmt::buy),
+        )
+        // The address book (spec 0114). `lookup` is registered BEFORE the `{contact_id}`
+        // route, or axum reads "lookup" as an id and answers 400 for a path that exists.
+        // Buying, verifying and keeping numbers (spec 0115). `search` is registered before
+        // `{number_id}` for the same reason `lookup` is: otherwise axum reads the word as
+        // an id.
+        .route(
+            "/api/business/organizations/{org_id}/voip/numbers/search",
+            get(number_mgmt::search),
+        )
+        .route(
+            "/api/business/organizations/{org_id}/voip/numbers/{number_id}",
+            axum::routing::delete(number_mgmt::release),
+        )
+        .route(
+            "/api/business/organizations/{org_id}/voip/numbers/{number_id}/routing",
+            get(number_mgmt::get_routing).put(number_mgmt::put_routing),
+        )
+        .route(
+            "/api/business/organizations/{org_id}/voip/numbers/{number_id}/hours",
+            get(number_mgmt::get_hours)
+                .put(number_mgmt::put_hours)
+                .delete(number_mgmt::clear_hours),
+        )
+        .route(
+            "/api/business/organizations/{org_id}/voip/numbers/{number_id}/verify",
+            post(number_mgmt::verify),
+        )
+        .route(
+            "/api/business/organizations/{org_id}/voip/numbers/{number_id}/verify/check",
+            post(number_mgmt::verify_check),
+        )
+        .route(
+            "/api/business/organizations/{org_id}/voip/contacts",
+            get(contacts::list).post(contacts::create),
+        )
+        .route(
+            "/api/business/organizations/{org_id}/voip/contacts/lookup",
+            get(contacts::lookup),
+        )
+        .route(
+            "/api/business/organizations/{org_id}/voip/contacts/{contact_id}",
+            get(contacts::detail)
+                .patch(contacts::update)
+                .delete(contacts::remove),
         )
         // Unauthenticated by design: the provider cannot present a session. The Ed25519
         // signature IS the authentication, and it is verified before anything is read.
@@ -71,6 +128,50 @@ pub fn routes() -> Router<AppState> {
         // the path IS the authentication — signed by us, single-use, valid for sixty
         // seconds, and bound to one call, one leg and one peer.
         .route("/voip/media/{ticket}", get(media_socket))
+}
+
+/// A refusal carrying a **stable machine-readable code**, never prose.
+///
+/// `err_response` below already states the rule and the reason: a policy refusal's prose
+/// would be untranslatable, so only the code crosses the boundary. The handlers in this
+/// file used the shared `bad_request`/`forbidden` helpers instead, which emit raw English
+/// as `text/plain` — untranslatable by definition, and unparseable by the dashboard, which
+/// reads `{ error }` and therefore rendered every one of them as the generic message.
+///
+/// Codes added here must also gain copy in the dashboard's five locales; the client keeps
+/// its list in `phone-dialer.ts`'s `KNOWN_REASONS`, so an unrecognised code degrades to
+/// the generic string rather than printing itself at a customer.
+pub(crate) fn refuse(status: StatusCode, code: &str) -> Response {
+    (status, Json(json!({ "error": code }))).into_response()
+}
+
+/// `require_project` and project tenancy, checked identically wherever a call is priced
+/// or placed.
+///
+/// Extracted because `quote` promised "the same gate as dial" and did not run this one:
+/// an organisation with `require_project` got a cheerful price and then a refusal.
+async fn check_project(
+    pool: &crate::db::Pool,
+    org_id: Uuid,
+    require_project: bool,
+    project_id: Option<Uuid>,
+) -> Result<(), Response> {
+    if require_project && project_id.is_none() {
+        return Err(refuse(StatusCode::BAD_REQUEST, "project_required"));
+    }
+    if let Some(project_id) = project_id {
+        let ok: Option<bool> =
+            sqlx::query_scalar("SELECT true FROM projects WHERE id = $1 AND org_id = $2")
+                .bind(project_id)
+                .bind(org_id)
+                .fetch_optional(pool)
+                .await
+                .map_err(db_err)?;
+        if ok.is_none() {
+            return Err(refuse(StatusCode::BAD_REQUEST, "project_not_in_org"));
+        }
+    }
+    Ok(())
 }
 
 fn err_response(e: VoipError) -> Response {
@@ -113,6 +214,14 @@ pub struct QuoteBody {
     engine_id: Option<String>,
     #[serde(default)]
     target_language: Option<String>,
+    // A gate cannot check inputs it was not given. These two are what made `quote`'s
+    // promise of "the same gate as dial" untrue: without them it could not run
+    // `require_project` or resolve a caller id, so both refusals waited until the
+    // customer had read a price and pressed Call.
+    #[serde(default)]
+    project_id: Option<Uuid>,
+    #[serde(default)]
+    caller_id: Option<String>,
     #[serde(default)]
     record: bool,
     #[serde(default)]
@@ -128,6 +237,10 @@ pub struct QuoteBody {
 /// Runs the **same** gate as [`dial`], so the dialer cannot show a price for a call that
 /// would then be refused. A quote that is cheerful about a call the policy forbids is
 /// worse than no quote.
+///
+/// That means all three of them, not just the policy gate: `policy::check` via
+/// `check_and_quote`, `check_project`, and caller-id resolution. The last two were
+/// dial-only until spec 0112, which made this comment a claim the code did not keep.
 pub async fn quote(
     State(state): State<AppState>,
     user: AuthUser,
@@ -185,6 +298,30 @@ pub async fn quote(
         minutes,
     )
     .map_err(err_response)?;
+
+    // AFTER the policy gate, never before it. `policy::check` puts entitlement first so a
+    // prober learns their organisation is not entitled before they learn anything else;
+    // running these ahead of it would tell an unentitled caller which of our settings they
+    // had got wrong. Proven by `an_org_without_a_live_subscription_still_cannot_dial`.
+    check_project(pool, org_id, world.org.require_project, body.project_id).await?;
+
+    // Only a caller id the requester actually NAMED. Presenting a number you cannot prove
+    // you own is the refusal with a regulator behind it, and quoting it as fine and then
+    // refusing the dial is exactly the mismatch this gate exists to remove.
+    //
+    // Deliberately NOT the "this org owns no number yet" case: that is a setup state, and
+    // refusing to show a price to a paying customer who has not bought a number is hostile
+    // — see `a_subscribed_org_can_quote_without_anyone_writing_a_settings_row`. `dial`
+    // still refuses it, at the point where it actually matters.
+    if body.caller_id.is_some() {
+        resolve_caller_id(
+            pool,
+            org_id,
+            body.caller_id.as_deref(),
+            provider.metadata().default_caller_id.as_deref(),
+        )
+        .await?;
+    }
 
     let balance: i32 =
         sqlx::query_scalar("SELECT credits_balance FROM organizations WHERE id = $1")
@@ -258,23 +395,7 @@ pub async fn dial(
         .await
         .map_err(db_err)?;
 
-    if world.org.require_project && body.project_id.is_none() {
-        return Err(bad_request(
-            "this organization requires a project on every call",
-        ));
-    }
-    if let Some(project_id) = body.project_id {
-        let ok: Option<bool> =
-            sqlx::query_scalar("SELECT true FROM projects WHERE id = $1 AND org_id = $2")
-                .bind(project_id)
-                .bind(org_id)
-                .fetch_optional(pool)
-                .await
-                .map_err(db_err)?;
-        if ok.is_none() {
-            return Err(bad_request("project does not belong to this organization"));
-        }
-    }
+    check_project(pool, org_id, world.org.require_project, body.project_id).await?;
 
     let engine_id = body
         .engine_id
@@ -421,15 +542,13 @@ async fn resolve_caller_id(
     let raw = match (row, requested) {
         (Some(n), _) => n,
         (None, Some(_)) => {
-            return Err(forbidden(
-                "caller id is not a verified outbound number for this organization",
-            ))
+            return Err(refuse(StatusCode::FORBIDDEN, "caller_id_unverified"));
         }
         (None, None) => provider_default
             .map(str::trim)
             .filter(|s| !s.is_empty())
             .map(str::to_string)
-            .ok_or_else(|| bad_request("no caller id is configured for this organization"))?,
+            .ok_or_else(|| refuse(StatusCode::BAD_REQUEST, "caller_id_missing"))?,
     };
 
     E164::parse(&raw).map_err(|e| err_response(VoipError::BadNumber(e)))
@@ -464,6 +583,12 @@ struct CallRow {
     consent_status: String,
     project_id: Option<Uuid>,
     project_name: Option<String>,
+    /// Nobody answered in time (spec 0116). A fact on the row rather than something the
+    /// list infers from a zero duration — a call that connected and lasted no time is not
+    /// the same event as one nobody picked up.
+    missed: bool,
+    /// Who it was, when the address book knew (spec 0114).
+    contact_name: Option<String>,
 }
 
 /// `GET …/voip/calls` — paginated history. Non-admins see only their own calls (R28).
@@ -487,9 +612,10 @@ pub async fn history(
                 c.source_language, c.target_language, c.engine_id, c.started_at,
                 c.ended_at, c.duration_seconds, c.credits_consumed, c.recording_status,
                 c.transcription_status, c.consent_status, c.project_id,
-                p.name AS project_name
+                p.name AS project_name, c.missed, ct.name AS contact_name
          FROM voip_calls c
          LEFT JOIN projects p ON p.id = c.project_id
+         LEFT JOIN voip_contacts ct ON ct.id = c.contact_id
          WHERE c.org_id = $1
            AND ($2::uuid IS NULL OR c.project_id = $2)
            AND ($3 OR c.user_id = $4)
@@ -529,12 +655,23 @@ struct CallDetailRow {
     duration_seconds: Option<i32>,
     credits_consumed: i32,
     quoted_price_per_min: Option<Decimal>,
-    actual_provider_cost_usd: Option<Decimal>,
-    gross_margin: Option<Decimal>,
+    /// `"pending"` until the provider rates the leg, then `"final"`.
+    ///
+    /// Deliberately a **status and not a number**. What the leg cost us
+    /// (`actual_provider_cost_usd`) and the margin we made on it (`gross_margin`) are
+    /// business-internal and stay on the server — the same rule `engine/metadata.rs`
+    /// enforces for the engine catalogue with `engine_info_never_leaks_cost_or_markup`.
+    /// What the customer agreed to (`quoted_price_per_min`) and what they paid
+    /// (`credits_consumed`) are theirs, and both are still here. Spec 0112 R6.
+    cost_status: String,
     recording_status: String,
     transcription_status: String,
     consent_status: String,
     project_id: Option<Uuid>,
+    /// Who was called, when the address book knew (spec 0114). Null after the contact is
+    /// deleted — the call outlives the convenience data that described it.
+    contact_id: Option<Uuid>,
+    contact_name: Option<String>,
 }
 
 /// `GET …/voip/calls/{id}` — one call, with the money detail.
@@ -557,10 +694,14 @@ pub async fn detail(
                 c.status, c.failure_reason, c.direction, c.recipient_e164,
                 c.recipient_country, c.source_language, c.target_language, c.engine_id,
                 c.started_at, c.ended_at, c.duration_seconds, c.credits_consumed,
-                c.quoted_price_per_min, c.actual_provider_cost_usd, c.gross_margin,
-                c.recording_status, c.transcription_status, c.consent_status, c.project_id
+                c.quoted_price_per_min,
+                CASE WHEN c.actual_provider_cost_usd IS NULL THEN 'pending' ELSE 'final' END
+                    AS cost_status,
+                c.recording_status, c.transcription_status, c.consent_status, c.project_id,
+                c.contact_id, ct.name AS contact_name
          FROM voip_calls c
          JOIN call_sessions s ON s.id = c.session_id
+         LEFT JOIN voip_contacts ct ON ct.id = c.contact_id
          WHERE c.id = $1 AND c.org_id = $2 AND ($3 OR c.user_id = $4)",
     )
     .bind(call_id)
@@ -579,10 +720,108 @@ pub async fn detail(
     // customer paid for, and a sales rep has to be able to see who they called. The list
     // view and every log carry the masked or pseudonymous form instead.
     //
-    // `actual_provider_cost_usd` is null until the provider rates the call, and is
-    // surfaced as null rather than as zero — a zero would read as "free", which is a very
-    // different claim from "not yet known". See docs/voip-telnyx-setup.md §6.
+    // Our provider cost and our margin are NOT returned, to anyone, at any role — see
+    // `CallDetailRow::cost_status`. Reconciliation is reported as `pending` rather than as
+    // a zero, because a zero reads as "this call was free", which is a very different
+    // claim from "the provider has not rated it yet". See docs/voip-telnyx-setup.md §7.
     Ok(Json(r).into_response())
+}
+
+#[derive(Debug, Serialize, FromRow)]
+struct NumberRow {
+    id: Uuid,
+    e164: String,
+    country: String,
+    label: Option<String>,
+    is_default: bool,
+    inbound_enabled: bool,
+    outbound_enabled: bool,
+    verification_status: String,
+    /// The lifecycle (spec 0115). `pending_regulatory` is its own state because saying
+    /// "active" while a regulator is the blocker is a lie with a fine attached.
+    status: String,
+    status_reason: Option<String>,
+    regulatory_requirement: Option<String>,
+    /// What the customer pays each month — the price recorded when the number was bought,
+    /// never today's. Our own cost and the markup stay on the server.
+    customer_monthly_usd: Option<Decimal>,
+    next_renewal_at: Option<DateTime<Utc>>,
+}
+
+/// `GET …/voip/numbers` — the organisation's own telephone numbers (spec 0112 R3).
+///
+/// Read-only. Searching, buying, verifying and releasing numbers are spec 0115; this
+/// exists because without it the dialer's caller-id select had exactly one hardcoded
+/// option and could not name a number the organisation actually owns.
+///
+/// Every row is returned, including the ones that may not be presented as caller id yet,
+/// each carrying the state that says so. Filtering them out here would hide a number stuck
+/// in `pending` from the admin who needs to chase it. Which rows are *usable* is decided
+/// by `resolve_caller_id` on the way out, and mirrored in the client as a pure function —
+/// this endpoint reports, it does not adjudicate.
+///
+/// The numbers are returned in full. R23's masking rule is about the **recipient's**
+/// number in logs and lists; these belong to the organisation asking for them, and a
+/// caller id you cannot read is not a caller id you can choose.
+pub async fn numbers(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(org_id): Path<Uuid>,
+) -> Result<Response, Response> {
+    let pool = require_pool(&state)?;
+    require_role(pool, org_id, user.user_id, MEMBER).await?;
+
+    let rows: Vec<NumberRow> = sqlx::query_as(
+        "SELECT id, e164, country, label, is_default, inbound_enabled, outbound_enabled,
+                verification_status, status, status_reason, regulatory_requirement,
+                customer_monthly_usd, next_renewal_at
+         FROM voip_numbers
+         WHERE org_id = $1
+         ORDER BY is_default DESC, created_at",
+    )
+    .bind(org_id)
+    .fetch_all(pool)
+    .await
+    .map_err(db_err)?;
+
+    Ok(Json(json!({ "numbers": rows })).into_response())
+}
+
+/// `POST …/voip/calls/{id}/answer` — I am taking this call (spec 0116 R3).
+///
+/// Records WHO picked up, which is what makes a missed call a fact rather than an
+/// inference: `answered_by IS NULL` past the ring deadline is the definition the sweep
+/// uses. First to claim it wins — the `answered_by IS NULL` in the WHERE is the race
+/// guard, so two people pressing at once cannot both be the answerer.
+pub async fn answer_inbound(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path((org_id, call_id)): Path<(Uuid, Uuid)>,
+) -> Result<Response, Response> {
+    let pool = require_pool(&state)?;
+    require_role(pool, org_id, user.user_id, MEMBER).await?;
+
+    let room: Option<Option<String>> = sqlx::query_scalar(
+        "UPDATE voip_calls c
+            SET answered_by = $3, ring_deadline_at = NULL, user_id = $3, updated_at = now()
+          FROM call_sessions s
+          WHERE c.id = $1 AND c.org_id = $2 AND c.session_id = s.id
+            AND c.direction = 'inbound' AND c.answered_by IS NULL
+          RETURNING s.room",
+    )
+    .bind(call_id)
+    .bind(org_id)
+    .bind(user.user_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(db_err)?;
+
+    match room {
+        // Somebody else already took it, or it is over. Not an error — two colleagues
+        // reaching for the same ringing call is the normal case, not a fault.
+        None => Err(refuse(StatusCode::CONFLICT, "already_answered")),
+        Some(room) => Ok(Json(json!({ "room": room })).into_response()),
+    }
 }
 
 /// `POST …/voip/calls/{id}/hangup`.
@@ -671,7 +910,10 @@ pub struct SettingsBody {
     consent_refused_action: Option<String>,
     #[serde(default)]
     recording_enabled: bool,
-    #[serde(default = "yes")]
+    // NOT `default = "yes"`. An admin who omits this field has said nothing about
+    // transcription, and `OrgSettings::default_for_new_org` is explicit that capture stays
+    // off until somebody asks for it. Migration 059 brings the column default into line.
+    #[serde(default)]
     transcription_enabled: bool,
     #[serde(default)]
     ai_analysis_enabled: bool,
@@ -707,8 +949,9 @@ pub async fn put_settings(
     if policy == consent::ConsentPolicy::Disabled
         && (body.recording_enabled || body.transcription_enabled)
     {
-        return Err(bad_request(
-            "consent cannot be disabled while recording or transcription is enabled",
+        return Err(refuse(
+            StatusCode::BAD_REQUEST,
+            "consent_required_for_capture",
         ));
     }
 
@@ -717,13 +960,11 @@ pub async fn put_settings(
             .all(|c| c.len() == 2 && c.chars().all(|ch| ch.is_ascii_alphabetic()))
     };
     if !countries_ok(&body.allowed_countries) || !countries_ok(&body.blocked_countries) {
-        return Err(bad_request("countries must be ISO 3166-1 alpha-2 codes"));
+        return Err(refuse(StatusCode::BAD_REQUEST, "invalid_country_code"));
     }
     if let Some(home) = &body.home_country {
         if !countries_ok(std::slice::from_ref(home)) {
-            return Err(bad_request(
-                "home_country must be an ISO 3166-1 alpha-2 code",
-            ));
+            return Err(refuse(StatusCode::BAD_REQUEST, "invalid_country_code"));
         }
     }
 
@@ -837,6 +1078,25 @@ pub async fn inbound_webhook(
     match webhook::ingest(pool, provider, &h, &body).await {
         Ok((outcome, event)) => {
             tracing::debug!(?outcome, "voip webhook");
+
+            // Somebody is calling US (spec 0116). There is no call row yet, so `apply`
+            // above answered `Unknown` — admission is what creates one. Done here rather
+            // than inside `apply` because it needs the room map, the engine registry and
+            // the provider, none of which a database-only function has.
+            if let crate::telephony::ProviderEventKind::Incoming { from, to } = &event.kind {
+                match crate::voip::inbound::admit(&state, pool, provider, &event.leg_id, from, to)
+                    .await
+                {
+                    Ok(call_id) => tracing::info!(call = %call_id, "inbound call admitted"),
+                    Err(reason) => {
+                        // Hung up, and nothing written. A stranger who dialled a wrong
+                        // number is owed a normal busy tone, not a row in somebody's
+                        // history — and not an explanation of our schema either.
+                        tracing::info!(reason = reason.as_str(), "inbound call refused");
+                        let _ = provider.hangup(&event.leg_id).await;
+                    }
+                }
+            }
             // The far end just picked up. Everything else about the call already worked
             // without this line — it rang, it billed, it settled, it appeared in history —
             // and it did all of that in silence. This is the audio path.

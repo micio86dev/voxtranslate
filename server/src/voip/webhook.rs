@@ -244,7 +244,7 @@ async fn resolve_call(
     // being replaced (a redirect, a second leg) in a way the leg id does not.
     if let Some(state) = event.client_state.as_deref() {
         if let Ok(id) = Uuid::parse_str(state) {
-            let row = fetch_call(tx, "id = $1", id).await?;
+            let row = fetch_call(tx, id).await?;
             if row.is_some() {
                 // Make sure this leg is recorded against the call, so a later event that
                 // arrives without a client_state still resolves.
@@ -266,15 +266,19 @@ async fn resolve_call(
     fetch_call_by_leg(tx, &event.leg_id).await
 }
 
+/// The predicate used to be a `&str` parameter interpolated with `format!`. There was
+/// exactly one caller, passing a literal — so the parameter bought no flexibility and
+/// cost a function whose signature accepts arbitrary SQL. A reader has to go and check
+/// every call site to know it is safe, and the next caller has no reason not to pass
+/// something worse. The query is fixed now, so there is nothing to check.
 async fn fetch_call(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    predicate: &str,
     id: Uuid,
 ) -> Result<Option<CallRow>, sqlx::Error> {
-    sqlx::query_as(&format!(
+    sqlx::query_as(
         "SELECT id, session_id, status, quoted_price_per_min, answered_at
-         FROM voip_calls WHERE {predicate} FOR UPDATE"
-    ))
+         FROM voip_calls WHERE id = $1 FOR UPDATE",
+    )
     .bind(id)
     .fetch_optional(&mut **tx)
     .await
@@ -405,7 +409,28 @@ pub async fn run_sweep(state: crate::AppState, interval: std::time::Duration, ba
             continue;
         };
 
+        // Numbers whose month is up (spec 0115 R6). Deliberately outside the
+        // `telephony` guard: a renewal is a charge against our own ledger and must keep
+        // happening even if the provider is momentarily unbuildable.
+        if let Some(cfg) = state.config.voip.as_ref() {
+            match crate::voip::numbers::renew_due(pool, cfg.number_grace_days, batch).await {
+                Ok((0, 0)) => {}
+                Ok((renewed, suspended)) => {
+                    tracing::info!(renewed, suspended, "voip number renewals processed")
+                }
+                Err(e) => tracing::error!("voip number renewal sweep failed: {e}"),
+            }
+        }
+
         if let Some(provider) = state.telephony.as_deref() {
+            // Inbound calls nobody came to (spec 0116 R4). Only a clock can notice an
+            // absence, which is the same reason `fail_stalled_calls` exists.
+            match crate::voip::inbound::sweep_unanswered(&state, pool, provider, batch).await {
+                Ok(0) => {}
+                Ok(n) => tracing::info!(missed = n, "inbound calls nobody answered"),
+                Err(e) => tracing::error!("inbound ring sweep failed: {e}"),
+            }
+
             // A consent gate nobody answered. The carrier's own gather timeout produces an
             // event on some routes and nothing at all on others, and either way the task
             // that opened the gate may be gone — so the deadline is enforced from the row.
@@ -823,6 +848,9 @@ fn lifecycle_event(kind: &ProviderEventKind) -> Option<CallEvent> {
         | ProviderEventKind::RecordingSaved { .. }
         | ProviderEventKind::Dtmf { .. }
         | ProviderEventKind::Unhandled { .. } => return None,
+        // An incoming call has no lifecycle to move: there is no call row yet. Admission
+        // creates one (`inbound::admit`), and the events that follow drive it from there.
+        ProviderEventKind::Incoming { .. } => return None,
     })
 }
 
@@ -844,6 +872,7 @@ fn event_type_name(kind: &ProviderEventKind) -> String {
         ProviderEventKind::RecordingStarted => "recording_started".into(),
         ProviderEventKind::RecordingSaved { .. } => "recording_saved".into(),
         ProviderEventKind::Dtmf { .. } => "dtmf".into(),
+        ProviderEventKind::Incoming { .. } => "incoming".into(),
         // Kept verbatim so a renamed provider event shows up in analytics as itself.
         ProviderEventKind::Unhandled { raw_type } => format!("unhandled:{raw_type}"),
     }

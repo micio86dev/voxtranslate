@@ -75,7 +75,32 @@ Next step: add P2P video calling (WebRTC mesh, max 4) + auto-translated text cha
   at English in an app whose entire promise is that it speaks their language. There is no
   translation script in the repo; generate the missing locales (Groq) as part of the same
   change and verify every file parses and carries the key.
+- **Three surfaces, three bars — and the difference is the FAILURE MODE, not effort.**
+  The 84 above is the rule for key-addressed catalogues. Two surfaces are deliberately
+  narrower, and a change must meet its own surface's bar in full:
+  - `client/src/scripts/i18n/` and `server/assets/voip-disclosure.json` (the consent
+    announcement, the recording notice, the voicemail prompt) — **all 84.** A
+    key-addressed catalogue that misses a locale renders the key itself: the user reads
+    `phone.settings.title`. And the compliance copy a person is legally owed cannot be
+    owed to them in a language they do not read.
+  - `server/src/notify_copy.rs` — **8** (en + de/es/fr/it/ja/pt/zh), the bar every
+    function in the file already holds. This is match-arm copy, not a catalogue: an
+    unlisted language falls through to a correct, complete English sentence rather than
+    to a key name. That is a different failure, and a much smaller one. Raising this bar
+    is open work; if you raise it, raise it for the whole file, because a single
+    84-language function beside seven 8-language ones is worse than either bar.
+  - `dashboard/` — **5** (en/it/es/de/fr), stated in `dashboard/CLAUDE.md`. A B2B admin
+    console with a signed-in operator, not the consumer product.
+  Adding a string to a surface means every locale that surface promises. Adding a NEW
+  surface means writing its bar here first.
 - SQL migrations MUST be idempotent: `CREATE TABLE/INDEX IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`, `DROP … IF EXISTS`. A non-idempotent `ADD COLUMN` (e.g. migration 044) fails and locks a DB whose schema has drifted ahead of the `_sqlx_migrations` ledger. NEVER edit an already-applied migration — `sqlx::migrate!` checksums them, so a content change breaks server boot.
+- **`IF NOT EXISTS` silences a constraint too.** `ADD COLUMN IF NOT EXISTS x … CHECK (…)`
+  is one clause: if the column is already there the whole thing is a no-op, the CHECK is
+  never created, and the column is left accepting anything — with no error to notice. Add
+  the column, then add the constraint in its own guarded `DO $$` block that tests
+  `pg_constraint`, and mark it `NOT VALID` so a row that drifted in earlier cannot fail
+  the ALTER and take the server's boot down with it. Guard `ALTER TABLE` with
+  `to_regclass` for the same reason 044 is remembered.
 
 ## Branching & releases (Git Flow)
 

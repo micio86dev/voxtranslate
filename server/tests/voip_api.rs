@@ -16,7 +16,9 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 
+use chrono::{DateTime, Utc};
 use reqwest::{Client, StatusCode};
+use rust_decimal::Decimal;
 use serde_json::{json, Value};
 use sqlx::Row;
 use uuid::Uuid;
@@ -32,6 +34,9 @@ const SECRET: &str = "voip-api-secret";
 struct Server {
     addr: SocketAddr,
     pool: db::Pool,
+    /// The same state the server runs on, so a test can drive a sweep directly instead of
+    /// waiting for the background ticker.
+    state: AppState,
     /// The same provider the server is using, so a test can sign a webhook the way the
     /// carrier would and then ask the provider what it was actually told to do.
     provider: Option<Arc<MockTelephonyProvider>>,
@@ -74,6 +79,10 @@ async fn setup_with_voip(voip: Option<VoipConfig>) -> Option<Server> {
         state.telephony = Some(p);
     }
 
+    // Cloned before `app()` consumes it, so a test can reach the same room map and config
+    // the running server uses.
+    let state_for_tests = state.clone();
+
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move {
@@ -82,6 +91,7 @@ async fn setup_with_voip(voip: Option<VoipConfig>) -> Option<Server> {
     Some(Server {
         addr,
         pool,
+        state: state_for_tests,
         provider,
     })
 }
@@ -402,6 +412,205 @@ async fn the_history_list_never_carries_the_full_number() {
         "the list payload leaked the full number: {raw}"
     );
     assert!(raw.contains("••••"), "…and it should carry the masked form");
+}
+
+#[tokio::test]
+async fn the_detail_endpoint_never_carries_our_cost_or_our_margin() {
+    // Spec 0112 R6. `engine/metadata.rs` proves the same property for the engine
+    // catalogue with `engine_info_never_leaks_cost_or_markup`; this is its mirror for
+    // the call record. What the customer agreed to (`quoted_price_per_min`) and what they
+    // paid (`credits_consumed`) are theirs. What the leg cost us, and the margin we made
+    // on it, are not — and a member of any role could read both.
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    let call = make_call(&srv, org, owner).await;
+
+    // Rate the call, so the numbers are present in the row and their absence from the
+    // response cannot be mistaken for "there was nothing to leak".
+    sqlx::query(
+        "UPDATE voip_calls
+            SET actual_provider_cost_usd = 0.0340, gross_margin = 0.274,
+                quoted_price_per_min = 0.0468, credits_consumed = 5
+          WHERE id = $1",
+    )
+    .bind(call)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+
+    let body: Value = client()
+        .get(format!(
+            "{}/api/business/organizations/{org}/voip/calls/{call}",
+            base(&srv)
+        ))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+
+    let raw = body.to_string();
+    assert!(
+        !raw.contains("gross_margin"),
+        "the detail payload leaked our margin: {raw}"
+    );
+    assert!(
+        !raw.contains("actual_provider_cost"),
+        "the detail payload leaked our provider cost: {raw}"
+    );
+    assert!(
+        !raw.contains("0.274"),
+        "the margin value leaked under another name: {raw}"
+    );
+    // What the customer is entitled to is still there.
+    assert_eq!(body["credits_consumed"], serde_json::json!(5));
+    assert!(raw.contains("quoted_price_per_min"));
+    // A rated call reports its reconciliation as settled, without the number.
+    assert_eq!(body["cost_status"], serde_json::json!("final"));
+}
+
+#[tokio::test]
+async fn an_unrated_call_says_pending_rather_than_zero() {
+    // Spec 0112 R6. Telnyx rates calls asynchronously (docs/voip-telnyx-setup.md §7), so
+    // `actual_provider_cost_usd` is NULL for a while. Reporting that as 0 would read as
+    // "this call was free", which is a very different claim from "we do not know yet".
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    let call = make_call(&srv, org, owner).await;
+
+    let body: Value = client()
+        .get(format!(
+            "{}/api/business/organizations/{org}/voip/calls/{call}",
+            base(&srv)
+        ))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+
+    assert_eq!(body["cost_status"], serde_json::json!("pending"));
+}
+
+#[tokio::test]
+async fn the_numbers_list_is_scoped_to_the_org_and_carries_its_verification_state() {
+    // Spec 0112 R3. The dialer's caller-id select shipped with a single hardcoded
+    // "default" option because nothing served the org's own numbers. This lists the
+    // inventory — every row, with the state that decides whether it may be presented —
+    // and leaves the "which of these are usable" filter to the client, where it is a pure
+    // function with a test. `resolve_caller_id` remains the authority.
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+
+    let (other_owner, _) = user(&srv).await;
+    let other_org = make_org(&srv, other_owner, "owner").await;
+
+    // `voip_numbers.e164` is UNIQUE across the install and nothing sweeps this table, so
+    // hardcoded fixtures pass once and then fail for ever on a shared test database.
+    // Same reason `enable_dialing` uses a suffix; the country prefix still carries meaning.
+    let milan = format!("+39{}", rand_suffix());
+    let spain = format!("+34{}", rand_suffix());
+    let fax = format!("+39{}", rand_suffix());
+    let theirs = format!("+49{}", rand_suffix());
+
+    for (e164, label, verified, outbound, target) in [
+        (milan.as_str(), "Milan Office", "verified", true, org),
+        (spain.as_str(), "Sales Spain", "pending", true, org),
+        (fax.as_str(), "Fax", "verified", false, org),
+        (theirs.as_str(), "Someone Else", "verified", true, other_org),
+    ] {
+        sqlx::query(
+            "INSERT INTO voip_numbers (org_id, provider, e164, country, label,
+                                       outbound_enabled, verification_status)
+             VALUES ($1, 'mock', $2, 'IT', $3, $4, $5)",
+        )
+        .bind(target)
+        .bind(e164)
+        .bind(label)
+        .bind(outbound)
+        .bind(verified)
+        .execute(&srv.pool)
+        .await
+        .unwrap();
+    }
+
+    let body: Value = client()
+        .get(format!(
+            "{}/api/business/organizations/{org}/voip/numbers",
+            base(&srv)
+        ))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+
+    let numbers = body["numbers"].as_array().unwrap();
+    assert_eq!(
+        numbers.len(),
+        3,
+        "expected this org's three numbers: {body}"
+    );
+
+    let raw = body.to_string();
+    assert!(
+        !raw.contains(theirs.trim_start_matches('+')),
+        "another org's number crossed the tenancy boundary: {raw}"
+    );
+
+    let row = numbers
+        .iter()
+        .find(|n| n["e164"] == milan.as_str())
+        .expect("Milan Office missing");
+    assert_eq!(row["label"], "Milan Office");
+    assert_eq!(row["verification_status"], "verified");
+    assert_eq!(row["outbound_enabled"], serde_json::json!(true));
+
+    // The unusable ones are present with the state that says so, rather than hidden —
+    // an admin has to be able to see that "Sales Spain" is still pending.
+    let row = numbers
+        .iter()
+        .find(|n| n["e164"] == spain.as_str())
+        .expect("Sales Spain missing");
+    assert_eq!(row["verification_status"], "pending");
+    // And the one that is verified but not outbound-enabled is listed too; deciding which
+    // may be PRESENTED is `resolve_caller_id`'s job, not this endpoint's.
+    assert!(numbers.iter().any(|n| n["e164"] == fax.as_str()));
+}
+
+#[tokio::test]
+async fn a_non_member_cannot_list_an_orgs_numbers() {
+    // A company's phone numbers are its own. Tenancy is asserted per route because it
+    // leaks per route.
+    let srv = srv!();
+    let (owner, _) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    let (_outsider, outsider_jwt) = user(&srv).await;
+
+    let res = client()
+        .get(format!(
+            "{}/api/business/organizations/{org}/voip/numbers",
+            base(&srv)
+        ))
+        .bearer_auth(&outsider_jwt)
+        .send()
+        .await
+        .unwrap();
+
+    assert!(
+        res.status() == StatusCode::FORBIDDEN || res.status() == StatusCode::NOT_FOUND,
+        "an outsider got {} from the numbers list",
+        res.status()
+    );
 }
 
 // ---- roles ----------------------------------------------------------------
@@ -1537,6 +1746,35 @@ async fn a_call_nobody_asked_to_analyse_is_left_alone() {
     assert!(!requested);
 }
 
+/// Count audit rows for an action, WAITING for them rather than assuming they landed.
+///
+/// `log_audit_event` is `tokio::spawn`-ed and documents itself as "asynchronously and
+/// best-effort" — a caller is deliberately never made to wait on an audit write. So the
+/// handler's response can, and does, arrive before the row is committed. Reading once
+/// straight after the response tests the scheduler, not the contract: it passed on a
+/// developer machine for two days and failed the first time it ran on a loaded CI runner
+/// under coverage instrumentation.
+///
+/// The contract is "the invitation IS audited", not "it is audited before the response
+/// byte". This waits for the former and still fails, in bounded time, if the row never
+/// comes.
+async fn audited(srv: &Server, org: Uuid, action: &str) -> i64 {
+    for _ in 0..50 {
+        let n: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM audit_logs WHERE org_id = $1 AND action = $2")
+                .bind(org)
+                .bind(action)
+                .fetch_one(&srv.pool)
+                .await
+                .unwrap();
+        if n > 0 {
+            return n;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    0
+}
+
 /// A server with video switched on. The default is off, so most tests never see it.
 async fn setup_with_video() -> Option<Server> {
     let mut voip = VoipConfig::test_default();
@@ -1624,15 +1862,10 @@ async fn a_video_invite_never_carries_the_room_in_the_clear() {
     );
 
     // Audited: someone was invited into a conversation.
-    let audited: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM audit_logs
-         WHERE org_id = $1 AND action = 'voip.video_invite'",
-    )
-    .bind(org)
-    .fetch_one(&srv.pool)
-    .await
-    .unwrap();
-    assert!(audited >= 1);
+    assert!(
+        audited(&srv, org, "voip.video_invite").await >= 1,
+        "no audit row for an invitation that was issued"
+    );
 }
 
 #[tokio::test]
@@ -1950,4 +2183,1840 @@ async fn a_second_digit_cannot_overturn_a_decision() {
         status, "denied",
         "the first answer stands; a later key must not grant what was refused"
     );
+}
+
+// ---- the 0111 findings, closed ---------------------------------------------
+
+#[tokio::test]
+async fn a_partial_settings_write_cannot_switch_capture_on() {
+    // An admin who sends `{"enabled": true}` has said nothing about transcription. The
+    // canonical default is written into `OrgSettings::default_for_new_org` in the team's
+    // own words: recording, transcription and AI analysis stay OFF, because "a default
+    // that captures someone nobody asked is a different kind of mistake from a default
+    // that refuses a call".
+    //
+    // Three places disagreed about it. The read path returned `false` (and
+    // `an_org_with_no_settings_row_reads_as_ready_to_dial` asserts it), while
+    // `#[serde(default = "yes")]` and the column default both said `TRUE`. The passing
+    // test made the property look held when the write path contradicted it.
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+
+    let res = client()
+        .put(format!(
+            "{}/api/business/organizations/{org}/voip/settings",
+            base(&srv)
+        ))
+        .bearer_auth(&jwt)
+        .json(&json!({ "enabled": true }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let body: Value = res.json().await.unwrap();
+
+    assert_eq!(body["transcription_enabled"], json!(false), "{body}");
+    assert_eq!(body["recording_enabled"], json!(false), "{body}");
+    assert_eq!(body["ai_analysis_enabled"], json!(false), "{body}");
+
+    // The column default must not contradict the API either. A row created by any other
+    // path — a support script, a backfill — must not arrive with capture switched on.
+    let (other, _) = user(&srv).await;
+    let other_org = make_org(&srv, other, "owner").await;
+    sqlx::query("INSERT INTO voip_org_settings (org_id) VALUES ($1)")
+        .bind(other_org)
+        .execute(&srv.pool)
+        .await
+        .unwrap();
+    let stored: bool =
+        sqlx::query_scalar("SELECT transcription_enabled FROM voip_org_settings WHERE org_id = $1")
+            .bind(other_org)
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap();
+    assert!(!stored, "the column default still switches capture on");
+}
+
+#[tokio::test]
+async fn a_caller_id_the_org_cannot_prove_it_owns_is_refused() {
+    // The highest-stakes branch in this file, and it had no test. `resolve_caller_id`
+    // says why in the code: presenting a number you cannot prove you own is illegal in
+    // most of our markets. Tenancy is asserted per route because it leaks per route —
+    // this is the same argument with a regulator behind it.
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    enable_dialing(&srv, org, &jwt, 5).await;
+
+    let (other_owner, other_jwt) = user(&srv).await;
+    let other_org = make_org(&srv, other_owner, "owner").await;
+    enable_dialing(&srv, other_org, &other_jwt, 5).await;
+
+    // A number that belongs to the OTHER organisation, verified and outbound-enabled
+    // there. Owning it somewhere is not owning it here.
+    let theirs: String =
+        sqlx::query_scalar("SELECT e164 FROM voip_numbers WHERE org_id = $1 LIMIT 1")
+            .bind(other_org)
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap();
+
+    // One of ours, but still awaiting verification.
+    let pending = format!("+39022{:07}", rand_suffix());
+    sqlx::query(
+        "INSERT INTO voip_numbers (org_id, provider, e164, country, outbound_enabled,
+                                   verification_status)
+         VALUES ($1, 'mock', $2, 'IT', TRUE, 'pending')",
+    )
+    .bind(org)
+    .bind(&pending)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+
+    for (caller_id, why) in [
+        (theirs.as_str(), "another org's verified number"),
+        (pending.as_str(), "our own number, still pending"),
+    ] {
+        let res = client()
+            .post(format!(
+                "{}/api/business/organizations/{org}/voip/calls",
+                base(&srv)
+            ))
+            .bearer_auth(&jwt)
+            .json(&json!({
+                "destination": "+390212345678",
+                "source_language": "it",
+                "target_language": "en",
+                "caller_id": caller_id,
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            res.status(),
+            StatusCode::FORBIDDEN,
+            "presenting {why} should be refused"
+        );
+        let body: Value = res.json().await.unwrap();
+        assert_eq!(body["error"], json!("caller_id_unverified"), "{body}");
+    }
+}
+
+#[tokio::test]
+async fn a_quote_refuses_what_a_dial_would_refuse() {
+    // `quote`'s doc comment promises "the same gate as dial, so the dialer cannot show a
+    // price for a call that would then be refused". Two of dial's checks were missing
+    // here, so the exact failure the comment rules out was reachable on two paths: an org
+    // with `require_project`, and an org with no verified number to present.
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    enable_dialing(&srv, org, &jwt, 5).await;
+
+    let quote = |body: Value| {
+        let jwt = jwt.clone();
+        let url = format!("{}/api/business/organizations/{org}/voip/quote", base(&srv));
+        async move {
+            client()
+                .post(url)
+                .bearer_auth(&jwt)
+                .json(&body)
+                .send()
+                .await
+                .unwrap()
+        }
+    };
+
+    // Baseline: with a project not required and a verified number seeded, it prices.
+    let res = quote(json!({ "destination": "+390212345678" })).await;
+    assert_eq!(res.status(), StatusCode::OK, "baseline quote should price");
+
+    // (1) The org now requires a project, and none was named.
+    sqlx::query("UPDATE voip_org_settings SET require_project = TRUE WHERE org_id = $1")
+        .bind(org)
+        .execute(&srv.pool)
+        .await
+        .unwrap();
+    let res = quote(json!({ "destination": "+390212345678" })).await;
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    let body: Value = res.json().await.unwrap();
+    assert_eq!(body["error"], json!("project_required"), "{body}");
+
+    sqlx::query("UPDATE voip_org_settings SET require_project = FALSE WHERE org_id = $1")
+        .bind(org)
+        .execute(&srv.pool)
+        .await
+        .unwrap();
+
+    // (2) A caller id the org cannot prove it owns — refused at quote time, not after the
+    // customer has read a price and pressed Call.
+    let res = quote(json!({
+        "destination": "+390212345678",
+        "caller_id": "+390299999999",
+    }))
+    .await;
+    assert_eq!(res.status(), StatusCode::FORBIDDEN);
+    let body: Value = res.json().await.unwrap();
+    assert_eq!(body["error"], json!("caller_id_unverified"), "{body}");
+}
+
+#[tokio::test]
+async fn a_policy_refusal_carries_a_code_the_client_can_translate() {
+    // `err_response` already states the rule: only the stable machine-readable code
+    // crosses the boundary, because a refusal's prose would be untranslatable. These
+    // paths shipped raw English as a `text/plain` body instead — which the dashboard
+    // cannot even parse, so every one of them surfaced as the generic message.
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+
+    let res = client()
+        .put(format!(
+            "{}/api/business/organizations/{org}/voip/settings",
+            base(&srv)
+        ))
+        .bearer_auth(&jwt)
+        .json(&json!({ "enabled": true, "allowed_countries": ["ITALY"] }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    let body: Value = res.json().await.unwrap();
+    assert_eq!(body["error"], json!("invalid_country_code"), "{body}");
+
+    let res = client()
+        .put(format!(
+            "{}/api/business/organizations/{org}/voip/settings",
+            base(&srv)
+        ))
+        .bearer_auth(&jwt)
+        .json(&json!({
+            "enabled": true,
+            "consent_policy": "disabled",
+            "transcription_enabled": true,
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    let body: Value = res.json().await.unwrap();
+    assert_eq!(
+        body["error"],
+        json!("consent_required_for_capture"),
+        "{body}"
+    );
+}
+
+// ---- contacts (spec 0114) --------------------------------------------------
+
+/// Create a contact through the API and return its id.
+async fn make_contact(srv: &Server, org: Uuid, jwt: &str, body: Value) -> (StatusCode, Value) {
+    let res = client()
+        .post(format!(
+            "{}/api/business/organizations/{org}/voip/contacts",
+            base(srv)
+        ))
+        .bearer_auth(jwt)
+        .json(&body)
+        .send()
+        .await
+        .unwrap();
+    let status = res.status();
+    (status, res.json().await.unwrap_or(Value::Null))
+}
+
+#[tokio::test]
+async fn a_contact_carries_its_numbers_and_each_number_its_own_language() {
+    // The language lives on the NUMBER. A colleague who takes work calls in English on the
+    // office line and Catalan on their mobile is one person, not two.
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+
+    let office = format!("+3493{:07}", rand_suffix());
+    let mobile = format!("+3462{:07}", rand_suffix());
+    let (status, body) = make_contact(
+        &srv,
+        org,
+        &jwt,
+        json!({
+            "name": "Marta Roig",
+            "company": "Roig Import",
+            "tags": ["supplier"],
+            "numbers": [
+                { "e164": office, "label": "Office", "language": "en", "is_primary": true },
+                { "e164": mobile, "label": "Mobile", "language": "ca" },
+            ],
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+
+    let id = body["id"].as_str().expect("id").to_string();
+    let detail: Value = client()
+        .get(format!(
+            "{}/api/business/organizations/{org}/voip/contacts/{id}",
+            base(&srv)
+        ))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+
+    let numbers = detail["numbers"].as_array().unwrap();
+    assert_eq!(numbers.len(), 2, "{detail}");
+    let by_label = |l: &str| {
+        numbers
+            .iter()
+            .find(|n| n["label"] == l)
+            .unwrap_or_else(|| panic!("{l} missing: {detail}"))
+    };
+    assert_eq!(by_label("Office")["language"], json!("en"));
+    assert_eq!(by_label("Mobile")["language"], json!("ca"));
+    assert_eq!(by_label("Office")["is_primary"], json!(true));
+    assert_eq!(by_label("Mobile")["is_primary"], json!(false));
+}
+
+#[tokio::test]
+async fn one_number_belongs_to_one_person_per_organisation() {
+    // Inbound must never have to CHOOSE whose call this is (spec 0116), so the constraint
+    // lives in the database rather than in a handler that could forget.
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    let shared = format!("+3902{:07}", rand_suffix());
+
+    let (first, _) = make_contact(
+        &srv,
+        org,
+        &jwt,
+        json!({ "name": "First", "numbers": [{ "e164": shared }] }),
+    )
+    .await;
+    assert_eq!(first, StatusCode::CREATED);
+
+    let (second, body) = make_contact(
+        &srv,
+        org,
+        &jwt,
+        json!({ "name": "Second", "numbers": [{ "e164": shared }] }),
+    )
+    .await;
+    assert_eq!(second, StatusCode::CONFLICT, "{body}");
+    assert_eq!(body["error"], json!("number_already_known"), "{body}");
+
+    // Another organisation may legitimately know the same supplier.
+    let (other_owner, other_jwt) = user(&srv).await;
+    let other_org = make_org(&srv, other_owner, "owner").await;
+    let (elsewhere, body) = make_contact(
+        &srv,
+        other_org,
+        &other_jwt,
+        json!({ "name": "Same supplier", "numbers": [{ "e164": shared }] }),
+    )
+    .await;
+    assert_eq!(elsewhere, StatusCode::CREATED, "{body}");
+}
+
+#[tokio::test]
+async fn a_contact_reaches_many_projects_and_appears_once_in_each() {
+    // The first many-to-many involving `projects` in this schema.
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+
+    let mut projects = Vec::new();
+    for name in ["Alpha", "Beta"] {
+        let id: Uuid = sqlx::query_scalar(
+            "INSERT INTO projects (org_id, name, created_by) VALUES ($1, $2, $3) RETURNING id",
+        )
+        .bind(org)
+        .bind(name)
+        .bind(owner)
+        .fetch_one(&srv.pool)
+        .await
+        .unwrap();
+        projects.push(id);
+    }
+
+    let (status, body) = make_contact(
+        &srv,
+        org,
+        &jwt,
+        json!({
+            "name": "Shared",
+            "numbers": [{ "e164": format!("+3902{:07}", rand_suffix()) }],
+            // Linked twice on purpose: linking is idempotent (R3).
+            "project_ids": [projects[0], projects[1], projects[0]],
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    let id = body["id"].as_str().unwrap().to_string();
+
+    for project in &projects {
+        let list: Value = client()
+            .get(format!(
+                "{}/api/business/organizations/{org}/voip/contacts?project_id={project}",
+                base(&srv)
+            ))
+            .bearer_auth(&jwt)
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        let rows = list["contacts"].as_array().unwrap();
+        assert_eq!(
+            rows.len(),
+            1,
+            "one row per project, not one per link: {list}"
+        );
+        assert_eq!(rows[0]["id"], json!(id));
+    }
+
+    // Deleting a project leaves the person, with one link fewer.
+    sqlx::query("DELETE FROM projects WHERE id = $1")
+        .bind(projects[0])
+        .execute(&srv.pool)
+        .await
+        .unwrap();
+    let detail: Value = client()
+        .get(format!(
+            "{}/api/business/organizations/{org}/voip/contacts/{id}",
+            base(&srv)
+        ))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(detail["projects"].as_array().unwrap().len(), 1, "{detail}");
+}
+
+#[tokio::test]
+async fn contacts_are_searchable_by_the_things_people_remember() {
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    let number = format!("+8613{:07}", rand_suffix());
+
+    make_contact(
+        &srv,
+        org,
+        &jwt,
+        json!({
+            "name": "Wei Zhang",
+            "company": "Shenzhen Optics",
+            "tags": ["supplier", "hardware"],
+            "numbers": [{ "e164": number, "language": "zh" }],
+        }),
+    )
+    .await;
+    make_contact(
+        &srv,
+        org,
+        &jwt,
+        json!({ "name": "Someone Else", "numbers": [{ "e164": format!("+3902{:07}", rand_suffix()) }] }),
+    )
+    .await;
+
+    let find = |query: String| {
+        let jwt = jwt.clone();
+        let url = format!(
+            "{}/api/business/organizations/{org}/voip/contacts?{query}",
+            base(&srv)
+        );
+        async move {
+            let body: Value = client()
+                .get(url)
+                .bearer_auth(&jwt)
+                .send()
+                .await
+                .unwrap()
+                .json()
+                .await
+                .unwrap();
+            body["contacts"].as_array().unwrap().len()
+        }
+    };
+
+    assert_eq!(
+        find("q=zhang".into()).await,
+        1,
+        "by name, case-insensitively"
+    );
+    assert_eq!(find("q=shenzhen".into()).await, 1, "by company");
+    assert_eq!(
+        find(format!("q={}", &number[4..10])).await,
+        1,
+        "by part of a number"
+    );
+    assert_eq!(find("tag=supplier".into()).await, 1, "by tag");
+    assert_eq!(
+        find("language=zh".into()).await,
+        1,
+        "by the language they speak"
+    );
+    assert_eq!(
+        find("q=nobody".into()).await,
+        0,
+        "and nothing when nothing matches"
+    );
+}
+
+#[tokio::test]
+async fn a_number_can_be_looked_up_by_whoever_is_calling() {
+    // The reverse index, made addressable. Spec 0116 answers "who is ringing?" with it,
+    // and the dashboard uses it to decide whether to offer to save a number.
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    let known = format!("+3902{:07}", rand_suffix());
+    make_contact(
+        &srv,
+        org,
+        &jwt,
+        json!({ "name": "Known", "numbers": [{ "e164": known, "language": "it" }] }),
+    )
+    .await;
+
+    let lookup = |e164: String| {
+        let jwt = jwt.clone();
+        let url = format!(
+            "{}/api/business/organizations/{org}/voip/contacts/lookup?e164={e164}",
+            base(&srv)
+        );
+        async move { client().get(url).bearer_auth(&jwt).send().await.unwrap() }
+    };
+
+    let res = lookup(known.clone()).await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let body: Value = res.json().await.unwrap();
+    assert_eq!(body["name"], json!("Known"));
+    assert_eq!(
+        body["language"],
+        json!("it"),
+        "the language of THAT number: {body}"
+    );
+
+    let res = lookup(format!("+3902{:07}", rand_suffix())).await;
+    assert_eq!(
+        res.status(),
+        StatusCode::NOT_FOUND,
+        "an unknown number is not an error"
+    );
+}
+
+#[tokio::test]
+async fn deleting_a_contact_leaves_the_calls_that_were_made_to_them() {
+    // A call that happened cannot un-happen, and the financial record must outlive the
+    // convenience data that described it — the rule the credits ledger already follows.
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    let (_, body) = make_contact(
+        &srv,
+        org,
+        &jwt,
+        json!({ "name": "Gone", "numbers": [{ "e164": format!("+3902{:07}", rand_suffix()) }] }),
+    )
+    .await;
+    let contact = Uuid::parse_str(body["id"].as_str().unwrap()).unwrap();
+
+    let call = make_call(&srv, org, owner).await;
+    sqlx::query("UPDATE voip_calls SET contact_id = $1 WHERE id = $2")
+        .bind(contact)
+        .bind(call)
+        .execute(&srv.pool)
+        .await
+        .unwrap();
+
+    let res = client()
+        .delete(format!(
+            "{}/api/business/organizations/{org}/voip/contacts/{contact}",
+            base(&srv)
+        ))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+
+    let still_there: Option<Option<Uuid>> =
+        sqlx::query_scalar("SELECT contact_id FROM voip_calls WHERE id = $1")
+            .bind(call)
+            .fetch_optional(&srv.pool)
+            .await
+            .unwrap();
+    let contact_id = still_there.expect("the call was deleted along with the contact");
+    assert!(
+        contact_id.is_none(),
+        "the call still names a contact that is gone"
+    );
+}
+
+#[tokio::test]
+async fn a_non_member_cannot_read_or_write_an_orgs_address_book() {
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    make_contact(
+        &srv,
+        org,
+        &jwt,
+        json!({ "name": "Private", "numbers": [{ "e164": format!("+3902{:07}", rand_suffix()) }] }),
+    )
+    .await;
+
+    let (_outsider, outsider_jwt) = user(&srv).await;
+    for path in [
+        "/voip/contacts",
+        "/voip/contacts/lookup?e164=%2B390212345678",
+    ] {
+        let res = client()
+            .get(format!(
+                "{}/api/business/organizations/{org}{path}",
+                base(&srv)
+            ))
+            .bearer_auth(&outsider_jwt)
+            .send()
+            .await
+            .unwrap();
+        assert!(
+            res.status() == StatusCode::FORBIDDEN || res.status() == StatusCode::NOT_FOUND,
+            "an outsider got {} from {path}",
+            res.status()
+        );
+    }
+}
+
+#[tokio::test]
+async fn dialling_a_known_number_files_the_call_against_the_person() {
+    // Resolved from the destination rather than asked of the caller: the number is what
+    // was dialled, and who it belongs to is a fact about it.
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    enable_dialing(&srv, org, &jwt, 5).await;
+
+    let number = format!("+3902{:07}", rand_suffix());
+    let (_, contact) = make_contact(
+        &srv,
+        org,
+        &jwt,
+        json!({ "name": "Known Supplier", "numbers": [{ "e164": number, "language": "it" }] }),
+    )
+    .await;
+    let contact_id = contact["id"].as_str().unwrap().to_string();
+
+    let res = client()
+        .post(format!(
+            "{}/api/business/organizations/{org}/voip/calls",
+            base(&srv)
+        ))
+        .bearer_auth(&jwt)
+        .json(&json!({
+            "destination": number,
+            "source_language": "en",
+            "target_language": "it",
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::CREATED);
+    let created: Value = res.json().await.unwrap();
+    let call_id = created["call_id"].as_str().unwrap();
+
+    let detail: Value = client()
+        .get(format!(
+            "{}/api/business/organizations/{org}/voip/calls/{call_id}",
+            base(&srv)
+        ))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(detail["contact_id"], json!(contact_id), "{detail}");
+    assert_eq!(detail["contact_name"], json!("Known Supplier"), "{detail}");
+}
+
+// ---- numbers (spec 0115) ---------------------------------------------------
+
+/// Search, then buy the first offer. The realistic flow, and the one that keeps each run's
+/// numbers distinct: `voip_numbers.e164` is UNIQUE across the install, so a test that
+/// hardcodes a number passes once and collides for ever after.
+async fn first_offer(srv: &Server, org: Uuid, jwt: &str) -> Value {
+    let body: Value = client()
+        .get(format!(
+            "{}/api/business/organizations/{org}/voip/numbers/search?country=IT&area_code=02&limit=3",
+            base(srv)
+        ))
+        .bearer_auth(jwt)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    body["offers"][0].clone()
+}
+
+#[tokio::test]
+async fn searching_for_a_number_shows_what_the_customer_would_pay() {
+    // Never the provider's cost. The markup is applied once, at the edge, by
+    // `NumberMarkupPolicy` — a provider adapter that applied it would be a second place
+    // for the policy to live.
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+
+    let body: Value = client()
+        .get(format!(
+            "{}/api/business/organizations/{org}/voip/numbers/search?country=IT&area_code=02&limit=3",
+            base(&srv)
+        ))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+
+    let offers = body["offers"].as_array().expect("offers");
+    assert_eq!(offers.len(), 3, "{body}");
+
+    // The mock sells at 1.35/month and 1.00 setup; the default markup is 20%.
+    // 1.35 and 1.00 at the mock, 20% markup: the value, not a particular way of
+    // spelling it.
+    let money = |v: &Value| Decimal::from_str_exact(v.as_str().unwrap()).unwrap();
+    assert_eq!(
+        money(&offers[0]["monthly"]),
+        Decimal::from_str_exact("1.62").unwrap(),
+        "{body}"
+    );
+    assert_eq!(
+        money(&offers[0]["setup"]),
+        Decimal::from_str_exact("1.20").unwrap(),
+        "{body}"
+    );
+
+    let raw = body.to_string();
+    assert!(
+        !raw.contains("1.35") && !raw.contains("provider_cost"),
+        "the provider's own cost reached the client: {raw}"
+    );
+
+    // One of the offers needs paperwork, and says so rather than being quietly omitted.
+    assert!(
+        offers
+            .iter()
+            .any(|o| !o["regulatory_requirement"].is_null()),
+        "no offer reported a regulatory requirement: {body}"
+    );
+}
+
+#[tokio::test]
+async fn the_same_purchase_key_buys_one_number_and_charges_once() {
+    // The retry this protects against is not hypothetical: a timeout after the order was
+    // accepted, retried by a client, buys a number the customer then pays for monthly.
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    let key = format!("key-{}", Uuid::new_v4());
+    let e164 = first_offer(&srv, org, &jwt).await["e164"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let buy = |key: String| {
+        let e164 = e164.clone();
+        let jwt = jwt.clone();
+        let url = format!(
+            "{}/api/business/organizations/{org}/voip/numbers",
+            base(&srv)
+        );
+        async move {
+            client()
+                .post(url)
+                .bearer_auth(&jwt)
+                .json(&json!({
+                    "e164": e164,
+                    "country": "IT",
+                    "area_code": "02",
+                    "purchase_key": key,
+                }))
+                .send()
+                .await
+                .unwrap()
+        }
+    };
+
+    let first = buy(key.clone()).await;
+    let status = first.status();
+    let created: Value = first.json().await.unwrap_or(Value::Null);
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    assert_eq!(created["status"], json!("active"), "{created}");
+
+    let second = buy(key.clone()).await;
+    assert_eq!(
+        second.status(),
+        StatusCode::OK,
+        "a repeat of the same key should return the number, not buy another"
+    );
+
+    let (rows, charges): (i64, i64) = sqlx::query_as(
+        "SELECT (SELECT count(*) FROM voip_numbers WHERE org_id = $1),
+                (SELECT count(*) FROM organization_credits_transactions
+                  WHERE org_id = $1 AND type = 'voip_number_purchase')",
+    )
+    .bind(org)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
+    assert_eq!(rows, 1, "two numbers were bought");
+    assert_eq!(charges, 1, "the customer was charged twice");
+}
+
+#[tokio::test]
+async fn a_purchase_that_fails_at_the_carrier_charges_nothing() {
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    let before: i32 = sqlx::query_scalar("SELECT credits_balance FROM organizations WHERE id = $1")
+        .bind(org)
+        .fetch_one(&srv.pool)
+        .await
+        .unwrap();
+
+    srv.provider
+        .as_ref()
+        .expect("mock")
+        .fail_next_purchase(ProviderError::Unavailable {
+            detail: "carrier said no".into(),
+        });
+
+    let res = client()
+        .post(format!(
+            "{}/api/business/organizations/{org}/voip/numbers",
+            base(&srv)
+        ))
+        .bearer_auth(&jwt)
+        .json(&json!({
+            "e164": first_offer(&srv, org, &jwt).await["e164"],
+            "country": "IT",
+            "area_code": "02",
+            "purchase_key": format!("key-{}", Uuid::new_v4()),
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert!(res.status().is_server_error() || res.status().is_client_error());
+
+    let after: i32 = sqlx::query_scalar("SELECT credits_balance FROM organizations WHERE id = $1")
+        .bind(org)
+        .fetch_one(&srv.pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        after, before,
+        "credits moved for a number that was never bought"
+    );
+    let rows: i64 = sqlx::query_scalar("SELECT count(*) FROM voip_numbers WHERE org_id = $1")
+        .bind(org)
+        .fetch_one(&srv.pool)
+        .await
+        .unwrap();
+    assert_eq!(rows, 0, "a row survived a failed purchase");
+}
+
+#[tokio::test]
+async fn a_bought_number_remembers_what_it_cost_and_what_we_charged() {
+    // Spec 0111 R27, and a number renews for years: an invoice from eighteen months ago
+    // must never be recomputed at today's markup.
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+
+    client()
+        .post(format!(
+            "{}/api/business/organizations/{org}/voip/numbers",
+            base(&srv)
+        ))
+        .bearer_auth(&jwt)
+        .json(&json!({
+            "e164": first_offer(&srv, org, &jwt).await["e164"],
+            "country": "IT",
+            "area_code": "02",
+            "purchase_key": format!("key-{}", Uuid::new_v4()),
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    let row: (
+        Option<Decimal>,
+        Option<Decimal>,
+        Option<Decimal>,
+        Option<DateTime<Utc>>,
+    ) = sqlx::query_as(
+        "SELECT provider_monthly_usd, markup_rate, customer_monthly_usd, next_renewal_at
+             FROM voip_numbers WHERE org_id = $1",
+    )
+    .bind(org)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
+
+    assert_eq!(row.0, Some(Decimal::from_str_exact("1.350000").unwrap()));
+    assert_eq!(row.1, Some(Decimal::from_str_exact("0.2000").unwrap()));
+    assert_eq!(row.2, Some(Decimal::from_str_exact("1.620000").unwrap()));
+    assert!(
+        row.3.is_some(),
+        "a number with no renewal date never renews"
+    );
+}
+
+#[tokio::test]
+async fn buying_verifying_and_releasing_are_admin_actions() {
+    // R7. A plain member may look; spending the organisation's money is not looking.
+    let srv = srv!();
+    let (owner, _) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    let (member, member_jwt) = user(&srv).await;
+    add_member(&srv, org, member, "member").await;
+
+    let search = client()
+        .get(format!(
+            "{}/api/business/organizations/{org}/voip/numbers/search?country=IT",
+            base(&srv)
+        ))
+        .bearer_auth(&member_jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(search.status(), StatusCode::OK, "a member may look");
+
+    let buy = client()
+        .post(format!(
+            "{}/api/business/organizations/{org}/voip/numbers",
+            base(&srv)
+        ))
+        .bearer_auth(&member_jwt)
+        .json(&json!({
+            "e164": first_offer(&srv, org, &member_jwt).await["e164"],
+            "country": "IT",
+            "purchase_key": format!("key-{}", Uuid::new_v4()),
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        buy.status(),
+        StatusCode::FORBIDDEN,
+        "a member bought a number"
+    );
+}
+
+#[tokio::test]
+async fn a_verification_starts_pending_and_no_number_is_presentable_until_it_passes() {
+    // The rule with a regulator behind it: presenting a number you cannot prove you own is
+    // illegal in most of our markets.
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+
+    let e164 = format!("+3902{:07}", rand_suffix());
+    sqlx::query(
+        "INSERT INTO voip_numbers (org_id, provider, e164, country, outbound_enabled,
+                                   verification_status, status)
+         VALUES ($1, 'mock', $2, 'IT', TRUE, 'pending', 'active')",
+    )
+    .bind(org)
+    .bind(&e164)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+
+    let id: Uuid = sqlx::query_scalar("SELECT id FROM voip_numbers WHERE e164 = $1")
+        .bind(&e164)
+        .fetch_one(&srv.pool)
+        .await
+        .unwrap();
+
+    let res = client()
+        .post(format!(
+            "{}/api/business/organizations/{org}/voip/numbers/{id}/verify",
+            base(&srv)
+        ))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::ACCEPTED);
+    let body: Value = res.json().await.unwrap();
+    assert_eq!(body["verification_status"], json!("pending"), "{body}");
+
+    // Still unverified, so still not presentable — the gate 0112 tests already pin.
+    let status: String =
+        sqlx::query_scalar("SELECT verification_status FROM voip_numbers WHERE id = $1")
+            .bind(id)
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap();
+    assert_eq!(status, "pending");
+}
+
+#[tokio::test]
+async fn a_renewal_the_wallet_cannot_cover_suspends_the_number_it_does_not_release_it() {
+    // The only irreversible act in a number's life is release, and the sweep may not
+    // perform it. A business losing its telephone number over a card that expired is a
+    // failure nobody recovers from by writing an apology.
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+
+    let e164 = first_offer(&srv, org, &jwt).await["e164"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    client()
+        .post(format!(
+            "{}/api/business/organizations/{org}/voip/numbers",
+            base(&srv)
+        ))
+        .bearer_auth(&jwt)
+        .json(&json!({
+            "e164": e164,
+            "country": "IT",
+            "area_code": "02",
+            "purchase_key": format!("key-{}", Uuid::new_v4()),
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    // Due now, and a wallet that cannot pay.
+    sqlx::query(
+        "UPDATE voip_numbers SET next_renewal_at = now() - interval '1 hour' WHERE org_id = $1",
+    )
+    .bind(org)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE organizations SET credits_balance = 0 WHERE id = $1")
+        .bind(org)
+        .execute(&srv.pool)
+        .await
+        .unwrap();
+
+    let (renewed, suspended) = voxtranslate_server::voip::numbers::renew_due(&srv.pool, 7, 50)
+        .await
+        .unwrap();
+    assert_eq!(renewed, 0);
+    assert!(suspended >= 1, "nothing was suspended");
+
+    let (status, outbound): (String, bool) =
+        sqlx::query_as("SELECT status, outbound_enabled FROM voip_numbers WHERE org_id = $1")
+            .bind(org)
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap();
+    assert_eq!(status, "suspended", "the number was not kept");
+    assert!(
+        !outbound,
+        "an unpaid number may still be presented as caller id"
+    );
+
+    // Money arrives; the next sweep renews it at the price on the row, not today's.
+    sqlx::query("UPDATE organizations SET credits_balance = 5000 WHERE id = $1")
+        .bind(org)
+        .execute(&srv.pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE voip_numbers SET next_renewal_at = now() - interval '1 hour' WHERE org_id = $1",
+    )
+    .bind(org)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+
+    let (renewed, _) = voxtranslate_server::voip::numbers::renew_due(&srv.pool, 7, 50)
+        .await
+        .unwrap();
+    assert_eq!(renewed, 1);
+
+    let (status, outbound): (String, bool) =
+        sqlx::query_as("SELECT status, outbound_enabled FROM voip_numbers WHERE org_id = $1")
+            .bind(org)
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap();
+    assert_eq!(status, "active", "a paid number stayed suspended");
+    assert!(outbound, "a paid number is still not presentable");
+
+    let charges: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM organization_credits_transactions
+          WHERE org_id = $1 AND type = 'voip_number_renewal'",
+    )
+    .bind(org)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
+    assert_eq!(charges, 1, "the suspended month was charged for as well");
+}
+
+// ---- inbound (spec 0116) ---------------------------------------------------
+
+/// Give an org a number that takes calls, and return it.
+async fn inbound_number(srv: &Server, org: Uuid) -> String {
+    let e164 = format!("+3906{:07}", rand_suffix());
+    sqlx::query(
+        "INSERT INTO voip_numbers (org_id, provider, e164, country, inbound_enabled,
+                                   outbound_enabled, verification_status, status)
+         VALUES ($1, 'mock', $2, 'IT', TRUE, TRUE, 'verified', 'active')",
+    )
+    .bind(org)
+    .bind(&e164)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+    e164
+}
+
+/// Post a signed "somebody is calling" webhook, the way a carrier would.
+async fn ring_us(srv: &Server, leg: &str, from: &str, to: &str) -> StatusCode {
+    let provider = srv.provider.as_ref().expect("mock");
+    let mut body = MockWebhookBody::new(
+        &format!("ev-{}", Uuid::new_v4()),
+        &LegId::new(leg.to_string()),
+        "incoming",
+        chrono::Utc::now(),
+    );
+    body.from = Some(from.to_string());
+    body.to = Some(to.to_string());
+    let raw = serde_json::to_vec(&body).unwrap();
+    // Signed the way the provider would, so an invalid case elsewhere is a real deviation
+    // from this rather than a made-up string.
+    let headers = provider.sign(&raw, chrono::Utc::now());
+
+    client()
+        .post(format!("{}/api/voip/webhooks/mock", base(srv)))
+        .header("x-signature", headers.signature.unwrap())
+        .header("x-timestamp", headers.timestamp.unwrap())
+        .body(raw)
+        .send()
+        .await
+        .unwrap()
+        .status()
+}
+
+#[tokio::test]
+async fn a_call_to_a_number_we_do_not_own_creates_nothing() {
+    // A stranger dialling a wrong number is owed a normal busy tone, not a row in
+    // somebody's history — and not an explanation of our schema either.
+    let srv = srv!();
+
+    // Scoped to THIS leg, not a global count of inbound calls. The suite runs in
+    // parallel against one database, so a before/after delta over every inbound row in
+    // it measures the other tests as much as this one: any test that legitimately rings
+    // a number it DOES own lands between the two reads and this assertion blames itself
+    // for it. The leg id is unique per call and is recorded on the row, so it asks the
+    // question the test actually means — was a call created for this ring?
+    let leg = format!("leg-{}", Uuid::new_v4());
+    let status = ring_us(
+        &srv,
+        &leg,
+        "+393201234567",
+        &format!("+3906{:07}", rand_suffix()),
+    )
+    .await;
+    assert!(
+        status.is_success(),
+        "the carrier should not be made to retry"
+    );
+
+    let created: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM voip_calls WHERE $1 = ANY(provider_leg_ids)")
+            .bind(&leg)
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap();
+    assert_eq!(created, 0, "a call was created for a number we do not own");
+}
+
+#[tokio::test]
+async fn a_call_to_a_number_with_inbound_off_is_refused() {
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    enable_dialing(&srv, org, &jwt, 5).await;
+
+    let e164 = format!("+3906{:07}", rand_suffix());
+    sqlx::query(
+        "INSERT INTO voip_numbers (org_id, provider, e164, country, inbound_enabled,
+                                   verification_status, status)
+         VALUES ($1, 'mock', $2, 'IT', FALSE, 'verified', 'active')",
+    )
+    .bind(org)
+    .bind(&e164)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+
+    ring_us(
+        &srv,
+        &format!("leg-{}", Uuid::new_v4()),
+        "+393201234567",
+        &e164,
+    )
+    .await;
+
+    let created: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM voip_calls WHERE org_id = $1 AND direction = 'inbound'",
+    )
+    .bind(org)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
+    assert_eq!(created, 0, "a number with inbound off took a call");
+}
+
+#[tokio::test]
+async fn a_known_caller_is_named_and_answered_in_their_own_language() {
+    // Spec 0116 R2. The address book's answer wins: a contact's number carries its own
+    // language, which is a fact about the person rather than a guess about their country.
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    enable_dialing(&srv, org, &jwt, 5).await;
+    let ours = inbound_number(&srv, org).await;
+
+    let caller = format!("+8613{:07}", rand_suffix());
+    let (_, contact) = make_contact(
+        &srv,
+        org,
+        &jwt,
+        json!({ "name": "Wei Zhang", "numbers": [{ "e164": caller, "language": "zh" }] }),
+    )
+    .await;
+    let contact_id = contact["id"].as_str().unwrap().to_string();
+
+    ring_us(&srv, &format!("leg-{}", Uuid::new_v4()), &caller, &ours).await;
+
+    let row: (Option<Uuid>, String, String, Vec<Uuid>) = sqlx::query_as(
+        "SELECT contact_id, target_language, status, rang_user_ids
+           FROM voip_calls WHERE org_id = $1 AND direction = 'inbound'",
+    )
+    .bind(org)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
+
+    assert_eq!(
+        row.0.map(|c| c.to_string()),
+        Some(contact_id),
+        "the caller was not identified"
+    );
+    assert_eq!(row.1, "zh", "answered in the wrong language");
+    assert_eq!(row.2, "ringing");
+    // No routing configured, so the owners are rung: a call nobody is told about is worse
+    // than a call the wrong person takes.
+    assert!(
+        row.3.contains(&owner),
+        "the owner was not rung: {:?}",
+        row.3
+    );
+}
+
+#[tokio::test]
+async fn an_unknown_caller_gets_the_organisations_default_language() {
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    enable_dialing(&srv, org, &jwt, 5).await;
+    let ours = inbound_number(&srv, org).await;
+
+    let number_id: Uuid = sqlx::query_scalar("SELECT id FROM voip_numbers WHERE e164 = $1")
+        .bind(&ours)
+        .fetch_one(&srv.pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO voip_number_routing (number_id, org_id, stranger_language)
+         VALUES ($1, $2, 'es')",
+    )
+    .bind(number_id)
+    .bind(org)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+
+    ring_us(
+        &srv,
+        &format!("leg-{}", Uuid::new_v4()),
+        &format!("+3491{:07}", rand_suffix()),
+        &ours,
+    )
+    .await;
+
+    let (contact, language): (Option<Uuid>, String) = sqlx::query_as(
+        "SELECT contact_id, target_language FROM voip_calls
+          WHERE org_id = $1 AND direction = 'inbound'",
+    )
+    .bind(org)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
+    assert!(contact.is_none(), "a stranger was matched to somebody");
+    assert_eq!(language, "es");
+}
+
+#[tokio::test]
+async fn the_first_person_to_answer_gets_the_call_and_the_rest_are_told_so() {
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    enable_dialing(&srv, org, &jwt, 5).await;
+    let ours = inbound_number(&srv, org).await;
+
+    let (second, second_jwt) = user(&srv).await;
+    add_member(&srv, org, second, "admin").await;
+
+    ring_us(
+        &srv,
+        &format!("leg-{}", Uuid::new_v4()),
+        &format!("+3932{:07}", rand_suffix()),
+        &ours,
+    )
+    .await;
+
+    let call_id: Uuid =
+        sqlx::query_scalar("SELECT id FROM voip_calls WHERE org_id = $1 AND direction = 'inbound'")
+            .bind(org)
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap();
+
+    let answer = |jwt: String| {
+        let url = format!(
+            "{}/api/business/organizations/{org}/voip/calls/{call_id}/answer",
+            base(&srv)
+        );
+        async move { client().post(url).bearer_auth(&jwt).send().await.unwrap() }
+    };
+
+    let first = answer(jwt.clone()).await;
+    assert_eq!(first.status(), StatusCode::OK);
+    let body: Value = first.json().await.unwrap();
+    assert!(body["room"].as_str().is_some(), "no room to join: {body}");
+
+    // Two colleagues reaching for the same ringing call is the normal case, not a fault.
+    let late = answer(second_jwt).await;
+    assert_eq!(late.status(), StatusCode::CONFLICT);
+    let body: Value = late.json().await.unwrap();
+    assert_eq!(body["error"], json!("already_answered"));
+
+    let answered_by: Option<Uuid> =
+        sqlx::query_scalar("SELECT answered_by FROM voip_calls WHERE id = $1")
+            .bind(call_id)
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap();
+    assert_eq!(answered_by, Some(owner));
+}
+
+#[tokio::test]
+async fn a_call_nobody_answers_becomes_a_missed_call_rather_than_ringing_for_ever() {
+    // Only a clock can notice an absence — the same reasoning `fail_stalled_calls` is
+    // built on.
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    enable_dialing(&srv, org, &jwt, 5).await;
+    let ours = inbound_number(&srv, org).await;
+
+    ring_us(
+        &srv,
+        &format!("leg-{}", Uuid::new_v4()),
+        &format!("+3932{:07}", rand_suffix()),
+        &ours,
+    )
+    .await;
+
+    sqlx::query(
+        "UPDATE voip_calls SET ring_deadline_at = now() - interval '1 minute'
+          WHERE org_id = $1 AND direction = 'inbound'",
+    )
+    .bind(org)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+
+    let closed = voxtranslate_server::voip::inbound::sweep_unanswered(
+        &srv.state,
+        &srv.pool,
+        srv.provider.as_ref().expect("mock").as_ref(),
+        50,
+    )
+    .await
+    .unwrap();
+    assert!(closed >= 1);
+
+    let (missed, status, reason, answered_by): (bool, String, Option<String>, Option<Uuid>) =
+        sqlx::query_as(
+            "SELECT missed, status, failure_reason, answered_by FROM voip_calls
+              WHERE org_id = $1 AND direction = 'inbound'",
+        )
+        .bind(org)
+        .fetch_one(&srv.pool)
+        .await
+        .unwrap();
+    assert!(missed, "the call was not recorded as missed");
+    assert_eq!(status, "completed");
+    assert_eq!(reason.as_deref(), Some("no_answer"));
+    assert!(answered_by.is_none(), "a missed call has an answerer");
+}
+
+// ---- analytics (spec 0117) -------------------------------------------------
+
+#[tokio::test]
+async fn telephony_analytics_answers_the_question_a_finance_person_asks_first() {
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+
+    // Two calls: one answered, one missed.
+    let answered = make_call(&srv, org, owner).await;
+    sqlx::query(
+        "UPDATE voip_calls SET duration_seconds = 120, credits_consumed = 60,
+                               recipient_country = 'CN', source_language = 'it',
+                               target_language = 'zh'
+          WHERE id = $1",
+    )
+    .bind(answered)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+
+    let missed = make_call(&srv, org, owner).await;
+    sqlx::query(
+        "UPDATE voip_calls SET direction = 'inbound', missed = TRUE, duration_seconds = 0,
+                               recipient_country = 'ES'
+          WHERE id = $1",
+    )
+    .bind(missed)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+
+    let body: Value = client()
+        .get(format!(
+            "{}/api/business/organizations/{org}/voip/analytics?days=30",
+            base(&srv)
+        ))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+
+    assert_eq!(body["totals"]["calls"], json!(2), "{body}");
+    assert_eq!(body["totals"]["inbound"], json!(1), "{body}");
+    assert_eq!(body["totals"]["outbound"], json!(1), "{body}");
+    // A call that connected and lasted no time is not the same event as one nobody
+    // answered, and the two counts must not overlap.
+    assert_eq!(body["totals"]["answered"], json!(1), "{body}");
+    assert_eq!(body["totals"]["missed"], json!(1), "{body}");
+    assert_eq!(body["totals"]["seconds"], json!(120), "{body}");
+
+    let countries: Vec<String> = body["by_country"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|b| b["label"].as_str().unwrap().to_string())
+        .collect();
+    assert!(countries.contains(&"CN".to_string()), "{body}");
+    assert!(countries.contains(&"ES".to_string()), "{body}");
+
+    assert!(
+        body["by_language"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|b| b["label"].as_str() == Some("it → zh")),
+        "{body}"
+    );
+
+    // Spec 0112 R6 is not only about the call record.
+    let raw = body.to_string();
+    assert!(!raw.contains("gross_margin"), "{raw}");
+    assert!(!raw.contains("provider_cost"), "{raw}");
+}
+
+#[tokio::test]
+async fn telephony_analytics_is_an_admin_view_and_stops_at_the_org_boundary() {
+    let srv = srv!();
+    let (owner, _) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    make_call(&srv, org, owner).await;
+
+    let (member, member_jwt) = user(&srv).await;
+    add_member(&srv, org, member, "member").await;
+    let res = client()
+        .get(format!(
+            "{}/api/business/organizations/{org}/voip/analytics",
+            base(&srv)
+        ))
+        .bearer_auth(&member_jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        res.status(),
+        StatusCode::FORBIDDEN,
+        "spend is financial data, and a member read it"
+    );
+
+    // Another organisation's calls never appear in ours.
+    let (other_owner, other_jwt) = user(&srv).await;
+    let other_org = make_org(&srv, other_owner, "owner").await;
+    let body: Value = client()
+        .get(format!(
+            "{}/api/business/organizations/{other_org}/voip/analytics",
+            base(&srv)
+        ))
+        .bearer_auth(&other_jwt)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(body["totals"]["calls"], json!(0), "{body}");
+}
+
+#[tokio::test]
+async fn voicemail_obeys_the_orgs_recording_policy() {
+    // `capture_intent` calls itself "intersection, never union" and gates every outbound
+    // recording on it. The voicemail path walked straight past it: an org with recording
+    // switched OFF still had its callers recorded, because `no_answer_action = 'voicemail'`
+    // was the only thing consulted. A voicemail IS a recording; routing is not consent.
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    enable_dialing(&srv, org, &jwt, 5).await;
+    let ours = inbound_number(&srv, org).await;
+
+    let number_id: Uuid = sqlx::query_scalar("SELECT id FROM voip_numbers WHERE e164 = $1")
+        .bind(&ours)
+        .fetch_one(&srv.pool)
+        .await
+        .unwrap();
+    // Routing asks for voicemail; the org has never turned recording on.
+    sqlx::query(
+        "INSERT INTO voip_number_routing (number_id, org_id, no_answer_action)
+         VALUES ($1, $2, 'voicemail')",
+    )
+    .bind(number_id)
+    .bind(org)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+
+    let leg = format!("leg-{}", Uuid::new_v4());
+    ring_us(&srv, &leg, &format!("+3932{:07}", rand_suffix()), &ours).await;
+    sqlx::query(
+        "UPDATE voip_calls SET ring_deadline_at = now() - interval '1 minute'
+          WHERE org_id = $1 AND direction = 'inbound'",
+    )
+    .bind(org)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+
+    voxtranslate_server::voip::inbound::sweep_unanswered(
+        &srv.state,
+        &srv.pool,
+        srv.provider.as_ref().expect("mock").as_ref(),
+        50,
+    )
+    .await
+    .unwrap();
+
+    // Scoped to THIS leg. `sweep_unanswered` sweeps the whole database, every org, so a
+    // concurrent test whose own org DOES allow recording would have its voicemail
+    // started through this server's mock — and an unscoped negative assertion would read
+    // that as this org being recorded.
+    let provider = srv.provider.as_ref().expect("mock");
+    let commands = provider.commands();
+    let mine = |l: &LegId| l.as_str() == leg;
+    assert!(
+        !commands
+            .iter()
+            .any(|c| matches!(c, MockCommand::StartRecording(l, _) if mine(l))),
+        "an org with recording disabled had its caller recorded anyway: {commands:?}"
+    );
+    assert!(
+        commands
+            .iter()
+            .any(|c| matches!(c, MockCommand::Hangup(l) if mine(l))),
+        "the caller was neither recorded nor hung up on: {commands:?}"
+    );
+
+    // And the call is CLOSED, not left hanging on a message nobody is taking.
+    let (status, missed, recording): (String, bool, String) = sqlx::query_as(
+        "SELECT status, missed, recording_status FROM voip_calls
+          WHERE org_id = $1 AND direction = 'inbound'",
+    )
+    .bind(org)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        status, "completed",
+        "the line was left open with no recorder"
+    );
+    assert!(missed);
+    assert_eq!(recording, "none");
+}
+
+/// A server that is allowed to record. The default is off, because recording somebody is
+/// not a default.
+async fn setup_recording() -> Option<Server> {
+    let mut voip = VoipConfig::test_default();
+    voip.recording_enabled = true;
+    setup_with_voip(Some(voip)).await
+}
+
+/// Turn on the org half of `capture_intent`'s intersection. The deployment half is
+/// `setup_recording`; voicemail needs both, exactly like an outbound recording does.
+async fn allow_recording(srv: &Server, org: Uuid) {
+    sqlx::query("UPDATE voip_org_settings SET recording_enabled = TRUE WHERE org_id = $1")
+        .bind(org)
+        .execute(&srv.pool)
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn an_unanswered_call_takes_a_message_and_then_closes_it() {
+    // Spec 0116 R4 promised voicemail, and the first cut of the sweep only marked the call
+    // missed. This is the sweep's two passes: take the message, then close it — and the
+    // second pass must not replay the prompt, which is what `missed` guards.
+    let Some(srv) = setup_recording().await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    enable_dialing(&srv, org, &jwt, 5).await;
+    allow_recording(&srv, org).await;
+    let ours = inbound_number(&srv, org).await;
+
+    let number_id: Uuid = sqlx::query_scalar("SELECT id FROM voip_numbers WHERE e164 = $1")
+        .bind(&ours)
+        .fetch_one(&srv.pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO voip_number_routing (number_id, org_id, no_answer_action)
+         VALUES ($1, $2, 'voicemail')",
+    )
+    .bind(number_id)
+    .bind(org)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+
+    let leg = format!("leg-{}", Uuid::new_v4());
+    ring_us(&srv, &leg, &format!("+3932{:07}", rand_suffix()), &ours).await;
+    sqlx::query(
+        "UPDATE voip_calls SET ring_deadline_at = now() - interval '1 minute'
+          WHERE org_id = $1 AND direction = 'inbound'",
+    )
+    .bind(org)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+
+    let sweep = || async {
+        voxtranslate_server::voip::inbound::sweep_unanswered(
+            &srv.state,
+            &srv.pool,
+            srv.provider.as_ref().expect("mock").as_ref(),
+            50,
+        )
+        .await
+        .unwrap()
+    };
+
+    // First pass: the caller is told, then recorded. The line stays OPEN — they are
+    // speaking.
+    assert!(sweep().await >= 1);
+    let (status, missed, recording): (String, bool, String) = sqlx::query_as(
+        "SELECT status, missed, recording_status FROM voip_calls
+          WHERE org_id = $1 AND direction = 'inbound'",
+    )
+    .bind(org)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
+    assert_eq!(status, "answered", "the line was hung up mid-message");
+    assert!(
+        missed,
+        "a call that went to voicemail is still a missed call"
+    );
+    assert_eq!(recording, "pending");
+
+    let provider = srv.provider.as_ref().expect("mock");
+    assert!(
+        provider
+            .commands()
+            .iter()
+            .any(|c| matches!(c, MockCommand::Play { .. })),
+        "the caller was recorded without being told first"
+    );
+
+    // Second pass, once their two minutes are up.
+    sqlx::query(
+        "UPDATE voip_calls SET ring_deadline_at = now() - interval '1 second'
+          WHERE org_id = $1 AND direction = 'inbound'",
+    )
+    .bind(org)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+    assert!(sweep().await >= 1);
+
+    let (status, ended): (String, Option<DateTime<Utc>>) = sqlx::query_as(
+        "SELECT status, ended_at FROM voip_calls WHERE org_id = $1 AND direction = 'inbound'",
+    )
+    .bind(org)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
+    assert_eq!(status, "completed");
+    assert!(ended.is_some());
+
+    // And a third sweep finds nothing left to do, rather than replaying the prompt.
+    assert_eq!(sweep().await, 0, "the sweep picked the same call up again");
+}
+
+#[tokio::test]
+async fn a_call_outside_office_hours_rings_nobody() {
+    // Spec 0118 R1 and R4. Checked before anybody is rung, because a menu that offers
+    // departments nobody is in is worse than a closed sign.
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    enable_dialing(&srv, org, &jwt, 5).await;
+    let ours = inbound_number(&srv, org).await;
+    let number_id: Uuid = sqlx::query_scalar("SELECT id FROM voip_numbers WHERE e164 = $1")
+        .bind(&ours)
+        .fetch_one(&srv.pool)
+        .await
+        .unwrap();
+
+    // A one-minute window an hour from now, every day. Computed rather than hardcoded so
+    // the test is closed whatever time it runs at — a fixed window would pass all day and
+    // fail once, which is the worst kind of test.
+    //
+    // Deliberately NOT an all-empty week: an empty week is a row that has said nothing,
+    // and `is_open` reads that as always open on purpose.
+    let now = chrono::Utc::now();
+    let open_at = ((now
+        .time()
+        .signed_duration_since(chrono::NaiveTime::MIN)
+        .num_minutes()
+        + 60)
+        % 1440) as i32;
+    let close_at = (open_at + 1) % 1440;
+    sqlx::query(
+        "INSERT INTO voip_business_hours (number_id, org_id, timezone, opens_at, closes_at,
+                                          closed_action)
+         VALUES ($1, $2, 'UTC',
+                 ARRAY[$3,$3,$3,$3,$3,$3,$3]::int[], ARRAY[$4,$4,$4,$4,$4,$4,$4]::int[],
+                 'refuse')",
+    )
+    .bind(number_id)
+    .bind(org)
+    .bind(open_at)
+    .bind(close_at)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+
+    ring_us(
+        &srv,
+        &format!("leg-{}", Uuid::new_v4()),
+        &format!("+3932{:07}", rand_suffix()),
+        &ours,
+    )
+    .await;
+
+    let (rang, reason): (Vec<Uuid>, Option<String>) = sqlx::query_as(
+        "SELECT rang_user_ids, failure_reason FROM voip_calls
+          WHERE org_id = $1 AND direction = 'inbound'",
+    )
+    .bind(org)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
+    assert!(rang.is_empty(), "somebody was rung after hours: {rang:?}");
+    assert_eq!(reason.as_deref(), Some("outside_business_hours"));
+
+    // And the call is still RECORDED. A customer who rang at 3am should appear in the
+    // morning's missed calls rather than having never existed.
+    let calls: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM voip_calls WHERE org_id = $1 AND direction = 'inbound'",
+    )
+    .bind(org)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
+    assert_eq!(calls, 1);
+}
+
+#[tokio::test]
+async fn a_number_with_no_hours_configured_is_always_open() {
+    // The failure direction that matters: a number that silently stopped answering
+    // because nobody filled in a form is the worst possible default.
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    enable_dialing(&srv, org, &jwt, 5).await;
+    let ours = inbound_number(&srv, org).await;
+
+    ring_us(
+        &srv,
+        &format!("leg-{}", Uuid::new_v4()),
+        &format!("+3932{:07}", rand_suffix()),
+        &ours,
+    )
+    .await;
+
+    let rang: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT rang_user_ids FROM voip_calls WHERE org_id = $1 AND direction = 'inbound'",
+    )
+    .bind(org)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
+    assert!(rang.contains(&owner), "nobody was rung: {rang:?}");
 }

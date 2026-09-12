@@ -32,10 +32,14 @@ use serde_json::{json, Value};
 use uuid::Uuid;
 
 use super::{
-    CallLeg, Cdr, DialRequest, GatherConfig, LegId, MediaStreamConfig, MediaTrack, PlayRequest,
-    ProviderCapabilities, ProviderError, ProviderEvent, ProviderEventKind, ProviderMetadata,
-    RecordingConfig, TelephonyProvider, WebhookError, WebhookHeaders,
+    CallLeg, Cdr, DialRequest, GatherConfig, LegId, MediaStreamConfig, MediaTrack, NumberKind,
+    NumberOffer, NumberSearch, NumberStatus, PlayRequest, ProviderCapabilities, ProviderError,
+    ProviderEvent, ProviderEventKind, ProviderMetadata, ProviderNumberId, PurchaseRequest,
+    PurchasedNumber, RecordingConfig, SipConnection, TelephonyProvider, VerificationStart,
+    VerificationState, WebhookError, WebhookHeaders, E164,
 };
+use rust_decimal::Decimal;
+
 use crate::config::TelnyxConfig;
 use crate::voip::pricing::Rate;
 use crate::voip::state::FailureReason;
@@ -121,6 +125,87 @@ impl TelnyxProvider {
             .map_err(|e| ProviderError::Unavailable {
                 detail: e.to_string(),
             })?;
+        classify(res.status()).map_or(Ok(()), Err)
+    }
+
+    /// GET a v2 resource. `Ok(None)` is a 404 — "the carrier has no such thing", which for
+    /// a number means it is gone, and is a fact rather than an error to retry for ever.
+    async fn get_json(
+        &self,
+        path: &str,
+        query: &[(String, String)],
+    ) -> Result<Option<Value>, ProviderError> {
+        let res = self
+            .http
+            .get(self.url(path))
+            .query(query)
+            .bearer_auth(&self.cfg.api_key)
+            .send()
+            .await
+            .map_err(|e| ProviderError::Unavailable {
+                detail: e.to_string(),
+            })?;
+        if res.status() == reqwest::StatusCode::NOT_FOUND {
+            return Ok(None);
+        }
+        if let Some(err) = classify(res.status()) {
+            return Err(err);
+        }
+        res.json::<Value>()
+            .await
+            .map(Some)
+            .map_err(|e| ProviderError::Malformed {
+                detail: e.to_string(),
+            })
+    }
+
+    /// POST with OUR idempotency key on the header the carrier honours.
+    ///
+    /// The retry this protects against is not hypothetical: a timeout after the order was
+    /// accepted, retried by a client, buys a second number that the customer then pays for
+    /// monthly, for ever, without ever having asked for it.
+    async fn post_json_idempotent(
+        &self,
+        path: &str,
+        body: &Value,
+        key: &str,
+    ) -> Result<Value, ProviderError> {
+        let res = self
+            .http
+            .post(self.url(path))
+            .bearer_auth(&self.cfg.api_key)
+            .header("Idempotency-Key", key)
+            .json(body)
+            .send()
+            .await
+            .map_err(|e| ProviderError::Unavailable {
+                detail: e.to_string(),
+            })?;
+        if let Some(err) = classify(res.status()) {
+            return Err(err);
+        }
+        res.json::<Value>()
+            .await
+            .map_err(|e| ProviderError::Malformed {
+                detail: e.to_string(),
+            })
+    }
+
+    /// DELETE where a 404 is success: a number the carrier no longer has is released, the
+    /// same treatment `hangup` gives a call that has already ended.
+    async fn delete_ok_if_missing(&self, path: &str) -> Result<(), ProviderError> {
+        let res = self
+            .http
+            .delete(self.url(path))
+            .bearer_auth(&self.cfg.api_key)
+            .send()
+            .await
+            .map_err(|e| ProviderError::Unavailable {
+                detail: e.to_string(),
+            })?;
+        if res.status() == reqwest::StatusCode::NOT_FOUND {
+            return Ok(());
+        }
         classify(res.status()).map_or(Ok(()), Err)
     }
 }
@@ -312,6 +397,14 @@ struct TelnyxPayload {
     duration_millis: Option<u64>,
     #[serde(default)]
     recording_id: Option<String>,
+    /// "incoming" or "outgoing" (spec 0116). Telnyx reports both directions as
+    /// `call.initiated` and distinguishes them only here.
+    #[serde(default)]
+    direction: Option<String>,
+    #[serde(default)]
+    from: Option<String>,
+    #[serde(default)]
+    to: Option<String>,
 }
 
 /// First playable URL out of Telnyx's recording URL maps (`{mp3, wav}`).
@@ -347,7 +440,19 @@ fn normalise(body: &[u8]) -> Result<ProviderEvent, WebhookError> {
         })?;
 
     let kind = match env.data.event_type.as_str() {
-        "call.initiated" => ProviderEventKind::Initiated,
+        // Telnyx reports both directions as `call.initiated` and distinguishes them with
+        // `direction`. "incoming" is somebody ringing one of our numbers; anything else is
+        // the dial we asked for.
+        "call.initiated" => {
+            if env.data.payload.direction.as_deref() == Some("incoming") {
+                ProviderEventKind::Incoming {
+                    from: env.data.payload.from.clone().unwrap_or_default(),
+                    to: env.data.payload.to.clone().unwrap_or_default(),
+                }
+            } else {
+                ProviderEventKind::Initiated
+            }
+        }
         // Telnyx does not emit a distinct "ringing"; early media / ringing is reported as
         // `call.initiated` on the outbound leg. Modelling one anyway would invent a state.
         "call.answered" => ProviderEventKind::Answered,
@@ -617,6 +722,225 @@ impl TelephonyProvider for TelnyxProvider {
         Err(ProviderError::Unsupported {
             operation: "fetch a rate deck over the API — import the downloaded deck with \
                         `cargo run --bin voip-rates`",
+        })
+    }
+
+    // ---- number management (spec 0115) ------------------------------------
+
+    async fn search_numbers(&self, q: NumberSearch) -> Result<Vec<NumberOffer>, ProviderError> {
+        // `GET /v2/available_phone_numbers`. The filter names are Telnyx's and stop here.
+        let mut query: Vec<(String, String)> = vec![
+            (
+                "filter[country_code]".into(),
+                q.country.to_ascii_uppercase(),
+            ),
+            ("filter[limit]".into(), q.limit.clamp(1, 10).to_string()),
+            // Without this the catalogue happily offers numbers that cannot carry a call.
+            ("filter[features][]".into(), "voice".into()),
+        ];
+        if let Some(area) = &q.area_code {
+            query.push(("filter[national_destination_code]".into(), area.clone()));
+        }
+        if let Some(kind) = q.kind {
+            query.push((
+                "filter[phone_number_type]".into(),
+                match kind {
+                    NumberKind::Local => "local",
+                    NumberKind::National => "national",
+                    NumberKind::TollFree => "toll_free",
+                    NumberKind::Mobile => "mobile",
+                }
+                .into(),
+            ));
+        }
+
+        let body = self
+            .get_json("/v2/available_phone_numbers", &query)
+            .await?
+            .unwrap_or_default();
+        let items = body
+            .get("data")
+            .and_then(|d| d.as_array())
+            .cloned()
+            .unwrap_or_default();
+
+        Ok(items
+            .iter()
+            .filter_map(|item| {
+                let e164 = item.get("phone_number")?.as_str()?.to_string();
+                let cost = item.get("cost_information");
+                let currency = cost
+                    .and_then(|c| c.get("currency"))
+                    .and_then(|c| c.as_str())
+                    .unwrap_or("USD")
+                    .to_string();
+                // Telnyx reports these as decimal STRINGS. Parsing to Decimal rather than
+                // f64 keeps the money path free of binary floating point, which is the
+                // rule the whole pricing module is built on.
+                let monthly = cost
+                    .and_then(|c| c.get("monthly_cost"))
+                    .and_then(|c| c.as_str())
+                    .and_then(|c| Decimal::from_str_exact(c).ok())
+                    .unwrap_or_default();
+                let setup = cost
+                    .and_then(|c| c.get("upfront_cost"))
+                    .and_then(|c| c.as_str())
+                    .and_then(|c| Decimal::from_str_exact(c).ok())
+                    .unwrap_or_default();
+                let requirement = item
+                    .get("region_information")
+                    .and_then(|r| r.as_array())
+                    .and_then(|r| {
+                        r.iter()
+                            .find(|x| {
+                                x.get("region_type").and_then(|t| t.as_str()) == Some("location")
+                            })
+                            .and_then(|x| x.get("region_name"))
+                            .and_then(|n| n.as_str())
+                    })
+                    .filter(|_| {
+                        item.get("record_type")
+                            .and_then(|t| t.as_str())
+                            .is_some_and(|t| t.contains("regulatory"))
+                    })
+                    .map(|name| format!("Local documentation is required for {name}."));
+
+                Some(NumberOffer {
+                    country: item
+                        .get("country_code")
+                        .and_then(|c| c.as_str())
+                        .unwrap_or(&q.country)
+                        .to_string(),
+                    kind: item
+                        .get("phone_number_type")
+                        .and_then(|t| t.as_str())
+                        .map(NumberKind::parse)
+                        .unwrap_or(NumberKind::Local),
+                    e164,
+                    monthly_cost: monthly,
+                    setup_cost: setup,
+                    currency,
+                    regulatory_requirement: requirement,
+                })
+            })
+            .collect())
+    }
+
+    async fn purchase_number(
+        &self,
+        req: PurchaseRequest,
+    ) -> Result<PurchasedNumber, ProviderError> {
+        // `POST /v2/number_orders`, with OUR idempotency key on the header the carrier
+        // honours. A retry after a timeout must not buy a second number — the customer
+        // would be charged monthly, for ever, for one they never asked for.
+        let payload = serde_json::json!({
+            "phone_numbers": [{ "phone_number": req.e164 }],
+            "connection_id": self.cfg.connection_id,
+        });
+        let body = self
+            .post_json_idempotent("/v2/number_orders", &payload, &req.idempotency_key)
+            .await?;
+        let data = body.get("data").unwrap_or(&body);
+
+        let entry = data
+            .get("phone_numbers")
+            .and_then(|p| p.as_array())
+            .and_then(|p| p.first());
+
+        Ok(PurchasedNumber {
+            provider_number_id: ProviderNumberId(
+                entry
+                    .and_then(|e| e.get("id"))
+                    .and_then(|i| i.as_str())
+                    .or_else(|| data.get("id").and_then(|i| i.as_str()))
+                    .unwrap_or_default()
+                    .to_string(),
+            ),
+            e164: entry
+                .and_then(|e| e.get("phone_number"))
+                .and_then(|p| p.as_str())
+                .unwrap_or(&req.e164)
+                .to_string(),
+            status: data
+                .get("status")
+                .and_then(|s| s.as_str())
+                .map(NumberStatus::parse)
+                .unwrap_or(NumberStatus::Ordering),
+            monthly_cost: Decimal::ZERO,
+            setup_cost: Decimal::ZERO,
+            currency: "USD".into(),
+            regulatory_requirement: data
+                .get("requirements_met")
+                .and_then(|m| m.as_bool())
+                .and_then(|met| {
+                    (!met).then(|| {
+                        "Regulatory documents are required before this number can carry calls."
+                            .to_string()
+                    })
+                }),
+        })
+    }
+
+    async fn release_number(&self, id: &ProviderNumberId) -> Result<(), ProviderError> {
+        // A number the carrier no longer has is already released; 404 is success, the same
+        // treatment `hangup` gives a call that has already ended.
+        self.delete_ok_if_missing(&format!("/v2/phone_numbers/{}", id.as_str()))
+            .await
+    }
+
+    async fn number_status(&self, id: &ProviderNumberId) -> Result<NumberStatus, ProviderError> {
+        // Gone from the carrier means gone, and the reconcile sweep needs to hear that
+        // rather than an error it will retry for ever.
+        let Some(body) = self
+            .get_json(&format!("/v2/phone_numbers/{}", id.as_str()), &[])
+            .await?
+        else {
+            return Ok(NumberStatus::Released);
+        };
+        Ok(body
+            .get("data")
+            .and_then(|d| d.get("status"))
+            .and_then(|s| s.as_str())
+            .map(NumberStatus::parse)
+            .unwrap_or(NumberStatus::Ordering))
+    }
+
+    async fn start_caller_id_verification(
+        &self,
+        _e164: &E164,
+    ) -> Result<VerificationStart, ProviderError> {
+        // Telnyx verifies ownership of an external number through its portal and its
+        // regulatory flow, not through a REST call this account can drive. Reporting that
+        // honestly is the same treatment `fetch_rate_deck` gets: an operation we cannot
+        // perform must not return a fabricated success, because the thing it would be
+        // claiming — that a customer owns this number — is the thing that keeps
+        // caller-id spoofing illegal rather than merely discouraged.
+        Err(ProviderError::Unsupported {
+            operation: "start caller-id verification over the API — verify the number in \
+                        the Telnyx portal and record the outcome",
+        })
+    }
+
+    async fn check_caller_id_verification(
+        &self,
+        _id: &str,
+    ) -> Result<VerificationState, ProviderError> {
+        Err(ProviderError::Unsupported {
+            operation: "check caller-id verification over the API",
+        })
+    }
+
+    // ---- SIP / PBX (spec 0118) ---------------------------------------------
+
+    async fn create_sip_connection(&self, _name: &str) -> Result<SipConnection, ProviderError> {
+        Err(ProviderError::Unsupported {
+            operation: "create a SIP connection — creating one needs a live account, credentials and a test call in each direction",
+        })
+    }
+
+    async fn list_sip_connections(&self) -> Result<Vec<SipConnection>, ProviderError> {
+        Err(ProviderError::Unsupported {
+            operation: "list SIP connections",
         })
     }
 
