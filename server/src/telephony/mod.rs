@@ -606,6 +606,23 @@ impl VerificationState {
     }
 }
 
+// ---- SIP, declared but not implemented (spec 0118) ------------------------
+
+/// An Enterprise customer's own telephone system, as we would need to describe it.
+///
+/// Declared so the shape is agreed before somebody needs it, and so a later
+/// implementation is filling in a boundary rather than inventing one. Both adapters answer
+/// `Unsupported` — see the trait methods for why that is the honest answer rather than a
+/// stub that returns success.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SipConnection {
+    pub id: String,
+    pub name: String,
+    /// Where the customer's PBX is reachable, once somebody has recorded it.
+    pub fqdn: Option<String>,
+    pub authenticated_by_ip: bool,
+}
+
 /// One telephony provider.
 #[async_trait]
 pub trait TelephonyProvider: Send + Sync {
@@ -693,6 +710,22 @@ pub trait TelephonyProvider: Send + Sync {
         &self,
         id: &str,
     ) -> Result<VerificationState, ProviderError>;
+
+    // ---- SIP / PBX (spec 0118) ---------------------------------------------
+    //
+    // Declared, and `Unsupported` in both adapters. A SIP connection cannot be created,
+    // credentialled or tested without a live carrier account — and an adapter written
+    // against documentation and never run is an adapter that does not work. The alternative
+    // is worse than the gap: a method that returned a fabricated success would tell an
+    // Enterprise customer their PBX was connected when nothing had been configured at all.
+    //
+    // `docs/voip-telnyx-setup.md` and spec 0118 §7 list exactly what is needed to finish it.
+
+    /// Create a SIP connection for an organisation's own telephone system.
+    async fn create_sip_connection(&self, name: &str) -> Result<SipConnection, ProviderError>;
+
+    /// The SIP connections this account holds.
+    async fn list_sip_connections(&self) -> Result<Vec<SipConnection>, ProviderError>;
 
     /// Verify and normalise a webhook. **Pure** — no I/O, no clock of its own — so R24 is
     /// testable exhaustively without a network or a running server.

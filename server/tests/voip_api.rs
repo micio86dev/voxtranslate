@@ -3686,3 +3686,206 @@ async fn telephony_analytics_is_an_admin_view_and_stops_at_the_org_boundary() {
         .unwrap();
     assert_eq!(body["totals"]["calls"], json!(0), "{body}");
 }
+
+#[tokio::test]
+async fn an_unanswered_call_takes_a_message_and_then_closes_it() {
+    // Spec 0116 R4 promised voicemail, and the first cut of the sweep only marked the call
+    // missed. This is the sweep's two passes: take the message, then close it — and the
+    // second pass must not replay the prompt, which is what `missed` guards.
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    enable_dialing(&srv, org, &jwt, 5).await;
+    let ours = inbound_number(&srv, org).await;
+
+    let number_id: Uuid = sqlx::query_scalar("SELECT id FROM voip_numbers WHERE e164 = $1")
+        .bind(&ours)
+        .fetch_one(&srv.pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO voip_number_routing (number_id, org_id, no_answer_action)
+         VALUES ($1, $2, 'voicemail')",
+    )
+    .bind(number_id)
+    .bind(org)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+
+    let leg = format!("leg-{}", Uuid::new_v4());
+    ring_us(&srv, &leg, &format!("+3932{:07}", rand_suffix()), &ours).await;
+    sqlx::query(
+        "UPDATE voip_calls SET ring_deadline_at = now() - interval '1 minute'
+          WHERE org_id = $1 AND direction = 'inbound'",
+    )
+    .bind(org)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+
+    let sweep = || async {
+        voxtranslate_server::voip::inbound::sweep_unanswered(
+            &srv.state,
+            &srv.pool,
+            srv.provider.as_ref().expect("mock").as_ref(),
+            50,
+        )
+        .await
+        .unwrap()
+    };
+
+    // First pass: the caller is told, then recorded. The line stays OPEN — they are
+    // speaking.
+    assert!(sweep().await >= 1);
+    let (status, missed, recording): (String, bool, String) = sqlx::query_as(
+        "SELECT status, missed, recording_status FROM voip_calls
+          WHERE org_id = $1 AND direction = 'inbound'",
+    )
+    .bind(org)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
+    assert_eq!(status, "answered", "the line was hung up mid-message");
+    assert!(
+        missed,
+        "a call that went to voicemail is still a missed call"
+    );
+    assert_eq!(recording, "pending");
+
+    let provider = srv.provider.as_ref().expect("mock");
+    assert!(
+        provider
+            .commands()
+            .iter()
+            .any(|c| matches!(c, MockCommand::Play { .. })),
+        "the caller was recorded without being told first"
+    );
+
+    // Second pass, once their two minutes are up.
+    sqlx::query(
+        "UPDATE voip_calls SET ring_deadline_at = now() - interval '1 second'
+          WHERE org_id = $1 AND direction = 'inbound'",
+    )
+    .bind(org)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+    assert!(sweep().await >= 1);
+
+    let (status, ended): (String, Option<DateTime<Utc>>) = sqlx::query_as(
+        "SELECT status, ended_at FROM voip_calls WHERE org_id = $1 AND direction = 'inbound'",
+    )
+    .bind(org)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
+    assert_eq!(status, "completed");
+    assert!(ended.is_some());
+
+    // And a third sweep finds nothing left to do, rather than replaying the prompt.
+    assert_eq!(sweep().await, 0, "the sweep picked the same call up again");
+}
+
+#[tokio::test]
+async fn a_call_outside_office_hours_rings_nobody() {
+    // Spec 0118 R1 and R4. Checked before anybody is rung, because a menu that offers
+    // departments nobody is in is worse than a closed sign.
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    enable_dialing(&srv, org, &jwt, 5).await;
+    let ours = inbound_number(&srv, org).await;
+    let number_id: Uuid = sqlx::query_scalar("SELECT id FROM voip_numbers WHERE e164 = $1")
+        .bind(&ours)
+        .fetch_one(&srv.pool)
+        .await
+        .unwrap();
+
+    // A one-minute window an hour from now, every day. Computed rather than hardcoded so
+    // the test is closed whatever time it runs at — a fixed window would pass all day and
+    // fail once, which is the worst kind of test.
+    //
+    // Deliberately NOT an all-empty week: an empty week is a row that has said nothing,
+    // and `is_open` reads that as always open on purpose.
+    let now = chrono::Utc::now();
+    let open_at = ((now
+        .time()
+        .signed_duration_since(chrono::NaiveTime::MIN)
+        .num_minutes()
+        + 60)
+        % 1440) as i32;
+    let close_at = (open_at + 1) % 1440;
+    sqlx::query(
+        "INSERT INTO voip_business_hours (number_id, org_id, timezone, opens_at, closes_at,
+                                          closed_action)
+         VALUES ($1, $2, 'UTC',
+                 ARRAY[$3,$3,$3,$3,$3,$3,$3]::int[], ARRAY[$4,$4,$4,$4,$4,$4,$4]::int[],
+                 'refuse')",
+    )
+    .bind(number_id)
+    .bind(org)
+    .bind(open_at)
+    .bind(close_at)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+
+    ring_us(
+        &srv,
+        &format!("leg-{}", Uuid::new_v4()),
+        &format!("+3932{:07}", rand_suffix()),
+        &ours,
+    )
+    .await;
+
+    let (rang, reason): (Vec<Uuid>, Option<String>) = sqlx::query_as(
+        "SELECT rang_user_ids, failure_reason FROM voip_calls
+          WHERE org_id = $1 AND direction = 'inbound'",
+    )
+    .bind(org)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
+    assert!(rang.is_empty(), "somebody was rung after hours: {rang:?}");
+    assert_eq!(reason.as_deref(), Some("outside_business_hours"));
+
+    // And the call is still RECORDED. A customer who rang at 3am should appear in the
+    // morning's missed calls rather than having never existed.
+    let calls: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM voip_calls WHERE org_id = $1 AND direction = 'inbound'",
+    )
+    .bind(org)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
+    assert_eq!(calls, 1);
+}
+
+#[tokio::test]
+async fn a_number_with_no_hours_configured_is_always_open() {
+    // The failure direction that matters: a number that silently stopped answering
+    // because nobody filled in a form is the worst possible default.
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    enable_dialing(&srv, org, &jwt, 5).await;
+    let ours = inbound_number(&srv, org).await;
+
+    ring_us(
+        &srv,
+        &format!("leg-{}", Uuid::new_v4()),
+        &format!("+3932{:07}", rand_suffix()),
+        &ours,
+    )
+    .await;
+
+    let rang: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT rang_user_ids FROM voip_calls WHERE org_id = $1 AND direction = 'inbound'",
+    )
+    .bind(org)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
+    assert!(rang.contains(&owner), "nobody was rung: {rang:?}");
+}

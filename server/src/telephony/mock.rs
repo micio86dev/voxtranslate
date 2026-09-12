@@ -30,8 +30,8 @@ use super::{
     CallLeg, Cdr, DialRequest, GatherConfig, LegId, MediaStreamConfig, NumberKind, NumberOffer,
     NumberSearch, NumberStatus, PlayRequest, ProviderCapabilities, ProviderError, ProviderEvent,
     ProviderEventKind, ProviderMetadata, ProviderNumberId, PurchaseRequest, PurchasedNumber,
-    RecordingConfig, TelephonyProvider, VerificationMethod, VerificationStart, VerificationState,
-    WebhookError, WebhookHeaders,
+    RecordingConfig, SipConnection, TelephonyProvider, VerificationMethod, VerificationStart,
+    VerificationState, WebhookError, WebhookHeaders,
 };
 use crate::voip::pricing::Rate;
 use crate::voip::state::FailureReason;
@@ -555,6 +555,20 @@ impl TelephonyProvider for MockTelephonyProvider {
             .get(id)
             .copied()
             .unwrap_or(VerificationState::Pending))
+    }
+
+    // ---- SIP / PBX (spec 0118) ---------------------------------------------
+
+    async fn create_sip_connection(&self, _name: &str) -> Result<SipConnection, ProviderError> {
+        Err(ProviderError::Unsupported {
+            operation: "create a SIP connection — a mock has no carrier to hold one",
+        })
+    }
+
+    async fn list_sip_connections(&self) -> Result<Vec<SipConnection>, ProviderError> {
+        Err(ProviderError::Unsupported {
+            operation: "list SIP connections",
+        })
     }
 
     fn verify_webhook(

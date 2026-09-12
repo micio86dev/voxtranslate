@@ -152,3 +152,22 @@ gains a pass over inbound calls whose ring deadline has passed. Same reasoning a
    inherits the org's recording policy rather than inventing a second one.
 4. **A forward is a second billable leg.** Priced and gated like any outbound call, and
    refused by the same policy gate — a forward must not become a way around the spend caps.
+
+## 8b. Amendment — 2026-09-12
+
+**Voicemail is built; forwarding is configured but not executed.**
+
+R4 promised three no-answer actions and the first cut of the sweep implemented one: it
+marked the call missed and hung up. Voicemail now works properly — the caller is told what
+is about to happen, then recorded, and a second pass closes the line after two minutes and
+lets the ordinary `RecordingSaved` webhook attach what was said. The `missed` column is
+what distinguishes the two passes; without it the second would replay the prompt for ever,
+because a call taking a message is still unanswered and still has a deadline.
+
+**`forward` is accepted, validated and stored, and does not yet place the second call.** It
+is refused at configuration time without a destination (a forward with nowhere to go dies
+silently at the moment it matters most), and a number configured for it behaves as `refuse`
+until the leg is wired. Wiring it means running the forward through `service::dial`'s policy
+gate and reservation — not around them — because a forward that skipped the spend caps would
+be a way to spend an organisation's money that its own limits did not see. That is the whole
+of the remaining work, and it is deliberately not a shortcut through the billing path.

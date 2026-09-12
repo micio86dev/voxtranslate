@@ -35,8 +35,8 @@ use super::{
     CallLeg, Cdr, DialRequest, GatherConfig, LegId, MediaStreamConfig, MediaTrack, NumberKind,
     NumberOffer, NumberSearch, NumberStatus, PlayRequest, ProviderCapabilities, ProviderError,
     ProviderEvent, ProviderEventKind, ProviderMetadata, ProviderNumberId, PurchaseRequest,
-    PurchasedNumber, RecordingConfig, TelephonyProvider, VerificationStart, VerificationState,
-    WebhookError, WebhookHeaders, E164,
+    PurchasedNumber, RecordingConfig, SipConnection, TelephonyProvider, VerificationStart,
+    VerificationState, WebhookError, WebhookHeaders, E164,
 };
 use rust_decimal::Decimal;
 
@@ -927,6 +927,20 @@ impl TelephonyProvider for TelnyxProvider {
     ) -> Result<VerificationState, ProviderError> {
         Err(ProviderError::Unsupported {
             operation: "check caller-id verification over the API",
+        })
+    }
+
+    // ---- SIP / PBX (spec 0118) ---------------------------------------------
+
+    async fn create_sip_connection(&self, _name: &str) -> Result<SipConnection, ProviderError> {
+        Err(ProviderError::Unsupported {
+            operation: "create a SIP connection — creating one needs a live account, credentials and a test call in each direction",
+        })
+    }
+
+    async fn list_sip_connections(&self) -> Result<Vec<SipConnection>, ProviderError> {
+        Err(ProviderError::Unsupported {
+            operation: "list SIP connections",
         })
     }
 

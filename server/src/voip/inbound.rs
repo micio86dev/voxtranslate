@@ -264,8 +264,12 @@ pub async fn sweep_unanswered(
     // `no_answer_action` comes through a LEFT JOIN and is NULL for a number with no
     // routing row — which is the common case, not an error. `Option` here rather than a
     // COALESCE in the SQL, so the default lives in one place: `resolve_ring`.
-    let due: Vec<(Uuid, Vec<String>, Option<String>)> = sqlx::query_as(
-        "SELECT id, provider_leg_ids, no_answer_action
+    // `missed` distinguishes the TWO passes this sweep makes over the same call. The
+    // first is the ring timeout; the second closes a voicemail once the caller has had
+    // their two minutes. Without it the second pass would replay the prompt for ever,
+    // because a call taking a message is still unanswered and still has a deadline.
+    let due: Vec<(Uuid, Vec<String>, Option<String>, bool)> = sqlx::query_as(
+        "SELECT id, provider_leg_ids, no_answer_action, missed
            FROM voip_calls c
            LEFT JOIN LATERAL (
                 SELECT r.no_answer_action
@@ -284,14 +288,36 @@ pub async fn sweep_unanswered(
     .await?;
 
     let mut closed = 0u64;
-    for (call_id, legs, _action) in due {
+    for (call_id, legs, action, already_missed) in due {
+        if already_missed {
+            // Second pass: the message is over. Stop the recording, hang up, and let the
+            // ordinary `RecordingSaved` webhook attach what was said.
+            for leg in &legs {
+                let leg_id = crate::telephony::LegId::new(leg.clone());
+                let _ = provider.stop_recording(&leg_id).await;
+                let _ = provider.hangup(&leg_id).await;
+            }
+            sqlx::query(
+                "UPDATE voip_calls
+                    SET status = 'completed', ended_at = COALESCE(ended_at, now()),
+                        ring_deadline_at = NULL
+                  WHERE id = $1",
+            )
+            .bind(call_id)
+            .execute(pool)
+            .await?;
+            session::reclaim(state, call_id);
+            closed += 1;
+            tracing::info!(call = %call_id, "voicemail closed");
+            continue;
+        }
+
         // Marked missed BEFORE the carrier is touched. A hangup that fails must not leave a
         // call ringing in our records for ever — the record of the miss is what the
         // organisation needs, and it is cheap to write.
         sqlx::query(
             "UPDATE voip_calls
-                SET missed = TRUE, status = 'completed', ended_at = COALESCE(ended_at, now()),
-                    failure_reason = COALESCE(failure_reason, 'no_answer'),
+                SET missed = TRUE, failure_reason = COALESCE(failure_reason, 'no_answer'),
                     ring_deadline_at = NULL
               WHERE id = $1",
         )
@@ -299,17 +325,80 @@ pub async fn sweep_unanswered(
         .execute(pool)
         .await?;
 
+        let leaves_a_message = action.as_deref() == Some("voicemail");
         for leg in &legs {
-            let _ = provider
-                .hangup(&crate::telephony::LegId::new(leg.clone()))
-                .await;
+            let leg_id = crate::telephony::LegId::new(leg.clone());
+            if leaves_a_message {
+                // Say so, then record. The caller is told what is about to happen before
+                // it happens — the same rule the consent announcement follows, and for the
+                // same reason: somebody being recorded is owed the sentence beforehand.
+                let _ = provider
+                    .play(
+                        &leg_id,
+                        crate::telephony::PlayRequest::Speak {
+                            text: VOICEMAIL_PROMPT.into(),
+                            language: "en".into(),
+                            voice: None,
+                        },
+                    )
+                    .await;
+                let _ = provider
+                    .start_recording(
+                        &leg_id,
+                        crate::telephony::RecordingConfig {
+                            dual_channel: false,
+                            beep: true,
+                        },
+                    )
+                    .await;
+            } else {
+                let _ = provider.hangup(&leg_id).await;
+            }
         }
-        session::reclaim(state, call_id);
+
+        if leaves_a_message {
+            // Still live, deliberately: the caller is speaking. A second deadline closes it,
+            // and the recording lands through the ordinary `RecordingSaved` webhook that
+            // already attaches a recording to its call.
+            sqlx::query(
+                "UPDATE voip_calls
+                    SET status = 'answered', recording_status = 'pending',
+                        ring_deadline_at = now() + make_interval(secs => $2::int)
+                  WHERE id = $1",
+            )
+            .bind(call_id)
+            .bind(VOICEMAIL_SECONDS)
+            .execute(pool)
+            .await?;
+            tracing::info!(call = %call_id, "inbound call unanswered: taking a message");
+        } else {
+            sqlx::query(
+                "UPDATE voip_calls
+                    SET status = 'completed', ended_at = COALESCE(ended_at, now())
+                  WHERE id = $1",
+            )
+            .bind(call_id)
+            .execute(pool)
+            .await?;
+            session::reclaim(state, call_id);
+            tracing::info!(call = %call_id, "inbound call missed: nobody answered in time");
+        }
         closed += 1;
-        tracing::info!(call = %call_id, "inbound call missed: nobody answered in time");
     }
     Ok(closed)
 }
+
+/// What a caller hears before the tone.
+///
+/// English, because the carrier speaks it (0111 §8.10) and because at this point nobody
+/// has been identified — a missed call is by definition one where the address book's
+/// answer did not reach a person who could act on it.
+const VOICEMAIL_PROMPT: &str =
+    "Nobody is available to take your call. Please leave a message after the tone.";
+
+/// How long a caller may speak before the line is closed. Long enough for a real message,
+/// short enough that a forgotten handset does not bill for an hour.
+const VOICEMAIL_SECONDS: i32 = 120;
 
 /// How long to ring, clamped to what the schema allows.
 pub fn ring_deadline(seconds: i32) -> chrono::DateTime<Utc> {
@@ -357,6 +446,28 @@ pub async fn admit(
     if !entitled {
         return Err(Refusal::NotEntitled);
     }
+
+    // Is the office even open? Checked before anybody is rung, because a menu that offers
+    // departments nobody is in is worse than a closed sign (spec 0118 R4).
+    let hours: Option<(String, Vec<i32>, Vec<i32>, String)> = sqlx::query_as(
+        "SELECT timezone, opens_at, closes_at, closed_action
+           FROM voip_business_hours WHERE number_id = $1",
+    )
+    .bind(number.number_id)
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten();
+
+    let open = match &hours {
+        Some((tz, opens, closes, _)) => {
+            let week = crate::voip::hours::Week::from_arrays(opens, closes);
+            crate::voip::hours::is_open(chrono::Utc::now(), tz, Some(&week))
+        }
+        // No hours configured means always open: an organisation that has not said
+        // otherwise has not asked to be closed.
+        None => true,
+    };
 
     let ring = resolve_ring(
         pool,
@@ -470,14 +581,35 @@ pub async fn admit(
         tracing::error!(call = %call_id, "inbound answer failed: {e:?}");
     }
 
-    ring_users(
-        state,
-        &ring.user_ids,
-        &room,
-        contact_name.as_deref().unwrap_or(&from.masked()),
-        &number.e164,
-    )
-    .await;
+    if open {
+        ring_users(
+            state,
+            &ring.user_ids,
+            &room,
+            contact_name.as_deref().unwrap_or(&from.masked()),
+            &number.e164,
+        )
+        .await;
+    } else {
+        // Closed. Nobody is rung, and the deadline is brought forward to now so the sweep
+        // applies the closed-hours action on its next pass — which is the same machinery
+        // that handles nobody answering, rather than a second copy of it.
+        let closed_action = hours
+            .as_ref()
+            .map(|(_, _, _, a)| a.clone())
+            .unwrap_or_else(|| "voicemail".into());
+        sqlx::query(
+            "UPDATE voip_calls
+                SET ring_deadline_at = now(), rang_user_ids = '{}',
+                    failure_reason = 'outside_business_hours'
+              WHERE id = $1",
+        )
+        .bind(call_id)
+        .execute(pool)
+        .await
+        .ok();
+        tracing::info!(call = %call_id, action = %closed_action, "inbound call outside business hours");
+    }
 
     tracing::info!(
         call = %call_id,
