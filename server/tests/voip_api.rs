@@ -3688,14 +3688,114 @@ async fn telephony_analytics_is_an_admin_view_and_stops_at_the_org_boundary() {
 }
 
 #[tokio::test]
-async fn an_unanswered_call_takes_a_message_and_then_closes_it() {
-    // Spec 0116 R4 promised voicemail, and the first cut of the sweep only marked the call
-    // missed. This is the sweep's two passes: take the message, then close it — and the
-    // second pass must not replay the prompt, which is what `missed` guards.
+async fn voicemail_obeys_the_orgs_recording_policy() {
+    // `capture_intent` calls itself "intersection, never union" and gates every outbound
+    // recording on it. The voicemail path walked straight past it: an org with recording
+    // switched OFF still had its callers recorded, because `no_answer_action = 'voicemail'`
+    // was the only thing consulted. A voicemail IS a recording; routing is not consent.
     let srv = srv!();
     let (owner, jwt) = user(&srv).await;
     let org = make_org(&srv, owner, "owner").await;
     enable_dialing(&srv, org, &jwt, 5).await;
+    let ours = inbound_number(&srv, org).await;
+
+    let number_id: Uuid = sqlx::query_scalar("SELECT id FROM voip_numbers WHERE e164 = $1")
+        .bind(&ours)
+        .fetch_one(&srv.pool)
+        .await
+        .unwrap();
+    // Routing asks for voicemail; the org has never turned recording on.
+    sqlx::query(
+        "INSERT INTO voip_number_routing (number_id, org_id, no_answer_action)
+         VALUES ($1, $2, 'voicemail')",
+    )
+    .bind(number_id)
+    .bind(org)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+
+    let leg = format!("leg-{}", Uuid::new_v4());
+    ring_us(&srv, &leg, &format!("+3932{:07}", rand_suffix()), &ours).await;
+    sqlx::query(
+        "UPDATE voip_calls SET ring_deadline_at = now() - interval '1 minute'
+          WHERE org_id = $1 AND direction = 'inbound'",
+    )
+    .bind(org)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+
+    voxtranslate_server::voip::inbound::sweep_unanswered(
+        &srv.state,
+        &srv.pool,
+        srv.provider.as_ref().expect("mock").as_ref(),
+        50,
+    )
+    .await
+    .unwrap();
+
+    let provider = srv.provider.as_ref().expect("mock");
+    let commands = provider.commands();
+    assert!(
+        !commands
+            .iter()
+            .any(|c| matches!(c, MockCommand::StartRecording(..))),
+        "an org with recording disabled had its caller recorded anyway: {commands:?}"
+    );
+    assert!(
+        commands.iter().any(|c| matches!(c, MockCommand::Hangup(_))),
+        "the caller was neither recorded nor hung up on: {commands:?}"
+    );
+
+    // And the call is CLOSED, not left hanging on a message nobody is taking.
+    let (status, missed, recording): (String, bool, String) = sqlx::query_as(
+        "SELECT status, missed, recording_status FROM voip_calls
+          WHERE org_id = $1 AND direction = 'inbound'",
+    )
+    .bind(org)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        status, "completed",
+        "the line was left open with no recorder"
+    );
+    assert!(missed);
+    assert_eq!(recording, "none");
+}
+
+/// A server that is allowed to record. The default is off, because recording somebody is
+/// not a default.
+async fn setup_recording() -> Option<Server> {
+    let mut voip = VoipConfig::test_default();
+    voip.recording_enabled = true;
+    setup_with_voip(Some(voip)).await
+}
+
+/// Turn on the org half of `capture_intent`'s intersection. The deployment half is
+/// `setup_recording`; voicemail needs both, exactly like an outbound recording does.
+async fn allow_recording(srv: &Server, org: Uuid) {
+    sqlx::query("UPDATE voip_org_settings SET recording_enabled = TRUE WHERE org_id = $1")
+        .bind(org)
+        .execute(&srv.pool)
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn an_unanswered_call_takes_a_message_and_then_closes_it() {
+    // Spec 0116 R4 promised voicemail, and the first cut of the sweep only marked the call
+    // missed. This is the sweep's two passes: take the message, then close it — and the
+    // second pass must not replay the prompt, which is what `missed` guards.
+    let Some(srv) = setup_recording().await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    enable_dialing(&srv, org, &jwt, 5).await;
+    allow_recording(&srv, org).await;
     let ours = inbound_number(&srv, org).await;
 
     let number_id: Uuid = sqlx::query_scalar("SELECT id FROM voip_numbers WHERE e164 = $1")

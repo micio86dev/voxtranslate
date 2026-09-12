@@ -171,3 +171,28 @@ until the leg is wired. Wiring it means running the forward through `service::di
 gate and reservation — not around them — because a forward that skipped the spend caps would
 be a way to spend an organisation's money that its own limits did not see. That is the whole
 of the remaining work, and it is deliberately not a shortcut through the billing path.
+
+## 8c. Amendment — 2026-09-12
+
+**Voicemail obeys the recording policy. It did not, and that was a consent defect.**
+
+The sweep decided to take a message from `no_answer_action` alone. `service::capture_intent`
+describes itself as "intersection, never union" and gates every outbound recording on the
+deployment switch AND the organisation's — and the voicemail path walked straight past it.
+An organisation that had never turned recording on still had its callers recorded, because
+routing was the only thing consulted.
+
+Routing asks; policy decides. A voicemail is a recording, and of a person who did not choose
+to be recorded by us. The sweep now reads `voip_org_settings.recording_enabled` alongside
+`VOIP_RECORDING_ENABLED` and takes a message only when both allow it; otherwise the caller is
+hung up on and the call is closed as missed. The refusal is logged at WARN naming which of the
+two switches is off, because an operator who configured voicemail and never sees one would
+otherwise debug the router for a day.
+
+This makes voicemail off by default, everywhere. That is the correct default and the same one
+`OrgSettings::default_for_new_org` already argues for: a default that captures someone nobody
+asked is a different kind of mistake from a default that refuses a call.
+
+Guarded by `voicemail_obeys_the_orgs_recording_policy`, and by
+`an_unanswered_call_takes_a_message_and_then_closes_it`, which had to be given both switches
+before it would pass — which is the evidence the gate was missing.

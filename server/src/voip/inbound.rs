@@ -269,6 +269,9 @@ struct UnansweredRow {
     missed: bool,
     /// What this caller was ANSWERED in, so the message prompt is in their language.
     target_language: String,
+    /// The org half of `service::capture_intent`'s intersection. A voicemail is a
+    /// recording, so routing alone must never be enough to start one.
+    org_allows_recording: bool,
 }
 
 /// Calls nobody came to (spec 0116 R4).
@@ -289,13 +292,15 @@ pub async fn sweep_unanswered(
     // their two minutes. Without it the second pass would replay the prompt for ever,
     // because a call taking a message is still unanswered and still has a deadline.
     let due: Vec<UnansweredRow> = sqlx::query_as(
-        "SELECT id, provider_leg_ids, no_answer_action, missed, c.target_language
+        "SELECT id, provider_leg_ids, no_answer_action, missed, c.target_language,
+                COALESCE(s.recording_enabled, FALSE) AS org_allows_recording
            FROM voip_calls c
            LEFT JOIN LATERAL (
                 SELECT r.no_answer_action
                   FROM voip_number_routing r
                  WHERE r.number_id = c.inbound_number_id
            ) route ON TRUE
+           LEFT JOIN voip_org_settings s ON s.org_id = c.org_id
           WHERE c.direction = 'inbound'
             AND c.answered_by IS NULL
             AND c.ring_deadline_at IS NOT NULL
@@ -307,14 +312,22 @@ pub async fn sweep_unanswered(
     .fetch_all(pool)
     .await?;
 
+    // The deployment half of the intersection, read once: it cannot change mid-sweep.
+    let deployment_allows_recording = state
+        .config
+        .voip
+        .as_ref()
+        .is_some_and(|c| c.recording_enabled);
+
     let mut closed = 0u64;
     for row in due {
-        let (call_id, legs, action, already_missed, language) = (
+        let (call_id, legs, action, already_missed, language, org_allows_recording) = (
             row.id,
             row.provider_leg_ids,
             row.no_answer_action,
             row.missed,
             row.target_language,
+            row.org_allows_recording,
         );
         if already_missed {
             // Second pass: the message is over. Stop the recording, hang up, and let the
@@ -352,7 +365,25 @@ pub async fn sweep_unanswered(
         .execute(pool)
         .await?;
 
-        let leaves_a_message = action.as_deref() == Some("voicemail");
+        // Routing asks; POLICY decides. `service::capture_intent` calls itself
+        // "intersection, never union" and every outbound recording obeys it, so a
+        // voicemail — which is a recording of a person who did not choose to be recorded
+        // by us — obeys the same two switches. An org that has never turned recording on
+        // gets its callers hung up on, not taped. The asymmetry is `disclosure`'s:
+        // a message not taken is a lost feature, a message taken without permission is an
+        // incident with a regulator attached.
+        let capture_allowed = org_allows_recording && deployment_allows_recording;
+        let leaves_a_message = action.as_deref() == Some("voicemail") && capture_allowed;
+        if action.as_deref() == Some("voicemail") && !capture_allowed {
+            // An operator who configured voicemail and never sees one needs to be told
+            // which of the two switches is off, or they will debug the router for a day.
+            tracing::warn!(
+                call = %call_id,
+                org_allows_recording,
+                deployment_allows_recording,
+                "voicemail is routed but recording is disabled: hanging up instead"
+            );
+        }
         for leg in &legs {
             let leg_id = crate::telephony::LegId::new(leg.clone());
             if leaves_a_message {
