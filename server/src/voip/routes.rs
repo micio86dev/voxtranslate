@@ -89,6 +89,12 @@ pub fn routes() -> Router<AppState> {
             get(number_mgmt::get_routing).put(number_mgmt::put_routing),
         )
         .route(
+            "/api/business/organizations/{org_id}/voip/numbers/{number_id}/hours",
+            get(number_mgmt::get_hours)
+                .put(number_mgmt::put_hours)
+                .delete(number_mgmt::clear_hours),
+        )
+        .route(
             "/api/business/organizations/{org_id}/voip/numbers/{number_id}/verify",
             post(number_mgmt::verify),
         )

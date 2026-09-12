@@ -15,7 +15,7 @@ use axum::response::{IntoResponse, Response};
 use axum::Json;
 use chrono::{Duration, Utc};
 use rust_decimal::Decimal;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use uuid::Uuid;
 
@@ -665,6 +665,173 @@ pub async fn put_routing(
     .bind(&body.no_answer_action)
     .bind(forward_to.as_deref())
     .bind(body.stranger_language.as_deref())
+    .execute(pool)
+    .await
+    .map_err(db_err)?;
+
+    Ok(StatusCode::NO_CONTENT.into_response())
+}
+
+/// A week of opening times as the database holds them.
+#[derive(Debug, sqlx::FromRow, Serialize)]
+struct HoursRow {
+    timezone: String,
+    opens_at: Vec<i32>,
+    closes_at: Vec<i32>,
+    closed_action: String,
+    closed_forward_to: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct HoursBody {
+    /// IANA, e.g. `Europe/Rome`.
+    timezone: String,
+    /// Seven entries, Monday first, minutes from midnight. `-1` (or a short array) means
+    /// closed that day.
+    opens_at: Vec<i32>,
+    closes_at: Vec<i32>,
+    /// `voicemail` | `forward` | `refuse`.
+    closed_action: String,
+    #[serde(default)]
+    closed_forward_to: Option<String>,
+}
+
+/// `GET …/voip/numbers/{id}/hours`
+pub async fn get_hours(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path((org_id, number_id)): Path<(Uuid, Uuid)>,
+) -> Result<Response, Response> {
+    let pool = require_pool(&state)?;
+    require_role(pool, org_id, user.user_id, MEMBER).await?;
+
+    let row: Option<HoursRow> = sqlx::query_as(
+        "SELECT h.timezone, h.opens_at, h.closes_at, h.closed_action, h.closed_forward_to
+           FROM voip_business_hours h
+           JOIN voip_numbers n ON n.id = h.number_id AND n.org_id = $2
+          WHERE h.number_id = $1",
+    )
+    .bind(number_id)
+    .bind(org_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(db_err)?;
+
+    // `configured: false` rather than a 404, because "no hours" is a real and meaningful
+    // state — the number is always open — and the screen has to be able to say so.
+    Ok(match row {
+        Some(row) => {
+            let mut out = serde_json::to_value(&row).unwrap_or_else(|_| json!({}));
+            out["configured"] = json!(true);
+            Json(out)
+        }
+        None => Json(json!({ "configured": false })),
+    }
+    .into_response())
+}
+
+/// `PUT …/voip/numbers/{id}/hours`
+pub async fn put_hours(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path((org_id, number_id)): Path<(Uuid, Uuid)>,
+    Json(body): Json<HoursBody>,
+) -> Result<Response, Response> {
+    let pool = require_pool(&state)?;
+    require_role(pool, org_id, user.user_id, ADMIN).await?;
+
+    // Parsed here so a typo is refused while somebody is looking at it, rather than
+    // discovered at 3am by `is_open` falling back to UTC.
+    if body.timezone.parse::<chrono_tz::Tz>().is_err() {
+        return Err(refuse(StatusCode::BAD_REQUEST, "invalid_timezone"));
+    }
+    if !matches!(
+        body.closed_action.as_str(),
+        "voicemail" | "forward" | "refuse"
+    ) {
+        return Err(refuse(StatusCode::BAD_REQUEST, "invalid_no_answer_action"));
+    }
+    let forward = match (
+        body.closed_action.as_str(),
+        body.closed_forward_to.as_deref(),
+    ) {
+        ("forward", Some(raw)) => Some(
+            E164::parse(raw)
+                .map_err(|_| refuse(StatusCode::BAD_REQUEST, "number_not_e164"))?
+                .as_str()
+                .to_string(),
+        ),
+        ("forward", None) => return Err(refuse(StatusCode::BAD_REQUEST, "forward_to_required")),
+        _ => None,
+    };
+
+    let owns: Option<bool> =
+        sqlx::query_scalar("SELECT true FROM voip_numbers WHERE id = $1 AND org_id = $2")
+            .bind(number_id)
+            .bind(org_id)
+            .fetch_optional(pool)
+            .await
+            .map_err(db_err)?;
+    if owns.is_none() {
+        return Err(not_found("number not found"));
+    }
+
+    // Padded to seven days with "closed". A short week is stored as what it means rather
+    // than left for the reader to interpret.
+    let pad = |v: &[i32]| -> Vec<i32> {
+        (0..7)
+            .map(|i| {
+                v.get(i)
+                    .copied()
+                    .filter(|m| (0..1440).contains(m))
+                    .unwrap_or(-1)
+            })
+            .collect()
+    };
+
+    sqlx::query(
+        "INSERT INTO voip_business_hours
+            (number_id, org_id, timezone, opens_at, closes_at, closed_action,
+             closed_forward_to)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         ON CONFLICT (number_id) DO UPDATE SET
+            timezone = EXCLUDED.timezone,
+            opens_at = EXCLUDED.opens_at,
+            closes_at = EXCLUDED.closes_at,
+            closed_action = EXCLUDED.closed_action,
+            closed_forward_to = EXCLUDED.closed_forward_to,
+            updated_at = now()",
+    )
+    .bind(number_id)
+    .bind(org_id)
+    .bind(&body.timezone)
+    .bind(pad(&body.opens_at))
+    .bind(pad(&body.closes_at))
+    .bind(&body.closed_action)
+    .bind(forward.as_deref())
+    .execute(pool)
+    .await
+    .map_err(db_err)?;
+
+    Ok(StatusCode::NO_CONTENT.into_response())
+}
+
+/// `DELETE …/voip/numbers/{id}/hours` — back to always open.
+pub async fn clear_hours(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path((org_id, number_id)): Path<(Uuid, Uuid)>,
+) -> Result<Response, Response> {
+    let pool = require_pool(&state)?;
+    require_role(pool, org_id, user.user_id, ADMIN).await?;
+
+    sqlx::query(
+        "DELETE FROM voip_business_hours h
+          USING voip_numbers n
+          WHERE h.number_id = $1 AND n.id = h.number_id AND n.org_id = $2",
+    )
+    .bind(number_id)
+    .bind(org_id)
     .execute(pool)
     .await
     .map_err(db_err)?;
