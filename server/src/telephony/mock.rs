@@ -20,14 +20,18 @@ use std::sync::Mutex;
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
 use hmac::{Hmac, KeyInit, Mac};
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use subtle::ConstantTimeEq;
 
+use super::E164;
 use super::{
-    CallLeg, Cdr, DialRequest, GatherConfig, LegId, MediaStreamConfig, PlayRequest,
-    ProviderCapabilities, ProviderError, ProviderEvent, ProviderEventKind, ProviderMetadata,
-    RecordingConfig, TelephonyProvider, WebhookError, WebhookHeaders,
+    CallLeg, Cdr, DialRequest, GatherConfig, LegId, MediaStreamConfig, NumberKind, NumberOffer,
+    NumberSearch, NumberStatus, PlayRequest, ProviderCapabilities, ProviderError, ProviderEvent,
+    ProviderEventKind, ProviderMetadata, ProviderNumberId, PurchaseRequest, PurchasedNumber,
+    RecordingConfig, SipConnection, TelephonyProvider, VerificationMethod, VerificationStart,
+    VerificationState, WebhookError, WebhookHeaders,
 };
 use crate::voip::pricing::Rate;
 use crate::voip::state::FailureReason;
@@ -70,6 +74,12 @@ struct MockState {
     play_error: Option<ProviderError>,
     deleted_recordings: Vec<String>,
     delete_recording_error: Option<ProviderError>,
+    /// Numbers this fake carrier has sold, keyed by the idempotency key the caller used.
+    /// Keyed by OUR key rather than by the number, because that is the property under
+    /// test: the same key must buy once (spec 0115 R2).
+    sold: HashMap<String, PurchasedNumber>,
+    purchase_error: Option<ProviderError>,
+    verifications: HashMap<String, VerificationState>,
     seq: u64,
 }
 
@@ -77,6 +87,15 @@ pub struct MockTelephonyProvider {
     metadata: ProviderMetadata,
     secret: Vec<u8>,
     tolerance: Duration,
+    /// Makes this instance's offered numbers distinct from every other instance's.
+    ///
+    /// `voip_numbers.e164` is UNIQUE across the whole install — deliberately, so inbound
+    /// routing is never ambiguous about whose number was called. A mock that offered the
+    /// same numbers every time would therefore pass once against a shared test database
+    /// and collide for ever after, and collide with tests running beside it. Stable within
+    /// one provider, different between providers: the prices stay assertable and the rows
+    /// stay insertable.
+    number_seed: u32,
     state: Mutex<MockState>,
 }
 
@@ -87,6 +106,18 @@ impl Default for MockTelephonyProvider {
 }
 
 impl MockTelephonyProvider {
+    /// Make the next purchase fail at the carrier, so a test can prove nothing is charged
+    /// for a number that was never bought.
+    pub fn fail_next_purchase(&self, error: ProviderError) {
+        self.lock().purchase_error = Some(error);
+    }
+
+    /// Move a started verification to its outcome, the way a real one would after somebody
+    /// answered the phone and typed the code.
+    pub fn settle_verification(&self, id: &str, state: VerificationState) {
+        self.lock().verifications.insert(id.to_string(), state);
+    }
+
     pub fn new(secret: &[u8], tolerance: Duration) -> Self {
         Self {
             metadata: ProviderMetadata {
@@ -113,6 +144,7 @@ impl MockTelephonyProvider {
             },
             secret: secret.to_vec(),
             tolerance,
+            number_seed: (uuid::Uuid::new_v4().as_u128() % 900_000) as u32 + 100_000,
             state: Mutex::new(MockState::default()),
         }
     }
@@ -127,7 +159,16 @@ impl MockTelephonyProvider {
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, MockState> {
-        self.state.lock().expect("mock provider mutex poisoned")
+        // Recovered, not panicked on. `config.rs` allows `VOIP_PROVIDER=mock` in a
+        // deployed environment, so this is a production path even though the type is a
+        // test double — and poisoning here means some other thread panicked while holding
+        // the lock, not that this state is unusable. It is a command log and a few
+        // vectors; reading it after someone else's panic is exactly what an operator
+        // debugging that panic needs. Turning one thread's failure into every subsequent
+        // caller's failure would be the more destructive choice.
+        self.state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     // ---- scripting ---------------------------------------------------------
@@ -236,6 +277,12 @@ pub struct MockWebhookBody {
     pub recording_id: Option<String>,
     #[serde(default)]
     pub duration_secs: Option<u64>,
+    /// Who is calling and which of our numbers they rang (spec 0116). Present only on an
+    /// `incoming` event; a dial we started has neither.
+    #[serde(default)]
+    pub from: Option<String>,
+    #[serde(default)]
+    pub to: Option<String>,
 }
 
 impl MockWebhookBody {
@@ -247,6 +294,8 @@ impl MockWebhookBody {
             client_state: None,
             occurred_at: at,
             event_type: event_type.into(),
+            from: None,
+            to: None,
             cause: None,
             digit: None,
             recording_url: None,
@@ -415,6 +464,122 @@ impl TelephonyProvider for MockTelephonyProvider {
         Ok(st.rate_deck.clone())
     }
 
+    // ---- number management (spec 0115) ------------------------------------
+
+    async fn search_numbers(&self, q: NumberSearch) -> Result<Vec<NumberOffer>, ProviderError> {
+        // Deterministic, derived from the query: a test asserting on prices must not have
+        // to know a fixture by heart, and a random offer would make one flaky.
+        let country = q.country.to_ascii_uppercase();
+        let area = q.area_code.clone().unwrap_or_else(|| "02".into());
+        let kind = q.kind.unwrap_or(NumberKind::Local);
+        let count = q.limit.clamp(1, 10) as usize;
+        Ok((0..count)
+            .map(|i| NumberOffer {
+                e164: format!("+39{area}{}{:02}", self.number_seed, i),
+                country: country.clone(),
+                kind,
+                monthly_cost: Decimal::new(135, 2),
+                setup_cost: Decimal::new(100, 2),
+                currency: "USD".into(),
+                // One offer in the set needs paperwork, so the state that blocks a number
+                // is exercised rather than only described.
+                regulatory_requirement: (i == 1)
+                    .then(|| "A local address in this country is required.".to_string()),
+            })
+            .collect())
+    }
+
+    async fn purchase_number(
+        &self,
+        req: PurchaseRequest,
+    ) -> Result<PurchasedNumber, ProviderError> {
+        let mut st = self.lock();
+        if let Some(e) = st.purchase_error.take() {
+            return Err(e);
+        }
+        // The same key buys the same number once. A real carrier honours its own
+        // idempotency header; this one honours ours, which is what the caller relies on.
+        if let Some(existing) = st.sold.get(&req.idempotency_key) {
+            return Ok(existing.clone());
+        }
+        st.seq += 1;
+        let bought = PurchasedNumber {
+            provider_number_id: ProviderNumberId(format!("mock-num-{}", st.seq)),
+            e164: req.e164.clone(),
+            status: NumberStatus::Active,
+            monthly_cost: Decimal::new(135, 2),
+            setup_cost: Decimal::new(100, 2),
+            currency: "USD".into(),
+            regulatory_requirement: None,
+        };
+        st.sold.insert(req.idempotency_key, bought.clone());
+        Ok(bought)
+    }
+
+    async fn release_number(&self, id: &ProviderNumberId) -> Result<(), ProviderError> {
+        let mut st = self.lock();
+        st.sold
+            .retain(|_, n| n.provider_number_id.as_str() != id.as_str());
+        Ok(())
+    }
+
+    async fn number_status(&self, id: &ProviderNumberId) -> Result<NumberStatus, ProviderError> {
+        let st = self.lock();
+        Ok(st
+            .sold
+            .values()
+            .find(|n| n.provider_number_id.as_str() == id.as_str())
+            .map(|n| n.status)
+            // A number this carrier has no record of is released, not active. The
+            // reconcile sweep must be able to notice a number that went away.
+            .unwrap_or(NumberStatus::Released))
+    }
+
+    async fn start_caller_id_verification(
+        &self,
+        e164: &E164,
+    ) -> Result<VerificationStart, ProviderError> {
+        let mut st = self.lock();
+        st.seq += 1;
+        let id = format!("mock-verify-{}", st.seq);
+        // Starts pending, always. A mock that verified instantly would let a test pass
+        // without the state that matters ever existing.
+        st.verifications
+            .insert(id.clone(), VerificationState::Pending);
+        let _ = e164;
+        Ok(VerificationStart {
+            id,
+            method: VerificationMethod::Call,
+            code: Some("123456".into()),
+        })
+    }
+
+    async fn check_caller_id_verification(
+        &self,
+        id: &str,
+    ) -> Result<VerificationState, ProviderError> {
+        Ok(self
+            .lock()
+            .verifications
+            .get(id)
+            .copied()
+            .unwrap_or(VerificationState::Pending))
+    }
+
+    // ---- SIP / PBX (spec 0118) ---------------------------------------------
+
+    async fn create_sip_connection(&self, _name: &str) -> Result<SipConnection, ProviderError> {
+        Err(ProviderError::Unsupported {
+            operation: "create a SIP connection — a mock has no carrier to hold one",
+        })
+    }
+
+    async fn list_sip_connections(&self) -> Result<Vec<SipConnection>, ProviderError> {
+        Err(ProviderError::Unsupported {
+            operation: "list SIP connections",
+        })
+    }
+
     fn verify_webhook(
         &self,
         headers: &WebhookHeaders,
@@ -447,6 +612,13 @@ impl TelephonyProvider for MockTelephonyProvider {
             })?;
 
         let kind = match parsed.event_type.as_str() {
+            // An incoming call carries the two numbers; our own dial starting does not.
+            // Distinguished by the fields rather than by a second event name, so a body
+            // that forgot them cannot be read as somebody ringing us.
+            "incoming" => ProviderEventKind::Incoming {
+                from: parsed.from.clone().unwrap_or_default(),
+                to: parsed.to.clone().unwrap_or_default(),
+            },
             "initiated" => ProviderEventKind::Initiated,
             "ringing" => ProviderEventKind::Ringing,
             "answered" => ProviderEventKind::Answered,

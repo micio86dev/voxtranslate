@@ -808,6 +808,15 @@ pub fn app(state: AppState) -> Router {
         // Registered only when VoIP is enabled AND a provider was built, so turning the
         // feature off is a real kill switch: the routes are absent and a request 404s.
         .merge(if state.telephony.is_some() {
+            // Parse the disclosure table HERE, while the server is still starting.
+            // `consent::table()` panics on a malformed file, and it used to do so at the
+            // first call that needed a notice — which means a corrupt deploy looks
+            // healthy, passes its health check, and then fails on a customer. Reading it
+            // at boot moves that failure to the one moment a deploy is watching for it.
+            // It is also the cheapest possible check: the file is compiled in, so this is
+            // a parse of a constant.
+            let spoken = voip::consent::languages().len();
+            tracing::info!(languages = spoken, "voip disclosure table loaded");
             voip::routes::routes()
         } else {
             Router::new()

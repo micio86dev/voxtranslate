@@ -471,3 +471,99 @@ mod tests {
         assert_eq!(body, "Carla");
     }
 }
+
+/// Somebody is calling one of the organisation's numbers (spec 0116).
+///
+/// Same language bar as [`webinar_copy`] and [`friend_copy`] — the eight the notification
+/// surface carries, with English as the fallback. Not the disclosure file's 84: that one
+/// speaks to the person on the telephone, who did not choose our product; this speaks to a
+/// colleague who has a locale on their account.
+///
+/// `{n}` is who is calling — a contact's name when the address book knows them, and the
+/// masked number when it does not. `{m}` is the number of ours they rang, which is the
+/// thing that tells a colleague WHICH of the company's lines is ringing.
+pub fn voip_copy(lang: &str, caller: &str, on_number: &str) -> (String, String) {
+    let (title, body): (&str, &str) = match lang {
+        "it" => ("Chiamata in arrivo", "{n} sta chiamando {m}."),
+        "es" => ("Llamada entrante", "{n} está llamando a {m}."),
+        "de" => ("Eingehender Anruf", "{n} ruft {m} an."),
+        "fr" => ("Appel entrant", "{n} appelle le {m}."),
+        "pt" => ("Chamada recebida", "{n} está a ligar para {m}."),
+        "ja" => ("着信", "{n} さんが {m} に着信中です。"),
+        "zh" => ("来电", "{n} 正在呼叫 {m}。"),
+        _ => ("Incoming call", "{n} is calling {m}."),
+    };
+    (
+        title.to_string(),
+        body.replace("{n}", caller).replace("{m}", on_number),
+    )
+}
+
+#[cfg(test)]
+mod voip_copy_tests {
+    use super::*;
+
+    #[test]
+    fn a_colleague_is_rung_in_their_own_language() {
+        let (title, body) = voip_copy("it", "Wei Zhang", "+390212345678");
+        assert_eq!(title, "Chiamata in arrivo");
+        assert!(
+            body.contains("Wei Zhang") && body.contains("+390212345678"),
+            "{body}"
+        );
+
+        let (title, _) = voip_copy("de", "Wei Zhang", "+390212345678");
+        assert_eq!(title, "Eingehender Anruf");
+    }
+
+    #[test]
+    fn a_language_outside_the_bar_falls_back_to_english_rather_than_to_a_key() {
+        let (title, body) = voip_copy("kl", "Someone", "+390212345678");
+        assert_eq!(title, "Incoming call");
+        assert!(body.starts_with("Someone is calling"), "{body}");
+    }
+
+    /// CLAUDE.md sets this file's bar at 8 and says to raise it for the whole file or not
+    /// at all. Asserting the fallback alone would have let a function quietly ship fewer
+    /// languages than its neighbours and still look correct — English is a plausible
+    /// answer for a language nobody wrote, and for one somebody forgot.
+    #[test]
+    fn voip_copy_holds_the_same_bar_as_every_other_function_in_this_file() {
+        const BAR: [&str; 7] = ["de", "es", "fr", "it", "ja", "pt", "zh"];
+        // The BODY, not the title: `meeting_copy` puts the meeting's own name in the
+        // title, so titles match across languages for a reason that has nothing to do
+        // with translation. The sentence is where the language lives.
+        let en_voip = voip_copy("en", "Caller", "+390212345678").1;
+        let en_meeting = meeting_copy("meeting_invited", "en", "Room").1;
+        let en_subscription = subscription_copy("en", 3).1;
+        for lang in BAR {
+            assert_ne!(
+                voip_copy(lang, "Caller", "+390212345678").1,
+                en_voip,
+                "{lang} is on this file's bar but voip_copy fell through to English"
+            );
+            // The siblings must cover the same language, so the file cannot drift into a
+            // different bar per function — which is the state CLAUDE.md forbids.
+            assert_ne!(
+                meeting_copy("meeting_invited", lang, "Room").1,
+                en_meeting,
+                "meeting_copy lost {lang}"
+            );
+            assert_ne!(
+                subscription_copy(lang, 3).1,
+                en_subscription,
+                "subscription_copy lost {lang}"
+            );
+        }
+    }
+
+    #[test]
+    fn both_placeholders_are_always_filled() {
+        // A notification that says "{n} is calling {m}" is worse than no notification.
+        for lang in ["en", "it", "es", "de", "fr", "pt", "ja", "zh", "xx"] {
+            let (_, body) = voip_copy(lang, "Caller", "+390212345678");
+            assert!(!body.contains("{n}"), "{lang} left {{n}} unfilled: {body}");
+            assert!(!body.contains("{m}"), "{lang} left {{m}} unfilled: {body}");
+        }
+    }
+}

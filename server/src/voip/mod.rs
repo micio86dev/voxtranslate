@@ -1,9 +1,14 @@
 //! Translated telephone calls (spec 0111).
 
+pub mod analytics;
 pub mod codec;
 pub mod consent;
+pub mod contacts;
 pub mod disclosure;
+pub mod hours;
+pub mod inbound;
 pub mod media;
+pub mod numbers;
 pub mod policy;
 pub mod pricing;
 pub mod reservation;

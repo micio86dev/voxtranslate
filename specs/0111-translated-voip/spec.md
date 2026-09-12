@@ -524,6 +524,54 @@ staging verified green, then release with `main` first and a back-merge into `de
     Voice Profile are the two controls that take effect immediately; the runbook says so
     rather than implying `VOIP_ROLLOUT_STAGE=disabled` spares calls in progress.
 
+## 8b. Amendment — 2026-09-11 (four defects closed under [0112](../0112-business-phone-dashboard/spec.md))
+
+Found by an independent review of the shipped code while building the dashboard. Recorded
+here rather than edited into the sections above, per `specs/README.md`.
+
+1. **The capture default disagreed with itself in three places.** `default_for_new_org`
+   states the rule — recording, transcription and AI analysis stay off, because "a default
+   that captures someone nobody asked is a different kind of mistake from a default that
+   refuses a call" — and the read path honoured it. Migration 056's column default said
+   `TRUE`, and `put_settings` carried `#[serde(default = "yes")]`, so an admin who sent
+   `{"enabled": true}` switched transcription on for the organisation without naming it,
+   and a row created by any other path arrived with capture already permitted.
+   `an_org_with_no_settings_row_reads_as_ready_to_dial` asserted the property while the
+   write path contradicted it. Migration **059** moves the column default to `FALSE` and
+   the serde default follows; existing rows are untouched, because an organisation that
+   deliberately switched it on must keep it. **Not a consent bypass** — capture
+   additionally requires the per-call flag and the consent gate, both independently
+   enforced and tested — but the ceiling was wrong.
+   `allow_international` was checked and is consistent (`TRUE` in all three places).
+
+2. **`quote` did not run "the same gate as `dial`", which its doc comment promised.**
+   `require_project` and caller-id resolution were dial-only, so both refusals arrived
+   after the customer had read a price. `quote` now takes `project_id` and `caller_id` —
+   a gate cannot check inputs it was not given — and runs both **after** `check_and_quote`,
+   never before: `policy::check` puts entitlement first so a prober learns their
+   organisation is not entitled before they learn anything else, and running these ahead of
+   it leaked which setting they had got wrong. Caller-id is verified only when one was
+   explicitly **named**; "this organisation owns no number yet" stays a dial-time refusal,
+   because refusing to show a price to a paying customer who has not bought a number is
+   hostile (R24).
+
+3. **Policy refusals crossed the API boundary as raw English.** `err_response` already
+   said only the stable code may cross, "because a policy refusal's prose would be
+   untranslatable" — then the same file used the shared `bad_request`/`forbidden` helpers,
+   which emit `text/plain`. The dashboard reads `{ error }`, so it could not parse them and
+   rendered *every* one as the generic message. Six stable codes now: `project_required`,
+   `project_not_in_org`, `caller_id_unverified`, `caller_id_missing`,
+   `invalid_country_code`, `consent_required_for_capture`, with copy in all five dashboard
+   locales. No prose refusal remains in `voip/routes.rs`.
+
+4. **The caller-ID spoofing refusal had no test**, on the branch whose own comment notes
+   that presenting a number you cannot prove you own is illegal in most of our markets.
+   Covered now for another organisation's verified number and for one's own unverified
+   number.
+
+Also fixed in the same pass: the dialer quoted without `engine_id`, so every price was
+the default engine's — changing the tier did not move the figure.
+
 ## 9. References
 
 - `.claude/goals/voxtranslate-voip.md` — originating requirements

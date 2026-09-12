@@ -566,15 +566,27 @@ pub async fn dial(
         &opts.target_language,
     );
 
+    // Who we called, when the address book knows (spec 0114). Resolved here rather than
+    // asked of the caller: the number is what was dialled, and the contact is a fact about
+    // it. `ON DELETE SET NULL` means removing somebody later leaves this call intact.
+    let contact_id: Option<Uuid> = sqlx::query_scalar(
+        "SELECT contact_id FROM voip_contact_numbers WHERE org_id = $1 AND e164 = $2",
+    )
+    .bind(org_id)
+    .bind(dest.as_str())
+    .fetch_optional(&mut *tx)
+    .await?
+    .flatten();
+
     let call_id: Uuid = sqlx::query_scalar(
         "INSERT INTO voip_calls
-            (session_id, org_id, user_id, project_id, provider, provider_region, direction,
-             caller_e164, recipient_e164, recipient_pseudonym, recipient_country,
+            (session_id, org_id, user_id, project_id, contact_id, provider, provider_region,
+             direction, caller_e164, recipient_e164, recipient_pseudonym, recipient_country,
              source_language, target_language, engine_id, eu_processing_required,
              status, consent_policy, consent_status, estimated_cost_usd,
              quoted_price_per_min, recording_status, transcription_status,
              ai_analysis_requested)
-         VALUES ($1, $2, $3, $4, $5, $6, 'outbound', $7, $8, $9, $10, $11, $12, $13, $14,
+         VALUES ($1, $2, $3, $4, $22, $5, $6, 'outbound', $7, $8, $9, $10, $11, $12, $13, $14,
                  'created', $15, $16, $17, $18, $19, $20, $21)
          RETURNING id",
     )
@@ -601,6 +613,7 @@ pub async fn dial(
     // Remembered, because the analysis can only happen once the call is over and the
     // transcript is finished — long after this request is gone.
     .bind(intent.ai_analysis)
+    .bind(contact_id)
     .fetch_one(&mut *tx)
     .await?;
 

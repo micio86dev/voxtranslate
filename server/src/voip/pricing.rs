@@ -105,6 +105,9 @@ pub enum PricingError {
     /// A negative cost. Someone's arithmetic is wrong upstream and pricing it would hide
     /// that.
     NegativeCost,
+    /// `VOIP_NUMBER_MARKUP_PERCENT` negative — a markup that reduces the price is a
+    /// discount, and if we ever want one it should be called that.
+    MarkupNegative,
 }
 
 impl PricingError {
@@ -113,6 +116,7 @@ impl PricingError {
             Self::MarginOutOfRange => "margin_out_of_range",
             Self::BufferNegative => "buffer_negative",
             Self::NegativeCost => "negative_cost",
+            Self::MarkupNegative => "markup_negative",
         }
     }
 }
@@ -191,6 +195,68 @@ pub fn realised_margin(charge: Usd, cost: Usd) -> Option<Decimal> {
         return None;
     }
     Some(((charge - cost) / charge).round_dp(MONEY_DP))
+}
+
+/// Pass-through pricing for things we BUY on a customer's behalf (spec 0115 R3).
+///
+/// A telephone number is not a call. There is no translation component, nothing is
+/// metered, and nothing is estimated: a bill arrives from the carrier — once when the
+/// number is bought, then monthly for as long as it is kept — and we pass it on. The
+/// commercial rule for that is a **markup**: `cost × (1 + markup)`, 20% by default.
+///
+/// # Why this is not [`MarginPolicy`]
+///
+/// They are two policies because they answer two questions, and `docs/voip-billing.md` §1
+/// exists because confusing them is expensive: a 20% markup is a 16.7% gross margin, and a
+/// 20% gross margin is a 25% markup. A per-minute call price is guarded by a MARGIN floor,
+/// because its cost is a forecast made of several moving parts and the floor is the thing
+/// that has to survive the invoice. A number's cost is a known number on a known day.
+///
+/// One type, one function, one environment variable. The brief's instruction not to
+/// scatter `* 1.20` through the codebase is the whole reason this exists as a type rather
+/// than as an expression at three call sites.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NumberMarkupPolicy {
+    markup: Decimal,
+}
+
+impl NumberMarkupPolicy {
+    /// `markup` is a FRACTION (`0.20` = 20%), matching `MarginPolicy` and the repo's
+    /// convention of dividing `*_PERCENT` env vars by 100 before they get here.
+    pub fn new(markup: Decimal) -> Result<Self, PricingError> {
+        if markup < Decimal::ZERO {
+            return Err(PricingError::MarkupNegative);
+        }
+        Ok(Self { markup })
+    }
+
+    pub fn markup(&self) -> Decimal {
+        self.markup
+    }
+
+    /// What the customer pays for something we bought for `provider_cost`.
+    ///
+    /// Rounded **up** at [`MONEY_DP`], like every other price in this module: the rounding
+    /// direction is chosen so the guarantee holds rather than approximately holds.
+    pub fn customer_price(&self, provider_cost: Usd) -> Result<Usd, PricingError> {
+        if provider_cost < Decimal::ZERO {
+            return Err(PricingError::NegativeCost);
+        }
+        Ok(round_up(
+            provider_cost * (Decimal::ONE + self.markup),
+            MONEY_DP,
+        ))
+    }
+
+    /// The same statement from the other side, for anyone reading a margin report.
+    ///
+    /// `margin = markup / (1 + markup)` — so the default 20% markup is a 16.67% gross
+    /// margin, which is BELOW the floor calls are held to. That is deliberate and it is
+    /// not an oversight: we are reselling a carrier's line item, not running a translation
+    /// engine against it.
+    pub fn equivalent_margin(&self) -> Decimal {
+        self.markup / (Decimal::ONE + self.markup)
+    }
 }
 
 /// Round away from zero at `dp` places. `Decimal::round_dp` rounds to nearest, which can
@@ -758,5 +824,105 @@ mod tests {
         assert_eq!(usd_from_config(0.0036), d("0.0036"));
         assert_eq!(usd_from_config(0.008), d("0.008"));
         assert_eq!(usd_from_config(0.0), Decimal::ZERO);
+    }
+}
+
+#[cfg(test)]
+mod number_markup_tests {
+    use super::*;
+
+    fn policy(markup: &str) -> NumberMarkupPolicy {
+        NumberMarkupPolicy::new(Decimal::from_str_exact(markup).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn the_default_policy_is_cost_plus_twenty_percent() {
+        let p = policy("0.20");
+        assert_eq!(
+            p.customer_price(Decimal::from_str_exact("1.00").unwrap())
+                .unwrap(),
+            Decimal::from_str_exact("1.200000").unwrap()
+        );
+        // A typical European local number, month after month.
+        assert_eq!(
+            p.customer_price(Decimal::from_str_exact("1.35").unwrap())
+                .unwrap(),
+            Decimal::from_str_exact("1.620000").unwrap()
+        );
+    }
+
+    #[test]
+    fn a_markup_is_not_a_margin_and_the_type_says_which_it_is() {
+        // The distinction docs/voip-billing.md §1 exists to protect: 20% markup is a
+        // 16.67% gross margin. Reading one as the other is how a price ends up wrong in
+        // the direction nobody notices.
+        let p = policy("0.20");
+        let margin = p.equivalent_margin();
+        assert!(
+            margin > Decimal::from_str_exact("0.166").unwrap()
+                && margin < Decimal::from_str_exact("0.167").unwrap(),
+            "20% markup should be ~16.67% margin, got {margin}"
+        );
+        // And the call-minute floor is the other statement: 25% markup IS 20% margin.
+        let quarter = policy("0.25");
+        assert_eq!(
+            quarter.equivalent_margin().round_dp(4),
+            Decimal::from_str_exact("0.2000").unwrap()
+        );
+    }
+
+    #[test]
+    fn rounding_is_up_so_the_markup_is_never_shaved_off() {
+        // 0.015 x 1.2 = 0.018 exactly, but rates arrive with more places than that.
+        let p = policy("0.20");
+        let priced = p
+            .customer_price(Decimal::from_str_exact("0.0123456789").unwrap())
+            .unwrap();
+        let exact = Decimal::from_str_exact("0.0123456789").unwrap()
+            * Decimal::from_str_exact("1.20").unwrap();
+        assert!(priced >= exact, "{priced} rounded below the exact {exact}");
+        assert_eq!(priced.scale(), MONEY_DP);
+    }
+
+    #[test]
+    fn a_free_number_stays_free() {
+        // Some toll-free ranges and some promotional numbers cost nothing. Twenty percent
+        // of nothing is nothing, and inventing a floor here would bill for a gift.
+        let p = policy("0.20");
+        assert_eq!(p.customer_price(Decimal::ZERO).unwrap(), Decimal::ZERO);
+    }
+
+    #[test]
+    fn a_negative_cost_is_refused_rather_than_priced() {
+        let p = policy("0.20");
+        assert_eq!(
+            p.customer_price(Decimal::from_str_exact("-1").unwrap()),
+            Err(PricingError::NegativeCost)
+        );
+    }
+
+    #[test]
+    fn a_discount_has_to_be_asked_for_by_name() {
+        assert_eq!(
+            NumberMarkupPolicy::new(Decimal::from_str_exact("-0.1").unwrap()),
+            Err(PricingError::MarkupNegative)
+        );
+        // Zero is legitimate: pass a carrier's price straight through.
+        assert!(NumberMarkupPolicy::new(Decimal::ZERO).is_ok());
+    }
+
+    #[test]
+    fn a_year_of_a_number_is_twelve_priced_months_not_a_priced_year() {
+        // Each renewal is its own charge with its own snapshot, so the customer's yearly
+        // total is the sum of what they were actually billed — not a figure recomputed
+        // from today's rate (spec 0111 R27, and the reason the row stores the price).
+        let p = policy("0.20");
+        let monthly = p
+            .customer_price(Decimal::from_str_exact("1.35").unwrap())
+            .unwrap();
+        assert_eq!(
+            monthly * Decimal::from(12),
+            Decimal::from_str_exact("19.440000").unwrap()
+        );
     }
 }
