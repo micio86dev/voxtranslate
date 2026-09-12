@@ -173,3 +173,14 @@ Suspension is reversible and release is not, so the sweep may only ever suspend.
    our expense for the grace period. That is a deliberate, bounded loss.
 4. Porting is out of scope, so a customer's existing number reaches us only through
    verification (caller ID) or forwarding — 0116 covers the inbound half.
+
+## 8b. Amendment — 2026-09-12
+
+**Ledger descriptions carry data, not English prose.**
+
+The purchase and renewal charges wrote `"Telephone number +39…"` and `"Monthly charge for
+telephone number +39…"` into `credit_transactions.description`. A ledger row outlives the
+session that wrote it and is read by whoever opens the books, possibly in another language,
+so a sentence stored at charge time can never be right for every future reader. The
+machine-readable `kind` — `voip_number_purchase`, `voip_number_renewal` — is the translatable
+half and always was. The description now carries the number and nothing else.

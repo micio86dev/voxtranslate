@@ -220,7 +220,12 @@ pub async fn buy(
             KIND_PURCHASE,
             None,
             Some(user.user_id),
-            &format!("Telephone number {}", dest.masked()),
+            // The number, and nothing else. `KIND_PURCHASE` is the machine-readable
+            // half and it is what a client translates from; an English sentence stored
+            // here could never be right for every future reader of the row, because a
+            // ledger entry outlives the session that wrote it and is read by whoever
+            // opens the books. Data in the row, copy in the client.
+            &dest.masked(),
         )
         .await
         .map_err(db_err)?
@@ -478,7 +483,9 @@ pub async fn renew_due(
                 KIND_RENEWAL,
                 None,
                 None,
-                &format!("Monthly charge for telephone number {e164}"),
+                // Data, not copy — see the purchase charge above. `KIND_RENEWAL` says
+                // what this is, in whatever language the reader asked for.
+                &e164,
             )
             .await?
         } else {

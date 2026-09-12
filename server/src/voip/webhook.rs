@@ -244,7 +244,7 @@ async fn resolve_call(
     // being replaced (a redirect, a second leg) in a way the leg id does not.
     if let Some(state) = event.client_state.as_deref() {
         if let Ok(id) = Uuid::parse_str(state) {
-            let row = fetch_call(tx, "id = $1", id).await?;
+            let row = fetch_call(tx, id).await?;
             if row.is_some() {
                 // Make sure this leg is recorded against the call, so a later event that
                 // arrives without a client_state still resolves.
@@ -266,15 +266,19 @@ async fn resolve_call(
     fetch_call_by_leg(tx, &event.leg_id).await
 }
 
+/// The predicate used to be a `&str` parameter interpolated with `format!`. There was
+/// exactly one caller, passing a literal — so the parameter bought no flexibility and
+/// cost a function whose signature accepts arbitrary SQL. A reader has to go and check
+/// every call site to know it is safe, and the next caller has no reason not to pass
+/// something worse. The query is fixed now, so there is nothing to check.
 async fn fetch_call(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    predicate: &str,
     id: Uuid,
 ) -> Result<Option<CallRow>, sqlx::Error> {
-    sqlx::query_as(&format!(
+    sqlx::query_as(
         "SELECT id, session_id, status, quoted_price_per_min, answered_at
-         FROM voip_calls WHERE {predicate} FOR UPDATE"
-    ))
+         FROM voip_calls WHERE id = $1 FOR UPDATE",
+    )
     .bind(id)
     .fetch_optional(&mut **tx)
     .await

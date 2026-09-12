@@ -297,6 +297,16 @@ static DISCLOSURE_JSON: &str = include_str!("../../assets/voip-disclosure.json")
 fn table() -> &'static HashMap<String, HashMap<String, String>> {
     static TABLE: OnceLock<HashMap<String, HashMap<String, String>>> = OnceLock::new();
     TABLE.get_or_init(|| {
+        // A panic, deliberately, and not a silent empty table. The alternative —
+        // `unwrap_or_default()` — would start every call with no notice to read and no
+        // error anywhere, which is the compliance failure this whole module exists to
+        // prevent. Loud beats quiet when the quiet answer is "record them anyway".
+        //
+        // It is also unreachable in a shipped binary twice over: the file is
+        // `include_str!`-ed, so it is fixed at build time, and `every_language_carries_
+        // every_sentence` plus `the_table_speaks_every_language_the_product_does` parse
+        // it on every CI run. `lib.rs` calls `languages()` while mounting the VoIP routes
+        // so that if it ever did fail, it fails during boot rather than during a call.
         serde_json::from_str(DISCLOSURE_JSON).expect("voip-disclosure.json is valid and complete")
     })
 }

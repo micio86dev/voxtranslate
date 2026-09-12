@@ -159,7 +159,16 @@ impl MockTelephonyProvider {
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, MockState> {
-        self.state.lock().expect("mock provider mutex poisoned")
+        // Recovered, not panicked on. `config.rs` allows `VOIP_PROVIDER=mock` in a
+        // deployed environment, so this is a production path even though the type is a
+        // test double — and poisoning here means some other thread panicked while holding
+        // the lock, not that this state is unusable. It is a command log and a few
+        // vectors; reading it after someone else's panic is exactly what an operator
+        // debugging that panic needs. Turning one thread's failure into every subsequent
+        // caller's failure would be the more destructive choice.
+        self.state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     // ---- scripting ---------------------------------------------------------
