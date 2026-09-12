@@ -3566,3 +3566,123 @@ async fn a_call_nobody_answers_becomes_a_missed_call_rather_than_ringing_for_eve
     assert_eq!(reason.as_deref(), Some("no_answer"));
     assert!(answered_by.is_none(), "a missed call has an answerer");
 }
+
+// ---- analytics (spec 0117) -------------------------------------------------
+
+#[tokio::test]
+async fn telephony_analytics_answers_the_question_a_finance_person_asks_first() {
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+
+    // Two calls: one answered, one missed.
+    let answered = make_call(&srv, org, owner).await;
+    sqlx::query(
+        "UPDATE voip_calls SET duration_seconds = 120, credits_consumed = 60,
+                               recipient_country = 'CN', source_language = 'it',
+                               target_language = 'zh'
+          WHERE id = $1",
+    )
+    .bind(answered)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+
+    let missed = make_call(&srv, org, owner).await;
+    sqlx::query(
+        "UPDATE voip_calls SET direction = 'inbound', missed = TRUE, duration_seconds = 0,
+                               recipient_country = 'ES'
+          WHERE id = $1",
+    )
+    .bind(missed)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+
+    let body: Value = client()
+        .get(format!(
+            "{}/api/business/organizations/{org}/voip/analytics?days=30",
+            base(&srv)
+        ))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+
+    assert_eq!(body["totals"]["calls"], json!(2), "{body}");
+    assert_eq!(body["totals"]["inbound"], json!(1), "{body}");
+    assert_eq!(body["totals"]["outbound"], json!(1), "{body}");
+    // A call that connected and lasted no time is not the same event as one nobody
+    // answered, and the two counts must not overlap.
+    assert_eq!(body["totals"]["answered"], json!(1), "{body}");
+    assert_eq!(body["totals"]["missed"], json!(1), "{body}");
+    assert_eq!(body["totals"]["seconds"], json!(120), "{body}");
+
+    let countries: Vec<String> = body["by_country"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|b| b["label"].as_str().unwrap().to_string())
+        .collect();
+    assert!(countries.contains(&"CN".to_string()), "{body}");
+    assert!(countries.contains(&"ES".to_string()), "{body}");
+
+    assert!(
+        body["by_language"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|b| b["label"].as_str() == Some("it → zh")),
+        "{body}"
+    );
+
+    // Spec 0112 R6 is not only about the call record.
+    let raw = body.to_string();
+    assert!(!raw.contains("gross_margin"), "{raw}");
+    assert!(!raw.contains("provider_cost"), "{raw}");
+}
+
+#[tokio::test]
+async fn telephony_analytics_is_an_admin_view_and_stops_at_the_org_boundary() {
+    let srv = srv!();
+    let (owner, _) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    make_call(&srv, org, owner).await;
+
+    let (member, member_jwt) = user(&srv).await;
+    add_member(&srv, org, member, "member").await;
+    let res = client()
+        .get(format!(
+            "{}/api/business/organizations/{org}/voip/analytics",
+            base(&srv)
+        ))
+        .bearer_auth(&member_jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        res.status(),
+        StatusCode::FORBIDDEN,
+        "spend is financial data, and a member read it"
+    );
+
+    // Another organisation's calls never appear in ours.
+    let (other_owner, other_jwt) = user(&srv).await;
+    let other_org = make_org(&srv, other_owner, "owner").await;
+    let body: Value = client()
+        .get(format!(
+            "{}/api/business/organizations/{other_org}/voip/analytics",
+            base(&srv)
+        ))
+        .bearer_auth(&other_jwt)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(body["totals"]["calls"], json!(0), "{body}");
+}

@@ -1,5 +1,6 @@
 //! Translated telephone calls (spec 0111).
 
+pub mod analytics;
 pub mod codec;
 pub mod consent;
 pub mod contacts;

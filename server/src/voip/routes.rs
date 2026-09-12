@@ -28,7 +28,9 @@ use crate::business::{db_err, not_found, require_pool, require_role, ADMIN, MEMB
 use crate::middleware::AuthUser;
 use crate::telephony::{WebhookHeaders, E164};
 use crate::voip::service::{self, DialOptions, VoipError};
-use crate::voip::{consent, contacts, numbers as number_mgmt, webhook};
+use crate::voip::{
+    analytics as voip_analytics, consent, contacts, numbers as number_mgmt, webhook,
+};
 use crate::AppState;
 
 pub fn routes() -> Router<AppState> {
@@ -56,6 +58,10 @@ pub fn routes() -> Router<AppState> {
         .route(
             "/api/business/organizations/{org_id}/voip/calls/{call_id}/video-invite",
             post(video_invite),
+        )
+        .route(
+            "/api/business/organizations/{org_id}/voip/analytics",
+            get(voip_analytics::summary),
         )
         .route(
             "/api/business/organizations/{org_id}/voip/settings",
