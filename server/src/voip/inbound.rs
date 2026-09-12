@@ -232,23 +232,43 @@ pub async fn identify_caller(
 /// persistent socket to the dashboard to ring down.
 pub async fn ring_users(
     state: &crate::AppState,
+    pool: &crate::db::Pool,
     user_ids: &[Uuid],
     room: &str,
     caller: &str,
     on_number: &str,
 ) {
     for user_id in user_ids {
+        // Each colleague in THEIR OWN language, resolved per recipient — the same shape
+        // `business/meetings.rs` uses, and the reason it bothers: `notify` feeds this
+        // language into the email chrome as well as the body, so hardcoding it makes the
+        // whole message English for everyone regardless of who they are.
+        let lang = crate::notify_copy::user_locale(pool, *user_id).await;
+        let (title, body) = crate::notify_copy::voip_copy(&lang, caller, on_number);
         crate::notifications::notify(
             state,
             *user_id,
             "voip_inbound",
-            "en",
-            caller,
-            on_number,
+            &lang,
+            &title,
+            &body,
             serde_json::json!({ "room_code": room, "kind": "voip_inbound" }),
         )
         .await;
     }
+}
+
+/// One unanswered call, as the sweep reads it.
+#[derive(Debug, sqlx::FromRow)]
+struct UnansweredRow {
+    id: Uuid,
+    provider_leg_ids: Vec<String>,
+    no_answer_action: Option<String>,
+    /// Distinguishes the sweep's TWO passes over the same call: the ring timeout, then
+    /// closing the voicemail once the caller has had their two minutes.
+    missed: bool,
+    /// What this caller was ANSWERED in, so the message prompt is in their language.
+    target_language: String,
 }
 
 /// Calls nobody came to (spec 0116 R4).
@@ -268,8 +288,8 @@ pub async fn sweep_unanswered(
     // first is the ring timeout; the second closes a voicemail once the caller has had
     // their two minutes. Without it the second pass would replay the prompt for ever,
     // because a call taking a message is still unanswered and still has a deadline.
-    let due: Vec<(Uuid, Vec<String>, Option<String>, bool)> = sqlx::query_as(
-        "SELECT id, provider_leg_ids, no_answer_action, missed
+    let due: Vec<UnansweredRow> = sqlx::query_as(
+        "SELECT id, provider_leg_ids, no_answer_action, missed, c.target_language
            FROM voip_calls c
            LEFT JOIN LATERAL (
                 SELECT r.no_answer_action
@@ -288,7 +308,14 @@ pub async fn sweep_unanswered(
     .await?;
 
     let mut closed = 0u64;
-    for (call_id, legs, action, already_missed) in due {
+    for row in due {
+        let (call_id, legs, action, already_missed, language) = (
+            row.id,
+            row.provider_leg_ids,
+            row.no_answer_action,
+            row.missed,
+            row.target_language,
+        );
         if already_missed {
             // Second pass: the message is over. Stop the recording, hang up, and let the
             // ordinary `RecordingSaved` webhook attach what was said.
@@ -332,12 +359,26 @@ pub async fn sweep_unanswered(
                 // Say so, then record. The caller is told what is about to happen before
                 // it happens — the same rule the consent announcement follows, and for the
                 // same reason: somebody being recorded is owed the sentence beforehand.
+                // In the language this caller was ANSWERED in. `identify_caller`
+                // resolved it at admission and wrote it to `target_language`; a missed
+                // call is one nobody picked up, which is a different thing from one where
+                // nobody was identified.
+                let (text, fell_back) = crate::voip::consent::voicemail_prompt(&language);
+                if fell_back {
+                    // A compliance fact, not a cosmetic one — the same reason
+                    // `announcement` reports its own fallback.
+                    tracing::warn!(
+                        call = %call_id,
+                        %language,
+                        "voicemail prompt fell back to English"
+                    );
+                }
                 let _ = provider
                     .play(
                         &leg_id,
                         crate::telephony::PlayRequest::Speak {
-                            text: VOICEMAIL_PROMPT.into(),
-                            language: "en".into(),
+                            text,
+                            language: language.clone(),
                             voice: None,
                         },
                     )
@@ -387,14 +428,6 @@ pub async fn sweep_unanswered(
     }
     Ok(closed)
 }
-
-/// What a caller hears before the tone.
-///
-/// English, because the carrier speaks it (0111 §8.10) and because at this point nobody
-/// has been identified — a missed call is by definition one where the address book's
-/// answer did not reach a person who could act on it.
-const VOICEMAIL_PROMPT: &str =
-    "Nobody is available to take your call. Please leave a message after the tone.";
 
 /// How long a caller may speak before the line is closed. Long enough for a real message,
 /// short enough that a forgotten handset does not bill for an hour.
@@ -584,6 +617,7 @@ pub async fn admit(
     if open {
         ring_users(
             state,
+            pool,
             &ring.user_ids,
             &room,
             contact_name.as_deref().unwrap_or(&from.masked()),

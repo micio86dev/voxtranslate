@@ -7,7 +7,8 @@
     "refuse_continue": "Andersins gaan die oproep sonder dit voort.",
     "refuse_end": "Andersins sal die oproep eindig.",
     "transcription": "Hierdie oproep gebruik intyds KI-vertaling en sal getranskribeer word. Die stem wat jy hoor is gegenereer.",
-    "translation_only": "Hierdie oproep gebruik intyds KI-vertaling. Die stem wat jy hoor is gegenereer."
+    "translation_only": "Hierdie oproep gebruik intyds KI-vertaling. Die stem wat jy hoor is gegenereer.",
+    "voicemail": "Niemand is beskikbaar om u oproep te beantwoord nie. Laat asseblief 'n boodskap na die toon."
   },
   "am": {
     "gate_press_key": "ለመስማማት 1 ይጫኑ።",
@@ -17,7 +18,8 @@
     "refuse_continue": "ካልሆነ ጥሪው ያለሱ ይቀጥላል።",
     "refuse_end": "ካልሆነ ጥሪው ይቋረጣል።",
     "transcription": "ይህ ጥሪ በቅጽበታዊ የAI ትርጉም ይጠቀማል እና ወደ ጽሑፍ ይቀየራል። የሚሰሙት ድምፅ በኮምፒውተር የተፈጠረ ነው።",
-    "translation_only": "ይህ ጥሪ በቅጽበታዊ የAI ትርጉም ይጠቀማል። የሚሰሙት ድምፅ በኮምፒውተር የተፈጠረ ነው።"
+    "translation_only": "ይህ ጥሪ በቅጽበታዊ የAI ትርጉም ይጠቀማል። የሚሰሙት ድምፅ በኮምፒውተር የተፈጠረ ነው።",
+    "voicemail": "ጥሪዎን የሚመልስ ሰው የለም። እባክዎ ከድምፁ በኋላ መልእክት ይተዉ።"
   },
   "ar": {
     "gate_press_key": "للموافقة، اضغط 1.",
@@ -27,7 +29,8 @@
     "refuse_continue": "وإلا فستستمر المكالمة بدون ذلك.",
     "refuse_end": "وإلا فستنتهي المكالمة.",
     "transcription": "تستخدم هذه المكالمة ترجمة فورية بالذكاء الاصطناعي وسيتم تفريغها نصياً. الصوت الذي تسمعه مُولَّد.",
-    "translation_only": "تستخدم هذه المكالمة ترجمة فورية بالذكاء الاصطناعي. الصوت الذي تسمعه مُولَّد."
+    "translation_only": "تستخدم هذه المكالمة ترجمة فورية بالذكاء الاصطناعي. الصوت الذي تسمعه مُولَّد.",
+    "voicemail": "لا يوجد أحد متاح للرد على مكالمتك. يرجى ترك رسالة بعد الصافرة."
   },
   "az": {
     "gate_press_key": "Razılaşmaq üçün 1 düyməsini basın.",
@@ -37,7 +40,8 @@
     "refuse_continue": "Əks halda zəng bunsuz davam edəcək.",
     "refuse_end": "Əks halda zəng sona çatacaq.",
     "transcription": "Bu zəng real vaxtda süni intellekt tərcüməsindən istifadə edir və mətnə çevriləcək. Eşitdiyiniz səs süni yaradılıb.",
-    "translation_only": "Bu zəng real vaxtda süni intellekt tərcüməsindən istifadə edir. Eşitdiyiniz səs süni yaradılıb."
+    "translation_only": "Bu zəng real vaxtda süni intellekt tərcüməsindən istifadə edir. Eşitdiyiniz səs süni yaradılıb.",
+    "voicemail": "Zənginizi cavablandıracaq heç kim yoxdur. Zəhmət olmasa siqnaldan sonra mesaj buraxın."
   },
   "be": {
     "gate_press_key": "Каб пагадзіцца, націсніце 1.",
@@ -47,7 +51,8 @@
     "refuse_continue": "Інакш званок працягнецца без гэтага.",
     "refuse_end": "Інакш званок будзе завершаны.",
     "transcription": "Гэты званок выкарыстоўвае пераклад са штучным інтэлектам у рэальным часе і будзе расшыфраваны ў тэкст. Голас, які вы чуеце, згенераваны.",
-    "translation_only": "Гэты званок выкарыстоўвае пераклад са штучным інтэлектам у рэальным часе. Голас, які вы чуеце, згенераваны."
+    "translation_only": "Гэты званок выкарыстоўвае пераклад са штучным інтэлектам у рэальным часе. Голас, які вы чуеце, згенераваны.",
+    "voicemail": "Няма каму адказаць на ваш званок. Калі ласка, пакіньце паведамленне пасля сігналу."
   },
   "bg": {
     "gate_press_key": "За да се съгласите, натиснете 1.",
@@ -57,7 +62,8 @@
     "refuse_continue": "В противен случай разговорът продължава без това.",
     "refuse_end": "В противен случай разговорът ще приключи.",
     "transcription": "Това обаждане използва превод с изкуствен интелект в реално време и ще бъде транскрибирано. Гласът, който чувате, е генериран.",
-    "translation_only": "Това обаждане използва превод с изкуствен интелект в реално време. Гласът, който чувате, е генериран."
+    "translation_only": "Това обаждане използва превод с изкуствен интелект в реално време. Гласът, който чувате, е генериран.",
+    "voicemail": "В момента няма кой да приеме обаждането ви. Моля, оставете съобщение след сигнала."
   },
   "bn": {
     "gate_press_key": "সম্মত হতে ১ চাপুন।",
@@ -67,7 +73,8 @@
     "refuse_continue": "অন্যথায় কলটি তা ছাড়াই চলবে।",
     "refuse_end": "অন্যথায় কলটি শেষ হয়ে যাবে।",
     "transcription": "এই কলটি রিয়েল-টাইম এআই অনুবাদ ব্যবহার করছে এবং লিখিত রূপে রাখা হবে। আপনি যে কণ্ঠস্বর শুনছেন তা কৃত্রিমভাবে তৈরি।",
-    "translation_only": "এই কলটি রিয়েল-টাইম এআই অনুবাদ ব্যবহার করছে। আপনি যে কণ্ঠস্বর শুনছেন তা কৃত্রিমভাবে তৈরি।"
+    "translation_only": "এই কলটি রিয়েল-টাইম এআই অনুবাদ ব্যবহার করছে। আপনি যে কণ্ঠস্বর শুনছেন তা কৃত্রিমভাবে তৈরি।",
+    "voicemail": "আপনার কল ধরার জন্য কেউ উপলব্ধ নেই। অনুগ্রহ করে সংকেতের পরে একটি বার্তা রাখুন।"
   },
   "bs": {
     "gate_press_key": "Za pristanak pritisnite 1.",
@@ -77,7 +84,8 @@
     "refuse_continue": "U suprotnom poziv se nastavlja bez toga.",
     "refuse_end": "U suprotnom poziv će biti prekinut.",
     "transcription": "Ovaj poziv koristi prijevod umjetnom inteligencijom u stvarnom vremenu i bit će transkribiran. Glas koji čujete je generiran.",
-    "translation_only": "Ovaj poziv koristi prijevod umjetnom inteligencijom u stvarnom vremenu. Glas koji čujete je generiran."
+    "translation_only": "Ovaj poziv koristi prijevod umjetnom inteligencijom u stvarnom vremenu. Glas koji čujete je generiran.",
+    "voicemail": "Trenutno nema nikoga da preuzme vaš poziv. Molimo ostavite poruku nakon signala."
   },
   "ca": {
     "gate_press_key": "Per acceptar, premeu 1.",
@@ -87,7 +95,8 @@
     "refuse_continue": "Si no, la trucada continua sense això.",
     "refuse_end": "Si no, la trucada finalitzarà.",
     "transcription": "Aquesta trucada utilitza traducció amb IA en temps real i es transcriurà. La veu que sents és generada.",
-    "translation_only": "Aquesta trucada utilitza traducció amb IA en temps real. La veu que sents és generada."
+    "translation_only": "Aquesta trucada utilitza traducció amb IA en temps real. La veu que sents és generada.",
+    "voicemail": "No hi ha ningú disponible per atendre la seva trucada. Deixi un missatge després del senyal."
   },
   "ckb": {
     "gate_press_key": "بۆ ڕازیبوون ١ دابگرە.",
@@ -97,7 +106,8 @@
     "refuse_continue": "ئەگەرنا پەیوەندییەکە بەبێ ئەوە بەردەوام دەبێت.",
     "refuse_end": "ئەگەرنا پەیوەندییەکە کۆتایی دێت.",
     "transcription": "ئەم پەیوەندییە وەرگێڕانی خێرای AI بەکاردەهێنێت و دەکرێت بە نووسین. ئەو دەنگەی دەیبیستیت دروستکراوە.",
-    "translation_only": "ئەم پەیوەندییە وەرگێڕانی خێرای AI بەکاردەهێنێت. ئەو دەنگەی دەیبیستیت دروستکراوە."
+    "translation_only": "ئەم پەیوەندییە وەرگێڕانی خێرای AI بەکاردەهێنێت. ئەو دەنگەی دەیبیستیت دروستکراوە.",
+    "voicemail": "کەس بەردەست نییە بۆ وەڵامدانەوەی پەیوەندییەکەت. تکایە دوای دەنگەکە پەیامێک بەجێبهێڵە."
   },
   "cs": {
     "gate_press_key": "Pro souhlas stiskněte 1.",
@@ -107,7 +117,8 @@
     "refuse_continue": "Jinak hovor pokračuje bez toho.",
     "refuse_end": "Jinak bude hovor ukončen.",
     "transcription": "Tento hovor používá překlad s umělou inteligencí v reálném čase a bude přepsán do textu. Hlas, který slyšíte, je generovaný.",
-    "translation_only": "Tento hovor používá překlad s umělou inteligencí v reálném čase. Hlas, který slyšíte, je generovaný."
+    "translation_only": "Tento hovor používá překlad s umělou inteligencí v reálném čase. Hlas, který slyšíte, je generovaný.",
+    "voicemail": "Nikdo není k dispozici, aby váš hovor přijal. Zanechte prosím zprávu po zaznění tónu."
   },
   "cy": {
     "gate_press_key": "I gytuno, pwyswch 1.",
@@ -117,7 +128,8 @@
     "refuse_continue": "Fel arall, bydd yr alwad yn parhau hebddo.",
     "refuse_end": "Fel arall, bydd yr alwad yn dod i ben.",
     "transcription": "Mae'r alwad hon yn defnyddio cyfieithu AI amser real a bydd yn cael ei thrawsgrifio. Mae'r llais a glywch wedi'i gynhyrchu.",
-    "translation_only": "Mae'r alwad hon yn defnyddio cyfieithu AI amser real. Mae'r llais a glywch wedi'i gynhyrchu."
+    "translation_only": "Mae'r alwad hon yn defnyddio cyfieithu AI amser real. Mae'r llais a glywch wedi'i gynhyrchu.",
+    "voicemail": "Nid oes neb ar gael i ateb eich galwad. Gadewch neges ar ôl y tôn, os gwelwch yn dda."
   },
   "da": {
     "gate_press_key": "Tryk 1 for at give samtykke.",
@@ -127,7 +139,8 @@
     "refuse_continue": "Ellers fortsætter opkaldet uden.",
     "refuse_end": "Ellers afsluttes opkaldet.",
     "transcription": "Dette opkald bruger AI-oversættelse i realtid og bliver transskriberet. Stemmen, du hører, er genereret.",
-    "translation_only": "Dette opkald bruger AI-oversættelse i realtid. Stemmen, du hører, er genereret."
+    "translation_only": "Dette opkald bruger AI-oversættelse i realtid. Stemmen, du hører, er genereret.",
+    "voicemail": "Der er ingen til at tage Deres opkald. Læg venligst en besked efter tonen."
   },
   "de": {
     "gate_press_key": "Zum Einverständnis drücken Sie die 1.",
@@ -137,7 +150,8 @@
     "refuse_continue": "Andernfalls wird das Gespräch ohne fortgesetzt.",
     "refuse_end": "Andernfalls wird das Gespräch beendet.",
     "transcription": "Dieser Anruf nutzt KI-Übersetzung in Echtzeit und wird transkribiert. Die Stimme, die Sie hören, ist synthetisch.",
-    "translation_only": "Dieser Anruf nutzt KI-Übersetzung in Echtzeit. Die Stimme, die Sie hören, ist synthetisch."
+    "translation_only": "Dieser Anruf nutzt KI-Übersetzung in Echtzeit. Die Stimme, die Sie hören, ist synthetisch.",
+    "voicemail": "Es ist niemand verfügbar, um Ihren Anruf entgegenzunehmen. Bitte hinterlassen Sie nach dem Ton eine Nachricht."
   },
   "el": {
     "gate_press_key": "Για να συμφωνήσετε, πατήστε 1.",
@@ -147,7 +161,8 @@
     "refuse_continue": "Διαφορετικά, η κλήση συνεχίζεται χωρίς αυτό.",
     "refuse_end": "Διαφορετικά, η κλήση θα τερματιστεί.",
     "transcription": "Αυτή η κλήση χρησιμοποιεί μετάφραση με τεχνητή νοημοσύνη σε πραγματικό χρόνο και θα απομαγνητοφωνηθεί. Η φωνή που ακούτε είναι συνθετική.",
-    "translation_only": "Αυτή η κλήση χρησιμοποιεί μετάφραση με τεχνητή νοημοσύνη σε πραγματικό χρόνο. Η φωνή που ακούτε είναι συνθετική."
+    "translation_only": "Αυτή η κλήση χρησιμοποιεί μετάφραση με τεχνητή νοημοσύνη σε πραγματικό χρόνο. Η φωνή που ακούτε είναι συνθετική.",
+    "voicemail": "Δεν υπάρχει κανείς διαθέσιμος για να απαντήσει στην κλήση σας. Αφήστε ένα μήνυμα μετά τον ήχο."
   },
   "en": {
     "gate_press_key": "To agree, press 1.",
@@ -157,7 +172,8 @@
     "refuse_continue": "Otherwise, the call continues without it.",
     "refuse_end": "Otherwise, the call will end.",
     "transcription": "This call uses real-time AI translation and will be transcribed. The voice you hear is generated.",
-    "translation_only": "This call uses real-time AI translation. The voice you hear is generated."
+    "translation_only": "This call uses real-time AI translation. The voice you hear is generated.",
+    "voicemail": "Nobody is available to take your call. Please leave a message after the tone."
   },
   "es": {
     "gate_press_key": "Para dar su consentimiento, pulse 1.",
@@ -167,7 +183,8 @@
     "refuse_continue": "De lo contrario, la llamada continúa sin ello.",
     "refuse_end": "De lo contrario, la llamada finalizará.",
     "transcription": "Esta llamada usa traducción con IA en tiempo real y se transcribirá. La voz que oye está generada.",
-    "translation_only": "Esta llamada usa traducción con IA en tiempo real. La voz que oye está generada."
+    "translation_only": "Esta llamada usa traducción con IA en tiempo real. La voz que oye está generada.",
+    "voicemail": "No hay nadie disponible para atender su llamada. Deje un mensaje después de la señal."
   },
   "et": {
     "gate_press_key": "Nõustumiseks vajutage 1.",
@@ -177,7 +194,8 @@
     "refuse_continue": "Vastasel juhul jätkub kõne ilma selleta.",
     "refuse_end": "Vastasel juhul kõne lõpetatakse.",
     "transcription": "See kõne kasutab reaalajas tehisintellekti tõlget ja see transkribeeritakse. Hääl, mida kuulete, on tehislik.",
-    "translation_only": "See kõne kasutab reaalajas tehisintellekti tõlget. Hääl, mida kuulete, on tehislik."
+    "translation_only": "See kõne kasutab reaalajas tehisintellekti tõlget. Hääl, mida kuulete, on tehislik.",
+    "voicemail": "Praegu pole kedagi, kes teie kõnele vastaks. Palun jätke pärast signaali sõnum."
   },
   "eu": {
     "gate_press_key": "Ados egoteko, sakatu 1.",
@@ -187,7 +205,8 @@
     "refuse_continue": "Bestela, deiak hori gabe jarraituko du.",
     "refuse_end": "Bestela, deia amaituko da.",
     "transcription": "Dei honek denbora errealeko AA itzulpena erabiltzen du eta transkribatuko da. Entzuten duzun ahotsa sortua da.",
-    "translation_only": "Dei honek denbora errealeko AA itzulpena erabiltzen du. Entzuten duzun ahotsa sortua da."
+    "translation_only": "Dei honek denbora errealeko AA itzulpena erabiltzen du. Entzuten duzun ahotsa sortua da.",
+    "voicemail": "Ez dago inor zure deia hartzeko. Mesedez, utzi mezu bat seinalearen ondoren."
   },
   "fa": {
     "gate_press_key": "برای موافقت، عدد ۱ را فشار دهید.",
@@ -197,7 +216,8 @@
     "refuse_continue": "در غیر این صورت، تماس بدون آن ادامه می‌یابد.",
     "refuse_end": "در غیر این صورت، تماس پایان می‌یابد.",
     "transcription": "این تماس از ترجمهٔ هوش مصنوعی در لحظه استفاده می‌کند و به متن تبدیل خواهد شد. صدایی که می‌شنوید تولیدشده است.",
-    "translation_only": "این تماس از ترجمهٔ هوش مصنوعی در لحظه استفاده می‌کند. صدایی که می‌شنوید تولیدشده است."
+    "translation_only": "این تماس از ترجمهٔ هوش مصنوعی در لحظه استفاده می‌کند. صدایی که می‌شنوید تولیدشده است.",
+    "voicemail": "کسی برای پاسخگویی به تماس شما در دسترس نیست. لطفاً پس از شنیدن صدا پیام بگذارید."
   },
   "fi": {
     "gate_press_key": "Hyväksy painamalla 1.",
@@ -207,7 +227,8 @@
     "refuse_continue": "Muussa tapauksessa puhelu jatkuu ilman sitä.",
     "refuse_end": "Muussa tapauksessa puhelu päättyy.",
     "transcription": "Tämä puhelu käyttää reaaliaikaista tekoälykäännöstä ja se litteroidaan. Kuulemasi ääni on tuotettu koneellisesti.",
-    "translation_only": "Tämä puhelu käyttää reaaliaikaista tekoälykäännöstä. Kuulemasi ääni on tuotettu koneellisesti."
+    "translation_only": "Tämä puhelu käyttää reaaliaikaista tekoälykäännöstä. Kuulemasi ääni on tuotettu koneellisesti.",
+    "voicemail": "Kukaan ei ole tavoitettavissa vastaamaan puheluunne. Jättäkää viesti äänimerkin jälkeen."
   },
   "fil": {
     "gate_press_key": "Para pumayag, pindutin ang 1.",
@@ -217,7 +238,8 @@
     "refuse_continue": "Kung hindi, magpapatuloy ang tawag nang wala ito.",
     "refuse_end": "Kung hindi, matatapos ang tawag.",
     "transcription": "Gumagamit ang tawag na ito ng real-time na pagsasalin gamit ang AI at ito ay isusulat bilang teksto. Ang boses na naririnig mo ay gawa ng makina.",
-    "translation_only": "Gumagamit ang tawag na ito ng real-time na pagsasalin gamit ang AI. Ang boses na naririnig mo ay gawa ng makina."
+    "translation_only": "Gumagamit ang tawag na ito ng real-time na pagsasalin gamit ang AI. Ang boses na naririnig mo ay gawa ng makina.",
+    "voicemail": "Walang available na sumagot sa inyong tawag. Mag-iwan po ng mensahe pagkatapos ng tunog."
   },
   "fr": {
     "gate_press_key": "Pour accepter, appuyez sur 1.",
@@ -227,7 +249,8 @@
     "refuse_continue": "Sinon, l'appel se poursuit sans cela.",
     "refuse_end": "Sinon, l'appel prendra fin.",
     "transcription": "Cet appel utilise une traduction par IA en temps réel et sera transcrit. La voix que vous entendez est générée.",
-    "translation_only": "Cet appel utilise une traduction par IA en temps réel. La voix que vous entendez est générée."
+    "translation_only": "Cet appel utilise une traduction par IA en temps réel. La voix que vous entendez est générée.",
+    "voicemail": "Personne n'est disponible pour prendre votre appel. Veuillez laisser un message après le signal."
   },
   "ga": {
     "gate_press_key": "Chun aontú, brúigh 1.",
@@ -237,7 +260,8 @@
     "refuse_continue": "Mura ndéanann, leanfaidh an glao ar aghaidh dá uireasa.",
     "refuse_end": "Mura ndéanann, cuirfear deireadh leis an nglao.",
     "transcription": "Úsáideann an glao seo aistriúchán IS fíor-ama agus déanfar tras-scríobh air. Tá an guth a chloiseann tú cruthaithe go saorga.",
-    "translation_only": "Úsáideann an glao seo aistriúchán IS fíor-ama. Tá an guth a chloiseann tú cruthaithe go saorga."
+    "translation_only": "Úsáideann an glao seo aistriúchán IS fíor-ama. Tá an guth a chloiseann tú cruthaithe go saorga.",
+    "voicemail": "Níl aon duine ar fáil chun do ghlao a fhreagairt. Fág teachtaireacht tar éis an toin, le do thoil."
   },
   "gl": {
     "gate_press_key": "Para aceptar, prema 1.",
@@ -247,7 +271,8 @@
     "refuse_continue": "En caso contrario, a chamada continúa sen iso.",
     "refuse_end": "En caso contrario, a chamada rematará.",
     "transcription": "Esta chamada usa tradución con IA en tempo real e transcribirase. A voz que escoita está xerada.",
-    "translation_only": "Esta chamada usa tradución con IA en tempo real. A voz que escoita está xerada."
+    "translation_only": "Esta chamada usa tradución con IA en tempo real. A voz que escoita está xerada.",
+    "voicemail": "Non hai ninguén dispoñible para atender a súa chamada. Deixe unha mensaxe despois do sinal."
   },
   "gu": {
     "gate_press_key": "સંમત થવા માટે 1 દબાવો.",
@@ -257,7 +282,8 @@
     "refuse_continue": "નહીં તો કૉલ તેના વગર ચાલુ રહેશે.",
     "refuse_end": "નહીં તો કૉલ સમાપ્ત થશે.",
     "transcription": "આ કૉલ રિયલ-ટાઇમ AI અનુવાદનો ઉપયોગ કરે છે અને તેનું લખાણ બનાવવામાં આવશે. તમે જે અવાજ સાંભળો છો તે કૃત્રિમ છે.",
-    "translation_only": "આ કૉલ રિયલ-ટાઇમ AI અનુવાદનો ઉપયોગ કરે છે. તમે જે અવાજ સાંભળો છો તે કૃત્રિમ છે."
+    "translation_only": "આ કૉલ રિયલ-ટાઇમ AI અનુવાદનો ઉપયોગ કરે છે. તમે જે અવાજ સાંભળો છો તે કૃત્રિમ છે.",
+    "voicemail": "તમારો કૉલ લેવા માટે કોઈ ઉપલબ્ધ નથી. કૃપા કરીને ટોન પછી સંદેશ મૂકો."
   },
   "ha": {
     "gate_press_key": "Don yarda, danna 1.",
@@ -267,7 +293,8 @@
     "refuse_continue": "In ba haka ba, kiran zai ci gaba ba tare da hakan ba.",
     "refuse_end": "In ba haka ba, kiran zai ƙare.",
     "transcription": "Wannan kira yana amfani da fassarar AI kai tsaye kuma za a rubuta shi. Muryar da kake ji na'ura ce ta ƙirƙira.",
-    "translation_only": "Wannan kira yana amfani da fassarar AI kai tsaye. Muryar da kake ji na'ura ce ta ƙirƙira."
+    "translation_only": "Wannan kira yana amfani da fassarar AI kai tsaye. Muryar da kake ji na'ura ce ta ƙirƙira.",
+    "voicemail": "Babu wanda ke nan don ya karɓi kiranka. Don Allah ka bar saƙo bayan ƙarar."
   },
   "he": {
     "gate_press_key": "כדי להסכים, הקישו 1.",
@@ -277,7 +304,8 @@
     "refuse_continue": "אחרת, השיחה תימשך בלי זה.",
     "refuse_end": "אחרת, השיחה תסתיים.",
     "transcription": "השיחה הזו משתמשת בתרגום בינה מלאכותית בזמן אמת והיא תתומלל. הקול שאתם שומעים מיוצר.",
-    "translation_only": "השיחה הזו משתמשת בתרגום בינה מלאכותית בזמן אמת. הקול שאתם שומעים מיוצר."
+    "translation_only": "השיחה הזו משתמשת בתרגום בינה מלאכותית בזמן אמת. הקול שאתם שומעים מיוצר.",
+    "voicemail": "אין אף אחד זמין לענות לשיחה שלך. נא להשאיר הודעה אחרי הצפצוף."
   },
   "hi": {
     "gate_press_key": "सहमत होने के लिए 1 दबाएँ।",
@@ -287,7 +315,8 @@
     "refuse_continue": "अन्यथा कॉल इसके बिना जारी रहेगी।",
     "refuse_end": "अन्यथा कॉल समाप्त हो जाएगी।",
     "transcription": "यह कॉल रीयल-टाइम एआई अनुवाद का उपयोग करती है और इसका लिखित रिकॉर्ड बनाया जाएगा। आप जो आवाज़ सुन रहे हैं वह कृत्रिम है।",
-    "translation_only": "यह कॉल रीयल-टाइम एआई अनुवाद का उपयोग करती है। आप जो आवाज़ सुन रहे हैं वह कृत्रिम है।"
+    "translation_only": "यह कॉल रीयल-टाइम एआई अनुवाद का उपयोग करती है। आप जो आवाज़ सुन रहे हैं वह कृत्रिम है।",
+    "voicemail": "आपकी कॉल लेने के लिए कोई उपलब्ध नहीं है। कृपया संकेत के बाद संदेश छोड़ें।"
   },
   "hr": {
     "gate_press_key": "Za pristanak pritisnite 1.",
@@ -297,7 +326,8 @@
     "refuse_continue": "U protivnom poziv se nastavlja bez toga.",
     "refuse_end": "U protivnom poziv će završiti.",
     "transcription": "Ovaj poziv koristi prijevod umjetnom inteligencijom u stvarnom vremenu i bit će transkribiran. Glas koji čujete je generiran.",
-    "translation_only": "Ovaj poziv koristi prijevod umjetnom inteligencijom u stvarnom vremenu. Glas koji čujete je generiran."
+    "translation_only": "Ovaj poziv koristi prijevod umjetnom inteligencijom u stvarnom vremenu. Glas koji čujete je generiran.",
+    "voicemail": "Trenutačno nema nikoga tko bi primio vaš poziv. Molimo ostavite poruku nakon signala."
   },
   "ht": {
     "gate_press_key": "Pou aksepte, peze 1.",
@@ -307,7 +337,8 @@
     "refuse_continue": "Sinon, apèl la ap kontinye san sa.",
     "refuse_end": "Sinon, apèl la ap fini.",
     "transcription": "Apèl sa a sèvi ak tradiksyon AI an tan reyèl epi y ap ekri l an tèks. Vwa w ap tande a se yon vwa atifisyèl.",
-    "translation_only": "Apèl sa a sèvi ak tradiksyon AI an tan reyèl. Vwa w ap tande a se yon vwa atifisyèl."
+    "translation_only": "Apèl sa a sèvi ak tradiksyon AI an tan reyèl. Vwa w ap tande a se yon vwa atifisyèl.",
+    "voicemail": "Pa gen pesonn ki disponib pou pran apèl ou a. Tanpri kite yon mesaj apre son an."
   },
   "hu": {
     "gate_press_key": "A hozzájáruláshoz nyomja meg az 1-est.",
@@ -317,7 +348,8 @@
     "refuse_continue": "Ellenkező esetben a hívás enélkül folytatódik.",
     "refuse_end": "Ellenkező esetben a hívás véget ér.",
     "transcription": "Ez a hívás valós idejű MI-fordítást használ, és átirat készül róla. A hallott hang mesterségesen előállított.",
-    "translation_only": "Ez a hívás valós idejű MI-fordítást használ. A hallott hang mesterségesen előállított."
+    "translation_only": "Ez a hívás valós idejű MI-fordítást használ. A hallott hang mesterségesen előállított.",
+    "voicemail": "Jelenleg senki nem tudja fogadni a hívását. Kérjük, hagyjon üzenetet a hangjelzés után."
   },
   "hy": {
     "gate_press_key": "Համաձայնվելու համար սեղմեք 1։",
@@ -327,7 +359,8 @@
     "refuse_continue": "Հակառակ դեպքում զանգը կշարունակվի առանց դրա։",
     "refuse_end": "Հակառակ դեպքում զանգը կդադարեցվի։",
     "transcription": "Այս զանգն օգտագործում է իրական ժամանակի ԱԲ թարգմանություն և կվերծանվի տեքստի։ Ձեր լսած ձայնը արհեստական է։",
-    "translation_only": "Այս զանգն օգտագործում է իրական ժամանակի ԱԲ թարգմանություն։ Ձեր լսած ձայնը արհեստական է։"
+    "translation_only": "Այս զանգն օգտագործում է իրական ժամանակի ԱԲ թարգմանություն։ Ձեր լսած ձայնը արհեստական է։",
+    "voicemail": "Ձեր զանգին պատասխանող չկա։ Խնդրում ենք ազդանշանից հետո հաղորդագրություն թողնել։"
   },
   "id": {
     "gate_press_key": "Untuk menyetujui, tekan 1.",
@@ -337,7 +370,8 @@
     "refuse_continue": "Jika tidak, panggilan berlanjut tanpa itu.",
     "refuse_end": "Jika tidak, panggilan akan diakhiri.",
     "transcription": "Panggilan ini menggunakan terjemahan AI secara langsung dan akan ditranskripsikan. Suara yang Anda dengar dibuat secara buatan.",
-    "translation_only": "Panggilan ini menggunakan terjemahan AI secara langsung. Suara yang Anda dengar dibuat secara buatan."
+    "translation_only": "Panggilan ini menggunakan terjemahan AI secara langsung. Suara yang Anda dengar dibuat secara buatan.",
+    "voicemail": "Tidak ada yang tersedia untuk menerima panggilan Anda. Silakan tinggalkan pesan setelah nada."
   },
   "ig": {
     "gate_press_key": "Iji kwenye, pịa 1.",
@@ -347,7 +381,8 @@
     "refuse_continue": "Ma ọ bụghị ya, oku ahụ ga-aga n'ihu na-enweghị ya.",
     "refuse_end": "Ma ọ bụghị ya, oku ahụ ga-akwụsị.",
     "transcription": "Oku a na-eji ntụgharị asụsụ AI ozugbo, a ga-edekwa ya n'ederede. Olu ị na-anụ bụ nke igwe mepụtara.",
-    "translation_only": "Oku a na-eji ntụgharị asụsụ AI ozugbo. Olu ị na-anụ bụ nke igwe mepụtara."
+    "translation_only": "Oku a na-eji ntụgharị asụsụ AI ozugbo. Olu ị na-anụ bụ nke igwe mepụtara.",
+    "voicemail": "Onweghị onye nọ iji nata oku gị. Biko hapụ ozi mgbe ụda gasịrị."
   },
   "is": {
     "gate_press_key": "Ýttu á 1 til að samþykkja.",
@@ -357,7 +392,8 @@
     "refuse_continue": "Annars heldur símtalið áfram án þess.",
     "refuse_end": "Annars lýkur símtalinu.",
     "transcription": "Þetta símtal notar rauntímaþýðingu með gervigreind og verður umritað. Röddin sem þú heyrir er tilbúin.",
-    "translation_only": "Þetta símtal notar rauntímaþýðingu með gervigreind. Röddin sem þú heyrir er tilbúin."
+    "translation_only": "Þetta símtal notar rauntímaþýðingu með gervigreind. Röddin sem þú heyrir er tilbúin.",
+    "voicemail": "Enginn er tiltækur til að svara símtali yðar. Vinsamlegast skiljið eftir skilaboð eftir tóninn."
   },
   "it": {
     "gate_press_key": "Per acconsentire, prema 1.",
@@ -367,7 +403,8 @@
     "refuse_continue": "Altrimenti la chiamata prosegue senza.",
     "refuse_end": "Altrimenti la chiamata sarà terminata.",
     "transcription": "Questa chiamata usa la traduzione con intelligenza artificiale in tempo reale e sarà trascritta. La voce che sente è generata.",
-    "translation_only": "Questa chiamata usa la traduzione con intelligenza artificiale in tempo reale. La voce che sente è generata."
+    "translation_only": "Questa chiamata usa la traduzione con intelligenza artificiale in tempo reale. La voce che sente è generata.",
+    "voicemail": "Non c'è nessuno disponibile a rispondere alla sua chiamata. Lasci un messaggio dopo il segnale."
   },
   "ja": {
     "gate_press_key": "同意される場合は1を押してください。",
@@ -377,7 +414,8 @@
     "refuse_continue": "同意されない場合、通話はそのまま続きます。",
     "refuse_end": "同意されない場合、通話は終了します。",
     "transcription": "この通話はリアルタイムのAI翻訳を使用し、文字起こしされます。お聞きの音声は合成音声です。",
-    "translation_only": "この通話はリアルタイムのAI翻訳を使用しています。お聞きの音声は合成音声です。"
+    "translation_only": "この通話はリアルタイムのAI翻訳を使用しています。お聞きの音声は合成音声です。",
+    "voicemail": "ただいま電話に出られる者がおりません。発信音のあとにメッセージをお残しください。"
   },
   "ka": {
     "gate_press_key": "დასათანხმებლად დააჭირეთ 1-ს.",
@@ -387,7 +425,8 @@
     "refuse_continue": "წინააღმდეგ შემთხვევაში ზარი გაგრძელდება ამის გარეშე.",
     "refuse_end": "წინააღმდეგ შემთხვევაში ზარი დასრულდება.",
     "transcription": "ეს ზარი იყენებს რეალურ დროში ხელოვნური ინტელექტის თარგმანს და გადაიწერება ტექსტად. ხმა, რომელსაც ისმენთ, ხელოვნურია.",
-    "translation_only": "ეს ზარი იყენებს რეალურ დროში ხელოვნური ინტელექტის თარგმანს. ხმა, რომელსაც ისმენთ, ხელოვნურია."
+    "translation_only": "ეს ზარი იყენებს რეალურ დროში ხელოვნური ინტელექტის თარგმანს. ხმა, რომელსაც ისმენთ, ხელოვნურია.",
+    "voicemail": "ამჟამად ვერავინ უპასუხებს თქვენს ზარს. გთხოვთ, დატოვოთ შეტყობინება სიგნალის შემდეგ."
   },
   "kk": {
     "gate_press_key": "Келісу үшін 1 басыңыз.",
@@ -397,7 +436,8 @@
     "refuse_continue": "Әйтпесе қоңырау онсыз жалғасады.",
     "refuse_end": "Әйтпесе қоңырау аяқталады.",
     "transcription": "Бұл қоңырау нақты уақыттағы жасанды интеллект аудармасын пайдаланады және мәтінге түсіріледі. Естіп тұрған дауысыңыз жасанды.",
-    "translation_only": "Бұл қоңырау нақты уақыттағы жасанды интеллект аудармасын пайдаланады. Естіп тұрған дауысыңыз жасанды."
+    "translation_only": "Бұл қоңырау нақты уақыттағы жасанды интеллект аудармасын пайдаланады. Естіп тұрған дауысыңыз жасанды.",
+    "voicemail": "Қоңырауыңызға жауап беретін адам жоқ. Дыбыстық сигналдан кейін хабарлама қалдырыңыз."
   },
   "km": {
     "gate_press_key": "ដើម្បីយល់ព្រម សូមចុច 1។",
@@ -407,7 +447,8 @@
     "refuse_continue": "បើមិនដូច្នេះទេ ការហៅនឹងបន្តដោយគ្មានវា។",
     "refuse_end": "បើមិនដូច្នេះទេ ការហៅនឹងបញ្ចប់។",
     "transcription": "ការហៅនេះប្រើការបកប្រែ AI ភ្លាមៗ ហើយនឹងត្រូវបានចម្លងជាអក្សរ។ សំឡេងដែលអ្នកឮគឺជាសំឡេងសិប្បនិម្មិត។",
-    "translation_only": "ការហៅនេះប្រើការបកប្រែ AI ភ្លាមៗ។ សំឡេងដែលអ្នកឮគឺជាសំឡេងសិប្បនិម្មិត។"
+    "translation_only": "ការហៅនេះប្រើការបកប្រែ AI ភ្លាមៗ។ សំឡេងដែលអ្នកឮគឺជាសំឡេងសិប្បនិម្មិត។",
+    "voicemail": "មិនមាននរណាម្នាក់អាចទទួលការហៅរបស់អ្នកទេ។ សូមទុកសារបន្ទាប់ពីសំឡេងសញ្ញា។"
   },
   "kn": {
     "gate_press_key": "ಒಪ್ಪಿಗೆಗಾಗಿ 1 ಒತ್ತಿ.",
@@ -417,7 +458,8 @@
     "refuse_continue": "ಇಲ್ಲದಿದ್ದರೆ ಕರೆ ಅದಿಲ್ಲದೆ ಮುಂದುವರಿಯುತ್ತದೆ.",
     "refuse_end": "ಇಲ್ಲದಿದ್ದರೆ ಕರೆ ಕೊನೆಗೊಳ್ಳುತ್ತದೆ.",
     "transcription": "ಈ ಕರೆ ನೈಜ-ಸಮಯದ AI ಅನುವಾದವನ್ನು ಬಳಸುತ್ತದೆ ಮತ್ತು ಪಠ್ಯವಾಗಿ ದಾಖಲಿಸಲಾಗುತ್ತದೆ. ನೀವು ಕೇಳುತ್ತಿರುವ ಧ್ವನಿ ಕೃತಕವಾಗಿದೆ.",
-    "translation_only": "ಈ ಕರೆ ನೈಜ-ಸಮಯದ AI ಅನುವಾದವನ್ನು ಬಳಸುತ್ತದೆ. ನೀವು ಕೇಳುತ್ತಿರುವ ಧ್ವನಿ ಕೃತಕವಾಗಿದೆ."
+    "translation_only": "ಈ ಕರೆ ನೈಜ-ಸಮಯದ AI ಅನುವಾದವನ್ನು ಬಳಸುತ್ತದೆ. ನೀವು ಕೇಳುತ್ತಿರುವ ಧ್ವನಿ ಕೃತಕವಾಗಿದೆ.",
+    "voicemail": "ನಿಮ್ಮ ಕರೆಯನ್ನು ಸ್ವೀಕರಿಸಲು ಯಾರೂ ಲಭ್ಯವಿಲ್ಲ. ದಯವಿಟ್ಟು ಸ್ವರದ ನಂತರ ಸಂದೇಶವನ್ನು ಬಿಡಿ."
   },
   "ko": {
     "gate_press_key": "동의하시면 1번을 눌러 주세요.",
@@ -427,7 +469,8 @@
     "refuse_continue": "동의하지 않으시면 통화는 그대로 계속됩니다.",
     "refuse_end": "동의하지 않으시면 통화가 종료됩니다.",
     "transcription": "이 통화는 실시간 AI 번역을 사용하며 텍스트로 기록됩니다. 지금 들리는 음성은 합성된 음성입니다.",
-    "translation_only": "이 통화는 실시간 AI 번역을 사용합니다. 지금 들리는 음성은 합성된 음성입니다."
+    "translation_only": "이 통화는 실시간 AI 번역을 사용합니다. 지금 들리는 음성은 합성된 음성입니다.",
+    "voicemail": "지금은 전화를 받을 수 있는 사람이 없습니다. 신호음이 울린 뒤 메시지를 남겨 주십시오."
   },
   "lb": {
     "gate_press_key": "Fir zouzestëmmen, dréckt 1.",
@@ -437,7 +480,8 @@
     "refuse_continue": "Soss geet den Uruff ouni weider.",
     "refuse_end": "Soss gëtt den Uruff ofgebrach.",
     "transcription": "Dëse Uruff benotzt KI-Iwwersetzung an Echtzäit a gëtt transkribéiert. D'Stëmm, déi Dir héiert, ass generéiert.",
-    "translation_only": "Dëse Uruff benotzt KI-Iwwersetzung an Echtzäit. D'Stëmm, déi Dir héiert, ass generéiert."
+    "translation_only": "Dëse Uruff benotzt KI-Iwwersetzung an Echtzäit. D'Stëmm, déi Dir héiert, ass generéiert.",
+    "voicemail": "Et ass keen do fir Ären Uruff unzehuelen. Hannerloosst w.e.g. eng Noriicht nom Toun."
   },
   "lo": {
     "gate_press_key": "ເພື່ອຕົກລົງ ກົດ 1.",
@@ -447,7 +491,8 @@
     "refuse_continue": "ຖ້າບໍ່ດັ່ງນັ້ນ ການໂທຈະສືບຕໍ່ໂດຍບໍ່ມີສິ່ງນັ້ນ.",
     "refuse_end": "ຖ້າບໍ່ດັ່ງນັ້ນ ການໂທຈະສິ້ນສຸດລົງ.",
     "transcription": "ການໂທນີ້ໃຊ້ການແປພາສາດ້ວຍ AI ແບບທັນທີ ແລະ ຈະຖືກຖອດເປັນຂໍ້ຄວາມ. ສຽງທີ່ທ່ານໄດ້ຍິນແມ່ນສ້າງຂຶ້ນ.",
-    "translation_only": "ການໂທນີ້ໃຊ້ການແປພາສາດ້ວຍ AI ແບບທັນທີ. ສຽງທີ່ທ່ານໄດ້ຍິນແມ່ນສ້າງຂຶ້ນ."
+    "translation_only": "ການໂທນີ້ໃຊ້ການແປພາສາດ້ວຍ AI ແບບທັນທີ. ສຽງທີ່ທ່ານໄດ້ຍິນແມ່ນສ້າງຂຶ້ນ.",
+    "voicemail": "ບໍ່ມີໃຜຢູ່ເພື່ອຮັບສາຍຂອງທ່ານ. ກະລຸນາຝາກຂໍ້ຄວາມຫຼັງສຽງສັນຍານ."
   },
   "lt": {
     "gate_press_key": "Norėdami sutikti, paspauskite 1.",
@@ -457,7 +502,8 @@
     "refuse_continue": "Priešingu atveju skambutis tęsis be to.",
     "refuse_end": "Priešingu atveju skambutis bus baigtas.",
     "transcription": "Šis skambutis naudoja realiojo laiko dirbtinio intelekto vertimą ir bus užrašytas tekstu. Girdimas balsas yra sugeneruotas.",
-    "translation_only": "Šis skambutis naudoja realiojo laiko dirbtinio intelekto vertimą. Girdimas balsas yra sugeneruotas."
+    "translation_only": "Šis skambutis naudoja realiojo laiko dirbtinio intelekto vertimą. Girdimas balsas yra sugeneruotas.",
+    "voicemail": "Šiuo metu nėra kam atsiliepti į jūsų skambutį. Prašome palikti žinutę po signalo."
   },
   "lv": {
     "gate_press_key": "Lai piekristu, nospiediet 1.",
@@ -467,7 +513,8 @@
     "refuse_continue": "Pretējā gadījumā zvans turpināsies bez tā.",
     "refuse_end": "Pretējā gadījumā zvans tiks pārtraukts.",
     "transcription": "Šis zvans izmanto reāllaika mākslīgā intelekta tulkojumu un tiks pārrakstīts tekstā. Dzirdamā balss ir ģenerēta.",
-    "translation_only": "Šis zvans izmanto reāllaika mākslīgā intelekta tulkojumu. Dzirdamā balss ir ģenerēta."
+    "translation_only": "Šis zvans izmanto reāllaika mākslīgā intelekta tulkojumu. Dzirdamā balss ir ģenerēta.",
+    "voicemail": "Pašlaik neviens nevar atbildēt uz jūsu zvanu. Lūdzu, atstājiet ziņojumu pēc signāla."
   },
   "mk": {
     "gate_press_key": "За да се согласите, притиснете 1.",
@@ -477,7 +524,8 @@
     "refuse_continue": "Во спротивно повикот продолжува без тоа.",
     "refuse_end": "Во спротивно повикот ќе биде прекинат.",
     "transcription": "Овој повик користи преведување со вештачка интелигенција во реално време и ќе биде запишан како текст. Гласот што го слушате е генериран.",
-    "translation_only": "Овој повик користи преведување со вештачка интелигенција во реално време. Гласот што го слушате е генериран."
+    "translation_only": "Овој повик користи преведување со вештачка интелигенција во реално време. Гласот што го слушате е генериран.",
+    "voicemail": "Во моментов нема кој да се јави на вашиот повик. Ве молиме оставете порака по сигналот."
   },
   "ml": {
     "gate_press_key": "സമ്മതിക്കാൻ 1 അമർത്തുക.",
@@ -487,7 +535,8 @@
     "refuse_continue": "അല്ലാത്തപക്ഷം കോൾ അതില്ലാതെ തുടരും.",
     "refuse_end": "അല്ലാത്തപക്ഷം കോൾ അവസാനിക്കും.",
     "transcription": "ഈ കോൾ തത്സമയ AI വിവർത്തനം ഉപയോഗിക്കുന്നു, ഇത് എഴുത്തുരൂപത്തിൽ രേഖപ്പെടുത്തും. നിങ്ങൾ കേൾക്കുന്ന ശബ്ദം കൃത്രിമമാണ്.",
-    "translation_only": "ഈ കോൾ തത്സമയ AI വിവർത്തനം ഉപയോഗിക്കുന്നു. നിങ്ങൾ കേൾക്കുന്ന ശബ്ദം കൃത്രിമമാണ്."
+    "translation_only": "ഈ കോൾ തത്സമയ AI വിവർത്തനം ഉപയോഗിക്കുന്നു. നിങ്ങൾ കേൾക്കുന്ന ശബ്ദം കൃത്രിമമാണ്.",
+    "voicemail": "നിങ്ങളുടെ കോൾ എടുക്കാൻ ആരും ലഭ്യമല്ല. ദയവായി ശബ്ദത്തിന് ശേഷം ഒരു സന്ദേശം രേഖപ്പെടുത്തുക."
   },
   "mn": {
     "gate_press_key": "Зөвшөөрөхийн тулд 1 дарна уу.",
@@ -497,7 +546,8 @@
     "refuse_continue": "Үгүй бол дуудлага үүнгүйгээр үргэлжилнэ.",
     "refuse_end": "Үгүй бол дуудлага дуусна.",
     "transcription": "Энэ дуудлага бодит цагийн хиймэл оюуны орчуулга ашиглаж байгаа бөгөөд бичвэр болгон хөрвүүлэгдэнэ. Таны сонсож буй хоолой хиймэл юм.",
-    "translation_only": "Энэ дуудлага бодит цагийн хиймэл оюуны орчуулга ашиглаж байна. Таны сонсож буй хоолой хиймэл юм."
+    "translation_only": "Энэ дуудлага бодит цагийн хиймэл оюуны орчуулга ашиглаж байна. Таны сонсож буй хоолой хиймэл юм.",
+    "voicemail": "Таны дуудлагад хариулах хүн байхгүй байна. Дохионы дараа мессеж үлдээнэ үү."
   },
   "mr": {
     "gate_press_key": "संमती देण्यासाठी 1 दाबा.",
@@ -507,7 +557,8 @@
     "refuse_continue": "अन्यथा कॉल त्याशिवाय सुरू राहील.",
     "refuse_end": "अन्यथा कॉल समाप्त होईल.",
     "transcription": "हा कॉल रिअल-टाइम एआय भाषांतर वापरतो आणि त्याचे लिखित रेकॉर्ड ठेवले जाईल. तुम्ही ऐकत असलेला आवाज कृत्रिम आहे.",
-    "translation_only": "हा कॉल रिअल-टाइम एआय भाषांतर वापरतो. तुम्ही ऐकत असलेला आवाज कृत्रिम आहे."
+    "translation_only": "हा कॉल रिअल-टाइम एआय भाषांतर वापरतो. तुम्ही ऐकत असलेला आवाज कृत्रिम आहे.",
+    "voicemail": "तुमचा कॉल घेण्यासाठी कोणीही उपलब्ध नाही. कृपया सिग्नलनंतर संदेश ठेवा."
   },
   "ms": {
     "gate_press_key": "Untuk bersetuju, tekan 1.",
@@ -517,7 +568,8 @@
     "refuse_continue": "Jika tidak, panggilan diteruskan tanpanya.",
     "refuse_end": "Jika tidak, panggilan akan ditamatkan.",
     "transcription": "Panggilan ini menggunakan terjemahan AI masa nyata dan akan ditranskripsikan. Suara yang anda dengar dijana secara buatan.",
-    "translation_only": "Panggilan ini menggunakan terjemahan AI masa nyata. Suara yang anda dengar dijana secara buatan."
+    "translation_only": "Panggilan ini menggunakan terjemahan AI masa nyata. Suara yang anda dengar dijana secara buatan.",
+    "voicemail": "Tiada sesiapa yang dapat menerima panggilan anda. Sila tinggalkan pesanan selepas nada."
   },
   "mt": {
     "gate_press_key": "Biex taqbel, agħfas 1.",
@@ -527,7 +579,8 @@
     "refuse_continue": "Inkella s-sejħa tkompli mingħajrha.",
     "refuse_end": "Inkella s-sejħa tintemm.",
     "transcription": "Din is-sejħa tuża traduzzjoni bl-IA f'ħin reali u se tiġi traskritta. Il-vuċi li qed tisma' hija ġġenerata.",
-    "translation_only": "Din is-sejħa tuża traduzzjoni bl-IA f'ħin reali. Il-vuċi li qed tisma' hija ġġenerata."
+    "translation_only": "Din is-sejħa tuża traduzzjoni bl-IA f'ħin reali. Il-vuċi li qed tisma' hija ġġenerata.",
+    "voicemail": "M'hemm ħadd disponibbli biex iwieġeb is-sejħa tiegħek. Jekk jogħġbok ħalli messaġġ wara t-ton."
   },
   "my": {
     "gate_press_key": "သဘောတူပါက 1 ကို နှိပ်ပါ။",
@@ -537,7 +590,8 @@
     "refuse_continue": "သို့မဟုတ်ပါက ခေါ်ဆိုမှုကို ထိုအရာမပါဘဲ ဆက်လက်လုပ်ဆောင်ပါမည်။",
     "refuse_end": "သို့မဟုတ်ပါက ခေါ်ဆိုမှု ပြီးဆုံးပါမည်။",
     "transcription": "ဤဖုန်းခေါ်ဆိုမှုသည် အချိန်နှင့်တပြေးညီ AI ဘာသာပြန်ကို အသုံးပြုပြီး စာသားအဖြစ် မှတ်တမ်းတင်ပါမည်။ သင်ကြားနေရသောအသံသည် စက်ဖန်တီးထားသောအသံဖြစ်သည်။",
-    "translation_only": "ဤဖုန်းခေါ်ဆိုမှုသည် အချိန်နှင့်တပြေးညီ AI ဘာသာပြန်ကို အသုံးပြုနေပါသည်။ သင်ကြားနေရသောအသံသည် စက်ဖန်တီးထားသောအသံဖြစ်သည်။"
+    "translation_only": "ဤဖုန်းခေါ်ဆိုမှုသည် အချိန်နှင့်တပြေးညီ AI ဘာသာပြန်ကို အသုံးပြုနေပါသည်။ သင်ကြားနေရသောအသံသည် စက်ဖန်တီးထားသောအသံဖြစ်သည်။",
+    "voicemail": "သင့်ခေါ်ဆိုမှုကို ဖြေကြားနိုင်သူ မရှိပါ။ အသံမြည်ပြီးနောက် စကားချန်ထားပါ။"
   },
   "nb": {
     "gate_press_key": "Trykk 1 for å samtykke.",
@@ -547,7 +601,8 @@
     "refuse_continue": "Ellers fortsetter samtalen uten.",
     "refuse_end": "Ellers avsluttes samtalen.",
     "transcription": "Denne samtalen bruker KI-oversettelse i sanntid og blir transkribert. Stemmen du hører er generert.",
-    "translation_only": "Denne samtalen bruker KI-oversettelse i sanntid. Stemmen du hører er generert."
+    "translation_only": "Denne samtalen bruker KI-oversettelse i sanntid. Stemmen du hører er generert.",
+    "voicemail": "Ingen er tilgjengelig til å ta imot anropet ditt. Legg igjen en beskjed etter tonen."
   },
   "ne": {
     "gate_press_key": "सहमत हुन 1 थिच्नुहोस्।",
@@ -557,7 +612,8 @@
     "refuse_continue": "अन्यथा कल त्यो बिना नै जारी रहनेछ।",
     "refuse_end": "अन्यथा कल समाप्त हुनेछ।",
     "transcription": "यो कल वास्तविक समयको एआई अनुवाद प्रयोग गर्दछ र यसको लिखित अभिलेख राखिनेछ। तपाईंले सुन्नुभएको आवाज कृत्रिम हो।",
-    "translation_only": "यो कल वास्तविक समयको एआई अनुवाद प्रयोग गर्दछ। तपाईंले सुन्नुभएको आवाज कृत्रिम हो।"
+    "translation_only": "यो कल वास्तविक समयको एआई अनुवाद प्रयोग गर्दछ। तपाईंले सुन्नुभएको आवाज कृत्रिम हो।",
+    "voicemail": "तपाईंको कल लिन कोही उपलब्ध छैन। कृपया संकेतपछि सन्देश छोड्नुहोस्।"
   },
   "nl": {
     "gate_press_key": "Druk op 1 om akkoord te gaan.",
@@ -567,7 +623,8 @@
     "refuse_continue": "Anders gaat het gesprek zonder verder.",
     "refuse_end": "Anders wordt het gesprek beëindigd.",
     "transcription": "Dit gesprek gebruikt realtime AI-vertaling en wordt uitgeschreven. De stem die u hoort is gegenereerd.",
-    "translation_only": "Dit gesprek gebruikt realtime AI-vertaling. De stem die u hoort is gegenereerd."
+    "translation_only": "Dit gesprek gebruikt realtime AI-vertaling. De stem die u hoort is gegenereerd.",
+    "voicemail": "Er is niemand beschikbaar om uw oproep aan te nemen. Laat na de toon een bericht achter."
   },
   "nn": {
     "gate_press_key": "Trykk 1 for å samtykkje.",
@@ -577,7 +634,8 @@
     "refuse_continue": "Elles held samtalen fram utan.",
     "refuse_end": "Elles blir samtalen avslutta.",
     "transcription": "Denne samtalen brukar KI-omsetjing i sanntid og blir transkribert. Røysta du høyrer er generert.",
-    "translation_only": "Denne samtalen brukar KI-omsetjing i sanntid. Røysta du høyrer er generert."
+    "translation_only": "Denne samtalen brukar KI-omsetjing i sanntid. Røysta du høyrer er generert.",
+    "voicemail": "Ingen er tilgjengeleg til å ta imot samtalen din. Legg att ein beskjed etter tonen."
   },
   "pa": {
     "gate_press_key": "ਸਹਿਮਤ ਹੋਣ ਲਈ 1 ਦਬਾਓ।",
@@ -587,7 +645,8 @@
     "refuse_continue": "ਨਹੀਂ ਤਾਂ ਕਾਲ ਇਸਦੇ ਬਿਨਾਂ ਜਾਰੀ ਰਹੇਗੀ।",
     "refuse_end": "ਨਹੀਂ ਤਾਂ ਕਾਲ ਖਤਮ ਹੋ ਜਾਵੇਗੀ।",
     "transcription": "ਇਹ ਕਾਲ ਰੀਅਲ-ਟਾਈਮ AI ਅਨੁਵਾਦ ਵਰਤਦੀ ਹੈ ਅਤੇ ਇਸਦਾ ਲਿਖਤੀ ਰਿਕਾਰਡ ਬਣਾਇਆ ਜਾਵੇਗਾ। ਜੋ ਆਵਾਜ਼ ਤੁਸੀਂ ਸੁਣ ਰਹੇ ਹੋ ਉਹ ਬਣਾਈ ਗਈ ਹੈ।",
-    "translation_only": "ਇਹ ਕਾਲ ਰੀਅਲ-ਟਾਈਮ AI ਅਨੁਵਾਦ ਵਰਤਦੀ ਹੈ। ਜੋ ਆਵਾਜ਼ ਤੁਸੀਂ ਸੁਣ ਰਹੇ ਹੋ ਉਹ ਬਣਾਈ ਗਈ ਹੈ।"
+    "translation_only": "ਇਹ ਕਾਲ ਰੀਅਲ-ਟਾਈਮ AI ਅਨੁਵਾਦ ਵਰਤਦੀ ਹੈ। ਜੋ ਆਵਾਜ਼ ਤੁਸੀਂ ਸੁਣ ਰਹੇ ਹੋ ਉਹ ਬਣਾਈ ਗਈ ਹੈ।",
+    "voicemail": "ਤੁਹਾਡੀ ਕਾਲ ਲੈਣ ਲਈ ਕੋਈ ਉਪਲਬਧ ਨਹੀਂ ਹੈ। ਕਿਰਪਾ ਕਰਕੇ ਸੰਕੇਤ ਤੋਂ ਬਾਅਦ ਸੁਨੇਹਾ ਛੱਡੋ।"
   },
   "pl": {
     "gate_press_key": "Aby wyrazić zgodę, naciśnij 1.",
@@ -597,7 +656,8 @@
     "refuse_continue": "W przeciwnym razie rozmowa będzie kontynuowana bez tego.",
     "refuse_end": "W przeciwnym razie rozmowa zostanie zakończona.",
     "transcription": "Ta rozmowa korzysta z tłumaczenia AI w czasie rzeczywistym i zostanie zapisana jako tekst. Głos, który słyszysz, jest generowany.",
-    "translation_only": "Ta rozmowa korzysta z tłumaczenia AI w czasie rzeczywistym. Głos, który słyszysz, jest generowany."
+    "translation_only": "Ta rozmowa korzysta z tłumaczenia AI w czasie rzeczywistym. Głos, który słyszysz, jest generowany.",
+    "voicemail": "Nikt nie może teraz odebrać Państwa połączenia. Prosimy zostawić wiadomość po sygnale."
   },
   "ps": {
     "gate_press_key": "د موافقې لپاره 1 کېکاږئ.",
@@ -607,7 +667,8 @@
     "refuse_continue": "که نه، اړیکه به پرته له دې دوام ومومي.",
     "refuse_end": "که نه، اړیکه به پای ته ورسیږي.",
     "transcription": "دا اړیکه د مصنوعي ذکاوت ژوندۍ ژباړه کاروي او په متن به واړول شي. هغه غږ چې تاسو یې اورئ جوړ شوی دی.",
-    "translation_only": "دا اړیکه د مصنوعي ذکاوت ژوندۍ ژباړه کاروي. هغه غږ چې تاسو یې اورئ جوړ شوی دی."
+    "translation_only": "دا اړیکه د مصنوعي ذکاوت ژوندۍ ژباړه کاروي. هغه غږ چې تاسو یې اورئ جوړ شوی دی.",
+    "voicemail": "ستاسو زنګ ته د ځواب ویلو لپاره څوک شتون نلري. مهرباني وکړئ د غږ وروسته پیغام پریږدئ."
   },
   "pt": {
     "gate_press_key": "Para concordar, prima 1.",
@@ -617,7 +678,8 @@
     "refuse_continue": "Caso contrário, a chamada continua sem isso.",
     "refuse_end": "Caso contrário, a chamada será terminada.",
     "transcription": "Esta chamada usa tradução com IA em tempo real e será transcrita. A voz que ouve é gerada.",
-    "translation_only": "Esta chamada usa tradução com IA em tempo real. A voz que ouve é gerada."
+    "translation_only": "Esta chamada usa tradução com IA em tempo real. A voz que ouve é gerada.",
+    "voicemail": "Não há ninguém disponível para atender a sua chamada. Deixe uma mensagem após o sinal."
   },
   "ro": {
     "gate_press_key": "Pentru a fi de acord, apăsați 1.",
@@ -627,7 +689,8 @@
     "refuse_continue": "În caz contrar, apelul continuă fără aceasta.",
     "refuse_end": "În caz contrar, apelul se va încheia.",
     "transcription": "Acest apel folosește traducere AI în timp real și va fi transcris. Vocea pe care o auziți este generată.",
-    "translation_only": "Acest apel folosește traducere AI în timp real. Vocea pe care o auziți este generată."
+    "translation_only": "Acest apel folosește traducere AI în timp real. Vocea pe care o auziți este generată.",
+    "voicemail": "Nu este nimeni disponibil să vă preia apelul. Vă rugăm să lăsați un mesaj după semnal."
   },
   "ru": {
     "gate_press_key": "Чтобы согласиться, нажмите 1.",
@@ -637,7 +700,8 @@
     "refuse_continue": "В противном случае звонок продолжится без этого.",
     "refuse_end": "В противном случае звонок будет завершён.",
     "transcription": "Этот звонок использует перевод с искусственным интеллектом в реальном времени и будет расшифрован в текст. Голос, который вы слышите, синтезирован.",
-    "translation_only": "Этот звонок использует перевод с искусственным интеллектом в реальном времени. Голос, который вы слышите, синтезирован."
+    "translation_only": "Этот звонок использует перевод с искусственным интеллектом в реальном времени. Голос, который вы слышите, синтезирован.",
+    "voicemail": "Сейчас никто не может ответить на ваш звонок. Пожалуйста, оставьте сообщение после сигнала."
   },
   "si": {
     "gate_press_key": "එකඟ වීමට 1 ඔබන්න.",
@@ -647,7 +711,8 @@
     "refuse_continue": "නැතහොත් ඇමතුම එය නොමැතිව ඉදිරියට යයි.",
     "refuse_end": "නැතහොත් ඇමතුම අවසන් වේ.",
     "transcription": "මෙම ඇමතුම තත්කාලීන AI පරිවර්තනය භාවිත කරන අතර එය ලිඛිතව සටහන් කරනු ලැබේ. ඔබට ඇසෙන හඬ කෘත්‍රිමව නිර්මාණය කළ එකකි.",
-    "translation_only": "මෙම ඇමතුම තත්කාලීන AI පරිවර්තනය භාවිත කරයි. ඔබට ඇසෙන හඬ කෘත්‍රිමව නිර්මාණය කළ එකකි."
+    "translation_only": "මෙම ඇමතුම තත්කාලීන AI පරිවර්තනය භාවිත කරයි. ඔබට ඇසෙන හඬ කෘත්‍රිමව නිර්මාණය කළ එකකි.",
+    "voicemail": "ඔබේ ඇමතුම ගැනීමට කිසිවෙකු නොමැත. කරුණාකර ශබ්දයෙන් පසු පණිවිඩයක් තබන්න."
   },
   "sk": {
     "gate_press_key": "Pre súhlas stlačte 1.",
@@ -657,7 +722,8 @@
     "refuse_continue": "Inak hovor pokračuje bez toho.",
     "refuse_end": "Inak bude hovor ukončený.",
     "transcription": "Tento hovor používa preklad s umelou inteligenciou v reálnom čase a bude prepísaný do textu. Hlas, ktorý počujete, je generovaný.",
-    "translation_only": "Tento hovor používa preklad s umelou inteligenciou v reálnom čase. Hlas, ktorý počujete, je generovaný."
+    "translation_only": "Tento hovor používa preklad s umelou inteligenciou v reálnom čase. Hlas, ktorý počujete, je generovaný.",
+    "voicemail": "Nikto nie je k dispozícii, aby prijal váš hovor. Zanechajte prosím správu po zaznení tónu."
   },
   "sl": {
     "gate_press_key": "Za soglasje pritisnite 1.",
@@ -667,7 +733,8 @@
     "refuse_continue": "Sicer se klic nadaljuje brez tega.",
     "refuse_end": "Sicer bo klic končan.",
     "transcription": "Ta klic uporablja prevajanje z umetno inteligenco v realnem času in bo prepisan v besedilo. Glas, ki ga slišite, je ustvarjen.",
-    "translation_only": "Ta klic uporablja prevajanje z umetno inteligenco v realnem času. Glas, ki ga slišite, je ustvarjen."
+    "translation_only": "Ta klic uporablja prevajanje z umetno inteligenco v realnem času. Glas, ki ga slišite, je ustvarjen.",
+    "voicemail": "Trenutno nihče ne more sprejeti vašega klica. Prosimo, pustite sporočilo po signalu."
   },
   "so": {
     "gate_press_key": "Si aad u ogolaato, taabo 1.",
@@ -677,7 +744,8 @@
     "refuse_continue": "Haddii kale, wicitaanku wuu sii socon doonaa iyada oo aan la duubin.",
     "refuse_end": "Haddii kale, wicitaanku wuu dhammaan doonaa.",
     "transcription": "Wicitaankan wuxuu isticmaalaa turjumaad AI oo waqtigaas ah, waxaana loo qori doonaa qoraal ahaan. Codka aad maqlayso waa mid la sameeyay.",
-    "translation_only": "Wicitaankan wuxuu isticmaalaa turjumaad AI oo waqtigaas ah. Codka aad maqlayso waa mid la sameeyay."
+    "translation_only": "Wicitaankan wuxuu isticmaalaa turjumaad AI oo waqtigaas ah. Codka aad maqlayso waa mid la sameeyay.",
+    "voicemail": "Cidna ma joogto oo ka jawaabta wicitaankaaga. Fadlan farriin ka tag kadib codka."
   },
   "sq": {
     "gate_press_key": "Për të rënë dakord, shtypni 1.",
@@ -687,7 +755,8 @@
     "refuse_continue": "Përndryshe thirrja vazhdon pa të.",
     "refuse_end": "Përndryshe thirrja do të mbyllet.",
     "transcription": "Kjo thirrje përdor përkthim me inteligjencë artificiale në kohë reale dhe do të transkriptohet. Zëri që dëgjoni është i gjeneruar.",
-    "translation_only": "Kjo thirrje përdor përkthim me inteligjencë artificiale në kohë reale. Zëri që dëgjoni është i gjeneruar."
+    "translation_only": "Kjo thirrje përdor përkthim me inteligjencë artificiale në kohë reale. Zëri që dëgjoni është i gjeneruar.",
+    "voicemail": "Nuk ka askush në dispozicion për t'iu përgjigjur telefonatës suaj. Ju lutemi lini një mesazh pas sinjalit."
   },
   "sr": {
     "gate_press_key": "За сагласност притисните 1.",
@@ -697,7 +766,8 @@
     "refuse_continue": "У супротном позив се наставља без тога.",
     "refuse_end": "У супротном позив ће бити прекинут.",
     "transcription": "Овај позив користи превод вештачком интелигенцијом у реалном времену и биће транскрибован. Глас који чујете је генерисан.",
-    "translation_only": "Овај позив користи превод вештачком интелигенцијом у реалном времену. Глас који чујете је генерисан."
+    "translation_only": "Овај позив користи превод вештачком интелигенцијом у реалном времену. Глас који чујете је генерисан.",
+    "voicemail": "Тренутно нема никога да прими ваш позив. Молимо оставите поруку након сигнала."
   },
   "sv": {
     "gate_press_key": "Tryck 1 för att samtycka.",
@@ -707,7 +777,8 @@
     "refuse_continue": "Annars fortsätter samtalet utan.",
     "refuse_end": "Annars avslutas samtalet.",
     "transcription": "Det här samtalet använder AI-översättning i realtid och kommer att transkriberas. Rösten du hör är genererad.",
-    "translation_only": "Det här samtalet använder AI-översättning i realtid. Rösten du hör är genererad."
+    "translation_only": "Det här samtalet använder AI-översättning i realtid. Rösten du hör är genererad.",
+    "voicemail": "Ingen är tillgänglig för att ta emot ert samtal. Lämna gärna ett meddelande efter tonen."
   },
   "sw": {
     "gate_press_key": "Ili kukubali, bonyeza 1.",
@@ -717,7 +788,8 @@
     "refuse_continue": "La sivyo, simu itaendelea bila hiyo.",
     "refuse_end": "La sivyo, simu itakatishwa.",
     "transcription": "Simu hii inatumia tafsiri ya AI ya papo hapo na itaandikwa kama maandishi. Sauti unayosikia imetengenezwa na mashine.",
-    "translation_only": "Simu hii inatumia tafsiri ya AI ya papo hapo. Sauti unayosikia imetengenezwa na mashine."
+    "translation_only": "Simu hii inatumia tafsiri ya AI ya papo hapo. Sauti unayosikia imetengenezwa na mashine.",
+    "voicemail": "Hakuna mtu anayeweza kupokea simu yako. Tafadhali acha ujumbe baada ya mlio."
   },
   "ta": {
     "gate_press_key": "ஒப்புக்கொள்ள 1 ஐ அழுத்தவும்.",
@@ -727,7 +799,8 @@
     "refuse_continue": "இல்லையெனில் அழைப்பு அது இல்லாமல் தொடரும்.",
     "refuse_end": "இல்லையெனில் அழைப்பு முடிவடையும்.",
     "transcription": "இந்த அழைப்பு நிகழ்நேர AI மொழிபெயர்ப்பைப் பயன்படுத்துகிறது, மேலும் எழுத்து வடிவில் பதிவு செய்யப்படும். நீங்கள் கேட்கும் குரல் செயற்கையாக உருவாக்கப்பட்டது.",
-    "translation_only": "இந்த அழைப்பு நிகழ்நேர AI மொழிபெயர்ப்பைப் பயன்படுத்துகிறது. நீங்கள் கேட்கும் குரல் செயற்கையாக உருவாக்கப்பட்டது."
+    "translation_only": "இந்த அழைப்பு நிகழ்நேர AI மொழிபெயர்ப்பைப் பயன்படுத்துகிறது. நீங்கள் கேட்கும் குரல் செயற்கையாக உருவாக்கப்பட்டது.",
+    "voicemail": "உங்கள் அழைப்பை எடுக்க யாரும் இல்லை. தயவுசெய்து ஒலிக்குப் பிறகு செய்தியை பதிவு செய்யுங்கள்."
   },
   "te": {
     "gate_press_key": "అంగీకరించడానికి 1 నొక్కండి.",
@@ -737,7 +810,8 @@
     "refuse_continue": "లేకపోతే కాల్ అది లేకుండా కొనసాగుతుంది.",
     "refuse_end": "లేకపోతే కాల్ ముగుస్తుంది.",
     "transcription": "ఈ కాల్ రియల్-టైమ్ AI అనువాదాన్ని ఉపయోగిస్తోంది మరియు వచన రూపంలో నమోదు చేయబడుతుంది. మీరు వింటున్న స్వరం కృత్రిమమైనది.",
-    "translation_only": "ఈ కాల్ రియల్-టైమ్ AI అనువాదాన్ని ఉపయోగిస్తోంది. మీరు వింటున్న స్వరం కృత్రిమమైనది."
+    "translation_only": "ఈ కాల్ రియల్-టైమ్ AI అనువాదాన్ని ఉపయోగిస్తోంది. మీరు వింటున్న స్వరం కృత్రిమమైనది.",
+    "voicemail": "మీ కాల్‌ను స్వీకరించడానికి ఎవరూ అందుబాటులో లేరు. దయచేసి శబ్దం తర్వాత సందేశం ఉంచండి."
   },
   "th": {
     "gate_press_key": "หากยินยอม กด 1",
@@ -747,7 +821,8 @@
     "refuse_continue": "หากไม่ สายจะดำเนินต่อโดยไม่มีสิ่งนั้น",
     "refuse_end": "หากไม่ สายจะถูกวางลง",
     "transcription": "สายนี้ใช้การแปลด้วย AI แบบเรียลไทม์ และจะถูกถอดเป็นข้อความ เสียงที่คุณได้ยินเป็นเสียงสังเคราะห์",
-    "translation_only": "สายนี้ใช้การแปลด้วย AI แบบเรียลไทม์ เสียงที่คุณได้ยินเป็นเสียงสังเคราะห์"
+    "translation_only": "สายนี้ใช้การแปลด้วย AI แบบเรียลไทม์ เสียงที่คุณได้ยินเป็นเสียงสังเคราะห์",
+    "voicemail": "ขณะนี้ไม่มีผู้ใดรับสายของท่าน กรุณาฝากข้อความหลังเสียงสัญญาณ"
   },
   "tr": {
     "gate_press_key": "Kabul etmek için 1'e basın.",
@@ -757,7 +832,8 @@
     "refuse_continue": "Aksi hâlde görüşme bunlar olmadan devam eder.",
     "refuse_end": "Aksi hâlde görüşme sonlandırılır.",
     "transcription": "Bu görüşme gerçek zamanlı yapay zekâ çevirisi kullanıyor ve yazıya dökülecek. Duyduğunuz ses yapay olarak üretilmiştir.",
-    "translation_only": "Bu görüşme gerçek zamanlı yapay zekâ çevirisi kullanıyor. Duyduğunuz ses yapay olarak üretilmiştir."
+    "translation_only": "Bu görüşme gerçek zamanlı yapay zekâ çevirisi kullanıyor. Duyduğunuz ses yapay olarak üretilmiştir.",
+    "voicemail": "Şu anda çağrınızı alabilecek kimse yok. Lütfen sinyal sesinden sonra mesaj bırakın."
   },
   "uk": {
     "gate_press_key": "Щоб погодитися, натисніть 1.",
@@ -767,7 +843,8 @@
     "refuse_continue": "Інакше дзвінок продовжиться без цього.",
     "refuse_end": "Інакше дзвінок буде завершено.",
     "transcription": "Цей дзвінок використовує переклад зі штучним інтелектом у реальному часі й буде розшифрований у текст. Голос, який ви чуєте, згенерований.",
-    "translation_only": "Цей дзвінок використовує переклад зі штучним інтелектом у реальному часі. Голос, який ви чуєте, згенерований."
+    "translation_only": "Цей дзвінок використовує переклад зі штучним інтелектом у реальному часі. Голос, який ви чуєте, згенерований.",
+    "voicemail": "Зараз нікому відповісти на ваш дзвінок. Будь ласка, залиште повідомлення після сигналу."
   },
   "ur": {
     "gate_press_key": "رضامندی کے لیے 1 دبائیں۔",
@@ -777,7 +854,8 @@
     "refuse_continue": "بصورت دیگر کال اس کے بغیر جاری رہے گی۔",
     "refuse_end": "بصورت دیگر کال ختم کر دی جائے گی۔",
     "transcription": "اس کال میں فوری AI ترجمہ استعمال ہو رہا ہے اور اسے تحریری شکل میں محفوظ کیا جائے گا۔ آپ جو آواز سن رہے ہیں وہ مصنوعی ہے۔",
-    "translation_only": "اس کال میں فوری AI ترجمہ استعمال ہو رہا ہے۔ آپ جو آواز سن رہے ہیں وہ مصنوعی ہے۔"
+    "translation_only": "اس کال میں فوری AI ترجمہ استعمال ہو رہا ہے۔ آپ جو آواز سن رہے ہیں وہ مصنوعی ہے۔",
+    "voicemail": "آپ کی کال وصول کرنے کے لیے کوئی دستیاب نہیں ہے۔ براہ کرم سگنل کے بعد پیغام چھوڑ دیں۔"
   },
   "uz": {
     "gate_press_key": "Rozilik uchun 1 ni bosing.",
@@ -787,7 +865,8 @@
     "refuse_continue": "Aks holda qo'ng'iroq usiz davom etadi.",
     "refuse_end": "Aks holda qo'ng'iroq tugatiladi.",
     "transcription": "Bu qo'ng'iroq real vaqtdagi sun'iy intellekt tarjimasidan foydalanmoqda va matnga aylantiriladi. Siz eshitayotgan ovoz sun'iy yaratilgan.",
-    "translation_only": "Bu qo'ng'iroq real vaqtdagi sun'iy intellekt tarjimasidan foydalanmoqda. Siz eshitayotgan ovoz sun'iy yaratilgan."
+    "translation_only": "Bu qo'ng'iroq real vaqtdagi sun'iy intellekt tarjimasidan foydalanmoqda. Siz eshitayotgan ovoz sun'iy yaratilgan.",
+    "voicemail": "Qo'ng'irog'ingizga javob beradigan hech kim yo'q. Iltimos, signaldan keyin xabar qoldiring."
   },
   "vi": {
     "gate_press_key": "Để đồng ý, hãy bấm phím 1.",
@@ -797,7 +876,8 @@
     "refuse_continue": "Nếu không, cuộc gọi sẽ tiếp tục mà không có phần đó.",
     "refuse_end": "Nếu không, cuộc gọi sẽ kết thúc.",
     "transcription": "Cuộc gọi này sử dụng dịch thuật AI theo thời gian thực và sẽ được ghi thành văn bản. Giọng nói bạn nghe thấy là giọng tổng hợp.",
-    "translation_only": "Cuộc gọi này sử dụng dịch thuật AI theo thời gian thực. Giọng nói bạn nghe thấy là giọng tổng hợp."
+    "translation_only": "Cuộc gọi này sử dụng dịch thuật AI theo thời gian thực. Giọng nói bạn nghe thấy là giọng tổng hợp.",
+    "voicemail": "Hiện không có ai nhận cuộc gọi của quý vị. Vui lòng để lại lời nhắn sau tiếng chuông."
   },
   "yo": {
     "gate_press_key": "Láti gbà, tẹ 1.",
@@ -807,7 +887,8 @@
     "refuse_continue": "Bí bẹ́ẹ̀ kọ́, ìpè náà yóò tẹ̀síwájú láìsí i.",
     "refuse_end": "Bí bẹ́ẹ̀ kọ́, ìpè náà yóò dópin.",
     "transcription": "Ìpè yìí ń lo ìtúmọ̀ AI lẹ́sẹ̀kẹsẹ̀, a ó sì kọ ọ́ sílẹ̀ ní àkọsílẹ̀. Ohùn tí o ń gbọ́ jẹ́ èyí tí ẹ̀rọ ṣẹ̀dá.",
-    "translation_only": "Ìpè yìí ń lo ìtúmọ̀ AI lẹ́sẹ̀kẹsẹ̀. Ohùn tí o ń gbọ́ jẹ́ èyí tí ẹ̀rọ ṣẹ̀dá."
+    "translation_only": "Ìpè yìí ń lo ìtúmọ̀ AI lẹ́sẹ̀kẹsẹ̀. Ohùn tí o ń gbọ́ jẹ́ èyí tí ẹ̀rọ ṣẹ̀dá.",
+    "voicemail": "Kò sí ẹnikẹ́ni tí ó lè gbé ìpè yín. Ẹ jọ̀wọ́ fi ìhìn sílẹ̀ lẹ́yìn ìró náà."
   },
   "yue": {
     "gate_press_key": "同意請㩒 1。",
@@ -817,7 +898,8 @@
     "refuse_continue": "如果唔同意，通話會照樣繼續。",
     "refuse_end": "如果唔同意，通話會結束。",
     "transcription": "呢個通話用緊即時 AI 翻譯，並且會轉成文字紀錄。你而家聽到嘅聲係合成聲。",
-    "translation_only": "呢個通話用緊即時 AI 翻譯。你而家聽到嘅聲係合成聲。"
+    "translation_only": "呢個通話用緊即時 AI 翻譯。你而家聽到嘅聲係合成聲。",
+    "voicemail": "而家冇人可以接聽你嘅電話。請喺提示聲之後留言。"
   },
   "zh": {
     "gate_press_key": "同意请按 1。",
@@ -827,7 +909,8 @@
     "refuse_continue": "否则通话将继续进行，不做记录。",
     "refuse_end": "否则通话将结束。",
     "transcription": "本次通话使用实时 AI 翻译，并将转写为文字记录。您听到的声音是合成语音。",
-    "translation_only": "本次通话使用实时 AI 翻译。您听到的声音是合成语音。"
+    "translation_only": "本次通话使用实时 AI 翻译。您听到的声音是合成语音。",
+    "voicemail": "目前无人接听您的来电。请在提示音后留言。"
   },
   "zu": {
     "gate_press_key": "Ukuze uvume, cindezela u-1.",
@@ -837,6 +920,7 @@
     "refuse_continue": "Uma kungenjalo, ingcingo iyaqhubeka ngaphandle kwalokho.",
     "refuse_end": "Uma kungenjalo, ingcingo izophela.",
     "transcription": "Le ngcingo isebenzisa ukuhumusha kwe-AI ngesikhathi sangempela futhi izobhalwa phansi. Izwi olizwayo lenziwe umshini.",
-    "translation_only": "Le ngcingo isebenzisa ukuhumusha kwe-AI ngesikhathi sangempela. Izwi olizwayo lenziwe umshini."
+    "translation_only": "Le ngcingo isebenzisa ukuhumusha kwe-AI ngesikhathi sangempela. Izwi olizwayo lenziwe umshini.",
+    "voicemail": "Akekho otholakalayo ukuthatha ucingo lwakho. Sicela ushiye umyalezo ngemva komsindo."
   }
 }
