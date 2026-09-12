@@ -79,6 +79,10 @@ pub fn routes() -> Router<AppState> {
             axum::routing::delete(number_mgmt::release),
         )
         .route(
+            "/api/business/organizations/{org_id}/voip/numbers/{number_id}/routing",
+            get(number_mgmt::get_routing).put(number_mgmt::put_routing),
+        )
+        .route(
             "/api/business/organizations/{org_id}/voip/numbers/{number_id}/verify",
             post(number_mgmt::verify),
         )

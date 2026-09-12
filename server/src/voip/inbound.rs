@@ -102,15 +102,32 @@ pub async fn number_for(
 /// Named rather than left as a seven-tuple: the columns are heterogeneous enough that
 /// position stops meaning anything, and a transposition between two `Option<String>`s
 /// would compile.
-#[derive(Debug, sqlx::FromRow)]
-struct RoutingRow {
-    ring_mode: String,
-    ring_user_ids: Vec<Uuid>,
-    ring_team_id: Option<Uuid>,
-    ring_seconds: i32,
-    no_answer_action: String,
-    forward_to: Option<String>,
-    stranger_language: Option<String>,
+#[derive(Debug, sqlx::FromRow, serde::Serialize)]
+pub struct RoutingRow {
+    pub ring_mode: String,
+    pub ring_user_ids: Vec<Uuid>,
+    pub ring_team_id: Option<Uuid>,
+    pub ring_seconds: i32,
+    pub no_answer_action: String,
+    pub forward_to: Option<String>,
+    pub stranger_language: Option<String>,
+}
+
+impl RoutingRow {
+    /// What happens to a number nobody has configured: ring the owners, and take a
+    /// message. Returned by the read endpoint too, so the form opens showing what will
+    /// actually happen rather than blank.
+    pub fn default_for(ring_seconds: i32) -> Self {
+        Self {
+            ring_mode: "owners".into(),
+            ring_user_ids: Vec::new(),
+            ring_team_id: None,
+            ring_seconds,
+            no_answer_action: "voicemail".into(),
+            forward_to: None,
+            stranger_language: None,
+        }
+    }
 }
 
 /// Resolve the number's routing into the people to ring.
@@ -137,15 +154,7 @@ pub async fn resolve_ring(
 
     // No row at all is the same decision as a row that says `owners`: an organisation
     // that bought a number and gave it to somebody has not opted out of being rung.
-    let row = row.unwrap_or(RoutingRow {
-        ring_mode: "owners".into(),
-        ring_user_ids: Vec::new(),
-        ring_team_id: None,
-        ring_seconds: default_seconds,
-        no_answer_action: "voicemail".into(),
-        forward_to: None,
-        stranger_language: None,
-    });
+    let row = row.unwrap_or_else(|| RoutingRow::default_for(default_seconds));
 
     let mut user_ids: Vec<Uuid> = match row.ring_mode.as_str() {
         "users" => row.ring_user_ids.clone(),

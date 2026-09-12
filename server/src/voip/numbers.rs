@@ -530,3 +530,144 @@ pub async fn renew_due(
 
     Ok((renewed, suspended))
 }
+
+#[derive(Debug, Deserialize)]
+pub struct RoutingBody {
+    /// `owners` | `users` | `team`.
+    ring_mode: String,
+    #[serde(default)]
+    ring_user_ids: Vec<Uuid>,
+    #[serde(default)]
+    ring_team_id: Option<Uuid>,
+    #[serde(default)]
+    ring_seconds: Option<i32>,
+    /// `voicemail` | `forward` | `refuse`.
+    no_answer_action: String,
+    #[serde(default)]
+    forward_to: Option<String>,
+    #[serde(default)]
+    stranger_language: Option<String>,
+}
+
+/// `GET …/voip/numbers/{id}/routing` — what happens when somebody calls this number.
+pub async fn get_routing(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path((org_id, number_id)): Path<(Uuid, Uuid)>,
+) -> Result<Response, Response> {
+    let pool = require_pool(&state)?;
+    require_role(pool, org_id, user.user_id, MEMBER).await?;
+
+    let owns: Option<bool> =
+        sqlx::query_scalar("SELECT true FROM voip_numbers WHERE id = $1 AND org_id = $2")
+            .bind(number_id)
+            .bind(org_id)
+            .fetch_optional(pool)
+            .await
+            .map_err(db_err)?;
+    if owns.is_none() {
+        return Err(not_found("number not found"));
+    }
+
+    let row: Option<crate::voip::inbound::RoutingRow> = sqlx::query_as(
+        "SELECT ring_mode, ring_user_ids, ring_team_id, ring_seconds, no_answer_action,
+                forward_to, stranger_language
+           FROM voip_number_routing WHERE number_id = $1",
+    )
+    .bind(number_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(db_err)?;
+
+    // An unconfigured number is not an error: it rings the owners, which is exactly what
+    // the defaults say. Returning them rather than a 404 means the form opens filled in
+    // with what will actually happen, instead of blank.
+    let row = row.unwrap_or_else(|| {
+        crate::voip::inbound::RoutingRow::default_for(
+            state
+                .config
+                .voip
+                .as_ref()
+                .map(|c| c.ring_seconds_default)
+                .unwrap_or(25),
+        )
+    });
+
+    Ok(Json(row).into_response())
+}
+
+/// `PUT …/voip/numbers/{id}/routing`
+pub async fn put_routing(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path((org_id, number_id)): Path<(Uuid, Uuid)>,
+    Json(body): Json<RoutingBody>,
+) -> Result<Response, Response> {
+    let pool = require_pool(&state)?;
+    // Changing where a company's calls go is an administrative act.
+    require_role(pool, org_id, user.user_id, ADMIN).await?;
+
+    if !matches!(body.ring_mode.as_str(), "owners" | "users" | "team") {
+        return Err(refuse(StatusCode::BAD_REQUEST, "invalid_ring_mode"));
+    }
+    if !matches!(
+        body.no_answer_action.as_str(),
+        "voicemail" | "forward" | "refuse"
+    ) {
+        return Err(refuse(StatusCode::BAD_REQUEST, "invalid_no_answer_action"));
+    }
+
+    // A forward with nowhere to forward to is a call that dies silently at the moment it
+    // matters most, so it is refused at configuration time rather than at 3am.
+    let forward_to = match (body.no_answer_action.as_str(), body.forward_to.as_deref()) {
+        ("forward", Some(raw)) => Some(
+            E164::parse(raw)
+                .map_err(|_| refuse(StatusCode::BAD_REQUEST, "number_not_e164"))?
+                .as_str()
+                .to_string(),
+        ),
+        ("forward", None) => return Err(refuse(StatusCode::BAD_REQUEST, "forward_to_required")),
+        _ => None,
+    };
+
+    let owns: Option<bool> =
+        sqlx::query_scalar("SELECT true FROM voip_numbers WHERE id = $1 AND org_id = $2")
+            .bind(number_id)
+            .bind(org_id)
+            .fetch_optional(pool)
+            .await
+            .map_err(db_err)?;
+    if owns.is_none() {
+        return Err(not_found("number not found"));
+    }
+
+    sqlx::query(
+        "INSERT INTO voip_number_routing
+            (number_id, org_id, ring_mode, ring_user_ids, ring_team_id, ring_seconds,
+             no_answer_action, forward_to, stranger_language)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         ON CONFLICT (number_id) DO UPDATE SET
+            ring_mode = EXCLUDED.ring_mode,
+            ring_user_ids = EXCLUDED.ring_user_ids,
+            ring_team_id = EXCLUDED.ring_team_id,
+            ring_seconds = EXCLUDED.ring_seconds,
+            no_answer_action = EXCLUDED.no_answer_action,
+            forward_to = EXCLUDED.forward_to,
+            stranger_language = EXCLUDED.stranger_language,
+            updated_at = now()",
+    )
+    .bind(number_id)
+    .bind(org_id)
+    .bind(&body.ring_mode)
+    .bind(&body.ring_user_ids)
+    .bind(body.ring_team_id)
+    .bind(body.ring_seconds.unwrap_or(25).clamp(5, 120))
+    .bind(&body.no_answer_action)
+    .bind(forward_to.as_deref())
+    .bind(body.stranger_language.as_deref())
+    .execute(pool)
+    .await
+    .map_err(db_err)?;
+
+    Ok(StatusCode::NO_CONTENT.into_response())
+}
