@@ -1746,6 +1746,35 @@ async fn a_call_nobody_asked_to_analyse_is_left_alone() {
     assert!(!requested);
 }
 
+/// Count audit rows for an action, WAITING for them rather than assuming they landed.
+///
+/// `log_audit_event` is `tokio::spawn`-ed and documents itself as "asynchronously and
+/// best-effort" — a caller is deliberately never made to wait on an audit write. So the
+/// handler's response can, and does, arrive before the row is committed. Reading once
+/// straight after the response tests the scheduler, not the contract: it passed on a
+/// developer machine for two days and failed the first time it ran on a loaded CI runner
+/// under coverage instrumentation.
+///
+/// The contract is "the invitation IS audited", not "it is audited before the response
+/// byte". This waits for the former and still fails, in bounded time, if the row never
+/// comes.
+async fn audited(srv: &Server, org: Uuid, action: &str) -> i64 {
+    for _ in 0..50 {
+        let n: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM audit_logs WHERE org_id = $1 AND action = $2")
+                .bind(org)
+                .bind(action)
+                .fetch_one(&srv.pool)
+                .await
+                .unwrap();
+        if n > 0 {
+            return n;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    0
+}
+
 /// A server with video switched on. The default is off, so most tests never see it.
 async fn setup_with_video() -> Option<Server> {
     let mut voip = VoipConfig::test_default();
@@ -1833,15 +1862,10 @@ async fn a_video_invite_never_carries_the_room_in_the_clear() {
     );
 
     // Audited: someone was invited into a conversation.
-    let audited: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM audit_logs
-         WHERE org_id = $1 AND action = 'voip.video_invite'",
-    )
-    .bind(org)
-    .fetch_one(&srv.pool)
-    .await
-    .unwrap();
-    assert!(audited >= 1);
+    assert!(
+        audited(&srv, org, "voip.video_invite").await >= 1,
+        "no audit row for an invitation that was issued"
+    );
 }
 
 #[tokio::test]
