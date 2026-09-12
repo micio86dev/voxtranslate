@@ -415,6 +415,186 @@ pub struct WebhookHeaders {
     pub timestamp: Option<String>,
 }
 
+// ---- number management (spec 0115) ----------------------------------------
+
+/// The provider's own id for a number we own. Opaque here on purpose: releasing or
+/// inspecting a number must not need a second lookup, and the shape of the id is the
+/// provider's business.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderNumberId(pub String);
+
+impl ProviderNumberId {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+/// What kind of number, in the terms a customer thinks in rather than a carrier's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NumberKind {
+    Local,
+    National,
+    TollFree,
+    Mobile,
+}
+
+impl NumberKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Local => "local",
+            Self::National => "national",
+            Self::TollFree => "toll_free",
+            Self::Mobile => "mobile",
+        }
+    }
+
+    /// Unknown input becomes `Local`, the commonest and least surprising kind — the same
+    /// fail-to-the-narrow-case habit `RolloutStage::parse` follows.
+    pub fn parse(raw: &str) -> Self {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "national" => Self::National,
+            "toll_free" | "tollfree" | "toll-free" => Self::TollFree,
+            "mobile" => Self::Mobile,
+            _ => Self::Local,
+        }
+    }
+}
+
+/// A search, in human terms: a country, optionally a place, optionally a kind.
+#[derive(Debug, Clone)]
+pub struct NumberSearch {
+    /// ISO 3166-1 alpha-2.
+    pub country: String,
+    /// Area or city code, where the country has them and the provider supports filtering.
+    pub area_code: Option<String>,
+    pub kind: Option<NumberKind>,
+    pub limit: u8,
+}
+
+/// One number the provider is offering, with what IT costs us — never what we charge.
+///
+/// The customer price is computed by `voip::pricing::NumberMarkupPolicy` at the edge, so
+/// the markup lives in one place and a provider adapter cannot accidentally apply it.
+#[derive(Debug, Clone)]
+pub struct NumberOffer {
+    pub e164: String,
+    pub country: String,
+    pub kind: NumberKind,
+    pub monthly_cost: Decimal,
+    pub setup_cost: Decimal,
+    pub currency: String,
+    /// What a regulator wants before this number can carry traffic, in the provider's
+    /// words. `None` means nothing is required — not "we did not ask".
+    pub regulatory_requirement: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct PurchaseRequest {
+    pub e164: String,
+    /// Ours, not the provider's: the same key must buy the same number once, however many
+    /// times a flaky network makes the client retry.
+    pub idempotency_key: String,
+}
+
+/// Where a number is in its life. Mirrors what a customer needs to know, not a carrier's
+/// internal state machine.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NumberStatus {
+    Ordering,
+    /// A regulator is the blocker. Saying "active" here would be a lie with a fine
+    /// attached.
+    PendingRegulatory,
+    Active,
+    Suspended,
+    Releasing,
+    Released,
+    Failed,
+}
+
+impl NumberStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Ordering => "ordering",
+            Self::PendingRegulatory => "pending_regulatory",
+            Self::Active => "active",
+            Self::Suspended => "suspended",
+            Self::Releasing => "releasing",
+            Self::Released => "released",
+            Self::Failed => "failed",
+        }
+    }
+
+    /// Unknown provider state becomes `Ordering`, never `Active`: a number we cannot read
+    /// the status of must not be presented as caller id.
+    pub fn parse(raw: &str) -> Self {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "pending_regulatory" | "pending-regulatory" | "pending" => Self::PendingRegulatory,
+            "active" => Self::Active,
+            "suspended" => Self::Suspended,
+            "releasing" => Self::Releasing,
+            "released" | "deleted" => Self::Released,
+            "failed" => Self::Failed,
+            _ => Self::Ordering,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct PurchasedNumber {
+    pub provider_number_id: ProviderNumberId,
+    pub e164: String,
+    pub status: NumberStatus,
+    pub monthly_cost: Decimal,
+    pub setup_cost: Decimal,
+    pub currency: String,
+    pub regulatory_requirement: Option<String>,
+}
+
+/// How the provider proves the caller owns a number they already have elsewhere.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VerificationMethod {
+    /// We call the number and read a code.
+    Call,
+    Sms,
+}
+
+#[derive(Debug, Clone)]
+pub struct VerificationStart {
+    pub id: String,
+    pub method: VerificationMethod,
+    /// The code the person will hear or read, when the provider tells us what it is.
+    /// `None` when the provider keeps it to itself and only reports the outcome.
+    pub code: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VerificationState {
+    Pending,
+    Verified,
+    Rejected,
+}
+
+impl VerificationState {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::Verified => "verified",
+            Self::Rejected => "rejected",
+        }
+    }
+
+    /// Anything unrecognised is `Pending`, never `Verified`. Presenting a number we have
+    /// not proved the customer owns is illegal in most of our markets, so the failure
+    /// direction here is not a style choice.
+    pub fn parse(raw: &str) -> Self {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "verified" | "success" | "succeeded" => Self::Verified,
+            "rejected" | "failed" | "expired" => Self::Rejected,
+            _ => Self::Pending,
+        }
+    }
+}
+
 /// One telephony provider.
 #[async_trait]
 pub trait TelephonyProvider: Send + Sync {
@@ -466,6 +646,42 @@ pub trait TelephonyProvider: Send + Sync {
 
     /// Pull the current rate deck (D11).
     async fn fetch_rate_deck(&self) -> Result<Vec<Rate>, ProviderError>;
+
+    // ---- number management (spec 0115) ------------------------------------
+    //
+    // Every one of these may answer `ProviderError::Unsupported`, the way `fetch_cdr` and
+    // `fetch_rate_deck` already do. An account that cannot buy numbers, or an API that
+    // does not expose the operation, is a fact to report — not something to paper over
+    // with a fabricated success.
+
+    /// Numbers available to buy, in the terms a customer searched in.
+    async fn search_numbers(&self, q: NumberSearch) -> Result<Vec<NumberOffer>, ProviderError>;
+
+    /// Buy one. `req.idempotency_key` is OURS: the same key must buy the same number once,
+    /// however many times a flaky network makes the client retry.
+    async fn purchase_number(&self, req: PurchaseRequest)
+        -> Result<PurchasedNumber, ProviderError>;
+
+    /// Give one back. Irreversible from the customer's point of view — somebody else may
+    /// hold that number an hour later — so the product asks twice before calling this.
+    async fn release_number(&self, id: &ProviderNumberId) -> Result<(), ProviderError>;
+
+    /// Where the provider thinks a number is, for the reconcile sweep to compare against
+    /// what we think.
+    async fn number_status(&self, id: &ProviderNumberId) -> Result<NumberStatus, ProviderError>;
+
+    /// Begin proving that the customer owns a number they hold somewhere else, so it can
+    /// be presented as caller id.
+    async fn start_caller_id_verification(
+        &self,
+        e164: &E164,
+    ) -> Result<VerificationStart, ProviderError>;
+
+    /// Has it succeeded yet?
+    async fn check_caller_id_verification(
+        &self,
+        id: &str,
+    ) -> Result<VerificationState, ProviderError>;
 
     /// Verify and normalise a webhook. **Pure** — no I/O, no clock of its own — so R24 is
     /// testable exhaustively without a network or a running server.
