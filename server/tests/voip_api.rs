@@ -3329,15 +3329,17 @@ async fn a_call_to_a_number_we_do_not_own_creates_nothing() {
     // A stranger dialling a wrong number is owed a normal busy tone, not a row in
     // somebody's history — and not an explanation of our schema either.
     let srv = srv!();
-    let before: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM voip_calls WHERE direction = 'inbound'")
-            .fetch_one(&srv.pool)
-            .await
-            .unwrap();
 
+    // Scoped to THIS leg, not a global count of inbound calls. The suite runs in
+    // parallel against one database, so a before/after delta over every inbound row in
+    // it measures the other tests as much as this one: any test that legitimately rings
+    // a number it DOES own lands between the two reads and this assertion blames itself
+    // for it. The leg id is unique per call and is recorded on the row, so it asks the
+    // question the test actually means — was a call created for this ring?
+    let leg = format!("leg-{}", Uuid::new_v4());
     let status = ring_us(
         &srv,
-        &format!("leg-{}", Uuid::new_v4()),
+        &leg,
         "+393201234567",
         &format!("+3906{:07}", rand_suffix()),
     )
@@ -3347,15 +3349,13 @@ async fn a_call_to_a_number_we_do_not_own_creates_nothing() {
         "the carrier should not be made to retry"
     );
 
-    let after: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM voip_calls WHERE direction = 'inbound'")
+    let created: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM voip_calls WHERE $1 = ANY(provider_leg_ids)")
+            .bind(&leg)
             .fetch_one(&srv.pool)
             .await
             .unwrap();
-    assert_eq!(
-        after, before,
-        "a call was created for a number we do not own"
-    );
+    assert_eq!(created, 0, "a call was created for a number we do not own");
 }
 
 #[tokio::test]
@@ -3759,16 +3759,23 @@ async fn voicemail_obeys_the_orgs_recording_policy() {
     .await
     .unwrap();
 
+    // Scoped to THIS leg. `sweep_unanswered` sweeps the whole database, every org, so a
+    // concurrent test whose own org DOES allow recording would have its voicemail
+    // started through this server's mock — and an unscoped negative assertion would read
+    // that as this org being recorded.
     let provider = srv.provider.as_ref().expect("mock");
     let commands = provider.commands();
+    let mine = |l: &LegId| l.as_str() == leg;
     assert!(
         !commands
             .iter()
-            .any(|c| matches!(c, MockCommand::StartRecording(..))),
+            .any(|c| matches!(c, MockCommand::StartRecording(l, _) if mine(l))),
         "an org with recording disabled had its caller recorded anyway: {commands:?}"
     );
     assert!(
-        commands.iter().any(|c| matches!(c, MockCommand::Hangup(_))),
+        commands
+            .iter()
+            .any(|c| matches!(c, MockCommand::Hangup(l) if mine(l))),
         "the caller was neither recorded nor hung up on: {commands:?}"
     );
 
