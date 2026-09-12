@@ -571,6 +571,12 @@ struct CallRow {
     consent_status: String,
     project_id: Option<Uuid>,
     project_name: Option<String>,
+    /// Nobody answered in time (spec 0116). A fact on the row rather than something the
+    /// list infers from a zero duration — a call that connected and lasted no time is not
+    /// the same event as one nobody picked up.
+    missed: bool,
+    /// Who it was, when the address book knew (spec 0114).
+    contact_name: Option<String>,
 }
 
 /// `GET …/voip/calls` — paginated history. Non-admins see only their own calls (R28).
@@ -594,9 +600,10 @@ pub async fn history(
                 c.source_language, c.target_language, c.engine_id, c.started_at,
                 c.ended_at, c.duration_seconds, c.credits_consumed, c.recording_status,
                 c.transcription_status, c.consent_status, c.project_id,
-                p.name AS project_name
+                p.name AS project_name, c.missed, ct.name AS contact_name
          FROM voip_calls c
          LEFT JOIN projects p ON p.id = c.project_id
+         LEFT JOIN voip_contacts ct ON ct.id = c.contact_id
          WHERE c.org_id = $1
            AND ($2::uuid IS NULL OR c.project_id = $2)
            AND ($3 OR c.user_id = $4)
