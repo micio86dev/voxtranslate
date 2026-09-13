@@ -1345,8 +1345,26 @@ mod tests {
             .unwrap();
         assert_eq!(balance(&f.pool, f.org).await, 700);
 
-        let closed = settle_finished_calls(&f.pool, 200).await.unwrap();
-        assert!(closed >= 1, "the sweep closed at least this call's hold");
+        // Swept until THIS call's hold is closed, not once with an assertion on the
+        // return count. The sweep is global, batched and ordered by `ended_at`, and the
+        // suite runs in parallel against one database — so a single batch can fill with
+        // other tests' calls before reaching this one, and a count would be measuring
+        // them rather than this. Repeating is also what production does: the sweep runs
+        // on a timer, and one pass was never the contract. (Same reasoning as
+        // `the_settlement_sweep_is_safe_to_run_twice` below.)
+        let mut closed = false;
+        for _ in 0..10 {
+            settle_finished_calls(&f.pool, 500).await.unwrap();
+            if reservation::open_for_call(&f.pool, f.call)
+                .await
+                .unwrap()
+                .is_none()
+            {
+                closed = true;
+                break;
+            }
+        }
+        assert!(closed, "the sweep never closed this call's hold");
         assert_eq!(
             balance(&f.pool, f.org).await,
             960,
