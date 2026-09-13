@@ -254,6 +254,7 @@ mod tests {
     /// `cargo test --lib pdf -- --ignored` -> target/sample-transcript.pdf
     #[test]
     #[ignore]
+    #[cfg(feature = "live-probes")]
     fn dump_sample_pdf() {
         let mut speech = event("speech", 0, "ciao a tutti, come va oggi?", "it", 5);
         speech

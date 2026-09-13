@@ -30,17 +30,48 @@ struct Server {
 }
 
 fn va_cfg() -> VoiceAssistantConfig {
+    va_cfg_against(voxtranslate_server::config::OPENAI_DEFAULT_REALTIME_BASE.into())
+}
+
+/// The same config, pointed at a stand-in instead of OpenAI.
+fn va_cfg_against(realtime_base_url: String) -> VoiceAssistantConfig {
     VoiceAssistantConfig {
         api_key: "test-key".into(),
         model: "gpt-realtime-2.1".into(),
         cost_per_minute: 0.18,
         markup: 0.25,
         max_sessions: 4,
+        realtime_base_url,
     }
 }
 
 /// Boot the app with the voice assistant configured. `with_embeddings = false`
 /// reproduces the half-configured deployment: the route exists, RAG cannot run.
+async fn setup_against(upstream: Option<String>) -> Option<Server> {
+    let url = std::env::var("DATABASE_URL").ok()?;
+    let pool = db::connect(&url).await.ok()?;
+    db::migrate(&pool).await.ok()?;
+    let mut config = Config::test_with_billing(&url, SECRET, 0.0);
+    config.voice_assistant = Some(match upstream {
+        Some(base) => va_cfg_against(base),
+        None => va_cfg(),
+    });
+    let mut state = AppState::new(config);
+    state.safety = Some(SafetyService::new(pool.clone()));
+    state.pool = Some(pool.clone());
+    state.verifier = Arc::new(FakeVerifier);
+    state.embeddings = Some(OpenAiEmbeddings::new(
+        "test-key".into(),
+        "text-embedding-3-small".into(),
+    ));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.ok()?;
+    let addr = listener.local_addr().ok()?;
+    tokio::spawn(async move {
+        let _ = axum::serve(listener, app(state)).await;
+    });
+    Some(Server { addr, pool })
+}
+
 async fn setup(with_embeddings: bool) -> Option<Server> {
     let url = std::env::var("DATABASE_URL").ok()?;
     let pool = db::connect(&url).await.ok()?;
@@ -460,5 +491,182 @@ async fn rag_retrieval_reports_a_failed_embedding_rather_than_panicking() {
     assert!(
         err.contains("embedding failed"),
         "the error should say which step failed, got: {err}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// The relay itself, against a stand-in provider
+//
+// Everything above stops at a gate. `OPENAI_REALTIME_BASE_URL` points the relay's
+// upstream socket at `realtime_mock`, so the session, the transcript fan-out, the
+// credit meter and the teardown run here with the real client code.
+// ---------------------------------------------------------------------------
+
+use voxtranslate_server::engine::realtime_mock::{Dialect, RealtimeMock, Reply};
+
+/// An eligible owner on a server whose upstream is the stand-in.
+async fn relay_ready(mock: &RealtimeMock) -> Option<(Server, Uuid, String)> {
+    let srv = setup_against(Some(mock.base_url())).await?;
+    let (org, _, jwt) = org_with(&srv, "owner").await;
+    make_eligible(&srv, org).await;
+    Some((srv, org, jwt))
+}
+
+/// Open the assistant socket and collect frames until `wanted` matches.
+async fn relay_frame(
+    srv: &Server,
+    org: Uuid,
+    jwt: &str,
+    audio: Option<Vec<u8>>,
+    wanted: impl Fn(&Value) -> bool,
+) -> Option<Value> {
+    use futures::SinkExt as _;
+    let (mut ws, _) = tokio_tungstenite::connect_async(ws_url(srv, org, &format!("?token={jwt}")))
+        .await
+        .ok()?;
+    if let Some(pcm) = audio {
+        let _ = ws
+            .send(tokio_tungstenite::tungstenite::Message::binary(pcm))
+            .await;
+    }
+    while let Ok(Some(Ok(frame))) = tokio::time::timeout(Duration::from_secs(6), ws.next()).await {
+        if let tokio_tungstenite::tungstenite::Message::Text(t) = frame {
+            if let Ok(v) = serde_json::from_str::<Value>(t.as_str()) {
+                if wanted(&v) {
+                    return Some(v);
+                }
+            }
+        }
+    }
+    None
+}
+
+#[tokio::test]
+async fn the_relay_configures_its_upstream_session_before_anything_else() {
+    let mock = RealtimeMock::start(Dialect::OpenAiAssistant).await;
+    let Some((srv, org, jwt)) = relay_ready(&mock).await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+
+    let _ = tokio_tungstenite::connect_async(ws_url(&srv, org, &format!("?token={jwt}"))).await;
+    tokio::time::sleep(Duration::from_millis(600)).await;
+
+    let frames = mock.received();
+    assert!(
+        !frames.is_empty(),
+        "the relay never opened an upstream session"
+    );
+    assert!(
+        frames[0].contains("session.update"),
+        "the first frame configures the session: {}",
+        frames[0]
+    );
+}
+
+#[tokio::test]
+async fn the_browsers_audio_is_forwarded_upstream() {
+    let mock = RealtimeMock::start(Dialect::OpenAiAssistant).await;
+    let Some((srv, org, jwt)) = relay_ready(&mock).await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+
+    let _ = relay_frame(&srv, org, &jwt, Some(vec![0u8; 640]), |v| {
+        v["type"] == "nothing-matches-this"
+    })
+    .await;
+
+    assert!(
+        mock.saw_type("input_audio_buffer.append"),
+        "the microphone must reach the model: {:?}",
+        mock.received()
+    );
+}
+
+#[tokio::test]
+async fn what_the_model_says_reaches_the_browser() {
+    let mock = RealtimeMock::start(Dialect::OpenAiAssistant).await;
+    mock.reply_with(vec![Reply::Transcript {
+        original: "how did the migration go".into(),
+        translated: "It shipped on Friday.".into(),
+    }]);
+    let Some((srv, org, jwt)) = relay_ready(&mock).await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+
+    let frame = relay_frame(&srv, org, &jwt, Some(vec![0u8; 640]), |v| {
+        v["type"] == "transcript"
+    })
+    .await
+    .expect("the browser received a transcript");
+    assert!(frame["delta"].as_str().is_some(), "frame: {frame}");
+}
+
+#[tokio::test]
+async fn the_models_voice_reaches_the_browser() {
+    let mock = RealtimeMock::start(Dialect::OpenAiAssistant).await;
+    mock.reply_with(vec![Reply::Audio(vec![1, 2, 3, 4, 5, 6, 7, 8])]);
+    let Some((srv, org, jwt)) = relay_ready(&mock).await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+
+    let frame = relay_frame(&srv, org, &jwt, Some(vec![0u8; 640]), |v| {
+        v["type"] == "answer_audio"
+    })
+    .await
+    .expect("the browser received spoken audio");
+    assert!(frame["pcm16_b64"].as_str().is_some(), "frame: {frame}");
+}
+
+#[tokio::test]
+async fn an_upstream_that_refuses_is_reported_as_an_error_not_a_dead_socket() {
+    // A socket that opens and then says nothing is the failure mode this whole
+    // handler is written to avoid: the dashboard shows "connection error" and the
+    // user has no idea what to fix.
+    let mock = RealtimeMock::start(Dialect::OpenAiAssistant).await;
+    mock.reply_with(vec![Reply::Error("model unavailable".into())]);
+    let Some((srv, org, jwt)) = relay_ready(&mock).await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+
+    let frame = relay_frame(&srv, org, &jwt, Some(vec![0u8; 640]), |v| {
+        v["type"] == "error"
+    })
+    .await;
+    assert!(frame.is_some(), "an upstream error must be said out loud");
+}
+
+#[tokio::test]
+async fn a_capacity_ceiling_is_reported_before_any_upstream_call() {
+    let mock = RealtimeMock::start(Dialect::OpenAiAssistant).await;
+    let srv = match setup_against(Some(mock.base_url())).await {
+        Some(s) => s,
+        None => {
+            eprintln!("skipping — no DATABASE_URL");
+            return;
+        }
+    };
+    let (org, _, jwt) = org_with(&srv, "owner").await;
+    make_eligible(&srv, org).await;
+
+    // Hold every slot by opening more sockets than the cap allows.
+    let mut held = Vec::new();
+    for _ in 0..6 {
+        if let Ok((ws, _)) =
+            tokio_tungstenite::connect_async(ws_url(&srv, org, &format!("?token={jwt}"))).await
+        {
+            held.push(ws);
+        }
+    }
+    tokio::time::sleep(Duration::from_millis(800)).await;
+
+    let frame = relay_frame(&srv, org, &jwt, None, |v| v["code"] == "capacity_full").await;
+    assert!(
+        frame.is_some(),
+        "past the cap the user is told, rather than left with a silent socket"
     );
 }

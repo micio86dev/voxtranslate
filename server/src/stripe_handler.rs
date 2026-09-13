@@ -14,8 +14,9 @@ use crate::config::{BillingConfig, CreditPackage, OrgBillingConfig};
 
 type HmacSha256 = Hmac<Sha256>;
 
-/// Base URL for the Stripe API. A constant so tests could point elsewhere.
-const STRIPE_API_BASE: &str = "https://api.stripe.com";
+// The Stripe API root arrives on `BillingConfig::stripe_base_url` rather than living
+// here, so a test can point every call below at a stand-in. Nothing that charges a
+// card could be exercised otherwise.
 
 /// Params that turn a one-off Checkout Session into an **invoiced** one (spec 0109).
 ///
@@ -190,8 +191,9 @@ pub async fn create_portal_session(
         ("customer", customer_id.to_string()),
         ("return_url", org_cfg.portal_return_url.clone()),
     ];
+    let base = &cfg.stripe_base_url;
     let resp = http
-        .post(format!("{STRIPE_API_BASE}/v1/billing_portal/sessions"))
+        .post(format!("{base}/v1/billing_portal/sessions"))
         .bearer_auth(&cfg.stripe_secret_key)
         .form(&params)
         .send()
@@ -217,10 +219,9 @@ pub async fn get_subscription(
     cfg: &BillingConfig,
     subscription_id: &str,
 ) -> Result<serde_json::Value, String> {
+    let base = &cfg.stripe_base_url;
     let resp = http
-        .get(format!(
-            "{STRIPE_API_BASE}/v1/subscriptions/{subscription_id}"
-        ))
+        .get(format!("{base}/v1/subscriptions/{subscription_id}"))
         .query(&[("expand[]", "default_payment_method")])
         .bearer_auth(&cfg.stripe_secret_key)
         .send()
@@ -280,8 +281,9 @@ pub async fn get_price(
     cfg: &BillingConfig,
     price_id: &str,
 ) -> Result<serde_json::Value, String> {
+    let base = &cfg.stripe_base_url;
     let resp = http
-        .get(format!("{STRIPE_API_BASE}/v1/prices/{price_id}"))
+        .get(format!("{base}/v1/prices/{price_id}"))
         .bearer_auth(&cfg.stripe_secret_key)
         .send()
         .await
@@ -311,8 +313,9 @@ pub async fn get_invoice(
     cfg: &BillingConfig,
     invoice_id: &str,
 ) -> Result<serde_json::Value, String> {
+    let base = &cfg.stripe_base_url;
     let resp = http
-        .get(format!("{STRIPE_API_BASE}/v1/invoices/{invoice_id}"))
+        .get(format!("{base}/v1/invoices/{invoice_id}"))
         .bearer_auth(&cfg.stripe_secret_key)
         .send()
         .await
@@ -332,8 +335,9 @@ pub async fn list_invoices(
     customer_id: &str,
     limit: u8,
 ) -> Result<Vec<serde_json::Value>, String> {
+    let base = &cfg.stripe_base_url;
     let resp = http
-        .get(format!("{STRIPE_API_BASE}/v1/invoices"))
+        .get(format!("{base}/v1/invoices"))
         .query(&[("customer", customer_id), ("limit", &limit.to_string())])
         .bearer_auth(&cfg.stripe_secret_key)
         .send()
@@ -352,8 +356,9 @@ async fn post_checkout(
     cfg: &BillingConfig,
     params: &[(&str, String)],
 ) -> Result<String, String> {
+    let base = &cfg.stripe_base_url;
     let resp = http
-        .post(format!("{STRIPE_API_BASE}/v1/checkout/sessions"))
+        .post(format!("{base}/v1/checkout/sessions"))
         .bearer_auth(&cfg.stripe_secret_key)
         .form(params)
         .send()

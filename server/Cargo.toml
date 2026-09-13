@@ -10,6 +10,15 @@ license = "LicenseRef-PolyForm-Shield-1.0.0"
 # runs at once, instead of one `--bin` flag per call site.
 default-run = "voxtranslate-server"
 
+[features]
+# Live provider probes: `#[ignore]`d tests that open a real socket to Model Studio,
+# Gemini or OpenAI with a real key and bill real minutes. They are how the wire
+# contracts in this crate were established and they are worth keeping — but they
+# cannot run in CI by construction, so compiling them by default only adds a few
+# hundred permanently-unreachable lines to every coverage report. Off by default;
+# run them with `cargo test --features live-probes -- --ignored --nocapture`.
+live-probes = []
+
 [dependencies]
 axum = { version = "0.8", features = ["ws", "multipart"] }
 tokio = { version = "1", features = ["full"] }

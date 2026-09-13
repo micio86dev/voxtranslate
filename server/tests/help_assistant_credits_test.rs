@@ -23,6 +23,7 @@ fn make_ha_config(cost_per_minute: f64, markup_fraction: f64) -> HelpAssistantCo
         cost_per_minute,
         markup: markup_fraction,
         max_sessions: 10,
+        realtime_base_url: voxtranslate_server::config::OPENAI_DEFAULT_REALTIME_BASE.into(),
     }
 }
 

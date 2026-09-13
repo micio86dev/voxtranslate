@@ -923,6 +923,7 @@ mod tests {
             cost_per_minute: 0.023,
             markup: 0.5,
             max_sessions: 4,
+            live_base_url: crate::config::GEMINI_DEFAULT_LIVE_BASE.into(),
             voice: None,
         });
         assert!(
