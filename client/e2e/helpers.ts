@@ -62,13 +62,29 @@ export async function joinCall(
   await page.fill('#room', opts.room);
   if (opts.publicRoom === false) await page.click('.seg-btn[data-vis="private"]');
   await page.click('#enter');
-  await page.waitForSelector('#prejoin:not(.hidden)');
-  await page.waitForFunction(() => {
-    const v = document.getElementById('preview') as HTMLVideoElement | null;
-    return !!(v && v.srcObject && v.videoWidth > 0);
-  });
+  await page.waitForSelector('#prejoin:not(.hidden)', { timeout: 30_000 });
+  // Bounded, and it matters: Playwright's default action timeout is 0, which means
+  // "bounded by the TEST timeout". An unbounded wait in a helper every spec calls
+  // turns any stall here into the whole test budget elapsing and one line of output
+  // that says `Test ended` — no step, no reason. `screenshare.spec` burned twelve
+  // minutes of CI that way on 2026-09-13 before anyone could even name the step.
+  // Thirty seconds is ~30x what a healthy runner takes to produce the first frame.
+  await page
+    .waitForFunction(
+      () => {
+        const v = document.getElementById('preview') as HTMLVideoElement | null;
+        return !!(v && v.srcObject && v.videoWidth > 0);
+      },
+      undefined,
+      { timeout: 30_000 },
+    )
+    .catch(() => {
+      throw new Error('pre-join preview never produced a video frame');
+    });
   await page.click('#join-btn');
-  await page.waitForSelector('#call:not(.hidden)');
+  await page.waitForSelector('#call:not(.hidden)', { timeout: 30_000 }).catch(() => {
+    throw new Error('the peer never entered the call after #join-btn');
+  });
   // The consent/cookie banner is fixed to the bottom of the viewport and overlays
   // the in-call control bar; accept it (as a real user would) so the controls
   // beneath it are clickable.

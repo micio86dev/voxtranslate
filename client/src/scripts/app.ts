@@ -2909,9 +2909,13 @@ function attachStream(id: string, stream: MediaStream): void {
   applyAudioMode();
   video.srcObject = stream;
   void video.play().catch(() => {});
+  // A video track that exists but is MUTED is an m-line with nothing flowing —
+  // the empty video sender every camera-less peer negotiates up front so a later
+  // screen share needs no renegotiation. Counting its mere presence as "has video"
+  // would hide the camera-off avatar for a peer showing nothing at all.
   // A disabled remote track still counts, so a known camera-off state (from
-  // peer_muted) takes precedence over the raw track count.
-  const hasVideo = stream.getVideoTracks().length > 0;
+  // peer_muted) takes precedence over the raw track state.
+  const hasVideo = stream.getVideoTracks().some((t) => t.readyState === 'live' && !t.muted);
   if (id !== myId) setCameraOff(id, peerCamOff.get(id) ?? !hasVideo);
   schedulePipSync(); // a stream just attached — push it into the PiP clone too (spec 0057)
 }

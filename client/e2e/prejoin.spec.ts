@@ -13,7 +13,10 @@ test('pre-join: device selectors + mic/camera toggles', async ({ browser }) => {
   await page.waitForFunction(() => {
     const v = document.getElementById('preview') as HTMLVideoElement | null;
     return !!(v && v.srcObject && v.videoWidth > 0);
-  });
+  },
+    undefined,
+    { timeout: 20000 },
+  );
 
   // Device selectors are populated.
   expect(await page.$$eval('#cam-select option', (o) => o.length)).toBeGreaterThan(0);

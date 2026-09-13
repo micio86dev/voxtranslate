@@ -23,7 +23,10 @@ test('room full: a 5th participant is rejected and returned home', async ({ brow
   await page.waitForFunction(() => {
     const v = document.getElementById('preview') as HTMLVideoElement | null;
     return !!(v && v.srcObject && v.videoWidth > 0);
-  });
+  },
+    undefined,
+    { timeout: 20000 },
+  );
   await page.click('#join-btn');
 
   // The room_full message bounces us back home with an error.
