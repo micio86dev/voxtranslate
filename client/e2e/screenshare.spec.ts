@@ -111,8 +111,18 @@ test('screen share works without a camera (issue #4)', async ({ browser }) => {
   ).toBeTruthy();
 
   // Start the screen share (btn-share now lives in the ⋯ menu).
-  await a.page.click('#btn-more');
-  await a.page.click('#btn-share');
+  //
+  // Bounded like everything else here. A Playwright click has no timeout of its own
+  // either: it retries until the element is actionable or the TEST budget runs out,
+  // and then the error is reported against whatever operation happened to be pending
+  // afterwards. That is how this spec twice blamed the 20 s wait below — which never
+  // got its 20 s, because the budget was already gone by the time it started.
+  await a.page.click('#btn-more', { timeout: 15_000 }).catch(() => {
+    throw new Error('the ⋯ menu never became clickable');
+  });
+  await a.page.click('#btn-share', { timeout: 15_000 }).catch(() => {
+    throw new Error('#btn-share never became clickable inside the ⋯ menu');
+  });
 
   // The viewer now receives flowing video from the camera-less peer, and the
   // camera-off avatar is hidden — proving the screen reaches peers.
@@ -145,7 +155,9 @@ test('screen share works without a camera (issue #4)', async ({ browser }) => {
   // Stop sharing → with no camera, the viewer falls back to the camera-off avatar.
   // The ⋯ menu is still open from the start-share above (it no longer closes on a
   // pick — spec 0036), so btn-share is clickable straight away.
-  await a.page.click('#btn-share');
+  await a.page.click('#btn-share', { timeout: 15_000 }).catch(() => {
+    throw new Error('#btn-share never became clickable for the stop-share');
+  });
   await b.page.waitForFunction(
     () => {
       const av = document.querySelector('.video-cell:not(.self) .avatar') as HTMLElement | null;
