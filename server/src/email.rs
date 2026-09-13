@@ -25,14 +25,30 @@ pub struct Resend {
     api_key: String,
     /// `Name <email>` per RFC 5322, prebuilt from the config.
     from: String,
+    /// Where mail is posted. Defaults to [`RESEND_URL`]; a different value comes
+    /// only from `RESEND_BASE_URL`, which no deployment sets.
+    base_url: String,
 }
 
 impl Resend {
     pub fn new(http: reqwest::Client, cfg: &ResendConfig) -> Self {
+        Self::with_endpoint(http, cfg, RESEND_URL.to_string())
+    }
+
+    /// Same client, posting to `base_url` instead of Resend.
+    ///
+    /// Every outbound email in this server — bug reports, the contact form, room
+    /// invites, call and webinar recaps, notification mail — goes through one
+    /// `send()`, so without a seam here none of them can be exercised without a
+    /// live key. Plumbed from `RESEND_BASE_URL`
+    /// (see [`crate::config::Config::resend_base_url`]), unset everywhere but a
+    /// test, so production addresses Resend exactly as before.
+    pub fn with_endpoint(http: reqwest::Client, cfg: &ResendConfig, base_url: String) -> Self {
         Self {
             http,
             api_key: cfg.api_key.clone(),
             from: format!("{} <{}>", cfg.from_name, cfg.from_email),
+            base_url,
         }
     }
 
@@ -55,7 +71,7 @@ impl Resend {
     pub async fn send(&self, email: &OutboundEmail) -> Result<String, String> {
         let resp = self
             .http
-            .post(RESEND_URL)
+            .post(&self.base_url)
             .bearer_auth(&self.api_key)
             .timeout(Duration::from_secs(15))
             .json(&self.body(email))

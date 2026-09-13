@@ -29,6 +29,19 @@ pub struct Config {
     /// Same convention as the engine rates.
     pub deepgram_markup: f64,
     pub groq_key: String,
+    /// Chat-completions endpoint, from `GROQ_BASE_URL`. Unset — which is every
+    /// deployment — means Groq's own URL.
+    ///
+    /// It exists for tests: every AI feature in this server goes through one
+    /// `Groq::chat` call, so a single endpoint override is what lets reports,
+    /// quizzes, sentiment, corrections, email drafts, insights synthesis and the
+    /// translation fan-out be exercised without a live key. Pointing it anywhere
+    /// in production would send transcript text to that host, so leave it unset.
+    pub groq_base_url: Option<String>,
+    /// Where outbound mail is posted, from `RESEND_BASE_URL`. Unset — which is
+    /// every deployment — means Resend's own URL. Exists for the same reason
+    /// [`Config::groq_base_url`] does: one seam makes every email path testable.
+    pub resend_base_url: Option<String>,
     /// Real-time translation model (Groq), env-driven via `GROQ_TRANSLATION_MODEL`.
     /// Core pipeline setting that must work in guest mode too, so it lives here
     /// rather than under the optional billing `AiConfig`. Latency-critical — keep
@@ -1689,6 +1702,14 @@ impl Config {
             .unwrap_or(25.0)
             / 100.0;
         let groq_key = require("GROQ_API_KEY")?;
+        let resend_base_url = env::var("RESEND_BASE_URL")
+            .ok()
+            .map(|v| v.trim().trim_end_matches('/').to_string())
+            .filter(|v| !v.is_empty());
+        let groq_base_url = env::var("GROQ_BASE_URL")
+            .ok()
+            .map(|v| v.trim().trim_end_matches('/').to_string())
+            .filter(|v| !v.is_empty());
         let translation_model = env::var("GROQ_TRANSLATION_MODEL")
             .ok()
             .filter(|s| !s.trim().is_empty())
@@ -1836,6 +1857,8 @@ impl Config {
             deepgram_cost_per_minute,
             deepgram_markup,
             groq_key,
+            groq_base_url,
+            resend_base_url,
             translation_model,
             port,
             allowed_origins,
@@ -2214,6 +2237,8 @@ impl Config {
             deepgram_cost_per_minute: 0.0043,
             deepgram_markup: 0.25,
             groq_key: "dummy".into(),
+            groq_base_url: None,
+            resend_base_url: None,
             translation_model: "openai/gpt-oss-20b".into(),
             port: 0,
             allowed_origins: vec![],

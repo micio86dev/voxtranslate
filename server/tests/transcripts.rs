@@ -1079,11 +1079,17 @@ async fn sentiment_cache_billing_and_gates() {
         assert!(v["cost"].is_number(), "cost is f64 in JSON: {v}");
         assert!(v.get("balance").is_none(), "no charge -> no balance echo");
     }
-    let charged: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM credit_transactions WHERE kind = 'ai_sentiment'")
-            .fetch_one(&srv.pool)
-            .await
-            .unwrap();
+    // Scoped to THIS test's users. The count used to be global, which held only
+    // while nothing else in the suite could produce an `ai_sentiment` row — and
+    // stopped holding the moment another test could actually reach Groq.
+    let charged: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM credit_transactions
+          WHERE kind = 'ai_sentiment' AND user_id = ANY($1)",
+    )
+    .bind(vec![tess, bob])
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
     assert_eq!(
         charged, 0,
         "cache hits and failures never write ledger rows"
@@ -1311,11 +1317,14 @@ async fn email_draft_send_gates_and_billing() {
             .await
             .unwrap();
     assert_eq!(balance, usd(2.0), "Groq failure never charges");
-    let charged: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM credit_transactions WHERE kind = 'ai_email'")
-            .fetch_one(&srv.pool)
-            .await
-            .unwrap();
+    // Scoped to this test's user, for the same reason as the sentiment count above.
+    let charged: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM credit_transactions WHERE kind = 'ai_email' AND user_id = $1",
+    )
+    .bind(tess)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
     assert_eq!(charged, 0, "no ai_email ledger rows on any failure path");
 
     // Persistence + sanitization: store a draft directly (as a successful
