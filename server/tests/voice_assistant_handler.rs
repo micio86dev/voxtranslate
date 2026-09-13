@@ -169,7 +169,9 @@ async fn a_socket_with_no_credential_is_refused() {
     let (org, _, _) = org_with(&srv, "owner").await;
 
     assert!(
-        tokio_tungstenite::connect_async(ws_url(&srv, org, "")).await.is_err(),
+        tokio_tungstenite::connect_async(ws_url(&srv, org, ""))
+            .await
+            .is_err(),
         "an unauthenticated socket must not be upgraded"
     );
 }
@@ -200,10 +202,8 @@ async fn the_authorization_header_is_preferred_when_present() {
         ws_url(&srv, org, ""),
     )
     .map(|mut r| {
-        r.headers_mut().insert(
-            "authorization",
-            format!("Bearer {jwt}").parse().unwrap(),
-        );
+        r.headers_mut()
+            .insert("authorization", format!("Bearer {jwt}").parse().unwrap());
         r
     })
     .unwrap();
@@ -277,11 +277,13 @@ async fn an_unknown_org_is_refused() {
     let srv = skip_without_db!(true);
     let (_, jwt) = user(&srv, "Nobody").await;
 
-    assert!(
-        tokio_tungstenite::connect_async(ws_url(&srv, Uuid::new_v4(), &format!("?token={jwt}")))
-            .await
-            .is_err()
-    );
+    assert!(tokio_tungstenite::connect_async(ws_url(
+        &srv,
+        Uuid::new_v4(),
+        &format!("?token={jwt}")
+    ))
+    .await
+    .is_err());
 }
 
 #[tokio::test]
@@ -430,15 +432,13 @@ async fn an_unparseable_scope_is_rejected_by_the_query_extractor() {
     let (org, _, jwt) = org_with(&srv, "owner").await;
     make_eligible(&srv, org).await;
 
-    assert!(
-        tokio_tungstenite::connect_async(ws_url(
-            &srv,
-            org,
-            &format!("?token={jwt}&project_id=not-a-uuid")
-        ))
-        .await
-        .is_err()
-    );
+    assert!(tokio_tungstenite::connect_async(ws_url(
+        &srv,
+        org,
+        &format!("?token={jwt}&project_id=not-a-uuid")
+    ))
+    .await
+    .is_err());
 }
 
 // ---------------------------------------------------------------------------

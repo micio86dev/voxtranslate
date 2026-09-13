@@ -123,7 +123,13 @@ fn search_url(srv: &Server, org_id: Uuid, query: &str) -> String {
     )
 }
 
-async fn search(http: &Client, srv: &Server, jwt: &str, org_id: Uuid, q: &str) -> reqwest::Response {
+async fn search(
+    http: &Client,
+    srv: &Server,
+    jwt: &str,
+    org_id: Uuid,
+    q: &str,
+) -> reqwest::Response {
     http.get(search_url(srv, org_id, q))
         .bearer_auth(jwt)
         .send()
@@ -206,7 +212,9 @@ async fn without_an_embeddings_provider_search_says_so() {
     let org_id = org(&srv, owner).await;
 
     assert_eq!(
-        search(&http, &srv, &jwt, org_id, "?q=latency").await.status(),
+        search(&http, &srv, &jwt, org_id, "?q=latency")
+            .await
+            .status(),
         503
     );
 }
@@ -222,7 +230,9 @@ async fn an_embedding_failure_is_reported_as_a_bad_gateway() {
     // fails at the embedding call — which is the caller's problem to retry, not
     // a 500.
     assert_eq!(
-        search(&http, &srv, &jwt, org_id, "?q=latency").await.status(),
+        search(&http, &srv, &jwt, org_id, "?q=latency")
+            .await
+            .status(),
         502
     );
 }

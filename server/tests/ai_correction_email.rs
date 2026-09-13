@@ -238,10 +238,7 @@ macro_rules! skip_without_db {
 // ---------------------------------------------------------------------------
 
 fn correction_url(srv: &Server, session_id: Uuid, query: &str) -> String {
-    format!(
-        "{}/api/sessions/{session_id}/correction{query}",
-        base(srv)
-    )
+    format!("{}/api/sessions/{session_id}/correction{query}", base(srv))
 }
 
 #[tokio::test]
@@ -601,7 +598,10 @@ async fn sending_an_unknown_draft_is_a_404() {
     let session_id = seeded_session(&srv, uid).await;
 
     let r = http
-        .post(format!("{}/api/sessions/{session_id}/email-send", base(&srv)))
+        .post(format!(
+            "{}/api/sessions/{session_id}/email-send",
+            base(&srv)
+        ))
         .bearer_auth(&jwt)
         .json(&json!({ "email_id": Uuid::new_v4() }))
         .send()
@@ -633,7 +633,10 @@ async fn someone_elses_draft_cannot_be_sent() {
 
     // Not a participant, so this is refused before the draft is even looked up.
     let r = http
-        .post(format!("{}/api/sessions/{session_id}/email-send", base(&srv)))
+        .post(format!(
+            "{}/api/sessions/{session_id}/email-send",
+            base(&srv)
+        ))
         .bearer_auth(&outsider)
         .json(&json!({ "email_id": Uuid::new_v4() }))
         .send()
@@ -650,7 +653,10 @@ async fn without_a_mail_provider_sending_says_so() {
     let session_id = seeded_session(&srv, uid).await;
 
     let r = http
-        .post(format!("{}/api/sessions/{session_id}/email-send", base(&srv)))
+        .post(format!(
+            "{}/api/sessions/{session_id}/email-send",
+            base(&srv)
+        ))
         .bearer_auth(&jwt)
         .json(&json!({ "email_id": Uuid::new_v4() }))
         .send()
@@ -692,7 +698,10 @@ async fn a_real_send_fails_at_the_provider_rather_than_silently_succeeding() {
     // The Resend key is fake, so the send dies at Resend's own 401. What matters
     // is that the failure reaches the caller instead of being swallowed.
     let sent = http
-        .post(format!("{}/api/sessions/{session_id}/email-send", base(&srv)))
+        .post(format!(
+            "{}/api/sessions/{session_id}/email-send",
+            base(&srv)
+        ))
         .bearer_auth(&jwt)
         .json(&json!({ "email_id": email_id, "to": ["someone@example.com"] }))
         .send()

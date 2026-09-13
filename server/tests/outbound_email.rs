@@ -650,7 +650,10 @@ async fn a_call_recap_is_drafted_and_then_actually_sent() {
     let email_id = draft_for(&http, &srv, session_id, &jwt).await;
 
     let sent = http
-        .post(format!("{}/api/sessions/{session_id}/email-send", base(&srv)))
+        .post(format!(
+            "{}/api/sessions/{session_id}/email-send",
+            base(&srv)
+        ))
         .bearer_auth(&jwt)
         .json(&json!({ "email_id": email_id }))
         .send()
@@ -701,16 +704,19 @@ async fn a_pre_send_edit_replaces_the_subject_and_body() {
     let session_id = seeded_session(&srv, uid).await;
     let email_id = draft_for(&http, &srv, session_id, &jwt).await;
 
-    http.post(format!("{}/api/sessions/{session_id}/email-send", base(&srv)))
-        .bearer_auth(&jwt)
-        .json(&json!({
-            "email_id": email_id,
-            "subject": "Notes from today",
-            "body_text": "Shipping Friday. — Tess",
-        }))
-        .send()
-        .await
-        .unwrap();
+    http.post(format!(
+        "{}/api/sessions/{session_id}/email-send",
+        base(&srv)
+    ))
+    .bearer_auth(&jwt)
+    .json(&json!({
+        "email_id": email_id,
+        "subject": "Notes from today",
+        "body_text": "Shipping Friday. — Tess",
+    }))
+    .send()
+    .await
+    .unwrap();
 
     let messages = srv.mail.messages();
     assert_eq!(messages[0]["subject"], "Notes from today");
@@ -735,7 +741,10 @@ async fn a_provider_refusal_leaves_the_draft_unsent_rather_than_marked_sent() {
     srv.mail.fail_status.store(422, Ordering::SeqCst);
 
     let r = http
-        .post(format!("{}/api/sessions/{session_id}/email-send", base(&srv)))
+        .post(format!(
+            "{}/api/sessions/{session_id}/email-send",
+            base(&srv)
+        ))
         .bearer_auth(&jwt)
         .json(&json!({ "email_id": email_id }))
         .send()

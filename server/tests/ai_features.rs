@@ -240,12 +240,11 @@ macro_rules! skip_without_db {
 }
 
 async fn balance(srv: &Server, uid: Uuid) -> f64 {
-    let b: rust_decimal::Decimal =
-        sqlx::query_scalar("SELECT balance FROM users WHERE id = $1")
-            .bind(uid)
-            .fetch_one(&srv.pool)
-            .await
-            .unwrap();
+    let b: rust_decimal::Decimal = sqlx::query_scalar("SELECT balance FROM users WHERE id = $1")
+        .bind(uid)
+        .fetch_one(&srv.pool)
+        .await
+        .unwrap();
     b.to_string().parse().unwrap()
 }
 
@@ -510,7 +509,10 @@ async fn sentiment_is_produced_over_the_transcript() {
     let session_id = seeded_session(&srv, uid, "Tess").await;
 
     let r = http
-        .post(format!("{}/api/sessions/{session_id}/sentiment", base(&srv)))
+        .post(format!(
+            "{}/api/sessions/{session_id}/sentiment",
+            base(&srv)
+        ))
         .bearer_auth(&jwt)
         .json(&json!({}))
         .send()
@@ -529,7 +531,10 @@ async fn sentiment_is_produced_over_the_transcript() {
     }
 
     let latest = http
-        .get(format!("{}/api/sessions/{session_id}/sentiment", base(&srv)))
+        .get(format!(
+            "{}/api/sessions/{session_id}/sentiment",
+            base(&srv)
+        ))
         .bearer_auth(&jwt)
         .send()
         .await

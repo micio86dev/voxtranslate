@@ -274,7 +274,8 @@ async fn a_verifier_outside_the_rfc_length_bounds_is_refused_before_any_work() {
         assert_eq!(
             exchange(&http, &srv, &code, verifier).await.status(),
             400,
-            "verifier of length {} should be refused", verifier.len()
+            "verifier of length {} should be refused",
+            verifier.len()
         );
     }
 }
@@ -351,9 +352,14 @@ async fn a_code_is_not_bound_to_one_redemption_but_is_bound_to_its_verifier() {
     assert_eq!(exchange(&http, &srv, &code, VERIFIER).await.status(), 200);
     assert_eq!(exchange(&http, &srv, &code, VERIFIER).await.status(), 200);
     assert_eq!(
-        exchange(&http, &srv, &code, "a-different-verifier-that-is-long-enough-to-pass-1234")
-            .await
-            .status(),
+        exchange(
+            &http,
+            &srv,
+            &code,
+            "a-different-verifier-that-is-long-enough-to-pass-1234"
+        )
+        .await
+        .status(),
         401
     );
 }
@@ -371,10 +377,10 @@ async fn a_session_needs_a_usable_target_language() {
     let srv = skip_without_db!();
 
     for query in [
-        "?lang=",                 // empty
-        "?lang=toolongalang",     // over 8 chars
-        "?lang=it_IT",            // underscore is not in the allowed set
-        "?lang=it&source=it_IT",  // the source is validated too
+        "?lang=",                // empty
+        "?lang=toolongalang",    // over 8 chars
+        "?lang=it_IT",           // underscore is not in the allowed set
+        "?lang=it&source=it_IT", // the source is validated too
     ] {
         assert!(
             tokio_tungstenite::connect_async(ws_url(&srv, query))
@@ -391,16 +397,16 @@ async fn auto_is_a_source_language_not_a_target() {
 
     // A target of `auto` makes the fan-out skip this listener and the session
     // produces nothing at all — a silent failure, so it is refused loudly.
-    assert!(
-        tokio_tungstenite::connect_async(ws_url(&srv, "?lang=auto"))
-            .await
-            .is_err()
-    );
+    assert!(tokio_tungstenite::connect_async(ws_url(&srv, "?lang=auto"))
+        .await
+        .is_err());
 }
 
 #[tokio::test]
 async fn a_session_with_no_language_at_all_is_refused() {
     let srv = skip_without_db!();
 
-    assert!(tokio_tungstenite::connect_async(ws_url(&srv, "")).await.is_err());
+    assert!(tokio_tungstenite::connect_async(ws_url(&srv, ""))
+        .await
+        .is_err());
 }

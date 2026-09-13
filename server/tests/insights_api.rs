@@ -156,13 +156,16 @@ async fn project_by(srv: &Server, org_id: Uuid, creator: Uuid) -> Uuid {
 }
 
 fn insights_url(srv: &Server, org_id: Uuid) -> String {
-    format!(
-        "{}/api/business/organizations/{org_id}/insights",
-        base(srv)
-    )
+    format!("{}/api/business/organizations/{org_id}/insights", base(srv))
 }
 
-async fn ask(http: &Client, srv: &Server, jwt: &str, org_id: Uuid, body: Value) -> reqwest::Response {
+async fn ask(
+    http: &Client,
+    srv: &Server,
+    jwt: &str,
+    org_id: Uuid,
+    body: Value,
+) -> reqwest::Response {
     http.post(insights_url(srv, org_id))
         .bearer_auth(jwt)
         .json(&body)
@@ -316,15 +319,27 @@ async fn a_project_report_needs_a_project_and_a_member_report_needs_a_member() {
     let org_id = org(&srv, owner, 10_000).await;
 
     assert_eq!(
-        ask(&http, &srv, &jwt, org_id, json!({ "mode": "project_report" }))
-            .await
-            .status(),
+        ask(
+            &http,
+            &srv,
+            &jwt,
+            org_id,
+            json!({ "mode": "project_report" })
+        )
+        .await
+        .status(),
         400
     );
     assert_eq!(
-        ask(&http, &srv, &jwt, org_id, json!({ "mode": "member_report" }))
-            .await
-            .status(),
+        ask(
+            &http,
+            &srv,
+            &jwt,
+            org_id,
+            json!({ "mode": "member_report" })
+        )
+        .await
+        .status(),
         400
     );
 }
@@ -477,7 +492,11 @@ async fn a_lead_may_report_on_a_project_a_team_member_created() {
         json!({ "mode": "project_report", "project_id": their_project }),
     )
     .await;
-    assert_eq!(r.status(), 502, "scope allowed it; only the embedding failed");
+    assert_eq!(
+        r.status(),
+        502,
+        "scope allowed it; only the embedding failed"
+    );
 }
 
 #[tokio::test]

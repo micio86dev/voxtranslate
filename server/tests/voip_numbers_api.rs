@@ -270,11 +270,7 @@ async fn with_telephony_switched_off_the_numbers_api_is_absent() {
         .send()
         .await
         .unwrap();
-    assert!(
-        r.status() == 404 || r.status() == 503,
-        "got {}",
-        r.status()
-    );
+    assert!(r.status() == 404 || r.status() == 503, "got {}", r.status());
 }
 
 #[tokio::test]
@@ -354,14 +350,13 @@ async fn the_same_purchase_key_buys_the_same_number_once() {
 
     if first.status().is_success() {
         assert!(second.status().is_success(), "a retry must not fail");
-        let owned: i64 = sqlx::query_scalar(
-            "SELECT count(*) FROM voip_numbers WHERE org_id = $1 AND e164 = $2",
-        )
-        .bind(org_id)
-        .bind(&wanted)
-        .fetch_one(&srv.pool)
-        .await
-        .unwrap();
+        let owned: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM voip_numbers WHERE org_id = $1 AND e164 = $2")
+                .bind(org_id)
+                .bind(&wanted)
+                .fetch_one(&srv.pool)
+                .await
+                .unwrap();
         assert_eq!(owned, 1, "one number, however many retries");
     }
 }

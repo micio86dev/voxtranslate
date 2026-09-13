@@ -378,7 +378,14 @@ async fn a_re_click_joins_the_running_job_instead_of_starting_a_second_one() {
         first["job_id"], second["job_id"],
         "one live slot per (webinar, language)"
     );
-    poll_job(&http, &srv, webinar_id, first["job_id"].as_str().unwrap(), &jwt).await;
+    poll_job(
+        &http,
+        &srv,
+        webinar_id,
+        first["job_id"].as_str().unwrap(),
+        &jwt,
+    )
+    .await;
 }
 
 #[tokio::test]
@@ -665,7 +672,14 @@ async fn a_re_click_joins_the_running_fan_out() {
         .unwrap();
 
     assert_eq!(first["job_id"], second["job_id"]);
-    poll_job(&http, &srv, webinar_id, first["job_id"].as_str().unwrap(), &jwt).await;
+    poll_job(
+        &http,
+        &srv,
+        webinar_id,
+        first["job_id"].as_str().unwrap(),
+        &jwt,
+    )
+    .await;
 }
 
 #[tokio::test]

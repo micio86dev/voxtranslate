@@ -366,13 +366,12 @@ async fn someone_elses_notification_cannot_be_marked_read() {
         .await
         .unwrap();
 
-    let still_unread: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM notifications WHERE id = $1 AND read_at IS NULL",
-    )
-    .bind(id)
-    .fetch_one(&srv.pool)
-    .await
-    .unwrap();
+    let still_unread: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM notifications WHERE id = $1 AND read_at IS NULL")
+            .bind(id)
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap();
     assert_eq!(still_unread, 1, "a stranger must not clear your bell");
 }
 
@@ -478,13 +477,12 @@ async fn a_preference_naming_something_that_does_not_exist_is_dropped_not_stored
         .unwrap();
     assert!(r.status().is_success(), "got {}", r.status());
 
-    let stored: Vec<(String, String)> = sqlx::query_as(
-        "SELECT type, channel FROM notification_preferences WHERE user_id = $1",
-    )
-    .bind(user_id)
-    .fetch_all(&srv.pool)
-    .await
-    .unwrap();
+    let stored: Vec<(String, String)> =
+        sqlx::query_as("SELECT type, channel FROM notification_preferences WHERE user_id = $1")
+            .bind(user_id)
+            .fetch_all(&srv.pool)
+            .await
+            .unwrap();
     assert_eq!(
         stored,
         vec![("friend_request".to_string(), "email".to_string())],
@@ -605,13 +603,12 @@ async fn a_subscription_is_stored_once_per_endpoint() {
         .await
         .unwrap();
 
-    let rows: Vec<(String,)> = sqlx::query_as(
-        "SELECT p256dh FROM user_push_subscriptions WHERE user_id = $1",
-    )
-    .bind(user_id)
-    .fetch_all(&srv.pool)
-    .await
-    .unwrap();
+    let rows: Vec<(String,)> =
+        sqlx::query_as("SELECT p256dh FROM user_push_subscriptions WHERE user_id = $1")
+            .bind(user_id)
+            .fetch_all(&srv.pool)
+            .await
+            .unwrap();
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].0, "new-key");
 }

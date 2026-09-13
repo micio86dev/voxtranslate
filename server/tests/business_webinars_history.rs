@@ -143,7 +143,11 @@ async fn webinar(srv: &Server, org_id: Uuid, seed: Seed<'_>) -> Uuid {
     .bind(seed.project_id)
     .bind(seed.scheduled_start)
     .bind(seed.actual_start)
-    .bind(if seed.archived { Some(Utc::now()) } else { None })
+    .bind(if seed.archived {
+        Some(Utc::now())
+    } else {
+        None
+    })
     .fetch_one(&srv.pool)
     .await
     .unwrap();

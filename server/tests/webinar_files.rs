@@ -76,7 +76,10 @@ async fn mock_sign(
 async fn mock_storage() -> (String, MockStorage) {
     let mock = MockStorage::default();
     let router = Router::new()
-        .route("/storage/v1/object/sign/{bucket}/{*object}", post(mock_sign))
+        .route(
+            "/storage/v1/object/sign/{bucket}/{*object}",
+            post(mock_sign),
+        )
         .route("/storage/v1/object/{bucket}/{*object}", post(mock_upload))
         .with_state(mock.clone());
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

@@ -77,7 +77,10 @@ async fn mock_sign(
 async fn mock_storage() -> (String, MockStorage) {
     let mock = MockStorage::default();
     let router = Router::new()
-        .route("/storage/v1/object/sign/{bucket}/{*object}", post(mock_sign))
+        .route(
+            "/storage/v1/object/sign/{bucket}/{*object}",
+            post(mock_sign),
+        )
         .route(
             "/storage/v1/object/{bucket}/{*object}",
             post(mock_upload).delete(mock_delete),
@@ -172,7 +175,10 @@ async fn user(srv: &Server, name: &str) -> (Uuid, String) {
 /// An org whose subscription is live unless `subscribed` says otherwise.
 async fn org(srv: &Server, owner: Uuid, subscribed: bool) -> Uuid {
     let (status, period) = if subscribed {
-        ("active", Some(chrono::Utc::now() + chrono::Duration::days(30)))
+        (
+            "active",
+            Some(chrono::Utc::now() + chrono::Duration::days(30)),
+        )
     } else {
         ("none", None)
     };
@@ -297,7 +303,11 @@ async fn a_note_is_saved_and_answers_with_what_the_client_needs_to_render_it() {
         &jwt,
         org_id,
         project_id,
-        Clip { file_name: "note.webm", bytes: b"fake-opus-bytes".to_vec(), duration: Some(12) },
+        Clip {
+            file_name: "note.webm",
+            bytes: b"fake-opus-bytes".to_vec(),
+            duration: Some(12),
+        },
     )
     .await;
 
@@ -327,7 +337,11 @@ async fn the_audio_is_uploaded_under_the_project_before_anything_is_charged() {
         &jwt,
         org_id,
         project_id,
-        Clip { file_name: "note.webm", bytes: b"bytes".to_vec(), duration: None },
+        Clip {
+            file_name: "note.webm",
+            bytes: b"bytes".to_vec(),
+            duration: None,
+        },
     )
     .await;
 
@@ -349,7 +363,11 @@ async fn a_note_materialises_the_rows_search_and_insights_already_consume() {
         &jwt,
         org_id,
         project_id,
-        Clip { file_name: "note.m4a", bytes: b"bytes".to_vec(), duration: Some(5) },
+        Clip {
+            file_name: "note.m4a",
+            bytes: b"bytes".to_vec(),
+            duration: Some(5),
+        },
     )
     .await
     .json()
@@ -366,23 +384,21 @@ async fn a_note_materialises_the_rows_search_and_insights_already_consume() {
     assert_eq!(kind, "voice_message");
 
     // … while the uploader's participant row is what grants them search scope.
-    let participants: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM session_participants WHERE session_id = $1",
-    )
-    .bind(session_id)
-    .fetch_one(&srv.pool)
-    .await
-    .unwrap();
+    let participants: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM session_participants WHERE session_id = $1")
+            .bind(session_id)
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap();
     assert_eq!(participants, 1);
 
     // Zero minutes even if a `kind` filter is ever missed.
-    let zero_length: bool = sqlx::query_scalar(
-        "SELECT started_at = ended_at FROM call_sessions WHERE id = $1",
-    )
-    .bind(session_id)
-    .fetch_one(&srv.pool)
-    .await
-    .unwrap();
+    let zero_length: bool =
+        sqlx::query_scalar("SELECT started_at = ended_at FROM call_sessions WHERE id = $1")
+            .bind(session_id)
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap();
     assert!(zero_length);
 }
 
@@ -398,7 +414,11 @@ async fn a_note_with_no_stated_duration_is_still_accepted() {
         &jwt,
         org_id,
         project_id,
-        Clip { file_name: "note.ogg", bytes: b"bytes".to_vec(), duration: None },
+        Clip {
+            file_name: "note.ogg",
+            bytes: b"bytes".to_vec(),
+            duration: None,
+        },
     )
     .await;
     assert_eq!(r.status(), 200);
@@ -476,8 +496,7 @@ async fn someone_outside_the_org_is_refused() {
     let (_, outsider) = user(&srv, "Outsider").await;
 
     // 404, not 403: an outsider is not told the organization exists.
-    let r = post_note(&http, &srv, &outsider, org_id, project_id, clip("n.webm"))
-    .await;
+    let r = post_note(&http, &srv, &outsider, org_id, project_id, clip("n.webm")).await;
     assert_eq!(r.status(), 404);
 }
 
@@ -491,8 +510,7 @@ async fn an_org_with_no_live_subscription_is_refused() {
 
     // The same gate as cloud recording: a gifted month stops unlocking this the
     // moment it ends.
-    let r = post_note(&http, &srv, &jwt, org_id, project_id, clip("n.webm"))
-    .await;
+    let r = post_note(&http, &srv, &jwt, org_id, project_id, clip("n.webm")).await;
     assert_eq!(r.status(), 403);
 }
 
@@ -505,8 +523,7 @@ async fn a_project_belonging_to_another_org_is_refused() {
     let other_org = org(&srv, other_owner, true).await;
     let other_project = project(&srv, other_org, other_owner, &["en"]).await;
 
-    let r = post_note(&http, &srv, &jwt, org_id, other_project, clip("n.webm"))
-    .await;
+    let r = post_note(&http, &srv, &jwt, org_id, other_project, clip("n.webm")).await;
     assert_eq!(r.status(), 400);
 }
 
@@ -521,8 +538,7 @@ async fn an_archived_project_takes_no_new_notes() {
         .await
         .unwrap();
 
-    let r = post_note(&http, &srv, &jwt, org_id, project_id, clip("n.webm"))
-    .await;
+    let r = post_note(&http, &srv, &jwt, org_id, project_id, clip("n.webm")).await;
     assert_eq!(r.status(), 400);
 }
 
@@ -532,8 +548,7 @@ async fn without_a_bucket_the_endpoint_says_so() {
     let http = Client::new();
     let (org_id, project_id, jwt) = ready(&srv).await;
 
-    let r = post_note(&http, &srv, &jwt, org_id, project_id, clip("n.webm"))
-    .await;
+    let r = post_note(&http, &srv, &jwt, org_id, project_id, clip("n.webm")).await;
     assert_eq!(r.status(), 503);
 }
 
@@ -565,7 +580,11 @@ async fn an_empty_clip_is_refused() {
         &jwt,
         org_id,
         project_id,
-        Clip { file_name: "n.webm", bytes: Vec::new(), duration: None },
+        Clip {
+            file_name: "n.webm",
+            bytes: Vec::new(),
+            duration: None,
+        },
     )
     .await;
     assert_eq!(r.status(), 400);
@@ -583,7 +602,11 @@ async fn a_clip_over_the_limit_is_refused_before_it_reaches_the_bucket() {
         &jwt,
         org_id,
         project_id,
-        Clip { file_name: "n.webm", bytes: vec![b'x'; 33], duration: None },
+        Clip {
+            file_name: "n.webm",
+            bytes: vec![b'x'; 33],
+            duration: None,
+        },
     )
     .await;
     assert_eq!(r.status(), 413);
@@ -598,13 +621,17 @@ async fn a_document_is_not_a_voice_message() {
 
     for name in ["notes.txt", "deck.pdf", "shot.png"] {
         let r = post_note(
-        &http,
-        &srv,
-        &jwt,
-        org_id,
-        project_id,
-        Clip { file_name: name, bytes: b"bytes".to_vec(), duration: None },
-    )
+            &http,
+            &srv,
+            &jwt,
+            org_id,
+            project_id,
+            Clip {
+                file_name: name,
+                bytes: b"bytes".to_vec(),
+                duration: None,
+            },
+        )
         .await;
         assert_eq!(r.status(), 415, "{name} is not audio");
     }
@@ -617,17 +644,15 @@ async fn a_storage_failure_is_a_bad_gateway_and_saves_nothing() {
     let (org_id, project_id, jwt) = ready(&srv).await;
     srv.storage.upload_fails.store(true, Ordering::SeqCst);
 
-    let r = post_note(&http, &srv, &jwt, org_id, project_id, clip("n.webm"))
-    .await;
+    let r = post_note(&http, &srv, &jwt, org_id, project_id, clip("n.webm")).await;
     assert_eq!(r.status(), 502);
 
-    let saved: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM project_voice_messages WHERE project_id = $1",
-    )
-    .bind(project_id)
-    .fetch_one(&srv.pool)
-    .await
-    .unwrap();
+    let saved: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM project_voice_messages WHERE project_id = $1")
+            .bind(project_id)
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap();
     assert_eq!(saved, 0, "a failed upload must leave no row behind");
 }
 
@@ -642,8 +667,7 @@ async fn notes_are_listed_newest_first() {
     let (org_id, project_id, jwt) = ready(&srv).await;
 
     for name in ["first.webm", "second.webm", "third.webm"] {
-        post_note(&http, &srv, &jwt, org_id, project_id, clip(name))
-        .await;
+        post_note(&http, &srv, &jwt, org_id, project_id, clip(name)).await;
     }
 
     let body: Value = http
@@ -676,7 +700,11 @@ async fn the_list_carries_the_metadata_a_row_renders_but_no_audio_url() {
         &jwt,
         org_id,
         project_id,
-        Clip { file_name: "n.webm", bytes: b"bytes".to_vec(), duration: Some(7) },
+        Clip {
+            file_name: "n.webm",
+            bytes: b"bytes".to_vec(),
+            duration: Some(7),
+        },
     )
     .await;
 
@@ -706,12 +734,22 @@ async fn the_list_pages_and_clamps_its_page_size() {
     let http = Client::new();
     let (org_id, project_id, jwt) = ready(&srv).await;
     for i in 0..3 {
-        post_note(&http, &srv, &jwt, org_id, project_id, clip(&format!("n{i}.webm")))
+        post_note(
+            &http,
+            &srv,
+            &jwt,
+            org_id,
+            project_id,
+            clip(&format!("n{i}.webm")),
+        )
         .await;
     }
 
     let page1: Value = http
-        .get(format!("{}?limit=2&page=1", vm_url(&srv, org_id, project_id)))
+        .get(format!(
+            "{}?limit=2&page=1",
+            vm_url(&srv, org_id, project_id)
+        ))
         .bearer_auth(&jwt)
         .send()
         .await
@@ -723,7 +761,10 @@ async fn the_list_pages_and_clamps_its_page_size() {
     assert_eq!(page1["limit"], 2);
 
     let page2: Value = http
-        .get(format!("{}?limit=2&page=2", vm_url(&srv, org_id, project_id)))
+        .get(format!(
+            "{}?limit=2&page=2",
+            vm_url(&srv, org_id, project_id)
+        ))
         .bearer_auth(&jwt)
         .send()
         .await
@@ -756,8 +797,7 @@ async fn another_orgs_notes_are_not_listed() {
     let srv = skip_without_db!(setup().await);
     let http = Client::new();
     let (org_id, project_id, jwt) = ready(&srv).await;
-    post_note(&http, &srv, &jwt, org_id, project_id, clip("mine.webm"))
-    .await;
+    post_note(&http, &srv, &jwt, org_id, project_id, clip("mine.webm")).await;
 
     let (other_owner, other_jwt) = user(&srv, "Other").await;
     let other_org = org(&srv, other_owner, true).await;
@@ -806,10 +846,10 @@ async fn playback_mints_a_signed_url_on_demand() {
     let http = Client::new();
     let (org_id, project_id, jwt) = ready(&srv).await;
     let created: Value = post_note(&http, &srv, &jwt, org_id, project_id, clip("n.webm"))
-    .await
-    .json()
-    .await
-    .unwrap();
+        .await
+        .json()
+        .await
+        .unwrap();
     let id = created["id"].as_str().unwrap();
 
     let r = http
@@ -852,10 +892,10 @@ async fn a_note_cannot_be_played_through_another_projects_path() {
     let (owner, _) = user(&srv, "Second").await;
     let other_project = project(&srv, org_id, owner, &["en"]).await;
     let created: Value = post_note(&http, &srv, &jwt, org_id, project_id, clip("n.webm"))
-    .await
-    .json()
-    .await
-    .unwrap();
+        .await
+        .json()
+        .await
+        .unwrap();
 
     let r = http
         .get(audio_url(
@@ -877,10 +917,10 @@ async fn a_failed_signature_is_a_bad_gateway() {
     let http = Client::new();
     let (org_id, project_id, jwt) = ready(&srv).await;
     let created: Value = post_note(&http, &srv, &jwt, org_id, project_id, clip("n.webm"))
-    .await
-    .json()
-    .await
-    .unwrap();
+        .await
+        .json()
+        .await
+        .unwrap();
     srv.storage.sign_fails.store(true, Ordering::SeqCst);
 
     let r = http
