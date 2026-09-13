@@ -170,6 +170,7 @@ mod guest_mode {
             groq_key: "g".into(),
             groq_base_url: None,
             resend_base_url: None,
+            calendar_base_url: voxtranslate_server::config::GOOGLE_CALENDAR_DEFAULT_BASE.into(),
             translation_model: "openai/gpt-oss-20b".into(),
             port: 0,
             allowed_origins: vec![],

@@ -166,7 +166,7 @@ pub fn build_ha_session_update_json(voice: &str) -> String {
 pub async fn open_ha_session(config: &HelpAssistantConfig) -> Result<(HaSink, HaSource), String> {
     use futures::StreamExt as _;
 
-    let url = format!("wss://api.openai.com/v1/realtime?model={}", config.model);
+    let url = format!("{}?model={}", config.realtime_base_url, config.model);
     let mut request = url
         .into_client_request()
         .map_err(|e| format!("invalid help assistant url: {e}"))?;

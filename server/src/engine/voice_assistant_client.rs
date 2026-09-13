@@ -237,7 +237,7 @@ pub fn parse_realtime_event(text: &str) -> VaEvent {
 pub async fn open_va_session(config: &VoiceAssistantConfig) -> Result<(VaSink, VaSource), String> {
     use futures::StreamExt as _;
 
-    let url = format!("wss://api.openai.com/v1/realtime?model={}", config.model);
+    let url = format!("{}?model={}", config.realtime_base_url, config.model);
     let mut request = url
         .into_client_request()
         .map_err(|e| format!("invalid voice assistant url: {e}"))?;

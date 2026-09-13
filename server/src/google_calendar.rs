@@ -10,7 +10,9 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-const API_BASE: &str = "https://www.googleapis.com/calendar/v3";
+// The API root is not a constant here: it arrives from `Config::calendar_base_url` so
+// a test can point these four calls at a stand-in. Calendar is written BEFORE our own
+// row on every create, update and cancel, so without that seam none of those paths run.
 
 /// What to write to a Calendar event. Times are RFC3339 strings + an IANA timezone.
 pub struct EventInput {
@@ -121,11 +123,12 @@ async fn handle_event_response(resp: reqwest::Response) -> Result<CalendarEvent,
 /// Create an event on `calendar_id` (use `"primary"`). Sends invites to attendees.
 pub async fn create_event(
     http: &reqwest::Client,
+    api_base: &str,
     access_token: &str,
     calendar_id: &str,
     input: &EventInput,
 ) -> Result<CalendarEvent, String> {
-    let url = format!("{API_BASE}/calendars/{calendar_id}/events?sendUpdates=all");
+    let url = format!("{api_base}/calendars/{calendar_id}/events?sendUpdates=all");
     let resp = http
         .post(&url)
         .bearer_auth(access_token)
@@ -139,12 +142,13 @@ pub async fn create_event(
 /// Update an existing event (full replace via PATCH semantics on the fields we send).
 pub async fn update_event(
     http: &reqwest::Client,
+    api_base: &str,
     access_token: &str,
     calendar_id: &str,
     event_id: &str,
     input: &EventInput,
 ) -> Result<CalendarEvent, String> {
-    let url = format!("{API_BASE}/calendars/{calendar_id}/events/{event_id}?sendUpdates=all");
+    let url = format!("{api_base}/calendars/{calendar_id}/events/{event_id}?sendUpdates=all");
     let resp = http
         .patch(&url)
         .bearer_auth(access_token)
@@ -158,11 +162,12 @@ pub async fn update_event(
 /// Delete an event. A 410 (already gone) is treated as success — idempotent cancel.
 pub async fn delete_event(
     http: &reqwest::Client,
+    api_base: &str,
     access_token: &str,
     calendar_id: &str,
     event_id: &str,
 ) -> Result<(), String> {
-    let url = format!("{API_BASE}/calendars/{calendar_id}/events/{event_id}?sendUpdates=all");
+    let url = format!("{api_base}/calendars/{calendar_id}/events/{event_id}?sendUpdates=all");
     let resp = http
         .delete(&url)
         .bearer_auth(access_token)
@@ -216,12 +221,13 @@ struct EventsList {
 /// recurring events. Used by the dashboard calendar view to read the source of truth.
 pub async fn list_events(
     http: &reqwest::Client,
+    api_base: &str,
     access_token: &str,
     calendar_id: &str,
     time_min: &str,
     time_max: &str,
 ) -> Result<Vec<ListedEvent>, String> {
-    let url = format!("{API_BASE}/calendars/{calendar_id}/events");
+    let url = format!("{api_base}/calendars/{calendar_id}/events");
     let resp = http
         .get(&url)
         .bearer_auth(access_token)

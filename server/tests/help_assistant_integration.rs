@@ -26,6 +26,7 @@ fn test_cfg(cost_per_minute: f64, markup: f64, max_sessions: usize) -> HelpAssis
         cost_per_minute,
         markup,
         max_sessions,
+        realtime_base_url: voxtranslate_server::config::OPENAI_DEFAULT_REALTIME_BASE.into(),
     }
 }
 
@@ -144,11 +145,21 @@ struct GateServer {
 /// Boot a server with the help assistant ENABLED (the route is only registered
 /// when its config is present) against the local test database.
 async fn gate_setup() -> Option<GateServer> {
+    gate_setup_against(None).await
+}
+
+/// Like [`gate_setup`], with the relay's upstream pointed at a stand-in so the
+/// session itself runs rather than dying at OpenAI.
+async fn gate_setup_against(upstream: Option<String>) -> Option<GateServer> {
     let url = std::env::var("DATABASE_URL").ok()?;
     let pool = db::connect(&url).await.ok()?;
     db::migrate(&pool).await.ok()?;
     let mut config = Config::test_with_billing(&url, HA_SECRET, 0.0);
-    config.help_assistant = Some(test_cfg(0.18, 0.25, 10));
+    let mut ha = test_cfg(0.18, 0.25, 10);
+    if let Some(base) = upstream {
+        ha.realtime_base_url = base;
+    }
+    config.help_assistant = Some(ha);
     let mut state = AppState::new(config);
     state.safety = Some(SafetyService::new(pool.clone()));
     state.pool = Some(pool.clone());
@@ -296,5 +307,157 @@ async fn a_non_member_is_still_refused_before_the_upgrade() {
     assert!(
         tokio_tungstenite::connect_async(url).await.is_err(),
         "an outsider must not get a socket at all"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// The relay itself, against a stand-in provider
+// ---------------------------------------------------------------------------
+
+use voxtranslate_server::engine::realtime_mock::{Dialect, RealtimeMock, Reply};
+
+/// An eligible org on a server whose upstream is the stand-in.
+async fn relay_ready(mock: &RealtimeMock) -> Option<(GateServer, Uuid, String)> {
+    let srv = gate_setup_against(Some(mock.base_url())).await?;
+    let (org, jwt) = member_of_fresh_org(&srv).await;
+    sqlx::query(
+        "UPDATE organizations
+            SET subscription_status = 'active',
+                current_period_end = now() + interval '30 days',
+                credits_balance = 5000
+          WHERE id = $1",
+    )
+    .bind(org)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+    Some((srv, org, jwt))
+}
+
+/// Open the help-assistant socket, optionally send audio, and read until `wanted`.
+async fn relay_frame(
+    srv: &GateServer,
+    org: Uuid,
+    jwt: &str,
+    audio: Option<Vec<u8>>,
+    wanted: impl Fn(&Value) -> bool,
+) -> Option<Value> {
+    use futures::SinkExt as _;
+    let url = format!(
+        "ws://{}/api/business/organizations/{org}/help-assistant?token={jwt}",
+        srv.addr
+    );
+    let (mut ws, _) = tokio_tungstenite::connect_async(url).await.ok()?;
+    if let Some(pcm) = audio {
+        let _ = ws
+            .send(tokio_tungstenite::tungstenite::Message::binary(pcm))
+            .await;
+    }
+    while let Ok(Some(Ok(frame))) = tokio::time::timeout(Duration::from_secs(6), ws.next()).await {
+        if let tokio_tungstenite::tungstenite::Message::Text(t) = frame {
+            if let Ok(v) = serde_json::from_str::<Value>(t.as_str()) {
+                if wanted(&v) {
+                    return Some(v);
+                }
+            }
+        }
+    }
+    None
+}
+
+#[tokio::test]
+async fn the_relay_configures_its_upstream_session_first() {
+    let mock = RealtimeMock::start(Dialect::OpenAiAssistant).await;
+    let Some((srv, org, jwt)) = relay_ready(&mock).await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+
+    let url = format!(
+        "ws://{}/api/business/organizations/{org}/help-assistant?token={jwt}",
+        srv.addr
+    );
+    let _ = tokio_tungstenite::connect_async(url).await;
+    tokio::time::sleep(Duration::from_millis(600)).await;
+
+    let frames = mock.received();
+    assert!(
+        !frames.is_empty(),
+        "the relay never opened an upstream session"
+    );
+    assert!(
+        frames[0].contains("session.update"),
+        "the first frame configures the session: {}",
+        frames[0]
+    );
+}
+
+#[tokio::test]
+async fn the_users_audio_is_forwarded_upstream() {
+    let mock = RealtimeMock::start(Dialect::OpenAiAssistant).await;
+    let Some((srv, org, jwt)) = relay_ready(&mock).await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+
+    let _ = relay_frame(&srv, org, &jwt, Some(vec![0u8; 640]), |v| {
+        v["type"] == "nothing-matches-this"
+    })
+    .await;
+
+    assert!(
+        mock.saw_type("input_audio_buffer.append"),
+        "the microphone must reach the model: {:?}",
+        mock.received()
+    );
+}
+
+#[tokio::test]
+async fn the_answer_reaches_the_dashboard_as_text_and_voice() {
+    let mock = RealtimeMock::start(Dialect::OpenAiAssistant).await;
+    mock.reply_with(vec![
+        Reply::Transcript {
+            original: "where do I change the plan".into(),
+            translated: "Under Billing.".into(),
+        },
+        Reply::Audio(vec![1, 2, 3, 4]),
+    ]);
+    let Some((srv, org, jwt)) = relay_ready(&mock).await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+
+    assert!(
+        relay_frame(&srv, org, &jwt, Some(vec![0u8; 640]), |v| v["type"]
+            == "transcript")
+        .await
+        .is_some(),
+        "the answer must be readable, not only audible"
+    );
+    assert!(
+        relay_frame(&srv, org, &jwt, Some(vec![0u8; 640]), |v| v["type"]
+            == "answer_audio")
+        .await
+        .is_some(),
+        "and audible"
+    );
+}
+
+#[tokio::test]
+async fn an_upstream_error_is_said_out_loud() {
+    let mock = RealtimeMock::start(Dialect::OpenAiAssistant).await;
+    mock.reply_with(vec![Reply::Error("model unavailable".into())]);
+    let Some((srv, org, jwt)) = relay_ready(&mock).await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+
+    // A socket that opens and then goes quiet reaches the dashboard as an
+    // unexplained "connection error" — the whole reason this relay reports in-band.
+    assert!(
+        relay_frame(&srv, org, &jwt, Some(vec![0u8; 640]), |v| v["type"]
+            == "error")
+        .await
+        .is_some()
     );
 }

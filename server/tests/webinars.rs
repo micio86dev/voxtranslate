@@ -1842,6 +1842,18 @@ async fn public_list_returns_only_public_discoverable_webinars() {
     // A PUBLIC + scheduled webinar → discoverable.
     let pubw = create_visibility_webinar(&http, &srv, &jwt, org_id, "public").await;
     let pub_code = pubw["code"].as_str().unwrap().to_string();
+    // The discovery list is capped at 100 and ordered soonest-first, so on a test
+    // database that has been reused for a while this webinar can be pushed off the
+    // end by rows other tests left behind — and the assertion below then fails for
+    // a reason that has nothing to do with visibility. Dating it before anything
+    // else could be makes the ordering decide it, which is what is being tested.
+    sqlx::query(
+        "UPDATE webinars SET scheduled_start = timestamptz '2000-01-01 00:00:00Z' WHERE code = $1",
+    )
+    .bind(&pub_code)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
 
     // A PRIVATE webinar → NOT discoverable.
     let priv_w = create_webinar(&http, &srv, &jwt, org_id).await;

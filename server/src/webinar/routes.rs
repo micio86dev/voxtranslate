@@ -622,7 +622,14 @@ pub async fn cancel(
     // Best-effort: drop the Google Calendar event if one was created (#7).
     if let Some(eid) = w.google_event_id.as_deref() {
         if let Ok(access) = google_oauth::valid_access_token(&state, user.user_id).await {
-            let _ = google_calendar::delete_event(&state.http, &access, "primary", eid).await;
+            let _ = google_calendar::delete_event(
+                &state.http,
+                &state.config.calendar_base_url,
+                &access,
+                "primary",
+                eid,
+            )
+            .await;
         }
     }
     Ok(Json(host_view(&updated, &state.config.app_base_url, cfg)).into_response())
@@ -2031,9 +2038,26 @@ pub async fn add_to_calendar(
     // Re-syncing an already-scheduled webinar updates the existing event.
     let event = match w.google_event_id.as_deref() {
         Some(eid) => {
-            google_calendar::update_event(&state.http, &access, "primary", eid, &input).await
+            google_calendar::update_event(
+                &state.http,
+                &state.config.calendar_base_url,
+                &access,
+                "primary",
+                eid,
+                &input,
+            )
+            .await
         }
-        None => google_calendar::create_event(&state.http, &access, "primary", &input).await,
+        None => {
+            google_calendar::create_event(
+                &state.http,
+                &state.config.calendar_base_url,
+                &access,
+                "primary",
+                &input,
+            )
+            .await
+        }
     }
     .map_err(|e| {
         tracing::error!("webinar calendar event failed: {e}");

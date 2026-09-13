@@ -57,11 +57,7 @@ pub enum GeminiEvent {
 /// Build the Gemini Live WebSocket URL for `config`. The API key is a **query
 /// parameter** — callers MUST NOT log this string (it carries the secret).
 pub fn session_url(config: &GeminiConfig) -> String {
-    format!(
-        "wss://generativelanguage.googleapis.com/ws/\
-         google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key={}",
-        config.api_key
-    )
+    format!("{}?key={}", config.live_base_url, config.api_key)
 }
 
 /// The `setup` frame opening a translation session for `target_lang`. `generationConfig`
@@ -274,6 +270,7 @@ mod tests {
             cost_per_minute: 0.023,
             markup: 0.5,
             max_sessions: 16,
+            live_base_url: crate::config::GEMINI_DEFAULT_LIVE_BASE.into(),
             voice: None,
         }
     }

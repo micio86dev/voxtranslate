@@ -42,6 +42,16 @@ pub struct Config {
     /// every deployment — means Resend's own URL. Exists for the same reason
     /// [`Config::groq_base_url`] does: one seam makes every email path testable.
     pub resend_base_url: Option<String>,
+    /// The Google Calendar API root, from `GOOGLE_CALENDAR_BASE_URL`, defaulting to
+    /// [`GOOGLE_CALENDAR_DEFAULT_BASE`].
+    ///
+    /// Calendar is the source of truth for a scheduled meeting: every create, update
+    /// and cancel writes there BEFORE our own row, and bails if it cannot. So without
+    /// a seam none of those paths — nor the webinar ones that mirror them — could be
+    /// exercised at all. Same argument as [`Config::groq_base_url`]; leave it unset
+    /// anywhere real, because a wrong value sends meeting titles and attendee email
+    /// addresses to that host.
+    pub calendar_base_url: String,
     /// Real-time translation model (Groq), env-driven via `GROQ_TRANSLATION_MODEL`.
     /// Core pipeline setting that must work in guest mode too, so it lives here
     /// rather than under the optional billing `AiConfig`. Latency-critical — keep
@@ -728,6 +738,9 @@ pub struct OpenAiConfig {
     /// Hard cap on concurrent OpenAI realtime sessions across the process
     /// (`OPENAI_REALTIME_MAX_SESSIONS`) — backpressure for group rooms (spec 0093).
     pub max_sessions: usize,
+    /// Realtime WebSocket base (`OPENAI_REALTIME_BASE_URL`), default
+    /// [`OPENAI_DEFAULT_REALTIME_BASE`]. The Pro engine appends `/translations`.
+    pub realtime_base_url: String,
     /// Optional fixed realtime voice (`OPENAI_VOICE`, e.g. `marin`, `cedar`, `alloy`).
     /// `None` (default) leaves the model's default. Set it to pin one consistent
     /// timbre for all translated audio. Opt-in so the default behaviour is unchanged.
@@ -771,6 +784,10 @@ pub struct VoiceAssistantConfig {
     /// (`VOICE_ASSISTANT_MAX_SESSIONS`, default 10). Semaphore-backed; new
     /// connections beyond this cap receive a `capacity_full` error and are closed.
     pub max_sessions: usize,
+    /// Realtime WebSocket base (`OPENAI_REALTIME_BASE_URL`), default
+    /// [`OPENAI_DEFAULT_REALTIME_BASE`] — the same socket the Pro engine uses, so one
+    /// override moves every OpenAI realtime client at once.
+    pub realtime_base_url: String,
 }
 
 impl VoiceAssistantConfig {
@@ -792,6 +809,10 @@ impl VoiceAssistantConfig {
             cost_per_minute: parse_or("VOICE_ASSISTANT_COST_PER_MINUTE", 0.30f64),
             markup: percent / 100.0,
             max_sessions: parse_or("VOICE_ASSISTANT_MAX_SESSIONS", 10usize),
+            realtime_base_url: endpoint_or(
+                "OPENAI_REALTIME_BASE_URL",
+                OPENAI_DEFAULT_REALTIME_BASE,
+            ),
         }
     }
 }
@@ -819,6 +840,10 @@ pub struct HelpAssistantConfig {
     /// (`HELP_ASSISTANT_MAX_SESSIONS`, default 10). Semaphore-backed; new
     /// connections beyond this cap receive a `capacity_full` error and are closed.
     pub max_sessions: usize,
+    /// Realtime WebSocket base (`OPENAI_REALTIME_BASE_URL`), default
+    /// [`OPENAI_DEFAULT_REALTIME_BASE`] — the same socket the Pro engine uses, so one
+    /// override moves every OpenAI realtime client at once.
+    pub realtime_base_url: String,
 }
 
 impl HelpAssistantConfig {
@@ -840,6 +865,10 @@ impl HelpAssistantConfig {
             cost_per_minute: parse_or("HELP_ASSISTANT_COST_PER_MINUTE", 0.18f64),
             markup: percent / 100.0,
             max_sessions: parse_or("HELP_ASSISTANT_MAX_SESSIONS", 10usize),
+            realtime_base_url: endpoint_or(
+                "OPENAI_REALTIME_BASE_URL",
+                OPENAI_DEFAULT_REALTIME_BASE,
+            ),
         }
     }
 }
@@ -1142,6 +1171,9 @@ pub struct GeminiConfig {
     /// (`GEMINI_LIVE_MAX_SESSIONS`). The preview tier limits concurrent sessions, so
     /// keep this conservative — we hold one session per target language.
     pub max_sessions: usize,
+    /// Live API WebSocket base (`GEMINI_LIVE_BASE_URL`), default
+    /// [`GEMINI_DEFAULT_LIVE_BASE`]. The key is appended as a query parameter.
+    pub live_base_url: String,
     /// Optional fixed prebuilt voice (`GEMINI_VOICE`, e.g. `Aoede`, `Kore`, `Puck`).
     /// `None` (default) lets the model choose — on the Live-Translate model that
     /// follows each speaker's own voice, so the timbre varies. Set it to pin one
@@ -1174,6 +1206,7 @@ impl GeminiConfig {
             cost_per_minute: parse_or("GEMINI_COST_PER_MINUTE", 0.023f64),
             markup: percent / 100.0,
             max_sessions: parse_or("GEMINI_LIVE_MAX_SESSIONS", 16usize),
+            live_base_url: endpoint_or("GEMINI_LIVE_BASE_URL", GEMINI_DEFAULT_LIVE_BASE),
             voice: env::var("GEMINI_VOICE")
                 .ok()
                 .map(|s| s.trim().to_string())
@@ -1207,12 +1240,49 @@ impl OpenAiConfig {
             cost_per_minute: parse_or("OPENAI_COST_PER_MINUTE", 0.30f64),
             markup: percent / 100.0,
             max_sessions: parse_or("OPENAI_REALTIME_MAX_SESSIONS", 16usize),
+            realtime_base_url: endpoint_or(
+                "OPENAI_REALTIME_BASE_URL",
+                OPENAI_DEFAULT_REALTIME_BASE,
+            ),
             voice: env::var("OPENAI_VOICE")
                 .ok()
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty()),
         }
     }
+}
+
+/// OpenAI's realtime WebSocket base. Three clients hang off it: the Pro engine appends
+/// `/translations`, the voice and help assistants append nothing. Override the whole base
+/// per deployment via `OPENAI_REALTIME_BASE_URL`.
+///
+/// It exists so the realtime engines can be exercised at all. Every one of them opens a
+/// socket to this host before doing anything testable, so without a seam the reconnect
+/// loop, the event fan-out and the teardown were unreachable — the same argument that put
+/// `GROQ_BASE_URL` and `RESEND_BASE_URL` in this file. Unset everywhere but a test.
+pub const OPENAI_DEFAULT_REALTIME_BASE: &str = "wss://api.openai.com/v1/realtime";
+
+/// Gemini Live's WebSocket base — the Premium engine's provider. The API key travels in
+/// the query string rather than a header, so a caller must never log the built URL.
+/// Override via `GEMINI_LIVE_BASE_URL`; unset everywhere but a test.
+pub const GEMINI_DEFAULT_LIVE_BASE: &str = "wss://generativelanguage.googleapis.com/ws/\
+     google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent";
+
+/// Stripe's REST API root. Override via `STRIPE_BASE_URL`; unset everywhere but a test.
+pub const STRIPE_DEFAULT_BASE: &str = "https://api.stripe.com";
+
+/// The Google Calendar API root. Override via `GOOGLE_CALENDAR_BASE_URL`; unset
+/// everywhere but a test.
+pub const GOOGLE_CALENDAR_DEFAULT_BASE: &str = "https://www.googleapis.com/calendar/v3";
+
+/// Read a WS/HTTP base from `var`, falling back to `default`. Trailing slashes are
+/// stripped so every caller can append its own path.
+fn endpoint_or(var: &str, default: &str) -> String {
+    env::var(var)
+        .ok()
+        .map(|v| v.trim().trim_end_matches('/').to_string())
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| default.to_string())
 }
 
 /// Cartesia REST/WS API base (spec 0108). The browser connects DIRECTLY to the STT/TTS
@@ -1503,6 +1573,15 @@ pub struct BillingConfig {
     pub jwt_secret: String,
     pub jwt_expiry_hours: i64,
     pub stripe_secret_key: String,
+    /// Where Stripe's REST API lives, from `STRIPE_BASE_URL`, defaulting to
+    /// [`STRIPE_DEFAULT_BASE`].
+    ///
+    /// Every paid path in the product ends in a call to this host — checkout,
+    /// the billing portal, a subscription lookup, an invoice — and none of them
+    /// could be exercised without a seam. Same argument as
+    /// [`Config::groq_base_url`]; a wrong value here sends customer and price
+    /// identifiers somewhere they do not belong, so leave it unset.
+    pub stripe_base_url: String,
     pub stripe_webhook_secret: String,
     pub stripe_success_url: String,
     pub stripe_cancel_url: String,
@@ -1859,6 +1938,10 @@ impl Config {
             groq_key,
             groq_base_url,
             resend_base_url,
+            calendar_base_url: endpoint_or(
+                "GOOGLE_CALENDAR_BASE_URL",
+                GOOGLE_CALENDAR_DEFAULT_BASE,
+            ),
             translation_model,
             port,
             allowed_origins,
@@ -2002,6 +2085,7 @@ impl BillingConfig {
             jwt_secret: env::var("JWT_SECRET").unwrap_or_default(),
             jwt_expiry_hours: parse_or("JWT_EXPIRY_HOURS", 168i64),
             stripe_secret_key: env::var("STRIPE_SECRET_KEY").unwrap_or_default(),
+            stripe_base_url: endpoint_or("STRIPE_BASE_URL", STRIPE_DEFAULT_BASE),
             stripe_webhook_secret: env::var("STRIPE_WEBHOOK_SECRET").unwrap_or_default(),
             stripe_success_url: env::var("STRIPE_SUCCESS_URL").unwrap_or_default(),
             stripe_cancel_url: env::var("STRIPE_CANCEL_URL").unwrap_or_default(),
@@ -2239,6 +2323,7 @@ impl Config {
             groq_key: "dummy".into(),
             groq_base_url: None,
             resend_base_url: None,
+            calendar_base_url: GOOGLE_CALENDAR_DEFAULT_BASE.to_string(),
             translation_model: "openai/gpt-oss-20b".into(),
             port: 0,
             allowed_origins: vec![],
@@ -2254,6 +2339,7 @@ impl Config {
                 jwt_secret: jwt_secret.into(),
                 jwt_expiry_hours: 168,
                 stripe_secret_key: String::new(),
+                stripe_base_url: STRIPE_DEFAULT_BASE.to_string(),
                 stripe_webhook_secret: String::new(),
                 stripe_success_url: String::new(),
                 stripe_cancel_url: String::new(),

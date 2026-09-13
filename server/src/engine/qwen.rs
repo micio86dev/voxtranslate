@@ -815,6 +815,7 @@ mod tests {
     /// `QWEN_PROBE_LANG` overrides the target language (default `en`).
     #[tokio::test]
     #[ignore]
+    #[cfg(feature = "live-probes")]
     async fn qwen_live_protocol_probe() {
         use futures::{SinkExt as _, StreamExt as _};
         use std::collections::BTreeSet;
@@ -1011,6 +1012,7 @@ mod tests {
     /// `#[ignore]`: needs a real key + network.
     #[tokio::test]
     #[ignore]
+    #[cfg(feature = "live-probes")]
     async fn qwen_live_transcribe_probe() {
         use futures::{SinkExt as _, StreamExt as _};
         use std::collections::BTreeSet;

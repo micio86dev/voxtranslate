@@ -23,6 +23,7 @@ fn test_cfg(cost_per_minute: f64, markup: f64, max_sessions: usize) -> VoiceAssi
         cost_per_minute,
         markup,
         max_sessions,
+        realtime_base_url: voxtranslate_server::config::OPENAI_DEFAULT_REALTIME_BASE.into(),
     }
 }
 
@@ -294,6 +295,7 @@ async fn real_openai_voice_assistant_round_trip() {
         cost_per_minute: 0.30,
         markup: 0.25,
         max_sessions: 1,
+        realtime_base_url: voxtranslate_server::config::OPENAI_DEFAULT_REALTIME_BASE.into(),
     };
     // Open a session and verify the response.
     let result = voice_assistant_client::open_va_session(&cfg).await;
