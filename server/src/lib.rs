@@ -331,7 +331,14 @@ impl AppState {
         translation_cache: Option<Arc<TranslationCache>>,
     ) -> Self {
         let config = Arc::new(config);
-        let groq = Groq::new(config.groq_key.clone(), config.translation_model.clone());
+        let groq = match config.groq_base_url.as_deref() {
+            Some(base) => Groq::with_endpoint(
+                config.groq_key.clone(),
+                config.translation_model.clone(),
+                base.to_string(),
+            ),
+            None => Groq::new(config.groq_key.clone(), config.translation_model.clone()),
+        };
         // Admission cap on concurrent in-flight Groq translation calls across the
         // whole process (spec 0069) — bounds fan-out under a traffic spike.
         let translate_max = env_u32(
@@ -356,7 +363,10 @@ impl AppState {
         let resend = config
             .resend
             .as_ref()
-            .map(|c| email::Resend::new(http.clone(), c));
+            .map(|c| match config.resend_base_url.as_deref() {
+                Some(base) => email::Resend::with_endpoint(http.clone(), c, base.to_string()),
+                None => email::Resend::new(http.clone(), c),
+            });
         let storage = config
             .storage
             .as_ref()
