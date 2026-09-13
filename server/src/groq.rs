@@ -5,6 +5,8 @@
 use serde::Deserialize;
 use std::time::Duration;
 
+/// Groq's chat-completions endpoint. Overridable per client so a test can point
+/// the whole AI surface at a local stand-in — see [`Groq::with_endpoint`].
 const GROQ_URL: &str = "https://api.groq.com/openai/v1/chat/completions";
 
 /// One chat-completion call. Build with [`ChatRequest::new`] then override
@@ -71,10 +73,25 @@ pub struct Groq {
     /// (resolved in `AiConfig`). A Groq decommission becomes a config change, not
     /// a deploy. Latency-critical — keep it a fast/cheap model.
     translation_model: String,
+    /// Where chat completions are posted. Defaults to [`GROQ_URL`]; a different
+    /// value is only ever set from `GROQ_BASE_URL`.
+    base_url: String,
 }
 
 impl Groq {
     pub fn new(api_key: String, translation_model: String) -> Self {
+        Self::with_endpoint(api_key, translation_model, GROQ_URL.to_string())
+    }
+
+    /// Same client, posting to `base_url` instead of Groq.
+    ///
+    /// Every AI feature in this server — reports, quizzes, sentiment, corrections,
+    /// email drafts, insights synthesis, the translation fan-out — goes through
+    /// `chat()`, so without a seam here none of them can be exercised without a
+    /// live Groq key. The endpoint is plumbed from `GROQ_BASE_URL` (see
+    /// [`crate::config::Config::groq_base_url`]), which is unset everywhere but a
+    /// test, so production addresses Groq exactly as before.
+    pub fn with_endpoint(api_key: String, translation_model: String, base_url: String) -> Self {
         let http = reqwest::Client::builder()
             .pool_idle_timeout(Duration::from_secs(90))
             .timeout(Duration::from_secs(15))
@@ -84,6 +101,7 @@ impl Groq {
             http,
             api_key,
             translation_model,
+            base_url,
         }
     }
 
@@ -119,7 +137,7 @@ impl Groq {
         for attempt in 0..attempts {
             let send = self
                 .http
-                .post(GROQ_URL)
+                .post(&self.base_url)
                 .bearer_auth(&self.api_key)
                 .timeout(req.timeout)
                 .json(&body)

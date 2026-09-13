@@ -168,6 +168,8 @@ mod guest_mode {
             deepgram_cost_per_minute: 0.0043,
             deepgram_markup: 0.25,
             groq_key: "g".into(),
+            groq_base_url: None,
+            resend_base_url: None,
             translation_model: "openai/gpt-oss-20b".into(),
             port: 0,
             allowed_origins: vec![],
