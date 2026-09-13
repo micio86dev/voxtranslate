@@ -60,7 +60,16 @@ test('screen share works without a camera (issue #4)', async ({ browser }) => {
   // with `toHaveCount(2)` was tried and fails. Two cells render BEFORE the peer connection
   // is usable, so the share started too early and the renegotiation never delivered the
   // screen. That delay is settling time for ICE, not a guess about rendering.
-  test.slow();
+  //
+  // `test.slow()` (3x the 90 s default = 4.5 min) was enough until it wasn't: on
+  // 2026-09-13 this test used the whole 4.5 min and timed out on two consecutive runs,
+  // retry included, while the SAME commit had passed half an hour earlier. Nothing about
+  // the product changed between them, only how fast the runner was. A budget tuned to the
+  // fastest runner turns a slow one into a false failure — the trap the `-darwin` visual
+  // baselines were in: not flaky, impossible. So the budget is stated outright. This test
+  // asserts that a screen share REACHES peers, never how quickly, and a genuine break
+  // still fails on the 20 s `waitForFunction` below rather than sitting here.
+  test.setTimeout(360_000);
   const room = 'share' + Math.floor(Math.random() * 1e6);
   const a = await openPage(browser); // the sharer — no camera
   const b = await openPage(browser); // a normal viewer with a camera
