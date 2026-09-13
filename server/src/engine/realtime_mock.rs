@@ -105,7 +105,7 @@ impl RealtimeMock {
             while let Ok((stream, _)) = listener.accept().await {
                 let shared = shared.clone();
                 tokio::spawn(async move {
-                    let _ = serve(stream, dialect, shared).await;
+                    serve(stream, dialect, shared).await;
                 });
             }
         });
@@ -155,18 +155,21 @@ impl RealtimeMock {
     }
 }
 
-async fn serve(
-    stream: tokio::net::TcpStream,
-    dialect: Dialect,
-    shared: Arc<Shared>,
-) -> Result<(), tokio_tungstenite::tungstenite::Error> {
-    let ws = tokio_tungstenite::accept_async(stream).await?;
+/// Drive one accepted socket to its end. Every failure here means the client went
+/// away, which for a stand-in is the same as the conversation being over — so this
+/// returns nothing rather than an error nobody could act on. (Returning
+/// `tungstenite::Error` also trips `clippy::result_large_err`: the variant is 136
+/// bytes, carried on every read of every frame.)
+async fn serve(stream: tokio::net::TcpStream, dialect: Dialect, shared: Arc<Shared>) {
+    let Ok(ws) = tokio_tungstenite::accept_async(stream).await else {
+        return;
+    };
     *shared.connections.lock().unwrap() += 1;
     let (mut sink, mut source) = ws.split();
     let mut answered = false;
 
     while let Some(frame) = source.next().await {
-        let Message::Text(text) = frame? else {
+        let Ok(Message::Text(text)) = frame else {
             continue;
         };
         shared.received.lock().unwrap().push(text.to_string());
@@ -184,7 +187,7 @@ async fn serve(
                     .await;
             }
             let _ = sink.close().await;
-            return Ok(());
+            return;
         }
 
         // Audio is what triggers a reply. Everything before it (the session setup)
@@ -206,19 +209,18 @@ async fn serve(
             match reply {
                 Reply::Drop => {
                     let _ = sink.close().await;
-                    return Ok(());
+                    return;
                 }
                 other => {
                     for out in frames_for(&other, dialect) {
                         if sink.send(Message::text(out)).await.is_err() {
-                            return Ok(());
+                            return;
                         }
                     }
                 }
             }
         }
     }
-    Ok(())
 }
 
 /// Render one [`Reply`] as the wire frames of `dialect`.

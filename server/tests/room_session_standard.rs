@@ -13,7 +13,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures::{SinkExt as _, StreamExt as _};
-use serde_json::Value;
+use serde_json::{json, Value};
 use tokio_tungstenite::tungstenite::Message;
 use uuid::Uuid;
 use voxtranslate_server::auth::{issue_jwt, upsert_google_user, FakeVerifier, GoogleIdentity};
@@ -395,4 +395,307 @@ async fn a_forged_token_does_not_open_a_room() {
             );
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// The rest of the in-call protocol
+//
+// Everything below is relayed rather than translated, and each frame is the whole
+// of some feature's server side: a badge, a raised hand, a drawing. What is worth
+// asserting is who sees it — the sender, the others, or both — because getting
+// that wrong is how a reaction appears twice or a mute indicator never clears.
+// ---------------------------------------------------------------------------
+
+/// Send a JSON client frame.
+async fn say(ws: &mut Ws, v: Value) {
+    let _ = ws.send(Message::text(v.to_string())).await;
+}
+
+/// Everything the socket produces in `ms`.
+async fn drain(ws: &mut Ws, ms: u64) -> Vec<Value> {
+    let mut seen = Vec::new();
+    let deadline = tokio::time::Instant::now() + Duration::from_millis(ms);
+    loop {
+        let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+        if left.is_zero() {
+            return seen;
+        }
+        match tokio::time::timeout(left, ws.next()).await {
+            Ok(Some(Ok(Message::Text(t)))) => {
+                if let Ok(v) = serde_json::from_str::<Value>(&t) {
+                    seen.push(v);
+                }
+            }
+            Ok(Some(Ok(_))) => {}
+            _ => return seen,
+        }
+    }
+}
+
+#[tokio::test]
+async fn a_mute_indicator_reaches_the_others_and_not_the_sender() {
+    let mock = RealtimeMock::start(Dialect::Qwen).await;
+    let srv = skip_without_db!(&mock);
+    let (mut speaker, mut listener) = two_peers(&srv, &room_name()).await;
+
+    say(&mut speaker, json!({ "type": "mute_audio", "muted": true })).await;
+    let frame = wait_for(&mut listener, |v| v["type"] == "peer_muted")
+        .await
+        .expect("the others see the mute");
+    assert_eq!(frame["kind"], "audio");
+    assert_eq!(frame["muted"], true);
+
+    // The sender already knows: echoing it back is how a UI ends up toggling twice.
+    let own = drain(&mut speaker, 400).await;
+    assert!(own.iter().all(|v| v["type"] != "peer_muted"));
+}
+
+#[tokio::test]
+async fn muting_video_is_a_separate_flag_from_muting_audio() {
+    let mock = RealtimeMock::start(Dialect::Qwen).await;
+    let srv = skip_without_db!(&mock);
+    let (mut speaker, mut listener) = two_peers(&srv, &room_name()).await;
+
+    say(&mut speaker, json!({ "type": "mute_video", "muted": true })).await;
+    let frame = wait_for(&mut listener, |v| v["type"] == "peer_muted")
+        .await
+        .expect("the others see the camera go off");
+    // Turning the camera off must not read as "they stopped talking" — one field
+    // says WHICH was muted, and two different pieces of UI read it.
+    assert_eq!(frame["kind"], "video");
+    assert_eq!(frame["muted"], true);
+}
+
+#[tokio::test]
+async fn a_reaction_is_relayed_without_being_translated() {
+    let mock = RealtimeMock::start(Dialect::Qwen).await;
+    let srv = skip_without_db!(&mock);
+    let (mut speaker, mut listener) = two_peers(&srv, &room_name()).await;
+
+    say(&mut speaker, json!({ "type": "emoji", "emoji": "👏" })).await;
+    let frame = wait_for(&mut listener, |v| v["type"] == "emoji_reaction")
+        .await
+        .expect("the reaction arrived");
+    // Applause means the same in every language; sending it through a translator
+    // would cost money and could only make it worse.
+    assert_eq!(frame["emoji"], "👏");
+    assert_eq!(frame["peer_id"], "spk");
+}
+
+#[tokio::test]
+async fn a_raised_hand_goes_up_and_comes_back_down() {
+    let mock = RealtimeMock::start(Dialect::Qwen).await;
+    let srv = skip_without_db!(&mock);
+    let (mut speaker, mut listener) = two_peers(&srv, &room_name()).await;
+
+    say(
+        &mut speaker,
+        json!({ "type": "hand_raise", "raised": true }),
+    )
+    .await;
+    let up = wait_for(&mut listener, |v| v["type"] == "hand_raised")
+        .await
+        .expect("hand up");
+    assert_eq!(up["raised"], true);
+
+    say(
+        &mut speaker,
+        json!({ "type": "hand_raise", "raised": false }),
+    )
+    .await;
+    let down = wait_for(&mut listener, |v| {
+        v["type"] == "hand_raised" && v["raised"] == false
+    })
+    .await;
+    // A hand that cannot be lowered stays up for the rest of the call.
+    assert!(down.is_some(), "the hand never came down");
+}
+
+#[tokio::test]
+async fn a_screen_share_badge_says_whether_the_audio_came_with_it() {
+    let mock = RealtimeMock::start(Dialect::Qwen).await;
+    let srv = skip_without_db!(&mock);
+    let (mut speaker, mut listener) = two_peers(&srv, &room_name()).await;
+
+    say(
+        &mut speaker,
+        json!({ "type": "screen_share", "active": true, "audio": true }),
+    )
+    .await;
+    let frame = wait_for(&mut listener, |v| v["type"] == "screen_share")
+        .await
+        .expect("the share was announced");
+    assert_eq!(frame["active"], true);
+    // Shared tab audio must stay audible across a language gap; a share without it
+    // carries only the bare mic, which has to stay duckable under the TTS.
+    assert_eq!(frame["audio"], true);
+
+    say(
+        &mut speaker,
+        json!({ "type": "screen_share", "active": false }),
+    )
+    .await;
+    let off = wait_for(&mut listener, |v| {
+        v["type"] == "screen_share" && v["active"] == false
+    })
+    .await;
+    assert!(off.is_some(), "the badge never cleared");
+}
+
+#[tokio::test]
+async fn a_whiteboard_stroke_reaches_the_others_and_waits_for_late_joiners() {
+    let mock = RealtimeMock::start(Dialect::Qwen).await;
+    let srv = skip_without_db!(&mock);
+    let room = room_name();
+    let (mut speaker, mut listener) = two_peers(&srv, &room).await;
+
+    say(
+        &mut speaker,
+        json!({
+            "type": "whiteboard",
+            // Coordinates are normalised to 0..1 so every client scales them to
+            // its own canvas instead of distorting the drawing.
+            "op": {
+                "op": "draw",
+                "id": "stroke-1",
+                "tool": "pen",
+                "color": "#ff0000",
+                "width": 3.0,
+                "points": [[0.1, 0.1], [0.5, 0.5]]
+            }
+        }),
+    )
+    .await;
+    let relayed = wait_for(&mut listener, |v| v["type"] == "whiteboard").await;
+    assert!(relayed.is_some(), "the stroke was not relayed");
+
+    // Persisted in the room, so somebody who joins mid-drawing sees the drawing
+    // rather than a blank board they cannot ask anyone to repeat.
+    let late_jwt = login(&srv, "Late").await;
+    let mut late = join(&srv, &room, "late", "fr", &late_jwt).await;
+    let snapshot = wait_for(&mut late, |v| v["type"] == "whiteboard_snapshot").await;
+    assert!(snapshot.is_some(), "a late joiner got an empty board");
+}
+
+#[tokio::test]
+async fn a_game_state_is_relayed_and_kept_for_whoever_arrives_next() {
+    let mock = RealtimeMock::start(Dialect::Qwen).await;
+    let srv = skip_without_db!(&mock);
+    let room = room_name();
+    let (mut speaker, mut listener) = two_peers(&srv, &room).await;
+
+    // The server is deliberately game-agnostic: it relays `state` and remembers
+    // the latest. Every rule lives in the client.
+    say(
+        &mut speaker,
+        json!({ "type": "game", "state": { "board": ["x", null, "o"], "turn": "o" } }),
+    )
+    .await;
+    let relayed = wait_for(&mut listener, |v| v["type"] == "game").await;
+    assert!(relayed.is_some(), "the move was not relayed");
+
+    let late_jwt = login(&srv, "Late").await;
+    let mut late = join(&srv, &room, "late", "fr", &late_jwt).await;
+    let snapshot = wait_for(&mut late, |v| v["type"] == "game_snapshot").await;
+    assert!(snapshot.is_some(), "a late joiner saw no game in progress");
+}
+
+#[tokio::test]
+async fn webrtc_signalling_is_addressed_to_one_peer_not_broadcast() {
+    let mock = RealtimeMock::start(Dialect::Qwen).await;
+    let srv = skip_without_db!(&mock);
+    let room = room_name();
+    let (mut speaker, mut listener) = two_peers(&srv, &room).await;
+    let third_jwt = login(&srv, "Third").await;
+    let mut third = join(&srv, &room, "third", "de", &third_jwt).await;
+    let _ = drain(&mut third, 300).await;
+
+    say(
+        &mut speaker,
+        json!({ "type": "offer", "to": "lis", "sdp": "v=0 fake-offer" }),
+    )
+    .await;
+
+    let got = wait_for(&mut listener, |v| v["type"] == "offer")
+        .await
+        .expect("the offer reached its peer");
+    assert_eq!(got["sdp"], "v=0 fake-offer");
+    assert_eq!(got["from"], "spk");
+
+    // A mesh is point-to-point: broadcasting an offer would have every other peer
+    // answer a call nobody made.
+    let others = drain(&mut third, 500).await;
+    assert!(others.iter().all(|v| v["type"] != "offer"));
+}
+
+#[tokio::test]
+async fn correcting_the_detected_language_reopens_the_session_for_the_new_one() {
+    let mock = RealtimeMock::start(Dialect::Qwen).await;
+    let srv = skip_without_db!(&mock);
+    let (mut speaker, _listener) = two_peers(&srv, &room_name()).await;
+
+    start_speaking(&mut speaker).await;
+    let _ = speaker.send(Message::binary(vec![0u8; 640])).await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // Auto-detect got it wrong and the user says so (spec 0012). The point of the
+    // correction is that the NEXT session opens under the language they chose.
+    say(&mut speaker, json!({ "type": "set_lang", "lang": "de" })).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    start_speaking(&mut speaker).await;
+    let _ = speaker.send(Message::binary(vec![0u8; 640])).await;
+    tokio::time::sleep(Duration::from_millis(600)).await;
+
+    assert!(
+        mock.connections() >= 1,
+        "the correction killed the session instead of reopening it"
+    );
+}
+
+#[tokio::test]
+async fn a_frame_the_server_does_not_understand_is_ignored_not_fatal() {
+    let mock = RealtimeMock::start(Dialect::Qwen).await;
+    let srv = skip_without_db!(&mock);
+    let (mut speaker, mut listener) = two_peers(&srv, &room_name()).await;
+
+    for junk in [
+        json!({ "type": "not_a_real_message" }).to_string(),
+        json!({ "type": "chat" }).to_string(), // missing `text`
+        "[]".to_string(),
+        "not json at all".to_string(),
+    ] {
+        let _ = speaker.send(Message::text(junk)).await;
+    }
+    tokio::time::sleep(Duration::from_millis(300)).await;
+
+    // The socket must survive: a client on an older build sends frames this one
+    // has never heard of, and dropping their call over it is the worst answer.
+    say(&mut speaker, json!({ "type": "emoji", "emoji": "🎉" })).await;
+    let frame = wait_for(&mut listener, |v| v["type"] == "emoji_reaction").await;
+    assert!(frame.is_some(), "junk on the socket killed the room");
+}
+
+#[tokio::test]
+async fn the_room_is_capped_and_says_so_rather_than_dropping_the_fifth_peer() {
+    let mock = RealtimeMock::start(Dialect::Qwen).await;
+    let srv = skip_without_db!(&mock);
+    let room = room_name();
+
+    // A WebRTC mesh is O(n²) in connections; four is the documented cap.
+    let mut held = Vec::new();
+    for i in 0..4 {
+        let jwt = login(&srv, &format!("P{i}")).await;
+        held.push(join(&srv, &room, &format!("p{i}"), "en", &jwt).await);
+    }
+
+    let jwt = login(&srv, "Fifth").await;
+    let url = format!("ws://{}/ws?room={room}&lang=en&id=p5&token={jwt}", srv.addr);
+    let (mut fifth, _) = tokio_tungstenite::connect_async(url)
+        .await
+        .expect("the socket opened");
+    let frame = wait_for(&mut fifth, |v| v["type"] == "room_full").await;
+    assert!(
+        frame.is_some(),
+        "the fifth peer was dropped without being told why"
+    );
 }

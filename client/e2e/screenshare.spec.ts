@@ -31,21 +31,40 @@ async function noCameraButCanShare(page: Page): Promise<void> {
   });
 }
 
-/** Drive a camera-less page from home into the call (audio-only). */
+/** Drive a camera-less page from home into the call (audio-only).
+ *
+ * Every wait here is bounded on purpose. Playwright's default action timeout is 0,
+ * which means "bounded by the TEST timeout" — so an unbounded wait in a setup helper
+ * turns any hang into the whole budget elapsing and a single line of output that says
+ * only `Test ended`. That is exactly how this spec failed twice on 2026-09-13, twelve
+ * minutes of CI for no information at all. A step that names itself costs nothing and
+ * is the difference between a bug report and a shrug.
+ */
 async function joinAudioOnly(page: Page, room: string): Promise<void> {
   await page.goto('/', { waitUntil: 'networkidle' });
   await page.selectOption('#lang', 'en');
   await page.fill('#name', 'Sharer');
   await page.fill('#room', room);
   await page.click('#enter');
-  await page.waitForSelector('#prejoin:not(.hidden)');
+  await page.waitForSelector('#prejoin:not(.hidden)', { timeout: 20_000 });
   // No camera → the preview shows the camera-off placeholder rather than video.
-  await page.waitForFunction(() => {
-    const off = document.getElementById('preview-off');
-    return !!off && !off.hidden;
-  });
+  await page
+    .waitForFunction(
+      () => {
+        const off = document.getElementById('preview-off');
+        return !!off && !off.hidden;
+      },
+      { timeout: 20_000 },
+    )
+    .catch(() => {
+      throw new Error('camera-less pre-join never showed #preview-off');
+    });
   await page.click('#join-btn');
-  await page.waitForSelector('#call:not(.hidden)');
+  await page
+    .waitForSelector('#call:not(.hidden)', { timeout: 30_000 })
+    .catch(() => {
+      throw new Error('camera-less peer never entered the call');
+    });
   const cookieAccept = page.locator('#cookie-accept');
   if (await cookieAccept.isVisible().catch(() => false)) await cookieAccept.click();
 }
@@ -61,15 +80,15 @@ test('screen share works without a camera (issue #4)', async ({ browser }) => {
   // is usable, so the share started too early and the renegotiation never delivered the
   // screen. That delay is settling time for ICE, not a guess about rendering.
   //
-  // `test.slow()` (3x the 90 s default = 4.5 min) was enough until it wasn't: on
-  // 2026-09-13 this test used the whole 4.5 min and timed out on two consecutive runs,
-  // retry included, while the SAME commit had passed half an hour earlier. Nothing about
-  // the product changed between them, only how fast the runner was. A budget tuned to the
-  // fastest runner turns a slow one into a false failure — the trap the `-darwin` visual
-  // baselines were in: not flaky, impossible. So the budget is stated outright. This test
-  // asserts that a screen share REACHES peers, never how quickly, and a genuine break
-  // still fails on the 20 s `waitForFunction` below rather than sitting here.
-  test.setTimeout(360_000);
+  // On the budget: `test.slow()` (3x the 90 s default) was raised to a flat 6 min on
+  // 2026-09-13 after two consecutive timeouts. That was the wrong shape of fix and it is
+  // worth recording why, because the instinct will come back. The test was not running
+  // slowly and finishing late — it was STUCK, and the only reason a stuck test looked
+  // like a slow one is that the setup helper's waits were unbounded. Raising the ceiling
+  // bought six more minutes of the same silence. The fix is above: every step names
+  // itself and fails in seconds. The budget below is back to generous-but-finite, which
+  // is all a mesh renegotiation needs.
+  test.setTimeout(180_000);
   const room = 'share' + Math.floor(Math.random() * 1e6);
   const a = await openPage(browser); // the sharer — no camera
   const b = await openPage(browser); // a normal viewer with a camera
