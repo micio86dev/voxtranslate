@@ -136,8 +136,8 @@ pub async fn open_session(
     output_lang: &str,
 ) -> Result<(OaSink, OaSource), String> {
     let url = format!(
-        "wss://api.openai.com/v1/realtime/translations?model={}",
-        config.model
+        "{}/translations?model={}",
+        config.realtime_base_url, config.model
     );
     let mut request = url
         .into_client_request()

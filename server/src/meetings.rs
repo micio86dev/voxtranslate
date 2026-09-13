@@ -155,6 +155,7 @@ pub async fn create(
     let recurrence_str = rrule.as_ref().and_then(|v| v.first().cloned());
     let event = google_calendar::create_event(
         &state.http,
+        &state.config.calendar_base_url,
         &access,
         "primary",
         &EventInput {
@@ -278,8 +279,14 @@ pub async fn cancel(
     .map_err(db_err)?
     {
         if let Ok(access) = google_oauth::valid_access_token(&state, user.user_id).await {
-            if let Err(e) =
-                google_calendar::delete_event(&state.http, &access, "primary", &event_id).await
+            if let Err(e) = google_calendar::delete_event(
+                &state.http,
+                &state.config.calendar_base_url,
+                &access,
+                "primary",
+                &event_id,
+            )
+            .await
             {
                 tracing::warn!("delete calendar event failed (continuing): {e}");
             }

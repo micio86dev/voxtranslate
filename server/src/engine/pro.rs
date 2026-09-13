@@ -728,6 +728,7 @@ mod tests {
             cost_per_minute: 0.04,
             markup: 0.5,
             max_sessions,
+            realtime_base_url: crate::config::OPENAI_DEFAULT_REALTIME_BASE.into(),
             voice: None,
         }
     }
@@ -892,6 +893,211 @@ mod tests {
         assert!(r_lis.try_recv().is_err(), "empty segment delivers nothing");
     }
 
+    // -----------------------------------------------------------------------
+    // Against the stand-in provider
+    //
+    // Everything above this point is a pure function or a capacity check: the
+    // socket to OpenAI was the wall. `OPENAI_REALTIME_BASE_URL` moves it to
+    // `realtime_mock`, so the same client code that production runs drives the
+    // session, the reader, the reconnect and the teardown — only the host differs.
+    // -----------------------------------------------------------------------
+
+    use crate::engine::realtime_mock::{Dialect, RealtimeMock, Reply};
+
+    /// [`cfg`], pointed at a stand-in instead of OpenAI.
+    fn cfg_against(mock: &RealtimeMock, max_sessions: usize) -> OpenAiConfig {
+        OpenAiConfig {
+            realtime_base_url: mock.base_url(),
+            ..cfg(max_sessions)
+        }
+    }
+
+    /// Start a Pro session for an Italian speaker with one English listener, and
+    /// return the audio sink plus the listener's receiver.
+    async fn session_with(
+        mock: &RealtimeMock,
+    ) -> (
+        tokio::sync::mpsc::Sender<Vec<u8>>,
+        tokio::sync::mpsc::Receiver<String>,
+    ) {
+        let rm = Arc::new(RoomManager::new());
+        join_peer(&rm, "r", "spk", "it");
+        let listener = join_peer_rx(&rm, "r", "lis", "en");
+
+        let engine = ProEngine::new(&cfg_against(mock, 4));
+        let mut deps = deps(RoomManager::new());
+        deps.rooms = rm;
+        let tx = match engine
+            .start_session(speaker_ctx("r", "spk", "it"), deps)
+            .await
+        {
+            SessionOutcome::Started(tx) => tx,
+            SessionOutcome::AtCapacity => panic!("session did not start: at capacity"),
+            _ => panic!("session did not start"),
+        };
+        (tx, listener)
+    }
+
+    /// Read frames until one satisfies `wanted`, or give up.
+    async fn wait_for(
+        rx: &mut tokio::sync::mpsc::Receiver<String>,
+        wanted: impl Fn(&str) -> bool,
+    ) -> Option<String> {
+        let deadline = Duration::from_secs(5);
+        while let Ok(Some(msg)) = tokio::time::timeout(deadline, rx.recv()).await {
+            if wanted(&msg) {
+                return Some(msg);
+            }
+        }
+        None
+    }
+
+    #[tokio::test]
+    async fn a_session_configures_its_output_language_before_sending_audio() {
+        let mock = RealtimeMock::start(Dialect::OpenAi).await;
+        let (tx, _lis) = session_with(&mock).await;
+        let _ = tx.send(vec![0u8; 320]).await;
+        sleep(Duration::from_millis(300)).await;
+
+        // `session.update` must land first: it carries the output language AND the
+        // input-transcription model, without which OpenAI never sends the speaker's
+        // own words and `original` is silently always empty.
+        let frames = mock.received();
+        assert!(!frames.is_empty(), "the engine never spoke to the provider");
+        assert!(
+            frames[0].contains("session.update"),
+            "first frame should configure the session: {}",
+            frames[0]
+        );
+        assert!(
+            frames[0].contains("transcription"),
+            "input transcription must be enabled: {}",
+            frames[0]
+        );
+        assert!(
+            frames[0].contains("\"en\""),
+            "output language: {}",
+            frames[0]
+        );
+    }
+
+    #[tokio::test]
+    async fn audio_reaches_the_provider_as_base64_appends() {
+        let mock = RealtimeMock::start(Dialect::OpenAi).await;
+        let (tx, _lis) = session_with(&mock).await;
+        let _ = tx.send(vec![7u8; 640]).await;
+        sleep(Duration::from_millis(300)).await;
+
+        assert!(
+            mock.saw_type("session.input_audio_buffer.append"),
+            "frames: {:?}",
+            mock.received()
+        );
+    }
+
+    #[tokio::test]
+    async fn a_translated_transcript_reaches_a_foreign_listener() {
+        // The whole point of the engine, end to end: Italian in, English caption
+        // out, over the real client and the real reader.
+        let mock = RealtimeMock::start(Dialect::OpenAi).await;
+        mock.reply_with(vec![Reply::Transcript {
+            original: "ciao a tutti".into(),
+            translated: "hello everyone".into(),
+        }]);
+        let (tx, mut lis) = session_with(&mock).await;
+
+        let _ = tx.send(vec![0u8; 320]).await;
+        // Let the deltas arrive before closing: the final flush emits what has
+        // accumulated, and closing in the same breath races the first fragment.
+        sleep(Duration::from_millis(400)).await;
+        drop(tx); // closing the feed forces the final flush
+
+        let msg = wait_for(&mut lis, |m| m.contains(r#""type":"subtitle_final""#))
+            .await
+            .expect("foreign listener received a final caption");
+        assert!(
+            msg.contains("hello everyone"),
+            "the caption is the translation: {msg}"
+        );
+    }
+
+    #[tokio::test]
+    async fn translated_audio_reaches_a_foreign_listener() {
+        let mock = RealtimeMock::start(Dialect::OpenAi).await;
+        mock.reply_with(vec![
+            Reply::Transcript {
+                original: "ciao".into(),
+                translated: "hello".into(),
+            },
+            Reply::Audio(vec![1, 2, 3, 4, 5, 6, 7, 8]),
+        ]);
+        let (tx, mut lis) = session_with(&mock).await;
+
+        let _ = tx.send(vec![0u8; 320]).await;
+
+        let msg = wait_for(&mut lis, |m| m.contains("translated_audio"))
+            .await
+            .expect("foreign listener received translated speech");
+        assert!(msg.contains("pcm16_b64"), "carries the audio: {msg}");
+    }
+
+    #[tokio::test]
+    async fn closing_the_feed_asks_the_provider_to_close_too() {
+        let mock = RealtimeMock::start(Dialect::OpenAi).await;
+        let (tx, _lis) = session_with(&mock).await;
+        let _ = tx.send(vec![0u8; 320]).await;
+        sleep(Duration::from_millis(200)).await;
+        drop(tx);
+        sleep(Duration::from_millis(500)).await;
+
+        // A leaked upstream session keeps costing money after the speaker has gone.
+        assert!(
+            mock.saw_type("session.close"),
+            "frames: {:?}",
+            mock.received()
+        );
+    }
+
+    #[tokio::test]
+    async fn an_upstream_drop_is_reconnected_rather_than_ending_the_session() {
+        let mock = RealtimeMock::start(Dialect::OpenAi).await;
+        mock.reply_with(vec![Reply::Drop]);
+        let (tx, _lis) = session_with(&mock).await;
+
+        let _ = tx.send(vec![0u8; 320]).await;
+        sleep(Duration::from_secs(2)).await;
+
+        // The provider hung up mid-call. The speaker is still talking, so the engine
+        // opens another socket instead of leaving the room silent.
+        assert!(
+            mock.connections() >= 2,
+            "expected a reconnect, saw {} connection(s)",
+            mock.connections()
+        );
+    }
+
+    #[tokio::test]
+    async fn a_provider_error_frame_does_not_take_the_session_down() {
+        let mock = RealtimeMock::start(Dialect::OpenAi).await;
+        mock.reply_with(vec![
+            Reply::Error("transient upstream hiccup".into()),
+            Reply::Transcript {
+                original: "ciao".into(),
+                translated: "hello".into(),
+            },
+        ]);
+        let (tx, mut lis) = session_with(&mock).await;
+
+        let _ = tx.send(vec![0u8; 320]).await;
+        sleep(Duration::from_millis(400)).await;
+        drop(tx);
+
+        // Most realtime errors are recoverable; dropping the room on the first one
+        // would turn a hiccup into a dead call.
+        let msg = wait_for(&mut lis, |m| m.contains(r#""type":"subtitle_final""#)).await;
+        assert!(msg.is_some(), "the session survived the error frame");
+    }
+
     /// End-to-end proof that a foreign listener actually RECEIVES a translated
     /// `subtitle_final` from the real Pro pipeline — the exact behaviour the
     /// `audio.input.transcription` fix restores. Hits real OpenAI + Groq, so it is
@@ -909,6 +1115,7 @@ mod tests {
             cost_per_minute: 0.04,
             markup: 0.5,
             max_sessions: 4,
+            realtime_base_url: crate::config::OPENAI_DEFAULT_REALTIME_BASE.into(),
             voice: None,
         };
         let pcm = std::fs::read(std::env::var("PRO_TEST_PCM").expect("PRO_TEST_PCM"))

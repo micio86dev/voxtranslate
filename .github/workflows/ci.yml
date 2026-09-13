@@ -74,26 +74,34 @@ jobs:
           # with-keys figure). `llvm-cov test` also runs the full test suite, so this
           # replaces the plain `cargo test`. Ratchet the floor up as coverage grows.
           # (Supersedes the dormant, secret-gated 85% gate in the `e2e` job below.)
-          # 66 → 78. The figure behind it: a local no-keys run with Postgres — the
-          # same shape as this job — measured 80.21% (38098/47498), up from 74.16%.
-          # The floor keeps the slack this repo has always left between the gate
-          # and the measured number, so a first CI run confirms the figure before
-          # it is ratcheted again rather than turning a green build red overnight.
+          # 78 → 85. The figure behind it is this job's own: run 34760104803
+          # measured 86.60% (41379/47784), up from 80.21%. It was gated at 84 for
+          # exactly one run first, because CI had historically landed about a point
+          # under the local figure and a gate set on an unconfirmed number is how a
+          # green build turns red overnight. It did not this time — CI came in at
+          # 86.60 against 86.63 locally — so the floor is the real target with
+          # 1.6 points of slack under it.
           #
-          # What moved: business/webinars.rs 25→100, voip/numbers.rs 47→93,
-          # ai/correction.rs 36→92, voice_messages.rs 5→79, webinar/files.rs 0→91,
-          # business/voice_assistant.rs 0→75, webinar/routes.rs 55→77,
-          # business/search.rs 27→85, api.rs 53→71, email.rs 82→96.
+          # What moved, and why it was the seams rather than more tests: every one
+          # of these paths opens a socket to a provider before doing anything
+          # testable, so each needed an endpoint override of the kind `GROQ_BASE_URL`
+          # and `RESEND_BASE_URL` already gave the chat and mail surfaces.
+          # `OPENAI_REALTIME_BASE_URL`, `GEMINI_LIVE_BASE_URL` and a WebSocket
+          # stand-in took engine/premium.rs 22→86 and engine/pro.rs 43→79;
+          # pointing `QwenConfig::endpoint` at the same stand-in took talk/mod.rs
+          # 38→89, extension.rs 40→87, webinar/stt.rs 53→83 and reached
+          # lib.rs `handle_peer` for the first time. `GOOGLE_CALENDAR_BASE_URL`
+          # took business/meetings.rs 51→92 and meetings.rs 59→96;
+          # `STRIPE_BASE_URL` took stripe_handler.rs 60→97; `CARTESIA_API_BASE`
+          # and the push subscription's own endpoint (which lives in the database,
+          # so it needed no seam) took api.rs 71→79 and notifications.rs 63→95.
           #
-          # Reaching 85 needs one more thing, and it is a piece of work rather
-          # than more tests: 2275 of the remaining uncovered lines are realtime
-          # provider pipelines — engine/premium.rs (22%), engine/pro.rs (43%),
-          # engine/qwen.rs (71%), talk/mod.rs (38%), lib.rs `handle_peer`,
-          # extension.rs `handle_extension_session`. Every one of them opens a
-          # WebSocket to OpenAI, Qwen or Cartesia, so they need endpoint seams and
-          # WS stand-ins of the kind `GROQ_BASE_URL` and `RESEND_BASE_URL` gave
-          # the chat and mail surfaces here.
-          cargo llvm-cov test --locked --fail-under-lines 78
+          # The live provider probes are now behind the `live-probes` feature. They
+          # are `#[ignore]`d tests that need a real key and bill real minutes, so
+          # they can never run here — compiling them by default only added a few
+          # hundred permanently-unreachable lines to this figure. Run them with
+          # `cargo test --features live-probes -- --ignored --nocapture`.
+          cargo llvm-cov test --locked --fail-under-lines 85
 
       # Scoped line coverage for the telephony code (spec 0112 R11). The brief asks for
       # an 85% gate on this work; the global floor stays where it is, because raising it

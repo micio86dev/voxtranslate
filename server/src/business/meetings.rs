@@ -338,6 +338,7 @@ pub async fn create(
         .map_err(calendar_token_err)?;
     let event = google_calendar::create_event(
         &state.http,
+        &state.config.calendar_base_url,
         &access,
         "primary",
         &EventInput {
@@ -585,6 +586,7 @@ pub async fn update(
             .map_err(calendar_token_err)?;
         google_calendar::update_event(
             &state.http,
+            &state.config.calendar_base_url,
             &access,
             "primary",
             &event_id,
@@ -702,8 +704,14 @@ pub async fn cancel(
     .map_err(db_err)?
     {
         if let Ok(access) = google_oauth::valid_access_token(&state, user.user_id).await {
-            if let Err(e) =
-                google_calendar::delete_event(&state.http, &access, "primary", &event_id).await
+            if let Err(e) = google_calendar::delete_event(
+                &state.http,
+                &state.config.calendar_base_url,
+                &access,
+                "primary",
+                &event_id,
+            )
+            .await
             {
                 tracing::warn!("delete calendar event failed (continuing): {e}");
             }

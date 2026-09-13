@@ -753,6 +753,7 @@ mod tests {
             cost_per_minute: 0.023,
             markup: 0.5,
             max_sessions,
+            live_base_url: crate::config::GEMINI_DEFAULT_LIVE_BASE.into(),
             voice: None,
         }
     }
@@ -848,6 +849,224 @@ mod tests {
         assert!(matches!(out, SessionOutcome::Started(_)));
     }
 
+    // -----------------------------------------------------------------------
+    // Against the stand-in provider
+    //
+    // Above this line: metadata and capacity, the only things reachable without a
+    // socket. `GEMINI_LIVE_BASE_URL` moves that socket to `realtime_mock`, so the
+    // real client, the resampler, the reader and the teardown all run here.
+    // -----------------------------------------------------------------------
+
+    use crate::engine::realtime_mock::{Dialect, RealtimeMock, Reply};
+    use std::sync::atomic::AtomicBool;
+    use tokio::sync::mpsc;
+
+    /// [`cfg`], pointed at a stand-in instead of Gemini Live.
+    fn cfg_against(mock: &RealtimeMock, max_sessions: usize) -> GeminiConfig {
+        GeminiConfig {
+            live_base_url: mock.base_url(),
+            ..cfg(max_sessions)
+        }
+    }
+
+    /// One English listener whose frames the test can read.
+    fn join_listener(rm: &RoomManager, room: &str, lang: &str) -> mpsc::Receiver<String> {
+        let (tx, rx, _ovf) = PeerTx::channel(256);
+        let peer = Peer {
+            id: "lis".into(),
+            conn: Uuid::new_v4(),
+            name: "lis".into(),
+            lang: lang.into(),
+            user_id: None,
+            engine: GEMINI_ID.to_string(),
+            avatar_url: None,
+            cartesia_voice_id: None,
+            tx,
+            speaking: Arc::new(AtomicBool::new(false)),
+        };
+        rm.join(room, peer, Visibility::Private).unwrap();
+        rx
+    }
+
+    /// Start a Premium session for an Italian speaker with one English listener.
+    async fn session_with(mock: &RealtimeMock) -> (mpsc::Sender<Vec<u8>>, mpsc::Receiver<String>) {
+        let rm = RoomManager::new();
+        join_peer(&rm, "r", "spk", "it");
+        let listener = join_listener(&rm, "r", "en");
+
+        let engine = PremiumEngine::new(&cfg_against(mock, 4));
+        let tx = match engine
+            .start_session(speaker_ctx("r", "spk", "it"), deps(rm))
+            .await
+        {
+            SessionOutcome::Started(tx) => tx,
+            _ => panic!("session did not start"),
+        };
+        (tx, listener)
+    }
+
+    /// Read frames until one satisfies `wanted`, or give up.
+    async fn wait_for(
+        rx: &mut mpsc::Receiver<String>,
+        wanted: impl Fn(&str) -> bool,
+    ) -> Option<String> {
+        while let Ok(Some(msg)) = tokio::time::timeout(Duration::from_secs(5), rx.recv()).await {
+            if wanted(&msg) {
+                return Some(msg);
+            }
+        }
+        None
+    }
+
+    #[tokio::test]
+    async fn a_session_sets_itself_up_before_sending_audio() {
+        let mock = RealtimeMock::start(Dialect::Gemini).await;
+        let (tx, _lis) = session_with(&mock).await;
+        let _ = tx.send(vec![0u8; 3200]).await;
+        sleep(Duration::from_millis(300)).await;
+
+        let frames = mock.received();
+        assert!(!frames.is_empty(), "the engine never spoke to the provider");
+        assert!(
+            frames[0].contains("setup"),
+            "the first frame opens the session: {}",
+            frames[0]
+        );
+        // The transcription enablers are SETUP-level fields; nested under
+        // generationConfig the Live API closes the socket with a 1007.
+        assert!(
+            frames[0].contains("inputAudioTranscription"),
+            "input transcription must be enabled at setup level: {}",
+            frames[0]
+        );
+    }
+
+    #[tokio::test]
+    async fn audio_is_resampled_to_the_rate_gemini_ingests() {
+        let mock = RealtimeMock::start(Dialect::Gemini).await;
+        let (tx, _lis) = session_with(&mock).await;
+        // 3200 bytes = 1600 samples = 100 ms at the 16 kHz capture rate.
+        let _ = tx.send(vec![0u8; 3200]).await;
+        sleep(Duration::from_millis(300)).await;
+
+        let audio = mock
+            .received()
+            .into_iter()
+            .find(|f| f.contains("realtimeInput") && f.contains("\"data\""))
+            .expect("audio reached the provider");
+        assert!(
+            audio.contains("rate=16000"),
+            "Gemini ingests 16 kHz; anything else is read as garbage samples: {audio}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_translated_transcript_reaches_a_foreign_listener() {
+        let mock = RealtimeMock::start(Dialect::Gemini).await;
+        mock.reply_with(vec![Reply::Transcript {
+            original: "ciao a tutti".into(),
+            translated: "hello everyone".into(),
+        }]);
+        let (tx, mut lis) = session_with(&mock).await;
+
+        let _ = tx.send(vec![0u8; 3200]).await;
+        sleep(Duration::from_millis(400)).await;
+        drop(tx); // closing the feed forces the final flush
+
+        let msg = wait_for(&mut lis, |m| m.contains(r#""type":"subtitle_final""#))
+            .await
+            .expect("foreign listener received a final caption");
+        assert!(
+            msg.contains("hello everyone"),
+            "the caption is the translation: {msg}"
+        );
+    }
+
+    #[tokio::test]
+    async fn translated_audio_reaches_a_foreign_listener_in_sequence() {
+        let mock = RealtimeMock::start(Dialect::Gemini).await;
+        mock.reply_with(vec![
+            Reply::Audio(vec![1, 2, 3, 4, 5, 6, 7, 8]),
+            Reply::Audio(vec![9, 10, 11, 12]),
+        ]);
+        let (tx, mut lis) = session_with(&mock).await;
+
+        let _ = tx.send(vec![0u8; 3200]).await;
+
+        let first = wait_for(&mut lis, |m| m.contains("translated_audio"))
+            .await
+            .expect("first chunk of translated speech");
+        let second = wait_for(&mut lis, |m| m.contains("translated_audio"))
+            .await
+            .expect("second chunk");
+        // The sequence number is what lets the client drop a duplicate and detect a
+        // reconnect; two chunks that both claim seq 0 would mute the second.
+        let seq = |m: &str| {
+            serde_json::from_str::<serde_json::Value>(m).unwrap()["seq"]
+                .as_u64()
+                .unwrap()
+        };
+        assert!(seq(&second) > seq(&first), "{first} then {second}");
+    }
+
+    #[tokio::test]
+    async fn closing_the_feed_tells_the_provider_the_turn_is_over() {
+        let mock = RealtimeMock::start(Dialect::Gemini).await;
+        let (tx, _lis) = session_with(&mock).await;
+        let _ = tx.send(vec![0u8; 3200]).await;
+        sleep(Duration::from_millis(200)).await;
+        drop(tx);
+        sleep(Duration::from_millis(500)).await;
+
+        assert!(
+            mock.received().iter().any(|f| f.contains("audioStreamEnd")),
+            "the last turn must be flushed, not abandoned: {:?}",
+            mock.received()
+        );
+    }
+
+    #[tokio::test]
+    async fn an_upstream_drop_is_reconnected_rather_than_ending_the_session() {
+        let mock = RealtimeMock::start(Dialect::Gemini).await;
+        mock.reply_with(vec![Reply::Drop]);
+        let (tx, _lis) = session_with(&mock).await;
+
+        let _ = tx.send(vec![0u8; 3200]).await;
+        sleep(Duration::from_secs(2)).await;
+
+        // Gemini Live drops sessions on its own schedule (`goAway`), so a dropped
+        // socket has to be a reconnect, never the end of the call.
+        assert!(
+            mock.connections() >= 2,
+            "expected a reconnect, saw {} connection(s)",
+            mock.connections()
+        );
+    }
+
+    #[tokio::test]
+    async fn a_provider_error_frame_does_not_take_the_session_down() {
+        let mock = RealtimeMock::start(Dialect::Gemini).await;
+        mock.reply_with(vec![
+            Reply::Error("transient upstream hiccup".into()),
+            Reply::Transcript {
+                original: "ciao".into(),
+                translated: "hello".into(),
+            },
+        ]);
+        let (tx, mut lis) = session_with(&mock).await;
+
+        let _ = tx.send(vec![0u8; 3200]).await;
+        sleep(Duration::from_millis(400)).await;
+        drop(tx);
+
+        assert!(
+            wait_for(&mut lis, |m| m.contains(r#""type":"subtitle_final""#))
+                .await
+                .is_some(),
+            "the session survived the error frame"
+        );
+    }
+
     /// Real end-to-end AUDIO-latency probe against the LIVE Gemini Live API: drive
     /// the actual engine (`start_session` → resample → Gemini → broadcast) and time
     /// when the listener peer receives the first `translated_audio` frame, measured
@@ -865,6 +1084,7 @@ mod tests {
     /// rate the engine resamples from).
     #[tokio::test]
     #[ignore]
+    #[cfg(feature = "live-probes")]
     async fn premium_audio_latency_e2e() {
         use std::sync::atomic::AtomicBool;
 

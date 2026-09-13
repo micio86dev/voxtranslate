@@ -17,6 +17,8 @@ pub mod premium;
 pub mod pro;
 pub mod qwen;
 pub mod qwen_catalogue;
+/// A stand-in for the realtime providers, so the engines can be tested at all.
+pub mod realtime_mock;
 pub mod standard;
 pub mod voice_assistant;
 pub mod voice_assistant_client;
