@@ -75,6 +75,7 @@ export async function joinCall(
         const v = document.getElementById('preview') as HTMLVideoElement | null;
         return !!(v && v.srcObject && v.videoWidth > 0);
       },
+      undefined,
       { timeout: 30_000 },
     )
     .catch(() => {

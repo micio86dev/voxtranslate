@@ -42,11 +42,19 @@ class FakePC {
   addTrack(track: any) {
     const sender = this.makeSender(track);
     this.senders.push(sender);
-    this.transceivers.push({ sender, receiver: { track: { kind: track.kind } } });
+    this.transceivers.push({
+      sender,
+      receiver: { track: { kind: track.kind } },
+      mid: String(this.transceivers.length),
+      direction: 'sendrecv',
+    });
   }
   addTransceiver(kind: string) {
     const sender = this.makeSender(null);
-    const tx = { sender, receiver: { track: { kind } } };
+    // `mid: null` on purpose: a transceiver created before any SDP is not yet
+    // attached to an m-line, and whether it ever gets attached is the whole
+    // subject of `ensureSendable`.
+    const tx = { sender, receiver: { track: { kind } }, mid: null, direction: 'sendrecv' };
     this.transceivers.push(tx);
     return tx;
   }
@@ -85,6 +93,43 @@ class FakePC {
   close = vi.fn();
 }
 (globalThis as any).RTCPeerConnection = FakePC;
+
+// jsdom has no MediaStream. The mesh owns one per peer and only ever adds to it,
+// so a list with `addTrack`/`getTracks`/`getVideoTracks` is the whole contract.
+class FakeMediaStream {
+  private tracks: any[] = [];
+  addTrack(t: any) {
+    this.tracks.push(t);
+  }
+  getTracks() {
+    return this.tracks;
+  }
+  getVideoTracks() {
+    return this.tracks.filter((t) => t.kind === 'video');
+  }
+  getAudioTracks() {
+    return this.tracks.filter((t) => t.kind === 'audio');
+  }
+}
+(globalThis as any).MediaStream = FakeMediaStream;
+
+/** A receiver track as `ontrack` delivers it: `muted` until media flows. */
+function remoteTrack(kind: 'audio' | 'video', muted = true) {
+  const listeners: Record<string, (() => void)[]> = {};
+  return {
+    kind,
+    muted,
+    readyState: 'live',
+    addEventListener(ev: string, fn: () => void) {
+      (listeners[ev] ||= []).push(fn);
+    },
+    /** Simulate the far side starting to send on this m-line. */
+    unmute() {
+      this.muted = false;
+      (listeners.unmute || []).forEach((fn) => fn());
+    },
+  };
+}
 
 // Drain the microtask queue so an async negotiate() chain (createOffer →
 // setLocalDescription → send) settles before we assert on it.
@@ -170,8 +215,10 @@ describe('MeshManager', () => {
     expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: 'ice', to: 'p2', candidate: { c: 1 } }));
     pc.onicecandidate({ candidate: null }); // nothing sent
 
-    pc.ontrack({ streams: [{ id: 's' }] });
-    expect(onRemote).toHaveBeenCalledWith('p2', { id: 's' });
+    const t = remoteTrack('audio', false);
+    pc.ontrack({ streams: [{ getTracks: () => [t] }], track: t });
+    expect(onRemote).toHaveBeenCalledWith('p2', expect.anything());
+    expect(onRemote.mock.calls.at(-1)![1].getTracks()).toEqual([t]);
 
     await m.handleIce('p2', { c: 2 } as RTCIceCandidateInit);
     expect(pc.addIceCandidate).toHaveBeenCalled();
@@ -456,19 +503,100 @@ describe('MeshManager', () => {
     expect(videoSenderOf(pcs[0]).replaceTrack).toHaveBeenCalled();
   });
 
-  it('ignores receiver tracks that arrive without a stream', async () => {
+  it('keeps a receiver track that arrives without a stream', async () => {
+    // The video m-line a camera-less peer negotiates up front carries no media, so
+    // the browser may report no msid and hand over the track alone. Dropping it was
+    // permanent: when that peer starts a screen share, `replaceTrack` puts real
+    // video on the SAME receiver and fires no second `ontrack` — the screen reached
+    // the transport and never reached the UI (issue #4, through its own fix).
     const m = new MeshManager(fakeStream(), vi.fn());
     const onRemote = vi.fn();
     m.onRemoteStream = onRemote;
     await m.addPeer('p1');
-    pcs[0].ontrack({ streams: [] }); // inactive m-line before its msid is known
-    expect(onRemote).not.toHaveBeenCalled();
+    const video = remoteTrack('video');
+    pcs[0].ontrack({ streams: [], track: video });
+    expect(onRemote).toHaveBeenCalledTimes(1);
+    expect(onRemote.mock.calls[0][1].getVideoTracks()).toEqual([video]);
+  });
+
+  it('answers sendrecv so a later screen share has an m-line to go out on', async () => {
+    // When the REMOTE offers, Chrome does not reuse our pre-created transceiver: it
+    // makes a fresh `recvonly` one for the remote m-line and leaves ours orphaned.
+    // Answering `recvonly` means nothing we ever put on this connection can be sent
+    // — silently. Which side offers comes down to comparing two random UUIDs, so
+    // this broke a camera-less peer's screen share about half the time (issue #4,
+    // through its own fix).
+    const m = new MeshManager(fakeStream(), vi.fn(), undefined, undefined, 'aaaa');
+    await m.addPeer('zzzz');
+    const pc = pcs[0];
+    // Chrome's own transceiver for the offered m-line: associated, recv-only.
+    pc.transceivers.push({
+      sender: pc.makeSender(null),
+      receiver: { track: { kind: 'video' } },
+      mid: '1',
+      direction: 'recvonly',
+    });
+    await m.handleOffer('zzzz', 'their-offer');
+    expect(pc.transceivers.find((t: any) => t.mid === '1').direction).toBe('sendrecv');
+  });
+
+  it('puts the screen track on an ASSOCIATED transceiver, never an orphan', async () => {
+    // `replaceTrack` on a transceiver with no `mid` resolves happily and sends the
+    // media nowhere at all.
+    // Camera-less, so `addPeer` pre-creates the orphan video transceiver — the
+    // one that stays unassociated when the remote is the offerer.
+    const m = new MeshManager(fakeAudioOnlyStream(), vi.fn());
+    await m.addPeer('p1');
+    const pc = pcs[0];
+    const associated = {
+      sender: pc.makeSender(null),
+      receiver: { track: { kind: 'video' } },
+      mid: '9',
+      direction: 'sendrecv',
+    };
+    pc.transceivers.push(associated);
+    const screen = { kind: 'video' } as any;
+    m.replaceVideoTrack(screen);
+    expect(associated.sender.replaceTrack).toHaveBeenCalledWith(screen);
+    // …and NOT on the orphan the pre-negotiation created.
+    const orphan = pc.transceivers.find((t: any) => t.mid === null);
+    expect(orphan.sender.replaceTrack).not.toHaveBeenCalled();
+  });
+
+  it('re-emits when a silent m-line starts carrying media', async () => {
+    // `replaceTrack` on the far side fires no `ontrack`, so `unmute` is the ONLY
+    // event that says a screen share is now flowing.
+    const m = new MeshManager(fakeStream(), vi.fn());
+    const onRemote = vi.fn();
+    m.onRemoteStream = onRemote;
+    await m.addPeer('p1');
+    const video = remoteTrack('video');
+    pcs[0].ontrack({ streams: [], track: video });
+    onRemote.mockClear();
+    video.unmute();
+    expect(onRemote).toHaveBeenCalledTimes(1);
+  });
+
+  it('adds to one stream whatever order the tracks arrive in', async () => {
+    // The other half of the same race: an announced audio-only stream landing
+    // AFTER a stream-less video track used to throw the video away again.
+    const m = new MeshManager(fakeStream(), vi.fn());
+    const onRemote = vi.fn();
+    m.onRemoteStream = onRemote;
+    await m.addPeer('p1');
+    const video = remoteTrack('video');
+    const audio = remoteTrack('audio', false);
+    pcs[0].ontrack({ streams: [], track: video });
+    pcs[0].ontrack({ streams: [{ getTracks: () => [audio] }], track: audio });
+    const stream = onRemote.mock.calls.at(-1)![1];
+    expect(stream.getVideoTracks()).toEqual([video]);
+    expect(stream.getAudioTracks()).toEqual([audio]);
   });
 
   it('default callbacks are safe no-ops until the app overrides them', async () => {
     const m = new MeshManager(fakeStream(), vi.fn());
     await m.addPeer('p1');
-    pcs[0].ontrack({ streams: [{ id: 's' }] }); // default onRemoteStream
+    pcs[0].ontrack({ streams: [], track: remoteTrack('audio', false) }); // default onRemoteStream
     m.removePeer('p1'); // default onPeerRemoved
     m.destroy();
     m.destroy(); // idempotent: statsTimer already cleared

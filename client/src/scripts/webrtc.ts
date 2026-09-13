@@ -76,6 +76,10 @@ export class MeshManager {
    *  `videoBudget` when healthy. `targetBitrate()` divides THIS across the peers. */
   private currentBudget: number;
   private statsTimer: ReturnType<typeof setInterval> | null = null;
+  /** The stream handed to the UI for each peer. Kept because a remote track can
+   *  arrive with NO stream attached and has to be added to something — see the
+   *  `ontrack` handler for why that case is not rare. */
+  private remoteStreams = new Map<string, MediaStream>();
 
   onRemoteStream: (peerId: string, stream: MediaStream) => void = () => {};
   onPeerRemoved: (peerId: string) => void = () => {};
@@ -138,15 +142,52 @@ export class MeshManager {
     }
   }
 
-  /** The RTCRtpSender for our outgoing video, even if it has no track yet. */
+  /** The RTCRtpSender for our outgoing video, even if it has no track yet.
+   *
+   *  Associated transceivers first — one with a `mid` is attached to a real
+   *  m-line, one without is attached to nothing. Putting the screen track on an
+   *  orphan is silent: `replaceTrack` resolves happily and the media goes nowhere.
+   *  See `ensureSendable` for how an orphan comes about. */
   private videoSender(pc: RTCPeerConnection): RTCRtpSender | null {
-    const tx = pc.getTransceivers?.().find(
-      (t) => (t.sender.track?.kind ?? t.receiver?.track?.kind) === 'video',
-    );
+    const isVideo = (t: RTCRtpTransceiver) =>
+      (t.sender.track?.kind ?? t.receiver?.track?.kind) === 'video';
+    const all = pc.getTransceivers?.() ?? [];
+    const tx = all.find((t) => isVideo(t) && t.mid != null) ?? all.find(isVideo);
     if (tx) return tx.sender;
     // Fallback for environments without getTransceivers: a sender that
     // currently carries a video track.
     return pc.getSenders().find((s) => s.track?.kind === 'video') ?? null;
+  }
+
+  /**
+   * Make every m-line we might later send on `sendrecv`, before answering.
+   *
+   * `addPeer` pre-creates an empty audio/video transceiver so a screen share (or
+   * turning the camera on) needs only `replaceTrack` — no renegotiation. That works
+   * when WE offer. When the REMOTE offers, Chrome does not reuse our pre-created
+   * transceiver: it makes a fresh `recvonly` one for the remote m-line and leaves
+   * ours unassociated (`mid: null`). The answer then says `a=recvonly`, so nothing
+   * we ever put on that connection can be sent, and `replaceTrack` lands on an
+   * orphan attached to no m-line. Both failures are completely silent.
+   *
+   * Which side offers is decided by the polite/impolite role, i.e. by comparing two
+   * random UUIDs — so this broke a camera-less peer's screen share almost exactly
+   * half the time. That is the `screenshare.spec` flake, and it is the same defect
+   * issue #4 was about, reappearing through its own fix.
+   *
+   * Upgrading before `createAnswer` costs nothing when there is nothing to send: an
+   * m-line with no track sends no media. It only buys back the ability to start.
+   */
+  private ensureSendable(pc: RTCPeerConnection): void {
+    for (const t of pc.getTransceivers?.() ?? []) {
+      if (t.direction === 'recvonly' || t.direction === 'inactive') {
+        try {
+          t.direction = 'sendrecv';
+        } catch {
+          /* a stopped transceiver refuses — nothing to send on it anyway */
+        }
+      }
+    }
   }
 
   /**
@@ -231,9 +272,43 @@ export class MeshManager {
     this.startStatsMonitor();
 
     pc.ontrack = (e) => {
-      // Ignore receiver tracks that arrive without a stream (e.g. an inactive
-      // video m-line before its msid is known) — they'd clobber the live stream.
-      if (e.streams[0]) this.onRemoteStream(peerId, e.streams[0]);
+      // One stream per peer, owned by us, and tracks are only ever ADDED to it.
+      //
+      // Two things made the previous shape lose media. A remote track can arrive
+      // with NO stream — the video m-line we add up front for a camera-less join
+      // (see above) carries no media yet, so the browser may report no msid and
+      // hand us the track alone — and dropping it was silent AND permanent, because
+      // when that peer later starts a screen share `replaceTrack` puts real video on
+      // the SAME receiver and fires NO second `ontrack`. The screen reached the
+      // transport and never reached the UI. And taking whichever stream arrived last
+      // was just as lossy in the other order: an announced audio-only stream landing
+      // after a stream-less video track threw the video away again.
+      //
+      // Adding to one stable stream is order-independent, which is what makes it
+      // right — the previous versions were both races, and that is exactly how
+      // `screenshare.spec` came to fail about half the time.
+      let stream = this.remoteStreams.get(peerId);
+      if (!stream) {
+        stream = new MediaStream();
+        this.remoteStreams.set(peerId, stream);
+      }
+      const incoming = e.streams[0] ? e.streams[0].getTracks() : e.track ? [e.track] : [];
+      for (const t of incoming) {
+        if (!stream.getTracks().includes(t)) stream.addTrack(t);
+      }
+      // A track that is present but MUTED is an m-line with nothing flowing yet.
+      // The moment it unmutes is the moment there is a picture to show, and it is
+      // the only event the browser gives us for a `replaceTrack` on the far side —
+      // so re-emit then, and let the UI decide what to render from the track state.
+      if (e.track) {
+        const reemit = () => {
+          const current = this.remoteStreams.get(peerId);
+          if (current) this.onRemoteStream(peerId, current);
+        };
+        e.track.addEventListener('unmute', reemit);
+        e.track.addEventListener('mute', reemit);
+      }
+      this.onRemoteStream(peerId, stream);
     };
     pc.onicecandidate = (e) => {
       if (e.candidate) this.send({ type: 'ice', to: peerId, candidate: e.candidate.toJSON() });
@@ -302,6 +377,7 @@ export class MeshManager {
       );
     }
     await pc.setRemoteDescription({ type: 'offer', sdp });
+    this.ensureSendable(pc);
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
     this.send({ type: 'answer', to: fromId, sdp: pc.localDescription?.sdp ?? answer.sdp! });
@@ -333,6 +409,9 @@ export class MeshManager {
 
   removePeer(peerId: string): void {
     const peer = this.peers.get(peerId);
+    // A peer who leaves and rejoins gets a fresh connection; keeping their old
+    // stream would have the new one's stream-less tracks land in a dead object.
+    this.remoteStreams.delete(peerId);
     if (peer) {
       peer.pc.close();
       this.peers.delete(peerId);

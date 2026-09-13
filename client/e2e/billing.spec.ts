@@ -135,7 +135,10 @@ test('a billed call updates the balance pill and surfaces the exhausted modal', 
   await t.page.waitForFunction(() => {
     const v = document.getElementById('preview') as HTMLVideoElement | null;
     return !!(v && v.srcObject && v.videoWidth > 0);
-  });
+  },
+    undefined,
+    { timeout: 20000 },
+  );
   await t.page.click('#join-btn');
   await t.page.waitForSelector('#call:not(.hidden)');
 
@@ -199,7 +202,10 @@ test('the server rejecting a join for low balance returns home with the buy prom
   await t.page.waitForFunction(() => {
     const v = document.getElementById('preview') as HTMLVideoElement | null;
     return !!(v && v.srcObject && v.videoWidth > 0);
-  });
+  },
+    undefined,
+    { timeout: 20000 },
+  );
   await t.page.click('#join-btn');
 
   // The error returns us to home and opens the buy-credits modal.

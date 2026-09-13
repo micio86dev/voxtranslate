@@ -20,7 +20,10 @@ test('whiteboard: drawable-area frame matches the letterboxed 16:9 sheet', async
   await page.waitForFunction(() => {
     const f = document.querySelector('.wb-frame') as HTMLElement | null;
     return !!f && f.offsetWidth > 100;
-  });
+  },
+    undefined,
+    { timeout: 20000 },
+  );
 
   const m = await page.evaluate(() => {
     const c = document.getElementById('wb-canvas') as HTMLCanvasElement;

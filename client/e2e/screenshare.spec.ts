@@ -54,6 +54,7 @@ async function joinAudioOnly(page: Page, room: string): Promise<void> {
         const off = document.getElementById('preview-off');
         return !!off && !off.hidden;
       },
+      undefined,
       { timeout: 20_000 },
     )
     .catch(() => {
@@ -134,6 +135,7 @@ test('screen share works without a camera (issue #4)', async ({ browser }) => {
       const av = cell.querySelector('.avatar') as HTMLElement | null;
       return !!(v && v.srcObject && v.videoWidth > 0) && !!av && av.hidden;
     },
+    undefined,
     { timeout: 20000 },
   );
 
@@ -163,6 +165,7 @@ test('screen share works without a camera (issue #4)', async ({ browser }) => {
       const av = document.querySelector('.video-cell:not(.self) .avatar') as HTMLElement | null;
       return !!av && !av.hidden;
     },
+    undefined,
     { timeout: 10000 },
   );
   expect(
@@ -218,6 +221,7 @@ test('screen share composites the camera and survives a mid-share camera toggle 
       const v = cell?.querySelector('video') as HTMLVideoElement | null;
       return !!(v && v.srcObject && v.videoWidth > 0);
     },
+    undefined,
     { timeout: 20000 },
   );
 
@@ -235,6 +239,7 @@ test('screen share composites the camera and survives a mid-share camera toggle 
       const badge = cell.querySelector('.screen-share-badge');
       return !!(v && v.srcObject && v.videoWidth > 0) && !!badge;
     },
+    undefined,
     { timeout: 20000 },
   );
 
