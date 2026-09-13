@@ -74,12 +74,13 @@ jobs:
           # with-keys figure). `llvm-cov test` also runs the full test suite, so this
           # replaces the plain `cargo test`. Ratchet the floor up as coverage grows.
           # (Supersedes the dormant, secret-gated 85% gate in the `e2e` job below.)
-          # 78 → 84. The figure behind it: a local no-keys run with Postgres — the
-          # same shape as this job — measured 86.63% (41399/47788), up from 80.21%.
-          # The floor keeps the slack this repo has always left between the gate and
-          # the measured number, because the CI run has historically landed about a
-          # point under the local one; a first green run confirms the real figure
-          # before it is ratcheted to 85.
+          # 78 → 85. The figure behind it is this job's own: run 34760104803
+          # measured 86.60% (41379/47784), up from 80.21%. It was gated at 84 for
+          # exactly one run first, because CI had historically landed about a point
+          # under the local figure and a gate set on an unconfirmed number is how a
+          # green build turns red overnight. It did not this time — CI came in at
+          # 86.60 against 86.63 locally — so the floor is the real target with
+          # 1.6 points of slack under it.
           #
           # What moved, and why it was the seams rather than more tests: every one
           # of these paths opens a socket to a provider before doing anything
@@ -100,7 +101,7 @@ jobs:
           # they can never run here — compiling them by default only added a few
           # hundred permanently-unreachable lines to this figure. Run them with
           # `cargo test --features live-probes -- --ignored --nocapture`.
-          cargo llvm-cov test --locked --fail-under-lines 84
+          cargo llvm-cov test --locked --fail-under-lines 85
 
       # Scoped line coverage for the telephony code (spec 0112 R11). The brief asks for
       # an 85% gate on this work; the global floor stays where it is, because raising it
