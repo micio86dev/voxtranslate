@@ -125,7 +125,7 @@ impl TelnyxProvider {
             .map_err(|e| ProviderError::Unavailable {
                 detail: e.to_string(),
             })?;
-        classify(res.status()).map_or(Ok(()), Err)
+        classify_response(action, res).await.map(|_| ())
     }
 
     /// GET a v2 resource. `Ok(None)` is a 404 — "the carrier has no such thing", which for
@@ -148,9 +148,7 @@ impl TelnyxProvider {
         if res.status() == reqwest::StatusCode::NOT_FOUND {
             return Ok(None);
         }
-        if let Some(err) = classify(res.status()) {
-            return Err(err);
-        }
+        let res = classify_response(path, res).await?;
         res.json::<Value>()
             .await
             .map(Some)
@@ -181,9 +179,7 @@ impl TelnyxProvider {
             .map_err(|e| ProviderError::Unavailable {
                 detail: e.to_string(),
             })?;
-        if let Some(err) = classify(res.status()) {
-            return Err(err);
-        }
+        let res = classify_response(path, res).await?;
         res.json::<Value>()
             .await
             .map_err(|e| ProviderError::Malformed {
@@ -206,7 +202,153 @@ impl TelnyxProvider {
         if res.status() == reqwest::StatusCode::NOT_FOUND {
             return Ok(());
         }
-        classify(res.status()).map_or(Ok(()), Err)
+        classify_response(path, res).await.map(|_| ())
+    }
+}
+
+/// Ceiling on what one carrier error contributes to a log line.
+///
+/// A carrier answers in JSON; a proxy or a WAF in front of one answers in HTML, and an
+/// HTML error page is several kilobytes of markup that would otherwise go through the log
+/// pipeline verbatim on every failure.
+const MAX_ERROR_DETAIL: usize = 400;
+
+/// Classify a response, and on failure say what the carrier actually complained about.
+///
+/// The status alone is a category — "the destination was refused" — and the category is
+/// never the thing an operator needs. It does not say whether the outbound voice profile
+/// is missing a country, whether the account is unverified, or whether the connection is
+/// detached; all three are 422, and all three are fixed in a different place. Reading the
+/// body is the whole difference between a log line that ends the investigation and one
+/// that starts it.
+///
+/// The body is consumed **only** on the error path, so every success still hands back an
+/// unread response for the caller to deserialize.
+async fn classify_response(
+    op: &str,
+    res: reqwest::Response,
+) -> Result<reqwest::Response, ProviderError> {
+    let status = res.status();
+    let Some(err) = classify(status) else {
+        return Ok(res);
+    };
+    // A body we cannot read is not a reason to lose the status: report what we have.
+    let raw = res.text().await.unwrap_or_default();
+    tracing::warn!(
+        provider = TELNYX_ID,
+        operation = op,
+        status = status.as_u16(),
+        detail = %error_detail(&raw),
+        "the carrier refused a request"
+    );
+    Err(err)
+}
+
+/// Reduce a carrier error body to one redacted, bounded log line.
+///
+/// Pure, and tested exhaustively, for the same reason [`classify`] is: this runs only on
+/// the failure path, where a panic would turn a recoverable carrier error into a dropped
+/// call, and where nobody is watching closely enough to notice a leak.
+///
+/// **Telephone numbers are redacted.** A carrier echoes `to` and `from` back in its error
+/// prose, and this file's whole convention is that a number never reaches a log in full —
+/// [`E164`]'s own `Display` is the masked form precisely so a stray `{}` cannot leak one.
+/// A carrier's sentence must not be the hole in that rule.
+fn error_detail(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return "<empty body>".to_string();
+    }
+
+    // The documented shape: `{"errors":[{"code":…,"title":…,"detail":…,"meta":{…}}]}`.
+    // `meta` is dropped — it carries a documentation URL and an echo of the request, and
+    // neither helps in a log line.
+    let summary = serde_json::from_str::<Value>(trimmed)
+        .ok()
+        .and_then(|v| {
+            let errors = v.get("errors")?.as_array()?;
+            let joined: Vec<String> = errors
+                .iter()
+                .map(|e| {
+                    ["code", "title", "detail"]
+                        .iter()
+                        .filter_map(|k| e.get(*k))
+                        .map(value_as_text)
+                        .filter(|s| !s.is_empty())
+                        .collect::<Vec<_>>()
+                        .join(": ")
+                })
+                .filter(|s| !s.is_empty())
+                .collect();
+            (!joined.is_empty()).then(|| joined.join(" | "))
+        })
+        // Not JSON, or JSON in a shape we do not know: keep it rather than report
+        // nothing, which would put us back where this started.
+        .unwrap_or_else(|| trimmed.to_string());
+
+    bound(&redact_numbers(&collapse_whitespace(&summary)))
+}
+
+/// A log line is one line. Carrier prose and HTML both arrive with newlines in them.
+fn collapse_whitespace(s: &str) -> String {
+    s.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Replace anything shaped like a telephone number with a marker.
+///
+/// Seven digits is the bar: it is below every national number we can dial and above the
+/// carrier's own error codes, which are five and must survive — an error code that gets
+/// redacted defeats the purpose of reading the body at all.
+fn redact_numbers(s: &str) -> String {
+    const MIN_NUMBER_DIGITS: usize = 7;
+    let mut out = String::with_capacity(s.len());
+    let mut run = String::new();
+
+    // Kept as one pass with an explicit digit run rather than a regex: this file has no
+    // regex dependency, and adding one for six lines of scanning is not a trade worth
+    // making on a path that must not fail.
+    let flush = |run: &mut String, out: &mut String| {
+        if run.len() >= MIN_NUMBER_DIGITS {
+            out.push_str("<number>");
+        } else {
+            out.push_str(run);
+        }
+        run.clear();
+    };
+    for c in s.chars() {
+        if c.is_ascii_digit() {
+            run.push(c);
+        } else {
+            flush(&mut run, &mut out);
+            out.push(c);
+        }
+    }
+    flush(&mut run, &mut out);
+    out
+}
+
+/// Truncate on a character boundary. A carrier answering in a non-Latin script must not
+/// take the process down on the error path, which is what `String::truncate` would do.
+fn bound(s: &str) -> String {
+    if s.len() <= MAX_ERROR_DETAIL {
+        return s.to_string();
+    }
+    const ELLIPSIS: &str = "…";
+    let budget = MAX_ERROR_DETAIL - ELLIPSIS.len();
+    let mut end = budget;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}{ELLIPSIS}", &s[..end])
+}
+
+/// Render a JSON scalar as the text a human would read, without the quotes
+/// `Value::to_string` adds.
+fn value_as_text(v: &Value) -> String {
+    match v {
+        Value::String(s) => s.clone(),
+        Value::Null => String::new(),
+        other => other.to_string(),
     }
 }
 
@@ -553,9 +695,7 @@ impl TelephonyProvider for TelnyxProvider {
                 detail: e.to_string(),
             })?;
 
-        if let Some(err) = classify(res.status()) {
-            return Err(err);
-        }
+        let res = classify_response("dial", res).await?;
 
         let body: Value = res.json().await.map_err(|e| ProviderError::Malformed {
             detail: e.to_string(),
@@ -680,7 +820,7 @@ impl TelephonyProvider for TelnyxProvider {
         if res.status() == reqwest::StatusCode::NOT_FOUND {
             return Ok(());
         }
-        classify(res.status()).map_or(Ok(()), Err)
+        classify_response("delete_recording", res).await.map(|_| ())
     }
 
     async fn stop_recording(&self, leg: &LegId) -> Result<(), ProviderError> {
@@ -1478,6 +1618,79 @@ mod tests {
         assert!(!ProviderError::Unauthorized.is_transient());
         assert!(!ProviderError::AccountBlocked.is_transient());
         assert!(ProviderError::RateLimited.is_transient());
+    }
+
+    // ---- what the carrier actually said ---------------------------------------
+
+    #[test]
+    fn a_carrier_error_body_is_reduced_to_the_code_and_the_reason() {
+        // The exact shape Telnyx returns for the refusal that started this: an outbound
+        // voice profile with no Spain in its destinations. The status alone says
+        // "destination refused"; only the body says WHICH knob is wrong, and that is the
+        // difference between reading one log line and reading the provider's dashboard.
+        let body = r#"{"errors":[{"code":"10015",
+            "title":"Destination not allowed",
+            "detail":"The outbound voice profile does not allow calls to this destination.",
+            "meta":{"url":"https://developers.telnyx.com/docs/errors"}}]}"#;
+        let d = error_detail(body);
+        assert!(d.contains("10015"), "{d}");
+        assert!(d.contains("Destination not allowed"), "{d}");
+        assert!(d.contains("outbound voice profile"), "{d}");
+        // The documentation link is noise in a log line.
+        assert!(!d.contains("developers.telnyx.com"), "{d}");
+    }
+
+    #[test]
+    fn several_carrier_errors_all_survive_into_one_line() {
+        let body = r#"{"errors":[{"code":"10005","title":"Unauthorized"},
+                                 {"code":"90001","title":"Profile missing"}]}"#;
+        let d = error_detail(body);
+        assert!(d.contains("10005") && d.contains("90001"), "{d}");
+        assert!(!d.contains('\n'), "a log line is one line: {d}");
+    }
+
+    #[test]
+    fn an_error_body_never_carries_a_telephone_number_into_a_log() {
+        // This is the whole reason the body was being thrown away rather than logged.
+        // `E164::Display` is masked for the same reason; a carrier's prose must not be
+        // the hole in that rule.
+        let body = r#"{"errors":[{"code":"10015","title":"Destination not allowed",
+            "detail":"Calls to +34665367910 from +390212345678 are not permitted",
+            "meta":{"to":"+34665367910"}}]}"#;
+        let d = error_detail(body);
+        assert!(!d.contains("34665367910"), "leaked the callee: {d}");
+        assert!(!d.contains("390212345678"), "leaked the caller: {d}");
+        // Redacted, not deleted: the sentence must still read as being about a number.
+        assert!(d.contains('+'), "{d}");
+        assert!(d.contains("not permitted"), "{d}");
+        // A short numeric like the error code is not a telephone number and must survive.
+        assert!(d.contains("10015"), "{d}");
+    }
+
+    #[test]
+    fn an_unreadable_error_body_is_still_reported_redacted_and_bounded() {
+        // A proxy or a WAF in front of the carrier answers in HTML. Reporting nothing
+        // would put us back where we started, and reporting all of it would push a page
+        // of markup through the log pipeline.
+        let html = format!("<html><body>{}+34665367910</body></html>", "x".repeat(4000));
+        let d = error_detail(&html);
+        assert!(!d.is_empty());
+        assert!(d.len() <= MAX_ERROR_DETAIL, "unbounded: {} bytes", d.len());
+        assert!(!d.contains("34665367910"), "leaked a number: {d}");
+    }
+
+    #[test]
+    fn an_empty_error_body_says_so_rather_than_logging_nothing() {
+        assert!(!error_detail("").is_empty());
+        assert!(!error_detail("   ").is_empty());
+    }
+
+    #[test]
+    fn truncation_never_splits_a_multi_byte_character() {
+        // `String::truncate` panics on a char boundary, and a carrier that answers in
+        // Japanese must not take the process down on the error path.
+        let d = error_detail(&"あ".repeat(4000));
+        assert!(d.len() <= MAX_ERROR_DETAIL);
     }
 
     #[tokio::test]
