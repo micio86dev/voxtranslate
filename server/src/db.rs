@@ -134,7 +134,17 @@ pub fn is_local_database(url: &str) -> bool {
         .next()
         .unwrap_or(host)
         .trim_matches(['[', ']']);
-    matches!(host, "localhost" | "127.0.0.1" | "::1" | "0.0.0.0" | "")
+    if matches!(host, "localhost" | "127.0.0.1" | "::1" | "0.0.0.0" | "") {
+        return true;
+    }
+    // A single-label hostname — `postgres`, `db` — is a private name on a container
+    // network, not a machine on the internet. This is what lets the local Docker stack
+    // reach its database without an override, and it cannot let a deployed one through:
+    // every deployed host this project uses is fully qualified (`*.pooler.supabase.com`,
+    // `*.railway.app`), and a public host with no dot in it does not exist. Somebody who
+    // deliberately maps a deployed address to a bare name in `/etc/hosts` has worked
+    // around this on purpose, which is a different thing from doing it by accident.
+    !host.is_empty() && !host.contains('.')
 }
 
 /// True when this process is running inside a deployed environment rather than on

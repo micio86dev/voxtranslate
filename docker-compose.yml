@@ -1,10 +1,67 @@
+# The local stack: a database, the server, the client.
+#
+# The database is the part you almost always want on its own:
+#
+#   docker compose up -d --wait postgres   # just the database, for `cargo run`/`cargo test`
+#   docker compose up -d --wait            # the whole thing
+#   docker compose down                    # stop, keep the data
+#   docker compose down -v                 # stop and throw the data away
+#
+# See docs/local-databases.md for which database is which, and why the code now refuses to
+# let a process on this machine talk to a deployed one.
 services:
+  postgres:
+    # The same image CI runs. Plain `postgres:16` has no `vector` extension, and the
+    # DB-gated tests that need it then SKIP — silently, while the run still prints ok.
+    # Matching CI is the point: a local pass CI cannot reproduce is not a pass.
+    image: pgvector/pgvector:pg16
+    container_name: voxtranslate-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: vox
+      POSTGRES_PASSWORD: vox_local_dev
+      # The init script creates the two real databases; this just gives the entrypoint
+      # something to connect to while it runs them.
+      POSTGRES_DB: postgres
+    ports:
+      # Bound to loopback on purpose, twice over.
+      #
+      # `127.0.0.1:` rather than a bare port, so the database is not published on every
+      # interface — a bare `55432:5432` is reachable by anyone on the same café network.
+      #
+      # And 55432 rather than 5432, because a native Postgres already holds 5432 on this
+      # machine. Sharing it would make "which database am I talking to" depend on which
+      # process started first, which is the ambiguity this whole change exists to remove.
+      - "127.0.0.1:55432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      # Runs once, on an empty data directory. To re-run it: `down -v`, then `up`.
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      # `--dbname` matters: without it `pg_isready` reports the server up while the init
+      # scripts are still running, and `--wait` returns before the databases exist.
+      test: ["CMD-SHELL", "pg_isready -U vox -d voxtranslate_dev"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
   server:
     build:
       context: ./server
     ports:
       - "3001:3001"
     env_file: ./server/.env
+    environment:
+      # Overrides whatever `.env` says. Inside this network the database is `postgres`,
+      # and pointing the container at a deployed database — which is what `.env` holds on
+      # a developer machine — is exactly what `db::guard_local_database` now refuses.
+      DATABASE_URL: postgres://vox:vox_local_dev@postgres:5432/voxtranslate_dev
+    depends_on:
+      postgres:
+        # Not just "started": migrations run at boot, and a server that reaches a database
+        # still replaying its init scripts fails in a way that looks like a code bug.
+        condition: service_healthy
     restart: unless-stopped
 
   client:
@@ -19,3 +76,7 @@ services:
     depends_on:
       - server
     restart: unless-stopped
+
+volumes:
+  postgres-data:
+    name: voxtranslate-postgres-data

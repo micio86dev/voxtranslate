@@ -1,2 +1,6 @@
 /target
 .env
+# …and every variant. A `.env.bak` made while switching databases holds exactly the
+# credential the original did, and `.env` alone does not cover it — one `git add -A` is
+# all it takes.
+.env*
