@@ -119,7 +119,7 @@ async fn add_transcript_embedding(pool: &PgPool, session_id: Uuid, org_id: Uuid,
 
 #[tokio::test]
 async fn voice_note_is_searchable_but_excluded_from_call_kpis() {
-    let Ok(db_url) = std::env::var("DATABASE_URL") else {
+    let Some(db_url) = voxtranslate_server::db::test_database_url() else {
         eprintln!("skipping — no DATABASE_URL");
         return;
     };

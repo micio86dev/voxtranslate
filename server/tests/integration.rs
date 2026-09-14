@@ -19,7 +19,14 @@ type Ws = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
 /// Build state from env (real keys) or a dummy fallback; returns `has_keys`.
 fn make_state() -> (AppState, bool) {
-    let _ = dotenvy::dotenv();
+    // No `dotenvy` here, deliberately. It used to load `server/.env`, which on a developer
+    // machine points at a DEPLOYED database — so `cargo test` with no DATABASE_URL exported
+    // ran this suite against it. The suite creates users, deletes rows and drives global
+    // sweeps. Whether that was safe depended entirely on the developer's habit of
+    // exporting the variable, which is not a safety property.
+    //
+    // Tests read the environment they were GIVEN. `db::test_database_url()` refuses a
+    // remote one outright.
     match Config::from_env() {
         Ok(c) => (AppState::new(c), true),
         Err(_) => (
@@ -536,7 +543,7 @@ async fn lone_speaker_opens_no_upstream_session() {
     // budget) is deliberately NOT exercised here: MAX_OPEN_FAILURES with capped backoff
     // takes ~23 s to give up, which would make this suite slow and flaky. The credential
     // shape that actually causes it is covered at boot in tests/config_env.rs.
-    let _ = dotenvy::dotenv();
+    // Same reason as `make_state`: no `.env` loading in a test process.
     let groq = std::env::var("GROQ_API_KEY").unwrap_or_else(|_| "dummy".into());
     let state = AppState::new(Config {
         push: None,
@@ -857,7 +864,7 @@ async fn upload_rejects_unsupported_type_and_oversize() {
 async fn upload_persists_when_db_configured() {
     // With the DB configured, the upload also inserts a `chat_files` row and a
     // transcript event (the DB-write branches). Skipped without DATABASE_URL.
-    let Ok(db_url) = std::env::var("DATABASE_URL") else {
+    let Some(db_url) = voxtranslate_server::db::test_database_url() else {
         eprintln!("skipping — no DATABASE_URL");
         return;
     };

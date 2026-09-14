@@ -72,7 +72,7 @@ struct Server {
 }
 
 async fn setup(mock: &RealtimeMock) -> Option<Server> {
-    let url = std::env::var("DATABASE_URL").ok()?;
+    let url = voxtranslate_server::db::test_database_url()?;
     let pool = db::connect(&url).await.ok()?;
     db::migrate(&pool).await.ok()?;
     let (groq_url, groq) = mock_groq().await;

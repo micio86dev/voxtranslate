@@ -113,7 +113,7 @@ fn base(srv: &Server) -> String {
 
 /// `enabled = false` reproduces a deployment with `CARTESIA_ENHANCED` off.
 async fn setup_with(enabled: bool, cloning: bool) -> Option<Server> {
-    let url = std::env::var("DATABASE_URL").ok()?;
+    let url = voxtranslate_server::db::test_database_url()?;
     let pool = db::connect(&url).await.ok()?;
     db::migrate(&pool).await.ok()?;
     let (api_base, cartesia) = mock_cartesia().await;

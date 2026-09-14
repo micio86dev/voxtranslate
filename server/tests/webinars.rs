@@ -25,10 +25,10 @@ struct Server {
 }
 
 async fn setup() -> Option<Server> {
-    let url = match std::env::var("DATABASE_URL") {
-        Ok(u) => u,
-        Err(e) => {
-            eprintln!("SETUP: no DATABASE_URL: {e}");
+    let url = match voxtranslate_server::db::test_database_url() {
+        Some(u) => u,
+        None => {
+            eprintln!("SETUP: no DATABASE_URL");
             return None;
         }
     };

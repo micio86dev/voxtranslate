@@ -424,7 +424,7 @@ fn missing_token_produces_unauthorized_status() {
 /// than `#[ignore]`d, so it actually runs wherever a database exists.
 #[tokio::test]
 async fn an_unknown_org_has_no_active_subscription() {
-    let Ok(url) = std::env::var("DATABASE_URL") else {
+    let Some(url) = voxtranslate_server::db::test_database_url() else {
         eprintln!("skipping — no DATABASE_URL");
         return;
     };

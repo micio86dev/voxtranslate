@@ -140,7 +140,7 @@ async fn add_call_with_participant(
 
 #[tokio::test]
 async fn lead_scope_is_led_teams_members_and_their_projects() {
-    let Ok(db_url) = std::env::var("DATABASE_URL") else {
+    let Some(db_url) = voxtranslate_server::db::test_database_url() else {
         eprintln!("skipping — no DATABASE_URL");
         return;
     };

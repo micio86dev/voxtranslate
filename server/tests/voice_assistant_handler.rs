@@ -48,7 +48,7 @@ fn va_cfg_against(realtime_base_url: String) -> VoiceAssistantConfig {
 /// Boot the app with the voice assistant configured. `with_embeddings = false`
 /// reproduces the half-configured deployment: the route exists, RAG cannot run.
 async fn setup_against(upstream: Option<String>) -> Option<Server> {
-    let url = std::env::var("DATABASE_URL").ok()?;
+    let url = voxtranslate_server::db::test_database_url()?;
     let pool = db::connect(&url).await.ok()?;
     db::migrate(&pool).await.ok()?;
     let mut config = Config::test_with_billing(&url, SECRET, 0.0);
@@ -73,7 +73,7 @@ async fn setup_against(upstream: Option<String>) -> Option<Server> {
 }
 
 async fn setup(with_embeddings: bool) -> Option<Server> {
-    let url = std::env::var("DATABASE_URL").ok()?;
+    let url = voxtranslate_server::db::test_database_url()?;
     let pool = db::connect(&url).await.ok()?;
     db::migrate(&pool).await.ok()?;
     let mut config = Config::test_with_billing(&url, SECRET, 0.0);

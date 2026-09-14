@@ -144,7 +144,7 @@ async fn mk_project_with_call(
 
 #[tokio::test]
 async fn member_scope_is_created_or_participated_admin_sees_all() {
-    let Ok(db_url) = std::env::var("DATABASE_URL") else {
+    let Some(db_url) = voxtranslate_server::db::test_database_url() else {
         eprintln!("skipping — no DATABASE_URL");
         return;
     };

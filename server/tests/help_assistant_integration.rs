@@ -151,7 +151,7 @@ async fn gate_setup() -> Option<GateServer> {
 /// Like [`gate_setup`], with the relay's upstream pointed at a stand-in so the
 /// session itself runs rather than dying at OpenAI.
 async fn gate_setup_against(upstream: Option<String>) -> Option<GateServer> {
-    let url = std::env::var("DATABASE_URL").ok()?;
+    let url = voxtranslate_server::db::test_database_url()?;
     let pool = db::connect(&url).await.ok()?;
     db::migrate(&pool).await.ok()?;
     let mut config = Config::test_with_billing(&url, HA_SECRET, 0.0);

@@ -19,7 +19,7 @@ use voxtranslate_server::db::{self, Pool};
 
 /// Connect + migrate, or `None` when there's no `DATABASE_URL`.
 async fn setup() -> Option<Pool> {
-    let url = std::env::var("DATABASE_URL").ok()?;
+    let url = voxtranslate_server::db::test_database_url()?;
     let pool = db::connect(&url).await.ok()?;
     db::migrate(&pool).await.ok()?;
     Some(pool)

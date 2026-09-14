@@ -144,6 +144,14 @@ fn main() -> ExitCode {
     // deck. Host and database only: the credentials in the URL are not ours to print.
     println!("target: {}", redacted_target(&url));
 
+    // And refuse, rather than merely announce, when this is a deployed database and we are
+    // not a deployment. The write below opens with `DELETE FROM voip_rates` — printing the
+    // target helps only somebody who reads it.
+    if let Err(why) = db::guard_local_database(&url, "import a rate deck") {
+        eprintln!("{why}");
+        return ExitCode::FAILURE;
+    }
+
     let rt = match tokio::runtime::Runtime::new() {
         Ok(r) => r,
         Err(e) => return fail(&format!("could not start a runtime: {e}")),
