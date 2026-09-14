@@ -146,6 +146,18 @@ async fn setup() -> Option<Harness> {
     })
 }
 
+/// Serialises the two tests that drive the subscription-expiry sweep.
+///
+/// `claim_expiring_subscriptions` is a GLOBAL `UPDATE … RETURNING` with no limit: it takes
+/// every org that is due, not just the caller's. So the test that calls it directly will
+/// happily claim the org belonging to the test that is driving the scheduler — which then
+/// finds nothing, notifies nobody, and fails saying the owner was never told.
+///
+/// That is not a flake to retry, it is two tests competing for one global sweep. They take
+/// turns instead. (Third instance of this shape today: see also the public webinar list
+/// capped at 100, and the settlement sweep's batched claim.)
+static SWEEP: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 macro_rules! harness {
     () => {
         match setup().await {
@@ -459,6 +471,7 @@ async fn the_meeting_reminder_loop_fires_once_and_only_once() {
 
 #[tokio::test]
 async fn only_the_people_who_can_renew_are_warned_about_an_expiring_plan() {
+    let _sweep = SWEEP.lock().await;
     let h = harness!();
     let owner = user(&h, "en").await;
     let admin = user(&h, "de").await;
@@ -511,6 +524,7 @@ async fn only_the_people_who_can_renew_are_warned_about_an_expiring_plan() {
 
 #[tokio::test]
 async fn the_expiry_loop_warns_owners_and_admins_in_their_own_language() {
+    let _sweep = SWEEP.lock().await;
     let h = harness!();
     let owner = user(&h, "en").await;
     let member = user(&h, "fr").await;
