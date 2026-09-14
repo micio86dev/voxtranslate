@@ -1844,12 +1844,25 @@ impl Config {
                 None
             };
 
-        let resend = if present("RESEND_API_KEY")
-            && present("RESEND_FROM_EMAIL")
-            && present("RESEND_FROM_NAME")
-        {
+        // Announced either way. An all-or-nothing gate that says nothing when it closes
+        // is how a production mail outage stays invisible: `state.resend` is `None`, every
+        // one of the nine send sites takes its silent `else`, and the boot log — which
+        // announces the Pro tier, Directus, billing, the retention sweep and the VoIP rate
+        // deck — never mentions email at all. Nothing to grep for, so nothing is found.
+        let missing = missing_resend_vars();
+        let resend = if missing.is_empty() {
+            tracing::info!("transactional email enabled (Resend)");
             Some(ResendConfig::from_env())
         } else {
+            // WARN, not INFO: on a deployment with billing configured this is an outage,
+            // not a choice. Invitations, receipts and password flows all stop, and the
+            // only symptom anybody sees is mail that never arrives.
+            tracing::warn!(
+                "transactional email DISABLED — unset or empty: {}. \
+                 No invitation, receipt or notification email will be sent. \
+                 There is no SMTP path in this server: Resend is the only transport.",
+                missing.join(", ")
+            );
             None
         };
 
@@ -2270,6 +2283,20 @@ fn present(name: &str) -> bool {
     env::var(name)
         .map(|v| !v.trim().is_empty())
         .unwrap_or(false)
+}
+
+/// Every `RESEND_*` variable the mailer needs that is unset or blank, in declaration
+/// order. Empty means the mailer can be built.
+///
+/// Named rather than counted: "two of three are set" sends an operator to read all three,
+/// while "RESEND_FROM_NAME" sends them to the one that is wrong. A variable that is
+/// *present but empty* is the case worth naming loudest — it is set in the dashboard, it
+/// looks set, and [`present`] still rejects it.
+fn missing_resend_vars() -> Vec<&'static str> {
+    ["RESEND_API_KEY", "RESEND_FROM_EMAIL", "RESEND_FROM_NAME"]
+        .into_iter()
+        .filter(|name| !present(name))
+        .collect()
 }
 
 /// Decode the base64 `GOOGLE_TOKEN_ENC_KEY` into exactly 32 bytes (XChaCha20-Poly1305
