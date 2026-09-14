@@ -16,7 +16,7 @@ use voxtranslate_server::{app, db, AppState};
 
 /// Build a billing-mode `AppState` (FakeVerifier + test pool) and wire the pool.
 async fn billing_state(secret: &str, free: f64) -> Option<(AppState, db::Pool)> {
-    let url = std::env::var("DATABASE_URL").ok()?;
+    let url = voxtranslate_server::db::test_database_url()?;
     let pool = db::connect(&url).await.ok()?;
     db::migrate(&pool).await.ok()?;
     let config = Config::test_with_billing(&url, secret, free);
@@ -409,7 +409,7 @@ mod ws_metering {
     /// registered — the only configuration in which a client-direct receive tier exists.
     async fn setup_enhanced() -> Option<Server> {
         let secret = "ws-enh-secret".to_string();
-        let url = std::env::var("DATABASE_URL").ok()?;
+        let url = voxtranslate_server::db::test_database_url()?;
         let pool = db::connect(&url).await.ok()?;
         db::migrate(&pool).await.ok()?;
         let mut config = Config::test_with_billing(&url, &secret, 5.0);
@@ -525,7 +525,7 @@ mod stripe_api {
     }
 
     async fn setup() -> Option<Server> {
-        let url = std::env::var("DATABASE_URL").ok()?;
+        let url = voxtranslate_server::db::test_database_url()?;
         let pool = db::connect(&url).await.ok()?;
         db::migrate(&pool).await.ok()?;
 

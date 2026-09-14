@@ -532,6 +532,11 @@ impl AppState {
         let translation_cache = connect_translation_cache(&config).await;
         let mut state = Self::with_translation_cache(config, translation_cache);
         if let Some(billing) = state.config.billing.clone() {
+            // Boot refuses a deployed database when this is not a deployment. `.env` on a
+            // developer machine points at one, and `migrate` below runs migrations against
+            // whatever it is handed — a schema change applied to staging from a laptop is
+            // not something anyone means to do. Inside Railway the check is a no-op.
+            db::guard_local_database(&billing.database_url, "start the server")?;
             let pool = db::connect(&billing.database_url)
                 .await
                 .map_err(|e| format!("database connect failed: {e}"))?;

@@ -16,7 +16,7 @@ use voxtranslate_server::{db, AppState};
 const SECRET: &str = "retention-secret";
 
 async fn pool_or_skip() -> Option<db::Pool> {
-    let url = std::env::var("DATABASE_URL").ok()?;
+    let url = voxtranslate_server::db::test_database_url()?;
     let pool = db::connect(&url).await.ok()?;
     db::migrate(&pool).await.ok()?;
     Some(pool)
@@ -111,7 +111,7 @@ async fn retention_sweep_purges_only_expired_enterprise_transcripts() {
 
     // No recordings storage configured → transcript-only purge still works.
     let mut state = AppState::new(Config::test_with_billing(
-        &std::env::var("DATABASE_URL").unwrap(),
+        &voxtranslate_server::db::test_database_url().expect("DATABASE_URL"),
         SECRET,
         0.0,
     ));
@@ -255,7 +255,7 @@ async fn expired_phone_recordings_are_deleted_at_the_carrier_and_forgotten_here(
 
     let provider = std::sync::Arc::new(MockTelephonyProvider::default());
     let mut state = AppState::new(Config::test_with_billing(
-        &std::env::var("DATABASE_URL").unwrap(),
+        &voxtranslate_server::db::test_database_url().expect("DATABASE_URL"),
         SECRET,
         0.0,
     ));
@@ -335,7 +335,7 @@ async fn a_failed_carrier_delete_leaves_the_handle_for_the_next_pass() {
     });
 
     let mut state = AppState::new(Config::test_with_billing(
-        &std::env::var("DATABASE_URL").unwrap(),
+        &voxtranslate_server::db::test_database_url().expect("DATABASE_URL"),
         SECRET,
         0.0,
     ));
@@ -376,7 +376,7 @@ async fn without_a_configured_provider_nothing_is_touched() {
     let call = make_phone_call_with_recording(&pool, org, owner, 60, &rec).await;
 
     let mut state = AppState::new(Config::test_with_billing(
-        &std::env::var("DATABASE_URL").unwrap(),
+        &voxtranslate_server::db::test_database_url().expect("DATABASE_URL"),
         SECRET,
         0.0,
     ));
@@ -412,7 +412,7 @@ async fn an_org_with_no_voip_retention_window_keeps_its_recordings() {
 
     let provider = std::sync::Arc::new(MockTelephonyProvider::default());
     let mut state = AppState::new(Config::test_with_billing(
-        &std::env::var("DATABASE_URL").unwrap(),
+        &voxtranslate_server::db::test_database_url().expect("DATABASE_URL"),
         SECRET,
         0.0,
     ));

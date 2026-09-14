@@ -57,7 +57,7 @@ const SIGN_DOWNLOAD_OK: &str =
 const ANY_OK: &str = "HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n";
 
 async fn setup(mock_base: &str) -> Option<Server> {
-    let url = std::env::var("DATABASE_URL").ok()?;
+    let url = voxtranslate_server::db::test_database_url()?;
     let pool = db::connect(&url).await.ok()?;
     db::migrate(&pool).await.ok()?;
     let config = Config::test_with_billing(&url, SECRET, 0.0);

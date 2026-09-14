@@ -37,7 +37,7 @@ struct Server {
 
 /// A server whose Standard engine talks to `mock` instead of Model Studio.
 async fn setup(mock: &RealtimeMock) -> Option<Server> {
-    let url = std::env::var("DATABASE_URL").ok()?;
+    let url = voxtranslate_server::db::test_database_url()?;
     let pool = db::connect(&url).await.ok()?;
     db::migrate(&pool).await.ok()?;
     let mut config = Config::test_with_billing(&url, SECRET, 5.0);

@@ -113,6 +113,100 @@ pub async fn insert_chat_file(
 }
 
 /// Open a connection pool to the given Postgres URL.
+/// Is this database on the machine running the process?
+///
+/// Host-based, and deliberately nothing cleverer: a loopback address cannot be staging or
+/// production, and anything else might be. Covers the unix-socket form (no host at all),
+/// which is local by construction.
+pub fn is_local_database(url: &str) -> bool {
+    let after_scheme = match url.split_once("://") {
+        Some((_, rest)) => rest,
+        None => return true, // not a URL we recognise; a bare path is a socket
+    };
+    let authority = after_scheme
+        .split_once('/')
+        .map(|(a, _)| a)
+        .unwrap_or(after_scheme);
+    let host = authority.rsplit_once('@').map_or(authority, |(_, h)| h);
+    // Strip the port, and the brackets an IPv6 literal carries.
+    let host = host
+        .split(':')
+        .next()
+        .unwrap_or(host)
+        .trim_matches(['[', ']']);
+    matches!(host, "localhost" | "127.0.0.1" | "::1" | "0.0.0.0" | "")
+}
+
+/// True when this process is running inside a deployed environment rather than on
+/// somebody's laptop. Railway injects `RAILWAY_ENVIRONMENT` into every container it runs,
+/// and a deployment is exactly the case where a remote database is the correct answer.
+fn in_deployed_environment() -> bool {
+    std::env::var("RAILWAY_ENVIRONMENT").is_ok_and(|v| !v.trim().is_empty())
+}
+
+/// Refuse to let a process running on a developer machine talk to a deployed database.
+///
+/// `context` names what was about to happen, because the answer differs: reading is
+/// recoverable and writing is not.
+///
+/// This exists because the hazard was live. `server/.env` on a developer machine points at
+/// a deployed database, every binary here loads it through `dotenvy`, and `voip-rates`
+/// opens its write with `DELETE FROM voip_rates`. Nothing stood between an omitted
+/// `DATABASE_URL` and replacing a production table. The escape hatch is deliberate and
+/// deliberately awkward: pointing at production from a laptop is sometimes the job, but it
+/// should never be something you did without noticing.
+pub fn guard_local_database(url: &str, context: &str) -> Result<(), String> {
+    if is_local_database(url) || in_deployed_environment() {
+        return Ok(());
+    }
+    if std::env::var("ALLOW_REMOTE_DB").is_ok_and(|v| v == "1") {
+        tracing::warn!(
+            "ALLOW_REMOTE_DB=1: {context} against a REMOTE database from a local process"
+        );
+        return Ok(());
+    }
+    Err(format!(
+        "refusing to {context} against a remote database from a local process.\n  \
+         target: {}\n  \
+         This machine is not a deployment (no RAILWAY_ENVIRONMENT), so a non-loopback \
+         database is staging or production. `server/.env` points at a deployed database \
+         and every binary here loads it, so an omitted DATABASE_URL lands there silently.\n  \
+         Use a local database, or set ALLOW_REMOTE_DB=1 if you genuinely mean it.",
+        redacted_target(url),
+    ))
+}
+
+/// Host and database only. The credentials in a URL are not ours to print.
+pub fn redacted_target(url: &str) -> String {
+    let after_scheme = url.split_once("://").map_or(url, |(_, r)| r);
+    let authority_and_path = after_scheme
+        .rsplit_once('@')
+        .map_or(after_scheme, |(_, r)| r);
+    authority_and_path
+        .split('?')
+        .next()
+        .unwrap_or(authority_and_path)
+        .to_string()
+}
+
+/// The database a TEST may talk to, or `None` when there is none and the test should skip.
+///
+/// Panics on a remote one, with no escape hatch. A test suite creates users, deletes rows
+/// and drives sweeps that claim every matching record in the database; there is no version
+/// of "run the tests against staging" that is a good idea.
+pub fn test_database_url() -> Option<String> {
+    let url = std::env::var("DATABASE_URL").ok()?;
+    if !is_local_database(&url) {
+        panic!(
+            "DATABASE_URL points at a REMOTE database ({}).\n  \
+             The tests write, delete, and run global sweeps. Point DATABASE_URL at a local \
+             test database — see docs/local-databases.md.",
+            redacted_target(&url)
+        );
+    }
+    Some(url)
+}
+
 pub async fn connect(url: &str) -> Result<Pool, sqlx::Error> {
     PgPoolOptions::new()
         .max_connections(5)

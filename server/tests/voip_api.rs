@@ -44,7 +44,7 @@ struct Server {
 
 /// Stand up the API with VoIP enabled and the **mock** provider — the whole flow, no telco.
 async fn setup_with_voip(voip: Option<VoipConfig>) -> Option<Server> {
-    let url = std::env::var("DATABASE_URL").ok()?;
+    let url = voxtranslate_server::db::test_database_url()?;
     let pool = db::connect(&url).await.ok()?;
     db::migrate(&pool).await.ok()?;
 
@@ -1428,7 +1428,7 @@ async fn a_transcript_is_never_kept_without_a_stamp_that_says_it_may_be() {
     let (call_id, leg) = dial_and_answer(&srv, org, &jwt, "zh").await;
 
     let mut state = AppState::new(Config::test_with_billing(
-        &std::env::var("DATABASE_URL").unwrap(),
+        &voxtranslate_server::db::test_database_url().expect("DATABASE_URL"),
         SECRET,
         0.0,
     ));
@@ -1534,7 +1534,7 @@ async fn a_gate_nobody_answers_times_out_and_keeps_nothing() {
     .unwrap();
 
     let mut state = AppState::new(Config::test_with_billing(
-        &std::env::var("DATABASE_URL").unwrap(),
+        &voxtranslate_server::db::test_database_url().expect("DATABASE_URL"),
         SECRET,
         0.0,
     ));
@@ -1652,7 +1652,7 @@ async fn an_analysis_the_caller_asked_for_is_queued_once_and_only_once() {
     );
 
     let mut state = AppState::new(Config::test_with_billing(
-        &std::env::var("DATABASE_URL").unwrap(),
+        &voxtranslate_server::db::test_database_url().expect("DATABASE_URL"),
         SECRET,
         0.0,
     ));
