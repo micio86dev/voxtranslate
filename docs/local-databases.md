@@ -40,38 +40,73 @@ the check, and neither does a database *named* `localhost`.
 
 ## Setting the two local databases up
 
-```sh
-createdb voxtranslate_voip_test   # for the suite
-createdb voxtranslate_dev         # for the server you run yourself
-```
-
-The test database needs the `vector` extension, or the DB-gated tests that use embeddings
-skip silently and the run still prints `ok`:
+Both live in Docker, from the compose file at the repo root:
 
 ```sh
-psql voxtranslate_voip_test -c 'CREATE EXTENSION IF NOT EXISTS vector;'
+docker compose up -d --wait postgres
 ```
 
-Point `server/.env` at the dev one:
+That is the whole setup. It creates `voxtranslate_dev` and `voxtranslate_voip_test`, and
+installs `vector` in both — CI's image (`pgvector/pgvector:pg16`), because plain
+`postgres:16` has no such extension and the tests that need it then **skip silently while
+the run still prints ok**.
 
-```
-DATABASE_URL=postgres://postgres@127.0.0.1:5432/voxtranslate_dev
-```
+`--wait` is not decoration: the healthcheck asks `pg_isready` about `voxtranslate_dev`
+specifically, so the command returns once the databases actually exist rather than when
+the server first answers.
 
-Migrations run at boot, so the first `cargo run` creates the schema.
+Two deliberate choices in `docker-compose.yml`:
+
+- **Port 55432, not 5432.** A native Postgres may already hold 5432 on a developer
+  machine — one does on the machine this was written on. Sharing the port would make
+  "which database am I talking to" depend on which process started first, which is the
+  ambiguity this whole thing exists to remove.
+- **Bound to `127.0.0.1:`, not a bare port.** A bare `55432:5432` publishes on every
+  interface, so on a shared network anyone on it can reach the database.
+
+Keeping the data is the default; `docker compose down -v` throws it away and the next
+`up` recreates both databases from scratch.
 
 ## Running things
 
 ```sh
-# tests — pass the test database explicitly; it is not read from .env
-DATABASE_URL=postgres://postgres@127.0.0.1:5432/voxtranslate_voip_test cargo test
+# tests — the test database, passed explicitly. It is NOT read from .env.
+DATABASE_URL=postgres://vox:vox_local_dev@127.0.0.1:55432/voxtranslate_voip_test cargo test
 
 # the server — reads .env, which points at the dev database
 cargo run
 
+# the whole stack in containers, database included
+docker compose up -d --wait
+
 # a deliberate production operation, said out loud
 ALLOW_REMOTE_DB=1 DATABASE_URL='<prod>' cargo run --bin voip-rates -- rates.csv
 ```
+
+`server/.env` should hold:
+
+```
+DATABASE_URL=postgres://vox:vox_local_dev@127.0.0.1:55432/voxtranslate_dev
+```
+
+Inside the compose network the server reaches the database at `postgres:5432` instead, and
+the compose file sets that itself — a single-label hostname counts as local precisely so
+this works without an override.
+
+### What it looks like when the guard stops you
+
+A binary or a test refuses outright, naming the target with the password stripped. The
+server is the exception: a database it cannot use makes it fall back to **guest-only
+mode**, which is the long-standing behaviour for an unreachable database and is right in
+production, where a transient failure should not crash-loop. So it starts — but it logs
+
+```
+ERROR billing/database init failed (refusing to start the server against a remote
+database from a local process. …)
+```
+
+If billing, accounts or anything else DB-backed is mysteriously absent locally, that line
+is the first place to look.
 
 ## Reading production without going near it by hand
 

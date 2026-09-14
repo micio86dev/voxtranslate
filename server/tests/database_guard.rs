@@ -21,6 +21,10 @@ fn loopback_in_every_spelling_is_local() {
         "postgres://localhost/vox",
         // A bare socket path has no host at all, so it cannot be anywhere else.
         "/var/run/postgresql",
+        // A container-network service name. Single-label, so not a machine on the
+        // internet — this is how the local Docker stack reaches its database.
+        "postgres://vox:vox@postgres:5432/voxtranslate_dev",
+        "postgres://vox:vox@db/voxtranslate_dev",
     ] {
         assert!(is_local_database(url), "{url}");
     }
@@ -38,6 +42,9 @@ fn a_deployed_host_is_not_local_however_it_is_dressed() {
         "postgres://user:localhost@real-host.example.com:5432/vox",
         // Nor a database NAMED localhost.
         "postgres://u:p@real-host.example.com:5432/localhost",
+        // Every deployed host this project uses is fully qualified, which is what makes
+        // the single-label rule above safe.
+        "postgres://u:p@something.railway.app:5432/railway",
     ] {
         assert!(!is_local_database(url), "{url}");
     }
