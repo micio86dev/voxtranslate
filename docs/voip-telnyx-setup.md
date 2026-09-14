@@ -80,7 +80,7 @@ VOIP_MAX_CALL_DURATION_MINUTES=60
 VOIP_MAX_CONCURRENT_CALLS_GLOBAL=50
 VOIP_MAX_CONCURRENT_CALLS_PER_ORG=10
 VOIP_MAX_CONCURRENT_CALLS_PER_USER=2
-VOIP_RATE_MAX_AGE_SECS=86400
+VOIP_RATE_MAX_AGE_SECS=2592000   # 30 days — see "The window is 30 days" below
 
 # Destinations
 VOIP_ALLOW_INTERNATIONAL=true
@@ -206,6 +206,9 @@ person's who has not agreed, never one in a fixture.
 | `api.telnyx.eu/v2/public/pricing?primitive=voice` | **404** |
 | `api.telnyx.com/v2/public/pricing?primitive=voice` | **404** |
 | `api.telnyx.com/v2/pricing/products` | 200, but a product catalogue — no prefixes, no per-minute prices |
+| `api.telnyx.eu/v2/pricing` (authenticated) | **200**, and it returns a CSV — but of *number* pricing and **inbound** trunking, not outbound destination rates |
+| `api.telnyx.eu/v2/outbound_voice_profiles/{id}` | 200, and the profile says `usage_payment_method: rate-deck` — but carries no link to the deck |
+| `…/outbound_voice_profiles/{id}/rate_deck`, `/v2/rate_decks`, `/v2/voice/rate_decks` | 404 |
 
 There is no documented public REST endpoint for per-destination voice rates. What Telnyx
 offers is a rate deck you **download** from the Outbound Voice Profile. So `fetch_rate_deck`
@@ -240,11 +243,45 @@ it prices every call wrongly, and the first anyone hears of it is the invoice. I
 export uses a header the importer does not know, add it to the `*_KEYS` lists in
 `src/bin/voip-rates.rs`.
 
-**Put it on a schedule.** `voip_rates.fetched_at` is what `VOIP_RATE_MAX_AGE_SECS` measures
-(24 h by default), and a deck past that age refuses calls rather than pricing them from
-stale numbers. A rate deck imported once is a rate deck that expires. Do **not** widen the
-staleness window to make the symptom go away — that trades a loud failure for a silent
-mispricing.
+**Put it on a schedule.** `voip_rates.fetched_at` is what `VOIP_RATE_MAX_AGE_SECS` measures,
+and a deck past that age refuses calls rather than pricing them from stale numbers. A rate
+deck imported once is a rate deck that expires.
+
+### The window is 30 days, and the default of 24 h was a trap
+
+This section used to say the window was 24 h and that widening it was forbidden. Half of
+that still stands, so read the distinction carefully.
+
+**What is still forbidden:** widening the window *on its own*, to make the refusals stop.
+That trades a loud failure for a silent mispricing, which is strictly worse — a refused
+call is visible, an invoice priced from numbers nobody confirmed is not.
+
+**What was wrong:** 24 h is not a safety property when the only way to refresh is a human
+downloading a CSV from the portal. There is no API (§6 above), so nobody can honour a
+daily deadline, and the deck expires on day two — every day, for ever. A window shorter
+than the refresh mechanism can sustain does not protect anything; it just guarantees an
+outage and calls it safety.
+
+So the window is now **30 days**, set explicitly (`VOIP_RATE_MAX_AGE_SECS=2592000`) rather
+than left to a default, and it is widened *together with* the warnings that make expiry
+something an operator sees coming:
+
+- **At boot**, and every six hours after, the server says whether it can price a call at
+  all: `voip::service::warn_on_rate_deck`. An empty deck is an `error`, an expired one is
+  an `error`, and a deck in the last fifth of its life (the last ~6 days) is a `warn` that
+  names the hours remaining.
+- The refusal itself is unchanged. It is still the backstop, it has just stopped being the
+  *first* thing anyone hears.
+
+Re-import monthly. You get six days of warning before it starts refusing.
+
+### Why this is in the docs at all
+
+Production ran with `VOIP_ENABLED=true` and an **empty** `voip_rates`. Every call was
+refused with `rate_unavailable`, the server booted clean, the logs were quiet, and the
+first report came from a person trying to place a call. Nothing in the system was broken —
+the data had simply never been loaded, and nothing was watching for that. The boot check
+exists so that a deployment which cannot place a call says so itself.
 
 The import replaces the whole deck for the provider in one transaction: a prefix Telnyx
 *removed* must disappear, and an upsert would keep pricing it from the last deck that

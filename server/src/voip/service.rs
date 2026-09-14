@@ -753,6 +753,94 @@ pub fn hold_minutes(requested: i32, org: &OrgSettings, cfg: &VoipConfig) -> i32 
         .min(cfg.max_call_minutes.max(1))
 }
 
+/// Boot check: is there a rate deck, and is it still fresh enough to price a call?
+///
+/// Returns the number of rows and the age of the newest one, or `None` when the deck is
+/// empty. Split out from the logging so it can be tested without a tracing subscriber.
+pub async fn rate_deck_health(
+    pool: &Pool,
+    provider: &str,
+) -> Result<Option<(i64, chrono::Duration)>, sqlx::Error> {
+    let row: Option<(i64, chrono::DateTime<Utc>)> = sqlx::query_as(
+        "SELECT count(*), max(fetched_at) FROM voip_rates WHERE provider = $1 HAVING count(*) > 0",
+    )
+    .bind(provider)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row.map(|(n, newest)| (n, Utc::now().signed_duration_since(newest))))
+}
+
+/// Say at boot what a VoIP deployment cannot discover any other way: that it will refuse
+/// every call it is asked to place.
+///
+/// This exists because it happened. Production ran with `VOIP_ENABLED=true` and an EMPTY
+/// `voip_rates`, so `lookup_rate` returned `None` for every destination and every call was
+/// refused with `rate_unavailable` — and nothing anywhere said a word. The server booted
+/// clean, the logs were quiet, and the first report came from a person trying to make a
+/// call. A deployment that cannot place a call should not have to be told so by a customer.
+///
+/// Same shape as the `recording_cost_per_minute` warning in `Config::from_env`: a
+/// configuration that is individually valid but jointly useless, said out loud once, where
+/// somebody reading a boot log will see it.
+pub async fn warn_on_rate_deck(pool: &Pool, provider: &str, max_age_secs: i64) {
+    let max_age = chrono::Duration::seconds(max_age_secs.max(1));
+    match rate_deck_health(pool, provider).await {
+        Ok(None) => tracing::error!(
+            %provider,
+            "VoIP is enabled but `voip_rates` is EMPTY for this provider — EVERY call will \
+             be refused with `rate_unavailable`. Import a rate deck: \
+             `DATABASE_URL=… cargo run --bin voip-rates -- rates.csv` (docs/voip-telnyx-setup.md)."
+        ),
+        Ok(Some((rows, age))) if age > max_age => tracing::error!(
+            %provider,
+            rows,
+            age_hours = age.num_hours(),
+            max_age_hours = max_age.num_hours(),
+            "VoIP rate deck is STALE — every call is being refused with `rate_unavailable`. \
+             Re-import it; a stale deck refuses calls rather than pricing them from numbers \
+             nobody has confirmed."
+        ),
+        // Loud before it bites, not after: a deck in its last fifth of life is one nobody
+        // has to be surprised by. The whole point of this warning is that expiry stops
+        // being something a customer discovers.
+        Ok(Some((rows, age))) if age * 5 > max_age * 4 => tracing::warn!(
+            %provider,
+            rows,
+            age_hours = age.num_hours(),
+            expires_in_hours = (max_age - age).num_hours(),
+            "VoIP rate deck expires soon — re-import it before it starts refusing calls."
+        ),
+        Ok(Some((rows, age))) => tracing::info!(
+            %provider,
+            rows,
+            age_hours = age.num_hours(),
+            "VoIP rate deck loaded"
+        ),
+        Err(e) => tracing::error!(%provider, "could not check the VoIP rate deck: {e}"),
+    }
+}
+
+/// Re-check the rate deck on a timer, not only at boot.
+///
+/// A boot-time warning is only seen by a deployment that restarts. This one has to survive
+/// a server that has been up for a fortnight: the deck ages while the process does not
+/// change, and the moment it crosses the line every call starts being refused. Six hours
+/// is frequent enough that the "expires soon" warning lands days before the deck bites,
+/// and rare enough that a healthy deployment logs it four times a day.
+pub async fn run_rate_deck_watch(
+    pool: Pool,
+    provider: String,
+    max_age_secs: i64,
+    interval: std::time::Duration,
+) {
+    let mut tick = tokio::time::interval(interval);
+    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    loop {
+        tick.tick().await;
+        warn_on_rate_deck(&pool, &provider, max_age_secs).await;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

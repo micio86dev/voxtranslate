@@ -328,7 +328,9 @@ pub struct VoipConfig {
     pub storage_cost_per_minute: f64,
     pub media_streaming_cost_per_minute: f64,
     /// A rate older than this is stale, and a stale rate refuses the call rather than
-    /// pricing it (`VOIP_RATE_MAX_AGE_SECS`, spec 0111 R5).
+    /// pricing it (`VOIP_RATE_MAX_AGE_SECS`, spec 0111 R5). Defaults to 30 days — see the
+    /// note at `from_env`, and do not shorten it below the cadence at which a human can
+    /// actually re-import the deck.
     pub rate_max_age_secs: i64,
     /// Webhook timestamp tolerance, seconds (`VOIP_WEBHOOK_TOLERANCE_SECS`).
     pub webhook_tolerance_secs: i64,
@@ -482,7 +484,17 @@ impl VoipConfig {
                 "VOIP_MEDIA_STREAMING_COST_PER_MINUTE",
                 0.0f64,
             ),
-            rate_max_age_secs: parse_or("VOIP_RATE_MAX_AGE_SECS", 86_400i64),
+            // 30 days, not the 24 h this used to default to. The deck can only be
+            // refreshed by a human downloading a CSV from the provider portal — there is
+            // no API (docs/voip-telnyx-setup.md §6) — so a 24 h window is shorter than the
+            // only refresh mechanism that exists. It does not protect anything: it
+            // guarantees that every deployment starts refusing calls on day two and calls
+            // that safety. Production ran exactly that way.
+            //
+            // The refusal is still the backstop. What changed is that expiry is now
+            // warned about days ahead (`voip::service::warn_on_rate_deck`) instead of
+            // being discovered by a customer.
+            rate_max_age_secs: parse_or("VOIP_RATE_MAX_AGE_SECS", 2_592_000i64),
             webhook_tolerance_secs: parse_or("VOIP_WEBHOOK_TOLERANCE_SECS", 300i64),
             pseudonym_key: key,
             media_ticket_key: ticket_key,
