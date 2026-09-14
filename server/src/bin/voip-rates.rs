@@ -37,14 +37,19 @@ use voxtranslate_server::db;
 
 /// Header names we accept for each field, lowercased. Providers spell these differently
 /// and change them between exports; recognising several is cheaper than a support ticket.
+/// Destination spellings come FIRST, and the plurals are listed explicitly, because a
+/// deck can carry both axes: Telnyx's global export has `Origination Prefixes` *and*
+/// `Destination Prefixes`, and only the second one is the number we are pricing.
 const PREFIX_KEYS: &[&str] = &[
-    "prefix",
+    "destination prefixes",
+    "destination prefix",
     "dial prefix",
     "dialprefix",
+    "e164 prefix",
+    "prefixes",
+    "prefix",
     "code",
     "country code",
-    "destination prefix",
-    "e164 prefix",
 ];
 const COST_KEYS: &[&str] = &[
     "rate",
@@ -197,15 +202,39 @@ pub fn parse(raw: &str) -> Result<Vec<ImportedRate>, String> {
         .map(|c| c.trim().trim_matches('"').to_lowercase())
         .collect();
 
-    let find = |keys: &[&str]| -> Option<usize> {
+    // `Err` carries the ambiguous header names, so the caller can say which ones collided.
+    let find = |keys: &[&str]| -> Result<Option<usize>, Vec<String>> {
         // Exact match first: a header called "rate" must not lose to "rate centre"
         // because the latter happened to contain the former.
-        keys.iter()
-            .find_map(|k| cols.iter().position(|c| c == k))
-            .or_else(|| {
-                keys.iter()
-                    .find_map(|k| cols.iter().position(|c| c.contains(k)))
-            })
+        if let Some(i) = keys.iter().find_map(|k| cols.iter().position(|c| c == k)) {
+            return Ok(Some(i));
+        }
+        // Substring fallback, and it REFUSES when more than one header matches.
+        //
+        // Taking the first was how Telnyx's global deck silently became 24 rows of
+        // nonsense: `Origination Prefixes` and `Destination Prefixes` both contain
+        // "prefix", origination comes first, and its values are comma-separated LISTS —
+        // so every "prefix" was a dozen prefixes glued together and the 263,950-row file
+        // collapsed to the 24 distinct lists. It parsed. It reported success. Every real
+        // destination would have been refused, or priced from a prefix nobody dialled.
+        //
+        // This file's whole promise is that it does not guess (see the module docs). One
+        // header containing the key is a match; two is a question only the operator can
+        // answer, and asking costs a minute where guessing costs an invoice.
+        for k in keys {
+            let hits: Vec<usize> = cols
+                .iter()
+                .enumerate()
+                .filter(|(_, c)| c.contains(k))
+                .map(|(i, _)| i)
+                .collect();
+            match hits.len() {
+                0 => continue,
+                1 => return Ok(Some(hits[0])),
+                _ => return Err(hits.into_iter().map(|i| cols[i].clone()).collect()),
+            }
+        }
+        Ok(None)
     };
 
     let missing = |what: &str, keys: &[&str]| -> String {
@@ -220,10 +249,26 @@ pub fn parse(raw: &str) -> Result<Vec<ImportedRate>, String> {
         )
     };
 
-    let i_prefix = find(PREFIX_KEYS).ok_or_else(|| missing("prefix", PREFIX_KEYS))?;
-    let i_cost = find(COST_KEYS).ok_or_else(|| missing("cost", COST_KEYS))?;
-    let i_desc = find(DESC_KEYS);
-    let i_type = find(TYPE_KEYS);
+    let ambiguous = |what: &str, hits: Vec<String>| -> String {
+        format!(
+            "the {what} column is ambiguous: {} all match.\n  headers seen: {}\n\
+             Refusing to guess: a deck read with the wrong mapping does not fail, it prices \
+             every call wrongly, and the first anyone hears of it is the invoice.\n\
+             Put the exact header name first in `{}_KEYS` in src/bin/voip-rates.rs.",
+            hits.join(" and "),
+            cols.join(", "),
+            what.to_uppercase().replace(' ', "_"),
+        )
+    };
+
+    let i_prefix = find(PREFIX_KEYS)
+        .map_err(|hits| ambiguous("prefix", hits))?
+        .ok_or_else(|| missing("prefix", PREFIX_KEYS))?;
+    let i_cost = find(COST_KEYS)
+        .map_err(|hits| ambiguous("cost", hits))?
+        .ok_or_else(|| missing("cost", COST_KEYS))?;
+    let i_desc = find(DESC_KEYS).map_err(|hits| ambiguous("description", hits))?;
+    let i_type = find(TYPE_KEYS).map_err(|hits| ambiguous("type", hits))?;
 
     let mut out: HashMap<String, ImportedRate> = HashMap::new();
     for (n, line) in lines.enumerate() {
@@ -369,19 +414,31 @@ pub async fn write(
         .execute(&mut *tx)
         .await?;
 
-    for r in rates {
-        sqlx::query(
-            "INSERT INTO voip_rates
-                (provider, prefix, description, cost_per_minute, currency, number_type, fetched_at)
-             VALUES ($1, $2, $3, $4, 'USD', $5, now())",
-        )
-        .bind(provider)
-        .bind(&r.prefix)
-        .bind(&r.description)
-        .bind(r.cost_per_minute)
-        .bind(&r.number_type)
-        .execute(&mut *tx)
-        .await?;
+    // Batched, not row-by-row. A global deck is ~200k rows, and one INSERT each is one
+    // network round trip each: against a remote pooler that is upwards of fifteen minutes
+    // of latency and nothing else, which is long enough that the first attempt at this
+    // import was killed by a timeout before it could commit. For a tool the docs tell you
+    // to put on a schedule, "eventually finishes" is not good enough.
+    //
+    // 2000 rows per statement: Postgres caps a statement at 65535 bind parameters and each
+    // row binds 5, so the ceiling is ~13k. Staying well under it leaves room for a column
+    // to be added here without the batch size silently becoming the thing that breaks.
+    const BATCH: usize = 2000;
+    for chunk in rates.chunks(BATCH) {
+        let mut qb = sqlx::QueryBuilder::new(
+            "INSERT INTO voip_rates \
+             (provider, prefix, description, cost_per_minute, currency, number_type, fetched_at) ",
+        );
+        qb.push_values(chunk, |mut b, r| {
+            b.push_bind(provider)
+                .push_bind(&r.prefix)
+                .push_bind(&r.description)
+                .push_bind(r.cost_per_minute)
+                .push_bind("USD")
+                .push_bind(&r.number_type)
+                .push("now()");
+        });
+        qb.build().execute(&mut *tx).await?;
     }
     tx.commit().await?;
     Ok(rates.len())
@@ -390,6 +447,52 @@ pub async fn write(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The real Telnyx global export, reduced to its shape. Both prefix columns are
+    /// present and origination comes first — which is the whole trap.
+    const TELNYX_GLOBAL_HEADER: &str =
+        "ISO,Country,Origination Prefixes,Destination Prefixes,Description,\
+         Interval 1,Interval N,Rate,Price Per Call,Exact Match";
+
+    #[test]
+    fn prices_the_destination_prefix_not_the_origination_one() {
+        // This deck silently produced 24 rows of nonsense from a 263,950-row file:
+        // `Origination Prefixes` also contains "prefix", it comes first, and its values
+        // are comma-separated LISTS — so every prefix was a dozen prefixes glued together
+        // and the file collapsed to its 24 distinct lists. It parsed, and reported success.
+        let csv = format!(
+            "{TELNYX_GLOBAL_HEADER}\n\
+             NL,\"Netherlands\",\"31, 32, 33\",316,\"Netherlands - Mobile\",60,60,0.0501,,\n\
+             IT,\"Italy\",,39,\"Italy\",60,60,0.0085,,\n"
+        );
+        let r = parse(&csv).unwrap();
+        assert_eq!(r.len(), 2, "the origination lists collapsed the rows again");
+        assert_eq!(r[0].prefix, "316");
+        assert_eq!(r[1].prefix, "39");
+        assert_eq!(r[0].cost_per_minute, "0.0501".parse::<Decimal>().unwrap());
+    }
+
+    #[test]
+    fn two_headers_matching_one_key_is_refused_not_guessed() {
+        // Without an exact spelling to settle it, taking the first match is a guess —
+        // and this file's whole promise is that it does not guess.
+        let csv = "Origination Prefix,Terminating Prefix,Rate\n31,316,0.05\n";
+        let err = parse(csv).unwrap_err();
+        assert!(err.contains("ambiguous"), "{err}");
+        assert!(
+            err.contains("origination prefix") && err.contains("terminating prefix"),
+            "must name BOTH colliding headers so the operator can pick: {err}"
+        );
+    }
+
+    #[test]
+    fn an_exact_spelling_settles_an_otherwise_ambiguous_deck() {
+        // Ambiguity refusal must not break a deck that says plainly which one it means.
+        let csv = "Origination Prefixes,Destination Prefixes,Rate\n31,316,0.05\n";
+        let r = parse(csv).unwrap();
+        assert_eq!(r.len(), 1);
+        assert_eq!(r[0].prefix, "316");
+    }
 
     #[test]
     fn reads_an_ordinary_comma_deck() {
