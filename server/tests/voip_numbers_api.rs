@@ -29,7 +29,7 @@ struct Server {
 
 /// `voip = false` reproduces a deployment with telephony switched off.
 async fn setup_with(voip: bool) -> Option<Server> {
-    let url = std::env::var("DATABASE_URL").ok()?;
+    let url = voxtranslate_server::db::test_database_url()?;
     let pool = db::connect(&url).await.ok()?;
     db::migrate(&pool).await.ok()?;
     let mut config = Config::test_with_billing(&url, SECRET, 0.0);

@@ -37,7 +37,7 @@ async fn setup() -> Option<Server> {
 /// endpoints pass their 503 feature gate. The key is fake: a real send dies at
 /// Resend's 401, which is exactly what the failure-path tests want.
 async fn setup_opts(with_resend: bool) -> Option<Server> {
-    let url = std::env::var("DATABASE_URL").ok()?;
+    let url = voxtranslate_server::db::test_database_url()?;
     let pool = db::connect(&url).await.ok()?;
     db::migrate(&pool).await.ok()?;
     let secret = "transcripts-secret".to_string();

@@ -55,6 +55,15 @@
 # Claude Code local scheduler lock (runtime artifact)
 .claude/scheduled_tasks.lock
 
+# Agent run briefs (`/goal` inputs). These are prompts addressed to the agent —
+# "you are in PLAN MODE", "continue until the goal is completed" — not documentation
+# addressed to anyone reading this repo. The requirements they were written to produce
+# live in specs/ and are versioned there: the VoIP brief's rules, for instance, are
+# specs/0111-translated-voip/spec.md. Committing the brief too would put a second,
+# informal copy of those requirements beside the real one, which is how a spec and its
+# shadow drift apart.
+/.claude/goals/
+
 # gentle-ai skill-registry cache (auto-generated, machine-specific absolute paths)
 /.atl/
 

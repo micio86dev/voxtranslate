@@ -103,7 +103,7 @@ struct Server {
 
 /// A server whose engine and classifier both point at stand-ins.
 async fn setup(mock: &RealtimeMock, hears: &str) -> Option<Server> {
-    let url = std::env::var("DATABASE_URL").ok()?;
+    let url = voxtranslate_server::db::test_database_url()?;
     let pool = db::connect(&url).await.ok()?;
     db::migrate(&pool).await.ok()?;
     let (groq_url, groq) = mock_groq(hears).await;
