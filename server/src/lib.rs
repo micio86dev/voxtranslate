@@ -1153,6 +1153,20 @@ pub async fn serve() {
     // end a call that has run past its cap, and close a credit hold whose hangup webhook
     // never arrived. Both are about calls nobody is watching any more.
     if state.telephony.is_some() && state.pool.is_some() {
+        // Before anything else VoIP-shaped: say whether this deployment can price a call
+        // at all. An empty or expired deck refuses every one of them, silently.
+        if let (Some(pool), Some(voip)) = (state.pool.as_ref(), state.config.voip.as_ref()) {
+            crate::voip::service::warn_on_rate_deck(pool, &voip.provider, voip.rate_max_age_secs)
+                .await;
+            // And keep checking. A deck ages while the process does not restart, so a
+            // boot-only warning is one a long-lived deployment never sees again.
+            tokio::spawn(crate::voip::service::run_rate_deck_watch(
+                pool.clone(),
+                voip.provider.clone(),
+                voip.rate_max_age_secs,
+                Duration::from_secs(6 * 60 * 60),
+            ));
+        }
         let interval = Duration::from_secs(60);
         tracing::info!("VoIP duration reaper + settlement sweep enabled (every 60s)");
         tokio::spawn(crate::voip::webhook::run_sweep(
