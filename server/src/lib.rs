@@ -572,6 +572,27 @@ impl AppState {
     }
 }
 
+/// Every HTTP method the API routes, and therefore every method the CORS preflight must
+/// allow.
+///
+/// A method missing here is invisible on the server — the route works, the handler is
+/// registered, and a `curl` against it succeeds. It fails only in a browser, as a bare
+/// "CORS error" with no status and no body, which reads as a network fault rather than as
+/// a configuration one. That is exactly how `PUT` went unnoticed: it is used by three
+/// routes (`voip/settings`, a number's `routing`, a number's `hours`), all added after
+/// this list was written, and none of them could be saved from the dashboard.
+///
+/// Keep it in sync with the router. `every_method_the_router_serves_is_allowed_by_cors`
+/// in `tests/cors.rs` fails when it drifts.
+pub const CORS_ALLOWED_METHODS: [axum::http::Method; 6] = [
+    axum::http::Method::GET,
+    axum::http::Method::POST,
+    axum::http::Method::PUT,
+    axum::http::Method::PATCH,
+    axum::http::Method::DELETE,
+    axum::http::Method::OPTIONS,
+];
+
 /// Build the Axum router (routes + middleware) for the given state.
 pub fn app(state: AppState) -> Router {
     // CORS (spec 0028): when ALLOWED_ORIGINS is set, restrict to that allowlist;
@@ -611,13 +632,7 @@ pub fn app(state: AppState) -> Router {
             allowed.iter().filter_map(|o| o.parse().ok()).collect();
         CorsLayer::new()
             .allow_origin(origins)
-            .allow_methods([
-                axum::http::Method::GET,
-                axum::http::Method::POST,
-                axum::http::Method::PATCH,
-                axum::http::Method::DELETE,
-                axum::http::Method::OPTIONS,
-            ])
+            .allow_methods(CORS_ALLOWED_METHODS)
             .allow_headers([
                 axum::http::header::AUTHORIZATION,
                 axum::http::header::CONTENT_TYPE,
