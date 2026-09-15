@@ -1796,7 +1796,15 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState, clien
     }
 
     let session_start = std::time::Instant::now(); // for the WS session canonical line (spec 0050)
-    tracing::info!(%room, %name, %lang, peers = existing.len() + 1, "peer joined");
+                                                   // `engine` is the peer's RECEIVE engine (spec 0099) — the value stored on `Peer.engine`
+                                                   // above. A production incident where a late web joiner's Standard session never opened
+                                                   // for them had nothing in the logs to confirm what engine the peer actually believed it
+                                                   // had chosen; this field is what closes that gap.
+    tracing::info!(
+        %room, %name, %lang, peers = existing.len() + 1,
+        engine = %active_engine.metadata().id,
+        "peer joined"
+    );
 
     // Tell this user's friends they're now in a PUBLIC room, so they can drop in for a
     // chat (spec: friends). Fire-and-forget + rate-limited; never blocks the join path.
