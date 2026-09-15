@@ -28,6 +28,7 @@
 use std::collections::HashMap;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use tokio::sync::mpsc::Receiver;
 use uuid::Uuid;
@@ -351,13 +352,111 @@ where
     state.rooms.remove(&leg.room, &leg.peer_id, leg.conn);
     crate::metrics::record_voip_media_disconnect();
 
-    // End the call. Without the bridge the two parties cannot understand each other, and
-    // the carrier does not re-open a stream on its own — so the alternative is a call that
-    // keeps billing, on both sides, until the maximum-duration reaper notices up to an
-    // hour later. `end_call` is a no-op on a call that is already terminal, which is the
-    // ordinary case: a normal hangup closes this socket too.
-    end_call(state, leg.call_id, FailureReason::MediaLost).await;
-    result
+    // What happens next depends on WHY the pump ended, not just that it did.
+    //
+    // Production (2026-09-15, one call): the media socket closed at 20:23:23.242; the
+    // carrier's own hangup webhooks landed at .901 and .994 — under a second later. The
+    // comment this replaces assumed the opposite order ("a normal hangup closes this
+    // socket too", i.e. `end_call` would already be a no-op by the time it ran). It is
+    // not: media close reliably PRECEDES the hangup webhook, so failing the call the
+    // instant the socket closes wins the race against a webhook that was already on its
+    // way — the row is marked `failed/media_lost` with no duration and no settlement, and
+    // the carrier bills us for a call our own records say never connected.
+    //
+    // A room-ended pump (the peer was removed out from under a still-open socket — the
+    // room decided, not the carrier) has no such webhook coming, so it is failed
+    // immediately exactly as before. So is a pump that returned `Err`: something went
+    // wrong with the stream itself, not with an ordinary hangup.
+    match &result {
+        Ok(media::PumpExit::ProviderEnded) => {
+            // Spawned so this function's return — and whatever called it — is not held
+            // up by the grace window; see `finish_after_pump`'s doc comment for why the
+            // wait itself is still bounded.
+            let call_id = leg.call_id;
+            let st = state.clone();
+            tokio::spawn(async move {
+                finish_after_pump(
+                    &st,
+                    call_id,
+                    media::PumpExit::ProviderEnded,
+                    MEDIA_LOST_GRACE,
+                )
+                .await;
+            });
+        }
+        Ok(media::PumpExit::RoomEnded) | Err(_) => {
+            end_call(state, leg.call_id, FailureReason::MediaLost).await;
+        }
+    }
+    result.map(|_| ())
+}
+
+/// How long to wait, after the media stream ends on the PROVIDER side, for the carrier's
+/// own hangup webhook to settle the call before ending it ourselves.
+///
+/// Observed in production (2026-09-15): the media socket closes roughly 0.7s BEFORE the
+/// carrier's hangup webhook arrives. The wait still has to be bounded, not indefinite —
+/// a stream that dies while the call is genuinely still up (a dead handset, a crashed
+/// provider leg) must not keep billing until the max-duration reaper notices, up to an
+/// hour later. Ten seconds is generous against an observed ~0.7s gap while staying far
+/// short of anything a customer would notice as "the call hung around after I hung up".
+const MEDIA_LOST_GRACE: Duration = Duration::from_millis(10_000);
+
+/// How often [`finish_after_pump`] re-checks the row while waiting out the grace window.
+/// A poll rather than a blind sleep-then-end: a webhook that lands early ends the wait
+/// early instead of every provider-ended call paying the full grace regardless.
+const MEDIA_LOST_GRACE_POLL: Duration = Duration::from_millis(250);
+
+/// The post-pump decision, split out of `run_leg` so it can be driven directly in a test
+/// against a real database and `webhook::apply`, without a socket, a room or a provider.
+///
+/// `grace` is a parameter rather than always [`MEDIA_LOST_GRACE`] so a test can wait
+/// milliseconds instead of the real ~10s window.
+async fn finish_after_pump(
+    state: &crate::AppState,
+    call_id: Uuid,
+    exit: media::PumpExit,
+    grace: Duration,
+) {
+    if exit == media::PumpExit::ProviderEnded {
+        if let Some(pool) = state.pool.as_ref() {
+            let deadline = tokio::time::Instant::now() + grace;
+            loop {
+                if call_is_terminal(pool, call_id).await == Some(true) {
+                    // The carrier's hangup webhook already settled the row — completed
+                    // with a real duration, or failed for its own reason. `end_call`
+                    // below would be a no-op anyway, but returning early skips the rest
+                    // of the wait.
+                    return;
+                }
+                if tokio::time::Instant::now() >= deadline {
+                    break;
+                }
+                tokio::time::sleep(MEDIA_LOST_GRACE_POLL.min(grace)).await;
+            }
+        }
+    }
+    // Either the room ended it, the pump errored, there is no pool to poll, or the grace
+    // window elapsed with no webhook. `end_call` is a no-op on a call already terminal —
+    // the ordinary outcome when the webhook DID land inside the grace window — and ends
+    // it for real otherwise, which is the case a media stream that dies mid-call exists
+    // to cover.
+    end_call(state, call_id, FailureReason::MediaLost).await;
+}
+
+/// Whether a call's row is already in a terminal state, for [`finish_after_pump`]'s poll.
+/// `None` on any uncertainty (no row, a query error) so the wait runs its full course
+/// rather than ending early on a guess.
+async fn call_is_terminal(pool: &crate::db::Pool, call_id: Uuid) -> Option<bool> {
+    let status: String = sqlx::query_scalar("SELECT status FROM voip_calls WHERE id = $1")
+        .bind(call_id)
+        .fetch_optional(pool)
+        .await
+        .unwrap_or_else(|e| {
+            tracing::error!(%call_id, error = %e, "could not poll call status while waiting for a hangup webhook");
+            None
+        })?;
+    Some(matches!(status.as_str(), "completed" | "failed"))
 }
 
 /// End a call from the media side: hang the carrier's leg up, mark the row terminal, and
@@ -796,5 +895,273 @@ mod tests {
             parked.user_id.is_some(),
             "the CALLER is recorded on the leg even though the phone peer has no account"
         );
+    }
+
+    // ---- `finish_after_pump` — the normal-hangup-vs-failed-call regression -----------
+    //
+    // The production incident this covers (2026-09-15): a call answered ~56s earlier had
+    // its media socket close, `run_leg` immediately called `end_call`, and the carrier's
+    // hangup webhooks — which landed under a second later — found the row already
+    // `failed`/`media_lost` and could do nothing. The dashboard showed a failed call with
+    // no duration and no charge, while the carrier billed us for it.
+
+    /// DB-gated, same fixture shape as `voip::webhook`'s tests: a plain `postgres:16`
+    /// (no pgvector) makes migrations fail and this silently returns `None`, which is why
+    /// every test below prints its own "skipping" line rather than just returning.
+    struct Fx {
+        pool: crate::db::Pool,
+        org: Uuid,
+        session: Uuid,
+        call: Uuid,
+        tag: String,
+    }
+
+    impl Fx {
+        /// A `state` wired to this fixture's own pool and nothing else — `finish_after_pump`
+        /// and `end_call` only ever touch `state.pool` and `state.telephony`, and leaving
+        /// `telephony` `None` is exactly what a config with no VoIP provider produces.
+        fn state(&self) -> crate::AppState {
+            let cfg = crate::config::Config::test_with_billing("", "x".repeat(32).as_str(), 0.0);
+            let mut state = crate::AppState::new(cfg);
+            state.pool = Some(self.pool.clone());
+            state
+        }
+    }
+
+    /// Builds a call already `answered` ~56s ago — the state `run_leg` finds itself in
+    /// when the media pump returns, in both the regression and its fix.
+    async fn setup_answered(credits: i32, price: &str) -> Option<Fx> {
+        let tag = Uuid::new_v4().simple().to_string();
+        let url = std::env::var("DATABASE_URL").ok()?;
+        let pool = crate::db::connect(&url).await.ok()?;
+        crate::db::migrate(&pool).await.ok()?;
+
+        let user: Uuid = sqlx::query_scalar(
+            "INSERT INTO users (google_id, email, name, balance)
+             VALUES ($1, $2, 'Owner', 0) RETURNING id",
+        )
+        .bind(format!("g-{}", Uuid::new_v4()))
+        .bind(format!("{}@example.test", Uuid::new_v4()))
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        let org: Uuid = sqlx::query_scalar(
+            "INSERT INTO organizations (name, slug, owner_id, credits_balance)
+             VALUES ('VoIP Co', $1, $2, $3) RETURNING id",
+        )
+        .bind(format!("voip-{}", Uuid::new_v4().simple()))
+        .bind(user)
+        .bind(credits)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        let session = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO call_sessions (id, room, org_id, kind) VALUES ($1, $2, $3, 'phone')",
+        )
+        .bind(session)
+        .bind(format!("ph-{}", Uuid::new_v4().simple()))
+        .bind(org)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let answered_at = chrono::Utc::now() - chrono::Duration::seconds(56);
+        let call: Uuid = sqlx::query_scalar(
+            "INSERT INTO voip_calls
+                (session_id, org_id, user_id, provider, direction, recipient_e164,
+                 recipient_pseudonym, recipient_country, source_language, target_language,
+                 engine_id, status, quoted_price_per_min, provider_leg_ids, answered_at,
+                 started_at)
+             VALUES ($1, $2, $3, 'mock', 'outbound', '+8613800138000', 'abc', 'CN', 'it',
+                     'zh', 'standard', 'answered', $4, ARRAY[$5], $6, $6)
+             RETURNING id",
+        )
+        .bind(session)
+        .bind(org)
+        .bind(user)
+        .bind(price.parse::<rust_decimal::Decimal>().unwrap())
+        .bind(format!("leg-{tag}"))
+        .bind(answered_at)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        Some(Fx {
+            pool,
+            org,
+            session,
+            call,
+            tag,
+        })
+    }
+
+    async fn call_status_and_reason(
+        pool: &crate::db::Pool,
+        call: Uuid,
+    ) -> (String, Option<String>) {
+        sqlx::query_as("SELECT status, failure_reason FROM voip_calls WHERE id = $1")
+            .bind(call)
+            .fetch_one(pool)
+            .await
+            .unwrap()
+    }
+
+    async fn org_balance(pool: &crate::db::Pool, org: Uuid) -> i32 {
+        sqlx::query_scalar("SELECT credits_balance FROM organizations WHERE id = $1")
+            .bind(org)
+            .fetch_one(pool)
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_hangup_webhook_that_lands_inside_the_grace_completes_the_call_not_fails_it() {
+        // THE regression: a prompt hangup webhook (~0.7s behind the media socket closing,
+        // in production) must be allowed to settle the call as a real, billable
+        // conversation — not lose a race against an immediate `end_call`.
+        let Some(f) = setup_answered(1000, "0.60").await else {
+            eprintln!("skipping — no DATABASE_URL");
+            return;
+        };
+        crate::voip::reservation::reserve(&f.pool, f.org, f.call, f.session, None, 300)
+            .await
+            .unwrap();
+        assert_eq!(org_balance(&f.pool, f.org).await, 700);
+
+        let state = f.state();
+        let grace_task = tokio::spawn({
+            let state = state.clone();
+            let call_id = f.call;
+            async move {
+                finish_after_pump(
+                    &state,
+                    call_id,
+                    media::PumpExit::ProviderEnded,
+                    std::time::Duration::from_millis(500),
+                )
+                .await;
+            }
+        });
+
+        // Well inside the 500ms grace, and comfortably longer than the ~0.7s production
+        // gap would need if this were milliseconds instead of the real seconds.
+        tokio::time::sleep(std::time::Duration::from_millis(80)).await;
+        let hangup = crate::telephony::ProviderEvent {
+            provider: crate::telephony::mock::MOCK_ID,
+            event_id: format!("{}-hangup", f.tag),
+            leg_id: crate::telephony::LegId::new(format!("leg-{}", f.tag)),
+            client_state: Some(f.call.to_string()),
+            occurred_at: chrono::Utc::now(),
+            kind: crate::telephony::ProviderEventKind::Hangup {
+                cause: FailureReason::Unmapped,
+            },
+        };
+        crate::voip::webhook::apply(&f.pool, &hangup).await.unwrap();
+
+        grace_task.await.unwrap();
+
+        let (status, reason) = call_status_and_reason(&f.pool, f.call).await;
+        assert_eq!(
+            status, "completed",
+            "the webhook settled it, not the grace timeout"
+        );
+        assert_ne!(reason.as_deref(), Some("media_lost"));
+
+        let duration: Option<i32> =
+            sqlx::query_scalar("SELECT duration_seconds FROM voip_calls WHERE id = $1")
+                .bind(f.call)
+                .fetch_one(&f.pool)
+                .await
+                .unwrap();
+        assert!(duration.is_some(), "a real call has a real duration");
+
+        assert!(
+            crate::voip::reservation::open_for_call(&f.pool, f.call)
+                .await
+                .unwrap()
+                .is_none(),
+            "the hold was settled, not just released"
+        );
+        assert_eq!(
+            org_balance(&f.pool, f.org).await,
+            1000 - duration.unwrap() as i32, // 0.60/min = 1 credit/sec at this price
+            "the call was billed for what it actually used"
+        );
+    }
+
+    #[tokio::test]
+    async fn no_hangup_webhook_inside_the_grace_still_fails_the_call_and_refunds_the_hold() {
+        // The complement: a media stream that dies for real, with no carrier webhook
+        // coming at all, must still end up `failed/media_lost` with its hold released —
+        // the grace window bounds the wait, it does not remove the fallback.
+        let Some(f) = setup_answered(1000, "0.60").await else {
+            eprintln!("skipping — no DATABASE_URL");
+            return;
+        };
+        crate::voip::reservation::reserve(&f.pool, f.org, f.call, f.session, None, 300)
+            .await
+            .unwrap();
+        assert_eq!(org_balance(&f.pool, f.org).await, 700);
+
+        let state = f.state();
+        finish_after_pump(
+            &state,
+            f.call,
+            media::PumpExit::ProviderEnded,
+            std::time::Duration::from_millis(150),
+        )
+        .await;
+
+        let (status, reason) = call_status_and_reason(&f.pool, f.call).await;
+        assert_eq!(status, "failed");
+        assert_eq!(reason.as_deref(), Some("media_lost"));
+
+        assert!(
+            crate::voip::reservation::open_for_call(&f.pool, f.call)
+                .await
+                .unwrap()
+                .is_none(),
+            "the hold must not stay open on a call nobody is settling"
+        );
+        assert_eq!(
+            org_balance(&f.pool, f.org).await,
+            1000,
+            "nothing was billed — the hold came back in full"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_room_ended_pump_fails_the_call_immediately_no_grace() {
+        // The other exit reason: the room decided, not the carrier, so there is no
+        // webhook to wait for. This must behave exactly as the old unconditional
+        // `end_call` did — immediately, regardless of grace.
+        let Some(f) = setup_answered(1000, "0.60").await else {
+            eprintln!("skipping — no DATABASE_URL");
+            return;
+        };
+        crate::voip::reservation::reserve(&f.pool, f.org, f.call, f.session, None, 300)
+            .await
+            .unwrap();
+
+        let state = f.state();
+        let started = std::time::Instant::now();
+        finish_after_pump(
+            &state,
+            f.call,
+            media::PumpExit::RoomEnded,
+            std::time::Duration::from_secs(10),
+        )
+        .await;
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(1),
+            "a room-ended pump must not wait out the provider-ended grace at all"
+        );
+
+        let (status, reason) = call_status_and_reason(&f.pool, f.call).await;
+        assert_eq!(status, "failed");
+        assert_eq!(reason.as_deref(), Some("media_lost"));
     }
 }
