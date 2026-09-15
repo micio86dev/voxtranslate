@@ -391,10 +391,6 @@ fn dial_body(cfg: &TelnyxConfig, req: &DialRequest) -> Value {
         // A stable id makes the dial itself idempotent provider-side: a retried POST after
         // a network timeout must not place a second paid call.
         "command_id": Uuid::new_v4().to_string(),
-        // Anchorsite is what actually decides where media is handled. Sent per call rather
-        // than relying on the connection's default, so a call carries its own residency
-        // decision and the recorded `provider_region` is the truth rather than a guess.
-        "media_encryption": "SRTP",
     });
     if let Some(profile) = &cfg.outbound_voice_profile_id {
         body["outbound_voice_profile_id"] = json!(profile);
@@ -1528,7 +1524,7 @@ mod tests {
     // ---- request bodies -------------------------------------------------------
 
     #[test]
-    fn a_dial_carries_an_idempotency_key_so_a_retry_is_not_a_second_paid_call() {
+    fn a_pstn_dial_omits_unsupported_media_encryption_and_is_idempotent() {
         let req = DialRequest {
             to: super::super::E164::parse("+8613800138000").unwrap(),
             from: super::super::E164::parse("+390212345678").unwrap(),
@@ -1543,7 +1539,9 @@ mod tests {
         assert_eq!(body["outbound_voice_profile_id"], "ovp-1");
         assert_eq!(body["client_state"], encode_client_state("call-42"));
         assert!(body["command_id"].as_str().is_some_and(|s| !s.is_empty()));
-        assert_eq!(body["media_encryption"], "SRTP");
+        // Telnyx rejects SRTP on PSTN call creation with error 10011. Media streaming is
+        // configured separately after the call answers; the dial itself must omit this field.
+        assert!(body.get("media_encryption").is_none());
 
         // Two dials must not share a command id, or the second would be swallowed as a
         // duplicate of the first.
