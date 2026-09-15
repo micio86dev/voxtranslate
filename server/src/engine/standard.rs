@@ -76,6 +76,31 @@ const MAX_OPEN_FAILURES: u32 = 6;
 /// skipped at start because the engine was momentarily at capacity.
 const RECONCILE_MS: u64 = 1000;
 
+/// Minimum gap between two "at capacity on reconcile" warnings for the SAME unserved set.
+/// The reconcile tick runs every [`RECONCILE_MS`], so without this an engine stuck at
+/// capacity for a whole call would warn once a second for its entire duration.
+const CAPACITY_WARN_MIN_INTERVAL: Duration = Duration::from_secs(30);
+
+/// Whether the "at capacity on reconcile" warning should fire again: either the set of
+/// languages still waiting for a permit has changed since the last warning (worth knowing
+/// immediately — a NEW language is stuck, not just the same one still stuck), or enough
+/// time has passed that a permanently exhausted engine is still worth a reminder.
+///
+/// Pure and total so it is testable without a running reconcile loop or a live semaphore.
+fn should_warn_capacity_exhausted(
+    last: Option<(&HashSet<String>, Instant)>,
+    unserved: &HashSet<String>,
+    now: Instant,
+    min_interval: Duration,
+) -> bool {
+    match last {
+        None => true,
+        Some((last_set, last_at)) => {
+            last_set != unserved || now.saturating_duration_since(last_at) >= min_interval
+        }
+    }
+}
+
 /// Why a single Qwen connection ended.
 enum ConnOutcome {
     /// The speaker stopped (audio channel closed) — the session is done.
@@ -221,6 +246,17 @@ async fn run_session(
     let mut reconcile = interval(Duration::from_millis(RECONCILE_MS));
     reconcile.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
+    // Observability for a session whose wanted set silently never gets served (production
+    // incident: a phone speaker's session started with `targets=[]`, a web listener joined
+    // 17s later, and the reconcile tick that should have opened a language for them left
+    // nothing in the logs at all). `last_want` is what turns "log every tick forever" into
+    // "log only when something actually changed" — a live call reconciles once a second for
+    // its whole duration, and a line on every tick would drown the one that matters.
+    let mut last_want: Option<HashSet<String>> = None;
+    // Same idea for the capacity-exhausted warning below: an engine stuck at capacity for
+    // an entire call must not warn once a second for its whole duration either.
+    let mut last_capacity_warn: Option<(HashSet<String>, Instant)> = None;
+
     loop {
         tokio::select! {
             chunk = audio_rx.recv() => match chunk {
@@ -251,6 +287,19 @@ async fn run_session(
                 };
                 want.retain(|l| l != &ctx.speaker_lang);
                 let active_keys: HashSet<String> = active.keys().cloned().collect();
+
+                let want_set: HashSet<String> = want.iter().cloned().collect();
+                if last_want.as_ref() != Some(&want_set) {
+                    tracing::info!(
+                        speaker = %ctx.speaker_id,
+                        listener_pays = deps.listener_pays,
+                        want = ?want,
+                        active = ?active_keys.iter().collect::<Vec<_>>(),
+                        "standard: reconcile tick wanted set changed"
+                    );
+                    last_want = Some(want_set);
+                }
+
                 let (to_drop, to_add) = reconcile_langs(&active_keys, &want);
                 // Drop languages whose listeners all left / switched away: removing the
                 // feed sender ends that task and frees its permit.
@@ -259,16 +308,39 @@ async fn run_session(
                     // Hand the speaker-echo role back now: this session is going away,
                     // and a survivor re-elects itself the moment it next needs it.
                     primary.release(lang);
+                    tracing::info!(speaker = %ctx.speaker_id, lang = %lang, "standard: reconcile dropped language");
                 }
                 // Add newly-present languages (and retry any skipped at start),
                 // best-effort: if the engine is at capacity right now, stop and retry next
                 // tick when a permit frees (never tear down the languages already streaming).
-                for lang in to_add {
+                for (idx, lang) in to_add.iter().enumerate() {
                     match sessions.clone().try_acquire_owned() {
                         Ok(permit) => {
-                            spawn_lang_session(&config, &deps, &ctx, lang, permit, &mut active, &primary);
+                            tracing::info!(speaker = %ctx.speaker_id, lang = %lang, "standard: reconcile added language");
+                            spawn_lang_session(&config, &deps, &ctx, lang.clone(), permit, &mut active, &primary);
                         }
-                        Err(_) => break,
+                        Err(_) => {
+                            // Mirrors the `start_session` capacity warning (above), but
+                            // rate-limited: this arm can otherwise fire every reconcile
+                            // tick — once a second — for as long as the engine stays at
+                            // capacity, which for a stuck upstream is the whole call.
+                            let unserved: HashSet<String> = to_add[idx..].iter().cloned().collect();
+                            if should_warn_capacity_exhausted(
+                                last_capacity_warn.as_ref().map(|(s, t)| (s, *t)),
+                                &unserved,
+                                Instant::now(),
+                                CAPACITY_WARN_MIN_INTERVAL,
+                            ) {
+                                tracing::warn!(
+                                    speaker = %ctx.speaker_id,
+                                    lang = %lang,
+                                    unserved = unserved.len(),
+                                    "standard: at capacity on reconcile — languages still unserved"
+                                );
+                                last_capacity_warn = Some((unserved, Instant::now()));
+                            }
+                            break;
+                        }
                     }
                 }
             }
@@ -979,5 +1051,60 @@ mod tests {
         assert!(matches!(out, SessionOutcome::Started(_)));
         // The one permit was taken by the session that did start.
         assert_eq!(engine.sessions.available_permits(), 0);
+    }
+
+    // ---- capacity-warning rate limit ------------------------------------------
+
+    fn set(langs: &[&str]) -> HashSet<String> {
+        langs.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn the_first_capacity_warning_always_fires() {
+        assert!(should_warn_capacity_exhausted(
+            None,
+            &set(&["en"]),
+            Instant::now(),
+            CAPACITY_WARN_MIN_INTERVAL,
+        ));
+    }
+
+    #[test]
+    fn an_unchanged_unserved_set_stays_quiet_within_the_interval() {
+        // The case this rate limit exists for: an engine stuck at capacity for a whole
+        // call must not warn once a second for its entire duration.
+        let now = Instant::now();
+        let last = set(&["en"]);
+        assert!(!should_warn_capacity_exhausted(
+            Some((&last, now)),
+            &set(&["en"]),
+            now + Duration::from_secs(5),
+            CAPACITY_WARN_MIN_INTERVAL,
+        ));
+    }
+
+    #[test]
+    fn a_changed_unserved_set_warns_immediately() {
+        // A NEW language stuck is worth knowing about right away, not after 30s.
+        let now = Instant::now();
+        let last = set(&["en"]);
+        assert!(should_warn_capacity_exhausted(
+            Some((&last, now)),
+            &set(&["en", "fr"]),
+            now + Duration::from_millis(1),
+            CAPACITY_WARN_MIN_INTERVAL,
+        ));
+    }
+
+    #[test]
+    fn the_same_unserved_set_warns_again_after_the_interval_elapses() {
+        let now = Instant::now();
+        let last = set(&["en"]);
+        assert!(should_warn_capacity_exhausted(
+            Some((&last, now)),
+            &set(&["en"]),
+            now + CAPACITY_WARN_MIN_INTERVAL,
+            CAPACITY_WARN_MIN_INTERVAL,
+        ));
     }
 }

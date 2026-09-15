@@ -535,6 +535,25 @@ impl Leg {
     }
 }
 
+/// Why [`pump`] returned on the `Ok` path.
+///
+/// The two reasons look identical from the outside — both end the loop and both leave the
+/// telephone unreachable — but `run_leg` must treat them very differently. A provider-
+/// ended stream is what a completely ordinary hangup looks like from here (see the module
+/// doc on `voip::session` for the observed ordering against the carrier's hangup webhook),
+/// so failing the call on sight races that webhook. A room-ended stream means the peer was
+/// removed out from under a socket that is still open — the room made the decision, not
+/// the carrier, and there is no webhook coming to settle it, so ending the call
+/// immediately is correct.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PumpExit {
+    /// The provider ended its media stream: the socket closed (`None`, or an error we do
+    /// not otherwise distinguish), or it sent an `Inbound::Stop` frame.
+    ProviderEnded,
+    /// The room side ended: the phone peer's `from_room` channel closed.
+    RoomEnded,
+}
+
 /// Everything a live media socket needs.
 pub struct BridgeHandles {
     /// Captured phone audio, PCM16 LE @ [`ENGINE_RATE_HZ`], for the engine session.
@@ -571,20 +590,22 @@ impl UtteranceTimer {
 /// Pump one media socket: phone audio in, translated audio out.
 ///
 /// Split from the socket type so it is driven by plain channels and can be tested without
-/// a WebSocket, a provider or a network.
+/// a WebSocket, a provider or a network. The `Ok` value reports WHY the pump ended — see
+/// [`PumpExit`] — so the caller can tell a provider-ended stream from a room-ended one
+/// instead of treating every non-error return the same way.
 pub async fn pump<S, E>(
     mut socket: S,
     mut leg: Leg,
     mut handles: BridgeHandles,
-) -> Result<(), MediaError>
+) -> Result<PumpExit, MediaError>
 where
     S: futures::Sink<String, Error = E> + futures::Stream<Item = Result<String, E>> + Unpin,
 {
-    loop {
+    let exit = loop {
         tokio::select! {
             // Audio and control from the phone.
             incoming = socket.next() => {
-                let Some(Ok(raw)) = incoming else { break };
+                let Some(Ok(raw)) = incoming else { break PumpExit::ProviderEnded };
                 match parse_inbound(&raw)? {
                     Inbound::Media { payload_b64, .. } => {
                         if leg.note_unconfirmed() {
@@ -615,7 +636,7 @@ where
                     Inbound::Dtmf { digit } => {
                         let _ = handles.digits.try_send(digit);
                     }
-                    Inbound::Stop => break,
+                    Inbound::Stop => break PumpExit::ProviderEnded,
                     Inbound::Start { codec, .. } => {
                         if leg.renegotiate(codec) {
                             crate::metrics::record_voip_codec_renegotiation();
@@ -627,7 +648,7 @@ where
 
             // Translated audio for the phone, from its room channel.
             frame = handles.from_room.recv() => {
-                let Some(frame) = frame else { break };
+                let Some(frame) = frame else { break PumpExit::RoomEnded };
                 if let Some(pcm_b64) = translated_audio_payload(&frame) {
                     // Sending the far party translated audio says nothing about whether
                     // THEY are speaking — that used to be conflated here, and it is the
@@ -645,8 +666,8 @@ where
                 }
             }
         }
-    }
-    Ok(())
+    };
+    Ok(exit)
 }
 
 fn json<T: Serialize>(v: &T) -> String {
@@ -1315,7 +1336,48 @@ mod tests {
             .await
             .expect("pump returned")
             .expect("no panic");
-        assert!(out.is_ok());
+        assert_eq!(
+            out,
+            Ok(PumpExit::ProviderEnded),
+            "a Stop frame is the provider ending the stream, not the room"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_room_channel_closing_ends_the_pump_with_the_room_ended_reason() {
+        // The complement of the Stop-frame case above: the SOCKET is still open (the phone
+        // side never sent anything) but the room removed this peer's channel out from
+        // under it — e.g. the room closed, or the call was reclaimed. `run_leg` must be
+        // able to tell the two apart: only one of them has a carrier hangup webhook coming.
+        let (in_tx, in_rx) = mpsc::channel(4);
+        let (out_tx, _out_rx) = mpsc::channel(4);
+        let (engine_tx, _engine_rx) = mpsc::channel(4);
+        let (room_tx, room_rx) = mpsc::channel(4);
+        let (digit_tx, _digit_rx) = mpsc::channel(4);
+
+        let socket = FakeSocket {
+            incoming: in_rx,
+            outgoing: out_tx,
+        };
+        let task = tokio::spawn(pump(
+            socket,
+            Leg::new(MediaCodec::Pcmu),
+            BridgeHandles {
+                to_engine: engine_tx,
+                from_room: room_rx,
+                digits: digit_tx,
+            },
+        ));
+
+        drop(room_tx);
+
+        let out = tokio::time::timeout(std::time::Duration::from_secs(2), task)
+            .await
+            .expect("pump returned")
+            .expect("no panic");
+        assert_eq!(out, Ok(PumpExit::RoomEnded));
+
+        drop(in_tx);
     }
 
     #[tokio::test]
