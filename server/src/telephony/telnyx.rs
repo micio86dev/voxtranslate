@@ -415,6 +415,10 @@ fn streaming_body(cfg: &MediaStreamConfig) -> Value {
         // whole second of added latency on a conversation.
         body["stream_bidirectional_mode"] = json!("rtp");
         body["stream_bidirectional_codec"] = json!(cfg.codec.as_str());
+        // Telnyx defaults this to 8000 when it is omitted. We negotiate L16 at 16 kHz, so
+        // leaving it unset would silently downsample the bidirectional stream to 8 kHz on
+        // the wire while every leg on our side keeps decoding it at the codec's own rate.
+        body["stream_bidirectional_sampling_rate"] = json!(cfg.codec.sample_rate());
     }
     body
 }
@@ -1564,6 +1568,10 @@ mod tests {
         assert_eq!(body["stream_codec"], "L16");
         assert_eq!(body["stream_bidirectional_mode"], "rtp");
         assert_eq!(body["stream_bidirectional_codec"], "L16");
+        // Telnyx defaults stream_bidirectional_sampling_rate to 8000 when it is omitted.
+        // We negotiate L16 at 16 kHz, so leaving this unset would silently downsample the
+        // whole call to 8 kHz on the wire while every leg keeps decoding it as 16 kHz.
+        assert_eq!(body["stream_bidirectional_sampling_rate"], 16_000);
     }
 
     #[test]
@@ -1578,6 +1586,7 @@ mod tests {
         assert_eq!(body["stream_track"], "both_tracks");
         assert_eq!(body["stream_codec"], "PCMU");
         assert!(body.get("stream_bidirectional_mode").is_none());
+        assert!(body.get("stream_bidirectional_sampling_rate").is_none());
     }
 
     // ---- HTTP status mapping --------------------------------------------------
