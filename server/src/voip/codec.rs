@@ -135,6 +135,59 @@ pub enum CodecError {
 }
 
 // ---------------------------------------------------------------------------
+// L16 byte-order detection
+// ---------------------------------------------------------------------------
+
+/// Swap every consecutive byte pair — the transform between reading an L16 payload as
+/// big-endian and as little-endian, applied to the raw wire bytes rather than to decoded
+/// samples so it composes cleanly with [`decode`] and [`encode`], which stay big-endian
+/// (network order, RFC 3551) exactly as before. A trailing odd byte, which should never
+/// happen for L16, is passed through unchanged rather than dropped.
+pub fn swap_byte_pairs(bytes: &[u8]) -> Vec<u8> {
+    let (pairs, remainder) = bytes.as_chunks::<2>();
+    let mut out = Vec::with_capacity(bytes.len());
+    for pair in pairs {
+        out.push(pair[1]);
+        out.push(pair[0]);
+    }
+    out.extend_from_slice(remainder);
+    out
+}
+
+/// How rough each byte-order reading of an L16 payload is, as `(big_endian, little_endian)`.
+///
+/// Telnyx does not document the byte order for Call Control media streaming. RFC 3551 says
+/// network order (big-endian), which is what [`decode`] assumes — but a wrong assumption
+/// here is silent corruption in both directions, not an error, so it is worth measuring
+/// rather than trusting the spec sheet.
+///
+/// Roughness is the summed absolute sample-to-sample delta: real audio, even quiet line
+/// noise, is highly correlated from one 16 kHz sample to the next, so the correct reading
+/// has a small sum. The byte-swapped reading puts each sample's low byte where the high byte
+/// belongs, which scrambles the waveform into something close to white noise — a large sum.
+/// An all-zero payload (digital silence, or an unpopulated test fixture) reads the same
+/// either way and yields `(0, 0)`: no evidence for either order.
+pub fn l16_byte_order_roughness(payload: &[u8]) -> (u64, u64) {
+    let pairs = payload.as_chunks::<2>().0;
+    let be: Vec<i32> = pairs
+        .iter()
+        .map(|p| i16::from_be_bytes(*p) as i32)
+        .collect();
+    let le: Vec<i32> = pairs
+        .iter()
+        .map(|p| i16::from_le_bytes(*p) as i32)
+        .collect();
+    (roughness(&be), roughness(&le))
+}
+
+fn roughness(samples: &[i32]) -> u64 {
+    samples
+        .windows(2)
+        .map(|w| (w[1] - w[0]).unsigned_abs() as u64)
+        .sum()
+}
+
+// ---------------------------------------------------------------------------
 // Resampling
 // ---------------------------------------------------------------------------
 
@@ -485,6 +538,66 @@ mod tests {
     fn a_full_ulaw_frame_decodes_to_one_sample_per_byte() {
         let frame = vec![0xFFu8; 160]; // 20 ms at 8 kHz
         assert_eq!(decode(MediaCodec::Pcmu, &frame).unwrap().len(), 160);
+    }
+
+    // ---- L16 byte order ---------------------------------------------------------
+
+    fn to_be(samples: &[i16]) -> Vec<u8> {
+        samples.iter().flat_map(|s| s.to_be_bytes()).collect()
+    }
+
+    fn to_le(samples: &[i16]) -> Vec<u8> {
+        samples.iter().flat_map(|s| s.to_le_bytes()).collect()
+    }
+
+    #[test]
+    fn the_correct_reading_of_a_tone_is_far_smoother_than_the_swapped_one() {
+        let samples = sine(440.0, 16_000, 320, 0.5);
+
+        let be_payload = to_be(&samples);
+        let (be_roughness, le_roughness) = l16_byte_order_roughness(&be_payload);
+        assert!(
+            be_roughness * 2 < le_roughness,
+            "big-endian bytes should read smoothly as big-endian: be {be_roughness} le {le_roughness}"
+        );
+
+        let le_payload = to_le(&samples);
+        let (be_roughness, le_roughness) = l16_byte_order_roughness(&le_payload);
+        assert!(
+            le_roughness * 2 < be_roughness,
+            "little-endian bytes should read smoothly as little-endian: be {be_roughness} le {le_roughness}"
+        );
+    }
+
+    #[test]
+    fn low_amplitude_line_noise_still_discriminates_byte_order() {
+        // Quiet, not silent: a deterministic pseudo-noise sequence within ±60, standing in
+        // for real PSTN line noise. Even at this amplitude the byte-swapped reading puts
+        // the sign/high-order byte where the low-order byte belongs, which is still far
+        // rougher than the correct reading.
+        let samples: Vec<i16> = (0..320i32).map(|i| ((i * 37) % 121) as i16 - 60).collect();
+
+        let be_payload = to_be(&samples);
+        let (be_roughness, le_roughness) = l16_byte_order_roughness(&be_payload);
+        assert!(
+            be_roughness < le_roughness,
+            "be {be_roughness} le {le_roughness}"
+        );
+    }
+
+    #[test]
+    fn an_all_zero_payload_carries_no_byte_order_evidence() {
+        assert_eq!(l16_byte_order_roughness(&[0u8; 640]), (0, 0));
+    }
+
+    #[test]
+    fn swapping_byte_pairs_is_its_own_inverse() {
+        let payload = to_be(&sine(440.0, 16_000, 40, 0.5));
+        assert_eq!(swap_byte_pairs(&swap_byte_pairs(&payload)), payload);
+        // Big-endian read after a swap is exactly what little-endian read before it was.
+        let (_, le_before) = l16_byte_order_roughness(&payload);
+        let (be_after, _) = l16_byte_order_roughness(&swap_byte_pairs(&payload));
+        assert_eq!(le_before, be_after);
     }
 
     // ---- resampling -----------------------------------------------------------

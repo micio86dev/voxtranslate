@@ -25,8 +25,6 @@
 //!   fan-out, capacity fallback, the meter — all of it already works for a peer, and a
 //!   phone is now a peer.
 
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
 use std::time::Instant;
 
 use base64::Engine as _;
@@ -207,6 +205,175 @@ impl std::fmt::Display for MediaError {
 }
 
 // ---------------------------------------------------------------------------
+// Far-party voice activity (barge-in)
+// ---------------------------------------------------------------------------
+
+/// Mean absolute amplitude above which a decoded inbound frame counts as speech, on the
+/// codec's own linear PCM16 scale.
+///
+/// Telnyx sends inbound `media` frames continuously — every ~20 ms, including silence — so
+/// "a frame arrived" cannot mean "the far party is speaking": every translated chunk we send
+/// would be followed within 20 ms by a silent inbound frame, misread as the far party
+/// starting to talk, and immediately cleared. Around 500 (~ -36 dBFS on a full-scale i16)
+/// sits well above PSTN line noise and comfortably below real speech, so it discriminates
+/// the two without needing per-carrier tuning.
+const SPEECH_AMPLITUDE_THRESHOLD: i64 = 500;
+
+/// How long a run of non-speech must last before we consider the far party done talking.
+const SPEECH_HANGOVER_MS: u32 = 500;
+
+/// Energy-based voice-activity state for the far party's inbound audio, used for barge-in.
+///
+/// Deciding "speaking" from decoded energy rather than frame arrival is the fix for the
+/// barge-in bug: with a hangover of consecutive non-speech SAMPLES (not frames, so the
+/// hangover duration does not depend on the wire codec's frame size), a brief dip mid-word
+/// does not read as the sentence ending, and — crucially — nothing about receiving
+/// *translated* audio for the far party has any bearing on whether *they* are speaking.
+struct FarPartyVad {
+    speaking: bool,
+    /// Consecutive non-speech samples seen while `speaking`, at the wire rate.
+    silence_run: u32,
+    hangover_samples: u32,
+    /// Set on a not-speaking → speaking transition; consumed and reset by
+    /// [`Leg::take_speech_onset`]. Barge-in must fire once per onset, not once per frame for
+    /// as long as the far party keeps talking.
+    onset: bool,
+}
+
+impl FarPartyVad {
+    fn new(wire_rate_hz: u32) -> Self {
+        Self {
+            speaking: false,
+            silence_run: 0,
+            hangover_samples: (wire_rate_hz as u64 * SPEECH_HANGOVER_MS as u64 / 1000) as u32,
+            onset: false,
+        }
+    }
+
+    /// Feed one frame's decoded samples, at the wire rate (i.e. before resampling to the
+    /// engine rate — the wire rate is what the hangover is measured in).
+    fn observe(&mut self, samples: &[i16]) {
+        if samples.is_empty() {
+            return;
+        }
+        let mean_abs: i64 =
+            samples.iter().map(|s| s.unsigned_abs() as i64).sum::<i64>() / samples.len() as i64;
+        if mean_abs > SPEECH_AMPLITUDE_THRESHOLD {
+            if !self.speaking {
+                self.speaking = true;
+                self.onset = true;
+            }
+            self.silence_run = 0;
+        } else if self.speaking {
+            self.silence_run = self.silence_run.saturating_add(samples.len() as u32);
+            if self.silence_run >= self.hangover_samples {
+                self.speaking = false;
+                self.silence_run = 0;
+            }
+        }
+    }
+
+    /// Report and reset the onset flag: true exactly once per not-speaking → speaking
+    /// transition.
+    fn take_onset(&mut self) -> bool {
+        std::mem::take(&mut self.onset)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// L16 byte-order detection
+// ---------------------------------------------------------------------------
+
+/// Minimum number of evidence-carrying frames before a byte-order decision is trusted. One
+/// or two frames could tie by chance (e.g. a mostly-silent line); five makes a coin-flip
+/// outcome implausible.
+const BYTE_ORDER_MIN_EVIDENCE_FRAMES: u32 = 5;
+
+/// A reading must be at least this much smoother (lower summed roughness) than the other to
+/// be trusted as a decision rather than a photo finish that could flip on the next frame.
+const BYTE_ORDER_DECISIVE_RATIO: u64 = 2;
+
+/// How many inbound frames to keep trying before giving up on ever deciding. At ~20 ms per
+/// frame this is 5 seconds — long enough to hear past an initial burst of near-silence,
+/// short enough that a leg that can never decide (e.g. a dead line) does not keep computing
+/// roughness on every frame for the rest of the call.
+const BYTE_ORDER_MAX_ATTEMPTS: u32 = 250;
+
+/// Accumulates L16 byte-order evidence across a leg's inbound frames and decides once.
+///
+/// Only meaningful for L16: µ-law and A-law have no byte-order ambiguity (one byte, one
+/// sample), so those legs never call [`observe`](Self::observe) and this type's default
+/// (`little_endian() == false`, i.e. keep the RFC 3551 big-endian assumption) is exactly the
+/// unchanged behaviour for them.
+#[derive(Debug, Default)]
+struct ByteOrderDetector {
+    decided_little_endian: Option<bool>,
+    gave_up: bool,
+    evidence_frames: u32,
+    frames_tried: u32,
+    be_total: u64,
+    le_total: u64,
+}
+
+impl ByteOrderDetector {
+    fn new() -> Self {
+        Self::default()
+    }
+
+    /// Whether inbound/outbound L16 bytes should be byte-swapped before decode / after
+    /// encode. `false` — the RFC 3551 default — until (if ever) evidence decides otherwise.
+    fn little_endian(&self) -> bool {
+        self.decided_little_endian == Some(true)
+    }
+
+    /// Feed one inbound frame's RAW wire bytes, before any swap. A no-op once decided or
+    /// given up, so a long call does not keep recomputing roughness for nothing.
+    fn observe(&mut self, wire: &[u8]) {
+        if self.decided_little_endian.is_some() || self.gave_up {
+            return;
+        }
+        self.frames_tried += 1;
+        let (be, le) = codec::l16_byte_order_roughness(wire);
+        if be != 0 || le != 0 {
+            self.evidence_frames += 1;
+            self.be_total += be;
+            self.le_total += le;
+        }
+        if self.evidence_frames >= BYTE_ORDER_MIN_EVIDENCE_FRAMES {
+            if self.be_total >= self.le_total.saturating_mul(BYTE_ORDER_DECISIVE_RATIO) {
+                self.decide(true);
+                return;
+            }
+            if self.le_total >= self.be_total.saturating_mul(BYTE_ORDER_DECISIVE_RATIO) {
+                self.decide(false);
+                return;
+            }
+        }
+        if self.frames_tried >= BYTE_ORDER_MAX_ATTEMPTS {
+            self.gave_up = true;
+            tracing::warn!(
+                "phone leg L16 byte order could not be determined after {} frames; keeping big-endian",
+                BYTE_ORDER_MAX_ATTEMPTS
+            );
+        }
+    }
+
+    fn decide(&mut self, little_endian: bool) {
+        self.decided_little_endian = Some(little_endian);
+        // This log line is how the next production call tells us the truth: byte order is
+        // undocumented by the provider, so a field here is worth more than a guess in code.
+        tracing::info!(
+            byte_order = if little_endian {
+                "little-endian"
+            } else {
+                "big-endian"
+            },
+            "phone leg L16 byte order detected"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
 // The bridge
 // ---------------------------------------------------------------------------
 
@@ -229,8 +396,11 @@ pub struct Leg {
     /// Engine → phone.
     down: Resampler,
     gate: PlaybackGate,
-    /// Whether the far party is currently speaking, for barge-in.
-    far_speaking: Arc<AtomicBool>,
+    /// Energy-based speech detection on the far party's inbound audio, for barge-in.
+    vad: FarPartyVad,
+    /// L16-only: which byte order this leg's wire audio actually uses, detected from the
+    /// audio itself because Telnyx does not document it. A no-op for every other codec.
+    byte_order: ByteOrderDetector,
 }
 
 impl Leg {
@@ -242,7 +412,8 @@ impl Leg {
             up: Resampler::new(wire, ENGINE_RATE_HZ),
             down: Resampler::new(ENGINE_RATE_HZ, wire),
             gate: PlaybackGate::new(),
-            far_speaking: Arc::new(AtomicBool::new(false)),
+            vad: FarPartyVad::new(wire),
+            byte_order: ByteOrderDetector::new(),
         }
     }
 
@@ -275,16 +446,39 @@ impl Leg {
         self.codec = codec;
         self.up = Resampler::new(wire, ENGINE_RATE_HZ);
         self.down = Resampler::new(ENGINE_RATE_HZ, wire);
+        // Both the VAD's hangover (in samples at the wire rate) and any in-progress L16
+        // byte-order evidence are meaningless for the new codec's own wire format.
+        self.vad = FarPartyVad::new(wire);
+        self.byte_order = ByteOrderDetector::new();
         true
     }
 
     /// Wire audio from the phone → PCM16 at the engine's rate.
+    ///
+    /// Also where the far party's voice-activity state advances: the decoded samples are at
+    /// the wire rate, which is exactly what the VAD's hangover is measured in, so there is
+    /// no reason to do this anywhere else. Check [`take_speech_onset`](Self::take_speech_onset)
+    /// after calling this to learn whether THIS call started a new utterance.
     pub fn decode_up(&mut self, payload_b64: &str) -> Result<Vec<u8>, MediaError> {
         let bytes = B64
             .decode(payload_b64)
             .map_err(|e| MediaError::Malformed(e.to_string()))?;
+        let bytes = if self.codec == MediaCodec::L16 {
+            // Evidence is accumulated on the raw wire bytes, before any swap: swapping
+            // first would feed the detector its own correction and it could never see the
+            // roughness that justified deciding in the first place.
+            self.byte_order.observe(&bytes);
+            if self.byte_order.little_endian() {
+                codec::swap_byte_pairs(&bytes)
+            } else {
+                bytes
+            }
+        } else {
+            bytes
+        };
         let samples = codec::decode(self.codec, &bytes)
             .map_err(|e| MediaError::Malformed(format!("{e:?}")))?;
+        self.vad.observe(&samples);
         let resampled = self.up.process(&samples);
         Ok(resampled.iter().flat_map(|s| s.to_le_bytes()).collect())
     }
@@ -292,7 +486,9 @@ impl Leg {
     /// Translated PCM16 from the engine → wire audio for the phone.
     ///
     /// The engine emits little-endian PCM16 (the browser's format); the wire wants the
-    /// codec's own. Both conversions live here so neither can be forgotten at a call site.
+    /// codec's own — byte-swapped afterwards if this L16 leg was detected to actually be
+    /// little-endian on the wire. Both conversions live here so neither can be forgotten at
+    /// a call site.
     pub fn encode_down(&mut self, pcm16_le: &[u8]) -> Result<String, MediaError> {
         if !pcm16_le.len().is_multiple_of(2) {
             return Err(MediaError::Malformed("odd-length PCM16 buffer".into()));
@@ -306,6 +502,11 @@ impl Leg {
         let resampled = self.down.process(&samples);
         let wire = codec::encode(self.codec, &resampled)
             .map_err(|e| MediaError::Malformed(format!("{e:?}")))?;
+        let wire = if self.codec == MediaCodec::L16 && self.byte_order.little_endian() {
+            codec::swap_byte_pairs(&wire)
+        } else {
+            wire
+        };
         Ok(B64.encode(wire))
     }
 
@@ -313,20 +514,12 @@ impl Leg {
         &mut self.gate
     }
 
-    /// The far party started talking. Returns whether anything had to be discarded, so the
-    /// caller only sends `clear` when there was something to clear — an unnecessary
-    /// command on a silent leg is a wasted round trip on the latency path.
-    pub fn barge_in(&mut self) -> bool {
-        self.far_speaking.store(true, Ordering::Relaxed);
-        self.gate.barge_in()
-    }
-
-    pub fn far_stopped(&self) {
-        self.far_speaking.store(false, Ordering::Relaxed);
-    }
-
-    pub fn far_speaking(&self) -> bool {
-        self.far_speaking.load(Ordering::Relaxed)
+    /// Report and reset whether the far party just transitioned from not-speaking to
+    /// speaking, per the most recent [`decode_up`](Self::decode_up) call. This is the
+    /// barge-in trigger: true exactly once per onset, not once per frame while they keep
+    /// talking, and never as a side effect of translated audio being sent to them.
+    pub fn take_speech_onset(&mut self) -> bool {
+        self.vad.take_onset()
     }
 
     /// True the first time audio arrives on a leg whose format was never announced.
@@ -403,14 +596,17 @@ where
                                 "phone media arrived with no start frame; decoding an assumed codec"
                             );
                         }
+                        let pcm = leg.decode_up(&payload_b64)?;
                         // Speaking again mid-playback: drop what is queued for them AND
                         // tell the provider to drop what it already buffered. Without the
                         // second half the caller hears the sentence they interrupted
-                        // finish anyway, which reads as being ignored.
-                        if !leg.far_speaking() && leg.barge_in() {
+                        // finish anyway, which reads as being ignored. Gated on the VAD's
+                        // ONSET (decided from this frame's decoded energy), not on frame
+                        // arrival — Telnyx sends inbound frames continuously, including
+                        // silence, so "a frame arrived" is not "they are speaking".
+                        if leg.take_speech_onset() && leg.gate().barge_in() {
                             let _ = socket.send(json(&Outbound::Clear)).await;
                         }
-                        let pcm = leg.decode_up(&payload_b64)?;
                         // A full channel means the engine is behind. Dropping is right:
                         // back-pressuring a live phone call would stall the socket and the
                         // far party would hear a gap growing without bound.
@@ -433,7 +629,9 @@ where
             frame = handles.from_room.recv() => {
                 let Some(frame) = frame else { break };
                 if let Some(pcm_b64) = translated_audio_payload(&frame) {
-                    leg.far_stopped();
+                    // Sending the far party translated audio says nothing about whether
+                    // THEY are speaking — that used to be conflated here, and it is the
+                    // root cause of the original barge-in bug (see the VAD above).
                     let Ok(pcm) = B64.decode(&pcm_b64) else { continue };
                     let payload = leg.encode_down(&pcm)?;
                     // The gate holds nothing: it decides whether this chunk still belongs
@@ -478,6 +676,29 @@ mod tests {
             "media": { "payload": payload, "track": "inbound" }
         })
         .to_string()
+    }
+
+    /// A 440 Hz tone at the given amplitude (0.0-1.0), as PCM16 samples.
+    fn sine_i16(rate_hz: f32, n: usize, amp: f32) -> Vec<i16> {
+        (0..n)
+            .map(|i| {
+                ((2.0 * std::f32::consts::PI * 440.0 * i as f32 / rate_hz).sin() * amp * 32767.0)
+                    as i16
+            })
+            .collect()
+    }
+
+    /// One 20 ms L16 frame (320 samples at 16 kHz) loud enough to register as speech —
+    /// well above [`SPEECH_AMPLITUDE_THRESHOLD`].
+    fn loud_be_frame() -> Vec<u8> {
+        sine_i16(16_000.0, 320, 0.3)
+            .iter()
+            .flat_map(|s| s.to_be_bytes())
+            .collect()
+    }
+
+    fn silent_l16_frame() -> Vec<u8> {
+        vec![0u8; 640] // 320 samples, all zero — silence reads the same either byte order.
     }
 
     // ---- inbound parsing ------------------------------------------------------
@@ -711,15 +932,27 @@ mod tests {
         let mut leg = Leg::new(MediaCodec::L16);
         let gen = leg.gate().generation();
         leg.gate().accept(gen, 640);
-        assert!(!leg.far_speaking());
 
-        assert!(leg.barge_in(), "there was audio out there to discard");
-        assert!(leg.far_speaking());
+        // A loud inbound frame is the far party starting to talk — the ONSET, decided from
+        // this frame's decoded energy rather than from the frame merely having arrived.
+        leg.decode_up(&B64.encode(loud_be_frame())).unwrap();
+        assert!(
+            leg.take_speech_onset(),
+            "a loud frame after silence is an onset"
+        );
+        assert!(
+            leg.gate().barge_in(),
+            "there was audio out there to discard"
+        );
         assert!(leg.gate().is_idle());
 
-        // A second barge-in with nothing in flight reports nothing to clear, so the caller
-        // can skip the provider round trip.
-        assert!(!leg.barge_in());
+        // The far party continuing to talk is not a second onset, so a second barge-in
+        // check finds nothing new to clear.
+        leg.decode_up(&B64.encode(loud_be_frame())).unwrap();
+        assert!(
+            !leg.take_speech_onset(),
+            "still the same utterance, not a new one"
+        );
     }
 
     #[test]
@@ -727,7 +960,7 @@ mod tests {
         let mut leg = Leg::new(MediaCodec::L16);
         let stale = leg.gate().generation();
         leg.gate().accept(stale, 640);
-        leg.barge_in();
+        leg.gate().barge_in();
 
         assert!(
             !leg.gate().accept(stale, 640),
@@ -740,10 +973,35 @@ mod tests {
     }
 
     #[test]
-    fn playback_marks_the_far_party_as_listening_again() {
-        let leg = Leg::new(MediaCodec::L16);
-        leg.far_stopped();
-        assert!(!leg.far_speaking());
+    fn far_party_stops_speaking_only_after_the_hangover_not_when_playback_arrives() {
+        // THE regression: this leg used to be told the far party stopped speaking whenever
+        // TRANSLATED audio arrived for them — nothing to do with whether they were actually
+        // still talking. A translated chunk sent moments after they started meant the very
+        // next silent inbound frame (at most 20 ms later) read as a fresh onset and cleared
+        // the chunk that had just gone out. There is no call left in the public API that
+        // lets playback influence this at all; speaking now ends only after a run of silent
+        // SAMPLES on the inbound leg.
+        let mut leg = Leg::new(MediaCodec::L16);
+        leg.decode_up(&B64.encode(loud_be_frame())).unwrap();
+        assert!(leg.take_speech_onset());
+
+        // One 20 ms silent frame is far short of the ~500 ms hangover.
+        leg.decode_up(&B64.encode(silent_l16_frame())).unwrap();
+        assert!(
+            !leg.take_speech_onset(),
+            "still within the hangover, not a new utterance yet"
+        );
+
+        // Enough consecutive silence crosses the hangover (16 kHz / 2 = 8000 samples, i.e.
+        // 25 frames of 320 samples; comfortably exceeded here).
+        for _ in 0..30 {
+            leg.decode_up(&B64.encode(silent_l16_frame())).unwrap();
+        }
+        leg.decode_up(&B64.encode(loud_be_frame())).unwrap();
+        assert!(
+            leg.take_speech_onset(),
+            "speaking resumed after the hangover elapsed, so this is a genuine new onset"
+        );
     }
 
     // ---- latency --------------------------------------------------------------
@@ -756,6 +1014,92 @@ mod tests {
         let ms = t.first_audio_ms();
         assert!(ms >= 10, "expected at least 10 ms, got {ms}");
         assert!(ms < 5_000, "sanity: {ms}");
+    }
+
+    // ---- L16 byte order ---------------------------------------------------------
+
+    #[test]
+    fn a_leg_detects_little_endian_wire_audio_from_its_own_energy() {
+        let mut leg = Leg::new(MediaCodec::L16);
+
+        // Feed enough frames of a genuinely little-endian tone to cross the detector's
+        // minimum evidence and decisive-ratio thresholds — a clean stand-in for real
+        // speech, which reads far smoother one way than the other.
+        let mut last_pcm = Vec::new();
+        for _ in 0..10 {
+            let le: Vec<u8> = sine_i16(16_000.0, 320, 0.4)
+                .iter()
+                .flat_map(|s| s.to_le_bytes())
+                .collect();
+            last_pcm = leg.decode_up(&B64.encode(le)).unwrap();
+        }
+
+        // The decoded engine PCM (little-endian i16 @ 24 kHz) is a smooth tone, not
+        // full-scale garbage — which is what reading it as big-endian would have produced.
+        let engine: Vec<i16> = last_pcm
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|c| i16::from_le_bytes(*c))
+            .collect();
+        let peak = engine.iter().map(|s| s.unsigned_abs()).max().unwrap_or(0);
+        assert!(
+            peak < 20_000,
+            "peak {peak} should track the ~0.4-amplitude tone, not clip to full-scale garbage"
+        );
+        let mean_jump: f32 = engine
+            .windows(2)
+            .map(|w| (w[1] as i32 - w[0] as i32).unsigned_abs() as f32)
+            .sum::<f32>()
+            / (engine.len().saturating_sub(1).max(1)) as f32;
+        assert!(
+            mean_jump < peak as f32 * 0.5,
+            "a correctly-decoded tone moves smoothly sample to sample; mean_jump {mean_jump} peak {peak}"
+        );
+
+        // And encode_down now emits little-endian wire bytes for the phone.
+        let steady: i16 = 1000;
+        let engine_pcm: Vec<u8> = (0..200).flat_map(|_| steady.to_le_bytes()).collect();
+        let wire = B64.decode(leg.encode_down(&engine_pcm).unwrap()).unwrap();
+        let tail = &wire[wire.len() - 8..];
+        let le_val = i16::from_le_bytes([tail[0], tail[1]]);
+        assert!(
+            (le_val as i32 - steady as i32).abs() < 100,
+            "expected ~{steady} reading the tail of the wire bytes as little-endian, got {le_val}"
+        );
+    }
+
+    #[test]
+    fn a_leg_keeps_big_endian_when_the_audio_is_already_big_endian() {
+        let mut leg = Leg::new(MediaCodec::L16);
+        for _ in 0..10 {
+            leg.decode_up(&B64.encode(loud_be_frame())).unwrap();
+        }
+        let steady: i16 = 1000;
+        let engine_pcm: Vec<u8> = (0..200).flat_map(|_| steady.to_le_bytes()).collect();
+        let wire = B64.decode(leg.encode_down(&engine_pcm).unwrap()).unwrap();
+        let tail = &wire[wire.len() - 8..];
+        // Unswapped: reading the tail as BIG-endian recovers the steady value.
+        let be_val = i16::from_be_bytes([tail[0], tail[1]]);
+        assert!(
+            (be_val as i32 - steady as i32).abs() < 100,
+            "expected ~{steady} reading the tail of the wire bytes as big-endian, got {be_val}"
+        );
+    }
+
+    #[test]
+    fn a_mu_law_leg_never_attempts_byte_order_detection() {
+        // µ-law has no byte-order ambiguity: one byte, one sample. Feeding it audio that
+        // would be extremely decisive evidence for an L16 leg must have zero effect.
+        let mut leg = Leg::new(MediaCodec::Pcmu);
+        for _ in 0..20 {
+            leg.decode_up(&B64.encode(vec![0x00u8; 160])).unwrap();
+        }
+        // No panic and no observable behaviour change is the whole assertion here: there is
+        // no byte order to detect, so nothing about encode_down's shape should differ from
+        // the untouched codec round trip already covered by `a_mu_law_leg_converts_both_ways`.
+        let pcm: Vec<u8> = vec![0u8; 960];
+        assert!(leg.encode_down(&pcm).is_ok());
     }
 
     // ---- the pump -------------------------------------------------------------
@@ -972,5 +1316,151 @@ mod tests {
             .expect("pump returned")
             .expect("no panic");
         assert!(out.is_ok());
+    }
+
+    #[tokio::test]
+    async fn continuous_silent_inbound_frames_never_clear_translated_audio() {
+        // THE regression this fix exists for. Telnyx sends inbound `media` frames
+        // continuously, including silence, every ~20 ms. The old barge-in check fired on
+        // FRAME ARRIVAL rather than on decoded energy, so the silent frame that always
+        // followed a translated chunk within 20 ms read as the far party interrupting and
+        // cleared what had just been sent — every chunk was cut to a few ms.
+        let (in_tx, in_rx) = mpsc::channel(64);
+        let (out_tx, mut out_rx) = mpsc::channel(64);
+        let (engine_tx, mut engine_rx) = mpsc::channel(64);
+        let (room_tx, room_rx) = mpsc::channel(64);
+        let (digit_tx, _digit_rx) = mpsc::channel(4);
+
+        let socket = FakeSocket {
+            incoming: in_rx,
+            outgoing: out_tx,
+        };
+        let handles = BridgeHandles {
+            to_engine: engine_tx.clone(),
+            from_room: room_rx,
+            digits: digit_tx,
+        };
+        let task = tokio::spawn(pump(socket, Leg::new(MediaCodec::L16), handles));
+
+        let silence = media_frame(&B64.encode(silent_l16_frame()));
+        let mut media_frames_seen = 0u32;
+        let mut clear_frames_seen = 0u32;
+
+        for seq in 0..5u32 {
+            in_tx.send(Ok(silence.clone())).await.unwrap();
+            // Let the pump actually process the silent frame before the translated chunk,
+            // rather than racing both into the select! at once.
+            let _ =
+                tokio::time::timeout(std::time::Duration::from_millis(50), engine_rx.recv()).await;
+
+            let translated: Vec<u8> = (0..480i16)
+                .map(|s| s.wrapping_add(seq as i16))
+                .flat_map(|s| s.to_le_bytes())
+                .collect();
+            room_tx
+                .send(
+                    serde_json::json!({
+                        "type": "translated_audio", "speaker_id": "s", "lang": "zh",
+                        "seq": seq, "pcm16_b64": B64.encode(&translated)
+                    })
+                    .to_string(),
+                )
+                .await
+                .unwrap();
+
+            // Drain whatever came back before starting the next iteration.
+            while let Ok(Some(frame)) =
+                tokio::time::timeout(std::time::Duration::from_millis(100), out_rx.recv()).await
+            {
+                if frame.contains("\"event\":\"media\"") {
+                    media_frames_seen += 1;
+                }
+                if frame.contains("\"event\":\"clear\"") {
+                    clear_frames_seen += 1;
+                }
+            }
+        }
+
+        assert_eq!(
+            clear_frames_seen, 0,
+            "continuous silence must never trigger a clear"
+        );
+        assert_eq!(
+            media_frames_seen, 5,
+            "every translated chunk must reach the wire"
+        );
+
+        drop(in_tx);
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(2), task).await;
+    }
+
+    #[tokio::test]
+    async fn a_loud_inbound_frame_after_playback_clears_exactly_once() {
+        let (in_tx, in_rx) = mpsc::channel(64);
+        let (out_tx, mut out_rx) = mpsc::channel(64);
+        let (engine_tx, _engine_rx) = mpsc::channel(64);
+        let (room_tx, room_rx) = mpsc::channel(64);
+        let (digit_tx, _digit_rx) = mpsc::channel(4);
+
+        let socket = FakeSocket {
+            incoming: in_rx,
+            outgoing: out_tx,
+        };
+        let handles = BridgeHandles {
+            to_engine: engine_tx,
+            from_room: room_rx,
+            digits: digit_tx,
+        };
+        let task = tokio::spawn(pump(socket, Leg::new(MediaCodec::L16), handles));
+
+        // Translated audio reaches the phone first, so there is something to discard.
+        let translated: Vec<u8> = (0..480i16).flat_map(|s| s.to_le_bytes()).collect();
+        room_tx
+            .send(
+                serde_json::json!({
+                    "type": "translated_audio", "speaker_id": "s", "lang": "zh", "seq": 1,
+                    "pcm16_b64": B64.encode(&translated)
+                })
+                .to_string(),
+            )
+            .await
+            .unwrap();
+
+        let mut saw_media = false;
+        for _ in 0..4 {
+            match tokio::time::timeout(std::time::Duration::from_secs(1), out_rx.recv()).await {
+                Ok(Some(frame)) if frame.contains("\"event\":\"media\"") => {
+                    saw_media = true;
+                    break;
+                }
+                _ => continue,
+            }
+        }
+        assert!(
+            saw_media,
+            "setup: translated audio must reach the wire before the interruption"
+        );
+
+        // The phone interrupts: several loud frames in a row are one onset, not several.
+        let loud = media_frame(&B64.encode(loud_be_frame()));
+        for _ in 0..3 {
+            in_tx.send(Ok(loud.clone())).await.unwrap();
+        }
+
+        let mut clears = 0u32;
+        loop {
+            match tokio::time::timeout(std::time::Duration::from_millis(200), out_rx.recv()).await {
+                Ok(Some(frame)) if frame.contains("\"event\":\"clear\"") => clears += 1,
+                Ok(Some(_)) => continue,
+                _ => break,
+            }
+        }
+        assert_eq!(
+            clears, 1,
+            "only the onset of speech should clear, not every loud frame"
+        );
+
+        drop(in_tx);
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(2), task).await;
     }
 }
