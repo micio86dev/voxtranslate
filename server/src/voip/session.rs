@@ -38,6 +38,7 @@ use crate::engine::{EngineRegistry, SessionDeps, SessionOutcome, TranslationEngi
 use crate::rooms::{Peer, PeerTx, Visibility, OUT_CHANNEL_CAP};
 use crate::telephony::MediaCodec;
 use crate::voip::media::{self, BridgeHandles, Leg};
+use crate::voip::service;
 use crate::voip::state::FailureReason;
 
 /// The name shown for the telephone participant in the room and the transcript.
@@ -306,6 +307,76 @@ async fn open_engine_session(
     (outcome, fallback)
 }
 
+/// Tear a leg down after BOTH the requested engine and its fallback failed to open a
+/// session (`open_engine_session` already tried both). Removing the room peer and marking
+/// the call `failed`/`engine_unavailable` are the only two things left to do — factored
+/// out of `run_leg` so this exact path is testable without a media socket.
+///
+/// Ending the call is not optional here. Removing the peer alone would leave a row that
+/// still reads as live: it keeps consuming a concurrency slot, keeps the customer's
+/// credits held, and keeps the carrier billing us — until the maximum-duration reaper
+/// notices, up to an hour later.
+async fn fail_unavailable_engine(
+    state: &crate::AppState,
+    leg: &PendingLeg,
+    engine: &str,
+) -> media::MediaError {
+    crate::metrics::record_voip_provider_error();
+    tracing::error!(
+        call_id = %leg.call_id,
+        engine = %engine,
+        "could not open a translation session for the phone leg"
+    );
+    state.rooms.remove(&leg.room, &leg.peer_id, leg.conn);
+    end_call(state, leg.call_id, FailureReason::EngineUnavailable).await;
+    media::MediaError::Malformed("translation session unavailable".into())
+}
+
+/// Reprice a call whose phone leg fell back to `fallback_engine` — see
+/// `service::reprice_after_fallback`'s doc comment for the pricing side. This wrapper only
+/// owns the WARN logging the owner asked for (call id, requested engine, fallback engine,
+/// old and new price) and the config/pool plumbing; a call reached this far because
+/// `state.telephony`/`state.pool` are already known-good (a phone leg cannot exist
+/// otherwise), so a missing `state.config.voip` here would itself be a programming error —
+/// logged rather than panicked on, because a pricing miss must never take a connected call
+/// down.
+async fn reprice_fallback(
+    state: &crate::AppState,
+    leg: &PendingLeg,
+    fallback_engine: &crate::engine::EngineMetadata,
+) {
+    let (Some(cfg), Some(pool)) = (state.config.voip.as_ref(), state.pool.as_ref()) else {
+        tracing::warn!(
+            call_id = %leg.call_id,
+            requested_engine = %leg.engine_id,
+            fallback_engine = %fallback_engine.id,
+            "phone leg fell back to a different engine but has no VoIP config/pool to reprice against"
+        );
+        return;
+    };
+
+    match service::reprice_after_fallback(pool, cfg, leg.call_id, &leg.engine_id, fallback_engine)
+        .await
+    {
+        Some(r) => tracing::warn!(
+            call_id = %leg.call_id,
+            requested_engine = %leg.engine_id,
+            fallback_engine = %fallback_engine.id,
+            old_price_per_minute = %r.old_price_per_minute,
+            new_price_per_minute = %r.new_price_per_minute,
+            applied = r.applied,
+            "phone leg fell back to a different engine mid-call; repriced the call to match"
+        ),
+        None => tracing::warn!(
+            call_id = %leg.call_id,
+            requested_engine = %leg.engine_id,
+            fallback_engine = %fallback_engine.id,
+            "phone leg fell back to a different engine mid-call, but could not be repriced — \
+             keeping the original quote"
+        ),
+    }
+}
+
 /// Take a claimed leg all the way to a running bridge.
 ///
 /// Opens the engine session for the telephone as a *speaker*, then hands the socket to
@@ -321,10 +392,12 @@ pub async fn run_leg<S, E>(
 where
     S: futures::Sink<String, Error = E> + futures::Stream<Item = Result<String, E>> + Unpin + Send,
 {
-    // `resolve_for_phone` (called at dial time by both `routes::quote` and `routes::dial`)
-    // already refuses to ever store a client-direct engine here — but a call dialled
-    // before that fix shipped, or a genuine Pro/Premium `AtCapacity`, can still name one.
-    // `open_engine_session` below is the safety net for both.
+    // `resolve_for_phone` keeps a client-direct engine out of `engine_id` for every call
+    // dialled from here on, but `leg.engine_id` below is just whatever the row already
+    // holds — a call already in flight when that shipped, or one written by a path that
+    // doesn't call it, can still name one. `open_engine_session` recovers that case, and,
+    // separately, a genuine Pro/Premium `AtCapacity` — an unrelated failure with the same
+    // shape (the engine can't open a session right now), handled by the same retry.
     let engine = state.engines.resolve(Some(&leg.engine_id));
 
     let build_ctx = || SpeakerCtx {
@@ -378,30 +451,25 @@ where
     let (outcome, active_engine) =
         open_engine_session(&state.engines, leg.call_id, engine, &build_ctx, &build_deps).await;
 
+    // A fallback that actually served the call must be billed as itself, not as whatever
+    // was requested — see `service::reprice_after_fallback`'s doc comment for why this is
+    // safe to do here (no re-admission, same formula `build_quote` uses at dial time) and
+    // why it never raises the price the customer already agreed to.
+    if matches!(outcome, SessionOutcome::Started(_)) && active_engine.metadata().id != leg.engine_id
+    {
+        reprice_fallback(state, &leg, active_engine.metadata()).await;
+    }
+
     let to_engine = match outcome {
         SessionOutcome::Started(tx) => tx,
         // Reached only once BOTH the requested engine and the default have failed
         // (`open_engine_session` already retried on the default when the two differ).
         // Standard — the default — never reports `AtCapacity` on its own, so getting here
-        // means the upstream is genuinely unavailable. Tearing the room down is right at
-        // that point: a call whose audio cannot be translated is not a call this product
-        // is selling.
+        // means the upstream is genuinely unavailable.
         SessionOutcome::AtCapacity | SessionOutcome::Failed => {
-            crate::metrics::record_voip_provider_error();
-            tracing::error!(
-                call_id = %leg.call_id,
-                engine = %active_engine.metadata().id,
-                "could not open a translation session for the phone leg"
+            return Err(
+                fail_unavailable_engine(state, &leg, active_engine.metadata().id.as_str()).await,
             );
-            state.rooms.remove(&leg.room, &leg.peer_id, leg.conn);
-            // Ending the call is not optional here. Removing the peer alone would leave a
-            // row that still reads as live: it keeps consuming a concurrency slot, keeps
-            // the customer's credits held, and keeps the carrier billing us — until the
-            // maximum-duration reaper notices, up to an hour later.
-            end_call(state, leg.call_id, FailureReason::EngineUnavailable).await;
-            return Err(media::MediaError::Malformed(
-                "translation session unavailable".into(),
-            ));
         }
     };
 
@@ -1145,6 +1213,99 @@ mod tests {
             1,
             "no retry when the failed engine already is the default"
         );
+    }
+
+    #[tokio::test]
+    async fn when_both_the_requested_and_default_engine_fail_the_outcome_stays_failed() {
+        // The other half of the contract `run_leg` relies on: `open_engine_session` must
+        // not paper over a genuine outage by inventing success, and it must not retry
+        // either engine a second time (each is worth exactly one attempt). `run_leg`'s own
+        // teardown for this outcome — remove the peer, mark the call
+        // `failed`/`engine_unavailable` — is proven separately, DB-gated, by
+        // `fail_unavailable_engine`'s own test below: this one is the pure contract.
+        let default_engine = std::sync::Arc::new(FakeEngine {
+            meta: fake_meta("standard"),
+            outcome: || SessionOutcome::Failed,
+            attempts: Default::default(),
+        });
+        let mut registry = EngineRegistry::new("standard");
+        registry.register(default_engine.clone());
+
+        let requested = std::sync::Arc::new(FakeEngine {
+            meta: fake_meta("premium"),
+            outcome: || SessionOutcome::AtCapacity,
+            attempts: Default::default(),
+        });
+        let requested_for_asserts = requested.clone();
+        let (build_ctx, build_deps) = test_ctx_and_deps();
+
+        let (outcome, active) =
+            open_engine_session(&registry, Uuid::new_v4(), requested, build_ctx, build_deps).await;
+
+        assert!(
+            matches!(outcome, SessionOutcome::Failed),
+            "no success may be manufactured when neither engine can open a session"
+        );
+        assert_eq!(
+            active.metadata().id,
+            "standard",
+            "run_leg's teardown log names the engine actually tried last"
+        );
+        assert_eq!(
+            requested_for_asserts
+                .attempts
+                .load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "the requested engine is tried exactly once, not retried"
+        );
+        assert_eq!(
+            default_engine
+                .attempts
+                .load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "the default is tried exactly once, not retried"
+        );
+    }
+
+    // ---- `fail_unavailable_engine` — the total-failure teardown -----------------------
+    //
+    // `open_engine_session`'s pure test above proves the outcome stays `Failed`; this
+    // proves what `run_leg` does about it once it does: no media socket needed, because
+    // `run_leg` reaches this call BEFORE it ever touches one.
+
+    #[tokio::test]
+    async fn both_engines_failing_still_tears_the_call_down_with_engine_unavailable() {
+        // Same DB-gated fixture `finish_after_pump`'s tests below use — declared further
+        // down in this module, but visible here regardless of textual order.
+        let Some(f) = setup_answered(1000, "0.0500").await else {
+            eprintln!("skipping — no DATABASE_URL");
+            return;
+        };
+        crate::voip::reservation::reserve(&f.pool, f.org, f.call, f.session, None, 300)
+            .await
+            .unwrap();
+
+        let state = f.state();
+        let (_tx, rx, _o) = PeerTx::channel(4);
+        let leg = PendingLeg {
+            call_id: f.call,
+            session_id: f.session,
+            org_id: f.org,
+            user_id: None,
+            room: format!("ph-{}", f.tag),
+            peer_id: "p".into(),
+            conn: Uuid::new_v4(),
+            engine_id: "standard".into(),
+            phone_language: "zh".into(),
+            from_room: rx,
+        };
+
+        let err = fail_unavailable_engine(&state, &leg, "standard").await;
+        assert!(matches!(err, media::MediaError::Malformed(_)));
+
+        let (status, reason) = call_status_and_reason(&f.pool, f.call).await;
+        assert_eq!(status, "failed");
+        assert_eq!(reason.as_deref(), Some("engine_unavailable"));
     }
 
     // ---- `finish_after_pump` — the normal-hangup-vs-failed-call regression -----------

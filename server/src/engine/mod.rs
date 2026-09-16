@@ -307,7 +307,17 @@ impl EngineRegistry {
     pub fn resolve_for_phone(&self, id: Option<&str>) -> Arc<dyn TranslationEngine> {
         let engine = self.resolve(id);
         if engine.metadata().capabilities.client_direct {
-            self.default()
+            let fallback = self.default();
+            // Loud on purpose: this is the exact substitution that was silent in the
+            // 2026-09-16 incident. A caller with call/org context (routes.rs has none yet
+            // at this point — the call row doesn't exist until after dial resolves its
+            // engine) can still find the corresponding request in the surrounding logs.
+            tracing::warn!(
+                requested_engine = %engine.metadata().id,
+                substituted_engine = %fallback.metadata().id,
+                "a client-direct engine cannot serve a phone leg; substituting the default engine"
+            );
+            fallback
         } else {
             engine
         }
