@@ -686,6 +686,12 @@ struct CallDetailRow {
     /// unavailable again rather than as a dangling "yes" `GET …/recording` can't serve.
     recording_available: bool,
     transcription_status: String,
+    /// Whether the caller ticked "AI summary + sentiment" at dial time (spec 0111 R23).
+    /// Without this the dashboard could not tell "not requested" apart from "requested
+    /// but still generating" — both read as no report/sentiment yet — and showed the same
+    /// blank AI section either way (fixed 1.58.5, alongside the sweep gap that made the
+    /// sentiment half of that request never run at all).
+    ai_analysis_requested: bool,
     consent_status: String,
     project_id: Option<Uuid>,
     /// Who was called, when the address book knew (spec 0114). Null after the contact is
@@ -720,8 +726,8 @@ pub async fn detail(
                 c.recording_status,
                 (c.recording_status = 'saved' AND c.provider_recording_id IS NOT NULL)
                     AS recording_available,
-                c.transcription_status, c.consent_status, c.project_id,
-                c.contact_id, ct.name AS contact_name
+                c.transcription_status, c.ai_analysis_requested, c.consent_status,
+                c.project_id, c.contact_id, ct.name AS contact_name
          FROM voip_calls c
          JOIN call_sessions s ON s.id = c.session_id
          LEFT JOIN voip_contacts ct ON ct.id = c.contact_id

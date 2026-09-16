@@ -72,6 +72,13 @@ async fn setup_with_voip(voip: Option<VoipConfig>) -> Option<Server> {
     state.billing = Some(BillingService::new(pool.clone(), min_join));
     state.pool = Some(pool.clone());
     state.verifier = Arc::new(FakeVerifier);
+    // Wired like a real deployment (matches `ai_features.rs`'s setup) so this suite can
+    // also exercise the session-scoped read endpoints (`/api/sessions/{id}/report` and
+    // `/sentiment`) a phone call's org can reach — see the "org access to a phone call's
+    // AI output" tests below.
+    state.transcripts = Some(voxtranslate_server::transcripts::TranscriptService::new(
+        pool.clone(),
+    ));
     // `AppState::new` builds the provider from config; the test config path does not go
     // through `from_env`, so wire it here to match what a real deployment gets.
     let provider = enabled.then(|| Arc::new(MockTelephonyProvider::default()));
@@ -1983,6 +1990,19 @@ async fn an_analysis_the_caller_asked_for_is_queued_once_and_only_once() {
         "the request was collected from the dialer and then dropped — nothing could act \
          on it once the call ended, which is the only moment it can happen"
     );
+    let detail: Value = client()
+        .get(format!(
+            "{}/api/business/organizations/{org}/voip/calls/{call_id}",
+            base(&srv)
+        ))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(detail["ai_analysis_requested"], serde_json::json!(true));
 
     let mut state = AppState::new(Config::test_with_billing(
         &voxtranslate_server::db::test_database_url().expect("DATABASE_URL"),
@@ -2077,6 +2097,211 @@ async fn a_call_nobody_asked_to_analyse_is_left_alone() {
             .await
             .unwrap();
     assert!(!requested);
+
+    // The detail JSON must say the same thing: without this the dashboard cannot tell
+    // "nobody asked" apart from "asked, still generating" — both otherwise look like an
+    // empty AI section (fixed 1.58.5, alongside the sweep gap this file's other new tests
+    // pin).
+    let body: Value = client()
+        .get(format!(
+            "{}/api/business/organizations/{org}/voip/calls/{call_id}",
+            base(&srv)
+        ))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(body["ai_analysis_requested"], serde_json::json!(false));
+}
+
+// ---- sentiment enqueued alongside the report (fixed 1.58.5) ---------------
+
+#[tokio::test]
+async fn the_sweep_also_queues_the_text_only_sentiment_analysis_the_caller_asked_for() {
+    // Owner decision (1.58.5): the "AI summary + sentiment" checkbox must produce BOTH.
+    // Before this fix, `enqueue_ai_analysis` only ever claimed the "report" job — the
+    // sentiment half of the same tick was silently dropped, so the checkbox lied about
+    // half of what it promised. This reuses the exact billing function the manual
+    // `POST /api/sessions/{id}/sentiment` endpoint uses (`ai::sentiment::sentiment_cost`
+    // + its background body) rather than a second pricing path, and it is TEXT-only —
+    // `enqueue_ai_analysis` exports the transcript's text (`TranscriptExport`), the same
+    // export the report job reads; neither ever touches audio (AI Act constraint).
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    enable_dialing_with_capture(&srv, org, &jwt).await;
+
+    let res = client()
+        .post(format!(
+            "{}/api/business/organizations/{org}/voip/calls",
+            base(&srv)
+        ))
+        .bearer_auth(&jwt)
+        .json(&json!({
+            "destination": "+393201234567",
+            "source_language": "it",
+            "target_language": "en",
+            "transcribe": true,
+            "ai_analysis": true,
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::CREATED);
+    let body: Value = res.json().await.unwrap();
+    let call_id = Uuid::parse_str(body["call_id"].as_str().unwrap()).unwrap();
+    let session_id = Uuid::parse_str(body["session_id"].as_str().unwrap()).unwrap();
+
+    // Finish the call and give it something to say, same as the report-only test above.
+    sqlx::query("UPDATE voip_calls SET status = 'completed', ended_at = now() WHERE id = $1")
+        .bind(call_id)
+        .execute(&srv.pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE call_sessions SET ended_at = now() WHERE id = $1")
+        .bind(session_id)
+        .execute(&srv.pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO transcript_events (session_id, event_type, speaker_peer_id, speaker_name,
+                                        original_text, original_lang, translations, ts)
+         VALUES ($1, 'speech', 'p1', 'Caller', 'ciao', 'it', '{}'::jsonb, now())",
+    )
+    .bind(session_id)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+
+    let mut state = AppState::new(Config::test_with_billing(
+        &voxtranslate_server::db::test_database_url().expect("DATABASE_URL"),
+        SECRET,
+        0.0,
+    ));
+    state.pool = Some(srv.pool.clone());
+    state.transcripts = Some(voxtranslate_server::transcripts::TranscriptService::new(
+        srv.pool.clone(),
+    ));
+
+    voxtranslate_server::voip::webhook::enqueue_ai_analysis(&state, 50)
+        .await
+        .unwrap();
+
+    // `claim()` inserts its `ai_jobs` row synchronously (before the background task even
+    // starts), so this proves both jobs were actually requested — independent of whether
+    // the background Groq call itself later succeeds (this `state` has no Groq/billing
+    // wired, exactly like the report-only test above; that failure is async and unrelated
+    // to what this test is pinning: that the sweep asked for both).
+    let features: Vec<String> =
+        sqlx::query_scalar("SELECT feature FROM ai_jobs WHERE session_id = $1 ORDER BY feature")
+            .bind(session_id)
+            .fetch_all(&srv.pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        features,
+        vec!["report".to_string(), "sentiment".to_string()],
+        "the sweep must enqueue both jobs from the same ai_analysis tick"
+    );
+
+    // Idempotent: a second sweep tick (the sweep runs every minute forever) must not
+    // enqueue a second sentiment job either — same one-time gate the report job relies on.
+    voxtranslate_server::voip::webhook::enqueue_ai_analysis(&state, 50)
+        .await
+        .unwrap();
+    let sentiment_jobs: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM ai_jobs WHERE session_id = $1 AND feature = 'sentiment'",
+    )
+    .bind(session_id)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        sentiment_jobs, 1,
+        "a re-run of the sweep must not double-charge"
+    );
+}
+
+// ---- org access to a phone call's report/sentiment (fixed 1.58.5) --------
+//
+// Phone calls never populate `session_participants` — there is no WebSocket join to
+// record; the ASR/TTS bridge runs on the carrier leg (spec 0111). `session_gate`
+// (api.rs) is the sole guard on `/api/sessions/{id}/report` and `/sentiment`, and it
+// used to be "was this user a participant" ONLY — so for a `kind = 'phone'` session
+// that refused literally everyone, including the org member who placed the call and
+// paid for the analysis. `TranscriptService::access` now also admits any member of the
+// call's own org for a phone session specifically (never for a meeting/webinar room).
+
+#[tokio::test]
+async fn an_org_member_can_read_the_report_and_sentiment_of_a_phone_call_they_did_not_join() {
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    let call = make_call(&srv, org, owner).await;
+    let session_id: Uuid = sqlx::query_scalar("SELECT session_id FROM voip_calls WHERE id = $1")
+        .bind(call)
+        .fetch_one(&srv.pool)
+        .await
+        .unwrap();
+
+    let (member, member_jwt) = user(&srv).await;
+    add_member(&srv, org, member, "member").await;
+
+    // The dialling owner and a plain member alike — neither is a `session_participants`
+    // row, since nothing ever inserts one for a phone call.
+    for (who, tok) in [("owner", &jwt), ("member", &member_jwt)] {
+        for endpoint in ["report", "sentiment"] {
+            let res = client()
+                .get(format!(
+                    "{}/api/sessions/{session_id}/{endpoint}",
+                    base(&srv)
+                ))
+                .bearer_auth(tok)
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(res.status(), StatusCode::OK, "{who}/{endpoint}");
+            let body: Value = res.json().await.unwrap();
+            // Nothing was ever generated in this test — still the documented "200 + null"
+            // shape, unchanged by this fix.
+            assert!(body.is_null(), "{who}/{endpoint}: {body}");
+        }
+    }
+}
+
+#[tokio::test]
+async fn a_member_of_another_org_still_cannot_read_a_phone_calls_report_or_sentiment() {
+    let srv = srv!();
+    let (owner_a, _) = user(&srv).await;
+    let org_a = make_org(&srv, owner_a, "owner").await;
+    let call = make_call(&srv, org_a, owner_a).await;
+    let session_id: Uuid = sqlx::query_scalar("SELECT session_id FROM voip_calls WHERE id = $1")
+        .bind(call)
+        .fetch_one(&srv.pool)
+        .await
+        .unwrap();
+
+    // A real user with a real org of their own — just not THIS call's org.
+    let (owner_b, _) = user(&srv).await;
+    let org_b = make_org(&srv, owner_b, "owner").await;
+    let (stranger, stranger_jwt) = user(&srv).await;
+    add_member(&srv, org_b, stranger, "member").await;
+
+    for endpoint in ["report", "sentiment"] {
+        let res = client()
+            .get(format!(
+                "{}/api/sessions/{session_id}/{endpoint}",
+                base(&srv)
+            ))
+            .bearer_auth(&stranger_jwt)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::FORBIDDEN, "{endpoint}");
+    }
 }
 
 /// Count audit rows for an action, WAITING for them rather than assuming they landed.

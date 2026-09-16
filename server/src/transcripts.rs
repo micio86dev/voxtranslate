@@ -343,15 +343,28 @@ impl TranscriptService {
             .collect())
     }
 
-    /// May `user_id` download this session's transcript? Only participants can.
+    /// May `user_id` download this session's transcript (and, via `session_gate`, read
+    /// its AI report/sentiment)? Participants can — plus, for a phone call specifically,
+    /// any member of the org that placed it.
+    ///
+    /// That second clause exists because a phone call (spec 0111) never inserts a
+    /// `session_participants` row: the ASR/TTS bridge runs on the carrier leg, there is
+    /// no WebSocket join to record. Before 1.58.5 that meant this check refused EVERY
+    /// user for a `kind = 'phone'` session — including the org member who dialled it and
+    /// paid for its analysis — with `Forbidden`, indistinguishable from a real stranger.
+    /// Scoped to `kind = 'phone'` on purpose: a meeting/webinar room still gates on
+    /// participation only, unchanged.
     pub async fn access(
         &self,
         session_id: Uuid,
         user_id: Uuid,
     ) -> Result<SessionAccess, sqlx::Error> {
         let participated: Option<bool> = sqlx::query_scalar(
-            "SELECT EXISTS (SELECT 1 FROM session_participants sp
-                            WHERE sp.session_id = cs.id AND sp.user_id = $2)
+            "SELECT
+                EXISTS (SELECT 1 FROM session_participants sp
+                        WHERE sp.session_id = cs.id AND sp.user_id = $2)
+                OR (cs.kind = 'phone' AND cs.org_id IS NOT NULL
+                    AND get_user_org_role(cs.org_id, $2) IS NOT NULL)
              FROM call_sessions cs WHERE cs.id = $1",
         )
         .bind(session_id)

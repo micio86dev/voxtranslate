@@ -599,6 +599,63 @@ pub async fn enqueue_ai_analysis(
             Ok(crate::ai::jobs::Claim::AlreadyRunning(_)) => {}
             Err(e) => tracing::error!(%call_id, error = %e, "ai analysis claim failed"),
         }
+
+        // Owner decision (1.58.5): "AI summary + sentiment" must produce BOTH — before
+        // this, only the report above ever ran, and the checkbox silently dropped its
+        // other half. Reuses `ai::sentiment`'s own cost function and background body (the
+        // same ones `POST /api/sessions/{id}/sentiment` uses) rather than a second pricing
+        // path to drift out of sync with the first. Re-exports the transcript here rather
+        // than cloning `export` above (`TranscriptExport` isn't `Clone`) — cheap on a sweep
+        // that runs once a minute, and it is exactly what the manual endpoint does too.
+        //
+        // TEXT-ONLY (AI Act, docs/ai-act-realtime-audio-exemption.md): this export is the
+        // transcript's text, the very same shape the report job just read — never audio.
+        match svc.export(session_id).await {
+            Ok(Some(sentiment_export)) if !sentiment_export.events.is_empty() => {
+                // Same cache-then-charge contract `sentiment_generate` enforces: a call
+                // whose sentiment was already produced (e.g. requested manually before
+                // this sweep tick ran) must not be billed a second time just because the
+                // sweep also asked for it. `ai_analysis_enqueued_at` above already makes
+                // the SWEEP itself run this exactly once per call; this guards the other
+                // half — a manual request racing ahead of it.
+                let already_analyzed = crate::ai::sentiment::get_sentiment(pool, session_id)
+                    .await
+                    .ok()
+                    .flatten()
+                    .is_some();
+                if !already_analyzed {
+                    let sentiment_cost = crate::ai::sentiment::sentiment_cost(
+                        &cfg.ai,
+                        sentiment_export.session.participants.len(),
+                        sentiment_export.session.duration_seconds,
+                    );
+                    match crate::ai::jobs::claim(pool, session_id, user_id, "sentiment", "").await {
+                        Ok(crate::ai::jobs::Claim::Owned(job_id)) => {
+                            let st = state.clone();
+                            let p = pool.clone();
+                            tokio::spawn(crate::ai::jobs::run(p.clone(), job_id, async move {
+                                crate::api::run_sentiment_inner(
+                                    st,
+                                    session_id,
+                                    user_id,
+                                    sentiment_export,
+                                    sentiment_cost,
+                                )
+                                .await
+                            }));
+                        }
+                        Ok(crate::ai::jobs::Claim::AlreadyRunning(_)) => {}
+                        Err(e) => {
+                            tracing::error!(%call_id, error = %e, "ai sentiment claim failed")
+                        }
+                    }
+                }
+            }
+            Ok(_) => {} // purged, or truly empty — nothing to analyze.
+            Err(e) => {
+                tracing::error!(%call_id, error = %e, "sentiment transcript export failed")
+            }
+        }
     }
     Ok(enqueued)
 }
