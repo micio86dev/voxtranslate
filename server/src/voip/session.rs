@@ -34,10 +34,11 @@ use tokio::sync::mpsc::Receiver;
 use uuid::Uuid;
 
 use crate::deepgram::SpeakerCtx;
-use crate::engine::{SessionDeps, SessionOutcome};
+use crate::engine::{EngineRegistry, SessionDeps, SessionOutcome, TranslationEngine};
 use crate::rooms::{Peer, PeerTx, Visibility, OUT_CHANNEL_CAP};
 use crate::telephony::MediaCodec;
 use crate::voip::media::{self, BridgeHandles, Leg};
+use crate::voip::service;
 use crate::voip::state::FailureReason;
 
 /// The name shown for the telephone participant in the room and the transcript.
@@ -250,6 +251,137 @@ impl LiveCalls {
     }
 }
 
+/// Open a speaking session for the phone leg, retrying once on the default engine if
+/// `requested` reports [`SessionOutcome::AtCapacity`] or [`SessionOutcome::Failed`].
+///
+/// Mirrors the capacity fallback the browser tiers already run in `lib.rs` (spec 0094:
+/// Premium/Pro `AtCapacity` → retry on Standard), extended here to `Failed` too — a phone
+/// call has no listener to show a downgrade message to, so silently losing the call is
+/// strictly worse than silently switching it to Standard. The retry is skipped when
+/// `requested` already IS the default: retrying the same engine with the same inputs
+/// would just fail again, and that case is what the caller's own teardown is for.
+///
+/// Production (2026-09-16, two outbound calls minutes apart): a phone leg's stored engine
+/// was Cartesia (Enhanced) — the only client-direct engine, whose provider runs in a
+/// BROWSER a telephone call does not have — and `start_session` unconditionally returning
+/// `Failed` for it (see `engine::cartesia`'s module docs) hung the call up the instant the
+/// recipient granted consent. `EngineRegistry::resolve_for_phone` now keeps a client-direct
+/// engine from ever being dialled in the first place; this is the second half of the same
+/// fix, for a genuine Pro/Premium `AtCapacity` and for any call dialled before that fix.
+///
+/// `build_ctx`/`build_deps` are closures rather than one-shot values because a retry needs
+/// its own fresh [`SpeakerCtx`]/[`SessionDeps`] — the first attempt's are consumed by
+/// `start_session` whether or not it succeeds.
+///
+/// **This function persists nothing.** It only reports which engine actually opened the
+/// session. When that differs from the requested one, `run_leg` re-attributes the call
+/// afterwards: `reprice_fallback` rewrites `voip_calls.engine_id` and `quoted_price_per_min`
+/// to the engine that serves the call, so settlement (`voip::webhook::settle`) and the
+/// per-engine analytics both reflect what the customer actually received.
+async fn open_engine_session(
+    engines: &EngineRegistry,
+    call_id: Uuid,
+    requested: std::sync::Arc<dyn TranslationEngine>,
+    build_ctx: impl Fn() -> SpeakerCtx,
+    build_deps: impl Fn() -> SessionDeps,
+) -> (SessionOutcome, std::sync::Arc<dyn TranslationEngine>) {
+    let outcome = requested.start_session(build_ctx(), build_deps()).await;
+    if !matches!(outcome, SessionOutcome::AtCapacity | SessionOutcome::Failed) {
+        return (outcome, requested);
+    }
+    let fallback = engines.default();
+    if fallback.metadata().id == requested.metadata().id {
+        return (outcome, requested);
+    }
+    tracing::warn!(
+        call_id = %call_id,
+        requested_engine = %requested.metadata().id,
+        fallback_engine = %fallback.metadata().id,
+        "phone leg engine unavailable; retrying on the default engine"
+    );
+    let outcome = fallback.start_session(build_ctx(), build_deps()).await;
+    (outcome, fallback)
+}
+
+/// Tear a leg down after BOTH the requested engine and its fallback failed to open a
+/// session (`open_engine_session` already tried both). Removing the room peer and marking
+/// the call `failed`/`engine_unavailable` are the only two things left to do — factored
+/// out of `run_leg` so this exact path is testable without a media socket.
+///
+/// Ending the call is not optional here. Removing the peer alone would leave a row that
+/// still reads as live: it keeps consuming a concurrency slot, keeps the customer's
+/// credits held, and keeps the carrier billing us — until the maximum-duration reaper
+/// notices, up to an hour later.
+async fn fail_unavailable_engine(
+    state: &crate::AppState,
+    leg: &PendingLeg,
+    engine: &str,
+) -> media::MediaError {
+    crate::metrics::record_voip_provider_error();
+    tracing::error!(
+        call_id = %leg.call_id,
+        engine = %engine,
+        "could not open a translation session for the phone leg"
+    );
+    state.rooms.remove(&leg.room, &leg.peer_id, leg.conn);
+    end_call(state, leg.call_id, FailureReason::EngineUnavailable).await;
+    media::MediaError::Malformed("translation session unavailable".into())
+}
+
+/// Reprice a call whose phone leg fell back to `fallback_engine` — see
+/// `service::reprice_after_fallback`'s doc comment for the pricing side. This wrapper only
+/// owns the WARN logging the owner asked for (call id, requested engine, fallback engine,
+/// old and new price) and the config/pool plumbing; a call reached this far because
+/// `state.telephony`/`state.pool` are already known-good (a phone leg cannot exist
+/// otherwise), so a missing `state.config.voip` here would itself be a programming error —
+/// logged rather than panicked on, because a pricing miss must never take a connected call
+/// down.
+///
+/// Callers run this DETACHED, never inline: by the time a fallback has opened a session the
+/// recipient is connected and has granted consent, and this makes three database round
+/// trips with no timeout of their own. A fallback happens when Pro/Premium is at capacity —
+/// exactly when the pool is most likely to be under pressure — and awaiting it would hold
+/// the live call's translated audio for as long as the pool makes it wait. The reprice is
+/// idempotent and self-guarded (`service::reprice_after_fallback`), so nothing depends on
+/// it finishing before the bridge starts.
+async fn reprice_fallback(
+    state: &crate::AppState,
+    call_id: Uuid,
+    requested_engine: &str,
+    fallback_engine: &crate::engine::EngineMetadata,
+) {
+    let (Some(cfg), Some(pool)) = (state.config.voip.as_ref(), state.pool.as_ref()) else {
+        tracing::warn!(
+            call_id = %call_id,
+            requested_engine = %requested_engine,
+            fallback_engine = %fallback_engine.id,
+            "phone leg fell back to a different engine but has no VoIP config/pool to reprice against"
+        );
+        return;
+    };
+
+    match service::reprice_after_fallback(pool, cfg, call_id, requested_engine, fallback_engine)
+        .await
+    {
+        Some(r) => tracing::warn!(
+            call_id = %call_id,
+            requested_engine = %requested_engine,
+            fallback_engine = %fallback_engine.id,
+            old_price_per_minute = %r.old_price_per_minute,
+            new_price_per_minute = %r.new_price_per_minute,
+            applied = r.applied,
+            "phone leg fell back to a different engine mid-call; repriced the call to match"
+        ),
+        None => tracing::warn!(
+            call_id = %call_id,
+            requested_engine = %requested_engine,
+            fallback_engine = %fallback_engine.id,
+            "phone leg fell back to a different engine mid-call, but could not be repriced — \
+             keeping the original quote"
+        ),
+    }
+}
+
 /// Take a claimed leg all the way to a running bridge.
 ///
 /// Opens the engine session for the telephone as a *speaker*, then hands the socket to
@@ -265,9 +397,15 @@ pub async fn run_leg<S, E>(
 where
     S: futures::Sink<String, Error = E> + futures::Stream<Item = Result<String, E>> + Unpin + Send,
 {
+    // `resolve_for_phone` keeps a client-direct engine out of `engine_id` for every call
+    // dialled from here on, but `leg.engine_id` below is just whatever the row already
+    // holds — a call already in flight when that shipped, or one written by a path that
+    // doesn't call it, can still name one. `open_engine_session` recovers that case, and,
+    // separately, a genuine Pro/Premium `AtCapacity` — an unrelated failure with the same
+    // shape (the engine can't open a session right now), handled by the same retry.
     let engine = state.engines.resolve(Some(&leg.engine_id));
 
-    let ctx = SpeakerCtx {
+    let build_ctx = || SpeakerCtx {
         room: leg.room.clone(),
         speaker_id: leg.peer_id.clone(),
         speaker_name: PHONE_PEER_NAME.to_string(),
@@ -297,7 +435,11 @@ where
     // `voip::disclosure::start_capture` only after the disclosure is on the record and,
     // where a gate applies, granted.
     let may_transcribe = transcription_permitted(state, leg.call_id).await;
-    let deps = SessionDeps {
+    // Built once and cloned into every attempt below (including a fallback retry), so a
+    // downgrade to the default engine still elects itself as this turn's writer instead
+    // of losing the claim to nobody. See `engine::TranscriptWriter`.
+    let transcript_writer = crate::engine::TranscriptWriter::default();
+    let build_deps = || SessionDeps {
         rooms: state.rooms.clone(),
         moderator: state.moderator.clone(),
         transcripts: if may_transcribe {
@@ -308,26 +450,38 @@ where
         participant_row: None,
         listener_pays: state.config.listener_pays,
         translator: state.translator.clone(),
-        transcript_writer: Default::default(),
+        transcript_writer: transcript_writer.clone(),
     };
 
-    let to_engine = match engine.start_session(ctx, deps).await {
+    let (outcome, active_engine) =
+        open_engine_session(&state.engines, leg.call_id, engine, &build_ctx, &build_deps).await;
+
+    // A fallback that actually served the call must be billed as itself, not as whatever
+    // was requested — see `service::reprice_after_fallback`'s doc comment for why this is
+    // safe to do here (no re-admission, same formula `build_quote` uses at dial time) and
+    // why it never raises the price the customer already agreed to. Detached so a slow
+    // pool cannot delay the bridge of a call that is already connected.
+    if matches!(outcome, SessionOutcome::Started(_)) && active_engine.metadata().id != leg.engine_id
+    {
+        let st = state.clone();
+        let call_id = leg.call_id;
+        let requested = leg.engine_id.clone();
+        let fallback = active_engine.metadata().clone();
+        tokio::spawn(async move {
+            reprice_fallback(&st, call_id, &requested, &fallback).await;
+        });
+    }
+
+    let to_engine = match outcome {
         SessionOutcome::Started(tx) => tx,
-        // Standard never reports AtCapacity, so reaching either arm means the upstream is
-        // genuinely unavailable. Tearing the room down is right: a call whose audio cannot
-        // be translated is not a call this product is selling.
+        // Reached only once BOTH the requested engine and the default have failed
+        // (`open_engine_session` already retried on the default when the two differ).
+        // Standard — the default — never reports `AtCapacity` on its own, so getting here
+        // means the upstream is genuinely unavailable.
         SessionOutcome::AtCapacity | SessionOutcome::Failed => {
-            crate::metrics::record_voip_provider_error();
-            tracing::error!(call_id = %leg.call_id, "could not open a translation session for the phone leg");
-            state.rooms.remove(&leg.room, &leg.peer_id, leg.conn);
-            // Ending the call is not optional here. Removing the peer alone would leave a
-            // row that still reads as live: it keeps consuming a concurrency slot, keeps
-            // the customer's credits held, and keeps the carrier billing us — until the
-            // maximum-duration reaper notices, up to an hour later.
-            end_call(state, leg.call_id, FailureReason::EngineUnavailable).await;
-            return Err(media::MediaError::Malformed(
-                "translation session unavailable".into(),
-            ));
+            return Err(
+                fail_unavailable_engine(state, &leg, active_engine.metadata().id.as_str()).await,
+            );
         }
     };
 
@@ -895,6 +1049,275 @@ mod tests {
             parked.user_id.is_some(),
             "the CALLER is recorded on the leg even though the phone peer has no account"
         );
+    }
+
+    // ---- `open_engine_session` — the hang-up-on-Cartesia regression -------------------
+    //
+    // Production (2026-09-16, two outbound calls): the phone leg's engine was Cartesia
+    // (Enhanced, client-direct) and `start_session` on it always returns `Failed` — so the
+    // call hung up instantly, with no `<engine>: start_session` line ever logged, the
+    // moment the recipient granted consent. These pin the fallback that now runs instead
+    // of an immediate hang-up, with no database and no media socket involved.
+
+    /// A [`TranslationEngine`] whose outcome and call count are fixed at construction —
+    /// enough to prove which engine `open_engine_session` actually tried, and how often,
+    /// without a real Qwen/OpenAI/Gemini session.
+    struct FakeEngine {
+        meta: crate::engine::EngineMetadata,
+        outcome: fn() -> SessionOutcome,
+        attempts: std::sync::atomic::AtomicUsize,
+    }
+
+    #[async_trait::async_trait]
+    impl TranslationEngine for FakeEngine {
+        fn metadata(&self) -> &crate::engine::EngineMetadata {
+            &self.meta
+        }
+
+        async fn start_session(&self, _ctx: SpeakerCtx, _deps: SessionDeps) -> SessionOutcome {
+            self.attempts
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            (self.outcome)()
+        }
+    }
+
+    fn fake_meta(id: &str) -> crate::engine::EngineMetadata {
+        crate::engine::EngineMetadata {
+            id: id.into(),
+            display_name: id.into(),
+            tier: "t".into(),
+            description: String::new(),
+            cost_per_minute: 0.0,
+            markup: 0.0,
+            input_languages: vec![],
+            output_languages: vec![],
+            capabilities: crate::engine::EngineCapabilities {
+                translated_audio: false,
+                cost_scales_per_language: false,
+                client_direct: false,
+                max_room_size: 4,
+            },
+        }
+    }
+
+    fn always_started() -> SessionOutcome {
+        let (tx, _rx) = tokio::sync::mpsc::channel(1);
+        SessionOutcome::Started(tx)
+    }
+
+    /// A no-database `SpeakerCtx`/`SessionDeps` pair, freshly built on every call —
+    /// exactly the shape `run_leg` hands `open_engine_session`.
+    fn test_ctx_and_deps() -> (impl Fn() -> SpeakerCtx, impl Fn() -> SessionDeps) {
+        let rooms = std::sync::Arc::new(RoomManager::new());
+        let moderator = std::sync::Arc::new(crate::moderation::Moderator::from_env());
+        let translator = crate::translator::Translator::new(crate::groq::Groq::new(
+            "test-key".into(),
+            "openai/gpt-oss-20b".into(),
+        ));
+        let build_ctx = move || SpeakerCtx {
+            room: "r".into(),
+            speaker_id: "p".into(),
+            speaker_name: PHONE_PEER_NAME.to_string(),
+            speaker_lang: "zh".into(),
+            session_id: Uuid::new_v4(),
+            speaker_user_id: None,
+            glossary: None,
+            segmentation: None,
+        };
+        let build_deps = move || SessionDeps {
+            rooms: rooms.clone(),
+            moderator: moderator.clone(),
+            transcripts: None,
+            participant_row: None,
+            listener_pays: false,
+            translator: translator.clone(),
+            transcript_writer: Default::default(),
+        };
+        (build_ctx, build_deps)
+    }
+
+    #[tokio::test]
+    async fn a_failed_engine_falls_back_to_the_default_instead_of_hanging_up() {
+        let mut registry = EngineRegistry::new("standard");
+        registry.register(std::sync::Arc::new(FakeEngine {
+            meta: fake_meta("standard"),
+            outcome: always_started,
+            attempts: Default::default(),
+        }));
+
+        let requested = std::sync::Arc::new(FakeEngine {
+            meta: fake_meta("premium"), // the Pro tier's persisted id
+            outcome: || SessionOutcome::Failed,
+            attempts: Default::default(),
+        });
+        let requested_for_asserts = requested.clone();
+        let (build_ctx, build_deps) = test_ctx_and_deps();
+
+        let (outcome, active) =
+            open_engine_session(&registry, Uuid::new_v4(), requested, build_ctx, build_deps).await;
+
+        assert!(
+            matches!(outcome, SessionOutcome::Started(_)),
+            "the call must recover on the default engine, not hang up"
+        );
+        assert_eq!(active.metadata().id, "standard");
+        assert_eq!(
+            requested_for_asserts
+                .attempts
+                .load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "the requested engine is tried exactly once before falling back"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_at_capacity_engine_falls_back_to_the_default_instead_of_hanging_up() {
+        // Same shape as the `Failed` case above, for the outcome Pro/Premium actually
+        // report under real load (spec 0094) — proving the phone leg gets the identical
+        // second chance the browser tiers already have in `lib.rs`.
+        let mut registry = EngineRegistry::new("standard");
+        registry.register(std::sync::Arc::new(FakeEngine {
+            meta: fake_meta("standard"),
+            outcome: always_started,
+            attempts: Default::default(),
+        }));
+
+        let requested = std::sync::Arc::new(FakeEngine {
+            meta: fake_meta("gemini_live_translate"), // the Premium tier's persisted id
+            outcome: || SessionOutcome::AtCapacity,
+            attempts: Default::default(),
+        });
+        let (build_ctx, build_deps) = test_ctx_and_deps();
+
+        let (outcome, active) =
+            open_engine_session(&registry, Uuid::new_v4(), requested, build_ctx, build_deps).await;
+
+        assert!(matches!(outcome, SessionOutcome::Started(_)));
+        assert_eq!(active.metadata().id, "standard");
+    }
+
+    #[tokio::test]
+    async fn the_default_engine_is_not_retried_against_itself() {
+        // If the default engine is the one that failed, retrying it with the same inputs
+        // would just fail again — that case is what the caller's own teardown is for.
+        let only = std::sync::Arc::new(FakeEngine {
+            meta: fake_meta("standard"),
+            outcome: || SessionOutcome::Failed,
+            attempts: Default::default(),
+        });
+        let mut registry = EngineRegistry::new("standard");
+        registry.register(only.clone());
+        let (build_ctx, build_deps) = test_ctx_and_deps();
+
+        let (outcome, active) = open_engine_session(
+            &registry,
+            Uuid::new_v4(),
+            only.clone(),
+            build_ctx,
+            build_deps,
+        )
+        .await;
+
+        assert!(matches!(outcome, SessionOutcome::Failed));
+        assert_eq!(active.metadata().id, "standard");
+        assert_eq!(
+            only.attempts.load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "no retry when the failed engine already is the default"
+        );
+    }
+
+    #[tokio::test]
+    async fn when_both_the_requested_and_default_engine_fail_the_outcome_stays_failed() {
+        // The other half of the contract `run_leg` relies on: `open_engine_session` must
+        // not paper over a genuine outage by inventing success, and it must not retry
+        // either engine a second time (each is worth exactly one attempt). `run_leg`'s own
+        // teardown for this outcome — remove the peer, mark the call
+        // `failed`/`engine_unavailable` — is proven separately, DB-gated, by
+        // `fail_unavailable_engine`'s own test below: this one is the pure contract.
+        let default_engine = std::sync::Arc::new(FakeEngine {
+            meta: fake_meta("standard"),
+            outcome: || SessionOutcome::Failed,
+            attempts: Default::default(),
+        });
+        let mut registry = EngineRegistry::new("standard");
+        registry.register(default_engine.clone());
+
+        let requested = std::sync::Arc::new(FakeEngine {
+            meta: fake_meta("premium"),
+            outcome: || SessionOutcome::AtCapacity,
+            attempts: Default::default(),
+        });
+        let requested_for_asserts = requested.clone();
+        let (build_ctx, build_deps) = test_ctx_and_deps();
+
+        let (outcome, active) =
+            open_engine_session(&registry, Uuid::new_v4(), requested, build_ctx, build_deps).await;
+
+        assert!(
+            matches!(outcome, SessionOutcome::Failed),
+            "no success may be manufactured when neither engine can open a session"
+        );
+        assert_eq!(
+            active.metadata().id,
+            "standard",
+            "run_leg's teardown log names the engine actually tried last"
+        );
+        assert_eq!(
+            requested_for_asserts
+                .attempts
+                .load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "the requested engine is tried exactly once, not retried"
+        );
+        assert_eq!(
+            default_engine
+                .attempts
+                .load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "the default is tried exactly once, not retried"
+        );
+    }
+
+    // ---- `fail_unavailable_engine` — the total-failure teardown -----------------------
+    //
+    // `open_engine_session`'s pure test above proves the outcome stays `Failed`; this
+    // proves what `run_leg` does about it once it does: no media socket needed, because
+    // `run_leg` reaches this call BEFORE it ever touches one.
+
+    #[tokio::test]
+    async fn both_engines_failing_still_tears_the_call_down_with_engine_unavailable() {
+        // Same DB-gated fixture `finish_after_pump`'s tests below use — declared further
+        // down in this module, but visible here regardless of textual order.
+        let Some(f) = setup_answered(1000, "0.0500").await else {
+            eprintln!("skipping — no DATABASE_URL");
+            return;
+        };
+        crate::voip::reservation::reserve(&f.pool, f.org, f.call, f.session, None, 300)
+            .await
+            .unwrap();
+
+        let state = f.state();
+        let (_tx, rx, _o) = PeerTx::channel(4);
+        let leg = PendingLeg {
+            call_id: f.call,
+            session_id: f.session,
+            org_id: f.org,
+            user_id: None,
+            room: format!("ph-{}", f.tag),
+            peer_id: "p".into(),
+            conn: Uuid::new_v4(),
+            engine_id: "standard".into(),
+            phone_language: "zh".into(),
+            from_room: rx,
+        };
+
+        let err = fail_unavailable_engine(&state, &leg, "standard").await;
+        assert!(matches!(err, media::MediaError::Malformed(_)));
+
+        let (status, reason) = call_status_and_reason(&f.pool, f.call).await;
+        assert_eq!(status, "failed");
+        assert_eq!(reason.as_deref(), Some("engine_unavailable"));
     }
 
     // ---- `finish_after_pump` — the normal-hangup-vs-failed-call regression -----------
