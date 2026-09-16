@@ -27,13 +27,13 @@ use subtle::ConstantTimeEq;
 
 use super::E164;
 use super::{
-    CallLeg, Cdr, DialRequest, DocumentUpload, FieldValue, GatherConfig, LegId, MediaStreamConfig,
-    NumberKind, NumberOffer, NumberSearch, NumberStatus, OrderRef, PlayRequest,
+    CallLeg, Cdr, DialRequest, DocumentUpload, FieldValue, GatherConfig, GroupStatus, LegId,
+    MediaStreamConfig, NumberKind, NumberOffer, NumberSearch, NumberStatus, OrderRef, PlayRequest,
     ProviderCapabilities, ProviderError, ProviderEvent, ProviderEventKind, ProviderMetadata,
     ProviderNumberId, PurchaseRequest, PurchasedNumber, RecordingConfig, RecordingDownloadUrl,
-    RequirementGroup, RequirementGroupId, RequirementQuery, RequirementSpec, SipConnection,
-    SubOrderId, SubOrderState, TelephonyProvider, UploadedDocument, VerificationMethod,
-    VerificationStart, VerificationState, WebhookError, WebhookHeaders,
+    RequirementGroup, RequirementGroupId, RequirementKind, RequirementQuery, RequirementSpec,
+    SipConnection, SubOrderId, SubOrderState, TelephonyProvider, UploadedDocument,
+    VerificationMethod, VerificationStart, VerificationState, WebhookError, WebhookHeaders,
 };
 use crate::voip::pricing::Rate;
 use crate::voip::state::FailureReason;
@@ -84,6 +84,11 @@ struct MockState {
     purchase_error: Option<ProviderError>,
     verifications: HashMap<String, VerificationState>,
     seq: u64,
+    /// Requirement groups this fake carrier has created, keyed by [`RequirementGroupId`].
+    requirement_groups: HashMap<String, RequirementGroup>,
+    /// One-shot failures for the regulatory-requirements methods, keyed by operation name
+    /// so a test can fail exactly one call without guessing call order.
+    regulatory_fail_next: HashMap<&'static str, ProviderError>,
 }
 
 pub struct MockTelephonyProvider {
@@ -197,6 +202,27 @@ impl MockTelephonyProvider {
 
     pub fn fail_rate_deck(&self, err: ProviderError) {
         self.lock().rate_deck_error = Some(err);
+    }
+
+    // ---- regulatory requirements scripting (spec 0119) ---------------------
+
+    /// Fail the NEXT call to the named regulatory operation, one shot. `op` is the trait
+    /// method's own name (`"list_requirements"`, `"create_requirement_group"`,
+    /// `"get_requirement_group"`, `"submit_requirement_values"`, `"upload_document"`,
+    /// `"sub_order_status"`, `"attach_requirement_group"`) — keyed by name rather than by
+    /// call count, so a test fails exactly the call it names instead of guessing position
+    /// in a sequence it does not otherwise control.
+    pub fn fail_next(&self, op: &'static str, err: ProviderError) {
+        self.lock().regulatory_fail_next.insert(op, err);
+    }
+
+    /// Move an already-created group straight to a given [`GroupStatus`], so group-reuse
+    /// tests (design D7/D8) can start from "already approved" without walking the whole
+    /// submit → review pipeline first.
+    pub fn set_group_status(&self, id: &RequirementGroupId, status: GroupStatus) {
+        if let Some(g) = self.lock().requirement_groups.get_mut(&id.0) {
+            g.status = status;
+        }
     }
 
     // ---- inspection --------------------------------------------------------
@@ -327,6 +353,35 @@ impl MockWebhookBody {
         self.digit = Some(d);
         self
     }
+}
+
+/// The fixed set of fields this fake regulator wants, shaped like a real requirement list
+/// (one textual field, one address, one document) so code written against it exercises all
+/// three [`RequirementKind`] branches without needing a live Telnyx account.
+fn fixture_requirements() -> Vec<RequirementSpec> {
+    vec![
+        RequirementSpec {
+            id: "business_name".into(),
+            name: "Business name".into(),
+            description: Some("Legal name of the registered business.".into()),
+            example: Some("Acme SRL".into()),
+            kind: RequirementKind::Textual,
+        },
+        RequirementSpec {
+            id: "registered_address".into(),
+            name: "Registered address".into(),
+            description: Some("Address on file with the local regulator.".into()),
+            example: None,
+            kind: RequirementKind::Address,
+        },
+        RequirementSpec {
+            id: "proof_of_address".into(),
+            name: "Proof of address".into(),
+            description: Some("A utility bill or bank statement no older than 3 months.".into()),
+            example: None,
+            kind: RequirementKind::Document,
+        },
+    ]
 }
 
 /// Map a mock cause string onto a domain reason. Deliberately the same shape as the real
@@ -612,46 +667,90 @@ impl TelephonyProvider for MockTelephonyProvider {
 
     // ---- regulatory requirements (spec 0119) -------------------------------
     //
-    // `Unsupported` for now, mirroring Telnyx's own PR2 stubs — each of these becomes a
-    // real, tested behaviour in its own follow-up slice (design D7/D8), one requirement-
-    // group behaviour at a time.
+    // The requirement-group lifecycle (list/create/read/submit) is real here. The
+    // remaining three — upload/sub-order-status/attach — stay `Unsupported` for now,
+    // filled in by their own follow-up slice with the sub-order plumbing they need.
 
     async fn list_requirements(
         &self,
-        _query: &RequirementQuery,
+        query: &RequirementQuery,
     ) -> Result<Vec<RequirementSpec>, ProviderError> {
-        Err(ProviderError::Unsupported {
-            operation: "list regulatory requirements",
-        })
+        let mut st = self.lock();
+        if let Some(err) = st.regulatory_fail_next.remove("list_requirements") {
+            return Err(err);
+        }
+        // The fixture is the same shape for every combination — a mock does not need a
+        // per-country catalogue to prove the dashboard renders what the provider sends.
+        let _ = query;
+        Ok(fixture_requirements())
     }
 
     async fn create_requirement_group(
         &self,
-        _query: &RequirementQuery,
-        _customer_ref: &str,
+        query: &RequirementQuery,
+        customer_ref: &str,
     ) -> Result<RequirementGroup, ProviderError> {
-        Err(ProviderError::Unsupported {
-            operation: "create a requirement group",
-        })
+        let mut st = self.lock();
+        if let Some(err) = st.regulatory_fail_next.remove("create_requirement_group") {
+            return Err(err);
+        }
+        let _ = (query, customer_ref);
+        st.seq += 1;
+        let group = RequirementGroup {
+            id: RequirementGroupId(format!("mock-group-{}", st.seq)),
+            status: GroupStatus::Unapproved,
+            requirements: fixture_requirements()
+                .into_iter()
+                .map(|r| (r, None))
+                .collect(),
+        };
+        st.requirement_groups
+            .insert(group.id.0.clone(), group.clone());
+        Ok(group)
     }
 
     async fn get_requirement_group(
         &self,
-        _id: &RequirementGroupId,
+        id: &RequirementGroupId,
     ) -> Result<Option<RequirementGroup>, ProviderError> {
-        Err(ProviderError::Unsupported {
-            operation: "read a requirement group",
-        })
+        let mut st = self.lock();
+        if let Some(err) = st.regulatory_fail_next.remove("get_requirement_group") {
+            return Err(err);
+        }
+        Ok(st.requirement_groups.get(&id.0).cloned())
     }
 
     async fn submit_requirement_values(
         &self,
-        _id: &RequirementGroupId,
-        _values: &[(String, FieldValue)],
+        id: &RequirementGroupId,
+        values: &[(String, FieldValue)],
     ) -> Result<RequirementGroup, ProviderError> {
-        Err(ProviderError::Unsupported {
-            operation: "submit requirement values",
-        })
+        let mut st = self.lock();
+        if let Some(err) = st.regulatory_fail_next.remove("submit_requirement_values") {
+            return Err(err);
+        }
+        let group =
+            st.requirement_groups
+                .get_mut(&id.0)
+                .ok_or_else(|| ProviderError::Malformed {
+                    detail: format!("unknown requirement group {}", id.0),
+                })?;
+        for (req_id, value) in values {
+            if let Some(slot) = group
+                .requirements
+                .iter_mut()
+                .find(|(spec, _)| &spec.id == req_id)
+            {
+                slot.1 = Some(value.clone());
+            }
+        }
+        // A fully-valued group moves on to the provider's own review, the way a real
+        // submission would — a test asserting on the returned status therefore proves the
+        // values actually landed rather than the group merely echoing back.
+        if group.requirements.iter().all(|(_, v)| v.is_some()) {
+            group.status = GroupStatus::PendingApproval;
+        }
+        Ok(group.clone())
     }
 
     async fn upload_document(
@@ -776,7 +875,7 @@ impl TelephonyProvider for MockTelephonyProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::telephony::{MediaCodec, MediaTrack, E164};
+    use crate::telephony::{AddressValue, MediaCodec, MediaTrack, RequirementAction, E164};
 
     fn n(raw: &str) -> E164 {
         E164::parse(raw).expect("test number")
@@ -1150,5 +1249,166 @@ mod tests {
             p.fetch_rate_deck().await.unwrap_err(),
             ProviderError::RateLimited
         );
+    }
+
+    // ---- regulatory requirements (spec 0119) -----------------------------------
+
+    fn requirement_query() -> RequirementQuery {
+        RequirementQuery {
+            country: "FR".into(),
+            kind: NumberKind::Mobile,
+            action: RequirementAction::Ordering,
+        }
+    }
+
+    #[tokio::test]
+    async fn listing_requirements_is_shaped_like_a_real_provider_response() {
+        // Textual, Address and Document all need to be exercised by SOMETHING that is not
+        // a live Telnyx account, or the parsing code downstream only ever sees one branch.
+        let p = MockTelephonyProvider::default();
+        let specs = p.list_requirements(&requirement_query()).await.unwrap();
+        assert_eq!(specs.len(), 3);
+        assert!(specs.iter().any(|r| r.kind == RequirementKind::Textual));
+        assert!(specs.iter().any(|r| r.kind == RequirementKind::Address));
+        assert!(specs.iter().any(|r| r.kind == RequirementKind::Document));
+        let ids: std::collections::HashSet<&str> = specs.iter().map(|r| r.id.as_str()).collect();
+        assert_eq!(ids.len(), specs.len(), "requirement ids must be unique");
+    }
+
+    #[tokio::test]
+    async fn list_requirements_can_be_scripted_to_fail_exactly_once() {
+        let p = MockTelephonyProvider::default();
+        p.fail_next("list_requirements", ProviderError::RateLimited);
+        assert_eq!(
+            p.list_requirements(&requirement_query()).await.unwrap_err(),
+            ProviderError::RateLimited
+        );
+        // One-shot: the very next call succeeds, unaffected.
+        assert!(p.list_requirements(&requirement_query()).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn creating_a_group_starts_unapproved_with_every_field_unset() {
+        let p = MockTelephonyProvider::default();
+        let group = p
+            .create_requirement_group(&requirement_query(), "org-1")
+            .await
+            .unwrap();
+        assert_eq!(group.status, GroupStatus::Unapproved);
+        assert_eq!(group.requirements.len(), 3);
+        assert!(group.requirements.iter().all(|(_, v)| v.is_none()));
+    }
+
+    #[tokio::test]
+    async fn each_created_group_gets_its_own_id_and_can_be_read_back() {
+        // Triangulation: a hardcoded id would make the second assertion fail here, and
+        // `get_requirement_group` proves the FIRST call's group is exactly what was
+        // returned, not a fresh one built on read.
+        let p = MockTelephonyProvider::default();
+        let a = p
+            .create_requirement_group(&requirement_query(), "org-1")
+            .await
+            .unwrap();
+        let b = p
+            .create_requirement_group(&requirement_query(), "org-2")
+            .await
+            .unwrap();
+        assert_ne!(a.id, b.id);
+
+        let read_back = p.get_requirement_group(&a.id).await.unwrap();
+        assert_eq!(read_back, Some(a));
+    }
+
+    #[tokio::test]
+    async fn an_unknown_group_id_reads_back_as_none_not_an_error() {
+        let p = MockTelephonyProvider::default();
+        let missing = p
+            .get_requirement_group(&RequirementGroupId("nope".into()))
+            .await
+            .unwrap();
+        assert_eq!(missing, None);
+    }
+
+    #[tokio::test]
+    async fn submitting_values_fills_the_matching_slots_and_moves_to_pending_approval_once_complete(
+    ) {
+        let p = MockTelephonyProvider::default();
+        let group = p
+            .create_requirement_group(&requirement_query(), "org-1")
+            .await
+            .unwrap();
+
+        // Partial submission: still unapproved, values land in the right slots.
+        let partial = p
+            .submit_requirement_values(
+                &group.id,
+                &[(
+                    "business_name".to_string(),
+                    FieldValue::Text("Acme SRL".into()),
+                )],
+            )
+            .await
+            .unwrap();
+        assert_eq!(partial.status, GroupStatus::Unapproved);
+        let business_name_slot = partial
+            .requirements
+            .iter()
+            .find(|(spec, _)| spec.id == "business_name")
+            .unwrap();
+        assert_eq!(
+            business_name_slot.1,
+            Some(FieldValue::Text("Acme SRL".into()))
+        );
+
+        // Completing every field is what a real submission would need before Telnyx even
+        // looks at it — proven here by the status actually moving.
+        let complete = p
+            .submit_requirement_values(
+                &group.id,
+                &[
+                    (
+                        "registered_address".to_string(),
+                        FieldValue::Address(AddressValue {
+                            street_address: "1 Rue de la Paix".into(),
+                            extended_address: None,
+                            locality: "Paris".into(),
+                            administrative_area: None,
+                            postal_code: "75002".into(),
+                            country_code: "FR".into(),
+                        }),
+                    ),
+                    (
+                        "proof_of_address".to_string(),
+                        FieldValue::Document("mock-doc-1".into()),
+                    ),
+                ],
+            )
+            .await
+            .unwrap();
+        assert_eq!(complete.status, GroupStatus::PendingApproval);
+    }
+
+    #[tokio::test]
+    async fn submitting_against_an_unknown_group_is_refused() {
+        let p = MockTelephonyProvider::default();
+        let err = p
+            .submit_requirement_values(&RequirementGroupId("ghost".into()), &[])
+            .await
+            .unwrap_err();
+        assert!(matches!(err, ProviderError::Malformed { .. }));
+    }
+
+    #[tokio::test]
+    async fn an_approved_group_can_be_scripted_directly_for_reuse_tests() {
+        // Design D7/D8: group reuse tests need to start from "already approved" without
+        // walking submit -> review first.
+        let p = MockTelephonyProvider::default();
+        let group = p
+            .create_requirement_group(&requirement_query(), "org-1")
+            .await
+            .unwrap();
+        p.set_group_status(&group.id, GroupStatus::Approved);
+        let read_back = p.get_requirement_group(&group.id).await.unwrap().unwrap();
+        assert_eq!(read_back.status, GroupStatus::Approved);
     }
 }
