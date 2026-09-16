@@ -796,6 +796,27 @@ pub enum OrderStatus {
     Unknown,
 }
 
+impl OrderStatus {
+    /// Telnyx's own `numbers_SubNumberOrder.status` enum (verified against the published
+    /// OpenAPI spec 2026-09-16) is only `pending`, `success`, `failure`. `cancelled` and
+    /// `deleted` are accepted too — `POST /v2/sub_number_orders/:id/cancel` exists as a
+    /// real operation and [`crate::voip::regulatory::transition`] already models a
+    /// cancelled/deleted order as its own outcome (spec 0119 R5's deadline-miss
+    /// cancellation) — recognising the word the spec's own cancel endpoint implies costs
+    /// nothing, even though no confirmed response has shown it yet. Anything else
+    /// unrecognised is `Unknown`, never guessed as `Success`.
+    pub fn parse(raw: &str) -> Self {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "pending" => Self::Pending,
+            "success" => Self::Success,
+            "failure" => Self::Failure,
+            "cancelled" | "canceled" => Self::Cancelled,
+            "deleted" => Self::Deleted,
+            _ => Self::Unknown,
+        }
+    }
+}
+
 /// Where the REQUIREMENTS side of a sub-order sits, independent of the order's own status.
 /// Named after Telnyx's own states except `Exception`, which is Telnyx's
 /// `requirement-info-exception` carrying the rejection reason (spec 0119 R5) — projected

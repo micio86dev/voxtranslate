@@ -33,12 +33,13 @@ use uuid::Uuid;
 
 use super::{
     CallLeg, Cdr, DialRequest, DocumentUpload, FieldValue, GatherConfig, GroupStatus, LegId,
-    MediaStreamConfig, MediaTrack, NumberKind, NumberOffer, NumberSearch, NumberStatus,
-    PlayRequest, ProviderCapabilities, ProviderError, ProviderEvent, ProviderEventKind,
-    ProviderMetadata, ProviderNumberId, PurchaseRequest, PurchasedNumber, RecordingConfig,
-    RecordingDownloadUrl, RequirementGroup, RequirementGroupId, RequirementKind, RequirementQuery,
-    RequirementSpec, SipConnection, SubOrderId, SubOrderState, TelephonyProvider, UploadedDocument,
-    VerificationStart, VerificationState, WebhookError, WebhookHeaders, E164,
+    MediaStreamConfig, MediaTrack, NumberKind, NumberOffer, NumberSearch, NumberStatus, OrderRef,
+    OrderStatus, PlayRequest, ProviderCapabilities, ProviderError, ProviderEvent,
+    ProviderEventKind, ProviderMetadata, ProviderNumberId, PurchaseRequest, PurchasedNumber,
+    RecordingConfig, RecordingDownloadUrl, RequirementGroup, RequirementGroupId, RequirementKind,
+    RequirementQuery, RequirementSpec, RequirementsStatus, SipConnection, SubOrderId,
+    SubOrderState, TelephonyProvider, UploadedDocument, VerificationStart, VerificationState,
+    WebhookError, WebhookHeaders, E164,
 };
 use rust_decimal::Decimal;
 
@@ -553,6 +554,92 @@ fn parse_user_requirement(item: &Value) -> (RequirementSpec, Option<FieldValue>)
             RequirementKind::Address | RequirementKind::Textual => FieldValue::Text(v.to_string()),
         });
     (spec, value)
+}
+
+/// Parse `GET /v2/sub_number_orders/:id` (with `filter[include_phone_numbers]=true`) or the
+/// `data` object of the attach-group response into [`SubOrderState`] — verified against the
+/// `numbers_SubNumberOrder`/`SubNumberOrderRequirementGroupResponse` schemas.
+///
+/// `group` is always `None` here: neither endpoint echoes back which requirement group is
+/// attached (verified — no such field exists on either schema). The domain layer tracks
+/// that id itself (design D7's `voip_requirement_groups` table); [`TelnyxProvider`]'s own
+/// `attach_requirement_group` fills it in from the id it was just given, since that call
+/// alone knows for certain which group it attached.
+fn parse_sub_order_state(data: &Value) -> SubOrderState {
+    let order = data
+        .get("status")
+        .and_then(Value::as_str)
+        .map(OrderStatus::parse)
+        .unwrap_or(OrderStatus::Unknown);
+    let requirements_met = data
+        .get("requirements_met")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    // Present only when the caller asked for `filter[include_phone_numbers]=true`; a
+    // sub-order without it (or with no numbers on it yet) must degrade to Unknown rather
+    // than panic.
+    let status_str = data
+        .get("phone_numbers")
+        .and_then(Value::as_array)
+        .and_then(|numbers| numbers.first())
+        .and_then(|number| number.get("requirements_status"))
+        .and_then(Value::as_str);
+    SubOrderState {
+        order,
+        requirements: parse_requirements_status(status_str, requirements_met),
+        group: None,
+    }
+}
+
+/// `requirements_met: true` is the one authoritative bit Telnyx's spec documents for "the
+/// regulator is satisfied" — no confirmed string value for that case exists anywhere in the
+/// published schema, so the boolean is checked FIRST and wins over whatever the string
+/// says. The `requirement-info-*` strings themselves are verified against the spec's own
+/// response example. The exception reason text has no documented field anywhere in the
+/// spec (a real, open gap, not an oversight here) — `None` is honest about it; the reason
+/// shown to the customer, if any, is a later phase's problem to solve, not a fabricated
+/// value now.
+fn parse_requirements_status(status: Option<&str>, requirements_met: bool) -> RequirementsStatus {
+    if requirements_met {
+        return RequirementsStatus::Approved;
+    }
+    match status.unwrap_or("").trim().to_ascii_lowercase().as_str() {
+        "requirement-info-exception" => RequirementsStatus::Exception { reason: None },
+        "requirement-info-under-review" => RequirementsStatus::UnderReview,
+        "requirement-info-pending" => RequirementsStatus::InfoPending,
+        _ => RequirementsStatus::Unknown,
+    }
+}
+
+/// Parse `data.id` / `data.sub_number_orders_ids[0]` out of a `POST /v2/number_orders`
+/// response into an [`OrderRef`] — verified against `NumberOrderWithPhoneNumbers`.
+///
+/// `sub_number_orders_ids` (a top-level array on the order) is the confirmed source: the
+/// embedded `PhoneNumber` schema was checked directly and carries no `sub_number_order_id`
+/// field, so `phone_numbers[0].sub_number_order_id` — design's original guess — is kept
+/// only as a defensive fallback that costs nothing, never the primary path.
+///
+/// `None` when either half is missing: a purchase this crate cannot fully identify must
+/// never be represented as a fabricated, partially-guessed `OrderRef`.
+fn parse_order_ref(data: &Value) -> Option<OrderRef> {
+    let order_id = data.get("id").and_then(Value::as_str)?.to_string();
+    let sub_order_id = data
+        .get("sub_number_orders_ids")
+        .and_then(Value::as_array)
+        .and_then(|ids| ids.first())
+        .and_then(Value::as_str)
+        .or_else(|| {
+            data.get("phone_numbers")
+                .and_then(Value::as_array)
+                .and_then(|numbers| numbers.first())
+                .and_then(|number| number.get("sub_number_order_id"))
+                .and_then(Value::as_str)
+        })?
+        .to_string();
+    Some(OrderRef {
+        order_id,
+        sub_order_id: SubOrderId(sub_order_id),
+    })
 }
 
 /// Telnyx carries `client_state` base64-encoded.
@@ -1237,11 +1324,7 @@ impl TelephonyProvider for TelnyxProvider {
                             .to_string()
                     })
                 }),
-            // Order/sub-order id parsing lands in the next slice (spec 0119 S3):
-            // `order_id = data.id`, `sub_order_id = phone_numbers[0].sub_number_order_id`,
-            // falling back to `data.sub_number_orders_ids[0]`. `None` here is honest about
-            // what this slice does not read yet, never a fabricated id.
-            order: None,
+            order: parse_order_ref(data),
         })
     }
 
@@ -1401,21 +1484,61 @@ impl TelephonyProvider for TelnyxProvider {
 
     async fn sub_order_status(
         &self,
-        _id: &SubOrderId,
+        id: &SubOrderId,
     ) -> Result<Option<SubOrderState>, ProviderError> {
-        Err(ProviderError::Unsupported {
-            operation: "read sub-number-order status",
-        })
+        // `phone_numbers` (needed for the per-number `requirements_status`) is present only
+        // when this filter is set — verified against `numbers_SubNumberOrder`'s own field
+        // description.
+        let q = [(
+            "filter[include_phone_numbers]".to_string(),
+            "true".to_string(),
+        )];
+        let Some(body) = self
+            .get_json(&format!("/v2/sub_number_orders/{}", id.as_str()), &q)
+            .await?
+        else {
+            // Gone at the carrier. The caller (the sweep, design D5) decides what a missing
+            // sub-order means for the number's lifecycle; this method only reports the fact.
+            return Ok(None);
+        };
+        let data = body.get("data").unwrap_or(&body);
+        Ok(Some(parse_sub_order_state(data)))
     }
 
     async fn attach_requirement_group(
         &self,
-        _sub_order: &SubOrderId,
-        _group: &RequirementGroupId,
+        sub_order: &SubOrderId,
+        group: &RequirementGroupId,
     ) -> Result<SubOrderState, ProviderError> {
-        Err(ProviderError::Unsupported {
-            operation: "attach a requirement group to a sub-order",
-        })
+        // POST /v2/sub_number_orders/:id/requirement_group {requirement_group_id} —
+        // verified against the published spec ("Update requirement group for a sub number
+        // order"). NOT a PATCH, and the body key is `requirement_group_id`, not the
+        // `group_id` design's original placeholder left unverified.
+        let payload = json!({ "requirement_group_id": group.0 });
+        let res = self
+            .http
+            .post(self.url(&format!(
+                "/v2/sub_number_orders/{}/requirement_group",
+                sub_order.as_str()
+            )))
+            .bearer_auth(&self.cfg.api_key)
+            .json(&payload)
+            .send()
+            .await
+            .map_err(|e| ProviderError::Unavailable {
+                detail: e.to_string(),
+            })?;
+        let res = classify_response("attach_requirement_group", res).await?;
+        let body: Value = res.json().await.map_err(|e| ProviderError::Malformed {
+            detail: e.to_string(),
+        })?;
+        let data = body.get("data").unwrap_or(&body);
+        let mut state = parse_sub_order_state(data);
+        // Neither this response nor a plain GET echoes back which group is attached
+        // (verified — no such field on either schema). This call alone knows for certain,
+        // since it just told the carrier to attach it.
+        state.group = Some(group.clone());
+        Ok(state)
     }
 
     // ---- SIP / PBX (spec 0118) ---------------------------------------------
@@ -2298,6 +2421,120 @@ mod tests {
                             to a provider id lands in a later phase",
             }
         );
+    }
+
+    #[test]
+    fn every_documented_order_status_word_maps_and_unknown_words_stay_unknown() {
+        // `numbers_SubNumberOrder.status` enum is `pending|success|failure` — verified
+        // against the published spec. `cancelled`/`deleted` are accepted too because
+        // `POST /v2/sub_number_orders/:id/cancel` exists and design's own `transition()`
+        // (spec 0119 R5) already models a cancelled/deleted order as a distinct outcome;
+        // recognising the word costs nothing and a spec revision may add it later.
+        for (raw, expected) in [
+            ("pending", OrderStatus::Pending),
+            ("success", OrderStatus::Success),
+            ("failure", OrderStatus::Failure),
+            ("cancelled", OrderStatus::Cancelled),
+            ("canceled", OrderStatus::Cancelled),
+            ("deleted", OrderStatus::Deleted),
+            ("something_new", OrderStatus::Unknown),
+        ] {
+            assert_eq!(OrderStatus::parse(raw), expected, "{raw}");
+        }
+    }
+
+    #[test]
+    fn a_fully_met_sub_order_is_approved_regardless_of_the_status_string() {
+        // `requirements_met: true` is the one authoritative bit Telnyx documents for "the
+        // regulator is satisfied" — no `requirements_status` string for that case is
+        // documented anywhere in the published spec, so the boolean wins over the string.
+        let data = json!({
+            "status": "success",
+            "requirements_met": true,
+            "phone_numbers": [{ "requirements_status": "requirement-info-pending" }]
+        });
+        let state = parse_sub_order_state(&data);
+        assert_eq!(state.order, OrderStatus::Success);
+        assert_eq!(state.requirements, RequirementsStatus::Approved);
+        // The adapter never fabricates a group id the response did not echo back.
+        assert_eq!(state.group, None);
+    }
+
+    #[test]
+    fn the_documented_requirement_info_strings_map_onto_domain_states() {
+        // Exact strings verified against the published spec's own response example
+        // (`SubNumberOrderRequirementGroupResponse`): "requirement-info-pending",
+        // "requirement-info-under-review", "requirement-info-exception".
+        for (raw, expected) in [
+            ("requirement-info-pending", RequirementsStatus::InfoPending),
+            (
+                "requirement-info-under-review",
+                RequirementsStatus::UnderReview,
+            ),
+            (
+                "requirement-info-exception",
+                RequirementsStatus::Exception { reason: None },
+            ),
+        ] {
+            let data = json!({
+                "status": "pending",
+                "requirements_met": false,
+                "phone_numbers": [{ "requirements_status": raw }]
+            });
+            assert_eq!(parse_sub_order_state(&data).requirements, expected, "{raw}");
+        }
+    }
+
+    #[test]
+    fn a_missing_phone_numbers_array_is_unknown_rather_than_a_panic() {
+        // `phone_numbers` is only present when `filter[include_phone_numbers]=true` is
+        // sent; a response without it must degrade, never crash the sweep.
+        let data = json!({ "status": "pending", "requirements_met": false });
+        assert_eq!(
+            parse_sub_order_state(&data).requirements,
+            RequirementsStatus::Unknown
+        );
+    }
+
+    // ---- purchase order/sub-order id parsing (spec 0119 S3) -------------------
+
+    #[test]
+    fn the_order_and_sub_order_ids_come_from_the_verified_top_level_fields() {
+        // `NumberOrderWithPhoneNumbers` (verified against the published spec): `id` is the
+        // order id, `sub_number_orders_ids` is an array of sub-order ids. The embedded
+        // `PhoneNumber` schema — checked directly — carries no `sub_number_order_id` field
+        // at all, so that is NOT the primary source design's original guess assumed.
+        let data = json!({
+            "id": "order-1",
+            "sub_number_orders_ids": ["sub-1", "sub-2"],
+            "phone_numbers": [{ "id": "pn-1", "phone_number": "+33612345678" }]
+        });
+        let order_ref = parse_order_ref(&data).expect("both ids present");
+        assert_eq!(order_ref.order_id, "order-1");
+        assert_eq!(order_ref.sub_order_id, SubOrderId("sub-1".into()));
+    }
+
+    #[test]
+    fn a_per_phone_number_sub_order_id_is_a_defensive_fallback_only() {
+        // Kept in case a differently-shaped response ever carries it, even though the
+        // current published schema does not — cheap tolerance, never the primary path.
+        let data = json!({
+            "id": "order-2",
+            "phone_numbers": [{ "id": "pn-1", "sub_number_order_id": "sub-9" }]
+        });
+        assert_eq!(
+            parse_order_ref(&data).unwrap().sub_order_id,
+            SubOrderId("sub-9".into())
+        );
+    }
+
+    #[test]
+    fn a_response_with_no_order_id_or_no_sub_order_id_yields_no_order_ref() {
+        // Never a fabricated id: `PurchasedNumber.order` documents `None` as "genuinely no
+        // order/sub-order concept", and a malformed/partial response must present the same
+        // honest gap rather than half an `OrderRef`.
+        assert!(parse_order_ref(&json!({"sub_number_orders_ids": ["s"]})).is_none());
+        assert!(parse_order_ref(&json!({"id": "order-3"})).is_none());
     }
 
     fn requirement_query() -> RequirementQuery {
