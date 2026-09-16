@@ -560,6 +560,188 @@ async fn an_unrated_call_says_pending_rather_than_zero() {
     assert_eq!(body["cost_status"], serde_json::json!("pending"));
 }
 
+// ---- recording exposure (fixed 1.58.5) ------------------------------------
+//
+// Telnyx recordings were stored (webhook.rs's RecordingSaved handler) but never
+// surfaced: the detail row didn't say a recording existed, and even if it had, the
+// URL the webhook stashed is a presigned Telnyx link that expires in ~10 minutes
+// (docs/voip-telnyx-setup.md §recording) — handing that stale URL back later would
+// just 403 in the browser. `recording_available` tells the dashboard whether to show
+// a "play recording" control at all; the dedicated `/recording` route mints a FRESH
+// short-lived URL on demand, the moment someone actually asks to play it.
+
+#[tokio::test]
+async fn recording_available_reflects_a_saved_recording_with_a_provider_handle() {
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    let call = make_call(&srv, org, owner).await;
+
+    let detail_url = format!(
+        "{}/api/business/organizations/{org}/voip/calls/{call}",
+        base(&srv)
+    );
+    let body: Value = client()
+        .get(&detail_url)
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(
+        body["recording_available"],
+        serde_json::json!(false),
+        "no recording was ever saved for this call"
+    );
+
+    sqlx::query(
+        "UPDATE voip_calls SET recording_status = 'saved', provider_recording_id = 'rec_123'
+         WHERE id = $1",
+    )
+    .bind(call)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+
+    let body: Value = client()
+        .get(&detail_url)
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(body["recording_available"], serde_json::json!(true));
+}
+
+#[tokio::test]
+async fn recording_available_is_false_once_retention_purges_the_handle() {
+    // Mirrors what `sweep_voip_recordings_once` (business/retention.rs) does on
+    // purge: `recording_status = 'deleted'`, `provider_recording_id = NULL`. This
+    // must read as unavailable again — a dangling "yes" the dashboard can never
+    // actually fetch would be worse than never having offered it.
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    let call = make_call(&srv, org, owner).await;
+    sqlx::query(
+        "UPDATE voip_calls SET recording_status = 'deleted', provider_recording_id = NULL
+         WHERE id = $1",
+    )
+    .bind(call)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+
+    let body: Value = client()
+        .get(format!(
+            "{}/api/business/organizations/{org}/voip/calls/{call}",
+            base(&srv)
+        ))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(body["recording_available"], serde_json::json!(false));
+}
+
+#[tokio::test]
+async fn the_recording_route_hands_back_a_fresh_short_lived_url() {
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    let call = make_call(&srv, org, owner).await;
+    sqlx::query(
+        "UPDATE voip_calls SET recording_status = 'saved', provider_recording_id = 'rec_abc'
+         WHERE id = $1",
+    )
+    .bind(call)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+
+    let res = client()
+        .get(format!(
+            "{}/api/business/organizations/{org}/voip/calls/{call}/recording",
+            base(&srv)
+        ))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let body: Value = res.json().await.unwrap();
+    let url = body["url"].as_str().expect("url");
+    assert!(
+        url.contains("rec_abc"),
+        "the mock's url should be keyed off the recording id: {url}"
+    );
+    let expires_at: DateTime<Utc> = body["expires_at"]
+        .as_str()
+        .expect("expires_at")
+        .parse()
+        .expect("expires_at must be RFC3339");
+    assert!(
+        expires_at > Utc::now(),
+        "a short-lived url must not be already expired"
+    );
+}
+
+#[tokio::test]
+async fn the_recording_route_refuses_with_a_stable_code_when_nothing_is_saved() {
+    let srv = srv!();
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    let call = make_call(&srv, org, owner).await; // recording_status defaults to 'none'
+
+    let res = client()
+        .get(format!(
+            "{}/api/business/organizations/{org}/voip/calls/{call}/recording",
+            base(&srv)
+        ))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+    let body: Value = res.json().await.unwrap();
+    assert_eq!(body["error"], serde_json::json!("recording_unavailable"));
+}
+
+#[tokio::test]
+async fn the_recording_route_is_tenant_scoped_like_call_detail() {
+    // Same convention the detail route pins (`a_call_belonging_to_another_org_is_not_found_not_forbidden`):
+    // a call id from another org is 404, never 403 — a 403 would itself confirm the id exists.
+    let srv = srv!();
+    let (owner_a, jwt_a) = user(&srv).await;
+    let org_a = make_org(&srv, owner_a, "owner").await;
+    let (owner_b, _) = user(&srv).await;
+    let org_b = make_org(&srv, owner_b, "owner").await;
+    let call_b = make_call(&srv, org_b, owner_b).await;
+
+    let res = client()
+        .get(format!(
+            "{}/api/business/organizations/{org_a}/voip/calls/{call_b}/recording",
+            base(&srv)
+        ))
+        .bearer_auth(&jwt_a)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+    // Distinguished from "recording_unavailable": the caller can't see this call
+    // exists at all, so the body is the detail route's plain "call not found", not
+    // the recording-specific JSON refusal code.
+    let text = res.text().await.unwrap();
+    assert!(!text.contains("recording_unavailable"));
+}
+
 #[tokio::test]
 async fn the_numbers_list_is_scoped_to_the_org_and_carries_its_verification_state() {
     // Spec 0112 R3. The dialer's caller-id select shipped with a single hardcoded

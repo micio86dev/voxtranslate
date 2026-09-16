@@ -48,6 +48,10 @@ pub fn routes() -> Router<AppState> {
             get(detail),
         )
         .route(
+            "/api/business/organizations/{org_id}/voip/calls/{call_id}/recording",
+            get(recording_url),
+        )
+        .route(
             "/api/business/organizations/{org_id}/voip/calls/{call_id}/answer",
             post(answer_inbound),
         )
@@ -673,6 +677,14 @@ struct CallDetailRow {
     /// (`credits_consumed`) are theirs, and both are still here. Spec 0112 R6.
     cost_status: String,
     recording_status: String,
+    /// True only when there is an actual recording to fetch: `recording_status = 'saved'`
+    /// AND a provider handle still exists. Telnyx recordings were captured (webhook.rs's
+    /// RecordingSaved handler) but never surfaced here — the dashboard had no way to know
+    /// one existed, let alone play it (fixed 1.58.5, spec 0111 R21). Mirrors exactly what
+    /// `business::retention::sweep_voip_recordings_once` clears on purge (`recording_status
+    /// = 'deleted'`, `provider_recording_id = NULL`), so a purged recording reads as
+    /// unavailable again rather than as a dangling "yes" `GET …/recording` can't serve.
+    recording_available: bool,
     transcription_status: String,
     consent_status: String,
     project_id: Option<Uuid>,
@@ -705,7 +717,10 @@ pub async fn detail(
                 c.quoted_price_per_min,
                 CASE WHEN c.actual_provider_cost_usd IS NULL THEN 'pending' ELSE 'final' END
                     AS cost_status,
-                c.recording_status, c.transcription_status, c.consent_status, c.project_id,
+                c.recording_status,
+                (c.recording_status = 'saved' AND c.provider_recording_id IS NOT NULL)
+                    AS recording_available,
+                c.transcription_status, c.consent_status, c.project_id,
                 c.contact_id, ct.name AS contact_name
          FROM voip_calls c
          JOIN call_sessions s ON s.id = c.session_id
@@ -733,6 +748,69 @@ pub async fn detail(
     // a zero, because a zero reads as "this call was free", which is a very different
     // claim from "the provider has not rated it yet". See docs/voip-telnyx-setup.md §7.
     Ok(Json(r).into_response())
+}
+
+/// `GET …/voip/calls/{id}/recording` — a fresh, short-lived URL for a saved recording
+/// (spec 0111 R21, fixed 1.58.5).
+///
+/// The provider's own URL is never persisted and handed out later: on Telnyx it is
+/// itself a presigned link good for only a few minutes (docs/voip-telnyx-setup.md), so
+/// the value `voip_calls.provider_recording_url` stashed at RecordingSaved time is
+/// already stale by the time anyone opens the call in the dashboard. This mints a new
+/// one, on demand, from the durable `provider_recording_id` handle instead.
+pub async fn recording_url(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path((org_id, call_id)): Path<(Uuid, Uuid)>,
+) -> Result<Response, Response> {
+    let pool = require_pool(&state)?;
+    let role = require_role(pool, org_id, user.user_id, MEMBER).await?;
+    let is_admin = matches!(role.as_str(), "admin" | "owner");
+    let telephony = provider(&state)?;
+
+    // Same auth/role/org-scoping as `detail` above, including the same non-admin
+    // "only calls I placed" restriction — a recording is part of the call record, not a
+    // separately-scoped resource.
+    let row: Option<(String, Option<String>)> = sqlx::query_as(
+        "SELECT recording_status, provider_recording_id FROM voip_calls
+         WHERE id = $1 AND org_id = $2 AND ($3 OR user_id = $4)",
+    )
+    .bind(call_id)
+    .bind(org_id)
+    .bind(is_admin)
+    .bind(user.user_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(db_err)?;
+
+    // Cross-org / doesn't exist / not this member's call: 404 "call not found", exactly
+    // like `detail` — a 403 here would itself confirm the call id exists.
+    let Some((status, recording_id)) = row else {
+        return Err(not_found("call not found"));
+    };
+    // Not actually saved, or saved with no durable handle (see `CallDetailRow::
+    // recording_available` for why both matter): nothing to fetch. A stable JSON code
+    // rather than the plain-text `not_found`, because the dashboard needs to branch on
+    // this one specifically (KNOWN_REASONS convention, see `refuse` above).
+    let (Some(recording_id), true) = (recording_id, status == "saved") else {
+        return Err(refuse(StatusCode::NOT_FOUND, "recording_unavailable"));
+    };
+
+    match telephony.recording_download_url(&recording_id).await {
+        Ok(Some(dl)) => Ok(Json(json!({
+            "url": dl.url,
+            "expires_at": dl.expires_at.to_rfc3339(),
+        }))
+        .into_response()),
+        // The provider has nothing to hand out (purged there, or no link yet) — same
+        // refusal as "not saved" above; the caller cannot tell these apart and does not
+        // need to.
+        Ok(None) => Err(refuse(StatusCode::NOT_FOUND, "recording_unavailable")),
+        Err(e) => {
+            tracing::error!(%call_id, error = %e, "recording download url fetch failed");
+            Err(refuse(StatusCode::BAD_GATEWAY, "recording_unavailable"))
+        }
+    }
 }
 
 #[derive(Debug, Serialize, FromRow)]
