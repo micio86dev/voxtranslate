@@ -207,6 +207,45 @@ impl TelnyxProvider {
         }
         classify_response(path, res).await.map(|_| ())
     }
+
+    /// Turn one submitted [`FieldValue`] into the plain string
+    /// [`requirement_group_patch_body`] wants. `Text` and `Document` values are already
+    /// opaque strings and need no network call; an `Address` must first become a Telnyx
+    /// address id via `POST /v2/addresses` (design D13) — the only branch here that is
+    /// not pure, and the reason this lives on `self` rather than being folded into the
+    /// (still pure, still exhaustively unit-tested) body builder.
+    async fn resolve_field_value(&self, value: &FieldValue) -> Result<String, ProviderError> {
+        match value {
+            FieldValue::Text(s) => Ok(s.clone()),
+            FieldValue::Document(doc_id) => Ok(doc_id.clone()),
+            FieldValue::Address(addr) => self.create_address(addr).await,
+        }
+    }
+
+    /// `POST /v2/addresses` — verified against the published `AddressCreate`/`Address`
+    /// schemas (2026-09-16, see [`address_create_body`]/[`parse_address_id`]). Uses the
+    /// redacted classifier (design D12): the request body is a full mailing address, and
+    /// an error response echoing it back must never reach the log.
+    async fn create_address(&self, addr: &super::AddressValue) -> Result<String, ProviderError> {
+        let payload = address_create_body(addr);
+        let res = self
+            .http
+            .post(self.url("/v2/addresses"))
+            .bearer_auth(&self.cfg.api_key)
+            .json(&payload)
+            .send()
+            .await
+            .map_err(|e| ProviderError::Unavailable {
+                detail: e.to_string(),
+            })?;
+        let res = classify_response_redacted("create_address", res).await?;
+        let body: Value = res.json().await.map_err(|e| ProviderError::Malformed {
+            detail: e.to_string(),
+        })?;
+        parse_address_id(&body).ok_or_else(|| ProviderError::Malformed {
+            detail: "address response has no id".into(),
+        })
+    }
 }
 
 /// Ceiling on what one carrier error contributes to a log line.
@@ -268,13 +307,13 @@ async fn classify_response(
 /// Same success/failure classification as [`classify_response`], but the failure path
 /// never reads the response body at all.
 ///
-/// Design D12: an uploaded document (and, from a later slice on this same PR, a
-/// submitted requirement value or a resolved address) is PII, and Telnyx's own error
-/// bodies are known to echo back exactly what was submitted (a rejected filename, a
-/// malformed value quoted back). [`error_detail`] redacting phone numbers is not enough
-/// protection for THAT shape of leak, so these calls skip reading the body on failure
-/// entirely rather than trying to redact a payload this file does not control the shape
-/// of.
+/// Design D12: a submitted requirement value, an uploaded document, and a resolved
+/// address are all PII, and Telnyx's own error bodies are known to echo back exactly
+/// what was submitted (a malformed-address 422 restating the street address, a rejected
+/// value quoting it back). [`error_detail`] redacting phone numbers is not enough
+/// protection for THAT shape of leak, so these three calls skip reading the body on
+/// failure entirely rather than trying to redact a payload this file does not control
+/// the shape of.
 async fn classify_response_redacted(
     op: &str,
     res: reqwest::Response,
@@ -488,28 +527,71 @@ fn requirement_group_create_body(query: &RequirementQuery, customer_ref: &str) -
 /// `PATCH /v2/requirement_groups/:id` body — verified against the same schema: a
 /// `regulatory_requirements` array of `{requirement_id, field_value}`, both plain strings.
 ///
-/// `FieldValue::Address` cannot be turned into that string here: submitting an address
-/// means resolving it to a Telnyx address id first (design D13, `POST /v2/addresses`), and
-/// that call is Phase 4 scope, not this one. Refusing it as `Unsupported` is the same
-/// honest-gap treatment every other not-yet-implemented operation in this file gets — it is
-/// never silently dropped from the submission or sent as raw address text the provider
-/// would reject anyway.
-fn requirement_group_patch_body(values: &[(String, FieldValue)]) -> Result<Value, ProviderError> {
-    let mut requirements = Vec::with_capacity(values.len());
-    for (requirement_id, value) in values {
-        let field_value = match value {
-            FieldValue::Text(s) => s.clone(),
-            FieldValue::Document(doc_id) => doc_id.clone(),
-            FieldValue::Address(_) => {
-                return Err(ProviderError::Unsupported {
-                    operation: "submit an address requirement value — resolving an address \
-                                to a provider id lands in a later phase",
-                })
-            }
-        };
-        requirements.push(json!({ "requirement_id": requirement_id, "field_value": field_value }));
+/// Pure and infallible: every value is already a plain string by the time this runs.
+/// `TelnyxProvider::resolve_field_value` is what turns a `FieldValue` into one — an
+/// `Address` becomes a Telnyx address id via `POST /v2/addresses` (design D13, PR4),
+/// never raw address text — so this function itself never needs to know `FieldValue`
+/// exists.
+fn requirement_group_patch_body(values: &[(String, String)]) -> Value {
+    let requirements: Vec<Value> = values
+        .iter()
+        .map(|(requirement_id, field_value)| {
+            json!({ "requirement_id": requirement_id, "field_value": field_value })
+        })
+        .collect();
+    json!({ "regulatory_requirements": requirements })
+}
+
+/// `POST /v2/addresses` body — verified against the published `AddressCreate` schema
+/// (2026-09-16): required fields are `first_name`, `last_name`, `business_name`,
+/// `street_address`, `locality`, `country_code`; `extended_address`/`administrative_area`
+/// are optional and omitted entirely (not sent as JSON `null`) when absent.
+fn address_create_body(addr: &super::AddressValue) -> Value {
+    let mut body = json!({
+        "first_name": addr.first_name,
+        "last_name": addr.last_name,
+        "business_name": addr.business_name,
+        "street_address": addr.street_address,
+        "locality": addr.locality,
+        "postal_code": addr.postal_code,
+        "country_code": addr.country_code,
+    });
+    if let Some(extended) = &addr.extended_address {
+        body["extended_address"] = json!(extended);
     }
-    Ok(json!({ "regulatory_requirements": requirements }))
+    if let Some(area) = &addr.administrative_area {
+        body["administrative_area"] = json!(area);
+    }
+    body
+}
+
+/// Parse `POST /v2/addresses`' response. Verified against the published `Address`
+/// schema: the created address is always wrapped in `data`, with `id` as an opaque
+/// string (Telnyx documents it as an int64-formatted string, not a uuid, unlike most of
+/// this file's other resources — read as a plain string regardless).
+fn parse_address_id(body: &Value) -> Option<String> {
+    body.get("data")
+        .unwrap_or(body)
+        .get("id")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+}
+
+/// Parse `POST /v2/documents`' response. Verified against the published
+/// `DocServiceDocument` schema: the created document is wrapped in `data`, with `id`
+/// (uuid) and `av_scan_status` (`scanned`/`infected`/`pending_scan`/`not_scanned`).
+/// `av_scan_status` is stored verbatim rather than mapped onto a crate-owned enum — see
+/// [`UploadedDocument`] — so an empty string here honestly means "the field was
+/// missing", never a guessed status word.
+fn parse_uploaded_document(body: &Value) -> Option<UploadedDocument> {
+    let data = body.get("data").unwrap_or(body);
+    let id = data.get("id").and_then(Value::as_str)?.to_string();
+    let av_scan_status = data
+        .get("av_scan_status")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    Some(UploadedDocument { id, av_scan_status })
 }
 
 /// Parse a `RequirementGroup` response. `POST`/`GET`/`PATCH /v2/requirement_groups[/{id}]`
@@ -581,23 +663,6 @@ fn parse_user_requirement(item: &Value) -> (RequirementSpec, Option<FieldValue>)
             RequirementKind::Address | RequirementKind::Textual => FieldValue::Text(v.to_string()),
         });
     (spec, value)
-}
-
-/// Parse `POST /v2/documents`' response. Verified against the published
-/// `DocServiceDocument` schema (2026-09-16): the created document is wrapped in `data`,
-/// with `id` (uuid) and `av_scan_status` (`scanned`/`infected`/`pending_scan`/`not_scanned`).
-/// `av_scan_status` is stored verbatim rather than mapped onto a crate-owned enum — see
-/// [`UploadedDocument`] — so an empty string here honestly means "the field was
-/// missing", never a guessed status word.
-fn parse_uploaded_document(body: &Value) -> Option<UploadedDocument> {
-    let data = body.get("data").unwrap_or(body);
-    let id = data.get("id").and_then(Value::as_str)?.to_string();
-    let av_scan_status = data
-        .get("av_scan_status")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_string();
-    Some(UploadedDocument { id, av_scan_status })
 }
 
 /// Parse `GET /v2/sub_number_orders/:id` (with `filter[include_phone_numbers]=true`) or the
@@ -1497,7 +1562,14 @@ impl TelephonyProvider for TelnyxProvider {
         id: &RequirementGroupId,
         values: &[(String, FieldValue)],
     ) -> Result<RequirementGroup, ProviderError> {
-        let payload = requirement_group_patch_body(values)?;
+        // Resolve every value to a plain string BEFORE building the request body — an
+        // `Address` needs its own round trip to `/v2/addresses` first (design D13).
+        let mut resolved = Vec::with_capacity(values.len());
+        for (requirement_id, value) in values {
+            let field_value = self.resolve_field_value(value).await?;
+            resolved.push((requirement_id.clone(), field_value));
+        }
+        let payload = requirement_group_patch_body(&resolved);
         let res = self
             .http
             .patch(self.url(&format!("/v2/requirement_groups/{}", id.0)))
@@ -1508,7 +1580,10 @@ impl TelephonyProvider for TelnyxProvider {
             .map_err(|e| ProviderError::Unavailable {
                 detail: e.to_string(),
             })?;
-        let res = classify_response("submit_requirement_values", res).await?;
+        // Redacted (design D12): the submitted values themselves may be PII (a full
+        // name, a resolved address's own fields never leave this call, but the id could
+        // still be echoed alongside a rejected sibling value).
+        let res = classify_response_redacted("submit_requirement_values", res).await?;
         let body: Value = res.json().await.map_err(|e| ProviderError::Malformed {
             detail: e.to_string(),
         })?;
@@ -1712,9 +1787,9 @@ mod tests {
     }
 
     /// Same config, pointed at a local stub server instead of the real carrier — used
-    /// only by tests that must observe an actual HTTP request/response (streaming a
-    /// document, and later in this PR, resolving an address), where a pure-function test
-    /// cannot show what went over the wire.
+    /// only by the tests that must observe an actual HTTP request/response (streaming a
+    /// document, resolving an address), where a pure-function test cannot show what went
+    /// over the wire.
     fn cfg_with_base(base: String) -> TelnyxConfig {
         TelnyxConfig {
             api_base: base,
@@ -2466,46 +2541,78 @@ mod tests {
     }
 
     #[test]
-    fn the_group_patch_body_carries_text_and_document_values_as_plain_strings() {
+    fn the_group_patch_body_carries_already_resolved_values_as_plain_strings() {
         // PATCH /v2/requirement_groups/:id — verified against the same `RequirementGroup`
         // schema: `regulatory_requirements: [{requirement_id, field_value}]`, both strings.
+        // By the time this pure function runs, every `FieldValue` (including `Address`)
+        // has already been resolved to a plain string by
+        // `TelnyxProvider::resolve_field_value` — this function never sees a `FieldValue`.
         let values = vec![
-            ("req-1".to_string(), FieldValue::Text("Jane Doe".into())),
-            ("req-2".to_string(), FieldValue::Document("doc-7".into())),
+            ("req-1".to_string(), "Jane Doe".to_string()),
+            ("req-2".to_string(), "doc-7".to_string()),
+            // An address resolves to the opaque provider id `create_address` returned,
+            // never to raw address text.
+            ("req-3".to_string(), "addr-42".to_string()),
         ];
-        let body = requirement_group_patch_body(&values).expect("no address values");
+        let body = requirement_group_patch_body(&values);
         let reqs = body["regulatory_requirements"].as_array().unwrap();
-        assert_eq!(reqs.len(), 2);
+        assert_eq!(reqs.len(), 3);
         assert_eq!(reqs[0]["requirement_id"], "req-1");
         assert_eq!(reqs[0]["field_value"], "Jane Doe");
         assert_eq!(reqs[1]["requirement_id"], "req-2");
         assert_eq!(reqs[1]["field_value"], "doc-7");
+        assert_eq!(reqs[2]["requirement_id"], "req-3");
+        assert_eq!(reqs[2]["field_value"], "addr-42");
+    }
+
+    // ---- address resolution (spec 0119 D13, PR4) -------------------------------
+    //
+    // `POST /v2/addresses` — verified against the published `AddressCreate`/`Address`
+    // schemas (2026-09-16): required fields are `first_name`, `last_name`,
+    // `business_name`, `street_address`, `locality`, `country_code`; the response wraps
+    // the created `Address` in `data`, and `data.id` is the opaque id later submitted as
+    // the requirement's `field_value`.
+
+    fn address_value() -> super::super::AddressValue {
+        super::super::AddressValue {
+            first_name: "Jane".into(),
+            last_name: "Doe".into(),
+            business_name: "Acme SRL".into(),
+            street_address: "1 Rue de Paris".into(),
+            extended_address: None,
+            locality: "Paris".into(),
+            administrative_area: None,
+            postal_code: "75001".into(),
+            country_code: "FR".into(),
+        }
     }
 
     #[test]
-    fn an_address_value_is_refused_rather_than_forwarded_unresolved() {
-        // Submitting an address means resolving it to a Telnyx address id first (design
-        // D13, `POST /v2/addresses`) — that call is Phase 4 scope, not this one. The value
-        // must never be silently dropped from the submission or sent as raw address text
-        // the provider would reject anyway.
-        let values = vec![(
-            "req-1".to_string(),
-            FieldValue::Address(super::super::AddressValue {
-                street_address: "1 Rue de Paris".into(),
-                extended_address: None,
-                locality: "Paris".into(),
-                administrative_area: None,
-                postal_code: "75001".into(),
-                country_code: "FR".into(),
-            }),
-        )];
-        assert_eq!(
-            requirement_group_patch_body(&values).unwrap_err(),
-            ProviderError::Unsupported {
-                operation: "submit an address requirement value — resolving an address \
-                            to a provider id lands in a later phase",
-            }
-        );
+    fn the_address_create_body_carries_every_field_the_schema_requires() {
+        let body = address_create_body(&address_value());
+        assert_eq!(body["first_name"], "Jane");
+        assert_eq!(body["last_name"], "Doe");
+        assert_eq!(body["business_name"], "Acme SRL");
+        assert_eq!(body["street_address"], "1 Rue de Paris");
+        assert_eq!(body["locality"], "Paris");
+        assert_eq!(body["country_code"], "FR");
+        assert_eq!(body["postal_code"], "75001");
+        // Optional fields absent from the value must not appear as JSON `null` — the
+        // schema treats a present-but-null field the same risk class as a wrong one.
+        assert!(body.get("extended_address").is_none());
+        assert!(body.get("administrative_area").is_none());
+    }
+
+    #[test]
+    fn parse_address_id_reads_the_data_wrapped_id() {
+        let body = json!({"data": {"id": "addr-1", "record_type": "address"}});
+        assert_eq!(parse_address_id(&body).as_deref(), Some("addr-1"));
+    }
+
+    #[test]
+    fn parse_address_id_is_none_without_an_id() {
+        assert!(parse_address_id(&json!({"data": {}})).is_none());
+        assert!(parse_address_id(&json!({})).is_none());
     }
 
     // ---- document upload (spec 0119 D9/D10, PR4) -------------------------------
@@ -2596,6 +2703,96 @@ mod tests {
         // Not a hard requirement of the wire format, but a red flag if it ever drops to
         // 1: it would mean the multipart body was assembled from one pre-joined buffer.
         assert!(received_chunks.load(Ordering::SeqCst) >= 2);
+    }
+
+    #[tokio::test]
+    async fn submit_requirement_values_resolves_an_address_before_patching_the_group() {
+        // End-to-end proof of D13: an `Address` value must reach `/v2/requirement_groups`
+        // as the opaque id `POST /v2/addresses` returned, never as address text.
+        use axum::extract::{Json as JsonBody, Path};
+        use axum::routing::{patch, post};
+        use axum::{Json, Router};
+        use std::sync::{Arc, Mutex};
+
+        let captured_address_body: Arc<Mutex<Option<Value>>> = Arc::new(Mutex::new(None));
+        let captured_patch_body: Arc<Mutex<Option<Value>>> = Arc::new(Mutex::new(None));
+        let addresses_capture = captured_address_body.clone();
+        let patch_capture = captured_patch_body.clone();
+
+        let app = Router::new()
+            .route(
+                "/v2/addresses",
+                post(move |JsonBody(body): JsonBody<Value>| {
+                    let capture = addresses_capture.clone();
+                    async move {
+                        *capture.lock().unwrap() = Some(body);
+                        Json(json!({"data": {"id": "addr-99"}}))
+                    }
+                }),
+            )
+            .route(
+                "/v2/requirement_groups/{id}",
+                patch(
+                    move |Path(id): Path<String>, JsonBody(body): JsonBody<Value>| {
+                        let capture = patch_capture.clone();
+                        async move {
+                            *capture.lock().unwrap() = Some(body);
+                            Json(json!({
+                                "id": id,
+                                "status": "pending-approval",
+                                "regulatory_requirements": [
+                                    {
+                                        "requirement_id": "req-1",
+                                        "field_value": "addr-99",
+                                        "field_type": "address"
+                                    }
+                                ]
+                            }))
+                        }
+                    },
+                ),
+            );
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        let p = TelnyxProvider::new(cfg_with_base(format!("http://{addr}")), 300);
+        let group = p
+            .submit_requirement_values(
+                &RequirementGroupId("grp-1".into()),
+                &[("req-1".to_string(), FieldValue::Address(address_value()))],
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(group.id, RequirementGroupId("grp-1".into()));
+        assert_eq!(group.status, GroupStatus::PendingApproval);
+
+        let address_body = captured_address_body
+            .lock()
+            .unwrap()
+            .clone()
+            .expect("POST /v2/addresses was called");
+        assert_eq!(address_body["first_name"], "Jane");
+        assert_eq!(address_body["last_name"], "Doe");
+        assert_eq!(address_body["business_name"], "Acme SRL");
+
+        let patch_body = captured_patch_body
+            .lock()
+            .unwrap()
+            .clone()
+            .expect("PATCH /v2/requirement_groups/:id was called");
+        let reqs = patch_body["regulatory_requirements"].as_array().unwrap();
+        assert_eq!(reqs[0]["requirement_id"], "req-1");
+        // The resolved provider address id, never the raw address fields — proves
+        // resolution actually happened rather than the value being forwarded unresolved.
+        assert_eq!(reqs[0]["field_value"], "addr-99");
+        let patch_text = patch_body.to_string();
+        assert!(!patch_text.contains("Rue de Paris"));
+        assert!(!patch_text.contains("Acme SRL"));
     }
 
     #[test]

@@ -719,17 +719,21 @@ impl GroupStatus {
 
 /// A physical mailing address, as the provider's address-verification endpoint wants it.
 ///
-/// **Open question (design D13, resolved against the docs in PR3, still needs a live call
-/// in PR4):** Telnyx's published OpenAPI spec (`AddressCreate` schema, `POST /v2/addresses`)
-/// requires THREE fields this type does not carry yet — `first_name`, `last_name` and
-/// `business_name` — alongside `street_address`, `locality` and `country_code`. This shape
-/// was written against Telnyx's address OBJECT docs, which describe what an address looks
-/// like once it exists, not what creating one requires. PR4 (the only phase that calls
-/// `POST /v2/addresses`) needs to add those three fields — likely sourced from the org's
-/// own profile, since a regulatory address has no natural "customer name" of its own —
-/// before this can be exercised against a live account.
+/// **Design D13, resolved against Telnyx's published OpenAPI spec** (`AddressCreate`
+/// schema, `POST /v2/addresses`, verified 2026-09-16): the required fields are
+/// `first_name`, `last_name`, `business_name`, `street_address`, `locality` and
+/// `country_code` — `postal_code` is accepted but not required by that schema, and is
+/// kept here anyway because the caller collecting this value already has it. The three
+/// name fields were missing from this type through PR3 (it was written against Telnyx's
+/// address OBJECT docs, which describe what an address looks like once it exists, not
+/// what creating one requires); PR4 adds them. A regulatory address has no natural
+/// "customer name" of its own, so the caller populating this struct is expected to
+/// source `first_name`/`last_name`/`business_name` from the org's own profile.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AddressValue {
+    pub first_name: String,
+    pub last_name: String,
+    pub business_name: String,
     pub street_address: String,
     pub extended_address: Option<String>,
     pub locality: String,

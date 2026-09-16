@@ -1438,6 +1438,9 @@ mod tests {
                     (
                         "registered_address".to_string(),
                         FieldValue::Address(AddressValue {
+                            first_name: "Jane".into(),
+                            last_name: "Doe".into(),
+                            business_name: "Acme SRL".into(),
                             street_address: "1 Rue de la Paix".into(),
                             extended_address: None,
                             locality: "Paris".into(),
