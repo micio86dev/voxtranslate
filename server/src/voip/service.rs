@@ -1045,7 +1045,10 @@ mod tests {
         sqlx::query(
             "INSERT INTO voip_rates (provider, prefix, description, cost_per_minute, fetched_at)
              VALUES ('mock', '86', 'China', 0.0100, now())
-             ON CONFLICT (provider, prefix) DO UPDATE SET fetched_at = now()",
+             ON CONFLICT (provider, prefix) DO UPDATE
+                 SET description = EXCLUDED.description,
+                     cost_per_minute = EXCLUDED.cost_per_minute,
+                     fetched_at = now()",
         )
         .execute(pool)
         .await

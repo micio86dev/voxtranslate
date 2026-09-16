@@ -273,15 +273,11 @@ impl LiveCalls {
 /// its own fresh [`SpeakerCtx`]/[`SessionDeps`] — the first attempt's are consumed by
 /// `start_session` whether or not it succeeds.
 ///
-/// **`voip_calls.engine_id` is deliberately left untouched by a fallback here.** Billing
-/// (`voip::webhook::settle`) charges `quoted_price_per_min`, which was fixed at dial time
-/// from the SAME resolved engine that was stored as `engine_id` — a runtime downgrade
-/// changes what serves the call, not what the customer was quoted or is charged, so there
-/// is nothing to reconcile. This matches the browser tiers: their own `AtCapacity`
-/// fallback in `lib.rs` never rewrites a persisted "chosen engine" field either. Analytics
-/// grouped by `engine_id` (`voip::analytics`) will attribute a downgraded call to the
-/// engine it was quoted at rather than the one that carried it — an accepted, pre-existing
-/// gap shared with the browser tiers, and out of scope for this fix.
+/// **This function persists nothing.** It only reports which engine actually opened the
+/// session. When that differs from the requested one, `run_leg` re-attributes the call
+/// afterwards: `reprice_fallback` rewrites `voip_calls.engine_id` and `quoted_price_per_min`
+/// to the engine that serves the call, so settlement (`voip::webhook::settle`) and the
+/// per-engine analytics both reflect what the customer actually received.
 async fn open_engine_session(
     engines: &EngineRegistry,
     call_id: Uuid,
@@ -340,27 +336,36 @@ async fn fail_unavailable_engine(
 /// otherwise), so a missing `state.config.voip` here would itself be a programming error —
 /// logged rather than panicked on, because a pricing miss must never take a connected call
 /// down.
+///
+/// Callers run this DETACHED, never inline: by the time a fallback has opened a session the
+/// recipient is connected and has granted consent, and this makes three database round
+/// trips with no timeout of their own. A fallback happens when Pro/Premium is at capacity —
+/// exactly when the pool is most likely to be under pressure — and awaiting it would hold
+/// the live call's translated audio for as long as the pool makes it wait. The reprice is
+/// idempotent and self-guarded (`service::reprice_after_fallback`), so nothing depends on
+/// it finishing before the bridge starts.
 async fn reprice_fallback(
     state: &crate::AppState,
-    leg: &PendingLeg,
+    call_id: Uuid,
+    requested_engine: &str,
     fallback_engine: &crate::engine::EngineMetadata,
 ) {
     let (Some(cfg), Some(pool)) = (state.config.voip.as_ref(), state.pool.as_ref()) else {
         tracing::warn!(
-            call_id = %leg.call_id,
-            requested_engine = %leg.engine_id,
+            call_id = %call_id,
+            requested_engine = %requested_engine,
             fallback_engine = %fallback_engine.id,
             "phone leg fell back to a different engine but has no VoIP config/pool to reprice against"
         );
         return;
     };
 
-    match service::reprice_after_fallback(pool, cfg, leg.call_id, &leg.engine_id, fallback_engine)
+    match service::reprice_after_fallback(pool, cfg, call_id, requested_engine, fallback_engine)
         .await
     {
         Some(r) => tracing::warn!(
-            call_id = %leg.call_id,
-            requested_engine = %leg.engine_id,
+            call_id = %call_id,
+            requested_engine = %requested_engine,
             fallback_engine = %fallback_engine.id,
             old_price_per_minute = %r.old_price_per_minute,
             new_price_per_minute = %r.new_price_per_minute,
@@ -368,8 +373,8 @@ async fn reprice_fallback(
             "phone leg fell back to a different engine mid-call; repriced the call to match"
         ),
         None => tracing::warn!(
-            call_id = %leg.call_id,
-            requested_engine = %leg.engine_id,
+            call_id = %call_id,
+            requested_engine = %requested_engine,
             fallback_engine = %fallback_engine.id,
             "phone leg fell back to a different engine mid-call, but could not be repriced — \
              keeping the original quote"
@@ -454,10 +459,17 @@ where
     // A fallback that actually served the call must be billed as itself, not as whatever
     // was requested — see `service::reprice_after_fallback`'s doc comment for why this is
     // safe to do here (no re-admission, same formula `build_quote` uses at dial time) and
-    // why it never raises the price the customer already agreed to.
+    // why it never raises the price the customer already agreed to. Detached so a slow
+    // pool cannot delay the bridge of a call that is already connected.
     if matches!(outcome, SessionOutcome::Started(_)) && active_engine.metadata().id != leg.engine_id
     {
-        reprice_fallback(state, &leg, active_engine.metadata()).await;
+        let st = state.clone();
+        let call_id = leg.call_id;
+        let requested = leg.engine_id.clone();
+        let fallback = active_engine.metadata().clone();
+        tokio::spawn(async move {
+            reprice_fallback(&st, call_id, &requested, &fallback).await;
+        });
     }
 
     let to_engine = match outcome {
