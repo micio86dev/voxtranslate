@@ -28,12 +28,13 @@ use subtle::ConstantTimeEq;
 use super::E164;
 use super::{
     CallLeg, Cdr, DialRequest, DocumentUpload, FieldValue, GatherConfig, GroupStatus, LegId,
-    MediaStreamConfig, NumberKind, NumberOffer, NumberSearch, NumberStatus, OrderRef, PlayRequest,
-    ProviderCapabilities, ProviderError, ProviderEvent, ProviderEventKind, ProviderMetadata,
-    ProviderNumberId, PurchaseRequest, PurchasedNumber, RecordingConfig, RecordingDownloadUrl,
-    RequirementGroup, RequirementGroupId, RequirementKind, RequirementQuery, RequirementSpec,
-    SipConnection, SubOrderId, SubOrderState, TelephonyProvider, UploadedDocument,
-    VerificationMethod, VerificationStart, VerificationState, WebhookError, WebhookHeaders,
+    MediaStreamConfig, NumberKind, NumberOffer, NumberSearch, NumberStatus, OrderRef, OrderStatus,
+    PlayRequest, ProviderCapabilities, ProviderError, ProviderEvent, ProviderEventKind,
+    ProviderMetadata, ProviderNumberId, PurchaseRequest, PurchasedNumber, RecordingConfig,
+    RecordingDownloadUrl, RequirementGroup, RequirementGroupId, RequirementKind, RequirementQuery,
+    RequirementSpec, RequirementsStatus, SipConnection, SubOrderId, SubOrderState,
+    TelephonyProvider, UploadedDocument, VerificationMethod, VerificationStart, VerificationState,
+    WebhookError, WebhookHeaders,
 };
 use crate::voip::pricing::Rate;
 use crate::voip::state::FailureReason;
@@ -89,6 +90,12 @@ struct MockState {
     /// One-shot failures for the regulatory-requirements methods, keyed by operation name
     /// so a test can fail exactly one call without guessing call order.
     regulatory_fail_next: HashMap<&'static str, ProviderError>,
+    /// Scripted sub-order reads, keyed by [`SubOrderId`] — what [`Self::sub_order_status`]
+    /// and [`Self::attach_requirement_group`] report until a test overrides it.
+    sub_order_states: HashMap<String, SubOrderState>,
+    /// What was streamed to `upload_document`, content type and size ONLY — never the
+    /// bytes, the same "no PII survives the boundary" rule design D12 states for logging.
+    uploaded_documents: Vec<(&'static str, u64)>,
 }
 
 pub struct MockTelephonyProvider {
@@ -223,6 +230,21 @@ impl MockTelephonyProvider {
         if let Some(g) = self.lock().requirement_groups.get_mut(&id.0) {
             g.status = status;
         }
+    }
+
+    /// Script what [`TelephonyProvider::sub_order_status`] and
+    /// [`TelephonyProvider::attach_requirement_group`] report for this sub-order, the way
+    /// the reconcile sweep would read a real provider's answer.
+    pub fn set_sub_order_state(&self, id: &SubOrderId, state: SubOrderState) {
+        self.lock()
+            .sub_order_states
+            .insert(id.as_str().to_string(), state);
+    }
+
+    /// What has been streamed through `upload_document` so far — content type and byte
+    /// count only. Proves the mock never inspected the bytes themselves.
+    pub fn uploaded_documents(&self) -> Vec<(&'static str, u64)> {
+        self.lock().uploaded_documents.clone()
     }
 
     // ---- inspection --------------------------------------------------------
@@ -667,9 +689,9 @@ impl TelephonyProvider for MockTelephonyProvider {
 
     // ---- regulatory requirements (spec 0119) -------------------------------
     //
-    // The requirement-group lifecycle (list/create/read/submit) is real here. The
-    // remaining three — upload/sub-order-status/attach — stay `Unsupported` for now,
-    // filled in by their own follow-up slice with the sub-order plumbing they need.
+    // A faithful fake carrier, not a stub: every automated test in the suite that touches
+    // this feature runs against exactly this behaviour (same rationale as the file's own
+    // header comment for the rest of the provider surface).
 
     async fn list_requirements(
         &self,
@@ -755,30 +777,76 @@ impl TelephonyProvider for MockTelephonyProvider {
 
     async fn upload_document(
         &self,
-        _upload: DocumentUpload,
+        upload: DocumentUpload,
     ) -> Result<UploadedDocument, ProviderError> {
-        Err(ProviderError::Unsupported {
-            operation: "upload a regulatory document",
+        // Checked and released BEFORE the stream is awaited: holding a `std::sync::Mutex`
+        // guard across an `.await` would make this future `!Send`, which `async_trait`
+        // cannot box.
+        let scripted = {
+            let mut st = self.lock();
+            st.regulatory_fail_next.remove("upload_document")
+        };
+        if let Some(err) = scripted {
+            return Err(err);
+        }
+
+        use futures::StreamExt;
+        let content_type = upload.content_type;
+        let mut body = upload.body;
+        let mut size: u64 = 0;
+        while let Some(chunk) = body.next().await {
+            let chunk = chunk.map_err(|e| ProviderError::Malformed {
+                detail: e.to_string(),
+            })?;
+            // The whole point of the boundary this proves: count bytes, never read them.
+            size += chunk.len() as u64;
+        }
+
+        let mut st = self.lock();
+        st.seq += 1;
+        st.uploaded_documents.push((content_type, size));
+        Ok(UploadedDocument {
+            id: format!("mock-doc-{}", st.seq),
+            av_scan_status: "clean".into(),
         })
     }
 
     async fn sub_order_status(
         &self,
-        _id: &SubOrderId,
+        id: &SubOrderId,
     ) -> Result<Option<SubOrderState>, ProviderError> {
-        Err(ProviderError::Unsupported {
-            operation: "read sub-number-order status",
-        })
+        let mut st = self.lock();
+        if let Some(err) = st.regulatory_fail_next.remove("sub_order_status") {
+            return Err(err);
+        }
+        Ok(st.sub_order_states.get(id.as_str()).cloned())
     }
 
     async fn attach_requirement_group(
         &self,
-        _sub_order: &SubOrderId,
-        _group: &RequirementGroupId,
+        sub_order: &SubOrderId,
+        group: &RequirementGroupId,
     ) -> Result<SubOrderState, ProviderError> {
-        Err(ProviderError::Unsupported {
-            operation: "attach a requirement group to a sub-order",
-        })
+        let mut st = self.lock();
+        if let Some(err) = st.regulatory_fail_next.remove("attach_requirement_group") {
+            return Err(err);
+        }
+        let mut state = st
+            .sub_order_states
+            .get(sub_order.as_str())
+            .cloned()
+            .unwrap_or(SubOrderState {
+                order: OrderStatus::Pending,
+                requirements: RequirementsStatus::InfoPending,
+                group: None,
+            });
+        state.group = Some(group.clone());
+        // Attaching a group is what starts the provider's own review — mirrored here so a
+        // caller can observe the effect of attaching without a second scripted call.
+        state.requirements = RequirementsStatus::UnderReview;
+        st.sub_order_states
+            .insert(sub_order.as_str().to_string(), state.clone());
+        Ok(state)
     }
 
     // ---- SIP / PBX (spec 0118) ---------------------------------------------
@@ -876,6 +944,7 @@ impl TelephonyProvider for MockTelephonyProvider {
 mod tests {
     use super::*;
     use crate::telephony::{AddressValue, MediaCodec, MediaTrack, RequirementAction, E164};
+    use bytes::Bytes;
 
     fn n(raw: &str) -> E164 {
         E164::parse(raw).expect("test number")
@@ -1410,5 +1479,150 @@ mod tests {
         p.set_group_status(&group.id, GroupStatus::Approved);
         let read_back = p.get_requirement_group(&group.id).await.unwrap().unwrap();
         assert_eq!(read_back.status, GroupStatus::Approved);
+    }
+
+    #[tokio::test]
+    async fn an_unscripted_sub_order_has_no_recorded_status() {
+        let p = MockTelephonyProvider::default();
+        assert_eq!(
+            p.sub_order_status(&SubOrderId("so-1".into()))
+                .await
+                .unwrap(),
+            None
+        );
+    }
+
+    #[tokio::test]
+    async fn a_scripted_sub_order_state_is_read_back_verbatim() {
+        let p = MockTelephonyProvider::default();
+        let id = SubOrderId("so-1".into());
+        let scripted = SubOrderState {
+            order: OrderStatus::Success,
+            requirements: RequirementsStatus::Approved,
+            group: None,
+        };
+        p.set_sub_order_state(&id, scripted.clone());
+        assert_eq!(p.sub_order_status(&id).await.unwrap(), Some(scripted));
+    }
+
+    #[tokio::test]
+    async fn attaching_a_group_to_a_fresh_sub_order_defaults_to_info_pending_under_review() {
+        // No purchase or prior scripting happened for this sub-order: attaching a group is
+        // the FIRST thing that puts it on the requirements pipeline at all.
+        let p = MockTelephonyProvider::default();
+        let sub_order = SubOrderId("so-2".into());
+        let group = p
+            .create_requirement_group(&requirement_query(), "org-1")
+            .await
+            .unwrap();
+
+        let state = p
+            .attach_requirement_group(&sub_order, &group.id)
+            .await
+            .unwrap();
+        assert_eq!(state.order, OrderStatus::Pending);
+        assert_eq!(state.requirements, RequirementsStatus::UnderReview);
+        assert_eq!(state.group, Some(group.id));
+    }
+
+    #[tokio::test]
+    async fn attaching_preserves_the_orders_own_status() {
+        // The order's lifecycle and the requirements pipeline are independent axes
+        // (design Interfaces: `SubOrderState { order, requirements, group }`) — attaching
+        // a group must not clobber an order status it has no authority over.
+        let p = MockTelephonyProvider::default();
+        let sub_order = SubOrderId("so-3".into());
+        p.set_sub_order_state(
+            &sub_order,
+            SubOrderState {
+                order: OrderStatus::Success,
+                requirements: RequirementsStatus::InfoPending,
+                group: None,
+            },
+        );
+        let group = p
+            .create_requirement_group(&requirement_query(), "org-1")
+            .await
+            .unwrap();
+
+        let state = p
+            .attach_requirement_group(&sub_order, &group.id)
+            .await
+            .unwrap();
+        assert_eq!(state.order, OrderStatus::Success);
+        assert_eq!(state.requirements, RequirementsStatus::UnderReview);
+    }
+
+    #[tokio::test]
+    async fn attach_requirement_group_can_be_scripted_to_fail_by_name_only() {
+        // Keyed by op name, not call order: scripting `attach_requirement_group` must not
+        // touch an unrelated call to `sub_order_status`.
+        let p = MockTelephonyProvider::default();
+        p.fail_next(
+            "attach_requirement_group",
+            ProviderError::Unavailable {
+                detail: "504".into(),
+            },
+        );
+        assert!(p.sub_order_status(&SubOrderId("so-4".into())).await.is_ok());
+        assert_eq!(
+            p.attach_requirement_group(
+                &SubOrderId("so-4".into()),
+                &RequirementGroupId("g-1".into())
+            )
+            .await
+            .unwrap_err(),
+            ProviderError::Unavailable {
+                detail: "504".into()
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn uploading_a_document_streams_it_through_without_storing_the_bytes() {
+        use futures::stream;
+
+        let p = MockTelephonyProvider::default();
+        let chunks: Vec<Result<Bytes, std::io::Error>> = vec![
+            Ok(Bytes::from_static(b"%PDF-1.4 ")),
+            Ok(Bytes::from_static(b"rest of a fake pdf")),
+        ];
+        let expected_size: u64 = chunks
+            .iter()
+            .map(|c| c.as_ref().unwrap().len() as u64)
+            .sum();
+        let upload = DocumentUpload {
+            content_type: "application/pdf",
+            body: Box::pin(stream::iter(chunks)),
+        };
+
+        let uploaded = p.upload_document(upload).await.unwrap();
+        assert!(!uploaded.id.is_empty());
+        assert_eq!(uploaded.av_scan_status, "clean");
+        assert_eq!(
+            p.uploaded_documents(),
+            vec![("application/pdf", expected_size)]
+        );
+    }
+
+    #[tokio::test]
+    async fn upload_document_can_be_scripted_to_fail_without_reading_the_stream() {
+        use futures::stream;
+
+        let p = MockTelephonyProvider::default();
+        p.fail_next("upload_document", ProviderError::AccountBlocked);
+        let upload = DocumentUpload {
+            content_type: "application/pdf",
+            body: Box::pin(stream::iter(vec![Ok::<Bytes, std::io::Error>(
+                Bytes::from_static(b"whatever"),
+            )])),
+        };
+        assert_eq!(
+            p.upload_document(upload).await.unwrap_err(),
+            ProviderError::AccountBlocked
+        );
+        // Nothing was recorded — the scripted failure short-circuited before the stream
+        // was ever touched.
+        assert!(p.uploaded_documents().is_empty());
     }
 }
