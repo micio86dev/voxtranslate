@@ -36,9 +36,9 @@ use super::{
     MediaTrack, NumberKind, NumberOffer, NumberSearch, NumberStatus, PlayRequest,
     ProviderCapabilities, ProviderError, ProviderEvent, ProviderEventKind, ProviderMetadata,
     ProviderNumberId, PurchaseRequest, PurchasedNumber, RecordingConfig, RecordingDownloadUrl,
-    RequirementGroup, RequirementGroupId, RequirementQuery, RequirementSpec, SipConnection,
-    SubOrderId, SubOrderState, TelephonyProvider, UploadedDocument, VerificationStart,
-    VerificationState, WebhookError, WebhookHeaders, E164,
+    RequirementGroup, RequirementGroupId, RequirementKind, RequirementQuery, RequirementSpec,
+    SipConnection, SubOrderId, SubOrderState, TelephonyProvider, UploadedDocument,
+    VerificationStart, VerificationState, WebhookError, WebhookHeaders, E164,
 };
 use rust_decimal::Decimal;
 
@@ -389,6 +389,58 @@ fn classify(status: reqwest::StatusCode) -> Option<ProviderError> {
             detail: format!("HTTP {s}"),
         },
     })
+}
+
+// ---------------------------------------------------------------------------
+// Regulatory requirements (spec 0119)
+// ---------------------------------------------------------------------------
+//
+// `GET /v2/regulatory_requirements` — verified against Telnyx's published OpenAPI spec
+// (github.com/team-telnyx/openapi, schema `RegulatoryRequirements`) 2026-09-16. This is
+// NOT `/v2/requirements` (design's original placeholder guess): that path lists every
+// requirement Telnyx has ever defined, unfiltered. The `filter[...]` query keys
+// (`country_code`, `phone_number_type`, `action`) are confirmed by the same schema.
+
+/// One entry per matching (country, phone_number_type, action) combination, each nesting
+/// its own `regulatory_requirements` array — the response is not a flat list at `data[]`.
+fn parse_requirements(body: &Value) -> Vec<RequirementSpec> {
+    body.get("data")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| entry.get("regulatory_requirements"))
+        .filter_map(Value::as_array)
+        .flatten()
+        .map(parse_requirement_spec)
+        .collect()
+}
+
+fn parse_requirement_spec(item: &Value) -> RequirementSpec {
+    RequirementSpec {
+        id: item
+            .get("id")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        name: item
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        description: item
+            .get("description")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        example: item
+            .get("example")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        kind: item
+            .get("field_type")
+            .and_then(Value::as_str)
+            .map(RequirementKind::parse)
+            .unwrap_or(RequirementKind::Textual),
+    }
 }
 
 /// Telnyx carries `client_state` base64-encoded.
@@ -1132,17 +1184,35 @@ impl TelephonyProvider for TelnyxProvider {
 
     // ---- regulatory requirements (spec 0119) -------------------------------
     //
-    // `Unsupported` for now, exactly like the SIP methods below: an adapter written
-    // against documentation and never run against a live account is an adapter that does
-    // not work, and PR3 is where these get filled in and verified.
+    // Response shapes verified against Telnyx's published OpenAPI spec
+    // (github.com/team-telnyx/openapi, `openapi/spec3.json`, fetched 2026-09-16) — the
+    // interactive docs site serves a JS app shell to a plain HTTP fetch and was not usable
+    // as a source. The remaining methods below stay `Unsupported`, exactly like the SIP
+    // methods further down: filled in by the rest of this PR's slices.
 
     async fn list_requirements(
         &self,
-        _query: &RequirementQuery,
+        query: &RequirementQuery,
     ) -> Result<Vec<RequirementSpec>, ProviderError> {
-        Err(ProviderError::Unsupported {
-            operation: "list regulatory requirements",
-        })
+        // GET /v2/regulatory_requirements?filter[country_code]&filter[phone_number_type]
+        // &filter[action] — NOT /v2/requirements (design's original placeholder guess),
+        // which lists every requirement Telnyx has ever defined, unfiltered.
+        let q = vec![
+            (
+                "filter[country_code]".into(),
+                query.country.to_ascii_uppercase(),
+            ),
+            (
+                "filter[phone_number_type]".into(),
+                query.kind.as_str().to_string(),
+            ),
+            ("filter[action]".into(), query.action.as_str().to_string()),
+        ];
+        let body = self
+            .get_json("/v2/regulatory_requirements", &q)
+            .await?
+            .unwrap_or_default();
+        Ok(parse_requirements(&body))
     }
 
     async fn create_requirement_group(
@@ -1899,5 +1969,71 @@ mod tests {
                 operation: "fetch a per-leg CDR synchronously"
             }
         );
+    }
+
+    // ---- regulatory requirements (spec 0119) -----------------------------------
+    //
+    // Response shapes verified against Telnyx's published OpenAPI spec
+    // (github.com/team-telnyx/openapi, `openapi/spec3.json`, fetched 2026-09-16) —
+    // schema `RegulatoryRequirements`. Used as the source of truth in place of the
+    // interactive docs site, which serves a JS app shell to a plain HTTP fetch and
+    // returns no readable body.
+
+    #[test]
+    fn requirement_list_flattens_the_nested_shape_and_maps_field_types() {
+        // GET /v2/regulatory_requirements returns one entry PER matching
+        // (country, phone_number_type, action) combination, each carrying its own
+        // nested `regulatory_requirements` array — not a flat list at `data[]`.
+        let body = json!({
+            "data": [{
+                "country_code": "FR",
+                "phone_number_type": "mobile",
+                "action": "ordering",
+                "regulatory_requirements": [
+                    {
+                        "id": "req-1",
+                        "name": "Proof of address",
+                        "description": "A recent utility bill",
+                        "example": "600 Congress Avenue",
+                        "field_type": "address"
+                    },
+                    { "id": "req-2", "name": "Full name", "field_type": "textual" },
+                    { "id": "req-3", "name": "ID document", "field_type": "document" }
+                ]
+            }]
+        });
+        let specs = parse_requirements(&body);
+        assert_eq!(specs.len(), 3);
+        assert_eq!(specs[0].id, "req-1");
+        assert_eq!(
+            specs[0].description.as_deref(),
+            Some("A recent utility bill")
+        );
+        assert_eq!(specs[0].example.as_deref(), Some("600 Congress Avenue"));
+        assert_eq!(specs[0].kind, RequirementKind::Address);
+        assert_eq!(specs[1].kind, RequirementKind::Textual);
+        assert_eq!(specs[2].kind, RequirementKind::Document);
+    }
+
+    #[test]
+    fn an_unrecognised_field_type_falls_back_to_textual() {
+        // `datetime` is a real Telnyx value this crate has no separate type for, and any
+        // future value not seen yet must degrade to the safe case rather than to Document.
+        for unknown in ["datetime", "something_new"] {
+            let body = json!({"data": [{"regulatory_requirements": [
+                {"id": "r", "name": "n", "field_type": unknown}
+            ]}]});
+            assert_eq!(
+                parse_requirements(&body)[0].kind,
+                RequirementKind::Textual,
+                "{unknown}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_empty_or_missing_data_array_yields_no_requirements() {
+        assert!(parse_requirements(&json!({})).is_empty());
+        assert!(parse_requirements(&json!({"data": []})).is_empty());
     }
 }

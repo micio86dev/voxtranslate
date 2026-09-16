@@ -648,6 +648,24 @@ pub enum RequirementKind {
     Document,
 }
 
+impl RequirementKind {
+    /// Telnyx's own `field_type` vocabulary is `textual`, `datetime`, `address`, `document`
+    /// (verified against the published OpenAPI spec, `RegulatoryRequirements`/
+    /// `SubNumberOrderRegulatoryRequirement` schemas, 2026-09-16). This crate has no
+    /// separate date type, so `datetime` folds into `Textual` — a free-text field is a
+    /// strictly safe superset of a date field. Anything else unrecognised also falls to
+    /// `Textual` rather than `Document`, because rendering an unknown kind as a plain text
+    /// box is recoverable; rendering it as a file uploader for a field that is not one is
+    /// not.
+    pub fn parse(raw: &str) -> Self {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "address" => Self::Address,
+            "document" => Self::Document,
+            _ => Self::Textual,
+        }
+    }
+}
+
 /// One field the regulator wants, described in the provider's own words so the dashboard
 /// can render a form without this crate knowing what "KYC" means in any given country.
 #[derive(Debug, Clone, PartialEq, Eq)]
