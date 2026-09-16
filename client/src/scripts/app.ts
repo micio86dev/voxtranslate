@@ -4515,6 +4515,13 @@ function leaveCall(): void {
   callTimer.reset(); // stop any running countdown + hide the badge
   stopSessionTimer(); // stop + hide the session-duration / participant-count chips (spec 0055)
   dismissLangToast(); // drop a pending "Detected language" toast (spec 0012)
+  // A join attempt that bailed out of startCall() early (the consent modal, unsupported
+  // WebRTC, a failed in-call module load — all guarded returns above the two lines that
+  // hide #prejoin and show #callScreen) left the pre-join card visible with nothing on
+  // this path to hide it. It then resurfaced UNDER #session at the next call end
+  // (v1.58.5). Unconditional and idempotent — a no-op on the normal join→leave path,
+  // where #prejoin is already hidden.
+  prejoinScreen.classList.add('hidden');
   callScreen.classList.add('hidden');
   homeScreen.classList.remove('hidden');
   roomInput.value = randomRoom();
