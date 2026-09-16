@@ -530,6 +530,13 @@ pub enum NumberStatus {
     /// A regulator is the blocker. Saying "active" here would be a lie with a fine
     /// attached.
     PendingRegulatory,
+    /// Requirements were submitted and attached to the sub-order; awaiting the
+    /// provider's decision (spec 0119 R5).
+    RegulatoryReview,
+    /// The provider's own `requirement-info-exception` state, projected onto our
+    /// vocabulary. Resubmittable — never terminal — the reason lives in `status_reason`
+    /// (spec 0119 R5).
+    RegulatoryRejected,
     Active,
     Suspended,
     Releasing,
@@ -542,6 +549,8 @@ impl NumberStatus {
         match self {
             Self::Ordering => "ordering",
             Self::PendingRegulatory => "pending_regulatory",
+            Self::RegulatoryReview => "regulatory_review",
+            Self::RegulatoryRejected => "regulatory_rejected",
             Self::Active => "active",
             Self::Suspended => "suspended",
             Self::Releasing => "releasing",
@@ -555,6 +564,8 @@ impl NumberStatus {
     pub fn parse(raw: &str) -> Self {
         match raw.trim().to_ascii_lowercase().as_str() {
             "pending_regulatory" | "pending-regulatory" | "pending" => Self::PendingRegulatory,
+            "regulatory_review" | "regulatory-review" => Self::RegulatoryReview,
+            "regulatory_rejected" | "regulatory-rejected" => Self::RegulatoryRejected,
             "active" => Self::Active,
             "suspended" => Self::Suspended,
             "releasing" => Self::Releasing,
@@ -563,6 +574,26 @@ impl NumberStatus {
             _ => Self::Ordering,
         }
     }
+}
+
+/// The provider's own handle on the sub-order for one purchased number, needed to poll
+/// status, submit requirements and attach a requirement group (spec 0119). Opaque, like
+/// [`ProviderNumberId`]: its shape is the provider's business.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SubOrderId(pub String);
+
+impl SubOrderId {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+/// Both halves of a purchase's identity at the provider: the parent order and this
+/// number's own sub-order within it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OrderRef {
+    pub order_id: String,
+    pub sub_order_id: SubOrderId,
 }
 
 #[derive(Debug, Clone)]
@@ -574,6 +605,9 @@ pub struct PurchasedNumber {
     pub setup_cost: Decimal,
     pub currency: String,
     pub regulatory_requirement: Option<String>,
+    /// `None` only where a provider genuinely has no order/sub-order concept for a
+    /// purchase; every real Telnyx purchase has one regardless of regulatory status.
+    pub order: Option<OrderRef>,
 }
 
 /// How the provider proves the caller owns a number they already have elsewhere.
@@ -860,5 +894,35 @@ mod tests {
         ];
         let codes: std::collections::HashSet<&str> = all.iter().map(|e| e.code()).collect();
         assert_eq!(codes.len(), all.len());
+    }
+
+    #[test]
+    fn number_status_parse_recognises_the_resubmittable_regulatory_states() {
+        // spec 0119 R5/R6: a carrier that reports these words must land on the new
+        // resubmittable states, not fall back to `Ordering` and hide the rejection.
+        assert_eq!(
+            NumberStatus::parse("regulatory_review"),
+            NumberStatus::RegulatoryReview
+        );
+        assert_eq!(
+            NumberStatus::parse("regulatory_rejected"),
+            NumberStatus::RegulatoryRejected
+        );
+        assert_eq!(NumberStatus::RegulatoryReview.as_str(), "regulatory_review");
+        assert_eq!(
+            NumberStatus::RegulatoryRejected.as_str(),
+            "regulatory_rejected"
+        );
+    }
+
+    #[test]
+    fn number_status_parse_still_fails_closed_on_an_unknown_word() {
+        // Never `Active`, and never one of the two new states either: an unrecognised
+        // provider word must not be presented as caller id nor as "fix this rejection".
+        assert_eq!(
+            NumberStatus::parse("something-new-telnyx-invented"),
+            NumberStatus::Ordering
+        );
+        assert_eq!(NumberStatus::parse(""), NumberStatus::Ordering);
     }
 }
