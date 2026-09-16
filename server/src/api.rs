@@ -2454,7 +2454,11 @@ pub async fn sentiment_generate(
 /// Background body of [`sentiment_generate`]: analyze → charge → persist,
 /// returning the JSON the synchronous endpoint used to return (or a
 /// [`JobFailure`]). Same user-favorable failure policy as the other AI jobs.
-async fn run_sentiment_inner(
+///
+/// `pub(crate)`, like [`run_report_inner`], so `voip::webhook::enqueue_ai_analysis` can
+/// reuse it for the sweep's sentiment half (1.58.5) instead of duplicating the
+/// analyze→charge→persist pipeline or its pricing.
+pub(crate) async fn run_sentiment_inner(
     state: AppState,
     session_id: Uuid,
     user_id: Uuid,
