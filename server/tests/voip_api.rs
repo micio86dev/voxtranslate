@@ -100,6 +100,68 @@ async fn setup() -> Option<Server> {
     setup_with_voip(Some(VoipConfig::test_default())).await
 }
 
+/// Same as [`setup`], with the Enhanced (Cartesia) tier also registered — the only
+/// **client-direct** engine (its provider runs in the caller's browser). Kept as its
+/// own function rather than threading a config-mutation flag through `setup_with_voip`:
+/// this is the only suite in this file that needs a second engine on the registry, to
+/// prove a phone leg — which has no browser — can never be handed one.
+async fn setup_with_cartesia() -> Option<Server> {
+    let url = voxtranslate_server::db::test_database_url()?;
+    let pool = db::connect(&url).await.ok()?;
+    db::migrate(&pool).await.ok()?;
+
+    sqlx::query(
+        "UPDATE voip_calls SET status = 'failed',
+             failure_reason = COALESCE(failure_reason, 'provider_unavailable'),
+             ended_at = COALESCE(ended_at, now())
+         WHERE status IN ('created','dialing','ringing','answered','bridged','ending')
+           AND started_at < now() - interval '1 minute'",
+    )
+    .execute(&pool)
+    .await
+    .ok();
+
+    let mut config = Config::test_with_billing(&url, SECRET, 0.0);
+    let min_join = usd(config.billing.as_ref().unwrap().pricing.min_balance_to_join);
+    config.voip = Some(VoipConfig::test_default());
+    // Never actually dialled: `api_base` only matters for the two Enhanced-only HTTP
+    // endpoints (`cartesia_enhanced_api.rs`), which this suite does not exercise.
+    config.cartesia = Some(voxtranslate_server::config::CartesiaConfig {
+        api_key: "sk_test_unused".into(),
+        stt_model: "ink-whisper".into(),
+        stt_model_by_lang: Default::default(),
+        tts_model: "sonic-3.5".into(),
+        cost_per_minute: 0.02,
+        markup: 0.85,
+        voice_cloning_enabled: false,
+        default_voice_id: None,
+        api_base: "http://127.0.0.1:1".into(),
+        stt_endpoint: "wss://cartesia.test/stt".into(),
+        tts_endpoint: "wss://cartesia.test/tts".into(),
+        version: "2025-04-16".into(),
+    });
+
+    let mut state = AppState::new(config);
+    state.billing = Some(BillingService::new(pool.clone(), min_join));
+    state.pool = Some(pool.clone());
+    state.verifier = Arc::new(FakeVerifier);
+    let provider = Arc::new(MockTelephonyProvider::default());
+    state.telephony = Some(provider.clone());
+
+    let state_for_tests = state.clone();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.ok()?;
+    let addr = listener.local_addr().ok()?;
+    tokio::spawn(async move {
+        let _ = axum::serve(listener, app(state)).await;
+    });
+    Some(Server {
+        addr,
+        pool,
+        state: state_for_tests,
+        provider: Some(provider),
+    })
+}
+
 fn base(srv: &Server) -> String {
     format!("http://{}", srv.addr)
 }
@@ -1031,6 +1093,95 @@ async fn a_dial_that_gets_through_the_gate_holds_credits_and_appears_in_history(
     assert_eq!(calls.len(), 1);
     assert_eq!(calls[0]["id"], created["call_id"]);
     assert!(!history.to_string().contains("3201234567"));
+}
+
+// ---- client-direct engines can never serve a phone leg ---------------------
+//
+// Production (2026-09-16, two outbound calls, f68d88cb-… and 6b1a885d-…): the recipient
+// pressed 1 on the consent gate and the call hung up in the same millisecond the media
+// socket connected. No engine's `start_session` info line preceded the error — Standard,
+// Pro and Premium all log one before any `AtCapacity` return — which meant the leg's
+// engine was Cartesia (Enhanced): the ONLY client-direct engine, whose provider runs in
+// a BROWSER a phone call does not have, and whose `start_session` always answers
+// `Failed` (`engine::cartesia`'s module docs say so explicitly). Nothing at dial time
+// refused it, so it was stored as the call's engine and quoted as if it would serve the
+// call. These two tests pin that a client-direct engine can never reach either place.
+
+#[tokio::test]
+async fn a_client_direct_engine_is_never_stored_as_a_phone_calls_engine() {
+    let Some(srv) = setup_with_cartesia().await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    enable_dialing(&srv, org, &jwt, 5).await;
+
+    let res = client()
+        .post(format!(
+            "{}/api/business/organizations/{org}/voip/calls",
+            base(&srv)
+        ))
+        .bearer_auth(&jwt)
+        .json(&json!({
+            "destination": "+393201234567",
+            "source_language": "en",
+            "target_language": "it",
+            "engine_id": "cartesia",
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::CREATED);
+    let created: Value = res.json().await.unwrap();
+    let call_id: Uuid = created["call_id"].as_str().unwrap().parse().unwrap();
+
+    let stored_engine: String =
+        sqlx::query_scalar("SELECT engine_id FROM voip_calls WHERE id = $1")
+            .bind(call_id)
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        stored_engine, "standard",
+        "a client-direct engine must never be the engine of record for a phone leg — \
+         it would open a session that always fails and hang the call up on connect"
+    );
+}
+
+#[tokio::test]
+async fn quoting_a_client_direct_engine_prices_it_as_the_default() {
+    // Same fix, the other handler: `quote` and `dial` share `resolve_for_phone` so the
+    // price the customer is shown and the engine the call is later dialled and billed
+    // against can never disagree.
+    let Some(srv) = setup_with_cartesia().await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    let (owner, jwt) = user(&srv).await;
+    let org = make_org(&srv, owner, "owner").await;
+    enable_dialing(&srv, org, &jwt, 5).await;
+
+    let res = client()
+        .post(format!(
+            "{}/api/business/organizations/{org}/voip/quote",
+            base(&srv)
+        ))
+        .bearer_auth(&jwt)
+        .json(&json!({
+            "destination": "+393201234567",
+            "engine_id": "cartesia",
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let quoted: Value = res.json().await.unwrap();
+    assert_eq!(
+        quoted["engine_id"],
+        json!("standard"),
+        "a quote for a client-direct engine must price the engine that will actually run"
+    );
 }
 
 // ---- webhook (R24) --------------------------------------------------------

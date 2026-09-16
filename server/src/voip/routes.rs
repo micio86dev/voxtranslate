@@ -262,7 +262,11 @@ pub async fn quote(
         .engine_id
         .or_else(|| world.org.default_engine_id.clone())
         .unwrap_or_else(|| state.engines.default().metadata().id.clone());
-    let engine = state.engines.resolve(Some(&engine_id));
+    // `resolve_for_phone`, not `resolve`: a client-direct engine (Cartesia/Enhanced) can
+    // never serve a phone leg — see its doc comment — and this quote must price the same
+    // engine `dial` will actually store and use, or the two would drift apart (2026-09-16
+    // incident).
+    let engine = state.engines.resolve_for_phone(Some(&engine_id));
 
     let opts = DialOptions {
         destination: body.destination.clone(),
@@ -402,7 +406,11 @@ pub async fn dial(
         .clone()
         .or_else(|| world.org.default_engine_id.clone())
         .unwrap_or_else(|| state.engines.default().metadata().id.clone());
-    let engine = state.engines.resolve(Some(&engine_id));
+    // `resolve_for_phone`, not `resolve` — see the comment in `quote` above. This is the
+    // engine written to `voip_calls.engine_id` and opened by `run_leg`, so it must never
+    // be a client-direct one (2026-09-16 incident: it was, and the call hung up on
+    // connect).
+    let engine = state.engines.resolve_for_phone(Some(&engine_id));
 
     // Caller id must be a number this org owns and that the provider has verified.
     // Anything else would be caller-id spoofing, which is illegal in most of our markets

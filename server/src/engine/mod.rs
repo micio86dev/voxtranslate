@@ -290,6 +290,29 @@ impl EngineRegistry {
             .unwrap_or_else(|| self.default())
     }
 
+    /// [`resolve`](Self::resolve), refusing a **client-direct** engine.
+    ///
+    /// A client-direct tier (Cartesia "Enhanced" today; `capabilities.client_direct`) runs
+    /// its provider in the caller's own BROWSER and the server never opens a session for
+    /// it — see `engine::cartesia`'s module docs. A phone leg has no browser at all, so
+    /// there is nothing there to run the client-direct half of the pipeline against.
+    ///
+    /// Production (2026-09-16): naming one anyway — via `?engine_id=cartesia` or an org's
+    /// `default_engine_id` — resolved fine, was stored as the call's `engine_id` and priced
+    /// as if it would serve the call, and then hung up the instant the recipient granted
+    /// consent (`voip::session::open_engine_session` is the runtime half of this same
+    /// fix). Both `routes::quote` and `routes::dial` resolve through this one method so
+    /// the stored engine and the quoted price can never point at a tier the call cannot
+    /// use.
+    pub fn resolve_for_phone(&self, id: Option<&str>) -> Arc<dyn TranslationEngine> {
+        let engine = self.resolve(id);
+        if engine.metadata().capabilities.client_direct {
+            self.default()
+        } else {
+            engine
+        }
+    }
+
     /// All registered engines.
     pub fn list(&self) -> impl Iterator<Item = &Arc<dyn TranslationEngine>> {
         self.engines.iter()
@@ -581,5 +604,38 @@ mod tests {
         assert!(r.get(OPENAI_ID).is_none());
         assert_eq!(r.infos().len(), 1);
         assert_eq!(r.list().count(), 1);
+    }
+
+    #[test]
+    fn resolve_for_phone_refuses_a_client_direct_engine() {
+        // Production (2026-09-16): a phone leg's stored engine was Cartesia (Enhanced),
+        // the only `client_direct` tier — its provider runs in the CALLER's browser, and
+        // a telephone leg has no browser at all. `resolve()` alone happily returned it,
+        // so the id ended up on `voip_calls.engine_id` and `run_leg` opened a session on
+        // an engine that always answers `Failed` (see `engine::cartesia`'s module docs),
+        // hanging the call up the instant consent was granted. `resolve_for_phone` is the
+        // one place both the quote and dial handlers go through so the stored engine and
+        // the quoted price can never point at a tier a phone call cannot use.
+        let mut r = EngineRegistry::new(STANDARD_ID);
+        r.register(Arc::new(Mock(meta(STANDARD_ID))));
+        let mut cartesia_meta = meta(CARTESIA_ID);
+        cartesia_meta.capabilities.client_direct = true;
+        r.register(Arc::new(Mock(cartesia_meta)));
+
+        // Sanity: plain `resolve` (used by every other call site) still returns it —
+        // this proves the refusal lives in `resolve_for_phone`, not in `resolve` itself.
+        assert_eq!(r.resolve(Some(CARTESIA_ID)).metadata().id, CARTESIA_ID);
+
+        assert_eq!(
+            r.resolve_for_phone(Some(CARTESIA_ID)).metadata().id,
+            STANDARD_ID,
+            "a client-direct engine must fall back to the default for a phone leg"
+        );
+        // An ordinary (non-client-direct) engine and an absent id are both untouched.
+        assert_eq!(
+            r.resolve_for_phone(Some(STANDARD_ID)).metadata().id,
+            STANDARD_ID
+        );
+        assert_eq!(r.resolve_for_phone(None).metadata().id, STANDARD_ID);
     }
 }
