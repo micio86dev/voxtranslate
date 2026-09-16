@@ -221,11 +221,14 @@ const MAX_ERROR_DETAIL: usize = 400;
 /// the carrier looks like: a row exists, but nothing is downloadable yet.
 fn download_url_from_recording(data: &Value) -> Option<String> {
     let urls = data.get("download_urls")?;
-    urls.get("mp3")
-        .and_then(Value::as_str)
-        .or_else(|| urls.get("wav").and_then(Value::as_str))
-        .filter(|s| !s.is_empty())
-        .map(str::to_string)
+    // The blank check runs per format, BEFORE the fallback: a present-but-empty mp3 must
+    // not stop a usable wav from being handed out.
+    let usable = |format: &str| {
+        urls.get(format)
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+    };
+    usable("mp3").or_else(|| usable("wav")).map(str::to_string)
 }
 
 /// Classify a response, and on failure say what the carrier actually complained about.
@@ -1299,6 +1302,14 @@ mod tests {
         assert_eq!(
             download_url_from_recording(&json!({ "download_urls": { "mp3": "" } })),
             None
+        );
+        // A blank mp3 must not hide a usable wav.
+        assert_eq!(
+            download_url_from_recording(
+                &json!({ "download_urls": { "mp3": "", "wav": "https://x.test/r.wav" } })
+            )
+            .as_deref(),
+            Some("https://x.test/r.wav")
         );
     }
 

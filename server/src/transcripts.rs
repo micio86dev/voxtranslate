@@ -345,7 +345,9 @@ impl TranscriptService {
 
     /// May `user_id` download this session's transcript (and, via `session_gate`, read
     /// its AI report/sentiment)? Participants can — plus, for a phone call specifically,
-    /// any member of the org that placed it.
+    /// the org's owners/admins and the member who placed the call. That is exactly the
+    /// scope `GET …/voip/calls/{id}` and its recording route enforce, so a plain member
+    /// cannot read a colleague's call here while the call itself answers them 404.
     ///
     /// That second clause exists because a phone call (spec 0111) never inserts a
     /// `session_participants` row: the ASR/TTS bridge runs on the carrier leg, there is
@@ -364,7 +366,13 @@ impl TranscriptService {
                 EXISTS (SELECT 1 FROM session_participants sp
                         WHERE sp.session_id = cs.id AND sp.user_id = $2)
                 OR (cs.kind = 'phone' AND cs.org_id IS NOT NULL
-                    AND get_user_org_role(cs.org_id, $2) IS NOT NULL)
+                    -- COALESCE: a stranger's role is NULL, and `NULL IN (…)` is NULL, not
+                    -- false — which would decode as an error instead of `Forbidden`.
+                    AND (COALESCE(get_user_org_role(cs.org_id, $2) IN ('owner', 'admin'), FALSE)
+                         OR (get_user_org_role(cs.org_id, $2) IS NOT NULL
+                             AND EXISTS (SELECT 1 FROM voip_calls vc
+                                         WHERE vc.session_id = cs.id
+                                           AND vc.user_id = $2))))
              FROM call_sessions cs WHERE cs.id = $1",
         )
         .bind(session_id)

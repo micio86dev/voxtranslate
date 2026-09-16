@@ -2236,23 +2236,35 @@ async fn the_sweep_also_queues_the_text_only_sentiment_analysis_the_caller_asked
 // call's own org for a phone session specifically (never for a meeting/webinar room).
 
 #[tokio::test]
-async fn an_org_member_can_read_the_report_and_sentiment_of_a_phone_call_they_did_not_join() {
+async fn a_phone_calls_report_and_sentiment_follow_the_same_scope_as_the_call_itself() {
     let srv = srv!();
     let (owner, jwt) = user(&srv).await;
     let org = make_org(&srv, owner, "owner").await;
-    let call = make_call(&srv, org, owner).await;
+
+    // A plain member places the call; neither they nor anyone else is a
+    // `session_participants` row, since nothing ever inserts one for a phone call.
+    let (dialler, dialler_jwt) = user(&srv).await;
+    add_member(&srv, org, dialler, "member").await;
+    let call = make_call(&srv, org, dialler).await;
     let session_id: Uuid = sqlx::query_scalar("SELECT session_id FROM voip_calls WHERE id = $1")
         .bind(call)
         .fetch_one(&srv.pool)
         .await
         .unwrap();
 
-    let (member, member_jwt) = user(&srv).await;
-    add_member(&srv, org, member, "member").await;
+    let (admin, admin_jwt) = user(&srv).await;
+    add_member(&srv, org, admin, "admin").await;
+    let (colleague, colleague_jwt) = user(&srv).await;
+    add_member(&srv, org, colleague, "member").await;
 
-    // The dialling owner and a plain member alike — neither is a `session_participants`
-    // row, since nothing ever inserts one for a phone call.
-    for (who, tok) in [("owner", &jwt), ("member", &member_jwt)] {
+    // Same rule as `GET …/voip/calls/{id}` and its recording: admins/owners see every
+    // call of the org, a plain member only the calls they placed themselves.
+    for (who, tok, expected) in [
+        ("owner", &jwt, StatusCode::OK),
+        ("admin", &admin_jwt, StatusCode::OK),
+        ("dialler", &dialler_jwt, StatusCode::OK),
+        ("colleague", &colleague_jwt, StatusCode::FORBIDDEN),
+    ] {
         for endpoint in ["report", "sentiment"] {
             let res = client()
                 .get(format!(
@@ -2263,11 +2275,13 @@ async fn an_org_member_can_read_the_report_and_sentiment_of_a_phone_call_they_di
                 .send()
                 .await
                 .unwrap();
-            assert_eq!(res.status(), StatusCode::OK, "{who}/{endpoint}");
-            let body: Value = res.json().await.unwrap();
-            // Nothing was ever generated in this test — still the documented "200 + null"
-            // shape, unchanged by this fix.
-            assert!(body.is_null(), "{who}/{endpoint}: {body}");
+            assert_eq!(res.status(), expected, "{who}/{endpoint}");
+            if expected == StatusCode::OK {
+                let body: Value = res.json().await.unwrap();
+                // Nothing was ever generated in this test — still the documented
+                // "200 + null" shape.
+                assert!(body.is_null(), "{who}/{endpoint}: {body}");
+            }
         }
     }
 }

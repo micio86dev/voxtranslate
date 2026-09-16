@@ -618,11 +618,22 @@ pub async fn enqueue_ai_analysis(
                 // sweep also asked for it. `ai_analysis_enqueued_at` above already makes
                 // the SWEEP itself run this exactly once per call; this guards the other
                 // half — a manual request racing ahead of it.
-                let already_analyzed = crate::ai::sentiment::get_sentiment(pool, session_id)
-                    .await
-                    .ok()
-                    .flatten()
-                    .is_some();
+                //
+                // The lookup fails CLOSED: if it errors (pool exhausted, query timeout) we
+                // cannot tell "not analyzed yet" from "already analyzed", and guessing the
+                // former is exactly how a second charge would slip through. Skip instead.
+                let already_analyzed =
+                    match crate::ai::sentiment::get_sentiment(pool, session_id).await {
+                        Ok(existing) => existing.is_some(),
+                        Err(e) => {
+                            tracing::error!(
+                                %call_id,
+                                error = %e,
+                                "sentiment cache lookup failed; not charging for a second analysis"
+                            );
+                            true
+                        }
+                    };
                 if !already_analyzed {
                     let sentiment_cost = crate::ai::sentiment::sentiment_cost(
                         &cfg.ai,
