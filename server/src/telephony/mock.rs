@@ -27,12 +27,13 @@ use subtle::ConstantTimeEq;
 
 use super::E164;
 use super::{
-    CallLeg, Cdr, DialRequest, GatherConfig, LegId, MediaStreamConfig, NumberKind, NumberOffer,
-    NumberSearch, NumberStatus, OrderRef, PlayRequest, ProviderCapabilities, ProviderError,
-    ProviderEvent, ProviderEventKind, ProviderMetadata, ProviderNumberId, PurchaseRequest,
-    PurchasedNumber, RecordingConfig, RecordingDownloadUrl, SipConnection, SubOrderId,
-    TelephonyProvider, VerificationMethod, VerificationStart, VerificationState, WebhookError,
-    WebhookHeaders,
+    CallLeg, Cdr, DialRequest, DocumentUpload, FieldValue, GatherConfig, LegId, MediaStreamConfig,
+    NumberKind, NumberOffer, NumberSearch, NumberStatus, OrderRef, PlayRequest,
+    ProviderCapabilities, ProviderError, ProviderEvent, ProviderEventKind, ProviderMetadata,
+    ProviderNumberId, PurchaseRequest, PurchasedNumber, RecordingConfig, RecordingDownloadUrl,
+    RequirementGroup, RequirementGroupId, RequirementQuery, RequirementSpec, SipConnection,
+    SubOrderId, SubOrderState, TelephonyProvider, UploadedDocument, VerificationMethod,
+    VerificationStart, VerificationState, WebhookError, WebhookHeaders,
 };
 use crate::voip::pricing::Rate;
 use crate::voip::state::FailureReason;
@@ -607,6 +608,78 @@ impl TelephonyProvider for MockTelephonyProvider {
             .get(id)
             .copied()
             .unwrap_or(VerificationState::Pending))
+    }
+
+    // ---- regulatory requirements (spec 0119) -------------------------------
+    //
+    // `Unsupported` for now, mirroring Telnyx's own PR2 stubs — each of these becomes a
+    // real, tested behaviour in its own follow-up slice (design D7/D8), one requirement-
+    // group behaviour at a time.
+
+    async fn list_requirements(
+        &self,
+        _query: &RequirementQuery,
+    ) -> Result<Vec<RequirementSpec>, ProviderError> {
+        Err(ProviderError::Unsupported {
+            operation: "list regulatory requirements",
+        })
+    }
+
+    async fn create_requirement_group(
+        &self,
+        _query: &RequirementQuery,
+        _customer_ref: &str,
+    ) -> Result<RequirementGroup, ProviderError> {
+        Err(ProviderError::Unsupported {
+            operation: "create a requirement group",
+        })
+    }
+
+    async fn get_requirement_group(
+        &self,
+        _id: &RequirementGroupId,
+    ) -> Result<Option<RequirementGroup>, ProviderError> {
+        Err(ProviderError::Unsupported {
+            operation: "read a requirement group",
+        })
+    }
+
+    async fn submit_requirement_values(
+        &self,
+        _id: &RequirementGroupId,
+        _values: &[(String, FieldValue)],
+    ) -> Result<RequirementGroup, ProviderError> {
+        Err(ProviderError::Unsupported {
+            operation: "submit requirement values",
+        })
+    }
+
+    async fn upload_document(
+        &self,
+        _upload: DocumentUpload,
+    ) -> Result<UploadedDocument, ProviderError> {
+        Err(ProviderError::Unsupported {
+            operation: "upload a regulatory document",
+        })
+    }
+
+    async fn sub_order_status(
+        &self,
+        _id: &SubOrderId,
+    ) -> Result<Option<SubOrderState>, ProviderError> {
+        Err(ProviderError::Unsupported {
+            operation: "read sub-number-order status",
+        })
+    }
+
+    async fn attach_requirement_group(
+        &self,
+        _sub_order: &SubOrderId,
+        _group: &RequirementGroupId,
+    ) -> Result<SubOrderState, ProviderError> {
+        Err(ProviderError::Unsupported {
+            operation: "attach a requirement group to a sub-order",
+        })
     }
 
     // ---- SIP / PBX (spec 0118) ---------------------------------------------

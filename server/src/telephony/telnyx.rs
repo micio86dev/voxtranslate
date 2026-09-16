@@ -32,11 +32,13 @@ use serde_json::{json, Value};
 use uuid::Uuid;
 
 use super::{
-    CallLeg, Cdr, DialRequest, GatherConfig, LegId, MediaStreamConfig, MediaTrack, NumberKind,
-    NumberOffer, NumberSearch, NumberStatus, PlayRequest, ProviderCapabilities, ProviderError,
-    ProviderEvent, ProviderEventKind, ProviderMetadata, ProviderNumberId, PurchaseRequest,
-    PurchasedNumber, RecordingConfig, RecordingDownloadUrl, SipConnection, TelephonyProvider,
-    VerificationStart, VerificationState, WebhookError, WebhookHeaders, E164,
+    CallLeg, Cdr, DialRequest, DocumentUpload, FieldValue, GatherConfig, LegId, MediaStreamConfig,
+    MediaTrack, NumberKind, NumberOffer, NumberSearch, NumberStatus, PlayRequest,
+    ProviderCapabilities, ProviderError, ProviderEvent, ProviderEventKind, ProviderMetadata,
+    ProviderNumberId, PurchaseRequest, PurchasedNumber, RecordingConfig, RecordingDownloadUrl,
+    RequirementGroup, RequirementGroupId, RequirementQuery, RequirementSpec, SipConnection,
+    SubOrderId, SubOrderState, TelephonyProvider, UploadedDocument, VerificationStart,
+    VerificationState, WebhookError, WebhookHeaders, E164,
 };
 use rust_decimal::Decimal;
 
@@ -1125,6 +1127,78 @@ impl TelephonyProvider for TelnyxProvider {
     ) -> Result<VerificationState, ProviderError> {
         Err(ProviderError::Unsupported {
             operation: "check caller-id verification over the API",
+        })
+    }
+
+    // ---- regulatory requirements (spec 0119) -------------------------------
+    //
+    // `Unsupported` for now, exactly like the SIP methods below: an adapter written
+    // against documentation and never run against a live account is an adapter that does
+    // not work, and PR3 is where these get filled in and verified.
+
+    async fn list_requirements(
+        &self,
+        _query: &RequirementQuery,
+    ) -> Result<Vec<RequirementSpec>, ProviderError> {
+        Err(ProviderError::Unsupported {
+            operation: "list regulatory requirements",
+        })
+    }
+
+    async fn create_requirement_group(
+        &self,
+        _query: &RequirementQuery,
+        _customer_ref: &str,
+    ) -> Result<RequirementGroup, ProviderError> {
+        Err(ProviderError::Unsupported {
+            operation: "create a requirement group",
+        })
+    }
+
+    async fn get_requirement_group(
+        &self,
+        _id: &RequirementGroupId,
+    ) -> Result<Option<RequirementGroup>, ProviderError> {
+        Err(ProviderError::Unsupported {
+            operation: "read a requirement group",
+        })
+    }
+
+    async fn submit_requirement_values(
+        &self,
+        _id: &RequirementGroupId,
+        _values: &[(String, FieldValue)],
+    ) -> Result<RequirementGroup, ProviderError> {
+        Err(ProviderError::Unsupported {
+            operation: "submit requirement values",
+        })
+    }
+
+    async fn upload_document(
+        &self,
+        _upload: DocumentUpload,
+    ) -> Result<UploadedDocument, ProviderError> {
+        Err(ProviderError::Unsupported {
+            operation: "upload a regulatory document",
+        })
+    }
+
+    async fn sub_order_status(
+        &self,
+        _id: &SubOrderId,
+    ) -> Result<Option<SubOrderState>, ProviderError> {
+        Err(ProviderError::Unsupported {
+            operation: "read sub-number-order status",
+        })
+    }
+
+    async fn attach_requirement_group(
+        &self,
+        _sub_order: &SubOrderId,
+        _group: &RequirementGroupId,
+    ) -> Result<SubOrderState, ProviderError> {
+        Err(ProviderError::Unsupported {
+            operation: "attach a requirement group to a sub-order",
         })
     }
 

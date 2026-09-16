@@ -18,7 +18,9 @@ pub mod telnyx;
 use std::fmt;
 
 use async_trait::async_trait;
+use bytes::Bytes;
 use chrono::{DateTime, Utc};
+use futures::stream::BoxStream;
 use rust_decimal::Decimal;
 
 pub use e164::{E164Error, E164};
@@ -610,6 +612,169 @@ pub struct PurchasedNumber {
     pub order: Option<OrderRef>,
 }
 
+// ---- regulatory requirements (spec 0119) -----------------------------------
+
+/// What the requirement list is FOR. A single variant today because only ordering-time
+/// requirements are in scope (spec 0119 §Out of Scope); kept as an enum rather than a
+/// bare marker so a later action (e.g. porting) extends this type instead of replacing it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RequirementAction {
+    Ordering,
+}
+
+impl RequirementAction {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Ordering => "ordering",
+        }
+    }
+}
+
+/// A country + phone-number-type + action triple, which is exactly how a provider scopes
+/// both a requirement list and a requirement group (design D7).
+#[derive(Debug, Clone)]
+pub struct RequirementQuery {
+    /// ISO 3166-1 alpha-2.
+    pub country: String,
+    pub kind: NumberKind,
+    pub action: RequirementAction,
+}
+
+/// The shape of the value one requirement field expects.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RequirementKind {
+    Textual,
+    Address,
+    Document,
+}
+
+/// One field the regulator wants, described in the provider's own words so the dashboard
+/// can render a form without this crate knowing what "KYC" means in any given country.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RequirementSpec {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub example: Option<String>,
+    pub kind: RequirementKind,
+}
+
+/// Opaque provider handle for a requirement group, reused across purchases in the same
+/// org + country + phone-number-type + action combination (design D7).
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct RequirementGroupId(pub String);
+
+/// Where a requirement group is in the provider's own approval pipeline.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GroupStatus {
+    Unapproved,
+    PendingApproval,
+    Approved,
+    Declined,
+    Expired,
+    NoLongerEligible,
+    /// A provider word this crate does not recognise yet. Never treated as `Approved` —
+    /// an unrecognised group state must not be reused for a later purchase.
+    Unknown,
+}
+
+/// A physical mailing address, as the provider's address-verification endpoint wants it.
+///
+/// **Open question (design D13, flagged for the PR3/PR4 live smoke test):** the exact
+/// field set Telnyx's `POST /v2/addresses` expects has not been confirmed against a live
+/// account yet. This shape follows the fields Telnyx's own address object documents; it
+/// may need adjustment once the live call is exercised.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AddressValue {
+    pub street_address: String,
+    pub extended_address: Option<String>,
+    pub locality: String,
+    pub administrative_area: Option<String>,
+    pub postal_code: String,
+    /// ISO 3166-1 alpha-2.
+    pub country_code: String,
+}
+
+/// One submitted requirement value. An enum, not a `String`, so a document id can never be
+/// typo'd into the textual-field slot and forwarded to the provider as free text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FieldValue {
+    Text(String),
+    Address(AddressValue),
+    /// A document id already returned by [`TelephonyProvider::upload_document`].
+    Document(String),
+}
+
+/// A requirement group and the values submitted against it so far.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RequirementGroup {
+    pub id: RequirementGroupId,
+    pub status: GroupStatus,
+    pub requirements: Vec<(RequirementSpec, Option<FieldValue>)>,
+}
+
+/// A document to stream through to the provider. `body` is a `'static` stream so it can
+/// outlive the (non-`'static`) multipart field it was read from — the whole point of D9:
+/// no buffer big enough to hold the file, no temp file that could hold PII.
+pub struct DocumentUpload {
+    pub content_type: &'static str,
+    pub body: BoxStream<'static, Result<Bytes, std::io::Error>>,
+}
+
+impl fmt::Debug for DocumentUpload {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // The stream has no useful Debug shape, and printing it must never be tempting as
+        // a way to "peek" at document bytes.
+        f.debug_struct("DocumentUpload")
+            .field("content_type", &self.content_type)
+            .finish_non_exhaustive()
+    }
+}
+
+/// What the provider handed back after accepting a document. No bytes, no filename — see
+/// design D12.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UploadedDocument {
+    pub id: String,
+    pub av_scan_status: String,
+}
+
+/// The parent order's own lifecycle, distinct from the requirements pipeline riding on top
+/// of it — an order can succeed or fail independently of whether requirements were ever
+/// needed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OrderStatus {
+    Pending,
+    Success,
+    Failure,
+    Cancelled,
+    Deleted,
+    Unknown,
+}
+
+/// Where the REQUIREMENTS side of a sub-order sits, independent of the order's own status.
+/// Named after Telnyx's own states except `Exception`, which is Telnyx's
+/// `requirement-info-exception` carrying the rejection reason (spec 0119 R5) — projected
+/// here rather than exposed as a Telnyx string.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RequirementsStatus {
+    InfoPending,
+    UnderReview,
+    Exception { reason: Option<String> },
+    Approved,
+    Unknown,
+}
+
+/// Everything [`regulatory::transition`] needs to decide the next [`NumberStatus`].
+///
+/// [`regulatory::transition`]: crate::voip::regulatory::transition
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SubOrderState {
+    pub order: OrderStatus,
+    pub requirements: RequirementsStatus,
+    pub group: Option<RequirementGroupId>,
+}
+
 /// How the provider proves the caller owns a number they already have elsewhere.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VerificationMethod {
@@ -770,6 +935,63 @@ pub trait TelephonyProvider: Send + Sync {
         &self,
         id: &str,
     ) -> Result<VerificationState, ProviderError>;
+
+    // ---- regulatory requirements (spec 0119) -------------------------------
+    //
+    // Seven explicit methods, implemented in BOTH adapters (design D1) — the same
+    // "explicit beats a default that fails silently" rule the rest of this trait
+    // already follows. PR2 gives Telnyx `Unsupported` stubs; PR3 fills them in.
+
+    /// The fields Telnyx wants for this country/kind/action, sourced live from the
+    /// provider so a regulator's changing paperwork never drifts from what this dashboard
+    /// shows.
+    async fn list_requirements(
+        &self,
+        query: &RequirementQuery,
+    ) -> Result<Vec<RequirementSpec>, ProviderError>;
+
+    /// Start a fresh requirement group for this combination. Reuse of an already-approved
+    /// group is the CALLER's decision (design D7/D8) — this method always creates.
+    async fn create_requirement_group(
+        &self,
+        query: &RequirementQuery,
+        customer_ref: &str,
+    ) -> Result<RequirementGroup, ProviderError>;
+
+    /// Current state of a group, including whatever values have been submitted so far.
+    /// `Ok(None)` means the provider has no record of this id.
+    async fn get_requirement_group(
+        &self,
+        id: &RequirementGroupId,
+    ) -> Result<Option<RequirementGroup>, ProviderError>;
+
+    /// Forward field values against an already-created group.
+    async fn submit_requirement_values(
+        &self,
+        id: &RequirementGroupId,
+        values: &[(String, FieldValue)],
+    ) -> Result<RequirementGroup, ProviderError>;
+
+    /// Stream one document straight to the provider. No caller of this method may buffer
+    /// `upload.body` first — that would defeat the entire point of D9.
+    async fn upload_document(
+        &self,
+        upload: DocumentUpload,
+    ) -> Result<UploadedDocument, ProviderError>;
+
+    /// Where a purchased number's sub-order stands right now, for the reconcile sweep.
+    /// `Ok(None)` means the provider has no record of this sub-order (e.g. a 404).
+    async fn sub_order_status(
+        &self,
+        id: &SubOrderId,
+    ) -> Result<Option<SubOrderState>, ProviderError>;
+
+    /// Attach an (already created or reused) requirement group to a sub-order.
+    async fn attach_requirement_group(
+        &self,
+        sub_order: &SubOrderId,
+        group: &RequirementGroupId,
+    ) -> Result<SubOrderState, ProviderError>;
 
     // ---- SIP / PBX (spec 0118) ---------------------------------------------
     //
