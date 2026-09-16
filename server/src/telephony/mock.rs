@@ -28,10 +28,11 @@ use subtle::ConstantTimeEq;
 use super::E164;
 use super::{
     CallLeg, Cdr, DialRequest, GatherConfig, LegId, MediaStreamConfig, NumberKind, NumberOffer,
-    NumberSearch, NumberStatus, PlayRequest, ProviderCapabilities, ProviderError, ProviderEvent,
-    ProviderEventKind, ProviderMetadata, ProviderNumberId, PurchaseRequest, PurchasedNumber,
-    RecordingConfig, RecordingDownloadUrl, SipConnection, TelephonyProvider, VerificationMethod,
-    VerificationStart, VerificationState, WebhookError, WebhookHeaders,
+    NumberSearch, NumberStatus, OrderRef, PlayRequest, ProviderCapabilities, ProviderError,
+    ProviderEvent, ProviderEventKind, ProviderMetadata, ProviderNumberId, PurchaseRequest,
+    PurchasedNumber, RecordingConfig, RecordingDownloadUrl, SipConnection, SubOrderId,
+    TelephonyProvider, VerificationMethod, VerificationStart, VerificationState, WebhookError,
+    WebhookHeaders,
 };
 use crate::voip::pricing::Rate;
 use crate::voip::state::FailureReason;
@@ -529,14 +530,30 @@ impl TelephonyProvider for MockTelephonyProvider {
             return Ok(existing.clone());
         }
         st.seq += 1;
+        // The same "offer index 1 needs paperwork" rule `search_numbers` scripts, read
+        // back off the e164 it generated (`…{seed}{i:02}`), so a caller that bought the
+        // regulated offer sees exactly the regulated purchase it searched for.
+        let is_regulated = req.e164.ends_with("01");
         let bought = PurchasedNumber {
             provider_number_id: ProviderNumberId(format!("mock-num-{}", st.seq)),
             e164: req.e164.clone(),
-            status: NumberStatus::Active,
+            status: if is_regulated {
+                NumberStatus::PendingRegulatory
+            } else {
+                NumberStatus::Active
+            },
             monthly_cost: Decimal::new(135, 2),
             setup_cost: Decimal::new(100, 2),
             currency: "USD".into(),
-            regulatory_requirement: None,
+            regulatory_requirement: is_regulated
+                .then(|| "A local address in this country is required.".to_string()),
+            // Every real Telnyx purchase creates an order and a sub-order, regardless of
+            // regulatory status — the mock stays faithful to that rather than only
+            // scripting the regulated case.
+            order: Some(OrderRef {
+                order_id: format!("mock-order-{}", st.seq),
+                sub_order_id: SubOrderId(format!("mock-suborder-{}", st.seq)),
+            }),
         };
         st.sold.insert(req.idempotency_key, bought.clone());
         Ok(bought)

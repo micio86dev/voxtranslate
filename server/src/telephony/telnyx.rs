@@ -1071,6 +1071,11 @@ impl TelephonyProvider for TelnyxProvider {
                             .to_string()
                     })
                 }),
+            // Order/sub-order id parsing lands in the next slice (spec 0119 S3):
+            // `order_id = data.id`, `sub_order_id = phone_numbers[0].sub_number_order_id`,
+            // falling back to `data.sub_number_orders_ids[0]`. `None` here is honest about
+            // what this slice does not read yet, never a fabricated id.
+            order: None,
         })
     }
 

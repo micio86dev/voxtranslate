@@ -322,6 +322,133 @@ async fn a_member_may_not_spend_the_organisations_money() {
     assert_eq!(r.status(), 403);
 }
 
+/// The offer the mock scripts as needing paperwork — the second offer of any batch of at
+/// least two (spec 0119 D4/D7's regulated purchase path).
+async fn regulated_offer(srv: &Server, http: &Client, org_id: Uuid, jwt: &str) -> String {
+    let body: Value = http
+        .get(numbers_url(srv, org_id, "/search?country=IT&limit=3"))
+        .bearer_auth(jwt)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    body["offers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|o| o["regulatory_requirement"].is_string())
+        .expect("the mock always scripts one regulated offer per search")["e164"]
+        .as_str()
+        .unwrap()
+        .to_string()
+}
+
+/// The first offer of a batch — never the scripted regulated one.
+async fn plain_offer(srv: &Server, http: &Client, org_id: Uuid, jwt: &str) -> String {
+    let body: Value = http
+        .get(numbers_url(srv, org_id, "/search?country=IT&limit=3"))
+        .bearer_auth(jwt)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    body["offers"][0]["e164"].as_str().unwrap().to_string()
+}
+
+#[tokio::test]
+async fn a_regulated_purchase_withholds_caller_id_and_keeps_the_orders_ids() {
+    // D4: before this, a purchase was inserted `outbound_enabled = TRUE` regardless of
+    // status, so `resolve_caller_id` would present a number the regulator had not
+    // cleared. This proves the fix, and that the order/sub-order ids the sweep and
+    // discovery need are actually persisted (spec 0119 R1/R7).
+    let srv = skip_without_db!(setup().await);
+    let http = Client::new();
+    let (owner, jwt) = user(&srv, "Owner").await;
+    let org_id = org(&srv, owner, 1_000_000).await;
+    let e164 = regulated_offer(&srv, &http, org_id, &jwt).await;
+
+    let r = http
+        .post(numbers_url(&srv, org_id, ""))
+        .bearer_auth(&jwt)
+        .json(&json!({
+            "e164": e164,
+            "country": "IT",
+            "purchase_key": Uuid::new_v4().to_string(),
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 201);
+    let body: Value = r.json().await.unwrap();
+    assert_eq!(body["status"], "pending_regulatory");
+
+    let row: (bool, Option<String>, Option<String>, Option<String>) = sqlx::query_as(
+        "SELECT outbound_enabled, provider_order_id, provider_sub_order_id, number_kind
+           FROM voip_numbers WHERE org_id = $1 AND e164 = $2",
+    )
+    .bind(org_id)
+    .bind(&e164)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
+    assert!(
+        !row.0,
+        "a pending_regulatory number must never be presentable as caller id"
+    );
+    assert!(
+        row.1.is_some(),
+        "the order id must be persisted for the sweep and discovery to address"
+    );
+    assert!(
+        row.2.is_some(),
+        "the sub-order id must be persisted for the sweep and discovery to address"
+    );
+    assert!(row.3.is_some(), "the number kind must be persisted");
+}
+
+#[tokio::test]
+async fn an_unblocked_purchase_still_enables_caller_id() {
+    // Triangulation: D4 must not simply hardcode `outbound_enabled = FALSE` — a purchase
+    // that comes back `active` (no paperwork needed) still enables caller id immediately.
+    let srv = skip_without_db!(setup().await);
+    let http = Client::new();
+    let (owner, jwt) = user(&srv, "Owner").await;
+    let org_id = org(&srv, owner, 1_000_000).await;
+    let e164 = plain_offer(&srv, &http, org_id, &jwt).await;
+
+    let r = http
+        .post(numbers_url(&srv, org_id, ""))
+        .bearer_auth(&jwt)
+        .json(&json!({
+            "e164": e164,
+            "country": "IT",
+            "purchase_key": Uuid::new_v4().to_string(),
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 201);
+    let body: Value = r.json().await.unwrap();
+    assert_eq!(body["status"], "active");
+
+    let outbound_enabled: bool = sqlx::query_scalar(
+        "SELECT outbound_enabled FROM voip_numbers WHERE org_id = $1 AND e164 = $2",
+    )
+    .bind(org_id)
+    .bind(&e164)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
+    assert!(
+        outbound_enabled,
+        "an active number must be usable as caller id right away"
+    );
+}
+
 #[tokio::test]
 async fn the_same_purchase_key_buys_the_same_number_once() {
     let srv = skip_without_db!(setup().await);

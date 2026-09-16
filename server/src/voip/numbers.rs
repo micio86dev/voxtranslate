@@ -248,6 +248,11 @@ pub async fn buy(
     } else {
         bought.status
     };
+    // Only `active` may ever be presented as caller id (D4, spec 0119 R5's amendment to
+    // 0115 R4). Before this, every purchase was inserted `outbound_enabled = TRUE`, which
+    // meant `resolve_caller_id` would present a `pending_regulatory` number the regulator
+    // had not cleared — a latent bug this change closes rather than perpetuates.
+    let outbound_enabled = status == NumberStatus::Active;
 
     let id: Uuid = sqlx::query_scalar(
         "INSERT INTO voip_numbers
@@ -255,9 +260,10 @@ pub async fn buy(
              verification_status, status, status_reason, regulatory_requirement,
              provider_monthly_usd, provider_setup_usd, markup_rate,
              customer_monthly_usd, customer_setup_usd, currency,
-             purchase_key, next_renewal_at)
-         VALUES ($1, $2, $3, $4, $5, TRUE, 'verified', $6, $7, $7, $8, $9, $10, $11, $12, $13,
-                 $14, $15)
+             purchase_key, next_renewal_at,
+             provider_order_id, provider_sub_order_id, number_kind)
+         VALUES ($1, $2, $3, $4, $5, $6, 'verified', $7, $8, $8, $9, $10, $11, $12, $13, $14,
+                 $15, $16, $17, $18, $19)
          RETURNING id",
     )
     .bind(org_id)
@@ -265,6 +271,7 @@ pub async fn buy(
     .bind(bought.provider_number_id.as_str())
     .bind(dest.as_str())
     .bind(dest.region())
+    .bind(outbound_enabled)
     .bind(status.as_str())
     .bind(bought.regulatory_requirement.as_deref())
     .bind(offer.monthly_cost)
@@ -275,6 +282,9 @@ pub async fn buy(
     .bind(&offer.currency)
     .bind(&body.purchase_key)
     .bind(Utc::now() + Duration::days(30))
+    .bind(bought.order.as_ref().map(|o| o.order_id.as_str()))
+    .bind(bought.order.as_ref().map(|o| o.sub_order_id.as_str()))
+    .bind(offer.kind.as_str())
     .fetch_one(&mut *tx)
     .await
     .map_err(db_err)?;
