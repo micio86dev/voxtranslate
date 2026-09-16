@@ -490,6 +490,112 @@ pub fn build_quote(
         .map_err(|_| VoipError::Misconfigured("VOIP pricing configuration"))
 }
 
+/// What repricing a fallback-served call changed, for the caller's WARN log.
+pub struct FallbackReprice {
+    pub old_price_per_minute: Decimal,
+    pub new_price_per_minute: Decimal,
+    /// `false` when nothing was written: the call was already settled, a concurrent
+    /// attempt already repriced it (the row's `engine_id` no longer matched what was
+    /// requested), or `new_price_per_minute` would have been HIGHER than the price the
+    /// customer already agreed to.
+    pub applied: bool,
+}
+
+/// Reprice a call whose phone leg fell back to `fallback_engine` at runtime
+/// (`voip::session::open_engine_session`), so billing follows the engine that actually
+/// served the call rather than the one it was quoted at.
+///
+/// Uses the SAME building blocks [`build_quote`] calls at dial time — [`provider_cost`]
+/// then [`MarginPolicy::price_per_minute`] — deliberately NOT [`build_quote`]/
+/// [`check_and_quote`] themselves: those need a whole [`DialWorld`] (policy, live counts,
+/// today's spend) because dial time is an admission DECISION. A runtime fallback is not
+/// one — the call was already admitted — so re-running `policy::check` here would be
+/// re-litigating a question that closed when the call was dialled. Only a fresh
+/// [`Rate`] and the fallback engine's own [`EngineMetadata`] are needed.
+///
+/// `recording_status` stands in for the dial-time `CaptureIntent.recording` this can't see
+/// directly: at the point `voip::session::open_engine_session` calls this — right as the
+/// media leg connects, before the press-key gate has run — it is still exactly what
+/// `dial`'s own INSERT set it to (`'pending'` if recording was requested, `'none'`
+/// otherwise; see `dial`'s bindings above), because nothing has had a chance to move it
+/// yet.
+///
+/// Returns `None` when the call row, its destination, or the current rate deck cannot be
+/// read. A fallback must never fail the CALL over a pricing lookup — the customer keeps
+/// the price already quoted, and the caller (`voip::session::reprice_fallback`) logs this
+/// as a WARN either way.
+///
+/// The write is guarded three ways, so it is safe to call speculatively and cannot make
+/// things worse: `engine_id = $requested` keeps it idempotent (a second call, after the
+/// first already changed the row's engine, is a no-op); `status NOT IN ('completed',
+/// 'failed')` keeps it off a call `voip::webhook::settle` has already billed; and
+/// `quoted_price_per_min >= $new_price`, checked both in Rust before the write and again
+/// in the `WHERE` clause against whatever is actually in the row, means a fallback can
+/// only ever move the price down or leave it alone.
+pub async fn reprice_after_fallback(
+    pool: &Pool,
+    cfg: &VoipConfig,
+    call_id: Uuid,
+    requested_engine_id: &str,
+    fallback_engine: &EngineMetadata,
+) -> Option<FallbackReprice> {
+    let row: (String, String, Option<Decimal>) = sqlx::query_as(
+        "SELECT recipient_e164, recording_status, quoted_price_per_min
+         FROM voip_calls WHERE id = $1",
+    )
+    .bind(call_id)
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten()?;
+    let (recipient_e164, recording_status, old_price) = row;
+    let old_price = old_price.unwrap_or(Decimal::ZERO);
+
+    let dest = E164::parse(&recipient_e164).ok()?;
+    let rate = lookup_rate(pool, &cfg.provider, &dest, cfg.rate_max_age_secs)
+        .await
+        .ok()
+        .flatten()?;
+    let margin = MarginPolicy::new(
+        pricing::usd_from_config(cfg.min_gross_margin),
+        pricing::usd_from_config(cfg.cost_safety_buffer),
+    )
+    .ok()?;
+    let recording = recording_status != "none";
+    let cost = provider_cost(cfg, &rate, fallback_engine, recording);
+    let new_price = margin.price_per_minute(cost.total()).ok()?;
+
+    if new_price > old_price {
+        return Some(FallbackReprice {
+            old_price_per_minute: old_price,
+            new_price_per_minute: new_price,
+            applied: false,
+        });
+    }
+
+    let updated = sqlx::query(
+        "UPDATE voip_calls
+         SET engine_id = $2, quoted_price_per_min = $3, updated_at = now()
+         WHERE id = $1
+           AND engine_id = $4
+           AND status NOT IN ('completed', 'failed')
+           AND quoted_price_per_min >= $3",
+    )
+    .bind(call_id)
+    .bind(&fallback_engine.id)
+    .bind(new_price)
+    .bind(requested_engine_id)
+    .execute(pool)
+    .await
+    .ok()?;
+
+    Some(FallbackReprice {
+        old_price_per_minute: old_price,
+        new_price_per_minute: new_price,
+        applied: updated.rows_affected() > 0,
+    })
+}
+
 /// Create the call rows, hold the credits, and dial. See the module docs for why the
 /// order is what it is.
 #[allow(clippy::too_many_arguments)]
@@ -876,6 +982,213 @@ mod tests {
 
     fn cfg() -> VoipConfig {
         VoipConfig::test_default()
+    }
+
+    // ---- `reprice_after_fallback` — bill the engine that actually served the call -----
+    //
+    // Owner decision, follow-up to the 2026-09-16 hang-up fix: a runtime fallback
+    // (`voip::session::open_engine_session`) must not leave a customer billed for an
+    // engine that never ran a single second of their call. DB-gated: skipped without
+    // `DATABASE_URL`, same as every other DB test in this crate.
+
+    /// A minimal org + `voip_calls` row, priced at `price` on `engine_id` — everything
+    /// `reprice_after_fallback` reads or writes, nothing `build_quote`'s own tests need.
+    async fn fresh_call(pool: &Pool, engine_id: &str, price: &str, status: &str) -> Uuid {
+        let owner: Uuid = sqlx::query_scalar(
+            "INSERT INTO users (google_id, email, name, balance)
+             VALUES ($1, $2, 'Owner', 0) RETURNING id",
+        )
+        .bind(format!("g-{}", Uuid::new_v4()))
+        .bind(format!("{}@example.test", Uuid::new_v4()))
+        .fetch_one(pool)
+        .await
+        .unwrap();
+        let org: Uuid = sqlx::query_scalar(
+            "INSERT INTO organizations (name, slug, owner_id, credits_balance)
+             VALUES ('Reprice Co', $1, $2, 5000) RETURNING id",
+        )
+        .bind(format!("voip-{}", Uuid::new_v4().simple()))
+        .bind(owner)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+        let session: Uuid = sqlx::query_scalar(
+            "INSERT INTO call_sessions (id, room, org_id, kind)
+             VALUES (gen_random_uuid(), $1, $2, 'phone') RETURNING id",
+        )
+        .bind(format!("ph-{}", Uuid::new_v4().simple()))
+        .bind(org)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+        sqlx::query_scalar(
+            "INSERT INTO voip_calls
+                (session_id, org_id, user_id, provider, direction, recipient_e164,
+                 recipient_pseudonym, recipient_country, source_language, target_language,
+                 engine_id, status, quoted_price_per_min, recording_status)
+             VALUES ($1, $2, $3, 'mock', 'outbound', '+8613800138000', 'abc', 'CN', 'it',
+                     'zh', $4, $5, $6, 'none')
+             RETURNING id",
+        )
+        .bind(session)
+        .bind(org)
+        .bind(owner)
+        .bind(engine_id)
+        .bind(status)
+        .bind(price.parse::<Decimal>().unwrap())
+        .fetch_one(pool)
+        .await
+        .unwrap()
+    }
+
+    async fn rate_row(pool: &Pool) {
+        sqlx::query(
+            "INSERT INTO voip_rates (provider, prefix, description, cost_per_minute, fetched_at)
+             VALUES ('mock', '86', 'China', 0.0100, now())
+             ON CONFLICT (provider, prefix) DO UPDATE
+                 SET description = EXCLUDED.description,
+                     cost_per_minute = EXCLUDED.cost_per_minute,
+                     fetched_at = now()",
+        )
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    /// `cfg()` with the provider `rate_row` inserts under — `VoipConfig::test_default`'s
+    /// own provider ("mock") already matches, kept explicit so the two cannot drift apart.
+    fn reprice_cfg() -> VoipConfig {
+        let mut c = cfg();
+        c.provider = "mock".into();
+        c
+    }
+
+    #[tokio::test]
+    async fn a_fallback_reprices_the_call_and_settlement_charges_the_new_price() {
+        let Some(url) = crate::db::test_database_url() else {
+            eprintln!("skipping — no DATABASE_URL");
+            return;
+        };
+        let pool = crate::db::connect(&url).await.unwrap();
+        crate::db::migrate(&pool).await.unwrap();
+        rate_row(&pool).await;
+        // Quoted high, as "premium" would have been — deliberately above what "standard"
+        // (the fallback below) will recompute to, so a real downward reprice is exercised.
+        let call = fresh_call(&pool, "premium", "0.1000", "answered").await;
+
+        let fallback = engine(0.0018); // "standard"'s shape from `engine()`, its own cost
+        let c = reprice_cfg();
+
+        // The exact building blocks `build_quote` calls at dial time — reused here, not
+        // reimplemented, so the test and the code under test cannot silently drift apart.
+        let expected_cost = provider_cost(&c, &rate("0.0100"), &fallback, false);
+        let margin = MarginPolicy::new(
+            pricing::usd_from_config(c.min_gross_margin),
+            pricing::usd_from_config(c.cost_safety_buffer),
+        )
+        .unwrap();
+        let expected_price = margin.price_per_minute(expected_cost.total()).unwrap();
+
+        let outcome = reprice_after_fallback(&pool, &c, call, "premium", &fallback)
+            .await
+            .expect("a fresh rate and an unsettled call must reprice");
+
+        assert!(outcome.applied, "the row must actually be rewritten");
+        assert_eq!(outcome.old_price_per_minute, "0.1000".parse().unwrap());
+        assert_eq!(outcome.new_price_per_minute, expected_price);
+        assert!(
+            outcome.new_price_per_minute < outcome.old_price_per_minute,
+            "the fallback engine must be cheaper here, or this test proves nothing"
+        );
+
+        let (stored_engine, stored_price): (String, Decimal) =
+            sqlx::query_as("SELECT engine_id, quoted_price_per_min FROM voip_calls WHERE id = $1")
+                .bind(call)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(
+            stored_engine, "standard",
+            "billing must follow the engine that actually served the call"
+        );
+        assert_eq!(stored_price, expected_price);
+
+        // `voip::webhook::settle` charges exactly `pricing::settle_credits(quoted_price_per_min,
+        // duration)`, reading the row directly — so proving the stored price is now the
+        // fallback's price IS proving settlement charges it.
+        let old_price: Decimal = "0.1000".parse().unwrap();
+        let settled_at_new_price = pricing::settle_credits(stored_price, 480);
+        let would_have_settled_at_old_price = pricing::settle_credits(old_price, 480);
+        assert!(
+            settled_at_new_price < would_have_settled_at_old_price,
+            "an 8-minute call must settle at the cheaper, post-fallback rate"
+        );
+    }
+
+    #[tokio::test]
+    async fn repricing_a_settled_call_is_a_no_op() {
+        let Some(url) = crate::db::test_database_url() else {
+            eprintln!("skipping — no DATABASE_URL");
+            return;
+        };
+        let pool = crate::db::connect(&url).await.unwrap();
+        crate::db::migrate(&pool).await.unwrap();
+        rate_row(&pool).await;
+        let call = fresh_call(&pool, "premium", "0.1000", "completed").await;
+
+        let outcome =
+            reprice_after_fallback(&pool, &reprice_cfg(), call, "premium", &engine(0.0018))
+                .await
+                .expect("pricing itself still succeeds even though the write must be refused");
+
+        assert!(
+            !outcome.applied,
+            "a settled call's engine/price must never be rewritten after the fact"
+        );
+        let (stored_engine, stored_price): (String, Decimal) =
+            sqlx::query_as("SELECT engine_id, quoted_price_per_min FROM voip_calls WHERE id = $1")
+                .bind(call)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(stored_engine, "premium", "a settled row must be untouched");
+        assert_eq!(stored_price, "0.1000".parse().unwrap());
+    }
+
+    #[tokio::test]
+    async fn reprice_never_raises_the_quoted_price() {
+        let Some(url) = crate::db::test_database_url() else {
+            eprintln!("skipping — no DATABASE_URL");
+            return;
+        };
+        let pool = crate::db::connect(&url).await.unwrap();
+        crate::db::migrate(&pool).await.unwrap();
+        rate_row(&pool).await;
+        // Quoted absurdly cheap on purpose — cheaper than recomputing the SAME "standard"
+        // engine against the current rate deck would ever come out to.
+        let call = fresh_call(&pool, "premium", "0.0001", "answered").await;
+
+        let outcome =
+            reprice_after_fallback(&pool, &reprice_cfg(), call, "premium", &engine(0.0018))
+                .await
+                .expect("pricing itself still succeeds even though the write must be refused");
+
+        assert!(
+            outcome.new_price_per_minute > outcome.old_price_per_minute,
+            "the scenario must actually exercise the upward case, or this test proves nothing"
+        );
+        assert!(
+            !outcome.applied,
+            "a fallback must never raise the price the customer already agreed to"
+        );
+        let (stored_engine, stored_price): (String, Decimal) =
+            sqlx::query_as("SELECT engine_id, quoted_price_per_min FROM voip_calls WHERE id = $1")
+                .bind(call)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(stored_engine, "premium");
+        assert_eq!(stored_price, "0.0001".parse().unwrap());
     }
 
     #[test]
