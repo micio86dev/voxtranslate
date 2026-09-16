@@ -343,15 +343,36 @@ impl TranscriptService {
             .collect())
     }
 
-    /// May `user_id` download this session's transcript? Only participants can.
+    /// May `user_id` download this session's transcript (and, via `session_gate`, read
+    /// its AI report/sentiment)? Participants can — plus, for a phone call specifically,
+    /// the org's owners/admins and the member who placed the call. That is exactly the
+    /// scope `GET …/voip/calls/{id}` and its recording route enforce, so a plain member
+    /// cannot read a colleague's call here while the call itself answers them 404.
+    ///
+    /// That second clause exists because a phone call (spec 0111) never inserts a
+    /// `session_participants` row: the ASR/TTS bridge runs on the carrier leg, there is
+    /// no WebSocket join to record. Before 1.58.5 that meant this check refused EVERY
+    /// user for a `kind = 'phone'` session — including the org member who dialled it and
+    /// paid for its analysis — with `Forbidden`, indistinguishable from a real stranger.
+    /// Scoped to `kind = 'phone'` on purpose: a meeting/webinar room still gates on
+    /// participation only, unchanged.
     pub async fn access(
         &self,
         session_id: Uuid,
         user_id: Uuid,
     ) -> Result<SessionAccess, sqlx::Error> {
         let participated: Option<bool> = sqlx::query_scalar(
-            "SELECT EXISTS (SELECT 1 FROM session_participants sp
-                            WHERE sp.session_id = cs.id AND sp.user_id = $2)
+            "SELECT
+                EXISTS (SELECT 1 FROM session_participants sp
+                        WHERE sp.session_id = cs.id AND sp.user_id = $2)
+                OR (cs.kind = 'phone' AND cs.org_id IS NOT NULL
+                    -- COALESCE: a stranger's role is NULL, and `NULL IN (…)` is NULL, not
+                    -- false — which would decode as an error instead of `Forbidden`.
+                    AND (COALESCE(get_user_org_role(cs.org_id, $2) IN ('owner', 'admin'), FALSE)
+                         OR (get_user_org_role(cs.org_id, $2) IS NOT NULL
+                             AND EXISTS (SELECT 1 FROM voip_calls vc
+                                         WHERE vc.session_id = cs.id
+                                           AND vc.user_id = $2))))
              FROM call_sessions cs WHERE cs.id = $1",
         )
         .bind(session_id)

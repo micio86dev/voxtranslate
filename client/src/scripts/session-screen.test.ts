@@ -43,6 +43,7 @@ vi.mock('./sentiment', () => sentimentSlot);
 const SCAFFOLD = `
   <div id="home"></div>
   <div id="account" class="hidden"></div>
+  <section id="prejoin"></section>
   <section id="session" class="hidden">
     <button id="session-back"></button>
     <span id="session-room"></span>
@@ -181,6 +182,23 @@ describe('open / close navigation', () => {
     expect($('session').classList.contains('hidden')).toBe(true);
     expect($('home').classList.contains('hidden')).toBe(false);
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('hides a stale #prejoin left over from an abandoned join attempt (v1.58.5)', async () => {
+    // Production bug fixed in 1.58.5: a join attempt that bailed out of startCall()
+    // early (the consent gate, unsupported WebRTC, or a failed in-call module load —
+    // app.ts's startCall(), before it hides #prejoin) left the "Pronto a entrare?"
+    // card visible, and leaveCall() never hid it either. It then reappeared UNDER
+    // #session at the next call end. #prejoin starts visible in the scaffold above,
+    // exactly like that stuck state.
+    expect($('prejoin').classList.contains('hidden')).toBe(false);
+    const mod = await open();
+    expect($('prejoin').classList.contains('hidden')).toBe(true);
+    // Back must still return to home — never to the stale prejoin screen.
+    btn('session-back').click();
+    expect($('home').classList.contains('hidden')).toBe(false);
+    expect($('prejoin').classList.contains('hidden')).toBe(true);
+    void mod;
   });
 
   it('returns to the account screen when opened from Billing → Transcripts', async () => {

@@ -30,8 +30,8 @@ use super::{
     CallLeg, Cdr, DialRequest, GatherConfig, LegId, MediaStreamConfig, NumberKind, NumberOffer,
     NumberSearch, NumberStatus, PlayRequest, ProviderCapabilities, ProviderError, ProviderEvent,
     ProviderEventKind, ProviderMetadata, ProviderNumberId, PurchaseRequest, PurchasedNumber,
-    RecordingConfig, SipConnection, TelephonyProvider, VerificationMethod, VerificationStart,
-    VerificationState, WebhookError, WebhookHeaders,
+    RecordingConfig, RecordingDownloadUrl, SipConnection, TelephonyProvider, VerificationMethod,
+    VerificationStart, VerificationState, WebhookError, WebhookHeaders,
 };
 use crate::voip::pricing::Rate;
 use crate::voip::state::FailureReason;
@@ -74,6 +74,7 @@ struct MockState {
     play_error: Option<ProviderError>,
     deleted_recordings: Vec<String>,
     delete_recording_error: Option<ProviderError>,
+    recording_download_error: Option<ProviderError>,
     /// Numbers this fake carrier has sold, keyed by the idempotency key the caller used.
     /// Keyed by OUR key rather than by the number, because that is the property under
     /// test: the same key must buy once (spec 0115 R2).
@@ -218,6 +219,12 @@ impl MockTelephonyProvider {
     /// Make the next delete fail, so erasure's abort-and-stay-retryable path is testable.
     pub fn fail_recording_deletes(&self, err: ProviderError) {
         self.lock().delete_recording_error = Some(err);
+    }
+
+    /// Make the next `recording_download_url` call fail, so the route's error handling is
+    /// testable without a live Telnyx account (spec 0111 R21, fixed 1.58.5).
+    pub fn fail_recording_downloads(&self, err: ProviderError) {
+        self.lock().recording_download_error = Some(err);
     }
 
     pub fn is_streaming(&self, leg: &LegId) -> bool {
@@ -450,6 +457,25 @@ impl TelephonyProvider for MockTelephonyProvider {
         st.commands.push(MockCommand::StopRecording(leg.clone()));
         st.recording_legs.retain(|l| l != leg);
         Ok(())
+    }
+
+    async fn recording_download_url(
+        &self,
+        recording_id: &str,
+    ) -> Result<Option<RecordingDownloadUrl>, ProviderError> {
+        let st = self.lock();
+        if let Some(err) = st.recording_download_error.clone() {
+            return Err(err);
+        }
+        // A deleted recording (retention already purged it — see `delete_recording`
+        // above) has nothing to hand out, the same "not there" outcome a real 404 gives.
+        if st.deleted_recordings.iter().any(|r| r == recording_id) {
+            return Ok(None);
+        }
+        Ok(Some(RecordingDownloadUrl {
+            url: format!("https://mock-telnyx.test/recordings/{recording_id}.mp3"),
+            expires_at: Utc::now() + Duration::minutes(10),
+        }))
     }
 
     async fn fetch_cdr(&self, leg: &LegId) -> Result<Option<Cdr>, ProviderError> {

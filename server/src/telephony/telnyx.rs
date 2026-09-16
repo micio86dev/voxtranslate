@@ -35,8 +35,8 @@ use super::{
     CallLeg, Cdr, DialRequest, GatherConfig, LegId, MediaStreamConfig, MediaTrack, NumberKind,
     NumberOffer, NumberSearch, NumberStatus, PlayRequest, ProviderCapabilities, ProviderError,
     ProviderEvent, ProviderEventKind, ProviderMetadata, ProviderNumberId, PurchaseRequest,
-    PurchasedNumber, RecordingConfig, SipConnection, TelephonyProvider, VerificationStart,
-    VerificationState, WebhookError, WebhookHeaders, E164,
+    PurchasedNumber, RecordingConfig, RecordingDownloadUrl, SipConnection, TelephonyProvider,
+    VerificationStart, VerificationState, WebhookError, WebhookHeaders, E164,
 };
 use rust_decimal::Decimal;
 
@@ -212,6 +212,24 @@ impl TelnyxProvider {
 /// HTML error page is several kilobytes of markup that would otherwise go through the log
 /// pipeline verbatim on every failure.
 const MAX_ERROR_DETAIL: usize = 400;
+
+/// Pick a download URL out of a `GET /v2/recordings/{id}` response's `data` object.
+///
+/// mp3 is preferred over wav purely for size — both are equally valid per the schema.
+/// `None` covers both "no `download_urls` object at all" and "the object is there but
+/// both formats are absent/empty", which is what a recording still being processed at
+/// the carrier looks like: a row exists, but nothing is downloadable yet.
+fn download_url_from_recording(data: &Value) -> Option<String> {
+    let urls = data.get("download_urls")?;
+    // The blank check runs per format, BEFORE the fallback: a present-but-empty mp3 must
+    // not stop a usable wav from being handed out.
+    let usable = |format: &str| {
+        urls.get(format)
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+    };
+    usable("mp3").or_else(|| usable("wav")).map(str::to_string)
+}
 
 /// Classify a response, and on failure say what the carrier actually complained about.
 ///
@@ -827,6 +845,41 @@ impl TelephonyProvider for TelnyxProvider {
         self.action(leg, "record_stop", json!({})).await
     }
 
+    /// `GET /v2/recordings/{recording_id}` → `data.download_urls.{mp3,wav}` — verified
+    /// against developers.telnyx.com/api-reference/call-recordings/retrieve-a-call-recording
+    /// (2026-09-16): both fields are optional strings, mp3 preferred here for size. The
+    /// endpoint does not return an expiry for these links; `docs/voip-telnyx-setup.md`
+    /// already documents Telnyx's presigned recording URLs as valid for roughly 10
+    /// minutes, so that is the (deliberately conservative) estimate handed to the caller —
+    /// better to ask again a minute early than to advertise a URL as live past the point
+    /// Telnyx actually revokes it.
+    async fn recording_download_url(
+        &self,
+        recording_id: &str,
+    ) -> Result<Option<RecordingDownloadUrl>, ProviderError> {
+        let Some(body) = self
+            .get_json(&format!("/v2/recordings/{recording_id}"), &[])
+            .await?
+        else {
+            // 404: gone at the carrier — already purged by retention, or never existed.
+            return Ok(None);
+        };
+        let Some(data) = body.get("data") else {
+            return Err(ProviderError::Malformed {
+                detail: "recording response missing \"data\"".to_string(),
+            });
+        };
+        let Some(url) = download_url_from_recording(data) else {
+            // The recording row exists but carries no link yet (still processing at the
+            // carrier) — same "nothing to hand out" outcome as a 404.
+            return Ok(None);
+        };
+        Ok(Some(RecordingDownloadUrl {
+            url,
+            expires_at: Utc::now() + Duration::minutes(10),
+        }))
+    }
+
     /// Per-leg cost is **not** available from this provider synchronously.
     ///
     /// Telnyx rates calls asynchronously and exposes the result through batched usage
@@ -1203,6 +1256,61 @@ mod tests {
             }
         }))
         .unwrap()
+    }
+
+    // ---- recording download URLs (fixed 1.58.5) --------------------------------
+    //
+    // Response shape verified against
+    // developers.telnyx.com/api-reference/call-recordings/retrieve-a-call-recording
+    // (2026-09-16): `data.download_urls.{mp3,wav}`, both optional strings.
+
+    #[test]
+    fn recording_download_prefers_mp3_over_wav() {
+        let data =
+            json!({ "download_urls": { "mp3": "https://x/a.mp3", "wav": "https://x/a.wav" } });
+        assert_eq!(
+            download_url_from_recording(&data).as_deref(),
+            Some("https://x/a.mp3")
+        );
+    }
+
+    #[test]
+    fn recording_download_falls_back_to_wav_when_mp3_is_absent() {
+        let data = json!({ "download_urls": { "wav": "https://x/a.wav" } });
+        assert_eq!(
+            download_url_from_recording(&data).as_deref(),
+            Some("https://x/a.wav")
+        );
+    }
+
+    #[test]
+    fn recording_download_is_none_without_a_download_urls_object() {
+        // The still-processing shape: the recording row exists at Telnyx but has no
+        // link yet.
+        assert_eq!(
+            download_url_from_recording(&json!({ "status": "processing" })),
+            None
+        );
+    }
+
+    #[test]
+    fn recording_download_is_none_when_both_formats_are_missing_or_blank() {
+        assert_eq!(
+            download_url_from_recording(&json!({ "download_urls": {} })),
+            None
+        );
+        assert_eq!(
+            download_url_from_recording(&json!({ "download_urls": { "mp3": "" } })),
+            None
+        );
+        // A blank mp3 must not hide a usable wav.
+        assert_eq!(
+            download_url_from_recording(
+                &json!({ "download_urls": { "mp3": "", "wav": "https://x.test/r.wav" } })
+            )
+            .as_deref(),
+            Some("https://x.test/r.wav")
+        );
     }
 
     // ---- EU posture -----------------------------------------------------------

@@ -41,6 +41,17 @@ let onCloseCb: (() => void) | null = null;
 const RETURN_SCREENS = ['home', 'account'] as const;
 let returnScreen = 'home';
 
+// Other top-level screens that must never be left visible underneath #session, even
+// though Back never returns to them. Production bug fixed in 1.58.5: #prejoin
+// (client/src/pages/index.astro) is shown by goPrejoin() and hidden only by
+// startCall() and the pre-join #back-btn — but startCall() bails out early on several
+// guards (the consent modal, unsupported WebRTC, a failed in-call module load; see
+// app.ts's startCall(), all of which return before it hides #prejoin) and leaveCall()
+// never touched #prejoin at all. A join attempt that hit one of those guards left the
+// "Pronto a entrare?" card visible, and it then reappeared UNDER #session at the next
+// call end. Hidden unconditionally on open — cheap even when it was already hidden.
+const STALE_SCREENS = ['prejoin'] as const;
+
 /** The session currently shown (null when the screen is closed). */
 export function currentSession(): SessionRef | null {
   return current;
@@ -52,6 +63,7 @@ export function openSessionScreen(ref: SessionRef, opts: { onClose?: () => void 
   renderHeader(ref);
   returnScreen = RETURN_SCREENS.find((id) => !$(id).classList.contains('hidden')) ?? 'home';
   $(returnScreen).classList.add('hidden');
+  for (const id of STALE_SCREENS) $(id).classList.add('hidden');
   $('session').classList.remove('hidden');
   initReportSlot(ref);
   initSentimentSlot(ref);

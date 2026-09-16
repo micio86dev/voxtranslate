@@ -255,6 +255,21 @@ pub struct Cdr {
     pub hangup_cause: Option<FailureReason>,
 }
 
+/// A freshly-minted, short-lived link to download a saved call recording (spec 0111 R21,
+/// gap fixed 1.58.5).
+///
+/// Never persisted: `voip_calls.provider_recording_url` stores whatever the webhook
+/// happened to receive at RecordingSaved time, and on Telnyx that is itself a presigned
+/// link good for only a few minutes (docs/voip-telnyx-setup.md). Handing that stored URL
+/// to the dashboard later just hands back an expired link. This type only ever comes back
+/// from [`TelephonyProvider::recording_download_url`], asked for at the moment someone
+/// actually wants to play or download the recording.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecordingDownloadUrl {
+    pub url: String,
+    pub expires_at: DateTime<Utc>,
+}
+
 /// A provider webhook, normalised.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProviderEvent {
@@ -667,6 +682,17 @@ pub trait TelephonyProvider: Send + Sync {
     /// erasure aborts on failure and stays retryable, and a silent success would leave the
     /// bytes in place while telling the person they were erased.
     async fn delete_recording(&self, recording_id: &str) -> Result<(), ProviderError>;
+
+    /// A fresh, short-lived URL to download a saved recording (spec 0111 R21, gap fixed
+    /// 1.58.5). `Ok(None)` means "nothing to hand out" — the provider has no such
+    /// recording (already purged by retention, or never existed) or has not produced a
+    /// download link for it yet. Distinguished from `Err` the same way [`Self::fetch_cdr`]
+    /// distinguishes "no data" from "the call failed": callers treat both `None` and a 404
+    /// identically, so a provider is free to report either.
+    async fn recording_download_url(
+        &self,
+        recording_id: &str,
+    ) -> Result<Option<RecordingDownloadUrl>, ProviderError>;
 
     /// Authoritative cost for a finished leg (R12). `None` while the provider has not
     /// rated it yet — which is normal for a minute or two after hangup.
