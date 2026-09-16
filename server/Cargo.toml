@@ -25,7 +25,10 @@ tokio = { version = "1", features = ["full"] }
 tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-reqwest = { version = "0.13", features = ["json", "multipart", "form", "query"] }
+# `stream` unlocks `reqwest::Body::wrap_stream` — required to POST a regulatory
+# document to Telnyx straight from `telephony::DocumentUpload`'s stream (D9) without
+# buffering it into memory first.
+reqwest = { version = "0.13", features = ["json", "multipart", "form", "query", "stream"] }
 futures = "0.3"
 # `telephony::DocumentUpload` streams a regulatory document through to the provider
 # without ever buffering it to disk (spec 0119 D9); the stream item type is `Bytes`,

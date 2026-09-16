@@ -265,6 +265,33 @@ async fn classify_response(
     Err(err)
 }
 
+/// Same success/failure classification as [`classify_response`], but the failure path
+/// never reads the response body at all.
+///
+/// Design D12: an uploaded document (and, from a later slice on this same PR, a
+/// submitted requirement value or a resolved address) is PII, and Telnyx's own error
+/// bodies are known to echo back exactly what was submitted (a rejected filename, a
+/// malformed value quoted back). [`error_detail`] redacting phone numbers is not enough
+/// protection for THAT shape of leak, so these calls skip reading the body on failure
+/// entirely rather than trying to redact a payload this file does not control the shape
+/// of.
+async fn classify_response_redacted(
+    op: &str,
+    res: reqwest::Response,
+) -> Result<reqwest::Response, ProviderError> {
+    let status = res.status();
+    let Some(err) = classify(status) else {
+        return Ok(res);
+    };
+    tracing::warn!(
+        provider = TELNYX_ID,
+        operation = op,
+        status = status.as_u16(),
+        "the carrier refused a request (body redacted: may echo submitted PII)"
+    );
+    Err(err)
+}
+
 /// Reduce a carrier error body to one redacted, bounded log line.
 ///
 /// Pure, and tested exhaustively, for the same reason [`classify`] is: this runs only on
@@ -554,6 +581,23 @@ fn parse_user_requirement(item: &Value) -> (RequirementSpec, Option<FieldValue>)
             RequirementKind::Address | RequirementKind::Textual => FieldValue::Text(v.to_string()),
         });
     (spec, value)
+}
+
+/// Parse `POST /v2/documents`' response. Verified against the published
+/// `DocServiceDocument` schema (2026-09-16): the created document is wrapped in `data`,
+/// with `id` (uuid) and `av_scan_status` (`scanned`/`infected`/`pending_scan`/`not_scanned`).
+/// `av_scan_status` is stored verbatim rather than mapped onto a crate-owned enum — see
+/// [`UploadedDocument`] — so an empty string here honestly means "the field was
+/// missing", never a guessed status word.
+fn parse_uploaded_document(body: &Value) -> Option<UploadedDocument> {
+    let data = body.get("data").unwrap_or(body);
+    let id = data.get("id").and_then(Value::as_str)?.to_string();
+    let av_scan_status = data
+        .get("av_scan_status")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    Some(UploadedDocument { id, av_scan_status })
 }
 
 /// Parse `GET /v2/sub_number_orders/:id` (with `filter[include_phone_numbers]=true`) or the
@@ -1475,10 +1519,39 @@ impl TelephonyProvider for TelnyxProvider {
 
     async fn upload_document(
         &self,
-        _upload: DocumentUpload,
+        upload: DocumentUpload,
     ) -> Result<UploadedDocument, ProviderError> {
-        Err(ProviderError::Unsupported {
-            operation: "upload a regulatory document",
+        // POST /v2/documents, multipart field `file` — verified against the published
+        // `CreateMultiPartDocServiceDocumentRequest`/`DocServiceDocument` schemas
+        // (2026-09-16). `upload.body` streams straight into the multipart part: nothing
+        // here reads it into a `Vec<u8>` first, which is the entire point of design D9 —
+        // the caller already built a `'static` stream so it could outlive the
+        // non-`'static` multipart field it was read from.
+        let body = reqwest::Body::wrap_stream(upload.body);
+        let part = reqwest::multipart::Part::stream(body)
+            .mime_str(upload.content_type)
+            .map_err(|e| ProviderError::Malformed {
+                detail: e.to_string(),
+            })?;
+        let form = reqwest::multipart::Form::new().part("file", part);
+        let res = self
+            .http
+            .post(self.url("/v2/documents"))
+            .bearer_auth(&self.cfg.api_key)
+            .multipart(form)
+            .send()
+            .await
+            .map_err(|e| ProviderError::Unavailable {
+                detail: e.to_string(),
+            })?;
+        // Redacted (design D12): an error here can echo the filename or the document's
+        // own scan verdict text back, and nothing about this document is ever logged.
+        let res = classify_response_redacted("upload_document", res).await?;
+        let body: Value = res.json().await.map_err(|e| ProviderError::Malformed {
+            detail: e.to_string(),
+        })?;
+        parse_uploaded_document(&body).ok_or_else(|| ProviderError::Malformed {
+            detail: "document response has no id".into(),
         })
     }
 
@@ -1623,6 +1696,7 @@ pub fn speak_language(lang: &str) -> String {
 mod tests {
     use super::*;
     use crate::telephony::MediaCodec;
+    use bytes::Bytes;
     use ed25519_dalek::{Signer, SigningKey};
 
     fn cfg() -> TelnyxConfig {
@@ -1634,6 +1708,17 @@ mod tests {
             public_key_b64: String::new(),
             default_caller_id: Some("+390212345678".into()),
             media_anchor: "Frankfurt, Germany".into(),
+        }
+    }
+
+    /// Same config, pointed at a local stub server instead of the real carrier — used
+    /// only by tests that must observe an actual HTTP request/response (streaming a
+    /// document, and later in this PR, resolving an address), where a pure-function test
+    /// cannot show what went over the wire.
+    fn cfg_with_base(base: String) -> TelnyxConfig {
+        TelnyxConfig {
+            api_base: base,
+            ..cfg()
         }
     }
 
@@ -2421,6 +2506,96 @@ mod tests {
                             to a provider id lands in a later phase",
             }
         );
+    }
+
+    // ---- document upload (spec 0119 D9/D10, PR4) -------------------------------
+    //
+    // `POST /v2/documents` — verified against the published
+    // `CreateMultiPartDocServiceDocumentRequest`/`DocServiceDocument` schemas
+    // (2026-09-16): the multipart field is named `file`, and the response wraps the
+    // created document in `data` with `id` and `av_scan_status`
+    // (`scanned`/`infected`/`pending_scan`/`not_scanned`).
+
+    #[test]
+    fn parse_uploaded_document_reads_id_and_scan_status() {
+        let body = json!({"data": {"id": "doc-1", "av_scan_status": "scanned"}});
+        let doc = parse_uploaded_document(&body).expect("id present");
+        assert_eq!(doc.id, "doc-1");
+        assert_eq!(doc.av_scan_status, "scanned");
+    }
+
+    #[test]
+    fn parse_uploaded_document_is_none_without_an_id() {
+        assert!(parse_uploaded_document(&json!({"data": {"av_scan_status": "scanned"}})).is_none());
+    }
+
+    #[tokio::test]
+    async fn upload_document_streams_the_body_without_buffering_it_first() {
+        // The property this test exists to prove: the adapter forwards `upload.body` as
+        // it arrives (several chunks, D9) rather than collecting it into one buffer
+        // before sending — a local stub server is the only way to observe that, since a
+        // pure function cannot show what a real HTTP body looked like on the wire.
+        use axum::extract::{Multipart, State};
+        use axum::routing::post;
+        use axum::{Json, Router};
+        use futures::StreamExt;
+        use std::sync::atomic::{AtomicU64, Ordering};
+        use std::sync::Arc;
+
+        let received_bytes = Arc::new(AtomicU64::new(0));
+        let received_chunks = Arc::new(AtomicU64::new(0));
+        let app = Router::new()
+            .route(
+                "/v2/documents",
+                post(
+                    |State((bytes, chunks)): State<(Arc<AtomicU64>, Arc<AtomicU64>)>,
+                     mut mp: Multipart| async move {
+                        let mut field = mp.next_field().await.unwrap().expect("a `file` field");
+                        assert_eq!(field.name(), Some("file"));
+                        let mut total = 0u64;
+                        // `chunk()`, not `bytes()`: the latter would buffer the whole
+                        // field before this handler could observe more than one piece.
+                        while let Some(chunk) = field.chunk().await.unwrap() {
+                            total += chunk.len() as u64;
+                            chunks.fetch_add(1, Ordering::SeqCst);
+                        }
+                        bytes.store(total, Ordering::SeqCst);
+                        Json(json!({"data": {"id": "doc-1", "av_scan_status": "scanned"}}))
+                    },
+                ),
+            )
+            .with_state((received_bytes.clone(), received_chunks.clone()));
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        let p = TelnyxProvider::new(cfg_with_base(format!("http://{addr}")), 300);
+
+        let chunks: Vec<Result<Bytes, std::io::Error>> = vec![
+            Ok(Bytes::from_static(b"%PDF-1.4 ")),
+            Ok(Bytes::from_static(b"chunk two ")),
+            Ok(Bytes::from_static(b"chunk three")),
+        ];
+        let expected_len: u64 = chunks
+            .iter()
+            .map(|c| c.as_ref().unwrap().len() as u64)
+            .sum();
+        let body = futures::stream::iter(chunks).boxed();
+        let upload = DocumentUpload {
+            content_type: "application/pdf",
+            body,
+        };
+
+        let uploaded = p.upload_document(upload).await.unwrap();
+        assert_eq!(uploaded.id, "doc-1");
+        assert_eq!(uploaded.av_scan_status, "scanned");
+        assert_eq!(received_bytes.load(Ordering::SeqCst), expected_len);
+        // Not a hard requirement of the wire format, but a red flag if it ever drops to
+        // 1: it would mean the multipart body was assembled from one pre-joined buffer.
+        assert!(received_chunks.load(Ordering::SeqCst) >= 2);
     }
 
     #[test]
