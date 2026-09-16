@@ -11,6 +11,7 @@ pub mod media;
 pub mod numbers;
 pub mod policy;
 pub mod pricing;
+pub mod regulatory;
 pub mod reservation;
 pub mod routes;
 pub mod service;
