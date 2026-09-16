@@ -696,12 +696,38 @@ pub enum GroupStatus {
     Unknown,
 }
 
+impl GroupStatus {
+    /// Telnyx's own `RequirementGroup.status` enum (verified against the published OpenAPI
+    /// spec 2026-09-16) is hyphenated: `approved`, `unapproved`, `pending-approval`,
+    /// `declined`, `expired`. `no-longer-eligible` is not in that enum but is accepted here
+    /// too (both hyphen and underscore forms) because it is this crate's own documented
+    /// vocabulary for a group that outlived its approval — better to recognise it if the
+    /// provider ever sends it than to fail closed into `Unknown` for a word we already have
+    /// a home for. Anything else unrecognised is `Unknown`, never `Approved` (see above).
+    pub fn parse(raw: &str) -> Self {
+        match raw.trim().to_ascii_lowercase().replace('_', "-").as_str() {
+            "approved" => Self::Approved,
+            "unapproved" => Self::Unapproved,
+            "pending-approval" => Self::PendingApproval,
+            "declined" => Self::Declined,
+            "expired" => Self::Expired,
+            "no-longer-eligible" => Self::NoLongerEligible,
+            _ => Self::Unknown,
+        }
+    }
+}
+
 /// A physical mailing address, as the provider's address-verification endpoint wants it.
 ///
-/// **Open question (design D13, flagged for the PR3/PR4 live smoke test):** the exact
-/// field set Telnyx's `POST /v2/addresses` expects has not been confirmed against a live
-/// account yet. This shape follows the fields Telnyx's own address object documents; it
-/// may need adjustment once the live call is exercised.
+/// **Open question (design D13, resolved against the docs in PR3, still needs a live call
+/// in PR4):** Telnyx's published OpenAPI spec (`AddressCreate` schema, `POST /v2/addresses`)
+/// requires THREE fields this type does not carry yet — `first_name`, `last_name` and
+/// `business_name` — alongside `street_address`, `locality` and `country_code`. This shape
+/// was written against Telnyx's address OBJECT docs, which describe what an address looks
+/// like once it exists, not what creating one requires. PR4 (the only phase that calls
+/// `POST /v2/addresses`) needs to add those three fields — likely sourced from the org's
+/// own profile, since a regulatory address has no natural "customer name" of its own —
+/// before this can be exercised against a live account.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AddressValue {
     pub street_address: String,

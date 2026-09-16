@@ -32,12 +32,12 @@ use serde_json::{json, Value};
 use uuid::Uuid;
 
 use super::{
-    CallLeg, Cdr, DialRequest, DocumentUpload, FieldValue, GatherConfig, LegId, MediaStreamConfig,
-    MediaTrack, NumberKind, NumberOffer, NumberSearch, NumberStatus, PlayRequest,
-    ProviderCapabilities, ProviderError, ProviderEvent, ProviderEventKind, ProviderMetadata,
-    ProviderNumberId, PurchaseRequest, PurchasedNumber, RecordingConfig, RecordingDownloadUrl,
-    RequirementGroup, RequirementGroupId, RequirementKind, RequirementQuery, RequirementSpec,
-    SipConnection, SubOrderId, SubOrderState, TelephonyProvider, UploadedDocument,
+    CallLeg, Cdr, DialRequest, DocumentUpload, FieldValue, GatherConfig, GroupStatus, LegId,
+    MediaStreamConfig, MediaTrack, NumberKind, NumberOffer, NumberSearch, NumberStatus,
+    PlayRequest, ProviderCapabilities, ProviderError, ProviderEvent, ProviderEventKind,
+    ProviderMetadata, ProviderNumberId, PurchaseRequest, PurchasedNumber, RecordingConfig,
+    RecordingDownloadUrl, RequirementGroup, RequirementGroupId, RequirementKind, RequirementQuery,
+    RequirementSpec, SipConnection, SubOrderId, SubOrderState, TelephonyProvider, UploadedDocument,
     VerificationStart, VerificationState, WebhookError, WebhookHeaders, E164,
 };
 use rust_decimal::Decimal;
@@ -441,6 +441,118 @@ fn parse_requirement_spec(item: &Value) -> RequirementSpec {
             .map(RequirementKind::parse)
             .unwrap_or(RequirementKind::Textual),
     }
+}
+
+/// `POST /v2/requirement_groups` body — verified against the same `RequirementGroup`
+/// requestBody schema: `country_code`, `phone_number_type`, `action` and
+/// `customer_reference` are the fields this crate needs at creation time. Field values are
+/// not sent here; they arrive later through `submit_requirement_values` (design D8: a group
+/// is created empty and filled once the customer starts answering).
+fn requirement_group_create_body(query: &RequirementQuery, customer_ref: &str) -> Value {
+    json!({
+        "country_code": query.country.to_ascii_uppercase(),
+        "phone_number_type": query.kind.as_str(),
+        "action": query.action.as_str(),
+        "customer_reference": customer_ref,
+    })
+}
+
+/// `PATCH /v2/requirement_groups/:id` body — verified against the same schema: a
+/// `regulatory_requirements` array of `{requirement_id, field_value}`, both plain strings.
+///
+/// `FieldValue::Address` cannot be turned into that string here: submitting an address
+/// means resolving it to a Telnyx address id first (design D13, `POST /v2/addresses`), and
+/// that call is Phase 4 scope, not this one. Refusing it as `Unsupported` is the same
+/// honest-gap treatment every other not-yet-implemented operation in this file gets — it is
+/// never silently dropped from the submission or sent as raw address text the provider
+/// would reject anyway.
+fn requirement_group_patch_body(values: &[(String, FieldValue)]) -> Result<Value, ProviderError> {
+    let mut requirements = Vec::with_capacity(values.len());
+    for (requirement_id, value) in values {
+        let field_value = match value {
+            FieldValue::Text(s) => s.clone(),
+            FieldValue::Document(doc_id) => doc_id.clone(),
+            FieldValue::Address(_) => {
+                return Err(ProviderError::Unsupported {
+                    operation: "submit an address requirement value — resolving an address \
+                                to a provider id lands in a later phase",
+                })
+            }
+        };
+        requirements.push(json!({ "requirement_id": requirement_id, "field_value": field_value }));
+    }
+    Ok(json!({ "regulatory_requirements": requirements }))
+}
+
+/// Parse a `RequirementGroup` response. `POST`/`GET`/`PATCH /v2/requirement_groups[/{id}]`
+/// all return the object directly at the top level — verified against the schema, and
+/// unlike almost every other Telnyx resource in this file, which wraps its payload in
+/// `data`. A `data`-wrapped shape is tolerated anyway (cheap, and consistent with how
+/// [`TelnyxProvider::purchase_number`] already reads `body.get("data").unwrap_or(&body)`)
+/// in case a future response ever adds the envelope.
+///
+/// `None` means the response carries no `id` — not a value this crate can act on.
+fn parse_requirement_group(body: &Value) -> Option<RequirementGroup> {
+    let data = body.get("data").unwrap_or(body);
+    let id = data.get("id").and_then(Value::as_str)?.to_string();
+    let status = data
+        .get("status")
+        .and_then(Value::as_str)
+        .map(GroupStatus::parse)
+        .unwrap_or(GroupStatus::Unknown);
+    let requirements = data
+        .get("regulatory_requirements")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .map(parse_user_requirement)
+        .collect();
+    Some(RequirementGroup {
+        id: RequirementGroupId(id),
+        status,
+        requirements,
+    })
+}
+
+/// One entry of a group's `regulatory_requirements` array (`UserRequirement` schema):
+/// `{requirement_id, field_value, field_type, status}`. Unlike the list endpoint, this
+/// shape carries no human-readable `name`/`description`/`example` — those live only in
+/// [`parse_requirements`]'s response. The caller is expected to merge the two (the id is
+/// the shared key); repeating the id as the name here is a documented, tolerant fallback so
+/// a spec is never blank rather than an attempt to fabricate a label Telnyx never sent.
+fn parse_user_requirement(item: &Value) -> (RequirementSpec, Option<FieldValue>) {
+    let requirement_id = item
+        .get("requirement_id")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    let kind = item
+        .get("field_type")
+        .and_then(Value::as_str)
+        .map(RequirementKind::parse)
+        .unwrap_or(RequirementKind::Textual);
+    let spec = RequirementSpec {
+        id: requirement_id.clone(),
+        name: requirement_id,
+        description: None,
+        example: None,
+        kind,
+    };
+    // An empty string is "not submitted yet", not a blank text answer — Telnyx returns the
+    // field even before it has ever been filled in.
+    let value = item
+        .get("field_value")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .map(|v| match kind {
+            RequirementKind::Document => FieldValue::Document(v.to_string()),
+            // A submitted address round-trips as its already-resolved provider id (an
+            // opaque string), which this crate's own `FieldValue::Text` shape represents
+            // just as well — reconstructing a full `AddressValue` from one id is neither
+            // possible nor needed for this read path.
+            RequirementKind::Address | RequirementKind::Textual => FieldValue::Text(v.to_string()),
+        });
+    (spec, value)
 }
 
 /// Telnyx carries `client_state` base64-encoded.
@@ -1217,30 +1329,64 @@ impl TelephonyProvider for TelnyxProvider {
 
     async fn create_requirement_group(
         &self,
-        _query: &RequirementQuery,
-        _customer_ref: &str,
+        query: &RequirementQuery,
+        customer_ref: &str,
     ) -> Result<RequirementGroup, ProviderError> {
-        Err(ProviderError::Unsupported {
-            operation: "create a requirement group",
+        let payload = requirement_group_create_body(query, customer_ref);
+        let res = self
+            .http
+            .post(self.url("/v2/requirement_groups"))
+            .bearer_auth(&self.cfg.api_key)
+            .json(&payload)
+            .send()
+            .await
+            .map_err(|e| ProviderError::Unavailable {
+                detail: e.to_string(),
+            })?;
+        let res = classify_response("create_requirement_group", res).await?;
+        let body: Value = res.json().await.map_err(|e| ProviderError::Malformed {
+            detail: e.to_string(),
+        })?;
+        parse_requirement_group(&body).ok_or_else(|| ProviderError::Malformed {
+            detail: "requirement group response has no id".into(),
         })
     }
 
     async fn get_requirement_group(
         &self,
-        _id: &RequirementGroupId,
+        id: &RequirementGroupId,
     ) -> Result<Option<RequirementGroup>, ProviderError> {
-        Err(ProviderError::Unsupported {
-            operation: "read a requirement group",
-        })
+        let Some(body) = self
+            .get_json(&format!("/v2/requirement_groups/{}", id.0), &[])
+            .await?
+        else {
+            return Ok(None);
+        };
+        Ok(parse_requirement_group(&body))
     }
 
     async fn submit_requirement_values(
         &self,
-        _id: &RequirementGroupId,
-        _values: &[(String, FieldValue)],
+        id: &RequirementGroupId,
+        values: &[(String, FieldValue)],
     ) -> Result<RequirementGroup, ProviderError> {
-        Err(ProviderError::Unsupported {
-            operation: "submit requirement values",
+        let payload = requirement_group_patch_body(values)?;
+        let res = self
+            .http
+            .patch(self.url(&format!("/v2/requirement_groups/{}", id.0)))
+            .bearer_auth(&self.cfg.api_key)
+            .json(&payload)
+            .send()
+            .await
+            .map_err(|e| ProviderError::Unavailable {
+                detail: e.to_string(),
+            })?;
+        let res = classify_response("submit_requirement_values", res).await?;
+        let body: Value = res.json().await.map_err(|e| ProviderError::Malformed {
+            detail: e.to_string(),
+        })?;
+        parse_requirement_group(&body).ok_or_else(|| ProviderError::Malformed {
+            detail: "requirement group response has no id".into(),
         })
     }
 
@@ -2035,5 +2181,130 @@ mod tests {
     fn an_empty_or_missing_data_array_yields_no_requirements() {
         assert!(parse_requirements(&json!({})).is_empty());
         assert!(parse_requirements(&json!({"data": []})).is_empty());
+    }
+
+    #[test]
+    fn the_group_create_body_matches_the_documented_shape() {
+        // POST /v2/requirement_groups requires country_code, phone_number_type, action —
+        // verified against the `RequirementGroup` POST requestBody schema.
+        let q = requirement_query();
+        let body = requirement_group_create_body(&q, "org-42");
+        assert_eq!(body["country_code"], "FR");
+        assert_eq!(body["phone_number_type"], "mobile");
+        assert_eq!(body["action"], "ordering");
+        assert_eq!(body["customer_reference"], "org-42");
+    }
+
+    #[test]
+    fn a_requirement_group_response_parses_its_values_by_field_type() {
+        // POST/GET/PATCH /v2/requirement_groups[/{id}] all return the `RequirementGroup`
+        // object directly — no `data` envelope, unlike almost every other Telnyx resource.
+        let body = json!({
+            "id": "grp-1",
+            "status": "pending-approval",
+            "regulatory_requirements": [
+                { "requirement_id": "req-1", "field_value": "600 Congress Ave", "field_type": "address" },
+                { "requirement_id": "req-2", "field_value": "doc-99", "field_type": "document" },
+                { "requirement_id": "req-3", "field_value": "", "field_type": "textual" }
+            ]
+        });
+        let group = parse_requirement_group(&body).expect("group id present");
+        assert_eq!(group.id, RequirementGroupId("grp-1".into()));
+        assert_eq!(group.status, GroupStatus::PendingApproval);
+        assert_eq!(group.requirements.len(), 3);
+        assert_eq!(
+            group.requirements[0].1,
+            Some(FieldValue::Text("600 Congress Ave".into()))
+        );
+        assert_eq!(
+            group.requirements[1].1,
+            Some(FieldValue::Document("doc-99".into()))
+        );
+        // An empty field_value string means "not submitted yet", not a blank text answer.
+        assert_eq!(group.requirements[2].1, None);
+    }
+
+    #[test]
+    fn a_group_response_tolerates_being_wrapped_in_data_too() {
+        // Defensive only: every confirmed Telnyx sample is unwrapped, but a `data`-wrapped
+        // shape costs nothing extra to accept and matches this file's convention elsewhere
+        // (`purchase_number` reads `body.get("data").unwrap_or(&body)`).
+        let body =
+            json!({"data": {"id": "grp-2", "status": "approved", "regulatory_requirements": []}});
+        let group = parse_requirement_group(&body).expect("group id present");
+        assert_eq!(group.id, RequirementGroupId("grp-2".into()));
+        assert_eq!(group.status, GroupStatus::Approved);
+    }
+
+    #[test]
+    fn a_group_response_with_no_id_parses_to_none() {
+        assert!(parse_requirement_group(&json!({"status": "approved"})).is_none());
+    }
+
+    #[test]
+    fn every_documented_group_status_word_maps_and_unknown_words_stay_unknown() {
+        for (raw, expected) in [
+            ("approved", GroupStatus::Approved),
+            ("unapproved", GroupStatus::Unapproved),
+            ("pending-approval", GroupStatus::PendingApproval),
+            ("pending_approval", GroupStatus::PendingApproval),
+            ("declined", GroupStatus::Declined),
+            ("expired", GroupStatus::Expired),
+            ("no-longer-eligible", GroupStatus::NoLongerEligible),
+            ("something_new", GroupStatus::Unknown),
+        ] {
+            assert_eq!(GroupStatus::parse(raw), expected, "{raw}");
+        }
+    }
+
+    #[test]
+    fn the_group_patch_body_carries_text_and_document_values_as_plain_strings() {
+        // PATCH /v2/requirement_groups/:id — verified against the same `RequirementGroup`
+        // schema: `regulatory_requirements: [{requirement_id, field_value}]`, both strings.
+        let values = vec![
+            ("req-1".to_string(), FieldValue::Text("Jane Doe".into())),
+            ("req-2".to_string(), FieldValue::Document("doc-7".into())),
+        ];
+        let body = requirement_group_patch_body(&values).expect("no address values");
+        let reqs = body["regulatory_requirements"].as_array().unwrap();
+        assert_eq!(reqs.len(), 2);
+        assert_eq!(reqs[0]["requirement_id"], "req-1");
+        assert_eq!(reqs[0]["field_value"], "Jane Doe");
+        assert_eq!(reqs[1]["requirement_id"], "req-2");
+        assert_eq!(reqs[1]["field_value"], "doc-7");
+    }
+
+    #[test]
+    fn an_address_value_is_refused_rather_than_forwarded_unresolved() {
+        // Submitting an address means resolving it to a Telnyx address id first (design
+        // D13, `POST /v2/addresses`) — that call is Phase 4 scope, not this one. The value
+        // must never be silently dropped from the submission or sent as raw address text
+        // the provider would reject anyway.
+        let values = vec![(
+            "req-1".to_string(),
+            FieldValue::Address(super::super::AddressValue {
+                street_address: "1 Rue de Paris".into(),
+                extended_address: None,
+                locality: "Paris".into(),
+                administrative_area: None,
+                postal_code: "75001".into(),
+                country_code: "FR".into(),
+            }),
+        )];
+        assert_eq!(
+            requirement_group_patch_body(&values).unwrap_err(),
+            ProviderError::Unsupported {
+                operation: "submit an address requirement value — resolving an address \
+                            to a provider id lands in a later phase",
+            }
+        );
+    }
+
+    fn requirement_query() -> RequirementQuery {
+        RequirementQuery {
+            country: "fr".into(),
+            kind: NumberKind::Mobile,
+            action: super::super::RequirementAction::Ordering,
+        }
     }
 }
