@@ -476,6 +476,14 @@ jobs:
             client/coverage-unit
           if-no-files-found: ignore
 
+      - name: Upload Playwright failure traces
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-traces
+          path: client/test-results
+          if-no-files-found: ignore
+
   # Supply-chain advisory scan (spec 0029). `cargo audit` is a HARD GATE: it fails
   # the job on any RustSec vulnerability and, via deploy-server's `needs`, blocks the
   # server deploy. Consciously-accepted advisories (no upstream fix / unreachable)
