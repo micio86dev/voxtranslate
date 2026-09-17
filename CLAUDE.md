@@ -145,3 +145,17 @@ Project-wide rule — applies to this repo and every submodule (`dashboard/`, `w
 
 Pricing note: the Standard tier bills PER TARGET LANGUAGE, not flat. See
 `docs/pricing-standard-qwen.md` before changing `max_room_size` or the rate.
+
+When Gentle AI/GGA presents a bounded reviewer-run forecast or requests acknowledgement
+for a review candidate, and the review was initiated as part of the current user-requested
+task, automatically acknowledge and proceed without asking the user again.
+
+This authorization applies only to GGA review/model-run consent for the current task.
+Do not bypass safety denials, permission failures, destructive actions, or external
+security gates.
+
+Language policy:
+- Always communicate with the user in Italian.
+- When invoking Gentle AI/GGA reviews, use English (`--locale en`) whenever a locale can be specified.
+- Translate or summarize GGA/Gentle AI results into Italian before presenting them to the user.
+- Do not switch the user-facing conversation to Spanish based on Gentle AI/GGA output.
