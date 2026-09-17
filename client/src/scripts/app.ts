@@ -165,6 +165,16 @@ import type { ScreenSharePip } from './screenshare-pip';
 import type { CompositeRecorder } from './recording/composite-recorder';
 import { formatElapsed, isRecordingSupported, recordingFilename } from './recording/utils';
 import type { ParticipantSource } from './recording/types';
+// Web-app VoIP dialer (spec: web-app-voip-dialer): a B2B subscriber places a translated
+// phone call from inside this app instead of hopping to the dashboard + a `?room=` link.
+// `voip.ts`/`phone-dialer.ts` are the typed API client + ported pure logic (PR1);
+// `phone-call.ts` holds the two money-safety invariants (mic-before-dial ordering,
+// idempotent hangup-on-every-exit) as dependency-injected, unit-tested orchestrators —
+// this file (excluded from unit coverage, see `vitest.config.ts`) supplies the real
+// browser APIs and DOM wiring around them.
+import { dialVoipCall, getVoipCall, hangUpVoipCall, quoteVoipCall, type VoipCallCreated, type VoipDialRequest } from './voip';
+import { announcement, isPhonePeer, isTerminal, phaseFromStatus, type CallPhase } from './phone-dialer';
+import { createPhoneLegController, runPhoneDialSequence, skipsPrejoin, type EntryMode } from './phone-call';
 
 // A lazily-imported chunk (e.g. the post-call session screen or the in-call
 // modules) can 404 when a new frontend deploy rewrote the hashed filenames while
@@ -472,6 +482,56 @@ const myId = resolvePeerId();
 
 let session: { room: string; lang: string; name: string; isPublic: boolean; engine: string } | null =
   null;
+// Web-app VoIP dialer (spec: web-app-voip-dialer, R4/R7): which entry path is live.
+// 'room' is the default (ordinary video-room join, unchanged); 'phone' is set only by
+// `placePhoneCall()` right before it reuses `startCall()`, and only ever reset back to
+// 'room' by `leaveCall()`'s unconditional teardown — never inside `startCall()` itself,
+// so its own early returns can tell which status sink `entryError()` should write to.
+let entryMode: EntryMode = 'room';
+const phoneDialStatus = $('phone-dial-status'); // dial-panel refusal text (index.astro, PR3)
+const phoneStatusLive = $('phone-status-live'); // in-call aria-live phase announcer (PR3)
+let phonePollTimer: number | null = null;
+let phoneLastPhase: CallPhase | null = null;
+/** Stop the phone call's status poll, if one is running. Safe to call when there isn't one. */
+function clearPhonePoll(): void {
+  if (phonePollTimer !== null) {
+    clearInterval(phonePollTimer);
+    phonePollTimer = null;
+  }
+}
+// R5/R6: the single idempotent hangup gate for the phone entry path — `leaveCall()`,
+// the `pagehide` listener below, an audio-track `ended` event, and a terminal phase
+// caught by the poll all route through `endPhoneLeg()`. Whichever fires first hangs up
+// (via a `keepalive` fetch, R5 — `sendBeacon` cannot carry the Authorization header);
+// every later call this session is a no-op (see `phone-call.ts`'s money-safety(b) tests).
+const phoneLeg = createPhoneLegController({
+  hangup: (orgId, callId) => {
+    void hangUpVoipCall(orgId, callId, { keepalive: true });
+  },
+  clearPoll: clearPhonePoll,
+});
+function endPhoneLeg(): void {
+  phoneLeg.end();
+}
+/** R4/R7: `startCall()`'s pre-existing early returns write here instead of the (hidden,
+ *  on the phone path) `#prejoin` panel — see the 1.58.5 regression note on `leaveCall()`. */
+function entryError(key: string): void {
+  if (skipsPrejoin(entryMode)) {
+    phoneDialStatus.textContent = t(key);
+    phoneDialStatus.classList.add('error');
+  } else {
+    prejoinStatus.textContent = t(key);
+    prejoinStatus.classList.add('error');
+  }
+}
+// R5: best-effort hangup on tab close/navigate-away. `keepalive` (not `sendBeacon`,
+// which cannot carry the Authorization header this endpoint requires) lets the request
+// outlive the document; a crashed tab still relies on the server's `max_call_minutes`
+// backstop. A no-op whenever no phone call is active (`endPhoneLeg` / `phoneLeg.end()`
+// is idempotent), so this listener is safe to register unconditionally at module load.
+window.addEventListener('pagehide', () => {
+  endPhoneLeg();
+});
 let localStream: MediaStream | null = null;
 // Noisy-environment mode: `localStream` is then the DENOISED stream, whose audio track
 // comes out of an AudioContext. Stopping that track does not release the microphone, so
@@ -1874,6 +1934,26 @@ async function acquireMedia(): Promise<void> {
   applyPreToggles();
 }
 
+/**
+ * The phone entry path's `acquireMedia()`: audio only, no camera, no preview — R3/R4.
+ * There is no device-check prejoin screen to preview into on this path, so unlike
+ * `acquireMedia()` this never opens `videoConstraints()` and never touches
+ * `previewVideo`; a denied/failed microphone REJECTS (the caller, `placePhoneCall()`'s
+ * `runPhoneDialSequence`, must see the failure to enforce R3 — never call `dial()`).
+ */
+async function acquireMicOnly(): Promise<void> {
+  const audio = buildAudioConstraints({ deviceId: micSelect.value });
+  if (localStream) localStream.getTracks().forEach((t2) => t2.stop());
+  await stopMeetDenoiser();
+  const raw = await navigator.mediaDevices.getUserMedia({ audio });
+  rawMeetStream = raw;
+  const denoiser = loadNoisyEnv() ? await createDenoiser(raw) : null;
+  meetDenoiser = denoiser;
+  localStream = denoiser?.stream ?? raw;
+  micOn = true;
+  camOn = false;
+}
+
 async function populateDevices(): Promise<void> {
   const devices = await navigator.mediaDevices.enumerateDevices();
   const cams = devices.filter((d) => d.kind === 'videoinput');
@@ -1967,8 +2047,7 @@ async function startCall(): Promise<void> {
   // don't expose RTCPeerConnection, so the mesh would crash on the first peer. Stay on
   // pre-join and tell the user to open the link in a real browser.
   if (!webrtcSupported()) {
-    prejoinStatus.textContent = t('webrtcUnsupported');
-    prejoinStatus.classList.add('error');
+    entryError('webrtcUnsupported');
     return;
   }
   // The in-call modules (warmed at pre-join, usually already settled) must be present before we
@@ -1977,8 +2056,7 @@ async function startCall(): Promise<void> {
   try {
     await ensureCallModules();
   } catch {
-    prejoinStatus.textContent = t('loadFailed');
-    prejoinStatus.classList.add('error');
+    entryError('loadFailed');
     return;
   }
   // i18n is lazy-loaded per locale (spec 0104). Make sure the active UI language's
@@ -2070,6 +2148,91 @@ async function startCall(): Promise<void> {
     showNotif(t('bizRecordingNotice'));
     void startRecording();
   }
+}
+
+// ============================================================================
+// Web-app VoIP dialer (spec: web-app-voip-dialer) — the phone entry path.
+// No CTA calls this yet (PR3 wires the dial panel); this PR wires the machinery.
+// ============================================================================
+
+/**
+ * R3/R4: place a translated phone call and, on success, enter the SAME `startCall()`
+ * used for an ordinary room join — no forked call machine, so the phone path inherits
+ * every fix already made to it (including the 1.58.5 idempotent-reset guarantee on
+ * `leaveCall()`). `runPhoneDialSequence` (`./phone-call.ts`) enforces mic-before-dial;
+ * a refusal at any step releases the mic and never places the call.
+ */
+async function placePhoneCall(orgId: string, request: VoipDialRequest): Promise<void> {
+  const outcome = await runPhoneDialSequence<void, unknown, VoipCallCreated>({
+    acquireMic: acquireMicOnly,
+    quote: () => quoteVoipCall(orgId, request),
+    dial: () => dialVoipCall(orgId, request),
+    releaseMic: () => stopMeetCapture(),
+  });
+  switch (outcome.stage) {
+    case 'mic':
+      entryError('phoneMicRequired');
+      return;
+    case 'quote':
+    case 'dial':
+      // Full refusal-code → copy mapping is Phase 3 (the dial panel that displays it);
+      // R3's invariant already holds here — the mic was released, nothing was charged.
+      entryError('phoneReasonGeneric');
+      return;
+    case 'dialed':
+      await enterPhoneCall(orgId, outcome.call, request);
+      return;
+  }
+}
+
+/** R4: reuses `startCall()` unchanged, bypassing every prejoin-only step (device
+ *  selectors, `setupBizPrejoin`, `acquireMedia()`'s camera) that `acquireMicOnly()`
+ *  and this function already handled. */
+async function enterPhoneCall(
+  orgId: string,
+  call: VoipCallCreated,
+  request: VoipDialRequest,
+): Promise<void> {
+  entryMode = 'phone';
+  session = {
+    room: call.room || '',
+    lang: request.source_language,
+    name: nameInput.value.trim(),
+    isPublic: false,
+    engine: request.engine_id || selectedEngine,
+  };
+  writeCache(NAME_CACHE_KEY, session.name);
+  persistLang(session.lang);
+  void ensureCallModules().catch(() => {});
+  void loadLocale(getUiLang());
+  stopLobby();
+  phoneLeg.start({ orgId, callId: call.call_id });
+  await startCall();
+  // R3: track loss mid-call must hang up rather than bill silence for a call nobody
+  // can hear. `{ once: true }` — the track cannot end twice.
+  localStream?.getAudioTracks()[0]?.addEventListener('ended', () => leaveCall(), { once: true });
+  startPhonePoll(orgId, call.call_id);
+}
+
+/** Poll @1500ms (spec: web-app-voip-dialer) — `phaseFromStatus`/`announcement` are the
+ *  same ported, unit-tested functions the dashboard's own dialer uses (PR1). */
+function startPhonePoll(orgId: string, callId: string): void {
+  phoneLastPhase = null;
+  phonePollTimer = window.setInterval(() => void pollPhoneCall(orgId, callId), 1500);
+}
+
+async function pollPhoneCall(orgId: string, callId: string): Promise<void> {
+  const res = await getVoipCall(orgId, callId);
+  if (!res.ok || !res.data) return;
+  const phase = phaseFromStatus(res.data.status);
+  const msg = announcement(phoneLastPhase, phase, t);
+  if (msg) {
+    phoneStatusLive.textContent = msg;
+  }
+  phoneLastPhase = phase;
+  // The far end hanging up, or the call reaching a terminal server state, is as much
+  // an exit as pressing the leave button — return to the home screen the same way.
+  if (isTerminal(phase)) leaveCall();
 }
 
 function openSocket(): void {
@@ -2190,7 +2353,11 @@ async function handleServer(msg: any): Promise<void> {
         if (p.cartesia_voice_id) peerVoiceIds.set(p.id, p.cartesia_voice_id); // spec 0108
         cartesiaManager?.setPeerLang(p.id, p.lang); // spec 0108: source lang for Enhanced
         cartesiaManager?.setPeerVoiceId(p.id, p.cartesia_voice_id); // spec 0108: their voice
-        await mesh?.addPeer(p.id, false); // they'll initiate the offer
+        // The telephone leg (spec: web-app-voip-dialer) is a real room peer but will
+        // never send a WebRTC offer — `mesh.addPeer` on it would open a PeerConnection
+        // that can never negotiate, leaving a permanently black tile and a dead
+        // connection. It still gets a cell (subtitles/speaking/mute all target it).
+        if (!isPhonePeer(p.id)) await mesh?.addPeer(p.id, false); // they'll initiate the offer
       }
       updateParticipantsList();
       break;
@@ -2211,7 +2378,8 @@ async function handleServer(msg: any): Promise<void> {
       cartesiaManager?.setPeerLang(msg.peer_id, msg.lang); // spec 0108: source lang for Enhanced
       cartesiaManager?.setPeerVoiceId(msg.peer_id, msg.cartesia_voice_id); // spec 0108: their voice
       if (!reconnected) playJoinSound(); // audible cue only for a genuinely new peer
-      await mesh?.addPeer(msg.peer_id, true); // we initiate toward the newcomer
+      // See the matching `room_joined` comment: the telephone leg never negotiates.
+      if (!isPhonePeer(msg.peer_id)) await mesh?.addPeer(msg.peer_id, true); // we initiate toward the newcomer
       // Re-announce our current mute/camera state so the newcomer's UI matches.
       if (!micOn) ws?.send(JSON.stringify({ type: 'mute_audio', muted: true }));
       if (!camOn) ws?.send(JSON.stringify({ type: 'mute_video', muted: true }));
@@ -4428,6 +4596,12 @@ $('chat-rec-cancel').addEventListener('click', () => stopVoiceRecording(false));
 
 $('btn-leave').addEventListener('click', leaveCall);
 function leaveCall(): void {
+  // R5/R6 (spec: web-app-voip-dialer): idempotent hangup for the phone entry path,
+  // unconditional and first — exactly like the 1.58.5 fix below, this line must never
+  // move inside a guard a future change adds above it. A no-op on an ordinary
+  // video-room leave (`phoneLeg` was never `start()`ed — see `phone-call.ts`).
+  endPhoneLeg();
+  entryMode = 'room';
   // Meet-style cue: you left the call — only if we actually joined (callStartedAt
   // stays 0 on a room-full bounce), so it never fires for a non-entry (spec 0024).
   if (callStartedAt > 0) {
