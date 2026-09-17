@@ -39,6 +39,10 @@ export default defineConfig({
   use: {
     baseURL: process.env.E2E_BASE || 'http://localhost:4321',
     permissions: ['microphone', 'camera'],
+    // Only a failing test pays the storage cost — needed to actually see what a CI-only
+    // failure looked like, instead of guessing from the action log alone.
+    trace: 'retain-on-failure',
+    screenshot: 'only-on-failure',
     launchOptions: {
       args: [
         '--use-fake-device-for-media-stream',
