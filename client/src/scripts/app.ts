@@ -189,8 +189,9 @@ import {
   announcement,
   canShowPhoneCta,
   disclosureSummaryKey,
+  hasActiveSubscription,
+  isKnownTerminalStatus,
   isPhonePeer,
-  isTerminal,
   looksDialable,
   looksLikeContactSearch,
   normaliseDestination,
@@ -2096,22 +2097,32 @@ async function fetchIceServers(restricted: boolean): Promise<RTCIceServer[] | un
   }
 }
 
-async function startCall(): Promise<void> {
+/**
+ * R3-startcall-early-return-orphans-billed-leg / R4-phone-leg-orphaned-on-startcall-
+ * early-return fix: the return type is now a success signal, not `void`. On the room
+ * path an early return here only ever left `#prejoin` visible with an error on it — cheap
+ * to ignore. On the phone path `enterPhoneCall()` has ALREADY marked the PSTN leg live
+ * (`phoneLeg.start()`) and closed the dial panel before calling this, so it needs a
+ * reliable way to tell "did we actually enter the call" apart from "one of these guards
+ * fired" in order to hang up the orphaned leg and re-surface the (otherwise invisible)
+ * error. `false` on every early return below; `true` once the call screen is shown.
+ */
+async function startCall(): Promise<boolean> {
   // Track call started with context
   // Guests have no server-side consent record; enforce the 18+/ToS self-attestation
   // here too so a guest can't reach a call without it (accounts are gated server-side).
   if (billing && !auth.isLoggedIn() && !auth.guestConsentGiven()) {
     show(consentModal, true);
-    return;
+    return false;
   }
-  if (!session || !localStream) return;
+  if (!session || !localStream) return false;
   // Bail before entering a call this browser can't run: in-app browsers / restricted
   // WebViews (the call link opened inside Instagram, Gmail, etc.) and insecure contexts
   // don't expose RTCPeerConnection, so the mesh would crash on the first peer. Stay on
   // pre-join and tell the user to open the link in a real browser.
   if (!webrtcSupported()) {
     entryError('webrtcUnsupported');
-    return;
+    return false;
   }
   // The in-call modules (warmed at pre-join, usually already settled) must be present before we
   // show the call UI. On failure — e.g. the chunk couldn't be fetched offline — stay on pre-join
@@ -2120,7 +2131,7 @@ async function startCall(): Promise<void> {
     await ensureCallModules();
   } catch {
     entryError('loadFailed');
-    return;
+    return false;
   }
   // i18n is lazy-loaded per locale (spec 0104). Make sure the active UI language's
   // dictionary has landed BEFORE we render any in-call UI, otherwise the
@@ -2211,6 +2222,7 @@ async function startCall(): Promise<void> {
     showNotif(t('bizRecordingNotice'));
     void startRecording();
   }
+  return true;
 }
 
 // ============================================================================
@@ -2280,10 +2292,40 @@ async function enterPhoneCall(
   void loadLocale(getUiLang());
   stopLobby();
   phoneLeg.start({ orgId, callId: call.call_id });
-  await startCall();
-  // R3: track loss mid-call must hang up rather than bill silence for a call nobody
-  // can hear. `{ once: true }` — the track cannot end twice.
-  localStream?.getAudioTracks()[0]?.addEventListener('ended', () => leaveCall(), { once: true });
+  const entered = await startCall();
+  if (!entered) {
+    // R3-startcall-early-return-orphans-billed-leg / R4-phone-leg-orphaned-on-startcall-
+    // early-return fix: startCall() early-returned WITHOUT ever showing #call — the PSTN
+    // leg dialled above is already live and billing, and `leaveCall()` is never reached
+    // on this path (we never entered a call for it to leave), so it must be hung up here
+    // explicitly. The mic acquired for this call is released too, same as the mic/quote/
+    // dial refusal branches in `placePhoneCall` above — it must never stay live without a
+    // call attached to it.
+    endPhoneLeg();
+    entryMode = 'room';
+    delete callScreen.dataset.entry;
+    leaveBtn.title = t('leaveTip');
+    leaveBtn.setAttribute('aria-label', t('leaveTip'));
+    stopMeetCapture();
+    localStream = null;
+    session = null;
+    startLobby();
+    // Reopen the dial panel so `entryError()`'s message — already written into
+    // `phoneDialStatus` by `startCall()` above — becomes visible again: it was hidden
+    // moments earlier by `closePhoneDialPanel()`, so without this the user would see
+    // NOTHING (no call screen, no error) while the PSTN leg kept ringing/billing.
+    // `resetPhonePanel()` is deliberately NOT called again here — it would wipe the
+    // error text this is trying to show.
+    show(phoneDialPanel, true);
+    show(phoneCtaToggle, false);
+    return;
+  }
+  // R3: track loss mid-call must hang up rather than bill silence for a call nobody can
+  // hear. Attached to the RAW capture stream, never `localStream`: in noisy-environment
+  // mode `localStream` is the denoised, AudioContext-derived stream (see its declaration
+  // above), whose synthesized track never fires `ended` when the real device disappears.
+  // `{ once: true }` — the track cannot end twice.
+  rawMeetStream?.getAudioTracks()[0]?.addEventListener('ended', () => leaveCall(), { once: true });
   startPhonePoll(orgId, call.call_id);
 }
 
@@ -2305,7 +2347,13 @@ async function pollPhoneCall(orgId: string, callId: string): Promise<void> {
   phoneLastPhase = phase;
   // The far end hanging up, or the call reaching a terminal server state, is as much
   // an exit as pressing the leave button — return to the home screen the same way.
-  if (isTerminal(phase)) leaveCall();
+  //
+  // R3-unknown-status-tears-down-live-call fix: the actual hangup trigger is
+  // `isKnownTerminalStatus(res.data.status)`, NOT `isTerminal(phase)` — `phaseFromStatus`
+  // deliberately maps any status it doesn't recognise onto `'failed'` for DISPLAY
+  // purposes, so trusting that same fallback here would auto-hang-up a call that might
+  // still be live the moment the server sends a status this client has never seen.
+  if (isKnownTerminalStatus(res.data.status)) leaveCall();
 }
 
 // ---- CTA + inline dial panel (design: "CTA + dial panel") -------------------
@@ -2389,8 +2437,20 @@ function resetPhonePanel(): void {
 }
 
 async function openPhoneDialPanel(): Promise<void> {
-  const orgs = (await ensureBizOrgs()).filter((o) => canCloudRecord(o));
-  if (!orgs.length) return; // the CTA shouldn't be visible without one — stay safe anyway
+  // R2-dial-org-gate-divergence fix: the org actually used to dial is now filtered by
+  // the SAME `hasActiveSubscription` predicate `canShowPhoneCta` uses for the CTA's own
+  // visibility (updateWorkspaceLink(), below), so the two checks can never disagree.
+  const orgs = (await ensureBizOrgs()).filter(hasActiveSubscription);
+  if (!orgs.length) {
+    // Defensive only — the CTA that opens this panel is itself gated on
+    // `canShowPhoneCta` finding the same org, so this should be unreachable. If it
+    // ever is (a stale org list, a race with a lapsed subscription), show it — a
+    // silent `return` here left a visible, clickable CTA that did nothing.
+    show(phoneDialPanel, true);
+    show(phoneCtaToggle, false);
+    showPhoneDialError('phoneReasonGeneric');
+    return;
+  }
   phoneOrgId = orgs[0].id;
   resetPhonePanel();
   fillPhoneLangs();

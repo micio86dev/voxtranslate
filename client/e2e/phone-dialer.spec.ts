@@ -3,7 +3,7 @@
 // (see the design doc's "Testing Strategy" section) — mocking the quote/dial/detail/hangup
 // endpoints with `page.route` is the ONLY way to prove the full flow end-to-end.
 //
-// This is also the actual automated proof for behavior `client/vitest.config.ts` deliberately
+// This is the INTENDED automated proof for behavior `client/vitest.config.ts` deliberately
 // excludes from unit coverage (app.ts is "exercised by the Playwright e2e suite ... not unit
 // tests"): PR2's phone-peer mesh-skip in the `room_joined` handler (`isPhonePeer`), the
 // 1.58.5 stale-prejoin regression guard on the phone entry path (R4/R7 — `startCall()` is
@@ -11,6 +11,18 @@
 // bug this test catches), and the `startPhonePoll`/`pollPhoneCall` 1500ms timer wiring; plus
 // PR3's CTA/dial-panel DOM glue (`openPhoneDialPanel`, the destination-field debounce, the
 // quote render, the submit handler).
+//
+// R3-integration-proof-never-executed: as of this correction, this file has been written
+// and re-read carefully for correctness against the real `app.ts`/`phone-dialer.ts`/
+// `phone-call.ts` behavior above, but it has NOT yet been run to a passing (or failing)
+// completion in any environment available during this work — `getUserMedia` hangs
+// indefinitely under the sandbox's Chromium here, and this is not specific to this spec:
+// 10+ other, pre-existing, unrelated specs in this same suite hang identically in the same
+// sandbox, which is what points to an environment limitation rather than a defect in this
+// test or in the app. Treat this file as structurally complete and reviewed-by-reading, NOT
+// as an executed, passing proof, until it has actually been run — in CI or on a machine
+// whose browser can grant fake media devices — and its `hangupCalls` and DOM assertions
+// have been observed to pass for real.
 import { test, expect } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { openPage, closePage, trackConsoleErrors } from './helpers';

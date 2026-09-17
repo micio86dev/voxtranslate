@@ -12,7 +12,9 @@ import {
   estimateCost,
   formatCredits,
   formatDuration,
+  hasActiveSubscription,
   hasReasonCopy,
+  isKnownTerminalStatus,
   isMicLive,
   isPhonePeer,
   isTerminal,
@@ -83,6 +85,26 @@ describe('call controls follow the phase', () => {
     expect(isTerminal('completed')).toBe(true);
     expect(isTerminal('failed')).toBe(true);
     expect(isTerminal('connected')).toBe(false);
+  });
+});
+
+// R3-unknown-status-tears-down-live-call fix: `phaseFromStatus` deliberately defaults an
+// UNRECOGNISED status to `'failed'` (tested above), so `isTerminal(phaseFromStatus(x))`
+// can never tell "genuinely over" apart from "we don't understand this status yet". The
+// poll's actual hangup trigger must use this stricter check instead — membership in the
+// server's own two terminal `voip_calls.status` values (`voip::state::CallStatus`,
+// checked everywhere server-side as `NOT IN ('completed', 'failed')`) — so a future or
+// unrecognised status never auto-hangs-up a call that might still be live.
+describe('isKnownTerminalStatus', () => {
+  it('recognises the server\'s two terminal statuses', () => {
+    expect(isKnownTerminalStatus('completed')).toBe(true);
+    expect(isKnownTerminalStatus('failed')).toBe(true);
+  });
+
+  it('stays conservative about a status it does not recognise', () => {
+    for (const junk of ['created', 'dialing', 'ringing', 'answered', 'bridged', 'ending', 'in_progress', '']) {
+      expect(isKnownTerminalStatus(junk)).toBe(false);
+    }
   });
 });
 
@@ -387,6 +409,20 @@ describe('canShowPhoneCta', () => {
     expect(canShowPhoneCta([], true)).toBe(false);
     expect(canShowPhoneCta([active], false)).toBe(false);
     expect(canShowPhoneCta([pastDue, active], true)).toBe(true);
+  });
+});
+
+// R2-dial-org-gate-divergence fix: the CTA's visibility (`canShowPhoneCta`, above) and
+// the org actually used to PLACE the call (`app.ts`'s `openPhoneDialPanel`) answered the
+// same "may this org dial" question with two separately-written predicates that could
+// silently drift apart. `hasActiveSubscription` is now the single source of truth both
+// call sites share, so they cannot disagree again.
+describe('hasActiveSubscription', () => {
+  it('is true only for an org with an active subscription', () => {
+    expect(hasActiveSubscription({ subscription_status: 'active' })).toBe(true);
+    expect(hasActiveSubscription({ subscription_status: 'past_due' })).toBe(false);
+    expect(hasActiveSubscription({ subscription_status: 'none' })).toBe(false);
+    expect(hasActiveSubscription({ subscription_status: 'canceled' })).toBe(false);
   });
 });
 

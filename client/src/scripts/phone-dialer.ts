@@ -67,6 +67,24 @@ export function isTerminal(phase: CallPhase): boolean {
   return phase === 'completed' || phase === 'failed';
 }
 
+/**
+ * The poll's ACTUAL hangup trigger (R3-unknown-status-tears-down-live-call fix) — not
+ * `isTerminal(phaseFromStatus(status))`. `phaseFromStatus` deliberately maps ANY status
+ * it doesn't recognise onto `'failed'` for display purposes (a cosmetic "failed"-looking
+ * label is fine for the UI), but that same fallback must never be trusted to hang up a
+ * call that might still be perfectly live — a status the client has never seen before
+ * (a future server release, a renamed status, a malformed body) is not evidence the call
+ * is over.
+ *
+ * These two strings are the server's own terminal `voip_calls.status` values
+ * (`voip::state::CallStatus::Completed`/`Failed` — see every `status NOT IN ('completed',
+ * 'failed')` guard in `server/src/voip/`), so this is closed and known-safe, not a display
+ * concern like `phaseFromStatus`.
+ */
+export function isKnownTerminalStatus(status: string | null | undefined): boolean {
+  return status === 'completed' || status === 'failed';
+}
+
 /** Whether the hang-up control should be offered. */
 export function canHangUp(phase: CallPhase): boolean {
   return (
@@ -323,16 +341,26 @@ export function isPhonePeer(id: string | null | undefined): boolean {
 }
 
 /**
+ * Whether an org's subscription authorizes it to place a phone call (R2-dial-org-gate-
+ * divergence fix): the SINGLE predicate `canShowPhoneCta` below and `app.ts`'s
+ * `openPhoneDialPanel` (which picks the org actually used to dial) both call, so the CTA
+ * that reveals the dial panel and the org selection that places the call can never
+ * disagree about what "may this org dial" means. Duck-typed (not `BusinessOrg`) so this
+ * stays framework-free, same as `phone-call.ts`'s `OkData<T>`.
+ */
+export function hasActiveSubscription(org: { subscription_status: string }): boolean {
+  return org.subscription_status === 'active';
+}
+
+/**
  * The home-screen CTA's visibility rule (R1, R10): at least one org with an active
  * subscription, on a browser that can actually open the call `startCall()` needs.
- * Duck-typed input (not `BusinessOrg`) so this stays framework-free, same as
- * `phone-call.ts`'s `OkData<T>`.
  */
 export function canShowPhoneCta(
   orgs: { subscription_status: string }[],
   webrtcSupported: boolean,
 ): boolean {
-  return webrtcSupported && orgs.some((o) => o.subscription_status === 'active');
+  return webrtcSupported && orgs.some(hasActiveSubscription);
 }
 
 /**
