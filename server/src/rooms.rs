@@ -18,10 +18,17 @@ pub const MAX_PEERS: usize = 4;
 
 /// Prefix minted for a telephone leg's peer id (`voip::session::create_phone_peer`).
 ///
-/// A room where every REMAINING peer starts with this is over as surely as a truly empty
-/// one: the human(s) who were translating for the call are gone, and nothing else in the
-/// room can hang up the PSTN leg — left alone it keeps running (and billing) until
-/// `max_call_minutes`. See [`RoomManager::remove`].
+/// A room where every REMAINING peer starts with this is *headed* for the same end as a
+/// truly empty one: the human(s) who were translating for the call are gone, and nothing
+/// else in the room can hang up the PSTN leg — left alone it keeps running (and billing)
+/// until `max_call_minutes`. It is not torn down on the spot, though: a follow-up fix
+/// within this same hotfix found that synchronous teardown races a genuine reconnect (an
+/// abrupt, immediately-detected close fires this path before the browser has even noticed
+/// the drop), so [`RoomManager::remove`] only reports the situation via
+/// [`LeaveOutcome::LeftPhoneOnly`],
+/// so a transient WebSocket drop (mobile handoff, a WiFi adapter reset) gets a bounded
+/// grace window — `voip::session::PHONE_ORPHAN_GRACE` — for the SAME peer id to reconnect
+/// and find this room still standing before anything actually hangs up.
 pub const PHONE_PEER_ID_PREFIX: &str = "phone-";
 
 /// Cap on stored whiteboard ops per room (spec 0045): bounds memory for the
@@ -205,6 +212,15 @@ pub enum LeaveOutcome {
     /// This connection was the live entry and is now gone. `Some(session)` when
     /// its departure emptied the room (the call session is over → finalize it).
     Left(Option<Uuid>),
+    /// This connection was the live entry, is now gone, and the room is left with only
+    /// `phone-` peers (at least one human remained before this leave, so the room is
+    /// NOT empty) — the call session id is carried for the transcript finalize, exactly
+    /// like `Left(Some(_))`. Unlike `Left`, the room itself is untouched: it stays in the
+    /// map so a genuine reconnect (same peer id, within the caller's grace window) finds
+    /// it exactly as before this leave, instead of racing a synchronous teardown against
+    /// a transient WebSocket drop. See `PHONE_PEER_ID_PREFIX` and
+    /// `voip::session::PHONE_ORPHAN_GRACE`.
+    LeftPhoneOnly(Uuid),
     /// This connection had already been superseded by a same-id reconnect, so the
     /// peer is still present under a newer connection. The caller must NOT
     /// broadcast `PeerLeft` — nobody actually left.
@@ -324,17 +340,33 @@ impl RoomManager {
             .any(|r| r.peers.iter().any(|p| p.user_id == Some(user_id)))
     }
 
-    /// Remove a connection by `(id, conn)`, dropping the room once empty. Matching
+    /// Remove a connection by `(id, conn)`, dropping the room once truly empty. Matching
     /// on `conn` (not just `id`) means a stale connection's teardown leaves the
     /// live reconnect untouched — it reports [`LeaveOutcome::Superseded`] so the
     /// caller stays quiet. A real departure returns [`LeaveOutcome::Left`] with
-    /// the session id iff this was the last peer (the call is over).
+    /// the session id iff this was the last peer (the call is over), or
+    /// [`LeaveOutcome::LeftPhoneOnly`] iff it leaves only `phone-` peers behind —
+    /// in that case the room is deliberately NOT removed here; see that variant's
+    /// doc comment for why.
     pub fn remove(&self, room_id: &str, id: &str, conn: Uuid) -> LeaveOutcome {
+        // `phone_only` is captured under the SAME lock as the retain, so the check sees
+        // the post-departure peer list atomically — no other removal can interleave.
+        let mut phone_only: Option<Uuid> = None;
         let removed = match self.rooms.get_mut(room_id) {
             Some(mut room) => {
                 let before = room.peers.len();
                 room.peers.retain(|p| !(p.id == id && p.conn == conn));
-                room.peers.len() != before
+                let removed_here = room.peers.len() != before;
+                if removed_here
+                    && !room.peers.is_empty()
+                    && room
+                        .peers
+                        .iter()
+                        .all(|p| p.id.starts_with(PHONE_PEER_ID_PREFIX))
+                {
+                    phone_only = Some(room.session_id);
+                }
+                removed_here
             }
             None => false,
         };
@@ -343,23 +375,56 @@ impl RoomManager {
             // was torn down). Nobody left; don't disturb the others.
             return LeaveOutcome::Superseded;
         }
-        // Truly empty ends it, same as always. So does a room where every remaining
-        // peer is a telephone leg (hotfix 1.59.1): with no human left to translate for
-        // it, the call is over exactly as much as if nobody were here at all — it just
-        // doesn't know it yet, because the peer that never leaves on its own is still
-        // sitting in `peers`. The caller (`lib.rs`'s ws-close handler) uses the returned
-        // session id to hang up that leg the same way it finalizes the transcript.
+        if let Some(session_id) = phone_only {
+            // With no human left to translate for it, the call is over in every way
+            // that matters — except the room is left standing on purpose (hotfix
+            // 1.59.1's grace window): a transient WebSocket drop must not race a
+            // synchronous teardown against the SAME peer id reconnecting a moment
+            // later. The caller runs a bounded grace check before actually ending it.
+            return LeaveOutcome::LeftPhoneOnly(session_id);
+        }
+        // Truly empty ends it immediately and unconditionally — no grace, because
+        // there is nobody left at all, human or phone, to possibly come back to.
         let ended = self
             .rooms
-            .remove_if(room_id, |_, room| {
-                room.peers.is_empty()
-                    || room
-                        .peers
-                        .iter()
-                        .all(|p| p.id.starts_with(PHONE_PEER_ID_PREFIX))
-            })
+            .remove_if(room_id, |_, room| room.peers.is_empty())
             .map(|(_, room)| room.session_id);
         LeaveOutcome::Left(ended)
+    }
+
+    /// Whether `room_id` currently has at least one peer NOT prefixed with
+    /// [`PHONE_PEER_ID_PREFIX`] — the "a human is back" predicate for the grace check
+    /// that follows [`LeaveOutcome::LeftPhoneOnly`]. A room that no longer exists at all
+    /// reports `false`: it has no human present, which is the same conclusion as an
+    /// existing phone-only room, not a special "abort" case — `end_orphaned_phone_room`
+    /// is a no-op on a missing room regardless.
+    pub fn has_human_peer(&self, room_id: &str) -> bool {
+        self.rooms.get(room_id).is_some_and(|room| {
+            room.peers
+                .iter()
+                .any(|p| !p.id.starts_with(PHONE_PEER_ID_PREFIX))
+        })
+    }
+
+    /// The actual, final teardown after [`LeaveOutcome::LeftPhoneOnly`]'s grace window
+    /// elapses with nobody reconnecting. A no-op — returns `None` — unless the room
+    /// STILL exists, its session id STILL matches `session_id` (a fresh room reusing the
+    /// same room id after a real teardown is a different call and must not be touched),
+    /// and it is STILL phone-only-or-empty: a human that joined during the grace window
+    /// (the exact race this exists to close) makes this a no-op too, same as the room
+    /// simply not being there any more. Returns `Some(session_id)` iff it actually tore
+    /// the room down, so the caller knows whether to also hang up the phone leg.
+    pub fn end_orphaned_phone_room(&self, room_id: &str, session_id: Uuid) -> Option<Uuid> {
+        self.rooms
+            .remove_if(room_id, |_, room| {
+                room.session_id == session_id
+                    && (room.peers.is_empty()
+                        || room
+                            .peers
+                            .iter()
+                            .all(|p| p.id.starts_with(PHONE_PEER_ID_PREFIX)))
+            })
+            .map(|(_, room)| room.session_id)
     }
 
     /// Send to every peer in the room, pruning dead channels.
@@ -1137,28 +1202,166 @@ mod tests {
     // ---- hotfix 1.59.1: a human leaving a phone-call room orphans the PSTN leg -------
     //
     // `voip::session::create_phone_peer` mints the telephone's peer id as `phone-<uuid>`.
-    // A room where every REMAINING peer is one of those is over as surely as an empty
-    // one — the human(s) who were translating for it are gone — so it must be torn down
-    // (and its session finalized) exactly like the true-empty case, not left running
-    // (and billing the carrier) until `max_call_minutes`.
+    // A room where every REMAINING peer is one of those is headed for the same end as an
+    // empty one — the human(s) who were translating for it are gone — but it is NOT torn
+    // down here: a transient WebSocket drop (mobile handoff, a WiFi adapter reset) fires
+    // this exact path immediately, before the browser has even noticed the drop, and must
+    // not race a synchronous teardown against that same peer id reconnecting a moment
+    // later. `remove` only reports `LeftPhoneOnly` and leaves the room standing; the
+    // caller (`voip::session::finish_after_phone_orphan`) runs the actual grace check.
 
     #[test]
-    fn last_human_leaving_a_phone_room_tears_it_down_like_true_emptiness() {
+    fn last_human_leaving_a_phone_room_reports_it_without_tearing_the_room_down() {
         let rm = RoomManager::new();
         let human_conn = Uuid::new_v4();
         let (human, _rh) = peer_conn("a", "it", human_conn);
-        rm.join("r", human, Visibility::Private).unwrap();
+        let session_id = rm.join("r", human, Visibility::Private).unwrap().session_id;
         let (phone, _rp) = peer("phone-1234", "zh");
         rm.join("r", phone, Visibility::Private).unwrap();
 
-        // Today (pre-fix) this returns `Left(None)`: the phone peer keeps the room
-        // (and the peers Vec) non-empty, so the call session is never finalized and
-        // nothing ever asks the carrier to hang up.
         assert!(
-            matches!(rm.remove("r", "a", human_conn), LeaveOutcome::Left(Some(_))),
-            "only a phone peer remains -> the room ends, same as true emptiness"
+            matches!(
+                rm.remove("r", "a", human_conn),
+                LeaveOutcome::LeftPhoneOnly(sid) if sid == session_id
+            ),
+            "only a phone peer remains -> reported, carrying the call session id"
         );
-        assert_eq!(rm.active_rooms(), 0, "the room entry itself is gone");
+        assert_eq!(
+            rm.active_rooms(),
+            1,
+            "the room is NOT torn down here — a reconnect must still find it"
+        );
+        assert_eq!(
+            rm.session_id("r"),
+            Some(session_id),
+            "same room, same session id — not a fresh room"
+        );
+    }
+
+    #[test]
+    fn a_truly_empty_room_still_ends_synchronously_with_no_grace() {
+        // Regression: this hotfix must not add ANY delay to the ordinary case (no phone
+        // peer involved at all) — a genuinely empty room ends exactly as it always did,
+        // immediately and unconditionally.
+        let rm = RoomManager::new();
+        let conn = Uuid::new_v4();
+        let (a, _ra) = peer_conn("a", "it", conn);
+        let session_id = rm.join("r", a, Visibility::Public).unwrap().session_id;
+
+        assert!(
+            matches!(
+                rm.remove("r", "a", conn),
+                LeaveOutcome::Left(Some(sid)) if sid == session_id
+            ),
+            "the last peer leaving an ordinary room ends it synchronously, unchanged"
+        );
+        assert_eq!(
+            rm.active_rooms(),
+            0,
+            "the room entry itself is gone immediately"
+        );
+    }
+
+    #[test]
+    fn has_human_peer_reflects_who_is_actually_left() {
+        let rm = RoomManager::new();
+        assert!(
+            !rm.has_human_peer("ghost"),
+            "a room that doesn't exist has no human present"
+        );
+
+        let human_conn = Uuid::new_v4();
+        let (human, _rh) = peer_conn("a", "it", human_conn);
+        rm.join("r", human, Visibility::Private).unwrap();
+        assert!(rm.has_human_peer("r"), "a human is right there");
+
+        let (phone, _rp) = peer("phone-1234", "zh");
+        rm.join("r", phone, Visibility::Private).unwrap();
+        rm.remove("r", "a", human_conn);
+        assert!(
+            !rm.has_human_peer("r"),
+            "only the phone peer remains -> no human"
+        );
+    }
+
+    #[test]
+    fn end_orphaned_phone_room_is_a_no_op_once_a_human_has_reconnected() {
+        // The race this whole mechanism exists to close: a human's OLD connection is
+        // reported `LeftPhoneOnly`, but before the grace window elapses the SAME peer id
+        // reconnects (an ordinary `join()`, exactly like `voip::session`'s doc comment on
+        // `join` describes). The final teardown must see that and do nothing.
+        let rm = RoomManager::new();
+        let human_conn = Uuid::new_v4();
+        let (human, _rh) = peer_conn("a", "it", human_conn);
+        let session_id = rm.join("r", human, Visibility::Private).unwrap().session_id;
+        let (phone, _rp) = peer("phone-1234", "zh");
+        rm.join("r", phone, Visibility::Private).unwrap();
+
+        assert!(matches!(
+            rm.remove("r", "a", human_conn),
+            LeaveOutcome::LeftPhoneOnly(_)
+        ));
+
+        // The reconnect lands before the grace window's final check runs.
+        let (human_back, _rhb) = peer("a", "it");
+        rm.join("r", human_back, Visibility::Private).unwrap();
+
+        assert_eq!(
+            rm.end_orphaned_phone_room("r", session_id),
+            None,
+            "a human is back — this must be a no-op"
+        );
+        assert_eq!(rm.active_rooms(), 1, "the room survives, untouched");
+        assert!(rm.has_human_peer("r"), "and the human is still in it");
+    }
+
+    #[test]
+    fn end_orphaned_phone_room_tears_it_down_when_nobody_reconnects() {
+        let rm = RoomManager::new();
+        let human_conn = Uuid::new_v4();
+        let (human, _rh) = peer_conn("a", "it", human_conn);
+        let session_id = rm.join("r", human, Visibility::Private).unwrap().session_id;
+        let (phone, _rp) = peer("phone-1234", "zh");
+        rm.join("r", phone, Visibility::Private).unwrap();
+
+        assert!(matches!(
+            rm.remove("r", "a", human_conn),
+            LeaveOutcome::LeftPhoneOnly(_)
+        ));
+
+        assert_eq!(
+            rm.end_orphaned_phone_room("r", session_id),
+            Some(session_id),
+            "nobody came back -> the grace window's end really tears it down"
+        );
+        assert_eq!(rm.active_rooms(), 0);
+
+        // Idempotent: a second call (e.g. a duplicate spawn) finds nothing to do.
+        assert_eq!(rm.end_orphaned_phone_room("r", session_id), None);
+    }
+
+    #[test]
+    fn end_orphaned_phone_room_never_touches_a_different_room_reusing_the_same_id() {
+        // Guards the `session_id` check itself: if the orphaned room had already been
+        // fully torn down and a BRAND NEW room opened under the same room id, the stale
+        // grace-window teardown must not reach into that unrelated new room.
+        let rm = RoomManager::new();
+        let stale_session = Uuid::new_v4();
+
+        let (fresh, _rf) = peer("x", "it");
+        let fresh_session = rm.join("r", fresh, Visibility::Public).unwrap().session_id;
+        assert_ne!(fresh_session, stale_session);
+
+        assert_eq!(
+            rm.end_orphaned_phone_room("r", stale_session),
+            None,
+            "the room's CURRENT session id doesn't match the stale one -> no-op"
+        );
+        assert_eq!(
+            rm.active_rooms(),
+            1,
+            "the fresh, unrelated room is untouched"
+        );
     }
 
     #[test]
