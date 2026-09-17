@@ -12,7 +12,7 @@
 // what `business/mod.rs` allows for the same reason.
 #![allow(clippy::result_large_err)]
 
-use axum::extract::{Path, Query, State};
+use axum::extract::{DefaultBodyLimit, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -118,6 +118,15 @@ pub fn routes() -> Router<AppState> {
         .route(
             "/api/business/organizations/{org_id}/voip/numbers/{number_id}/requirements/refresh",
             post(regulatory::refresh_requirements),
+        )
+        // Document stream-through (Phase 6, D9/D10): `DefaultBodyLimit` is a safety net
+        // one MiB above the 10 MiB file cap `regulatory::upload_requirement_document`
+        // itself enforces byte-by-byte while streaming — this layer only catches a
+        // request whose multipart framing overhead alone would blow the file cap.
+        .route(
+            "/api/business/organizations/{org_id}/voip/numbers/{number_id}/requirements/documents",
+            post(regulatory::upload_requirement_document)
+                .layer(DefaultBodyLimit::max(regulatory::DOCUMENT_BODY_LIMIT)),
         )
         .route(
             "/api/business/organizations/{org_id}/voip/contacts",

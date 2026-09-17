@@ -176,6 +176,21 @@ fn requirements_url(srv: &Server, org_id: Uuid, number_id: Uuid, suffix: &str) -
     )
 }
 
+fn requirement_document_url(srv: &Server, org_id: Uuid, number_id: Uuid) -> String {
+    requirements_url(srv, org_id, number_id, "/documents")
+}
+
+/// Real magic bytes for a PDF — enough for a declared-type check, never a full valid
+/// document (this module never needs one to be valid).
+const PDF_BYTES: &[u8] = b"%PDF-1.4 minimal test bytes for the sniff";
+
+fn pdf_part(bytes: Vec<u8>) -> reqwest::multipart::Part {
+    reqwest::multipart::Part::bytes(bytes)
+        .file_name("ignored.pdf")
+        .mime_str("application/pdf")
+        .unwrap()
+}
+
 macro_rules! skip_without_db {
     ($setup:expr) => {
         match $setup {
@@ -793,4 +808,303 @@ async fn refresh_applies_a_transition_read_from_the_provider() {
         .await
         .unwrap();
     assert_eq!(status, "regulatory_review");
+}
+
+// ---------------------------------------------------------------------------
+// Document upload — POST …/requirements/documents (Phase 6, spec 0119 "Document
+// Stream-Through"). D9 (true streaming), D10 (size/type limits), D11 (field order +
+// same-request link), D12 (no PII logging, no filename stored).
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn uploading_a_document_links_it_and_shows_up_in_discovery() {
+    let srv = skip_without_db!(setup().await);
+    let http = Client::new();
+    let (owner, jwt) = user(&srv, "Owner").await;
+    let org_id = org(&srv, owner).await;
+    let number_id = regulated_number(&srv, org_id, "so-doc-upload").await;
+
+    let form = reqwest::multipart::Form::new()
+        .text("requirement_id", "proof_of_address")
+        .part("file", pdf_part(PDF_BYTES.to_vec()));
+    let r = http
+        .post(requirement_document_url(&srv, org_id, number_id))
+        .bearer_auth(&jwt)
+        .multipart(form)
+        .send()
+        .await
+        .unwrap();
+    let status = r.status();
+    let body: Value = r.json().await.unwrap();
+    assert_eq!(status, 201, "body: {body}");
+    assert_eq!(body["requirement_id"], "proof_of_address");
+    // The mock's real Telnyx-shaped default (`scanned`) normalises to `passed` — task 6.8.
+    assert_eq!(body["document"]["av_scan_status"], "passed");
+
+    // The provider actually received the streamed bytes — proves the upload reached
+    // `upload_document` for real, not that the route only pretended to succeed.
+    let uploads = srv.provider.uploaded_documents();
+    assert!(
+        uploads
+            .iter()
+            .any(|(ct, size)| *ct == "application/pdf" && *size == PDF_BYTES.len() as u64),
+        "got: {uploads:?}"
+    );
+
+    // GET reflects the same document status back (D12: av_scan_status only, no id).
+    let get: Value = http
+        .get(requirements_url(&srv, org_id, number_id, ""))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let entry = get["requirements"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["id"] == "proof_of_address")
+        .expect("the document requirement must be present");
+    assert_eq!(entry["document"]["av_scan_status"], "passed");
+}
+
+#[tokio::test]
+async fn missing_requirement_id_field_is_a_malformed_upload() {
+    let srv = skip_without_db!(setup().await);
+    let http = Client::new();
+    let (owner, jwt) = user(&srv, "Owner").await;
+    let org_id = org(&srv, owner).await;
+    let number_id = regulated_number(&srv, org_id, "so-doc-missing-reqid").await;
+
+    let form = reqwest::multipart::Form::new().part("file", pdf_part(PDF_BYTES.to_vec()));
+    let r = http
+        .post(requirement_document_url(&srv, org_id, number_id))
+        .bearer_auth(&jwt)
+        .multipart(form)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 400);
+    let body: Value = r.json().await.unwrap();
+    assert_eq!(body["error"], "malformed_upload");
+    assert!(
+        srv.provider.uploaded_documents().is_empty(),
+        "the provider must never be called without a validated requirement_id"
+    );
+}
+
+#[tokio::test]
+async fn a_late_requirement_id_field_is_a_malformed_upload() {
+    // D11: `requirement_id` must be the FIRST field. A client that sends the file first
+    // is refused before any file byte is forwarded to the provider — not merely warned.
+    let srv = skip_without_db!(setup().await);
+    let http = Client::new();
+    let (owner, jwt) = user(&srv, "Owner").await;
+    let org_id = org(&srv, owner).await;
+    let number_id = regulated_number(&srv, org_id, "so-doc-late-reqid").await;
+
+    let form = reqwest::multipart::Form::new()
+        .part("file", pdf_part(PDF_BYTES.to_vec()))
+        .text("requirement_id", "proof_of_address");
+    let r = http
+        .post(requirement_document_url(&srv, org_id, number_id))
+        .bearer_auth(&jwt)
+        .multipart(form)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 400);
+    let body: Value = r.json().await.unwrap();
+    assert_eq!(body["error"], "malformed_upload");
+    assert!(srv.provider.uploaded_documents().is_empty());
+}
+
+#[tokio::test]
+async fn uploading_against_an_unknown_requirement_id_is_refused() {
+    let srv = skip_without_db!(setup().await);
+    let http = Client::new();
+    let (owner, jwt) = user(&srv, "Owner").await;
+    let org_id = org(&srv, owner).await;
+    let number_id = regulated_number(&srv, org_id, "so-doc-unknown-reqid").await;
+
+    let form = reqwest::multipart::Form::new()
+        .text("requirement_id", "no-such-requirement")
+        .part("file", pdf_part(PDF_BYTES.to_vec()));
+    let r = http
+        .post(requirement_document_url(&srv, org_id, number_id))
+        .bearer_auth(&jwt)
+        .multipart(form)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 400);
+    let body: Value = r.json().await.unwrap();
+    assert_eq!(body["error"], "requirement_unknown");
+}
+
+#[tokio::test]
+async fn uploading_against_a_non_document_requirement_is_refused() {
+    let srv = skip_without_db!(setup().await);
+    let http = Client::new();
+    let (owner, jwt) = user(&srv, "Owner").await;
+    let org_id = org(&srv, owner).await;
+    let number_id = regulated_number(&srv, org_id, "so-doc-wrong-kind").await;
+
+    let form = reqwest::multipart::Form::new()
+        .text("requirement_id", "business_name")
+        .part("file", pdf_part(PDF_BYTES.to_vec()));
+    let r = http
+        .post(requirement_document_url(&srv, org_id, number_id))
+        .bearer_auth(&jwt)
+        .multipart(form)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 400);
+    let body: Value = r.json().await.unwrap();
+    assert_eq!(body["error"], "requirement_kind_mismatch");
+    assert!(srv.provider.uploaded_documents().is_empty());
+}
+
+#[tokio::test]
+async fn an_infected_scan_result_is_surfaced_as_failed_never_passed() {
+    let srv = skip_without_db!(setup().await);
+    let http = Client::new();
+    let (owner, jwt) = user(&srv, "Owner").await;
+    let org_id = org(&srv, owner).await;
+    let number_id = regulated_number(&srv, org_id, "so-doc-infected").await;
+    srv.provider.set_next_document_scan_status("infected");
+
+    let form = reqwest::multipart::Form::new()
+        .text("requirement_id", "proof_of_address")
+        .part("file", pdf_part(PDF_BYTES.to_vec()));
+    let r = http
+        .post(requirement_document_url(&srv, org_id, number_id))
+        .bearer_auth(&jwt)
+        .multipart(form)
+        .send()
+        .await
+        .unwrap();
+    let status = r.status();
+    let body: Value = r.json().await.unwrap();
+    assert_eq!(status, 201, "body: {body}");
+    // `infected` must never normalise onto `passed` (task 6.8) — the requirement stays
+    // unsatisfied.
+    assert_eq!(body["document"]["av_scan_status"], "failed");
+}
+
+#[tokio::test]
+async fn a_provider_4xx_on_document_upload_is_surfaced_without_provider_prose() {
+    let srv = skip_without_db!(setup().await);
+    let http = Client::new();
+    let (owner, jwt) = user(&srv, "Owner").await;
+    let org_id = org(&srv, owner).await;
+    let number_id = regulated_number(&srv, org_id, "so-doc-4xx").await;
+    srv.provider
+        .fail_next("upload_document", ProviderError::DestinationRefused);
+
+    let form = reqwest::multipart::Form::new()
+        .text("requirement_id", "proof_of_address")
+        .part("file", pdf_part(PDF_BYTES.to_vec()));
+    let r = http
+        .post(requirement_document_url(&srv, org_id, number_id))
+        .bearer_auth(&jwt)
+        .multipart(form)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 400);
+    let body: Value = r.json().await.unwrap();
+    assert_eq!(body["error"], "provider_rejected_value");
+}
+
+#[tokio::test]
+async fn a_failed_link_after_a_successful_upload_is_a_gateway_failure_with_no_retry() {
+    // D11: the document already reached Telnyx (it expires unlinked after 30 min); a
+    // failure to attach it must not retry and must not claim a satisfied requirement.
+    let srv = skip_without_db!(setup().await);
+    let http = Client::new();
+    let (owner, jwt) = user(&srv, "Owner").await;
+    let org_id = org(&srv, owner).await;
+    let number_id = regulated_number(&srv, org_id, "so-doc-link-fail").await;
+    srv.provider.fail_next(
+        "submit_requirement_values",
+        ProviderError::Unavailable {
+            detail: "carrier outage".into(),
+        },
+    );
+
+    let form = reqwest::multipart::Form::new()
+        .text("requirement_id", "proof_of_address")
+        .part("file", pdf_part(PDF_BYTES.to_vec()));
+    let r = http
+        .post(requirement_document_url(&srv, org_id, number_id))
+        .bearer_auth(&jwt)
+        .multipart(form)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 502);
+    let body: Value = r.json().await.unwrap();
+    assert_eq!(body["error"], "document_link_failed");
+
+    let count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM voip_requirement_documents WHERE requirement_id = 'proof_of_address'
+          AND org_id = $1",
+    )
+    .bind(org_id)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        count, 0,
+        "a failed link must not persist a document row nobody earned"
+    );
+}
+
+#[tokio::test]
+async fn uploading_a_document_for_a_number_the_org_does_not_own_is_a_404() {
+    let srv = skip_without_db!(setup().await);
+    let http = Client::new();
+    let (owner_a, _) = user(&srv, "Owner A").await;
+    let org_a = org(&srv, owner_a).await;
+    let number_id = regulated_number(&srv, org_a, "so-doc-cross-org").await;
+    let (owner_b, jwt_b) = user(&srv, "Owner B").await;
+    let org_b = org(&srv, owner_b).await;
+
+    let form = reqwest::multipart::Form::new()
+        .text("requirement_id", "proof_of_address")
+        .part("file", pdf_part(PDF_BYTES.to_vec()));
+    let r = http
+        .post(requirement_document_url(&srv, org_b, number_id))
+        .bearer_auth(&jwt_b)
+        .multipart(form)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 404);
+}
+
+#[tokio::test]
+async fn a_non_admin_may_not_upload_documents() {
+    let srv = skip_without_db!(setup().await);
+    let http = Client::new();
+    let (owner, _) = user(&srv, "Owner").await;
+    let org_id = org(&srv, owner).await;
+    let number_id = regulated_number(&srv, org_id, "so-doc-member").await;
+    let (_, member_jwt) = member(&srv, org_id, "member").await;
+
+    let form = reqwest::multipart::Form::new()
+        .text("requirement_id", "proof_of_address")
+        .part("file", pdf_part(PDF_BYTES.to_vec()));
+    let r = http
+        .post(requirement_document_url(&srv, org_id, number_id))
+        .bearer_auth(&member_jwt)
+        .multipart(form)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 403);
 }

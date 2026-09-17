@@ -13,21 +13,25 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use axum::extract::{Path, State};
-use axum::http::StatusCode;
+use axum::extract::{Multipart, Path, State};
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
+use bytes::Bytes;
+use futures::stream::{self, BoxStream, StreamExt};
 use serde::Deserialize;
 use serde_json::{json, Value};
+use tokio::sync::mpsc;
 use uuid::Uuid;
 
 use crate::business::{db_err, not_found, require_pool, require_role, ADMIN, MEMBER};
 use crate::db::Pool;
 use crate::middleware::AuthUser;
 use crate::telephony::{
-    AddressValue, FieldValue, GroupStatus, NumberKind, NumberStatus, OrderStatus, ProviderError,
-    RequirementAction, RequirementGroup, RequirementGroupId, RequirementKind, RequirementQuery,
-    RequirementSpec, RequirementsStatus, SubOrderId, SubOrderState, TelephonyProvider,
+    AddressValue, DocumentUpload, FieldValue, GroupStatus, NumberKind, NumberStatus, OrderStatus,
+    ProviderError, RequirementAction, RequirementGroup, RequirementGroupId, RequirementKind,
+    RequirementQuery, RequirementSpec, RequirementsStatus, SubOrderId, SubOrderState,
+    TelephonyProvider,
 };
 use crate::voip::routes::refuse;
 use crate::AppState;
@@ -837,6 +841,263 @@ pub async fn refresh_requirements(
         None => (row.status, row.status_reason.clone()),
     };
     Ok(Json(json!({ "status": status.as_str(), "status_reason": reason })).into_response())
+}
+
+// ---------------------------------------------------------------------------------------
+// Document upload — `POST …/requirements/documents` (Phase 6, spec 0119 "Document
+// Stream-Through", design D9-D12).
+// ---------------------------------------------------------------------------------------
+
+/// The route-level [`axum::extract::DefaultBodyLimit`] — comfortably above what a
+/// legitimate identity/business-proof document needs, leaving room for multipart
+/// boundary/header overhead. A tighter, exactly-enforced file cap with its own stable
+/// refusal code is task 6.6 (design D10), landing in the next slice.
+pub const DOCUMENT_BODY_LIMIT: usize = 11 * 1024 * 1024;
+
+/// Normalise Telnyx's real `av_scan_status` wire vocabulary (`scanned`/`infected`/
+/// `pending_scan`/`not_scanned`, verified PR4) onto migration 064's restricted CHECK
+/// vocabulary (`pending`/`passed`/`failed`) — task 6.8. A direct pass-through write would
+/// violate the CHECK for every value except a lucky no-op, so this runs on every write,
+/// never only for the values that happen to already fit. `infected` must NEVER become
+/// `passed`; anything unrecognised defaults to `pending`, never a guessed success.
+fn normalize_scan_status(raw: &str) -> &'static str {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "scanned" => "passed",
+        "infected" => "failed",
+        _ => "pending",
+    }
+}
+
+/// Check a declared multipart `Content-Type` against the allowlist design D10 names
+/// (PDF/PNG/JPEG) and return the canonical `'static` MIME string [`DocumentUpload`]
+/// expects. Magic-byte sniffing against the actual bytes (D10's spoof defence) is task
+/// 6.7, landing in the next slice — this slice trusts the declared type alone.
+fn allowed_type(declared: &str) -> Option<&'static str> {
+    match declared
+        .split(';')
+        .next()
+        .unwrap_or(declared)
+        .trim()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "application/pdf" => Some("application/pdf"),
+        "image/png" => Some("image/png"),
+        "image/jpeg" | "image/jpg" => Some("image/jpeg"),
+        _ => None,
+    }
+}
+
+/// The multipart body was malformed mid-read (never a size cap here — that is task 6.6).
+struct PumpMalformed;
+
+/// Pump a multipart file field's chunks into `tx`, one at a time, counting bytes as they
+/// go (design D9). This is the entire point of D9: an axum `Field<'_>` cannot outlive the
+/// request, but the `mpsc::Sender` side can be turned into a `'static` `Stream` (see
+/// [`upload_requirement_document`]) that `reqwest::Body::wrap_stream` accepts — so a file
+/// many times larger than available memory streams straight through without ever being
+/// buffered here or written to disk.
+async fn pump_field(
+    mut field: axum::extract::multipart::Field<'_>,
+    tx: mpsc::Sender<Result<Bytes, std::io::Error>>,
+) -> Result<u64, PumpMalformed> {
+    let mut total = 0u64;
+    loop {
+        let chunk = match field.chunk().await {
+            Ok(Some(c)) => c,
+            Ok(None) => break,
+            Err(_) => {
+                let _ = tx
+                    .send(Err(std::io::Error::other("malformed multipart body")))
+                    .await;
+                return Err(PumpMalformed);
+            }
+        };
+        total += chunk.len() as u64;
+        if tx.send(Ok(chunk)).await.is_err() {
+            break;
+        }
+    }
+    Ok(total)
+}
+
+/// Read and validate the `requirement_id` field. Design D11: it MUST be the first
+/// multipart field, checked before a single byte of the file field is read — a client
+/// that sends the file first is refused outright, not merely warned.
+async fn read_requirement_id_field(multipart: &mut Multipart) -> Result<String, Response> {
+    let malformed = || refuse(StatusCode::BAD_REQUEST, "malformed_upload");
+    let field = multipart
+        .next_field()
+        .await
+        .map_err(|_| malformed())?
+        .ok_or_else(malformed)?;
+    if field.name() != Some("requirement_id") {
+        return Err(malformed());
+    }
+    let value = field.text().await.map_err(|_| malformed())?;
+    let value = value.trim().to_string();
+    if value.is_empty() {
+        return Err(malformed());
+    }
+    Ok(value)
+}
+
+/// Read the `file` field that must follow `requirement_id` (design D11).
+async fn read_file_field(
+    multipart: &mut Multipart,
+) -> Result<axum::extract::multipart::Field<'_>, Response> {
+    let malformed = || refuse(StatusCode::BAD_REQUEST, "malformed_upload");
+    let field = multipart
+        .next_field()
+        .await
+        .map_err(|_| malformed())?
+        .ok_or_else(malformed)?;
+    if field.name() != Some("file") {
+        return Err(malformed());
+    }
+    Ok(field)
+}
+
+/// `POST …/voip/numbers/{number_id}/requirements/documents` — stream a document straight
+/// through to the provider and link it to its requirement in the same request (spec 0119
+/// "Document Stream-Through", design D9-D12).
+pub async fn upload_requirement_document(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path((org_id, number_id)): Path<(Uuid, Uuid)>,
+    headers: HeaderMap,
+    mut multipart: Multipart,
+) -> Result<Response, Response> {
+    let pool = require_pool(&state)?;
+    require_role(pool, org_id, user.user_id, ADMIN).await?;
+
+    // Rate-limited BEFORE a single multipart byte is read (design's route table): this
+    // gate must not depend on how big the (still unread) body turns out to be.
+    let ip = crate::observability::client_ip(&headers);
+    if !state
+        .rate_limiter
+        .allow(&format!("reqdoc-ip:{ip}"), 10, Duration::from_secs(60))
+        || !state.rate_limiter.allow(
+            &format!("reqdoc-org:{org_id}"),
+            30,
+            Duration::from_secs(3600),
+        )
+    {
+        return Err(refuse(StatusCode::TOO_MANY_REQUESTS, "too_many_requests"));
+    }
+
+    let row = load_number(pool, org_id, number_id).await?;
+    gate_regulatable(&row)?;
+    if !matches!(
+        row.status,
+        NumberStatus::PendingRegulatory | NumberStatus::RegulatoryRejected
+    ) {
+        return Err(refuse(StatusCode::CONFLICT, "requirements_not_editable"));
+    }
+
+    let query = RequirementQuery {
+        country: row.country.clone(),
+        kind: NumberKind::parse(row.number_kind.as_deref().unwrap_or("")),
+        action: RequirementAction::Ordering,
+    };
+    let telephony = provider(&state)?;
+    let ensured = ensure_group(pool, telephony, org_id, &query, &org_id.to_string())
+        .await
+        .map_err(group_err)?;
+    link_group(pool, number_id, ensured.row_id).await?;
+
+    let requirement_id = read_requirement_id_field(&mut multipart).await?;
+    let Some((spec, _)) = ensured
+        .requirements
+        .iter()
+        .find(|(spec, _)| spec.id == requirement_id)
+    else {
+        return Err(refuse(StatusCode::BAD_REQUEST, "requirement_unknown"));
+    };
+    if spec.kind != RequirementKind::Document {
+        return Err(refuse(StatusCode::BAD_REQUEST, "requirement_kind_mismatch"));
+    }
+
+    let field = read_file_field(&mut multipart).await?;
+    let declared_type = field.content_type().unwrap_or("").to_string();
+    let Some(content_type) = allowed_type(&declared_type) else {
+        return Err(refuse(
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            "document_type_unsupported",
+        ));
+    };
+
+    // D9: an mpsc channel is the bridge from the non-`'static` `Field` to a `'static`
+    // `Stream` `reqwest::Body::wrap_stream` can accept. Both sides run concurrently below
+    // (not one after the other) so the bounded channel (capacity 4) never deadlocks:
+    // `upload_document` must be actively draining the receiver while the pump still has
+    // chunks left to send.
+    let (tx, rx) = mpsc::channel::<Result<Bytes, std::io::Error>>(4);
+    let body: BoxStream<'static, Result<Bytes, std::io::Error>> =
+        stream::unfold(rx, |mut rx| async move {
+            rx.recv().await.map(|item| (item, rx))
+        })
+        .boxed();
+    let upload = DocumentUpload { content_type, body };
+
+    let (pump_result, upload_result) =
+        tokio::join!(pump_field(field, tx), telephony.upload_document(upload));
+
+    let total_bytes =
+        pump_result.map_err(|_| refuse(StatusCode::BAD_REQUEST, "malformed_upload"))?;
+    let uploaded = upload_result.map_err(provider_err)?;
+
+    // D11: the link happens in the SAME request, right after the upload. Telnyx deletes
+    // an unlinked document after 30 minutes, so a failure here is never retried — the
+    // orphan simply expires rather than this handler trying again with stale state.
+    telephony
+        .submit_requirement_values(
+            &ensured.provider_group_id,
+            &[(
+                requirement_id.clone(),
+                FieldValue::Document(uploaded.id.clone()),
+            )],
+        )
+        .await
+        .map_err(|_| refuse(StatusCode::BAD_GATEWAY, "document_link_failed"))?;
+
+    // Only reached once the link succeeded: no row is persisted for a document nobody
+    // has actually attached to the sub-order yet (D12: content_type + size only, no
+    // filename, no bytes — task 6.8 normalises the scan status before it touches the
+    // CHECK-constrained column).
+    let scan_status = normalize_scan_status(&uploaded.av_scan_status);
+    sqlx::query(
+        "INSERT INTO voip_requirement_documents
+            (group_id, org_id, requirement_id, provider_document_id, av_scan_status,
+             content_type, size_bytes, uploaded_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         ON CONFLICT (group_id, requirement_id) DO UPDATE
+             SET provider_document_id = EXCLUDED.provider_document_id,
+                 av_scan_status = EXCLUDED.av_scan_status,
+                 content_type = EXCLUDED.content_type,
+                 size_bytes = EXCLUDED.size_bytes,
+                 uploaded_by = EXCLUDED.uploaded_by",
+    )
+    .bind(ensured.row_id)
+    .bind(org_id)
+    .bind(&requirement_id)
+    .bind(&uploaded.id)
+    .bind(scan_status)
+    .bind(content_type)
+    .bind(total_bytes as i32)
+    .bind(user.user_id)
+    .execute(pool)
+    .await
+    .map_err(db_err)?;
+
+    Ok((
+        StatusCode::CREATED,
+        Json(json!({
+            "requirement_id": requirement_id,
+            "document": { "av_scan_status": scan_status },
+        })),
+    )
+        .into_response())
 }
 
 #[cfg(test)]

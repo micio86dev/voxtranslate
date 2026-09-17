@@ -96,6 +96,11 @@ struct MockState {
     /// What was streamed to `upload_document`, content type and size ONLY — never the
     /// bytes, the same "no PII survives the boundary" rule design D12 states for logging.
     uploaded_documents: Vec<(&'static str, u64)>,
+    /// One-shot override for the NEXT `upload_document`'s `av_scan_status`, in Telnyx's
+    /// own wire vocabulary (`scanned`/`infected`/`pending_scan`/`not_scanned`) — never a
+    /// crate-owned word, so a test scripting "infected" proves the write-time
+    /// normalisation (task 6.8), not a mock that already speaks our vocabulary.
+    next_scan_status: Option<String>,
 }
 
 pub struct MockTelephonyProvider {
@@ -251,6 +256,14 @@ impl MockTelephonyProvider {
     /// count only. Proves the mock never inspected the bytes themselves.
     pub fn uploaded_documents(&self) -> Vec<(&'static str, u64)> {
         self.lock().uploaded_documents.clone()
+    }
+
+    /// Script the NEXT `upload_document`'s `av_scan_status` in Telnyx's own vocabulary
+    /// (`scanned`/`infected`/`pending_scan`/`not_scanned`) — one shot, then the mock
+    /// reverts to its default `scanned`. Lets a test prove the route's write-time
+    /// normalisation (task 6.8) never turns `infected` into a success.
+    pub fn set_next_document_scan_status(&self, status: &str) {
+        self.lock().next_scan_status = Some(status.to_string());
     }
 
     // ---- inspection --------------------------------------------------------
@@ -811,9 +824,16 @@ impl TelephonyProvider for MockTelephonyProvider {
         let mut st = self.lock();
         st.seq += 1;
         st.uploaded_documents.push((content_type, size));
+        // Real Telnyx vocabulary (verified PR4 against the published OpenAPI spec):
+        // `scanned`/`infected`/`pending_scan`/`not_scanned` — never a crate-owned word.
+        // `scanned` (success) is the default so most tests never need to script it.
+        let av_scan_status = st
+            .next_scan_status
+            .take()
+            .unwrap_or_else(|| "scanned".into());
         Ok(UploadedDocument {
             id: format!("mock-doc-{}", st.seq),
-            av_scan_status: "clean".into(),
+            av_scan_status,
         })
     }
 
@@ -1630,7 +1650,9 @@ mod tests {
 
         let uploaded = p.upload_document(upload).await.unwrap();
         assert!(!uploaded.id.is_empty());
-        assert_eq!(uploaded.av_scan_status, "clean");
+        // Real Telnyx vocabulary (verified PR4), not a crate-owned word — task 6.8's
+        // normalisation is what turns this into `passed` at the route/DB boundary.
+        assert_eq!(uploaded.av_scan_status, "scanned");
         assert_eq!(
             p.uploaded_documents(),
             vec![("application/pdf", expected_size)]
