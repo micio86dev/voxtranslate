@@ -18,6 +18,8 @@ use voxtranslate_server::billing::{usd, BillingService};
 use voxtranslate_server::config::{Config, VoipConfig};
 use voxtranslate_server::db::{self, Pool};
 use voxtranslate_server::telephony::mock::MockTelephonyProvider;
+use voxtranslate_server::telephony::{OrderStatus, RequirementsStatus, SubOrderId, SubOrderState};
+use voxtranslate_server::voip::regulatory;
 use voxtranslate_server::{app, AppState};
 
 const SECRET: &str = "voip-numbers-secret";
@@ -408,6 +410,15 @@ async fn a_regulated_purchase_withholds_caller_id_and_keeps_the_orders_ids() {
         "the sub-order id must be persisted for the sweep and discovery to address"
     );
     assert!(row.3.is_some(), "the number kind must be persisted");
+    // A regulated purchase now also schedules the sweep's first check (design D8, this
+    // change). Left alone the row becomes "due" for real in ~2 minutes and could pollute
+    // a LATER, unrelated `reconcile_due` test elsewhere in a long-running suite.
+    sqlx::query("DELETE FROM voip_numbers WHERE org_id = $1 AND e164 = $2")
+        .bind(org_id)
+        .bind(&e164)
+        .execute(&srv.pool)
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -447,6 +458,274 @@ async fn an_unblocked_purchase_still_enables_caller_id() {
         outbound_enabled,
         "an active number must be usable as caller id right away"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Scheduling the sweep's first check (spec 0119, design D8) — before this, nothing set
+// `regulatory_next_check_at` at purchase time, so `reconcile_due` (which only ever picks
+// rows with that column `IS NOT NULL`) never discovered a freshly bought regulated number
+// until an admin opened the requirements panel: a Telnyx deadline cancellation never
+// failed it, and an already-approved reusable group never auto-attached.
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn a_regulated_purchase_schedules_the_sweeps_first_check() {
+    let srv = skip_without_db!(setup().await);
+    let http = Client::new();
+    let (owner, jwt) = user(&srv, "Owner").await;
+    let org_id = org(&srv, owner, 1_000_000).await;
+    let e164 = regulated_offer(&srv, &http, org_id, &jwt).await;
+
+    let before = chrono::Utc::now();
+    let r = http
+        .post(numbers_url(&srv, org_id, ""))
+        .bearer_auth(&jwt)
+        .json(&json!({
+            "e164": e164,
+            "country": "IT",
+            "purchase_key": Uuid::new_v4().to_string(),
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 201);
+
+    let next_check: Option<chrono::DateTime<chrono::Utc>> = sqlx::query_scalar(
+        "SELECT regulatory_next_check_at FROM voip_numbers WHERE org_id = $1 AND e164 = $2",
+    )
+    .bind(org_id)
+    .bind(&e164)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
+    let scheduled =
+        next_check.expect("a regulated purchase must be scheduled for the sweep's first look");
+    let delta = (scheduled - before).num_seconds();
+    assert!((90..=150).contains(&delta), "expected ~2min, got {delta}s");
+    // Left alone, this row becomes "due" for real in ~2 minutes and would pollute a
+    // LATER, separate invocation of this binary's `reconcile_due`-calling tests.
+    sqlx::query("DELETE FROM voip_numbers WHERE org_id = $1 AND e164 = $2")
+        .bind(org_id)
+        .bind(&e164)
+        .execute(&srv.pool)
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn an_unregulated_purchase_leaves_no_regulatory_check_scheduled() {
+    let srv = skip_without_db!(setup().await);
+    let http = Client::new();
+    let (owner, jwt) = user(&srv, "Owner").await;
+    let org_id = org(&srv, owner, 1_000_000).await;
+    let e164 = plain_offer(&srv, &http, org_id, &jwt).await;
+
+    let r = http
+        .post(numbers_url(&srv, org_id, ""))
+        .bearer_auth(&jwt)
+        .json(&json!({
+            "e164": e164,
+            "country": "IT",
+            "purchase_key": Uuid::new_v4().to_string(),
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 201);
+
+    let next_check: Option<chrono::DateTime<chrono::Utc>> = sqlx::query_scalar(
+        "SELECT regulatory_next_check_at FROM voip_numbers WHERE org_id = $1 AND e164 = $2",
+    )
+    .bind(org_id)
+    .bind(&e164)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
+    assert!(
+        next_check.is_none(),
+        "an unregulated purchase has nothing for the sweep to check"
+    );
+}
+
+/// Speed a just-scheduled row's own ~2min initial check into "already due", so the test
+/// can call `reconcile_due` synchronously instead of sleeping for real minutes.
+async fn make_due_now(srv: &Server, number_id: Uuid) {
+    sqlx::query(
+        "UPDATE voip_numbers SET regulatory_next_check_at = now() - interval '1 second'
+          WHERE id = $1",
+    )
+    .bind(number_id)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+}
+
+/// `regulatory::reconcile_due` claims EVERY due row in the shared test database, not just
+/// the one row a given test made due — unlike every other test in this file, which scopes
+/// its own assertions to one `org_id`. Cargo runs this binary's tests concurrently against
+/// the SAME database, so the two tests below racing each other (or a leftover row from an
+/// earlier invocation of this same binary) would otherwise claim and count each other's
+/// rows — the identical class of flake `voip::regulatory`'s own test suite hit and fixed
+/// with this same pattern. This mutex serialises only the two tests that call
+/// `reconcile_due`; every other test in the file is unaffected.
+static SWEEP_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+/// Delete a test's own number row once its assertions are done, so a row this test moved
+/// to a future `regulatory_next_check_at` (e.g. `regulatory_review`, +5min) cannot become
+/// "due" again and pollute a LATER, separate invocation of this same test binary.
+async fn forget_number(srv: &Server, number_id: Uuid) {
+    sqlx::query("DELETE FROM voip_numbers WHERE id = $1")
+        .bind(number_id)
+        .execute(&srv.pool)
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn after_purchase_the_sweep_attaches_an_already_approved_reusable_group() {
+    // design D8: the reuse the owner actually asked for — "don't make a customer redo
+    // paperwork a previous number in the same combination already cleared" — only works
+    // end to end once buy() schedules the row for the sweep to find in the first place.
+    let _guard = SWEEP_TEST_LOCK.lock().await;
+    let srv = skip_without_db!(setup().await);
+    let http = Client::new();
+    let (owner, jwt) = user(&srv, "Owner").await;
+    let org_id = org(&srv, owner, 1_000_000).await;
+    let e164 = regulated_offer(&srv, &http, org_id, &jwt).await;
+
+    let r = http
+        .post(numbers_url(&srv, org_id, ""))
+        .bearer_auth(&jwt)
+        .json(&json!({
+            "e164": e164,
+            "country": "IT",
+            "purchase_key": Uuid::new_v4().to_string(),
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 201);
+
+    let number_id: Uuid =
+        sqlx::query_scalar("SELECT id FROM voip_numbers WHERE org_id = $1 AND e164 = $2")
+            .bind(org_id)
+            .bind(&e164)
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap();
+
+    // `search_numbers` (no `kind` query param) defaults to `NumberKind::Local`, and the
+    // search above asked for `country=IT` — matching the combination the reused group
+    // below must key on.
+    let group_row_id: Uuid = sqlx::query_scalar(
+        "INSERT INTO voip_requirement_groups
+            (org_id, provider, country, number_kind, action, provider_group_id, status)
+         VALUES ($1, 'mock', 'IT', 'local', 'ordering', $2, 'approved') RETURNING id",
+    )
+    .bind(org_id)
+    .bind(format!("mock-group-approved-{}", Uuid::new_v4().simple()))
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
+
+    make_due_now(&srv, number_id).await;
+
+    let provider = MockTelephonyProvider::default();
+    let summary = regulatory::reconcile_due(&srv.pool, &provider, 25)
+        .await
+        .unwrap();
+    // `>=`, not `==`: `reconcile_due` is a global scan across the whole shared test
+    // database, and an unrelated regulated purchase made elsewhere in this suite can
+    // legitimately become "due" and get swept up alongside this test's own row. The row
+    // THIS test cares about is checked specifically below.
+    assert!(
+        summary.reconciled >= 1,
+        "expected at least our own row: {summary:?}"
+    );
+
+    let (status, group_id): (String, Option<Uuid>) =
+        sqlx::query_as("SELECT status, requirement_group_id FROM voip_numbers WHERE id = $1")
+            .bind(number_id)
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap();
+    assert!(group_id.is_some(), "the reusable group must be linked");
+    assert_eq!(
+        status, "regulatory_review",
+        "attaching a group starts the provider's review"
+    );
+    forget_number(&srv, number_id).await;
+    sqlx::query("DELETE FROM voip_requirement_groups WHERE id = $1")
+        .bind(group_row_id)
+        .execute(&srv.pool)
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn after_purchase_a_provider_deadline_cancellation_fails_the_number_via_the_sweep() {
+    let _guard = SWEEP_TEST_LOCK.lock().await;
+    let srv = skip_without_db!(setup().await);
+    let http = Client::new();
+    let (owner, jwt) = user(&srv, "Owner").await;
+    let org_id = org(&srv, owner, 1_000_000).await;
+    let e164 = regulated_offer(&srv, &http, org_id, &jwt).await;
+
+    let r = http
+        .post(numbers_url(&srv, org_id, ""))
+        .bearer_auth(&jwt)
+        .json(&json!({
+            "e164": e164,
+            "country": "IT",
+            "purchase_key": Uuid::new_v4().to_string(),
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 201);
+
+    let (number_id, sub_order_id): (Uuid, Option<String>) = sqlx::query_as(
+        "SELECT id, provider_sub_order_id FROM voip_numbers WHERE org_id = $1 AND e164 = $2",
+    )
+    .bind(org_id)
+    .bind(&e164)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
+    let sub_order_id =
+        sub_order_id.expect("a regulated purchase always persists a sub-order id (D4)");
+
+    make_due_now(&srv, number_id).await;
+
+    let provider = MockTelephonyProvider::default();
+    provider.set_sub_order_state(
+        &SubOrderId(sub_order_id),
+        SubOrderState {
+            order: OrderStatus::Cancelled,
+            requirements: RequirementsStatus::UnderReview,
+            group: None,
+        },
+    );
+
+    let summary = regulatory::reconcile_due(&srv.pool, &provider, 25)
+        .await
+        .unwrap();
+    assert!(
+        summary.reconciled >= 1,
+        "expected at least our own row: {summary:?}"
+    );
+
+    let status: String = sqlx::query_scalar("SELECT status FROM voip_numbers WHERE id = $1")
+        .bind(number_id)
+        .fetch_one(&srv.pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        status, "failed",
+        "a provider deadline-miss cancellation must fail the number — reachable now that \
+         buy() schedules the sweep's first check"
+    );
+    forget_number(&srv, number_id).await;
 }
 
 #[tokio::test]

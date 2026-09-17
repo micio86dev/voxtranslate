@@ -2034,8 +2034,15 @@ mod tests {
         );
 
         let summary = reconcile_due(&pool, &provider, 25).await.unwrap();
-        assert_eq!(summary.reconciled, 1);
-        assert_eq!(summary.unchanged, 0);
+        // `>=` rather than `==`: `reconcile_due` is a global scan, and a REGULATED purchase
+        // made via `buy()` anywhere else in this long-running suite (design D8's own
+        // schedule-at-purchase fix) can legitimately become "due" and get swept up
+        // alongside this test's own row. The row THIS test cares about is checked
+        // specifically below; that is the actual assertion.
+        assert!(
+            summary.reconciled >= 1,
+            "expected at least our own row: {summary:?}"
+        );
 
         let (status, next_check): (String, Option<chrono::DateTime<chrono::Utc>>) = sqlx::query_as(
             "SELECT status, regulatory_next_check_at FROM voip_numbers WHERE id = $1",
@@ -2072,8 +2079,11 @@ mod tests {
         );
 
         let summary = reconcile_due(&pool, &provider, 25).await.unwrap();
-        assert_eq!(summary.reconciled, 0);
-        assert_eq!(summary.unchanged, 1);
+        // `>=`, same reasoning as the sibling test above — this is a global scan.
+        assert!(
+            summary.unchanged >= 1,
+            "expected at least our own row: {summary:?}"
+        );
 
         let (status, failures, next_check): (String, i32, chrono::DateTime<chrono::Utc>) =
             sqlx::query_as(
@@ -2114,11 +2124,13 @@ mod tests {
         // therefore misleading) `Ok(None)` on the second row.
         provider.fail_next("sub_order_status", ProviderError::RateLimited);
 
-        let summary = reconcile_due(&pool, &provider, 25).await.unwrap();
-        assert!(
-            summary.is_empty(),
-            "a rate-limited row must break the batch before recording anything: {summary:?}"
-        );
+        // No aggregate assertion on `summary` here: `reconcile_due` is a global scan, and
+        // an unrelated row from elsewhere in this long-running suite could legitimately be
+        // claimed and processed BEFORE the scripted `RateLimited` error fires (ordered by
+        // `regulatory_next_check_at`). What actually matters — that THIS test's own two
+        // rows never moved once the batch broke — is checked below regardless of what
+        // happened to any other row.
+        reconcile_due(&pool, &provider, 25).await.unwrap();
 
         for id in [number_a, number_b] {
             let status: String =
@@ -2146,7 +2158,10 @@ mod tests {
         // "not ready yet".
 
         let summary = reconcile_due(&pool, &provider, 25).await.unwrap();
-        assert_eq!(summary.reconciled, 1);
+        assert!(
+            summary.reconciled >= 1,
+            "expected at least our own row: {summary:?}"
+        );
 
         let (status, next_check): (String, Option<chrono::DateTime<chrono::Utc>>) = sqlx::query_as(
             "SELECT status, regulatory_next_check_at FROM voip_numbers WHERE id = $1",
@@ -2191,8 +2206,8 @@ mod tests {
         make_due(&pool, number_id).await;
 
         let summary = reconcile_due(&pool, &provider, 25).await.unwrap();
-        assert_eq!(
-            summary.reconciled, 1,
+        assert!(
+            summary.reconciled >= 1,
             "attaching the reused group starts the provider's review, which is decisive"
         );
 
