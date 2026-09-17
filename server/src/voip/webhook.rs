@@ -423,6 +423,28 @@ pub async fn run_sweep(state: crate::AppState, interval: std::time::Duration, ba
         }
 
         if let Some(provider) = state.telephony.as_deref() {
+            // Regulatory requirements reconcile (spec 0119, design D5/D6). Gated by its
+            // own kill switch — never the requirements ROUTES themselves, only the
+            // background sweep and the webhook nudge (`inbound_webhook`). Inside the
+            // `telephony` guard because it needs a live provider to poll.
+            if state
+                .config
+                .voip
+                .as_ref()
+                .is_some_and(|cfg| cfg.regulatory_reconcile)
+            {
+                match crate::voip::regulatory::reconcile_due(pool, provider, batch).await {
+                    Ok(summary) if summary.is_empty() => {}
+                    Ok(summary) => tracing::info!(?summary, "voip regulatory reconcile"),
+                    Err(e) => tracing::error!(error = %e, "voip regulatory reconcile failed"),
+                }
+                match crate::voip::regulatory::reclaim_stale_groups(pool).await {
+                    Ok(0) => {}
+                    Ok(n) => tracing::info!(count = n, "reclaimed stale requirement-group claims"),
+                    Err(e) => tracing::error!(error = %e, "voip requirement-group reclaim failed"),
+                }
+            }
+
             // Inbound calls nobody came to (spec 0116 R4). Only a clock can notice an
             // absence, which is the same reason `fail_stalled_calls` exists.
             match crate::voip::inbound::sweep_unanswered(&state, pool, provider, batch).await {

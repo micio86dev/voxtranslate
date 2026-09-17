@@ -1282,6 +1282,29 @@ pub async fn inbound_webhook(
                 }
             }
 
+            // A number order finished at the provider (spec 0119 "Webhook Fast-Path",
+            // design D5). Read directly from the event kind because `apply()` above
+            // resolves nothing for it (`leg_id` is empty) — this is the ONLY thing the
+            // webhook does with it: nudge the affected numbers' next reconcile check
+            // forward. The sweep is what actually reads live status and applies it.
+            if let crate::telephony::ProviderEventKind::NumberOrderCompleted {
+                sub_order_ids, ..
+            } = &event.kind
+            {
+                if cfg(&state).map(|c| c.regulatory_reconcile).unwrap_or(false) {
+                    match crate::voip::regulatory::nudge(
+                        pool,
+                        provider.metadata().id,
+                        sub_order_ids,
+                    )
+                    .await
+                    {
+                        Ok(n) => tracing::debug!(count = n, "voip regulatory nudge from webhook"),
+                        Err(e) => tracing::error!(error = %e, "voip regulatory nudge failed"),
+                    }
+                }
+            }
+
             // A keypad digit while a consent gate is open is the recipient answering.
             if let (
                 webhook::Ingest::Recorded { call_id, .. },

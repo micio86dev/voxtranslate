@@ -1153,6 +1153,346 @@ pub async fn upload_requirement_document(
         .into_response())
 }
 
+// ---------------------------------------------------------------------------------------
+// Reconcile sweep + webhook nudge (Phase 7, spec 0119 "Reconcile Sweep"/"Webhook
+// Fast-Path", design D5/D6/D7/D8). The sweep is what actually MOVES a number's status;
+// the webhook (`nudge`) only ever makes it check sooner.
+// ---------------------------------------------------------------------------------------
+
+/// How long a claimed row is pinned before its own outcome reschedules it — long enough
+/// that two overlapping sweep ticks (or two replicas) never both see it as due, short
+/// enough that a crash between the claim and the outcome write self-heals within one
+/// grace period rather than jamming the row forever.
+const CLAIM_HOLD_SECS: i64 = 10 * 60;
+/// Re-check cadence once requirements are under the provider's own review.
+const REVIEW_RECHECK_SECS: i64 = 5 * 60;
+/// Re-check cadence while still pending info, or resubmittable after a rejection.
+const PENDING_RECHECK_SECS: i64 = 30 * 60;
+/// A provider that cannot answer this call at all (a capability gap, not an outage) is
+/// asked again once a day rather than on the exponential ladder below.
+const UNSUPPORTED_RECHECK_SECS: i64 = 24 * 60 * 60;
+const BACKOFF_BASE_SECS: i64 = 5 * 60;
+const BACKOFF_MAX_SECS: i64 = 6 * 60 * 60;
+
+/// The cadence a DECISIVE outcome earns, by the status it just produced (design's sweep
+/// note: "review → 5 min; pending/rejected → 30 min"). `None` for a terminal status: the
+/// row already drops out of the partial index migration 064 defines
+/// (`idx_voip_numbers_regulatory`), so nothing needs to check it again.
+fn recheck_secs_for(status: NumberStatus) -> Option<i64> {
+    match status {
+        NumberStatus::RegulatoryReview => Some(REVIEW_RECHECK_SECS),
+        NumberStatus::PendingRegulatory | NumberStatus::RegulatoryRejected => {
+            Some(PENDING_RECHECK_SECS)
+        }
+        _ => None,
+    }
+}
+
+/// `min(5min · 2^(failures-1), 6h)` — design's own backoff formula. `failures_after` is
+/// counted AFTER the failure this call is scheduling for, so the first-ever failure gets
+/// the base interval rather than double it. `saturating_mul` before the final `min` means
+/// a very large failure count clamps instead of overflowing.
+fn backoff_secs(failures_after: i32) -> i64 {
+    let exponent = failures_after.saturating_sub(1).clamp(0, 32);
+    BACKOFF_BASE_SECS
+        .saturating_mul(1i64 << exponent)
+        .min(BACKOFF_MAX_SECS)
+}
+
+/// One row [`reconcile_due`] claimed for this tick — exactly its own `RETURNING` list.
+#[derive(sqlx::FromRow)]
+struct DueRow {
+    id: Uuid,
+    org_id: Uuid,
+    status: String,
+    provider_sub_order_id: Option<String>,
+    regulatory_failures: i32,
+    requirement_group_id: Option<Uuid>,
+    country: String,
+    number_kind: Option<String>,
+}
+
+/// What one sweep pass did, for the caller to log.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct ReconcileSummary {
+    /// Rows where a decisive transition was read and applied.
+    pub reconciled: u64,
+    /// Rows read but left unchanged (an indecisive answer, a provider error, or a
+    /// capability gap) — still processed, just not moved.
+    pub unchanged: u64,
+}
+
+impl ReconcileSummary {
+    pub fn is_empty(&self) -> bool {
+        self.reconciled == 0 && self.unchanged == 0
+    }
+}
+
+enum RowOutcome {
+    Applied,
+    Unchanged,
+    RateLimited,
+}
+
+/// Poll every open sub-order past its own next-check time and apply the same projection
+/// the webhook path would (design D5) — the sweep is what actually MOVES a number's
+/// status; the webhook only ever nudges this to run sooner (see [`nudge`]).
+///
+/// Claims up to `batch` due rows with `FOR UPDATE SKIP LOCKED` and immediately pushes
+/// their own `regulatory_next_check_at` forward by [`CLAIM_HOLD_SECS`] — safe across
+/// replicas: two ticks racing each other lock disjoint rows, and a tick that crashes
+/// mid-batch leaves its claimed rows self-healing once the hold expires rather than stuck
+/// forever.
+pub async fn reconcile_due(
+    pool: &Pool,
+    provider: &dyn TelephonyProvider,
+    batch: i64,
+) -> Result<ReconcileSummary, sqlx::Error> {
+    let claimed: Vec<DueRow> = sqlx::query_as(
+        "UPDATE voip_numbers
+            SET regulatory_next_check_at = now() + make_interval(secs => $2::double precision)
+          WHERE id IN (
+              SELECT id FROM voip_numbers
+               WHERE status IN ('pending_regulatory', 'regulatory_review', 'regulatory_rejected')
+                 AND provider_sub_order_id IS NOT NULL
+                 AND regulatory_next_check_at IS NOT NULL
+                 AND regulatory_next_check_at <= now()
+               ORDER BY regulatory_next_check_at
+               LIMIT $1
+                 FOR UPDATE SKIP LOCKED
+          )
+          RETURNING id, org_id, status, provider_sub_order_id, regulatory_failures,
+                    requirement_group_id, country, number_kind",
+    )
+    .bind(batch.clamp(1, 200))
+    .bind(CLAIM_HOLD_SECS as f64)
+    .fetch_all(pool)
+    .await?;
+
+    let mut summary = ReconcileSummary::default();
+    for row in claimed {
+        match reconcile_claimed_row(pool, provider, &row).await? {
+            RowOutcome::RateLimited => break,
+            RowOutcome::Applied => summary.reconciled += 1,
+            RowOutcome::Unchanged => summary.unchanged += 1,
+        }
+    }
+    Ok(summary)
+}
+
+async fn reconcile_claimed_row(
+    pool: &Pool,
+    provider: &dyn TelephonyProvider,
+    row: &DueRow,
+) -> Result<RowOutcome, sqlx::Error> {
+    let current = NumberStatus::parse(&row.status);
+    // Guaranteed present by the claim query's own `provider_sub_order_id IS NOT NULL`.
+    let sub_order = SubOrderId(row.provider_sub_order_id.clone().unwrap_or_default());
+
+    // design D8: a number nobody has opened the panel for yet may already sit behind an
+    // approved, reusable group from an earlier purchase in the same org/country/kind
+    // combination — attach it now rather than waiting on a human visit. Best-effort: a
+    // provider failure here changes nothing about the read/reschedule below.
+    if row.requirement_group_id.is_none() {
+        attach_reusable_group_if_any(pool, provider, row, &sub_order).await?;
+    }
+
+    let state = match provider.sub_order_status(&sub_order).await {
+        Ok(Some(state)) => state,
+        // `reconcile_one` (the manual `/refresh` path) treats a fresh `None` as "nothing
+        // to report yet" because it may run seconds after a purchase. A row reaching the
+        // SWEEP has already survived at least one prior check with a sub-order id the
+        // provider itself returned — a provider that has since forgotten it is read as
+        // gone, never as still-pending, exactly as `transition()` already treats a
+        // cancelled order.
+        Ok(None) => SubOrderState {
+            order: OrderStatus::Deleted,
+            requirements: RequirementsStatus::Unknown,
+            group: None,
+        },
+        // A rate-limited provider gets nothing else asked of it this tick; the row keeps
+        // the claim's own `CLAIM_HOLD_SECS` schedule and is retried on the next one.
+        Err(ProviderError::RateLimited) => return Ok(RowOutcome::RateLimited),
+        // A capability gap, not an outage — asking again in a minute would just waste a
+        // call, so this backs off to a full day instead of the exponential ladder below.
+        Err(ProviderError::Unsupported { .. }) => {
+            reschedule(pool, row.id, UNSUPPORTED_RECHECK_SECS, None).await?;
+            return Ok(RowOutcome::Unchanged);
+        }
+        Err(_) => {
+            let failures = row.regulatory_failures + 1;
+            reschedule(pool, row.id, backoff_secs(failures), Some(failures)).await?;
+            return Ok(RowOutcome::Unchanged);
+        }
+    };
+
+    let Some(t) = transition(current, &state) else {
+        // The provider answered, it just had nothing decisive to say. Reschedule on the
+        // CURRENT status's own cadence and clear any accumulated failures — this was a
+        // successful read, not an error.
+        let secs = recheck_secs_for(current).unwrap_or(PENDING_RECHECK_SECS);
+        reschedule(pool, row.id, secs, Some(0)).await?;
+        return Ok(RowOutcome::Unchanged);
+    };
+
+    apply_transition(pool, row.id, &t).await?;
+    Ok(RowOutcome::Applied)
+}
+
+/// Write a decisive [`Transition`] and its own next-check schedule in one statement.
+async fn apply_transition(pool: &Pool, number_id: Uuid, t: &Transition) -> Result<(), sqlx::Error> {
+    let next_check_secs = recheck_secs_for(t.status);
+    sqlx::query(
+        "UPDATE voip_numbers
+            SET status = $2, status_reason = $3, outbound_enabled = $4,
+                regulatory_failures = 0,
+                regulatory_next_check_at = CASE
+                    WHEN $5::double precision IS NULL THEN NULL
+                    ELSE now() + make_interval(secs => $5::double precision)
+                END,
+                updated_at = now()
+          WHERE id = $1",
+    )
+    .bind(number_id)
+    .bind(t.status.as_str())
+    .bind(&t.reason)
+    .bind(t.outbound)
+    .bind(next_check_secs.map(|s| s as f64))
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// Reschedule a row without changing its status — a provider error, an indecisive read, or
+/// an `Unsupported` capability gap. `failures` is written only when the caller wants it
+/// changed (`None` leaves the counter as the claim query already returned it).
+async fn reschedule(
+    pool: &Pool,
+    number_id: Uuid,
+    delay_secs: i64,
+    failures: Option<i32>,
+) -> Result<(), sqlx::Error> {
+    match failures {
+        Some(f) => {
+            sqlx::query(
+                "UPDATE voip_numbers
+                    SET regulatory_next_check_at = now() + make_interval(secs => $2::double precision),
+                        regulatory_failures = $3,
+                        updated_at = now()
+                  WHERE id = $1",
+            )
+            .bind(number_id)
+            .bind(delay_secs as f64)
+            .bind(f)
+            .execute(pool)
+            .await?;
+        }
+        None => {
+            sqlx::query(
+                "UPDATE voip_numbers
+                    SET regulatory_next_check_at = now() + make_interval(secs => $2::double precision),
+                        updated_at = now()
+                  WHERE id = $1",
+            )
+            .bind(number_id)
+            .bind(delay_secs as f64)
+            .execute(pool)
+            .await?;
+        }
+    }
+    Ok(())
+}
+
+/// design D8's reuse half of the sweep: if this row has no requirement group yet, but an
+/// APPROVED group already exists for its org/country/number_kind/ordering combination,
+/// attach it to the sub-order and link it — the same effect `GET …/requirements` has when
+/// a human opens the panel, done here so a number nobody looked at still profits from an
+/// already-cleared combination.
+async fn attach_reusable_group_if_any(
+    pool: &Pool,
+    provider: &dyn TelephonyProvider,
+    row: &DueRow,
+    sub_order: &SubOrderId,
+) -> Result<(), sqlx::Error> {
+    let provider_id = provider.metadata().id;
+    let number_kind = row.number_kind.as_deref().unwrap_or("");
+    let existing: Option<(Uuid, String)> = sqlx::query_as(
+        "SELECT id, provider_group_id FROM voip_requirement_groups
+          WHERE org_id = $1 AND provider = $2 AND country = $3 AND number_kind = $4
+            AND action = 'ordering' AND status = 'approved' AND provider_group_id IS NOT NULL",
+    )
+    .bind(row.org_id)
+    .bind(provider_id)
+    .bind(&row.country)
+    .bind(number_kind)
+    .fetch_optional(pool)
+    .await?;
+
+    let Some((group_row_id, provider_group_id)) = existing else {
+        return Ok(());
+    };
+
+    sqlx::query(
+        "UPDATE voip_numbers SET requirement_group_id = $2, updated_at = now()
+          WHERE id = $1 AND requirement_group_id IS NULL",
+    )
+    .bind(row.id)
+    .bind(group_row_id)
+    .execute(pool)
+    .await?;
+
+    // Best-effort: a carrier failure here changes nothing about the read/reschedule the
+    // caller still does right after — the next tick tries again.
+    let _ = provider
+        .attach_requirement_group(sub_order, &RequirementGroupId(provider_group_id))
+        .await;
+    Ok(())
+}
+
+/// Free a requirement-group claim (design D7's `status='creating'` row) whose winner never
+/// came back with a provider answer — a crash between the claim and the provider call, or
+/// a process killed mid-request. Mirrors [`ensure_group`]'s own release-on-failure DELETE,
+/// run on a timer instead of inline, because nobody is waiting on THIS particular claim to
+/// fail synchronously.
+pub async fn reclaim_stale_groups(pool: &Pool) -> Result<u64, sqlx::Error> {
+    let result = sqlx::query(
+        "DELETE FROM voip_requirement_groups
+          WHERE status = 'creating'
+            AND provider_group_id IS NULL
+            AND created_at < now() - interval '10 minutes'",
+    )
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected())
+}
+
+/// The webhook's entire contribution (design D5/"Webhook Fast-Path"): move the affected
+/// numbers' next check to now, so the SWEEP reads live status ahead of schedule. Naturally
+/// idempotent — setting `regulatory_next_check_at = now()` twice for the same delivery has
+/// the same observable effect as doing it once — so this needs no separate dedupe ledger,
+/// and it never touches `status` or `status_reason`: the sweep alone applies those.
+pub async fn nudge(
+    pool: &Pool,
+    provider_id: &'static str,
+    sub_order_ids: &[String],
+) -> Result<u64, sqlx::Error> {
+    if sub_order_ids.is_empty() {
+        return Ok(0);
+    }
+    let result = sqlx::query(
+        "UPDATE voip_numbers
+            SET regulatory_next_check_at = now(), updated_at = now()
+          WHERE provider = $1
+            AND provider_sub_order_id = ANY($2)
+            AND status IN ('pending_regulatory', 'regulatory_review', 'regulatory_rejected')",
+    )
+    .bind(provider_id)
+    .bind(sub_order_ids)
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected())
+}
+
 #[cfg(test)]
 mod tests {
     use crate::telephony::{NumberStatus, OrderStatus, RequirementsStatus, SubOrderState};
@@ -1240,6 +1580,44 @@ mod tests {
                 ),
             }
         }
+    }
+
+    // -----------------------------------------------------------------------------------
+    // `reconcile_due`'s own schedule — pure, no DB, no provider (spec 0119 "Reconcile
+    // Sweep", design's sweep note).
+    // -----------------------------------------------------------------------------------
+
+    use crate::voip::regulatory::{backoff_secs, recheck_secs_for};
+
+    #[test]
+    fn recheck_cadence_follows_designs_own_review_and_pending_split() {
+        assert_eq!(
+            recheck_secs_for(NumberStatus::RegulatoryReview),
+            Some(5 * 60)
+        );
+        assert_eq!(
+            recheck_secs_for(NumberStatus::PendingRegulatory),
+            Some(30 * 60)
+        );
+        assert_eq!(
+            recheck_secs_for(NumberStatus::RegulatoryRejected),
+            Some(30 * 60)
+        );
+        // Terminal statuses drop out of the partial index migration 064 defines — nothing
+        // needs to check them again.
+        assert_eq!(recheck_secs_for(NumberStatus::Active), None);
+        assert_eq!(recheck_secs_for(NumberStatus::Failed), None);
+    }
+
+    #[test]
+    fn error_backoff_doubles_from_a_five_minute_base_and_caps_at_six_hours() {
+        assert_eq!(backoff_secs(1), 5 * 60);
+        assert_eq!(backoff_secs(2), 10 * 60);
+        assert_eq!(backoff_secs(3), 20 * 60);
+        assert_eq!(backoff_secs(4), 40 * 60);
+        // Keeps doubling until it would exceed the cap, then clamps rather than overflows.
+        assert_eq!(backoff_secs(10), 6 * 60 * 60);
+        assert_eq!(backoff_secs(40), 6 * 60 * 60);
     }
 
     #[test]
@@ -1605,6 +1983,405 @@ mod tests {
             status, "pending_regulatory",
             "nothing to change, nothing changed"
         );
+    }
+
+    // -----------------------------------------------------------------------------------
+    // `reconcile_due` — the batched sweep primitive (spec 0119 "Reconcile Sweep", design
+    // D5/D7/D8). `reconcile_one` above is the single-row primitive `/refresh` uses; this is
+    // the sweep's own claim-then-process loop over every row past its next-check time.
+    // -----------------------------------------------------------------------------------
+
+    use crate::voip::regulatory::{nudge, reclaim_stale_groups, reconcile_due};
+
+    /// `reconcile_due`/`reclaim_stale_groups`/`nudge` all scan or mutate rows across the
+    /// WHOLE shared test database, not scoped to one `org_id` the way every other test
+    /// above is. Cargo runs tests in this file concurrently, so two such tests racing each
+    /// other would otherwise claim, count or clean up each other's rows. A `tokio::sync`
+    /// mutex (not `std::sync`) is required here because the guard is held across `.await`
+    /// points; it serialises only the tests that touch one of those three functions —
+    /// every other test in the file is unaffected.
+    static SWEEP_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+    /// Push a row's own next-check time into the past, so [`reconcile_due`] treats it as
+    /// due right now.
+    async fn make_due(pool: &crate::db::Pool, number_id: Uuid) {
+        sqlx::query(
+            "UPDATE voip_numbers SET regulatory_next_check_at = now() - interval '1 minute'
+              WHERE id = $1",
+        )
+        .bind(number_id)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn reconcile_due_applies_a_decisive_transition_and_schedules_the_review_cadence() {
+        let _guard = SWEEP_TEST_LOCK.lock().await;
+        let pool = skip_without_db!();
+        let org_id = fresh_org(&pool).await;
+        let provider = MockTelephonyProvider::default();
+        let sub_order = SubOrderId("suborder-due-1".into());
+        let number_id = regulated_number(&pool, org_id, sub_order.as_str()).await;
+        make_due(&pool, number_id).await;
+        provider.set_sub_order_state(
+            &sub_order,
+            SubOrderState {
+                order: OrderStatus::Pending,
+                requirements: RequirementsStatus::UnderReview,
+                group: None,
+            },
+        );
+
+        let summary = reconcile_due(&pool, &provider, 25).await.unwrap();
+        assert_eq!(summary.reconciled, 1);
+        assert_eq!(summary.unchanged, 0);
+
+        let (status, next_check): (String, Option<chrono::DateTime<chrono::Utc>>) = sqlx::query_as(
+            "SELECT status, regulatory_next_check_at FROM voip_numbers WHERE id = $1",
+        )
+        .bind(number_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(status, "regulatory_review");
+        let delta = (next_check.expect("a review row must still be scheduled")
+            - chrono::Utc::now())
+        .num_seconds();
+        assert!((240..=320).contains(&delta), "expected ~5min, got {delta}s");
+        // This row is now scheduled ~5min in the future — left uncleaned, it would
+        // eventually become "due" again and pollute a LATER test-binary invocation's own
+        // `reconcile_due` call in this shared throwaway database.
+        forget_number(&pool, number_id).await;
+    }
+
+    #[tokio::test]
+    async fn reconcile_due_backs_off_on_a_provider_error_without_moving_status() {
+        let _guard = SWEEP_TEST_LOCK.lock().await;
+        let pool = skip_without_db!();
+        let org_id = fresh_org(&pool).await;
+        let provider = MockTelephonyProvider::default();
+        let sub_order = SubOrderId("suborder-due-err".into());
+        let number_id = regulated_number(&pool, org_id, sub_order.as_str()).await;
+        make_due(&pool, number_id).await;
+        provider.fail_next(
+            "sub_order_status",
+            ProviderError::Unavailable {
+                detail: "carrier outage".into(),
+            },
+        );
+
+        let summary = reconcile_due(&pool, &provider, 25).await.unwrap();
+        assert_eq!(summary.reconciled, 0);
+        assert_eq!(summary.unchanged, 1);
+
+        let (status, failures, next_check): (String, i32, chrono::DateTime<chrono::Utc>) =
+            sqlx::query_as(
+                "SELECT status, regulatory_failures, regulatory_next_check_at
+                   FROM voip_numbers WHERE id = $1",
+            )
+            .bind(number_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            status, "pending_regulatory",
+            "an error must never move the status"
+        );
+        assert_eq!(failures, 1);
+        let delta = (next_check - chrono::Utc::now()).num_seconds();
+        assert!(
+            (240..=320).contains(&delta),
+            "expected the base 5min backoff, got {delta}s"
+        );
+        forget_number(&pool, number_id).await;
+    }
+
+    #[tokio::test]
+    async fn reconcile_due_stops_the_batch_on_a_rate_limited_provider() {
+        let _guard = SWEEP_TEST_LOCK.lock().await;
+        let pool = skip_without_db!();
+        let org_id = fresh_org(&pool).await;
+        let provider = MockTelephonyProvider::default();
+        let sub_order_a = SubOrderId("suborder-rl-a".into());
+        let sub_order_b = SubOrderId("suborder-rl-b".into());
+        let number_a = regulated_number(&pool, org_id, sub_order_a.as_str()).await;
+        let number_b = regulated_number(&pool, org_id, sub_order_b.as_str()).await;
+        make_due(&pool, number_a).await;
+        make_due(&pool, number_b).await;
+        // Scripted once: whichever row is claimed first hits it, and `reconcile_due` must
+        // stop the WHOLE batch there rather than falling through to an unscripted (and
+        // therefore misleading) `Ok(None)` on the second row.
+        provider.fail_next("sub_order_status", ProviderError::RateLimited);
+
+        let summary = reconcile_due(&pool, &provider, 25).await.unwrap();
+        assert!(
+            summary.is_empty(),
+            "a rate-limited row must break the batch before recording anything: {summary:?}"
+        );
+
+        for id in [number_a, number_b] {
+            let status: String =
+                sqlx::query_scalar("SELECT status FROM voip_numbers WHERE id = $1")
+                    .bind(id)
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap();
+            assert_eq!(status, "pending_regulatory", "neither row may have moved");
+            forget_number(&pool, id).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn reconcile_due_treats_a_vanished_sub_order_as_a_deadline_miss_and_fails_it() {
+        let _guard = SWEEP_TEST_LOCK.lock().await;
+        let pool = skip_without_db!();
+        let org_id = fresh_org(&pool).await;
+        let provider = MockTelephonyProvider::default();
+        let sub_order = SubOrderId("suborder-vanished".into());
+        let number_id = regulated_number(&pool, org_id, sub_order.as_str()).await;
+        make_due(&pool, number_id).await;
+        // Deliberately never scripted via `set_sub_order_state`: the provider answers
+        // `Ok(None)`, which the SWEEP (unlike `reconcile_one`) reads as gone rather than
+        // "not ready yet".
+
+        let summary = reconcile_due(&pool, &provider, 25).await.unwrap();
+        assert_eq!(summary.reconciled, 1);
+
+        let (status, next_check): (String, Option<chrono::DateTime<chrono::Utc>>) = sqlx::query_as(
+            "SELECT status, regulatory_next_check_at FROM voip_numbers WHERE id = $1",
+        )
+        .bind(number_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(status, "failed");
+        assert!(
+            next_check.is_none(),
+            "a terminal status needs no further check"
+        );
+        forget_number(&pool, number_id).await;
+    }
+
+    #[tokio::test]
+    async fn reconcile_due_attaches_an_already_approved_reusable_group_nobody_opened_the_panel_for()
+    {
+        let _guard = SWEEP_TEST_LOCK.lock().await;
+        let pool = skip_without_db!();
+        let org_id = fresh_org(&pool).await;
+        let provider = MockTelephonyProvider::default();
+
+        // An approved group already exists for this combination (a prior number's own
+        // submission went through), but THIS number's row has never had a human visit
+        // `GET …/requirements` — `requirement_group_id` is still NULL.
+        let approved_group_row: Uuid = sqlx::query_scalar(
+            "INSERT INTO voip_requirement_groups
+                (org_id, provider, country, number_kind, action, provider_group_id, status)
+             VALUES ($1, 'mock', 'FR', 'mobile', 'ordering', $2, 'approved')
+             RETURNING id",
+        )
+        .bind(org_id)
+        .bind(format!("mock-group-approved-{}", Uuid::new_v4().simple()))
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        let sub_order = SubOrderId("suborder-reuse-1".into());
+        let number_id = regulated_number(&pool, org_id, sub_order.as_str()).await;
+        make_due(&pool, number_id).await;
+
+        let summary = reconcile_due(&pool, &provider, 25).await.unwrap();
+        assert_eq!(
+            summary.reconciled, 1,
+            "attaching the reused group starts the provider's review, which is decisive"
+        );
+
+        let (status, group_id): (String, Option<Uuid>) =
+            sqlx::query_as("SELECT status, requirement_group_id FROM voip_numbers WHERE id = $1")
+                .bind(number_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(
+            group_id,
+            Some(approved_group_row),
+            "the reusable group must be linked"
+        );
+        assert_eq!(
+            status, "regulatory_review",
+            "attaching a group starts the provider's review"
+        );
+        forget_number(&pool, number_id).await;
+        sqlx::query("DELETE FROM voip_requirement_groups WHERE id = $1")
+            .bind(approved_group_row)
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+
+    // -----------------------------------------------------------------------------------
+    // `reclaim_stale_groups` — frees a design D7 claim row whose winner never came back
+    // (spec 0119, Phase 7).
+    // -----------------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn a_stale_creating_group_claim_is_reclaimed_by_the_sweep() {
+        // `reclaim_stale_groups` scans the WHOLE table, exactly like `reconcile_due` —
+        // shares the same lock so a sibling scan never claims or counts this test's rows.
+        let _guard = SWEEP_TEST_LOCK.lock().await;
+        let pool = skip_without_db!();
+        let org_id = fresh_org(&pool).await;
+        let row_id: Uuid = sqlx::query_scalar(
+            "INSERT INTO voip_requirement_groups (org_id, provider, country, number_kind, action)
+             VALUES ($1, 'mock', 'FR', 'mobile', 'ordering') RETURNING id",
+        )
+        .bind(org_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "UPDATE voip_requirement_groups SET created_at = now() - interval '11 minutes'
+              WHERE id = $1",
+        )
+        .bind(row_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let reclaimed = reclaim_stale_groups(&pool).await.unwrap();
+        assert_eq!(reclaimed, 1);
+
+        let rows: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM voip_requirement_groups WHERE id = $1")
+                .bind(row_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(
+            rows, 0,
+            "the stale claim must be gone, freeing the combination"
+        );
+
+        // Proof the slot is really free, not just that the row count reads zero.
+        let provider = MockTelephonyProvider::default();
+        let fresh = ensure_group(&pool, &provider, org_id, &fr_mobile(), &org_id.to_string())
+            .await
+            .expect("the reclaimed combination must be claimable again");
+        assert!(!fresh.reused);
+    }
+
+    #[tokio::test]
+    async fn a_recent_creating_group_claim_is_left_alone() {
+        let _guard = SWEEP_TEST_LOCK.lock().await;
+        let pool = skip_without_db!();
+        let org_id = fresh_org(&pool).await;
+        sqlx::query(
+            "INSERT INTO voip_requirement_groups (org_id, provider, country, number_kind, action)
+             VALUES ($1, 'mock', 'FR', 'mobile', 'ordering')",
+        )
+        .bind(org_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let reclaimed = reclaim_stale_groups(&pool).await.unwrap();
+        assert_eq!(reclaimed, 0);
+
+        let rows: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM voip_requirement_groups WHERE org_id = $1")
+                .bind(org_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(
+            rows, 1,
+            "a fresh claim, not yet stale, must survive the sweep"
+        );
+    }
+
+    // -----------------------------------------------------------------------------------
+    // `nudge` — the webhook's entire contribution (spec 0119 "Webhook Fast-Path").
+    // -----------------------------------------------------------------------------------
+
+    /// Delete a test's own number row once its assertions are done. `nudge` deliberately
+    /// sets `regulatory_next_check_at = now()` — correct production behaviour — which
+    /// would otherwise leave the row looking DUE to any `reconcile_due`/`reclaim_stale_groups`
+    /// test that runs afterwards in the same shared database.
+    async fn forget_number(pool: &crate::db::Pool, number_id: Uuid) {
+        sqlx::query("DELETE FROM voip_numbers WHERE id = $1")
+            .bind(number_id)
+            .execute(pool)
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn nudge_moves_the_next_check_forward_for_every_matching_sub_order() {
+        let _guard = SWEEP_TEST_LOCK.lock().await;
+        let pool = skip_without_db!();
+        let org_id = fresh_org(&pool).await;
+        let sub_order = SubOrderId("suborder-nudge-1".into());
+        let number_id = regulated_number(&pool, org_id, sub_order.as_str()).await;
+        sqlx::query(
+            "UPDATE voip_numbers SET regulatory_next_check_at = now() + interval '1 hour'
+              WHERE id = $1",
+        )
+        .bind(number_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let touched = nudge(&pool, "mock", &[sub_order.as_str().to_string()])
+            .await
+            .unwrap();
+        assert_eq!(touched, 1);
+
+        let next_check: chrono::DateTime<chrono::Utc> =
+            sqlx::query_scalar("SELECT regulatory_next_check_at FROM voip_numbers WHERE id = $1")
+                .bind(number_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert!(next_check <= chrono::Utc::now() + chrono::Duration::seconds(2));
+        forget_number(&pool, number_id).await;
+    }
+
+    #[tokio::test]
+    async fn nudging_the_same_sub_order_twice_is_idempotent_and_never_writes_status() {
+        let _guard = SWEEP_TEST_LOCK.lock().await;
+        let pool = skip_without_db!();
+        let org_id = fresh_org(&pool).await;
+        let sub_order = SubOrderId("suborder-nudge-2".into());
+        let number_id = regulated_number(&pool, org_id, sub_order.as_str()).await;
+
+        let ids = vec![sub_order.as_str().to_string()];
+        let first = nudge(&pool, "mock", &ids).await.unwrap();
+        let second = nudge(&pool, "mock", &ids).await.unwrap();
+        assert_eq!(first, 1);
+        assert_eq!(
+            second, 1,
+            "a redelivery still nudges — idempotent in EFFECT, not a no-op the second time"
+        );
+
+        let status: String = sqlx::query_scalar("SELECT status FROM voip_numbers WHERE id = $1")
+            .bind(number_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            status, "pending_regulatory",
+            "the nudge never writes a status"
+        );
+        forget_number(&pool, number_id).await;
+    }
+
+    #[tokio::test]
+    async fn nudge_ignores_a_sub_order_id_that_belongs_to_no_open_number() {
+        let pool = skip_without_db!();
+        let touched = nudge(&pool, "mock", &["suborder-unknown".to_string()])
+            .await
+            .unwrap();
+        assert_eq!(touched, 0);
     }
 
     #[tokio::test]
