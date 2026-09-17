@@ -2758,6 +2758,12 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState, clien
                         tracing::error!("finalize transcript session {sid} failed: {e}");
                     }
                 }
+                // Hotfix 1.59.1: this room may have just ended because the last HUMAN
+                // left a phone-call room, orphaning the PSTN leg to a `phone-` peer with
+                // nobody translating for it any more (`RoomManager::remove` now tears
+                // that room down too, not just a truly empty one). Best-effort and a
+                // no-op for every ordinary room, whose session id matches no live call.
+                crate::voip::session::hangup_orphaned_leg(&state, sid).await;
             }
             state
                 .rooms

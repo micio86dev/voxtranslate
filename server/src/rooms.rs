@@ -16,6 +16,14 @@ use crate::protocol::{Member, PeerInfo, PublicRoom, WhiteboardOp};
 /// Maximum peers per room (WebRTC full mesh stays cheap up to this).
 pub const MAX_PEERS: usize = 4;
 
+/// Prefix minted for a telephone leg's peer id (`voip::session::create_phone_peer`).
+///
+/// A room where every REMAINING peer starts with this is over as surely as a truly empty
+/// one: the human(s) who were translating for the call are gone, and nothing else in the
+/// room can hang up the PSTN leg — left alone it keeps running (and billing) until
+/// `max_call_minutes`. See [`RoomManager::remove`].
+pub const PHONE_PEER_ID_PREFIX: &str = "phone-";
+
 /// Cap on stored whiteboard ops per room (spec 0045): bounds memory for the
 /// late-joiner snapshot. Past this the oldest Draw ops are dropped.
 const MAX_WHITEBOARD_OPS: usize = 4000;
@@ -335,9 +343,21 @@ impl RoomManager {
             // was torn down). Nobody left; don't disturb the others.
             return LeaveOutcome::Superseded;
         }
+        // Truly empty ends it, same as always. So does a room where every remaining
+        // peer is a telephone leg (hotfix 1.59.1): with no human left to translate for
+        // it, the call is over exactly as much as if nobody were here at all — it just
+        // doesn't know it yet, because the peer that never leaves on its own is still
+        // sitting in `peers`. The caller (`lib.rs`'s ws-close handler) uses the returned
+        // session id to hang up that leg the same way it finalizes the transcript.
         let ended = self
             .rooms
-            .remove_if(room_id, |_, room| room.peers.is_empty())
+            .remove_if(room_id, |_, room| {
+                room.peers.is_empty()
+                    || room
+                        .peers
+                        .iter()
+                        .all(|p| p.id.starts_with(PHONE_PEER_ID_PREFIX))
+            })
             .map(|(_, room)| room.session_id);
         LeaveOutcome::Left(ended)
     }
@@ -1112,6 +1132,81 @@ mod tests {
         let (c, _rc) = peer("c", "es");
         let s3 = rm.join("r", c, Visibility::Public).unwrap().session_id;
         assert_ne!(s3, s1, "re-created room gets a fresh session id");
+    }
+
+    // ---- hotfix 1.59.1: a human leaving a phone-call room orphans the PSTN leg -------
+    //
+    // `voip::session::create_phone_peer` mints the telephone's peer id as `phone-<uuid>`.
+    // A room where every REMAINING peer is one of those is over as surely as an empty
+    // one — the human(s) who were translating for it are gone — so it must be torn down
+    // (and its session finalized) exactly like the true-empty case, not left running
+    // (and billing the carrier) until `max_call_minutes`.
+
+    #[test]
+    fn last_human_leaving_a_phone_room_tears_it_down_like_true_emptiness() {
+        let rm = RoomManager::new();
+        let human_conn = Uuid::new_v4();
+        let (human, _rh) = peer_conn("a", "it", human_conn);
+        rm.join("r", human, Visibility::Private).unwrap();
+        let (phone, _rp) = peer("phone-1234", "zh");
+        rm.join("r", phone, Visibility::Private).unwrap();
+
+        // Today (pre-fix) this returns `Left(None)`: the phone peer keeps the room
+        // (and the peers Vec) non-empty, so the call session is never finalized and
+        // nothing ever asks the carrier to hang up.
+        assert!(
+            matches!(rm.remove("r", "a", human_conn), LeaveOutcome::Left(Some(_))),
+            "only a phone peer remains -> the room ends, same as true emptiness"
+        );
+        assert_eq!(rm.active_rooms(), 0, "the room entry itself is gone");
+    }
+
+    #[test]
+    fn ordinary_all_human_room_is_unaffected_by_the_phone_peer_check() {
+        // Sanity: two ordinary human peers behave exactly as before — the empty-check
+        // still gates it, the new phone-only check never fires because there is no
+        // `phone-` peer at all.
+        let rm = RoomManager::new();
+        let (ca, cb) = (Uuid::new_v4(), Uuid::new_v4());
+        let (a, _ra) = peer_conn("a", "it", ca);
+        rm.join("r", a, Visibility::Private).unwrap();
+        let (b, _rb) = peer_conn("b", "en", cb);
+        rm.join("r", b, Visibility::Private).unwrap();
+
+        assert!(
+            matches!(rm.remove("r", "a", ca), LeaveOutcome::Left(None)),
+            "one human left, one remains -> room not yet over"
+        );
+        assert_eq!(rm.active_rooms(), 1, "room still alive");
+        assert!(
+            matches!(rm.remove("r", "b", cb), LeaveOutcome::Left(Some(_))),
+            "true emptiness still ends it, unchanged"
+        );
+        assert_eq!(rm.active_rooms(), 0);
+    }
+
+    #[test]
+    fn a_human_leaving_while_another_human_and_a_phone_peer_remain_does_not_end_the_call() {
+        // Two humans + the phone leg; one human leaves. A human is still there to
+        // translate for, so the call is very much still live — must NOT be torn down.
+        let rm = RoomManager::new();
+        let (ca, cb) = (Uuid::new_v4(), Uuid::new_v4());
+        let (a, _ra) = peer_conn("a", "it", ca);
+        rm.join("r", a, Visibility::Private).unwrap();
+        let (b, _rb) = peer_conn("b", "en", cb);
+        rm.join("r", b, Visibility::Private).unwrap();
+        let (phone, _rp) = peer("phone-5678", "zh");
+        rm.join("r", phone, Visibility::Private).unwrap();
+
+        assert!(
+            matches!(rm.remove("r", "a", ca), LeaveOutcome::Left(None)),
+            "a human and the phone peer remain -> the call is still live"
+        );
+        assert_eq!(
+            rm.active_rooms(),
+            1,
+            "room stays up for the remaining human + phone leg"
+        );
     }
 
     #[test]

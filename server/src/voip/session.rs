@@ -35,7 +35,7 @@ use uuid::Uuid;
 
 use crate::deepgram::SpeakerCtx;
 use crate::engine::{EngineRegistry, SessionDeps, SessionOutcome, TranslationEngine};
-use crate::rooms::{Peer, PeerTx, Visibility, OUT_CHANNEL_CAP};
+use crate::rooms::{Peer, PeerTx, Visibility, OUT_CHANNEL_CAP, PHONE_PEER_ID_PREFIX};
 use crate::telephony::MediaCodec;
 use crate::voip::media::{self, BridgeHandles, Leg};
 use crate::voip::service;
@@ -153,7 +153,7 @@ pub fn create_phone_peer(
     engine_id: &str,
     phone_language: &str,
 ) -> Result<PhonePeer, ()> {
-    let peer_id = format!("phone-{}", Uuid::new_v4().simple());
+    let peer_id = format!("{PHONE_PEER_ID_PREFIX}{}", Uuid::new_v4().simple());
     let conn = Uuid::new_v4();
     let (tx, from_room, _overflow) = PeerTx::channel(OUT_CHANNEL_CAP);
 
@@ -660,6 +660,55 @@ async fn end_call(state: &crate::AppState, call_id: Uuid, reason: FailureReason)
     if let Some((session_id,)) = row {
         if let Err(e) = crate::voip::reservation::release(pool, call_id, session_id).await {
             tracing::error!(%call_id, error = %e, "could not release the credit hold");
+        }
+    }
+}
+
+/// Hang up the phone leg of a call whose room was just torn down because the last HUMAN
+/// left it (hotfix 1.59.1) — `session_id` is exactly what [`crate::rooms::RoomManager::remove`]
+/// hands back in that case, the same id the caller uses to finalize the transcript.
+///
+/// Deliberately mirrors `voip::routes::hangup` (the dashboard's own "Hang up" button), not
+/// `end_call`: this only REQUESTS the hangup and touches nothing in `voip_calls`. The
+/// authoritative state change is still the carrier's own hangup webhook, settling the call
+/// exactly like any ordinary end — marking it `failed` here (as `end_call` would) is what
+/// 7312a3e2 fixed for the media-lost race, and doing it here would reintroduce the same
+/// bug: a call that ran a normal duration recorded as failed and unbilled while the
+/// carrier still bills us for it.
+///
+/// A no-op, not an error, when `session_id` matches no live `voip_calls` row — every
+/// ordinary (non-phone) room's leave runs through this too.
+pub async fn hangup_orphaned_leg(state: &crate::AppState, session_id: Uuid) {
+    let (Some(pool), Some(provider)) = (state.pool.as_ref(), state.telephony.as_deref()) else {
+        return;
+    };
+    let legs: Option<Vec<String>> = sqlx::query_scalar(
+        "SELECT provider_leg_ids FROM voip_calls
+         WHERE session_id = $1 AND status NOT IN ('completed', 'failed')",
+    )
+    .bind(session_id)
+    .fetch_optional(pool)
+    .await
+    .unwrap_or_else(|e| {
+        tracing::error!(
+            %session_id,
+            error = %e,
+            "could not look up the phone leg for a room orphaned by the last human leaving"
+        );
+        None
+    });
+    let Some(legs) = legs else {
+        return;
+    };
+    for leg in legs {
+        // Best effort per leg, exactly like `voip::routes::hangup`: the far party may
+        // already have hung up, and that race must not stop us tearing down the rest.
+        if let Err(e) = provider.hangup(&crate::telephony::LegId::new(leg)).await {
+            tracing::debug!(
+                %session_id,
+                error = %e,
+                "hangup for a room orphaned by the last human leaving failed"
+            );
         }
     }
 }
@@ -1349,6 +1398,18 @@ mod tests {
             state.pool = Some(self.pool.clone());
             state
         }
+
+        /// Same as [`Self::state`] but with a telephony provider wired in, for
+        /// `hangup_orphaned_leg`'s tests — the only ones in this module that actually
+        /// need to observe a provider call.
+        fn state_with_telephony(
+            &self,
+            provider: Arc<dyn crate::telephony::TelephonyProvider>,
+        ) -> crate::AppState {
+            let mut state = self.state();
+            state.telephony = Some(provider);
+            state
+        }
     }
 
     /// Builds a call already `answered` ~56s ago — the state `run_leg` finds itself in
@@ -1586,5 +1647,103 @@ mod tests {
         let (status, reason) = call_status_and_reason(&f.pool, f.call).await;
         assert_eq!(status, "failed");
         assert_eq!(reason.as_deref(), Some("media_lost"));
+    }
+
+    // ---- `hangup_orphaned_leg` — hotfix 1.59.1 ----------------------------------------
+    //
+    // The production gap this covers: a human places a phone call from the B2B
+    // dashboard, joins the room's video upgrade in a second tab, then closes that tab
+    // without clicking "Hang up". `RoomManager::remove` now tears the room down when
+    // only the `phone-` peer remains, but tearing the room down doesn't touch the
+    // carrier — something has to actually ask it to hang up. That's this function.
+
+    #[tokio::test]
+    async fn a_human_leaving_an_orphaned_phone_room_hangs_up_the_leg_without_failing_the_call() {
+        // The fix must not repeat 7312a3e2's mistake: WE are the ones ending this call
+        // (not the media pump noticing a lost stream), so it would be easy to reach for
+        // `end_call` and mark it `failed` on the spot. That is exactly wrong for a call
+        // that ran a normal duration — it must settle normally, via the carrier's own
+        // hangup webhook, same as any ordinary call end.
+        let Some(f) = setup_answered(1000, "0.60").await else {
+            eprintln!("skipping — no DATABASE_URL");
+            return;
+        };
+        crate::voip::reservation::reserve(&f.pool, f.org, f.call, f.session, None, 300)
+            .await
+            .unwrap();
+
+        let provider = Arc::new(crate::telephony::mock::MockTelephonyProvider::default());
+        let state = f.state_with_telephony(provider.clone());
+
+        hangup_orphaned_leg(&state, f.session).await;
+
+        let hangups = provider
+            .commands()
+            .into_iter()
+            .filter(|c| matches!(c, crate::telephony::mock::MockCommand::Hangup(_)))
+            .count();
+        assert_eq!(
+            hangups, 1,
+            "exactly one hangup requested for the orphaned leg"
+        );
+
+        // Not touched by us — still exactly where a live call sits, ready for the
+        // carrier's own webhook to settle it normally.
+        let (status, _) = call_status_and_reason(&f.pool, f.call).await;
+        assert_eq!(
+            status, "answered",
+            "not marked failed by requesting the hangup"
+        );
+
+        // The carrier's hangup webhook then arrives, same as any ordinary call end.
+        let hangup = crate::telephony::ProviderEvent {
+            provider: crate::telephony::mock::MOCK_ID,
+            event_id: format!("{}-hangup", f.tag),
+            leg_id: crate::telephony::LegId::new(format!("leg-{}", f.tag)),
+            client_state: Some(f.call.to_string()),
+            occurred_at: chrono::Utc::now(),
+            kind: crate::telephony::ProviderEventKind::Hangup {
+                cause: FailureReason::Unmapped,
+            },
+        };
+        crate::voip::webhook::apply(&f.pool, &hangup).await.unwrap();
+
+        let (status, reason) = call_status_and_reason(&f.pool, f.call).await;
+        assert_eq!(status, "completed", "settled normally, not failed");
+        assert_ne!(reason.as_deref(), Some("media_lost"));
+
+        let duration: Option<i32> =
+            sqlx::query_scalar("SELECT duration_seconds FROM voip_calls WHERE id = $1")
+                .bind(f.call)
+                .fetch_one(&f.pool)
+                .await
+                .unwrap();
+        assert!(duration.is_some(), "a real call has a real duration");
+
+        assert_eq!(
+            org_balance(&f.pool, f.org).await,
+            1000 - duration.unwrap() as i32,
+            "billed for what it actually used, not refunded as an unbilled failure"
+        );
+    }
+
+    #[tokio::test]
+    async fn hangup_orphaned_leg_is_a_no_op_for_a_session_with_no_live_call() {
+        // Every leave in every room — not just phone-call ones — runs through this, so a
+        // session id that matches no `voip_calls` row (an ordinary human-only room) must
+        // be silent, never an error and never a spurious hangup.
+        let Some(f) = setup_answered(1000, "0.60").await else {
+            eprintln!("skipping — no DATABASE_URL");
+            return;
+        };
+        let provider = Arc::new(crate::telephony::mock::MockTelephonyProvider::default());
+        let state = f.state_with_telephony(provider.clone());
+
+        hangup_orphaned_leg(&state, Uuid::new_v4()).await;
+
+        assert!(
+            provider.commands().is_empty(),
+            "no live call for that session id — nothing to hang up"
+        );
     }
 }
