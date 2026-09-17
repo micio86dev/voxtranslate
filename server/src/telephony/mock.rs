@@ -111,6 +111,11 @@ pub struct MockTelephonyProvider {
     /// one provider, different between providers: the prices stay assertable and the rows
     /// stay insertable.
     number_seed: u32,
+    /// The same purpose as `number_seed`, one paragraph up, for
+    /// `voip_requirement_groups`'s `(provider, provider_group_id)` UNIQUE index (migration
+    /// 064): distinct per instance, stable within one, so two fresh providers' first
+    /// created groups never collide in a shared test database.
+    group_seed: u32,
     state: Mutex<MockState>,
 }
 
@@ -160,6 +165,7 @@ impl MockTelephonyProvider {
             secret: secret.to_vec(),
             tolerance,
             number_seed: (uuid::Uuid::new_v4().as_u128() % 900_000) as u32 + 100_000,
+            group_seed: (uuid::Uuid::new_v4().as_u128() % 1_000_000_000) as u32,
             state: Mutex::new(MockState::default()),
         }
     }
@@ -719,7 +725,7 @@ impl TelephonyProvider for MockTelephonyProvider {
         let _ = (query, customer_ref);
         st.seq += 1;
         let group = RequirementGroup {
-            id: RequirementGroupId(format!("mock-group-{}", st.seq)),
+            id: RequirementGroupId(format!("mock-group-{}-{}", self.group_seed, st.seq)),
             status: GroupStatus::Unapproved,
             requirements: fixture_requirements()
                 .into_iter()
@@ -1386,6 +1392,29 @@ mod tests {
 
         let read_back = p.get_requirement_group(&a.id).await.unwrap();
         assert_eq!(read_back, Some(a));
+    }
+
+    #[tokio::test]
+    async fn two_provider_instances_never_mint_the_same_group_id() {
+        // The same reason `number_seed` exists for `search_numbers` (see this struct's own
+        // field doc): `voip_requirement_groups` carries a UNIQUE `(provider,
+        // provider_group_id)` index across the whole install (migration 064), and a real
+        // caller creates a fresh `MockTelephonyProvider` per test/session. Before this, the
+        // FIRST group from every fresh instance was always `"mock-group-1"` — harmless
+        // in-process, but a real collision the moment two instances' first groups both
+        // land in the same shared Postgres test database.
+        let a = MockTelephonyProvider::default()
+            .create_requirement_group(&requirement_query(), "org-1")
+            .await
+            .unwrap();
+        let b = MockTelephonyProvider::default()
+            .create_requirement_group(&requirement_query(), "org-1")
+            .await
+            .unwrap();
+        assert_ne!(
+            a.id, b.id,
+            "two fresh provider instances must never mint the same first group id"
+        );
     }
 
     #[tokio::test]

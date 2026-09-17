@@ -664,6 +664,17 @@ impl RequirementKind {
             _ => Self::Textual,
         }
     }
+
+    /// The wire word this crate emits for a kind, in the dashboard-facing requirements
+    /// view — the same three words [`Self::parse`] recognises for `address`/`document`,
+    /// with `textual` as the catch-all it also falls back to.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Textual => "textual",
+            Self::Address => "address",
+            Self::Document => "document",
+        }
+    }
 }
 
 /// One field the regulator wants, described in the provider's own words so the dashboard
@@ -713,6 +724,22 @@ impl GroupStatus {
             "expired" => Self::Expired,
             "no-longer-eligible" => Self::NoLongerEligible,
             _ => Self::Unknown,
+        }
+    }
+
+    /// The underscore vocabulary `voip_requirement_groups.status` stores (migration 064's
+    /// CHECK constraint), which is OUR OWN column and therefore not obliged to match
+    /// Telnyx's hyphenated wire form. [`Self::parse`] already accepts both forms, so this
+    /// and [`Self::parse`] round-trip for every variant.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Unapproved => "unapproved",
+            Self::PendingApproval => "pending_approval",
+            Self::Approved => "approved",
+            Self::Declined => "declined",
+            Self::Expired => "expired",
+            Self::NoLongerEligible => "no_longer_eligible",
+            Self::Unknown => "unknown",
         }
     }
 }
@@ -1215,5 +1242,39 @@ mod tests {
             NumberStatus::Ordering
         );
         assert_eq!(NumberStatus::parse(""), NumberStatus::Ordering);
+    }
+
+    #[test]
+    fn group_status_as_str_round_trips_through_parse_for_every_variant() {
+        // `as_str` writes the underscore vocabulary migration 064's CHECK constraint
+        // accepts; `parse` must read every one of those words back to the same variant
+        // (spec 0119, design D7/D8 group persistence).
+        for status in [
+            GroupStatus::Unapproved,
+            GroupStatus::PendingApproval,
+            GroupStatus::Approved,
+            GroupStatus::Declined,
+            GroupStatus::Expired,
+            GroupStatus::NoLongerEligible,
+            GroupStatus::Unknown,
+        ] {
+            assert_eq!(GroupStatus::parse(status.as_str()), status, "{status:?}");
+        }
+        assert_eq!(GroupStatus::Approved.as_str(), "approved");
+        assert_eq!(GroupStatus::PendingApproval.as_str(), "pending_approval");
+        assert_eq!(GroupStatus::NoLongerEligible.as_str(), "no_longer_eligible");
+    }
+
+    #[test]
+    fn requirement_kind_as_str_round_trips_through_parse_for_every_variant() {
+        for kind in [
+            RequirementKind::Textual,
+            RequirementKind::Address,
+            RequirementKind::Document,
+        ] {
+            assert_eq!(RequirementKind::parse(kind.as_str()), kind, "{kind:?}");
+        }
+        assert_eq!(RequirementKind::Address.as_str(), "address");
+        assert_eq!(RequirementKind::Document.as_str(), "document");
     }
 }
