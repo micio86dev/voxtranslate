@@ -2773,18 +2773,21 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState, clien
         }
         LeaveOutcome::LeftPhoneOnly(session_id) => {
             // Hotfix 1.59.1: the last HUMAN left a phone-call room, orphaning the PSTN
-            // leg to a `phone-` peer with nobody translating for it any more. A human
-            // genuinely stopped listening/speaking here, so the transcript ends now —
-            // same as an ordinary departure — but the room and the phone leg get a
-            // bounded grace window (`voip::session::PHONE_ORPHAN_GRACE`) for the SAME
-            // peer id to reconnect before anything actually hangs up: a transient
-            // WebSocket drop (mobile handoff, a WiFi reset) must not race a synchronous
-            // teardown against a reconnect that hasn't had a chance to land yet.
-            if let Some(svc) = state.transcripts.as_ref() {
-                if let Err(e) = svc.finalize_session(session_id).await {
-                    tracing::error!("finalize transcript session {session_id} failed: {e}");
-                }
-            }
+            // leg to a `phone-` peer with nobody translating for it any more. The room
+            // and the phone leg get a bounded grace window
+            // (`voip::session::PHONE_ORPHAN_GRACE`) for the SAME peer id to reconnect
+            // before anything actually hangs up: a transient WebSocket drop (mobile
+            // handoff, a WiFi reset) must not race a synchronous teardown against a
+            // reconnect that hasn't had a chance to land yet. The transcript finalization
+            // is deferred into that same grace-checked path, for the same reason: a
+            // reconnect must find the room, its `session_id`, and its transcript exactly
+            // as before this leave, not a transcript already closed out from under it.
+            // `voip::session::finish_after_phone_orphan` finalizes the transcript itself,
+            // alongside the hangup, but only once the grace window actually elapses with
+            // nobody back. Broadcasting `PeerLeft` here stays immediate and unconditional
+            // — it is just a UI signal for the other participants, and a reconnect will
+            // naturally re-broadcast this peer as present again through the normal join
+            // path.
             state
                 .rooms
                 .broadcast(&room, &ServerMessage::PeerLeft { peer_id: id }.to_json());

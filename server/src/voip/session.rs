@@ -749,12 +749,15 @@ const PHONE_ORPHAN_GRACE_POLL: Duration = Duration::from_millis(250);
 ///
 /// Polls [`crate::rooms::RoomManager::has_human_peer`] on [`PHONE_ORPHAN_GRACE_POLL`]'s
 /// cadence and returns early — doing nothing else — the moment a human is back (the SAME
-/// peer id reconnected into the SAME room, per `RoomManager::join`'s doc comment). Only if
-/// the grace window elapses with nobody back does it actually tear the room down (via
-/// [`crate::rooms::RoomManager::end_orphaned_phone_room`], which independently re-checks
-/// the same condition against the room's CURRENT state — closing the exact race this exists
-/// to close) and, only then, hang up the phone leg by reusing [`hangup_orphaned_leg`]
-/// as-is.
+/// peer id reconnected into the SAME room, per `RoomManager::join`'s doc comment). That
+/// "nothing else" is load-bearing for the transcript too: finalizing it earlier, on the
+/// immediate departure, would close it out from under a call a reconnect is about to
+/// resume into. Only if the grace window elapses with nobody back does it actually tear
+/// the room down (via [`crate::rooms::RoomManager::end_orphaned_phone_room`], which
+/// independently re-checks the same condition against the room's CURRENT state — closing
+/// the exact race this exists to close) and, only then, hang up the phone leg by reusing
+/// [`hangup_orphaned_leg`] as-is, and finalize the transcript session — both gated on the
+/// same "really gone" decision.
 pub async fn finish_after_phone_orphan(
     state: &crate::AppState,
     room_id: &str,
@@ -764,8 +767,8 @@ pub async fn finish_after_phone_orphan(
     let deadline = tokio::time::Instant::now() + grace;
     loop {
         if state.rooms.has_human_peer(room_id) {
-            // A genuine reconnect landed — nothing to hang up, the room is exactly as it
-            // was before this leave.
+            // A genuine reconnect landed — nothing to hang up, the room (and its
+            // transcript) is exactly as it was before this leave.
             return;
         }
         if tokio::time::Instant::now() >= deadline {
@@ -779,6 +782,11 @@ pub async fn finish_after_phone_orphan(
         .is_some()
     {
         hangup_orphaned_leg(state, session_id).await;
+        if let Some(svc) = state.transcripts.as_ref() {
+            if let Err(e) = svc.finalize_session(session_id).await {
+                tracing::error!("finalize transcript session {session_id} failed: {e}");
+            }
+        }
     }
 }
 
@@ -1577,6 +1585,20 @@ mod tests {
             .unwrap()
     }
 
+    /// Same shape as `transcripts::tests`' own `ended_at` probe: `finalize_session`
+    /// stamps this column, and a phone `call_sessions` row (unlike a guest one) is
+    /// never purged, so it stays queryable either way.
+    async fn transcript_ended_at(
+        pool: &crate::db::Pool,
+        session_id: Uuid,
+    ) -> Option<chrono::DateTime<chrono::Utc>> {
+        sqlx::query_scalar("SELECT ended_at FROM call_sessions WHERE id = $1")
+            .bind(session_id)
+            .fetch_one(pool)
+            .await
+            .unwrap()
+    }
+
     #[tokio::test]
     async fn a_hangup_webhook_that_lands_inside_the_grace_completes_the_call_not_fails_it() {
         // THE regression: a prompt hangup webhook (~0.7s behind the media socket closing,
@@ -1844,6 +1866,7 @@ mod tests {
         let provider = Arc::new(crate::telephony::mock::MockTelephonyProvider::default());
         let mut state = f.state_with_telephony(provider.clone());
         state.rooms = Arc::new(rooms);
+        state.transcripts = Some(crate::transcripts::TranscriptService::new(f.pool.clone()));
 
         let grace_task = tokio::spawn({
             let state = state.clone();
@@ -1897,6 +1920,13 @@ mod tests {
             state.rooms.has_human_peer(&phone.room),
             "and the human must still be in it"
         );
+        assert!(
+            transcript_ended_at(&f.pool, phone.session_id)
+                .await
+                .is_none(),
+            "a reconnect finds the room exactly as before this leave — its transcript \
+             included, not closed out from under a call that is still going"
+        );
     }
 
     #[tokio::test]
@@ -1912,6 +1942,7 @@ mod tests {
         let provider = Arc::new(crate::telephony::mock::MockTelephonyProvider::default());
         let mut state = f.state_with_telephony(provider.clone());
         state.rooms = Arc::new(rooms);
+        state.transcripts = Some(crate::transcripts::TranscriptService::new(f.pool.clone()));
 
         finish_after_phone_orphan(
             &state,
@@ -1934,6 +1965,12 @@ mod tests {
             state.rooms.active_rooms(),
             0,
             "and the room itself ends up torn down, not left dangling"
+        );
+        assert!(
+            transcript_ended_at(&f.pool, phone.session_id)
+                .await
+                .is_some(),
+            "nobody reconnected — the transcript is finalized exactly once, alongside the hangup"
         );
     }
 }
