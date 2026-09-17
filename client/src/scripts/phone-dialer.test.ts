@@ -1,7 +1,13 @@
+// @vitest-environment jsdom
+// PR3 needs `location`/`localStorage` for the `errorCode` import from `./voip` below
+// (via `./auth`), unlike the rest of this file's pure logic — jsdom, not this suite's
+// former default `node` environment, is what the rest of the codebase opts into for
+// exactly this reason (see e.g. `avatar.test.ts`).
 import { describe, expect, it } from 'vitest';
 import {
   announcement,
   canHangUp,
+  canShowPhoneCta,
   disclosureSummaryKey,
   estimateCost,
   formatCredits,
@@ -11,6 +17,7 @@ import {
   isPhonePeer,
   isTerminal,
   looksDialable,
+  looksLikeContactSearch,
   normaliseDestination,
   numberProblem,
   phaseFromStatus,
@@ -19,6 +26,7 @@ import {
   willAskConsent,
   type CallPhase,
 } from './phone-dialer';
+import { errorCode } from './voip';
 
 // Ported from dashboard/src/scripts/phone-dialer.test.ts (spec 0111, R30), read-only
 // reference. The refusal-key cases are reshaped for this app's flat i18n convention
@@ -363,5 +371,55 @@ describe('isPhonePeer', () => {
     expect(isPhonePeer('')).toBe(false);
     expect(isPhonePeer(null)).toBe(false);
     expect(isPhonePeer(undefined)).toBe(false);
+  });
+});
+
+// PR3 (spec: web-app-voip-dialer, R1/R10): the home-screen CTA decision, extracted here
+// rather than left as untested app.ts glue — the two inputs (an active-subscription org,
+// a WebRTC-capable browser) are duck-typed so this stays framework-free, exactly like
+// `phone-call.ts`'s `OkData<T>`.
+describe('canShowPhoneCta', () => {
+  it('needs at least one active-subscription org AND WebRTC support', () => {
+    const active = { subscription_status: 'active' };
+    const pastDue = { subscription_status: 'past_due' };
+    expect(canShowPhoneCta([active], true)).toBe(true);
+    expect(canShowPhoneCta([pastDue], true)).toBe(false);
+    expect(canShowPhoneCta([], true)).toBe(false);
+    expect(canShowPhoneCta([active], false)).toBe(false);
+    expect(canShowPhoneCta([pastDue, active], true)).toBe(true);
+  });
+});
+
+// PR3 (spec: web-app-voip-dialer, R8): the destination field doubles as a contact
+// search — letters mean "search the address book", digits (with the punctuation people
+// type) mean "this is already a number". One rule, so the field and the quote it fires
+// can never disagree about what the user typed.
+describe('looksLikeContactSearch', () => {
+  it('treats typed letters as a contact query', () => {
+    expect(looksLikeContactSearch('Maria')).toBe(true);
+    expect(looksLikeContactSearch('acme corp')).toBe(true);
+  });
+
+  it('treats digits and dial punctuation as a raw number, not a search', () => {
+    expect(looksLikeContactSearch('+39 320 123 4567')).toBe(false);
+    expect(looksLikeContactSearch('0320-123-4567')).toBe(false);
+    expect(looksLikeContactSearch('')).toBe(false);
+  });
+});
+
+// PR3 (spec: web-app-voip-dialer, R10): a quote/dial refusal must map to real copy, not
+// a placeholder — `errorCode` (voip.ts) reads the server's `{error}` body, `refusalKey`
+// (this module, already RED→GREEN→TRIANGULATE tested above) turns it into the flat i18n
+// key `app.ts` writes into the dial panel's status line.
+describe('refusalKey(errorCode(...)) — the quote/dial refusal pipeline', () => {
+  it('maps a real server refusal body to its reason key', () => {
+    expect(refusalKey(errorCode({ error: 'insufficient_credits' }))).toBe(
+      'phoneReasonInsufficientCredits',
+    );
+  });
+
+  it('falls back to the generic key for an unmapped code or a transport failure', () => {
+    expect(refusalKey(errorCode({ error: 'brand_new_code' }))).toBe('phoneReasonGeneric');
+    expect(refusalKey(errorCode(null))).toBe('phoneReasonGeneric');
   });
 });

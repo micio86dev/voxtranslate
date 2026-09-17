@@ -321,3 +321,26 @@ const PHONE_PEER_ID = /^phone-[0-9a-f]{32}$/i;
 export function isPhonePeer(id: string | null | undefined): boolean {
   return !!id && PHONE_PEER_ID.test(id);
 }
+
+/**
+ * The home-screen CTA's visibility rule (R1, R10): at least one org with an active
+ * subscription, on a browser that can actually open the call `startCall()` needs.
+ * Duck-typed input (not `BusinessOrg`) so this stays framework-free, same as
+ * `phone-call.ts`'s `OkData<T>`.
+ */
+export function canShowPhoneCta(
+  orgs: { subscription_status: string }[],
+  webrtcSupported: boolean,
+): boolean {
+  return webrtcSupported && orgs.some((o) => o.subscription_status === 'active');
+}
+
+/**
+ * R8: the destination field doubles as a contact search. Digits (plus the punctuation
+ * people type into a phone number — spaces, dashes, parens, a leading `+`) mean "this is
+ * already a number"; any letter means "search the address book". One rule, so the field
+ * and the quote/search it fires can never disagree about what the user typed.
+ */
+export function looksLikeContactSearch(raw: string): boolean {
+  return /[a-zA-Z]/.test(raw);
+}

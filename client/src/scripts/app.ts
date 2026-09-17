@@ -172,8 +172,33 @@ import type { ParticipantSource } from './recording/types';
 // idempotent hangup-on-every-exit) as dependency-injected, unit-tested orchestrators —
 // this file (excluded from unit coverage, see `vitest.config.ts`) supplies the real
 // browser APIs and DOM wiring around them.
-import { dialVoipCall, getVoipCall, hangUpVoipCall, quoteVoipCall, type VoipCallCreated, type VoipDialRequest } from './voip';
-import { announcement, isPhonePeer, isTerminal, phaseFromStatus, type CallPhase } from './phone-dialer';
+import {
+  dialVoipCall,
+  errorCode,
+  getVoipCall,
+  getVoipContact,
+  hangUpVoipCall,
+  listVoipContacts,
+  quoteVoipCall,
+  type VoipCallCreated,
+  type VoipContactSummary,
+  type VoipDialRequest,
+  type VoipQuote,
+} from './voip';
+import {
+  announcement,
+  canShowPhoneCta,
+  disclosureSummaryKey,
+  isPhonePeer,
+  isTerminal,
+  looksDialable,
+  looksLikeContactSearch,
+  normaliseDestination,
+  phaseFromStatus,
+  refusalKey,
+  willAskConsent,
+  type CallPhase,
+} from './phone-dialer';
 import { createPhoneLegController, runPhoneDialSequence, skipsPrejoin, type EntryMode } from './phone-call';
 
 // A lazily-imported chunk (e.g. the post-call session screen or the in-call
@@ -402,6 +427,9 @@ const publicWebinarsCard = $('public-webinars-card');
 const publicWebinarsList = $('public-webinars');
 // Host-a-webinar CTA card (D9, PR5): shown only for B2B users with host-capable orgs.
 const hostWebinarCtaCard = $('host-webinar-cta');
+// Call-a-phone-number CTA (spec: web-app-voip-dialer, R1/R10): shown only for B2B users
+// with an active-subscription org, on a WebRTC-capable browser (canShowPhoneCta).
+const phoneCtaCard = $('phone-cta');
 
 // ---- Pre-join refs ---------------------------------------------------------
 const previewVideo = $<HTMLVideoElement>('preview');
@@ -492,6 +520,12 @@ const phoneDialStatus = $('phone-dial-status'); // dial-panel refusal text (inde
 const phoneStatusLive = $('phone-status-live'); // in-call aria-live phase announcer (PR3)
 let phonePollTimer: number | null = null;
 let phoneLastPhase: CallPhase | null = null;
+// The label the in-call phone tile shows instead of the server's generic peer name
+// ("Phone" — voip/session.rs's create_phone_peer): the picked contact's name, or the
+// quote's own masked destination when no contact was picked. Set right before
+// `placePhoneCall()` runs, read once by the `room_joined`/`peer_joined` phone-peer
+// branch below, cleared on `leaveCall()`.
+let phoneDisplayLabel: string | null = null;
 /** Stop the phone call's status poll, if one is running. Safe to call when there isn't one. */
 function clearPhonePoll(): void {
   if (phonePollTimer !== null) {
@@ -513,6 +547,22 @@ const phoneLeg = createPhoneLegController({
 function endPhoneLeg(): void {
   phoneLeg.end();
 }
+/** In-call phone presentation: the telephone leg never sends a camera track, so without
+ *  this its cell's `.avatar` would stay hidden forever (`addCell` starts it hidden;
+ *  normally an ordinary peer's own `mute_video`/track events reveal it — a call this
+ *  cell never negotiates). `setCameraOff(id, true)` is the SAME toggle an ordinary
+ *  peer's ordinary "camera off" state already uses (index.astro's CSS then swaps the
+ *  now-visible avatar's initials for the phone glyph in phone mode). Also replaces the
+ *  server's generic "Phone" name (voip/session.rs's `create_phone_peer`) with the
+ *  contact name or masked destination `placePhoneCall()` captured. Subtitles, the
+ *  speaking ring and mute stay exactly as they are for any other peer. */
+function applyPhoneCellPresentation(peerId: string): void {
+  setCameraOff(peerId, true);
+  if (!phoneDisplayLabel) return;
+  const nameEl = videoGrid.querySelector(`[data-peer="${cssEsc(peerId)}"] .peer-name`);
+  if (nameEl) nameEl.textContent = phoneDisplayLabel;
+}
+
 /** R4/R7: `startCall()`'s pre-existing early returns write here instead of the (hidden,
  *  on the phone path) `#prejoin` panel — see the 1.58.5 regression note on `leaveCall()`. */
 function entryError(key: string): void {
@@ -523,6 +573,19 @@ function entryError(key: string): void {
     prejoinStatus.textContent = t(key);
     prejoinStatus.classList.add('error');
   }
+}
+
+/**
+ * The dial panel's OWN status line (PR3: "the dial panel that displays it", per PR2's
+ * placeholder comment). Unlike `entryError()` above — which dispatches on `entryMode`
+ * for `startCall()`'s internal guards, reached only once a call is already being
+ * entered — every refusal here (a bad quote while typing, or a mic/quote/dial refusal
+ * from `placePhoneCall()`) happens while the user is still looking at the OPEN panel on
+ * the home screen, before `entryMode` ever flips: it always writes to `phoneDialStatus`.
+ */
+function showPhoneDialError(key: string): void {
+  phoneDialStatus.textContent = t(key);
+  phoneDialStatus.classList.add('error');
 }
 // R5: best-effort hangup on tab close/navigate-away. `keepalive` (not `sendBeacon`,
 // which cannot carry the Authorization header this endpoint requires) lets the request
@@ -2152,7 +2215,7 @@ async function startCall(): Promise<void> {
 
 // ============================================================================
 // Web-app VoIP dialer (spec: web-app-voip-dialer) — the phone entry path.
-// No CTA calls this yet (PR3 wires the dial panel); this PR wires the machinery.
+// PR3 wires the CTA + dial panel (below) so this machinery is finally reachable.
 // ============================================================================
 
 /**
@@ -2163,7 +2226,7 @@ async function startCall(): Promise<void> {
  * a refusal at any step releases the mic and never places the call.
  */
 async function placePhoneCall(orgId: string, request: VoipDialRequest): Promise<void> {
-  const outcome = await runPhoneDialSequence<void, unknown, VoipCallCreated>({
+  const outcome = await runPhoneDialSequence<void, VoipQuote, VoipCallCreated>({
     acquireMic: acquireMicOnly,
     quote: () => quoteVoipCall(orgId, request),
     dial: () => dialVoipCall(orgId, request),
@@ -2171,13 +2234,15 @@ async function placePhoneCall(orgId: string, request: VoipDialRequest): Promise<
   });
   switch (outcome.stage) {
     case 'mic':
-      entryError('phoneMicRequired');
+      showPhoneDialError('phoneMicRequired');
       return;
     case 'quote':
+      // R10: the server's stable refusal code → this app's flat i18n key; an unmapped
+      // code still gets a sentence (phoneReasonGeneric), never a raw code on screen.
+      showPhoneDialError(refusalKey(errorCode(outcome.quote.data)));
+      return;
     case 'dial':
-      // Full refusal-code → copy mapping is Phase 3 (the dial panel that displays it);
-      // R3's invariant already holds here — the mic was released, nothing was charged.
-      entryError('phoneReasonGeneric');
+      showPhoneDialError(refusalKey(errorCode(outcome.dial.data)));
       return;
     case 'dialed':
       await enterPhoneCall(orgId, outcome.call, request);
@@ -2194,6 +2259,14 @@ async function enterPhoneCall(
   request: VoipDialRequest,
 ): Promise<void> {
   entryMode = 'phone';
+  // In-call phone presentation (design: "CTA + dial panel" / "In-call phone
+  // presentation"): a data attribute on the call screen, not `videoGrid.dataset.mode`
+  // — that field already means grid-vs-focus view and this must not collide with it.
+  callScreen.dataset.entry = 'phone';
+  const leaveBtn = $('btn-leave');
+  leaveBtn.title = t('phoneHangUp');
+  leaveBtn.setAttribute('aria-label', t('phoneHangUp'));
+  closePhoneDialPanel(); // the panel's job is done; leave it collapsed for next time
   session = {
     room: call.room || '',
     lang: request.source_language,
@@ -2234,6 +2307,235 @@ async function pollPhoneCall(orgId: string, callId: string): Promise<void> {
   // an exit as pressing the leave button — return to the home screen the same way.
   if (isTerminal(phase)) leaveCall();
 }
+
+// ---- CTA + inline dial panel (design: "CTA + dial panel") -------------------
+// The panel expands INLINE inside #phone-cta (the webinar-create-toggle pattern) —
+// never a modal, so the price and disclosure copy stay visible while the user types.
+const phoneCtaToggle = $<HTMLButtonElement>('phone-cta-toggle');
+const phoneDialPanel = $<HTMLFormElement>('phone-dial-panel');
+const phoneDestinationInput = $<HTMLInputElement>('phone-destination');
+const phoneContactResults = $('phone-contact-results');
+const phoneTheirLangSel = $<HTMLSelectElement>('phone-their-lang');
+const phoneProjectField = $('phone-project-field');
+const phoneProjectSel = $<HTMLSelectElement>('phone-project');
+const phoneCallerIdInput = $<HTMLInputElement>('phone-caller-id');
+const phoneQuoteBox = $('phone-quote');
+const phoneQuotePrice = $('phone-quote-price');
+const phoneQuoteDisclosure = $('phone-quote-disclosure');
+const phoneCallBtn = $<HTMLButtonElement>('phone-call-btn');
+const phoneCancelBtn = $<HTMLButtonElement>('phone-cancel-btn');
+
+let phoneOrgId: string | null = null;
+let phoneQuote: VoipQuote | null = null;
+/** Set by picking a contact from the search results; cleared the moment the user types
+ *  again, so a stale pick can never survive editing the number underneath it. */
+let phonePickedContactName: string | null = null;
+// R8: an empty address book degrades the destination field to a plain number input —
+// decided once per panel-open by a cheap `limit: 1` probe, not on every keystroke.
+let phoneHasContacts = false;
+let phoneSearchTimer: number | null = null;
+let phoneQuoteTimer: number | null = null;
+
+/** Populate the "their language" select once (every union language, endonym-labelled) —
+ *  mirrors `fillWebinarLangs()`. */
+function fillPhoneLangs(): void {
+  if (phoneTheirLangSel.options.length) return;
+  for (const l of LANGUAGES) {
+    const opt = document.createElement('option');
+    opt.value = l.code;
+    opt.textContent = `${l.native} (${l.english})`;
+    phoneTheirLangSel.appendChild(opt);
+  }
+  const ui = getUiLang();
+  phoneTheirLangSel.value = LANGUAGES.some((l) => l.code === ui) ? ui : 'en';
+}
+
+/** Mirrors `loadWorkspaceProjects()`: `bizNoProject` first, hidden entirely for a
+ *  project-less org so the field never asks a question that has only one answer. */
+async function loadPhoneProjects(orgId: string): Promise<void> {
+  phoneProjectSel.innerHTML = '';
+  const projects = await listProjects(orgId);
+  const none = document.createElement('option');
+  none.value = '';
+  none.textContent = t('bizNoProject');
+  phoneProjectSel.appendChild(none);
+  for (const p of projects) {
+    const opt = document.createElement('option');
+    opt.value = p.id;
+    opt.textContent = p.name;
+    phoneProjectSel.appendChild(opt);
+  }
+  show(phoneProjectField, projects.length > 0);
+}
+
+/** Keeps the destination field's `role="combobox"` honest: `aria-expanded` must track
+ *  whether its owned listbox is actually showing, not just be set once in markup. */
+function setPhoneContactResultsVisible(visible: boolean): void {
+  show(phoneContactResults, visible);
+  phoneDestinationInput.setAttribute('aria-expanded', String(visible));
+}
+
+function resetPhonePanel(): void {
+  phoneDialPanel.reset();
+  phoneQuote = null;
+  phonePickedContactName = null;
+  setPhoneContactResultsVisible(false);
+  phoneContactResults.innerHTML = '';
+  show(phoneQuoteBox, false);
+  phoneCallBtn.disabled = true;
+  phoneCallBtn.textContent = t('phoneCallButton');
+  phoneDialStatus.textContent = '';
+  phoneDialStatus.classList.remove('error');
+}
+
+async function openPhoneDialPanel(): Promise<void> {
+  const orgs = (await ensureBizOrgs()).filter((o) => canCloudRecord(o));
+  if (!orgs.length) return; // the CTA shouldn't be visible without one — stay safe anyway
+  phoneOrgId = orgs[0].id;
+  resetPhonePanel();
+  fillPhoneLangs();
+  await loadPhoneProjects(phoneOrgId);
+  const probe = await listVoipContacts(phoneOrgId, { limit: 1 });
+  phoneHasContacts = !!probe.data?.contacts.length;
+  show(phoneCtaToggle, false);
+  show(phoneDialPanel, true);
+  phoneDestinationInput.focus();
+}
+
+function closePhoneDialPanel(): void {
+  show(phoneDialPanel, false);
+  show(phoneCtaToggle, true);
+  resetPhonePanel();
+}
+
+async function searchPhoneContacts(query: string): Promise<void> {
+  if (!phoneOrgId) return;
+  const res = await listVoipContacts(phoneOrgId, { q: query, limit: 8 });
+  renderPhoneContactResults(res.data?.contacts ?? []);
+}
+
+function renderPhoneContactResults(contacts: VoipContactSummary[]): void {
+  phoneContactResults.innerHTML = '';
+  if (!contacts.length) {
+    const empty = document.createElement('p');
+    empty.className = 'phone-contact-empty';
+    empty.textContent = t('phoneSearchEmpty');
+    phoneContactResults.appendChild(empty);
+  } else {
+    for (const c of contacts) {
+      const opt = document.createElement('button');
+      opt.type = 'button';
+      opt.className = 'phone-contact-opt';
+      opt.setAttribute('role', 'option');
+      opt.textContent = c.name;
+      opt.addEventListener('click', () => void pickPhoneContact(c));
+      phoneContactResults.appendChild(opt);
+    }
+  }
+  setPhoneContactResultsVisible(true);
+}
+
+/** R8: picking a contact prefills the number + that NUMBER's own language + its linked
+ *  project — the number, not the contact, is the source of truth for the language (a
+ *  contact can have numbers in different countries/languages). */
+async function pickPhoneContact(summary: VoipContactSummary): Promise<void> {
+  if (!phoneOrgId) return;
+  const res = await getVoipContact(phoneOrgId, summary.id);
+  const detail = res.data;
+  const number = detail?.numbers.find((n) => n.is_primary) ?? detail?.numbers[0];
+  if (!detail || !number) return;
+  phoneDestinationInput.value = number.e164;
+  if (number.language && LANGUAGES.some((l) => l.code === number.language)) {
+    phoneTheirLangSel.value = number.language;
+  }
+  const project = detail.projects[0];
+  if (project) phoneProjectSel.value = project.id;
+  phonePickedContactName = detail.name;
+  setPhoneContactResultsVisible(false);
+  await refreshPhoneQuote();
+}
+
+/** The "price shown" step of the mic-before-dial sequencing diagram: a quote fired on a
+ *  dialable number, well before the Call press that acquires the mic (R3 only guards
+ *  `/voip/calls`, never the free-to-ask `/voip/quote`). */
+async function refreshPhoneQuote(): Promise<void> {
+  if (!phoneOrgId) return;
+  const destination = normaliseDestination(phoneDestinationInput.value);
+  if (!looksDialable(destination)) return;
+  const res = await quoteVoipCall(phoneOrgId, {
+    destination,
+    source_language: getUiLang(),
+    target_language: phoneTheirLangSel.value,
+  });
+  if (!res.ok || !res.data) {
+    phoneQuote = null;
+    show(phoneQuoteBox, false);
+    phoneCallBtn.disabled = true;
+    showPhoneDialError(refusalKey(errorCode(res.data)));
+    return;
+  }
+  phoneQuote = res.data;
+  phoneDialStatus.textContent = '';
+  phoneDialStatus.classList.remove('error');
+  renderPhoneQuote(res.data);
+  phoneCallBtn.disabled = false;
+}
+
+/** Price + disclosure summary render ABOVE the Call button (design: "pressing Call IS
+ *  the confirmation" — no second confirm step), using the same ported, unit-tested
+ *  `disclosureSummaryKey`/`willAskConsent` from `phone-dialer.ts` (PR1). */
+function renderPhoneQuote(quote: VoipQuote): void {
+  phoneQuotePrice.textContent = t('phonePricePerMinute').replace(
+    '{price}',
+    `${quote.currency} ${quote.price_per_minute}`,
+  );
+  const lines = [t(disclosureSummaryKey(quote))];
+  if (willAskConsent(quote)) lines.push(t('phone.disclosure.willAsk'));
+  phoneQuoteDisclosure.textContent = lines.join(' ');
+  show(phoneQuoteBox, true);
+}
+
+phoneCtaToggle.addEventListener('click', () => void openPhoneDialPanel());
+phoneCancelBtn.addEventListener('click', () => closePhoneDialPanel());
+
+phoneDestinationInput.addEventListener('input', () => {
+  phonePickedContactName = null; // typing again invalidates any previous pick
+  show(phoneQuoteBox, false);
+  phoneCallBtn.disabled = true;
+  if (phoneSearchTimer !== null) clearTimeout(phoneSearchTimer);
+  if (phoneQuoteTimer !== null) clearTimeout(phoneQuoteTimer);
+  const raw = phoneDestinationInput.value;
+  if (phoneHasContacts && looksLikeContactSearch(raw)) {
+    setPhoneContactResultsVisible(false);
+    if (raw.trim()) phoneSearchTimer = window.setTimeout(() => void searchPhoneContacts(raw), 300);
+    return;
+  }
+  setPhoneContactResultsVisible(false);
+  if (looksDialable(raw)) {
+    phoneQuoteTimer = window.setTimeout(() => void refreshPhoneQuote(), 400);
+  }
+});
+
+phoneDialPanel.addEventListener('submit', (e) => {
+  e.preventDefault();
+  if (!phoneOrgId || !phoneQuote) return;
+  const request: VoipDialRequest = {
+    destination: normaliseDestination(phoneDestinationInput.value),
+    source_language: getUiLang(),
+    target_language: phoneTheirLangSel.value,
+    project_id: phoneProjectSel.value || null,
+    caller_id: phoneCallerIdInput.value.trim() || null,
+  };
+  // Captured now (design: "contact name, or masked destination") — `phoneQuote`'s own
+  // `destination` is already server-masked, so no extra masking logic is needed here.
+  phoneDisplayLabel = phonePickedContactName ?? phoneQuote.destination;
+  phoneCallBtn.disabled = true;
+  phoneCallBtn.textContent = t('phoneDialingButton');
+  void placePhoneCall(phoneOrgId, request).finally(() => {
+    phoneCallBtn.disabled = false;
+    phoneCallBtn.textContent = t('phoneCallButton');
+  });
+});
 
 function openSocket(): void {
   if (!session) return;
@@ -2358,6 +2660,7 @@ async function handleServer(msg: any): Promise<void> {
         // that can never negotiate, leaving a permanently black tile and a dead
         // connection. It still gets a cell (subtitles/speaking/mute all target it).
         if (!isPhonePeer(p.id)) await mesh?.addPeer(p.id, false); // they'll initiate the offer
+        else applyPhoneCellPresentation(p.id);
       }
       updateParticipantsList();
       break;
@@ -2380,6 +2683,7 @@ async function handleServer(msg: any): Promise<void> {
       if (!reconnected) playJoinSound(); // audible cue only for a genuinely new peer
       // See the matching `room_joined` comment: the telephone leg never negotiates.
       if (!isPhonePeer(msg.peer_id)) await mesh?.addPeer(msg.peer_id, true); // we initiate toward the newcomer
+      else applyPhoneCellPresentation(msg.peer_id);
       // Re-announce our current mute/camera state so the newcomer's UI matches.
       if (!micOn) ws?.send(JSON.stringify({ type: 'mute_audio', muted: true }));
       if (!camOn) ws?.send(JSON.stringify({ type: 'mute_video', muted: true }));
@@ -4602,6 +4906,13 @@ function leaveCall(): void {
   // video-room leave (`phoneLeg` was never `start()`ed — see `phone-call.ts`).
   endPhoneLeg();
   entryMode = 'room';
+  // In-call phone presentation teardown — unconditional, same reasoning as the line
+  // above: safe to run even when this was an ordinary room call (both are no-ops then).
+  delete callScreen.dataset.entry;
+  const leaveBtn = $('btn-leave');
+  leaveBtn.title = t('leaveTip');
+  leaveBtn.setAttribute('aria-label', t('leaveTip'));
+  phoneDisplayLabel = null;
   // Meet-style cue: you left the call — only if we actually joined (callStartedAt
   // stays 0 on a room-full bounce), so it never fires for a non-entry (spec 0024).
   if (callStartedAt > 0) {
@@ -5053,6 +5364,10 @@ async function updateWorkspaceLink(): Promise<void> {
   if (anyHostEligible) show($('webinars-btn'), true);
   // Homepage host CTA card toggles with the same gate (D9, PR5).
   show(hostWebinarCtaCard, anyHostEligible);
+  // Call-a-phone-number CTA (spec: web-app-voip-dialer, R1/R10): needs an active-sub org
+  // AND a WebRTC-capable browser — `startCall()`'s own guard would otherwise be
+  // unreachable on this path, since the phone entry path never shows that error surface.
+  show(phoneCtaCard, canShowPhoneCta(orgs, webrtcSupported()));
 }
 
 // ---- Workspace: project voice notes (spec: B2B project voice notes) --------
