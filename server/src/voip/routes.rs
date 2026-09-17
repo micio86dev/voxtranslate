@@ -29,7 +29,7 @@ use crate::middleware::AuthUser;
 use crate::telephony::{WebhookHeaders, E164};
 use crate::voip::service::{self, DialOptions, VoipError};
 use crate::voip::{
-    analytics as voip_analytics, consent, contacts, numbers as number_mgmt, webhook,
+    analytics as voip_analytics, consent, contacts, numbers as number_mgmt, regulatory, webhook,
 };
 use crate::AppState;
 
@@ -105,6 +105,12 @@ pub fn routes() -> Router<AppState> {
         .route(
             "/api/business/organizations/{org_id}/voip/numbers/{number_id}/verify/check",
             post(number_mgmt::verify_check),
+        )
+        // Self-service completion of provider regulatory requirements (spec 0119).
+        // PUT/submit/refresh land in a later slice of this same feature.
+        .route(
+            "/api/business/organizations/{org_id}/voip/numbers/{number_id}/requirements",
+            get(regulatory::get_requirements),
         )
         .route(
             "/api/business/organizations/{org_id}/voip/contacts",

@@ -7,14 +7,29 @@
 //! provider state mean for the number" is answered in exactly one place and is testable
 //! without a provider, a database or a clock.
 
+// Every handler returns `Result<Response, Response>` — the Business API convention.
+#![allow(clippy::result_large_err)]
+
+use std::collections::HashMap;
+
+use axum::extract::{Path, State};
+use axum::http::StatusCode;
+use axum::response::{IntoResponse, Response};
+use axum::Json;
+use serde_json::{json, Value};
 use uuid::Uuid;
 
+use crate::business::{db_err, not_found, require_pool, require_role, ADMIN};
 use crate::db::Pool;
+use crate::middleware::AuthUser;
 use crate::telephony::{
-    FieldValue, GroupStatus, NumberStatus, OrderStatus, ProviderError, RequirementGroup,
-    RequirementGroupId, RequirementQuery, RequirementSpec, RequirementsStatus, SubOrderState,
-    TelephonyProvider,
+    FieldValue, GroupStatus, NumberKind, NumberStatus, OrderStatus, ProviderError,
+    RequirementAction, RequirementGroup, RequirementGroupId, RequirementKind, RequirementQuery,
+    RequirementSpec, RequirementsStatus, SubOrderState, TelephonyProvider,
 };
+use crate::voip::routes::refuse;
+use crate::AppState;
+
 /// The longest a rejection reason may be once it reaches `voip_numbers.status_reason`.
 /// The column is a status label, not a log: an unbounded provider string must not be
 /// forwarded as-is.
@@ -242,6 +257,260 @@ pub async fn ensure_group(
         // between the two queries is a storage anomaly, not a domain one.
         None => Err(GroupError::Storage(sqlx::Error::RowNotFound)),
     }
+}
+
+// ---------------------------------------------------------------------------------------
+// HTTP handlers (spec 0119) — registered by `crate::voip::routes` under
+// `…/voip/numbers/{number_id}/requirements`.
+// ---------------------------------------------------------------------------------------
+
+fn provider(state: &AppState) -> Result<&dyn TelephonyProvider, Response> {
+    state
+        .telephony
+        .as_deref()
+        .ok_or_else(|| not_found("voip is not enabled"))
+}
+
+/// Map a regulatory-requirements provider failure onto a refusal a customer can act on.
+///
+/// `DestinationRefused` is what [`crate::telephony::telnyx::classify`] maps a Telnyx 422
+/// onto for every call in this crate, regulatory ones included — and design D12 has those
+/// specific calls read their error body **redacted** (never logged in full) because
+/// Telnyx's own 422 bodies are known to echo back exactly the value that was rejected. So
+/// this refusal carries only a stable code, never provider prose: there is no rejection
+/// text in this process to surface even if the code wanted to.
+fn provider_err(e: ProviderError) -> Response {
+    match e {
+        ProviderError::Unsupported { .. } => {
+            refuse(StatusCode::NOT_IMPLEMENTED, "requirements_unsupported")
+        }
+        ProviderError::Unauthorized | ProviderError::AccountBlocked => {
+            refuse(StatusCode::SERVICE_UNAVAILABLE, "voip_misconfigured")
+        }
+        ProviderError::RateLimited => {
+            refuse(StatusCode::TOO_MANY_REQUESTS, "provider_rate_limited")
+        }
+        ProviderError::DestinationRefused => {
+            refuse(StatusCode::BAD_REQUEST, "provider_rejected_value")
+        }
+        ProviderError::Unavailable { .. } | ProviderError::Malformed { .. } => {
+            refuse(StatusCode::BAD_GATEWAY, "provider_unavailable")
+        }
+    }
+}
+
+fn group_err(e: GroupError) -> Response {
+    match e {
+        GroupError::Busy => refuse(StatusCode::CONFLICT, "requirements_busy"),
+        GroupError::Provider(p) => provider_err(p),
+        GroupError::Storage(s) => db_err(s),
+    }
+}
+/// Everything a handler needs from `voip_numbers` before it can touch requirements at all.
+struct NumberRow {
+    status: NumberStatus,
+    status_reason: Option<String>,
+    provider_sub_order_id: Option<String>,
+    country: String,
+    number_kind: Option<String>,
+    /// `NULL` means this number never had a regulatory requirement in the first place —
+    /// the gate for `regulatory_not_required`, distinct from a legacy row that HAD one but
+    /// predates the sub-order id column (`regulatory_unlinked`).
+    regulatory_requirement: Option<String>,
+}
+
+/// `(status, status_reason, provider_sub_order_id, country, number_kind,
+/// regulatory_requirement)` — exactly [`load_number`]'s `SELECT` list, named so the
+/// function signature does not trip clippy's type-complexity lint.
+type NumberRowTuple = (
+    String,
+    Option<String>,
+    Option<String>,
+    String,
+    Option<String>,
+    Option<String>,
+);
+
+/// Org-scoped load. `not_found` for a missing or cross-org id — the same tenancy rule
+/// every other handler in `numbers.rs` already follows (never a 403 that would confirm a
+/// number id exists in someone else's organisation).
+async fn load_number(pool: &Pool, org_id: Uuid, number_id: Uuid) -> Result<NumberRow, Response> {
+    let row: Option<NumberRowTuple> = sqlx::query_as(
+        "SELECT status, status_reason, provider_sub_order_id, country, number_kind,
+                regulatory_requirement
+           FROM voip_numbers WHERE id = $1 AND org_id = $2",
+    )
+    .bind(number_id)
+    .bind(org_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(db_err)?;
+    let Some((
+        status,
+        status_reason,
+        provider_sub_order_id,
+        country,
+        number_kind,
+        regulatory_requirement,
+    )) = row
+    else {
+        return Err(not_found("number not found"));
+    };
+    Ok(NumberRow {
+        status: NumberStatus::parse(&status),
+        status_reason,
+        provider_sub_order_id,
+        country,
+        number_kind,
+        regulatory_requirement,
+    })
+}
+
+/// Requirement Discovery's two "this route does not apply" refusals (spec 0119).
+fn gate_regulatable(row: &NumberRow) -> Result<(), Response> {
+    if row.regulatory_requirement.is_none() {
+        return Err(refuse(StatusCode::CONFLICT, "regulatory_not_required"));
+    }
+    if row.provider_sub_order_id.is_none() {
+        return Err(refuse(StatusCode::CONFLICT, "regulatory_unlinked"));
+    }
+    Ok(())
+}
+
+/// Record the group a number's paperwork lives in, once — idempotent, so calling this
+/// again for a number that already has one is a harmless no-op.
+async fn link_group(pool: &Pool, number_id: Uuid, group_row_id: Uuid) -> Result<(), Response> {
+    sqlx::query(
+        "UPDATE voip_numbers SET requirement_group_id = $2, updated_at = now()
+          WHERE id = $1 AND requirement_group_id IS NULL",
+    )
+    .bind(number_id)
+    .bind(group_row_id)
+    .execute(pool)
+    .await
+    .map_err(db_err)?;
+    Ok(())
+}
+
+/// One requirement's document row, projected down to exactly what design D12 allows this
+/// route to hand back: never the provider's own document id, only whether it passed scan.
+async fn fetch_docs(pool: &Pool, group_row_id: Uuid) -> Result<HashMap<String, String>, Response> {
+    let rows: Vec<(String, Option<String>)> = sqlx::query_as(
+        "SELECT requirement_id, av_scan_status FROM voip_requirement_documents
+          WHERE group_id = $1",
+    )
+    .bind(group_row_id)
+    .fetch_all(pool)
+    .await
+    .map_err(db_err)?;
+    Ok(rows
+        .into_iter()
+        .filter_map(|(req_id, status)| status.map(|s| (req_id, s)))
+        .collect())
+}
+
+/// A submitted [`FieldValue`] as JSON. Only ever built from a value that was submitted
+/// (ours, echoed back by the provider or the mock) — never from provider prose, so there
+/// is nothing here design D12's redaction rule needs to protect against.
+fn value_json(v: &FieldValue) -> Value {
+    match v {
+        FieldValue::Text(s) => json!(s),
+        FieldValue::Address(a) => json!({
+            "first_name": a.first_name,
+            "last_name": a.last_name,
+            "business_name": a.business_name,
+            "street_address": a.street_address,
+            "extended_address": a.extended_address,
+            "locality": a.locality,
+            "administrative_area": a.administrative_area,
+            "postal_code": a.postal_code,
+            "country_code": a.country_code,
+        }),
+        // Never rendered: a Document-kind requirement's own branch below renders
+        // `document` from OUR OWN table instead, and PUT refuses a `Document` value
+        // outright (see `put_requirements`) — so this arm exists only so the match is
+        // exhaustive, not because a caller is expected to reach it.
+        FieldValue::Document(id) => json!(id),
+    }
+}
+
+/// One requirement entry in the discovery/submission view, exactly the shape design's
+/// route table promises: `{id, name, description, example, kind, value?, document?}`.
+fn requirement_entry(
+    spec: &RequirementSpec,
+    value: &Option<FieldValue>,
+    doc_av_scan_status: Option<&String>,
+) -> Value {
+    let mut entry = json!({
+        "id": spec.id,
+        "name": spec.name,
+        "description": spec.description,
+        "example": spec.example,
+        "kind": spec.kind.as_str(),
+    });
+    if spec.kind == RequirementKind::Document {
+        if let Some(status) = doc_av_scan_status {
+            entry["document"] = json!({ "av_scan_status": status });
+        }
+    } else if let Some(v) = value {
+        entry["value"] = value_json(v);
+    }
+    entry
+}
+
+/// The full discovery/submission view: the number's own status plus the group's.
+#[allow(clippy::too_many_arguments)]
+fn build_view(
+    number_status: NumberStatus,
+    status_reason: Option<&str>,
+    group_status: GroupStatus,
+    reused: bool,
+    requirements: &[(RequirementSpec, Option<FieldValue>)],
+    docs: &HashMap<String, String>,
+) -> Value {
+    json!({
+        "status": number_status.as_str(),
+        "status_reason": status_reason,
+        "group": { "status": group_status.as_str(), "reused": reused },
+        "requirements": requirements
+            .iter()
+            .map(|(spec, value)| requirement_entry(spec, value, docs.get(&spec.id)))
+            .collect::<Vec<_>>(),
+    })
+}
+
+/// `GET …/voip/numbers/{number_id}/requirements` — what the provider still wants, and
+/// what has already been filled in (spec 0119 "Requirement Discovery").
+pub async fn get_requirements(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path((org_id, number_id)): Path<(Uuid, Uuid)>,
+) -> Result<Response, Response> {
+    let pool = require_pool(&state)?;
+    require_role(pool, org_id, user.user_id, ADMIN).await?;
+    let row = load_number(pool, org_id, number_id).await?;
+    gate_regulatable(&row)?;
+
+    let query = RequirementQuery {
+        country: row.country.clone(),
+        kind: NumberKind::parse(row.number_kind.as_deref().unwrap_or("")),
+        action: RequirementAction::Ordering,
+    };
+    let ensured = ensure_group(pool, provider(&state)?, org_id, &query, &org_id.to_string())
+        .await
+        .map_err(group_err)?;
+    link_group(pool, number_id, ensured.row_id).await?;
+    let docs = fetch_docs(pool, ensured.row_id).await?;
+
+    Ok(Json(build_view(
+        row.status,
+        row.status_reason.as_deref(),
+        ensured.status,
+        ensured.reused,
+        &ensured.requirements,
+        &docs,
+    ))
+    .into_response())
 }
 
 #[cfg(test)]
