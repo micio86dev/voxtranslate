@@ -1056,6 +1056,55 @@ async fn refresh_applies_a_transition_read_from_the_provider() {
     assert_eq!(status, "regulatory_review");
 }
 
+#[tokio::test]
+async fn refresh_on_a_resolved_or_unrelated_status_never_calls_the_provider() {
+    let srv = skip_without_db!(setup().await);
+    let http = Client::new();
+    let (owner, jwt) = user(&srv, "Owner").await;
+    let org_id = org(&srv, owner).await;
+
+    for status in ["suspended", "released"] {
+        let sub_order_id = format!("so-{status}");
+        let number_id = regulated_number(&srv, org_id, &sub_order_id).await;
+        sqlx::query("UPDATE voip_numbers SET status = $2 WHERE id = $1")
+            .bind(number_id)
+            .bind(status)
+            .execute(&srv.pool)
+            .await
+            .unwrap();
+        srv.provider.set_sub_order_state(
+            &SubOrderId(sub_order_id),
+            voxtranslate_server::telephony::SubOrderState {
+                order: voxtranslate_server::telephony::OrderStatus::Success,
+                requirements: voxtranslate_server::telephony::RequirementsStatus::Approved,
+                group: None,
+            },
+        );
+
+        let r = http
+            .post(requirements_url(&srv, org_id, number_id, "/refresh"))
+            .bearer_auth(&jwt)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(r.status(), 200, "status={status}");
+        let body: Value = r.json().await.unwrap();
+        assert_eq!(
+            body["status"], status,
+            "status={status}: response unchanged"
+        );
+
+        let (db_status, outbound): (String, bool) =
+            sqlx::query_as("SELECT status, outbound_enabled FROM voip_numbers WHERE id = $1")
+                .bind(number_id)
+                .fetch_one(&srv.pool)
+                .await
+                .unwrap();
+        assert_eq!(db_status, status, "status={status}: DB unchanged");
+        assert!(!outbound, "status={status}: outbound never flips on");
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Document upload — POST …/requirements/documents (Phase 6, spec 0119 "Document
 // Stream-Through"). D9 (true streaming), D10 (size/type limits), D11 (field order +

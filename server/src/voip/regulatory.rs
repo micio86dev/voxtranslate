@@ -303,10 +303,14 @@ pub async fn reconcile_one(
         return Ok(None);
     };
 
+    // `regulatory_requirement`/`provider_sub_order_id` (the caller's own gate) stay set
+    // forever, so without this a stale `/refresh` could rewrite a number that has since
+    // resolved or moved onto an unrelated lifecycle track (e.g. `suspended`/`released`).
     sqlx::query(
         "UPDATE voip_numbers
             SET status = $3, status_reason = $4, outbound_enabled = $5, updated_at = now()
-          WHERE id = $1 AND org_id = $2",
+          WHERE id = $1 AND org_id = $2
+            AND status IN ('pending_regulatory', 'regulatory_review', 'regulatory_rejected')",
     )
     .bind(number_id)
     .bind(org_id)
@@ -821,6 +825,20 @@ pub async fn refresh_requirements(
     let row = load_number(pool, org_id, number_id).await?;
     gate_regulatable(&row)?;
 
+    // Same guard as `reconcile_one`'s own SQL write: a resolved or unrelated-lifecycle
+    // number has nothing left to refresh and must never be re-polled.
+    if !matches!(
+        row.status,
+        NumberStatus::PendingRegulatory
+            | NumberStatus::RegulatoryReview
+            | NumberStatus::RegulatoryRejected
+    ) {
+        return Ok(Json(
+            json!({ "status": row.status.as_str(), "status_reason": row.status_reason }),
+        )
+        .into_response());
+    }
+
     if !state.rate_limiter.allow(
         &format!("reqrefresh:{number_id}"),
         1,
@@ -1299,17 +1317,13 @@ async fn reconcile_claimed_row(
 
     let state = match provider.sub_order_status(&sub_order).await {
         Ok(Some(state)) => state,
-        // `reconcile_one` (the manual `/refresh` path) treats a fresh `None` as "nothing
-        // to report yet" because it may run seconds after a purchase. A row reaching the
-        // SWEEP has already survived at least one prior check with a sub-order id the
-        // provider itself returned — a provider that has since forgotten it is read as
-        // gone, never as still-pending, exactly as `transition()` already treats a
-        // cancelled order.
-        Ok(None) => SubOrderState {
-            order: OrderStatus::Deleted,
-            requirements: RequirementsStatus::Unknown,
-            group: None,
-        },
+        // Spec 0119 R6: only an EXPLICIT cancellation may ever fail a number. A
+        // vanished/not-yet-visible sub-order is nothing decisive, same as `reconcile_one`.
+        Ok(None) => {
+            let failures = row.regulatory_failures + 1;
+            reschedule(pool, row.id, backoff_secs(failures), Some(failures)).await?;
+            return Ok(RowOutcome::Unchanged);
+        }
         // A rate-limited provider gets nothing else asked of it this tick; the row keeps
         // the claim's own `CLAIM_HOLD_SECS` schedule and is retried on the next one.
         Err(ProviderError::RateLimited) => return Ok(RowOutcome::RateLimited),
@@ -1342,6 +1356,8 @@ async fn reconcile_claimed_row(
 /// Write a decisive [`Transition`] and its own next-check schedule in one statement.
 async fn apply_transition(pool: &Pool, number_id: Uuid, t: &Transition) -> Result<(), sqlx::Error> {
     let next_check_secs = recheck_secs_for(t.status);
+    // Same guard as `reconcile_one` — the claim's own row lock is released as soon as it
+    // commits, so a concurrent action could still move the row before this write lands.
     sqlx::query(
         "UPDATE voip_numbers
             SET status = $2, status_reason = $3, outbound_enabled = $4,
@@ -1351,7 +1367,8 @@ async fn apply_transition(pool: &Pool, number_id: Uuid, t: &Transition) -> Resul
                     ELSE now() + make_interval(secs => $5::double precision)
                 END,
                 updated_at = now()
-          WHERE id = $1",
+          WHERE id = $1
+            AND status IN ('pending_regulatory', 'regulatory_review', 'regulatory_rejected')",
     )
     .bind(number_id)
     .bind(t.status.as_str())
@@ -2145,7 +2162,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn reconcile_due_treats_a_vanished_sub_order_as_a_deadline_miss_and_fails_it() {
+    async fn reconcile_due_leaves_a_vanished_sub_order_pending_and_reschedules_with_backoff() {
         let _guard = SWEEP_TEST_LOCK.lock().await;
         let pool = skip_without_db!();
         let org_id = fresh_org(&pool).await;
@@ -2153,27 +2170,32 @@ mod tests {
         let sub_order = SubOrderId("suborder-vanished".into());
         let number_id = regulated_number(&pool, org_id, sub_order.as_str()).await;
         make_due(&pool, number_id).await;
-        // Deliberately never scripted via `set_sub_order_state`: the provider answers
-        // `Ok(None)`, which the SWEEP (unlike `reconcile_one`) reads as gone rather than
-        // "not ready yet".
+        // Deliberately never scripted: the provider answers `Ok(None)` (spec 0119 R6).
 
         let summary = reconcile_due(&pool, &provider, 25).await.unwrap();
         assert!(
-            summary.reconciled >= 1,
+            summary.unchanged >= 1,
             "expected at least our own row: {summary:?}"
         );
 
-        let (status, next_check): (String, Option<chrono::DateTime<chrono::Utc>>) = sqlx::query_as(
-            "SELECT status, regulatory_next_check_at FROM voip_numbers WHERE id = $1",
-        )
-        .bind(number_id)
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-        assert_eq!(status, "failed");
+        let (status, failures, next_check): (String, i32, chrono::DateTime<chrono::Utc>) =
+            sqlx::query_as(
+                "SELECT status, regulatory_failures, regulatory_next_check_at
+                   FROM voip_numbers WHERE id = $1",
+            )
+            .bind(number_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            status, "pending_regulatory",
+            "a vanished sub-order must never be inferred as a deadline-miss cancellation"
+        );
+        assert_eq!(failures, 1);
+        let delta = (next_check - chrono::Utc::now()).num_seconds();
         assert!(
-            next_check.is_none(),
-            "a terminal status needs no further check"
+            (240..=320).contains(&delta),
+            "expected the base 5min backoff, got {delta}s"
         );
         forget_number(&pool, number_id).await;
     }
@@ -2424,5 +2446,74 @@ mod tests {
         .await
         .expect_err("the scripted failure must surface");
         assert!(matches!(err, ReconcileError::Provider(_)), "{err:?}");
+    }
+
+    // Lifecycle guards: a resolved/unrelated-track number must never be rewritten.
+    use crate::voip::regulatory::{apply_transition, Transition};
+
+    #[tokio::test]
+    async fn lifecycle_writes_never_rewrite_a_number_outside_the_regulatory_pipeline() {
+        let pool = skip_without_db!();
+        let org_id = fresh_org(&pool).await;
+        let provider = MockTelephonyProvider::default();
+
+        let sub_order = SubOrderId("suborder-suspended".into());
+        let suspended = regulated_number(&pool, org_id, sub_order.as_str()).await;
+        sqlx::query("UPDATE voip_numbers SET status = 'suspended' WHERE id = $1")
+            .bind(suspended)
+            .execute(&pool)
+            .await
+            .unwrap();
+        provider.set_sub_order_state(
+            &sub_order,
+            SubOrderState {
+                order: OrderStatus::Success,
+                requirements: RequirementsStatus::Approved,
+                group: None,
+            },
+        );
+        reconcile_one(
+            &pool,
+            &provider,
+            suspended,
+            org_id,
+            NumberStatus::Suspended,
+            &sub_order,
+        )
+        .await
+        .unwrap();
+        let status: String = sqlx::query_scalar("SELECT status FROM voip_numbers WHERE id = $1")
+            .bind(suspended)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(status, "suspended", "reconcile_one must never rewrite it");
+
+        sqlx::query(
+            "UPDATE voip_numbers SET status = 'active', outbound_enabled = TRUE WHERE id = $1",
+        )
+        .bind(suspended)
+        .execute(&pool)
+        .await
+        .unwrap();
+        apply_transition(
+            &pool,
+            suspended,
+            &Transition {
+                status: NumberStatus::Failed,
+                reason: None,
+                outbound: false,
+            },
+        )
+        .await
+        .unwrap();
+        let (status, outbound): (String, bool) =
+            sqlx::query_as("SELECT status, outbound_enabled FROM voip_numbers WHERE id = $1")
+                .bind(suspended)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(status, "active", "apply_transition must never rewrite it");
+        assert!(outbound, "its outbound flag must never be cleared this way");
     }
 }
