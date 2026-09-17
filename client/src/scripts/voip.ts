@@ -24,7 +24,21 @@ export interface ApiResult<T> {
   data: T | null;
 }
 
-async function request<T>(method: string, path: string, body?: unknown): Promise<ApiResult<T>> {
+export interface RequestOptions {
+  /**
+   * Let the request outlive the document (spec R5: the phone-call `pagehide` exit).
+   * `sendBeacon` cannot carry the `Authorization` header this endpoint requires, so a
+   * `keepalive` fetch is the only way to make an unload-time hangup reliable.
+   */
+  keepalive?: boolean;
+}
+
+async function request<T>(
+  method: string,
+  path: string,
+  body?: unknown,
+  opts?: RequestOptions,
+): Promise<ApiResult<T>> {
   try {
     const headers: Record<string, string> = { ...authHeaders() };
     if (body !== undefined) headers['Content-Type'] = 'application/json';
@@ -32,6 +46,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
       method,
       headers,
       body: body !== undefined ? JSON.stringify(body) : undefined,
+      ...(opts?.keepalive ? { keepalive: true } : {}),
     });
     let data: T | null = null;
     if (res.status !== 204) {
@@ -163,8 +178,14 @@ export function getVoipCall(orgId: string, callId: string): Promise<ApiResult<Vo
 export function hangUpVoipCall(
   orgId: string,
   callId: string,
+  opts?: RequestOptions,
 ): Promise<ApiResult<{ requested: boolean }>> {
-  return request('POST', `/api/business/organizations/${orgId}/voip/calls/${callId}/hangup`);
+  return request(
+    'POST',
+    `/api/business/organizations/${orgId}/voip/calls/${callId}/hangup`,
+    undefined,
+    opts,
+  );
 }
 
 // --- Contacts (spec 0114) -------------------------------------------------------

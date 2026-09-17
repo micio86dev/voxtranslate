@@ -202,6 +202,20 @@ describe('hangUpVoipCall', () => {
     const r = await voip.hangUpVoipCall(ORG, 'c1');
     expect(r).toEqual({ ok: false, status: 0, data: null });
   });
+
+  it('omits keepalive by default, so an ordinary in-tab hangup is unaffected', async () => {
+    const mock = stubFetch(jsonRes({ requested: true }));
+    await voip.hangUpVoipCall(ORG, 'c1');
+    const init = mock.mock.calls[0][1] as RequestInit;
+    expect(init.keepalive).toBeUndefined();
+  });
+
+  it('passes keepalive:true through to fetch when asked (spec R5: the pagehide exit — the tab is unloading, so the request must be allowed to outlive the document, unlike sendBeacon it can still carry Authorization)', async () => {
+    const mock = stubFetch(jsonRes({ requested: true }));
+    await voip.hangUpVoipCall(ORG, 'c1', { keepalive: true });
+    const init = mock.mock.calls[0][1] as RequestInit;
+    expect(init.keepalive).toBe(true);
+  });
 });
 
 describe('listVoipContacts', () => {
