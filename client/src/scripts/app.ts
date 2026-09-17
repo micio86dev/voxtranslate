@@ -2113,9 +2113,16 @@ async function startCall(): Promise<boolean> {
   // here too so a guest can't reach a call without it (accounts are gated server-side).
   if (billing && !auth.isLoggedIn() && !auth.guestConsentGiven()) {
     show(consentModal, true);
+    // A B2B org member is never an unauthenticated guest, so this branch is dead on the
+    // phone path in practice — but `entryError` still fires defensively so a future
+    // caller can never leave the re-shown dial panel blank instead of explained.
+    entryError('phoneReasonGeneric');
     return false;
   }
-  if (!session || !localStream) return false;
+  if (!session || !localStream) {
+    entryError('phoneReasonGeneric');
+    return false;
+  }
   // Bail before entering a call this browser can't run: in-app browsers / restricted
   // WebViews (the call link opened inside Instagram, Gmail, etc.) and insecure contexts
   // don't expose RTCPeerConnection, so the mesh would crash on the first peer. Stay on
