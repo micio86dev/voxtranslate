@@ -180,9 +180,10 @@ fn requirement_document_url(srv: &Server, org_id: Uuid, number_id: Uuid) -> Stri
     requirements_url(srv, org_id, number_id, "/documents")
 }
 
-/// Real magic bytes for a PDF — enough for a declared-type check, never a full valid
-/// document (this module never needs one to be valid).
+/// Real magic bytes for the two formats these tests exercise — enough for the sniff,
+/// never a full valid document (this module never needs one to be valid).
 const PDF_BYTES: &[u8] = b"%PDF-1.4 minimal test bytes for the sniff";
+const PNG_BYTES: &[u8] = b"\x89PNG\r\n\x1a\nrest of a fake png payload";
 
 fn pdf_part(bytes: Vec<u8>) -> reqwest::multipart::Part {
     reqwest::multipart::Part::bytes(bytes)
@@ -1107,4 +1108,98 @@ async fn a_non_admin_may_not_upload_documents() {
         .await
         .unwrap();
     assert_eq!(r.status(), 403);
+}
+// ---------------------------------------------------------------------------
+// Document upload — size cap (task 6.6, D10) and MIME sniff (task 6.7, D10).
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn uploading_past_the_ten_mib_cap_is_refused_413() {
+    let srv = skip_without_db!(setup().await);
+    let http = Client::new();
+    let (owner, jwt) = user(&srv, "Owner").await;
+    let org_id = org(&srv, owner).await;
+    let number_id = regulated_number(&srv, org_id, "so-doc-oversize").await;
+
+    let mut oversized = b"%PDF-1.4 ".to_vec();
+    oversized.resize(10 * 1024 * 1024 + 4096, b'a');
+    let form = reqwest::multipart::Form::new()
+        .text("requirement_id", "proof_of_address")
+        .part("file", pdf_part(oversized));
+    let r = http
+        .post(requirement_document_url(&srv, org_id, number_id))
+        .bearer_auth(&jwt)
+        .multipart(form)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 413);
+    let body: Value = r.json().await.unwrap();
+    assert_eq!(body["error"], "document_too_large");
+    assert!(
+        srv.provider.uploaded_documents().is_empty(),
+        "an aborted upload must never be recorded as a completed one"
+    );
+}
+
+#[tokio::test]
+async fn a_declared_pdf_with_png_magic_bytes_is_refused_415() {
+    let srv = skip_without_db!(setup().await);
+    let http = Client::new();
+    let (owner, jwt) = user(&srv, "Owner").await;
+    let org_id = org(&srv, owner).await;
+    let number_id = regulated_number(&srv, org_id, "so-doc-spoofed").await;
+
+    let form = reqwest::multipart::Form::new()
+        .text("requirement_id", "proof_of_address")
+        .part(
+            "file",
+            // Declared as `application/pdf`, but the bytes are a PNG — exactly the
+            // spoof design D10's declared-type-AND-magic-bytes check exists to catch.
+            reqwest::multipart::Part::bytes(PNG_BYTES.to_vec())
+                .mime_str("application/pdf")
+                .unwrap(),
+        );
+    let r = http
+        .post(requirement_document_url(&srv, org_id, number_id))
+        .bearer_auth(&jwt)
+        .multipart(form)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 415);
+    let body: Value = r.json().await.unwrap();
+    assert_eq!(body["error"], "document_type_unsupported");
+    assert!(
+        srv.provider.uploaded_documents().is_empty(),
+        "a spoofed type must never reach the provider"
+    );
+}
+
+#[tokio::test]
+async fn an_unsupported_declared_type_is_refused_415() {
+    let srv = skip_without_db!(setup().await);
+    let http = Client::new();
+    let (owner, jwt) = user(&srv, "Owner").await;
+    let org_id = org(&srv, owner).await;
+    let number_id = regulated_number(&srv, org_id, "so-doc-badtype").await;
+
+    let form = reqwest::multipart::Form::new()
+        .text("requirement_id", "proof_of_address")
+        .part(
+            "file",
+            reqwest::multipart::Part::bytes(b"just some text".to_vec())
+                .mime_str("text/plain")
+                .unwrap(),
+        );
+    let r = http
+        .post(requirement_document_url(&srv, org_id, number_id))
+        .bearer_auth(&jwt)
+        .multipart(form)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 415);
+    let body: Value = r.json().await.unwrap();
+    assert_eq!(body["error"], "document_type_unsupported");
 }

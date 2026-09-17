@@ -848,10 +848,15 @@ pub async fn refresh_requirements(
 // Stream-Through", design D9-D12).
 // ---------------------------------------------------------------------------------------
 
-/// The route-level [`axum::extract::DefaultBodyLimit`] — comfortably above what a
-/// legitimate identity/business-proof document needs, leaving room for multipart
-/// boundary/header overhead. A tighter, exactly-enforced file cap with its own stable
-/// refusal code is task 6.6 (design D10), landing in the next slice.
+/// File size cap (design D10). Telnyx itself allows up to 20 MB; this crate halves that,
+/// because every accepted format here (identity/business proof) is a PDF or a photo, not
+/// a scanned binder.
+const MAX_DOCUMENT_BYTES: u64 = 10 * 1024 * 1024;
+
+/// The route-level [`axum::extract::DefaultBodyLimit`] — a safety net one MiB above
+/// [`MAX_DOCUMENT_BYTES`], never the enforcement itself (that is the byte-counting pump
+/// below, which answers a stable `document_too_large` code instead of axum's own opaque
+/// body-limit rejection).
 pub const DOCUMENT_BODY_LIMIT: usize = 11 * 1024 * 1024;
 
 /// Normalise Telnyx's real `av_scan_status` wire vocabulary (`scanned`/`infected`/
@@ -868,40 +873,65 @@ fn normalize_scan_status(raw: &str) -> &'static str {
     }
 }
 
-/// Check a declared multipart `Content-Type` against the allowlist design D10 names
-/// (PDF/PNG/JPEG) and return the canonical `'static` MIME string [`DocumentUpload`]
-/// expects. Magic-byte sniffing against the actual bytes (D10's spoof defence) is task
-/// 6.7, landing in the next slice — this slice trusts the declared type alone.
-fn allowed_type(declared: &str) -> Option<&'static str> {
-    match declared
+/// Cross-check a declared multipart `Content-Type` against the magic bytes of the first
+/// chunk actually received (design D10, task 6.7): a client can label anything, so both
+/// must agree before the bytes ever reach the provider. Returns the canonical `'static`
+/// MIME string [`DocumentUpload`] expects, or `None` if the format is unsupported or the
+/// two signals disagree (a spoofed declaration).
+fn sniff_allowed_type(declared: &str, first_chunk: &[u8]) -> Option<&'static str> {
+    let declared = declared
         .split(';')
         .next()
         .unwrap_or(declared)
         .trim()
-        .to_ascii_lowercase()
-        .as_str()
-    {
-        "application/pdf" => Some("application/pdf"),
-        "image/png" => Some("image/png"),
-        "image/jpeg" | "image/jpg" => Some("image/jpeg"),
-        _ => None,
-    }
+        .to_ascii_lowercase();
+    let sniffed: &'static str = if first_chunk.starts_with(b"%PDF-") {
+        "application/pdf"
+    } else if first_chunk.starts_with(b"\x89PNG\r\n\x1a\n") {
+        "image/png"
+    } else if first_chunk.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        "image/jpeg"
+    } else {
+        return None;
+    };
+    let declared_matches = match sniffed {
+        "application/pdf" => declared == "application/pdf",
+        "image/png" => declared == "image/png",
+        "image/jpeg" => matches!(declared.as_str(), "image/jpeg" | "image/jpg"),
+        _ => false,
+    };
+    declared_matches.then_some(sniffed)
 }
 
-/// The multipart body was malformed mid-read (never a size cap here — that is task 6.6).
-struct PumpMalformed;
+/// Why the pump stopped before the field was fully read.
+enum PumpError {
+    /// [`MAX_DOCUMENT_BYTES`] was exceeded mid-stream (D10, task 6.6). The channel
+    /// already carries an `Err`, which aborts the outbound request to the provider.
+    TooLarge,
+    /// The multipart body itself was malformed mid-read.
+    Malformed,
+}
 
 /// Pump a multipart file field's chunks into `tx`, one at a time, counting bytes as they
-/// go (design D9). This is the entire point of D9: an axum `Field<'_>` cannot outlive the
-/// request, but the `mpsc::Sender` side can be turned into a `'static` `Stream` (see
+/// go (design D9/D10). `first_chunk` was already read by the caller (to sniff its magic
+/// bytes) and is sent first here so nothing the client uploaded is silently dropped.
+///
+/// This is the entire point of D9: an axum `Field<'_>` cannot outlive the request, but the
+/// `mpsc::Sender` side can be turned into a `'static` `Stream` (see
 /// [`upload_requirement_document`]) that `reqwest::Body::wrap_stream` accepts — so a file
 /// many times larger than available memory streams straight through without ever being
 /// buffered here or written to disk.
 async fn pump_field(
     mut field: axum::extract::multipart::Field<'_>,
     tx: mpsc::Sender<Result<Bytes, std::io::Error>>,
-) -> Result<u64, PumpMalformed> {
-    let mut total = 0u64;
+    first_chunk: Bytes,
+) -> Result<u64, PumpError> {
+    let mut total = first_chunk.len() as u64;
+    if tx.send(Ok(first_chunk)).await.is_err() {
+        // The provider side already gave up reading (e.g. it rejected the request
+        // outright) — nothing left for the pump to do.
+        return Ok(total);
+    }
     loop {
         let chunk = match field.chunk().await {
             Ok(Some(c)) => c,
@@ -910,10 +940,18 @@ async fn pump_field(
                 let _ = tx
                     .send(Err(std::io::Error::other("malformed multipart body")))
                     .await;
-                return Err(PumpMalformed);
+                return Err(PumpError::Malformed);
             }
         };
         total += chunk.len() as u64;
+        if total > MAX_DOCUMENT_BYTES {
+            // Send `Err`, not just stop: this is what aborts the outbound request to the
+            // provider immediately, instead of it waiting on a stream that silently ends.
+            let _ = tx
+                .send(Err(std::io::Error::other("document exceeds the size cap")))
+                .await;
+            return Err(PumpError::TooLarge);
+        }
         if tx.send(Ok(chunk)).await.is_err() {
             break;
         }
@@ -1018,9 +1056,15 @@ pub async fn upload_requirement_document(
         return Err(refuse(StatusCode::BAD_REQUEST, "requirement_kind_mismatch"));
     }
 
-    let field = read_file_field(&mut multipart).await?;
+    let mut field = read_file_field(&mut multipart).await?;
     let declared_type = field.content_type().unwrap_or("").to_string();
-    let Some(content_type) = allowed_type(&declared_type) else {
+    let first_chunk = field
+        .chunk()
+        .await
+        .map_err(|_| refuse(StatusCode::BAD_REQUEST, "malformed_upload"))?
+        .ok_or_else(|| refuse(StatusCode::BAD_REQUEST, "malformed_upload"))?;
+
+    let Some(content_type) = sniff_allowed_type(&declared_type, &first_chunk) else {
         return Err(refuse(
             StatusCode::UNSUPPORTED_MEDIA_TYPE,
             "document_type_unsupported",
@@ -1040,11 +1084,20 @@ pub async fn upload_requirement_document(
         .boxed();
     let upload = DocumentUpload { content_type, body };
 
-    let (pump_result, upload_result) =
-        tokio::join!(pump_field(field, tx), telephony.upload_document(upload));
+    let (pump_result, upload_result) = tokio::join!(
+        pump_field(field, tx, first_chunk),
+        telephony.upload_document(upload)
+    );
 
-    let total_bytes =
-        pump_result.map_err(|_| refuse(StatusCode::BAD_REQUEST, "malformed_upload"))?;
+    let total_bytes = match pump_result {
+        Ok(total) => total,
+        Err(PumpError::TooLarge) => {
+            return Err(refuse(StatusCode::PAYLOAD_TOO_LARGE, "document_too_large"))
+        }
+        Err(PumpError::Malformed) => {
+            return Err(refuse(StatusCode::BAD_REQUEST, "malformed_upload"))
+        }
+    };
     let uploaded = upload_result.map_err(provider_err)?;
 
     // D11: the link happens in the SAME request, right after the upload. Telnyx deletes
