@@ -27,11 +27,14 @@ use subtle::ConstantTimeEq;
 
 use super::E164;
 use super::{
-    CallLeg, Cdr, DialRequest, GatherConfig, LegId, MediaStreamConfig, NumberKind, NumberOffer,
-    NumberSearch, NumberStatus, PlayRequest, ProviderCapabilities, ProviderError, ProviderEvent,
-    ProviderEventKind, ProviderMetadata, ProviderNumberId, PurchaseRequest, PurchasedNumber,
-    RecordingConfig, RecordingDownloadUrl, SipConnection, TelephonyProvider, VerificationMethod,
-    VerificationStart, VerificationState, WebhookError, WebhookHeaders,
+    CallLeg, Cdr, DialRequest, DocumentUpload, FieldValue, GatherConfig, GroupStatus, LegId,
+    MediaStreamConfig, NumberKind, NumberOffer, NumberSearch, NumberStatus, OrderRef, OrderStatus,
+    PlayRequest, ProviderCapabilities, ProviderError, ProviderEvent, ProviderEventKind,
+    ProviderMetadata, ProviderNumberId, PurchaseRequest, PurchasedNumber, RecordingConfig,
+    RecordingDownloadUrl, RequirementGroup, RequirementGroupId, RequirementKind, RequirementQuery,
+    RequirementSpec, RequirementsStatus, SipConnection, SubOrderId, SubOrderState,
+    TelephonyProvider, UploadedDocument, VerificationMethod, VerificationStart, VerificationState,
+    WebhookError, WebhookHeaders,
 };
 use crate::voip::pricing::Rate;
 use crate::voip::state::FailureReason;
@@ -82,6 +85,22 @@ struct MockState {
     purchase_error: Option<ProviderError>,
     verifications: HashMap<String, VerificationState>,
     seq: u64,
+    /// Requirement groups this fake carrier has created, keyed by [`RequirementGroupId`].
+    requirement_groups: HashMap<String, RequirementGroup>,
+    /// One-shot failures for the regulatory-requirements methods, keyed by operation name
+    /// so a test can fail exactly one call without guessing call order.
+    regulatory_fail_next: HashMap<&'static str, ProviderError>,
+    /// Scripted sub-order reads, keyed by [`SubOrderId`] — what [`Self::sub_order_status`]
+    /// and [`Self::attach_requirement_group`] report until a test overrides it.
+    sub_order_states: HashMap<String, SubOrderState>,
+    /// What was streamed to `upload_document`, content type and size ONLY — never the
+    /// bytes, the same "no PII survives the boundary" rule design D12 states for logging.
+    uploaded_documents: Vec<(&'static str, u64)>,
+    /// One-shot override for the NEXT `upload_document`'s `av_scan_status`, in Telnyx's
+    /// own wire vocabulary (`scanned`/`infected`/`pending_scan`/`not_scanned`) — never a
+    /// crate-owned word, so a test scripting "infected" proves the write-time
+    /// normalisation (task 6.8), not a mock that already speaks our vocabulary.
+    next_scan_status: Option<String>,
 }
 
 pub struct MockTelephonyProvider {
@@ -97,6 +116,11 @@ pub struct MockTelephonyProvider {
     /// one provider, different between providers: the prices stay assertable and the rows
     /// stay insertable.
     number_seed: u32,
+    /// The same purpose as `number_seed`, one paragraph up, for
+    /// `voip_requirement_groups`'s `(provider, provider_group_id)` UNIQUE index (migration
+    /// 064): distinct per instance, stable within one, so two fresh providers' first
+    /// created groups never collide in a shared test database.
+    group_seed: u32,
     state: Mutex<MockState>,
 }
 
@@ -146,6 +170,7 @@ impl MockTelephonyProvider {
             secret: secret.to_vec(),
             tolerance,
             number_seed: (uuid::Uuid::new_v4().as_u128() % 900_000) as u32 + 100_000,
+            group_seed: (uuid::Uuid::new_v4().as_u128() % 1_000_000_000) as u32,
             state: Mutex::new(MockState::default()),
         }
     }
@@ -195,6 +220,50 @@ impl MockTelephonyProvider {
 
     pub fn fail_rate_deck(&self, err: ProviderError) {
         self.lock().rate_deck_error = Some(err);
+    }
+
+    // ---- regulatory requirements scripting (spec 0119) ---------------------
+
+    /// Fail the NEXT call to the named regulatory operation, one shot. `op` is the trait
+    /// method's own name (`"list_requirements"`, `"create_requirement_group"`,
+    /// `"get_requirement_group"`, `"submit_requirement_values"`, `"upload_document"`,
+    /// `"sub_order_status"`, `"attach_requirement_group"`) — keyed by name rather than by
+    /// call count, so a test fails exactly the call it names instead of guessing position
+    /// in a sequence it does not otherwise control.
+    pub fn fail_next(&self, op: &'static str, err: ProviderError) {
+        self.lock().regulatory_fail_next.insert(op, err);
+    }
+
+    /// Move an already-created group straight to a given [`GroupStatus`], so group-reuse
+    /// tests (design D7/D8) can start from "already approved" without walking the whole
+    /// submit → review pipeline first.
+    pub fn set_group_status(&self, id: &RequirementGroupId, status: GroupStatus) {
+        if let Some(g) = self.lock().requirement_groups.get_mut(&id.0) {
+            g.status = status;
+        }
+    }
+
+    /// Script what [`TelephonyProvider::sub_order_status`] and
+    /// [`TelephonyProvider::attach_requirement_group`] report for this sub-order, the way
+    /// the reconcile sweep would read a real provider's answer.
+    pub fn set_sub_order_state(&self, id: &SubOrderId, state: SubOrderState) {
+        self.lock()
+            .sub_order_states
+            .insert(id.as_str().to_string(), state);
+    }
+
+    /// What has been streamed through `upload_document` so far — content type and byte
+    /// count only. Proves the mock never inspected the bytes themselves.
+    pub fn uploaded_documents(&self) -> Vec<(&'static str, u64)> {
+        self.lock().uploaded_documents.clone()
+    }
+
+    /// Script the NEXT `upload_document`'s `av_scan_status` in Telnyx's own vocabulary
+    /// (`scanned`/`infected`/`pending_scan`/`not_scanned`) — one shot, then the mock
+    /// reverts to its default `scanned`. Lets a test prove the route's write-time
+    /// normalisation (task 6.8) never turns `infected` into a success.
+    pub fn set_next_document_scan_status(&self, status: &str) {
+        self.lock().next_scan_status = Some(status.to_string());
     }
 
     // ---- inspection --------------------------------------------------------
@@ -325,6 +394,35 @@ impl MockWebhookBody {
         self.digit = Some(d);
         self
     }
+}
+
+/// The fixed set of fields this fake regulator wants, shaped like a real requirement list
+/// (one textual field, one address, one document) so code written against it exercises all
+/// three [`RequirementKind`] branches without needing a live Telnyx account.
+fn fixture_requirements() -> Vec<RequirementSpec> {
+    vec![
+        RequirementSpec {
+            id: "business_name".into(),
+            name: "Business name".into(),
+            description: Some("Legal name of the registered business.".into()),
+            example: Some("Acme SRL".into()),
+            kind: RequirementKind::Textual,
+        },
+        RequirementSpec {
+            id: "registered_address".into(),
+            name: "Registered address".into(),
+            description: Some("Address on file with the local regulator.".into()),
+            example: None,
+            kind: RequirementKind::Address,
+        },
+        RequirementSpec {
+            id: "proof_of_address".into(),
+            name: "Proof of address".into(),
+            description: Some("A utility bill or bank statement no older than 3 months.".into()),
+            example: None,
+            kind: RequirementKind::Document,
+        },
+    ]
 }
 
 /// Map a mock cause string onto a domain reason. Deliberately the same shape as the real
@@ -529,14 +627,30 @@ impl TelephonyProvider for MockTelephonyProvider {
             return Ok(existing.clone());
         }
         st.seq += 1;
+        // The same "offer index 1 needs paperwork" rule `search_numbers` scripts, read
+        // back off the e164 it generated (`…{seed}{i:02}`), so a caller that bought the
+        // regulated offer sees exactly the regulated purchase it searched for.
+        let is_regulated = req.e164.ends_with("01");
         let bought = PurchasedNumber {
             provider_number_id: ProviderNumberId(format!("mock-num-{}", st.seq)),
             e164: req.e164.clone(),
-            status: NumberStatus::Active,
+            status: if is_regulated {
+                NumberStatus::PendingRegulatory
+            } else {
+                NumberStatus::Active
+            },
             monthly_cost: Decimal::new(135, 2),
             setup_cost: Decimal::new(100, 2),
             currency: "USD".into(),
-            regulatory_requirement: None,
+            regulatory_requirement: is_regulated
+                .then(|| "A local address in this country is required.".to_string()),
+            // Every real Telnyx purchase creates an order and a sub-order, regardless of
+            // regulatory status — the mock stays faithful to that rather than only
+            // scripting the regulated case.
+            order: Some(OrderRef {
+                order_id: format!("mock-order-{}", st.seq),
+                sub_order_id: SubOrderId(format!("mock-suborder-{}", st.seq)),
+            }),
         };
         st.sold.insert(req.idempotency_key, bought.clone());
         Ok(bought)
@@ -590,6 +704,175 @@ impl TelephonyProvider for MockTelephonyProvider {
             .get(id)
             .copied()
             .unwrap_or(VerificationState::Pending))
+    }
+
+    // ---- regulatory requirements (spec 0119) -------------------------------
+    //
+    // A faithful fake carrier, not a stub: every automated test in the suite that touches
+    // this feature runs against exactly this behaviour (same rationale as the file's own
+    // header comment for the rest of the provider surface).
+
+    async fn list_requirements(
+        &self,
+        query: &RequirementQuery,
+    ) -> Result<Vec<RequirementSpec>, ProviderError> {
+        let mut st = self.lock();
+        if let Some(err) = st.regulatory_fail_next.remove("list_requirements") {
+            return Err(err);
+        }
+        // The fixture is the same shape for every combination — a mock does not need a
+        // per-country catalogue to prove the dashboard renders what the provider sends.
+        let _ = query;
+        Ok(fixture_requirements())
+    }
+
+    async fn create_requirement_group(
+        &self,
+        query: &RequirementQuery,
+        customer_ref: &str,
+    ) -> Result<RequirementGroup, ProviderError> {
+        let mut st = self.lock();
+        if let Some(err) = st.regulatory_fail_next.remove("create_requirement_group") {
+            return Err(err);
+        }
+        let _ = (query, customer_ref);
+        st.seq += 1;
+        let group = RequirementGroup {
+            id: RequirementGroupId(format!("mock-group-{}-{}", self.group_seed, st.seq)),
+            status: GroupStatus::Unapproved,
+            requirements: fixture_requirements()
+                .into_iter()
+                .map(|r| (r, None))
+                .collect(),
+        };
+        st.requirement_groups
+            .insert(group.id.0.clone(), group.clone());
+        Ok(group)
+    }
+
+    async fn get_requirement_group(
+        &self,
+        id: &RequirementGroupId,
+    ) -> Result<Option<RequirementGroup>, ProviderError> {
+        let mut st = self.lock();
+        if let Some(err) = st.regulatory_fail_next.remove("get_requirement_group") {
+            return Err(err);
+        }
+        Ok(st.requirement_groups.get(&id.0).cloned())
+    }
+
+    async fn submit_requirement_values(
+        &self,
+        id: &RequirementGroupId,
+        values: &[(String, FieldValue)],
+    ) -> Result<RequirementGroup, ProviderError> {
+        let mut st = self.lock();
+        if let Some(err) = st.regulatory_fail_next.remove("submit_requirement_values") {
+            return Err(err);
+        }
+        let group =
+            st.requirement_groups
+                .get_mut(&id.0)
+                .ok_or_else(|| ProviderError::Malformed {
+                    detail: format!("unknown requirement group {}", id.0),
+                })?;
+        for (req_id, value) in values {
+            if let Some(slot) = group
+                .requirements
+                .iter_mut()
+                .find(|(spec, _)| &spec.id == req_id)
+            {
+                slot.1 = Some(value.clone());
+            }
+        }
+        // A fully-valued group moves on to the provider's own review, the way a real
+        // submission would — a test asserting on the returned status therefore proves the
+        // values actually landed rather than the group merely echoing back.
+        if group.requirements.iter().all(|(_, v)| v.is_some()) {
+            group.status = GroupStatus::PendingApproval;
+        }
+        Ok(group.clone())
+    }
+
+    async fn upload_document(
+        &self,
+        upload: DocumentUpload,
+    ) -> Result<UploadedDocument, ProviderError> {
+        // Checked and released BEFORE the stream is awaited: holding a `std::sync::Mutex`
+        // guard across an `.await` would make this future `!Send`, which `async_trait`
+        // cannot box.
+        let scripted = {
+            let mut st = self.lock();
+            st.regulatory_fail_next.remove("upload_document")
+        };
+        if let Some(err) = scripted {
+            return Err(err);
+        }
+
+        use futures::StreamExt;
+        let content_type = upload.content_type;
+        let mut body = upload.body;
+        let mut size: u64 = 0;
+        while let Some(chunk) = body.next().await {
+            let chunk = chunk.map_err(|e| ProviderError::Malformed {
+                detail: e.to_string(),
+            })?;
+            // The whole point of the boundary this proves: count bytes, never read them.
+            size += chunk.len() as u64;
+        }
+
+        let mut st = self.lock();
+        st.seq += 1;
+        st.uploaded_documents.push((content_type, size));
+        // Real Telnyx vocabulary (verified PR4 against the published OpenAPI spec):
+        // `scanned`/`infected`/`pending_scan`/`not_scanned` — never a crate-owned word.
+        // `scanned` (success) is the default so most tests never need to script it.
+        let av_scan_status = st
+            .next_scan_status
+            .take()
+            .unwrap_or_else(|| "scanned".into());
+        Ok(UploadedDocument {
+            id: format!("mock-doc-{}", st.seq),
+            av_scan_status,
+        })
+    }
+
+    async fn sub_order_status(
+        &self,
+        id: &SubOrderId,
+    ) -> Result<Option<SubOrderState>, ProviderError> {
+        let mut st = self.lock();
+        if let Some(err) = st.regulatory_fail_next.remove("sub_order_status") {
+            return Err(err);
+        }
+        Ok(st.sub_order_states.get(id.as_str()).cloned())
+    }
+
+    async fn attach_requirement_group(
+        &self,
+        sub_order: &SubOrderId,
+        group: &RequirementGroupId,
+    ) -> Result<SubOrderState, ProviderError> {
+        let mut st = self.lock();
+        if let Some(err) = st.regulatory_fail_next.remove("attach_requirement_group") {
+            return Err(err);
+        }
+        let mut state = st
+            .sub_order_states
+            .get(sub_order.as_str())
+            .cloned()
+            .unwrap_or(SubOrderState {
+                order: OrderStatus::Pending,
+                requirements: RequirementsStatus::InfoPending,
+                group: None,
+            });
+        state.group = Some(group.clone());
+        // Attaching a group is what starts the provider's own review — mirrored here so a
+        // caller can observe the effect of attaching without a second scripted call.
+        state.requirements = RequirementsStatus::UnderReview;
+        st.sub_order_states
+            .insert(sub_order.as_str().to_string(), state.clone());
+        Ok(state)
     }
 
     // ---- SIP / PBX (spec 0118) ---------------------------------------------
@@ -686,7 +969,8 @@ impl TelephonyProvider for MockTelephonyProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::telephony::{MediaCodec, MediaTrack, E164};
+    use crate::telephony::{AddressValue, MediaCodec, MediaTrack, RequirementAction, E164};
+    use bytes::Bytes;
 
     fn n(raw: &str) -> E164 {
         E164::parse(raw).expect("test number")
@@ -1060,5 +1344,339 @@ mod tests {
             p.fetch_rate_deck().await.unwrap_err(),
             ProviderError::RateLimited
         );
+    }
+
+    // ---- regulatory requirements (spec 0119) -----------------------------------
+
+    fn requirement_query() -> RequirementQuery {
+        RequirementQuery {
+            country: "FR".into(),
+            kind: NumberKind::Mobile,
+            action: RequirementAction::Ordering,
+        }
+    }
+
+    #[tokio::test]
+    async fn listing_requirements_is_shaped_like_a_real_provider_response() {
+        // Textual, Address and Document all need to be exercised by SOMETHING that is not
+        // a live Telnyx account, or the parsing code downstream only ever sees one branch.
+        let p = MockTelephonyProvider::default();
+        let specs = p.list_requirements(&requirement_query()).await.unwrap();
+        assert_eq!(specs.len(), 3);
+        assert!(specs.iter().any(|r| r.kind == RequirementKind::Textual));
+        assert!(specs.iter().any(|r| r.kind == RequirementKind::Address));
+        assert!(specs.iter().any(|r| r.kind == RequirementKind::Document));
+        let ids: std::collections::HashSet<&str> = specs.iter().map(|r| r.id.as_str()).collect();
+        assert_eq!(ids.len(), specs.len(), "requirement ids must be unique");
+    }
+
+    #[tokio::test]
+    async fn list_requirements_can_be_scripted_to_fail_exactly_once() {
+        let p = MockTelephonyProvider::default();
+        p.fail_next("list_requirements", ProviderError::RateLimited);
+        assert_eq!(
+            p.list_requirements(&requirement_query()).await.unwrap_err(),
+            ProviderError::RateLimited
+        );
+        // One-shot: the very next call succeeds, unaffected.
+        assert!(p.list_requirements(&requirement_query()).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn creating_a_group_starts_unapproved_with_every_field_unset() {
+        let p = MockTelephonyProvider::default();
+        let group = p
+            .create_requirement_group(&requirement_query(), "org-1")
+            .await
+            .unwrap();
+        assert_eq!(group.status, GroupStatus::Unapproved);
+        assert_eq!(group.requirements.len(), 3);
+        assert!(group.requirements.iter().all(|(_, v)| v.is_none()));
+    }
+
+    #[tokio::test]
+    async fn each_created_group_gets_its_own_id_and_can_be_read_back() {
+        // Triangulation: a hardcoded id would make the second assertion fail here, and
+        // `get_requirement_group` proves the FIRST call's group is exactly what was
+        // returned, not a fresh one built on read.
+        let p = MockTelephonyProvider::default();
+        let a = p
+            .create_requirement_group(&requirement_query(), "org-1")
+            .await
+            .unwrap();
+        let b = p
+            .create_requirement_group(&requirement_query(), "org-2")
+            .await
+            .unwrap();
+        assert_ne!(a.id, b.id);
+
+        let read_back = p.get_requirement_group(&a.id).await.unwrap();
+        assert_eq!(read_back, Some(a));
+    }
+
+    #[tokio::test]
+    async fn two_provider_instances_never_mint_the_same_group_id() {
+        // The same reason `number_seed` exists for `search_numbers` (see this struct's own
+        // field doc): `voip_requirement_groups` carries a UNIQUE `(provider,
+        // provider_group_id)` index across the whole install (migration 064), and a real
+        // caller creates a fresh `MockTelephonyProvider` per test/session. Before this, the
+        // FIRST group from every fresh instance was always `"mock-group-1"` — harmless
+        // in-process, but a real collision the moment two instances' first groups both
+        // land in the same shared Postgres test database.
+        let a = MockTelephonyProvider::default()
+            .create_requirement_group(&requirement_query(), "org-1")
+            .await
+            .unwrap();
+        let b = MockTelephonyProvider::default()
+            .create_requirement_group(&requirement_query(), "org-1")
+            .await
+            .unwrap();
+        assert_ne!(
+            a.id, b.id,
+            "two fresh provider instances must never mint the same first group id"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_unknown_group_id_reads_back_as_none_not_an_error() {
+        let p = MockTelephonyProvider::default();
+        let missing = p
+            .get_requirement_group(&RequirementGroupId("nope".into()))
+            .await
+            .unwrap();
+        assert_eq!(missing, None);
+    }
+
+    #[tokio::test]
+    async fn submitting_values_fills_the_matching_slots_and_moves_to_pending_approval_once_complete(
+    ) {
+        let p = MockTelephonyProvider::default();
+        let group = p
+            .create_requirement_group(&requirement_query(), "org-1")
+            .await
+            .unwrap();
+
+        // Partial submission: still unapproved, values land in the right slots.
+        let partial = p
+            .submit_requirement_values(
+                &group.id,
+                &[(
+                    "business_name".to_string(),
+                    FieldValue::Text("Acme SRL".into()),
+                )],
+            )
+            .await
+            .unwrap();
+        assert_eq!(partial.status, GroupStatus::Unapproved);
+        let business_name_slot = partial
+            .requirements
+            .iter()
+            .find(|(spec, _)| spec.id == "business_name")
+            .unwrap();
+        assert_eq!(
+            business_name_slot.1,
+            Some(FieldValue::Text("Acme SRL".into()))
+        );
+
+        // Completing every field is what a real submission would need before Telnyx even
+        // looks at it — proven here by the status actually moving.
+        let complete = p
+            .submit_requirement_values(
+                &group.id,
+                &[
+                    (
+                        "registered_address".to_string(),
+                        FieldValue::Address(AddressValue {
+                            first_name: "Jane".into(),
+                            last_name: "Doe".into(),
+                            business_name: "Acme SRL".into(),
+                            street_address: "1 Rue de la Paix".into(),
+                            extended_address: None,
+                            locality: "Paris".into(),
+                            administrative_area: None,
+                            postal_code: "75002".into(),
+                            country_code: "FR".into(),
+                        }),
+                    ),
+                    (
+                        "proof_of_address".to_string(),
+                        FieldValue::Document("mock-doc-1".into()),
+                    ),
+                ],
+            )
+            .await
+            .unwrap();
+        assert_eq!(complete.status, GroupStatus::PendingApproval);
+    }
+
+    #[tokio::test]
+    async fn submitting_against_an_unknown_group_is_refused() {
+        let p = MockTelephonyProvider::default();
+        let err = p
+            .submit_requirement_values(&RequirementGroupId("ghost".into()), &[])
+            .await
+            .unwrap_err();
+        assert!(matches!(err, ProviderError::Malformed { .. }));
+    }
+
+    #[tokio::test]
+    async fn an_approved_group_can_be_scripted_directly_for_reuse_tests() {
+        // Design D7/D8: group reuse tests need to start from "already approved" without
+        // walking submit -> review first.
+        let p = MockTelephonyProvider::default();
+        let group = p
+            .create_requirement_group(&requirement_query(), "org-1")
+            .await
+            .unwrap();
+        p.set_group_status(&group.id, GroupStatus::Approved);
+        let read_back = p.get_requirement_group(&group.id).await.unwrap().unwrap();
+        assert_eq!(read_back.status, GroupStatus::Approved);
+    }
+
+    #[tokio::test]
+    async fn an_unscripted_sub_order_has_no_recorded_status() {
+        let p = MockTelephonyProvider::default();
+        assert_eq!(
+            p.sub_order_status(&SubOrderId("so-1".into()))
+                .await
+                .unwrap(),
+            None
+        );
+    }
+
+    #[tokio::test]
+    async fn a_scripted_sub_order_state_is_read_back_verbatim() {
+        let p = MockTelephonyProvider::default();
+        let id = SubOrderId("so-1".into());
+        let scripted = SubOrderState {
+            order: OrderStatus::Success,
+            requirements: RequirementsStatus::Approved,
+            group: None,
+        };
+        p.set_sub_order_state(&id, scripted.clone());
+        assert_eq!(p.sub_order_status(&id).await.unwrap(), Some(scripted));
+    }
+
+    #[tokio::test]
+    async fn attaching_a_group_to_a_fresh_sub_order_defaults_to_info_pending_under_review() {
+        // No purchase or prior scripting happened for this sub-order: attaching a group is
+        // the FIRST thing that puts it on the requirements pipeline at all.
+        let p = MockTelephonyProvider::default();
+        let sub_order = SubOrderId("so-2".into());
+        let group = p
+            .create_requirement_group(&requirement_query(), "org-1")
+            .await
+            .unwrap();
+
+        let state = p
+            .attach_requirement_group(&sub_order, &group.id)
+            .await
+            .unwrap();
+        assert_eq!(state.order, OrderStatus::Pending);
+        assert_eq!(state.requirements, RequirementsStatus::UnderReview);
+        assert_eq!(state.group, Some(group.id));
+    }
+
+    #[tokio::test]
+    async fn attaching_preserves_the_orders_own_status() {
+        // The order's lifecycle and the requirements pipeline are independent axes
+        // (design Interfaces: `SubOrderState { order, requirements, group }`) — attaching
+        // a group must not clobber an order status it has no authority over.
+        let p = MockTelephonyProvider::default();
+        let sub_order = SubOrderId("so-3".into());
+        p.set_sub_order_state(
+            &sub_order,
+            SubOrderState {
+                order: OrderStatus::Success,
+                requirements: RequirementsStatus::InfoPending,
+                group: None,
+            },
+        );
+        let group = p
+            .create_requirement_group(&requirement_query(), "org-1")
+            .await
+            .unwrap();
+
+        let state = p
+            .attach_requirement_group(&sub_order, &group.id)
+            .await
+            .unwrap();
+        assert_eq!(state.order, OrderStatus::Success);
+        assert_eq!(state.requirements, RequirementsStatus::UnderReview);
+    }
+
+    #[tokio::test]
+    async fn attach_requirement_group_can_be_scripted_to_fail_by_name_only() {
+        // Keyed by op name, not call order: scripting `attach_requirement_group` must not
+        // touch an unrelated call to `sub_order_status`.
+        let p = MockTelephonyProvider::default();
+        p.fail_next(
+            "attach_requirement_group",
+            ProviderError::Unavailable {
+                detail: "504".into(),
+            },
+        );
+        assert!(p.sub_order_status(&SubOrderId("so-4".into())).await.is_ok());
+        assert_eq!(
+            p.attach_requirement_group(
+                &SubOrderId("so-4".into()),
+                &RequirementGroupId("g-1".into())
+            )
+            .await
+            .unwrap_err(),
+            ProviderError::Unavailable {
+                detail: "504".into()
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn uploading_a_document_streams_it_through_without_storing_the_bytes() {
+        use futures::stream;
+
+        let p = MockTelephonyProvider::default();
+        let chunks: Vec<Result<Bytes, std::io::Error>> = vec![
+            Ok(Bytes::from_static(b"%PDF-1.4 ")),
+            Ok(Bytes::from_static(b"rest of a fake pdf")),
+        ];
+        let expected_size: u64 = chunks
+            .iter()
+            .map(|c| c.as_ref().unwrap().len() as u64)
+            .sum();
+        let upload = DocumentUpload {
+            content_type: "application/pdf",
+            body: Box::pin(stream::iter(chunks)),
+        };
+
+        let uploaded = p.upload_document(upload).await.unwrap();
+        assert!(!uploaded.id.is_empty());
+        // Real Telnyx vocabulary (verified PR4), not a crate-owned word — task 6.8's
+        // normalisation is what turns this into `passed` at the route/DB boundary.
+        assert_eq!(uploaded.av_scan_status, "scanned");
+        assert_eq!(
+            p.uploaded_documents(),
+            vec![("application/pdf", expected_size)]
+        );
+    }
+
+    #[tokio::test]
+    async fn upload_document_can_be_scripted_to_fail_without_reading_the_stream() {
+        use futures::stream;
+
+        let p = MockTelephonyProvider::default();
+        p.fail_next("upload_document", ProviderError::AccountBlocked);
+        let upload = DocumentUpload {
+            content_type: "application/pdf",
+            body: Box::pin(stream::iter(vec![Ok::<Bytes, std::io::Error>(
+                Bytes::from_static(b"whatever"),
+            )])),
+        };
+        assert_eq!(
+            p.upload_document(upload).await.unwrap_err(),
+            ProviderError::AccountBlocked
+        );
+        // Nothing was recorded — the scripted failure short-circuited before the stream
+        // was ever touched.
+        assert!(p.uploaded_documents().is_empty());
     }
 }

@@ -18,7 +18,9 @@ pub mod telnyx;
 use std::fmt;
 
 use async_trait::async_trait;
+use bytes::Bytes;
 use chrono::{DateTime, Utc};
+use futures::stream::BoxStream;
 use rust_decimal::Decimal;
 
 pub use e164::{E164Error, E164};
@@ -331,6 +333,17 @@ pub enum ProviderEventKind {
     Unhandled {
         raw_type: String,
     },
+    /// A number order finished at the provider (spec 0119 "Webhook Fast-Path", design
+    /// D5). Deliberately NOT a call-lifecycle event: it describes an ORDER, not a leg, and
+    /// carries no `call_control_id` at all. This is a NUDGE only — [`crate::voip::regulatory`]
+    /// is the one place that reads it, and it does nothing but move an affected number's
+    /// next reconcile check to now; the sweep is what actually reads the provider's live
+    /// status and applies it.
+    NumberOrderCompleted {
+        order_id: String,
+        /// One sub-order per number on the parent order.
+        sub_order_ids: Vec<String>,
+    },
 }
 
 /// Why a provider call failed. Separate from [`FailureReason`], which describes the
@@ -530,6 +543,13 @@ pub enum NumberStatus {
     /// A regulator is the blocker. Saying "active" here would be a lie with a fine
     /// attached.
     PendingRegulatory,
+    /// Requirements were submitted and attached to the sub-order; awaiting the
+    /// provider's decision (spec 0119 R5).
+    RegulatoryReview,
+    /// The provider's own `requirement-info-exception` state, projected onto our
+    /// vocabulary. Resubmittable — never terminal — the reason lives in `status_reason`
+    /// (spec 0119 R5).
+    RegulatoryRejected,
     Active,
     Suspended,
     Releasing,
@@ -542,6 +562,8 @@ impl NumberStatus {
         match self {
             Self::Ordering => "ordering",
             Self::PendingRegulatory => "pending_regulatory",
+            Self::RegulatoryReview => "regulatory_review",
+            Self::RegulatoryRejected => "regulatory_rejected",
             Self::Active => "active",
             Self::Suspended => "suspended",
             Self::Releasing => "releasing",
@@ -555,6 +577,8 @@ impl NumberStatus {
     pub fn parse(raw: &str) -> Self {
         match raw.trim().to_ascii_lowercase().as_str() {
             "pending_regulatory" | "pending-regulatory" | "pending" => Self::PendingRegulatory,
+            "regulatory_review" | "regulatory-review" => Self::RegulatoryReview,
+            "regulatory_rejected" | "regulatory-rejected" => Self::RegulatoryRejected,
             "active" => Self::Active,
             "suspended" => Self::Suspended,
             "releasing" => Self::Releasing,
@@ -563,6 +587,26 @@ impl NumberStatus {
             _ => Self::Ordering,
         }
     }
+}
+
+/// The provider's own handle on the sub-order for one purchased number, needed to poll
+/// status, submit requirements and attach a requirement group (spec 0119). Opaque, like
+/// [`ProviderNumberId`]: its shape is the provider's business.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SubOrderId(pub String);
+
+impl SubOrderId {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+/// Both halves of a purchase's identity at the provider: the parent order and this
+/// number's own sub-order within it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OrderRef {
+    pub order_id: String,
+    pub sub_order_id: SubOrderId,
 }
 
 #[derive(Debug, Clone)]
@@ -574,6 +618,268 @@ pub struct PurchasedNumber {
     pub setup_cost: Decimal,
     pub currency: String,
     pub regulatory_requirement: Option<String>,
+    /// `None` only where a provider genuinely has no order/sub-order concept for a
+    /// purchase; every real Telnyx purchase has one regardless of regulatory status.
+    pub order: Option<OrderRef>,
+}
+
+// ---- regulatory requirements (spec 0119) -----------------------------------
+
+/// What the requirement list is FOR. A single variant today because only ordering-time
+/// requirements are in scope (spec 0119 §Out of Scope); kept as an enum rather than a
+/// bare marker so a later action (e.g. porting) extends this type instead of replacing it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RequirementAction {
+    Ordering,
+}
+
+impl RequirementAction {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Ordering => "ordering",
+        }
+    }
+}
+
+/// A country + phone-number-type + action triple, which is exactly how a provider scopes
+/// both a requirement list and a requirement group (design D7).
+#[derive(Debug, Clone)]
+pub struct RequirementQuery {
+    /// ISO 3166-1 alpha-2.
+    pub country: String,
+    pub kind: NumberKind,
+    pub action: RequirementAction,
+}
+
+/// The shape of the value one requirement field expects.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RequirementKind {
+    Textual,
+    Address,
+    Document,
+}
+
+impl RequirementKind {
+    /// Telnyx's own `field_type` vocabulary is `textual`, `datetime`, `address`, `document`
+    /// (verified against the published OpenAPI spec, `RegulatoryRequirements`/
+    /// `SubNumberOrderRegulatoryRequirement` schemas, 2026-09-16). This crate has no
+    /// separate date type, so `datetime` folds into `Textual` — a free-text field is a
+    /// strictly safe superset of a date field. Anything else unrecognised also falls to
+    /// `Textual` rather than `Document`, because rendering an unknown kind as a plain text
+    /// box is recoverable; rendering it as a file uploader for a field that is not one is
+    /// not.
+    pub fn parse(raw: &str) -> Self {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "address" => Self::Address,
+            "document" => Self::Document,
+            _ => Self::Textual,
+        }
+    }
+
+    /// The wire word this crate emits for a kind, in the dashboard-facing requirements
+    /// view — the same three words [`Self::parse`] recognises for `address`/`document`,
+    /// with `textual` as the catch-all it also falls back to.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Textual => "textual",
+            Self::Address => "address",
+            Self::Document => "document",
+        }
+    }
+}
+
+/// One field the regulator wants, described in the provider's own words so the dashboard
+/// can render a form without this crate knowing what "KYC" means in any given country.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RequirementSpec {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub example: Option<String>,
+    pub kind: RequirementKind,
+}
+
+/// Opaque provider handle for a requirement group, reused across purchases in the same
+/// org + country + phone-number-type + action combination (design D7).
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct RequirementGroupId(pub String);
+
+/// Where a requirement group is in the provider's own approval pipeline.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GroupStatus {
+    Unapproved,
+    PendingApproval,
+    Approved,
+    Declined,
+    Expired,
+    NoLongerEligible,
+    /// A provider word this crate does not recognise yet. Never treated as `Approved` —
+    /// an unrecognised group state must not be reused for a later purchase.
+    Unknown,
+}
+
+impl GroupStatus {
+    /// Telnyx's own `RequirementGroup.status` enum (verified against the published OpenAPI
+    /// spec 2026-09-16) is hyphenated: `approved`, `unapproved`, `pending-approval`,
+    /// `declined`, `expired`. `no-longer-eligible` is not in that enum but is accepted here
+    /// too (both hyphen and underscore forms) because it is this crate's own documented
+    /// vocabulary for a group that outlived its approval — better to recognise it if the
+    /// provider ever sends it than to fail closed into `Unknown` for a word we already have
+    /// a home for. Anything else unrecognised is `Unknown`, never `Approved` (see above).
+    pub fn parse(raw: &str) -> Self {
+        match raw.trim().to_ascii_lowercase().replace('_', "-").as_str() {
+            "approved" => Self::Approved,
+            "unapproved" => Self::Unapproved,
+            "pending-approval" => Self::PendingApproval,
+            "declined" => Self::Declined,
+            "expired" => Self::Expired,
+            "no-longer-eligible" => Self::NoLongerEligible,
+            _ => Self::Unknown,
+        }
+    }
+
+    /// The underscore vocabulary `voip_requirement_groups.status` stores (migration 064's
+    /// CHECK constraint), which is OUR OWN column and therefore not obliged to match
+    /// Telnyx's hyphenated wire form. [`Self::parse`] already accepts both forms, so this
+    /// and [`Self::parse`] round-trip for every variant.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Unapproved => "unapproved",
+            Self::PendingApproval => "pending_approval",
+            Self::Approved => "approved",
+            Self::Declined => "declined",
+            Self::Expired => "expired",
+            Self::NoLongerEligible => "no_longer_eligible",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
+/// A physical mailing address, as the provider's address-verification endpoint wants it.
+///
+/// **Design D13, resolved against Telnyx's published OpenAPI spec** (`AddressCreate`
+/// schema, `POST /v2/addresses`, verified 2026-09-16): the required fields are
+/// `first_name`, `last_name`, `business_name`, `street_address`, `locality` and
+/// `country_code` — `postal_code` is accepted but not required by that schema, and is
+/// kept here anyway because the caller collecting this value already has it. The three
+/// name fields were missing from this type through PR3 (it was written against Telnyx's
+/// address OBJECT docs, which describe what an address looks like once it exists, not
+/// what creating one requires); PR4 adds them. A regulatory address has no natural
+/// "customer name" of its own, so the caller populating this struct is expected to
+/// source `first_name`/`last_name`/`business_name` from the org's own profile.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AddressValue {
+    pub first_name: String,
+    pub last_name: String,
+    pub business_name: String,
+    pub street_address: String,
+    pub extended_address: Option<String>,
+    pub locality: String,
+    pub administrative_area: Option<String>,
+    pub postal_code: String,
+    /// ISO 3166-1 alpha-2.
+    pub country_code: String,
+}
+
+/// One submitted requirement value. An enum, not a `String`, so a document id can never be
+/// typo'd into the textual-field slot and forwarded to the provider as free text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FieldValue {
+    Text(String),
+    Address(AddressValue),
+    /// A document id already returned by [`TelephonyProvider::upload_document`].
+    Document(String),
+}
+
+/// A requirement group and the values submitted against it so far.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RequirementGroup {
+    pub id: RequirementGroupId,
+    pub status: GroupStatus,
+    pub requirements: Vec<(RequirementSpec, Option<FieldValue>)>,
+}
+
+/// A document to stream through to the provider. `body` is a `'static` stream so it can
+/// outlive the (non-`'static`) multipart field it was read from — the whole point of D9:
+/// no buffer big enough to hold the file, no temp file that could hold PII.
+pub struct DocumentUpload {
+    pub content_type: &'static str,
+    pub body: BoxStream<'static, Result<Bytes, std::io::Error>>,
+}
+
+impl fmt::Debug for DocumentUpload {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // The stream has no useful Debug shape, and printing it must never be tempting as
+        // a way to "peek" at document bytes.
+        f.debug_struct("DocumentUpload")
+            .field("content_type", &self.content_type)
+            .finish_non_exhaustive()
+    }
+}
+
+/// What the provider handed back after accepting a document. No bytes, no filename — see
+/// design D12.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UploadedDocument {
+    pub id: String,
+    pub av_scan_status: String,
+}
+
+/// The parent order's own lifecycle, distinct from the requirements pipeline riding on top
+/// of it — an order can succeed or fail independently of whether requirements were ever
+/// needed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OrderStatus {
+    Pending,
+    Success,
+    Failure,
+    Cancelled,
+    Deleted,
+    Unknown,
+}
+
+impl OrderStatus {
+    /// Telnyx's own `numbers_SubNumberOrder.status` enum (verified against the published
+    /// OpenAPI spec 2026-09-16) is only `pending`, `success`, `failure`. `cancelled` and
+    /// `deleted` are accepted too — `POST /v2/sub_number_orders/:id/cancel` exists as a
+    /// real operation and [`crate::voip::regulatory::transition`] already models a
+    /// cancelled/deleted order as its own outcome (spec 0119 R5's deadline-miss
+    /// cancellation) — recognising the word the spec's own cancel endpoint implies costs
+    /// nothing, even though no confirmed response has shown it yet. Anything else
+    /// unrecognised is `Unknown`, never guessed as `Success`.
+    pub fn parse(raw: &str) -> Self {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "pending" => Self::Pending,
+            "success" => Self::Success,
+            "failure" => Self::Failure,
+            "cancelled" | "canceled" => Self::Cancelled,
+            "deleted" => Self::Deleted,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+/// Where the REQUIREMENTS side of a sub-order sits, independent of the order's own status.
+/// Named after Telnyx's own states except `Exception`, which is Telnyx's
+/// `requirement-info-exception` carrying the rejection reason (spec 0119 R5) — projected
+/// here rather than exposed as a Telnyx string.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RequirementsStatus {
+    InfoPending,
+    UnderReview,
+    Exception { reason: Option<String> },
+    Approved,
+    Unknown,
+}
+
+/// Everything [`regulatory::transition`] needs to decide the next [`NumberStatus`].
+///
+/// [`regulatory::transition`]: crate::voip::regulatory::transition
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SubOrderState {
+    pub order: OrderStatus,
+    pub requirements: RequirementsStatus,
+    pub group: Option<RequirementGroupId>,
 }
 
 /// How the provider proves the caller owns a number they already have elsewhere.
@@ -737,6 +1043,63 @@ pub trait TelephonyProvider: Send + Sync {
         id: &str,
     ) -> Result<VerificationState, ProviderError>;
 
+    // ---- regulatory requirements (spec 0119) -------------------------------
+    //
+    // Seven explicit methods, implemented in BOTH adapters (design D1) — the same
+    // "explicit beats a default that fails silently" rule the rest of this trait
+    // already follows. PR2 gives Telnyx `Unsupported` stubs; PR3 fills them in.
+
+    /// The fields Telnyx wants for this country/kind/action, sourced live from the
+    /// provider so a regulator's changing paperwork never drifts from what this dashboard
+    /// shows.
+    async fn list_requirements(
+        &self,
+        query: &RequirementQuery,
+    ) -> Result<Vec<RequirementSpec>, ProviderError>;
+
+    /// Start a fresh requirement group for this combination. Reuse of an already-approved
+    /// group is the CALLER's decision (design D7/D8) — this method always creates.
+    async fn create_requirement_group(
+        &self,
+        query: &RequirementQuery,
+        customer_ref: &str,
+    ) -> Result<RequirementGroup, ProviderError>;
+
+    /// Current state of a group, including whatever values have been submitted so far.
+    /// `Ok(None)` means the provider has no record of this id.
+    async fn get_requirement_group(
+        &self,
+        id: &RequirementGroupId,
+    ) -> Result<Option<RequirementGroup>, ProviderError>;
+
+    /// Forward field values against an already-created group.
+    async fn submit_requirement_values(
+        &self,
+        id: &RequirementGroupId,
+        values: &[(String, FieldValue)],
+    ) -> Result<RequirementGroup, ProviderError>;
+
+    /// Stream one document straight to the provider. No caller of this method may buffer
+    /// `upload.body` first — that would defeat the entire point of D9.
+    async fn upload_document(
+        &self,
+        upload: DocumentUpload,
+    ) -> Result<UploadedDocument, ProviderError>;
+
+    /// Where a purchased number's sub-order stands right now, for the reconcile sweep.
+    /// `Ok(None)` means the provider has no record of this sub-order (e.g. a 404).
+    async fn sub_order_status(
+        &self,
+        id: &SubOrderId,
+    ) -> Result<Option<SubOrderState>, ProviderError>;
+
+    /// Attach an (already created or reused) requirement group to a sub-order.
+    async fn attach_requirement_group(
+        &self,
+        sub_order: &SubOrderId,
+        group: &RequirementGroupId,
+    ) -> Result<SubOrderState, ProviderError>;
+
     // ---- SIP / PBX (spec 0118) ---------------------------------------------
     //
     // Declared, and `Unsupported` in both adapters. A SIP connection cannot be created,
@@ -860,5 +1223,69 @@ mod tests {
         ];
         let codes: std::collections::HashSet<&str> = all.iter().map(|e| e.code()).collect();
         assert_eq!(codes.len(), all.len());
+    }
+
+    #[test]
+    fn number_status_parse_recognises_the_resubmittable_regulatory_states() {
+        // spec 0119 R5/R6: a carrier that reports these words must land on the new
+        // resubmittable states, not fall back to `Ordering` and hide the rejection.
+        assert_eq!(
+            NumberStatus::parse("regulatory_review"),
+            NumberStatus::RegulatoryReview
+        );
+        assert_eq!(
+            NumberStatus::parse("regulatory_rejected"),
+            NumberStatus::RegulatoryRejected
+        );
+        assert_eq!(NumberStatus::RegulatoryReview.as_str(), "regulatory_review");
+        assert_eq!(
+            NumberStatus::RegulatoryRejected.as_str(),
+            "regulatory_rejected"
+        );
+    }
+
+    #[test]
+    fn number_status_parse_still_fails_closed_on_an_unknown_word() {
+        // Never `Active`, and never one of the two new states either: an unrecognised
+        // provider word must not be presented as caller id nor as "fix this rejection".
+        assert_eq!(
+            NumberStatus::parse("something-new-telnyx-invented"),
+            NumberStatus::Ordering
+        );
+        assert_eq!(NumberStatus::parse(""), NumberStatus::Ordering);
+    }
+
+    #[test]
+    fn group_status_as_str_round_trips_through_parse_for_every_variant() {
+        // `as_str` writes the underscore vocabulary migration 064's CHECK constraint
+        // accepts; `parse` must read every one of those words back to the same variant
+        // (spec 0119, design D7/D8 group persistence).
+        for status in [
+            GroupStatus::Unapproved,
+            GroupStatus::PendingApproval,
+            GroupStatus::Approved,
+            GroupStatus::Declined,
+            GroupStatus::Expired,
+            GroupStatus::NoLongerEligible,
+            GroupStatus::Unknown,
+        ] {
+            assert_eq!(GroupStatus::parse(status.as_str()), status, "{status:?}");
+        }
+        assert_eq!(GroupStatus::Approved.as_str(), "approved");
+        assert_eq!(GroupStatus::PendingApproval.as_str(), "pending_approval");
+        assert_eq!(GroupStatus::NoLongerEligible.as_str(), "no_longer_eligible");
+    }
+
+    #[test]
+    fn requirement_kind_as_str_round_trips_through_parse_for_every_variant() {
+        for kind in [
+            RequirementKind::Textual,
+            RequirementKind::Address,
+            RequirementKind::Document,
+        ] {
+            assert_eq!(RequirementKind::parse(kind.as_str()), kind, "{kind:?}");
+        }
+        assert_eq!(RequirementKind::Address.as_str(), "address");
+        assert_eq!(RequirementKind::Document.as_str(), "document");
     }
 }

@@ -39,8 +39,6 @@ a different billing shape from a metered call, and it is where the brief's *prov
 - Porting an existing number into Telnyx. A regulated, multi-day, document-bearing process
   that deserves its own spec rather than a checkbox here.
 - Telnyx Managed Accounts (brief §45). Investigated in §8; not depended on.
-- Automated regulatory document upload. Where a requirement cannot be satisfied
-  programmatically the product says so and links out, rather than pretending.
 
 ## 3. Requirements
 
@@ -75,11 +73,24 @@ a different billing shape from a metered call, and it is where the brief's *prov
     `resolve_caller_id` already enforces this and must keep doing so.
 
 - **R5 — The lifecycle is honest.** As an admin, I want to know what is happening to my
-  number.
+  number, including when I can act on a rejection, and I want caller ID never presented
+  before the number is actually usable.
   - *Given* a number, *then* its status is one of `ordering`, `pending_regulatory`,
-    `active`, `suspended`, `releasing`, `released`, `failed`, and the reason is shown.
-  - *Given* a regulatory requirement blocks it, *then* the product says which, and does not
-    claim it is active.
+    `regulatory_review`, `regulatory_rejected`, `active`, `suspended`, `releasing`,
+    `released`, `failed`, and the reason is shown.
+  - *Given* a number in `pending_regulatory`, *when* its requirements are submitted and
+    attached to the sub-order, *then* the number status becomes `regulatory_review` (see
+    spec 0119 for requirement discovery, submission and document upload).
+  - *Given* a number in `regulatory_rejected`, *when* the org resubmits corrected
+    requirements, *then* the number returns to `regulatory_review`; it never
+    auto-transitions to `failed` from resubmission alone.
+  - *Given* a number in `regulatory_rejected`, *when* the provider cancels the sub-order for
+    a missed deadline, *then* status becomes `failed`, and no other condition drives that
+    transition.
+  - *Given* a number in `pending_regulatory`, `regulatory_review`, or `regulatory_rejected`,
+    *when* `resolve_caller_id` evaluates it, *then* the number is refused as caller ID,
+    because `outbound_enabled` is set true only on the transition to `active`, never
+    earlier.
 
 - **R6 — Renewal is charged, and failure does not lose the number.** As an admin, I want a
   warning, not a disconnection.
@@ -168,7 +179,9 @@ Suspension is reversible and release is not, so the sweep may only ever suspend.
    route by route. Recommendation: revisit when a customer needs their own carrier
    relationship, not before; nothing here depends on it either way.
 2. **Regulatory requirements vary by country and change.** The product surfaces what the
-   provider reports and links out; it does not model each jurisdiction.
+   provider reports rather than modelling each jurisdiction itself. Discovery, submission
+   and document upload are self-service as of spec 0119; this spec only owns the status
+   words that submission moves a number through.
 3. **A suspended number is still costing us.** Suspension protects the customer's number at
    our expense for the grace period. That is a deliberate, bounded loss.
 4. Porting is out of scope, so a customer's existing number reaches us only through
@@ -184,3 +197,15 @@ session that wrote it and is read by whoever opens the books, possibly in anothe
 so a sentence stored at charge time can never be right for every future reader. The
 machine-readable `kind` — `voip_number_purchase`, `voip_number_renewal` — is the translatable
 half and always was. The description now carries the number and nothing else.
+
+## 8c. Amendment — 2026-09-16
+
+**The "automated regulatory document upload" non-goal is reversed by spec 0119.**
+
+A number bought with a regulatory requirement stayed `pending_regulatory` forever, because
+nothing submitted the requirement or read the order back — a support request was the only
+path forward. The owner confirmed self-service should exist instead. R5's status vocabulary
+gains two resubmittable states — `regulatory_review` and `regulatory_rejected` — and the
+lifecycle scenarios above reflect them; discovery, submission, document streaming, group
+reuse, the reconcile sweep and the webhook fast-path are specified in full in
+[0119](../0119-voip-number-requirements/spec.md). R1–R4, R6 and R7 are unchanged.

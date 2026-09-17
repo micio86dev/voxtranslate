@@ -12,7 +12,7 @@
 // what `business/mod.rs` allows for the same reason.
 #![allow(clippy::result_large_err)]
 
-use axum::extract::{Path, Query, State};
+use axum::extract::{DefaultBodyLimit, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -29,7 +29,7 @@ use crate::middleware::AuthUser;
 use crate::telephony::{WebhookHeaders, E164};
 use crate::voip::service::{self, DialOptions, VoipError};
 use crate::voip::{
-    analytics as voip_analytics, consent, contacts, numbers as number_mgmt, webhook,
+    analytics as voip_analytics, consent, contacts, numbers as number_mgmt, regulatory, webhook,
 };
 use crate::AppState;
 
@@ -105,6 +105,28 @@ pub fn routes() -> Router<AppState> {
         .route(
             "/api/business/organizations/{org_id}/voip/numbers/{number_id}/verify/check",
             post(number_mgmt::verify_check),
+        )
+        // Self-service completion of provider regulatory requirements (spec 0119).
+        .route(
+            "/api/business/organizations/{org_id}/voip/numbers/{number_id}/requirements",
+            get(regulatory::get_requirements).put(regulatory::put_requirements),
+        )
+        .route(
+            "/api/business/organizations/{org_id}/voip/numbers/{number_id}/requirements/submit",
+            post(regulatory::submit_requirements),
+        )
+        .route(
+            "/api/business/organizations/{org_id}/voip/numbers/{number_id}/requirements/refresh",
+            post(regulatory::refresh_requirements),
+        )
+        // Document stream-through (Phase 6, D9/D10): `DefaultBodyLimit` is a safety net
+        // one MiB above the 10 MiB file cap `regulatory::upload_requirement_document`
+        // itself enforces byte-by-byte while streaming — this layer only catches a
+        // request whose multipart framing overhead alone would blow the file cap.
+        .route(
+            "/api/business/organizations/{org_id}/voip/numbers/{number_id}/requirements/documents",
+            post(regulatory::upload_requirement_document)
+                .layer(DefaultBodyLimit::max(regulatory::DOCUMENT_BODY_LIMIT)),
         )
         .route(
             "/api/business/organizations/{org_id}/voip/contacts",
@@ -1257,6 +1279,29 @@ pub async fn inbound_webhook(
             if let webhook::Ingest::Applied { call_id, after, .. } = &outcome {
                 if after.is_terminal() {
                     crate::voip::session::reclaim(&state, *call_id);
+                }
+            }
+
+            // A number order finished at the provider (spec 0119 "Webhook Fast-Path",
+            // design D5). Read directly from the event kind because `apply()` above
+            // resolves nothing for it (`leg_id` is empty) — this is the ONLY thing the
+            // webhook does with it: nudge the affected numbers' next reconcile check
+            // forward. The sweep is what actually reads live status and applies it.
+            if let crate::telephony::ProviderEventKind::NumberOrderCompleted {
+                sub_order_ids, ..
+            } = &event.kind
+            {
+                if cfg(&state).map(|c| c.regulatory_reconcile).unwrap_or(false) {
+                    match crate::voip::regulatory::nudge(
+                        pool,
+                        provider.metadata().id,
+                        sub_order_ids,
+                    )
+                    .await
+                    {
+                        Ok(n) => tracing::debug!(count = n, "voip regulatory nudge from webhook"),
+                        Err(e) => tracing::error!(error = %e, "voip regulatory nudge failed"),
+                    }
                 }
             }
 
