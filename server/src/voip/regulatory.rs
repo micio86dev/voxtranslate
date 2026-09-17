@@ -11,6 +11,7 @@
 #![allow(clippy::result_large_err)]
 
 use std::collections::HashMap;
+use std::time::Duration;
 
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -20,7 +21,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
-use crate::business::{db_err, not_found, require_pool, require_role, ADMIN};
+use crate::business::{db_err, not_found, require_pool, require_role, ADMIN, MEMBER};
 use crate::db::Pool;
 use crate::middleware::AuthUser;
 use crate::telephony::{
@@ -261,9 +262,69 @@ pub async fn ensure_group(
 }
 
 // ---------------------------------------------------------------------------------------
+// Single-row reconcile (design D5) — shared today by `POST …/refresh`; the Phase 7 sweep
+// calls it once per due row instead of reimplementing the same projection.
+// ---------------------------------------------------------------------------------------
+
+/// Why [`reconcile_one`] could not read or apply the provider's state.
+#[derive(Debug)]
+pub enum ReconcileError {
+    Provider(ProviderError),
+    Storage(sqlx::Error),
+}
+
+/// Read the provider's current view of a sub-order and apply [`transition`] to it.
+///
+/// `Ok(None)` means nothing changed — either the provider has no record of the sub-order
+/// yet (`Ok(None)` from [`TelephonyProvider::sub_order_status`], not an error: a brand-new
+/// order legitimately has nothing to report yet) or [`transition`] itself found the state
+/// indecisive. The caller keeps showing the number's last known status in both cases.
+pub async fn reconcile_one(
+    pool: &Pool,
+    provider: &dyn TelephonyProvider,
+    number_id: Uuid,
+    org_id: Uuid,
+    current: NumberStatus,
+    sub_order: &SubOrderId,
+) -> Result<Option<Transition>, ReconcileError> {
+    let Some(state) = provider
+        .sub_order_status(sub_order)
+        .await
+        .map_err(ReconcileError::Provider)?
+    else {
+        return Ok(None);
+    };
+
+    let Some(t) = transition(current, &state) else {
+        return Ok(None);
+    };
+
+    sqlx::query(
+        "UPDATE voip_numbers
+            SET status = $3, status_reason = $4, outbound_enabled = $5, updated_at = now()
+          WHERE id = $1 AND org_id = $2",
+    )
+    .bind(number_id)
+    .bind(org_id)
+    .bind(t.status.as_str())
+    .bind(&t.reason)
+    .bind(t.outbound)
+    .execute(pool)
+    .await
+    .map_err(ReconcileError::Storage)?;
+
+    Ok(Some(t))
+}
+
+// ---------------------------------------------------------------------------------------
 // HTTP handlers (spec 0119) — registered by `crate::voip::routes` under
 // `…/voip/numbers/{number_id}/requirements`.
 // ---------------------------------------------------------------------------------------
+
+/// The longest a submitted text or address field may be before it is forwarded to the
+/// provider. Same magnitude as [`MAX_REASON_CHARS`] and for the same reason: a column (or
+/// here, a carrier request) is not the place for an unbounded string a customer typed.
+const MAX_VALUE_CHARS: usize = 500;
 
 fn provider(state: &AppState) -> Result<&dyn TelephonyProvider, Response> {
     state
@@ -307,6 +368,14 @@ fn group_err(e: GroupError) -> Response {
         GroupError::Storage(s) => db_err(s),
     }
 }
+
+fn reconcile_err(e: ReconcileError) -> Response {
+    match e {
+        ReconcileError::Provider(p) => provider_err(p),
+        ReconcileError::Storage(s) => db_err(s),
+    }
+}
+
 /// Everything a handler needs from `voip_numbers` before it can touch requirements at all.
 struct NumberRow {
     status: NumberStatus,
@@ -513,11 +582,6 @@ pub async fn get_requirements(
     ))
     .into_response())
 }
-
-/// The longest a submitted text or address field may be before it is forwarded to the
-/// provider. Same magnitude as [`MAX_REASON_CHARS`] and for the same reason: a column (or
-/// here, a carrier request) is not the place for an unbounded string a customer typed.
-const MAX_VALUE_CHARS: usize = 500;
 
 #[derive(Debug, Deserialize)]
 struct AddressJson {
@@ -741,6 +805,40 @@ pub async fn submit_requirements(
         .into_response())
 }
 
+/// `POST …/voip/numbers/{number_id}/requirements/refresh` — read the provider's current
+/// status on demand, without waiting for the sweep (spec 0119 "Reconcile Sweep").
+pub async fn refresh_requirements(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path((org_id, number_id)): Path<(Uuid, Uuid)>,
+) -> Result<Response, Response> {
+    let pool = require_pool(&state)?;
+    require_role(pool, org_id, user.user_id, MEMBER).await?;
+    let row = load_number(pool, org_id, number_id).await?;
+    gate_regulatable(&row)?;
+
+    if !state.rate_limiter.allow(
+        &format!("reqrefresh:{number_id}"),
+        1,
+        Duration::from_secs(30),
+    ) {
+        return Err(refuse(StatusCode::TOO_MANY_REQUESTS, "refresh_too_soon"));
+    }
+
+    let telephony = provider(&state)?;
+    // Guaranteed present by `gate_regulatable` above.
+    let sub_order = SubOrderId(row.provider_sub_order_id.clone().unwrap_or_default());
+    let outcome = reconcile_one(pool, telephony, number_id, org_id, row.status, &sub_order)
+        .await
+        .map_err(reconcile_err)?;
+
+    let (status, reason) = match outcome {
+        Some(t) => (t.status, t.reason),
+        None => (row.status, row.status_reason.clone()),
+    };
+    Ok(Json(json!({ "status": status.as_str(), "status_reason": reason })).into_response())
+}
+
 #[cfg(test)]
 mod tests {
     use crate::telephony::{NumberStatus, OrderStatus, RequirementsStatus, SubOrderState};
@@ -866,8 +964,10 @@ mod tests {
     use uuid::Uuid;
 
     use crate::telephony::mock::MockTelephonyProvider;
-    use crate::telephony::{NumberKind, ProviderError, RequirementAction, RequirementQuery};
-    use crate::voip::regulatory::{ensure_group, GroupError};
+    use crate::telephony::{
+        NumberKind, ProviderError, RequirementAction, RequirementQuery, SubOrderId,
+    };
+    use crate::voip::regulatory::{ensure_group, reconcile_one, GroupError, ReconcileError};
 
     macro_rules! skip_without_db {
         () => {
@@ -1091,5 +1191,132 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(rows, 2, "the stale row is kept, not overwritten");
+    }
+
+    // -----------------------------------------------------------------------------------
+    // `reconcile_one` — the single-row primitive `/refresh` and the Phase 7 sweep share.
+    // -----------------------------------------------------------------------------------
+
+    /// A number row this org owns, in `pending_regulatory` with a sub-order id — the only
+    /// state `reconcile_one` needs to exist.
+    async fn regulated_number(pool: &crate::db::Pool, org_id: Uuid, sub_order_id: &str) -> Uuid {
+        sqlx::query_scalar(
+            "INSERT INTO voip_numbers
+                (org_id, provider, provider_number_id, e164, country, status,
+                 regulatory_requirement, provider_sub_order_id, number_kind)
+             VALUES ($1, 'mock', $2, $3, 'FR', 'pending_regulatory', 'proof required', $4,
+                     'mobile')
+             RETURNING id",
+        )
+        .bind(org_id)
+        .bind(format!("prov-{}", Uuid::new_v4().simple()))
+        .bind(format!(
+            "+3312{:08}",
+            Uuid::new_v4().as_u128() % 100_000_000
+        ))
+        .bind(sub_order_id)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn reconcile_one_applies_a_decisive_transition_and_writes_it() {
+        let pool = skip_without_db!();
+        let org_id = fresh_org(&pool).await;
+        let provider = MockTelephonyProvider::default();
+        let sub_order = SubOrderId("suborder-1".into());
+        let number_id = regulated_number(&pool, org_id, sub_order.as_str()).await;
+        provider.set_sub_order_state(
+            &sub_order,
+            SubOrderState {
+                order: OrderStatus::Pending,
+                requirements: RequirementsStatus::UnderReview,
+                group: None,
+            },
+        );
+
+        let outcome = reconcile_one(
+            &pool,
+            &provider,
+            number_id,
+            org_id,
+            NumberStatus::PendingRegulatory,
+            &sub_order,
+        )
+        .await
+        .unwrap();
+
+        let t = outcome.expect("UnderReview is decisive — a transition must be applied");
+        assert_eq!(t.status, NumberStatus::RegulatoryReview);
+
+        let (status, outbound): (String, bool) =
+            sqlx::query_as("SELECT status, outbound_enabled FROM voip_numbers WHERE id = $1")
+                .bind(number_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(status, "regulatory_review");
+        assert!(!outbound);
+    }
+
+    #[tokio::test]
+    async fn reconcile_one_leaves_the_row_untouched_when_the_provider_has_nothing_yet() {
+        let pool = skip_without_db!();
+        let org_id = fresh_org(&pool).await;
+        let provider = MockTelephonyProvider::default();
+        let sub_order = SubOrderId("suborder-unscripted".into());
+        let number_id = regulated_number(&pool, org_id, sub_order.as_str()).await;
+        // Deliberately never scripted via `set_sub_order_state`, so the mock answers
+        // `Ok(None)` — a brand-new order the provider has nothing to report on yet.
+
+        let outcome = reconcile_one(
+            &pool,
+            &provider,
+            number_id,
+            org_id,
+            NumberStatus::PendingRegulatory,
+            &sub_order,
+        )
+        .await
+        .unwrap();
+        assert!(outcome.is_none());
+
+        let status: String = sqlx::query_scalar("SELECT status FROM voip_numbers WHERE id = $1")
+            .bind(number_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            status, "pending_regulatory",
+            "nothing to change, nothing changed"
+        );
+    }
+
+    #[tokio::test]
+    async fn reconcile_one_surfaces_a_provider_failure_without_writing_anything() {
+        let pool = skip_without_db!();
+        let org_id = fresh_org(&pool).await;
+        let provider = MockTelephonyProvider::default();
+        let sub_order = SubOrderId("suborder-failing".into());
+        let number_id = regulated_number(&pool, org_id, sub_order.as_str()).await;
+        provider.fail_next(
+            "sub_order_status",
+            ProviderError::Unavailable {
+                detail: "carrier outage".into(),
+            },
+        );
+
+        let err = reconcile_one(
+            &pool,
+            &provider,
+            number_id,
+            org_id,
+            NumberStatus::PendingRegulatory,
+            &sub_order,
+        )
+        .await
+        .expect_err("the scripted failure must surface");
+        assert!(matches!(err, ReconcileError::Provider(_)), "{err:?}");
     }
 }

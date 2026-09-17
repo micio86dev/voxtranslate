@@ -15,7 +15,7 @@ use voxtranslate_server::config::{Config, VoipConfig};
 use voxtranslate_server::db::{self, Pool};
 use voxtranslate_server::telephony::mock::MockTelephonyProvider;
 use voxtranslate_server::telephony::{
-    FieldValue, ProviderError, RequirementGroupId, TelephonyProvider,
+    FieldValue, ProviderError, RequirementGroupId, SubOrderId, TelephonyProvider,
 };
 use voxtranslate_server::{app, AppState};
 
@@ -366,6 +366,7 @@ async fn a_claim_still_being_created_is_reported_busy() {
     let body: Value = r.json().await.unwrap();
     assert_eq!(body["error"], "requirements_busy");
 }
+
 // ---------------------------------------------------------------------------
 // Submission — PUT
 // ---------------------------------------------------------------------------
@@ -643,6 +644,55 @@ async fn a_non_admin_may_not_submit() {
 }
 
 // ---------------------------------------------------------------------------
+// Refresh
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn refresh_is_rate_limited_to_once_per_window() {
+    let srv = skip_without_db!(setup().await);
+    let http = Client::new();
+    let (owner, jwt) = user(&srv, "Owner").await;
+    let org_id = org(&srv, owner).await;
+    let number_id = regulated_number(&srv, org_id, "so-refresh").await;
+
+    let first = http
+        .post(requirements_url(&srv, org_id, number_id, "/refresh"))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(first.status(), 200, "body: {}", first.text().await.unwrap());
+
+    let second = http
+        .post(requirements_url(&srv, org_id, number_id, "/refresh"))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(second.status(), 429);
+    let body: Value = second.json().await.unwrap();
+    assert_eq!(body["error"], "refresh_too_soon");
+}
+
+#[tokio::test]
+async fn a_member_may_refresh_status() {
+    let srv = skip_without_db!(setup().await);
+    let http = Client::new();
+    let (owner, _) = user(&srv, "Owner").await;
+    let org_id = org(&srv, owner).await;
+    let number_id = regulated_number(&srv, org_id, "so-refresh-member").await;
+    let (_, member_jwt) = member(&srv, org_id, "member").await;
+
+    let r = http
+        .post(requirements_url(&srv, org_id, number_id, "/refresh"))
+        .bearer_auth(&member_jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 200);
+}
+
+// ---------------------------------------------------------------------------
 // Provider failure mapping
 // ---------------------------------------------------------------------------
 
@@ -706,4 +756,41 @@ async fn a_provider_5xx_on_submission_is_reported_as_a_retryable_gateway_failure
     assert_eq!(r.status(), 502);
     let body: Value = r.json().await.unwrap();
     assert_eq!(body["error"], "provider_unavailable");
+}
+
+/// A number in `regulatory_review` gains a decisive status once the mock scripts a
+/// terminal sub-order state — proof `/refresh` actually calls `reconcile_one`, not just
+/// that it answers 200.
+#[tokio::test]
+async fn refresh_applies_a_transition_read_from_the_provider() {
+    let srv = skip_without_db!(setup().await);
+    let http = Client::new();
+    let (owner, jwt) = user(&srv, "Owner").await;
+    let org_id = org(&srv, owner).await;
+    let number_id = regulated_number(&srv, org_id, "so-transition").await;
+    srv.provider.set_sub_order_state(
+        &SubOrderId("so-transition".into()),
+        voxtranslate_server::telephony::SubOrderState {
+            order: voxtranslate_server::telephony::OrderStatus::Pending,
+            requirements: voxtranslate_server::telephony::RequirementsStatus::UnderReview,
+            group: None,
+        },
+    );
+
+    let r = http
+        .post(requirements_url(&srv, org_id, number_id, "/refresh"))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 200);
+    let body: Value = r.json().await.unwrap();
+    assert_eq!(body["status"], "regulatory_review");
+
+    let status: String = sqlx::query_scalar("SELECT status FROM voip_numbers WHERE id = $1")
+        .bind(number_id)
+        .fetch_one(&srv.pool)
+        .await
+        .unwrap();
+    assert_eq!(status, "regulatory_review");
 }
