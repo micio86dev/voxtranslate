@@ -2758,6 +2758,11 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState, clien
                         tracing::error!("finalize transcript session {sid} failed: {e}");
                     }
                 }
+                // Best-effort and a no-op for every ordinary room, whose session id
+                // matches no live call. The one case where this room WAS a phone call is
+                // the phone leg itself leaving last (its own `run_leg` teardown already
+                // handles that call independently) — harmless either way.
+                crate::voip::session::hangup_orphaned_leg(&state, sid).await;
             }
             state
                 .rooms
@@ -2765,6 +2770,42 @@ async fn handle_peer(socket: WebSocket, params: WsParams, state: AppState, clien
             // Listener-pays (spec 0099): a departing premium listener can flip the room
             // back to Opus capture — re-push formats to the survivors. No-op when off.
             notify_capture_formats(&state, &room);
+        }
+        LeaveOutcome::LeftPhoneOnly(session_id) => {
+            // Hotfix 1.59.1: the last HUMAN left a phone-call room, orphaning the PSTN
+            // leg to a `phone-` peer with nobody translating for it any more. The room
+            // and the phone leg get a bounded grace window
+            // (`voip::session::PHONE_ORPHAN_GRACE`) for the SAME peer id to reconnect
+            // before anything actually hangs up: a transient WebSocket drop (mobile
+            // handoff, a WiFi reset) must not race a synchronous teardown against a
+            // reconnect that hasn't had a chance to land yet. The transcript finalization
+            // is deferred into that same grace-checked path, for the same reason: a
+            // reconnect must find the room, its `session_id`, and its transcript exactly
+            // as before this leave, not a transcript already closed out from under it.
+            // `voip::session::finish_after_phone_orphan` finalizes the transcript itself,
+            // alongside the hangup, but only once the grace window actually elapses with
+            // nobody back. Broadcasting `PeerLeft` here stays immediate and unconditional
+            // — it is just a UI signal for the other participants, and a reconnect will
+            // naturally re-broadcast this peer as present again through the normal join
+            // path.
+            state
+                .rooms
+                .broadcast(&room, &ServerMessage::PeerLeft { peer_id: id }.to_json());
+            notify_capture_formats(&state, &room);
+            // Spawned so this handler returns promptly instead of holding the
+            // connection's teardown open for the whole grace window — mirrors
+            // `run_leg`'s own spawn of `finish_after_pump`.
+            let grace_state = state.clone();
+            let grace_room = room.clone();
+            tokio::spawn(async move {
+                crate::voip::session::finish_after_phone_orphan(
+                    &grace_state,
+                    &grace_room,
+                    session_id,
+                    crate::voip::session::PHONE_ORPHAN_GRACE,
+                )
+                .await;
+            });
         }
         LeaveOutcome::Superseded => {
             tracing::debug!(%room, %id, "stale connection superseded by reconnect; no PeerLeft");
