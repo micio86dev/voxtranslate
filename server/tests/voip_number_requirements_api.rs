@@ -6,14 +6,17 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 
+use base64::Engine as _;
+use ed25519_dalek::{Signer, SigningKey};
 use reqwest::Client;
 use serde_json::{json, Value};
 use uuid::Uuid;
 use voxtranslate_server::auth::{issue_jwt, upsert_google_user, FakeVerifier, GoogleIdentity};
 use voxtranslate_server::billing::{usd, BillingService};
-use voxtranslate_server::config::{Config, VoipConfig};
+use voxtranslate_server::config::{Config, TelnyxConfig, VoipConfig};
 use voxtranslate_server::db::{self, Pool};
 use voxtranslate_server::telephony::mock::MockTelephonyProvider;
+use voxtranslate_server::telephony::telnyx::TelnyxProvider;
 use voxtranslate_server::telephony::{
     FieldValue, ProviderError, RequirementGroupId, SubOrderId, TelephonyProvider,
 };
@@ -25,14 +28,24 @@ struct Server {
     addr: SocketAddr,
     pool: Pool,
     provider: Arc<MockTelephonyProvider>,
+    /// A clone of the serving state, for tests that drive `run_sweep` directly (no HTTP).
+    state: AppState,
 }
 
 async fn setup() -> Option<Server> {
+    setup_with_reconcile(true).await
+}
+
+/// `reconcile = false` reproduces `VOIP_REGULATORY_RECONCILE=false`.
+async fn setup_with_reconcile(reconcile: bool) -> Option<Server> {
     let url = db::test_database_url()?;
     let pool = db::connect(&url).await.ok()?;
     db::migrate(&pool).await.ok()?;
     let mut config = Config::test_with_billing(&url, SECRET, 0.0);
-    config.voip = Some(VoipConfig::test_default());
+    config.voip = Some(VoipConfig {
+        regulatory_reconcile: reconcile,
+        ..VoipConfig::test_default()
+    });
     let min_join = usd(config.billing.as_ref().unwrap().pricing.min_balance_to_join);
     let mut state = AppState::new(config);
     state.billing = Some(BillingService::new(pool.clone(), min_join));
@@ -40,6 +53,7 @@ async fn setup() -> Option<Server> {
     state.verifier = Arc::new(FakeVerifier);
     let provider = Arc::new(MockTelephonyProvider::default());
     state.telephony = Some(provider.clone());
+    let state_for_sweep = state.clone();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.ok()?;
     let addr = listener.local_addr().ok()?;
     tokio::spawn(async move {
@@ -49,6 +63,7 @@ async fn setup() -> Option<Server> {
         addr,
         pool,
         provider,
+        state: state_for_sweep,
     })
 }
 
@@ -202,6 +217,236 @@ macro_rules! skip_without_db {
             }
         }
     };
+}
+
+// ---------------------------------------------------------------------------
+// Kill switch (spec 0119 R7 "Kill switch disables automatic reconciliation") — the sweep
+// and the webhook nudge below both stand down; the routes above never do.
+// ---------------------------------------------------------------------------
+
+/// Covers 3 of the 4 gate scenarios in one purchase: the sweep leaves a due row and a
+/// stale group claim untouched, but `/refresh` on that SAME number still works — proving
+/// the switch gates the background jobs only, never the requirements routes.
+#[tokio::test]
+async fn with_the_kill_switch_off_the_sweep_stands_down_but_refresh_still_works() {
+    let srv = skip_without_db!(setup_with_reconcile(false).await);
+    let http = Client::new();
+    let (owner, jwt) = user(&srv, "Owner").await;
+    let org_id = org(&srv, owner).await;
+    let number_id = regulated_number(&srv, org_id, "so-gate").await;
+    sqlx::query(
+        "UPDATE voip_numbers SET regulatory_next_check_at = now() - interval '1 minute'
+          WHERE id = $1",
+    )
+    .bind(number_id)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+    // A stale claim (design D7), backdated in the same INSERT rather than a second UPDATE.
+    let group_id: Uuid = sqlx::query_scalar(
+        "INSERT INTO voip_requirement_groups
+            (org_id, provider, country, number_kind, action, created_at)
+         VALUES ($1, 'mock', 'FR', 'mobile', 'ordering', now() - interval '11 minutes')
+         RETURNING id",
+    )
+    .bind(org_id)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
+
+    let query = "SELECT status, regulatory_next_check_at, regulatory_failures
+                   FROM voip_numbers WHERE id = $1";
+    let before: (String, chrono::DateTime<chrono::Utc>, i32) = sqlx::query_as(query)
+        .bind(number_id)
+        .fetch_one(&srv.pool)
+        .await
+        .unwrap();
+    let handle = tokio::spawn(voxtranslate_server::voip::webhook::run_sweep(
+        srv.state.clone(),
+        std::time::Duration::from_millis(30),
+        25,
+    ));
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    handle.abort();
+    let after: (String, chrono::DateTime<chrono::Utc>, i32) = sqlx::query_as(query)
+        .bind(number_id)
+        .fetch_one(&srv.pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        before, after,
+        "the kill switch must leave a due row completely untouched — not even the claim step"
+    );
+    let still_there: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM voip_requirement_groups WHERE id = $1")
+            .bind(group_id)
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        still_there, 1,
+        "the kill switch must not reclaim stale groups either"
+    );
+
+    // Routes are never gated — /refresh still queries the provider directly on demand.
+    srv.provider.set_sub_order_state(
+        &SubOrderId("so-gate".into()),
+        voxtranslate_server::telephony::SubOrderState {
+            order: voxtranslate_server::telephony::OrderStatus::Pending,
+            requirements: voxtranslate_server::telephony::RequirementsStatus::UnderReview,
+            group: None,
+        },
+    );
+    let r = http
+        .post(requirements_url(&srv, org_id, number_id, "/refresh"))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        r.status(),
+        200,
+        "the kill switch must never gate the requirements routes"
+    );
+    let body: Value = r.json().await.unwrap();
+    assert_eq!(body["status"], "regulatory_review");
+
+    // This group is genuinely stale (backdated `created_at`) and was deliberately left
+    // unreclaimed by the switch above — clean it up so a LATER, unrelated invocation of
+    // `reclaim_stale_groups` elsewhere in the suite never counts it.
+    sqlx::query("DELETE FROM voip_requirement_groups WHERE id = $1")
+        .bind(group_id)
+        .execute(&srv.pool)
+        .await
+        .unwrap();
+}
+
+/// Call `inbound_webhook` directly with a correctly-signed `number_order.complete` body
+/// (only the real Telnyx `normalise()` understands it); returns the resulting
+/// `regulatory_next_check_at`.
+async fn number_order_webhook_next_check(reconcile: bool) -> Option<chrono::DateTime<chrono::Utc>> {
+    let url = db::test_database_url()?;
+    let pool = db::connect(&url).await.ok()?;
+    db::migrate(&pool).await.ok()?;
+    let mut config = Config::test_with_billing(&url, SECRET, 0.0);
+    config.voip = Some(VoipConfig {
+        regulatory_reconcile: reconcile,
+        ..VoipConfig::test_default()
+    });
+    let mut state = AppState::new(config);
+    state.pool = Some(pool.clone());
+    let signing_key = SigningKey::from_bytes(&[7u8; 32]);
+    let public_key_b64 =
+        base64::engine::general_purpose::STANDARD.encode(signing_key.verifying_key().to_bytes());
+    state.telephony = Some(Arc::new(TelnyxProvider::new(
+        TelnyxConfig {
+            api_key: "test-key".into(),
+            api_base: "https://example.invalid".into(),
+            connection_id: "conn-1".into(),
+            outbound_voice_profile_id: None,
+            public_key_b64,
+            default_caller_id: None,
+            media_anchor: "Frankfurt, Germany".into(),
+        },
+        300,
+    )));
+
+    // A user + org in one round trip — no `Server`/JWT needed, webhooks are unauthenticated.
+    let org_id: Uuid = sqlx::query_scalar(
+        "WITH u AS (
+             INSERT INTO users (google_id, email, name, balance)
+             VALUES ($1, $2, 'Owner', 0) RETURNING id
+         )
+         INSERT INTO organizations (name, slug, owner_id, credits_balance)
+         SELECT 'Phone Co', $3, id, 0 FROM u RETURNING id",
+    )
+    .bind(format!("g-{}", Uuid::new_v4()))
+    .bind(format!("{}@example.test", Uuid::new_v4()))
+    .bind(format!("wh-{}", Uuid::new_v4().simple()))
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    // Scheduled an hour out — only a genuine nudge could move it into the near future.
+    let sub_order_id = format!("so-gate-{}", Uuid::new_v4().simple());
+    let number_id: Uuid = sqlx::query_scalar(
+        "INSERT INTO voip_numbers
+            (org_id, provider, provider_number_id, e164, country, status,
+             outbound_enabled, regulatory_requirement, provider_order_id,
+             provider_sub_order_id, number_kind, regulatory_next_check_at)
+         VALUES ($1, 'telnyx', $2, $3, 'FR', 'pending_regulatory', FALSE,
+                 'proof of address required', $4, $4, 'mobile', now() + interval '1 hour')
+         RETURNING id",
+    )
+    .bind(org_id)
+    .bind(format!("prov-{}", Uuid::new_v4().simple()))
+    .bind(fresh_e164())
+    .bind(&sub_order_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+
+    let ts = chrono::Utc::now().timestamp().to_string();
+    let body = serde_json::to_vec(&json!({
+        "data": {
+            "id": "evt-gate",
+            "event_type": "number_order.complete",
+            "occurred_at": chrono::Utc::now().to_rfc3339(),
+            "payload": { "id": "order-1", "sub_number_orders_ids": [sub_order_id] },
+        }
+    }))
+    .unwrap();
+    let mut msg = ts.clone().into_bytes();
+    msg.push(b'|');
+    msg.extend_from_slice(&body);
+    let sig = base64::engine::general_purpose::STANDARD.encode(signing_key.sign(&msg).to_bytes());
+    let mut headers = axum::http::HeaderMap::new();
+    headers.insert("telnyx-signature-ed25519", sig.parse().unwrap());
+    headers.insert("telnyx-timestamp", ts.parse().unwrap());
+
+    let result = voxtranslate_server::voip::routes::inbound_webhook(
+        axum::extract::State(state),
+        axum::extract::Path("telnyx".to_string()),
+        headers,
+        axum::body::Bytes::from(body),
+    )
+    .await;
+    assert!(
+        result.is_ok(),
+        "a validly signed webhook must always be accepted"
+    );
+
+    Some(
+        sqlx::query_scalar("SELECT regulatory_next_check_at FROM voip_numbers WHERE id = $1")
+            .bind(number_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+    )
+}
+
+#[tokio::test]
+async fn with_the_kill_switch_off_a_signed_webhook_is_accepted_but_does_not_nudge() {
+    let Some(next_check) = number_order_webhook_next_check(false).await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    assert!(
+        next_check > chrono::Utc::now() + chrono::Duration::minutes(30),
+        "the kill switch must stop the webhook nudge — expected the untouched +1h schedule"
+    );
+}
+
+#[tokio::test]
+async fn with_the_kill_switch_on_the_same_webhook_does_nudge() {
+    // The control: proves the gate is real rather than a dead path that never nudges.
+    let Some(next_check) = number_order_webhook_next_check(true).await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    assert!(
+        next_check <= chrono::Utc::now() + chrono::Duration::seconds(5),
+        "with the switch on, the webhook must nudge the next check to now"
+    );
 }
 
 // ---------------------------------------------------------------------------
