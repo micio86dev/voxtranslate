@@ -24,7 +24,8 @@ use chrono::Utc;
 use voxtranslate_server::config::{TelnyxConfig, TELNYX_DEFAULT_API_BASE};
 use voxtranslate_server::telephony::telnyx::TelnyxProvider;
 use voxtranslate_server::telephony::{
-    DialRequest, LegId, ProviderError, TelephonyProvider, WebhookHeaders, E164,
+    DialRequest, LegId, NumberKind, ProviderError, RequirementAction, RequirementQuery,
+    TelephonyProvider, WebhookHeaders, E164,
 };
 
 /// Both gates. Returns `None` — and says why — rather than failing, so a full
@@ -235,6 +236,42 @@ async fn place_one_real_call() {
 
     p.hangup(&leg.id).await.expect("hangup failed");
     println!("hung up. Check the provider portal for the CDR and the webhook deliveries.");
+}
+
+/// Costs nothing and places no order: a single read-only GET, verifying the response
+/// shape `list_requirements`'s parsing was written against (spec 0119 S3, design's own
+/// open question) against a real account. FR mobile is used because France's own KYC
+/// requirement for mobile numbers is well documented and unlikely to ever return zero
+/// fields, which would make this test pass for the wrong reason (an empty response looks
+/// identical whether parsing is correct or broken).
+#[tokio::test]
+#[ignore = "live provider"]
+async fn list_requirements_matches_the_shape_parsing_was_written_against() {
+    let Some(p) = provider() else { return };
+
+    let specs = p
+        .list_requirements(&RequirementQuery {
+            country: "FR".into(),
+            kind: NumberKind::Mobile,
+            action: RequirementAction::Ordering,
+        })
+        .await
+        .expect("list_requirements was refused by the provider");
+
+    println!("FR mobile ordering requirements: {}", specs.len());
+    assert!(
+        !specs.is_empty(),
+        "FR mobile ordering is documented as requiring at least one regulatory field — an \
+         empty list means either the account/region has no requirements configured, or the \
+         response shape drifted from what parse_requirements expects"
+    );
+    for spec in &specs {
+        assert!(
+            !spec.id.is_empty(),
+            "a requirement with no id cannot ever be submitted against"
+        );
+        println!("  {} ({}): {:?}", spec.id, spec.name, spec.kind);
+    }
 }
 
 /// Documents the gap rather than pretending it away: the adapter reports per-leg CDR as

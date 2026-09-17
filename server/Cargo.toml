@@ -1,6 +1,6 @@
 [package]
 name = "voxtranslate-server"
-version = "1.58.5"
+version = "1.59.0"
 edition = "2021"
 license = "LicenseRef-PolyForm-Shield-1.0.0"
 # The server, not one of the operator tools next to it. Without this, every bare
@@ -25,8 +25,15 @@ tokio = { version = "1", features = ["full"] }
 tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-reqwest = { version = "0.13", features = ["json", "multipart", "form", "query"] }
+# `stream` unlocks `reqwest::Body::wrap_stream` — required to POST a regulatory
+# document to Telnyx straight from `telephony::DocumentUpload`'s stream (D9) without
+# buffering it into memory first.
+reqwest = { version = "0.13", features = ["json", "multipart", "form", "query", "stream"] }
 futures = "0.3"
+# `telephony::DocumentUpload` streams a regulatory document through to the provider
+# without ever buffering it to disk (spec 0119 D9); the stream item type is `Bytes`,
+# the same currency `axum::extract::Multipart` and `reqwest::Body` already speak.
+bytes = "1"
 dashmap = "6"
 uuid = { version = "1", features = ["v4", "serde"] }
 tower-http = { version = "0.7", features = ["cors", "trace", "set-header"] }

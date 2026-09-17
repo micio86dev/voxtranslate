@@ -32,11 +32,14 @@ use serde_json::{json, Value};
 use uuid::Uuid;
 
 use super::{
-    CallLeg, Cdr, DialRequest, GatherConfig, LegId, MediaStreamConfig, MediaTrack, NumberKind,
-    NumberOffer, NumberSearch, NumberStatus, PlayRequest, ProviderCapabilities, ProviderError,
-    ProviderEvent, ProviderEventKind, ProviderMetadata, ProviderNumberId, PurchaseRequest,
-    PurchasedNumber, RecordingConfig, RecordingDownloadUrl, SipConnection, TelephonyProvider,
-    VerificationStart, VerificationState, WebhookError, WebhookHeaders, E164,
+    CallLeg, Cdr, DialRequest, DocumentUpload, FieldValue, GatherConfig, GroupStatus, LegId,
+    MediaStreamConfig, MediaTrack, NumberKind, NumberOffer, NumberSearch, NumberStatus, OrderRef,
+    OrderStatus, PlayRequest, ProviderCapabilities, ProviderError, ProviderEvent,
+    ProviderEventKind, ProviderMetadata, ProviderNumberId, PurchaseRequest, PurchasedNumber,
+    RecordingConfig, RecordingDownloadUrl, RequirementGroup, RequirementGroupId, RequirementKind,
+    RequirementQuery, RequirementSpec, RequirementsStatus, SipConnection, SubOrderId,
+    SubOrderState, TelephonyProvider, UploadedDocument, VerificationStart, VerificationState,
+    WebhookError, WebhookHeaders, E164,
 };
 use rust_decimal::Decimal;
 
@@ -204,6 +207,45 @@ impl TelnyxProvider {
         }
         classify_response(path, res).await.map(|_| ())
     }
+
+    /// Turn one submitted [`FieldValue`] into the plain string
+    /// [`requirement_group_patch_body`] wants. `Text` and `Document` values are already
+    /// opaque strings and need no network call; an `Address` must first become a Telnyx
+    /// address id via `POST /v2/addresses` (design D13) — the only branch here that is
+    /// not pure, and the reason this lives on `self` rather than being folded into the
+    /// (still pure, still exhaustively unit-tested) body builder.
+    async fn resolve_field_value(&self, value: &FieldValue) -> Result<String, ProviderError> {
+        match value {
+            FieldValue::Text(s) => Ok(s.clone()),
+            FieldValue::Document(doc_id) => Ok(doc_id.clone()),
+            FieldValue::Address(addr) => self.create_address(addr).await,
+        }
+    }
+
+    /// `POST /v2/addresses` — verified against the published `AddressCreate`/`Address`
+    /// schemas (2026-09-16, see [`address_create_body`]/[`parse_address_id`]). Uses the
+    /// redacted classifier (design D12): the request body is a full mailing address, and
+    /// an error response echoing it back must never reach the log.
+    async fn create_address(&self, addr: &super::AddressValue) -> Result<String, ProviderError> {
+        let payload = address_create_body(addr);
+        let res = self
+            .http
+            .post(self.url("/v2/addresses"))
+            .bearer_auth(&self.cfg.api_key)
+            .json(&payload)
+            .send()
+            .await
+            .map_err(|e| ProviderError::Unavailable {
+                detail: e.to_string(),
+            })?;
+        let res = classify_response_redacted("create_address", res).await?;
+        let body: Value = res.json().await.map_err(|e| ProviderError::Malformed {
+            detail: e.to_string(),
+        })?;
+        parse_address_id(&body).ok_or_else(|| ProviderError::Malformed {
+            detail: "address response has no id".into(),
+        })
+    }
 }
 
 /// Ceiling on what one carrier error contributes to a log line.
@@ -258,6 +300,33 @@ async fn classify_response(
         status = status.as_u16(),
         detail = %error_detail(&raw),
         "the carrier refused a request"
+    );
+    Err(err)
+}
+
+/// Same success/failure classification as [`classify_response`], but the failure path
+/// never reads the response body at all.
+///
+/// Design D12: a submitted requirement value, an uploaded document, and a resolved
+/// address are all PII, and Telnyx's own error bodies are known to echo back exactly
+/// what was submitted (a malformed-address 422 restating the street address, a rejected
+/// value quoting it back). [`error_detail`] redacting phone numbers is not enough
+/// protection for THAT shape of leak, so these three calls skip reading the body on
+/// failure entirely rather than trying to redact a payload this file does not control
+/// the shape of.
+async fn classify_response_redacted(
+    op: &str,
+    res: reqwest::Response,
+) -> Result<reqwest::Response, ProviderError> {
+    let status = res.status();
+    let Some(err) = classify(status) else {
+        return Ok(res);
+    };
+    tracing::warn!(
+        provider = TELNYX_ID,
+        operation = op,
+        status = status.as_u16(),
+        "the carrier refused a request (body redacted: may echo submitted PII)"
     );
     Err(err)
 }
@@ -386,6 +455,299 @@ fn classify(status: reqwest::StatusCode) -> Option<ProviderError> {
         s => ProviderError::Unavailable {
             detail: format!("HTTP {s}"),
         },
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Regulatory requirements (spec 0119)
+// ---------------------------------------------------------------------------
+//
+// `GET /v2/regulatory_requirements` — verified against Telnyx's published OpenAPI spec
+// (github.com/team-telnyx/openapi, schema `RegulatoryRequirements`) 2026-09-16. This is
+// NOT `/v2/requirements` (design's original placeholder guess): that path lists every
+// requirement Telnyx has ever defined, unfiltered. The `filter[...]` query keys
+// (`country_code`, `phone_number_type`, `action`) are confirmed by the same schema.
+
+/// One entry per matching (country, phone_number_type, action) combination, each nesting
+/// its own `regulatory_requirements` array — the response is not a flat list at `data[]`.
+fn parse_requirements(body: &Value) -> Vec<RequirementSpec> {
+    body.get("data")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| entry.get("regulatory_requirements"))
+        .filter_map(Value::as_array)
+        .flatten()
+        .map(parse_requirement_spec)
+        .collect()
+}
+
+fn parse_requirement_spec(item: &Value) -> RequirementSpec {
+    RequirementSpec {
+        id: item
+            .get("id")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        name: item
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        description: item
+            .get("description")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        example: item
+            .get("example")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        kind: item
+            .get("field_type")
+            .and_then(Value::as_str)
+            .map(RequirementKind::parse)
+            .unwrap_or(RequirementKind::Textual),
+    }
+}
+
+/// `POST /v2/requirement_groups` body — verified against the same `RequirementGroup`
+/// requestBody schema: `country_code`, `phone_number_type`, `action` and
+/// `customer_reference` are the fields this crate needs at creation time. Field values are
+/// not sent here; they arrive later through `submit_requirement_values` (design D8: a group
+/// is created empty and filled once the customer starts answering).
+fn requirement_group_create_body(query: &RequirementQuery, customer_ref: &str) -> Value {
+    json!({
+        "country_code": query.country.to_ascii_uppercase(),
+        "phone_number_type": query.kind.as_str(),
+        "action": query.action.as_str(),
+        "customer_reference": customer_ref,
+    })
+}
+
+/// `PATCH /v2/requirement_groups/:id` body — verified against the same schema: a
+/// `regulatory_requirements` array of `{requirement_id, field_value}`, both plain strings.
+///
+/// Pure and infallible: every value is already a plain string by the time this runs.
+/// `TelnyxProvider::resolve_field_value` is what turns a `FieldValue` into one — an
+/// `Address` becomes a Telnyx address id via `POST /v2/addresses` (design D13, PR4),
+/// never raw address text — so this function itself never needs to know `FieldValue`
+/// exists.
+fn requirement_group_patch_body(values: &[(String, String)]) -> Value {
+    let requirements: Vec<Value> = values
+        .iter()
+        .map(|(requirement_id, field_value)| {
+            json!({ "requirement_id": requirement_id, "field_value": field_value })
+        })
+        .collect();
+    json!({ "regulatory_requirements": requirements })
+}
+
+/// `POST /v2/addresses` body — verified against the published `AddressCreate` schema
+/// (2026-09-16): required fields are `first_name`, `last_name`, `business_name`,
+/// `street_address`, `locality`, `country_code`; `extended_address`/`administrative_area`
+/// are optional and omitted entirely (not sent as JSON `null`) when absent.
+fn address_create_body(addr: &super::AddressValue) -> Value {
+    let mut body = json!({
+        "first_name": addr.first_name,
+        "last_name": addr.last_name,
+        "business_name": addr.business_name,
+        "street_address": addr.street_address,
+        "locality": addr.locality,
+        "postal_code": addr.postal_code,
+        "country_code": addr.country_code,
+    });
+    if let Some(extended) = &addr.extended_address {
+        body["extended_address"] = json!(extended);
+    }
+    if let Some(area) = &addr.administrative_area {
+        body["administrative_area"] = json!(area);
+    }
+    body
+}
+
+/// Parse `POST /v2/addresses`' response. Verified against the published `Address`
+/// schema: the created address is always wrapped in `data`, with `id` as an opaque
+/// string (Telnyx documents it as an int64-formatted string, not a uuid, unlike most of
+/// this file's other resources — read as a plain string regardless).
+fn parse_address_id(body: &Value) -> Option<String> {
+    body.get("data")
+        .unwrap_or(body)
+        .get("id")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+}
+
+/// Parse `POST /v2/documents`' response. Verified against the published
+/// `DocServiceDocument` schema: the created document is wrapped in `data`, with `id`
+/// (uuid) and `av_scan_status` (`scanned`/`infected`/`pending_scan`/`not_scanned`).
+/// `av_scan_status` is stored verbatim rather than mapped onto a crate-owned enum — see
+/// [`UploadedDocument`] — so an empty string here honestly means "the field was
+/// missing", never a guessed status word.
+fn parse_uploaded_document(body: &Value) -> Option<UploadedDocument> {
+    let data = body.get("data").unwrap_or(body);
+    let id = data.get("id").and_then(Value::as_str)?.to_string();
+    let av_scan_status = data
+        .get("av_scan_status")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    Some(UploadedDocument { id, av_scan_status })
+}
+
+/// Parse a `RequirementGroup` response. `POST`/`GET`/`PATCH /v2/requirement_groups[/{id}]`
+/// all return the object directly at the top level — verified against the schema, and
+/// unlike almost every other Telnyx resource in this file, which wraps its payload in
+/// `data`. A `data`-wrapped shape is tolerated anyway (cheap, and consistent with how
+/// [`TelnyxProvider::purchase_number`] already reads `body.get("data").unwrap_or(&body)`)
+/// in case a future response ever adds the envelope.
+///
+/// `None` means the response carries no `id` — not a value this crate can act on.
+fn parse_requirement_group(body: &Value) -> Option<RequirementGroup> {
+    let data = body.get("data").unwrap_or(body);
+    let id = data.get("id").and_then(Value::as_str)?.to_string();
+    let status = data
+        .get("status")
+        .and_then(Value::as_str)
+        .map(GroupStatus::parse)
+        .unwrap_or(GroupStatus::Unknown);
+    let requirements = data
+        .get("regulatory_requirements")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .map(parse_user_requirement)
+        .collect();
+    Some(RequirementGroup {
+        id: RequirementGroupId(id),
+        status,
+        requirements,
+    })
+}
+
+/// One entry of a group's `regulatory_requirements` array (`UserRequirement` schema):
+/// `{requirement_id, field_value, field_type, status}`. Unlike the list endpoint, this
+/// shape carries no human-readable `name`/`description`/`example` — those live only in
+/// [`parse_requirements`]'s response. The caller is expected to merge the two (the id is
+/// the shared key); repeating the id as the name here is a documented, tolerant fallback so
+/// a spec is never blank rather than an attempt to fabricate a label Telnyx never sent.
+fn parse_user_requirement(item: &Value) -> (RequirementSpec, Option<FieldValue>) {
+    let requirement_id = item
+        .get("requirement_id")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    let kind = item
+        .get("field_type")
+        .and_then(Value::as_str)
+        .map(RequirementKind::parse)
+        .unwrap_or(RequirementKind::Textual);
+    let spec = RequirementSpec {
+        id: requirement_id.clone(),
+        name: requirement_id,
+        description: None,
+        example: None,
+        kind,
+    };
+    // An empty string is "not submitted yet", not a blank text answer — Telnyx returns the
+    // field even before it has ever been filled in.
+    let value = item
+        .get("field_value")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .map(|v| match kind {
+            RequirementKind::Document => FieldValue::Document(v.to_string()),
+            // A submitted address round-trips as its already-resolved provider id (an
+            // opaque string), which this crate's own `FieldValue::Text` shape represents
+            // just as well — reconstructing a full `AddressValue` from one id is neither
+            // possible nor needed for this read path.
+            RequirementKind::Address | RequirementKind::Textual => FieldValue::Text(v.to_string()),
+        });
+    (spec, value)
+}
+
+/// Parse `GET /v2/sub_number_orders/:id` (with `filter[include_phone_numbers]=true`) or the
+/// `data` object of the attach-group response into [`SubOrderState`] — verified against the
+/// `numbers_SubNumberOrder`/`SubNumberOrderRequirementGroupResponse` schemas.
+///
+/// `group` is always `None` here: neither endpoint echoes back which requirement group is
+/// attached (verified — no such field exists on either schema). The domain layer tracks
+/// that id itself (design D7's `voip_requirement_groups` table); [`TelnyxProvider`]'s own
+/// `attach_requirement_group` fills it in from the id it was just given, since that call
+/// alone knows for certain which group it attached.
+fn parse_sub_order_state(data: &Value) -> SubOrderState {
+    let order = data
+        .get("status")
+        .and_then(Value::as_str)
+        .map(OrderStatus::parse)
+        .unwrap_or(OrderStatus::Unknown);
+    let requirements_met = data
+        .get("requirements_met")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    // Present only when the caller asked for `filter[include_phone_numbers]=true`; a
+    // sub-order without it (or with no numbers on it yet) must degrade to Unknown rather
+    // than panic.
+    let status_str = data
+        .get("phone_numbers")
+        .and_then(Value::as_array)
+        .and_then(|numbers| numbers.first())
+        .and_then(|number| number.get("requirements_status"))
+        .and_then(Value::as_str);
+    SubOrderState {
+        order,
+        requirements: parse_requirements_status(status_str, requirements_met),
+        group: None,
+    }
+}
+
+/// `requirements_met: true` is the one authoritative bit Telnyx's spec documents for "the
+/// regulator is satisfied" — no confirmed string value for that case exists anywhere in the
+/// published schema, so the boolean is checked FIRST and wins over whatever the string
+/// says. The `requirement-info-*` strings themselves are verified against the spec's own
+/// response example. The exception reason text has no documented field anywhere in the
+/// spec (a real, open gap, not an oversight here) — `None` is honest about it; the reason
+/// shown to the customer, if any, is a later phase's problem to solve, not a fabricated
+/// value now.
+fn parse_requirements_status(status: Option<&str>, requirements_met: bool) -> RequirementsStatus {
+    if requirements_met {
+        return RequirementsStatus::Approved;
+    }
+    match status.unwrap_or("").trim().to_ascii_lowercase().as_str() {
+        "requirement-info-exception" => RequirementsStatus::Exception { reason: None },
+        "requirement-info-under-review" => RequirementsStatus::UnderReview,
+        "requirement-info-pending" => RequirementsStatus::InfoPending,
+        _ => RequirementsStatus::Unknown,
+    }
+}
+
+/// Parse `data.id` / `data.sub_number_orders_ids[0]` out of a `POST /v2/number_orders`
+/// response into an [`OrderRef`] — verified against `NumberOrderWithPhoneNumbers`.
+///
+/// `sub_number_orders_ids` (a top-level array on the order) is the confirmed source: the
+/// embedded `PhoneNumber` schema was checked directly and carries no `sub_number_order_id`
+/// field, so `phone_numbers[0].sub_number_order_id` — design's original guess — is kept
+/// only as a defensive fallback that costs nothing, never the primary path.
+///
+/// `None` when either half is missing: a purchase this crate cannot fully identify must
+/// never be represented as a fabricated, partially-guessed `OrderRef`.
+fn parse_order_ref(data: &Value) -> Option<OrderRef> {
+    let order_id = data.get("id").and_then(Value::as_str)?.to_string();
+    let sub_order_id = data
+        .get("sub_number_orders_ids")
+        .and_then(Value::as_array)
+        .and_then(|ids| ids.first())
+        .and_then(Value::as_str)
+        .or_else(|| {
+            data.get("phone_numbers")
+                .and_then(Value::as_array)
+                .and_then(|numbers| numbers.first())
+                .and_then(|number| number.get("sub_number_order_id"))
+                .and_then(Value::as_str)
+        })?
+        .to_string();
+    Some(OrderRef {
+        order_id,
+        sub_order_id: SubOrderId(sub_order_id),
     })
 }
 
@@ -583,12 +945,98 @@ fn first_recording_url(payload: &TelnyxPayload) -> String {
     String::new()
 }
 
+/// Everything from a `number_order.complete` payload [`parse_number_order_event`] needs —
+/// parsed from the raw JSON rather than [`TelnyxPayload`], whose fields describe a call
+/// leg and never carry an order's id or its sub-orders.
+///
+/// Mirrors [`parse_order_ref`]'s own verified fields exactly: `id` is confirmed against
+/// `NumberOrderWithPhoneNumbers`, and `sub_number_orders_ids` (a top-level array on the
+/// order) is the confirmed source of every sub-order id, with
+/// `phone_numbers[].sub_number_order_id` kept only as a defensive fallback.
+fn parse_number_order_event(event_type: &str, payload: &Value) -> ProviderEventKind {
+    if event_type != "number_order.complete" {
+        // Recorded, not rejected — the same honesty `Unhandled` already gives every event
+        // type this crate does not fully model. The webhook is only ever a NUDGE (design
+        // D5); the sweep is the source of truth regardless of what this branch decides.
+        return ProviderEventKind::Unhandled {
+            raw_type: event_type.to_string(),
+        };
+    }
+    let order_id = payload
+        .get("id")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    let sub_order_ids: Vec<String> = payload
+        .get("sub_number_orders_ids")
+        .and_then(Value::as_array)
+        .map(|ids| {
+            ids.iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
+        .filter(|ids: &Vec<String>| !ids.is_empty())
+        .or_else(|| {
+            payload
+                .get("phone_numbers")
+                .and_then(Value::as_array)
+                .map(|numbers| {
+                    numbers
+                        .iter()
+                        .filter_map(|n| n.get("sub_number_order_id").and_then(Value::as_str))
+                        .map(str::to_string)
+                        .collect::<Vec<_>>()
+                })
+                .filter(|ids: &Vec<String>| !ids.is_empty())
+        })
+        .unwrap_or_default();
+
+    match order_id {
+        Some(order_id) if !sub_order_ids.is_empty() => ProviderEventKind::NumberOrderCompleted {
+            order_id,
+            sub_order_ids,
+        },
+        // An order this crate cannot fully identify must never be represented as a
+        // fabricated, partially-guessed nudge target — recorded as unhandled instead, the
+        // same honest gap `parse_order_ref` leaves for its own `None` case.
+        _ => ProviderEventKind::Unhandled {
+            raw_type: event_type.to_string(),
+        },
+    }
+}
+
 /// Normalise a verified body into a domain event.
 fn normalise(body: &[u8]) -> Result<ProviderEvent, WebhookError> {
+    let root: Value = serde_json::from_slice(body).map_err(|e| WebhookError::Malformed {
+        detail: e.to_string(),
+    })?;
     let env: TelnyxEnvelope =
-        serde_json::from_slice(body).map_err(|e| WebhookError::Malformed {
+        serde_json::from_value(root.clone()).map_err(|e| WebhookError::Malformed {
             detail: e.to_string(),
         })?;
+
+    // `number_order.*` events describe an ORDER, not a call leg: Telnyx's own schema for
+    // them carries no `call_control_id` at all, so they must be recognised and handled
+    // BEFORE the call_control_id requirement below — which used to reject every one of
+    // them as Malformed (spec 0119 Phase 7, design D5).
+    if env.data.event_type.starts_with("number_order.") {
+        let payload = root
+            .pointer("/data/payload")
+            .cloned()
+            .unwrap_or(Value::Null);
+        let kind = parse_number_order_event(&env.data.event_type, &payload);
+        return Ok(ProviderEvent {
+            provider: TELNYX_ID,
+            event_id: env.data.id,
+            // No call leg exists for an order event. `apply()` resolves nothing for an
+            // empty leg id and writes nothing — the honest no-op design D5 requires; the
+            // caller (`inbound_webhook`) reads `NumberOrderCompleted` directly instead.
+            leg_id: LegId::new(""),
+            client_state: None,
+            occurred_at: env.data.occurred_at,
+            kind,
+        });
+    }
 
     let leg = env
         .data
@@ -1071,6 +1519,7 @@ impl TelephonyProvider for TelnyxProvider {
                             .to_string()
                     })
                 }),
+            order: parse_order_ref(data),
         })
     }
 
@@ -1121,6 +1570,209 @@ impl TelephonyProvider for TelnyxProvider {
         Err(ProviderError::Unsupported {
             operation: "check caller-id verification over the API",
         })
+    }
+
+    // ---- regulatory requirements (spec 0119) -------------------------------
+    //
+    // Response shapes verified against Telnyx's published OpenAPI spec
+    // (github.com/team-telnyx/openapi, `openapi/spec3.json`, fetched 2026-09-16) — the
+    // interactive docs site serves a JS app shell to a plain HTTP fetch and was not usable
+    // as a source. The remaining methods below stay `Unsupported`, exactly like the SIP
+    // methods further down: filled in by the rest of this PR's slices.
+
+    async fn list_requirements(
+        &self,
+        query: &RequirementQuery,
+    ) -> Result<Vec<RequirementSpec>, ProviderError> {
+        // GET /v2/regulatory_requirements?filter[country_code]&filter[phone_number_type]
+        // &filter[action] — NOT /v2/requirements (design's original placeholder guess),
+        // which lists every requirement Telnyx has ever defined, unfiltered.
+        let q = vec![
+            (
+                "filter[country_code]".into(),
+                query.country.to_ascii_uppercase(),
+            ),
+            (
+                "filter[phone_number_type]".into(),
+                query.kind.as_str().to_string(),
+            ),
+            ("filter[action]".into(), query.action.as_str().to_string()),
+        ];
+        let body = self
+            .get_json("/v2/regulatory_requirements", &q)
+            .await?
+            .unwrap_or_default();
+        Ok(parse_requirements(&body))
+    }
+
+    async fn create_requirement_group(
+        &self,
+        query: &RequirementQuery,
+        customer_ref: &str,
+    ) -> Result<RequirementGroup, ProviderError> {
+        let payload = requirement_group_create_body(query, customer_ref);
+        let res = self
+            .http
+            .post(self.url("/v2/requirement_groups"))
+            .bearer_auth(&self.cfg.api_key)
+            .json(&payload)
+            .send()
+            .await
+            .map_err(|e| ProviderError::Unavailable {
+                detail: e.to_string(),
+            })?;
+        let res = classify_response("create_requirement_group", res).await?;
+        let body: Value = res.json().await.map_err(|e| ProviderError::Malformed {
+            detail: e.to_string(),
+        })?;
+        parse_requirement_group(&body).ok_or_else(|| ProviderError::Malformed {
+            detail: "requirement group response has no id".into(),
+        })
+    }
+
+    async fn get_requirement_group(
+        &self,
+        id: &RequirementGroupId,
+    ) -> Result<Option<RequirementGroup>, ProviderError> {
+        let Some(body) = self
+            .get_json(&format!("/v2/requirement_groups/{}", id.0), &[])
+            .await?
+        else {
+            return Ok(None);
+        };
+        Ok(parse_requirement_group(&body))
+    }
+
+    async fn submit_requirement_values(
+        &self,
+        id: &RequirementGroupId,
+        values: &[(String, FieldValue)],
+    ) -> Result<RequirementGroup, ProviderError> {
+        // Resolve every value to a plain string BEFORE building the request body — an
+        // `Address` needs its own round trip to `/v2/addresses` first (design D13).
+        let mut resolved = Vec::with_capacity(values.len());
+        for (requirement_id, value) in values {
+            let field_value = self.resolve_field_value(value).await?;
+            resolved.push((requirement_id.clone(), field_value));
+        }
+        let payload = requirement_group_patch_body(&resolved);
+        let res = self
+            .http
+            .patch(self.url(&format!("/v2/requirement_groups/{}", id.0)))
+            .bearer_auth(&self.cfg.api_key)
+            .json(&payload)
+            .send()
+            .await
+            .map_err(|e| ProviderError::Unavailable {
+                detail: e.to_string(),
+            })?;
+        // Redacted (design D12): the submitted values themselves may be PII (a full
+        // name, a resolved address's own fields never leave this call, but the id could
+        // still be echoed alongside a rejected sibling value).
+        let res = classify_response_redacted("submit_requirement_values", res).await?;
+        let body: Value = res.json().await.map_err(|e| ProviderError::Malformed {
+            detail: e.to_string(),
+        })?;
+        parse_requirement_group(&body).ok_or_else(|| ProviderError::Malformed {
+            detail: "requirement group response has no id".into(),
+        })
+    }
+
+    async fn upload_document(
+        &self,
+        upload: DocumentUpload,
+    ) -> Result<UploadedDocument, ProviderError> {
+        // POST /v2/documents, multipart field `file` — verified against the published
+        // `CreateMultiPartDocServiceDocumentRequest`/`DocServiceDocument` schemas
+        // (2026-09-16). `upload.body` streams straight into the multipart part: nothing
+        // here reads it into a `Vec<u8>` first, which is the entire point of design D9 —
+        // the caller already built a `'static` stream so it could outlive the
+        // non-`'static` multipart field it was read from.
+        let body = reqwest::Body::wrap_stream(upload.body);
+        let part = reqwest::multipart::Part::stream(body)
+            .mime_str(upload.content_type)
+            .map_err(|e| ProviderError::Malformed {
+                detail: e.to_string(),
+            })?;
+        let form = reqwest::multipart::Form::new().part("file", part);
+        let res = self
+            .http
+            .post(self.url("/v2/documents"))
+            .bearer_auth(&self.cfg.api_key)
+            .multipart(form)
+            .send()
+            .await
+            .map_err(|e| ProviderError::Unavailable {
+                detail: e.to_string(),
+            })?;
+        // Redacted (design D12): an error here can echo the filename or the document's
+        // own scan verdict text back, and nothing about this document is ever logged.
+        let res = classify_response_redacted("upload_document", res).await?;
+        let body: Value = res.json().await.map_err(|e| ProviderError::Malformed {
+            detail: e.to_string(),
+        })?;
+        parse_uploaded_document(&body).ok_or_else(|| ProviderError::Malformed {
+            detail: "document response has no id".into(),
+        })
+    }
+
+    async fn sub_order_status(
+        &self,
+        id: &SubOrderId,
+    ) -> Result<Option<SubOrderState>, ProviderError> {
+        // `phone_numbers` (needed for the per-number `requirements_status`) is present only
+        // when this filter is set — verified against `numbers_SubNumberOrder`'s own field
+        // description.
+        let q = [(
+            "filter[include_phone_numbers]".to_string(),
+            "true".to_string(),
+        )];
+        let Some(body) = self
+            .get_json(&format!("/v2/sub_number_orders/{}", id.as_str()), &q)
+            .await?
+        else {
+            // Gone at the carrier. The caller (the sweep, design D5) decides what a missing
+            // sub-order means for the number's lifecycle; this method only reports the fact.
+            return Ok(None);
+        };
+        let data = body.get("data").unwrap_or(&body);
+        Ok(Some(parse_sub_order_state(data)))
+    }
+
+    async fn attach_requirement_group(
+        &self,
+        sub_order: &SubOrderId,
+        group: &RequirementGroupId,
+    ) -> Result<SubOrderState, ProviderError> {
+        // POST /v2/sub_number_orders/:id/requirement_group {requirement_group_id} —
+        // verified against the published spec ("Update requirement group for a sub number
+        // order"). NOT a PATCH, and the body key is `requirement_group_id`, not the
+        // `group_id` design's original placeholder left unverified.
+        let payload = json!({ "requirement_group_id": group.0 });
+        let res = self
+            .http
+            .post(self.url(&format!(
+                "/v2/sub_number_orders/{}/requirement_group",
+                sub_order.as_str()
+            )))
+            .bearer_auth(&self.cfg.api_key)
+            .json(&payload)
+            .send()
+            .await
+            .map_err(|e| ProviderError::Unavailable {
+                detail: e.to_string(),
+            })?;
+        let res = classify_response("attach_requirement_group", res).await?;
+        let body: Value = res.json().await.map_err(|e| ProviderError::Malformed {
+            detail: e.to_string(),
+        })?;
+        let data = body.get("data").unwrap_or(&body);
+        let mut state = parse_sub_order_state(data);
+        // Neither this response nor a plain GET echoes back which group is attached
+        // (verified — no such field on either schema). This call alone knows for certain,
+        // since it just told the carrier to attach it.
+        state.group = Some(group.clone());
+        Ok(state)
     }
 
     // ---- SIP / PBX (spec 0118) ---------------------------------------------
@@ -1205,6 +1857,7 @@ pub fn speak_language(lang: &str) -> String {
 mod tests {
     use super::*;
     use crate::telephony::MediaCodec;
+    use bytes::Bytes;
     use ed25519_dalek::{Signer, SigningKey};
 
     fn cfg() -> TelnyxConfig {
@@ -1216,6 +1869,17 @@ mod tests {
             public_key_b64: String::new(),
             default_caller_id: Some("+390212345678".into()),
             media_anchor: "Frankfurt, Germany".into(),
+        }
+    }
+
+    /// Same config, pointed at a local stub server instead of the real carrier — used
+    /// only by the tests that must observe an actual HTTP request/response (streaming a
+    /// document, resolving an address), where a pure-function test cannot show what went
+    /// over the wire.
+    fn cfg_with_base(base: String) -> TelnyxConfig {
+        TelnyxConfig {
+            api_base: base,
+            ..cfg()
         }
     }
 
@@ -1623,6 +2287,106 @@ mod tests {
         assert_eq!(normalise(&body).unwrap().kind, ProviderEventKind::Answered);
     }
 
+    // ---- number order webhooks (spec 0119 Phase 7, design D5) -----------------
+    //
+    // `number_order.*` events describe an ORDER, not a call leg, and Telnyx's schema for
+    // them carries no `call_control_id` at all — `normalise` must recognise them BEFORE
+    // the call-control envelope below requires one, which used to reject every one of
+    // these events as Malformed.
+
+    fn number_order_event_body(event_type: &str, payload: Value) -> Vec<u8> {
+        serde_json::to_vec(&json!({
+            "data": {
+                "id": "evt-order-1",
+                "event_type": event_type,
+                "occurred_at": "2026-09-17T10:00:00Z",
+                "payload": payload,
+            }
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn a_number_order_complete_event_is_recognised_before_call_control_id_is_required() {
+        let body = number_order_event_body(
+            "number_order.complete",
+            json!({ "id": "order-1", "sub_number_orders_ids": ["sub-1", "sub-2"] }),
+        );
+        let event = normalise(&body).unwrap();
+        assert_eq!(event.leg_id, LegId::new(""));
+        assert_eq!(
+            event.kind,
+            ProviderEventKind::NumberOrderCompleted {
+                order_id: "order-1".into(),
+                sub_order_ids: vec!["sub-1".into(), "sub-2".into()],
+            }
+        );
+    }
+
+    #[test]
+    fn a_number_order_complete_event_falls_back_to_the_per_number_sub_order_id() {
+        // The same defensive fallback `parse_order_ref` uses for the purchase response:
+        // `sub_number_orders_ids` is the confirmed source, `phone_numbers[].sub_number_order_id`
+        // costs nothing to also accept.
+        let body = number_order_event_body(
+            "number_order.complete",
+            json!({
+                "id": "order-2",
+                "phone_numbers": [
+                    { "id": "pn-1", "sub_number_order_id": "sub-9" },
+                    { "id": "pn-2", "sub_number_order_id": "sub-10" }
+                ]
+            }),
+        );
+        assert_eq!(
+            normalise(&body).unwrap().kind,
+            ProviderEventKind::NumberOrderCompleted {
+                order_id: "order-2".into(),
+                sub_order_ids: vec!["sub-9".into(), "sub-10".into()],
+            }
+        );
+    }
+
+    #[test]
+    fn a_number_order_event_with_no_parseable_ids_is_recorded_rather_than_rejected() {
+        // Same "recorded, moves nothing" honesty `Unhandled` already gives every other
+        // event type this crate does not fully model — never a hard failure, because the
+        // webhook is only ever a NUDGE (design D5); the sweep is the source of truth.
+        let body = number_order_event_body("number_order.complete", json!({}));
+        assert_eq!(
+            normalise(&body).unwrap().kind,
+            ProviderEventKind::Unhandled {
+                raw_type: "number_order.complete".into()
+            }
+        );
+    }
+
+    #[test]
+    fn an_unmodelled_number_order_subtype_is_recorded_rather_than_rejected() {
+        let body = number_order_event_body("number_order.requirements_completed", json!({}));
+        assert_eq!(
+            normalise(&body).unwrap().kind,
+            ProviderEventKind::Unhandled {
+                raw_type: "number_order.requirements_completed".into()
+            }
+        );
+    }
+
+    #[test]
+    fn a_call_event_with_no_leg_still_fails_the_way_it_always_has() {
+        // Regression: the new event-type-first branch must not swallow the original
+        // call-control requirement for anything that is not a number_order event.
+        let body = serde_json::to_vec(&json!({
+            "data": { "id": "e", "event_type": "call.answered",
+                      "occurred_at": "2026-09-09T10:00:00Z", "payload": {} }
+        }))
+        .unwrap();
+        assert!(matches!(
+            normalise(&body).unwrap_err(),
+            WebhookError::Malformed { .. }
+        ));
+    }
+
     #[test]
     fn client_state_round_trips_through_base64() {
         assert_eq!(
@@ -1820,5 +2584,522 @@ mod tests {
                 operation: "fetch a per-leg CDR synchronously"
             }
         );
+    }
+
+    // ---- regulatory requirements (spec 0119) -----------------------------------
+    //
+    // Response shapes verified against Telnyx's published OpenAPI spec
+    // (github.com/team-telnyx/openapi, `openapi/spec3.json`, fetched 2026-09-16) —
+    // schema `RegulatoryRequirements`. Used as the source of truth in place of the
+    // interactive docs site, which serves a JS app shell to a plain HTTP fetch and
+    // returns no readable body.
+
+    #[test]
+    fn requirement_list_flattens_the_nested_shape_and_maps_field_types() {
+        // GET /v2/regulatory_requirements returns one entry PER matching
+        // (country, phone_number_type, action) combination, each carrying its own
+        // nested `regulatory_requirements` array — not a flat list at `data[]`.
+        let body = json!({
+            "data": [{
+                "country_code": "FR",
+                "phone_number_type": "mobile",
+                "action": "ordering",
+                "regulatory_requirements": [
+                    {
+                        "id": "req-1",
+                        "name": "Proof of address",
+                        "description": "A recent utility bill",
+                        "example": "600 Congress Avenue",
+                        "field_type": "address"
+                    },
+                    { "id": "req-2", "name": "Full name", "field_type": "textual" },
+                    { "id": "req-3", "name": "ID document", "field_type": "document" }
+                ]
+            }]
+        });
+        let specs = parse_requirements(&body);
+        assert_eq!(specs.len(), 3);
+        assert_eq!(specs[0].id, "req-1");
+        assert_eq!(
+            specs[0].description.as_deref(),
+            Some("A recent utility bill")
+        );
+        assert_eq!(specs[0].example.as_deref(), Some("600 Congress Avenue"));
+        assert_eq!(specs[0].kind, RequirementKind::Address);
+        assert_eq!(specs[1].kind, RequirementKind::Textual);
+        assert_eq!(specs[2].kind, RequirementKind::Document);
+    }
+
+    #[test]
+    fn an_unrecognised_field_type_falls_back_to_textual() {
+        // `datetime` is a real Telnyx value this crate has no separate type for, and any
+        // future value not seen yet must degrade to the safe case rather than to Document.
+        for unknown in ["datetime", "something_new"] {
+            let body = json!({"data": [{"regulatory_requirements": [
+                {"id": "r", "name": "n", "field_type": unknown}
+            ]}]});
+            assert_eq!(
+                parse_requirements(&body)[0].kind,
+                RequirementKind::Textual,
+                "{unknown}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_empty_or_missing_data_array_yields_no_requirements() {
+        assert!(parse_requirements(&json!({})).is_empty());
+        assert!(parse_requirements(&json!({"data": []})).is_empty());
+    }
+
+    #[test]
+    fn the_group_create_body_matches_the_documented_shape() {
+        // POST /v2/requirement_groups requires country_code, phone_number_type, action —
+        // verified against the `RequirementGroup` POST requestBody schema.
+        let q = requirement_query();
+        let body = requirement_group_create_body(&q, "org-42");
+        assert_eq!(body["country_code"], "FR");
+        assert_eq!(body["phone_number_type"], "mobile");
+        assert_eq!(body["action"], "ordering");
+        assert_eq!(body["customer_reference"], "org-42");
+    }
+
+    #[test]
+    fn a_requirement_group_response_parses_its_values_by_field_type() {
+        // POST/GET/PATCH /v2/requirement_groups[/{id}] all return the `RequirementGroup`
+        // object directly — no `data` envelope, unlike almost every other Telnyx resource.
+        let body = json!({
+            "id": "grp-1",
+            "status": "pending-approval",
+            "regulatory_requirements": [
+                { "requirement_id": "req-1", "field_value": "600 Congress Ave", "field_type": "address" },
+                { "requirement_id": "req-2", "field_value": "doc-99", "field_type": "document" },
+                { "requirement_id": "req-3", "field_value": "", "field_type": "textual" }
+            ]
+        });
+        let group = parse_requirement_group(&body).expect("group id present");
+        assert_eq!(group.id, RequirementGroupId("grp-1".into()));
+        assert_eq!(group.status, GroupStatus::PendingApproval);
+        assert_eq!(group.requirements.len(), 3);
+        assert_eq!(
+            group.requirements[0].1,
+            Some(FieldValue::Text("600 Congress Ave".into()))
+        );
+        assert_eq!(
+            group.requirements[1].1,
+            Some(FieldValue::Document("doc-99".into()))
+        );
+        // An empty field_value string means "not submitted yet", not a blank text answer.
+        assert_eq!(group.requirements[2].1, None);
+    }
+
+    #[test]
+    fn a_group_response_tolerates_being_wrapped_in_data_too() {
+        // Defensive only: every confirmed Telnyx sample is unwrapped, but a `data`-wrapped
+        // shape costs nothing extra to accept and matches this file's convention elsewhere
+        // (`purchase_number` reads `body.get("data").unwrap_or(&body)`).
+        let body =
+            json!({"data": {"id": "grp-2", "status": "approved", "regulatory_requirements": []}});
+        let group = parse_requirement_group(&body).expect("group id present");
+        assert_eq!(group.id, RequirementGroupId("grp-2".into()));
+        assert_eq!(group.status, GroupStatus::Approved);
+    }
+
+    #[test]
+    fn a_group_response_with_no_id_parses_to_none() {
+        assert!(parse_requirement_group(&json!({"status": "approved"})).is_none());
+    }
+
+    #[test]
+    fn every_documented_group_status_word_maps_and_unknown_words_stay_unknown() {
+        for (raw, expected) in [
+            ("approved", GroupStatus::Approved),
+            ("unapproved", GroupStatus::Unapproved),
+            ("pending-approval", GroupStatus::PendingApproval),
+            ("pending_approval", GroupStatus::PendingApproval),
+            ("declined", GroupStatus::Declined),
+            ("expired", GroupStatus::Expired),
+            ("no-longer-eligible", GroupStatus::NoLongerEligible),
+            ("something_new", GroupStatus::Unknown),
+        ] {
+            assert_eq!(GroupStatus::parse(raw), expected, "{raw}");
+        }
+    }
+
+    #[test]
+    fn the_group_patch_body_carries_already_resolved_values_as_plain_strings() {
+        // PATCH /v2/requirement_groups/:id — verified against the same `RequirementGroup`
+        // schema: `regulatory_requirements: [{requirement_id, field_value}]`, both strings.
+        // By the time this pure function runs, every `FieldValue` (including `Address`)
+        // has already been resolved to a plain string by
+        // `TelnyxProvider::resolve_field_value` — this function never sees a `FieldValue`.
+        let values = vec![
+            ("req-1".to_string(), "Jane Doe".to_string()),
+            ("req-2".to_string(), "doc-7".to_string()),
+            // An address resolves to the opaque provider id `create_address` returned,
+            // never to raw address text.
+            ("req-3".to_string(), "addr-42".to_string()),
+        ];
+        let body = requirement_group_patch_body(&values);
+        let reqs = body["regulatory_requirements"].as_array().unwrap();
+        assert_eq!(reqs.len(), 3);
+        assert_eq!(reqs[0]["requirement_id"], "req-1");
+        assert_eq!(reqs[0]["field_value"], "Jane Doe");
+        assert_eq!(reqs[1]["requirement_id"], "req-2");
+        assert_eq!(reqs[1]["field_value"], "doc-7");
+        assert_eq!(reqs[2]["requirement_id"], "req-3");
+        assert_eq!(reqs[2]["field_value"], "addr-42");
+    }
+
+    // ---- address resolution (spec 0119 D13, PR4) -------------------------------
+    //
+    // `POST /v2/addresses` — verified against the published `AddressCreate`/`Address`
+    // schemas (2026-09-16): required fields are `first_name`, `last_name`,
+    // `business_name`, `street_address`, `locality`, `country_code`; the response wraps
+    // the created `Address` in `data`, and `data.id` is the opaque id later submitted as
+    // the requirement's `field_value`.
+
+    fn address_value() -> super::super::AddressValue {
+        super::super::AddressValue {
+            first_name: "Jane".into(),
+            last_name: "Doe".into(),
+            business_name: "Acme SRL".into(),
+            street_address: "1 Rue de Paris".into(),
+            extended_address: None,
+            locality: "Paris".into(),
+            administrative_area: None,
+            postal_code: "75001".into(),
+            country_code: "FR".into(),
+        }
+    }
+
+    #[test]
+    fn the_address_create_body_carries_every_field_the_schema_requires() {
+        let body = address_create_body(&address_value());
+        assert_eq!(body["first_name"], "Jane");
+        assert_eq!(body["last_name"], "Doe");
+        assert_eq!(body["business_name"], "Acme SRL");
+        assert_eq!(body["street_address"], "1 Rue de Paris");
+        assert_eq!(body["locality"], "Paris");
+        assert_eq!(body["country_code"], "FR");
+        assert_eq!(body["postal_code"], "75001");
+        // Optional fields absent from the value must not appear as JSON `null` — the
+        // schema treats a present-but-null field the same risk class as a wrong one.
+        assert!(body.get("extended_address").is_none());
+        assert!(body.get("administrative_area").is_none());
+    }
+
+    #[test]
+    fn parse_address_id_reads_the_data_wrapped_id() {
+        let body = json!({"data": {"id": "addr-1", "record_type": "address"}});
+        assert_eq!(parse_address_id(&body).as_deref(), Some("addr-1"));
+    }
+
+    #[test]
+    fn parse_address_id_is_none_without_an_id() {
+        assert!(parse_address_id(&json!({"data": {}})).is_none());
+        assert!(parse_address_id(&json!({})).is_none());
+    }
+
+    // ---- document upload (spec 0119 D9/D10, PR4) -------------------------------
+    //
+    // `POST /v2/documents` — verified against the published
+    // `CreateMultiPartDocServiceDocumentRequest`/`DocServiceDocument` schemas
+    // (2026-09-16): the multipart field is named `file`, and the response wraps the
+    // created document in `data` with `id` and `av_scan_status`
+    // (`scanned`/`infected`/`pending_scan`/`not_scanned`).
+
+    #[test]
+    fn parse_uploaded_document_reads_id_and_scan_status() {
+        let body = json!({"data": {"id": "doc-1", "av_scan_status": "scanned"}});
+        let doc = parse_uploaded_document(&body).expect("id present");
+        assert_eq!(doc.id, "doc-1");
+        assert_eq!(doc.av_scan_status, "scanned");
+    }
+
+    #[test]
+    fn parse_uploaded_document_is_none_without_an_id() {
+        assert!(parse_uploaded_document(&json!({"data": {"av_scan_status": "scanned"}})).is_none());
+    }
+
+    #[tokio::test]
+    async fn upload_document_streams_the_body_without_buffering_it_first() {
+        // The property this test exists to prove: the adapter forwards `upload.body` as
+        // it arrives (several chunks, D9) rather than collecting it into one buffer
+        // before sending — a local stub server is the only way to observe that, since a
+        // pure function cannot show what a real HTTP body looked like on the wire.
+        use axum::extract::{Multipart, State};
+        use axum::routing::post;
+        use axum::{Json, Router};
+        use futures::StreamExt;
+        use std::sync::atomic::{AtomicU64, Ordering};
+        use std::sync::Arc;
+
+        let received_bytes = Arc::new(AtomicU64::new(0));
+        let received_chunks = Arc::new(AtomicU64::new(0));
+        let app = Router::new()
+            .route(
+                "/v2/documents",
+                post(
+                    |State((bytes, chunks)): State<(Arc<AtomicU64>, Arc<AtomicU64>)>,
+                     mut mp: Multipart| async move {
+                        let mut field = mp.next_field().await.unwrap().expect("a `file` field");
+                        assert_eq!(field.name(), Some("file"));
+                        let mut total = 0u64;
+                        // `chunk()`, not `bytes()`: the latter would buffer the whole
+                        // field before this handler could observe more than one piece.
+                        while let Some(chunk) = field.chunk().await.unwrap() {
+                            total += chunk.len() as u64;
+                            chunks.fetch_add(1, Ordering::SeqCst);
+                        }
+                        bytes.store(total, Ordering::SeqCst);
+                        Json(json!({"data": {"id": "doc-1", "av_scan_status": "scanned"}}))
+                    },
+                ),
+            )
+            .with_state((received_bytes.clone(), received_chunks.clone()));
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        let p = TelnyxProvider::new(cfg_with_base(format!("http://{addr}")), 300);
+
+        let chunks: Vec<Result<Bytes, std::io::Error>> = vec![
+            Ok(Bytes::from_static(b"%PDF-1.4 ")),
+            Ok(Bytes::from_static(b"chunk two ")),
+            Ok(Bytes::from_static(b"chunk three")),
+        ];
+        let expected_len: u64 = chunks
+            .iter()
+            .map(|c| c.as_ref().unwrap().len() as u64)
+            .sum();
+        let body = futures::stream::iter(chunks).boxed();
+        let upload = DocumentUpload {
+            content_type: "application/pdf",
+            body,
+        };
+
+        let uploaded = p.upload_document(upload).await.unwrap();
+        assert_eq!(uploaded.id, "doc-1");
+        assert_eq!(uploaded.av_scan_status, "scanned");
+        assert_eq!(received_bytes.load(Ordering::SeqCst), expected_len);
+        // Not a hard requirement of the wire format, but a red flag if it ever drops to
+        // 1: it would mean the multipart body was assembled from one pre-joined buffer.
+        assert!(received_chunks.load(Ordering::SeqCst) >= 2);
+    }
+
+    #[tokio::test]
+    async fn submit_requirement_values_resolves_an_address_before_patching_the_group() {
+        // End-to-end proof of D13: an `Address` value must reach `/v2/requirement_groups`
+        // as the opaque id `POST /v2/addresses` returned, never as address text.
+        use axum::extract::{Json as JsonBody, Path};
+        use axum::routing::{patch, post};
+        use axum::{Json, Router};
+        use std::sync::{Arc, Mutex};
+
+        let captured_address_body: Arc<Mutex<Option<Value>>> = Arc::new(Mutex::new(None));
+        let captured_patch_body: Arc<Mutex<Option<Value>>> = Arc::new(Mutex::new(None));
+        let addresses_capture = captured_address_body.clone();
+        let patch_capture = captured_patch_body.clone();
+
+        let app = Router::new()
+            .route(
+                "/v2/addresses",
+                post(move |JsonBody(body): JsonBody<Value>| {
+                    let capture = addresses_capture.clone();
+                    async move {
+                        *capture.lock().unwrap() = Some(body);
+                        Json(json!({"data": {"id": "addr-99"}}))
+                    }
+                }),
+            )
+            .route(
+                "/v2/requirement_groups/{id}",
+                patch(
+                    move |Path(id): Path<String>, JsonBody(body): JsonBody<Value>| {
+                        let capture = patch_capture.clone();
+                        async move {
+                            *capture.lock().unwrap() = Some(body);
+                            Json(json!({
+                                "id": id,
+                                "status": "pending-approval",
+                                "regulatory_requirements": [
+                                    {
+                                        "requirement_id": "req-1",
+                                        "field_value": "addr-99",
+                                        "field_type": "address"
+                                    }
+                                ]
+                            }))
+                        }
+                    },
+                ),
+            );
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        let p = TelnyxProvider::new(cfg_with_base(format!("http://{addr}")), 300);
+        let group = p
+            .submit_requirement_values(
+                &RequirementGroupId("grp-1".into()),
+                &[("req-1".to_string(), FieldValue::Address(address_value()))],
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(group.id, RequirementGroupId("grp-1".into()));
+        assert_eq!(group.status, GroupStatus::PendingApproval);
+
+        let address_body = captured_address_body
+            .lock()
+            .unwrap()
+            .clone()
+            .expect("POST /v2/addresses was called");
+        assert_eq!(address_body["first_name"], "Jane");
+        assert_eq!(address_body["last_name"], "Doe");
+        assert_eq!(address_body["business_name"], "Acme SRL");
+
+        let patch_body = captured_patch_body
+            .lock()
+            .unwrap()
+            .clone()
+            .expect("PATCH /v2/requirement_groups/:id was called");
+        let reqs = patch_body["regulatory_requirements"].as_array().unwrap();
+        assert_eq!(reqs[0]["requirement_id"], "req-1");
+        // The resolved provider address id, never the raw address fields — proves
+        // resolution actually happened rather than the value being forwarded unresolved.
+        assert_eq!(reqs[0]["field_value"], "addr-99");
+        let patch_text = patch_body.to_string();
+        assert!(!patch_text.contains("Rue de Paris"));
+        assert!(!patch_text.contains("Acme SRL"));
+    }
+
+    #[test]
+    fn every_documented_order_status_word_maps_and_unknown_words_stay_unknown() {
+        // `numbers_SubNumberOrder.status` enum is `pending|success|failure` — verified
+        // against the published spec. `cancelled`/`deleted` are accepted too because
+        // `POST /v2/sub_number_orders/:id/cancel` exists and design's own `transition()`
+        // (spec 0119 R5) already models a cancelled/deleted order as a distinct outcome;
+        // recognising the word costs nothing and a spec revision may add it later.
+        for (raw, expected) in [
+            ("pending", OrderStatus::Pending),
+            ("success", OrderStatus::Success),
+            ("failure", OrderStatus::Failure),
+            ("cancelled", OrderStatus::Cancelled),
+            ("canceled", OrderStatus::Cancelled),
+            ("deleted", OrderStatus::Deleted),
+            ("something_new", OrderStatus::Unknown),
+        ] {
+            assert_eq!(OrderStatus::parse(raw), expected, "{raw}");
+        }
+    }
+
+    #[test]
+    fn a_fully_met_sub_order_is_approved_regardless_of_the_status_string() {
+        // `requirements_met: true` is the one authoritative bit Telnyx documents for "the
+        // regulator is satisfied" — no `requirements_status` string for that case is
+        // documented anywhere in the published spec, so the boolean wins over the string.
+        let data = json!({
+            "status": "success",
+            "requirements_met": true,
+            "phone_numbers": [{ "requirements_status": "requirement-info-pending" }]
+        });
+        let state = parse_sub_order_state(&data);
+        assert_eq!(state.order, OrderStatus::Success);
+        assert_eq!(state.requirements, RequirementsStatus::Approved);
+        // The adapter never fabricates a group id the response did not echo back.
+        assert_eq!(state.group, None);
+    }
+
+    #[test]
+    fn the_documented_requirement_info_strings_map_onto_domain_states() {
+        // Exact strings verified against the published spec's own response example
+        // (`SubNumberOrderRequirementGroupResponse`): "requirement-info-pending",
+        // "requirement-info-under-review", "requirement-info-exception".
+        for (raw, expected) in [
+            ("requirement-info-pending", RequirementsStatus::InfoPending),
+            (
+                "requirement-info-under-review",
+                RequirementsStatus::UnderReview,
+            ),
+            (
+                "requirement-info-exception",
+                RequirementsStatus::Exception { reason: None },
+            ),
+        ] {
+            let data = json!({
+                "status": "pending",
+                "requirements_met": false,
+                "phone_numbers": [{ "requirements_status": raw }]
+            });
+            assert_eq!(parse_sub_order_state(&data).requirements, expected, "{raw}");
+        }
+    }
+
+    #[test]
+    fn a_missing_phone_numbers_array_is_unknown_rather_than_a_panic() {
+        // `phone_numbers` is only present when `filter[include_phone_numbers]=true` is
+        // sent; a response without it must degrade, never crash the sweep.
+        let data = json!({ "status": "pending", "requirements_met": false });
+        assert_eq!(
+            parse_sub_order_state(&data).requirements,
+            RequirementsStatus::Unknown
+        );
+    }
+
+    // ---- purchase order/sub-order id parsing (spec 0119 S3) -------------------
+
+    #[test]
+    fn the_order_and_sub_order_ids_come_from_the_verified_top_level_fields() {
+        // `NumberOrderWithPhoneNumbers` (verified against the published spec): `id` is the
+        // order id, `sub_number_orders_ids` is an array of sub-order ids. The embedded
+        // `PhoneNumber` schema — checked directly — carries no `sub_number_order_id` field
+        // at all, so that is NOT the primary source design's original guess assumed.
+        let data = json!({
+            "id": "order-1",
+            "sub_number_orders_ids": ["sub-1", "sub-2"],
+            "phone_numbers": [{ "id": "pn-1", "phone_number": "+33612345678" }]
+        });
+        let order_ref = parse_order_ref(&data).expect("both ids present");
+        assert_eq!(order_ref.order_id, "order-1");
+        assert_eq!(order_ref.sub_order_id, SubOrderId("sub-1".into()));
+    }
+
+    #[test]
+    fn a_per_phone_number_sub_order_id_is_a_defensive_fallback_only() {
+        // Kept in case a differently-shaped response ever carries it, even though the
+        // current published schema does not — cheap tolerance, never the primary path.
+        let data = json!({
+            "id": "order-2",
+            "phone_numbers": [{ "id": "pn-1", "sub_number_order_id": "sub-9" }]
+        });
+        assert_eq!(
+            parse_order_ref(&data).unwrap().sub_order_id,
+            SubOrderId("sub-9".into())
+        );
+    }
+
+    #[test]
+    fn a_response_with_no_order_id_or_no_sub_order_id_yields_no_order_ref() {
+        // Never a fabricated id: `PurchasedNumber.order` documents `None` as "genuinely no
+        // order/sub-order concept", and a malformed/partial response must present the same
+        // honest gap rather than half an `OrderRef`.
+        assert!(parse_order_ref(&json!({"sub_number_orders_ids": ["s"]})).is_none());
+        assert!(parse_order_ref(&json!({"id": "order-3"})).is_none());
+    }
+
+    fn requirement_query() -> RequirementQuery {
+        RequirementQuery {
+            country: "fr".into(),
+            kind: NumberKind::Mobile,
+            action: super::super::RequirementAction::Ordering,
+        }
     }
 }

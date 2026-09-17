@@ -23,7 +23,7 @@ use crate::business::credits::{deduct_org_credits_tx, OrgCharge};
 use crate::business::{db_err, not_found, require_pool, require_role, ADMIN, MEMBER};
 use crate::middleware::AuthUser;
 use crate::telephony::{
-    NumberKind, NumberOffer, NumberSearch, NumberStatus, ProviderError, ProviderNumberId,
+    NumberKind, NumberOffer, NumberSearch, NumberStatus, OrderRef, ProviderError, ProviderNumberId,
     PurchaseRequest, E164,
 };
 use crate::voip::pricing::{credits_ceil, NumberMarkupPolicy};
@@ -161,6 +161,32 @@ async fn offer_for(state: &AppState, body: &BuyBody) -> Result<NumberOffer, Resp
         .ok_or_else(|| refuse(StatusCode::CONFLICT, "number_unavailable"))
 }
 
+/// How soon after a REGULATED purchase the sweep looks at it for the first time (spec
+/// 0119, design D8). Short enough that an organisation which never opens the requirements
+/// panel still profits quickly from an already-approved reusable group in the same
+/// combination — `reconcile_due` (`voip::regulatory`) is what actually reads this, and
+/// before this constant existed nothing ever set the column at all, so a freshly bought
+/// number sat unswept until an admin visited the panel: a Telnyx deadline cancellation
+/// never failed it, and D8's own reuse never ran.
+const INITIAL_REGULATORY_CHECK_SECS: i64 = 2 * 60;
+
+/// The sweep's first scheduled check for a freshly purchased number, or `None` if there is
+/// nothing for it to poll.
+///
+/// `None` unless the purchase left the number `pending_regulatory` WITH a sub-order id —
+/// a provider bug, or a legacy code path, that reports regulatory status without an order
+/// must leave the row unscheduled forever rather than jam `reconcile_due` on an id it does
+/// not have. `reconcile_due` already requires `provider_sub_order_id IS NOT NULL`; this is
+/// what keeps `regulatory_next_check_at` honestly `NULL` to match, exactly the way a
+/// legacy pre-feature row (`regulatory_unlinked`) is read today.
+fn initial_regulatory_check_at(
+    status: NumberStatus,
+    order: Option<&OrderRef>,
+) -> Option<chrono::DateTime<Utc>> {
+    (status == NumberStatus::PendingRegulatory && order.is_some())
+        .then(|| Utc::now() + Duration::seconds(INITIAL_REGULATORY_CHECK_SECS))
+}
+
 /// `POST …/voip/numbers` — buy one.
 pub async fn buy(
     State(state): State<AppState>,
@@ -248,6 +274,16 @@ pub async fn buy(
     } else {
         bought.status
     };
+    // Only `active` may ever be presented as caller id (D4, spec 0119 R5's amendment to
+    // 0115 R4). Before this, every purchase was inserted `outbound_enabled = TRUE`, which
+    // meant `resolve_caller_id` would present a `pending_regulatory` number the regulator
+    // had not cleared — a latent bug this change closes rather than perpetuates.
+    let outbound_enabled = status == NumberStatus::Active;
+    // design D8: without this, `reconcile_due` (which only ever picks rows with
+    // `regulatory_next_check_at IS NOT NULL`) never discovers a freshly bought regulated
+    // number until an admin opens the requirements panel — a Telnyx deadline cancellation
+    // would never fail it, and an already-approved reusable group would never auto-attach.
+    let regulatory_next_check_at = initial_regulatory_check_at(status, bought.order.as_ref());
 
     let id: Uuid = sqlx::query_scalar(
         "INSERT INTO voip_numbers
@@ -255,9 +291,11 @@ pub async fn buy(
              verification_status, status, status_reason, regulatory_requirement,
              provider_monthly_usd, provider_setup_usd, markup_rate,
              customer_monthly_usd, customer_setup_usd, currency,
-             purchase_key, next_renewal_at)
-         VALUES ($1, $2, $3, $4, $5, TRUE, 'verified', $6, $7, $7, $8, $9, $10, $11, $12, $13,
-                 $14, $15)
+             purchase_key, next_renewal_at,
+             provider_order_id, provider_sub_order_id, number_kind,
+             regulatory_next_check_at)
+         VALUES ($1, $2, $3, $4, $5, $6, 'verified', $7, $8, $8, $9, $10, $11, $12, $13, $14,
+                 $15, $16, $17, $18, $19, $20)
          RETURNING id",
     )
     .bind(org_id)
@@ -265,6 +303,7 @@ pub async fn buy(
     .bind(bought.provider_number_id.as_str())
     .bind(dest.as_str())
     .bind(dest.region())
+    .bind(outbound_enabled)
     .bind(status.as_str())
     .bind(bought.regulatory_requirement.as_deref())
     .bind(offer.monthly_cost)
@@ -275,6 +314,10 @@ pub async fn buy(
     .bind(&offer.currency)
     .bind(&body.purchase_key)
     .bind(Utc::now() + Duration::days(30))
+    .bind(bought.order.as_ref().map(|o| o.order_id.as_str()))
+    .bind(bought.order.as_ref().map(|o| o.sub_order_id.as_str()))
+    .bind(offer.kind.as_str())
+    .bind(regulatory_next_check_at)
     .fetch_one(&mut *tx)
     .await
     .map_err(db_err)?;
@@ -844,4 +887,46 @@ pub async fn clear_hours(
     .map_err(db_err)?;
 
     Ok(StatusCode::NO_CONTENT.into_response())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::telephony::{OrderRef, SubOrderId};
+
+    #[test]
+    fn a_regulated_purchase_with_a_sub_order_id_is_scheduled_a_few_minutes_out() {
+        // Closes the gap a legacy `pending_regulatory` row without an order id already
+        // exposed: `reconcile_due` only ever picks rows with `regulatory_next_check_at
+        // IS NOT NULL`, and nothing set it at purchase time, so a freshly bought number
+        // sat unswept until an admin opened the panel — a Telnyx deadline cancellation
+        // never failed it, and design D8's automatic reuse of an already-approved group
+        // never ran.
+        let order = OrderRef {
+            order_id: "mock-order-1".into(),
+            sub_order_id: SubOrderId("mock-suborder-1".into()),
+        };
+        let scheduled = initial_regulatory_check_at(NumberStatus::PendingRegulatory, Some(&order))
+            .expect("a regulated purchase with a sub-order id must be scheduled");
+        let delta = (scheduled - Utc::now()).num_seconds();
+        assert!(
+            (INITIAL_REGULATORY_CHECK_SECS - 10..=INITIAL_REGULATORY_CHECK_SECS).contains(&delta),
+            "expected ~{INITIAL_REGULATORY_CHECK_SECS}s, got {delta}s"
+        );
+    }
+
+    #[test]
+    fn an_unregulated_purchase_is_never_scheduled() {
+        assert!(initial_regulatory_check_at(NumberStatus::Active, None).is_none());
+    }
+
+    #[test]
+    fn a_regulated_status_without_a_sub_order_id_is_never_scheduled() {
+        // The defensive gap itself: a provider (or a legacy code path) reporting
+        // regulatory status with no order to poll must leave the row unscheduled
+        // forever rather than jam the sweep on an id it does not have — the sweep's own
+        // `reconcile_due` already requires `provider_sub_order_id IS NOT NULL`, and this
+        // is what keeps `regulatory_next_check_at` honestly NULL to match.
+        assert!(initial_regulatory_check_at(NumberStatus::PendingRegulatory, None).is_none());
+    }
 }
