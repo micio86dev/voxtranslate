@@ -16,6 +16,7 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
+use serde::Deserialize;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
@@ -23,7 +24,7 @@ use crate::business::{db_err, not_found, require_pool, require_role, ADMIN};
 use crate::db::Pool;
 use crate::middleware::AuthUser;
 use crate::telephony::{
-    FieldValue, GroupStatus, NumberKind, NumberStatus, OrderStatus, ProviderError,
+    AddressValue, FieldValue, GroupStatus, NumberKind, NumberStatus, OrderStatus, ProviderError,
     RequirementAction, RequirementGroup, RequirementGroupId, RequirementKind, RequirementQuery,
     RequirementSpec, RequirementsStatus, SubOrderState, TelephonyProvider,
 };
@@ -508,6 +509,167 @@ pub async fn get_requirements(
         ensured.status,
         ensured.reused,
         &ensured.requirements,
+        &docs,
+    ))
+    .into_response())
+}
+
+/// The longest a submitted text or address field may be before it is forwarded to the
+/// provider. Same magnitude as [`MAX_REASON_CHARS`] and for the same reason: a column (or
+/// here, a carrier request) is not the place for an unbounded string a customer typed.
+const MAX_VALUE_CHARS: usize = 500;
+
+#[derive(Debug, Deserialize)]
+struct AddressJson {
+    first_name: String,
+    last_name: String,
+    business_name: String,
+    street_address: String,
+    #[serde(default)]
+    extended_address: Option<String>,
+    locality: String,
+    #[serde(default)]
+    administrative_area: Option<String>,
+    postal_code: String,
+    country_code: String,
+}
+
+impl AddressJson {
+    /// Every field this crate bounds (design's own text fields), checked before a single
+    /// byte reaches the provider.
+    fn longest_field_chars(&self) -> usize {
+        [
+            &self.first_name,
+            &self.last_name,
+            &self.business_name,
+            &self.street_address,
+            &self.locality,
+            &self.postal_code,
+            &self.country_code,
+        ]
+        .into_iter()
+        .chain(self.extended_address.iter())
+        .chain(self.administrative_area.iter())
+        .map(|s| s.chars().count())
+        .max()
+        .unwrap_or(0)
+    }
+}
+
+impl From<AddressJson> for AddressValue {
+    fn from(a: AddressJson) -> Self {
+        AddressValue {
+            first_name: a.first_name,
+            last_name: a.last_name,
+            business_name: a.business_name,
+            street_address: a.street_address,
+            extended_address: a.extended_address,
+            locality: a.locality,
+            administrative_area: a.administrative_area,
+            postal_code: a.postal_code,
+            country_code: a.country_code,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct PutValueBody {
+    requirement_id: String,
+    value: Value,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PutRequirementsBody {
+    values: Vec<PutValueBody>,
+}
+
+/// Validate one submitted value against the requirement's own kind, and turn it into a
+/// [`FieldValue`] ready to forward. Never partially validates a batch: the caller collects
+/// this into a `Result<Vec<_>, Response>` so one bad entry refuses the whole PUT rather
+/// than forwarding some values and silently dropping others.
+fn validate_value(spec: &RequirementSpec, value: &Value) -> Result<FieldValue, Response> {
+    match spec.kind {
+        RequirementKind::Textual => {
+            let Some(s) = value.as_str() else {
+                return Err(refuse(StatusCode::BAD_REQUEST, "requirement_kind_mismatch"));
+            };
+            if s.chars().count() > MAX_VALUE_CHARS {
+                return Err(refuse(StatusCode::BAD_REQUEST, "value_too_long"));
+            }
+            Ok(FieldValue::Text(s.to_string()))
+        }
+        RequirementKind::Address => {
+            let addr: AddressJson = serde_json::from_value(value.clone())
+                .map_err(|_| refuse(StatusCode::BAD_REQUEST, "requirement_kind_mismatch"))?;
+            if addr.longest_field_chars() > MAX_VALUE_CHARS {
+                return Err(refuse(StatusCode::BAD_REQUEST, "value_too_long"));
+            }
+            Ok(FieldValue::Address(addr.into()))
+        }
+        // A document is fulfilled through the upload route, never through a raw value in
+        // this body — accepting one here would let a client claim a scan result it never
+        // earned.
+        RequirementKind::Document => {
+            Err(refuse(StatusCode::BAD_REQUEST, "requirement_kind_mismatch"))
+        }
+    }
+}
+
+/// `PUT …/voip/numbers/{number_id}/requirements` — fill in (or correct) textual and
+/// address fields (spec 0119 "Requirement Submission").
+pub async fn put_requirements(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path((org_id, number_id)): Path<(Uuid, Uuid)>,
+    Json(body): Json<PutRequirementsBody>,
+) -> Result<Response, Response> {
+    let pool = require_pool(&state)?;
+    require_role(pool, org_id, user.user_id, ADMIN).await?;
+    let row = load_number(pool, org_id, number_id).await?;
+    gate_regulatable(&row)?;
+    if !matches!(
+        row.status,
+        NumberStatus::PendingRegulatory | NumberStatus::RegulatoryRejected
+    ) {
+        return Err(refuse(StatusCode::CONFLICT, "requirements_not_editable"));
+    }
+
+    let query = RequirementQuery {
+        country: row.country.clone(),
+        kind: NumberKind::parse(row.number_kind.as_deref().unwrap_or("")),
+        action: RequirementAction::Ordering,
+    };
+    let telephony = provider(&state)?;
+    let ensured = ensure_group(pool, telephony, org_id, &query, &org_id.to_string())
+        .await
+        .map_err(group_err)?;
+    link_group(pool, number_id, ensured.row_id).await?;
+
+    let mut values = Vec::with_capacity(body.values.len());
+    for entry in &body.values {
+        let Some((spec, _)) = ensured
+            .requirements
+            .iter()
+            .find(|(spec, _)| spec.id == entry.requirement_id)
+        else {
+            return Err(refuse(StatusCode::BAD_REQUEST, "requirement_unknown"));
+        };
+        let field_value = validate_value(spec, &entry.value)?;
+        values.push((entry.requirement_id.clone(), field_value));
+    }
+
+    let updated = telephony
+        .submit_requirement_values(&ensured.provider_group_id, &values)
+        .await
+        .map_err(provider_err)?;
+    let docs = fetch_docs(pool, ensured.row_id).await?;
+
+    Ok(Json(build_view(
+        row.status,
+        row.status_reason.as_deref(),
+        updated.status,
+        ensured.reused,
+        &updated.requirements,
         &docs,
     ))
     .into_response())

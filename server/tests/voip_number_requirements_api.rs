@@ -7,13 +7,14 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use reqwest::Client;
-use serde_json::Value;
+use serde_json::{json, Value};
 use uuid::Uuid;
 use voxtranslate_server::auth::{issue_jwt, upsert_google_user, FakeVerifier, GoogleIdentity};
 use voxtranslate_server::billing::{usd, BillingService};
 use voxtranslate_server::config::{Config, VoipConfig};
 use voxtranslate_server::db::{self, Pool};
 use voxtranslate_server::telephony::mock::MockTelephonyProvider;
+use voxtranslate_server::telephony::ProviderError;
 use voxtranslate_server::{app, AppState};
 
 const SECRET: &str = "voip-requirements-secret";
@@ -21,6 +22,7 @@ const SECRET: &str = "voip-requirements-secret";
 struct Server {
     addr: SocketAddr,
     pool: Pool,
+    provider: Arc<MockTelephonyProvider>,
 }
 
 async fn setup() -> Option<Server> {
@@ -34,15 +36,18 @@ async fn setup() -> Option<Server> {
     state.billing = Some(BillingService::new(pool.clone(), min_join));
     state.pool = Some(pool.clone());
     state.verifier = Arc::new(FakeVerifier);
-    // A later slice of this feature scripts the mock directly (provider failure mapping,
-    // status transitions); discovery here only needs one enabled and reachable.
-    state.telephony = Some(Arc::new(MockTelephonyProvider::default()));
+    let provider = Arc::new(MockTelephonyProvider::default());
+    state.telephony = Some(provider.clone());
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.ok()?;
     let addr = listener.local_addr().ok()?;
     tokio::spawn(async move {
         let _ = axum::serve(listener, app(state)).await;
     });
-    Some(Server { addr, pool })
+    Some(Server {
+        addr,
+        pool,
+        provider,
+    })
 }
 
 fn base(srv: &Server) -> String {
@@ -358,4 +363,204 @@ async fn a_claim_still_being_created_is_reported_busy() {
     assert_eq!(r.status(), 409);
     let body: Value = r.json().await.unwrap();
     assert_eq!(body["error"], "requirements_busy");
+}
+// ---------------------------------------------------------------------------
+// Submission — PUT
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn put_round_trips_a_valid_textual_and_address_value() {
+    let srv = skip_without_db!(setup().await);
+    let http = Client::new();
+    let (owner, jwt) = user(&srv, "Owner").await;
+    let org_id = org(&srv, owner).await;
+    let number_id = regulated_number(&srv, org_id, "so-put").await;
+
+    let r = http
+        .put(requirements_url(&srv, org_id, number_id, ""))
+        .bearer_auth(&jwt)
+        .json(&json!({
+            "values": [
+                { "requirement_id": "business_name", "value": "Acme SRL" },
+                { "requirement_id": "registered_address", "value": {
+                    "first_name": "Jane",
+                    "last_name": "Doe",
+                    "business_name": "Acme SRL",
+                    "street_address": "1 Rue de Paris",
+                    "locality": "Paris",
+                    "postal_code": "75001",
+                    "country_code": "FR",
+                }},
+            ],
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 200, "body: {}", r.text().await.unwrap());
+}
+
+#[tokio::test]
+async fn putting_an_unknown_requirement_id_is_refused() {
+    let srv = skip_without_db!(setup().await);
+    let http = Client::new();
+    let (owner, jwt) = user(&srv, "Owner").await;
+    let org_id = org(&srv, owner).await;
+    let number_id = regulated_number(&srv, org_id, "so-unknown").await;
+
+    let r = http
+        .put(requirements_url(&srv, org_id, number_id, ""))
+        .bearer_auth(&jwt)
+        .json(&json!({ "values": [{ "requirement_id": "not_a_real_field", "value": "x" }] }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 400);
+    let body: Value = r.json().await.unwrap();
+    assert_eq!(body["error"], "requirement_unknown");
+}
+
+#[tokio::test]
+async fn putting_a_non_string_value_for_a_textual_field_is_a_kind_mismatch() {
+    let srv = skip_without_db!(setup().await);
+    let http = Client::new();
+    let (owner, jwt) = user(&srv, "Owner").await;
+    let org_id = org(&srv, owner).await;
+    let number_id = regulated_number(&srv, org_id, "so-mismatch").await;
+
+    let r = http
+        .put(requirements_url(&srv, org_id, number_id, ""))
+        .bearer_auth(&jwt)
+        .json(&json!({ "values": [{ "requirement_id": "business_name", "value": 42 }] }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 400);
+    let body: Value = r.json().await.unwrap();
+    assert_eq!(body["error"], "requirement_kind_mismatch");
+}
+
+#[tokio::test]
+async fn putting_a_document_value_is_refused_documents_go_through_the_upload_route() {
+    let srv = skip_without_db!(setup().await);
+    let http = Client::new();
+    let (owner, jwt) = user(&srv, "Owner").await;
+    let org_id = org(&srv, owner).await;
+    let number_id = regulated_number(&srv, org_id, "so-doc").await;
+
+    let r = http
+        .put(requirements_url(&srv, org_id, number_id, ""))
+        .bearer_auth(&jwt)
+        .json(&json!({ "values": [{ "requirement_id": "proof_of_address", "value": "doc-1" }] }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 400);
+    let body: Value = r.json().await.unwrap();
+    assert_eq!(body["error"], "requirement_kind_mismatch");
+}
+
+#[tokio::test]
+async fn putting_a_value_over_the_length_bound_is_refused() {
+    let srv = skip_without_db!(setup().await);
+    let http = Client::new();
+    let (owner, jwt) = user(&srv, "Owner").await;
+    let org_id = org(&srv, owner).await;
+    let number_id = regulated_number(&srv, org_id, "so-long").await;
+
+    let r = http
+        .put(requirements_url(&srv, org_id, number_id, ""))
+        .bearer_auth(&jwt)
+        .json(&json!({
+            "values": [{ "requirement_id": "business_name", "value": "x".repeat(501) }],
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 400);
+    let body: Value = r.json().await.unwrap();
+    assert_eq!(body["error"], "value_too_long");
+}
+
+#[tokio::test]
+async fn a_non_admin_may_not_edit_requirements() {
+    let srv = skip_without_db!(setup().await);
+    let http = Client::new();
+    let (owner, _) = user(&srv, "Owner").await;
+    let org_id = org(&srv, owner).await;
+    let number_id = regulated_number(&srv, org_id, "so-put-member").await;
+    let (_, member_jwt) = member(&srv, org_id, "member").await;
+
+    let r = http
+        .put(requirements_url(&srv, org_id, number_id, ""))
+        .bearer_auth(&member_jwt)
+        .json(&json!({ "values": [{ "requirement_id": "business_name", "value": "x" }] }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 403);
+}
+// ---------------------------------------------------------------------------
+// Provider failure mapping
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn a_provider_4xx_on_submission_is_surfaced_without_provider_prose() {
+    let srv = skip_without_db!(setup().await);
+    let http = Client::new();
+    let (owner, jwt) = user(&srv, "Owner").await;
+    let org_id = org(&srv, owner).await;
+    let number_id = regulated_number(&srv, org_id, "so-4xx").await;
+    // Ensure the group exists first (GET creates it), then script the very next
+    // `submit_requirement_values` call to fail the way a malformed-address 422 would.
+    http.get(requirements_url(&srv, org_id, number_id, ""))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap();
+    srv.provider.fail_next(
+        "submit_requirement_values",
+        ProviderError::DestinationRefused,
+    );
+
+    let r = http
+        .put(requirements_url(&srv, org_id, number_id, ""))
+        .bearer_auth(&jwt)
+        .json(&json!({ "values": [{ "requirement_id": "business_name", "value": "Acme SRL" }] }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 400);
+    let body: Value = r.json().await.unwrap();
+    assert_eq!(body["error"], "provider_rejected_value");
+}
+
+#[tokio::test]
+async fn a_provider_5xx_on_submission_is_reported_as_a_retryable_gateway_failure() {
+    let srv = skip_without_db!(setup().await);
+    let http = Client::new();
+    let (owner, jwt) = user(&srv, "Owner").await;
+    let org_id = org(&srv, owner).await;
+    let number_id = regulated_number(&srv, org_id, "so-5xx").await;
+    http.get(requirements_url(&srv, org_id, number_id, ""))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap();
+    srv.provider.fail_next(
+        "submit_requirement_values",
+        ProviderError::Unavailable {
+            detail: "carrier outage".into(),
+        },
+    );
+
+    let r = http
+        .put(requirements_url(&srv, org_id, number_id, ""))
+        .bearer_auth(&jwt)
+        .json(&json!({ "values": [{ "requirement_id": "business_name", "value": "Acme SRL" }] }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 502);
+    let body: Value = r.json().await.unwrap();
+    assert_eq!(body["error"], "provider_unavailable");
 }
