@@ -919,6 +919,10 @@ fn lifecycle_event(kind: &ProviderEventKind) -> Option<CallEvent> {
         // An incoming call has no lifecycle to move: there is no call row yet. Admission
         // creates one (`inbound::admit`), and the events that follow drive it from there.
         ProviderEventKind::Incoming { .. } => return None,
+        // Describes an ORDER, not a call leg — there is no call lifecycle to move at all.
+        // `inbound_webhook` reads this kind directly (design D5's nudge); `apply` above
+        // never resolves a call for it (`leg_id` is empty) and writes nothing.
+        ProviderEventKind::NumberOrderCompleted { .. } => return None,
     })
 }
 
@@ -943,6 +947,7 @@ fn event_type_name(kind: &ProviderEventKind) -> String {
         ProviderEventKind::Incoming { .. } => "incoming".into(),
         // Kept verbatim so a renamed provider event shows up in analytics as itself.
         ProviderEventKind::Unhandled { raw_type } => format!("unhandled:{raw_type}"),
+        ProviderEventKind::NumberOrderCompleted { .. } => "number_order_completed".into(),
     }
 }
 

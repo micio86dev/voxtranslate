@@ -333,6 +333,17 @@ pub enum ProviderEventKind {
     Unhandled {
         raw_type: String,
     },
+    /// A number order finished at the provider (spec 0119 "Webhook Fast-Path", design
+    /// D5). Deliberately NOT a call-lifecycle event: it describes an ORDER, not a leg, and
+    /// carries no `call_control_id` at all. This is a NUDGE only — [`crate::voip::regulatory`]
+    /// is the one place that reads it, and it does nothing but move an affected number's
+    /// next reconcile check to now; the sweep is what actually reads the provider's live
+    /// status and applies it.
+    NumberOrderCompleted {
+        order_id: String,
+        /// One sub-order per number on the parent order.
+        sub_order_ids: Vec<String>,
+    },
 }
 
 /// Why a provider call failed. Separate from [`FailureReason`], which describes the

@@ -945,12 +945,98 @@ fn first_recording_url(payload: &TelnyxPayload) -> String {
     String::new()
 }
 
+/// Everything from a `number_order.complete` payload [`parse_number_order_event`] needs —
+/// parsed from the raw JSON rather than [`TelnyxPayload`], whose fields describe a call
+/// leg and never carry an order's id or its sub-orders.
+///
+/// Mirrors [`parse_order_ref`]'s own verified fields exactly: `id` is confirmed against
+/// `NumberOrderWithPhoneNumbers`, and `sub_number_orders_ids` (a top-level array on the
+/// order) is the confirmed source of every sub-order id, with
+/// `phone_numbers[].sub_number_order_id` kept only as a defensive fallback.
+fn parse_number_order_event(event_type: &str, payload: &Value) -> ProviderEventKind {
+    if event_type != "number_order.complete" {
+        // Recorded, not rejected — the same honesty `Unhandled` already gives every event
+        // type this crate does not fully model. The webhook is only ever a NUDGE (design
+        // D5); the sweep is the source of truth regardless of what this branch decides.
+        return ProviderEventKind::Unhandled {
+            raw_type: event_type.to_string(),
+        };
+    }
+    let order_id = payload
+        .get("id")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    let sub_order_ids: Vec<String> = payload
+        .get("sub_number_orders_ids")
+        .and_then(Value::as_array)
+        .map(|ids| {
+            ids.iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
+        .filter(|ids: &Vec<String>| !ids.is_empty())
+        .or_else(|| {
+            payload
+                .get("phone_numbers")
+                .and_then(Value::as_array)
+                .map(|numbers| {
+                    numbers
+                        .iter()
+                        .filter_map(|n| n.get("sub_number_order_id").and_then(Value::as_str))
+                        .map(str::to_string)
+                        .collect::<Vec<_>>()
+                })
+                .filter(|ids: &Vec<String>| !ids.is_empty())
+        })
+        .unwrap_or_default();
+
+    match order_id {
+        Some(order_id) if !sub_order_ids.is_empty() => ProviderEventKind::NumberOrderCompleted {
+            order_id,
+            sub_order_ids,
+        },
+        // An order this crate cannot fully identify must never be represented as a
+        // fabricated, partially-guessed nudge target — recorded as unhandled instead, the
+        // same honest gap `parse_order_ref` leaves for its own `None` case.
+        _ => ProviderEventKind::Unhandled {
+            raw_type: event_type.to_string(),
+        },
+    }
+}
+
 /// Normalise a verified body into a domain event.
 fn normalise(body: &[u8]) -> Result<ProviderEvent, WebhookError> {
+    let root: Value = serde_json::from_slice(body).map_err(|e| WebhookError::Malformed {
+        detail: e.to_string(),
+    })?;
     let env: TelnyxEnvelope =
-        serde_json::from_slice(body).map_err(|e| WebhookError::Malformed {
+        serde_json::from_value(root.clone()).map_err(|e| WebhookError::Malformed {
             detail: e.to_string(),
         })?;
+
+    // `number_order.*` events describe an ORDER, not a call leg: Telnyx's own schema for
+    // them carries no `call_control_id` at all, so they must be recognised and handled
+    // BEFORE the call_control_id requirement below — which used to reject every one of
+    // them as Malformed (spec 0119 Phase 7, design D5).
+    if env.data.event_type.starts_with("number_order.") {
+        let payload = root
+            .pointer("/data/payload")
+            .cloned()
+            .unwrap_or(Value::Null);
+        let kind = parse_number_order_event(&env.data.event_type, &payload);
+        return Ok(ProviderEvent {
+            provider: TELNYX_ID,
+            event_id: env.data.id,
+            // No call leg exists for an order event. `apply()` resolves nothing for an
+            // empty leg id and writes nothing — the honest no-op design D5 requires; the
+            // caller (`inbound_webhook`) reads `NumberOrderCompleted` directly instead.
+            leg_id: LegId::new(""),
+            client_state: None,
+            occurred_at: env.data.occurred_at,
+            kind,
+        });
+    }
 
     let leg = env
         .data
@@ -2199,6 +2285,106 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(normalise(&body).unwrap().kind, ProviderEventKind::Answered);
+    }
+
+    // ---- number order webhooks (spec 0119 Phase 7, design D5) -----------------
+    //
+    // `number_order.*` events describe an ORDER, not a call leg, and Telnyx's schema for
+    // them carries no `call_control_id` at all — `normalise` must recognise them BEFORE
+    // the call-control envelope below requires one, which used to reject every one of
+    // these events as Malformed.
+
+    fn number_order_event_body(event_type: &str, payload: Value) -> Vec<u8> {
+        serde_json::to_vec(&json!({
+            "data": {
+                "id": "evt-order-1",
+                "event_type": event_type,
+                "occurred_at": "2026-09-17T10:00:00Z",
+                "payload": payload,
+            }
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn a_number_order_complete_event_is_recognised_before_call_control_id_is_required() {
+        let body = number_order_event_body(
+            "number_order.complete",
+            json!({ "id": "order-1", "sub_number_orders_ids": ["sub-1", "sub-2"] }),
+        );
+        let event = normalise(&body).unwrap();
+        assert_eq!(event.leg_id, LegId::new(""));
+        assert_eq!(
+            event.kind,
+            ProviderEventKind::NumberOrderCompleted {
+                order_id: "order-1".into(),
+                sub_order_ids: vec!["sub-1".into(), "sub-2".into()],
+            }
+        );
+    }
+
+    #[test]
+    fn a_number_order_complete_event_falls_back_to_the_per_number_sub_order_id() {
+        // The same defensive fallback `parse_order_ref` uses for the purchase response:
+        // `sub_number_orders_ids` is the confirmed source, `phone_numbers[].sub_number_order_id`
+        // costs nothing to also accept.
+        let body = number_order_event_body(
+            "number_order.complete",
+            json!({
+                "id": "order-2",
+                "phone_numbers": [
+                    { "id": "pn-1", "sub_number_order_id": "sub-9" },
+                    { "id": "pn-2", "sub_number_order_id": "sub-10" }
+                ]
+            }),
+        );
+        assert_eq!(
+            normalise(&body).unwrap().kind,
+            ProviderEventKind::NumberOrderCompleted {
+                order_id: "order-2".into(),
+                sub_order_ids: vec!["sub-9".into(), "sub-10".into()],
+            }
+        );
+    }
+
+    #[test]
+    fn a_number_order_event_with_no_parseable_ids_is_recorded_rather_than_rejected() {
+        // Same "recorded, moves nothing" honesty `Unhandled` already gives every other
+        // event type this crate does not fully model — never a hard failure, because the
+        // webhook is only ever a NUDGE (design D5); the sweep is the source of truth.
+        let body = number_order_event_body("number_order.complete", json!({}));
+        assert_eq!(
+            normalise(&body).unwrap().kind,
+            ProviderEventKind::Unhandled {
+                raw_type: "number_order.complete".into()
+            }
+        );
+    }
+
+    #[test]
+    fn an_unmodelled_number_order_subtype_is_recorded_rather_than_rejected() {
+        let body = number_order_event_body("number_order.requirements_completed", json!({}));
+        assert_eq!(
+            normalise(&body).unwrap().kind,
+            ProviderEventKind::Unhandled {
+                raw_type: "number_order.requirements_completed".into()
+            }
+        );
+    }
+
+    #[test]
+    fn a_call_event_with_no_leg_still_fails_the_way_it_always_has() {
+        // Regression: the new event-type-first branch must not swallow the original
+        // call-control requirement for anything that is not a number_order event.
+        let body = serde_json::to_vec(&json!({
+            "data": { "id": "e", "event_type": "call.answered",
+                      "occurred_at": "2026-09-09T10:00:00Z", "payload": {} }
+        }))
+        .unwrap();
+        assert!(matches!(
+            normalise(&body).unwrap_err(),
+            WebhookError::Malformed { .. }
+        ));
     }
 
     #[test]

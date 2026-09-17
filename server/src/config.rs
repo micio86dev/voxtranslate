@@ -291,6 +291,15 @@ pub struct VoipConfig {
     /// How long a number whose renewal could not be paid survives before a human decides
     /// (`VOIP_NUMBER_GRACE_DAYS`). Suspension is reversible; release is not.
     pub number_grace_days: i64,
+    /// Kill switch for the regulatory-requirements sweep AND the `number_order.complete`
+    /// webhook nudge (`VOIP_REGULATORY_RECONCILE`, spec 0119, design D6). Never gates the
+    /// requirements routes themselves — an admin can still fill in and submit requirements,
+    /// and `/refresh` still queries the provider directly, with this off.
+    ///
+    /// Defaults ON: the sweep mass-mutates rows (it is what enables outbound caller id) from
+    /// a parsed external contract, so an env flip must be able to stop it without a Git Flow
+    /// hotfix if that contract drifts.
+    pub regulatory_reconcile: bool,
     /// Cost safety buffer as a FRACTION (`VOIP_COST_SAFETY_BUFFER_PERCENT` / 100).
     pub cost_safety_buffer: f64,
     /// Refuse a destination whose provider cost per minute exceeds this, in USD
@@ -375,6 +384,7 @@ impl std::fmt::Debug for VoipConfig {
             .field("max_concurrent_global", &self.max_concurrent_global)
             .field("max_concurrent_per_org", &self.max_concurrent_per_org)
             .field("max_concurrent_per_user", &self.max_concurrent_per_user)
+            .field("regulatory_reconcile", &self.regulatory_reconcile)
             .field("allow_international", &self.allow_international)
             .field("allowed_countries", &self.allowed_countries)
             .field("blocked_countries", &self.blocked_countries)
@@ -464,6 +474,7 @@ impl VoipConfig {
             ring_seconds_default: parse_or("VOIP_RING_SECONDS_DEFAULT", 25i32),
             number_markup: parse_or("VOIP_NUMBER_MARKUP_PERCENT", 20.0f64) / 100.0,
             number_grace_days: parse_or("VOIP_NUMBER_GRACE_DAYS", 7i64),
+            regulatory_reconcile: env_flag_or("VOIP_REGULATORY_RECONCILE", true),
             max_destination_rate: parse_or("VOIP_MAX_DESTINATION_RATE", 1.0f64),
             daily_provider_spend_limit: parse_or("VOIP_DAILY_PROVIDER_SPEND_LIMIT", 50.0f64),
             max_call_minutes: parse_or("VOIP_MAX_CALL_DURATION_MINUTES", 60i32),
@@ -523,6 +534,7 @@ impl VoipConfig {
             ring_seconds_default: 25,
             number_markup: 0.20,
             number_grace_days: 7,
+            regulatory_reconcile: true,
             max_destination_rate: 1.0,
             // Same reasoning as the global cap below: this is a deployment-wide
             // accumulator over a shared test database, so what trips it is a day of other
