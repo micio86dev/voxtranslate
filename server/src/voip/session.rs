@@ -35,7 +35,7 @@ use uuid::Uuid;
 
 use crate::deepgram::SpeakerCtx;
 use crate::engine::{EngineRegistry, SessionDeps, SessionOutcome, TranslationEngine};
-use crate::rooms::{Peer, PeerTx, Visibility, OUT_CHANNEL_CAP};
+use crate::rooms::{Peer, PeerTx, Visibility, OUT_CHANNEL_CAP, PHONE_PEER_ID_PREFIX};
 use crate::telephony::MediaCodec;
 use crate::voip::media::{self, BridgeHandles, Leg};
 use crate::voip::service;
@@ -153,7 +153,7 @@ pub fn create_phone_peer(
     engine_id: &str,
     phone_language: &str,
 ) -> Result<PhonePeer, ()> {
-    let peer_id = format!("phone-{}", Uuid::new_v4().simple());
+    let peer_id = format!("{PHONE_PEER_ID_PREFIX}{}", Uuid::new_v4().simple());
     let conn = Uuid::new_v4();
     let (tx, from_room, _overflow) = PeerTx::channel(OUT_CHANNEL_CAP);
 
@@ -660,6 +660,132 @@ async fn end_call(state: &crate::AppState, call_id: Uuid, reason: FailureReason)
     if let Some((session_id,)) = row {
         if let Err(e) = crate::voip::reservation::release(pool, call_id, session_id).await {
             tracing::error!(%call_id, error = %e, "could not release the credit hold");
+        }
+    }
+}
+
+/// Hang up the phone leg of a call whose room was just torn down because the last HUMAN
+/// left it (hotfix 1.59.1) — `session_id` is exactly what [`crate::rooms::RoomManager::remove`]
+/// hands back in that case, the same id the caller uses to finalize the transcript.
+///
+/// Deliberately mirrors `voip::routes::hangup` (the dashboard's own "Hang up" button), not
+/// `end_call`: this only REQUESTS the hangup and touches nothing in `voip_calls`. The
+/// authoritative state change is still the carrier's own hangup webhook, settling the call
+/// exactly like any ordinary end — marking it `failed` here (as `end_call` would) is what
+/// 7312a3e2 fixed for the media-lost race, and doing it here would reintroduce the same
+/// bug: a call that ran a normal duration recorded as failed and unbilled while the
+/// carrier still bills us for it.
+///
+/// A no-op, not an error, when `session_id` matches no live `voip_calls` row — every
+/// ordinary (non-phone) room's leave runs through this too.
+pub async fn hangup_orphaned_leg(state: &crate::AppState, session_id: Uuid) {
+    let (Some(pool), Some(provider)) = (state.pool.as_ref(), state.telephony.as_deref()) else {
+        return;
+    };
+    let legs: Option<Vec<String>> = sqlx::query_scalar(
+        "SELECT provider_leg_ids FROM voip_calls
+         WHERE session_id = $1 AND status NOT IN ('completed', 'failed')",
+    )
+    .bind(session_id)
+    .fetch_optional(pool)
+    .await
+    .unwrap_or_else(|e| {
+        tracing::error!(
+            %session_id,
+            error = %e,
+            "could not look up the phone leg for a room orphaned by the last human leaving"
+        );
+        None
+    });
+    let Some(legs) = legs else {
+        return;
+    };
+    for leg in legs {
+        // Best effort per leg, exactly like `voip::routes::hangup`: the far party may
+        // already have hung up, and that race must not stop us tearing down the rest.
+        if let Err(e) = provider.hangup(&crate::telephony::LegId::new(leg)).await {
+            tracing::debug!(
+                %session_id,
+                error = %e,
+                "hangup for a room orphaned by the last human leaving failed"
+            );
+        }
+    }
+}
+
+/// How long a phone-only room (hotfix 1.59.1's [`crate::rooms::LeaveOutcome::LeftPhoneOnly`])
+/// waits for the departing human's SAME peer id to reconnect before the room is actually
+/// torn down and [`hangup_orphaned_leg`] is called for real.
+///
+/// This covers a different failure than [`MEDIA_LOST_GRACE`]: not the carrier's own hangup
+/// webhook, but a transient WebSocket drop on the HUMAN side — a mobile network handoff, or
+/// a WiFi adapter reset that fires an immediate TCP RST. That path is detected and torn
+/// down by `lib.rs`'s ws-close handler right away, well before [`crate::WS_IDLE_TIMEOUT`]
+/// (45s) would ever fire, so the 45s idle timeout is not the number to reason from here —
+/// it already reconnects long before that.
+///
+/// What actually bounds a genuine reconnect: the client's own backoff opens its first retry
+/// after `RECONNECT_BASE_MS` (1s, jittered down to as little as ~0.5s — see
+/// `client/src/scripts/talk/conversation.ts`), then still has to complete a WebSocket
+/// handshake and rejoin the room. This codebase already answered the closely-related
+/// question of "was that a real departure or a transient drop" once before, client-side:
+/// `PEER_LEAVE_GRACE_MS` (#233, `client/src/scripts/app.ts`) holds a peer's tile for 4s
+/// before believing a `peer_left` is real. Hanging up a live PSTN leg is a costlier, less
+/// reversible action than flickering a video tile, so this doubles that margin — 8s
+/// comfortably covers a slower reconnect (DHCP renewal after a WiFi reset, a mobile
+/// handoff) while staying far short of anything a caller would perceive as "the call hung
+/// up and came back", and inside `WS_PING_INTERVAL` (15s) so it never overlaps with the
+/// unrelated idle-timeout path.
+pub const PHONE_ORPHAN_GRACE: Duration = Duration::from_millis(8_000);
+
+/// How often [`finish_after_phone_orphan`] re-checks the room while waiting out the grace
+/// window — same cadence as [`MEDIA_LOST_GRACE_POLL`], for the same reason: a reconnect
+/// that lands early ends the wait early instead of every departure paying the full grace.
+const PHONE_ORPHAN_GRACE_POLL: Duration = Duration::from_millis(250);
+
+/// The post-departure decision for a phone-only room, split out so a test can drive it
+/// directly with a short `grace` instead of the real ~8s window — same shape as
+/// [`finish_after_pump`].
+///
+/// Polls [`crate::rooms::RoomManager::has_human_peer`] on [`PHONE_ORPHAN_GRACE_POLL`]'s
+/// cadence and returns early — doing nothing else — the moment a human is back (the SAME
+/// peer id reconnected into the SAME room, per `RoomManager::join`'s doc comment). That
+/// "nothing else" is load-bearing for the transcript too: finalizing it earlier, on the
+/// immediate departure, would close it out from under a call a reconnect is about to
+/// resume into. Only if the grace window elapses with nobody back does it actually tear
+/// the room down (via [`crate::rooms::RoomManager::end_orphaned_phone_room`], which
+/// independently re-checks the same condition against the room's CURRENT state — closing
+/// the exact race this exists to close) and, only then, hang up the phone leg by reusing
+/// [`hangup_orphaned_leg`] as-is, and finalize the transcript session — both gated on the
+/// same "really gone" decision.
+pub async fn finish_after_phone_orphan(
+    state: &crate::AppState,
+    room_id: &str,
+    session_id: Uuid,
+    grace: Duration,
+) {
+    let deadline = tokio::time::Instant::now() + grace;
+    loop {
+        if state.rooms.has_human_peer(room_id) {
+            // A genuine reconnect landed — nothing to hang up, the room (and its
+            // transcript) is exactly as it was before this leave.
+            return;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            break;
+        }
+        tokio::time::sleep(PHONE_ORPHAN_GRACE_POLL.min(grace)).await;
+    }
+    if state
+        .rooms
+        .end_orphaned_phone_room(room_id, session_id)
+        .is_some()
+    {
+        hangup_orphaned_leg(state, session_id).await;
+        if let Some(svc) = state.transcripts.as_ref() {
+            if let Err(e) = svc.finalize_session(session_id).await {
+                tracing::error!("finalize transcript session {session_id} failed: {e}");
+            }
         }
     }
 }
@@ -1349,11 +1475,31 @@ mod tests {
             state.pool = Some(self.pool.clone());
             state
         }
+
+        /// Same as [`Self::state`] but with a telephony provider wired in, for
+        /// `hangup_orphaned_leg`'s tests — the only ones in this module that actually
+        /// need to observe a provider call.
+        fn state_with_telephony(
+            &self,
+            provider: Arc<dyn crate::telephony::TelephonyProvider>,
+        ) -> crate::AppState {
+            let mut state = self.state();
+            state.telephony = Some(provider);
+            state
+        }
     }
 
     /// Builds a call already `answered` ~56s ago — the state `run_leg` finds itself in
     /// when the media pump returns, in both the regression and its fix.
     async fn setup_answered(credits: i32, price: &str) -> Option<Fx> {
+        setup_answered_with_session(Uuid::new_v4(), credits, price).await
+    }
+
+    /// Same as [`setup_answered`], but under a caller-chosen session id — for
+    /// `finish_after_phone_orphan`'s tests, which need the DB row filed under the SAME
+    /// session id as a real `RoomManager` room (exactly how `create_phone_peer` mints it
+    /// in production: the room's session id becomes the call's, not the other way round).
+    async fn setup_answered_with_session(session: Uuid, credits: i32, price: &str) -> Option<Fx> {
         let tag = Uuid::new_v4().simple().to_string();
         let url = std::env::var("DATABASE_URL").ok()?;
         let pool = crate::db::connect(&url).await.ok()?;
@@ -1380,7 +1526,6 @@ mod tests {
         .await
         .unwrap();
 
-        let session = Uuid::new_v4();
         sqlx::query(
             "INSERT INTO call_sessions (id, room, org_id, kind) VALUES ($1, $2, $3, 'phone')",
         )
@@ -1435,6 +1580,20 @@ mod tests {
     async fn org_balance(pool: &crate::db::Pool, org: Uuid) -> i32 {
         sqlx::query_scalar("SELECT credits_balance FROM organizations WHERE id = $1")
             .bind(org)
+            .fetch_one(pool)
+            .await
+            .unwrap()
+    }
+
+    /// Same shape as `transcripts::tests`' own `ended_at` probe: `finalize_session`
+    /// stamps this column, and a phone `call_sessions` row (unlike a guest one) is
+    /// never purged, so it stays queryable either way.
+    async fn transcript_ended_at(
+        pool: &crate::db::Pool,
+        session_id: Uuid,
+    ) -> Option<chrono::DateTime<chrono::Utc>> {
+        sqlx::query_scalar("SELECT ended_at FROM call_sessions WHERE id = $1")
+            .bind(session_id)
             .fetch_one(pool)
             .await
             .unwrap()
@@ -1586,5 +1745,232 @@ mod tests {
         let (status, reason) = call_status_and_reason(&f.pool, f.call).await;
         assert_eq!(status, "failed");
         assert_eq!(reason.as_deref(), Some("media_lost"));
+    }
+
+    // ---- `hangup_orphaned_leg` — hotfix 1.59.1 ----------------------------------------
+    //
+    // The production gap this covers: a human places a phone call from the B2B
+    // dashboard, joins the room's video upgrade in a second tab, then closes that tab
+    // without clicking "Hang up". `RoomManager::remove` now tears the room down when
+    // only the `phone-` peer remains, but tearing the room down doesn't touch the
+    // carrier — something has to actually ask it to hang up. That's this function.
+
+    #[tokio::test]
+    async fn a_human_leaving_an_orphaned_phone_room_hangs_up_the_leg_without_failing_the_call() {
+        // The fix must not repeat 7312a3e2's mistake: WE are the ones ending this call
+        // (not the media pump noticing a lost stream), so it would be easy to reach for
+        // `end_call` and mark it `failed` on the spot. That is exactly wrong for a call
+        // that ran a normal duration — it must settle normally, via the carrier's own
+        // hangup webhook, same as any ordinary call end.
+        let Some(f) = setup_answered(1000, "0.60").await else {
+            eprintln!("skipping — no DATABASE_URL");
+            return;
+        };
+        crate::voip::reservation::reserve(&f.pool, f.org, f.call, f.session, None, 300)
+            .await
+            .unwrap();
+
+        let provider = Arc::new(crate::telephony::mock::MockTelephonyProvider::default());
+        let state = f.state_with_telephony(provider.clone());
+
+        hangup_orphaned_leg(&state, f.session).await;
+
+        let hangups = provider
+            .commands()
+            .into_iter()
+            .filter(|c| matches!(c, crate::telephony::mock::MockCommand::Hangup(_)))
+            .count();
+        assert_eq!(
+            hangups, 1,
+            "exactly one hangup requested for the orphaned leg"
+        );
+
+        // Not touched by us — still exactly where a live call sits, ready for the
+        // carrier's own webhook to settle it normally.
+        let (status, _) = call_status_and_reason(&f.pool, f.call).await;
+        assert_eq!(
+            status, "answered",
+            "not marked failed by requesting the hangup"
+        );
+
+        // The carrier's hangup webhook then arrives, same as any ordinary call end.
+        let hangup = crate::telephony::ProviderEvent {
+            provider: crate::telephony::mock::MOCK_ID,
+            event_id: format!("{}-hangup", f.tag),
+            leg_id: crate::telephony::LegId::new(format!("leg-{}", f.tag)),
+            client_state: Some(f.call.to_string()),
+            occurred_at: chrono::Utc::now(),
+            kind: crate::telephony::ProviderEventKind::Hangup {
+                cause: FailureReason::Unmapped,
+            },
+        };
+        crate::voip::webhook::apply(&f.pool, &hangup).await.unwrap();
+
+        let (status, reason) = call_status_and_reason(&f.pool, f.call).await;
+        assert_eq!(status, "completed", "settled normally, not failed");
+        assert_ne!(reason.as_deref(), Some("media_lost"));
+
+        let duration: Option<i32> =
+            sqlx::query_scalar("SELECT duration_seconds FROM voip_calls WHERE id = $1")
+                .bind(f.call)
+                .fetch_one(&f.pool)
+                .await
+                .unwrap();
+        assert!(duration.is_some(), "a real call has a real duration");
+
+        assert_eq!(
+            org_balance(&f.pool, f.org).await,
+            1000 - duration.unwrap() as i32,
+            "billed for what it actually used, not refunded as an unbilled failure"
+        );
+    }
+
+    #[tokio::test]
+    async fn hangup_orphaned_leg_is_a_no_op_for_a_session_with_no_live_call() {
+        // Every leave in every room — not just phone-call ones — runs through this, so a
+        // session id that matches no `voip_calls` row (an ordinary human-only room) must
+        // be silent, never an error and never a spurious hangup.
+        let Some(f) = setup_answered(1000, "0.60").await else {
+            eprintln!("skipping — no DATABASE_URL");
+            return;
+        };
+        let provider = Arc::new(crate::telephony::mock::MockTelephonyProvider::default());
+        let state = f.state_with_telephony(provider.clone());
+
+        hangup_orphaned_leg(&state, Uuid::new_v4()).await;
+
+        assert!(
+            provider.commands().is_empty(),
+            "no live call for that session id — nothing to hang up"
+        );
+    }
+
+    // ---- `finish_after_phone_orphan` — hotfix 1.59.1's reconnect-race fix ------------
+    //
+    // `RoomManager::remove` reports `LeftPhoneOnly` instead of tearing the room down
+    // synchronously, precisely so a transient WebSocket drop (mobile handoff, a WiFi
+    // adapter reset) gets a chance to reconnect first. This is the grace check itself,
+    // driven against a LIVE `RoomManager` + database, with a millisecond-scale `grace`
+    // standing in for the real `PHONE_ORPHAN_GRACE`.
+
+    #[tokio::test]
+    async fn a_reconnect_within_the_grace_window_aborts_the_hangup() {
+        let rooms = crate::rooms::RoomManager::new();
+        let phone = create_phone_peer(&rooms, "ph-grace-1", "standard", "zh").expect("new room");
+
+        let Some(f) = setup_answered_with_session(phone.session_id, 1000, "0.60").await else {
+            eprintln!("skipping — no DATABASE_URL");
+            return;
+        };
+
+        let provider = Arc::new(crate::telephony::mock::MockTelephonyProvider::default());
+        let mut state = f.state_with_telephony(provider.clone());
+        state.rooms = Arc::new(rooms);
+        state.transcripts = Some(crate::transcripts::TranscriptService::new(f.pool.clone()));
+
+        let grace_task = tokio::spawn({
+            let state = state.clone();
+            let room = phone.room.clone();
+            let session_id = phone.session_id;
+            async move {
+                finish_after_phone_orphan(
+                    &state,
+                    &room,
+                    session_id,
+                    std::time::Duration::from_millis(500),
+                )
+                .await;
+            }
+        });
+
+        // Well inside the 500ms grace: the SAME peer id reconnects into the SAME room,
+        // exactly like an ordinary `join()` from a fresh socket.
+        tokio::time::sleep(std::time::Duration::from_millis(80)).await;
+        let (tx, rx, _overflow) = PeerTx::channel(OUT_CHANNEL_CAP);
+        std::mem::forget(rx); // keep the sender alive for the duration of the test
+        let human = Peer {
+            id: "a".into(),
+            conn: Uuid::new_v4(),
+            name: "A".into(),
+            lang: "it".into(),
+            user_id: None,
+            engine: "standard".into(),
+            avatar_url: None,
+            cartesia_voice_id: None,
+            tx,
+            speaking: Arc::new(AtomicBool::new(false)),
+        };
+        state
+            .rooms
+            .join(&phone.room, human, Visibility::Private)
+            .unwrap();
+
+        grace_task.await.unwrap();
+
+        assert!(
+            provider.commands().is_empty(),
+            "a human reconnected before the grace window elapsed — nothing must be hung up"
+        );
+        assert_eq!(
+            state.rooms.active_rooms(),
+            1,
+            "the room must survive the reconnect, not get torn down underneath it"
+        );
+        assert!(
+            state.rooms.has_human_peer(&phone.room),
+            "and the human must still be in it"
+        );
+        assert!(
+            transcript_ended_at(&f.pool, phone.session_id)
+                .await
+                .is_none(),
+            "a reconnect finds the room exactly as before this leave — its transcript \
+             included, not closed out from under a call that is still going"
+        );
+    }
+
+    #[tokio::test]
+    async fn no_reconnect_before_the_grace_window_hangs_up_and_tears_the_room_down() {
+        let rooms = crate::rooms::RoomManager::new();
+        let phone = create_phone_peer(&rooms, "ph-grace-2", "standard", "zh").expect("new room");
+
+        let Some(f) = setup_answered_with_session(phone.session_id, 1000, "0.60").await else {
+            eprintln!("skipping — no DATABASE_URL");
+            return;
+        };
+
+        let provider = Arc::new(crate::telephony::mock::MockTelephonyProvider::default());
+        let mut state = f.state_with_telephony(provider.clone());
+        state.rooms = Arc::new(rooms);
+        state.transcripts = Some(crate::transcripts::TranscriptService::new(f.pool.clone()));
+
+        finish_after_phone_orphan(
+            &state,
+            &phone.room,
+            phone.session_id,
+            std::time::Duration::from_millis(150),
+        )
+        .await;
+
+        let hangups = provider
+            .commands()
+            .into_iter()
+            .filter(|c| matches!(c, crate::telephony::mock::MockCommand::Hangup(_)))
+            .count();
+        assert_eq!(
+            hangups, 1,
+            "nobody reconnected — exactly one hangup requested for the orphaned leg"
+        );
+        assert_eq!(
+            state.rooms.active_rooms(),
+            0,
+            "and the room itself ends up torn down, not left dangling"
+        );
+        assert!(
+            transcript_ended_at(&f.pool, phone.session_id)
+                .await
+                .is_some(),
+            "nobody reconnected — the transcript is finalized exactly once, alongside the hangup"
+        );
     }
 }
