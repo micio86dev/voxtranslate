@@ -26,7 +26,7 @@ use crate::middleware::AuthUser;
 use crate::telephony::{
     AddressValue, FieldValue, GroupStatus, NumberKind, NumberStatus, OrderStatus, ProviderError,
     RequirementAction, RequirementGroup, RequirementGroupId, RequirementKind, RequirementQuery,
-    RequirementSpec, RequirementsStatus, SubOrderState, TelephonyProvider,
+    RequirementSpec, RequirementsStatus, SubOrderId, SubOrderState, TelephonyProvider,
 };
 use crate::voip::routes::refuse;
 use crate::AppState;
@@ -673,6 +673,72 @@ pub async fn put_requirements(
         &docs,
     ))
     .into_response())
+}
+
+/// `POST …/voip/numbers/{number_id}/requirements/submit` — attach the (fully filled)
+/// group to the sub-order, starting the provider's own review (spec 0119).
+pub async fn submit_requirements(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path((org_id, number_id)): Path<(Uuid, Uuid)>,
+) -> Result<Response, Response> {
+    let pool = require_pool(&state)?;
+    require_role(pool, org_id, user.user_id, ADMIN).await?;
+    let row = load_number(pool, org_id, number_id).await?;
+    gate_regulatable(&row)?;
+    if row.status == NumberStatus::RegulatoryReview {
+        return Err(refuse(StatusCode::CONFLICT, "submission_already_pending"));
+    }
+    if !matches!(
+        row.status,
+        NumberStatus::PendingRegulatory | NumberStatus::RegulatoryRejected
+    ) {
+        return Err(refuse(StatusCode::CONFLICT, "requirements_not_editable"));
+    }
+
+    let query = RequirementQuery {
+        country: row.country.clone(),
+        kind: NumberKind::parse(row.number_kind.as_deref().unwrap_or("")),
+        action: RequirementAction::Ordering,
+    };
+    let telephony = provider(&state)?;
+    let ensured = ensure_group(pool, telephony, org_id, &query, &org_id.to_string())
+        .await
+        .map_err(group_err)?;
+    link_group(pool, number_id, ensured.row_id).await?;
+
+    if ensured.requirements.iter().any(|(_, v)| v.is_none()) {
+        return Err(refuse(StatusCode::CONFLICT, "requirements_incomplete"));
+    }
+
+    // `provider_sub_order_id` is guaranteed by `gate_regulatable` above.
+    let sub_order = SubOrderId(row.provider_sub_order_id.clone().unwrap_or_default());
+    telephony
+        .attach_requirement_group(&sub_order, &ensured.provider_group_id)
+        .await
+        .map_err(provider_err)?;
+
+    // Unconditional, per design's own sequence: attaching a group is what STARTS the
+    // provider's review, regardless of what `attach_requirement_group`'s own returned
+    // `SubOrderState` happens to already report — the sweep and `/refresh` are what read
+    // the review's outcome back later.
+    sqlx::query(
+        "UPDATE voip_numbers
+            SET status = 'regulatory_review', status_reason = NULL, outbound_enabled = FALSE,
+                regulatory_next_check_at = now() + interval '2 minutes', updated_at = now()
+          WHERE id = $1 AND org_id = $2",
+    )
+    .bind(number_id)
+    .bind(org_id)
+    .execute(pool)
+    .await
+    .map_err(db_err)?;
+
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(json!({ "status": NumberStatus::RegulatoryReview.as_str() })),
+    )
+        .into_response())
 }
 
 #[cfg(test)]

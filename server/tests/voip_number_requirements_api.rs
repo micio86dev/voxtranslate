@@ -14,7 +14,9 @@ use voxtranslate_server::billing::{usd, BillingService};
 use voxtranslate_server::config::{Config, VoipConfig};
 use voxtranslate_server::db::{self, Pool};
 use voxtranslate_server::telephony::mock::MockTelephonyProvider;
-use voxtranslate_server::telephony::ProviderError;
+use voxtranslate_server::telephony::{
+    FieldValue, ProviderError, RequirementGroupId, TelephonyProvider,
+};
 use voxtranslate_server::{app, AppState};
 
 const SECRET: &str = "voip-requirements-secret";
@@ -499,6 +501,147 @@ async fn a_non_admin_may_not_edit_requirements() {
         .unwrap();
     assert_eq!(r.status(), 403);
 }
+
+// ---------------------------------------------------------------------------
+// Submit
+// ---------------------------------------------------------------------------
+
+async fn fill_every_field(srv: &Server, http: &Client, org_id: Uuid, number_id: Uuid, jwt: &str) {
+    // The mock does not accept a document value via this route by design — its own
+    // `submit_requirement_values` will simply never see `proof_of_address` filled here.
+    // The completeness gate is therefore expected to still refuse a plain PUT-only fill;
+    // callers that need a genuinely complete group script the document slot directly.
+    let r = http
+        .put(requirements_url(srv, org_id, number_id, ""))
+        .bearer_auth(jwt)
+        .json(&json!({
+            "values": [
+                { "requirement_id": "business_name", "value": "Acme SRL" },
+                { "requirement_id": "registered_address", "value": {
+                    "first_name": "Jane",
+                    "last_name": "Doe",
+                    "business_name": "Acme SRL",
+                    "street_address": "1 Rue de Paris",
+                    "locality": "Paris",
+                    "postal_code": "75001",
+                    "country_code": "FR",
+                }},
+            ],
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 200, "body: {}", r.text().await.unwrap());
+}
+
+#[tokio::test]
+async fn submitting_before_every_field_is_filled_is_refused() {
+    let srv = skip_without_db!(setup().await);
+    let http = Client::new();
+    let (owner, jwt) = user(&srv, "Owner").await;
+    let org_id = org(&srv, owner).await;
+    let number_id = regulated_number(&srv, org_id, "so-incomplete").await;
+    fill_every_field(&srv, &http, org_id, number_id, &jwt).await;
+
+    let r = http
+        .post(requirements_url(&srv, org_id, number_id, "/submit"))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 409);
+    let body: Value = r.json().await.unwrap();
+    assert_eq!(body["error"], "requirements_incomplete");
+}
+
+/// Directly scripts the mock's document slot filled, the way a real `POST /documents`
+/// upload (Phase 6) would leave it — this test file's scope is the routes this PR builds,
+/// not the still-unbuilt upload route.
+async fn fill_document_slot_directly(srv: &Server, org_id: Uuid, number_id: Uuid) {
+    let row_id: Uuid =
+        sqlx::query_scalar("SELECT requirement_group_id FROM voip_numbers WHERE id = $1")
+            .bind(number_id)
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap();
+    let provider_group_id: String =
+        sqlx::query_scalar("SELECT provider_group_id FROM voip_requirement_groups WHERE id = $1")
+            .bind(row_id)
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap();
+    srv.provider
+        .submit_requirement_values(
+            &RequirementGroupId(provider_group_id),
+            &[(
+                "proof_of_address".to_string(),
+                FieldValue::Document("mock-doc-1".to_string()),
+            )],
+        )
+        .await
+        .unwrap();
+    let _ = org_id;
+}
+
+#[tokio::test]
+async fn submitting_a_fully_filled_group_moves_the_number_into_review() {
+    let srv = skip_without_db!(setup().await);
+    let http = Client::new();
+    let (owner, jwt) = user(&srv, "Owner").await;
+    let org_id = org(&srv, owner).await;
+    let number_id = regulated_number(&srv, org_id, "so-submit").await;
+    fill_every_field(&srv, &http, org_id, number_id, &jwt).await;
+    fill_document_slot_directly(&srv, org_id, number_id).await;
+
+    let r = http
+        .post(requirements_url(&srv, org_id, number_id, "/submit"))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 202, "body: {}", r.text().await.unwrap());
+    let body: Value = r.json().await.unwrap();
+    assert_eq!(body["status"], "regulatory_review");
+
+    let (status, outbound): (String, bool) =
+        sqlx::query_as("SELECT status, outbound_enabled FROM voip_numbers WHERE id = $1")
+            .bind(number_id)
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap();
+    assert_eq!(status, "regulatory_review");
+    assert!(!outbound);
+
+    // A second submit before any rejection is refused, not silently re-forwarded.
+    let again = http
+        .post(requirements_url(&srv, org_id, number_id, "/submit"))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(again.status(), 409);
+    let body: Value = again.json().await.unwrap();
+    assert_eq!(body["error"], "submission_already_pending");
+}
+
+#[tokio::test]
+async fn a_non_admin_may_not_submit() {
+    let srv = skip_without_db!(setup().await);
+    let http = Client::new();
+    let (owner, _) = user(&srv, "Owner").await;
+    let org_id = org(&srv, owner).await;
+    let number_id = regulated_number(&srv, org_id, "so-submit-member").await;
+    let (_, member_jwt) = member(&srv, org_id, "member").await;
+
+    let r = http
+        .post(requirements_url(&srv, org_id, number_id, "/submit"))
+        .bearer_auth(&member_jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 403);
+}
+
 // ---------------------------------------------------------------------------
 // Provider failure mapping
 // ---------------------------------------------------------------------------

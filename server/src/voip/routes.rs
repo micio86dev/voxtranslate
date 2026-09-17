@@ -107,10 +107,14 @@ pub fn routes() -> Router<AppState> {
             post(number_mgmt::verify_check),
         )
         // Self-service completion of provider regulatory requirements (spec 0119).
-        // submit/refresh land in a later slice of this same feature.
+        // refresh lands in a later slice of this same feature.
         .route(
             "/api/business/organizations/{org_id}/voip/numbers/{number_id}/requirements",
             get(regulatory::get_requirements).put(regulatory::put_requirements),
+        )
+        .route(
+            "/api/business/organizations/{org_id}/voip/numbers/{number_id}/requirements/submit",
+            post(regulatory::submit_requirements),
         )
         .route(
             "/api/business/organizations/{org_id}/voip/contacts",
