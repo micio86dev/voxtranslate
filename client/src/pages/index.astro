@@ -257,6 +257,55 @@ const jsonLd = {
           <button id="home-host-webinar-btn" class="btn-primary" data-i18n="homeHostWebinarCta">{T('homeHostWebinarCta')}</button>
         </div>
 
+        <!-- Call a phone number CTA (spec: web-app-voip-dialer, R1/R10). Shown only for a
+             signed-in B2B user with an active-subscription org, on a WebRTC-capable
+             browser — canShowPhoneCta() in updateWorkspaceLink(). The dial panel expands
+             INLINE (webinar-create-toggle pattern), never a modal: the price and
+             disclosure copy must stay visible while the user is typing. -->
+        <div class="card hidden phone-cta" id="phone-cta">
+          <div class="card-title-row">
+            <span class="card-title" data-i18n="phoneCtaTitle">{T('phoneCtaTitle')}</span>
+          </div>
+          <p class="host-cta-desc" data-i18n="phoneCtaDesc">{T('phoneCtaDesc')}</p>
+          <button id="phone-cta-toggle" type="button" class="btn-primary" data-i18n="phoneCtaButton">{T('phoneCtaButton')}</button>
+
+          <form id="phone-dial-panel" class="phone-dial-panel hidden">
+            <label class="field">
+              <span class="field-label" data-i18n="phoneDestinationLabel">{T('phoneDestinationLabel')}</span>
+              <input id="phone-destination" type="text" autocomplete="off" spellcheck="false" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="phone-contact-results" data-i18n-ph="phoneDestinationPlaceholder" placeholder={T('phoneDestinationPlaceholder')} />
+              <div id="phone-contact-results" class="phone-contact-results hidden" role="listbox" data-i18n-label="phoneContactListLabel" aria-label={T('phoneContactListLabel')}></div>
+              <span class="hint" data-i18n="phoneDestinationHint">{T('phoneDestinationHint')}</span>
+            </label>
+
+            <details id="phone-details" class="phone-details">
+              <summary data-i18n="phoneDetailsToggle">{T('phoneDetailsToggle')}</summary>
+              <label class="ws-field">
+                <span class="ws-field-label" data-i18n="phoneTheirLanguageLabel">{T('phoneTheirLanguageLabel')}</span>
+                <select id="phone-their-lang" class="ws-select"></select>
+              </label>
+              <label class="ws-field hidden" id="phone-project-field">
+                <span class="ws-field-label" data-i18n="webinarProject">{T('webinarProject')}</span>
+                <select id="phone-project" class="ws-select"></select>
+              </label>
+              <label class="ws-field">
+                <span class="ws-field-label" data-i18n="phoneCallerIdLabel">{T('phoneCallerIdLabel')}</span>
+                <input id="phone-caller-id" class="ws-select" type="text" autocomplete="off" data-i18n-ph="phoneCallerIdPlaceholder" placeholder={T('phoneCallerIdPlaceholder')} />
+              </label>
+            </details>
+
+            <div id="phone-quote" class="phone-quote hidden">
+              <p id="phone-quote-price" class="phone-quote-price"></p>
+              <p id="phone-quote-disclosure" class="phone-quote-disclosure"></p>
+            </div>
+
+            <div class="phone-dial-actions">
+              <button id="phone-call-btn" type="submit" class="btn-primary" disabled data-i18n="phoneCallButton">{T('phoneCallButton')}</button>
+              <button id="phone-cancel-btn" type="button" class="btn-ghost" data-i18n="cancel">{T('cancel')}</button>
+            </div>
+            <p id="phone-dial-status" class="status-line" role="status"></p>
+          </form>
+        </div>
+
         <!-- Public webinars discovery (sibling of the public rooms list). Hidden while
              the list is empty; populated from GET /api/webinars/public in app.ts.
              Clicking a card navigates to the participant page /w/{code}. -->
@@ -452,6 +501,11 @@ const jsonLd = {
           <p id="wait-alone" class="wait-alone" role="status" hidden>
             <span id="wait-alone-copy" data-i18n="waitingPeers">{T('waitingPeers')}</span>
           </p>
+          <!-- In-call phone presentation (spec: web-app-voip-dialer): the phase label +
+               aria-live announcer for the phone entry path — "a call's state must be
+               announced, not merely coloured". Only shown in phone mode (below);
+               `pollPhoneCall()` (app.ts) writes into it every 1500ms on a phase change. -->
+          <p id="phone-status-live" class="phone-status-live" role="status" aria-live="polite"></p>
           <!-- On-video meta cluster, top-left (spec 0061 / #98): HH:MM | ROOM over a
                subtle dark backdrop — replaces the separate header row, Meet-style. -->
           <div class="stage-meta-wrap">
@@ -2068,6 +2122,35 @@ const jsonLd = {
     .host-cta-desc { margin: 6px 0 14px; font-size: 0.88rem; color: var(--muted); line-height: 1.45; }
     .host-webinar-cta .btn-primary { width: 100%; }
 
+    /* Call-a-phone-number CTA + inline dial panel (spec: web-app-voip-dialer). Same
+       card language as the webinar CTA above — a light island in this dark app would
+       be a second product, not a feature of this one. */
+    .phone-cta { border-color: var(--accent); }
+    .phone-cta .btn-primary { width: 100%; }
+    .phone-dial-panel { display: flex; flex-direction: column; gap: 12px; margin-top: 14px; }
+    .phone-dial-panel .field { position: relative; }
+    .phone-contact-results {
+      position: absolute; z-index: 5; top: calc(100% + 4px); left: 0; right: 0;
+      max-height: 220px; overflow-y: auto; padding: 4px;
+      background: var(--bg); border: 1px solid var(--border); border-radius: 10px;
+      box-shadow: 0 14px 36px rgba(0, 0, 0, 0.4);
+    }
+    .phone-contact-opt {
+      width: 100%; display: block; text-align: start; background: transparent; border: none;
+      border-radius: 8px; padding: 8px 10px; cursor: pointer; color: var(--text); font-size: 0.9rem;
+    }
+    .phone-contact-opt:hover, .phone-contact-opt:focus-visible { background: var(--accent-dim); }
+    .phone-contact-empty { padding: 10px; margin: 0; color: var(--muted); font-size: var(--font-sm); text-align: center; }
+    .phone-details { border: 1px solid var(--border); border-radius: 10px; padding: 4px 12px; }
+    .phone-details summary { cursor: pointer; padding: 8px 0; color: var(--muted); font-size: 0.85rem; }
+    .phone-details[open] summary { color: var(--text); }
+    .phone-details .ws-field { margin: 10px 0; }
+    .phone-quote { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; background: var(--surface-2); }
+    .phone-quote-price { margin: 0 0 4px; font-weight: 600; font-variant-numeric: tabular-nums; }
+    .phone-quote-disclosure { margin: 0; font-size: 0.8rem; color: var(--muted); line-height: 1.4; }
+    .phone-dial-actions { display: flex; gap: 10px; }
+    .phone-dial-actions .btn-primary { flex: 1; }
+
     .schedule-list { display: flex; flex-direction: column; gap: 8px; }
     .schedule-list :global(.schedule-item) { display: flex; align-items: center; gap: 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
     .schedule-list :global(.schedule-item-main) { display: flex; flex-direction: column; flex: 1; min-width: 0; }
@@ -2615,6 +2698,69 @@ const jsonLd = {
     .video-grid :global(.subtitle-interim) { opacity: 0.7; font-style: italic; }
     .video-grid :global(.subtitle-translation) { display: block; font-weight: 500; font-size: 0.9rem; }
     .video-grid :global(.subtitle-original) { display: block; font-size: 0.72rem; opacity: 0.6; margin-top: 2px; }
+
+    /* In-call phone presentation (spec: web-app-voip-dialer, design: "In-call phone
+       presentation"). `#call[data-entry="phone"]` (app.ts's `enterPhoneCall`/`leaveCall`)
+       drives all of it — deliberately NOT `videoGrid.dataset.mode`, which already means
+       grid-vs-focus view and must not collide with it. There is exactly one cell in this
+       mode (the telephone leg never negotiates a second peer), so styling "the" cell here
+       is unambiguous without a separate per-cell marker. No glassmorphism, no gradient
+       text, no side-stripe accents, no nested cards — same dark tokens as the rest. */
+    #call[data-entry="phone"] .video-grid { grid-template-columns: minmax(0, 460px); justify-content: center; align-content: center; }
+    #call[data-entry="phone"] .video-grid :global(.video-cell) {
+      aspect-ratio: unset; min-height: 420px; background: var(--surface);
+      border: 1px solid var(--border); display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 14px; padding: 24px 16px 56px;
+    }
+    #call[data-entry="phone"] .video-grid :global(.video-cell video) { display: none; }
+    /* The avatar slot holds a phone glyph instead of the peer's initials/photo — a
+       telephone has neither. Ringed (via .active-speaker, already applied elsewhere for
+       the room's existing speaking signal) while the other side is talking. */
+    #call[data-entry="phone"] .video-grid :global(.avatar) {
+      position: relative; inset: auto; width: 72px; height: 72px; border-radius: 50%; flex: none;
+      box-shadow: 0 0 0 0 transparent; transition: box-shadow 0.2s;
+    }
+    #call[data-entry="phone"] .video-grid :global(.video-cell.active-speaker .avatar) { box-shadow: 0 0 0 4px var(--accent); }
+    #call[data-entry="phone"] .video-grid :global(.avatar-initials),
+    #call[data-entry="phone"] .video-grid :global(.avatar-img) { visibility: hidden; }
+    #call[data-entry="phone"] .video-grid :global(.avatar)::after {
+      content: ''; position: absolute; inset: 0; margin: auto; width: 30px; height: 30px;
+      background: rgba(255, 255, 255, 0.9);
+      -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z'/%3E%3C/svg%3E") center / contain no-repeat;
+      mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z'/%3E%3C/svg%3E") center / contain no-repeat;
+    }
+    /* Name + language badge: the default top-left floating pill reflows into a centred,
+       larger identity line under the avatar (design: "contact name … language pair"). */
+    #call[data-entry="phone"] .video-grid :global(.video-overlay) {
+      position: static; background: none; backdrop-filter: none; padding: 0; max-width: 100%;
+      flex-direction: column; gap: 4px; text-align: center;
+    }
+    #call[data-entry="phone"] .video-grid :global(.peer-name) { font-size: 1.05rem; white-space: normal; }
+    #call[data-entry="phone"] .video-grid :global(.peer-avatar) { display: none; }
+    #call[data-entry="phone"] .video-grid :global(.subtitle-area) { bottom: 14px; }
+    /* The phase label + aria-live announcer (hidden outside phone mode, see the base
+       .phone-status-live rule below). Text + a dot — never colour alone (a11y rule this
+       feature exists to enforce). */
+    #call[data-entry="phone"] .phone-status-live {
+      display: flex; align-items: center; gap: 6px;
+      position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 8;
+      margin: 0; padding: 4px 14px; border-radius: 999px; background: rgba(0, 0, 0, 0.5);
+      backdrop-filter: blur(4px); font-size: var(--font-sm); color: var(--text);
+    }
+    .phone-status-live { display: none; }
+    /* A telephone cannot receive any of these — a control that does nothing is a lie. */
+    #call[data-entry="phone"] #btn-cam,
+    #call[data-entry="phone"] #btn-bg,
+    #call[data-entry="phone"] #btn-chat,
+    #call[data-entry="phone"] #quick-reactions { display: none; }
+    #call[data-entry="phone"] .mi:has(> #btn-share),
+    #call[data-entry="phone"] .mi:has(> #btn-pip),
+    #call[data-entry="phone"] .mi:has(> #btn-fullscreen),
+    #call[data-entry="phone"] .mi:has(> #btn-whiteboard),
+    #call[data-entry="phone"] .mi:has(> #btn-quiz),
+    #call[data-entry="phone"] .mi:has(> #btn-hand),
+    #call[data-entry="phone"] .mi:has(> #btn-record),
+    #call[data-entry="phone"] #mi-minigame { display: none; }
 
     .control-bar {
       flex: none;

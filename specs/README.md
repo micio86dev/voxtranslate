@@ -146,6 +146,8 @@ Each spec follows the same skeleton:
 | [0116](0116-voip-inbound/spec.md) | Receiving translated calls — routing, ringing, voicemail | 🚧 In progress | — | — |
 | [0117](0117-voip-analytics/spec.md) | What the telephone is costing and doing | 🚧 In progress | — | — |
 | [0118](0118-voip-enterprise/spec.md) | Enterprise: office hours, menus, and the honest edge of SIP | 🚧 In progress | — | — |
+| [0119](0119-voip-number-requirements/spec.md) | Self-service regulatory requirements for a purchased number | 🚧 In progress | — | — |
+| [0120](0120-web-app-voip-dialer/spec.md) | Web-app VoIP dialer — dial, monitor and end a translated phone call without leaving the call app | 🚧 Implemented, pending live verification | — | `96158399` → `ec66e535` |
 
 > Numbers 0011–0015 were claimed by commit messages while the AI bundle shipped
 > without spec docs (and 0011/0012 were each reused twice); the assignments
