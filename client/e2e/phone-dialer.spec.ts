@@ -172,10 +172,16 @@ test('one-click dial reaches the call screen without ever showing prejoin, and l
   const state = await mockPhoneDialerApi(t.page);
 
   // Pre-seed a logged-in, active-subscription business user (mirrors billing.spec's
-  // pattern) so boot() skips the login gate straight to #home.
+  // pattern) so boot() skips the login gate straight to #home. Also pre-seed the
+  // cookie-consent and geolocation-opt-in choices: both banners are fixed to the
+  // bottom of the viewport and overlay the in-call control bar (the same overlap
+  // `joinCall()` in helpers.ts works around for the ordinary room flow), which left
+  // #btn-leave visible-but-unclickable and timed out the whole test in CI.
   await t.page.addInitScript((u) => {
     localStorage.setItem('vox.token', 'fake.jwt');
     localStorage.setItem('vox.user', JSON.stringify(u));
+    localStorage.setItem('vox.cookie', 'granted');
+    localStorage.setItem('vox.geo', 'dismissed');
   }, BUSINESS_USER);
 
   await t.page.goto('/', { waitUntil: 'networkidle' });
