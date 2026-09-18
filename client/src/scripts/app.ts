@@ -2466,6 +2466,9 @@ async function openPhoneDialPanel(): Promise<void> {
   phoneHasContacts = !!probe.data?.contacts.length;
   show(phoneCtaToggle, false);
   show(phoneDialPanel, true);
+  // The trigger now lives in the hero row, well above #phone-cta on longer pages —
+  // without this the panel opens off-screen and looks like nothing happened.
+  phoneCtaCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
   phoneDestinationInput.focus();
 }
 
@@ -2481,12 +2484,26 @@ async function searchPhoneContacts(query: string): Promise<void> {
   renderPhoneContactResults(res.data?.contacts ?? []);
 }
 
+/** Up to two initials from a contact's name, for the address-book-style avatar —
+ *  the search summary carries no photo, so this is the only per-contact glyph
+ *  available without a second round-trip per row. */
+function contactInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return '?';
+  const first = parts[0]?.[0] ?? '';
+  const last = parts.length > 1 ? (parts[parts.length - 1]?.[0] ?? '') : '';
+  return (first + last).toUpperCase();
+}
+
 function renderPhoneContactResults(contacts: VoipContactSummary[]): void {
   phoneContactResults.innerHTML = '';
   if (!contacts.length) {
-    const empty = document.createElement('p');
+    const empty = document.createElement('div');
     empty.className = 'phone-contact-empty';
-    empty.textContent = t('phoneSearchEmpty');
+    empty.innerHTML = icon('users', 22);
+    const msg = document.createElement('span');
+    msg.textContent = t('phoneSearchEmpty');
+    empty.appendChild(msg);
     phoneContactResults.appendChild(empty);
   } else {
     for (const c of contacts) {
@@ -2494,7 +2511,29 @@ function renderPhoneContactResults(contacts: VoipContactSummary[]): void {
       opt.type = 'button';
       opt.className = 'phone-contact-opt';
       opt.setAttribute('role', 'option');
-      opt.textContent = c.name;
+
+      const avatar = document.createElement('span');
+      avatar.className = 'phone-contact-avatar';
+      avatar.setAttribute('aria-hidden', 'true');
+      avatar.textContent = contactInitials(c.name);
+      opt.appendChild(avatar);
+
+      const info = document.createElement('span');
+      info.className = 'phone-contact-info';
+      const name = document.createElement('span');
+      name.className = 'phone-contact-name';
+      name.textContent = c.name;
+      info.appendChild(name);
+      const meta = c.company || c.role;
+      if (meta) {
+        const metaEl = document.createElement('span');
+        metaEl.className = 'phone-contact-meta';
+        metaEl.textContent = meta;
+        info.appendChild(metaEl);
+      }
+      opt.appendChild(info);
+
+      opt.insertAdjacentHTML('beforeend', icon('phone', 16));
       opt.addEventListener('click', () => void pickPhoneContact(c));
       phoneContactResults.appendChild(opt);
     }
@@ -5434,7 +5473,11 @@ async function updateWorkspaceLink(): Promise<void> {
   // Call-a-phone-number CTA (spec: web-app-voip-dialer, R1/R10): needs an active-sub org
   // AND a WebRTC-capable browser — `startCall()`'s own guard would otherwise be
   // unreachable on this path, since the phone entry path never shows that error surface.
-  show(phoneCtaCard, canShowPhoneCta(orgs, webrtcSupported()));
+  // The trigger button lives in the hero row now, OUTSIDE #phone-cta, so it no longer
+  // inherits the card's own hidden state and needs the same gate applied to it directly.
+  const phoneCtaVisible = canShowPhoneCta(orgs, webrtcSupported());
+  show(phoneCtaCard, phoneCtaVisible);
+  show(phoneCtaToggle, phoneCtaVisible);
 }
 
 // ---- Workspace: project voice notes (spec: B2B project voice notes) --------
