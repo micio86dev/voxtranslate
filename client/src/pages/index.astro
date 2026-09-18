@@ -164,6 +164,18 @@ const jsonLd = {
             <Fragment set:html={icon('shield', 20)} />
             <span data-i18n="createPrivateRoom">{T('createPrivateRoom')}</span>
           </button>
+          <!-- Fourth peer entry point, same shape as the three above (spec:
+               web-app-voip-dialer). Hidden by default and revealed by
+               updateWorkspaceLink() via the same canShowPhoneCta() gate as the
+               #phone-cta card below — this button and that card's own toggle are
+               the SAME element, just relocated here so the call action lives with
+               the other headline actions instead of buried lower on the page.
+               Clicking it still opens the inline dial panel inside #phone-cta and
+               scrolls it into view (openPhoneDialPanel() in app.ts). -->
+          <button id="phone-cta-toggle" type="button" class="btn-primary hero-cta-btn hidden">
+            <Fragment set:html={icon('phone', 20)} />
+            <span data-i18n="phoneCtaButton">{T('phoneCtaButton')}</span>
+          </button>
         </div>
       </section>
       <div class="home-body">
@@ -259,15 +271,19 @@ const jsonLd = {
 
         <!-- Call a phone number CTA (spec: web-app-voip-dialer, R1/R10). Shown only for a
              signed-in B2B user with an active-subscription org, on a WebRTC-capable
-             browser — canShowPhoneCta() in updateWorkspaceLink(). The dial panel expands
-             INLINE (webinar-create-toggle pattern), never a modal: the price and
-             disclosure copy must stay visible while the user is typing. -->
+             browser — canShowPhoneCta() in updateWorkspaceLink(). Its own trigger button
+             now lives in the hero row above (#phone-cta-toggle); this card is what that
+             button reveals and scrolls to. The dial panel expands INLINE
+             (webinar-create-toggle pattern), never a modal: the price and disclosure copy
+             must stay visible while the user is typing. -->
         <div class="card hidden phone-cta" id="phone-cta">
-          <div class="card-title-row">
+          <div class="card-title-row phone-cta-header">
+            <span class="phone-cta-icon" aria-hidden="true">
+              <Fragment set:html={icon('phone', 18)} />
+            </span>
             <span class="card-title" data-i18n="phoneCtaTitle">{T('phoneCtaTitle')}</span>
           </div>
           <p class="host-cta-desc" data-i18n="phoneCtaDesc">{T('phoneCtaDesc')}</p>
-          <button id="phone-cta-toggle" type="button" class="btn-primary" data-i18n="phoneCtaButton">{T('phoneCtaButton')}</button>
 
           <form id="phone-dial-panel" class="phone-dial-panel hidden">
             <label class="field">
@@ -2124,23 +2140,63 @@ const jsonLd = {
 
     /* Call-a-phone-number CTA + inline dial panel (spec: web-app-voip-dialer). Same
        card language as the webinar CTA above — a light island in this dark app would
-       be a second product, not a feature of this one. */
+       be a second product, not a feature of this one. The header + contact list below
+       borrow a real dialer's visual vocabulary (icon badge, avatar rows) so the panel
+       reads as telephony, not a generic form. */
     .phone-cta { border-color: var(--accent); }
-    .phone-cta .btn-primary { width: 100%; }
+    .phone-cta-header { justify-content: flex-start; gap: 10px; }
+    .phone-cta-icon {
+      display: inline-flex; align-items: center; justify-content: center; flex: none;
+      width: 30px; height: 30px; border-radius: 50%;
+      background: var(--accent-soft); color: var(--accent);
+    }
+    .phone-cta-icon :global(.ico) { width: 16px; height: 16px; }
     .phone-dial-panel { display: flex; flex-direction: column; gap: 12px; margin-top: 14px; }
     .phone-dial-panel .field { position: relative; }
+    /* The results panel sits one layer above the card (--surface-2, the same "second
+       neutral layer" used for panels/toolbars elsewhere) instead of --bg, which read as
+       a flat grey hole punched into the card rather than a raised address-book sheet. */
     .phone-contact-results {
-      position: absolute; z-index: 5; top: calc(100% + 4px); left: 0; right: 0;
-      max-height: 220px; overflow-y: auto; padding: 4px;
-      background: var(--bg); border: 1px solid var(--border); border-radius: 10px;
-      box-shadow: 0 14px 36px rgba(0, 0, 0, 0.4);
+      position: absolute; z-index: 5; top: calc(100% + 6px); left: 0; right: 0;
+      max-height: 264px; overflow-y: auto; padding: 6px;
+      background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-lg);
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
     }
-    .phone-contact-opt {
-      width: 100%; display: block; text-align: start; background: transparent; border: none;
-      border-radius: 8px; padding: 8px 10px; cursor: pointer; color: var(--text); font-size: 0.9rem;
+    /* One row per contact: initials avatar, name + company/role, trailing handset icon —
+       the phonebook look the flat text-only button used to lack.
+       EVERY selector below a contact row needs `:global()`: these nodes are built by
+       `renderPhoneContactResults()` with `document.createElement`, so — same reason the
+       `.ico` rules above carry it — they never receive Astro's `data-astro-cid-*` scope
+       attribute. Without `:global()` these rules silently match nothing and the browser's
+       unstyled native <button> (light grey, square corners) shows through instead: that
+       native grey, not a deliberate colour choice, was the actual "sfondo grigio" bug. */
+    .phone-contact-results :global(.phone-contact-opt) {
+      width: 100%; display: flex; align-items: center; gap: 10px; text-align: start;
+      background: transparent; border: none; border-radius: 8px; padding: 8px 10px; cursor: pointer;
+      color: var(--text); font-size: 0.9rem;
     }
-    .phone-contact-opt:hover, .phone-contact-opt:focus-visible { background: var(--accent-dim); }
-    .phone-contact-empty { padding: 10px; margin: 0; color: var(--muted); font-size: var(--font-sm); text-align: center; }
+    .phone-contact-results :global(.phone-contact-opt + .phone-contact-opt) { margin-top: 2px; }
+    .phone-contact-results :global(.phone-contact-opt:hover),
+    .phone-contact-results :global(.phone-contact-opt:focus-visible) { background: var(--accent-soft); }
+    .phone-contact-results :global(.phone-contact-opt .ico) { flex: none; width: 16px; height: 16px; color: var(--muted); }
+    .phone-contact-results :global(.phone-contact-avatar) {
+      flex: none; width: 32px; height: 32px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      background: var(--accent-dim); color: var(--accent);
+      font-size: 0.76rem; font-weight: 600; text-transform: uppercase;
+    }
+    .phone-contact-results :global(.phone-contact-info) { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+    .phone-contact-results :global(.phone-contact-name) {
+      color: var(--text); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .phone-contact-results :global(.phone-contact-meta) {
+      color: var(--muted); font-size: 0.78rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .phone-contact-results :global(.phone-contact-empty) {
+      display: flex; flex-direction: column; align-items: center; gap: 8px;
+      padding: 20px 10px; margin: 0; color: var(--muted); font-size: var(--font-sm); text-align: center;
+    }
+    .phone-contact-results :global(.phone-contact-empty .ico) { color: var(--muted); }
     .phone-details { border: 1px solid var(--border); border-radius: 10px; padding: 4px 12px; }
     .phone-details summary { cursor: pointer; padding: 8px 0; color: var(--muted); font-size: 0.85rem; }
     .phone-details[open] summary { color: var(--text); }
