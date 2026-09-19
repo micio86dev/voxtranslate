@@ -876,5 +876,6 @@
   "phoneReasonCallerIdUnverified": "Þetta númer er ekki staðfest útgangs­númer fyrir þetta fyrirtæki.",
   "phoneReasonCallerIdMissing": "Engin kallandi auðkenni er uppsett fyrir þetta fyrirtæki enn.",
   "phoneReasonInvalidCountryCode": "Notaðu tveggja stafa landskóða, t.d. IT eða ES.",
-  "phoneReasonConsentRequiredForCapture": "Samþykkja má ekki slökkva á meðan skráning eða skráning er virk."
+  "phoneReasonConsentRequiredForCapture": "Samþykkja má ekki slökkva á meðan skráning eða skráning er virk.",
+  "phoneRemoteEnded": "Hinn aðilinn lauk símtalinu."
 }

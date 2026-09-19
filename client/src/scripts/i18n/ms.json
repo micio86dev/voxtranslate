@@ -876,5 +876,6 @@
   "phoneReasonCallerIdUnverified": "Nombor itu bukan nombor keluar yang disahkan bagi organisasi ini.",
   "phoneReasonCallerIdMissing": "Tiada ID panggilan ditetapkan untuk organisasi ini.",
   "phoneReasonInvalidCountryCode": "Gunakan kod negara dua huruf, contoh IT atau ES.",
-  "phoneReasonConsentRequiredForCapture": "Persetujuan tidak boleh dimatikan semasa rakaman atau transkripsi aktif."
+  "phoneReasonConsentRequiredForCapture": "Persetujuan tidak boleh dimatikan semasa rakaman atau transkripsi aktif.",
+  "phoneRemoteEnded": "Pihak satu lagi telah menamatkan panggilan."
 }

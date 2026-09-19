@@ -104,6 +104,14 @@ export interface PhoneLegController {
    */
   end: () => void;
   isActive: () => boolean;
+  /**
+   * Work Unit B (design Decision B3/B4): the call id this leg currently tracks, or
+   * `null` once `end()` has run. `app.ts`'s `shouldLeaveOnPhoneCallEnded` guard reads
+   * this to confirm a `phone_call_ended` push is about THIS client's own call, and its
+   * `null` state after `end()` is also the idempotency signal that makes a second event
+   * (or a racing poll) a no-op — reusing existing state rather than a new flag.
+   */
+  currentCallId: () => string | null;
 }
 
 export function createPhoneLegController(deps: PhoneLegDeps): PhoneLegController {
@@ -120,6 +128,9 @@ export function createPhoneLegController(deps: PhoneLegDeps): PhoneLegController
     },
     isActive() {
       return active !== null;
+    },
+    currentCallId() {
+      return active?.callId ?? null;
     },
   };
 }

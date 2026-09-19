@@ -628,9 +628,10 @@ mod tests {
         // the quoted price can never point at a tier a phone call cannot use.
         let mut r = EngineRegistry::new(STANDARD_ID);
         r.register(Arc::new(Mock(meta(STANDARD_ID))));
+        r.register(Arc::new(Mock(meta(GEMINI_ID)))); // Premium — not client-direct
         let mut cartesia_meta = meta(CARTESIA_ID);
         cartesia_meta.capabilities.client_direct = true;
-        r.register(Arc::new(Mock(cartesia_meta)));
+        r.register(Arc::new(Mock(cartesia_meta))); // Enhanced — client-direct
 
         // Sanity: plain `resolve` (used by every other call site) still returns it —
         // this proves the refusal lives in `resolve_for_phone`, not in `resolve` itself.
@@ -647,5 +648,16 @@ mod tests {
             STANDARD_ID
         );
         assert_eq!(r.resolve_for_phone(None).metadata().id, STANDARD_ID);
+        // Tier-Uniform Media Pump Behavior (`voip-call-hangup-and-audio-regression`
+        // spec, R35): Standard and Premium (Gemini, non-client-direct) both pass through
+        // untouched — every phone leg that reaches `run_leg` is therefore either the
+        // caller's own non-client-direct choice or the Standard substitute, never a
+        // client-direct engine. Same structural guarantee already proven above for
+        // Cartesia/Enhanced, extended here to the third selectable tier.
+        assert_eq!(
+            r.resolve_for_phone(Some(GEMINI_ID)).metadata().id,
+            GEMINI_ID,
+            "Premium (non-client-direct) must pass through untouched for a phone leg"
+        );
     }
 }

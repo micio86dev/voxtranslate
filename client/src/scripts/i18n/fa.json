@@ -876,5 +876,6 @@
   "phoneReasonCallerIdUnverified": "این شماره برای این سازمان شماره خروجی تأیید‌شده نیست.",
   "phoneReasonCallerIdMissing": "هیچ شناسه تماس برای این سازمان تنظیم نشده است.",
   "phoneReasonInvalidCountryCode": "از کدهای دو حرفی کشور استفاده کنید، به‌عنوان مثال IT یا ES.",
-  "phoneReasonConsentRequiredForCapture": "موافقت‌نامه نمی‌تواند در حین ضبط یا رونویسی غیرفعال شود."
+  "phoneReasonConsentRequiredForCapture": "موافقت‌نامه نمی‌تواند در حین ضبط یا رونویسی غیرفعال شود.",
+  "phoneRemoteEnded": "طرف مقابل تماس را پایان داد."
 }

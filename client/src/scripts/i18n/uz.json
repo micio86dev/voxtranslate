@@ -876,5 +876,6 @@
   "phoneReasonCallerIdUnverified": "Ushbu raqam ushbu tashkilot uchun tasdiqlangan chiqish raqami emas.",
   "phoneReasonCallerIdMissing": "Ushbu tashkilot uchun hali qo'ng'iroq qiluvchining IDsi o'rnatilmagan.",
   "phoneReasonInvalidCountryCode": "Ikkita harfli mamlakat kodlarini ishlating, masalan IT yoki ES.",
-  "phoneReasonConsentRequiredForCapture": "Yozib olish yoki transkriptsiya yoqilganda rozilikni o'chirib bo'lmaydi."
+  "phoneReasonConsentRequiredForCapture": "Yozib olish yoki transkriptsiya yoqilganda rozilikni o'chirib bo'lmaydi.",
+  "phoneRemoteEnded": "Boshqa tomon qo'ng'iroqni tugatdi."
 }

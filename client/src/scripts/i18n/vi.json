@@ -876,5 +876,6 @@
   "phoneReasonCallerIdUnverified": "Số đó không phải là số đã được xác minh cho tổ chức này.",
   "phoneReasonCallerIdMissing": "Chưa thiết lập ID người gọi cho tổ chức này.",
   "phoneReasonInvalidCountryCode": "Sử dụng mã quốc gia hai chữ, ví dụ IT hoặc ES.",
-  "phoneReasonConsentRequiredForCapture": "Không thể tắt đồng ý khi ghi âm hoặc ghi lại đang bật."
+  "phoneReasonConsentRequiredForCapture": "Không thể tắt đồng ý khi ghi âm hoặc ghi lại đang bật.",
+  "phoneRemoteEnded": "Người kia đã kết thúc cuộc gọi."
 }

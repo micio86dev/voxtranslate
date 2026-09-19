@@ -876,5 +876,6 @@
   "phoneReasonCallerIdUnverified": "該號碼不是此組織已驗證的外線號碼。",
   "phoneReasonCallerIdMissing": "此組織尚未設定來電顯示。",
   "phoneReasonInvalidCountryCode": "請使用兩字母國碼，例如 IT 或 ES。",
-  "phoneReasonConsentRequiredForCapture": "錄音或文字記錄啟用時，無法關閉同意。"
+  "phoneReasonConsentRequiredForCapture": "錄音或文字記錄啟用時，無法關閉同意。",
+  "phoneRemoteEnded": "對方已經完咗個電話。"
 }

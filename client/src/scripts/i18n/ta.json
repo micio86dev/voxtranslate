@@ -876,5 +876,6 @@
   "phoneReasonCallerIdUnverified": "அந்த எண் இந்த அமைப்பின் சரிபார்க்கப்பட்ட வெளியேற்ற எண்ணாக இல்லை.",
   "phoneReasonCallerIdMissing": "இந்த அமைப்பிற்கு இன்னும் அழைப்பாளர் ஐடி அமைக்கப்படவில்லை.",
   "phoneReasonInvalidCountryCode": "இரண்டு எழுத்து நாட்டுக் குறியீடுகளைப் பயன்படுத்தவும், உதாரணம் IT அல்லது ES.",
-  "phoneReasonConsentRequiredForCapture": "பதிவு அல்லது எழுத்துப்பதிவு இயங்கும் போது ஒப்புதலை அணைக்க முடியாது."
+  "phoneReasonConsentRequiredForCapture": "பதிவு அல்லது எழுத்துப்பதிவு இயங்கும் போது ஒப்புதலை அணைக்க முடியாது.",
+  "phoneRemoteEnded": "மற்றவர் அழைப்பை முடித்தார்."
 }

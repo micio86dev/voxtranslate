@@ -876,5 +876,6 @@
   "phoneReasonCallerIdUnverified": "මෙම අංකය මෙම සංවිධානය සඳහා සත්‍යාපිත පිටත අංකයක් නොවේ.",
   "phoneReasonCallerIdMissing": "මෙම සංවිධානය සඳහා ඇමතුම්කරු ID තවමත් සකස් කර නැත.",
   "phoneReasonInvalidCountryCode": "දෙඅකුරු රටේ කේත භාවිත කරන්න, උදාහරණයක් ලෙස IT හෝ ES.",
-  "phoneReasonConsentRequiredForCapture": "සටහන් කිරීම හෝ ලියවීම සක්‍රිය වන අතර, එකඟතාවය අක්‍රිය කළ නොහැක."
+  "phoneReasonConsentRequiredForCapture": "සටහන් කිරීම හෝ ලියවීම සක්‍රිය වන අතර, එකඟතාවය අක්‍රිය කළ නොහැක.",
+  "phoneRemoteEnded": "අනෙක් පුද්ගලයා ඇමතුම අවසන් කළේය."
 }

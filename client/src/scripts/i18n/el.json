@@ -876,5 +876,6 @@
   "phoneReasonCallerIdUnverified": "Αυτός ο αριθμός δεν είναι επαληθευμένος εξωτερικός αριθμός για αυτόν τον οργανισμό.",
   "phoneReasonCallerIdMissing": "Δεν έχει ρυθμιστεί αναγνωριστικό κλήσης για αυτόν τον οργανισμό ακόμη.",
   "phoneReasonInvalidCountryCode": "Χρησιμοποιήστε κωδικούς χώρας δύο γραμμάτων, π.χ. IT ή ES.",
-  "phoneReasonConsentRequiredForCapture": "Η συγκατάθεση δεν μπορεί να απενεργοποιηθεί ενώ η εγγραφή ή η μεταγραφή είναι ενεργή."
+  "phoneReasonConsentRequiredForCapture": "Η συγκατάθεση δεν μπορεί να απενεργοποιηθεί ενώ η εγγραφή ή η μεταγραφή είναι ενεργή.",
+  "phoneRemoteEnded": "Το άλλο άτομο τερμάτισε την κλήση."
 }
