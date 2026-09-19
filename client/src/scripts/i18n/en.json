@@ -880,5 +880,6 @@
   "phoneReasonCallerIdUnverified": "That number is not a verified outbound number for this organisation.",
   "phoneReasonCallerIdMissing": "No caller ID is set up for this organisation yet.",
   "phoneReasonInvalidCountryCode": "Use two-letter country codes, for example IT or ES.",
-  "phoneReasonConsentRequiredForCapture": "Consent cannot be switched off while recording or transcription is on."
+  "phoneReasonConsentRequiredForCapture": "Consent cannot be switched off while recording or transcription is on.",
+  "phoneRemoteEnded": "The other person ended the call."
 }

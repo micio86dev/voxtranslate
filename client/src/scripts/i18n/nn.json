@@ -876,5 +876,6 @@
   "phoneReasonCallerIdUnverified": "Det nummeret er ikkje ein verifisert utgående nummer for denne organisasjonen.",
   "phoneReasonCallerIdMissing": "Ingen ringar-ID er oppsett for denne organisasjonen ennå.",
   "phoneReasonInvalidCountryCode": "Bruk to-bokstavs landskoder, for eksempel IT eller ES.",
-  "phoneReasonConsentRequiredForCapture": "Samtykke kan ikkje slås av medan opptak eller transkripsjon er på."
+  "phoneReasonConsentRequiredForCapture": "Samtykke kan ikkje slås av medan opptak eller transkripsjon er på.",
+  "phoneRemoteEnded": "Den andre personen avslutta samtalen."
 }

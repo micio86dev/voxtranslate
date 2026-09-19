@@ -876,5 +876,6 @@
   "phoneReasonCallerIdUnverified": "هذا الرقم ليس رقمًا صادرًا موثوقًا به لهذه المنظمة.",
   "phoneReasonCallerIdMissing": "لم يتم إعداد معرّف المتصل لهذه المنظمة بعد.",
   "phoneReasonInvalidCountryCode": "استخدم رموز دولية مكوَّنة من حرفين، على سبيل المثال IT أو ES.",
-  "phoneReasonConsentRequiredForCapture": "لا يمكن إيقاف تشغيل الموافقة أثناء التسجيل أو النسخ."
+  "phoneReasonConsentRequiredForCapture": "لا يمكن إيقاف تشغيل الموافقة أثناء التسجيل أو النسخ.",
+  "phoneRemoteEnded": "أنهى الطرف الآخر المكالمة."
 }

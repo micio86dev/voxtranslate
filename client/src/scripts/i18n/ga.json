@@ -876,5 +876,6 @@
   "phoneReasonCallerIdUnverified": "Ní uimhir seolta aitheanta ann don eagraíocht seo.",
   "phoneReasonCallerIdMissing": "Níl aon aitheantas glaochta socraithe don eagraíocht seo fós.",
   "phoneReasonInvalidCountryCode": "Bain úsáid as cóid tír dhá litir, mar shampla IT nó ES.",
-  "phoneReasonConsentRequiredForCapture": "Ní féidir cead a bhaint as nuair a bhíonn caite nó aistriúchán ar siúl."
+  "phoneReasonConsentRequiredForCapture": "Ní féidir cead a bhaint as nuair a bhíonn caite nó aistriúchán ar siúl.",
+  "phoneRemoteEnded": "Chuir an duine eile deireadh leis an nglao."
 }

@@ -876,5 +876,6 @@
   "phoneReasonCallerIdUnverified": "Dan il‑numru ma huwax numru verified għall‑organizzazzjoni.",
   "phoneReasonCallerIdMissing": "M’ħżenx ID tal‑siddan għal organizzazzjoni bħalissa.",
   "phoneReasonInvalidCountryCode": "Uża kodiċi ta’ żewġ liti, per eżempju IT jew ES.",
-  "phoneReasonConsentRequiredForCapture": "Il‑consentiment ma jistax jiġi mħassar waqt li rekreat jew trascrizzjoni qed ikun attivi."
+  "phoneReasonConsentRequiredForCapture": "Il‑consentiment ma jistax jiġi mħassar waqt li rekreat jew trascrizzjoni qed ikun attivi.",
+  "phoneRemoteEnded": "Il-persuna l-oħra temmet is-sejħa."
 }

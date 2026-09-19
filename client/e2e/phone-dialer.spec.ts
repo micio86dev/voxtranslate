@@ -43,11 +43,22 @@ const BUSINESS_USER = {
   consent_given: true,
 };
 
+/** Minimal structural shape this suite needs from Playwright's `WebSocketRoute` — just
+ *  enough to push a server frame after the page has already connected. Kept ad hoc
+ *  (rather than importing the `WebSocketRoute` type) because `routeWebSocket`'s handler
+ *  fires asynchronously, once the page actually opens its socket — long after
+ *  `mockPhoneDialerApi` itself has returned. */
+interface WsHandle {
+  send: (data: string) => void;
+}
+
 /** Mirrors `billing.spec.ts`'s one-dispatcher-per-page mocking pattern, extended with the
  *  VoIP quote/dial/detail/hangup + business-org endpoints this feature needs. Returns a
- *  counter object so the test can assert the hangup endpoint was actually posted. */
-async function mockPhoneDialerApi(page: Page): Promise<{ hangupCalls: number }> {
-  const state = { hangupCalls: 0 };
+ *  counter object so the test can assert the hangup endpoint was actually posted, and a
+ *  `wsHandle` holder (Work Unit B) so a test can push a server push frame — e.g.
+ *  `phone_call_ended` — once the page's socket has connected. */
+async function mockPhoneDialerApi(page: Page): Promise<{ hangupCalls: number; wsHandle: { current: WsHandle | null } }> {
+  const state = { hangupCalls: 0, wsHandle: { current: null as WsHandle | null } };
   await page.route('**/gsi/client', (r) => r.abort()); // block the external Google script
   await page.route('**/api/**', (route) => {
     const req = route.request();
@@ -147,6 +158,7 @@ async function mockPhoneDialerApi(page: Page): Promise<{ hangupCalls: number }> 
   // not a visible test failure by itself, which is why this test also asserts the peer's
   // presentation cell renders.
   await page.routeWebSocket(/\/ws/, (ws) => {
+    state.wsHandle.current = ws; // Work Unit B: let a test push a later frame, e.g. phone_call_ended
     ws.onMessage(() => {}); // ignore client control/audio frames
     ws.send(
       JSON.stringify({
@@ -161,13 +173,11 @@ async function mockPhoneDialerApi(page: Page): Promise<{ hangupCalls: number }> 
   return state;
 }
 
-test('one-click dial reaches the call screen without ever showing prejoin, and leaving hangs up the PSTN leg', async ({
-  browser,
-}) => {
-  const t = await openPage(browser);
-  const consoleErrors = trackConsoleErrors(t.page);
-  const state = await mockPhoneDialerApi(t.page);
-
+/** Shared setup for both tests below: pre-seed auth/consent, dial, and reach the call
+ *  screen (R4/R7's "no prejoin on the phone path" invariant, PR2's phone-peer mesh-skip,
+ *  PR1's ported phase announcer) — everything up to the point where the two tests
+ *  diverge on how the call ends (the leave button vs. a pushed `phone_call_ended`). */
+async function dialToCallScreen(t: { page: Page }): Promise<void> {
   // Pre-seed a logged-in, active-subscription business user (mirrors billing.spec's
   // pattern) so boot() skips the login gate straight to #home. Also pre-seed the
   // cookie-consent and geolocation-opt-in choices: both banners are fixed to the
@@ -232,10 +242,63 @@ test('one-click dial reaches the call screen without ever showing prejoin, and l
   // PR2's startPhonePoll/pollPhoneCall (1500ms) + PR1's ported phaseFromStatus/announcement:
   // the mocked 'answered' status must reach the aria-live phase announcer.
   await expect(t.page.locator('#phone-status-live')).toHaveText(/./, { timeout: 5000 });
+}
+
+test('one-click dial reaches the call screen without ever showing prejoin, and leaving hangs up the PSTN leg', async ({
+  browser,
+}) => {
+  const t = await openPage(browser);
+  const consoleErrors = trackConsoleErrors(t.page);
+  const state = await mockPhoneDialerApi(t.page);
+
+  await dialToCallScreen(t);
 
   // R5/R6: leaving posts hangup exactly once (createPhoneLegController's idempotent end()).
   await t.page.click('#btn-leave');
   await expect(t.page.locator('#home')).toBeVisible();
+  expect(state.hangupCalls).toBe(1);
+
+  expect(consoleErrors).toEqual([]);
+
+  await closePage(t);
+});
+
+// Work Unit B (spec: web-app-voip-dialer, R11-R13; design's Testing Strategy B9) — the
+// server push this whole PR exists to add. `PeerLeft` isn't part of this proof (it only
+// drives tile bookkeeping, spec/design's "Phone Leg Departure Does Not Affect Other Room
+// Peers"); this test pushes `phone_call_ended` alone, which is exactly the message a
+// two-party call actually receives once its own tile-removal grace window is irrelevant.
+test('a remote phone hangup shows a visible notice and returns home exactly once (Work Unit B)', async ({
+  browser,
+}) => {
+  const t = await openPage(browser);
+  const consoleErrors = trackConsoleErrors(t.page);
+  const state = await mockPhoneDialerApi(t.page);
+
+  await dialToCallScreen(t);
+
+  // Push-primary exit (R13): the server's definitive-end signal, not the 1500ms poll.
+  state.wsHandle.current!.send(
+    JSON.stringify({
+      type: 'phone_call_ended',
+      peer_id: PHONE_PEER_ID,
+      call_id: CALL_ID,
+      reason: 'remote_hangup',
+    }),
+  );
+
+  // Decision B1: toast() survives the #call -> #home screen switch (unlike #notif-banner,
+  // a child of #call that would be torn off screen in the same tick as the auto-leave).
+  await expect(t.page.locator('.vox-toast')).toBeVisible({ timeout: 5000 });
+  await expect(t.page.locator('.vox-toast')).toHaveText('The other person ended the call.');
+
+  // Decision B3's guard: the B2B dialer's own two-party call has no human counterpart
+  // remaining, so the client auto-leaves — mirroring the existing room_full pattern.
+  await expect(t.page.locator('#home')).toBeVisible();
+
+  // R5/R6 (Decision B4): leaveCall() -> endPhoneLeg() still posts hangup exactly once —
+  // no double-fire between this push and the 1500ms poll fallback, and the click-to-leave
+  // path above is proven not to have been reused to reach the same exactly-once count.
   expect(state.hangupCalls).toBe(1);
 
   expect(consoleErrors).toEqual([]);

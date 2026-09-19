@@ -876,5 +876,6 @@
   "phoneReasonCallerIdUnverified": "Bu nömrə bu təşkilat üçün təsdiqlənmiş çıxış nömrəsi deyil.",
   "phoneReasonCallerIdMissing": "Bu təşkilat üçün hələ zəng edən ID təyin edilməyib.",
   "phoneReasonInvalidCountryCode": "İki hərfli ölkə kodlarından istifadə edin, məsələn IT və ya ES.",
-  "phoneReasonConsentRequiredForCapture": "Qeyd və ya yazıya çevrilmə aktiv olduqda razılıq söndürülə bilməz."
+  "phoneReasonConsentRequiredForCapture": "Qeyd və ya yazıya çevrilmə aktiv olduqda razılıq söndürülə bilməz.",
+  "phoneRemoteEnded": "Digər tərəf zəngi bitirdi."
 }

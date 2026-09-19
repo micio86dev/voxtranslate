@@ -876,5 +876,6 @@
   "phoneReasonCallerIdUnverified": "その番号は組織の認証済み発信番号ではありません。",
   "phoneReasonCallerIdMissing": "組織に発信者IDが設定されていません。",
   "phoneReasonInvalidCountryCode": "2文字の国コード（例：IT、ES）を使用してください。",
-  "phoneReasonConsentRequiredForCapture": "録音または文字起こし中は同意をオフにできません。"
+  "phoneReasonConsentRequiredForCapture": "録音または文字起こし中は同意をオフにできません。",
+  "phoneRemoteEnded": "相手が通話を終了しました。"
 }

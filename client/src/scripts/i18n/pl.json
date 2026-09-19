@@ -876,5 +876,6 @@
   "phoneReasonCallerIdUnverified": "Numer nie jest zweryfikowanym numerem wychodzącym dla tej organizacji.",
   "phoneReasonCallerIdMissing": "Brak ustawionego identyfikatora dzwoniącego dla tej organizacji.",
   "phoneReasonInvalidCountryCode": "Użyj dwuliterowych kodów krajów, np. IT lub ES.",
-  "phoneReasonConsentRequiredForCapture": "Nie można wyłączyć zgody podczas nagrywania lub transkrypcji."
+  "phoneReasonConsentRequiredForCapture": "Nie można wyłączyć zgody podczas nagrywania lub transkrypcji.",
+  "phoneRemoteEnded": "Druga osoba zakończyła połączenie."
 }

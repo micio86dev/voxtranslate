@@ -876,5 +876,6 @@
   "phoneReasonCallerIdUnverified": "Lambarkaas ma aha lambar dibadda oo la xaqiijiyay ururkan.",
   "phoneReasonCallerIdMissing": "Aqoonsiga wacaha ma dhicin ururkan weli.",
   "phoneReasonInvalidCountryCode": "Isticmaal koodhka waddanka laba xaraf, tusaale ahaan IT ama ES.",
-  "phoneReasonConsentRequiredForCapture": "Soo ogolaanshaha lama joojin karo inta lagu jiro duubista ama qoraalka."
+  "phoneReasonConsentRequiredForCapture": "Soo ogolaanshaha lama joojin karo inta lagu jiro duubista ama qoraalka.",
+  "phoneRemoteEnded": "Qofka kale wuu joojiyay wicitaanka."
 }

@@ -876,5 +876,6 @@
   "phoneReasonCallerIdUnverified": "Nimewo sa a pa yon nimewo sòti verifye pou òganizasyon sa a.",
   "phoneReasonCallerIdMissing": "Pa gen ID apèlè ki mete pou òganizasyon sa a ankò.",
   "phoneReasonInvalidCountryCode": "Itilize kòd peyi a ak de lèt, pa egzanp IT oswa ES.",
-  "phoneReasonConsentRequiredForCapture": "Pa ka retire konsantman pandan anrejistreman oswa transkripsyon ap fonksyone."
+  "phoneReasonConsentRequiredForCapture": "Pa ka retire konsantman pandan anrejistreman oswa transkripsyon ap fonksyone.",
+  "phoneRemoteEnded": "Lòt moun nan te fini apèl la."
 }

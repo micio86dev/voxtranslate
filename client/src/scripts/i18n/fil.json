@@ -876,5 +876,6 @@
   "phoneReasonCallerIdUnverified": "Ang numerong iyon ay hindi beripikadong outbound number para sa organisasyong ito.",
   "phoneReasonCallerIdMissing": "Walang nakatakdang caller ID para sa organisasyong ito.",
   "phoneReasonInvalidCountryCode": "Gumamit ng dalawang letra na country code, halimbawa IT o ES.",
-  "phoneReasonConsentRequiredForCapture": "Hindi maaaring i-off ang consent habang naka-on ang recording o transcription."
+  "phoneReasonConsentRequiredForCapture": "Hindi maaaring i-off ang consent habang naka-on ang recording o transcription.",
+  "phoneRemoteEnded": "Tinapos ng kabilang panig ang tawag."
 }

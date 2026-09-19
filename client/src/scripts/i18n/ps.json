@@ -876,5 +876,6 @@
   "phoneReasonCallerIdUnverified": "دا شمېره د دې سازمان لپاره تصدیق شوی بهرنی شمېره نه ده.",
   "phoneReasonCallerIdMissing": "د دې سازمان لپاره لا هم د زنګ وهونکي پېژند ترتیب شوی نه دی.",
   "phoneReasonInvalidCountryCode": "د دوه حرفي هیواد کوډونه وکاروئ، لکه IT یا ES.",
-  "phoneReasonConsentRequiredForCapture": "د ثبت یا نقلولو پر مهال رضایت بند نشي کیدلی."
+  "phoneReasonConsentRequiredForCapture": "د ثبت یا نقلولو پر مهال رضایت بند نشي کیدلی.",
+  "phoneRemoteEnded": "بلې خوا اړیکه پای ته ورسوله."
 }

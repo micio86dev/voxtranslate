@@ -876,5 +876,6 @@
   "phoneReasonCallerIdUnverified": "Toto číslo nie je overené odchádzajúce číslo pre túto organizáciu.",
   "phoneReasonCallerIdMissing": "Pre túto organizáciu ešte nie je nastavené ID volajúceho.",
   "phoneReasonInvalidCountryCode": "Použite dvojpísmenové kódy krajín, napríklad IT alebo ES.",
-  "phoneReasonConsentRequiredForCapture": "Súhlas nemôže byť vypnutý, keď je zapnuté nahrávanie alebo prepisovanie."
+  "phoneReasonConsentRequiredForCapture": "Súhlas nemôže byť vypnutý, keď je zapnuté nahrávanie alebo prepisovanie.",
+  "phoneRemoteEnded": "Druhá osoba ukončila hovor."
 }

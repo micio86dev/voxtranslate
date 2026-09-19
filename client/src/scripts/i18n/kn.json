@@ -876,5 +876,6 @@
   "phoneReasonCallerIdUnverified": "ಆ ಸಂಖ್ಯೆ ಈ ಸಂಸ್ಥೆಗೆ ಪರಿಶೀಲಿತ ಹೊರಹೋಗುವ ಸಂಖ್ಯೆ ಅಲ್ಲ.",
   "phoneReasonCallerIdMissing": "ಈ ಸಂಸ್ಥೆಗೆ ಇನ್ನೂ ಕರೆ ಮಾಡುವವರ ID ಹೊಂದಿಸಲಾಗಿಲ್ಲ.",
   "phoneReasonInvalidCountryCode": "ಎರಡು ಅಕ್ಷರದ ದೇಶ ಕೋಡ್‌ಗಳನ್ನು ಬಳಸಿ, ಉದಾಹರಣೆಗೆ IT ಅಥವಾ ES.",
-  "phoneReasonConsentRequiredForCapture": "ದಾಖಲೆ ಅಥವಾ ಲಿಪ್ಯಂತರಣ ಸಕ್ರಿಯವಾಗಿರುವಾಗ ಒಪ್ಪಿಗೆಯನ್ನು ನಿಷ್ಕ್ರಿಯಗೊಳಿಸಲಾಗುವುದಿಲ್ಲ."
+  "phoneReasonConsentRequiredForCapture": "ದಾಖಲೆ ಅಥವಾ ಲಿಪ್ಯಂತರಣ ಸಕ್ರಿಯವಾಗಿರುವಾಗ ಒಪ್ಪಿಗೆಯನ್ನು ನಿಷ್ಕ್ರಿಯಗೊಳಿಸಲಾಗುವುದಿಲ್ಲ.",
+  "phoneRemoteEnded": "ಇನ್ನೊಬ್ಬ ವ್ಯಕ್ತಿ ಕರೆಯನ್ನು ಕೊನೆಗೊಳಿಸಿದರು."
 }

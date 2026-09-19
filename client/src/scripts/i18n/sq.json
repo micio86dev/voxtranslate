@@ -876,5 +876,6 @@
   "phoneReasonCallerIdUnverified": "Ky numër nuk është një numër i verifikuar për dalje për këtë organizatë.",
   "phoneReasonCallerIdMissing": "Nuk është konfiguruar asnjë ID thirrës për këtë organizatë ende.",
   "phoneReasonInvalidCountryCode": "Përdorni kode të dy shkronjave për vendin, për shembull IT ose ES.",
-  "phoneReasonConsentRequiredForCapture": "Miratimi nuk mund të çaktivizohet gjatë regjistrimit ose transkriptimit."
+  "phoneReasonConsentRequiredForCapture": "Miratimi nuk mund të çaktivizohet gjatë regjistrimit ose transkriptimit.",
+  "phoneRemoteEnded": "Personi tjetër e përfundoi telefonatën."
 }

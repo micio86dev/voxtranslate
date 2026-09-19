@@ -876,5 +876,6 @@
   "phoneReasonCallerIdUnverified": "त्यो नम्बर यो संगठनको प्रमाणित बाहिरको नम्बर होइन।",
   "phoneReasonCallerIdMissing": "यस संगठनको लागि कलर आईडी अझै सेटअप गरिएको छैन।",
   "phoneReasonInvalidCountryCode": "दुई अक्षरी देशको कोड प्रयोग गर्नुहोस्, जस्तै IT वा ES।",
-  "phoneReasonConsentRequiredForCapture": "रेकर्डिङ वा प्रतिलिपि चालु हुँदा सहमति बन्द गर्न सकिँदैन।"
+  "phoneReasonConsentRequiredForCapture": "रेकर्डिङ वा प्रतिलिपि चालु हुँदा सहमति बन्द गर्न सकिँदैन।",
+  "phoneRemoteEnded": "अर्को व्यक्तिले कल समाप्त गर्यो।"
 }

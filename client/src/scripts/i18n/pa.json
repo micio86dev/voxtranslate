@@ -876,5 +876,6 @@
   "phoneReasonCallerIdUnverified": "ਉਹ ਨੰਬਰ ਇਸ ਸੰਗਠਨ ਲਈ ਪ੍ਰਮਾਣਿਤ ਬਾਹਰ ਜਾਣ ਵਾਲਾ ਨੰਬਰ ਨਹੀਂ ਹੈ।",
   "phoneReasonCallerIdMissing": "ਇਸ ਸੰਗਠਨ ਲਈ ਹੁਣ ਤੱਕ ਕੋਈ ਕਾਲਰ ID ਸੈੱਟ ਨਹੀਂ ਹੈ।",
   "phoneReasonInvalidCountryCode": "ਦੋ-ਅੱਖਰੀ ਦੇਸ਼ ਕੋਡ ਵਰਤੋ, ਉਦਾਹਰਨ ਲਈ IT ਜਾਂ ES।",
-  "phoneReasonConsentRequiredForCapture": "ਰਿਕਾਰਡਿੰਗ ਜਾਂ ਟ੍ਰਾਂਸਕ੍ਰਿਪਸ਼ਨ ਚਾਲੂ ਹੋਣ ਦੌਰਾਨ ਸਹਿਮਤੀ ਬੰਦ ਨਹੀਂ ਕੀਤੀ ਜਾ ਸਕਦੀ।"
+  "phoneReasonConsentRequiredForCapture": "ਰਿਕਾਰਡਿੰਗ ਜਾਂ ਟ੍ਰਾਂਸਕ੍ਰਿਪਸ਼ਨ ਚਾਲੂ ਹੋਣ ਦੌਰਾਨ ਸਹਿਮਤੀ ਬੰਦ ਨਹੀਂ ਕੀਤੀ ਜਾ ਸਕਦੀ।",
+  "phoneRemoteEnded": "ਦੂਜੇ ਵਿਅਕਤੀ ਨੇ ਕਾਲ ਖਤਮ ਕਰ ਦਿੱਤੀ।"
 }

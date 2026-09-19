@@ -876,5 +876,6 @@
   "phoneReasonCallerIdUnverified": "Այդ համարը չի հաստատված այս կազմակերպության ելնող համարը",
   "phoneReasonCallerIdMissing": "Այս կազմակերպության համար դեռևս Caller ID չի սահմանվել",
   "phoneReasonInvalidCountryCode": "Օգտագործեք երկնիշ երկրի կոդեր, օրինակ IT կամ ES",
-  "phoneReasonConsentRequiredForCapture": "Համաձայնությունը չի կարող անջատվել, երբ գրանցում կամ փոխանցում ակտիվ է"
+  "phoneReasonConsentRequiredForCapture": "Համաձայնությունը չի կարող անջատվել, երբ գրանցում կամ փոխանցում ակտիվ է",
+  "phoneRemoteEnded": "Մյուս անձը ավարտեց զանգը:"
 }

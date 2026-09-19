@@ -876,5 +876,6 @@
   "phoneReasonCallerIdUnverified": "See number ei ole selle organisatsiooni kinnitatud väljavõtknumber.",
   "phoneReasonCallerIdMissing": "Selle organisatsiooni jaoks pole veel helistaja ID seadistatud.",
   "phoneReasonInvalidCountryCode": "Kasuta kahte tähemärki sisaldavaid riigikoodide, nt IT või ES.",
-  "phoneReasonConsentRequiredForCapture": "Kinnitus ei saa lülitada välja, kui salvestamine või transkribeerimine on aktiivne."
+  "phoneReasonConsentRequiredForCapture": "Kinnitus ei saa lülitada välja, kui salvestamine või transkribeerimine on aktiivne.",
+  "phoneRemoteEnded": "Teine pool lõpetas kõne."
 }
