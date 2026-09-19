@@ -465,7 +465,18 @@ impl ByteOrderDetector {
     /// the same runtime state and the same log line: "measured" (`Decided`), "silent line"
     /// (`Undetermined`, no inconclusive windows), and "probably not L16" (`Undetermined`,
     /// at least one inconclusive window).
-    fn log_summary(&self) {
+    ///
+    /// `is_l16` is the leg's codec AT TEARDOWN TIME (`Leg::codec() == MediaCodec::L16`),
+    /// not whether this detector ever observed anything. It gates the `Undetermined`
+    /// metric specifically: a µ-law/A-law leg never calls [`observe`](Self::observe), so
+    /// it is permanently `Undetermined` by construction and recording it would make the
+    /// counter answer "how many legs are not L16" instead of its documented question
+    /// ("did an L16 leg ever confirm its byte order"). The same guard also prevents
+    /// double-counting a leg that decided L16 and was later renegotiated away from L16:
+    /// the detector resets to `Undetermined` (see [`Leg::renegotiate`]), but `is_l16` is
+    /// now false, so teardown does not recount it. Returns whether this call recorded the
+    /// `Undetermined` metric, so tests can assert the guard without touching global state.
+    fn log_summary(&self, is_l16: bool) -> bool {
         match self.state {
             ByteOrder::Decided(little_endian) => {
                 tracing::info!(
@@ -477,15 +488,21 @@ impl ByteOrderDetector {
                     frames_seen = self.frames_seen,
                     "phone leg L16 byte order summary: decided"
                 );
+                false
             }
             ByteOrder::Undetermined => {
-                crate::metrics::record_voip_byte_order_undetermined();
                 tracing::info!(
                     frames_seen = self.frames_seen,
                     evidence_frames = self.evidence_frames,
                     inconclusive_windows = self.inconclusive_windows,
                     "phone leg L16 byte order summary: undetermined"
                 );
+                if is_l16 {
+                    crate::metrics::record_voip_byte_order_undetermined();
+                    true
+                } else {
+                    false
+                }
             }
         }
     }
@@ -657,8 +674,13 @@ impl Leg {
     /// leg that never observed L16 evidence at all (µ-law, A-law, or a leg that decided
     /// before this call) still gets a summary; a `Decided` leg's summary is cheap because
     /// [`ByteOrderDetector::observe`] already stopped touching it.
-    pub fn log_byte_order_summary(&self) {
-        self.byte_order.log_summary();
+    ///
+    /// The leg's CURRENT codec (`self.codec`), not whether the detector ever ran, decides
+    /// whether an `Undetermined` outcome is metric-worthy — see
+    /// [`ByteOrderDetector::log_summary`]. Returns whether the `Undetermined` metric was
+    /// recorded, for tests.
+    pub fn log_byte_order_summary(&self) -> bool {
+        self.byte_order.log_summary(self.codec == MediaCodec::L16)
     }
 }
 
@@ -1432,6 +1454,42 @@ mod tests {
         assert!(leg.encode_down(&pcm).is_ok());
     }
 
+    #[test]
+    fn a_non_l16_leg_does_not_pollute_the_undetermined_metric() {
+        // A µ-law leg never calls `observe`, so it is permanently `Undetermined` by
+        // construction. `voxtranslate_voip_byte_order_undetermined_total` documents
+        // "L16 phone legs that ended their call without ever confirming a byte order" —
+        // a µ-law leg's teardown must not count against that question at all.
+        let leg = Leg::new(MediaCodec::Pcmu);
+        assert!(
+            !leg.log_byte_order_summary(),
+            "a non-L16 leg's teardown must not record the undetermined metric"
+        );
+    }
+
+    #[test]
+    fn a_leg_renegotiated_away_from_l16_does_not_recount_as_undetermined() {
+        // A leg that decided L16 and was later renegotiated to a different codec resets
+        // its detector to `Undetermined` (see `renegotiate`), but it is no longer an L16
+        // leg by the time teardown runs — it must not be recounted against the same
+        // metric a second time.
+        let mut leg = Leg::new(MediaCodec::L16);
+        for _ in 0..10 {
+            let le: Vec<u8> = sine_i16(16_000.0, 320, 0.4)
+                .iter()
+                .flat_map(|s| s.to_le_bytes())
+                .collect();
+            leg.decode_up(&B64.encode(le)).unwrap();
+        }
+        assert_eq!(leg.byte_order.state, ByteOrder::Decided(true));
+        leg.renegotiate(MediaCodec::Pcmu);
+        assert_eq!(leg.byte_order.state, ByteOrder::Undetermined);
+        assert!(
+            !leg.log_byte_order_summary(),
+            "a leg renegotiated away from L16 must not be recounted as an undetermined L16 leg"
+        );
+    }
+
     // ---- the pump -------------------------------------------------------------
 
     /// A socket made of two channels, so the pump is testable without a network.
@@ -1820,10 +1878,13 @@ mod tests {
         );
 
         let after = count_metric(&crate::metrics::render(0, 0), metric);
-        assert_eq!(
-            after,
-            before + 1,
-            "the teardown summary must fire on the `?` early-return path too"
+        // `>`, not `==`: this counter is process-global, and `cargo test` runs other
+        // pump-driven tests in this same module concurrently in the same binary — any of
+        // them ending in `Undetermined` can bump it between the two snapshots. This
+        // assertion only needs to know that THIS leg's teardown fired at least once.
+        assert!(
+            after > before,
+            "the teardown summary must fire on the `?` early-return path too: before={before}, after={after}"
         );
     }
 
