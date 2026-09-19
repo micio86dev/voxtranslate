@@ -78,6 +78,13 @@ static VOIP_REFUSED: AtomicU64 = AtomicU64::new(0);
 static VOIP_PROVIDER_ERRORS: AtomicU64 = AtomicU64::new(0);
 static VOIP_MEDIA_DISCONNECTS: AtomicU64 = AtomicU64::new(0);
 static VOIP_CODEC_RENEGOTIATIONS: AtomicU64 = AtomicU64::new(0);
+// L16 byte-order detection outcomes (Work Unit C). Telnyx does not document byte order for
+// Call Control media streaming, so these counters — not a guess in code — are how the next
+// N production calls answer "is big-endian statistically the wrong default?".
+static VOIP_BYTE_ORDER_BIG_ENDIAN: AtomicU64 = AtomicU64::new(0);
+static VOIP_BYTE_ORDER_LITTLE_ENDIAN: AtomicU64 = AtomicU64::new(0);
+static VOIP_BYTE_ORDER_UNDETERMINED: AtomicU64 = AtomicU64::new(0);
+static VOIP_BYTE_ORDER_INCONCLUSIVE_WINDOWS: AtomicU64 = AtomicU64::new(0);
 static VOIP_DISCLOSURE_FAILURES: AtomicU64 = AtomicU64::new(0);
 static VOIP_UNERASABLE_RECORDINGS: AtomicU64 = AtomicU64::new(0);
 static VOIP_WS_RECONNECTS: AtomicU64 = AtomicU64::new(0);
@@ -159,6 +166,26 @@ pub fn record_voip_media_disconnect() {
 /// translation ever sees it — which shows up as worse STT, not as an error.
 pub fn record_voip_codec_renegotiation() {
     VOIP_CODEC_RENEGOTIATIONS.fetch_add(1, Ordering::Relaxed);
+}
+
+/// A leg's L16 byte order converged on a decision — big-endian or little-endian.
+pub fn record_voip_byte_order_decided(little_endian: bool) {
+    if little_endian {
+        VOIP_BYTE_ORDER_LITTLE_ENDIAN.fetch_add(1, Ordering::Relaxed);
+    } else {
+        VOIP_BYTE_ORDER_BIG_ENDIAN.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
+/// A leg ended its call still `Undetermined` — never confirmed which byte order it used.
+pub fn record_voip_byte_order_undetermined() {
+    VOIP_BYTE_ORDER_UNDETERMINED.fetch_add(1, Ordering::Relaxed);
+}
+
+/// One inconclusive byte-order window: evidence arrived and neither reading won. A rising
+/// count with flat renegotiations is the "probably not L16" alarm.
+pub fn record_voip_byte_order_inconclusive_window() {
+    VOIP_BYTE_ORDER_INCONCLUSIVE_WINDOWS.fetch_add(1, Ordering::Relaxed);
 }
 
 /// A call whose consent announcement could not be delivered, so capture was switched off.
@@ -342,6 +369,10 @@ struct Snapshot {
     voip_provider_errors: u64,
     voip_media_disconnects: u64,
     voip_codec_renegotiations: u64,
+    voip_byte_order_big_endian: u64,
+    voip_byte_order_little_endian: u64,
+    voip_byte_order_undetermined: u64,
+    voip_byte_order_inconclusive_windows: u64,
     voip_disclosure_failures: u64,
     voip_unerasable_recordings: u64,
     voip_ws_reconnects: u64,
@@ -399,6 +430,11 @@ fn snapshot() -> Snapshot {
         voip_provider_errors: VOIP_PROVIDER_ERRORS.load(Ordering::Relaxed),
         voip_media_disconnects: VOIP_MEDIA_DISCONNECTS.load(Ordering::Relaxed),
         voip_codec_renegotiations: VOIP_CODEC_RENEGOTIATIONS.load(Ordering::Relaxed),
+        voip_byte_order_big_endian: VOIP_BYTE_ORDER_BIG_ENDIAN.load(Ordering::Relaxed),
+        voip_byte_order_little_endian: VOIP_BYTE_ORDER_LITTLE_ENDIAN.load(Ordering::Relaxed),
+        voip_byte_order_undetermined: VOIP_BYTE_ORDER_UNDETERMINED.load(Ordering::Relaxed),
+        voip_byte_order_inconclusive_windows: VOIP_BYTE_ORDER_INCONCLUSIVE_WINDOWS
+            .load(Ordering::Relaxed),
         voip_disclosure_failures: VOIP_DISCLOSURE_FAILURES.load(Ordering::Relaxed),
         voip_unerasable_recordings: VOIP_UNERASABLE_RECORDINGS.load(Ordering::Relaxed),
         voip_ws_reconnects: VOIP_WS_RECONNECTS.load(Ordering::Relaxed),
@@ -584,6 +620,26 @@ fn render_from(s: &Snapshot, active_rooms: u64, active_peers: u64) -> String {
             s.voip_codec_renegotiations,
         ),
         (
+            "voxtranslate_voip_byte_order_big_endian_total",
+            "L16 phone legs whose byte order was measured and decided big-endian.",
+            s.voip_byte_order_big_endian,
+        ),
+        (
+            "voxtranslate_voip_byte_order_little_endian_total",
+            "L16 phone legs whose byte order was measured and decided little-endian.",
+            s.voip_byte_order_little_endian,
+        ),
+        (
+            "voxtranslate_voip_byte_order_undetermined_total",
+            "L16 phone legs that ended their call without ever confirming a byte order.",
+            s.voip_byte_order_undetermined,
+        ),
+        (
+            "voxtranslate_voip_byte_order_inconclusive_windows_total",
+            "Byte-order evidence windows where neither big-endian nor little-endian won.",
+            s.voip_byte_order_inconclusive_windows,
+        ),
+        (
             "voxtranslate_voip_disclosure_failures_total",
             "Calls whose consent announcement could not be delivered, so capture was disabled.",
             s.voip_disclosure_failures,
@@ -722,6 +778,10 @@ mod tests {
             voip_provider_errors: 2,
             voip_media_disconnects: 3,
             voip_codec_renegotiations: 1,
+            voip_byte_order_big_endian: 4,
+            voip_byte_order_little_endian: 2,
+            voip_byte_order_undetermined: 1,
+            voip_byte_order_inconclusive_windows: 3,
             voip_disclosure_failures: 0,
             voip_unerasable_recordings: 0,
             voip_ws_reconnects: 4,
@@ -755,6 +815,10 @@ mod tests {
         assert!(out.contains("voxtranslate_voip_calls_connected_total 7"));
         assert!(out.contains("voxtranslate_voip_calls_failed_total 1"));
         assert!(out.contains("voxtranslate_voip_calls_refused_total 1"));
+        assert!(out.contains("voxtranslate_voip_byte_order_big_endian_total 4"));
+        assert!(out.contains("voxtranslate_voip_byte_order_little_endian_total 2"));
+        assert!(out.contains("voxtranslate_voip_byte_order_undetermined_total 1"));
+        assert!(out.contains("voxtranslate_voip_byte_order_inconclusive_windows_total 3"));
         assert!(out.contains("voxtranslate_voip_credit_reservation_failures_total 5"));
         assert!(out.contains("voxtranslate_voip_webhooks_rejected_total 6"));
         assert!(out.contains("voxtranslate_voip_margin_breaches_total 0"));
@@ -798,8 +862,23 @@ mod tests {
         // without its TYPE line fails here — a scrape silently drops an untyped series.
         let typed = out.matches("# TYPE ").count();
         let helped = out.matches("# HELP ").count();
-        assert_eq!(typed, 28, "one TYPE line per exported metric");
+        assert_eq!(typed, 32, "one TYPE line per exported metric");
         assert_eq!(helped, typed, "every metric also carries a HELP line");
+    }
+
+    #[test]
+    fn byte_order_counters_appear_in_the_metrics_render() {
+        // The concrete deliverable answering "is big-endian statistically the wrong
+        // default for Telnyx?" with field data rather than a guess.
+        record_voip_byte_order_decided(true);
+        record_voip_byte_order_decided(false);
+        record_voip_byte_order_undetermined();
+        record_voip_byte_order_inconclusive_window();
+        let out = render(0, 0);
+        assert!(out.contains("voxtranslate_voip_byte_order_big_endian_total"));
+        assert!(out.contains("voxtranslate_voip_byte_order_little_endian_total"));
+        assert!(out.contains("voxtranslate_voip_byte_order_undetermined_total"));
+        assert!(out.contains("voxtranslate_voip_byte_order_inconclusive_windows_total"));
     }
 
     #[test]
