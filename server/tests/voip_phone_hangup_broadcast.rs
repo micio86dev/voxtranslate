@@ -96,7 +96,10 @@ async fn a_phone_hangup_reaches_the_surviving_web_peer() {
         first.contains("\"type\":\"peer_left\""),
         "expected peer_left first, got: {first}"
     );
-    assert!(first.contains(&phone_id), "peer_left must name the phone leg: {first}");
+    assert!(
+        first.contains(&phone_id),
+        "peer_left must name the phone leg: {first}"
+    );
 
     let second = web_rx
         .try_recv()
@@ -105,7 +108,10 @@ async fn a_phone_hangup_reaches_the_surviving_web_peer() {
         second.contains("\"type\":\"phone_call_ended\""),
         "expected phone_call_ended second, got: {second}"
     );
-    assert!(second.contains(&phone_id), "phone_call_ended must name the phone leg: {second}");
+    assert!(
+        second.contains(&phone_id),
+        "phone_call_ended must name the phone leg: {second}"
+    );
     assert!(
         second.contains(&call_id.to_string()),
         "phone_call_ended must carry the call id: {second}"
@@ -149,11 +155,13 @@ async fn a_superseded_phone_leg_produces_no_end_of_call_event() {
     let mut web_rx = join_web_peer(&rooms, &room, "web-1", "it");
 
     // Remove the STALE conn, which the reconnect already superseded.
-    let outcome =
-        remove_phone_leg_and_notify(&rooms, &room, &phone_id, stale_conn, call_id, None);
+    let outcome = remove_phone_leg_and_notify(&rooms, &room, &phone_id, stale_conn, call_id, None);
 
     assert!(
-        matches!(outcome, voxtranslate_server::rooms::LeaveOutcome::Superseded),
+        matches!(
+            outcome,
+            voxtranslate_server::rooms::LeaveOutcome::Superseded
+        ),
         "removing an already-superseded conn must report Superseded"
     );
     assert!(
