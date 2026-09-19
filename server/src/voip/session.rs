@@ -382,6 +382,59 @@ async fn reprice_fallback(
     }
 }
 
+/// Take the phone leg out of its room and tell the room it is over.
+///
+/// Broadcasts [`ServerMessage::PeerLeft`] then [`ServerMessage::PhoneCallEnded`] — in that
+/// order, so tile bookkeeping happens before a client that also handles the definitive-end
+/// signal decides to leave — but only on a REAL departure (`LeaveOutcome::Left` or
+/// `LeftPhoneOnly`). A [`crate::rooms::LeaveOutcome::Superseded`] leg (already replaced by
+/// a same-id reconnect) broadcasts nothing: the room continues uninterrupted with the
+/// superseding connection. Returns the outcome so the caller can log/branch on it; see
+/// `run_leg`'s call site for how `reason` is derived from the pump's exit.
+pub fn remove_phone_leg_and_notify(
+    rooms: &crate::rooms::RoomManager,
+    room: &str,
+    peer_id: &str,
+    conn: Uuid,
+    call_id: Uuid,
+    reason: Option<FailureReason>,
+) -> crate::rooms::LeaveOutcome {
+    let outcome = rooms.remove(room, peer_id, conn);
+    // `Superseded` means nobody actually left (a same-id reconnect already replaced this
+    // conn) — the room continues uninterrupted with the superseding connection, exactly
+    // like the ordinary `PeerLeft` broadcast at `lib.rs`'s ws teardown already does.
+    if matches!(
+        outcome,
+        crate::rooms::LeaveOutcome::Left(_) | crate::rooms::LeaveOutcome::LeftPhoneOnly(_)
+    ) {
+        rooms.broadcast(
+            room,
+            &crate::protocol::ServerMessage::PeerLeft {
+                peer_id: peer_id.to_string(),
+            }
+            .to_json(),
+        );
+        // An ordinary hangup is not a `FailureReason` (the call completed; inventing one
+        // would leak a non-failure into a column whose whole purpose is failures), so
+        // only a real failure borrows its wire string from the existing enum — the wire
+        // string, `voip_calls.failure_reason` and the client's `KNOWN_REASONS` can never
+        // drift apart.
+        let reason = reason
+            .map(|r| r.as_str().to_string())
+            .unwrap_or_else(|| "remote_hangup".to_string());
+        rooms.broadcast(
+            room,
+            &crate::protocol::ServerMessage::PhoneCallEnded {
+                peer_id: peer_id.to_string(),
+                call_id: call_id.to_string(),
+                reason,
+            }
+            .to_json(),
+        );
+    }
+    outcome
+}
+
 /// Take a claimed leg all the way to a running bridge.
 ///
 /// Opens the engine session for the telephone as a *speaker*, then hands the socket to
@@ -502,8 +555,25 @@ where
     .await;
 
     // The socket is gone: so is the telephone. Leaving the peer would keep the room open
-    // with a participant nobody can hear.
-    state.rooms.remove(&leg.room, &leg.peer_id, leg.conn);
+    // with a participant nobody can hear. `remove_phone_leg_and_notify` also broadcasts
+    // the departure (spec: translated-voip "Phone Leg Departure Notification") — the
+    // surviving web peer(s) learn of it from the room's own fan-out instead of waiting on
+    // the 1500ms REST poll. `reason` mirrors the `match &result` below (Decision A3):
+    // a provider-side hangup carries no `FailureReason` (an ordinary hangup is not a
+    // failure), while a room-ended or errored pump reports `media_lost`, matching the
+    // `end_call` call below for the same exit.
+    let leg_reason = match &result {
+        Ok(media::PumpExit::ProviderEnded) => None,
+        Ok(media::PumpExit::RoomEnded) | Err(_) => Some(FailureReason::MediaLost),
+    };
+    remove_phone_leg_and_notify(
+        &state.rooms,
+        &leg.room,
+        &leg.peer_id,
+        leg.conn,
+        leg.call_id,
+        leg_reason,
+    );
     crate::metrics::record_voip_media_disconnect();
 
     // What happens next depends on WHY the pump ended, not just that it did.

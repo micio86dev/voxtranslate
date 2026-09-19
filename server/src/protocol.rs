@@ -182,6 +182,17 @@ pub enum ServerMessage {
     PeerLeft {
         peer_id: String,
     },
+    /// A phone leg's media stream ended: the call is over for that leg and **no
+    /// reconnect is coming**, unlike [`ServerMessage::PeerLeft`], which a client may
+    /// legitimately treat as a transient drop (#233's 4s tolerance). Carries `call_id`
+    /// so a client only acts on its OWN call, and `reason` so the notice can be worded
+    /// correctly. Broadcast alongside `PeerLeft` (never instead of it) only on a real
+    /// departure — never on `LeaveOutcome::Superseded`.
+    PhoneCallEnded {
+        peer_id: String,
+        call_id: String,
+        reason: String,
+    },
     /// The room already has the maximum number of peers; the join is rejected.
     RoomFull,
 
@@ -488,6 +499,18 @@ mod tests {
         }
         .to_json()
         .contains("\"type\":\"peer_left\""));
+        // Phone-leg departure (Work Unit A): tagged `phone_call_ended`, distinct from
+        // `peer_left`, carrying all three fields.
+        let ended = ServerMessage::PhoneCallEnded {
+            peer_id: "phone-p".into(),
+            call_id: "6b1f1c2a-0000-0000-0000-000000000000".into(),
+            reason: "remote_hangup".into(),
+        }
+        .to_json();
+        assert!(ended.contains("\"type\":\"phone_call_ended\""));
+        assert!(ended.contains("\"peer_id\":\"phone-p\""));
+        assert!(ended.contains("\"call_id\":\"6b1f1c2a-0000-0000-0000-000000000000\""));
+        assert!(ended.contains("\"reason\":\"remote_hangup\""));
         let m = ServerMessage::PeerMuted {
             peer_id: "a".into(),
             kind: "audio".into(),
