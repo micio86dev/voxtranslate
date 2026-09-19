@@ -876,5 +876,6 @@
   "phoneReasonCallerIdUnverified": "Az adott szám nem ellenőrzött kimenő szám a szervezet számára.",
   "phoneReasonCallerIdMissing": "A szervezethez még nincs beállítva hívóazonosító.",
   "phoneReasonInvalidCountryCode": "Használjon kétbetűs országkódot, pl. IT vagy ES.",
-  "phoneReasonConsentRequiredForCapture": "A beleegyezést nem lehet kikapcsolni, ha a rögzítés vagy leírás aktív."
+  "phoneReasonConsentRequiredForCapture": "A beleegyezést nem lehet kikapcsolni, ha a rögzítés vagy leírás aktív.",
+  "phoneRemoteEnded": "A másik fél befejezte a hívást."
 }

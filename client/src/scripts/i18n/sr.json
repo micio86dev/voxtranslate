@@ -876,5 +876,6 @@
   "phoneReasonCallerIdUnverified": "Taj broj nije verifikovan izlazni broj za ovu organizaciju.",
   "phoneReasonCallerIdMissing": "Za ovu organizaciju još nije podešen Caller ID.",
   "phoneReasonInvalidCountryCode": "Koristite dvobojne kodove zemalja, na primer IT ili ES.",
-  "phoneReasonConsentRequiredForCapture": "Saglasnost se ne može isključiti dok je snimanje ili transkripcija aktivna."
+  "phoneReasonConsentRequiredForCapture": "Saglasnost se ne može isključiti dok je snimanje ili transkripcija aktivna.",
+  "phoneRemoteEnded": "Druga osoba je prekinula poziv."
 }

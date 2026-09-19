@@ -876,5 +876,6 @@
   "phoneReasonCallerIdUnverified": "Numero ei ole vahvistettu uloslähtevä numero organisaatiolle.",
   "phoneReasonCallerIdMissing": "Organisaatiolle ei ole vielä asetettu soittajan tunnistetta.",
   "phoneReasonInvalidCountryCode": "Käytä kahden kirjaimen maatunnuksia, esim. IT tai ES.",
-  "phoneReasonConsentRequiredForCapture": "Kieltäytymistä ei voi poistaa käytöstä tallennuksen tai transkription ollessa päällä."
+  "phoneReasonConsentRequiredForCapture": "Kieltäytymistä ei voi poistaa käytöstä tallennuksen tai transkription ollessa päällä.",
+  "phoneRemoteEnded": "Toinen osapuoli lopetti puhelun."
 }

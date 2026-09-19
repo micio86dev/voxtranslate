@@ -876,5 +876,6 @@
   "phoneReasonCallerIdUnverified": "Ta številka ni potrjena izhodna številka za to organizacijo.",
   "phoneReasonCallerIdMissing": "Za to organizacijo še ni nastavljen ID klicatelja.",
   "phoneReasonInvalidCountryCode": "Uporabite dvocikasto kodo države, na primer IT ali ES.",
-  "phoneReasonConsentRequiredForCapture": "Soglasje ne more biti izključeno med posnetkom ali prepisom."
+  "phoneReasonConsentRequiredForCapture": "Soglasje ne more biti izključeno med posnetkom ali prepisom.",
+  "phoneRemoteEnded": "Druga oseba je končala klic."
 }

@@ -876,5 +876,6 @@
   "phoneReasonCallerIdUnverified": "Acest număr nu este un număr de ieșire verificat pentru această organizație.",
   "phoneReasonCallerIdMissing": "Nu există încă un ID apelant configurat pentru această organizație.",
   "phoneReasonInvalidCountryCode": "Utilizați coduri de țară cu două litere, de exemplu IT sau ES.",
-  "phoneReasonConsentRequiredForCapture": "Consimțământul nu poate fi dezactivat în timp ce înregistrarea sau transcrierea sunt active."
+  "phoneReasonConsentRequiredForCapture": "Consimțământul nu poate fi dezactivat în timp ce înregistrarea sau transcrierea sunt active.",
+  "phoneRemoteEnded": "Cealaltă persoană a încheiat apelul."
 }

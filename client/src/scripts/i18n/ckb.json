@@ -876,5 +876,6 @@
   "phoneReasonCallerIdUnverified": "ئەم ژمارەیە بۆ ئەم ڕێکخستە بۆ دۆستەکەیەک نایەکەوتووە.",
   "phoneReasonCallerIdMissing": "هیچ ناسنامەی دۆستەکەیەک بۆ ئەم ڕێکخستە هێشتا ڕێکخراو نیە.",
   "phoneReasonInvalidCountryCode": "بەکارهێنە کۆدی وڵات بە دوو حروف، بۆ نموونە IT یان ES.",
-  "phoneReasonConsentRequiredForCapture": "پەسەندکردن ناتوانرێت لە کاتی تۆمارکردن یان نووسینەوەدا بگرێتەوە."
+  "phoneReasonConsentRequiredForCapture": "پەسەندکردن ناتوانرێت لە کاتی تۆمارکردن یان نووسینەوەدا بگرێتەوە.",
+  "phoneRemoteEnded": "لایەنی بەرامبەر پەیوەندییەکەی داخست."
 }

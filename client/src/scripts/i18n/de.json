@@ -876,5 +876,6 @@
   "phoneReasonCallerIdUnverified": "Diese Nummer ist keine verifizierte Ausgangsnummer für diese Organisation.",
   "phoneReasonCallerIdMissing": "Für diese Organisation ist noch keine Anruferkennung eingerichtet.",
   "phoneReasonInvalidCountryCode": "Verwenden Sie zweibuchstabige Ländercodes, z. B. IT oder ES.",
-  "phoneReasonConsentRequiredForCapture": "Einwilligung kann nicht deaktiviert werden, wenn Aufnahme oder Transkription aktiv ist."
+  "phoneReasonConsentRequiredForCapture": "Einwilligung kann nicht deaktiviert werden, wenn Aufnahme oder Transkription aktiv ist.",
+  "phoneRemoteEnded": "Die andere Person hat den Anruf beendet."
 }

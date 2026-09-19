@@ -876,5 +876,6 @@
   "phoneReasonCallerIdUnverified": "Гэты нумар не з'яўляецца правераным выхадным нумарам для гэтай арганізацыі.",
   "phoneReasonCallerIdMissing": "Для гэтай арганізацыі яшчэ не наладжаны ідэнтыфікатар абывальніка.",
   "phoneReasonInvalidCountryCode": "Выкарыстоўвайце коды краін з двума літарамі, напрыклад IT або ES.",
-  "phoneReasonConsentRequiredForCapture": "Згод можна выключыць толькі пры адключэнні запісу або перакладкі."
+  "phoneReasonConsentRequiredForCapture": "Згод можна выключыць толькі пры адключэнні запісу або перакладкі.",
+  "phoneRemoteEnded": "Іншы чалавек завяршыў выклік."
 }

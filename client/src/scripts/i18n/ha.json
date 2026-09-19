@@ -876,5 +876,6 @@
   "phoneReasonCallerIdUnverified": "Wannan lamba ba ta da tabbacin fita ga wannan ƙungiya.",
   "phoneReasonCallerIdMissing": "Babu ID na mai kiran da aka saita don wannan ƙungiya tukuna.",
   "phoneReasonInvalidCountryCode": "Yi amfani da lambobin ƙasa na haruffa biyu, misali IT ko ES.",
-  "phoneReasonConsentRequiredForCapture": "Ba za a iya kashe yarda yayin rikita ko rubuta ba."
+  "phoneReasonConsentRequiredForCapture": "Ba za a iya kashe yarda yayin rikita ko rubuta ba.",
+  "phoneRemoteEnded": "Wancan mutumin ya kawo karshen kiran."
 }

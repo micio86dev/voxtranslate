@@ -876,5 +876,6 @@
   "phoneReasonCallerIdUnverified": "तो नंबर या संस्थेसाठी सत्यापित बाह्य नंबर नाही.",
   "phoneReasonCallerIdMissing": "या संस्थेसाठी अजून कॉलर आयडी सेट केलेले नाही.",
   "phoneReasonInvalidCountryCode": "दोन-अक्षरी देश कोड वापरा, उदाहरणार्थ IT किंवा ES.",
-  "phoneReasonConsentRequiredForCapture": "रेकॉर्डिंग किंवा ट्रान्सक्रिप्शन चालू असताना संमती बंद करता येत नाही."
+  "phoneReasonConsentRequiredForCapture": "रेकॉर्डिंग किंवा ट्रान्सक्रिप्शन चालू असताना संमती बंद करता येत नाही.",
+  "phoneRemoteEnded": "दुसऱ्या व्यक्तीने कॉल संपवला."
 }

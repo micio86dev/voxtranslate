@@ -876,5 +876,6 @@
   "phoneReasonCallerIdUnverified": "Энэ дугаар таны байгууллагын баталгаажсан гарах дугаар биш.",
   "phoneReasonCallerIdMissing": "Таны байгууллагын хувьд холболтын ID тохируулаагүй.",
   "phoneReasonInvalidCountryCode": "Хоёр үсэгтэй улсын кодыг ашиглана уу, жишээ нь IT эсвэл ES.",
-  "phoneReasonConsentRequiredForCapture": "Бичлэг эсвэл бичигдэл идэвхтэй байх үед зөвшөөрлийг унтраах боломжгүй."
+  "phoneReasonConsentRequiredForCapture": "Бичлэг эсвэл бичигдэл идэвхтэй байх үед зөвшөөрлийг унтраах боломжгүй.",
+  "phoneRemoteEnded": "Нөгөө хүн дуудлагыг дуусгалаа."
 }

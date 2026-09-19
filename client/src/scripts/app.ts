@@ -196,7 +196,9 @@ import {
   looksLikeContactSearch,
   normaliseDestination,
   phaseFromStatus,
+  phoneEndCopyKey,
   refusalKey,
+  shouldLeaveOnPhoneCallEnded,
   willAskConsent,
   type CallPhase,
 } from './phone-dialer';
@@ -2337,7 +2339,10 @@ async function enterPhoneCall(
 }
 
 /** Poll @1500ms (spec: web-app-voip-dialer) — `phaseFromStatus`/`announcement` are the
- *  same ported, unit-tested functions the dashboard's own dialer uses (PR1). */
+ *  same ported, unit-tested functions the dashboard's own dialer uses (PR1). Since Work
+ *  Unit B, the pushed `phone_call_ended` message (case above) is the PRIMARY exit
+ *  trigger; this poll is demoted to a fallback safety net for a lost/delayed push (R13)
+ *  — its own terminal-status branch below is otherwise unchanged. */
 function startPhonePoll(orgId: string, callId: string): void {
   phoneLastPhase = null;
   phonePollTimer = window.setInterval(() => void pollPhoneCall(orgId, callId), 1500);
@@ -2803,6 +2808,33 @@ async function handleServer(msg: any): Promise<void> {
       // flicker. Only if they don't return do we actually drop them.
       schedulePeerRemoval(msg.peer_id);
       break;
+    case 'phone_call_ended': {
+      // Work Unit B (spec: web-app-voip-dialer, R11-R13; design Decision A1): the
+      // phone leg's DEFINITIVE end — unlike `peer_left` above, no #233 grace/reconnect
+      // window applies here. Broadcast alongside (and always after) `peer_left`, so
+      // tile scheduling has already run by the time this decides whether to leave.
+      // All decision logic lives in the pure, unit-tested `phone-dialer.ts` functions
+      // (vitest.config.ts:22 excludes this file from unit coverage) — this case is
+      // wiring only.
+      const key = phoneEndCopyKey(msg.reason);
+      phoneStatusLive.textContent = t(key); // aria-live announcement PRESERVED (0111 R30)
+      toast(t(key)); // body-level: survives the #call -> #home screen switch (Decision B1)
+      if (
+        shouldLeaveOnPhoneCallEnded({
+          entry: entryMode,
+          endedPeerId: msg.peer_id,
+          remotePeerIds: peerNames.keys(),
+          myCallId: phoneLeg.currentCallId(),
+          eventCallId: msg.call_id,
+        })
+      ) {
+        // Push-primary exit (R13): the poll below remains a fallback safety net for a
+        // lost/delayed push, and is a no-op here because leaveCall() -> endPhoneLeg()
+        // clears entryMode/currentCallId() first (Decision B4 — no new flag needed).
+        leaveCall();
+      }
+      break;
+    }
     case 'room_full':
       track('call_failed', { reason: 'room_full' });
       leaveCall();

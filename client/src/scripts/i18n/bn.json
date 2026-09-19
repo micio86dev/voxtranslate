@@ -876,5 +876,6 @@
   "phoneReasonCallerIdUnverified": "সেই নম্বরটি এই সংস্থার জন্য যাচাইকৃত বহির্গামী নম্বর নয়।",
   "phoneReasonCallerIdMissing": "এই সংস্থার জন্য এখনো কোনো কলার আইডি সেট আপ করা হয়নি।",
   "phoneReasonInvalidCountryCode": "দুটি অক্ষরের দেশ কোড ব্যবহার করুন, উদাহরণস্বরূপ IT বা ES।",
-  "phoneReasonConsentRequiredForCapture": "রেকর্ডিং বা ট্রান্সক্রিপশন চলাকালে সম্মতি বন্ধ করা যায় না।"
+  "phoneReasonConsentRequiredForCapture": "রেকর্ডিং বা ট্রান্সক্রিপশন চলাকালে সম্মতি বন্ধ করা যায় না।",
+  "phoneRemoteEnded": "অন্য ব্যক্তি কলটি শেষ করেছেন।"
 }

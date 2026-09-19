@@ -876,5 +876,6 @@
   "phoneReasonCallerIdUnverified": "Bu numara, bu kuruluş için doğrulanmış bir çıkış numarası değil.",
   "phoneReasonCallerIdMissing": "Bu kuruluş için henüz çağrı kimliği ayarlanmadı.",
   "phoneReasonInvalidCountryCode": "İki harfli ülke kodları kullanın, örneğin IT veya ES.",
-  "phoneReasonConsentRequiredForCapture": "Kayıt veya yazıya dökme açıkken rıza kapatılamaz."
+  "phoneReasonConsentRequiredForCapture": "Kayıt veya yazıya dökme açıkken rıza kapatılamaz.",
+  "phoneRemoteEnded": "Diğer kişi aramayı sonlandırdı."
 }

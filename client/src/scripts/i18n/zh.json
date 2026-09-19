@@ -876,5 +876,6 @@
   "phoneReasonCallerIdUnverified": "该号码未被验证为本组织的外拨号码。",
   "phoneReasonCallerIdMissing": "本组织尚未设置来电显示。",
   "phoneReasonInvalidCountryCode": "请使用两字母国家码，例如 IT 或 ES。",
-  "phoneReasonConsentRequiredForCapture": "在录音或转录开启时，无法关闭同意。"
+  "phoneReasonConsentRequiredForCapture": "在录音或转录开启时，无法关闭同意。",
+  "phoneRemoteEnded": "对方已结束通话。"
 }

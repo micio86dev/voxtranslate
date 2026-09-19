@@ -876,5 +876,6 @@
   "phoneReasonCallerIdUnverified": "Този номер не е проверен изходящ номер за тази организация.",
   "phoneReasonCallerIdMissing": "За тази организация все още не е настроена идентификация на обаждащия.",
   "phoneReasonInvalidCountryCode": "Използвайте двубуквени кода на страната, например IT или ES.",
-  "phoneReasonConsentRequiredForCapture": "Съгласието не може да бъде изключено, докато записът или транскрипцията са активни."
+  "phoneReasonConsentRequiredForCapture": "Съгласието не може да бъде изключено, докато записът или транскрипцията са активни.",
+  "phoneRemoteEnded": "Другият човек прекрати обаждането."
 }

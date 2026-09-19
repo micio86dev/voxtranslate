@@ -876,5 +876,6 @@
   "phoneReasonCallerIdUnverified": "Le nombolo ayiyona inombolo evunyiwe yokuhambisa le-organisation.",
   "phoneReasonCallerIdMissing": "Akukho i-ID yomshayela isethwe le-organisation.",
   "phoneReasonInvalidCountryCode": "Sebenzisa amakholi amabili ezwe, isibonelo IT noma ES.",
-  "phoneReasonConsentRequiredForCapture": "Ukugunyaza akukwazi ukuvalwa ngesikhathi sokugcinwa noma ukubhalwa."
+  "phoneReasonConsentRequiredForCapture": "Ukugunyaza akukwazi ukuvalwa ngesikhathi sokugcinwa noma ukubhalwa.",
+  "phoneRemoteEnded": "Omunye umuntu uqedile ucingo."
 }

@@ -876,5 +876,6 @@
   "phoneReasonCallerIdUnverified": "ആ നമ്പർ ഈ സംഘടനയുടെ സ്ഥിരീകരിച്ച ഔട്ട്‌ബൗണ്ട് നമ്പർ അല്ല.",
   "phoneReasonCallerIdMissing": "ഈ സംഘടനയ്ക്ക് ഇപ്പോഴും കോളർ ഐഡി സജ്ജീകരിച്ചിട്ടില്ല.",
   "phoneReasonInvalidCountryCode": "രണ്ട് അക്ഷര രാജ്യ കോഡുകൾ ഉപയോഗിക്കുക, ഉദാ: IT അല്ലെങ്കിൽ ES.",
-  "phoneReasonConsentRequiredForCapture": "റെക്കോർഡിംഗോ ട്രാൻസ്ക്രിപ്ഷനോ സജീവമായിരിക്കുമ്പോൾ സമ്മതം ഓഫ് ചെയ്യാൻ കഴിയില്ല."
+  "phoneReasonConsentRequiredForCapture": "റെക്കോർഡിംഗോ ട്രാൻസ്ക്രിപ്ഷനോ സജീവമായിരിക്കുമ്പോൾ സമ്മതം ഓഫ് ചെയ്യാൻ കഴിയില്ല.",
+  "phoneRemoteEnded": "മറ്റേയാൾ കോൾ അവസാനിപ്പിച്ചു."
 }

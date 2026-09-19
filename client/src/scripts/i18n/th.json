@@ -876,5 +876,6 @@
   "phoneReasonCallerIdUnverified": "หมายเลขนั้นไม่ใช่หมายเลขออกที่ได้รับการยืนยันสำหรับองค์กรนี้",
   "phoneReasonCallerIdMissing": "ยังไม่มีการตั้งค่า Caller ID สำหรับองค์กรนี้",
   "phoneReasonInvalidCountryCode": "ใช้รหัสประเทศสองตัวอักษร เช่น IT หรือ ES",
-  "phoneReasonConsentRequiredForCapture": "ไม่สามารถปิดการยินยอมได้ในขณะบันทึกหรือถอดเสียง"
+  "phoneReasonConsentRequiredForCapture": "ไม่สามารถปิดการยินยอมได้ในขณะบันทึกหรือถอดเสียง",
+  "phoneRemoteEnded": "อีกฝ่ายได้วางสายแล้ว"
 }

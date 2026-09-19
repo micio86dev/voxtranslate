@@ -114,4 +114,31 @@ describe('createPhoneLegController (money-safety b, R5/R6)', () => {
     leg.end();
     expect(leg.isActive()).toBe(false);
   });
+
+  // Work Unit B (design Decision B3): `currentCallId()` is the accessor `app.ts`'s
+  // `shouldLeaveOnPhoneCallEnded` guard reads to confirm a `phone_call_ended` event is
+  // about THIS client's own call, and (Decision B4) the same idempotency signal that
+  // already makes a second exit trigger a no-op — no new "already exited" flag needed.
+  it('currentCallId() returns the started call id, and null once end() has run', () => {
+    const leg = createPhoneLegController({ hangup: vi.fn(), clearPoll: vi.fn() });
+
+    expect(leg.currentCallId()).toBeNull();
+    leg.start({ orgId: 'org-1', callId: 'c1' });
+    expect(leg.currentCallId()).toBe('c1');
+    leg.end();
+    expect(leg.currentCallId()).toBeNull();
+  });
+
+  it('end() still posts hangup exactly once when a second call races currentCallId() being read as null', () => {
+    const hangup = vi.fn();
+    const clearPoll = vi.fn();
+    const leg = createPhoneLegController({ hangup, clearPoll });
+
+    leg.start({ orgId: 'org-1', callId: 'c1' });
+    leg.end();
+    expect(leg.currentCallId()).toBeNull();
+    leg.end();
+
+    expect(hangup).toHaveBeenCalledTimes(1);
+  });
 });
