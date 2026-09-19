@@ -876,5 +876,6 @@
   "phoneReasonCallerIdUnverified": "ይህ ቁጠር ለዚህ ድርጅት የተረጋገጠ የወደበት ቁጠር አይደለም",
   "phoneReasonCallerIdMissing": "ለድርጅትዎ የደውለው መለያ አልተቀመጠም",
   "phoneReasonInvalidCountryCode": "ሁለት ፊደላት የአገር ኮዶች ይጠቀሙ ፣ ለምሳሌ IT ወይም ES",
-  "phoneReasonConsentRequiredForCapture": "በተመዝግቦ ወይም ተተርጎም በሚሰራ ጊዜ ፈቃድ ማቋረጥ አይቻልም"
+  "phoneReasonConsentRequiredForCapture": "በተመዝግቦ ወይም ተተርጎም በሚሰራ ጊዜ ፈቃድ ማቋረጥ አይቻልም",
+  "phoneRemoteEnded": "ሌላው ሰው ጥሪውን አቋርጧል።"
 }

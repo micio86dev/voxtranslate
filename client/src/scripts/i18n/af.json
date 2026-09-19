@@ -876,5 +876,6 @@
   "phoneReasonCallerIdUnverified": "Daardie nommer is nie 'n verifieerde uitgaande nommer vir hierdie organisasie nie.",
   "phoneReasonCallerIdMissing": "Geen belger-ID is nog opgestel vir hierdie organisasie nie.",
   "phoneReasonInvalidCountryCode": "Gebruik twee-letterige landkodes, byvoorbeeld IT of ES.",
-  "phoneReasonConsentRequiredForCapture": "Toestemming kan nie afgeskakel word terwyl opname of transkripsie aan is nie."
+  "phoneReasonConsentRequiredForCapture": "Toestemming kan nie afgeskakel word terwyl opname of transkripsie aan is nie.",
+  "phoneRemoteEnded": "Die ander persoon het die oproep beëindig."
 }

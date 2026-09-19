@@ -876,5 +876,6 @@
   "phoneReasonCallerIdUnverified": "Dës Nummer ass net e verifizéiert Ausgaangnummer fir dës Organisatioun.",
   "phoneReasonCallerIdMissing": "Et ass nach keng Ruf-ID fir dës Organisatioun opgestallt.",
   "phoneReasonInvalidCountryCode": "Benotzt zwäi-Buchstaben Lännercodes, zum Beispill IT oder ES.",
-  "phoneReasonConsentRequiredForCapture": "Zesummenhalt kann net ausgeschalt ginn, wann Opgefaasst oder Transkriptioun aktiv ass."
+  "phoneReasonConsentRequiredForCapture": "Zesummenhalt kann net ausgeschalt ginn, wann Opgefaasst oder Transkriptioun aktiv ass.",
+  "phoneRemoteEnded": "Déi aner Persoun huet den Uruff ofgeschloss."
 }

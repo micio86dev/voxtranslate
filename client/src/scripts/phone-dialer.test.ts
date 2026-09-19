@@ -24,7 +24,9 @@ import {
   numberProblem,
   phaseFromStatus,
   phaseProgress,
+  phoneEndCopyKey,
   refusalKey,
+  shouldLeaveOnPhoneCallEnded,
   willAskConsent,
   type CallPhase,
 } from './phone-dialer';
@@ -457,5 +459,109 @@ describe('refusalKey(errorCode(...)) — the quote/dial refusal pipeline', () =>
   it('falls back to the generic key for an unmapped code or a transport failure', () => {
     expect(refusalKey(errorCode({ error: 'brand_new_code' }))).toBe('phoneReasonGeneric');
     expect(refusalKey(errorCode(null))).toBe('phoneReasonGeneric');
+  });
+});
+
+// Work Unit B (spec: web-app-voip-dialer, R11/R12) — the visible remote-hangup notice's
+// copy-selection. `reason` comes straight off the server's `phone_call_ended` message
+// (design Decision A3): "remote_hangup" for an ordinary hangup, or an existing
+// `FailureReason` string (e.g. "media_lost") for a pump-error teardown. An unmapped or
+// absent reason falls back to the existing neutral `phoneReasonUnmapped` sentence rather
+// than asserting who hung up — the same "never print/assert a raw or guessed thing"
+// convention `refusalKey` already enforces above.
+describe('phoneEndCopyKey (Decision B2)', () => {
+  it('names the other party for an ordinary remote hangup', () => {
+    expect(phoneEndCopyKey('remote_hangup')).toBe('phoneRemoteEnded');
+  });
+
+  it('reuses the existing media-lost copy for a pump-error teardown', () => {
+    expect(phoneEndCopyKey('media_lost')).toBe('phoneReasonMediaLost');
+  });
+
+  it('never asserts who hung up on an unknown or missing reason', () => {
+    expect(phoneEndCopyKey(null)).toBe('phoneReasonUnmapped');
+    expect(phoneEndCopyKey(undefined)).toBe('phoneReasonUnmapped');
+    expect(phoneEndCopyKey('')).toBe('phoneReasonUnmapped');
+    expect(phoneEndCopyKey('something_new')).toBe('phoneReasonUnmapped');
+  });
+});
+
+// Work Unit B (Decision B3) — the auto-leave guard: the exact state that distinguishes
+// "my B2B-dialer phone call" from "a meeting that happens to have a phone participant in
+// it". All four conditions are required; see the design's rationale for why none can be
+// dropped without either re-ejecting a multi-human meeting or leaking a stray auto-leave
+// across calls.
+describe('shouldLeaveOnPhoneCallEnded (Decision B3)', () => {
+  const PHONE_ID = 'phone-0123456789abcdef0123456789abcdef';
+
+  it('fires for the dialer\'s own call with no human counterpart remaining', () => {
+    expect(
+      shouldLeaveOnPhoneCallEnded({
+        entry: 'phone',
+        endedPeerId: PHONE_ID,
+        remotePeerIds: [],
+        myCallId: 'call-1',
+        eventCallId: 'call-1',
+      }),
+    ).toBe(true);
+  });
+
+  it('does NOT fire in a multi-human room with a dialed-in phone participant', () => {
+    expect(
+      shouldLeaveOnPhoneCallEnded({
+        entry: 'phone',
+        endedPeerId: PHONE_ID,
+        remotePeerIds: ['human-1', PHONE_ID],
+        myCallId: 'call-1',
+        eventCallId: 'call-1',
+      }),
+    ).toBe(false);
+  });
+
+  it('does NOT fire for a human who joined a phone-hosting room by any other route', () => {
+    expect(
+      shouldLeaveOnPhoneCallEnded({
+        entry: 'room',
+        endedPeerId: PHONE_ID,
+        remotePeerIds: [],
+        myCallId: null,
+        eventCallId: 'call-1',
+      }),
+    ).toBe(false);
+  });
+
+  it('does NOT fire for someone else\'s call, and never falls back to a looser rule', () => {
+    expect(
+      shouldLeaveOnPhoneCallEnded({
+        entry: 'phone',
+        endedPeerId: PHONE_ID,
+        remotePeerIds: [],
+        myCallId: 'call-1',
+        eventCallId: 'call-2',
+      }),
+    ).toBe(false);
+    expect(
+      shouldLeaveOnPhoneCallEnded({
+        entry: 'phone',
+        endedPeerId: PHONE_ID,
+        remotePeerIds: [],
+        myCallId: null,
+        eventCallId: 'call-1',
+      }),
+    ).toBe(false);
+  });
+
+  it('does NOT fire a second time after the exit already ran (idempotency reuses existing state)', () => {
+    // Mirrors what app.ts observes once leaveCall() has already run once: entryMode is
+    // back to 'room' and currentCallId() is null (Decision B4 — no new flag needed).
+    expect(
+      shouldLeaveOnPhoneCallEnded({
+        entry: 'room',
+        endedPeerId: PHONE_ID,
+        remotePeerIds: [],
+        myCallId: null,
+        eventCallId: 'call-1',
+      }),
+    ).toBe(false);
   });
 });

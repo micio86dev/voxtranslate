@@ -876,5 +876,6 @@
   "phoneReasonCallerIdUnverified": "Det numret är inte ett verifierat utgående nummer för denna organisation.",
   "phoneReasonCallerIdMissing": "Inget avsändar-ID är uppsatt för denna organisation ännu.",
   "phoneReasonInvalidCountryCode": "Använd tvåbokstaviga landskoder, t.ex. IT eller ES.",
-  "phoneReasonConsentRequiredForCapture": "Samtycke kan inte stängas av medan inspelning eller transkription är på."
+  "phoneReasonConsentRequiredForCapture": "Samtycke kan inte stängas av medan inspelning eller transkription är på.",
+  "phoneRemoteEnded": "Den andra personen avslutade samtalet."
 }

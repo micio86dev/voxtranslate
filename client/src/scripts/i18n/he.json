@@ -876,5 +876,6 @@
   "phoneReasonCallerIdUnverified": "המספר אינו מספר יוצא מאומת עבור הארגון.",
   "phoneReasonCallerIdMissing": "אין מזהה שולח מוגדר עבור הארגון עדיין.",
   "phoneReasonInvalidCountryCode": "השתמש בקודים מדינה דו‑אותיים, לדוגמה IT או ES.",
-  "phoneReasonConsentRequiredForCapture": "לא ניתן לכבות הסכמה בזמן הקלטה או תעתיק."
+  "phoneReasonConsentRequiredForCapture": "לא ניתן לכבות הסכמה בזמן הקלטה או תעתיק.",
+  "phoneRemoteEnded": "הצד השני סיים את השיחה."
 }

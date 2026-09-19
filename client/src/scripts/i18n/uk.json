@@ -876,5 +876,6 @@
   "phoneReasonCallerIdUnverified": "Цей номер не є підтвердженим вихідним номером для цієї організації.",
   "phoneReasonCallerIdMissing": "Для цієї організації ще не налаштовано ID виклику.",
   "phoneReasonInvalidCountryCode": "Використовуйте дволітерні коди країн, наприклад IT або ES.",
-  "phoneReasonConsentRequiredForCapture": "Згоди не можна вимкнути під час запису або транскрипції."
+  "phoneReasonConsentRequiredForCapture": "Згоди не можна вимкнути під час запису або транскрипції.",
+  "phoneRemoteEnded": "Співрозмовник завершив дзвінок."
 }

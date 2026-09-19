@@ -876,5 +876,6 @@
   "phoneReasonCallerIdUnverified": "ეს ნომერი არ არის გადამოწმებული outgoing ნომერი ამ ორგანიზაციისთვის.",
   "phoneReasonCallerIdMissing": "ამ ორგანიზაციისთვის caller ID ჯერ არ არის დაყენებული.",
   "phoneReasonInvalidCountryCode": "გამოიყენეთ ორი ასოიანი ქვეყნის კოდები, მაგალითად IT ან ES.",
-  "phoneReasonConsentRequiredForCapture": "რეკორდირების ან ტრანსკრიპციის დროს თანხმობა ვერ გამორთვათ."
+  "phoneReasonConsentRequiredForCapture": "რეკორდირების ან ტრანსკრიპციის დროს თანხმობა ვერ გამორთვათ.",
+  "phoneRemoteEnded": "მეორე მხარემ ზარი დაასრულა."
 }

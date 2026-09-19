@@ -876,5 +876,6 @@
   "phoneReasonCallerIdUnverified": "ເລກໂທນີ້ບໍ່ເປັນເລກເຊັ່ນທີ່ອະນຸຍາດ",
   "phoneReasonCallerIdMissing": "ບໍ່ມີລະຫັດຜູ້ໂທສໍາລັບອົງກອນນີ້ແລ້ວ",
   "phoneReasonInvalidCountryCode": "ໃຊ້ລະຫັດປະເທດທີ່ມີສອງຕົວອັກສອນ, ເຊັ່ນ IT ຫຼື ES",
-  "phoneReasonConsentRequiredForCapture": "ບໍ່ສາມາດປິດການອະນຸຍາດໃນຂະນະທີ່ບັນທຶກ ຫຼື ຕອນເປັນຂໍ້ຄວາມ"
+  "phoneReasonConsentRequiredForCapture": "ບໍ່ສາມາດປິດການອະນຸຍາດໃນຂະນະທີ່ບັນທຶກ ຫຼື ຕອນເປັນຂໍ້ຄວາມ",
+  "phoneRemoteEnded": "ອີກຝ່າຍໜຶ່ງໄດ້ວາງສາຍແລ້ວ."
 }

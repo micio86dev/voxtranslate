@@ -876,5 +876,6 @@
   "phoneReasonCallerIdUnverified": "Quel numero non è un numero in uscita verificato per questa organizzazione.",
   "phoneReasonCallerIdMissing": "Nessun identificativo chiamante è configurato per questa organizzazione.",
   "phoneReasonInvalidCountryCode": "Usa codici paese a due lettere, ad esempio IT o ES.",
-  "phoneReasonConsentRequiredForCapture": "Il consenso non può essere disattivato mentre la registrazione o la trascrizione sono attive."
+  "phoneReasonConsentRequiredForCapture": "Il consenso non può essere disattivato mentre la registrazione o la trascrizione sono attive.",
+  "phoneRemoteEnded": "L'altra persona ha terminato la chiamata."
 }

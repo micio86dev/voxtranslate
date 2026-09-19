@@ -876,5 +876,6 @@
   "phoneReasonCallerIdUnverified": "Toks numeris nėra patvirtintas išsiunčiamas numeris šiai organizacijai.",
   "phoneReasonCallerIdMissing": "Šiai organizacijai dar nėra nustatytas skambintojo ID.",
   "phoneReasonInvalidCountryCode": "Naudokite dviejų raidžių šalies kodus, pvz., IT arba ES.",
-  "phoneReasonConsentRequiredForCapture": "Sutikimas negali būti išjungtas, kol įrašymas ar transkripcija yra įjungti."
+  "phoneReasonConsentRequiredForCapture": "Sutikimas negali būti išjungtas, kol įrašymas ar transkripcija yra įjungti.",
+  "phoneRemoteEnded": "Kitas asmuo baigė skambutį."
 }

@@ -876,5 +876,6 @@
   "phoneReasonCallerIdUnverified": "Dat nummer is geen geverifieerd uitgaand nummer voor deze organisatie.",
   "phoneReasonCallerIdMissing": "Er is nog geen bel-ID ingesteld voor deze organisatie.",
   "phoneReasonInvalidCountryCode": "Gebruik landcodes van twee letters, bijvoorbeeld IT of ES.",
-  "phoneReasonConsentRequiredForCapture": "Toestemming kan niet worden uitgeschakeld terwijl opname of transcriptie actief is."
+  "phoneReasonConsentRequiredForCapture": "Toestemming kan niet worden uitgeschakeld terwijl opname of transcriptie actief is.",
+  "phoneRemoteEnded": "De andere persoon heeft het gesprek beëindigd."
 }

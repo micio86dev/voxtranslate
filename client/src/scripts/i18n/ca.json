@@ -876,5 +876,6 @@
   "phoneReasonCallerIdUnverified": "Aquest número no és un número sortint verificat per a aquesta organització.",
   "phoneReasonCallerIdMissing": "Encara no s'ha configurat cap identificador d'usuari per a aquesta organització.",
   "phoneReasonInvalidCountryCode": "Utilitza codis de país de dues lletres, per exemple IT o ES.",
-  "phoneReasonConsentRequiredForCapture": "No es pot desactivar el consentiment mentre s'està gravant o transcrivint."
+  "phoneReasonConsentRequiredForCapture": "No es pot desactivar el consentiment mentre s'està gravant o transcrivint.",
+  "phoneRemoteEnded": "L'altra persona ha finalitzat la trucada."
 }

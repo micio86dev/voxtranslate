@@ -22,6 +22,8 @@
  * without sight, and a phone call is exactly the feature where that matters most.
  */
 
+import type { EntryMode } from './phone-call';
+
 /** What the UI shows. Derived from the server's status, never invented client-side. */
 export type CallPhase =
   | 'idle'
@@ -371,4 +373,53 @@ export function canShowPhoneCta(
  */
 export function looksLikeContactSearch(raw: string): boolean {
   return /[a-zA-Z]/.test(raw);
+}
+
+/**
+ * Copy key for the visible remote-hangup notice (Work Unit B, design Decision B2).
+ *
+ * `reason` comes straight off the server's `phone_call_ended` message (design Decision
+ * A3): `"remote_hangup"` for an ordinary hangup, or an existing `FailureReason` string
+ * (currently only `"media_lost"`) for a pump-error teardown. An unknown or absent reason
+ * falls back to the existing neutral `phoneReasonUnmapped` sentence ("The call ended.")
+ * rather than asserting who hung up — the same "an unknown code still gets a sentence,
+ * never a raw code or a guess" convention `refusalKey` already enforces above.
+ */
+export function phoneEndCopyKey(reason: string | null | undefined): string {
+  if (reason === 'remote_hangup') return 'phoneRemoteEnded';
+  if (reason === 'media_lost') return 'phoneReasonMediaLost';
+  return 'phoneReasonUnmapped';
+}
+
+/**
+ * The auto-leave guard for a remote phone hangup (Work Unit B, design Decision B3):
+ * whether the client should invoke `leaveCall()` because the phone party that just hung
+ * up WAS the call's own counterpart, with no human counterpart remaining.
+ *
+ * All four conditions are required:
+ * 1. `entry === 'phone'` — this app placed the call itself (the B2B dialer path); a human
+ *    who joined a phone-hosting room by any other route is `'room'` and is never ejected.
+ * 2. `myCallId` is set AND matches `eventCallId` — the notice must be about THIS client's
+ *    own call. A mismatch (or no call id held at all) deliberately does NOT fall back to a
+ *    looser rule: the visible notice may still be shown, but auto-leave never fires, and
+ *    the 1500 ms REST poll remains the safety net for that pathological case.
+ * 3. `endedPeerId` is actually the phone leg (corroborating only — never the sole
+ *    decision boundary, per `isPhonePeer`'s own contract above).
+ * 4. No OTHER (non-phone) peer remains in `remotePeerIds` — a room that grew a second
+ *    human must never be auto-left just because the dialed-in phone participant hung up.
+ */
+export function shouldLeaveOnPhoneCallEnded(args: {
+  entry: EntryMode;
+  endedPeerId: string;
+  remotePeerIds: Iterable<string>;
+  myCallId: string | null;
+  eventCallId: string | null;
+}): boolean {
+  if (args.entry !== 'phone') return false;
+  if (!args.myCallId || args.eventCallId !== args.myCallId) return false;
+  if (!isPhonePeer(args.endedPeerId)) return false;
+  for (const id of args.remotePeerIds) {
+    if (id !== args.endedPeerId && !isPhonePeer(id)) return false; // a human counterpart remains
+  }
+  return true;
 }

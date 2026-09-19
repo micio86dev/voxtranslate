@@ -876,5 +876,6 @@
   "phoneReasonCallerIdUnverified": "해당 번호는 이 조직의 검증된 발신 번호가 아닙니다.",
   "phoneReasonCallerIdMissing": "이 조직에 발신자 ID가 아직 설정되지 않았습니다.",
   "phoneReasonInvalidCountryCode": "두 글자 국가 코드(예: IT, ES)를 사용하세요.",
-  "phoneReasonConsentRequiredForCapture": "녹음 또는 기록이 활성화된 동안 동의를 끌 수 없습니다."
+  "phoneReasonConsentRequiredForCapture": "녹음 또는 기록이 활성화된 동안 동의를 끌 수 없습니다.",
+  "phoneRemoteEnded": "상대방이 통화를 종료했습니다."
 }

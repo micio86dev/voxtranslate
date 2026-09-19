@@ -876,5 +876,6 @@
   "phoneReasonCallerIdUnverified": "Nọmba naa kii ṣe nọmba ti a fọwọsi fun ajo yii.",
   "phoneReasonCallerIdMissing": "Ko si ID olupẹ̀ ti a ṣeto fun ajo yii sibẹ.",
   "phoneReasonInvalidCountryCode": "Lo koodu orilẹ-ede meji, fun apẹẹrẹ IT tabi ES.",
-  "phoneReasonConsentRequiredForCapture": "A ko le pa ìfọwọ́si mọ́ nigba ti a n ṣe àkọọlẹ tabi kọ́kọ́kọ́."
+  "phoneReasonConsentRequiredForCapture": "A ko le pa ìfọwọ́si mọ́ nigba ti a n ṣe àkọọlẹ tabi kọ́kọ́kọ́.",
+  "phoneRemoteEnded": "Ẹnìkejì parí ìpè náà."
 }

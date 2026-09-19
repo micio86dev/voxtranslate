@@ -876,5 +876,6 @@
   "phoneReasonCallerIdUnverified": "Этот номер не подтверждён как исходящий для организации.",
   "phoneReasonCallerIdMissing": "Для организации не настроен идентификатор абонента.",
   "phoneReasonInvalidCountryCode": "Используйте двухбуквенные коды стран, например IT или ES.",
-  "phoneReasonConsentRequiredForCapture": "Согласие нельзя отключить, пока включена запись или транскрипция."
+  "phoneReasonConsentRequiredForCapture": "Согласие нельзя отключить, пока включена запись или транскрипция.",
+  "phoneRemoteEnded": "Собеседник завершил звонок."
 }

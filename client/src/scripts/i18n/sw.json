@@ -876,5 +876,6 @@
   "phoneReasonCallerIdUnverified": "Nambari hiyo sio nambari iliyoidhinishwa ya kutuma kwa shirika hili.",
   "phoneReasonCallerIdMissing": "Hakuna kitambulisho cha mwalumzo kilichowekwa kwa shirika hili bado.",
   "phoneReasonInvalidCountryCode": "Tumia nambari za nchi mbili, kwa mfano IT au ES.",
-  "phoneReasonConsentRequiredForCapture": "Hakuna uwezo wa kuzima ruhusa wakati kumbukumbu au usomaji unafanya kazi."
+  "phoneReasonConsentRequiredForCapture": "Hakuna uwezo wa kuzima ruhusa wakati kumbukumbu au usomaji unafanya kazi.",
+  "phoneRemoteEnded": "Mtu mwingine amemaliza simu."
 }

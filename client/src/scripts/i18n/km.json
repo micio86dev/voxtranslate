@@ -876,5 +876,6 @@
   "phoneReasonCallerIdUnverified": "លេខនោះមិនមែនជាលេខចេញដែលបានផ្ទៀងផ្ទាត់សម្រាប់អង្គភាពនេះ",
   "phoneReasonCallerIdMissing": "មិនមានលេខសម្គាល់អ្នកហៅសម្រាប់អង្គភាពនេះទេ",
   "phoneReasonInvalidCountryCode": "ប្រើលេខកូដប្រទេសពីរពីរ ตัวอย่าง IT ឬ ES",
-  "phoneReasonConsentRequiredForCapture": "ការអនុញ្ញាតមិនអាចបិទបាននៅពេលថត ឬត្រាប់សរសេរ"
+  "phoneReasonConsentRequiredForCapture": "ការអនុញ្ញាតមិនអាចបិទបាននៅពេលថត ឬត្រាប់សរសេរ",
+  "phoneRemoteEnded": "អ្នកម្នាក់ទៀតបានបញ្ចប់ការហៅទូរស័ព្ទ។"
 }

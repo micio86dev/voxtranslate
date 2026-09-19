@@ -876,5 +876,6 @@
   "phoneReasonCallerIdUnverified": "Det nummer er ikke et verificeret udgående nummer for denne organisation.",
   "phoneReasonCallerIdMissing": "Der er endnu ikke opsat opkalds-ID for denne organisation.",
   "phoneReasonInvalidCountryCode": "Brug to-bogstavs landekoder, fx IT eller ES.",
-  "phoneReasonConsentRequiredForCapture": "Samtykke kan ikke slukkes, mens optagelse eller transskription er aktiv."
+  "phoneReasonConsentRequiredForCapture": "Samtykke kan ikke slukkes, mens optagelse eller transskription er aktiv.",
+  "phoneRemoteEnded": "Den anden person afsluttede opkaldet."
 }

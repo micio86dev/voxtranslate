@@ -876,5 +876,6 @@
   "phoneReasonCallerIdUnverified": "Nid yw'r rhif hwn yn rif allbwn wedi'i gadarnhau ar gyfer y sefydliad hwn.",
   "phoneReasonCallerIdMissing": "Nid oes ID ffonwr wedi'i osod ar gyfer y sefydliad hwn eto.",
   "phoneReasonInvalidCountryCode": "Defnyddiwch godau gwlad o ddau lythyren, er enghraifft IT neu ES.",
-  "phoneReasonConsentRequiredForCapture": "Ni ellir diffodd y consent tra mae recordio neu dderbynni ar waith."
+  "phoneReasonConsentRequiredForCapture": "Ni ellir diffodd y consent tra mae recordio neu dderbynni ar waith.",
+  "phoneRemoteEnded": "Mae'r person arall wedi dod â'r alwad i ben."
 }

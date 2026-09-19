@@ -876,5 +876,6 @@
   "phoneReasonCallerIdUnverified": "یہ نمبر اس تنظیم کے لیے تصدیق شدہ آؤٹ باؤنڈ نمبر نہیں ہے۔",
   "phoneReasonCallerIdMissing": "اس تنظیم کے لیے ابھی تک کوئی کالر آئی ڈی سیٹ اپ نہیں ہے۔",
   "phoneReasonInvalidCountryCode": "دو حرفی ملک کوڈ استعمال کریں، مثلاً IT یا ES۔",
-  "phoneReasonConsentRequiredForCapture": "ریکارڈنگ یا ٹرانسکرپشن چلتے ہوئے رضامندی بند نہیں کی جا سکتی۔"
+  "phoneReasonConsentRequiredForCapture": "ریکارڈنگ یا ٹرانسکرپشن چلتے ہوئے رضامندی بند نہیں کی جا سکتی۔",
+  "phoneRemoteEnded": "دوسرے فرد نے کال ختم کر دی۔"
 }

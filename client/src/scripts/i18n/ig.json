@@ -876,5 +876,6 @@
   "phoneReasonCallerIdUnverified": "Nọmba ahụ abụghị nọmba e gosiri maka ụlọ ọrụ a.",
   "phoneReasonCallerIdMissing": "Enweghị ID onye na-akpọ maka ụlọ ọrụ a.",
   "phoneReasonInvalidCountryCode": "Jiri koodu mba abụọ, dịka IT ma ọ bụ ES.",
-  "phoneReasonConsentRequiredForCapture": "Enweghị ike ịkwụsị nkwenye mgbe edekọ ma ọ bụ edekọ ederede na-arụ."
+  "phoneReasonConsentRequiredForCapture": "Enweghị ike ịkwụsị nkwenye mgbe edekọ ma ọ bụ edekọ ederede na-arụ.",
+  "phoneRemoteEnded": "Onye nke ọzọ kwụsịrị oku ahụ."
 }

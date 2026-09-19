@@ -876,5 +876,6 @@
   "phoneReasonCallerIdUnverified": "Šis numurs nav verificēts izsūtīšanas numurs šai organizācijai.",
   "phoneReasonCallerIdMissing": "Šai organizācijai vēl nav iestatīta zvana ID.",
   "phoneReasonInvalidCountryCode": "Izmantojiet divburtu valsts kodus, piemēram, IT vai ES.",
-  "phoneReasonConsentRequiredForCapture": "Atļauju nevar izslēgt, kamēr tiek ierakstīts vai transkribēts."
+  "phoneReasonConsentRequiredForCapture": "Atļauju nevar izslēgt, kamēr tiek ierakstīts vai transkribēts.",
+  "phoneRemoteEnded": "Otra persona pārtrauca zvanu."
 }

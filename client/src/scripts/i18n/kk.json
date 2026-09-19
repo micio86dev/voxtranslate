@@ -876,5 +876,6 @@
   "phoneReasonCallerIdUnverified": "Бұл нөмір ұйым үшін растаулы шығыс нөмір емес.",
   "phoneReasonCallerIdMissing": "Бұл ұйым үшін қоңырау шалған адамның идентификаторы орнатылмаған.",
   "phoneReasonInvalidCountryCode": "Екі әріптік еуропалық кодтарды пайдаланыңыз, мысалы IT немесе ES.",
-  "phoneReasonConsentRequiredForCapture": "Жазу немесе транскрипция кезінде келісімді өшіруге болмайды."
+  "phoneReasonConsentRequiredForCapture": "Жазу немесе транскрипция кезінде келісімді өшіруге болмайды.",
+  "phoneRemoteEnded": "Екінші тарап қоңырауды аяқтады."
 }

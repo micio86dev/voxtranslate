@@ -293,11 +293,35 @@ const BYTE_ORDER_MIN_EVIDENCE_FRAMES: u32 = 5;
 /// be trusted as a decision rather than a photo finish that could flip on the next frame.
 const BYTE_ORDER_DECISIVE_RATIO: u64 = 2;
 
-/// How many inbound frames to keep trying before giving up on ever deciding. At ~20 ms per
-/// frame this is 5 seconds — long enough to hear past an initial burst of near-silence,
-/// short enough that a leg that can never decide (e.g. a dead line) does not keep computing
-/// roughness on every frame for the rest of the call.
-const BYTE_ORDER_MAX_ATTEMPTS: u32 = 250;
+/// Evidence-bearing frames (~1 s of real audio) after which a still-undecided window is
+/// reported inconclusive and its accumulators are halved rather than zeroed — a persistent
+/// asymmetry keeps converging, a tie decays, and the totals stay bounded over an hour-long
+/// call. This is NOT a stop condition: an `Undetermined` leg keeps measuring for the life of
+/// the call, gated on evidence-bearing frames rather than raw frames, because raw-frame
+/// counting is exactly what let 5 seconds of digital silence exhaust the old fixed budget
+/// before the far party ever said a word.
+const BYTE_ORDER_INCONCLUSIVE_WINDOW: u32 = 50;
+
+/// Diagnostics only, never a stop condition: one INFO line once a leg has produced too
+/// little evidence (fewer than `BYTE_ORDER_MIN_EVIDENCE_FRAMES`) after this many raw inbound
+/// frames — a mostly-silent leg, worth a log line, not a give-up.
+const BYTE_ORDER_SILENT_LEG_FRAMES: u32 = 250;
+
+/// Whether an L16 leg's wire byte order has been measured.
+///
+/// `Decided` is a ONE-WAY LATCH: a leg that has committed never measures again and never
+/// changes its mind mid-call — that hysteresis is what makes a good call free of this cost
+/// for the rest of its duration, and what prevents a healthy leg from ever flipping on a
+/// later coincidental run of scrambled-looking evidence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum ByteOrder {
+    /// No trusted measurement yet. The RFC 3551 big-endian default is *in force* but NOT
+    /// committed: every further frame is still measured.
+    #[default]
+    Undetermined,
+    /// Measured and committed to little-endian (`true`) or big-endian (`false`).
+    Decided(bool),
+}
 
 /// Accumulates L16 byte-order evidence across a leg's inbound frames and decides once.
 ///
@@ -305,14 +329,36 @@ const BYTE_ORDER_MAX_ATTEMPTS: u32 = 250;
 /// sample), so those legs never call [`observe`](Self::observe) and this type's default
 /// (`little_endian() == false`, i.e. keep the RFC 3551 big-endian assumption) is exactly the
 /// unchanged behaviour for them.
+///
+/// **Tier equivalence (spec: "Tier-Uniform Media Pump Behavior").** This detector is owned
+/// by [`Leg`], which is constructed from a negotiated [`MediaCodec`] alone
+/// (`Leg::new(codec)`, called from exactly one site: `run_leg`'s single `media::pump(...)`
+/// call in `voip::session`) — never from an engine or tier. Whether the call selected
+/// Standard, Premium, or Enhanced (which `EngineRegistry::resolve_for_phone` substitutes to
+/// Standard before a phone leg ever opens, per task 1.15's test) has no bearing on which
+/// `ByteOrderDetector` instance a leg gets or how it behaves: there is no tier branch
+/// anywhere between engine selection and this struct's construction or use.
 #[derive(Debug, Default)]
 struct ByteOrderDetector {
-    decided_little_endian: Option<bool>,
-    gave_up: bool,
+    state: ByteOrder,
+    /// Evidence-bearing frames seen since the last halving (or since the start).
     evidence_frames: u32,
-    frames_tried: u32,
+    /// Evidence-bearing frames seen within the current inconclusive-window count, reset on
+    /// every halving. Distinct from `evidence_frames` only in name today, but kept separate
+    /// so a future window size need not equal the ratio's own evidence floor.
+    window_evidence_frames: u32,
+    /// Raw inbound frames seen — diagnostics only (`BYTE_ORDER_SILENT_LEG_FRAMES`), never a
+    /// stop condition.
+    frames_seen: u32,
     be_total: u64,
     le_total: u64,
+    /// How many inconclusive windows this leg has produced. Zero means either "still
+    /// gathering evidence" or "decided before the first window elapsed"; non-zero is the
+    /// "probably not L16" signal (see `note_inconclusive_window`).
+    inconclusive_windows: u32,
+    /// Whether the once-per-leg silent/undetermined diagnostics have already fired, so a
+    /// long call logs each line exactly once rather than repeating it forever.
+    noted_silent_leg: bool,
 }
 
 impl ByteOrderDetector {
@@ -321,23 +367,28 @@ impl ByteOrderDetector {
     }
 
     /// Whether inbound/outbound L16 bytes should be byte-swapped before decode / after
-    /// encode. `false` — the RFC 3551 default — until (if ever) evidence decides otherwise.
+    /// encode. `false` until a decision commits to little-endian.
     fn little_endian(&self) -> bool {
-        self.decided_little_endian == Some(true)
+        matches!(self.state, ByteOrder::Decided(true))
     }
 
-    /// Feed one inbound frame's RAW wire bytes, before any swap. A no-op once decided or
-    /// given up, so a long call does not keep recomputing roughness for nothing.
-    fn observe(&mut self, wire: &[u8]) {
-        if self.decided_little_endian.is_some() || self.gave_up {
+    /// Feed one inbound frame's RAW wire bytes, before any swap. A no-op once decided — the
+    /// one-way latch — so a healthy leg computes nothing for the rest of the call.
+    /// `codec_confirmed` is [`Leg::confirmed`] at the time of this frame, threaded through
+    /// only so the inconclusive-window WARN can carry it: a persistent tie on an
+    /// unconfirmed leg is the signature of a route that forced a different codec without
+    /// ever sending a `start` frame.
+    fn observe(&mut self, wire: &[u8], codec_confirmed: bool) {
+        if matches!(self.state, ByteOrder::Decided(_)) {
             return;
         }
-        self.frames_tried += 1;
-        let (be, le) = codec::l16_byte_order_roughness(wire);
-        if be != 0 || le != 0 {
+        self.frames_seen += 1;
+        let ev = codec::l16_byte_order_evidence(wire);
+        if ev.be != 0 || ev.le != 0 {
             self.evidence_frames += 1;
-            self.be_total += be;
-            self.le_total += le;
+            self.window_evidence_frames += 1;
+            self.be_total += ev.be;
+            self.le_total += ev.le;
         }
         if self.evidence_frames >= BYTE_ORDER_MIN_EVIDENCE_FRAMES {
             if self.be_total >= self.le_total.saturating_mul(BYTE_ORDER_DECISIVE_RATIO) {
@@ -349,17 +400,32 @@ impl ByteOrderDetector {
                 return;
             }
         }
-        if self.frames_tried >= BYTE_ORDER_MAX_ATTEMPTS {
-            self.gave_up = true;
-            tracing::warn!(
-                "phone leg L16 byte order could not be determined after {} frames; keeping big-endian",
-                BYTE_ORDER_MAX_ATTEMPTS
+        if self.window_evidence_frames >= BYTE_ORDER_INCONCLUSIVE_WINDOW {
+            self.note_inconclusive_window(codec_confirmed);
+            // Halve rather than zero: a persistent asymmetry keeps converging, a tie
+            // decays, and the accumulators stay bounded over an hour-long call.
+            self.be_total /= 2;
+            self.le_total /= 2;
+            self.evidence_frames /= 2;
+            self.window_evidence_frames = 0;
+        }
+        if !self.noted_silent_leg
+            && self.evidence_frames < BYTE_ORDER_MIN_EVIDENCE_FRAMES
+            && self.frames_seen >= BYTE_ORDER_SILENT_LEG_FRAMES
+        {
+            self.noted_silent_leg = true;
+            tracing::info!(
+                frames_seen = self.frames_seen,
+                evidence_frames = self.evidence_frames,
+                "phone leg L16 byte order still undetermined after a mostly-silent start; \
+                 continuing to measure for the rest of the call"
             );
         }
     }
 
     fn decide(&mut self, little_endian: bool) {
-        self.decided_little_endian = Some(little_endian);
+        self.state = ByteOrder::Decided(little_endian);
+        crate::metrics::record_voip_byte_order_decided(little_endian);
         // This log line is how the next production call tells us the truth: byte order is
         // undocumented by the provider, so a field here is worth more than a guess in code.
         tracing::info!(
@@ -370,6 +436,75 @@ impl ByteOrderDetector {
             },
             "phone leg L16 byte order detected"
         );
+    }
+
+    /// A window of `BYTE_ORDER_INCONCLUSIVE_WINDOW` evidence-bearing frames produced no
+    /// decisive ratio in either direction — evidence arrived and NEITHER reading won. This
+    /// is observably distinct from "not enough evidence yet" (see `observe`'s silent-leg
+    /// diagnostic): a persistent tie is the signature of a payload that may not be linear
+    /// PCM at all (e.g. µ-law misread as L16 on a route that never confirmed capture
+    /// format), which `codec_confirmed` helps a log reader distinguish from noise.
+    fn note_inconclusive_window(&mut self, codec_confirmed: bool) {
+        self.inconclusive_windows += 1;
+        crate::metrics::record_voip_byte_order_inconclusive_window();
+        if self.inconclusive_windows == 1 {
+            tracing::warn!(
+                be_total = self.be_total,
+                le_total = self.le_total,
+                ratio = BYTE_ORDER_DECISIVE_RATIO,
+                evidence_frames = self.evidence_frames,
+                codec_confirmed,
+                "phone leg L16 byte order evidence is a persistent tie; neither big-endian \
+                 nor little-endian is winning — this may mean the payload is not linear PCM"
+            );
+        }
+    }
+
+    /// One summary line per leg, called from teardown on every exit path (see `pump`'s
+    /// async-block restructure). Distinguishes three outcomes that used to collapse into
+    /// the same runtime state and the same log line: "measured" (`Decided`), "silent line"
+    /// (`Undetermined`, no inconclusive windows), and "probably not L16" (`Undetermined`,
+    /// at least one inconclusive window).
+    ///
+    /// `is_l16` is the leg's codec AT TEARDOWN TIME (`Leg::codec() == MediaCodec::L16`),
+    /// not whether this detector ever observed anything. It gates the `Undetermined`
+    /// metric specifically: a µ-law/A-law leg never calls [`observe`](Self::observe), so
+    /// it is permanently `Undetermined` by construction and recording it would make the
+    /// counter answer "how many legs are not L16" instead of its documented question
+    /// ("did an L16 leg ever confirm its byte order"). The same guard also prevents
+    /// double-counting a leg that decided L16 and was later renegotiated away from L16:
+    /// the detector resets to `Undetermined` (see [`Leg::renegotiate`]), but `is_l16` is
+    /// now false, so teardown does not recount it. Returns whether this call recorded the
+    /// `Undetermined` metric, so tests can assert the guard without touching global state.
+    fn log_summary(&self, is_l16: bool) -> bool {
+        match self.state {
+            ByteOrder::Decided(little_endian) => {
+                tracing::info!(
+                    byte_order = if little_endian {
+                        "little-endian"
+                    } else {
+                        "big-endian"
+                    },
+                    frames_seen = self.frames_seen,
+                    "phone leg L16 byte order summary: decided"
+                );
+                false
+            }
+            ByteOrder::Undetermined => {
+                tracing::info!(
+                    frames_seen = self.frames_seen,
+                    evidence_frames = self.evidence_frames,
+                    inconclusive_windows = self.inconclusive_windows,
+                    "phone leg L16 byte order summary: undetermined"
+                );
+                if is_l16 {
+                    crate::metrics::record_voip_byte_order_undetermined();
+                    true
+                } else {
+                    false
+                }
+            }
+        }
     }
 }
 
@@ -467,7 +602,7 @@ impl Leg {
             // Evidence is accumulated on the raw wire bytes, before any swap: swapping
             // first would feed the detector its own correction and it could never see the
             // roughness that justified deciding in the first place.
-            self.byte_order.observe(&bytes);
+            self.byte_order.observe(&bytes, self.confirmed);
             if self.byte_order.little_endian() {
                 codec::swap_byte_pairs(&bytes)
             } else {
@@ -532,6 +667,20 @@ impl Leg {
         }
         self.confirmed = true;
         true
+    }
+
+    /// One byte-order summary line for this leg, called from `pump`'s teardown on every
+    /// exit path — not only the normal `break`s, but also a `MediaError` early return. A
+    /// leg that never observed L16 evidence at all (µ-law, A-law, or a leg that decided
+    /// before this call) still gets a summary; a `Decided` leg's summary is cheap because
+    /// [`ByteOrderDetector::observe`] already stopped touching it.
+    ///
+    /// The leg's CURRENT codec (`self.codec`), not whether the detector ever ran, decides
+    /// whether an `Undetermined` outcome is metric-worthy — see
+    /// [`ByteOrderDetector::log_summary`]. Returns whether the `Undetermined` metric was
+    /// recorded, for tests.
+    pub fn log_byte_order_summary(&self) -> bool {
+        self.byte_order.log_summary(self.codec == MediaCodec::L16)
     }
 }
 
@@ -601,7 +750,14 @@ pub async fn pump<S, E>(
 where
     S: futures::Sink<String, Error = E> + futures::Stream<Item = Result<String, E>> + Unpin,
 {
-    let exit = loop {
+    // Wrapped in its own async block — rather than driven directly by `pump`'s own
+    // `Result` return — so a `?` anywhere inside (a parse or codec error mid-loop) still
+    // runs `leg.log_byte_order_summary()` below before `pump` returns, exactly like every
+    // other exit. Without this, the teardown summary only fired on the loop's normal
+    // `break` paths, silently skipping the diagnostics on the one exit that most needs
+    // them: a call that errored out mid-stream.
+    let exit: Result<PumpExit, MediaError> = async {
+        Ok(loop {
         tokio::select! {
             // Audio and control from the phone.
             incoming = socket.next() => {
@@ -666,8 +822,11 @@ where
                 }
             }
         }
-    };
-    Ok(exit)
+        })
+    }
+    .await;
+    leg.log_byte_order_summary();
+    exit
 }
 
 fn json<T: Serialize>(v: &T) -> String {
@@ -1109,6 +1268,178 @@ mod tests {
     }
 
     #[test]
+    fn a_leg_that_starts_silent_still_detects_byte_order_when_speech_arrives() {
+        // THE production reproduction: 300 silent frames (past today's 250-frame cap)
+        // then loud little-endian speech. The old `gave_up` latch would have permanently
+        // committed to big-endian after frame 250, regardless of what evidence arrived
+        // afterward — freezing the leg for the rest of the call.
+        let mut leg = Leg::new(MediaCodec::L16);
+        for _ in 0..300 {
+            leg.decode_up(&B64.encode(silent_l16_frame())).unwrap();
+        }
+        for _ in 0..10 {
+            let le: Vec<u8> = sine_i16(16_000.0, 320, 0.4)
+                .iter()
+                .flat_map(|s| s.to_le_bytes())
+                .collect();
+            leg.decode_up(&B64.encode(le)).unwrap();
+        }
+
+        let steady: i16 = 1000;
+        let engine_pcm: Vec<u8> = (0..200).flat_map(|_| steady.to_le_bytes()).collect();
+        let wire = B64.decode(leg.encode_down(&engine_pcm).unwrap()).unwrap();
+        let tail = &wire[wire.len() - 8..];
+        let le_val = i16::from_le_bytes([tail[0], tail[1]]);
+        assert!(
+            (le_val as i32 - steady as i32).abs() < 100,
+            "the leg should have decided little-endian once real speech arrived, \
+             not stayed permanently latched to big-endian after 300 silent frames; got {le_val}"
+        );
+    }
+
+    #[test]
+    fn an_undetermined_leg_is_observably_distinct_from_a_big_endian_decision() {
+        // After silence only, the leg must be structurally `Undetermined`, NOT
+        // `Decided(false)` — the two used to collapse into the same runtime state
+        // (`gave_up = true`, permanent big-endian fallback) and the same log line.
+        let mut leg = Leg::new(MediaCodec::L16);
+        for _ in 0..300 {
+            leg.decode_up(&B64.encode(silent_l16_frame())).unwrap();
+        }
+        assert_eq!(leg.byte_order.state, ByteOrder::Undetermined);
+        assert!(!leg.byte_order.little_endian());
+        // The summary must not claim a decision was reached.
+        assert_eq!(leg.byte_order.inconclusive_windows, 0);
+    }
+
+    #[test]
+    fn a_payload_where_neither_reading_wins_is_reported_as_its_own_case() {
+        // Bytes that read equally rough (or equally smooth) in both directions for at
+        // least one whole inconclusive window must be reported distinctly from the
+        // silent-leg case above: `inconclusive_windows > 0`, still `Undetermined`.
+        let mut leg = Leg::new(MediaCodec::L16);
+        // A deterministic pseudo-random byte sequence: neither the big-endian nor the
+        // little-endian reading of noise like this is coherent, so both readings produce
+        // large, similarly-sized roughness — evidence arrives, but neither wins the 2x
+        // decisive ratio, which is exactly "probably not L16".
+        let frame: Vec<u8> = (0..640u32).map(|i| ((i * 137 + 51) % 256) as u8).collect();
+        for _ in 0..(BYTE_ORDER_INCONCLUSIVE_WINDOW as usize + 5) {
+            leg.decode_up(&B64.encode(&frame)).unwrap();
+        }
+        assert!(
+            leg.byte_order.inconclusive_windows > 0,
+            "a persistent tie must be counted as at least one inconclusive window"
+        );
+        assert_eq!(leg.byte_order.state, ByteOrder::Undetermined);
+    }
+
+    #[test]
+    fn a_decided_leg_never_changes_its_mind() {
+        // The one-way latch: once decided, 500 frames of the OPPOSITE evidence must not
+        // flip the decision, and `observe` must have early-returned (no accumulation).
+        let mut leg = Leg::new(MediaCodec::L16);
+        for _ in 0..10 {
+            let le: Vec<u8> = sine_i16(16_000.0, 320, 0.4)
+                .iter()
+                .flat_map(|s| s.to_le_bytes())
+                .collect();
+            leg.decode_up(&B64.encode(le)).unwrap();
+        }
+        assert_eq!(leg.byte_order.state, ByteOrder::Decided(true));
+        let totals_before = (leg.byte_order.be_total, leg.byte_order.le_total);
+
+        for _ in 0..500 {
+            leg.decode_up(&B64.encode(loud_be_frame())).unwrap();
+        }
+        assert_eq!(
+            leg.byte_order.state,
+            ByteOrder::Decided(true),
+            "a decided leg must never change its mind"
+        );
+        assert_eq!(
+            (leg.byte_order.be_total, leg.byte_order.le_total),
+            totals_before,
+            "observe() must early-return once decided — no further accumulation"
+        );
+    }
+
+    #[test]
+    fn both_directions_flip_together_at_the_moment_of_decision() {
+        // Extends the existing swap-direction pair for a decision reached LATE in the
+        // leg (after many silent frames), rather than within the first 10 frames: both
+        // `decode_up` (inbound) and `encode_down` (outbound) must consult the same
+        // `ByteOrder` state consistently once it commits.
+        let mut leg = Leg::new(MediaCodec::L16);
+        for _ in 0..300 {
+            leg.decode_up(&B64.encode(silent_l16_frame())).unwrap();
+        }
+        assert_eq!(leg.byte_order.state, ByteOrder::Undetermined);
+        for _ in 0..10 {
+            let le: Vec<u8> = sine_i16(16_000.0, 320, 0.4)
+                .iter()
+                .flat_map(|s| s.to_le_bytes())
+                .collect();
+            leg.decode_up(&B64.encode(le)).unwrap();
+        }
+        assert_eq!(leg.byte_order.state, ByteOrder::Decided(true));
+
+        // Outbound: encode_down must now swap to emit little-endian wire bytes.
+        let steady: i16 = 1000;
+        let engine_pcm: Vec<u8> = (0..200).flat_map(|_| steady.to_le_bytes()).collect();
+        let wire = B64.decode(leg.encode_down(&engine_pcm).unwrap()).unwrap();
+        let tail = &wire[wire.len() - 8..];
+        let le_val = i16::from_le_bytes([tail[0], tail[1]]);
+        assert!((le_val as i32 - steady as i32).abs() < 100);
+
+        // Inbound: a later frame must also be read with the swap applied.
+        let le: Vec<u8> = sine_i16(16_000.0, 320, 0.4)
+            .iter()
+            .flat_map(|s| s.to_le_bytes())
+            .collect();
+        let out = leg.decode_up(&B64.encode(&le)).unwrap();
+        let engine: Vec<i16> = out
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|c| i16::from_le_bytes(*c))
+            .collect();
+        let peak = engine.iter().map(|s| s.unsigned_abs()).max().unwrap_or(0);
+        assert!(
+            peak < 20_000,
+            "a late-arriving frame must still be read with the committed swap; peak {peak}"
+        );
+    }
+
+    #[test]
+    fn renegotiation_resets_the_detector_to_undetermined() {
+        let mut leg = Leg::new(MediaCodec::L16);
+        for _ in 0..10 {
+            let le: Vec<u8> = sine_i16(16_000.0, 320, 0.4)
+                .iter()
+                .flat_map(|s| s.to_le_bytes())
+                .collect();
+            leg.decode_up(&B64.encode(le)).unwrap();
+        }
+        assert_eq!(leg.byte_order.state, ByteOrder::Decided(true));
+        leg.renegotiate(MediaCodec::Pcmu);
+        // A non-L16 codec never observes at all, so the reset state must be Undetermined.
+        assert_eq!(leg.byte_order.state, ByteOrder::Undetermined);
+    }
+
+    #[test]
+    fn the_accumulators_stay_bounded_over_a_long_call() {
+        // ~50,000 inconclusive evidence frames must not overflow or panic, and the leg
+        // must remain Undetermined (the halving window keeps this bounded).
+        let mut leg = Leg::new(MediaCodec::L16);
+        let frame: Vec<u8> = (0..640u32).map(|i| ((i * 137 + 51) % 256) as u8).collect();
+        for _ in 0..50_000 {
+            leg.decode_up(&B64.encode(&frame)).unwrap();
+        }
+        assert_eq!(leg.byte_order.state, ByteOrder::Undetermined);
+        assert!(leg.byte_order.inconclusive_windows > 0);
+    }
+
+    #[test]
     fn a_mu_law_leg_never_attempts_byte_order_detection() {
         // µ-law has no byte-order ambiguity: one byte, one sample. Feeding it audio that
         // would be extremely decisive evidence for an L16 leg must have zero effect.
@@ -1121,6 +1452,42 @@ mod tests {
         // the untouched codec round trip already covered by `a_mu_law_leg_converts_both_ways`.
         let pcm: Vec<u8> = vec![0u8; 960];
         assert!(leg.encode_down(&pcm).is_ok());
+    }
+
+    #[test]
+    fn a_non_l16_leg_does_not_pollute_the_undetermined_metric() {
+        // A µ-law leg never calls `observe`, so it is permanently `Undetermined` by
+        // construction. `voxtranslate_voip_byte_order_undetermined_total` documents
+        // "L16 phone legs that ended their call without ever confirming a byte order" —
+        // a µ-law leg's teardown must not count against that question at all.
+        let leg = Leg::new(MediaCodec::Pcmu);
+        assert!(
+            !leg.log_byte_order_summary(),
+            "a non-L16 leg's teardown must not record the undetermined metric"
+        );
+    }
+
+    #[test]
+    fn a_leg_renegotiated_away_from_l16_does_not_recount_as_undetermined() {
+        // A leg that decided L16 and was later renegotiated to a different codec resets
+        // its detector to `Undetermined` (see `renegotiate`), but it is no longer an L16
+        // leg by the time teardown runs — it must not be recounted against the same
+        // metric a second time.
+        let mut leg = Leg::new(MediaCodec::L16);
+        for _ in 0..10 {
+            let le: Vec<u8> = sine_i16(16_000.0, 320, 0.4)
+                .iter()
+                .flat_map(|s| s.to_le_bytes())
+                .collect();
+            leg.decode_up(&B64.encode(le)).unwrap();
+        }
+        assert_eq!(leg.byte_order.state, ByteOrder::Decided(true));
+        leg.renegotiate(MediaCodec::Pcmu);
+        assert_eq!(leg.byte_order.state, ByteOrder::Undetermined);
+        assert!(
+            !leg.log_byte_order_summary(),
+            "a leg renegotiated away from L16 must not be recounted as an undetermined L16 leg"
+        );
     }
 
     // ---- the pump -------------------------------------------------------------
@@ -1454,6 +1821,71 @@ mod tests {
 
         drop(in_tx);
         let _ = tokio::time::timeout(std::time::Duration::from_secs(2), task).await;
+    }
+
+    /// The count for a labelless Prometheus counter line in one `render()` snapshot.
+    fn count_metric(out: &str, name: &str) -> u64 {
+        out.lines()
+            .find(|l| l.starts_with(&format!("{name} ")))
+            .and_then(|l| l.split_whitespace().nth(1))
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(0)
+    }
+
+    #[tokio::test]
+    async fn the_leg_teardown_summary_fires_on_the_media_error_exit_path() {
+        // The teardown summary must fire on the `?` early-return path too, not only on
+        // the loop's normal `break` exits. Observed via the `undetermined` counter (this
+        // leg never sees enough evidence to decide), which only `log_byte_order_summary`
+        // increments.
+        let metric = "voxtranslate_voip_byte_order_undetermined_total";
+        let before = count_metric(&crate::metrics::render(0, 0), metric);
+
+        let (in_tx, in_rx) = mpsc::channel(4);
+        let (out_tx, _out_rx) = mpsc::channel(4);
+        let (engine_tx, _engine_rx) = mpsc::channel(4);
+        let (_room_tx, room_rx) = mpsc::channel(4);
+        let (digit_tx, _digit_rx) = mpsc::channel(4);
+
+        let socket = FakeSocket {
+            incoming: in_rx,
+            outgoing: out_tx,
+        };
+        let task = tokio::spawn(pump(
+            socket,
+            Leg::new(MediaCodec::L16),
+            BridgeHandles {
+                to_engine: engine_tx,
+                from_room: room_rx,
+                digits: digit_tx,
+            },
+        ));
+
+        // A "media" event with no `media` object is malformed: `parse_inbound(&raw)?`
+        // early-returns out of `pump` via `?`, WITHOUT reaching the loop's normal `break`.
+        in_tx
+            .send(Ok(serde_json::json!({ "event": "media" }).to_string()))
+            .await
+            .unwrap();
+
+        let out = tokio::time::timeout(std::time::Duration::from_secs(2), task)
+            .await
+            .expect("pump returned")
+            .expect("no panic");
+        assert!(
+            matches!(out, Err(MediaError::Malformed(_))),
+            "expected the parse error to propagate: {out:?}"
+        );
+
+        let after = count_metric(&crate::metrics::render(0, 0), metric);
+        // `>`, not `==`: this counter is process-global, and `cargo test` runs other
+        // pump-driven tests in this same module concurrently in the same binary — any of
+        // them ending in `Undetermined` can bump it between the two snapshots. This
+        // assertion only needs to know that THIS leg's teardown fired at least once.
+        assert!(
+            after > before,
+            "the teardown summary must fire on the `?` early-return path too: before={before}, after={after}"
+        );
     }
 
     #[tokio::test]

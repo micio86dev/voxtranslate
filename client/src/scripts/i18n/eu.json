@@ -876,5 +876,6 @@
   "phoneReasonCallerIdUnverified": "Zenbaki hori ez da enpresaren egiaztatutako irteerako zenbakia.",
   "phoneReasonCallerIdMissing": "Ez dago caller ID bat ezarri enpresarentzat oraindik.",
   "phoneReasonInvalidCountryCode": "Erabili bi hizkietako herrialde-kodeak, adibidez IT edo ES.",
-  "phoneReasonConsentRequiredForCapture": "Baimena ezin da desaktibatu grabaketa edo transkribapena aktibo dagoen bitartean."
+  "phoneReasonConsentRequiredForCapture": "Baimena ezin da desaktibatu grabaketa edo transkribapena aktibo dagoen bitartean.",
+  "phoneRemoteEnded": "Beste pertsonak deia amaitu du."
 }

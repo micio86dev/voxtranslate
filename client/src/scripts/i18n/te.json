@@ -876,5 +876,6 @@
   "phoneReasonCallerIdUnverified": "ఆ నంబర్ ఈ సంస్థకు ధృవీకరించబడిన అవుట్బౌండ్ నంబర్ కాదు.",
   "phoneReasonCallerIdMissing": "ఈ సంస్థకు ఇంకా కాలర్ ఐడి సెటప్ చేయలేదు.",
   "phoneReasonInvalidCountryCode": "రెండు అక్షరాల దేశ కోడ్లు ఉపయోగించండి, ఉదాహరణకు IT లేదా ES.",
-  "phoneReasonConsentRequiredForCapture": "రికార్డింగ్ లేదా ట్రాన్స్క్రిప్షన్ ఆన్ ఉన్నప్పుడు అనుమతి ఆఫ్ చేయలేరు."
+  "phoneReasonConsentRequiredForCapture": "రికార్డింగ్ లేదా ట్రాన్స్క్రిప్షన్ ఆన్ ఉన్నప్పుడు అనుమతి ఆఫ్ చేయలేరు.",
+  "phoneRemoteEnded": "మరో వ్యక్తి కాల్‌ను ముగించారు."
 }
