@@ -27,6 +27,7 @@ import {
   phoneEndCopyKey,
   refusalKey,
   shouldLeaveOnPhoneCallEnded,
+  usableCallerIds,
   willAskConsent,
   type CallPhase,
 } from './phone-dialer';
@@ -563,5 +564,63 @@ describe('shouldLeaveOnPhoneCallEnded (Decision B3)', () => {
         eventCallId: 'call-1',
       }),
     ).toBe(false);
+  });
+});
+
+// Ported from dashboard/src/scripts/phone-catalogue.test.ts (same cases, same function —
+// see phone-dialer.ts's usableCallerIds doc comment for why a released/pending number
+// must never reach this app's caller-id select).
+describe('usableCallerIds', () => {
+  const numbers = [
+    {
+      id: '1',
+      e164: '+390212345678',
+      country: 'IT',
+      label: 'Milan Office',
+      is_default: true,
+      inbound_enabled: false,
+      outbound_enabled: true,
+      verification_status: 'verified',
+    },
+    {
+      id: '2',
+      e164: '+34911234567',
+      country: 'ES',
+      label: 'Sales Spain',
+      is_default: false,
+      inbound_enabled: false,
+      outbound_enabled: true,
+      verification_status: 'pending',
+    },
+    {
+      id: '3',
+      e164: '+390687654321',
+      country: 'IT',
+      label: 'Fax',
+      is_default: false,
+      inbound_enabled: false,
+      outbound_enabled: false,
+      verification_status: 'verified',
+    },
+    {
+      id: '4',
+      e164: '+390612345678',
+      country: 'IT',
+      label: 'Released',
+      is_default: false,
+      inbound_enabled: false,
+      outbound_enabled: false,
+      verification_status: 'verified',
+    },
+  ];
+
+  it('offers only a number that is both verified and outbound-enabled', () => {
+    // `resolve_caller_id` on the server refuses anything else, so offering it would
+    // produce a refusal after the user had already chosen. Same rule, stated early.
+    expect(usableCallerIds(numbers).map((n) => n.e164)).toEqual(['+390212345678']);
+  });
+
+  it('offers nothing rather than something fabricated when the org owns nothing', () => {
+    expect(usableCallerIds([])).toEqual([]);
   });
 });

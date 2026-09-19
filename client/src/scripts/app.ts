@@ -179,6 +179,7 @@ import {
   getVoipContact,
   hangUpVoipCall,
   listVoipContacts,
+  listVoipNumbers,
   quoteVoipCall,
   type VoipCallCreated,
   type VoipContactSummary,
@@ -199,6 +200,7 @@ import {
   phoneEndCopyKey,
   refusalKey,
   shouldLeaveOnPhoneCallEnded,
+  usableCallerIds,
   willAskConsent,
   type CallPhase,
 } from './phone-dialer';
@@ -2378,7 +2380,7 @@ const phoneContactResults = $('phone-contact-results');
 const phoneTheirLangSel = $<HTMLSelectElement>('phone-their-lang');
 const phoneProjectField = $('phone-project-field');
 const phoneProjectSel = $<HTMLSelectElement>('phone-project');
-const phoneCallerIdInput = $<HTMLInputElement>('phone-caller-id');
+const phoneCallerIdInput = $<HTMLSelectElement>('phone-caller-id');
 const phoneQuoteBox = $('phone-quote');
 const phoneQuotePrice = $('phone-quote-price');
 const phoneQuoteDisclosure = $('phone-quote-disclosure');
@@ -2428,6 +2430,26 @@ async function loadPhoneProjects(orgId: string): Promise<void> {
   show(phoneProjectField, projects.length > 0);
 }
 
+/** Mirrors `dashboard/src/pages/[lang]/phone.astro`'s `callerIdSel` population: only a
+ *  number `usableCallerIds` clears may ever appear, because `resolve_caller_id` on the
+ *  server refuses anything else — offering a released or still-pending number here would
+ *  just reproduce the `caller_id_unverified` refusal this select exists to prevent. */
+async function loadPhoneCallerIds(orgId: string): Promise<void> {
+  phoneCallerIdInput.innerHTML = '';
+  const none = document.createElement('option');
+  none.value = '';
+  none.textContent = t('phoneCallerIdPlaceholder');
+  phoneCallerIdInput.appendChild(none);
+  const res = await listVoipNumbers(orgId);
+  for (const n of usableCallerIds(res.data?.numbers ?? [])) {
+    const opt = document.createElement('option');
+    opt.value = n.e164;
+    opt.textContent = n.label ? `${n.label} · ${n.e164}` : n.e164;
+    phoneCallerIdInput.appendChild(opt);
+    if (n.is_default) phoneCallerIdInput.value = n.e164;
+  }
+}
+
 /** Keeps the destination field's `role="combobox"` honest: `aria-expanded` must track
  *  whether its owned listbox is actually showing, not just be set once in markup. */
 function setPhoneContactResultsVisible(visible: boolean): void {
@@ -2467,6 +2489,7 @@ async function openPhoneDialPanel(): Promise<void> {
   resetPhonePanel();
   fillPhoneLangs();
   await loadPhoneProjects(phoneOrgId);
+  await loadPhoneCallerIds(phoneOrgId);
   const probe = await listVoipContacts(phoneOrgId, { limit: 1 });
   phoneHasContacts = !!probe.data?.contacts.length;
   show(phoneCtaToggle, false);
@@ -2635,7 +2658,7 @@ phoneDialPanel.addEventListener('submit', (e) => {
     source_language: getUiLang(),
     target_language: phoneTheirLangSel.value,
     project_id: phoneProjectSel.value || null,
-    caller_id: phoneCallerIdInput.value.trim() || null,
+    caller_id: phoneCallerIdInput.value || null,
   };
   // Captured now (design: "contact name, or masked destination") — `phoneQuote`'s own
   // `destination` is already server-masked, so no extra masking logic is needed here.
