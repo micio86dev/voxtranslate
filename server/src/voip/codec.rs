@@ -168,23 +168,40 @@ pub fn swap_byte_pairs(bytes: &[u8]) -> Vec<u8> {
 /// An all-zero payload (digital silence, or an unpopulated test fixture) reads the same
 /// either way and yields `(0, 0)`: no evidence for either order.
 pub fn l16_byte_order_roughness(payload: &[u8]) -> (u64, u64) {
-    let pairs = payload.as_chunks::<2>().0;
-    let be: Vec<i32> = pairs
-        .iter()
-        .map(|p| i16::from_be_bytes(*p) as i32)
-        .collect();
-    let le: Vec<i32> = pairs
-        .iter()
-        .map(|p| i16::from_le_bytes(*p) as i32)
-        .collect();
-    (roughness(&be), roughness(&le))
+    let ev = l16_byte_order_evidence(payload);
+    (ev.be, ev.le)
 }
 
-fn roughness(samples: &[i32]) -> u64 {
-    samples
-        .windows(2)
-        .map(|w| (w[1] - w[0]).unsigned_abs() as u64)
-        .sum()
+/// Byte-order evidence for one L16 payload, measured in a single allocation-free pass.
+///
+/// Replaces the previous two-`Vec<i32>`-per-frame implementation: both readings are folded
+/// in one pass over the payload with no heap allocation, which is what makes it cheap enough
+/// to keep measuring for the life of a call (see `ByteOrderDetector` in `voip::media`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct L16ByteOrderEvidence {
+    /// Summed |sample-to-sample delta| reading the payload as big-endian.
+    pub be: u64,
+    /// The same, read as little-endian.
+    pub le: u64,
+    /// Deltas measured — the denominator for a per-sample mean in a diagnostic.
+    pub deltas: usize,
+}
+
+pub fn l16_byte_order_evidence(payload: &[u8]) -> L16ByteOrderEvidence {
+    let pairs = payload.as_chunks::<2>().0;
+    let mut ev = L16ByteOrderEvidence::default();
+    let mut prev: Option<(i32, i32)> = None;
+    for p in pairs {
+        let be = i16::from_be_bytes(*p) as i32;
+        let le = i16::from_le_bytes(*p) as i32;
+        if let Some((prev_be, prev_le)) = prev {
+            ev.be += (be - prev_be).unsigned_abs() as u64;
+            ev.le += (le - prev_le).unsigned_abs() as u64;
+            ev.deltas += 1;
+        }
+        prev = Some((be, le));
+    }
+    ev
 }
 
 // ---------------------------------------------------------------------------
@@ -588,6 +605,34 @@ mod tests {
     #[test]
     fn an_all_zero_payload_carries_no_byte_order_evidence() {
         assert_eq!(l16_byte_order_roughness(&[0u8; 640]), (0, 0));
+    }
+
+    #[test]
+    fn l16_byte_order_evidence_matches_the_roughness_wrapper() {
+        // The allocation-free primitive and the preserved wrapper must agree on every
+        // existing fixture used above, and `deltas` must equal the sample-pair count
+        // (one delta per consecutive pair, i.e. `samples - 1`).
+        let fixtures: Vec<Vec<u8>> = vec![
+            to_be(&sine(440.0, 16_000, 320, 0.5)),
+            to_le(&sine(440.0, 16_000, 320, 0.5)),
+            {
+                let samples: Vec<i16> = (0..320i32).map(|i| ((i * 37) % 121) as i16 - 60).collect();
+                to_be(&samples)
+            },
+            vec![0u8; 640],
+        ];
+        for payload in fixtures {
+            let (be, le) = l16_byte_order_roughness(&payload);
+            let ev = l16_byte_order_evidence(&payload);
+            assert_eq!(ev.be, be, "be mismatch for payload len {}", payload.len());
+            assert_eq!(ev.le, le, "le mismatch for payload len {}", payload.len());
+            let expected_deltas = payload.len() / 2;
+            let expected_deltas = expected_deltas.saturating_sub(1);
+            assert_eq!(
+                ev.deltas, expected_deltas,
+                "deltas should equal the sample-pair count minus one"
+            );
+        }
     }
 
     #[test]
