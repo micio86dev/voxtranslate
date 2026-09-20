@@ -19,6 +19,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use uuid::Uuid;
 
+use crate::business::audit::log_audit_event;
 use crate::business::credits::{deduct_org_credits_tx, OrgCharge};
 use crate::business::{db_err, not_found, require_pool, require_role, ADMIN, MEMBER};
 use crate::middleware::AuthUser;
@@ -445,15 +446,15 @@ pub async fn release(
     let pool = require_pool(&state)?;
     require_role(pool, org_id, user.user_id, ADMIN).await?;
 
-    let row: Option<Option<String>> = sqlx::query_scalar(
-        "SELECT provider_number_id FROM voip_numbers WHERE id = $1 AND org_id = $2",
+    let row: Option<(String, Option<String>)> = sqlx::query_as(
+        "SELECT e164, provider_number_id FROM voip_numbers WHERE id = $1 AND org_id = $2",
     )
     .bind(number_id)
     .bind(org_id)
     .fetch_optional(pool)
     .await
     .map_err(db_err)?;
-    let Some(provider_number_id) = row else {
+    let Some((e164, provider_number_id)) = row else {
         return Err(not_found("number not found"));
     };
 
@@ -477,6 +478,19 @@ pub async fn release(
     .execute(pool)
     .await
     .map_err(db_err)?;
+
+    // A number that was purchased and released within the same minute is exactly the
+    // pattern worth being able to trace later — this write is the only record of who
+    // pulled the trigger (the release() itself never touches `status_reason`).
+    log_audit_event(
+        pool,
+        org_id,
+        user.user_id,
+        "voip.number.released",
+        "voip_number",
+        number_id,
+        json!({ "e164": e164 }),
+    );
 
     Ok(StatusCode::NO_CONTENT.into_response())
 }
