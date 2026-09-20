@@ -261,6 +261,28 @@ export function refusalKey(
   return hasReasonCopy(code) ? `phoneReason${pascalCase(code as string)}` : fallback;
 }
 
+/** The shape `GET …/voip/numbers` returns, narrowed to what a caller-id choice needs. */
+export interface CallerIdCandidate {
+  e164: string;
+  label: string | null;
+  is_default: boolean;
+  outbound_enabled: boolean;
+  verification_status: string;
+}
+
+/**
+ * The organisation's numbers that may actually be presented as caller id.
+ *
+ * `resolve_caller_id` on the server refuses anything that is not both verified and
+ * outbound-enabled, so offering one here would produce a refusal *after* the user had
+ * chosen it — exactly what put a released number in front of this user in the first
+ * place, back when the caller-id field was still free text. The same rule, stated early
+ * enough to be useful. Ported from `dashboard/src/scripts/phone-catalogue.ts`.
+ */
+export function usableCallerIds<T extends CallerIdCandidate>(numbers: readonly T[]): T[] {
+  return numbers.filter((n) => n.outbound_enabled && n.verification_status === 'verified');
+}
+
 /**
  * What an assistive technology should say when the phase changes.
  *
