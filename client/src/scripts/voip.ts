@@ -248,3 +248,31 @@ export function getVoipContact(
 ): Promise<ApiResult<VoipContactDetail>> {
   return request('GET', `/api/business/organizations/${orgId}/voip/contacts/${contactId}`);
 }
+
+// --- Numbers (spec 0112/0115) ----------------------------------------------------
+
+export interface VoipNumber {
+  id: string;
+  e164: string;
+  country: string;
+  label: string | null;
+  is_default: boolean;
+  inbound_enabled: boolean;
+  outbound_enabled: boolean;
+  /** 'pending' | 'verified' | 'rejected'. Only a verified number may be presented. */
+  verification_status: string;
+  /** 'ordering' | 'pending_regulatory' | 'active' | 'suspended' | 'releasing' | 'released' | 'failed'. */
+  status?: string;
+  status_reason?: string | null;
+}
+
+/**
+ * `GET …/voip/numbers` — the organisation's numbers, every one of them.
+ *
+ * Rows that cannot be presented as caller id yet come back too. Deciding which are
+ * *usable* is `usableCallerIds` in `./phone-dialer`, and the server re-checks it on the
+ * way out (`resolve_caller_id` in `server/src/voip/routes.rs`).
+ */
+export function listVoipNumbers(orgId: string): Promise<ApiResult<{ numbers: VoipNumber[] }>> {
+  return request('GET', `/api/business/organizations/${orgId}/voip/numbers`);
+}
