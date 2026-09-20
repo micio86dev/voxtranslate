@@ -2653,6 +2653,13 @@ phoneDestinationInput.addEventListener('input', () => {
 phoneDialPanel.addEventListener('submit', (e) => {
   e.preventDefault();
   if (!phoneOrgId || !phoneQuote) return;
+  // `startCall()` here bypasses the ordinary prejoin `join-btn` handler entirely, so
+  // without this the translated-audio AudioContext is never unlocked by a user gesture:
+  // the phone leg's speech would arrive over WS and queue silently against a suspended
+  // context (iOS/Safari autoplay policy) — the caller hears nothing, the phone side is
+  // unaffected because its audio never touches a browser AudioContext at all.
+  unlockTts();
+  pcmPlayback.unlock();
   const request: VoipDialRequest = {
     destination: normaliseDestination(phoneDestinationInput.value),
     source_language: getUiLang(),
