@@ -198,6 +198,17 @@ async function dialToCallScreen(t: { page: Page }): Promise<void> {
   // browser (canShowPhoneCta, wired by updateWorkspaceLink()).
   await expect(t.page.locator('#phone-cta')).toBeVisible();
 
+  // Second trigger (inside the card the panel expands in): opens the same panel, both
+  // triggers hide while it is open, cancel restores both.
+  await t.page.click('#phone-cta-open');
+  await expect(t.page.locator('#phone-dial-panel')).toBeVisible();
+  await expect(t.page.locator('#phone-cta-open')).toBeHidden();
+  await expect(t.page.locator('#phone-cta-toggle')).toBeHidden();
+  await t.page.click('#phone-cancel-btn');
+  await expect(t.page.locator('#phone-dial-panel')).toBeHidden();
+  await expect(t.page.locator('#phone-cta-open')).toBeVisible();
+  await expect(t.page.locator('#phone-cta-toggle')).toBeVisible();
+
   // The actual money/UX invariant this whole feature exists to deliver (R4/R7, design's
   // "1.58.5 stale-prejoin regression guard"): watch #prejoin for the ENTIRE flow below —
   // it must never lose its `hidden` class. A point-in-time check after the fact would miss

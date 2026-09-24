@@ -197,16 +197,17 @@ import {
   looksLikeContactSearch,
   normaliseDestination,
   phaseFromStatus,
+  phoneDialRequest,
   phoneEndCopyKey,
   refusalKey,
   shouldLeaveOnPhoneCallEnded,
   usableCallerIds,
   willAskConsent,
   type CallPhase,
+  type PhoneDialFields,
 } from './phone-dialer';
 import {
   createPhoneLegController,
-  phoneRoomEngine,
   runPhoneDialSequence,
   skipsPrejoin,
   type EntryMode,
@@ -2334,7 +2335,7 @@ async function enterPhoneCall(
     // `resetPhonePanel()` is deliberately NOT called again here — it would wipe the
     // error text this is trying to show.
     show(phoneDialPanel, true);
-    show(phoneCtaToggle, false);
+    setPhoneTriggersVisible(false);
     return;
   }
   // R3: track loss mid-call must hang up rather than bill silence for a call nobody can
@@ -2380,6 +2381,7 @@ async function pollPhoneCall(orgId: string, callId: string): Promise<void> {
 // The panel expands INLINE inside #phone-cta (the webinar-create-toggle pattern) —
 // never a modal, so the price and disclosure copy stay visible while the user types.
 const phoneCtaToggle = $<HTMLButtonElement>('phone-cta-toggle');
+const phoneCtaOpenBtn = $<HTMLButtonElement>('phone-cta-open');
 const phoneDialPanel = $<HTMLFormElement>('phone-dial-panel');
 const phoneDestinationInput = $<HTMLInputElement>('phone-destination');
 const phoneContactResults = $('phone-contact-results');
@@ -2463,6 +2465,12 @@ function setPhoneContactResultsVisible(visible: boolean): void {
   phoneDestinationInput.setAttribute('aria-expanded', String(visible));
 }
 
+/** Both triggers (hero row + card) open the same inline panel, so they show and hide as one. */
+function setPhoneTriggersVisible(visible: boolean): void {
+  show(phoneCtaToggle, visible);
+  show(phoneCtaOpenBtn, visible);
+}
+
 function resetPhonePanel(): void {
   phoneDialPanel.reset();
   phoneQuote = null;
@@ -2487,7 +2495,7 @@ async function openPhoneDialPanel(): Promise<void> {
     // ever is (a stale org list, a race with a lapsed subscription), show it — a
     // silent `return` here left a visible, clickable CTA that did nothing.
     show(phoneDialPanel, true);
-    show(phoneCtaToggle, false);
+    setPhoneTriggersVisible(false);
     showPhoneDialError('phoneReasonGeneric');
     return;
   }
@@ -2498,7 +2506,7 @@ async function openPhoneDialPanel(): Promise<void> {
   await loadPhoneCallerIds(phoneOrgId);
   const probe = await listVoipContacts(phoneOrgId, { limit: 1 });
   phoneHasContacts = !!probe.data?.contacts.length;
-  show(phoneCtaToggle, false);
+  setPhoneTriggersVisible(false);
   show(phoneDialPanel, true);
   // The trigger now lives in the hero row, well above #phone-cta on longer pages —
   // without this the panel opens off-screen and looks like nothing happened.
@@ -2508,7 +2516,7 @@ async function openPhoneDialPanel(): Promise<void> {
 
 function closePhoneDialPanel(): void {
   show(phoneDialPanel, false);
-  show(phoneCtaToggle, true);
+  setPhoneTriggersVisible(true);
   resetPhonePanel();
 }
 
@@ -2595,23 +2603,42 @@ async function pickPhoneContact(summary: VoipContactSummary): Promise<void> {
   await refreshPhoneQuote();
 }
 
+/** The current state of every field `phoneDialRequest` needs, read straight from the DOM —
+ *  the ONE place quote and submit both read from, so they can never drift apart. */
+function readPhoneDialFields(): PhoneDialFields {
+  return {
+    destination: phoneDestinationInput.value,
+    sourceLanguage: getUiLang(),
+    targetLanguage: phoneTheirLangSel.value,
+    projectId: phoneProjectSel.value,
+    callerId: phoneCallerIdInput.value,
+  };
+}
+
 /** The "price shown" step of the mic-before-dial sequencing diagram: a quote fired on a
  *  dialable number, well before the Call press that acquires the mic (R3 only guards
- *  `/voip/calls`, never the free-to-ask `/voip/quote`). */
+ *  `/voip/calls`, never the free-to-ask `/voip/quote`).
+ *
+ *  Posts the SAME fields (project id, caller id) the dial request will — the server
+ *  checks project tenancy and caller-id identically for quote and dial, so a quote
+ *  missing them was refused for a reason the user could never see at the price step
+ *  (`project_required` on an org that requires one, forever, regardless of the picked
+ *  project). */
 async function refreshPhoneQuote(): Promise<void> {
   if (!phoneOrgId) return;
-  const destination = normaliseDestination(phoneDestinationInput.value);
-  if (!looksDialable(destination)) return;
-  const res = await quoteVoipCall(phoneOrgId, {
-    destination,
-    source_language: getUiLang(),
-    target_language: phoneTheirLangSel.value,
-  });
+  const fields = readPhoneDialFields();
+  if (!looksDialable(normaliseDestination(fields.destination))) return;
+  const res = await quoteVoipCall(phoneOrgId, phoneDialRequest(fields, null));
   if (!res.ok || !res.data) {
     phoneQuote = null;
     show(phoneQuoteBox, false);
     phoneCallBtn.disabled = true;
-    showPhoneDialError(refusalKey(errorCode(res.data)));
+    const code = errorCode(res.data);
+    showPhoneDialError(refusalKey(code));
+    if (code === 'project_required') {
+      $<HTMLDetailsElement>('phone-details').open = true;
+      phoneProjectSel.focus();
+    }
     return;
   }
   phoneQuote = res.data;
@@ -2636,7 +2663,19 @@ function renderPhoneQuote(quote: VoipQuote): void {
 }
 
 phoneCtaToggle.addEventListener('click', () => void openPhoneDialPanel());
+phoneCtaOpenBtn.addEventListener('click', () => void openPhoneDialPanel());
 phoneCancelBtn.addEventListener('click', () => closePhoneDialPanel());
+
+// Re-quote on any field the server prices/gates on besides the destination (which
+// re-quotes on `input`, debounced, below): selects change rarely enough that firing
+// immediately needs no debounce. Guarded on `phoneOrgId` the same way `refreshPhoneQuote`
+// itself is, so a change before the panel has ever opened is a no-op.
+for (const field of [phoneProjectSel, phoneTheirLangSel, phoneCallerIdInput]) {
+  field.addEventListener('change', () => {
+    if (!phoneOrgId) return;
+    void refreshPhoneQuote();
+  });
+}
 
 phoneDestinationInput.addEventListener('input', () => {
   phonePickedContactName = null; // typing again invalidates any previous pick
@@ -2667,14 +2706,10 @@ phoneDialPanel.addEventListener('submit', (e) => {
   // `voip/session.rs`'s `run_leg` (`phone_session_deps`).
   unlockTts();
   pcmPlayback.unlock();
-  const request: VoipDialRequest = {
-    destination: normaliseDestination(phoneDestinationInput.value),
-    source_language: getUiLang(),
-    target_language: phoneTheirLangSel.value,
-    engine_id: phoneRoomEngine(phoneQuote),
-    project_id: phoneProjectSel.value || null,
-    caller_id: phoneCallerIdInput.value || null,
-  };
+  // Same fields, same helper as `refreshPhoneQuote()` above — quote and dial can never
+  // disagree about project/caller-id again (the `project_required` bug this fixes was
+  // exactly the two requests drifting apart).
+  const request: VoipDialRequest = phoneDialRequest(readPhoneDialFields(), phoneQuote);
   // Captured now (design: "contact name, or masked destination") — `phoneQuote`'s own
   // `destination` is already server-masked, so no extra masking logic is needed here.
   phoneDisplayLabel = phonePickedContactName ?? phoneQuote.destination;
