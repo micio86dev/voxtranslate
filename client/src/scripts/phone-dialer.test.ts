@@ -24,6 +24,7 @@ import {
   numberProblem,
   phaseFromStatus,
   phaseProgress,
+  phoneDialRequest,
   phoneEndCopyKey,
   refusalKey,
   shouldLeaveOnPhoneCallEnded,
@@ -138,6 +139,45 @@ describe('looksDialable', () => {
     expect(looksDialable('')).toBe(false);
     expect(looksDialable('+3932012345678901')).toBe(false);
     expect(looksDialable('0393201234567')).toBe(false);
+  });
+});
+
+// The ONE request body both `/voip/quote` and `/voip/calls` receive (bug fix: the quote
+// used to post only destination + languages, so a `require_project` org always refused
+// the quote with `project_required` and the Call button never enabled).
+describe('phoneDialRequest', () => {
+  const baseFields = {
+    destination: '+393201234567',
+    sourceLanguage: 'en',
+    targetLanguage: 'it',
+    projectId: '',
+    callerId: '',
+  };
+
+  it('passes the project and caller id through when selected', () => {
+    const request = phoneDialRequest(
+      { ...baseFields, projectId: 'proj-1', callerId: '+18005550100' },
+      null,
+    );
+    expect(request.project_id).toBe('proj-1');
+    expect(request.caller_id).toBe('+18005550100');
+  });
+
+  it('turns an empty (no selection) project/caller-id select into null', () => {
+    const request = phoneDialRequest(baseFields, null);
+    expect(request.project_id).toBeNull();
+    expect(request.caller_id).toBeNull();
+  });
+
+  it('omits engine_id without a quote, and takes it from the quote when present', () => {
+    expect(phoneDialRequest(baseFields, null)).not.toHaveProperty('engine_id');
+    expect(phoneDialRequest(baseFields, undefined)).not.toHaveProperty('engine_id');
+    expect(phoneDialRequest(baseFields, { engine_id: 'standard' }).engine_id).toBe('standard');
+  });
+
+  it('normalises the destination the same way the dial input does', () => {
+    const request = phoneDialRequest({ ...baseFields, destination: '+39 320 123.4567' }, null);
+    expect(request.destination).toBe('+393201234567');
   });
 });
 
