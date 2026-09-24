@@ -63,8 +63,11 @@ already-tested functions — no new pure logic to unit-test.
       yesterday's byte-order fix.
 - [ ] 5. Commit on `hotfix/1.60.4` (off `main`), PR, green CI, merge, tag `v1.60.4`
 - [ ] 6. Back-merge `main` → `develop`, green CI / staging deploy
-- [ ] 7. Ask the user to re-test the same call in production and confirm they now hear
-      the phone party
+- [x] 7. Re-tested by the user (2026-09-24): STILL silent on the web side. The unlock
+      was not the cause. Production logs of the 2026-09-21 call show the phone leg's
+      Standard session opening with `targets=[]` under listener-pays because the web
+      peer joined on `cartesia`. Superseded by `odd/tasks/voip-phone-room-engine-pin.md`
+      (hotfix 1.60.5); the unlock stays as harmless iOS belt-and-braces.
 
 ## Verification evidence
 (filled in as work proceeds)

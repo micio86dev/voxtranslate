@@ -114,6 +114,21 @@ export interface PhoneLegController {
   currentCallId: () => string | null;
 }
 
+/**
+ * The engine the room a telephone lives in must join on.
+ *
+ * The room runs on whatever engine the SERVER resolved for the phone leg
+ * (`resolve_for_phone` may substitute a client-direct tier the telephone cannot use,
+ * e.g. Cartesia), never on the caller's own UI-selected engine — joining on any other
+ * engine leaves the caller outside the phone leg's audience and the phone party's
+ * speech is never translated for them (2026-09-21 silent-phone-party incident).
+ */
+export function phoneRoomEngine(
+  quote: { engine_id: string } | null | undefined,
+): string | undefined {
+  return quote?.engine_id || undefined;
+}
+
 export function createPhoneLegController(deps: PhoneLegDeps): PhoneLegController {
   let active: PhoneLegHandle | null = null;
   return {

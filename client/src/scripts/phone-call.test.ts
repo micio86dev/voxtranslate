@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { createPhoneLegController, runPhoneDialSequence, skipsPrejoin } from './phone-call';
+import {
+  createPhoneLegController,
+  phoneRoomEngine,
+  runPhoneDialSequence,
+  skipsPrejoin,
+} from './phone-call';
 
 describe('skipsPrejoin', () => {
   it('R4: the phone entry path skips the camera/device-check prejoin screen', () => {
@@ -9,6 +14,22 @@ describe('skipsPrejoin', () => {
 
   it('R7: an ordinary video-room join is unaffected — the prejoin screen still shows', () => {
     expect(skipsPrejoin('room')).toBe(false);
+  });
+});
+
+// The 2026-09-21 silent-phone-party regression: a web caller joined the phone room on
+// their UI-selected engine while the server ran the phone leg on a substituted one
+// (`resolve_for_phone` refuses a client-direct engine for a telephone), so the caller
+// never received the phone party's translated speech. The room a telephone lives in must
+// always run on the engine the SERVER actually resolved for the phone leg.
+describe('phoneRoomEngine', () => {
+  it('returns the engine the server resolved for the phone leg, from the quote', () => {
+    expect(phoneRoomEngine({ engine_id: 'standard' })).toBe('standard');
+  });
+
+  it('returns undefined without a quote', () => {
+    expect(phoneRoomEngine(null)).toBeUndefined();
+    expect(phoneRoomEngine(undefined)).toBeUndefined();
   });
 });
 
