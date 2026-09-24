@@ -85,12 +85,29 @@ Wait for green CI on both before calling this done.
       directly exercises the fix's core logic (a released number is filtered out), and
       `astro check` confirms the new markup/script wiring compiles and type-checks. Flagged
       as an open gap, not silently skipped.
-- [ ] 7. Commit on `hotfix/1.60.3` (Conventional Commits), open PR/merge to `main`, tag
-      `v1.60.3`, wait for green CI / prod deploy
-- [ ] 8. Back-merge `main` → `develop`, wait for green CI / staging deploy
-- [ ] 9. Report final verified state to the user, including that the underlying number
-      `+34959740254` itself still needs to be re-purchased separately (out of this fix's
-      scope) if the org wants to use their own Spanish number as caller id again
+- [x] 7. Commit `fec9c262` on `hotfix/1.60.3`, PR #420 → `main`, CI green (test,
+      check-secrets, security-audit, e2e all success), merged `1843aedd`, tagged `v1.60.3`.
+      Push-to-main run 35477929483: check-secrets/security-audit/test/e2e = success;
+      deploy-server/deploy-media = skipped (correct — `server_changed` gate false, no
+      `server/` files touched). Webapp prod deploy confirmed separately via Vercel (own
+      Git integration, not in ci.yml): `dpl_4MSXTQj7YQrox2gbZ6qpoeHNGJs5`, target
+      production, status Ready, aliased to `https://app.voxtranslate.app`, created
+      01:07:21 (~1min after merge).
+- [x] 8. Back-merged `main` → `develop` locally (`7ebb2e5a`, no-ff), pushed. Push-to-develop
+      run 35478527296: test/check-secrets/security-audit/e2e/**deploy-staging** = success
+      (Railway `api-staging` redeployed); deploy-server/deploy-media = skipped (main-only
+      jobs). Webapp staging: Vercel Preview deploy for `develop`,
+      `dpl_9CuohVZuEMMm8PPuvZ2EUJGUR9M3`, status Ready, alias
+      `https://voxtranslate-git-develop-miciodevs-projects.vercel.app` (no dedicated custom
+      staging domain exists for the client app — known prior limitation, not introduced by
+      this change). Hotfix branch pruned locally and on remote after merge.
+- [x] 9. Reported to user: fix is live in both environments. Still open, out of this fix's
+      scope: the org's original number `+34959740254` is permanently gone from Telnyx
+      (released 2026-09-14, confirmed via provider 404) and must be re-purchased (same
+      number if still available, or a new one) if the org wants their own Spanish caller id
+      instead of the platform default `+34828670421`. `release()` also still has no audit
+      logging — worth a follow-up so a repeat of "purchased then released 68s later" is
+      traceable.
 
 ## Verification evidence
 

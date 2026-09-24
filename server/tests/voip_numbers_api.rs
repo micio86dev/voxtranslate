@@ -1295,4 +1295,25 @@ async fn an_owner_can_give_a_number_back() {
         r.status(),
         r.text().await.unwrap_or_default()
     );
+
+    // A purchased-then-released number is exactly the pattern that needs a trail: who
+    // released it, and when. `log_audit_event` is fire-and-forget (tokio::spawn), so the
+    // row can land after this response — poll rather than assume it already landed.
+    let mut rows: i64 = 0;
+    for _ in 0..50 {
+        rows = sqlx::query_scalar(
+            "SELECT count(*) FROM audit_logs
+              WHERE org_id = $1 AND action = 'voip.number.released' AND resource_id = $2",
+        )
+        .bind(org_id)
+        .bind(number_id)
+        .fetch_one(&srv.pool)
+        .await
+        .unwrap();
+        if rows > 0 {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    assert_eq!(rows, 1, "expected exactly one audit row for the release");
 }

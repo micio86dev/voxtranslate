@@ -61,8 +61,21 @@ already-tested functions — no new pure logic to unit-test.
       `AudioContext` state, and building one is out of scope for this hotfix (flagged,
       not silently skipped). Final proof needs one real production call, same as
       yesterday's byte-order fix.
-- [ ] 5. Commit on `hotfix/1.60.4` (off `main`), PR, green CI, merge, tag `v1.60.4`
-- [ ] 6. Back-merge `main` → `develop`, green CI / staging deploy
+- [x] 5. Commit `7dd9e420` on `hotfix/1.60.4`, PR #422 → `main`, CI green (test,
+      check-secrets, security-audit, e2e), merged `361fa17c`, tagged `v1.60.4`. Webapp
+      prod deploy confirmed via Vercel: `dpl_CD48Eq6CBdF985bwyEz7bUszyDJu`, target
+      production, status Ready, aliased `https://app.voxtranslate.app`.
+      `deploy-server`/`deploy-media` correctly skipped (no `server/` files touched).
+- [x] 6. Back-merged `main` → `develop` (`43dd2bc9`, no-ff), pushed. First CI run
+      (35511861323) had ONE unrelated e2e failure —
+      `e2e/screenshare.spec.ts:73 "screen share works without a camera (issue #4)"`,
+      `#btn-share never became clickable` — zero overlap with this change (no
+      screenshare/webrtc-mesh files touched) and the SAME commit content already passed
+      e2e on PR #422 before merge; `deploy-staging` doesn't depend on e2e and had
+      already succeeded independently. Reran the failed job (`gh run rerun --failed`):
+      green on retry, confirming pre-existing flake, not a regression. Full run now:
+      test/check-secrets/security-audit/e2e/deploy-staging all success.
+      Hotfix branch pruned locally and on remote after merge.
 - [x] 7. Re-tested by the user (2026-09-24): STILL silent on the web side. The unlock
       was not the cause. Production logs of the 2026-09-21 call show the phone leg's
       Standard session opening with `targets=[]` under listener-pays because the web

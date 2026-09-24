@@ -285,6 +285,15 @@ const jsonLd = {
           </div>
           <p class="host-cta-desc" data-i18n="phoneCtaDesc">{T('phoneCtaDesc')}</p>
 
+          <!-- Second trigger, inside the card the panel expands in: the hero button reaches
+               users scanning the headline actions, this one reaches users who read the
+               description first. Both open the same inline panel and both hide while it is
+               open (setPhoneTriggersVisible() in app.ts). Same key as the hero button. -->
+          <button id="phone-cta-open" type="button" class="btn-primary phone-cta-open">
+            <Fragment set:html={icon('phone', 18)} />
+            <span data-i18n="phoneCtaButton">{T('phoneCtaButton')}</span>
+          </button>
+
           <form id="phone-dial-panel" class="phone-dial-panel hidden">
             <label class="field">
               <span class="field-label" data-i18n="phoneDestinationLabel">{T('phoneDestinationLabel')}</span>
@@ -2145,6 +2154,10 @@ const jsonLd = {
        reads as telephony, not a generic form. */
     .phone-cta { border-color: var(--accent); }
     .phone-cta-header { justify-content: flex-start; gap: 10px; }
+    .phone-cta-open {
+      width: 100%; display: inline-flex; align-items: center; justify-content: center;
+      gap: 0.55rem;
+    }
     .phone-cta-icon {
       display: inline-flex; align-items: center; justify-content: center; flex: none;
       width: 30px; height: 30px; border-radius: 50%;

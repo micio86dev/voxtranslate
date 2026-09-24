@@ -74,9 +74,13 @@ Two layers, one rule: **a room with a telephone in it runs on the telephone's en
       origin/main --committed-only`): risk `medium` (executable change in `app.ts`),
       234 changed lines, `review_due=false` / `under_budget` — no native review due; the
       slice stays pending under budget.
-- [ ] 6. PR → `main` opened (no version file is bumped on hotfixes; the tag is the version), CI green, merge, tag, back-merge `develop`,
-      prune branch.
-- [ ] 7. Ask the user to re-test one real call and confirm the phone party is audible.
+- [x] 6. PR #423 → `main`, CI green (test, e2e, check-secrets, security-audit), merged
+      `37efa446`, tagged `v1.60.5`. Back-merged `main` → `develop` (`1e87d1aa`, no-ff; one
+      doc-only conflict in `voip-webapp-audio-unlock.md` resolved). Production: `deploy-server`
+      success, Railway deployment `a183cab7` SUCCESS; Vercel production on `37efa446`.
+      Staging: `deploy-staging` success. Hotfix branch pruned locally and on the remote.
+- [ ] 7. User re-tests one real production call and confirms the phone party is audible
+      on the web side (only proof left; nothing in CI exercises a live PSTN leg).
 
 ## Verification evidence
 - `npx vitest run src/scripts/phone-call.test.ts`: RED confirmed

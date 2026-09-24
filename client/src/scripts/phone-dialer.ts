@@ -22,7 +22,7 @@
  * without sight, and a phone call is exactly the feature where that matters most.
  */
 
-import type { EntryMode } from './phone-call';
+import { phoneRoomEngine, type EntryMode } from './phone-call';
 
 /** What the UI shows. Derived from the server's status, never invented client-side. */
 export type CallPhase =
@@ -148,6 +148,46 @@ export function numberProblem(raw: string | null | undefined): NumberProblem | n
  */
 export function looksDialable(raw: string): boolean {
   return numberProblem(raw) === null;
+}
+
+/** The raw, unnormalised state of the dial panel's inputs/selects. */
+export interface PhoneDialFields {
+  destination: string; // raw input value
+  sourceLanguage: string;
+  targetLanguage: string;
+  projectId: string; // select value, '' when none
+  callerId: string; // select value, '' when none
+}
+
+/**
+ * The ONE request body both `/voip/quote` and `/voip/calls` receive.
+ *
+ * Bug this fixes: `refreshPhoneQuote()` used to post only destination + languages, so an
+ * org with `require_project` always refused the QUOTE with `project_required` (the server
+ * checks project tenancy and caller-id identically for quote and dial — `check_project` in
+ * `voip/routes.rs`) and the Call button never enabled, even after the user picked a
+ * project. Building both requests from the same fields makes that impossible again.
+ */
+export function phoneDialRequest(
+  fields: PhoneDialFields,
+  quote: { engine_id: string } | null | undefined,
+): {
+  destination: string;
+  source_language: string;
+  target_language: string;
+  engine_id?: string;
+  project_id: string | null;
+  caller_id: string | null;
+} {
+  const engineId = phoneRoomEngine(quote);
+  return {
+    destination: normaliseDestination(fields.destination),
+    source_language: fields.sourceLanguage,
+    target_language: fields.targetLanguage,
+    ...(engineId ? { engine_id: engineId } : {}),
+    project_id: fields.projectId || null,
+    caller_id: fields.callerId || null,
+  };
 }
 
 /** Credits (integers, 1 = $0.01) as a currency amount. */
