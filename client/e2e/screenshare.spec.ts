@@ -155,8 +155,19 @@ test('screen share works without a camera (issue #4)', async ({ browser }) => {
   ).toBeTruthy();
 
   // Stop sharing → with no camera, the viewer falls back to the camera-off avatar.
-  // The ⋯ menu is still open from the start-share above (it no longer closes on a
-  // pick — spec 0036), so btn-share is clickable straight away.
+  //
+  // The ⋯ menu auto-closes ~250 ms after ANY pick (#226 superseded spec 0036's "stay
+  // open until dismissed"), and `.hidden` is `display: none`, so #btn-share is not
+  // clickable until the menu is reopened. This step used to click #btn-share straight
+  // away and won only when the viewer-side wait above finished inside that 250 ms
+  // window: a race between a UI timer and a WebRTC renegotiation, lost on every loaded
+  // runner (four red post-merge runs on 2026-09-20/24, green on rerun). Wait for the
+  // close rather than race it — clicking #btn-more while the menu is still open would
+  // toggle it shut — then reopen and pick.
+  await expect(a.page.locator('#more-menu')).toBeHidden({ timeout: 5_000 });
+  await a.page.click('#btn-more', { timeout: 15_000 }).catch(() => {
+    throw new Error('the ⋯ menu never became clickable for the stop-share');
+  });
   await a.page.click('#btn-share', { timeout: 15_000 }).catch(() => {
     throw new Error('#btn-share never became clickable for the stop-share');
   });
