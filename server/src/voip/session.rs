@@ -435,6 +435,36 @@ pub fn remove_phone_leg_and_notify(
     outcome
 }
 
+/// Build the `SessionDeps` for the phone leg's one and only engine session.
+///
+/// Always `listener_pays: false` — deliberately NOT `state.config.listener_pays`. A phone
+/// leg opens exactly one engine session (never a Standard-plus-premium fan-out like the
+/// browser speaker path in `lib.rs`), so the raw global flag scoped its targets to
+/// listeners who ALSO picked THAT engine (`standard.rs`'s `target_langs_for_engine`) —
+/// and the web caller commonly joins the room on a different engine (their own UI
+/// preference), which is exactly the 2026-09-21 silent-phone-party incident: the phone
+/// party's speech translated into an empty target set. This mirrors `lib.rs`'s
+/// `any_premium_ok` gate: "no premium engine running (here: can't run) -> serve everyone".
+fn phone_session_deps(
+    state: &crate::AppState,
+    may_transcribe: bool,
+    transcript_writer: crate::engine::TranscriptWriter,
+) -> SessionDeps {
+    SessionDeps {
+        rooms: state.rooms.clone(),
+        moderator: state.moderator.clone(),
+        transcripts: if may_transcribe {
+            state.transcripts.clone()
+        } else {
+            None
+        },
+        participant_row: None,
+        listener_pays: false,
+        translator: state.translator.clone(),
+        transcript_writer,
+    }
+}
+
 /// Take a claimed leg all the way to a running bridge.
 ///
 /// Opens the engine session for the telephone as a *speaker*, then hands the socket to
@@ -492,19 +522,7 @@ where
     // downgrade to the default engine still elects itself as this turn's writer instead
     // of losing the claim to nobody. See `engine::TranscriptWriter`.
     let transcript_writer = crate::engine::TranscriptWriter::default();
-    let build_deps = || SessionDeps {
-        rooms: state.rooms.clone(),
-        moderator: state.moderator.clone(),
-        transcripts: if may_transcribe {
-            state.transcripts.clone()
-        } else {
-            None
-        },
-        participant_row: None,
-        listener_pays: state.config.listener_pays,
-        translator: state.translator.clone(),
-        transcript_writer: transcript_writer.clone(),
-    };
+    let build_deps = || phone_session_deps(state, may_transcribe, transcript_writer.clone());
 
     let (outcome, active_engine) =
         open_engine_session(&state.engines, leg.call_id, engine, &build_ctx, &build_deps).await;
@@ -1069,6 +1087,31 @@ impl futures::Sink<String> for TextSocket {
 mod tests {
     use super::*;
     use crate::rooms::RoomManager;
+
+    // ---- `phone_session_deps` — the silent-phone-party regression (2026-09-21) ---------
+    //
+    // Production: a web caller joined the room on `cartesia` (their UI preference) while
+    // the server ran the phone leg on `standard` (`resolve_for_phone` substitution). With
+    // `LISTENER_PAYS=1`, forwarding that raw flag into the phone leg's ONE engine session
+    // scoped its targets to listeners who ALSO chose `standard` — none did — so the phone
+    // party's speech was never translated for the web caller. A phone leg never fans out
+    // to more than one engine, so it must always serve every listener, exactly like the
+    // "no premium engine running" branch `lib.rs` takes when `any_premium_ok` is false.
+
+    #[test]
+    fn phone_leg_deps_ignore_the_global_listener_pays_flag() {
+        let mut cfg = crate::config::Config::test_with_billing("", &"x".repeat(32), 0.0);
+        cfg.listener_pays = true;
+        let state = crate::AppState::new(cfg);
+
+        let deps = phone_session_deps(&state, false, crate::engine::TranscriptWriter::default());
+
+        assert!(
+            !deps.listener_pays,
+            "a phone leg's single engine session must always serve every listener, not just \
+             ones who also picked the phone leg's own engine"
+        );
+    }
 
     fn park_one(live: &LiveCalls, call: Uuid) {
         let (_tx, rx, _o) = PeerTx::channel(4);

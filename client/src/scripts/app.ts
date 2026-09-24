@@ -204,7 +204,13 @@ import {
   willAskConsent,
   type CallPhase,
 } from './phone-dialer';
-import { createPhoneLegController, runPhoneDialSequence, skipsPrejoin, type EntryMode } from './phone-call';
+import {
+  createPhoneLegController,
+  phoneRoomEngine,
+  runPhoneDialSequence,
+  skipsPrejoin,
+  type EntryMode,
+} from './phone-call';
 
 // A lazily-imported chunk (e.g. the post-call session screen or the in-call
 // modules) can 404 when a new frontend deploy rewrote the hashed filenames while
@@ -2653,17 +2659,19 @@ phoneDestinationInput.addEventListener('input', () => {
 phoneDialPanel.addEventListener('submit', (e) => {
   e.preventDefault();
   if (!phoneOrgId || !phoneQuote) return;
-  // `startCall()` here bypasses the ordinary prejoin `join-btn` handler entirely, so
-  // without this the translated-audio AudioContext is never unlocked by a user gesture:
-  // the phone leg's speech would arrive over WS and queue silently against a suspended
-  // context (iOS/Safari autoplay policy) — the caller hears nothing, the phone side is
-  // unaffected because its audio never touches a browser AudioContext at all.
+  // `startCall()` here bypasses the ordinary prejoin `join-btn` handler entirely, so this
+  // unlock is kept as belt-and-braces for iOS/Safari's autoplay policy. It was NOT the
+  // cause of the 2026-09-21 silent-phone-party incident: that was an engine mismatch —
+  // the web caller joining the room on its own selected engine while the server ran the
+  // phone leg on a substituted one — fixed by `engine_id` below and, server-side, by
+  // `voip/session.rs`'s `run_leg` (`phone_session_deps`).
   unlockTts();
   pcmPlayback.unlock();
   const request: VoipDialRequest = {
     destination: normaliseDestination(phoneDestinationInput.value),
     source_language: getUiLang(),
     target_language: phoneTheirLangSel.value,
+    engine_id: phoneRoomEngine(phoneQuote),
     project_id: phoneProjectSel.value || null,
     caller_id: phoneCallerIdInput.value || null,
   };
