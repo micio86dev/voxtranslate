@@ -70,8 +70,11 @@ Two layers, one rule: **a room with a telephone in it runs on the telephone's en
       clean. (Unscoped `cargo test -p voxtranslate-server` hits this machine's pre-existing
       rust-lld crash on unrelated integration binaries — see evidence below; not caused by
       this change.)
-- [ ] 5. Work-unit commit(s) on `hotfix/1.60.5`, native review per RDD.
-- [ ] 6. PR → `main` (no version file is bumped on hotfixes; the tag is the version), CI green, merge, tag, back-merge `develop`,
+- [x] 5. Work-unit commit `46cafbc6` on `hotfix/1.60.5`. RDD assess (`--base-ref
+      origin/main --committed-only`): risk `medium` (executable change in `app.ts`),
+      234 changed lines, `review_due=false` / `under_budget` — no native review due; the
+      slice stays pending under budget.
+- [ ] 6. PR → `main` opened (no version file is bumped on hotfixes; the tag is the version), CI green, merge, tag, back-merge `develop`,
       prune branch.
 - [ ] 7. Ask the user to re-test one real call and confirm the phone party is audible.
 
