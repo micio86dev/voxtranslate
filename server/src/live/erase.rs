@@ -73,6 +73,15 @@ pub async fn erase_content(pool: &Pool, live_session_id: Uuid) -> Result<Erased,
         .fetch_all(&mut *tx)
         .await?;
 
+    // The AI summaries of the conversation are content too: they quote and paraphrase what was
+    // said. A claim still pending goes as well, so a summary being written when the content is
+    // erased finds its claim gone and is discarded rather than stored.
+    let summaries = sqlx::query("DELETE FROM live_session_summaries WHERE session_id = $1")
+        .bind(live_session_id)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+
     // The guest's name is personal data that the cascade does not reach; the token hash is
     // a credential fingerprint with no use once the conversation's content is gone. User ids
     // stay: which member answered is part of who did what, and goes with the member's account.
@@ -86,12 +95,12 @@ pub async fn erase_content(pool: &Pool, live_session_id: Uuid) -> Result<Erased,
     .await?
     .rows_affected();
 
-    if !deleted.is_empty() || scrubbed > 0 {
+    if !deleted.is_empty() || scrubbed > 0 || summaries > 0 {
         sqlx::query(
             "INSERT INTO live_session_events (session_id, kind, detail) VALUES ($1, 'content_erased', $2)",
         )
         .bind(live_session_id)
-        .bind(json!({ "call_sessions": deleted.len() }))
+        .bind(json!({ "call_sessions": deleted.len(), "summaries": summaries }))
         .execute(&mut *tx)
         .await?;
     }
@@ -157,6 +166,7 @@ pub async fn retention_pass(state: &AppState, only: Option<&[Uuid]>) -> Result<u
            AND ($1::uuid[] IS NULL OR ls.id = ANY($1))
            AND COALESCE(ls.ended_at, ls.created_at) < now() - make_interval(days => r.days)
            AND (ls.call_session_id IS NOT NULL
+                OR EXISTS (SELECT 1 FROM live_session_summaries sm WHERE sm.session_id = ls.id)
                 OR EXISTS (SELECT 1 FROM live_participants p
                            WHERE p.session_id = ls.id
                              AND (p.display_name <> $5 OR p.token_hash IS NOT NULL)))

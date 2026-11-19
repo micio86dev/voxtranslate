@@ -1,14 +1,17 @@
 // Provisions the Live Connect (spec 0121) administration in Directus via the REST API:
 //
 //   1. a "Live Connect" folder with the live_* collections registered, readable
-//      display templates, relations, and every sensitive column hidden;
+//      display templates, relations, and every sensitive column hidden; plus
+//      `live_desk_usage_daily`, a read-only rollup TABLE (credits per desk per day, metadata
+//      only) that stands in for `live_usage_ticks`, whose composite key Directus cannot
+//      manage (Directus ignores views too, so the rollup is a table, see migration 068);
 //   2. two roles, created here (nothing else in this repo creates roles):
 //        "Live Connect Support"  read-only, METADATA ONLY (no names, no transcripts, no QR)
 //        "Live Connect Privacy"  Support + the one Flow button that reads a transcript;
 //   3. the Flow buttons, each calling the VoxTranslate server (`/api/admin/live/*`)
 //      with the shared secret: Revoke desk, Regenerate desk, End session, Reconcile
 //      session, and (Privacy only) View transcript;
-//   4. an Insights dashboard that reads metadata only.
+//   4. an Insights dashboard that reads metadata only (including credits per desk).
 //
 // Directus stays a thin admin UI: it never writes the live tables. Every action goes
 // through the server, which audits it (`admin_audit`). Customer-facing workflows
@@ -164,7 +167,8 @@ const PERSONAL =
 // Collections. `live_usage_ticks` is NOT here: its primary key is composite
 // (session_id, peer_id, tick_seq) and Directus ignores tables without a single
 // primary key column ("doesn't have a primary key column and will be ignored").
-// Per-session billing is checked by the "Reconcile session" Flow instead.
+// Per-session billing is checked by the "Reconcile session" Flow; per-desk totals come
+// from the `live_desk_usage_daily` table below.
 const COLLECTIONS = {
   live_desks: {
     icon: 'storefront',
@@ -234,6 +238,29 @@ const COLLECTIONS = {
       left_at: {},
     },
   },
+  // A rolled-up TABLE (migration 068): one row per (desk, day) with the sum of the
+  // organisation-paid credits and the number of conversations, refreshed hourly by the server
+  // from the `live_desk_usage` view. It exists because `live_usage_ticks` has a composite
+  // primary key, and a view cannot stand in for it: Directus 11 only introspects BASE TABLEs
+  // (verified on 11.17.4), so a view is invisible to it. Metadata only: ids, a day, two counts.
+  live_desk_usage_daily: {
+    icon: 'bar_chart',
+    display: '{{desk_id.name}} · {{day}} · {{credits}} credits',
+    note: 'Credits per service desk per day (UTC), organisation-paid conversations only. Read-only rollup, refreshed hourly: no names, no text.',
+    sort: 5,
+    fields: {
+      id: { hidden: true, note: 'Surrogate key: "<desk id>:<day>".' },
+      org_id: m2o('{{name}}'),
+      desk_id: m2o('{{name}}'),
+      day: {},
+      sessions: { note: 'Conversations with at least one metered tick that day.' },
+      credits: { note: 'Organisation credits debited that day for this desk.' },
+      refreshed_at: { note: 'When this row was last recomputed.' },
+    },
+    // `desk_id` has no foreign key (a deleted desk keeps its history); this relation lives in
+    // Directus only, so a desk shows as its name and not as a uuid. `org_id` is a real FK.
+    relations: [{ field: 'desk_id', related: 'live_desks' }],
+  },
   live_session_events: {
     icon: 'timeline',
     display: '{{kind}} · {{ts}}',
@@ -258,6 +285,8 @@ const SUPPORT_FIELDS = {
   live_participants: ['peer_id', 'session_id', 'role', 'lang', 'consent_at', 'joined_at', 'left_at'],
   // No `detail`.
   live_session_events: ['id', 'session_id', 'ts', 'kind'],
+  // Metadata only: no name, no text.
+  live_desk_usage_daily: ['id', 'org_id', 'desk_id', 'day', 'sessions', 'credits', 'refreshed_at'],
 };
 
 async function ensureFolder() {
@@ -327,6 +356,24 @@ async function ensureAliases(collection, aliases = []) {
       method: 'PATCH',
       body: { collection: many, field, related_collection: collection, meta: { one_field: a.field } },
     });
+  }
+}
+
+// Relations Directus knows about but the database does not (a column without a foreign key):
+// `schema: null` creates the relation in Directus only, so a desk shows as its name and not
+// as a uuid. Safe to re-run: an existing relation is updated, never duplicated.
+async function ensureMetaRelations(collection, relations = []) {
+  for (const r of relations) {
+    const have = (await api(`/relations/${collection}/${r.field}`).catch(() => null))?.data;
+    const meta = { many_collection: collection, many_field: r.field, one_collection: r.related };
+    if (have && have.field) {
+      await api(`/relations/${collection}/${r.field}`, { method: 'PATCH', body: { meta } });
+    } else {
+      await api('/relations', {
+        method: 'POST',
+        body: { collection, field: r.field, related_collection: r.related, schema: null, meta },
+      });
+    }
   }
 }
 
@@ -700,18 +747,18 @@ function timeseries(dash, { x = 1, y, w = 24, h = 11, name, note, color, collect
     options: { collection, dateField, valueField: field, function: fn, precision, range, filter: filter || {}, color: color || null, fillHoles: true, showXAxis: true, showYAxis: true },
   });
 }
-function list(dash, { x = 1, y, w = 12, h = 12, name, note, collection, sortField = 'created_at', sortDirection = 'desc', limit = 8, filter }) {
+function list(dash, { x = 1, y, w = 12, h = 12, name, note, collection, sortField = 'created_at', sortDirection = 'desc', limit = 8, filter, template }) {
   panels.push({
     dashboard: dash, name, note: note || null, icon: 'list', color: null, show_header: true, type: 'list',
     position_x: x, position_y: y, width: w, height: h,
-    options: { collection, limit, sortField, sortDirection, filter: filter || {} },
+    options: { collection, limit, sortField, sortDirection, filter: filter || {}, ...(template ? { displayTemplate: template } : {}) },
   });
 }
-function barchart(dash, { x = 1, y, w = 12, h = 14, name, note, color, collection, xField, fn = 'count', field = 'id', filter, horizontal = true }) {
+function barchart(dash, { x = 1, y, w = 12, h = 14, name, note, color, collection, xField, fn = 'count', field = 'id', filter, horizontal = true, displayField }) {
   panels.push({
     dashboard: dash, name, note: note || null, icon: 'bar_chart', color: color || null, show_header: true, type: 'bar-chart',
     position_x: x, position_y: y, width: w, height: h,
-    options: { collection, xAxis: xField, yAxis: field, function: fn, filter: filter || {}, horizontal, color: color || null, showDataLabel: true, sortDirection: 'desc' },
+    options: { collection, xAxis: xField, yAxis: field, function: fn, filter: filter || {}, horizontal, color: color || null, showDataLabel: true, sortDirection: 'desc', ...(displayField ? { xAxisDisplayField: displayField } : {}) },
   });
 }
 
@@ -728,6 +775,7 @@ async function ensureDashboard(name, icon, note) {
 }
 
 const DAYS7 = '$NOW(-7 days)';
+const DAYS30 = '$NOW(-30 days)';
 const FAILED = { _or: [{ end_reason: { _in: ['abandoned', 'expired', 'ended_by_billing', 'max_duration'] } }, { status: { _eq: 'expired' } }] };
 
 function buildInsights(d) {
@@ -745,9 +793,14 @@ function buildInsights(d) {
   timeseries(d, { x: 13, y: tsY, w: 12, name: 'Failed / abandoned / day', color: '#E35169', collection: 'live_sessions', dateField: 'created_at', filter: FAILED });
   const mid = tsY + 11;
   barchart(d, { x: 1, y: mid, w: 12, name: 'Sessions by end reason', color: '#6644FF', collection: 'live_sessions', xField: 'end_reason', filter: { end_reason: { _nnull: true } }, note: 'Why conversations ended' });
-  barchart(d, { x: 13, y: mid, w: 12, name: 'Sessions by desk', color: '#00C4B4', collection: 'live_sessions', xField: 'desk_id', filter: { desk_id: { _nnull: true } }, note: 'Busiest desks (count). Credits per desk are not available in Directus: ticks have a composite key, see README.' });
+  barchart(d, { x: 13, y: mid, w: 12, name: 'Sessions by desk', color: '#00C4B4', collection: 'live_sessions', xField: 'desk_id', filter: { desk_id: { _nnull: true } }, note: 'Busiest desks (count). Credits per desk are in the two panels below.' });
   timeseries(d, { x: 1, y: mid + 14, w: 24, h: 10, name: 'Org credits spent / day', color: '#00C4B4', collection: 'organization_credits_transactions', dateField: 'created_at', fn: 'sum', field: 'amount', filter: { type: { _eq: 'live_connect' } } });
-  const listY = mid + 24;
+  // Credits per desk, from the live_desk_usage_daily table (see migration 068). The bar-chart panel has
+  // no top-N option, so the chart shows every desk and the list below it is the top 10.
+  const deskY = mid + 24;
+  barchart(d, { x: 1, y: deskY, w: 12, name: 'Credits by desk (30d)', color: '#00C4B4', collection: 'live_desk_usage_daily', xField: 'desk_id', fn: 'sum', field: 'credits', filter: { day: { _gte: DAYS30 } }, displayField: 'name', note: 'Organisation credits debited per service desk over the last 30 days (UTC days).' });
+  list(d, { x: 13, y: deskY, w: 12, h: 14, name: 'Top 10 desk-days by credits (30d)', collection: 'live_desk_usage_daily', sortField: 'credits', sortDirection: 'desc', limit: 10, filter: { day: { _gte: DAYS30 } }, template: '{{desk_id.name}} · {{day}} · {{credits}} credits · {{sessions}} conv.', note: 'The ten busiest (desk, day) pairs of the last 30 days.' });
+  const listY = deskY + 14;
   list(d, { x: 1, y: listY, w: 12, name: 'Failed / abandoned sessions', collection: 'live_sessions', filter: FAILED, note: 'Newest first. Select one → Reconcile session / End session.' });
   list(d, { x: 13, y: listY, w: 12, name: 'Recent sessions', collection: 'live_sessions' });
 }
@@ -784,12 +837,13 @@ async function main() {
   for (const [name, cfg] of Object.entries(COLLECTIONS)) {
     console.log(`  • ${name}: ${await ensureCollection(name, cfg)}`);
   }
-  console.log('  • live_usage_ticks: skipped (composite primary key; Directus cannot manage it)');
+  console.log('  • live_usage_ticks: skipped (composite primary key; Directus cannot manage it). Per-desk credits: the live_desk_usage_daily table above.');
 
   console.log('▸ Fields (read-only, sensitive columns hidden) and relations');
   for (const [name, cfg] of Object.entries(COLLECTIONS)) {
     await ensureFields(name, cfg.fields);
     await ensureAliases(name, cfg.aliases);
+    await ensureMetaRelations(name, cfg.relations);
     console.log(`  • ${name}: ${Object.keys(cfg.fields).length} fields${cfg.aliases ? `, ${cfg.aliases.length} reverse relations` : ''}`);
   }
 

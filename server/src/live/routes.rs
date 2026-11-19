@@ -44,6 +44,7 @@ pub fn routes() -> Router<AppState> {
         .route(WS_PATH, get(super::ws::ws_live))
         .merge(super::desks::routes())
         .merge(super::dashboard::routes())
+        .merge(super::summary::routes())
 }
 
 // ---- helpers ---------------------------------------------------------------------------

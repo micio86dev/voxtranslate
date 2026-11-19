@@ -326,7 +326,7 @@ DIRECTUS_URL=https://<your-directus> \
 ```
 
 Idempotent: a re-run updates in place (a second run changes no counts). It creates
-the *Live Connect* folder, the four collections below, two roles (nothing else in
+the *Live Connect* folder, the five collections below (four tables of the live feature and the `live_desk_usage_daily` rollup), two roles (nothing else in
 this repo creates roles), five Flows and one dashboard. It creates **no users**:
 add operators in Directus and give each ONE of the two roles. Flags:
 `--no-transcript-preview` (see Privacy), `--print-transcript-filter` (see below).
@@ -339,6 +339,7 @@ add operators in Directus and give each ONE of the two roles. Flags:
 | Read `live_sessions` | status, languages, end reason, timings, owner/org/project/desk ids, participants (below), events (below) | same |
 | Read `live_participants` | role, language, consent and join/leave times | same |
 | Read `live_session_events` | kind and time | same |
+| Read `live_desk_usage_daily` | desk, day, number of conversations, credits (no names, no text) | same |
 | Org ledger | amount and date of `type = live_connect` rows only | same |
 | Insights | the *Live Connect - Operations* dashboard | same |
 | Buttons | Revoke desk, Regenerate desk, End session, Reconcile session | those four **+ View transcript** |
@@ -361,8 +362,18 @@ add operators in Directus and give each ONE of the two roles. Flags:
 * **Event details.** `live_session_events.detail` (free-form diagnostics) is admin-only.
 * `live_usage_ticks` is not a Directus collection at all: its primary key is composite and
   Directus ignores tables without a single primary key. Per-session billing is verified
-  with **Reconcile session**; there is no per-desk credit chart for the same reason (see
-  the dashboard note).
+  with **Reconcile session**. Per-desk credits come from `live_desk_usage_daily` instead
+  (below).
+* **`live_desk_usage_daily`** is a rollup *table* (one row per desk and UTC day: the number of
+  conversations and the organisation credits they were debited), created by migration 068
+  and filled from the `live_desk_usage` view by `refresh_live_desk_usage()`; the server calls
+  it from its hourly housekeeping, so a chart can be up to an hour behind (an operator can run
+  `SELECT refresh_live_desk_usage();` for a fresh one). It is a table and not the view itself
+  because Directus 11 only introspects base tables: a view is invisible to it (checked on
+  11.17.4). It holds ids, a day and two counts, no personal data, and is read-only for both
+  roles. Directus connects with the database owner's rights, so the view's `security_invoker`
+  setting does not affect it; the migration also revokes both objects from the Supabase API
+  roles (`anon`, `authenticated`).
 
 "Hidden" fields are hidden from the app's forms and lists and excluded from Support and
 Privacy by an explicit allow-list (a column added later stays invisible until someone
@@ -435,10 +446,12 @@ rows is refused.
 *Live Connect - Operations* has: open sessions now, sessions and failures in the last 7
 days, expired-while-waiting (compare with the 7-day total for the rate), sessions per day,
 failed/abandoned per day, sessions by end reason and by desk, org credits spent per day,
-and lists of failed and recent sessions. Panels run with the **viewer's** permissions, so
-a Support user can only ever chart what Support can read. Credits are shown per day and in
-total, not per desk (ticks are not a Directus collection); the per-desk figures are in the
-B2B dashboard's usage view.
+credits by desk over 30 days with a top-10 list of the busiest desk-days, and lists of failed
+and recent sessions. Panels run with the **viewer's** permissions, so
+a Support user can only ever chart what Support can read. Credits by desk come from
+`live_desk_usage_daily` (hourly refresh); the bar chart shows every desk because Directus'
+bar-chart panel has no top-N option, so the top 10 is the list next to it. The customer-facing
+per-desk figures stay in the B2B dashboard's usage view.
 
 ## Endpoint reference (server)
 

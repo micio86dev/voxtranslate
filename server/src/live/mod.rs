@@ -16,6 +16,7 @@ pub mod finalize;
 pub mod routes;
 pub mod sessions;
 pub mod state;
+pub mod summary;
 pub mod sweeper;
 pub mod tokens;
 pub mod ws;

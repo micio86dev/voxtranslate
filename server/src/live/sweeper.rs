@@ -67,6 +67,13 @@ pub async fn run_maintenance(state: &AppState, only: Option<&[Uuid]>) -> (u64, u
             tracing::warn!(error = %e, "live: finalising stragglers failed");
             0
         });
+    // The per-desk usage rollup that Directus charts read. Global and idempotent, so it is not
+    // scoped by `only`; it holds counts and credits, never content.
+    if let Some(pool) = state.pool.as_ref() {
+        if let Err(e) = super::dashboard::refresh_desk_usage(pool).await {
+            tracing::warn!(error = %e, "live: desk usage rollup refresh failed");
+        }
+    }
     (finalized, erased)
 }
 

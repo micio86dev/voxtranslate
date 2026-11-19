@@ -11,6 +11,7 @@
 //!   cargo test --test live_schema`.
 //! A run that finishes in a few milliseconds skipped everything.
 
+use chrono::Utc;
 use serde_json::json;
 use uuid::Uuid;
 use voxtranslate_server::db::{self, Pool};
@@ -21,7 +22,14 @@ const LIVE_TABLES: &[&str] = &[
     "live_participants",
     "live_usage_ticks",
     "live_session_events",
+    "live_session_summaries",
+    "live_desk_usage_daily",
 ];
+
+/// Re-running a migration's DDL takes ACCESS EXCLUSIVE locks table by table; a query that reads
+/// two of those tables in the other order deadlocks with it. Tests that re-run DDL, and the one
+/// that reads the tables the desk-usage refresh touches, take turns.
+static DDL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 async fn setup() -> Option<Pool> {
     let url = db::test_database_url()?;
@@ -106,6 +114,7 @@ async fn migration_is_idempotent() {
         eprintln!("skipping — no DATABASE_URL");
         return;
     };
+    let _turn = DDL.lock().await;
     // `sqlx::migrate!` already applied it once; applying the raw SQL again twice more must
     // be a no-op — the property CLAUDE.md demands of every migration.
     let sql = include_str!("../migrations/065_live_connect.sql");
@@ -422,4 +431,418 @@ async fn the_events_erasure_depends_on_are_never_dropped_by_the_diagnostics_cap(
     .await
     .unwrap();
     assert_eq!(kept, 1);
+}
+
+// ---- 067: AI summaries -------------------------------------------------------------------
+
+#[tokio::test]
+async fn the_summary_and_desk_usage_migrations_are_idempotent() {
+    let Some(pool) = setup().await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    let _turn = DDL.lock().await;
+    for sql in [
+        include_str!("../migrations/067_live_session_summaries.sql"),
+        include_str!("../migrations/068_live_usage_by_desk_view.sql"),
+    ] {
+        for _ in 0..2 {
+            sqlx::raw_sql(sql)
+                .execute(&pool)
+                .await
+                .expect("must be re-runnable");
+        }
+    }
+}
+
+#[tokio::test]
+async fn summaries_are_one_per_language_checked_and_follow_the_conversation_and_its_asker() {
+    let Some(pool) = setup().await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    let owner = make_user(&pool).await;
+    let org = make_org(&pool, owner).await;
+    let asker = make_user(&pool).await;
+    let session: Uuid = sqlx::query_scalar(
+        "INSERT INTO live_sessions (org_id, host_lang, status, expires_at) VALUES ($1, 'it', 'ended', now() + interval '1 hour') RETURNING id",
+    )
+    .bind(org)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let insert = |lang: &'static str, status: &'static str, summary: &'static str| {
+        let pool = pool.clone();
+        async move {
+            sqlx::query("INSERT INTO live_session_summaries (session_id, lang, status, summary, created_by) VALUES ($1, $2, $3, $4, $5)")
+                .bind(session)
+                .bind(lang)
+                .bind(status)
+                .bind(summary)
+                .bind(asker)
+                .execute(&pool)
+                .await
+        }
+    };
+
+    insert("en", "ready", "text")
+        .await
+        .expect("a ready summary");
+    let dup = insert("en", "pending", "")
+        .await
+        .expect_err("one per (session, lang)");
+    assert!(is_violation(&dup, "23505"), "{dup:?}");
+    for (lang, status, summary, why) in [
+        ("EN", "ready", "x", "language codes are stored lower case"),
+        ("e", "ready", "x", "too short"),
+        ("it", "done", "x", "unknown status"),
+        ("fr", "ready", "", "a ready summary is never empty"),
+    ] {
+        let err = insert(lang, status, summary).await.expect_err(why);
+        assert!(is_violation(&err, "23514"), "{why}: {err:?}");
+    }
+    insert("it", "pending", "")
+        .await
+        .expect("a pending claim may be empty");
+
+    // The asker's account going away keeps the org's summary; the conversation going away
+    // takes it.
+    sqlx::query("DELETE FROM users WHERE id = $1")
+        .bind(asker)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let by: Vec<Option<Uuid>> =
+        sqlx::query_scalar("SELECT created_by FROM live_session_summaries WHERE session_id = $1")
+            .bind(session)
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    assert_eq!(by, vec![None, None]);
+    sqlx::query("DELETE FROM live_sessions WHERE id = $1")
+        .bind(session)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let left: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM live_session_summaries WHERE session_id = $1")
+            .bind(session)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(left, 0);
+}
+
+// ---- 068: credits per desk per day -------------------------------------------------------
+
+async fn make_desk(pool: &Pool, org: Uuid, name: &str) -> Uuid {
+    sqlx::query_scalar(
+        "INSERT INTO live_desks (org_id, name, public_id) VALUES ($1, $2, $3) RETURNING id",
+    )
+    .bind(org)
+    .bind(name)
+    .bind(format!("d{}", &Uuid::new_v4().simple().to_string()[..11]))
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
+/// A business conversation at `desk` with one guest seat, and a tick per `(seq, payer, amount,
+/// ts)`.
+async fn desk_session(
+    pool: &Pool,
+    org: Uuid,
+    desk: Option<Uuid>,
+    ticks: &[(i64, &str, i32, &str)],
+) -> Uuid {
+    let session: Uuid = sqlx::query_scalar(
+        "INSERT INTO live_sessions (org_id, desk_id, host_lang, status, expires_at) VALUES ($1, $2, 'it', 'ended', now() + interval '1 hour') RETURNING id",
+    )
+    .bind(org)
+    .bind(desk)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    let peer = add_participant(pool, session, "guest").await.unwrap();
+    for (seq, payer, amount, ts) in ticks {
+        sqlx::query("INSERT INTO live_usage_ticks (session_id, peer_id, tick_seq, payer_kind, amount, ts) VALUES ($1, $2, $3, $4, $5, $6::timestamptz)")
+            .bind(session)
+            .bind(peer)
+            .bind(seq)
+            .bind(payer)
+            .bind(rust_decimal::Decimal::from(*amount))
+            .bind(ts)
+            .execute(pool)
+            .await
+            .unwrap();
+    }
+    session
+}
+
+#[tokio::test]
+async fn the_desk_usage_view_sums_org_credits_per_desk_and_day_and_exposes_nothing_personal() {
+    let Some(pool) = setup().await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    let owner = make_user(&pool).await;
+    let org = make_org(&pool, owner).await;
+    let other_org = make_org(&pool, owner).await;
+    let front = make_desk(&pool, org, "Front desk").await;
+    let spa = make_desk(&pool, org, "Spa").await;
+    let foreign = make_desk(&pool, other_org, "Elsewhere").await;
+
+    // Front desk: two conversations on the 3rd (5+3 and 4), one on the 4th (7); a consumer-paid
+    // tick, which is not the org's credits, is left out.
+    desk_session(
+        &pool,
+        org,
+        Some(front),
+        &[
+            (1, "org", 5, "2026-03-03 10:00+00"),
+            (2, "org", 3, "2026-03-03 23:59:30+00"),
+            (3, "user", 9, "2026-03-03 11:00+00"),
+        ],
+    )
+    .await;
+    desk_session(
+        &pool,
+        org,
+        Some(front),
+        &[(1, "org", 4, "2026-03-03 12:00+00")],
+    )
+    .await;
+    desk_session(
+        &pool,
+        org,
+        Some(front),
+        &[(1, "org", 7, "2026-03-04 00:00:30+00")],
+    )
+    .await;
+    desk_session(
+        &pool,
+        org,
+        Some(spa),
+        &[(1, "org", 2, "2026-03-03 09:00+00")],
+    )
+    .await;
+    // Never part of the view: a conversation whose desk is gone, another organisation's desk.
+    desk_session(&pool, org, None, &[(1, "org", 100, "2026-03-03 09:00+00")]).await;
+    desk_session(
+        &pool,
+        other_org,
+        Some(foreign),
+        &[(1, "org", 100, "2026-03-03 09:00+00")],
+    )
+    .await;
+
+    let rows: Vec<(String, Uuid, Uuid, chrono::NaiveDate, i64, i64)> = sqlx::query_as(
+        "SELECT id, org_id, desk_id, day, sessions, credits FROM live_desk_usage WHERE org_id = $1 ORDER BY day, desk_id = $2 DESC",
+    )
+    .bind(org)
+    .bind(front)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    let day = |d: &str| chrono::NaiveDate::parse_from_str(d, "%Y-%m-%d").unwrap();
+    assert_eq!(
+        rows,
+        vec![
+            (
+                format!("{front}:2026-03-03"),
+                org,
+                front,
+                day("2026-03-03"),
+                2,
+                12
+            ),
+            (
+                format!("{spa}:2026-03-03"),
+                org,
+                spa,
+                day("2026-03-03"),
+                1,
+                2
+            ),
+            (
+                format!("{front}:2026-03-04"),
+                org,
+                front,
+                day("2026-03-04"),
+                1,
+                7
+            ),
+        ]
+    );
+    let ids: std::collections::HashSet<&String> = rows.iter().map(|r| &r.0).collect();
+    assert_eq!(ids.len(), rows.len(), "the surrogate id is unique");
+
+    // Metadata only: no name, no text, no language, no token.
+    let columns: Vec<String> = sqlx::query_scalar(
+        "SELECT column_name FROM information_schema.columns WHERE table_name = 'live_desk_usage' ORDER BY ordinal_position",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        columns,
+        ["id", "org_id", "desk_id", "day", "sessions", "credits"]
+    );
+}
+
+#[tokio::test]
+async fn the_desk_usage_view_does_not_widen_access_beyond_the_tables_under_it() {
+    let Some(pool) = setup().await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    // On Postgres 15+ the view must run with the CALLER's rights (so RLS on the live tables
+    // still applies to anyone but the owner), not its owner's.
+    let version: i32 = sqlx::query_scalar("SELECT current_setting('server_version_num')::int")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    if version >= 150_000 {
+        let options: Option<Vec<String>> = sqlx::query_scalar(
+            "SELECT reloptions FROM pg_class WHERE relname = 'live_desk_usage' AND relnamespace = 'public'::regnamespace",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(
+            options
+                .unwrap_or_default()
+                .iter()
+                .any(|o| o == "security_invoker=true"),
+            "security_invoker must be on"
+        );
+    }
+    // Where the Supabase roles exist they hold no privilege on it.
+    for role in ["anon", "authenticated"] {
+        let exists: bool =
+            sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1)")
+                .bind(role)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        if exists {
+            let can: bool = sqlx::query_scalar(
+                "SELECT has_table_privilege($1, 'public.live_desk_usage', 'SELECT')",
+            )
+            .bind(role)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            assert!(!can, "{role} must not read live_desk_usage");
+        }
+    }
+}
+
+// ---- 068: the table Directus charts from -------------------------------------------------
+
+async fn daily(pool: &Pool, org: Uuid) -> Vec<(String, i64, i64)> {
+    sqlx::query_as(
+        "SELECT id, sessions::bigint, credits::bigint FROM live_desk_usage_daily WHERE org_id = $1 ORDER BY id",
+    )
+    .bind(org)
+    .fetch_all(pool)
+    .await
+    .unwrap()
+}
+
+#[tokio::test]
+async fn the_rollup_table_follows_the_view_and_a_refresh_changes_only_what_differs() {
+    let Some(pool) = setup().await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    let _turn = DDL.lock().await;
+    let owner = make_user(&pool).await;
+    let org = make_org(&pool, owner).await;
+    let front = make_desk(&pool, org, "Front desk").await;
+    let spa = make_desk(&pool, org, "Spa").await;
+    let today = Utc::now().format("%Y-%m-%d").to_string();
+    let now = format!("{today} 10:00+00");
+    let front_session = desk_session(&pool, org, Some(front), &[(1, "org", 5, &now)]).await;
+    let spa_session = desk_session(
+        &pool,
+        org,
+        Some(spa),
+        &[(1, "org", 2, &now), (2, "user", 9, &now)],
+    )
+    .await;
+
+    voxtranslate_server::live::dashboard::refresh_desk_usage(&pool)
+        .await
+        .unwrap();
+    let rows = daily(&pool, org).await;
+    assert!(rows.contains(&(format!("{front}:{today}"), 1, 5)));
+    assert!(
+        rows.contains(&(format!("{spa}:{today}"), 1, 2)),
+        "the consumer-paid tick is not counted: {rows:?}"
+    );
+
+    // A second refresh with nothing new changes nothing for this organisation.
+    let before: Vec<(String, chrono::DateTime<Utc>)> = sqlx::query_as(
+        "SELECT id, refreshed_at FROM live_desk_usage_daily WHERE org_id = $1 ORDER BY id",
+    )
+    .bind(org)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    voxtranslate_server::live::dashboard::refresh_desk_usage(&pool)
+        .await
+        .unwrap();
+    let after: Vec<(String, chrono::DateTime<Utc>)> = sqlx::query_as(
+        "SELECT id, refreshed_at FROM live_desk_usage_daily WHERE org_id = $1 ORDER BY id",
+    )
+    .bind(org)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(before, after, "an unchanged row is left alone");
+
+    // New usage corrects the row; a conversation that loses its desk drops out of the table.
+    let peer: Uuid =
+        sqlx::query_scalar("SELECT peer_id FROM live_participants WHERE session_id = $1")
+            .bind(front_session)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    sqlx::query("INSERT INTO live_usage_ticks (session_id, peer_id, tick_seq, payer_kind, amount, ts) VALUES ($1, $2, 2, 'org', 4, $3::timestamptz)")
+        .bind(front_session)
+        .bind(peer)
+        .bind(&now)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE live_sessions SET desk_id = NULL WHERE id = $1")
+        .bind(spa_session)
+        .execute(&pool)
+        .await
+        .unwrap();
+    voxtranslate_server::live::dashboard::refresh_desk_usage(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        daily(&pool, org).await,
+        vec![(format!("{front}:{today}"), 1, 9)]
+    );
+
+    // History outside the window is never touched by a refresh.
+    sqlx::query("INSERT INTO live_desk_usage_daily (id, org_id, desk_id, day, sessions, credits) VALUES ($1, $2, $3, current_date - 400, 1, 1)")
+        .bind(format!("{spa}:old"))
+        .bind(org)
+        .bind(spa)
+        .execute(&pool)
+        .await
+        .unwrap();
+    voxtranslate_server::live::dashboard::refresh_desk_usage(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        daily(&pool, org).await.len(),
+        2,
+        "old history survives a refresh"
+    );
 }

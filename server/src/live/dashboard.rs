@@ -51,7 +51,7 @@ pub fn routes() -> Router<AppState> {
         )
 }
 
-fn not_found() -> Response {
+pub(super) fn not_found() -> Response {
     api_err(
         StatusCode::NOT_FOUND,
         "session_not_found",
@@ -60,7 +60,7 @@ fn not_found() -> Response {
 }
 
 /// True when the caller's role sees the whole organisation, not only their own conversations.
-fn sees_all(role: &str) -> bool {
+pub(super) fn sees_all(role: &str) -> bool {
     role_rank(role) >= ADMIN
 }
 
@@ -137,7 +137,7 @@ const SESSION_SELECT: &str = "
     LEFT JOIN projects p ON p.id = s.project_id";
 
 /// A member sees a conversation only if they sat in one of its two seats.
-const MEMBER_VISIBLE: &str =
+pub(super) const MEMBER_VISIBLE: &str =
     "EXISTS (SELECT 1 FROM live_participants mp WHERE mp.session_id = s.id AND mp.user_id = $2)";
 
 pub async fn list_sessions(
@@ -297,8 +297,20 @@ pub async fn session_detail(
         })
         .collect();
 
+    // Which languages the conversation already has an AI summary in (read with its own
+    // endpoint; see `summary`).
+    let summary_langs: Vec<String> = sqlx::query_scalar(
+        "SELECT lang FROM live_session_summaries
+         WHERE session_id = $1 AND status = 'ready' ORDER BY created_at",
+    )
+    .bind(id)
+    .fetch_all(pool)
+    .await
+    .map_err(db_err)?;
+
     let mut body = json!({
         "session": head.view(),
+        "summary_langs": summary_langs,
         "participants": participants.iter().map(|(peer_id, role, name, lang)| {
             json!({ "peer_id": peer_id, "role": role, "display_name": name, "lang": lang })
         }).collect::<Vec<_>>(),
@@ -440,4 +452,14 @@ async fn open_sessions(pool: &Pool, org_id: Uuid) -> Result<Vec<serde_json::Valu
             json!({ "session_id": r.id, "status": r.status, "desk": r.desk, "started_at": r.started_at, "credits": r.credits })
         })
         .collect())
+}
+
+/// Bring `live_desk_usage_daily` (the table Directus charts per-desk credits from) in line with
+/// the `live_desk_usage` view for the last 35 UTC days. Metadata only, never on the billing
+/// path, safe to repeat. Returns how many rows were inserted or changed. Meant for the hourly
+/// housekeeping; see migration 068.
+pub async fn refresh_desk_usage(pool: &Pool) -> Result<i32, sqlx::Error> {
+    sqlx::query_scalar("SELECT refresh_live_desk_usage()")
+        .fetch_one(pool)
+        .await
 }

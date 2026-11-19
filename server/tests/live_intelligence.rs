@@ -2066,6 +2066,59 @@ async fn the_hourly_maintenance_finalises_stragglers_and_applies_retention() {
     );
 }
 
+#[tokio::test]
+async fn the_hourly_maintenance_refreshes_the_per_desk_usage_rollup_directory_charts_read() {
+    let srv = srv!();
+    let org = org(&srv).await;
+    let desk: Uuid = sqlx::query_scalar(
+        "INSERT INTO live_desks (org_id, name, public_id) VALUES ($1, 'Front', $2) RETURNING id",
+    )
+    .bind(org.id)
+    .bind(format!("d{}", &Uuid::new_v4().simple().to_string()[..11]))
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
+    let session: Uuid = sqlx::query_scalar(
+        "INSERT INTO live_sessions (org_id, desk_id, host_lang, status, expires_at) VALUES ($1, $2, 'it', 'ended', now() + interval '1 hour') RETURNING id",
+    )
+    .bind(org.id)
+    .bind(desk)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
+    let peer = Uuid::new_v4();
+    sqlx::query("INSERT INTO live_participants (session_id, peer_id, role, display_name, lang, token_hash) VALUES ($1, $2, 'guest', 'G', 'es', $3)")
+        .bind(session)
+        .bind(peer)
+        .bind(vec![0u8; 32])
+        .execute(&srv.pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO live_usage_ticks (session_id, peer_id, tick_seq, payer_kind, amount, ts) VALUES ($1, $2, 1, 'org', 6, now())")
+        .bind(session)
+        .bind(peer)
+        .execute(&srv.pool)
+        .await
+        .unwrap();
+    let rollup = || async {
+        sqlx::query_scalar::<_, i64>(
+            "SELECT COALESCE(SUM(credits), 0)::bigint FROM live_desk_usage_daily WHERE desk_id = $1",
+        )
+        .bind(desk)
+        .fetch_one(&srv.pool)
+        .await
+        .unwrap()
+    };
+    assert_eq!(rollup().await, 0, "nothing refreshed it yet");
+
+    run_maintenance(&srv.state, Some(&[])).await;
+    assert_eq!(
+        rollup().await,
+        6,
+        "the maintenance pass keeps the rollup current"
+    );
+}
+
 // ---- account deletion (defect D4) ----------------------------------------------------------
 
 #[tokio::test]
