@@ -32,6 +32,7 @@ pub mod google_oauth;
 pub mod groq;
 pub mod invite;
 pub mod invoices;
+pub mod live;
 pub mod location;
 pub mod log_shipping;
 pub mod meetings;
