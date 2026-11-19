@@ -14,6 +14,8 @@ use super::tokens::{KeyError, LiveKeys};
 const DEFAULT_JOIN_WINDOW_SECS: i64 = 15 * 60;
 /// Seconds a scanned desk session waits for staff before it expires.
 const DEFAULT_DESK_WAIT_SECS: i64 = 120;
+/// Sessions that may be waiting at one desk at once.
+const DEFAULT_DESK_MAX_WAITING: i64 = 20;
 /// Hard ceiling on one conversation.
 const DEFAULT_MAX_SESSION_MIN: i64 = 120;
 /// Open sessions one signed-in owner may have at once.
@@ -52,6 +54,7 @@ pub struct LiveConfig {
     pub keys: Option<LiveKeys>,
     pub join_window_secs: i64,
     pub desk_wait_secs: i64,
+    pub desk_max_waiting: i64,
     pub max_session_min: i64,
     pub max_concurrent_per_owner: i64,
     pub reconnect_grace_secs: i64,
@@ -66,6 +69,7 @@ impl LiveConfig {
             keys: None,
             join_window_secs: DEFAULT_JOIN_WINDOW_SECS,
             desk_wait_secs: DEFAULT_DESK_WAIT_SECS,
+            desk_max_waiting: DEFAULT_DESK_MAX_WAITING,
             max_session_min: DEFAULT_MAX_SESSION_MIN,
             max_concurrent_per_owner: DEFAULT_MAX_CONCURRENT_PER_OWNER,
             reconnect_grace_secs: DEFAULT_RECONNECT_GRACE_SECS,
@@ -105,6 +109,7 @@ impl LiveConfig {
                 24 * 3600,
             )?,
             desk_wait_secs: number("LIVE_DESK_WAIT_SECS", DEFAULT_DESK_WAIT_SECS, 10, 3600)?,
+            desk_max_waiting: number("LIVE_DESK_MAX_WAITING", DEFAULT_DESK_MAX_WAITING, 1, 200)?,
             max_session_min: number("LIVE_MAX_SESSION_MIN", DEFAULT_MAX_SESSION_MIN, 1, 24 * 60)?,
             max_concurrent_per_owner: number(
                 "LIVE_MAX_CONCURRENT_PER_OWNER",

@@ -8,6 +8,7 @@
 
 pub mod billing;
 pub mod config;
+pub mod desks;
 pub mod routes;
 pub mod sessions;
 pub mod state;

@@ -42,6 +42,7 @@ pub fn routes() -> Router<AppState> {
         .route("/api/live/sessions/{id}", get(get_session))
         .route("/api/live/sessions/{id}/end", post(end))
         .route(WS_PATH, get(super::ws::ws_live))
+        .merge(super::desks::routes())
 }
 
 // ---- helpers ---------------------------------------------------------------------------
@@ -50,7 +51,7 @@ pub fn api_err(status: StatusCode, code: &str, message: &str) -> Response {
     (status, Json(json!({ "code": code, "message": message }))).into_response()
 }
 
-fn disabled() -> Response {
+pub(super) fn disabled() -> Response {
     api_err(
         StatusCode::NOT_FOUND,
         "live_disabled",
@@ -62,7 +63,7 @@ fn disabled() -> Response {
 /// conversation needs. Standard never reports `AtCapacity`; it silently skips a direction,
 /// which the user experiences as one person who cannot be heard. A snapshot, not a
 /// reservation — but it turns the common case into an honest "busy, try again".
-fn engine_has_room(state: &AppState) -> bool {
+pub(super) fn engine_has_room(state: &AppState) -> bool {
     state
         .engines
         .default()
@@ -70,7 +71,7 @@ fn engine_has_room(state: &AppState) -> bool {
         .is_none_or(|free| free >= 2)
 }
 
-fn busy() -> Response {
+pub(super) fn busy() -> Response {
     api_err(
         StatusCode::SERVICE_UNAVAILABLE,
         "live_busy",
@@ -78,7 +79,7 @@ fn busy() -> Response {
     )
 }
 
-fn rate_limited() -> Response {
+pub(super) fn rate_limited() -> Response {
     api_err(
         StatusCode::TOO_MANY_REQUESTS,
         "rate_limited",
