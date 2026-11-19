@@ -45,6 +45,8 @@ let baselineTaken = false;
 let newDeskName: string | null = null;
 let target: Target | null = null;
 let answering = false;
+/** A customer the dashboard Desk console sent us to (`?answer=<session id>`), until it is handled. */
+let wantedSession: string | null = null;
 /** Which message `#ls-error` holds: a poll problem clears itself on recovery, a notice does not. */
 let errorKind: 'poll' | 'notice' | null = null;
 
@@ -195,11 +197,45 @@ function onSnapshot(s: DeskSnapshot): void {
   clearError('poll');
   renderDesks(s);
   paintCue(s);
+  openWanted(s);
   // The customer the member was about to answer can leave while the choice is open.
   if (target && !(s.waiting[target.desk.id] ?? []).some((c) => c.session_id === target?.customer.session_id)) {
     closePanel();
     showError('liveStaffErrGone', 'notice');
   }
+}
+
+// --- the dashboard deep link ----------------------------------------------------------------
+
+const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Read and consume `?answer=<session id>`. The parameter is ALWAYS removed from the address —
+ * valid or not — so a reload does not repeat it and a session id does not linger in the history.
+ * Only the exact shape of a session id is believed; anything else is ignored.
+ */
+function takeDeepLink(): string | null {
+  const url = new URL(window.location.href);
+  const value = url.searchParams.get('answer');
+  if (value === null) return null;
+  url.searchParams.delete('answer');
+  window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
+  return SESSION_ID.test(value) ? value.toLowerCase() : null;
+}
+
+/** On the first poll after arriving: open that customer's language choice, or say they left. */
+function openWanted(s: DeskSnapshot): void {
+  if (!wantedSession || target) return;
+  const id = wantedSession;
+  wantedSession = null; // once: a cancelled choice must not reopen on the next poll
+  for (const d of s.desks) {
+    const c = (s.waiting[d.id] ?? []).find((x) => x.session_id.toLowerCase() === id);
+    if (c) {
+      openPanel(d, c);
+      return;
+    }
+  }
+  showError('liveStaffErrGone', 'notice');
 }
 
 // --- answering ------------------------------------------------------------------------------
@@ -330,6 +366,7 @@ export async function mountLiveStaff(): Promise<void> {
   target = null;
   answering = false;
   errorKind = null;
+  wantedSession = takeDeepLink();
 
   if (!(await billingEnabled())) {
     setHidden('ls-unavailable', false);

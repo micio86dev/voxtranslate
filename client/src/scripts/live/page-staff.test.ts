@@ -520,3 +520,54 @@ describe('secrets', () => {
     expect(location.href).not.toContain('STAFF-LIVE');
   });
 });
+
+describe('the ?answer= deep link (from the dashboard Desk console)', () => {
+  const ID = '11111111-2222-3333-4444-555555555555';
+  const arrive = (q: string) => window.history.replaceState({}, '', `/live/desks${q}`);
+  afterEach(() => window.history.replaceState({}, '', '/'));
+
+  it('opens the language choice for exactly that customer, without answering for the member', async () => {
+    setWorld([desk()], { d1: [cust('other', 'Zoe'), cust(ID, 'Marco', 'es')] });
+    arrive(`?answer=${ID}`);
+    await mount();
+    expect($('ls-answer').hidden).toBe(false);
+    expect($('ls-answer-title').textContent).toBe('Answer Marco');
+    expect(api.answerSession).not.toHaveBeenCalled();
+  });
+
+  it('removes the parameter, so a reload does not repeat it and the id does not stay in the history', async () => {
+    setWorld([desk()], { d1: [cust(ID)] });
+    arrive(`?answer=${ID}&keep=1`);
+    await mount();
+    expect(window.location.search).toBe('?keep=1');
+  });
+
+  it('says the customer left when they are not waiting any more, and opens nothing', async () => {
+    setWorld([desk()], { d1: [cust('someone-else')] });
+    arrive(`?answer=${ID}`);
+    await mount();
+    expect($('ls-answer').hidden).toBe(true);
+    expect($('ls-error').textContent).toBe(EN.liveStaffErrGone);
+  });
+
+  it('ignores a value that is not a session id — no panel, no error, still stripped', async () => {
+    setWorld([desk()], { d1: [cust('a')] });
+    for (const bad of ['a', '../../x', '<script>', '1111']) {
+      document.body.innerHTML = pageMarkup();
+      arrive(`?answer=${encodeURIComponent(bad)}`);
+      await mount();
+      expect($('ls-answer').hidden, bad).toBe(true);
+      expect($('ls-error').hidden, bad).toBe(true);
+      expect(window.location.search, bad).toBe('');
+    }
+  });
+
+  it('opens once: after the member cancels, the next poll does not open it again', async () => {
+    setWorld([desk()], { d1: [cust(ID)] });
+    arrive(`?answer=${ID}`);
+    await mount();
+    ($('ls-answer-cancel') as HTMLButtonElement).click();
+    await tick();
+    expect($('ls-answer').hidden).toBe(true);
+  });
+});

@@ -311,6 +311,35 @@ describe('reconnect', () => {
   });
 });
 
+describe('default timers (real browsers)', () => {
+  it('calls setTimeout/clearTimeout unbound: stored on the instance they throw "Illegal invocation"', async () => {
+    // A browser rejects a timer function invoked with any receiver but the window. Node does
+    // not, so the unit suite could never see `this.setTimeoutImpl(...)` break on the first
+    // reconnect — the fault only showed in a real browser.
+    const realSet = globalThis.setTimeout;
+    const realClear = globalThis.clearTimeout;
+    const strict = (name: string, fn: (...a: never[]) => unknown) =>
+      function (this: unknown, ...a: never[]) {
+        if (this !== undefined && this !== globalThis) throw new TypeError(`Illegal invocation: ${name}`);
+        return fn(...a);
+      };
+    const pending: Array<() => void> = [];
+    globalThis.setTimeout = strict('setTimeout', ((f: () => void) => pending.push(f)) as never) as never;
+    globalThis.clearTimeout = strict('clearTimeout', (() => {}) as never) as never;
+    try {
+      const h = await live({ setTimeoutImpl: undefined, clearTimeoutImpl: undefined });
+      sockets[0].drop();
+      expect(h.convo.state().phase).toBe('reconnecting');
+      expect(pending.length).toBeGreaterThanOrEqual(1);
+      h.convo.end(); // clears the pending reconnect through the default clearTimeout
+      expect(h.convo.state().phase).toBe('ended');
+    } finally {
+      globalThis.setTimeout = realSet;
+      globalThis.clearTimeout = realClear;
+    }
+  });
+});
+
 describe('frames', () => {
   it('renders a full exchange from direction → interim → final', async () => {
     const h = await live();
