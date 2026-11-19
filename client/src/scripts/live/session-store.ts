@@ -10,12 +10,14 @@
 
 export const STORAGE_KEY = 'vox.live.session';
 export const HEADPHONES_KEY = 'vox.live.headphones';
+export const DESK_KEY = 'vox.live.desk';
+export const STAFF_LANG_KEY = 'vox.live.staffLang';
 const DEFAULT_WS_PATH = '/ws/live';
 
 export interface StoredSession {
   sessionId: string;
   token: string;
-  role: 'host' | 'guest';
+  role: 'host' | 'guest' | 'staff';
   myLang: string;
   myPeerId: string;
   /** Always `/ws/live` today; stored so a future route move does not strand a rejoin. */
@@ -40,7 +42,7 @@ export function loadStoredSession(): StoredSession | null {
     if (
       typeof v.sessionId !== 'string' ||
       typeof v.token !== 'string' ||
-      (v.role !== 'host' && v.role !== 'guest') ||
+      (v.role !== 'host' && v.role !== 'guest' && v.role !== 'staff') ||
       typeof v.myLang !== 'string' ||
       typeof v.myPeerId !== 'string'
     ) {
@@ -80,6 +82,83 @@ export function loadHeadphones(): boolean {
 export function saveHeadphones(on: boolean): void {
   try {
     localStorage.setItem(HEADPHONES_KEY, on ? '1' : '0');
+  } catch {
+    // Per-device convenience only.
+  }
+}
+
+/**
+ * What the desk scan page needs after a reload besides the credentials: which desk this is and
+ * when the request stops being answerable. Kept apart from the session because the engine
+ * rewrites the session record and knows nothing about desks. Keyed by session id, so a new scan
+ * can never pick up the previous scan's countdown.
+ */
+export interface DeskInfo {
+  sessionId: string;
+  /** The desk's public handle (the part of the QR segment before the dot, which is not secret):
+   *  lets a tab that scanned desk B tell that its stored session belongs to desk A. */
+  handle: string;
+  name: string;
+  location: string | null;
+  /** Epoch milliseconds after which nobody is going to answer. */
+  until: number;
+}
+
+export function saveDeskInfo(d: DeskInfo): void {
+  try {
+    sessionStorage.setItem(DESK_KEY, JSON.stringify(d));
+  } catch {
+    // A convenience: without it a reload shows no desk name and no countdown.
+  }
+}
+
+export function loadDeskInfo(sessionId: string): DeskInfo | null {
+  try {
+    const raw = sessionStorage.getItem(DESK_KEY);
+    if (!raw) return null;
+    const v = JSON.parse(raw) as Partial<DeskInfo>;
+    if (
+      v.sessionId !== sessionId ||
+      typeof v.handle !== 'string' ||
+      typeof v.name !== 'string' ||
+      typeof v.until !== 'number' ||
+      (v.location !== null && v.location !== undefined && typeof v.location !== 'string')
+    ) {
+      return null;
+    }
+    return { sessionId, handle: v.handle, name: v.name, location: v.location ?? null, until: v.until };
+  } catch {
+    return null;
+  }
+}
+
+export function clearDeskInfo(): void {
+  try {
+    sessionStorage.removeItem(DESK_KEY);
+  } catch {
+    // Nothing to recover.
+  }
+}
+
+/** The language a staff member spoke last at each desk, so the next answer is one tap. */
+function readStaffLangs(): Record<string, string> {
+  try {
+    const raw = localStorage.getItem(STAFF_LANG_KEY);
+    const v = raw ? (JSON.parse(raw) as unknown) : null;
+    return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, string>) : {};
+  } catch {
+    return {};
+  }
+}
+
+export function loadStaffLang(deskId: string): string | null {
+  const lang = readStaffLangs()[deskId];
+  return typeof lang === 'string' ? lang : null;
+}
+
+export function saveStaffLang(deskId: string, lang: string): void {
+  try {
+    localStorage.setItem(STAFF_LANG_KEY, JSON.stringify({ ...readStaffLangs(), [deskId]: lang }));
   } catch {
     // Per-device convenience only.
   }

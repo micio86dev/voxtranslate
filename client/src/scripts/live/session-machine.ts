@@ -43,7 +43,10 @@ export type EndReason =
   | 'max_duration'
   | 'abandoned'
   | 'billing_error'
-  | 'expired';
+  | 'expired'
+  // A desk session nobody answered, closed because its QR was revoked / replaced meanwhile.
+  | 'desk_revoked'
+  | 'desk_regenerated';
 
 export interface Partner {
   peerId: string;

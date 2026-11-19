@@ -252,6 +252,36 @@
   .lc-controls { position: static; background: none; max-width: 30rem; margin-inline: auto; width: 100%; }
 }
 
+/* --- business desks (spec 0121 B2B) ------------------------------------------ */
+/* Customer side: which desk, and how long the request stays open. */
+.lc-desk { display: flex; flex-direction: column; align-items: center; gap: 0.35rem; text-align: center; }
+.lc-desk .lc-invite-title { overflow-wrap: anywhere; }
+
+/* Staff side: one card per desk, a queue under it. */
+.lc-desk-card { display: flex; flex-direction: column; gap: 0.5rem; }
+.lc-desk-name { margin: 0; font-size: 1.15rem; font-weight: var(--font-weight-semibold); overflow-wrap: anywhere; }
+.lc-desk-meta { overflow-wrap: anywhere; }
+.lc-desk-count { margin: 0; color: var(--muted); font-size: var(--font-sm); font-variant-numeric: tabular-nums; }
+.lc-queue { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 0.5rem; }
+.lc-queue-row {
+  display: flex; align-items: center; gap: 0.75rem; padding: 0.6rem 0.75rem;
+  background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-md);
+}
+.lc-queue-who { flex: 1; min-width: 0; }
+.lc-queue-name { margin: 0; font-weight: var(--font-weight-semibold); overflow-wrap: anywhere; }
+.lc-queue-meta { margin: 0; color: var(--muted); font-size: var(--font-sm); font-variant-numeric: tabular-nums; }
+/* `.btn-primary` is full-width by default; here it must not squeeze the customer's name. */
+.lc-queue-row .lc-answer-btn { flex: none; width: auto; min-width: 6rem; min-height: var(--tap-target); padding-inline: 1.1rem; }
+.lc-customer { text-align: center; font-weight: var(--font-weight-semibold); overflow-wrap: anywhere; }
+
+/* The cue for a new customer is text and a title badge. The motion is a one-off nudge, and
+   only for people who have not asked for less of it. */
+.lc-alert { border-color: var(--accent); }
+@media (prefers-reduced-motion: no-preference) {
+  .lc-alert { animation: lc-nudge 1.2s ease-out 1; }
+}
+@keyframes lc-nudge { 0% { background: var(--accent-dim); } 100% { background: var(--surface); } }
+
 /* --- form primitives -------------------------------------------------------
    `.card`, `.field`, inputs and `.btn-*` spacing live in index.astro's SCOPED styles, which
    do not reach a standalone page, so the few this feature uses are restated here, scoped

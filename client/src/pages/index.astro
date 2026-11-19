@@ -125,6 +125,8 @@ const jsonLd = {
               <a id="workspace-btn" class="acct-item workspace-btn hidden" role="menuitem" data-i18n-title="workspace" title={T('workspace')} target="_blank" rel="noopener"><span class="acct-item-ico" data-ico="grid" aria-hidden="true"></span><span class="acct-item-label" data-i18n="workspace">{T('workspace')}</span></a>
               <!-- Webinars host hub (webinar phase 0): revealed once an active-sub org is found. -->
               <button id="webinars-btn" class="acct-item webinars-btn hidden" type="button" role="menuitem"><span class="acct-item-ico" data-ico="video" aria-hidden="true"></span><span class="acct-item-label" data-i18n="webinarsTitle">{T('webinarsTitle')}</span></button>
+              <!-- Live Connect desks: revealed by scripts/live/desks-menu.ts once the member has a desk. -->
+              <a id="desks-btn" class="acct-item hidden" role="menuitem" href="/live/desks"><span class="acct-item-ico" data-ico="headphones" aria-hidden="true"></span><span class="acct-item-label" data-i18n="liveStaffTitle">{T('liveStaffTitle')}</span></a>
               <div class="acct-sep" role="separator"></div>
               <button id="logout-btn" class="acct-item acct-danger" type="button" role="menuitem"><span class="acct-item-ico" data-ico="leave" aria-hidden="true"></span><span class="acct-item-label" data-i18n="logout">{T('logout')}</span></button>
             </div>

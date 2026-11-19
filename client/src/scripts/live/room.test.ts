@@ -112,6 +112,20 @@ describe('mountRoom', () => {
     expect(host.querySelector('#lc-direction')?.textContent).toContain('You speak Italiano, they hear Español');
   });
 
+  it('uses the caller\'s wording for the waiting chip (a desk customer waits for the staff)', () => {
+    mount({ role: 'guest', waitingKey: 'liveDeskWaiting' });
+    made[0].emit({ phase: 'waiting_peer' });
+    expect(host.querySelector('#lc-status-text')?.textContent).toBe('Waiting for the staff…');
+  });
+
+  it('mounts a staff seat with no credit line, passing the staff role to the engine', () => {
+    mount({ role: 'staff', session: { ...SESSION, role: 'staff' } });
+    expect(made[0].opts.role).toBe('staff');
+    expect(host.querySelector('#lc-credits')).toBeNull();
+    made[0].opts.onBalance?.(3);
+    expect(setBalance).not.toHaveBeenCalled();
+  });
+
   it('forwards state changes to the page (it owns the invite panel)', () => {
     const { states } = mount();
     made[0].emit({ phase: 'waiting_peer' });

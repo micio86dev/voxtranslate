@@ -7,10 +7,11 @@
 
 import type { EndReason, FailureKind, LiveContext } from './session-machine';
 
-export type Role = 'host' | 'guest';
+/** `staff` is the seat of a member of an organisation answering a desk (spec 0121 B2B). */
+export type Role = 'host' | 'guest' | 'staff';
 
 /** What the user can usefully do about an error. The view turns it into a control. */
-export type ErrorAction = 'retry' | 'buy' | 'home' | 'signin' | 'none';
+export type ErrorAction = 'retry' | 'buy' | 'home' | 'signin' | 'refresh' | 'none';
 
 export function statusKey(ctx: LiveContext): string {
   switch (ctx.phase) {
@@ -63,7 +64,8 @@ export function endedKey(reason: EndReason, role: Role): string {
     case 'ended_by_guest':
       return role === 'guest' ? 'liveEndedByMe' : 'liveEndedByPartner';
     case 'ended_by_staff':
-      return 'liveEndedStaff';
+      // The server records this when the staff seat of a desk ends the conversation.
+      return role === 'staff' ? 'liveEndedByMe' : 'liveEndedByPartner';
     case 'balance_exhausted':
       return 'liveEndedBalance';
     case 'max_duration':
@@ -74,6 +76,9 @@ export function endedKey(reason: EndReason, role: Role): string {
       return 'liveEndedBilling';
     case 'expired':
       return 'liveEndedExpired';
+    case 'desk_revoked':
+    case 'desk_regenerated':
+      return 'liveDeskErrInvalid';
   }
 }
 
@@ -117,12 +122,43 @@ export function errorInfo(code: string, role: Role): { key: string; action: Erro
       return { key: 'liveErrWrongSession', action: 'home' };
     case 'live_disabled':
       return { key: 'liveUnavailable', action: 'home' };
+    // Desk scan (B2B). A forged, unknown, revoked and replaced QR all answer the same way on
+    // purpose, so the client cannot say which: it can only say the code is not valid.
+    case 'invalid_desk_qr':
+      return { key: 'liveDeskErrInvalid', action: 'none' };
+    case 'desk_unavailable':
+      return { key: 'liveDeskErrUnavailable', action: 'retry' };
+    case 'desk_busy':
+      return { key: 'liveDeskErrBusy', action: 'retry' };
     case 'network':
       return { key: 'liveErrNetworkRequest', action: 'retry' };
     default:
       // server_error, http_error and anything the server invents later.
       return { key: 'talkErrorGeneric', action: 'retry' };
   }
+}
+
+/**
+ * Copy and next step for a failed staff call (list, answer). Keyed on the STATUS as well as
+ * the code: the org routes answer in plain text, so a 403/404 arrives with no code at all.
+ */
+export function staffErrorInfo(res: { status: number; code: string }): { key: string; action: ErrorAction } {
+  const { status, code } = res;
+  if (status === 401) return { key: 'liveStaffErrAuth', action: 'signin' };
+  if (code === 'already_answered') return { key: 'liveStaffErrTaken', action: 'refresh' };
+  if (code === 'session_expired' || code === 'session_ended' || status === 410) {
+    return { key: 'liveStaffErrGone', action: 'refresh' };
+  }
+  if (code === 'insufficient_credits' || code === 'insufficient_balance' || code === 'subscription_required') {
+    // Only an administrator can top up or change the plan.
+    return { key: 'liveStaffErrOrg', action: 'none' };
+  }
+  if (status === 403 || status === 404) return { key: 'liveStaffErrNotFound', action: 'none' };
+  if (code === 'live_busy') return { key: 'liveErrBusy', action: 'retry' };
+  if (code === 'rate_limited') return { key: 'liveErrRateLimited', action: 'retry' };
+  if (code === 'bad_lang') return { key: 'liveErrBadLang', action: 'none' };
+  if (code === 'network') return { key: 'liveErrNetworkRequest', action: 'retry' };
+  return { key: 'talkErrorGeneric', action: 'retry' };
 }
 
 /** Recoverable, in-conversation problems (`error` frames that do not end it). */

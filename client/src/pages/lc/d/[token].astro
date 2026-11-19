@@ -1,0 +1,96 @@
+---
+// Live Connect, customer side of a business desk (spec 0121 B2B): somebody scanned the
+// permanent QR of a service desk. No account, no credit, no app: pick a language, accept the
+// notice, wait for a member of staff, talk.
+//
+// Rendered ON DEMAND like `/lc/[code]`: the QR path segment (`<public_id>.<mac>`) is a bearer
+// secret, so there is no meaningful static page to prebuild. It is read here from the route
+// and handed to the page script through a data attribute; it is never logged, and never sent
+// anywhere except the scan request. The page is never indexed, is never cached, and the URL
+// must not leak through a Referer header (vercel.json `/lc/(.*)` + a meta set by the script).
+//
+// The QR does not stand for a conversation: every scan, and every "Try again", creates a NEW
+// session on the server. Nothing on this page ever reuses an ended one.
+export const prerender = false;
+
+import Base from '../../../layouts/Base.astro';
+import en from '../../../scripts/i18n/en.json';
+
+const { token = '' } = Astro.params;
+const T = (k: string): string => (en as Record<string, string>)[k] ?? '';
+---
+
+<Base
+  title="Talk to the staff — VoxTranslate"
+  description="Talk to a member of staff in your own language, translated live. No account needed."
+  noindex={true}
+>
+  <main class="lc-page" id="ld-root" data-segment={token}>
+    <div class="lc-hero" id="ld-hero">
+      <h1 class="lc-title" data-i18n="liveDeskTitle">{T('liveDeskTitle')}</h1>
+      <p class="lc-sub" data-i18n="liveDeskSub">{T('liveDeskSub')}</p>
+    </div>
+
+    <!-- 1. JOIN. A language, an optional name, one required consent, one button. -->
+    <section class="lc-stack" id="ld-join">
+      <div class="card lc-card-setup">
+        <div class="field">
+          <span class="field-label" data-i18n="liveYourLang">{T('liveYourLang')}</span>
+          <div id="ld-lang"></div>
+        </div>
+
+        <label class="field" for="ld-name">
+          <span class="field-label" data-i18n="liveYourName">{T('liveYourName')}</span>
+          <input id="ld-name" type="text" maxlength="40" autocomplete="nickname" data-i18n-ph="liveGuestName" placeholder={T('liveGuestName')} />
+        </label>
+
+        <!-- A business desk is not a personal invitation: the business keeps a TEXT transcript. -->
+        <p class="lc-note" id="ld-notice" data-i18n="liveDeskNotice">{T('liveDeskNotice')}</p>
+
+        <label class="lc-check">
+          <input type="checkbox" id="ld-consent" aria-describedby="ld-notice" />
+          <span data-i18n="liveDeskConsent">{T('liveDeskConsent')}</span>
+        </label>
+
+        <button id="ld-join-btn" class="btn-primary lc-full" type="button" data-i18n="liveDeskStart">{T('liveDeskStart')}</button>
+
+        <p id="ld-status" class="lc-error" role="alert" hidden></p>
+        <div class="lc-error-actions" id="ld-actions" hidden>
+          <button id="ld-retry" class="btn-ghost lc-action" type="button" hidden data-i18n="talkRetry">{T('talkRetry')}</button>
+          <a id="ld-home" class="btn-ghost lc-action" href="/" hidden data-i18n="liveBackHome">{T('liveBackHome')}</a>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2. WAIT + CONVERSATION. The desk, a countdown, then the shared room. -->
+    <section class="lc-stack" id="ld-session" hidden>
+      <div class="card lc-desk" id="ld-wait" hidden>
+        <h2 class="lc-invite-title" id="ld-desk-name"></h2>
+        <p class="lc-note" id="ld-desk-location" hidden></p>
+        <!-- Not a live region: a countdown announced every second is noise. The room's status
+             chip announces "Waiting for the staff…" once. -->
+        <p class="lc-note" id="ld-countdown"></p>
+      </div>
+      <div id="ld-room"></div>
+    </section>
+
+    <!-- 3. NOBODY ANSWERED (or the QR stopped being valid meanwhile). -->
+    <section class="card lc-end-screen" id="ld-nobody" hidden>
+      <p class="lc-end-copy" id="ld-nobody-text" role="status"></p>
+      <button id="ld-try-again" class="btn-primary lc-action" type="button" data-i18n="talkRetry">{T('talkRetry')}</button>
+      <a class="btn-ghost lc-action" href="/" data-i18n="liveBackHome">{T('liveBackHome')}</a>
+    </section>
+
+    <!-- 4. A reload after the conversation ended. -->
+    <section class="card lc-end-screen" id="ld-ended" hidden>
+      <p class="lc-end-copy" role="status" data-i18n="liveErrSessionEnded">{T('liveErrSessionEnded')}</p>
+      <a class="btn-primary lc-action" href="/" data-i18n="liveBackHome">{T('liveBackHome')}</a>
+    </section>
+  </main>
+
+  <script>
+    import { mountLiveDesk } from '../../../scripts/live/page-desk';
+
+    void mountLiveDesk();
+  </script>
+</Base>

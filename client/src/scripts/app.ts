@@ -146,6 +146,7 @@ import { initNetStatus, setNetworkDegraded } from './net-status';
 import { isRestrictedNetwork } from './restricted-net';
 import { toast } from './toast';
 import { downloadQr, printQr, qrDataUrl, renderQr } from './qr';
+import { revealDesksEntry } from './live/desks-menu';
 import {
   playCallEnterSound,
   playCallLeaveSound,
@@ -5573,6 +5574,7 @@ async function updateWorkspaceLink(): Promise<void> {
   // Hosting webinars is gated on an active subscription too (webinar phase 0).
   const anyHostEligible = orgs.some((o) => canHostWebinar(o));
   if (anyHostEligible) show($('webinars-btn'), true);
+  void revealDesksEntry(); // Live Connect desks: shown only to members of an org that has one
   // Homepage host CTA card toggles with the same gate (D9, PR5).
   show(hostWebinarCtaCard, anyHostEligible);
   // Call-a-phone-number CTA (spec: web-app-voip-dialer, R1/R10): needs an active-sub org

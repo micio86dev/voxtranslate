@@ -280,6 +280,11 @@ describe('start', () => {
       inviteUrl: 'https://x/lc/C',
     });
   });
+
+  it('persists a staff seat as staff, so a reload rejoins it as the same seat', async () => {
+    await connect({ role: 'staff' });
+    expect(JSON.parse(sessionStorage.getItem(STORAGE_KEY) ?? '{}').role).toBe('staff');
+  });
 });
 
 describe('partner presence', () => {
@@ -606,11 +611,12 @@ describe('default timers (real browsers)', () => {
 });
 
 describe('server verdicts', () => {
-  it.each(['ended_by_host', 'ended_by_guest', 'ended_by_staff', 'balance_exhausted', 'max_duration', 'abandoned', 'billing_error', 'expired'])(
+  it.each(['ended_by_host', 'ended_by_guest', 'ended_by_staff', 'balance_exhausted', 'max_duration', 'abandoned', 'billing_error', 'expired', 'desk_revoked', 'desk_regenerated'])(
     'session_state with reason %s ends the session with that reason and releases everything',
     async (reason) => {
       const h = await withPartner();
-      h.sock.deliver({ type: 'session_state', status: reason === 'expired' ? 'expired' : 'ended', reason });
+      // A desk session nobody answered is `expired` on the server, whatever closed it.
+      h.sock.deliver({ type: 'session_state', status: reason === 'expired' || reason.startsWith('desk_') ? 'expired' : 'ended', reason });
       expect(h.last().phase).toBe('ended');
       expect(h.last().endReason).toBe(reason);
       expect(h.media.tracks[0].stop).toHaveBeenCalled();

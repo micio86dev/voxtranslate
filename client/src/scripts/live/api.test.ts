@@ -5,7 +5,7 @@ vi.mock('../auth', () => ({
   authHeaders: () => ({ Authorization: 'Bearer ACCOUNT-JWT' }),
 }));
 
-import { createSession, endSession, getSession, joinSession, type ApiResult } from './api';
+import { answerSession, createSession, deskWaiting, endSession, getSession, joinSession, myDesks, scanDesk, type ApiResult } from './api';
 
 function res(status: number, body: unknown): Response {
   return new Response(typeof body === 'string' ? body : JSON.stringify(body), {
@@ -123,5 +123,84 @@ describe('error mapping (never throws)', () => {
   it('treats a 2xx with an unparseable body as a server error', async () => {
     const out = await getSession('s', 't', fetcher(res(200, 'not json')) as never);
     expect(out).toEqual({ ok: false, status: 200, code: 'server_error' });
+  });
+});
+
+describe('scanDesk', () => {
+  const SCANNED = {
+    session_id: 's1', peer_id: 'g1', token: 'LIVE', ws_path: '/ws/live',
+    desk: { name: 'Front desk', location_label: 'Terminal 2' }, wait_secs: 60,
+  };
+
+  it('POSTs the QR segment, the language, the name and the consent, with no Authorization header', async () => {
+    const f = fetcher(res(200, SCANNED));
+    const out = await scanDesk({ segment: 'abc.def', name: 'Marco', lang: 'it', consent: true }, f as never);
+    expect(out).toEqual({ ok: true, data: SCANNED });
+    const [url, init] = f.mock.calls[0];
+    expect(url).toBe('http://api.test/api/live/desks/scan');
+    expect(init?.method).toBe('POST');
+    expect(init?.headers).not.toHaveProperty('Authorization');
+    expect(JSON.parse(String(init?.body))).toEqual({ segment: 'abc.def', name: 'Marco', lang: 'it', consent: true });
+  });
+
+  it('never puts the segment in the URL (it is a bearer secret)', async () => {
+    const f = fetcher(res(200, SCANNED));
+    await scanDesk({ segment: 'abc.def', name: '', lang: 'it', consent: true }, f as never);
+    expect(String(f.mock.calls[0][0])).not.toContain('abc');
+  });
+
+  it.each([
+    [404, 'invalid_desk_qr'], [503, 'desk_unavailable'], [429, 'desk_busy'], [429, 'rate_limited'],
+    [503, 'live_busy'], [400, 'consent_required'], [400, 'bad_lang'],
+  ])('keeps the code of a %s %s refusal', async (status, code) => {
+    const out = await scanDesk({ segment: 's', name: '', lang: 'it', consent: true }, fetcher(res(status, { code, message: 'x' })) as never);
+    expect(out).toEqual({ ok: false, status, code });
+  });
+
+  it('a dead network is its own code', async () => {
+    expect(await scanDesk({ segment: 's', name: '', lang: 'it', consent: true }, fetcher(new TypeError('offline')) as never)).toEqual({ ok: false, status: 0, code: 'network' });
+  });
+});
+
+describe('staff calls (account JWT)', () => {
+  it('myDesks GETs /api/live/my-desks as the signed-in member', async () => {
+    const data = { desks: [{ id: 'd1', org_id: 'o1', org_name: 'Acme', name: 'Desk', location_label: null, default_lang: 'en', waiting: 2 }] };
+    const f = fetcher(res(200, data));
+    expect(await myDesks(f as never)).toEqual({ ok: true, data });
+    const [url, init] = f.mock.calls[0];
+    expect(url).toBe('http://api.test/api/live/my-desks');
+    expect(init?.method).toBe('GET');
+    expect(init?.headers).toMatchObject({ Authorization: 'Bearer ACCOUNT-JWT' });
+  });
+
+  it('deskWaiting GETs the queue of one desk, with the id encoded', async () => {
+    const data = { waiting: [{ session_id: 's1', guest_name: 'Marco', guest_lang: 'it', waited_secs: 4 }] };
+    const f = fetcher(res(200, data));
+    expect(await deskWaiting('d/1', f as never)).toEqual({ ok: true, data });
+    expect(f.mock.calls[0][0]).toBe('http://api.test/api/live/desks/d%2F1/waiting');
+    expect(f.mock.calls[0][1]?.headers).toMatchObject({ Authorization: 'Bearer ACCOUNT-JWT' });
+  });
+
+  it('answerSession POSTs the staff language to the session', async () => {
+    const data = { session_id: 's1', peer_id: 'st1', token: 'LIVE', ws_path: '/ws/live', guest: { name: 'Marco', lang: 'it' } };
+    const f = fetcher(res(200, data));
+    expect(await answerSession('s1', 'en', f as never)).toEqual({ ok: true, data });
+    const [url, init] = f.mock.calls[0];
+    expect(url).toBe('http://api.test/api/live/sessions/s1/answer');
+    expect(init?.method).toBe('POST');
+    expect(init?.headers).toMatchObject({ Authorization: 'Bearer ACCOUNT-JWT', 'Content-Type': 'application/json' });
+    expect(JSON.parse(String(init?.body))).toEqual({ lang: 'en' });
+  });
+
+  it.each([
+    [409, 'already_answered'], [410, 'session_expired'], [410, 'session_ended'], [402, 'insufficient_credits'],
+    [402, 'subscription_required'], [503, 'live_busy'],
+  ])('answerSession keeps the code of a %s %s refusal', async (status, code) => {
+    expect(await answerSession('s1', 'en', fetcher(res(status, { code, message: 'x' })) as never)).toEqual({ ok: false, status, code });
+  });
+
+  it('a plain-text refusal (the org routes answer without a body code) keeps its status', async () => {
+    const out = await answerSession('s1', 'en', fetcher(new Response('insufficient role', { status: 403 })) as never);
+    expect(out).toEqual({ ok: false, status: 403, code: 'http_error' });
   });
 });

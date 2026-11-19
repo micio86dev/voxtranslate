@@ -1,12 +1,13 @@
 // Live Connect REST client (spec 0121).
 //
-// Four endpoints, all typed, none of which throws: every outcome is an `ApiResult`, so a
+// The REST endpoints, all typed, none of which throws: every outcome is an `ApiResult`, so a
 // caller handles HTTP refusals and a dead network through the same branch. The server's
 // error body is `{ code, message }` and the CODE is the contract — the message is never
 // shown to a user (it is English and may change), the view maps the code to i18n.
 //
 // Two credentials exist here and they must never meet:
-//  - the ACCOUNT JWT (`authHeaders()`), used only to create a session as its paying owner;
+//  - the ACCOUNT JWT (`authHeaders()`), used only to create a session as its paying owner, and
+//    by a member of an organisation to list its desks and answer a waiting customer;
 //  - the LIVE token, issued per participant, used for everything after that. It is not an
 //    account credential and it is the only thing a guest has.
 // Neither goes into a URL, except the live token on the WebSocket (browsers cannot set
@@ -51,6 +52,43 @@ export interface SessionInfo {
     participants: SessionParticipant[];
   };
   you: { peer_id: string; role: 'host' | 'guest' };
+}
+
+/** A desk QR was scanned: a NEW session every time, with the customer's own live token. */
+export interface ScannedDesk {
+  session_id: string;
+  peer_id: string;
+  token: string;
+  ws_path: string;
+  desk: { name: string; location_label: string | null };
+  /** How long the customer can be left waiting before the server gives up on the session. */
+  wait_secs: number;
+}
+
+export interface StaffDesk {
+  id: string;
+  org_id: string;
+  org_name: string;
+  name: string;
+  location_label: string | null;
+  default_lang: string;
+  waiting: number;
+}
+
+export interface WaitingCustomer {
+  session_id: string;
+  guest_name: string;
+  guest_lang: string;
+  waited_secs: number;
+}
+
+/** A member of staff took a waiting customer: their own live token, as the staff seat. */
+export interface AnsweredSession {
+  session_id: string;
+  peer_id: string;
+  token: string;
+  ws_path: string;
+  guest: { name: string; lang: string };
 }
 
 type Fetch = typeof fetch;
@@ -136,5 +174,59 @@ export function endSession(
   return call<unknown>(fetchImpl, `/api/live/sessions/${encodeURIComponent(sessionId)}/end`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${liveToken}` },
+  });
+}
+
+/**
+ * Scan a business desk's permanent QR. The QR never denotes a conversation, so every call
+ * creates a NEW session; there is nothing to resume by repeating it. No Authorization header:
+ * the customer has no account. `segment` is the `<public_id>.<mac>` path segment of the QR URL,
+ * a bearer secret that goes in the body and nowhere else.
+ */
+export function scanDesk(
+  args: { segment: string; name: string; lang: string; consent: boolean },
+  fetchImpl: Fetch = fetch,
+): Promise<ApiResult<ScannedDesk>> {
+  return call<ScannedDesk>(fetchImpl, '/api/live/desks/scan', {
+    method: 'POST',
+    headers: { ...JSON_HEADERS },
+    body: JSON.stringify({
+      segment: args.segment,
+      name: args.name,
+      lang: args.lang,
+      consent: args.consent,
+    }),
+  });
+}
+
+/** The desks of every organisation the signed-in member belongs to, with who is waiting. */
+export function myDesks(fetchImpl: Fetch = fetch): Promise<ApiResult<{ desks: StaffDesk[] }>> {
+  return call<{ desks: StaffDesk[] }>(fetchImpl, '/api/live/my-desks', {
+    method: 'GET',
+    headers: { ...authHeaders() },
+  });
+}
+
+/** The customers waiting at one desk, oldest first. */
+export function deskWaiting(
+  deskId: string,
+  fetchImpl: Fetch = fetch,
+): Promise<ApiResult<{ waiting: WaitingCustomer[] }>> {
+  return call<{ waiting: WaitingCustomer[] }>(fetchImpl, `/api/live/desks/${encodeURIComponent(deskId)}/waiting`, {
+    method: 'GET',
+    headers: { ...authHeaders() },
+  });
+}
+
+/** Take a waiting customer. Exactly one colleague can: the loser gets 409 `already_answered`. */
+export function answerSession(
+  sessionId: string,
+  lang: string,
+  fetchImpl: Fetch = fetch,
+): Promise<ApiResult<AnsweredSession>> {
+  return call<AnsweredSession>(fetchImpl, `/api/live/sessions/${encodeURIComponent(sessionId)}/answer`, {
+    method: 'POST',
+    headers: { ...JSON_HEADERS, ...authHeaders() },
+    body: JSON.stringify({ lang }),
   });
 }

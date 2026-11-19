@@ -49,6 +49,8 @@ export interface RoomOptions {
   container: HTMLElement;
   role: Role;
   session: StoredSession;
+  /** i18n key for the "waiting" chip, when "the other person" is the wrong words (a desk). */
+  waitingKey?: string;
   /** Every engine state change, after the room has repainted. The page owns the invite panel. */
   onState?: (ctx: LiveContext) => void;
   createConversation?: (opts: LiveConversationOptions) => ConversationLike;
@@ -85,7 +87,7 @@ export function mountRoom(opts: RoomOptions): RoomHandle {
   };
 
   const onState = (ctx: LiveContext): void => {
-    renderPhase(els, ctx, role);
+    renderPhase(els, ctx, role, { waitingKey: opts.waitingKey });
     renderPartner(els, ctx.partner, ctx.phase);
     const dir = convo?.direction() ?? { myLang: session.myLang, partnerLang: ctx.partner?.lang ?? null };
     renderDirection(els, dir.myLang, ctx.partner?.lang ?? null);

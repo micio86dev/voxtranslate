@@ -67,6 +67,16 @@ describe('buildRoom', () => {
     expect(els.credits).not.toBeNull();
     const guest = buildRoom(document, { role: 'guest' });
     expect(guest.credits).toBeNull();
+    // The organisation pays for a desk conversation: the staff seat has no credit line either.
+    expect(buildRoom(document, { role: 'staff' }).credits).toBeNull();
+  });
+
+  it('sends a staff member back to the desk list, and a guest or host where they came from', () => {
+    const staff = buildRoom(document, { role: 'staff' });
+    expect(staff.endedAction.getAttribute('href')).toBe('/live/desks');
+    expect(staff.endedAction.textContent).toBe('Back to desks');
+    expect(buildRoom(document, { role: 'guest' }).endedAction.getAttribute('href')).toBe('/');
+    expect(els.endedAction.getAttribute('href')).toBe('/live');
   });
 });
 
@@ -83,6 +93,14 @@ describe('renderPhase', () => {
     expect(els.statusText.textContent).toBe('Waiting for the other person…');
     renderPhase(els, ctx({ phase: 'reconnecting' }), 'host');
     expect(els.statusText.textContent).toContain('reconnecting');
+  });
+
+  it('a caller may say what "waiting" means: a desk customer waits for the staff, not for "the other person"', () => {
+    renderPhase(els, ctx({ phase: 'waiting_peer' }), 'guest', { waitingKey: 'liveDeskWaiting' });
+    expect(els.statusText.textContent).toBe('Waiting for the staff…');
+    // Only that phase: the other chips are unchanged.
+    renderPhase(els, ctx({ phase: 'live' }), 'guest', { waitingKey: 'liveDeskWaiting' });
+    expect(els.statusText.textContent).toBe('Connected');
   });
 
   it('ended shows why, from this role\'s point of view', () => {

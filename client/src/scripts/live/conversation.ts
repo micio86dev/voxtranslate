@@ -125,7 +125,7 @@ export interface LiveConversationOptions extends LiveCallbacks {
   /** The Live token. NOT the account JWT. */
   token: string;
   wsPath: string;
-  role: 'host' | 'guest';
+  role: 'host' | 'guest' | 'staff';
   myLang: string;
   myPeerId: string;
   /** Host only: persisted so a reload can show the invite again. */
@@ -188,6 +188,8 @@ const KNOWN_END_REASONS: ReadonlySet<string> = new Set<EndReason>([
   'abandoned',
   'billing_error',
   'expired',
+  'desk_revoked',
+  'desk_regenerated',
 ]);
 
 function asEndReason(reason: unknown, status: unknown): EndReason {

@@ -273,9 +273,16 @@ export function buildRoom(doc: Doc, opts: { role: Role }): RoomEls {
   const endedText = el(doc, 'p', 'lc-end-copy');
   endedText.setAttribute('role', 'status');
   const endedAction = el(doc, 'a', 'btn-primary lc-action');
-  endedAction.dataset.i18n = opts.role === 'host' ? 'liveNewConversation' : 'liveBackHome';
-  endedAction.textContent = t(endedAction.dataset.i18n);
-  endedAction.href = opts.role === 'host' ? '/live' : '/';
+  // Where "next" is depends on who you are: the host starts another conversation, a staff
+  // member goes back to the queue, a guest has nothing further to do here.
+  const way = {
+    host: { key: 'liveNewConversation', href: '/live' },
+    staff: { key: 'liveStaffBackToDesks', href: '/live/desks' },
+    guest: { key: 'liveBackHome', href: '/' },
+  }[opts.role];
+  endedAction.dataset.i18n = way.key;
+  endedAction.textContent = t(way.key);
+  endedAction.href = way.href;
   ended.append(endedText, endedAction);
 
   // --- problem --------------------------------------------------------------
@@ -304,12 +311,18 @@ export function buildRoom(doc: Doc, opts: { role: Role }): RoomEls {
 const ACTIVE: ReadonlySet<Phase> = new Set<Phase>(['idle', 'requesting_mic', 'connecting', 'waiting_peer', 'live', 'reconnecting']);
 
 /** Which of the three screens shows, and the status chip. */
-export function renderPhase(els: RoomEls, ctx: LiveContext, role: Role): void {
+export function renderPhase(
+  els: RoomEls,
+  ctx: LiveContext,
+  role: Role,
+  /** `waitingKey` replaces the "waiting for the other person" chip text. */
+  opts: { waitingKey?: string } = {},
+): void {
   els.root.dataset.phase = ctx.phase;
   els.live.hidden = !ACTIVE.has(ctx.phase) || ctx.phase === 'idle';
   els.ended.hidden = ctx.phase !== 'ended';
   els.problem.hidden = ctx.phase !== 'failed';
-  els.statusText.textContent = t(statusKey(ctx));
+  els.statusText.textContent = t(ctx.phase === 'waiting_peer' && opts.waitingKey ? opts.waitingKey : statusKey(ctx));
   els.confirm.hidden = true;
 
   if (ctx.phase === 'ended' && ctx.endReason) {
