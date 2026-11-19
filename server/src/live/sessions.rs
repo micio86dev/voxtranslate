@@ -531,7 +531,8 @@ pub async fn record_event(pool: &Pool, session_id: Uuid, kind: &str, detail: ser
     let res = sqlx::query(
         "INSERT INTO live_session_events (session_id, kind, detail)
          SELECT $1, $2, $3
-         WHERE (SELECT count(*) FROM live_session_events WHERE session_id = $1) < $4",
+         WHERE $2 = 'room_session'
+            OR (SELECT count(*) FROM live_session_events WHERE session_id = $1) < $4",
     )
     .bind(session_id)
     .bind(kind)

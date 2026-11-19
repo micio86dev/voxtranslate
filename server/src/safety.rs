@@ -262,6 +262,9 @@ impl SafetyService {
         //      the `live_sessions` rows that name it still exist. After the storage step so a
         //      storage failure still leaves the database untouched.
         let conversations = crate::live::erase::erase_owned_by(&self.pool, user_id).await?;
+        // The name of an account that only STAFFED or hosted a conversation is erased too; the
+        // participant row stays (foreign key SET NULL) so the billing ticks survive.
+        crate::live::erase::scrub_user(&self.pool, user_id).await?;
 
         // (4) Only now drop the account. The cascade takes chat_files with it.
         sqlx::query("DELETE FROM users WHERE id = $1")

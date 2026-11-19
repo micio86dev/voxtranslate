@@ -1042,3 +1042,32 @@ async fn muting_around_every_tick_does_not_dodge_the_meter() {
         "audio reached the engine in every interval but only {charged} were charged"
     );
 }
+
+#[tokio::test]
+async fn the_public_socket_cannot_join_a_live_conversations_room() {
+    let mock = RealtimeMock::start(Dialect::Qwen).await;
+    mock.reply_with(speech());
+    let srv = srv!(&mock);
+    let c = convo(&srv, false).await;
+    let _host = open(&srv, &c.host_token).await;
+
+    // Anyone who learned the session id (a colleague sees waiting ids; search hits carry it) must not
+    // be able to sit in the room and receive its subtitles and translated audio.
+    for room in [format!("live-{}", c.session), format!("LIVE-{}", c.session)] {
+        let url = format!("ws://{}/ws?room={room}&lang=en&name=Intruder", srv.addr);
+        match tokio_tungstenite::connect_async(url).await {
+            Err(WsError::Http(res)) => assert_eq!(res.status().as_u16(), 403, "{room}"),
+            other => panic!(
+                "the room {room} was joinable through /ws: {:?}",
+                other.map(|_| ())
+            ),
+        }
+    }
+    // A user-chosen name that merely starts with `live-` is untouched.
+    let (_, _) = tokio_tungstenite::connect_async(format!(
+        "ws://{}/ws?room=live-room&lang=en&name=Ok",
+        srv.addr
+    ))
+    .await
+    .expect("an ordinary room named live-room must keep working");
+}

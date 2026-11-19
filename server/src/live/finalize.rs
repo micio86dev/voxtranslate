@@ -265,6 +265,7 @@ struct LiveRow {
     call_session_id: Option<Uuid>,
     status: String,
     host_lang: String,
+    save_transcript: bool,
     /// Start to end, when both are known.
     secs: Option<f64>,
 }
@@ -280,7 +281,7 @@ pub async fn finalize(state: &AppState, live_session_id: Uuid) -> Result<Outcome
         return Ok(Outcome::NotApplicable);
     };
     let row: Option<LiveRow> = sqlx::query_as(
-        "SELECT org_id, project_id, call_session_id, status, host_lang,
+        "SELECT org_id, project_id, call_session_id, status, host_lang, save_transcript,
                 EXTRACT(EPOCH FROM (ended_at - COALESCE(started_at, created_at)))::float8 AS secs
          FROM live_sessions WHERE id = $1",
     )
@@ -292,6 +293,11 @@ pub async fn finalize(state: &AppState, live_session_id: Uuid) -> Result<Outcome
     };
     // No organisation: nothing to own a `transcripts` row. Still open: it is not finished.
     let Some(org_id) = live.org_id else {
+        // A personal conversation the owner did not ask to keep leaves nothing behind: nothing
+        // was recorded, so the names it held have no purpose once it is over either.
+        if !live.save_transcript && matches!(live.status.as_str(), "ended" | "expired") {
+            super::erase::scrub_participants(pool, live_session_id).await?;
+        }
         return Ok(Outcome::NotApplicable);
     };
     if !matches!(live.status.as_str(), "ended" | "expired") {

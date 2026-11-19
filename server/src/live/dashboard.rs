@@ -413,11 +413,20 @@ pub async fn usage(
     .into_response())
 }
 
+#[derive(sqlx::FromRow)]
+struct OpenRow {
+    id: Uuid,
+    status: String,
+    desk: Option<String>,
+    started_at: Option<DateTime<Utc>>,
+    credits: i64,
+}
+
 async fn open_sessions(pool: &Pool, org_id: Uuid) -> Result<Vec<serde_json::Value>, sqlx::Error> {
-    let rows: Vec<(Uuid, String, Option<String>, Option<DateTime<Utc>>, i64)> = sqlx::query_as(
-        "SELECT s.id, s.status, d.name, s.started_at,
+    let rows: Vec<OpenRow> = sqlx::query_as(
+        "SELECT s.id, s.status, d.name AS desk, s.started_at,
                 COALESCE((SELECT sum(t.amount) FROM live_usage_ticks t
-                           WHERE t.session_id = s.id AND t.payer_kind = 'org'), 0)::bigint
+                           WHERE t.session_id = s.id AND t.payer_kind = 'org'), 0)::bigint AS credits
          FROM live_sessions s LEFT JOIN live_desks d ON d.id = s.desk_id
          WHERE s.org_id = $1 AND s.status IN ('waiting', 'active')
          ORDER BY s.created_at DESC LIMIT 100",
@@ -427,8 +436,8 @@ async fn open_sessions(pool: &Pool, org_id: Uuid) -> Result<Vec<serde_json::Valu
     .await?;
     Ok(rows
         .into_iter()
-        .map(|(id, status, desk, started_at, credits)| {
-            json!({ "session_id": id, "status": status, "desk": desk, "started_at": started_at, "credits": credits })
+        .map(|r| {
+            json!({ "session_id": r.id, "status": r.status, "desk": r.desk, "started_at": r.started_at, "credits": r.credits })
         })
         .collect())
 }

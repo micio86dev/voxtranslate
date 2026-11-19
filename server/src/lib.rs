@@ -839,6 +839,8 @@ pub fn app(state: AppState) -> Router {
         )
         // VoxTranslate for Business — org workspace API (spec 0106).
         .merge(business::routes::routes())
+        // Erasing what Live Connect stored is available even when the feature is switched off.
+        .merge(live::erase::routes())
         // Live Connect: absent unless enabled and correctly configured (a real kill switch).
         .merge(if state.live.enabled() {
             live::routes::routes()
@@ -1283,6 +1285,10 @@ async fn ws_handler(
 ) -> Response {
     if params.room.trim().is_empty() || params.lang.trim().is_empty() {
         return (StatusCode::BAD_REQUEST, "missing room or lang").into_response();
+    }
+    // A Live Connect room is joined through `/ws/live` with a participant token, never by name.
+    if live::is_live_room(&params.room) {
+        return (StatusCode::FORBIDDEN, "reserved room").into_response();
     }
     // Validate + normalize the language BEFORE it is interpolated into the Deepgram
     // streaming URL (M4). Without this a peer could smuggle extra query params via

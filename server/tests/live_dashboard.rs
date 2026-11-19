@@ -285,6 +285,7 @@ async fn tick(srv: &Srv, s: &Seeded, seq: i64, payer: &str, credits: i32, ts: Da
         .unwrap();
 }
 
+#[allow(clippy::too_many_arguments)] // a row of columns, written once per utterance
 async fn says(
     srv: &Srv,
     s: &Seeded,

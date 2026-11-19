@@ -11,6 +11,7 @@
 //!   cargo test --test live_schema`.
 //! A run that finishes in a few milliseconds skipped everything.
 
+use serde_json::json;
 use uuid::Uuid;
 use voxtranslate_server::db::{self, Pool};
 
@@ -305,4 +306,120 @@ async fn desk_public_ids_are_unique_and_status_is_checked() {
         .await
         .expect_err("unknown status");
     assert!(is_violation(&err, "23514"));
+}
+
+#[tokio::test]
+async fn deleting_a_staff_account_keeps_the_conversations_billing_ticks_and_erases_the_name() {
+    let Some(pool) = setup().await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    // Migration 066 is re-runnable and leaves the foreign key on SET NULL.
+    let sql = include_str!("../migrations/066_live_participant_user_fk.sql");
+    for _ in 0..2 {
+        sqlx::raw_sql(sql)
+            .execute(&pool)
+            .await
+            .expect("066 must be re-runnable");
+    }
+    let rule: String = sqlx::query_scalar(
+        "SELECT confdeltype::text FROM pg_constraint
+         WHERE conrelid = 'public.live_participants'::regclass AND conname = 'live_participants_user_id_fkey'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(rule, "n", "ON DELETE SET NULL");
+
+    let owner = make_user(&pool).await;
+    let org = make_org(&pool, owner).await;
+    let staff = make_user(&pool).await;
+    let session: Uuid = sqlx::query_scalar(
+        "INSERT INTO live_sessions (org_id, host_lang, status, expires_at) VALUES ($1, 'it', 'ended', now() + interval '1 hour') RETURNING id",
+    )
+    .bind(org)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let peer: Uuid = sqlx::query_scalar(
+        "INSERT INTO live_participants (session_id, role, user_id, display_name, lang) VALUES ($1, 'staff', $2, 'Maria Rossi', 'it') RETURNING peer_id",
+    )
+    .bind(session)
+    .bind(staff)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO live_usage_ticks (session_id, peer_id, tick_seq, payer_kind, amount) VALUES ($1, $2, 1, 'org', 5), ($1, $2, 2, 'org', 3)")
+        .bind(session)
+        .bind(peer)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    voxtranslate_server::safety::SafetyService::new(pool.clone())
+        .delete_user(staff)
+        .await
+        .expect("account deletion");
+
+    let ticks: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM live_usage_ticks WHERE session_id = $1")
+            .bind(session)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        ticks, 2,
+        "the billing ledger of the conversation survives the account"
+    );
+    let (user_id, name): (Option<Uuid>, String) =
+        sqlx::query_as("SELECT user_id, display_name FROM live_participants WHERE peer_id = $1")
+            .bind(peer)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        (user_id, name.as_str()),
+        (None, "Erased"),
+        "the person is gone, the row is not"
+    );
+}
+
+#[tokio::test]
+async fn the_events_erasure_depends_on_are_never_dropped_by_the_diagnostics_cap() {
+    let Some(pool) = setup().await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    let owner = make_user(&pool).await;
+    let session = make_session(&pool, owner).await;
+    // A flapping connection fills the bounded diagnostics...
+    for _ in 0..230 {
+        voxtranslate_server::live::sessions::record_event(&pool, session, "connected", json!({}))
+            .await;
+    }
+    let capped: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM live_session_events WHERE session_id = $1")
+            .bind(session)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(capped, 200, "diagnostics stay bounded");
+    // ...but the pointer to a room's content must still be recorded: erasure and finalization
+    // find a conversation's rooms through it.
+    let room = Uuid::new_v4();
+    voxtranslate_server::live::sessions::record_event(
+        &pool,
+        session,
+        "room_session",
+        json!({ "call_session_id": room }),
+    )
+    .await;
+    let kept: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM live_session_events WHERE session_id = $1 AND kind = 'room_session'",
+    )
+    .bind(session)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(kept, 1);
 }

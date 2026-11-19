@@ -72,7 +72,7 @@ pub async fn bind(
     // Live Connect names its rooms `live-<uuid>` and binds them itself; letting a client claim
     // one in advance would let a binding the server did not make decide the conversation's org
     // and project.
-    if room.starts_with("live-") {
+    if crate::live::is_live_room(&room) {
         return Err(bad_request("reserved room name"));
     }
 

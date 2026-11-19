@@ -19,7 +19,7 @@ use axum::extract::{FromRequestParts, Path, State};
 use axum::http::request::Parts;
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{delete, get, post};
+use axum::routing::{get, post};
 use axum::{Json, Router};
 use chrono::Utc;
 use serde::Deserialize;
@@ -39,15 +39,8 @@ pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/api/live/sessions", post(create))
         .route("/api/live/join", post(join))
-        .route(
-            "/api/live/sessions/{id}",
-            get(get_session).delete(super::erase::delete_own_session),
-        )
+        .route("/api/live/sessions/{id}", get(get_session))
         .route("/api/live/sessions/{id}/end", post(end))
-        .route(
-            "/api/business/organizations/{org_id}/live/sessions/{id}",
-            delete(super::erase::delete_org_session),
-        )
         .route(WS_PATH, get(super::ws::ws_live))
         .merge(super::desks::routes())
         .merge(super::dashboard::routes())

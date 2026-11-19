@@ -20,3 +20,16 @@ pub mod tokens;
 pub mod ws;
 
 pub use state::LiveState;
+
+/// True for a room name Live Connect mints itself (`live-<session uuid>`).
+///
+/// Those rooms are private to the two seats of one conversation, so no other door into the room
+/// machinery may open them: not the public `/ws` (a stranger who learned the session id would
+/// receive the subtitles and translated audio) and not the business binding. Only the exact shape
+/// is reserved — an existing user-chosen name such as `live-room` keeps working.
+pub fn is_live_room(room: &str) -> bool {
+    room.trim()
+        .to_ascii_lowercase()
+        .strip_prefix("live-")
+        .is_some_and(|rest| uuid::Uuid::parse_str(rest).is_ok())
+}

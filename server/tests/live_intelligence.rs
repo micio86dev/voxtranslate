@@ -1945,7 +1945,9 @@ async fn an_org_that_keeps_everything_is_never_swept_and_a_window_of_its_own_bea
     set_retention(&srv, &long, json!({ "retention_days": 365 })).await;
     let long_mid = seed(&srv, Owner::Org(&long), "ended", 200, &[exchange()]).await;
 
-    // Junk and out-of-range settings fall back to the default (90), never to an error.
+    // A setting the organisation DID make but that we cannot read keeps its conversations: erasing
+    // on a default it never chose would be the irreversible way to be wrong. (An org that set
+    // nothing gets the default — see the next test.)
     let junk = org(&srv).await;
     set_retention(&srv, &junk, json!({ "retention_days": "soon" })).await;
     let junk_old = seed(&srv, Owner::Org(&junk), "ended", 100, &[exchange()]).await;
@@ -1960,7 +1962,7 @@ async fn an_org_that_keeps_everything_is_never_swept_and_a_window_of_its_own_bea
     ];
     assert_eq!(
         erase::retention_pass(&srv.state, Some(&all)).await.unwrap(),
-        2
+        1
     );
     assert_eq!(content_left(&srv, &keep).await, 3, "0 means keep");
     assert_eq!(
@@ -1975,14 +1977,10 @@ async fn an_org_that_keeps_everything_is_never_swept_and_a_window_of_its_own_bea
     );
     assert_eq!(
         content_left(&srv, &junk_old).await,
-        0,
-        "past the default 90"
-    );
-    assert_eq!(
-        content_left(&srv, &junk_new).await,
         3,
-        "inside the default 90"
+        "an unreadable setting keeps everything, even past the default 90"
     );
+    assert_eq!(content_left(&srv, &junk_new).await, 3);
 }
 
 #[tokio::test]
@@ -2178,4 +2176,127 @@ async fn an_account_that_staffed_a_business_conversation_does_not_take_the_orgs_
             .await
             .unwrap();
     assert_eq!(events, vec![GUEST_NAME.to_string()]);
+}
+
+// ---- findings of the independent verification of T8 ---------------------------------------
+
+#[tokio::test]
+async fn a_forged_room_pointer_cannot_reach_another_conversations_room() {
+    let srv = srv!();
+    let org = org(&srv).await;
+    let mine = seed(&srv, Owner::Org(&org), "ended", 0, &[exchange()]).await;
+    let theirs = seed(&srv, Owner::Org(&org), "ended", 0, &[exchange()]).await;
+
+    // A participant who can write events of their own conversation names the OTHER conversation's
+    // room. It is a real `live_connect` row, so only the room-name check stands in the way.
+    sqlx::query("INSERT INTO live_session_events (session_id, kind, detail) VALUES ($1, 'room_session', jsonb_build_object('call_session_id', $2::text))")
+        .bind(mine.live)
+        .bind(theirs.calls[0].to_string())
+        .execute(&srv.pool)
+        .await
+        .unwrap();
+    let before = counts(&srv, &theirs, Some(org.id)).await;
+    erase::erase_content(&srv.pool, mine.live).await.unwrap();
+    assert_eq!(
+        counts(&srv, &theirs, Some(org.id)).await,
+        before,
+        "another conversation was reached through a forged pointer"
+    );
+}
+
+#[tokio::test]
+async fn a_retention_setting_we_do_not_understand_keeps_the_conversation() {
+    let srv = srv!();
+    // Absent means the default (90 days), so an old conversation goes...
+    let org_default = org(&srv).await;
+    let old = seed(&srv, Owner::Org(&org_default), "ended", 200, &[exchange()]).await;
+    // ...but a value the organisation DID set and we cannot read must never fall back to it.
+    for junk in ["99999", "-5", "30.5", "30d", "", "true"] {
+        let o = org(&srv).await;
+        sqlx::query("UPDATE organizations SET settings = jsonb_set(COALESCE(settings, '{}'::jsonb), '{retention_days}', to_jsonb($2::text)) WHERE id = $1")
+            .bind(o.id)
+            .bind(junk)
+            .execute(&srv.pool)
+            .await
+            .unwrap();
+        let c = seed(&srv, Owner::Org(&o), "ended", 200, &[exchange()]).await;
+        erase::retention_pass(&srv.state, Some(&[c.live]))
+            .await
+            .unwrap();
+        assert!(
+            counts(&srv, &c, Some(o.id)).await["call_sessions"] > 0,
+            "retention_days = {junk:?} erased on the default"
+        );
+    }
+    erase::retention_pass(&srv.state, Some(&[old.live]))
+        .await
+        .unwrap();
+    assert_eq!(
+        counts(&srv, &old, Some(org_default.id)).await["call_sessions"],
+        0,
+        "an organisation that set nothing gets the default"
+    );
+}
+
+#[tokio::test]
+async fn a_personal_conversation_nobody_asked_to_keep_leaves_no_names_behind() {
+    let srv = srv!();
+    let (_, owner) = login(&srv, "Marco").await;
+    let kept = seed(&srv, Owner::User(owner), "ended", 0, &[exchange()]).await;
+    let dropped = seed(&srv, Owner::User(owner), "ended", 0, &[exchange()]).await;
+    sqlx::query("UPDATE live_sessions SET save_transcript = FALSE WHERE id = $1")
+        .bind(dropped.live)
+        .execute(&srv.pool)
+        .await
+        .unwrap();
+
+    finalize::finalize(&srv.state, kept.live).await.unwrap();
+    finalize::finalize(&srv.state, dropped.live).await.unwrap();
+    let names = |live: Uuid| {
+        let pool = srv.pool.clone();
+        async move {
+            sqlx::query_scalar::<_, String>(
+                "SELECT display_name FROM live_participants WHERE session_id = $1 ORDER BY role",
+            )
+            .bind(live)
+            .fetch_all(&pool)
+            .await
+            .unwrap()
+        }
+    };
+    assert!(
+        names(kept.live).await.contains(&GUEST_NAME.to_string()),
+        "an opted-in conversation keeps its speakers' names"
+    );
+    assert_eq!(
+        names(dropped.live).await,
+        vec![erase::ERASED_NAME.to_string(); 2],
+        "nothing was recorded, so the names must not outlive the call"
+    );
+}
+
+#[tokio::test]
+async fn erasing_stays_possible_when_the_feature_is_switched_off() {
+    // LIVE_CONNECT_ENABLED unset: the live routes are gone, the means to delete are not.
+    let srv = srv!(&[("LIVE_CONNECT_ENABLED", "0")]);
+    let org = org(&srv).await;
+    let c = seed(&srv, Owner::Org(&org), "ended", 0, &[exchange()]).await;
+    let res = srv
+        .http
+        .delete(format!(
+            "http://{}{}",
+            srv.addr,
+            org_session_path(&org, c.live)
+        ))
+        .bearer_auth(&org.owner_jwt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        res.status(),
+        reqwest::StatusCode::OK,
+        "{:?}",
+        res.text().await
+    );
+    assert_eq!(counts(&srv, &c, Some(org.id)).await["call_sessions"], 0);
 }

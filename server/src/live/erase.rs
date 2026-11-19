@@ -19,7 +19,8 @@
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::Json;
+use axum::routing::delete;
+use axum::{Json, Router};
 use serde_json::json;
 use uuid::Uuid;
 
@@ -141,9 +142,12 @@ pub async fn retention_pass(state: &AppState, only: Option<&[Uuid]>) -> Result<u
          CROSS JOIN LATERAL (
              SELECT CASE
                  WHEN ls.org_id IS NOT NULL THEN
-                     CASE WHEN (o.settings->>'retention_days') ~ '^[0-9]{1,4}$'
+                     CASE WHEN (o.settings->>'retention_days') IS NULL THEN $2::int
+                          WHEN (o.settings->>'retention_days') ~ '^[0-9]{1,4}$'
                           THEN (o.settings->>'retention_days')::int
-                          ELSE $2::int END
+                          -- Set, but not a whole number of days we understand: the organisation
+                          -- said SOMETHING, so do not erase on a default it never chose.
+                          ELSE 0 END
                  WHEN ls.save_transcript THEN $3::int
                  ELSE 0
              END AS days
@@ -261,4 +265,43 @@ pub async fn delete_own_session(
     }
     let out = erase_content(pool, id).await.map_err(db_err)?;
     Ok(Json(json!({ "erased": true, "call_sessions": out.call_sessions })).into_response())
+}
+
+/// Replace the names a conversation's participants gave, and drop their token hashes. Used for a
+/// personal conversation that was never meant to be kept, once it is over.
+pub async fn scrub_participants(pool: &Pool, live_session_id: Uuid) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "UPDATE live_participants SET display_name = $2, token_hash = NULL
+         WHERE session_id = $1 AND (display_name <> $2 OR token_hash IS NOT NULL)",
+    )
+    .bind(live_session_id)
+    .bind(ERASED_NAME)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// Erase the name of an account that is being deleted from every conversation it sat in. The
+/// participant row itself stays (migration 066 turns the foreign key into SET NULL), so the
+/// conversation's billing ticks survive the account.
+pub async fn scrub_user(pool: &Pool, user_id: Uuid) -> Result<u64, sqlx::Error> {
+    let res = sqlx::query(
+        "UPDATE live_participants SET display_name = $2, token_hash = NULL WHERE user_id = $1",
+    )
+    .bind(user_id)
+    .bind(ERASED_NAME)
+    .execute(pool)
+    .await?;
+    Ok(res.rows_affected())
+}
+
+/// The two erasure endpoints. Mounted **regardless** of `LIVE_CONNECT_ENABLED`: turning the
+/// feature off must not take away the means to delete what it already stored.
+pub fn routes() -> Router<AppState> {
+    Router::new()
+        .route(
+            "/api/business/organizations/{org_id}/live/sessions/{id}",
+            delete(delete_org_session),
+        )
+        .route("/api/live/sessions/{id}", delete(delete_own_session))
 }
