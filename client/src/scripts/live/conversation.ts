@@ -199,6 +199,11 @@ function asEndReason(reason: unknown, status: unknown): EndReason {
   return status === 'expired' ? 'expired' : 'abandoned';
 }
 
+/** `room_joined.peers[]` carries the id as `id` (the server's `PeerInfo`); `peer_joined` as `peer_id`. */
+function peerIdOf(p: Record<string, unknown>): string {
+  return String(p.id ?? p.peer_id ?? '');
+}
+
 export class LiveConversation {
   private ctx: LiveContext = initialContext();
   private socket: LiveSocket | null = null;
@@ -599,7 +604,7 @@ export class LiveConversation {
       case 'room_joined': {
         this.attempt = 0; // the connection is genuinely healthy now
         const peers = Array.isArray(msg.peers) ? (msg.peers as Array<Record<string, unknown>>) : [];
-        const other = peers.find((p) => p.peer_id !== this.opts.myPeerId);
+        const other = peers.find((p) => peerIdOf(p) !== this.opts.myPeerId);
         this.dispatch({ type: 'ROOM_JOINED', partner: other ? this.toPartner(other) : null });
         this.checkSameLanguage();
         break;
@@ -693,7 +698,7 @@ export class LiveConversation {
 
   private toPartner(p: Record<string, unknown>): Partner {
     return {
-      peerId: String(p.peer_id ?? ''),
+      peerId: peerIdOf(p),
       name: typeof p.user_name === 'string' ? p.user_name : '',
       lang: typeof p.lang === 'string' ? p.lang : '',
       muted: false,

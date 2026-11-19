@@ -110,6 +110,8 @@ let timers: Array<{ fn: () => void; ms: number; cleared: boolean }> = [];
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
 const PARTNER_PEER = { peer_id: 'peer-b', user_name: 'Bea', lang: 'es' };
+// The server's `room_joined.peers[]` is a `PeerInfo`: the id is `id` there (and `peer_id` in `peer_joined`).
+const PARTNER_ROOM_PEER = { id: 'peer-b', user_name: 'Bea', lang: 'es' };
 
 type Probe = ApiResult<SessionInfo>;
 const activeProbe = (): Probe => ({
@@ -178,7 +180,7 @@ async function connect(over: Record<string, unknown> = {}) {
 
 async function withPartner(over: Record<string, unknown> = {}) {
   const h = await connect(over);
-  h.sock.deliver({ type: 'room_joined', peer_id: 'peer-a', peers: [PARTNER_PEER] });
+  h.sock.deliver({ type: 'room_joined', peer_id: 'peer-a', peers: [PARTNER_ROOM_PEER] });
   return h;
 }
 
@@ -293,7 +295,7 @@ describe('partner presence', () => {
     h.sock.deliver({
       type: 'room_joined',
       peer_id: 'peer-a',
-      peers: [{ peer_id: 'peer-a', user_name: 'Me', lang: 'it' }, PARTNER_PEER],
+      peers: [{ id: 'peer-a', user_name: 'Me', lang: 'it' }, PARTNER_ROOM_PEER],
     });
     expect(h.last().phase).toBe('live');
     expect(h.last().partner).toEqual({ peerId: 'peer-b', name: 'Bea', lang: 'es', muted: false });
@@ -494,7 +496,7 @@ describe('reconnect', () => {
     expect(sockets).toHaveLength(2);
     expect(sockets[1].url).toBe(sockets[0].url);
     sockets[1].open();
-    sockets[1].deliver({ type: 'room_joined', peer_id: 'peer-a', peers: [PARTNER_PEER] });
+    sockets[1].deliver({ type: 'room_joined', peer_id: 'peer-a', peers: [PARTNER_ROOM_PEER] });
     expect(h.last().phase).toBe('live');
     expect(setNetworkDegraded).toHaveBeenLastCalledWith(false);
   });
