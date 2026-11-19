@@ -8,6 +8,7 @@
 
 pub mod billing;
 pub mod config;
+pub mod dashboard;
 pub mod desks;
 pub mod erase;
 pub mod finalize;
