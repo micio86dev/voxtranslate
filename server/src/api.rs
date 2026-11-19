@@ -3634,6 +3634,10 @@ pub async fn invite_send(
     ) {
         return (StatusCode::TOO_MANY_REQUESTS, "too many requests").into_response();
     }
+    // A live conversation's room is not shared by link: its door is the invitation the owner made.
+    if crate::live::is_live_room(room.trim()) {
+        return (StatusCode::FORBIDDEN, "reserved room").into_response();
+    }
     let Some(resend) = state.resend.as_ref() else {
         return (StatusCode::SERVICE_UNAVAILABLE, "email not configured").into_response();
     };

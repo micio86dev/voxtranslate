@@ -736,3 +736,28 @@ async fn a_live_conversations_room_name_cannot_carry_a_glossary() {
     .await;
     assert_eq!(status, StatusCode::OK);
 }
+
+/// Inviting people to a room by e-mail sends a link to `/?room=<room>`. For a live conversation
+/// that link opens nothing (its door is the owner's invitation), so the route must not become a
+/// way to e-mail strangers a link that carries a conversation's name.
+#[tokio::test]
+async fn a_live_conversations_room_cannot_be_the_subject_of_an_email_invite() {
+    let srv = srv!(Opts::default());
+    let (jwt, _) = login(&srv, "Mallory").await;
+    let invite = |room: String| {
+        let req = srv
+            .http
+            .post(format!("http://{}/api/rooms/{room}/invite", srv.addr))
+            .bearer_auth(&jwt)
+            .json(&json!({ "emails": ["someone@example.com"] }));
+        async move { req.send().await.unwrap().status() }
+    };
+    let live = format!("live-{}", Uuid::new_v4());
+    assert_eq!(invite(live.clone()).await, StatusCode::FORBIDDEN);
+    assert_eq!(invite(live.to_uppercase()).await, StatusCode::FORBIDDEN);
+    // An ordinary room is untouched by the guard (no e-mail provider here: 503, not 403).
+    assert_eq!(
+        invite("live-room".into()).await,
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+}

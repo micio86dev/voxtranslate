@@ -92,6 +92,17 @@ fn bad(code: &str, message: &str) -> Response {
 
 /// The operator's name as the Flow reports it. Required: an action nobody can be asked about
 /// is not an action this API performs.
+/// Characters that must never reach an audit row or a log line: control characters, and the
+/// ones that look like a line break or reorder text (line/paragraph separators, bidi controls,
+/// zero-width and invisible operators, BOM) even though `char::is_control` lets them through.
+fn is_unsafe_text(c: char) -> bool {
+    c.is_control()
+        || matches!(
+            c,
+            '\u{200B}'..='\u{200F}' | '\u{2028}'..='\u{202E}' | '\u{2060}'..='\u{206F}' | '\u{061C}' | '\u{FEFF}' | '\u{0085}'
+        )
+}
+
 fn clean_actor(raw: &Option<String>) -> Result<String, Response> {
     let actor = raw.as_deref().map(str::trim).unwrap_or_default();
     if actor.is_empty() {
@@ -100,7 +111,7 @@ fn clean_actor(raw: &Option<String>) -> Result<String, Response> {
     if actor.chars().count() > MAX_ACTOR_CHARS {
         return Err(bad("actor_too_long", "actor is too long"));
     }
-    if actor.chars().any(char::is_control) {
+    if actor.chars().any(is_unsafe_text) {
         return Err(bad(
             "actor_invalid",
             "actor must not contain control characters",
@@ -118,7 +129,7 @@ fn clean_reason(raw: &Option<String>, min: usize) -> Result<String, Response> {
     if reason.is_empty() {
         return Err(bad("reason_required", "a reason is required"));
     }
-    if reason.chars().any(char::is_control) {
+    if reason.chars().any(is_unsafe_text) {
         return Err(bad(
             "reason_invalid",
             "the reason must not contain control characters (line breaks, tabs, NUL)",

@@ -1211,7 +1211,10 @@ async fn control_characters_in_the_reason_or_actor_are_refused_and_nothing_runs(
     let (desk, _, _) = new_desk(&srv, &org).await;
     let conv = seed(&srv, Owner::Org(&org), "active").await;
 
-    for bad in ["\u{0}", "\n", "\t", "\u{7f}", "\u{1b}"] {
+    for bad in [
+        "\u{0}", "\n", "\t", "\u{7f}", "\u{1b}", "\u{2028}", "\u{2029}", "\u{202E}", "\u{200B}",
+        "\u{2066}",
+    ] {
         let reason = format!("customer asked for a copy{bad} of what was said");
         let actor = format!("operator{bad}@voxtranslate.test");
         for (path, id_key, id) in [

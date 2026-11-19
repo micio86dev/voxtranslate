@@ -39,7 +39,8 @@ pub fn normalize_lang(raw: &str) -> Option<String> {
 fn is_text_steering(c: char) -> bool {
     matches!(
         c,
-        '\u{200B}'..='\u{200F}'   // zero-width space/joiners, LRM, RLM
+        '\u{200B}'                // zero-width space
+        | '\u{200E}'..='\u{200F}' // LRM, RLM (ZWNJ/ZWJ U+200C/D are real writing: kept)
         | '\u{2028}'..='\u{202E}' // line/paragraph separator, embeddings, overrides
         | '\u{2060}'..='\u{206F}' // word joiner, invisible operators, isolates, deprecated formats
         | '\u{061C}'               // Arabic letter mark
@@ -47,8 +48,28 @@ fn is_text_steering(c: char) -> bool {
     )
 }
 
+/// Characters that draw nothing: whitespace, the joiners kept inside real writing, and blank
+/// fillers (Hangul/Braille fillers, soft hyphen, combining grapheme joiner, tag characters). A
+/// name made only of them looks empty to the other person, so it is treated as empty.
+fn is_blank(c: char) -> bool {
+    c.is_whitespace()
+        || matches!(
+            c,
+            '\u{200C}'
+                | '\u{200D}'
+                | '\u{3164}'
+                | '\u{2800}'
+                | '\u{00AD}'
+                | '\u{034F}'
+                | '\u{115F}'
+                | '\u{1160}'
+                | '\u{FFA0}'
+                | '\u{E0000}'..='\u{E007F}'
+        )
+}
+
 /// A display name safe to broadcast to the other phone: control and text-steering characters
-/// removed, at most 100 characters, never empty.
+/// removed, at most 100 characters, never empty (or empty-looking).
 pub fn clean_name(raw: &str) -> String {
     let cleaned: String = raw
         .chars()
@@ -58,7 +79,7 @@ pub fn clean_name(raw: &str) -> String {
         .chars()
         .take(100)
         .collect();
-    if cleaned.is_empty() {
+    if cleaned.chars().all(is_blank) {
         "Guest".to_string()
     } else {
         cleaned
@@ -592,8 +613,8 @@ mod tests {
         // Zero-width, separator and invisible characters too: nothing of them survives, and a
         // name made only of them is an empty one.
         for c in [
-            '\u{200B}', '\u{200C}', '\u{200D}', '\u{2028}', '\u{2029}', '\u{2060}', '\u{2061}',
-            '\u{206F}', '\u{061C}', '\u{FEFF}',
+            '\u{200B}', '\u{2028}', '\u{2029}', '\u{2060}', '\u{2061}', '\u{206F}', '\u{061C}',
+            '\u{FEFF}',
         ] {
             assert_eq!(
                 clean_name(&format!("An{c}na")),
@@ -608,7 +629,22 @@ mod tests {
                 c as u32
             );
         }
-        // Ordinary text is untouched, joiners inside real scripts aside from the zero-width ones.
+        // Joiners are part of real writing (Persian, Sinhala, emoji sequences): kept inside a
+        // name, but a name that is nothing else is an empty one. So are blank fillers.
+        assert_eq!(clean_name("می\u{200C}خواهم"), "می\u{200C}خواهم");
+        assert_eq!(clean_name("ශ්\u{200D}රී"), "ශ්\u{200D}රී");
+        for only in [
+            "\u{200C}\u{200D}",
+            "\u{3164}",
+            "\u{2800}\u{2800}",
+            "\u{00AD}",
+            "\u{034F}",
+            "\u{E0041}\u{E0042}",
+            " \u{3164} ",
+        ] {
+            assert_eq!(clean_name(only), "Guest", "{only:?}");
+        }
+        // Ordinary text is untouched.
         assert_eq!(clean_name("Zoë-Marie"), "Zoë-Marie");
     }
 }
