@@ -656,3 +656,25 @@ async fn business_sessions_refuse_foreign_orgs_projects_and_ineligible_wallets()
         (StatusCode::PAYMENT_REQUIRED, Some("subscription_required"))
     );
 }
+
+#[tokio::test]
+async fn business_sessions_are_capped_per_member_too() {
+    let srv = srv!(Opts {
+        max_concurrent: Some("2"),
+        ..Opts::default()
+    });
+    let (_, owner) = login(&srv, "Owner").await;
+    let (jwt, member) = login(&srv, "Receptionist").await;
+    let org = org_with_member(&srv, owner, Some(member)).await;
+
+    // The cap follows the PERSON who opens conversations, not only a personal wallet: one
+    // member of an org cannot be used to open an unbounded number of them.
+    let (a, _) = create_b2b(&srv, &jwt, org.id, Some(org.project)).await;
+    let (b, _) = create_b2b(&srv, &jwt, org.id, Some(org.project)).await;
+    assert_eq!((a, b), (StatusCode::OK, StatusCode::OK));
+    let (s, body) = create_b2b(&srv, &jwt, org.id, Some(org.project)).await;
+    assert_eq!(
+        (s, body["code"].as_str()),
+        (StatusCode::TOO_MANY_REQUESTS, Some("too_many_sessions"))
+    );
+}

@@ -69,6 +69,12 @@ pub async fn bind(
     let pool = require_pool(&state)?;
     require_role(pool, body.org_id, user.user_id, MEMBER).await?;
     let room = sanitize_room(&room).ok_or_else(|| bad_request("invalid room code"))?;
+    // Live Connect names its rooms `live-<uuid>` and binds them itself; letting a client claim
+    // one in advance would let a binding the server did not make decide the conversation's org
+    // and project.
+    if room.starts_with("live-") {
+        return Err(bad_request("reserved room name"));
+    }
 
     // Cloud recording is a paid Business/Enterprise feature: require a live (active
     // and unlapsed) subscription on the target org. The pre-join UI gates this too;

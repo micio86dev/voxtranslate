@@ -32,12 +32,18 @@ pub fn normalize_lang(raw: &str) -> Option<String> {
     ok.then_some(l)
 }
 
-/// A display name safe to broadcast to the other phone: control characters removed, at most
-/// 100 characters, never empty.
+/// Characters that reorder or hide text: directional overrides/isolates and marks. A name
+/// carrying them can render as something else on the other person's screen.
+fn is_text_steering(c: char) -> bool {
+    matches!(c, '\u{200E}' | '\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}')
+}
+
+/// A display name safe to broadcast to the other phone: control and text-steering characters
+/// removed, at most 100 characters, never empty.
 pub fn clean_name(raw: &str) -> String {
     let cleaned: String = raw
         .chars()
-        .filter(|c| !c.is_control())
+        .filter(|c| !c.is_control() && !is_text_steering(*c))
         .collect::<String>()
         .trim()
         .chars()
@@ -163,21 +169,24 @@ pub async fn create_session(
         Owner::Org { org_id, project_id } => (None, Some(org_id), Some(project_id)),
     };
 
-    if let Some(user) = owner_user {
-        // Serialise concurrent creates by the same user, so the cap cannot be beaten by
+    // The cap is per PERSON who opens conversations — the owner of a personal one, or the member
+    // who starts a business one — so an org's staff cannot be used to open an unbounded number.
+    {
+        // Serialise concurrent creates by the same person, so the cap cannot be beaten by
         // opening several sessions in the same instant. Released at commit.
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
-            .bind(format!("live-owner:{user}"))
+            .bind(format!("live-host:{}", new.host_user))
             .execute(&mut *tx)
             .await?;
         let open: i64 = sqlx::query_scalar(
-            "SELECT count(*) FROM live_sessions
-             WHERE owner_user_id = $1
-               AND status IN ('waiting', 'active')
-               AND (status = 'active' OR expires_at > now())
-               AND created_at > now() - make_interval(mins => $2::int)",
+            "SELECT count(*) FROM live_participants p
+             JOIN live_sessions s ON s.id = p.session_id
+             WHERE p.role = 'host' AND p.user_id = $1
+               AND s.status IN ('waiting', 'active')
+               AND (s.status = 'active' OR s.expires_at > now())
+               AND s.created_at > now() - make_interval(mins => $2::int)",
         )
-        .bind(user)
+        .bind(new.host_user)
         .bind(cfg.max_session_min as i32)
         .fetch_one(&mut *tx)
         .await?;
@@ -557,5 +566,8 @@ mod tests {
         assert_eq!(clean_name(""), "Guest");
         assert_eq!(clean_name(&"x".repeat(500)).chars().count(), 100);
         assert_eq!(clean_name("José 李"), "José 李");
+        // Bidi overrides can make a name read as something it is not.
+        assert_eq!(clean_name("Anna\u{202E}fdp.exe"), "Annafdp.exe");
+        assert_eq!(clean_name("\u{2066}\u{200F}"), "Guest");
     }
 }

@@ -193,7 +193,11 @@ impl LiveMeter {
         // After a stall, skip the missed ticks instead of firing them back to back: a skipped
         // tick under-charges, a burst of them could not be told apart from a duplicate.
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-        ticker.tick().await; // charge in arrears: the first tick is the start of the interval
+        // The first interval is charged the moment the meter starts (see `first` below), then
+        // one more every `interval`. Charging only in arrears made a Start/Stop shorter than one
+        // interval free: the meter was cancelled before its first charge, while the engine had
+        // already been translating the whole time.
+        let mut first = true;
         let mut warned_low = false;
         let mut owed = CreditAccumulator::default();
         let mut errors = 0u32;
@@ -202,6 +206,11 @@ impl LiveMeter {
             tokio::select! {
                 _ = &mut cancel => break,
                 _ = ticker.tick() => {
+                    let is_first = std::mem::take(&mut first);
+                    // A muted phone sends nothing to the engine, so there is nothing to pay for.
+                    if self.live.is_muted(self.session, self.peer) {
+                        continue;
+                    }
                     // Nothing to translate while everyone shares this speaker's language.
                     let targets = self.rooms.get_room_languages(&self.room, &self.peer.to_string());
                     let Some(streams) =
@@ -217,7 +226,16 @@ impl LiveMeter {
                             c => c,
                         },
                     };
-                    let seq = tick_seq(chrono::Utc::now().timestamp(), interval);
+                    // The wall-clock bucket makes two meters covering the same interval agree, so
+                    // one of them is harmless. The opening charge of a run cannot use it: a phone
+                    // that starts and stops several times inside one bucket would land every
+                    // start on the same number and pay for only the first. Each start gets a key
+                    // of its own (negative, so it can never collide with a bucket).
+                    let seq = if is_first {
+                        -chrono::Utc::now().timestamp_micros()
+                    } else {
+                        tick_seq(chrono::Utc::now().timestamp(), interval)
+                    };
 
                     match charge_tick(
                         &self.pool,
@@ -245,13 +263,17 @@ impl LiveMeter {
                                 }
                             }
                         }
-                        Ok(Tick::Duplicate) => {}
+                        Ok(Tick::Duplicate) => {
+                            // Not charged, so the credits taken from the carry were not spent.
+                            owed.put_back(credits);
+                        }
                         Ok(Tick::Insufficient) => {
                             tracing::info!(session = %self.session, "live: payer cannot cover usage");
                             let _ = end_tx.send(EndCause::BalanceExhausted);
                             break;
                         }
                         Err(e) => {
+                            owed.put_back(credits);
                             errors += 1;
                             tracing::error!(session = %self.session, error = %e, errors, "live: charge failed");
                             if errors >= MAX_CONSECUTIVE_ERRORS {

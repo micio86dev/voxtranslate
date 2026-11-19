@@ -1,6 +1,6 @@
 //! Shared Live Connect state, carried on `AppState`.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 
 use tokio::time::Instant;
@@ -20,6 +20,10 @@ pub struct LiveState {
     /// speech can still tell the owner their balance. Keyed by session, valued by the socket's
     /// connection id so a stale socket cannot unregister its replacement.
     owners: Mutex<HashMap<Uuid, (Uuid, PeerTx)>>,
+    /// Seats that are muted, as `(session, peer)`. Kept here and not per socket, so a phone that
+    /// reconnects is still muted: the server enforces mute, it does not trust the client to
+    /// remember it.
+    muted: Mutex<HashSet<(Uuid, Uuid)>>,
 }
 
 // Hand-written: `PeerTx` is a channel handle, and a `{:?}` of the state should show the
@@ -38,7 +42,32 @@ impl LiveState {
             config,
             vacant: Mutex::new(HashMap::new()),
             owners: Mutex::new(HashMap::new()),
+            muted: Mutex::new(HashSet::new()),
         }
+    }
+
+    pub fn set_muted(&self, session: Uuid, peer: Uuid, muted: bool) {
+        let mut set = self.muted.lock().unwrap_or_else(|p| p.into_inner());
+        if muted {
+            set.insert((session, peer));
+        } else {
+            set.remove(&(session, peer));
+        }
+    }
+
+    pub fn is_muted(&self, session: Uuid, peer: Uuid) -> bool {
+        self.muted
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .contains(&(session, peer))
+    }
+
+    /// Forget mute flags of sessions that are no longer active, so the set cannot grow forever.
+    pub fn retain_muted_for(&self, active: &[Uuid]) {
+        self.muted
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .retain(|(session, _)| active.contains(session));
     }
 
     /// Register the owner side's channel for `session` (the newest socket wins).

@@ -192,7 +192,10 @@ async fn handle_live_peer(socket: WebSocket, state: AppState, auth: PeerAuth) {
         conn,
         name: auth.display_name.clone(),
         lang: auth.lang.clone(),
-        user_id: auth.user_id,
+        // Deliberately None: a room peer's `user_id` is broadcast to everyone in the room, and
+        // the other phone has no business learning the owner's (or a staff member's) account
+        // id. The engine and the transcript calls take `auth.user_id` directly.
+        user_id: None,
         engine: engine.metadata().id.clone(),
         avatar_url: None,
         cartesia_voice_id: None,
@@ -212,12 +215,16 @@ async fn handle_live_peer(socket: WebSocket, state: AppState, auth: PeerAuth) {
     // references it); a consumer one only when the owner opted in to saving the transcript.
     let keep_row = auth.org_id.is_some() || auth.save_transcript;
     let mut participant_row = None;
+    let mut call_row_ok = true;
     if keep_row {
         if let Err(e) = ensure_call_session(&state, &auth, &room, call_session).await {
             tracing::error!(error = %e, "live: could not record the call session");
+            call_row_ok = false;
         }
     }
-    let transcripts = if auth.save_transcript {
+    // Without our own `live_connect` row, `session_started` would create a plain `call` row and
+    // inherit whatever binding the room name carries. Better to store nothing than that.
+    let transcripts = if auth.save_transcript && call_row_ok {
         state.transcripts.clone()
     } else {
         None
@@ -256,7 +263,7 @@ async fn handle_live_peer(socket: WebSocket, state: AppState, auth: PeerAuth) {
             peer_id: peer_id.clone(),
             user_name: auth.display_name.clone(),
             lang: auth.lang.clone(),
-            user_id: auth.user_id,
+            user_id: None,
             avatar_url: None,
             cartesia_voice_id: None,
         }
@@ -282,7 +289,18 @@ async fn handle_live_peer(socket: WebSocket, state: AppState, auth: PeerAuth) {
     let mut meter_cancel: Option<oneshot::Sender<()>> = None;
     let mut usage_session: Option<Uuid> = None;
     let (end_tx, mut end_rx) = mpsc::unbounded_channel::<EndCause>();
-    let mut muted = false;
+    let mut muted = state.live.is_muted(auth.session_id, auth.peer_id);
+    if muted {
+        // A reconnecting phone is told it is still muted, so its UI cannot show it live.
+        let _ = out_tx.send(
+            ServerMessage::PeerMuted {
+                peer_id: peer_id.clone(),
+                kind: "audio".into(),
+                muted: true,
+            }
+            .to_json(),
+        );
+    }
     let mut msg_count: u32 = 0;
     let mut msg_window = tokio::time::Instant::now();
     let mut last_activity = tokio::time::Instant::now();
@@ -367,6 +385,7 @@ async fn handle_live_peer(socket: WebSocket, state: AppState, auth: PeerAuth) {
                                 // Enforced here, not just relayed: a muted phone sends nothing
                                 // to the engine, whatever the client keeps capturing.
                                 muted = m;
+                                state.live.set_muted(auth.session_id, auth.peer_id, m);
                                 state.rooms.broadcast_except(&room, &peer_id,
                                     &ServerMessage::PeerMuted {
                                         peer_id: peer_id.clone(),

@@ -65,6 +65,10 @@ pub async fn sweep_sessions(state: &AppState, only: Option<&[Uuid]>) -> Result<u
             .await?
         }
     };
+    // Only a full pass sees every active session; a scoped one must not forget the others.
+    if only.is_none() {
+        state.live.retain_muted_for(&active);
+    }
     let grace = Duration::from_secs(cfg.reconnect_grace_secs.max(0) as u64);
     let now = tokio::time::Instant::now();
 

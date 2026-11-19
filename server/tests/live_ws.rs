@@ -836,3 +836,161 @@ async fn a_business_conversation_is_recorded_under_its_org_and_project_and_gated
         "free translation"
     );
 }
+
+// ---- defects found by independent verification -----------------------------------------
+
+#[tokio::test]
+async fn starting_and_stopping_repeatedly_is_not_free() {
+    let mock = RealtimeMock::start(Dialect::Qwen).await;
+    mock.reply_with(speech());
+    let srv = srv!(&mock);
+    let c = convo(&srv, false).await;
+    let mut host = open(&srv, &c.host_token).await;
+    let mut guest = open(&srv, &c.guest_token).await;
+
+    // Four bursts of speech, each shorter than one billing interval (1 s here, 5 s in
+    // production). Charging only in arrears let every one of them through unpaid.
+    for _ in 0..4 {
+        say(&mut host, json!({ "type": "start" })).await;
+        let _ = both_speak(&mut host, &mut guest, 600).await;
+        say(&mut host, json!({ "type": "stop" })).await;
+    }
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    let host_peer: Uuid = c.host_peer.parse().unwrap();
+    let paid: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM live_usage_ticks WHERE session_id = $1 AND peer_id = $2",
+    )
+    .bind(c.session)
+    .bind(host_peer)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
+    assert!(paid >= 4, "four starts must be four charges, got {paid}");
+}
+
+#[tokio::test]
+async fn a_muted_phone_stays_muted_across_a_reconnect() {
+    let mock = RealtimeMock::start(Dialect::Qwen).await;
+    mock.reply_with(speech());
+    let srv = srv!(&mock);
+    let c = convo(&srv, false).await;
+    let mut host = open(&srv, &c.host_token).await;
+    let mut guest = open(&srv, &c.guest_token).await;
+
+    say(&mut host, json!({ "type": "mute_audio", "muted": true })).await;
+    wait_for(&mut guest, |v| v["type"] == "peer_muted")
+        .await
+        .expect("peer_muted");
+
+    // The phone drops and comes back on the same token, and does NOT send mute_audio again.
+    let _ = host.close(None).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let mut host = connect(&srv, &c.host_token).await.expect("reconnect");
+    let told = wait_for(&mut host, |v| v["type"] == "peer_muted")
+        .await
+        .expect("told it is still muted");
+    assert_eq!(told["muted"], true);
+
+    say(&mut host, json!({ "type": "start" })).await;
+    let _ = both_speak(&mut host, &mut guest, 2500).await;
+    assert!(
+        !mock.saw_type("input_audio_buffer.append"),
+        "audio reached the engine after a reconnect while muted"
+    );
+}
+
+#[tokio::test]
+async fn the_other_phone_never_learns_an_account_id() {
+    let mock = RealtimeMock::start(Dialect::Qwen).await;
+    let srv = srv!(&mock);
+
+    // Both orders of arrival: the guest learns about the host either from the peer list it is
+    // given on joining (host first) or from the announcement of the host's arrival (guest
+    // first). Either way, the owner's account id must not be in it.
+    for host_first in [true, false] {
+        let c = convo(&srv, false).await;
+        let host_user = c.host_user.to_string();
+        let (mut host, mut guest, frames);
+        if host_first {
+            host = connect(&srv, &c.host_token).await.expect("host");
+            wait_for(&mut host, |v| v["type"] == "room_joined")
+                .await
+                .expect("host room_joined");
+            guest = connect(&srv, &c.guest_token).await.expect("guest");
+            let joined = wait_for(&mut guest, |v| v["type"] == "room_joined")
+                .await
+                .expect("room_joined");
+            frames = vec![("guest room_joined", joined)];
+        } else {
+            guest = connect(&srv, &c.guest_token).await.expect("guest");
+            wait_for(&mut guest, |v| v["type"] == "room_joined")
+                .await
+                .expect("room_joined");
+            host = connect(&srv, &c.host_token).await.expect("host");
+            let host_joined = wait_for(&mut host, |v| v["type"] == "room_joined")
+                .await
+                .expect("host room_joined");
+            let announced = wait_for(&mut guest, |v| v["type"] == "peer_joined")
+                .await
+                .expect("peer_joined");
+            frames = vec![
+                ("host room_joined", host_joined),
+                ("peer_joined", announced),
+            ];
+        }
+        for (what, frame) in &frames {
+            let shown = frame.to_string();
+            assert!(
+                !shown.contains(&host_user),
+                "host_first={host_first}: {what} leaked the owner's account id: {shown}"
+            );
+            assert!(
+                shown.contains("peer"),
+                "the frame must really describe the other phone: {shown}"
+            );
+        }
+        drop((host, guest));
+    }
+}
+
+#[tokio::test]
+async fn a_business_session_is_never_stored_under_a_binding_the_server_did_not_make() {
+    // A room that carries a client-made binding must not decide a Live Connect conversation's
+    // org and project; the server's own row is the only one that does.
+    let mock = RealtimeMock::start(Dialect::Qwen).await;
+    mock.reply_with(speech());
+    let srv = srv!(&mock);
+    let (_, owner) = login(&srv).await;
+    let (jwt, member) = login(&srv).await;
+    let (org, project) = org_with_member(&srv, owner, member).await;
+    let (_, created) = srv
+        .post(
+            "/api/live/sessions",
+            Some(&jwt),
+            json!({ "lang": "it", "org_id": org, "project_id": project }),
+        )
+        .await;
+    let session: Uuid = created["session_id"].as_str().unwrap().parse().unwrap();
+
+    // Pre-binding the future room is refused outright (see also `live_rest`).
+    let res = srv
+        .http
+        .patch(format!(
+            "http://{}/api/rooms/live-{session}/business",
+            srv.addr
+        ))
+        .bearer_auth(&jwt)
+        .json(&json!({ "org_id": org }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    let bound: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM room_business_bindings WHERE room = $1")
+            .bind(format!("live-{session}"))
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap();
+    assert_eq!(bound, 0);
+}
