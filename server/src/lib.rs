@@ -841,6 +841,8 @@ pub fn app(state: AppState) -> Router {
         .merge(business::routes::routes())
         // Erasing what Live Connect stored is available even when the feature is switched off.
         .merge(live::erase::routes())
+        // Platform-operator tools for Live Connect (Directus Flows, shared admin secret).
+        .merge(live::admin::routes())
         // Live Connect: absent unless enabled and correctly configured (a real kill switch).
         .merge(if state.live.enabled() {
             live::routes::routes()

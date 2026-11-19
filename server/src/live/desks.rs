@@ -65,7 +65,7 @@ pub fn routes() -> Router<AppState> {
 // ---- rows and views --------------------------------------------------------------------
 
 #[derive(sqlx::FromRow)]
-struct DeskRow {
+pub(super) struct DeskRow {
     id: Uuid,
     org_id: Uuid,
     project_id: Option<Uuid>,
@@ -74,7 +74,8 @@ struct DeskRow {
     default_lang: String,
     languages: Vec<String>,
     public_id: String,
-    token_version: i32,
+    /// Read by the platform-admin regenerate, which reports the new version and nothing else.
+    pub(super) token_version: i32,
     status: String,
     created_at: DateTime<Utc>,
 }
@@ -372,6 +373,32 @@ async fn expire_waiting(pool: &Pool, desk_id: Uuid, why: &str) -> Result<u64, sq
     Ok(res.rows_affected())
 }
 
+/// Revoke a desk: its printed QR stops working and everyone still waiting at it is closed.
+/// Returns how many waiting sessions were closed. Shared by the org admin's endpoint and the
+/// platform admin's, so both do exactly the same thing; idempotent.
+pub(super) async fn revoke(pool: &Pool, desk_id: Uuid) -> Result<u64, sqlx::Error> {
+    sqlx::query("UPDATE live_desks SET status = 'revoked', revoked_at = now() WHERE id = $1")
+        .bind(desk_id)
+        .execute(pool)
+        .await?;
+    expire_waiting(pool, desk_id, "desk_revoked").await
+}
+
+/// Move a desk on to a fresh QR: the version bumps (every earlier print stops verifying) and a
+/// revoked desk is active again. Returns the updated row and how many waiting sessions were
+/// closed. The caller decides whether the new credential may be shown to anyone.
+pub(super) async fn regenerate(pool: &Pool, desk_id: Uuid) -> Result<(DeskRow, u64), sqlx::Error> {
+    let desk = sqlx::query_as::<_, DeskRow>(&format!(
+        "UPDATE live_desks SET token_version = token_version + 1, status = 'active', revoked_at = NULL
+         WHERE id = $1 RETURNING {DESK_COLS}"
+    ))
+    .bind(desk_id)
+    .fetch_one(pool)
+    .await?;
+    let closed = expire_waiting(pool, desk_id, "desk_regenerated").await?;
+    Ok((desk, closed))
+}
+
 pub async fn revoke_desk(
     State(state): State<AppState>,
     user: AuthUser,
@@ -380,14 +407,7 @@ pub async fn revoke_desk(
     let pool = require_pool(&state)?;
     require_role(pool, org_id, user.user_id, ADMIN).await?;
     desk_in_org(pool, org_id, desk_id).await?;
-    sqlx::query("UPDATE live_desks SET status = 'revoked', revoked_at = now() WHERE id = $1")
-        .bind(desk_id)
-        .execute(pool)
-        .await
-        .map_err(db_err)?;
-    let closed = expire_waiting(pool, desk_id, "desk_revoked")
-        .await
-        .map_err(db_err)?;
+    let closed = revoke(pool, desk_id).await.map_err(db_err)?;
     Ok(Json(json!({ "status": "revoked", "waiting_closed": closed })).into_response())
 }
 
@@ -401,17 +421,7 @@ pub async fn regenerate_desk(
     let pool = require_pool(&state)?;
     require_role(pool, org_id, user.user_id, ADMIN).await?;
     desk_in_org(pool, org_id, desk_id).await?;
-    let desk = sqlx::query_as::<_, DeskRow>(&format!(
-        "UPDATE live_desks SET token_version = token_version + 1, status = 'active', revoked_at = NULL
-         WHERE id = $1 RETURNING {DESK_COLS}"
-    ))
-    .bind(desk_id)
-    .fetch_one(pool)
-    .await
-    .map_err(db_err)?;
-    let closed = expire_waiting(pool, desk_id, "desk_regenerated")
-        .await
-        .map_err(db_err)?;
+    let (desk, closed) = regenerate(pool, desk_id).await.map_err(db_err)?;
     let mut view = desk.view();
     view["qr_url"] = json!(desk.qr_url(&state));
     view["waiting_closed"] = json!(closed);

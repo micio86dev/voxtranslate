@@ -6,6 +6,7 @@
 //! call. Everything conversational (room, engines, speech events, transcripts, search)
 //! reuses the existing meeting machinery; see `docs/live-connect.md`.
 
+pub mod admin;
 pub mod billing;
 pub mod config;
 pub mod dashboard;
