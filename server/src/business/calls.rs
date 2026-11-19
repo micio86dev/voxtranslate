@@ -13,7 +13,9 @@ use serde_json::json;
 use sqlx::FromRow;
 use uuid::Uuid;
 
-use crate::business::{bad_request, db_err, forbidden, require_pool, require_role, MEMBER};
+use crate::business::{
+    bad_request, conflict, db_err, forbidden, require_pool, require_role, MEMBER,
+};
 use crate::invite::sanitize_room;
 use crate::middleware::AuthUser;
 use crate::AppState;
@@ -96,7 +98,11 @@ pub async fn bind(
         }
     }
 
-    sqlx::query(
+    // An existing binding may be changed by its own org, or by the person who made it (who
+    // can move it between orgs they belong to). Anyone else holding only the room code would
+    // otherwise re-point another tenant's room at their own org: taking its recording and
+    // transcript, billing it to themselves, and erasing the owner's binding.
+    let written = sqlx::query(
         "INSERT INTO room_business_bindings
             (room, org_id, project_id, cloud_recording_enabled, created_by)
          VALUES ($1, $2, $3, COALESCE($4, FALSE), $5)
@@ -104,7 +110,9 @@ pub async fn bind(
             org_id = EXCLUDED.org_id,
             project_id = EXCLUDED.project_id,
             cloud_recording_enabled = EXCLUDED.cloud_recording_enabled,
-            updated_at = now()",
+            updated_at = now()
+         WHERE room_business_bindings.org_id = EXCLUDED.org_id
+            OR room_business_bindings.created_by = EXCLUDED.created_by",
     )
     .bind(&room)
     .bind(body.org_id)
@@ -114,6 +122,9 @@ pub async fn bind(
     .execute(pool)
     .await
     .map_err(db_err)?;
+    if written.rows_affected() == 0 {
+        return Err(conflict("room is already bound to another organization"));
+    }
 
     Ok(Json(json!({
         "room": room,

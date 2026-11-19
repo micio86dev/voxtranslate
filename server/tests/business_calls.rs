@@ -794,3 +794,52 @@ async fn live_transcript_is_resolved_into_the_readers_language() {
     // A malformed locale is a clear 400, not a silent fallback hiding a client bug.
     assert_eq!(read(Some("../../etc/passwd")).await.status(), 400);
 }
+
+/// A room code is the only thing a tenant needs to know to address a room, and binding is
+/// "any member of the TARGET org". Without a guard, a member of org B could re-point org A's
+/// room at org B — taking its recording and transcript and billing it to B, and wiping A's
+/// binding. Re-binding stays open to the same org and to whoever made the binding.
+#[tokio::test]
+async fn a_member_of_another_org_cannot_overwrite_a_rooms_binding() {
+    let Some(srv) = setup().await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    let http = Client::new();
+    let (owner_a, jwt_a) = user(&srv).await;
+    let org_a = make_org(&srv, owner_a).await;
+    let (owner_b, jwt_b) = user(&srv).await;
+    let org_b = make_org(&srv, owner_b).await;
+    let room = format!("room-{}", Uuid::new_v4().simple());
+    let url = format!("{}/api/rooms/{room}/business", base(&srv));
+    let bind = |jwt: &str, org: Uuid| {
+        http.patch(&url)
+            .bearer_auth(jwt.to_string())
+            .json(&json!({ "org_id": org }))
+            .send()
+    };
+
+    assert_eq!(bind(&jwt_a, org_a).await.unwrap().status(), 200);
+
+    // Org B's member cannot take the room over...
+    assert_eq!(bind(&jwt_b, org_b).await.unwrap().status(), 409);
+    let bound: Uuid =
+        sqlx::query_scalar("SELECT org_id FROM room_business_bindings WHERE room = $1")
+            .bind(&room)
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap();
+    assert_eq!(bound, org_a, "the original binding is untouched");
+
+    // ...org A can still re-bind its own room (e.g. to change the project)...
+    assert_eq!(bind(&jwt_a, org_a).await.unwrap().status(), 200);
+
+    // ...and the person who made the binding can move it to another org they belong to.
+    sqlx::query("INSERT INTO organization_members (org_id, user_id, role) VALUES ($1, $2, 'member') ON CONFLICT DO NOTHING")
+        .bind(org_b)
+        .bind(owner_a)
+        .execute(&srv.pool)
+        .await
+        .unwrap();
+    assert_eq!(bind(&jwt_a, org_b).await.unwrap().status(), 200);
+}
