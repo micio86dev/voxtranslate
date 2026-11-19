@@ -298,9 +298,152 @@ Withdrawing consent (the app's DELETE `/api/user/location`, or a future settings
 toggle) nulls the coordinates and flips `location_consent` to false, so the pin
 disappears on the next load.
 
+## 11. Live Connect administration
+
+Live Connect (spec 0121) is administered here by platform superadmins and a few
+authorised operators. Directus stays a **thin admin UI**: it never writes the
+`live_*` tables, every action is a Flow button that calls the VoxTranslate server
+(`/api/admin/live/*`, the shared secret from §1), and the server writes an
+`admin_audit` row for it. Customer-facing workflows — desks, QR download and print,
+session history, search, usage — stay in the B2B dashboard. Directus and the
+dashboard do **not** share an authorization model.
+
+### Provision it
+
+Needs Directus **11** (permissions hang off *policies*), the §7 env vars
+(`ADMIN_API_SECRET`, `VOX_API_URL` in `FLOWS_ENV_ALLOW_LIST`), and
+`setup-backoffice.mjs` (§9) run first so `organizations`, `projects` and
+`organization_credits_transactions` are registered collections.
+
+```bash
+# See every call first. Needs no Directus, no URL, no credentials, changes nothing:
+node directus/setup-live-connect.mjs --dry-run
+
+DIRECTUS_URL=https://<your-directus> \
+  DIRECTUS_ADMIN_EMAIL=… DIRECTUS_ADMIN_PASSWORD=… \
+  node directus/setup-live-connect.mjs
+# or, instead of email+password: DIRECTUS_TOKEN=<static admin token>
+```
+
+Idempotent: a re-run updates in place (a second run changes no counts). It creates
+the *Live Connect* folder, the four collections below, two roles (nothing else in
+this repo creates roles), five Flows and one dashboard. It creates **no users**:
+add operators in Directus and give each ONE of the two roles. Flags:
+`--no-transcript-preview` (see Privacy), `--print-transcript-filter` (see below).
+
+### What each role can do
+
+| | Live Connect Support | Live Connect Privacy |
+|---|---|---|
+| Read `live_desks` | name, location, language, status, token *version*, dates | same |
+| Read `live_sessions` | status, languages, end reason, timings, owner/org/project/desk ids, participants (below), events (below) | same |
+| Read `live_participants` | role, language, consent and join/leave times | same |
+| Read `live_session_events` | kind and time | same |
+| Org ledger | amount and date of `type = live_connect` rows only | same |
+| Insights | the *Live Connect - Operations* dashboard | same |
+| Buttons | Revoke desk, Regenerate desk, End session, Reconcile session | those four **+ View transcript** |
+| Write to any `live_*` table | no | no |
+
+### What is deliberately NOT exposed
+
+* **The QR.** It is derived from a server secret and never stored. Support sees the desk's
+  `token_version` but not `public_id` (part of the URL). **Regenerate desk never shows the
+  new QR**: the organisation downloads it from its own dashboard, so an operator never
+  holds a credential.
+* **Tokens.** `live_sessions.invite_hash`, `live_participants.token_hash` (SHA-256
+  fingerprints) and `call_sessions` pointers are hidden and absent from both roles.
+* **People.** `live_participants.display_name` (guest and staff names) is personal data:
+  admin-only, flagged in the field note, absent from Support and Privacy. User names are
+  not readable either (`owner_user_id` shows as an id).
+* **Conversation content.** Neither role can read `transcript_events`, `transcripts`,
+  `session_participants`, `call_sessions`. The only path to it is the **View transcript**
+  button, and only for the Privacy role.
+* **Event details.** `live_session_events.detail` (free-form diagnostics) is admin-only.
+* `live_usage_ticks` is not a Directus collection at all: its primary key is composite and
+  Directus ignores tables without a single primary key. Per-session billing is verified
+  with **Reconcile session**; there is no per-desk credit chart for the same reason (see
+  the dashboard note).
+
+"Hidden" fields are hidden from the app's forms and lists and excluded from Support and
+Privacy by an explicit allow-list (a column added later stays invisible until someone
+lists it). A Directus **administrator** can still read anything through the API: keep that
+group small. Only administrators should be able to edit Flows: whoever edits a Flow can
+read `ADMIN_API_SECRET` (§7 note) and bypass the role check inside the transcript Flow.
+
+### Existing roles: close the live-conversation leak yourself
+
+This script does **not** modify existing roles. But a live conversation reuses the meeting
+tables, so `call_sessions`, `transcript_events`, `session_participants`, `transcripts`
+(and `session_reports`, `session_sentiments`, `session_emails`, `transcript_bookmarks`,
+`chat_files`) **already hold Live Connect rows and are already exposed to any role you
+gave read access**. For every role that should not read live conversations, add this
+permission filter to those collections:
+
+* on `call_sessions` — a NULL `kind` is an ordinary meeting, so `_neq` alone would hide it:
+
+  ```json
+  { "_or": [ { "kind": { "_null": true } }, { "kind": { "_neq": "live_connect" } } ] }
+  ```
+
+* on each table that has a `session_id` (`transcript_events`, `session_participants`,
+  `transcripts`, …) — the same condition through the relation:
+
+  ```json
+  { "session_id": { "_or": [ { "kind": { "_null": true } }, { "kind": { "_neq": "live_connect" } } ] } }
+  ```
+
+`node directus/setup-live-connect.mjs --print-transcript-filter` prints the exact JSON for
+every affected collection. Also check the roles of any B2B-scoped user: the same rule
+applies to them.
+
+### Actions (Flow buttons)
+
+Select **one** row and press the button; Revoke / Regenerate / End ask for a **reason**.
+The Flow sends `actor` = your Directus email (looked up for you) and the reason to the
+server, then tells you the outcome as a Directus notification (a refusal such as
+`session_over`, or an unreachable server, is reported the same way). Selecting several
+rows is refused.
+
+| Button (on) | Server route | Notes |
+|---|---|---|
+| Revoke desk (`live_desks`) | `/api/admin/live/desk-revoke` | Same effect as the org admin's revoke |
+| Regenerate desk (`live_desks`) | `/api/admin/live/desk-regenerate` | Answers version + count only, never the QR |
+| End session (`live_sessions`) | `/api/admin/live/session-end` | `ended_by_admin`, finalises; 409 if already over |
+| Reconcile session (`live_sessions`) | `/api/admin/live/session-reconcile` | Read-only: ticks vs ledger → `ok` / `mismatch` / `unlinked` (erased conversations cannot be proven) |
+| View transcript (`live_sessions`) | `/api/admin/live/session-transcript` | Privacy role only |
+
+### Privacy rules (S15, S17)
+
+* **Audit.** Every button writes `admin_audit` (who, which id, the reason, your IP). The
+  Directus *Admin audit* collection is the history; the audit never contains tokens, QR
+  material, names or transcript text.
+* **View transcript** needs a reason of at least 10 meaningful characters, and the audit
+  row is written **before** anything is read: if it cannot be written, nothing is shown.
+  The button is visible only to the Privacy role, and the Flow checks the role again
+  itself.
+* **Where the excerpt goes.** Directus cannot display a Flow's answer, so the outcome
+  arrives as a notification. For this button it carries a short excerpt (3 utterances,
+  120 characters each, no names). A Directus notification is stored in Directus, and is
+  **e-mailed to the operator when Directus mail is configured**. If that is not
+  acceptable, provision with `--no-transcript-preview`: the notification then carries
+  counts only. Delete the notification when you are done either way.
+* The audit trail and the excerpt are separate copies of different things: the audit says
+  *that* a read happened and why, never *what* was read.
+
+### Reading the dashboard
+
+*Live Connect - Operations* has: open sessions now, sessions and failures in the last 7
+days, expired-while-waiting (compare with the 7-day total for the rate), sessions per day,
+failed/abandoned per day, sessions by end reason and by desk, org credits spent per day,
+and lists of failed and recent sessions. Panels run with the **viewer's** permissions, so
+a Support user can only ever chart what Support can read. Credits are shown per day and in
+total, not per desk (ticks are not a Directus collection); the per-desk figures are in the
+B2B dashboard's usage view.
+
 ## Endpoint reference (server)
 
 Read (public): `GET /api/content/i18n`, `GET /api/content/legal/{slug}?lang=xx`.
 Admin (require `X-Admin-Secret`): `POST /api/admin/{ban,unban,credit,bonus,report/resolve,user/delete}`,
+`POST /api/admin/live/{desk-revoke,desk-regenerate,session-end,session-reconcile,session-transcript}` (Live Connect, §11),
 `POST /api/admin/org/gift-subscription` (gift a B2B org a Business/Enterprise month + credits).
 User location (require session JWT): `POST /api/user/location` (opt-in store), `DELETE /api/user/location` (withdraw).

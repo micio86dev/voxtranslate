@@ -96,7 +96,7 @@ error, never a fallback.
 | `POST/GET …/organizations/{org}/live/desks`, `PATCH …/{desk}`, `GET …/{desk}/qr`, `POST …/{desk}/revoke|regenerate` | org admin (list: member) | implemented |
 | `GET …/organizations/{org}/live/sessions`, `GET …/live/sessions/{id}`, `GET …/live/usage` | admin sees all, member only their own (usage: admin) | implemented |
 | `DELETE …/organizations/{org}/live/sessions/{id}`, `DELETE /api/live/sessions/{id}` | org admin / consumer owner | implemented |
-| `/api/admin/live/*` | Directus flows | planned (M7) |
+| `POST /api/admin/live/{desk-revoke,desk-regenerate,session-end,session-reconcile,session-transcript}` | platform operators, through Directus Flows (shared `ADMIN_API_SECRET`, like every `/api/admin/*` route) | implemented, see *Administration (Directus)* |
 
 Errors are `{"code","message"}` with a stable code: `invite_not_found`, `invite_expired`,
 `session_full`, `session_ended`, `consent_required`, `bad_lang`, `too_many_sessions`,
@@ -252,6 +252,39 @@ and leaves the events, which this pass then erases.
 | Guest words survive an erase | only rows named by the conversation's `room_session` events and pointer are deleted, and only of `kind='live_connect'` in room `live-<id>`; check `live_session_events` for `content_erased` |
 | Retention stopped | it runs from the sweeper, which runs only while `LIVE_CONNECT_ENABLED` is truthy |
 | DB-gated tests "pass" in milliseconds | they skipped: the database is missing or lacks pgvector — use `docker compose up -d --wait postgres` and `voxtranslate_voip_test` |
+
+## Administration (Directus) *(implemented: `server/src/live/admin.rs`, `directus/setup-live-connect.mjs`)*
+
+Directus is for platform superadmins and a few authorised operators (S15). It is a thin UI over the data: it **never writes** the live tables, every action is a Flow button that calls the server, and the server audits it. Customer-facing workflows (desks, QR download, session history, usage) stay in the B2B dashboard. Directus and the dashboard do **not** share an authorization model: Directus authenticates operators with its own roles, the server trusts it only through the shared secret.
+
+### Server routes
+
+All five are `POST`, sit beside the other `/api/admin/*` routes, and use the same `AdminAuth` extractor: `X-Admin-Secret` or `Authorization: Bearer`, constant-time, checked **before** the body is parsed (a wrong secret is `403`, as everywhere under `/api/admin`). Each writes an `admin_audit` row (`actor` = the operator's email as the Flow reports it, `actor_ip`, the reason, ids and counts; never tokens, QR material, names or transcript text). Errors are `{"code","message"}`.
+
+| Route | Body | Effect | Notable errors |
+|---|---|---|---|
+| `desk-revoke` | `desk_id, actor, reason` | Same function the org admin's revoke calls: status `revoked`, waiting sessions closed. Idempotent. | `desk_not_found` 404 |
+| `desk-regenerate` | `desk_id, actor, reason` | Same function the org admin's regenerate calls: version bumped, desk active, waiting sessions closed. Answers **only** `status`, `token_version`, `waiting_closed`: no QR URL, no MAC, no public handle, so a platform operator never holds the credential. | `desk_not_found` 404 |
+| `session-end` | `session_id, actor, reason` | Ends a `waiting`/`active` session with `end_reason = ended_by_admin`, records a `live_session_events` row (`admin_ended`, empty detail: the timeline is visible to the org's admins) and starts finalisation (`finalize::on_session_ended`). | `session_not_found` 404, `session_over` 409 (also when two operators race) |
+| `session-reconcile` | `session_id`, optional `actor` | **Read-only.** Compares the metering (`live_usage_ticks`) with the ledger, see below. | `session_not_found` 404 |
+| `session-transcript` | `session_id, actor, reason` | The only way for the platform to read what was said. Same shape as the dashboard's session detail (participants, utterances with the original apart from its translations). The reason is mandatory (≥ 10 characters, not one repeated character); the audit row is written **first** and the read is refused (`500 internal_error`, no content) if it cannot be written. | `reason_required`, `reason_too_short`, `actor_required` 400, `session_not_found` 404 |
+
+`actor` is required on every mutating route and on the transcript read (an action nobody can be asked about is not performed); `reason` must be at least 3 characters on the others. There is no rate limit: like the other admin routes it sits behind a secret that only Directus holds.
+
+### What reconciliation can and cannot prove
+
+`live_usage_ticks` is written in the same transaction as the debit, so for an org-paid conversation every debit is `organization_credits_transactions` (`type = 'live_connect'`, `session_id` = one of the conversation's `call_sessions`) and every debit has one tick: the counts and the credits must match. The answer is `{ticks, ledger, status: ok | mismatch | unlinked, missing_ticks, duplicate_ticks, notes}`.
+
+* `missing_ticks`: ticks with no debit (the ledger lost a row). `duplicate_ticks`: debits no tick accounts for (a charge the idempotency key never saw).
+* **`unlinked`** when the meeting-side rows were erased (retention, owner or admin erase): the ledger link is `ON DELETE SET NULL`, the debits survive but cannot be told apart from the org's others. The report says so and claims nothing (`missing_ticks`/`duplicate_ticks` are `null`) rather than guess.
+* A **consumer**-paid conversation can only be compared in total: `credit_transactions` has no session column, so the report compares the ticks with the owner's `usage_sessions.cost` for the room `live-<id>` (updated in the debit's transaction). Single debits cannot be counted (`null`); no `usage_sessions` row means `unlinked`.
+* It never repairs anything. A correction is a human decision using the existing credit endpoint, with the report in hand.
+
+### Roles, Flows and Insights
+
+`node directus/setup-live-connect.mjs` (idempotent; `--dry-run` prints every call and changes nothing) provisions, on Directus 11: the *Live Connect* folder with `live_desks`, `live_sessions`, `live_participants`, `live_session_events` (every field read-only in the app; `invite_hash`, `token_hash`, `call_session_id`, the desk's `public_id` hidden); the roles *Live Connect Support* (metadata only) and *Live Connect Privacy* (Support plus the transcript button); five Flow buttons; and the *Live Connect - Operations* dashboard. `live_usage_ticks` is **not** a Directus collection: its primary key is composite and Directus ignores such tables, so per-session billing is checked with the Reconcile button instead. See `directus/README.md` ("Live Connect administration") for what each role sees and the privacy rules.
+
+Existing Directus roles are **not modified**. `transcript_events`, `session_participants`, `transcripts` and `call_sessions` already hold Live Connect rows (a conversation reuses the meeting tables), so any role that must not read live conversations needs the permission filter printed by `node directus/setup-live-connect.mjs --print-transcript-filter`.
 
 ## Desks (permanent QR codes)
 
