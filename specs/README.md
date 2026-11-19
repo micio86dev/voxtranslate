@@ -148,6 +148,7 @@ Each spec follows the same skeleton:
 | [0118](0118-voip-enterprise/spec.md) | Enterprise: office hours, menus, and the honest edge of SIP | 🚧 In progress | — | — |
 | [0119](0119-voip-number-requirements/spec.md) | Self-service regulatory requirements for a purchased number | 🚧 In progress | — | — |
 | [0120](0120-web-app-voip-dialer/spec.md) | Web-app VoIP dialer — dial, monitor and end a translated phone call without leaving the call app | 🚧 Implemented, pending live verification | — | `96158399` → `ec66e535` |
+| [0121](0121-live-connect/spec.md) | Live Connect — two phones, two mics, two independent translation streams; B2C owner-pays + guest, B2B permanent desk QR | 🚧 In progress | — | — |
 
 > Numbers 0011–0015 were claimed by commit messages while the AI bundle shipped
 > without spec docs (and 0011/0012 were each reused twice); the assignments
