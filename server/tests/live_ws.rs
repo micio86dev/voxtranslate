@@ -1144,3 +1144,161 @@ async fn the_server_times_speech_to_translated_audio_once_per_utterance() {
         "a plausible latency for a local mock: {ms} ms"
     );
 }
+
+// ---- the engine is fed at most what a real microphone produces (R1) -------------------
+
+/// How many chunks of audio the mock engine has received so far.
+fn appends(mock: &RealtimeMock) -> usize {
+    mock.received()
+        .iter()
+        .filter(|raw| {
+            serde_json::from_str::<Value>(raw)
+                .ok()
+                .is_some_and(|v| v["type"] == "input_audio_buffer.append")
+        })
+        .count()
+}
+
+/// Rows of `kind` the session has recorded.
+async fn event_count(srv: &Srv, session: Uuid, kind: &str) -> i64 {
+    sqlx::query_scalar(
+        "SELECT count(*) FROM live_session_events WHERE session_id = $1 AND kind = $2",
+    )
+    .bind(session)
+    .bind(kind)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap()
+}
+
+fn voiced(bytes: usize) -> Vec<u8> {
+    std::iter::repeat_n(1000i16.to_le_bytes(), bytes / 2)
+        .flatten()
+        .collect()
+}
+
+/// A frame too big to be 100 ms of microphone is not an audio frame: however the sender packs
+/// it (here 1.3 s in one frame, under the old 64 KB transport cap), it never reaches the engine,
+/// and the sender is told once.
+#[tokio::test]
+async fn an_oversized_audio_frame_never_reaches_the_engine() {
+    let mock = RealtimeMock::start(Dialect::Qwen).await;
+    mock.reply_with(speech());
+    let srv = srv!(&mock);
+    let c = convo(&srv, false).await;
+    let mut host = open(&srv, &c.host_token).await;
+    // The engine opens an upstream session per listener language, so somebody must be listening.
+    let _guest = open(&srv, &c.guest_token).await;
+    say(&mut host, json!({ "type": "start" })).await;
+    // Let the room reconcile its upstream sessions; frames before that have nowhere to go. A few
+    // honest frames at the end of the wait are the control: they MUST show up as appends.
+    let frame = voiced(4_800);
+    for _ in 0..15 {
+        host.send(Message::binary(frame.clone())).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(appends(&mock) > 0, "the harness sees no audio at all");
+    let warmup = appends(&mock);
+
+    for _ in 0..5 {
+        host.send(Message::binary(voiced(60_000))).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    // The next frame is what carries the report out.
+    tokio::time::sleep(Duration::from_millis(1_100)).await;
+    host.send(Message::binary(voiced(60_000))).await.unwrap();
+    let err = wait_for(&mut host, |v| {
+        v["type"] == "error" && v["code"] == "frame_too_large"
+    })
+    .await;
+    assert!(err.is_some(), "the sender was never told");
+    assert_eq!(appends(&mock), warmup, "an oversized frame was forwarded");
+    assert!(event_count(&srv, c.session, "diagnostics").await >= 1);
+}
+
+/// Audio pushed at 70x real time through the allowed message rate used to be translated in
+/// full while the meter billed the wall clock. Now it is dropped down to the budget.
+#[tokio::test]
+async fn audio_sent_far_faster_than_it_plays_is_dropped() {
+    let mock = RealtimeMock::start(Dialect::Qwen).await;
+    mock.reply_with(speech());
+    let srv = srv!(&mock);
+    let c = convo(&srv, false).await;
+    let mut host = open(&srv, &c.host_token).await;
+    // The engine opens an upstream session per listener language, so somebody must be listening.
+    let _guest = open(&srv, &c.guest_token).await;
+    say(&mut host, json!({ "type": "start" })).await;
+    // Let the room reconcile its upstream sessions; frames before that have nowhere to go. A few
+    // honest frames at the end of the wait are the control: they MUST show up as appends.
+    let frame = voiced(4_800);
+    for _ in 0..15 {
+        host.send(Message::binary(frame.clone())).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(appends(&mock) > 0, "the harness sees no audio at all");
+
+    // 400 frames of 100 ms = 40 s of audio, as fast as the socket takes them.
+    let before = appends(&mock);
+    for _ in 0..400 {
+        host.send(Message::binary(frame.clone())).await.unwrap();
+    }
+    tokio::time::sleep(Duration::from_millis(1_500)).await;
+    let got = appends(&mock) - before;
+    // One second of burst (15 frames) plus the little that refilled meanwhile; the rest of the
+    // 400 is gone. The old server forwarded all of it.
+    assert!(got <= 40, "{got} of 400 frames reached the engine");
+    assert!(got >= 10, "the budget starved the sender: {got}");
+    let said = event_count(&srv, c.session, "diagnostics").await;
+    assert!(
+        (1..=3).contains(&said),
+        "one report a second at most, got {said}"
+    );
+}
+
+/// The other side of the same rule: a real client is untouched, including one whose network
+/// holds frames back and then hands them over together.
+#[tokio::test]
+async fn a_client_sending_at_the_speed_of_a_microphone_loses_nothing() {
+    let mock = RealtimeMock::start(Dialect::Qwen).await;
+    mock.reply_with(speech());
+    let srv = srv!(&mock);
+    let c = convo(&srv, false).await;
+    let mut host = open(&srv, &c.host_token).await;
+    // The engine opens an upstream session per listener language, so somebody must be listening.
+    let _guest = open(&srv, &c.guest_token).await;
+    say(&mut host, json!({ "type": "start" })).await;
+    // Let the room reconcile its upstream sessions; frames before that have nowhere to go. A few
+    // honest frames at the end of the wait are the control: they MUST show up as appends.
+    let frame = voiced(4_800);
+    for _ in 0..15 {
+        host.send(Message::binary(frame.clone())).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(appends(&mock) > 0, "the harness sees no audio at all");
+    let before = appends(&mock);
+
+    let mut sent = 0;
+    for _ in 0..20 {
+        host.send(Message::binary(frame.clone())).await.unwrap();
+        sent += 1;
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    // A stall of 600 ms, then the six frames it held, back to back.
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    for _ in 0..6 {
+        host.send(Message::binary(frame.clone())).await.unwrap();
+        sent += 1;
+    }
+    for _ in 0..10 {
+        host.send(Message::binary(frame.clone())).await.unwrap();
+        sent += 1;
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    assert_eq!(appends(&mock) - before, sent, "an honest sender lost audio");
+    assert_eq!(event_count(&srv, c.session, "diagnostics").await, 0);
+}

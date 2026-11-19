@@ -1791,6 +1791,11 @@ fn clean_room(room: &str) -> Result<String, Response> {
     if r.is_empty() || r.len() > 64 {
         return Err((StatusCode::BAD_REQUEST, "invalid room").into_response());
     }
+    // A Live Connect conversation's room name is visible to every member of its org, and nobody
+    // outside the conversation may attach anything to it: same refusal as `/ws` and the binding.
+    if crate::live::is_live_room(r) {
+        return Err((StatusCode::FORBIDDEN, "reserved room").into_response());
+    }
     Ok(r.to_string())
 }
 

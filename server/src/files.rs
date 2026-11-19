@@ -642,6 +642,10 @@ fn clean_room(room: &str) -> Result<String, Response> {
     if r.is_empty() || r.len() > 64 {
         return Err((StatusCode::BAD_REQUEST, "invalid room").into_response());
     }
+    // `live-<uuid>` rooms belong to Live Connect's two phones; nobody else writes into them.
+    if crate::live::is_live_room(r) {
+        return Err((StatusCode::FORBIDDEN, "reserved room").into_response());
+    }
     Ok(r.to_string())
 }
 
@@ -862,5 +866,16 @@ mod tests {
         assert!(clean_room("").is_err());
         assert!(clean_room(&"x".repeat(65)).is_err());
         assert_eq!(clean_room("  plaza  ").unwrap(), "plaza");
+    }
+
+    #[test]
+    fn a_live_connect_room_is_reserved_for_its_two_phones() {
+        let live = format!("live-{}", uuid::Uuid::new_v4());
+        assert!(clean_room(&live).is_err(), "no uploads into a live room");
+        assert!(clean_room(&format!("  {}  ", live.to_uppercase())).is_err());
+        assert!(
+            clean_room("lively").is_ok(),
+            "only the reserved shape is refused"
+        );
     }
 }

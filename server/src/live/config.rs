@@ -16,6 +16,13 @@ const DEFAULT_JOIN_WINDOW_SECS: i64 = 15 * 60;
 const DEFAULT_DESK_WAIT_SECS: i64 = 120;
 /// Sessions that may be waiting at one desk at once.
 const DEFAULT_DESK_MAX_WAITING: i64 = 20;
+/// Of those, how many one client address may hold at one desk. A printed QR is public: without
+/// this, one phone could fill the whole queue and lock the real customers out for the wait window.
+const DEFAULT_DESK_MAX_WAITING_PER_IP: i64 = 2;
+/// Bytes of microphone audio per second one seat may feed the engine: 1.5x real time for PCM16
+/// mono at 24 kHz (48 000 B/s). Billing is by the wall clock, so audio pushed faster than it
+/// plays would be translated, and billed by the provider, for less than it costs the payer.
+const DEFAULT_AUDIO_MAX_BYTES_PER_SEC: i64 = 72_000;
 /// Hard ceiling on one conversation.
 const DEFAULT_MAX_SESSION_MIN: i64 = 120;
 /// Open sessions one signed-in owner may have at once.
@@ -64,6 +71,9 @@ pub struct LiveConfig {
     pub join_window_secs: i64,
     pub desk_wait_secs: i64,
     pub desk_max_waiting: i64,
+    pub desk_max_waiting_per_ip: i64,
+    /// Per-seat microphone budget in bytes per second (also the burst it may save up).
+    pub audio_max_bytes_per_sec: i64,
     pub max_session_min: i64,
     pub max_concurrent_per_owner: i64,
     pub reconnect_grace_secs: i64,
@@ -84,6 +94,8 @@ impl LiveConfig {
             join_window_secs: DEFAULT_JOIN_WINDOW_SECS,
             desk_wait_secs: DEFAULT_DESK_WAIT_SECS,
             desk_max_waiting: DEFAULT_DESK_MAX_WAITING,
+            desk_max_waiting_per_ip: DEFAULT_DESK_MAX_WAITING_PER_IP,
+            audio_max_bytes_per_sec: DEFAULT_AUDIO_MAX_BYTES_PER_SEC,
             max_session_min: DEFAULT_MAX_SESSION_MIN,
             max_concurrent_per_owner: DEFAULT_MAX_CONCURRENT_PER_OWNER,
             reconnect_grace_secs: DEFAULT_RECONNECT_GRACE_SECS,
@@ -127,6 +139,18 @@ impl LiveConfig {
             )?,
             desk_wait_secs: number("LIVE_DESK_WAIT_SECS", DEFAULT_DESK_WAIT_SECS, 10, 3600)?,
             desk_max_waiting: number("LIVE_DESK_MAX_WAITING", DEFAULT_DESK_MAX_WAITING, 1, 200)?,
+            desk_max_waiting_per_ip: number(
+                "LIVE_DESK_MAX_WAITING_PER_IP",
+                DEFAULT_DESK_MAX_WAITING_PER_IP,
+                1,
+                200,
+            )?,
+            audio_max_bytes_per_sec: number(
+                "LIVE_AUDIO_MAX_BYTES_PER_SEC",
+                DEFAULT_AUDIO_MAX_BYTES_PER_SEC,
+                24_000,
+                1_000_000,
+            )?,
             max_session_min: number("LIVE_MAX_SESSION_MIN", DEFAULT_MAX_SESSION_MIN, 1, 24 * 60)?,
             max_concurrent_per_owner: number(
                 "LIVE_MAX_CONCURRENT_PER_OWNER",
@@ -228,6 +252,8 @@ mod tests {
         assert_eq!(cfg.max_session_min, 120);
         assert_eq!(cfg.max_concurrent_per_owner, 3);
         assert_eq!(cfg.desk_wait_secs, 120);
+        assert_eq!(cfg.desk_max_waiting_per_ip, 2);
+        assert_eq!(cfg.audio_max_bytes_per_sec, 72_000);
 
         let cfg = LiveConfig::load(env(&[
             ("LIVE_CONNECT_ENABLED", "1"),

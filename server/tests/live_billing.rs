@@ -8,11 +8,19 @@
 //! `DATABASE_URL=postgres://vox:vox_local_dev@127.0.0.1:55432/voxtranslate_voip_test \
 //!   cargo test --test live_billing`. A run of a few milliseconds skipped everything.
 
+use std::sync::atomic::{AtomicBool, AtomicU64};
+use std::sync::Arc;
+use std::time::Duration;
+
 use rust_decimal::Decimal;
+use tokio::sync::{mpsc, oneshot};
 use uuid::Uuid;
 use voxtranslate_server::billing::{usd, BillingService};
 use voxtranslate_server::db::{self, Pool};
-use voxtranslate_server::live::billing::{charge_tick, Charge, LivePayer, Tick};
+use voxtranslate_server::live::billing::{charge_tick, Charge, LiveMeter, LivePayer, Tick};
+use voxtranslate_server::live::config::LiveConfig;
+use voxtranslate_server::live::LiveState;
+use voxtranslate_server::rooms::{Peer, PeerTx, RoomManager, Visibility, OUT_CHANNEL_CAP};
 
 async fn setup() -> Option<Pool> {
     let url = db::test_database_url()?;
@@ -466,4 +474,96 @@ async fn an_org_charge_is_attributed_to_the_conversation_and_is_idempotent() {
     .await
     .unwrap();
     assert_eq!((amount, attributed), (-3, Some(call)));
+}
+
+// ---- the fraction of a credit is not lost between Starts (R2) --------------------------
+
+fn seat(rooms: &RoomManager, room: &str, id: &str, lang: &str) {
+    let (tx, rx, _overflow) = PeerTx::channel(OUT_CHANNEL_CAP);
+    std::mem::forget(rx); // keep the sender alive so the peer is never pruned as dead
+    rooms
+        .join(
+            room,
+            Peer {
+                id: id.into(),
+                conn: Uuid::new_v4(),
+                name: id.into(),
+                lang: lang.into(),
+                user_id: None,
+                engine: "standard".into(),
+                avatar_url: None,
+                cartesia_voice_id: None,
+                tx,
+                speaking: Arc::new(AtomicBool::new(false)),
+            },
+            Visibility::Private,
+        )
+        .unwrap();
+}
+
+/// An org pays in whole credits (one cent). A phone that Starts, talks briefly and Stops again
+/// used to carry its fraction inside a meter that died with the Stop, so ten short Starts that
+/// each cost 0.4 of a credit were never charged at all. The carry now lives with the session:
+/// ten of them add up to the four credits they are worth.
+#[tokio::test]
+async fn short_start_stop_cycles_of_an_org_seat_add_up_to_what_they_cost() {
+    let pool = pool!();
+    let owner = make_user(&pool, usd(1.0)).await;
+    let org = make_org(&pool, owner, 100).await;
+    let (session, peer, call) = make_session(&pool, None, Some(org)).await;
+    let live = Arc::new(LiveState::new(LiveConfig::disabled()));
+    let rooms = Arc::new(RoomManager::new());
+    let room = format!("live-{call}");
+    seat(&rooms, &room, &peer.to_string(), "it");
+    seat(&rooms, &room, "the-other-phone", "es");
+
+    for _ in 0..10 {
+        let (end_tx, _end_rx) = mpsc::unbounded_channel();
+        let (cancel, cancel_rx) = oneshot::channel();
+        let meter = LiveMeter {
+            pool: pool.clone(),
+            live: live.clone(),
+            rooms: rooms.clone(),
+            payer: LivePayer::Org {
+                org_id: org,
+                call_session: call,
+            },
+            session,
+            peer,
+            room: room.clone(),
+            speaker_lang: "it".into(),
+            interval_secs: 1,
+            // 0.4 of a credit per tick.
+            rate_per_second: 0.004,
+            scale_by_target_count: false,
+            low_balance_threshold: 0.0,
+            activity: Arc::new(AtomicU64::new(0)),
+        };
+        let run = tokio::spawn(meter.run(end_tx, cancel_rx));
+        // The opening charge is taken the moment the meter starts; stop right after it.
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        let _ = cancel.send(());
+        run.await.unwrap();
+    }
+
+    assert_eq!(
+        credits(&pool, org).await,
+        100 - 4,
+        "ten 0.4-credit Starts are four credits, not zero"
+    );
+    assert_eq!(
+        count(
+            &pool,
+            "SELECT count(*) FROM organization_credits_transactions WHERE session_id = $1 AND type = 'live_connect'",
+            call
+        )
+        .await,
+        count(
+            &pool,
+            "SELECT count(*) FROM live_usage_ticks WHERE session_id = $1",
+            session
+        )
+        .await,
+        "every debit still has exactly one tick"
+    );
 }

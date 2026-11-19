@@ -295,7 +295,8 @@ pub async fn list(
 /// `project_id` is in that set OR — for a webinar — the member is the host. This mirrors the
 /// meet rule (see own/participated projects) and additionally lets a host find their OWN
 /// webinar even when it is not bound to a project. `project_id` optionally narrows to one
-/// project.
+/// project. A Live Connect hit additionally requires, for a member, that they were a participant
+/// of that conversation.
 #[allow(clippy::too_many_arguments)]
 pub async fn knn(
     pool: &crate::db::Pool,
@@ -336,6 +337,13 @@ pub async fn knn(
                 OR te.project_id = ANY($3)
                 OR (te.webinar_id IS NOT NULL AND w.host_user_id = $6))
            AND ($4::uuid IS NULL OR te.project_id = $4)
+           -- A Live Connect conversation is shown to a member only if they sat in it (the
+           -- dashboard's rule): being in the project is not being in every conversation held
+           -- under it. Admins (`$3` NULL) and every other kind of hit are untouched.
+           AND ($3::uuid[] IS NULL
+                OR ls.id IS NULL
+                OR EXISTS (SELECT 1 FROM live_participants lp
+                           WHERE lp.session_id = ls.id AND lp.user_id = $6))
            AND ($7::text IS NULL OR cs.kind = $7)
            AND ($8::text IS NULL
                 OR t.source_language = $8

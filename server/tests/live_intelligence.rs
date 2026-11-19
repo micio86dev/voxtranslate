@@ -1572,6 +1572,71 @@ async fn a_live_conversation_is_only_found_by_who_may_see_its_project_and_org() 
     );
 }
 
+/// The dashboard shows a member only the conversations they sat in. Search must say no more:
+/// belonging to the project is not belonging to every conversation held under it.
+#[tokio::test]
+async fn a_member_finds_only_the_live_conversations_they_sat_in_and_an_admin_finds_all() {
+    let srv = srv!();
+    let k = corpus(&srv).await;
+    // `b` was staffed by somebody else: hand its staff seat to the owner.
+    sqlx::query(
+        "UPDATE live_participants SET user_id = $2 WHERE session_id = $1 AND role = 'staff'",
+    )
+    .bind(k.b.live)
+    .bind(k.org.owner)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "UPDATE session_participants SET user_id = $2 WHERE session_id = $1 AND user_id = $3",
+    )
+    .bind(k.b.calls[0])
+    .bind(k.org.owner)
+    .bind(k.org.member)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+    let live_only = || Filters {
+        kind: Some("live_connect".into()),
+        ..Default::default()
+    };
+
+    let vis = search::resolve_visibility(&srv.pool, k.org.id, k.org.member, false)
+        .await
+        .unwrap();
+    assert_ne!(vis, Visible::Nothing, "the project is theirs through `a`");
+    let hits = run(&srv, &k.org, k.org.member, &vis, None, live_only()).await;
+    assert_eq!(
+        sessions_of(&hits),
+        [k.a.calls[0]].into(),
+        "the member found a conversation they were not in"
+    );
+    // Naming it does not help, and neither does narrowing by project or session.
+    let by_id = Filters {
+        session_id: Some(k.b.live),
+        ..Default::default()
+    };
+    assert!(
+        run(&srv, &k.org, k.org.member, &vis, Some(k.org.project), by_id)
+            .await
+            .is_empty()
+    );
+    // Everything that is not a live conversation behaves as it always did.
+    let all = run(&srv, &k.org, k.org.member, &vis, None, Filters::default()).await;
+    assert!(
+        sessions_of(&all).contains(&k.plain_call) && !sessions_of(&all).contains(&k.b.calls[0]),
+        "{:?}",
+        sessions_of(&all)
+    );
+
+    // The admin is unchanged: the whole org.
+    let vis = search::resolve_visibility(&srv.pool, k.org.id, k.org.owner, true)
+        .await
+        .unwrap();
+    let hits = run(&srv, &k.org, k.org.owner, &vis, None, live_only()).await;
+    assert_eq!(sessions_of(&hits).len(), 2);
+}
+
 // ===== S17 / D4: erasing the content of a conversation ====================================
 
 #[tokio::test]

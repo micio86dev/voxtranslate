@@ -10,6 +10,7 @@
 
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
 
 use futures::StreamExt as _;
 use reqwest::StatusCode;
@@ -558,6 +559,228 @@ async fn the_waiting_queue_is_bounded() {
         (s, b["code"].as_str()),
         (StatusCode::TOO_MANY_REQUESTS, Some("desk_busy"))
     );
+}
+
+/// `scan`, as a client the proxy reports as `ip` (the last `x-forwarded-for` hop, the same
+/// address every other limiter keys on).
+async fn scan_from(srv: &Srv, segment: &str, via: &str) -> (StatusCode, Value) {
+    let res = srv
+        .http
+        .post(format!("http://{}/api/live/desks/scan", srv.addr))
+        .header("x-forwarded-for", via)
+        .json(&json!({ "segment": segment, "name": "Walk-in", "lang": "es", "consent": true }))
+        .send()
+        .await
+        .unwrap();
+    let status = res.status();
+    let text = res.text().await.unwrap();
+    (
+        status,
+        serde_json::from_str(&text).unwrap_or(Value::String(text)),
+    )
+}
+
+/// A printed QR is public. One phone scanning it again and again used to take every one of the
+/// desk's twenty places for two minutes; now one address holds at most two.
+#[tokio::test]
+async fn one_address_cannot_fill_a_desks_waiting_queue() {
+    let srv = srv!();
+    let org = org(&srv).await;
+    let (_, qr) = new_desk(&srv, &org).await;
+    let segment = segment_of(&qr);
+    let me = "203.0.113.7";
+
+    assert_eq!(scan_from(&srv, &segment, me).await.0, StatusCode::OK);
+    assert_eq!(scan_from(&srv, &segment, me).await.0, StatusCode::OK);
+    let (s, b) = scan_from(&srv, &segment, me).await;
+    assert_eq!(
+        (s, b["code"].as_str()),
+        (StatusCode::TOO_MANY_REQUESTS, Some("desk_busy")),
+        "{b}"
+    );
+    // Forging the left-most hop buys nothing: the address is the one the proxy appended.
+    let (s, _) = scan_from(&srv, &segment, &format!("198.51.100.1, {me}")).await;
+    assert_eq!(s, StatusCode::TOO_MANY_REQUESTS);
+    // Somebody else is unaffected, and so is a client the proxy could not name.
+    assert_eq!(
+        scan_from(&srv, &segment, "203.0.113.8").await.0,
+        StatusCode::OK
+    );
+    for _ in 0..3 {
+        assert_eq!(scan(&srv, &segment, "Anon", "es").await.0, StatusCode::OK);
+    }
+
+    // When staff answer one of my places it is free again.
+    let desk = desk_of(&srv, &org).await;
+    let (_, q) = srv
+        .get(&format!("/api/live/desks/{desk}/waiting"), &org.member_jwt)
+        .await;
+    let first = q["waiting"][0]["session_id"].as_str().unwrap().to_string();
+    let (s, a) = srv
+        .post(
+            &format!("/api/live/sessions/{first}/answer"),
+            Some(&org.member_jwt),
+            json!({ "lang": "it" }),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{a}");
+    // The oldest waiting session is the first scan, made from `me`.
+    assert_eq!(scan_from(&srv, &segment, me).await.0, StatusCode::OK);
+}
+
+async fn desk_of(srv: &Srv, org: &Org) -> Uuid {
+    sqlx::query_scalar("SELECT id FROM live_desks WHERE org_id = $1 LIMIT 1")
+        .bind(org.id)
+        .fetch_one(&srv.pool)
+        .await
+        .unwrap()
+}
+
+fn desk_lock_key(desk: Uuid) -> String {
+    format!("live-desk:{desk}")
+}
+
+/// A scan reads the desk, THEN writes its waiting session. A revoke that lands in between must
+/// win: the session it would have closed is never created.
+#[tokio::test]
+async fn a_scan_overtaken_by_a_revoke_leaves_no_waiting_session() {
+    let srv = srv!();
+    let org = org(&srv).await;
+    let (desk, qr) = new_desk(&srv, &org).await;
+    let segment = segment_of(&qr);
+
+    // Stand in for the revoke: hold the desk's lock, let the scan start and reach it, change the
+    // desk, release.
+    let mut tx = srv.pool.begin().await.unwrap();
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+        .bind(desk_lock_key(desk))
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let revoke = async {
+        tokio::time::sleep(Duration::from_millis(400)).await;
+        sqlx::query("UPDATE live_desks SET status = 'revoked', revoked_at = now() WHERE id = $1")
+            .bind(desk)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+    };
+    let ((s, b), ()) = tokio::join!(scan(&srv, &segment, "Late", "es"), revoke);
+    assert_eq!(
+        (s, b["code"].as_str()),
+        (StatusCode::NOT_FOUND, Some("invalid_desk_qr")),
+        "{b}"
+    );
+    let waiting: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM live_sessions WHERE desk_id = $1 AND status = 'waiting'",
+    )
+    .bind(desk)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
+    assert_eq!(waiting, 0, "a revoked desk must not gain a waiting session");
+
+    // The same for a QR replaced after the scan read it: regenerate bumps the version.
+    let (desk2, qr2) = new_desk(&srv, &org).await;
+    let mut tx = srv.pool.begin().await.unwrap();
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+        .bind(desk_lock_key(desk2))
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let regenerate = async {
+        tokio::time::sleep(Duration::from_millis(400)).await;
+        sqlx::query("UPDATE live_desks SET token_version = token_version + 1 WHERE id = $1")
+            .bind(desk2)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+    };
+    let segment2 = segment_of(&qr2);
+    let ((s, _), ()) = tokio::join!(scan(&srv, &segment2, "Late", "es"), regenerate);
+    assert_eq!(s, StatusCode::NOT_FOUND);
+    let waiting: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM live_sessions WHERE desk_id = $1 AND status = 'waiting'",
+    )
+    .bind(desk2)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
+    assert_eq!(waiting, 0);
+}
+
+/// The other half: revoke and regenerate wait their turn on the same lock, from the org admin's
+/// endpoint as from the platform admin's.
+#[tokio::test]
+async fn revoke_and_regenerate_wait_for_a_scan_in_flight() {
+    let srv = srv!();
+    let org = org(&srv).await;
+    let (desk, _) = new_desk(&srv, &org).await;
+
+    for action in ["revoke", "regenerate"] {
+        let mut tx = srv.pool.begin().await.unwrap();
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+            .bind(desk_lock_key(desk))
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        let path = format!("{}/{desk}/{action}", desks_path(&org));
+        let call = srv.post(&path, Some(&org.owner_jwt), json!({}));
+        tokio::pin!(call);
+        assert!(
+            tokio::time::timeout(Duration::from_millis(500), &mut call)
+                .await
+                .is_err(),
+            "{action} ran while a scan held the desk"
+        );
+        tx.commit().await.unwrap();
+        let (s, v) = call.await;
+        assert_eq!(s, StatusCode::OK, "{action}: {v}");
+    }
+}
+
+/// A stranger asking about a real desk (or a real waiting session) of another org must get the
+/// very answer an id that does not exist gets, body included: the other one was a plain-text
+/// "organization not found", an oracle for which ids are real.
+#[tokio::test]
+async fn a_stranger_cannot_tell_a_real_desk_from_a_missing_one_by_the_body() {
+    let srv = srv!();
+    let org = org(&srv).await;
+    let (desk, qr) = new_desk(&srv, &org).await;
+    let (stranger_jwt, _) = login(&srv, "Stranger").await;
+    let (_, guest) = scan(&srv, &segment_of(&qr), "Anna", "es").await;
+    let sid = guest["session_id"].as_str().unwrap().to_string();
+
+    let real = srv
+        .get(&format!("/api/live/desks/{desk}/waiting"), &stranger_jwt)
+        .await;
+    let ghost = srv
+        .get(
+            &format!("/api/live/desks/{}/waiting", Uuid::new_v4()),
+            &stranger_jwt,
+        )
+        .await;
+    assert_eq!(real, ghost, "waiting: {real:?} vs {ghost:?}");
+    assert_eq!(real.1["code"], "desk_not_found");
+
+    let answer = |id: String| {
+        let srv = &srv;
+        let jwt = stranger_jwt.clone();
+        async move {
+            srv.post(
+                &format!("/api/live/sessions/{id}/answer"),
+                Some(&jwt),
+                json!({ "lang": "it" }),
+            )
+            .await
+        }
+    };
+    let real = answer(sid.clone()).await;
+    let ghost = answer(Uuid::new_v4().to_string()).await;
+    assert_eq!(real, ghost, "answer: {real:?} vs {ghost:?}");
+    assert_eq!(real.1["code"], "session_not_found");
 }
 
 // ---- staff -----------------------------------------------------------------------------

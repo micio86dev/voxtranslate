@@ -1199,3 +1199,341 @@ async fn no_audit_row_means_no_transcript() {
         .await
         .is_empty());
 }
+
+// ---- audit is part of the action (D2) --------------------------------------------------
+
+/// Anything a log viewer could mangle, and the NUL that Postgres refuses in `jsonb`: refused up
+/// front, so the action can neither run unrecorded nor be reported as done.
+#[tokio::test]
+async fn control_characters_in_the_reason_or_actor_are_refused_and_nothing_runs() {
+    let srv = srv!();
+    let org = org(&srv).await;
+    let (desk, _, _) = new_desk(&srv, &org).await;
+    let conv = seed(&srv, Owner::Org(&org), "active").await;
+
+    for bad in ["\u{0}", "\n", "\t", "\u{7f}", "\u{1b}"] {
+        let reason = format!("customer asked for a copy{bad} of what was said");
+        let actor = format!("operator{bad}@voxtranslate.test");
+        for (path, id_key, id) in [
+            ("/api/admin/live/desk-revoke", "desk_id", desk),
+            ("/api/admin/live/desk-regenerate", "desk_id", desk),
+            ("/api/admin/live/session-end", "session_id", conv.live),
+            (
+                "/api/admin/live/session-transcript",
+                "session_id",
+                conv.live,
+            ),
+        ] {
+            for body in [
+                json!({ id_key: id, "actor": OPERATOR, "reason": reason }),
+                json!({ id_key: id, "actor": actor, "reason": REASON }),
+            ] {
+                let (s, v, text) = srv.admin(path, body).await;
+                assert_eq!(s, StatusCode::BAD_REQUEST, "{path} {bad:?}: {text}");
+                assert!(
+                    matches!(code(&v), Some("reason_invalid" | "actor_invalid")),
+                    "{path} {bad:?}: {text}"
+                );
+            }
+        }
+    }
+    let (status, version): (String, i32) =
+        sqlx::query_as("SELECT status, token_version FROM live_desks WHERE id = $1")
+            .bind(desk)
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap();
+    assert_eq!((status.as_str(), version), ("active", 1), "nothing ran");
+    let live_status: String = sqlx::query_scalar("SELECT status FROM live_sessions WHERE id = $1")
+        .bind(conv.live)
+        .fetch_one(&srv.pool)
+        .await
+        .unwrap();
+    assert_eq!(live_status, "active");
+    // And a reconcile cannot be made to run with an actor that its audit row cannot hold.
+    let (s, v, _) = srv
+        .admin(
+            "/api/admin/live/session-reconcile",
+            json!({ "session_id": conv.live, "actor": "op\u{0}erator" }),
+        )
+        .await;
+    assert_eq!(
+        (s, code(&v)),
+        (StatusCode::BAD_REQUEST, Some("actor_invalid"))
+    );
+}
+
+/// The audit row is written in the same transaction as the mutation: when it cannot be written
+/// the action does not happen and the operator is not told it did.
+#[tokio::test]
+async fn an_action_whose_audit_row_cannot_be_written_does_not_happen() {
+    let srv = srv!();
+    let org = org(&srv).await;
+    let (desk, qr, _) = new_desk(&srv, &org).await;
+    let (s, scanned) = scan(&srv, &segment_of(&qr)).await;
+    assert_eq!(s, StatusCode::OK, "{scanned}");
+    let conv = seed(&srv, Owner::Org(&org), "active").await;
+    let breaker = format!("audit-breaker-{}@test", Uuid::new_v4().simple());
+
+    sqlx::query(
+        "CREATE OR REPLACE FUNCTION live_admin_test_fail_audit_mut() RETURNS trigger AS $$
+         BEGIN RAISE EXCEPTION 'audit unavailable (test)'; END $$ LANGUAGE plpgsql",
+    )
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+    let trigger = format!("live_admin_fail_{}", Uuid::new_v4().simple());
+    sqlx::query(&format!(
+        "CREATE TRIGGER {trigger} BEFORE INSERT ON admin_audit
+         FOR EACH ROW WHEN (NEW.actor = '{breaker}')
+         EXECUTE FUNCTION live_admin_test_fail_audit_mut()"
+    ))
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+
+    let mut answers = vec![];
+    for (path, body) in [
+        (
+            "/api/admin/live/desk-revoke",
+            json!({ "desk_id": desk, "actor": breaker, "reason": REASON }),
+        ),
+        (
+            "/api/admin/live/desk-regenerate",
+            json!({ "desk_id": desk, "actor": breaker, "reason": REASON }),
+        ),
+        (
+            "/api/admin/live/session-end",
+            json!({ "session_id": conv.live, "actor": breaker, "reason": REASON }),
+        ),
+    ] {
+        answers.push((path, srv.admin(path, body).await));
+    }
+    let _ = sqlx::query(&format!("DROP TRIGGER IF EXISTS {trigger} ON admin_audit"))
+        .execute(&srv.pool)
+        .await;
+
+    for (path, (s, v, text)) in &answers {
+        assert_eq!(*s, StatusCode::INTERNAL_SERVER_ERROR, "{path}: {text}");
+        assert_eq!(code(v), Some("internal_error"), "{path}");
+    }
+    // Nothing moved: the desk is active on its first version, the queue is intact, the
+    // conversation is open and carries no admin end reason.
+    let (status, version): (String, i32) =
+        sqlx::query_as("SELECT status, token_version FROM live_desks WHERE id = $1")
+            .bind(desk)
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap();
+    assert_eq!((status.as_str(), version), ("active", 1));
+    let waiting: i64 = scalar_i64(
+        &srv.pool,
+        "SELECT count(*) FROM live_sessions WHERE desk_id = $1 AND status = 'waiting'",
+        desk,
+    )
+    .await;
+    assert_eq!(waiting, 1, "the customer's place in the queue survived");
+    let (live_status, reason): (String, Option<String>) =
+        sqlx::query_as("SELECT status, end_reason FROM live_sessions WHERE id = $1")
+            .bind(conv.live)
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap();
+    assert_eq!((live_status.as_str(), reason), ("active", None));
+    let events = scalar_i64(
+        &srv.pool,
+        "SELECT count(*) FROM live_session_events WHERE session_id = $1 AND kind = 'admin_ended'",
+        conv.live,
+    )
+    .await;
+    assert_eq!(events, 0);
+}
+
+// ---- reasons say what the rule really is (D7) ------------------------------------------
+
+#[tokio::test]
+async fn the_refusal_states_the_real_reason_rule() {
+    let srv = srv!();
+    let org = org(&srv).await;
+    let (desk, _, _) = new_desk(&srv, &org).await;
+    let (s, v, text) = srv
+        .admin(
+            "/api/admin/live/desk-revoke",
+            json!({ "desk_id": desk, "actor": OPERATOR, "reason": "aaaaaaaaaaaaaaaa" }),
+        )
+        .await;
+    assert_eq!(
+        (s, code(&v)),
+        (StatusCode::BAD_REQUEST, Some("reason_too_short")),
+        "{text}"
+    );
+    // The old text only said "at least 3 characters" while 16 of them were still refused.
+    let message = v["message"].as_str().unwrap();
+    assert!(
+        message.contains("at least 3 characters") && message.contains("4 different non-space"),
+        "{message}"
+    );
+}
+
+// ---- the privileged read says when it was cut short (D6) -------------------------------
+
+#[tokio::test]
+async fn a_transcript_longer_than_the_bound_says_it_was_truncated() {
+    let srv = srv!();
+    let org = org(&srv).await;
+    let path = "/api/admin/live/session-transcript";
+
+    let short = seed(&srv, Owner::Org(&org), "ended").await;
+    let (s, v, _) = srv
+        .admin(
+            path,
+            json!({ "session_id": short.live, "actor": OPERATOR, "reason": REASON }),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["truncated"], false, "one utterance is not cut short");
+
+    let long = seed(&srv, Owner::Org(&org), "ended").await;
+    sqlx::query(
+        "INSERT INTO transcript_events
+             (session_id, event_type, speaker_peer_id, speaker_name, original_text, original_lang, translations, ts)
+         SELECT $1, 'speech', $2, 'Gus', 'n' || g, 'it', '{}'::jsonb, now() - interval '3 minutes' + g * interval '1 millisecond'
+         FROM generate_series(1, 5000) g",
+    )
+    .bind(long.call)
+    .bind(long.staff_peer.to_string())
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+    // 5001 utterances in all (the seeded one plus 5000).
+    let (s, v, _) = srv
+        .admin(
+            path,
+            json!({ "session_id": long.live, "actor": OPERATOR, "reason": REASON }),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(v["utterances"].as_array().unwrap().len(), 5000);
+    assert_eq!(v["truncated"], true, "a cut transcript must say so");
+
+    // Exactly at the bound is not truncated.
+    sqlx::query("DELETE FROM transcript_events WHERE session_id = $1 AND original_text = 'n5000'")
+        .bind(long.call)
+        .execute(&srv.pool)
+        .await
+        .unwrap();
+    let (_, v, _) = srv
+        .admin(
+            path,
+            json!({ "session_id": long.live, "actor": OPERATOR, "reason": REASON }),
+        )
+        .await;
+    assert_eq!(v["utterances"].as_array().unwrap().len(), 5000);
+    assert_eq!(v["truncated"], false);
+}
+
+// ---- reconcile is a read, proven by content (D5) and compares amounts one by one (D8) --
+
+/// An md5 of every row of the tables a reconcile could touch, scoped to this test's own org and
+/// conversation, so tests sharing one database cannot disturb each other. Row COUNTS would not
+/// notice a rewritten amount.
+async fn snapshot(srv: &Srv, org: &Org, conv: &Conv) -> Vec<(&'static str, String)> {
+    let probes: [(&'static str, &str, Uuid); 9] = [
+        ("live_sessions", "id", conv.live),
+        ("live_participants", "session_id", conv.live),
+        ("live_usage_ticks", "session_id", conv.live),
+        ("live_session_events", "session_id", conv.live),
+        ("call_sessions", "id", conv.call),
+        ("transcript_events", "session_id", conv.call),
+        ("organization_credits_transactions", "org_id", org.id),
+        ("organizations", "id", org.id),
+        ("live_desks", "org_id", org.id),
+    ];
+    let mut out = Vec::new();
+    for (table, col, id) in probes {
+        let hash: String = sqlx::query_scalar(&format!(
+            "SELECT COALESCE(md5(string_agg(x::text, '|' ORDER BY x::text)), 'empty')
+             FROM {table} x WHERE x.{col} = $1"
+        ))
+        .bind(id)
+        .fetch_one(&srv.pool)
+        .await
+        .unwrap();
+        out.push((table, hash));
+    }
+    out
+}
+
+#[tokio::test]
+async fn reconcile_changes_no_row_of_any_table_it_reads() {
+    let srv = srv!();
+    let org = org(&srv).await;
+    let path = "/api/admin/live/session-reconcile";
+
+    // Every verdict the report can give, each compared byte for byte before and after.
+    let ok = seed(&srv, Owner::Org(&org), "ended").await;
+    charge_org(&srv, &org, &ok, 3).await;
+    let mismatch = seed(&srv, Owner::Org(&org), "ended").await;
+    charge_org(&srv, &org, &mismatch, 2).await;
+    sqlx::query("UPDATE organization_credits_transactions SET amount = -5 WHERE id = (SELECT id FROM organization_credits_transactions WHERE session_id = $1 LIMIT 1)")
+        .bind(mismatch.call)
+        .execute(&srv.pool)
+        .await
+        .unwrap();
+    let unlinked = seed(&srv, Owner::Org(&org), "ended").await;
+    charge_org(&srv, &org, &unlinked, 1).await;
+    sqlx::query("DELETE FROM call_sessions WHERE id = $1")
+        .bind(unlinked.call)
+        .execute(&srv.pool)
+        .await
+        .unwrap();
+    let (_, user) = login(&srv, "Solo").await;
+    let consumer = seed(&srv, Owner::User(user), "ended").await;
+
+    for (conv, expected) in [
+        (&ok, "ok"),
+        (&mismatch, "mismatch"),
+        (&unlinked, "unlinked"),
+        (&consumer, "ok"),
+    ] {
+        let before = snapshot(&srv, &org, conv).await;
+        let (s, v, _) = srv
+            .admin(path, json!({ "session_id": conv.live, "actor": OPERATOR }))
+            .await;
+        assert_eq!(s, StatusCode::OK, "{v}");
+        assert_eq!(v["status"], expected, "{v}");
+        assert_eq!(snapshot(&srv, &org, conv).await, before, "{expected}");
+    }
+}
+
+/// Counts and sums agree, the single debits do not (`-1` and `-3` against two ticks of 2): that
+/// is not a conversation the books explain.
+#[tokio::test]
+async fn reconcile_compares_each_debit_with_its_tick_not_just_the_totals() {
+    let srv = srv!();
+    let org = org(&srv).await;
+    let conv = seed(&srv, Owner::Org(&org), "ended").await;
+    charge_org(&srv, &org, &conv, 2).await;
+    sqlx::query("UPDATE organization_credits_transactions SET amount = -1 WHERE id = (SELECT id FROM organization_credits_transactions WHERE session_id = $1 ORDER BY created_at, id LIMIT 1)")
+        .bind(conv.call)
+        .execute(&srv.pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE organization_credits_transactions SET amount = -3 WHERE id = (SELECT id FROM organization_credits_transactions WHERE session_id = $1 AND amount = -2 LIMIT 1)")
+        .bind(conv.call)
+        .execute(&srv.pool)
+        .await
+        .unwrap();
+    let (s, v, _) = srv
+        .admin(
+            "/api/admin/live/session-reconcile",
+            json!({ "session_id": conv.live }),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK);
+    // Totals still agree...
+    assert_eq!(v["ticks"]["org_credits"], v["ledger"]["org_credits"], "{v}");
+    assert_eq!(v["ticks"]["count"], v["ledger"]["org_entries"], "{v}");
+    // ...and the verdict is a mismatch all the same.
+    assert_eq!(v["status"], "mismatch", "{v}");
+}

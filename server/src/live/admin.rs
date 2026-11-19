@@ -44,10 +44,13 @@ use crate::AppState;
 pub const ENDED_BY_ADMIN: &str = "ended_by_admin";
 /// Shortest reason accepted for reading a conversation.
 pub const MIN_TRANSCRIPT_REASON_CHARS: usize = 10;
+/// Different non-whitespace characters a reason must contain.
+const MIN_DISTINCT_REASON_CHARS: usize = 4;
 /// Longest reason or actor stored.
 const MAX_REASON_CHARS: usize = 500;
 const MAX_ACTOR_CHARS: usize = 200;
-/// A conversation is capped at two hours; this bounds the privileged read all the same.
+/// A conversation is capped at two hours; this bounds the privileged read all the same. A read
+/// that hits it says so (`truncated`).
 const MAX_UTTERANCES: i64 = 5000;
 /// Ledger `type` the org debits of Live Connect carry (see [`super::billing`]).
 const ORG_LEDGER_TYPE: &str = "live_connect";
@@ -97,30 +100,47 @@ fn clean_actor(raw: &Option<String>) -> Result<String, Response> {
     if actor.chars().count() > MAX_ACTOR_CHARS {
         return Err(bad("actor_too_long", "actor is too long"));
     }
+    if actor.chars().any(char::is_control) {
+        return Err(bad(
+            "actor_invalid",
+            "actor must not contain control characters",
+        ));
+    }
     Ok(actor.to_string())
 }
 
 /// A reason a colleague could read later and understand. At least `min` characters once
-/// trimmed, and not one character repeated: the point is to make the operator say something.
+/// trimmed and at least four different non-space characters, so one character repeated does not
+/// pass: the point is to make the operator say something. No control characters (a NUL cannot
+/// even be stored in the audit row, and a line break forges a second line in any log viewer).
 fn clean_reason(raw: &Option<String>, min: usize) -> Result<String, Response> {
     let reason = raw.as_deref().map(str::trim).unwrap_or_default();
     if reason.is_empty() {
         return Err(bad("reason_required", "a reason is required"));
+    }
+    if reason.chars().any(char::is_control) {
+        return Err(bad(
+            "reason_invalid",
+            "the reason must not contain control characters (line breaks, tabs, NUL)",
+        ));
     }
     let len = reason.chars().count();
     let mut distinct: Vec<char> = Vec::new();
     for c in reason.chars().filter(|c| !c.is_whitespace()) {
         if !distinct.contains(&c) {
             distinct.push(c);
-            if distinct.len() >= 4 {
+            if distinct.len() >= MIN_DISTINCT_REASON_CHARS {
                 break;
             }
         }
     }
-    if len < min || distinct.len() < 4 {
+    if len < min || distinct.len() < MIN_DISTINCT_REASON_CHARS {
         return Err(bad(
             "reason_too_short",
-            &format!("the reason must say why, in at least {min} characters"),
+            &format!(
+                "the reason must say why: at least {min} characters, and at least \
+                 {MIN_DISTINCT_REASON_CHARS} different non-space characters"
+            ),
         ));
     }
     if len > MAX_REASON_CHARS {
@@ -130,9 +150,10 @@ fn clean_reason(raw: &Option<String>, min: usize) -> Result<String, Response> {
 }
 
 /// Append one audit row, reporting failure. Used where the action must not proceed (or must
-/// not be answered) without its trace. `actor_ip` is folded in as the other admin routes do.
-async fn audit_strict(
-    pool: &Pool,
+/// not be answered) without its trace: handed a transaction's connection, the row commits or
+/// rolls back with the action it records. `actor_ip` is folded in as the other admin routes do.
+async fn audit_strict<'e, E: sqlx::PgExecutor<'e>>(
+    exec: E,
     admin: &AdminAuth,
     actor: &str,
     action: &str,
@@ -149,13 +170,14 @@ async fn audit_strict(
     .bind(action)
     .bind(target)
     .bind(detail.to_string())
-    .execute(pool)
+    .execute(exec)
     .await
     .map(|_| ())
 }
 
-/// The audit of an action that has ALREADY happened: a failure is logged loudly, not turned
-/// into an error that would make the operator repeat a done thing (same as `crate::admin`).
+/// The audit of a READ that has already happened (a reconcile moves nothing): a failure is
+/// logged loudly, not turned into an error. Every action that changes something writes its row
+/// in the action's own transaction instead, through [`audit_strict`].
 async fn audit_after(
     pool: &Pool,
     admin: &AdminAuth,
@@ -208,19 +230,28 @@ pub async fn desk_revoke(
         Ok(o) => o,
         Err(e) => return e,
     };
-    let closed = match super::desks::revoke(pool, body.desk_id).await {
+    // The audit row is part of the action: written in the same transaction, so a revoke that
+    // cannot be recorded does not happen, and the operator is never told it did.
+    let closed = match async {
+        let mut tx = pool.begin().await?;
+        let closed = super::desks::revoke_in(&mut tx, body.desk_id).await?;
+        audit_strict(
+            &mut *tx,
+            &admin,
+            &actor,
+            "live_desk_revoke",
+            &body.desk_id.to_string(),
+            json!({ "reason": reason, "org_id": org_id, "waiting_closed": closed }),
+        )
+        .await?;
+        tx.commit().await?;
+        Ok::<_, sqlx::Error>(closed)
+    }
+    .await
+    {
         Ok(n) => n,
         Err(e) => return internal("desk revoke", e),
     };
-    audit_after(
-        pool,
-        &admin,
-        &actor,
-        "live_desk_revoke",
-        &body.desk_id.to_string(),
-        json!({ "reason": reason, "org_id": org_id, "waiting_closed": closed }),
-    )
-    .await;
     Json(json!({ "status": "revoked", "waiting_closed": closed })).into_response()
 }
 
@@ -243,24 +274,31 @@ pub async fn desk_regenerate(
         Ok(o) => o,
         Err(e) => return e,
     };
-    let (desk, closed) = match super::desks::regenerate(pool, body.desk_id).await {
+    let (desk, closed) = match async {
+        let mut tx = pool.begin().await?;
+        let (desk, closed) = super::desks::regenerate_in(&mut tx, body.desk_id).await?;
+        audit_strict(
+            &mut *tx,
+            &admin,
+            &actor,
+            "live_desk_regenerate",
+            &body.desk_id.to_string(),
+            json!({
+                "reason": reason,
+                "org_id": org_id,
+                "token_version": desk.token_version,
+                "waiting_closed": closed,
+            }),
+        )
+        .await?;
+        tx.commit().await?;
+        Ok::<_, sqlx::Error>((desk, closed))
+    }
+    .await
+    {
         Ok(r) => r,
         Err(e) => return internal("desk regenerate", e),
     };
-    audit_after(
-        pool,
-        &admin,
-        &actor,
-        "live_desk_regenerate",
-        &body.desk_id.to_string(),
-        json!({
-            "reason": reason,
-            "org_id": org_id,
-            "token_version": desk.token_version,
-            "waiting_closed": closed,
-        }),
-    )
-    .await;
     Json(json!({
         "status": "active",
         "token_version": desk.token_version,
@@ -331,29 +369,41 @@ pub async fn session_end(
         return already_over();
     }
     // The UPDATE is conditional on the session still being open, so of two operators (or an
-    // operator and the sweeper) only one ends it; the other gets the same 409.
-    match sessions::end_session(pool, body.session_id, ENDED_BY_ADMIN).await {
-        Ok(true) => {}
-        Ok(false) => return already_over(),
+    // operator and the sweeper) only one ends it; the other gets the same 409. The audit row is
+    // written in the same transaction: an end that cannot be recorded does not happen.
+    let ended = match async {
+        let mut tx = pool.begin().await?;
+        if !sessions::end_session(&mut *tx, body.session_id, ENDED_BY_ADMIN).await? {
+            return Ok(false);
+        }
+        audit_strict(
+            &mut *tx,
+            &admin,
+            &actor,
+            "live_session_end",
+            &body.session_id.to_string(),
+            json!({
+                "reason": reason,
+                "org_id": org_id,
+                "project_id": project_id,
+                "was": status,
+            }),
+        )
+        .await?;
+        tx.commit().await?;
+        Ok::<_, sqlx::Error>(true)
+    }
+    .await
+    {
+        Ok(ended) => ended,
         Err(e) => return internal("session end", e),
+    };
+    if !ended {
+        return already_over();
     }
     // The event is shown to the org's admins on the session timeline, so it holds no name.
     sessions::record_event(pool, body.session_id, "admin_ended", json!({})).await;
     super::finalize::on_session_ended(&state, body.session_id);
-    audit_after(
-        pool,
-        &admin,
-        &actor,
-        "live_session_end",
-        &body.session_id.to_string(),
-        json!({
-            "reason": reason,
-            "org_id": org_id,
-            "project_id": project_id,
-            "was": status,
-        }),
-    )
-    .await;
     Json(json!({ "status": "ended", "end_reason": ENDED_BY_ADMIN })).into_response()
 }
 
@@ -387,6 +437,9 @@ pub struct TickTotals {
     pub count: i64,
     pub org_count: i64,
     pub org_credits: Decimal,
+    /// What each org tick recorded, sorted: compared one by one with the ledger's debits, so
+    /// offsetting differences (a debit too small, another too large) cannot cancel in a sum.
+    pub org_amounts: Vec<Decimal>,
     pub user_count: i64,
     pub user_usd: Decimal,
 }
@@ -397,6 +450,8 @@ pub struct LedgerTotals {
     /// Org debits of type `live_connect` that reference one of the conversation's call sessions.
     pub org_entries: i64,
     pub org_credits: Decimal,
+    /// What each of those debits took, as a positive number, sorted.
+    pub org_amounts: Vec<Decimal>,
     /// The owner's `usage_sessions` rows for the conversation's room, and what they accumulated.
     pub usage_sessions: i64,
     pub user_usd: Decimal,
@@ -444,7 +499,9 @@ pub fn judge(
         }
         let missing = (ticks.org_count - ledger.org_entries).max(0);
         let duplicate = (ledger.org_entries - ticks.org_count).max(0);
-        let amounts_agree = ticks.org_credits == ledger.org_credits;
+        // Sums AND each single amount: equal totals can hide a debit too small beside one too big.
+        let amounts_agree =
+            ticks.org_credits == ledger.org_credits && ticks.org_amounts == ledger.org_amounts;
         let verdict = if missing == 0 && duplicate == 0 && amounts_agree && other_payer_ticks == 0 {
             Verdict::Ok
         } else {
@@ -501,7 +558,17 @@ async fn load_ticks(pool: &Pool, id: Uuid) -> Result<TickTotals, sqlx::Error> {
     .bind(id)
     .fetch_all(pool)
     .await?;
-    let mut t = TickTotals::default();
+    let org_amounts = sqlx::query_scalar(
+        "SELECT amount FROM live_usage_ticks
+         WHERE session_id = $1 AND payer_kind = 'org' ORDER BY amount",
+    )
+    .bind(id)
+    .fetch_all(pool)
+    .await?;
+    let mut t = TickTotals {
+        org_amounts,
+        ..Default::default()
+    };
     for (kind, n, sum) in rows {
         t.count += n;
         match kind.as_str() {
@@ -533,6 +600,14 @@ async fn load_ledger(
     .bind(&rooms)
     .fetch_one(pool)
     .await?;
+    let org_amounts: Vec<i32> = sqlx::query_scalar(
+        "SELECT (-amount)::int FROM organization_credits_transactions
+         WHERE type = $1 AND session_id = ANY($2) ORDER BY 1",
+    )
+    .bind(ORG_LEDGER_TYPE)
+    .bind(&rooms)
+    .fetch_all(pool)
+    .await?;
     let (usage_sessions, cost): (i64, Decimal) = match owner_user {
         Some(user) => {
             sqlx::query_as(
@@ -549,6 +624,7 @@ async fn load_ledger(
     Ok(LedgerTotals {
         org_entries,
         org_credits: Decimal::from(debited),
+        org_amounts: org_amounts.into_iter().map(Decimal::from).collect(),
         usage_sessions,
         user_usd: cost.round_dp(6),
     })
@@ -573,13 +649,20 @@ pub async fn session_reconcile(
     let Some(pool) = state.pool.as_ref() else {
         return unavailable();
     };
-    let actor = body
+    // The actor is optional here (a read), but one the audit row cannot hold is refused rather
+    // than silently left unrecorded.
+    let actor = match body
         .actor
         .as_deref()
         .map(str::trim)
         .filter(|a| !a.is_empty())
-        .unwrap_or("admin")
-        .to_string();
+    {
+        None => "admin".to_string(),
+        Some(_) => match clean_actor(&body.actor) {
+            Ok(a) => a,
+            Err(e) => return e,
+        },
+    };
     let head: Option<(Option<Uuid>, Option<Uuid>)> =
         match sqlx::query_as("SELECT org_id, owner_user_id FROM live_sessions WHERE id = $1")
             .bind(body.session_id)
@@ -748,12 +831,16 @@ async fn read_transcript(pool: &Pool, id: Uuid) -> Result<Value, sqlx::Error> {
          FROM transcript_events te
          WHERE te.event_type = 'speech' AND te.session_id IN ({})
          ORDER BY te.ts
-         LIMIT {MAX_UTTERANCES}",
-        room_sessions_sql("$1")
+         LIMIT {}",
+        room_sessions_sql("$1"),
+        MAX_UTTERANCES + 1
     ))
     .bind(id)
     .fetch_all(pool)
     .await?;
+    // One row past the bound is read only to know whether the bound cut something off.
+    let truncated = events.len() as i64 > MAX_UTTERANCES;
+    let events = &events[..events.len().min(MAX_UTTERANCES as usize)];
     let first = events.first().map(|e| e.ts);
     let utterances: Vec<Value> = events
         .iter()
@@ -783,6 +870,9 @@ async fn read_transcript(pool: &Pool, id: Uuid) -> Result<Value, sqlx::Error> {
             json!({ "peer_id": peer_id, "role": role, "display_name": name, "lang": lang })
         }).collect::<Vec<_>>(),
         "utterances": utterances,
+        // `true` when the conversation has more utterances than are returned (the earliest
+        // `MAX_UTTERANCES` are): the operator must not take a cut transcript for the whole one.
+        "truncated": truncated,
         "audited": true,
     }))
 }
@@ -815,6 +905,45 @@ mod tests {
             Some("customer asked for a copy".to_string())
         );
         assert!(clean_reason(&Some("x".repeat(501)), 10).is_err());
+    }
+
+    #[test]
+    fn reasons_and_actors_refuse_control_characters_and_say_the_real_rule() {
+        let some = |s: &str| Some(s.to_string());
+        for bad in ["a\0b", "a\nb", "a\tb", "a\u{7f}b", "a\u{1b}[0mb"] {
+            let reason = format!("customer asked for {bad} a copy");
+            assert!(clean_reason(&some(&reason), 3).is_err(), "{bad:?}");
+            assert!(clean_actor(&some(bad)).is_err(), "{bad:?}");
+        }
+        // Edge whitespace is trimmed, not refused.
+        assert!(clean_actor(&some("  operator@x.test\n")).is_ok());
+        // A repeated character is refused too (its message is pinned over HTTP).
+        let res = clean_reason(&some("aaaaaaaaaaaa"), 3).unwrap_err();
+        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn equal_totals_with_different_single_amounts_still_mismatch() {
+        // Two ticks of 2 against debits of 1 and 3: the sums agree, the books do not.
+        let ticks = TickTotals {
+            count: 2,
+            org_count: 2,
+            org_credits: d(4),
+            org_amounts: vec![d(2), d(2)],
+            ..Default::default()
+        };
+        let off = LedgerTotals {
+            org_entries: 2,
+            org_credits: d(4),
+            org_amounts: vec![d(1), d(3)],
+            ..Default::default()
+        };
+        assert_eq!(judge(true, &ticks, &off, &rooms(1, 1)).0, Verdict::Mismatch);
+        let right = LedgerTotals {
+            org_amounts: vec![d(2), d(2)],
+            ..off
+        };
+        assert_eq!(judge(true, &ticks, &right, &rooms(1, 1)).0, Verdict::Ok);
     }
 
     #[test]

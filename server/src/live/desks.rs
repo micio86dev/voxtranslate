@@ -24,6 +24,7 @@ use axum::{Json, Router};
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use serde_json::json;
+use sqlx::PgConnection;
 use uuid::Uuid;
 
 use super::routes::{api_err, busy, disabled, engine_has_room, rate_limited, WS_PATH};
@@ -361,42 +362,80 @@ pub async fn desk_qr(
 
 /// Close every session still waiting at a desk — they came in through a QR that was just
 /// revoked or replaced.
-async fn expire_waiting(pool: &Pool, desk_id: Uuid, why: &str) -> Result<u64, sqlx::Error> {
+async fn expire_waiting(
+    conn: &mut PgConnection,
+    desk_id: Uuid,
+    why: &str,
+) -> Result<u64, sqlx::Error> {
     let res = sqlx::query(
         "UPDATE live_sessions SET status = 'expired', ended_at = now(), end_reason = $2
          WHERE desk_id = $1 AND status = 'waiting'",
     )
     .bind(desk_id)
     .bind(why)
-    .execute(pool)
+    .execute(conn)
     .await?;
     Ok(res.rows_affected())
 }
 
-/// Revoke a desk: its printed QR stops working and everyone still waiting at it is closed.
-/// Returns how many waiting sessions were closed. Shared by the org admin's endpoint and the
-/// platform admin's, so both do exactly the same thing; idempotent.
-pub(super) async fn revoke(pool: &Pool, desk_id: Uuid) -> Result<u64, sqlx::Error> {
-    sqlx::query("UPDATE live_desks SET status = 'revoked', revoked_at = now() WHERE id = $1")
-        .bind(desk_id)
-        .execute(pool)
-        .await?;
-    expire_waiting(pool, desk_id, "desk_revoked").await
+/// The advisory lock every change of a desk's standing takes: creating a session at it (a scan),
+/// revoking it, regenerating it. It is what makes "the desk is active and this is its current QR"
+/// still true at the moment a waiting session is written: a scan that read the desk a moment
+/// before a revoke cannot slip its session in after the revoke has closed the queue.
+async fn lock_desk(conn: &mut PgConnection, desk_id: Uuid) -> Result<(), sqlx::Error> {
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+        .bind(format!("live-desk:{desk_id}"))
+        .execute(conn)
+        .await
+        .map(|_| ())
 }
 
-/// Move a desk on to a fresh QR: the version bumps (every earlier print stops verifying) and a
-/// revoked desk is active again. Returns the updated row and how many waiting sessions were
-/// closed. The caller decides whether the new credential may be shown to anyone.
-pub(super) async fn regenerate(pool: &Pool, desk_id: Uuid) -> Result<(DeskRow, u64), sqlx::Error> {
+/// Revoke a desk inside the caller's transaction (which it commits): its printed QR stops
+/// working and everyone still waiting at it is closed. Returns how many waiting sessions were
+/// closed. Idempotent. Taking the desk lock first is what orders it against an in-flight scan.
+pub(super) async fn revoke_in(conn: &mut PgConnection, desk_id: Uuid) -> Result<u64, sqlx::Error> {
+    lock_desk(conn, desk_id).await?;
+    sqlx::query("UPDATE live_desks SET status = 'revoked', revoked_at = now() WHERE id = $1")
+        .bind(desk_id)
+        .execute(&mut *conn)
+        .await?;
+    expire_waiting(conn, desk_id, "desk_revoked").await
+}
+
+/// [`revoke_in`] in a transaction of its own: the org admin's endpoint.
+pub(super) async fn revoke(pool: &Pool, desk_id: Uuid) -> Result<u64, sqlx::Error> {
+    let mut tx = pool.begin().await?;
+    let closed = revoke_in(&mut tx, desk_id).await?;
+    tx.commit().await?;
+    Ok(closed)
+}
+
+/// Move a desk on to a fresh QR inside the caller's transaction: the version bumps (every
+/// earlier print stops verifying) and a revoked desk is active again. Returns the updated row
+/// and how many waiting sessions were closed. The caller decides whether the new credential may
+/// be shown to anyone.
+pub(super) async fn regenerate_in(
+    conn: &mut PgConnection,
+    desk_id: Uuid,
+) -> Result<(DeskRow, u64), sqlx::Error> {
+    lock_desk(conn, desk_id).await?;
     let desk = sqlx::query_as::<_, DeskRow>(&format!(
         "UPDATE live_desks SET token_version = token_version + 1, status = 'active', revoked_at = NULL
          WHERE id = $1 RETURNING {DESK_COLS}"
     ))
     .bind(desk_id)
-    .fetch_one(pool)
+    .fetch_one(&mut *conn)
     .await?;
-    let closed = expire_waiting(pool, desk_id, "desk_regenerated").await?;
+    let closed = expire_waiting(conn, desk_id, "desk_regenerated").await?;
     Ok((desk, closed))
+}
+
+/// [`regenerate_in`] in a transaction of its own: the org admin's endpoint.
+pub(super) async fn regenerate(pool: &Pool, desk_id: Uuid) -> Result<(DeskRow, u64), sqlx::Error> {
+    let mut tx = pool.begin().await?;
+    let out = regenerate_in(&mut tx, desk_id).await?;
+    tx.commit().await?;
+    Ok(out)
 }
 
 pub async fn revoke_desk(
@@ -517,6 +556,7 @@ pub async fn scan(
         pool,
         &state,
         &desk,
+        &ip,
         &clean_name(body.name.as_deref().unwrap_or("")),
         &lang,
     )
@@ -527,6 +567,9 @@ pub async fn scan(
             "desk_busy",
             "Too many people are waiting at this desk. Please try again shortly.",
         ),
+        // Revoked or replaced between the check above and the write: same answer as any other
+        // dead QR.
+        DeskScanError::Gone => invalid_qr(),
         DeskScanError::Db(e) => db_err(e),
     })?;
 
@@ -560,6 +603,8 @@ pub async fn scan(
 #[derive(Debug)]
 enum DeskScanError {
     TooManyWaiting,
+    /// The desk was revoked or regenerated after the scan's first look at it.
+    Gone,
     Db(sqlx::Error),
 }
 
@@ -581,16 +626,27 @@ async fn create_desk_session(
     pool: &Pool,
     state: &AppState,
     desk: &DeskRow,
+    ip: &str,
     guest_name: &str,
     guest_lang: &str,
 ) -> Result<DeskSession, DeskScanError> {
     let cfg = &state.live.config;
     let mut tx = pool.begin().await?;
-    // Serialise scans per desk so the waiting cap cannot be beaten by a burst.
-    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
-        .bind(format!("live-desk:{}", desk.id))
-        .execute(&mut *tx)
-        .await?;
+    // Serialise scans per desk so the waiting cap cannot be beaten by a burst; the same lock
+    // revoke and regenerate take, which is what makes the re-check below mean something.
+    lock_desk(&mut tx, desk.id).await?;
+    // The desk was read before the lock. If a revoke or regenerate won the race, this scan holds
+    // a QR that is dead now and must not leave a waiting session behind it.
+    let standing: Option<(String, i32)> =
+        sqlx::query_as("SELECT status, token_version FROM live_desks WHERE id = $1")
+            .bind(desk.id)
+            .fetch_optional(&mut *tx)
+            .await?;
+    if !matches!(standing, Some((ref status, version))
+        if status == "active" && version == desk.token_version)
+    {
+        return Err(DeskScanError::Gone);
+    }
     let waiting: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM live_sessions WHERE desk_id = $1 AND status = 'waiting' AND expires_at > now()",
     )
@@ -601,6 +657,25 @@ async fn create_desk_session(
     // refused until somebody answers or the rest expire.
     if waiting >= cfg.desk_max_waiting {
         return Err(DeskScanError::TooManyWaiting);
+    }
+    // One address cannot fill that queue by itself: a printed QR is public. Counted from what
+    // this process remembers of the address's earlier scans, checked against the database so a
+    // customer who was answered, or gave up, frees the place. An unknown address (no trusted
+    // proxy header) is not capped: that would cap every anonymous customer at once.
+    if ip != "-" {
+        let mine = state.live.desk_scans_from(desk.id, ip);
+        if !mine.is_empty() {
+            let still_waiting: i64 = sqlx::query_scalar(
+                "SELECT count(*) FROM live_sessions
+                 WHERE id = ANY($1) AND status = 'waiting' AND expires_at > now()",
+            )
+            .bind(&mine)
+            .fetch_one(&mut *tx)
+            .await?;
+            if still_waiting >= cfg.desk_max_waiting_per_ip {
+                return Err(DeskScanError::TooManyWaiting);
+            }
+        }
     }
     let (session_id, created_at): (Uuid, DateTime<Utc>) = sqlx::query_as(
         "INSERT INTO live_sessions (org_id, project_id, desk_id, status, host_lang, save_transcript, expires_at)
@@ -623,6 +698,14 @@ async fn create_desk_session(
     .bind(guest_lang)
     .fetch_one(&mut *tx)
     .await?;
+    if ip != "-" {
+        state.live.note_desk_scan(
+            desk.id,
+            ip,
+            session_id,
+            Duration::from_secs(u64::try_from(cfg.desk_wait_secs).unwrap_or(120)),
+        );
+    }
     tx.commit().await?;
     Ok(DeskSession {
         session_id,
@@ -632,6 +715,34 @@ async fn create_desk_session(
 }
 
 // ---- staff: who is waiting, and answering ----------------------------------------------
+
+/// `require_role(MEMBER)` for a desk or a desk session. A caller outside the org gets exactly the
+/// answer an id that does not exist gets (`absent`): the business module's own 404 is plain text
+/// and told a stranger the id was real.
+async fn require_member_or(
+    pool: &Pool,
+    org_id: Uuid,
+    user_id: Uuid,
+    absent: impl FnOnce() -> Response,
+) -> Result<(), Response> {
+    match require_role(pool, org_id, user_id, MEMBER).await {
+        Ok(_) => Ok(()),
+        Err(r) if r.status() == StatusCode::NOT_FOUND => Err(absent()),
+        Err(r) => Err(r),
+    }
+}
+
+fn desk_not_found() -> Response {
+    api_err(StatusCode::NOT_FOUND, "desk_not_found", "desk not found")
+}
+
+fn session_not_found() -> Response {
+    api_err(
+        StatusCode::NOT_FOUND,
+        "session_not_found",
+        "session not found",
+    )
+}
 
 pub async fn waiting(
     State(state): State<AppState>,
@@ -645,9 +756,8 @@ pub async fn waiting(
         .await
         .map_err(db_err)?;
     // An unknown desk and a desk of another org look the same to a non-member.
-    let org_id =
-        org_id.ok_or_else(|| api_err(StatusCode::NOT_FOUND, "desk_not_found", "desk not found"))?;
-    require_role(pool, org_id, user.user_id, MEMBER).await?;
+    let org_id = org_id.ok_or_else(desk_not_found)?;
+    require_member_or(pool, org_id, user.user_id, desk_not_found).await?;
     let rows: Vec<(Uuid, String, String, i32)> = sqlx::query_as(
         "SELECT s.id, p.display_name, p.lang, extract(epoch FROM now() - s.created_at)::int
          FROM live_sessions s
@@ -748,14 +858,8 @@ pub async fn answer(
     .await
     .map_err(db_err)?
     .flatten();
-    let org_id = org_id.ok_or_else(|| {
-        api_err(
-            StatusCode::NOT_FOUND,
-            "session_not_found",
-            "session not found",
-        )
-    })?;
-    require_role(pool, org_id, user.user_id, MEMBER).await?;
+    let org_id = org_id.ok_or_else(session_not_found)?;
+    require_member_or(pool, org_id, user.user_id, session_not_found).await?;
     if let Some(why) = ws_gate::check(pool, org_id).await.map_err(db_err)? {
         return Err(api_err(
             StatusCode::PAYMENT_REQUIRED,
@@ -776,11 +880,7 @@ pub async fn answer(
     )
     .await
     .map_err(|e| match e {
-        AnswerError::NotFound => api_err(
-            StatusCode::NOT_FOUND,
-            "session_not_found",
-            "session not found",
-        ),
+        AnswerError::NotFound => session_not_found(),
         AnswerError::AlreadyAnswered => api_err(
             StatusCode::CONFLICT,
             "already_answered",

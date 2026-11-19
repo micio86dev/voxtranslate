@@ -84,7 +84,10 @@ billing record. All tables are RLS default-deny; tenancy is enforced in Rust lik
 
 See the Live Connect block in `server/.env.example`. The feature is off unless
 `LIVE_CONNECT_ENABLED` is truthy **and** `LIVE_TOKEN_KEY` (≥ 32 chars) is valid; a bad key is an
-error, never a fallback.
+error, never a fallback. Two limits against abuse of the public surface are tunable:
+`LIVE_DESK_MAX_WAITING_PER_IP` (default 2: waiting sessions one client address may hold at one
+desk) and `LIVE_AUDIO_MAX_BYTES_PER_SEC` (default 72 000: the microphone budget of one phone, see
+*`/ws/live`*).
 
 ## API
 
@@ -138,6 +141,16 @@ Errors are `{"code","message"}` with a stable code: `invite_not_found`, `invite_
 - Hardening copied from `/ws`: connection cap, per-IP connect limit, frame and message-rate caps,
   ping every 15 s, close after 45 s of silence, slow-consumer drop. A momentarily slow engine drops
   a 100 ms chunk instead of ending the session.
+- **The engine is fed at most what a microphone produces.** Billing is by the wall clock, so audio
+  pushed faster than it plays would be translated (and billed upstream) for less than it costs the
+  payer. A binary frame over 16 KiB (`MAX_AUDIO_FRAME_BYTES`; an honest one is 4 800 bytes, 100 ms of
+  PCM16 mono 24 kHz) is never forwarded and the sender gets `error{code:"frame_too_large"}`. Each
+  phone also has a byte budget of `LIVE_AUDIO_MAX_BYTES_PER_SEC` (72 000 B/s, 1.5x real time, with
+  one second of burst): audio beyond it is **dropped, not queued**. A real client (one frame per
+  100 ms, even after a network stall delivers a second at once) never touches it; the tests send
+  one. Drops are reported at most once a second as a `diagnostics` event
+  (`{audio_dropped:{frames,bytes,oversized}}`, counts only) and at most 10 times per socket. The
+  budget assumes the 24 kHz capture the client uses; a client capturing at 48 kHz would be throttled.
 - Each phone re-checks the session every 3 s, so an end by the other phone, the sweeper, an admin or
   the hard ceiling reaches it with the reason.
 - Persistence follows policy: a business session always has its `call_sessions` row
@@ -189,9 +202,12 @@ without them is unchanged): `kind` (`call|voice_message|phone|live_connect`), `l
 (RFC 3339, inclusive, on when the session started), `session_id` (a call-session id or a Live
 Connect session id), `speaker` (case-insensitive substring of the name, `%`/`_` are literal), plus
 the existing `project_id`. `lang` matches the transcript's source language, and for a Live Connect
-conversation either participant's language (a conversation has two). Scope is untouched: admins see
-the org, members only projects they created or took part in, and the staff member who answered a
-desk took part. A Live Connect hit keeps its existing fields and adds `session_kind:"live_connect"`
+conversation either participant's language (a conversation has two). Scope is as for meetings:
+admins see the org, members only projects they created or took part in. A Live Connect conversation
+is narrower, as in the dashboard: a member finds it only if they **sat in it** (host, or staff who
+answered it), not merely because it was held under a project of theirs. `from` and `to` are
+timestamps like `2026-11-19T10:00:00+01:00`: a client must percent-encode the `+` of an offset
+(`%2B`), or the server reads it as a space and refuses the value. A Live Connect hit keeps its existing fields and adds `session_kind:"live_connect"`
 and `live_session_id`; hits of every other kind are byte-for-byte what they were.
 
 **Insights.** `POST …/insights` retrieves from `transcript_embeddings` without a kind filter, so a
@@ -221,7 +237,13 @@ reports is trusted.
   language.
 - **Units.** A consumer pays dollars (`credit_transactions` plus the owner's `usage_sessions` row). An
   org pays whole credits (1 credit = 1 cent) into `organization_credits_transactions` of type
-  `live_connect`, with sub-cent amounts carried to the next tick (`CreditAccumulator`).
+  `live_connect`, with sub-cent amounts carried to the next tick (`CreditAccumulator`). The carry is
+  kept **per seat for the lifetime of the session** (`LiveState::take_owed`, keyed by session and
+  peer), not per Start: ten four-second Start/Stop cycles that are each worth 0.4 credit cost the
+  four credits they add up to, not nothing. A running total under one credit when the session ends
+  (less than one cent per seat) is not charged, exactly as for one uninterrupted run. Two meters of
+  one seat covering the same interval add its cost once. The carry is in memory (the server is
+  single-replica, see *Operations*); a restart forgets less than a credit per open seat.
 - **Insufficient credit.** When a tick cannot be covered nothing is debited, both phones get
   `balance_exhausted` and then `session_state{ended, balance_exhausted}`, and the session ends
   cleanly. A start is refused up front (`insufficient_balance` / `insufficient_credits`) when the
@@ -368,7 +390,7 @@ many audio chunks answer it.
 Start from the conversation's diagnostics: `SELECT ts, kind, detail FROM live_session_events WHERE
 session_id = '<id>' ORDER BY ts` (kinds: `created`, `guest_joined`, `desk_scan`, `answered`,
 `connected`, `disconnected`, `room_session`, `idle_timeout`, `slow_consumer`, `ended`,
-`ended_by_billing`, `abandoned`, `admin_ended`, `content_erased`). Directus shows the same rows;
+`ended_by_billing`, `abandoned`, `admin_ended`, `content_erased`, `diagnostics`). Directus shows the same rows;
 the dashboard session detail shows the timeline to org admins. For billing, the Directus
 **Reconcile** button (`POST /api/admin/live/session-reconcile`) compares ticks with the ledger.
 
@@ -382,6 +404,7 @@ the dashboard session detail shows the timeline to org admins. For billing, the 
 | One direction is silent | the engine skipped it at capacity, or its upstream session dropped (`audio_session_closed` / `engine_unavailable` frames, retried by the client a few times); check `voxtranslate_qwen_connect_ms` and the server log for `qwen connect failed` |
 | `insufficient_balance` / `insufficient_credits` | the **owner's** balance or the org wallet, not the guest's: top up, or check the org's subscription |
 | Conversation ended on its own | `live_sessions.end_reason`: `balance_exhausted`, `max_duration`, `abandoned` (both phones gone past the grace), `expired`, `desk_revoked`/`desk_regenerated`, `ended_by_admin`, or an `ended_by_*` |
+| One phone's audio is being dropped | `live_session_events` kind `diagnostics` with `audio_dropped{frames,bytes,oversized}`: the client sent audio faster than real time or frames over 16 KiB (a client capturing at 48 kHz instead of 24 kHz would do this; check `LIVE_AUDIO_MAX_BYTES_PER_SEC`) |
 | A phone keeps reconnecting | `slow_consumer` (its outbound queue overflowed: a bad network) or `idle_timeout` (no frame for 45 s); it resumes with the same token inside the grace |
 | A finished conversation is not in search | `transcripts` row present? (`transcript_status = 'ready'` on its latest `call_sessions` row.) No embedding provider or a provider error leaves a transcript without chunks: run `/internal/embeddings/backfill`. A conversation with no speech is never finalised |
 | Guest words survive an erase | only rows named by the conversation's `room_session` events and pointer are deleted, and only of `kind='live_connect'` in room `live-<id>`; check `live_session_events` for `content_erased` |
@@ -395,7 +418,7 @@ Directus is for platform superadmins and a few authorised operators (S15). It is
 
 ### Server routes
 
-All five are `POST`, sit beside the other `/api/admin/*` routes, and use the same `AdminAuth` extractor: `X-Admin-Secret` or `Authorization: Bearer`, constant-time, checked **before** the body is parsed (a wrong secret is `403`, as everywhere under `/api/admin`). Each writes an `admin_audit` row (`actor` = the operator's email as the Flow reports it, `actor_ip`, the reason, ids and counts; never tokens, QR material, names or transcript text). Errors are `{"code","message"}`.
+All five are `POST`, sit beside the other `/api/admin/*` routes, and use the same `AdminAuth` extractor: `X-Admin-Secret` or `Authorization: Bearer`, constant-time, checked **before** the body is parsed (a wrong secret is `403`, as everywhere under `/api/admin`). Each action that changes something (`desk-revoke`, `desk-regenerate`, `session-end`) writes its `admin_audit` row **in the same transaction as the change**: if the row cannot be written the change does not happen and the answer is `500 internal_error`. The transcript read writes its row first and reads nothing if that fails. `session-reconcile` is a read and writes its row after. A row holds `actor` (the operator's email as the Flow reports it), `actor_ip`, the reason, ids and counts; never tokens, QR material, names or transcript text. Errors are `{"code","message"}`.
 
 | Route | Body | Effect | Notable errors |
 |---|---|---|---|
@@ -403,14 +426,15 @@ All five are `POST`, sit beside the other `/api/admin/*` routes, and use the sam
 | `desk-regenerate` | `desk_id, actor, reason` | Same function the org admin's regenerate calls: version bumped, desk active, waiting sessions closed. Answers **only** `status`, `token_version`, `waiting_closed`: no QR URL, no MAC, no public handle, so a platform operator never holds the credential. | `desk_not_found` 404 |
 | `session-end` | `session_id, actor, reason` | Ends a `waiting`/`active` session with `end_reason = ended_by_admin`, records a `live_session_events` row (`admin_ended`, empty detail: the timeline is visible to the org's admins) and starts finalisation (`finalize::on_session_ended`). | `session_not_found` 404, `session_over` 409 (also when two operators race) |
 | `session-reconcile` | `session_id`, optional `actor` | **Read-only.** Compares the metering (`live_usage_ticks`) with the ledger, see below. | `session_not_found` 404 |
-| `session-transcript` | `session_id, actor, reason` | The only way for the platform to read what was said. Same shape as the dashboard's session detail (participants, utterances with the original apart from its translations). The reason is mandatory (≥ 10 characters, not one repeated character); the audit row is written **first** and the read is refused (`500 internal_error`, no content) if it cannot be written. | `reason_required`, `reason_too_short`, `actor_required` 400, `session_not_found` 404 |
+| `session-transcript` | `session_id, actor, reason` | The only way for the platform to read what was said. Same shape as the dashboard's session detail (participants, utterances with the original apart from its translations). The reason is mandatory (≥ 10 characters and at least 4 different non-space characters); the audit row is written **first** and the read is refused (`500 internal_error`, no content) if it cannot be written. The answer carries `truncated: true` when the conversation has more than 5 000 utterances (the earliest 5 000 are returned). | `reason_required`, `reason_too_short`, `reason_invalid`, `actor_required`, `actor_invalid` 400, `session_not_found` 404 |
 
-`actor` is required on every mutating route and on the transcript read (an action nobody can be asked about is not performed); `reason` must be at least 3 characters on the others. There is no rate limit: like the other admin routes it sits behind a secret that only Directus holds.
+`actor` is required on every mutating route and on the transcript read (an action nobody can be asked about is not performed); `reason` must be at least 3 characters on the others. Wherever a reason is taken it also needs at least 4 different non-space characters (`aaaaaaaa` is refused as `reason_too_short`), and neither `reason` nor `actor` may contain control characters (NUL, line breaks, tabs: `reason_invalid` / `actor_invalid`; `session-reconcile` refuses such an `actor` too). There is no rate limit: like the other admin routes it sits behind a secret that only Directus holds.
 
 ### What reconciliation can and cannot prove
 
 `live_usage_ticks` is written in the same transaction as the debit, so for an org-paid conversation every debit is `organization_credits_transactions` (`type = 'live_connect'`, `session_id` = one of the conversation's `call_sessions`) and every debit has one tick: the counts and the credits must match. The answer is `{ticks, ledger, status: ok | mismatch | unlinked, missing_ticks, duplicate_ticks, notes}`.
 
+* **Amounts are compared one by one, not only in total**: the org debits (as positive numbers) and the ticks' amounts, sorted, must be the same list, so a debit too small beside another too large (equal sums) is a `mismatch`. A consumer conversation is still compared in total only, for the reason below. Reconcile is a read: a test compares an md5 of every row of every table it reads, before and after.
 * `missing_ticks`: ticks with no debit (the ledger lost a row). `duplicate_ticks`: debits no tick accounts for (a charge the idempotency key never saw).
 * **`unlinked`** when the meeting-side rows were erased (retention, owner or admin erase): the ledger link is `ON DELETE SET NULL`, the debits survive but cannot be told apart from the org's others. The report says so and claims nothing (`missing_ticks`/`duplicate_ticks` are `null`) rather than guess.
 * A **consumer**-paid conversation can only be compared in total: `credit_transactions` has no session column, so the report compares the ticks with the owner's `usage_sessions.cost` for the room `live-<id>` (updated in the debit's transaction). Single debits cannot be counted (`null`); no `usage_sessions` row means `unlinked`.
@@ -427,7 +451,8 @@ Existing Directus roles are **not modified**. `transcript_events`, `session_part
 - A desk belongs to an org and **must** have one of its projects. Its QR carries `/lc/d/<public_id>.<mac>`; the MAC is derived from `LIVE_TOKEN_KEY` and the desk's `token_version`, never stored.
 - **Every scan creates a new session** (the QR is never a conversation). The scan answers a forged, unknown, revoked or replaced QR with the same response, and never reveals an org's wallet state to the public (`desk_unavailable`).
 - Revoking closes the sessions still waiting at that desk; regenerating bumps the version (the old print stops working), re-activates the desk and closes waiting sessions too.
-- The customer waits up to `LIVE_DESK_WAIT_SECS`; at most `LIVE_DESK_MAX_WAITING` sessions wait at one desk. A member answers from the dashboard Desk console or from the main app (`/live/desks`); exactly one colleague wins (the staff seat is a unique index).
+- The customer waits up to `LIVE_DESK_WAIT_SECS`; at most `LIVE_DESK_MAX_WAITING` sessions wait at one desk, and at most `LIVE_DESK_MAX_WAITING_PER_IP` (2) from one client address (`429 desk_busy` for the excess). The address is the one every other limiter uses (`CLIENT_IP_HEADER`, else the last `x-forwarded-for` hop); one the proxy could not name is not capped, since that would cap every anonymous customer at once. The per-address count lives in memory with the wait window as its time to live, and asks the database whether those sessions are still waiting, so a customer who was answered or gave up frees the place. A printed QR is public: without this one phone could take all twenty places. Several customers behind one NAT (a hotel's wifi) share their two places per desk.
+- **Revoke and regenerate take the same advisory lock as a scan**, and a scan re-checks, after taking it, that the desk is still active on the QR's version: a scan that read the desk just before a revoke cannot leave a waiting session behind it. A member answers from the dashboard Desk console or from the main app (`/live/desks`); exactly one colleague wins (the staff seat is a unique index).
 
 ## Dashboard data
 
@@ -468,13 +493,16 @@ The decision record is in the spec (*Key decisions* 1-3). In short:
 
 - **Isolation.** The room name is `live-<uuid>` and the public `/ws` and the business room binding
   refuse that shape (`live::is_live_room`), so a stranger who learned a session id cannot join its
-  room. Room peers carry no account id: the other phone never learns who pays. Tenancy is enforced
+  room. The glossary routes (`/api/rooms/{room}/glossary…`) refuse it too (`403 reserved room`).
+  Room peers carry no account id: the other phone never learns who pays. Tenancy is enforced
   in Rust like the rest of the server; a conversation a caller may not see answers exactly like one
   that does not exist (404). Tables are RLS default-deny.
 - **Rate limits.** Create: 20/min per account. Desk administration: 30/min per account. Join: 30/min per client IP.
-  Desk scan: 20/min per client IP and 60/min per desk, with at most `LIVE_DESK_MAX_WAITING` (20) waiting at one desk.
+  Desk scan: 20/min per client IP and 60/min per desk, with at most `LIVE_DESK_MAX_WAITING` (20) waiting at one desk
+  and at most 2 of them from one client IP.
   `/ws/live`: the same per-IP connect limit and connection cap as `/ws`, a message-rate cap
-  (500 messages per 5 s), a 64 KiB frame cap, a ping every 15 s and a close after 45 s of silence;
+  (500 messages per 5 s), a 16 KiB cap on an audio frame (64 KiB on any other frame) and a
+  per-phone audio budget of 1.5x real time (excess dropped), a ping every 15 s and a close after 45 s of silence;
   an outbound queue that overflows drops the phone (it reconnects) instead of growing.
 - **Server-authoritative.** Mute is enforced on the server (a muted phone sends nothing to the
   engine); billing follows audio the engine received; the owner's balance is pushed to the owner
@@ -492,9 +520,9 @@ The decision record is in the spec (*Key decisions* 1-3). In short:
 | Schema | `server/tests/live_schema.rs` | RLS, owner check, vocabularies, two-seat cap, tick idempotency, purge keeps usage, migration re-run | `cargo test --test live_schema` |
 | Tokens / config | unit tests in `live/{tokens,config}.rs` | forgery, expiry, audience, JWT confusion, desk MAC version binding, flag/key/limit validation | `cargo test --lib live::` |
 | REST | `tests/live_rest.rs` | create/join/get/end, caps, consent, project validation, error codes | `cargo test --test live_rest` |
-| `/ws/live` | `tests/live_ws.rs` | both phones translated at once, server-side mute, reconnect takeover, sweeper, billing ticks and exhaustion, no account id leak, latency metric | `cargo test --test live_ws` |
-| Billing | `tests/live_billing.rs` | idempotent ticks, insufficient funds, concurrent sessions on one wallet | `cargo test --test live_billing` |
-| Desks | `tests/live_desks.rs` | scan creates a new session each time, revoke/regenerate, exactly one answerer, queue limits, a real WS conversation | `cargo test --test live_desks` |
+| `/ws/live` | `tests/live_ws.rs` | both phones translated at once, server-side mute, reconnect takeover, sweeper, billing ticks and exhaustion, no account id leak, latency metric, audio frame cap and 1.5x real-time budget (honest sender untouched) | `cargo test --test live_ws` |
+| Billing | `tests/live_billing.rs` | idempotent ticks, insufficient funds, concurrent sessions on one wallet, the org carry across Start/Stop cycles | `cargo test --test live_billing` |
+| Desks | `tests/live_desks.rs` | scan creates a new session each time, revoke/regenerate, exactly one answerer, queue and per-address limits, scan-vs-revoke ordering, no existence oracle, a real WS conversation | `cargo test --test live_desks` |
 | Intelligence | `tests/live_intelligence.rs` | finalisation, search filters and scope, retention, erasure | `cargo test --test live_intelligence` |
 | Dashboard / admin | `tests/live_dashboard.rs`, `tests/live_admin.rs` | list/detail/usage scope, admin routes and audit | `cargo test --test live_dashboard --test live_admin` |
 | Client unit | `client/src/scripts/live/*.test.ts` | state machine, protocol, view, pages (fake socket and fake media) | `cd client && npx vitest run --coverage.enabled=false` |

@@ -55,6 +55,14 @@ const VOICED_MEAN_ABS: u32 = 80;
 /// microphone continuously while it is not muted, so there are no gaps in the *frames*: the
 /// onset has to come from the audio itself.
 const QUIET_GAP: Duration = Duration::from_millis(1000);
+/// Largest binary audio frame a phone may send. An honest client sends ~100 ms of PCM16 mono at
+/// 24 kHz, 4 800 bytes; this leaves room for a 340 ms worklet block and for some jitter, and no
+/// more. The general frame cap (64 KB) would let one frame carry 1.3 s of audio, so a client
+/// could outrun the wall-clock meter by packing time into frames.
+pub const MAX_AUDIO_FRAME_BYTES: usize = 16 * 1024;
+/// The most throttle reports one socket writes to the session's diagnostics: enough to see that
+/// it happened, never enough to fill the table's per-session bound with noise.
+const MAX_THROTTLE_REPORTS: u32 = 10;
 /// The exact start of every translated-audio frame (`ServerMessage` is internally tagged with
 /// `type` first), so the pump can recognise one without parsing or allocating.
 const TRANSLATED_AUDIO_PREFIX: &str = r#"{"type":"translated_audio""#;
@@ -85,6 +93,87 @@ fn utterance_onset(
     let onset = last_voiced.is_none_or(|t| now.saturating_duration_since(t) >= QUIET_GAP);
     *last_voiced = Some(now);
     onset
+}
+
+/// What one phone is allowed to feed the engine: a token bucket in bytes, refilled at
+/// `rate` bytes per second with one second of burst. The meter bills the wall clock, so audio
+/// that arrives faster than it plays would be translated (and billed upstream) for less than it
+/// costs the payer. Over budget a frame is DROPPED, not queued: queueing turns an abusive sender
+/// into latency for an honest one, and a real-time conversation has no use for old audio.
+///
+/// Honest traffic is one 4 800-byte frame every 100 ms (48 000 B/s), 1.5x inside the default
+/// budget of 72 000 B/s; a network stall that delivers a second of audio at once still fits the
+/// burst.
+#[derive(Debug)]
+struct AudioGate {
+    rate: f64,
+    tokens: f64,
+    last: tokio::time::Instant,
+    dropped_frames: u64,
+    dropped_bytes: u64,
+    oversized: u64,
+    last_report: Option<tokio::time::Instant>,
+    reports: u32,
+}
+
+impl AudioGate {
+    fn new(bytes_per_sec: i64, now: tokio::time::Instant) -> Self {
+        let rate = bytes_per_sec.max(1) as f64;
+        Self {
+            rate,
+            tokens: rate,
+            last: now,
+            dropped_frames: 0,
+            dropped_bytes: 0,
+            oversized: 0,
+            last_report: None,
+            reports: 0,
+        }
+    }
+
+    /// Whether a frame of `bytes` may be forwarded now (and if so, spend its bytes).
+    fn admit(&mut self, bytes: usize, now: tokio::time::Instant) -> bool {
+        let elapsed = now.saturating_duration_since(self.last).as_secs_f64();
+        self.last = now;
+        self.tokens = (self.tokens + elapsed * self.rate).min(self.rate);
+        let need = bytes as f64;
+        if self.tokens >= need {
+            self.tokens -= need;
+            true
+        } else {
+            self.dropped_frames += 1;
+            self.dropped_bytes += bytes as u64;
+            false
+        }
+    }
+
+    /// A frame over [`MAX_AUDIO_FRAME_BYTES`]: never forwarded, counted for the next report.
+    fn refuse_oversized(&mut self, bytes: usize) {
+        self.oversized += 1;
+        self.dropped_frames += 1;
+        self.dropped_bytes += bytes as u64;
+    }
+
+    /// What was dropped since the last report, at most once a second and a bounded number of
+    /// times per socket: `(frames, bytes, oversized)`. Counts only, never audio.
+    fn take_report(&mut self, now: tokio::time::Instant) -> Option<(u64, u64, u64)> {
+        if self.dropped_frames == 0 || self.reports >= MAX_THROTTLE_REPORTS {
+            return None;
+        }
+        if self
+            .last_report
+            .is_some_and(|t| now.saturating_duration_since(t) < Duration::from_secs(1))
+        {
+            return None;
+        }
+        self.last_report = Some(now);
+        self.reports += 1;
+        let out = (self.dropped_frames, self.dropped_bytes, self.oversized);
+        self.dropped_frames = 0;
+        self.dropped_bytes = 0;
+        self.oversized = 0;
+        Some(out)
+    }
 }
 
 /// Same as the meeting socket's writer (frames out, a ping on a fixed cadence), plus one thing:
@@ -387,6 +476,10 @@ async fn handle_live_peer(socket: WebSocket, state: AppState, auth: PeerAuth) {
             .to_json(),
         );
     }
+    let mut gate = AudioGate::new(
+        state.live.config.audio_max_bytes_per_sec,
+        tokio::time::Instant::now(),
+    );
     let mut msg_count: u32 = 0;
     let mut msg_window = tokio::time::Instant::now();
     let mut last_activity = tokio::time::Instant::now();
@@ -416,31 +509,55 @@ async fn handle_live_peer(socket: WebSocket, state: AppState, auth: PeerAuth) {
 
                 match msg {
                     Message::Binary(data) => {
-                        if data.len() > MAX_FRAME_BYTES || muted {
+                        if muted {
                             continue;
                         }
-                        if let Some(tx) = audio_tx.as_ref() {
-                            match tx.try_send(data.to_vec()) {
-                                // A momentarily slow engine drops a 100 ms chunk rather than
-                                // ending the session: on a bad network that is a glitch, not
-                                // an outage.
-                                Ok(()) => {
-                                    sent.fetch_add(1, Ordering::Relaxed);
-                                    let now = tokio::time::Instant::now();
-                                    if utterance_onset(&mut last_voiced, &data, now) {
-                                        latency.speech_started(seat, now);
+                        let now = tokio::time::Instant::now();
+                        if data.len() > MAX_AUDIO_FRAME_BYTES {
+                            // Never forwarded, however the sender packs it. Said once a second
+                            // at most (below), not per frame.
+                            gate.refuse_oversized(data.len());
+                        } else if let Some(tx) = audio_tx.as_ref() {
+                            // Faster than real time is dropped, counted and reported below.
+                            if gate.admit(data.len(), now) {
+                                match tx.try_send(data.to_vec()) {
+                                    // A momentarily slow engine drops a 100 ms chunk rather than
+                                    // ending the session: on a bad network that is a glitch, not
+                                    // an outage.
+                                    Ok(()) => {
+                                        sent.fetch_add(1, Ordering::Relaxed);
+                                        if utterance_onset(&mut last_voiced, &data, now) {
+                                            latency.speech_started(seat, now);
+                                        }
+                                    }
+                                    Err(mpsc::error::TrySendError::Full(_)) => {}
+                                    Err(mpsc::error::TrySendError::Closed(_)) => {
+                                        audio_tx = None;
+                                        // Say so. `/ws` drops the sender silently and the user
+                                        // just stops being translated.
+                                        let _ = out_tx.send(ServerMessage::Error {
+                                            message: "translation stopped".into(),
+                                            code: Some("audio_session_closed".into()),
+                                        }.to_json());
                                     }
                                 }
-                                Err(mpsc::error::TrySendError::Full(_)) => {}
-                                Err(mpsc::error::TrySendError::Closed(_)) => {
-                                    audio_tx = None;
-                                    // Say so. `/ws` drops the sender silently and the user
-                                    // just stops being translated.
-                                    let _ = out_tx.send(ServerMessage::Error {
-                                        message: "translation stopped".into(),
-                                        code: Some("audio_session_closed".into()),
-                                    }.to_json());
-                                }
+                            }
+                        }
+                        if let Some((frames, bytes, oversized)) = gate.take_report(now) {
+                            sessions::record_event(
+                                &pool,
+                                auth.session_id,
+                                "diagnostics",
+                                json!({
+                                    "audio_dropped": { "frames": frames, "bytes": bytes, "oversized": oversized },
+                                }),
+                            )
+                            .await;
+                            if oversized > 0 {
+                                let _ = out_tx.send(ServerMessage::Error {
+                                    message: "audio frame too large".into(),
+                                    code: Some("frame_too_large".into()),
+                                }.to_json());
                             }
                         }
                     }
@@ -753,6 +870,91 @@ mod tests {
         // A Start (or unmute) clears the memory, so the next voiced frame is an onset again.
         last = None;
         assert!(utterance_onset(&mut last, &voice, ms(4900)));
+    }
+
+    /// One 100 ms frame of PCM16 mono at 24 kHz.
+    const HONEST_FRAME: usize = 4_800;
+
+    #[test]
+    fn a_client_sending_real_time_audio_is_never_throttled() {
+        let t0 = tokio::time::Instant::now();
+        let mut gate = AudioGate::new(72_000, t0);
+        // A minute of one frame every 100 ms, with the usual scheduling jitter.
+        for i in 0..600u64 {
+            let jitter = (i * 37) % 40; // 0-39 ms late
+            assert!(
+                gate.admit(HONEST_FRAME, t0 + Duration::from_millis(i * 100 + jitter)),
+                "frame {i} dropped"
+            );
+        }
+        assert_eq!(gate.take_report(t0 + Duration::from_secs(61)), None);
+    }
+
+    #[test]
+    fn a_stall_that_delivers_a_second_of_audio_at_once_still_fits() {
+        let t0 = tokio::time::Instant::now();
+        let mut gate = AudioGate::new(72_000, t0);
+        for i in 0..20u64 {
+            assert!(gate.admit(HONEST_FRAME, t0 + Duration::from_millis(i * 100)));
+        }
+        // The network holds everything for 800 ms, then hands over eight frames together.
+        let after = t0 + Duration::from_millis(2_000 + 800);
+        for i in 0..8 {
+            assert!(gate.admit(HONEST_FRAME, after), "burst frame {i} dropped");
+        }
+    }
+
+    #[test]
+    fn audio_faster_than_real_time_is_dropped_down_to_the_budget() {
+        let t0 = tokio::time::Instant::now();
+        let mut gate = AudioGate::new(72_000, t0);
+        // 70x real time for ten seconds: 7 000 ms of audio per 100 ms of wall clock.
+        let mut forwarded = 0usize;
+        for i in 0..1_000u64 {
+            let at = t0 + Duration::from_millis(i * 10);
+            // 7 frames per 10 ms = 70 frames of audio per 100 ms.
+            for _ in 0..7 {
+                if gate.admit(HONEST_FRAME, at) {
+                    forwarded += HONEST_FRAME;
+                }
+            }
+        }
+        // Budget over 10 s: the rate plus the one-second burst it started with.
+        let ceiling = 72_000 * 10 + 72_000;
+        assert!(forwarded <= ceiling, "{forwarded} bytes got through");
+        assert!(
+            forwarded >= 72_000 * 10,
+            "an honest ceiling, not a starved one: {forwarded}"
+        );
+    }
+
+    #[test]
+    fn throttling_is_reported_at_most_once_a_second_and_a_bounded_number_of_times() {
+        let t0 = tokio::time::Instant::now();
+        let mut gate = AudioGate::new(24_000, t0);
+        assert_eq!(gate.take_report(t0), None, "nothing dropped, nothing said");
+        for _ in 0..30 {
+            gate.admit(HONEST_FRAME, t0);
+        }
+        gate.refuse_oversized(60_000);
+        let (frames, bytes, oversized) = gate.take_report(t0).expect("the first report is due");
+        assert!(frames > 1 && bytes > 60_000 && oversized == 1);
+        // Drops go on, but not another word within the second...
+        gate.admit(HONEST_FRAME, t0 + Duration::from_millis(500));
+        gate.refuse_oversized(60_000);
+        assert_eq!(gate.take_report(t0 + Duration::from_millis(999)), None);
+        // ...and the report that follows carries only what happened since.
+        let (frames, _, oversized) = gate.take_report(t0 + Duration::from_secs(1)).unwrap();
+        assert!(frames >= 1 && oversized == 1);
+        // A socket that never stops cannot write more than the bound.
+        let mut reports = 2;
+        for s in 2..60u64 {
+            gate.refuse_oversized(60_000);
+            if gate.take_report(t0 + Duration::from_secs(s)).is_some() {
+                reports += 1;
+            }
+        }
+        assert_eq!(reports, MAX_THROTTLE_REPORTS);
     }
 
     #[test]

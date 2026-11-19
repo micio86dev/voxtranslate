@@ -5,10 +5,12 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
+use rust_decimal::Decimal;
 use tokio::time::Instant;
 use uuid::Uuid;
 
 use super::config::LiveConfig;
+use crate::business::credits::CreditAccumulator;
 use crate::rooms::PeerTx;
 
 /// Speech-to-translated-audio latency probes for one conversation (spec 0121, S18).
@@ -67,6 +69,26 @@ impl SessionLatency {
     }
 }
 
+/// What an org seat owes but has not been charged yet, for the lifetime of its session.
+///
+/// Org credits are whole numbers (one cent), so a tick is usually a fraction of one and the
+/// fraction is carried to the next. That carry used to live in each Start's meter and died with
+/// it: a phone that Starts, speaks four seconds and Stops, over and over, never reached a whole
+/// credit in any one Start and so was never charged at all. Kept here, per `(session, peer)`,
+/// ten four-second Starts cost what one forty-second run costs.
+#[derive(Debug)]
+struct Carry {
+    owed: CreditAccumulator,
+    /// The wall-clock bucket whose cost was last added, so two meters of one seat covering the
+    /// same interval (a reconnect overlapping its predecessor) add it once, not twice.
+    bucket: Option<i64>,
+    /// When this seat last owed anything, so a carry nobody is adding to can be dropped.
+    touched: Instant,
+}
+
+/// A desk session an address opened, and until when it is worth counting.
+type DeskScan = (Uuid, Instant);
+
 /// Configuration plus the little in-memory state the sweeper needs.
 ///
 /// Rooms themselves live in `RoomManager`; this only remembers, per active session, since
@@ -82,6 +104,11 @@ pub struct LiveState {
     /// reconnects is still muted: the server enforces mute, it does not trust the client to
     /// remember it.
     muted: Mutex<HashSet<(Uuid, Uuid)>>,
+    /// Uncharged org cost per seat; see [`Carry`].
+    owed: Mutex<HashMap<(Uuid, Uuid), Carry>>,
+    /// Desk-scan sessions per `(desk, client address)`, with when each stops being worth
+    /// counting. See [`LiveState::desk_scans_from`].
+    desk_scans: Mutex<HashMap<(Uuid, String), Vec<DeskScan>>>,
     /// When the hourly housekeeping (finalise stragglers, retention) last started.
     maintenance: Mutex<Option<Instant>>,
     /// Latency probes per session. Weak: a probe lives exactly as long as a socket of its
@@ -106,6 +133,8 @@ impl LiveState {
             vacant: Mutex::new(HashMap::new()),
             owners: Mutex::new(HashMap::new()),
             muted: Mutex::new(HashSet::new()),
+            owed: Mutex::new(HashMap::new()),
+            desk_scans: Mutex::new(HashMap::new()),
             maintenance: Mutex::new(None),
             latency: Mutex::new(HashMap::new()),
         }
@@ -166,6 +195,99 @@ impl LiveState {
             .lock()
             .unwrap_or_else(|p| p.into_inner())
             .retain(|(session, _)| active.contains(session));
+    }
+
+    /// Add `amount` USD of cost to this seat's carry and return the whole credits now due (0
+    /// while it is still under one). `bucket` is the wall-clock interval the cost belongs to;
+    /// pass `None` for a charge that has its own key (a Start's opening charge).
+    pub fn take_owed(
+        &self,
+        session: Uuid,
+        peer: Uuid,
+        amount: Decimal,
+        bucket: Option<i64>,
+    ) -> i32 {
+        self.take_owed_at(Instant::now(), session, peer, amount, bucket)
+    }
+
+    fn take_owed_at(
+        &self,
+        now: Instant,
+        session: Uuid,
+        peer: Uuid,
+        amount: Decimal,
+        bucket: Option<i64>,
+    ) -> i32 {
+        let mut map = self.owed.lock().unwrap_or_else(|p| p.into_inner());
+        // A carry that nothing has touched for longer than a conversation can last belongs to a
+        // conversation that is over. Pruned here, when the map has grown past what a busy
+        // process has open, so it needs no help from the sweeper and cannot grow without bound.
+        if map.len() >= 256 {
+            let ttl = Duration::from_secs(
+                u64::try_from(
+                    self.config
+                        .max_session_min
+                        .saturating_add(10)
+                        .saturating_mul(60),
+                )
+                .unwrap_or(u64::MAX),
+            );
+            map.retain(|_, c| now.saturating_duration_since(c.touched) < ttl);
+        }
+        let carry = map.entry((session, peer)).or_insert_with(|| Carry {
+            owed: CreditAccumulator::default(),
+            bucket: None,
+            touched: now,
+        });
+        carry.touched = now;
+        if let Some(b) = bucket {
+            if carry.bucket == Some(b) {
+                return 0;
+            }
+            carry.bucket = Some(b);
+        }
+        carry.owed.take(amount)
+    }
+
+    /// Return credits [`take_owed`](Self::take_owed) handed out but that were not charged.
+    pub fn put_back_owed(&self, session: Uuid, peer: Uuid, credits: i32) {
+        let mut map = self.owed.lock().unwrap_or_else(|p| p.into_inner());
+        if let Some(carry) = map.get_mut(&(session, peer)) {
+            carry.owed.put_back(credits);
+        }
+    }
+
+    /// The desk sessions `ip` opened at `desk` that are still inside their wait window. The
+    /// caller asks the database which of them are still waiting: this only remembers who made
+    /// them, so the answer stays right when staff answer or a customer gives up.
+    pub fn desk_scans_from(&self, desk: Uuid, ip: &str) -> Vec<Uuid> {
+        let now = Instant::now();
+        let mut map = self.desk_scans.lock().unwrap_or_else(|p| p.into_inner());
+        let key = (desk, ip.to_string());
+        let Some(list) = map.get_mut(&key) else {
+            return Vec::new();
+        };
+        list.retain(|(_, until)| *until > now);
+        let ids = list.iter().map(|(id, _)| *id).collect();
+        if list.is_empty() {
+            map.remove(&key);
+        }
+        ids
+    }
+
+    /// Remember that `ip` opened `session` at `desk`, until `ttl` from now (the wait window).
+    pub fn note_desk_scan(&self, desk: Uuid, ip: &str, session: Uuid, ttl: Duration) {
+        let now = Instant::now();
+        let mut map = self.desk_scans.lock().unwrap_or_else(|p| p.into_inner());
+        if map.len() >= 256 {
+            map.retain(|_, list| {
+                list.retain(|(_, until)| *until > now);
+                !list.is_empty()
+            });
+        }
+        map.entry((desk, ip.to_string()))
+            .or_default()
+            .push((session, now + ttl));
     }
 
     /// Register the owner side's channel for `session` (the newest socket wins).
@@ -307,6 +429,94 @@ mod tests {
         }
         let map = state.latency.lock().unwrap();
         assert!(map.len() < 70, "dead entries are pruned, got {}", map.len());
+    }
+
+    fn cents(n: i64, scale: u32) -> Decimal {
+        Decimal::new(n, scale)
+    }
+
+    #[test]
+    fn the_fraction_of_a_credit_survives_between_meters() {
+        let state = LiveState::new(LiveConfig::disabled());
+        let (s, p) = (Uuid::new_v4(), Uuid::new_v4());
+        // Ten Starts of 0.4 of a credit each (a credit is one cent): every one alone is free, all
+        // together are four.
+        let due: i32 = (0..10)
+            .map(|_| state.take_owed(s, p, cents(4, 3), None))
+            .sum();
+        assert_eq!(due, 4);
+        // Another seat's carry is its own.
+        let other = state.take_owed(s, Uuid::new_v4(), cents(4, 3), None);
+        assert_eq!(other, 0);
+    }
+
+    #[test]
+    fn two_meters_covering_one_interval_add_its_cost_once() {
+        let state = LiveState::new(LiveConfig::disabled());
+        let (s, p) = (Uuid::new_v4(), Uuid::new_v4());
+        // 0.6 of a credit per interval. The second meter of the same interval adds nothing...
+        assert_eq!(state.take_owed(s, p, cents(6, 3), Some(100)), 0);
+        assert_eq!(state.take_owed(s, p, cents(6, 3), Some(100)), 0);
+        // ...so the next interval is the one that crosses a whole credit (1.2), not this one (1.8).
+        assert_eq!(state.take_owed(s, p, cents(6, 3), Some(101)), 1);
+        // Charges that carry their own key are never merged.
+        assert_eq!(state.take_owed(s, p, cents(6, 3), None), 0);
+        assert_eq!(state.take_owed(s, p, cents(6, 3), None), 1);
+    }
+
+    #[test]
+    fn credits_that_were_not_charged_go_back_to_the_carry() {
+        let state = LiveState::new(LiveConfig::disabled());
+        let (s, p) = (Uuid::new_v4(), Uuid::new_v4());
+        assert_eq!(state.take_owed(s, p, cents(25, 3), None), 2);
+        state.put_back_owed(s, p, 2);
+        assert_eq!(state.take_owed(s, p, cents(0, 0), None), 2);
+    }
+
+    #[test]
+    fn carries_nobody_adds_to_any_more_are_pruned_so_the_map_cannot_grow_forever() {
+        let state = LiveState::new(LiveConfig::disabled());
+        let t0 = Instant::now();
+        let p = Uuid::new_v4();
+        let old: Vec<Uuid> = (0..256).map(|_| Uuid::new_v4()).collect();
+        for s in &old {
+            state.take_owed_at(t0, *s, p, cents(5, 3), None);
+        }
+        // A seat of a conversation still running keeps its fraction...
+        let live = old[0];
+        let later = t0 + Duration::from_secs(60 * 60);
+        state.take_owed_at(later, live, p, cents(1, 3), None);
+        // ...and once the map is big, a much later arrival drops every carry that has been quiet
+        // for longer than a conversation can last (the ceiling, 120 min by default, plus ten),
+        // but not one that was added to an hour earlier.
+        let much_later = t0 + Duration::from_secs(60 * 60 * 3);
+        let fresh = Uuid::new_v4();
+        state.take_owed_at(much_later, fresh, p, cents(5, 3), None);
+        let map = state.owed.lock().unwrap();
+        assert_eq!(
+            map.len(),
+            2,
+            "the arrival and the seat that was still active"
+        );
+        assert!(map.contains_key(&(fresh, p)) && map.contains_key(&(live, p)));
+    }
+
+    #[test]
+    fn desk_scans_are_remembered_per_desk_and_address_until_their_window_closes() {
+        let state = LiveState::new(LiveConfig::disabled());
+        let (desk, other_desk, a, b) = (
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+        );
+        assert!(state.desk_scans_from(desk, "1.1.1.1").is_empty());
+        state.note_desk_scan(desk, "1.1.1.1", a, Duration::from_secs(120));
+        state.note_desk_scan(desk, "1.1.1.1", b, Duration::from_millis(0));
+        // The one whose window is already over is not counted; the address and the desk matter.
+        assert_eq!(state.desk_scans_from(desk, "1.1.1.1"), vec![a]);
+        assert!(state.desk_scans_from(desk, "2.2.2.2").is_empty());
+        assert!(state.desk_scans_from(other_desk, "1.1.1.1").is_empty());
     }
 
     #[test]

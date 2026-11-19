@@ -31,7 +31,7 @@ use uuid::Uuid;
 
 use super::state::LiveState;
 use crate::billing::{deduct_usage_tx, usd, BillingError};
-use crate::business::credits::{deduct_org_credits_tx, CreditAccumulator, OrgCharge};
+use crate::business::credits::{deduct_org_credits_tx, OrgCharge};
 use crate::db::Pool;
 use crate::protocol::ServerMessage;
 use crate::rooms::RoomManager;
@@ -204,7 +204,6 @@ impl LiveMeter {
         // already been translating the whole time.
         let mut first = true;
         let mut warned_low = false;
-        let mut owed = CreditAccumulator::default();
         let mut errors = 0u32;
 
         loop {
@@ -227,13 +226,6 @@ impl LiveMeter {
                         continue;
                     };
                     let amount = usd(self.rate_per_second * interval as f64 * streams as f64);
-                    let credits = match self.payer {
-                        LivePayer::User { .. } => 0,
-                        LivePayer::Org { .. } => match owed.take(amount) {
-                            0 => continue, // still under a cent; carried to the next tick
-                            c => c,
-                        },
-                    };
                     // The wall-clock bucket makes two meters covering the same interval agree, so
                     // one of them is harmless. The opening charge of a run cannot use it: a phone
                     // that starts and stops several times inside one bucket would land every
@@ -243,6 +235,20 @@ impl LiveMeter {
                         -chrono::Utc::now().timestamp_micros()
                     } else {
                         tick_seq(chrono::Utc::now().timestamp(), interval)
+                    };
+                    let credits = match self.payer {
+                        LivePayer::User { .. } => 0,
+                        // The fraction of a credit is carried per seat for the whole session,
+                        // not per Start: a Start/Stop shorter than a credit is not free.
+                        LivePayer::Org { .. } => match self.live.take_owed(
+                            self.session,
+                            self.peer,
+                            amount,
+                            (!is_first).then_some(seq),
+                        ) {
+                            0 => continue, // still under a cent; carried to the next tick
+                            c => c,
+                        },
                     };
 
                     match charge_tick(
@@ -273,7 +279,7 @@ impl LiveMeter {
                         }
                         Ok(Tick::Duplicate) => {
                             // Not charged, so the credits taken from the carry were not spent.
-                            owed.put_back(credits);
+                            self.live.put_back_owed(self.session, self.peer, credits);
                         }
                         Ok(Tick::Insufficient) => {
                             tracing::info!(session = %self.session, "live: payer cannot cover usage");
@@ -281,7 +287,7 @@ impl LiveMeter {
                             break;
                         }
                         Err(e) => {
-                            owed.put_back(credits);
+                            self.live.put_back_owed(self.session, self.peer, credits);
                             errors += 1;
                             tracing::error!(session = %self.session, error = %e, errors, "live: charge failed");
                             if errors >= MAX_CONSECUTIVE_ERRORS {

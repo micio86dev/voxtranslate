@@ -56,6 +56,10 @@ async fn setup(opts: Opts) -> Option<Srv> {
     let mut state = AppState::new(config);
     state.billing = Some(BillingService::new(pool.clone(), min_join));
     state.safety = Some(SafetyService::new(pool.clone()));
+    state.glossary = Some(voxtranslate_server::glossary::GlossaryService::new(
+        pool.clone(),
+        50,
+    ));
     state.pool = Some(pool.clone());
     state.verifier = Arc::new(FakeVerifier);
     let live_cfg = if opts.disabled {
@@ -677,4 +681,58 @@ async fn business_sessions_are_capped_per_member_too() {
         (s, body["code"].as_str()),
         (StatusCode::TOO_MANY_REQUESTS, Some("too_many_sessions"))
     );
+}
+
+// ---- a live conversation's room is not a place to keep a glossary (R6) -----------------
+
+/// The room name of a conversation is visible to every member of an org (waiting queue, search
+/// hits). Any signed-in account could write a glossary into it, which the conversation's engine
+/// would then apply to what its two people say. The glossary routes treat it as reserved, like
+/// `/ws` and the room binding do; every other room name is as open as it ever was.
+#[tokio::test]
+async fn a_live_conversations_room_name_cannot_carry_a_glossary() {
+    let srv = srv!(Opts::default());
+    let (jwt, _) = login(&srv, "Mallory").await;
+    let live = format!("live-{}", Uuid::new_v4());
+    let ordinary = "live-room";
+    let send = |method: reqwest::Method, path: String, body: Option<Value>| {
+        let mut req = srv
+            .http
+            .request(method, format!("http://{}{path}", srv.addr))
+            .bearer_auth(&jwt);
+        if let Some(b) = body {
+            req = req.json(&b);
+        }
+        async move { req.send().await.unwrap().status() }
+    };
+    let glossary = json!({ "name": "x", "entries": [] });
+
+    for (method, suffix, body) in [
+        (reqwest::Method::GET, "glossary", None),
+        (reqwest::Method::POST, "glossary", Some(glossary.clone())),
+        (reqwest::Method::DELETE, "glossary", None),
+        (
+            reqwest::Method::POST,
+            "glossary/import",
+            Some(json!({ "csv": "source,target\nhello,hola\n" })),
+        ),
+    ] {
+        let status = send(method.clone(), format!("/api/rooms/{live}/{suffix}"), body).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{method} {suffix}");
+    }
+    // Nothing was stored for it.
+    let stored: i64 = sqlx::query_scalar("SELECT count(*) FROM room_glossaries WHERE room = $1")
+        .bind(&live)
+        .fetch_one(&srv.pool)
+        .await
+        .unwrap();
+    assert_eq!(stored, 0);
+    // A room that merely starts with "live-" is an ordinary room.
+    let status = send(
+        reqwest::Method::POST,
+        format!("/api/rooms/{ordinary}/glossary"),
+        Some(glossary),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
 }

@@ -32,10 +32,19 @@ pub fn normalize_lang(raw: &str) -> Option<String> {
     ok.then_some(l)
 }
 
-/// Characters that reorder or hide text: directional overrides/isolates and marks. A name
-/// carrying them can render as something else on the other person's screen.
+/// Characters that reorder or hide text: directional overrides/isolates and marks, zero-width
+/// characters, line and paragraph separators, the invisible operators and the BOM. A name
+/// carrying them can render as something else (or as nothing at all) on the other person's
+/// screen; one made only of them is, once stripped, an empty name like any other.
 fn is_text_steering(c: char) -> bool {
-    matches!(c, '\u{200E}' | '\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}')
+    matches!(
+        c,
+        '\u{200B}'..='\u{200F}'   // zero-width space/joiners, LRM, RLM
+        | '\u{2028}'..='\u{202E}' // line/paragraph separator, embeddings, overrides
+        | '\u{2060}'..='\u{206F}' // word joiner, invisible operators, isolates, deprecated formats
+        | '\u{061C}'               // Arabic letter mark
+        | '\u{FEFF}'               // BOM / zero-width no-break space
+    )
 }
 
 /// A display name safe to broadcast to the other phone: control and text-steering characters
@@ -427,7 +436,14 @@ pub async fn store_token_hash(pool: &Pool, peer_id: Uuid, token: &str) {
 // ---- end / expire ----------------------------------------------------------------------
 
 /// End an open session. Returns whether this call was the one that ended it.
-pub async fn end_session(pool: &Pool, session_id: Uuid, reason: &str) -> Result<bool, sqlx::Error> {
+///
+/// Generic over the executor so the platform admin can end a session inside the transaction that
+/// also records the audit row.
+pub async fn end_session<'e, E: sqlx::PgExecutor<'e>>(
+    exec: E,
+    session_id: Uuid,
+    reason: &str,
+) -> Result<bool, sqlx::Error> {
     let res = sqlx::query(
         "UPDATE live_sessions
          SET status = 'ended', ended_at = now(), end_reason = $2
@@ -435,7 +451,7 @@ pub async fn end_session(pool: &Pool, session_id: Uuid, reason: &str) -> Result<
     )
     .bind(session_id)
     .bind(reason)
-    .execute(pool)
+    .execute(exec)
     .await?;
     Ok(res.rows_affected() == 1)
 }
@@ -573,5 +589,26 @@ mod tests {
         // Bidi overrides can make a name read as something it is not.
         assert_eq!(clean_name("Anna\u{202E}fdp.exe"), "Annafdp.exe");
         assert_eq!(clean_name("\u{2066}\u{200F}"), "Guest");
+        // Zero-width, separator and invisible characters too: nothing of them survives, and a
+        // name made only of them is an empty one.
+        for c in [
+            '\u{200B}', '\u{200C}', '\u{200D}', '\u{2028}', '\u{2029}', '\u{2060}', '\u{2061}',
+            '\u{206F}', '\u{061C}', '\u{FEFF}',
+        ] {
+            assert_eq!(
+                clean_name(&format!("An{c}na")),
+                "Anna",
+                "U+{:04X}",
+                c as u32
+            );
+            assert_eq!(
+                clean_name(&format!("{c}{c} ")),
+                "Guest",
+                "U+{:04X}",
+                c as u32
+            );
+        }
+        // Ordinary text is untouched, joiners inside real scripts aside from the zero-width ones.
+        assert_eq!(clean_name("Zoë-Marie"), "Zoë-Marie");
     }
 }
