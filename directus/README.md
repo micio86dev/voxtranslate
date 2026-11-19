@@ -325,11 +325,24 @@ DIRECTUS_URL=https://<your-directus> \
 # or, instead of email+password: DIRECTUS_TOKEN=<static admin token>
 ```
 
-Idempotent: a re-run updates in place (a second run changes no counts). It creates
-the *Live Connect* folder, the five collections below (four tables of the live feature and the `live_desk_usage_daily` rollup), two roles (nothing else in
-this repo creates roles), five Flows and one dashboard. It creates **no users**:
-add operators in Directus and give each ONE of the two roles. Flags:
-`--no-transcript-preview` (see Privacy), `--print-transcript-filter` (see below).
+Idempotent: a re-run updates in place and changes nothing that is already right (verified:
+operations are matched by their `key`, panels by their name, so a second run keeps every id).
+It creates the *Live Connect* folder, the five collections below (four tables of the live
+feature and the `live_desk_usage_daily` rollup), two roles (nothing else in this repo creates
+roles), five Flows and one dashboard. It creates **no users**: add operators in Directus and
+give each ONE of the two roles. Do not re-run it while someone is using a Flow button: the
+Flow's operations are updated in place, and a run that is executing at that moment can fail
+(it is only a failed button press; press it again).
+
+Flags (`node directus/setup-live-connect.mjs --help` prints the same list):
+
+| Flag | Effect |
+|---|---|
+| `--dry-run` | Prints every call it would make; needs no Directus. |
+| `--print-transcript-filter` | Prints the permission filters for existing roles (see below), then exits. |
+| `--audit-access` | Read-only. Lists the non-admin policies that can read live conversations **without** that filter, and exits **1** if there is any (0 if none). Changes nothing. |
+| `--transcript-preview` | **Opt in** to an excerpt in the *View transcript* notification. See the consequences under Privacy rules: it is stored in `directus_notifications` and **e-mailed in clear text**, outside erasure and retention. Default: no excerpt. |
+| `--no-transcript-preview` | Accepted for compatibility with older instructions; it is now the default (and wins if both are given). |
 
 ### What each role can do
 
@@ -407,6 +420,24 @@ permission filter to those collections:
 every affected collection. Also check the roles of any B2B-scoped user: the same rule
 applies to them.
 
+**Audit it.** The script never edits an existing role, but it checks them. Every normal run ends
+with a read-only audit, and `--audit-access` runs only that:
+
+```bash
+DIRECTUS_URL=… DIRECTUS_TOKEN=… node directus/setup-live-connect.mjs --audit-access; echo $?
+```
+
+For every **non-admin** policy with read access to one of those collections and no
+live-exclusion filter (`kind` not `live_connect`, directly or inside an `_and`) it prints a
+`WARNING` table (policy, collection, whether it is attached to a role or user) and
+`--audit-access` exits **1**; a plain provisioning run still completes but repeats the warning at
+its end. The remedy is the filter above (`--print-transcript-filter`). Policies with admin
+access can read everything by design and are only counted. A read permission with no fields is
+ignored (it reads nothing). Anything the check cannot prove safe (for example a filter written in
+a different shape) is reported, so a warning may need a human look; a missing warning means the
+filter was recognised. Use it as a periodic check or in a runbook; the exit code makes it usable
+from a scheduled job.
+
 ### Actions (Flow buttons)
 
 Select **one** row and press the button; Revoke / Regenerate / End ask for a **reason**.
@@ -432,12 +463,39 @@ rows is refused.
   row is written **before** anything is read: if it cannot be written, nothing is shown.
   The button is visible only to the Privacy role, and the Flow checks the role again
   itself.
-* **Where the excerpt goes.** Directus cannot display a Flow's answer, so the outcome
-  arrives as a notification. For this button it carries a short excerpt (3 utterances,
-  120 characters each, no names). A Directus notification is stored in Directus, and is
-  **e-mailed to the operator when Directus mail is configured**. If that is not
-  acceptable, provision with `--no-transcript-preview`: the notification then carries
-  counts only. Delete the notification when you are done either way.
+* **Where the excerpt goes: nowhere, by default.** Directus cannot display a Flow's answer, so
+  the outcome arrives as a notification. By default it carries **counts only**: no conversation
+  text is put in the notification, in the e-mail Directus may send for it, or anywhere else in
+  Directus. With `--transcript-preview` (opt in) it also carries 3 utterances of 120 characters
+  each (no names). **Consequences of the opt-in:** the excerpt is copied into
+  `directus_notifications` and **e-mailed in clear text** when Directus mail is configured
+  (checked: the text arrives in the operator's mailbox), and neither the
+  conversation's erasure nor its retention period reaches those copies. Delete the notification when you
+  are done; the e-mail cannot be recalled. Switching the preview off again does not remove copies
+  already made: the script counts the ones still in Directus and tells you to delete them.
+* **Flow runs are logged, not recorded.** Every Live Connect Flow runs with accountability
+  `activity`: `directus_activity` gets one row per run (who, when, which Flow), which is the audit
+  Directus itself keeps. The earlier setting `all` also wrote every operation's **output** into
+  `directus_revisions`, and for *View transcript* that output is the whole conversation, readable
+  by any Directus administrator, with no audit row, surviving erasure and even
+  `--no-transcript-preview`. A re-run of the script finds such leftover run revisions of the
+  Live Connect Flows; the Directus API has no route to delete a revision (checked on 11.17.4:
+  `DELETE /revisions` is 404), so it prints the statement for you to run **once**, as a
+  database operator, after reviewing it:
+
+  ```sql
+  DELETE FROM directus_revisions
+   WHERE activity IN (
+     SELECT id FROM directus_activity
+      WHERE action = 'run' AND collection = 'directus_flows'
+        AND item IN (SELECT id::text FROM directus_flows WHERE name LIKE 'Live Connect - %'));
+  ```
+
+  It removes only the run revisions of the Live Connect Flows (the `directus_activity` rows and the
+  Flows' configuration history stay). If you had `View transcript` in use before this change, also
+  consider database backups taken in the meantime. As a standing guard you can set Directus's
+  `RETENTION_ENABLED` with `REVISIONS_RETENTION` (see the Directus data-retention docs); the script does not touch server
+  settings.
 * The audit trail and the excerpt are separate copies of different things: the audit says
   *that* a read happened and why, never *what* was read.
 

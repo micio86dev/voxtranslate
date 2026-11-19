@@ -20,24 +20,56 @@
 //   DIRECTUS_URL=https://<your-directus> \
 //     DIRECTUS_ADMIN_EMAIL=… DIRECTUS_ADMIN_PASSWORD=…   # or DIRECTUS_TOKEN=<static admin token>
 //     node directus/setup-live-connect.mjs [--dry-run] [--print-transcript-filter]
+//                                          [--transcript-preview] [--audit-access] [--help]
 //
 //   --dry-run                  print every call this script WOULD make and change nothing;
 //                              needs no Directus, no URL and no credentials.
 //   --print-transcript-filter  print the permission filters that keep Live Connect
 //                              conversations out of EXISTING roles (see README), then exit.
-//   --no-transcript-preview    the View transcript button then reports only counts, with no
-//                              excerpt (a notification is stored in Directus and may be e-mailed).
+//   --audit-access             read-only: list every NON-admin policy that can read the
+//                              collections now holding live conversations WITHOUT the filter
+//                              above, then exit 1 if there is one (0 if none). Changes nothing.
+//                              A normal run does the same audit at its end, as a warning only.
+//   --transcript-preview       OPT IN. The View transcript button then also puts a short excerpt
+//                              (3 utterances x 120 characters) into the operator's notification.
+//                              That copy is stored in directus_notifications AND e-mailed in
+//                              clear text when Directus mail is configured; it is NOT covered by
+//                              erasure or retention. DEFAULT: no excerpt (counts only).
+//   --no-transcript-preview    accepted for backward compatibility; the default already is "no
+//                              excerpt". If both flags are given this one wins.
+//   --help                     print this text, then exit.
+//
+// Privacy by construction: every Flow runs with accountability "activity", so Directus logs THAT
+// a Flow ran (directus_activity: who, when) but never stores the operation outputs (the
+// conversation) in directus_revisions. Runs made by an earlier version of this script
+// (accountability "all") left such revisions behind: a re-run deletes them through the API when
+// Directus allows it, otherwise prints the SQL an operator must run.
 //
 // Idempotent: re-running updates in place (collection metadata, fields, policies,
-// permissions, flows, the dashboard's panels). Requires Directus 11 (policies).
-// Requires (Directus env): FLOWS_ENV_ALLOW_LIST includes ADMIN_API_SECRET and VOX_API_URL.
+// permissions, flows and their operations by key, the dashboard's panels by name). Requires
+// Directus 11 (policies). Requires (Directus env): FLOWS_ENV_ALLOW_LIST includes
+// ADMIN_API_SECRET and VOX_API_URL.
+// Caveat: a Flow that is RUNNING while this script re-runs can fail that one run (its
+// operations are updated while it executes); re-run during a quiet moment.
 // Run setup-backoffice.mjs first so organizations / projects /
 // organization_credits_transactions are already registered collections.
 
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+
 const args = new Set(process.argv.slice(2));
 const DRY = args.has('--dry-run');
-// How many utterances the transcript button previews in the operator's notification (0 = none).
-const PREVIEW_LINES = args.has('--no-transcript-preview') ? 0 : 3;
+const AUDIT_ONLY = args.has('--audit-access');
+const KNOWN_FLAGS = ['--dry-run', '--print-transcript-filter', '--transcript-preview', '--no-transcript-preview', '--audit-access', '--help'];
+for (const a of args) if (!KNOWN_FLAGS.includes(a)) console.warn(`! unknown flag ${a} ignored (see --help).`);
+if (args.has('--help')) {
+  const here = readFileSync(fileURLToPath(import.meta.url), 'utf8');
+  console.log(here.split('\n').filter((l) => l.startsWith('//')).map((l) => l.slice(3)).join('\n'));
+  process.exit(0);
+}
+// How many utterances the transcript button previews in the operator's notification. DEFAULT 0:
+// the excerpt would be copied into directus_notifications and e-mailed, outside erase/retention.
+const PREVIEW_LINES = args.has('--transcript-preview') && !args.has('--no-transcript-preview') ? 3 : 0;
 
 // ──────────────────────────────────────────────────────────────────────────
 // What keeps a conversation out of an EXISTING role. `transcript_events`,
@@ -542,7 +574,7 @@ module.exports = async function (data) {
       'Transcript read (' + us.length + ' utterances)',
       'This access was AUDITED with your name and your reason.' +
         (N > 0 ? '\\n' + preview.join('\\n') + (us.length > N ? '\\n... ' + (us.length - N) + ' more not shown.' : '') +
-          '\\nDelete this notification when you are done: it holds a copy of this excerpt.' : '\\nNo excerpt is kept in Directus.')
+          '\\nThis excerpt is a COPY: it is stored in this notification and sent by e-mail if Directus mail is on, and it is NOT covered by erasure or retention. Delete this notification when you are done.' : '\\nNo excerpt is shown, stored in this notification, e-mailed or kept in the Flow run history: only the counts above.')
     );
   }
   return out('Done', JSON.stringify(res));
@@ -678,6 +710,15 @@ function triggerOptions(spec) {
   };
 }
 
+// "activity": Directus records THAT the Flow ran (directus_activity: who, when, which Flow) but
+// not what the operations produced. "all" also writes every operation's output into
+// directus_revisions, which for the transcript Flow is the whole conversation, readable by
+// any Directus administrator without an audit row, and untouched by erasure.
+const FLOW_ACCOUNTABILITY = 'activity';
+
+// Updates a Flow IN PLACE: operations are matched by their stable `key`, so a re-run never
+// deletes and recreates the chain that a running Flow is executing; operations that no longer
+// exist in this script are removed last.
 async function ensureFlow(spec) {
   const body = {
     name: spec.name,
@@ -686,45 +727,86 @@ async function ensureFlow(spec) {
     description: spec.description,
     status: 'active',
     trigger: 'manual',
-    accountability: 'all',
+    accountability: FLOW_ACCOUNTABILITY,
     options: triggerOptions(spec),
   };
   let flow = await find('/flows', 'name', spec.name);
   let verb;
   if (flow) {
-    // Detach and drop the old operations; they are rebuilt below so an edit to this
-    // script always lands (no half-old chain).
-    await api(`/flows/${flow.id}`, { method: 'PATCH', body: { ...body, operation: null } });
-    const old = (await api(`/operations?filter[flow][_eq]=${flow.id}&limit=-1&fields=id`)).data || [];
-    // Operations point at each other (resolve/reject): cut the links, then delete.
-    for (const o of old) await api(`/operations/${o.id}`, { method: 'PATCH', body: { resolve: null, reject: null } });
-    for (const o of old) await api(`/operations/${o.id}`, { method: 'DELETE' });
+    await api(`/flows/${flow.id}`, { method: 'PATCH', body });
     verb = 'updated';
   } else {
     flow = (await api('/flows', { method: 'POST', body })).data;
     verb = 'created';
   }
   const ops = operationsFor(spec);
+  const existing = (await api(`/operations?filter[flow][_eq]=${flow.id}&limit=-1&fields=id,key`)).data || [];
+  const byKey = new Map(existing.map((o) => [o.key, o.id]));
   const ids = {};
   let x = 19;
   for (const op of ops) {
-    const created = (
-      await api('/operations', {
-        method: 'POST',
-        body: { flow: flow.id, name: op.name, key: op.key, type: op.type, position_x: x, position_y: op.key.includes('fail') ? 19 : 1, options: op.options },
-      })
-    ).data;
-    ids[op.key] = created.id;
+    const fields = { name: op.name, type: op.type, position_x: x, position_y: op.key.includes('fail') ? 19 : 1, options: op.options };
+    if (byKey.has(op.key)) {
+      ids[op.key] = byKey.get(op.key);
+      await api(`/operations/${ids[op.key]}`, { method: 'PATCH', body: fields });
+    } else {
+      ids[op.key] = (await api('/operations', { method: 'POST', body: { flow: flow.id, key: op.key, ...fields } })).data.id;
+    }
     if (!op.key.includes('fail')) x += 18;
   }
   for (const op of ops) {
-    const patch = {};
-    if (op.resolve) patch.resolve = ids[op.resolve];
-    if (op.reject) patch.reject = ids[op.reject];
-    if (Object.keys(patch).length) await api(`/operations/${ids[op.key]}`, { method: 'PATCH', body: patch });
+    const patch = { resolve: op.resolve ? ids[op.resolve] : null, reject: op.reject ? ids[op.reject] : null };
+    await api(`/operations/${ids[op.key]}`, { method: 'PATCH', body: patch });
   }
   await api(`/flows/${flow.id}`, { method: 'PATCH', body: { operation: ids[ops[0].key] } });
-  return verb;
+  // Obsolete operations (a key this script no longer has): cut their links, then delete.
+  const keep = new Set(Object.values(ids));
+  const stale = existing.filter((o) => !keep.has(o.id));
+  for (const o of stale) await api(`/operations/${o.id}`, { method: 'PATCH', body: { resolve: null, reject: null } });
+  for (const o of stale) await api(`/operations/${o.id}`, { method: 'DELETE' });
+  return { verb, id: flow.id };
+}
+
+// Runs recorded by an earlier version of this script (accountability "all") stored every
+// operation's output in directus_revisions. Count them, delete them through the API when
+// Directus lets us, otherwise say exactly what the operator has to run.
+// Only the RUN revisions: editing a Flow also writes revisions, but those hold configuration, not
+// conversation text, and are kept.
+const REVISION_FILTER = (flowIds) =>
+  `filter[collection][_eq]=directus_flows&filter[item][_in]=${flowIds.map(q).join(',')}&filter[activity][action][_eq]=run`;
+const REVISION_SQL = `DELETE FROM directus_revisions
+ WHERE activity IN (
+   SELECT id FROM directus_activity
+    WHERE action = 'run' AND collection = 'directus_flows'
+      AND item IN (SELECT id::text FROM directus_flows WHERE name LIKE '${FLOW_PREFIX}%'));`;
+
+// Notifications written by a --transcript-preview run (or by the old default) hold a copy of
+// utterances. They belong to operators, so this only COUNTS them and says how to remove them.
+async function countExcerptNotifications() {
+  if (DRY) return 0;
+  const r = await api(
+    `/notifications?filter[subject][_starts_with]=${q('Transcript read (')}&filter[message][_contains]=${q('\n- [')}&aggregate[count]=id`,
+  );
+  return Number(r.data?.[0]?.count?.id ?? r.data?.[0]?.count ?? 0);
+}
+
+async function purgeFlowRevisions(flowIds) {
+  if (DRY) {
+    console.log('  [dry-run] GET /revisions (count of old Flow-run revisions) and DELETE them when the API allows it');
+    return { found: 0, left: 0 };
+  }
+  const count = async () => {
+    const r = await api(`/revisions?${REVISION_FILTER(flowIds)}&aggregate[count]=id`);
+    return Number(r.data?.[0]?.count?.id ?? r.data?.[0]?.count ?? 0);
+  };
+  const found = await count();
+  if (found === 0) return { found, left: 0 };
+  try {
+    await api(`/revisions?${REVISION_FILTER(flowIds)}`, { method: 'DELETE' });
+  } catch {
+    /* the API does not expose deleting revisions: reported below */
+  }
+  return { found, left: await count() };
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -765,13 +847,30 @@ function barchart(dash, { x = 1, y, w = 12, h = 14, name, note, color, collectio
 async function ensureDashboard(name, icon, note) {
   const found = (await api(`/dashboards?filter[name][_eq]=${q(name)}&fields=id&limit=1`)).data;
   if (found?.length) {
-    const id = found[0].id;
-    const old = (await api(`/panels?filter[dashboard][_eq]=${id}&fields=id&limit=-1`)).data || [];
-    for (const p of old) await api(`/panels/${p.id}`, { method: 'DELETE' });
-    await api(`/dashboards/${id}`, { method: 'PATCH', body: { icon, note } });
-    return id;
+    await api(`/dashboards/${found[0].id}`, { method: 'PATCH', body: { icon, note } });
+    return found[0].id;
   }
   return (await api('/dashboards', { method: 'POST', body: { name, icon, note } })).data.id;
+}
+
+// Panels are matched by NAME (unique within this dashboard) and updated in place; a panel this
+// script no longer defines is removed.
+async function syncPanels(dash) {
+  const have = (await api(`/panels?filter[dashboard][_eq]=${dash}&fields=id,name&limit=-1`)).data || [];
+  const byName = new Map(have.map((p) => [p.name, p.id]));
+  let ok = 0;
+  for (const p of panels) {
+    try {
+      if (byName.has(p.name)) await api(`/panels/${byName.get(p.name)}`, { method: 'PATCH', body: p });
+      else await api('/panels', { method: 'POST', body: p });
+      ok++;
+    } catch (e) {
+      console.warn(`  ! panel "${p.name}": ${trunc(e)}`);
+    }
+  }
+  const wanted = new Set(panels.map((p) => p.name));
+  for (const p of have) if (!wanted.has(p.name)) await api(`/panels/${p.id}`, { method: 'DELETE' });
+  return ok;
 }
 
 const DAYS7 = '$NOW(-7 days)';
@@ -806,6 +905,74 @@ function buildInsights(d) {
 }
 
 // ──────────────────────────────────────────────────────────────────────────
+// 5. Access audit (READ-ONLY). Live conversations live in the meeting tables, so any EXISTING
+//    role that can read them can read live conversations. This script never edits a role: it
+//    lists the policies that lack the live-exclusion filter so a human fixes them.
+// ──────────────────────────────────────────────────────────────────────────
+const canon = (v) => {
+  if (Array.isArray(v)) return v.map(canon).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+  if (v && typeof v === 'object') return Object.fromEntries(Object.keys(v).sort().map((k) => [k, canon(v[k])]));
+  return v;
+};
+const same = (a, b) => JSON.stringify(canon(a)) === JSON.stringify(canon(b));
+const NEQ_ONLY = { kind: { _neq: 'live_connect' } }; // stricter than NOT_LIVE (also hides NULL kind): still safe
+// Does `filter` (a permission's item rule) contain one of the accepted exclusions, possibly
+// inside an `_and`? Anything we cannot prove counts as "not guarded".
+function guards(filter, accepted) {
+  if (!filter || typeof filter !== 'object') return false;
+  if (accepted.some((a) => same(filter, a))) return true;
+  return Array.isArray(filter._and) && filter._and.some((f) => guards(f, accepted));
+}
+const ACCEPTED = Object.fromEntries(
+  Object.keys(TRANSCRIPT_FILTERS).map((c) => [
+    c,
+    c === 'call_sessions' ? [NOT_LIVE, NEQ_ONLY] : [{ session_id: NOT_LIVE }, { session_id: NEQ_ONLY }],
+  ]),
+);
+
+async function auditAccess() {
+  const collections = Object.keys(TRANSCRIPT_FILTERS);
+  const policies = (await api('/policies?limit=-1&fields=id,name,admin_access')).data || [];
+  const access = (await api('/access?limit=-1&fields=policy,role,user')).data || [];
+  const attached = new Set(access.map((a) => (typeof a.policy === 'object' ? a.policy?.id : a.policy)));
+  const perms =
+    (
+      await api(
+        `/permissions?filter[action][_eq]=read&filter[collection][_in]=${collections.map(q).join(',')}&limit=-1&fields=id,policy,collection,fields,permissions`,
+      )
+    ).data || [];
+  const byPolicy = new Map(policies.map((p) => [p.id, p]));
+  const findings = [];
+  for (const perm of perms) {
+    const policy = byPolicy.get(typeof perm.policy === 'object' ? perm.policy?.id : perm.policy);
+    if (!policy || policy.admin_access) continue; // administrators can read everything by design
+    if (!perm.fields || perm.fields.length === 0) continue; // a read permission with no field reads nothing
+    if (guards(perm.permissions, ACCEPTED[perm.collection])) continue;
+    findings.push({ policy: policy.name, collection: perm.collection, attached: attached.has(policy.id) });
+  }
+  findings.sort((a, b) => a.policy.localeCompare(b.policy) || a.collection.localeCompare(b.collection));
+  const admins = policies.filter((p) => p.admin_access).length;
+  return { findings, admins, total: policies.length };
+}
+
+function printAudit({ findings, admins, total }) {
+  console.log(`▸ Access audit (read-only): ${total} policies, ${admins} with admin access (always able to read live conversations: keep that group small)`);
+  if (findings.length === 0) {
+    console.log('  ✓ no non-admin policy can read live conversations unfiltered.');
+    return;
+  }
+  const w = Math.max(6, ...findings.map((f) => f.policy.length));
+  console.log('');
+  console.log('  !!! WARNING: these policies can read LIVE CONVERSATIONS (S15: not exposed by default) !!!');
+  console.log(`  ${'POLICY'.padEnd(w)}  ${'COLLECTION'.padEnd(22)}  ATTACHED TO A ROLE/USER`);
+  for (const f of findings) console.log(`  ${f.policy.padEnd(w)}  ${f.collection.padEnd(22)}  ${f.attached ? 'yes' : 'no (inert today)'}`);
+  console.log('');
+  console.log('  Remedy: add the live-exclusion filter to each row above (this script never edits');
+  console.log('  existing roles). The exact JSON per collection:');
+  console.log('    node directus/setup-live-connect.mjs --print-transcript-filter');
+}
+
+// ──────────────────────────────────────────────────────────────────────────
 // Run
 // ──────────────────────────────────────────────────────────────────────────
 async function requireDirectus11() {
@@ -829,6 +996,22 @@ async function main() {
     console.log('▸ Server');
     await requireDirectus11();
   }
+
+  if (AUDIT_ONLY) {
+    if (DRY) {
+      console.log('▸ Access audit: would read /policies, /access and /permissions (read-only) and exit 1 if a non-admin policy reads live conversations unfiltered.');
+      return;
+    }
+    const result = await auditAccess();
+    printAudit(result);
+    process.exit(result.findings.length ? 1 : 0);
+  }
+
+  console.log(
+    PREVIEW_LINES > 0
+      ? '▸ Transcript preview: ON (--transcript-preview). The View transcript button copies 3 x 120 characters into the operator\'s notification, which is stored in directus_notifications and e-mailed in clear text when Directus mail is configured; erasure and retention do NOT reach those copies.'
+      : '▸ Transcript preview: OFF (default). The View transcript button reports counts only; no conversation text reaches a notification or an e-mail.',
+  );
 
   console.log('▸ Folder');
   console.log(`  • ${FOLDER.name}: ${await ensureFolder()}`);
@@ -858,24 +1041,43 @@ async function main() {
   console.log(`  • ${PRIVACY} → ${SUPPORT_POLICY}: ${await ensureAccess(privacyRole, supportPolicy)}`);
   console.log(`  • ${PRIVACY} → ${PRIVACY_POLICY}: ${await ensureAccess(privacyRole, privacyPolicy)}`);
 
-  console.log('▸ Flows');
+  console.log(`▸ Flows (accountability "${FLOW_ACCOUNTABILITY}": runs are logged, their content is not)`);
+  const flowIds = [];
   for (const spec of flowSpecs(privacyRole)) {
-    console.log(`  • ${spec.name}: ${await ensureFlow(spec)}`);
+    const { verb, id } = await ensureFlow(spec);
+    flowIds.push(id);
+    console.log(`  • ${spec.name}: ${verb}`);
+  }
+  const rev = await purgeFlowRevisions(flowIds);
+  if (rev.found === 0) {
+    console.log('  • old Flow-run revisions: none');
+  } else if (rev.left === 0) {
+    console.log(`  • old Flow-run revisions: ${rev.found} deleted through the API (they held operation outputs, i.e. conversation text)`);
+  } else {
+    console.log(`  ! ${rev.left} old Flow-run revision(s) still hold operation outputs (conversation text) and the Directus API cannot delete revisions.`);
+    console.log('    They are readable by any Directus administrator and survive erasure. Run this ONCE against the Directus database yourself:');
+    for (const l of REVISION_SQL.split('\n')) console.log('      ' + l);
+  }
+
+  const excerpts = await countExcerptNotifications();
+  if (excerpts > 0) {
+    console.log(`  ! ${excerpts} notification(s) "Transcript read (...)" still hold an excerpt of a conversation (copies are also in the e-mail that was sent, which cannot be recalled).`);
+    console.log('    Delete them (Directus: Notifications, or as admin: DELETE /notifications?filter[subject][_starts_with]=Transcript read ( ).');
   }
 
   console.log('▸ Insights');
   const dash = await ensureDashboard(DASHBOARD, 'forum', 'Live Connect operations. Metadata only: statuses, end reasons, counts, credits.');
   buildInsights(dash);
-  let ok = 0;
-  for (const p of panels) {
-    try {
-      await api('/panels', { method: 'POST', body: p });
-      ok++;
-    } catch (e) {
-      console.warn(`  ! panel "${p.name}": ${trunc(e)}`);
-    }
-  }
+  const ok = DRY ? (await Promise.all(panels.map((p) => api('/panels', { method: 'POST', body: p }))), panels.length) : await syncPanels(dash);
   console.log(`  • ${ok}/${panels.length} panels`);
+
+  let audit = null;
+  if (DRY) {
+    console.log('▸ Access audit: would read /policies, /access and /permissions (read-only) after provisioning.');
+  } else {
+    audit = await auditAccess();
+    printAudit(audit);
+  }
 
   if (DRY) {
     console.log(`\n✓ Dry run complete: ${planned} write calls planned, none sent.`);
@@ -885,6 +1087,9 @@ async function main() {
     console.log('  this script creates no users. Existing roles are untouched: see the README for');
     console.log('  the permission filter that keeps live conversations out of them');
     console.log('  (node directus/setup-live-connect.mjs --print-transcript-filter).');
+    if (audit?.findings.length) {
+      console.log(`\n!!! ${audit.findings.length} access finding(s) above are still OPEN: provisioning is done, but live conversations remain readable by those policies. Re-check with --audit-access (exits 1 until fixed).`);
+    }
   }
 }
 
