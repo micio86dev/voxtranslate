@@ -265,6 +265,8 @@ pub struct AppState {
     /// money — is in Postgres. See `voip::session` for the one coupling this does create.
     pub voip_calls: Arc<crate::voip::session::LiveCalls>,
     pub voip_tickets: Arc<crate::voip::token::TicketRegistry>,
+    /// Live Connect (spec 0121): configuration now, the presence registry with the socket.
+    pub live: Arc<crate::live::LiveState>,
 }
 
 /// Read a positive `u32` from `var`, falling back to `default`.
@@ -522,6 +524,7 @@ impl AppState {
             telephony,
             voip_calls: Arc::new(crate::voip::session::LiveCalls::new()),
             voip_tickets: Arc::new(crate::voip::token::TicketRegistry::new()),
+            live: Arc::new(crate::live::LiveState::from_env()),
         }
     }
 
@@ -836,6 +839,12 @@ pub fn app(state: AppState) -> Router {
         )
         // VoxTranslate for Business — org workspace API (spec 0106).
         .merge(business::routes::routes())
+        // Live Connect: absent unless enabled and correctly configured (a real kill switch).
+        .merge(if state.live.enabled() {
+            live::routes::routes()
+        } else {
+            Router::new()
+        })
         // Registered only when VoIP is enabled AND a provider was built, so turning the
         // feature off is a real kill switch: the routes are absent and a request 404s.
         .merge(if state.telephony.is_some() {
