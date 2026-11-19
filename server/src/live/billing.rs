@@ -20,6 +20,7 @@
 //! The meter runs on the server for as long as the engine session is open. Nothing a client
 //! sends changes what it charges.
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -173,6 +174,10 @@ pub struct LiveMeter {
     pub rate_per_second: f64,
     pub scale_by_target_count: bool,
     pub low_balance_threshold: f64,
+    /// Audio frames this socket has forwarded to the engine since the last tick. What is billed
+    /// is audio that actually reached the engine, not a flag the client can flip: gating on mute
+    /// state at the tick instant let a phone mute itself around each tick and translate for free.
+    pub activity: Arc<AtomicU64>,
 }
 
 /// The tick number for "now": the same for every meter covering the same interval, which is
@@ -207,8 +212,11 @@ impl LiveMeter {
                 _ = &mut cancel => break,
                 _ = ticker.tick() => {
                     let is_first = std::mem::take(&mut first);
-                    // A muted phone sends nothing to the engine, so there is nothing to pay for.
-                    if self.live.is_muted(self.session, self.peer) {
+                    // After the opening charge, an interval in which no audio reached the engine
+                    // costs nothing. The opening charge is unconditional: an engine session was
+                    // opened for this Start whether or not any audio followed.
+                    let forwarded = self.activity.swap(0, Ordering::Relaxed);
+                    if !is_first && forwarded == 0 {
                         continue;
                     }
                     // Nothing to translate while everyone shares this speaker's language.

@@ -994,3 +994,51 @@ async fn a_business_session_is_never_stored_under_a_binding_the_server_did_not_m
             .unwrap();
     assert_eq!(bound, 0);
 }
+
+#[tokio::test]
+async fn muting_around_every_tick_does_not_dodge_the_meter() {
+    let mock = RealtimeMock::start(Dialect::Qwen).await;
+    mock.reply_with(speech());
+    let srv = srv!(&mock);
+    let c = convo(&srv, false).await;
+    let mut host = open(&srv, &c.host_token).await;
+    let _guest = open(&srv, &c.guest_token).await;
+
+    // A client that knows its own Start time can predict every meter tick (1 s here). It mutes for
+    // a window around each one and streams audio the rest of the time. Billing that looked at the
+    // mute state at the tick instant charged it nothing while the engine heard most of the speech.
+    say(&mut host, json!({ "type": "start" })).await;
+    let t0 = tokio::time::Instant::now();
+    let mut muted = false;
+    while t0.elapsed() < Duration::from_millis(3400) {
+        let phase = t0.elapsed().as_millis() % 1000;
+        let want = !(150..850).contains(&phase);
+        if want != muted {
+            say(&mut host, json!({ "type": "mute_audio", "muted": want })).await;
+            muted = want;
+        }
+        if !muted {
+            let _ = host.send(Message::binary(vec![0u8; 640])).await;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    tokio::time::sleep(Duration::from_millis(400)).await;
+
+    let host_peer: Uuid = c.host_peer.parse().unwrap();
+    let charged: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM live_usage_ticks WHERE session_id = $1 AND peer_id = $2",
+    )
+    .bind(c.session)
+    .bind(host_peer)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
+    assert!(
+        mock.saw_type("input_audio_buffer.append"),
+        "the probe never reached the engine"
+    );
+    assert!(
+        charged >= 3,
+        "audio reached the engine in every interval but only {charged} were charged"
+    );
+}

@@ -11,7 +11,7 @@
 //! Hardening is copied from `/ws`, not `/ws/talk` (which has none): connection cap, per-IP
 //! connect limit, frame and message-rate caps, ping/idle eviction.
 
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -289,6 +289,8 @@ async fn handle_live_peer(socket: WebSocket, state: AppState, auth: PeerAuth) {
     let mut meter_cancel: Option<oneshot::Sender<()>> = None;
     let mut usage_session: Option<Uuid> = None;
     let (end_tx, mut end_rx) = mpsc::unbounded_channel::<EndCause>();
+    // Frames forwarded to the engine, for the meter (billing follows audio, not flags).
+    let sent = Arc::new(AtomicU64::new(0));
     let mut muted = state.live.is_muted(auth.session_id, auth.peer_id);
     if muted {
         // A reconnecting phone is told it is still muted, so its UI cannot show it live.
@@ -338,7 +340,10 @@ async fn handle_live_peer(socket: WebSocket, state: AppState, auth: PeerAuth) {
                                 // A momentarily slow engine drops a 100 ms chunk rather than
                                 // ending the session: on a bad network that is a glitch, not
                                 // an outage.
-                                Ok(()) | Err(mpsc::error::TrySendError::Full(_)) => {}
+                                Ok(()) => {
+                                    sent.fetch_add(1, Ordering::Relaxed);
+                                }
+                                Err(mpsc::error::TrySendError::Full(_)) => {}
                                 Err(mpsc::error::TrySendError::Closed(_)) => {
                                     audio_tx = None;
                                     // Say so. `/ws` drops the sender silently and the user
@@ -362,7 +367,7 @@ async fn handle_live_peer(socket: WebSocket, state: AppState, auth: PeerAuth) {
                                     continue; // already speaking: Start is idempotent
                                 }
                                 match start_speaking(&state, &auth, &room, call_session, &engine,
-                                    transcripts.clone(), participant_row, &end_tx,
+                                    transcripts.clone(), participant_row, &end_tx, &sent,
                                     &mut usage_session).await
                                 {
                                     Ok((tx, cancel)) => {
@@ -520,6 +525,7 @@ async fn start_speaking(
     transcripts: Option<crate::transcripts::TranscriptService>,
     participant_row: Option<Uuid>,
     end_tx: &mpsc::UnboundedSender<EndCause>,
+    sent: &Arc<AtomicU64>,
     usage_session: &mut Option<Uuid>,
 ) -> Result<(mpsc::Sender<Vec<u8>>, oneshot::Sender<()>), &'static str> {
     let pool = state.pool.as_ref().ok_or("unavailable")?;
@@ -606,6 +612,7 @@ async fn start_speaking(
             rate_per_second: engine.metadata().user_rate_per_second(),
             scale_by_target_count: engine.metadata().capabilities.cost_scales_per_language,
             low_balance_threshold: pricing.low_balance_threshold,
+            activity: sent.clone(),
         }
         .run(end_tx.clone(), cancel_rx),
     );
