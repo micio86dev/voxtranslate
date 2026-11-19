@@ -22,6 +22,15 @@ const DEFAULT_MAX_SESSION_MIN: i64 = 120;
 const DEFAULT_MAX_CONCURRENT_PER_OWNER: i64 = 3;
 /// How long a dropped phone has to come back before its seat is given up.
 const DEFAULT_RECONNECT_GRACE_SECS: i64 = 60;
+/// Days an ended business conversation's content is kept when its org sets no `retention_days`.
+/// `0` switches that default off (such an org keeps its conversations until it deletes them).
+const DEFAULT_RETENTION_DAYS: i64 = 90;
+/// Days the transcript of an ended consumer conversation is kept (only ever stored on opt-in).
+/// `0` keeps them until the owner deletes them.
+const DEFAULT_B2C_RETENTION_DAYS: i64 = 30;
+/// Seconds to wait after a conversation ends before its transcript is assembled, so the
+/// engines' last finals have reached the recorder.
+const DEFAULT_FINALIZE_GRACE_SECS: i64 = 5;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConfigError {
@@ -58,6 +67,11 @@ pub struct LiveConfig {
     pub max_session_min: i64,
     pub max_concurrent_per_owner: i64,
     pub reconnect_grace_secs: i64,
+    /// Retention for business conversations whose org has no `retention_days` of its own.
+    pub retention_default_days: i64,
+    /// Retention for opted-in consumer transcripts.
+    pub b2c_retention_days: i64,
+    pub finalize_grace_secs: i64,
 }
 
 impl LiveConfig {
@@ -73,6 +87,9 @@ impl LiveConfig {
             max_session_min: DEFAULT_MAX_SESSION_MIN,
             max_concurrent_per_owner: DEFAULT_MAX_CONCURRENT_PER_OWNER,
             reconnect_grace_secs: DEFAULT_RECONNECT_GRACE_SECS,
+            retention_default_days: DEFAULT_RETENTION_DAYS,
+            b2c_retention_days: DEFAULT_B2C_RETENTION_DAYS,
+            finalize_grace_secs: DEFAULT_FINALIZE_GRACE_SECS,
         }
     }
 
@@ -122,6 +139,25 @@ impl LiveConfig {
                 DEFAULT_RECONNECT_GRACE_SECS,
                 5,
                 600,
+            )?,
+            // 0 is a valid value here (switches retention off), so the floor is 0.
+            retention_default_days: number(
+                "LIVE_RETENTION_DEFAULT_DAYS",
+                DEFAULT_RETENTION_DAYS,
+                0,
+                3650,
+            )?,
+            b2c_retention_days: number(
+                "LIVE_B2C_RETENTION_DAYS",
+                DEFAULT_B2C_RETENTION_DAYS,
+                0,
+                3650,
+            )?,
+            finalize_grace_secs: number(
+                "LIVE_FINALIZE_GRACE_SECS",
+                DEFAULT_FINALIZE_GRACE_SECS,
+                0,
+                60,
             )?,
         })
     }
@@ -209,6 +245,49 @@ mod tests {
             ]))
             .unwrap_err();
             assert_eq!(err, ConfigError::BadNumber("LIVE_MAX_SESSION_MIN"), "{bad}");
+        }
+    }
+
+    #[test]
+    fn retention_defaults_apply_zero_is_allowed_and_junk_is_rejected() {
+        let base = [("LIVE_CONNECT_ENABLED", "1"), ("LIVE_TOKEN_KEY", KEY)];
+        let cfg = LiveConfig::load(env(&base)).unwrap();
+        assert_eq!(
+            (
+                cfg.retention_default_days,
+                cfg.b2c_retention_days,
+                cfg.finalize_grace_secs
+            ),
+            (90, 30, 5)
+        );
+
+        let mut zero = base.to_vec();
+        zero.extend([
+            ("LIVE_RETENTION_DEFAULT_DAYS", "0"),
+            ("LIVE_B2C_RETENTION_DAYS", "0"),
+            ("LIVE_FINALIZE_GRACE_SECS", "0"),
+        ]);
+        let cfg = LiveConfig::load(env(&zero)).unwrap();
+        assert_eq!(
+            (
+                cfg.retention_default_days,
+                cfg.b2c_retention_days,
+                cfg.finalize_grace_secs
+            ),
+            (0, 0, 0),
+            "0 switches retention off and the grace off"
+        );
+
+        for (name, bad) in [
+            ("LIVE_RETENTION_DEFAULT_DAYS", "-1"),
+            ("LIVE_RETENTION_DEFAULT_DAYS", "99999"),
+            ("LIVE_B2C_RETENTION_DAYS", "abc"),
+            ("LIVE_FINALIZE_GRACE_SECS", "61"),
+        ] {
+            let mut pairs = base.to_vec();
+            pairs.push((name, bad));
+            let err = LiveConfig::load(env(&pairs)).unwrap_err();
+            assert_eq!(err, ConfigError::BadNumber(name), "{name}={bad}");
         }
     }
 }

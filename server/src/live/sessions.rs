@@ -441,25 +441,28 @@ pub async fn end_session(pool: &Pool, session_id: Uuid, reason: &str) -> Result<
 }
 
 /// Expire sessions nobody joined in time, and close sessions past their hard ceiling.
-/// Returns how many rows changed.
-pub async fn expire_stale(pool: &Pool, cfg: &LiveConfig) -> Result<u64, sqlx::Error> {
-    let waiting = sqlx::query(
+/// Returns the ids of the sessions that changed, so each can be finalised.
+pub async fn expire_stale(pool: &Pool, cfg: &LiveConfig) -> Result<Vec<Uuid>, sqlx::Error> {
+    let mut changed: Vec<Uuid> = sqlx::query_scalar(
         "UPDATE live_sessions
          SET status = 'expired', ended_at = now(), end_reason = 'expired'
-         WHERE status = 'waiting' AND expires_at <= now()",
+         WHERE status = 'waiting' AND expires_at <= now()
+         RETURNING id",
     )
-    .execute(pool)
+    .fetch_all(pool)
     .await?;
-    let over = sqlx::query(
+    let over: Vec<Uuid> = sqlx::query_scalar(
         "UPDATE live_sessions
          SET status = 'ended', ended_at = now(), end_reason = 'max_duration'
          WHERE status = 'active'
-           AND created_at <= now() - make_interval(mins => $1::int)",
+           AND created_at <= now() - make_interval(mins => $1::int)
+         RETURNING id",
     )
     .bind(cfg.max_session_min as i32)
-    .execute(pool)
+    .fetch_all(pool)
     .await?;
-    Ok(waiting.rows_affected() + over.rows_affected())
+    changed.extend(over);
+    Ok(changed)
 }
 
 // ---- views and diagnostics -------------------------------------------------------------

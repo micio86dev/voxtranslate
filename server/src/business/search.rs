@@ -37,6 +37,91 @@ pub struct SearchQuery {
     q: Option<String>,
     project_id: Option<Uuid>,
     limit: Option<i64>,
+    /// Narrow to one kind of session: `call`, `voice_message`, `phone` or `live_connect`.
+    kind: Option<String>,
+    /// Language of the conversation. For a Live Connect conversation (two languages) either
+    /// side's language matches; for everything else the transcript's source language.
+    lang: Option<String>,
+    /// RFC 3339 instants bounding when the session started (both inclusive).
+    from: Option<String>,
+    to: Option<String>,
+    /// One session: either the call-session id a hit carries or a Live Connect session id.
+    session_id: Option<Uuid>,
+    /// Case-insensitive substring of the speaker's name.
+    speaker: Option<String>,
+}
+
+/// The optional filters of a search, validated. Every one is `None` by default, and a search
+/// without filters is exactly the search that existed before they did.
+#[derive(Debug, Default, Clone)]
+pub struct Filters {
+    pub kind: Option<String>,
+    pub lang: Option<String>,
+    pub from: Option<DateTime<Utc>>,
+    pub to: Option<DateTime<Utc>>,
+    pub session_id: Option<Uuid>,
+    /// Already escaped for `ILIKE`.
+    pub speaker_like: Option<String>,
+}
+
+/// Kinds of `call_sessions.kind` a search can be narrowed to.
+const SESSION_KINDS: [&str; 4] = ["call", "voice_message", "phone", "live_connect"];
+
+impl Filters {
+    /// Validate the query's filters. The error is the message for a 400.
+    fn parse(q: &SearchQuery) -> Result<Self, &'static str> {
+        let kind = match q.kind.as_deref().map(str::trim).filter(|k| !k.is_empty()) {
+            None => None,
+            Some(k) if SESSION_KINDS.contains(&k) => Some(k.to_string()),
+            Some(_) => return Err("kind must be one of call, voice_message, phone, live_connect"),
+        };
+        let lang = match q.lang.as_deref().map(str::trim).filter(|l| !l.is_empty()) {
+            None => None,
+            Some(l) => {
+                let l = l.to_ascii_lowercase();
+                let ok = l.len() <= 8 && l.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-');
+                if !ok {
+                    return Err("lang is not a valid language code");
+                }
+                Some(l)
+            }
+        };
+        let instant = |raw: &Option<String>, err: &'static str| match raw
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+        {
+            None => Ok(None),
+            Some(v) => DateTime::parse_from_rfc3339(v)
+                .map(|d| Some(d.with_timezone(&Utc)))
+                .map_err(|_| err),
+        };
+        let from = instant(&q.from, "from must be an RFC 3339 timestamp")?;
+        let to = instant(&q.to, "to must be an RFC 3339 timestamp")?;
+        let speaker_like = q
+            .speaker
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(|s| {
+                // A name is searched as text, never as a pattern: `%` and `_` are escaped.
+                s.chars()
+                    .take(100)
+                    .flat_map(|c| match c {
+                        '\\' | '%' | '_' => vec!['\\', c],
+                        c => vec![c],
+                    })
+                    .collect::<String>()
+            });
+        Ok(Self {
+            kind,
+            lang,
+            from,
+            to,
+            session_id: q.session_id,
+            speaker_like,
+        })
+    }
 }
 
 /// One KNN hit. A row is EITHER a call (`session_id` set, `webinar_id`/`webinar_code`
@@ -45,18 +130,82 @@ pub struct SearchQuery {
 /// never both set. `room`/`started_at` are coalesced across the two sources so the
 /// snippet metadata is uniform; `webinar_code` links a webinar hit back to `/w/{code}`.
 #[derive(FromRow)]
-struct ResultRow {
-    session_id: Option<Uuid>,
-    webinar_id: Option<Uuid>,
-    webinar_code: Option<String>,
-    project_id: Option<Uuid>,
-    project_name: Option<String>,
-    room: String,
-    started_at: DateTime<Utc>,
-    content: String,
-    speaker_name: Option<String>,
-    start_ms: Option<i64>,
-    score: f64,
+pub struct ResultRow {
+    pub session_id: Option<Uuid>,
+    pub webinar_id: Option<Uuid>,
+    pub webinar_code: Option<String>,
+    pub project_id: Option<Uuid>,
+    pub project_name: Option<String>,
+    pub room: String,
+    pub started_at: DateTime<Utc>,
+    pub content: String,
+    pub speaker_name: Option<String>,
+    pub start_ms: Option<i64>,
+    pub score: f64,
+    /// `call_sessions.kind` of the hit's session. Only reported for Live Connect.
+    pub session_kind: Option<String>,
+    /// The Live Connect session the hit belongs to; what a client opens the conversation by.
+    pub live_session_id: Option<Uuid>,
+}
+
+/// Which projects a caller may search. Resolved from their role, never from the request.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Visible {
+    /// An admin or owner: the whole org, project-less calls and webinars included.
+    Everything,
+    /// A member: projects they created or took part in (possibly none — they may still host
+    /// webinars).
+    Projects(Vec<Uuid>),
+    /// A member who can see no project and hosts no webinar: nothing can match.
+    Nothing,
+}
+
+/// Resolve what `user_id` may search in `org_id`.
+///
+/// Members search projects they CREATED or PARTICIPATED in (a call where they were a
+/// participant); admins/owners search the whole org.
+pub async fn resolve_visibility(
+    pool: &crate::db::Pool,
+    org_id: Uuid,
+    user_id: Uuid,
+    is_admin: bool,
+) -> Result<Visible, sqlx::Error> {
+    if is_admin {
+        return Ok(Visible::Everything);
+    }
+    let visible: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT id FROM projects
+         WHERE org_id = $1 AND archived_at IS NULL
+           AND (created_by = $2
+                OR id IN (
+                    SELECT DISTINCT cs.project_id FROM call_sessions cs
+                    JOIN session_participants sp ON sp.session_id = cs.id
+                    WHERE cs.org_id = $1 AND sp.user_id = $2 AND cs.project_id IS NOT NULL
+                ))",
+    )
+    .bind(org_id)
+    .bind(user_id)
+    .fetch_all(pool)
+    .await?;
+    // A member with no visible projects can still match webinars they HOST, so only
+    // short-circuit when they also host nothing in this org. An empty `visible` set (bound
+    // as `'{}'`) makes the project predicate always false, leaving only the host-owned
+    // webinar rows to match.
+    if visible.is_empty() {
+        let hosts_any: Option<Uuid> = sqlx::query_scalar(
+            "SELECT id FROM webinars
+             WHERE org_id = $1 AND host_user_id = $2 AND archived_at IS NULL
+             LIMIT 1",
+        )
+        .bind(org_id)
+        .bind(user_id)
+        .fetch_optional(pool)
+        .await?;
+        if hosts_any.is_none() {
+            return Ok(Visible::Nothing);
+        }
+    }
+    Ok(Visible::Projects(visible))
 }
 
 /// `GET /api/business/organizations/{org_id}/search` — semantic transcript search.
@@ -75,6 +224,7 @@ pub async fn list(
     if query.is_empty() {
         return Err(bad_request("q is required"));
     }
+    let filters = Filters::parse(&q).map_err(bad_request)?;
     let limit = q.limit.unwrap_or(20).clamp(1, 50);
 
     let embedder = state.embeddings.as_ref().ok_or_else(|| {
@@ -85,48 +235,12 @@ pub async fn list(
             .into_response()
     })?;
 
-    // Visible project set. Admins/owners search the whole org (no project filter);
-    // members search projects they CREATED or PARTICIPATED in (a call where they
-    // were a participant). A member with no visible projects can match nothing.
-    let scope: Option<Vec<Uuid>> = if is_admin {
-        None
-    } else {
-        let visible: Vec<Uuid> = sqlx::query_scalar(
-            "SELECT id FROM projects
-             WHERE org_id = $1 AND archived_at IS NULL
-               AND (created_by = $2
-                    OR id IN (
-                        SELECT DISTINCT cs.project_id FROM call_sessions cs
-                        JOIN session_participants sp ON sp.session_id = cs.id
-                        WHERE cs.org_id = $1 AND sp.user_id = $2 AND cs.project_id IS NOT NULL
-                    ))",
-        )
-        .bind(org_id)
-        .bind(user.user_id)
-        .fetch_all(pool)
+    let visible = resolve_visibility(pool, org_id, user.user_id, is_admin)
         .await
         .map_err(db_err)?;
-        // A member with no visible projects can still match webinars they HOST, so
-        // only short-circuit when they also host nothing in this org. An empty
-        // `visible` set (bound as `'{}'`) makes the project predicate always false,
-        // leaving only the host-owned webinar rows to match.
-        if visible.is_empty() {
-            let hosts_any: Option<Uuid> = sqlx::query_scalar(
-                "SELECT id FROM webinars
-                 WHERE org_id = $1 AND host_user_id = $2 AND archived_at IS NULL
-                 LIMIT 1",
-            )
-            .bind(org_id)
-            .bind(user.user_id)
-            .fetch_optional(pool)
-            .await
-            .map_err(db_err)?;
-            if hosts_any.is_none() {
-                return Ok(Json(json!({ "results": [] })).into_response());
-            }
-        }
-        Some(visible)
-    };
+    if visible == Visible::Nothing {
+        return Ok(Json(json!({ "results": [] })).into_response());
+    }
 
     let vector = embedder.embed_one(query).await.map_err(|e| {
         tracing::error!("search query embedding failed: {e}");
@@ -134,44 +248,16 @@ pub async fn list(
     })?;
     let qvec = pgvector::Vector::from(vector);
 
-    // KNN over BOTH call and webinar embeddings (Phase C). The two owner kinds are
-    // LEFT-JOINed to their source so `room`/`started_at` are coalesced (call → the
-    // call_sessions row; webinar → the webinars row); the `owner_excl` CHECK means
-    // exactly one join matches per embedding row.
-    //
-    // Scope: `$3::uuid[] IS NULL` is the admin path (whole org, incl. project-less
-    // calls AND project-less webinars). Members pass their visible project set in
-    // `$3`; a row passes if its `project_id` is in that set OR — for a webinar — the
-    // member is the host (`$6`). This mirrors the meet rule (see own/participated
-    // projects) and additionally lets a host find their OWN webinar even when it is
-    // not bound to a project. `$4` optionally narrows to one project.
-    let rows: Vec<ResultRow> = sqlx::query_as(
-        "SELECT te.session_id, te.webinar_id, w.code AS webinar_code,
-                te.project_id, p.name AS project_name,
-                COALESCE(cs.room, w.title) AS room,
-                COALESCE(cs.started_at, w.actual_start, w.created_at) AS started_at,
-                te.content, te.speaker_name, te.start_ms,
-                1 - (te.embedding <=> $2) AS score
-         FROM transcript_embeddings te
-         LEFT JOIN call_sessions cs ON cs.id = te.session_id
-         LEFT JOIN webinars w       ON w.id = te.webinar_id
-         LEFT JOIN projects p       ON p.id = te.project_id
-         WHERE te.org_id = $1
-           AND (te.session_id IS NOT NULL OR te.webinar_id IS NOT NULL)
-           AND ($3::uuid[] IS NULL
-                OR te.project_id = ANY($3)
-                OR (te.webinar_id IS NOT NULL AND w.host_user_id = $6))
-           AND ($4::uuid IS NULL OR te.project_id = $4)
-         ORDER BY te.embedding <=> $2
-         LIMIT $5",
+    let rows = knn(
+        pool,
+        org_id,
+        user.user_id,
+        &visible,
+        q.project_id,
+        &filters,
+        qvec,
+        limit,
     )
-    .bind(org_id)
-    .bind(qvec)
-    .bind(scope.as_deref())
-    .bind(q.project_id)
-    .bind(limit)
-    .bind(user.user_id)
-    .fetch_all(pool)
     .await
     .map_err(db_err)?;
 
@@ -195,10 +281,96 @@ pub async fn list(
     Ok(Json(json!({ "results": results })).into_response())
 }
 
+/// The vector search itself, with its scope and filters. Split out of the handler so the
+/// scoping SQL can be exercised against a real database with a hand-made vector (producing a
+/// real one needs the embedding provider).
+///
+/// KNN over BOTH call and webinar embeddings (Phase C). The two owner kinds are LEFT-JOINed
+/// to their source so `room`/`started_at` are coalesced (call → the call_sessions row;
+/// webinar → the webinars row); the `owner_excl` CHECK means exactly one join matches per
+/// embedding row.
+///
+/// Scope: `Everything` is the admin path (whole org, incl. project-less calls AND
+/// project-less webinars). A member passes their visible project set; a row passes if its
+/// `project_id` is in that set OR — for a webinar — the member is the host. This mirrors the
+/// meet rule (see own/participated projects) and additionally lets a host find their OWN
+/// webinar even when it is not bound to a project. `project_id` optionally narrows to one
+/// project.
+#[allow(clippy::too_many_arguments)]
+pub async fn knn(
+    pool: &crate::db::Pool,
+    org_id: Uuid,
+    user_id: Uuid,
+    visible: &Visible,
+    project_id: Option<Uuid>,
+    filters: &Filters,
+    qvec: pgvector::Vector,
+    limit: i64,
+) -> Result<Vec<ResultRow>, sqlx::Error> {
+    let scope: Option<&[Uuid]> = match visible {
+        Visible::Everything => None,
+        Visible::Projects(p) => Some(p.as_slice()),
+        Visible::Nothing => return Ok(Vec::new()),
+    };
+    // `started_at` of a Live Connect hit is when the CONVERSATION started (a conversation that
+    // lived through several rooms has one meeting-side row per room); everything else is as
+    // before, because `ls` is NULL for them.
+    sqlx::query_as(
+        "SELECT te.session_id, te.webinar_id, w.code AS webinar_code,
+                te.project_id, p.name AS project_name,
+                COALESCE(cs.room, w.title) AS room,
+                COALESCE(ls.started_at, cs.started_at, w.actual_start, w.created_at) AS started_at,
+                te.content, te.speaker_name, te.start_ms,
+                1 - (te.embedding <=> $2) AS score,
+                CASE WHEN ls.id IS NOT NULL THEN cs.kind END AS session_kind,
+                ls.id AS live_session_id
+         FROM transcript_embeddings te
+         LEFT JOIN call_sessions cs ON cs.id = te.session_id
+         LEFT JOIN live_sessions ls ON ls.call_session_id = te.session_id
+         LEFT JOIN webinars w       ON w.id = te.webinar_id
+         LEFT JOIN projects p       ON p.id = te.project_id
+         LEFT JOIN transcripts t    ON t.id = te.transcript_id
+         WHERE te.org_id = $1
+           AND (te.session_id IS NOT NULL OR te.webinar_id IS NOT NULL)
+           AND ($3::uuid[] IS NULL
+                OR te.project_id = ANY($3)
+                OR (te.webinar_id IS NOT NULL AND w.host_user_id = $6))
+           AND ($4::uuid IS NULL OR te.project_id = $4)
+           AND ($7::text IS NULL OR cs.kind = $7)
+           AND ($8::text IS NULL
+                OR t.source_language = $8
+                OR (ls.id IS NOT NULL AND EXISTS (
+                        SELECT 1 FROM live_participants lp
+                        WHERE lp.session_id = ls.id AND lp.lang = $8)))
+           AND ($9::timestamptz IS NULL
+                OR COALESCE(ls.started_at, cs.started_at, w.actual_start, w.created_at) >= $9)
+           AND ($10::timestamptz IS NULL
+                OR COALESCE(ls.started_at, cs.started_at, w.actual_start, w.created_at) <= $10)
+           AND ($11::uuid IS NULL OR te.session_id = $11 OR ls.id = $11)
+           AND ($12::text IS NULL OR te.speaker_name ILIKE '%' || $12 || '%')
+         ORDER BY te.embedding <=> $2
+         LIMIT $5",
+    )
+    .bind(org_id)
+    .bind(qvec)
+    .bind(scope)
+    .bind(project_id)
+    .bind(limit)
+    .bind(user_id)
+    .bind(&filters.kind)
+    .bind(&filters.lang)
+    .bind(filters.from)
+    .bind(filters.to)
+    .bind(filters.session_id)
+    .bind(&filters.speaker_like)
+    .fetch_all(pool)
+    .await
+}
+
 /// The source kind of a search hit: `"call"` when it came from a call session,
 /// `"webinar"` when it came from a finished webinar. The `owner_excl` CHECK
 /// (migration 050) guarantees a row is never both; a webinar owner wins if present.
-fn result_kind(r: &ResultRow) -> &'static str {
+pub fn result_kind(r: &ResultRow) -> &'static str {
     if r.webinar_id.is_some() {
         "webinar"
     } else {
@@ -208,8 +380,8 @@ fn result_kind(r: &ResultRow) -> &'static str {
 
 /// Serialize one hit to the API shape. Split out so the call-vs-webinar mapping is
 /// unit-testable without a live database.
-fn result_json(r: &ResultRow) -> Value {
-    json!({
+pub fn result_json(r: &ResultRow) -> Value {
+    let mut hit = json!({
         "kind": result_kind(r),
         "session_id": r.session_id,
         "webinar_id": r.webinar_id,
@@ -222,7 +394,14 @@ fn result_json(r: &ResultRow) -> Value {
         "speaker_name": r.speaker_name,
         "start_ms": r.start_ms,
         "score": r.score,
-    })
+    });
+    // A Live Connect hit says what it is and which conversation to open. The keys are absent
+    // for every other kind, so those hits keep exactly the shape they had.
+    if let Some(live) = r.live_session_id {
+        hit["live_session_id"] = json!(live);
+        hit["session_kind"] = json!(r.session_kind);
+    }
+    hit
 }
 
 // ---- Internal backfill -------------------------------------------------------
@@ -372,6 +551,8 @@ mod tests {
             speaker_name: Some("Alice".into()),
             start_ms: Some(12_000),
             score: 0.83,
+            session_kind: None,
+            live_session_id: None,
         }
     }
 
@@ -388,6 +569,8 @@ mod tests {
             speaker_name: Some("Host".into()),
             start_ms: Some(0),
             score: 0.91,
+            session_kind: None,
+            live_session_id: None,
         }
     }
 
@@ -417,5 +600,93 @@ mod tests {
         assert_eq!(v["webinar_code"], "AbC123");
         assert_eq!(v["room"], "Q3 Webinar", "webinar title coalesced into room");
         assert_eq!(v["snippet"], "welcome everyone");
+    }
+
+    fn query(f: impl FnOnce(&mut SearchQuery)) -> SearchQuery {
+        let mut q = SearchQuery::default();
+        f(&mut q);
+        q
+    }
+
+    #[test]
+    fn no_filters_is_the_search_that_existed_before() {
+        let f = Filters::parse(&SearchQuery::default()).unwrap();
+        assert!(f.kind.is_none() && f.lang.is_none() && f.from.is_none() && f.to.is_none());
+        assert!(f.session_id.is_none() && f.speaker_like.is_none());
+        // Blank values are "not given", not errors.
+        let blank = query(|q| {
+            q.kind = Some("  ".into());
+            q.lang = Some(String::new());
+            q.from = Some(" ".into());
+            q.speaker = Some("".into());
+        });
+        let f = Filters::parse(&blank).unwrap();
+        assert!(
+            f.kind.is_none() && f.lang.is_none() && f.from.is_none() && f.speaker_like.is_none()
+        );
+    }
+
+    #[test]
+    fn each_filter_is_validated() {
+        for ok in ["call", "voice_message", "phone", "live_connect"] {
+            let f = Filters::parse(&query(|q| q.kind = Some(ok.into()))).unwrap();
+            assert_eq!(f.kind.as_deref(), Some(ok));
+        }
+        assert!(Filters::parse(&query(|q| q.kind = Some("webinar".into()))).is_err());
+        assert!(Filters::parse(&query(|q| q.kind = Some("CALL".into()))).is_err());
+
+        let f = Filters::parse(&query(|q| q.lang = Some(" PT-br ".into()))).unwrap();
+        assert_eq!(f.lang.as_deref(), Some("pt-br"));
+        for bad in ["it_IT", "a b", "abcdefghi", "it'--"] {
+            assert!(
+                Filters::parse(&query(|q| q.lang = Some(bad.into()))).is_err(),
+                "{bad}"
+            );
+        }
+
+        let f = Filters::parse(&query(|q| {
+            q.from = Some("2026-03-01T10:00:00+02:00".into());
+            q.to = Some("2026-03-02T00:00:00Z".into());
+        }))
+        .unwrap();
+        assert_eq!(f.from.unwrap().to_rfc3339(), "2026-03-01T08:00:00+00:00");
+        assert!(f.to.is_some());
+        for bad in ["2026-03-01", "yesterday", "2026-13-01T00:00:00Z"] {
+            assert!(
+                Filters::parse(&query(|q| q.from = Some(bad.into()))).is_err(),
+                "{bad}"
+            );
+            assert!(
+                Filters::parse(&query(|q| q.to = Some(bad.into()))).is_err(),
+                "{bad}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_speaker_is_searched_as_text_never_as_a_pattern() {
+        let f = Filters::parse(&query(|q| q.speaker = Some("  50%_off\\ ".into()))).unwrap();
+        assert_eq!(f.speaker_like.as_deref(), Some("50\\%\\_off\\\\"));
+        let long = "x".repeat(500);
+        let f = Filters::parse(&query(|q| q.speaker = Some(long))).unwrap();
+        assert_eq!(f.speaker_like.unwrap().chars().count(), 100);
+    }
+
+    #[test]
+    fn a_live_hit_names_its_conversation_and_every_other_hit_is_unchanged() {
+        let mut live = call_row();
+        live.live_session_id = Some(Uuid::from_u128(77));
+        live.session_kind = Some("live_connect".into());
+        let v = result_json(&live);
+        assert_eq!(v["kind"], "call", "existing consumers keep their `kind`");
+        assert_eq!(v["session_kind"], "live_connect");
+        assert_eq!(v["live_session_id"], Uuid::from_u128(77).to_string());
+        assert_eq!(v["session_id"], Uuid::from_u128(1).to_string());
+        assert_eq!(v["project_id"], Uuid::from_u128(9).to_string());
+
+        let plain = result_json(&call_row());
+        assert!(plain.get("live_session_id").is_none() && plain.get("session_kind").is_none());
+        let webinar = result_json(&webinar_row());
+        assert!(webinar.get("live_session_id").is_none() && webinar.get("session_kind").is_none());
     }
 }

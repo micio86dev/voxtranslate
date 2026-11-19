@@ -3,7 +3,8 @@
 Two phones, two microphones, two independent translation streams at the same time.
 Decisions and requirements: [`specs/0121-live-connect/spec.md`](../specs/0121-live-connect/spec.md).
 
-> **Status:** M1 (foundation) and M2 (backend: sessions REST, `/ws/live`, sweeper) are implemented.
+> **Status:** M1 (foundation), M2 (backend: sessions REST, `/ws/live`, sweeper) and M4 (conversation
+> intelligence: finalisation, search filters, retention, erasure) are implemented.
 > Everything marked *(planned)* below is specified but not built yet; this document is updated in
 > the same change as the code it describes. Billing is still the *existing* per-tick meter charged to
 > the owner; the idempotent per-peer meter is M5, so the feature must stay behind
@@ -87,6 +88,9 @@ error, never a fallback.
 | `POST /api/live/join` | anyone with an invite code (no account) | implemented |
 | `GET /api/live/sessions/{id}`, `POST …/end` | a participant, with its Live Connect token (`Authorization: Bearer`) | implemented |
 | `GET /ws/live?token=…` | a participant | implemented |
+| `DELETE /api/live/sessions/{id}` | the signed-in **owner** of a consumer conversation (account JWT); 404 for anyone else, 409 while open | implemented |
+| `DELETE /api/business/organizations/{org}/live/sessions/{id}` | org **admin/owner**; 404 non-member or another org's session, 403 plain member, 409 while open; audited as `live_session.delete` | implemented |
+| `GET /api/business/organizations/{org}/search?q=…` | org member, scoped as for meetings; Live Connect hits carry `session_kind` and `live_session_id` | implemented (extended, see below) |
 | `POST /api/live/desks/scan` | anyone with a desk QR | planned (M6) |
 | `GET /api/live/desks/{id}/waiting`, `POST /api/live/sessions/{id}/answer` | org members | planned (M6) |
 | `…/organizations/{org}/live/desks…`, `…/live/sessions…`, `…/live/usage` | org admin/member | planned (M6) |
@@ -135,7 +139,55 @@ Errors are `{"code","message"}` with a stable code: `invite_not_found`, `invite_
 
 Every 15 s: expire invitations nobody used, close sessions past the ceiling, and end an **active**
 session whose room has been empty for the whole reconnect grace (`abandoned`). It reads presence from
-this process's room registry, which is correct because the server is a single replica.
+this process's room registry, which is correct because the server is a single replica. Each close
+hands the conversation to finalisation. Once an hour it also applies retention and finalises
+stragglers (see above).
+
+## Conversation intelligence: finalise, then search *(implemented: `server/src/live/finalize.rs`)*
+
+While a conversation runs, speech is stored by the meeting machinery as `transcript_events`
+(original and translations in separate columns). Search, insights and the dashboards work off a
+`transcripts` row plus `transcript_embeddings`, so when a **business** conversation ends it is
+*finalised* into the same record a recorded meeting or a voice message has:
+
+- **One `transcripts` row** on the conversation's latest room session: segments (speaker id and
+  name exactly as the room used them, the **original** text, start relative to the first
+  utterance, end estimated at ~400 ms per word, because events record when something was captured
+  and not for how long), source language (most spoken), session duration (start to end of the
+  conversation), word count. `translations` stays `{}`: per-utterance translations remain in
+  `transcript_events`, where the live reader resolves them per viewer.
+- **All room sessions** of the conversation are gathered (`live_sessions.call_session_id` plus the
+  `room_session` events), so a conversation that survived both phones dropping is one transcript.
+- **Embeddings** through the existing embedding provider, one speaker at a time: the meeting
+  chunker labels a chunk with whoever spoke first, which for short alternating turns would put both
+  people's words under one name. If the provider is down or unset the transcript is still saved and
+  `/internal/embeddings/backfill` indexes it later.
+- A **consumer** conversation gets no `transcripts` row (the table is organisation-owned). An
+  opted-in transcript stays in `transcript_events`, readable by its owner.
+- Idempotent and safe concurrently: the latest room row is locked and `transcript_status` is the
+  guard (`none`/`failed` → `ready`; `expired`, i.e. removed by retention, is never resurrected).
+
+**Triggers.** Every way a conversation ends calls one helper, `finalize::on_session_ended`, which
+finalises after `LIVE_FINALIZE_GRACE_SECS` (5 s, so the engines' last finals are in): REST end, the
+socket's balance-exhausted and hard-ceiling paths, the sweeper's abandoned/expired/max-duration
+closes. The timer is in memory, so an hourly pass (`finalize_pending`) also finalises ended
+conversations that have speech but no transcript, which is what a restart between "ended" and
+"finalised" leaves behind.
+
+**Search filters** (`GET …/search`, all optional, validated before anything is embedded; a search
+without them is unchanged): `kind` (`call|voice_message|phone|live_connect`), `lang`, `from` / `to`
+(RFC 3339, inclusive, on when the session started), `session_id` (a call-session id or a Live
+Connect session id), `speaker` (case-insensitive substring of the name, `%`/`_` are literal), plus
+the existing `project_id`. `lang` matches the transcript's source language, and for a Live Connect
+conversation either participant's language (a conversation has two). Scope is untouched: admins see
+the org, members only projects they created or took part in, and the staff member who answered a
+desk took part. A Live Connect hit keeps its existing fields and adds `session_kind:"live_connect"`
+and `live_session_id`; hits of every other kind are byte-for-byte what they were.
+
+**Insights.** `POST …/insights` retrieves from `transcript_embeddings` without a kind filter, so a
+finalised Live Connect conversation already grounds project and question answers. Its *activity
+metrics* (calls, minutes, collaborators) are deliberately `kind = 'call'` only, like analytics, and
+Live Connect conversations are not counted there; adding them is a product decision, not a bug.
 
 ## Billing *(planned: M5)*
 
@@ -144,12 +196,42 @@ The guest is never charged and needs no credit. A debit and its `live_usage_tick
 together with `ON CONFLICT DO NOTHING`, so a restarted or duplicated meter cannot charge twice.
 The backend is the only authority; nothing the client reports is trusted.
 
-## Privacy and retention *(planned: M4)*
+## Privacy, retention and erasure *(implemented: `server/src/live/erase.rs`)*
 
 - Raw audio is never stored.
 - B2C conversations store nothing unless the owner opts in.
 - B2B conversations are stored under the org's retention and the guest is told before the
-  microphone opens. An org admin can delete a whole session, including guest speech.
+  microphone opens.
+
+A conversation is **content** (what was said, who said it, the guest's name) and **billing facts**
+(`live_sessions`, `live_usage_ticks`, ledger entries). Erasing removes the first and keeps the
+second. `erase::erase_content(pool, live_session_id)` is the one function behind every reason to
+erase, and runs in one transaction:
+
+1. deletes every `call_sessions` row of the conversation (its latest room and the earlier ones named
+   by `room_session` events; only rows of `kind='live_connect'` whose room is `live-<this id>`, so
+   a corrupted event can never reach another conversation), which cascades to
+   `session_participants`, `transcript_events`, `transcripts`, `transcript_embeddings` and the other
+   per-session tables;
+2. scrubs what the cascade cannot reach: `live_participants.display_name` becomes `Erased` and
+   `token_hash` is cleared (the guest's name is personal data).
+
+Kept: `live_sessions` (status, timing, ownership, project), `live_usage_ticks`, the org ledger
+(`organization_credits_transactions.session_id` becomes NULL through its `ON DELETE SET NULL`),
+diagnostics, and the participants' user ids.
+
+| Reason | Who / when |
+|---|---|
+| Delete request | org admin/owner (`DELETE …/organizations/{org}/live/sessions/{id}`, audited) or the consumer owner (`DELETE /api/live/sessions/{id}`). An open conversation answers 409: end it first. |
+| Retention (business) | the org's `settings.retention_days` after the conversation **ended**; `0` = the org keeps everything. An org with no (or a non-numeric) setting gets `LIVE_RETENTION_DEFAULT_DAYS` (90); `0` there means no default. |
+| Retention (consumer) | opted-in transcripts after `LIVE_B2C_RETENTION_DAYS` (30; `0` keeps them until the owner deletes them). |
+| Account deletion | `SafetyService::delete_user` erases every conversation the user **owns** before the user row goes. Without this the guest's name and words survived the owner, because the foreign key points from `live_sessions` to `call_sessions` and not back (defect D4). |
+
+Retention runs from the sweeper, at most once an hour (tracked in `LiveState`), 100 conversations a
+pass, oldest first; a conversation already erased is not selected again. It runs only while Live
+Connect is enabled. The enterprise recording retention (`business/retention.rs`) is unchanged; for a
+Live Connect conversation of an enterprise org it removes the `transcripts` row at the same window
+and leaves the events, which this pass then erases.
 
 ## Operations
 
@@ -164,4 +246,7 @@ The backend is the only authority; nothing the client reports is trusted.
 |---|---|
 | Feature unreachable | `LIVE_CONNECT_ENABLED` truthy and `LIVE_TOKEN_KEY` ≥ 32 chars; the server logs why it stayed off |
 | Every printed desk QR stopped working | was `LIVE_TOKEN_KEY` rotated? was the desk regenerated or revoked? |
+| A finished conversation is not in search | `transcripts` row present? (`transcript_status = 'ready'` on its latest `call_sessions` row.) No embedding provider or a provider error leaves a transcript without chunks: run `/internal/embeddings/backfill`. A conversation with no speech is never finalised |
+| Guest words survive an erase | only rows named by the conversation's `room_session` events and pointer are deleted, and only of `kind='live_connect'` in room `live-<id>`; check `live_session_events` for `content_erased` |
+| Retention stopped | it runs from the sweeper, which runs only while `LIVE_CONNECT_ENABLED` is truthy |
 | DB-gated tests "pass" in milliseconds | they skipped: the database is missing or lacks pgvector — use `docker compose up -d --wait postgres` and `voxtranslate_voip_test` |

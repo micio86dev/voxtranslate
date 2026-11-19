@@ -419,7 +419,9 @@ async fn handle_live_peer(socket: WebSocket, state: AppState, auth: PeerAuth) {
                     }
                     EndCause::BillingError => "billing_error",
                 };
-                let _ = sessions::end_session(&pool, auth.session_id, reason).await;
+                if matches!(sessions::end_session(&pool, auth.session_id, reason).await, Ok(true)) {
+                    super::finalize::on_session_ended(&state, auth.session_id);
+                }
                 sessions::record_event(&pool, auth.session_id, "ended_by_billing", json!({ "reason": reason })).await;
                 end_notice = Some(ServerMessage::SessionState {
                     status: "ended".into(),
@@ -443,8 +445,10 @@ async fn handle_live_peer(socket: WebSocket, state: AppState, auth: PeerAuth) {
             }
 
             _ = status_check.tick() => {
-                if Utc::now() - auth.created_at >= ceiling {
-                    let _ = sessions::end_session(&pool, auth.session_id, "max_duration").await;
+                if Utc::now() - auth.created_at >= ceiling
+                    && matches!(sessions::end_session(&pool, auth.session_id, "max_duration").await, Ok(true))
+                {
+                    super::finalize::on_session_ended(&state, auth.session_id);
                 }
                 // Ended by the other phone, the sweeper, an admin or the ceiling above.
                 if sessions::authorize_peer(&pool, &super::tokens::GuestClaims::new(

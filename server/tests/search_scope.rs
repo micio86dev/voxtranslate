@@ -234,3 +234,99 @@ async fn member_scope_is_created_or_participated_admin_sees_all() {
             .await;
     }
 }
+
+/// The same three cases as above, through the real functions the handler now calls
+/// (`resolve_visibility` + `knn`) instead of a copy of their SQL. The visibility rules and the
+/// result set of a search WITHOUT filters must be exactly what they were before the filters
+/// (kind, language, dates, session, speaker) existed.
+#[tokio::test]
+async fn the_real_search_functions_keep_member_and_admin_scope_without_filters() {
+    use voxtranslate_server::business::search::{knn, resolve_visibility, Filters, Visible};
+
+    let Some(db_url) = voxtranslate_server::db::test_database_url() else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    let pool = db::connect(&db_url).await.expect("connect");
+    db::migrate(&pool).await.expect("migrate");
+
+    let owner = mk_user(&pool, "owner").await;
+    let member = mk_user(&pool, "member").await;
+    let other = mk_user(&pool, "other").await;
+    let org_id = Uuid::new_v4();
+    sqlx::query("INSERT INTO organizations (id, name, slug, owner_id) VALUES ($1, $2, $3, $4)")
+        .bind(org_id)
+        .bind("Acme")
+        .bind(format!("acme-{org_id}"))
+        .bind(owner)
+        .execute(&pool)
+        .await
+        .expect("insert org");
+    let (p_created, s_created) = mk_project_with_call(&pool, org_id, member, None).await;
+    let (p_part, s_part) = mk_project_with_call(&pool, org_id, other, Some(member)).await;
+    let (p_other, s_other) = mk_project_with_call(&pool, org_id, other, None).await;
+
+    let search = |visible: Visible, project: Option<Uuid>| {
+        let pool = pool.clone();
+        async move {
+            knn(
+                &pool,
+                org_id,
+                member,
+                &visible,
+                project,
+                &Filters::default(),
+                pgvector::Vector::from(vec![0.1f32; 1536]),
+                50,
+            )
+            .await
+            .expect("knn")
+            .into_iter()
+            .filter_map(|r| r.session_id)
+            .collect::<std::collections::BTreeSet<Uuid>>()
+        }
+    };
+
+    // Member: created ∪ participated, never the third project.
+    let vis = resolve_visibility(&pool, org_id, member, false)
+        .await
+        .expect("visibility");
+    match &vis {
+        Visible::Projects(p) => {
+            assert_eq!(
+                p.iter().copied().collect::<std::collections::BTreeSet<_>>(),
+                [p_created, p_part].into_iter().collect()
+            );
+        }
+        other => panic!("a member sees a project set, got {other:?}"),
+    }
+    let hits = search(vis, None).await;
+    assert_eq!(hits, [s_created, s_part].into_iter().collect());
+
+    // Admin: everything, and a project filter still narrows.
+    let hits = search(Visible::Everything, None).await;
+    assert!(hits.is_superset(&[s_created, s_part, s_other].into_iter().collect()));
+    let only = search(Visible::Everything, Some(p_other)).await;
+    assert_eq!(only, [s_other].into_iter().collect());
+
+    // A member of nothing: nothing to search (and no query is run).
+    let stranger = mk_user(&pool, "stranger").await;
+    assert_eq!(
+        resolve_visibility(&pool, org_id, stranger, false)
+            .await
+            .expect("visibility"),
+        Visible::Nothing
+    );
+
+    sqlx::query("DELETE FROM organizations WHERE id = $1")
+        .bind(org_id)
+        .execute(&pool)
+        .await
+        .expect("cleanup org");
+    for uid in [owner, member, other, stranger] {
+        let _ = sqlx::query("DELETE FROM users WHERE id = $1")
+            .bind(uid)
+            .execute(&pool)
+            .await;
+    }
+}

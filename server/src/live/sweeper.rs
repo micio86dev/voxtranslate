@@ -13,12 +13,16 @@ use std::time::Duration;
 use serde_json::json;
 use uuid::Uuid;
 
-use super::sessions;
 use super::ws::room_name;
+use super::{erase, finalize, sessions};
 use crate::AppState;
 
 /// How often the sweep runs. Finer than the reconnect grace, coarse enough to cost nothing.
 const SWEEP_EVERY: Duration = Duration::from_secs(15);
+/// How often the heavier housekeeping runs (finalise stragglers, apply retention).
+const MAINTENANCE_EVERY: Duration = Duration::from_secs(3600);
+/// Conversations finalised per maintenance pass; the next pass takes the next ones.
+const FINALIZE_BATCH: i64 = 100;
 
 /// Run forever. Spawned once at startup, only when the feature is enabled.
 pub async fn run(state: AppState) {
@@ -29,7 +33,41 @@ pub async fn run(state: AppState) {
         if let Err(e) = sweep_once(&state).await {
             tracing::warn!(error = %e, "live: sweep failed");
         }
+        maintenance_if_due(&state).await;
     }
+}
+
+/// Run the hourly housekeeping if an hour has passed since it last started. Tracked in
+/// `LiveState`, so the 15-second sweep can call this every time and it still runs once an hour.
+pub async fn maintenance_if_due(state: &AppState) {
+    if !state.live.maintenance_due(MAINTENANCE_EVERY) {
+        return;
+    }
+    let (finalized, erased) = run_maintenance(state, None).await;
+    if finalized + erased > 0 {
+        tracing::info!(finalized, erased, "live: maintenance pass");
+    }
+}
+
+/// The housekeeping itself: apply retention, then finalise conversations whose transcript was
+/// never written (a restart lost its timer). Retention first, so a conversation that is already
+/// past its window is erased rather than first embedded and then thrown away. Failures are
+/// logged, never raised: one bad pass must not stop the sweeper. Returns
+/// `(finalized, erased)`; `only` scopes it to given sessions for tests.
+pub async fn run_maintenance(state: &AppState, only: Option<&[Uuid]>) -> (u64, u64) {
+    let erased = erase::retention_pass(state, only)
+        .await
+        .unwrap_or_else(|e| {
+            tracing::warn!(error = %e, "live: retention pass failed");
+            0
+        });
+    let finalized = finalize::finalize_pending(state, only, FINALIZE_BATCH)
+        .await
+        .unwrap_or_else(|e| {
+            tracing::warn!(error = %e, "live: finalising stragglers failed");
+            0
+        });
+    (finalized, erased)
 }
 
 /// One pass over every open conversation.
@@ -48,7 +86,11 @@ pub async fn sweep_sessions(state: &AppState, only: Option<&[Uuid]>) -> Result<u
         return Ok(0);
     };
     let cfg = &state.live.config;
-    let mut changed = sessions::expire_stale(pool, cfg).await?;
+    let expired = sessions::expire_stale(pool, cfg).await?;
+    let mut changed = expired.len() as u64;
+    for id in expired {
+        finalize::on_session_ended(state, id);
+    }
 
     let active: Vec<Uuid> = match only {
         None => {
@@ -104,6 +146,7 @@ pub async fn sweep_sessions(state: &AppState, only: Option<&[Uuid]>) -> Result<u
     for id in abandoned {
         if sessions::end_session(pool, id, "abandoned").await? {
             sessions::record_event(pool, id, "abandoned", json!({})).await;
+            finalize::on_session_ended(state, id);
             changed += 1;
         }
     }

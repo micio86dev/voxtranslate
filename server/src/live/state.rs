@@ -2,6 +2,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
+use std::time::Duration;
 
 use tokio::time::Instant;
 use uuid::Uuid;
@@ -24,6 +25,8 @@ pub struct LiveState {
     /// reconnects is still muted: the server enforces mute, it does not trust the client to
     /// remember it.
     muted: Mutex<HashSet<(Uuid, Uuid)>>,
+    /// When the hourly housekeeping (finalise stragglers, retention) last started.
+    maintenance: Mutex<Option<Instant>>,
 }
 
 // Hand-written: `PeerTx` is a channel handle, and a `{:?}` of the state should show the
@@ -43,6 +46,24 @@ impl LiveState {
             vacant: Mutex::new(HashMap::new()),
             owners: Mutex::new(HashMap::new()),
             muted: Mutex::new(HashSet::new()),
+            maintenance: Mutex::new(None),
+        }
+    }
+
+    /// Whether the periodic housekeeping is due, and if so record that it starts now. The
+    /// check and the stamp are one step, so two sweeps cannot both start it.
+    pub fn maintenance_due(&self, every: Duration) -> bool {
+        self.maintenance_due_at(Instant::now(), every)
+    }
+
+    fn maintenance_due_at(&self, now: Instant, every: Duration) -> bool {
+        let mut last = self.maintenance.lock().unwrap_or_else(|p| p.into_inner());
+        match *last {
+            Some(at) if now.duration_since(at) < every => false,
+            _ => {
+                *last = Some(now);
+                true
+            }
         }
     }
 
@@ -120,5 +141,31 @@ impl LiveState {
 
     pub fn enabled(&self) -> bool {
         self.config.enabled && self.config.keys.is_some()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn maintenance_runs_at_most_once_per_interval() {
+        let state = LiveState::new(LiveConfig::disabled());
+        let hour = Duration::from_secs(3600);
+        let t0 = Instant::now();
+        assert!(
+            state.maintenance_due_at(t0, hour),
+            "the first sweep runs it"
+        );
+        assert!(!state.maintenance_due_at(t0 + Duration::from_secs(15), hour));
+        assert!(!state.maintenance_due_at(t0 + Duration::from_secs(3599), hour));
+        assert!(
+            state.maintenance_due_at(t0 + hour, hour),
+            "due again once the interval has passed"
+        );
+        assert!(
+            !state.maintenance_due_at(t0 + hour + Duration::from_secs(1), hour),
+            "and the new stamp restarts the clock"
+        );
     }
 }
