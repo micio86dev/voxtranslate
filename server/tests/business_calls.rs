@@ -171,6 +171,9 @@ async fn room_binding_is_inherited_by_new_call() {
         return;
     };
     let http = Client::new();
+    // A fresh room every run: bindings persist in the database, and a binding held by another
+    // tenant (a previous run's org) is — correctly — not overwritable.
+    let room = format!("inherit-{}", Uuid::new_v4().simple());
     let (owner, jwt) = user(&srv).await;
     let org = make_org(&srv, owner).await;
     let project: Uuid = sqlx::query_scalar(
@@ -186,7 +189,7 @@ async fn room_binding_is_inherited_by_new_call() {
     let other_owner = user(&srv).await.0;
     let other_org = make_org(&srv, other_owner).await;
     let bad = http
-        .patch(format!("{}/api/rooms/inherit-room/business", base(&srv)))
+        .patch(format!("{}/api/rooms/{room}/business", base(&srv)))
         .bearer_auth(&jwt)
         .json(&json!({ "org_id": org, "project_id": Uuid::new_v4() }))
         .send()
@@ -197,7 +200,7 @@ async fn room_binding_is_inherited_by_new_call() {
 
     // Cloud recording requires an ACTIVE subscription — rejected without one.
     let no_sub = http
-        .patch(format!("{}/api/rooms/inherit-room/business", base(&srv)))
+        .patch(format!("{}/api/rooms/{room}/business", base(&srv)))
         .bearer_auth(&jwt)
         .json(&json!({ "org_id": org, "project_id": project, "cloud_recording_enabled": true }))
         .send()
@@ -218,7 +221,7 @@ async fn room_binding_is_inherited_by_new_call() {
 
     // Bind the room to org + project with recording on.
     let bind = http
-        .patch(format!("{}/api/rooms/inherit-room/business", base(&srv)))
+        .patch(format!("{}/api/rooms/{room}/business", base(&srv)))
         .bearer_auth(&jwt)
         .json(&json!({ "org_id": org, "project_id": project, "cloud_recording_enabled": true }))
         .send()
@@ -229,7 +232,7 @@ async fn room_binding_is_inherited_by_new_call() {
     // A new call on that room inherits org/project/recording from the binding.
     let svc = TranscriptService::new(srv.pool.clone());
     let sid = Uuid::new_v4();
-    svc.session_started(sid, "inherit-room").await.unwrap();
+    svc.session_started(sid, &room).await.unwrap();
     let (got_org, got_project, recording): (Option<Uuid>, Option<Uuid>, bool) = sqlx::query_as(
         "SELECT org_id, project_id, cloud_recording_enabled FROM call_sessions WHERE id = $1",
     )
