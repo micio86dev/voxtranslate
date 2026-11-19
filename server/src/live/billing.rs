@@ -1,0 +1,286 @@
+//! Billing for Live Connect: who pays, and how a charge can never happen twice.
+//!
+//! The **owner** pays for both directions — a user's personal balance (B2C) or the org wallet
+//! (B2B). The guest is never charged and never sees the owner's balance. Every translated
+//! direction is its own meter (one per phone), exactly as a two-person Talk session bills two
+//! streams.
+//!
+//! ## Why a tick can only be charged once
+//!
+//! The existing meter debits and moves on; a second meter for the same speaker (a phone that
+//! reconnects before its old socket is torn down) would debit twice. Here every charge writes a
+//! `live_usage_ticks` row keyed by `(session, peer, tick_seq)` **in the same transaction** as the
+//! debit, `ON CONFLICT DO NOTHING`. The tick number is derived from the wall clock, so two meters
+//! covering the same interval compute the same number and only the first one's transaction
+//! commits a charge. A lost race costs nothing; a skipped tick after a stall costs the user
+//! nothing either — the failure mode is under-charging, never double-charging.
+//!
+//! ## Never trust the client
+//!
+//! The meter runs on the server for as long as the engine session is open. Nothing a client
+//! sends changes what it charges.
+
+use std::sync::Arc;
+use std::time::Duration;
+
+use rust_decimal::prelude::ToPrimitive;
+use rust_decimal::Decimal;
+use tokio::sync::{mpsc, oneshot};
+use uuid::Uuid;
+
+use super::state::LiveState;
+use crate::billing::{deduct_usage_tx, usd, BillingError};
+use crate::business::credits::{deduct_org_credits_tx, CreditAccumulator, OrgCharge};
+use crate::db::Pool;
+use crate::protocol::ServerMessage;
+use crate::rooms::RoomManager;
+use crate::usage::billable_streams;
+
+/// Ledger `type` for an org's Live Connect usage.
+const ORG_LEDGER_TYPE: &str = "live_connect";
+/// Consecutive failed charges before the conversation is closed rather than left free.
+const MAX_CONSECUTIVE_ERRORS: u32 = 6;
+
+/// Who is billed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LivePayer {
+    /// A consumer's personal balance, accumulating on this `usage_sessions` row.
+    User { user_id: Uuid, usage_session: Uuid },
+    /// A business wallet; the ledger row references the conversation's `call_sessions` row.
+    Org { org_id: Uuid, call_session: Uuid },
+}
+
+/// What one attempted charge did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Tick {
+    /// Debited. `balance` is the consumer's new balance (an org's is not shown to anyone).
+    Charged { balance: Option<Decimal> },
+    /// This tick had already been charged: nothing was debited.
+    Duplicate,
+    /// The payer cannot cover it: nothing was debited.
+    Insufficient,
+}
+
+/// Why a meter stopped the conversation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EndCause {
+    BalanceExhausted,
+    /// The database kept refusing charges; ending beats translating for free indefinitely.
+    BillingError,
+}
+
+/// What one tick costs, in the unit each kind of payer is billed in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Charge {
+    /// Seconds of translation this tick covers (what a usage session accumulates).
+    pub seconds: i32,
+    /// What a consumer pays.
+    pub usd: Decimal,
+    /// What an org pays: a whole number of credits, 1 credit = 1 cent.
+    pub credits: i32,
+}
+
+/// Charge one tick, atomically and at most once. Only the part of `charge` that matches the
+/// `payer` is used.
+pub async fn charge_tick(
+    pool: &Pool,
+    payer: &LivePayer,
+    session: Uuid,
+    peer: Uuid,
+    tick_seq: i64,
+    charge: Charge,
+) -> Result<Tick, BillingError> {
+    let Charge {
+        seconds,
+        usd: usd_amount,
+        credits,
+    } = charge;
+    let (payer_kind, recorded) = match payer {
+        LivePayer::User { .. } => ("user", usd_amount),
+        LivePayer::Org { .. } => ("org", Decimal::from(credits)),
+    };
+    let mut tx = pool.begin().await?;
+    let inserted = sqlx::query(
+        "INSERT INTO live_usage_ticks (session_id, peer_id, tick_seq, payer_kind, amount)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (session_id, peer_id, tick_seq) DO NOTHING",
+    )
+    .bind(session)
+    .bind(peer)
+    .bind(tick_seq)
+    .bind(payer_kind)
+    .bind(recorded)
+    .execute(&mut *tx)
+    .await?;
+    if inserted.rows_affected() == 0 {
+        // Dropping `tx` rolls it back: nothing to keep.
+        return Ok(Tick::Duplicate);
+    }
+
+    match payer {
+        LivePayer::User {
+            user_id,
+            usage_session,
+        } => match deduct_usage_tx(&mut tx, *user_id, Some(*usage_session), seconds, usd_amount)
+            .await
+        {
+            Ok(balance) => {
+                tx.commit().await?;
+                Ok(Tick::Charged {
+                    balance: Some(balance),
+                })
+            }
+            // The tick row is rolled back with the failed debit, so a retry after a top-up is
+            // not mistaken for a duplicate.
+            Err(BillingError::InsufficientFunds) => Ok(Tick::Insufficient),
+            Err(e) => Err(e),
+        },
+        LivePayer::Org {
+            org_id,
+            call_session,
+        } => match deduct_org_credits_tx(
+            &mut tx,
+            *org_id,
+            credits,
+            ORG_LEDGER_TYPE,
+            Some(*call_session),
+            None,
+            "Live Connect translation",
+        )
+        .await
+        .map_err(BillingError::from)?
+        {
+            OrgCharge::Charged { .. } => {
+                tx.commit().await?;
+                Ok(Tick::Charged { balance: None })
+            }
+            OrgCharge::Insufficient { .. } => Ok(Tick::Insufficient),
+        },
+    }
+}
+
+/// Everything one phone's meter needs.
+pub struct LiveMeter {
+    pub pool: Pool,
+    pub live: Arc<LiveState>,
+    pub rooms: Arc<RoomManager>,
+    pub payer: LivePayer,
+    pub session: Uuid,
+    pub peer: Uuid,
+    pub room: String,
+    pub speaker_lang: String,
+    pub interval_secs: u64,
+    pub rate_per_second: f64,
+    pub scale_by_target_count: bool,
+    pub low_balance_threshold: f64,
+}
+
+/// The tick number for "now": the same for every meter covering the same interval, which is
+/// what makes a duplicated meter harmless.
+pub fn tick_seq(now_unix: i64, interval_secs: u64) -> i64 {
+    now_unix / interval_secs.max(1) as i64
+}
+
+impl LiveMeter {
+    /// Run until cancelled, the payer cannot cover a tick, or charging keeps failing.
+    pub async fn run(
+        self,
+        end_tx: mpsc::UnboundedSender<EndCause>,
+        mut cancel: oneshot::Receiver<()>,
+    ) {
+        let interval = self.interval_secs.max(1);
+        let mut ticker = tokio::time::interval(Duration::from_secs(interval));
+        // After a stall, skip the missed ticks instead of firing them back to back: a skipped
+        // tick under-charges, a burst of them could not be told apart from a duplicate.
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        ticker.tick().await; // charge in arrears: the first tick is the start of the interval
+        let mut warned_low = false;
+        let mut owed = CreditAccumulator::default();
+        let mut errors = 0u32;
+
+        loop {
+            tokio::select! {
+                _ = &mut cancel => break,
+                _ = ticker.tick() => {
+                    // Nothing to translate while everyone shares this speaker's language.
+                    let targets = self.rooms.get_room_languages(&self.room, &self.peer.to_string());
+                    let Some(streams) =
+                        billable_streams(&targets, &self.speaker_lang, self.scale_by_target_count)
+                    else {
+                        continue;
+                    };
+                    let amount = usd(self.rate_per_second * interval as f64 * streams as f64);
+                    let credits = match self.payer {
+                        LivePayer::User { .. } => 0,
+                        LivePayer::Org { .. } => match owed.take(amount) {
+                            0 => continue, // still under a cent; carried to the next tick
+                            c => c,
+                        },
+                    };
+                    let seq = tick_seq(chrono::Utc::now().timestamp(), interval);
+
+                    match charge_tick(
+                        &self.pool,
+                        &self.payer,
+                        self.session,
+                        self.peer,
+                        seq,
+                        Charge { seconds: interval as i32, usd: amount, credits },
+                    ).await
+                    {
+                        Ok(Tick::Charged { balance }) => {
+                            errors = 0;
+                            if let Some(b) = balance {
+                                let bal = b.to_f64().unwrap_or(0.0);
+                                self.live.notify_owner(
+                                    self.session,
+                                    ServerMessage::BalanceUpdate { balance: bal }.to_json(),
+                                );
+                                if !warned_low && bal < self.low_balance_threshold {
+                                    warned_low = true;
+                                    self.live.notify_owner(
+                                        self.session,
+                                        ServerMessage::LowBalance { balance: bal }.to_json(),
+                                    );
+                                }
+                            }
+                        }
+                        Ok(Tick::Duplicate) => {}
+                        Ok(Tick::Insufficient) => {
+                            tracing::info!(session = %self.session, "live: payer cannot cover usage");
+                            let _ = end_tx.send(EndCause::BalanceExhausted);
+                            break;
+                        }
+                        Err(e) => {
+                            errors += 1;
+                            tracing::error!(session = %self.session, error = %e, errors, "live: charge failed");
+                            if errors >= MAX_CONSECUTIVE_ERRORS {
+                                let _ = end_tx.send(EndCause::BillingError);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn meters_covering_the_same_interval_agree_on_the_tick() {
+        // Two meters that start a second apart still land on one number per interval.
+        assert_eq!(tick_seq(1_000, 5), tick_seq(1_004, 5));
+        assert_ne!(tick_seq(1_004, 5), tick_seq(1_005, 5));
+        // Consecutive intervals of one meter are always different ticks.
+        assert_eq!(tick_seq(1_005, 5), tick_seq(1_000, 5) + 1);
+    }
+
+    #[test]
+    fn a_zero_interval_is_clamped_not_a_division_by_zero() {
+        assert_eq!(tick_seq(100, 0), 100);
+    }
+}

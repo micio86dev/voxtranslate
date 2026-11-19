@@ -13,6 +13,7 @@ use std::time::Duration;
 
 use futures::{SinkExt as _, StreamExt as _};
 use reqwest::StatusCode;
+use rust_decimal::Decimal;
 use serde_json::{json, Value};
 use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::{Error as WsError, Message};
@@ -43,6 +44,12 @@ struct Srv {
 }
 
 async fn setup(mock: &RealtimeMock) -> Option<Srv> {
+    setup_with(mock, None).await
+}
+
+/// `min_join` overrides the balance a user needs to start; `Some(0.0)` lets a test hand an
+/// owner an empty wallet and watch the conversation end.
+async fn setup_with(mock: &RealtimeMock, min_join: Option<f64>) -> Option<Srv> {
     let url = db::test_database_url()?;
     let pool = db::connect(&url).await.ok()?;
     db::migrate(&pool).await.ok()?;
@@ -53,6 +60,14 @@ async fn setup(mock: &RealtimeMock) -> Option<Srv> {
         ..Default::default()
     };
     config.standard_enabled = true;
+    {
+        // Tick every second, so a few seconds of speech produce several charges.
+        let pricing = &mut config.billing.as_mut().unwrap().pricing;
+        pricing.usage_update_interval = 1;
+        if let Some(m) = min_join {
+            pricing.min_balance_to_join = m;
+        }
+    }
     let min_join = usd(config.billing.as_ref().unwrap().pricing.min_balance_to_join);
     let mut state = AppState::new(config);
     state.billing = Some(BillingService::new(pool.clone(), min_join));
@@ -609,4 +624,215 @@ async fn a_conversation_with_a_connected_phone_is_never_swept() {
         .unwrap();
     assert_eq!(status_of(&srv, c.session).await.0, "active");
     drop(host.close(None).await);
+}
+
+// ---- billing over the socket -----------------------------------------------------------
+
+#[tokio::test]
+async fn the_owner_sees_the_balance_the_guest_does_not_and_every_debit_has_exactly_one_tick() {
+    let mock = RealtimeMock::start(Dialect::Qwen).await;
+    mock.reply_with(speech());
+    let srv = srv!(&mock);
+    let c = convo(&srv, false).await;
+    let mut host = open(&srv, &c.host_token).await;
+    let mut guest = open(&srv, &c.guest_token).await;
+    say(&mut host, json!({ "type": "start" })).await;
+    say(&mut guest, json!({ "type": "start" })).await;
+
+    let (host_got, guest_got) = both_speak(&mut host, &mut guest, 5500).await;
+    say(&mut host, json!({ "type": "stop" })).await;
+    say(&mut guest, json!({ "type": "stop" })).await;
+    tokio::time::sleep(Duration::from_millis(800)).await; // let an in-flight charge commit
+
+    // Both phones' speech is billed to the owner, and only the owner is told the balance.
+    assert!(
+        host_got.iter().any(|v| v["type"] == "balance_update"),
+        "the owner is never told: {host_got:?}"
+    );
+    assert!(
+        !guest_got
+            .iter()
+            .any(|v| matches!(v["type"].as_str(), Some("balance_update" | "low_balance"))),
+        "the guest saw someone else's balance: {guest_got:?}"
+    );
+
+    // Each debit has exactly one tick row, for the right total, and both phones were metered.
+    let (ticks, tick_sum, peers): (i64, Decimal, i64) = sqlx::query_as(
+        "SELECT count(*), COALESCE(sum(amount), 0), count(DISTINCT peer_id)
+         FROM live_usage_ticks WHERE session_id = $1 AND payer_kind = 'user'",
+    )
+    .bind(c.session)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
+    let (rows, ledger_sum): (i64, Decimal) = sqlx::query_as(
+        "SELECT count(*), COALESCE(sum(-amount), 0) FROM credit_transactions WHERE user_id = $1 AND kind = 'usage'",
+    )
+    .bind(c.host_user)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
+    assert!(ticks >= 2, "the meters never charged: {ticks}");
+    assert_eq!(peers, 2, "the guest's speech must be billed too");
+    assert_eq!(rows, ticks, "a debit without a tick row, or the reverse");
+    assert_eq!(ledger_sum, tick_sum);
+    let left: Decimal = sqlx::query_scalar("SELECT balance FROM users WHERE id = $1")
+        .bind(c.host_user)
+        .fetch_one(&srv.pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        left,
+        Decimal::new(500, 2) - tick_sum,
+        "the balance moved by exactly what was charged"
+    );
+}
+
+#[tokio::test]
+async fn the_conversation_ends_for_both_phones_when_the_owner_runs_dry() {
+    let mock = RealtimeMock::start(Dialect::Qwen).await;
+    mock.reply_with(speech());
+    let srv = setup_with(&mock, Some(0.0)).await;
+    let Some(srv) = srv else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    let c = convo(&srv, false).await;
+    let mut host = open(&srv, &c.host_token).await;
+    let mut guest = open(&srv, &c.guest_token).await;
+
+    // Starting is allowed (the gate is "can join"), but the first tick cannot be paid.
+    sqlx::query("UPDATE users SET balance = 0 WHERE id = $1")
+        .bind(c.host_user)
+        .execute(&srv.pool)
+        .await
+        .unwrap();
+    say(&mut host, json!({ "type": "start" })).await;
+    let (host_got, guest_got) = both_speak(&mut host, &mut guest, 7000).await;
+
+    for (who, frames) in [("host", &host_got), ("guest", &guest_got)] {
+        assert!(
+            frames.iter().any(|v| v["type"] == "balance_exhausted"),
+            "{who} was not told: {frames:?}"
+        );
+        let ended = frames.iter().find(|v| v["type"] == "session_state");
+        assert_eq!(
+            ended.map(|v| v["reason"].clone()),
+            Some(json!("balance_exhausted")),
+            "{who}: {frames:?}"
+        );
+    }
+    assert_eq!(
+        status_of(&srv, c.session).await,
+        ("ended".into(), Some("balance_exhausted".into()))
+    );
+    let charged: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM live_usage_ticks WHERE session_id = $1")
+            .bind(c.session)
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap();
+    assert_eq!(charged, 0, "nothing is charged for what could not be paid");
+}
+
+// ---- business sessions over the socket -------------------------------------------------
+
+/// An org with an active subscription and credit, one project, and `member` as a member.
+async fn org_with_member(srv: &Srv, owner: Uuid, member: Uuid) -> (Uuid, Uuid) {
+    let org: Uuid = sqlx::query_scalar(
+        "INSERT INTO organizations (name, slug, owner_id, subscription_status, current_period_end, credits_balance)
+         VALUES ('Hotel', $1, $2, 'active', now() + interval '30 days', 1000) RETURNING id",
+    )
+    .bind(format!("slug-{}", Uuid::new_v4().simple()))
+    .bind(owner)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
+    for (user, role) in [(owner, "owner"), (member, "member")] {
+        sqlx::query("INSERT INTO organization_members (org_id, user_id, role) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING")
+            .bind(org)
+            .bind(user)
+            .bind(role)
+            .execute(&srv.pool)
+            .await
+            .unwrap();
+    }
+    let project: Uuid = sqlx::query_scalar(
+        "INSERT INTO projects (org_id, name, created_by) VALUES ($1, 'Reception', $2) RETURNING id",
+    )
+    .bind(org)
+    .bind(owner)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
+    (org, project)
+}
+
+#[tokio::test]
+async fn a_business_conversation_is_recorded_under_its_org_and_project_and_gated_on_the_org_wallet()
+{
+    let mock = RealtimeMock::start(Dialect::Qwen).await;
+    mock.reply_with(speech());
+    let srv = srv!(&mock);
+    let (_, owner) = login(&srv).await;
+    let (jwt, member) = login(&srv).await;
+    let (org, project) = org_with_member(&srv, owner, member).await;
+
+    let (s, created) = srv
+        .post(
+            "/api/live/sessions",
+            Some(&jwt),
+            json!({ "lang": "it", "org_id": org, "project_id": project }),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{created}");
+    let code = created["invite_url"]
+        .as_str()
+        .unwrap()
+        .rsplit('/')
+        .next()
+        .unwrap()
+        .to_string();
+    let (_, joined) = srv
+        .post(
+            "/api/live/join",
+            None,
+            json!({ "code": code, "name": "Customer", "lang": "es", "consent": true }),
+        )
+        .await;
+    let session: Uuid = created["session_id"].as_str().unwrap().parse().unwrap();
+
+    let mut host = open(&srv, created["token"].as_str().unwrap()).await;
+    let _guest = open(&srv, joined["token"].as_str().unwrap()).await;
+
+    // The meeting-side row exists straight away (the org ledger references it) and carries the
+    // org and project, so the conversation lands in that project's history and search.
+    let (kind, row_org, row_project): (String, Option<Uuid>, Option<Uuid>) = sqlx::query_as(
+        "SELECT cs.kind, cs.org_id, cs.project_id FROM live_sessions ls
+         JOIN call_sessions cs ON cs.id = ls.call_session_id WHERE ls.id = $1",
+    )
+    .bind(session)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        (kind.as_str(), row_org, row_project),
+        ("live_connect", Some(org), Some(project))
+    );
+
+    // The org wallet, not the person, is what gates speech: below the minimum, no translation.
+    sqlx::query("UPDATE organizations SET credits_balance = 5 WHERE id = $1")
+        .bind(org)
+        .execute(&srv.pool)
+        .await
+        .unwrap();
+    say(&mut host, json!({ "type": "start" })).await;
+    let err = wait_for(&mut host, |v| v["type"] == "error")
+        .await
+        .expect("error frame");
+    assert_eq!(err["code"], "insufficient_credits");
+    assert!(
+        !mock.saw_type("input_audio_buffer.append"),
+        "free translation"
+    );
 }

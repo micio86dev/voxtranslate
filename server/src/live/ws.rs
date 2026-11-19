@@ -26,6 +26,7 @@ use serde_json::json;
 use tokio::sync::{mpsc, oneshot};
 use uuid::Uuid;
 
+use super::billing::{EndCause, LiveMeter, LivePayer};
 use super::routes::api_err;
 use super::sessions::{self, PeerAuth};
 use super::tokens::PeerRole;
@@ -33,10 +34,9 @@ use crate::deepgram::SpeakerCtx;
 use crate::engine::{SessionDeps, SessionOutcome, TranscriptWriter};
 use crate::protocol::{ClientMessage, ServerMessage};
 use crate::rooms::{LeaveOutcome, Peer, PeerTx, Visibility, OUT_CHANNEL_CAP};
-use crate::usage::Payer;
 use crate::{
-    pump_to_ws, spawn_meter, AppState, ConnGuard, MAX_FRAME_BYTES, WS_IDLE_TIMEOUT, WS_MSG_MAX,
-    WS_MSG_WINDOW, WS_PING_INTERVAL,
+    pump_to_ws, AppState, ConnGuard, MAX_FRAME_BYTES, WS_IDLE_TIMEOUT, WS_MSG_MAX, WS_MSG_WINDOW,
+    WS_PING_INTERVAL,
 };
 
 /// How often a connected phone re-checks that its conversation is still open. The database
@@ -270,13 +270,18 @@ async fn handle_live_peer(socket: WebSocket, state: AppState, auth: PeerAuth) {
     )
     .await;
 
+    // The owner side receives balance updates for BOTH phones' speech.
+    if auth.role != PeerRole::Guest {
+        state.live.set_owner(auth.session_id, conn, out_tx.clone());
+    }
+
     let send_task = tokio::spawn(pump_to_ws(out_rx, ws_tx));
 
     // ---- per-socket state ------------------------------------------------------------
     let mut audio_tx: Option<mpsc::Sender<Vec<u8>>> = None;
     let mut meter_cancel: Option<oneshot::Sender<()>> = None;
     let mut usage_session: Option<Uuid> = None;
-    let (exhaust_tx, mut exhaust_rx) = mpsc::unbounded_channel::<()>();
+    let (end_tx, mut end_rx) = mpsc::unbounded_channel::<EndCause>();
     let mut muted = false;
     let mut msg_count: u32 = 0;
     let mut msg_window = tokio::time::Instant::now();
@@ -339,7 +344,7 @@ async fn handle_live_peer(socket: WebSocket, state: AppState, auth: PeerAuth) {
                                     continue; // already speaking: Start is idempotent
                                 }
                                 match start_speaking(&state, &auth, &room, call_session, &engine,
-                                    transcripts.clone(), participant_row, &out_tx, &exhaust_tx,
+                                    transcripts.clone(), participant_row, &end_tx,
                                     &mut usage_session).await
                                 {
                                     Ok((tx, cancel)) => {
@@ -380,14 +385,21 @@ async fn handle_live_peer(socket: WebSocket, state: AppState, auth: PeerAuth) {
                 }
             }
 
-            Some(()) = exhaust_rx.recv() => {
-                // The payer ran out. Both phones are told, and the conversation ends cleanly.
-                state.rooms.broadcast(&room, &ServerMessage::BalanceExhausted.to_json());
-                let _ = sessions::end_session(&pool, auth.session_id, "balance_exhausted").await;
-                sessions::record_event(&pool, auth.session_id, "exhausted", json!({})).await;
+            Some(cause) = end_rx.recv() => {
+                // The conversation cannot continue: the payer ran out, or charging kept
+                // failing. Both phones are told, and it ends cleanly.
+                let reason = match cause {
+                    EndCause::BalanceExhausted => {
+                        state.rooms.broadcast(&room, &ServerMessage::BalanceExhausted.to_json());
+                        "balance_exhausted"
+                    }
+                    EndCause::BillingError => "billing_error",
+                };
+                let _ = sessions::end_session(&pool, auth.session_id, reason).await;
+                sessions::record_event(&pool, auth.session_id, "ended_by_billing", json!({ "reason": reason })).await;
                 end_notice = Some(ServerMessage::SessionState {
                     status: "ended".into(),
-                    reason: Some("balance_exhausted".into()),
+                    reason: Some(reason.into()),
                 });
                 break;
             }
@@ -428,6 +440,7 @@ async fn handle_live_peer(socket: WebSocket, state: AppState, auth: PeerAuth) {
     }
 
     // ---- teardown --------------------------------------------------------------------
+    state.live.clear_owner(auth.session_id, conn);
     drop(audio_tx);
     if let Some(c) = meter_cancel.take() {
         let _ = c.send(());
@@ -487,8 +500,7 @@ async fn start_speaking(
     engine: &Arc<dyn crate::engine::TranslationEngine>,
     transcripts: Option<crate::transcripts::TranscriptService>,
     participant_row: Option<Uuid>,
-    out_tx: &PeerTx,
-    exhaust_tx: &mpsc::UnboundedSender<()>,
+    end_tx: &mpsc::UnboundedSender<EndCause>,
     usage_session: &mut Option<Uuid>,
 ) -> Result<(mpsc::Sender<Vec<u8>>, oneshot::Sender<()>), &'static str> {
     let pool = state.pool.as_ref().ok_or("unavailable")?;
@@ -503,9 +515,9 @@ async fn start_speaking(
             {
                 return Err("insufficient_credits");
             }
-            Payer::Org {
+            LivePayer::Org {
                 org_id,
-                session_id: Some(call_session),
+                call_session,
             }
         }
         (None, Some(owner)) => {
@@ -518,14 +530,20 @@ async fn start_speaking(
                     .await
                     .ok();
             }
-            let session_id = usage_session.ok_or("unavailable")?;
-            Payer::User {
+            let usage_session = usage_session.ok_or("unavailable")?;
+            LivePayer::User {
                 user_id: owner,
-                session_id,
+                usage_session,
             }
         }
         (None, None) => return Err("unavailable"),
     };
+    let pricing = &state
+        .config
+        .billing
+        .as_ref()
+        .ok_or("billing_unavailable")?
+        .pricing;
 
     let ctx = SpeakerCtx {
         room: room.to_string(),
@@ -552,29 +570,25 @@ async fn start_speaking(
         SessionOutcome::Failed => return Err("engine_unavailable"),
     };
 
-    // The owner's balance updates go to the owner's phone. The guest's meter writes into a
-    // sink: the guest must never see the owner's balance.
-    let meter_out = if auth.role == PeerRole::Guest {
-        let (sink, mut rx, _overflow) = PeerTx::channel(8);
-        tokio::spawn(async move { while rx.recv().await.is_some() {} });
-        sink
-    } else {
-        out_tx.clone()
-    };
-    let cancel = spawn_meter(
-        state,
-        Some(payer),
-        None,
-        &None,
-        &meter_out,
-        exhaust_tx,
-        room,
-        &auth.peer_id.to_string(),
-        &auth.lang,
-        engine.metadata().user_rate_per_second(),
-        engine.metadata().capabilities.cost_scales_per_language,
-    )
-    // No meter means nobody is being charged: refuse rather than translate for free.
-    .ok_or("billing_unavailable")?;
+    // Nobody translates for free: the meter is part of starting, not an afterthought. Balance
+    // updates reach the owner's phone only — the guest never sees someone else's money.
+    let (cancel, cancel_rx) = oneshot::channel();
+    tokio::spawn(
+        LiveMeter {
+            pool: pool.clone(),
+            live: state.live.clone(),
+            rooms: state.rooms.clone(),
+            payer,
+            session: auth.session_id,
+            peer: auth.peer_id,
+            room: room.to_string(),
+            speaker_lang: auth.lang.clone(),
+            interval_secs: pricing.usage_update_interval,
+            rate_per_second: engine.metadata().user_rate_per_second(),
+            scale_by_target_count: engine.metadata().capabilities.cost_scales_per_language,
+            low_balance_threshold: pricing.low_balance_threshold,
+        }
+        .run(end_tx.clone(), cancel_rx),
+    );
     Ok((audio_tx, cancel))
 }
