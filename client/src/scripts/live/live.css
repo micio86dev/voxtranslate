@@ -1,0 +1,301 @@
+/* Live Connect (spec 0121). Global, `lc-` prefixed, built on the Base.astro tokens only
+   (--bg, --surface, --border, --text, --muted, --accent, --success, --danger, --warning,
+   --tap-target, --font-*, --radius-*). Logical properties throughout so RTL needs nothing. */
+
+.lc-page {
+  max-width: 640px;
+  margin-inline: auto;
+  padding: 1rem 1rem 2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+}
+.lc-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.lc-back {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap-target);
+  padding-inline: 0.4rem;
+  color: var(--muted);
+  text-decoration: none;
+  font-size: var(--font-sm);
+}
+.lc-back:hover { color: var(--text); }
+.lc-hero { text-align: center; padding: 0.25rem 0; }
+.lc-title {
+  margin: 0 0 0.6rem;
+  font-size: clamp(1.75rem, 7vw, 2.4rem);
+  line-height: 1.15;
+  font-weight: var(--font-weight-bold);
+  letter-spacing: -0.02em;
+}
+.lc-sub {
+  margin: 0 auto;
+  max-width: 34rem;
+  color: var(--muted);
+  font-size: var(--font-md);
+  line-height: 1.55;
+}
+.lc-stack { display: flex; flex-direction: column; gap: 1rem; }
+.lc-card-setup { display: flex; flex-direction: column; gap: 1rem; }
+.lc-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--font-sm);
+  line-height: 1.5;
+}
+.lc-error {
+  margin: 0;
+  color: var(--danger);
+  font-size: var(--font-sm);
+  line-height: 1.5;
+}
+.lc-error-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.lc-full { width: 100%; }
+.lc-action { width: 100%; text-align: center; text-decoration: none; min-height: var(--tap-target); display: inline-flex; align-items: center; justify-content: center; }
+
+.lc-check {
+  display: flex;
+  min-height: var(--tap-target);
+  align-items: center;
+  gap: 9px;
+  text-align: start;
+  font-size: 0.88rem;
+  color: var(--text);
+  cursor: pointer;
+}
+.lc-check input { width: 20px; height: 20px; margin: 0; flex: none; }
+.lc-hint { display: block; color: var(--muted); font-size: 0.78rem; margin-top: 2px; }
+
+/* --- language picker ----------------------------------------------------- */
+.lc-lang-trigger {
+  width: 100%;
+  min-height: var(--tap-target);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 14px;
+  cursor: pointer;
+  color: var(--text);
+  text-align: start;
+}
+.lc-lang-trigger:hover,
+.lc-lang-trigger[aria-expanded='true'] { border-color: var(--accent); }
+.lc-lang-flag { font-size: 1.2rem; line-height: 1; flex: none; }
+.lc-lang-text { flex: 1; font-size: 0.95rem; }
+.lc-lang-chevron { color: var(--muted); flex: none; }
+.lc-lang-panel {
+  margin-top: 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  overflow: hidden;
+}
+.lc-lang-search { padding: 8px; border-bottom: 1px solid var(--border); }
+.lc-lang-search input { width: 100%; min-height: var(--tap-target); }
+.lc-lang-list { max-height: 320px; overflow-y: auto; padding: 4px; }
+.lc-lang-empty { padding: 14px; margin: 0; color: var(--muted); font-size: var(--font-sm); text-align: center; }
+.lc-lang-opt {
+  width: 100%;
+  min-height: var(--tap-target);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-align: start;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  padding: 8px 10px;
+  cursor: pointer;
+  color: var(--text);
+  font-size: 0.9rem;
+}
+.lc-lang-opt:hover,
+.lc-lang-opt[aria-selected='true'] { background: var(--accent-dim); }
+.lc-lang-opt-flag { font-size: 1.15rem; line-height: 1; flex: none; }
+.lc-lang-opt-native { font-weight: var(--font-weight-semibold); }
+.lc-lang-opt-en { color: var(--muted); font-size: 0.8rem; }
+
+/* --- invite --------------------------------------------------------------- */
+.lc-invite { display: flex; flex-direction: column; align-items: center; gap: 0.9rem; text-align: center; }
+.lc-qr {
+  width: min(78vw, 280px);
+  height: auto;
+  aspect-ratio: 1;
+  background: #fff; /* a QR needs a light ground to scan, in dark mode too */
+  border-radius: var(--radius-md);
+  padding: 8px;
+}
+.lc-link-row { display: flex; gap: 0.5rem; width: 100%; }
+.lc-link {
+  flex: 1;
+  min-width: 0;
+  min-height: var(--tap-target);
+  font-size: var(--font-sm);
+  direction: ltr;
+  text-overflow: ellipsis;
+}
+.lc-link-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; width: 100%; }
+.lc-link-actions > * { flex: 1 1 8rem; min-height: var(--tap-target); }
+
+/* --- conversation --------------------------------------------------------- */
+.lc-room { display: flex; flex-direction: column; gap: 1rem; }
+.lc-live { display: flex; flex-direction: column; gap: 0.9rem; }
+.lc-chip {
+  display: inline-flex;
+  align-items: center;
+  align-self: center;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0.35rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: var(--font-sm);
+}
+.lc-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); flex: none; }
+[data-phase='live'] .lc-dot { background: var(--success); animation: lc-pulse 1.6s ease-in-out infinite; }
+[data-phase='reconnecting'] .lc-dot { background: var(--warning); }
+@keyframes lc-pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.45; transform: scale(0.82); } }
+@media (prefers-reduced-motion: reduce) {
+  [data-phase='live'] .lc-dot { animation: none; }
+}
+
+.lc-partner { display: flex; align-items: center; gap: 0.8rem; padding: 0.8rem 0.9rem; }
+.lc-avatar {
+  width: 2.5rem; height: 2.5rem; flex: none; display: grid; place-items: center;
+  border-radius: 50%; background: var(--accent-dim); color: var(--text);
+  font-weight: var(--font-weight-semibold);
+}
+.lc-partner[data-online='true'] .lc-avatar { box-shadow: 0 0 0 2px var(--success); }
+.lc-partner-who { flex: 1; min-width: 0; }
+.lc-partner-name { margin: 0; font-weight: var(--font-weight-semibold); overflow-wrap: anywhere; }
+.lc-partner-meta { margin: 0; color: var(--muted); font-size: var(--font-sm); }
+.lc-muted-badge {
+  display: inline-flex; align-items: center; gap: 0.3rem; flex: none;
+  color: var(--warning); font-size: var(--font-xs);
+}
+.lc-direction {
+  margin: 0; padding: 0; list-style: none; text-align: center;
+  color: var(--muted); font-size: var(--font-sm); line-height: 1.5;
+}
+.lc-banner {
+  margin: 0; padding: 0.6rem 0.8rem; text-align: center;
+  border: 1px solid var(--border); border-radius: var(--radius-md);
+  background: var(--surface); font-size: var(--font-sm); line-height: 1.45;
+}
+#lc-same-lang { border-color: var(--warning); }
+
+.lc-stage {
+  display: flex; flex-direction: column; justify-content: center; gap: 0.65rem;
+  min-height: 8.5rem; padding: 1.25rem 1rem; text-align: center;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg);
+}
+.lc-caption {
+  margin: 0;
+  font-size: clamp(1.5rem, 6vw, 2.1rem);
+  line-height: 1.25;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+  overflow-wrap: anywhere;
+}
+.lc-caption[data-settled='false'] { opacity: 0.85; }
+.lc-stage[data-empty='true'] { min-height: 0; padding: 0; border: 0; background: none; }
+.lc-caption-original { margin: 0; color: var(--muted); font-size: var(--font-sm); line-height: 1.45; overflow-wrap: anywhere; }
+.lc-mine { margin: 0; color: var(--muted); font-size: var(--font-sm); text-align: center; overflow-wrap: anywhere; }
+.lc-mine-label, .lc-card-label { font-size: var(--font-xs); letter-spacing: 0.04em; text-transform: uppercase; }
+
+.lc-history-title {
+  margin: 0.25rem 0 0; color: var(--muted); font-size: var(--font-xs);
+  font-weight: var(--font-weight-medium); letter-spacing: 0.06em; text-transform: uppercase;
+}
+.lc-history { display: flex; flex-direction: column; gap: 0.6rem; }
+.lc-card {
+  display: flex; flex-direction: column; gap: 0.3rem; padding: 0.8rem 0.9rem;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md);
+}
+.lc-card-main { margin: 0; line-height: 1.4; overflow-wrap: anywhere; font-weight: var(--font-weight-medium); }
+.lc-card[data-who='me'] .lc-card-main { color: var(--muted); font-size: var(--font-sm); font-weight: normal; }
+.lc-card-sub { margin: 0; color: var(--muted); font-size: var(--font-sm); line-height: 1.4; overflow-wrap: anywhere; }
+.lc-credits { margin: 0; text-align: center; color: var(--muted); font-size: var(--font-xs); font-variant-numeric: tabular-nums; }
+.lc-credits[data-low='true'] { color: var(--warning); }
+
+.lc-settings { display: flex; flex-direction: column; gap: 0.8rem; }
+.lc-output select { width: 100%; min-height: var(--tap-target); }
+.lc-controls {
+  position: sticky; bottom: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;
+  padding: 0.75rem 0 0; background: linear-gradient(to top, var(--bg) 70%, transparent);
+}
+.lc-ctl { min-height: var(--tap-target); width: 100%; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; }
+/* --danger (#ef4444) under white text is 3.8:1, below WCAG AA for text; this red is 6.5:1. */
+.lc-end { background: #b91c1c; }
+.lc-confirm { display: flex; flex-direction: column; gap: 0.8rem; text-align: center; }
+.lc-confirm-text { margin: 0; }
+.lc-confirm-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+
+.lc-end-screen { display: flex; flex-direction: column; align-items: center; gap: 1rem; padding: 2rem 1rem; text-align: center; }
+.lc-end-copy { margin: 0; max-width: 30rem; font-size: var(--font-md); line-height: 1.55; }
+
+@media (min-width: 768px) {
+  .lc-stage { min-height: 10rem; padding: 2rem 1.5rem; }
+  .lc-stage[data-empty='true'] { min-height: 0; padding: 0; }
+  .lc-controls { position: static; background: none; max-width: 30rem; margin-inline: auto; width: 100%; }
+}
+
+/* --- form primitives -------------------------------------------------------
+   `.card`, `.field`, inputs and `.btn-*` spacing live in index.astro's SCOPED styles, which
+   do not reach a standalone page, so the few this feature uses are restated here, scoped
+   under `.lc-page` so nothing leaks into the rest of the app. */
+.lc-page .card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px;
+}
+.lc-page .field { display: block; margin: 0; }
+.lc-page .field-label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 0.76rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.lc-page input[type='text'],
+.lc-page input:not([type]),
+.lc-page select {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text);
+  padding: 12px;
+  font-size: 16px;
+}
+.lc-page input:focus,
+.lc-page select:focus { border-color: var(--accent); }
+.lc-status-line { margin: 0; min-height: 1.1em; color: var(--muted); font-size: var(--font-sm); }
+.lc-invite-title { font-size: 1.25rem; margin: 0; }
+.lc-link-label { align-self: flex-start; margin: 0; }
+
+.lc-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
