@@ -91,9 +91,11 @@ error, never a fallback.
 | `DELETE /api/live/sessions/{id}` | the signed-in **owner** of a consumer conversation (account JWT); 404 for anyone else, 409 while open | implemented |
 | `DELETE /api/business/organizations/{org}/live/sessions/{id}` | org **admin/owner**; 404 non-member or another org's session, 403 plain member, 409 while open; audited as `live_session.delete` | implemented |
 | `GET /api/business/organizations/{org}/search?q=…` | org member, scoped as for meetings; Live Connect hits carry `session_kind` and `live_session_id` | implemented (extended, see below) |
-| `POST /api/live/desks/scan` | anyone with a desk QR | planned (M6) |
-| `GET /api/live/desks/{id}/waiting`, `POST /api/live/sessions/{id}/answer` | org members | planned (M6) |
-| `…/organizations/{org}/live/desks…`, `…/live/sessions…`, `…/live/usage` | org admin/member | planned (M6) |
+| `POST /api/live/desks/scan` | anyone with a desk QR | implemented |
+| `GET /api/live/desks/{id}/waiting`, `POST /api/live/sessions/{id}/answer`, `GET /api/live/my-desks` | org members | implemented |
+| `POST/GET …/organizations/{org}/live/desks`, `PATCH …/{desk}`, `GET …/{desk}/qr`, `POST …/{desk}/revoke|regenerate` | org admin (list: member) | implemented |
+| `GET …/organizations/{org}/live/sessions`, `GET …/live/sessions/{id}`, `GET …/live/usage` | admin sees all, member only their own (usage: admin) | implemented |
+| `DELETE …/organizations/{org}/live/sessions/{id}`, `DELETE /api/live/sessions/{id}` | org admin / consumer owner | implemented |
 | `/api/admin/live/*` | Directus flows | planned (M7) |
 
 Errors are `{"code","message"}` with a stable code: `invite_not_found`, `invite_expired`,
@@ -250,3 +252,16 @@ and leaves the events, which this pass then erases.
 | Guest words survive an erase | only rows named by the conversation's `room_session` events and pointer are deleted, and only of `kind='live_connect'` in room `live-<id>`; check `live_session_events` for `content_erased` |
 | Retention stopped | it runs from the sweeper, which runs only while `LIVE_CONNECT_ENABLED` is truthy |
 | DB-gated tests "pass" in milliseconds | they skipped: the database is missing or lacks pgvector — use `docker compose up -d --wait postgres` and `voxtranslate_voip_test` |
+
+## Desks (permanent QR codes)
+
+- A desk belongs to an org and **must** have one of its projects. Its QR carries `/lc/d/<public_id>.<mac>`; the MAC is derived from `LIVE_TOKEN_KEY` and the desk's `token_version`, never stored.
+- **Every scan creates a new session** (the QR is never a conversation). The scan answers a forged, unknown, revoked or replaced QR with the same response, and never reveals an org's wallet state to the public (`desk_unavailable`).
+- Revoking closes the sessions still waiting at that desk; regenerating bumps the version (the old print stops working), re-activates the desk and closes waiting sessions too.
+- The customer waits up to `LIVE_DESK_WAIT_SECS`; at most `LIVE_DESK_MAX_WAITING` sessions wait at one desk. A member answers from the dashboard Desk console or from the main app (`/live/desks`); exactly one colleague wins (the staff seat is a unique index).
+
+## Dashboard data
+
+- `GET …/live/sessions` filters by `status`, `project_id`, `desk_id`, `from`, `to` and pages (`limit` ≤ 100). `GET …/live/sessions/{id}?lang=xx` returns the participants and each utterance with its **original** and, beside it, the translation into `lang` (never instead of it); admins also get the diagnostic timeline.
+- A conversation the caller may not see answers exactly like one that does not exist.
+- `GET …/live/usage?group=desk|project|day&from&to` counts only the org's own metered ticks, plus the wallet balance and the conversations still open with what they have cost so far.
