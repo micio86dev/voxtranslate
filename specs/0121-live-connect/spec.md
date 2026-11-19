@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | In progress |
+| **Status** | In progress: built, pending real-device verification and release decisions |
 | **Owner** | micio86dev |
 | **Created** | 2026-11-19 |
 | **Shipped** | — |
@@ -142,23 +142,28 @@ What the audit (2026-11-19, branch `develop`) established and this spec relies o
    it is not an audio detector and spikes were rejected for latency (see Risks).
 8. **Echo defence in layers, measured on devices.** Browser AEC/NS/AGC → guarded mic gate by
    default → open mode only for declared headphones → server `EchoLedger` (drop echo from the
-   transcript and flush the partner's queue) → loop breaker.
+   transcript and flush the partner's queue) → loop breaker. *Status: the first three layers are
+   built; the `EchoLedger` and loop breaker were deferred until real-device measurements show whether
+   they are needed.*
 9. **Persistence by policy.** B2C stores nothing unless the owner opts in; B2B follows org
    retention with a notice to the guest. Raw audio is never stored.
 10. **Rollout behind `LIVE_CONNECT_ENABLED`**, off by default; single replica documented.
 
 ## 5. Implementation
 
-| Slice | What | Key files |
-|-------|------|-----------|
-| S0 (M1) | Spec, docs, migration 065, tokens, config | `specs/0121-*`, `docs/live-connect.md`, `065_live_connect.sql`, `live/{config,tokens}.rs` |
-| S1 (M2) | Sessions REST, `/ws/live`, presence, engine wiring, capacity gate | `live/{sessions,ws,presence,echo}.rs` |
-| S2 (M5) | Per-peer owner-paid meters, idempotent ticks, caps | `live/billing.rs` |
-| S3 (M3) | Home entry, host/guest/desk-scan pages, audio, 84 locales | `client/src/…` |
-| S4 (M4) | Finalize → transcripts → embeddings, filters, retention, erasure | `live/finalize.rs`, `search.rs` |
-| S5 (M6) | Dashboard area, desks, QR assets, console, usage | `dashboard/src/…` |
-| S6 (M7) | Directus collections, roles, flows, admin routes | `directus/setup-live-connect.mjs` |
-| S7 (M8) | Pentest, load, latency, device matrix, runbook | `docs/`, `loadtest/` |
+Status as of 2026-11-19. "Built" means implemented and covered by automated tests; nothing here has
+been run on real devices (S7/M8 below).
+
+| Slice | What | Key files | State |
+|-------|------|-----------|-------|
+| S0 (M1) | Spec, docs, migration 065, tokens, config | `specs/0121-*`, `docs/live-connect.md`, `065_live_connect.sql`, `live/{config,tokens}.rs` | built |
+| S1 (M2) | Sessions REST, `/ws/live`, sweeper, engine wiring, capacity gate | `live/{sessions,routes,ws,sweeper,state}.rs` | built. **Not built**: `presence.rs` (presence is read from the room registry), `echo.rs` / the server `EchoLedger`, the `language_mismatch` and `echo_flush` frames (deferred until device measurements, see the tracking file, L5) |
+| S2 (M5) | Per-phone owner-paid meters, idempotent ticks, caps | `live/billing.rs`, migration 066 | built, independently verified (L7) |
+| S3 (M3) | Home entry, host/guest/desk-scan pages, audio, 84 locales | `client/src/{pages,scripts/live,scripts/i18n}` | built; one client defect pinned by e2e (partner id read as `peer_id`, the server sends `id`); legal copy and low-confidence locales awaiting review |
+| S4 (M4) | Finalize, transcripts, embeddings, filters, retention, erasure | `live/{finalize,erase}.rs`, `business/search.rs` | built, independently verified (L9) |
+| S5 (M6) | Dashboard area, desks, QR assets, console, usage | `dashboard/src/…` (submodule), `live/{desks,dashboard}.rs` | built |
+| S6 (M7) | Directus collections, roles, flows, admin routes, AI summary | `directus/setup-live-connect.mjs`, `live/{admin,summary}.rs`, migrations 067-068 | built; the admin routes' independent verification was not completed |
+| S7 (M8) | Latency, load, browser e2e, device matrix, runbook | `docs/live-connect*.md`, `loadtest/live-connect.js`, `client/e2e/live.spec.ts` | latency histogram, k6 script (6-socket smoke only), real-server e2e, docs and the **empty** device matrix are done; **real-device verification and a penetration test are not** |
 
 ## 6. Testing & Verification
 
@@ -166,19 +171,27 @@ What the audit (2026-11-19, branch `develop`) established and this spec relies o
   idempotency, purge-keeps-usage, desk uniqueness, migration re-run.
 - **Tokens/config (S0):** unit tests for forgery, expiry, audience, JWT confusion, desk MAC
   version binding, shape checks, flag/key/limit validation.
-- Later slices add: two-peer WS tests on the mock engine, guest join/full/expiry, billing
-  double-tick and concurrency, search/insights scope with the new kind, retention, Playwright
-  two-context e2e, dashboard stubs. DB-gated tests must run against pgvector Postgres
-  (`docker compose up -d --wait postgres`, db `voxtranslate_voip_test`) — a run of a few
-  milliseconds skipped everything.
-- Simulated vs real-device results are separated in `docs/live-connect-device-matrix.md` (M8).
+- **Server integration:** `live_rest`, `live_ws` (two peers on the mock engine, join/full/expiry,
+  mute, reconnect, latency histogram), `live_billing` (double tick, exhaustion, concurrency),
+  `live_desks`, `live_intelligence`, `live_dashboard`, `live_admin`. DB-gated tests must run against
+  pgvector Postgres (`docker compose up -d --wait postgres`, db `voxtranslate_voip_test`) — a run of
+  a few milliseconds skipped everything.
+- **Browser e2e against a real local server** (`npm run test:e2e:live`, opt-in): host/guest, used and
+  expired links, desk scan/queue/answer/revoke, the `?answer=` deep link, and that Talk is untouched,
+  with the provider mocked. One test pins a known client defect.
+- **Load:** `loadtest/live-connect.js`, smoke-run only (6 sockets against the mock).
+- Simulated vs real-device results are separated in `docs/live-connect-device-matrix.md`, which has
+  **no results**: the real-device run is the product owner's.
 
 ## 7. Deployment & Operations
 
 - Env: `LIVE_CONNECT_ENABLED`, `LIVE_TOKEN_KEY`, `LIVE_JOIN_WINDOW_SECS`, `LIVE_DESK_WAIT_SECS`,
   `LIVE_MAX_SESSION_MIN`, `LIVE_MAX_CONCURRENT_PER_OWNER`, `LIVE_RECONNECT_GRACE_SECS`
-  (`server/.env.example`).
-- Migration 065 is additive and idempotent. Flag off → no route is reachable.
+  `LIVE_DESK_MAX_WAITING`, `LIVE_FINALIZE_GRACE_SECS`, `LIVE_RETENTION_DEFAULT_DAYS`,
+  `LIVE_B2C_RETENTION_DAYS` (`server/.env.example`).
+- Migrations 065-068 are additive and idempotent. Flag off → no route is reachable (but the two
+  erase endpoints stay mounted). Enable and rollback steps: `docs/live-connect.md`, "Deployment and
+  migration".
 - Rooms are in memory and the server is single-replica: a deploy drops live sessions; phones
   reconnect within the grace. Capacity: Qwen's 32-session cap ≈ 16 simultaneous pairs.
 - Rotating `LIVE_TOKEN_KEY` invalidates every printed desk QR and every guest token in flight.

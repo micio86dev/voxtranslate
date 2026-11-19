@@ -29,13 +29,14 @@ use uuid::Uuid;
 use super::billing::{EndCause, LiveMeter, LivePayer};
 use super::routes::api_err;
 use super::sessions::{self, PeerAuth};
+use super::state::SessionLatency;
 use super::tokens::PeerRole;
 use crate::deepgram::SpeakerCtx;
 use crate::engine::{SessionDeps, SessionOutcome, TranscriptWriter};
 use crate::protocol::{ClientMessage, ServerMessage};
 use crate::rooms::{LeaveOutcome, Peer, PeerTx, Visibility, OUT_CHANNEL_CAP};
 use crate::{
-    pump_to_ws, AppState, ConnGuard, MAX_FRAME_BYTES, WS_IDLE_TIMEOUT, WS_MSG_MAX, WS_MSG_WINDOW,
+    AppState, ConnGuard, MAX_FRAME_BYTES, WS_IDLE_TIMEOUT, WS_MSG_MAX, WS_MSG_WINDOW,
     WS_PING_INTERVAL,
 };
 
@@ -45,6 +46,85 @@ const STATUS_CHECK: Duration = Duration::from_secs(3);
 /// How long the writer gets to flush the last frames (the end-of-conversation notice) before
 /// the socket is dropped.
 const FLUSH_GRACE: Duration = Duration::from_secs(2);
+
+/// A 100 ms frame counts as speech when its mean absolute sample is at least this (of 32 768,
+/// roughly -44 dBFS): far below speech, far above a muted or gated microphone's digital silence.
+/// Deliberately low, so a quiet talker is measured rather than skipped.
+const VOICED_MEAN_ABS: u32 = 80;
+/// Speech after at least this much non-speech is a new utterance. The client streams its
+/// microphone continuously while it is not muted, so there are no gaps in the *frames*: the
+/// onset has to come from the audio itself.
+const QUIET_GAP: Duration = Duration::from_millis(1000);
+/// The exact start of every translated-audio frame (`ServerMessage` is internally tagged with
+/// `type` first), so the pump can recognise one without parsing or allocating.
+const TRANSLATED_AUDIO_PREFIX: &str = r#"{"type":"translated_audio""#;
+
+/// Whether `frame` (PCM16 little-endian) is voiced: its mean absolute sample reaches
+/// [`VOICED_MEAN_ABS`]. One pass over 4.8 kB, no allocation.
+fn is_voiced(frame: &[u8]) -> bool {
+    let mut sum: u64 = 0;
+    let mut n: u64 = 0;
+    for s in frame.chunks_exact(2) {
+        sum += u64::from(i16::from_le_bytes([s[0], s[1]]).unsigned_abs());
+        n += 1;
+    }
+    n > 0 && sum / n >= u64::from(VOICED_MEAN_ABS)
+}
+
+/// Does this forwarded frame start an utterance? True for the first voiced frame after a
+/// [`Start`](ClientMessage::Start) (the caller clears `last_voiced`) or after [`QUIET_GAP`] without
+/// one. Updates `last_voiced` as it goes.
+fn utterance_onset(
+    last_voiced: &mut Option<tokio::time::Instant>,
+    frame: &[u8],
+    now: tokio::time::Instant,
+) -> bool {
+    if !is_voiced(frame) {
+        return false;
+    }
+    let onset = last_voiced.is_none_or(|t| now.saturating_duration_since(t) >= QUIET_GAP);
+    *last_voiced = Some(now);
+    onset
+}
+
+/// Same as the meeting socket's writer (frames out, a ping on a fixed cadence), plus one thing:
+/// when the frame just delivered is translated audio, close the latency measurement of the
+/// utterance it answers. Kept here, at the last point before the socket, so the number is "the
+/// other phone was handed its audio" and not "the engine produced it". The cost is one string
+/// prefix check per frame and, per utterance, one atomic swap and one histogram increment.
+async fn pump_live(
+    mut rx: tokio::sync::mpsc::Receiver<String>,
+    mut ws_tx: futures::stream::SplitSink<WebSocket, Message>,
+    latency: Arc<SessionLatency>,
+    seat: usize,
+) {
+    let mut ping = tokio::time::interval(WS_PING_INTERVAL);
+    ping.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    ping.tick().await;
+    loop {
+        tokio::select! {
+            msg = rx.recv() => {
+                let Some(m) = msg else { break };
+                let audio = m.starts_with(TRANSLATED_AUDIO_PREFIX);
+                if ws_tx.send(Message::Text(m.into())).await.is_err() {
+                    break;
+                }
+                if audio {
+                    if let Some(d) = latency.audio_delivered(seat, tokio::time::Instant::now()) {
+                        crate::metrics::record_live_translation_ms(
+                            u64::try_from(d.as_micros().div_ceil(1000)).unwrap_or(u64::MAX).max(1),
+                        );
+                    }
+                }
+            }
+            _ = ping.tick() => {
+                if ws_tx.send(Message::Ping(Vec::<u8>::new().into())).await.is_err() {
+                    break;
+                }
+            }
+        }
+    }
+}
 
 /// The room a session's two phones share. Server-minted and unguessable, so it can never
 /// collide with (or be joined through) a public `/ws` room.
@@ -282,7 +362,11 @@ async fn handle_live_peer(socket: WebSocket, state: AppState, auth: PeerAuth) {
         state.live.set_owner(auth.session_id, conn, out_tx.clone());
     }
 
-    let send_task = tokio::spawn(pump_to_ws(out_rx, ws_tx));
+    let latency = state.live.latency_for(auth.session_id);
+    let seat = SessionLatency::seat(auth.role == PeerRole::Guest);
+    let send_task = tokio::spawn(pump_live(out_rx, ws_tx, latency.clone(), seat));
+    // When this phone last sent a frame with speech in it, for the latency probe's onset rule.
+    let mut last_voiced: Option<tokio::time::Instant> = None;
 
     // ---- per-socket state ------------------------------------------------------------
     let mut audio_tx: Option<mpsc::Sender<Vec<u8>>> = None;
@@ -342,6 +426,10 @@ async fn handle_live_peer(socket: WebSocket, state: AppState, auth: PeerAuth) {
                                 // an outage.
                                 Ok(()) => {
                                     sent.fetch_add(1, Ordering::Relaxed);
+                                    let now = tokio::time::Instant::now();
+                                    if utterance_onset(&mut last_voiced, &data, now) {
+                                        latency.speech_started(seat, now);
+                                    }
                                 }
                                 Err(mpsc::error::TrySendError::Full(_)) => {}
                                 Err(mpsc::error::TrySendError::Closed(_)) => {
@@ -366,6 +454,7 @@ async fn handle_live_peer(socket: WebSocket, state: AppState, auth: PeerAuth) {
                                 if audio_tx.is_some() {
                                     continue; // already speaking: Start is idempotent
                                 }
+                                last_voiced = None;
                                 match start_speaking(&state, &auth, &room, call_session, &engine,
                                     transcripts.clone(), participant_row, &end_tx, &sent,
                                     &mut usage_session).await
@@ -390,6 +479,7 @@ async fn handle_live_peer(socket: WebSocket, state: AppState, auth: PeerAuth) {
                                 // Enforced here, not just relayed: a muted phone sends nothing
                                 // to the engine, whatever the client keeps capturing.
                                 muted = m;
+                                last_voiced = None;
                                 state.live.set_muted(auth.session_id, auth.peer_id, m);
                                 state.rooms.broadcast_except(&room, &peer_id,
                                     &ServerMessage::PeerMuted {
@@ -621,4 +711,64 @@ async fn start_speaking(
         .run(end_tx.clone(), cancel_rx),
     );
     Ok((audio_tx, cancel))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn pcm(sample: i16, samples: usize) -> Vec<u8> {
+        std::iter::repeat_n(sample.to_le_bytes(), samples)
+            .flatten()
+            .collect()
+    }
+
+    #[test]
+    fn digital_silence_and_a_quiet_hiss_are_not_speech_but_a_voice_is() {
+        assert!(!is_voiced(&[]));
+        assert!(!is_voiced(&pcm(0, 2400)));
+        assert!(!is_voiced(&pcm(20, 2400)), "a hiss well below speech");
+        assert!(is_voiced(&pcm(1000, 2400)));
+        assert!(is_voiced(&pcm(-1000, 2400)), "sign does not matter");
+    }
+
+    #[test]
+    fn an_utterance_starts_at_the_first_voiced_frame_and_again_after_a_quiet_gap() {
+        let t0 = tokio::time::Instant::now();
+        let ms = |n: u64| t0 + Duration::from_millis(n);
+        let (voice, silence) = (pcm(1000, 2400), pcm(0, 2400));
+        let mut last = None;
+
+        // Silence after a Start is not an onset, however long it lasts.
+        assert!(!utterance_onset(&mut last, &silence, ms(0)));
+        assert!(!utterance_onset(&mut last, &silence, ms(3000)));
+        // The first voiced frame is, and the rest of the same utterance is not.
+        assert!(utterance_onset(&mut last, &voice, ms(3100)));
+        assert!(!utterance_onset(&mut last, &voice, ms(3200)));
+        // A short pause inside a sentence does not split it.
+        assert!(!utterance_onset(&mut last, &silence, ms(3300)));
+        assert!(!utterance_onset(&mut last, &voice, ms(3800)));
+        // A pause of a second or more does.
+        assert!(utterance_onset(&mut last, &voice, ms(4800)));
+        // A Start (or unmute) clears the memory, so the next voiced frame is an onset again.
+        last = None;
+        assert!(utterance_onset(&mut last, &voice, ms(4900)));
+    }
+
+    #[test]
+    fn the_prefix_the_pump_looks_for_is_what_the_protocol_really_emits() {
+        let frame = ServerMessage::TranslatedAudio {
+            speaker_id: "s".into(),
+            lang: "es".into(),
+            seq: 1,
+            pcm16_b64: "AA==".into(),
+        }
+        .to_json();
+        assert!(frame.starts_with(TRANSLATED_AUDIO_PREFIX), "{frame}");
+        let other = ServerMessage::PeerLeft {
+            peer_id: "p".into(),
+        }
+        .to_json();
+        assert!(!other.starts_with(TRANSLATED_AUDIO_PREFIX));
+    }
 }

@@ -99,6 +99,15 @@ static VOIP_XLAT_SUM: AtomicU64 = AtomicU64::new(0);
 static VOIP_XLAT_COUNT: AtomicU64 = AtomicU64::new(0);
 static VOIP_XLAT_BUCKETS: [AtomicU64; 11] = [const { AtomicU64::new(0) }; 11];
 
+// Live Connect (spec 0121, S18): from a speaker starting to talk to the first translated audio of
+// that utterance reaching the OTHER phone, measured on the server. Deliberately unlabelled: no
+// session, peer or user id, and no direction, so it is a plain aggregate that is safe to scrape.
+// It excludes the phone-side legs (capture buffering, network to the phone, playback start), which
+// only a real-device run can measure; see docs/live-connect-device-matrix.md.
+static LIVE_XLAT_SUM: AtomicU64 = AtomicU64::new(0);
+static LIVE_XLAT_COUNT: AtomicU64 = AtomicU64::new(0);
+static LIVE_XLAT_BUCKETS: [AtomicU64; 11] = [const { AtomicU64::new(0) }; 11];
+
 static WBR_CHUNKS: AtomicU64 = AtomicU64::new(0);
 static WBR_DROPPED_INGEST: AtomicU64 = AtomicU64::new(0);
 static WBR_DROPPED_FANOUT: AtomicU64 = AtomicU64::new(0);
@@ -250,6 +259,11 @@ pub fn record_voip_translation_ms(ms: u64) {
     observe(&VOIP_XLAT_SUM, &VOIP_XLAT_COUNT, &VOIP_XLAT_BUCKETS, ms);
 }
 
+/// Record one Live Connect utterance's speech-to-translated-audio latency (ms), server side.
+pub fn record_live_translation_ms(ms: u64) {
+    observe(&LIVE_XLAT_SUM, &LIVE_XLAT_COUNT, &LIVE_XLAT_BUCKETS, ms);
+}
+
 /// Add one observation (ms) to a cumulative-bucket histogram.
 fn observe(sum: &AtomicU64, count: &AtomicU64, buckets: &[AtomicU64; 11], ms: u64) {
     sum.fetch_add(ms, Ordering::Relaxed);
@@ -386,6 +400,9 @@ struct Snapshot {
     voip_xlat_sum: u64,
     voip_xlat_count: u64,
     voip_xlat_buckets: [u64; 11],
+    live_xlat_sum: u64,
+    live_xlat_count: u64,
+    live_xlat_buckets: [u64; 11],
 }
 
 fn snapshot() -> Snapshot {
@@ -448,6 +465,9 @@ fn snapshot() -> Snapshot {
         voip_xlat_sum: VOIP_XLAT_SUM.load(Ordering::Relaxed),
         voip_xlat_count: VOIP_XLAT_COUNT.load(Ordering::Relaxed),
         voip_xlat_buckets: std::array::from_fn(|i| VOIP_XLAT_BUCKETS[i].load(Ordering::Relaxed)),
+        live_xlat_sum: LIVE_XLAT_SUM.load(Ordering::Relaxed),
+        live_xlat_count: LIVE_XLAT_COUNT.load(Ordering::Relaxed),
+        live_xlat_buckets: std::array::from_fn(|i| LIVE_XLAT_BUCKETS[i].load(Ordering::Relaxed)),
     }
 }
 
@@ -564,6 +584,15 @@ fn render_from(s: &Snapshot, active_rooms: u64, active_peers: u64) -> String {
         s.qwen_connect_sum,
         s.qwen_connect_count,
         &s.qwen_connect_buckets,
+    );
+
+    write_histogram(
+        &mut o,
+        "voxtranslate_live_translation_ms",
+        "Live Connect: speech start to first translated audio delivered to the other phone, server side, ms.",
+        s.live_xlat_sum,
+        s.live_xlat_count,
+        &s.live_xlat_buckets,
     );
 
     write_histogram(
@@ -795,6 +824,9 @@ mod tests {
             voip_xlat_sum: 9_100,
             voip_xlat_count: 7,
             voip_xlat_buckets: [0, 0, 0, 0, 0, 1, 4, 7, 7, 7, 7],
+            live_xlat_sum: 1_300,
+            live_xlat_count: 5,
+            live_xlat_buckets: [0, 0, 0, 0, 1, 3, 5, 5, 5, 5, 5],
         };
         let out = render_from(&snap, 2, 5);
 
@@ -844,6 +876,10 @@ mod tests {
         assert!(out.contains("voxtranslate_qwen_ttfa_ms_sum 900"));
         assert!(out.contains("voxtranslate_qwen_ttfa_ms_count 3"));
         assert!(out.contains("voxtranslate_qwen_connect_ms_count 2"));
+        // Live Connect speech-to-translated-audio latency: unlabelled by construction.
+        assert!(out.contains("voxtranslate_live_translation_ms_bucket{le=\"250\"} 3"));
+        assert!(out.contains("voxtranslate_live_translation_ms_sum 1300"));
+        assert!(out.contains("voxtranslate_live_translation_ms_count 5"));
         // Webinar audio-chunk accounting: the denominator plus a drop counter per hop.
         // Without the total, a drop count answers "how many" but never "how bad".
         assert!(out.contains("voxtranslate_webinar_audio_chunks_total 1000"));
@@ -862,7 +898,7 @@ mod tests {
         // without its TYPE line fails here — a scrape silently drops an untyped series.
         let typed = out.matches("# TYPE ").count();
         let helped = out.matches("# HELP ").count();
-        assert_eq!(typed, 32, "one TYPE line per exported metric");
+        assert_eq!(typed, 33, "one TYPE line per exported metric");
         assert_eq!(helped, typed, "every metric also carries a HELP line");
     }
 

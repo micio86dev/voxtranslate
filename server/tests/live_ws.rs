@@ -1071,3 +1071,76 @@ async fn the_public_socket_cannot_join_a_live_conversations_room() {
     .await
     .expect("an ordinary room named live-room must keep working");
 }
+
+// ---- latency instrumentation (S18) -----------------------------------------------------
+
+/// `(count, sum_ms)` of the Live Connect speech-to-translated-audio histogram on `/metrics`.
+async fn live_latency(srv: &Srv) -> (u64, u64) {
+    let body = srv
+        .http
+        .get(format!("http://{}/metrics", srv.addr))
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    let read = |suffix: &str| -> u64 {
+        let key = format!("voxtranslate_live_translation_ms_{suffix} ");
+        body.lines()
+            .find_map(|l| l.strip_prefix(&key))
+            .unwrap_or_else(|| panic!("metric {key}missing from /metrics"))
+            .trim()
+            .parse()
+            .unwrap()
+    };
+    (read("count"), read("sum"))
+}
+
+#[tokio::test]
+async fn the_server_times_speech_to_translated_audio_once_per_utterance() {
+    let mock = RealtimeMock::start(Dialect::Qwen).await;
+    mock.reply_with(speech());
+    let srv = srv!(&mock);
+    let c = convo(&srv, false).await;
+    let (count_before, sum_before) = live_latency(&srv).await;
+
+    let mut host = open(&srv, &c.host_token).await;
+    let mut guest = open(&srv, &c.guest_token).await;
+    say(&mut host, json!({ "type": "start" })).await;
+
+    // The host talks without a pause (a voiced 100 ms frame every tick) while the guest
+    // listens. The mock answers once, on the first audio of the upstream session: one
+    // utterance, one chunk of translated audio.
+    let voice: Vec<u8> = std::iter::repeat_n(1000i16.to_le_bytes(), 2400)
+        .flatten()
+        .collect();
+    let mut heard = 0;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(4);
+    let mut tick = tokio::time::interval(Duration::from_millis(100));
+    loop {
+        tokio::select! {
+            _ = tick.tick() => { let _ = host.send(Message::binary(voice.clone())).await; }
+            Some(Ok(Message::Text(t))) = guest.next() => {
+                if let Ok(v) = serde_json::from_str::<Value>(t.as_str()) {
+                    if v["type"] == "translated_audio" && v["speaker_id"] == c.host_peer { heard += 1; }
+                }
+            }
+            Some(Ok(_)) = host.next() => {}
+            _ = tokio::time::sleep_until(deadline) => break,
+        }
+    }
+    assert!(heard >= 1, "the guest never heard the host");
+
+    let (count_after, sum_after) = live_latency(&srv).await;
+    assert_eq!(
+        count_after - count_before,
+        1,
+        "one utterance is one observation, however many audio chunks answer it"
+    );
+    let ms = sum_after - sum_before;
+    assert!(
+        ms > 0 && ms < 5_000,
+        "a plausible latency for a local mock: {ms} ms"
+    );
+}
