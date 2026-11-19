@@ -41,6 +41,7 @@ pub fn routes() -> Router<AppState> {
         .route("/api/live/join", post(join))
         .route("/api/live/sessions/{id}", get(get_session))
         .route("/api/live/sessions/{id}/end", post(end))
+        .route(WS_PATH, get(super::ws::ws_live))
 }
 
 // ---- helpers ---------------------------------------------------------------------------

@@ -3,9 +3,11 @@
 Two phones, two microphones, two independent translation streams at the same time.
 Decisions and requirements: [`specs/0121-live-connect/spec.md`](../specs/0121-live-connect/spec.md).
 
-> **Status:** M1 (foundation) is implemented: schema, credentials, configuration. Everything marked
-> *(planned)* below is specified but not built yet; this document is updated in the same change as
-> the code it describes.
+> **Status:** M1 (foundation) and M2 (backend: sessions REST, `/ws/live`, sweeper) are implemented.
+> Everything marked *(planned)* below is specified but not built yet; this document is updated in
+> the same change as the code it describes. Billing is still the *existing* per-tick meter charged to
+> the owner; the idempotent per-peer meter is M5, so the feature must stay behind
+> `LIVE_CONNECT_ENABLED=0` until M5 lands.
 
 ## How it fits together
 
@@ -77,18 +79,63 @@ See the Live Connect block in `server/.env.example`. The feature is off unless
 `LIVE_CONNECT_ENABLED` is truthy **and** `LIVE_TOKEN_KEY` (≥ 32 chars) is valid; a bad key is an
 error, never a fallback.
 
-## API *(planned: M2–M7)*
+## API
 
-| Route | Who | Milestone |
+| Route | Who | Status |
 |---|---|---|
-| `POST /api/live/sessions` | signed-in owner | M2 |
-| `POST /api/live/join` | anyone with an invite code | M2 |
-| `GET /api/live/sessions/{id}`, `POST …/end` | participants | M2 |
-| `GET /ws/live?token=…` | participants | M2 |
-| `POST /api/live/desks/scan` | anyone with a desk QR | M6 |
-| `GET /api/live/desks/{id}/waiting`, `POST /api/live/sessions/{id}/answer` | org members | M6 |
-| `…/organizations/{org}/live/desks…`, `…/live/sessions…`, `…/live/usage` | org admin/member | M6 |
-| `/api/admin/live/*` | Directus flows | M7 |
+| `POST /api/live/sessions` | signed-in owner (B2C), or org member with `org_id` + `project_id` (B2B) | implemented |
+| `POST /api/live/join` | anyone with an invite code (no account) | implemented |
+| `GET /api/live/sessions/{id}`, `POST …/end` | a participant, with its Live Connect token (`Authorization: Bearer`) | implemented |
+| `GET /ws/live?token=…` | a participant | implemented |
+| `POST /api/live/desks/scan` | anyone with a desk QR | planned (M6) |
+| `GET /api/live/desks/{id}/waiting`, `POST /api/live/sessions/{id}/answer` | org members | planned (M6) |
+| `…/organizations/{org}/live/desks…`, `…/live/sessions…`, `…/live/usage` | org admin/member | planned (M6) |
+| `/api/admin/live/*` | Directus flows | planned (M7) |
+
+Errors are `{"code","message"}` with a stable code: `invite_not_found`, `invite_expired`,
+`session_full`, `session_ended`, `consent_required`, `bad_lang`, `too_many_sessions`,
+`insufficient_balance`, `insufficient_credits`, `subscription_required`, `project_required`,
+`project_not_found`, `live_busy`, `rate_limited`.
+
+### Rules the code enforces
+
+- Creating needs an account that can pay. A business session also needs a project of **that** org
+  (a foreign or archived project answers like a missing one), an active subscription and credit.
+- Joining needs consent, a real language (never `auto`) and a well-formed code; a malformed and an
+  unknown code answer identically. The guest seat is taken **once**; a second device is refused
+  (`session_full`) and the first reconnects with its token.
+- An owner holds at most `LIVE_MAX_CONCURRENT_PER_OWNER` open sessions; creates are serialised with
+  an advisory lock so a burst cannot beat the cap.
+- `live_busy` (503) is returned at create/join when the default engine has fewer than two free
+  upstream sessions: Standard never reports `AtCapacity`, it silently skips a direction.
+
+### `/ws/live`
+
+- The token is checked **before** the upgrade (bad, expired, ended-session → 401/410, no socket).
+- Identity comes from the database (peer id, name, language), never from the client. The room is
+  `live-<session uuid>`, private, and unguessable.
+- Client → server: `start`, `stop`, `mute_audio{muted}` and binary PCM16 mono 24 kHz frames.
+  Mute is **enforced server-side**: a muted phone sends nothing to the engine.
+- Server → client: the existing meeting frames (`room_joined`, `peer_joined`, `peer_left`,
+  `subtitle_*`, `translated_audio`, `peer_muted`, `balance_*`, `capture_format`) plus
+  `session_state{status, reason}` before the socket closes, and `error{code}`:
+  `insufficient_balance`, `insufficient_credits`, `live_busy`, `engine_unavailable`,
+  `audio_session_closed`, `billing_unavailable`.
+- Hardening copied from `/ws`: connection cap, per-IP connect limit, frame and message-rate caps,
+  ping every 15 s, close after 45 s of silence, slow-consumer drop. A momentarily slow engine drops
+  a 100 ms chunk instead of ending the session.
+- Each phone re-checks the session every 3 s, so an end by the other phone, the sweeper, an admin or
+  the hard ceiling reaches it with the reason.
+- Persistence follows policy: a business session always has its `call_sessions` row
+  (`kind='live_connect'`, org and project set); a consumer one only when the owner opted in to saving.
+  A room's session id is minted when the room is created, so a conversation that survives both phones
+  dropping spans more than one; each is recorded as a `room_session` event.
+
+### Sweeper
+
+Every 15 s: expire invitations nobody used, close sessions past the ceiling, and end an **active**
+session whose room has been empty for the whole reconnect grace (`abandoned`). It reads presence from
+this process's room registry, which is correct because the server is a single replica.
 
 ## Billing *(planned: M5)*
 

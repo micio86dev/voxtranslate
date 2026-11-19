@@ -397,6 +397,16 @@ pub enum ServerMessage {
         message: String,
     },
 
+    /// Live Connect (spec 0121): the conversation's lifecycle changed. `status` is
+    /// `ended` or `expired`; `reason` says why (`ended_by_host`, `balance_exhausted`,
+    /// `max_duration`, `abandoned`, …) so the page can show the right screen instead of a
+    /// generic disconnect. Sent just before the server closes the socket.
+    SessionState {
+        status: String,
+        #[serde(skip_serializing_if = "Option::is_none", default)]
+        reason: Option<String>,
+    },
+
     /// Non-fatal error surfaced to a peer. `code` lets the client branch (e.g.
     /// `insufficient_balance` → show the buy-credits prompt).
     Error {
@@ -557,6 +567,20 @@ mod tests {
         assert!(ServerMessage::BalanceExhausted
             .to_json()
             .contains("\"type\":\"balance_exhausted\""));
+        // Live Connect lifecycle (spec 0121): `reason` is omitted when absent.
+        let ended = ServerMessage::SessionState {
+            status: "ended".into(),
+            reason: Some("balance_exhausted".into()),
+        }
+        .to_json();
+        assert!(ended.contains("\"type\":\"session_state\""));
+        assert!(ended.contains("\"reason\":\"balance_exhausted\""));
+        assert!(!ServerMessage::SessionState {
+            status: "expired".into(),
+            reason: None
+        }
+        .to_json()
+        .contains("reason"));
         // Engine downgrade (spec 0093): carries who + from/to + reason.
         let dg = ServerMessage::EngineDowngraded {
             peer_id: "p".into(),

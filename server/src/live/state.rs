@@ -1,16 +1,29 @@
 //! Shared Live Connect state, carried on `AppState`.
 
+use std::collections::HashMap;
+use std::sync::Mutex;
+
+use tokio::time::Instant;
+use uuid::Uuid;
+
 use super::config::LiveConfig;
 
-/// Configuration today; the in-memory presence registry joins it with the WebSocket handler.
-#[derive(Debug, Clone)]
+/// Configuration plus the little in-memory state the sweeper needs.
+///
+/// Rooms themselves live in `RoomManager`; this only remembers, per active session, since
+/// when nobody has been connected to it.
+#[derive(Debug)]
 pub struct LiveState {
     pub config: LiveConfig,
+    pub(crate) vacant: Mutex<HashMap<Uuid, Instant>>,
 }
 
 impl LiveState {
     pub fn new(config: LiveConfig) -> Self {
-        Self { config }
+        Self {
+            config,
+            vacant: Mutex::new(HashMap::new()),
+        }
     }
 
     /// Read the process environment. A bad configuration leaves the feature **off** and says

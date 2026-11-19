@@ -1121,6 +1121,11 @@ pub async fn serve() {
         }
     });
 
+    // Live Connect: expire unjoined invitations and close conversations both phones left.
+    if state.live.enabled() {
+        tokio::spawn(live::sweeper::run(state.clone()));
+    }
+
     // Analytics roll-up (#241): periodically fold raw events into the aggregate
     // tables Directus dashboards read. Skipped in guest-only mode (no DB).
     if let Some(pool) = state.pool.clone() {
