@@ -1,0 +1,25 @@
+# Live Connect — more guests per link, tier choice, cloned voice
+
+Objective: Live Connect sessions with several guests on the same link (different languages allowed), a tier choice for the host (Standard / Premium / Enhanced), and the host's cloned voice for Enhanced. Branch: `feature/live-connect-multi-guest-tiers` (off develop). Delivery strategy: ask-on-risk; slices of about 400 lines, merged to develop by PR, released as 1.63.0. Test runner: `cargo test` (DB-gated suites need the local pgvector Postgres), `npx vitest` for the client.
+
+## Specs
+
+- S1 — Several guests on the same link. User: "non so se con lo stesso qr code possono partecipare più ospiti ma sarebbe da fare, anche con lingue diverse". One invitation (link/QR) admits up to `max_guests` guests (host chooses 1–3 at creation; default 1 keeps today's behaviour; hard cap 3 because rooms hold 4 peers). The invitation stays valid until the session ends or is full; a full session answers `session_full`. Each guest picks their own language; guests may share a language.
+- S2 — Everybody hears everybody, each in their own language; every phone shows who is speaking (captions per speaker) and who is connected. No new turn-taking.
+- S3 — Billing. User: "pagherà per se stesso l'host e per anche l'ospite" / "il calcolo ovviamente va gestito sul numero di lingue diverse che si parlano (come per i webinar più o meno)". The owner (host) pays for every seat. Each speaker's meter bills one stream per DISTINCT target language present (so two guests in the same language cost one stream, three languages cost three), at the session tier's rate. Nothing is charged when everyone shares the speaker's language.
+- S4 — Tier choice. User: "la scelta del tier non l'ho vista, dove la faccio se voglio cambiare con enhanced o premium?". The host picks the tier when creating the session, reusing what Meet shows (`/api/engines`, cost note per tier). Persisted as `live_sessions.engine_id`; guests inherit it; the per-minute rate of the tier applies to every seat. Premium at capacity falls back to Standard with an `engine_downgraded` notice and is re-metered at the Standard rate. Desk (B2B) sessions stay Standard.
+- S5 — Enhanced + the host's cloned voice. User: "come enhanced c'è anche la questione cloning della mia voce che va riutilizzato, vedi come abbiamo fatto per i meet". Reuse the Meet voice-clone flow (`users.cartesia_voice_id`, "Voice preparation"). The listener's phone speaks the translation with the speaker's cloned voice when the speaker has one (the host), the default Enhanced voice otherwise (guests have no account). No server-side Cartesia synthesis exists: the client-direct pieces follow the webinar pattern (TTS-only token authorised by the live token). The guest notice mentions voice cloning. Not available to guests as speakers of a clone and not on desks.
+- S6 — Everything already built keeps working: 1:1 sessions, desks, billing idempotency, erasure, search, the echo filter (which must work with 3+ seats), the live spend line for the host.
+
+## Tasks
+
+- [ ] T1 · S1,S3,S6 · delegated (worktree) · server multi-guest core (migration 069, create/join, ws with N peers, per-peer mic levels for the echo filter, capacity, billing per distinct language) · commit: —
+- [ ] T2 · S1,S2 · delegated · client multi-guest (host chooses guests, invite panel, partners list, captions per speaker) · commit: —
+- [ ] T3 · S4 · delegated · tier choice Standard/Premium (create body, persist, ws engine resolve, capacity fallback, rate, selector UI with cost note, i18n 84 locales) · commit: —
+- [ ] T4 · S5 · delegated · Enhanced + cloned voice (client-direct speaker STT, `translate_text` over /ws/live, TTS on the listener, TTS-only token, Voice preparation in the host setup, consent line) · commit: —
+
+## Log
+
+- L1 (2026-11-20): user, verbatim: "E poi la scelta del tier non l' ho vista, dove la faccio se voglio cambiare con enhanced o premium? Com enhanced c'è anche la questione cloning della mia voce che va riutilizzato, vedi come abbiamo fatto per i meet."
+- L2 (2026-11-20): user, verbatim: "certo e tieni conto che pagherà per se stesso l' host e per anche l'ospite, non so se con lo stesso qr code possono partecipare più ospiti ma sarebbe da fare, anche con lingue diverse, lì il calcolo ovviamente va gestito sul numero di lingue diverse che si parlano (come per i webinar più o meno)"
+- L3 (2026-11-20): mapping of Meet (Explore agent): Enhanced (`cartesia`) is client-direct and listener-side and works only under LISTENER_PAYS for signed-in listeners; the server has no Cartesia TTS/STT; the cloned voice is `users.cartesia_voice_id` (`has_voice_clone`), not "Vox Voices" (on-device Kokoro). Live Connect hard-wires `state.engines.default()` at `live/ws.rs` and never uses `live_sessions.engine_id`; `live_busy` is fatal on the client; Premium (`gemini_live_translate`) shares Standard's `start_session`/PCM/`TranslatedAudio`. Decisions taken without asking: cap 4 peers (host + 3 guests); desks Standard-only; Premium/Enhanced for signed-in hosts only.
