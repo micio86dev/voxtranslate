@@ -48,6 +48,12 @@ const DEFAULT_ECHO_FILTER: bool = true;
 /// How alike the other phone's "original" words must be to this phone's own recent words before
 /// they are treated as an echo of them.
 const DEFAULT_ECHO_SIM: f64 = 0.6;
+/// Translation calls one Enhanced conversation may make a minute. An honest single speaker in a
+/// three-language room uses about 450 (interim captions at 2 a second to three languages, plus a
+/// final every couple of seconds); this leaves headroom for two people talking at once.
+const DEFAULT_ENHANCED_CALLS_PER_MIN: u32 = 600;
+/// How often a `/ws/live` socket re-checks its conversation, in milliseconds.
+const DEFAULT_STATUS_CHECK_MS: u64 = 3000;
 /// A threshold under this suppresses real replies that merely share a few words; over this it
 /// stops catching an echo the ASR heard through a foreign-language ear.
 const ECHO_SIM_RANGE: (f64, f64) = (0.3, 0.95);
@@ -102,6 +108,12 @@ pub struct LiveConfig {
     pub echo_filter: bool,
     /// Similarity threshold of that filter, already clamped to its allowed range.
     pub echo_sim: f64,
+    /// Translation calls (one per target language per segment) one Enhanced conversation may make
+    /// in a minute, all its seats together. See `enhanced::TranslationBudget`.
+    pub enhanced_calls_per_min: u32,
+    /// How often a socket checks that its conversation is still running and that its meter still
+    /// matches the tier, in milliseconds. A tuning knob mostly for tests; the default is 3 s.
+    pub status_check_ms: u64,
 }
 
 impl LiveConfig {
@@ -125,6 +137,8 @@ impl LiveConfig {
             finalize_grace_secs: DEFAULT_FINALIZE_GRACE_SECS,
             echo_filter: DEFAULT_ECHO_FILTER,
             echo_sim: DEFAULT_ECHO_SIM,
+            enhanced_calls_per_min: DEFAULT_ENHANCED_CALLS_PER_MIN,
+            status_check_ms: DEFAULT_STATUS_CHECK_MS,
         }
     }
 
@@ -220,6 +234,18 @@ impl LiveConfig {
                 .map_or(DEFAULT_ECHO_SIM, |n| {
                     n.clamp(ECHO_SIM_RANGE.0, ECHO_SIM_RANGE.1)
                 }),
+            enhanced_calls_per_min: number(
+                "LIVE_ENHANCED_CALLS_PER_MIN",
+                i64::from(DEFAULT_ENHANCED_CALLS_PER_MIN),
+                10,
+                100_000,
+            )? as u32,
+            status_check_ms: number(
+                "LIVE_STATUS_CHECK_MS",
+                DEFAULT_STATUS_CHECK_MS as i64,
+                100,
+                60_000,
+            )? as u64,
         })
     }
 }
@@ -378,6 +404,25 @@ mod tests {
             pairs.push((name, bad));
             let err = LiveConfig::load(env(&pairs)).unwrap_err();
             assert_eq!(err, ConfigError::BadNumber(name), "{name}={bad}");
+        }
+    }
+
+    #[test]
+    fn the_enhanced_call_ceiling_has_a_default_and_a_range() {
+        let base = [("LIVE_CONNECT_ENABLED", "1"), ("LIVE_TOKEN_KEY", KEY)];
+        assert_eq!(
+            LiveConfig::load(env(&base)).unwrap().enhanced_calls_per_min,
+            600
+        );
+        let with = |v: &'static str| {
+            let mut all = base.to_vec();
+            all.push(("LIVE_ENHANCED_CALLS_PER_MIN", v));
+            LiveConfig::load(env(&all))
+        };
+        assert_eq!(with("60").unwrap().enhanced_calls_per_min, 60);
+        assert_eq!(LiveConfig::load(env(&base)).unwrap().status_check_ms, 3000);
+        for bad in ["0", "9", "-1", "many", "100001"] {
+            assert!(with(bad).is_err(), "{bad}");
         }
     }
 
