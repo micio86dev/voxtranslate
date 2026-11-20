@@ -1,6 +1,7 @@
 # Live Connect
 
-Two phones, two microphones, two independent translation streams at the same time.
+A host and up to three guests on one link, each with a phone and a microphone, every phone an
+independent translation stream at the same time (a conversation is a pair by default).
 Decisions and requirements: [`specs/0121-live-connect/spec.md`](../specs/0121-live-connect/spec.md).
 
 > **Status (2026-11-20): built, live behind `LIVE_CONNECT_ENABLED`, not yet verified on real devices.** Backend (sessions,
@@ -19,15 +20,17 @@ Decisions and requirements: [`specs/0121-live-connect/spec.md`](../specs/0121-li
 
 ```
 phone A ──PCM16 24 kHz──▶ ┐                              ┌─▶ translated audio ──▶ phone B
-                          │   /ws/live                   │
-phone B ──PCM16 24 kHz──▶ ┤   one private room           ├─▶ translated audio ──▶ phone A
-                          │   live-<session uuid>        │
+phone B ──PCM16 24 kHz──▶ ┤   /ws/live                   ├─▶ translated audio ──▶ phone C
+phone C ──PCM16 24 kHz──▶ ┤   one private room           ├─▶ translated audio ──▶ phone D
+phone D ──PCM16 24 kHz──▶ ┤   live-<session uuid>        │   (each phone hears every OTHER
+                          │                              │    speaker, in its own language)
                           └─▶ engine: one upstream session per speaker per target language
                               (Standard/Qwen by default; capacity fallback as in meetings)
 ```
 
-No WebRTC. Each phone sends only its own microphone and receives only the **other** side's
-translation. Rooms, engines, the usage meter, speech events and the org ledger are the existing
+No WebRTC. Each phone sends only its own microphone and receives the translation of **every
+other** speaker, in its own language. A conversation is the host plus 1 to 3 guests
+(`max_guests`, default 1); the room holds four peers. Rooms, engines, the usage meter, speech events and the org ledger are the existing
 meeting machinery; Live Connect adds sessions, credentials and a payer who is not on the call.
 
 ## Session lifecycle
@@ -35,17 +38,31 @@ meeting machinery; Live Connect adds sessions, credentials and a payer who is no
 ```mermaid
 stateDiagram-v2
     [*] --> waiting: create (B2C) / scan (B2B desk)
-    waiting --> active: second side joins (guest, or staff answers)
+    waiting --> active: first guest joins (or staff answers a desk)
     waiting --> expired: join window / desk wait elapsed
-    active --> ended: either side ends, payer runs out, max duration, both gone past grace
+    active --> active: more guests join the same link, up to max_guests
+    active --> ended: host ends, payer runs out, max duration, everybody gone past grace
     ended --> [*]
     expired --> [*]
 ```
 
-- B2C: the owner is the `host`; the invited person is the `guest`.
+- B2C: the owner is the `host`; the invited people are the `guest`s.
 - B2B desk: the customer who scanned is the `guest`; the member of staff who answers is `staff`.
-- A session holds at most **two** participants, one per side. The database enforces it
-  (`live_participants` partial unique indexes), not only the application.
+  A desk conversation is always a pair.
+- **One host (or staff) and up to `max_guests` guests** (1-3, chosen at create, default 1). The owner
+  side is still a database fact (a partial unique index: exactly one `host`/`staff`). The number of
+  guests is enforced **in code** (`sessions::join_guest`), because a unique index cannot say "at
+  most N": the session row is locked `FOR UPDATE` while the guests are counted and the new one is
+  inserted, so N simultaneous joins on one link admit exactly `max_guests`.
+- **The link is reusable** while the session is `waiting` or `active`: each guest who opens it takes
+  the next seat, with their own participant row, token and consent. `LIVE_JOIN_WINDOW_SECS` applies
+  to a session nobody has joined yet; once it has a guest it is `active` and the link stays good
+  until the session ends or fills (`session_full`). A seat is never handed on: a guest who dropped
+  reconnects with the token they were given.
+- A guest hanging up (`POST …/end` with a guest token) ends a **two-person** conversation as before,
+  but in a conversation that admits several guests it only means "I am leaving": the answer is
+  `{"ended": false, "left": true}` and the others carry on. The host's end is the end for everyone;
+  the sweeper still ends a conversation once the room has been empty for the reconnect grace.
 
 ## Credentials *(implemented: `server/src/live/tokens.rs`)*
 
@@ -64,13 +81,13 @@ stateDiagram-v2
   creates a new session**.
 - Rotating `LIVE_TOKEN_KEY` invalidates every printed desk QR and every guest token in flight.
 
-## Data model *(implemented: migration `065_live_connect.sql`)*
+## Data model *(implemented: migrations `065_live_connect.sql`, `069_live_multi_guest.sql`)*
 
 | Table | Purpose |
 |---|---|
 | `live_desks` | permanent QR entry points: org, optional project, name/location, default language, public handle, `token_version`, status |
-| `live_sessions` | lifecycle, ownership (user **or** org), project and desk binding, expiry, `save_transcript`, link to `call_sessions` |
-| `live_participants` | who is on the call; `peer_id` is the room peer id, server-minted |
+| `live_sessions` | lifecycle, ownership (user **or** org), project and desk binding, expiry, `save_transcript`, `max_guests` *(069, 1-3, default 1)*, link to `call_sessions` |
+| `live_participants` | who is on the call (one host/staff and up to three guests); `peer_id` is the room peer id, server-minted. `idx_live_participants_guest_side` is a plain index since 069 (see below) |
 | `live_usage_ticks` | one row per (session, peer, tick): the idempotency ledger for billing |
 | `live_session_events` | bounded diagnostics (join, leave, reconnect, error, capacity, echo, exhausted) |
 | `live_session_summaries` *(067)* | one AI summary per (conversation, language); the row is also the idempotency and concurrency guard of the paid call. Content: erased with the conversation |
@@ -81,6 +98,15 @@ The conversation itself uses the existing `call_sessions` (`kind = 'live_connect
 `live_sessions.call_session_id` is `ON DELETE SET NULL`, so purging a conversation never erases the
 billing record. All tables are RLS default-deny; tenancy is enforced in Rust like everywhere else.
 
+**Migration 069 (multi-guest).** Adds `live_sessions.max_guests SMALLINT NOT NULL DEFAULT 1` with a
+guarded `CHECK (max_guests BETWEEN 1 AND 3) NOT VALID`; existing rows keep 1, which is what they
+were. It turns the guest-side **unique** index into a plain one **under the same name**: migration 065
+says `CREATE UNIQUE INDEX IF NOT EXISTS idx_live_participants_guest_side`, and `IF NOT EXISTS`
+matches by name, so re-running 065 (the schema suite does; a drifted database may) finds the name
+taken and leaves it alone instead of rebuilding a unique index over a three-guest conversation and
+failing. The owner-side unique index stays. Additive and idempotent; a build that predates it
+simply keeps treating every session as a pair.
+
 ## Configuration *(implemented: `server/src/live/config.rs`)*
 
 See the Live Connect block in `server/.env.example`. The feature is off unless
@@ -88,7 +114,8 @@ See the Live Connect block in `server/.env.example`. The feature is off unless
 error, never a fallback. Two limits against abuse of the public surface are tunable:
 `LIVE_DESK_MAX_WAITING_PER_IP` (default 2: waiting sessions one client address may hold at one
 desk) and `LIVE_AUDIO_MAX_BYTES_PER_SEC` (default 72 000: the microphone budget of one phone, see
-*`/ws/live`*). The echo filter has two knobs, `LIVE_ECHO_FILTER` (default on) and `LIVE_ECHO_SIM`
+*`/ws/live`*). `LIVE_MAX_GUESTS` (default and ceiling 3, clamped to 1-3, junk keeps the default) is the
+most guests a host may ask one link to admit; a room holds four peers, so it can only be lowered. The echo filter has two knobs, `LIVE_ECHO_FILTER` (default on) and `LIVE_ECHO_SIM`
 (default 0.6, clamped to 0.3-0.95; junk falls back to the default instead of switching the feature
 off), see *Echo filter* below.
 
@@ -96,8 +123,8 @@ off), see *Echo filter* below.
 
 | Route | Who | Status |
 |---|---|---|
-| `POST /api/live/sessions` | signed-in owner (B2C), or org member with `org_id` + `project_id` (B2B) | implemented |
-| `POST /api/live/join` | anyone with an invite code (no account) | implemented |
+| `POST /api/live/sessions` body `{lang, save_transcript?, org_id?, project_id?, max_guests?}` | signed-in owner (B2C), or org member with `org_id` + `project_id` (B2B) | implemented |
+| `POST /api/live/join` body `{code, name, lang, consent}` | anyone with an invite code (no account); the same code admits guests one after the other | implemented |
 | `GET /api/live/sessions/{id}`, `POST …/end` | a participant, with its Live Connect token (`Authorization: Bearer`) | implemented |
 | `GET /ws/live?token=…` | a participant | implemented |
 | `DELETE /api/live/sessions/{id}` | the signed-in **owner** of a consumer conversation (account JWT); 404 for anyone else, 409 while open | implemented |
@@ -112,7 +139,7 @@ off), see *Echo filter* below.
 | `POST /api/admin/live/{desk-revoke,desk-regenerate,session-end,session-reconcile,session-transcript}` | platform operators, through Directus Flows (shared `ADMIN_API_SECRET`, like every `/api/admin/*` route) | implemented, see *Administration (Directus)* |
 
 Errors are `{"code","message"}` with a stable code: `invite_not_found`, `invite_expired`,
-`session_full`, `session_ended`, `consent_required`, `bad_lang`, `too_many_sessions`,
+`session_full`, `session_ended`, `consent_required`, `bad_lang`, `bad_max_guests`, `too_many_sessions`,
 `insufficient_balance`, `insufficient_credits`, `subscription_required`, `project_required`,
 `project_not_found`, `live_busy`, `rate_limited`; summaries add `session_open`, `nothing_to_summarize`
 (both 409), `summary_unavailable` (502), `summary_in_progress` (409), `summary_not_found` (404).
@@ -121,13 +148,25 @@ Errors are `{"code","message"}` with a stable code: `invite_not_found`, `invite_
 
 - Creating needs an account that can pay. A business session also needs a project of **that** org
   (a foreign or archived project answers like a missing one), an active subscription and credit.
+  `max_guests` is optional (omitted or `null` = 1, a pair) and must be a whole number from 1 to
+  `LIVE_MAX_GUESTS`; anything else is `400 bad_max_guests` and creates nothing. It is stored, and
+  returned by create (`max_guests`), by join and by `GET …/sessions/{id}` (`session.max_guests`).
 - Joining needs consent, a real language (never `auto`) and a well-formed code; a malformed and an
-  unknown code answer identically. The guest seat is taken **once**; a second device is refused
-  (`session_full`) and the first reconnects with its token.
+  unknown code answer identically. Each guest takes a seat of their own; once `max_guests` are taken
+  the next one is refused (`409 session_full`, and it takes nothing) and a guest who dropped
+  reconnects with their token.
 - An owner holds at most `LIVE_MAX_CONCURRENT_PER_OWNER` open sessions; creates are serialised with
   an advisory lock so a burst cannot beat the cap.
-- `live_busy` (503) is returned at create/join when the default engine has fewer than two free
-  upstream sessions: Standard never reports `AtCapacity`, it silently skips a direction.
+- `live_busy` (503) is returned at create when the default engine has fewer than two free upstream
+  sessions, and at join when it cannot open what the new guest's arrival needs: Standard never
+  reports `AtCapacity`, it silently skips a direction. Every participant opens one upstream session
+  per distinct OTHER language in the room, so a guest adds their own streams plus one for their
+  language to every speaker already there (host `it`, guest `es`, new guest `en`: 6 sessions where
+  there were 2, i.e. 4 more; a guest in a language already present adds only their own). A join
+  needs at least the two a pair has always needed and the engine's free sessions to cover that;
+  otherwise it is refused `live_busy` **inside the same transaction** that would have seated the
+  guest, so nobody is seated into a direction that would stay silent. A snapshot, not a
+  reservation.
 
 ### `/ws/live`
 
@@ -136,6 +175,11 @@ Errors are `{"code","message"}` with a stable code: `invite_not_found`, `invite_
   `live-<session uuid>`, private, and unguessable.
 - Client → server: `start`, `stop`, `mute_audio{muted}` and binary PCM16 mono 24 kHz frames.
   Mute is **enforced server-side**: a muted phone sends nothing to the engine.
+- A room of up to four phones: each phone is told who is already there (`room_joined.peers`), who
+  arrives (`peer_joined`), who leaves (`peer_left`) and who mutes (`peer_muted`, per peer). A
+  reconnect with the same token replaces the stale socket (no `peer_left`). Captions and
+  `translated_audio` carry the `speaker_id` of whoever spoke and arrive in the listener's language;
+  two phones that share a language hear each other natively (nothing is translated, nothing billed).
 - Server → client: the existing meeting frames (`room_joined`, `peer_joined`, `peer_left`,
   `subtitle_*`, `translated_audio`, `peer_muted`, `balance_*`, `capture_format`) plus
   `session_state{status, reason}` before the socket closes, and `error{code}`:
@@ -154,7 +198,7 @@ Errors are `{"code","message"}` with a stable code: `invite_not_found`, `invite_
   one. Drops are reported at most once a second as a `diagnostics` event
   (`{audio_dropped:{frames,bytes,oversized}}`, counts only) and at most 10 times per socket. The
   budget assumes the 24 kHz capture the client uses; a client capturing at 48 kHz would be throttled.
-- Each phone re-checks the session every 3 s, so an end by the other phone, the sweeper, an admin or
+- Each phone re-checks the session every 3 s, so an end by the host, the sweeper, an admin or
   the hard ceiling reaches it with the reason.
 - Persistence follows policy: a business session always has its `call_sessions` row
   (`kind='live_connect'`, org and project set); a consumer one only when the owner opted in to saving.
@@ -220,9 +264,9 @@ Live Connect conversations are not counted there; adding them is a product decis
 
 ## Billing *(implemented: `server/src/live/billing.rs`)*
 
-The owner pays for **both** directions: a user's personal balance (B2C) or the org wallet (B2B). The
-guest is never charged, needs no credit, and never sees the owner's balance (balance frames go to the
-owner's socket only). There is no new plan, tier or wallet: the meter reuses `billing::deduct_usage_tx`
+The owner pays for **every seat**: a user's personal balance (B2C) or the org wallet (B2B). Guests are
+never charged, need no credit, and never see the owner's balance (balance frames go to the owner's
+socket only). There is no new plan, tier or wallet: the meter reuses `billing::deduct_usage_tx`
 and `business::credits::deduct_org_credits_tx`. The backend is the only authority; nothing the client
 reports is trusted.
 
@@ -235,6 +279,16 @@ reports is trusted.
 
 - **One meter per phone**, started with that phone's `start` and cancelled by `stop`, mute, or the
   socket closing. Each tick covers `LiveMeter.interval_secs` (`USAGE_UPDATE_INTERVAL`, default 5 s).
+- **Per DISTINCT target language, as for webinars.** A phone's tick bills one stream for every
+  distinct language present in the room other than its own speaker's, at the session tier's rate,
+  and nothing when everyone shares the speaker's language. The rule is Live Connect's own and does
+  **not** read the engine's `cost_scales_per_language` (the upstream cost of a seat is per speaker
+  per target language whatever the tier's metadata says). Host `it` with guests `es`, `es`, `en`:
+  the host's tick is 2 streams (es, en), a Spanish guest's 2 (it, en), the English guest's 2
+  (it, es). Two guests in the same language never double a cost (host `it`, guests `es`, `es`,
+  `es`: every seat 1 stream); four languages cost 3 streams per seat. The idempotency key
+  `(session, peer, tick_seq)`, the opening charge and the per-seat org carry are unchanged: they
+  were already per peer.
 - **A charge and its `live_usage_ticks` row commit together**, keyed `(session, peer, tick_seq)` with
   `ON CONFLICT DO NOTHING`. The tick number comes from the wall clock, so two meters covering the same
   interval (a phone that reconnects before its old socket is torn down) agree and only one charge
@@ -254,7 +308,7 @@ reports is trusted.
   (less than one cent per seat) is not charged, exactly as for one uninterrupted run. Two meters of
   one seat covering the same interval add its cost once. The carry is in memory (the server is
   single-replica, see *Operations*); a restart forgets less than a credit per open seat.
-- **Insufficient credit.** When a tick cannot be covered nothing is debited, both phones get
+- **Insufficient credit.** When a tick cannot be covered nothing is debited, every phone gets
   `balance_exhausted` and then `session_state{ended, balance_exhausted}`, and the session ends
   cleanly. A start is refused up front (`insufficient_balance` / `insufficient_credits`) when the
   payer cannot cover it. Six consecutive failed charges end the conversation (`billing_error`)
@@ -364,9 +418,12 @@ and leaves the events, which this pass then erases.
   phones reconnect within `LIVE_RECONNECT_GRACE_SECS`. The sweeper reads presence from this
   process, so a second replica would end conversations whose phones are connected to the other one.
 - Capacity: the Standard engine is capped at 32 upstream sessions per process
-  (`QWEN_REALTIME_MAX_SESSIONS`), and one conversation opens two (one per speaking direction), so
-  about 16 simultaneous pairs. Standard never reports `AtCapacity`, it silently skips a direction,
-  so the gate is `engine_has_room` at create/join (`live_busy`, 503). It cannot see sessions that
+  (`QWEN_REALTIME_MAX_SESSIONS`), and a pair opens two (one per speaking direction), so about 16
+  simultaneous pairs; a bigger conversation needs one per speaker per distinct other language (host
+  `it` with guests `es`, `es`, `en` is up to 8 while all four talk, four languages 12). Standard
+  never reports `AtCapacity`, it silently skips a direction, so the gate is `engine_has_room` at
+  create (two free) and the same check inside the join transaction against what the new guest adds
+  (`live_busy`, 503). It cannot see sessions that
   have been created but are not speaking yet, so a burst past ~16 pairs shows up as phones that
   never hear a direction, not as `live_busy`. `loadtest/live-connect.js` counts both.
 - Metrics (`/metrics`, unauthenticated aggregate, no ids): `voxtranslate_live_translation_ms`,
@@ -384,9 +441,12 @@ many audio chunks answer it.
   gaps in the frames to detect. A frame is "voiced" when its mean absolute sample is at least 80 of
   32 768 (about -44 dBFS); an utterance starts at the first voiced frame after a `start`/unmute or
   after one second without one. One pass over a 4.8 kB frame, no allocation.
-- *Probe.* A per-session pair of atomics (`SessionLatency`): the speaker's socket stamps its seat at
-  onset, the other seat's writer takes the stamp when it sends the first `translated_audio` and
-  records the difference. No locks on the hot path. A stamp older than 30 s is dropped, and a newer
+- *Probe.* A per-session set of atomics (`SessionLatency`), one slot per **seat**, four at most: each
+  socket claims a slot for its peer id when it connects (the same one again on a reconnect). The
+  speaker's socket stamps its slot at onset; whichever listener's writer first sends a
+  `translated_audio` of that speaker (the frame names its `speaker_id`) takes the stamp and records
+  the difference, so one utterance is one observation however many phones hear it. No locks on the
+  hot path. A stamp older than 30 s is dropped, and a newer
   onset overwrites an older one whose audio never came (same-language speech is not translated).
 - *What it excludes.* Everything on the phones: capture buffering, the network to and from the
   server, playback start. It also includes the provider's own latency, so with the mock upstream it
@@ -439,15 +499,20 @@ clearly louder than the speaker's own** (smoothed mean absolute sample of the au
 feeds the engine, ratio above 5/4; equal or unknown levels never suppress). Of any two seats at most
 one can be the louder. It also means a seat that is talking holds the other's new utterance until
 its own caption has arrived (still at most 700 ms), because the echo can be heard before this
-seat's caption. Today the pump knows two microphones ("me" and "the other phone"); a conversation
-with more seats needs a per-peer level (`SessionLatency` keeps one pair), which is the only
-piece that does not yet scale: `echo.rs` already asks by speaker id.
+seat's caption. The pump answers the filter's level question **per peer**: every speaker id on a frame
+is a peer id, each peer's socket holds a seat in the conversation's `SessionLatency` (up to four,
+each with its own smoothed microphone level and last-voiced time), and a speaker whose phone has not
+connected reads as 0, which is "unknown" and never suppresses. So with a host and two guests side
+by side, guest 2 is not handed guest 1's reading of the host's voice either (the host's microphone is
+the louder one), which a two-microphone lookup could not tell.
 
 **What is verified, and what is not.** Verified: the similarity rules and the state machine (unit
 tests in `echo.rs`), the config knobs, the metric, the diagnostics event, and the whole path through
 the real socket and the mock engine (`tests/live_ws.rs`: the echo never reaches the speaker, the
-other phone still gets the translation, a real reply still gets through, kill switch); the 3-seat cases (guest B hearing guest A, two
-simultaneous real speakers, a reply sharing a few words with someone else) are unit-level. **Not
+other phone still gets the translation, a real reply still gets through, kill switch; and with a
+host and two guests the echo reaches neither the host nor the other guest); the other 3-seat
+cases (two simultaneous real speakers, a reply sharing a few words with someone else) are
+unit-level. **Not
 verified: anything acoustic or about the real provider.** In particular (a) what Qwen's ASR returns
 for Italian forced as Spanish, how close it is to the real words, and whether it returns
 `original` early enough, (b) the relative loudness of two real phones (browser auto-gain and noise
@@ -488,8 +553,9 @@ the dashboard session detail shows the timeline to org admins. For billing, the 
 | Feature unreachable / `/live` says unavailable | `LIVE_CONNECT_ENABLED` truthy and `LIVE_TOKEN_KEY` ≥ 32 chars; the server logs why it stayed off (`live connect misconfigured`). Billing must also be configured (`DATABASE_URL`, `GOOGLE_CLIENT_ID`, `JWT_SECRET`) |
 | Every printed desk QR stopped working | was `LIVE_TOKEN_KEY` rotated? was the desk regenerated or revoked? (`live_desks.status`, `token_version`) |
 | Guest gets `invite_expired` | the invitation outlived `LIVE_JOIN_WINDOW_SECS` before anyone joined; create a new one |
-| Guest gets `session_full` | the single guest seat is taken (the first device can reconnect with its token); a second device needs a new invitation |
-| Create/join answers `live_busy` (503) | fewer than two free upstream sessions: check `QWEN_REALTIME_MAX_SESSIONS`, the Qwen connect metrics and how many conversations are active |
+| Guest gets `session_full` | the link's `max_guests` seats are all taken (`SELECT count(*) FROM live_participants WHERE session_id = '<id>' AND role = 'guest'` against `live_sessions.max_guests`); a guest who dropped reconnects with their token, anyone else needs the host to create a new conversation with more seats (1-3, `LIVE_MAX_GUESTS`) |
+| Host's `max_guests` is refused `bad_max_guests` | not a whole number from 1 to `LIVE_MAX_GUESTS` (default 3) |
+| Create/join answers `live_busy` (503) | create: fewer than two free upstream sessions; join: fewer than the new guest's arrival needs (each guest adds their own streams plus their language to every speaker). Check `QWEN_REALTIME_MAX_SESSIONS`, the Qwen connect metrics and how many conversations are active |
 | One direction is silent | the engine skipped it at capacity, or its upstream session dropped (`audio_session_closed` / `engine_unavailable` frames, retried by the client a few times); check `voxtranslate_qwen_connect_ms` and the server log for `qwen connect failed` |
 | `insufficient_balance` / `insufficient_credits` | the **owner's** balance or the org wallet, not the guest's: top up, or check the org's subscription |
 | Conversation ended on its own | `live_sessions.end_reason`: `balance_exhausted`, `max_duration`, `abandoned` (both phones gone past the grace), `expired`, `desk_revoked`/`desk_regenerated`, `ended_by_admin`, or an `ended_by_*` |
@@ -499,6 +565,7 @@ the dashboard session detail shows the timeline to org admins. For billing, the 
 | A finished conversation is not in search | `transcripts` row present? (`transcript_status = 'ready'` on its latest `call_sessions` row.) No embedding provider or a provider error leaves a transcript without chunks: run `/internal/embeddings/backfill`. A conversation with no speech is never finalised |
 | Guest words survive an erase | only rows named by the conversation's `room_session` events and pointer are deleted, and only of `kind='live_connect'` in room `live-<id>`; check `live_session_events` for `content_erased` |
 | Retention stopped | it runs from the sweeper, which runs only while `LIVE_CONNECT_ENABLED` is truthy |
+| A seat is charged more (or less) than expected | each seat bills one stream per distinct language in the room other than its speaker's: `SELECT peer_id, amount FROM live_usage_ticks WHERE session_id = '<id>'`; two guests in one language are one stream for everybody else |
 | Billing mismatch | Reconcile: `missing_ticks` (a tick without a debit), `duplicate_ticks` (a debit no tick accounts for), `unlinked` (the meeting rows were erased, nothing can be claimed) |
 | DB-gated tests "pass" in milliseconds | they skipped: the database is missing or lacks pgvector — use `docker compose up -d --wait postgres` and `voxtranslate_voip_test` |
 
@@ -607,14 +674,14 @@ The decision record is in the spec (*Key decisions* 1-3). In short:
 
 | Suite | Where | What it pins | Run it |
 |---|---|---|---|
-| Schema | `server/tests/live_schema.rs` | RLS, owner check, vocabularies, two-seat cap, tick idempotency, purge keeps usage, migration re-run | `cargo test --test live_schema` |
+| Schema | `server/tests/live_schema.rs` | RLS, owner check, vocabularies, one owner-side seat and no database cap on guests, `max_guests` check and default, tick idempotency, purge keeps usage, migration re-run (069 included, and 065 after it) | `cargo test --test live_schema` |
 | Tokens / config | unit tests in `live/{tokens,config}.rs` | forgery, expiry, audience, JWT confusion, desk MAC version binding, flag/key/limit validation | `cargo test --lib live::` |
-| REST | `tests/live_rest.rs` | create/join/get/end, caps, consent, project validation, error codes | `cargo test --test live_rest` |
-| `/ws/live` | `tests/live_ws.rs` | both phones translated at once, server-side mute, reconnect takeover, sweeper, billing ticks and exhaustion, no account id leak, latency metric, audio frame cap and 1.5x real-time budget (honest sender untouched) | `cargo test --test live_ws` |
-| Billing | `tests/live_billing.rs` | idempotent ticks, insufficient funds, concurrent sessions on one wallet, the org carry across Start/Stop cycles | `cargo test --test live_billing` |
+| REST | `tests/live_rest.rs` | create/join/get/end, caps, consent, project validation, error codes; several guests per link (create validation, `session_full` at the limit, simultaneous joins admit exactly `max_guests`, reusable link and join window, guest leaving, `live_busy` on a join the engine cannot serve) | `cargo test --test live_rest` |
+| `/ws/live` | `tests/live_ws.rs` | both phones translated at once, four phones in three languages hearing every other speaker in their own, peer joined/left/muted per peer, server-side mute, reconnect takeover, sweeper, billing ticks and exhaustion, no account id leak, latency metric (one observation per utterance with three listeners), billing per distinct language across seats, the 3-seat echo filter, audio frame cap and 1.5x real-time budget (honest sender untouched) | `cargo test --test live_ws` |
+| Billing | `tests/live_billing.rs` | idempotent ticks, insufficient funds, concurrent sessions on one wallet, the org carry across Start/Stop cycles, one stream per distinct language for every seat (user and org, to the last digit) | `cargo test --test live_billing` |
 | Desks | `tests/live_desks.rs` | scan creates a new session each time, revoke/regenerate, exactly one answerer, queue and per-address limits, scan-vs-revoke ordering, no existence oracle, a real WS conversation | `cargo test --test live_desks` |
-| Intelligence | `tests/live_intelligence.rs` | finalisation, search filters and scope, retention, erasure | `cargo test --test live_intelligence` |
-| Dashboard / admin | `tests/live_dashboard.rs`, `tests/live_admin.rs` | list/detail/usage scope, admin routes and audit | `cargo test --test live_dashboard --test live_admin` |
+| Intelligence | `tests/live_intelligence.rs` | finalisation, search filters and scope, retention, erasure (also for a conversation with three guests) | `cargo test --test live_intelligence` |
+| Dashboard / admin | `tests/live_dashboard.rs`, `tests/live_admin.rs` | list/detail/usage scope (first guest and `guest_count` for a conversation with several), admin routes and audit | `cargo test --test live_dashboard --test live_admin` |
 | Client unit | `client/src/scripts/live/*.test.ts` | state machine, protocol, view, pages (fake socket and fake media) | `cd client && npx vitest run --coverage.enabled=false` |
 | **Browser e2e, real server** | `client/e2e/live.spec.ts` | the user journeys below, in real browsers against the real server and database | `cd client && npm run test:e2e:live` |
 | Load | `loadtest/live-connect.js` | connect time, errors, `live_busy`, silent directions at N conversations | `loadtest/README.md`, "Live Connect" |
@@ -674,9 +741,12 @@ is idempotent (`IF NOT EXISTS`, guarded constraints, safe to re-run):
 | 066 | `live_participants.user_id` becomes `ON DELETE SET NULL` | only acts while the foreign key still cascades; keeps the tick ledger when an account is deleted |
 | 067 | `live_session_summaries` (one AI summary per conversation and language) | content: removed with the conversation |
 | 068 | `live_desk_usage` view and `live_desk_usage_daily` table | metadata only; exists so Directus (which ignores composite-key tables) can chart credits per desk |
+| 069 | `live_sessions.max_guests` (1-3, default 1) and the guest-side index made non-unique | additive column, guarded `NOT VALID` check. The one thing it removes is the database's old cap of one guest per session (the application enforces `max_guests` now), so **a server binary that predates it, run against a migrated database, would let a second guest in**: roll the schema forward with the binary, do not run an old build on a 069 database while sessions admit several guests. Existing sessions keep `max_guests = 1` |
 
-All additive: an older server binary ignores the new tables, so a rollback of the application does
-not require a rollback of the schema. There is no destructive migration to undo.
+All additive but for that last point: an older server binary ignores the new tables, so a rollback of
+the application does not require a rollback of the schema, and there is no destructive migration to
+undo (the guest-side index it relaxes can be made unique again only while no session has several
+guests).
 
 **Constraints.** A single replica (rooms and presence are in memory; see *Operations*). Rotating
 `LIVE_TOKEN_KEY` invalidates printed desk QR codes and guest tokens in flight, so treat it as a

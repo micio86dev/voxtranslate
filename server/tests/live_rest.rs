@@ -38,6 +38,8 @@ struct Opts {
     /// Upstream session cap; 1 makes the capacity gate refuse.
     qwen_max_sessions: Option<usize>,
     max_concurrent: Option<&'static str>,
+    /// `LIVE_MAX_GUESTS`: the most guests a host may ask for.
+    max_guests: Option<&'static str>,
 }
 
 async fn setup(opts: Opts) -> Option<Srv> {
@@ -69,6 +71,7 @@ async fn setup(opts: Opts) -> Option<Srv> {
             "LIVE_CONNECT_ENABLED" => Some("1".into()),
             "LIVE_TOKEN_KEY" => Some(LIVE_KEY.into()),
             "LIVE_MAX_CONCURRENT_PER_OWNER" => opts.max_concurrent.map(Into::into),
+            "LIVE_MAX_GUESTS" => opts.max_guests.map(Into::into),
             _ => None,
         })
         .unwrap()
@@ -760,4 +763,379 @@ async fn a_live_conversations_room_cannot_be_the_subject_of_an_email_invite() {
         invite("live-room".into()).await,
         StatusCode::SERVICE_UNAVAILABLE
     );
+}
+
+// ---- several guests on one invitation (spec 0121, S1) -----------------------------------
+
+async fn create_with(srv: &Srv, jwt: &str, lang: &str, max_guests: Value) -> (StatusCode, Value) {
+    srv.post(
+        "/api/live/sessions",
+        Some(jwt),
+        json!({ "lang": lang, "max_guests": max_guests }),
+    )
+    .await
+}
+
+async fn guest_rows(srv: &Srv, session: &str) -> i64 {
+    sqlx::query_scalar(
+        "SELECT count(*) FROM live_participants WHERE session_id = $1::uuid AND role = 'guest'",
+    )
+    .bind(session)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap()
+}
+
+#[tokio::test]
+async fn a_session_defaults_to_one_guest_and_says_how_many_it_admits() {
+    let srv = srv!(Opts::default());
+    let (jwt, _) = login(&srv, "Marco").await;
+
+    let (s, created) = create_b2c(&srv, &jwt, "it").await;
+    assert_eq!(s, StatusCode::OK, "{created}");
+    assert_eq!(created["max_guests"], 1, "today's behaviour is the default");
+    let sid = created["session_id"].as_str().unwrap();
+    let stored: i16 =
+        sqlx::query_scalar("SELECT max_guests FROM live_sessions WHERE id = $1::uuid")
+            .bind(sid)
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap();
+    assert_eq!(stored, 1);
+
+    // `null` is "not given".
+    let (s, created) = create_with(&srv, &jwt, "it", Value::Null).await;
+    assert_eq!(
+        (s, created["max_guests"].as_i64()),
+        (StatusCode::OK, Some(1))
+    );
+
+    // Asking for three is persisted, returned, and visible to every participant.
+    let (s, created) = create_with(&srv, &jwt, "it", json!(3)).await;
+    assert_eq!(s, StatusCode::OK, "{created}");
+    assert_eq!(created["max_guests"], 3);
+    let (_, joined) = join(&srv, &code_of(&created), "Lucia", "es").await;
+    assert_eq!(joined["max_guests"], 3, "the guest is told too");
+    let id = created["session_id"].as_str().unwrap();
+    let (_, view) = srv
+        .get(
+            &format!("/api/live/sessions/{id}"),
+            joined["token"].as_str().unwrap(),
+        )
+        .await;
+    assert_eq!(view["session"]["max_guests"], 3);
+}
+
+#[tokio::test]
+async fn a_bad_guest_count_is_refused_with_a_stable_code_and_creates_nothing() {
+    let srv = srv!(Opts::default());
+    let (jwt, user) = login(&srv, "Marco").await;
+    for bad in [
+        json!(0),
+        json!(4),
+        json!(-1),
+        json!(99),
+        json!("2"),
+        json!(1.5),
+        json!(true),
+        json!([2]),
+    ] {
+        let (s, b) = create_with(&srv, &jwt, "it", bad.clone()).await;
+        assert_eq!(
+            (s, b["code"].as_str()),
+            (StatusCode::BAD_REQUEST, Some("bad_max_guests")),
+            "{bad}"
+        );
+    }
+    let made: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM live_sessions WHERE owner_user_id = $1")
+            .bind(user)
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap();
+    assert_eq!(made, 0, "a refused create leaves no session behind");
+}
+
+#[tokio::test]
+async fn the_operator_can_lower_how_many_guests_a_host_may_ask_for() {
+    let srv = srv!(Opts {
+        max_guests: Some("2"),
+        ..Opts::default()
+    });
+    let (jwt, _) = login(&srv, "Marco").await;
+    assert_eq!(
+        create_with(&srv, &jwt, "it", json!(2)).await.0,
+        StatusCode::OK
+    );
+    let (s, b) = create_with(&srv, &jwt, "it", json!(3)).await;
+    assert_eq!(
+        (s, b["code"].as_str()),
+        (StatusCode::BAD_REQUEST, Some("bad_max_guests"))
+    );
+}
+
+#[tokio::test]
+async fn one_invitation_admits_guests_one_after_the_other_each_with_a_seat_of_their_own() {
+    let srv = srv!(Opts::default());
+    let (jwt, _) = login(&srv, "Marco").await;
+    let (_, created) = create_with(&srv, &jwt, "it", json!(3)).await;
+    let code = code_of(&created);
+    let sid = created["session_id"].as_str().unwrap();
+
+    let mut seats = Vec::new();
+    for (name, lang) in [("Lucia", "es"), ("Pablo", "es"), ("Ann", "en")] {
+        let (s, joined) = join(&srv, &code, name, lang).await;
+        assert_eq!(s, StatusCode::OK, "{name}: {joined}");
+        assert_eq!(joined["session_id"], created["session_id"]);
+        seats.push((
+            joined["peer_id"].as_str().unwrap().to_string(),
+            joined["token"].as_str().unwrap().to_string(),
+        ));
+    }
+    // Three different seats and three different credentials, each with its own consent.
+    let mut peers: Vec<_> = seats.iter().map(|(p, _)| p.clone()).collect();
+    let mut tokens: Vec<_> = seats.iter().map(|(_, t)| t.clone()).collect();
+    peers.sort();
+    peers.dedup();
+    tokens.sort();
+    tokens.dedup();
+    assert_eq!((peers.len(), tokens.len()), (3, 3));
+    let consented: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM live_participants
+         WHERE session_id = $1::uuid AND role = 'guest' AND consent_at IS NOT NULL AND token_hash IS NOT NULL",
+    )
+    .bind(sid)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
+    assert_eq!(consented, 3);
+
+    // Everybody sees everybody, in join order, host first.
+    let (_, view) = srv
+        .get(&format!("/api/live/sessions/{sid}"), &seats[2].1)
+        .await;
+    let people: Vec<(&str, &str)> = view["session"]["participants"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| {
+            (
+                p["display_name"].as_str().unwrap(),
+                p["lang"].as_str().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        people,
+        vec![
+            ("Marco", "it"),
+            ("Lucia", "es"),
+            ("Pablo", "es"),
+            ("Ann", "en")
+        ]
+    );
+    assert_eq!(view["session"]["status"], "active");
+
+    // A fourth guest finds the conversation full, with the same stable code as before.
+    let (s, b) = join(&srv, &code, "Late", "fr").await;
+    assert_eq!(
+        (s, b["code"].as_str()),
+        (StatusCode::CONFLICT, Some("session_full"))
+    );
+    assert_eq!(guest_rows(&srv, sid).await, 3, "and took no seat");
+}
+
+#[tokio::test]
+async fn a_session_that_admits_two_is_full_at_two() {
+    let srv = srv!(Opts::default());
+    let (jwt, _) = login(&srv, "Marco").await;
+    let (_, created) = create_with(&srv, &jwt, "it", json!(2)).await;
+    let code = code_of(&created);
+    assert_eq!(join(&srv, &code, "A", "es").await.0, StatusCode::OK);
+    assert_eq!(join(&srv, &code, "B", "en").await.0, StatusCode::OK);
+    let (s, b) = join(&srv, &code, "C", "fr").await;
+    assert_eq!(
+        (s, b["code"].as_str()),
+        (StatusCode::CONFLICT, Some("session_full"))
+    );
+}
+
+#[tokio::test]
+async fn simultaneous_joins_admit_exactly_as_many_guests_as_the_session_allows() {
+    let srv = Arc::new(srv!(Opts::default()));
+    let (jwt, _) = login(&srv, "Marco").await;
+    for max in [1i64, 3] {
+        let (_, created) = create_with(&srv, &jwt, "it", json!(max)).await;
+        let code = code_of(&created);
+        let sid = created["session_id"].as_str().unwrap().to_string();
+        let mut tasks = Vec::new();
+        for i in 0..10 {
+            let (srv, code) = (srv.clone(), code.clone());
+            tasks.push(tokio::spawn(async move {
+                join(&srv, &code, &format!("G{i}"), "es").await
+            }));
+        }
+        let (mut ok, mut full) = (0, 0);
+        for t in tasks {
+            let (s, b) = t.await.unwrap();
+            match (s, b["code"].as_str()) {
+                (StatusCode::OK, _) => ok += 1,
+                (StatusCode::CONFLICT, Some("session_full")) => full += 1,
+                other => panic!("unexpected answer {other:?}"),
+            }
+        }
+        assert_eq!((ok, full), (max, 10 - max), "max_guests = {max}");
+        assert_eq!(guest_rows(&srv, &sid).await, max, "the database agrees");
+        // Ending frees the owner's concurrent-session slot for the next round.
+        sqlx::query("UPDATE live_sessions SET status = 'ended' WHERE id = $1::uuid")
+            .bind(&sid)
+            .execute(&srv.pool)
+            .await
+            .unwrap();
+    }
+}
+
+#[tokio::test]
+async fn the_join_window_closes_on_a_session_nobody_joined_but_not_on_one_in_progress() {
+    let srv = srv!(Opts::default());
+    let (jwt, _) = login(&srv, "Marco").await;
+    let (_, created) = create_with(&srv, &jwt, "it", json!(3)).await;
+    let code = code_of(&created);
+    let sid = created["session_id"].as_str().unwrap();
+    assert_eq!(join(&srv, &code, "First", "es").await.0, StatusCode::OK);
+
+    // The window the first guest had is long over; the conversation is under way, so the same
+    // link still admits the next one.
+    sqlx::query(
+        "UPDATE live_sessions SET expires_at = now() - interval '1 hour' WHERE id = $1::uuid",
+    )
+    .bind(sid)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+    let (s, b) = join(&srv, &code, "Second", "en").await;
+    assert_eq!(s, StatusCode::OK, "{b}");
+
+    // Once it has ended, the link is dead, whatever seats were left.
+    let tok = created["token"].as_str().unwrap();
+    assert_eq!(
+        srv.post(
+            &format!("/api/live/sessions/{sid}/end"),
+            Some(tok),
+            json!({})
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    let (s, b) = join(&srv, &code, "Third", "fr").await;
+    assert_eq!(
+        (s, b["code"].as_str()),
+        (StatusCode::GONE, Some("session_ended"))
+    );
+}
+
+#[tokio::test]
+async fn a_guest_leaving_a_shared_conversation_does_not_end_it_for_the_others() {
+    let srv = srv!(Opts::default());
+    let (jwt, _) = login(&srv, "Marco").await;
+    let (_, created) = create_with(&srv, &jwt, "it", json!(2)).await;
+    let code = code_of(&created);
+    let sid = created["session_id"].as_str().unwrap();
+    let (_, a) = join(&srv, &code, "A", "es").await;
+    let (_, b) = join(&srv, &code, "B", "en").await;
+
+    let (s, left) = srv
+        .post(
+            &format!("/api/live/sessions/{sid}/end"),
+            Some(a["token"].as_str().unwrap()),
+            json!({}),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(
+        (left["ended"].as_bool(), left["left"].as_bool()),
+        (Some(false), Some(true))
+    );
+    let (s, view) = srv
+        .get(
+            &format!("/api/live/sessions/{sid}"),
+            b["token"].as_str().unwrap(),
+        )
+        .await;
+    assert_eq!(
+        s,
+        StatusCode::OK,
+        "the other guest's seat is still good: {view}"
+    );
+    assert_eq!(view["session"]["status"], "active");
+
+    // The host's end is the end for everyone.
+    let (_, ended) = srv
+        .post(
+            &format!("/api/live/sessions/{sid}/end"),
+            Some(created["token"].as_str().unwrap()),
+            json!({}),
+        )
+        .await;
+    assert_eq!(ended["ended"], true);
+    let (s, _) = srv
+        .get(
+            &format!("/api/live/sessions/{sid}"),
+            b["token"].as_str().unwrap(),
+        )
+        .await;
+    assert_eq!(s, StatusCode::GONE);
+}
+
+#[tokio::test]
+async fn a_join_the_engine_cannot_serve_is_refused_busy_instead_of_a_direction_going_silent() {
+    // Three upstream sessions in all. A pair needs two; a third language needs four more.
+    let srv = srv!(Opts {
+        qwen_max_sessions: Some(3),
+        ..Opts::default()
+    });
+    let (jwt, _) = login(&srv, "Marco").await;
+    let (_, created) = create_with(&srv, &jwt, "it", json!(3)).await;
+    let code = code_of(&created);
+    let sid = created["session_id"].as_str().unwrap();
+
+    assert_eq!(join(&srv, &code, "Lucia", "es").await.0, StatusCode::OK);
+    let (s, b) = join(&srv, &code, "Ann", "en").await;
+    assert_eq!(
+        (s, b["code"].as_str()),
+        (StatusCode::SERVICE_UNAVAILABLE, Some("live_busy")),
+        "a third language would need more sessions than the engine has"
+    );
+    assert_eq!(
+        guest_rows(&srv, sid).await,
+        1,
+        "the refused join took no seat"
+    );
+
+    // The same language as a guest already there needs no new stream: it still fits.
+    assert_eq!(join(&srv, &code, "Pablo", "es").await.0, StatusCode::OK);
+    assert_eq!(guest_rows(&srv, sid).await, 2);
+}
+
+#[tokio::test]
+async fn a_business_session_takes_guests_too() {
+    let srv = srv!(Opts::default());
+    let (_, owner) = login(&srv, "Owner").await;
+    let (jwt, member) = login(&srv, "Receptionist").await;
+    let org = org_with_member(&srv, owner, Some(member)).await;
+
+    let (s, created) = srv
+        .post(
+            "/api/live/sessions",
+            Some(&jwt),
+            json!({ "lang": "it", "org_id": org.id, "project_id": org.project, "max_guests": 2 }),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{created}");
+    assert_eq!(created["max_guests"], 2);
+    let code = code_of(&created);
+    assert_eq!(join(&srv, &code, "A", "es").await.0, StatusCode::OK);
+    assert_eq!(join(&srv, &code, "B", "en").await.0, StatusCode::OK);
+    assert_eq!(join(&srv, &code, "C", "fr").await.0, StatusCode::CONFLICT);
 }

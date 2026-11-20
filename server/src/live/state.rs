@@ -2,7 +2,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::Duration;
 
 use rust_decimal::Decimal;
@@ -13,12 +13,18 @@ use super::config::LiveConfig;
 use crate::business::credits::CreditAccumulator;
 use crate::rooms::PeerTx;
 
-/// Speech-to-translated-audio latency probes for one conversation (spec 0121, S18).
+/// Seats a conversation can have: the host plus up to three guests (`rooms::MAX_PEERS`).
+pub const MAX_SEATS: usize = 4;
+
+/// Speech-to-translated-audio latency probes and microphone levels for one conversation (spec
+/// 0121, S18, and the echo filter).
 ///
-/// One slot per seat (`0` = owner side, `1` = guest side). The speaker's socket *stamps* its slot
-/// when speech starts; the **other** phone's socket *takes* the stamp when the first translated
-/// audio of that utterance is delivered to it, and the difference is the number the product is
-/// judged on: how long after somebody starts talking the other person starts hearing them.
+/// One slot per **seat**, up to [`MAX_SEATS`]. A seat is a phone: [`seat_for`](Self::seat_for)
+/// hands each peer id the first free slot when its socket connects, and the same slot again when
+/// it reconnects. The speaker's socket *stamps* its slot when speech starts; whichever listener's
+/// socket first delivers that speaker's translated audio *takes* the stamp, and the difference
+/// is the number the product is judged on: how long after somebody starts talking somebody else
+/// starts hearing them. One observation per utterance, however many listeners there are.
 ///
 /// Lock-free on purpose. Stamping happens once per utterance and taking costs one atomic swap
 /// per delivered audio chunk, so the hot path neither locks nor allocates. Stamps are nanoseconds
@@ -26,13 +32,16 @@ use crate::rooms::PeerTx;
 #[derive(Debug)]
 pub struct SessionLatency {
     epoch: tokio::time::Instant,
-    stamps: [AtomicU64; 2],
+    /// Which peer id holds each seat. Set once, never changed: a seat is for the life of the
+    /// probe set, which lives as long as any socket of the conversation does.
+    seats: [OnceLock<Box<str>>; MAX_SEATS],
+    stamps: [AtomicU64; MAX_SEATS],
     /// Per seat, smoothed microphone level of the audio it feeds the engine (mean absolute PCM16
     /// sample) and when it was last updated. Written only by that seat's socket.
-    mic_level: [AtomicU32; 2],
-    mic_level_at: [AtomicU64; 2],
+    mic_level: [AtomicU32; MAX_SEATS],
+    mic_level_at: [AtomicU64; MAX_SEATS],
     /// Per seat, when its microphone last carried speech (same nanosecond encoding as `stamps`).
-    mic_voiced_at: [AtomicU64; 2],
+    mic_voiced_at: [AtomicU64; MAX_SEATS],
     /// When the echo filter last wrote a diagnostics event for this conversation.
     echo_report_at: AtomicU64,
 }
@@ -51,12 +60,44 @@ impl SessionLatency {
     fn new() -> Self {
         Self {
             epoch: tokio::time::Instant::now(),
-            stamps: [AtomicU64::new(0), AtomicU64::new(0)],
-            mic_level: [AtomicU32::new(0), AtomicU32::new(0)],
-            mic_level_at: [AtomicU64::new(0), AtomicU64::new(0)],
-            mic_voiced_at: [AtomicU64::new(0), AtomicU64::new(0)],
+            seats: std::array::from_fn(|_| OnceLock::new()),
+            stamps: std::array::from_fn(|_| AtomicU64::new(0)),
+            mic_level: std::array::from_fn(|_| AtomicU32::new(0)),
+            mic_level_at: std::array::from_fn(|_| AtomicU64::new(0)),
+            mic_voiced_at: std::array::from_fn(|_| AtomicU64::new(0)),
             echo_report_at: AtomicU64::new(0),
         }
+    }
+
+    /// A probe set with no conversation behind it, for tests in other modules.
+    #[cfg(test)]
+    pub(crate) fn new_for_test() -> Self {
+        Self::new()
+    }
+
+    /// The seat of `peer`: the slot it already holds, else the first free one. Called once per
+    /// socket at connect, never per frame. A conversation never has more than [`MAX_SEATS`]
+    /// peers, so running out is a bug elsewhere; the last slot is shared rather than panicking.
+    pub fn seat_for(&self, peer: &str) -> usize {
+        for (i, slot) in self.seats.iter().enumerate() {
+            if slot.get().is_some_and(|p| &**p == peer) {
+                return i;
+            }
+            // `set` can lose a race to another socket claiming the same free slot; then look at
+            // what it holds (it may even be this very peer, reconnecting twice).
+            if slot.set(peer.into()).is_ok() || slot.get().is_some_and(|p| &**p == peer) {
+                return i;
+            }
+        }
+        MAX_SEATS - 1
+    }
+
+    /// The seat `peer` holds, if its socket has connected. What the echo filter's level lookup
+    /// uses to turn a speaker id on a frame into a microphone.
+    pub fn seat_of(&self, peer: &str) -> Option<usize> {
+        self.seats
+            .iter()
+            .position(|s| s.get().is_some_and(|p| &**p == peer))
     }
 
     fn encode(&self, at: tokio::time::Instant) -> u64 {
@@ -70,7 +111,7 @@ impl SessionLatency {
     /// time constant at 10 frames/s) rather than the last frame, so a pause between words does not
     /// flip the answer. Only the seat's own socket writes it, so a plain load/store is enough.
     pub fn mic_frame(&self, seat: usize, at: tokio::time::Instant, mean_abs: u32, voiced: bool) {
-        let i = seat & 1;
+        let i = seat % MAX_SEATS;
         // A stale level reads as 0, so speech after a long silence starts from silence.
         let old = self.mic_level(i, at);
         // Fast attack, slow release: speech that has just started reads as most of its real level
@@ -91,7 +132,7 @@ impl SessionLatency {
 
     /// The smoothed microphone level of `seat` at `now`; `0` when it has been quiet for a while.
     pub fn mic_level(&self, seat: usize, now: tokio::time::Instant) -> u32 {
-        let i = seat & 1;
+        let i = seat % MAX_SEATS;
         let stamp = self.mic_level_at[i].load(Ordering::Relaxed);
         if stamp == 0 {
             return 0;
@@ -107,7 +148,7 @@ impl SessionLatency {
 
     /// When `seat`'s microphone last carried speech, if ever.
     pub fn mic_last_voiced(&self, seat: usize) -> Option<tokio::time::Instant> {
-        let stamp = self.mic_voiced_at[seat & 1].load(Ordering::Relaxed);
+        let stamp = self.mic_voiced_at[seat % MAX_SEATS].load(Ordering::Relaxed);
         (stamp != 0).then(|| self.epoch + Duration::from_nanos(stamp - 1))
     }
 
@@ -124,23 +165,27 @@ impl SessionLatency {
             .is_ok()
     }
 
-    /// The seat index of a role: the owner side (host, staff) is `0`, the guest `1`.
-    pub fn seat(is_guest: bool) -> usize {
-        usize::from(is_guest)
-    }
-
     /// `seat` started speaking at `at`. Overwrites whatever was pending: a new utterance
     /// supersedes one whose audio never arrived.
     pub fn speech_started(&self, seat: usize, at: tokio::time::Instant) {
         let ns = at.saturating_duration_since(self.epoch).as_nanos() as u64;
-        self.stamps[seat & 1].store(ns.saturating_add(1), Ordering::Relaxed);
+        self.stamps[seat % MAX_SEATS].store(ns.saturating_add(1), Ordering::Relaxed);
     }
 
-    /// Translated audio of the **other** seat's speech was delivered to `listener` at `at`.
-    /// Returns the latency of the utterance it answers, exactly once per utterance: a second
-    /// chunk of the same utterance finds nothing pending.
-    pub fn audio_delivered(&self, listener: usize, at: tokio::time::Instant) -> Option<Duration> {
-        let stamp = self.stamps[(listener & 1) ^ 1].swap(0, Ordering::Relaxed);
+    /// Translated audio of `speaker`'s speech was delivered to `listener` at `at`. Returns the
+    /// latency of the utterance it answers, exactly once per utterance: a second chunk of the
+    /// same utterance (or the same chunk reaching another listener) finds nothing pending. A seat
+    /// never measures its own speech.
+    pub fn audio_delivered(
+        &self,
+        listener: usize,
+        speaker: usize,
+        at: tokio::time::Instant,
+    ) -> Option<Duration> {
+        if listener % MAX_SEATS == speaker % MAX_SEATS {
+            return None;
+        }
+        let stamp = self.stamps[speaker % MAX_SEATS].swap(0, Ordering::Relaxed);
         if stamp == 0 {
             return None;
         }
@@ -505,16 +550,16 @@ mod tests {
         let l = SessionLatency::new();
         let t0 = l.epoch;
         // Nothing was said: nothing to measure.
-        assert_eq!(l.audio_delivered(1, at(t0, 50)), None);
+        assert_eq!(l.audio_delivered(1, 0, at(t0, 50)), None);
 
         // The owner side (seat 0) speaks; the guest (seat 1) hears the translation 240 ms later.
         l.speech_started(0, at(t0, 100));
         assert_eq!(
-            l.audio_delivered(1, at(t0, 340)),
+            l.audio_delivered(1, 0, at(t0, 340)),
             Some(Duration::from_millis(240))
         );
         // The second chunk of the same utterance is not a second sample.
-        assert_eq!(l.audio_delivered(1, at(t0, 360)), None);
+        assert_eq!(l.audio_delivered(1, 0, at(t0, 360)), None);
     }
 
     #[test]
@@ -523,9 +568,9 @@ mod tests {
         let t0 = l.epoch;
         l.speech_started(0, at(t0, 10));
         // Audio delivered to the speaker itself (it would be an echo) is not a sample.
-        assert_eq!(l.audio_delivered(0, at(t0, 200)), None);
+        assert_eq!(l.audio_delivered(0, 0, at(t0, 200)), None);
         // And it did not consume the pending stamp of the real listener.
-        assert!(l.audio_delivered(1, at(t0, 250)).is_some());
+        assert!(l.audio_delivered(1, 0, at(t0, 250)).is_some());
     }
 
     #[test]
@@ -535,11 +580,11 @@ mod tests {
         l.speech_started(0, at(t0, 0));
         l.speech_started(1, at(t0, 50));
         assert_eq!(
-            l.audio_delivered(0, at(t0, 400)),
+            l.audio_delivered(0, 1, at(t0, 400)),
             Some(Duration::from_millis(350))
         );
         assert_eq!(
-            l.audio_delivered(1, at(t0, 420)),
+            l.audio_delivered(1, 0, at(t0, 420)),
             Some(Duration::from_millis(420))
         );
     }
@@ -552,12 +597,56 @@ mod tests {
         // Never translated; the speaker starts again later and that is what the audio answers.
         l.speech_started(0, at(t0, 5_000));
         assert_eq!(
-            l.audio_delivered(1, at(t0, 5_300)),
+            l.audio_delivered(1, 0, at(t0, 5_300)),
             Some(Duration::from_millis(300))
         );
         // A stamp older than the plausibility window is discarded, not recorded.
         l.speech_started(0, at(t0, 6_000));
-        assert_eq!(l.audio_delivered(1, at(t0, 6_000 + 31_000)), None);
+        assert_eq!(l.audio_delivered(1, 0, at(t0, 6_000 + 31_000)), None);
+    }
+
+    #[test]
+    fn each_peer_gets_a_seat_of_its_own_and_keeps_it_across_a_reconnect() {
+        let l = SessionLatency::new();
+        let ids = ["host", "g1", "g2", "g3"];
+        let seats: Vec<usize> = ids.iter().map(|p| l.seat_for(p)).collect();
+        assert_eq!(seats, vec![0, 1, 2, 3], "four peers, four distinct seats");
+        // The same peer asking again (a reconnect) gets the seat it had, not a new one.
+        assert_eq!(l.seat_for("g2"), 2);
+        assert_eq!(l.seat_of("g3"), Some(3));
+        assert_eq!(l.seat_of("stranger"), None);
+    }
+
+    #[test]
+    fn a_microphone_level_belongs_to_one_of_four_seats() {
+        let l = SessionLatency::new();
+        let t0 = l.epoch;
+        for seat in 0..MAX_SEATS {
+            l.mic_frame(seat, at(t0, 0), 100 * (seat as u32 + 1), true);
+        }
+        // Each seat reads back its own level, never a neighbour's (the old code folded seats
+        // onto two slots, so seat 2 read seat 0).
+        let levels: Vec<u32> = (0..MAX_SEATS)
+            .map(|seat| l.mic_level(seat, at(t0, 0)))
+            .collect();
+        assert_eq!(levels, vec![50, 100, 150, 200]);
+        assert_eq!(l.mic_last_voiced(2), Some(at(t0, 0)));
+    }
+
+    #[test]
+    fn with_three_listeners_one_utterance_is_observed_once_and_for_its_own_speaker() {
+        let l = SessionLatency::new();
+        let t0 = l.epoch;
+        l.speech_started(1, at(t0, 100));
+        // Seat 2's utterance is a different stream: its audio must not consume seat 1's stamp.
+        assert_eq!(l.audio_delivered(0, 2, at(t0, 200)), None);
+        // Seat 1's audio reaches three phones; only the first delivery is a sample.
+        assert_eq!(
+            l.audio_delivered(0, 1, at(t0, 340)),
+            Some(Duration::from_millis(240))
+        );
+        assert_eq!(l.audio_delivered(2, 1, at(t0, 345)), None);
+        assert_eq!(l.audio_delivered(3, 1, at(t0, 350)), None);
     }
 
     #[test]

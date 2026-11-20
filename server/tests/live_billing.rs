@@ -535,7 +535,6 @@ async fn short_start_stop_cycles_of_an_org_seat_add_up_to_what_they_cost() {
             interval_secs: 1,
             // 0.4 of a credit per tick.
             rate_per_second: 0.004,
-            scale_by_target_count: false,
             low_balance_threshold: 0.0,
             activity: Arc::new(AtomicU64::new(0)),
         };
@@ -606,7 +605,6 @@ async fn credits_of_a_duplicate_tick_go_back_to_the_carry() {
         speaker_lang: "it".into(),
         interval_secs: 1,
         rate_per_second: 0.012,
-        scale_by_target_count: false,
         low_balance_threshold: 0.0,
         activity: activity.clone(),
     };
@@ -674,7 +672,6 @@ async fn credits_of_a_failed_tick_go_back_to_the_carry() {
         speaker_lang: "it".into(),
         interval_secs: 1,
         rate_per_second: 0.012,
-        scale_by_target_count: false,
         low_balance_threshold: 0.0,
         activity: activity.clone(),
     };
@@ -714,4 +711,189 @@ async fn credits_of_a_failed_tick_go_back_to_the_carry() {
     // duplicates must be recovered by a later tick, so close to floor(8.4)=8 is charged (6 s run: ~7.2)
     let _ = (rows, dup_rows);
     assert!(spent >= 8, "credits of failed ticks were lost from the carry: only {spent} charged for ~7.2 credits of audio");
+}
+
+// ---- the owner pays for every seat, per DISTINCT target language (spec 0121, S3) --------
+
+/// One participant row for `session`, a guest unless it is the first (the host already exists).
+async fn seat_row(pool: &Pool, session: Uuid, lang: &str) -> Uuid {
+    sqlx::query_scalar(
+        "INSERT INTO live_participants (session_id, role, display_name, lang) VALUES ($1, 'guest', 'G', $2) RETURNING peer_id",
+    )
+    .bind(session)
+    .bind(lang)
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
+/// Start one seat's meter, let it take its opening charge, stop it.
+#[allow(clippy::too_many_arguments)]
+async fn opening_charge(
+    pool: &Pool,
+    live: &Arc<LiveState>,
+    rooms: &Arc<RoomManager>,
+    payer: LivePayer,
+    session: Uuid,
+    peer: Uuid,
+    room: &str,
+    lang: &str,
+) {
+    let (end_tx, _end_rx) = mpsc::unbounded_channel();
+    let (cancel, cancel_rx) = oneshot::channel();
+    let meter = LiveMeter {
+        pool: pool.clone(),
+        live: live.clone(),
+        rooms: rooms.clone(),
+        payer,
+        session,
+        peer,
+        room: room.into(),
+        speaker_lang: lang.into(),
+        interval_secs: 1,
+        rate_per_second: 0.01,
+        low_balance_threshold: 0.0,
+        activity: Arc::new(AtomicU64::new(0)),
+    };
+    let run = tokio::spawn(meter.run(end_tx, cancel_rx));
+    tokio::time::sleep(Duration::from_millis(250)).await;
+    let _ = cancel.send(());
+    run.await.unwrap();
+}
+
+/// What each seat's opening charge cost, in streams, for rooms of different languages. The first
+/// language is the host's. `None` = nobody to translate for, so no tick at all.
+const LANGUAGE_MIXES: &[(&[&str], &[Option<u32>])] = &[
+    // The case the product owner described: host it, guests es, es, en. The host's speech goes to
+    // two languages (es, en) however many Spanish speakers there are; a Spanish guest's to two
+    // (it, en); the English guest's to two (it, es).
+    (
+        &["it", "es", "es", "en"],
+        &[Some(2), Some(2), Some(2), Some(2)],
+    ),
+    // Two guests in one language never double a cost: everybody has exactly one other language.
+    (
+        &["it", "es", "es", "es"],
+        &[Some(1), Some(1), Some(1), Some(1)],
+    ),
+    // Four languages: each seat translates into the three others.
+    (
+        &["it", "es", "en", "fr"],
+        &[Some(3), Some(3), Some(3), Some(3)],
+    ),
+    // The host shares a language with a guest: that guest is nobody to translate for.
+    (&["it", "it", "es"], &[Some(1), Some(1), Some(1)]),
+    // Everybody speaks the same language: nothing is translated, nothing is charged.
+    (&["it", "it", "it", "it"], &[None, None, None, None]),
+];
+
+#[tokio::test]
+async fn a_user_pays_one_stream_per_distinct_language_for_every_seat_to_the_last_digit() {
+    let pool = pool!();
+    for (langs, streams) in LANGUAGE_MIXES {
+        let owner = make_user(&pool, usd(5.0)).await;
+        let (session, host, call) = make_session(&pool, Some(owner), None).await;
+        let mut peers = vec![host];
+        for l in &langs[1..] {
+            peers.push(seat_row(&pool, session, l).await);
+        }
+        let live = Arc::new(LiveState::new(LiveConfig::disabled()));
+        let rooms = Arc::new(RoomManager::new());
+        let room = format!("live-{call}");
+        for (p, l) in peers.iter().zip(*langs) {
+            seat(&rooms, &room, &p.to_string(), l);
+        }
+        let payer = user_payer(&pool, owner).await;
+        for (p, l) in peers.iter().zip(*langs) {
+            opening_charge(&pool, &live, &rooms, payer, session, *p, &room, l).await;
+        }
+
+        let mut expected_total = Decimal::ZERO;
+        for ((p, l), n) in peers.iter().zip(*langs).zip(*streams) {
+            let amounts: Vec<Decimal> = sqlx::query_scalar(
+                "SELECT amount FROM live_usage_ticks WHERE session_id = $1 AND peer_id = $2",
+            )
+            .bind(session)
+            .bind(p)
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+            match n {
+                None => assert!(amounts.is_empty(), "{langs:?}: {l} was charged {amounts:?}"),
+                Some(n) => {
+                    let unit = usd(0.01 * 1.0 * f64::from(*n));
+                    assert_eq!(amounts, vec![unit], "{langs:?}: seat speaking {l}");
+                    expected_total += unit;
+                }
+            }
+        }
+        // The owner's balance and ledger moved by exactly the ticks, no more, no less.
+        assert_eq!(
+            balance(&pool, owner).await,
+            usd(5.0) - expected_total,
+            "{langs:?}"
+        );
+        let (rows, ledger): (i64, Decimal) = sqlx::query_as(
+            "SELECT count(*), COALESCE(sum(-amount), 0) FROM credit_transactions WHERE user_id = $1 AND kind = 'usage'",
+        )
+        .bind(owner)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let charged_seats = streams.iter().flatten().count() as i64;
+        assert_eq!((rows, ledger), (charged_seats, expected_total), "{langs:?}");
+    }
+}
+
+#[tokio::test]
+async fn an_org_pays_the_same_streams_in_whole_credits_and_every_seat_has_its_own_tick() {
+    let pool = pool!();
+    let owner = make_user(&pool, usd(1.0)).await;
+    let org = make_org(&pool, owner, 1000).await;
+    let (session, host, call) = make_session(&pool, None, Some(org)).await;
+    // host it, guests es, es, en: two streams each, and a credit is a cent, so 2 credits a seat.
+    let langs = ["it", "es", "es", "en"];
+    let mut peers = vec![host];
+    for l in &langs[1..] {
+        peers.push(seat_row(&pool, session, l).await);
+    }
+    let live = Arc::new(LiveState::new(LiveConfig::disabled()));
+    let rooms = Arc::new(RoomManager::new());
+    let room = format!("live-{call}");
+    for (p, l) in peers.iter().zip(langs) {
+        seat(&rooms, &room, &p.to_string(), l);
+    }
+    let payer = LivePayer::Org {
+        org_id: org,
+        call_session: call,
+    };
+    for (p, l) in peers.iter().zip(langs) {
+        opening_charge(&pool, &live, &rooms, payer, session, *p, &room, l).await;
+    }
+
+    // One tick per seat (the key includes the peer, so four seats never collide), 2 credits each.
+    let ticks: Vec<(Uuid, Decimal)> = sqlx::query_as(
+        "SELECT peer_id, amount FROM live_usage_ticks WHERE session_id = $1 AND payer_kind = 'org'",
+    )
+    .bind(session)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(ticks.len(), 4, "{ticks:?}");
+    for p in &peers {
+        let mine: Vec<_> = ticks.iter().filter(|(id, _)| id == p).collect();
+        assert_eq!(mine.len(), 1);
+        assert_eq!(mine[0].1, Decimal::from(2));
+    }
+    assert_eq!(credits(&pool, org).await, 1000 - 8);
+    assert_eq!(
+        count(
+            &pool,
+            "SELECT -sum(amount)::bigint FROM organization_credits_transactions WHERE session_id = $1 AND type = 'live_connect'",
+            call
+        )
+        .await,
+        8,
+        "the ledger agrees with the wallet"
+    );
 }

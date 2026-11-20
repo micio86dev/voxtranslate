@@ -1,9 +1,10 @@
-//! Schema guarantees for Live Connect (spec 0121), migration `065_live_connect.sql`.
+//! Schema guarantees for Live Connect (spec 0121), migrations `065_live_connect.sql` and
+//! `069_live_multi_guest.sql`.
 //!
 //! The properties that matter are the ones the application leans on and would otherwise
-//! have to re-check in Rust: a session always has an owner, a session holds at most two
-//! participants (one per side), a billing tick can be written once, and purging the
-//! conversation never erases the usage record.
+//! have to re-check in Rust: a session always has an owner, a session has one owner-side seat
+//! (how many guests it admits is the application's rule, `max_guests`, enforced under a row lock),
+//! a billing tick can be written once, and purging the conversation never erases the usage record.
 //!
 //! Every test is **DB-gated**: it no-ops when `DATABASE_URL` is unset. Run against the
 //! local pgvector Postgres (`docker compose up -d --wait postgres`):
@@ -164,7 +165,7 @@ async fn status_and_role_vocabularies_are_enforced() {
 }
 
 #[tokio::test]
-async fn a_session_holds_at_most_two_participants_one_per_side() {
+async fn a_session_has_one_owner_side_and_the_database_no_longer_caps_guests() {
     let Some(pool) = setup().await else {
         eprintln!("skipping — no DATABASE_URL");
         return;
@@ -180,18 +181,99 @@ async fn a_session_holds_at_most_two_participants_one_per_side() {
             .expect_err("owner side is full");
         assert!(is_violation(&err, "23505"), "{role}: {err:?}");
     }
-    add_participant(&pool, session, "guest").await.unwrap();
-    let err = add_participant(&pool, session, "guest")
-        .await
-        .expect_err("guest side is full");
-    assert!(is_violation(&err, "23505"));
-
+    // Guests are limited by the application, under a row lock (`join_guest`), because a unique
+    // index cannot say "at most N": the table itself takes as many as it is given.
+    for _ in 0..3 {
+        add_participant(&pool, session, "guest").await.unwrap();
+    }
     let n: i64 = sqlx::query_scalar("SELECT count(*) FROM live_participants WHERE session_id = $1")
         .bind(session)
         .fetch_one(&pool)
         .await
         .unwrap();
-    assert_eq!(n, 2);
+    assert_eq!(n, 4);
+}
+
+#[tokio::test]
+async fn a_session_admits_one_to_three_guests_and_existing_sessions_keep_one() {
+    let Some(pool) = setup().await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    let owner = make_user(&pool).await;
+    // A session created the way every session was before 069 (no mention of the column).
+    let session = make_session(&pool, owner).await;
+    let max: i16 = sqlx::query_scalar("SELECT max_guests FROM live_sessions WHERE id = $1")
+        .bind(session)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(max, 1, "what a conversation already was is what it stays");
+
+    for ok in [1i16, 2, 3] {
+        sqlx::query("UPDATE live_sessions SET max_guests = $2 WHERE id = $1")
+            .bind(session)
+            .bind(ok)
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+    for bad in [0i16, 4, -1] {
+        let err = sqlx::query("UPDATE live_sessions SET max_guests = $2 WHERE id = $1")
+            .bind(session)
+            .bind(bad)
+            .execute(&pool)
+            .await
+            .expect_err("outside 1..=3");
+        assert!(is_violation(&err, "23514"), "{bad}: {err:?}");
+    }
+}
+
+#[tokio::test]
+async fn the_multi_guest_migration_is_idempotent_and_survives_065_being_run_again() {
+    let Some(pool) = setup().await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    let _turn = DDL.lock().await;
+    let owner = make_user(&pool).await;
+    let session = make_session(&pool, owner).await;
+    for _ in 0..3 {
+        add_participant(&pool, session, "guest").await.unwrap();
+    }
+    // 069 twice more, then 065 again (as `migration_is_idempotent` and a drifted database do):
+    // the second must find the guest-side index's NAME taken and leave it alone, rather than
+    // rebuild a unique index over a conversation that has three guests.
+    let m069 = include_str!("../migrations/069_live_multi_guest.sql");
+    sqlx::raw_sql(m069)
+        .execute(&pool)
+        .await
+        .expect("069 must be re-runnable");
+    // Not the whole file: 065 re-run end to end takes locks table by table and deadlocks with
+    // tests inserting rows (see `DDL`); the statement that matters is this one, verbatim.
+    let m065 = include_str!("../migrations/065_live_connect.sql");
+    let stmt = m065
+        .split(';')
+        .find(|s| s.contains("CREATE UNIQUE INDEX IF NOT EXISTS idx_live_participants_guest_side"))
+        .expect("065 still creates the guest-side index");
+    sqlx::raw_sql(stmt)
+        .execute(&pool)
+        .await
+        .expect("065's index statement must stay a no-op once guests share a session");
+    let unique: Option<bool> = sqlx::query_scalar(
+        "SELECT i.indisunique FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid
+         WHERE c.relname = 'idx_live_participants_guest_side'",
+    )
+    .fetch_optional(&pool)
+    .await
+    .unwrap();
+    assert_eq!(unique, Some(false), "the index stays, no longer unique");
+    // The owner-side unique index is untouched: still exactly one host or staff.
+    add_participant(&pool, session, "host").await.unwrap();
+    let err = add_participant(&pool, session, "staff")
+        .await
+        .expect_err("one owner side");
+    assert!(is_violation(&err, "23505"));
 }
 
 #[tokio::test]

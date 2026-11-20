@@ -73,6 +73,14 @@ pub(super) fn engine_has_room(state: &AppState) -> bool {
         .is_none_or(|free| free >= 2)
 }
 
+/// The engine's spare upstream sessions right now (`None` = it does not meter itself). A guest's
+/// arrival at a room that already has speakers needs more than two (see
+/// [`sessions::engine_sessions_for_join`]), so `join` hands this to the transaction that seats
+/// them rather than a yes/no.
+fn engine_free_capacity(state: &AppState) -> Option<usize> {
+    state.engines.default().free_capacity()
+}
+
 pub(super) fn busy() -> Response {
     api_err(
         StatusCode::SERVICE_UNAVAILABLE,
@@ -161,6 +169,28 @@ pub struct CreateBody {
     /// Present for a business session; the org pays and the project is mandatory.
     pub org_id: Option<Uuid>,
     pub project_id: Option<Uuid>,
+    /// How many guests the link/QR admits: 1 to `LIVE_MAX_GUESTS` (3 at most). Omitted = 1, the
+    /// two-person conversation. Kept as raw JSON so a wrong type or an out-of-range number
+    /// answers the same stable `bad_max_guests` as any other bad value, not a framework 422.
+    #[serde(default)]
+    pub max_guests: Option<serde_json::Value>,
+}
+
+/// The validated guest count of a create request.
+fn parse_max_guests(raw: Option<&serde_json::Value>, ceiling: i64) -> Result<i16, Response> {
+    let Some(v) = raw else {
+        return Ok(1);
+    };
+    v.as_i64()
+        .filter(|n| (1..=ceiling).contains(n))
+        .and_then(|n| i16::try_from(n).ok())
+        .ok_or_else(|| {
+            api_err(
+                StatusCode::BAD_REQUEST,
+                "bad_max_guests",
+                "max_guests must be a whole number from 1 to the allowed maximum",
+            )
+        })
 }
 
 pub async fn create(
@@ -178,6 +208,8 @@ pub async fn create(
             "unsupported language code",
         )
     })?;
+
+    let max_guests = parse_max_guests(body.max_guests.as_ref(), cfg.max_guests)?;
 
     if !state.rate_limiter.allow(
         &format!("livecreate:{}", user.user_id),
@@ -256,6 +288,7 @@ pub async fn create(
             host_lang: &lang,
             save_transcript,
             engine_id: None,
+            max_guests,
         },
     )
     .await
@@ -274,7 +307,7 @@ pub async fn create(
         pool,
         created.session_id,
         "created",
-        json!({ "b2b": body.org_id.is_some() }),
+        json!({ "b2b": body.org_id.is_some(), "max_guests": max_guests }),
     )
     .await;
 
@@ -292,6 +325,7 @@ pub async fn create(
         "peer_id": created.host_peer,
         "token": token,
         "ws_path": WS_PATH,
+        "max_guests": max_guests,
     }))
     .into_response())
 }
@@ -351,27 +385,34 @@ pub async fn join(
         return Err(busy());
     }
 
-    let joined = sessions::join_guest(pool, &body.code, &body.name, &lang)
-        .await
-        .map_err(|e| match e {
-            JoinError::NotFound => not_found(),
-            JoinError::Expired => api_err(
-                StatusCode::GONE,
-                "invite_expired",
-                "this invitation has expired",
-            ),
-            JoinError::Ended => api_err(
-                StatusCode::GONE,
-                "session_ended",
-                "this conversation has ended",
-            ),
-            JoinError::Full => api_err(
-                StatusCode::CONFLICT,
-                "session_full",
-                "someone has already joined this conversation",
-            ),
-            JoinError::Db(e) => db_err(e),
-        })?;
+    let joined = sessions::join_guest(
+        pool,
+        &body.code,
+        &body.name,
+        &lang,
+        engine_free_capacity(&state),
+    )
+    .await
+    .map_err(|e| match e {
+        JoinError::NotFound => not_found(),
+        JoinError::Expired => api_err(
+            StatusCode::GONE,
+            "invite_expired",
+            "this invitation has expired",
+        ),
+        JoinError::Ended => api_err(
+            StatusCode::GONE,
+            "session_ended",
+            "this conversation has ended",
+        ),
+        JoinError::Full => api_err(
+            StatusCode::CONFLICT,
+            "session_full",
+            "this conversation is full",
+        ),
+        JoinError::Busy => busy(),
+        JoinError::Db(e) => db_err(e),
+    })?;
 
     let token = sessions::issue_token(
         &state.live.config,
@@ -396,6 +437,7 @@ pub async fn join(
         "token": token,
         "ws_path": WS_PATH,
         "host": { "name": joined.host_name, "lang": joined.host_lang },
+        "max_guests": joined.max_guests,
     }))
     .into_response())
 }
@@ -432,6 +474,20 @@ pub async fn end(
 ) -> Result<Response, Response> {
     let auth = authorize(&state, &claims, id).await?;
     let pool = require_pool(&state)?;
+    // With several guests on one link, one of them hanging up must not end the conversation for
+    // the others: that is the host's call (or the last phone gone). A guest "ends" by leaving.
+    if auth.role == PeerRole::Guest {
+        let max_guests: Option<i16> =
+            sqlx::query_scalar("SELECT max_guests FROM live_sessions WHERE id = $1")
+                .bind(id)
+                .fetch_optional(pool)
+                .await
+                .map_err(db_err)?;
+        if max_guests.is_some_and(|n| n > 1) {
+            sessions::record_event(pool, id, "guest_left", json!({ "peer": auth.peer_id })).await;
+            return Ok(Json(json!({ "ended": false, "left": true })).into_response());
+        }
+    }
     let reason = match auth.role {
         PeerRole::Guest => "ended_by_guest",
         PeerRole::Host => "ended_by_host",

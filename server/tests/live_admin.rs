@@ -1540,3 +1540,59 @@ async fn reconcile_compares_each_debit_with_its_tick_not_just_the_totals() {
     // ...and the verdict is a mismatch all the same.
     assert_eq!(v["status"], "mismatch", "{v}");
 }
+
+// ---- several guests in one conversation (spec 0121, S1) --------------------------------
+
+#[tokio::test]
+async fn an_operator_reads_and_ends_a_conversation_with_several_guests() {
+    let srv = srv!();
+    let org = org(&srv).await;
+    let conv = seed(&srv, Owner::Org(&org), "active").await;
+    for (name, lang) in [("Ben Guest", "en"), ("Carla Guest", "pt")] {
+        sqlx::query(
+            "INSERT INTO live_participants (session_id, role, display_name, lang, token_hash, consent_at, joined_at)
+             VALUES ($1, 'guest', $2, $3, '\\xfeedface', now(), now() + interval '1 minute')",
+        )
+        .bind(conv.live)
+        .bind(name)
+        .bind(lang)
+        .execute(&srv.pool)
+        .await
+        .unwrap();
+    }
+
+    let (s, v, text) = srv
+        .admin(
+            "/api/admin/live/session-transcript",
+            json!({ "session_id": conv.live, "actor": OPERATOR, "reason": REASON }),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{text}");
+    let who: Vec<(&str, &str)> = v["participants"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| {
+            (
+                p["role"].as_str().unwrap(),
+                p["display_name"].as_str().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(who.len(), 4, "{who:?}");
+    assert_eq!(who.iter().filter(|(role, _)| *role == "guest").count(), 3);
+    assert!(who.contains(&("guest", "Carla Guest")));
+    assert!(!text.contains("feedface"), "token hashes never leave");
+
+    let (s, v, text) = srv
+        .admin(
+            "/api/admin/live/session-end",
+            json!({ "session_id": conv.live, "actor": OPERATOR, "reason": REASON }),
+        )
+        .await;
+    assert_eq!(
+        (s, v["end_reason"].as_str()),
+        (StatusCode::OK, Some("ended_by_admin")),
+        "{text}"
+    );
+}

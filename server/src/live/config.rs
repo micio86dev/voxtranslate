@@ -27,6 +27,11 @@ const DEFAULT_AUDIO_MAX_BYTES_PER_SEC: i64 = 72_000;
 const DEFAULT_MAX_SESSION_MIN: i64 = 120;
 /// Open sessions one signed-in owner may have at once.
 const DEFAULT_MAX_CONCURRENT_PER_OWNER: i64 = 3;
+/// Guests one invitation may admit, at most. A room holds four peers (`rooms::MAX_PEERS`): the
+/// host plus three guests. The hard ceiling; `LIVE_MAX_GUESTS` can only lower it.
+pub const MAX_GUESTS_CEILING: i64 = 3;
+/// Default for `LIVE_MAX_GUESTS`: what a host may ask for at most.
+const DEFAULT_MAX_GUESTS: i64 = MAX_GUESTS_CEILING;
 /// How long a dropped phone has to come back before its seat is given up.
 const DEFAULT_RECONNECT_GRACE_SECS: i64 = 60;
 /// Days an ended business conversation's content is kept when its org sets no `retention_days`.
@@ -84,6 +89,9 @@ pub struct LiveConfig {
     pub audio_max_bytes_per_sec: i64,
     pub max_session_min: i64,
     pub max_concurrent_per_owner: i64,
+    /// Most guests a host may ask one invitation to admit (1..=[`MAX_GUESTS_CEILING`]). A session
+    /// created without `max_guests` still takes one.
+    pub max_guests: i64,
     pub reconnect_grace_secs: i64,
     /// Retention for business conversations whose org has no `retention_days` of its own.
     pub retention_default_days: i64,
@@ -110,6 +118,7 @@ impl LiveConfig {
             audio_max_bytes_per_sec: DEFAULT_AUDIO_MAX_BYTES_PER_SEC,
             max_session_min: DEFAULT_MAX_SESSION_MIN,
             max_concurrent_per_owner: DEFAULT_MAX_CONCURRENT_PER_OWNER,
+            max_guests: DEFAULT_MAX_GUESTS,
             reconnect_grace_secs: DEFAULT_RECONNECT_GRACE_SECS,
             retention_default_days: DEFAULT_RETENTION_DAYS,
             b2c_retention_days: DEFAULT_B2C_RETENTION_DAYS,
@@ -172,6 +181,11 @@ impl LiveConfig {
                 1,
                 100,
             )?,
+            // A capacity knob must never take the feature down either: junk falls back to the
+            // default and a value outside 1..=3 is clamped (a room cannot hold more than four).
+            max_guests: get("LIVE_MAX_GUESTS")
+                .and_then(|v| v.trim().parse::<i64>().ok())
+                .map_or(DEFAULT_MAX_GUESTS, |n| n.clamp(1, MAX_GUESTS_CEILING)),
             reconnect_grace_secs: number(
                 "LIVE_RECONNECT_GRACE_SECS",
                 DEFAULT_RECONNECT_GRACE_SECS,
@@ -272,6 +286,25 @@ mod tests {
     }
 
     #[test]
+    fn the_guest_limit_is_clamped_to_what_a_room_holds_and_junk_falls_back() {
+        let load = |v: &str| {
+            LiveConfig::load(env(&[
+                ("LIVE_CONNECT_ENABLED", "1"),
+                ("LIVE_TOKEN_KEY", KEY),
+                ("LIVE_MAX_GUESTS", v),
+            ]))
+            .unwrap()
+            .max_guests
+        };
+        assert_eq!(load("2"), 2);
+        assert_eq!(load(" 1 "), 1);
+        // Out of range is clamped, never an error and never above what a room holds.
+        assert_eq!((load("0"), load("-4"), load("4"), load("99")), (1, 1, 3, 3));
+        // Junk keeps the default instead of switching the feature off.
+        assert_eq!((load("many"), load("")), (3, 3));
+    }
+
+    #[test]
     fn defaults_apply_and_overrides_are_range_checked() {
         let cfg = LiveConfig::load(env(&[
             ("LIVE_CONNECT_ENABLED", "on"),
@@ -281,6 +314,7 @@ mod tests {
         assert!(cfg.enabled && cfg.keys.is_some());
         assert_eq!(cfg.max_session_min, 120);
         assert_eq!(cfg.max_concurrent_per_owner, 3);
+        assert_eq!(cfg.max_guests, 3);
         assert_eq!(cfg.desk_wait_secs, 120);
         assert_eq!(cfg.desk_max_waiting_per_ip, 2);
         assert_eq!(cfg.audio_max_bytes_per_sec, 72_000);

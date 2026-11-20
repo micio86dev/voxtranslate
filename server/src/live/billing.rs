@@ -1,9 +1,11 @@
 //! Billing for Live Connect: who pays, and how a charge can never happen twice.
 //!
-//! The **owner** pays for both directions — a user's personal balance (B2C) or the org wallet
-//! (B2B). The guest is never charged and never sees the owner's balance. Every translated
-//! direction is its own meter (one per phone), exactly as a two-person Talk session bills two
-//! streams.
+//! The **owner** pays for every seat — a user's personal balance (B2C) or the org wallet (B2B).
+//! Guests are never charged and never see the owner's balance. Every phone is its own meter, and
+//! each meter bills one stream per DISTINCT target language present in the room other than the
+//! speaker's own, as a webinar does: host `it` with guests `es`, `es`, `en` pays two streams for
+//! the host's speech (es, en), two for a Spanish guest (it, en), two for the English one (it, es);
+//! two guests in one language never double a cost, and a room that all speaks one language is free.
 //!
 //! ## Why a tick can only be charged once
 //!
@@ -185,7 +187,6 @@ pub struct LiveMeter {
     pub speaker_lang: String,
     pub interval_secs: u64,
     pub rate_per_second: f64,
-    pub scale_by_target_count: bool,
     pub low_balance_threshold: f64,
     /// Audio frames this socket has forwarded to the engine since the last tick. What is billed
     /// is audio that actually reached the engine, not a flag the client can flip: gating on mute
@@ -231,10 +232,13 @@ impl LiveMeter {
                     if !is_first && forwarded == 0 {
                         continue;
                     }
-                    // Nothing to translate while everyone shares this speaker's language.
+                    // Nothing to translate while everyone shares this speaker's language. Otherwise
+                    // one stream per DISTINCT target language present, whatever the engine's
+                    // metadata says about its own pricing: the upstream cost of a Live Connect
+                    // phone is per speaker per target language, and the host pays for every seat
+                    // (two guests in the same language cost one stream, not two).
                     let targets = self.rooms.get_room_languages(&self.room, &self.peer.to_string());
-                    let Some(streams) =
-                        billable_streams(&targets, &self.speaker_lang, self.scale_by_target_count)
+                    let Some(streams) = billable_streams(&targets, &self.speaker_lang, true)
                     else {
                         continue;
                     };

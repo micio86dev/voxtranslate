@@ -1,9 +1,9 @@
 //! `/ws/live` — one phone's socket in a Live Connect conversation.
 //!
-//! Each phone opens its own socket with the token it was issued. The server puts both in a
+//! Each phone opens its own socket with the token it was issued. The server puts all of them in a
 //! private room named after the session and reuses the meeting machinery for everything
 //! after that: the engine opens one upstream session per speaker **per target language**, so
-//! two phones speaking different languages are two independent concurrent translation streams
+//! phones speaking different languages are independent concurrent translation streams
 //! with nothing here coordinating them. This module adds what meetings do not have: a seat
 //! that already exists (no client-chosen identity), a payer who is not on the call, and an
 //! explicit end-of-conversation signal.
@@ -223,10 +223,14 @@ async fn pump_live(
                 match msg {
                     Some(m) if echo.enabled() => {
                         echo.note_own_voice(latency.mic_last_voiced(seat));
-                        // Two seats today: "me" and "the other phone". More seats make this the
-                        // one place that looks a speaker up.
-                        let (mine, theirs) = (latency.mic_level(seat, now), latency.mic_level(seat ^ 1, now));
-                        let level = |id: &str| if id == my_id { mine } else { theirs };
+                        // Every speaker id on a frame is a peer id; each peer has a seat, and each
+                        // seat its own smoothed microphone. A speaker whose phone has not
+                        // connected has no seat and reads as 0, which is "unknown" and never
+                        // suppresses (the filter fails open).
+                        let level = |id: &str| {
+                            let s = if id == my_id { Some(seat) } else { latency.seat_of(id) };
+                            s.map_or(0, |s| latency.mic_level(s, now))
+                        };
                         echo.on_frame(now, m, &level, &mut out);
                         if echo.has_report() && latency.allow_echo_report(now) {
                             let (suppressed, failed_open) = echo.take_report();
@@ -280,11 +284,17 @@ async fn send_frame(
     m: String,
 ) -> Result<(), ()> {
     let audio = m.starts_with(TRANSLATED_AUDIO_PREFIX);
+    // Whose speech this audio answers, read before the frame is handed to the socket.
+    let speaker = if audio {
+        speaker_seat(latency, &m)
+    } else {
+        None
+    };
     if ws_tx.send(Message::Text(m.into())).await.is_err() {
         return Err(());
     }
-    if audio {
-        if let Some(d) = latency.audio_delivered(seat, tokio::time::Instant::now()) {
+    if let Some(speaker) = speaker {
+        if let Some(d) = latency.audio_delivered(seat, speaker, tokio::time::Instant::now()) {
             crate::metrics::record_live_translation_ms(
                 u64::try_from(d.as_micros().div_ceil(1000))
                     .unwrap_or(u64::MAX)
@@ -295,7 +305,20 @@ async fn send_frame(
     Ok(())
 }
 
-/// The room a session's two phones share. Server-minted and unguessable, so it can never
+/// The seat of the speaker a `translated_audio` frame answers. The frame is
+/// `{"type":"translated_audio","speaker_id":"<peer id>",...}` (`speaker_id` is the first field
+/// after the tag), so the id is the text between the quotes that follow it. Once per audio chunk,
+/// no allocation; `None` for anything that does not parse (the sample is simply not taken).
+fn speaker_seat(latency: &SessionLatency, frame: &str) -> Option<usize> {
+    const KEY: &str = r#""speaker_id":""#;
+    let rest = frame
+        .get(TRANSLATED_AUDIO_PREFIX.len()..)?
+        .strip_prefix(',')?;
+    let id = rest.strip_prefix(KEY)?.split_once('"')?.0;
+    latency.seat_of(id)
+}
+
+/// The room a session's phones share. Server-minted and unguessable, so it can never
 /// collide with (or be joined through) a public `/ws` room.
 pub fn room_name(session_id: Uuid) -> String {
     format!("live-{session_id}")
@@ -532,7 +555,9 @@ async fn handle_live_peer(socket: WebSocket, state: AppState, auth: PeerAuth) {
     }
 
     let latency = state.live.latency_for(auth.session_id);
-    let seat = SessionLatency::seat(auth.role == PeerRole::Guest);
+    // This phone's seat for the probes and the echo filter's microphone levels: its own slot, the
+    // same one again if it reconnects.
+    let seat = latency.seat_for(&peer_id);
     let echo = EchoFilter::new(
         EchoConfig {
             enabled: state.live.config.echo_filter,
@@ -918,7 +943,6 @@ async fn start_speaking(
             speaker_lang: auth.lang.clone(),
             interval_secs: pricing.usage_update_interval,
             rate_per_second: engine.metadata().user_rate_per_second(),
-            scale_by_target_count: engine.metadata().capabilities.cost_scales_per_language,
             low_balance_threshold: pricing.low_balance_threshold,
             activity: sent.clone(),
         }
@@ -1052,6 +1076,29 @@ mod tests {
             }
         }
         assert_eq!(reports, MAX_THROTTLE_REPORTS);
+    }
+
+    #[test]
+    fn the_speaker_of_an_audio_frame_is_read_from_the_frame_the_protocol_really_emits() {
+        let l = SessionLatency::new_for_test();
+        let (host, g1, g2) = (l.seat_for("host-peer"), l.seat_for("g1"), l.seat_for("g2"));
+        let audio = |who: &str| {
+            ServerMessage::TranslatedAudio {
+                speaker_id: who.into(),
+                lang: "es".into(),
+                seq: 1,
+                pcm16_b64: "AA==".into(),
+            }
+            .to_json()
+        };
+        assert_eq!(speaker_seat(&l, &audio("host-peer")), Some(host));
+        assert_eq!(speaker_seat(&l, &audio("g1")), Some(g1));
+        assert_eq!(speaker_seat(&l, &audio("g2")), Some(g2));
+        // A speaker whose phone never connected, and text that is not an audio frame at all, take
+        // no sample rather than guessing a seat.
+        assert_eq!(speaker_seat(&l, &audio("nobody")), None);
+        assert_eq!(speaker_seat(&l, r#"{"type":"translated_audio"}"#), None);
+        assert_eq!(speaker_seat(&l, "{}"), None);
     }
 
     #[test]

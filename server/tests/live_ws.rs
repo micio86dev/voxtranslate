@@ -1566,3 +1566,559 @@ async fn with_the_echo_filter_off_the_same_scene_plays_the_echo_back() {
         "with the filter off the host hears the guest's session"
     );
 }
+
+// ---- one host, several guests, languages free (spec 0121, S1/S2/S3) ---------------------
+
+use futures::stream::SplitSink;
+use tokio::sync::mpsc;
+
+/// One phone of a many-seat conversation: its socket split in two so that a test can feed every
+/// microphone and read every screen in the same loop. Everything it receives is kept in `seen`.
+struct Phone {
+    peer: String,
+    lang: &'static str,
+    tx: SplitSink<Ws, Message>,
+    rx: mpsc::UnboundedReceiver<Value>,
+    seen: Vec<Value>,
+}
+
+impl Phone {
+    async fn connect(srv: &Srv, token: &str, peer: &str, lang: &'static str) -> Phone {
+        let ws = connect(srv, token).await.expect("upgrade");
+        let (tx, mut stream) = ws.split();
+        let (out, rx) = mpsc::unbounded_channel();
+        tokio::spawn(async move {
+            while let Some(Ok(frame)) = stream.next().await {
+                match frame {
+                    Message::Text(t) => {
+                        if let Ok(v) = serde_json::from_str::<Value>(t.as_str()) {
+                            if out.send(v).is_err() {
+                                return;
+                            }
+                        }
+                    }
+                    Message::Close(_) => return,
+                    _ => {}
+                }
+            }
+        });
+        Phone {
+            peer: peer.into(),
+            lang,
+            tx,
+            rx,
+            seen: Vec::new(),
+        }
+    }
+
+    /// Move whatever has arrived into `seen`.
+    fn pull(&mut self) {
+        while let Ok(v) = self.rx.try_recv() {
+            self.seen.push(v);
+        }
+    }
+
+    /// Wait (up to 8 s) for a frame matching `wanted`, whether it was already seen or not.
+    async fn wait_for(&mut self, wanted: impl Fn(&Value) -> bool) -> Option<Value> {
+        self.pull();
+        if let Some(v) = self.seen.iter().find(|v| wanted(v)) {
+            return Some(v.clone());
+        }
+        while let Ok(Some(v)) = tokio::time::timeout(Duration::from_secs(8), self.rx.recv()).await {
+            self.seen.push(v.clone());
+            if wanted(&v) {
+                return Some(v);
+            }
+        }
+        None
+    }
+
+    async fn say(&mut self, v: Value) {
+        let _ = self.tx.send(Message::text(v.to_string())).await;
+    }
+}
+
+/// A conversation of `1 + guest_langs.len()` phones: a host (`it`) and one guest per language.
+struct Many {
+    session: Uuid,
+    host_user: Uuid,
+    host_token: String,
+    host_peer: String,
+    /// `(token, peer, lang)` per guest, in join order.
+    guests: Vec<(String, String, &'static str)>,
+}
+
+async fn many(srv: &Srv, guest_langs: &[&'static str], save_transcript: bool) -> Many {
+    let (jwt, host_user) = login(srv).await;
+    let (s, created) = srv
+        .post(
+            "/api/live/sessions",
+            Some(&jwt),
+            json!({
+                "lang": "it",
+                "save_transcript": save_transcript,
+                "max_guests": guest_langs.len(),
+            }),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{created}");
+    let code = created["invite_url"]
+        .as_str()
+        .unwrap()
+        .rsplit('/')
+        .next()
+        .unwrap()
+        .to_string();
+    let mut guests = Vec::new();
+    for (i, lang) in guest_langs.iter().enumerate() {
+        let (s, joined) = srv
+            .post(
+                "/api/live/join",
+                None,
+                json!({ "code": code, "name": format!("Guest{i}"), "lang": lang, "consent": true }),
+            )
+            .await;
+        assert_eq!(s, StatusCode::OK, "{joined}");
+        guests.push((
+            joined["token"].as_str().unwrap().into(),
+            joined["peer_id"].as_str().unwrap().into(),
+            *lang,
+        ));
+    }
+    Many {
+        session: created["session_id"].as_str().unwrap().parse().unwrap(),
+        host_user,
+        host_token: created["token"].as_str().unwrap().into(),
+        host_peer: created["peer_id"].as_str().unwrap().into(),
+        guests,
+    }
+}
+
+/// Every phone of `m`, connected in order (host first) and each told `room_joined`.
+async fn open_all(srv: &Srv, m: &Many) -> Vec<Phone> {
+    let mut phones = vec![Phone::connect(srv, &m.host_token, &m.host_peer, "it").await];
+    for (token, peer, lang) in &m.guests {
+        phones.push(Phone::connect(srv, token, peer, lang).await);
+    }
+    for p in &mut phones {
+        p.wait_for(|v| v["type"] == "room_joined")
+            .await
+            .expect("room_joined");
+    }
+    phones
+}
+
+/// Every phone feeds its microphone for `ms` (`mic(i)` is phone `i`'s 100 ms frame, `None` = it
+/// stays quiet) while every screen is read.
+async fn all_speak(phones: &mut [Phone], ms: u64, mic: impl Fn(usize) -> Option<Vec<u8>>) {
+    let deadline = tokio::time::Instant::now() + Duration::from_millis(ms);
+    while tokio::time::Instant::now() < deadline {
+        for (i, p) in phones.iter_mut().enumerate() {
+            if let Some(frame) = mic(i) {
+                let _ = p.tx.send(Message::binary(frame)).await;
+            }
+            p.pull();
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    for p in phones.iter_mut() {
+        p.pull();
+    }
+}
+
+#[tokio::test]
+async fn four_phones_in_three_languages_each_hear_every_other_speaker_in_their_own() {
+    let mock = RealtimeMock::start(Dialect::Qwen).await;
+    mock.reply_with(speech());
+    let srv = srv!(&mock);
+    let m = many(&srv, &["es", "es", "en"], false).await;
+    let mut phones = open_all(&srv, &m).await;
+    for p in &mut phones {
+        p.say(json!({ "type": "start" })).await;
+    }
+
+    // Nobody takes turns: all four talk at once.
+    all_speak(&mut phones, 6_000, |_| Some(vec![0u8; 640])).await;
+
+    for (l, listener) in phones.iter().enumerate() {
+        for (s, speaker) in phones.iter().enumerate() {
+            let heard = audio_from(&listener.seen, &speaker.peer);
+            if l == s {
+                assert!(heard.is_empty(), "phone {l} was played its own voice");
+                continue;
+            }
+            if listener.lang == speaker.lang {
+                // Two people who share a language just hear each other: nothing is translated,
+                // so nothing is played, and nothing is billed for it.
+                assert!(
+                    heard.is_empty(),
+                    "phone {l} and phone {s} share {} and need no translation",
+                    listener.lang
+                );
+                continue;
+            }
+            assert!(
+                !heard.is_empty(),
+                "phone {l} ({}) never heard phone {s} ({}): {:?}",
+                listener.lang,
+                speaker.lang,
+                listener
+                    .seen
+                    .iter()
+                    .map(|v| v["type"].clone())
+                    .collect::<Vec<_>>()
+            );
+            assert!(
+                heard.iter().all(|v| v["lang"] == listener.lang),
+                "phone {l} must hear phone {s} in {}, got {:?}",
+                listener.lang,
+                heard.iter().map(|v| v["lang"].clone()).collect::<Vec<_>>()
+            );
+        }
+        // And sees who is speaking: a caption per other speaker.
+        for (s, speaker) in phones.iter().enumerate() {
+            if l != s && listener.lang != speaker.lang {
+                assert!(
+                    listener.seen.iter().any(|v| v["type"]
+                        .as_str()
+                        .is_some_and(|t| t.starts_with("subtitle"))
+                        && v["speaker_id"] == speaker.peer),
+                    "phone {l} got no caption of phone {s}"
+                );
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn the_room_tells_every_phone_who_is_there_who_arrives_who_leaves_and_who_mutes() {
+    let mock = RealtimeMock::start(Dialect::Qwen).await;
+    let srv = srv!(&mock);
+    let m = many(&srv, &["es", "es", "en"], false).await;
+    let mut phones = open_all(&srv, &m).await;
+
+    // Each phone learns of the ones already there from `room_joined`, and of later ones from
+    // `peer_joined`: the last to arrive sees three, the first sees three arrivals.
+    let joined = phones[3]
+        .seen
+        .iter()
+        .find(|v| v["type"] == "room_joined")
+        .unwrap()["peers"]
+        .as_array()
+        .unwrap()
+        .len();
+    assert_eq!(joined, 3);
+    phones[0].pull();
+    let arrivals: Vec<&str> = phones[0]
+        .seen
+        .iter()
+        .filter(|v| v["type"] == "peer_joined")
+        .map(|v| v["peer_id"].as_str().unwrap())
+        .collect();
+    assert_eq!(arrivals.len(), 3, "{arrivals:?}");
+
+    // A mute is told to everybody else, not just one partner.
+    phones[1]
+        .say(json!({ "type": "mute_audio", "muted": true }))
+        .await;
+    let want = phones[1].peer.clone();
+    for i in [0usize, 2, 3] {
+        let v = phones[i]
+            .wait_for(|v| v["type"] == "peer_muted" && v["peer_id"] == want.as_str())
+            .await
+            .unwrap_or_else(|| panic!("phone {i} was never told the guest muted"));
+        assert_eq!(v["muted"], true);
+    }
+
+    // One guest leaves: the three others each hear about it, and the conversation goes on.
+    let mut leaving = phones.pop().unwrap();
+    let gone = leaving.peer.clone();
+    let _ = leaving.tx.close().await;
+    for (i, p) in phones.iter_mut().enumerate() {
+        p.wait_for(|v| v["type"] == "peer_left" && v["peer_id"] == gone.as_str())
+            .await
+            .unwrap_or_else(|| panic!("phone {i} never learnt the guest left"));
+    }
+    let (status, _) = status_of(&srv, m.session).await;
+    assert_eq!(status, "active", "one guest leaving is not the end");
+}
+
+#[tokio::test]
+async fn a_guest_who_reconnects_keeps_their_seat_and_the_others_never_see_them_leave() {
+    let mock = RealtimeMock::start(Dialect::Qwen).await;
+    let srv = srv!(&mock);
+    let m = many(&srv, &["es", "en"], false).await;
+    let mut phones = open_all(&srv, &m).await;
+
+    // The second guest's phone drops and comes back on the same token before the stale socket timed out.
+    let (token, peer, lang) = m.guests[1].clone();
+    let mut again = Phone::connect(&srv, &token, &peer, lang).await;
+    again
+        .wait_for(|v| v["type"] == "room_joined")
+        .await
+        .expect("reconnected");
+    assert_eq!(
+        again
+            .seen
+            .iter()
+            .find(|v| v["type"] == "room_joined")
+            .unwrap()["peers"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2,
+        "back in the same room with the two others"
+    );
+
+    // A replaced socket is a replacement, not a departure.
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    for (i, p) in phones.iter_mut().enumerate().take(2) {
+        p.pull();
+        assert!(
+            !p.seen.iter().any(|v| v["type"] == "peer_left"),
+            "phone {i} saw the reconnecting guest leave: {:?}",
+            p.seen
+        );
+    }
+    // The stale socket is told to go (its reader ends once the server closes it).
+    let stale = &mut phones[2];
+    let closed = tokio::time::timeout(Duration::from_secs(8), async {
+        while stale.rx.recv().await.is_some() {}
+    })
+    .await;
+    assert!(closed.is_ok(), "the stale socket was never closed");
+}
+
+#[tokio::test]
+async fn every_phone_has_its_own_ticks_and_the_owner_pays_one_stream_per_distinct_language() {
+    let mock = RealtimeMock::start(Dialect::Qwen).await;
+    mock.reply_with(speech());
+    let srv = srv!(&mock);
+    let rate = srv
+        .state
+        .engines
+        .default()
+        .metadata()
+        .user_rate_per_second();
+
+    // host it, guests es, es, en: every speaker has two OTHER languages in the room.
+    // host it, guests es, es   : every speaker has ONE other language (two Spanish guests are
+    //                            not two streams for the host).
+    for (guest_langs, expected_streams) in [
+        (vec!["es", "es", "en"], vec![2.0, 2.0, 2.0, 2.0]),
+        (vec!["es", "es"], vec![1.0, 1.0, 1.0]),
+    ] {
+        let m = many(&srv, &guest_langs, false).await;
+        let mut phones = open_all(&srv, &m).await;
+        for p in &mut phones {
+            p.say(json!({ "type": "start" })).await;
+        }
+        all_speak(&mut phones, 3_500, |_| Some(vec![0u8; 640])).await;
+        for p in &mut phones {
+            p.say(json!({ "type": "stop" })).await;
+        }
+        tokio::time::sleep(Duration::from_millis(800)).await;
+
+        let mut seats = vec![m.host_peer.clone()];
+        seats.extend(m.guests.iter().map(|g| g.1.clone()));
+        for (peer, streams) in seats.iter().zip(&expected_streams) {
+            let (n, lo, hi): (i64, Option<Decimal>, Option<Decimal>) = sqlx::query_as(
+                "SELECT count(*), min(amount), max(amount) FROM live_usage_ticks
+                 WHERE session_id = $1 AND peer_id = $2::uuid",
+            )
+            .bind(m.session)
+            .bind(peer)
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap();
+            assert!(n >= 2, "{guest_langs:?}: {peer} was metered {n} times");
+            let unit = usd(rate * 1.0 * streams);
+            assert_eq!(
+                (lo, hi),
+                (Some(unit), Some(unit)),
+                "{guest_langs:?}: {peer} must pay for {streams} stream(s) a second"
+            );
+        }
+
+        // Exactly the ticks were debited from the owner, to the last digit.
+        let (ticks, tick_sum): (i64, Decimal) = sqlx::query_as(
+            "SELECT count(*), COALESCE(sum(amount), 0) FROM live_usage_ticks
+             WHERE session_id = $1 AND payer_kind = 'user'",
+        )
+        .bind(m.session)
+        .fetch_one(&srv.pool)
+        .await
+        .unwrap();
+        let (rows, spent): (i64, Decimal) = sqlx::query_as(
+            "SELECT count(*), COALESCE(sum(-amount), 0) FROM credit_transactions
+             WHERE user_id = $1 AND kind = 'usage'",
+        )
+        .bind(m.host_user)
+        .fetch_one(&srv.pool)
+        .await
+        .unwrap();
+        assert_eq!((rows, spent), (ticks, tick_sum), "{guest_langs:?}");
+        let left: Decimal = sqlx::query_scalar("SELECT balance FROM users WHERE id = $1")
+            .bind(m.host_user)
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap();
+        assert_eq!(left, Decimal::new(500, 2) - tick_sum, "{guest_langs:?}");
+        // Guests are never debited and never see the owner's money.
+        for p in phones.iter().skip(1) {
+            assert!(
+                !p.seen.iter().any(|v| matches!(
+                    v["type"].as_str(),
+                    Some("balance_update" | "low_balance" | "session_spent")
+                )),
+                "a guest was told what the owner pays"
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn one_utterance_heard_by_three_phones_is_one_latency_observation() {
+    let _alone = VOICED_SPEECH.lock().await;
+    let mock = RealtimeMock::start(Dialect::Qwen).await;
+    mock.reply_with(speech());
+    let srv = srv!(&mock);
+    let m = many(&srv, &["es", "es", "en"], false).await;
+    let (before, _) = live_latency(&srv).await;
+    let mut phones = open_all(&srv, &m).await;
+    phones[0].say(json!({ "type": "start" })).await;
+
+    // Only the host talks (voiced, without a pause); three phones listen.
+    let voice: Vec<u8> = std::iter::repeat_n(1000i16.to_le_bytes(), 2400)
+        .flatten()
+        .collect();
+    all_speak(&mut phones, 4_000, |i| (i == 0).then(|| voice.clone())).await;
+    let heard: usize = phones
+        .iter()
+        .skip(1)
+        .map(|p| audio_from(&p.seen, &m.host_peer).len())
+        .sum();
+    assert!(
+        heard >= 3,
+        "the three listeners should all hear the host: {heard}"
+    );
+
+    let (after, _) = live_latency(&srv).await;
+    assert_eq!(
+        after - before,
+        1,
+        "one utterance is one observation, however many phones hear it"
+    );
+}
+
+#[tokio::test]
+async fn with_three_seats_an_echo_is_dropped_whoever_it_reaches_and_a_real_reply_still_gets_through(
+) {
+    let _alone = VOICED_SPEECH.lock().await;
+    let mock = RealtimeMock::start(Dialect::Qwen).await;
+    // Every upstream session hears the same sentence: three phones side by side all pick up the
+    // host's voice, and the guests' sessions "translate" it.
+    mock.reply_with(vec![
+        Reply::Transcript {
+            original: "ciao come stai oggi".into(),
+            translated: "hola como estas hoy".into(),
+        },
+        Reply::Audio(vec![7u8; 960]),
+    ]);
+    let srv = srv!(&mock);
+    let m = many(&srv, &["es", "en"], false).await;
+    let suppressed_before = echo_metric(&srv, "suppressed").await;
+    let mut phones = open_all(&srv, &m).await;
+    let (host, g1, g2) = (
+        phones[0].peer.clone(),
+        phones[1].peer.clone(),
+        phones[2].peer.clone(),
+    );
+
+    // The host speaks first and their own caption is up before anything else happens.
+    phones[0].say(json!({ "type": "start" })).await;
+    all_speak(&mut phones, 2_500, |i| (i == 0).then(|| tone(1000, 4800))).await;
+    // Now both guests' microphones open (quietly: they only hear the host across the table).
+    phones[1].say(json!({ "type": "start" })).await;
+    phones[2].say(json!({ "type": "start" })).await;
+    all_speak(&mut phones, 4_500, |i| {
+        Some(if i == 0 {
+            tone(1000, 4800)
+        } else {
+            tone(200, 4800)
+        })
+    })
+    .await;
+
+    // Both guests still hear the host's real translation...
+    for i in [1usize, 2] {
+        assert!(
+            !audio_from(&phones[i].seen, &host).is_empty(),
+            "guest {i} never heard the host"
+        );
+    }
+    // ...the host sees their own words but none of the guests' sessions (the host's voice, read back)...
+    assert!(phones[0]
+        .seen
+        .iter()
+        .any(|v| v["type"] == "subtitle_interim" && v["speaker_id"] == host.as_str()));
+    for guest in [&g1, &g2] {
+        let echoed = speech_of(&phones[0].seen, guest);
+        assert!(
+            echoed.is_empty(),
+            "the host was played their own sentence back: {echoed:?}"
+        );
+    }
+    // ...and neither guest is handed the OTHER guest's reading of the host: that is the case a
+    // two-microphone filter could not tell, because it only knew "me" and "the other".
+    let g2_hears_g1 = speech_of(&phones[2].seen, &g1);
+    assert!(
+        g2_hears_g1.is_empty(),
+        "guest 2 got guest 1's echo: {g2_hears_g1:?}"
+    );
+    let g1_hears_g2 = speech_of(&phones[1].seen, &g2);
+    assert!(
+        g1_hears_g2.is_empty(),
+        "guest 1 got guest 2's echo: {g1_hears_g2:?}"
+    );
+    assert!(echo_metric(&srv, "suppressed").await > suppressed_before);
+
+    // A genuine reply from guest 1 is a different sentence and reaches both others.
+    let room = voxtranslate_server::live::ws::room_name(m.session);
+    for to in [&host, &g2] {
+        for frame in [
+            ServerMessage::SubtitleInterim {
+                speaker_id: g1.clone(),
+                speaker_name: "Guest0".into(),
+                text: "sto bene grazie".into(),
+                lang: "es".into(),
+                original: Some("estoy bien gracias".into()),
+            },
+            ServerMessage::TranslatedAudio {
+                speaker_id: g1.clone(),
+                lang: "it".into(),
+                seq: 99,
+                pcm16_b64: "AAAA".into(),
+            },
+        ] {
+            assert!(srv.state.rooms.relay_to_peer(&room, to, &frame.to_json()));
+        }
+    }
+    all_speak(&mut phones, 2_500, |i| {
+        Some(if i == 0 {
+            tone(1000, 4800)
+        } else {
+            tone(200, 4800)
+        })
+    })
+    .await;
+    for i in [0usize, 2] {
+        assert!(
+            phones[i]
+                .seen
+                .iter()
+                .any(|v| v["type"] == "subtitle_interim" && v["text"] == "sto bene grazie"),
+            "the real reply never reached phone {i}"
+        );
+    }
+}

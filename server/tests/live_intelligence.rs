@@ -2418,3 +2418,155 @@ async fn erasing_stays_possible_when_the_feature_is_switched_off() {
     );
     assert_eq!(counts(&srv, &c, Some(org.id)).await["call_sessions"], 0);
 }
+
+// ===== several guests in one conversation (spec 0121, S1) ================================
+
+/// Seat one more guest the way `join_guest` does and let them say one thing in the conversation's
+/// last room, recorded like the others. Returns their participant id.
+async fn extra_guest(srv: &Srv, c: &Conv, name: &str, lang: &str, said: &str, at: i64) -> Uuid {
+    let peer: Uuid = sqlx::query_scalar(
+        "INSERT INTO live_participants (session_id, role, display_name, lang, token_hash, consent_at, joined_at)
+         VALUES ($1, 'guest', $2, $3, '\\xabad1dea', now(), now() + interval '1 minute') RETURNING peer_id",
+    )
+    .bind(c.live)
+    .bind(name)
+    .bind(lang)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
+    let call = *c.calls.last().unwrap();
+    sqlx::query(
+        "INSERT INTO session_participants (session_id, peer_id, name, lang) VALUES ($1, $2, $3, $4)",
+    )
+    .bind(call)
+    .bind(peer.to_string())
+    .bind(name)
+    .bind(lang)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO transcript_events (session_id, event_type, speaker_peer_id, speaker_name, original_text, original_lang, translations, ts)
+         SELECT $1, 'speech', $2, $3, $4, $5, '{}'::jsonb, started_at + make_interval(secs => $6)
+         FROM live_sessions WHERE id = $7",
+    )
+    .bind(call)
+    .bind(peer.to_string())
+    .bind(name)
+    .bind(said)
+    .bind(lang)
+    .bind(at as f64)
+    .bind(c.live)
+    .execute(&srv.pool)
+    .await
+    .unwrap();
+    peer
+}
+
+#[tokio::test]
+async fn a_conversation_with_several_guests_is_finalised_searched_and_erased_whole() {
+    let srv = srv!();
+    let org = org(&srv).await;
+    let c = seed(&srv, Owner::Org(&org), "ended", 0, &[exchange()]).await;
+    let ben = extra_guest(
+        &srv,
+        &c,
+        "Ben Guest",
+        "en",
+        "Is breakfast included in the room",
+        26,
+    )
+    .await;
+    let carla = extra_guest(
+        &srv,
+        &c,
+        "Carla Guest",
+        "pt",
+        "Posso pagar com cartao de credito",
+        32,
+    )
+    .await;
+    let call = c.calls[0];
+
+    // Every speaker is its own voice in the stored transcript, in order of speech.
+    let out = finalize::finalize(&srv.state, c.live).await.unwrap();
+    assert!(
+        matches!(out, Outcome::Finalized { segments: 5, .. }),
+        "{out:?}"
+    );
+    let rows = transcripts_of(&srv, &c.calls).await;
+    assert_eq!(rows.len(), 1);
+    let speakers: Vec<(&str, &str)> = rows[0]
+        .segments
+        .iter()
+        .map(|s| (s.speaker_id.as_str(), s.speaker_name.as_str()))
+        .collect();
+    let (staff, guest) = (c.staff_peer.to_string(), c.guest_peer.to_string());
+    let (ben, carla) = (ben.to_string(), carla.to_string());
+    assert_eq!(
+        speakers,
+        vec![
+            (staff.as_str(), STAFF_NAME),
+            (guest.as_str(), GUEST_NAME),
+            (staff.as_str(), STAFF_NAME),
+            (ben.as_str(), "Ben Guest"),
+            (carla.as_str(), "Carla Guest"),
+        ]
+    );
+    index_without_provider(&srv, &org, call).await;
+
+    // Search: any participant's language finds the conversation, and a speaker filter finds only
+    // what that speaker said (the filters were written for a pair).
+    let find = |f: Filters| run(&srv, &org, org.owner, &Visible::Everything, None, f);
+    for lang in ["it", "es", "en", "pt"] {
+        let hits = sessions_of(
+            &find(Filters {
+                lang: Some(lang.into()),
+                kind: Some("live_connect".into()),
+                ..Default::default()
+            })
+            .await,
+        );
+        assert!(hits.contains(&call), "lang {lang}: {hits:?}");
+    }
+    let none = find(Filters {
+        lang: Some("ja".into()),
+        kind: Some("live_connect".into()),
+        ..Default::default()
+    })
+    .await;
+    assert!(!sessions_of(&none).contains(&call));
+    let carla_hits = find(Filters {
+        speaker_like: Some("carla".into()),
+        session_id: Some(c.live),
+        ..Default::default()
+    })
+    .await;
+    assert!(!carla_hits.is_empty());
+    assert!(
+        carla_hits
+            .iter()
+            .all(|r| r.speaker_name.as_deref() == Some("Carla Guest")),
+        "{:?}",
+        carla_hits
+            .iter()
+            .map(|r| &r.speaker_name)
+            .collect::<Vec<_>>()
+    );
+
+    // Erasure scrubs every guest's name and credential, not just the first.
+    let out = erase::erase_content(&srv.pool, c.live).await.unwrap();
+    assert_eq!(out.participants_scrubbed, 4);
+    let left: Vec<(String, bool)> = sqlx::query_as(
+        "SELECT display_name, token_hash IS NOT NULL FROM live_participants WHERE session_id = $1",
+    )
+    .bind(c.live)
+    .fetch_all(&srv.pool)
+    .await
+    .unwrap();
+    assert_eq!(left.len(), 4);
+    assert!(
+        left.iter().all(|(name, hash)| name == "Erased" && !hash),
+        "{left:?}"
+    );
+}

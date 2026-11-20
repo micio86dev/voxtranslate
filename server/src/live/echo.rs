@@ -12,7 +12,7 @@
 //! A pure state machine, one per outbound seat, fed every frame destined to that phone, which
 //! returns the frames to actually send. No I/O, no clock of its own (the caller passes `now`),
 //! no allocation on the hot path while nobody spoke recently. It is written for N seats (one
-//! host and up to three guests), although a conversation has two today.
+//! host and up to three guests), and a conversation has that many.
 //!
 //! * It keeps a ledger of the recent ORIGINAL words of every speaker this seat has seen, mine
 //!   included, each entry tagged with its speaker (my own captions come back to my phone:
@@ -317,9 +317,9 @@ fn same_lang(a: &str, b: &str) -> bool {
 // ---- the state machine -------------------------------------------------------------------
 
 /// Smoothed microphone level of a speaker's own phone, by speaker id (`0` = unknown or quiet).
-/// The pump owns the real numbers; the filter only asks. Today a conversation has two seats, so
-/// the pump answers for "me" and "everyone else"; with more seats this is the one place that
-/// becomes a per-peer lookup.
+/// The pump owns the real numbers; the filter only asks. A conversation has up to four seats, and
+/// the pump answers per peer: each peer id maps to the seat its socket holds in the conversation's
+/// `SessionLatency`, and a speaker whose phone is not connected reads as 0 (unknown).
 pub type Levels<'a> = &'a dyn Fn(&str) -> u32;
 
 #[derive(Debug)]
