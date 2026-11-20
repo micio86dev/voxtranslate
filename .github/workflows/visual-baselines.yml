@@ -96,6 +96,10 @@ jobs:
           cache-dependency-path: client/package-lock.json
       - name: Client install
         working-directory: client
+        env:
+          # onnxruntime-node (via kokoro-js) downloads a CUDA binary whose release asset now 404s;
+          # CPU is all the tests need.
+          ONNXRUNTIME_NODE_INSTALL_CUDA: skip
         run: npm ci
       - name: Playwright browser
         working-directory: client
