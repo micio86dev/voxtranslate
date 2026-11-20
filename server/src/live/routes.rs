@@ -27,8 +27,11 @@ use serde_json::json;
 use uuid::Uuid;
 
 use super::sessions::{self, AuthError, CreateError, JoinError, NewSession, Owner, PeerAuth};
+use super::tiers;
 use super::tokens::{self, GuestClaims, PeerRole};
+use crate::billing::usd;
 use crate::business::{db_err, require_pool, require_role, ws_gate, MEMBER};
+use crate::engine::TranslationEngine;
 use crate::middleware::AuthUser;
 use crate::AppState;
 
@@ -37,6 +40,7 @@ pub const WS_PATH: &str = "/ws/live";
 
 pub fn routes() -> Router<AppState> {
     Router::new()
+        .route("/api/live/engines", get(engines))
         .route("/api/live/sessions", post(create))
         .route("/api/live/join", post(join))
         .route("/api/live/sessions/{id}", get(get_session))
@@ -66,19 +70,50 @@ pub(super) fn disabled() -> Response {
 /// which the user experiences as one person who cannot be heard. A snapshot, not a
 /// reservation — but it turns the common case into an honest "busy, try again".
 pub(super) fn engine_has_room(state: &AppState) -> bool {
-    state
-        .engines
-        .default()
-        .free_capacity()
-        .is_none_or(|free| free >= 2)
+    engine_has_room_for(&*state.engines.default())
+}
+
+/// [`engine_has_room`] for the tier a conversation actually runs on. Premium meters nothing
+/// itself (it reports no free capacity), so this passes for it: its limit shows up at the first
+/// word as an `AtCapacity` the socket answers with a fallback, never as a refusal here.
+pub(super) fn engine_has_room_for(engine: &dyn TranslationEngine) -> bool {
+    engine.free_capacity().is_none_or(|free| free >= 2)
 }
 
 /// The engine's spare upstream sessions right now (`None` = it does not meter itself). A guest's
 /// arrival at a room that already has speakers needs more than two (see
 /// [`sessions::engine_sessions_for_join`]), so `join` hands this to the transaction that seats
 /// them rather than a yes/no.
-fn engine_free_capacity(state: &AppState) -> Option<usize> {
-    state.engines.default().free_capacity()
+fn engine_free_capacity(engine: &dyn TranslationEngine) -> Option<usize> {
+    engine.free_capacity()
+}
+
+/// Whether `owner` holds enough to open or Start a conversation on `engine`.
+///
+/// Standard keeps the platform minimum exactly (`BillingService::can_join`). A dearer tier needs
+/// the same seconds of runway at its own rate, so the minimum scales with the rate: see
+/// [`tiers::required_balance`].
+pub(super) async fn owner_can_afford(
+    state: &AppState,
+    owner: Uuid,
+    engine: &dyn TranslationEngine,
+) -> Result<bool, sqlx::Error> {
+    let Some(billing) = state.billing.as_ref() else {
+        return Ok(false);
+    };
+    let Some(need) = min_balance_for(state, engine) else {
+        return billing.can_join(owner).await;
+    };
+    Ok(billing.get_balance(owner).await? >= usd(need))
+}
+
+/// The balance a dearer-than-Standard `engine` requires, or `None` when the platform minimum
+/// (what `can_join` checks) is all it takes.
+pub(super) fn min_balance_for(state: &AppState, engine: &dyn TranslationEngine) -> Option<f64> {
+    let base = state.config.billing.as_ref()?.pricing.min_balance_to_join;
+    let standard = state.engines.default().metadata().user_rate_per_minute();
+    let need = tiers::required_balance(base, engine.metadata().user_rate_per_minute(), standard);
+    (need > base).then_some(need)
 }
 
 pub(super) fn busy() -> Response {
@@ -174,6 +209,12 @@ pub struct CreateBody {
     /// answers the same stable `bad_max_guests` as any other bad value, not a framework 422.
     #[serde(default)]
     pub max_guests: Option<serde_json::Value>,
+    /// The translation tier every seat of this conversation runs on: `standard` (default) or
+    /// `gemini_live_translate` (Premium). Enhanced (`cartesia`) answers
+    /// `engine_not_supported_yet`; anything else `engine_not_available`. A business conversation
+    /// is Standard only. See [`tiers`].
+    #[serde(default)]
+    pub engine: Option<String>,
 }
 
 /// The validated guest count of a create request.
@@ -210,6 +251,20 @@ pub async fn create(
     })?;
 
     let max_guests = parse_max_guests(body.max_guests.as_ref(), cfg.max_guests)?;
+    let engine_id = tiers::choose(
+        &state.engines,
+        body.engine.as_deref(),
+        body.org_id.is_some(),
+    )
+    .map_err(|e| api_err(StatusCode::BAD_REQUEST, e.code(), e.message()))?;
+    let engine = state.engines.get(&engine_id).ok_or_else(|| {
+        // `choose` just confirmed it; a registry cannot lose an engine between two lines.
+        api_err(
+            StatusCode::BAD_REQUEST,
+            tiers::TierError::NotAvailable.code(),
+            tiers::TierError::NotAvailable.message(),
+        )
+    })?;
 
     if !state.rate_limiter.allow(
         &format!("livecreate:{}", user.user_id),
@@ -218,20 +273,23 @@ pub async fn create(
     ) {
         return Err(rate_limited());
     }
-    if !engine_has_room(&state) {
+    if !engine_has_room_for(&*engine) {
         return Err(busy());
     }
 
     let owner = match body.org_id {
         None => {
-            let billing = state.billing.as_ref().ok_or_else(|| {
-                api_err(
+            if state.billing.is_none() {
+                return Err(api_err(
                     StatusCode::SERVICE_UNAVAILABLE,
                     "billing_unavailable",
                     "billing not configured",
-                )
-            })?;
-            if !billing.can_join(user.user_id).await.map_err(db_err)? {
+                ));
+            }
+            if !owner_can_afford(&state, user.user_id, &*engine)
+                .await
+                .map_err(db_err)?
+            {
                 return Err(api_err(
                     StatusCode::PAYMENT_REQUIRED,
                     "insufficient_balance",
@@ -287,7 +345,7 @@ pub async fn create(
             host_name: &user.name,
             host_lang: &lang,
             save_transcript,
-            engine_id: None,
+            engine_id: Some(&engine_id),
             max_guests,
         },
     )
@@ -307,7 +365,7 @@ pub async fn create(
         pool,
         created.session_id,
         "created",
-        json!({ "b2b": body.org_id.is_some(), "max_guests": max_guests }),
+        json!({ "b2b": body.org_id.is_some(), "max_guests": max_guests, "engine": engine_id }),
     )
     .await;
 
@@ -326,8 +384,52 @@ pub async fn create(
         "token": token,
         "ws_path": WS_PATH,
         "max_guests": max_guests,
+        "engine": engine_id,
     }))
     .into_response())
+}
+
+// ---- tiers -----------------------------------------------------------------------------
+
+/// `GET /api/live/engines` — the tiers a host can pick when creating a conversation, each with
+/// what one stream costs per minute, so the picker can say "from $x / min per language".
+///
+/// Only tiers a Live Connect conversation can actually run on are listed, and only those this
+/// deployment has enabled (Premium needs its flag and key). `available` is a capacity hint, not
+/// a promise: a tier that reports `false` would be refused `live_busy` right now. Every Live
+/// Connect tier bills per distinct target language, whatever its own metadata says.
+pub async fn engines(State(state): State<AppState>, _user: AuthUser) -> Response {
+    let list: Vec<serde_json::Value> = tiers::SELECTABLE
+        .iter()
+        .filter_map(|id| state.engines.get(id))
+        .map(|e| {
+            let m = e.metadata();
+            let room = engine_has_room_for(&*e);
+            let min_balance = min_balance_for(&state, &*e).or_else(|| {
+                state
+                    .config
+                    .billing
+                    .as_ref()
+                    .map(|b| b.pricing.min_balance_to_join)
+            });
+            let mut v = json!({
+                "id": m.id,
+                "display_name": m.display_name,
+                "tier": m.tier,
+                "description": m.description,
+                "rate_per_minute": m.user_rate_per_minute(),
+                "min_balance": min_balance,
+                "available": room,
+                "scales_per_language": true,
+                "client_direct": false,
+            });
+            if !room {
+                v["reason"] = json!("at_capacity");
+            }
+            v
+        })
+        .collect();
+    Json(json!({ "default": tiers::DEFAULT_TIER, "engines": list })).into_response()
 }
 
 // ---- join ------------------------------------------------------------------------------
@@ -381,7 +483,14 @@ pub async fn join(
     if !tokens::is_well_formed_invite(&body.code) {
         return Err(not_found());
     }
-    if !engine_has_room(&state) {
+    // Judge the tier the conversation runs on, not the platform default: a Premium conversation
+    // must not be turned away because Standard is full, and one that fell back to Standard is
+    // judged by Standard. An unknown code falls through to the default and then to `not_found`.
+    let stored = sessions::engine_for_invite(pool, &body.code)
+        .await
+        .flatten();
+    let engine = tiers::resolve(&state.engines, stored.as_deref(), false);
+    if !engine_has_room_for(&*engine) {
         return Err(busy());
     }
 
@@ -390,7 +499,7 @@ pub async fn join(
         &body.code,
         &body.name,
         &lang,
-        engine_free_capacity(&state),
+        engine_free_capacity(&*engine),
     )
     .await
     .map_err(|e| match e {
@@ -438,6 +547,7 @@ pub async fn join(
         "ws_path": WS_PATH,
         "host": { "name": joined.host_name, "lang": joined.host_lang },
         "max_guests": joined.max_guests,
+        "engine": sessions::effective_engine(joined.engine_id.as_deref()),
     }))
     .into_response())
 }

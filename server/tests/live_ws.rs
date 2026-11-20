@@ -21,7 +21,7 @@ use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 use uuid::Uuid;
 use voxtranslate_server::auth::{issue_jwt, upsert_google_user, FakeVerifier, GoogleIdentity};
 use voxtranslate_server::billing::{usd, BillingService};
-use voxtranslate_server::config::{Config, QwenConfig};
+use voxtranslate_server::config::{Config, GeminiConfig, QwenConfig};
 use voxtranslate_server::db::{self, Pool};
 use voxtranslate_server::engine::realtime_mock::{Dialect, RealtimeMock, Reply};
 use voxtranslate_server::live::config::LiveConfig;
@@ -56,6 +56,24 @@ async fn setup(mock: &RealtimeMock) -> Option<Srv> {
 /// `min_join` overrides the balance a user needs to start; `Some(0.0)` lets a test hand an
 /// owner an empty wallet and watch the conversation end.
 async fn setup_with(mock: &RealtimeMock, min_join: Option<f64>) -> Option<Srv> {
+    setup_full(mock, min_join, None).await
+}
+
+/// Standard on `mock`, and Premium (Gemini Live) on `premium.0` with at most `premium.1`
+/// concurrent upstream sessions. Premium is $0.06 x 1.5 = $0.09 a minute, twenty times Standard.
+async fn setup_tiers(
+    standard: &RealtimeMock,
+    premium: &RealtimeMock,
+    premium_sessions: usize,
+) -> Option<Srv> {
+    setup_full(standard, None, Some((premium, premium_sessions))).await
+}
+
+async fn setup_full(
+    mock: &RealtimeMock,
+    min_join: Option<f64>,
+    premium: Option<(&RealtimeMock, usize)>,
+) -> Option<Srv> {
     let url = db::test_database_url()?;
     let pool = db::connect(&url).await.ok()?;
     db::migrate(&pool).await.ok()?;
@@ -66,6 +84,17 @@ async fn setup_with(mock: &RealtimeMock, min_join: Option<f64>) -> Option<Srv> {
         ..Default::default()
     };
     config.standard_enabled = true;
+    if let Some((gem, max_sessions)) = premium {
+        config.google = Some(GeminiConfig {
+            api_key: "test-key".into(),
+            model: "gemini-test".into(),
+            cost_per_minute: 0.06,
+            markup: 0.5,
+            max_sessions,
+            live_base_url: gem.base_url(),
+            voice: None,
+        });
+    }
     {
         // Tick every second, so a few seconds of speech produce several charges.
         let pricing = &mut config.billing.as_mut().unwrap().pricing;
@@ -1649,6 +1678,16 @@ struct Many {
 }
 
 async fn many(srv: &Srv, guest_langs: &[&'static str], save_transcript: bool) -> Many {
+    many_on(srv, guest_langs, save_transcript, None).await
+}
+
+/// [`many`] on the tier `engine` (`None` = nothing asked, so Standard).
+async fn many_on(
+    srv: &Srv,
+    guest_langs: &[&'static str],
+    save_transcript: bool,
+    engine: Option<&str>,
+) -> Many {
     let (jwt, host_user) = login(srv).await;
     let (s, created) = srv
         .post(
@@ -1658,6 +1697,7 @@ async fn many(srv: &Srv, guest_langs: &[&'static str], save_transcript: bool) ->
                 "lang": "it",
                 "save_transcript": save_transcript,
                 "max_guests": guest_langs.len(),
+                "engine": engine,
             }),
         )
         .await;
@@ -2121,4 +2161,306 @@ async fn with_three_seats_an_echo_is_dropped_whoever_it_reaches_and_a_real_reply
             "the real reply never reached phone {i}"
         );
     }
+}
+
+// ---- tier choice (S4): Premium end to end, fallback, money ------------------------------
+
+const PREMIUM: &str = "gemini_live_translate";
+
+/// Every distinct per-tick amount a seat was charged, with how many ticks each had.
+async fn tick_amounts(srv: &Srv, session: Uuid, peer: &str) -> Vec<(Decimal, i64)> {
+    sqlx::query_as(
+        "SELECT amount, count(*) FROM live_usage_ticks
+         WHERE session_id = $1 AND peer_id = $2::uuid GROUP BY amount ORDER BY amount",
+    )
+    .bind(session)
+    .bind(peer)
+    .fetch_all(&srv.pool)
+    .await
+    .unwrap()
+}
+
+fn rate_per_second(srv: &Srv, engine: &str) -> f64 {
+    srv.state
+        .engines
+        .get(engine)
+        .expect("registered")
+        .metadata()
+        .user_rate_per_second()
+}
+
+fn downgrades(frames: &[Value]) -> Vec<&Value> {
+    frames
+        .iter()
+        .filter(|v| v["type"] == "engine_downgraded")
+        .collect()
+}
+
+#[tokio::test]
+async fn a_premium_conversation_runs_on_the_premium_engine_and_bills_its_rate_for_every_seat() {
+    let standard = RealtimeMock::start(Dialect::Qwen).await;
+    let gemini = RealtimeMock::start(Dialect::Gemini).await;
+    gemini.reply_with(speech());
+    let Some(srv) = setup_tiers(&standard, &gemini, 8).await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    let m = many_on(&srv, &["es"], false, Some(PREMIUM)).await;
+    let mut phones = open_all(&srv, &m).await;
+    for p in &mut phones {
+        p.say(json!({ "type": "start" })).await;
+    }
+    all_speak(&mut phones, 4_500, |_| Some(vec![0u8; 640])).await;
+    for p in &mut phones {
+        p.say(json!({ "type": "stop" })).await;
+    }
+    tokio::time::sleep(Duration::from_millis(800)).await;
+
+    // Both phones were served by Gemini; Standard's provider was never dialled.
+    assert!(gemini.connections() >= 2, "{}", gemini.connections());
+    assert_eq!(
+        standard.connections(),
+        0,
+        "Standard served a Premium conversation"
+    );
+    // The other phone really hears the translated audio, and nobody sees a fallback notice.
+    for (listener, speaker) in [(1, 0), (0, 1)] {
+        assert!(
+            !audio_from(&phones[listener].seen, &phones[speaker].peer).is_empty(),
+            "phone {listener} never heard phone {speaker}"
+        );
+    }
+    assert!(phones.iter().all(|p| downgrades(&p.seen).is_empty()));
+
+    // Every tick of both seats is exactly one stream at the PREMIUM rate, not Standard's.
+    let premium_tick = usd(rate_per_second(&srv, PREMIUM));
+    let standard_tick = usd(rate_per_second(&srv, "standard"));
+    assert!(premium_tick > standard_tick * Decimal::from(10));
+    let mut total = Decimal::ZERO;
+    for peer in [&m.host_peer, &m.guests[0].1] {
+        let amounts = tick_amounts(&srv, m.session, peer).await;
+        assert_eq!(
+            amounts.len(),
+            1,
+            "{peer} was charged at several rates: {amounts:?}"
+        );
+        let (amount, n) = amounts[0];
+        assert_eq!(amount, premium_tick, "{peer}");
+        assert!(n >= 2, "{peer} was metered {n} times");
+        total += amount * Decimal::from(n);
+    }
+    let left: Decimal = sqlx::query_scalar("SELECT balance FROM users WHERE id = $1")
+        .bind(m.host_user)
+        .fetch_one(&srv.pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        left,
+        Decimal::new(500, 2) - total,
+        "the owner paid exactly the ticks"
+    );
+    let tagged: Option<String> =
+        sqlx::query_scalar("SELECT engine_id FROM usage_sessions WHERE user_id = $1")
+            .bind(m.host_user)
+            .fetch_optional(&srv.pool)
+            .await
+            .unwrap();
+    assert_eq!(tagged.as_deref(), Some(PREMIUM));
+    let stored: Option<String> =
+        sqlx::query_scalar("SELECT engine_id FROM live_sessions WHERE id = $1")
+            .bind(m.session)
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        stored.as_deref(),
+        Some(PREMIUM),
+        "no fallback, so the tier is unchanged"
+    );
+}
+
+#[tokio::test]
+async fn premium_at_capacity_moves_the_whole_conversation_to_standard_and_bills_it_that_way() {
+    let standard = RealtimeMock::start(Dialect::Qwen).await;
+    standard.reply_with(speech());
+    let gemini = RealtimeMock::start(Dialect::Gemini).await;
+    gemini.reply_with(speech());
+    // One Premium upstream session in all: the host's takes it, the guest's finds none.
+    let Some(srv) = setup_tiers(&standard, &gemini, 1).await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    let m = many_on(&srv, &["es"], false, Some(PREMIUM)).await;
+    let mut phones = open_all(&srv, &m).await;
+
+    // The host starts alone first and holds the only Premium session.
+    phones[0].say(json!({ "type": "start" })).await;
+    all_speak(&mut phones, 2_500, |i| (i == 0).then(|| vec![0u8; 640])).await;
+    assert!(gemini.connections() >= 1);
+    assert_eq!(standard.connections(), 0);
+
+    // Now the guest starts: Premium has no session left. Nobody is told "busy".
+    phones[1].say(json!({ "type": "start" })).await;
+    all_speak(&mut phones, 3_500, |_| Some(vec![0u8; 640])).await;
+    for (i, p) in phones.iter().enumerate() {
+        let notices = downgrades(&p.seen);
+        assert_eq!(
+            notices.len(),
+            1,
+            "phone {i} must be told exactly once: {:?}",
+            p.seen
+        );
+        assert_eq!(notices[0]["from"], PREMIUM);
+        assert_eq!(notices[0]["to"], "standard");
+        assert_eq!(notices[0]["reason"], "premium_at_capacity");
+        assert_eq!(notices[0]["peer_id"], json!(phones[1].peer));
+        assert!(
+            !p.seen.iter().any(|v| v["code"] == "live_busy"),
+            "a fallback reached the client as live_busy: {:?}",
+            p.seen
+        );
+    }
+    assert!(
+        standard.connections() >= 1,
+        "the guest was not served by Standard"
+    );
+    let (stored, events): (Option<String>, i64) = (
+        sqlx::query_scalar("SELECT engine_id FROM live_sessions WHERE id = $1")
+            .bind(m.session)
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap(),
+        sqlx::query_scalar(
+            "SELECT count(*) FROM live_session_events WHERE session_id = $1 AND kind = 'engine_downgraded'",
+        )
+        .bind(m.session)
+        .fetch_one(&srv.pool)
+        .await
+        .unwrap(),
+    );
+    assert_eq!(
+        stored.as_deref(),
+        Some("standard"),
+        "a reconnect must agree"
+    );
+    assert_eq!(events, 1, "one diagnostics row for the one fallback");
+
+    // The host, still on its Premium session, stops and starts again: it is Standard now, and
+    // the conversation (REST) says so.
+    phones[0].say(json!({ "type": "stop" })).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let before = standard.connections();
+    phones[0].say(json!({ "type": "start" })).await;
+    all_speak(&mut phones, 3_000, |_| Some(vec![0u8; 640])).await;
+    assert!(
+        standard.connections() > before,
+        "a seat that starts after the fallback must not retry Premium"
+    );
+    for p in &mut phones {
+        p.say(json!({ "type": "stop" })).await;
+    }
+    tokio::time::sleep(Duration::from_millis(800)).await;
+    let (s, view) = srv
+        .http
+        .get(format!(
+            "http://{}/api/live/sessions/{}",
+            srv.addr, m.session
+        ))
+        .bearer_auth(&m.host_token)
+        .send()
+        .await
+        .map(|r| (r.status(), r))
+        .unwrap();
+    assert_eq!(s, StatusCode::OK);
+    let view: Value = view.json().await.unwrap();
+    assert_eq!(view["session"]["engine"], "standard");
+
+    // Money: the guest only ever paid Standard's rate. The host paid Premium's while it ran on
+    // Premium and Standard's afterwards — never anything else, and never both rates at once.
+    let premium_tick = usd(rate_per_second(&srv, PREMIUM));
+    let standard_tick = usd(rate_per_second(&srv, "standard"));
+    let guest = tick_amounts(&srv, m.session, &m.guests[0].1).await;
+    assert_eq!(
+        guest.iter().map(|(a, _)| *a).collect::<Vec<_>>(),
+        vec![standard_tick],
+        "the downgraded seat was billed at a rate other than Standard's: {guest:?}"
+    );
+    let host = tick_amounts(&srv, m.session, &m.host_peer).await;
+    assert_eq!(
+        host.iter().map(|(a, _)| *a).collect::<Vec<_>>(),
+        vec![standard_tick, premium_tick],
+        "the host: Premium until it restarted, Standard after: {host:?}"
+    );
+    let total: Decimal = guest
+        .iter()
+        .chain(host.iter())
+        .map(|(a, n)| *a * Decimal::from(*n))
+        .sum();
+    let left: Decimal = sqlx::query_scalar("SELECT balance FROM users WHERE id = $1")
+        .bind(m.host_user)
+        .fetch_one(&srv.pool)
+        .await
+        .unwrap();
+    assert_eq!(left, Decimal::new(500, 2) - total);
+}
+
+#[tokio::test]
+async fn a_standard_conversation_never_touches_premium_even_when_premium_is_configured() {
+    let standard = RealtimeMock::start(Dialect::Qwen).await;
+    standard.reply_with(speech());
+    let gemini = RealtimeMock::start(Dialect::Gemini).await;
+    gemini.reply_with(speech());
+    let Some(srv) = setup_tiers(&standard, &gemini, 1).await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    let m = many(&srv, &["es"], false).await;
+    let mut phones = open_all(&srv, &m).await;
+    for p in &mut phones {
+        p.say(json!({ "type": "start" })).await;
+    }
+    all_speak(&mut phones, 3_500, |_| Some(vec![0u8; 640])).await;
+    assert_eq!(gemini.connections(), 0);
+    assert!(standard.connections() >= 2);
+    assert!(phones.iter().all(|p| downgrades(&p.seen).is_empty()));
+    let standard_tick = usd(rate_per_second(&srv, "standard"));
+    for peer in [&m.host_peer, &m.guests[0].1] {
+        let amounts = tick_amounts(&srv, m.session, peer).await;
+        assert_eq!(
+            amounts.iter().map(|(a, _)| *a).collect::<Vec<_>>(),
+            vec![standard_tick]
+        );
+    }
+}
+
+#[tokio::test]
+async fn starting_to_speak_on_a_tier_needs_that_tiers_runway_not_just_standards() {
+    let standard = RealtimeMock::start(Dialect::Qwen).await;
+    let gemini = RealtimeMock::start(Dialect::Gemini).await;
+    gemini.reply_with(speech());
+    let Some(srv) = setup_tiers(&standard, &gemini, 8).await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    let m = many_on(&srv, &["es"], false, Some(PREMIUM)).await;
+    // Created with plenty; then the wallet drops to $0.50: Standard's minimum ($0.05) is met,
+    // Premium's ($1.00) is not.
+    sqlx::query("UPDATE users SET balance = 0.50 WHERE id = $1")
+        .bind(m.host_user)
+        .execute(&srv.pool)
+        .await
+        .unwrap();
+    let mut phones = open_all(&srv, &m).await;
+    phones[0].say(json!({ "type": "start" })).await;
+    let refusal = phones[0]
+        .wait_for(|v| v["type"] == "error")
+        .await
+        .expect("no refusal");
+    assert_eq!(refusal["code"], "insufficient_balance", "{refusal}");
+    assert_eq!(
+        gemini.connections(),
+        0,
+        "nothing was opened for an owner who cannot pay"
+    );
+    assert_eq!(standard.connections(), 0);
 }

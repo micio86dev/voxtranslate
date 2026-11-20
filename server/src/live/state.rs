@@ -241,6 +241,9 @@ pub struct LiveState {
     /// Latency probes per session. Weak: a probe lives exactly as long as a socket of its
     /// session holds it, so nothing here needs the sweeper to clean up after a conversation.
     latency: Mutex<HashMap<Uuid, Weak<SessionLatency>>>,
+    /// Conversations whose tier ran out of capacity and moved, as a whole, to the default
+    /// engine (see [`LiveState::downgrade_session`]), with when it happened.
+    downgraded: Mutex<HashMap<Uuid, Instant>>,
 }
 
 // Hand-written: `PeerTx` is a channel handle, and a `{:?}` of the state should show the
@@ -264,7 +267,44 @@ impl LiveState {
             desk_scans: Mutex::new(HashMap::new()),
             maintenance: Mutex::new(None),
             latency: Mutex::new(HashMap::new()),
+            downgraded: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// Record that `session` fell back to the default engine because its tier was at capacity.
+    /// Returns `true` for the call that made the change, so exactly one seat announces it even
+    /// when two of them hit the limit in the same instant.
+    ///
+    /// Shared by every seat of the conversation (they all hold this `Arc`), which is the point:
+    /// a seat that starts speaking later must not retry the full tier and fail the same way.
+    /// In-memory is enough because a conversation's room lives in this process; the stored
+    /// `engine_id` is updated alongside it for anyone who reconnects after a restart. Entries
+    /// older than a conversation can last are dropped when the map has grown, so it needs no
+    /// help from the sweeper.
+    pub fn downgrade_session(&self, session: Uuid) -> bool {
+        let now = Instant::now();
+        let mut map = self.downgraded.lock().unwrap_or_else(|p| p.into_inner());
+        if map.len() >= 256 {
+            let ttl = Duration::from_secs(
+                u64::try_from(
+                    self.config
+                        .max_session_min
+                        .saturating_add(10)
+                        .saturating_mul(60),
+                )
+                .unwrap_or(u64::MAX),
+            );
+            map.retain(|_, at| now.saturating_duration_since(*at) < ttl);
+        }
+        map.insert(session, now).is_none()
+    }
+
+    /// Whether `session` has fallen back to the default engine.
+    pub fn is_downgraded(&self, session: Uuid) -> bool {
+        self.downgraded
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .contains_key(&session)
     }
 
     /// The latency probes of `session`, shared by both of its sockets. Taken once per socket at

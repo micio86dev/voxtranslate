@@ -144,6 +144,9 @@ pub struct Joined {
     pub created_at: DateTime<Utc>,
     /// How many guests the session admits in all (this guest included).
     pub max_guests: i16,
+    /// The tier the session runs on (a guest inherits it). `None` is a row that predates tiers:
+    /// Standard.
+    pub engine_id: Option<String>,
 }
 
 #[derive(Debug)]
@@ -330,14 +333,34 @@ pub async fn join_guest(
     let hash = tokens::hash_secret(code);
     let mut tx = pool.begin().await?;
 
-    let row: Option<(Uuid, String, bool, DateTime<Utc>, String, i16)> = sqlx::query_as(
-        "SELECT id, status, (expires_at <= now()), created_at, host_lang, max_guests
+    #[derive(sqlx::FromRow)]
+    struct Invite {
+        id: Uuid,
+        status: String,
+        past_expiry: bool,
+        created_at: DateTime<Utc>,
+        host_lang: String,
+        max_guests: i16,
+        engine_id: Option<String>,
+    }
+    let row: Option<Invite> = sqlx::query_as(
+        "SELECT id, status, (expires_at <= now()) AS past_expiry, created_at, host_lang,
+                max_guests, engine_id
          FROM live_sessions WHERE invite_hash = $1 FOR UPDATE",
     )
     .bind(hash.as_slice())
     .fetch_optional(&mut *tx)
     .await?;
-    let Some((session_id, status, past_expiry, created_at, host_lang, max_guests)) = row else {
+    let Some(Invite {
+        id: session_id,
+        status,
+        past_expiry,
+        created_at,
+        host_lang,
+        max_guests,
+        engine_id,
+    }) = row
+    else {
         return Err(JoinError::NotFound);
     };
 
@@ -414,7 +437,23 @@ pub async fn join_guest(
         host_lang,
         created_at,
         max_guests,
+        engine_id,
     })
+}
+
+/// The tier of the session an invitation code opens, read before the join so the capacity gate
+/// can judge the engine that will actually serve it. Outer `None`: no such session (the join
+/// answers that itself); inner `None`: a session that predates tiers.
+pub async fn engine_for_invite(pool: &Pool, code: &str) -> Option<Option<String>> {
+    let hash = tokens::hash_secret(code);
+    sqlx::query_scalar::<_, Option<String>>(
+        "SELECT engine_id FROM live_sessions WHERE invite_hash = $1",
+    )
+    .bind(hash.as_slice())
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten()
 }
 
 // ---- tokens ----------------------------------------------------------------------------
@@ -511,6 +550,24 @@ pub async fn store_token_hash(pool: &Pool, peer_id: Uuid, token: &str) {
     }
 }
 
+/// The tier a stored `engine_id` stands for: a row that predates tiers (`NULL`) is Standard.
+pub fn effective_engine(stored: Option<&str>) -> String {
+    stored.unwrap_or(super::tiers::DEFAULT_TIER).to_string()
+}
+
+/// Move a conversation to `engine_id` (a capacity fallback). Only an open conversation changes.
+pub async fn set_engine(pool: &Pool, session_id: Uuid, engine_id: &str) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "UPDATE live_sessions SET engine_id = $2
+         WHERE id = $1 AND status IN ('waiting', 'active')",
+    )
+    .bind(session_id)
+    .bind(engine_id)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
 // ---- end / expire ----------------------------------------------------------------------
 
 /// End an open session. Returns whether this call was the one that ended it.
@@ -576,6 +633,9 @@ pub struct SessionView {
     pub host_lang: String,
     /// How many guests the invitation admits in all.
     pub max_guests: i16,
+    /// The tier every seat of this conversation runs on (`standard` or `gemini_live_translate`).
+    /// Follows a capacity fallback: after one it reads `standard`.
+    pub engine: String,
     pub created_at: DateTime<Utc>,
     pub expires_at: DateTime<Utc>,
     pub participants: Vec<ParticipantView>,
@@ -592,11 +652,13 @@ pub async fn session_view(
         status: String,
         host_lang: String,
         max_guests: i16,
+        engine_id: Option<String>,
         created_at: DateTime<Utc>,
         expires_at: DateTime<Utc>,
     }
     let head: Option<Head> = sqlx::query_as(
-        "SELECT status, host_lang, max_guests, created_at, expires_at FROM live_sessions WHERE id = $1",
+        "SELECT status, host_lang, max_guests, engine_id, created_at, expires_at
+         FROM live_sessions WHERE id = $1",
     )
     .bind(session_id)
     .fetch_optional(pool)
@@ -605,6 +667,7 @@ pub async fn session_view(
         status,
         host_lang,
         max_guests,
+        engine_id,
         created_at,
         expires_at,
     }) = head
@@ -623,6 +686,7 @@ pub async fn session_view(
         status,
         host_lang,
         max_guests,
+        engine: effective_engine(engine_id.as_deref()),
         created_at,
         expires_at,
         participants: rows

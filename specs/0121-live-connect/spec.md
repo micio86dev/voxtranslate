@@ -45,11 +45,14 @@ What the audit (2026-11-19, branch `develop`) established and this spec relies o
 - B2C: the signed-in owner creates the session and pays for both directions.
 - B2B: permanent, revocable, regenerable desk QR codes; every scan creates a new session bound to
   an existing project and billed to the org wallet; conversations searchable like meetings.
-- No new plan or tier, no parallel wallet, project model or search index.
+- No new plan, no parallel wallet, project model or search index. The host may pick the translation
+  tier (Standard by default, Premium when enabled) when creating a B2C conversation; every seat uses it
+  and the owner pays every seat at that tier's rate (see `docs/live-connect.md`, *Tier choice*).
 
 **Non-Goals**
 - WebRTC audio between the phones (the server must receive each microphone regardless).
-- The Enhanced (Cartesia, client-direct) engine: it cannot serve guests.
+- The Enhanced (Cartesia, client-direct) engine as a server-served tier: it cannot serve guests by itself
+  (the host asking for it is refused `engine_not_supported_yet`; a client-direct path is a later unit).
 - More than four participants per session (host + 3 guests, because a room holds four peers);
   video; permanent raw-audio storage.
 - Any claim of hardware support before real-device verification (M8).
@@ -104,6 +107,12 @@ What the audit (2026-11-19, branch `develop`) established and this spec relies o
 - **R14 — Reconnection.** *Given* a dropped phone, *when* it returns within the grace with its
   token, *then* it resumes in the same session without a second meter.
 - **R15 — Existing features unchanged.** "Talk to anyone", rooms, webinars and calls behave as before.
+- **R16 — Tier choice.** *Given* a signed-in owner, *when* they create a conversation with `engine`
+  `standard` (default) or `gemini_live_translate`, *then* every seat runs on that tier, is billed at its
+  rate per distinct target language, and the minimum balance scales with the rate; Premium at capacity
+  falls back to Standard for the whole conversation with one `engine_downgraded` notice (never
+  `live_busy`); Enhanced is refused `engine_not_supported_yet`; business conversations and desks stay
+  Standard. `GET /api/live/engines` lists the choices with their rates.
 
 ## 4. Design & Architecture
 

@@ -123,7 +123,8 @@ off), see *Echo filter* below.
 
 | Route | Who | Status |
 |---|---|---|
-| `POST /api/live/sessions` body `{lang, save_transcript?, org_id?, project_id?, max_guests?}` | signed-in owner (B2C), or org member with `org_id` + `project_id` (B2B) | implemented |
+| `POST /api/live/sessions` body `{lang, save_transcript?, org_id?, project_id?, max_guests?, engine?}` | signed-in owner (B2C), or org member with `org_id` + `project_id` (B2B) | implemented |
+| `GET /api/live/engines` | any signed-in account | implemented, see *Tier choice* |
 | `POST /api/live/join` body `{code, name, lang, consent}` | anyone with an invite code (no account); the same code admits guests one after the other | implemented |
 | `GET /api/live/sessions/{id}`, `POST …/end` | a participant, with its Live Connect token (`Authorization: Bearer`) | implemented |
 | `GET /ws/live?token=…` | a participant | implemented |
@@ -139,7 +140,8 @@ off), see *Echo filter* below.
 | `POST /api/admin/live/{desk-revoke,desk-regenerate,session-end,session-reconcile,session-transcript}` | platform operators, through Directus Flows (shared `ADMIN_API_SECRET`, like every `/api/admin/*` route) | implemented, see *Administration (Directus)* |
 
 Errors are `{"code","message"}` with a stable code: `invite_not_found`, `invite_expired`,
-`session_full`, `session_ended`, `consent_required`, `bad_lang`, `bad_max_guests`, `too_many_sessions`,
+`session_full`, `session_ended`, `consent_required`, `bad_lang`, `bad_max_guests`, `engine_not_available`,
+`engine_not_supported_yet`, `engine_not_allowed` (all three 400, at create), `too_many_sessions`,
 `insufficient_balance`, `insufficient_credits`, `subscription_required`, `project_required`,
 `project_not_found`, `live_busy`, `rate_limited`; summaries add `session_open`, `nothing_to_summarize`
 (both 409), `summary_unavailable` (502), `summary_in_progress` (409), `summary_not_found` (404).
@@ -151,13 +153,14 @@ Errors are `{"code","message"}` with a stable code: `invite_not_found`, `invite_
   `max_guests` is optional (omitted or `null` = 1, a pair) and must be a whole number from 1 to
   `LIVE_MAX_GUESTS`; anything else is `400 bad_max_guests` and creates nothing. It is stored, and
   returned by create (`max_guests`), by join and by `GET …/sessions/{id}` (`session.max_guests`).
+- **Tier choice** (`engine`, optional): see *Tier choice* below.
 - Joining needs consent, a real language (never `auto`) and a well-formed code; a malformed and an
   unknown code answer identically. Each guest takes a seat of their own; once `max_guests` are taken
   the next one is refused (`409 session_full`, and it takes nothing) and a guest who dropped
   reconnects with their token.
 - An owner holds at most `LIVE_MAX_CONCURRENT_PER_OWNER` open sessions; creates are serialised with
   an advisory lock so a burst cannot beat the cap.
-- `live_busy` (503) is returned at create when the default engine has fewer than two free upstream
+- `live_busy` (503) is returned at create when the conversation's tier has fewer than two free upstream
   sessions, and at join when it cannot open what the new guest's arrival needs: Standard never
   reports `AtCapacity`, it silently skips a direction. Every participant opens one upstream session
   per distinct OTHER language in the room, so a guest adds their own streams plus one for their
@@ -284,6 +287,61 @@ finalised Live Connect conversation already grounds project and question answers
 metrics* (calls, minutes, collaborators) are deliberately `kind = 'call'` only, like analytics, and
 Live Connect conversations are not counted there; adding them is a product decision, not a bug.
 
+## Tier choice *(implemented: `server/src/live/tiers.rs`, `routes.rs`, `ws.rs`)*
+
+The host picks the translation tier when creating the conversation: `POST /api/live/sessions` takes
+an optional `engine`. **Every seat of the conversation uses it** (the host's phone and each guest's),
+and the owner pays every seat at that tier's rate, per distinct target language (see *Billing*).
+
+| `engine` | Tier | Today |
+|---|---|---|
+| omitted, `null`, `"standard"` | Standard (Qwen) | the default |
+| `"gemini_live_translate"` | **Premium** (Gemini Live) | when its flag and key are configured (`GEMINI_PREMIUM`, `GOOGLE_AI_API_KEY`) |
+| `"cartesia"` | Enhanced | **not yet**: client-direct, the server opens no session for it. `400 engine_not_supported_yet` |
+| anything else (the Pro tier's id `premium`, an unknown or wrong-case id, `""`), or Premium on a deployment that does not have it | | `400 engine_not_available` |
+
+- A **business conversation and a desk are Standard only**: asking a business create for another tier
+  is `400 engine_not_allowed`. Desks do not take the field at all.
+- The tier is stored as `live_sessions.engine_id` (no migration: the column exists since 065), returned
+  by create (`engine`), by join (`engine`, so the guest page can say which tier it is on) and by
+  `GET …/sessions/{id}` (`session.engine`). A row that predates tiers (`NULL`) reads as `standard`.
+- **`GET /api/live/engines`** (signed-in) feeds the host's picker. It lists only the tiers a
+  conversation can run on and this deployment has enabled, in display order, and the default:
+  `{"default":"standard","engines":[{"id","display_name","tier","description","rate_per_minute",
+  "min_balance","available","reason"?,"scales_per_language":true,"client_direct":false}]}`.
+  `rate_per_minute` is what **one language stream** costs per minute at that tier (`cost × (1 +
+  markup)`; raw cost and markup never leave the server), so the picker can say "from $x / min per
+  language". `min_balance` is what the owner must hold to start on that tier. `available:false` with
+  `reason:"at_capacity"` is a hint that the tier would be refused `live_busy` right now (only Standard
+  meters its own pool; Premium always reports available). Enhanced and Pro are not listed.
+- **Minimum balance scales with the tier.** Standard keeps the platform minimum
+  (`MIN_BALANCE_TO_JOIN`, default $0.05). A dearer tier needs the same **runway**, i.e. the same
+  seconds of one stream, so `min = MIN_BALANCE_TO_JOIN × tier_rate / standard_rate` (never below the
+  base). With Standard at $0.0045/min and a Premium at $0.09/min the minimum is $1.00. It is checked at
+  create and again at every `start` (`insufficient_balance`). A join takes no balance check, as before:
+  the guest pays nothing and the host's balance is checked when anybody speaks.
+- **The tier follows the room, per `start`.** Each `start` resolves the engine from the conversation, not
+  from the socket, so a seat that connected before a fallback does not start on the tier that ran out.
+
+### Premium at capacity falls back to Standard, for the whole conversation
+
+Premium holds a bounded pool of upstream sessions (`GEMINI_LIVE_MAX_SESSIONS`, default 16, one per
+speaker per target language). When a `start` finds none, the server **does not** answer `live_busy`:
+
+1. the conversation moves to Standard for good (a shared flag in `LiveState`, so seats that start later
+   do not retry Premium and fail the same way);
+2. `live_sessions.engine_id` becomes `standard` (a reconnect, and `GET …/sessions/{id}`, agree);
+3. the room gets Meet's existing frame
+   `{"type":"engine_downgraded","peer_id","from":"gemini_live_translate","to":"standard","reason":"premium_at_capacity"}`
+   exactly once (`peer_id` is the seat whose `start` hit the limit), and a `live_session_events` row of
+   kind `engine_downgraded` records it;
+4. that `start` is retried on Standard and metered at Standard's rate.
+
+A seat that is **already speaking** on Premium keeps its Premium session (and is billed Premium's rate
+for it) until it stops; its next `start` is Standard. `live_busy` therefore reaches a client only when
+Standard itself is at capacity, as before. Languages added to a speaker mid-turn are best effort on
+Premium (the engine skips what it has no permit for until one frees); that path has no fallback.
+
 ## Billing *(implemented: `server/src/live/billing.rs`)*
 
 The owner pays for **every seat**: a user's personal balance (B2C) or the org wallet (B2B). Guests are
@@ -299,6 +357,11 @@ reports is trusted.
   and two decimals would look frozen. The cached balance is painted at once, before the first tick.
   Organisation-paid sessions show no wallet figure (whole credits are not a wallet amount).
 
+- **The rate is the conversation's tier**: `rate_per_second = cost × (1 + markup) / 60` of the engine
+  that serves the `start` (Standard by default, Premium when chosen, Standard again after a capacity
+  fallback). A tick is `rate × interval × streams`, so on Premium every seat pays about 20x Standard's
+  figure per stream with the shipped prices. The usage row (`usage_sessions.engine_id`) is tagged with
+  the tier that actually served.
 - **One meter per phone**, started with that phone's `start` and cancelled by `stop`, mute, or the
   socket closing. Each tick covers `LiveMeter.interval_secs` (`USAGE_UPDATE_INTERVAL`, default 5 s).
 - **Per DISTINCT target language, as for webinars.** A phone's tick bills one stream for every
@@ -565,7 +628,7 @@ recorded in `transcript_events` as speech of the guest (the filter only stops it
 
 Start from the conversation's diagnostics: `SELECT ts, kind, detail FROM live_session_events WHERE
 session_id = '<id>' ORDER BY ts` (kinds: `created`, `guest_joined`, `desk_scan`, `answered`,
-`connected`, `disconnected`, `room_session`, `idle_timeout`, `slow_consumer`, `ended`,
+`connected`, `disconnected`, `room_session`, `engine_downgraded`, `idle_timeout`, `slow_consumer`, `ended`,
 `ended_by_billing`, `abandoned`, `admin_ended`, `content_erased`, `diagnostics`). Directus shows the same rows;
 the dashboard session detail shows the timeline to org admins. For billing, the Directus
 **Reconcile** button (`POST /api/admin/live/session-reconcile`) compares ticks with the ledger.
@@ -577,6 +640,9 @@ the dashboard session detail shows the timeline to org admins. For billing, the 
 | Guest gets `invite_expired` | the invitation outlived `LIVE_JOIN_WINDOW_SECS` before anyone joined; create a new one |
 | Guest gets `session_full` | the link's `max_guests` seats are all taken (`SELECT count(*) FROM live_participants WHERE session_id = '<id>' AND role = 'guest'` against `live_sessions.max_guests`); a guest who dropped reconnects with their token, anyone else needs the host to create a new conversation with more seats (1-3, `LIVE_MAX_GUESTS`) |
 | Host's `max_guests` is refused `bad_max_guests` | not a whole number from 1 to `LIVE_MAX_GUESTS` (default 3) |
+| Host's `engine` is refused (400) | `engine_not_available`: unknown id, the Pro tier's id, or Premium not configured here (`GET /api/engines` lists what is enabled; `GEMINI_PREMIUM` + `GOOGLE_AI_API_KEY`); `engine_not_supported_yet`: Enhanced (`cartesia`) cannot serve a conversation yet; `engine_not_allowed`: a business conversation asked for a tier other than Standard |
+| A Premium conversation turned into Standard | Premium was at capacity: `live_session_events` kind `engine_downgraded` (`from`, `to`, `reason: premium_at_capacity`, the seat), `live_sessions.engine_id` is now `standard`; every later tick is Standard's rate. Raise `GEMINI_LIVE_MAX_SESSIONS` if it is frequent |
+| Host cannot start on Premium though Standard works | the minimum balance scales with the tier (`insufficient_balance`); `GET /api/live/engines` shows `min_balance` per tier |
 | Create/join answers `live_busy` (503) | create: fewer than two free upstream sessions; join: fewer than the new guest's arrival needs (each guest adds their own streams plus their language to every speaker). Check `QWEN_REALTIME_MAX_SESSIONS`, the Qwen connect metrics and how many conversations are active |
 | One direction is silent | the engine skipped it at capacity, or its upstream session dropped (`audio_session_closed` / `engine_unavailable` frames, retried by the client a few times); check `voxtranslate_qwen_connect_ms` and the server log for `qwen connect failed` |
 | `insufficient_balance` / `insufficient_credits` | the **owner's** balance or the org wallet, not the guest's: top up, or check the org's subscription |
@@ -698,8 +764,8 @@ The decision record is in the spec (*Key decisions* 1-3). In short:
 |---|---|---|---|
 | Schema | `server/tests/live_schema.rs` | RLS, owner check, vocabularies, one owner-side seat and no database cap on guests, `max_guests` check and default, tick idempotency, purge keeps usage, migration re-run (069 included, and 065 after it) | `cargo test --test live_schema` |
 | Tokens / config | unit tests in `live/{tokens,config}.rs` | forgery, expiry, audience, JWT confusion, desk MAC version binding, flag/key/limit validation | `cargo test --lib live::` |
-| REST | `tests/live_rest.rs` | create/join/get/end, caps, consent, project validation, error codes; several guests per link (create validation, `session_full` at the limit, simultaneous joins admit exactly `max_guests`, reusable link and join window, guest leaving, `live_busy` on a join the engine cannot serve) | `cargo test --test live_rest` |
-| `/ws/live` | `tests/live_ws.rs` | both phones translated at once, four phones in three languages hearing every other speaker in their own, peer joined/left/muted per peer, server-side mute, reconnect takeover, sweeper, billing ticks and exhaustion, no account id leak, latency metric (one observation per utterance with three listeners), billing per distinct language across seats, the 3-seat echo filter, audio frame cap and 1.5x real-time budget (honest sender untouched) | `cargo test --test live_ws` |
+| REST | `tests/live_rest.rs` | create/join/get/end, caps, consent, project validation, error codes; several guests per link (create validation, `session_full` at the limit, simultaneous joins admit exactly `max_guests`, reusable link and join window, guest leaving, `live_busy` on a join the engine cannot serve); tier choice (validation matrix and stable codes, defaults, business stays Standard, stored/returned/inherited by the guest, minimum balance scaling, the engines endpoint, capacity judged on the chosen tier) | `cargo test --test live_rest` |
+| `/ws/live` | `tests/live_ws.rs` | both phones translated at once, four phones in three languages hearing every other speaker in their own, peer joined/left/muted per peer, server-side mute, reconnect takeover, sweeper, billing ticks and exhaustion, no account id leak, latency metric (one observation per utterance with three listeners), billing per distinct language across seats, Premium end to end on the Gemini mock (every tick at the Premium rate, Standard never dialled), Premium at capacity falling back for the whole conversation (one `engine_downgraded`, `engine_id` updated, Standard rate afterwards, never `live_busy`), the start gate scaling with the tier, the 3-seat echo filter, audio frame cap and 1.5x real-time budget (honest sender untouched) | `cargo test --test live_ws` |
 | Billing | `tests/live_billing.rs` | idempotent ticks, insufficient funds, concurrent sessions on one wallet, the org carry across Start/Stop cycles, one stream per distinct language for every seat (user and org, to the last digit) | `cargo test --test live_billing` |
 | Desks | `tests/live_desks.rs` | scan creates a new session each time, revoke/regenerate, exactly one answerer, queue and per-address limits, scan-vs-revoke ordering, no existence oracle, a real WS conversation | `cargo test --test live_desks` |
 | Intelligence | `tests/live_intelligence.rs` | finalisation, search filters and scope, retention, erasure (also for a conversation with three guests) | `cargo test --test live_intelligence` |
@@ -708,7 +774,8 @@ The decision record is in the spec (*Key decisions* 1-3). In short:
 | **Browser e2e, real server** | `client/e2e/live.spec.ts` | the user journeys below, in real browsers against the real server and database | `cd client && npm run test:e2e:live` |
 | Load | `loadtest/live-connect.js` | connect time, errors, `live_busy`, silent directions at N conversations | `loadtest/README.md`, "Live Connect" |
 
-The server uses **the real Standard engine pointed at `RealtimeMock`** (`engine/realtime_mock.rs`);
+The server uses **the real Standard engine pointed at `RealtimeMock`** (`engine/realtime_mock.rs`), and for
+Premium the real Gemini engine pointed at a `Dialect::Gemini` mock (`GEMINI_LIVE_BASE_URL`);
 the e2e uses a Node twin of it (`client/e2e/support/mock-qwen.mjs`) because the server there is a
 separate process. Only the paid provider is a stand-in.
 

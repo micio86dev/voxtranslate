@@ -14,7 +14,7 @@ use serde_json::{json, Value};
 use uuid::Uuid;
 use voxtranslate_server::auth::{issue_jwt, upsert_google_user, FakeVerifier, GoogleIdentity};
 use voxtranslate_server::billing::{usd, BillingService};
-use voxtranslate_server::config::{Config, QwenConfig};
+use voxtranslate_server::config::{Config, GeminiConfig, QwenConfig};
 use voxtranslate_server::db::{self, Pool};
 use voxtranslate_server::live::config::LiveConfig;
 use voxtranslate_server::live::tokens::{GuestClaims, LiveKeys, PeerRole};
@@ -29,6 +29,7 @@ struct Srv {
     addr: SocketAddr,
     pool: Pool,
     http: reqwest::Client,
+    balance_cents: i64,
 }
 
 #[derive(Default, Clone, Copy)]
@@ -40,6 +41,10 @@ struct Opts {
     max_concurrent: Option<&'static str>,
     /// `LIVE_MAX_GUESTS`: the most guests a host may ask for.
     max_guests: Option<&'static str>,
+    /// Register the Premium tier (Gemini Live) so a host may pick it.
+    premium: bool,
+    /// Starting balance of the users `login` creates, in cents (default 500 = $5.00).
+    balance_cents: Option<i64>,
 }
 
 async fn setup(opts: Opts) -> Option<Srv> {
@@ -53,6 +58,18 @@ async fn setup(opts: Opts) -> Option<Srv> {
         ..Default::default()
     };
     config.standard_enabled = true;
+    if opts.premium {
+        config.google = Some(GeminiConfig {
+            api_key: "test-key".into(),
+            model: "gemini-test".into(),
+            // 0.06 x 1.5 = $0.09 a minute, twenty times Standard's $0.0045.
+            cost_per_minute: 0.06,
+            markup: 0.5,
+            max_sessions: 4,
+            live_base_url: "ws://127.0.0.1:1".into(),
+            voice: None,
+        });
+    }
     let min_join = usd(config.billing.as_ref().unwrap().pricing.min_balance_to_join);
 
     let mut state = AppState::new(config);
@@ -87,6 +104,7 @@ async fn setup(opts: Opts) -> Option<Srv> {
         addr,
         pool,
         http: reqwest::Client::new(),
+        balance_cents: opts.balance_cents.unwrap_or(500),
     })
 }
 
@@ -148,7 +166,7 @@ async fn login(srv: &Srv, name: &str) -> (String, Uuid) {
     let (user, _) = upsert_google_user(
         &srv.pool,
         &identity,
-        rust_decimal::Decimal::new(500, 2),
+        rust_decimal::Decimal::new(srv.balance_cents, 2),
         None,
         None,
     )
@@ -1138,4 +1156,262 @@ async fn a_business_session_takes_guests_too() {
     assert_eq!(join(&srv, &code, "A", "es").await.0, StatusCode::OK);
     assert_eq!(join(&srv, &code, "B", "en").await.0, StatusCode::OK);
     assert_eq!(join(&srv, &code, "C", "fr").await.0, StatusCode::CONFLICT);
+}
+
+// ---- tier choice (S4) ------------------------------------------------------------------
+
+const PREMIUM: &str = "gemini_live_translate";
+
+async fn create_on(srv: &Srv, jwt: &str, engine: Value) -> (StatusCode, Value) {
+    srv.post(
+        "/api/live/sessions",
+        Some(jwt),
+        json!({ "lang": "it", "engine": engine }),
+    )
+    .await
+}
+
+async fn stored_engine(srv: &Srv, session: &str) -> Option<String> {
+    sqlx::query_scalar("SELECT engine_id FROM live_sessions WHERE id = $1::uuid")
+        .bind(session)
+        .fetch_one(&srv.pool)
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn a_conversation_is_standard_unless_the_host_picks_a_tier_and_it_is_stored_and_returned() {
+    let srv = srv!(Opts {
+        premium: true,
+        ..Opts::default()
+    });
+    let (jwt, _) = login(&srv, "Marco").await;
+
+    // Nothing asked: Standard, stored explicitly and returned.
+    let (s, created) = create_b2c(&srv, &jwt, "it").await;
+    assert_eq!(s, StatusCode::OK, "{created}");
+    assert_eq!(created["engine"], "standard");
+    let sid = created["session_id"].as_str().unwrap();
+    assert_eq!(stored_engine(&srv, sid).await.as_deref(), Some("standard"));
+
+    // Asking for Standard by name is the same thing.
+    let (s, created) = create_on(&srv, &jwt, json!("standard")).await;
+    assert_eq!(s, StatusCode::OK, "{created}");
+    assert_eq!(created["engine"], "standard");
+
+    // Premium: stored, returned, read back on GET, and inherited by the guest who joins.
+    let (s, created) = create_on(&srv, &jwt, json!(PREMIUM)).await;
+    assert_eq!(s, StatusCode::OK, "{created}");
+    assert_eq!(created["engine"], PREMIUM);
+    let sid = created["session_id"].as_str().unwrap();
+    assert_eq!(stored_engine(&srv, sid).await.as_deref(), Some(PREMIUM));
+
+    let (s, joined) = join(&srv, &code_of(&created), "Lucia", "es").await;
+    assert_eq!(s, StatusCode::OK, "{joined}");
+    assert_eq!(
+        joined["engine"], PREMIUM,
+        "the guest inherits the host's tier"
+    );
+
+    let (s, view) = srv
+        .get(
+            &format!("/api/live/sessions/{sid}"),
+            joined["token"].as_str().unwrap(),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{view}");
+    assert_eq!(view["session"]["engine"], PREMIUM);
+    let (_, host_view) = srv
+        .get(
+            &format!("/api/live/sessions/{sid}"),
+            created["token"].as_str().unwrap(),
+        )
+        .await;
+    assert_eq!(host_view["session"]["engine"], PREMIUM);
+}
+
+#[tokio::test]
+async fn a_tier_that_cannot_serve_a_conversation_is_refused_with_a_stable_code() {
+    let srv = srv!(Opts {
+        premium: true,
+        ..Opts::default()
+    });
+    let (jwt, uid) = login(&srv, "Marco").await;
+    for (engine, code) in [
+        // Enhanced is client-direct: no server engine can serve it yet.
+        ("cartesia", "engine_not_supported_yet"),
+        // The Pro tier's id, an unknown id, a blank and a wrong-case id are not Live Connect tiers.
+        ("premium", "engine_not_available"),
+        ("nope", "engine_not_available"),
+        ("", "engine_not_available"),
+        ("Standard", "engine_not_available"),
+    ] {
+        let (s, b) = create_on(&srv, &jwt, json!(engine)).await;
+        assert_eq!(
+            (s, b["code"].as_str()),
+            (StatusCode::BAD_REQUEST, Some(code)),
+            "engine {engine:?}"
+        );
+    }
+    // A refusal opens nothing.
+    let open: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM live_participants WHERE user_id = $1 AND role = 'host'",
+    )
+    .bind(uid)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
+    assert_eq!(open, 0);
+
+    // Premium that is not configured on this deployment is just as unavailable.
+    let bare = srv!(Opts::default());
+    let (jwt, _) = login(&bare, "Marco").await;
+    let (s, b) = create_on(&bare, &jwt, json!(PREMIUM)).await;
+    assert_eq!(
+        (s, b["code"].as_str()),
+        (StatusCode::BAD_REQUEST, Some("engine_not_available"))
+    );
+}
+
+#[tokio::test]
+async fn a_business_conversation_stays_standard() {
+    let srv = srv!(Opts {
+        premium: true,
+        ..Opts::default()
+    });
+    let (_, owner) = login(&srv, "Owner").await;
+    let (jwt, member) = login(&srv, "Receptionist").await;
+    let org = org_with_member(&srv, owner, Some(member)).await;
+    let body = |engine: Value| json!({ "lang": "it", "org_id": org.id, "project_id": org.project, "engine": engine });
+
+    let (s, b) = srv
+        .post("/api/live/sessions", Some(&jwt), body(json!(PREMIUM)))
+        .await;
+    assert_eq!(
+        (s, b["code"].as_str()),
+        (StatusCode::BAD_REQUEST, Some("engine_not_allowed"))
+    );
+    let (s, created) = srv
+        .post("/api/live/sessions", Some(&jwt), body(json!("standard")))
+        .await;
+    assert_eq!(s, StatusCode::OK, "{created}");
+    assert_eq!(created["engine"], "standard");
+    // And with nothing asked, as before.
+    let (s, created) = srv
+        .post(
+            "/api/live/sessions",
+            Some(&jwt),
+            json!({ "lang": "it", "org_id": org.id, "project_id": org.project }),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{created}");
+    assert_eq!(created["engine"], "standard");
+}
+
+#[tokio::test]
+async fn the_minimum_balance_scales_with_the_tier_so_the_owner_can_afford_what_they_pick() {
+    // Standard needs $0.05. Premium costs 20x as much a minute, so it needs the same runway: $1.00.
+    let srv = srv!(Opts {
+        premium: true,
+        balance_cents: Some(50),
+        ..Opts::default()
+    });
+    let (jwt, _) = login(&srv, "Marco").await;
+    let (s, b) = create_on(&srv, &jwt, json!(PREMIUM)).await;
+    assert_eq!(
+        (s, b["code"].as_str()),
+        (StatusCode::PAYMENT_REQUIRED, Some("insufficient_balance")),
+        "$0.50 buys Standard's runway but not Premium's"
+    );
+    let (s, b) = create_b2c(&srv, &jwt, "it").await;
+    assert_eq!(s, StatusCode::OK, "Standard keeps its own minimum: {b}");
+
+    let rich = srv!(Opts {
+        premium: true,
+        balance_cents: Some(100),
+        ..Opts::default()
+    });
+    let (jwt, _) = login(&rich, "Marco").await;
+    let (s, b) = create_on(&rich, &jwt, json!(PREMIUM)).await;
+    assert_eq!(s, StatusCode::OK, "$1.00 is exactly Premium's minimum: {b}");
+}
+
+#[tokio::test]
+async fn the_host_lists_the_tiers_it_can_pick_with_what_a_stream_costs() {
+    let srv = srv!(Opts {
+        premium: true,
+        ..Opts::default()
+    });
+    let (s, _) = srv.call("GET", "/api/live/engines", None, None).await;
+    assert_eq!(s, StatusCode::UNAUTHORIZED, "a signed-in host only");
+
+    let (jwt, _) = login(&srv, "Marco").await;
+    let (s, b) = srv.get("/api/live/engines", &jwt).await;
+    assert_eq!(s, StatusCode::OK, "{b}");
+    assert_eq!(b["default"], "standard");
+    let list = b["engines"].as_array().unwrap();
+    let ids: Vec<&str> = list.iter().map(|e| e["id"].as_str().unwrap()).collect();
+    assert_eq!(
+        ids,
+        ["standard", PREMIUM],
+        "Enhanced and Pro are not listed"
+    );
+
+    let rate = |i: usize| list[i]["rate_per_minute"].as_f64().unwrap();
+    assert!((rate(0) - 0.0036 * 1.25).abs() < 1e-9, "{}", rate(0));
+    assert!((rate(1) - 0.06 * 1.5).abs() < 1e-9, "{}", rate(1));
+    for e in list {
+        assert_eq!(e["scales_per_language"], true);
+        assert_eq!(e["client_direct"], false);
+        assert_eq!(e["available"], true);
+        assert!(e.get("reason").is_none(), "{e}");
+        assert!(
+            e.get("cost_per_minute").is_none() && e.get("markup").is_none(),
+            "raw cost and markup never leave the server: {e}"
+        );
+    }
+    // What the owner must hold: the platform minimum for Standard, scaled for Premium.
+    assert!((list[0]["min_balance"].as_f64().unwrap() - 0.05).abs() < 1e-9);
+    assert!((list[1]["min_balance"].as_f64().unwrap() - 1.0).abs() < 1e-9);
+
+    // Without the Premium flag and key it is simply not offered.
+    let bare = srv!(Opts::default());
+    let (jwt, _) = login(&bare, "Marco").await;
+    let (_, b) = bare.get("/api/live/engines", &jwt).await;
+    let ids: Vec<&str> = b["engines"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(ids, ["standard"]);
+}
+
+#[tokio::test]
+async fn a_full_standard_is_reported_but_does_not_stop_a_premium_conversation() {
+    // One upstream Standard session: a pair needs two, so Standard is busy.
+    let srv = srv!(Opts {
+        premium: true,
+        qwen_max_sessions: Some(1),
+        ..Opts::default()
+    });
+    let (jwt, _) = login(&srv, "Marco").await;
+
+    let (_, b) = srv.get("/api/live/engines", &jwt).await;
+    let list = b["engines"].as_array().unwrap();
+    assert_eq!(list[0]["available"], false);
+    assert_eq!(list[0]["reason"], "at_capacity");
+    assert_eq!(list[1]["available"], true, "Premium meters its own pool");
+
+    let (s, b) = create_b2c(&srv, &jwt, "it").await;
+    assert_eq!(
+        (s, b["code"].as_str()),
+        (StatusCode::SERVICE_UNAVAILABLE, Some("live_busy")),
+        "Standard at capacity keeps today's refusal"
+    );
+    let (s, created) = create_on(&srv, &jwt, json!(PREMIUM)).await;
+    assert_eq!(s, StatusCode::OK, "{created}");
+    // The guest of a Premium conversation is judged by Premium too, not by the full Standard.
+    let (s, joined) = join(&srv, &code_of(&created), "Lucia", "es").await;
+    assert_eq!(s, StatusCode::OK, "{joined}");
 }

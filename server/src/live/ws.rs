@@ -28,9 +28,10 @@ use uuid::Uuid;
 
 use super::billing::{EndCause, LiveMeter, LivePayer};
 use super::echo::{EchoConfig, EchoFilter};
-use super::routes::api_err;
+use super::routes::{api_err, owner_can_afford};
 use super::sessions::{self, PeerAuth};
 use super::state::SessionLatency;
+use super::tiers;
 use super::tokens::PeerRole;
 use crate::db::Pool;
 use crate::deepgram::SpeakerCtx;
@@ -452,7 +453,6 @@ async fn handle_live_peer(socket: WebSocket, state: AppState, auth: PeerAuth) {
 
     let room = room_name(auth.session_id);
     let peer_id = auth.peer_id.to_string();
-    let engine = state.engines.default();
     let conn = Uuid::new_v4();
     let (out_tx, out_rx, out_overflow) = PeerTx::channel(OUT_CHANNEL_CAP);
 
@@ -468,7 +468,7 @@ async fn handle_live_peer(socket: WebSocket, state: AppState, auth: PeerAuth) {
         // the other phone has no business learning the owner's (or a staff member's) account
         // id. The engine and the transcript calls take `auth.user_id` directly.
         user_id: None,
-        engine: engine.metadata().id.clone(),
+        engine: session_engine(&state, &auth).metadata().id.clone(),
         avatar_url: None,
         cartesia_voice_id: None,
         tx: out_tx.clone(),
@@ -694,7 +694,7 @@ async fn handle_live_peer(socket: WebSocket, state: AppState, auth: PeerAuth) {
                                     continue; // already speaking: Start is idempotent
                                 }
                                 last_voiced = None;
-                                match start_speaking(&state, &auth, &room, call_session, &engine,
+                                match start_speaking(&state, &auth, &room, call_session,
                                     transcripts.clone(), participant_row, &end_tx, &sent,
                                     &mut usage_session).await
                                 {
@@ -843,6 +843,60 @@ async fn handle_live_peer(socket: WebSocket, state: AppState, auth: PeerAuth) {
     }
 }
 
+/// The engine serving this conversation right now: the tier it was created on, or the default
+/// once a capacity fallback moved the whole conversation there. Every seat asks the same
+/// question, so all of them run on one tier.
+fn session_engine(state: &AppState, auth: &PeerAuth) -> Arc<dyn crate::engine::TranslationEngine> {
+    tiers::resolve(
+        &state.engines,
+        auth.engine_id.as_deref(),
+        state.live.is_downgraded(auth.session_id),
+    )
+}
+
+/// Move the whole conversation from `from` to the default engine because `from` is at capacity,
+/// and say so. Returns the engine to retry on.
+///
+/// Every seat that starts speaking afterwards uses the default too (the override is shared), the
+/// stored tier follows so a reconnect agrees, and the room gets the same `engine_downgraded` frame
+/// Meet sends: the client shows a notice and nothing else changes for it, because Live Connect
+/// always captures PCM16 and both tiers take it. Only the call that made the change announces it,
+/// so two seats hitting the limit together produce one notice, not two.
+async fn downgrade_to_default(
+    state: &AppState,
+    auth: &PeerAuth,
+    room: &str,
+    from: &str,
+) -> Arc<dyn crate::engine::TranslationEngine> {
+    let fallback = state.engines.default();
+    let to = fallback.metadata().id.clone();
+    if state.live.downgrade_session(auth.session_id) {
+        if let Some(pool) = state.pool.as_ref() {
+            if let Err(e) = sessions::set_engine(pool, auth.session_id, &to).await {
+                tracing::warn!(session = %auth.session_id, error = %e, "live: could not store the fallback tier");
+            }
+            sessions::record_event(
+                pool,
+                auth.session_id,
+                "engine_downgraded",
+                json!({ "from": from, "to": to, "reason": "premium_at_capacity", "peer": auth.peer_id }),
+            )
+            .await;
+        }
+        state.rooms.broadcast(
+            room,
+            &ServerMessage::EngineDowngraded {
+                peer_id: auth.peer_id.to_string(),
+                from: from.to_string(),
+                to,
+                reason: "premium_at_capacity".to_string(),
+            }
+            .to_json(),
+        );
+    }
+    fallback
+}
+
 /// Open this phone's engine session and the meter that bills it to the owner.
 ///
 /// Returns the audio sender and the meter's cancel handle, or a stable error code for the
@@ -854,7 +908,6 @@ async fn start_speaking(
     auth: &PeerAuth,
     room: &str,
     call_session: Uuid,
-    engine: &Arc<dyn crate::engine::TranslationEngine>,
     transcripts: Option<crate::transcripts::TranscriptService>,
     participant_row: Option<Uuid>,
     end_tx: &mpsc::UnboundedSender<EndCause>,
@@ -863,6 +916,9 @@ async fn start_speaking(
 ) -> Result<(mpsc::Sender<Vec<u8>>, oneshot::Sender<()>), &'static str> {
     let pool = state.pool.as_ref().ok_or("unavailable")?;
     let billing = state.billing.as_ref().ok_or("billing_unavailable")?;
+    // Resolved per Start, not per socket: a seat that connected before the conversation fell
+    // back to the default must not start on the tier that just ran out.
+    let mut engine = session_engine(state, auth);
 
     // Who pays, checked again NOW: the balance may have moved since the session was created.
     let payer = match (auth.org_id, auth.owner_user_id) {
@@ -879,7 +935,11 @@ async fn start_speaking(
             }
         }
         (None, Some(owner)) => {
-            if !billing.can_join(owner).await.map_err(|_| "unavailable")? {
+            // Scales with the tier's rate: Premium needs the same runway as Standard's minimum.
+            if !owner_can_afford(state, owner, &*engine)
+                .await
+                .map_err(|_| "unavailable")?
+            {
                 return Err("insufficient_balance");
             }
             if usage_session.is_none() {
@@ -903,7 +963,7 @@ async fn start_speaking(
         .ok_or("billing_unavailable")?
         .pricing;
 
-    let ctx = SpeakerCtx {
+    let build_ctx = || SpeakerCtx {
         room: room.to_string(),
         speaker_id: auth.peer_id.to_string(),
         speaker_name: auth.display_name.clone(),
@@ -913,20 +973,43 @@ async fn start_speaking(
         glossary: None,
         segmentation: None,
     };
-    let deps = SessionDeps {
+    let build_deps = || SessionDeps {
         rooms: state.rooms.clone(),
         moderator: state.moderator.clone(),
-        transcripts,
+        transcripts: transcripts.clone(),
         participant_row,
         listener_pays: false,
         translator: state.translator.clone(),
         transcript_writer: TranscriptWriter::default(),
     };
-    let audio_tx = match engine.start_session(ctx, deps).await {
+    let mut outcome = engine.start_session(build_ctx(), build_deps()).await;
+    // Capacity fallback (spec 0094, as Meet does it, but for the whole conversation): the tier
+    // has no free upstream session, so everybody moves to the default engine and translation
+    // never stops. The default never reports `AtCapacity` (it skips what it cannot start), so a
+    // fallback never reaches the client as `live_busy`; the default itself at capacity does, as
+    // it always has.
+    if matches!(outcome, SessionOutcome::AtCapacity)
+        && engine.metadata().id != state.engines.default().metadata().id
+    {
+        let from = engine.metadata().id.clone();
+        engine = downgrade_to_default(state, auth, room, &from).await;
+        outcome = engine.start_session(build_ctx(), build_deps()).await;
+    }
+    let audio_tx = match outcome {
         SessionOutcome::Started(tx) => tx,
         SessionOutcome::AtCapacity => return Err("live_busy"),
         SessionOutcome::Failed => return Err("engine_unavailable"),
     };
+    // The usage row was tagged before we knew who would serve; keep it honest.
+    if let Some(usage) = usage_session.as_ref() {
+        let _ = sqlx::query(
+            "UPDATE usage_sessions SET engine_id = $2 WHERE id = $1 AND engine_id IS DISTINCT FROM $2",
+        )
+        .bind(*usage)
+        .bind(engine.metadata().id.as_str())
+        .execute(pool)
+        .await;
+    }
 
     // Nobody translates for free: the meter is part of starting, not an afterthought. Balance
     // updates reach the owner's phone only — the guest never sees someone else's money.
