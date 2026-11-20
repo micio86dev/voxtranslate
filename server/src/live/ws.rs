@@ -27,10 +27,12 @@ use tokio::sync::{mpsc, oneshot};
 use uuid::Uuid;
 
 use super::billing::{EndCause, LiveMeter, LivePayer};
+use super::echo::{EchoConfig, EchoFilter};
 use super::routes::api_err;
 use super::sessions::{self, PeerAuth};
 use super::state::SessionLatency;
 use super::tokens::PeerRole;
+use crate::db::Pool;
 use crate::deepgram::SpeakerCtx;
 use crate::engine::{SessionDeps, SessionOutcome, TranscriptWriter};
 use crate::protocol::{ClientMessage, ServerMessage};
@@ -67,9 +69,8 @@ const MAX_THROTTLE_REPORTS: u32 = 10;
 /// `type` first), so the pump can recognise one without parsing or allocating.
 const TRANSLATED_AUDIO_PREFIX: &str = r#"{"type":"translated_audio""#;
 
-/// Whether `frame` (PCM16 little-endian) is voiced: its mean absolute sample reaches
-/// [`VOICED_MEAN_ABS`]. One pass over 4.8 kB, no allocation.
-fn is_voiced(frame: &[u8]) -> bool {
+/// Mean absolute sample of `frame` (PCM16 little-endian). One pass over 4.8 kB, no allocation.
+fn mean_abs(frame: &[u8]) -> u32 {
     let mut sum: u64 = 0;
     let mut n: u64 = 0;
     let (samples, _) = frame.as_chunks::<2>();
@@ -77,7 +78,13 @@ fn is_voiced(frame: &[u8]) -> bool {
         sum += u64::from(i16::from_le_bytes(*s).unsigned_abs());
         n += 1;
     }
-    n > 0 && sum / n >= u64::from(VOICED_MEAN_ABS)
+    u32::try_from(sum.checked_div(n).unwrap_or(0)).unwrap_or(u32::MAX)
+}
+
+/// Whether `frame` (PCM16 little-endian) is voiced: its mean absolute sample reaches
+/// [`VOICED_MEAN_ABS`].
+fn is_voiced(frame: &[u8]) -> bool {
+    mean_abs(frame) >= VOICED_MEAN_ABS
 }
 
 /// Does this forwarded frame start an utterance? True for the first voiced frame after a
@@ -177,43 +184,115 @@ impl AudioGate {
     }
 }
 
-/// Same as the meeting socket's writer (frames out, a ping on a fixed cadence), plus one thing:
-/// when the frame just delivered is translated audio, close the latency measurement of the
+/// Same as the meeting socket's writer (frames out, a ping on a fixed cadence), plus two things.
+///
+/// When the frame just delivered is translated audio, close the latency measurement of the
 /// utterance it answers. Kept here, at the last point before the socket, so the number is "the
 /// other phone was handed its audio" and not "the engine produced it". The cost is one string
 /// prefix check per frame and, per utterance, one atomic swap and one histogram increment.
+///
+/// And every frame first passes this seat's [`EchoFilter`]: the other phone's microphone also
+/// hears this phone's speaker, and what the engine makes of that must not be played back to the
+/// speaker. The filter may hold a new utterance of the other speaker for at most
+/// [`super::echo::HOLD_MAX`], so the loop has a timer branch that releases it (fail open).
 async fn pump_live(
     mut rx: tokio::sync::mpsc::Receiver<String>,
     mut ws_tx: futures::stream::SplitSink<WebSocket, Message>,
     latency: Arc<SessionLatency>,
     seat: usize,
+    mut echo: EchoFilter,
+    diag: (Pool, Uuid),
 ) {
     let mut ping = tokio::time::interval(WS_PING_INTERVAL);
     ping.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     ping.tick().await;
+    let mut out: Vec<String> = Vec::with_capacity(4);
+    let my_id = echo.my_id().to_string();
     loop {
+        let hold_until = echo.deadline();
+        let hold_over = async {
+            match hold_until {
+                Some(t) => tokio::time::sleep_until(t).await,
+                None => std::future::pending().await,
+            }
+        };
+        out.clear();
         tokio::select! {
             msg = rx.recv() => {
-                let Some(m) = msg else { break };
-                let audio = m.starts_with(TRANSLATED_AUDIO_PREFIX);
-                if ws_tx.send(Message::Text(m.into())).await.is_err() {
-                    break;
-                }
-                if audio {
-                    if let Some(d) = latency.audio_delivered(seat, tokio::time::Instant::now()) {
-                        crate::metrics::record_live_translation_ms(
-                            u64::try_from(d.as_micros().div_ceil(1000)).unwrap_or(u64::MAX).max(1),
-                        );
+                let now = tokio::time::Instant::now();
+                match msg {
+                    Some(m) if echo.enabled() => {
+                        echo.note_own_voice(latency.mic_last_voiced(seat));
+                        // Two seats today: "me" and "the other phone". More seats make this the
+                        // one place that looks a speaker up.
+                        let (mine, theirs) = (latency.mic_level(seat, now), latency.mic_level(seat ^ 1, now));
+                        let level = |id: &str| if id == my_id { mine } else { theirs };
+                        echo.on_frame(now, m, &level, &mut out);
+                        if echo.has_report() && latency.allow_echo_report(now) {
+                            let (suppressed, failed_open) = echo.take_report();
+                            let (pool, session) = diag.clone();
+                            tokio::spawn(async move {
+                                super::sessions::record_event(
+                                    &pool,
+                                    session,
+                                    "diagnostics",
+                                    json!({ "echo_filter": {
+                                        "suppressed": suppressed,
+                                        "failed_open": failed_open,
+                                    } }),
+                                )
+                                .await;
+                            });
+                        }
+                    }
+                    Some(m) => out.push(m),
+                    None => {
+                        // The channel closed: let go of anything still held, then stop.
+                        echo.drain(&mut out);
+                        for m in out.drain(..) {
+                            let _ = send_frame(&mut ws_tx, &latency, seat, m).await;
+                        }
+                        break;
                     }
                 }
             }
+            () = hold_over => echo.on_timeout(tokio::time::Instant::now(), &mut out),
             _ = ping.tick() => {
                 if ws_tx.send(Message::Ping(Vec::<u8>::new().into())).await.is_err() {
                     break;
                 }
             }
         }
+        for m in out.drain(..) {
+            if send_frame(&mut ws_tx, &latency, seat, m).await.is_err() {
+                return;
+            }
+        }
     }
+}
+
+/// Write one frame to the socket and, when it is translated audio, close the latency probe of
+/// the utterance it answers.
+async fn send_frame(
+    ws_tx: &mut futures::stream::SplitSink<WebSocket, Message>,
+    latency: &SessionLatency,
+    seat: usize,
+    m: String,
+) -> Result<(), ()> {
+    let audio = m.starts_with(TRANSLATED_AUDIO_PREFIX);
+    if ws_tx.send(Message::Text(m.into())).await.is_err() {
+        return Err(());
+    }
+    if audio {
+        if let Some(d) = latency.audio_delivered(seat, tokio::time::Instant::now()) {
+            crate::metrics::record_live_translation_ms(
+                u64::try_from(d.as_micros().div_ceil(1000))
+                    .unwrap_or(u64::MAX)
+                    .max(1),
+            );
+        }
+    }
+    Ok(())
 }
 
 /// The room a session's two phones share. Server-minted and unguessable, so it can never
@@ -271,7 +350,7 @@ pub async fn ws_live(
                 StatusCode::GONE,
                 "session_ended",
                 "this conversation has ended",
-            )
+            );
         }
     };
     ws.max_message_size(256 * 1024)
@@ -454,7 +533,22 @@ async fn handle_live_peer(socket: WebSocket, state: AppState, auth: PeerAuth) {
 
     let latency = state.live.latency_for(auth.session_id);
     let seat = SessionLatency::seat(auth.role == PeerRole::Guest);
-    let send_task = tokio::spawn(pump_live(out_rx, ws_tx, latency.clone(), seat));
+    let echo = EchoFilter::new(
+        EchoConfig {
+            enabled: state.live.config.echo_filter,
+            sim: state.live.config.echo_sim,
+        },
+        peer_id.clone(),
+        auth.lang.clone(),
+    );
+    let send_task = tokio::spawn(pump_live(
+        out_rx,
+        ws_tx,
+        latency.clone(),
+        seat,
+        echo,
+        (pool.clone(), auth.session_id),
+    ));
     // When this phone last sent a frame with speech in it, for the latency probe's onset rule.
     let mut last_voiced: Option<tokio::time::Instant> = None;
 
@@ -527,6 +621,8 @@ async fn handle_live_peer(socket: WebSocket, state: AppState, auth: PeerAuth) {
                                     // an outage.
                                     Ok(()) => {
                                         sent.fetch_add(1, Ordering::Relaxed);
+                                        let level = mean_abs(&data);
+                                        latency.mic_frame(seat, now, level, level >= VOICED_MEAN_ABS);
                                         if utterance_onset(&mut last_voiced, &data, now) {
                                             latency.speech_started(seat, now);
                                         }

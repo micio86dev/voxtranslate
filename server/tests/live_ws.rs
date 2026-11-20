@@ -27,6 +27,7 @@ use voxtranslate_server::engine::realtime_mock::{Dialect, RealtimeMock, Reply};
 use voxtranslate_server::live::config::LiveConfig;
 use voxtranslate_server::live::sweeper::sweep_sessions;
 use voxtranslate_server::live::LiveState;
+use voxtranslate_server::protocol::ServerMessage;
 use voxtranslate_server::safety::SafetyService;
 use voxtranslate_server::transcripts::TranscriptService;
 use voxtranslate_server::{app, AppState};
@@ -35,6 +36,11 @@ const SECRET: &str = "live-ws-secret";
 const LIVE_KEY: &str = "0123456789abcdef0123456789abcdef-live-ws";
 
 type Ws = WebSocketStream<MaybeTlsStream<TcpStream>>;
+
+/// The latency histogram on `/metrics` is process-wide, so two tests that both feed it voiced
+/// audio would count each other's utterances. Whoever measures it, or makes voiced speech, holds
+/// this for its whole run.
+static VOICED_SPEECH: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 struct Srv {
     addr: SocketAddr,
@@ -1099,6 +1105,7 @@ async fn live_latency(srv: &Srv) -> (u64, u64) {
 
 #[tokio::test]
 async fn the_server_times_speech_to_translated_audio_once_per_utterance() {
+    let _alone = VOICED_SPEECH.lock().await;
     let mock = RealtimeMock::start(Dialect::Qwen).await;
     mock.reply_with(speech());
     let srv = srv!(&mock);
@@ -1301,4 +1308,235 @@ async fn a_client_sending_at_the_speed_of_a_microphone_loses_nothing() {
 
     assert_eq!(appends(&mock) - before, sent, "an honest sender lost audio");
     assert_eq!(event_count(&srv, c.session, "diagnostics").await, 0);
+}
+
+// ---- the other phone's microphone hears this phone's speaker ---------------------------
+
+/// A constant-amplitude PCM16 frame of `bytes` bytes: `amp` is also its mean absolute sample.
+fn tone(amp: i16, bytes: usize) -> Vec<u8> {
+    std::iter::repeat_n(amp.to_le_bytes(), bytes / 2)
+        .flatten()
+        .collect()
+}
+
+/// Both phones stream their microphone for `ms`, everything each one receives is returned. The
+/// host's microphone is loud and the guest's quiet: the guest's phone is only hearing the host
+/// across the table, which is what the echo filter uses to tell the speaker from the listener.
+async fn mics_open(
+    host: &mut Ws,
+    guest: &mut Ws,
+    ms: u64,
+    guest_mic: bool,
+) -> (Vec<Value>, Vec<Value>) {
+    let (mut got_host, mut got_guest) = (Vec::new(), Vec::new());
+    let deadline = tokio::time::Instant::now() + Duration::from_millis(ms);
+    let mut tick = tokio::time::interval(Duration::from_millis(100));
+    loop {
+        tokio::select! {
+            _ = tick.tick() => {
+                let _ = host.send(Message::binary(tone(1000, 4800))).await;
+                if guest_mic {
+                    let _ = guest.send(Message::binary(tone(200, 4800))).await;
+                }
+            }
+            Some(Ok(Message::Text(t))) = host.next() => {
+                if let Ok(v) = serde_json::from_str(t.as_str()) { got_host.push(v); }
+            }
+            Some(Ok(Message::Text(t))) = guest.next() => {
+                if let Ok(v) = serde_json::from_str(t.as_str()) { got_guest.push(v); }
+            }
+            _ = tokio::time::sleep_until(deadline) => return (got_host, got_guest),
+        }
+    }
+}
+
+/// Frames about `speaker`'s speech: captions and translated audio.
+fn speech_of<'a>(frames: &'a [Value], speaker: &str) -> Vec<&'a Value> {
+    frames
+        .iter()
+        .filter(|v| {
+            v["speaker_id"] == speaker
+                && matches!(
+                    v["type"].as_str(),
+                    Some("subtitle_interim" | "subtitle_final" | "translated_audio")
+                )
+        })
+        .collect()
+}
+
+async fn echo_metric(srv: &Srv, name: &str) -> u64 {
+    let body = srv
+        .http
+        .get(format!("http://{}/metrics", srv.addr))
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    let key = format!("voxtranslate_live_echo_{name}_total ");
+    body.lines()
+        .find_map(|l| l.strip_prefix(&key))
+        .unwrap_or_else(|| panic!("metric {key}missing from /metrics"))
+        .trim()
+        .parse()
+        .unwrap()
+}
+
+#[tokio::test]
+async fn the_translation_of_my_own_voice_heard_by_the_other_phone_is_not_played_back_to_me() {
+    let _alone = VOICED_SPEECH.lock().await;
+    let mock = RealtimeMock::start(Dialect::Qwen).await;
+    // Every upstream session hears the same sentence, like two phones side by side: the host's
+    // session (it -> es) and the guest's session (es -> it), which "translates" the host's voice.
+    mock.reply_with(vec![
+        Reply::Transcript {
+            original: "ciao come stai oggi".into(),
+            translated: "hola como estas hoy".into(),
+        },
+        Reply::Audio(vec![7u8; 960]),
+    ]);
+    let srv = srv!(&mock);
+    let c = convo(&srv, false).await;
+    let suppressed_before = echo_metric(&srv, "suppressed").await;
+
+    let mut host = open(&srv, &c.host_token).await;
+    let mut guest = open(&srv, &c.guest_token).await;
+    // The host speaks first, and their own caption is on screen before anything else happens.
+    // (Which of two sessions gets its first caption out first depends on when the room opened
+    // them, up to a second apart with the mock; the filter's hold is 700 ms, so a test that
+    // started both at once would measure that race and not the rule.)
+    say(&mut host, json!({ "type": "start" })).await;
+    let (mut host_got, mut guest_got) = mics_open(&mut host, &mut guest, 2_500, false).await;
+    // Now the guest's microphone opens and hears the host across the table.
+    say(&mut guest, json!({ "type": "start" })).await;
+    let (h, g) = mics_open(&mut host, &mut guest, 4_500, true).await;
+    host_got.extend(h);
+    guest_got.extend(g);
+
+    // The guest still hears the host's real translation, captions and audio...
+    assert!(
+        !audio_from(&guest_got, &c.host_peer).is_empty(),
+        "the guest never heard the host: {guest_got:?}"
+    );
+    assert!(
+        guest_got
+            .iter()
+            .any(|v| v["type"] == "subtitle_interim" && v["speaker_id"] == c.host_peer),
+        "the guest got no caption of the host"
+    );
+    // ...the host still sees their own words...
+    assert!(
+        host_got
+            .iter()
+            .any(|v| v["type"] == "subtitle_interim" && v["speaker_id"] == c.host_peer),
+        "the host lost their own caption: {host_got:?}"
+    );
+    // ...and none of the guest's session (the host's voice, read back) reaches the host.
+    let echoed = speech_of(&host_got, &c.guest_peer);
+    assert!(
+        echoed.is_empty(),
+        "the host was played their own sentence back: {echoed:?}"
+    );
+    assert!(
+        echo_metric(&srv, "suppressed").await > suppressed_before,
+        "the suppression was counted"
+    );
+
+    // A genuine reply from the guest is a different sentence and still reaches the host,
+    // through the same socket and the same outbound path.
+    let room = voxtranslate_server::live::ws::room_name(c.session);
+    for frame in [
+        ServerMessage::SubtitleInterim {
+            speaker_id: c.guest_peer.clone(),
+            speaker_name: "Lucia".into(),
+            text: "sto bene grazie".into(),
+            lang: "es".into(),
+            original: Some("estoy bien gracias".into()),
+        },
+        ServerMessage::TranslatedAudio {
+            speaker_id: c.guest_peer.clone(),
+            lang: "it".into(),
+            seq: 99,
+            pcm16_b64: "AAAA".into(),
+        },
+    ] {
+        assert!(srv
+            .state
+            .rooms
+            .relay_to_peer(&room, &c.host_peer, &frame.to_json()));
+    }
+    let (host_reply, _) = mics_open(&mut host, &mut guest, 2_500, true).await;
+    assert!(
+        host_reply
+            .iter()
+            .any(|v| v["type"] == "subtitle_interim" && v["text"] == "sto bene grazie"),
+        "the real reply never reached the host: {host_reply:?}"
+    );
+    assert!(
+        host_reply
+            .iter()
+            .any(|v| v["type"] == "translated_audio" && v["seq"] == 99),
+        "the real reply's audio never reached the host"
+    );
+
+    // The suppression is reported once, as counts only.
+    let mut reported = false;
+    for _ in 0..20 {
+        let n: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM live_session_events
+             WHERE session_id = $1 AND kind = 'diagnostics' AND detail ? 'echo_filter'",
+        )
+        .bind(c.session)
+        .fetch_one(&srv.pool)
+        .await
+        .unwrap();
+        if n > 0 {
+            reported = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert!(reported, "no diagnostics event for the echo filter");
+}
+
+#[tokio::test]
+async fn with_the_echo_filter_off_the_same_scene_plays_the_echo_back() {
+    let _alone = VOICED_SPEECH.lock().await;
+    // The kill switch: LIVE_ECHO_FILTER=0 restores today's behaviour exactly.
+    let mock = RealtimeMock::start(Dialect::Qwen).await;
+    mock.reply_with(vec![
+        Reply::Transcript {
+            original: "ciao come stai oggi".into(),
+            translated: "hola como estas hoy".into(),
+        },
+        Reply::Audio(vec![7u8; 960]),
+    ]);
+    let mut srv = srv!(&mock);
+    srv.state.live = Arc::new(LiveState::new(
+        LiveConfig::load(|k| match k {
+            "LIVE_CONNECT_ENABLED" => Some("1".into()),
+            "LIVE_TOKEN_KEY" => Some(LIVE_KEY.into()),
+            "LIVE_ECHO_FILTER" => Some("0".into()),
+            _ => None,
+        })
+        .unwrap(),
+    ));
+    // The server task holds its own clone of the state; serve the changed one.
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    srv.addr = listener.local_addr().unwrap();
+    let served = srv.state.clone();
+    tokio::spawn(async move {
+        let _ = axum::serve(listener, app(served)).await;
+    });
+    let c = convo(&srv, false).await;
+    let mut host = open(&srv, &c.host_token).await;
+    let mut guest = open(&srv, &c.guest_token).await;
+    say(&mut host, json!({ "type": "start" })).await;
+    say(&mut guest, json!({ "type": "start" })).await;
+    let (host_got, _) = mics_open(&mut host, &mut guest, 5_000, true).await;
+    assert!(
+        !speech_of(&host_got, &c.guest_peer).is_empty(),
+        "with the filter off the host hears the guest's session"
+    );
 }
