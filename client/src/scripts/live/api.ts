@@ -14,6 +14,7 @@
 // headers on a WebSocket), see `conversation.ts`.
 
 import { authHeaders, HTTP_BASE } from '../auth';
+import { DEFAULT_ENGINE_ID } from '../engines';
 
 export type ApiResult<T> = { ok: true; data: T } | { ok: false; status: number; code: string };
 
@@ -27,6 +28,8 @@ export interface CreatedSession {
   ws_path: string;
   /** How many guests this invitation admits (1-3). */
   max_guests?: number;
+  /** The tier the conversation runs on (`standard` after a fallback). Absent on an older server. */
+  engine?: string;
 }
 
 export interface JoinedSession {
@@ -37,6 +40,8 @@ export interface JoinedSession {
   host: { name: string; lang: string };
   /** How many guests the conversation admits: with more than one, hanging up only LEAVES it. */
   max_guests?: number;
+  /** The tier the conversation runs on. Absent on an older server = standard. */
+  engine?: string;
 }
 
 export interface SessionParticipant {
@@ -54,6 +59,8 @@ export interface SessionInfo {
     created_at: string;
     expires_at: string;
     max_guests?: number;
+    /** The tier the conversation runs on, `standard` after a fallback. */
+    engine?: string;
     /** Every seat ever taken (host first), not who is connected right now. */
     participants: SessionParticipant[];
   };
@@ -132,7 +139,7 @@ const JSON_HEADERS = { 'Content-Type': 'application/json' };
 
 /** Create a conversation as its (paying) owner. Needs the account JWT. */
 export function createSession(
-  args: { lang: string; saveTranscript: boolean; maxGuests?: number },
+  args: { lang: string; saveTranscript: boolean; maxGuests?: number; engine?: string },
   fetchImpl: Fetch = fetch,
 ): Promise<ApiResult<CreatedSession>> {
   return call<CreatedSession>(fetchImpl, '/api/live/sessions', {
@@ -143,7 +150,17 @@ export function createSession(
       save_transcript: args.saveTranscript,
       // Omitted = a pair (1 guest): the server's default, and what every older client sent.
       ...(args.maxGuests === undefined ? {} : { max_guests: args.maxGuests }),
+      // Standard is the server's default: only another tier travels in the body.
+      ...(args.engine && args.engine !== DEFAULT_ENGINE_ID ? { engine: args.engine } : {}),
     }),
+  });
+}
+
+/** The tiers the host can pick from (only the enabled ones). Needs the account JWT. */
+export function listEngines(fetchImpl: Fetch = fetch): Promise<ApiResult<unknown>> {
+  return call<unknown>(fetchImpl, '/api/live/engines', {
+    method: 'GET',
+    headers: { ...authHeaders() },
   });
 }
 

@@ -1003,5 +1003,16 @@
   "liveLeave": "Leave",
   "liveLeaveConfirm": "Leave the conversation? The others will carry on without you.",
   "liveLeft": "You left the conversation. The others carry on.",
-  "liveErrConversationFull": "This conversation is full."
+  "liveErrConversationFull": "This conversation is full.",
+  "liveTier": "Translation quality",
+  "liveTierCost": "from {rate} / min per language",
+  "liveTierBusy": "Busy right now. We may continue on Standard.",
+  "liveTierNeedsBalance": "Needs at least {amount} in your balance.",
+  "liveTierBadge": "Quality: {tier}",
+  "liveTierDowngraded": "{from} is busy. Continuing on {to}, billed at the {to} rate.",
+  "liveTierDowngradedGuest": "{from} is busy, so this conversation continues on {to}.",
+  "liveErrEngineNotAvailable": "That translation quality is not available right now. Choose another one.",
+  "liveErrEngineSoon": "That translation quality is not available yet. Choose another one.",
+  "liveErrEngineNotAllowed": "This kind of conversation uses Standard translation only.",
+  "liveErrBusyTier": "That quality has no room right now. Try Standard instead."
 }

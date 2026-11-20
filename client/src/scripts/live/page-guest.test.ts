@@ -225,6 +225,35 @@ describe('join errors: every code gets its own message and a sensible action', (
   });
 });
 
+describe('translation tier', () => {
+  const pickLangAndJoin = async () => {
+    await mountLiveGuest();
+    (document.getElementById('lg-consent') as HTMLInputElement).checked = true;
+    $('lg-join-btn').click();
+    await flush();
+  };
+
+  it('keeps the tier the join response names, for the room and for a reload', async () => {
+    api.joinSession.mockResolvedValue({ ok: true, data: { ...JOINED, engine: 'gemini_live_translate' } });
+    await pickLangAndJoin();
+    expect(rooms[0].session).toMatchObject({ engine: 'gemini_live_translate' });
+    expect(JSON.parse(sessionStorage.getItem(STORAGE_KEY) ?? '{}').engine).toBe('gemini_live_translate');
+  });
+
+  it('an older server names none: the room has none', async () => {
+    api.joinSession.mockResolvedValue({ ok: true, data: JOINED });
+    await pickLangAndJoin();
+    expect(rooms[0].session).not.toHaveProperty('engine');
+  });
+
+  it('a reload takes the tier from the server, which may have fallen back to Standard', async () => {
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ sessionId: 's1', token: 'T', role: 'guest', myLang: 'es', myPeerId: 'g', wsPath: '/ws/live', engine: 'gemini_live_translate' }));
+    api.getSession.mockResolvedValue({ ok: true, data: { session: { status: 'active', engine: 'standard' }, you: { role: 'guest' } } });
+    await mountLiveGuest();
+    expect(rooms[0].session).toMatchObject({ engine: 'standard' });
+  });
+});
+
 describe('reload of a multi-guest session', () => {
   const STORED = { sessionId: 's9', token: 'T9', role: 'guest', myLang: 'es', myPeerId: 'pg', wsPath: '/ws/live' };
 

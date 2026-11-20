@@ -94,6 +94,8 @@ async function join(): Promise<void> {
     wsPath: d.ws_path,
     // With several guests on the link, hanging up only LEAVES: the engine needs to know.
     ...(d.max_guests ? { maxGuests: d.max_guests } : {}),
+    // The tier the host chose (`standard` after a fallback): shown as a badge in the room.
+    ...(d.engine ? { engine: d.engine } : {}),
   };
   saveStoredSession(session);
   enterSession(session);
@@ -108,7 +110,12 @@ async function resumable(): Promise<StoredSession | null> {
     const info = res.data.session;
     if (info.status !== 'ended' && info.status !== 'expired') {
       // A session stored before multi-guest does not know its size; the server does.
-      return info.max_guests && !stored.maxGuests ? { ...stored, maxGuests: info.max_guests } : stored;
+      return {
+        ...stored,
+        ...(info.max_guests && !stored.maxGuests ? { maxGuests: info.max_guests } : {}),
+        // The server knows the tier NOW: a Premium conversation may have fallen back to Standard.
+        ...(info.engine ? { engine: info.engine } : {}),
+      };
     }
   } else if (res.status === 0 || res.status >= 500) {
     // The server could not be asked: let the engine's reconnect logic find out.

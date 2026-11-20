@@ -5,7 +5,7 @@ vi.mock('../auth', () => ({
   authHeaders: () => ({ Authorization: 'Bearer ACCOUNT-JWT' }),
 }));
 
-import { answerSession, createSession, deskWaiting, endSession, getSession, joinSession, myDesks, scanDesk, type ApiResult } from './api';
+import { answerSession, createSession, deskWaiting, endSession, getSession, joinSession, listEngines, myDesks, scanDesk, type ApiResult } from './api';
 
 function res(status: number, body: unknown): Response {
   return new Response(typeof body === 'string' ? body : JSON.stringify(body), {
@@ -60,6 +60,30 @@ describe('createSession', () => {
     const out = await createSession({ lang: 'it', saveTranscript: false, maxGuests: 9 }, fetcher(res(400, { code: 'bad_max_guests' })) as never);
     expect(out).toEqual({ ok: false, status: 400, code: 'bad_max_guests' });
   });
+
+  it('sends engine only for a tier other than Standard', async () => {
+    const f = fetcher(res(200, { ...CREATED, engine: 'gemini_live_translate' }));
+    const out = await createSession({ lang: 'it', saveTranscript: false, engine: 'gemini_live_translate' }, f as never);
+    expect(JSON.parse(String(f.mock.calls[0][1]?.body))).toEqual({
+      lang: 'it',
+      save_transcript: false,
+      engine: 'gemini_live_translate',
+    });
+    expect(out.ok && out.data.engine).toBe('gemini_live_translate');
+    for (const engine of [undefined, 'standard']) {
+      const g = fetcher(res(200, CREATED));
+      await createSession({ lang: 'it', saveTranscript: false, engine }, g as never);
+      expect(JSON.parse(String(g.mock.calls[0][1]?.body))).not.toHaveProperty('engine');
+    }
+  });
+
+  it.each(['engine_not_available', 'engine_not_supported_yet', 'engine_not_allowed', 'live_busy', 'insufficient_balance'])(
+    'surfaces %s as a code',
+    async (code) => {
+      const out = await createSession({ lang: 'it', saveTranscript: false, engine: 'gemini_live_translate' }, fetcher(res(code === 'live_busy' ? 503 : 400, { code })) as never);
+      expect(out).toMatchObject({ ok: false, code });
+    },
+  );
 
   it('never puts the account JWT in the URL', async () => {
     const f = fetcher(res(200, CREATED));
@@ -241,5 +265,25 @@ describe('staff calls (account JWT)', () => {
   it('a plain-text refusal (the org routes answer without a body code) keeps its status', async () => {
     const out = await answerSession('s1', 'en', fetcher(new Response('insufficient role', { status: 403 })) as never);
     expect(out).toEqual({ ok: false, status: 403, code: 'http_error' });
+  });
+});
+
+describe('listEngines', () => {
+  const LIST = { default: 'standard', engines: [{ id: 'standard', display_name: 'Standard', tier: 'standard' }] };
+
+  it('GETs the tiers with the account JWT, never in the URL', async () => {
+    const f = fetcher(res(200, LIST));
+    const out = await listEngines(f as never);
+    expect(out).toEqual({ ok: true, data: LIST });
+    const [url, init] = f.mock.calls[0];
+    expect(url).toBe('http://api.test/api/live/engines');
+    expect(init?.method).toBe('GET');
+    expect(init?.headers).toMatchObject({ Authorization: 'Bearer ACCOUNT-JWT' });
+    expect(String(url)).not.toContain('ACCOUNT-JWT');
+  });
+
+  it('reports a failure as a result, never a throw', async () => {
+    expect(await listEngines(fetcher(new TypeError('offline')) as never)).toEqual({ ok: false, status: 0, code: 'network' });
+    expect(await listEngines(fetcher(res(401, { code: 'unauthorized' })) as never)).toMatchObject({ ok: false, status: 401 });
   });
 });

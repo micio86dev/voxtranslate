@@ -447,6 +447,25 @@ whether the minted token's scope and lifetime behave as documented, how much of 
 partner's microphone really picks up (the echo guard's thresholds), the Cartesia concurrency limit per key
 (a 429 is what `enhanced_fallback` is for), and the legal sufficiency of voice-cloning consent. Run the
 device checklist before launch.
+### Tier choice: the client *(`client/src/scripts/live/tiers.ts`, `tier-picker.ts`, `page-host.ts`, `room.ts`)*
+
+- **Host setup** (`/live`) has a "Translation quality" radio group between the language and the guests.
+  It is drawn from `GET /api/live/engines` when the setup card opens (Standard only until it answers,
+  and if it never does, silently). Each card shows the name, Meet's one-line description
+  (`engineDescKey`), "from $x / min per language" and a muted "busy right now" hint when
+  `available:false` (still selectable: the server decides). A non-default tier whose `min_balance` is
+  above the **cached** balance is disabled with the reason; Standard never is, so a 402 from create
+  still leads to the buy-credits path. The choice is kept per browser (`vox.live.tier`) and
+  re-validated against the list, so a tier switched off since falls back to the default.
+- **Create** sends `engine` only for a tier other than Standard. `engine_not_available`,
+  `engine_not_supported_yet`, `engine_not_allowed` and a `live_busy` on a non-Standard create
+  (suggest Standard) have their own messages (`messages.ts`).
+- **Room** (host and guest) shows `Quality: <tier>` in the status chip, from the create/join response
+  or `GET …/sessions/{id}` after a reload, and the stored session carries `engine` (absent = Standard).
+  `engine_downgraded` (`conversation.ts` `onEngineDowngraded`) never ends or interrupts anything: the
+  badge becomes Standard and a polite, dismissible notice appears. The host's names the billing; a
+  guest's never mentions money.
+- Enhanced is a later unit: the picker is a list, so a third card appears when the server lists it.
 
 ## Billing *(implemented: `server/src/live/billing.rs`)*
 

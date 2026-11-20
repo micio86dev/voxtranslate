@@ -5,6 +5,7 @@
 // copy be translated, reworded and tested without touching protocol code. A server
 // `message` is never shown to a user — it is English and may change.
 
+import { DEFAULT_ENGINE_ID } from '../engines';
 import type { EndReason, FailureKind, LiveContext } from './session-machine';
 
 /** `staff` is the seat of a member of an organisation answering a desk (spec 0121 B2B). */
@@ -86,7 +87,12 @@ export function endedKey(reason: EndReason, role: Role): string {
 }
 
 /** Copy and next step for a REST error code. Every documented code has its own message. */
-export function errorInfo(code: string, role: Role): { key: string; action: ErrorAction } {
+export function errorInfo(
+  code: string,
+  role: Role,
+  /** Set when the host is CREATING a conversation: `engine` is the tier they asked for. */
+  create?: { engine?: string },
+): { key: string; action: ErrorAction } {
   switch (code) {
     case 'invite_not_found':
       return { key: 'liveErrInviteNotFound', action: 'home' };
@@ -117,7 +123,17 @@ export function errorInfo(code: string, role: Role): { key: string; action: Erro
     case 'project_not_found':
       return { key: 'liveErrProject', action: 'home' };
     case 'live_busy':
+      // The tier asked for has no room: Standard is the way out, not "try again in a minute".
+      if (role === 'host' && create?.engine && create.engine !== DEFAULT_ENGINE_ID) {
+        return { key: 'liveErrBusyTier', action: 'none' };
+      }
       return { key: 'liveErrBusy', action: 'retry' };
+    case 'engine_not_available':
+      return { key: 'liveErrEngineNotAvailable', action: 'none' };
+    case 'engine_not_supported_yet':
+      return { key: 'liveErrEngineSoon', action: 'none' };
+    case 'engine_not_allowed':
+      return { key: 'liveErrEngineNotAllowed', action: 'none' };
     case 'rate_limited':
       return { key: 'liveErrRateLimited', action: 'retry' };
     case 'unauthorized':

@@ -25,9 +25,11 @@ import {
   renderOutputOptions,
   renderPartners,
   renderPhase,
+  renderTier,
   type RoomEls,
 } from './view';
 import type { LiveContext } from './session-machine';
+import { tierLabel } from './tiers';
 
 /** The slice of `LiveConversation` the controller drives; tests supply a fake. */
 export interface ConversationLike {
@@ -109,6 +111,13 @@ export function mountRoom(opts: RoomOptions): RoomHandle {
       : fill(t('liveSameLanguage'), { lang: langLabel(session.myLang).native });
     els.sameLang.hidden = false;
   };
+  // The tier the room runs on now: what it was created with, until the server moves it.
+  let engineNow = session.engine;
+  renderTier(els, engineNow);
+  els.tierNoticeClose.addEventListener('click', () => {
+    els.tierNotice.hidden = true;
+  });
+
   // Names are only worth showing once more than two people can talk.
   let showNames = (session.maxGuests ?? 1) > 1;
 
@@ -152,6 +161,7 @@ export function mountRoom(opts: RoomOptions): RoomHandle {
       myPeerId: session.myPeerId,
       inviteUrl: session.inviteUrl,
       maxGuests: session.maxGuests,
+      engine: session.engine,
       onState,
       onCaptions,
       onBalance: (b) => {
@@ -173,6 +183,15 @@ export function mountRoom(opts: RoomOptions): RoomHandle {
       onNotice: (code) => {
         els.notice.textContent = t(noticeKey(code));
         els.notice.hidden = false;
+      },
+      onEngineDowngraded: ({ from, to }) => {
+        const was = from || engineNow || '';
+        engineNow = to;
+        renderTier(els, to);
+        // Money is the host's business: a guest is told the tier, never the billing.
+        const key = role === 'host' ? 'liveTierDowngraded' : 'liveTierDowngradedGuest';
+        els.tierNoticeText.textContent = fill(t(key), { from: tierLabel(was), to: tierLabel(to) });
+        els.tierNotice.hidden = false;
       },
       onSameLanguage: (_mine, _theirs, partner) => {
         sameLang.set(partner.peerId, partner.name);

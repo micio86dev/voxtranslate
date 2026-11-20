@@ -4,6 +4,7 @@ import {
   HISTORY_RENDER_LIMIT,
   buildExchangeCard,
   buildRoom,
+  renderTier,
   fill,
   formatCredits,
   langLabel,
@@ -64,6 +65,23 @@ describe('buildRoom', () => {
     expect(els.problem.hidden).toBe(true);
     expect(els.outputField.hidden).toBe(true);
     expect(els.confirm.hidden).toBe(true);
+  });
+
+  it('has a tier badge inside the status chip and a polite, dismissible downgrade notice, both hidden at first', () => {
+    expect(els.tier.hidden).toBe(true);
+    expect(els.status.contains(els.tier)).toBe(true);
+    expect(els.tierNotice.hidden).toBe(true);
+    expect(els.tierNotice.getAttribute('aria-live')).toBe('polite');
+    expect(els.tierNoticeClose.type).toBe('button');
+    expect(els.tierNoticeClose.textContent).toBe('Dismiss');
+  });
+
+  it('renderTier shows the tier name, or hides the badge when the tier is unknown', () => {
+    renderTier(els, 'gemini_live_translate');
+    expect(els.tier.hidden).toBe(false);
+    expect(els.tier.textContent).toBe('Quality: Premium');
+    renderTier(els, undefined);
+    expect(els.tier.hidden).toBe(true);
   });
 
   it('shows the credit line only to the host', () => {

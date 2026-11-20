@@ -396,3 +396,59 @@ describe('mountRoom', () => {
     expect(host.querySelector('#lc-room')).toBeNull();
   });
 });
+
+describe('translation tier in the room', () => {
+  const PREMIUM: StoredSession = { ...SESSION, engine: 'gemini_live_translate' };
+  const badge = () => host.querySelector('#lc-tier') as HTMLElement;
+  const notice = () => host.querySelector('#lc-tier-notice') as HTMLElement;
+  const downgrade = () => made[0].opts.onEngineDowngraded?.({ from: 'gemini_live_translate', to: 'standard', reason: 'premium_at_capacity' });
+
+  it('shows the tier next to the connection state, for host and guest, and hands it to the engine', () => {
+    for (const role of ['host', 'guest'] as const) {
+      host.innerHTML = '';
+      made = [];
+      mount({ role, session: PREMIUM });
+      expect(badge().hidden).toBe(false);
+      expect(badge().textContent).toBe('Quality: Premium');
+      expect(badge().parentElement?.id).toBe('lc-status');
+      expect(made[0].opts.engine).toBe('gemini_live_translate');
+    }
+  });
+
+  it('shows Standard for a Standard conversation and nothing when the tier is unknown (a desk)', () => {
+    mount({ session: { ...SESSION, engine: 'standard' } });
+    expect(badge().textContent).toBe('Quality: Standard');
+    host.innerHTML = '';
+    mount();
+    expect(badge().hidden).toBe(true);
+  });
+
+  it('on a downgrade: polite notice that can be dismissed, badge follows, conversation untouched', () => {
+    mount({ session: PREMIUM });
+    made[0].emit({ phase: 'live', partners: [{ peerId: 'b', name: 'Bea', lang: 'es', muted: false }] });
+    expect(notice().hidden).toBe(true);
+    downgrade();
+    expect(notice().hidden).toBe(false);
+    expect(notice().getAttribute('aria-live')).toBe('polite');
+    expect(notice().getAttribute('role')).toBe('status');
+    expect(notice().textContent).toContain('Premium is busy. Continuing on Standard, billed at the Standard rate.');
+    expect(badge().textContent).toBe('Quality: Standard');
+    expect(made[0].ended).toBe(0);
+    expect(made[0].released).toBe(0);
+    expect(host.querySelector('#lc-live')?.hasAttribute('hidden')).toBe(false);
+    // A caption does not wipe it (it is not a "translation is down" notice) ...
+    made[0].opts.onCaptions({ others: [{ speakerId: 'b', name: 'Bea', lang: 'es', translated: 'hola', interim: false, seq: 1 }], mine: null, history: [] } as never);
+    expect(notice().hidden).toBe(false);
+    // ... the person does.
+    (notice().querySelector('button') as HTMLButtonElement).click();
+    expect(notice().hidden).toBe(true);
+    expect(badge().textContent).toBe('Quality: Standard');
+  });
+
+  it('a guest is told about the tier but never about money', () => {
+    mount({ role: 'guest', session: PREMIUM });
+    downgrade();
+    expect(notice().textContent).toContain('Premium is busy, so this conversation continues on Standard.');
+    expect(notice().textContent).not.toMatch(/billed|rate|\$/i);
+  });
+});

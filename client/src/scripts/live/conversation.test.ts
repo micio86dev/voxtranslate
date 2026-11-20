@@ -887,6 +887,48 @@ describe('server verdicts', () => {
   });
 });
 
+describe('engine_downgraded', () => {
+  const frame = { type: 'engine_downgraded', peer_id: 'peer-a', from: 'gemini_live_translate', to: 'standard', reason: 'premium_at_capacity' };
+
+  it('tells the page once and never ends or interrupts the conversation', async () => {
+    const seen: Array<{ from: string; to: string; reason: string }> = [];
+    const h = await withPartner({ engine: 'gemini_live_translate', onEngineDowngraded: (d: { from: string; to: string; reason: string }) => seen.push(d) });
+    const before = h.states.length;
+    h.sock.deliver(frame);
+    expect(seen).toEqual([{ from: 'gemini_live_translate', to: 'standard', reason: 'premium_at_capacity' }]);
+    expect(h.last().phase).toBe('live');
+    expect(h.states.length).toBe(before);
+    expect(h.sock.closed).toHaveLength(0);
+    expect(h.notices).toEqual([]);
+    expect(h.media.tracks[0].stop).not.toHaveBeenCalled();
+    // The conversation goes on: a caption still arrives.
+    h.sock.deliver({ type: 'subtitle_final', speaker_id: 'peer-b', text: 'hola', lang: 'es', seq: 1 });
+    expect(h.last().phase).toBe('live');
+  });
+
+  it('is harmless when nobody listens and when the frame is incomplete', async () => {
+    const seen: unknown[] = [];
+    const h = await withPartner({ onEngineDowngraded: (d: unknown) => seen.push(d) });
+    h.sock.deliver({ type: 'engine_downgraded' });
+    expect(seen).toEqual([{ from: '', to: 'standard', reason: '' }]);
+    const g = await withPartner();
+    g.sock.deliver(frame);
+    expect(g.last().phase).toBe('live');
+  });
+
+  it('keeps the stored session on the tier it now runs on, so a reload does not claim Premium', async () => {
+    const h = await withPartner({ engine: 'gemini_live_translate' });
+    expect(JSON.parse(sessionStorage.getItem(STORAGE_KEY) ?? '{}').engine).toBe('gemini_live_translate');
+    h.sock.deliver(frame);
+    expect(JSON.parse(sessionStorage.getItem(STORAGE_KEY) ?? '{}').engine).toBe('standard');
+  });
+
+  it('a session without an engine stores none (backward compatible)', async () => {
+    await withPartner();
+    expect(JSON.parse(sessionStorage.getItem(STORAGE_KEY) ?? '{}')).not.toHaveProperty('engine');
+  });
+});
+
 describe('end and release', () => {
   it('end() asks the server to end it (best effort), releases every resource, clears storage', async () => {
     const h = await withPartner();

@@ -10,10 +10,13 @@ import {
   loadDeskInfo,
   loadHeadphones,
   loadStaffLang,
+  loadTierPref,
   loadStoredSession,
   saveDeskInfo,
   saveHeadphones,
   saveStaffLang,
+  saveTierPref,
+  TIER_PREF_KEY,
   saveStoredSession,
   type StoredSession,
 } from './session-store';
@@ -32,6 +35,41 @@ beforeEach(() => {
   sessionStorage.clear();
   localStorage.clear();
   vi.restoreAllMocks();
+});
+
+describe('stored session: the tier it runs on', () => {
+  it('round-trips the engine id and treats an absent or malformed one as standard (absent)', () => {
+    saveStoredSession({ ...S, engine: 'gemini_live_translate' });
+    expect(loadStoredSession()?.engine).toBe('gemini_live_translate');
+    for (const bad of ['', 7, null, {}]) {
+      sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ ...S, engine: bad }));
+      expect(loadStoredSession()).not.toHaveProperty('engine');
+    }
+    // A session stored before tiers existed has none: still loads.
+    saveStoredSession(S);
+    expect(loadStoredSession()).toMatchObject({ sessionId: 's1' });
+    expect(loadStoredSession()).not.toHaveProperty('engine');
+  });
+});
+
+describe('remembered tier choice', () => {
+  it('round-trips in localStorage', () => {
+    expect(loadTierPref()).toBeNull();
+    saveTierPref('gemini_live_translate');
+    expect(localStorage.getItem(TIER_PREF_KEY)).toBe('gemini_live_translate');
+    expect(loadTierPref()).toBe('gemini_live_translate');
+  });
+
+  it('survives storage that throws', () => {
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('blocked');
+    });
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('blocked');
+    });
+    expect(loadTierPref()).toBeNull();
+    expect(() => saveTierPref('x')).not.toThrow();
+  });
 });
 
 describe('stored session: how many guests the invitation admits', () => {

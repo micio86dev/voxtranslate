@@ -136,6 +136,11 @@ export interface LiveCallbacks {
   /** Somebody (not me) entered or left the room: for a screen-reader announcement. */
   onPeerChange?: (change: 'joined' | 'left', partner: Partner) => void;
   onMuteChange?: (muted: boolean) => void;
+  /**
+   * The tier asked for was at capacity and the whole conversation carries on on another one
+   * (once per seat). Informational: it never ends or interrupts anything.
+   */
+  onEngineDowngraded?: (change: { from: string; to: string; reason: string }) => void;
   onBargeIn?: () => void;
 }
 
@@ -152,6 +157,8 @@ export interface LiveConversationOptions extends LiveCallbacks {
   /** How many guests the invitation admits. A guest hanging up in a conversation that admits
    *  more than one only LEAVES it: the others carry on. */
   maxGuests?: number;
+  /** The tier the conversation runs on; kept in the stored session. Absent = standard. */
+  engine?: string;
   headphones?: boolean;
   // --- injectable seams, all defaulted -------------------------------------
   createSocket?: (url: string) => LiveSocket;
@@ -263,6 +270,9 @@ export class LiveConversation {
   private readonly pending = new Map<string, Exchange>();
   private exchangeId = 0;
 
+  /** The tier the conversation runs on right now: what was asked for, until a downgrade. */
+  private engine: string | undefined;
+
   private outputDeviceId: string | null = null;
   private appliedSink: string | null = null;
 
@@ -284,6 +294,7 @@ export class LiveConversation {
       opts.clearTimeoutImpl ??
       (((id?: ReturnType<typeof setTimeout>) => globalThis.clearTimeout(id)) as unknown as typeof clearTimeout);
     this.playback = opts.playback ?? pcmPlayback;
+    this.engine = opts.engine;
     this.headphonesOn = opts.headphones ?? loadHeadphones();
     this.guard = new SelfAudioGuard({
       // Hold my microphone while the partner's translation is audible: on one device the
@@ -444,6 +455,7 @@ export class LiveConversation {
       wsPath: this.opts.wsPath,
       ...(this.opts.inviteUrl ? { inviteUrl: this.opts.inviteUrl } : {}),
       ...(this.opts.maxGuests ? { maxGuests: this.opts.maxGuests } : {}),
+      ...(this.engine ? { engine: this.engine } : {}),
     });
   }
 
@@ -711,6 +723,18 @@ export class LiveConversation {
       case 'low_balance':
         this.opts.onLowBalance?.(Number(msg.balance ?? 0));
         break;
+      case 'engine_downgraded': {
+        // The conversation moved to another tier. Say so, and nothing else: no state change.
+        const to = typeof msg.to === 'string' && msg.to ? msg.to : 'standard';
+        this.engine = to;
+        this.persist();
+        this.opts.onEngineDowngraded?.({
+          from: typeof msg.from === 'string' ? msg.from : '',
+          to,
+          reason: typeof msg.reason === 'string' ? msg.reason : '',
+        });
+        break;
+      }
       case 'session_spent':
         if (typeof msg.spent === 'number' && Number.isFinite(msg.spent)) this.opts.onSpent?.(msg.spent);
         break;
