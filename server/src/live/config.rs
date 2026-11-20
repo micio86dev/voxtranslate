@@ -38,6 +38,14 @@ const DEFAULT_B2C_RETENTION_DAYS: i64 = 30;
 /// Seconds to wait after a conversation ends before its transcript is assembled, so the
 /// engines' last finals have reached the recorder.
 const DEFAULT_FINALIZE_GRACE_SECS: i64 = 5;
+/// The echo filter (see `echo.rs`) is on unless `LIVE_ECHO_FILTER` says otherwise.
+const DEFAULT_ECHO_FILTER: bool = true;
+/// How alike the other phone's "original" words must be to this phone's own recent words before
+/// they are treated as an echo of them.
+const DEFAULT_ECHO_SIM: f64 = 0.6;
+/// A threshold under this suppresses real replies that merely share a few words; over this it
+/// stops catching an echo the ASR heard through a foreign-language ear.
+const ECHO_SIM_RANGE: (f64, f64) = (0.3, 0.95);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConfigError {
@@ -82,6 +90,10 @@ pub struct LiveConfig {
     /// Retention for opted-in consumer transcripts.
     pub b2c_retention_days: i64,
     pub finalize_grace_secs: i64,
+    /// Drop the translation of one phone's own voice that the OTHER phone's microphone picked up.
+    pub echo_filter: bool,
+    /// Similarity threshold of that filter, already clamped to its allowed range.
+    pub echo_sim: f64,
 }
 
 impl LiveConfig {
@@ -102,6 +114,8 @@ impl LiveConfig {
             retention_default_days: DEFAULT_RETENTION_DAYS,
             b2c_retention_days: DEFAULT_B2C_RETENTION_DAYS,
             finalize_grace_secs: DEFAULT_FINALIZE_GRACE_SECS,
+            echo_filter: DEFAULT_ECHO_FILTER,
+            echo_sim: DEFAULT_ECHO_SIM,
         }
     }
 
@@ -183,8 +197,24 @@ impl LiveConfig {
                 0,
                 60,
             )?,
+            echo_filter: get("LIVE_ECHO_FILTER").map_or(DEFAULT_ECHO_FILTER, |v| !is_falsy(&v)),
+            // A tuning knob must never take the whole feature down: junk falls back to the
+            // default and an out-of-range value is clamped, unlike the limits above.
+            echo_sim: get("LIVE_ECHO_SIM")
+                .and_then(|v| v.trim().parse::<f64>().ok())
+                .filter(|n| n.is_finite())
+                .map_or(DEFAULT_ECHO_SIM, |n| {
+                    n.clamp(ECHO_SIM_RANGE.0, ECHO_SIM_RANGE.1)
+                }),
         })
     }
+}
+
+fn is_falsy(v: &str) -> bool {
+    matches!(
+        v.trim().to_ascii_lowercase().as_str(),
+        "0" | "false" | "no" | "off"
+    )
 }
 
 fn is_truthy(v: &str) -> bool {
@@ -314,6 +344,41 @@ mod tests {
             pairs.push((name, bad));
             let err = LiveConfig::load(env(&pairs)).unwrap_err();
             assert_eq!(err, ConfigError::BadNumber(name), "{name}={bad}");
+        }
+    }
+
+    #[test]
+    fn the_echo_filter_is_on_by_default_and_both_knobs_are_forgiving() {
+        let base = [("LIVE_CONNECT_ENABLED", "1"), ("LIVE_TOKEN_KEY", KEY)];
+        let cfg = LiveConfig::load(env(&base)).unwrap();
+        assert!(cfg.echo_filter);
+        assert_eq!(cfg.echo_sim, 0.6);
+        assert!(LiveConfig::disabled().echo_filter);
+
+        let with = |pairs: &[(&'static str, &'static str)]| {
+            let mut all = base.to_vec();
+            all.extend_from_slice(pairs);
+            LiveConfig::load(env(&all)).unwrap()
+        };
+        for off in ["0", "false", "No", "OFF", " off "] {
+            assert!(!with(&[("LIVE_ECHO_FILTER", off)]).echo_filter, "{off}");
+        }
+        for on in ["1", "true", "on", "yes", "garbage"] {
+            assert!(with(&[("LIVE_ECHO_FILTER", on)]).echo_filter, "{on}");
+        }
+        assert_eq!(with(&[("LIVE_ECHO_SIM", "0.75")]).echo_sim, 0.75);
+        assert_eq!(
+            with(&[("LIVE_ECHO_SIM", "0.01")]).echo_sim,
+            0.3,
+            "clamped up"
+        );
+        assert_eq!(
+            with(&[("LIVE_ECHO_SIM", "7")]).echo_sim,
+            0.95,
+            "clamped down"
+        );
+        for junk in ["abc", "", "NaN", "inf"] {
+            assert_eq!(with(&[("LIVE_ECHO_SIM", junk)]).echo_sim, 0.6, "{junk:?}");
         }
     }
 }

@@ -47,6 +47,14 @@ export function formatCredits(balance: number): string {
   return `$${Math.max(0, balance).toFixed(2)}`;
 }
 
+/**
+ * A wallet amount to four decimals. A live conversation costs a fraction of a cent per tick, so
+ * the usual two decimals would show a balance that never seems to move.
+ */
+export function formatLiveMoney(amount: number): string {
+  return `$${Math.max(0, amount).toFixed(4)}`;
+}
+
 export interface RoomEls {
   root: HTMLElement;
   live: HTMLElement;

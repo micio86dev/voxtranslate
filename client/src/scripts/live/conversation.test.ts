@@ -125,6 +125,7 @@ function harness(over: Record<string, unknown> = {}) {
   const notices: string[] = [];
   const balances: number[] = [];
   const lows: number[] = [];
+  const spents: number[] = [];
   const same: string[] = [];
   const mutes: boolean[] = [];
   const playback = new FakePlayback();
@@ -144,6 +145,7 @@ function harness(over: Record<string, unknown> = {}) {
     onNotice: (c) => notices.push(c),
     onBalance: (b) => balances.push(b),
     onLowBalance: (b) => lows.push(b),
+    onSpent: (n) => spents.push(n),
     onSameLanguage: (a, b) => same.push(`${a}/${b}`),
     onMuteChange: (m) => mutes.push(m),
     createSocket: (url: string) => new FakeSocket(url),
@@ -167,7 +169,7 @@ function harness(over: Record<string, unknown> = {}) {
   });
   const last = () => states[states.length - 1];
   const lastCaptions = () => captions[captions.length - 1];
-  return { convo, states, last, captions, lastCaptions, notices, balances, lows, same, mutes, playback, wakeLock, media, probe, endRest };
+  return { convo, states, last, captions, lastCaptions, notices, balances, lows, spents, same, mutes, playback, wakeLock, media, probe, endRest };
 }
 
 async function connect(over: Record<string, unknown> = {}) {
@@ -657,6 +659,15 @@ describe('server verdicts', () => {
     h.sock.deliver({ type: 'low_balance', balance: 0.4 });
     expect(h.balances).toEqual([4.2]);
     expect(h.lows).toEqual([0.4]);
+  });
+
+  it('the running spend reaches its callback, and a malformed one is ignored', async () => {
+    const h = await withPartner();
+    h.sock.deliver({ type: 'session_spent', spent: 0.0123 });
+    h.sock.deliver({ type: 'session_spent', spent: 0.0301 });
+    h.sock.deliver({ type: 'session_spent', spent: 'x' });
+    h.sock.deliver({ type: 'session_spent' });
+    expect(h.spents).toEqual([0.0123, 0.0301]);
   });
 
   it.each([

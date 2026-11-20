@@ -4,7 +4,7 @@
 // guest pages: it takes credentials (a stored session), starts an engine, and keeps the
 // view in step with it. It owns no protocol logic and no audio logic.
 
-import { setBalance } from '../auth';
+import { getUser, setBalance } from '../auth';
 import { toast } from '../toast';
 import { icon } from '../icons';
 import { t } from '../i18n';
@@ -18,7 +18,7 @@ import type { StoredSession } from './session-store';
 import {
   buildRoom,
   fill,
-  formatCredits,
+  formatLiveMoney,
   langLabel,
   renderCaptions,
   renderDirection,
@@ -79,11 +79,20 @@ export function mountRoom(opts: RoomOptions): RoomHandle {
     els.mute.insertAdjacentHTML('afterbegin', icon(muted ? 'mic-off' : 'mic', 20));
   };
 
+  // What the host last learned about their wallet, so each new figure repaints the whole line.
+  let walletBalance: number | null = null;
+  let walletLow = false;
+  let spent = 0;
+
   const paintCredits = (balance: number, low: boolean): void => {
+    walletBalance = balance;
+    walletLow = low;
     if (!els.credits) return;
     els.credits.hidden = false;
     els.credits.dataset.low = String(low);
-    els.credits.textContent = fill(t(low ? 'liveCreditsLow' : 'liveCredits'), { amount: formatCredits(balance) });
+    const left = fill(t(low ? 'liveCreditsLow' : 'liveCredits'), { amount: formatLiveMoney(balance) });
+    // Language-neutral on purpose: the running cost of THIS conversation, next to what is left.
+    els.credits.textContent = `${left} · −${formatLiveMoney(spent)}`;
   };
 
   const onState = (ctx: LiveContext): void => {
@@ -130,6 +139,11 @@ export function mountRoom(opts: RoomOptions): RoomHandle {
         setBalance(b);
         paintCredits(b, true);
       },
+      onSpent: (n) => {
+        if (role !== 'host') return;
+        spent = n;
+        if (walletBalance !== null) paintCredits(walletBalance, walletLow);
+      },
       onNotice: (code) => {
         els.notice.textContent = t(noticeKey(code));
         els.notice.hidden = false;
@@ -142,6 +156,9 @@ export function mountRoom(opts: RoomOptions): RoomHandle {
     });
 
   const begin = (): void => {
+    // Show the wallet from the first second instead of after the first charge.
+    const cached = role === 'host' ? getUser()?.balance : undefined;
+    if (typeof cached === 'number') paintCredits(cached, false);
     convo = build();
     els.headphones.checked = convo.headphones();
     paintMute(false);

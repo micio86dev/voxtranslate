@@ -112,6 +112,8 @@ export interface LiveCallbacks {
   onCaptions: (captions: Captions) => void;
   onBalance?: (balance: number) => void;
   onLowBalance?: (balance: number) => void;
+  /** What the conversation has cost its owner so far (host only; the server never tells a guest). */
+  onSpent?: (spent: number) => void;
   /** A recoverable, user-facing problem. `code` is stable; the view picks the copy. */
   onNotice?: (code: string) => void;
   /** Both people speak the same language, so nothing will be translated. */
@@ -644,6 +646,9 @@ export class LiveConversation {
         break;
       case 'low_balance':
         this.opts.onLowBalance?.(Number(msg.balance ?? 0));
+        break;
+      case 'session_spent':
+        if (typeof msg.spent === 'number' && Number.isFinite(msg.spent)) this.opts.onSpent?.(msg.spent);
         break;
       case 'balance_exhausted':
         // `session_state` follows, but the verdict is already known.

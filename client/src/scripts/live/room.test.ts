@@ -2,7 +2,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const setBalance = vi.fn();
-vi.mock('../auth', () => ({ setBalance: (...a: unknown[]) => setBalance(...a) }));
+const cachedUser: { balance?: number } | null = { balance: undefined };
+vi.mock('../auth', () => ({
+  setBalance: (...a: unknown[]) => setBalance(...a),
+  getUser: () => cachedUser,
+}));
 const toast = vi.fn();
 vi.mock('../toast', () => ({ toast: (...a: unknown[]) => toast(...a) }));
 
@@ -205,17 +209,40 @@ describe('mountRoom', () => {
     made[0].opts.onBalance?.(4.2);
     const credits = host.querySelector('#lc-credits') as HTMLElement;
     expect(credits.hidden).toBe(false);
-    expect(credits.textContent).toBe('Credits left: $4.20');
+    expect(credits.textContent).toBe('Credits left: $4.2000 · −$0.0000');
     expect(credits.dataset.low).toBe('false');
     expect(setBalance).toHaveBeenCalledWith(4.2);
     made[0].opts.onLowBalance?.(0.4);
-    expect(credits.textContent).toBe('Credits are running low: $0.40 left.');
+    expect(credits.textContent).toBe('Credits are running low: $0.4000 left. · −$0.0000');
     expect(credits.dataset.low).toBe('true');
+  });
+
+  it('shows what the conversation has cost so far, growing with each update, to four decimals', () => {
+    mount();
+    made[0].opts.onBalance?.(4.2);
+    made[0].opts.onSpent?.(0.0123);
+    const credits = host.querySelector('#lc-credits') as HTMLElement;
+    expect(credits.textContent).toBe('Credits left: $4.2000 · −$0.0123');
+    made[0].opts.onBalance?.(4.1877);
+    made[0].opts.onSpent?.(0.0246);
+    expect(credits.textContent).toBe('Credits left: $4.1877 · −$0.0246');
+    made[0].opts.onLowBalance?.(0.4);
+    expect(credits.textContent).toBe('Credits are running low: $0.4000 left. · −$0.0246');
+  });
+
+  it('paints the cached balance as soon as the host starts, before the first charge', () => {
+    cachedUser.balance = 3.5;
+    mount();
+    const credits = host.querySelector('#lc-credits') as HTMLElement;
+    expect(credits.hidden).toBe(false);
+    expect(credits.textContent).toBe('Credits left: $3.5000 · −$0.0000');
+    cachedUser.balance = undefined;
   });
 
   it('never shows a credit line to a guest (and never touches the account balance)', () => {
     mount({ role: 'guest', session: { ...SESSION, role: 'guest' } });
     made[0].opts.onBalance?.(4.2);
+    made[0].opts.onSpent?.(0.5);
     expect(host.querySelector('#lc-credits')).toBeNull();
     expect(setBalance).not.toHaveBeenCalled();
   });
