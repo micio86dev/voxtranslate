@@ -686,6 +686,32 @@ async fn the_owner_sees_the_balance_the_guest_does_not_and_every_debit_has_exact
         Decimal::new(500, 2) - tick_sum,
         "the balance moved by exactly what was charged"
     );
+
+    // The owner also watches what this conversation has cost so far, growing tick by tick, and
+    // never more than what was really charged; the guest is told nothing about money.
+    let spent: Vec<f64> = host_got
+        .iter()
+        .filter(|v| v["type"] == "session_spent")
+        .filter_map(|v| v["spent"].as_f64())
+        .collect();
+    assert!(
+        spent.len() >= 2,
+        "the owner is not told what the conversation costs: {host_got:?}"
+    );
+    assert!(
+        spent.windows(2).all(|w| w[1] >= w[0]),
+        "the running total went backwards: {spent:?}"
+    );
+    let total = tick_sum.to_string().parse::<f64>().unwrap();
+    let last = *spent.last().unwrap();
+    assert!(
+        last > 0.0 && last <= total + 1e-9,
+        "spent {last} vs charged {total}"
+    );
+    assert!(
+        !guest_got.iter().any(|v| v["type"] == "session_spent"),
+        "the guest saw what the owner pays: {guest_got:?}"
+    );
 }
 
 #[tokio::test]

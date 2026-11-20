@@ -160,6 +160,19 @@ pub async fn charge_tick(
     }
 }
 
+/// What a conversation has cost its personal-wallet owner so far: the sum of its user-paid
+/// ticks. (An organisation's whole-credit ticks are not a wallet amount and are not shown.)
+pub async fn session_spent(pool: &Pool, session: Uuid) -> Result<f64, sqlx::Error> {
+    let spent: Decimal = sqlx::query_scalar(
+        "SELECT COALESCE(sum(amount), 0) FROM live_usage_ticks
+         WHERE session_id = $1 AND payer_kind = 'user'",
+    )
+    .bind(session)
+    .fetch_one(pool)
+    .await?;
+    Ok(spent.to_f64().unwrap_or(0.0))
+}
+
 /// Everything one phone's meter needs.
 pub struct LiveMeter {
     pub pool: Pool,
@@ -268,6 +281,15 @@ impl LiveMeter {
                                     self.session,
                                     ServerMessage::BalanceUpdate { balance: bal }.to_json(),
                                 );
+                                // What the conversation has cost so far, from the tick ledger
+                                // (the source of truth, restart-proof). Informational: a failed
+                                // read only means the figure waits for the next tick.
+                                if let Ok(spent) = session_spent(&self.pool, self.session).await {
+                                    self.live.notify_owner(
+                                        self.session,
+                                        ServerMessage::SessionSpent { spent }.to_json(),
+                                    );
+                                }
                                 if !warned_low && bal < self.low_balance_threshold {
                                     warned_low = true;
                                     self.live.notify_owner(
