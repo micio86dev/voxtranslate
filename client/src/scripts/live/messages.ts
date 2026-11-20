@@ -59,6 +59,9 @@ export function endedKey(reason: EndReason, role: Role): string {
   switch (reason) {
     case 'ended_by_me':
       return 'liveEndedByMe';
+    case 'left_by_me':
+      // A guest hung up in a conversation that carries on without them.
+      return 'liveLeft';
     case 'ended_by_host':
       return role === 'host' ? 'liveEndedByMe' : 'liveEndedByPartner';
     case 'ended_by_guest':
@@ -90,13 +93,16 @@ export function errorInfo(code: string, role: Role): { key: string; action: Erro
     case 'invite_expired':
       return { key: 'liveErrInviteExpired', action: 'home' };
     case 'session_full':
-      return { key: 'liveErrSessionFull', action: 'home' };
+      // Several guests can share a link now, so "this link was already used" is no longer true.
+      return { key: 'liveErrConversationFull', action: 'home' };
     case 'session_ended':
       return { key: 'liveErrSessionEnded', action: 'home' };
     case 'consent_required':
       return { key: 'liveConsentRequired', action: 'none' };
     case 'bad_lang':
       return { key: 'liveErrBadLang', action: 'none' };
+    case 'bad_max_guests':
+      return { key: 'liveErrBadGuests', action: 'none' };
     case 'too_many_sessions':
       return { key: 'liveErrTooMany', action: 'none' };
     case 'insufficient_balance':

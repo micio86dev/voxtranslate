@@ -205,6 +205,28 @@ Errors are `{"code","message"}` with a stable code: `invite_not_found`, `invite_
   A room's session id is minted when the room is created, so a conversation that survives both phones
   dropping spans more than one; each is recorded as a `room_session` event.
 
+### Several guests: the client *(implemented: `client/src/scripts/live/*`)*
+
+- **Host setup** has one extra control, "Guests" (1, 2 or 3; default 1), sent as `max_guests` and
+  stored with the session (`StoredSession.maxGuests`; a reload takes the size and the seats already
+  taken from `GET /api/live/sessions/{id}`). A guest stores the `max_guests` the join returned.
+- **Session machine**: `LiveContext.partners` replaces the single partner. `waiting_peer` until the
+  first partner, `live` while at least one is connected, back to `waiting_peer` (not `ended`) when
+  the last one leaves. `room_joined.peers` replaces the list (and keeps the mute flags already
+  known), so a reconnect needs no `peer_left`. A pair still ends because the server sends
+  `session_state`, not because the client guesses.
+- **Captions** are one block per other speaker (`speaker_id`), the most recently active first, at
+  most four; a speaker's block goes when they leave and their last sentence moves to the history.
+  The playback sequence guard stays per `speaker_id`. Names show once more than one guest is possible.
+- **Invitation (host)**: "N of M guests joined" always; the QR and link stay open while nobody is
+  connected, fold behind a toggle while a guest is, and disappear when every seat is taken. A seat
+  stays taken when its guest drops, so the count comes from every peer ever seen, not who is online.
+- **Leaving (guest)**: in a conversation that admits several guests, hanging up shows "Leave" and the
+  "you left" screen (`left_by_me`) and the others carry on; the server's `{ended:false,left:true}` is
+  honoured even for a session stored before this existed.
+- **Join errors**: `session_full` says the conversation is full; `live_busy` is a calm "try again"
+  that keeps the form and the typed name.
+
 ### Sweeper
 
 Every 15 s: expire invitations nobody used, close sessions past the ceiling, and end an **active**

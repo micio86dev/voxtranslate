@@ -24,6 +24,8 @@ export interface StoredSession {
   wsPath: string;
   /** Host only: lets a reload show the invite again while the guest has not joined. */
   inviteUrl?: string;
+  /** How many guests the invitation admits (1-3). Absent on a session stored before multi-guest. */
+  maxGuests?: number;
 }
 
 export function saveStoredSession(s: StoredSession): void {
@@ -56,6 +58,9 @@ export function loadStoredSession(): StoredSession | null {
       myPeerId: v.myPeerId,
       wsPath: typeof v.wsPath === 'string' ? v.wsPath : DEFAULT_WS_PATH,
       ...(typeof v.inviteUrl === 'string' ? { inviteUrl: v.inviteUrl } : {}),
+      ...(Number.isInteger(v.maxGuests) && (v.maxGuests as number) >= 1 && (v.maxGuests as number) <= 3
+        ? { maxGuests: v.maxGuests }
+        : {}),
     };
   } catch {
     return null;

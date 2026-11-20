@@ -6,15 +6,16 @@
 // and the way out differ). Text is only ever set through `textContent`: transcripts are
 // strangers' words.
 //
-// Design target: two phones on a table between two people. The PARTNER's translation is the
-// largest thing on screen, their original sits beneath it, and what I said is small.
-// Controls are two buttons; everything else is quiet.
+// Design target: phones on a table between two to four people. Each OTHER speaker's translation
+// is the largest thing on screen (one block per speaker, named when there are several), their
+// original sits beneath it, and what I said is small. Controls are two buttons; everything else
+// is quiet.
 
 import './live.css';
 import { icon } from '../icons';
 import { t } from '../i18n';
 import { isRtlLang, langMeta } from '../langmap';
-import type { Captions, Exchange } from './conversation';
+import type { Captions, Exchange, SpeakerCaption } from './conversation';
 import { endedKey, failureKey, statusKey, type Role } from './messages';
 import type { LiveContext, Partner, Phase } from './session-machine';
 
@@ -60,16 +61,15 @@ export interface RoomEls {
   live: HTMLElement;
   status: HTMLElement;
   statusText: HTMLElement;
-  partnerCard: HTMLElement;
-  partnerName: HTMLElement;
-  partnerMeta: HTMLElement;
-  partnerMuted: HTMLElement;
-  avatar: HTMLElement;
+  /** The list of everybody else in the room (`ul`, one row each). */
+  partners: HTMLElement;
   dirOut: HTMLElement;
   dirIn: HTMLElement;
   sameLang: HTMLElement;
-  caption: HTMLElement;
-  captionOriginal: HTMLElement;
+  /** Polite live region: who joined, who left. Visually hidden. */
+  announce: HTMLElement;
+  /** The captions of the other speakers, one block each. A polite live region. */
+  stage: HTMLElement;
   mine: HTMLElement;
   mineText: HTMLElement;
   notice: HTMLElement;
@@ -84,6 +84,7 @@ export interface RoomEls {
   muteLabel: HTMLElement;
   end: HTMLButtonElement;
   confirm: HTMLElement;
+  confirmText: HTMLElement;
   endYes: HTMLButtonElement;
   endNo: HTMLButtonElement;
   ended: HTMLElement;
@@ -129,8 +130,19 @@ function button(doc: Doc, id: string, cls: string, key: string): HTMLButtonEleme
   return b;
 }
 
-/** Build the whole conversation view (room, ended and problem screens) once. */
-export function buildRoom(doc: Doc, opts: { role: Role }): RoomEls {
+/**
+ * Build the whole conversation view (room, ended and problem screens) once. `maxGuests` is how
+ * many guests the invitation admits: with more than one, a guest's hang-up only LEAVES (the others
+ * carry on) and the host's ends it for everybody, and the words say so.
+ */
+export function buildRoom(doc: Doc, opts: { role: Role; maxGuests?: number }): RoomEls {
+  const several = (opts.maxGuests ?? 1) > 1;
+  const leaves = opts.role === 'guest' && several;
+  const endKeys = leaves
+    ? { button: 'liveLeave', confirm: 'liveLeaveConfirm', yes: 'liveLeave' }
+    : opts.role === 'host' && several
+      ? { button: 'talkEnd', confirm: 'liveEndConfirmAll', yes: 'liveEnd' }
+      : { button: 'talkEnd', confirm: 'liveEndConfirm', yes: 'liveEnd' };
   const root = el(doc, 'div', 'lc-room');
   root.id = 'lc-room';
   root.dataset.phase = 'idle';
@@ -153,21 +165,11 @@ export function buildRoom(doc: Doc, opts: { role: Role }): RoomEls {
   statusText.id = 'lc-status-text';
   status.append(dot, statusText);
 
-  const partnerCard = el(doc, 'div', 'card lc-partner');
-  partnerCard.id = 'lc-partner';
-  partnerCard.dataset.online = 'false';
-  const avatar = el(doc, 'span', 'lc-avatar');
-  avatar.setAttribute('aria-hidden', 'true');
-  const who = el(doc, 'div', 'lc-partner-who');
-  const partnerName = el(doc, 'p', 'lc-partner-name');
-  const partnerMeta = el(doc, 'p', 'lc-partner-meta');
-  who.append(partnerName, partnerMeta);
-  const partnerMuted = el(doc, 'span', 'lc-muted-badge');
-  partnerMuted.hidden = true;
-  partnerMuted.insertAdjacentHTML('beforeend', icon('mic-off', 16));
-  const mutedText = i18n(doc, 'span', '', 'livePartnerMuted');
-  partnerMuted.append(mutedText);
-  partnerCard.append(avatar, who, partnerMuted);
+  const partnersTitle = i18n(doc, 'h2', 'lc-sr-only', 'livePartnersTitle');
+  partnersTitle.id = 'lc-partners-title';
+  const partners = el(doc, 'ul', 'lc-partners');
+  partners.id = 'lc-partners';
+  partners.setAttribute('aria-labelledby', 'lc-partners-title');
 
   const direction = el(doc, 'ul', 'lc-direction');
   direction.id = 'lc-direction';
@@ -180,14 +182,16 @@ export function buildRoom(doc: Doc, opts: { role: Role }): RoomEls {
   sameLang.setAttribute('role', 'status');
   sameLang.hidden = true;
 
+  // Join/leave announcements for assistive tech; the partners list itself is not a live region.
+  const announce = el(doc, 'p', 'lc-sr-only');
+  announce.id = 'lc-announce';
+  announce.setAttribute('role', 'status');
+  announce.setAttribute('aria-live', 'polite');
+
   const stage = el(doc, 'div', 'lc-stage');
+  stage.id = 'lc-stage';
   stage.setAttribute('aria-live', 'polite');
   stage.dataset.empty = 'true';
-  const caption = el(doc, 'p', 'lc-caption');
-  caption.id = 'lc-caption';
-  const captionOriginal = el(doc, 'p', 'lc-caption-original');
-  captionOriginal.id = 'lc-caption-original';
-  stage.append(caption, captionOriginal);
 
   const mine = el(doc, 'p', 'lc-mine');
   mine.id = 'lc-mine';
@@ -242,7 +246,7 @@ export function buildRoom(doc: Doc, opts: { role: Role }): RoomEls {
   mute.insertAdjacentHTML('beforeend', icon('mic', 20));
   const muteLabel = i18n(doc, 'span', '', 'talkMute');
   mute.append(muteLabel);
-  const end = button(doc, 'lc-end', 'btn-primary lc-ctl lc-end', 'talkEnd');
+  const end = button(doc, 'lc-end', 'btn-primary lc-ctl lc-end', endKeys.button);
   controls.append(mute, end);
 
   const confirm = el(doc, 'div', 'card lc-confirm');
@@ -250,17 +254,19 @@ export function buildRoom(doc: Doc, opts: { role: Role }): RoomEls {
   confirm.setAttribute('role', 'alertdialog');
   confirm.setAttribute('aria-labelledby', 'lc-confirm-text');
   confirm.hidden = true;
-  const confirmText = i18n(doc, 'p', 'lc-confirm-text', 'liveEndConfirm');
+  const confirmText = i18n(doc, 'p', 'lc-confirm-text', endKeys.confirm);
   confirmText.id = 'lc-confirm-text';
   const confirmBtns = el(doc, 'div', 'lc-confirm-btns');
   const endNo = button(doc, 'lc-end-no', 'btn-ghost lc-ctl', 'cancel');
-  const endYes = button(doc, 'lc-end-yes', 'btn-primary lc-ctl lc-end', 'liveEnd');
+  const endYes = button(doc, 'lc-end-yes', 'btn-primary lc-ctl lc-end', endKeys.yes);
   confirmBtns.append(endNo, endYes);
   confirm.append(confirmText, confirmBtns);
 
   live.append(
     status,
-    partnerCard,
+    partnersTitle,
+    partners,
+    announce,
     direction,
     sameLang,
     stage,
@@ -309,9 +315,9 @@ export function buildRoom(doc: Doc, opts: { role: Role }): RoomEls {
 
   root.append(live, ended, problem);
   return {
-    root, live, status, statusText, partnerCard, partnerName, partnerMeta, partnerMuted, avatar,
-    dirOut, dirIn, sameLang, caption, captionOriginal, mine, mineText, notice, historyTitle, history,
-    credits, headphones, outputField, output, mute, muteLabel, end, confirm, endYes, endNo, ended,
+    root, live, status, statusText, partners, dirOut, dirIn, sameLang, announce, stage, mine, mineText,
+    notice, historyTitle, history, credits, headphones, outputField, output, mute, muteLabel, end,
+    confirm, confirmText, endYes, endNo, ended,
     endedText, endedAction, problem, problemText, retry, buy, home,
   };
 }
@@ -347,34 +353,69 @@ export function renderPhase(
   }
 }
 
-export function renderPartner(els: RoomEls, partner: Partner | null, phase: Phase): void {
-  const online = !!partner && phase === 'live';
-  els.partnerCard.dataset.online = String(online);
-  els.partnerName.textContent = partner?.name ?? '';
-  els.avatar.textContent = partner?.name ? Array.from(partner.name)[0].toUpperCase() : '·';
-  if (!partner) {
-    els.partnerMeta.textContent = t('livePartnerOffline');
-    els.partnerMuted.hidden = true;
+/** One row per person in the room: who, which language, connected, muted. */
+export function renderPartners(els: RoomEls, partners: Partner[], phase: Phase): void {
+  const doc = els.partners.ownerDocument;
+  els.partners.textContent = '';
+  const online = phase === 'live';
+  if (!partners.length) {
+    els.partners.append(partnerRow(doc, null, false));
     return;
   }
-  const label = langLabel(partner.lang);
-  els.partnerMeta.textContent = online
-    ? `${label.flag} ${label.native} · ${t('livePartnerOnline')}`
-    : `${label.flag} ${label.native}`;
-  els.partnerMuted.hidden = !partner.muted;
+  for (const p of partners) els.partners.append(partnerRow(doc, p, online));
 }
 
-/** Both directions, spelled out: who speaks what, who hears what. */
-export function renderDirection(els: RoomEls, myLang: string, partnerLang: string | null): void {
+function partnerRow(doc: Doc, partner: Partner | null, online: boolean): HTMLElement {
+  const row = el(doc, 'li', 'card lc-partner');
+  row.dataset.online = String(online);
+  if (partner) row.dataset.peer = partner.peerId;
+  const name = partner ? partner.name || t('liveGuestName') : '';
+  const avatar = el(doc, 'span', 'lc-avatar', name ? Array.from(name)[0].toUpperCase() : '·');
+  avatar.setAttribute('aria-hidden', 'true');
+  const who = el(doc, 'div', 'lc-partner-who');
+  const nameEl = el(doc, 'p', 'lc-partner-name', name);
+  const meta = el(doc, 'p', 'lc-partner-meta');
+  if (!partner) {
+    meta.textContent = t('livePartnerOffline');
+  } else {
+    const label = langLabel(partner.lang);
+    meta.textContent = online
+      ? `${label.flag} ${label.native} · ${t('livePartnerOnline')}`
+      : `${label.flag} ${label.native}`;
+  }
+  who.append(nameEl, meta);
+  row.append(avatar, who);
+  if (partner?.muted) {
+    const badge = el(doc, 'span', 'lc-muted-badge');
+    badge.insertAdjacentHTML('beforeend', icon('mic-off', 16));
+    badge.append(el(doc, 'span', '', t('livePartnerMuted')));
+    row.append(badge);
+  }
+  return row;
+}
+
+/** Distinct languages (by primary subtag), first seen first. */
+function distinctLangs(codes: string[]): string[] {
+  const out: string[] = [];
+  for (const c of codes) {
+    const key = c.toLowerCase().split(/[-_]/)[0];
+    if (c && !out.some((o) => o.toLowerCase().split(/[-_]/)[0] === key)) out.push(c);
+  }
+  return out;
+}
+
+/** Both directions, spelled out: who speaks what, who hears what. With several partners, every distinct language. */
+export function renderDirection(els: RoomEls, myLang: string, partnerLangs: string[]): void {
   const mine = langLabel(myLang).native;
-  if (!partnerLang) {
+  const theirs = distinctLangs(partnerLangs).map((l) => langLabel(l).native);
+  if (!theirs.length) {
     els.dirOut.textContent = fill(t('liveYouSpeakOnly'), { from: mine });
     els.dirIn.textContent = t('liveDirectionWaiting');
     return;
   }
-  const theirs = langLabel(partnerLang).native;
-  els.dirOut.textContent = fill(t('liveYouSpeak'), { from: mine, to: theirs });
-  els.dirIn.textContent = fill(t('liveTheySpeak'), { from: theirs, to: mine });
+  const list = theirs.join(', ');
+  els.dirOut.textContent = fill(t('liveYouSpeak'), { from: mine, to: list });
+  els.dirIn.textContent = fill(t('liveTheySpeak'), { from: list, to: mine });
 }
 
 function applyDir(node: HTMLElement, code: string | null | undefined): void {
@@ -387,15 +428,55 @@ function applyDir(node: HTMLElement, code: string | null | undefined): void {
   node.setAttribute('lang', code);
 }
 
-export function renderCaptions(els: RoomEls, c: Captions, myLang?: string): void {
-  els.caption.textContent = c.partner?.text ?? '';
+function buildSpeakerBlock(doc: Doc): HTMLElement {
+  const block = el(doc, 'div', 'lc-speaker');
+  const name = el(doc, 'p', 'lc-speaker-name');
+  const caption = el(doc, 'p', 'lc-caption');
+  const original = el(doc, 'p', 'lc-caption-original');
+  block.append(name, caption, original);
+  return block;
+}
+
+function paintSpeaker(block: HTMLElement, sp: SpeakerCaption, first: boolean, myLang: string | undefined, showName: boolean): void {
+  const [name, caption, original] = Array.from(block.children) as HTMLElement[];
+  block.dataset.speaker = sp.speakerId;
+  name.textContent = sp.name;
+  name.hidden = !(showName && sp.name);
+  caption.textContent = sp.text;
+  applyDir(caption, myLang);
+  caption.dataset.settled = String(sp.settled);
+  original.textContent = sp.original;
+  applyDir(original, sp.original ? sp.lang : null);
+  // The first block keeps the ids a single-speaker room always had.
+  for (const [node, id] of [[caption, 'lc-caption'], [original, 'lc-caption-original']] as const) {
+    if (first) node.id = id;
+    else node.removeAttribute('id');
+  }
+}
+
+/**
+ * Paint every speaker's line, mine and the history. Blocks are reused per speaker (so a
+ * screen reader hears an update, not a rebuild) and reordered only when the order changed.
+ * `showNames`: label each block and history card with who spoke (a room with several people).
+ */
+export function renderCaptions(els: RoomEls, c: Captions, myLang?: string, opts: { showNames?: boolean } = {}): void {
+  const showNames = opts.showNames ?? false;
+  const doc = els.stage.ownerDocument;
+  const blocks = new Map<string, HTMLElement>();
+  for (const child of Array.from(els.stage.children) as HTMLElement[]) {
+    if (child.dataset.speaker) blocks.set(child.dataset.speaker, child);
+  }
+  const keep = new Set<HTMLElement>();
+  c.others.forEach((sp, i) => {
+    const block = blocks.get(sp.speakerId) ?? buildSpeakerBlock(doc);
+    paintSpeaker(block, sp, i === 0, myLang, showNames);
+    if (els.stage.children[i] !== block) els.stage.insertBefore(block, els.stage.children[i] ?? null);
+    keep.add(block);
+  });
+  for (const child of Array.from(els.stage.children) as HTMLElement[]) if (!keep.has(child)) child.remove();
   // An empty stage collapses (the live region stays in the DOM, so the first caption is
   // still announced) instead of showing a big blank card while nobody has spoken.
-  els.caption.parentElement?.setAttribute('data-empty', String(!c.partner));
-  applyDir(els.caption, c.partner ? myLang : null);
-  els.captionOriginal.textContent = c.partner?.original ?? '';
-  applyDir(els.captionOriginal, c.partner?.original ? c.partner.lang : null);
-  els.caption.dataset.settled = String(c.partner?.settled ?? false);
+  els.stage.dataset.empty = String(c.others.length === 0);
 
   els.mine.hidden = !c.mine;
   els.mineText.textContent = c.mine?.text ?? '';
@@ -404,12 +485,12 @@ export function renderCaptions(els: RoomEls, c: Captions, myLang?: string): void
   els.history.textContent = '';
   // Newest first, so older exchanges scroll away.
   const shown = c.history.slice(-HISTORY_RENDER_LIMIT).reverse();
-  for (const ex of shown) els.history.append(buildExchangeCard(ex, els.history.ownerDocument));
+  for (const ex of shown) els.history.append(buildExchangeCard(ex, els.history.ownerDocument, showNames));
   els.historyTitle.hidden = shown.length === 0;
 }
 
 /** One history card. The partner's translation leads; my own words are quieter. */
-export function buildExchangeCard(ex: Exchange, doc: Doc): HTMLElement {
+export function buildExchangeCard(ex: Exchange, doc: Doc, showName = false): HTMLElement {
   const card = el(doc, 'article', 'lc-card');
   card.dataset.exchange = String(ex.id);
   card.dataset.who = ex.who;
@@ -417,6 +498,7 @@ export function buildExchangeCard(ex: Exchange, doc: Doc): HTMLElement {
   const useTranslated = ex.who === 'partner' && ex.translated !== '';
   const main = el(doc, 'p', 'lc-card-main');
   if (ex.who === 'me') main.append(el(doc, 'span', 'lc-card-label', t('liveYouSaid')), ' ');
+  else if (showName && ex.speakerName) main.append(el(doc, 'span', 'lc-card-label', ex.speakerName), ' ');
   const mainText = el(doc, 'span', 'lc-card-text', useTranslated ? ex.translated : ex.original);
   applyDir(mainText, useTranslated ? ex.translatedLang : ex.originalLang);
   main.append(mainText);

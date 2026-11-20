@@ -34,6 +34,20 @@ beforeEach(() => {
   vi.restoreAllMocks();
 });
 
+describe('stored session: how many guests the invitation admits', () => {
+  it('round-trips a valid size and drops anything else', () => {
+    saveStoredSession({ ...S, maxGuests: 3 });
+    expect(loadStoredSession()?.maxGuests).toBe(3);
+    for (const bad of [0, 4, 1.5, '2', null]) {
+      sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ ...S, maxGuests: bad }));
+      expect(loadStoredSession()).not.toHaveProperty('maxGuests');
+    }
+    // A session stored before multi-guest has no size at all.
+    saveStoredSession(S);
+    expect(loadStoredSession()).not.toHaveProperty('maxGuests');
+  });
+});
+
 describe('stored session (sessionStorage, key vox.live.session)', () => {
   it('uses the documented key and round-trips', () => {
     expect(STORAGE_KEY).toBe('vox.live.session');

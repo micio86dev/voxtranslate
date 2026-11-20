@@ -23,7 +23,7 @@ import {
   renderCaptions,
   renderDirection,
   renderOutputOptions,
-  renderPartner,
+  renderPartners,
   renderPhase,
   type RoomEls,
 } from './view';
@@ -41,7 +41,7 @@ export interface ConversationLike {
   canSelectOutput(): boolean;
   listOutputDevices(): Promise<MediaDeviceInfo[]>;
   setOutputDevice(deviceId: string): Promise<boolean>;
-  direction(): { myLang: string; partnerLang: string | null };
+  direction(): { myLang: string; partnerLangs: string[] };
   state(): LiveContext;
 }
 
@@ -63,7 +63,7 @@ export interface RoomHandle {
 
 export function mountRoom(opts: RoomOptions): RoomHandle {
   const doc = opts.container.ownerDocument;
-  const els = buildRoom(doc, { role: opts.role });
+  const els = buildRoom(doc, { role: opts.role, maxGuests: opts.session.maxGuests });
   opts.container.append(els.root);
   const make = opts.createConversation ?? ((o) => new LiveConversation(o));
   const { session, role } = opts;
@@ -95,12 +95,37 @@ export function mountRoom(opts: RoomOptions): RoomHandle {
     els.credits.textContent = `${left} · −${formatLiveMoney(spent)}`;
   };
 
+  // Partners who share my language (peer id -> name): one banner naming them all, kept in step
+  // with who is still in the room.
+  const sameLang = new Map<string, string>();
+  const paintSameLang = (): void => {
+    if (!sameLang.size) {
+      els.sameLang.hidden = true;
+      return;
+    }
+    const names = [...sameLang.values()].filter(Boolean);
+    els.sameLang.textContent = names.length
+      ? fill(t('liveSameLanguageWith'), { name: names.join(', ') })
+      : fill(t('liveSameLanguage'), { lang: langLabel(session.myLang).native });
+    els.sameLang.hidden = false;
+  };
+  // Names are only worth showing once more than two people can talk.
+  let showNames = (session.maxGuests ?? 1) > 1;
+
   const onState = (ctx: LiveContext): void => {
     renderPhase(els, ctx, role, { waitingKey: opts.waitingKey });
-    renderPartner(els, ctx.partner, ctx.phase);
-    const dir = convo?.direction() ?? { myLang: session.myLang, partnerLang: ctx.partner?.lang ?? null };
-    renderDirection(els, dir.myLang, ctx.partner?.lang ?? null);
-    if (!ctx.partner) els.sameLang.hidden = true;
+    renderPartners(els, ctx.partners, ctx.phase);
+    const dir = convo?.direction() ?? { myLang: session.myLang, partnerLangs: ctx.partners.map((p) => p.lang) };
+    renderDirection(els, dir.myLang, dir.partnerLangs);
+    if (ctx.partners.length > 1) showNames = true;
+    let pruned = false;
+    for (const id of [...sameLang.keys()]) {
+      if (!ctx.partners.some((p) => p.peerId === id)) {
+        sameLang.delete(id);
+        pruned = true;
+      }
+    }
+    if (pruned) paintSameLang();
     if (ctx.phase === 'waiting_peer' && !outputsListed && convo?.canSelectOutput()) {
       // Labels are only available once the microphone has been granted.
       outputsListed = true;
@@ -112,9 +137,9 @@ export function mountRoom(opts: RoomOptions): RoomHandle {
   };
 
   const onCaptions = (c: Captions): void => {
-    renderCaptions(els, c, session.myLang);
+    renderCaptions(els, c, session.myLang, { showNames });
     // A caption means translation is working again, so an old "translation is down" is stale.
-    if (c.partner || c.mine) els.notice.hidden = true;
+    if (c.others.length || c.mine) els.notice.hidden = true;
   };
 
   const build = (): ConversationLike =>
@@ -126,6 +151,7 @@ export function mountRoom(opts: RoomOptions): RoomHandle {
       myLang: session.myLang,
       myPeerId: session.myPeerId,
       inviteUrl: session.inviteUrl,
+      maxGuests: session.maxGuests,
       onState,
       onCaptions,
       onBalance: (b) => {
@@ -148,9 +174,15 @@ export function mountRoom(opts: RoomOptions): RoomHandle {
         els.notice.textContent = t(noticeKey(code));
         els.notice.hidden = false;
       },
-      onSameLanguage: (mine) => {
-        els.sameLang.textContent = fill(t('liveSameLanguage'), { lang: langLabel(mine).native });
-        els.sameLang.hidden = false;
+      onSameLanguage: (_mine, _theirs, partner) => {
+        sameLang.set(partner.peerId, partner.name);
+        paintSameLang();
+      },
+      onPeerChange: (change, partner) => {
+        // A screen reader hears the room change; the list itself is not a live region.
+        els.announce.textContent = fill(t(change === 'joined' ? 'liveJoinedAnnounce' : 'liveLeftAnnounce'), {
+          name: partner.name || t('liveGuestName'),
+        });
       },
       onMuteChange: paintMute,
     });

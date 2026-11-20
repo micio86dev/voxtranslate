@@ -24,7 +24,7 @@ describe('failureKey', () => {
 });
 
 describe('endedKey', () => {
-  const reasons: EndReason[] = ['ended_by_me', 'ended_by_host', 'ended_by_guest', 'ended_by_staff', 'balance_exhausted', 'max_duration', 'abandoned', 'billing_error', 'expired', 'desk_revoked', 'desk_regenerated'];
+  const reasons: EndReason[] = ['ended_by_me', 'left_by_me', 'ended_by_host', 'ended_by_guest', 'ended_by_staff', 'balance_exhausted', 'max_duration', 'abandoned', 'billing_error', 'expired', 'desk_revoked', 'desk_regenerated'];
   it.each(reasons)('%s has copy for every role', (reason) => {
     for (const role of ['host', 'guest', 'staff'] as const) expect(EN[endedKey(reason, role)]).toBeTruthy();
   });
@@ -37,6 +37,10 @@ describe('endedKey', () => {
   it('a revoked or replaced desk code reads as "this QR code is no longer valid"', () => {
     expect(endedKey('desk_revoked', 'guest')).toBe('liveDeskErrInvalid');
     expect(endedKey('desk_regenerated', 'guest')).toBe('liveDeskErrInvalid');
+  });
+  it('says "you left" for a guest who hung up in a conversation that carries on', () => {
+    expect(endedKey('left_by_me', 'guest')).toBe('liveLeft');
+    expect(EN.liveLeft).toBeTruthy();
   });
   it('says "the other person ended it" from each side, and "you ended it" for a local end', () => {
     expect(endedKey('ended_by_host', 'guest')).toBe('liveEndedByPartner');
@@ -52,7 +56,7 @@ describe('errorInfo', () => {
     'too_many_sessions', 'insufficient_balance', 'insufficient_credits', 'subscription_required', 'project_required',
     'project_not_found', 'live_busy', 'rate_limited', 'unauthorized', 'bad_token', 'token_expired', 'wrong_session',
     'live_disabled', 'network', 'server_error', 'http_error', 'totally_new',
-    'invalid_desk_qr', 'desk_unavailable', 'desk_busy',
+    'invalid_desk_qr', 'desk_unavailable', 'desk_busy', 'bad_max_guests',
   ];
   it.each(codes)('%s maps to existing copy for both roles', (code) => {
     for (const role of ['host', 'guest'] as const) {
@@ -71,6 +75,11 @@ describe('errorInfo', () => {
     expect(guest('rate_limited').action).toBe('retry');
     expect(guest('network').action).toBe('retry');
     expect(guest('consent_required').action).toBe('none');
+  });
+
+  it('a full conversation no longer claims the link was "used", and a bad guest count has its own message', () => {
+    expect(errorInfo('session_full', 'guest')).toEqual({ key: 'liveErrConversationFull', action: 'home' });
+    expect(errorInfo('bad_max_guests', 'host')).toEqual({ key: 'liveErrBadGuests', action: 'none' });
   });
 
   it('sends a host with no credit to buy some, and a guest to a plain explanation', () => {

@@ -110,6 +110,60 @@ describe('setup', () => {
     expect(($('lh-transcript') as HTMLInputElement).checked).toBe(false);
   });
 
+  describe('guests control', () => {
+    const radios = () => Array.from(document.querySelectorAll<HTMLInputElement>('input[name="lh-guests"]'));
+    const choose = (n: number) => {
+      const r = radios().find((x) => x.value === String(n)) as HTMLInputElement;
+      r.checked = true;
+      r.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+
+    it('offers 1, 2 or 3 guests as a labelled group, defaulting to 1, with the one-line explanation', async () => {
+      await mountLiveHost();
+      expect(radios().map((r) => r.value)).toEqual(['1', '2', '3']);
+      expect(radios().filter((r) => r.checked).map((r) => r.value)).toEqual(['1']);
+      const group = $('lh-guests-field');
+      expect(group.tagName).toBe('FIELDSET');
+      expect(group.querySelector('legend')?.textContent).toBe(EN.liveGuests);
+      expect($('lh-guests-hint').textContent).toBe(EN.liveGuestsHintOne);
+    });
+
+    it('updates the explanation with the chosen number', async () => {
+      await mountLiveHost();
+      choose(3);
+      expect($('lh-guests-hint').textContent).toBe(EN.liveGuestsHint.replace('{max}', '3'));
+    });
+
+    it('sends the chosen number and remembers it with the stored session', async () => {
+      api.createSession.mockResolvedValue({ ok: true, data: { ...CREATED, max_guests: 3 } });
+      await mountLiveHost();
+      choose(3);
+      $('lh-create').click();
+      await flush();
+      expect(api.createSession).toHaveBeenCalledWith({ lang: 'it', saveTranscript: false, maxGuests: 3 });
+      expect(rooms[0].session).toMatchObject({ maxGuests: 3 });
+      expect(JSON.parse(sessionStorage.getItem(STORAGE_KEY) ?? '{}').maxGuests).toBe(3);
+    });
+
+    it('treats a missing or odd value as 1', async () => {
+      api.createSession.mockResolvedValue({ ok: true, data: CREATED });
+      await mountLiveHost();
+      radios().forEach((r) => (r.checked = false));
+      $('lh-create').click();
+      await flush();
+      expect(api.createSession).toHaveBeenCalledWith({ lang: 'it', saveTranscript: false, maxGuests: 1 });
+    });
+
+    it('shows a friendly message for bad_max_guests', async () => {
+      api.createSession.mockResolvedValue({ ok: false, status: 400, code: 'bad_max_guests' });
+      await mountLiveHost();
+      $('lh-create').click();
+      await flush();
+      expect($('lh-status').hidden).toBe(false);
+      expect($('lh-status').textContent).toBe(EN.liveErrBadGuests);
+    });
+  });
+
   it('creates a session with the chosen language and the transcript flag, then shows the invite', async () => {
     api.createSession.mockResolvedValue({ ok: true, data: CREATED });
     await mountLiveHost();
@@ -117,7 +171,7 @@ describe('setup', () => {
     $('lh-create').click();
     expect(unlock).toHaveBeenCalledTimes(1); // inside the click gesture, before the request
     await flush();
-    expect(api.createSession).toHaveBeenCalledWith({ lang: 'it', saveTranscript: true });
+    expect(api.createSession).toHaveBeenCalledWith({ lang: 'it', saveTranscript: true, maxGuests: 1 });
     expect($('lh-setup').hidden).toBe(true);
     expect($('lh-hero').hidden).toBe(true);
     expect($('lh-session').hidden).toBe(false);
@@ -143,6 +197,7 @@ describe('setup', () => {
       myPeerId: 'peer-a',
       wsPath: '/ws/live',
       inviteUrl: CREATED.invite_url,
+      maxGuests: 1,
     });
   });
 
@@ -154,10 +209,11 @@ describe('setup', () => {
     const ctx = (over: Partial<LiveContext>): LiveContext => ({ ...initialContext(), ...over });
     rooms[0].onState(ctx({ phase: 'waiting_peer' }));
     expect($('lh-invite').hidden).toBe(false);
-    rooms[0].onState(ctx({ phase: 'live', partner: { peerId: 'b', name: 'B', lang: 'es', muted: false } }));
+    rooms[0].onState(ctx({ phase: 'live', partners: [{ peerId: 'b', name: 'B', lang: 'es', muted: false }] }));
     expect($('lh-invite').hidden).toBe(true);
+    // A pair has one seat and the guest took it: the link has nothing left to offer, even if they drop.
     rooms[0].onState(ctx({ phase: 'waiting_peer' }));
-    expect($('lh-invite').hidden).toBe(false);
+    expect($('lh-invite').hidden).toBe(true);
     rooms[0].onState(ctx({ phase: 'ended', endReason: 'ended_by_me' }));
     expect($('lh-invite').hidden).toBe(true);
   });
@@ -261,6 +317,130 @@ describe('invite panel', () => {
     await created();
     expect($('lh-qr').hidden).toBe(true);
     expect(($('lh-link') as HTMLInputElement).value).toBe(CREATED.invite_url);
+  });
+});
+
+describe('invite panel with several guests', () => {
+  const ctx = (over: Partial<LiveContext>): LiveContext => ({ ...initialContext(), ...over });
+  const guest = (id: string, name = id) => ({ peerId: id, name, lang: 'es', muted: false });
+  async function created(max: number) {
+    api.createSession.mockResolvedValue({ ok: true, data: { ...CREATED, max_guests: max } });
+    await mountLiveHost();
+    const r = Array.from(document.querySelectorAll<HTMLInputElement>('input[name="lh-guests"]')).find((x) => x.value === String(max))!;
+    r.checked = true;
+    r.dispatchEvent(new Event('change', { bubbles: true }));
+    $('lh-create').click();
+    await flush();
+  }
+
+  it('says how many guests joined, and uses the several-guest wording', async () => {
+    await created(3);
+    expect($('lh-seats').hidden).toBe(false);
+    expect($('lh-seats').textContent).toBe('0 of 3 guests joined');
+    expect($('lh-invite').querySelector('[data-i18n="liveInviteTitleMulti"]')).not.toBeNull();
+    expect($('lh-invite').querySelector('[data-i18n="liveInviteExpiresMulti"]')).not.toBeNull();
+    rooms[0].onState(ctx({ phase: 'live', partners: [guest('b')] }));
+    expect($('lh-seats').textContent).toBe('1 of 3 guests joined');
+    rooms[0].onState(ctx({ phase: 'live', partners: [guest('b'), guest('c')] }));
+    expect($('lh-seats').textContent).toBe('2 of 3 guests joined');
+  });
+
+  it('a pair keeps today\'s look: no seats line, the original invite wording', async () => {
+    await created(1);
+    expect($('lh-seats').hidden).toBe(true);
+    expect($('lh-invite').querySelector('[data-i18n="liveInviteExpires"]')).not.toBeNull();
+  });
+
+  it('is open while nobody is here, collapses to a toggle once a guest joined, and re-opens on demand', async () => {
+    await created(3);
+    rooms[0].onState(ctx({ phase: 'waiting_peer' }));
+    expect($('lh-invite').hidden).toBe(false);
+    expect($('lh-invite-body').hidden).toBe(false);
+    expect($('lh-invite-toggle').hidden).toBe(true);
+
+    rooms[0].onState(ctx({ phase: 'live', partners: [guest('b')] }));
+    expect($('lh-invite').hidden).toBe(false);
+    expect($('lh-invite-body').hidden).toBe(true);
+    const toggle = $('lh-invite-toggle') as HTMLButtonElement;
+    expect(toggle.hidden).toBe(false);
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(toggle.getAttribute('aria-controls')).toBe('lh-invite-body');
+    expect(toggle.textContent).toBe(EN.liveInviteMore);
+
+    toggle.click();
+    expect($('lh-invite-body').hidden).toBe(false);
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    expect(toggle.textContent).toBe(EN.liveInviteHide);
+    // The link is still there to copy.
+    expect(($('lh-link') as HTMLInputElement).value).toBe(CREATED.invite_url);
+
+    toggle.click();
+    expect($('lh-invite-body').hidden).toBe(true);
+  });
+
+  it('re-opens by itself when the last guest leaves while seats remain', async () => {
+    await created(3);
+    rooms[0].onState(ctx({ phase: 'live', partners: [guest('b')] }));
+    expect($('lh-invite-body').hidden).toBe(true);
+    rooms[0].onState(ctx({ phase: 'waiting_peer' }));
+    expect($('lh-invite').hidden).toBe(false);
+    expect($('lh-invite-body').hidden).toBe(false);
+    expect($('lh-invite-toggle').hidden).toBe(true);
+  });
+
+  it('is hidden once every seat is taken, even when somebody drops, and "N of M" stays', async () => {
+    await created(2);
+    rooms[0].onState(ctx({ phase: 'live', partners: [guest('b'), guest('c')] }));
+    expect($('lh-invite').hidden).toBe(true);
+    rooms[0].onState(ctx({ phase: 'live', partners: [guest('c')] }));
+    expect($('lh-invite').hidden).toBe(true);
+    expect($('lh-seats').textContent).toBe('2 of 2 guests joined');
+  });
+
+  it('hides the whole panel and the count when the conversation is over', async () => {
+    await created(3);
+    rooms[0].onState(ctx({ phase: 'live', partners: [guest('b')] }));
+    rooms[0].onState(ctx({ phase: 'ended', endReason: 'ended_by_me' }));
+    expect($('lh-invite').hidden).toBe(true);
+    expect($('lh-seats').hidden).toBe(true);
+  });
+
+  it('a reload restores the seats from the server: who already took one, and the size', async () => {
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ sessionId: 's9', token: 'T9', role: 'host', myLang: 'es', myPeerId: 'p9', wsPath: '/ws/live', inviteUrl: 'https://app.test/lc/X' }));
+    api.getSession.mockResolvedValue({
+      ok: true,
+      data: {
+        session: {
+          status: 'active',
+          max_guests: 3,
+          participants: [
+            { peer_id: 'p9', role: 'host' },
+            { peer_id: 'g1', role: 'guest' },
+            { peer_id: 'g2', role: 'guest' },
+          ],
+        },
+        you: { role: 'host' },
+      },
+    });
+    await mountLiveHost();
+    expect(rooms[0].session).toMatchObject({ maxGuests: 3 });
+    expect($('lh-seats').textContent).toBe('2 of 3 guests joined');
+    rooms[0].onState(ctx({ phase: 'waiting_peer' }));
+    expect($('lh-invite').hidden).toBe(false);
+    rooms[0].onState(ctx({ phase: 'live', partners: [guest('g1'), guest('g2'), guest('g3')] }));
+    expect($('lh-seats').textContent).toBe('3 of 3 guests joined');
+    expect($('lh-invite').hidden).toBe(true);
+  });
+
+  it('keeps the copy button working while collapsed content is reopened', async () => {
+    const writeText = vi.fn(async () => {});
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    await created(3);
+    rooms[0].onState(ctx({ phase: 'live', partners: [guest('b')] }));
+    $('lh-invite-toggle').click();
+    $('lh-copy').click();
+    await flush();
+    expect(writeText).toHaveBeenCalledWith(CREATED.invite_url);
   });
 });
 

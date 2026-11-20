@@ -10,8 +10,9 @@
 // What is different from Talk, and why:
 //  - Identity comes from the SERVER. The URL carries only the live token — no `lang`, no
 //    `engine` — so a client cannot claim to be someone else or pick a pricier tier.
-//  - Two directions are live at once, by design. Subtitles are routed by `speaker_id`:
-//    what the PARTNER says is shown in my language, big; what I say is shown small.
+//  - Several directions are live at once, by design (a host and up to three guests share one
+//    room). Subtitles are routed by `speaker_id`: what each OTHER speaker says is shown in my
+//    language, big, one caption per speaker; what I say is shown small.
 //  - Reconnects REUSE the token, and before every retry the session is probed over REST: a
 //    refused WebSocket upgrade surfaces in a browser only as a bare close (no status), so
 //    without the probe "this conversation is over" and "your signal dropped" look identical
@@ -63,6 +64,9 @@ const START_RETRY_BASE_MS = 800;
 export interface Exchange {
   id: number;
   who: 'partner' | 'me';
+  /** Partner only: who said it (several people can be speaking in one room). */
+  speakerId?: string;
+  speakerName?: string;
   original: string;
   originalLang: string;
   /** The translation. Empty when there was none (same language, or the engine sent nothing). */
@@ -82,8 +86,19 @@ export interface CaptionLine {
   settled: boolean;
 }
 
+/** At most this many other speakers keep a caption on screen (a room holds four peers). */
+export const MAX_SPEAKER_CAPTIONS = 4;
+
+/** The line currently on screen for one OTHER speaker. */
+export interface SpeakerCaption extends CaptionLine {
+  speakerId: string;
+  /** The speaker's name as the server announced it; empty when unknown. */
+  name: string;
+}
+
 export interface Captions {
-  partner: CaptionLine | null;
+  /** Every other speaker's latest line, most recently active first. */
+  others: SpeakerCaption[];
   mine: CaptionLine | null;
   history: Exchange[];
 }
@@ -116,8 +131,10 @@ export interface LiveCallbacks {
   onSpent?: (spent: number) => void;
   /** A recoverable, user-facing problem. `code` is stable; the view picks the copy. */
   onNotice?: (code: string) => void;
-  /** Both people speak the same language, so nothing will be translated. */
-  onSameLanguage?: (myLang: string, partnerLang: string) => void;
+  /** I speak the same language as this partner, so nothing is translated between us. Once per partner. */
+  onSameLanguage?: (myLang: string, partnerLang: string, partner: Partner) => void;
+  /** Somebody (not me) entered or left the room: for a screen-reader announcement. */
+  onPeerChange?: (change: 'joined' | 'left', partner: Partner) => void;
   onMuteChange?: (muted: boolean) => void;
   onBargeIn?: () => void;
 }
@@ -132,6 +149,9 @@ export interface LiveConversationOptions extends LiveCallbacks {
   myPeerId: string;
   /** Host only: persisted so a reload can show the invite again. */
   inviteUrl?: string;
+  /** How many guests the invitation admits. A guest hanging up in a conversation that admits
+   *  more than one only LEAVES it: the others carry on. */
+  maxGuests?: number;
   headphones?: boolean;
   // --- injectable seams, all defaulted -------------------------------------
   createSocket?: (url: string) => LiveSocket;
@@ -181,6 +201,9 @@ function primaryLang(code: string): string {
   return code.toLowerCase().split(/[-_]/)[0];
 }
 
+/** Key of my own held sentence in `pending`; a peer id can never collide with it. */
+const ME = '\u0000me';
+
 const KNOWN_END_REASONS: ReadonlySet<string> = new Set<EndReason>([
   'ended_by_host',
   'ended_by_guest',
@@ -225,15 +248,19 @@ export class LiveConversation {
   private muted = false;
   private wakeHeld = false;
   private headphonesOn: boolean;
-  private warnedSameLangFor: string | null = null;
+  /** Partners already warned about sharing my language (one warning each). */
+  private readonly warnedSameLang = new Set<string>();
+  /** Speakers who left: a late subtitle of theirs goes to the history, not back on screen. */
+  private readonly departed = new Set<string>();
 
-  private partnerLine: CaptionLine | null = null;
+  /** One caption per OTHER speaker, oldest update first (Map order). */
+  private readonly speakerLines = new Map<string, SpeakerCaption>();
   private mineLine: CaptionLine | null = null;
   private history: Exchange[] = [];
-  /** The last finished sentence per speaker, held back from the history until the NEXT one
-   *  begins, so exactly one surface shows a given sentence at a time (same rule as Talk). */
-  private pendingPartner: Exchange | null = null;
-  private pendingMine: Exchange | null = null;
+  /** The last finished sentence per speaker (`ME` for mine), held back from the history until
+   *  that speaker's NEXT one begins, so exactly one surface shows a given sentence at a time
+   *  (same rule as Talk). */
+  private readonly pending = new Map<string, Exchange>();
   private exchangeId = 0;
 
   private outputDeviceId: string | null = null;
@@ -281,9 +308,13 @@ export class LiveConversation {
     return this.headphonesOn;
   }
 
-  /** Which language I speak and which one the other person hears (and vice versa). */
-  direction(): { myLang: string; partnerLang: string | null } {
-    return { myLang: this.opts.myLang, partnerLang: this.ctx.partner?.lang ?? null };
+  /** Which language I speak and which ones the others speak (distinct, in arrival order). */
+  direction(): { myLang: string; partnerLangs: string[] } {
+    const langs: string[] = [];
+    for (const p of this.ctx.partners) {
+      if (p.lang && !langs.some((l) => primaryLang(l) === primaryLang(p.lang))) langs.push(p.lang);
+    }
+    return { myLang: this.opts.myLang, partnerLangs: langs };
   }
 
   /** Acquire the microphone, open the socket, and wait for the other person. */
@@ -367,15 +398,25 @@ export class LiveConversation {
     }
   }
 
-  /** End the conversation for both phones, and release everything. */
+  /**
+   * Hang up, and release everything. For the host (and a guest in a pair) that ends the
+   * conversation for everybody; a guest in a conversation that admits several guests only
+   * LEAVES it, and the others carry on.
+   */
   end(): void {
     if (this.isTerminal()) return;
+    const leaving = this.opts.role === 'guest' && (this.opts.maxGuests ?? 1) > 1;
     // Best effort: the server also notices the socket closing, but this is what tells the
     // partner "ended by the other person" rather than "connection lost".
-    void Promise.resolve(
-      (this.opts.endSessionImpl ?? endSession)(this.opts.sessionId, this.opts.token),
-    ).catch(() => {});
-    this.finish({ type: 'STOP_REQUESTED' });
+    void Promise.resolve((this.opts.endSessionImpl ?? endSession)(this.opts.sessionId, this.opts.token))
+      .then((res) => {
+        // The server is the authority on whether this was a leave (`{ended:false,left:true}`),
+        // whatever we assumed from a stored session that predates `maxGuests`.
+        const data = (res as { ok?: boolean; data?: { left?: unknown } } | null)?.data;
+        if ((res as { ok?: boolean } | null)?.ok && data?.left === true) this.dispatch({ type: 'LEFT_REQUESTED' });
+      })
+      .catch(() => {});
+    this.finish({ type: leaving ? 'LEFT_REQUESTED' : 'STOP_REQUESTED' });
   }
 
   /**
@@ -402,6 +443,7 @@ export class LiveConversation {
       myPeerId: this.opts.myPeerId,
       wsPath: this.opts.wsPath,
       ...(this.opts.inviteUrl ? { inviteUrl: this.opts.inviteUrl } : {}),
+      ...(this.opts.maxGuests ? { maxGuests: this.opts.maxGuests } : {}),
     });
   }
 
@@ -606,22 +648,44 @@ export class LiveConversation {
       case 'room_joined': {
         this.attempt = 0; // the connection is genuinely healthy now
         const peers = Array.isArray(msg.peers) ? (msg.peers as Array<Record<string, unknown>>) : [];
-        const other = peers.find((p) => peerIdOf(p) !== this.opts.myPeerId);
-        this.dispatch({ type: 'ROOM_JOINED', partner: other ? this.toPartner(other) : null });
+        const before = new Set(this.ctx.partners.map((p) => p.peerId));
+        const others = peers.filter((p) => peerIdOf(p) !== this.opts.myPeerId).map((p) => this.toPartner(p));
+        this.dispatch({ type: 'ROOM_JOINED', partners: others });
+        // After a reconnect the list is the truth: whoever is not in it has left meanwhile.
+        this.dropAbsentSpeakers();
+        for (const p of this.ctx.partners) {
+          this.departed.delete(p.peerId);
+          if (!before.has(p.peerId)) this.opts.onPeerChange?.('joined', p);
+        }
         this.checkSameLanguage();
         break;
       }
       case 'peer_joined': {
         if (msg.peer_id === this.opts.myPeerId) break;
-        this.dispatch({ type: 'PEER_JOINED', partner: this.toPartner(msg) });
+        const partner = this.toPartner(msg);
+        const isNew = !this.ctx.partners.some((p) => p.peerId === partner.peerId);
+        this.dispatch({ type: 'PEER_JOINED', partner });
+        this.departed.delete(partner.peerId);
+        if (isNew) this.opts.onPeerChange?.('joined', partner);
         this.checkSameLanguage();
-        // The partner's language is a new translation target.
+        // The newcomer's language may be a new translation target.
         this.sendStart();
         break;
       }
-      case 'peer_left':
-        this.dispatch({ type: 'PEER_LEFT', peerId: String(msg.peer_id ?? '') });
+      case 'peer_left': {
+        const peerId = String(msg.peer_id ?? '');
+        const gone = this.ctx.partners.find((p) => p.peerId === peerId);
+        this.dispatch({ type: 'PEER_LEFT', peerId });
+        if (!gone) break;
+        this.departed.add(peerId);
+        this.warnedSameLang.delete(peerId);
+        // Their last finished sentence is kept in the history; their caption goes.
+        this.flushPending(peerId);
+        this.speakerLines.delete(peerId);
+        this.emitCaptions();
+        this.opts.onPeerChange?.('left', gone);
         break;
+      }
       case 'peer_muted':
         if (msg.kind === 'audio') {
           this.dispatch({ type: 'PEER_MUTED', peerId: String(msg.peer_id ?? ''), muted: msg.muted === true });
@@ -710,13 +774,27 @@ export class LiveConversation {
     };
   }
 
+  /** One warning per partner who speaks my language, whenever they arrive. */
   private checkSameLanguage(): void {
-    const partner = this.ctx.partner;
-    if (!partner || this.warnedSameLangFor === partner.peerId) return;
-    if (partner.lang && primaryLang(partner.lang) === primaryLang(this.opts.myLang)) {
-      this.warnedSameLangFor = partner.peerId;
-      this.opts.onSameLanguage?.(this.opts.myLang, partner.lang);
+    for (const partner of this.ctx.partners) {
+      if (this.warnedSameLang.has(partner.peerId)) continue;
+      if (partner.lang && primaryLang(partner.lang) === primaryLang(this.opts.myLang)) {
+        this.warnedSameLang.add(partner.peerId);
+        this.opts.onSameLanguage?.(this.opts.myLang, partner.lang, partner);
+      }
     }
+  }
+
+  /** Forget the captions and warnings of anybody who is no longer in the room. */
+  private dropAbsentSpeakers(): void {
+    const here = new Set(this.ctx.partners.map((p) => p.peerId));
+    for (const id of [...this.speakerLines.keys()]) {
+      if (here.has(id)) continue;
+      this.flushPending(id);
+      this.speakerLines.delete(id);
+    }
+    for (const id of [...this.warnedSameLang]) if (!here.has(id)) this.warnedSameLang.delete(id);
+    this.emitCaptions();
   }
 
   // --- subtitles ---------------------------------------------------------
@@ -725,23 +803,46 @@ export class LiveConversation {
     return msg.speaker_id === this.opts.myPeerId;
   }
 
+  private speakerOf(msg: Record<string, unknown>): { id: string; name: string; lang: string } {
+    const id = String(msg.speaker_id ?? '');
+    const known = this.ctx.partners.find((p) => p.peerId === id);
+    const announced = typeof msg.speaker_name === 'string' ? msg.speaker_name.trim() : '';
+    return { id, name: announced || known?.name || '', lang: known?.lang ?? '' };
+  }
+
+  /** Put a speaker's line on screen, newest last, and keep the stack bounded. */
+  private setSpeakerLine(line: SpeakerCaption): void {
+    this.speakerLines.delete(line.speakerId);
+    this.speakerLines.set(line.speakerId, line);
+    while (this.speakerLines.size > MAX_SPEAKER_CAPTIONS) {
+      const oldest = this.speakerLines.keys().next().value as string;
+      this.flushPending(oldest);
+      this.speakerLines.delete(oldest);
+    }
+  }
+
   private onInterim(msg: Record<string, unknown>): void {
     const text = typeof msg.text === 'string' ? msg.text : '';
     const original = typeof msg.original === 'string' ? msg.original : '';
     this.startRetries = 0;
     if (this.isMine(msg)) {
-      if (this.mineLine?.settled) this.flushPending();
+      if (this.mineLine?.settled) this.flushPending(ME);
       // What I am saying, in my own words — never the partner-language rendering of it.
       this.mineLine = { text: original || text, original: '', lang: this.opts.myLang, settled: false };
       this.guard.setSpeechActive(true);
     } else {
-      if (this.partnerLine?.settled) this.flushPending();
-      this.partnerLine = {
+      const who = this.speakerOf(msg);
+      // Somebody who already left: nothing to put back on screen.
+      if (this.departed.has(who.id)) return;
+      if (this.speakerLines.get(who.id)?.settled) this.flushPending(who.id);
+      this.setSpeakerLine({
+        speakerId: who.id,
+        name: who.name,
         text,
         original,
-        lang: this.ctx.partner?.lang ?? '',
+        lang: who.lang,
         settled: false,
-      };
+      });
     }
     this.emitCaptions();
   }
@@ -758,19 +859,36 @@ export class LiveConversation {
 
     if (this.isMine(msg)) {
       // My sentence is over: from here the only voice that could reach the microphone is
-      // the partner's translation, so normal echo protection resumes.
+      // the others' translation, so normal echo protection resumes.
       this.guard.setSpeechActive(false);
-      const partnerLang = this.ctx.partner?.lang ?? '';
-      this.flushPending('me');
-      this.pendingMine = this.exchange('me', original, spokenLang || this.opts.myLang, pick(partnerLang), partnerLang);
+      // What they hear: the first of their languages the engine translated this into.
+      const heard = this.ctx.partners.map((p) => p.lang).find((l) => l && pick(l)) ?? this.ctx.partners[0]?.lang ?? '';
+      this.flushPending(ME);
+      this.pending.set(ME, this.exchange('me', original, spokenLang || this.opts.myLang, pick(heard), heard));
       this.mineLine = { text: original, original: '', lang: spokenLang || this.opts.myLang, settled: true };
     } else {
+      const who = this.speakerOf(msg);
       const translated = pick(this.opts.myLang);
-      this.flushPending('partner');
-      this.pendingPartner = this.exchange('partner', original, spokenLang, translated, this.opts.myLang);
-      // No translation into my language (same language, or the engine sent nothing): the
-      // original is the best thing to show rather than a blank card.
-      this.partnerLine = { text: translated || original, original, lang: spokenLang, settled: true };
+      this.flushPending(who.id);
+      const ex = this.exchange('partner', original, spokenLang, translated, this.opts.myLang);
+      ex.speakerId = who.id;
+      ex.speakerName = who.name;
+      this.pending.set(who.id, ex);
+      if (this.departed.has(who.id)) {
+        // Their last words arrived after they left: record them, do not resurrect a caption.
+        this.flushPending(who.id);
+      } else {
+        // No translation into my language (same language, or the engine sent nothing): the
+        // original is the best thing to show rather than a blank card.
+        this.setSpeakerLine({
+          speakerId: who.id,
+          name: who.name,
+          text: translated || original,
+          original,
+          lang: spokenLang,
+          settled: true,
+        });
+      }
     }
     this.emitCaptions();
   }
@@ -786,16 +904,13 @@ export class LiveConversation {
     return { id: this.exchangeId, who, original, originalLang, translated, translatedLang };
   }
 
-  /** Move held sentences into the history. Idempotent; no argument flushes both. */
-  private flushPending(only?: Exchange['who']): void {
+  /** Move held sentences into the history. Idempotent; no argument flushes everybody's. */
+  private flushPending(only?: string): void {
     const out: Exchange[] = [];
-    if (only !== 'me' && this.pendingPartner) {
-      out.push(this.pendingPartner);
-      this.pendingPartner = null;
-    }
-    if (only !== 'partner' && this.pendingMine) {
-      out.push(this.pendingMine);
-      this.pendingMine = null;
+    for (const [key, ex] of [...this.pending]) {
+      if (only !== undefined && key !== only) continue;
+      out.push(ex);
+      this.pending.delete(key);
     }
     if (!out.length) return;
     out.sort((a, b) => a.id - b.id);
@@ -805,7 +920,8 @@ export class LiveConversation {
 
   private emitCaptions(): void {
     this.opts.onCaptions({
-      partner: this.partnerLine,
+      // Most recently active first.
+      others: [...this.speakerLines.values()].reverse(),
       mine: this.mineLine,
       history: this.history,
     });

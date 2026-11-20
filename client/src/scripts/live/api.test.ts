@@ -46,6 +46,21 @@ describe('createSession', () => {
     expect(JSON.parse(String(init?.body))).toEqual({ lang: 'it', save_transcript: true });
   });
 
+  it('sends max_guests when the host chose one, and omits it otherwise (a pair)', async () => {
+    const f = fetcher(res(200, { ...CREATED, max_guests: 3 }));
+    const out = await createSession({ lang: 'it', saveTranscript: false, maxGuests: 3 }, f as never);
+    expect(JSON.parse(String(f.mock.calls[0][1]?.body))).toEqual({ lang: 'it', save_transcript: false, max_guests: 3 });
+    expect(out.ok && out.data.max_guests).toBe(3);
+    const g = fetcher(res(200, CREATED));
+    await createSession({ lang: 'it', saveTranscript: false }, g as never);
+    expect(JSON.parse(String(g.mock.calls[0][1]?.body))).not.toHaveProperty('max_guests');
+  });
+
+  it('surfaces bad_max_guests as a code', async () => {
+    const out = await createSession({ lang: 'it', saveTranscript: false, maxGuests: 9 }, fetcher(res(400, { code: 'bad_max_guests' })) as never);
+    expect(out).toEqual({ ok: false, status: 400, code: 'bad_max_guests' });
+  });
+
   it('never puts the account JWT in the URL', async () => {
     const f = fetcher(res(200, CREATED));
     await createSession({ lang: 'it', saveTranscript: false }, f as never);
@@ -79,6 +94,30 @@ describe('getSession / endSession', () => {
     expect(g.mock.calls[0][0]).toBe('http://api.test/api/live/sessions/s1/end');
     expect(g.mock.calls[0][1]?.method).toBe('POST');
     expect(g.mock.calls[0][1]?.headers).toMatchObject({ Authorization: 'Bearer LIVE-TOKEN' });
+  });
+});
+
+describe('multi-guest answers', () => {
+  it('join returns max_guests, and a guest hang-up in a bigger conversation answers left:true', async () => {
+    const joined = await joinSession(
+      { code: 'C', name: 'G', lang: 'en', consent: true },
+      fetcher(res(200, { session_id: 's', peer_id: 'g', token: 't', ws_path: '/ws/live', host: { name: 'A', lang: 'it' }, max_guests: 3 })) as never,
+    );
+    expect(joined.ok && joined.data.max_guests).toBe(3);
+    const left = await endSession('s', 'T', fetcher(res(200, { ended: false, left: true })) as never);
+    expect(left).toEqual({ ok: true, data: { ended: false, left: true } });
+  });
+
+  it('getSession exposes max_guests and every seat ever taken', async () => {
+    const info = { session: { id: 's', max_guests: 2, participants: [{ peer_id: 'h', role: 'host' }, { peer_id: 'g', role: 'guest' }] }, you: { peer_id: 'h', role: 'host' } };
+    const out = await getSession('s', 'T', fetcher(res(200, info)) as never);
+    expect(out.ok && out.data.session.max_guests).toBe(2);
+    expect(out.ok && out.data.session.participants).toHaveLength(2);
+  });
+
+  it('live_busy at join stays a code, so the page can offer a retry', async () => {
+    const out = await joinSession({ code: 'C', name: 'G', lang: 'en', consent: true }, fetcher(res(503, { code: 'live_busy' })) as never);
+    expect(out).toEqual({ ok: false, status: 503, code: 'live_busy' });
   });
 });
 

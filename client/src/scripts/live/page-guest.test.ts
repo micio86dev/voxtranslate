@@ -119,6 +119,45 @@ describe('join form', () => {
     expect(sessionStorage.getItem(STORAGE_KEY)).not.toContain(CODE);
   });
 
+  it('remembers how many guests the link admits, so leaving is a leave', async () => {
+    api.joinSession.mockResolvedValue({ ok: true, data: { ...JOINED, max_guests: 3 } });
+    await mountLiveGuest();
+    ($('lg-consent') as HTMLInputElement).checked = true;
+    $('lg-join-btn').click();
+    await flush();
+    expect(rooms[0].session).toMatchObject({ maxGuests: 3 });
+    expect(JSON.parse(sessionStorage.getItem(STORAGE_KEY) ?? '{}').maxGuests).toBe(3);
+  });
+
+  it('a later guest refused with live_busy sees a calm try-again message and keeps the form (not a dead end)', async () => {
+    api.joinSession.mockResolvedValue({ ok: false, status: 503, code: 'live_busy' });
+    await mountLiveGuest();
+    setNavigatorLanguage('it-IT');
+    ($('lg-name') as HTMLInputElement).value = 'Marco';
+    ($('lg-consent') as HTMLInputElement).checked = true;
+    $('lg-join-btn').click();
+    await flush();
+    expect($('lg-status').textContent).toBe('All lines are busy right now. Try again in a minute.');
+    expect($('lg-status').getAttribute('role')).toBe('alert');
+    expect($('lg-retry').hidden).toBe(false);
+    expect($('lg-home').hidden).toBe(true);
+    expect($('lg-join').hidden).toBe(false);
+    expect(($('lg-name') as HTMLInputElement).value).toBe('Marco');
+    expect(($('lg-consent') as HTMLInputElement).checked).toBe(true);
+    expect(($('lg-join-btn') as HTMLButtonElement).disabled).toBe(false);
+    expect(sessionStorage.getItem(STORAGE_KEY)).toBeNull();
+  });
+
+  it('a full conversation says so plainly and offers no retry', async () => {
+    api.joinSession.mockResolvedValue({ ok: false, status: 409, code: 'session_full' });
+    await mountLiveGuest();
+    ($('lg-consent') as HTMLInputElement).checked = true;
+    $('lg-join-btn').click();
+    await flush();
+    expect($('lg-status').textContent).toBe('This conversation is full.');
+    expect($('lg-retry').hidden).toBe(true);
+  });
+
   it('ignores a double tap while joining', async () => {
     let finish: (v: unknown) => void = () => {};
     api.joinSession.mockReturnValue(new Promise((r) => (finish = r)));
@@ -147,7 +186,7 @@ describe('join errors: every code gets its own message and a sensible action', (
   const cases: Array<[string, string, 'retry' | 'home' | null]> = [
     ['invite_not_found', 'liveErrInviteNotFound', 'home'],
     ['invite_expired', 'liveErrInviteExpired', 'home'],
-    ['session_full', 'liveErrSessionFull', 'home'],
+    ['session_full', 'liveErrConversationFull', 'home'],
     ['session_ended', 'liveErrSessionEnded', 'home'],
     ['consent_required', 'liveConsentRequired', null],
     ['bad_lang', 'liveErrBadLang', null],
@@ -183,6 +222,24 @@ describe('join errors: every code gets its own message and a sensible action', (
     expect(api.joinSession).toHaveBeenCalledTimes(2);
     expect(rooms).toHaveLength(1);
     expect($('lg-status').hidden).toBe(true);
+  });
+});
+
+describe('reload of a multi-guest session', () => {
+  const STORED = { sessionId: 's9', token: 'T9', role: 'guest', myLang: 'es', myPeerId: 'pg', wsPath: '/ws/live' };
+
+  it('learns the size from the server when the stored copy predates it', async () => {
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(STORED));
+    api.getSession.mockResolvedValue({ ok: true, data: { session: { status: 'active', max_guests: 3 }, you: { role: 'guest' } } });
+    await mountLiveGuest();
+    expect(rooms[0].session).toMatchObject({ maxGuests: 3 });
+  });
+
+  it('keeps what it stored when the server says nothing about size', async () => {
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ ...STORED, maxGuests: 2 }));
+    api.getSession.mockResolvedValue({ ok: true, data: { session: { status: 'active' }, you: { role: 'guest' } } });
+    await mountLiveGuest();
+    expect(rooms[0].session).toMatchObject({ maxGuests: 2 });
   });
 });
 

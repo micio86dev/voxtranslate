@@ -25,6 +25,8 @@ export interface CreatedSession {
   peer_id: string;
   token: string;
   ws_path: string;
+  /** How many guests this invitation admits (1-3). */
+  max_guests?: number;
 }
 
 export interface JoinedSession {
@@ -33,6 +35,8 @@ export interface JoinedSession {
   token: string;
   ws_path: string;
   host: { name: string; lang: string };
+  /** How many guests the conversation admits: with more than one, hanging up only LEAVES it. */
+  max_guests?: number;
 }
 
 export interface SessionParticipant {
@@ -49,6 +53,8 @@ export interface SessionInfo {
     host_lang: string;
     created_at: string;
     expires_at: string;
+    max_guests?: number;
+    /** Every seat ever taken (host first), not who is connected right now. */
     participants: SessionParticipant[];
   };
   you: { peer_id: string; role: 'host' | 'guest' };
@@ -126,13 +132,18 @@ const JSON_HEADERS = { 'Content-Type': 'application/json' };
 
 /** Create a conversation as its (paying) owner. Needs the account JWT. */
 export function createSession(
-  args: { lang: string; saveTranscript: boolean },
+  args: { lang: string; saveTranscript: boolean; maxGuests?: number },
   fetchImpl: Fetch = fetch,
 ): Promise<ApiResult<CreatedSession>> {
   return call<CreatedSession>(fetchImpl, '/api/live/sessions', {
     method: 'POST',
     headers: { ...JSON_HEADERS, ...authHeaders() },
-    body: JSON.stringify({ lang: args.lang, save_transcript: args.saveTranscript }),
+    body: JSON.stringify({
+      lang: args.lang,
+      save_transcript: args.saveTranscript,
+      // Omitted = a pair (1 guest): the server's default, and what every older client sent.
+      ...(args.maxGuests === undefined ? {} : { max_guests: args.maxGuests }),
+    }),
   });
 }
 
@@ -165,7 +176,11 @@ export function getSession(
   });
 }
 
-/** End the conversation for both phones. */
+/**
+ * Hang up. The host's end is the end for everybody. A guest's is too in a pair, but in a
+ * conversation that admits several guests the answer is `{ended:false,left:true}`: they left,
+ * the others carry on.
+ */
 export function endSession(
   sessionId: string,
   liveToken: string,
