@@ -46,6 +46,8 @@ const T = (k: string): string => (en as Record<string, string>)[k] ?? '';
 
         <!-- A business desk is not a personal invitation: the business keeps a TEXT transcript. -->
         <p class="lc-note" id="ld-notice" data-i18n="liveDeskNotice">{T('liveDeskNotice')}</p>
+        <p class="lc-note" data-i18n="aiGeneratedNotice">{T('aiGeneratedNotice')}</p>
+        <p class="lc-note"><a href="/privacy" target="_blank" rel="noopener" data-i18n="privacy">{T('privacy')}</a></p>
 
         <label class="lc-check">
           <input type="checkbox" id="ld-consent" aria-describedby="ld-notice" />

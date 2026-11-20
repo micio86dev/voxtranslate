@@ -57,6 +57,12 @@ describe('buildRoom', () => {
     for (const b of [els.mute, els.end, els.endYes, els.endNo]) expect(b.type).toBe('button');
   });
 
+  it('tells everybody in the room that translations and any translated voice are AI-generated (AI Act art. 50)', () => {
+    const note = els.root.querySelector('.lc-ai-notice');
+    expect(note?.textContent).toBe('Translations, captions and any translated voice are AI-generated and may contain errors.');
+    expect(note?.getAttribute('data-i18n')).toBe('aiGeneratedNotice');
+  });
+
   it('keeps a page heading for assistive tech once the visible one is hidden', () => {
     expect(els.root.querySelector('h1')?.textContent).toBe('Live Connect');
   });

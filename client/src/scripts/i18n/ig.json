@@ -1003,7 +1003,7 @@
   "liveTier": "Ogo nsụgharị",
   "liveTierCost": "site na {rate} / nkeji maka asụsụ ọ bụla",
   "liveTierBusy": "Ọ jupụtara ugbu a. Anyị nwere ike ịga n'ihu na Standard.",
-  "liveTierNeedsBalance": "Chọrọ opekata mpe {amount} n'ọnụ ọgụgụ ego gị.",
+  "liveTierNeedsBalance": "Chọrọ opekata mpe {amount} n'ihe fọdụrụ gị.",
   "liveTierBadge": "Ogo: {tier}",
   "liveTierDowngraded": "{from} jupụtara ugbu a. A na-aga n'ihu na {to}, a na-akwụ ụgwọ na ọnụego {to}.",
   "liveTierDowngradedGuest": "{from} jupụtara ugbu a, ya mere mkparịta ụka a na-aga n'ihu na {to}.",
