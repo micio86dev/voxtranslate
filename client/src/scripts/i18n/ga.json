@@ -969,7 +969,7 @@
   "liveStaffTitle": "Deasca",
   "liveStaffSub": "Fanann custaiméirí a scanann cód QR deisce anseo go dtí go bhfreagraíonn tú.",
   "liveStaffSignIn": "Sínigh isteach chun freagra a thabhairt ar chustaiméirí ag do dheasca.",
-  "liveStaffNoDesks": "Níl aon deasc agat go fóill. Is féidir le riarthóir d'eagraíochta iad a chruthú sa dashboard.",
+  "liveStaffNoDesks": "Níl aon deasc agat go fóill. Is féidir le riarthóir d'eagraíochta iad a chruthú sa phainéal rialaithe.",
   "liveStaffWaitingCount": "Custaiméirí ag fanacht: {n}",
   "liveStaffNobody": "Níl aon duine ag fanacht.",
   "liveStaffWaited": "Ag fanacht {secs} s",
