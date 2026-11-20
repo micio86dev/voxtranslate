@@ -298,6 +298,10 @@ export function buildRoom(doc: Doc, opts: { role: Role; maxGuests?: number }): R
   confirmBtns.append(endNo, endYes);
   confirm.append(confirmText, confirmBtns);
 
+  // AI Act art. 50: whoever hears a translation or a translated voice is told it is AI-generated.
+  // Static and on screen from the first paint, for the host, the guests and the desk staff alike.
+  const aiNotice = i18n(doc, 'p', 'lc-ai-notice', 'aiGeneratedNotice');
+
   live.append(
     status,
     partnersTitle,
@@ -317,6 +321,7 @@ export function buildRoom(doc: Doc, opts: { role: Role; maxGuests?: number }): R
     settings,
     controls,
     confirm,
+    aiNotice,
   );
 
   // --- ended ----------------------------------------------------------------

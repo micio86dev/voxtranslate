@@ -983,7 +983,7 @@
   "liveStaffErrNotFound": "Tábìlì tàbí oníbàárà yìí kò sí fún ọ.",
   "liveStaffErrAuth": "Ìwọlé rẹ ti parí. Tún wọlé láti máa dáhùn àwọn oníbàárà lọ.",
   "liveGuests": "Àwọn àlejò",
-  "liveGuestsHint": "Àlejò tó tó {max} ló lè darapọ̀ pẹ̀lú ìjápọ̀ kan náà, ní èdè èyíkéyìí.",
+  "liveGuestsHint": "Àlejò tí kò ju {max} lọ ló lè darapọ̀ pẹ̀lú ìjápọ̀ kan náà, ní èdè èyíkéyìí.",
   "liveGuestsHintOne": "Àlejò kan lè darapọ̀ pẹ̀lú ìjápọ̀ náà, ní èdè tirẹ̀.",
   "liveErrBadGuests": "Yan láàrín àlejò 1 sí 3.",
   "liveInviteTitleMulti": "Pe àwọn àlejò rẹ",

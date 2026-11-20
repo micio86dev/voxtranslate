@@ -41,6 +41,8 @@ const T = (k: string): string => (en as Record<string, string>)[k] ?? '';
         </label>
 
         <p class="lc-note" id="lg-notice" data-i18n="liveJoinNotice">{T('liveJoinNotice')}</p>
+        <p class="lc-note" data-i18n="aiGeneratedNotice">{T('aiGeneratedNotice')}</p>
+        <p class="lc-note"><a href="/privacy" target="_blank" rel="noopener" data-i18n="privacy">{T('privacy')}</a></p>
 
         <label class="lc-check">
           <input type="checkbox" id="lg-consent" aria-describedby="lg-notice" />

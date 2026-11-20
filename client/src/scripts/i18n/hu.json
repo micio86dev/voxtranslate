@@ -1001,7 +1001,7 @@
   "liveLeft": "Kilépett a beszélgetésből. A többiek folytatják.",
   "liveErrConversationFull": "Ez a beszélgetés megtelt.",
   "liveTier": "Fordítási minőség",
-  "liveTierCost": "{rate} / perctől nyelvenként",
+  "liveTierCost": "már {rate} / perc nyelvenként",
   "liveTierBusy": "Jelenleg foglalt. Lehet, hogy Standard minőségen folytatjuk.",
   "liveTierNeedsBalance": "Legalább {amount} egyenleg szükséges.",
   "liveTierBadge": "Minőség: {tier}",
