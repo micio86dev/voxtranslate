@@ -28,9 +28,10 @@ const LIVE_TABLES: &[&str] = &[
 ];
 
 /// Re-running a migration's DDL takes ACCESS EXCLUSIVE locks table by table; a query that reads
-/// two of those tables in the other order deadlocks with it. Tests that re-run DDL, and the one
-/// that reads the tables the desk-usage refresh touches, take turns.
-static DDL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+/// two of those tables in the other order deadlocks with it (Postgres `40P01`). The tests share one
+/// database inside one process, so: tests that re-run DDL take the WRITE lock, every other test
+/// takes the READ lock, and none of them overlaps a DDL re-run.
+static DDL: tokio::sync::RwLock<()> = tokio::sync::RwLock::const_new(());
 
 async fn setup() -> Option<Pool> {
     let url = db::test_database_url()?;
@@ -92,6 +93,7 @@ fn is_violation(err: &sqlx::Error, code: &str) -> bool {
 
 #[tokio::test]
 async fn live_tables_exist_with_rls_enabled() {
+    let _turn = DDL.read().await; // data tests never overlap a DDL re-run (see `DDL`)
     let Some(pool) = setup().await else {
         eprintln!("skipping — no DATABASE_URL");
         return;
@@ -115,7 +117,7 @@ async fn migration_is_idempotent() {
         eprintln!("skipping — no DATABASE_URL");
         return;
     };
-    let _turn = DDL.lock().await;
+    let _turn = DDL.write().await;
     // `sqlx::migrate!` already applied it once; applying the raw SQL again twice more must
     // be a no-op — the property CLAUDE.md demands of every migration.
     let sql = include_str!("../migrations/065_live_connect.sql");
@@ -129,6 +131,7 @@ async fn migration_is_idempotent() {
 
 #[tokio::test]
 async fn a_session_must_have_an_owner() {
+    let _turn = DDL.read().await; // data tests never overlap a DDL re-run (see `DDL`)
     let Some(pool) = setup().await else {
         eprintln!("skipping — no DATABASE_URL");
         return;
@@ -144,6 +147,7 @@ async fn a_session_must_have_an_owner() {
 
 #[tokio::test]
 async fn status_and_role_vocabularies_are_enforced() {
+    let _turn = DDL.read().await; // data tests never overlap a DDL re-run (see `DDL`)
     let Some(pool) = setup().await else {
         eprintln!("skipping — no DATABASE_URL");
         return;
@@ -166,6 +170,7 @@ async fn status_and_role_vocabularies_are_enforced() {
 
 #[tokio::test]
 async fn a_session_has_one_owner_side_and_the_database_no_longer_caps_guests() {
+    let _turn = DDL.read().await; // data tests never overlap a DDL re-run (see `DDL`)
     let Some(pool) = setup().await else {
         eprintln!("skipping — no DATABASE_URL");
         return;
@@ -196,6 +201,7 @@ async fn a_session_has_one_owner_side_and_the_database_no_longer_caps_guests() {
 
 #[tokio::test]
 async fn a_session_admits_one_to_three_guests_and_existing_sessions_keep_one() {
+    let _turn = DDL.read().await; // data tests never overlap a DDL re-run (see `DDL`)
     let Some(pool) = setup().await else {
         eprintln!("skipping — no DATABASE_URL");
         return;
@@ -235,7 +241,7 @@ async fn the_voice_clone_flag_is_off_for_every_session_and_its_migration_is_reru
         eprintln!("skipping — no DATABASE_URL");
         return;
     };
-    let _turn = DDL.lock().await;
+    let _turn = DDL.write().await;
     let owner = make_user(&pool).await;
     // A session created the way every session was before 070 (no mention of the column).
     let session = make_session(&pool, owner).await;
@@ -294,7 +300,7 @@ async fn the_multi_guest_migration_is_idempotent_and_survives_065_being_run_agai
         eprintln!("skipping — no DATABASE_URL");
         return;
     };
-    let _turn = DDL.lock().await;
+    let _turn = DDL.write().await;
     let owner = make_user(&pool).await;
     let session = make_session(&pool, owner).await;
     for _ in 0..3 {
@@ -337,6 +343,7 @@ async fn the_multi_guest_migration_is_idempotent_and_survives_065_being_run_agai
 
 #[tokio::test]
 async fn a_usage_tick_can_be_written_once() {
+    let _turn = DDL.read().await; // data tests never overlap a DDL re-run (see `DDL`)
     let Some(pool) = setup().await else {
         eprintln!("skipping — no DATABASE_URL");
         return;
@@ -369,6 +376,7 @@ async fn a_usage_tick_can_be_written_once() {
 
 #[tokio::test]
 async fn purging_the_conversation_keeps_the_usage_record() {
+    let _turn = DDL.read().await; // data tests never overlap a DDL re-run (see `DDL`)
     let Some(pool) = setup().await else {
         eprintln!("skipping — no DATABASE_URL");
         return;
@@ -426,6 +434,7 @@ async fn purging_the_conversation_keeps_the_usage_record() {
 
 #[tokio::test]
 async fn desk_public_ids_are_unique_and_status_is_checked() {
+    let _turn = DDL.read().await; // data tests never overlap a DDL re-run (see `DDL`)
     let Some(pool) = setup().await else {
         eprintln!("skipping — no DATABASE_URL");
         return;
@@ -460,6 +469,7 @@ async fn desk_public_ids_are_unique_and_status_is_checked() {
 
 #[tokio::test]
 async fn deleting_a_staff_account_keeps_the_conversations_billing_ticks_and_erases_the_name() {
+    let _turn = DDL.read().await; // data tests never overlap a DDL re-run (see `DDL`)
     let Some(pool) = setup().await else {
         eprintln!("skipping — no DATABASE_URL");
         return;
@@ -536,6 +546,7 @@ async fn deleting_a_staff_account_keeps_the_conversations_billing_ticks_and_eras
 
 #[tokio::test]
 async fn the_events_erasure_depends_on_are_never_dropped_by_the_diagnostics_cap() {
+    let _turn = DDL.read().await; // data tests never overlap a DDL re-run (see `DDL`)
     let Some(pool) = setup().await else {
         eprintln!("skipping — no DATABASE_URL");
         return;
@@ -582,7 +593,7 @@ async fn the_summary_and_desk_usage_migrations_are_idempotent() {
         eprintln!("skipping — no DATABASE_URL");
         return;
     };
-    let _turn = DDL.lock().await;
+    let _turn = DDL.write().await;
     for sql in [
         include_str!("../migrations/067_live_session_summaries.sql"),
         include_str!("../migrations/068_live_usage_by_desk_view.sql"),
@@ -598,6 +609,7 @@ async fn the_summary_and_desk_usage_migrations_are_idempotent() {
 
 #[tokio::test]
 async fn summaries_are_one_per_language_checked_and_follow_the_conversation_and_its_asker() {
+    let _turn = DDL.read().await; // data tests never overlap a DDL re-run (see `DDL`)
     let Some(pool) = setup().await else {
         eprintln!("skipping — no DATABASE_URL");
         return;
@@ -722,6 +734,7 @@ async fn desk_session(
 
 #[tokio::test]
 async fn the_desk_usage_view_sums_org_credits_per_desk_and_day_and_exposes_nothing_personal() {
+    let _turn = DDL.read().await; // data tests never overlap a DDL re-run (see `DDL`)
     let Some(pool) = setup().await else {
         eprintln!("skipping — no DATABASE_URL");
         return;
@@ -833,6 +846,7 @@ async fn the_desk_usage_view_sums_org_credits_per_desk_and_day_and_exposes_nothi
 
 #[tokio::test]
 async fn the_desk_usage_view_does_not_widen_access_beyond_the_tables_under_it() {
+    let _turn = DDL.read().await; // data tests never overlap a DDL re-run (see `DDL`)
     let Some(pool) = setup().await else {
         eprintln!("skipping — no DATABASE_URL");
         return;
@@ -897,7 +911,7 @@ async fn the_rollup_table_follows_the_view_and_a_refresh_changes_only_what_diffe
         eprintln!("skipping — no DATABASE_URL");
         return;
     };
-    let _turn = DDL.lock().await;
+    let _turn = DDL.write().await;
     let owner = make_user(&pool).await;
     let org = make_org(&pool, owner).await;
     let front = make_desk(&pool, org, "Front desk").await;
