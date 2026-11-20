@@ -3,13 +3,14 @@
 Two phones, two microphones, two independent translation streams at the same time.
 Decisions and requirements: [`specs/0121-live-connect/spec.md`](../specs/0121-live-connect/spec.md).
 
-> **Status (2026-11-19): built, in progress, not yet verified on real devices.** Backend (sessions,
+> **Status (2026-11-20): built, live behind `LIVE_CONNECT_ENABLED`, not yet verified on real devices.** Backend (sessions,
 > `/ws/live`, billing, desks, finalisation/search/retention/erasure, dashboard data, admin routes),
 > the client pages, the dashboard area and the Directus setup are implemented and covered by the
 > suites listed in *Testing strategy*. **No real-device run has happened**: two real phones,
-> speaker/Bluetooth combinations, distances and noisy rooms are untested, and the echo defence
-> beyond the browser's own AEC and the client guard is not built (the server `EchoLedger` was
-> deferred until there are measurements, see `odd/tasks/live-connect.md` L5). Hardware support must
+> speaker/Bluetooth combinations, distances and noisy rooms are untested. Beyond the browser's own
+> AEC and the client guard, a server-side **echo filter** (see *Echo filter* below) stops a phone's
+> own voice, picked up by the partner's microphone, from being translated back to it; it was built
+> after a real two-phone test and is verified against the mock engine only. Hardware support must
 > not be claimed until [`live-connect-device-matrix.md`](live-connect-device-matrix.md) has results.
 > The feature stays behind `LIVE_CONNECT_ENABLED` (off by default). This document is updated in the
 > same change as the code it describes.
@@ -87,7 +88,9 @@ See the Live Connect block in `server/.env.example`. The feature is off unless
 error, never a fallback. Two limits against abuse of the public surface are tunable:
 `LIVE_DESK_MAX_WAITING_PER_IP` (default 2: waiting sessions one client address may hold at one
 desk) and `LIVE_AUDIO_MAX_BYTES_PER_SEC` (default 72 000: the microphone budget of one phone, see
-*`/ws/live`*).
+*`/ws/live`*). The echo filter has two knobs, `LIVE_ECHO_FILTER` (default on) and `LIVE_ECHO_SIM`
+(default 0.6, clamped to 0.3-0.95; junk falls back to the default instead of switching the feature
+off), see *Echo filter* below.
 
 ## API
 
@@ -222,6 +225,13 @@ guest is never charged, needs no credit, and never sees the owner's balance (bal
 owner's socket only). There is no new plan, tier or wallet: the meter reuses `billing::deduct_usage_tx`
 and `business::credits::deduct_org_credits_tx`. The backend is the only authority; nothing the client
 reports is trusted.
+
+- **The host watches the spend live.** After every charged tick the owner's socket (and only it) gets
+  `balance_update {balance}` followed by `session_spent {spent}`, the sum of that conversation's
+  user-paid ticks (`live::billing::session_spent`). The host screen shows
+  `Credits left: $X.XXXX · −$Y.YYYY` to **four decimals**, because a tick costs a fraction of a cent
+  and two decimals would look frozen. The cached balance is painted at once, before the first tick.
+  Organisation-paid sessions show no wallet figure (whole credits are not a wallet amount).
 
 - **One meter per phone**, started with that phone's `start` and cancelled by `stop`, mute, or the
   socket closing. Each tick covers `LiveMeter.interval_secs` (`USAGE_UPDATE_INTERVAL`, default 5 s).
@@ -359,7 +369,8 @@ and leaves the events, which this pass then erases.
   so the gate is `engine_has_room` at create/join (`live_busy`, 503). It cannot see sessions that
   have been created but are not speaking yet, so a burst past ~16 pairs shows up as phones that
   never hear a direction, not as `live_busy`. `loadtest/live-connect.js` counts both.
-- Metrics (`/metrics`, unauthenticated aggregate, no ids): `voxtranslate_live_translation_ms`.
+- Metrics (`/metrics`, unauthenticated aggregate, no ids): `voxtranslate_live_translation_ms`,
+  `voxtranslate_live_echo_suppressed_total`, `voxtranslate_live_echo_failopen_total`.
 
 ### Latency measurement *(implemented: `live/ws.rs`, `live/state.rs`, `metrics.rs`)*
 
@@ -385,6 +396,84 @@ many audio chunks answer it.
   Compare against `voxtranslate_qwen_ttfa_ms` (the provider's own time to first audio): the gap is
   room fan-out and the socket writer.
 
+### Echo filter *(implemented: `live/echo.rs`, used by `pump_live` in `live/ws.rs`)*
+
+**Symptom.** Two phones side by side, owner Italian and guest Spanish. The owner's voice also reaches
+the guest's microphone, so the guest's seat opens a session (es to it) that "translates" Italian
+speech it takes for Spanish, and delivers captions and `translated_audio` of it to the owner, who
+hears their own sentence back.
+
+**What the server does.** Every frame destined to a phone passes that seat's `EchoFilter` before the
+socket. It is a pure state machine (no I/O, no clock of its own), written for N seats (a host and up
+to three guests) although a conversation has two today:
+
+1. *Ledger of everyone's words.* The recent ORIGINAL words of every speaker this seat has seen,
+   each entry tagged with its speaker: my own captions (`speaker_id` = this seat), and another
+   speaker's words once their utterance was judged real. The last 8 per speaker within 15 s (an
+   interim updates the open entry, a final closes it).
+2. *Classify each other speaker's utterance*, state kept per speaker (a map bounded to 8; an
+   utterance starts at the first frame after a `subtitle_final`, or after 1.5 s of silence from
+   that speaker). It is an echo when its **`original`** (that speaker's ASR words, never `text`,
+   which is a translation into this phone's language and can share words with a genuine reply) is
+   similar to a recent entry whose speaker is **not** that speaker: word containment with
+   edit-distance tolerance ("ciao come stai" ~ "chao como estai"), or character-trigram Dice,
+   whichever is higher, against each entry and the last two of one speaker joined; at least
+   `LIVE_ECHO_SIM`; and at least two words, or one token of 12+ characters for scripts written without spaces (a lone word such as "si"/"ok"/"gracias" is never
+   suppressed). That covers my own words coming back and, with three or more seats, guest B's
+   microphone hearing guest A and B's session delivering A's words to the host as if B had said them.
+   With no `original` on a cross-language frame the utterance is not judged; when the speaker's
+   language is mine, `text` is the original and is used.
+3. *No added latency normally.* If nobody else spoke for 12 s (no entry of another speaker, no
+   voiced microphone audio of mine), nothing is held. Otherwise a new utterance is held, audio and
+   captions, for at most 700 ms while its first `original` is awaited (each speaker has its own
+   hold and timer); real is released in order, echo is dropped whole (audio, interims, final and the
+   audio that trails the final), and a timeout **fails open**. The buffer is capped at 64 frames per
+   speaker. The pump has a timer branch for the timeout.
+
+**The symmetry trap, and the loudness rule.** Two phones hear the same sentence, so each seat sees
+a similar pair: the owner's seat sees (own caption, the guest's original) and the guest's seat sees
+the mirror image, because the guest's "own caption" is the engine's reading of the owner's voice.
+Judged on text alone both filters would drop the other's frames and the conversation would lose the
+real translation as well. So an utterance is only an echo of Y's words when **Y's microphone is
+clearly louder than the speaker's own** (smoothed mean absolute sample of the audio each socket
+feeds the engine, ratio above 5/4; equal or unknown levels never suppress). Of any two seats at most
+one can be the louder. It also means a seat that is talking holds the other's new utterance until
+its own caption has arrived (still at most 700 ms), because the echo can be heard before this
+seat's caption. Today the pump knows two microphones ("me" and "the other phone"); a conversation
+with more seats needs a per-peer level (`SessionLatency` keeps one pair), which is the only
+piece that does not yet scale: `echo.rs` already asks by speaker id.
+
+**What is verified, and what is not.** Verified: the similarity rules and the state machine (unit
+tests in `echo.rs`), the config knobs, the metric, the diagnostics event, and the whole path through
+the real socket and the mock engine (`tests/live_ws.rs`: the echo never reaches the speaker, the
+other phone still gets the translation, a real reply still gets through, kill switch); the 3-seat cases (guest B hearing guest A, two
+simultaneous real speakers, a reply sharing a few words with someone else) are unit-level. **Not
+verified: anything acoustic or about the real provider.** In particular (a) what Qwen's ASR returns
+for Italian forced as Spanish, how close it is to the real words, and whether it returns
+`original` early enough, (b) the relative loudness of two real phones (browser auto-gain and noise
+suppression can flatten it, in which case the filter fails safe and suppresses nothing), (c) real
+latency of the hold on genuine replies, which grows when speakers alternate quickly (a new
+speaker after somebody else spoke is held until their first `original`, at most 700 ms), and (d) a
+third speaker's echo whose real source's words have not reached the ledger yet leaks (only my own
+caption is awaited). Test with two real devices.
+
+**Tuning and first signals.**
+
+- `LIVE_ECHO_FILTER=0` switches it off with no deploy of code (a restart of the service).
+- `LIVE_ECHO_SIM` (0.3-0.95, default 0.6). Echo still audible: lower it (0.5). Real replies being
+  swallowed: raise it (0.7).
+- `voxtranslate_live_echo_suppressed_total`: utterances dropped. Should rise when the scene above
+  happens, and stay near zero for two phones in different rooms.
+- `voxtranslate_live_echo_failopen_total`: utterances the filter could not judge in 700 ms. A high
+  ratio to suppressed means it is mostly blind (no `original` in time, or never louder): echo will
+  persist and this is the first thing to look at.
+- One `diagnostics` event per conversation per 10 s at most, `{"echo_filter": {"suppressed": n,
+  "failed_open": n}}`. Counts only; no transcript text is ever logged.
+
+**What it does not change.** Persistence and billing are upstream of the pump and untouched. The
+echo utterance is still produced by the guest's engine session, so it is still metered and still
+recorded in `transcript_events` as speech of the guest (the filter only stops its *delivery*).
+
 ### Troubleshooting
 
 Start from the conversation's diagnostics: `SELECT ts, kind, detail FROM live_session_events WHERE
@@ -404,6 +493,7 @@ the dashboard session detail shows the timeline to org admins. For billing, the 
 | One direction is silent | the engine skipped it at capacity, or its upstream session dropped (`audio_session_closed` / `engine_unavailable` frames, retried by the client a few times); check `voxtranslate_qwen_connect_ms` and the server log for `qwen connect failed` |
 | `insufficient_balance` / `insufficient_credits` | the **owner's** balance or the org wallet, not the guest's: top up, or check the org's subscription |
 | Conversation ended on its own | `live_sessions.end_reason`: `balance_exhausted`, `max_duration`, `abandoned` (both phones gone past the grace), `expired`, `desk_revoked`/`desk_regenerated`, `ended_by_admin`, or an `ended_by_*` |
+| The owner hears their own sentence translated back | echo filter: `LIVE_ECHO_FILTER` on? `voxtranslate_live_echo_suppressed_total` vs `..._failopen_total`, then `LIVE_ECHO_SIM` (see *Echo filter*) |
 | One phone's audio is being dropped | `live_session_events` kind `diagnostics` with `audio_dropped{frames,bytes,oversized}`: the client sent audio faster than real time or frames over 16 KiB (a client capturing at 48 kHz instead of 24 kHz would do this; check `LIVE_AUDIO_MAX_BYTES_PER_SEC`) |
 | A phone keeps reconnecting | `slow_consumer` (its outbound queue overflowed: a bad network) or `idle_timeout` (no frame for 45 s); it resumes with the same token inside the grace |
 | A finished conversation is not in search | `transcripts` row present? (`transcript_status = 'ready'` on its latest `call_sessions` row.) No embedding provider or a provider error leaves a transcript without chunks: run `/internal/embeddings/backfill`. A conversation with no speech is never finalised |

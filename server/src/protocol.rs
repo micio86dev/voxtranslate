@@ -354,6 +354,12 @@ pub enum ServerMessage {
     BalanceUpdate {
         balance: f64,
     },
+    /// Live Connect: what this conversation has cost the owner so far, in the owner's wallet
+    /// unit (USD for a personal wallet). Sent only to the owner, right after each
+    /// `balance_update`, so the host can watch the spend grow.
+    SessionSpent {
+        spent: f64,
+    },
     /// Balance fell below the low-balance threshold (warn the speaker once).
     LowBalance {
         balance: f64,
@@ -561,6 +567,9 @@ mod tests {
         assert!(ServerMessage::BalanceUpdate { balance: 1.5 }
             .to_json()
             .contains("\"type\":\"balance_update\""));
+        assert!(ServerMessage::SessionSpent { spent: 0.0123 }
+            .to_json()
+            .contains(r#""type":"session_spent""#));
         assert!(ServerMessage::LowBalance { balance: 0.4 }
             .to_json()
             .contains("\"type\":\"low_balance\""));

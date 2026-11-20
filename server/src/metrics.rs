@@ -92,6 +92,8 @@ static VOIP_RESERVATION_FAILURES: AtomicU64 = AtomicU64::new(0);
 static VOIP_MARGIN_BREACHES: AtomicU64 = AtomicU64::new(0);
 static VOIP_WEBHOOK_REJECTED: AtomicU64 = AtomicU64::new(0);
 static VOIP_WEBHOOK_DUPLICATE: AtomicU64 = AtomicU64::new(0);
+static LIVE_ECHO_SUPPRESSED: AtomicU64 = AtomicU64::new(0);
+static LIVE_ECHO_FAILOPEN: AtomicU64 = AtomicU64::new(0);
 static VOIP_SETUP_SUM: AtomicU64 = AtomicU64::new(0);
 static VOIP_SETUP_COUNT: AtomicU64 = AtomicU64::new(0);
 static VOIP_SETUP_BUCKETS: [AtomicU64; 11] = [const { AtomicU64::new(0) }; 11];
@@ -259,6 +261,20 @@ pub fn record_voip_translation_ms(ms: u64) {
     observe(&VOIP_XLAT_SUM, &VOIP_XLAT_COUNT, &VOIP_XLAT_BUCKETS, ms);
 }
 
+/// One Live Connect utterance dropped by the echo filter: the other phone's microphone heard this
+/// phone's speaker and the engine "translated" it back. No labels: a session or seat id here
+/// would make the series unbounded, and the question it answers is "how often", not "who".
+pub fn record_live_echo_suppressed() {
+    LIVE_ECHO_SUPPRESSED.fetch_add(1, Ordering::Relaxed);
+}
+
+/// One Live Connect utterance the echo filter could not judge within its hold budget and let
+/// through unchanged. A high ratio to the suppressed counter means the filter is mostly blind
+/// (no `original` text arrives in time), which is the first thing to check when echo persists.
+pub fn record_live_echo_failopen() {
+    LIVE_ECHO_FAILOPEN.fetch_add(1, Ordering::Relaxed);
+}
+
 /// Record one Live Connect utterance's speech-to-translated-audio latency (ms), server side.
 pub fn record_live_translation_ms(ms: u64) {
     observe(&LIVE_XLAT_SUM, &LIVE_XLAT_COUNT, &LIVE_XLAT_BUCKETS, ms);
@@ -394,6 +410,8 @@ struct Snapshot {
     voip_margin_breaches: u64,
     voip_webhook_rejected: u64,
     voip_webhook_duplicate: u64,
+    live_echo_suppressed: u64,
+    live_echo_failopen: u64,
     voip_setup_sum: u64,
     voip_setup_count: u64,
     voip_setup_buckets: [u64; 11],
@@ -459,6 +477,8 @@ fn snapshot() -> Snapshot {
         voip_margin_breaches: VOIP_MARGIN_BREACHES.load(Ordering::Relaxed),
         voip_webhook_rejected: VOIP_WEBHOOK_REJECTED.load(Ordering::Relaxed),
         voip_webhook_duplicate: VOIP_WEBHOOK_DUPLICATE.load(Ordering::Relaxed),
+        live_echo_suppressed: LIVE_ECHO_SUPPRESSED.load(Ordering::Relaxed),
+        live_echo_failopen: LIVE_ECHO_FAILOPEN.load(Ordering::Relaxed),
         voip_setup_sum: VOIP_SETUP_SUM.load(Ordering::Relaxed),
         voip_setup_count: VOIP_SETUP_COUNT.load(Ordering::Relaxed),
         voip_setup_buckets: std::array::from_fn(|i| VOIP_SETUP_BUCKETS[i].load(Ordering::Relaxed)),
@@ -703,6 +723,16 @@ fn render_from(s: &Snapshot, active_rooms: u64, active_peers: u64) -> String {
             "Redelivered webhooks absorbed by the idempotency ledger.",
             s.voip_webhook_duplicate,
         ),
+        (
+            "voxtranslate_live_echo_suppressed_total",
+            "Live Connect utterances dropped by the echo filter (one phone's mic heard the other's speaker).",
+            s.live_echo_suppressed,
+        ),
+        (
+            "voxtranslate_live_echo_failopen_total",
+            "Live Connect utterances the echo filter could not judge in time and let through.",
+            s.live_echo_failopen,
+        ),
     ] {
         let _ = writeln!(o, "# HELP {name} {help}");
         let _ = writeln!(o, "# TYPE {name} counter");
@@ -818,6 +848,8 @@ mod tests {
             voip_margin_breaches: 0,
             voip_webhook_rejected: 6,
             voip_webhook_duplicate: 11,
+            live_echo_suppressed: 3,
+            live_echo_failopen: 1,
             voip_setup_sum: 14_000,
             voip_setup_count: 7,
             voip_setup_buckets: [0, 0, 0, 0, 0, 0, 2, 5, 7, 7, 7],
@@ -898,7 +930,9 @@ mod tests {
         // without its TYPE line fails here — a scrape silently drops an untyped series.
         let typed = out.matches("# TYPE ").count();
         let helped = out.matches("# HELP ").count();
-        assert_eq!(typed, 33, "one TYPE line per exported metric");
+        assert!(out.contains("voxtranslate_live_echo_suppressed_total 3"));
+        assert!(out.contains("voxtranslate_live_echo_failopen_total 1"));
+        assert_eq!(typed, 35, "one TYPE line per exported metric");
         assert_eq!(helped, typed, "every metric also carries a HELP line");
     }
 

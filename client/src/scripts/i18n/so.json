@@ -915,7 +915,7 @@
   "liveTheySpeak": "Qofka kale wuxuu ku hadlaa {from}, adigana waxaad ku maqlaysaa {to}",
   "liveYouSpeakOnly": "Adigu waxaad ku hadashaa {from}",
   "liveDirectionWaiting": "Luuqaddooda ayaa soo muuqan doonta marka ay soo biiraan.",
-  "liveSameLanguage": "Labadiinuba waxaad dooratay {lang}, markaa waxba lama tarjumi doono.",
+  "liveSameLanguage": "Labadiinuba waxaad doorateen {lang}, markaa waxba lama tarjumi doono.",
   "liveYouSaid": "Waxaad tidhi",
   "liveEnd": "Dhammee wada hadalka",
   "liveEndConfirm": "Ma dhammeeyaa wada hadalka labadiinaba?",
