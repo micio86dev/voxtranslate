@@ -240,6 +240,8 @@ const COLLECTIONS = {
       host_lang: {},
       save_transcript: {},
       engine_id: {},
+      max_guests: { note: 'Seats for guests on the one invitation (1-3).' },
+      use_voice_clone: { note: 'The host opted in to speak with their cloned voice for this conversation (Enhanced tier only). A flag, never the voice itself.' },
       created_at: {},
       expires_at: {},
       started_at: {},
@@ -312,7 +314,7 @@ const COLLECTIONS = {
 // explicit allow-list: a column added later is hidden until someone lists it).
 const SUPPORT_FIELDS = {
   live_desks: ['id', 'org_id', 'project_id', 'name', 'location_label', 'default_lang', 'languages', 'token_version', 'status', 'created_at', 'revoked_at'],
-  live_sessions: ['id', 'owner_user_id', 'org_id', 'project_id', 'desk_id', 'status', 'host_lang', 'save_transcript', 'engine_id', 'created_at', 'expires_at', 'started_at', 'ended_at', 'end_reason', 'participants', 'events'],
+  live_sessions: ['id', 'owner_user_id', 'org_id', 'project_id', 'desk_id', 'status', 'host_lang', 'save_transcript', 'engine_id', 'max_guests', 'use_voice_clone', 'created_at', 'expires_at', 'started_at', 'ended_at', 'end_reason', 'participants', 'events'],
   // No display_name, no token_hash, no user_id.
   live_participants: ['peer_id', 'session_id', 'role', 'lang', 'consent_at', 'joined_at', 'left_at'],
   // No `detail`.
