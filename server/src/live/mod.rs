@@ -12,6 +12,7 @@ pub mod config;
 pub mod dashboard;
 pub mod desks;
 pub mod echo;
+pub mod enhanced;
 pub mod erase;
 pub mod finalize;
 pub mod routes;

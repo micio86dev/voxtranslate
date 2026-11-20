@@ -235,7 +235,19 @@ pub async fn enhanced_session(State(state): State<AppState>, user: AuthUser) -> 
         }
     };
 
-    Json(serde_json::json!({
+    Json(enhanced_session_body(cartesia, &token, expires_at)).into_response()
+}
+
+/// The JSON the Enhanced client (`client/src/scripts/cartesia.ts`) reads from a token endpoint:
+/// the scoped token plus the public endpoints, models and the instance default voice. Shared by
+/// Meet's `POST /api/sessions/enhanced/session` and Live Connect's token endpoint so both hand
+/// the browser exactly the same shape. Never carries the raw API key.
+pub(crate) fn enhanced_session_body(
+    cartesia: &crate::config::CartesiaConfig,
+    token: &str,
+    expires_at: i64,
+) -> serde_json::Value {
+    serde_json::json!({
         "token": token,
         "expires_at": expires_at,
         "cartesia_version": cartesia.version,
@@ -247,8 +259,7 @@ pub async fn enhanced_session(State(state): State<AppState>, user: AuthUser) -> 
         "tts": { "endpoint": cartesia.tts_endpoint, "model": cartesia.tts_model },
         "voice_cloning_enabled": cartesia.voice_cloning_enabled,
         "default_voice_id": cartesia.default_voice_id,
-    }))
-    .into_response()
+    })
 }
 
 /// Call Cartesia Instant Voice Cloning (server→Cartesia). Forwards the recorded clip as

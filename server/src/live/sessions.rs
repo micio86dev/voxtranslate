@@ -110,6 +110,9 @@ pub struct NewSession<'a> {
     pub engine_id: Option<&'a str>,
     /// How many guests the invitation admits (1..=3). Validated by the caller.
     pub max_guests: i16,
+    /// The host opted, for this conversation only, into the other phones speaking the host's
+    /// words in the host's cloned voice (Enhanced only). Validated by the caller.
+    pub use_voice_clone: bool,
 }
 
 #[derive(Debug)]
@@ -147,6 +150,8 @@ pub struct Joined {
     /// The tier the session runs on (a guest inherits it). `None` is a row that predates tiers:
     /// Standard.
     pub engine_id: Option<String>,
+    /// Whether the host opted into their cloned voice for this conversation (Enhanced only).
+    pub use_voice_clone: bool,
 }
 
 #[derive(Debug)]
@@ -185,6 +190,8 @@ pub struct PeerAuth {
     pub status: String,
     pub save_transcript: bool,
     pub engine_id: Option<String>,
+    /// The host's opt-in to their cloned voice for this conversation.
+    pub use_voice_clone: bool,
     pub created_at: DateTime<Utc>,
 }
 
@@ -243,8 +250,8 @@ pub async fn create_session(
         sqlx::query_as(
             "INSERT INTO live_sessions
                  (owner_user_id, org_id, project_id, status, invite_hash, host_lang,
-                  save_transcript, engine_id, max_guests, expires_at)
-             VALUES ($1, $2, $3, 'waiting', $4, $5, $6, $7, $9,
+                  save_transcript, engine_id, max_guests, use_voice_clone, expires_at)
+             VALUES ($1, $2, $3, 'waiting', $4, $5, $6, $7, $9, $10,
                      now() + make_interval(secs => $8::int))
              RETURNING id, created_at, expires_at",
         )
@@ -257,6 +264,7 @@ pub async fn create_session(
         .bind(new.engine_id)
         .bind(cfg.join_window_secs as i32)
         .bind(new.max_guests)
+        .bind(new.use_voice_clone)
         .fetch_one(&mut *tx)
         .await?;
 
@@ -342,10 +350,11 @@ pub async fn join_guest(
         host_lang: String,
         max_guests: i16,
         engine_id: Option<String>,
+        use_voice_clone: bool,
     }
     let row: Option<Invite> = sqlx::query_as(
         "SELECT id, status, (expires_at <= now()) AS past_expiry, created_at, host_lang,
-                max_guests, engine_id
+                max_guests, engine_id, use_voice_clone
          FROM live_sessions WHERE invite_hash = $1 FOR UPDATE",
     )
     .bind(hash.as_slice())
@@ -359,6 +368,7 @@ pub async fn join_guest(
         host_lang,
         max_guests,
         engine_id,
+        use_voice_clone,
     }) = row
     else {
         return Err(JoinError::NotFound);
@@ -438,6 +448,7 @@ pub async fn join_guest(
         created_at,
         max_guests,
         engine_id,
+        use_voice_clone,
     })
 }
 
@@ -484,6 +495,7 @@ struct PeerRow {
     project_id: Option<Uuid>,
     save_transcript: bool,
     engine_id: Option<String>,
+    use_voice_clone: bool,
     created_at: DateTime<Utc>,
 }
 
@@ -495,7 +507,7 @@ pub async fn authorize_peer(pool: &Pool, claims: &GuestClaims) -> Result<PeerAut
     let row: Option<PeerRow> = sqlx::query_as(
         "SELECT p.role, p.lang, p.display_name, p.user_id, s.status,
                 s.org_id, s.owner_user_id, s.project_id,
-                s.save_transcript, s.engine_id, s.created_at
+                s.save_transcript, s.engine_id, s.use_voice_clone, s.created_at
          FROM live_participants p
          JOIN live_sessions s ON s.id = p.session_id
          WHERE p.peer_id = $1 AND p.session_id = $2
@@ -533,6 +545,7 @@ pub async fn authorize_peer(pool: &Pool, claims: &GuestClaims) -> Result<PeerAut
         status: row.status,
         save_transcript: row.save_transcript,
         engine_id: row.engine_id,
+        use_voice_clone: row.use_voice_clone,
         created_at: row.created_at,
     })
 }
@@ -636,6 +649,9 @@ pub struct SessionView {
     /// The tier every seat of this conversation runs on (`standard` or `gemini_live_translate`).
     /// Follows a capacity fallback: after one it reads `standard`.
     pub engine: String,
+    /// Whether the other phones speak the host's words in the host's cloned voice (Enhanced
+    /// only). Never the voice id itself: that reaches a phone only inside `enhanced_speak`.
+    pub voice_clone: bool,
     pub created_at: DateTime<Utc>,
     pub expires_at: DateTime<Utc>,
     pub participants: Vec<ParticipantView>,
@@ -653,11 +669,12 @@ pub async fn session_view(
         host_lang: String,
         max_guests: i16,
         engine_id: Option<String>,
+        use_voice_clone: bool,
         created_at: DateTime<Utc>,
         expires_at: DateTime<Utc>,
     }
     let head: Option<Head> = sqlx::query_as(
-        "SELECT status, host_lang, max_guests, engine_id, created_at, expires_at
+        "SELECT status, host_lang, max_guests, engine_id, use_voice_clone, created_at, expires_at
          FROM live_sessions WHERE id = $1",
     )
     .bind(session_id)
@@ -668,6 +685,7 @@ pub async fn session_view(
         host_lang,
         max_guests,
         engine_id,
+        use_voice_clone,
         created_at,
         expires_at,
     }) = head
@@ -687,6 +705,7 @@ pub async fn session_view(
         host_lang,
         max_guests,
         engine: effective_engine(engine_id.as_deref()),
+        voice_clone: use_voice_clone,
         created_at,
         expires_at,
         participants: rows

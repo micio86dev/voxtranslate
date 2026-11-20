@@ -28,6 +28,7 @@ use uuid::Uuid;
 
 use super::billing::{EndCause, LiveMeter, LivePayer};
 use super::echo::{EchoConfig, EchoFilter};
+use super::enhanced::{self, EnhancedFrame, FrameGate, Notifier, Pipeline, Segment};
 use super::routes::{api_err, owner_can_afford};
 use super::sessions::{self, PeerAuth};
 use super::state::SessionLatency;
@@ -222,7 +223,9 @@ async fn pump_live(
             msg = rx.recv() => {
                 let now = tokio::time::Instant::now();
                 match msg {
-                    Some(m) if echo.enabled() => {
+                    // Enhanced text mode has no microphone levels: the audio-level filter could only
+                    // hold captions back, so those conversations use the text guard instead.
+                    Some(m) if echo.enabled() && !latency.text_mode() => {
                         echo.note_own_voice(latency.mic_last_voiced(seat));
                         // Every speaker id on a frame is a peer id; each peer has a seat, and each
                         // seat its own smoothed microphone. A speaker whose phone has not
@@ -558,6 +561,10 @@ async fn handle_live_peer(socket: WebSocket, state: AppState, auth: PeerAuth) {
     // This phone's seat for the probes and the echo filter's microphone levels: its own slot, the
     // same one again if it reconnects.
     let seat = latency.seat_for(&peer_id);
+    // Enhanced conversations run on text: no engine session, no audio. Fixed for the socket's
+    // life; the fallback to Standard is read live (see `is_text_mode`).
+    let text_mode = is_text_mode(&state, &auth);
+    latency.set_text_mode(text_mode);
     let echo = EchoFilter::new(
         EchoConfig {
             enabled: state.live.config.echo_filter,
@@ -576,6 +583,59 @@ async fn handle_live_peer(socket: WebSocket, state: AppState, auth: PeerAuth) {
     ));
     // When this phone last sent a frame with speech in it, for the latency probe's onset rule.
     let mut last_voiced: Option<tokio::time::Instant> = None;
+
+    // ---- Enhanced (text) state ---------------------------------------------------------
+    // The translation worker of this phone as a speaker. Segments go in the order they were sent;
+    // the worker is gone when `text_tx` is dropped at teardown.
+    let text_tx = if text_mode {
+        let (tx, rx) = mpsc::channel::<Segment>(enhanced::QUEUE_CAP);
+        // The host's cloned voice goes out only for the host's own words, only when the host
+        // opted into it for THIS conversation, only while cloning is enabled here.
+        let voice_id = match (
+            state.config.cartesia.as_ref(),
+            state.billing.as_ref(),
+            auth.user_id,
+        ) {
+            (Some(c), Some(b), Some(user))
+                if auth.use_voice_clone
+                    && auth.role == PeerRole::Host
+                    && c.voice_cloning_enabled =>
+            {
+                b.get_cartesia_voice_id(user)
+                    .await
+                    .ok()
+                    .flatten()
+                    .filter(|v| !v.is_empty())
+            }
+            _ => None,
+        };
+        tokio::spawn(
+            Pipeline {
+                rooms: state.rooms.clone(),
+                translator: state.translator.clone(),
+                transcripts: transcripts.clone(),
+                latency: latency.clone(),
+                room: room.clone(),
+                speaker_id: peer_id.clone(),
+                speaker_name: auth.display_name.clone(),
+                speaker_lang: auth.lang.clone(),
+                speaker_user_id: auth.user_id,
+                call_session,
+                voice_id,
+                out: out_tx.clone(),
+            }
+            .run(rx),
+        );
+        Some(tx)
+    } else {
+        None
+    };
+    let mut frame_gate = FrameGate::new(tokio::time::Instant::now());
+    let mut enhanced_notice = Notifier::default();
+    let mut told_not_enhanced = false;
+    let mut echo_dropped: u64 = 0;
+    // The meter running is the Enhanced "started" state (there is no engine session to hold it).
+    let mut enhanced_meter = false;
 
     // ---- per-socket state ------------------------------------------------------------
     let mut audio_tx: Option<mpsc::Sender<Vec<u8>>> = None;
@@ -687,10 +747,99 @@ async fn handle_live_peer(socket: WebSocket, state: AppState, auth: PeerAuth) {
                         if text.len() > MAX_FRAME_BYTES {
                             continue;
                         }
+                        // Enhanced's two frames first: Meet's `translate_text` / `enhanced_fallback`
+                        // have other fields and mean nothing here.
+                        if let Some(frame) = EnhancedFrame::parse(&text) {
+                            let still_enhanced = is_text_mode(&state, &auth);
+                            match frame {
+                                EnhancedFrame::TranslateText { segment_id, text: body, is_final, .. } => {
+                                    if !still_enhanced {
+                                        // Standard (or fallen back): nothing translates text here.
+                                        if !std::mem::replace(&mut told_not_enhanced, true) {
+                                            let _ = out_tx.send(ServerMessage::Error {
+                                                message: "this conversation does not use text translation".into(),
+                                                code: Some("enhanced_not_active".into()),
+                                            }.to_json());
+                                        }
+                                        continue;
+                                    }
+                                    // Only a started, unmuted seat speaks.
+                                    if muted || !enhanced_meter {
+                                        continue;
+                                    }
+                                    let body = body.trim();
+                                    if body.is_empty() || !enhanced::valid_segment_id(&segment_id) {
+                                        continue;
+                                    }
+                                    if body.chars().count() > enhanced::MAX_TEXT_CHARS {
+                                        if enhanced_notice.due(tokio::time::Instant::now()) {
+                                            let _ = out_tx.send(ServerMessage::Error {
+                                                message: "text too long".into(),
+                                                code: Some("text_too_long".into()),
+                                            }.to_json());
+                                        }
+                                        continue;
+                                    }
+                                    let now = tokio::time::Instant::now();
+                                    if !frame_gate.admit(now) {
+                                        continue;
+                                    }
+                                    if state.live.config.echo_filter
+                                        && latency.text_echo(seat, &auth.lang, now, body, state.live.config.echo_sim)
+                                    {
+                                        // What another seat sent first: this phone heard it, it did
+                                        // not say it. Counted, never logged, never billed.
+                                        crate::metrics::record_live_echo_suppressed();
+                                        echo_dropped += 1;
+                                        if latency.allow_echo_report(now) {
+                                            let n = std::mem::take(&mut echo_dropped);
+                                            sessions::record_event(&pool, auth.session_id, "diagnostics",
+                                                json!({ "echo_filter": {
+                                                    "suppressed": n, "failed_open": 0, "text": true,
+                                                } })).await;
+                                        }
+                                        continue;
+                                    }
+                                    // Accepted: this is what the meter bills.
+                                    sent.fetch_add(1, Ordering::Relaxed);
+                                    if let Some(tx) = text_tx.as_ref() {
+                                        let seg = Segment { segment_id, text: body.to_string(), is_final };
+                                        if tx.try_send(seg).is_err()
+                                            && enhanced_notice.due(tokio::time::Instant::now())
+                                        {
+                                            let _ = out_tx.send(enhanced::translation_unavailable());
+                                        }
+                                    }
+                                }
+                                EnhancedFrame::Fallback { .. } => {
+                                    // Cartesia is unreachable for this phone (token refused,
+                                    // blocked network). The WHOLE conversation moves to Standard,
+                                    // once: every phone, not just this one, because they all
+                                    // depend on each other's text and speech.
+                                    if still_enhanced {
+                                        downgrade_to_default(&state, &auth, &room,
+                                            crate::engine::CARTESIA_ID, "enhanced_unavailable").await;
+                                    }
+                                    // This phone's Enhanced meter ends now; it re-starts on
+                                    // Standard when the client sends `start` again.
+                                    if enhanced_meter {
+                                        enhanced_meter = false;
+                                        if let Some(c) = meter_cancel.take() { let _ = c.send(()); }
+                                    }
+                                }
+                            }
+                            continue;
+                        }
                         let Ok(cmd) = serde_json::from_str::<ClientMessage>(&text) else { continue };
                         match cmd {
                             ClientMessage::Start => {
-                                if audio_tx.is_some() {
+                                // A phone whose Enhanced meter outlived the fallback starts again
+                                // on the tier that now serves it.
+                                if enhanced_meter && !is_text_mode(&state, &auth) {
+                                    enhanced_meter = false;
+                                    if let Some(c) = meter_cancel.take() { let _ = c.send(()); }
+                                }
+                                if audio_tx.is_some() || meter_cancel.is_some() {
                                     continue; // already speaking: Start is idempotent
                                 }
                                 last_voiced = None;
@@ -699,7 +848,8 @@ async fn handle_live_peer(socket: WebSocket, state: AppState, auth: PeerAuth) {
                                     &mut usage_session).await
                                 {
                                     Ok((tx, cancel)) => {
-                                        audio_tx = Some(tx);
+                                        enhanced_meter = tx.is_none();
+                                        audio_tx = tx;
                                         meter_cancel = Some(cancel);
                                     }
                                     Err(code) => {
@@ -712,6 +862,7 @@ async fn handle_live_peer(socket: WebSocket, state: AppState, auth: PeerAuth) {
                             }
                             ClientMessage::Stop => {
                                 audio_tx = None;
+                                enhanced_meter = false;
                                 if let Some(c) = meter_cancel.take() { let _ = c.send(()); }
                             }
                             ClientMessage::MuteAudio { muted: m } => {
@@ -774,6 +925,13 @@ async fn handle_live_peer(socket: WebSocket, state: AppState, auth: PeerAuth) {
             }
 
             _ = status_check.tick() => {
+                // The conversation fell back to Standard while this phone's Enhanced meter was
+                // running (another seat asked for it): stop billing at the Enhanced rate. The
+                // client re-starts on Standard when it sees `engine_downgraded`.
+                if enhanced_meter && !is_text_mode(&state, &auth) {
+                    enhanced_meter = false;
+                    if let Some(c) = meter_cancel.take() { let _ = c.send(()); }
+                }
                 if Utc::now() - auth.created_at >= ceiling
                     && matches!(sessions::end_session(&pool, auth.session_id, "max_duration").await, Ok(true))
                 {
@@ -799,6 +957,7 @@ async fn handle_live_peer(socket: WebSocket, state: AppState, auth: PeerAuth) {
     // ---- teardown --------------------------------------------------------------------
     state.live.clear_owner(auth.session_id, conn);
     drop(audio_tx);
+    drop(text_tx);
     if let Some(c) = meter_cancel.take() {
         let _ = c.send(());
     }
@@ -854,8 +1013,21 @@ fn session_engine(state: &AppState, auth: &PeerAuth) -> Arc<dyn crate::engine::T
     )
 }
 
-/// Move the whole conversation from `from` to the default engine because `from` is at capacity,
-/// and say so. Returns the engine to retry on.
+/// Whether this conversation runs on Enhanced text right now: it was created on `cartesia`, the
+/// tier is still registered, and no seat has asked for the fallback yet. Read live (the fallback
+/// is a process-wide fact every seat sees), not cached on the socket.
+fn is_text_mode(state: &AppState, auth: &PeerAuth) -> bool {
+    tiers::is_enhanced(
+        &state.engines,
+        auth.engine_id.as_deref(),
+        state.live.is_downgraded(auth.session_id),
+    )
+}
+
+/// Move the whole conversation from `from` to the default engine and say so. Returns the engine
+/// to retry on. `reason` is the machine code the clients word their notice with:
+/// `premium_at_capacity` (Premium has no free upstream session) or `enhanced_unavailable` (a phone
+/// cannot reach Cartesia).
 ///
 /// Every seat that starts speaking afterwards uses the default too (the override is shared), the
 /// stored tier follows so a reconnect agrees, and the room gets the same `engine_downgraded` frame
@@ -867,10 +1039,13 @@ async fn downgrade_to_default(
     auth: &PeerAuth,
     room: &str,
     from: &str,
+    reason: &str,
 ) -> Arc<dyn crate::engine::TranslationEngine> {
     let fallback = state.engines.default();
     let to = fallback.metadata().id.clone();
     if state.live.downgrade_session(auth.session_id) {
+        // From here every seat is on the default engine: the audio-level echo filter applies again.
+        state.live.latency_for(auth.session_id).set_text_mode(false);
         if let Some(pool) = state.pool.as_ref() {
             if let Err(e) = sessions::set_engine(pool, auth.session_id, &to).await {
                 tracing::warn!(session = %auth.session_id, error = %e, "live: could not store the fallback tier");
@@ -879,7 +1054,7 @@ async fn downgrade_to_default(
                 pool,
                 auth.session_id,
                 "engine_downgraded",
-                json!({ "from": from, "to": to, "reason": "premium_at_capacity", "peer": auth.peer_id }),
+                json!({ "from": from, "to": to, "reason": reason, "peer": auth.peer_id }),
             )
             .await;
         }
@@ -889,7 +1064,7 @@ async fn downgrade_to_default(
                 peer_id: auth.peer_id.to_string(),
                 from: from.to_string(),
                 to,
-                reason: "premium_at_capacity".to_string(),
+                reason: reason.to_string(),
             }
             .to_json(),
         );
@@ -902,6 +1077,10 @@ async fn downgrade_to_default(
 /// Returns the audio sender and the meter's cancel handle, or a stable error code for the
 /// client. Nothing is started unless somebody is paying: a conversation that cannot be metered
 /// does not get free translation.
+///
+/// On Enhanced there is no engine session and no audio: the sender is `None` and the meter alone
+/// is the "started" state, billing at the Enhanced rate for the `translate_text` frames the socket
+/// accepts.
 #[allow(clippy::too_many_arguments)] // one cohesive start-of-speech context
 async fn start_speaking(
     state: &AppState,
@@ -913,12 +1092,21 @@ async fn start_speaking(
     end_tx: &mpsc::UnboundedSender<EndCause>,
     sent: &Arc<AtomicU64>,
     usage_session: &mut Option<Uuid>,
-) -> Result<(mpsc::Sender<Vec<u8>>, oneshot::Sender<()>), &'static str> {
+) -> Result<(Option<mpsc::Sender<Vec<u8>>>, oneshot::Sender<()>), &'static str> {
     let pool = state.pool.as_ref().ok_or("unavailable")?;
     let billing = state.billing.as_ref().ok_or("billing_unavailable")?;
     // Resolved per Start, not per socket: a seat that connected before the conversation fell
     // back to the default must not start on the tier that just ran out.
-    let mut engine = session_engine(state, auth);
+    let text_mode = is_text_mode(state, auth);
+    let mut engine = if text_mode {
+        // Enhanced: the metadata-only engine supplies the rate and the usage row's tier.
+        state
+            .engines
+            .get(crate::engine::CARTESIA_ID)
+            .ok_or("unavailable")?
+    } else {
+        session_engine(state, auth)
+    };
 
     // Who pays, checked again NOW: the balance may have moved since the session was created.
     let payer = match (auth.org_id, auth.owner_user_id) {
@@ -963,53 +1151,58 @@ async fn start_speaking(
         .ok_or("billing_unavailable")?
         .pricing;
 
-    let build_ctx = || SpeakerCtx {
-        room: room.to_string(),
-        speaker_id: auth.peer_id.to_string(),
-        speaker_name: auth.display_name.clone(),
-        speaker_lang: auth.lang.clone(),
-        session_id: call_session,
-        speaker_user_id: auth.user_id,
-        glossary: None,
-        segmentation: None,
+    let audio_tx = if text_mode {
+        None
+    } else {
+        let build_ctx = || SpeakerCtx {
+            room: room.to_string(),
+            speaker_id: auth.peer_id.to_string(),
+            speaker_name: auth.display_name.clone(),
+            speaker_lang: auth.lang.clone(),
+            session_id: call_session,
+            speaker_user_id: auth.user_id,
+            glossary: None,
+            segmentation: None,
+        };
+        let build_deps = || SessionDeps {
+            rooms: state.rooms.clone(),
+            moderator: state.moderator.clone(),
+            transcripts: transcripts.clone(),
+            participant_row,
+            listener_pays: false,
+            translator: state.translator.clone(),
+            transcript_writer: TranscriptWriter::default(),
+        };
+        let mut outcome = engine.start_session(build_ctx(), build_deps()).await;
+        // Capacity fallback (spec 0094, as Meet does it, but for the whole conversation): the tier
+        // has no free upstream session, so everybody moves to the default engine and translation
+        // never stops. The default never reports `AtCapacity` (it skips what it cannot start), so a
+        // fallback never reaches the client as `live_busy`; the default itself at capacity does, as
+        // it always has.
+        if matches!(outcome, SessionOutcome::AtCapacity)
+            && engine.metadata().id != state.engines.default().metadata().id
+        {
+            let from = engine.metadata().id.clone();
+            engine = downgrade_to_default(state, auth, room, &from, "premium_at_capacity").await;
+            outcome = engine.start_session(build_ctx(), build_deps()).await;
+        }
+        let audio_tx = match outcome {
+            SessionOutcome::Started(tx) => tx,
+            SessionOutcome::AtCapacity => return Err("live_busy"),
+            SessionOutcome::Failed => return Err("engine_unavailable"),
+        };
+        // The usage row was tagged before we knew who would serve; keep it honest.
+        if let Some(usage) = usage_session.as_ref() {
+            let _ = sqlx::query(
+                "UPDATE usage_sessions SET engine_id = $2 WHERE id = $1 AND engine_id IS DISTINCT FROM $2",
+            )
+            .bind(*usage)
+            .bind(engine.metadata().id.as_str())
+            .execute(pool)
+            .await;
+        }
+        Some(audio_tx)
     };
-    let build_deps = || SessionDeps {
-        rooms: state.rooms.clone(),
-        moderator: state.moderator.clone(),
-        transcripts: transcripts.clone(),
-        participant_row,
-        listener_pays: false,
-        translator: state.translator.clone(),
-        transcript_writer: TranscriptWriter::default(),
-    };
-    let mut outcome = engine.start_session(build_ctx(), build_deps()).await;
-    // Capacity fallback (spec 0094, as Meet does it, but for the whole conversation): the tier
-    // has no free upstream session, so everybody moves to the default engine and translation
-    // never stops. The default never reports `AtCapacity` (it skips what it cannot start), so a
-    // fallback never reaches the client as `live_busy`; the default itself at capacity does, as
-    // it always has.
-    if matches!(outcome, SessionOutcome::AtCapacity)
-        && engine.metadata().id != state.engines.default().metadata().id
-    {
-        let from = engine.metadata().id.clone();
-        engine = downgrade_to_default(state, auth, room, &from).await;
-        outcome = engine.start_session(build_ctx(), build_deps()).await;
-    }
-    let audio_tx = match outcome {
-        SessionOutcome::Started(tx) => tx,
-        SessionOutcome::AtCapacity => return Err("live_busy"),
-        SessionOutcome::Failed => return Err("engine_unavailable"),
-    };
-    // The usage row was tagged before we knew who would serve; keep it honest.
-    if let Some(usage) = usage_session.as_ref() {
-        let _ = sqlx::query(
-            "UPDATE usage_sessions SET engine_id = $2 WHERE id = $1 AND engine_id IS DISTINCT FROM $2",
-        )
-        .bind(*usage)
-        .bind(engine.metadata().id.as_str())
-        .execute(pool)
-        .await;
-    }
 
     // Nobody translates for free: the meter is part of starting, not an afterthought. Balance
     // updates reach the owner's phone only — the guest never sees someone else's money.

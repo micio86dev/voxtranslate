@@ -156,7 +156,7 @@ fn fold(c: char) -> char {
 /// Enough text to judge: two words, or one very long token (scripts written without spaces give
 /// a whole sentence as one token). A lone word, however long in Latin script ("gracias"), is never
 /// judged: a real one-word reply must not be taken for an echo.
-fn enough(norm: &str) -> bool {
+pub fn enough(norm: &str) -> bool {
     norm.split_whitespace().nth(1).is_some() || norm.chars().count() >= ENOUGH_ONE_TOKEN
 }
 

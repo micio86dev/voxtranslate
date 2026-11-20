@@ -44,6 +44,13 @@ pub struct SessionLatency {
     mic_voiced_at: [AtomicU64; MAX_SEATS],
     /// When the echo filter last wrote a diagnostics event for this conversation.
     echo_report_at: AtomicU64,
+    /// The conversation runs on Enhanced (phones send text, no audio reaches the server). Set by
+    /// the sockets when they connect and cleared on the whole-session fallback; the outbound pump
+    /// reads it to skip the audio-level echo filter, which has no microphone levels to work with
+    /// and could only delay captions, in favour of the text-level guard in `enhanced`.
+    text_mode: std::sync::atomic::AtomicBool,
+    /// What each seat recently sent as text (Enhanced), for the text-level echo guard.
+    text_log: Mutex<super::enhanced::TextLog>,
 }
 
 /// A microphone level nobody refreshed for this long is silence, not "the last thing it heard".
@@ -66,6 +73,8 @@ impl SessionLatency {
             mic_level_at: std::array::from_fn(|_| AtomicU64::new(0)),
             mic_voiced_at: std::array::from_fn(|_| AtomicU64::new(0)),
             echo_report_at: AtomicU64::new(0),
+            text_mode: std::sync::atomic::AtomicBool::new(false),
+            text_log: Mutex::new(super::enhanced::TextLog::default()),
         }
     }
 
@@ -73,6 +82,41 @@ impl SessionLatency {
     #[cfg(test)]
     pub(crate) fn new_for_test() -> Self {
         Self::new()
+    }
+
+    /// Mark the conversation as running (or no longer running) on Enhanced text.
+    pub fn set_text_mode(&self, on: bool) {
+        self.text_mode.store(on, Ordering::Relaxed);
+    }
+
+    /// Whether the conversation currently runs on Enhanced text.
+    pub fn text_mode(&self) -> bool {
+        self.text_mode.load(Ordering::Relaxed)
+    }
+
+    /// Judge one text frame from `seat` (declared language `lang`) against what the OTHER seats
+    /// sent in the last few seconds and what was last spoken to its language, and, unless it is an
+    /// echo, remember it. `true` means "echo: drop it".
+    pub fn text_echo(
+        &self,
+        seat: usize,
+        lang: &str,
+        now: tokio::time::Instant,
+        text: &str,
+        sim: f64,
+    ) -> bool {
+        self.text_log
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .judge(seat % MAX_SEATS, lang, now, text, sim)
+    }
+
+    /// `text` was just sent to the phones of language `lang` to be spoken by their TTS.
+    pub fn note_spoken(&self, lang: &str, now: tokio::time::Instant, text: &str) {
+        self.text_log
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .note_spoken(lang, now, text);
     }
 
     /// The seat of `peer`: the slot it already holds, else the first free one. Called once per

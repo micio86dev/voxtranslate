@@ -1,5 +1,5 @@
-//! Schema guarantees for Live Connect (spec 0121), migrations `065_live_connect.sql` and
-//! `069_live_multi_guest.sql`.
+//! Schema guarantees for Live Connect (spec 0121), migrations `065_live_connect.sql`,
+//! `069_live_multi_guest.sql` and `070_live_voice_clone.sql`.
 //!
 //! The properties that matter are the ones the application leans on and would otherwise
 //! have to re-check in Rust: a session always has an owner, a session has one owner-side seat
@@ -227,6 +227,65 @@ async fn a_session_admits_one_to_three_guests_and_existing_sessions_keep_one() {
             .expect_err("outside 1..=3");
         assert!(is_violation(&err, "23514"), "{bad}: {err:?}");
     }
+}
+
+#[tokio::test]
+async fn the_voice_clone_flag_is_off_for_every_session_and_its_migration_is_rerunnable() {
+    let Some(pool) = setup().await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    let _turn = DDL.lock().await;
+    let owner = make_user(&pool).await;
+    // A session created the way every session was before 070 (no mention of the column).
+    let session = make_session(&pool, owner).await;
+    let flag: bool = sqlx::query_scalar("SELECT use_voice_clone FROM live_sessions WHERE id = $1")
+        .bind(session)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert!(
+        !flag,
+        "a clone is only ever used when the host asked for it"
+    );
+    // Not nullable: "unknown" must not read as "yes".
+    let nullable: String = sqlx::query_scalar(
+        "SELECT is_nullable FROM information_schema.columns
+         WHERE table_name = 'live_sessions' AND column_name = 'use_voice_clone'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(nullable, "NO");
+
+    // Twice more, over a row that already says yes: nothing fails and nothing is reset.
+    sqlx::query("UPDATE live_sessions SET use_voice_clone = true WHERE id = $1")
+        .bind(session)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let m070 = include_str!("../migrations/070_live_voice_clone.sql");
+    for _ in 0..2 {
+        sqlx::raw_sql(m070)
+            .execute(&pool)
+            .await
+            .expect("070 must be re-runnable");
+    }
+    let flag: bool = sqlx::query_scalar("SELECT use_voice_clone FROM live_sessions WHERE id = $1")
+        .bind(session)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert!(flag);
+    // No voice material is stored with a conversation or a seat: only the host's opt-in.
+    let cols: Vec<String> = sqlx::query_scalar(
+        "SELECT column_name FROM information_schema.columns
+         WHERE table_name IN ('live_sessions', 'live_participants') AND column_name LIKE '%voice%'",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(cols, ["use_voice_clone"]);
 }
 
 #[tokio::test]

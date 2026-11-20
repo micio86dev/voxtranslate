@@ -1238,8 +1238,9 @@ async fn a_tier_that_cannot_serve_a_conversation_is_refused_with_a_stable_code()
     });
     let (jwt, uid) = login(&srv, "Marco").await;
     for (engine, code) in [
-        // Enhanced is client-direct: no server engine can serve it yet.
-        ("cartesia", "engine_not_supported_yet"),
+        // Enhanced is refused like any unknown tier when this deployment does not have it
+        // (`CARTESIA_ENHANCED` off); with it on it is accepted, see `live_enhanced.rs`.
+        ("cartesia", "engine_not_available"),
         // The Pro tier's id, an unknown id, a blank and a wrong-case id are not Live Connect tiers.
         ("premium", "engine_not_available"),
         ("nope", "engine_not_available"),

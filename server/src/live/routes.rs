@@ -13,6 +13,7 @@
 //! `session_full` is a different screen from `invite_expired`.
 #![allow(clippy::result_large_err)]
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use axum::extract::{FromRequestParts, Path, State};
@@ -31,7 +32,7 @@ use super::tiers;
 use super::tokens::{self, GuestClaims, PeerRole};
 use crate::billing::usd;
 use crate::business::{db_err, require_pool, require_role, ws_gate, MEMBER};
-use crate::engine::TranslationEngine;
+use crate::engine::{TranslationEngine, CARTESIA_ID, GEMINI_ID, STANDARD_ID};
 use crate::middleware::AuthUser;
 use crate::AppState;
 
@@ -45,6 +46,10 @@ pub fn routes() -> Router<AppState> {
         .route("/api/live/join", post(join))
         .route("/api/live/sessions/{id}", get(get_session))
         .route("/api/live/sessions/{id}/end", post(end))
+        .route(
+            "/api/live/sessions/{id}/enhanced/session",
+            post(super::enhanced::token),
+        )
         .route(WS_PATH, get(super::ws::ws_live))
         .merge(super::desks::routes())
         .merge(super::dashboard::routes())
@@ -168,7 +173,7 @@ impl FromRequestParts<AppState> for LiveAuth {
 }
 
 /// The token must name the session in the path, and the seat must still be open.
-async fn authorize(
+pub(super) async fn authorize(
     state: &AppState,
     claims: &GuestClaims,
     path_id: Uuid,
@@ -209,12 +214,31 @@ pub struct CreateBody {
     /// answers the same stable `bad_max_guests` as any other bad value, not a framework 422.
     #[serde(default)]
     pub max_guests: Option<serde_json::Value>,
-    /// The translation tier every seat of this conversation runs on: `standard` (default) or
-    /// `gemini_live_translate` (Premium). Enhanced (`cartesia`) answers
-    /// `engine_not_supported_yet`; anything else `engine_not_available`. A business conversation
-    /// is Standard only. See [`tiers`].
+    /// The translation tier every seat of this conversation runs on: `standard` (default),
+    /// `gemini_live_translate` (Premium) or `cartesia` (Enhanced, when this deployment has it).
+    /// Anything else answers `engine_not_available`; a business conversation is Standard only
+    /// (`engine_not_allowed`). See [`tiers`].
     #[serde(default)]
     pub engine: Option<String>,
+    /// Enhanced only: speak the host's words on the other phones in the host's own cloned voice
+    /// (`users.cartesia_voice_id`). Off unless asked for, per conversation. Needs `engine:
+    /// "cartesia"`, cloning enabled on this deployment and a clone on the host's account, else
+    /// `voice_clone_unavailable`. Raw JSON so a non-boolean answers `bad_voice_clone`.
+    #[serde(default)]
+    pub voice_clone: Option<serde_json::Value>,
+}
+
+/// The validated `voice_clone` flag of a create request (absent is off).
+fn parse_voice_clone(raw: Option<&serde_json::Value>) -> Result<bool, Response> {
+    match raw {
+        None | Some(serde_json::Value::Null) => Ok(false),
+        Some(serde_json::Value::Bool(b)) => Ok(*b),
+        Some(_) => Err(api_err(
+            StatusCode::BAD_REQUEST,
+            "bad_voice_clone",
+            "voice_clone must be true or false",
+        )),
+    }
 }
 
 /// The validated guest count of a create request.
@@ -251,6 +275,7 @@ pub async fn create(
     })?;
 
     let max_guests = parse_max_guests(body.max_guests.as_ref(), cfg.max_guests)?;
+    let want_clone = parse_voice_clone(body.voice_clone.as_ref())?;
     let engine_id = tiers::choose(
         &state.engines,
         body.engine.as_deref(),
@@ -275,6 +300,37 @@ pub async fn create(
     }
     if !engine_has_room_for(&*engine) {
         return Err(busy());
+    }
+    // The host's cloned voice is used for THIS conversation only when they asked for it, on the
+    // tier that can play it, and have one. Checked here, once, so a conversation never starts with
+    // a voice flag nothing can honour.
+    let unavailable = || {
+        api_err(
+            StatusCode::BAD_REQUEST,
+            "voice_clone_unavailable",
+            "a cloned voice is not available for this conversation",
+        )
+    };
+    if want_clone {
+        let cloning = state
+            .config
+            .cartesia
+            .as_ref()
+            .is_some_and(|c| c.voice_cloning_enabled);
+        if engine_id != crate::engine::CARTESIA_ID || !cloning {
+            return Err(unavailable());
+        }
+        let has_clone = match state.billing.as_ref() {
+            Some(b) => b
+                .get_cartesia_voice_id(user.user_id)
+                .await
+                .map_err(db_err)?
+                .is_some_and(|v| !v.is_empty()),
+            None => false,
+        };
+        if !has_clone {
+            return Err(unavailable());
+        }
     }
 
     let owner = match body.org_id {
@@ -347,6 +403,7 @@ pub async fn create(
             save_transcript,
             engine_id: Some(&engine_id),
             max_guests,
+            use_voice_clone: want_clone,
         },
     )
     .await
@@ -365,7 +422,12 @@ pub async fn create(
         pool,
         created.session_id,
         "created",
-        json!({ "b2b": body.org_id.is_some(), "max_guests": max_guests, "engine": engine_id }),
+        json!({
+            "b2b": body.org_id.is_some(),
+            "max_guests": max_guests,
+            "engine": engine_id,
+            "voice_clone": want_clone,
+        }),
     )
     .await;
 
@@ -385,6 +447,7 @@ pub async fn create(
         "ws_path": WS_PATH,
         "max_guests": max_guests,
         "engine": engine_id,
+        "voice_clone": want_clone,
     }))
     .into_response())
 }
@@ -398,37 +461,71 @@ pub async fn create(
 /// deployment has enabled (Premium needs its flag and key). `available` is a capacity hint, not
 /// a promise: a tier that reports `false` would be refused `live_busy` right now. Every Live
 /// Connect tier bills per distinct target language, whatever its own metadata says.
-pub async fn engines(State(state): State<AppState>, _user: AuthUser) -> Response {
-    let list: Vec<serde_json::Value> = tiers::SELECTABLE
-        .iter()
-        .filter_map(|id| state.engines.get(id))
-        .map(|e| {
-            let m = e.metadata();
-            let room = engine_has_room_for(&*e);
-            let min_balance = min_balance_for(&state, &*e).or_else(|| {
-                state
-                    .config
-                    .billing
-                    .as_ref()
-                    .map(|b| b.pricing.min_balance_to_join)
+///
+/// Enhanced (`cartesia`) is listed between Standard and Premium when registered, `client_direct`,
+/// with a `voice_clone` object for THIS user: whether cloning is enabled here and whether their
+/// account has a clone (`available` is both). The clone id itself is never listed.
+pub async fn engines(State(state): State<AppState>, user: AuthUser) -> Response {
+    let describe = |e: &Arc<dyn TranslationEngine>| {
+        let m = e.metadata();
+        let room = engine_has_room_for(&**e);
+        let min_balance = min_balance_for(&state, &**e).or_else(|| {
+            state
+                .config
+                .billing
+                .as_ref()
+                .map(|b| b.pricing.min_balance_to_join)
+        });
+        let mut v = json!({
+            "id": m.id,
+            "display_name": m.display_name,
+            "tier": m.tier,
+            "description": m.description,
+            "rate_per_minute": m.user_rate_per_minute(),
+            "min_balance": min_balance,
+            "available": room,
+            "scales_per_language": true,
+            "client_direct": m.capabilities.client_direct,
+        });
+        if !room {
+            v["reason"] = json!("at_capacity");
+        }
+        v
+    };
+    let mut list: Vec<serde_json::Value> = Vec::new();
+    // Display order: Standard, Enhanced, Premium (the registry's own order).
+    for id in [STANDARD_ID, CARTESIA_ID, GEMINI_ID] {
+        let Some(e) = state.engines.get(id) else {
+            continue;
+        };
+        let mut v = describe(&e);
+        if id == CARTESIA_ID {
+            // The host's own cloned voice, for THIS user: whether the deployment allows cloning
+            // and whether their account has a clone. `available` is both.
+            let cloning = state
+                .config
+                .cartesia
+                .as_ref()
+                .is_some_and(|c| c.voice_cloning_enabled);
+            let has_clone = match state.billing.as_ref() {
+                Some(b) => b
+                    .get_cartesia_voice_id(user.user_id)
+                    .await
+                    .ok()
+                    .flatten()
+                    .is_some_and(|v| !v.is_empty()),
+                None => false,
+            };
+            v["voice_clone"] = json!({
+                "available": cloning && has_clone,
+                "cloning_enabled": cloning,
+                "has_clone": has_clone,
             });
-            let mut v = json!({
-                "id": m.id,
-                "display_name": m.display_name,
-                "tier": m.tier,
-                "description": m.description,
-                "rate_per_minute": m.user_rate_per_minute(),
-                "min_balance": min_balance,
-                "available": room,
-                "scales_per_language": true,
-                "client_direct": false,
-            });
-            if !room {
-                v["reason"] = json!("at_capacity");
-            }
-            v
-        })
-        .collect();
+        } else if !tiers::SELECTABLE.contains(&id) {
+            continue;
+        }
+        list.push(v);
+    }
     Json(json!({ "default": tiers::DEFAULT_TIER, "engines": list })).into_response()
 }
 
@@ -489,7 +586,7 @@ pub async fn join(
     let stored = sessions::engine_for_invite(pool, &body.code)
         .await
         .flatten();
-    let engine = tiers::resolve(&state.engines, stored.as_deref(), false);
+    let engine = tiers::capacity_engine(&state.engines, stored.as_deref(), false);
     if !engine_has_room_for(&*engine) {
         return Err(busy());
     }
@@ -548,6 +645,7 @@ pub async fn join(
         "host": { "name": joined.host_name, "lang": joined.host_lang },
         "max_guests": joined.max_guests,
         "engine": sessions::effective_engine(joined.engine_id.as_deref()),
+        "voice_clone": joined.use_voice_clone,
     }))
     .into_response())
 }

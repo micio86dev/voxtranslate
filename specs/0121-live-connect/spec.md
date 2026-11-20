@@ -51,8 +51,8 @@ What the audit (2026-11-19, branch `develop`) established and this spec relies o
 
 **Non-Goals**
 - WebRTC audio between the phones (the server must receive each microphone regardless).
-- The Enhanced (Cartesia, client-direct) engine as a server-served tier: it cannot serve guests by itself
-  (the host asking for it is refused `engine_not_supported_yet`; a client-direct path is a later unit).
+- The Enhanced (Cartesia, client-direct) engine as a *server-served* tier: the server never proxies its
+  audio. It is served client-direct instead (R17): speaker-side STT, server translation, listener-side TTS.
 - More than four participants per session (host + 3 guests, because a room holds four peers);
   video; permanent raw-audio storage.
 - Any claim of hardware support before real-device verification (M8).
@@ -111,8 +111,17 @@ What the audit (2026-11-19, branch `develop`) established and this spec relies o
   `standard` (default) or `gemini_live_translate`, *then* every seat runs on that tier, is billed at its
   rate per distinct target language, and the minimum balance scales with the rate; Premium at capacity
   falls back to Standard for the whole conversation with one `engine_downgraded` notice (never
-  `live_busy`); Enhanced is refused `engine_not_supported_yet`; business conversations and desks stay
-  Standard. `GET /api/live/engines` lists the choices with their rates.
+  `live_busy`); business conversations and desks stay Standard. `GET /api/live/engines` lists the choices
+  with their rates.
+- **R17 — Enhanced and the host's cloned voice.** *Given* a signed-in owner, *when* they create a
+  conversation with `engine:"cartesia"` (and optionally `voice_clone:true`, which needs a clone on their
+  account and cloning enabled), *then* each phone runs Cartesia STT on its own microphone and sends
+  `translate_text`, the server translates once per distinct other language and sends each listener captions
+  and an `enhanced_speak` (the host's `voice_id` only when the conversation opted in, never for a guest),
+  the owner pays every seat at the Enhanced rate for the frames actually accepted, an echo of another seat's
+  text is dropped, a guest can mint a rate-limited TTS/STT token with only its live token, and an
+  `enhanced_fallback` moves the whole conversation to Standard with one `engine_downgraded`
+  (`reason:"enhanced_unavailable"`). Business conversations and desks stay Standard.
 
 ## 4. Design & Architecture
 

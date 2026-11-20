@@ -81,7 +81,7 @@ stateDiagram-v2
   creates a new session**.
 - Rotating `LIVE_TOKEN_KEY` invalidates every printed desk QR and every guest token in flight.
 
-## Data model *(implemented: migrations `065_live_connect.sql`, `069_live_multi_guest.sql`)*
+## Data model *(implemented: migrations `065_live_connect.sql`, `069_live_multi_guest.sql`, `070_live_voice_clone.sql`)*
 
 | Table | Purpose |
 |---|---|
@@ -141,9 +141,10 @@ off), see *Echo filter* below.
 
 Errors are `{"code","message"}` with a stable code: `invite_not_found`, `invite_expired`,
 `session_full`, `session_ended`, `consent_required`, `bad_lang`, `bad_max_guests`, `engine_not_available`,
-`engine_not_supported_yet`, `engine_not_allowed` (all three 400, at create), `too_many_sessions`,
+`engine_not_allowed`, `voice_clone_unavailable`, `bad_voice_clone` (all 400, at create), `too_many_sessions`,
 `insufficient_balance`, `insufficient_credits`, `subscription_required`, `project_required`,
-`project_not_found`, `live_busy`, `rate_limited`; summaries add `session_open`, `nothing_to_summarize`
+`project_not_found`, `live_busy`, `rate_limited`; the Enhanced token endpoint adds `not_enhanced` (409) and
+`enhanced_unavailable` (502), see *Enhanced*; summaries add `session_open`, `nothing_to_summarize`
 (both 409), `summary_unavailable` (502), `summary_in_progress` (409), `summary_not_found` (404).
 
 ### Rules the code enforces
@@ -176,7 +177,8 @@ Errors are `{"code","message"}` with a stable code: `invite_not_found`, `invite_
 - The token is checked **before** the upgrade (bad, expired, ended-session → 401/410, no socket).
 - Identity comes from the database (peer id, name, language), never from the client. The room is
   `live-<session uuid>`, private, and unguessable.
-- Client → server: `start`, `stop`, `mute_audio{muted}` and binary PCM16 mono 24 kHz frames.
+- Client → server: `start`, `stop`, `mute_audio{muted}` and binary PCM16 mono 24 kHz frames (on an
+  Enhanced conversation: `translate_text` and `enhanced_fallback` instead of audio, see *Enhanced*).
   Mute is **enforced server-side**: a muted phone sends nothing to the engine.
 - A room of up to four phones: each phone is told who is already there (`room_joined.peers`), who
   arrives (`peer_joined`), who leaves (`peer_left`) and who mutes (`peer_muted`, per peer). A
@@ -297,11 +299,11 @@ and the owner pays every seat at that tier's rate, per distinct target language 
 |---|---|---|
 | omitted, `null`, `"standard"` | Standard (Qwen) | the default |
 | `"gemini_live_translate"` | **Premium** (Gemini Live) | when its flag and key are configured (`GEMINI_PREMIUM`, `GOOGLE_AI_API_KEY`) |
-| `"cartesia"` | Enhanced | **not yet**: client-direct, the server opens no session for it. `400 engine_not_supported_yet` |
-| anything else (the Pro tier's id `premium`, an unknown or wrong-case id, `""`), or Premium on a deployment that does not have it | | `400 engine_not_available` |
+| `"cartesia"` | **Enhanced** (Cartesia, client-direct) | when `CARTESIA_ENHANCED` and the key are configured; a consumer host only. See *Enhanced* |
+| anything else (the Pro tier's id `premium`, an unknown or wrong-case id, `""`), or Premium / Enhanced on a deployment that does not have it | | `400 engine_not_available` |
 
 - A **business conversation and a desk are Standard only**: asking a business create for another tier
-  is `400 engine_not_allowed`. Desks do not take the field at all.
+  (Enhanced included) is `400 engine_not_allowed`. Desks do not take the field at all.
 - The tier is stored as `live_sessions.engine_id` (no migration: the column exists since 065), returned
   by create (`engine`), by join (`engine`, so the guest page can say which tier it is on) and by
   `GET …/sessions/{id}` (`session.engine`). A row that predates tiers (`NULL`) reads as `standard`.
@@ -313,7 +315,10 @@ and the owner pays every seat at that tier's rate, per distinct target language 
   markup)`; raw cost and markup never leave the server), so the picker can say "from $x / min per
   language". `min_balance` is what the owner must hold to start on that tier. `available:false` with
   `reason:"at_capacity"` is a hint that the tier would be refused `live_busy` right now (only Standard
-  meters its own pool; Premium always reports available). Enhanced and Pro are not listed.
+  meters its own pool; Premium and Enhanced always report available). Enhanced is listed (between Standard
+  and Premium) only when this deployment has it, with `client_direct:true` and a `voice_clone` object
+  for THIS user, `{"available","cloning_enabled","has_clone"}` (`available` = both of the others). Pro is
+  not listed.
 - **Minimum balance scales with the tier.** Standard keeps the platform minimum
   (`MIN_BALANCE_TO_JOIN`, default $0.05). A dearer tier needs the same **runway**, i.e. the same
   seconds of one stream, so `min = MIN_BALANCE_TO_JOIN × tier_rate / standard_rate` (never below the
@@ -341,6 +346,107 @@ A seat that is **already speaking** on Premium keeps its Premium session (and is
 for it) until it stops; its next `start` is Standard. `live_busy` therefore reaches a client only when
 Standard itself is at capacity, as before. Languages added to a speaker mid-turn are best effort on
 Premium (the engine skips what it has no permit for until one frees); that path has no fallback.
+
+## Enhanced: speaker-side speech-to-text, server translation, listener-side speech *(implemented: `server/src/live/enhanced.rs`, `ws.rs`, `routes.rs`; migration `070`)*
+
+Enhanced (`engine: "cartesia"`) is **client-direct**: the server has no Cartesia client and no audio ever
+reaches it. Meet's Enhanced runs speech-to-text on the *listener's* browser over the remote WebRTC audio;
+Live Connect has no WebRTC between the phones, so it is arranged the other way round:
+
+1. every phone runs Cartesia **STT on its own microphone** and sends each segment as a `translate_text` frame;
+2. the **server translates** the text (the same uncached Groq path as Meet's `translate_text` hop, behind the
+   same process-wide admission semaphore) **once per distinct language among the other seats**, and sends each
+   listener the standard caption frames in their language;
+3. for a **final** segment it also sends each listener an `enhanced_speak` frame; the listener's phone speaks
+   it with **Cartesia TTS**, in the host's cloned voice when the host opted in for this conversation, else the
+   default Cartesia voice.
+
+A listener whose language is the speaker's gets the original as a caption, no translation and no
+`enhanced_speak` (they hear the speaker). The speaker is never sent their own segment.
+
+### Frames (all on `/ws/live`)
+
+| Direction | Frame | Notes |
+|---|---|---|
+| client → server | `{"type":"start"}` / `{"type":"stop"}` / `{"type":"mute_audio","muted"}` | the SAME frames as the audio path: `start` opens the seat's meter (the "speaking" state, at the Enhanced rate) and creates no engine session; `stop` closes it; `mute_audio` is enforced: a muted seat's text is ignored |
+| client → server | `{"type":"translate_text","segment_id","text","final":bool,"lang"?}` | only while started and unmuted. `segment_id`: string of 1-64 chars or an integer, echoed on `enhanced_speak`. `text` is trimmed, 1-1000 chars (longer: dropped, `error{code:"text_too_long"}`). At most 8 frames/s per seat (burst 8); past that frames are **dropped**, not queued, and not billed. `lang` is ignored: the seat's declared language is authoritative |
+| server → listener | `subtitle_interim{speaker_id,speaker_name,text,lang,original?}` | for a non-final frame. `lang` is the SPEAKER's language, `text` the translation, `original` the speaker's words (absent for a same-language listener, whose `text` is the original). Exactly the engine tiers' frame |
+| server → listener | `subtitle_final{speaker_id,speaker_name,original,lang,translations:{<listener lang>:text}}` | for a final frame, exactly the engine tiers' frame |
+| server → listener | `{"type":"enhanced_speak","speaker_id","segment_id","lang","text","voice_id":string|null}` | final segments only; `lang` is the listener's language, `text` what to speak. `voice_id` is the HOST's cloned voice only when the session has `use_voice_clone` and the speaker is the host; otherwise `null` (use the default voice). A guest never has one |
+| server → speaker | `error{code:"translation_unavailable"}` | a language failed or timed out (6 s) for a segment; once per 10 s per seat. Nothing is spoken in the wrong language |
+| server → seat | `error{code:"enhanced_not_active"}` | `translate_text` on a conversation that is not (or no longer) Enhanced; once per socket |
+| client → server | `{"type":"enhanced_fallback","reason"?}` | Cartesia is unreachable for this phone (token refused, blocked network). **The whole conversation** moves to Standard, once |
+| server → all seats | `{"type":"engine_downgraded","peer_id","from":"cartesia","to":"standard","reason":"enhanced_unavailable"}` | what a client does after it: stop its Cartesia STT/TTS, keep the socket, send `start` and stream PCM16 (binary frames, 24 kHz mono) like a Standard conversation. `GET …/sessions/{id}` now says `standard`; `POST …/enhanced/session` answers `409 not_enhanced`. A seat's Enhanced meter ends at once (or within 3 s for a seat that did not ask) and its next `start` is metered at Standard's rate |
+
+### Token endpoint
+
+`POST /api/live/sessions/{id}/enhanced/session` with `Authorization: Bearer <live token>` (host or guest;
+a guest has no account). Returns exactly the JSON of Meet's `POST /api/sessions/enhanced/session`
+(`token`, `expires_at`, `cartesia_version`, `stt{endpoint,model,models_by_lang}`, `tts{endpoint,model}`,
+`voice_cloning_enabled`, `default_voice_id`), minted with **both** STT and TTS grants (the phone transcribes
+its own microphone and speaks what it hears), valid one hour. It never carries a user's voice id.
+
+Refused: no / invalid token `401`; a token of another conversation `403 wrong_session`; a seat that is gone
+or a conversation that ended `410`; a conversation that is not Enhanced (Standard, Premium, or fallen back)
+`409 not_enhanced`; the owner cannot pay the tier `402 insufficient_balance`; Cartesia failing `502
+enhanced_unavailable`. **Rate limits** (a guest has no account to throttle, and every token is a real
+credential): **6 a minute per seat, 20 a minute per conversation, 30 a minute per client address** (an address may carry more than one conversation, so it is the loosest)
+(`429 rate_limited`). The token is never logged.
+
+### Billing
+
+Same meter as every tier. The owner pays every seat at the Enhanced rate per distinct target language
+(`rate = cost × (1 + markup)`, minimum balance scaled by the rate like Premium's). With no audio frames the
+meter's `activity` is the number of **accepted** `translate_text` frames since the last tick: a seat that
+sends nothing pays nothing after the opening charge, and a frame that is dropped (muted, not started,
+oversized, over the rate cap, an echo) is never billed. Ticks stay idempotent and the org carry is untouched
+(Enhanced is consumer-only). Honest note: the opening charge is unconditional as for every tier, although
+no server session opens; the Cartesia STT/TTS cost the platform pays is for the audio the phone streams,
+which this meter can only approximate through text frames.
+
+### Text-level echo guard
+
+Two phones side by side: the partner's phone hears the speaker too, and ITS Cartesia STT sends the
+speaker's words as its own `translate_text`. There are no microphone levels in this mode, so the guard is
+**order based**: a frame (partial or final, at least two words) whose normalised text is similar
+(`LIVE_ECHO_SIM`, default 0.6, the same `echo::normalize`/`similarity` as the audio filter) to something
+**another seat sent in the last 4 s** is dropped: the real speaker's own STT is normally ahead of a
+bystander's. It is counted in `voxtranslate_live_echo_suppressed_total` and in the `diagnostics` event
+(`echo_filter:{suppressed,failed_open:0,text:true}`), never logged with text. `LIVE_ECHO_FILTER=0` turns
+it off. **Limits, stated honestly:** when the bystander's STT happens to win the race, the echo is kept and
+the real words are dropped (nothing breaks the tie without loudness); a cross-language echo (a Spanish ear
+transcribing Italian) is too garbled to match; one-word text is never judged. A phone also hears its own
+text-to-speech: what was last sent to be spoken to a language is remembered for 12 s, and a seat of that
+language whose text is similar to it is dropped, so a phone never translates its own voice back. The
+client should still pause or echo-cancel STT while it plays TTS; this is the backstop. The audio-level
+echo filter is bypassed in Enhanced (it would only hold captions back) and applies again after a fallback.
+
+### The host's cloned voice (S5)
+
+`POST /api/live/sessions` accepts `voice_clone: true` (default false) **only** with `engine:"cartesia"`,
+`CARTESIA_VOICE_CLONING_ENABLED`, and a clone on the host's account (`users.cartesia_voice_id`, made through
+Meet's `POST /api/sessions/enhanced/clone-voice`), else `400 voice_clone_unavailable` (a non-boolean: `400
+bad_voice_clone`). It is stored per conversation as `live_sessions.use_voice_clone` and returned by
+create, join and `GET …/sessions/{id}` as `voice_clone`. The clone id itself is read from the host's row when
+the host's socket opens and sent **only** inside `enhanced_speak` for the host's own words, **only** for
+conversations that opted in. Guests have no account, so never a clone.
+
+**Privacy and legal.** The clone id is exposed to the listeners' phones for opted-in conversations only,
+which is a data-protection consideration (voice is potentially biometric; see
+`docs/gdpr-readiness-2026-09.md` on Art. 9 GDPR). Consent to clone one's voice happens where the clone is
+made; consent to its use by Live Connect is the per-conversation tick, and the guest notice should say that
+the host's cloned voice speaks the translation. No voice material is stored by this feature: the
+conversation stores a boolean. **Erasing a conversation removes its transcripts as before and does not
+delete the account's voice clone** (that is an account-level object at Cartesia and in `users`); deleting
+it is a separate account action.
+
+### What cannot be verified without real Cartesia and real phones
+
+STT latency and accuracy per language, TTS quality and the first-audio delay after `enhanced_speak`,
+whether the minted token's scope and lifetime behave as documented, how much of the speaker's voice the
+partner's microphone really picks up (the echo guard's thresholds), the Cartesia concurrency limit per key
+(a 429 is what `enhanced_fallback` is for), and the legal sufficiency of voice-cloning consent. Run the
+device checklist before launch.
 
 ## Billing *(implemented: `server/src/live/billing.rs`)*
 
@@ -640,7 +746,9 @@ the dashboard session detail shows the timeline to org admins. For billing, the 
 | Guest gets `invite_expired` | the invitation outlived `LIVE_JOIN_WINDOW_SECS` before anyone joined; create a new one |
 | Guest gets `session_full` | the link's `max_guests` seats are all taken (`SELECT count(*) FROM live_participants WHERE session_id = '<id>' AND role = 'guest'` against `live_sessions.max_guests`); a guest who dropped reconnects with their token, anyone else needs the host to create a new conversation with more seats (1-3, `LIVE_MAX_GUESTS`) |
 | Host's `max_guests` is refused `bad_max_guests` | not a whole number from 1 to `LIVE_MAX_GUESTS` (default 3) |
-| Host's `engine` is refused (400) | `engine_not_available`: unknown id, the Pro tier's id, or Premium not configured here (`GET /api/engines` lists what is enabled; `GEMINI_PREMIUM` + `GOOGLE_AI_API_KEY`); `engine_not_supported_yet`: Enhanced (`cartesia`) cannot serve a conversation yet; `engine_not_allowed`: a business conversation asked for a tier other than Standard |
+| Host's `engine` is refused (400) | `engine_not_available`: unknown id, the Pro tier's id, or Premium / Enhanced not configured here (`GET /api/engines` lists what is enabled; `GEMINI_PREMIUM` + `GOOGLE_AI_API_KEY`; `CARTESIA_ENHANCED` + `CARTESIA_API_KEY`); `engine_not_allowed`: a business conversation asked for a tier other than Standard; `voice_clone_unavailable`: `voice_clone:true` without Enhanced, without `CARTESIA_VOICE_CLONING_ENABLED`, or without a clone on the host's account |
+| An Enhanced conversation turned into Standard | a phone sent `enhanced_fallback` (Cartesia unreachable for it): `live_session_events` kind `engine_downgraded` with `reason: enhanced_unavailable`, `live_sessions.engine_id` is now `standard`; every later tick is Standard's rate |
+| Enhanced captions stop, speaker is told `translation_unavailable` | the translation model failed or timed out (6 s) for that segment; `GROQ_*`; at most one notice per 10 s per seat |
 | A Premium conversation turned into Standard | Premium was at capacity: `live_session_events` kind `engine_downgraded` (`from`, `to`, `reason: premium_at_capacity`, the seat), `live_sessions.engine_id` is now `standard`; every later tick is Standard's rate. Raise `GEMINI_LIVE_MAX_SESSIONS` if it is frequent |
 | Host cannot start on Premium though Standard works | the minimum balance scales with the tier (`insufficient_balance`); `GET /api/live/engines` shows `min_balance` per tier |
 | Create/join answers `live_busy` (503) | create: fewer than two free upstream sessions; join: fewer than the new guest's arrival needs (each guest adds their own streams plus their language to every speaker). Check `QWEN_REALTIME_MAX_SESSIONS`, the Qwen connect metrics and how many conversations are active |
