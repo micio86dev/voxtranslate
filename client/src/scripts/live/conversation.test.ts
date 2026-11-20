@@ -1366,6 +1366,9 @@ describe('Enhanced mode', () => {
     sock.deliver({ type: 'error', code: 'translation_unavailable' });
     sock.deliver({ type: 'error', code: 'text_too_long' });
     expect(notices).toEqual(['translation_unavailable', 'text_too_long']);
+    sock.deliver({ type: 'error', code: 'fallback_not_allowed' });
+    expect(notices.at(-1)).toBe('fallback_not_allowed');
+    expect(notices).toHaveLength(3); // a notice, not a fatal end: the conversation goes on
   });
 
   it('a peer joining does not re-send `start` (the engine owns the meter)', async () => {

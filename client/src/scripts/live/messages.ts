@@ -201,6 +201,7 @@ export function noticeKey(code: string): string {
     case 'server_busy':
       return 'liveNoticeBusy';
     case 'translation_unavailable':
+    case 'fallback_not_allowed':
       return 'liveNoticeEngine';
     case 'text_too_long':
       return 'liveNoticeTextTooLong';

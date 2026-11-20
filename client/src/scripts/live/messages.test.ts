@@ -197,6 +197,8 @@ describe('Enhanced messages', () => {
 
   it('in-conversation Enhanced errors have their own notices', () => {
     expect(noticeKey('translation_unavailable')).toBe('liveNoticeEngine');
+    // A guest whose phone cannot use Enhanced is told so; it keeps the captions.
+    expect(noticeKey('fallback_not_allowed')).toBe('liveNoticeEngine');
     expect(noticeKey('text_too_long')).toBe('liveNoticeTextTooLong');
     expect(EN.liveNoticeTextTooLong).toBeTruthy();
   });
