@@ -31,10 +31,12 @@ vi.mock('../auth', () => ({
 const api = {
   createSession: vi.fn(),
   getSession: vi.fn(),
+  listEngines: vi.fn(),
 };
 vi.mock('./api', () => ({
   createSession: (...a: unknown[]) => api.createSession(...a),
   getSession: (...a: unknown[]) => api.getSession(...a),
+  listEngines: (...a: unknown[]) => api.listEngines(...a),
 }));
 const unlock = vi.fn();
 vi.mock('../pcm-playback', () => ({ pcmPlayback: { unlock: () => unlock() } }));
@@ -57,7 +59,7 @@ vi.mock('./room', () => ({
 }));
 
 import { mountLiveHost } from './page-host';
-import { STORAGE_KEY } from './session-store';
+import { STORAGE_KEY, TIER_PREF_KEY } from './session-store';
 
 const CREATED = {
   session_id: 's1',
@@ -79,6 +81,10 @@ beforeEach(() => {
   Object.assign(auth, { billing: true, loggedIn: true, user: { language: 'it', balance: 9 } });
   api.createSession.mockReset();
   api.getSession.mockReset();
+  // The tier list is an extra: by default the call fails and the host just gets Standard.
+  api.listEngines.mockReset();
+  api.listEngines.mockResolvedValue({ ok: false, status: 0, code: 'network' });
+  localStorage.clear();
   unlock.mockReset();
   toast.mockReset();
   qrDataUrl.mockClear();
@@ -266,6 +272,150 @@ describe('setup', () => {
     $('lh-create').click();
     await flush();
     expect($('lh-status').hidden).toBe(true);
+  });
+});
+
+describe('translation tier', () => {
+  const LIST = {
+    default: 'standard',
+    engines: [
+      { id: 'standard', display_name: 'Standard', tier: 'standard', description: 'd', rate_per_minute: 0.0045, min_balance: 0.05, available: true, scales_per_language: true, client_direct: false },
+      { id: 'gemini_live_translate', display_name: 'Premium', tier: 'premium', description: 'd', rate_per_minute: 0.03, min_balance: 0.4, available: true, scales_per_language: true, client_direct: false },
+    ],
+  };
+  const radios = () => Array.from(document.querySelectorAll<HTMLInputElement>('#lh-tiers input[type="radio"]'));
+  const pick = (id: string) => (radios().find((r) => r.value === id) as HTMLInputElement).click();
+
+  it('has a labelled radio group between the language and the guests, filled from the server list', async () => {
+    api.listEngines.mockResolvedValue({ ok: true, data: LIST });
+    await mountLiveHost();
+    await flush();
+    const group = $('lh-tiers');
+    expect(group.getAttribute('role')).toBe('radiogroup');
+    expect(document.getElementById(group.getAttribute('aria-labelledby') as string)?.textContent).toBe(EN.liveTier);
+    expect(radios().map((r) => r.value)).toEqual(['standard', 'gemini_live_translate']);
+    const field = $('lh-tier-field');
+    expect(field.previousElementSibling?.contains($('lh-lang'))).toBe(true);
+    expect(field.nextElementSibling?.id).toBe('lh-guests-field');
+  });
+
+  it('asks the server for the list when the setup opens, and not before the gates pass', async () => {
+    auth.loggedIn = false;
+    await mountLiveHost();
+    expect(api.listEngines).not.toHaveBeenCalled();
+    auth.loggedIn = true;
+    await mountLiveHost();
+    expect(api.listEngines).toHaveBeenCalledTimes(1);
+  });
+
+  it('while the list loads and when it fails: Standard only, selected, no error shown', async () => {
+    let resolve: (v: unknown) => void = () => {};
+    api.listEngines.mockReturnValue(new Promise((r) => (resolve = r)));
+    await mountLiveHost();
+    expect(radios().map((r) => r.value)).toEqual(['standard']);
+    resolve({ ok: false, status: 500, code: 'server_error' });
+    await flush();
+    expect(radios().map((r) => r.value)).toEqual(['standard']);
+    expect(radios()[0].checked).toBe(true);
+    expect($('lh-status').hidden).toBe(true);
+  });
+
+  it('ignores a malformed list the same way', async () => {
+    api.listEngines.mockResolvedValue({ ok: true, data: { engines: 'nope' } });
+    await mountLiveHost();
+    await flush();
+    expect(radios().map((r) => r.value)).toEqual(['standard']);
+  });
+
+  it('creates on Standard without sending an engine', async () => {
+    api.listEngines.mockResolvedValue({ ok: true, data: LIST });
+    api.createSession.mockResolvedValue({ ok: true, data: CREATED });
+    await mountLiveHost();
+    await flush();
+    $('lh-create').click();
+    await flush();
+    expect(api.createSession.mock.calls[0][0]).not.toHaveProperty('engine');
+    expect(rooms[0].session).not.toHaveProperty('engine');
+  });
+
+  it('creates on the chosen tier, remembers the choice, and hands the confirmed tier to the room', async () => {
+    api.listEngines.mockResolvedValue({ ok: true, data: LIST });
+    api.createSession.mockResolvedValue({ ok: true, data: { ...CREATED, engine: 'gemini_live_translate' } });
+    await mountLiveHost();
+    await flush();
+    pick('gemini_live_translate');
+    expect(localStorage.getItem(TIER_PREF_KEY)).toBe('gemini_live_translate');
+    $('lh-create').click();
+    await flush();
+    expect(api.createSession).toHaveBeenCalledWith({ lang: 'it', saveTranscript: false, maxGuests: 1, engine: 'gemini_live_translate' });
+    expect(rooms[0].session).toMatchObject({ engine: 'gemini_live_translate' });
+    expect(JSON.parse(sessionStorage.getItem(STORAGE_KEY) ?? '{}').engine).toBe('gemini_live_translate');
+  });
+
+  it('the tier the server confirms wins over the one asked for (a fallback to Standard)', async () => {
+    api.listEngines.mockResolvedValue({ ok: true, data: LIST });
+    api.createSession.mockResolvedValue({ ok: true, data: { ...CREATED, engine: 'standard' } });
+    await mountLiveHost();
+    await flush();
+    pick('gemini_live_translate');
+    $('lh-create').click();
+    await flush();
+    expect(rooms[0].session).toMatchObject({ engine: 'standard' });
+  });
+
+  it('opens on the remembered tier next time, when it is still offered', async () => {
+    localStorage.setItem(TIER_PREF_KEY, 'gemini_live_translate');
+    api.listEngines.mockResolvedValue({ ok: true, data: LIST });
+    await mountLiveHost();
+    await flush();
+    expect(radios().find((r) => r.checked)?.value).toBe('gemini_live_translate');
+  });
+
+  it('disables a tier the cached balance cannot start, with the reason', async () => {
+    auth.user = { language: 'it', balance: 0.1 };
+    api.listEngines.mockResolvedValue({ ok: true, data: LIST });
+    await mountLiveHost();
+    await flush();
+    const premium = radios().find((r) => r.value === 'gemini_live_translate') as HTMLInputElement;
+    expect(premium.disabled).toBe(true);
+    expect(document.getElementById(premium.getAttribute('aria-describedby') as string)?.textContent).toBe('Needs at least $0.40 in your balance.');
+  });
+
+  it.each([
+    ['engine_not_available', 400, EN.liveErrEngineNotAvailable],
+    ['engine_not_supported_yet', 400, EN.liveErrEngineSoon],
+    ['engine_not_allowed', 403, EN.liveErrEngineNotAllowed],
+    ['live_busy', 503, EN.liveErrBusyTier],
+  ])('shows a friendly message for %s on a paid tier', async (code, status, text) => {
+    api.listEngines.mockResolvedValue({ ok: true, data: LIST });
+    api.createSession.mockResolvedValue({ ok: false, status, code });
+    await mountLiveHost();
+    await flush();
+    pick('gemini_live_translate');
+    $('lh-create').click();
+    await flush();
+    expect($('lh-status').textContent).toBe(text);
+    expect($('lh-setup').hidden).toBe(false);
+  });
+
+  it('a 402 on a paid tier still shows the buy-credits path', async () => {
+    api.listEngines.mockResolvedValue({ ok: true, data: LIST });
+    api.createSession.mockResolvedValue({ ok: false, status: 402, code: 'insufficient_balance' });
+    await mountLiveHost();
+    await flush();
+    pick('gemini_live_translate');
+    $('lh-create').click();
+    await flush();
+    expect($('lh-status').textContent).toBe(EN.liveErrInsufficient);
+    expect($('lh-buy').hidden).toBe(false);
+  });
+
+  it('a live_busy on Standard keeps the plain "try again" message', async () => {
+    api.createSession.mockResolvedValue({ ok: false, status: 503, code: 'live_busy' });
+    await mountLiveHost();
+    $('lh-create').click();
+    await flush();
+    expect($('lh-status').textContent).toBe(EN.liveErrBusy);
   });
 });
 
@@ -476,6 +626,20 @@ describe('reload', () => {
     expect(sessionStorage.getItem(STORAGE_KEY)).toBeNull();
     expect($('lh-setup').hidden).toBe(false);
     expect(rooms).toHaveLength(0);
+  });
+
+  it('a reload takes the tier from the server: it may have fallen back to Standard', async () => {
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ ...STORED, engine: 'gemini_live_translate' }));
+    api.getSession.mockResolvedValue({ ok: true, data: { session: { status: 'active', engine: 'standard' }, you: { role: 'host' } } });
+    await mountLiveHost();
+    expect(rooms[0].session).toMatchObject({ engine: 'standard' });
+  });
+
+  it('a session stored before tiers existed rejoins with no engine', async () => {
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(STORED));
+    api.getSession.mockResolvedValue({ ok: true, data: { session: { status: 'active' }, you: { role: 'host' } } });
+    await mountLiveHost();
+    expect(rooms[0].session).not.toHaveProperty('engine');
   });
 
   it('ignores a stored GUEST session on the host page', async () => {

@@ -18,6 +18,7 @@ import { isRtlLang, langMeta } from '../langmap';
 import type { Captions, Exchange, SpeakerCaption } from './conversation';
 import { endedKey, failureKey, statusKey, type Role } from './messages';
 import type { LiveContext, Partner, Phase } from './session-machine';
+import { tierLabel } from './tiers';
 
 /** How many past exchanges stay in the DOM. The engine already bounds its own list. */
 export const HISTORY_RENDER_LIMIT = 30;
@@ -61,6 +62,12 @@ export interface RoomEls {
   live: HTMLElement;
   status: HTMLElement;
   statusText: HTMLElement;
+  /** The tier the conversation runs on, in the status chip. Hidden while it is not known. */
+  tier: HTMLElement;
+  /** Polite notice: the tier asked for was busy and the conversation went on Standard. */
+  tierNotice: HTMLElement;
+  tierNoticeText: HTMLElement;
+  tierNoticeClose: HTMLButtonElement;
   /** The list of everybody else in the room (`ul`, one row each). */
   partners: HTMLElement;
   dirOut: HTMLElement;
@@ -163,7 +170,10 @@ export function buildRoom(doc: Doc, opts: { role: Role; maxGuests?: number }): R
   dot.setAttribute('aria-hidden', 'true');
   const statusText = el(doc, 'span', 'lc-chip-text');
   statusText.id = 'lc-status-text';
-  status.append(dot, statusText);
+  const tier = el(doc, 'span', 'lc-tier-badge');
+  tier.id = 'lc-tier';
+  tier.hidden = true;
+  status.append(dot, statusText, tier);
 
   const partnersTitle = i18n(doc, 'h2', 'lc-sr-only', 'livePartnersTitle');
   partnersTitle.id = 'lc-partners-title';
@@ -204,6 +214,17 @@ export function buildRoom(doc: Doc, opts: { role: Role; maxGuests?: number }): R
   notice.id = 'lc-notice';
   notice.setAttribute('role', 'status');
   notice.hidden = true;
+
+  // Not the `notice` above: that one clears itself when a caption arrives, and this one is news
+  // the person should get to read and dismiss. Polite: the conversation is not interrupted.
+  const tierNotice = el(doc, 'div', 'lc-banner lc-tier-notice');
+  tierNotice.id = 'lc-tier-notice';
+  tierNotice.setAttribute('role', 'status');
+  tierNotice.setAttribute('aria-live', 'polite');
+  tierNotice.hidden = true;
+  const tierNoticeText = el(doc, 'span');
+  const tierNoticeClose = button(doc, 'lc-tier-notice-close', 'btn-ghost lc-tier-notice-close', 'dismiss');
+  tierNotice.append(tierNoticeText, tierNoticeClose);
 
   const historyTitle = i18n(doc, 'h2', 'lc-history-title', 'talkHistoryTitle');
   historyTitle.hidden = true;
@@ -272,6 +293,7 @@ export function buildRoom(doc: Doc, opts: { role: Role; maxGuests?: number }): R
     stage,
     mine,
     notice,
+    tierNotice,
     ...(credits ? [credits] : []),
     historyTitle,
     history,
@@ -315,11 +337,17 @@ export function buildRoom(doc: Doc, opts: { role: Role; maxGuests?: number }): R
 
   root.append(live, ended, problem);
   return {
-    root, live, status, statusText, partners, dirOut, dirIn, sameLang, announce, stage, mine, mineText,
+    root, live, status, statusText, tier, tierNotice, tierNoticeText, tierNoticeClose, partners, dirOut, dirIn, sameLang, announce, stage, mine, mineText,
     notice, historyTitle, history, credits, headphones, outputField, output, mute, muteLabel, end,
     confirm, confirmText, endYes, endNo, ended,
     endedText, endedAction, problem, problemText, retry, buy, home,
   };
+}
+
+/** The tier badge: its name, or nothing when it is not known (a desk conversation has none). */
+export function renderTier(els: RoomEls, engine: string | undefined): void {
+  els.tier.hidden = !engine;
+  els.tier.textContent = engine ? fill(t('liveTierBadge'), { tier: tierLabel(engine) }) : '';
 }
 
 const ACTIVE: ReadonlySet<Phase> = new Set<Phase>(['idle', 'requesting_mic', 'connecting', 'waiting_peer', 'live', 'reconnecting']);

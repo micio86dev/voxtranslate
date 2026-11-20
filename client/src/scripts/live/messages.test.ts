@@ -109,6 +109,28 @@ describe('errorInfo for a desk scan', () => {
   });
 });
 
+describe('errorInfo: translation tier codes (create)', () => {
+  it('has its own copy for each, all present in en.json', () => {
+    expect(errorInfo('engine_not_available', 'host')).toEqual({ key: 'liveErrEngineNotAvailable', action: 'none' });
+    expect(errorInfo('engine_not_supported_yet', 'host')).toEqual({ key: 'liveErrEngineSoon', action: 'none' });
+    expect(errorInfo('engine_not_allowed', 'host')).toEqual({ key: 'liveErrEngineNotAllowed', action: 'none' });
+    for (const k of ['liveErrEngineNotAvailable', 'liveErrEngineSoon', 'liveErrEngineNotAllowed', 'liveErrBusyTier']) {
+      expect(EN[k]).toBeTruthy();
+    }
+  });
+
+  it('live_busy on a non-Standard create suggests Standard; Standard and guests keep the plain message', () => {
+    expect(errorInfo('live_busy', 'host', { engine: 'gemini_live_translate' })).toEqual({ key: 'liveErrBusyTier', action: 'none' });
+    expect(errorInfo('live_busy', 'host', { engine: 'standard' })).toEqual({ key: 'liveErrBusy', action: 'retry' });
+    expect(errorInfo('live_busy', 'host')).toEqual({ key: 'liveErrBusy', action: 'retry' });
+    expect(errorInfo('live_busy', 'guest', { engine: 'gemini_live_translate' })).toEqual({ key: 'liveErrBusy', action: 'retry' });
+  });
+
+  it('a 402 on a paid tier still leads to the buy-credits path', () => {
+    expect(errorInfo('insufficient_balance', 'host', { engine: 'gemini_live_translate' })).toEqual({ key: 'liveErrInsufficient', action: 'buy' });
+  });
+});
+
 describe('staffErrorInfo', () => {
   const info = (status: number, code: string) => staffErrorInfo({ status, code });
   it('409 already_answered: a colleague got there first, refresh the list', () => {

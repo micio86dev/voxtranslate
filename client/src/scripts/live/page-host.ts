@@ -3,19 +3,30 @@
 // no audio logic live here — those are in `conversation.ts` and are tested without a browser.
 
 import { billingEnabled, getUser, isLoggedIn } from '../auth';
+import { DEFAULT_ENGINE_ID } from '../engines';
 import { t } from '../i18n';
 import { pcmPlayback } from '../pcm-playback';
 import { toast } from '../toast';
-import { createSession, getSession } from './api';
+import { createSession, getSession, listEngines } from './api';
 import { defaultLanguage, mountLangPicker, pickableLanguages, type LangPicker } from './lang-picker';
 import { errorInfo, type ErrorAction } from './messages';
 import { byId, initPage, setHidden } from './page-common';
 import { mountRoom } from './room';
 import { initialContext, isTerminal, type LiveContext } from './session-machine';
 import { fill } from './view';
-import { clearStoredSession, loadStoredSession, saveStoredSession, type StoredSession } from './session-store';
+import {
+  clearStoredSession,
+  loadStoredSession,
+  loadTierPref,
+  saveStoredSession,
+  saveTierPref,
+  type StoredSession,
+} from './session-store';
+import { mountTierPicker, type TierPicker } from './tier-picker';
+import { parseEngines } from './tiers';
 
 let picker: LangPicker | null = null;
+let tierPicker: TierPicker | null = null;
 let creating = false;
 
 /** The seats of THIS conversation: how many guests it admits, and which peers took one. A
@@ -43,8 +54,10 @@ function paintGuestsHint(): void {
   if (hint) hint.textContent = n === 1 ? t('liveGuestsHintOne') : fill(t('liveGuestsHint'), { max: String(n) });
 }
 
-function showError(code: string): void {
-  const info = errorInfo(code, 'host');
+const tierOf = (engine: string | undefined): { engine?: string } => (engine ? { engine } : {});
+
+function showError(code: string, engine?: string): void {
+  const info = errorInfo(code, 'host', { engine });
   const status = byId('lh-status');
   if (status) {
     status.textContent = t(info.key);
@@ -205,10 +218,13 @@ async function create(): Promise<void> {
   }
   clearError();
   const guests = chosenGuests();
+  const tier = tierPicker?.get() ?? DEFAULT_ENGINE_ID;
   const res = await createSession({
     lang,
     saveTranscript: !!byId<HTMLInputElement>('lh-transcript')?.checked,
     maxGuests: guests,
+    // Standard is the server's default: only another tier is asked for.
+    ...(tier === DEFAULT_ENGINE_ID ? {} : { engine: tier }),
   });
   creating = false;
   if (btn) {
@@ -216,7 +232,7 @@ async function create(): Promise<void> {
     btn.textContent = t('liveCreate');
   }
   if (!res.ok) {
-    showError(res.code);
+    showError(res.code, tier);
     return;
   }
   const d = res.data;
@@ -230,6 +246,8 @@ async function create(): Promise<void> {
     inviteUrl: d.invite_url,
     // What the server confirmed, falling back to what was asked for.
     maxGuests: d.max_guests ?? guests,
+    // What the server confirmed (it may have fallen back to Standard), else what was asked for.
+    ...tierOf(d.engine ?? (tier === DEFAULT_ENGINE_ID ? undefined : tier)),
   };
   seated.clear();
   saveStoredSession(session);
@@ -248,7 +266,9 @@ async function resumable(): Promise<StoredSession | null> {
       // The server knows the size and who already took a seat; the stored copy may predate it.
       for (const p of info.participants ?? []) if (p.role === 'guest') seated.add(p.peer_id);
       const max = info.max_guests ?? stored.maxGuests;
-      return max ? { ...stored, maxGuests: max } : stored;
+      // The server knows which tier the conversation is on NOW (a Premium one may have fallen back).
+      const engine = info.engine ?? stored.engine;
+      return { ...stored, ...(max ? { maxGuests: max } : {}), ...tierOf(engine) };
     }
   } else if (res.status === 0 || res.status >= 500) {
     // The server could not be asked. The session may well be alive: let the engine's own
@@ -281,6 +301,16 @@ export async function mountLiveHost(): Promise<void> {
       labelKey: 'liveYourLang',
     });
   }
+  const tiers$ = byId('lh-tiers');
+  tierPicker = tiers$
+    ? mountTierPicker(tiers$, {
+        idPrefix: 'lh',
+        hint: byId('lh-tier-hint'),
+        balance: () => getUser()?.balance,
+        load: loadTierPref,
+        save: saveTierPref,
+      })
+    : null;
   byId('lh-create')?.addEventListener('click', () => void create());
   paintGuestsHint();
   document.querySelectorAll('input[name="lh-guests"]').forEach((r) => r.addEventListener('change', paintGuestsHint));
@@ -291,4 +321,12 @@ export async function mountLiveHost(): Promise<void> {
     return;
   }
   setHidden('lh-setup', false);
+  void loadTiers();
+}
+
+/** The tiers on offer, once the setup is on screen. Any failure leaves Standard, silently. */
+async function loadTiers(): Promise<void> {
+  const res = await listEngines();
+  const list = res.ok ? parseEngines(res.data) : null;
+  if (list) tierPicker?.setEngines(list);
 }
