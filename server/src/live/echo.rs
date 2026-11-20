@@ -89,6 +89,10 @@ const DOMINANCE_DEN: u64 = 4;
 
 /// Default similarity threshold.
 pub const DEFAULT_SIM: f64 = 0.6;
+/// The most characters of a caption that are ever compared (its end is kept).
+const NORMALIZE_MAX: usize = 400;
+/// A single token this long is a spaceless-script sentence, not a lone word.
+const ENOUGH_ONE_TOKEN: usize = 12;
 
 const INTERIM_PREFIX: &str = r#"{"type":"subtitle_interim""#;
 const FINAL_PREFIX: &str = r#"{"type":"subtitle_final""#;
@@ -113,6 +117,11 @@ impl Default for EchoConfig {
 
 /// Lowercase, strip diacritics and punctuation, collapse whitespace.
 pub fn normalize(s: &str) -> String {
+    // Only the tail matters (what was said last is what is being echoed now) and similarity is
+    // quadratic on an unbroken token, so bound the work: keep at most the last NORMALIZE_MAX chars.
+    let skip = s.chars().count().saturating_sub(NORMALIZE_MAX);
+    let s: String = s.chars().skip(skip).collect();
+    let s = s.as_str();
     let mut out = String::with_capacity(s.len());
     let mut gap = true;
     for c in s.chars().flat_map(char::to_lowercase) {
@@ -144,9 +153,11 @@ fn fold(c: char) -> char {
     }
 }
 
-/// Enough text to judge: never suppress a one-word "si" / "ok".
+/// Enough text to judge: two words, or one very long token (scripts written without spaces give
+/// a whole sentence as one token). A lone word, however long in Latin script ("gracias"), is never
+/// judged: a real one-word reply must not be taken for an echo.
 fn enough(norm: &str) -> bool {
-    norm.split_whitespace().nth(1).is_some() || norm.chars().count() >= 6
+    norm.split_whitespace().nth(1).is_some() || norm.chars().count() >= ENOUGH_ONE_TOKEN
 }
 
 fn levenshtein(a: &[char], b: &[char]) -> usize {
@@ -686,8 +697,12 @@ impl EchoFilter {
 
     /// `a`'s microphone is clearly louder than `b`'s: only then can `a` be the real source of
     /// words both of them heard.
+    ///
+    /// A level of 0 means "no recent frames" (never started, muted, or stale): UNKNOWN on either
+    /// side is never evidence that one microphone is louder, so nothing is suppressed on it.
     fn clearly_louder(levels: Levels, a: &str, b: &str) -> bool {
-        u64::from(levels(a)) * DOMINANCE_DEN > u64::from(levels(b)) * DOMINANCE_NUM
+        let (la, lb) = (u64::from(levels(a)), u64::from(levels(b)));
+        la > 0 && lb > 0 && la * DOMINANCE_DEN > lb * DOMINANCE_NUM
     }
 
     /// My microphone carried speech after the newest caption of mine, so words of mine are still
@@ -896,8 +911,9 @@ mod tests {
         assert!(!enough("si"));
         assert!(!enough("ok"));
         assert!(!enough("chao"));
+        assert!(!enough("gracias"), "a lone Latin word is never judged");
         assert!(enough("hola amigo"));
-        assert!(enough("gracias"));
+        assert!(enough(&"字".repeat(12)), "a spaceless-script sentence is");
     }
 
     // ---- frames ----
@@ -1584,5 +1600,41 @@ mod tests {
             4,
             "each displaced speaker's held frame was let go"
         );
+    }
+
+    #[test]
+    fn an_unknown_level_is_never_clearly_louder_or_quieter() {
+        // 0 means "no recent frames" (never started, muted, or stale): unknown on EITHER side
+        // must not be read as "the other one is quieter".
+        let levels = |id: &str| match id {
+            "loud" => 1000,
+            _ => 0,
+        };
+        assert!(!EchoFilter::clearly_louder(&levels, "loud", "unknown"));
+        assert!(!EchoFilter::clearly_louder(&levels, "unknown", "loud"));
+        assert!(!EchoFilter::clearly_louder(
+            &levels,
+            "unknown",
+            "also-unknown"
+        ));
+        let both = |id: &str| if id == "a" { 1000 } else { 700 };
+        assert!(EchoFilter::clearly_louder(&both, "a", "b"));
+    }
+
+    #[test]
+    fn a_very_long_text_is_capped_so_similarity_stays_cheap() {
+        let huge = "字".repeat(20_000);
+        assert!(normalize(&huge).chars().count() <= 400);
+        let started = std::time::Instant::now();
+        let s = similarity(&normalize(&huge), &normalize(&huge));
+        assert!(s > 0.9, "{s}");
+        assert!(
+            started.elapsed() < Duration::from_millis(100),
+            "{:?}",
+            started.elapsed()
+        );
+        // The END is kept: what was said last is what is being echoed now.
+        let long = format!("{} fine della frase", "x ".repeat(500));
+        assert!(normalize(&long).ends_with("fine della frase"));
     }
 }

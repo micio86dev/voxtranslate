@@ -3,13 +3,14 @@
 Two phones, two microphones, two independent translation streams at the same time.
 Decisions and requirements: [`specs/0121-live-connect/spec.md`](../specs/0121-live-connect/spec.md).
 
-> **Status (2026-11-19): built, in progress, not yet verified on real devices.** Backend (sessions,
+> **Status (2026-11-20): built, live behind `LIVE_CONNECT_ENABLED`, not yet verified on real devices.** Backend (sessions,
 > `/ws/live`, billing, desks, finalisation/search/retention/erasure, dashboard data, admin routes),
 > the client pages, the dashboard area and the Directus setup are implemented and covered by the
 > suites listed in *Testing strategy*. **No real-device run has happened**: two real phones,
-> speaker/Bluetooth combinations, distances and noisy rooms are untested, and the echo defence
-> beyond the browser's own AEC and the client guard is not built (the server `EchoLedger` was
-> deferred until there are measurements, see `odd/tasks/live-connect.md` L5). Hardware support must
+> speaker/Bluetooth combinations, distances and noisy rooms are untested. Beyond the browser's own
+> AEC and the client guard, a server-side **echo filter** (see *Echo filter* below) stops a phone's
+> own voice, picked up by the partner's microphone, from being translated back to it; it was built
+> after a real two-phone test and is verified against the mock engine only. Hardware support must
 > not be claimed until [`live-connect-device-matrix.md`](live-connect-device-matrix.md) has results.
 > The feature stays behind `LIVE_CONNECT_ENABLED` (off by default). This document is updated in the
 > same change as the code it describes.
@@ -417,7 +418,7 @@ to three guests) although a conversation has two today:
    similar to a recent entry whose speaker is **not** that speaker: word containment with
    edit-distance tolerance ("ciao come stai" ~ "chao como estai"), or character-trigram Dice,
    whichever is higher, against each entry and the last two of one speaker joined; at least
-   `LIVE_ECHO_SIM`; and at least two words or six characters (a lone "si"/"ok" is never
+   `LIVE_ECHO_SIM`; and at least two words, or one token of 12+ characters for scripts written without spaces (a lone word such as "si"/"ok"/"gracias" is never
    suppressed). That covers my own words coming back and, with three or more seats, guest B's
    microphone hearing guest A and B's session delivering A's words to the host as if B had said them.
    With no `original` on a cross-language frame the utterance is not judged; when the speaker's

@@ -73,7 +73,15 @@ impl SessionLatency {
         let i = seat & 1;
         // A stale level reads as 0, so speech after a long silence starts from silence.
         let old = self.mic_level(i, at);
-        self.mic_level[i].store(old - old / 16 + mean_abs / 16, Ordering::Relaxed);
+        // Fast attack, slow release: speech that has just started reads as most of its real level
+        // within ~300 ms (a replier must not look quiet next to somebody who just stopped), while a
+        // pause between words barely moves it (about 1.6 s time constant at 10 frames/s).
+        let new = if mean_abs > old {
+            old + (mean_abs - old) / 2
+        } else {
+            old - old / 16 + mean_abs / 16
+        };
+        self.mic_level[i].store(new, Ordering::Relaxed);
         let stamp = self.encode(at);
         self.mic_level_at[i].store(stamp, Ordering::Relaxed);
         if voiced {
@@ -426,6 +434,26 @@ mod tests {
     }
 
     #[test]
+    fn a_level_rises_fast_when_speech_starts_and_falls_slowly() {
+        let l = SessionLatency::new();
+        let t0 = l.epoch;
+        // Three 100 ms frames of speech after silence already read as most of the real level:
+        // a replier who has just started must not look quiet next to a speaker who stopped.
+        for i in 0..3u64 {
+            l.mic_frame(0, at(t0, i * 100), 1000, true);
+        }
+        assert!(
+            l.mic_level(0, at(t0, 300)) >= 800,
+            "{}",
+            l.mic_level(0, at(t0, 300))
+        );
+        // ...while a pause after speech decays slowly (one quiet frame barely moves it).
+        let before = l.mic_level(0, at(t0, 300));
+        l.mic_frame(0, at(t0, 300), 0, false);
+        assert!(l.mic_level(0, at(t0, 300)) > before * 9 / 10);
+    }
+
+    #[test]
     fn a_microphone_level_smooths_decays_and_belongs_to_one_seat() {
         let l = SessionLatency::new();
         let t0 = l.epoch;
@@ -455,7 +483,8 @@ mod tests {
         // ...but silence for long enough is silence, and speech restarts from it.
         assert_eq!(l.mic_level(0, at(t0, 9_100)), 0);
         l.mic_frame(0, at(t0, 9_200), 1000, true);
-        assert!(l.mic_level(0, at(t0, 9_200)) < 100);
+        // (fast attack: half of the input after one frame, not the old slow ramp)
+        assert_eq!(l.mic_level(0, at(t0, 9_200)), 500);
     }
 
     #[test]
