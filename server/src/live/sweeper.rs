@@ -159,3 +159,47 @@ pub async fn sweep_sessions(state: &AppState, only: Option<&[Uuid]>) -> Result<u
     }
     Ok(changed)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn state() -> AppState {
+        let cfg = crate::config::Config::test_with_billing("", "x".repeat(32).as_str(), 0.0);
+        AppState::new(cfg)
+    }
+
+    #[tokio::test]
+    async fn without_a_database_a_sweep_and_the_maintenance_pass_do_nothing_and_do_not_fail() {
+        let s = state();
+        assert!(s.pool.is_none());
+        assert_eq!(sweep_once(&s).await.unwrap(), 0);
+        assert_eq!(run_maintenance(&s, None).await, (0, 0));
+    }
+
+    #[tokio::test]
+    async fn the_hourly_maintenance_runs_once_per_hour_however_often_the_sweep_calls_it() {
+        let s = state();
+        // The first call claims the hour...
+        maintenance_if_due(&s).await;
+        // ...so the stamp is taken and a second claim in the same hour is refused.
+        assert!(!s.live.maintenance_due(MAINTENANCE_EVERY));
+        // Calling it again is a harmless no-op.
+        maintenance_if_due(&s).await;
+        assert!(!s.live.maintenance_due(MAINTENANCE_EVERY));
+    }
+
+    #[tokio::test]
+    async fn the_sweeper_loop_does_its_first_pass_at_once_and_keeps_running() {
+        let s = state();
+        let task = tokio::spawn(run(s.clone()));
+        // An interval ticks immediately: the first sweep and the maintenance claim happen now.
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        assert!(!task.is_finished(), "the loop must not return");
+        assert!(
+            !s.live.maintenance_due(MAINTENANCE_EVERY),
+            "the first pass claimed the hour"
+        );
+        task.abort();
+    }
+}

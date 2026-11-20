@@ -638,3 +638,80 @@ async fn credits_of_a_duplicate_tick_go_back_to_the_carry() {
     let _ = (rows, dup_rows);
     assert!(spent >= 6, "credits of duplicate ticks were lost from the carry: only {spent} charged for ~7.2 credits of audio");
 }
+
+/// A tick whose charge FAILS (database error) must hand the credits taken from the carry back, so
+/// the next successful tick recovers them. Kills the "no put_back on Err" mutant.
+#[tokio::test]
+async fn credits_of_a_failed_tick_go_back_to_the_carry() {
+    let pool = pool!();
+    let owner = make_user(&pool, usd(1.0)).await;
+    let org = make_org(&pool, owner, 1000).await;
+    let (session, peer, call) = make_session(&pool, None, Some(org)).await;
+    let live = Arc::new(LiveState::new(LiveConfig::disabled()));
+    let rooms = Arc::new(RoomManager::new());
+    let room = format!("live-{call}");
+    seat(&rooms, &room, &peer.to_string(), "it");
+    seat(&rooms, &room, "the-other-phone", "es");
+    // 1.2 credits per 1 s tick.
+    // The first ticks fail: a trigger rejects every tick insert of this session, then is dropped.
+    let fname = format!("fail_ticks_{}", session.simple());
+    sqlx::query(&format!("CREATE FUNCTION {fname}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'tick refused'; END $$")).execute(&pool).await.unwrap();
+    sqlx::query(&format!("CREATE TRIGGER {fname} BEFORE INSERT ON live_usage_ticks FOR EACH ROW WHEN (NEW.session_id = '{session}') EXECUTE FUNCTION {fname}()")).execute(&pool).await.unwrap();
+    let activity = Arc::new(AtomicU64::new(0));
+    let (end_tx, _end_rx) = mpsc::unbounded_channel();
+    let (cancel, cancel_rx) = oneshot::channel();
+    let meter = LiveMeter {
+        pool: pool.clone(),
+        live: live.clone(),
+        rooms: rooms.clone(),
+        payer: LivePayer::Org {
+            org_id: org,
+            call_session: call,
+        },
+        session,
+        peer,
+        room: room.clone(),
+        speaker_lang: "it".into(),
+        interval_secs: 1,
+        rate_per_second: 0.012,
+        scale_by_target_count: false,
+        low_balance_threshold: 0.0,
+        activity: activity.clone(),
+    };
+    let run = tokio::spawn(meter.run(end_tx, cancel_rx));
+    let feeder = {
+        let a = activity.clone();
+        tokio::spawn(async move {
+            loop {
+                a.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+        })
+    };
+    tokio::time::sleep(Duration::from_millis(2500)).await;
+    sqlx::query(&format!("DROP TRIGGER {fname} ON live_usage_ticks"))
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query(&format!("DROP FUNCTION {fname}()"))
+        .execute(&pool)
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(4500)).await;
+    let _ = cancel.send(());
+    run.await.unwrap();
+    feeder.abort();
+    let (rows, spent): (i64, i64) = sqlx::query_as("SELECT count(*), COALESCE(sum(-amount),0)::bigint FROM organization_credits_transactions WHERE session_id=$1 AND type='live_connect'")
+        .bind(call).fetch_one(&pool).await.unwrap();
+    let dup_rows: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM live_usage_ticks WHERE session_id=$1 AND amount = 0",
+    )
+    .bind(session)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    // ~7 intervals of 1.2 credits = 8.4 credits of cost; the three bucketed ticks that were
+    // duplicates must be recovered by a later tick, so close to floor(8.4)=8 is charged (6 s run: ~7.2)
+    let _ = (rows, dup_rows);
+    assert!(spent >= 8, "credits of failed ticks were lost from the carry: only {spent} charged for ~7.2 credits of audio");
+}
