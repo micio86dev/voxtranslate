@@ -830,6 +830,11 @@ async fn read_transcript(pool: &Pool, id: Uuid) -> Result<Value, sqlx::Error> {
     .bind(id)
     .fetch_one(pool)
     .await?;
+    let engine: Option<String> =
+        sqlx::query_scalar("SELECT engine_id FROM live_sessions WHERE id = $1")
+            .bind(id)
+            .fetch_one(pool)
+            .await?;
     let participants: Vec<(Uuid, String, String, String)> = sqlx::query_as(
         "SELECT peer_id, role, display_name, lang FROM live_participants
          WHERE session_id = $1 ORDER BY joined_at",
@@ -876,6 +881,8 @@ async fn read_transcript(pool: &Pool, id: Uuid) -> Result<Value, sqlx::Error> {
             "desk_id": head.3,
             "host_lang": head.4,
             "end_reason": head.5,
+            // The tier the conversation runs on now: after a capacity fallback, Standard.
+            "engine_id": sessions::effective_engine(engine.as_deref()),
         },
         "participants": participants.iter().map(|(peer_id, role, name, lang)| {
             json!({ "peer_id": peer_id, "role": role, "display_name": name, "lang": lang })

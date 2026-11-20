@@ -1100,6 +1100,8 @@ async fn the_transcript_needs_a_real_reason_and_is_audited_without_its_content()
     assert_eq!(s, StatusCode::OK, "{v}");
     assert_eq!(v["audited"], true);
     assert_eq!(v["session"]["id"], json!(conv.live));
+    // The tier the conversation runs on; a row with no stored tier reads as Standard.
+    assert_eq!(v["session"]["engine_id"], "standard");
     let u = &v["utterances"][0];
     assert_eq!(u["original"], SAID);
     assert_eq!(u["original_lang"], "it");
