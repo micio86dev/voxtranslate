@@ -13,13 +13,14 @@ Objective: Live Connect sessions with several guests on the same link (different
 
 ## Tasks
 
-- [ ] T1 · S1,S3,S6 · delegated (worktree) · server multi-guest core (migration 069, create/join, ws with N peers, per-peer mic levels for the echo filter, capacity, billing per distinct language) · commit: —
-- [ ] T2 · S1,S2 · delegated · client multi-guest (host chooses guests, invite panel, partners list, captions per speaker) · commit: —
-- [ ] T3 · S4 · delegated · tier choice Standard/Premium (create body, persist, ws engine resolve, capacity fallback, rate, selector UI with cost note, i18n 84 locales) · commit: —
-- [ ] T4 · S5 · delegated · Enhanced + cloned voice (client-direct speaker STT, `translate_text` over /ws/live, TTS on the listener, TTS-only token, Voice preparation in the host setup, consent line) · commit: —
+- [x] T1 · S1,S3,S6 · delegated (worktree) · server multi-guest core (migration 069, create/join, ws with N peers, per-peer mic levels for the echo filter, capacity, billing per distinct language) · commit: `13b5492b`
+- [x] T2 · S1,S2 · delegated · client multi-guest (host chooses guests, invite panel, partners list, captions per speaker) · commit: `77603e56`
+- [x] T3 · S4 · delegated · tier choice Standard/Premium (create body, persist, ws engine resolve, capacity fallback, rate, selector UI with cost note, i18n 84 locales) · commits: `e45316af` (server), `1b48a93d` (client)
+- [x] T4 · S5 · delegated · Enhanced + cloned voice (client-direct speaker STT, `translate_text` over /ws/live, TTS on the listener, TTS-only token, Voice preparation in the host setup, consent line) · commits: `91963223` (server, migration 070), `786a10bf` (client); translations `473c72be`
 
 ## Log
 
 - L1 (2026-11-20): user, verbatim: "E poi la scelta del tier non l' ho vista, dove la faccio se voglio cambiare con enhanced o premium? Com enhanced c'è anche la questione cloning della mia voce che va riutilizzato, vedi come abbiamo fatto per i meet."
 - L2 (2026-11-20): user, verbatim: "certo e tieni conto che pagherà per se stesso l' host e per anche l'ospite, non so se con lo stesso qr code possono partecipare più ospiti ma sarebbe da fare, anche con lingue diverse, lì il calcolo ovviamente va gestito sul numero di lingue diverse che si parlano (come per i webinar più o meno)"
 - L3 (2026-11-20): mapping of Meet (Explore agent): Enhanced (`cartesia`) is client-direct and listener-side and works only under LISTENER_PAYS for signed-in listeners; the server has no Cartesia TTS/STT; the cloned voice is `users.cartesia_voice_id` (`has_voice_clone`), not "Vox Voices" (on-device Kokoro). Live Connect hard-wires `state.engines.default()` at `live/ws.rs` and never uses `live_sessions.engine_id`; `live_busy` is fatal on the client; Premium (`gemini_live_translate`) shares Standard's `start_session`/PCM/`TranslatedAudio`. Decisions taken without asking: cap 4 peers (host + 3 guests); desks Standard-only; Premium/Enhanced for signed-in hosts only.
+- L4 (2026-11-20, state). Built and merged on the feature branch: T1-T4 (server + client) and 38 new strings translated into the 83 locales by model translators (NOT native review; uncertain locales flagged by the translators: ig, yo, zu, ha, eu, lo, my, ml, mn, mr, ne, so, ps, pa, si, am, ckb). Server full suite 2306 passed (only the known `voip::regulatory` flake), clippy clean on 1.97 and 1.98.1; client 2885 tests. Independent verification of the whole branch is in progress; nothing has been tested with real Cartesia, Gemini, Qwen or phones. Left: apply the verifier's confirmed fixes, e2e live run, PR to develop, release 1.63.0.
