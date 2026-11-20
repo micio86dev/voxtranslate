@@ -225,6 +225,13 @@ owner's socket only). There is no new plan, tier or wallet: the meter reuses `bi
 and `business::credits::deduct_org_credits_tx`. The backend is the only authority; nothing the client
 reports is trusted.
 
+- **The host watches the spend live.** After every charged tick the owner's socket (and only it) gets
+  `balance_update {balance}` followed by `session_spent {spent}`, the sum of that conversation's
+  user-paid ticks (`live::billing::session_spent`). The host screen shows
+  `Credits left: $X.XXXX · −$Y.YYYY` to **four decimals**, because a tick costs a fraction of a cent
+  and two decimals would look frozen. The cached balance is painted at once, before the first tick.
+  Organisation-paid sessions show no wallet figure (whole credits are not a wallet amount).
+
 - **One meter per phone**, started with that phone's `start` and cancelled by `stop`, mute, or the
   socket closing. Each tick covers `LiveMeter.interval_secs` (`USAGE_UPDATE_INTERVAL`, default 5 s).
 - **A charge and its `live_usage_ticks` row commit together**, keyed `(session, peer, tick_seq)` with
