@@ -49,6 +49,14 @@
   font-size: var(--font-sm);
   line-height: 1.5;
 }
+.lc-ai-notice {
+  margin: 0.5rem 0 0;
+  color: var(--muted);
+  font-size: var(--font-sm);
+  line-height: 1.5;
+  text-align: center;
+}
+.lc-note a { color: inherit; text-decoration: underline; }
 .lc-error {
   margin: 0;
   color: var(--danger);

@@ -1013,7 +1013,7 @@
   "liveErrBusyTier": "Den kvaliteten har inget utrymme just nu. Prova Standard i stället.",
   "liveVoiceClone": "Tala med min klonade röst",
   "liveVoiceCloneConsent": "Jag godkänner att mitt röstprov används för att tala översättningarna på mina gästers telefoner, enbart för det här samtalet. Mina gästers telefoner tar emot identifieraren för min klonade röst.",
-  "liveJoinNoticeVoiceClone": "Värden valde att översättningarna ska talas med en imitation av sin egen röst, så det du hör låter som värden.",
+  "liveJoinNoticeVoiceClone": "Värden valde att översättningarna ska talas med en imitation av värdens egen röst, så det du hör låter som värden.",
   "liveErrVoiceCloneUnavailable": "Din klonade röst kan inte användas i det här samtalet. Stäng av alternativet eller välj Enhanced när din röst har förberetts.",
   "liveErrBadVoiceClone": "Röstalternativet var ogiltigt. Stäng av det och försök igen.",
   "liveErrEnhancedUnavailable": "Enhanced-översättning är inte tillgänglig just nu. Samtalet fortsätter på Standard.",
