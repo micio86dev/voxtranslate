@@ -12,6 +12,8 @@ export const STORAGE_KEY = 'vox.live.session';
 export const HEADPHONES_KEY = 'vox.live.headphones';
 export const DESK_KEY = 'vox.live.desk';
 export const STAFF_LANG_KEY = 'vox.live.staffLang';
+/** The tier the host picked last, kept per browser and re-validated against what is offered. */
+export const TIER_PREF_KEY = 'vox.live.tier';
 const DEFAULT_WS_PATH = '/ws/live';
 
 export interface StoredSession {
@@ -24,6 +26,12 @@ export interface StoredSession {
   wsPath: string;
   /** Host only: lets a reload show the invite again while the guest has not joined. */
   inviteUrl?: string;
+  /** How many guests the invitation admits (1-3). Absent on a session stored before multi-guest. */
+  maxGuests?: number;
+  /** The tier the conversation runs on (`standard` after a fallback). Absent = standard. */
+  engine?: string;
+  /** Enhanced: the host's cloned voice speaks the translations. A guest is told so in the room. */
+  voiceClone?: boolean;
 }
 
 export function saveStoredSession(s: StoredSession): void {
@@ -56,6 +64,11 @@ export function loadStoredSession(): StoredSession | null {
       myPeerId: v.myPeerId,
       wsPath: typeof v.wsPath === 'string' ? v.wsPath : DEFAULT_WS_PATH,
       ...(typeof v.inviteUrl === 'string' ? { inviteUrl: v.inviteUrl } : {}),
+      ...(Number.isInteger(v.maxGuests) && (v.maxGuests as number) >= 1 && (v.maxGuests as number) <= 3
+        ? { maxGuests: v.maxGuests }
+        : {}),
+      ...(typeof v.engine === 'string' && v.engine ? { engine: v.engine } : {}),
+      ...(v.voiceClone === true ? { voiceClone: true } : {}),
     };
   } catch {
     return null;
@@ -161,5 +174,22 @@ export function saveStaffLang(deskId: string, lang: string): void {
     localStorage.setItem(STAFF_LANG_KEY, JSON.stringify({ ...readStaffLangs(), [deskId]: lang }));
   } catch {
     // Per-device convenience only.
+  }
+}
+
+/** The tier the host chose last time, or null. */
+export function loadTierPref(): string | null {
+  try {
+    return localStorage.getItem(TIER_PREF_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function saveTierPref(id: string): void {
+  try {
+    localStorage.setItem(TIER_PREF_KEY, id);
+  } catch {
+    // Per-browser convenience only.
   }
 }

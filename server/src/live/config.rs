@@ -27,6 +27,11 @@ const DEFAULT_AUDIO_MAX_BYTES_PER_SEC: i64 = 72_000;
 const DEFAULT_MAX_SESSION_MIN: i64 = 120;
 /// Open sessions one signed-in owner may have at once.
 const DEFAULT_MAX_CONCURRENT_PER_OWNER: i64 = 3;
+/// Guests one invitation may admit, at most. A room holds four peers (`rooms::MAX_PEERS`): the
+/// host plus three guests. The hard ceiling; `LIVE_MAX_GUESTS` can only lower it.
+pub const MAX_GUESTS_CEILING: i64 = 3;
+/// Default for `LIVE_MAX_GUESTS`: what a host may ask for at most.
+const DEFAULT_MAX_GUESTS: i64 = MAX_GUESTS_CEILING;
 /// How long a dropped phone has to come back before its seat is given up.
 const DEFAULT_RECONNECT_GRACE_SECS: i64 = 60;
 /// Days an ended business conversation's content is kept when its org sets no `retention_days`.
@@ -43,6 +48,12 @@ const DEFAULT_ECHO_FILTER: bool = true;
 /// How alike the other phone's "original" words must be to this phone's own recent words before
 /// they are treated as an echo of them.
 const DEFAULT_ECHO_SIM: f64 = 0.6;
+/// Translation calls one Enhanced conversation may make a minute. An honest single speaker in a
+/// three-language room uses about 450 (interim captions at 2 a second to three languages, plus a
+/// final every couple of seconds); this leaves headroom for two people talking at once.
+const DEFAULT_ENHANCED_CALLS_PER_MIN: u32 = 600;
+/// How often a `/ws/live` socket re-checks its conversation, in milliseconds.
+const DEFAULT_STATUS_CHECK_MS: u64 = 3000;
 /// A threshold under this suppresses real replies that merely share a few words; over this it
 /// stops catching an echo the ASR heard through a foreign-language ear.
 const ECHO_SIM_RANGE: (f64, f64) = (0.3, 0.95);
@@ -84,6 +95,9 @@ pub struct LiveConfig {
     pub audio_max_bytes_per_sec: i64,
     pub max_session_min: i64,
     pub max_concurrent_per_owner: i64,
+    /// Most guests a host may ask one invitation to admit (1..=[`MAX_GUESTS_CEILING`]). A session
+    /// created without `max_guests` still takes one.
+    pub max_guests: i64,
     pub reconnect_grace_secs: i64,
     /// Retention for business conversations whose org has no `retention_days` of its own.
     pub retention_default_days: i64,
@@ -94,6 +108,12 @@ pub struct LiveConfig {
     pub echo_filter: bool,
     /// Similarity threshold of that filter, already clamped to its allowed range.
     pub echo_sim: f64,
+    /// Translation calls (one per target language per segment) one Enhanced conversation may make
+    /// in a minute, all its seats together. See `enhanced::TranslationBudget`.
+    pub enhanced_calls_per_min: u32,
+    /// How often a socket checks that its conversation is still running and that its meter still
+    /// matches the tier, in milliseconds. A tuning knob mostly for tests; the default is 3 s.
+    pub status_check_ms: u64,
 }
 
 impl LiveConfig {
@@ -110,12 +130,15 @@ impl LiveConfig {
             audio_max_bytes_per_sec: DEFAULT_AUDIO_MAX_BYTES_PER_SEC,
             max_session_min: DEFAULT_MAX_SESSION_MIN,
             max_concurrent_per_owner: DEFAULT_MAX_CONCURRENT_PER_OWNER,
+            max_guests: DEFAULT_MAX_GUESTS,
             reconnect_grace_secs: DEFAULT_RECONNECT_GRACE_SECS,
             retention_default_days: DEFAULT_RETENTION_DAYS,
             b2c_retention_days: DEFAULT_B2C_RETENTION_DAYS,
             finalize_grace_secs: DEFAULT_FINALIZE_GRACE_SECS,
             echo_filter: DEFAULT_ECHO_FILTER,
             echo_sim: DEFAULT_ECHO_SIM,
+            enhanced_calls_per_min: DEFAULT_ENHANCED_CALLS_PER_MIN,
+            status_check_ms: DEFAULT_STATUS_CHECK_MS,
         }
     }
 
@@ -172,6 +195,11 @@ impl LiveConfig {
                 1,
                 100,
             )?,
+            // A capacity knob must never take the feature down either: junk falls back to the
+            // default and a value outside 1..=3 is clamped (a room cannot hold more than four).
+            max_guests: get("LIVE_MAX_GUESTS")
+                .and_then(|v| v.trim().parse::<i64>().ok())
+                .map_or(DEFAULT_MAX_GUESTS, |n| n.clamp(1, MAX_GUESTS_CEILING)),
             reconnect_grace_secs: number(
                 "LIVE_RECONNECT_GRACE_SECS",
                 DEFAULT_RECONNECT_GRACE_SECS,
@@ -206,6 +234,18 @@ impl LiveConfig {
                 .map_or(DEFAULT_ECHO_SIM, |n| {
                     n.clamp(ECHO_SIM_RANGE.0, ECHO_SIM_RANGE.1)
                 }),
+            enhanced_calls_per_min: number(
+                "LIVE_ENHANCED_CALLS_PER_MIN",
+                i64::from(DEFAULT_ENHANCED_CALLS_PER_MIN),
+                10,
+                100_000,
+            )? as u32,
+            status_check_ms: number(
+                "LIVE_STATUS_CHECK_MS",
+                DEFAULT_STATUS_CHECK_MS as i64,
+                100,
+                60_000,
+            )? as u64,
         })
     }
 }
@@ -272,6 +312,25 @@ mod tests {
     }
 
     #[test]
+    fn the_guest_limit_is_clamped_to_what_a_room_holds_and_junk_falls_back() {
+        let load = |v: &str| {
+            LiveConfig::load(env(&[
+                ("LIVE_CONNECT_ENABLED", "1"),
+                ("LIVE_TOKEN_KEY", KEY),
+                ("LIVE_MAX_GUESTS", v),
+            ]))
+            .unwrap()
+            .max_guests
+        };
+        assert_eq!(load("2"), 2);
+        assert_eq!(load(" 1 "), 1);
+        // Out of range is clamped, never an error and never above what a room holds.
+        assert_eq!((load("0"), load("-4"), load("4"), load("99")), (1, 1, 3, 3));
+        // Junk keeps the default instead of switching the feature off.
+        assert_eq!((load("many"), load("")), (3, 3));
+    }
+
+    #[test]
     fn defaults_apply_and_overrides_are_range_checked() {
         let cfg = LiveConfig::load(env(&[
             ("LIVE_CONNECT_ENABLED", "on"),
@@ -281,6 +340,7 @@ mod tests {
         assert!(cfg.enabled && cfg.keys.is_some());
         assert_eq!(cfg.max_session_min, 120);
         assert_eq!(cfg.max_concurrent_per_owner, 3);
+        assert_eq!(cfg.max_guests, 3);
         assert_eq!(cfg.desk_wait_secs, 120);
         assert_eq!(cfg.desk_max_waiting_per_ip, 2);
         assert_eq!(cfg.audio_max_bytes_per_sec, 72_000);
@@ -344,6 +404,25 @@ mod tests {
             pairs.push((name, bad));
             let err = LiveConfig::load(env(&pairs)).unwrap_err();
             assert_eq!(err, ConfigError::BadNumber(name), "{name}={bad}");
+        }
+    }
+
+    #[test]
+    fn the_enhanced_call_ceiling_has_a_default_and_a_range() {
+        let base = [("LIVE_CONNECT_ENABLED", "1"), ("LIVE_TOKEN_KEY", KEY)];
+        assert_eq!(
+            LiveConfig::load(env(&base)).unwrap().enhanced_calls_per_min,
+            600
+        );
+        let with = |v: &'static str| {
+            let mut all = base.to_vec();
+            all.push(("LIVE_ENHANCED_CALLS_PER_MIN", v));
+            LiveConfig::load(env(&all))
+        };
+        assert_eq!(with("60").unwrap().enhanced_calls_per_min, 60);
+        assert_eq!(LiveConfig::load(env(&base)).unwrap().status_check_ms, 3000);
+        for bad in ["0", "9", "-1", "many", "100001"] {
+            assert!(with(bad).is_err(), "{bad}");
         }
     }
 

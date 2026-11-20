@@ -10,10 +10,13 @@ import {
   loadDeskInfo,
   loadHeadphones,
   loadStaffLang,
+  loadTierPref,
   loadStoredSession,
   saveDeskInfo,
   saveHeadphones,
   saveStaffLang,
+  saveTierPref,
+  TIER_PREF_KEY,
   saveStoredSession,
   type StoredSession,
 } from './session-store';
@@ -32,6 +35,55 @@ beforeEach(() => {
   sessionStorage.clear();
   localStorage.clear();
   vi.restoreAllMocks();
+});
+
+describe('stored session: the tier it runs on', () => {
+  it('round-trips the engine id and treats an absent or malformed one as standard (absent)', () => {
+    saveStoredSession({ ...S, engine: 'gemini_live_translate' });
+    expect(loadStoredSession()?.engine).toBe('gemini_live_translate');
+    for (const bad of ['', 7, null, {}]) {
+      sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ ...S, engine: bad }));
+      expect(loadStoredSession()).not.toHaveProperty('engine');
+    }
+    // A session stored before tiers existed has none: still loads.
+    saveStoredSession(S);
+    expect(loadStoredSession()).toMatchObject({ sessionId: 's1' });
+    expect(loadStoredSession()).not.toHaveProperty('engine');
+  });
+});
+
+describe('remembered tier choice', () => {
+  it('round-trips in localStorage', () => {
+    expect(loadTierPref()).toBeNull();
+    saveTierPref('gemini_live_translate');
+    expect(localStorage.getItem(TIER_PREF_KEY)).toBe('gemini_live_translate');
+    expect(loadTierPref()).toBe('gemini_live_translate');
+  });
+
+  it('survives storage that throws', () => {
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('blocked');
+    });
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('blocked');
+    });
+    expect(loadTierPref()).toBeNull();
+    expect(() => saveTierPref('x')).not.toThrow();
+  });
+});
+
+describe('stored session: how many guests the invitation admits', () => {
+  it('round-trips a valid size and drops anything else', () => {
+    saveStoredSession({ ...S, maxGuests: 3 });
+    expect(loadStoredSession()?.maxGuests).toBe(3);
+    for (const bad of [0, 4, 1.5, '2', null]) {
+      sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ ...S, maxGuests: bad }));
+      expect(loadStoredSession()).not.toHaveProperty('maxGuests');
+    }
+    // A session stored before multi-guest has no size at all.
+    saveStoredSession(S);
+    expect(loadStoredSession()).not.toHaveProperty('maxGuests');
+  });
 });
 
 describe('stored session (sessionStorage, key vox.live.session)', () => {
@@ -167,5 +219,17 @@ describe('staff language per desk (localStorage)', () => {
     });
     expect(() => saveStaffLang('d1', 'it')).not.toThrow();
     expect(loadStaffLang('d1')).toBeNull();
+  });
+});
+
+describe('stored session: the host voice clone flag', () => {
+  it('round-trips true, and an absent or non-true value is simply absent', () => {
+    const base = { sessionId: 's', token: 't', role: 'guest' as const, myLang: 'es', myPeerId: 'g', wsPath: '/ws/live' };
+    saveStoredSession({ ...base, engine: 'cartesia', voiceClone: true });
+    expect(loadStoredSession()).toMatchObject({ engine: 'cartesia', voiceClone: true });
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ ...base, voiceClone: 'yes' }));
+    expect(loadStoredSession()).not.toHaveProperty('voiceClone');
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(base));
+    expect(loadStoredSession()).not.toHaveProperty('voiceClone');
   });
 });

@@ -289,7 +289,7 @@ test('a used link says session_full, an expired one invite_expired, a junk one i
   await pickLanguage(second.page, 'lg', 'French');
   await second.page.locator('#lg-consent').check();
   await second.page.locator('#lg-join-btn').click();
-  await expect(second.page.locator('#lg-status')).toHaveText(en.liveErrSessionFull);
+  await expect(second.page.locator('#lg-status')).toHaveText(en.liveErrConversationFull);
   await expect(second.page.locator('#lg-session')).toBeHidden();
 
   // An invitation nobody used before it ran out.

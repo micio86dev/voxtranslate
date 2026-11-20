@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+const EN_TEXT = en as Record<string, string>;
 const setBalance = vi.fn();
 const cachedUser: { balance?: number } | null = { balance: undefined };
 vi.mock('../auth', () => ({
@@ -10,6 +11,7 @@ vi.mock('../auth', () => ({
 const toast = vi.fn();
 vi.mock('../toast', () => ({ toast: (...a: unknown[]) => toast(...a) }));
 
+import en from '../i18n/en.json';
 import { mountRoom } from './room';
 import { initialContext, type LiveContext } from './session-machine';
 import type { LiveConversationOptions, Captions } from './conversation';
@@ -63,7 +65,7 @@ class FakeConvo {
     return this.setOutput(id);
   }
   direction() {
-    return { myLang: this.opts.myLang, partnerLang: this.ctx.partner?.lang ?? null };
+    return { myLang: this.opts.myLang, partnerLangs: this.ctx.partners.map((p) => p.lang) };
   }
   state() {
     return this.ctx;
@@ -110,7 +112,7 @@ describe('mountRoom', () => {
   it('paints the phase, the partner and both directions from engine state', () => {
     mount();
     const c = made[0];
-    c.emit({ phase: 'live', partner: { peerId: 'b', name: 'Bea', lang: 'es', muted: false } });
+    c.emit({ phase: 'live', partners: [{ peerId: 'b', name: 'Bea', lang: 'es', muted: false }] });
     expect(host.querySelector('#lc-live')?.hasAttribute('hidden')).toBe(false);
     expect(host.querySelector('.lc-partner-name')?.textContent).toBe('Bea');
     expect(host.querySelector('#lc-direction')?.textContent).toContain('You speak Italiano, they hear Español');
@@ -138,7 +140,7 @@ describe('mountRoom', () => {
 
   it('paints captions in the big and small slots', () => {
     mount();
-    const captions: Captions = { partner: { text: 'Ciao', original: 'Hola', lang: 'es', settled: false }, mine: null, history: [] };
+    const captions: Captions = { others: [{ speakerId: 'b', name: 'Bea', text: 'Ciao', original: 'Hola', lang: 'es', settled: false }], mine: null, history: [] };
     made[0].opts.onCaptions(captions);
     expect(host.querySelector('#lc-caption')?.textContent).toBe('Ciao');
     expect(host.querySelector('#lc-caption')?.getAttribute('lang')).toBe('it');
@@ -250,13 +252,115 @@ describe('mountRoom', () => {
   it('shows the same-language warning once and clears it when the partner leaves', () => {
     mount();
     const c = made[0];
-    c.emit({ phase: 'live', partner: { peerId: 'b', name: 'B', lang: 'it', muted: false } });
-    c.opts.onSameLanguage?.('it', 'it');
+    const bea = { peerId: 'b', name: 'B', lang: 'it', muted: false };
+    c.emit({ phase: 'live', partners: [bea] });
+    c.opts.onSameLanguage?.('it', 'it', bea);
     const banner = host.querySelector('#lc-same-lang') as HTMLElement;
     expect(banner.hidden).toBe(false);
-    expect(banner.textContent).toBe('You both chose Italiano, so nothing will be translated.');
-    c.emit({ phase: 'waiting_peer', partner: null });
+    expect(banner.textContent).toBe('You and B chose the same language, so nothing is translated between you.');
+    c.emit({ phase: 'waiting_peer', partners: [] });
     expect(banner.hidden).toBe(true);
+  });
+
+  it('names every partner who shares my language, and drops each one when they leave', () => {
+    mount();
+    const c = made[0];
+    const bea = { peerId: 'b', name: 'Bea', lang: 'it', muted: false };
+    const carlo = { peerId: 'c', name: 'Carlo', lang: 'it', muted: false };
+    const dina = { peerId: 'd', name: 'Dina', lang: 'es', muted: false };
+    c.emit({ phase: 'live', partners: [bea, dina] });
+    c.opts.onSameLanguage?.('it', 'it', bea);
+    c.emit({ phase: 'live', partners: [bea, dina, carlo] });
+    c.opts.onSameLanguage?.('it', 'it', carlo);
+    const banner = host.querySelector('#lc-same-lang') as HTMLElement;
+    expect(banner.textContent).toBe('You and Bea, Carlo chose the same language, so nothing is translated between you.');
+    c.emit({ phase: 'live', partners: [dina, carlo] });
+    expect(banner.textContent).toBe('You and Carlo chose the same language, so nothing is translated between you.');
+    c.emit({ phase: 'live', partners: [dina] });
+    expect(banner.hidden).toBe(true);
+  });
+
+  it('falls back to the generic same-language line when the partner has no name', () => {
+    mount();
+    const c = made[0];
+    const anon = { peerId: 'b', name: '', lang: 'it', muted: false };
+    c.emit({ phase: 'live', partners: [anon] });
+    c.opts.onSameLanguage?.('it', 'it', anon);
+    expect((host.querySelector('#lc-same-lang') as HTMLElement).textContent).toBe('You both chose Italiano, so nothing will be translated.');
+  });
+
+  it('lists every partner and every distinct language in the direction line', () => {
+    mount();
+    made[0].emit({
+      phase: 'live',
+      partners: [
+        { peerId: 'b', name: 'Bea', lang: 'es', muted: false },
+        { peerId: 'c', name: 'Carlo', lang: 'en', muted: true },
+        { peerId: 'd', name: 'Dina', lang: 'es', muted: false },
+      ],
+    });
+    expect([...host.querySelectorAll('.lc-partner-name')].map((n) => n.textContent)).toEqual(['Bea', 'Carlo', 'Dina']);
+    expect(host.querySelector('#lc-direction')?.textContent).toContain('You speak Italiano, they hear Español, English');
+  });
+
+  it('announces joins and leaves politely, falling back to a generic name', () => {
+    mount();
+    made[0].opts.onPeerChange?.('joined', { peerId: 'b', name: 'Bea', lang: 'es', muted: false });
+    const live = host.querySelector('#lc-announce') as HTMLElement;
+    expect(live.getAttribute('aria-live')).toBe('polite');
+    expect(live.textContent).toBe('Bea joined the conversation.');
+    made[0].opts.onPeerChange?.('left', { peerId: 'b', name: '', lang: 'es', muted: false });
+    expect(live.textContent).toBe('Guest left the conversation.');
+  });
+
+  it('labels each speaker once the room holds several guests', () => {
+    mount({ session: { ...SESSION, maxGuests: 3 } });
+    made[0].opts.onCaptions({
+      others: [
+        { speakerId: 'c', name: 'Carlo', text: 'Ciao', original: 'Hi', lang: 'en', settled: false },
+        { speakerId: 'b', name: 'Bea', text: 'Salve', original: 'Hola', lang: 'es', settled: true },
+      ],
+      mine: null,
+      history: [],
+    });
+    expect([...host.querySelectorAll('.lc-speaker')].map((b) => b.querySelector('.lc-speaker-name')?.textContent)).toEqual(['Carlo', 'Bea']);
+  });
+
+  it('a pair shows no name labels, as before', () => {
+    mount();
+    made[0].opts.onCaptions({ others: [{ speakerId: 'b', name: 'Bea', text: 'x', original: '', lang: 'es', settled: false }], mine: null, history: [] });
+    expect((host.querySelector('.lc-speaker-name') as HTMLElement).hidden).toBe(true);
+  });
+
+  it('starts labelling when a second partner shows up, even if the stored session predates maxGuests', () => {
+    mount();
+    made[0].emit({ phase: 'live', partners: [{ peerId: 'b', name: 'Bea', lang: 'es', muted: false }, { peerId: 'c', name: 'Carlo', lang: 'en', muted: false }] });
+    made[0].opts.onCaptions({ others: [{ speakerId: 'c', name: 'Carlo', text: 'x', original: '', lang: 'en', settled: false }], mine: null, history: [] });
+    expect((host.querySelector('.lc-speaker-name') as HTMLElement).hidden).toBe(false);
+  });
+
+  it('a guest of a multi-guest conversation sees "Leave", with the others-carry-on wording', () => {
+    mount({ role: 'guest', session: { ...SESSION, role: 'guest', maxGuests: 3 } });
+    expect(host.querySelector('#lc-end')?.textContent).toBe('Leave');
+    expect(host.querySelector('#lc-confirm-text')?.textContent).toBe('Leave the conversation? The others will carry on without you.');
+    expect(host.querySelector('#lc-end-yes')?.textContent).toBe('Leave');
+    expect(made[0].opts.maxGuests).toBe(3);
+    (host.querySelector('#lc-end') as HTMLButtonElement).click();
+    (host.querySelector('#lc-end-yes') as HTMLButtonElement).click();
+    expect(made[0].ended).toBe(1);
+  });
+
+  it('the host of a multi-guest conversation is warned the end is for everyone', () => {
+    mount({ session: { ...SESSION, maxGuests: 2 } });
+    expect(host.querySelector('#lc-end')?.textContent).toBe('End');
+    expect(host.querySelector('#lc-confirm-text')?.textContent).toBe('End the conversation for everyone?');
+  });
+
+  it('shows the "you left" screen for a guest who left, not the ended-by-me one', () => {
+    mount({ role: 'guest', session: { ...SESSION, role: 'guest', maxGuests: 3 } });
+    made[0].emit({ phase: 'ended', endReason: 'left_by_me' });
+    expect((host.querySelector('#lc-ended') as HTMLElement).hidden).toBe(false);
+    expect(host.querySelector('#lc-ended .lc-end-copy')?.textContent).toBe('You left the conversation. The others carry on.');
   });
 
   it('shows a recoverable notice and clears it when a caption arrives', () => {
@@ -265,7 +369,7 @@ describe('mountRoom', () => {
     const notice = host.querySelector('#lc-notice') as HTMLElement;
     expect(notice.hidden).toBe(false);
     expect(notice.textContent).toContain('Translation isn\'t available');
-    made[0].opts.onCaptions({ partner: { text: 'x', original: '', lang: 'es', settled: false }, mine: null, history: [] });
+    made[0].opts.onCaptions({ others: [{ speakerId: 'b', name: 'B', text: 'x', original: '', lang: 'es', settled: false }], mine: null, history: [] });
     expect(notice.hidden).toBe(true);
   });
 
@@ -292,5 +396,135 @@ describe('mountRoom', () => {
     window.dispatchEvent(new Event('pagehide'));
     expect(made[0].released).toBe(1);
     expect(host.querySelector('#lc-room')).toBeNull();
+  });
+});
+
+describe('translation tier in the room', () => {
+  const PREMIUM: StoredSession = { ...SESSION, engine: 'gemini_live_translate' };
+  const badge = () => host.querySelector('#lc-tier') as HTMLElement;
+  const notice = () => host.querySelector('#lc-tier-notice') as HTMLElement;
+  const downgrade = () => made[0].opts.onEngineDowngraded?.({ from: 'gemini_live_translate', to: 'standard', reason: 'premium_at_capacity' });
+
+  it('shows the tier next to the connection state, for host and guest, and hands it to the engine', () => {
+    for (const role of ['host', 'guest'] as const) {
+      host.innerHTML = '';
+      made = [];
+      mount({ role, session: PREMIUM });
+      expect(badge().hidden).toBe(false);
+      expect(badge().textContent).toBe('Quality: Premium');
+      expect(badge().parentElement?.id).toBe('lc-status');
+      expect(made[0].opts.engine).toBe('gemini_live_translate');
+    }
+  });
+
+  it('shows Standard for a Standard conversation and nothing when the tier is unknown (a desk)', () => {
+    mount({ session: { ...SESSION, engine: 'standard' } });
+    expect(badge().textContent).toBe('Quality: Standard');
+    host.innerHTML = '';
+    mount();
+    expect(badge().hidden).toBe(true);
+  });
+
+  it('on a downgrade: polite notice that can be dismissed, badge follows, conversation untouched', () => {
+    mount({ session: PREMIUM });
+    made[0].emit({ phase: 'live', partners: [{ peerId: 'b', name: 'Bea', lang: 'es', muted: false }] });
+    expect(notice().hidden).toBe(true);
+    downgrade();
+    expect(notice().hidden).toBe(false);
+    expect(notice().getAttribute('aria-live')).toBe('polite');
+    expect(notice().getAttribute('role')).toBe('status');
+    expect(notice().textContent).toContain('Premium is busy. Continuing on Standard, billed at the Standard rate.');
+    expect(badge().textContent).toBe('Quality: Standard');
+    expect(made[0].ended).toBe(0);
+    expect(made[0].released).toBe(0);
+    expect(host.querySelector('#lc-live')?.hasAttribute('hidden')).toBe(false);
+    // A caption does not wipe it (it is not a "translation is down" notice) ...
+    made[0].opts.onCaptions({ others: [{ speakerId: 'b', name: 'Bea', lang: 'es', translated: 'hola', interim: false, seq: 1 }], mine: null, history: [] } as never);
+    expect(notice().hidden).toBe(false);
+    // ... the person does.
+    (notice().querySelector('button') as HTMLButtonElement).click();
+    expect(notice().hidden).toBe(true);
+    expect(badge().textContent).toBe('Quality: Standard');
+  });
+
+  it('a guest is told about the tier but never about money', () => {
+    mount({ role: 'guest', session: PREMIUM });
+    downgrade();
+    expect(notice().textContent).toContain('Premium is busy, so this conversation continues on Standard.');
+    expect(notice().textContent).not.toMatch(/billed|rate|\$/i);
+  });
+});
+
+describe('Enhanced in the room', () => {
+  const ENHANCED: StoredSession = { ...SESSION, engine: 'cartesia' };
+  const badge = () => host.querySelector('#lc-tier') as HTMLElement;
+  const notice = () => host.querySelector('#lc-tier-notice') as HTMLElement;
+  const speaking = () => host.querySelector('#lc-speaking') as HTMLElement;
+  const voiceNote = () => host.querySelector('#lc-voice-note') as HTMLElement;
+  const downgrade = (reason: string) => made[0].opts.onEngineDowngraded?.({ from: 'cartesia', to: 'standard', reason });
+
+  it('shows Enhanced in the badge, for host and guest', () => {
+    for (const role of ['host', 'guest'] as const) {
+      host.innerHTML = '';
+      made = [];
+      mount({ role, session: ENHANCED });
+      expect(badge().textContent).toBe('Quality: Enhanced');
+    }
+  });
+
+  it('the speaking line is a quiet polite status, hidden until a translation is being spoken', () => {
+    mount({ session: ENHANCED });
+    expect(speaking().hidden).toBe(true);
+    expect(speaking().getAttribute('aria-live')).toBe('polite');
+    expect(speaking().textContent).toBe(EN_TEXT.talkStatusSpeaking);
+    made[0].opts.onSpeaking?.(true);
+    expect(speaking().hidden).toBe(false);
+    made[0].opts.onSpeaking?.(false);
+    expect(speaking().hidden).toBe(true);
+  });
+
+  it('a fallback to Standard gets Enhanced-specific words (not "busy"), polite, and no money talk for a guest', () => {
+    mount({ session: ENHANCED });
+    downgrade('enhanced_unavailable');
+    expect(notice().hidden).toBe(false);
+    expect(notice().getAttribute('aria-live')).toBe('polite');
+    expect(notice().textContent).toContain('Enhanced isn\'t available right now. Continuing on Standard, billed at the Standard rate.');
+    expect(badge().textContent).toBe('Quality: Standard');
+    host.innerHTML = '';
+    made = [];
+    mount({ role: 'guest', session: ENHANCED });
+    downgrade('enhanced_unavailable');
+    expect(notice().textContent).toContain('Enhanced isn\'t available right now, so this conversation continues on Standard.');
+    expect(notice().textContent).not.toMatch(/billed|rate|\$/i);
+  });
+
+  it('not_enhanced (a downgrade this phone missed) is told the same way', () => {
+    mount({ session: ENHANCED });
+    downgrade('not_enhanced');
+    expect(notice().textContent).toContain('Enhanced isn\'t available');
+  });
+
+  it('a guest is told the host\'s voice is imitated, only while Enhanced with the host\'s clone is what they hear', () => {
+    mount({ role: 'guest', session: { ...ENHANCED, voiceClone: true } });
+    expect(voiceNote().hidden).toBe(false);
+    expect(voiceNote().textContent).toBe(EN_TEXT.liveJoinNoticeVoiceClone);
+    downgrade('enhanced_unavailable');
+    expect(voiceNote().hidden).toBe(true);
+  });
+
+  it('nobody else sees that line: not the host, not a guest without the clone, not a Standard conversation', () => {
+    mount({ role: 'host', session: { ...ENHANCED, voiceClone: true } });
+    expect(voiceNote().hidden).toBe(true);
+    host.innerHTML = '';
+    mount({ role: 'guest', session: ENHANCED });
+    expect(voiceNote().hidden).toBe(true);
+    host.innerHTML = '';
+    mount({ role: 'guest', session: { ...SESSION, engine: 'standard', voiceClone: true } });
+    expect(voiceNote().hidden).toBe(true);
+  });
+
+  it('hands the voice flag to the engine so it is kept in the stored session', () => {
+    mount({ role: 'guest', session: { ...ENHANCED, voiceClone: true } });
+    expect(made[0].opts.voiceClone).toBe(true);
   });
 });

@@ -405,6 +405,15 @@ async fn every_scan_creates_a_new_session_and_the_qr_never_names_one() {
     .await
     .unwrap();
     assert_eq!(rows.len(), 2);
+    // A desk conversation is always a pair, whatever the multi-guest feature allows elsewhere: a
+    // scan seats ONE guest, there is no invitation to share, and the row says so.
+    let caps: Vec<i16> =
+        sqlx::query_scalar("SELECT max_guests FROM live_sessions WHERE desk_id = $1")
+            .bind(desk)
+            .fetch_all(&srv.pool)
+            .await
+            .unwrap();
+    assert_eq!(caps, vec![1, 1]);
     for (status, org_id, project_id, owner_user, invite, save) in rows {
         assert_eq!(
             (

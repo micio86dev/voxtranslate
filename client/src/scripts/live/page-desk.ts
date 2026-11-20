@@ -124,7 +124,7 @@ function showNobody(reason: EndReason): void {
 }
 
 function onState(ctx: LiveContext): void {
-  if (ctx.partner) {
+  if (ctx.partners.length) {
     hadPartner = true;
     stopCountdown();
     setHidden('ld-wait', true);

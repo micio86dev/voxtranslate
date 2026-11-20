@@ -6,8 +6,11 @@
 //   terminal: ended(reason) | failed(kind)
 //
 // `waiting_peer` is the one phase Talk does not have: the socket is up and the microphone
-// is open, but the other phone is not in the room yet (or has left). The UI shows the invite
-// there, and the conversation is NOT yet live.
+// is open, but nobody else is in the room yet (or everybody has left). The UI shows the
+// invite there, and the conversation is NOT yet live. A conversation holds up to three
+// partners at once: it is `live` while at least one is here, and goes back to
+// `waiting_peer` (NOT `ended`) when the last one leaves; whether that also ends the session
+// is the server's call, and arrives as its own `session_state` frame.
 //
 // Illegal transitions are ignored and reported (`accepted: false`), never thrown: a race
 // between a tap, a socket event and a server frame is normal, not exceptional.
@@ -44,6 +47,8 @@ export type EndReason =
   | 'abandoned'
   | 'billing_error'
   | 'expired'
+  // A guest left a conversation that carries on without them: over for me, not for the others.
+  | 'left_by_me'
   // A desk session nobody answered, closed because its QR was revoked / replaced meanwhile.
   | 'desk_revoked'
   | 'desk_regenerated';
@@ -58,7 +63,8 @@ export interface Partner {
 
 export interface LiveContext {
   phase: Phase;
-  partner: Partner | null;
+  /** Everybody else in the room, in the order they arrived (at most three). */
+  partners: Partner[];
   endReason: EndReason | null;
   failure: FailureKind | null;
 }
@@ -71,12 +77,14 @@ export type LiveEvent =
   | { type: 'SOCKET_CLOSED' }
   | { type: 'RECONNECT_SUCCEEDED' }
   | { type: 'RECONNECT_EXHAUSTED' }
-  | { type: 'ROOM_JOINED'; partner: Partner | null }
+  | { type: 'ROOM_JOINED'; partners: Partner[] }
   | { type: 'PEER_JOINED'; partner: Partner }
   | { type: 'PEER_LEFT'; peerId: string }
   | { type: 'PEER_MUTED'; peerId: string; muted: boolean }
   | { type: 'SESSION_ENDED'; reason: EndReason }
   | { type: 'STOP_REQUESTED' }
+  /** A guest hung up in a conversation that goes on without them. */
+  | { type: 'LEFT_REQUESTED' }
   | { type: 'FATAL'; kind: FailureKind };
 
 export interface TransitionResult {
@@ -94,7 +102,7 @@ const RESOURCE_PHASES: ReadonlySet<Phase> = new Set<Phase>([
 ]);
 
 export function initialContext(): LiveContext {
-  return { phase: 'idle', partner: null, endReason: null, failure: null };
+  return { phase: 'idle', partners: [], endReason: null, failure: null };
 }
 
 export function isTerminal(ctx: LiveContext): boolean {
@@ -112,6 +120,11 @@ export function wantsWakeLock(ctx: LiveContext): boolean {
   return ctx.phase === 'waiting_peer' || ctx.phase === 'live' || ctx.phase === 'reconnecting';
 }
 
+function dedupe(list: Partner[]): Partner[] {
+  const seen = new Set<string>();
+  return list.filter((p) => !seen.has(p.peerId) && !!seen.add(p.peerId));
+}
+
 export function transition(ctx: LiveContext, event: LiveEvent): TransitionResult {
   const ignore = (): TransitionResult => ({ context: ctx, accepted: false });
   const to = (phase: Phase, patch: Partial<LiveContext> = {}): TransitionResult => ({
@@ -125,7 +138,11 @@ export function transition(ctx: LiveContext, event: LiveEvent): TransitionResult
 
   if (isTerminal(ctx) || ctx.phase === 'idle') {
     if (event.type === 'START_REQUESTED') {
-      return to('requesting_mic', { partner: null, endReason: null, failure: null });
+      return to('requesting_mic', { partners: [], endReason: null, failure: null });
+    }
+    // The server says that hang-up was a LEAVE (the others carry on): same ending, better words.
+    if (ctx.phase === 'ended' && ctx.endReason === 'ended_by_me' && event.type === 'LEFT_REQUESTED') {
+      return to('ended', { endReason: 'left_by_me' });
     }
     // Stopping something that never started is still an ending, with a reason.
     if (ctx.phase === 'idle' && event.type === 'STOP_REQUESTED') {
@@ -137,11 +154,13 @@ export function transition(ctx: LiveContext, event: LiveEvent): TransitionResult
   // Escape hatches, accepted from every live phase.
   switch (event.type) {
     case 'FATAL':
-      return to('failed', { partner: null, failure: event.kind });
+      return to('failed', { partners: [], failure: event.kind });
     case 'STOP_REQUESTED':
-      return to('ended', { partner: null, endReason: 'ended_by_me' });
+      return to('ended', { partners: [], endReason: 'ended_by_me' });
+    case 'LEFT_REQUESTED':
+      return to('ended', { partners: [], endReason: 'left_by_me' });
     case 'SESSION_ENDED':
-      return to('ended', { partner: null, endReason: event.reason });
+      return to('ended', { partners: [], endReason: event.reason });
     default:
       break;
   }
@@ -160,16 +179,32 @@ export function transition(ctx: LiveContext, event: LiveEvent): TransitionResult
     case 'waiting_peer':
     case 'live': {
       switch (event.type) {
-        case 'ROOM_JOINED':
-          return event.partner ? to('live', { partner: event.partner }) : to('waiting_peer', { partner: null });
-        case 'PEER_JOINED':
-          return to('live', { partner: event.partner });
-        case 'PEER_LEFT':
-          if (ctx.partner?.peerId !== event.peerId) return ignore();
-          return to('waiting_peer', { partner: null });
-        case 'PEER_MUTED':
-          if (!ctx.partner || ctx.partner.peerId !== event.peerId) return ignore();
-          return patch({ partner: { ...ctx.partner, muted: event.muted } });
+        case 'ROOM_JOINED': {
+          // The room's own list is the truth (a reconnect re-sends it): replace ours, but keep
+          // the mute flags we already learned, which `room_joined` does not carry.
+          const known = new Map(ctx.partners.map((p) => [p.peerId, p]));
+          const partners = dedupe(event.partners).map((p) => ({ ...p, muted: known.get(p.peerId)?.muted ?? p.muted }));
+          return to(partners.length ? 'live' : 'waiting_peer', { partners });
+        }
+        case 'PEER_JOINED': {
+          const at = ctx.partners.findIndex((p) => p.peerId === event.partner.peerId);
+          const partners =
+            at < 0
+              ? [...ctx.partners, event.partner]
+              : ctx.partners.map((p, i) => (i === at ? { ...event.partner, muted: p.muted } : p));
+          return to('live', { partners });
+        }
+        case 'PEER_LEFT': {
+          if (!ctx.partners.some((p) => p.peerId === event.peerId)) return ignore();
+          const partners = ctx.partners.filter((p) => p.peerId !== event.peerId);
+          return to(partners.length ? 'live' : 'waiting_peer', { partners });
+        }
+        case 'PEER_MUTED': {
+          if (!ctx.partners.some((p) => p.peerId === event.peerId)) return ignore();
+          return patch({
+            partners: ctx.partners.map((p) => (p.peerId === event.peerId ? { ...p, muted: event.muted } : p)),
+          });
+        }
         case 'SOCKET_CLOSED':
           return to('reconnecting');
         default:
@@ -178,8 +213,8 @@ export function transition(ctx: LiveContext, event: LiveEvent): TransitionResult
     }
 
     case 'reconnecting':
-      if (event.type === 'RECONNECT_SUCCEEDED') return to(ctx.partner ? 'live' : 'waiting_peer');
-      if (event.type === 'RECONNECT_EXHAUSTED') return to('failed', { partner: null, failure: 'network' });
+      if (event.type === 'RECONNECT_SUCCEEDED') return to(ctx.partners.length ? 'live' : 'waiting_peer');
+      if (event.type === 'RECONNECT_EXHAUSTED') return to('failed', { partners: [], failure: 'network' });
       return ignore();
 
     // Handled above; listed so the switch stays exhaustive for the compiler.

@@ -712,3 +712,99 @@ async fn usage_is_for_admins_and_counts_only_the_orgs_own_metered_ticks() {
         StatusCode::NOT_FOUND
     );
 }
+
+// ---- several guests in one conversation (spec 0121, S1) --------------------------------
+
+async fn add_guest(srv: &Srv, s: &Seeded, name: &str, lang: &str, minutes_later: i32) -> Uuid {
+    sqlx::query_scalar(
+        "INSERT INTO live_participants (session_id, role, display_name, lang, joined_at)
+         VALUES ($1, 'guest', $2, $3, now() + make_interval(mins => $4)) RETURNING peer_id",
+    )
+    .bind(s.session)
+    .bind(name)
+    .bind(lang)
+    .bind(minutes_later)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap()
+}
+
+#[tokio::test]
+async fn a_conversation_with_several_guests_still_lists_and_opens_and_says_how_many_there_were() {
+    let srv = srv!();
+    let w = world(&srv).await;
+    let t0 = Utc::now() - Duration::minutes(10);
+    let s = seed(
+        &srv,
+        &w,
+        w.desk1,
+        w.project_a,
+        "ended",
+        "Lucia",
+        Some((w.member_a.1, "Anna")),
+        t0,
+    )
+    .await;
+    add_guest(&srv, &s, "Pablo", "es", 1).await;
+    let ann = add_guest(&srv, &s, "Ann", "en", 2).await;
+    says(
+        &srv,
+        &s,
+        ann,
+        "Ann",
+        "en",
+        "Where is the parking?",
+        json!({ "it": "Dov'è il parcheggio?", "es": "¿Dónde está el parking?" }),
+        t0,
+    )
+    .await;
+
+    let base = format!("/api/business/organizations/{}/live/sessions", w.org);
+    // The list used to ask for THE guest with a scalar subquery: two rows, a 500.
+    let (st, list) = srv.get(&base, &w.owner.0).await;
+    assert_eq!(st, StatusCode::OK, "{list}");
+    let row = list["sessions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["id"] == s.session.to_string())
+        .expect("the conversation is listed");
+    assert_eq!(
+        row["guest"],
+        json!({ "name": "Lucia", "lang": "es" }),
+        "the column shows the first guest to join"
+    );
+    assert_eq!(row["guest_count"], 3);
+    assert_eq!(row["staff_name"], "Anna");
+
+    // A member who sat in it reads it, with every seat and every speaker.
+    let (st, detail) = srv
+        .get(&format!("{base}/{}?lang=it", s.session), &w.member_a.0)
+        .await;
+    assert_eq!(st, StatusCode::OK, "{detail}");
+    assert_eq!(detail["session"]["guest_count"], 3);
+    let roles: Vec<&str> = detail["participants"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| p["role"].as_str().unwrap())
+        .collect();
+    assert_eq!(roles.iter().filter(|r| **r == "guest").count(), 3);
+    assert_eq!(roles.len(), 4);
+    assert_eq!(detail["utterances"][0]["speaker_name"], "Ann");
+    assert_eq!(
+        detail["utterances"][0]["translation"],
+        "Dov'è il parcheggio?"
+    );
+
+    // A conversation with one guest says one.
+    let single = seed(&srv, &w, w.desk1, w.project_a, "ended", "Solo", None, t0).await;
+    let (_, list) = srv.get(&base, &w.owner.0).await;
+    let row = list["sessions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["id"] == single.session.to_string())
+        .unwrap();
+    assert_eq!(row["guest_count"], 1);
+}
