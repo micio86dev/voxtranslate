@@ -72,8 +72,9 @@ const TRANSLATED_AUDIO_PREFIX: &str = r#"{"type":"translated_audio""#;
 fn is_voiced(frame: &[u8]) -> bool {
     let mut sum: u64 = 0;
     let mut n: u64 = 0;
-    for s in frame.chunks_exact(2) {
-        sum += u64::from(i16::from_le_bytes([s[0], s[1]]).unsigned_abs());
+    let (samples, _) = frame.as_chunks::<2>();
+    for s in samples {
+        sum += u64::from(i16::from_le_bytes(*s).unsigned_abs());
         n += 1;
     }
     n > 0 && sum / n >= u64::from(VOICED_MEAN_ABS)

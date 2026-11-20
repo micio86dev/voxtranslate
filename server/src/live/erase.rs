@@ -16,6 +16,9 @@
 //! an owner's account left the guest's name and words behind, because the foreign key points from
 //! `live_sessions` to `call_sessions` and not the other way (defect D4).
 
+// Handlers return `Result<Response, Response>`, like every other Live Connect module.
+#![allow(clippy::result_large_err)]
+
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
