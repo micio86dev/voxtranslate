@@ -3,7 +3,9 @@
 // cache-first for immutable hashed assets, and cross-origin requests (the
 // Railway API/WebSocket) are left untouched.
 
-const CACHE = 'voxtranslate-v3';
+// v4: pages under /lc/ (invite codes) and /live are no longer cached. Bumping the name makes
+// `activate` delete the v3 cache, which could hold an invite page stored under the offline-shell key.
+const CACHE = 'voxtranslate-v4';
 const SHELL = [
   '/',
   '/manifest.webmanifest',
@@ -22,6 +24,17 @@ const SHELL = [
 // 504 instead of an uncaught service-worker error.
 const OFFLINE = () => new Response('', { status: 504, statusText: 'Offline' });
 const orOffline = (res) => res || OFFLINE();
+
+// Live Connect pages carry credentials (the invite code is in the page: /lc/<code>, and
+// /lc/d/<token>) or are per-user (/live*): never write them to the Cache Storage, neither
+// under their own URL nor as the offline-shell fallback ('/'). Also never store a response that
+// is not OK or that the server marked `private` / `no-store`.
+const NEVER_CACHE_PATH = /^\/(lc(\/|$)|live)/;
+const cacheable = (url, res) =>
+  !NEVER_CACHE_PATH.test(url.pathname) &&
+  !!res &&
+  res.ok &&
+  !/(^|[\s,])(no-store|private)\b/i.test(res.headers.get('Cache-Control') || '');
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -55,8 +68,10 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       fetch(req)
         .then((res) => {
-          const copy = res.clone();
-          caches.open(CACHE).then((c) => c.put('/', copy));
+          if (cacheable(url, res)) {
+            const copy = res.clone();
+            caches.open(CACHE).then((c) => c.put('/', copy));
+          }
           return res;
         })
         .catch(() => caches.match('/').then(orOffline)),
@@ -72,8 +87,10 @@ self.addEventListener('fetch', (event) => {
           cached ||
           fetch(req)
             .then((res) => {
-              const copy = res.clone();
-              caches.open(CACHE).then((c) => c.put(req, copy));
+              if (cacheable(url, res)) {
+                const copy = res.clone();
+                caches.open(CACHE).then((c) => c.put(req, copy));
+              }
               return res;
             })
             .catch(() => OFFLINE()),

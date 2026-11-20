@@ -256,6 +256,16 @@ impl SafetyService {
             }
         }
 
+        // (3b) Live Connect: what was said in a conversation the user owned lives on
+        //      `call_sessions` rows, which nothing in the cascade below reaches (the foreign
+        //      key points from `live_sessions` to them, not back). Erase that content while
+        //      the `live_sessions` rows that name it still exist. After the storage step so a
+        //      storage failure still leaves the database untouched.
+        let conversations = crate::live::erase::erase_owned_by(&self.pool, user_id).await?;
+        // The name of an account that only STAFFED or hosted a conversation is erased too; the
+        // participant row stays (foreign key SET NULL) so the billing ticks survive.
+        crate::live::erase::scrub_user(&self.pool, user_id).await?;
+
         // (4) Only now drop the account. The cascade takes chat_files with it.
         sqlx::query("DELETE FROM users WHERE id = $1")
             .bind(user_id)
@@ -265,6 +275,7 @@ impl SafetyService {
         tracing::info!(
             %user_id,
             objects_deleted = object_paths.len(),
+            live_conversations_erased = conversations,
             "erased account and its storage objects"
         );
         Ok(())

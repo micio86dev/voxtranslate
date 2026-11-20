@@ -231,41 +231,7 @@ impl BillingService {
         amount: Decimal,
     ) -> Result<Decimal, BillingError> {
         let mut tx = self.pool.begin().await?;
-        let balance: Decimal =
-            sqlx::query_scalar("SELECT balance FROM users WHERE id = $1 FOR UPDATE")
-                .bind(user_id)
-                .fetch_one(&mut *tx)
-                .await?;
-        if balance < amount {
-            return Err(BillingError::InsufficientFunds);
-        }
-        let new_balance = (balance - amount).round_dp(6);
-        sqlx::query("UPDATE users SET balance = $2, updated_at = now() WHERE id = $1")
-            .bind(user_id)
-            .bind(new_balance)
-            .execute(&mut *tx)
-            .await?;
-        sqlx::query(
-            "INSERT INTO credit_transactions (user_id, amount, kind, balance_after, description)
-             VALUES ($1, $2, 'usage', $3, 'Speaking time')",
-        )
-        .bind(user_id)
-        .bind(-amount)
-        .bind(new_balance)
-        .execute(&mut *tx)
-        .await?;
-        if let Some(sid) = session_id {
-            sqlx::query(
-                "UPDATE usage_sessions
-                 SET speaking_seconds = speaking_seconds + $2, cost = cost + $3
-                 WHERE id = $1",
-            )
-            .bind(sid)
-            .bind(seconds)
-            .bind(amount)
-            .execute(&mut *tx)
-            .await?;
-        }
+        let new_balance = deduct_usage_tx(&mut tx, user_id, session_id, seconds, amount).await?;
         tx.commit().await?;
         Ok(new_balance)
     }
@@ -451,6 +417,55 @@ impl From<UsageRow> for UsageRecord {
             ended_at: r.ended_at,
         }
     }
+}
+
+/// The body of [`BillingService::deduct_usage`] inside a caller-provided transaction, so a
+/// debit can commit or roll back together with the caller's other writes (Live Connect writes
+/// its idempotency row in the same transaction). Same shape as always: row lock → balance check →
+/// update → ledger row → session accumulator. The caller owns commit and rollback; on
+/// [`BillingError::InsufficientFunds`] nothing has been written.
+pub async fn deduct_usage_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    user_id: Uuid,
+    session_id: Option<Uuid>,
+    seconds: i32,
+    amount: Decimal,
+) -> Result<Decimal, BillingError> {
+    let balance: Decimal = sqlx::query_scalar("SELECT balance FROM users WHERE id = $1 FOR UPDATE")
+        .bind(user_id)
+        .fetch_one(&mut **tx)
+        .await?;
+    if balance < amount {
+        return Err(BillingError::InsufficientFunds);
+    }
+    let new_balance = (balance - amount).round_dp(6);
+    sqlx::query("UPDATE users SET balance = $2, updated_at = now() WHERE id = $1")
+        .bind(user_id)
+        .bind(new_balance)
+        .execute(&mut **tx)
+        .await?;
+    sqlx::query(
+        "INSERT INTO credit_transactions (user_id, amount, kind, balance_after, description)
+         VALUES ($1, $2, 'usage', $3, 'Speaking time')",
+    )
+    .bind(user_id)
+    .bind(-amount)
+    .bind(new_balance)
+    .execute(&mut **tx)
+    .await?;
+    if let Some(sid) = session_id {
+        sqlx::query(
+            "UPDATE usage_sessions
+             SET speaking_seconds = speaking_seconds + $2, cost = cost + $3
+             WHERE id = $1",
+        )
+        .bind(sid)
+        .bind(seconds)
+        .bind(amount)
+        .execute(&mut **tx)
+        .await?;
+    }
+    Ok(new_balance)
 }
 
 /// Convert a USD `f64` (config value, package price) to a 6-dp [`Decimal`].

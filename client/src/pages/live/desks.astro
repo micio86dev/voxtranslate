@@ -1,0 +1,74 @@
+---
+// Live Connect, staff side of a business desk (spec 0121 B2B): a member of an organisation sees
+// the desks they serve, who is waiting at each, and answers a customer. The customer scanned a
+// permanent QR (`/lc/d/<token>`); this is where a person on the business side picks up.
+//
+// A standalone route like `/live`: no call machinery, so it never downloads app.ts. It needs
+// the account (the organisation pays for the conversation, so there is no credit line here),
+// is never indexed, and ships the `no-referrer` policy (vercel.json + a meta set by the script).
+import Base from '../../layouts/Base.astro';
+import en from '../../scripts/i18n/en.json';
+const T = (k: string): string => (en as Record<string, string>)[k] ?? '';
+---
+
+<Base
+  title="Desks — VoxTranslate"
+  description="Answer the customers waiting at your service desks, translated live."
+  noindex={true}
+>
+  <main class="lc-page" id="ls-root">
+    <header class="lc-top">
+      <a class="lc-back" href="/" data-i18n="back">{T('back')}</a>
+    </header>
+
+    <div class="lc-hero" id="ls-hero">
+      <h1 class="lc-title" data-i18n="liveStaffTitle">{T('liveStaffTitle')}</h1>
+      <p class="lc-sub" data-i18n="liveStaffSub">{T('liveStaffSub')}</p>
+    </div>
+
+    <!-- Billing disabled on this deployment: the same unavailable state as everywhere else. -->
+    <section class="card lc-stack" id="ls-unavailable" hidden>
+      <p class="lc-note" data-i18n="liveUnavailable">{T('liveUnavailable')}</p>
+      <a class="btn-ghost lc-action" href="/" data-i18n="liveBackHome">{T('liveBackHome')}</a>
+    </section>
+
+    <!-- Answering is done as a signed-in member of the organisation. -->
+    <section class="card lc-stack" id="ls-signin" hidden>
+      <p class="lc-note" id="ls-signin-text" data-i18n="liveStaffSignIn">{T('liveStaffSignIn')}</p>
+      <a class="btn-primary lc-action" href="/" data-i18n="signIn">{T('signIn')}</a>
+    </section>
+
+    <!-- 1. THE DESKS AND WHO IS WAITING. Cards are built and kept in step by the page script. -->
+    <section class="lc-stack" id="ls-list" hidden>
+      <!-- The cue for a new customer: visible text in a polite live region, never a sound. -->
+      <p class="lc-banner lc-alert" id="ls-banner" role="status" aria-live="polite" hidden></p>
+      <p class="lc-error" id="ls-error" role="alert" hidden></p>
+      <p class="lc-note" id="ls-empty" data-i18n="liveStaffNoDesks" hidden>{T('liveStaffNoDesks')}</p>
+      <div class="lc-stack" id="ls-desks"></div>
+
+      <!-- Answering: choose the language you will speak, then take the customer. -->
+      <div class="card lc-card-setup" id="ls-answer" role="group" aria-labelledby="ls-answer-title" hidden>
+        <h2 class="lc-invite-title" id="ls-answer-title" tabindex="-1"></h2>
+        <div class="field">
+          <span class="field-label" data-i18n="liveYourLang">{T('liveYourLang')}</span>
+          <div id="ls-lang"></div>
+        </div>
+        <button id="ls-answer-go" class="btn-primary lc-full" type="button" data-i18n="liveStaffAnswer">{T('liveStaffAnswer')}</button>
+        <button id="ls-answer-cancel" class="btn-ghost lc-full" type="button" data-i18n="cancel">{T('cancel')}</button>
+        <p class="lc-error" id="ls-answer-status" role="alert" hidden></p>
+      </div>
+    </section>
+
+    <!-- 2. THE CONVERSATION, as the staff seat. -->
+    <section class="lc-stack" id="ls-session" hidden>
+      <p class="lc-note lc-customer" id="ls-customer" hidden></p>
+      <div id="ls-room"></div>
+    </section>
+  </main>
+
+  <script>
+    import { mountLiveStaff } from '../../scripts/live/page-staff';
+
+    void mountLiveStaff();
+  </script>
+</Base>

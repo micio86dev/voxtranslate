@@ -48,7 +48,13 @@ Two related fixes on the web-app phone dialer (home page):
       `project_required` (`phone-dialer.ts` helper + tests, `app.ts`).
 - [x] 4. e2e assertion for the card trigger (runs in CI); `npx vitest run` 2080/2080,
       `npx tsc --noEmit` clean, `npm run check` 0 errors (3 pre-existing hints).
-- [ ] 5. Work-unit commits, RDD assess, PR → `develop`, CI green (e2e included), merge.
+- [x] 5. Commit `275250a2`; RDD assess medium / 246 lines / `under_budget` (no review
+      due). PR #424 → `develop` CI green (e2e included), merged `efa1b529`. `develop` CI:
+      e2e failed once on the known `screenshare.spec.ts:73` flake, green on rerun;
+      deploy-staging success. Release `release/1.61.0` (with #421), PR #425 CI green,
+      merged `65fdd77b`, tagged `v1.61.0`, back-merged `650bd474`, branches pruned.
+      Production: Vercel deployment on `65fdd77b` success, `app.voxtranslate.app` serves
+      `#phone-cta-open`; Railway `deploy-server` tracked in the `main` CI run.
 
 ## Verification evidence
 - Writer (one delegated writer, 5 files): RED `phoneDialRequest is not a function`

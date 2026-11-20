@@ -1791,6 +1791,11 @@ fn clean_room(room: &str) -> Result<String, Response> {
     if r.is_empty() || r.len() > 64 {
         return Err((StatusCode::BAD_REQUEST, "invalid room").into_response());
     }
+    // A Live Connect conversation's room name is visible to every member of its org, and nobody
+    // outside the conversation may attach anything to it: same refusal as `/ws` and the binding.
+    if crate::live::is_live_room(r) {
+        return Err((StatusCode::FORBIDDEN, "reserved room").into_response());
+    }
     Ok(r.to_string())
 }
 
@@ -3628,6 +3633,10 @@ pub async fn invite_send(
         Duration::from_secs(60),
     ) {
         return (StatusCode::TOO_MANY_REQUESTS, "too many requests").into_response();
+    }
+    // A live conversation's room is not shared by link: its door is the invitation the owner made.
+    if crate::live::is_live_room(room.trim()) {
+        return (StatusCode::FORBIDDEN, "reserved room").into_response();
     }
     let Some(resend) = state.resend.as_ref() else {
         return (StatusCode::SERVICE_UNAVAILABLE, "email not configured").into_response();

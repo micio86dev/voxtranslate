@@ -101,6 +101,9 @@ test('talk: the home CTA points at /talk, and /talk is reachable directly', asyn
   const hero = page.locator('#hero-talk');
   await expect(hero).toHaveAttribute('href', '/talk');
   await expect(page.locator('.acct-item[href="/talk"]')).toHaveCount(1);
+  // Live Connect (spec 0121) added its own entry next to it; neither replaced the other.
+  await expect(page.locator('#hero-live')).toHaveAttribute('href', '/live');
+  await expect(page.locator('.acct-item[href="/live"]')).toHaveCount(1);
 
   // And the route stands on its own, which is how a deep link or a shared URL arrives.
   await page.goto('/talk', { waitUntil: 'networkidle' });

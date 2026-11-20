@@ -33,6 +33,21 @@ ignore = [
     # 0.38.4 / 0.39.4 are typst-locked and only parse our own templates.
     "RUSTSEC-2026-0195",
 
+    # libsqlite3-sys 0.30.1 — NOT COMPILED. It is in Cargo.lock only because sqlx's
+    # lockfile resolution records sqlx-sqlite's optional dependencies; we enable the
+    # `postgres` driver only. Verified: `cargo tree --target all -e all --prefix none`
+    # prints no `libsqlite3-sys`, and `cargo tree -i libsqlite3-sys` has nothing to print.
+    # Same basis as the rkyv entry below. Drop when sqlx stops recording it.
+    "RUSTSEC-2026-0459",
+
+    # crypto-bigint 0.5.5 — timing variability in operations meant to be constant-time.
+    # Fixed in >= 0.7.6, which we cannot reach: it is pinned by elliptic-curve 0.13 (p256,
+    # k256, ecdsa) under web-push -> jwt-simple. It is compiled, but its only use is the
+    # server signing its OWN Web Push (VAPID, ES256) token when it sends a notification: no
+    # request lets a remote party time that operation against a key it can choose inputs for.
+    # Revisit when web-push / jwt-simple move to elliptic-curve 0.14.
+    "RUSTSEC-2026-0387",
+
     # rkyv 0.7.46 — out-of-bounds read validating archives containing Rc/Arc.
     # Fixed in rkyv >= 0.8.17, which we cannot reach: rust_decimal 1.42.1 (the latest
     # 1.x, and a DIRECT dependency) requires `rkyv = "^0.7"`, so `cargo update -p rkyv

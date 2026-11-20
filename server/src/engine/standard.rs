@@ -161,6 +161,10 @@ impl TranslationEngine for StandardEngine {
         &self.meta
     }
 
+    fn free_capacity(&self) -> Option<usize> {
+        Some(self.sessions.available_permits())
+    }
+
     async fn start_session(&self, ctx: SpeakerCtx, deps: SessionDeps) -> SessionOutcome {
         // INITIAL target languages = distinct OTHER languages in the room, excluding the
         // speaker's own (Qwen auto-detects the source; translating into it is a no-op).

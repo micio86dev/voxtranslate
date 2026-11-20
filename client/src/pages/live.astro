@@ -1,0 +1,99 @@
+---
+// Live Connect, host side (spec 0121): two people, two phones, each speaking their own
+// language. The host is a signed-in account that pays for the conversation and invites
+// somebody who has no account (`/lc/<code>`).
+//
+// A standalone route, like /talk and /world: it needs none of the call machinery, so it
+// never downloads app.ts. It never indexes (the Base `noindex` prop) and ships the
+// `no-referrer` policy (vercel.json + a meta set by the page script): the invitation link
+// is a bearer secret and must not leak through a Referer header.
+import Base from '../layouts/Base.astro';
+import en from '../scripts/i18n/en.json';
+// Server-render the English default into every data-i18n slot so the page paints real text
+// at first paint; applyI18n() localizes on the client when the active locale differs.
+const T = (k: string): string => (en as Record<string, string>)[k] ?? '';
+---
+
+<Base
+  title="Live Connect — VoxTranslate"
+  description="Invite someone to a live translated conversation. You each speak your own language on your own phone."
+  noindex={true}
+>
+  <main class="lc-page" id="lh-root">
+    <header class="lc-top">
+      <a class="lc-back" href="/" data-i18n="back">{T('back')}</a>
+    </header>
+
+    <div class="lc-hero" id="lh-hero">
+      <h1 class="lc-title" data-i18n="liveConnect">{T('liveConnect')}</h1>
+      <p class="lc-sub" data-i18n="liveConnectDesc">{T('liveConnectDesc')}</p>
+    </div>
+
+    <!-- Billing disabled on this deployment: the same unavailable state as everywhere else. -->
+    <section class="card lc-stack" id="lh-unavailable" hidden>
+      <p class="lc-note" data-i18n="liveUnavailable">{T('liveUnavailable')}</p>
+      <a class="btn-ghost lc-action" href="/" data-i18n="liveBackHome">{T('liveBackHome')}</a>
+    </section>
+
+    <!-- Creating a conversation spends the account's credit, so it needs an account. -->
+    <section class="card lc-stack" id="lh-signin" hidden>
+      <p class="lc-note" data-i18n="liveSignInRequired">{T('liveSignInRequired')}</p>
+      <a class="btn-primary lc-action" href="/" data-i18n="signIn">{T('signIn')}</a>
+    </section>
+
+    <!-- 1. SETUP. One choice (my language), one switch (transcript), one button. -->
+    <section class="lc-stack" id="lh-setup" hidden>
+      <div class="card lc-card-setup">
+        <div class="field">
+          <span class="field-label" data-i18n="liveYourLang">{T('liveYourLang')}</span>
+          <div id="lh-lang"></div>
+        </div>
+
+        <label class="lc-check">
+          <input type="checkbox" id="lh-transcript" />
+          <span>
+            <span data-i18n="liveSaveTranscript">{T('liveSaveTranscript')}</span>
+            <small class="lc-hint" data-i18n="liveSaveTranscriptHint">{T('liveSaveTranscriptHint')}</small>
+          </span>
+        </label>
+
+        <button id="lh-create" class="btn-primary lc-full" type="button" data-i18n="liveCreate">
+          {T('liveCreate')}
+        </button>
+        <p class="lc-note" data-i18n="liveCostNote">{T('liveCostNote')}</p>
+
+        <p id="lh-status" class="lc-error" role="alert" hidden></p>
+        <div class="lc-error-actions" id="lh-actions" hidden>
+          <a id="lh-buy" class="btn-primary lc-action" href="/?buy=1" hidden data-i18n="buyCredits">{T('buyCredits')}</a>
+          <a id="lh-signin-link" class="btn-primary lc-action" href="/" hidden data-i18n="signIn">{T('signIn')}</a>
+          <a id="lh-home" class="btn-ghost lc-action" href="/" hidden data-i18n="liveBackHome">{T('liveBackHome')}</a>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2 + 3. INVITE while nobody has joined, then the conversation itself. -->
+    <section class="lc-stack" id="lh-session" hidden>
+      <div class="card lc-invite" id="lh-invite" hidden>
+        <h2 class="lc-title lc-invite-title" data-i18n="liveInviteTitle">{T('liveInviteTitle')}</h2>
+        <p class="lc-note" data-i18n="liveInviteHint">{T('liveInviteHint')}</p>
+        <img id="lh-qr" class="lc-qr" alt={T('liveQrAlt')} width="280" height="280" hidden />
+        <label class="field-label lc-link-label" for="lh-link" data-i18n="liveInviteLink">{T('liveInviteLink')}</label>
+        <div class="lc-link-row">
+          <input id="lh-link" class="lc-link" type="text" readonly dir="ltr" />
+        </div>
+        <div class="lc-link-actions">
+          <button id="lh-copy" class="btn-primary" type="button" data-i18n="copy">{T('copy')}</button>
+          <button id="lh-share" class="btn-ghost" type="button" data-i18n="liveShare" hidden>{T('liveShare')}</button>
+        </div>
+        <p class="lc-note" data-i18n="liveInviteExpires">{T('liveInviteExpires')}</p>
+      </div>
+      <div id="lh-room"></div>
+    </section>
+  </main>
+
+  <script>
+    import { mountLiveHost } from '../scripts/live/page-host';
+
+    void mountLiveHost();
+  </script>
+</Base>

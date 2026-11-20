@@ -441,6 +441,14 @@ impl CreditAccumulator {
         credits.to_i32().unwrap_or(i32::MAX)
     }
 
+    /// Return `credits` that [`take`](Self::take) handed out but were NOT charged (a duplicate
+    /// tick, a failed write), so they are carried to the next tick instead of being lost.
+    pub fn put_back(&mut self, credits: i32) {
+        if credits > 0 {
+            self.owed_usd += Decimal::from(credits) * Self::usd_per_credit();
+        }
+    }
+
     /// Cost carried over, in USD — under one credit by construction. The tail a
     /// session ends on: too small to charge, deliberately given away rather than
     /// rounded up.
@@ -455,6 +463,23 @@ mod tests {
 
     fn usd(cents: i64) -> Decimal {
         Decimal::new(cents, 4) // e.g. usd(40) = $0.0040
+    }
+
+    #[test]
+    fn credits_that_were_not_charged_are_put_back_not_lost() {
+        let mut acc = CreditAccumulator::default();
+        let due = acc.take(Decimal::new(25, 3)); // $0.025 → 2 credits, $0.005 carried
+        assert_eq!(due, 2);
+        acc.put_back(due); // the charge did not happen
+        assert_eq!(
+            acc.take(Decimal::ZERO),
+            2,
+            "the same two credits are due again"
+        );
+        assert_eq!(acc.carried_usd(), Decimal::new(5, 3));
+        acc.put_back(0);
+        acc.put_back(-3); // nonsense is ignored
+        assert_eq!(acc.carried_usd(), Decimal::new(5, 3));
     }
 
     /// Regression: the assistants used to round a whole minute UP to an integer

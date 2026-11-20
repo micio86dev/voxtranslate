@@ -96,6 +96,25 @@ time a call misbehaves, you can **see why** instead of guessing. Tracked in spec
 
 ---
 
+## 3. Live Connect (two phones, two languages)
+
+Live Connect (spec [0121](../specs/0121-live-connect/spec.md)) has its own suites, because its
+interesting behaviour needs a real server, a real database and two browsers:
+
+- **Server**: `cargo test --test live_ws --test live_desks --test live_billing ...` against the
+  repo's pgvector Postgres (`DATABASE_URL=postgres://vox:vox_local_dev@127.0.0.1:55432/voxtranslate_voip_test`).
+  They skip silently without it, so a run of a few milliseconds ran nothing.
+- **Browser e2e against a real local server** (opt-in, not part of `npm run test:e2e` or CI):
+  `cd client && npm run test:e2e:live`. It starts the server, a mock of the translation provider
+  and the client, and drives two browser contexts through the real flows.
+- **Load**: `loadtest/live-connect.js` (see `loadtest/README.md`).
+- **Real devices**: not automated and **not yet run**: [`live-connect-device-matrix.md`](live-connect-device-matrix.md).
+
+The full map of what each suite pins, and what is simulated versus verified, is in
+[`live-connect.md`](live-connect.md), "Testing strategy".
+
+---
+
 ## TL;DR
 - **Load test** = fake hundreds of users to check the *server's* capacity (signaling
   + HTTP only; media + external APIs are out of scope). Run with k6 against a local
